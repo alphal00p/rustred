@@ -200,9 +200,13 @@ mod own {
         let mut m = v.as_object()?.clone();
         let ty = m.get("type").and_then(Value::as_str).map(str::to_string);
         let fam = ty.as_deref() == Some("header")
-            && m.get("family_blake3").and_then(Value::as_str).is_some_and(|d| {
-                d.len() == 64 && d.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-            });
+            && m.get("family_blake3")
+                .and_then(Value::as_str)
+                .is_some_and(|d| {
+                    d.len() == 64
+                        && d.bytes()
+                            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                });
         m.retain(|k, _| !volatile(ty.as_deref(), k, fam));
         let mut out = Vec::new();
         write(&Value::Object(m), &mut out);
@@ -420,6 +424,7 @@ fn error_class(c: ErrorClass) -> Value {
 }
 
 /// The `job` object of OUTCOME for `spec`, built field by field (the fields every exit path shares).
+#[allow(clippy::too_many_arguments)]
 fn base_job(
     spec: &JobSpec,
     digest: &str,
@@ -455,7 +460,8 @@ fn base_job(
 
 /// The OUTCOME file bytes (pretty JSON + "\n") with the legacy keys.
 fn outcome_bytes(job: serde_json::Map<String, Value>, code: ExitCode, rules: u64) -> Vec<u8> {
-    let o = json!({"complete": code == ExitCode::Complete, "rules": rules, "job": Value::Object(job)});
+    let o =
+        json!({"complete": code == ExitCode::Complete, "rules": rules, "job": Value::Object(job)});
     let mut v = serde_json::to_vec_pretty(&o).unwrap();
     v.push(b'\n');
     v
@@ -631,7 +637,10 @@ impl Ctx {
         j.insert("inputs".into(), Value::from(ins));
         if let Some(s) = st {
             j.insert("counters".into(), serde_json::to_value(s.counters).unwrap());
-            j.insert("per_case".into(), serde_json::to_value(&s.per_case).unwrap());
+            j.insert(
+                "per_case".into(),
+                serde_json::to_value(&s.per_case).unwrap(),
+            );
             if let Some(b) = j.get_mut("budgets").and_then(Value::as_object_mut) {
                 b.insert("hit".into(), serde_json::to_value(&s.hit).unwrap());
             }
@@ -1354,7 +1363,6 @@ impl Main {
     }
 }
 
-
 fn sigkill_self() -> ! {
     // SAFETY: signalling ourselves.
     unsafe {
@@ -1607,8 +1615,10 @@ fn run_job(spec_path: &Path) -> ! {
             )
             .unwrap_or_else(|e| refuse_input(format!("resume table prefix: {e}")));
             let q = match &v.state.queue {
-                Some(q) => own::Writer::copy_prefix(&v.prev.queue(), &figures_of(q), &layout.queue())
-                    .unwrap_or_else(|e| refuse_input(format!("resume queue prefix: {e}"))),
+                Some(q) => {
+                    own::Writer::copy_prefix(&v.prev.queue(), &figures_of(q), &layout.queue())
+                        .unwrap_or_else(|e| refuse_input(format!("resume queue prefix: {e}")))
+                }
                 None => own::Writer::create(&layout.queue())
                     .unwrap_or_else(|e| refuse_input(format!("queue: {e}"))),
             };

@@ -15,7 +15,11 @@ fn ev(wait: WaitStatus, o: Option<JobOutcome>, sealed: bool) -> Evidence {
     let verified = match (&o, sealed) {
         (Some(j), true) => Some(VerifiedOutputs {
             rules: j.counters.rules_committed,
-            elided_loci: j.outputs.table.as_ref().map_or(0, |t| t.witness_loci_elided),
+            elided_loci: j
+                .outputs
+                .table
+                .as_ref()
+                .map_or(0, |t| t.witness_loci_elided),
             streams: vec![],
         }),
         (None, true) => Some(VerifiedOutputs {
@@ -208,7 +212,12 @@ fn row_05_open_regions_obligations_rule_found() {
         ));
         assert_eq!(
             (c.row, c.kind, c.accept, c.action),
-            (27, OutcomeKind::NoRule, Accept::Nothing, Action::QueueOpenList)
+            (
+                27,
+                OutcomeKind::NoRule,
+                Accept::Nothing,
+                Action::QueueOpenList
+            )
         );
     }
 }
@@ -540,7 +549,12 @@ fn row_22_elided_loci_when_forbidden() {
     let c = x(e);
     assert_eq!(
         (c.row, c.kind, c.accept, c.action),
-        (25, OutcomeKind::Crashed, Accept::Nothing, Action::RerunWithoutElision)
+        (
+            25,
+            OutcomeKind::Crashed,
+            Accept::Nothing,
+            Action::RerunWithoutElision
+        )
     );
 }
 

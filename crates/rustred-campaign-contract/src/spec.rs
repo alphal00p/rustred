@@ -224,7 +224,16 @@ impl ArgShape {
                         b.is_ascii_alphanumeric()
                             || matches!(
                                 b,
-                                b'_' | b'.' | b':' | b';' | b',' | b'+' | b'=' | b'*' | b'(' | b')' | b'-'
+                                b'_' | b'.'
+                                    | b':'
+                                    | b';'
+                                    | b','
+                                    | b'+'
+                                    | b'='
+                                    | b'*'
+                                    | b'('
+                                    | b')'
+                                    | b'-'
                             )
                     })
             }

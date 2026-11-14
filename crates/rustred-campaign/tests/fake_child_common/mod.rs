@@ -3,6 +3,9 @@
 //! supervisor does, contract 3.4.6), in a temp dir under the system temp dir, classify its files with the contract's
 //! decision table, and make sure no process is left behind.
 
+#[allow(dead_code)]
+pub mod drill;
+
 use rustred_campaign_contract::classify::{
     Classification, Evidence, KillReason, WaitStatus, assess, classify, resume_ref_for,
 };
@@ -324,7 +327,14 @@ impl Running {
     }
 
     pub fn evidence(&self, wait: WaitStatus, kill: KillReason) -> Evidence {
-        assess(&self.layout, &self.spec, &self.spec_blake3(), wait, kill, false)
+        assess(
+            &self.layout,
+            &self.spec,
+            &self.spec_blake3(),
+            wait,
+            kill,
+            false,
+        )
     }
 
     pub fn classify(&self, wait: WaitStatus, kill: KillReason) -> Classification {

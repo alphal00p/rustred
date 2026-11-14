@@ -65,8 +65,18 @@ fn record_canonical_form_on_shared_vectors() {
     for x in v["vectors"].as_array().unwrap() {
         let input = x["input"].as_str().unwrap();
         let got = String::from_utf8(canonical_line(input.as_bytes()).unwrap()).unwrap();
-        assert_eq!(got, x["record_rule"].as_str().unwrap(), "vector {}", x["name"]);
-        assert_eq!(got, x["document_rule"].as_str().unwrap(), "vector {}", x["name"]);
+        assert_eq!(
+            got,
+            x["record_rule"].as_str().unwrap(),
+            "vector {}",
+            x["name"]
+        );
+        assert_eq!(
+            got,
+            x["document_rule"].as_str().unwrap(),
+            "vector {}",
+            x["name"]
+        );
         assert!(x["agree"].as_bool().unwrap(), "vector {}", x["name"]);
         n += 1;
     }

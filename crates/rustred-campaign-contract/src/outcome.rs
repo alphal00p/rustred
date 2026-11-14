@@ -480,12 +480,20 @@ impl JobOutcome {
         if let Some(t) = &self.outputs.table {
             let rel = crate::layout::RunLayout::out_rel(crate::layout::TABLE);
             if t.path != rel {
-                return Err(format!("outputs.table.path {:?} is not the layout path {rel:?}", t.path));
+                return Err(format!(
+                    "outputs.table.path {:?} is not the layout path {rel:?}",
+                    t.path
+                ));
             }
             if t.sealed {
-                let (Some(_), Some(d), Some(e), Some(_), Some(_), Some(c)) =
-                    (t.bytes, &t.blake3, t.end, t.records, t.rules, &t.canonical_blake3)
-                else {
+                let (Some(_), Some(d), Some(e), Some(_), Some(_), Some(c)) = (
+                    t.bytes,
+                    &t.blake3,
+                    t.end,
+                    t.records,
+                    t.rules,
+                    &t.canonical_blake3,
+                ) else {
                     return Err(
                         "a sealed table needs bytes, blake3, end, records, rules and canonical_blake3".into(),
                     );
@@ -506,20 +514,31 @@ impl JobOutcome {
         if let Some(c) = &self.outputs.cert {
             let rel = crate::layout::RunLayout::out_rel(crate::layout::CERT);
             if c.path != rel {
-                return Err(format!("outputs.cert.path {:?} is not the layout path {rel:?}", c.path));
+                return Err(format!(
+                    "outputs.cert.path {:?} is not the layout path {rel:?}",
+                    c.path
+                ));
             }
         }
         if let Some(r) = &self.outputs.resume
             && r.path != crate::layout::RESUME
         {
-            return Err(format!("outputs.resume.path {:?} is not {:?}", r.path, crate::layout::RESUME));
+            return Err(format!(
+                "outputs.resume.path {:?} is not {:?}",
+                r.path,
+                crate::layout::RESUME
+            ));
         }
         for x in &self.outputs.extra {
-            let ok = x.path.strip_prefix("out/").is_some_and(|n| {
-                !n.is_empty() && !n.contains('/') && n != "." && n != ".."
-            });
+            let ok = x
+                .path
+                .strip_prefix("out/")
+                .is_some_and(|n| !n.is_empty() && !n.contains('/') && n != "." && n != "..");
             if !ok {
-                return Err(format!("outputs.extra path {:?} is not a file of out/", x.path));
+                return Err(format!(
+                    "outputs.extra path {:?} is not a file of out/",
+                    x.path
+                ));
             }
         }
         let success = matches!(
@@ -531,15 +550,24 @@ impl JobOutcome {
                 | ExitCode::BudgetWork
         );
         if success && self.error.is_some() {
-            return Err(format!("exit code {} with a non-null error", self.exit_code));
+            return Err(format!(
+                "exit code {} with a non-null error",
+                self.exit_code
+            ));
         }
         if !self.stop.graceful
             && !matches!(
                 self.exit_code,
-                ExitCode::BudgetWall | ExitCode::BudgetMemory | ExitCode::Interrupted | ExitCode::Internal
+                ExitCode::BudgetWall
+                    | ExitCode::BudgetMemory
+                    | ExitCode::Interrupted
+                    | ExitCode::Internal
             )
         {
-            return Err(format!("stop.graceful false with exit code {}", self.exit_code));
+            return Err(format!(
+                "stop.graceful false with exit code {}",
+                self.exit_code
+            ));
         }
         if !is_blake3_hex(&self.spec_blake3) {
             return Err("spec_blake3 is not a BLAKE3 hex digest".into());

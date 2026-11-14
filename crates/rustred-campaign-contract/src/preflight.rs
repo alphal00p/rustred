@@ -116,7 +116,9 @@ fn verify_run_dir(layout: &RunLayout, spec_digest: &str) -> Result<(), String> {
         return Err("RUN/job.json is not the spec file that was read".into());
     }
     if std::fs::symlink_metadata(layout.outcome()).is_ok() {
-        return Err("OUTCOME.json already exists (a finished job is final; nothing written)".into());
+        return Err(
+            "OUTCOME.json already exists (a finished job is final; nothing written)".into(),
+        );
     }
     for f in [layout::EVENTS, layout::RESUME, layout::RESERVE] {
         if std::fs::symlink_metadata(root.join(f)).is_ok() {
@@ -124,7 +126,12 @@ fn verify_run_dir(layout: &RunLayout, spec_digest: &str) -> Result<(), String> {
         }
     }
     // no symlink anywhere a child might write or read (F7)
-    for dir in [root.clone(), layout.out_dir(), layout.tmp_dir(), layout.in_dir()] {
+    for dir in [
+        root.clone(),
+        layout.out_dir(),
+        layout.tmp_dir(),
+        layout.in_dir(),
+    ] {
         let rd = match std::fs::read_dir(&dir) {
             Ok(rd) => rd,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound && dir != *root => continue,
@@ -156,10 +163,7 @@ fn verify_run_dir(layout: &RunLayout, spec_digest: &str) -> Result<(), String> {
 
 /// Verify a resume source completely (3.8.2; audit A C1, M7, m7; audit B F1, F2). `Err((code, message))`: 41, or 42
 /// when the previous attempt ran another program.
-pub fn verify_resume(
-    spec: &JobSpec,
-    r: &ResumeRef,
-) -> Result<VerifiedResume, (ExitCode, String)> {
+pub fn verify_resume(spec: &JobSpec, r: &ResumeRef) -> Result<VerifiedResume, (ExitCode, String)> {
     let e41 = |m: String| (ExitCode::Input, m);
     r.validate().map_err(e41)?;
     let prev_dir = r.prev_run();
@@ -173,7 +177,9 @@ pub fn verify_resume(
     }
     let state: ResumeState =
         serde_json::from_slice(&bytes).map_err(|e| e41(format!("RESUME.json: {e}")))?;
-    state.check().map_err(|e| e41(format!("RESUME.json: {e}")))?;
+    state
+        .check()
+        .map_err(|e| e41(format!("RESUME.json: {e}")))?;
     if state.job_id != spec.job_id || state.attempt >= spec.attempt {
         return Err(e41(format!(
             "RESUME.json is of job {:?} attempt {}, not an earlier attempt of job {:?}",

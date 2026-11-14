@@ -20,8 +20,8 @@ use crate::layout::RunLayout;
 use crate::outcome::{JobOutcome, Outcome};
 use crate::resume::{ResumeRef, ResumeState};
 use crate::seal::{
-    CERT_END_TYPES, SealVerdict, TABLE_END_TYPES, UnsealReason, VerifiedStream, compare_figures, open_in_run,
-    verify_prefix, verify_stream, verify_table,
+    CERT_END_TYPES, SealVerdict, TABLE_END_TYPES, UnsealReason, VerifiedStream, compare_figures,
+    open_in_run, verify_prefix, verify_stream, verify_table,
 };
 use crate::spec::{JobKind, JobSpec};
 use crate::stop::StopCode;
@@ -222,35 +222,196 @@ pub const ROWS: [RowSpec; 30] = {
     use OutcomeKind::*;
     [
         rs(1, "", "c=0, O, S", Complete, Canonical, ItemDone),
-        rs(2, "", "c=10, O, S, stop max_cases, verified rules >= 1", RuleFound, Canonical, QueueChildren),
-        rs(3, "", "c=10, O, S, stop max_cases, no verified rule, every case result covered / empty / finite / declared_terminal", Complete, Nothing, ItemDoneNoRule),
-        rs(24, "", "c=10, O, S, stop max_cases, no verified rule, another case result or no per-case list", NoRule, Nothing, NextRung),
-        rs(4, "", "c=10, O, S, stop lift_refused / guard_timeout / numeric_search_refused / before_numeric", NoRule, CommittedRules, NextRung),
-        rs(5, "", "c=10, O, S, stop open_regions / open_obligations, verified rules >= 1", RuleFound, Canonical, QueueOpenList),
-        rs(27, "", "c=10, O, S, stop open_regions / open_obligations, no verified rule", NoRule, Nothing, QueueOpenList),
-        rs(6, "", "c=10, O, S, stop not_lower", Crashed, Nothing, Attention),
-        rs(7, "", "c=11, O, checker kind", DecidedNegative, Nothing, RecordNegativeVerdict),
-        rs(7, "b", "c=12, O, checker kind", Undecided, Nothing, OtherToolOrAttention),
-        rs(8, "", "c=20, O, S (producing kind)", Spill, CommittedRules, NextRungAfterSpill),
-        rs(25, "", "c in {0, 10, 20}, O, S, the spec allowed elision and the verifier found elided witness loci", Crashed, Nothing, RerunWithoutElision),
-        rs(26, "", "c in {0, 10, 20}, O, the kind has no sealing rule (generate-auto)", Crashed, Nothing, UnverifiableKind),
+        rs(
+            2,
+            "",
+            "c=10, O, S, stop max_cases, verified rules >= 1",
+            RuleFound,
+            Canonical,
+            QueueChildren,
+        ),
+        rs(
+            3,
+            "",
+            "c=10, O, S, stop max_cases, no verified rule, every case result covered / empty / finite / declared_terminal",
+            Complete,
+            Nothing,
+            ItemDoneNoRule,
+        ),
+        rs(
+            24,
+            "",
+            "c=10, O, S, stop max_cases, no verified rule, another case result or no per-case list",
+            NoRule,
+            Nothing,
+            NextRung,
+        ),
+        rs(
+            4,
+            "",
+            "c=10, O, S, stop lift_refused / guard_timeout / numeric_search_refused / before_numeric",
+            NoRule,
+            CommittedRules,
+            NextRung,
+        ),
+        rs(
+            5,
+            "",
+            "c=10, O, S, stop open_regions / open_obligations, verified rules >= 1",
+            RuleFound,
+            Canonical,
+            QueueOpenList,
+        ),
+        rs(
+            27,
+            "",
+            "c=10, O, S, stop open_regions / open_obligations, no verified rule",
+            NoRule,
+            Nothing,
+            QueueOpenList,
+        ),
+        rs(
+            6,
+            "",
+            "c=10, O, S, stop not_lower",
+            Crashed,
+            Nothing,
+            Attention,
+        ),
+        rs(
+            7,
+            "",
+            "c=11, O, checker kind",
+            DecidedNegative,
+            Nothing,
+            RecordNegativeVerdict,
+        ),
+        rs(
+            7,
+            "b",
+            "c=12, O, checker kind",
+            Undecided,
+            Nothing,
+            OtherToolOrAttention,
+        ),
+        rs(
+            8,
+            "",
+            "c=20, O, S (producing kind)",
+            Spill,
+            CommittedRules,
+            NextRungAfterSpill,
+        ),
+        rs(
+            25,
+            "",
+            "c in {0, 10, 20}, O, S, the spec allowed elision and the verifier found elided witness loci",
+            Crashed,
+            Nothing,
+            RerunWithoutElision,
+        ),
+        rs(
+            26,
+            "",
+            "c in {0, 10, 20}, O, the kind has no sealing rule (generate-auto)",
+            Crashed,
+            Nothing,
+            UnverifiableKind,
+        ),
         rs(9, "", "c=21, O", KilledTime, Nothing, LadderDecides),
-        rs(10, "", "c=22, O", KilledMemory, Nothing, NextMemoryClassOrRung),
-        rs(11, "", "c=30, O", Interrupted, Nothing, ResumeOnCampaignResume),
+        rs(
+            10,
+            "",
+            "c=22, O",
+            KilledMemory,
+            Nothing,
+            NextMemoryClassOrRung,
+        ),
+        rs(
+            11,
+            "",
+            "c=30, O",
+            Interrupted,
+            Nothing,
+            ResumeOnCampaignResume,
+        ),
         rs(12, "", "c=40", UsageError, Nothing, StopLaunchingKind),
         rs(13, "", "c=41", Refused, Nothing, ItemAttentionNoRetry),
         rs(14, "", "c=42", Refused, Nothing, Attention),
         rs(15, "", "c=50", Lost, Nothing, PauseAllLaunches),
         rs(16, "", "c=51", Crashed, Nothing, RetryOnceThenAttention),
-        rs(17, "", "c=70, O", Crashed, Nothing, RetrySameSpecOnceThenAttention),
-        rs(18, "", "s=9, K=memory (or cgroup oom_kill count increased)", KilledMemory, Nothing, NextMemoryClassOrRung),
-        rs(19, "", "s in {9, 15, 2, 1}, K=time or unresponsive", KilledTime, Nothing, LadderDecides),
-        rs(20, "", "s in {9, 15, 2, 1}, K=stop", Interrupted, Nothing, ResumeOnCampaignResume),
-        rs(21, "", "s=9, K=none, no OUTCOME", Lost, Nothing, ResumeOnceThenAttention),
-        rs(21, "b", "W unknown (supervisor restart), no OUTCOME, R valid", Lost, Nothing, ResumeOnceThenAttention),
-        rs(21, "c", "W unknown, no OUTCOME, R invalid", Lost, Nothing, RestartFromScratch),
-        rs(22, "", "contract violation: OUTCOME unreadable, inconsistent (`check`), of another attempt or spec (job_id, attempt, kind, spec_blake3), exit_code != c, a path not the layout path, family_blake3 not the spec's, elided loci under \"forbidden\"; or c in {0, 10, 20} with O and an output not sealed / not verified; or c outside the kind's set (checker 10 / 20, producing kind 11 / 12); or W unknown with an invalid OUTCOME", Crashed, Nothing, Attention),
-        rs(23, "", "any other c or s (an exit status 128+N is read as signal N)", Crashed, Nothing, ResumeOnceIfValidElseAttention),
+        rs(
+            17,
+            "",
+            "c=70, O",
+            Crashed,
+            Nothing,
+            RetrySameSpecOnceThenAttention,
+        ),
+        rs(
+            18,
+            "",
+            "s=9, K=memory (or cgroup oom_kill count increased)",
+            KilledMemory,
+            Nothing,
+            NextMemoryClassOrRung,
+        ),
+        rs(
+            19,
+            "",
+            "s in {9, 15, 2, 1}, K=time or unresponsive",
+            KilledTime,
+            Nothing,
+            LadderDecides,
+        ),
+        rs(
+            20,
+            "",
+            "s in {9, 15, 2, 1}, K=stop",
+            Interrupted,
+            Nothing,
+            ResumeOnCampaignResume,
+        ),
+        rs(
+            21,
+            "",
+            "s=9, K=none, no OUTCOME",
+            Lost,
+            Nothing,
+            ResumeOnceThenAttention,
+        ),
+        rs(
+            21,
+            "b",
+            "W unknown (supervisor restart), no OUTCOME, R valid",
+            Lost,
+            Nothing,
+            ResumeOnceThenAttention,
+        ),
+        rs(
+            21,
+            "c",
+            "W unknown, no OUTCOME, R invalid",
+            Lost,
+            Nothing,
+            RestartFromScratch,
+        ),
+        rs(
+            22,
+            "",
+            "contract violation: OUTCOME unreadable, inconsistent (`check`), of another attempt or spec (job_id, attempt, kind, spec_blake3), exit_code != c, a path not the layout path, family_blake3 not the spec's, elided loci under \"forbidden\"; or c in {0, 10, 20} with O and an output not sealed / not verified; or c outside the kind's set (checker 10 / 20, producing kind 11 / 12); or W unknown with an invalid OUTCOME",
+            Crashed,
+            Nothing,
+            Attention,
+        ),
+        rs(
+            23,
+            "",
+            "any other c or s (an exit status 128+N is read as signal N)",
+            Crashed,
+            Nothing,
+            ResumeOnceIfValidElseAttention,
+        ),
     ]
 };
 
@@ -301,7 +462,8 @@ fn row(n: u8, sub: &str, why: impl Into<String>) -> Classification {
 
 /// The decision table as the markdown block of child-job.md 6.5 (generated from [`ROWS`]).
 pub fn decision_table_markdown() -> String {
-    let mut s = String::from("| # | condition | kind | accept | ledger action |\n|---|---|---|---|---|\n");
+    let mut s =
+        String::from("| # | condition | kind | accept | ledger action |\n|---|---|---|---|---|\n");
     for r in ROWS.iter() {
         let name = |v: String| v.trim_matches('"').to_string();
         s.push_str(&format!(
@@ -418,7 +580,9 @@ fn decide(
                     return row(
                         22,
                         "",
-                        format!("contract violation: exit {c} is not an exit code of a checker kind"),
+                        format!(
+                            "contract violation: exit {c} is not an exit code of a checker kind"
+                        ),
                     );
                 }
                 let Some(v) = &e.verified else {
@@ -473,7 +637,11 @@ fn decide(
                     }
                     (20, _) => return row(8, "", "work budget (deterministic)"),
                     _ => {
-                        return row(22, "", format!("contract violation: exit {c} with stop {stop:?}"));
+                        return row(
+                            22,
+                            "",
+                            format!("contract violation: exit {c} with stop {stop:?}"),
+                        );
                     }
                 }
             }
@@ -482,7 +650,9 @@ fn decide(
                     return row(
                         22,
                         "",
-                        format!("contract violation: exit {c} is a checker verdict of a producing kind"),
+                        format!(
+                            "contract violation: exit {c} is a checker verdict of a producing kind"
+                        ),
                     );
                 }
                 11 => return row(7, "", "checker decided FAIL"),
@@ -618,7 +788,9 @@ pub fn verify_outputs(
     o: &JobOutcome,
 ) -> Result<VerifiedOutputs, UnsealReason> {
     let Some(rules) = kind.sealed_outputs() else {
-        return Err(UnsealReason::MissingOutput("no sealing rule for this kind".into()));
+        return Err(UnsealReason::MissingOutput(
+            "no sealing rule for this kind".into(),
+        ));
     };
     for x in &o.outputs.extra {
         if !rules.iter().any(|r| r.role == x.role && r.role != "table") {
@@ -719,7 +891,8 @@ pub fn assess(
                     let want = spec.inputs.iter().find(|i| i.role == "family");
                     if want.is_none_or(|i| i.blake3 != f) {
                         outcome = OutcomeState::Invalid(
-                            "table header family_blake3 is not the spec's family input digest".into(),
+                            "table header family_blake3 is not the spec's family input digest"
+                                .into(),
                         );
                     }
                 }

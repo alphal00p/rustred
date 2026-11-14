@@ -61,7 +61,10 @@ impl CommittedFile {
 
     fn check(&self, path: &str) -> Result<(), String> {
         if self.path != path {
-            return Err(format!("committed file path {:?} is not {path:?}", self.path));
+            return Err(format!(
+                "committed file path {:?} is not {path:?}",
+                self.path
+            ));
         }
         if !is_blake3_hex(&self.blake3) || !is_blake3_hex(&self.canonical_blake3) {
             return Err(format!("{path}: digests must be BLAKE3 hex"));

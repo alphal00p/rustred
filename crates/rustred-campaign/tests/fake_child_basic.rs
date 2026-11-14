@@ -354,7 +354,11 @@ fn witness_loci_full_when_forbidden_elided_when_allowed() {
     assert_eq!(r.classify(w, KillReason::None).row, 25);
     // ... and under the campaign's rule (forbid) the record is a contract violation: fail closed
     let mut e = r.evidence(w, KillReason::None);
-    assert_eq!(e.verified.as_ref().unwrap().elided_loci, 3, "counted by the verifier");
+    assert_eq!(
+        e.verified.as_ref().unwrap().elided_loci,
+        3,
+        "counted by the verifier"
+    );
     e.elision_forbidden = true;
     assert_eq!(rustred_campaign_contract::classify::classify(&e).row, 22);
     root.assert_no_process_left();

@@ -19,7 +19,9 @@ use std::path::{Path, PathBuf};
 const HEADER: &str = r#"{"type":"header","schema":"t","zero_seconds":0.5}"#;
 
 fn rule(i: u64, target: &str) -> String {
-    format!(r#"{{"type":"rule","chart":"C","index":{i},"target":"{target}","rhs":[["I(0)","1"]],"seconds_search":0.25}}"#)
+    format!(
+        r#"{{"type":"rule","chart":"C","index":{i},"target":"{target}","rhs":[["I(0)","1"]],"seconds_search":0.25}}"#
+    )
 }
 
 /// A run directory with `job.json` (generate spec), `out/F.table.jsonl` sealed from `lines` (last = end record), and
@@ -86,7 +88,15 @@ fn audit_a_c1_duplicated_rules_are_refused() {
     // the auditor's scenario: rule indices 0,1,2,3,1,2,3 (targets I(1)..I(3) twice) in a "sealed" table -> refusal
     let d = TempDir::new("c1dup");
     let mut lines = vec![HEADER.to_string()];
-    for (i, t) in [(0, "I(0)"), (1, "I(1)"), (2, "I(2)"), (3, "I(3)"), (1, "I(1)"), (2, "I(2)"), (3, "I(3)")] {
+    for (i, t) in [
+        (0, "I(0)"),
+        (1, "I(1)"),
+        (2, "I(2)"),
+        (3, "I(3)"),
+        (1, "I(1)"),
+        (2, "I(2)"),
+        (3, "I(3)"),
+    ] {
         lines.push(rule(i, t));
     }
     lines.push(r#"{"type":"end","rules":7}"#.into());
@@ -214,7 +224,12 @@ fn audit_a_c1_resume_point_is_one_consistent_object() {
     assert_eq!(code, ExitCode::Input, "{why}");
     // the classifier's resume advice is the RESUME record (path + digest), never OUTCOME's sizes
     rustred_campaign_contract::atomic::write_json_atomic(&run.join("RESUME.json"), &r).unwrap();
-    let (_, rref) = resume_state(&RunLayout::new(&run), &prev, &blake3_hex(&prev.to_json_line())).unwrap();
+    let (_, rref) = resume_state(
+        &RunLayout::new(&run),
+        &prev,
+        &blake3_hex(&prev.to_json_line()),
+    )
+    .unwrap();
     assert!(rref.from.ends_with("/RESUME.json"));
     assert_eq!(
         rref.blake3,
@@ -284,7 +299,11 @@ fn audit_a_c2_and_b_f4_seal_check_follows_only_the_layout_path() {
     // this run's own table torn
     std::fs::write(l.table(), format!("{HEADER}\n{{\"type\":\"rule\",\"ind")).unwrap();
     for p in [
-        other.join("out/F.table.jsonl").to_str().unwrap().to_string(),
+        other
+            .join("out/F.table.jsonl")
+            .to_str()
+            .unwrap()
+            .to_string(),
         "../other/out/F.table.jsonl".to_string(),
         "out/F.queue.jsonl".to_string(),
     ] {
@@ -355,7 +374,9 @@ fn random_value(g: &mut Rng, depth: u32) -> serde_json::Value {
         2 => Value::from(g.below(2_000_000) as i64 - 1_000_000),
         3 => Value::from((g.below(1_000_000) as f64) / 64.0 - 7000.0),
         4 => {
-            let pool = ["a", "é", "\"", "\\", "/", "\n", "\u{1}", "x y", "😀", "I(1,2)", "-1/2"];
+            let pool = [
+                "a", "é", "\"", "\\", "/", "\n", "\u{1}", "x y", "😀", "I(1,2)", "-1/2",
+            ];
             let n = g.below(4);
             Value::from(
                 (0..n)
@@ -559,7 +580,11 @@ fn audit_b_f7_symlink_in_the_run_dir_is_refused_at_start() {
     for name in ["out", ".reserve", "EVENTS.jsonl", "tmp"] {
         std::os::unix::fs::symlink(d.path(), run.join(name)).unwrap();
         let r = preflight(&run.join("job.json"), &me, &|_| None).unwrap_err();
-        assert_eq!((r.code, r.write_outcome), (ExitCode::Refused, false), "{name}");
+        assert_eq!(
+            (r.code, r.write_outcome),
+            (ExitCode::Refused, false),
+            "{name}"
+        );
         std::fs::remove_file(run.join(name)).unwrap();
     }
     assert!(preflight(&run.join("job.json"), &me, &|_| None).is_ok());
@@ -593,14 +618,18 @@ fn audit_a_m2_verifier_counts_elided_loci_itself() {
     let d = TempDir::new("m2");
     let lines = vec![
         HEADER.to_string(),
-        r#"{"type":"rule","chart":"C","index":0,"target":"I(0)","witness_loci":["n1","elided"]}"#.to_string(),
+        r#"{"type":"rule","chart":"C","index":0,"target":"I(0)","witness_loci":["n1","elided"]}"#
+            .to_string(),
         r#"{"type":"end","rules":1}"#.to_string(),
     ];
     let (l, mut s, dg, mut j) = run_with_table(d.path(), &lines, ExitCode::Complete, None);
     // the child "forgot" to count: the verifier's count disagrees -> not sealed
     assert!(matches!(
         verify_table(&l, j.outputs.table.as_ref().unwrap()),
-        SealVerdict::Unsealed(UnsealReason::ElidedCountMismatch { outcome: 0, file: 1 })
+        SealVerdict::Unsealed(UnsealReason::ElidedCountMismatch {
+            outcome: 0,
+            file: 1
+        })
     ));
     assert_eq!(classify_run(&l, &s, &dg, 0).row, 22);
     // counted: forbidden -> contract violation; allowed -> sealed_with_elided, never used
@@ -633,11 +662,17 @@ fn audit_a_m3_verifier_rejects_interior_end_garbage_and_rechecks_every_figure() 
         "{\"type\":\"end\"}\n{\"type\":\"header\"}\n",
     ] {
         std::fs::write(d.path().join("out/F.table.jsonl"), b).unwrap();
-        assert!(verify_stream(d.path(), "out/F.table.jsonl", &TABLE_END_TYPES).is_err(), "{b:?}");
+        assert!(
+            verify_stream(d.path(), "out/F.table.jsonl", &TABLE_END_TYPES).is_err(),
+            "{b:?}"
+        );
     }
     // an OUTCOME that claims a rule over a table without one (row 2 on self-report before) -> not sealed
     let d = TempDir::new("m3b");
-    let lines = vec![HEADER.to_string(), r#"{"type":"partial","rules":0}"#.to_string()];
+    let lines = vec![
+        HEADER.to_string(),
+        r#"{"type":"partial","rules":0}"#.to_string(),
+    ];
     let (l, s, dg, mut j) = run_with_table(
         d.path(),
         &lines,
@@ -672,7 +707,8 @@ fn audit_a_m4_every_kind_needs_its_sealed_outputs() {
     // nothing listed: not accepted (was row 1 with nothing checked)
     assert_eq!(classify_run(&l, &s, &dg, 0).row, 22);
     // a sealed results file listed and verified: row 1
-    let body = "{\"type\":\"verdict\",\"ok\":true,\"seconds\":1.5}\n{\"type\":\"end\",\"records\":1}\n";
+    let body =
+        "{\"type\":\"verdict\",\"ok\":true,\"seconds\":1.5}\n{\"type\":\"end\",\"records\":1}\n";
     std::fs::write(l.results(), body).unwrap();
     let mut c = canon::CanonicalDigest::new();
     for x in body.lines() {
@@ -704,7 +740,10 @@ fn audit_a_m4_every_kind_needs_its_sealed_outputs() {
         elision_forbidden: true,
     };
     let c = classify(&e);
-    assert_eq!((c.row, c.accept, c.action), (26, Accept::Nothing, Action::UnverifiableKind));
+    assert_eq!(
+        (c.row, c.accept, c.action),
+        (26, Accept::Nothing, Action::UnverifiableKind)
+    );
 }
 
 #[test]
@@ -747,7 +786,8 @@ fn audit_a_m6_fake_child_has_its_own_writers() {
     // structural: the fake child does not call the crate's sealing / canonical / OUTCOME writers (M6), so every
     // fake-child process test is a differential test of the verifier
     let src = std::fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../rustred-campaign/src/bin/rr_fake_child.rs"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../rustred-campaign/src/bin/rr_fake_child.rs"),
     )
     .unwrap();
     let code: String = src
@@ -761,7 +801,8 @@ fn audit_a_m6_fake_child_has_its_own_writers() {
         "canonical_record",
         "TableSeal",
         "write_atomic(",
-        "write_new(&self",
+        "Outcome::",
+        "JobOutcome",
         ".check()",
         "seal::",
         "canon::",
@@ -798,10 +839,22 @@ fn audit_a_m3_minor_wrapper_statuses_are_signals() {
         oom_kill_observed: false,
         elision_forbidden: true,
     };
-    assert_eq!(classify(&ev(WaitStatus::Exited(137), KillReason::Memory)).row, 18);
-    assert_eq!(classify(&ev(WaitStatus::Exited(143), KillReason::Stop)).row, 20);
-    assert_eq!(classify(&ev(WaitStatus::Exited(137), KillReason::None)).row, 21);
-    assert_eq!(classify(&ev(WaitStatus::Exited(101), KillReason::None)).row, 23);
+    assert_eq!(
+        classify(&ev(WaitStatus::Exited(137), KillReason::Memory)).row,
+        18
+    );
+    assert_eq!(
+        classify(&ev(WaitStatus::Exited(143), KillReason::Stop)).row,
+        20
+    );
+    assert_eq!(
+        classify(&ev(WaitStatus::Exited(137), KillReason::None)).row,
+        21
+    );
+    assert_eq!(
+        classify(&ev(WaitStatus::Exited(101), KillReason::None)).row,
+        23
+    );
 }
 
 #[test]
@@ -877,7 +930,9 @@ fn audit_a_m10_minor_dirty_out_is_refused_also_with_resume_and_when_not_a_dir() 
         blake3: None,
     };
     assert_eq!(
-        preflight(&run.join("job.json"), &me, &|_| None).unwrap_err().code,
+        preflight(&run.join("job.json"), &me, &|_| None)
+            .unwrap_err()
+            .code,
         ExitCode::Refused
     );
 }
@@ -934,7 +989,10 @@ impl FakeScriptBuilder {
 #[test]
 fn audit_b_f10_canonical_digest_of_outcome_is_recomputed() {
     let d = TempDir::new("f10");
-    let lines = vec![HEADER.to_string(), r#"{"type":"end","rules":0}"#.to_string()];
+    let lines = vec![
+        HEADER.to_string(),
+        r#"{"type":"end","rules":0}"#.to_string(),
+    ];
     let (l, s, dg, mut j) = run_with_table(d.path(), &lines, ExitCode::Complete, None);
     j.outputs.table.as_mut().unwrap().canonical_blake3 = Some(D1.into());
     write_outcome(&l, &j);
@@ -995,7 +1053,11 @@ fn decision_table_rows_and_document_agree() {
     if std::env::var_os("RR_UPDATE_GOLDEN").is_some() {
         std::fs::write(&golden, &md).unwrap();
     }
-    assert_eq!(std::fs::read_to_string(&golden).unwrap(), md, "golden decision_table.md");
+    assert_eq!(
+        std::fs::read_to_string(&golden).unwrap(),
+        md,
+        "golden decision_table.md"
+    );
     let doc = std::env::var("RUSTRED_CHILD_JOB_DOC").unwrap_or_else(|_| {
         "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/plan/auto-campaign/interfaces/child-job.md".into()
     });

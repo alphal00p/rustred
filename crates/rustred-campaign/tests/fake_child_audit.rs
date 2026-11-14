@@ -66,7 +66,10 @@ fn stopped_attempt(root: &mut Root, job: &str) -> Running {
     s.stop_grace_s = 60;
     let mut r = spawn(root, &s);
     r.wait_event(T, |e| {
-        matches!(e, rustred_campaign_contract::events::Event::CaseStarted { ordinal: 4, .. })
+        matches!(
+            e,
+            rustred_campaign_contract::events::Event::CaseStarted { ordinal: 4, .. }
+        )
     });
     r.signal_pid(libc::SIGTERM);
     std::thread::sleep(Duration::from_millis(200));
@@ -163,7 +166,12 @@ impl Rng {
 fn audit_a_c1_seeded_stop_points_resume_to_the_uninterrupted_canonical_table() {
     let mut root = Root::new("c1seed");
     let mk = |dir: &std::path::Path, job: &str, a: u32| {
-        let mut sc = script((0..6).map(|i| rule_case(i, 120)).chain([end(None)]).collect());
+        let mut sc = script(
+            (0..6)
+                .map(|i| rule_case(i, 120))
+                .chain([end(None)])
+                .collect(),
+        );
         sc.volatile_jitter = true;
         let mut s = spec(dir, job, a, sc);
         s.resume_every_s = 30; // RESUME lags the commit points (default cadence)

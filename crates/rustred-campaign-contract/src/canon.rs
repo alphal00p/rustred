@@ -459,7 +459,8 @@ impl<'a> P<'a> {
         if !x.is_finite() {
             return Err(CanonError::NumberOutOfRange { offset: s });
         }
-        let f = serde_json::to_string(&x).map_err(|_| CanonError::NumberOutOfRange { offset: s })?;
+        let f =
+            serde_json::to_string(&x).map_err(|_| CanonError::NumberOutOfRange { offset: s })?;
         let k = self.ar.owned.len();
         self.ar.owned.push(f.into_bytes());
         self.ar.push(out, Piece::Own(k));
@@ -548,8 +549,7 @@ impl<'a> P<'a> {
             self.ws();
             let mut val = List::EMPTY;
             let mut str_val = None;
-            if self.peek() == Some(b'"')
-                && want_str.iter().any(|w| w.as_bytes() == key.as_slice())
+            if self.peek() == Some(b'"') && want_str.iter().any(|w| w.as_bytes() == key.as_slice())
             {
                 let mut d = Vec::new();
                 self.string(&mut val, Some(&mut d))?;
@@ -903,14 +903,19 @@ mod tests {
         ));
         // a pair is fine
         assert_eq!(c(r#"{"a":"😀"}"#), "{\"a\":\"\u{1f600}\"}");
-
     }
 
     #[test]
     fn numbers() {
         // plan 3.3.0: integers exact, -0 -> 0, fractions / exponents as serde_json writes the f64
-        assert_eq!(c(r#"{"a":-0,"b":18446744073709551616}"#), r#"{"a":0,"b":18446744073709551616}"#);
-        assert_eq!(c(r#"{"x":1e2,"y":1.0,"z":0.50,"w":1E-7}"#), r#"{"w":1e-7,"x":100.0,"y":1.0,"z":0.5}"#);
+        assert_eq!(
+            c(r#"{"a":-0,"b":18446744073709551616}"#),
+            r#"{"a":0,"b":18446744073709551616}"#
+        );
+        assert_eq!(
+            c(r#"{"x":1e2,"y":1.0,"z":0.50,"w":1E-7}"#),
+            r#"{"w":1e-7,"x":100.0,"y":1.0,"z":0.5}"#
+        );
         assert_eq!(c(r#"{"x":1e2}"#), c(r#"{"x":100.0}"#));
         assert!(matches!(
             canonical_line(br#"{"x":1e999}"#),

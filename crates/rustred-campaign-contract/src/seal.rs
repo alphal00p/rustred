@@ -9,6 +9,7 @@
 //! - rule records (`type` = `rule`) have unique (`chart`, `index`) and unique (`chart`, `target`), `index` an integer;
 //! - every figure OUTCOME reports about it (size, BLAKE3, records, rules, end kind, canonical digest, elided witness
 //!   loci) equals the figure recomputed here.
+//!
 //! The verifier also counts elided witness loci itself ([`crate::fake::ELIDED`] inside a top-level `witness_loci`
 //! array of any record); the child's own count is never trusted. Memory: a small multiple of the longest line.
 
@@ -285,9 +286,7 @@ impl<'a> Scan<'a> {
     fn push(&mut self, line_nl: &[u8]) -> Result<canon::CanonRecord, UnsealReason> {
         let line_no = self.records + 1;
         if self.end.is_some() {
-            return Err(UnsealReason::InteriorEndRecord {
-                line: self.records,
-            });
+            return Err(UnsealReason::InteriorEndRecord { line: self.records });
         }
         let body = &line_nl[..line_nl.len() - 1];
         let c = canon::canonical_record(body).map_err(|e| UnsealReason::BadRecord {
@@ -427,8 +426,8 @@ pub fn open_in_run(root: &Path, rel: &str) -> Result<(File, u64, u64), UnsealRea
             return Err(UnsealReason::NotRegularFile(cur.display().to_string()));
         }
     }
-    let entry = std::fs::symlink_metadata(&cur)
-        .map_err(|e| UnsealReason::FileUnreadable(e.to_string()))?;
+    let entry =
+        std::fs::symlink_metadata(&cur).map_err(|e| UnsealReason::FileUnreadable(e.to_string()))?;
     let f = OpenOptions::new()
         .read(true)
         .custom_flags(O_NOFOLLOW)
@@ -573,9 +572,10 @@ pub fn verify_prefix(
 ) -> Result<(), UnsealReason> {
     let (f, _, _) = open_in_run(root, &want.path)?;
     let mut s = Scan::new(end_types);
-    match s.feed(BufReader::with_capacity(1 << 20, f.take(want.bytes)), |_| {
-        Ok(())
-    }) {
+    match s.feed(
+        BufReader::with_capacity(1 << 20, f.take(want.bytes)),
+        |_| Ok(()),
+    ) {
         Err(UnsealReason::TornLastLine) => return Err(UnsealReason::PrefixNotAtLineBoundary),
         r => r?,
     }
