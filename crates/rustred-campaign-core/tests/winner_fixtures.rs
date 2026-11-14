@@ -14,7 +14,9 @@ use rustred_campaign_core::domain::{CanonicalDomain, DomainOptions, TargetSource
 use rustred_campaign_core::record::{ReadOptions, read_table_file};
 
 fn t178_tables() -> Vec<Table> {
-    let fx = PathBuf::from(std::env::var("RUSTRED_CAMPAIGN_FIXTURES").expect("RUSTRED_CAMPAIGN_FIXTURES"));
+    let fx = PathBuf::from(
+        std::env::var("RUSTRED_CAMPAIGN_FIXTURES").expect("RUSTRED_CAMPAIGN_FIXTURES"),
+    );
     let cfg: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(fx.join("T178B/cfg_t178_regenB.json")).unwrap(),
     )
@@ -25,7 +27,8 @@ fn t178_tables() -> Vec<Table> {
         .iter()
         .map(|t| {
             let rel = t.as_str().unwrap().trim_start_matches("cases/t178B/");
-            let tf = read_table_file(fx.join("T178B/cases").join(rel), ReadOptions::default()).unwrap();
+            let tf =
+                read_table_file(fx.join("T178B/cases").join(rel), ReadOptions::default()).unwrap();
             Table::from_table_file(
                 rel.trim_end_matches(".jsonl"),
                 rel,
@@ -64,10 +67,20 @@ fn t178_cfg_vs_reversed_winner_diff() {
         .collect();
     let old = Dispatcher::new(tables, (0..n).collect()).unwrap();
     let new = old.with_priority((0..n).rev().collect()).unwrap();
-    let o4 = StreamOptions { threads: 4, chunk: 8192 };
+    let o4 = StreamOptions {
+        threads: 4,
+        chunk: 8192,
+    };
     let t0 = std::time::Instant::now();
-    let dom = winner_diff(&old, &new, b.iter(), |_d: &Dispatcher, r| dom_id[r.table][r.record], &o4, true)
-        .unwrap();
+    let dom = winner_diff(
+        &old,
+        &new,
+        b.iter(),
+        |_d: &Dispatcher, r| dom_id[r.table][r.record],
+        &o4,
+        true,
+    )
+    .unwrap();
     let t_dom = t0.elapsed().as_secs_f64();
     let piece = winner_diff(
         &old,
@@ -91,7 +104,11 @@ fn t178_cfg_vs_reversed_winner_diff() {
     assert_eq!(dom.keys, 286_066);
     assert_eq!(dom.changed, 29_287);
     assert_eq!(piece.changed, 282_851);
-    assert!(dom.groups.keys().all(|(x, y)| matches!((x, y), (WinnerState::Covered(_), WinnerState::Covered(_)))));
+    assert!(
+        dom.groups
+            .keys()
+            .all(|(x, y)| matches!((x, y), (WinnerState::Covered(_), WinnerState::Covered(_))))
+    );
     let kept: u64 = dom.groups.values().map(|g| g.keys.len() as u64).sum();
     assert_eq!(kept, 29_287);
     // thread-count independence on the full set
@@ -100,11 +117,17 @@ fn t178_cfg_vs_reversed_winner_diff() {
         &new,
         b.iter(),
         |_d: &Dispatcher, r| dom_id[r.table][r.record],
-        &StreamOptions { threads: 1, chunk: 8192 },
+        &StreamOptions {
+            threads: 1,
+            chunk: 8192,
+        },
         true,
     )
     .unwrap();
     assert_eq!(dom1, dom);
     let largest = dom.groups.iter().max_by_key(|(_, g)| g.count).unwrap();
-    println!("largest group: {:?} -> {:?}: {} keys", largest.0.0, largest.0.1, largest.1.count);
+    println!(
+        "largest group: {:?} -> {:?}: {} keys",
+        largest.0.0, largest.0.1, largest.1.count
+    );
 }

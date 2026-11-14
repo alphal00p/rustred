@@ -15,26 +15,86 @@ use rustred_campaign_core::key::{Key, NodeFrame};
 
 /// `b3sum` 1.8.6 on the official test input (byte i = i mod 251).
 const B3: &[(usize, &str)] = &[
-    (0, "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"),
-    (1, "2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213"),
-    (63, "e9bc37a594daad83be9470df7f7b3798297c3d834ce80ba85d6e207627b7db7b"),
-    (64, "4eed7141ea4a5cd4b788606bd23f46e212af9cacebacdc7d1f4c6dc7f2511b98"),
-    (65, "de1e5fa0be70df6d2be8fffd0e99ceaa8eb6e8c93a63f2d8d1c30ecb6b263dee"),
-    (1023, "10108970eeda3eb932baac1428c7a2163b0e924c9a9e25b35bba72b28f70bd11"),
-    (1024, "42214739f095a406f3fc83deb889744ac00df831c10daa55189b5d121c855af7"),
-    (1025, "d00278ae47eb27b34faecf67b4fe263f82d5412916c1ffd97c8cb7fb814b8444"),
-    (2048, "e776b6028c7cd22a4d0ba182a8bf62205d2ef576467e838ed6f2529b85fba24a"),
-    (2049, "5f4d72f40d7a5f82b15ca2b2e44b1de3c2ef86c426c95c1af0b6879522563030"),
-    (3072, "b98cb0ff3623be03326b373de6b9095218513e64f1ee2edd2525c7ad1e5cffd2"),
-    (3073, "7124b49501012f81cc7f11ca069ec9226cecb8a2c850cfe644e327d22d3e1cd3"),
-    (4096, "015094013f57a5277b59d8475c0501042c0b642e531b0a1c8f58d2163229e969"),
-    (4097, "9b4052b38f1c5fc8b1f9ff7ac7b27cd242487b3d890d15c96a1c25b8aa0fb995"),
-    (5121, "628bd2cb2004694adaab7bbd778a25df25c47b9d4155a55f8fbd79f2fe154cff"),
-    (7169, "a003fc7a51754a9b3c7fae0367ab3d782dccf28855a03d435f8cfe74605e7817"),
-    (8192, "aae792484c8efe4f19e2ca7d371d8c467ffb10748d8a5a1ae579948f718a2a63"),
-    (8193, "bab6c09cb8ce8cf459261398d2e7aef35700bf488116ceb94a36d0f5f1b7bc3b"),
-    (31744, "62b6960e1a44bcc1eb1a611a8d6235b6b4b78f32e7abc4fb4c6cdcce94895c47"),
-    (102400, "bc3e3d41a1146b069abffad3c0d44860cf664390afce4d9661f7902e7943e085"),
+    (
+        0,
+        "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+    ),
+    (
+        1,
+        "2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213",
+    ),
+    (
+        63,
+        "e9bc37a594daad83be9470df7f7b3798297c3d834ce80ba85d6e207627b7db7b",
+    ),
+    (
+        64,
+        "4eed7141ea4a5cd4b788606bd23f46e212af9cacebacdc7d1f4c6dc7f2511b98",
+    ),
+    (
+        65,
+        "de1e5fa0be70df6d2be8fffd0e99ceaa8eb6e8c93a63f2d8d1c30ecb6b263dee",
+    ),
+    (
+        1023,
+        "10108970eeda3eb932baac1428c7a2163b0e924c9a9e25b35bba72b28f70bd11",
+    ),
+    (
+        1024,
+        "42214739f095a406f3fc83deb889744ac00df831c10daa55189b5d121c855af7",
+    ),
+    (
+        1025,
+        "d00278ae47eb27b34faecf67b4fe263f82d5412916c1ffd97c8cb7fb814b8444",
+    ),
+    (
+        2048,
+        "e776b6028c7cd22a4d0ba182a8bf62205d2ef576467e838ed6f2529b85fba24a",
+    ),
+    (
+        2049,
+        "5f4d72f40d7a5f82b15ca2b2e44b1de3c2ef86c426c95c1af0b6879522563030",
+    ),
+    (
+        3072,
+        "b98cb0ff3623be03326b373de6b9095218513e64f1ee2edd2525c7ad1e5cffd2",
+    ),
+    (
+        3073,
+        "7124b49501012f81cc7f11ca069ec9226cecb8a2c850cfe644e327d22d3e1cd3",
+    ),
+    (
+        4096,
+        "015094013f57a5277b59d8475c0501042c0b642e531b0a1c8f58d2163229e969",
+    ),
+    (
+        4097,
+        "9b4052b38f1c5fc8b1f9ff7ac7b27cd242487b3d890d15c96a1c25b8aa0fb995",
+    ),
+    (
+        5121,
+        "628bd2cb2004694adaab7bbd778a25df25c47b9d4155a55f8fbd79f2fe154cff",
+    ),
+    (
+        7169,
+        "a003fc7a51754a9b3c7fae0367ab3d782dccf28855a03d435f8cfe74605e7817",
+    ),
+    (
+        8192,
+        "aae792484c8efe4f19e2ca7d371d8c467ffb10748d8a5a1ae579948f718a2a63",
+    ),
+    (
+        8193,
+        "bab6c09cb8ce8cf459261398d2e7aef35700bf488116ceb94a36d0f5f1b7bc3b",
+    ),
+    (
+        31744,
+        "62b6960e1a44bcc1eb1a611a8d6235b6b4b78f32e7abc4fb4c6cdcce94895c47",
+    ),
+    (
+        102400,
+        "bc3e3d41a1146b069abffad3c0d44860cf664390afce4d9661f7902e7943e085",
+    ),
 ];
 
 #[test]
@@ -128,7 +188,10 @@ fn digest_is_stable_under_json_reordering_and_normalisation() {
     v["digest"] = serde_json::json!(d);
     assert!(BoxDef::from_value(&v).is_ok());
     v["digest"] = serde_json::json!("00");
-    assert!(matches!(BoxDef::from_value(&v), Err(BoxError::Digest { .. })));
+    assert!(matches!(
+        BoxDef::from_value(&v),
+        Err(BoxError::Digest { .. })
+    ));
     // any content change changes it
     let mut e = b.clone();
     e.cap = Some(6);
@@ -148,7 +211,10 @@ fn per_line_cap_and_slot_caps() {
     let ks: Vec<Key> = b.iter().collect();
     assert_eq!(ks.len(), 8);
     assert_eq!(b.count(), 8);
-    assert!(ks.iter().all(|k| k[..3].iter().all(|&x| (1..=2).contains(&x))));
+    assert!(
+        ks.iter()
+            .all(|k| k[..3].iter().all(|&x| (1..=2).contains(&x)))
+    );
     assert!(!b.contains(&[3, 1, 1, 0, 0]));
     // slot caps: line 0 at most power 1, numerator 4 at most |1|
     let text = r#"{"schema":"rustred.campaign.box.v1","id":"slot","name":"slot","measure":"dots-rank-v1",
@@ -187,7 +253,10 @@ fn explicit_key_list_box() {
     let b = BoxDef::from_json(text).unwrap();
     let ks: Vec<Key> = b.iter().collect();
     // [1,1,0,0] is in the layered part; duplicates removed; extras sorted after the layered part
-    assert_eq!(ks, vec![vec![1, 1, 0, 0], vec![2, 2, -1, 0], vec![3, 1, 0, -2]]);
+    assert_eq!(
+        ks,
+        vec![vec![1, 1, 0, 0], vec![2, 2, -1, 0], vec![3, 1, 0, -2]]
+    );
     assert_eq!(b.count(), 3);
     assert!(b.contains(&[2, 2, -1, 0]));
     assert!(!b.contains(&[2, 2, 0, -1]));
@@ -207,14 +276,25 @@ fn saturation_hull() {
     let mut sub = vec![1i32; 9];
     sub.extend(vec![0; 11]);
     sub[3] = 0; // unlisted support: a hand-down, not absorbed
-    let inside = vec![1i32; 9].into_iter().chain(vec![0; 11]).collect::<Vec<_>>();
-    let s = b.saturate([far.as_slice(), pos.as_slice(), sub.as_slice(), inside.as_slice()]);
+    let inside = vec![1i32; 9]
+        .into_iter()
+        .chain(vec![0; 11])
+        .collect::<Vec<_>>();
+    let s = b.saturate([
+        far.as_slice(),
+        pos.as_slice(),
+        sub.as_slice(),
+        inside.as_slice(),
+    ]);
     assert_eq!(s.absorbed, 1);
     assert_eq!(s.already_inside, 1);
     assert_eq!(s.not_absorbed, vec![pos.clone(), sub.clone()]);
     assert_eq!(s.raised_cap, Some((5, 6)));
     let bs = &s.boxdef;
-    assert_eq!(bs.layers, vec![[0, 1], [1, 2], [2, 2], [3, 2], [4, 2], [5, 4]]);
+    assert_eq!(
+        bs.layers,
+        vec![[0, 1], [1, 2], [2, 2], [3, 2], [4, 2], [5, 4]]
+    );
     assert_eq!(bs.derived_from.as_deref(), Some(b.digest().as_str()));
     assert!(bs.id.ends_with("+sat"));
     assert!(bs.contains(&far));
@@ -240,13 +320,22 @@ fn boxed_header_round_trip_and_frame() {
     let b = rstar_union(&chart);
     let h = b.to_boxed_header_box().unwrap();
     assert_eq!(h["measure"], "dots-rank-v1");
-    assert_eq!(h["layers"], serde_json::json!([[0, 1], [1, 2], [2, 2], [3, 2], [4, 2]]));
+    assert_eq!(
+        h["layers"],
+        serde_json::json!([[0, 1], [1, 2], [2, 2], [3, 2], [4, 2]])
+    );
     let c = BoxDef::from_boxed_header_box(&h, &chart).unwrap();
     assert_eq!(c.layers, b.layers);
     assert_eq!(c.cap, b.cap);
     assert_eq!(c.count(), 55_704);
-    assert!(b.check_frame(&NodeFrame::without_header_lines_first(20, 9)).is_ok());
-    assert!(b.check_frame(&NodeFrame::without_header_lines_first(20, 10)).is_err());
+    assert!(
+        b.check_frame(&NodeFrame::without_header_lines_first(20, 9))
+            .is_ok()
+    );
+    assert!(
+        b.check_frame(&NodeFrame::without_header_lines_first(20, 10))
+            .is_err()
+    );
 }
 
 #[test]
@@ -256,13 +345,23 @@ fn faces() {
         Face::of(&chart, &[2, 1, 3, 0, -1, 0]).unwrap().to_string(),
         "{0,2}x{4}"
     );
-    assert_eq!(Face::of(&chart, &[2, 2, 1, 0, 0, 0]).unwrap().to_string(), "{0,1}");
-    assert_eq!(Face::of(&chart, &[1, 1, 1, 0, 0, 0]).unwrap().to_string(), "{}");
+    assert_eq!(
+        Face::of(&chart, &[2, 2, 1, 0, 0, 0]).unwrap().to_string(),
+        "{0,1}"
+    );
+    assert_eq!(
+        Face::of(&chart, &[1, 1, 1, 0, 0, 0]).unwrap().to_string(),
+        "{}"
+    );
     assert!(Face::of(&chart, &[0, 1, 1, 0, 0, 0]).is_none());
     assert!(Face::of(&chart, &[1, 1, 1, 1, 0, 0]).is_none());
     let g = group_by_face(
         &chart,
-        vec![vec![2, 1, 1, 0, 0, -1], vec![1, 1, 1, 1, 0, 0], vec![3, 1, 1, 0, 0, -2]],
+        vec![
+            vec![2, 1, 1, 0, 0, -1],
+            vec![1, 1, 1, 1, 0, 0],
+            vec![3, 1, 1, 0, 0, -2],
+        ],
     );
     assert_eq!(g.faces.len(), 1);
     assert_eq!(g.faces.values().next().unwrap().len(), 2);
@@ -271,9 +370,8 @@ fn faces() {
 
 /// A random small box on a random chart (any arity), with optional cap, slot caps, one sector, explicit keys.
 fn arb_box(arity: usize) -> impl Strategy<Value = BoxDef> {
-    let chart = proptest::collection::vec(any::<bool>(), arity).prop_filter("a line", |c| {
-        c.iter().filter(|&&l| l).count() >= 1
-    });
+    let chart = proptest::collection::vec(any::<bool>(), arity)
+        .prop_filter("a line", |c| c.iter().filter(|&&l| l).count() >= 1);
     (
         chart,
         proptest::collection::vec((0u32..4, 0u32..3), 0..4),
@@ -283,34 +381,36 @@ fn arb_box(arity: usize) -> impl Strategy<Value = BoxDef> {
         proptest::collection::vec(proptest::collection::vec(-2i32..4, arity), 0..3),
         proptest::collection::vec((0u32..3, 0u32..3), 1..3),
     )
-        .prop_map(move |(chart, layers, cap, scaps, use_sector, keys, slayers)| {
-            let lines: Vec<usize> = (0..arity).filter(|&i| chart[i]).collect();
-            let sectors = if use_sector && lines.len() >= 2 {
-                vec![SectorLayers {
-                    support: lines[1..].to_vec(),
-                    layers: slayers.iter().map(|&(d, r)| [d, r]).collect(),
-                }]
-            } else {
-                vec![]
-            };
-            let slot_caps = if scaps.iter().filter(|c| c.is_some()).count() % 2 == 0 {
-                scaps
-            } else {
-                vec![]
-            };
-            BoxDef {
-                id: "prop".into(),
-                name: "prop".into(),
-                chart,
-                layers: layers.iter().map(|&(d, r)| [d, r]).collect(),
-                sectors,
-                cap,
-                slot_caps,
-                keys,
-                origin: None,
-                derived_from: None,
-            }
-        })
+        .prop_map(
+            move |(chart, layers, cap, scaps, use_sector, keys, slayers)| {
+                let lines: Vec<usize> = (0..arity).filter(|&i| chart[i]).collect();
+                let sectors = if use_sector && lines.len() >= 2 {
+                    vec![SectorLayers {
+                        support: lines[1..].to_vec(),
+                        layers: slayers.iter().map(|&(d, r)| [d, r]).collect(),
+                    }]
+                } else {
+                    vec![]
+                };
+                let slot_caps = if scaps.iter().filter(|c| c.is_some()).count() % 2 == 0 {
+                    scaps
+                } else {
+                    vec![]
+                };
+                BoxDef {
+                    id: "prop".into(),
+                    name: "prop".into(),
+                    chart,
+                    layers: layers.iter().map(|&(d, r)| [d, r]).collect(),
+                    sectors,
+                    cap,
+                    slot_caps,
+                    keys,
+                    origin: None,
+                    derived_from: None,
+                }
+            },
+        )
 }
 
 fn check_box(b: &BoxDef) -> Result<(), TestCaseError> {
@@ -346,7 +446,12 @@ fn check_box(b: &BoxDef) -> Result<(), TestCaseError> {
         (d, r, l, o)
     };
     for w in top.windows(2) {
-        prop_assert!(sort_key(w[0]) < sort_key(w[1]), "order {:?} {:?}", w[0], w[1]);
+        prop_assert!(
+            sort_key(w[0]) < sort_key(w[1]),
+            "order {:?} {:?}",
+            w[0],
+            w[1]
+        );
     }
     // the visitor and next_into give the same stream
     let mut v = vec![];

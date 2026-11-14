@@ -65,9 +65,14 @@ fn t178_box_equals_frozen_closure_box_rows() {
     }
     inbox.sort();
     assert_eq!(inbox.len(), 286_066);
-    assert_eq!(mine, inbox, "T178 box differs from the in-box rows of F5_closure_all");
+    assert_eq!(
+        mine, inbox,
+        "T178 box differs from the in-box rows of F5_closure_all"
+    );
     assert_eq!(outside_in_box, 0, "a row flagged outside lies in the box");
-    println!("T178 box: 286,066 keys = in-box rows of F5_closure_all; the 44,221 other rows are all outside");
+    println!(
+        "T178 box: 286,066 keys = in-box rows of F5_closure_all; the 44,221 other rows are all outside"
+    );
 }
 
 #[test]
@@ -191,7 +196,8 @@ pub fn t178_tables() -> (Vec<String>, Vec<Table>) {
 #[ignore = "needs RUSTRED_CAMPAIGN_FIXTURES; run with --release -- --ignored"]
 fn t162_dispatch_over_enumerated_box() {
     let b = rstar_union(&lines_first(20, 9));
-    b.check_frame(&NodeFrame::without_header_lines_first(20, 9)).unwrap();
+    b.check_frame(&NodeFrame::without_header_lines_first(20, 9))
+        .unwrap();
     let d = t162_bank_dispatcher();
     let o = StreamOptions {
         threads: 4,
@@ -213,7 +219,10 @@ fn t162_dispatch_over_enumerated_box() {
     assert_eq!(rep.keys, 55_704);
     assert_eq!((rep.covered, rep.uncovered, rep.open()), (54_714, 990, 990));
     let mine: HashSet<Key> = rep.open_keys.iter().map(|(k, _)| k.clone()).collect();
-    assert_eq!(mine, key_lines(fixtures().join("T162/F1_uncovered_990.jsonl")));
+    assert_eq!(
+        mine,
+        key_lines(fixtures().join("T162/F1_uncovered_990.jsonl"))
+    );
     let g = rustred_campaign_core::boxdef::group_by_face(&b.chart, mine.iter().cloned());
     println!("T162 uncovered: {} faces", g.faces.len());
     assert!(g.other.is_empty());
@@ -258,7 +267,10 @@ fn t178_dispatch_over_enumerated_box() {
     assert_eq!(rep.keys, 286_066);
     assert_eq!((rep.covered, rep.uncovered, rep.blocked), (285_657, 409, 0));
     let mine: HashSet<Key> = rep.open_keys.iter().map(|(k, _)| k.clone()).collect();
-    assert_eq!(mine, key_lines(fixtures().join("T178B/F5_box_uncovered_409.jsonl")));
+    assert_eq!(
+        mine,
+        key_lines(fixtures().join("T178B/F5_box_uncovered_409.jsonl"))
+    );
     let wins: BTreeMap<&str, u64> = names
         .iter()
         .map(String::as_str)
@@ -269,9 +281,15 @@ fn t178_dispatch_over_enumerated_box() {
             println!("  wins {n}: {w}");
         }
     }
-    let r0 = names.iter().position(|n| n.ends_with("R0")).expect("R0 piece");
+    let r0 = names
+        .iter()
+        .position(|n| n.ends_with("R0"))
+        .expect("R0 piece");
     assert_eq!(rep.wins_per_table[r0], 248_858);
-    let g010 = names.iter().position(|n| n.ends_with("rgq-g0-10")).expect("rgq-g0-10");
+    let g010 = names
+        .iter()
+        .position(|n| n.ends_with("rgq-g0-10"))
+        .expect("rgq-g0-10");
     assert_eq!(rep.wins_per_table[g010], 10_160);
     assert_eq!(rep.wins_per_table.iter().sum::<u64>(), 285_657);
     assert_eq!(rep.used_rules(), 1_381);

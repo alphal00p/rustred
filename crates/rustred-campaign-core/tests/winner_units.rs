@@ -89,10 +89,11 @@ fn winner_diff_groups_and_determinism() {
     let d = prev.unwrap();
     assert!(d.changed > 0);
     // coverage is order-independent: no Covered <-> Uncovered transition
-    assert!(d.groups.keys().all(|(x, y)| matches!(
-        (x, y),
-        (WinnerState::Covered(_), WinnerState::Covered(_))
-    )));
+    assert!(
+        d.groups
+            .keys()
+            .all(|(x, y)| matches!((x, y), (WinnerState::Covered(_), WinnerState::Covered(_))))
+    );
     // piece-level identity: the table name only
     let dp = winner_diff(
         &old,
@@ -106,7 +107,15 @@ fn winner_diff_groups_and_determinism() {
     assert!(dp.changed <= d.changed);
     assert!(dp.groups.values().all(|g| g.keys.is_empty()));
     // identical dispatchers: empty diff
-    let z = winner_diff(&old, &old, b.iter(), rule_id, &StreamOptions::default(), true).unwrap();
+    let z = winner_diff(
+        &old,
+        &old,
+        b.iter(),
+        rule_id,
+        &StreamOptions::default(),
+        true,
+    )
+    .unwrap();
     assert_eq!(z.changed, 0);
 }
 
@@ -121,7 +130,16 @@ fn rule_id_state(
 fn usage_counts_and_wrong_arity() {
     let (b, a, c) = setup();
     let d = Dispatcher::new(vec![a, c], vec![0, 1]).unwrap();
-    let rep = usage(&d, b.iter(), &StreamOptions { threads: 3, chunk: 7 }, true).unwrap();
+    let rep = usage(
+        &d,
+        b.iter(),
+        &StreamOptions {
+            threads: 3,
+            chunk: 7,
+        },
+        true,
+    )
+    .unwrap();
     assert_eq!(rep.keys as u128, b.count());
     assert_eq!(rep.covered + rep.open(), rep.keys);
     assert_eq!(rep.open() as usize, rep.open_keys.len());

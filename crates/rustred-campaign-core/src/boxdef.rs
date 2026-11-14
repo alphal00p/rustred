@@ -29,8 +29,14 @@ pub enum BoxError {
     Json(String),
     Schema(String),
     Invalid(String),
-    Digest { expected: String, computed: String },
-    Arity { expected: usize, got: usize },
+    Digest {
+        expected: String,
+        computed: String,
+    },
+    Arity {
+        expected: usize,
+        got: usize,
+    },
     /// The box cannot be written as a boxed-node header box (it has sectors or explicit keys).
     NotHeaderable(String),
 }
@@ -42,10 +48,15 @@ impl fmt::Display for BoxError {
             BoxError::Schema(s) => write!(f, "box schema: {s}"),
             BoxError::Invalid(s) => write!(f, "invalid box: {s}"),
             BoxError::Digest { expected, computed } => {
-                write!(f, "box digest mismatch: stated {expected}, computed {computed}")
+                write!(
+                    f,
+                    "box digest mismatch: stated {expected}, computed {computed}"
+                )
             }
             BoxError::Arity { expected, got } => write!(f, "box arity {expected}, got {got}"),
-            BoxError::NotHeaderable(s) => write!(f, "box not expressible as a boxed_node header: {s}"),
+            BoxError::NotHeaderable(s) => {
+                write!(f, "box not expressible as a boxed_node header: {s}")
+            }
         }
     }
 }
@@ -115,7 +126,9 @@ fn key_value(k: &[i32]) -> Value {
 fn as_u32(v: &Value, what: &str) -> Result<u32, BoxError> {
     v.as_u64()
         .and_then(|x| u32::try_from(x).ok())
-        .ok_or_else(|| BoxError::Schema(format!("{what}: expected a non-negative integer, got {v}")))
+        .ok_or_else(|| {
+            BoxError::Schema(format!("{what}: expected a non-negative integer, got {v}"))
+        })
 }
 
 fn parse_layers(v: &Value, what: &str) -> Result<Vec<[u32; 2]>, BoxError> {
@@ -149,7 +162,9 @@ fn opt_string(o: &Map<String, Value>, k: &str) -> Result<Option<String>, BoxErro
     match o.get(k) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(s)) => Ok(Some(s.clone())),
-        Some(v) => Err(BoxError::Schema(format!("{k}: expected a string or null, got {v}"))),
+        Some(v) => Err(BoxError::Schema(format!(
+            "{k}: expected a string or null, got {v}"
+        ))),
     }
 }
 
@@ -229,15 +244,20 @@ impl BoxDef {
         }
         let schema = req_string(o, "schema")?;
         if schema != BOX_SCHEMA {
-            return Err(BoxError::Schema(format!("schema {schema:?}, expected {BOX_SCHEMA:?}")));
+            return Err(BoxError::Schema(format!(
+                "schema {schema:?}, expected {BOX_SCHEMA:?}"
+            )));
         }
         let measure = req_string(o, "measure")?;
         if measure != BOX_MEASURE {
-            return Err(BoxError::Schema(format!("measure {measure:?}, expected {BOX_MEASURE:?}")));
+            return Err(BoxError::Schema(format!(
+                "measure {measure:?}, expected {BOX_MEASURE:?}"
+            )));
         }
         let chart = parse_chart(&req_string(o, "chart")?)?;
         let layers = parse_layers(
-            o.get("layers").ok_or_else(|| BoxError::Schema("missing \"layers\"".into()))?,
+            o.get("layers")
+                .ok_or_else(|| BoxError::Schema("missing \"layers\"".into()))?,
             "layers",
         )?;
         let mut sectors = vec![];
@@ -256,12 +276,14 @@ impl BoxDef {
                     let support = so
                         .get("support")
                         .and_then(Value::as_array)
-                        .ok_or_else(|| BoxError::Schema("sector: missing \"support\" array".into()))?
+                        .ok_or_else(|| {
+                            BoxError::Schema("sector: missing \"support\" array".into())
+                        })?
                         .iter()
                         .map(|x| {
-                            x.as_u64()
-                                .map(|x| x as usize)
-                                .ok_or_else(|| BoxError::Schema(format!("sector support entry {x}")))
+                            x.as_u64().map(|x| x as usize).ok_or_else(|| {
+                                BoxError::Schema(format!("sector support entry {x}"))
+                            })
                         })
                         .collect::<Result<Vec<_>, _>>()?;
                     let sl = parse_layers(
@@ -275,7 +297,11 @@ impl BoxDef {
                     });
                 }
             }
-            Some(v) => return Err(BoxError::Schema(format!("sectors: expected an array, got {v}"))),
+            Some(v) => {
+                return Err(BoxError::Schema(format!(
+                    "sectors: expected an array, got {v}"
+                )));
+            }
         }
         let cap = match o.get("cap") {
             None | Some(Value::Null) => None,
@@ -290,12 +316,20 @@ impl BoxDef {
                     c => as_u32(c, "slot_caps").map(Some),
                 })
                 .collect::<Result<_, _>>()?,
-            Some(v) => return Err(BoxError::Schema(format!("slot_caps: expected an array, got {v}"))),
+            Some(v) => {
+                return Err(BoxError::Schema(format!(
+                    "slot_caps: expected an array, got {v}"
+                )));
+            }
         };
         let keys = match o.get("keys") {
             None | Some(Value::Null) => vec![],
             Some(Value::Array(a)) => a.iter().map(parse_key_value).collect::<Result<_, _>>()?,
-            Some(v) => return Err(BoxError::Schema(format!("keys: expected an array, got {v}"))),
+            Some(v) => {
+                return Err(BoxError::Schema(format!(
+                    "keys: expected an array, got {v}"
+                )));
+            }
         };
         let b = BoxDef {
             id: req_string(o, "id")?,
@@ -327,7 +361,9 @@ impl BoxDef {
     pub fn validate(&self) -> Result<(), BoxError> {
         let n = self.chart.len();
         if n == 0 || n > MAX_BOX_ARITY {
-            return Err(BoxError::Invalid(format!("chart of length {n} (1..={MAX_BOX_ARITY})")));
+            return Err(BoxError::Invalid(format!(
+                "chart of length {n} (1..={MAX_BOX_ARITY})"
+            )));
         }
         if !self.chart.iter().any(|&l| l) {
             return Err(BoxError::Invalid("chart has no line".into()));
@@ -336,7 +372,9 @@ impl BoxDef {
             return Err(BoxError::Invalid("empty id".into()));
         }
         if self.cap == Some(0) {
-            return Err(BoxError::Invalid("cap 0 (a support line has power >= 1)".into()));
+            return Err(BoxError::Invalid(
+                "cap 0 (a support line has power >= 1)".into(),
+            ));
         }
         if !self.slot_caps.is_empty() && self.slot_caps.len() != n {
             return Err(BoxError::Invalid(format!(
@@ -346,7 +384,9 @@ impl BoxDef {
         }
         for (i, c) in self.slot_caps.iter().enumerate() {
             if self.chart[i] && *c == Some(0) {
-                return Err(BoxError::Invalid(format!("slot_caps[{i}] = 0 on a line slot")));
+                return Err(BoxError::Invalid(format!(
+                    "slot_caps[{i}] = 0 on a line slot"
+                )));
             }
         }
         let n_lines = self.n_lines();
@@ -356,7 +396,10 @@ impl BoxDef {
             sup.sort_unstable();
             sup.dedup();
             if sup.len() != s.support.len() {
-                return Err(BoxError::Invalid(format!("sector support {:?} repeats a slot", s.support)));
+                return Err(BoxError::Invalid(format!(
+                    "sector support {:?} repeats a slot",
+                    s.support
+                )));
             }
             if let Some(&x) = sup.iter().find(|&&x| x >= n || !self.chart[x]) {
                 return Err(BoxError::Invalid(format!(
@@ -371,7 +414,10 @@ impl BoxDef {
                 )));
             }
             if !seen.insert(sup) {
-                return Err(BoxError::Invalid(format!("sector support {:?} listed twice", s.support)));
+                return Err(BoxError::Invalid(format!(
+                    "sector support {:?} listed twice",
+                    s.support
+                )));
             }
         }
         for k in &self.keys {
@@ -531,12 +577,19 @@ impl BoxDef {
         let (mut d, mut r) = (0i64, 0i64);
         for (i, &x) in key.iter().enumerate() {
             if self.chart[i] && x >= 1 {
-                if self.slot_cap(i, true).is_some_and(|c| i64::from(x) > i64::from(c)) {
+                if self
+                    .slot_cap(i, true)
+                    .is_some_and(|c| i64::from(x) > i64::from(c))
+                {
                     return false;
                 }
                 d += i64::from(x) - 1;
             } else {
-                if x > 0 || self.slot_cap(i, false).is_some_and(|c| -i64::from(x) > i64::from(c)) {
+                if x > 0
+                    || self
+                        .slot_cap(i, false)
+                        .is_some_and(|c| -i64::from(x) > i64::from(c))
+                {
                     return false;
                 }
                 r -= i64::from(x);
@@ -667,7 +720,11 @@ impl BoxDef {
             let over_slot_cap = (0..n).any(|i| {
                 let sup_i = b.chart[i] && k[i] >= 1;
                 b.slot_caps.get(i).copied().flatten().is_some_and(|c| {
-                    if sup_i { k[i] as i64 > i64::from(c) } else { -(k[i] as i64) > i64::from(c) }
+                    if sup_i {
+                        k[i] as i64 > i64::from(c)
+                    } else {
+                        -(k[i] as i64) > i64::from(c)
+                    }
                 })
             });
             let Some(map) = map.filter(|_| !positive && !over_slot_cap) else {
@@ -747,7 +804,9 @@ impl BoxDef {
     /// The `box` object of the engine's `boxed_node` header: `{name, measure, layers, cap}` (top sector only).
     pub fn to_boxed_header_box(&self) -> Result<Value, BoxError> {
         if !self.sectors.is_empty() {
-            return Err(BoxError::NotHeaderable("the box has subsector layers".into()));
+            return Err(BoxError::NotHeaderable(
+                "the box has subsector layers".into(),
+            ));
         }
         if !self.keys.is_empty() {
             return Err(BoxError::NotHeaderable("the box has explicit keys".into()));
@@ -768,7 +827,9 @@ impl BoxDef {
             .ok_or_else(|| BoxError::Schema("boxed_node box: expected an object".into()))?;
         let measure = req_string(o, "measure")?;
         if measure != BOX_MEASURE {
-            return Err(BoxError::Schema(format!("boxed_node box measure {measure:?}")));
+            return Err(BoxError::Schema(format!(
+                "boxed_node box measure {measure:?}"
+            )));
         }
         let name = req_string(o, "name")?;
         let layers = parse_layers(
@@ -783,7 +844,10 @@ impl BoxDef {
                     .as_i64()
                     .ok_or_else(|| BoxError::Schema(format!("boxed_node cap {c}")))?;
                 // the engine's cap is an i64 on every line power; a cap below 1 admits no key
-                Some(u32::try_from(c.max(0)).map_err(|_| BoxError::Schema(format!("boxed_node cap {c}")))?)
+                Some(
+                    u32::try_from(c.max(0))
+                        .map_err(|_| BoxError::Schema(format!("boxed_node cap {c}")))?,
+                )
             }
         };
         let b = BoxDef {
@@ -811,12 +875,18 @@ impl BoxDef {
         let mut layers = vec![];
         for c in &spec.clauses {
             if c.d_lo > c.d_hi {
-                return Err(BoxError::Invalid(format!("clause {}: D range [{}, {}]", c.name, c.d_lo, c.d_hi)));
+                return Err(BoxError::Invalid(format!(
+                    "clause {}: D range [{}, {}]",
+                    c.name, c.d_lo, c.d_hi
+                )));
             }
             for d in c.d_lo..=c.d_hi {
                 let r = c.r_e * e + c.r_d * i64::from(d) + c.r_const;
                 if r >= 0 {
-                    layers.push([d, u32::try_from(r).map_err(|_| BoxError::Invalid("r_max".into()))?]);
+                    layers.push([
+                        d,
+                        u32::try_from(r).map_err(|_| BoxError::Invalid("r_max".into()))?,
+                    ]);
                 }
             }
         }
@@ -924,7 +994,11 @@ impl BandSpec {
                 .and_then(Value::as_object)
                 .ok_or_else(|| BoxError::Schema("band clause: missing r_max".into()))?;
             clauses.push(BandClause {
-                name: co.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
+                name: co
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
                 d_lo: as_u32(&dr[0], "D lo")?,
                 d_hi: as_u32(&dr[1], "D hi")?,
                 r_e: int(rm.get("E"), "r_max.E")?,
@@ -954,7 +1028,10 @@ fn binom(n: u64, k: u64) -> u128 {
     let k = k.min(n - k);
     let mut r: u128 = 1;
     for i in 0..k {
-        r = r.checked_mul(u128::from(n - i)).expect("binomial overflows u128") / u128::from(i + 1);
+        r = r
+            .checked_mul(u128::from(n - i))
+            .expect("binomial overflows u128")
+            / u128::from(i + 1);
     }
     r
 }
@@ -1415,8 +1492,8 @@ fn b3_words(bytes: &[u8]) -> [u32; 16] {
     let mut buf = [0u8; 64];
     buf[..bytes.len()].copy_from_slice(bytes);
     let mut w = [0u32; 16];
-    for (i, c) in buf.chunks_exact(4).enumerate() {
-        w[i] = u32::from_le_bytes([c[0], c[1], c[2], c[3]]);
+    for (i, c) in buf.as_chunks::<4>().0.iter().enumerate() {
+        w[i] = u32::from_le_bytes(*c);
     }
     w
 }
@@ -1437,7 +1514,13 @@ struct B3Output {
 
 impl B3Output {
     fn chaining_value(&self) -> [u32; 8] {
-        first8(&b3_compress(&self.cv, &self.block, self.counter, self.len, self.flags))
+        first8(&b3_compress(
+            &self.cv,
+            &self.block,
+            self.counter,
+            self.len,
+            self.flags,
+        ))
     }
     fn root_hash(&self) -> [u8; 32] {
         let s = b3_compress(&self.cv, &self.block, 0, self.len, self.flags | ROOT);
