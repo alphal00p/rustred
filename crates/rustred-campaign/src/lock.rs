@@ -274,6 +274,9 @@ pub fn acquire(
             other => LockError::Busy { owner: other },
         });
     }
+    // audit-ledger2 m6: decide on the owner record read UNDER the flock: an owner that released between our first
+    // read and the flock (record removed, then the descriptor closed) is not "alive without the lock".
+    let previous = read_owner(dir)?;
     let outcome = match previous {
         None => LockOutcome::Fresh,
         Some(owner) => {

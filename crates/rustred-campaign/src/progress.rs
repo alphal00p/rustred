@@ -106,21 +106,23 @@ fn quantile(sorted: &[u64], q: f64) -> u64 {
     sorted[k - 1]
 }
 
-/// Node file name: characters outside `[A-Za-z0-9_.-]` become `_`; a name of dots only is prefixed, so no node
-/// name leads outside `progress/nodes/` (U-11).
+/// Node file name: an INJECTIVE escape of the node name (audit-ledger2 m9: two names never share a file):
+/// `[A-Za-z0-9.-]` stay, `_` becomes `__`, every other byte (UTF-8) becomes `_xx` (two lowercase hex digits); a
+/// name of dots only (or empty) has its dots escaped too, so no node name leads outside `progress/nodes/` (U-11).
+/// Plain names (letters, digits, `.`, `-`) keep their own file name.
 pub fn node_file(node: &str) -> String {
-    let mut s: String = node
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || "_.-".contains(c) {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    if s.chars().all(|c| c == '.') {
-        s = format!("_{s}");
+    let dots_only = node.bytes().all(|b| b == b'.');
+    let mut s = String::with_capacity(node.len() + 2);
+    for b in node.bytes() {
+        match b {
+            b'_' => s.push_str("__"),
+            b'.' if dots_only => s.push_str("_2e"),
+            b if b.is_ascii_alphanumeric() || b == b'.' || b == b'-' => s.push(b as char),
+            b => s.push_str(&format!("_{b:02x}")),
+        }
+    }
+    if s.is_empty() {
+        s.push('_');
     }
     format!("nodes/{s}.json")
 }
@@ -975,7 +977,12 @@ mod tests {
         assert_eq!(quantile(&v, 0.5), 4);
         assert_eq!(quantile(&v, 0.75), 6);
         assert_eq!(quantile(&[9], 0.5), 9);
-        assert_eq!(node_file("T162/x y"), "nodes/T162_x_y.json");
-        assert_eq!(node_file(".."), "nodes/_...json");
+        assert_eq!(node_file("T162"), "nodes/T162.json");
+        assert_eq!(node_file("T162/x y"), "nodes/T162_2fx_20y.json");
+        assert_eq!(node_file(".."), "nodes/_2e_2e.json");
+        assert_eq!(node_file(""), "nodes/_.json");
+        // injective: names that sanitised to one file before (audit-ledger2 m9) get two
+        assert_ne!(node_file("fam/x"), node_file("fam_x"));
+        assert_ne!(node_file("_2e"), node_file("."));
     }
 }

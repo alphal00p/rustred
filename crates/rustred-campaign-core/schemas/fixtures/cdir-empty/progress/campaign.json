@@ -125,7 +125,8 @@
       "lost": 0,
       "queued": 0,
       "running": 0,
-      "succeeded_sealed": 0
+      "succeeded_sealed": 0,
+      "unconfirmed": 0
     },
     "failed_attempts": 0,
     "reserved_bytes_running": 0,
