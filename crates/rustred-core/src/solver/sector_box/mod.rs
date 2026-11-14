@@ -102,8 +102,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub use driver::{
-    BoxLaportaSession, DEFAULT_CERTIFICATE_PRIME, ExplicitSample, ExplicitTable, Lane,
-    ParameterAssignment, census_targets, down_closure_representatives,
+    BoxLaportaSession, CERTIFICATE_POINTS, DEFAULT_CERTIFICATE_PRIME, ExplicitSample,
+    ExplicitTable, Lane, ParameterAssignment, census_targets, down_closure_representatives,
 };
 pub use exact::{BoxCertificate, CertificateMode};
 pub use facade::{RouterChoice, solve_box_laporta};

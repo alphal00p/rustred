@@ -40,7 +40,8 @@ type SubtubeCache<const N: usize> = HashMap<(u64, i16, i16, [u8; 32]), Arc<BTree
 type Progress = Box<dyn FnMut(&str) + Send>;
 
 pub use lanes::{
-    DEFAULT_CERTIFICATE_PRIME, ExplicitSample, ExplicitTable, Lane, ParameterAssignment,
+    CERTIFICATE_POINTS, DEFAULT_CERTIFICATE_PRIME, ExplicitSample, ExplicitTable, Lane,
+    ParameterAssignment,
 };
 
 /// One family, one row space, one column order, persisted across `extend`.

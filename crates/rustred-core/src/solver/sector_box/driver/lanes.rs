@@ -28,6 +28,10 @@ use super::BoxLaportaSession;
 /// below `2^62`, so this prime is independent of every reconstruction.
 pub const DEFAULT_CERTIFICATE_PRIME: u64 = 9_223_372_036_854_775_783;
 
+/// Points a probabilistic certificate tries before it reports a special
+/// point ([`crate::solver::SolverError::UnluckyBoxSample`]) instead of a verdict.
+pub const CERTIFICATE_POINTS: usize = 8;
+
 /// Parameter values fixed before materialisation, as constant exact
 /// coefficients (the bridge's representation).
 #[derive(Clone, Debug, Default)]
@@ -200,10 +204,15 @@ impl<const N: usize> BoxLaportaSession<N> {
     /// of the selected rows, for every target.
     ///
     /// - `prime = None`: exactly over Q(free parameter), with the exact rows.
+    ///   These are the rows the exact lane instantiates, so this certificate
+    ///   is independent of the finite-field lane but not of the exact lane.
     /// - `prime = Some(p)`: modulo `p` at a random value of the free
     ///   parameter drawn from `seed`, with the rows produced by the modular
     ///   pass's template compiler at that point (independent of the exact
-    ///   instantiation, the probe kernel and the reconstruction). `p` must
+    ///   instantiation, the probe kernel and the reconstruction). A special
+    ///   point (a row that loses its modular pivot there, or a pole of the
+    ///   point or of a coefficient) is not evidence against the reduction: it
+    ///   is retried at another point, up to [`CERTIFICATE_POINTS`] points. `p` must
     ///   be an odd prime below `2^63` that the solution's reconstruction
     ///   neither lifted over nor was verified at; [`DEFAULT_CERTIFICATE_PRIME`]
     ///   always is.
@@ -214,14 +223,53 @@ impl<const N: usize> BoxLaportaSession<N> {
     /// Errors: [`SolverError::InvalidInput`] for a solution that does not
     /// belong to this session (parameters, arity, targets not demanded,
     /// masters, shape) or a refused prime; [`SolverError::UnluckyBoxSample`]
-    /// for a special certificate point; [`SolverError::Certification`] when
-    /// a reduction is not in the span.
+    /// when all [`CERTIFICATE_POINTS`] points were special (no verdict);
+    /// [`SolverError::Certification`] only when a reduction is not in the
+    /// span, i.e. the reduction is refuted.
     pub fn certify(
         &mut self,
         solution: &BoxSolution<N>,
         prime: Option<u64>,
         seed: u64,
     ) -> Result<BoxCertificate, SolverError> {
+        let (request, variable) = self.certificate_request(solution, prime)?;
+        let Some(prime) = prime else {
+            return self.certify_exactly(solution, &request, variable);
+        };
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed ^ prime);
+        let mut special = None;
+        for _ in 0..CERTIFICATE_POINTS {
+            let x = Rational::from(Integer::from(rng.random_range(1..prime)));
+            match self.certify_point(solution, &request, variable, prime, &x) {
+                Err(error @ SolverError::UnluckyBoxSample { .. }) => special = Some(error),
+                result => return result,
+            }
+        }
+        Err(special.expect("CERTIFICATE_POINTS > 0"))
+    }
+
+    /// Test hook: the probabilistic certificate at one explicit value `x`
+    /// of the free parameter, with the same validation as [`Self::certify`]
+    /// and no retry.
+    #[doc(hidden)]
+    pub fn certify_at_point(
+        &mut self,
+        solution: &BoxSolution<N>,
+        prime: u64,
+        x: &Rational,
+    ) -> Result<BoxCertificate, SolverError> {
+        let (request, variable) = self.certificate_request(solution, Some(prime))?;
+        self.certify_point(solution, &request, variable, prime, x)
+    }
+
+    /// Validation shared by the certificates: the solution belongs to this
+    /// session, the prime is allowed. Returns the lane request and the
+    /// coefficient variable of the free parameter.
+    fn certificate_request(
+        &mut self,
+        solution: &BoxSolution<N>,
+        prime: Option<u64>,
+    ) -> Result<(LaneRequest<N>, usize), SolverError> {
         solution.check_shape()?;
         let context = self.family.coefficient_context().clone();
         if solution.parameters != context.parameter_names() || solution.arity != self.arity {
@@ -261,28 +309,47 @@ impl<const N: usize> BoxLaportaSession<N> {
                 "a finite-field solution fixes every parameter but its free one".into(),
             ));
         }
-        let Some(prime) = prime else {
-            let coefficients: Vec<Vec<Coefficient>> = solution
-                .coefficients
-                .iter()
-                .map(|row| {
-                    row.iter()
-                        .map(|function| coefficient_of(function, &context, variable))
-                        .collect()
-                })
-                .collect();
-            return exact::certify_exact(&request, &coefficients);
-        };
+        Ok((request, variable))
+    }
+
+    /// The exact certificate over Q(free parameter).
+    fn certify_exactly(
+        &self,
+        solution: &BoxSolution<N>,
+        request: &LaneRequest<N>,
+        variable: usize,
+    ) -> Result<BoxCertificate, SolverError> {
+        let context = self.family.coefficient_context();
+        let coefficients: Vec<Vec<Coefficient>> = solution
+            .coefficients
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|function| coefficient_of(function, context, variable))
+                    .collect()
+            })
+            .collect();
+        exact::certify_exact(request, &coefficients)
+    }
+
+    /// The probabilistic certificate at `prime` and the free-parameter
+    /// value `x`; a special point is [`SolverError::UnluckyBoxSample`].
+    fn certify_point(
+        &self,
+        solution: &BoxSolution<N>,
+        request: &LaneRequest<N>,
+        variable: usize,
+        prime: u64,
+        x: &Rational,
+    ) -> Result<BoxCertificate, SolverError> {
         let field = Zp64::new(prime);
-        let mut rng = rand::rngs::StdRng::seed_from_u64(seed ^ prime);
-        let x = Rational::from(Integer::from(rng.random_range(1..prime)));
         let unlucky = || SolverError::UnluckyBoxSample {
             phase: BoxPhase::Conditions,
         };
         let mut parameters = Vec::with_capacity(request.fixed.len());
         for (index, value) in request.fixed.iter().enumerate() {
             // `request.free() == [variable]`: every other value is fixed.
-            let value = value.as_ref().unwrap_or(&x);
+            let value = value.as_ref().unwrap_or(x);
             debug_assert!(index == variable || request.fixed[index].is_some());
             parameters.push(rational_image(value, &field).ok_or_else(unlucky)?);
         }
@@ -328,7 +395,7 @@ impl<const N: usize> BoxLaportaSession<N> {
             }
             routes.push(route);
         }
-        exact::certify_probabilistic(&request, &field, &rows, &routes, &solution.coefficients, &x)
+        exact::certify_probabilistic(request, &field, &rows, &routes, &solution.coefficients, x)
     }
 
     /// The finite-field lane: replay the selected rows at points of the

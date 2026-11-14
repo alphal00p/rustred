@@ -19,9 +19,10 @@ use rustred::family::{AffineDenominator, IntegralFamily};
 use rustred::sector::CutConstraint;
 use rustred::solver::SolverError;
 use rustred::solver::sector_box::{
-    BoxLaportaSession, BoxOptions, BoxPhase, BoxSolution, CensusRouter, CertificateMode,
-    ColumnOrder, DEFAULT_CERTIFICATE_PRIME, ExplicitSample, FaultInjection, FfOptions, Lane,
-    MasterCheckMode, ParameterAssignment, RouterChoice, Seeding, SlotPriority, solve_box_laporta,
+    BoxLaportaSession, BoxOptions, BoxPhase, BoxSolution, CERTIFICATE_POINTS, CensusRouter,
+    CertificateMode, ColumnOrder, DEFAULT_CERTIFICATE_PRIME, ExplicitSample, FaultInjection,
+    FfOptions, Lane, MasterCheckMode, ParameterAssignment, RouterChoice, Seeding, SlotPriority,
+    solve_box_laporta,
 };
 use serde_json::Value;
 use symbolica::domains::finite_field::{FiniteFieldCore, Zp64};
@@ -848,6 +849,33 @@ fn rules_hold_only_at_their_fixed_point() {
         .unwrap();
     assert!(general.fixed().is_empty());
     assert!(general.into_general().is_ok());
+}
+
+/// A special certificate point is no refutation (audit of #32): at
+/// `eta = 2`, a pole of the K6 reduction, the probabilistic certificate is
+/// `UnluckyBoxSample`; at a regular point it passes, and `certify` draws
+/// points until one is regular. A refuted reduction stays a `Certification`
+/// error (`exact_lane_equals_finite_field_lane_and_certificates_hold`).
+#[test]
+fn special_certificate_points_are_unlucky_not_refutations() {
+    let (mut session, targets) = session(1);
+    let solution = session
+        .materialize_ff(&targets, &[("d".into(), q(37, 11))], &FfOptions::default())
+        .unwrap();
+    assert!(matches!(
+        session.certify_at_point(&solution, DEFAULT_CERTIFICATE_PRIME, &q(2, 1)),
+        Err(SolverError::UnluckyBoxSample {
+            phase: BoxPhase::Conditions
+        })
+    ));
+    let certificate = session
+        .certify_at_point(&solution, DEFAULT_CERTIFICATE_PRIME, &q(3, 7))
+        .unwrap();
+    assert_eq!(certificate.mode, CertificateMode::Probabilistic);
+    session
+        .certify(&solution, Some(DEFAULT_CERTIFICATE_PRIME), 5)
+        .unwrap();
+    const { assert!(CERTIFICATE_POINTS > 1) };
 }
 
 /// The facade equals a session's `materialize`, in both lanes.

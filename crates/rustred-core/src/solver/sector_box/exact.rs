@@ -38,6 +38,7 @@ use crate::algebra::Coefficient;
 use crate::algebra::reconstruct::{RationalFunction, rational_image};
 
 use super::super::SolverError;
+use super::BoxPhase;
 use super::probe::LaneRequest;
 use super::rows::Zp;
 use super::system::ExactField;
@@ -396,13 +397,15 @@ pub(crate) fn certify_probabilistic<const N: usize>(
 ) -> Result<BoxCertificate, SolverError> {
     let system = &request.system;
     check_shape(coefficients, routes.len(), system.masters.len())?;
-    let reducer = replay(field, system.columns.len(), rows, &system.pivots).map_err(|index| {
-        SolverError::Certification(format!(
-            "row {index} does not reproduce its modular pivot at the certificate point"
-        ))
-    })?;
-    let point = rational_image(x, field)
-        .ok_or_else(|| SolverError::Certification("certificate point pole".into()))?;
+    // A special point is no evidence against the reduction: a row that
+    // loses its modular pivot there, or a pole of the point or of a
+    // coefficient, is an unlucky sample (the caller retries elsewhere).
+    let unlucky = || SolverError::UnluckyBoxSample {
+        phase: BoxPhase::Conditions,
+    };
+    let reducer =
+        replay(field, system.columns.len(), rows, &system.pivots).map_err(|_| unlucky())?;
+    let point = rational_image(x, field).ok_or_else(unlucky)?;
     for (target, route) in routes.iter().enumerate() {
         let mut vector = route.clone();
         for (position, &column) in system.masters.iter().enumerate() {
@@ -410,11 +413,7 @@ pub(crate) fn certify_probabilistic<const N: usize>(
             if function.is_zero() {
                 continue;
             }
-            let value = function.evaluate(field, &point).ok_or_else(|| {
-                SolverError::Certification(
-                    "a coefficient has a pole at the certificate point".into(),
-                )
-            })?;
+            let value = function.evaluate(field, &point).ok_or_else(unlucky)?;
             vector.push((column, field.neg(&value)));
         }
         if !in_span(&reducer, field, vector) {
