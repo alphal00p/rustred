@@ -131,7 +131,7 @@ pub fn job_outcome(
         } else {
             EndKind::Partial
         }),
-        canonical_blake3: None,
+        canonical_blake3: sealed.then(|| D1.to_string()),
         witness_loci_elided: 0,
     });
     if code == ExitCode::BudgetWall {

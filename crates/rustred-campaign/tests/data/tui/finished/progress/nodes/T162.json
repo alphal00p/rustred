@@ -13,7 +13,7 @@
  "node": "T162",
  "phase": "certified",
  "closure_kind": "boxed",
- "certified": true,
+ "certified": true, "certification": {"asked": "per-key", "reached": "per-key"},
  "target": {
   "target": "boxed",
   "box_id": "T162.rstar"

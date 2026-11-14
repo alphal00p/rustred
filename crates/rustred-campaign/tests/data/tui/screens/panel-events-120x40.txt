@@ -1,4 +1,4 @@
-rr_campaign  test-campaign  RUNNING  age 10m03s  hb 2s  seq 84  sessions 1  dir memory
+rr_campaign  test-campaign  RUNNING  hb 2s  age 10m03s  seq 84  sessions 1  dir memory
 -[ Recent events (22) ]------------------------------------------------------------------------------------ q: back ----
 23:00:19 .    rule_retired      T162 F003: rule T162:R:campaign:3 superseded by T162-item-00002 (replaced_by)
 23:00:18 .    node              T162: closure round 1, defect 37 of 154783 keys

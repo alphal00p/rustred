@@ -38,6 +38,11 @@
 //!                  [--primes N] [--lower] [--symbolic [--points 80] [--first-d 1001]]
 //!                  (reduce keys with the table's rules to its masters (+ lower-sector keys): exact rationals per d, or
 //!                   N(d)/D(d) with --symbolic; node::mastermap)
+//! rr_node domaincheck --table F.table.jsonl --keys FILE|'K1;K2' --out OUT.jsonl [--masters 'K;..'] [--point-valid [--dims 37/7,-11/5,9/13]]
+//!                  (EC-15, read-only: per key the engine's own decision without reducing: in_sector, zero sector, master,
+//!                   the rule find_rule selects with its rule point, rejection counts, ambiguity markers; schema
+//!                   rustred.domaincheck.v1, node::domaincheck; exit 0 ok / 3 internal / 41 input / 51 io)
+//! rr_node --capabilities   (JSON list of verbs and the domaincheck options)
 //! rr_node mastermap --old OLD.table.jsonl --new NEW.table.jsonl --out MAP.json [--old-masters 'K;..'] [--new-masters 'K;..']
 //!                  [--dims ..] [--primes N] [--no-symbolic] [--points 80] [--sym-primes 8] [--symbolic-lower]
 //!                  [--laporta DOTS,RANK|none] [--check-keys auto|'K;..'|none]
@@ -1193,6 +1198,68 @@ fn cmd_laporta(mut a: Args) -> i32 {
     if ok { 0 } else { 1 }
 }
 
+/// Every subcommand `main` dispatches (reported by `rr_node --capabilities`).
+const VERBS: [&str; 16] = [
+    "generate",
+    "probe",
+    "variants",
+    "descent",
+    "replay",
+    "predict",
+    "oracle",
+    "affine",
+    "witness",
+    "locus-rank",
+    "reduce",
+    "mastermap",
+    "mapcheck",
+    "symmasters",
+    "laporta",
+    "domaincheck",
+];
+
+/// `rr_node --capabilities`: see the header.
+fn cmd_capabilities(a: Args) -> i32 {
+    use rustred::node::domaincheck::{OPTIONS, SCHEMA};
+    a.done();
+    println!(
+        "{}",
+        serde_json::json!({"schema": "rustred.capabilities.v1", "program": "rr_node", "verbs": VERBS,
+            "domaincheck": {"schema": SCHEMA, "options": OPTIONS}})
+    );
+    0
+}
+
+/// `rr_node domaincheck` (EC-15): see the header and node::domaincheck.
+fn cmd_domaincheck(mut a: Args) -> i32 {
+    use rustred::node::domaincheck::{DomainCheckArgs, run};
+    let table = a.need("--table");
+    let keys = a.need("--keys");
+    let out = a.need("--out");
+    let masters = a.take("--masters").map(|m| keys_arg(&m));
+    let point_valid = a.flag("--point-valid");
+    let dims = dims_arg(&mut a);
+    a.done();
+    let args = DomainCheckArgs {
+        table,
+        keys,
+        out,
+        masters,
+        point_valid,
+        dims,
+    };
+    match run(&args) {
+        Ok(n) => {
+            eprintln!("[domaincheck] {n} keys -> {}", args.out);
+            0
+        }
+        Err(e) => {
+            eprintln!("rr_node domaincheck: {}", e.message());
+            e.exit_code()
+        }
+    }
+}
+
 /// `rr_node reduce`: see the header.
 fn cmd_reduce(mut a: Args) -> i32 {
     use rustred::node::mastermap::{RatFun, key_text};
@@ -1494,7 +1561,7 @@ fn main() {
     let mut items: Vec<String> = std::env::args().skip(1).collect();
     if items.is_empty() {
         die(
-            "usage: rr_node generate|probe|variants|descent|replay|predict|oracle|affine|witness|locus-rank|reduce|mastermap|mapcheck|symmasters|laporta ... (see the source header)",
+            "usage: rr_node generate|probe|variants|descent|replay|predict|oracle|affine|witness|locus-rank|reduce|mastermap|mapcheck|symmasters|laporta|domaincheck|--capabilities ... (see the source header)",
         );
     }
     let cmd = items.remove(0);
@@ -1515,6 +1582,8 @@ fn main() {
         "mapcheck" => cmd_mapcheck(a),
         "symmasters" => cmd_symmasters(a),
         "laporta" => cmd_laporta(a),
+        "domaincheck" => cmd_domaincheck(a),
+        "--capabilities" => cmd_capabilities(a),
         other => die(&format!("unknown command {other}")),
     };
     let _ = Path::new(".");

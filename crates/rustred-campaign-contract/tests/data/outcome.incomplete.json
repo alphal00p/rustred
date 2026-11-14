@@ -117,7 +117,7 @@
         "prefix_blake3": null,
         "sealed": true,
         "end": "partial",
-        "canonical_blake3": null,
+        "canonical_blake3": "1111111111111111111111111111111111111111111111111111111111111111",
         "witness_loci_elided": 0
       },
       "cert": null,
@@ -136,7 +136,11 @@
           "role": "witness",
           "path": "out/WITNESS.jsonl",
           "bytes": 10,
-          "blake3": "0000000000000000000000000000000000000000000000000000000000000000"
+          "blake3": "0000000000000000000000000000000000000000000000000000000000000000",
+          "records": 2,
+          "canonical_blake3": "1111111111111111111111111111111111111111111111111111111111111111",
+          "end": "end",
+          "sealed": true
         }
       ]
     },

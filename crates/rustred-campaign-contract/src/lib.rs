@@ -36,7 +36,7 @@ pub use canon::{CanonError, canonical_line};
 pub use classify::{Classification, Evidence, KillReason, OutcomeKind, WaitStatus, classify};
 pub use exit::ExitCode;
 pub use outcome::{JobOutcome, Outcome};
-pub use seal::{SealVerdict, TableSeal, verify_sealed};
+pub use seal::{SealVerdict, TableSeal, verify_table};
 pub use spec::{JobKind, JobSpec, SpecError};
 pub use stop::{JobStatus, StopCode, StopSource};
 

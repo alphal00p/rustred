@@ -1,32 +1,33 @@
-rr_campaign  p5l-boxed-final  STALE  age 1d04h  hb 10m06s  seq 18,402  sessions 2  dir /shared/vhirschi/t3code/vakint_dev/p_integral_dev/wt/ac-tui/crates/rustred-campaign/tests/data/tui/stale
- STALE: no heartbeat for 10m06s (> 60 s): supervisor not running? Resume with the same command.
-CPU 21/32   RAM 9.8 used, 22.0 res / 30.0G cap   host 60.0G (floor 50.0)   jobs 21
-NODES 1  FULL 0  BOXED 1  OPEN 0  certified 0  attention 1  (closed=1)
-ITEMS 1,640  open 226  run 21  acc 1,144  esc 210  rej 31  term 3  ret 57  stale 4
-RULES accepted 1,201  rejected 31  CERT 86.3% (987/1,144 proved)  upgrades 640  retired 282
-TERMINALS 3 (cand 2, bound 100/node)  DEFECT 449 keys (2 of 3 nodes with defect)  ECONOMY rules 3,402->3,120  RHS 2,310,455->2,093,318
-cpu-h 61.4  ETA ~ 54m-2.6h wall (18.0h-2.3d CPU left; 186 items; 21 jobs)
+rr_campaign  p5l-boxed-final  STALE  hb 10m06s  age 1d04h  seq 18,402  sessions 2  dir tests/data/tui/stale
+ STALE since 08:15:04 UTC (10m06s, > 60 s) [no heartbeat field: staleness inferred from file times]: supervisor not running? Resume with the same command.
+NODES 1  FULL 0  BOXED 1  OPEN 0  items done #################... 86% (1,414 of 1,640)  last event 10m07s ago
+ETA ? (supervisor not running; last estimate 54m-2.6h, 10m06s old)  cpu-h 61.4 used
+NEXT  campaign: 1 pending operation(s), 0 unsettled job(s): resume with the same command
+CPU 21/32 in use (10m06s old)   jobs 21 running, 4 queued (old)   RAM 9.8/30.0 GiB (22.0 reserved) (old)   host free 60.0 GiB (floor 50.0) (old)
+CERTIFIED at the level asked: 0 of 1 nodes (levels not stated: certified flag); rules: 569 per-key, 32 pending
+ITEMS 1,640  open 226  run 21  acc 1,144  esc 210  rej 31  term 3  stale 4
+RULES accepted 1,201  rejected 31  DEFECT 0 keys (0/1 checked nodes)  TERMINALS 3 (cand 2, bound 100/node)  ECONOMY rules 3,402->3,120, RHS 2,310,455->2,093,318
 -[ Nodes (1) ]------------------------------------------------------------------------------------------------------------------------------------------------------------------ Enter: node detail ----
-node     coverage            cert phase           open by rung               term   defect  cert%   rules  used%       RHS   CPU-h
-T162     [BOXED T162.rstar]  -    closed             0 -                    2/100        0  94.7%   1,308  42.5%   765,004    38.2
--[ Work list by ladder level ]------------------------------------  -[ Rules and certificates ]-------------------------  -[ T162 (selected; n/N) ]-----------------------------------------------------
-rung   open  run prod    acc  rej  esc tcand term  jobs  med s      accepted 1,201  rejected 31  upgrades 640             coverage [BOXED T162.rstar]  target T162.rstar  spec box T162.rstar  phase cl~
-L0      125    9    3    740   12  120     -    - 1,001   41.0      rejected by reason: cert_failed 2, exception_unknow~  closure  rounds 6  defect 0  closure keys 61,210  rules used 1,308 / 3,079 (4~
-L1       53    6    -    210    9   61     -    -   288   96.0      evidence: geometry 61  tested 96  proved 987          economy  rules 1,340 -> 1,308 (superseded 32)  RHS terms 802,113 -> 765,004
-L2       27    4    -    151    6   22     -    -   184   38.0      certified share 86.3% (accepted items at identity_p~  terminals 2 / 100 (candidates 0)  items open 0  CPU 38.2 h
-L3        3    -    -     24    1    6     -    -    31  140.0      economy: rules 3,402 -> 3,120, RHS terms 2,310,455 ~  evidence geometry 10  tested 22  proved 569  (cert 94.7%)
-L4       18    2    -     19    3    1     2    -    25  210.0      closure defect keys: T162 0                           blockers full: 9 faces, 3 loci, 1820 keys   box: -
-L5        0    -    -      -    -    -     -    3     -      -      jobs 1,904 settled: complete 311, crashed 3, killed~  certification asked -  reached -
-                                                                                                                          preferred terminals (a wish, not a requirement): none given   other terminals~
-                                                                                                                          items by state: accepted 601, escalated 100, terminal 2, retired 32
-                                                                                                                          open by rung: -
-                                                                                                                          -[ Attention (1) ]------------------------------------------------ a: all ----
-                                                                                                                          ! campaign interrupted [warning] 1 pending operation(s), 0 unsettled job(s): ~
+node coverage           cert phase  open open by rung  term defect rules  used%     RHS proved% CPU-h
+T162 [BOXED T162.rstar] -    closed    0 -            2/100      0 1,308  42.5% 765,004   94.7%  38.2
+-[ Work list by ladder level ]---------------------------------  -[ Rules and certificates ]-----------------------------------  -[ T162 (selected; n/N) ]----------------------------------------------
+rung open run prod acc rej esc tcand term stale ret  jobs med s  accepted 1,201  rejected 31  upgrades 640  retired 282          node T162
+L0    125   9    3 740  12 120     -    -     4  40 1,001  41.0  rejected: other 19, rule_covers_none 5, irregular_point 3, ce~  coverage [BOXED T162.rstar]  target T162.rstar  spec box T162.rstar  p~
+L1     53   6    - 210   9  61     -    -     -  12   288  96.0  evidence: geometry 61  tested 96  proved 987                    certification asked -  reached -  (not yet at the level asked)
+L2     27   4    - 151   6  22     -    -     -   5   184  38.0  per-key proved 987 of 1,144 accepted (86.3%)                    closure  rounds 6  defect 0  closure keys 61,210  rules used 1,308 of ~
+L3      3   -    -  24   1   6     -    -     -   -    31 140.0  economy: rules 3,402->3,120  RHS 2,310,455->2,093,318           economy  rules 1,340 -> 1,308 (superseded 32)  RHS terms 802,113 -> 76~
+L4     18   2    -  19   3   1     2    -     -   -    25 210.0  closure defect 0 keys                                           terminals 2 of bound 100 (candidates 0)  items open 0  CPU 38.2 h
+L5      -   -    -   -   -   -     -    3     -   -     -     -  jobs 1,904 settled: rule_found 1,290, complete 311, no_rule 2~  evidence geometry 10  tested 22  proved 569  (per-key proved 94.7%)
+                                                                                                                                 blockers full: 9 faces, 3 loci, 1820 keys   box: -
+                                                                                                                                 items by state: accepted 601, escalated 100, terminal 2, retired 32
+                                                                                                                                 open by rung: -
+                                                                                                                                 -[ Attention (1) ]----------------------------------------- a: all ----
+                                                                                                                                 ! campaign interrupted [warning] 1 pending operation(s), 0 unsettled j~
 -[ Running jobs 21 ]------------------------------------------------------------------------------------------------------------------------------------------------------------------- j: all jobs ----
-job                node     item               rung  cpu       RSS / cap elapsed / budget    hb phase            pid run dir
-J000917            T178     F041 n9=-1         L1      1       0.5 / 2.0    1m42s / 5m00s 10m0~ lift         2718301 large:jobs/9f3c1a07.L1.a1
-J000921            T178     F112               L0      1       0.3 / 2.0      12s / 5m00s 10m0~ seeds        2718355 large:jobs/1c2d3e4f.L0.a1
-J000922            T266     F009 a8=2          L4      1       1.8 / 2.0  26m50s / 30m00s 10m1~ solve        2718360 large:jobs/41d0aa11.L4.a2
+job     node item       rung cpu GiB RSS / cap elapsed / budget     hb phase     pid run dir
+J000917 T178 F041 n9=-1 L1     1     0.5 / 2.0    1m42s / 5m00s 10m07s lift  2718301 large:jobs/9f3c1a07.L1.a1
+J000921 T178 F112       L0     1     0.3 / 2.0      12s / 5m00s 10m06s seeds 2718355 large:jobs/1c2d3e4f.L0.a1
+J000922 T266 F009 a8=2  L4     1     1.8 / 2.0  26m50s / 30m00s 10m12s solve 2718360 large:jobs/41d0aa11.L4.a2
 -[ Recent events ]------------------------------------------------------------------------------------------------------------------------------------------------------------------- e: all events ----
 08:15:02 ok   item_upgraded     T178 F012: evidence -> identity_proved
 08:14:55 ok   item_accepted     T178 F087: rule T178:R:campaign:640 accepted (identity_proved), diag n2=n6 covers 11/11 points
@@ -38,7 +39,6 @@ J000922            T266     F009 a8=2          L4      1       1.8 / 2.0  26m50s
 08:02:12 .    input             input T266.joined changed (version 2): 4 items stale
 07:58:40 box  node              T162: closed (boxed), defect 0 of 61210 keys
 07:50:11 box  node              T162: fall back to box T162.rstar (full attempt ended: 9 faces, 3 loci, 1820 keys)
-
 
 
 
