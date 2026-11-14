@@ -83,7 +83,8 @@ fn rule(d: CaseDomain, tag: &str, rhs: u64) -> CandidateRule {
         bytes: None,
         rows: None,
         tie_break_only: None,
-        symmetry_rows: false, witness: rustred_campaign_core::cover::WitnessStatus::Complete,
+        symmetry_rows: false,
+        witness: rustred_campaign_core::cover::WitnessStatus::Complete,
     }
 }
 
@@ -1731,16 +1732,49 @@ fn witness_status_not_complete_is_never_credited() {
             let p = p();
             let mut r = rule(dom(&p, &req.case, &[]), "w", 3);
             r.witness = self.0;
-            SolveAnswer { outcome: SolveOutcome::Rules(vec![r]), cpu_ms: 1, rows: None }
+            SolveAnswer {
+                outcome: SolveOutcome::Rules(vec![r]),
+                cpu_ms: 1,
+                rows: None,
+            }
         }
     }
     let p = p();
     let cmp = cmp6();
     for ws in [WitnessStatus::Elided, WitnessStatus::NotCarried] {
-        let inp = RepairInputs { params: &p, descent: &cmp, key: key(2, 2), extra_targets: vec![], tables: &NoTables };
-        let r = repair_key(&inp, &RepairBudget::default(), &mut W(ws), &mut Facts::default(), &mut ReplayProver, None);
+        let inp = RepairInputs {
+            params: &p,
+            descent: &cmp,
+            key: key(2, 2),
+            extra_targets: vec![],
+            tables: &NoTables,
+        };
+        let r = repair_key(
+            &inp,
+            &RepairBudget::default(),
+            &mut W(ws),
+            &mut Facts::default(),
+            &mut ReplayProver,
+            None,
+        );
         assert!(r.is_err(), "{ws:?}: {r:?}");
     }
-    let inp = RepairInputs { params: &p, descent: &cmp, key: key(2, 2), extra_targets: vec![], tables: &NoTables };
-    assert!(repair_key(&inp, &RepairBudget::default(), &mut W(WitnessStatus::Complete), &mut Facts::default(), &mut ReplayProver, None).is_ok());
+    let inp = RepairInputs {
+        params: &p,
+        descent: &cmp,
+        key: key(2, 2),
+        extra_targets: vec![],
+        tables: &NoTables,
+    };
+    assert!(
+        repair_key(
+            &inp,
+            &RepairBudget::default(),
+            &mut W(WitnessStatus::Complete),
+            &mut Facts::default(),
+            &mut ReplayProver,
+            None
+        )
+        .is_ok()
+    );
 }

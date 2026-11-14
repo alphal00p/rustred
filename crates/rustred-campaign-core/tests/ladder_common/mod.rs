@@ -256,7 +256,8 @@ impl Scripted {
             bytes: None,
             rows: r.rows,
             tie_break_only: r.tie_break,
-            symmetry_rows: false, witness: rustred_campaign_core::cover::WitnessStatus::Complete,
+            symmetry_rows: false,
+            witness: rustred_campaign_core::cover::WitnessStatus::Complete,
         }
     }
 }

@@ -104,11 +104,12 @@ impl Recipe {
                 if free.contains(&i) {
                     None
                 } else {
-                    Some(case.fixed.get(&i).copied().unwrap_or(if params.lines[i] {
-                        1
-                    } else {
-                        0
-                    }))
+                    Some(
+                        case.fixed
+                            .get(&i)
+                            .copied()
+                            .unwrap_or(if params.lines[i] { 1 } else { 0 }),
+                    )
                 }
             })
             .collect();
@@ -277,7 +278,9 @@ pub fn accept_recipe(
                     failed.push((k, RecipeFailure::Pole));
                 } else if let Some(r) = rel.rhs_keys.iter().find(|r| !descent.lower(r, &k)) {
                     failed.push((k, RecipeFailure::NotDescending { rhs: r.clone() }));
-                } else if recipe.determinism_id.is_some() && rel.determinism_id != recipe.determinism_id {
+                } else if recipe.determinism_id.is_some()
+                    && rel.determinism_id != recipe.determinism_id
+                {
                     failed.push((k, RecipeFailure::DigestMismatch));
                 } else {
                     cert.insert(

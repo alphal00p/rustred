@@ -12,6 +12,14 @@
 //! checked against the ground truth. Run: `cargo test --test audit_b_model -- --nocapture` (debug: overflow checks).
 //! Scale with AUDIT_WORLDS (default 2000).
 #![allow(clippy::too_many_arguments, clippy::type_complexity, dead_code)]
+// ported verbatim from the auditor's harness: style lints of the original kept as they were
+#![allow(
+    clippy::for_kv_map,
+    clippy::needless_range_loop,
+    clippy::cloned_ref_to_slice_refs,
+    clippy::should_implement_trait,
+    clippy::manual_is_multiple_of
+)]
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -27,16 +35,18 @@ use rustred_campaign_core::repair::{
     CaseRequest, CaseSolver, Coverage, CoverageVerdict, Descent, FactSource, KeyProver,
     RepairBudget, RepairFailure, RepairInputs, TreeLimits, TreeReport, drive_tree, repair_key,
 };
-use rustred_campaign_core::terminals::{FallbackSet, TerminalError, check_terminals, preferred_report};
+use rustred_campaign_core::terminals::{
+    FallbackSet, TerminalError, check_terminals, preferred_report,
+};
 use rustred_campaign_core::worklist::affine::{AffineEq, AffineError, canonical_system, fit_loci};
 use rustred_campaign_core::worklist::items::{
-    CaseSpec, EvidenceLevel, Face, Item, ItemKind, Key, NodeParams, PreferredEntry,
-    UserBox, WorklistError, box_restricted_item, items_from_closure_keys,
+    CaseSpec, EvidenceLevel, Face, Item, ItemKind, Key, NodeParams, PreferredEntry, UserBox,
+    WorklistError, box_restricted_item, items_from_closure_keys,
 };
 use rustred_campaign_core::worklist::ladder::{
     CandidateRule, Disposition, Interruption, ItemState, KeyEvidence, Next, PointFacts,
-    PointVerdict, ProofFailure, SolveAnswer, SolveOutcome, Tri, judge_points_with_hits,
-    next_steps, sub_counter,
+    PointVerdict, ProofFailure, SolveAnswer, SolveOutcome, Tri, judge_points_with_hits, next_steps,
+    sub_counter,
 };
 use rustred_campaign_core::worklist::policy::CentreSpec;
 use rustred_campaign_core::worklist::seed::{AttemptBudget, SeedSetting, seed_space};
@@ -129,8 +139,16 @@ impl Req {
             CentreSpec::Fixed,
         ];
         Req {
-            centre: if r.chance(350) { None } else { Some(r.pick(&cs)) },
-            floor: if r.chance(600) { None } else { Some(r.chance(500)) },
+            centre: if r.chance(350) {
+                None
+            } else {
+                Some(r.pick(&cs))
+            },
+            floor: if r.chance(600) {
+                None
+            } else {
+                Some(r.chance(500))
+            },
             min_depth: if r.chance(700) { 2 } else { 3 },
         }
     }
@@ -185,7 +203,11 @@ fn random_exception(r: &mut Rng, free: &[usize], lines: &[bool], n: usize) -> Op
     }
     let s = r.pick(free);
     let val = |r: &mut Rng, s: usize| -> i32 {
-        if lines[s] { r.range(2, 4) as i32 } else { r.range(-3, -1) as i32 }
+        if lines[s] {
+            r.range(2, 4) as i32
+        } else {
+            r.range(-3, -1) as i32
+        }
     };
     let eq = match r.below(4) {
         0 => AffineEq::fixed(s, val(r, s)),
@@ -227,7 +249,11 @@ fn random_plane(r: &mut Rng, free: &[usize], lines: &[bool]) -> Option<AffineEq>
     if r.chance(600) {
         Some(AffineEq::fixed(
             s,
-            if lines[s] { r.range(2, 4) as i32 } else { r.range(-3, -1) as i32 },
+            if lines[s] {
+                r.range(2, 4) as i32
+            } else {
+                r.range(-3, -1) as i32
+            },
         ))
     } else {
         let t = r.pick(free);
@@ -263,9 +289,17 @@ impl World {
             if faces.len() >= n_faces {
                 break;
             }
-            let mut sd: Vec<usize> = line_slots.iter().copied().filter(|_| r.chance(450)).collect();
+            let mut sd: Vec<usize> = line_slots
+                .iter()
+                .copied()
+                .filter(|_| r.chance(450))
+                .collect();
             sd.truncate(3);
-            let mut sn: Vec<usize> = num_slots.iter().copied().filter(|_| r.chance(350)).collect();
+            let mut sn: Vec<usize> = num_slots
+                .iter()
+                .copied()
+                .filter(|_| r.chance(350))
+                .collect();
             sn.truncate(2);
             if sd.is_empty() && sn.is_empty() {
                 if !line_slots.is_empty() {
@@ -327,8 +361,16 @@ impl World {
                     p_irregular: [0, 0, 20, 100][r.below(4) as usize],
                     p_nodesc: [0, 0, 50, 300, 1000][r.below(5) as usize],
                     p_tie: [0, 200, 1000][r.below(3) as usize],
-                    hidden_plane: if r.chance(150) { random_plane(&mut r, &free, &lines) } else { None },
-                    nodesc_plane: if r.chance(200) { random_plane(&mut r, &free, &lines) } else { None },
+                    hidden_plane: if r.chance(150) {
+                        random_plane(&mut r, &free, &lines)
+                    } else {
+                        None
+                    },
+                    nodesc_plane: if r.chance(200) {
+                        random_plane(&mut r, &free, &lines)
+                    } else {
+                        None
+                    },
                     tie_only: false,
                 };
                 v.push(hr);
@@ -350,7 +392,9 @@ impl World {
         };
         for v in w.root_rules.values() {
             for hr in v {
-                w.registry.borrow_mut().insert(hr.digest.clone(), hr.clone());
+                w.registry
+                    .borrow_mut()
+                    .insert(hr.digest.clone(), hr.clone());
             }
         }
         w
@@ -360,7 +404,11 @@ impl World {
         let reg = self.registry.borrow();
         let def = HiddenRule {
             digest: digest.into(),
-            req: Req { centre: None, floor: None, min_depth: 2 },
+            req: Req {
+                centre: None,
+                floor: None,
+                min_depth: 2,
+            },
             domain: CaseDomain::free(self.n, None),
             rhs_terms: 1,
             p_invalid: 300,
@@ -478,11 +526,18 @@ impl World {
                 p_irregular: [0, 0, 20, 100][r.below(4) as usize],
                 p_nodesc: [0, 0, 50, 300][r.below(4) as usize],
                 p_tie: [0, 200, 1000][r.below(3) as usize],
-                hidden_plane: if r.chance(100) { random_plane(&mut r, &c.free(), &self.lines) } else { None },
+                hidden_plane: if r.chance(100) {
+                    random_plane(&mut r, &c.free(), &self.lines)
+                } else {
+                    None
+                },
                 nodesc_plane: None,
                 tie_only: false,
             };
-            self.registry.borrow_mut().entry(digest).or_insert(hr.clone());
+            self.registry
+                .borrow_mut()
+                .entry(digest)
+                .or_insert(hr.clone());
             out.push(hr);
         }
         out
@@ -490,7 +545,10 @@ impl World {
 
     pub fn rules_for_case(&self, c: &CaseSpec) -> Vec<HiddenRule> {
         if c.fixed.is_empty() && c.equations.is_empty() {
-            self.root_rules.get(&c.face.label()).cloned().unwrap_or_default()
+            self.root_rules
+                .get(&c.face.label())
+                .cloned()
+                .unwrap_or_default()
         } else {
             self.child_rules(c)
         }
@@ -506,24 +564,38 @@ impl World {
             bytes: None,
             rows: None,
             tie_break_only: Some(hr.p_tie == 1000),
-            symmetry_rows: false, witness: rustred_campaign_core::cover::WitnessStatus::Complete,
+            symmetry_rows: false,
+            witness: rustred_campaign_core::cover::WitnessStatus::Complete,
         }
     }
 
     /// The TRUTHFUL engine answer for (case, setting) (pure).
     pub fn answer(&self, case: &CaseSpec, s: &SeedSetting) -> SolveAnswer {
-        let x = hsh(self.seed, &("ans", case.canonical_text(), s.canonical_key()));
+        let x = hsh(
+            self.seed,
+            &("ans", case.canonical_text(), s.canonical_key()),
+        );
         let cpu = 1 + x % 5000;
         if (x >> 16) % 1000 < self.p_fail {
             let outcome = match (x >> 32) % 6 {
                 0 => SolveOutcome::BudgetStop { time_decided: true },
-                1 => SolveOutcome::BudgetStop { time_decided: false },
-                2 => SolveOutcome::RefusedHeavy { reason: "heavy".into() },
-                3 => SolveOutcome::ProfileRefused { reason: "profile".into() },
+                1 => SolveOutcome::BudgetStop {
+                    time_decided: false,
+                },
+                2 => SolveOutcome::RefusedHeavy {
+                    reason: "heavy".into(),
+                },
+                3 => SolveOutcome::ProfileRefused {
+                    reason: "profile".into(),
+                },
                 4 => SolveOutcome::KilledMemory,
                 _ => SolveOutcome::Error("engine error".into()),
             };
-            return SolveAnswer { outcome, cpu_ms: cpu, rows: None };
+            return SolveAnswer {
+                outcome,
+                cpu_ms: cpu,
+                rows: None,
+            };
         }
         let rules: Vec<CandidateRule> = self
             .rules_for_case(case)
@@ -532,7 +604,11 @@ impl World {
             .map(|h| self.candidate(h))
             .collect();
         SolveAnswer {
-            outcome: if rules.is_empty() { SolveOutcome::NoRelation } else { SolveOutcome::Rules(rules) },
+            outcome: if rules.is_empty() {
+                SolveOutcome::NoRelation
+            } else {
+                SolveOutcome::Rules(rules)
+            },
             cpu_ms: cpu,
             rows: None,
         }
@@ -540,7 +616,8 @@ impl World {
 
     pub fn params(&self, r: &mut Rng) -> NodeParams {
         let mut p = NodeParams::with_lines("toy", self.lines.clone());
-        p.min_evidence = [EvidenceLevel::A1, EvidenceLevel::A2, EvidenceLevel::A3][r.below(3) as usize];
+        p.min_evidence =
+            [EvidenceLevel::A1, EvidenceLevel::A2, EvidenceLevel::A3][r.below(3) as usize];
         p.terminals_max = [0usize, 1, 3, 100][r.below(4) as usize];
         p
     }
@@ -594,19 +671,27 @@ impl Solver<'_> {
             d.chart = None;
         }
         let digest = format!("g{x:016x}");
-        self.w.registry.borrow_mut().entry(digest.clone()).or_insert(HiddenRule {
-            digest: digest.clone(),
-            req: Req { centre: None, floor: None, min_depth: 2 },
-            domain: d.clone(),
-            rhs_terms: 1,
-            p_invalid: 300,
-            p_irregular: 100,
-            p_nodesc: 300,
-            p_tie: 200,
-            hidden_plane: None,
-            nodesc_plane: None,
-            tie_only: false,
-        });
+        self.w
+            .registry
+            .borrow_mut()
+            .entry(digest.clone())
+            .or_insert(HiddenRule {
+                digest: digest.clone(),
+                req: Req {
+                    centre: None,
+                    floor: None,
+                    min_depth: 2,
+                },
+                domain: d.clone(),
+                rhs_terms: 1,
+                p_invalid: 300,
+                p_irregular: 100,
+                p_nodesc: 300,
+                p_tie: 200,
+                hidden_plane: None,
+                nodesc_plane: None,
+                tie_only: false,
+            });
         CandidateRule {
             domain: d,
             digest,
@@ -616,7 +701,8 @@ impl Solver<'_> {
             bytes: None,
             rows: None,
             tie_break_only: None,
-            symmetry_rows: r.chance(100), witness: rustred_campaign_core::cover::WitnessStatus::Complete,
+            symmetry_rows: r.chance(100),
+            witness: rustred_campaign_core::cover::WitnessStatus::Complete,
         }
     }
 }
@@ -634,19 +720,27 @@ impl CaseSolver for Solver<'_> {
         }
         if self.p_operator > 0 && self.rng.chance(self.p_operator) {
             return SolveAnswer {
-                outcome: SolveOutcome::Interrupted { by: Interruption::Operator },
+                outcome: SolveOutcome::Interrupted {
+                    by: Interruption::Operator,
+                },
                 cpu_ms: 3,
                 rows: None,
             };
         }
         if self.p_infra > 0 && self.rng.chance(self.p_infra) {
             return SolveAnswer {
-                outcome: SolveOutcome::Interrupted { by: Interruption::Infra },
+                outcome: SolveOutcome::Interrupted {
+                    by: Interruption::Infra,
+                },
                 cpu_ms: 3,
                 rows: None,
             };
         }
-        let key = format!("{}|{}", req.case.canonical_text(), req.setting.canonical_key());
+        let key = format!(
+            "{}|{}",
+            req.case.canonical_text(),
+            req.setting.canonical_key()
+        );
         let cnt = {
             let e = self.per_request.entry(key).or_insert(0);
             *e += 1;
@@ -654,7 +748,15 @@ impl CaseSolver for Solver<'_> {
         };
         let w = self.w;
         let truthful = w.answer(&req.case, &req.setting);
-        let x = hsh(w.seed, &("mode", req.case.canonical_text(), req.setting.canonical_key(), cnt));
+        let x = hsh(
+            w.seed,
+            &(
+                "mode",
+                req.case.canonical_text(),
+                req.setting.canonical_key(),
+                cnt,
+            ),
+        );
         match self.mode {
             SolverMode::Truthful => truthful,
             SolverMode::ForeignDomain => {
@@ -663,17 +765,29 @@ impl CaseSolver for Solver<'_> {
                     _ => vec![],
                 };
                 v.push(self.garbage(&req.case, x % 3));
-                SolveAnswer { outcome: SolveOutcome::Rules(v), cpu_ms: truthful.cpu_ms, rows: None }
+                SolveAnswer {
+                    outcome: SolveOutcome::Rules(v),
+                    cpu_ms: truthful.cpu_ms,
+                    rows: None,
+                }
             }
             SolverMode::WrongArity => {
                 let mut g = self.garbage(&req.case, 7);
                 g.domain = CaseDomain::free(w.n + 1 + (x % 3) as usize, None);
                 g.digest = format!("{}-arity", g.digest);
-                SolveAnswer { outcome: SolveOutcome::Rules(vec![g]), cpu_ms: 10, rows: None }
+                SolveAnswer {
+                    outcome: SolveOutcome::Rules(vec![g]),
+                    cpu_ms: 10,
+                    rows: None,
+                }
             }
             SolverMode::SameRuleForever => {
                 let g = self.garbage(&CaseSpec::face_case(Face::new(vec![], vec![])), 1);
-                SolveAnswer { outcome: SolveOutcome::Rules(vec![g]), cpu_ms: 10, rows: None }
+                SolveAnswer {
+                    outcome: SolveOutcome::Rules(vec![g]),
+                    cpu_ms: 10,
+                    rows: None,
+                }
             }
             SolverMode::RegenExceptions => {
                 // exceptions that regenerate the parent case: literals over slots OUTSIDE the face (at their floor:
@@ -707,25 +821,40 @@ impl CaseSolver for Solver<'_> {
                         }
                     }
                 }
-                w.registry.borrow_mut().entry(g.digest.clone()).or_insert(HiddenRule {
-                    digest: g.digest.clone(),
-                    req: Req { centre: None, floor: None, min_depth: 2 },
-                    domain: g.domain.clone(),
-                    rhs_terms: 1,
-                    p_invalid: 0,
-                    p_irregular: 0,
-                    p_nodesc: 0,
-                    p_tie: 0,
-                    hidden_plane: None,
-                    nodesc_plane: None,
-                    tie_only: false,
-                });
-                SolveAnswer { outcome: SolveOutcome::Rules(vec![g]), cpu_ms: 10, rows: None }
+                w.registry
+                    .borrow_mut()
+                    .entry(g.digest.clone())
+                    .or_insert(HiddenRule {
+                        digest: g.digest.clone(),
+                        req: Req {
+                            centre: None,
+                            floor: None,
+                            min_depth: 2,
+                        },
+                        domain: g.domain.clone(),
+                        rhs_terms: 1,
+                        p_invalid: 0,
+                        p_irregular: 0,
+                        p_nodesc: 0,
+                        p_tie: 0,
+                        hidden_plane: None,
+                        nodesc_plane: None,
+                        tie_only: false,
+                    });
+                SolveAnswer {
+                    outcome: SolveOutcome::Rules(vec![g]),
+                    cpu_ms: 10,
+                    rows: None,
+                }
             }
             SolverMode::Alternating => {
                 if cnt % 2 == 1 {
                     let g = self.garbage(&req.case, cnt);
-                    SolveAnswer { outcome: SolveOutcome::Rules(vec![g]), cpu_ms: 5, rows: None }
+                    SolveAnswer {
+                        outcome: SolveOutcome::Rules(vec![g]),
+                        cpu_ms: 5,
+                        rows: None,
+                    }
                 } else {
                     truthful
                 }
@@ -734,24 +863,57 @@ impl CaseSolver for Solver<'_> {
                 let total = self.calls.borrow().solve;
                 let outcome = match total % 9 {
                     0 => SolveOutcome::BudgetStop { time_decided: true },
-                    1 => SolveOutcome::BudgetStop { time_decided: false },
+                    1 => SolveOutcome::BudgetStop {
+                        time_decided: false,
+                    },
                     2 => SolveOutcome::RefusedHeavy { reason: "h".into() },
                     3 => SolveOutcome::ProfileRefused { reason: "p".into() },
                     4 => SolveOutcome::KilledMemory,
                     5 => SolveOutcome::Error("e".into()),
                     6 => SolveOutcome::NoRelation,
                     7 => SolveOutcome::Rules(vec![]),
-                    _ => SolveOutcome::Interrupted { by: Interruption::Operator },
+                    _ => SolveOutcome::Interrupted {
+                        by: Interruption::Operator,
+                    },
                 };
-                SolveAnswer { outcome, cpu_ms: 7, rows: None }
+                SolveAnswer {
+                    outcome,
+                    cpu_ms: 7,
+                    rows: None,
+                }
             }
             SolverMode::Garbage => match x % 6 {
                 0 => truthful,
-                1 => SolveAnswer { outcome: SolveOutcome::Rules(vec![self.garbage(&req.case, x)]), cpu_ms: 1, rows: None },
-                2 => SolveAnswer { outcome: SolveOutcome::Rules(vec![self.garbage(&req.case, 1), self.garbage(&req.case, 1)]), cpu_ms: 0, rows: None },
-                3 => SolveAnswer { outcome: SolveOutcome::Error(String::new()), cpu_ms: u64::MAX / 4, rows: Some(u64::MAX) },
-                4 => SolveAnswer { outcome: SolveOutcome::Interrupted { by: Interruption::Infra }, cpu_ms: 0, rows: None },
-                _ => SolveAnswer { outcome: SolveOutcome::Rules(vec![]), cpu_ms: 0, rows: None },
+                1 => SolveAnswer {
+                    outcome: SolveOutcome::Rules(vec![self.garbage(&req.case, x)]),
+                    cpu_ms: 1,
+                    rows: None,
+                },
+                2 => SolveAnswer {
+                    outcome: SolveOutcome::Rules(vec![
+                        self.garbage(&req.case, 1),
+                        self.garbage(&req.case, 1),
+                    ]),
+                    cpu_ms: 0,
+                    rows: None,
+                },
+                3 => SolveAnswer {
+                    outcome: SolveOutcome::Error(String::new()),
+                    cpu_ms: u64::MAX / 4,
+                    rows: Some(u64::MAX),
+                },
+                4 => SolveAnswer {
+                    outcome: SolveOutcome::Interrupted {
+                        by: Interruption::Infra,
+                    },
+                    cpu_ms: 0,
+                    rows: None,
+                },
+                _ => SolveAnswer {
+                    outcome: SolveOutcome::Rules(vec![]),
+                    cpu_ms: 0,
+                    rows: None,
+                },
             },
         }
     }
@@ -806,7 +968,11 @@ impl FactSource for Facts<'_> {
                 };
                 PointFacts {
                     regular: tri(x),
-                    rhs_top: if (x >> 8) % 4 == 0 { None } else { Some(self.w.rhs(&rule.digest, key)) },
+                    rhs_top: if (x >> 8) % 4 == 0 {
+                        None
+                    } else {
+                        Some(self.w.rhs(&rule.digest, key))
+                    },
                     exceptions_complete: tri(x >> 16),
                     note: None,
                 }
@@ -837,7 +1003,12 @@ pub struct Prover<'w> {
 }
 
 impl KeyProver for Prover<'_> {
-    fn prove(&mut self, rule: &CandidateRule, keys: &[Key], wanted: EvidenceLevel) -> Vec<KeyEvidence> {
+    fn prove(
+        &mut self,
+        rule: &CandidateRule,
+        keys: &[Key],
+        wanted: EvidenceLevel,
+    ) -> Vec<KeyEvidence> {
         {
             let mut c = self.calls.borrow_mut();
             c.prove += 1;
@@ -850,25 +1021,41 @@ impl KeyProver for Prover<'_> {
                 c.repeat = 0;
             }
             if c.repeat >= 1000 {
-                panic!("LIVELOCK: identical evidence request repeated {} times with no other call in between (rule {})", c.repeat, rule.digest);
+                panic!(
+                    "LIVELOCK: identical evidence request repeated {} times with no other call in between (rule {})",
+                    c.repeat, rule.digest
+                );
             }
             if c.prove > c.cap.max(300_000) {
                 panic!("LIVELOCK: prover calls above {}", c.cap.max(300_000));
             }
         }
         let truthful = |k: &Key| -> KeyEvidence {
-            let ok = rule.domain.applies(k) == Verdict::Applies && self.w.truth(&rule.digest, k).valid;
+            let ok =
+                rule.domain.applies(k) == Verdict::Applies && self.w.truth(&rule.digest, k).valid;
             if ok {
-                KeyEvidence { key: k.clone(), level: Some(wanted), failure: None }
+                KeyEvidence {
+                    key: k.clone(),
+                    level: Some(wanted),
+                    failure: None,
+                }
             } else {
-                KeyEvidence { key: k.clone(), level: None, failure: Some(ProofFailure::NonMembership) }
+                KeyEvidence {
+                    key: k.clone(),
+                    level: None,
+                    failure: Some(ProofFailure::NonMembership),
+                }
             }
         };
         let out: Vec<KeyEvidence> = match self.mode {
             ProverMode::Truthful => keys.iter().map(truthful).collect(),
             ProverMode::UnknownAll => keys
                 .iter()
-                .map(|k| KeyEvidence { key: k.clone(), level: None, failure: Some(ProofFailure::Unknown("?".into())) })
+                .map(|k| KeyEvidence {
+                    key: k.clone(),
+                    level: None,
+                    failure: Some(ProofFailure::Unknown("?".into())),
+                })
                 .collect(),
             ProverMode::UnsupportedAll => keys
                 .iter()
@@ -879,22 +1066,41 @@ impl KeyProver for Prover<'_> {
                 })
                 .collect(),
             ProverMode::Empty => vec![],
-            ProverMode::NoneNone => keys.iter().map(|k| KeyEvidence { key: k.clone(), level: None, failure: None }).collect(),
+            ProverMode::NoneNone => keys
+                .iter()
+                .map(|k| KeyEvidence {
+                    key: k.clone(),
+                    level: None,
+                    failure: None,
+                })
+                .collect(),
             ProverMode::WrongKey => keys
                 .iter()
                 .map(|k| {
                     let mut k2 = k.clone();
                     k2[0] += 1;
-                    KeyEvidence { key: k2, level: Some(EvidenceLevel::A4), failure: None }
+                    KeyEvidence {
+                        key: k2,
+                        level: Some(EvidenceLevel::A4),
+                        failure: None,
+                    }
                 })
                 .collect(),
             ProverMode::LowerLevel => keys
                 .iter()
-                .map(|k| KeyEvidence { key: k.clone(), level: Some(EvidenceLevel::A1), failure: None })
+                .map(|k| KeyEvidence {
+                    key: k.clone(),
+                    level: Some(EvidenceLevel::A1),
+                    failure: None,
+                })
                 .collect(),
             ProverMode::HigherWithFailure => keys
                 .iter()
-                .map(|k| KeyEvidence { key: k.clone(), level: Some(EvidenceLevel::A4), failure: Some(ProofFailure::Fail) })
+                .map(|k| KeyEvidence {
+                    key: k.clone(),
+                    level: Some(EvidenceLevel::A4),
+                    failure: Some(ProofFailure::Fail),
+                })
                 .collect(),
             ProverMode::Random => keys
                 .iter()
@@ -902,10 +1108,26 @@ impl KeyProver for Prover<'_> {
                     let x = hsh(self.w.seed, &("prove", &rule.digest, k));
                     match x % 5 {
                         0 => truthful(k),
-                        1 => KeyEvidence { key: k.clone(), level: None, failure: Some(ProofFailure::Undecided("u".into())) },
-                        2 => KeyEvidence { key: k.clone(), level: Some(EvidenceLevel::A0), failure: None },
-                        3 => KeyEvidence { key: k.clone(), level: None, failure: Some(ProofFailure::NotInSpanModular) },
-                        _ => KeyEvidence { key: k.clone(), level: Some(wanted), failure: Some(ProofFailure::Hidden) },
+                        1 => KeyEvidence {
+                            key: k.clone(),
+                            level: None,
+                            failure: Some(ProofFailure::Undecided("u".into())),
+                        },
+                        2 => KeyEvidence {
+                            key: k.clone(),
+                            level: Some(EvidenceLevel::A0),
+                            failure: None,
+                        },
+                        3 => KeyEvidence {
+                            key: k.clone(),
+                            level: None,
+                            failure: Some(ProofFailure::NotInSpanModular),
+                        },
+                        _ => KeyEvidence {
+                            key: k.clone(),
+                            level: Some(wanted),
+                            failure: Some(ProofFailure::Hidden),
+                        },
                     }
                 })
                 .collect(),
@@ -914,7 +1136,10 @@ impl KeyProver for Prover<'_> {
             if e.failure.is_none()
                 && let Some(l) = e.level
             {
-                let ent = self.granted.entry((rule.digest.clone(), e.key.clone())).or_insert(l);
+                let ent = self
+                    .granted
+                    .entry((rule.digest.clone(), e.key.clone()))
+                    .or_insert(l);
                 if l > *ent {
                     *ent = l;
                 }
@@ -972,11 +1197,17 @@ pub fn batch_tree(
         }
         let idx = b.out.len();
         b.seen.insert(st.item.id.0.clone(), idx);
-        b.out.push(rustred_campaign_core::repair::ItemReport { state: st.clone(), disposition: None });
+        b.out.push(rustred_campaign_core::repair::ItemReport {
+            state: st.clone(),
+            disposition: None,
+        });
         loop {
             b.steps += 1;
             if b.steps > b.cap {
-                return Err(format!("batch driver: more than {} steps (livelock)", b.cap));
+                return Err(format!(
+                    "batch driver: more than {} steps (livelock)",
+                    b.cap
+                ));
             }
             match next_steps(&st, b.params) {
                 Next::Run(list) => {
@@ -989,14 +1220,22 @@ pub fn batch_tree(
                     }
                     for i in order {
                         let a = &list[i];
-                        let ans = solver.solve(&CaseRequest::from_attempt(&b.params.node, a), &a.budget);
+                        let ans =
+                            solver.solve(&CaseRequest::from_attempt(&b.params.node, a), &a.budget);
                         st.record_answer(a, ans);
                     }
                 }
                 Next::NeedVerdicts(reqs) => {
                     for r in reqs {
                         let cand = st.records[&r.attempt_key].candidates()[r.index].clone();
-                        let (v, hits) = judge_points_with_hits(&cand, &r.keys, facts, b.descent, &b.params.preferred, &b.params.lines);
+                        let (v, hits) = judge_points_with_hits(
+                            &cand,
+                            &r.keys,
+                            facts,
+                            b.descent,
+                            &b.params.preferred,
+                            &b.params.lines,
+                        );
                         st.record_verdicts(&r.attempt_key, r.index, v);
                         st.record_preferred_hits(&r.attempt_key, r.index, hits);
                     }
@@ -1008,7 +1247,11 @@ pub fn batch_tree(
                         ev.retain(|e| r.keys.contains(&e.key));
                         for k in &r.keys {
                             if !ev.iter().any(|e| &e.key == k) {
-                                ev.push(KeyEvidence { key: k.clone(), level: None, failure: Some(ProofFailure::Unknown("no answer".into())) });
+                                ev.push(KeyEvidence {
+                                    key: k.clone(),
+                                    level: None,
+                                    failure: Some(ProofFailure::Unknown("no answer".into())),
+                                });
                             }
                         }
                         st.record_evidence(&r.attempt_key, r.index, ev);
@@ -1027,7 +1270,11 @@ pub fn batch_tree(
                         }
                     }
                     let follow = match &d {
-                        Disposition::Split { children, alternatives, .. } => Some((children.clone(), alternatives.clone())),
+                        Disposition::Split {
+                            children,
+                            alternatives,
+                            ..
+                        } => Some((children.clone(), alternatives.clone())),
                         _ => None,
                     };
                     b.out[idx].state = st;
@@ -1045,7 +1292,16 @@ pub fn batch_tree(
             }
         }
     }
-    let mut b = B { params, descent, served: BTreeSet::new(), out: vec![], seen: BTreeMap::new(), rng: shuffle.map(Rng::new), steps: 0, cap: step_cap };
+    let mut b = B {
+        params,
+        descent,
+        served: BTreeSet::new(),
+        out: vec![],
+        seen: BTreeMap::new(),
+        rng: shuffle.map(Rng::new),
+        steps: 0,
+        cap: step_cap,
+    };
     for r in roots {
         process(&mut b, r, solver, facts, prover)?;
     }
@@ -1057,7 +1313,10 @@ pub fn batch_tree(
         }
     }
     rustred_campaign_core::repair::seal_tree(&mut items, params);
-    Ok(items.into_iter().map(|r| (r.state.item.id.0.clone(), format!("{:?}", r.disposition))).collect())
+    Ok(items
+        .into_iter()
+        .map(|r| (r.state.item.id.0.clone(), format!("{:?}", r.disposition)))
+        .collect())
 }
 
 pub fn report_signature(rep: &TreeReport) -> Vec<(String, String)> {
@@ -1112,14 +1371,23 @@ impl Tally {
             .s
             .iter()
             .filter(|(k, s)| s.violations > 0 && prefixes.iter().any(|p| k.starts_with(p)))
-            .map(|(k, s)| format!("{k}: {} violations, e.g. {:?}", s.violations, s.examples.first()))
+            .map(|(k, s)| {
+                format!(
+                    "{k}: {} violations, e.g. {:?}",
+                    s.violations,
+                    s.examples.first()
+                )
+            })
             .collect();
         assert!(bad.is_empty(), "{title}: {bad:#?}");
     }
     pub fn print(&self, title: &str) {
         eprintln!("==== {title}");
         for (k, s) in &self.s {
-            eprintln!("  {k:<48} runs {:>8} violations {:>6}", s.runs, s.violations);
+            eprintln!(
+                "  {k:<48} runs {:>8} violations {:>6}",
+                s.runs, s.violations
+            );
             eprintln!("STAT|{title}|{k}|{}|{}", s.runs, s.violations);
             for e in &s.examples {
                 eprintln!("      e.g. {e}");
@@ -1154,11 +1422,15 @@ pub fn check_tree(
     let min = params.min_evidence;
     let wid = format!("{tag} seed={} n={} lines={:?}", w.seed, w.n, w.lines);
     // v1.2 (audit A M3): only HONOURED preferred keys (at most the bound, in key order) are allowed terminals
-    let hon = params.preferred.honoured(&w.gap, &params.lines, params.terminals_max);
+    let hon = params
+        .preferred
+        .honoured(&w.gap, &params.lines, params.terminals_max);
     // served map over the whole tree (final covers incl. reserve)
     let mut served_by: BTreeMap<Key, Vec<(usize, usize)>> = BTreeMap::new();
     for (ii, r) in rep.items.iter().enumerate() {
-        if let Some(Disposition::Covered { cover } | Disposition::Split { cover, .. }) = &r.disposition {
+        if let Some(Disposition::Covered { cover } | Disposition::Split { cover, .. }) =
+            &r.disposition
+        {
             for (mi, m) in cover.members.iter().enumerate() {
                 for k in &m.served {
                     served_by.entry(k.clone()).or_default().push((ii, mi));
@@ -1171,30 +1443,51 @@ pub fn check_tree(
     // ---- I1 soundness of every served key; (b) nothing accepted that the prover did not justify
     t.run(&format!("I1 soundness [{tag}]"));
     for (ii, r) in rep.items.iter().enumerate() {
-        let Some(Disposition::Covered { cover } | Disposition::Split { cover, .. }) = &r.disposition else {
+        let Some(Disposition::Covered { cover } | Disposition::Split { cover, .. }) =
+            &r.disposition
+        else {
             continue;
         };
         for m in &cover.members {
             let Some(c) = candidate_of(&r.state, &m.attempt_key, m.index) else {
-                t.fail(&format!("I1 soundness [{tag}]"), format!("{wid}: member {} not in records", m.attempt_key));
+                t.fail(
+                    &format!("I1 soundness [{tag}]"),
+                    format!("{wid}: member {} not in records", m.attempt_key),
+                );
                 continue;
             };
-            for k in m.served.iter().chain(m.credited.iter().filter(|k| !m.served.contains(k))) {
+            for k in m
+                .served
+                .iter()
+                .chain(m.credited.iter().filter(|k| !m.served.contains(k)))
+            {
                 t.count(&format!("served keys [{tag}]"), 1);
                 if !r.state.item.gap_points.contains(k) {
-                    t.fail(&format!("I1 soundness [{tag}]"), format!("{wid}: item {ii} serves {k:?} not among its gap points"));
+                    t.fail(
+                        &format!("I1 soundness [{tag}]"),
+                        format!("{wid}: item {ii} serves {k:?} not among its gap points"),
+                    );
                 }
                 if c.domain.applies(k) != Verdict::Applies {
-                    t.fail(&format!("I1 soundness [{tag}]"), format!("{wid}: {} serves {k:?} outside its domain", c.digest));
+                    t.fail(
+                        &format!("I1 soundness [{tag}]"),
+                        format!("{wid}: {} serves {k:?} outside its domain", c.digest),
+                    );
                     continue;
                 }
                 if strong_truth {
                     let tr = w.truth(&c.digest, k);
                     if !tr.regular || tr.desc == Desc::No {
-                        t.fail(&format!("I1 soundness [{tag}]"), format!("{wid}: {} serves {k:?} but truth {tr:?}", c.digest));
+                        t.fail(
+                            &format!("I1 soundness [{tag}]"),
+                            format!("{wid}: {} serves {k:?} but truth {tr:?}", c.digest),
+                        );
                     }
                     if min >= EvidenceLevel::A2 && !tr.valid {
-                        t.fail(&format!("I1 soundness [{tag}]"), format!("{wid}: {} serves {k:?}, identity invalid", c.digest));
+                        t.fail(
+                            &format!("I1 soundness [{tag}]"),
+                            format!("{wid}: {} serves {k:?}, identity invalid", c.digest),
+                        );
                     }
                 }
                 if min >= EvidenceLevel::A2 {
@@ -1202,7 +1495,10 @@ pub fn check_tree(
                         Some(l) if *l >= min => {}
                         g => t.fail(
                             &format!("I1b evidence justified by prover [{tag}]"),
-                            format!("{wid}: {} serves {k:?} at min {min:?}, prover granted {g:?}", c.digest),
+                            format!(
+                                "{wid}: {} serves {k:?} at min {min:?}, prover granted {g:?}",
+                                c.digest
+                            ),
                         ),
                     }
                 }
@@ -1216,9 +1512,15 @@ pub fn check_tree(
         let ns = served_by.get(k).map_or(0, |v| v.len());
         let term = term_set.contains(k);
         if ns > 1 {
-            t.fail(&format!("I3 accounting [{tag}]"), format!("{wid}: {k:?} served {ns} times"));
+            t.fail(
+                &format!("I3 accounting [{tag}]"),
+                format!("{wid}: {k:?} served {ns} times"),
+            );
         } else if ns == 1 && term {
-            t.fail(&format!("I3 accounting [{tag}]"), format!("{wid}: {k:?} served and terminal"));
+            t.fail(
+                &format!("I3 accounting [{tag}]"),
+                format!("{wid}: {k:?} served and terminal"),
+            );
         } else if ns == 0 && !term {
             let open = rep.stopped.is_some()
                 || rep.items.iter().any(|r| {
@@ -1228,7 +1530,10 @@ pub fn check_tree(
             if open {
                 t.count(&format!("open keys (attention/stopped) [{tag}]"), 1);
             } else {
-                t.fail(&format!("I3 accounting [{tag}]"), format!("{wid}: {k:?} LOST (neither served, terminal nor open)"));
+                t.fail(
+                    &format!("I3 accounting [{tag}]"),
+                    format!("{wid}: {k:?} LOST (neither served, terminal nor open)"),
+                );
             }
         }
         if ns == 1 {
@@ -1240,27 +1545,39 @@ pub fn check_tree(
     // no preferred key is ever served
     for k in served_by.keys() {
         if hon.contains(k) {
-            t.fail(&format!("P4 preferred never reduced [{tag}]"), format!("{wid}: preferred {k:?} served"));
+            t.fail(
+                &format!("P4 preferred never reduced [{tag}]"),
+                format!("{wid}: preferred {k:?} served"),
+            );
         }
     }
     // ---- I2 whole written domain over the root key range
-    let i2_before = t.counts.get(&format!("I2 same-cover shadow, bad first [{tag}]")).copied().unwrap_or(0);
+    let i2_before = t
+        .counts
+        .get(&format!("I2 same-cover shadow, bad first [{tag}]"))
+        .copied()
+        .unwrap_or(0);
     if strong_truth {
         t.run(&format!("I2 domain safety [{tag}]"));
         for (ii, r) in rep.items.iter().enumerate() {
             let Some(d) = &r.disposition else { continue };
             let (cover, kids): (_, Vec<&Item>) = match d {
                 Disposition::Covered { cover } => (cover, vec![]),
-                Disposition::Split { cover, children, alternatives, .. } => {
-                    (cover, children.iter().chain(alternatives).collect())
-                }
+                Disposition::Split {
+                    cover,
+                    children,
+                    alternatives,
+                    ..
+                } => (cover, children.iter().chain(alternatives).collect()),
                 _ => continue,
             };
             for (mi, m) in cover.members.iter().enumerate() {
                 if m.served.is_empty() {
                     continue;
                 }
-                let Some(c) = candidate_of(&r.state, &m.attempt_key, m.index) else { continue };
+                let Some(c) = candidate_of(&r.state, &m.attempt_key, m.index) else {
+                    continue;
+                };
                 for k in gap {
                     // v1.2: a member is dispatched only on its EFFECTIVE domain (written domain minus exclusions);
                     // where it is credited, I1 checks it
@@ -1271,27 +1588,53 @@ pub fn check_tree(
                         continue;
                     }
                     let tr = w.truth(&c.digest, k);
-                    let bad = !tr.regular || tr.desc == Desc::No || (min >= EvidenceLevel::A2 && !tr.valid);
+                    let bad = !tr.regular
+                        || tr.desc == Desc::No
+                        || (min >= EvidenceLevel::A2 && !tr.valid);
                     if !bad {
                         continue;
                     }
-                    let what = if !tr.regular { "pole" } else if tr.desc == Desc::No { "non-descending" } else { "invalid" };
+                    let what = if !tr.regular {
+                        "pole"
+                    } else if tr.desc == Desc::No {
+                        "non-descending"
+                    } else {
+                        "invalid"
+                    };
                     let servers = served_by.get(k).cloned().unwrap_or_default();
                     if let Some(&(si, smi)) = servers.first() {
                         if si == ii {
-                            let class = if smi > mi { "SAME COVER, bad member FIRST" } else { "same cover, bad member later" };
+                            let class = if smi > mi {
+                                "SAME COVER, bad member FIRST"
+                            } else {
+                                "same cover, bad member later"
+                            };
                             t.fail(
                                 &format!("I2 domain safety [{tag}]"),
                                 format!("{wid}: item {ii} member {mi} ({}) {what} at {k:?}, served by member {smi}: {class}; no exclusion emitted", c.digest),
                             );
-                            t.count(&format!("I2 same-cover shadow, bad first [{tag}]"), u64::from(smi > mi));
-                            t.count(&format!("I2 same-cover shadow, bad later [{tag}]"), u64::from(smi < mi));
+                            t.count(
+                                &format!("I2 same-cover shadow, bad first [{tag}]"),
+                                u64::from(smi > mi),
+                            );
+                            t.count(
+                                &format!("I2 same-cover shadow, bad later [{tag}]"),
+                                u64::from(smi < mi),
+                            );
                         } else if si < ii {
-                            t.count(&format!("I2 key served by an EARLIER item (safe under D6 order) [{tag}]"), 1);
+                            t.count(
+                                &format!(
+                                    "I2 key served by an EARLIER item (safe under D6 order) [{tag}]"
+                                ),
+                                1,
+                            );
                         } else if kids.iter().any(|ch| ch.gap_points.contains(k)) {
                             t.count(&format!("I2 key in emitted child, served later (needs D6 exclusion) [{tag}]"), 1);
                         } else {
-                            t.count(&format!("I2 key served by a later non-child item [{tag}]"), 1);
+                            t.count(
+                                &format!("I2 key served by a later non-child item [{tag}]"),
+                                1,
+                            );
                         }
                     } else if kids.iter().any(|ch| ch.gap_points.contains(k)) {
                         t.count(&format!("I2 key in emitted child, unserved [{tag}]"), 1);
@@ -1307,20 +1650,34 @@ pub fn check_tree(
             }
         }
     }
-    if t.counts.get(&format!("I2 same-cover shadow, bad first [{tag}]")).copied().unwrap_or(0) > i2_before {
-        t.count(&format!("worlds with a same-cover shadow, bad member first [{tag}]"), 1);
+    if t.counts
+        .get(&format!("I2 same-cover shadow, bad first [{tag}]"))
+        .copied()
+        .unwrap_or(0)
+        > i2_before
+    {
+        t.count(
+            &format!("worlds with a same-cover shadow, bad member first [{tag}]"),
+            1,
+        );
     }
     // ---- I4 terminals
     t.run(&format!("I4 terminals [{tag}]"));
     for (k, tok) in &terminals {
         if hon.contains(k) {
-            t.fail(&format!("I4 terminals [{tag}]"), format!("{wid}: preferred {k:?} proposed after ladder effort"));
+            t.fail(
+                &format!("I4 terminals [{tag}]"),
+                format!("{wid}: preferred {k:?} proposed after ladder effort"),
+            );
         }
         if tok.key() != k.as_slice() && !rep.items.iter().any(|r| matches!(&r.disposition, Some(Disposition::TerminalCandidates{keys, exhausted}) if keys.contains(k) && exhausted == tok)) {
             t.fail(&format!("I4 terminals [{tag}]"), format!("{wid}: token key {:?} vs {k:?}", tok.key()));
         }
         if !tok.depth3_unfloored_tried() {
-            t.count(&format!("I4 token without depth-3 unfloored (add_by_rule refuses) [{tag}]"), 1);
+            t.count(
+                &format!("I4 token without depth-3 unfloored (add_by_rule refuses) [{tag}]"),
+                1,
+            );
         }
         if strong_truth {
             // an acceptable candidate at k inside a visited item that did not reject it for a hidden pole
@@ -1335,15 +1692,15 @@ pub fn check_tree(
                         }
                         // v1.2 (addendum 3): a rule found WITH symmetry rows is acceptable only if the caller's
                         // provers can establish the required level for such rules ("awaiting a certificate route")
-                        if (c.symmetry_rows || rec.setting.symmetry_rows) && !params.capabilities.can(true, min) {
+                        if (c.symmetry_rows || rec.setting.symmetry_rows)
+                            && !params.capabilities.can(true, min)
+                        {
                             t.count(&format!("I4 terminal: candidate awaiting a certificate route (symmetry rows) [{tag}]"), 1);
                             continue;
                         }
-                        let hidden = r
-                            .state
-                            .verdicts
-                            .get(&(ak.clone(), ci))
-                            .is_some_and(|v| v.iter().any(|x| matches!(x, PointVerdict::HiddenPole)));
+                        let hidden = r.state.verdicts.get(&(ak.clone(), ci)).is_some_and(|v| {
+                            v.iter().any(|x| matches!(x, PointVerdict::HiddenPole))
+                        });
                         if hidden {
                             t.count(&format!("I5 terminal: acceptable rule rejected for hidden pole elsewhere [{tag}]"), 1);
                         } else {
@@ -1358,7 +1715,10 @@ pub fn check_tree(
             if w.irreducible.contains(k) {
                 t.count(&format!("I5 terminal truly irreducible [{tag}]"), 1);
             } else {
-                t.count(&format!("I5 terminal NOT irreducible (missed closure) [{tag}]"), 1);
+                t.count(
+                    &format!("I5 terminal NOT irreducible (missed closure) [{tag}]"),
+                    1,
+                );
                 // classify: budget (a failure answer where the pure oracle had an acceptable rule)
                 let mut why = "no acceptable rule in visited spaces";
                 for r in &rep.items {
@@ -1368,9 +1728,9 @@ pub fn check_tree(
                     for (_ak, rec) in &r.state.records {
                         let failed = !rec.non_verdict.is_empty();
                         if failed
-                            && w.rules_for_case(&r.state.item.case)
-                                .iter()
-                                .any(|h| h.req.matches(&rec.setting) && w.acceptable(&w.candidate(h), k, min))
+                            && w.rules_for_case(&r.state.item.case).iter().any(|h| {
+                                h.req.matches(&rec.setting) && w.acceptable(&w.candidate(h), k, min)
+                            })
                         {
                             why = "budget/failure answer hid an acceptable rule";
                         }
@@ -1388,25 +1748,51 @@ pub fn check_tree(
             Ok(_) => {}
             Err(TerminalError::OverBound { .. }) => over += 1,
             Err(TerminalError::NotDeepTried) => {}
-            Err(e) => t.fail(&format!("I4 terminals [{tag}]"), format!("{wid}: add_by_rule {e:?}")),
+            Err(e) => t.fail(
+                &format!("I4 terminals [{tag}]"),
+                format!("{wid}: add_by_rule {e:?}"),
+            ),
         }
     }
     let flags = check_terminals(
-        &terminals.iter().map(|(k, x)| (k.clone(), Some(x.clone()))).collect::<Vec<_>>(),
+        &terminals
+            .iter()
+            .map(|(k, x)| (k.clone(), Some(x.clone())))
+            .collect::<Vec<_>>(),
         params.terminals_max,
         &rustred_campaign_core::repair::NoTables,
         &params.preferred,
         &params.lines,
     );
     let term_keys: Vec<Key> = terminals.iter().map(|(k, _)| k.clone()).collect();
-    let hon_t = params.preferred.honoured(&term_keys, &params.lines, params.terminals_max);
+    let hon_t = params
+        .preferred
+        .honoured(&term_keys, &params.lines, params.terminals_max);
     let counted = terminals.iter().filter(|(k, _)| !hon_t.contains(k)).count();
-    let flagged = flags.iter().any(|f| matches!(f, rustred_campaign_core::terminals::TerminalFlag::OverBound { .. }));
-    if (counted > params.terminals_max) != flagged || (over > 0) != (fb.len() >= params.terminals_max && terminals.len() > params.terminals_max) {
-        t.fail(&format!("I4 terminals [{tag}]"), format!("{wid}: bound {} terminals {} over {over} flagged {flagged}", params.terminals_max, terminals.len()));
+    let flagged = flags.iter().any(|f| {
+        matches!(
+            f,
+            rustred_campaign_core::terminals::TerminalFlag::OverBound { .. }
+        )
+    });
+    if (counted > params.terminals_max) != flagged
+        || (over > 0)
+            != (fb.len() >= params.terminals_max && terminals.len() > params.terminals_max)
+    {
+        t.fail(
+            &format!("I4 terminals [{tag}]"),
+            format!(
+                "{wid}: bound {} terminals {} over {over} flagged {flagged}",
+                params.terminals_max,
+                terminals.len()
+            ),
+        );
     }
     if over > 0 {
-        t.count(&format!("I4 over bound: refused by FallbackSet (reported, not truncated) [{tag}]"), 1);
+        t.count(
+            &format!("I4 over bound: refused by FallbackSet (reported, not truncated) [{tag}]"),
+            1,
+        );
     }
     // ---- counters
     t.run(&format!("counters [{tag}]"));
@@ -1414,24 +1800,61 @@ pub fn check_tree(
     for r in &rep.items {
         let st = &r.state;
         let sc = sub_counter(st, params) as u64;
-        let answered = st.records.iter().filter(|(k, r)| r.is_verdict() && !k.contains("|offer|")).count() as u64;
-        let op: u64 = st.records.values().map(|r| r.operator_interrupts as u64).sum();
+        let answered = st
+            .records
+            .iter()
+            .filter(|(k, r)| r.is_verdict() && !k.contains("|offer|"))
+            .count() as u64;
+        let op: u64 = st
+            .records
+            .values()
+            .map(|r| r.operator_interrupts as u64)
+            .sum();
         let inf: u64 = st.records.values().map(|r| r.infra_interrupts as u64).sum();
-        let max_inf = st.records.values().map(|r| r.infra_interrupts).max().unwrap_or(0);
+        let max_inf = st
+            .records
+            .values()
+            .map(|r| r.infra_interrupts)
+            .max()
+            .unwrap_or(0);
         if answered > sc {
-            t.fail(&format!("counters [{tag}]"), format!("{wid}: item {} answered {answered} > sub-counter {sc}", st.item.id));
+            t.fail(
+                &format!("counters [{tag}]"),
+                format!(
+                    "{wid}: item {} answered {answered} > sub-counter {sc}",
+                    st.item.id
+                ),
+            );
         }
         if max_inf > params.budgets.infra_retries + 1 {
-            t.fail(&format!("counters [{tag}]"), format!("{wid}: infra interrupts {max_inf} on one key"));
+            t.fail(
+                &format!("counters [{tag}]"),
+                format!("{wid}: infra interrupts {max_inf} on one key"),
+            );
         }
-        t.max(&format!("attempts/item - sub_counter [{tag}]"), answered as f64 - sc as f64);
-        t.max(&format!("solver calls per item (incl. interrupts) [{tag}]"), (answered + op + inf) as f64);
+        t.max(
+            &format!("attempts/item - sub_counter [{tag}]"),
+            answered as f64 - sc as f64,
+        );
+        t.max(
+            &format!("solver calls per item (incl. interrupts) [{tag}]"),
+            (answered + op + inf) as f64,
+        );
         t.max(&format!("sub_counter per item [{tag}]"), sc as f64);
         if st.item.depth > st.item.root_dim {
-            t.fail(&format!("counters [{tag}]"), format!("{wid}: depth {} > root dim {}", st.item.depth, st.item.root_dim));
+            t.fail(
+                &format!("counters [{tag}]"),
+                format!(
+                    "{wid}: depth {} > root dim {}",
+                    st.item.depth, st.item.root_dim
+                ),
+            );
         }
         if st.item.kind == ItemKind::BoxRestricted || st.item.box_id.is_some() {
-            t.fail(&format!("R35 no box item without user box [{tag}]"), format!("{wid}: item {} kind {:?}", st.item.id, st.item.kind));
+            t.fail(
+                &format!("R35 no box item without user box [{tag}]"),
+                format!("{wid}: item {} kind {:?}", st.item.id, st.item.kind),
+            );
         }
         for (k, rec) in &st.records {
             if rec.is_verdict() && !k.contains("|offer|") {
@@ -1443,13 +1866,23 @@ pub fn check_tree(
         let _ = e.to_text();
         // dimension of a "point" item: free slots left although dim()==0 (dimension counted wrongly)
         if st.item.case.is_point() && !st.item.case.free().is_empty() {
-            t.count(&format!("POINT item with free slots left (dim miscounted) [{tag}]"), 1);
+            t.count(
+                &format!("POINT item with free slots left (dim miscounted) [{tag}]"),
+                1,
+            );
         }
         if let Some(p) = &st.item.parent
             && let Some(pr) = rep.items.iter().find(|x| &x.state.item.id == p)
             && st.item.case.dim() >= pr.state.item.case.dim()
         {
-            t.fail(&format!("counters [{tag}]"), format!("{wid}: child dim {} >= parent dim {}", st.item.case.dim(), pr.state.item.case.dim()));
+            t.fail(
+                &format!("counters [{tag}]"),
+                format!(
+                    "{wid}: child dim {} >= parent dim {}",
+                    st.item.case.dim(),
+                    pr.state.item.case.dim()
+                ),
+            );
         }
         for g in &st.item.gap_points {
             if !st.item.case.contains(g, &params.lines) {
@@ -1458,17 +1891,26 @@ pub fn check_tree(
         }
     }
     let dup = seen_keys.values().filter(|&&c| c > 1).count() as u64;
-    t.count(&format!("attempt keys answered twice in one tree (same item id, new state) [{tag}]"), dup);
+    t.count(
+        &format!("attempt keys answered twice in one tree (same item id, new state) [{tag}]"),
+        dup,
+    );
     let total: u64 = seen_keys.values().map(|&c| c as u64).sum();
     let wasted: u64 = seen_keys.values().map(|&c| c as u64 - 1).sum();
     t.count(&format!("solver answers total [{tag}]"), total);
-    t.count(&format!("solver answers spent re-running an already answered attempt key [{tag}]"), wasted);
+    t.count(
+        &format!("solver answers spent re-running an already answered attempt key [{tag}]"),
+        wasted,
+    );
     let mut ids: BTreeMap<&str, u32> = BTreeMap::new();
     for r in &rep.items {
         *ids.entry(r.state.item.id.0.as_str()).or_default() += 1;
     }
     let dup_items = ids.values().filter(|&&c| c > 1).count() as u64;
-    t.count(&format!("item ids processed more than once in one tree [{tag}]"), dup_items);
+    t.count(
+        &format!("item ids processed more than once in one tree [{tag}]"),
+        dup_items,
+    );
     if wasted > 0 {
         t.count(&format!("trees with re-run attempt keys [{tag}]"), 1);
     }
@@ -1477,7 +1919,14 @@ pub fn check_tree(
 
 /// I6 (economy): a ONE-CASE cover of a root face exists in its seed space (per the pure oracle) => the root item ends
 /// Covered with exactly one member.
-pub fn check_economy(t: &mut Tally, w: &World, params: &NodeParams, rep: &TreeReport, roots: &[Item], tag: &str) {
+pub fn check_economy(
+    t: &mut Tally,
+    w: &World,
+    params: &NodeParams,
+    rep: &TreeReport,
+    roots: &[Item],
+    tag: &str,
+) {
     for root in roots {
         if root.gap_points.is_empty() {
             continue;
@@ -1488,21 +1937,32 @@ pub fn check_economy(t: &mut Tally, w: &World, params: &NodeParams, rep: &TreeRe
             for s in wave {
                 if let SolveOutcome::Rules(v) = w.answer(&root.case, &s).outcome {
                     for c in v {
-                        if root.gap_points.iter().all(|k| w.acceptable(&c, k, params.min_evidence)) {
+                        if root
+                            .gap_points
+                            .iter()
+                            .all(|k| w.acceptable(&c, k, params.min_evidence))
+                        {
                             exists.get_or_insert((c.digest.clone(), s.label()));
                         }
                     }
                 }
             }
         }
-        let Some(r) = rep.items.iter().find(|r| r.state.item.id == root.id) else { continue };
+        let Some(r) = rep.items.iter().find(|r| r.state.item.id == root.id) else {
+            continue;
+        };
         let one = matches!(&r.disposition, Some(Disposition::Covered { cover }) if cover.members.iter().filter(|m| !m.served.is_empty()).count() == 1);
         if let Some((d, s)) = exists {
             t.count(&format!("I6 faces with a one-case cover [{tag}]"), 1);
             if !one {
                 t.fail(
                     &format!("I6 economy [{tag}]"),
-                    format!("seed={} face {}: one-case {d} @ {s} exists, got {:?}", w.seed, root.case.face.label(), r.disposition.as_ref().map(disp_short)),
+                    format!(
+                        "seed={} face {}: one-case {d} @ {s} exists, got {:?}",
+                        w.seed,
+                        root.case.face.label(),
+                        r.disposition.as_ref().map(disp_short)
+                    ),
                 );
             }
         }
@@ -1512,7 +1972,12 @@ pub fn check_economy(t: &mut Tally, w: &World, params: &NodeParams, rep: &TreeRe
 pub fn disp_short(d: &Disposition) -> String {
     match d {
         Disposition::Covered { cover } => format!("Covered({} members)", cover.members.len()),
-        Disposition::Split { cover, children, alternatives, reserve } => format!(
+        Disposition::Split {
+            cover,
+            children,
+            alternatives,
+            reserve,
+        } => format!(
             "Split({} members, {} children, {} alt, {} reserve)",
             cover.members.len(),
             children.len(),
@@ -1527,7 +1992,14 @@ pub fn disp_short(d: &Disposition) -> String {
 }
 
 pub fn calls(cap: u64) -> Rc<RefCell<Calls>> {
-    Rc::new(RefCell::new(Calls { last: String::new(), repeat: 0, solve: 0, prove: 0, facts: 0, cap }))
+    Rc::new(RefCell::new(Calls {
+        last: String::new(),
+        repeat: 0,
+        solve: 0,
+        prove: 0,
+        facts: 0,
+        cap,
+    }))
 }
 
 pub fn roots_of(w: &World, params: &NodeParams) -> Vec<Item> {
@@ -1535,7 +2007,10 @@ pub fn roots_of(w: &World, params: &NodeParams) -> Vec<Item> {
 }
 
 pub fn n_worlds() -> u64 {
-    std::env::var("AUDIT_WORLDS").ok().and_then(|s| s.parse().ok()).unwrap_or(300)
+    std::env::var("AUDIT_WORLDS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(300)
 }
 
 fn run_drive(
@@ -1549,13 +2024,47 @@ fn run_drive(
     p_inf: u64,
     limits: &TreeLimits,
     cap: u64,
-) -> Result<(TreeReport, BTreeMap<(String, Key), EvidenceLevel>, Rc<RefCell<Calls>>), String> {
+) -> Result<
+    (
+        TreeReport,
+        BTreeMap<(String, Key), EvidenceLevel>,
+        Rc<RefCell<Calls>>,
+    ),
+    String,
+> {
     let c = calls(cap);
     let res = catch_unwind(AssertUnwindSafe(|| {
-        let mut solver = Solver { w, mode: sm, calls: c.clone(), per_request: BTreeMap::new(), p_operator: p_op, p_infra: p_inf, rng: Rng::new(w.seed ^ 77) };
-        let mut facts = Facts { w, mode: fm, calls: c.clone() };
-        let mut prover = Prover { w, mode: pm, calls: c.clone(), granted: BTreeMap::new() };
-        let rep = drive_tree(roots, params, &w.cmp, &mut solver, &mut facts, &mut prover, None, None, limits);
+        let mut solver = Solver {
+            w,
+            mode: sm,
+            calls: c.clone(),
+            per_request: BTreeMap::new(),
+            p_operator: p_op,
+            p_infra: p_inf,
+            rng: Rng::new(w.seed ^ 77),
+        };
+        let mut facts = Facts {
+            w,
+            mode: fm,
+            calls: c.clone(),
+        };
+        let mut prover = Prover {
+            w,
+            mode: pm,
+            calls: c.clone(),
+            granted: BTreeMap::new(),
+        };
+        let rep = drive_tree(
+            roots,
+            params,
+            &w.cmp,
+            &mut solver,
+            &mut facts,
+            &mut prover,
+            None,
+            None,
+            limits,
+        );
         (rep, prover.granted)
     }));
     match res {
@@ -1574,13 +2083,21 @@ fn run_drive(
 // ------------------------------------------------------------------------------------------------ PART 1
 
 #[test]
-fn part1_s0() { part1_truthful_worlds_invariants(0, 4) }
+fn part1_s0() {
+    part1_truthful_worlds_invariants(0, 4)
+}
 #[test]
-fn part1_s1() { part1_truthful_worlds_invariants(1, 4) }
+fn part1_s1() {
+    part1_truthful_worlds_invariants(1, 4)
+}
 #[test]
-fn part1_s2() { part1_truthful_worlds_invariants(2, 4) }
+fn part1_s2() {
+    part1_truthful_worlds_invariants(2, 4)
+}
 #[test]
-fn part1_s3() { part1_truthful_worlds_invariants(3, 4) }
+fn part1_s3() {
+    part1_truthful_worlds_invariants(3, 4)
+}
 
 fn part1_truthful_worlds_invariants(shard: u64, shards: u64) {
     let nw = n_worlds();
@@ -1592,7 +2109,18 @@ fn part1_truthful_worlds_invariants(shard: u64, shards: u64) {
         let roots = roots_of(&w, &params);
         let gap: Vec<Key> = roots.iter().flat_map(|i| i.gap_points.clone()).collect();
         let lim = TreeLimits::default();
-        match run_drive(&w, &params, roots.clone(), SolverMode::Truthful, FactMode::Truthful, ProverMode::Truthful, 0, 0, &lim, 2_000_000) {
+        match run_drive(
+            &w,
+            &params,
+            roots.clone(),
+            SolverMode::Truthful,
+            FactMode::Truthful,
+            ProverMode::Truthful,
+            0,
+            0,
+            &lim,
+            2_000_000,
+        ) {
             Ok((rep, granted, c)) => {
                 check_tree(&mut t, &w, &params, &rep, &granted, &gap, "truthful", true);
                 // audit B M1 (v1.2): records of an item id seen before are REUSED, so the solver is called at most
@@ -1603,14 +2131,20 @@ fn part1_truthful_worlds_invariants(shard: u64, shards: u64) {
                         if k.contains("|offer|") {
                             continue;
                         }
-                        let n = u64::from(rec.is_verdict()) + rec.non_verdict.len() as u64 + rec.infra_interrupts as u64 + rec.operator_interrupts as u64;
+                        let n = u64::from(rec.is_verdict())
+                            + rec.non_verdict.len() as u64
+                            + rec.infra_interrupts as u64
+                            + rec.operator_interrupts as u64;
                         let e = per_key.entry(k.clone()).or_insert(0);
                         *e = (*e).max(n);
                     }
                 }
                 let expected: u64 = per_key.values().sum();
                 let made = c.borrow().solve;
-                t.count("M1 solver calls beyond the distinct attempt answers", made.saturating_sub(expected));
+                t.count(
+                    "M1 solver calls beyond the distinct attempt answers",
+                    made.saturating_sub(expected),
+                );
                 if made > expected {
                     let mut dup: BTreeMap<String, u32> = BTreeMap::new();
                     for it in &rep.items {
@@ -1618,94 +2152,234 @@ fn part1_truthful_worlds_invariants(shard: u64, shards: u64) {
                             *dup.entry(k.clone()).or_default() += 1;
                         }
                     }
-                    eprintln!("M1 seed={seed}: {made} calls, {expected} answers; items {}; stopped {:?}", rep.items.len(), rep.stopped);
+                    eprintln!(
+                        "M1 seed={seed}: {made} calls, {expected} answers; items {}; stopped {:?}",
+                        rep.items.len(),
+                        rep.stopped
+                    );
                 }
                 check_economy(&mut t, &w, &params, &rep, &roots, "truthful");
                 t.max("solver calls per world [truthful]", c.borrow().solve as f64);
                 // I7 determinism: same world, same seed -> identical report
                 t.run("I7 determinism (rerun identical)");
-                let (rep2, _, _) = run_drive(&w, &params, roots.clone(), SolverMode::Truthful, FactMode::Truthful, ProverMode::Truthful, 0, 0, &lim, 2_000_000).unwrap();
-                if report_signature(&rep) != report_signature(&rep2) || format!("{:?}", rep.attempts) != format!("{:?}", rep2.attempts) {
+                let (rep2, _, _) = run_drive(
+                    &w,
+                    &params,
+                    roots.clone(),
+                    SolverMode::Truthful,
+                    FactMode::Truthful,
+                    ProverMode::Truthful,
+                    0,
+                    0,
+                    &lim,
+                    2_000_000,
+                )
+                .unwrap();
+                if report_signature(&rep) != report_signature(&rep2)
+                    || format!("{:?}", rep.attempts) != format!("{:?}", rep2.attempts)
+                {
                     t.fail("I7 determinism (rerun identical)", format!("seed={seed}"));
                 }
                 // I7 interrupts: random operator interrupts do not change dispositions, cannot livelock
                 t.run("I7/P6 operator interrupts: same dispositions");
-                match run_drive(&w, &params, roots.clone(), SolverMode::Truthful, FactMode::Truthful, ProverMode::Truthful, 300, 0, &lim, 2_000_000) {
+                match run_drive(
+                    &w,
+                    &params,
+                    roots.clone(),
+                    SolverMode::Truthful,
+                    FactMode::Truthful,
+                    ProverMode::Truthful,
+                    300,
+                    0,
+                    &lim,
+                    2_000_000,
+                ) {
                     Ok((rep3, _, c3)) => {
                         if report_signature(&rep) != report_signature(&rep3) {
-                            t.fail("I7/P6 operator interrupts: same dispositions", format!("seed={seed}"));
+                            t.fail(
+                                "I7/P6 operator interrupts: same dispositions",
+                                format!("seed={seed}"),
+                            );
                         }
-                        t.max("solver calls with 30% operator interrupts / without", c3.borrow().solve as f64 / c.borrow().solve.max(1) as f64);
+                        t.max(
+                            "solver calls with 30% operator interrupts / without",
+                            c3.borrow().solve as f64 / c.borrow().solve.max(1) as f64,
+                        );
                     }
-                    Err(e) => t.fail("I7/P6 operator interrupts: same dispositions", format!("seed={seed}: {e}")),
+                    Err(e) => t.fail(
+                        "I7/P6 operator interrupts: same dispositions",
+                        format!("seed={seed}: {e}"),
+                    ),
                 }
                 // infra interrupts: either same dispositions or an explicit Attention (never silent)
                 t.run("P6 infra interrupts: same or Attention");
-                if let Ok((rep4, _, _)) = run_drive(&w, &params, roots.clone(), SolverMode::Truthful, FactMode::Truthful, ProverMode::Truthful, 0, 400, &lim, 2_000_000) {
-                    let att = rep4.items.iter().any(|r| matches!(r.disposition, Some(Disposition::Attention { .. })));
+                if let Ok((rep4, _, _)) = run_drive(
+                    &w,
+                    &params,
+                    roots.clone(),
+                    SolverMode::Truthful,
+                    FactMode::Truthful,
+                    ProverMode::Truthful,
+                    0,
+                    400,
+                    &lim,
+                    2_000_000,
+                ) {
+                    let att = rep4
+                        .items
+                        .iter()
+                        .any(|r| matches!(r.disposition, Some(Disposition::Attention { .. })));
                     if att {
                         t.count("infra interrupts -> Attention (cap reached)", 1);
                     } else if report_signature(&rep) != report_signature(&rep4) {
-                        t.fail("P6 infra interrupts: same or Attention", format!("seed={seed}"));
+                        t.fail(
+                            "P6 infra interrupts: same or Attention",
+                            format!("seed={seed}"),
+                        );
                     }
                 }
                 // I7 batch (wave-parallel, shuffled) vs sequential with an unbounded economy extra budget
                 let mut p_inf = params.clone();
                 p_inf.budgets.economy_extra_factor = 1e30;
-                let (rep_seq, _, _) = run_drive(&w, &p_inf, roots.clone(), SolverMode::Truthful, FactMode::Truthful, ProverMode::Truthful, 0, 0, &lim, 2_000_000).unwrap();
+                let (rep_seq, _, _) = run_drive(
+                    &w,
+                    &p_inf,
+                    roots.clone(),
+                    SolverMode::Truthful,
+                    FactMode::Truthful,
+                    ProverMode::Truthful,
+                    0,
+                    0,
+                    &lim,
+                    2_000_000,
+                )
+                .unwrap();
                 let c5 = calls(2_000_000);
                 let mk = |sh: Option<u64>| {
-                    let mut solver = Solver { w: &w, mode: SolverMode::Truthful, calls: c5.clone(), per_request: BTreeMap::new(), p_operator: 0, p_infra: 0, rng: Rng::new(1) };
-                    let mut facts = Facts { w: &w, mode: FactMode::Truthful, calls: c5.clone() };
-                    let mut prover = Prover { w: &w, mode: ProverMode::Truthful, calls: c5.clone(), granted: BTreeMap::new() };
-                    batch_tree(roots.clone(), &p_inf, &w.cmp, &mut solver, &mut facts, &mut prover, sh, 1_000_000)
+                    let mut solver = Solver {
+                        w: &w,
+                        mode: SolverMode::Truthful,
+                        calls: c5.clone(),
+                        per_request: BTreeMap::new(),
+                        p_operator: 0,
+                        p_infra: 0,
+                        rng: Rng::new(1),
+                    };
+                    let mut facts = Facts {
+                        w: &w,
+                        mode: FactMode::Truthful,
+                        calls: c5.clone(),
+                    };
+                    let mut prover = Prover {
+                        w: &w,
+                        mode: ProverMode::Truthful,
+                        calls: c5.clone(),
+                        granted: BTreeMap::new(),
+                    };
+                    batch_tree(
+                        roots.clone(),
+                        &p_inf,
+                        &w.cmp,
+                        &mut solver,
+                        &mut facts,
+                        &mut prover,
+                        sh,
+                        1_000_000,
+                    )
                 };
                 t.run("I7 batch(shuffled) == batch(in order)");
                 t.run("I7 batch == sequential (unbounded extra budget)");
                 match (mk(None), mk(Some(seed * 31 + 7))) {
                     (Ok(a), Ok(b)) => {
                         if a != b {
-                            t.fail("I7 batch(shuffled) == batch(in order)", format!("seed={seed}"));
+                            t.fail(
+                                "I7 batch(shuffled) == batch(in order)",
+                                format!("seed={seed}"),
+                            );
                         }
                         if a != report_signature(&rep_seq) {
-                            t.fail("I7 batch == sequential (unbounded extra budget)", format!("seed={seed}"));
+                            t.fail(
+                                "I7 batch == sequential (unbounded extra budget)",
+                                format!("seed={seed}"),
+                            );
                         }
                         t.run("I7 batch == sequential (DEFAULT extra budget 2.0)");
                         if a != report_signature(&rep) {
-                            t.count("batch != sequential under default economy budget (documented)", 1);
+                            t.count(
+                                "batch != sequential under default economy budget (documented)",
+                                1,
+                            );
                         }
                     }
-                    (a, b) => t.fail("I7 batch(shuffled) == batch(in order)", format!("seed={seed}: {:?} {:?}", a.err(), b.err())),
+                    (a, b) => t.fail(
+                        "I7 batch(shuffled) == batch(in order)",
+                        format!("seed={seed}: {:?} {:?}", a.err(), b.err()),
+                    ),
                 }
             }
             Err(e) => t.fail("PANIC / LIVELOCK [truthful]", format!("seed={seed}: {e}")),
         }
     }
-    t.print(&format!("PART 1 (shard {shard}/{shards} of {nw} truthful worlds)"));
-    let crit: u64 = t
-        .s
-        .iter()
-        .filter(|(k, _)| k.starts_with("I1") || k.starts_with("I3") || k.starts_with("PANIC") || k.starts_with("counters"))
-        .map(|(_, s)| s.violations)
-        .sum();
+    t.print(&format!(
+        "PART 1 (shard {shard}/{shards} of {nw} truthful worlds)"
+    ));
+    let crit: u64 =
+        t.s.iter()
+            .filter(|(k, _)| {
+                k.starts_with("I1")
+                    || k.starts_with("I3")
+                    || k.starts_with("PANIC")
+                    || k.starts_with("counters")
+            })
+            .map(|(_, s)| s.violations)
+            .sum();
     eprintln!("PART1 critical violations: {crit}");
     t.assert_zero(
         "PART 1",
-        &["I1", "I2", "I3", "I4", "PANIC", "counters", "R35", "P4", "I7 determinism", "I7 batch(shuffled)", "I7 batch == sequential (unbounded", "I7/P6", "P6"],
+        &[
+            "I1",
+            "I2",
+            "I3",
+            "I4",
+            "PANIC",
+            "counters",
+            "R35",
+            "P4",
+            "I7 determinism",
+            "I7 batch(shuffled)",
+            "I7 batch == sequential (unbounded",
+            "I7/P6",
+            "P6",
+        ],
     );
-    assert_eq!(t.counts.get("M1 solver calls beyond the distinct attempt answers").copied().unwrap_or(0), 0, "audit B M1");
+    assert_eq!(
+        t.counts
+            .get("M1 solver calls beyond the distinct attempt answers")
+            .copied()
+            .unwrap_or(0),
+        0,
+        "audit B M1"
+    );
 }
 
 // ------------------------------------------------------------------------------------------------ PART 2
 
 #[test]
-fn part2_s0() { part2_adversarial_traits(0, 4) }
+fn part2_s0() {
+    part2_adversarial_traits(0, 4)
+}
 #[test]
-fn part2_s1() { part2_adversarial_traits(1, 4) }
+fn part2_s1() {
+    part2_adversarial_traits(1, 4)
+}
 #[test]
-fn part2_s2() { part2_adversarial_traits(2, 4) }
+fn part2_s2() {
+    part2_adversarial_traits(2, 4)
+}
 #[test]
-fn part2_s3() { part2_adversarial_traits(3, 4) }
+fn part2_s3() {
+    part2_adversarial_traits(3, 4)
+}
 
 fn part2_adversarial_traits(shard: u64, shards: u64) {
     let nw = n_worlds();
@@ -1732,7 +2406,10 @@ fn part2_adversarial_traits(shard: u64, shards: u64) {
     ];
     let fact_modes = [FactMode::Truthful, FactMode::AllUnknown, FactMode::Random];
     let mut runs = 0u64;
-    let off: u64 = std::env::var("AUDIT_SEED0").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let off: u64 = std::env::var("AUDIT_SEED0")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     for seed in (off..off + nw * 5).filter(|s| s % shards == shard) {
         let w = World::generate(seed);
         let mut r = Rng::new(seed ^ 0x1234);
@@ -1742,28 +2419,70 @@ fn part2_adversarial_traits(shard: u64, shards: u64) {
         }
         let roots = roots_of(&w, &params);
         let gap: Vec<Key> = roots.iter().flat_map(|i| i.gap_points.clone()).collect();
-        let sm = if r.chance(250) { SolverMode::Truthful } else { r.pick(&solver_modes) };
+        let sm = if r.chance(250) {
+            SolverMode::Truthful
+        } else {
+            r.pick(&solver_modes)
+        };
         let pm = r.pick(&prover_modes);
-        let fm = if r.chance(600) { FactMode::Truthful } else { r.pick(&fact_modes) };
+        let fm = if r.chance(600) {
+            FactMode::Truthful
+        } else {
+            r.pick(&fact_modes)
+        };
         let tag = format!("{sm:?}/{pm:?}");
         let lim = TreeLimits {
-            max_attempts: 20_000, max_cpu_ms: u64::MAX, max_items: 100_000, max_steps: 400_000 };
+            max_attempts: 20_000,
+            max_cpu_ms: u64::MAX,
+            max_items: 100_000,
+            max_steps: 400_000,
+        };
         runs += 1;
         t.run("P2 terminates without panic");
-        match run_drive(&w, &params, roots.clone(), sm, fm, pm, if r.chance(200) { 200 } else { 0 }, 0, &lim, 5_000) {
+        match run_drive(
+            &w,
+            &params,
+            roots.clone(),
+            sm,
+            fm,
+            pm,
+            if r.chance(200) { 200 } else { 0 },
+            0,
+            &lim,
+            5_000,
+        ) {
             Ok((rep, granted, c)) => {
                 // (b): nothing accepted that the prover did not justify (min >= A2); soundness wrt truth only for
                 // truthful facts (facts are trusted input)
                 // truth-based checks only where facts AND prover are truthful (they are trusted inputs); the
                 // prover-justification check (I1b) and accounting run in every mode
-                let tg = if std::env::var("AUDIT_TAG_MODE").is_ok() { format!("adv/{sm:?}") } else { "adversarial".to_string() };
-                check_tree(&mut t, &w, &params, &rep, &granted, &gap, &tg, fm == FactMode::Truthful && pm == ProverMode::Truthful);
-                t.max(&format!("solver calls per world [{sm:?}]"), c.borrow().solve as f64);
+                let tg = if std::env::var("AUDIT_TAG_MODE").is_ok() {
+                    format!("adv/{sm:?}")
+                } else {
+                    "adversarial".to_string()
+                };
+                check_tree(
+                    &mut t,
+                    &w,
+                    &params,
+                    &rep,
+                    &granted,
+                    &gap,
+                    &tg,
+                    fm == FactMode::Truthful && pm == ProverMode::Truthful,
+                );
+                t.max(
+                    &format!("solver calls per world [{sm:?}]"),
+                    c.borrow().solve as f64,
+                );
                 for it in &rep.items {
                     if let Some(Disposition::TerminalCandidates { keys, .. }) = &it.disposition
                         && keys.len() > 1
                     {
-                        t.count(&format!("TerminalCandidates with >1 key (one token) [{sm:?}]"), 1);
+                        t.count(
+                            &format!("TerminalCandidates with >1 key (one token) [{sm:?}]"),
+                            1,
+                        );
                     }
                     if it.state.item.case.is_point() && !it.state.item.case.free().is_empty() {
                         t.count(&format!("POINT item with free slots [{sm:?}]"), 1);
@@ -1772,14 +2491,22 @@ fn part2_adversarial_traits(shard: u64, shards: u64) {
                 let _ = tag;
             }
             Err(e) => {
-                t.fail("P2 terminates without panic", format!("seed={seed} solver={sm:?} prover={pm:?} facts={fm:?}: {e}"));
+                t.fail(
+                    "P2 terminates without panic",
+                    format!("seed={seed} solver={sm:?} prover={pm:?} facts={fm:?}: {e}"),
+                );
                 t.count(&format!("P2 failure with prover {pm:?}"), 1);
                 t.count(&format!("P2 failure with solver {sm:?}"), 1);
             }
         }
     }
-    t.print(&format!("PART 2 (shard {shard}/{shards}): {runs} adversarial runs"));
-    t.assert_zero("PART 2", &["P2", "I1", "I2", "I3", "I4", "counters", "R35", "P4"]);
+    t.print(&format!(
+        "PART 2 (shard {shard}/{shards}): {runs} adversarial runs"
+    ));
+    t.assert_zero(
+        "PART 2",
+        &["P2", "I1", "I2", "I3", "I4", "counters", "R35", "P4"],
+    );
     for (k, v) in &t.counts {
         if k.starts_with("TerminalCandidates with >1 key") {
             assert_eq!(*v, 0, "audit B m1: {k}");
@@ -1798,9 +2525,13 @@ impl Coverage for RandCover {
     fn verdict(&self, key: &[i32]) -> CoverageVerdict {
         let x = hsh(self.seed, &("cov", key)) % 1000;
         if x < self.p_cov {
-            CoverageVerdict::Covered { rule: "tbl#1".into() }
+            CoverageVerdict::Covered {
+                rule: "tbl#1".into(),
+            }
         } else if x < self.p_cov + self.p_und {
-            CoverageVerdict::Undecided { why: "blocked".into() }
+            CoverageVerdict::Undecided {
+                why: "blocked".into(),
+            }
         } else {
             CoverageVerdict::Uncovered
         }
@@ -1817,27 +2548,65 @@ fn part3_repair_key() {
         let mut params = w.params(&mut r);
         let mut key = r.pick(&w.gap);
         match r.below(10) {
-            0 => key.push(1),                                    // wrong arity
-            1 => params.preferred.entries.push(PreferredEntry::Key(key.clone())),
-            2 => key[0] = if w.lines[0] { 0 } else { 1 },        // not a top chart key
+            0 => key.push(1), // wrong arity
+            1 => params
+                .preferred
+                .entries
+                .push(PreferredEntry::Key(key.clone())),
+            2 => key[0] = if w.lines[0] { 0 } else { 1 }, // not a top chart key
             _ => {}
         }
         let extra: Vec<Key> = w.gap.iter().filter(|_| r.chance(300)).cloned().collect();
-        let tables = RandCover { seed, p_cov: [0, 100, 300][r.below(3) as usize], p_und: [0, 50][r.below(2) as usize] };
+        let tables = RandCover {
+            seed,
+            p_cov: [0, 100, 300][r.below(3) as usize],
+            p_und: [0, 50][r.below(2) as usize],
+        };
         let budget = RepairBudget {
             max_attempts: r.range(0, 80) as u32,
             max_cpu_ms: [u64::MAX, 20_000, 2_000][r.below(3) as usize],
             max_items: r.range(1, 40) as u32,
             max_steps: 20_000,
         };
-        let pm = if r.chance(800) { ProverMode::Truthful } else { ProverMode::Random };
-        let sm = if r.chance(800) { SolverMode::Truthful } else { SolverMode::Garbage };
+        let pm = if r.chance(800) {
+            ProverMode::Truthful
+        } else {
+            ProverMode::Random
+        };
+        let sm = if r.chance(800) {
+            SolverMode::Truthful
+        } else {
+            SolverMode::Garbage
+        };
         let c = calls(1_000_000);
         let res = catch_unwind(AssertUnwindSafe(|| {
-            let mut solver = Solver { w: &w, mode: sm, calls: c.clone(), per_request: BTreeMap::new(), p_operator: 0, p_infra: 0, rng: Rng::new(seed) };
-            let mut facts = Facts { w: &w, mode: FactMode::Truthful, calls: c.clone() };
-            let mut prover = Prover { w: &w, mode: pm, calls: c.clone(), granted: BTreeMap::new() };
-            let inputs = RepairInputs { params: &params, descent: &w.cmp, key: key.clone(), extra_targets: extra.clone(), tables: &tables };
+            let mut solver = Solver {
+                w: &w,
+                mode: sm,
+                calls: c.clone(),
+                per_request: BTreeMap::new(),
+                p_operator: 0,
+                p_infra: 0,
+                rng: Rng::new(seed),
+            };
+            let mut facts = Facts {
+                w: &w,
+                mode: FactMode::Truthful,
+                calls: c.clone(),
+            };
+            let mut prover = Prover {
+                w: &w,
+                mode: pm,
+                calls: c.clone(),
+                granted: BTreeMap::new(),
+            };
+            let inputs = RepairInputs {
+                params: &params,
+                descent: &w.cmp,
+                key: key.clone(),
+                extra_targets: extra.clone(),
+                tables: &tables,
+            };
             let out = repair_key(&inputs, &budget, &mut solver, &mut facts, &mut prover, None);
             (out, prover.granted)
         }));
@@ -1852,53 +2621,86 @@ fn part3_repair_key() {
         let calls_made = c.borrow().solve;
         t.run("P3 budget: solver calls <= max_attempts");
         if calls_made > budget.max_attempts as u64 {
-            t.fail("P3 budget: solver calls <= max_attempts", format!("seed={seed}: {calls_made} > {}", budget.max_attempts));
+            t.fail(
+                "P3 budget: solver calls <= max_attempts",
+                format!("seed={seed}: {calls_made} > {}", budget.max_attempts),
+            );
         }
         let is_pref = key.len() == w.n && params.preferred.matches(&key, &params.lines);
         match &out {
             Ok(o) if o.already_covered => {
                 t.count("P3 Ok(already covered)", 1);
                 if !matches!(tables.verdict(&key), CoverageVerdict::Covered { .. }) {
-                    t.fail("P3 repair_key", format!("seed={seed}: already_covered but table says otherwise"));
+                    t.fail(
+                        "P3 repair_key",
+                        format!("seed={seed}: already_covered but table says otherwise"),
+                    );
                 }
             }
             Ok(o) => {
                 t.count("P3 Ok(rules)", 1);
                 if is_pref {
-                    t.fail("P3 repair_key", format!("seed={seed}: preferred key repaired"));
+                    t.fail(
+                        "P3 repair_key",
+                        format!("seed={seed}: preferred key repaired"),
+                    );
                 }
                 let servers: Vec<_> = o.rules.iter().filter(|x| x.serves_key).collect();
                 if servers.len() != 1 {
-                    t.fail("P3 repair_key", format!("seed={seed}: {} rules serve the key", servers.len()));
+                    t.fail(
+                        "P3 repair_key",
+                        format!("seed={seed}: {} rules serve the key", servers.len()),
+                    );
                 }
                 for s in servers {
                     if !s.served.contains(&key) {
-                        t.fail("P3 repair_key", format!("seed={seed}: serves_key but key not in served"));
+                        t.fail(
+                            "P3 repair_key",
+                            format!("seed={seed}: serves_key but key not in served"),
+                        );
                     }
                     let reg = w.registry.borrow();
                     let Some(hr) = reg.get(&s.digest) else {
-                        t.fail("P3 repair_key", format!("seed={seed}: unknown digest {}", s.digest));
+                        t.fail(
+                            "P3 repair_key",
+                            format!("seed={seed}: unknown digest {}", s.digest),
+                        );
                         continue;
                     };
                     let cand = w.candidate(hr);
                     drop(reg);
-                    if sm == SolverMode::Truthful && !w.acceptable(&cand, &key, params.min_evidence) {
-                        t.fail("P3 WRONG RULE returned by repair_key", format!("seed={seed}: {} at {key:?}", s.digest));
+                    if sm == SolverMode::Truthful && !w.acceptable(&cand, &key, params.min_evidence)
+                    {
+                        t.fail(
+                            "P3 WRONG RULE returned by repair_key",
+                            format!("seed={seed}: {} at {key:?}", s.digest),
+                        );
                     }
                     if params.min_evidence >= EvidenceLevel::A2
-                        && granted.get(&(s.digest.clone(), key.clone())).is_none_or(|l| *l < params.min_evidence)
+                        && granted
+                            .get(&(s.digest.clone(), key.clone()))
+                            .is_none_or(|l| *l < params.min_evidence)
                     {
-                        t.fail("P3 WRONG RULE returned by repair_key", format!("seed={seed}: {} evidence not granted at {key:?}", s.digest));
+                        t.fail(
+                            "P3 WRONG RULE returned by repair_key",
+                            format!("seed={seed}: {} evidence not granted at {key:?}", s.digest),
+                        );
                     }
                 }
             }
             Err(RepairFailure::PreferredTerminal { .. }) => {
                 t.count("P3 Err(PreferredTerminal)", 1);
                 if !is_pref {
-                    t.fail("P3 repair_key", format!("seed={seed}: PreferredTerminal for a non-preferred key"));
+                    t.fail(
+                        "P3 repair_key",
+                        format!("seed={seed}: PreferredTerminal for a non-preferred key"),
+                    );
                 }
                 if calls_made > 0 {
-                    t.fail("P3 repair_key", format!("seed={seed}: ladder effort on a preferred key"));
+                    t.fail(
+                        "P3 repair_key",
+                        format!("seed={seed}: ladder effort on a preferred key"),
+                    );
                 }
             }
             Err(e) => {
@@ -1912,7 +2714,10 @@ fn part3_repair_key() {
                 };
                 t.count(&format!("P3 Err({tag})"), 1);
                 if is_pref {
-                    t.fail("P3 repair_key", format!("seed={seed}: preferred key gave {tag}"));
+                    t.fail(
+                        "P3 repair_key",
+                        format!("seed={seed}: preferred key gave {tag}"),
+                    );
                 }
             }
         }
@@ -1935,9 +2740,24 @@ fn part4_preferred_terminals() {
         let kind = r.below(6);
         params.preferred.entries = match kind {
             0 => vec![],
-            1 => w.gap.iter().map(|k| PreferredEntry::Key(k.clone())).collect(), // the whole gap set
-            2 => vec![PreferredEntry::Key(vec![9; w.n + 1]), PreferredEntry::Key(vec![7; w.n]), PreferredEntry::Sector { lines: vec![w.n + 3] }],
-            3 => w.gap.iter().filter(|_| r.chance(300)).map(|k| PreferredEntry::Key(k.clone())).collect(),
+            1 => w
+                .gap
+                .iter()
+                .map(|k| PreferredEntry::Key(k.clone()))
+                .collect(), // the whole gap set
+            2 => vec![
+                PreferredEntry::Key(vec![9; w.n + 1]),
+                PreferredEntry::Key(vec![7; w.n]),
+                PreferredEntry::Sector {
+                    lines: vec![w.n + 3],
+                },
+            ],
+            3 => w
+                .gap
+                .iter()
+                .filter(|_| r.chance(300))
+                .map(|k| PreferredEntry::Key(k.clone()))
+                .collect(),
             4 => {
                 // RHS keys of the root rules (inside accepted rules' domains / landing points)
                 let mut v = vec![];
@@ -1950,7 +2770,9 @@ fn part4_preferred_terminals() {
                 }
                 v
             }
-            _ => vec![PreferredEntry::Sector { lines: (0..w.n).filter(|&i| w.lines[i]).collect() }],
+            _ => vec![PreferredEntry::Sector {
+                lines: (0..w.n).filter(|&i| w.lines[i]).collect(),
+            }],
         };
         params.preferred.count_against_bound = r.chance(300);
         let tag = format!("pref{kind}");
@@ -1960,8 +2782,30 @@ fn part4_preferred_terminals() {
         let lim = TreeLimits::default();
         t.run("P4 never a failure / panic");
         let (Ok((rep0, _g0, _)), Ok((rep, g, _))) = (
-            run_drive(&w, &params0, roots0.clone(), SolverMode::Truthful, FactMode::Truthful, ProverMode::Truthful, 0, 0, &lim, 2_000_000),
-            run_drive(&w, &params, roots.clone(), SolverMode::Truthful, FactMode::Truthful, ProverMode::Truthful, 0, 0, &lim, 2_000_000),
+            run_drive(
+                &w,
+                &params0,
+                roots0.clone(),
+                SolverMode::Truthful,
+                FactMode::Truthful,
+                ProverMode::Truthful,
+                0,
+                0,
+                &lim,
+                2_000_000,
+            ),
+            run_drive(
+                &w,
+                &params,
+                roots.clone(),
+                SolverMode::Truthful,
+                FactMode::Truthful,
+                ProverMode::Truthful,
+                0,
+                0,
+                &lim,
+                2_000_000,
+            ),
         ) else {
             t.fail("P4 never a failure / panic", format!("seed={seed}"));
             continue;
@@ -1969,11 +2813,19 @@ fn part4_preferred_terminals() {
         check_tree(&mut t, &w, &params, &rep, &g, &gap, "preferred", true);
         // preferred keys are never gap points of any item, never served, never terminal proposals
         t.run("P4 preferred never reduced");
-        let hon = params.preferred.honoured(&w.gap, &params.lines, params.terminals_max);
+        let hon = params
+            .preferred
+            .honoured(&w.gap, &params.lines, params.terminals_max);
         for it in &rep.items {
             for k in &it.state.item.gap_points {
                 if hon.contains(k) {
-                    t.fail("P4 preferred never reduced", format!("seed={seed}: preferred {k:?} gap point of {}", it.state.item.id));
+                    t.fail(
+                        "P4 preferred never reduced",
+                        format!(
+                            "seed={seed}: preferred {k:?} gap point of {}",
+                            it.state.item.id
+                        ),
+                    );
                 }
             }
         }
@@ -1982,7 +2834,13 @@ fn part4_preferred_terminals() {
         for r0 in &roots0 {
             let face = r0.case.face.clone();
             let get = |rep: &TreeReport| {
-                rep.items.iter().find(|x| x.state.item.case == CaseSpec::face_case(face.clone()) && x.state.item.parent.is_none()).and_then(|x| x.disposition.clone())
+                rep.items
+                    .iter()
+                    .find(|x| {
+                        x.state.item.case == CaseSpec::face_case(face.clone())
+                            && x.state.item.parent.is_none()
+                    })
+                    .and_then(|x| x.disposition.clone())
             };
             let (d0, d1) = (get(&rep0), get(&rep));
             if let Some(Disposition::Covered { cover: c0 }) = &d0
@@ -1994,19 +2852,35 @@ fn part4_preferred_terminals() {
                         if let (Some(a), Some(b)) = (c0.members.first(), c1.members.first())
                             && 64 - b.rhs_terms.leading_zeros() > 64 - a.rhs_terms.leading_zeros()
                         {
-                            t.fail("P4 economy class not worsened", format!("seed={seed} face {}: size class {} -> {}", face.label(), a.rhs_terms, b.rhs_terms));
+                            t.fail(
+                                "P4 economy class not worsened",
+                                format!(
+                                    "seed={seed} face {}: size class {} -> {}",
+                                    face.label(),
+                                    a.rhs_terms,
+                                    b.rhs_terms
+                                ),
+                            );
                         }
                     }
                     other => t.fail(
                         "P4 economy class not worsened",
-                        format!("seed={seed} face {}: one-case without preferences, {:?} with", face.label(), other.as_ref().map(disp_short)),
+                        format!(
+                            "seed={seed} face {}: one-case without preferences, {:?} with",
+                            face.label(),
+                            other.as_ref().map(disp_short)
+                        ),
                     ),
                 }
             }
         }
         // report partition over the preferred KEY entries of this node
         t.run("P4 report categories partition");
-        let terms: Vec<(Key, Option<_>)> = rep.terminal_candidates().into_iter().map(|(k, x)| (k, Some(x))).collect();
+        let terms: Vec<(Key, Option<_>)> = rep
+            .terminal_candidates()
+            .into_iter()
+            .map(|(k, x)| (k, Some(x)))
+            .collect();
         let mut terms_all = terms.clone();
         let reached: BTreeSet<Key> = w.gap.iter().cloned().collect();
         for e in &params.preferred.entries {
@@ -2016,31 +2890,76 @@ fn part4_preferred_terminals() {
                 terms_all.push((k.clone(), None));
             }
         }
-        let rp = preferred_report(&params.preferred, &params.lines, &terms_all, &reached, &[], &[]);
-        let pref_keys: BTreeSet<Key> = params.preferred.entries.iter().filter_map(|e| if let PreferredEntry::Key(k) = e { Some(k.clone()) } else { None }).collect();
+        let rp = preferred_report(
+            &params.preferred,
+            &params.lines,
+            &terms_all,
+            &reached,
+            &[],
+            &[],
+        );
+        let pref_keys: BTreeSet<Key> = params
+            .preferred
+            .entries
+            .iter()
+            .filter_map(|e| {
+                if let PreferredEntry::Key(k) = e {
+                    Some(k.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
         for k in &pref_keys {
-            let n = usize::from(rp.used.contains(k)) + usize::from(rp.not_needed.contains(k)) + usize::from(rp.not_kept.iter().any(|(x, _)| x == k));
+            let n = usize::from(rp.used.contains(k))
+                + usize::from(rp.not_needed.contains(k))
+                + usize::from(rp.not_kept.iter().any(|(x, _)| x == k));
             if n != 1 {
-                t.fail("P4 report categories partition", format!("seed={seed}: preferred {k:?} in {n} categories"));
+                t.fail(
+                    "P4 report categories partition",
+                    format!("seed={seed}: preferred {k:?} in {n} categories"),
+                );
             }
         }
         for (k, _) in &rp.other_terminals {
             if params.preferred.matches(k, &params.lines) {
-                t.fail("P4 report categories partition", format!("seed={seed}: preferred {k:?} in other_terminals"));
+                t.fail(
+                    "P4 report categories partition",
+                    format!("seed={seed}: preferred {k:?} in other_terminals"),
+                );
             }
         }
         if kind == 2 && rp.warnings.is_empty() {
-            t.fail("P4 report categories partition", format!("seed={seed}: malformed entries without warnings"));
+            t.fail(
+                "P4 report categories partition",
+                format!("seed={seed}: malformed entries without warnings"),
+            );
         }
         let _ = tag;
     }
     t.print("PART 4: preferred terminals");
-    t.assert_zero("PART 4", &["I1", "I3", "I4", "P4 preferred never", "P4 report", "P4 malformed"]);
+    t.assert_zero(
+        "PART 4",
+        &[
+            "I1",
+            "I3",
+            "I4",
+            "P4 preferred never",
+            "P4 report",
+            "P4 malformed",
+        ],
+    );
 }
 
 // ------------------------------------------------------------------------------------------------ PART 5
 
-fn brute_in_case(face: &Face, fixed: &BTreeMap<usize, i32>, eqs: &[AffineEq], lines: &[bool], k: &[i32]) -> bool {
+fn brute_in_case(
+    face: &Face,
+    fixed: &BTreeMap<usize, i32>,
+    eqs: &[AffineEq],
+    lines: &[bool],
+    k: &[i32],
+) -> bool {
     let fs: BTreeSet<usize> = face.slots().into_iter().collect();
     for i in 0..lines.len() {
         if let Some(&v) = fixed.get(&i) {
@@ -2088,11 +3007,30 @@ fn part5_affine_fuzz() {
             let m = r.range(1, 3);
             let mut co = Vec::new();
             for _ in 0..m {
-                let s = if !fsl.is_empty() && r.chance(850) { r.pick(&fsl) } else { r.pick(&slots) };
-                let c = if big { [i64::MAX / 3, i64::MIN / 3, 1 << 40, -(1 << 50), i64::MAX, i64::MIN + 1][r.below(6) as usize] } else { [1i64, -1, 2, -2, 3, -3, 5, 4][r.below(8) as usize] };
+                let s = if !fsl.is_empty() && r.chance(850) {
+                    r.pick(&fsl)
+                } else {
+                    r.pick(&slots)
+                };
+                let c = if big {
+                    [
+                        i64::MAX / 3,
+                        i64::MIN / 3,
+                        1 << 40,
+                        -(1 << 50),
+                        i64::MAX,
+                        i64::MIN + 1,
+                    ][r.below(6) as usize]
+                } else {
+                    [1i64, -1, 2, -2, 3, -3, 5, 4][r.below(8) as usize]
+                };
                 co.push((s, c));
             }
-            let constant = if big { [i64::MAX, i64::MIN, 0, 7][r.below(4) as usize] } else { r.range(-8, 8) };
+            let constant = if big {
+                [i64::MAX, i64::MIN, 0, 7][r.below(4) as usize]
+            } else {
+                r.range(-8, 8)
+            };
             if let Some(e) = AffineEq::new(co, constant) {
                 eqs.push(e);
             }
@@ -2118,14 +3056,21 @@ fn part5_affine_fuzz() {
         let res = match res {
             Ok(x) => x,
             Err(_) => {
-                t.fail(&format!("P5 canonical case == brute force [{tag}]"), format!("seed={seed}: PANIC eqs={eqs:?}"));
+                t.fail(
+                    &format!("P5 canonical case == brute force [{tag}]"),
+                    format!("seed={seed}: PANIC eqs={eqs:?}"),
+                );
                 continue;
             }
         };
         // window: face slots in [-4, 4], others at floor or floor +- 1
         let mut win: Vec<Key> = vec![vec![]];
         for i in 0..n {
-            let vals: Vec<i32> = if fsl.contains(&i) { (-4..=4).collect() } else { vec![floor_of(lines[i]), floor_of(lines[i]) + 1] };
+            let vals: Vec<i32> = if fsl.contains(&i) {
+                (-4..=4).collect()
+            } else {
+                vec![floor_of(lines[i]), floor_of(lines[i]) + 1]
+            };
             let mut nw2 = Vec::new();
             for k in &win {
                 for &v in &vals {
@@ -2146,22 +3091,37 @@ fn part5_affine_fuzz() {
                         sol += 1;
                     }
                     if b != m {
-                        let class = if m { "contains() TRUE, brute FALSE" } else { "contains() FALSE, brute TRUE" };
+                        let class = if m {
+                            "contains() TRUE, brute FALSE"
+                        } else {
+                            "contains() FALSE, brute TRUE"
+                        };
                         // classify: a slot fixed by the canonical form outside the chart orthant
-                        let off_chart = c.fixed.iter().any(|(&s, &v)| !fixed.contains_key(&s) && ((lines[s] && v < 1) || (!lines[s] && v > 0)));
+                        let off_chart = c.fixed.iter().any(|(&s, &v)| {
+                            !fixed.contains_key(&s) && ((lines[s] && v < 1) || (!lines[s] && v > 0))
+                        });
                         t.fail(
                             &format!("P5 canonical case == brute force [{tag}]"),
                             format!("seed={seed}: {class} at {k:?}; face {} fixed {fixed:?} eqs {:?} -> {} (fixed from eqs off-chart: {off_chart})", face.label(), eqs.iter().map(|e| e.to_engine()).collect::<Vec<_>>(), c.canonical_text()),
                         );
-                        t.count(&format!("P5 mismatch class: {class}, off-chart fixed {off_chart}"), 1);
+                        t.count(
+                            &format!("P5 mismatch class: {class}, off-chart fixed {off_chart}"),
+                            1,
+                        );
                         break;
                     }
                 }
                 if c.is_point() && sol > 1 {
-                    t.fail(&format!("P5 canonical case == brute force [{tag}]"), format!("seed={seed}: dim 0 but {sol} solutions in window"));
+                    t.fail(
+                        &format!("P5 canonical case == brute force [{tag}]"),
+                        format!("seed={seed}: dim 0 but {sol} solutions in window"),
+                    );
                 }
                 if c.is_point() && !c.free().is_empty() {
-                    t.count("P5 dim()==0 with free slots left (equations on non-face slots count)", 1);
+                    t.count(
+                        "P5 dim()==0 with free slots left (equations on non-face slots count)",
+                        1,
+                    );
                 }
             }
             Err(e) => {
@@ -2171,7 +3131,10 @@ fn part5_affine_fuzz() {
                     // equation slot is a face slot (other slots are at the floor anyway)
                     for k in &win {
                         if brute_in_case(&face, &fixed, &eqs, &lines, k) {
-                            t.fail(&format!("P5 canonical case == brute force [{tag}]"), format!("seed={seed}: {e:?} but {k:?} solves {eqs:?}"));
+                            t.fail(
+                                &format!("P5 canonical case == brute force [{tag}]"),
+                                format!("seed={seed}: {e:?} but {k:?} solves {eqs:?}"),
+                            );
                             break;
                         }
                     }
@@ -2180,31 +3143,67 @@ fn part5_affine_fuzz() {
         }
         // AffineEq::new must preserve the solution set
         t.run("P5 AffineEq::new preserves solutions");
-        let co: Vec<(usize, i64)> = (0..r.range(1, 3)).map(|_| (r.pick(&slots), [1i64, -1, -2, 3, i64::MIN + 1, -i64::MAX][r.below(6) as usize])).collect();
+        let co: Vec<(usize, i64)> = (0..r.range(1, 3))
+            .map(|_| {
+                (
+                    r.pick(&slots),
+                    [1i64, -1, -2, 3, i64::MIN + 1, -i64::MAX][r.below(6) as usize],
+                )
+            })
+            .collect();
         let constant = [i64::MIN, i64::MAX, -1, 0, 5][r.below(5) as usize];
         if let Ok(Some(e)) = catch_unwind(|| AffineEq::new(co.clone(), constant)) {
             for k in win.iter().take(400) {
-                let orig: i128 = co.iter().map(|&(s, c)| c as i128 * k[s] as i128).sum::<i128>() + constant as i128;
+                let orig: i128 = co
+                    .iter()
+                    .map(|&(s, c)| c as i128 * k[s] as i128)
+                    .sum::<i128>()
+                    + constant as i128;
                 if (orig == 0) != e.holds(k) {
-                    t.fail("P5 AffineEq::new preserves solutions", format!("seed={seed}: {co:?} + {constant} -> {:?} differs at {k:?}", e));
+                    t.fail(
+                        "P5 AffineEq::new preserves solutions",
+                        format!(
+                            "seed={seed}: {co:?} + {constant} -> {:?} differs at {k:?}",
+                            e
+                        ),
+                    );
                     break;
                 }
             }
             // as_fixed must not panic
             if catch_unwind(|| e.as_fixed()).is_err() {
-                t.fail("P5 AffineEq::new preserves solutions", format!("seed={seed}: as_fixed PANIC on {e:?}"));
+                t.fail(
+                    "P5 AffineEq::new preserves solutions",
+                    format!("seed={seed}: as_fixed PANIC on {e:?}"),
+                );
             }
         } else if catch_unwind(|| AffineEq::new(co.clone(), constant)).is_err() {
-            t.fail("P5 AffineEq::new preserves solutions", format!("seed={seed}: PANIC {co:?} {constant}"));
+            t.fail(
+                "P5 AffineEq::new preserves solutions",
+                format!("seed={seed}: PANIC {co:?} {constant}"),
+            );
         }
         // fit_loci: every fit holds at its points, groups disjoint, >= 2 points
         t.run("P5 fit_loci");
-        let pts: Vec<Vec<i32>> = (0..r.range(0, 8)).map(|_| (0..n).map(|_| if big { r.range(-2_000_000_000, 2_000_000_000) as i32 } else { r.range(-4, 4) as i32 }).collect()).collect();
+        let pts: Vec<Vec<i32>> = (0..r.range(0, 8))
+            .map(|_| {
+                (0..n)
+                    .map(|_| {
+                        if big {
+                            r.range(-2_000_000_000, 2_000_000_000) as i32
+                        } else {
+                            r.range(-4, 4) as i32
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
         match catch_unwind(|| fit_loci(&pts, &slots)) {
             Ok(fits) => {
                 let mut used = BTreeSet::new();
                 for (eq, held) in &fits {
-                    if held.len() < 2 || held.iter().any(|&i| !eq.holds(&pts[i]) || !used.insert(i)) {
+                    if held.len() < 2 || held.iter().any(|&i| !eq.holds(&pts[i]) || !used.insert(i))
+                    {
                         t.fail("P5 fit_loci", format!("seed={seed}: {eq:?} {held:?}"));
                     }
                 }
@@ -2217,29 +3216,51 @@ fn part5_affine_fuzz() {
         fx.insert(0usize, i32::MIN);
         let e = AffineEq::new(vec![(0, i64::MAX / 2), (1, 3)], 1).unwrap();
         if catch_unwind(|| canonical_system(&[e.clone()], &fx)).is_err() {
-            t.fail("P5 canonical_system extremes", format!("seed={seed}: PANIC"));
+            t.fail(
+                "P5 canonical_system extremes",
+                format!("seed={seed}: PANIC"),
+            );
         }
     }
     // targeted: single-slot row with constant i64::MIN (negation overflow)
     t.run("P5 targeted i64::MIN");
-    let e = AffineEq { coeffs: vec![(0, 1)], constant: i64::MIN };
+    let e = AffineEq {
+        coeffs: vec![(0, 1)],
+        constant: i64::MIN,
+    };
     if catch_unwind(|| canonical_system(&[e.clone()], &BTreeMap::new())).is_err() {
-        t.fail("P5 targeted i64::MIN", "canonical_system PANIC on n0 + i64::MIN = 0 (struct literal)".into());
+        t.fail(
+            "P5 targeted i64::MIN",
+            "canonical_system PANIC on n0 + i64::MIN = 0 (struct literal)".into(),
+        );
     }
     if catch_unwind(|| e.as_fixed()).is_err() {
-        t.fail("P5 targeted i64::MIN", "as_fixed PANIC on n0 + i64::MIN".into());
+        t.fail(
+            "P5 targeted i64::MIN",
+            "as_fixed PANIC on n0 + i64::MIN".into(),
+        );
     }
     if let Some(e2) = AffineEq::new(vec![(0, 1)], i64::MIN)
         && catch_unwind(|| canonical_system(&[e2.clone()], &BTreeMap::new())).is_err()
     {
-        t.fail("P5 targeted i64::MIN", "canonical_system PANIC on AffineEq::new(n0, i64::MIN)".into());
+        t.fail(
+            "P5 targeted i64::MIN",
+            "canonical_system PANIC on AffineEq::new(n0, i64::MIN)".into(),
+        );
     }
     if let Some(e3) = AffineEq::new(vec![(0, -1)], i64::MIN) {
         // -n0 + MIN = 0  <=>  n0 = MIN ; normalised it must still say n0 = MIN (not n0 = -MIN)
-        if e3.holds(&[i32::MAX, 0, 0]) || e3.constant != i64::MIN && e3.coeffs[0].1 == 1 && e3.constant == i64::MIN {
-            t.fail("P5 targeted i64::MIN", format!("AffineEq::new(-n0, MIN) -> {e3:?}"));
+        if e3.holds(&[i32::MAX, 0, 0])
+            || e3.constant != i64::MIN && e3.coeffs[0].1 == 1 && e3.constant == i64::MIN
+        {
+            t.fail(
+                "P5 targeted i64::MIN",
+                format!("AffineEq::new(-n0, MIN) -> {e3:?}"),
+            );
         }
-        eprintln!("AffineEq::new(vec![(0,-1)], i64::MIN) = {e3:?} (exact: n0 - (-2^63) ... = n0 = i64::MIN)");
+        eprintln!(
+            "AffineEq::new(vec![(0,-1)], i64::MIN) = {e3:?} (exact: n0 - (-2^63) ... = n0 = i64::MIN)"
+        );
     }
     t.print("PART 5: affine fuzz");
     t.assert_zero("PART 5", &["P5"]);
@@ -2263,16 +3284,30 @@ fn part6_full_coverage_first() {
     )
     .unwrap();
     t.run("R35 box item refused without user box");
-    if box_restricted_item(case.clone(), vec![vec![2, 1, 1, 0, 0]], &p, &ended) != Err(WorklistError::NoUserBox) {
-        t.fail("R35 box item refused without user box", "constructed".into());
+    if box_restricted_item(case.clone(), vec![vec![2, 1, 1, 0, 0]], &p, &ended)
+        != Err(WorklistError::NoUserBox)
+    {
+        t.fail(
+            "R35 box item refused without user box",
+            "constructed".into(),
+        );
     }
     let mut p2 = p.clone();
-    p2.user_box = Some(UserBox { id: "b".into(), given_by: "tool".into() });
+    p2.user_box = Some(UserBox {
+        id: "b".into(),
+        given_by: "tool".into(),
+    });
     t.run("R35 box not given by user refused");
-    if !matches!(box_restricted_item(case.clone(), vec![], &p2, &ended), Err(WorklistError::BoxNotUserGiven(_))) {
+    if !matches!(
+        box_restricted_item(case.clone(), vec![], &p2, &ended),
+        Err(WorklistError::BoxNotUserGiven(_))
+    ) {
         t.fail("R35 box not given by user refused", "constructed".into());
     }
-    p2.user_box = Some(UserBox { id: "b".into(), given_by: "user".into() });
+    p2.user_box = Some(UserBox {
+        id: "b".into(),
+        given_by: "user".into(),
+    });
     t.run("R35 box item with user box");
     if box_restricted_item(case, vec![], &p2, &ended).is_err() {
         t.fail("R35 box item with user box", "refused".into());
@@ -2288,7 +3323,16 @@ fn part6_full_coverage_first() {
     for _ in 0..1000 {
         match next_steps(&st, &params) {
             Next::Run(list) => {
-                st.record_answer(&list[0], SolveAnswer { outcome: SolveOutcome::Interrupted { by: Interruption::Operator }, cpu_ms: 1, rows: None });
+                st.record_answer(
+                    &list[0],
+                    SolveAnswer {
+                        outcome: SolveOutcome::Interrupted {
+                            by: Interruption::Operator,
+                        },
+                        cpu_ms: 1,
+                        rows: None,
+                    },
+                );
                 same += 1;
             }
             _ => break,
@@ -2313,7 +3357,18 @@ fn repro_prover_none_none_livelock() {
         let mut params = NodeParams::with_lines("toy", w.lines.clone());
         params.min_evidence = EvidenceLevel::A2;
         let roots = roots_of(&w, &params);
-        match run_drive(&w, &params, roots, SolverMode::Truthful, FactMode::Truthful, ProverMode::NoneNone, 0, 0, &TreeLimits::default(), 20_000) {
+        match run_drive(
+            &w,
+            &params,
+            roots,
+            SolverMode::Truthful,
+            FactMode::Truthful,
+            ProverMode::NoneNone,
+            0,
+            0,
+            &TreeLimits::default(),
+            20_000,
+        ) {
             Ok(_) => {}
             Err(e) => {
                 eprintln!("REPRO prover NoneNone: seed={seed}: {e}");
@@ -2328,7 +3383,10 @@ fn repro_prover_none_none_livelock() {
 /// evidence request.
 #[test]
 fn debug_part2_seed() {
-    let Some(seed) = std::env::var("AUDIT_DEBUG_SEED").ok().and_then(|s| s.parse::<u64>().ok()) else {
+    let Some(seed) = std::env::var("AUDIT_DEBUG_SEED")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+    else {
         return;
     };
     let w = World::generate(seed);
@@ -2359,15 +3417,43 @@ fn debug_part2_seed() {
         ProverMode::Random,
     ];
     let fact_modes = [FactMode::Truthful, FactMode::AllUnknown, FactMode::Random];
-    let sm = if r.chance(250) { SolverMode::Truthful } else { r.pick(&solver_modes) };
+    let sm = if r.chance(250) {
+        SolverMode::Truthful
+    } else {
+        r.pick(&solver_modes)
+    };
     let pm = r.pick(&prover_modes);
-    let fm = if r.chance(600) { FactMode::Truthful } else { r.pick(&fact_modes) };
+    let fm = if r.chance(600) {
+        FactMode::Truthful
+    } else {
+        r.pick(&fact_modes)
+    };
     let p_op = if r.chance(200) { 200 } else { 0 };
-    eprintln!("seed {seed}: {sm:?} {pm:?} {fm:?} min {:?} op {p_op}", params.min_evidence);
+    eprintln!(
+        "seed {seed}: {sm:?} {pm:?} {fm:?} min {:?} op {p_op}",
+        params.min_evidence
+    );
     let c = calls(1_000_000);
-    let mut solver = Solver { w: &w, mode: sm, calls: c.clone(), per_request: BTreeMap::new(), p_operator: p_op, p_infra: 0, rng: Rng::new(w.seed ^ 77) };
-    let mut facts = Facts { w: &w, mode: fm, calls: c.clone() };
-    let mut prover = Prover { w: &w, mode: pm, calls: c.clone(), granted: BTreeMap::new() };
+    let mut solver = Solver {
+        w: &w,
+        mode: sm,
+        calls: c.clone(),
+        per_request: BTreeMap::new(),
+        p_operator: p_op,
+        p_infra: 0,
+        rng: Rng::new(w.seed ^ 77),
+    };
+    let mut facts = Facts {
+        w: &w,
+        mode: fm,
+        calls: c.clone(),
+    };
+    let mut prover = Prover {
+        w: &w,
+        mode: pm,
+        calls: c.clone(),
+        granted: BTreeMap::new(),
+    };
     // manual sequential driver (DFS like drive_tree) with loop detection on evidence requests
     let mut served: BTreeSet<Key> = BTreeSet::new();
     let mut stack: Vec<Item> = roots.into_iter().rev().collect();
@@ -2388,7 +3474,14 @@ fn debug_part2_seed() {
                 Next::NeedVerdicts(reqs) => {
                     for q in reqs {
                         let cand = st.records[&q.attempt_key].candidates()[q.index].clone();
-                        let (v, h) = judge_points_with_hits(&cand, &q.keys, &mut facts, &w.cmp, &params.preferred, &params.lines);
+                        let (v, h) = judge_points_with_hits(
+                            &cand,
+                            &q.keys,
+                            &mut facts,
+                            &w.cmp,
+                            &params.preferred,
+                            &params.lines,
+                        );
                         st.record_verdicts(&q.attempt_key, q.index, v);
                         st.record_preferred_hits(&q.attempt_key, q.index, h);
                     }
@@ -2396,18 +3489,37 @@ fn debug_part2_seed() {
                 Next::NeedEvidence(reqs) => {
                     let sig = format!("{reqs:?}");
                     if last.as_deref() == Some(sig.as_str()) {
-                        eprintln!("item {} case {}: SAME evidence request repeated:\n  {sig}", st.item.id, st.item.case.canonical_text());
+                        eprintln!(
+                            "item {} case {}: SAME evidence request repeated:\n  {sig}",
+                            st.item.id,
+                            st.item.case.canonical_text()
+                        );
                         let q = &reqs[0];
                         eprintln!("  gap points {:?}", st.item.gap_points);
-                        eprintln!("  recorded evidence: {:?}", st.evidence.get(&(q.attempt_key.clone(), q.index)));
+                        eprintln!(
+                            "  recorded evidence: {:?}",
+                            st.evidence.get(&(q.attempt_key.clone(), q.index))
+                        );
                         return;
                     }
                     last = Some(sig);
                     if c.borrow().prove > 990 && c.borrow().prove < 1000 {
-                        eprintln!("item {} case {} gp {:?}\n   EVREQ {:?}", st.item.id, st.item.case.canonical_text(), st.item.gap_points, reqs);
+                        eprintln!(
+                            "item {} case {} gp {:?}\n   EVREQ {:?}",
+                            st.item.id,
+                            st.item.case.canonical_text(),
+                            st.item.gap_points,
+                            reqs
+                        );
                         for q in &reqs {
-                            eprintln!("   recorded: {:?}", st.evidence.get(&(q.attempt_key.clone(), q.index)));
-                            eprintln!("   verdicts: {:?}", st.verdicts.get(&(q.attempt_key.clone(), q.index)));
+                            eprintln!(
+                                "   recorded: {:?}",
+                                st.evidence.get(&(q.attempt_key.clone(), q.index))
+                            );
+                            eprintln!(
+                                "   verdicts: {:?}",
+                                st.verdicts.get(&(q.attempt_key.clone(), q.index))
+                            );
                         }
                     }
                     for q in reqs {
@@ -2415,7 +3527,11 @@ fn debug_part2_seed() {
                         let mut ev = prover.prove(&cand, &q.keys, q.level);
                         for k in &q.keys {
                             if !ev.iter().any(|e| &e.key == k) {
-                                ev.push(KeyEvidence { key: k.clone(), level: None, failure: Some(ProofFailure::Unknown("no answer".into())) });
+                                ev.push(KeyEvidence {
+                                    key: k.clone(),
+                                    level: None,
+                                    failure: Some(ProofFailure::Unknown("no answer".into())),
+                                });
                             }
                         }
                         st.record_evidence(&q.attempt_key, q.index, ev);
@@ -2429,7 +3545,12 @@ fn debug_part2_seed() {
                             served.extend(m.served.iter().cloned());
                         }
                     }
-                    if let Disposition::Split { children, alternatives, .. } = d {
+                    if let Disposition::Split {
+                        children,
+                        alternatives,
+                        ..
+                    } = d
+                    {
                         for c in alternatives.into_iter().rev() {
                             stack.push(c);
                         }
@@ -2447,7 +3568,10 @@ fn debug_part2_seed() {
 
 #[test]
 fn debug_infra_seed() {
-    let Some(seed) = std::env::var("AUDIT_INFRA_SEED").ok().and_then(|s| s.parse::<u64>().ok()) else {
+    let Some(seed) = std::env::var("AUDIT_INFRA_SEED")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+    else {
         return;
     };
     let w = World::generate(seed);
@@ -2455,24 +3579,82 @@ fn debug_infra_seed() {
     let params = w.params(&mut r);
     let roots = roots_of(&w, &params);
     let lim = TreeLimits::default();
-    let (a, _, _) = run_drive(&w, &params, roots.clone(), SolverMode::Truthful, FactMode::Truthful, ProverMode::Truthful, 0, 0, &lim, 2_000_000).unwrap();
-    let (b, _, _) = run_drive(&w, &params, roots.clone(), SolverMode::Truthful, FactMode::Truthful, ProverMode::Truthful, 0, 400, &lim, 2_000_000).unwrap();
+    let (a, _, _) = run_drive(
+        &w,
+        &params,
+        roots.clone(),
+        SolverMode::Truthful,
+        FactMode::Truthful,
+        ProverMode::Truthful,
+        0,
+        0,
+        &lim,
+        2_000_000,
+    )
+    .unwrap();
+    let (b, _, _) = run_drive(
+        &w,
+        &params,
+        roots.clone(),
+        SolverMode::Truthful,
+        FactMode::Truthful,
+        ProverMode::Truthful,
+        0,
+        400,
+        &lim,
+        2_000_000,
+    )
+    .unwrap();
     let (sa, sb) = (report_signature(&a), report_signature(&b));
-    eprintln!("items {} vs {}; economy factor {}", sa.len(), sb.len(), params.budgets.economy_extra_factor);
+    eprintln!(
+        "items {} vs {}; economy factor {}",
+        sa.len(),
+        sb.len(),
+        params.budgets.economy_extra_factor
+    );
     for (i, (x, y)) in sa.iter().zip(&sb).enumerate() {
         if x != y {
             eprintln!("first difference at item {i} ({})", x.0);
-            eprintln!(" plain: {}", disp_short(a.items[i].disposition.as_ref().unwrap()));
-            eprintln!(" infra: {}", disp_short(b.items[i].disposition.as_ref().unwrap()));
+            eprintln!(
+                " plain: {}",
+                disp_short(a.items[i].disposition.as_ref().unwrap())
+            );
+            eprintln!(
+                " infra: {}",
+                disp_short(b.items[i].disposition.as_ref().unwrap())
+            );
             for (k, rec) in &b.items[i].state.records {
                 if rec.infra_interrupts > 0 || rec.operator_interrupts > 0 {
-                    eprintln!("   {k}: infra {} cpu_total {} answer {:?}", rec.infra_interrupts, rec.cpu_ms_total, rec.answer.as_ref().map(|x| (x.outcome.tag(), x.cpu_ms)));
+                    eprintln!(
+                        "   {k}: infra {} cpu_total {} answer {:?}",
+                        rec.infra_interrupts,
+                        rec.cpu_ms_total,
+                        rec.answer.as_ref().map(|x| (x.outcome.tag(), x.cpu_ms))
+                    );
                 }
             }
-            let ma: Vec<_> = match a.items[i].disposition.as_ref().unwrap() { Disposition::Covered { cover } | Disposition::Split { cover, .. } => cover.members.iter().map(|m| (m.setting.label(), m.digest.clone(), m.rhs_terms)).collect(), _ => vec![] };
-            let mb: Vec<_> = match b.items[i].disposition.as_ref().unwrap() { Disposition::Covered { cover } | Disposition::Split { cover, .. } => cover.members.iter().map(|m| (m.setting.label(), m.digest.clone(), m.rhs_terms)).collect(), _ => vec![] };
+            let ma: Vec<_> = match a.items[i].disposition.as_ref().unwrap() {
+                Disposition::Covered { cover } | Disposition::Split { cover, .. } => cover
+                    .members
+                    .iter()
+                    .map(|m| (m.setting.label(), m.digest.clone(), m.rhs_terms))
+                    .collect(),
+                _ => vec![],
+            };
+            let mb: Vec<_> = match b.items[i].disposition.as_ref().unwrap() {
+                Disposition::Covered { cover } | Disposition::Split { cover, .. } => cover
+                    .members
+                    .iter()
+                    .map(|m| (m.setting.label(), m.digest.clone(), m.rhs_terms))
+                    .collect(),
+                _ => vec![],
+            };
             eprintln!(" plain members {ma:?}\n infra members {mb:?}");
-            eprintln!(" answered plain {} infra {}", a.items[i].state.attempts_made(), b.items[i].state.attempts_made());
+            eprintln!(
+                " answered plain {} infra {}",
+                a.items[i].state.attempts_made(),
+                b.items[i].state.attempts_made()
+            );
             break;
         }
     }
@@ -2480,7 +3662,10 @@ fn debug_infra_seed() {
 
 #[test]
 fn debug_pref_seed() {
-    let Some(seed) = std::env::var("AUDIT_PREF_SEED").ok().and_then(|s| s.parse::<u64>().ok()) else {
+    let Some(seed) = std::env::var("AUDIT_PREF_SEED")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+    else {
         return;
     };
     let w = World::generate(seed);
@@ -2490,9 +3675,18 @@ fn debug_pref_seed() {
     let kind = r.below(6);
     params.preferred.entries = match kind {
         0 => vec![],
-        1 => w.gap.iter().map(|k| PreferredEntry::Key(k.clone())).collect(),
+        1 => w
+            .gap
+            .iter()
+            .map(|k| PreferredEntry::Key(k.clone()))
+            .collect(),
         2 => vec![PreferredEntry::Key(vec![9; w.n + 1])],
-        3 => w.gap.iter().filter(|_| r.chance(300)).map(|k| PreferredEntry::Key(k.clone())).collect(),
+        3 => w
+            .gap
+            .iter()
+            .filter(|_| r.chance(300))
+            .map(|k| PreferredEntry::Key(k.clone()))
+            .collect(),
         4 => {
             let mut v = vec![];
             for k in &w.gap {
@@ -2504,7 +3698,9 @@ fn debug_pref_seed() {
             }
             v
         }
-        _ => vec![PreferredEntry::Sector { lines: (0..w.n).filter(|&i| w.lines[i]).collect() }],
+        _ => vec![PreferredEntry::Sector {
+            lines: (0..w.n).filter(|&i| w.lines[i]).collect(),
+        }],
     };
     eprintln!("kind {kind} entries {:?}", params.preferred.entries);
     for factor in [2.0, 1e30] {
@@ -2513,12 +3709,49 @@ fn debug_pref_seed() {
         p0.budgets.economy_extra_factor = factor;
         p1.budgets.economy_extra_factor = factor;
         let lim = TreeLimits::default();
-        let (a, _, _) = run_drive(&w, &p0, roots_of(&w, &p0), SolverMode::Truthful, FactMode::Truthful, ProverMode::Truthful, 0, 0, &lim, 2_000_000).unwrap();
-        let (b, _, _) = run_drive(&w, &p1, roots_of(&w, &p1), SolverMode::Truthful, FactMode::Truthful, ProverMode::Truthful, 0, 0, &lim, 2_000_000).unwrap();
+        let (a, _, _) = run_drive(
+            &w,
+            &p0,
+            roots_of(&w, &p0),
+            SolverMode::Truthful,
+            FactMode::Truthful,
+            ProverMode::Truthful,
+            0,
+            0,
+            &lim,
+            2_000_000,
+        )
+        .unwrap();
+        let (b, _, _) = run_drive(
+            &w,
+            &p1,
+            roots_of(&w, &p1),
+            SolverMode::Truthful,
+            FactMode::Truthful,
+            ProverMode::Truthful,
+            0,
+            0,
+            &lim,
+            2_000_000,
+        )
+        .unwrap();
         for rep in [&a, &b] {
             for it in rep.items.iter().filter(|x| x.state.item.parent.is_none()) {
-                let mem: Vec<_> = match it.disposition.as_ref().unwrap() { Disposition::Covered { cover } | Disposition::Split { cover, .. } => cover.members.iter().map(|m| (m.setting.label(), m.rhs_terms, m.served.len())).collect(), _ => vec![] };
-                eprintln!("factor {factor}: root {} gp {} answered {} -> {} {mem:?}", it.state.item.case.face.label(), it.state.item.gap_points.len(), it.state.attempts_made(), disp_short(it.disposition.as_ref().unwrap()));
+                let mem: Vec<_> = match it.disposition.as_ref().unwrap() {
+                    Disposition::Covered { cover } | Disposition::Split { cover, .. } => cover
+                        .members
+                        .iter()
+                        .map(|m| (m.setting.label(), m.rhs_terms, m.served.len()))
+                        .collect(),
+                    _ => vec![],
+                };
+                eprintln!(
+                    "factor {factor}: root {} gp {} answered {} -> {} {mem:?}",
+                    it.state.item.case.face.label(),
+                    it.state.item.gap_points.len(),
+                    it.state.attempts_made(),
+                    disp_short(it.disposition.as_ref().unwrap())
+                );
             }
         }
     }
@@ -2534,7 +3767,19 @@ fn debug_duplicate_items() {
         let w = World::generate(seed);
         let mut r = Rng::new(seed ^ 0xABCD);
         let params = w.params(&mut r);
-        let (rep, _, _) = run_drive(&w, &params, roots_of(&w, &params), SolverMode::Truthful, FactMode::Truthful, ProverMode::Truthful, 0, 0, &TreeLimits::default(), 2_000_000).unwrap();
+        let (rep, _, _) = run_drive(
+            &w,
+            &params,
+            roots_of(&w, &params),
+            SolverMode::Truthful,
+            FactMode::Truthful,
+            ProverMode::Truthful,
+            0,
+            0,
+            &TreeLimits::default(),
+            2_000_000,
+        )
+        .unwrap();
         let mut ids: BTreeMap<&str, u32> = BTreeMap::new();
         for it in &rep.items {
             *ids.entry(it.state.item.id.0.as_str()).or_default() += 1;
@@ -2547,8 +3792,25 @@ fn debug_duplicate_items() {
     let w = World::generate(seed);
     let mut r = Rng::new(seed ^ 0xABCD);
     let params = w.params(&mut r);
-    let (rep, _, _) = run_drive(&w, &params, roots_of(&w, &params), SolverMode::Truthful, FactMode::Truthful, ProverMode::Truthful, 0, 0, &TreeLimits::default(), 2_000_000).unwrap();
-    eprintln!("smallest tree with a duplicated item: seed {seed}, n {} lines {:?}, {} items", w.n, w.lines, rep.items.len());
+    let (rep, _, _) = run_drive(
+        &w,
+        &params,
+        roots_of(&w, &params),
+        SolverMode::Truthful,
+        FactMode::Truthful,
+        ProverMode::Truthful,
+        0,
+        0,
+        &TreeLimits::default(),
+        2_000_000,
+    )
+    .unwrap();
+    eprintln!(
+        "smallest tree with a duplicated item: seed {seed}, n {} lines {:?}, {} items",
+        w.n,
+        w.lines,
+        rep.items.len()
+    );
     for (i, it) in rep.items.iter().enumerate() {
         eprintln!(
             "  #{i} {} {:?} case {} origin {:?} gp {:?} answered {} -> {}",
@@ -2567,9 +3829,32 @@ fn debug_duplicate_items() {
 /// the key and the candidates acceptable there with their verdict / evidence.
 #[test]
 fn debug_i4_seed() {
-    let Some(seed) = std::env::var("AUDIT_I4_SEED").ok().and_then(|s| s.parse::<u64>().ok()) else { return };
-    let solver_modes = [SolverMode::ForeignDomain, SolverMode::WrongArity, SolverMode::SameRuleForever, SolverMode::RegenExceptions, SolverMode::Alternating, SolverMode::AllFailures, SolverMode::Garbage];
-    let prover_modes = [ProverMode::Truthful, ProverMode::UnknownAll, ProverMode::UnsupportedAll, ProverMode::Empty, ProverMode::NoneNone, ProverMode::WrongKey, ProverMode::LowerLevel, ProverMode::HigherWithFailure, ProverMode::Random];
+    let Some(seed) = std::env::var("AUDIT_I4_SEED")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+    else {
+        return;
+    };
+    let solver_modes = [
+        SolverMode::ForeignDomain,
+        SolverMode::WrongArity,
+        SolverMode::SameRuleForever,
+        SolverMode::RegenExceptions,
+        SolverMode::Alternating,
+        SolverMode::AllFailures,
+        SolverMode::Garbage,
+    ];
+    let prover_modes = [
+        ProverMode::Truthful,
+        ProverMode::UnknownAll,
+        ProverMode::UnsupportedAll,
+        ProverMode::Empty,
+        ProverMode::NoneNone,
+        ProverMode::WrongKey,
+        ProverMode::LowerLevel,
+        ProverMode::HigherWithFailure,
+        ProverMode::Random,
+    ];
     let fact_modes = [FactMode::Truthful, FactMode::AllUnknown, FactMode::Random];
     let w = World::generate(seed);
     let mut r = Rng::new(seed ^ 0x1234);
@@ -2578,24 +3863,75 @@ fn debug_i4_seed() {
         params.min_evidence = EvidenceLevel::A2;
     }
     let roots = roots_of(&w, &params);
-    let sm = if r.chance(250) { SolverMode::Truthful } else { r.pick(&solver_modes) };
+    let sm = if r.chance(250) {
+        SolverMode::Truthful
+    } else {
+        r.pick(&solver_modes)
+    };
     let pm = r.pick(&prover_modes);
-    let fm = if r.chance(600) { FactMode::Truthful } else { r.pick(&fact_modes) };
-    let lim = TreeLimits { max_attempts: 20_000, max_cpu_ms: u64::MAX, max_items: 100_000, max_steps: 400_000 };
+    let fm = if r.chance(600) {
+        FactMode::Truthful
+    } else {
+        r.pick(&fact_modes)
+    };
+    let lim = TreeLimits {
+        max_attempts: 20_000,
+        max_cpu_ms: u64::MAX,
+        max_items: 100_000,
+        max_steps: 400_000,
+    };
     let p_op = if r.chance(200) { 200 } else { 0 };
     let (rep, _, _) = run_drive(&w, &params, roots, sm, fm, pm, p_op, 0, &lim, 5_000).unwrap();
-    eprintln!("modes {sm:?} {pm:?} {fm:?} stopped {:?} items {}", rep.stopped, rep.items.len());
+    eprintln!(
+        "modes {sm:?} {pm:?} {fm:?} stopped {:?} items {}",
+        rep.stopped,
+        rep.items.len()
+    );
     for (k, tok) in rep.terminal_candidates() {
         eprintln!("TERMINAL {k:?} from {}", tok.item());
         for (ii, it) in rep.items.iter().enumerate() {
-            let Some(pos) = it.state.item.gap_points.iter().position(|g| g == &k) else { continue };
-            eprintln!("  item {ii} {} {} disp {:?}", it.state.item.id, it.state.item.case.canonical_text(), it.disposition.as_ref().map(disp_short));
-            eprintln!("  next_steps now: {:?} steps {} records {}", match next_steps(&it.state, &params) { Next::Done(d) => disp_short(&d), Next::NeedEvidence(r) => format!("NeedEvidence {}", r.len()), o => format!("{o:?}").chars().take(80).collect() }, it.state.steps, it.state.records.len());
+            let Some(pos) = it.state.item.gap_points.iter().position(|g| g == &k) else {
+                continue;
+            };
+            eprintln!(
+                "  item {ii} {} {} disp {:?}",
+                it.state.item.id,
+                it.state.item.case.canonical_text(),
+                it.disposition.as_ref().map(disp_short)
+            );
+            eprintln!(
+                "  next_steps now: {:?} steps {} records {}",
+                match next_steps(&it.state, &params) {
+                    Next::Done(d) => disp_short(&d),
+                    Next::NeedEvidence(r) => format!("NeedEvidence {}", r.len()),
+                    o => format!("{o:?}").chars().take(80).collect(),
+                },
+                it.state.steps,
+                it.state.records.len()
+            );
             for (ak, rec) in &it.state.records {
                 for (ci, c) in rec.candidates().iter().enumerate() {
                     if w.acceptable(c, &k, params.min_evidence) {
-                        eprintln!("    gp {:?} min {:?} vlen {:?} vec {:?}", it.state.item.gap_points, params.min_evidence, it.state.verdicts.get(&(ak.clone(), ci)).map(|v| v.len()), it.state.verdicts.get(&(ak.clone(), ci)));
-                        eprintln!("    acceptable {} at {ak}#{ci}: verdict {:?} evidence {:?}", c.digest, it.state.verdicts.get(&(ak.clone(), ci)).map(|v| v.get(pos).cloned()), it.state.evidence.get(&(ak.clone(), ci)).map(|e| e.iter().filter(|x| x.key == k).cloned().collect::<Vec<_>>()));
+                        eprintln!(
+                            "    gp {:?} min {:?} vlen {:?} vec {:?}",
+                            it.state.item.gap_points,
+                            params.min_evidence,
+                            it.state.verdicts.get(&(ak.clone(), ci)).map(|v| v.len()),
+                            it.state.verdicts.get(&(ak.clone(), ci))
+                        );
+                        eprintln!(
+                            "    acceptable {} at {ak}#{ci}: verdict {:?} evidence {:?}",
+                            c.digest,
+                            it.state
+                                .verdicts
+                                .get(&(ak.clone(), ci))
+                                .map(|v| v.get(pos).cloned()),
+                            it.state.evidence.get(&(ak.clone(), ci)).map(|e| e
+                                .iter()
+                                .filter(|x| x.key == k)
+                                .cloned()
+                                .collect::<Vec<_>>())
+                        );
                     }
                 }
             }

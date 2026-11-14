@@ -1351,7 +1351,9 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
         // gap point before the first wave starts ends the search.
         let offer = match one {
             None => !pending.is_empty(),
-            Some(bi) => !pending.is_empty() && !(acc[bi].order == 0 && w == 0 && finished.is_empty()),
+            Some(bi) => {
+                !pending.is_empty() && !(acc[bi].order == 0 && w == 0 && finished.is_empty())
+            }
         };
         if offer {
             let heavy = state
