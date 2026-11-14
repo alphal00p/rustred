@@ -30,11 +30,14 @@ pub struct RelationStore {
     verdicts: Vec<u8>,
 }
 
+/// (key code, rhs codes, relation digest, verdict bits).
+type BuilderItem = (Vec<u64>, Vec<u64>, [u8; 32], u8);
+
 /// Builder (keys in any order; duplicates are an error at `finish`).
 #[derive(Debug)]
 pub struct RelationStoreBuilder {
     codec: KeyCodec,
-    items: Vec<(Vec<u64>, Vec<u64>, [u8; 32], u8)>,
+    items: Vec<BuilderItem>,
 }
 
 impl RelationStoreBuilder {
@@ -161,11 +164,13 @@ impl RelationStore {
         let mut buf: Vec<u8> = Vec::with_capacity(4096);
         for i in 0..self.len() {
             self.codec.decode(&self.keys[i * w..(i + 1) * w], &mut k);
-            k.iter().for_each(|v| buf.extend_from_slice(&v.to_le_bytes()));
+            k.iter()
+                .for_each(|v| buf.extend_from_slice(&v.to_le_bytes()));
             buf.extend_from_slice(&(self.n_rhs(i) as u32).to_le_bytes());
             for c in self.rhs_codes(i).chunks_exact(w) {
                 self.codec.decode(c, &mut k);
-                k.iter().for_each(|v| buf.extend_from_slice(&v.to_le_bytes()));
+                k.iter()
+                    .for_each(|v| buf.extend_from_slice(&v.to_le_bytes()));
             }
             buf.extend_from_slice(&self.digests[i]);
             buf.push(self.verdicts[i]);
@@ -228,8 +233,10 @@ impl RelationStore {
             let mut b = vec![0u8; cnt * 8];
             r.read_exact(&mut b)
                 .map_err(|e| KeySetError::Format(e.to_string()))?;
-            Ok(b.chunks_exact(8)
-                .map(|c| u64::from_le_bytes(c.try_into().expect("8")))
+            Ok(b.as_chunks::<8>()
+                .0
+                .iter()
+                .map(|c| u64::from_le_bytes(*c))
                 .collect())
         };
         let keys = get(n * w)?;
@@ -244,7 +251,11 @@ impl RelationStore {
         if offs.first() != Some(&0)
             || offs.last() != Some(&(nr as u64))
             || offs.windows(2).any(|p| p[0] > p[1])
-            || keys.chunks_exact(w).collect::<Vec<_>>().windows(2).any(|p| p[0] >= p[1])
+            || keys
+                .chunks_exact(w)
+                .collect::<Vec<_>>()
+                .windows(2)
+                .any(|p| p[0] >= p[1])
         {
             return Err(KeySetError::Format("unsorted keys or bad offsets".into()));
         }
@@ -253,10 +264,7 @@ impl RelationStore {
             keys,
             offs,
             rhs,
-            digests: db
-                .chunks_exact(32)
-                .map(|c| c.try_into().expect("32"))
-                .collect(),
+            digests: db.as_chunks::<32>().0.to_vec(),
             verdicts,
         };
         let d = s.digest();
@@ -304,9 +312,15 @@ mod tests {
     fn roundtrip() {
         let codec = KeyCodec::new(4, 6).unwrap();
         let mut b = RelationStoreBuilder::new(codec);
-        b.push(&[2, 1, 0, 0], &[vec![1, 1, 0, 0], vec![0, 1, 0, 0]], [7; 32], VERDICT_CERTIFIED)
+        b.push(
+            &[2, 1, 0, 0],
+            &[vec![1, 1, 0, 0], vec![0, 1, 0, 0]],
+            [7; 32],
+            VERDICT_CERTIFIED,
+        )
+        .unwrap();
+        b.push(&[1, 2, 0, 0], &[], [1; 32], VERDICT_REGULAR)
             .unwrap();
-        b.push(&[1, 2, 0, 0], &[], [1; 32], VERDICT_REGULAR).unwrap();
         let s = b.finish().unwrap();
         assert_eq!(s.find(&[2, 1, 0, 0]).map(|i| s.n_rhs(i)), Some(2));
         assert_eq!(s.find(&[3, 1, 0, 0]), None);

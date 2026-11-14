@@ -355,8 +355,16 @@ fn t178_incremental_equals_from_scratch() {
     .unwrap();
     let rev = t.disp.with_priority((0..38).rev().collect()).unwrap();
     let rb = closure_common::t178_bodies(&rev);
-    let inc = closure_incremental(&c_old.dispatch_cache(), &rev, &rb, &t.cmp, &t.box_keys, &cfg(4), &NoFacts)
-        .unwrap();
+    let inc = closure_incremental(
+        &c_old.dispatch_cache(),
+        &rev,
+        &rb,
+        &t.cmp,
+        &t.box_keys,
+        &cfg(4),
+        &NoFacts,
+    )
+    .unwrap();
     assert!(inc.incremental_use().unwrap().fallback.is_some());
     let scratch = closure(&rev, &rb, &t.cmp, &t.box_keys, &cfg(4), &NoFacts).unwrap();
     assert_eq!(inc.summary(), scratch.summary());

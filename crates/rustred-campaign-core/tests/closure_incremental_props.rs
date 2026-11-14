@@ -162,7 +162,11 @@ fn build(st: &State) -> (Dispatcher, RuleBodies) {
 
 fn keyset(keys: &[[i32; N]]) -> Option<KeySet> {
     (!keys.is_empty()).then(|| {
-        KeySet::from_keys(KeyCodec::new(N, 6).unwrap(), keys.iter().map(|k| k.as_slice())).unwrap()
+        KeySet::from_keys(
+            KeyCodec::new(N, 6).unwrap(),
+            keys.iter().map(|k| k.as_slice()),
+        )
+        .unwrap()
     })
 }
 
@@ -249,7 +253,11 @@ fn view(c: &Closure) -> serde_json::Value {
 /// Order-independent view (for the recheck, whose reach order differs from the closure of the union).
 fn canonical(c: &Closure) -> serde_json::Value {
     let s = c.summary();
-    let mut open: Vec<_> = c.open_keys().into_iter().map(|o| (o.key, o.in_start, o.status, o.rule)).collect();
+    let mut open: Vec<_> = c
+        .open_keys()
+        .into_iter()
+        .map(|o| (o.key, o.in_start, o.status, o.rule))
+        .collect();
     open.sort();
     let mut credits: Vec<_> = c
         .credits()
@@ -374,7 +382,7 @@ fn incremental_equals_scratch_random_sequences() {
         .and_then(|x| x.parse().ok())
         .unwrap_or(60);
     let cmp = NodeComparator::legacy(N, None).unwrap();
-    let mut r = Lcg(0xc1_c1_2026);
+    let mut r = Lcg(0xc1c1_2026);
     let (mut steps, mut reused, mut full, mut fallbacks, mut credited, mut viol, mut tirds) =
         (0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
     for case in 0..cases {
@@ -410,14 +418,37 @@ fn incremental_equals_scratch_random_sequences() {
             let cfg = config(&st);
             let start = keyset(&st.start).unwrap();
             let scratch = closure(&d, &b, &cmp, &start, &cfg, &facts).unwrap();
-            let inc = closure_incremental(&prev_inc.dispatch_cache(), &d, &b, &cmp, &start, &cfg, &facts)
-                .unwrap();
-            let inc2 =
-                closure_incremental(&prev_scratch.dispatch_cache(), &d, &b, &cmp, &start, &cfg, &facts)
-                    .unwrap();
+            let inc = closure_incremental(
+                &prev_inc.dispatch_cache(),
+                &d,
+                &b,
+                &cmp,
+                &start,
+                &cfg,
+                &facts,
+            )
+            .unwrap();
+            let inc2 = closure_incremental(
+                &prev_scratch.dispatch_cache(),
+                &d,
+                &b,
+                &cmp,
+                &start,
+                &cfg,
+                &facts,
+            )
+            .unwrap();
             let vs = view(&scratch);
-            assert_eq!(view(&inc), vs, "case {case}: chained incremental != scratch; state {st:?}");
-            assert_eq!(view(&inc2), vs, "case {case}: incremental != scratch; state {st:?}");
+            assert_eq!(
+                view(&inc),
+                vs,
+                "case {case}: chained incremental != scratch; state {st:?}"
+            );
+            assert_eq!(
+                view(&inc2),
+                vs,
+                "case {case}: incremental != scratch; state {st:?}"
+            );
             let u = inc.incremental_use().unwrap();
             reused += u.reused;
             full += u.full;
@@ -433,7 +464,11 @@ fn incremental_equals_scratch_random_sequences() {
                 let re = closure_recheck(&scratch, &d, &b, &cmp, &extra, &cfg, &facts).unwrap();
                 let union = closure(&d, &b, &cmp, &start.union(&extra), &cfg, &facts).unwrap();
                 if !union.summary().truncated {
-                    assert_eq!(canonical(&re), canonical(&union), "case {case}: recheck != union");
+                    assert_eq!(
+                        canonical(&re),
+                        canonical(&union),
+                        "case {case}: recheck != union"
+                    );
                 }
             }
             prev_inc = inc;

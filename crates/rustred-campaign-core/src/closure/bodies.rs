@@ -151,9 +151,7 @@ const AMBIGUOUS: usize = usize::MAX;
 fn label_map(labels: &[i64]) -> HashMap<i64, usize> {
     let mut m = HashMap::with_capacity(labels.len());
     for (r, &l) in labels.iter().enumerate() {
-        m.entry(l)
-            .and_modify(|x| *x = AMBIGUOUS)
-            .or_insert(r);
+        m.entry(l).and_modify(|x| *x = AMBIGUOUS).or_insert(r);
     }
     m
 }

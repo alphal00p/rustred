@@ -78,9 +78,9 @@ fn fast_equals_core_randomized() {
                 } else {
                     CaseDomain::free(n, Some(chart.clone()))
                 };
-                for s in 0..n {
+                for (s, &line) in chart.iter().enumerate() {
                     if rng.below(3) == 0 {
-                        d.fixed[s] = Some(if chart[s] {
+                        d.fixed[s] = Some(if line {
                             1 + rng.below(2) as i32
                         } else {
                             -(rng.below(2) as i32)
@@ -124,15 +124,27 @@ fn fast_equals_core_randomized() {
             let key: Vec<i32> = (0..n)
                 .map(|s| {
                     if chart[s] {
-                        if rng.below(40) == 0 { 0 } else { 1 + rng.below(2) as i32 } // rarely 0: outside the chart
+                        if rng.below(40) == 0 {
+                            0
+                        } else {
+                            1 + rng.below(2) as i32
+                        } // rarely 0: outside the chart
                     } else {
                         -(rng.below(3) as i32) + (rng.below(20) == 0) as i32
                     }
                 })
                 .collect();
             let f = fast.first_match_with(&key, &mut b, &mut st);
-            assert_eq!(f, disp.first_match(&key).unwrap(), "case {case} key {key:?}");
-            assert_eq!(f, disp.first_match_slow(&key).unwrap(), "case {case} key {key:?}");
+            assert_eq!(
+                f,
+                disp.first_match(&key).unwrap(),
+                "case {case} key {key:?}"
+            );
+            assert_eq!(
+                f,
+                disp.first_match_slow(&key).unwrap(),
+                "case {case} key {key:?}"
+            );
             assert_eq!(f, reference(&disp, &key, &[]), "case {case} key {key:?}");
             kinds[match f {
                 Dispatch::Covered(_) => 0,

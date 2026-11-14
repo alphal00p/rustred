@@ -4,9 +4,8 @@ mod closure_common;
 
 use closure_common::answer_facts;
 use rustred_campaign_core::closure::{
-    ClosureConfig, CoefFact, FactSource, HandDowns, KeyCodec, KeySet, NoFacts, OpenStatus,
-    RegFact, RequestReason, RuleBodies, RuleId, Sectors, Tier, Verdict, closure,
-    write_fact_requests,
+    ClosureConfig, CoefFact, FactSource, HandDowns, KeyCodec, KeySet, NoFacts, OpenStatus, RegFact,
+    RequestReason, RuleBodies, RuleId, Sectors, Tier, Verdict, closure, write_fact_requests,
 };
 use rustred_campaign_core::cover::{Dispatcher, Table};
 use rustred_campaign_core::domain::CaseDomain;
@@ -132,7 +131,10 @@ fn positive_numerator_tiers() {
     ];
     let zero = [
         base.clone(),
-        vec![(&[2, 1, 0, 0][..], Some(1), "zero"), (&[1, 1, 0, 0], Some(1), "zero")],
+        vec![
+            (&[2, 1, 0, 0][..], Some(1), "zero"),
+            (&[1, 1, 0, 0], Some(1), "zero"),
+        ],
     ]
     .concat();
     let f = answer_facts(&reqs, &zero, "exact", false);
@@ -174,7 +176,10 @@ fn positive_numerator_tiers() {
     // NonZero at the start key: the closure FAILS at that edge, never drops it
     let v = [
         base.clone(),
-        vec![(&[2, 1, 0, 0][..], Some(1), "nonzero"), (&[1, 1, 0, 0], Some(1), "zero")],
+        vec![
+            (&[2, 1, 0, 0][..], Some(1), "nonzero"),
+            (&[1, 1, 0, 0], Some(1), "zero"),
+        ],
     ]
     .concat();
     let f = answer_facts(&reqs, &v, "exact", false);
@@ -280,9 +285,16 @@ fn planted_cycle_is_a_descent_violation() {
     );
     assert_eq!(w.reason, "descent_violation");
     // Tier C: the non-lower term with a verified zero coefficient is dropped (no edge, no cycle)
-    let reqs = closure(&d, &b, &cmp(), &start(&[[2, 1, 0, 0]]), &cfg(Tier::C), &NoFacts)
-        .unwrap()
-        .fact_requests();
+    let reqs = closure(
+        &d,
+        &b,
+        &cmp(),
+        &start(&[[2, 1, 0, 0]]),
+        &cfg(Tier::C),
+        &NoFacts,
+    )
+    .unwrap()
+    .fact_requests();
     let spec: Vec<(&[i32], Option<usize>, &str)> = vec![
         (&[2, 1, 0, 0], Some(0), "zero"),
         (&[2, 1, 0, 0], None, "regular"),

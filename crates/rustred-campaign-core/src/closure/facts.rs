@@ -231,12 +231,20 @@ pub struct FileFacts {
 
 const REG_TERM: u32 = u32::MAX;
 
-type ReqIndex = HashMap<(String, usize, i64, Vec<i32>, FactKind, Option<usize>), Option<(String, Option<Vec<i32>>)>>;
+/// (producer rule index, key) of an instantiate line.
+type InstKey = (i64, Vec<i32>);
+
+type ReqIndex = HashMap<
+    (String, usize, i64, Vec<i32>, FactKind, Option<usize>),
+    Option<(String, Option<Vec<i32>>)>,
+>;
 
 impl FileFacts {
     /// DEPRECATED (audit loop-A M4): answers read without the request set cannot be bound to a rule content or a
     /// term key; the result answers `Unknown` everywhere (strict) and counts the lines in `n_rejected_unbound`.
-    #[deprecated(note = "use FileFacts::read_bound with the request set (facts are keyed by rule digest and term key)")]
+    #[deprecated(
+        note = "use FileFacts::read_bound with the request set (facts are keyed by rule digest and term key)"
+    )]
     pub fn read(r: impl BufRead, accept_provisional: bool) -> Result<FileFacts, FactError> {
         let mut ff = Self::read_bound(r, &[], accept_provisional)?;
         ff.n_rejected_unbound = ff.n_rejected_unrequested;
@@ -289,7 +297,14 @@ impl FileFacts {
                 }
                 _ => {}
             }
-            let k = (q.table.clone(), q.record, q.label, q.key.clone(), q.kind, q.term);
+            let k = (
+                q.table.clone(),
+                q.record,
+                q.label,
+                q.key.clone(),
+                q.kind,
+                q.term,
+            );
             let v = (d.clone(), q.rhs.clone());
             match idx.get(&k) {
                 None => {
@@ -306,7 +321,7 @@ impl FileFacts {
         // ---- answers
         let mut sha = super::sha256::Sha256::new();
         // (rule index, key) -> per-term keys (None: two instantiate lines disagree)
-        let mut inst: HashMap<(i64, Vec<i32>), Option<Vec<Vec<i32>>>> = HashMap::new();
+        let mut inst: HashMap<InstKey, Option<Vec<Vec<i32>>>> = HashMap::new();
         let mut lines: Vec<(usize, FactLine)> = vec![];
         for (ln, line) in r.lines().enumerate() {
             let line = line.map_err(FactError::Io)?;
@@ -367,7 +382,14 @@ impl FileFacts {
         };
         for (ln, f) in lines {
             let exact = f.method.starts_with("exact");
-            let rk = (f.table.clone(), f.record, f.label, f.key.clone(), f.kind, f.term);
+            let rk = (
+                f.table.clone(),
+                f.record,
+                f.label,
+                f.key.clone(),
+                f.kind,
+                f.term,
+            );
             let Some(Some((digest, rhs))) = idx.get(&rk) else {
                 ff.n_rejected_unrequested += 1;
                 reject(&mut ff, "unrequested", &f);

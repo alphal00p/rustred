@@ -821,7 +821,10 @@ impl Ctx<'_> {
         if self.exclusions.is_empty() {
             return &[];
         }
-        self.exclusions.get(key).map(|v| v.as_slice()).unwrap_or(&[])
+        self.exclusions
+            .get(key)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
     /// The relation set serving `key` given the table dispatch `d` (the first matching set ranked before d's stop).
     fn recipe_match(&self, key: &[i32], d: &Dispatch) -> Option<(u32, u32)> {
@@ -830,7 +833,9 @@ impl Ctx<'_> {
         }
         let rd = match d {
             Dispatch::Covered(r) => self.table_rank[r.table],
-            Dispatch::Blocked { at, .. } | Dispatch::Undecided { at, .. } => self.table_rank[at.table],
+            Dispatch::Blocked { at, .. } | Dispatch::Undecided { at, .. } => {
+                self.table_rank[at.table]
+            }
             Dispatch::Uncovered => u32::MAX,
             Dispatch::OutsideChart { .. } => return None,
         };
@@ -1061,7 +1066,11 @@ fn expand_recipe(
                             out.terms.positive_numerator_top += 1;
                         }
                         out.pos_nonzero += 1;
-                        push_capped(&mut out.failure_w, (*key_idx, j as u32, wit("recipe_positive_numerator")), cap);
+                        push_capped(
+                            &mut out.failure_w,
+                            (*key_idx, j as u32, wit("recipe_positive_numerator")),
+                            cap,
+                        );
                     }
                     TermClass::ZeroSector { .. } => out.terms.zero_sector += 1,
                     TermClass::Subsector { dropped } => {
@@ -1072,10 +1081,17 @@ fn expand_recipe(
                             HandDowns::Keys => {
                                 *out.hd_terms.entry(dropped).or_default() += 1;
                                 if enc {
-                                    out.hd_codes.entry(dropped).or_default().extend_from_slice(&code[..w]);
+                                    out.hd_codes
+                                        .entry(dropped)
+                                        .or_default()
+                                        .extend_from_slice(&code[..w]);
                                 } else {
                                     out.unrepresentable += 1;
-                                    push_capped(&mut out.failure_w, (*key_idx, j as u32, wit("unrepresentable_hand_down")), cap);
+                                    push_capped(
+                                        &mut out.failure_w,
+                                        (*key_idx, j as u32, wit("unrepresentable_hand_down")),
+                                        cap,
+                                    );
                                 }
                             }
                         }
@@ -1084,13 +1100,21 @@ fn expand_recipe(
                         out.terms.top += 1;
                         if !ctx.cmp.lower(t, key) {
                             out.violations += 1;
-                            push_capped(&mut out.descent_w, (*key_idx, j as u32, wit("descent_violation")), cap);
+                            push_capped(
+                                &mut out.descent_w,
+                                (*key_idx, j as u32, wit("descent_violation")),
+                                cap,
+                            );
                         }
                         if enc {
                             codes.extend_from_slice(&code[..w]);
                         } else {
                             out.unrepresentable += 1;
-                            push_capped(&mut out.failure_w, (*key_idx, j as u32, wit("unrepresentable_key")), cap);
+                            push_capped(
+                                &mut out.failure_w,
+                                (*key_idx, j as u32, wit("unrepresentable_key")),
+                                cap,
+                            );
                         }
                     }
                 }
@@ -1426,7 +1450,8 @@ fn cache_view<'c>(
         let mut seen = BTreeSet::new();
         v.into_iter().all(|n| seen.insert(n))
     }
-    if !names_unique(cache.tables.iter().map(|t| &t.0)) || !names_unique(tabs.iter().map(|t| &t.name))
+    if !names_unique(cache.tables.iter().map(|t| &t.0))
+        || !names_unique(tabs.iter().map(|t| &t.name))
     {
         use_.fallback = Some("duplicate table names".into());
         return None;
@@ -1558,7 +1583,9 @@ fn run(
                     .tables()
                     .iter()
                     .position(|t| t.name == *n)
-                    .ok_or_else(|| ClosureError::Config(format!("relation set {}: no table {n}", rs.name)))?;
+                    .ok_or_else(|| {
+                        ClosureError::Config(format!("relation set {}: no table {n}", rs.name))
+                    })?;
                 table_rank[t]
             }
         };
@@ -1716,7 +1743,10 @@ fn run(
             "credits".into(),
             match &cfg.credits {
                 None => "none".into(),
-                Some(p) => sha_hex(&[&format!("{:?}", p.group), &format!("{:?}", p.pure_numerator_maps)]),
+                Some(p) => sha_hex(&[
+                    &format!("{:?}", p.group),
+                    &format!("{:?}", p.pure_numerator_maps),
+                ]),
             },
         );
         c.insert(
@@ -1919,8 +1949,8 @@ fn run(
                         status: OpenStatus::Truncated,
                         rule: None,
                         detail: "round limit".into(),
- candidates: vec![],
-},
+                        candidates: vec![],
+                    },
                 );
             }
             break;
@@ -1946,28 +1976,36 @@ fn run(
                             let (old_stop, use_reuse) = match view {
                                 None => (0, false),
                                 Some(cv) => {
-                                    let cached = cv.cache.table.get(table.code(i)).map(|ci| cv.cache.stop[ci as usize]);
-                                    let same_excl = (cv.cache.exclusions.is_empty() && ctx.cfg.exclusions.is_empty())
-                                        || cv.cache.exclusions.get(&key) == ctx_excl_names(ctx, &key).as_ref();
+                                    let cached = cv
+                                        .cache
+                                        .table
+                                        .get(table.code(i))
+                                        .map(|ci| cv.cache.stop[ci as usize]);
+                                    let same_excl = (cv.cache.exclusions.is_empty()
+                                        && ctx.cfg.exclusions.is_empty())
+                                        || cv.cache.exclusions.get(&key)
+                                            == ctx_excl_names(ctx, &key).as_ref();
                                     match cached {
                                         Some(CachedStop::Uncovered) if same_excl => {
                                             used_cache = true;
                                             (u32::MAX, true)
                                         }
-                                        Some(CachedStop::At(t, r)) if same_excl => match cv.old_to_new[t as usize] {
-                                            Some(j) => {
-                                                used_cache = true;
-                                                (
-                                                    ctx.fast.position(RuleRef {
-                                                        table: j,
-                                                        record: r as usize,
-                                                        label: 0,
-                                                    }),
-                                                    true,
-                                                )
+                                        Some(CachedStop::At(t, r)) if same_excl => {
+                                            match cv.old_to_new[t as usize] {
+                                                Some(j) => {
+                                                    used_cache = true;
+                                                    (
+                                                        ctx.fast.position(RuleRef {
+                                                            table: j,
+                                                            record: r as usize,
+                                                            label: 0,
+                                                        }),
+                                                        true,
+                                                    )
+                                                }
+                                                None => (0, false),
                                             }
-                                            None => (0, false),
-                                        },
+                                        }
                                         _ => (0, false),
                                     }
                                 }
@@ -2057,7 +2095,8 @@ fn run(
             let hs: Vec<_> = parts
                 .iter()
                 .map(|&(a, b)| {
-                    let (ctx, table, res, credits, recipe_of) = (&ctx, &table, &res, &credits, &recipe_of);
+                    let (ctx, table, res, credits, recipe_of) =
+                        (&ctx, &table, &res, &credits, &recipe_of);
                     s.spawn(move || -> Result<ExpandOut, ClosureError> {
                         let mut out = ExpandOut::default();
                         let (mut buf, mut cm, mut codes) = (vec![], vec![], vec![]);
@@ -2297,7 +2336,9 @@ fn dispose(
         let (would, dispatch) = match &d {
             _ if rec.is_some() => (None, TerminalDispatch::Recipe),
             Dispatch::Covered(r) => (Some(ctx.fast.position(*r)), TerminalDispatch::Covered),
-            Dispatch::Blocked { at, .. } => (Some(ctx.fast.position(*at)), TerminalDispatch::Blocked),
+            Dispatch::Blocked { at, .. } => {
+                (Some(ctx.fast.position(*at)), TerminalDispatch::Blocked)
+            }
             Dispatch::Undecided { at, .. } => {
                 (Some(ctx.fast.position(*at)), TerminalDispatch::Undecided)
             }
@@ -2335,8 +2376,8 @@ fn dispose(
                     status: OpenStatus::NoBody,
                     rule: Some(p),
                     detail: String::new(),
- candidates: vec![],
-}));
+                    candidates: vec![],
+                }));
             }
             if tier_c {
                 match ctx.facts.regularity(&ctx.rid(p), key) {
@@ -2345,10 +2386,12 @@ fn dispose(
                             status: OpenStatus::Irregular,
                             rule: Some(p),
                             detail: "pole".into(),
- candidates: vec![],
-}));
+                            candidates: vec![],
+                        }));
                     }
-                    RegFact::Unknown if ctx.relax_regularity => KeyRes::Pos(p, Some(RegFact::Regular)),
+                    RegFact::Unknown if ctx.relax_regularity => {
+                        KeyRes::Pos(p, Some(RegFact::Regular))
+                    }
                     f => KeyRes::Pos(p, Some(f)),
                 }
             } else {
@@ -2372,7 +2415,7 @@ fn dispose(
                             rule: None,
                             detail,
                             candidates: ctx.recipe_candidates(key),
-}));
+                        }));
                     }
                 }
             }

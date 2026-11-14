@@ -26,7 +26,11 @@ fn cmp() -> NodeComparator {
     NodeComparator::legacy(4, None).unwrap()
 }
 fn start(keys: &[[i32; 4]]) -> KeySet {
-    KeySet::from_keys(KeyCodec::new(4, 6).unwrap(), keys.iter().map(|k| k.as_slice())).unwrap()
+    KeySet::from_keys(
+        KeyCodec::new(4, 6).unwrap(),
+        keys.iter().map(|k| k.as_slice()),
+    )
+    .unwrap()
 }
 fn base(tier: Tier) -> ClosureConfig {
     ClosureConfig {
@@ -118,7 +122,10 @@ fn c1_incremental_after_dropped_terminal_equals_scratch() {
         closure_incremental(&prev.dispatch_cache(), &d, &b, &cmp(), &st, &cfg, &NoFacts).unwrap();
     let scratch = closure(&d, &b, &cmp(), &st, &cfg, &NoFacts).unwrap();
     assert!(!scratch.is_credited(0));
-    assert!(!inc.is_credited(0), "stale terminal cache credited a key that has a rule");
+    assert!(
+        !inc.is_credited(0),
+        "stale terminal cache credited a key that has a rule"
+    );
     assert_eq!(inc.winner(0).unwrap().record, 0);
     assert_eq!(view(&inc), view(&scratch));
     assert_eq!(inc.incremental_use().unwrap().reused, 1);
@@ -154,19 +161,36 @@ fn c2_tier_c_credit_needs_regularity_at_the_image() {
         credits: Some(swap_policy()),
         ..base(Tier::C)
     };
-    let s = closure(&d, &b, &cmp(), &st, &cfg, &Constant(CoefFact::NonZero, RegFact::Pole))
-        .unwrap()
-        .summary();
+    let s = closure(
+        &d,
+        &b,
+        &cmp(),
+        &st,
+        &cfg,
+        &Constant(CoefFact::NonZero, RegFact::Pole),
+    )
+    .unwrap()
+    .summary();
     assert_eq!((s.verdict, s.credited, s.open_total), (Verdict::Open, 0, 1));
     // regular by fact: credited and closed
-    let s = closure(&d, &b, &cmp(), &st, &cfg, &Constant(CoefFact::NonZero, RegFact::Regular))
-        .unwrap()
-        .summary();
+    let s = closure(
+        &d,
+        &b,
+        &cmp(),
+        &st,
+        &cfg,
+        &Constant(CoefFact::NonZero, RegFact::Regular),
+    )
+    .unwrap()
+    .summary();
     assert_eq!((s.verdict, s.credited), (Verdict::Closed, 1));
     // unknown regularity at the image: a PENDING credit, undecided with a request, never closed
     let c = closure(&d, &b, &cmp(), &st, &cfg, &NoFacts).unwrap();
     let s = c.summary();
-    assert_eq!((s.verdict, s.credited, s.undecided.regularity_unknown), (Verdict::Undecided, 1, 1));
+    assert_eq!(
+        (s.verdict, s.credited, s.undecided.regularity_unknown),
+        (Verdict::Undecided, 1, 1)
+    );
     let r = &c.fact_requests()[0];
     assert_eq!(r.key, vec![3, 1, 0, 0], "the request is at the image");
 }
@@ -192,15 +216,24 @@ fn c2_tier_c_credit_dropped_terms_need_zero_facts() {
     let reqs = c.fact_requests();
     let f = answer_facts(
         &reqs,
-        &[(&[3, 1, 0, 0], None, "regular"), (&[3, 1, 0, 0], Some(1), "zero")],
+        &[
+            (&[3, 1, 0, 0], None, "regular"),
+            (&[3, 1, 0, 0], Some(1), "zero"),
+        ],
         "exact",
         false,
     );
     let s = closure(&d, &b, &cmp(), &st, &cfg, &f).unwrap().summary();
-    assert_eq!((s.verdict, s.credited, s.terms.dropped_zero), (Verdict::Closed, 1, 1));
+    assert_eq!(
+        (s.verdict, s.credited, s.terms.dropped_zero),
+        (Verdict::Closed, 1, 1)
+    );
     let f = answer_facts(
         &reqs,
-        &[(&[3, 1, 0, 0], None, "regular"), (&[3, 1, 0, 0], Some(1), "nonzero")],
+        &[
+            (&[3, 1, 0, 0], None, "regular"),
+            (&[3, 1, 0, 0], Some(1), "nonzero"),
+        ],
         "exact",
         false,
     );
@@ -224,7 +257,10 @@ fn c3_relaxed_regularity_is_diagnostic() {
         .unwrap()
         .summary();
     assert_eq!(s.verdict, Verdict::Diagnostic);
-    assert_eq!(s.relaxed_checks, vec!["allow_unknown_regularity".to_string()]);
+    assert_eq!(
+        s.relaxed_checks,
+        vec!["allow_unknown_regularity".to_string()]
+    );
     let a2: &[Spec] = &[([Some(3), Some(1), Some(0), Some(0)], &["I(3,0,0,0)"])];
     let (d2, b2) = build(&[("A", a2)], vec![0]);
     let cfg2 = ClosureConfig {
@@ -234,9 +270,16 @@ fn c3_relaxed_regularity_is_diagnostic() {
         credits: Some(swap_policy()),
         ..base(Tier::C)
     };
-    let r = closure(&d2, &b2, &cmp(), &start(&[[1, 3, 0, 0]]), &cfg2, &reg_unknown)
-        .unwrap()
-        .report(&Default::default());
+    let r = closure(
+        &d2,
+        &b2,
+        &cmp(),
+        &start(&[[1, 3, 0, 0]]),
+        &cfg2,
+        &reg_unknown,
+    )
+    .unwrap()
+    .report(&Default::default());
     assert_eq!(r.summary.verdict, Verdict::Diagnostic);
     assert_eq!(r.summary.verdict_if_not_diagnostic, Some(Verdict::Closed));
     assert!(r.summary.diagnostic);
@@ -281,10 +324,16 @@ fn m1_terminal_in_rule_domain_and_exclusions() {
     };
     let c = closure(&d, &b, &cmp(), &st, &cfg, &NoFacts).unwrap();
     let s = c.summary();
-    assert_eq!((s.verdict, s.terminal_in_rule_domain), (Verdict::TerminalInRuleDomain, 1));
+    assert_eq!(
+        (s.verdict, s.terminal_in_rule_domain),
+        (Verdict::TerminalInRuleDomain, 1)
+    );
     let tr = &c.terminal_records()[0];
     assert!(tr.in_rule_domain);
-    assert_eq!((tr.dispatch, tr.would_dispatch.as_ref().unwrap().record), (TerminalDispatch::Covered, 0));
+    assert_eq!(
+        (tr.dispatch, tr.would_dispatch.as_ref().unwrap().record),
+        (TerminalDispatch::Covered, 0)
+    );
     // excluding record 0 at k: record 1 (free) serves next -> still inside a rule's domain
     let ex0 = KeyExclusion {
         key: k.to_vec(),
@@ -298,7 +347,14 @@ fn m1_terminal_in_rule_domain_and_exclusions() {
         ..cfg.clone()
     };
     let c1 = closure(&d, &b, &cmp(), &st, &cfg1, &NoFacts).unwrap();
-    assert_eq!(c1.terminal_records()[0].would_dispatch.as_ref().unwrap().record, 1);
+    assert_eq!(
+        c1.terminal_records()[0]
+            .would_dispatch
+            .as_ref()
+            .unwrap()
+            .record,
+        1
+    );
     assert_eq!(c1.summary().verdict, Verdict::TerminalInRuleDomain);
     // both excluded: uncovered there, the terminal holds
     let ex1 = KeyExclusion {
@@ -311,7 +367,10 @@ fn m1_terminal_in_rule_domain_and_exclusions() {
         ..cfg.clone()
     };
     let c2 = closure(&d, &b, &cmp(), &st, &cfg2, &NoFacts).unwrap();
-    assert_eq!(c2.terminal_records()[0].dispatch, TerminalDispatch::Uncovered);
+    assert_eq!(
+        c2.terminal_records()[0].dispatch,
+        TerminalDispatch::Uncovered
+    );
     assert_eq!(c2.summary().verdict, Verdict::SupersetClean);
     // an exclusion at a non-terminal key: the next record serves (k reduced by record 1, not record 0)
     let cfg3 = ClosureConfig {
@@ -348,9 +407,16 @@ fn m2_incremental_detects_changed_table_content() {
     let (d0, b0) = build(&[("A", a_old)], vec![0]);
     let prev = closure(&d0, &b0, &cmp(), &st, &base(Tier::K), &NoFacts).unwrap();
     let (d1, b1) = build(&[("A", a_new)], vec![0]);
-    let inc =
-        closure_incremental(&prev.dispatch_cache(), &d1, &b1, &cmp(), &st, &base(Tier::K), &NoFacts)
-            .unwrap();
+    let inc = closure_incremental(
+        &prev.dispatch_cache(),
+        &d1,
+        &b1,
+        &cmp(),
+        &st,
+        &base(Tier::K),
+        &NoFacts,
+    )
+    .unwrap();
     let scratch = closure(&d1, &b1, &cmp(), &st, &base(Tier::K), &NoFacts).unwrap();
     assert_eq!(view(&inc), view(&scratch));
     assert!(inc.incremental_use().unwrap().unchanged_tables.is_empty());
@@ -360,7 +426,15 @@ fn m2_incremental_detects_changed_table_content() {
         ..base(Tier::K)
     };
     assert!(matches!(
-        closure_incremental(&prev.dispatch_cache(), &d1, &b1, &cmp(), &st, &wide, &NoFacts),
+        closure_incremental(
+            &prev.dispatch_cache(),
+            &d1,
+            &b1,
+            &cmp(),
+            &st,
+            &wide,
+            &NoFacts
+        ),
         Err(ClosureError::NotIncremental(_))
     ));
 }
@@ -376,11 +450,25 @@ fn m3_recheck_refuses_changed_configuration() {
         ..base(Tier::K)
     };
     let prev = closure(&d, &b, &cmp(), &start(&[[2, 1, 0, 0]]), &c0, &NoFacts).unwrap();
-    assert!(!prev.exit_sets().complete, "counts only: exit key sets incomplete");
+    assert!(
+        !prev.exit_sets().complete,
+        "counts only: exit key sets incomplete"
+    );
     let c1 = base(Tier::K);
-    match closure_recheck(&prev, &d, &b, &cmp(), &start(&[[1, 2, 0, 0]]), &c1, &NoFacts) {
+    match closure_recheck(
+        &prev,
+        &d,
+        &b,
+        &cmp(),
+        &start(&[[1, 2, 0, 0]]),
+        &c1,
+        &NoFacts,
+    ) {
         Err(ClosureError::NotIncremental(m)) => assert!(m.contains("hand_downs"), "{m}"),
-        r => panic!("recheck accepted a changed hand-down mode: {:?}", r.map(|c| c.summary())),
+        r => panic!(
+            "recheck accepted a changed hand-down mode: {:?}",
+            r.map(|c| c.summary())
+        ),
     }
     // changed facts
     let f = Constant(CoefFact::Zero, RegFact::Regular);
@@ -391,7 +479,15 @@ fn m3_recheck_refuses_changed_configuration() {
     // changed body content (same table)
     let a2: &[Spec] = &[([None; 4], &["I(n0-1,n1,n2,n3-1)"])];
     let (d2, b2) = build(&[("A", a2)], vec![0]);
-    match closure_recheck(&prev, &d2, &b2, &cmp(), &start(&[[1, 2, 0, 0]]), &c0, &NoFacts) {
+    match closure_recheck(
+        &prev,
+        &d2,
+        &b2,
+        &cmp(),
+        &start(&[[1, 2, 0, 0]]),
+        &c0,
+        &NoFacts,
+    ) {
         Err(ClosureError::NotIncremental(m)) => assert!(m.contains("bodies"), "{m}"),
         r => panic!("{:?}", r.map(|c| c.summary())),
     }
@@ -399,8 +495,15 @@ fn m3_recheck_refuses_changed_configuration() {
     let p1 = closure(&d, &b, &cmp(), &start(&[[2, 1, 0, 0]]), &c1, &NoFacts).unwrap();
     assert!(p1.exit_sets().complete);
     let re = closure_recheck(&p1, &d, &b, &cmp(), &start(&[[1, 2, 0, 0]]), &c1, &NoFacts).unwrap();
-    let scratch =
-        closure(&d, &b, &cmp(), &start(&[[2, 1, 0, 0], [1, 2, 0, 0]]), &c1, &NoFacts).unwrap();
+    let scratch = closure(
+        &d,
+        &b,
+        &cmp(),
+        &start(&[[2, 1, 0, 0], [1, 2, 0, 0]]),
+        &c1,
+        &NoFacts,
+    )
+    .unwrap();
     assert_eq!(re.keys(), scratch.keys());
     assert_eq!(re.hand_down_sets(), scratch.hand_down_sets());
     assert_eq!(re.summary().config_digest, scratch.summary().config_digest);
@@ -416,9 +519,19 @@ fn m4_facts_bound_to_rule_content_and_term_key() {
     let reqs = closure(&d, &b, &cmp(), &st, &base(Tier::C), &NoFacts)
         .unwrap()
         .fact_requests();
-    assert!(reqs.iter().all(|r| r.rule_digest.is_some() && r.config.is_some()));
-    let r1 = reqs.iter().find(|r| r.term == Some(1) && r.key == vec![2, 1, 0, 0]).unwrap();
-    assert_eq!(r1.rhs, Some(vec![1, 1, 1, 0]), "the request carries the term key");
+    assert!(
+        reqs.iter()
+            .all(|r| r.rule_digest.is_some() && r.config.is_some())
+    );
+    let r1 = reqs
+        .iter()
+        .find(|r| r.term == Some(1) && r.key == vec![2, 1, 0, 0])
+        .unwrap();
+    assert_eq!(
+        r1.rhs,
+        Some(vec![1, 1, 1, 0]),
+        "the request carries the term key"
+    );
     let spec: Vec<(&[i32], Option<usize>, &str)> = vec![
         (&[2, 1, 0, 0], None, "regular"),
         (&[1, 1, 0, 0], None, "regular"),
@@ -426,11 +539,19 @@ fn m4_facts_bound_to_rule_content_and_term_key() {
         (&[1, 1, 0, 0], Some(1), "zero"),
     ];
     let f = answer_facts(&reqs, &spec, "exact", false);
-    assert_eq!(closure(&d, &b, &cmp(), &st, &base(Tier::C), &f).unwrap().summary().verdict, Verdict::Closed);
+    assert_eq!(
+        closure(&d, &b, &cmp(), &st, &base(Tier::C), &f)
+            .unwrap()
+            .summary()
+            .verdict,
+        Verdict::Closed
+    );
     // the same table name / record / label with another body: the old facts do not apply
     let a2: &[Spec] = &[([None; 4], &["I(n0-1,n1,n2,n3)", "I(n0-1,n1,n2+1,n3-1)"])];
     let (d2, b2) = build(&[("A", a2)], vec![0]);
-    let s2 = closure(&d2, &b2, &cmp(), &st, &base(Tier::C), &f).unwrap().summary();
+    let s2 = closure(&d2, &b2, &cmp(), &st, &base(Tier::C), &f)
+        .unwrap()
+        .summary();
     assert_eq!(s2.verdict, Verdict::Undecided);
     assert_eq!(s2.terms.dropped_zero, 0);
     // a regenerated coefficient file (other digest): the old facts do not apply
@@ -438,7 +559,13 @@ fn m4_facts_bound_to_rule_content_and_term_key() {
         table_digests: [("A".to_string(), "sha256:regenerated".to_string())].into(),
         ..base(Tier::C)
     };
-    assert_eq!(closure(&d, &b, &cmp(), &st, &cfg3, &f).unwrap().summary().verdict, Verdict::Undecided);
+    assert_eq!(
+        closure(&d, &b, &cmp(), &st, &cfg3, &f)
+            .unwrap()
+            .summary()
+            .verdict,
+        Verdict::Undecided
+    );
     // the producer's term key differs from the request's: rejected, counted
     let mut bad = reqs.clone();
     for r in &mut bad {
@@ -451,10 +578,12 @@ fn m4_facts_bound_to_rule_content_and_term_key() {
     let ans = serde_json::json!({"schema":"rustred.campaign.fact.v1","table":r1.table,"record":0,"label":0,
         "key":[2,1,0,0],"kind":"coefficient","term":1,"value":"zero","method":"exact"});
     let txt = format!("{inst}\n{ans}\n");
-    let ff = rustred_campaign_core::closure::FileFacts::read_bound(txt.as_bytes(), &bad, false).unwrap();
+    let ff =
+        rustred_campaign_core::closure::FileFacts::read_bound(txt.as_bytes(), &bad, false).unwrap();
     assert_eq!((ff.n_facts, ff.n_rejected_term_key), (0, 1));
     // an unrequested answer is rejected
-    let ff = rustred_campaign_core::closure::FileFacts::read_bound(txt.as_bytes(), &[], false).unwrap();
+    let ff =
+        rustred_campaign_core::closure::FileFacts::read_bound(txt.as_bytes(), &[], false).unwrap();
     assert_eq!((ff.n_facts, ff.n_rejected_unrequested), (0, 1));
 }
 
@@ -479,7 +608,11 @@ fn m6_zero_sectors_labelled_and_in_identity() {
     let c = closure(&d, &b, &cmp(), &st, &lab, &NoFacts).unwrap();
     let r = c.report(&Default::default());
     assert!(r.config["zero_sectors"].starts_with("file:sha256:test|"));
-    assert_eq!(c.hand_down_sets().len(), 0, "the zero sector hides the exit");
+    assert_eq!(
+        c.hand_down_sets().len(),
+        0,
+        "the zero sector hides the exit"
+    );
     let none = closure(&d, &b, &cmp(), &st, &base(Tier::K), &NoFacts).unwrap();
     assert_eq!(
         none.report(&Default::default()).config["zero_sectors"],
@@ -524,10 +657,14 @@ fn m2_numerator_keys_need_a_certified_pure_map() {
         credits: Some(p.clone()),
         ..base(Tier::K)
     };
-    let s = closure(&d, &b, &cmp(), &st, &cfg(&pol), &NoFacts).unwrap().summary();
+    let s = closure(&d, &b, &cmp(), &st, &cfg(&pol), &NoFacts)
+        .unwrap()
+        .summary();
     assert_eq!((s.credited, s.open_total), (0, 1));
     pol.pure_numerator_maps.insert(0);
-    let s = closure(&d, &b, &cmp(), &st, &cfg(&pol), &NoFacts).unwrap().summary();
+    let s = closure(&d, &b, &cmp(), &st, &cfg(&pol), &NoFacts)
+        .unwrap()
+        .summary();
     assert_eq!(s.credited, 1);
     let cm = cmp();
     let chk = rustred_campaign_core::symmetry::CreditChecker::new(

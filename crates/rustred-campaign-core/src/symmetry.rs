@@ -25,8 +25,7 @@ use std::collections::BTreeSet;
 
 use crate::closure::internal::{CtxView, StandaloneCtx};
 use crate::closure::{
-    ClosureError, CoefFact, FactSource, FastDispatch, RegFact, RuleBodies, Sectors, TermClass,
-    Tier,
+    ClosureError, CoefFact, FactSource, FastDispatch, RegFact, RuleBodies, Sectors, TermClass, Tier,
 };
 use crate::cover::{Dispatch, Dispatcher, RuleRef};
 use crate::order::NodeComparator;
@@ -72,8 +71,14 @@ impl CreditPolicy {
                 ));
             }
         }
-        if let Some(&i) = self.pure_numerator_maps.iter().find(|&&i| i >= self.group.len()) {
-            return Err(format!("certified numerator map of element {i}: no such element"));
+        if let Some(&i) = self
+            .pure_numerator_maps
+            .iter()
+            .find(|&&i| i >= self.group.len())
+        {
+            return Err(format!(
+                "certified numerator map of element {i}: no such element"
+            ));
         }
         Ok(())
     }
@@ -177,10 +182,7 @@ fn try_element(
         return Ok(Err(Refusal::ImageEqualsKey));
     }
     let lines = &ctx.sectors().lines;
-    let has_numerator = key
-        .iter()
-        .zip(lines)
-        .any(|(&v, &l)| !l && v != 0);
+    let has_numerator = key.iter().zip(lines).any(|(&v, &l)| !l && v != 0);
     if has_numerator && !pol.pure_numerator_maps.contains(&ei) {
         return Ok(Err(Refusal::NumeratorMapNotPure));
     }

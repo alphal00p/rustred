@@ -85,7 +85,10 @@ fn ec2_facts_feed_tier_c() {
         tier: Tier::C,
         table_digests: [(
             "R0_try1".to_string(),
-            format!("sha256:{}", k3_common::sha256_hex(&std::fs::read(&raw).unwrap())),
+            format!(
+                "sha256:{}",
+                k3_common::sha256_hex(&std::fs::read(&raw).unwrap())
+            ),
         )]
         .into(),
         ..probe.clone()

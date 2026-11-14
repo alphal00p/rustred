@@ -173,6 +173,10 @@ pub fn answer_facts(
         }
         out.push(v.to_string());
     }
-    rustred_campaign_core::closure::FileFacts::read_bound(out.join("\n").as_bytes(), reqs, accept_provisional)
-        .unwrap()
+    rustred_campaign_core::closure::FileFacts::read_bound(
+        out.join("\n").as_bytes(),
+        reqs,
+        accept_provisional,
+    )
+    .unwrap()
 }

@@ -342,7 +342,9 @@ fn t266_tier_k_closure() {
                         let mut bad = 0usize;
                         for i in t * per..((t + 1) * per).min(n) {
                             let k = keys.get(i);
-                            if fast.first_match_with(&k, &mut b, &mut stck) != disp.first_match(&k).unwrap() {
+                            if fast.first_match_with(&k, &mut b, &mut stck)
+                                != disp.first_match(&k).unwrap()
+                            {
                                 bad += 1;
                             }
                         }
