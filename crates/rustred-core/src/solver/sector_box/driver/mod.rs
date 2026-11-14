@@ -27,6 +27,7 @@ use super::{
 };
 
 mod growth;
+mod lanes;
 mod seeding;
 mod stability;
 #[cfg(test)]
@@ -37,6 +38,8 @@ type SubtubeCache<const N: usize> = HashMap<(u64, i16, i16, [u8; 32]), Arc<BTree
 
 /// A sink for one human-readable progress line per phase.
 type Progress = Box<dyn FnMut(&str) + Send>;
+
+pub use lanes::{ExplicitSample, ExplicitTable};
 
 /// One family, one row space, one column order, persisted across `extend`.
 pub struct BoxLaportaSession<const N: usize> {
@@ -86,6 +89,8 @@ pub struct BoxLaportaSession<const N: usize> {
     progress: Option<Progress>,
     /// The last modular selection (materialisation input).
     selection: Option<SelectionState<N>>,
+    /// The selected system over Q(params), keyed by the selection hash.
+    exact_system: Option<(String, Arc<super::system::ExactSystem<N>>)>,
 }
 
 /// Second-sample seed: an independent stream derived from the first.
@@ -328,6 +333,7 @@ impl<const N: usize> BoxLaportaSession<N> {
             started: Instant::now(),
             progress: None,
             selection: None,
+            exact_system: None,
         })
     }
 

@@ -58,11 +58,18 @@
 //!   tubes for rank-heavy demand ([`TubeOptions`]) and the +1 stability check
 //!   ([`BoxOptions::stability`]).
 //!
+//! - the materialisation input: the selected rows re-instantiated over
+//!   Q(params) from their provenance, compiled at a prime and probed along
+//!   the modular pivots without a pivot search;
+//!   [`BoxLaportaSession::probe_explicit`] gives the `(target, master)`
+//!   values at an explicit point and prime (oracle comparisons).
+//!
 //! The finite-field and exact lanes follow in the next steps.
 
 mod driver;
 mod modular;
 mod order;
+mod probe;
 mod router;
 mod router_census;
 #[cfg(test)]
@@ -79,8 +86,11 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-pub use driver::{BoxLaportaSession, census_targets, down_closure_representatives};
+pub use driver::{
+    BoxLaportaSession, ExplicitSample, ExplicitTable, census_targets, down_closure_representatives,
+};
 pub use order::{ColumnOrder, SlotPriority};
+pub use probe::LaneFailure;
 pub use router::{IdentityRouter, Route, SectorRouter};
 pub use router_census::CensusRouter;
 pub use seeds::{SeedBox, SeedRegion, tube_seeds};
