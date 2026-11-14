@@ -13,14 +13,15 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use rustred::algebra::reconstruct::{RationalFunction, rational_image};
+use rustred::algebra::reconstruct::{RationalFunction, rational_image, reconstruction_primes};
 use rustred::algebra::{CoefficientContext, ExactAlgebraLimits};
 use rustred::family::{AffineDenominator, IntegralFamily};
 use rustred::sector::CutConstraint;
 use rustred::solver::SolverError;
 use rustred::solver::sector_box::{
-    BoxLaportaSession, BoxOptions, BoxPhase, BoxSolution, CensusRouter, ColumnOrder,
-    ExplicitSample, FaultInjection, FfOptions, MasterCheckMode, Seeding, SlotPriority,
+    BoxLaportaSession, BoxOptions, BoxPhase, BoxSolution, CensusRouter, CertificateMode,
+    ColumnOrder, DEFAULT_CERTIFICATE_PRIME, ExplicitSample, FaultInjection, FfOptions, Lane,
+    MasterCheckMode, ParameterAssignment, RouterChoice, Seeding, SlotPriority, solve_box_laporta,
 };
 use serde_json::Value;
 use symbolica::domains::finite_field::{FiniteFieldCore, Zp64};
@@ -605,5 +606,222 @@ fn finite_field_lane_rejects_bad_requests() {
         session
             .materialize_ff(&targets, &[("d".into(), q(319999, 80000))], &starved)
             .is_err()
+    );
+}
+
+/// The exact lane equals the finite-field lane coefficient by coefficient
+/// (both parameter splits); the exact and the probabilistic certificate
+/// accept the reduction and reject a perturbed one.
+#[test]
+fn exact_lane_equals_finite_field_lane_and_certificates_hold() {
+    let (mut session, targets) = session(2);
+    let context = session.family().coefficient_context().clone();
+    for fixed in [("d", q(37, 11)), ("eta", q(3, 7))] {
+        let fixed = vec![(fixed.0.to_string(), fixed.1)];
+        let ff = session
+            .materialize_ff(&targets, &fixed, &FfOptions::default())
+            .unwrap();
+        let exact = session.materialize_exact(&targets, &fixed).unwrap();
+        assert_eq!(exact.free, vec![ff.free.clone()]);
+        assert!(ff.mismatches(&exact, &context).unwrap().is_empty());
+        let certificate = session.certify(&ff, None, 0).unwrap();
+        assert_eq!(
+            (certificate.mode, certificate.rules),
+            (CertificateMode::Exact, targets.len())
+        );
+        let certificate = session
+            .certify(&ff, Some(DEFAULT_CERTIFICATE_PRIME), 17)
+            .unwrap();
+        assert_eq!(certificate.mode, CertificateMode::Probabilistic);
+        assert_eq!(certificate.prime, Some(DEFAULT_CERTIFICATE_PRIME));
+        let mut wrong = ff.clone();
+        let (t, m) = wrong
+            .coefficients
+            .iter()
+            .enumerate()
+            .flat_map(|(t, row)| row.iter().enumerate().map(move |(m, f)| (t, m, f)))
+            .find(|(_, _, function)| !function.is_zero() && function.degrees() != (0, 0))
+            .map(|(t, m, _)| (t, m))
+            .unwrap();
+        wrong.coefficients[t][m].numerator[0] = &wrong.coefficients[t][m].numerator[0] + &q(1, 1);
+        assert_eq!(wrong.mismatches(&exact, &context).unwrap(), vec![(t, m)]);
+        assert!(matches!(
+            session.certify(&wrong, None, 0),
+            Err(SolverError::Certification(_))
+        ));
+        assert!(matches!(
+            session.certify(&wrong, Some(DEFAULT_CERTIFICATE_PRIME), 17),
+            Err(SolverError::Certification(_))
+        ));
+    }
+    // Every parameter free: the exact lane still works.
+    let symbolic = session.materialize_exact(&targets, &[]).unwrap();
+    assert_eq!(symbolic.free, vec!["d".to_string(), "eta".to_string()]);
+}
+
+/// A certificate at a prime the reconstruction lifted over or was verified
+/// at is refused: it would not be independent. The campaign's default
+/// certificate prime 2^62 - 171 is the 7th reconstruction prime.
+#[test]
+fn certificates_refuse_primes_the_reconstruction_used() {
+    assert_eq!(reconstruction_primes(7)[6], (1u64 << 62) - 171);
+    const { assert!(DEFAULT_CERTIFICATE_PRIME > 1 << 62) };
+    let (mut session, targets) = session(1);
+    let solution = session
+        .materialize_ff(&targets, &[("d".into(), q(37, 11))], &FfOptions::default())
+        .unwrap();
+    let used: Vec<u64> = solution
+        .reconstruction_primes()
+        .into_iter()
+        .chain(solution.verification_primes())
+        .collect();
+    assert!(used.len() >= 3);
+    for prime in used {
+        assert!(
+            matches!(
+                session.certify(&solution, Some(prime), 1),
+                Err(SolverError::InvalidInput(_))
+            ),
+            "{prime}"
+        );
+    }
+    for prime in [1, 2, 15, (1u64 << 63) + 29] {
+        assert!(
+            matches!(
+                session.certify(&solution, Some(prime), 1),
+                Err(SolverError::InvalidInput(_))
+            ),
+            "{prime}"
+        );
+    }
+    // Any other prime is independent.
+    assert!(
+        session
+            .certify(&solution, Some((1u64 << 62) - 171), 1)
+            .is_ok()
+    );
+    // A solution that does not belong to the session is refused.
+    let mut foreign = solution.clone();
+    foreign.masters.swap(0, 1);
+    assert!(matches!(
+        session.certify(&foreign, Some(DEFAULT_CERTIFICATE_PRIME), 1),
+        Err(SolverError::InvalidInput(_))
+    ));
+    let mut short = solution.clone();
+    short.coefficients[0].pop();
+    assert!(matches!(
+        session.certify(&short, None, 1),
+        Err(SolverError::InvalidInput(_))
+    ));
+    // The public methods of a solution check its shape instead of
+    // truncating or panicking.
+    let context = session.family().coefficient_context().clone();
+    assert!(matches!(
+        short.to_dynamic_solution(&context),
+        Err(SolverError::InvalidInput(_))
+    ));
+    let exact = session
+        .materialize_exact(&targets, &[("d".into(), q(37, 11))])
+        .unwrap();
+    assert!(matches!(
+        short.mismatches(&exact, &context),
+        Err(SolverError::InvalidInput(_))
+    ));
+    let mut unfixed = solution.clone();
+    unfixed.fixed.clear();
+    assert!(matches!(
+        unfixed.check_shape(),
+        Err(SolverError::InvalidInput(_))
+    ));
+    let mut wide = solution.clone();
+    wide.arity = N + 1;
+    assert!(matches!(
+        wide.check_shape(),
+        Err(SolverError::InvalidInput(_))
+    ));
+    assert!(solution.check_shape().is_ok());
+}
+
+/// The golden reproductions at both values of d pass the exact
+/// certificate and a probabilistic certificate at a prime independent of
+/// their reconstruction.
+#[test]
+fn golden_reproductions_are_certified_at_an_independent_prime() {
+    let (mut session, targets) = session(2);
+    for d0 in [q(37, 11), q(319999, 80000)] {
+        let solution = session
+            .materialize_ff(&targets, &[("d".into(), d0)], &campaign_ff())
+            .unwrap();
+        assert!(
+            !solution
+                .reconstruction_primes()
+                .contains(&DEFAULT_CERTIFICATE_PRIME)
+        );
+        let certificate = session
+            .certify(&solution, Some(DEFAULT_CERTIFICATE_PRIME), 0x6332_7432)
+            .unwrap();
+        assert_eq!(certificate.rules, solution.targets.len());
+        session.certify(&solution, None, 0).unwrap();
+    }
+}
+
+/// The facade equals a session's `materialize`, in both lanes.
+#[test]
+fn facade_matches_the_session() {
+    let (_, targets) = session(1);
+    let lists: Vec<Vec<i16>> = targets.iter().map(|t| t.to_vec()).collect();
+    let family = k6_family();
+    let context = family.coefficient_context().clone();
+    let assignment = ParameterAssignment {
+        values: vec![(
+            "d".into(),
+            context
+                .try_div(
+                    &context.integer(37),
+                    &context.integer(11),
+                    ExactAlgebraLimits::default(),
+                )
+                .unwrap(),
+        )],
+    };
+    for lane in [Lane::Exact, Lane::FiniteField(FfOptions::default())] {
+        let via_facade = solve_box_laporta::<N>(
+            family.clone(),
+            &CutConstraint::none(N).unwrap(),
+            &lists,
+            &[TOP.to_vec()],
+            RouterChoice::Census,
+            options(1),
+            &assignment,
+            &lane,
+        )
+        .unwrap();
+        let mut fresh = new_session(1);
+        fresh.extend(&targets, &[TOP]).unwrap();
+        let via_session = fresh.materialize(&targets, &assignment, &lane).unwrap();
+        assert_eq!(format!("{via_facade:?}"), format!("{via_session:?}"));
+        assert_eq!(via_session.residuals.len(), 12);
+    }
+    let symbolic = ParameterAssignment {
+        values: vec![("d".into(), context.parameter("eta").unwrap())],
+    };
+    let mut fresh = new_session(1);
+    fresh.extend(&targets, &[TOP]).unwrap();
+    assert!(matches!(
+        fresh.materialize(&targets, &symbolic, &Lane::Exact),
+        Err(SolverError::InvalidInput(_))
+    ));
+    assert!(
+        solve_box_laporta::<7>(
+            family,
+            &CutConstraint::none(7).unwrap(),
+            &lists,
+            &[],
+            RouterChoice::Census,
+            options(1),
+            &assignment,
+            &Lane::Exact
+        )
+        .is_err()
     );
 }

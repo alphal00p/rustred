@@ -69,9 +69,17 @@
 //!   the one parameter left free, by [`crate::algebra::reconstruct`], and
 //!   verified at a fresh prime.
 //!
-//! The exact lane and the certificates follow in the next step.
+//! - the exact lane ([`BoxLaportaSession::materialize_exact`]), which replays
+//!   the selected rows over Q(free parameters), and
+//!   [`BoxLaportaSession::certify`], which checks a reduction against the
+//!   span of the recorded rows, exactly or modulo a prime independent of the
+//!   reconstruction.
+//!
+//! The exchange format of the solution follows in the next step.
 
 mod driver;
+mod exact;
+mod facade;
 mod ff;
 mod modular;
 mod order;
@@ -94,11 +102,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub use driver::{
-    BoxLaportaSession, ExplicitSample, ExplicitTable, census_targets, down_closure_representatives,
+    BoxLaportaSession, DEFAULT_CERTIFICATE_PRIME, ExplicitSample, ExplicitTable, Lane,
+    ParameterAssignment, census_targets, down_closure_representatives,
 };
+pub use exact::{BoxCertificate, CertificateMode};
+pub use facade::{RouterChoice, solve_box_laporta};
 pub use ff::{FaultInjection, FfOptions, FfReport};
 pub use order::{ColumnOrder, SlotPriority};
-pub use output::{BoxProvenance, BoxSolution};
+pub use output::{BoxProvenance, BoxSolution, ExactSolution};
 pub use probe::LaneFailure;
 pub use router::{IdentityRouter, Route, SectorRouter};
 pub use router_census::CensusRouter;
