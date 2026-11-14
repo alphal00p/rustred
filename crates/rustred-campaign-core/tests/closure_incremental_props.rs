@@ -8,7 +8,10 @@
 
 use std::hash::{Hash, Hasher};
 
+use std::sync::Arc;
+
 use rustred_campaign_core::closure::{
+    DispatchSlot, RelationSet, RelationStoreBuilder, VERDICT_CERTIFIED,
     Closure, ClosureConfig, CoefFact, ExclusionReason, FactSource, HandDowns, KeyCodec,
     KeyExclusion, KeySet, RegFact, RuleBodies, RuleId, TerminalSets, Tier, closure,
     closure_incremental, closure_recheck,
@@ -58,6 +61,8 @@ struct State {
     start: Vec<[i32; N]>,
     credits: bool,
     tier: Tier,
+    /// a relation set (R48): certified keys and whether it precedes the first table
+    recipe: Option<(Vec<[i32; N]>, bool)>,
 }
 
 fn chart() -> Vec<bool> {
@@ -208,6 +213,34 @@ fn config(st: &State) -> ClosureConfig {
                 },
             ])
         }),
+        relation_sets: st
+            .recipe
+            .iter()
+            .map(|(keys, first)| {
+                let mut b = RelationStoreBuilder::new(KeyCodec::new(N, 6).unwrap());
+                let mut ks = keys.clone();
+                ks.sort();
+                ks.dedup();
+                for k in &ks {
+                    let mut lo = k.to_vec();
+                    lo[1] -= 1;
+                    let mut sub = k.to_vec();
+                    sub[2] = 0;
+                    b.push(k, &[lo, sub], [k[0] as u8; 32], VERDICT_CERTIFIED).unwrap();
+                }
+                Arc::new(RelationSet {
+                    name: "recipe".into(),
+                    recipe_digest: "sha256:r".into(),
+                    domain: CaseDomain::free(N, Some(chart())),
+                    relations: b.finish().unwrap(),
+                    slot: if *first {
+                        DispatchSlot::BeforeTable(st.tables[st.prio[0]].0.clone())
+                    } else {
+                        DispatchSlot::Last
+                    },
+                })
+            })
+            .collect(),
         table_digests: st
             .tables
             .iter()
@@ -294,7 +327,7 @@ fn mutate(st: &mut State, r: &mut Lcg, next_label: &mut i64, reached: &[Vec<i32>
             rand_key(r)
         }
     };
-    match r.below(11) {
+    match r.below(12) {
         0 | 1 => {
             // add a table at a random priority position
             let name = format!("t{}", *next_label);
@@ -371,7 +404,19 @@ fn mutate(st: &mut State, r: &mut Lcg, next_label: &mut i64, reached: &[Vec<i32>
                 st.start.push(rand_key(r));
             }
         }
-        _ => st.credits = !st.credits,
+        10 => st.credits = !st.credits,
+        _ => match &mut st.recipe {
+            None => st.recipe = Some((vec![pick_key(r)], r.chance(1, 2))),
+            Some((keys, first)) => {
+                if r.chance(1, 4) {
+                    *first = !*first;
+                } else if r.chance(1, 5) {
+                    st.recipe = None;
+                } else {
+                    keys.push(pick_key(r));
+                }
+            }
+        },
     }
 }
 
@@ -385,6 +430,7 @@ fn incremental_equals_scratch_random_sequences() {
     let mut r = Lcg(0xc1c1_2026);
     let (mut steps, mut reused, mut full, mut fallbacks, mut credited, mut viol, mut tirds) =
         (0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+    let mut recipe = 0u64;
     for case in 0..cases {
         let mut next_label = 0i64;
         let tier = if case % 2 == 0 { Tier::K } else { Tier::C };
@@ -405,6 +451,7 @@ fn incremental_equals_scratch_random_sequences() {
             start: (0..1 + r.below(3)).map(|_| rand_key(&mut r)).collect(),
             credits: r.chance(1, 2),
             tier,
+            recipe: None,
         };
         let facts = HashFacts;
         let (d, b) = build(&st);
@@ -454,6 +501,7 @@ fn incremental_equals_scratch_random_sequences() {
             full += u.full;
             fallbacks += u.fallback.is_some() as u64;
             let s = scratch.summary();
+            recipe += s.recipe_served;
             credited += s.credited;
             viol += s.descent_violations;
             tirds += s.terminal_in_rule_domain;
@@ -477,7 +525,7 @@ fn incremental_equals_scratch_random_sequences() {
     }
     println!(
         "incremental == scratch on {steps} steps ({cases} cases): keys reused {reused}, dispatched in full {full}, \
-         cache fallbacks {fallbacks}; credited {credited}, descent violations {viol}, terminals in a rule domain {tirds}"
+         cache fallbacks {fallbacks}; credited {credited}, descent violations {viol}, terminals in a rule domain {tirds}, recipe-served keys {recipe}"
     );
-    assert!(reused > 0 && full > 0 && credited > 0 && tirds > 0);
+    assert!(reused > 0 && full > 0 && credited > 0 && tirds > 0 && recipe > 0);
 }
