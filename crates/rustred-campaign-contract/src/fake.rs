@@ -165,6 +165,24 @@ pub enum FakeOp {
     /// Kind solve-recipe (lane adapters): emulate one deviation of a real child from the contract, so that the
     /// supervisor's refusal and conformance-diagnosis paths are testable.
     RecipeQuirk { quirk: RecipeQuirk },
+    /// Kinds proof-instance-span / proof-instantiate (lane closeloop2; a LEGACY rr_proof child: no OUTCOME, exit 0):
+    /// the answer to the NEXT requested (record, key) after `ms`: its status word (instance-span) and optional lies
+    /// (another record digest, rule echo or key) to test the supervisor-side wrapper; `line` replaces the whole
+    /// instantiate answer (record_sha256 / rule / key are filled in when absent).
+    ProofAnswer {
+        #[serde(default)]
+        ms: u64,
+        #[serde(default)]
+        status: Option<String>,
+        #[serde(default)]
+        record_sha256: Option<String>,
+        #[serde(default)]
+        rule: Option<i64>,
+        #[serde(default)]
+        key: Option<Vec<i64>>,
+        #[serde(default)]
+        line: Option<serde_json::Value>,
+    },
 }
 
 /// Deviations the fake child can emulate in kind solve-recipe (lane adapters; interfaces/adapters.md 3).

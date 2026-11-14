@@ -658,12 +658,13 @@ fn decide(
                 // lane adapters: the exit-code sets of the kinds without a rule table
                 match e.kind {
                     JobKind::SolveRecipe => return solve_recipe_row(c, stop, v),
-                    JobKind::ProofInstantiate if c != 0 => {
+                    JobKind::ProofInstantiate | JobKind::ProofInstanceSpan if c != 0 => {
                         return row(
                             22,
                             "",
                             format!(
-                                "contract violation: exit {c} is not an exit code of kind proof-instantiate"
+                                "contract violation: exit {c} is not an exit code of kind {:?} (legacy-wrapped)",
+                                e.kind
                             ),
                         );
                     }

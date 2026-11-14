@@ -111,7 +111,7 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                         _ => (22, ""),
                     };
                 }
-                if e.kind == JobKind::ProofInstantiate && c != 0 {
+                if e.kind.legacy_wrapped() && c != 0 {
                     return (22, "");
                 }
                 if stop == Some(StopCode::KeysUnsolved) {
@@ -249,7 +249,7 @@ fn may_accept(e: &Evidence) -> Result<(), String> {
     if e.kind.is_checker() && c != 0 {
         return Err("checker accepted on 10 / 20".into());
     }
-    if matches!(e.kind, JobKind::SolveRecipe | JobKind::ProofInstantiate) && c == 20 {
+    if (e.kind == JobKind::SolveRecipe || e.kind.legacy_wrapped()) && c == 20 {
         return Err("a kind without work budgets accepted on 20".into());
     }
     if e.kind == JobKind::SolveRecipe {
