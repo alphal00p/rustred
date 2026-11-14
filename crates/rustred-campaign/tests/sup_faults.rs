@@ -232,6 +232,7 @@ fn second_supervisor_refused_stale_lock_taken_over_decoys_survive() {
                     cpus: vec![],
                     reserved_bytes: 1,
                     spec_blake3: "0".repeat(64),
+                    scope_unit: None,
                 },
             },
             Event::Job {

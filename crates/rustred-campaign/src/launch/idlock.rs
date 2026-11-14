@@ -69,15 +69,16 @@ impl Drop for IdLock {
     }
 }
 
-/// `$XDG_RUNTIME_DIR/rustred-campaign` when XDG_RUNTIME_DIR is an absolute directory, else `/tmp/rustred-campaign-<uid>`.
+/// `/tmp/rustred-campaign-<uid>`: a path derived from the uid ONLY (procfix3, gate-A m-6). It used to follow the
+/// starting environment's XDG_RUNTIME_DIR, so two starts with different values locked different files (and
+/// `/run/user/<uid>` disappears at a full logout). The directory checks of `prepare_dir` (a real directory, owned by us,
+/// not group / other writable; a foreign pre-created one is refused) are unchanged; the sticky /tmp keeps others from
+/// replacing our entry. The CDIR flock remains the second, independent guard against two supervisors of one directory.
 pub fn default_lock_dir() -> PathBuf {
-    match std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from) {
-        Some(x) if x.is_absolute() && x.is_dir() => x.join("rustred-campaign"),
-        _ => PathBuf::from(format!(
-            "/tmp/rustred-campaign-{}",
-            crate::resources::our_uid()
-        )),
-    }
+    PathBuf::from(format!(
+        "/tmp/rustred-campaign-{}",
+        crate::resources::our_uid()
+    ))
 }
 
 fn prepare_dir(dir: &Path) -> Result<(), IdLockError> {

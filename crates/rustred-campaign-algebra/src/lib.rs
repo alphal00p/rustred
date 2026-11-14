@@ -10,13 +10,15 @@
 //!   coefficient path);
 //! - the checker entry points with a mode switch ([`modes`]): [`identity_test_mode`] and [`replay_evidence_mode`] with
 //!   [`IdentityMode::Independent`] (default, the certificate of record), [`IdentityMode::Symbolica`] (diagnostic) and
-//!   [`IdentityMode::Both`] (the TRIAGE: `AgreePass` / `AgreeFail` = the rule is bad / `Differ` = an algebra
-//!   disagreement localised to the first differing intermediate quantity, with the outlier side when the
-//!   [`referee`] has a third code path for that stage);
+//!   [`IdentityMode::Both`] (the TRIAGE: `AgreePass` / `AgreeFail` = both backends and the shared-logic oracle agree
+//!   the rule is not derived from its recorded seeds / `RecordInconsistent` / `SharedLogicDiffers` / `Differ` = an
+//!   algebra disagreement localised to the first differing intermediate quantity, the outlier named by the
+//!   [`referee`], a third implementation; see [`modes`]);
 //! - the recording / planted-defect wrappers of the triage ([`wrap`]).
 //!
-//! The `replay` level is granted ONLY by the independent backend (`ReplayRecord.algebra == "independent"`); a
-//! Symbolica-mode record is `ReplayLevel::Diagnostic`; in `Both` a `Differ` blocks the level.
+//! The `replay` level is granted ONLY by the core's concrete certificate entry points (rows4: sealed `AlgebraOrigin`,
+//! `ReplayRecord.certificate`); a Symbolica-mode record is `ReplayLevel::Diagnostic`; in `Both` anything but an
+//! agreement blocks the level.
 //!
 //! LICENCE: Symbolica without a licence key makes concurrent processes of the same Unix user abort each other
 //! host-wide. [`SymbolicaAlgebra::new`] refuses to run unless `SYMBOLICA_LICENSE` is set and valid (`source

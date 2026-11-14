@@ -1265,6 +1265,10 @@ fn s_cpurange(c: &mut Ctx) {
         .rev()
         .find(|c| !(168..=175).contains(c) && !(288..=319).contains(c))
         .unwrap();
+    // lane int5 (gate3 m3): the site's files exist beforehand (never created by the campaign), so that a refusal below
+    // is the held file's, not a missing ledger's
+    std::fs::write(root.join("CPU_LEDGER.md"), b"").unwrap();
+    std::fs::write(root.join("locks").join(format!("cpu.{cpu}")), b"").unwrap();
     let base = SiteConfig {
         schema: SITE_SCHEMA.into(),
         tag: "rb-reaudit".into(),
@@ -1975,6 +1979,9 @@ fn s_two_b(c: &mut Ctx) {
 
 fn site_cfg(root: &Path, cpu: usize) -> SiteConfig {
     std::fs::create_dir_all(root.join("locks")).unwrap();
+    // lane int5 (gate3 m3): the campaign never creates the site's ledger or lock files: the test site has them
+    std::fs::write(root.join("CPU_LEDGER.md"), b"").unwrap();
+    std::fs::write(root.join("locks").join(format!("cpu.{cpu}")), b"").unwrap();
     SiteConfig {
         schema: SITE_SCHEMA.into(),
         tag: "rb-reaudit".into(),

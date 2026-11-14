@@ -10,13 +10,8 @@ use rustred_campaign_core::replay_base::algebra::{
     CheckAlgebra, CoeffError, CoeffStats, Ctx, Q, QResult, Stage, Unknown, ZPoly,
 };
 
-/// One trace entry: the stage, where (cell, row, coefficient ...) and the rendered quantity.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
-pub struct Event {
-    pub stage: Stage,
-    pub at: String,
-    pub value: String,
-}
+/// One trace entry (rows4: the core's type, shared with the certificate run's `Recorder`).
+pub use rustred_campaign_core::replay_base::algebra::Event;
 
 /// What a wrapper changes; the default methods delegate.
 pub trait Hook<A: CheckAlgebra>: Sync {
@@ -119,6 +114,19 @@ impl<A: CheckAlgebra, H: Hook<A> + 'static> CheckAlgebra for Wrap<A, H> {
     }
     fn gcd_i128(&self, a: i128, b: i128) -> i128 {
         self.inner.gcd_i128(a, b)
+    }
+    fn int_mat_mul(
+        &self,
+        a: &[i128],
+        b: &[i128],
+        r: usize,
+        k: usize,
+        c: usize,
+    ) -> Option<Vec<i128>> {
+        self.inner.int_mat_mul(a, b, r, k, c)
+    }
+    fn int_div_exact(&self, a: i128, b: i128) -> Option<i128> {
+        self.inner.int_div_exact(a, b)
     }
     fn zpoly_det(&self, m: &[Vec<ZPoly>], dim: usize, t: usize) -> ZPoly {
         self.inner.zpoly_det(m, dim, t)

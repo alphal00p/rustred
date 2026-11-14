@@ -16,14 +16,29 @@ pub const USAGE: &str = "usage:
   rr_campaign preflight --spec SPEC.json [--dir CDIR]
   rr_campaign watch CDIR [--plain]          (alias: dashboard; read-only viewer: q / Ctrl-C close it, the campaign is unaffected)
   rr_campaign status CDIR [--once] [--width N] [--height M] [--json]
-  rr_campaign control CDIR pause [NODE|ITEM]|resume [NODE|ITEM]|stop|retry ITEM|skip ITEM [--reason TEXT]
+  rr_campaign control CDIR pause [NODE|ITEM]|resume [NODE|ITEM]|stop|retry ITEM|skip ITEM|resolve JOB [--reason TEXT]
   rr_campaign verify CDIR
-  rr_campaign result CDIR";
+  rr_campaign result CDIR
+  rr_campaign rebuild-manifest CDIR         (recovery: a ledger whose MANIFEST.json is missing; refused while a supervisor holds the lock)";
+
+/// `println!` without the panic on a closed / hung-up stdout (EPIPE, EIO): output is best effort (gate-B m4).
+macro_rules! outln {
+    ($($t:tt)*) => {{
+        let _ = writeln!(std::io::stdout(), $($t)*);
+    }};
+}
+
+/// `eprintln!` without the panic on a closed / hung-up stderr (gate-B m4: exit 101 when the terminal was gone).
+macro_rules! errln {
+    ($($t:tt)*) => {{
+        let _ = writeln!(std::io::stderr(), $($t)*);
+    }};
+}
 
 /// Dispatch `argv` (without the program name).
 pub fn main_with(args: &[String]) -> i32 {
     let Some(cmd) = args.first() else {
-        eprintln!("{USAGE}");
+        errln!("{USAGE}");
         return exit::USAGE;
     };
     let rest = &args[1..];
@@ -35,12 +50,13 @@ pub fn main_with(args: &[String]) -> i32 {
         "status" => cmd_status(rest),
         "watch" | "dashboard" => cmd_watch(rest),
         "result" => cmd_result(rest),
+        "rebuild-manifest" => cmd_rebuild_manifest(rest),
         "-h" | "--help" | "help" => {
-            println!("{USAGE}");
+            outln!("{USAGE}");
             exit::OK
         }
         other => {
-            eprintln!("unknown command {other:?}\n{USAGE}");
+            errln!("unknown command {other:?}\n{USAGE}");
             exit::USAGE
         }
     }
@@ -135,14 +151,14 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
     let f = match parse(rest) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("{e}\n{USAGE}");
+            errln!("{e}\n{USAGE}");
             return exit::USAGE;
         }
     };
     let (spec, digest, cdir) = match load_spec(&f) {
         Ok(x) => x,
         Err((c, m)) => {
-            eprintln!("{m}");
+            errln!("{m}");
             return c;
         }
     };
@@ -158,7 +174,7 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
         && std::io::stdout().is_terminal()
         && std::env::var("TERM").ok().as_deref() != Some("dumb");
     let done = Arc::new(AtomicBool::new(false));
-    let mut dash: Option<std::thread::JoinHandle<crate::tui::ExitReason>> = None;
+    let mut dash: Option<std::sync::mpsc::Receiver<crate::tui::ExitReason>> = None;
     let opts = RunOptions {
         spec,
         spec_blake3: digest,
@@ -190,19 +206,44 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
             Arc::new(crate::tui::DirSource::new(cdir.clone()));
         let o = dash_opts.clone();
         let q = Arc::clone(&quiet);
-        dash = std::thread::Builder::new()
+        let (tx, rx) = std::sync::mpsc::channel();
+        if std::thread::Builder::new()
             .name("dashboard".into())
             .spawn(move || {
                 let reason = crate::tui::run_dashboard(source, &controls, &o);
-                // Terminal restored: later supervisor log lines go to stderr again.
-                q.store(false, Ordering::SeqCst);
-                reason
+                // Terminal restored: later supervisor log lines go to stderr again (unless it is gone: see below).
+                if reason != crate::tui::ExitReason::Hangup {
+                    q.store(false, Ordering::SeqCst);
+                }
+                let _ = tx.send(reason);
             })
-            .ok();
+            .is_ok()
+        {
+            dash = Some(rx);
+        }
     });
     done.store(true, Ordering::SeqCst);
-    if let Some(h) = dash {
-        let _ = h.join();
+    // procfix3 (gate-B M2): a dashboard whose terminal is gone or blocked (a write to a tty nobody reads waits for
+    // ever) must not hold the process: wait for it at most 10 s; the terminal output is then skipped (log file only).
+    let mut terminal_ok = true;
+    if let Some(rx) = dash {
+        match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(crate::tui::ExitReason::Hangup) => terminal_ok = false,
+            Ok(_) => {}
+            Err(_) => terminal_ok = false,
+        }
+    }
+    if !terminal_ok {
+        let mut log = crate::supervisor::Log::open(&cdir);
+        log.line_file_only(
+            "WARN",
+            &format!(
+                "terminal lost or blocked: final summary only here ({:?}, exit {})",
+                r,
+                r.code()
+            ),
+        );
+        return r.code();
     }
     quiet.store(false, Ordering::SeqCst);
     match &r {
@@ -210,19 +251,19 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
         | supervisor::RunExit::Moved(m)
         | supervisor::RunExit::BinaryChanged(m)
         | supervisor::RunExit::Internal(m) => {
-            eprintln!("rr_campaign: {m}")
+            errln!("rr_campaign: {m}")
         }
         supervisor::RunExit::Finished if with_dashboard => {
-            eprintln!(
+            errln!(
                 "rr_campaign: FINISHED (exit 0); log: {}",
                 cdir.join("log").join("supervisor.log").display()
             )
         }
-        supervisor::RunExit::Stopped { code } if with_dashboard => eprintln!(
+        supervisor::RunExit::Stopped { code } if with_dashboard => errln!(
             "rr_campaign: STOPPED (exit {code}); resume with the same command; log: {}",
             cdir.join("log").join("supervisor.log").display()
         ),
-        other if with_dashboard => eprintln!("rr_campaign: {other:?} (exit {})", other.code()),
+        other if with_dashboard => errln!("rr_campaign: {other:?} (exit {})", other.code()),
         _ => {}
     }
     r.code()
@@ -237,7 +278,7 @@ fn cmd_preflight(rest: &[String]) -> i32 {
     let f = match parse(rest) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("{e}\n{USAGE}");
+            errln!("{e}\n{USAGE}");
             return exit::USAGE;
         }
     };
@@ -580,20 +621,20 @@ fn cmd_control(rest: &[String]) -> i32 {
     let f = match parse(rest) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("{e}\n{USAGE}");
+            errln!("{e}\n{USAGE}");
             return exit::USAGE;
         }
     };
     let (Some(cdir), Some(verb)) = (f.positional.first(), f.positional.get(1)) else {
-        eprintln!("{USAGE}");
+        errln!("{USAGE}");
         return exit::USAGE;
     };
     let target = f.positional.get(2).cloned();
     match (verb.as_str(), &target) {
         ("pause" | "resume", _) | ("stop", None) => {}
-        ("retry" | "skip", Some(_)) => {}
+        ("retry" | "skip" | "resolve", Some(_)) => {}
         _ => {
-            eprintln!("{USAGE}");
+            errln!("{USAGE}");
             return exit::USAGE;
         }
     }
@@ -604,11 +645,11 @@ fn cmd_control(rest: &[String]) -> i32 {
         f.reason.as_deref(),
     ) {
         Ok(p) => {
-            println!("request written: {}", p.display());
+            outln!("request written: {}", p.display());
             exit::OK
         }
         Err((c, m)) => {
-            eprintln!("{m}");
+            errln!("{m}");
             c
         }
     }
@@ -649,7 +690,10 @@ pub fn write_control_with(
     .to_hex()[..8]
         .to_string();
     let compact: String = utc.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
-    let id = format!("c-{compact}-{nonce}");
+    // gate-B m1: requests are applied in the order of a SEQUENCE NUMBER taken under a lock (two requests of the same
+    // second keep the order in which they were written), not in timestamp / random order.
+    let seq = supervisor::next_control_seq(&dir).map_err(|e| (exit::INTERNAL, e))?;
+    let id = format!("c-{seq:012}-{compact}-{nonce}");
     let req = ControlRequest {
         schema: CONTROL_SCHEMA.into(),
         id: id.clone(),
@@ -664,9 +708,73 @@ pub fn write_control_with(
     Ok(p)
 }
 
+/// `rebuild-manifest CDIR` (ledgerfix2's request, lane int5): the recovery verb for a ledger whose MANIFEST.json is
+/// missing (a supervisor start refuses such a directory: ledgerfix2 M1). Takes the campaign lock (REFUSED while a live
+/// supervisor holds it: never a second writer), then `ledger::rebuild_manifest` verifies the WHOLE chain from record 1
+/// and writes only the new manifest (nothing deleted or rewritten). Prints what it rebuilt. Exit 0 rebuilt, 1 refused
+/// (lock held, a manifest present, any doubt about the chain), 2 usage, 3 no ledger directory.
+fn cmd_rebuild_manifest(rest: &[String]) -> i32 {
+    let [cdir] = rest else {
+        errln!("{USAGE}");
+        return exit::USAGE;
+    };
+    let cdir = Path::new(cdir);
+    let ldir = crate::ledger::ledger_dir(cdir);
+    if !ldir.is_dir() {
+        errln!("no ledger directory in {}", cdir.display());
+        return exit::NOT_FOUND;
+    }
+    if ldir.join(crate::ledger::MANIFEST_FILE).exists() {
+        errln!(
+            "refused: {} exists; nothing to rebuild",
+            ldir.join(crate::ledger::MANIFEST_FILE).display()
+        );
+        return exit::REFUSED;
+    }
+    let clock = crate::clock::SystemClock::new();
+    let argv: Vec<String> = ["rr_campaign".to_string(), "rebuild-manifest".to_string()]
+        .into_iter()
+        .chain(rest.iter().cloned())
+        .collect();
+    let (lock, outcome) = match crate::lock::acquire(cdir, &clock, &argv) {
+        Ok(x) => x,
+        Err(e) => {
+            errln!("refused: the campaign lock is not free ({e}); stop the supervisor first");
+            return exit::REFUSED;
+        }
+    };
+    if let crate::lock::LockOutcome::TookOver {
+        previous, reason, ..
+    } = &outcome
+    {
+        outln!(
+            "stale lock of pid {} taken over ({reason:?})",
+            previous.identity.pid
+        );
+    }
+    let r = crate::ledger::rebuild_manifest(cdir, &lock);
+    let _ = lock.release();
+    match r {
+        Ok(rep) => {
+            outln!(
+                "rebuilt {}: {} record(s) verified from record 1, {} sealed segment(s), active segment {}; no snapshot (the next rotation writes one)",
+                ldir.join(crate::ledger::MANIFEST_FILE).display(),
+                rep.records,
+                rep.sealed,
+                rep.active
+            );
+            exit::OK
+        }
+        Err(e) => {
+            errln!("refused: {e}");
+            exit::REFUSED
+        }
+    }
+}
+
 fn cmd_verify(rest: &[String]) -> i32 {
     let Some(cdir) = rest.first() else {
-        eprintln!("{USAGE}");
+        errln!("{USAGE}");
         return exit::USAGE;
     };
     let cdir = Path::new(cdir);
@@ -675,22 +783,47 @@ fn cmd_verify(rest: &[String]) -> i32 {
         .join(crate::ledger::MANIFEST_FILE)
         .exists()
     {
-        eprintln!("no campaign in {}", cdir.display());
+        errln!("no campaign in {}", cdir.display());
         return exit::NOT_FOUND;
     }
     match crate::progress::verify(cdir) {
         Ok(r) => {
-            println!(
-                "verify: {} records, {} segments, {} progress files checked, {} differences",
+            outln!(
+                "verify: {} records, {} segments, {} progress files checked, {} differences, {} missing, {} stale{}",
                 r.records,
                 r.segments,
                 r.files_checked,
-                r.differences.len()
+                r.differences.len(),
+                r.missing.len(),
+                r.stale.len(),
+                if r.clean() { "" } else { ": NOT CLEAN" }
             );
             for d in &r.differences {
-                println!(
+                outln!(
                     "  {} {}: expected {} found {}",
-                    d.file, d.path, d.expected, d.found
+                    d.file,
+                    d.path,
+                    d.expected,
+                    d.found
+                );
+            }
+            // gate-B m2: every reason of a non-zero exit is printed (not only differences).
+            for m in &r.missing {
+                outln!("  missing progress file: {m}");
+            }
+            for (f, seq) in &r.stale {
+                outln!(
+                    "  stale progress file: {f} states seq {seq}, the ledger is at {}",
+                    r.records
+                );
+            }
+            if r.snapshot_matches == Some(false) {
+                outln!("  the latest snapshot does not match the replayed ledger");
+            }
+            if r.torn_tail_bytes > 0 {
+                outln!(
+                    "  torn tail: {} byte(s) after the last valid record (repaired by the next `run`)",
+                    r.torn_tail_bytes
                 );
             }
             if r.clean() {
@@ -700,7 +833,7 @@ fn cmd_verify(rest: &[String]) -> i32 {
             }
         }
         Err(e) => {
-            println!("verify: ledger refused: {e}");
+            outln!("verify: ledger refused: {e}");
             exit::VERIFY_DIFFERS
         }
     }
@@ -713,12 +846,12 @@ fn cmd_status(rest: &[String]) -> i32 {
     let f = match parse(rest) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("{e}\n{USAGE}");
+            errln!("{e}\n{USAGE}");
             return exit::USAGE;
         }
     };
     let Some(cdir) = f.positional.first() else {
-        eprintln!("{USAGE}");
+        errln!("{USAGE}");
         return exit::USAGE;
     };
     let cdir = Path::new(cdir);
@@ -727,7 +860,7 @@ fn cmd_status(rest: &[String]) -> i32 {
         .join("campaign.json")
         .exists()
     {
-        eprintln!(
+        errln!(
             "no progress file {}",
             cdir.join(crate::progress::PROGRESS_DIR)
                 .join("campaign.json")
@@ -738,7 +871,7 @@ fn cmd_status(rest: &[String]) -> i32 {
     let source = crate::tui::DirSource::new(cdir);
     let opts = crate::tui::DashboardOptions::default();
     if f.json {
-        println!("{}", crate::tui::view_model_json_text(&source, &opts));
+        outln!("{}", crate::tui::view_model_json_text(&source, &opts));
         return exit::OK;
     }
     let (tw, th) = if std::io::stdout().is_terminal() {
@@ -754,7 +887,7 @@ fn cmd_status(rest: &[String]) -> i32 {
         f.width.unwrap_or(tw).max(20),
         f.height.unwrap_or(th).max(5),
     );
-    print!("{text}");
+    let _ = std::io::stdout().write_all(text.as_bytes());
     exit::OK
 }
 
@@ -764,12 +897,12 @@ fn cmd_watch(rest: &[String]) -> i32 {
     let f = match parse(rest) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("{e}\n{USAGE}");
+            errln!("{e}\n{USAGE}");
             return exit::USAGE;
         }
     };
     let Some(cdir) = f.positional.first() else {
-        eprintln!("{USAGE}");
+        errln!("{USAGE}");
         return exit::USAGE;
     };
     let opts = crate::tui::DashboardOptions {
@@ -778,7 +911,7 @@ fn cmd_watch(rest: &[String]) -> i32 {
     };
     match crate::tui::run_viewer(PathBuf::from(cdir), &opts) {
         crate::tui::ExitReason::TerminalError(e) => {
-            eprintln!("watch: {e}");
+            errln!("watch: {e}");
             exit::INTERNAL
         }
         _ => exit::OK,
@@ -787,16 +920,22 @@ fn cmd_watch(rest: &[String]) -> i32 {
 
 fn cmd_result(rest: &[String]) -> i32 {
     let Some(cdir) = rest.first() else {
-        eprintln!("{USAGE}");
+        errln!("{USAGE}");
         return exit::USAGE;
     };
     match supervisor::result::read_final_result(Path::new(cdir)) {
         Ok((r, _)) => {
-            println!("{}", serde_json::to_string_pretty(&r).expect("json"));
+            match serde_json::to_string_pretty(&r) {
+                Ok(t) => outln!("{t}"),
+                Err(e) => {
+                    errln!("result: {e}");
+                    return exit::INTERNAL;
+                }
+            }
             exit::OK
         }
         Err(e) => {
-            eprintln!("{e}");
+            errln!("{e}");
             exit::NOT_FOUND
         }
     }

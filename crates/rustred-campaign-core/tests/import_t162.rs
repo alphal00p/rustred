@@ -11,12 +11,7 @@
 //! p_integral_dev/bank-conv), scratch `RUSTRED_IMPORT_SCRATCH`.
 //! Run: `light_build.sh import test -p rustred-campaign-core --release --test import_t162 -- --ignored --nocapture`.
 
-// ---- shim until I-INT adds `pub mod import;` to lib.rs (interfaces/import.md s.10)
-#[allow(unused_imports)]
-use rustred_campaign_core::{closure, cover, domain, key, order, poly, record, schema, symmetry};
-#[allow(dead_code, unused_imports)]
-#[path = "../src/import/mod.rs"]
-mod import;
+use rustred_campaign_core::import;
 
 use std::path::{Path, PathBuf};
 
@@ -254,6 +249,447 @@ fn t162_reproduction_of_the_hand_statement() {
         );
         for d in cmp.differences.iter().take(12) {
             println!("  diff {:?}", d);
+        }
+    }
+}
+
+/// Lane import2 item 2: the key ours reaches and the hand statement does not (only_ours): which served keys reach it,
+/// through which rule (record_sha256, file, byte offset) and which term, and what the evidence says about that term's
+/// coefficient at the predecessor key. Prints one line per (predecessor, term); the coefficient TEXT is then read from
+/// the named file at the byte offset (the record line) and evaluated exactly (notes/implementer.import2.md).
+#[test]
+#[ignore = "big data: T162 material; run with --ignored in release"]
+fn t162_only_ours_keys_and_their_predecessor_terms() {
+    use rustred_campaign_core::closure::{CoefFact, FactSource, RuleId};
+    let (ws, large) = (ws(), large());
+    let stmt = ws.join("SCRATCHPAD/t162-box/runs/statement-closure-20261114T0623Z");
+    if !stmt.join("keys.jsonl").is_file() || !large.join("20261114c/SHA256SUMS").is_file() {
+        println!("SKIP: T162 material missing");
+        return;
+    }
+    let mut sv = build_spec(&ws, &large, &stmt);
+    sv["policies"]["elided"] = json!("lift_with_per_key_proof");
+    let spec = TableSetSpec::from_json(&sv.to_string()).unwrap();
+    let set = load(&spec, Path::new("/")).unwrap();
+    let ev = Evidence::from_spec(&set, Path::new("/")).unwrap();
+    let res = check(&set, &ev, &CheckOptions::default()).unwrap();
+    let hand = read_hand_statement(&stmt.join("keys.jsonl"), &hand_format(), 20).unwrap();
+    let cmp = compare(&set, &res, &hand);
+    let targets: std::collections::BTreeSet<Vec<i32>> = cmp
+        .differences
+        .iter()
+        .filter(|d| d.kind == import::DiffKind::OnlyOurs)
+        .map(|d| d.key.clone())
+        .collect();
+    println!("only_ours keys: {targets:?}");
+    let hand_rule: std::collections::HashMap<Vec<i32>, Option<String>> = hand
+        .rows
+        .iter()
+        .map(|r| (r.key.clone(), r.rule.clone()))
+        .collect();
+    let n = set.arity();
+    let (mut out, mut cm) = (vec![], vec![]);
+    for row in &res.rows {
+        let (t, r) = match row.server {
+            Some(import::Server::Rule { table, record })
+            | Some(import::Server::Credit { table, record }) => (table, record),
+            _ => match (row.status, row.open_rule) {
+                (_, Some(tr)) => tr,
+                _ => continue,
+            },
+        };
+        out.clear();
+        cm.clear();
+        let rr = set.disp.rule_ref(t, r);
+        let Ok(Some(nt)) = set
+            .bodies
+            .instantiate(&set.disp, rr, &row.key, &mut out, &mut cm)
+        else {
+            continue;
+        };
+        for j in 0..nt {
+            let tk = &out[j * n..(j + 1) * n];
+            if targets.contains(tk) {
+                let info = set.rule(t, r);
+                let digest = String::new();
+                let rid = RuleId {
+                    table: &info.path,
+                    record: r,
+                    label: info.label,
+                    digest: &digest,
+                };
+                let coef = ev.coefficient(&rid, &row.key, j, tk);
+                let reg = ev.regularity(&rid, &row.key);
+                println!(
+                    "PRED key {:?} status {:?} server {:?} hand_rule {:?} -> term {} = {:?}; rule {} label {} index {:?} \
+                     sha256 {} file {} offset {} bytes {}; facts: coefficient {:?} regularity {:?} (Zero would drop the edge: {})",
+                    row.key,
+                    row.status,
+                    info.hand_name,
+                    hand_rule.get(&row.key),
+                    j,
+                    tk,
+                    info.table_name,
+                    info.label,
+                    info.index,
+                    info.record_sha256,
+                    info.path,
+                    info.offset,
+                    info.bytes,
+                    coef,
+                    reg,
+                    coef == CoefFact::Zero
+                );
+            }
+        }
+    }
+}
+
+/// Lane import2 item 2, the FACT: the coefficient of each predecessor term that reaches the only-ours key, evaluated
+/// EXACTLY in d at the predecessor key with the core's exact polynomial code (`poly::Poly`, `domain::PoleLocus::
+/// vanishes_at` = identically zero in d; the same code as `accept::facts::ExactRecordFacts`). The record lines are
+/// read at their byte offsets and checked against their record_sha256 (test data: the run table of sc-c005).
+#[test]
+#[ignore = "big data: reads two record lines of a T162 run table"]
+fn t162_only_ours_key_predecessor_coefficients_exact() {
+    use rustred_campaign_core::accept::facts::split_ratio;
+    use rustred_campaign_core::closure::sha256::Sha256;
+    use rustred_campaign_core::domain::{PoleKind, PoleLocus};
+    use rustred_campaign_core::poly::Poly;
+    use std::io::{Read, Seek, SeekFrom};
+    let ws = ws();
+    let table = ws.join("SCRATCHPAD/t162-box/runs/sc-c005/node/F.table.jsonl");
+    if !table.is_file() {
+        println!("SKIP: {} missing", table.display());
+        return;
+    }
+    let target = [1, 7, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    // (offset, bytes, record_sha256, predecessor key, term index) from t162_only_ours_keys_and_their_predecessor_terms
+    let cases: [(u64, usize, &str, [i32; 20], usize); 2] = [
+        (
+            82_476_924,
+            6_553_873,
+            "acaa753bf21ede61f76588529f45795b08759fe122d97c43778124df5ae00955",
+            [1, 6, 1, 1, 2, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            2,
+        ),
+        (
+            103_562_477,
+            23_910_516,
+            "8ae0445078a98e92139429b23d779c28874179fc014ac5841687dfa4b6cdf7cb",
+            [1, 6, 2, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            0,
+        ),
+    ];
+    let mut f = std::fs::File::open(&table).unwrap();
+    for (off, len, sha, key, term) in cases {
+        let mut buf = vec![0u8; len];
+        f.seek(SeekFrom::Start(off)).unwrap();
+        f.read_exact(&mut buf).unwrap();
+        let mut h = Sha256::new();
+        h.update(&buf);
+        assert_eq!(h.finish_hex(), sha, "record line at {off}");
+        let v: Value = serde_json::from_slice(&buf).unwrap();
+        let t = &v["rhs"][term];
+        let pattern = t[0].as_str().unwrap();
+        let coef = t[1].as_str().unwrap();
+        // the rule point is the key (canonical target); the term's pattern instantiates to the only-ours key
+        let slots = rustred_campaign_core::closure::parse_rhs_pattern(pattern, 20).unwrap();
+        let inst: Vec<i32> = slots
+            .iter()
+            .map(|s| match *s {
+                rustred_campaign_core::closure::RhsSlot::Param { param, offset } => {
+                    key[param] + offset
+                }
+                rustred_campaign_core::closure::RhsSlot::Const(c) => c,
+            })
+            .collect();
+        assert_eq!(inst, target, "term {term} of {sha} at {key:?}");
+        let (n, d) = split_ratio(coef.trim()).unwrap();
+        let num = Poly::parse(n.trim(), 20, true).unwrap();
+        let den = d.map(|d| Poly::parse(d.trim(), 20, true).unwrap());
+        let vals = |p: &Poly| -> Vec<(u32, String)> {
+            p.d_coefficients()
+                .into_iter()
+                .map(|(j, c)| {
+                    (
+                        j,
+                        c.eval_checked_i128(&key)
+                            .map(|x| x.to_string())
+                            .unwrap_or_else(|_| format!("{:?}", c.eval_big(&key))),
+                    )
+                })
+                .collect()
+        };
+        let num_zero = PoleLocus::new(PoleKind::Denominator, &num)
+            .vanishes_at(&key)
+            .unwrap();
+        let den_zero = den.as_ref().map(|q| {
+            PoleLocus::new(PoleKind::Denominator, q)
+                .vanishes_at(&key)
+                .unwrap()
+        });
+        println!(
+            "EXACT record {sha} (rule index {}, witness_loci {}) at {key:?}: term {term} {pattern} -> {target:?}; \
+             coefficient text {} bytes; numerator d-coefficients at the key {:?} (identically zero in d: {num_zero}); \
+             denominator d-coefficients {:?} (identically zero: {den_zero:?})",
+            v["index"],
+            v["witness_loci"],
+            coef.len(),
+            vals(&num),
+            den.as_ref().map(&vals),
+        );
+        assert!(
+            num_zero,
+            "the coefficient does not vanish identically at the key"
+        );
+        assert_eq!(den_zero, Some(false), "the denominator vanishes at the key");
+    }
+}
+
+/// The CANONICAL SET of statement-closure-20261114T0623Z (coord-bank-tables.md v1.4; coordinator 2026-11-14): bank
+/// 20261114c (qualified, recenter bounds as SELECTION bounds) then the own set t162box-20261114d (514 records, 410 run
+/// tables, labels 100000-100513, in its DISPATCH-PRIORITY order = the catalogue's written order), the 2 terminals; bound
+/// evidence: proofs-20261114d (one line per (label, key)), facts-20261114d (64,034 regular). Every SHA256SUMS verified.
+/// Then, for every key only ours reaches: its predecessors, the rule, the term, the bound facts at that (rule, key) and
+/// the term's coefficient evaluated EXACTLY at the key (record line read at its offset in the set file, sha256 checked).
+#[test]
+#[ignore = "big data: the T162 canonical set, proofs and facts; run with --ignored in release"]
+fn t162_canonical_set_0623z_reproduction() {
+    use rustred_campaign_core::accept::facts::split_ratio;
+    use rustred_campaign_core::closure::{CoefFact, FactSource, RuleId};
+    use rustred_campaign_core::domain::{PoleKind, PoleLocus};
+    use rustred_campaign_core::poly::Poly;
+    use std::io::{Read, Seek, SeekFrom};
+    let (ws, large) = (ws(), large());
+    let stmt = ws.join("SCRATCHPAD/t162-box/runs/statement-closure-20261114T0623Z");
+    let own = large.join("t162box-20261114d");
+    if !stmt.join("keys.jsonl").is_file() || !own.join("SHA256SUMS").is_file() {
+        println!("SKIP: T162 canonical material missing");
+        return;
+    }
+    assert_eq!(verify_sums(&stmt), (3, 3));
+    for d in [
+        "20261114c",
+        "t162box-20261114d",
+        "proofs-20261114d",
+        "facts-20261114d",
+    ] {
+        let (l, p) = verify_sums(&large.join(d));
+        println!("T162 {d}: SHA256SUMS lists {l} files, {p} present and verified");
+        assert_eq!(l, p, "{d}: every listed file present");
+    }
+    assert_eq!(
+        import::lines::file_sha256(&own.join("SHA256SUMS")).unwrap(),
+        "facae32114e3c79feef6671d2742918f5b7bf16f8454dc1f1a5dcb764ecc5547"
+    );
+    let st: Value =
+        serde_json::from_str(&std::fs::read_to_string(stmt.join("statement.json")).unwrap())
+            .unwrap();
+    let terms: Vec<Vec<i32>> = st["terminals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| parse_key_text(t.as_str().unwrap(), 20).unwrap())
+        .collect();
+    let out = scratch().join("../import2/t162-canonical");
+    std::fs::create_dir_all(&out).unwrap();
+    let tpath = out.join("terminals.json");
+    std::fs::write(&tpath, serde_json::to_string(&terms).unwrap()).unwrap();
+    let sv = json!({"schema":"rustred.campaign.import-spec.v1","node":"T162","frame_from":"bank","bits":6,
+        "start":{"path": stmt.join("keys.jsonl").display().to_string(),"format":"hand_statement",
+                 "hand_format": serde_json::to_value(hand_format()).unwrap()},
+        "required_evidence":"per-key","policies":{"tier":"auto","elided":"lift_with_per_key_proof"},
+        "sources":[
+          {"id":"bank","kind":"table_set","class":"bank",
+           "priority_file": ws.join("SCRATCHPAD/bank-conv/out/20261114c/DISPATCH-PRIORITY.json").display().to_string(),
+           "variant":"qualified","tables_dir": large.join("20261114c").display().to_string(),
+           "sha256sums":[{"path": large.join("20261114c/SHA256SUMS").display().to_string(),
+                          "sha256":"fbaa6454dc87a4ac4b2ed13067d75ea8183a01018078d455dbf0ad3f8b5aef12"}],
+           "label_scope":"t162-set","domain":"qualified_recenter","hand_name":{"template":"bank#{label}"}},
+          {"id":"own","kind":"table_set","class":"own",
+           "priority_file": ws.join("SCRATCHPAD/bank-conv/out/t162box-20261114d/DISPATCH-PRIORITY.json").display().to_string(),
+           "variant":"all","tables_dir": own.display().to_string(),
+           "sha256sums":[{"path": own.join("SHA256SUMS").display().to_string(),
+                          "sha256":"facae32114e3c79feef6671d2742918f5b7bf16f8454dc1f1a5dcb764ecc5547"}],
+           "label_scope":"t162-set","hand_name":{"template":"{origin}#{origin_index}","strip":["tb-"]}},
+          {"id":"terminals","kind":"terminals","path": tpath.display().to_string()}],
+        "evidence":{"facts":[{"path": large.join("facts-20261114d/facts").display().to_string()}],
+                    "proofs":[{"path": large.join("proofs-20261114d/proofs").display().to_string()}]}});
+    std::fs::write(
+        out.join("spec.T162-0623Z-canonical.json"),
+        serde_json::to_string_pretty(&sv).unwrap(),
+    )
+    .unwrap();
+    let hand = read_hand_statement(&stmt.join("keys.jsonl"), &hand_format(), 20).unwrap();
+    assert_eq!(hand.rows.len(), 65_908);
+    let t0 = std::time::Instant::now();
+    let spec = TableSetSpec::from_json(&sv.to_string()).unwrap();
+    let set = load(&spec, Path::new("/")).unwrap();
+    let t_load = t0.elapsed().as_secs_f64();
+    let t1 = std::time::Instant::now();
+    let ev = Evidence::from_spec(&set, Path::new("/")).unwrap();
+    let t_ev = t1.elapsed().as_secs_f64();
+    let res = check(&set, &ev, &CheckOptions::default()).unwrap();
+    let dir = out.join("statement");
+    write_statement(
+        &set,
+        &ev,
+        &res,
+        &dir,
+        Some(json!({"load_s": t_load, "evidence_s": t_ev, "check_s": res.seconds, "vm_hwm_kb": vm_hwm_kb()})),
+    )
+    .unwrap();
+    let cmp = compare(&set, &res, &hand);
+    cmp.write(&dir).unwrap();
+    println!(
+        "T162C load {t_load:.1}s evidence {t_ev:.1}s check {:.1}s VmHWM {} MB; tables {} records {}; evidence {:?}",
+        res.seconds,
+        vm_hwm_kb() / 1024,
+        set.report.tables,
+        set.report.records,
+        ev.counts
+    );
+    println!(
+        "T162C keys ours {} hand {}; counts {:?}; by class {:?}; closure verdict {:?} tier {:?} rounds {} edges {} \
+         violations {} undecided {:?} per_key_lifted {} dispatch_not_strict {:?} diagnostic {}; blocking {:?}",
+        res.rows.len(),
+        hand.rows.len(),
+        res.counts(),
+        res.evidence_by_class(&set),
+        res.summary.verdict,
+        res.tier,
+        res.summary.rounds,
+        res.summary.edges,
+        res.summary.descent_violations,
+        res.summary.undecided,
+        res.summary.per_key_lifted.values().sum::<u64>(),
+        res.summary.dispatch_not_strict,
+        res.summary.diagnostic,
+        res.blocking()
+    );
+    println!(
+        "T162C comparison: key sets equal {} same server {} terminals equal {} rounds {:?} vs {}; differences {:?}; \
+         unmapped hand rules {:?}; label matrix {:?}; requests facts {} proofs {}",
+        cmp.key_sets_equal,
+        cmp.same_server,
+        cmp.terminals_equal,
+        cmp.rounds_hand,
+        cmp.rounds_ours,
+        cmp.counts,
+        cmp.unmapped_hand_rules,
+        cmp.label_matrix,
+        res.fact_requests.len(),
+        res.proof_requests.len()
+    );
+    for d in &cmp.differences {
+        println!("T162C diff {}", serde_json::to_string(d).unwrap());
+    }
+    // the keys only ours reaches: predecessors, rule, term, facts, exact coefficient
+    let targets: std::collections::BTreeSet<Vec<i32>> = cmp
+        .differences
+        .iter()
+        .filter(|d| d.kind == import::DiffKind::OnlyOurs)
+        .map(|d| d.key.clone())
+        .collect();
+    let hand_rule: std::collections::HashMap<Vec<i32>, Option<String>> = hand
+        .rows
+        .iter()
+        .map(|r| (r.key.clone(), r.rule.clone()))
+        .collect();
+    let n = set.arity();
+    let (mut ib, mut cm) = (vec![], vec![]);
+    for row in &res.rows {
+        let (t, r) = match (&row.server, row.open_rule) {
+            (Some(import::Server::Rule { table, record }), _)
+            | (Some(import::Server::Credit { table, record }), _) => (*table, *record),
+            (None, Some(tr)) => tr,
+            _ => continue,
+        };
+        ib.clear();
+        cm.clear();
+        let Ok(Some(nt)) = set.bodies.instantiate(
+            &set.disp,
+            set.disp.rule_ref(t, r),
+            &row.key,
+            &mut ib,
+            &mut cm,
+        ) else {
+            continue;
+        };
+        for j in 0..nt {
+            let tk = &ib[j * n..(j + 1) * n];
+            if !targets.contains(tk) {
+                continue;
+            }
+            let info = set.rule(t, r);
+            let digest = String::new();
+            let rid = RuleId {
+                table: &info.path,
+                record: r,
+                label: info.label,
+                digest: &digest,
+            };
+            let fact = ev.coefficient(&rid, &row.key, j, tk);
+            let reg = ev.regularity(&rid, &row.key);
+            let proof = ev.proof(&set, t, r, &row.key).map(|p| p.status.clone());
+            // exact coefficient of term j at the key from the record line
+            let mut f = std::fs::File::open(&info.path).unwrap();
+            let mut buf = vec![0u8; info.bytes as usize];
+            f.seek(SeekFrom::Start(info.offset)).unwrap();
+            f.read_exact(&mut buf).unwrap();
+            let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
+            h.update(&buf);
+            assert_eq!(h.finish_hex(), info.record_sha256);
+            let v: Value = serde_json::from_slice(&buf).unwrap();
+            let pattern = v["rhs"][j][0].as_str().unwrap_or("?").to_string();
+            let coef = v["rhs"][j][1].as_str().unwrap_or("").to_string();
+            let (num_s, den_s) = split_ratio(coef.trim()).unwrap();
+            let num = Poly::parse(num_s.trim(), n, true).unwrap();
+            let den = den_s.map(|d| Poly::parse(d.trim(), n, true).unwrap());
+            // rule point = the key (canonical targets of these records)
+            let num_zero = PoleLocus::new(PoleKind::Denominator, &num)
+                .vanishes_at(&row.key)
+                .unwrap();
+            let den_zero = den.as_ref().map(|q| {
+                PoleLocus::new(PoleKind::Denominator, q)
+                    .vanishes_at(&row.key)
+                    .unwrap()
+            });
+            let dvals = |p: &Poly| -> Vec<String> {
+                p.d_coefficients()
+                    .into_iter()
+                    .map(|(e, c)| {
+                        format!(
+                            "d^{e}:{}",
+                            c.eval_checked_i128(&row.key)
+                                .map(|x| x.to_string())
+                                .unwrap_or_else(|_| "big".into())
+                        )
+                    })
+                    .collect()
+            };
+            println!(
+                "T162C PRED {} -> {} : row status {:?} server {:?} hand server {:?}; rule {} (label {}, witness {:?}, \
+                 record_sha256 {}, file {} offset {} bytes {}); term {j} pattern {pattern}; bound facts: coefficient \
+                 {fact:?} regularity {reg:?} proof {proof:?}; EXACT: numerator identically zero in d at the key: {num_zero} \
+                 [{}]; denominator identically zero: {den_zero:?} [{}]",
+                import::lines::key_text(&row.key),
+                import::lines::key_text(tk),
+                row.status,
+                info.hand_name,
+                hand_rule.get(&row.key),
+                info.table_name,
+                info.label,
+                info.witness,
+                info.record_sha256,
+                info.path,
+                info.offset,
+                info.bytes,
+                dvals(&num).join(" "),
+                den.as_ref().map(|q| dvals(q).join(" ")).unwrap_or_default(),
+            );
+            let _ = CoefFact::Zero;
         }
     }
 }

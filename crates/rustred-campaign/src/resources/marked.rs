@@ -118,8 +118,22 @@ pub fn read_marker_at(root: &Path, pid: u32, tid: Option<u32>, timeout: Duration
         Some(t) => root.join(format!("{pid}/task/{t}/environ")),
         None => root.join(format!("{pid}/environ")),
     };
-    match read_bounded(&path, timeout) {
-        ReadOutcome::Data(b) if b.is_empty() => MarkerRead::Unreadable, // zombie / kernel thread: no mm
+    let first = read_bounded(&path, timeout);
+    // An EMPTY environ of a live process: either the execve window (the new mm is installed before its environment
+    // bounds are set; microseconds) or a real empty environment (`env -i`). Re-read once after 1 ms (procfix3, gate-B
+    // M1: a marked re-forking chain read in its exec windows looked unmarked and the orphan sweep stopped early).
+    let settled = match first {
+        ReadOutcome::Data(b) if b.is_empty() => {
+            std::thread::sleep(Duration::from_millis(1));
+            match read_bounded(&path, timeout) {
+                // Still empty: zombie (no mm), exiting, or `env -i`: no marker now.
+                ReadOutcome::Data(b) if b.is_empty() => return MarkerRead::NoMarker,
+                other => other,
+            }
+        }
+        other => other,
+    };
+    match settled {
         ReadOutcome::Data(b) => match marker_in_environ(&b) {
             Some(v) => MarkerRead::Marker(v),
             None => MarkerRead::NoMarker,
@@ -127,6 +141,70 @@ pub fn read_marker_at(root: &Path, pid: u32, tid: Option<u32>, timeout: Duration
         ReadOutcome::Gone => MarkerRead::Gone,
         ReadOutcome::Error(_) | ReadOutcome::TimedOut => MarkerRead::Unreadable,
     }
+}
+
+/// Bound of one environ read of the strict scan (a process holding its mmap lock must not hold a sweep: a timed-out read
+/// is counted as unreadable, which makes the scan inconclusive, never hung).
+pub(crate) const STRICT_ENVIRON_TIMEOUT: Duration = Duration::from_millis(250);
+
+/// A STRICT scan for live processes of our uid carrying a marker of `campaign_id` (optionally exactly attempt
+/// `only`), started at or after `not_before_ticks` (call it off the control loop). Unlike [`scan_campaign`], an
+/// unreadable environ of a candidate is COUNTED (the caller decides whether the scan is conclusive); every environ read
+/// is bounded ([`STRICT_ENVIRON_TIMEOUT`]) and an empty environ is re-read once (exec window). A process that vanished is
+/// not a candidate.
+pub(crate) fn scan_marked_inline(
+    campaign_id: &str,
+    not_before_ticks: u64,
+    only: Option<&str>,
+) -> std::io::Result<CampaignScan> {
+    validate_campaign_id(campaign_id).map_err(|e| std::io::Error::other(e.to_string()))?;
+    let root = Path::new("/proc");
+    let uid = our_uid();
+    let me = std::process::id();
+    let mut out = CampaignScan::default();
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|s| s.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        if pid <= 1 || pid == me {
+            continue;
+        }
+        if owner_uid_at(root, pid) != Some(uid) {
+            continue;
+        }
+        let st = match read_stat_path(pid, &root.join(format!("{pid}/stat"))) {
+            Ok(Some(st)) => st,
+            Ok(None) => continue,
+            Err(_) => {
+                out.unreadable += 1;
+                continue;
+            }
+        };
+        if st.start_ticks < not_before_ticks {
+            continue;
+        }
+        let Some(tid) = live_tid(&st) else { continue };
+        match read_marker_at(root, pid, tid, STRICT_ENVIRON_TIMEOUT) {
+            MarkerRead::Marker(v) => {
+                if let Some(m) = CampaignMarker::parse(&v)
+                    && m.campaign_id == campaign_id
+                    && only.is_none_or(|o| o == m.attempt_id)
+                {
+                    out.processes
+                        .push(MarkedProcess::from_stat(&st, m.attempt_id));
+                }
+            }
+            MarkerRead::Unreadable => out.unreadable += 1,
+            MarkerRead::NoMarker | MarkerRead::Gone => {}
+        }
+    }
+    out.processes.sort_by_key(|p| (p.start_ticks, p.pid));
+    Ok(out)
 }
 
 /// Effective uid of this process.

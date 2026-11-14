@@ -10,12 +10,21 @@ use serde::Serialize;
 use super::error::ImportError;
 use super::evidence::Evidence;
 use super::load::{ImportedSet, WitnessKind};
-use super::spec::{Level, TierChoice};
+use super::spec::{ElidedPolicy, Level, TierChoice};
 use crate::closure::relations::{RelationSet, RelationStoreBuilder, VERDICT_CERTIFIED};
 use crate::closure::{
-    ClosureConfig, ClosureSummary, HandDowns, KeySetBuilder, OpenStatus, TerminalSets, Tier,
-    WitnessAbsent, closure,
+    ClosureConfig, ClosureSummary, HandDowns, KeySetBuilder, OpenStatus, PerKeyLift, TerminalSets,
+    Tier, WitnessAbsent, closure,
 };
+
+/// Basis word of a key served by a witness-absent record under the DIAGNOSTIC `witness_check: off_diagnostic`.
+pub const BASIS_WITNESS_UNCHECKED: &str = "witness_unchecked_diagnostic";
+
+/// Basis word of a key served by a supplied symmetry relation VERIFIED by re-derivation from the verified group.
+pub const BASIS_SYMMETRY_RELATION: &str = "symmetry_relation";
+
+/// Basis word of a key served through the per-key lift (elided / witness-absent record + bound per-key proof).
+pub const BASIS_PER_KEY_PROOF: &str = "per_key_proof";
 
 /// Options of a check (never part of a result's identity except `tier`).
 #[derive(Clone, Debug)]
@@ -119,9 +128,31 @@ pub struct SolveRefusal {
     pub reason: String,
 }
 
+/// Rows streamed to a file by [`check_streamed`] (the statement's `statement.jsonl`, closure order).
+#[derive(Clone, Debug, Serialize)]
+pub struct StreamedRows {
+    pub path: String,
+    pub sha256: String,
+    pub rows: u64,
+}
+
+/// Aggregates of a streamed check (what `counts` / `evidence_by_class` return when the rows are not all kept).
+#[derive(Clone, Debug, Default)]
+pub struct Aggregates {
+    pub counts: BTreeMap<String, u64>,
+    pub by_class: BTreeMap<String, BTreeMap<String, u64>>,
+}
+
 /// The result of a check.
 pub struct CheckResult {
+    /// Every closure row (sorted by key); after [`check_streamed`] only the EXCEPTIONAL rows (open, terminal, served
+    /// by a relation or a credit, below the required level, with a missing fact): the rest are in `streamed`.
     pub rows: Vec<KeyRow>,
+    /// [`check_streamed`]: the file holding every row, and the aggregates over all of them.
+    pub streamed: Option<StreamedRows>,
+    pub aggregates: Option<Aggregates>,
+    /// [`check_streamed`]: the closure's key set (packed; membership of keys whose row is not kept).
+    pub key_set: Option<crate::closure::KeySet>,
     pub summary: ClosureSummary,
     pub tier: Tier,
     pub spec_digest: String,
@@ -130,6 +161,8 @@ pub struct CheckResult {
     pub proof_requests: Vec<RecordRequest>,
     pub solve_refusals: Vec<SolveRefusal>,
     pub recipe_binary_unpinned: bool,
+    /// The DIAGNOSTIC policy `witness_check: off_diagnostic` was used (nothing is certified).
+    pub witness_unchecked: bool,
     pub seconds: f64,
     pub key_set_digest: String,
     pub required: Level,
@@ -208,6 +241,9 @@ fn recipe_sets(set: &ImportedSet, ev: &Evidence) -> Result<RecipeSets, ImportErr
             if r.rhs.is_empty() && r.verdict == "SOLVED" {
                 fail("empty right-hand side".into());
             }
+            if rc.assigned.as_ref().is_some_and(|a| !a.contains(key)) {
+                fail("key not assigned to the recipe (domain.keys / assignment side file)".into());
+            }
             for k in &r.rhs {
                 if k.iter().zip(&lines).any(|(&x, &l)| !l && x > 0) {
                     fail(format!("rhs key {k:?} has a positive numerator"));
@@ -253,11 +289,92 @@ fn recipe_sets(set: &ImportedSet, ev: &Evidence) -> Result<RecipeSets, ImportErr
     Ok((out, refusals, unpinned))
 }
 
-/// Run the check.
+/// The closure's per-key lift for this set (policy `elided`).
+pub(crate) fn per_key_lift(set: &ImportedSet) -> PerKeyLift {
+    match set.spec.policies.elided {
+        ElidedPolicy::LiftWithPerKeyProof => PerKeyLift::Proof,
+        ElidedPolicy::Block => PerKeyLift::Off,
+    }
+}
+
+/// The open reason of a key blocked by an elided / witness-absent record (statement word).
+pub(crate) fn blocked_reason(set: &ImportedSet, w: WitnessKind, core_detail: &str) -> String {
+    let lift = per_key_lift(set) == PerKeyLift::Proof;
+    match (w, lift) {
+        (WitnessKind::Elided, true) => REASON_NO_PER_KEY_PROOF.to_string(),
+        (WitnessKind::Elided, false) => "elided witness loci (policy block)".to_string(),
+        (WitnessKind::NotCarried, true) => {
+            "witness loci not carried: no per-key proof and no per-key regularity fact".to_string()
+        }
+        (WitnessKind::NotCarried, false) => {
+            "witness loci not carried: no per-key regularity fact (ruling Q2)".to_string()
+        }
+        _ => core_detail.to_string(),
+    }
+}
+
+/// Open reason of a key whose elided record has no per-key proof bound to (record_sha256, key).
+pub const REASON_NO_PER_KEY_PROOF: &str = "elided_witness_loci_no_per_key_proof";
+
+/// Run the check (every row kept in memory).
 pub fn check(
     set: &ImportedSet,
     ev: &Evidence,
     opts: &CheckOptions,
+) -> Result<CheckResult, ImportError> {
+    check_inner(set, ev, opts, None)
+}
+
+/// A row sink of [`check_streamed`].
+type RowSink<'a> = dyn FnMut(&KeyRow) -> Result<(), ImportError> + 'a;
+
+/// Run the check with BOUNDED row memory (interfaces/import.md 12, scale): every row is written at once as its
+/// canonical statement line to `rows_path` (closure order: start keys first, then by BFS round), the counts and the
+/// evidence by class are aggregated on the fly, and only the exceptional rows are kept in `rows` (see
+/// [`CheckResult::rows`]). [`super::write_statement`] then records that file instead of writing the rows again.
+pub fn check_streamed(
+    set: &ImportedSet,
+    ev: &Evidence,
+    opts: &CheckOptions,
+    rows_path: &std::path::Path,
+) -> Result<CheckResult, ImportError> {
+    use std::io::Write;
+    if let Some(d) = rows_path.parent() {
+        std::fs::create_dir_all(d).map_err(|e| super::error::io_err(d, e))?;
+    }
+    let f = std::fs::File::create(rows_path).map_err(|e| super::error::io_err(rows_path, e))?;
+    let mut w = std::io::BufWriter::with_capacity(1 << 20, f);
+    let mut h = crate::closure::sha256::Sha256::new();
+    let mut n = 0u64;
+    let mut res = {
+        let mut sink = |row: &KeyRow| -> Result<(), ImportError> {
+            let t =
+                crate::schema::canon::canonical_json(&super::statement::row_json(set, row), false)
+                    .map_err(ImportError::Core)?;
+            w.write_all(t.as_bytes())
+                .and_then(|_| w.write_all(b"\n"))
+                .map_err(|e| super::error::io_err(rows_path, e))?;
+            h.update(t.as_bytes());
+            h.update(b"\n");
+            n += 1;
+            Ok(())
+        };
+        check_inner(set, ev, opts, Some(&mut sink))?
+    };
+    w.flush().map_err(|e| super::error::io_err(rows_path, e))?;
+    res.streamed = Some(StreamedRows {
+        path: rows_path.display().to_string(),
+        sha256: h.finish_hex(),
+        rows: n,
+    });
+    Ok(res)
+}
+
+fn check_inner(
+    set: &ImportedSet,
+    ev: &Evidence,
+    opts: &CheckOptions,
+    mut sink: Option<&mut RowSink<'_>>,
 ) -> Result<CheckResult, ImportError> {
     let t0 = std::time::Instant::now();
     let tier = opts.tier.unwrap_or(match set.spec.policies.tier {
@@ -316,6 +433,7 @@ pub fn check(
             }
             super::spec::WitnessAbsentPolicy::Block => WitnessAbsent::Block,
         },
+        per_key_lift: per_key_lift(set),
         ..Default::default()
     };
     let c = closure(&set.disp, &set.bodies, &set.cmp, &set.start, &cfg, ev)
@@ -353,7 +471,8 @@ pub fn check(
                 .map(move |(r, i)| ((i.path.clone(), i.label), (t, r)))
         })
         .collect();
-    let mut rows = Vec::with_capacity(c.len());
+    let mut rows = Vec::with_capacity(if sink.is_some() { 0 } else { c.len() });
+    let mut agg = Aggregates::default();
     let required = set.spec.required_evidence;
     for i in 0..c.len() {
         let key = c.key(i);
@@ -387,16 +506,7 @@ pub fn check(
             if let (Some(o), Some((t, r))) = (o, row.open_rule)
                 && o.status == OpenStatus::Blocked
             {
-                let w = set.rules[t][r].witness;
-                let why = match w {
-                    WitnessKind::Elided => "elided witness loci (policy block)".to_string(),
-                    WitnessKind::NotCarried => {
-                        "witness loci not carried: no per-key regularity fact (ruling Q2)"
-                            .to_string()
-                    }
-                    _ => o.detail.clone(),
-                };
-                row.open_reason = Some(why);
+                row.open_reason = Some(blocked_reason(set, set.rules[t][r].witness, &o.detail));
             }
             if let Some(o) = o
                 && o.status == OpenStatus::Uncovered
@@ -405,7 +515,11 @@ pub fn check(
                 let cands: Vec<&str> = o
                     .recipe_candidates
                     .iter()
-                    .filter(|c| recipe_names.contains(*c))
+                    .filter(|c| {
+                        set.recipes.iter().any(|r| {
+                            &r.id == *c && r.assigned.as_ref().is_none_or(|a| a.contains(&o.key))
+                        })
+                    })
                     .map(String::as_str)
                     .collect();
                 row.open_reason = Some(if cands.is_empty() {
@@ -419,13 +533,23 @@ pub fn check(
             }
         } else if c.is_recipe_served(i) {
             let w = c.winner(i);
-            let name = w.map(|w| w.table).unwrap_or_default();
+            let name: String = w.map(|w| w.table).unwrap_or_default();
             let recipe = recipe_names.contains(&name);
             row.status = RowStatus::Served;
+            let verified_relation = set
+                .supplied_info
+                .get(&name)
+                .and_then(|m| m.get(&row.key))
+                .and_then(|i| i.check.as_ref())
+                .is_some_and(|c| c.verified());
             row.server = Some(Server::Relation { set: name, recipe });
             if recipe {
                 row.evidence = Some(Level::PerKey);
                 row.basis = Some("recipe_certified");
+            } else if verified_relation {
+                // re-derived from the verified group at the key: exact, at the key (interfaces/import.md 13.2)
+                row.evidence = Some(Level::PerKey);
+                row.basis = Some(BASIS_SYMMETRY_RELATION);
             } else {
                 row.evidence = Some(Level::Imported);
                 row.basis = Some("supplied");
@@ -451,24 +575,22 @@ pub fn check(
                     record: r,
                 });
                 let info = &set.rules[t][r];
-                let proof = ev.proof(set, t, r, &row.key).is_some_and(|p| p.per_key);
+                let lifted = c.is_per_key_lifted(i);
+                let proof = lifted || ev.proof(set, t, r, &row.key).is_some_and(|p| p.per_key);
                 row.evidence = Some(if proof {
                     Level::PerKey
                 } else {
                     Level::Imported
                 });
-                row.basis = Some(match info.witness {
-                    WitnessKind::Complete => "witness_loci",
-                    WitnessKind::NotCarried => "regularity_fact",
-                    WitnessKind::ElidedLifted => "elided_per_key_proof",
-                    WitnessKind::Elided => "elided",
+                let unchecked = set.spec.policies.witness_check != super::spec::WitnessCheck::On;
+                row.basis = Some(match (info.witness, lifted) {
+                    (WitnessKind::Elided, _) | (WitnessKind::NotCarried, true) => {
+                        BASIS_PER_KEY_PROOF
+                    }
+                    (WitnessKind::Complete, _) => "witness_loci",
+                    (WitnessKind::NotCarried, false) if unchecked => BASIS_WITNESS_UNCHECKED,
+                    (WitnessKind::NotCarried, false) => "regularity_fact",
                 });
-                if info.witness == WitnessKind::ElidedLifted && !proof {
-                    row.status = RowStatus::Open;
-                    row.open_status = Some("blocked".into());
-                    row.open_reason = Some("elided_witness_loci_no_per_key_proof".into());
-                    row.open_rule = Some((t, r));
-                }
                 if tier == Tier::C {
                     use crate::closure::{FactSource, RegFact, RuleId};
                     let digest = String::new();
@@ -487,11 +609,27 @@ pub fn check(
             row.open_status = Some("undecided".into());
             row.open_reason = Some("symmetry credit pending on unknown facts".into());
         }
-        rows.push(row);
+        match sink.as_mut() {
+            None => rows.push(row),
+            Some(s) => {
+                count_row(&mut agg.counts, &row, required);
+                class_row(&mut agg.by_class, set, &row, required);
+                s(&row)?;
+                let plain = row.status == RowStatus::Served
+                    && matches!(row.server, Some(Server::Rule { .. }))
+                    && row.evidence.is_some_and(|e| e >= required)
+                    && !row.regularity_unknown
+                    && !row.coefficient_unknown;
+                if !plain {
+                    rows.push(row);
+                }
+            }
+        }
     }
     rows.sort_by(|a, b| a.key.cmp(&b.key));
     // key-set digest
-    let key_set_digest = c.keys().digest();
+    let ks = c.keys();
+    let key_set_digest = ks.digest();
     // solve requests
     let mut solve_requests = vec![];
     for o in open.values() {
@@ -502,6 +640,9 @@ pub fn check(
         // key yet; a candidate whose answer did not certify is skipped (the next one is asked); none left -> no request
         for cand in &o.recipe_candidates {
             if let Some(rc) = set.recipes.iter().find(|r| &r.id == cand) {
+                if rc.assigned.as_ref().is_some_and(|a| !a.contains(&o.key)) {
+                    continue; // not assigned to this recipe: never asked
+                }
                 let prev = ev.solved.get(&rc.id).and_then(|m| m.get(&o.key));
                 if prev.is_some() {
                     continue;
@@ -558,20 +699,29 @@ pub fn check(
     if required == Level::PerKey {
         for row in &rows {
             let below = row.evidence.is_none_or(|e| e < Level::PerKey);
-            let rule = match (&row.server, row.status, row.open_rule) {
-                (Some(Server::Rule { table, record }), RowStatus::Served, _) if below => {
+            let rule = match (&row.server, row.status) {
+                (Some(Server::Rule { table, record }), RowStatus::Served) if below => {
                     Some((*table, *record))
-                }
-                (_, RowStatus::Open, Some(tr))
-                    if row.open_reason.as_deref()
-                        == Some("elided_witness_loci_no_per_key_proof") =>
-                {
-                    Some(tr)
                 }
                 _ => None,
             };
             if let Some(tr) = rule {
                 pr.entry(tr).or_default().insert(row.key.clone());
+            }
+        }
+    }
+    // under the per-key lift every key blocked by an elided / witness-absent record needs its per-key proof, whatever
+    // the required level (it is the only evidence that lets the record serve there)
+    if per_key_lift(set) == PerKeyLift::Proof {
+        for row in &rows {
+            if let (RowStatus::Open, Some((t, r)), Some("blocked")) =
+                (row.status, row.open_rule, row.open_status.as_deref())
+                && matches!(
+                    set.rules[t][r].witness,
+                    WitnessKind::Elided | WitnessKind::NotCarried
+                )
+            {
+                pr.entry((t, r)).or_default().insert(row.key.clone());
             }
         }
     }
@@ -591,8 +741,12 @@ pub fn check(
             }
         })
         .collect();
+    let streaming = sink.is_some();
     Ok(CheckResult {
         rows,
+        streamed: None,
+        aggregates: streaming.then_some(agg),
+        key_set: streaming.then_some(ks),
         summary,
         tier,
         spec_digest: set.report.spec_digest.clone(),
@@ -601,6 +755,7 @@ pub fn check(
         proof_requests,
         solve_refusals,
         recipe_binary_unpinned: unpinned,
+        witness_unchecked: set.spec.policies.witness_check != super::spec::WitnessCheck::On,
         seconds: t0.elapsed().as_secs_f64(),
         key_set_digest,
         required,
@@ -608,38 +763,35 @@ pub fn check(
 }
 
 impl CheckResult {
-    /// Counts by status / evidence / basis (for summaries and tests).
+    /// After [`check_streamed`]: whether `key` is in the closure but not among the kept (exceptional) rows, i.e.
+    /// served by a plain rule at the required level (its row is only in the streamed file). Always false otherwise.
+    pub fn rows_complete_for(&self, key: &[i32]) -> bool {
+        !(self.streamed.is_some() && self.key_set.as_ref().is_some_and(|k| k.contains(key)))
+    }
+
+    /// Counts by status / evidence / basis (for summaries and tests); over EVERY row also after [`check_streamed`].
     pub fn counts(&self) -> BTreeMap<String, u64> {
+        if let Some(a) = &self.aggregates {
+            return a.counts.clone();
+        }
         let mut m: BTreeMap<String, u64> = BTreeMap::new();
         for r in &self.rows {
-            let st = match r.status {
-                RowStatus::Served => "served",
-                RowStatus::Terminal => "terminal",
-                RowStatus::Open => "open",
-            };
-            *m.entry(format!("status:{st}")).or_default() += 1;
-            if let Some(e) = r.evidence
-                && r.status == RowStatus::Served
-            {
-                *m.entry(format!("evidence:{}", e.word())).or_default() += 1;
-            }
-            if let Some(b) = r.basis
-                && r.status == RowStatus::Served
-            {
-                *m.entry(format!("basis:{b}")).or_default() += 1;
-            }
-            if let Some(o) = &r.open_status {
-                *m.entry(format!("open:{o}")).or_default() += 1;
-            }
-            if r.regularity_unknown {
-                *m.entry("facts:regularity_unknown".into()).or_default() += 1;
-            }
-            if r.coefficient_unknown {
-                *m.entry("facts:coefficient_unknown".into()).or_default() += 1;
-            }
-            if r.status == RowStatus::Served && r.evidence.is_some_and(|e| e >= self.required) {
-                *m.entry("certified".into()).or_default() += 1;
-            }
+            count_row(&mut m, r, self.required);
+        }
+        m
+    }
+
+    /// The evidence level VISIBLE per rule class (the coordinator's ruling: per class, with counts): class -> {
+    /// `served:<level>:<basis>`, `terminal`, `open:<status>`, `at_required` (served at >= the required level) } ->
+    /// keys. The class of a served key is its server's (a rule's source class, a relation set's class); of an open key
+    /// its blocking rule's (else `none`); terminals count under `terminal`.
+    pub fn evidence_by_class(&self, set: &ImportedSet) -> BTreeMap<String, BTreeMap<String, u64>> {
+        if let Some(a) = &self.aggregates {
+            return a.by_class.clone();
+        }
+        let mut m: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
+        for r in &self.rows {
+            class_row(&mut m, set, r, self.required);
         }
         m
     }
@@ -662,6 +814,75 @@ impl CheckResult {
         if self.recipe_binary_unpinned {
             b.push("recipe_binary_unpinned".into());
         }
+        if self.witness_unchecked {
+            b.push("witness_check_off_diagnostic".into());
+        }
         b
+    }
+}
+
+fn count_row(m: &mut BTreeMap<String, u64>, r: &KeyRow, required: Level) {
+    let st = match r.status {
+        RowStatus::Served => "served",
+        RowStatus::Terminal => "terminal",
+        RowStatus::Open => "open",
+    };
+    *m.entry(format!("status:{st}")).or_default() += 1;
+    if let Some(e) = r.evidence
+        && r.status == RowStatus::Served
+    {
+        *m.entry(format!("evidence:{}", e.word())).or_default() += 1;
+    }
+    if let Some(b) = r.basis
+        && r.status == RowStatus::Served
+    {
+        *m.entry(format!("basis:{b}")).or_default() += 1;
+    }
+    if let Some(o) = &r.open_status {
+        *m.entry(format!("open:{o}")).or_default() += 1;
+    }
+    if r.regularity_unknown {
+        *m.entry("facts:regularity_unknown".into()).or_default() += 1;
+    }
+    if r.coefficient_unknown {
+        *m.entry("facts:coefficient_unknown".into()).or_default() += 1;
+    }
+    if r.status == RowStatus::Served && r.evidence.is_some_and(|e| e >= required) {
+        *m.entry("certified".into()).or_default() += 1;
+    }
+}
+
+fn class_row(
+    m: &mut BTreeMap<String, BTreeMap<String, u64>>,
+    set: &ImportedSet,
+    r: &KeyRow,
+    required: Level,
+) {
+    let class = match (&r.server, r.open_rule) {
+        (Some(Server::Rule { table, record }), _) | (Some(Server::Credit { table, record }), _) => {
+            set.rules[*table][*record].class.clone()
+        }
+        (Some(Server::Relation { set: name, .. }), _) => set
+            .classes
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| name.clone()),
+        (None, Some((t, k))) => set.rules[t][k].class.clone(),
+        (None, None) if r.status == RowStatus::Terminal => "terminal".into(),
+        (None, None) => "none".into(),
+    };
+    let e = m.entry(class).or_default();
+    let k = match r.status {
+        RowStatus::Served => format!(
+            "served:{}:{}",
+            r.evidence.map(|x| x.word()).unwrap_or("none"),
+            r.basis.unwrap_or("-")
+        ),
+        RowStatus::Terminal => "terminal".into(),
+        RowStatus::Open => format!("open:{}", r.open_status.as_deref().unwrap_or("open")),
+    };
+    *e.entry(k).or_default() += 1;
+    if r.status == RowStatus::Served && r.evidence.is_some_and(|x| x >= required) {
+        *e.entry("at_required".into()).or_default() += 1;
     }
 }

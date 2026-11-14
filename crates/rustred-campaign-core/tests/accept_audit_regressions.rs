@@ -44,7 +44,6 @@ use rustred_campaign_core::partition::{
     DispatchOrderStatement, DispatcherSource, DomainSource, PartitionOptions,
 };
 use rustred_campaign_core::record::{ReadOptions, RhsMode, read_table_file};
-use rustred_campaign_core::replay_base::family::Family;
 use serde_json::{Value, json};
 
 const TOY: &str = "TOY2kite";
@@ -490,10 +489,13 @@ fn b_m1_artefact_of_another_rule_is_not_evidence() {
 fn rows3_replay_needs_the_right_family_binding() {
     let Some(t) = toy() else { return };
     let mut p = ReplayProver::new(
-        Family::parse(&t.node.family_text).unwrap(),
+        &t.node.family_text,
         TableBinding::from_family_digest(&"0".repeat(64)),
+        rustred_campaign_core::ibp_rows::Beacon::from_hex("0123456789abcdef0123456789abcdef")
+            .unwrap(),
         Default::default(),
-    );
+    )
+    .unwrap();
     let rule = RuleText::parse(&t.w0, &t.node.frame).unwrap();
     let v = judge(
         &t,
