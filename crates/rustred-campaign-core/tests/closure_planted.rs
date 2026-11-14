@@ -1,16 +1,16 @@
 //! Planted negatives and tier semantics on a synthetic node (arity 4: lines 0,1; numerators 2,3), default test run.
 
+mod closure_common;
+
+use closure_common::answer_facts;
 use rustred_campaign_core::closure::{
-    ClosureConfig, CoefFact, FactSource, FileFacts, HandDowns, KeyCodec, KeySet, NoFacts,
-    OpenStatus, RegFact, RequestReason, RuleBodies, RuleId, Sectors, Tier, Verdict, closure,
-    write_fact_requests,
+    ClosureConfig, CoefFact, FactSource, HandDowns, KeyCodec, KeySet, NoFacts, OpenStatus, RegFact,
+    RequestReason, RuleBodies, RuleId, Sectors, Tier, Verdict, closure, write_fact_requests,
 };
 use rustred_campaign_core::cover::{Dispatcher, Table};
 use rustred_campaign_core::domain::CaseDomain;
 use rustred_campaign_core::order::NodeComparator;
-use rustred_campaign_core::symmetry::{
-    CreditFrame, CreditPolicy, GroupElement, Refusal, serve_by_image,
-};
+use rustred_campaign_core::symmetry::{CreditPolicy, GroupElement, Refusal, serve_by_image};
 
 /// A rule of the synthetic tables: fixed slots, body patterns.
 type Spec<'a> = ([Option<i32>; 4], &'a [&'a str]);
@@ -58,24 +58,9 @@ fn cfg(tier: Tier) -> ClosureConfig {
         tier,
         threads: 2,
         hand_downs: HandDowns::Keys,
+        table_digests: [("T".to_string(), "sha256:test-table-T".to_string())].into(),
         ..Default::default()
     }
-}
-
-fn fact_line(
-    record: usize,
-    key: &[i32],
-    kind: &str,
-    term: Option<usize>,
-    value: &str,
-    method: &str,
-) -> String {
-    let mut v = serde_json::json!({"schema":"rustred.campaign.fact.v1","table":"T","record":record,"label":record as i64,
-        "key":key,"kind":kind,"value":value,"method":method});
-    if let Some(t) = term {
-        v["term"] = t.into();
-    }
-    v.to_string()
 }
 
 /// A descending chain to the subsector: Tier K is a SUPERSET verdict, never closed; hand-downs recorded per child.
@@ -140,63 +125,64 @@ fn positive_numerator_tiers() {
     write_fact_requests(&reqs, &mut buf).unwrap();
     assert_eq!(String::from_utf8(buf).unwrap().lines().count(), 4);
     // answers: both keys regular; the positive term zero at [2,1,0,0] and at [1,1,0,0]
-    let base = [
-        fact_line(0, &[2, 1, 0, 0], "regularity", None, "regular", "exact"),
-        fact_line(0, &[1, 1, 0, 0], "regularity", None, "regular", "exact"),
+    let base: Vec<(&[i32], Option<usize>, &str)> = vec![
+        (&[2, 1, 0, 0], None, "regular"),
+        (&[1, 1, 0, 0], None, "regular"),
     ];
-    let zero = |m: &str| {
-        let mut v = base.to_vec();
-        v.push(fact_line(
-            0,
-            &[2, 1, 0, 0],
-            "coefficient",
-            Some(1),
-            "zero",
-            m,
-        ));
-        v.push(fact_line(
-            0,
-            &[1, 1, 0, 0],
-            "coefficient",
-            Some(1),
-            "zero",
-            m,
-        ));
-        v.join("\n")
-    };
-    let f = FileFacts::read(zero("exact").as_bytes(), false).unwrap();
+    let zero = [
+        base.clone(),
+        vec![
+            (&[2, 1, 0, 0][..], Some(1), "zero"),
+            (&[1, 1, 0, 0], Some(1), "zero"),
+        ],
+    ]
+    .concat();
+    let f = answer_facts(&reqs, &zero, "exact", false);
     let s = cl_tier(&d, &b, &st, Tier::C, &f);
     assert_eq!(s.verdict, Verdict::Closed);
+    assert!(s.blocking.is_empty());
     assert_eq!(s.terms.dropped_zero, 2);
-    let f = FileFacts::read(zero("modular-2prime").as_bytes(), true).unwrap();
+    let f = answer_facts(&reqs, &zero, "modular-2prime", true);
     assert_eq!(
         cl_tier(&d, &b, &st, Tier::C, &f).verdict,
         Verdict::ClosedProvisional
     );
-    let f = FileFacts::read(zero("modular-2prime").as_bytes(), false).unwrap();
+    let f = answer_facts(&reqs, &zero, "modular-2prime", false);
     assert_eq!(
         cl_tier(&d, &b, &st, Tier::C, &f).verdict,
         Verdict::Undecided
     );
+    // without the table's coefficient-file digest: at best closed_provisional (M4)
+    let f = answer_facts(&reqs, &zero, "exact", false);
+    let nodig = ClosureConfig {
+        table_digests: Default::default(),
+        ..cfg(Tier::C)
+    };
+    let s = closure(&d, &b, &cmp(), &st, &nodig, &f).unwrap().summary();
+    // (the requests were bound to rule digests WITH the table digest: the facts do not apply)
+    assert_eq!(s.verdict, Verdict::Undecided);
+    let reqs2 = closure(&d, &b, &cmp(), &st, &nodig, &NoFacts)
+        .unwrap()
+        .fact_requests();
+    let f = answer_facts(&reqs2, &zero, "exact", false);
+    let s = closure(&d, &b, &cmp(), &st, &nodig, &f).unwrap().summary();
+    assert_eq!(s.verdict, Verdict::ClosedProvisional);
+    assert!(
+        s.blocking
+            .contains(&"table_coefficient_digest_missing:T".to_string()),
+        "{:?}",
+        s.blocking
+    );
     // NonZero at the start key: the closure FAILS at that edge, never drops it
-    let mut v = base.to_vec();
-    v.push(fact_line(
-        0,
-        &[2, 1, 0, 0],
-        "coefficient",
-        Some(1),
-        "nonzero",
-        "exact",
-    ));
-    v.push(fact_line(
-        0,
-        &[1, 1, 0, 0],
-        "coefficient",
-        Some(1),
-        "zero",
-        "exact",
-    ));
-    let f = FileFacts::read(v.join("\n").as_bytes(), false).unwrap();
+    let v = [
+        base.clone(),
+        vec![
+            (&[2, 1, 0, 0][..], Some(1), "nonzero"),
+            (&[1, 1, 0, 0], Some(1), "zero"),
+        ],
+    ]
+    .concat();
+    let f = answer_facts(&reqs, &v, "exact", false);
     let c = closure(&d, &b, &cmp(), &st, &cfg(Tier::C), &f).unwrap();
     let s = c.summary();
     assert_eq!(s.verdict, Verdict::Failed);
@@ -212,17 +198,12 @@ fn positive_numerator_tiers() {
         )
     );
     // a pole at a key: the key is open (irregular), naming the rule
-    let mut v = base.to_vec();
-    v[1] = fact_line(0, &[1, 1, 0, 0], "regularity", None, "pole", "exact");
-    v.push(fact_line(
-        0,
-        &[2, 1, 0, 0],
-        "coefficient",
-        Some(1),
-        "zero",
-        "exact",
-    ));
-    let f = FileFacts::read(v.join("\n").as_bytes(), false).unwrap();
+    let v: Vec<(&[i32], Option<usize>, &str)> = vec![
+        (&[2, 1, 0, 0], None, "regular"),
+        (&[1, 1, 0, 0], None, "pole"),
+        (&[2, 1, 0, 0], Some(1), "zero"),
+    ];
+    let f = answer_facts(&reqs, &v, "exact", false);
     let c = closure(&d, &b, &cmp(), &st, &cfg(Tier::C), &f).unwrap();
     let o = c.open_keys();
     assert_eq!(o.len(), 1);
@@ -304,12 +285,21 @@ fn planted_cycle_is_a_descent_violation() {
     );
     assert_eq!(w.reason, "descent_violation");
     // Tier C: the non-lower term with a verified zero coefficient is dropped (no edge, no cycle)
-    let facts = [
-        fact_line(0, &[2, 1, 0, 0], "coefficient", Some(0), "zero", "exact"),
-        fact_line(0, &[2, 1, 0, 0], "regularity", None, "regular", "exact"),
-    ]
-    .join("\n");
-    let f = FileFacts::read(facts.as_bytes(), false).unwrap();
+    let reqs = closure(
+        &d,
+        &b,
+        &cmp(),
+        &start(&[[2, 1, 0, 0]]),
+        &cfg(Tier::C),
+        &NoFacts,
+    )
+    .unwrap()
+    .fact_requests();
+    let spec: Vec<(&[i32], Option<usize>, &str)> = vec![
+        (&[2, 1, 0, 0], Some(0), "zero"),
+        (&[2, 1, 0, 0], None, "regular"),
+    ];
+    let f = answer_facts(&reqs, &spec, "exact", false);
     let c = closure(&d, &b, &cmp(), &start(&[[2, 1, 0, 0]]), &cfg(Tier::C), &f).unwrap();
     let s = c.summary();
     assert_eq!(
@@ -320,7 +310,7 @@ fn planted_cycle_is_a_descent_violation() {
 
 struct ZeroAll;
 impl FactSource for ZeroAll {
-    fn coefficient(&self, _: &RuleId, _: &[i32], _: usize) -> CoefFact {
+    fn coefficient(&self, _: &RuleId, _: &[i32], _: usize, _: &[i32]) -> CoefFact {
         CoefFact::NonZero
     }
     fn regularity(&self, _: &RuleId, _: &[i32]) -> RegFact {
@@ -343,11 +333,7 @@ fn symmetry_credit_adopted_condition() {
         lines: vec![0, 1],
         numerators: None,
     };
-    let pol = CreditPolicy {
-        group: vec![id.clone(), swap.clone()],
-        tier: Tier::K,
-        frame: CreditFrame::Direct,
-    };
+    let pol = CreditPolicy::new(vec![id.clone(), swap.clone()]);
     let sec = Sectors::new(CHART.to_vec());
     // rule at (3,1): RHS (1,1) and (2,1)
     let (d, b) = node(&[(
@@ -356,7 +342,7 @@ fn symmetry_credit_adopted_condition() {
         false,
     )]);
     let k = [1, 3, 0, 0];
-    let c = serve_by_image(&k, &pol, &d, &b, &cmp(), &sec, &NoFacts, true)
+    let c = serve_by_image(&k, &pol, &d, &b, &cmp(), &sec, &NoFacts, Tier::K)
         .unwrap()
         .unwrap();
     assert_eq!(
@@ -370,7 +356,7 @@ fn symmetry_credit_adopted_condition() {
         vec!["I(1,1,0,0)", "I(1,4,0,0)"],
         false,
     )]);
-    let r = serve_by_image(&k, &pol, &d2, &b2, &cmp(), &sec, &NoFacts, true)
+    let r = serve_by_image(&k, &pol, &d2, &b2, &cmp(), &sec, &NoFacts, Tier::K)
         .unwrap()
         .unwrap_err();
     assert!(
@@ -393,7 +379,7 @@ fn symmetry_credit_adopted_condition() {
         vec!["I(1,1,0,0)", "I(3,2,0,0)"],
         false,
     )]);
-    let r = serve_by_image(&k3, &pol, &d3, &b3, &cm, &sec, &NoFacts, true)
+    let r = serve_by_image(&k3, &pol, &d3, &b3, &cm, &sec, &NoFacts, Tier::K)
         .unwrap()
         .unwrap_err();
     assert!(
@@ -411,7 +397,7 @@ fn symmetry_credit_adopted_condition() {
         vec!["I(1,1,0,0)"],
         false,
     )]);
-    let r = serve_by_image(&k, &pol, &d4, &b4, &cmp(), &sec, &NoFacts, true)
+    let r = serve_by_image(&k, &pol, &d4, &b4, &cmp(), &sec, &NoFacts, Tier::K)
         .unwrap()
         .unwrap_err();
     assert!(
@@ -424,11 +410,7 @@ fn symmetry_credit_adopted_condition() {
         vec!["I(1,1,n2,0)", "I(1,1,n2+1,0)"],
         false,
     )]);
-    let polc = CreditPolicy {
-        tier: Tier::C,
-        ..pol.clone()
-    };
-    let r = serve_by_image(&k, &polc, &d5, &b5, &cmp(), &sec, &ZeroAll, true)
+    let r = serve_by_image(&k, &pol, &d5, &b5, &cmp(), &sec, &ZeroAll, Tier::C)
         .unwrap()
         .unwrap_err();
     assert!(
@@ -631,14 +613,10 @@ fn credits_follow_table_changes() {
         }
         (d, b)
     };
-    let pol = CreditPolicy {
-        group: vec![GroupElement {
-            lines: vec![1, 0],
-            numerators: None,
-        }],
-        tier: Tier::K,
-        frame: CreditFrame::Direct,
-    };
+    let pol = CreditPolicy::new(vec![GroupElement {
+        lines: vec![1, 0],
+        numerators: None,
+    }]);
     let cfgc = ClosureConfig {
         credits: Some(pol),
         ..cfg(Tier::K)

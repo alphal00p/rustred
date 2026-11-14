@@ -66,6 +66,9 @@ pub struct Node {
     pub frame: NodeFrame,
     pub cmp: NodeComparator,
     pub zero_dropped: BTreeSet<u64>,
+    /// Source of `zero_dropped` for the closure's `zero_sector_source` (required since audit loop-A M6): the
+    /// `zero_sectors` line of the node's table file, named by that file's digest.
+    pub zero_source: String,
     pub box_keys: Vec<Key>,
     /// residual records of the closed table (terminals FOUND by generation; gate on these only, U-9)
     pub terminals: Vec<Key>,
@@ -129,6 +132,7 @@ pub fn load_node(name: &str) -> Node {
         header,
         frame,
         cmp,
+        zero_source: format!("file:{}", sha256_tag(text.as_bytes())),
         zero_dropped,
         box_keys,
         terminals,
@@ -286,6 +290,7 @@ pub fn working_range(node: &Node, disp: &Dispatcher, bodies: &RuleBodies) -> Vec
         hand_downs: HandDowns::Off,
         longest_chain: false,
         zero_sectors: Some(node.zero_dropped.clone()),
+        zero_sector_source: Some(node.zero_source.clone()),
         ..Default::default()
     };
     let c = closure(disp, bodies, &node.cmp, &start, &cfg, &NoFacts).unwrap();

@@ -367,14 +367,36 @@ impl Default for ClosureFacts {
     }
 }
 
+/// The instantiated key of term `term` of `rule` at `key` (its right-hand-side pattern at the rule point); `None`
+/// when the key is not in the rule's case domain or the pattern does not parse.
+fn term_key_of(rule: &RuleText, key: &[i32], term: usize) -> Option<Vec<i32>> {
+    let pt = point_of(rule, key)?;
+    let (pattern, _) = rule.rhs.get(term)?;
+    let slots = crate::closure::bodies::parse_rhs_pattern(pattern, pt.len()).ok()?;
+    slots
+        .iter()
+        .map(|s| match *s {
+            crate::closure::bodies::RhsSlot::Param { param, offset } => {
+                pt.get(param)?.checked_add(offset)
+            }
+            crate::closure::bodies::RhsSlot::Const(c) => Some(c),
+        })
+        .collect()
+}
+
 impl crate::closure::facts::FactSource for ClosureFacts {
+    /// Since loopfix (closure.md 11.5) a coefficient fact is bound to the term's own instantiated key: the record
+    /// registered at (table, record) answers only if ITS term `term` at `key` instantiates to `term_key` (a
+    /// registration that does not match the closure's rule body answers `Unknown`).
     fn coefficient(
         &self,
         rule: &crate::closure::facts::RuleId,
         key: &[i32],
         term: usize,
+        term_key: &[i32],
     ) -> CoefFact {
         match self.rules.get(&(rule.table.to_string(), rule.record)) {
+            Some(r) if term_key_of(r, key, term).as_deref() != Some(term_key) => CoefFact::Unknown,
             Some(r) => self
                 .inner
                 .lock()

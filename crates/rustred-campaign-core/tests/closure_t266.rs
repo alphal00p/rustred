@@ -325,4 +325,42 @@ fn t266_tier_k_closure() {
         assert_eq!(s.cycles, Some(0));
         assert_eq!(s.longest_chain.as_ref().unwrap().edges, 814);
     }
+    // M5 (audit loop-A): the closure's dispatch index equals the core's first match on EVERY closure key
+    // (opt-in: T266_FULL_DIFF=1, ~20 min: 0 mismatches on 13,951,428 keys, 2026-11-14)
+    if std::env::var("T266_FULL_DIFF").is_ok() {
+        let keys = cl.keys();
+        drop(cl);
+        let t1 = Instant::now();
+        let n = keys.len();
+        let threads = 4;
+        let per = n.div_ceil(threads);
+        let mismatches: usize = std::thread::scope(|sc| {
+            let hs: Vec<_> = (0..threads)
+                .map(|t| {
+                    let (disp, keys) = (&disp, &keys);
+                    sc.spawn(move || {
+                        let fast = rustred_campaign_core::closure::FastDispatch::new(disp);
+                        let (mut b, mut stck) = (vec![], vec![]);
+                        let mut bad = 0usize;
+                        for i in t * per..((t + 1) * per).min(n) {
+                            let k = keys.get(i);
+                            if fast.first_match_with(&k, &mut b, &mut stck)
+                                != disp.first_match(&k).unwrap()
+                            {
+                                bad += 1;
+                            }
+                        }
+                        bad
+                    })
+                })
+                .collect();
+            hs.into_iter().map(|h| h.join().unwrap()).sum()
+        });
+        println!(
+            "T266 FastDispatch == Dispatcher::first_match on all {n} closure keys: {mismatches} mismatches ({:.1} s, 4 threads, peak rss {:?} MB)",
+            t1.elapsed().as_secs_f64(),
+            peak_rss().map(|b| b >> 20)
+        );
+        assert_eq!(mismatches, 0);
+    }
 }

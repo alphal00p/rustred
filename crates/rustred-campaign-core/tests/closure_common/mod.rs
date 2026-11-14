@@ -129,3 +129,55 @@ pub fn peak_rss() -> Option<u64> {
     let kb: u64 = l.split_whitespace().nth(1)?.parse().ok()?;
     Some(kb * 1024)
 }
+
+/// Answer fact requests as the EC-2 producer does (`rr_proof instantiate`: one instantiate line per (rule, key) with
+/// the per-term keys, then one `rustred.campaign.fact.v1` line per answered request) and read them bound to the
+/// requests. `spec` = (key, term (None = regularity), value); every spec entry must match a request.
+pub fn answer_facts(
+    reqs: &[rustred_campaign_core::closure::FactRequest],
+    spec: &[(&[i32], Option<usize>, &str)],
+    method: &str,
+    accept_provisional: bool,
+) -> rustred_campaign_core::closure::FileFacts {
+    use std::collections::BTreeMap;
+    let mut inst: BTreeMap<(i64, Vec<i32>), BTreeMap<usize, Vec<i32>>> = BTreeMap::new();
+    for r in reqs {
+        let e = inst.entry((r.label, r.key.clone())).or_default();
+        if let (Some(t), Some(k)) = (r.term, &r.rhs) {
+            e.insert(t, k.clone());
+        }
+    }
+    let mut out = vec![];
+    for ((label, key), terms) in &inst {
+        let n = terms.keys().max().map(|m| m + 1).unwrap_or(0);
+        let rhs: Vec<serde_json::Value> = (0..n)
+            .map(|j| {
+                serde_json::json!({"term": j, "key": terms.get(&j).cloned().unwrap_or(vec![i32::MIN; key.len()]),
+                    "coef": "unknown"})
+            })
+            .collect();
+        out.push(
+            serde_json::json!({"schema":"rustred.proof-kernel.instantiate.v1","rule":label,"key":key,"rhs":rhs,
+                "in_case":true,"chart_ok":true,"branch":null,"error":null})
+                .to_string(),
+        );
+    }
+    for (key, term, value) in spec {
+        let r = reqs
+            .iter()
+            .find(|r| r.key == *key && r.term == *term)
+            .unwrap_or_else(|| panic!("no request for {key:?} term {term:?}"));
+        let mut v = serde_json::json!({"schema":"rustred.campaign.fact.v1","table":r.table,"record":r.record,
+            "label":r.label,"key":key,"kind":r.kind,"value":value,"method":method});
+        if let Some(t) = term {
+            v["term"] = (*t).into();
+        }
+        out.push(v.to_string());
+    }
+    rustred_campaign_core::closure::FileFacts::read_bound(
+        out.join("\n").as_bytes(),
+        reqs,
+        accept_provisional,
+    )
+    .unwrap()
+}

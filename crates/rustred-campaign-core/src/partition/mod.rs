@@ -4,8 +4,16 @@
 //! except on the zero sets of live exception branches); U classes give the GENERIC GAP FACES with per-slot
 //! thresholds, F classes are resolved into coupled LOCI by [`crate::loci`].
 //!
-//! Coverage here is UNION coverage (some domain contains the key), never first-match dispatch; the dispatch order is
-//! recorded as a digest only. Interface: `plan/auto-campaign/interfaces/partition.md`.
+//! Two coverage notions (audit-part-A M3, [`CoverageNotion`]): `UnionCoverage` (some record APPLIES at the key; no
+//! order) is what the classic partition computes; `DispatchCoverage` (the FIRST record SELECTED at the key in
+//! dispatch order applies there) is what a reduction gets. Bridge (exact): a key is dispatch-uncovered iff it is
+//! union-uncovered or, for some record `r`, it lies in `selected(r) \ applies(r)` (r is blocked there: pole locus,
+//! recenter bound, rule-point range, elided witness loci) and in no `applies(s)` of an earlier record `s`. Dispatch
+//! mode computes exactly that union of blocked sub-partitions. Interface: `plan/auto-campaign/interfaces/partition.md`.
+//!
+//! THE GOVERNING PRINCIPLE (audits part-A / part-B): every output is an exact statement or an explicit
+//! `Unknown` / `Unexplored` / `Unresolved` / `Incomplete(reason)`; nothing sampled, capped, pruned, budget-aborted,
+//! overflowed or excluded from the normal form is ever reported as covered, empty, contained, shadowed or complete.
 //!
 //! No floating point anywhere (test `partition_nofloat`). Every exact step is checked integer arithmetic; an overflow
 //! or a work cap makes the affected literal test conservative (counted in `stats.unknown_literal_tests`), never a
@@ -24,7 +32,10 @@ use serde_json::{Value as Json, json};
 use crate::cover::{Dispatcher, RuleRef};
 use crate::domain::CaseDomain;
 use crate::key::{Key, NodeFrame};
-pub use crate::loci::contain::{Containment, Emptiness, contained_in, is_empty, shadowed};
+pub use crate::loci::contain::{
+    Containment, Emptiness, ProofBudget, contained_in, contained_in_with, is_empty, is_empty_with,
+    removal_preserves_dispatch, shadowed, shadowed_with,
+};
 pub use classes::{Class, EnumStats, Label, Node};
 pub use exact::{ExactError, Range};
 pub use nf::{NfRules, NfStats};
@@ -64,6 +75,12 @@ pub trait DomainSource {
     }
     fn domain(&self, i: usize) -> &CaseDomain;
     fn rule_ref(&self, i: usize) -> RuleRef;
+    /// The verdict that blocks record `i` wherever it is selected because of its WITNESS STATUS (Elided /
+    /// NotCarried without attestation), as the core dispatcher enforces it (`RecordMeta::witness_block`); `None` =
+    /// Complete (or the check is off). A plain [`DomainList`] has no witness metadata: only `witness_elided` counts.
+    fn witness_block(&self, _i: usize) -> Option<crate::domain::Verdict> {
+        None
+    }
 }
 
 /// A plain list of domains with their provenance.
@@ -133,21 +150,89 @@ impl DomainSource for DispatcherSource<'_> {
         let (t, r) = self.index[i];
         self.disp.rule_ref(t, r)
     }
+    fn witness_block(&self, i: usize) -> Option<crate::domain::Verdict> {
+        let (t, r) = self.index[i];
+        self.disp.tables()[t]
+            .meta
+            .get(r)
+            .and_then(|m| m.witness_block())
+    }
 }
 
 /// How a domain with elided witness loci is read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum ElidedPolicy {
-    /// As an ordinary domain (the checker's h11b reading; regression reference).
+    /// As an ordinary domain (the checker's h11b reading; regression reference ONLY: the report then carries a
+    /// caveat and is never a coverage proof).
     Ordinary,
     /// FAIL CLOSED as the core's first-match dispatcher (ruling F1, R24 (6); the campaign's verdict): the record
-    /// credits no key AND blocks every later record on its domain (the engine's search stops at a selected but
-    /// unusable record). In union terms: the record is removed and its domain is subtracted from every domain
-    /// after it in dispatch order. T178 order B: 409 + 21 open box keys.
+    /// credits no key AND blocks every later record on its SELECTED set (the engine's search stops at a selected
+    /// but unusable record): its blocked region `selected minus the earlier applies sets` is a separate exact
+    /// sub-partition. Only elided records are modelled as blockers here; `CoverageNotion::DispatchCoverage` models
+    /// every blocked set. T178 order B: 409 + 21 open box keys.
     FailClosed,
     /// Removed (skipped as if absent; later records still cover its keys). T178 order B: identical to `Ordinary`,
     /// because the elided record's domain also occurs in another piece.
     Absent,
+}
+
+/// The two coverage notions (audit-part-A M3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+pub enum CoverageNotion {
+    /// Some record APPLIES at the key (its own verdict, no order). What the classic partition proves; NOT what a
+    /// reduction gets when an earlier record is selected but blocked at the key.
+    UnionCoverage,
+    /// Under first-match dispatch a key is served iff its FIRST selected record (dispatch order) applies there. A
+    /// record selected but blocked (pole locus, recenter bound, rule-point range of a target pattern, elided witness
+    /// loci) SHADOWS every later record without serving. Dispatch-mode partitions model every such blocked set
+    /// exactly (one blocked sub-partition per blocking record).
+    DispatchCoverage,
+}
+
+impl CoverageNotion {
+    pub fn tag(&self) -> &'static str {
+        match self {
+            CoverageNotion::UnionCoverage => "union",
+            CoverageNotion::DispatchCoverage => "dispatch",
+        }
+    }
+}
+
+/// The `method` string of a coverage-preservation proof made by a DISPATCH-mode partition (audit-part-A M3 (c)):
+/// [`dispatch_proof_method`] writes it, [`parse_dispatch_proof_method`] reads it. The economy refuses any other
+/// method (a union-coverage partition cannot prove coverage preservation under first-match dispatch).
+pub const DISPATCH_PROOF_METHOD: &str = "dispatch_partition.v1";
+
+/// The dispatch order the proof was made with, relative to the old table set.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DispatchOrderStatement {
+    /// The new table set is dispatched in the same order as the old one (records removed / replaced in place).
+    SameOrder,
+    /// The new table set is dispatched in the stated order (digest of the priority list, non-empty).
+    NewOrder(String),
+}
+
+/// The `method` string of a dispatch-mode coverage proof: `dispatch_partition.v1;order=same` or
+/// `dispatch_partition.v1;order=new:<digest>`. Write it only from a report for which
+/// `proves_no_gap(CoverageNotion::DispatchCoverage)` is `Ok`.
+pub fn dispatch_proof_method(order: &DispatchOrderStatement) -> String {
+    match order {
+        DispatchOrderStatement::SameOrder => format!("{DISPATCH_PROOF_METHOD};order=same"),
+        DispatchOrderStatement::NewOrder(d) => format!("{DISPATCH_PROOF_METHOD};order=new:{d}"),
+    }
+}
+
+/// Read a proof `method` string: `Some(order)` only for a dispatch-mode proof with an order statement.
+pub fn parse_dispatch_proof_method(method: &str) -> Option<DispatchOrderStatement> {
+    let rest = method
+        .strip_prefix(DISPATCH_PROOF_METHOD)?
+        .strip_prefix(";order=")?;
+    if rest == "same" {
+        return Some(DispatchOrderStatement::SameOrder);
+    }
+    let d = rest.strip_prefix("new:")?;
+    (!d.is_empty() && !d.contains(char::is_whitespace))
+        .then(|| DispatchOrderStatement::NewOrder(d.to_string()))
 }
 
 /// Which status tests multi-slot linear literals get.
@@ -166,6 +251,8 @@ pub struct Budget {
     pub wall: Option<Duration>,
     /// Memo entries kept at most (memory bound; exactness unaffected).
     pub max_memo: Option<usize>,
+    /// Face cells expanded at most (beyond: the face list stops, outcome `Incomplete`; audit-part-B M3).
+    pub max_faces: Option<usize>,
 }
 
 /// Progress report (no floating point: milliseconds).
@@ -197,6 +284,12 @@ pub struct PartitionOptions {
     /// Additional critical values per slot (DATA, e.g. to refine the states to a coarser reference granularity);
     /// `None` = only the critical values derived from the literals.
     pub extra_critical: Option<Vec<Vec<i64>>>,
+    /// Which coverage the run computes (default `UnionCoverage`; `DispatchCoverage` models every blocked set and
+    /// ignores `elided`: elided records always block in dispatch mode).
+    pub coverage: CoverageNotion,
+    /// A class with more `any` slots than this is not expanded into its 2^k faces: it is listed as a
+    /// [`FaceFamily`] and the outcome is `Incomplete` (audit-part-A M4; no fixed limit, sized by the arity).
+    pub max_any_slots: usize,
 }
 
 impl Default for PartitionOptions {
@@ -213,6 +306,8 @@ impl Default for PartitionOptions {
             loci: crate::loci::LociOptions::default(),
             budget: Budget::default(),
             extra_critical: None,
+            coverage: CoverageNotion::UnionCoverage,
+            max_any_slots: 24,
         }
     }
 }
@@ -226,6 +321,9 @@ pub enum Proof {
     Tested { bound: String },
     /// Lower bound from uncovered closure keys (R30 fallback).
     ClosureLowerBound,
+    /// An OPEN gap region the exact resolution could not decide (cap, overflow, nonlinear cut, unexpanded class):
+    /// reported as a gap, never as covered.
+    Unresolved { reason: String },
 }
 
 impl Proof {
@@ -234,6 +332,7 @@ impl Proof {
             Proof::ExactPartition => "exact_partition",
             Proof::Tested { .. } => "tested",
             Proof::ClosureLowerBound => "closure_lower_bound",
+            Proof::Unresolved { .. } => "unresolved",
         }
     }
 }
@@ -287,11 +386,84 @@ impl GapFace {
     }
 }
 
-/// Outcome of a run.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+/// What part of the chart a [`Outcome::Partial`] run explored.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub enum Explored {
+    /// Every class with at most this many off-floor slots is classified (`max_off_floor`): the face list is
+    /// complete for faces with at most this many off-floor slots; classes beyond are `Unexplored`.
+    OffFloorUpTo(usize),
+    /// A work budget stopped the run: `Unexplored` classes anywhere, NOTHING is proved complete.
+    Aborted(String),
+}
+
+/// Outcome of a run (audit-part-A M1 / M2 / M4).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum Outcome {
+    /// Every class classified, every fragile region resolved exactly, every face expanded: the face list and the
+    /// loci are a complete description of the gaps under the run's coverage notion.
     Complete,
-    BudgetExceeded,
+    /// Every class classified, but some gap region is only listed as UNRESOLVED (cap, overflow, nonlinear cut), as
+    /// an unexpanded [`FaceFamily`], or fragile classes were not resolved: everything open is REPORTED as open, but
+    /// the description is not exact.
+    Incomplete { reasons: Vec<String> },
+    /// Part of the chart is `Unexplored` (off-floor cap or budget abort): nothing there is covered, uncovered or
+    /// complete; `reasons` as for `Incomplete`.
+    Partial {
+        explored: Explored,
+        reasons: Vec<String>,
+    },
+}
+
+impl Outcome {
+    pub fn is_complete(&self) -> bool {
+        matches!(self, Outcome::Complete)
+    }
+    pub fn is_aborted(&self) -> bool {
+        matches!(
+            self,
+            Outcome::Partial {
+                explored: Explored::Aborted(_),
+                ..
+            }
+        )
+    }
+    pub fn tag(&self) -> &'static str {
+        match self {
+            Outcome::Complete => "complete",
+            Outcome::Incomplete { .. } => "unresolved",
+            Outcome::Partial {
+                explored: Explored::Aborted(_),
+                ..
+            } => "budget_exceeded",
+            Outcome::Partial { .. } => "partial",
+        }
+    }
+    pub fn reasons(&self) -> Vec<String> {
+        match self {
+            Outcome::Complete => vec![],
+            Outcome::Incomplete { reasons } => reasons.clone(),
+            Outcome::Partial { explored, reasons } => {
+                let mut r = vec![match explored {
+                    Explored::OffFloorUpTo(l) => {
+                        format!("explored only classes with <= {l} off-floor slots")
+                    }
+                    Explored::Aborted(w) => format!("aborted: {w}"),
+                }];
+                r.extend(reasons.iter().cloned());
+                r
+            }
+        }
+    }
+}
+
+/// A class with more `any` slots than `max_any_slots`, not expanded: EVERY face `base + T` (T a subset of `free`,
+/// slots of T off floor) carries this class's label on the cells of the class (audit-part-A M4).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct FaceFamily {
+    pub base_sd: Vec<usize>,
+    pub base_sn: Vec<usize>,
+    pub free: Vec<usize>,
+    pub label: Label,
 }
 
 /// Identifying fields of the artefact (plan 3.3; digests computed by the caller).
@@ -313,13 +485,34 @@ pub struct PartitionReport {
     pub faces: Vec<GapFace>,
     pub resolution: Option<crate::loci::LociReport>,
     pub outcome: Outcome,
+    pub coverage: CoverageNotion,
+    /// Reasons why this report's COVERAGE claims are not a proof even when the outcome is complete (an elided
+    /// record credited under `ElidedPolicy::Ordinary`; in dispatch mode a record excluded or weakened in the normal
+    /// form, whose blocked set is then unknown).
+    pub caveats: Vec<String>,
+    /// Classes with more `any` slots than `max_any_slots` (not expanded into faces / loci).
+    pub families: Vec<FaceFamily>,
+    pub max_any_slots: usize,
+    /// The off-floor cap of the run (faces beyond it are not listed).
+    pub max_off_floor: Option<usize>,
+    /// The face budget (`Budget::max_faces`) stopped the face list: outcome `Incomplete`.
+    pub faces_truncated: bool,
     pub elided: ElidedPolicy,
     pub literal_tests: LiteralTests,
     pub millis: u64,
     pub state_unknown: u64,
-    /// FailClosed: per elided source index, the partition of its BLOCKED region (domain minus the domains before
-    /// it); its U / F classes are gaps of the node in addition to the main classes.
+    /// FailClosed (elided records) / dispatch mode (every blocking record): per blocking source index, the
+    /// partition of its BLOCKED region (selected set minus applies set minus the earlier applies sets); its U / F
+    /// classes are gaps of the node in addition to the main classes. Sub-reports with no class and a complete
+    /// outcome are not kept (counted in `blocked_empty`).
     pub blocked: Vec<(usize, PartitionReport)>,
+    pub blocked_empty: usize,
+    /// Main report: per rule the smallest dispatch position of its sources (for the blocked regions' oracle).
+    pub rule_min_pos: Vec<usize>,
+    /// Blocked sub-report: dispatch position of its blocking record; its `nf.rules` keep only the complement of
+    /// the record's selected set (`compacted`), the earlier records being answered by the main report.
+    pub blocked_pos: usize,
+    pub compacted: bool,
 }
 
 /// Where a key falls.
@@ -328,6 +521,8 @@ pub enum ClassHit {
     Covered,
     Uncovered,
     Fragile,
+    /// In a pruned / unexplored part of a `Partial` run: NOT known to be covered (audit-part-A M2).
+    Unexplored,
 }
 
 /// (Sd, Sn) of a face.
@@ -343,6 +538,8 @@ pub struct KeyCensus {
     pub covered_in_u: Vec<Key>,
     /// Uncovered keys in C classes: must be empty (a soundness check).
     pub uncovered_in_c: Vec<Key>,
+    /// Uncovered keys in Unexplored classes of a `Partial` run (exact oracle; their face may be unlisted).
+    pub uncovered_unexplored: Vec<Key>,
     /// Label of the key range (set by [`PartitionReport::census_in`]).
     pub range: Option<KeyRange>,
 }
@@ -389,53 +586,89 @@ pub fn gap_partition(
     progress: Option<&dyn Fn(&Progress)>,
 ) -> Result<PartitionReport, PartitionError> {
     let t0 = Instant::now();
+    let dispatch = opts.coverage == CoverageNotion::DispatchCoverage;
+    let elided_policy = if dispatch {
+        ElidedPolicy::FailClosed
+    } else {
+        opts.elided
+    };
     let nf = nf::build(
         src,
         frame,
         &nf::NfOptions {
-            elided: opts.elided,
+            elided: elided_policy,
             dedup: opts.dedup,
             subset: opts.rule_subset.clone(),
             factor_exceptions: opts.factor_exceptions,
-            complement_of: None,
         },
     )?;
-    let elided = nf.elided.clone();
-    let mut rep = partition_nf(nf, opts, progress, t0)?;
-    // FailClosed: each elided record blocks its domain minus the domains before it (first match stops there).
-    // Its BLOCKED region = the uncovered set of {domains before it} u {complement of its domain}: a separate exact
-    // partition whose classes are gaps of the node.
+    // FailClosed: each elided record blocks; dispatch mode: every record with a blocked set blocks.
+    let blockers: Vec<usize> = if dispatch {
+        nf.blockers.clone()
+    } else if elided_policy == ElidedPolicy::FailClosed {
+        nf.elided.clone()
+    } else {
+        vec![]
+    };
     let order: Vec<usize> = opts
         .rule_subset
         .clone()
         .unwrap_or_else(|| (0..src.len()).collect());
-    for e in elided {
-        let pos = order
-            .iter()
-            .position(|&x| x == e)
-            .expect("elided source in the order");
-        let mut subset: Vec<usize> = order[..pos].to_vec();
-        subset.push(e);
-        let sub = nf::build(
-            src,
-            frame,
-            &nf::NfOptions {
-                elided: ElidedPolicy::FailClosed,
-                dedup: opts.dedup,
-                subset: Some(subset),
-                factor_exceptions: opts.factor_exceptions,
-                complement_of: Some(e),
-            },
-        )?;
-        let b = partition_nf(sub, opts, None, Instant::now())?;
-        if b.outcome == Outcome::BudgetExceeded {
-            rep.outcome = Outcome::BudgetExceeded;
+    let pos: std::collections::HashMap<usize, usize> =
+        order.iter().enumerate().map(|(p, &s)| (s, p)).collect();
+    let rule_min_pos: Vec<usize> = nf
+        .sources
+        .iter()
+        .map(|ss| {
+            ss.iter()
+                .filter_map(|s| pos.get(s).copied())
+                .min()
+                .unwrap_or(usize::MAX)
+        })
+        .collect();
+    let mut rep = partition_nf(nf, opts, progress, t0)?;
+    rep.elided = elided_policy;
+    rep.coverage = opts.coverage;
+    rep.rule_min_pos = rule_min_pos;
+    // one sub-problem at a time (memory): built, partitioned, then COMPACTED to its complement variants (the rules
+    // of the earlier records are answered by the main normal form, see `uncovered`)
+    for &e in &blockers {
+        let sub = rep.nf.blocked_subproblem(e, &pos)?;
+        let nvar = sub.stats.blocked_variants;
+        let mut b = partition_nf(sub, opts, None, Instant::now())?;
+        b.coverage = opts.coverage;
+        if b.classes.is_empty() && b.outcome.is_complete() {
+            rep.blocked_empty += 1;
+            continue;
         }
+        b.blocked_pos = pos[&e];
+        let keep = b.nf.rules.len() - nvar;
+        b.nf.rules.drain(..keep);
+        b.nf.sources.drain(..keep);
+        b.nf.quick.drain(..keep);
+        b.compacted = true;
         rep.blocked.push((e, b));
     }
     if !rep.blocked.is_empty() {
         rep.merge_blocked_faces();
     }
+    if dispatch {
+        let weak: Vec<usize> = rep
+            .nf
+            .notes
+            .iter()
+            .filter(|n| n.note.forbids_proof_about_domain())
+            .map(|n| n.source)
+            .collect();
+        if !weak.is_empty() {
+            rep.caveats.push(format!(
+                "dispatch coverage: {} record(s) excluded or weakened in the normal form (sources {:?}): their selected / blocked sets are not exact",
+                weak.len(),
+                &weak[..weak.len().min(8)]
+            ));
+        }
+    }
+    rep.finish_outcome(opts);
     rep.millis = t0.elapsed().as_millis() as u64;
     Ok(rep)
 }
@@ -458,12 +691,18 @@ pub fn partition_nf(
         let root = eng.run(progress);
         (root, eng.stats.clone())
     };
-    let outcome = if stats.aborted {
-        Outcome::BudgetExceeded
-    } else {
-        Outcome::Complete
-    };
     let classes = classes::collect_classes(&root, nf.arity);
+    let credited = nf
+        .notes
+        .iter()
+        .filter(|n| n.note == nf::NfNote::ElidedCredited)
+        .count();
+    let mut caveats = vec![];
+    if credited > 0 {
+        caveats.push(format!(
+            "{credited} elided record(s) credited (ElidedPolicy::Ordinary): a regression reference, never a proof"
+        ));
+    }
     let mut rep = PartitionReport {
         nf,
         states,
@@ -472,17 +711,41 @@ pub fn partition_nf(
         stats,
         faces: vec![],
         resolution: None,
-        outcome,
+        outcome: Outcome::Complete,
+        coverage: opts.coverage,
+        caveats,
+        families: vec![],
+        max_any_slots: opts.max_any_slots,
+        max_off_floor: opts.max_off_floor,
+        faces_truncated: false,
         elided: opts.elided,
         literal_tests: opts.literal_tests,
         millis: 0,
         state_unknown,
         blocked: vec![],
+        blocked_empty: 0,
+        rule_min_pos: vec![],
+        blocked_pos: 0,
+        compacted: false,
     };
-    if outcome == Outcome::Complete && opts.resolve_loci {
-        rep.resolution = Some(crate::loci::resolve_fragile_classes(&rep, &opts.loci)?);
+    if !rep.stats.aborted && opts.resolve_loci {
+        // the wall budget reaches the locus resolution (audit-part-B M3): regions left at the deadline are OPEN
+        let mut lo = opts.loci.clone();
+        if lo.deadline.is_none() {
+            lo.deadline = opts.budget.wall.map(|w| t0 + w);
+        }
+        rep.resolution = Some(crate::loci::resolve_fragile_classes(&rep, &lo)?);
     }
-    rep.faces = rep.build_faces();
+    let (faces, truncated) = rep.build_faces(opts.budget.max_faces);
+    rep.faces = faces;
+    rep.faces_truncated = truncated;
+    rep.families = rep
+        .classes
+        .iter()
+        .filter(|c| c.label != Label::Unexplored)
+        .filter_map(|c| rep.family_of(c))
+        .collect();
+    rep.finish_outcome(opts);
     rep.millis = t0.elapsed().as_millis() as u64;
     Ok(rep)
 }
@@ -554,8 +817,20 @@ impl PartitionReport {
         if !self.nf.covered(key)? {
             return Ok(true);
         }
+        if self.blocked.is_empty() {
+            return Ok(false);
+        }
+        // the smallest dispatch position of a record that applies at the key
+        let mut first = usize::MAX;
+        for r in 0..self.nf.rules.len() {
+            let p = self.rule_min_pos.get(r).copied().unwrap_or(usize::MAX);
+            if p < first && self.nf.rule_covers(r, key)? {
+                first = p;
+            }
+        }
         for (_, b) in &self.blocked {
-            if !b.nf.covered(key)? {
+            // blocked region of b: selected(e) minus applies(s <= e); compacted rules = complement of selected(e)
+            if first > b.blocked_pos && !b.nf.covered(key)? {
                 return Ok(true);
             }
         }
@@ -576,17 +851,27 @@ impl PartitionReport {
         let main = match classes::lookup(&self.root, &idx) {
             None => ClassHit::Covered,
             Some(Node::Leaf(Label::Uncovered)) => ClassHit::Uncovered,
+            Some(Node::Leaf(Label::Unexplored)) => ClassHit::Unexplored,
             Some(_) => ClassHit::Fragile,
         };
         if main == ClassHit::Uncovered {
             return Ok(main);
         }
+        // precedence: Uncovered (definite) > Unexplored (unknown) > Fragile > Covered
+        let rank = |h: &ClassHit| match h {
+            ClassHit::Covered => 0,
+            ClassHit::Fragile => 1,
+            ClassHit::Unexplored => 2,
+            ClassHit::Uncovered => 3,
+        };
         let mut best = main;
         for (_, b) in &self.blocked {
-            match b.class_of(key)? {
-                ClassHit::Uncovered => return Ok(ClassHit::Uncovered),
-                ClassHit::Fragile => best = ClassHit::Fragile,
-                ClassHit::Covered => {}
+            let h = b.class_of(key)?;
+            if h == ClassHit::Uncovered {
+                return Ok(h);
+            }
+            if rank(&h) > rank(&best) {
+                best = h;
             }
         }
         Ok(best)
@@ -596,6 +881,7 @@ impl PartitionReport {
     fn merge_blocked_faces(&mut self) {
         let mut faces = std::mem::take(&mut self.faces);
         for (_, b) in &self.blocked {
+            self.families.extend(b.families.iter().cloned());
             for f in &b.faces {
                 match faces.iter_mut().find(|g| g.key() == f.key()) {
                     Some(g) => {
@@ -647,6 +933,7 @@ impl PartitionReport {
                         .push((k.clone(), face_of(&self.nf.lines, k), Label::Fragile))
                 }
                 (true, ClassHit::Covered) => c.uncovered_in_c.push(k.clone()),
+                (true, ClassHit::Unexplored) => c.uncovered_unexplored.push(k.clone()),
                 (false, ClassHit::Uncovered) => c.covered_in_u.push(k.clone()),
                 _ => {}
             }
@@ -667,31 +954,227 @@ impl PartitionReport {
             .count()
     }
 
-    /// Expand the `any` slots of a class into (floor, any off-floor): (face, cell states over all slots).
-    pub fn expand(&self, c: &Class) -> Vec<(FaceKey, Vec<CellState>)> {
-        let n = self.nf.arity;
-        let stars: Vec<usize> = (0..n).filter(|&i| c.states[i].is_none()).collect();
-        let mut out = vec![];
-        let combos = 1usize << stars.len().min(24);
-        for bits in 0..combos {
-            let mut cell: Vec<CellState> = c.states.iter().map(|s| s.unwrap_or(0)).collect();
-            for (j, &s) in stars.iter().enumerate() {
-                if (bits >> j) & 1 == 1 {
-                    cell[s] = ANY_OFF;
-                }
-            }
-            let sd: Vec<usize> = (0..n)
-                .filter(|&i| self.nf.lines[i] && cell[i] != 0)
-                .collect();
-            let sn: Vec<usize> = (0..n)
-                .filter(|&i| !self.nf.lines[i] && cell[i] != 0)
-                .collect();
-            out.push(((sd, sn), cell));
-        }
-        out
+    pub fn n_unexplored(&self) -> usize {
+        self.classes
+            .iter()
+            .filter(|c| c.label == Label::Unexplored)
+            .count()
     }
 
-    fn build_faces(&self) -> Vec<GapFace> {
+    /// The class as an unexpanded family, if it has more `any` slots than `max_any_slots`.
+    pub fn family_of(&self, c: &Class) -> Option<FaceFamily> {
+        let n = self.nf.arity;
+        let free: Vec<usize> = (0..n).filter(|&i| c.states[i].is_none()).collect();
+        let fixed_off0 = c
+            .states
+            .iter()
+            .filter(|s| s.is_some_and(|v| v != 0))
+            .count();
+        let capped = self
+            .max_off_floor
+            .is_some_and(|l| l.saturating_sub(fixed_off0) < free.len());
+        if capped || free.len() <= self.max_any_slots {
+            return None; // expanded by `expand`
+        }
+        let fixed_off = |i: usize| c.states[i].is_some_and(|v| v != 0);
+        Some(FaceFamily {
+            base_sd: (0..n)
+                .filter(|&i| self.nf.lines[i] && fixed_off(i))
+                .collect(),
+            base_sn: (0..n)
+                .filter(|&i| !self.nf.lines[i] && fixed_off(i))
+                .collect(),
+            free,
+            label: c.label,
+        })
+    }
+
+    /// Expand the `any` slots of a class into (floor, any off-floor): (face, cell states over all slots). A class
+    /// with more `any` slots than `max_any_slots` gives `None` (see [`PartitionReport::family_of`]): never a silent
+    /// truncation (audit-part-A M4).
+    pub fn expand(&self, c: &Class) -> Option<Vec<(FaceKey, Vec<CellState>)>> {
+        let n = self.nf.arity;
+        let stars: Vec<usize> = (0..n).filter(|&i| c.states[i].is_none()).collect();
+        // under an off-floor cap L only the faces with <= L off-floor slots are listed (the run claims nothing
+        // beyond; audit-part-B M3: the cap bounds the expansion)
+        let fixed_off = c
+            .states
+            .iter()
+            .filter(|s| s.is_some_and(|v| v != 0))
+            .count();
+        let r = match self.max_off_floor {
+            Some(l) => l.saturating_sub(fixed_off).min(stars.len()),
+            None => stars.len(),
+        };
+        if r == stars.len() && stars.len() > self.max_any_slots {
+            return None;
+        }
+        if self.max_off_floor.is_some_and(|l| fixed_off > l) {
+            return Some(vec![]);
+        }
+        let mut out = vec![];
+        // every subset of `stars` with at most r elements (no fixed word width)
+        fn rec(
+            rep: &PartitionReport,
+            c: &Class,
+            stars: &[usize],
+            from: usize,
+            left: usize,
+            pick: &mut Vec<usize>,
+            out: &mut Vec<(FaceKey, Vec<CellState>)>,
+        ) {
+            let n = rep.nf.arity;
+            let mut cell: Vec<CellState> = c.states.iter().map(|s| s.unwrap_or(0)).collect();
+            for &s in pick.iter() {
+                cell[s] = ANY_OFF;
+            }
+            let sd: Vec<usize> = (0..n)
+                .filter(|&i| rep.nf.lines[i] && cell[i] != 0)
+                .collect();
+            let sn: Vec<usize> = (0..n)
+                .filter(|&i| !rep.nf.lines[i] && cell[i] != 0)
+                .collect();
+            out.push(((sd, sn), cell));
+            if left == 0 {
+                return;
+            }
+            for j in from..stars.len() {
+                pick.push(stars[j]);
+                rec(rep, c, stars, j + 1, left - 1, pick, out);
+                pick.pop();
+            }
+        }
+        rec(self, c, &stars, 0, r, &mut vec![], &mut out);
+        Some(out)
+    }
+
+    /// Settle the outcome (audit-part-A M1 / M2 / M4): Partial if any class is unexplored (cap or abort, here or in
+    /// a blocked sub-partition), Incomplete if any gap region is only listed as unresolved / unexpanded.
+    fn finish_outcome(&mut self, opts: &PartitionOptions) {
+        let mut reasons: Vec<String> = vec![];
+        let mut explored: Option<Explored> = None;
+        if self.stats.aborted {
+            explored = Some(Explored::Aborted(format!(
+                "work budget (nodes {:?}, wall {:?}) exceeded after {} nodes",
+                opts.budget.max_nodes, opts.budget.wall, self.stats.nodes
+            )));
+        } else if self.stats.pruned_off_floor > 0
+            && let Some(c) = opts.max_off_floor
+        {
+            explored = Some(Explored::OffFloorUpTo(c));
+        }
+        if self.faces_truncated {
+            reasons.push(format!(
+                "face budget max_faces = {:?} reached: the face list is truncated",
+                opts.budget.max_faces
+            ));
+        }
+        if !self.families.is_empty() {
+            reasons.push(format!(
+                "{} class(es) with more than max_any_slots = {} any slots listed as face families only",
+                self.families.len(),
+                self.max_any_slots
+            ));
+        }
+        let n_f = self.n_f();
+        match &self.resolution {
+            None if n_f > 0 && !self.stats.aborted => reasons.push(format!(
+                "{n_f} fragile class(es) not resolved into loci (resolve_loci = false): their gap loci are not listed"
+            )),
+            Some(r) if r.n_unresolved_parts() > 0 => reasons.push(format!(
+                "{} locus part(s) UNRESOLVED (listed as open gap regions): {}",
+                r.n_unresolved_parts(),
+                r.unresolved_reasons().join("; ")
+            )),
+            _ => {}
+        }
+        for (e, b) in &self.blocked {
+            match &b.outcome {
+                Outcome::Complete => {}
+                Outcome::Incomplete { reasons: rs } => reasons.extend(
+                    rs.iter()
+                        .map(|r| format!("blocked region of source {e}: {r}")),
+                ),
+                Outcome::Partial {
+                    explored: ex,
+                    reasons: rs,
+                } => {
+                    reasons.extend(
+                        rs.iter()
+                            .map(|r| format!("blocked region of source {e}: {r}")),
+                    );
+                    match ex {
+                        Explored::Aborted(w) => {
+                            explored = Some(Explored::Aborted(format!(
+                                "blocked region of source {e}: {w}"
+                            )))
+                        }
+                        Explored::OffFloorUpTo(c) => {
+                            if !matches!(explored, Some(Explored::Aborted(_))) {
+                                explored = Some(Explored::OffFloorUpTo(*c));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.outcome = match explored {
+            Some(explored) => Outcome::Partial { explored, reasons },
+            None if reasons.is_empty() => Outcome::Complete,
+            None => Outcome::Incomplete { reasons },
+        };
+    }
+
+    /// Is this report a PROOF that the node has NO gap under `notion`? `Ok(certificate)` only when the run used that
+    /// notion, the outcome is complete, there is no caveat, no U class, no fragile class with a gap piece or an
+    /// unresolved part, and no blocked sub-partition with a class. `Err(reason)` otherwise (refuse; never a guess).
+    pub fn proves_no_gap(&self, notion: CoverageNotion) -> Result<String, String> {
+        if self.coverage != notion {
+            return Err(format!(
+                "the report computes {:?}, not {notion:?}",
+                self.coverage
+            ));
+        }
+        if !self.outcome.is_complete() {
+            return Err(format!(
+                "outcome {}: {}",
+                self.outcome.tag(),
+                self.outcome.reasons().join("; ")
+            ));
+        }
+        if !self.caveats.is_empty() {
+            return Err(self.caveats.join("; "));
+        }
+        if self.n_u() > 0 {
+            return Err(format!("{} uncovered class(es)", self.n_u()));
+        }
+        if self.n_f() > 0 {
+            match &self.resolution {
+                None => return Err("fragile classes not resolved".into()),
+                Some(r) if !r.loci.is_empty() => {
+                    return Err(format!("{} gap loci", r.loci.len()));
+                }
+                Some(_) => {}
+            }
+        }
+        if !self.blocked.is_empty() {
+            return Err(format!(
+                "{} blocked region(s) with classes",
+                self.blocked.len()
+            ));
+        }
+        Ok(format!(
+            "exact partition ({}): {} nodes, 0 U, {} F all resolved without gap, {} blocked sub-partitions empty, outcome complete",
+            notion.tag(),
+            self.stats.nodes,
+            self.n_f(),
+            self.blocked_empty
+        ))
+    }
+
+    fn build_faces(&self, max_faces: Option<usize>) -> (Vec<GapFace>, bool) {
+        let mut n_cells = 0usize;
+        let mut truncated = false;
         type FKey = (Vec<usize>, Vec<usize>);
         #[derive(Default)]
         struct Acc {
@@ -701,10 +1184,22 @@ impl PartitionReport {
             nfg: usize,
             loci: BTreeSet<String>,
             tested: bool,
+            unresolved: bool,
         }
         let mut by: BTreeMap<FKey, Acc> = BTreeMap::new();
         for c in &self.classes {
-            for (f, cell) in self.expand(c) {
+            if c.label == Label::Unexplored {
+                continue;
+            }
+            let Some(cells) = self.expand(c) else {
+                continue; // listed in `families` (see `partition_nf`)
+            };
+            n_cells += cells.len();
+            if max_faces.is_some_and(|m| n_cells > m) {
+                truncated = true;
+                break;
+            }
+            for (f, cell) in cells {
                 let a = by.entry(f.clone()).or_default();
                 let fc: Vec<CellState> = f.0.iter().chain(&f.1).map(|&s| cell[s]).collect();
                 match c.label {
@@ -713,6 +1208,7 @@ impl PartitionReport {
                         a.nu += 1;
                     }
                     Label::Fragile => a.nf += 1,
+                    Label::Unexplored => {}
                 }
             }
         }
@@ -721,8 +1217,10 @@ impl PartitionReport {
                 let a = by.entry(l.face.clone()).or_default();
                 a.nfg += l.n_classes;
                 a.loci.insert(l.id.clone());
-                if l.proof != Proof::ExactPartition {
-                    a.tested = true;
+                match &l.proof {
+                    Proof::ExactPartition => {}
+                    Proof::Unresolved { .. } => a.unresolved = true,
+                    _ => a.tested = true,
                 }
             }
         }
@@ -772,19 +1270,25 @@ impl PartitionReport {
                 witness: None,
                 loci: a.loci.iter().cloned().collect(),
                 key_range: None,
-                proof: if kind == FaceKind::Generic || !a.tested {
+                proof: if kind == FaceKind::Generic {
                     Proof::ExactPartition
-                } else {
+                } else if a.unresolved {
+                    Proof::Unresolved {
+                        reason: "a locus part of this face is unresolved (open gap region)".into(),
+                    }
+                } else if a.tested {
                     Proof::Tested {
                         bound: "locus window".into(),
                     }
+                } else {
+                    Proof::ExactPartition
                 },
             };
             face.witness = self.face_witness(&face);
             out.push(face);
         }
         out.sort_by_key(|f| (f.sd.len() + f.sn.len(), f.sd.clone(), f.sn.clone()));
-        out
+        (out, truncated)
     }
 
     /// Smallest state from which the generic verdict is constant, per face slot.
@@ -996,7 +1500,9 @@ impl PartitionReport {
         json!({
             "schema": "rustred.campaign.partition.v1",
             "node": ids.node, "seq": ids.seq,
-            "coverage": "union",
+            "coverage": self.coverage.tag(),
+            "caveats": self.caveats,
+            "input_notes": self.nf.notes,
             "elided_policy": match self.elided { ElidedPolicy::Ordinary => "ordinary", ElidedPolicy::FailClosed => "fail_closed", ElidedPolicy::Absent => "absent" },
             "table_set_digest": ids.table_set_digest,
             "dispatch_order_digest": ids.dispatch_order_digest,
@@ -1006,14 +1512,17 @@ impl PartitionReport {
             "inputs": self.nf.stats,
             "states": states,
             "stats": {"nodes": self.stats.nodes, "memo_hits": self.stats.memo_hits, "memo_size": self.stats.memo_size,
-                      "U": self.n_u(), "F": self.n_f(), "pruned_off_floor": self.stats.pruned_off_floor,
+                      "U": self.n_u(), "F": self.n_f(), "unexplored": self.n_unexplored(), "pruned_off_floor": self.stats.pruned_off_floor,
                       "unknown_literal_tests": self.stats.unknown_literal_tests + self.state_unknown, "millis": self.millis},
-            "outcome": match self.outcome { Outcome::Complete => if unresolved.is_empty() { "complete" } else { "unresolved" }, Outcome::BudgetExceeded => "budget_exceeded" },
+            "outcome": self.outcome.tag(),
+            "outcome_reasons": self.outcome.reasons(),
+            "face_families": self.families,
             "faces": faces,
             "loci": loci,
             "unresolved": unresolved,
             "blocked": self.blocked.iter().map(|(e, b)| json!({"source": e, "U": b.n_u(), "F": b.n_f(),
-                "nodes": b.stats.nodes, "faces": b.faces.len()})).collect::<Vec<_>>(),
+                "nodes": b.stats.nodes, "faces": b.faces.len(), "outcome": b.outcome.tag()})).collect::<Vec<_>>(),
+            "blocked_empty": self.blocked_empty,
         })
     }
 }
@@ -1024,6 +1533,12 @@ pub struct LevelResult {
     /// Every class with at most `level` off-floor slots is classified: the face list is COMPLETE for faces with at
     /// most `level` off-floor slots (generic faces exact; loci as resolved).
     pub level: usize,
+    /// PROVED complete at this level: no budget abort, and no unresolved / unexpanded gap region among the faces
+    /// of at most `level` off-floor slots (`incomplete` lists the reasons otherwise; the faces are then still a
+    /// complete list of OPEN faces, but some open region is not described exactly). Aborted levels are never
+    /// recorded.
+    pub proved: bool,
+    pub incomplete: Vec<String>,
     pub faces: Vec<FaceKey>,
     pub generic: Vec<FaceKey>,
     pub nodes: u64,
@@ -1048,9 +1563,20 @@ pub fn gap_partition_levels(
     if let Some(cp) = checkpoint
         && let Ok(text) = std::fs::read_to_string(cp)
     {
-        for line in text.lines().filter(|l| !l.trim().is_empty()) {
-            let v: Json =
-                serde_json::from_str(line).map_err(|e| PartitionError::Io(format!("{e}")))?;
+        let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+        for (li, line) in lines.iter().enumerate() {
+            let v: Json = match serde_json::from_str(line) {
+                Ok(v) => v,
+                // a torn LAST line (a kill during an old non-atomic append): that level is not done (audit-part-B
+                // M2); a bad line before the last is an error
+                Err(_) if li + 1 == lines.len() => break,
+                Err(e) => {
+                    return Err(PartitionError::Io(format!(
+                        "checkpoint line {}: {e}",
+                        li + 1
+                    )));
+                }
+            };
             let fk = |x: &Json| -> Vec<FaceKey> {
                 x.as_array()
                     .map(|a| {
@@ -1078,6 +1604,16 @@ pub fn gap_partition_levels(
                 generic: fk(&v["generic"]),
                 nodes: v["nodes"].as_u64().unwrap_or(0),
                 millis: v["millis"].as_u64().unwrap_or(0),
+                // a checkpoint line without the flag (older format) is not trusted as a proof
+                proved: v["proved"].as_bool().unwrap_or(false),
+                incomplete: v["incomplete"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|x| x.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_else(|| vec!["checkpoint line without a proof flag".into()]),
             });
         }
     }
@@ -1093,9 +1629,13 @@ pub fn gap_partition_levels(
             o.budget.wall = Some(left);
         }
         let rep = gap_partition(src, frame, &o, progress)?;
-        if rep.outcome == Outcome::BudgetExceeded {
+        if rep.outcome.is_aborted() {
             break;
         }
+        let incomplete = match &rep.outcome {
+            Outcome::Partial { reasons, .. } | Outcome::Incomplete { reasons } => reasons.clone(),
+            Outcome::Complete => vec![],
+        };
         let off = |f: &GapFace| f.sd.len() + f.sn.len();
         let lr = LevelResult {
             level,
@@ -1113,20 +1653,26 @@ pub fn gap_partition_levels(
                 .collect(),
             nodes: rep.stats.nodes,
             millis: rep.millis,
+            proved: incomplete.is_empty(),
+            incomplete,
         };
-        if let Some(cp) = checkpoint {
-            use std::io::Write;
-            let line = json!({"level": lr.level, "faces": lr.faces, "generic": lr.generic, "nodes": lr.nodes, "millis": lr.millis});
-            let mut f = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(cp)
-                .map_err(|e| PartitionError::Io(format!("{e}")))?;
-            writeln!(f, "{line}").map_err(|e| PartitionError::Io(format!("{e}")))?;
-            f.sync_all()
-                .map_err(|e| PartitionError::Io(format!("{e}")))?;
-        }
         done.push(lr);
+        if let Some(cp) = checkpoint {
+            // ATOMIC rewrite (audit-part-B M2): every finished level to a temporary file, fsync, rename
+            use std::io::Write;
+            let io = |e: std::io::Error| PartitionError::Io(format!("{e}"));
+            let mut text = String::new();
+            for d in &done {
+                text.push_str(&json!({"level": d.level, "faces": d.faces, "generic": d.generic, "nodes": d.nodes,
+                    "millis": d.millis, "proved": d.proved, "incomplete": d.incomplete}).to_string());
+                text.push('\n');
+            }
+            let tmp = cp.with_extension("tmp");
+            let mut f = std::fs::File::create(&tmp).map_err(io)?;
+            f.write_all(text.as_bytes()).map_err(io)?;
+            f.sync_all().map_err(io)?;
+            std::fs::rename(&tmp, cp).map_err(io)?;
+        }
     }
     Ok(done)
 }

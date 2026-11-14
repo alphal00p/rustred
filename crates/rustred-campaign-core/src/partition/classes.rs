@@ -16,6 +16,8 @@ pub enum Label {
     Uncovered,
     /// Covered except possibly on the zero sets of live exception branches.
     Fragile,
+    /// Pruned (`max_off_floor`) or not explored (budget abort): NOTHING is known about the class (audit-part-A M2).
+    Unexplored,
 }
 
 /// Result tree of the recursion (shared between memo hits). `None` = every point covered.
@@ -230,6 +232,8 @@ pub struct Engine<'a> {
     pub max_memo: Option<usize>,
     pub deadline: Option<Instant>,
     t0: Instant,
+    /// The shared `Unexplored` leaf.
+    unexplored: Rc<Node>,
 }
 
 impl<'a> Engine<'a> {
@@ -313,6 +317,7 @@ impl<'a> Engine<'a> {
             max_memo: None,
             deadline: None,
             t0: Instant::now(),
+            unexplored: Rc::new(Node::Leaf(Label::Unexplored)),
         };
         // single-slot masks
         let mut kill = vec![];
@@ -526,13 +531,13 @@ impl<'a> Engine<'a> {
             }
         }
         if self.stats.aborted {
-            return None;
+            return Some(self.unexplored.clone());
         }
         if let Some(c) = self.cap
             && off > c
         {
             self.stats.pruned_off_floor += 1;
-            return None;
+            return Some(self.unexplored.clone());
         }
         for (w, x) in fr.iter_mut().enumerate() {
             *x &= a[w];
@@ -601,6 +606,13 @@ impl<'a> Engine<'a> {
             st[k] = 0;
             if children.is_empty() {
                 None
+            } else if children
+                .iter()
+                .all(|(_, c)| Rc::ptr_eq(c, &self.unexplored))
+            {
+                // no U / F below, only covered and unexplored states: the node is one Unexplored class
+                // (conservative: its covered keys read Unexplored too; pruned subtrees are not materialised)
+                Some(self.unexplored.clone())
             } else {
                 Some(Rc::new(Node::Split { slot: k, children }))
             }
@@ -685,39 +697,50 @@ pub fn literal_status(
                 Ok(false) => (Status::NZ, false),
                 Err(_) => (Status::V, true),
             },
-            LiteralTests::ReferenceCompatible => (reference_lin_status(&terms, c), false),
+            LiteralTests::ReferenceCompatible => match reference_lin_status(&terms, c) {
+                Some(st) => (st, false),
+                None => (Status::V, true), // overflow: conservative, counted
+            },
         };
     }
     (Status::V, false)
 }
 
 /// The checker's `lin_status` (uenum_g.py): gcd test, interval range test, exact reachability only when every
-/// variable is a tail state and the outward coefficients have one sign; otherwise V.
-fn reference_lin_status(terms: &[(i128, Range)], c: i128) -> Status {
+/// variable is a tail state and the outward coefficients have one sign; otherwise V. Checked arithmetic: `None` on
+/// an i128 overflow (the caller then answers V and counts the test as unknown; audit-part-A m3).
+fn reference_lin_status(terms: &[(i128, Range)], c: i128) -> Option<Status> {
     let mut g = 0;
     for &(a, _) in terms {
         g = super::exact::gcd(g, a);
     }
     if g != 0 && c % g != 0 {
-        return Status::NZ;
+        return Some(Status::NZ);
     }
     // range of c + sum a x over the box (None = infinite)
     let mut lo: Option<i128> = Some(c);
     let mut hi: Option<i128> = Some(c);
     for &(a, r) in terms {
-        let (l, h) = (r.lo.map(|x| a * x as i128), r.hi.map(|x| a * x as i128));
+        let l = match r.lo {
+            Some(x) => Some(a.checked_mul(x as i128)?),
+            None => None,
+        };
+        let h = match r.hi {
+            Some(x) => Some(a.checked_mul(x as i128)?),
+            None => None,
+        };
         let (mn, mx) = if a >= 0 { (l, h) } else { (h, l) };
         lo = match (lo, mn) {
-            (Some(x), Some(y)) => Some(x + y),
+            (Some(x), Some(y)) => Some(x.checked_add(y)?),
             _ => None,
         };
         hi = match (hi, mx) {
-            (Some(x), Some(y)) => Some(x + y),
+            (Some(x), Some(y)) => Some(x.checked_add(y)?),
             _ => None,
         };
     }
     if lo.is_some_and(|x| x > 0) || hi.is_some_and(|x| x < 0) {
-        return Status::NZ;
+        return Some(Status::NZ);
     }
     let tails = terms.iter().all(|(_, r)| r.lo.is_none() || r.hi.is_none());
     if tails {
@@ -726,29 +749,29 @@ fn reference_lin_status(terms: &[(i128, Range)], c: i128) -> Status {
         for &(a, r) in terms {
             match (r.lo, r.hi) {
                 (Some(l), None) => {
-                    cc += a * l as i128;
+                    cc = cc.checked_add(a.checked_mul(l as i128)?)?;
                     cs.push(a);
                 }
                 (None, Some(h)) => {
-                    cc += a * h as i128;
-                    cs.push(-a);
+                    cc = cc.checked_add(a.checked_mul(h as i128)?)?;
+                    cs.push(a.checked_neg()?);
                 }
-                _ => return Status::V,
+                _ => return Some(Status::V),
             }
         }
         if cs.iter().all(|&a| a > 0) || cs.iter().all(|&a| a < 0) {
             if cs[0] < 0 {
                 for a in cs.iter_mut() {
-                    *a = -*a;
+                    *a = a.checked_neg()?;
                 }
-                cc = -cc;
+                cc = cc.checked_neg()?;
             }
-            let t = -cc;
+            let t = cc.checked_neg()?;
             if t < 0 {
-                return Status::NZ;
+                return Some(Status::NZ);
             }
             if t > 10_000_000 {
-                return Status::V;
+                return Some(Status::V);
             }
             let t = t as usize;
             let mut reach = vec![false; t + 1];
@@ -756,10 +779,10 @@ fn reference_lin_status(terms: &[(i128, Range)], c: i128) -> Status {
             for x in 1..=t {
                 reach[x] = cs.iter().any(|&a| x as i128 >= a && reach[x - a as usize]);
             }
-            return if reach[t] { Status::V } else { Status::NZ };
+            return Some(if reach[t] { Status::V } else { Status::NZ });
         }
     }
-    Status::V
+    Some(Status::V)
 }
 
 /// Sign of a GE literal on a product of ranges: Some(true) = >= 0 everywhere, Some(false) = < 0 everywhere, None =

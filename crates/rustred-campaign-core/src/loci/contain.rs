@@ -8,14 +8,26 @@
 //! rationally infeasible (exact Fourier-Motzkin with integer rounding), inside an exception branch of `d`, or inside
 //! one of the `others`. A leaf left with a nonempty region gives an integer WITNESS, verified with the core's
 //! [`CaseDomain::applies`]. Nonlinear multi-parameter literals that stay undecided give `Unknown` (never a guess).
+//!
+//! Semantics (audit-part-A C2 / M3 / m5):
+//! - `is_empty(d)`: d APPLIES at no chart key (geometric: its elided flag is ignored, poles / recenter bounds are
+//!   holes). A record that is selected somewhere but never applies (pole everywhere, elided) is empty in this sense:
+//!   removing it never loses coverage, but it does change the dispatch (keys it blocked become reachable).
+//! - `contained_in(d, others)`: every key where d applies is a key where some other APPLIES (an elided other never
+//!   applies and is ignored).
+//! - `shadowed(src, i)`: every key where record i applies has an EARLIER record that MATCHES it (is selected: served
+//!   or blocked, its poles / recenter / range bounds / elision do not matter): under first match record i never
+//!   fires. This is the meaning of [`shadowed`]; it is the only proof offered for [`removal_preserves_dispatch`].
+//! - A domain the normal form had to exclude or weaken (an unrepresentable literal) is never the subject of a proof
+//!   (`Unknown`); excluded / weakened OTHERS only shrink (stated in the certificate).
 
 use super::region::Region;
 use super::{Status, lit_status};
 use crate::cover::RuleRef;
-use crate::domain::{CaseDomain, Verdict};
+use crate::domain::{CaseDomain, Stage, Verdict};
 use crate::key::{Key, NodeFrame};
 use crate::partition::exact::{Affine, MPoly, int_roots};
-use crate::partition::nf::{self, NfOptions, NfRules};
+use crate::partition::nf::{self, NfNote, NfOptions, NfRule, NfRules};
 use crate::partition::{DomainList, DomainSource, ElidedPolicy};
 
 /// Verdict of [`is_empty`].
@@ -41,8 +53,35 @@ struct Other {
     bad: Vec<Vec<MPoly>>,
 }
 
+/// Work limits of a proof (audit-part-B C2: every proof function is bounded and answers `Unknown(budget)` beyond).
+#[derive(Clone, Debug)]
+pub struct ProofBudget {
+    /// Sign-split nodes.
+    pub max_nodes: u64,
+    /// Sign-split recursion depth.
+    pub max_depth: usize,
+    /// Work units: per node the number of conditions carried (a memory / time proxy).
+    pub max_work: u64,
+    /// Values tried by the exhaustive search of a bounded leaf.
+    pub max_enumeration: u64,
+    pub wall: Option<std::time::Duration>,
+}
+
+impl Default for ProofBudget {
+    fn default() -> Self {
+        ProofBudget {
+            max_nodes: 200_000,
+            max_depth: 400,
+            max_work: 50_000_000,
+            max_enumeration: 100_000,
+            wall: None,
+        }
+    }
+}
+
 enum Sub {
     Empty,
+    /// A candidate KEY (slot values) of the leaf region, verified by the caller with `CaseDomain::applies`.
     Witness(Vec<i128>),
     Unknown(String),
 }
@@ -51,6 +90,19 @@ struct Splitter {
     nodes: u64,
     leaves: u64,
     max_nodes: u64,
+    depth: usize,
+    max_depth: usize,
+    work: u64,
+    max_work: u64,
+    max_enumeration: u64,
+    deadline: Option<std::time::Instant>,
+}
+
+fn key_of(r: &Region, t: &[i128]) -> Sub {
+    match r.at(t) {
+        Ok(x) => Sub::Witness(x),
+        Err(e) => Sub::Unknown(format!("{e}")),
+    }
 }
 
 fn ge_val(r: &Region, q: &MPoly) -> Option<bool> {
@@ -79,6 +131,16 @@ impl Splitter {
         if self.nodes > self.max_nodes {
             return Sub::Unknown(format!("sign-split node cap {} reached", self.max_nodes));
         }
+        if self.depth > self.max_depth {
+            return Sub::Unknown(format!("sign-split depth cap {} reached", self.max_depth));
+        }
+        self.work += 1 + holes.len() as u64 + others.len() as u64;
+        if self.work > self.max_work {
+            return Sub::Unknown(format!("proof work budget {} exhausted", self.max_work));
+        }
+        if self.deadline.is_some_and(|d| std::time::Instant::now() > d) {
+            return Sub::Unknown("proof wall budget exhausted".into());
+        }
         match r.feasible() {
             Ok(false) => {
                 self.leaves += 1;
@@ -88,7 +150,6 @@ impl Splitter {
             Err(e) => return Sub::Unknown(format!("Fourier-Motzkin: {e}")),
         }
         // literals are kept in slot variables and composed with the region's parametrisation at every node
-        let t = |q: &MPoly| r.lit(q).unwrap_or_else(|_| q.clone());
         let st = |q: &MPoly| match r.lit(q) {
             Ok(tq) => lit_status(&r, &tq).0,
             Err(_) => Status::V,
@@ -186,10 +247,22 @@ impl Splitter {
         }
         others = no;
         if holes.is_empty() && others.is_empty() {
+            // every condition decided: the leaf is (region) itself; a point is a witness, an exhaustive search of
+            // a bounded leaf decides emptiness exactly (audit-part-B M1)
             return match r.point(10) {
-                Ok(Some(t)) => Sub::Witness(t),
+                Ok(Some(t)) => key_of(&r, &t),
                 Ok(None) => {
-                    Sub::Unknown("no integer point found in a rationally feasible leaf".into())
+                    let mut budget = self.max_enumeration;
+                    match super::region::exhaustive_point(&r.cons, r.k, &mut budget) {
+                        Ok(Some(Some(t))) => key_of(&r, &t),
+                        Ok(Some(None)) => {
+                            self.leaves += 1;
+                            Sub::Empty
+                        }
+                        _ => Sub::Unknown(
+                            "no integer point found in a rationally feasible unbounded / large leaf".into(),
+                        ),
+                    }
                 }
                 Err(e) => Sub::Unknown(format!("{e}")),
             };
@@ -203,7 +276,11 @@ impl Splitter {
         let mut lin: Option<MPoly> = None;
         let mut uni: Option<MPoly> = None;
         for q in zs {
-            let tq = t(q);
+            // audit-part-A m4: a literal that cannot be composed is never used as a parameter polynomial
+            let tq = match r.lit(q) {
+                Ok(x) => x,
+                Err(e) => return Sub::Unknown(format!("composing a literal with the region: {e}")),
+            };
             if tq.total_degree() == 1 {
                 lin = Some(tq);
                 break;
@@ -230,12 +307,18 @@ impl Splitter {
             }
             return self.combine(parts, &holes, &others, &r);
         }
-        if let Some(g) = others
-            .iter()
-            .flat_map(|o| o.ge.iter())
-            .map(t)
-            .find(|q| q.total_degree() == 1)
-        {
+        let mut ge_lin: Option<MPoly> = None;
+        for q in others.iter().flat_map(|o| o.ge.iter()) {
+            match r.lit(q) {
+                Ok(tq) if tq.total_degree() == 1 => {
+                    ge_lin = Some(tq);
+                    break;
+                }
+                Ok(_) => {}
+                Err(e) => return Sub::Unknown(format!("composing a bound with the region: {e}")),
+            }
+        }
+        if let Some(g) = ge_lin {
             let (coef, c) = g.linear_form().expect("linear");
             let pos = Affine {
                 coef: coef.clone(),
@@ -269,15 +352,9 @@ impl Splitter {
                 }
                 parts.push(iv);
                 match r.fix(j, x) {
-                    Ok(fx) => {
-                        // re-embed as an equality region: keep parameter count by a pair of bounds
-                        let _ = fx;
-                        let mut a = Affine::constant(r.k, -x);
-                        a.coef[j] = 1;
-                        let mut b = Affine::constant(r.k, x);
-                        b.coef[j] = -1;
-                        parts.push(r.with(a).with(b));
-                    }
+                    // the parameter is FIXED (not bounded by a pair of inequalities: the literal would stay a
+                    // nonconstant polynomial in t_j and the split would recurse forever; audit-part-B shadow_hang)
+                    Ok(fx) => parts.push(fx),
                     Err(e) => return Sub::Unknown(format!("{e}")),
                 }
                 prev = Some(x);
@@ -299,7 +376,7 @@ impl Splitter {
         }
         // only nonlinear multi-parameter literals left: look for a verified witness, else Unknown
         match r.point(10) {
-            Ok(Some(t)) => Sub::Witness(t), // verified by the caller against the domains themselves
+            Ok(Some(t)) => key_of(&r, &t), // verified by the caller against the domains themselves
             _ => Sub::Unknown("nonlinear literals in two or more parameters stay undecided".into()),
         }
     }
@@ -314,7 +391,10 @@ impl Splitter {
         let mut unknown: Option<String> = None;
         for p in parts {
             let _ = parent;
-            match self.solve(p, holes.to_vec(), others.to_vec()) {
+            self.depth += 1;
+            let sub = self.solve(p, holes.to_vec(), others.to_vec());
+            self.depth -= 1;
+            match sub {
                 Sub::Empty => {}
                 Sub::Witness(t) => return Sub::Witness(t),
                 Sub::Unknown(why) => unknown = Some(why),
@@ -327,28 +407,27 @@ impl Splitter {
     }
 }
 
-fn nf_of(ds: &[&CaseDomain], frame: &NodeFrame) -> Result<NfRules, String> {
+fn nf_of(ds: &[CaseDomain], frame: &NodeFrame, elided: ElidedPolicy) -> Result<NfRules, String> {
     let mut l = DomainList::new(frame.arity());
     for (i, d) in ds.iter().enumerate() {
-        l.push(RuleRef::bare(0, i, i as i64), (*d).clone());
+        l.push(RuleRef::bare(0, i, i as i64), d.clone());
     }
     nf::build(
         &l,
         frame,
         &NfOptions {
-            elided: ElidedPolicy::Ordinary,
+            elided,
             dedup: false,
             subset: None,
             factor_exceptions: true,
-            complement_of: None,
         },
     )
     .map_err(|e| format!("{e}"))
 }
 
-/// The chart region (every slot a parameter) restricted to the domain's linear case equations and bounds. Nonlinear
+/// The chart region (every slot a parameter) restricted to the rule's linear case equations and bounds. Nonlinear
 /// equations and bounds are returned to be kept as conditions.
-fn domain_region(nfr: &NfRules, r: usize) -> Result<(Region, Vec<MPoly>, Vec<MPoly>), String> {
+fn domain_region(nfr: &NfRules, rule: &NfRule) -> Result<(Region, Vec<MPoly>, Vec<MPoly>), String> {
     let n = nfr.arity;
     let mut reg = Region {
         k: n,
@@ -366,7 +445,6 @@ fn domain_region(nfr: &NfRules, r: usize) -> Result<(Region, Vec<MPoly>, Vec<MPo
             .collect(),
         names: (0..n).map(|j| format!("n{j}")).collect(),
     };
-    let rule = &nfr.rules[r];
     let mut eq_nl = vec![];
     let mut ge_nl = vec![];
     for &l in &rule.eq {
@@ -402,48 +480,159 @@ fn domain_region(nfr: &NfRules, r: usize) -> Result<(Region, Vec<MPoly>, Vec<MPo
     Ok((reg, eq_nl, ge_nl))
 }
 
-fn applies(d: &CaseDomain, key: &[i32]) -> bool {
+/// The subject applies (geometric: an elided subject is read as an ordinary domain).
+fn subject_applies(d: &CaseDomain, key: &[i32]) -> bool {
     matches!(d.applies(key), Verdict::Applies)
         || (d.witness_elided && matches!(d.applies(key), Verdict::Elided))
 }
 
-/// Is `d \ (others)` empty? Exact for linear structure.
-pub fn contained_in(d: &CaseDomain, others: &[&CaseDomain], frame: &NodeFrame) -> Containment {
-    let mut all = vec![d];
-    all.extend_from_slice(others);
-    let nfr = match nf_of(&all, frame) {
-        Ok(x) => x,
-        Err(e) => return Containment::Unknown { reason: e },
-    };
-    if nfr.rules.is_empty() || nfr.sources[0] != vec![0] {
-        // d itself was dropped by the normal form (fixed value outside the chart, constant contradiction)
-        return Containment::Proved {
-            certificate: "the domain is dropped by the normal form (fixed value outside the chart or a constant contradiction)".into(),
-        };
+/// How the OTHER domains count.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OthersAre {
+    /// An other counts where it APPLIES (union coverage).
+    Applying,
+    /// An other counts where it is SELECTED (first match stops there, served or blocked).
+    Matching,
+}
+
+fn other_counts(o: &CaseDomain, key: &[i32], mode: OthersAre) -> bool {
+    let v = o.applies(key);
+    match mode {
+        OthersAre::Applying => v == Verdict::Applies,
+        OthersAre::Matching => v.stage() != Stage::NotSelected,
     }
-    let (reg, eq_nl, ge_nl) = match domain_region(&nfr, 0) {
-        Ok(x) => x,
-        Err(e) => return Containment::Unknown { reason: e },
-    };
-    let lift = |p: &MPoly| Some(p.clone());
-    let mut holes: Vec<Vec<MPoly>> = vec![];
-    for b in &nfr.rules[0].bad {
-        match b
-            .iter()
-            .map(|&l| lift(&nfr.lits[l as usize].poly))
-            .collect::<Option<Vec<_>>>()
-        {
-            Some(v) => holes.push(v),
-            None => {
-                return Containment::Unknown {
-                    reason: "overflow lifting a literal".into(),
-                };
+}
+
+fn lits(nfr: &NfRules, ls: &[u32]) -> Vec<MPoly> {
+    ls.iter()
+        .map(|&l| nfr.lits[l as usize].poly.clone())
+        .collect()
+}
+
+/// Core of [`contained_in`] / [`shadowed`].
+/// One-slot NONLINEAR case equations of the subject are decided by their integer roots (audit-part-B C2 / m2): the
+/// subject is the union over the roots in chart range of the subject with that slot FIXED; `Proved` iff every part
+/// is, a verified witness of any part is one.
+fn containment(
+    d: &CaseDomain,
+    others: &[&CaseDomain],
+    frame: &NodeFrame,
+    mode: OthersAre,
+    budget: &ProofBudget,
+) -> Containment {
+    if d.target == crate::domain::TargetMap::Canonical {
+        for (ei, e) in d.equations.iter().enumerate() {
+            let Ok(m) = MPoly::from_poly(e, d.arity, false) else {
+                continue;
+            };
+            let sup = m.support();
+            if sup.len() != 1 || m.total_degree() < 2 {
+                continue;
             }
+            let s = sup[0];
+            let roots = match int_roots(&m.univariate(s).expect("univariate")) {
+                Ok(r) => r,
+                Err(err) => {
+                    return Containment::Unknown {
+                        reason: format!("integer roots of the case equation {e}: {err}"),
+                    };
+                }
+            };
+            let line = frame.is_line(s);
+            let mut unknown: Option<String> = None;
+            let mut parts = 0usize;
+            for x in roots {
+                if (line && x < 1) || (!line && x > 0) {
+                    continue;
+                }
+                if d.fixed[s].is_some_and(|v| v as i64 != x) {
+                    continue;
+                }
+                let Ok(xv) = i32::try_from(x) else {
+                    return Containment::Unknown {
+                        reason: format!("root {x} of {e} outside i32"),
+                    };
+                };
+                let mut part = d.clone();
+                part.fixed[s] = Some(xv);
+                part.equations.remove(ei);
+                parts += 1;
+                match containment(&part, others, frame, mode, budget) {
+                    Containment::Proved { .. } => {}
+                    Containment::NotContained { witness } => {
+                        return Containment::NotContained { witness };
+                    }
+                    Containment::Unknown { reason } => unknown = Some(reason),
+                }
+            }
+            return match unknown {
+                Some(reason) => Containment::Unknown { reason },
+                None => Containment::Proved {
+                    certificate: format!(
+                        "the case equation {e} has {parts} integer root(s) in the chart; every part proved"
+                    ),
+                },
+            };
         }
     }
+    containment_linear(d, others, frame, mode, budget)
+}
+
+fn containment_linear(
+    d: &CaseDomain,
+    others: &[&CaseDomain],
+    frame: &NodeFrame,
+    mode: OthersAre,
+    budget: &ProofBudget,
+) -> Containment {
+    // the subject is read geometrically (elided flag ignored); in Applying mode an elided other never applies
+    let mut subject = d.clone();
+    subject.witness_elided = false;
+    let mut all: Vec<CaseDomain> = vec![subject];
+    let mut kept: Vec<&CaseDomain> = vec![];
+    for o in others {
+        if mode == OthersAre::Applying && o.witness_elided {
+            continue;
+        }
+        all.push((*o).clone());
+        kept.push(o);
+    }
+    // FailClosed so that every other's SELECTED set is available (`selected`), its APPLIES set as its rule
+    let nfr = match nf_of(&all, frame, ElidedPolicy::FailClosed) {
+        Ok(x) => x,
+        Err(e) => return Containment::Unknown { reason: e },
+    };
+    for n in nfr.notes_of(0) {
+        match n {
+            NfNote::Excluded(w) | NfNote::Weakened(w) => {
+                return Containment::Unknown {
+                    reason: format!(
+                        "the domain is not represented exactly in the normal form: {w}"
+                    ),
+                };
+            }
+            NfNote::DroppedEmpty(w) => {
+                return Containment::Proved {
+                    certificate: format!("the domain never applies (exact): {w}"),
+                };
+            }
+            NfNote::ElidedRemoved | NfNote::ElidedCredited => {}
+        }
+    }
+    let Some(r0) = nfr.sources.iter().position(|s| s == &vec![0]) else {
+        return Containment::Unknown {
+            reason: "the domain has no rule in the normal form and no exact reason for it".into(),
+        };
+    };
+    let subject_rule = nfr.rules[r0].clone();
+    let (reg, eq_nl, ge_nl) = match domain_region(&nfr, &subject_rule) {
+        Ok(x) => x,
+        Err(e) => return Containment::Unknown { reason: e },
+    };
+    let holes: Vec<Vec<MPoly>> = subject_rule.bad.iter().map(|b| lits(&nfr, b)).collect();
     if !eq_nl.is_empty() || !ge_nl.is_empty() {
-        // nonlinear case equations of d: a point must satisfy them; treat their complement as holes is not exact,
-        // so fall back to Unknown unless the region is already empty
+        // nonlinear case equations of d: a point must satisfy them; treating their complement as holes is not
+        // exact, so fall back to Unknown unless the region is already empty
         if let Ok(false) = reg.feasible() {
             return Containment::Proved {
                 certificate: "linear part of the case is integer-infeasible (Fourier-Motzkin)"
@@ -454,43 +643,70 @@ pub fn contained_in(d: &CaseDomain, others: &[&CaseDomain], frame: &NodeFrame) -
             reason: "nonlinear case equation or bound in the domain".into(),
         };
     }
+    // the others: Applying = their rules (applies sets); Matching = their SELECTED sets where known
     let mut os = vec![];
-    for (ri, rule) in nfr.rules.iter().enumerate().skip(1) {
-        let _ = ri;
-        let conv = |ls: &[u32]| {
-            ls.iter()
-                .map(|&l| lift(&nfr.lits[l as usize].poly))
-                .collect::<Option<Vec<_>>>()
+    let mut shrunk = 0usize;
+    for s in 1..all.len() {
+        if nfr.notes_of(s).any(NfNote::forbids_proof_about_domain) {
+            shrunk += 1; // excluded / weakened: represented by a subset (only shrinks the union)
+        }
+        let rule = match (mode, nfr.selected.get(&s)) {
+            (OthersAre::Matching, Some(sel)) => Some(sel.clone()),
+            _ => nfr
+                .sources
+                .iter()
+                .position(|x| x == &vec![s])
+                .map(|k| nfr.rules[k].clone()),
         };
-        let (Some(eq), Some(ge)) = (conv(&rule.eq), conv(&rule.ge)) else {
-            return Containment::Unknown {
-                reason: "overflow lifting a literal".into(),
-            };
-        };
-        let Some(bad) = rule.bad.iter().map(|b| conv(b)).collect::<Option<Vec<_>>>() else {
-            return Containment::Unknown {
-                reason: "overflow lifting a literal".into(),
-            };
-        };
-        os.push(Other { eq, ge, bad });
+        if let Some(rule) = rule {
+            os.push(Other {
+                eq: lits(&nfr, &rule.eq),
+                ge: lits(&nfr, &rule.ge),
+                bad: rule.bad.iter().map(|b| lits(&nfr, b)).collect(),
+            });
+        }
     }
     let mut sp = Splitter {
         nodes: 0,
         leaves: 0,
-        max_nodes: 200_000,
+        max_nodes: budget.max_nodes,
+        depth: 0,
+        max_depth: budget.max_depth,
+        work: 0,
+        max_work: budget.max_work,
+        max_enumeration: budget.max_enumeration,
+        deadline: budget.wall.map(|w| std::time::Instant::now() + w),
     };
     match sp.solve(reg.clone(), holes, os) {
         Sub::Empty => Containment::Proved {
             certificate: format!(
-                "exact sign split: {} nodes, {} leaves, each integer-infeasible (Fourier-Motzkin with rounding), on an exception branch, or inside a listed domain",
-                sp.nodes, sp.leaves
+                "exact sign split: {} nodes, {} leaves, each integer-infeasible (Fourier-Motzkin with rounding), on an exception branch, or inside a listed domain ({}){}",
+                sp.nodes,
+                sp.leaves,
+                match mode {
+                    OthersAre::Applying => "applies sets",
+                    OthersAre::Matching => "selected sets",
+                },
+                if shrunk > 0 {
+                    format!(
+                        "; {shrunk} other domain(s) represented by a subset (only shrinks them)"
+                    )
+                } else {
+                    String::new()
+                }
             ),
         },
         Sub::Unknown(r) => Containment::Unknown { reason: r },
-        Sub::Witness(_) => {
-            // the witness is in parameters of some leaf region; re-find a key by the leaf search is not kept, so
-            // search the domain's region for a verified witness point
-            match verified_witness(&reg, d, others) {
+        Sub::Witness(x) => {
+            // the leaf's key, verified against the domains themselves (exact, any distance: audit-part-B M1)
+            let key: Option<Key> = x.iter().map(|&v| i32::try_from(v).ok()).collect();
+            if let Some(key) = key
+                && subject_applies(d, &key)
+                && !kept.iter().any(|o| other_counts(o, &key, mode))
+            {
+                return Containment::NotContained { witness: key };
+            }
+            match verified_witness(&reg, d, &kept, mode) {
                 Some(k) => Containment::NotContained { witness: k },
                 None => Containment::Unknown {
                     reason: "a nonempty leaf was found but no verified integer witness".into(),
@@ -500,8 +716,29 @@ pub fn contained_in(d: &CaseDomain, others: &[&CaseDomain], frame: &NodeFrame) -
     }
 }
 
+/// Is `d \ (others)` empty (every key where d applies is a key where some other APPLIES)? Exact for linear
+/// structure; `Unknown` otherwise and whenever d is not represented exactly.
+pub fn contained_in(d: &CaseDomain, others: &[&CaseDomain], frame: &NodeFrame) -> Containment {
+    contained_in_with(d, others, frame, &ProofBudget::default())
+}
+
+/// [`contained_in`] with an explicit work budget (beyond it: `Unknown`).
+pub fn contained_in_with(
+    d: &CaseDomain,
+    others: &[&CaseDomain],
+    frame: &NodeFrame,
+    budget: &ProofBudget,
+) -> Containment {
+    containment(d, others, frame, OthersAre::Applying, budget)
+}
+
 /// Exact search for a key in `d` and in none of `others`, verified by `CaseDomain::applies`.
-fn verified_witness(reg: &Region, d: &CaseDomain, others: &[&CaseDomain]) -> Option<Key> {
+fn verified_witness(
+    reg: &Region,
+    d: &CaseDomain,
+    others: &[&CaseDomain],
+    mode: OthersAre,
+) -> Option<Key> {
     let k = reg.k;
     let check = |t: &[i128]| -> Option<Key> {
         let x = reg.at(t).ok()?;
@@ -509,7 +746,7 @@ fn verified_witness(reg: &Region, d: &CaseDomain, others: &[&CaseDomain]) -> Opt
             .iter()
             .map(|&v| i32::try_from(v).ok())
             .collect::<Option<_>>()?;
-        if applies(d, &key) && !others.iter().any(|o| applies(o, &key)) {
+        if subject_applies(d, &key) && !others.iter().any(|o| other_counts(o, &key, mode)) {
             Some(key)
         } else {
             None
@@ -542,18 +779,35 @@ fn verified_witness(reg: &Region, d: &CaseDomain, others: &[&CaseDomain]) -> Opt
     None
 }
 
-/// Is the domain empty (no chart key applies)?
+/// Is the domain empty (it APPLIES at no chart key)? See the module documentation for what this does NOT say about
+/// dispatch.
 pub fn is_empty(d: &CaseDomain, frame: &NodeFrame) -> Emptiness {
-    match contained_in(d, &[], frame) {
+    is_empty_with(d, frame, &ProofBudget::default())
+}
+
+/// [`is_empty`] with an explicit work budget (beyond it: `Unknown`).
+pub fn is_empty_with(d: &CaseDomain, frame: &NodeFrame, budget: &ProofBudget) -> Emptiness {
+    match contained_in_with(d, &[], frame, budget) {
         Containment::Proved { certificate } => Emptiness::ProvedEmpty { certificate },
         Containment::NotContained { witness } => Emptiness::NonEmpty { witness },
         Containment::Unknown { reason } => Emptiness::Unknown { reason },
     }
 }
 
-/// Is domain `i` of the source shadowed under the dispatch order, i.e. contained in the union of the domains before
-/// it (it never fires under first match)? Only earlier domains whose fixed slots are compatible are passed on.
+/// Is record `i` of the source SHADOWED under the dispatch order: every key where it applies has an EARLIER record
+/// that MATCHES it (is selected there: served or blocked), so under first match record `i` never fires? Earlier
+/// records whose fixed slots conflict with record i's are skipped (they never match its keys).
 pub fn shadowed(src: &dyn DomainSource, i: usize, frame: &NodeFrame) -> Containment {
+    shadowed_with(src, i, frame, &ProofBudget::default())
+}
+
+/// [`shadowed`] with an explicit work budget (beyond it: `Unknown`).
+pub fn shadowed_with(
+    src: &dyn DomainSource,
+    i: usize,
+    frame: &NodeFrame,
+    budget: &ProofBudget,
+) -> Containment {
     let d = src.domain(i);
     let mut others: Vec<&CaseDomain> = vec![];
     for j in 0..i {
@@ -566,5 +820,38 @@ pub fn shadowed(src: &dyn DomainSource, i: usize, frame: &NodeFrame) -> Containm
             others.push(o);
         }
     }
-    contained_in(d, &others, frame)
+    containment(d, &others, frame, OthersAre::Matching, budget)
+}
+
+/// Does removing record `i` leave EVERY key's dispatch verdict unchanged (audit-part-A M3 (d))? Removing i changes
+/// nothing iff record i is never the first selected record at any key. Offered proof: [`shadowed`] (every key where
+/// i applies has an earlier MATCHING record) AND record i is never selected-but-blocked first (its blocked set is
+/// empty: no pole locus, recenter bound, target-pattern range bound or elision; then "never first where it applies"
+/// is "never first"). A record with a blocked set gives `Unknown` (its keys falling to later records with the same
+/// verdict is not offered as a proof).
+pub fn removal_preserves_dispatch(
+    src: &dyn DomainSource,
+    i: usize,
+    frame: &NodeFrame,
+) -> Containment {
+    let d = src.domain(i);
+    let has_blocker = src.witness_block(i).is_some()
+        || !d.poles.is_empty()
+        || !d.recenter_bounds.is_empty()
+        || d.witness_elided
+        || matches!(&d.target, crate::domain::TargetMap::Pattern(t)
+            if t.iter().any(|x| matches!(x, crate::domain::TargetSlot::Param { offset, .. } if *offset != 0)));
+    if has_blocker {
+        return Containment::Unknown {
+            reason: "the record has a blocked set (pole locus, recenter bound, target range or elision): where it is selected but blocked its removal changes the dispatch; not offered as a proof".into(),
+        };
+    }
+    match shadowed(src, i, frame) {
+        Containment::Proved { certificate } => Containment::Proved {
+            certificate: format!(
+                "the record has no blocked set and is shadowed (never the first match): {certificate}"
+            ),
+        },
+        o => o,
+    }
 }

@@ -124,6 +124,7 @@ fn closure_on_file(node: &Node, table: &Path) -> (u64, u64, BTreeSet<String>) {
         hand_downs: HandDowns::Off,
         longest_chain: false,
         zero_sectors: Some(node.zero_dropped.clone()),
+        zero_sector_source: Some(node.zero_source.clone()),
         terminals: Some(TerminalSets {
             preferred: None,
             other: Some(tset),

@@ -222,9 +222,10 @@ fn memoised_equals_reference_mode_capped() {
                 .filter(|c| off(c) <= cap && c.states.iter().all(|s| s.is_some()))
                 .cloned()
                 .collect();
+            // (pruned classes are labelled Unexplored since audit-part-A M2; they are not classes of the full run)
             let ca2: BTreeSet<_> = ca
                 .iter()
-                .filter(|c| c.states.iter().all(|s| s.is_some()))
+                .filter(|c| c.label != Label::Unexplored && c.states.iter().all(|s| s.is_some()))
                 .cloned()
                 .collect();
             assert_eq!(cf, ca2, "seed {seed}");

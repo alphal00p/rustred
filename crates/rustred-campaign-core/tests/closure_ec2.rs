@@ -83,6 +83,14 @@ fn ec2_facts_feed_tier_c() {
     let start = KeySet::from_keys(codec, chosen.iter().map(|k| k.as_slice())).unwrap();
     let cfg = ClosureConfig {
         tier: Tier::C,
+        table_digests: [(
+            "R0_try1".to_string(),
+            format!(
+                "sha256:{}",
+                k3_common::sha256_hex(&std::fs::read(&raw).unwrap())
+            ),
+        )]
+        .into(),
         ..probe.clone()
     };
     let c0 = closure(&disp, &bodies, &cmp, &start, &cfg, &NoFacts).unwrap();
@@ -120,11 +128,17 @@ fn ec2_facts_feed_tier_c() {
             .last()
             .unwrap_or("")
     );
-    let facts = FileFacts::read(
+    let facts = FileFacts::read_bound(
         std::io::BufReader::new(std::fs::File::open(&out).unwrap()),
+        &reqs,
         false,
     )
     .unwrap();
+    println!(
+        "rejected answers: unrequested {}, term key not verified {}",
+        facts.n_rejected_unrequested, facts.n_rejected_term_key
+    );
+    assert_eq!(facts.n_rejected(), 0, "{:?}", facts.rejections);
     println!(
         "facts {} (other lines {}, refusals {:?}, unknown {})",
         facts.n_facts,

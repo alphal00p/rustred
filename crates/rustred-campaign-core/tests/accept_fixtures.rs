@@ -13,6 +13,7 @@ use rustred_campaign_core::closure::{
     ClosureConfig, HandDowns, KeyCodec, KeySet, RuleBodies, Tier, Verdict, closure,
 };
 use rustred_campaign_core::cover::{Dispatch, Dispatcher};
+use rustred_campaign_core::glue::{ClosureRule, closure_exclusions_from_accept};
 
 fn kos(node: &str) -> Vec<String> {
     let d = slice(node).join("ko");
@@ -91,16 +92,60 @@ fn check_node(name: &str) {
             hand_downs: HandDowns::Counts,
             longest_chain: false,
             zero_sectors: Some(node.zero_dropped.clone()),
+            zero_sector_source: Some(node.zero_source.clone()),
             terminals: Some(TerminalSets {
                 preferred: None,
                 other: Some(tset),
             }),
+            // closure.md 11.5 (loopfix): every firing table needs its coefficient-file digest, else the Tier C
+            // verdict is at best `closed_provisional`: the KO file, and the accepted rule lines of the campaign table
+            table_digests: [
+                (
+                    "ko".to_string(),
+                    rustred_campaign_core::accept::rule::sha256_tag(
+                        &std::fs::read(&run.ko_path).unwrap(),
+                    ),
+                ),
+                (
+                    "campaign".to_string(),
+                    rustred_campaign_core::accept::rule::sha256_tag(
+                        &rules
+                            .iter()
+                            .flat_map(|r| r.line.iter().copied().chain(*b"\n"))
+                            .collect::<Vec<u8>>(),
+                    ),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+            // acceptance.md (exclusions to the closure once it accepts them; int3 glue): every accepted rule's
+            // effective-domain exclusions, at its record of the campaign table
+            exclusions: run
+                .accepted
+                .iter()
+                .enumerate()
+                .flat_map(|(i, (_, _, _, v))| {
+                    let AcceptVerdict::Accepted { effective, .. } = v else {
+                        unreachable!()
+                    };
+                    closure_exclusions_from_accept(
+                        ClosureRule {
+                            table: "campaign",
+                            record: i,
+                            label: i as i64,
+                        },
+                        &effective.exclusions,
+                    )
+                    .expect("acceptance exclusions are per key")
+                })
+                .collect(),
             ..Default::default()
         };
+        let n_excl = cfg.exclusions.len();
         let c = closure(&disp, &bodies, &node.cmp, &start, &cfg, &facts).unwrap();
         let s = c.summary();
         println!(
-            "{name} {ko}: witnesses {} accepted {} rejected {:?}; gap keys {}; working range {}; served {}; closure {:?} keys {} open {} terminals {} (expected {})",
+            "{name} {ko}: witnesses {} accepted {} rejected {:?}; gap keys {}; working range {}; served {}; exclusions {n_excl}; closure {:?} keys {} open {} terminals {} (expected {})",
             run.accepted.len() + run.rejected.len(),
             run.accepted.len(),
             rej,
@@ -129,7 +174,8 @@ fn check_node(name: &str) {
         assert_eq!(
             s.verdict,
             Verdict::Closed,
-            "{name} {ko}: closure verdict; undecided {:?}; requests {:?}",
+            "{name} {ko}: closure verdict; blocking {:?}; undecided {:?}; requests {:?}",
+            s.blocking,
             s.undecided,
             &c.fact_requests()[..c.fact_requests().len().min(3)]
         );

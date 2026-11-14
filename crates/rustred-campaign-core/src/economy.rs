@@ -371,7 +371,14 @@ impl Retirement {
         if old.is_empty() {
             return Err(RetireError::Empty);
         }
-        if state == CoverageState::Full && proof.is_none() {
+        // R33 / audit-part-A M3 (c): on a FULL node the coverage-preservation proof must come from a DISPATCH-mode
+        // partition with a stated dispatch order (a union-coverage partition does not see records that are
+        // selected but blocked); anything else, including an unknown method, is refused.
+        if state == CoverageState::Full
+            && !proof
+                .as_ref()
+                .is_some_and(|p| crate::partition::parse_dispatch_proof_method(&p.method).is_some())
+        {
             return Err(RetireError::FullNodeNeedsProof);
         }
         if !supersedes(
@@ -475,7 +482,12 @@ mod tests {
             None,
         );
         assert_eq!(e.unwrap_err(), RetireError::FullNodeNeedsProof);
-        let proof = ContainmentProof::checked("o", "n", "exact_partition", "x");
+        // audit-part-A M3 (partfix): the proof method must be a dispatch-partition method with an order statement
+        // (was "exact_partition", a union-coverage method, now refused: see m3_economy_requires_a_dispatch_proof).
+        let same = crate::partition::dispatch_proof_method(
+            &crate::partition::DispatchOrderStatement::SameOrder,
+        );
+        let proof = ContainmentProof::checked("o", "n", &same, "x");
         let r = Retirement::new(
             "N",
             CoverageState::Full,
@@ -492,7 +504,7 @@ mod tests {
             RetireError::FullNodeNeedsProof
         );
         assert_eq!(rec.verify(Some(proof)).unwrap(), r);
-        let other = ContainmentProof::checked("o", "n2", "exact_partition", "x");
+        let other = ContainmentProof::checked("o", "n2", &same, "x");
         assert_eq!(
             rec.verify(Some(other)).unwrap_err(),
             RetireError::ProofMismatch
@@ -502,5 +514,49 @@ mod tests {
         )
         .unwrap();
         assert!(forged.verify(None).is_err());
+    }
+
+    /// audit-part-A M3 (c) (lane partfix; moved here from tests/partition_audit_regressions.rs by the int3
+    /// integration because ContainmentProof's fields are private since ladder audit A M5): on a FULL node only a
+    /// dispatch-partition method with an order statement is accepted.
+    #[test]
+    fn m3_economy_requires_a_dispatch_proof() {
+        use crate::partition::{DispatchOrderStatement, dispatch_proof_method};
+        let old = vec![("a".to_string(), m(100))];
+        let proof = |method: &str| ContainmentProof::checked("o", "n", method, "x");
+        let retire = |p: ContainmentProof| {
+            Retirement::new(
+                "N",
+                CoverageState::Full,
+                &old,
+                ("c", &m(50)),
+                SupersedeReason::FaceRetiresPoints,
+                Some(p),
+            )
+        };
+        // a union-coverage proof is refused on a FULL node
+        assert_eq!(
+            retire(proof("exact_partition")).unwrap_err(),
+            RetireError::FullNodeNeedsProof
+        );
+        assert_eq!(
+            retire(proof("dispatch_partition.v1")).unwrap_err(),
+            RetireError::FullNodeNeedsProof,
+            "no order statement"
+        );
+        assert!(
+            retire(proof(&dispatch_proof_method(
+                &DispatchOrderStatement::SameOrder
+            )))
+            .is_ok()
+        );
+        let m2 = dispatch_proof_method(&DispatchOrderStatement::NewOrder("abc123".into()));
+        assert!(retire(proof(&m2)).is_ok());
+        // the record route re-runs the same check
+        let r = retire(proof(&m2)).unwrap();
+        let mut rec = r.to_record();
+        assert_eq!(rec.verify(Some(proof(&m2))).unwrap(), r);
+        rec.proof.as_mut().unwrap().method = "exact_partition".into();
+        assert!(rec.verify(Some(proof("exact_partition"))).is_err());
     }
 }

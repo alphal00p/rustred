@@ -1,10 +1,11 @@
 //! Indexed first match: the SAME dispatch as [`Dispatcher::first_match`] (tables in priority, records in order, the
 //! first record whose stage is not `NotSelected` ends the search; common chart first), with a slot trie over the
-//! fixed slots for the candidate list instead of one hash lookup per fixed-slot pattern (T266 has thousands of
-//! patterns). Differentially tested against `Dispatcher::first_match` (tests/closure_t178.rs).
+//! fixed slots for the candidate list instead of one hash lookup per fixed-slot pattern (large tables have thousands
+//! of patterns). Differentially tested against `Dispatcher::first_match` (randomized: tests/closure_fast_differential.rs,
+//! default suite; full key sets of the large fixtures: ignored release tests).
 
 use crate::cover::{Dispatch, Dispatcher, RuleRef};
-use crate::domain::Stage;
+use crate::domain::{Stage, Verdict};
 
 const NONE: u32 = u32::MAX;
 
@@ -22,6 +23,9 @@ pub struct FastDispatch<'a> {
     entries: Vec<(u32, u32)>,
     /// table -> position of its record 0
     offsets: Vec<u32>,
+    /// per position: the core's witness-status block of the record (`RecordMeta::witness_block`), applied when the
+    /// record is selected (the core dispatcher's enforced verdict, re-audit RA-MAJOR-1)
+    block: Vec<Option<Verdict>>,
     nodes: Vec<Node>,
 }
 
@@ -76,10 +80,20 @@ impl<'a> FastDispatch<'a> {
             }
             nodes[cur].leaf.push(e as u32);
         }
+        let block = entries
+            .iter()
+            .map(|&(t, r)| {
+                tables[t as usize]
+                    .meta
+                    .get(r as usize)
+                    .and_then(|m| m.witness_block())
+            })
+            .collect();
         FastDispatch {
             disp,
             entries,
             offsets,
+            block,
             nodes,
         }
     }
@@ -125,53 +139,40 @@ impl<'a> FastDispatch<'a> {
         out.sort_unstable();
     }
 
-    /// First match; `skip_below(pos)` lets a caller declare positions known to be `NotSelected` (incremental use);
-    /// `stop_at` is a known stopping position (its verdict is re-evaluated).
+    /// First match (= `Dispatcher::first_match`).
     pub fn first_match_with(
         &self,
         key: &[i32],
         buf: &mut Vec<u32>,
         stack: &mut Vec<(u32, u32)>,
     ) -> Dispatch {
-        if let Some(mask) = self.disp.chart()
-            && let Some(slot) = key
-                .iter()
-                .enumerate()
-                .position(|(i, &x)| (mask[i] && x < 1) || (!mask[i] && x > 0))
-        {
-            return Dispatch::OutsideChart { slot };
-        }
-        self.candidates(key, buf, stack);
-        for &e in buf.iter() {
-            let (t, r) = self.entries[e as usize];
-            let v = self.disp.tables()[t as usize].domains[r as usize].applies(key);
-            match v.stage() {
-                Stage::Applies => return Dispatch::Covered(self.rule(e)),
-                Stage::NotSelected => {}
-                Stage::Blocked => {
-                    return Dispatch::Blocked {
-                        at: self.rule(e),
-                        reason: v,
-                    };
-                }
-                Stage::Undecided => {
-                    return Dispatch::Undecided {
-                        at: self.rule(e),
-                        verdict: v,
-                    };
-                }
-            }
-        }
-        Dispatch::Uncovered
+        self.first_match_ex(key, 0, None, &[], buf, stack).0
     }
 
-    /// First match where every OLD position below `old_stop` is known `NotSelected` (incremental closure): only
-    /// candidates that are new (`is_new(pos)`) or at/after `old_stop` are evaluated.
+    /// First match where every REUSABLE position below `old_stop` is known `NotSelected` (incremental closure): only
+    /// candidates that are not reusable (`is_new(pos)`) or at/after `old_stop` are evaluated.
     pub fn first_match_cached(
         &self,
         key: &[i32],
         old_stop: u32,
         is_new: &dyn Fn(u32) -> bool,
+        buf: &mut Vec<u32>,
+        stack: &mut Vec<(u32, u32)>,
+    ) -> (Dispatch, usize) {
+        let reusable = |p: u32| !is_new(p);
+        self.first_match_ex(key, old_stop, Some(&reusable), &[], buf, stack)
+    }
+
+    /// The general first match: positions in `excluded` (sorted; rule-level key exclusions at THIS key) are skipped
+    /// as if absent (the next record serves); with `reusable`, a reusable position below `old_stop` is skipped as
+    /// known `NotSelected` (incremental use; the caller guarantees it). Returns the dispatch and the number of
+    /// records evaluated.
+    pub fn first_match_ex(
+        &self,
+        key: &[i32],
+        old_stop: u32,
+        reusable: Option<&dyn Fn(u32) -> bool>,
+        excluded: &[u32],
         buf: &mut Vec<u32>,
         stack: &mut Vec<(u32, u32)>,
     ) -> (Dispatch, usize) {
@@ -186,12 +187,23 @@ impl<'a> FastDispatch<'a> {
         self.candidates(key, buf, stack);
         let mut evaluated = 0usize;
         for &e in buf.iter() {
-            if e < old_stop && !is_new(e) {
+            if let Some(r) = reusable
+                && e < old_stop
+                && r(e)
+            {
+                continue;
+            }
+            if !excluded.is_empty() && excluded.binary_search(&e).is_ok() {
                 continue;
             }
             evaluated += 1;
             let (t, r) = self.entries[e as usize];
-            let v = self.disp.tables()[t as usize].domains[r as usize].applies(key);
+            let mut v = self.disp.tables()[t as usize].domains[r as usize].applies(key);
+            if v.stage() == Stage::Applies
+                && let Some(b) = &self.block[e as usize]
+            {
+                v = b.clone();
+            }
             match v.stage() {
                 Stage::Applies => return (Dispatch::Covered(self.rule(e)), evaluated),
                 Stage::NotSelected => {}

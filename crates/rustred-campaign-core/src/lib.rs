@@ -29,5 +29,6 @@ pub mod terminals;
 pub mod explain;
 pub mod repair;
 pub mod economy;
+pub mod glue;
 pub mod replay_base;
 pub mod schema;
