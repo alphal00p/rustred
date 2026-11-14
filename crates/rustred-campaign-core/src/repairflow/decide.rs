@@ -38,6 +38,37 @@ pub fn s_plan(faces: &[FaceGroup], shadow: &[ShadowClass], p: &RepairPolicy) -> 
         .collect()
 }
 
+/// THE ordering among several candidates of one face (pluggable, policy data `keep.choice_order`): `keep` first,
+/// then each criterion in order (`regular_at` is reserved and compares equal until the fixed-d regularity data exists);
+/// the record digest always ends the order, so the choice is total and deterministic.
+pub fn compare_candidates(
+    a: (&Judgement, &CandidateAnswer),
+    b: (&Judgement, &CandidateAnswer),
+    order: &[String],
+) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let (ja, ca) = a;
+    let (jb, cb) = b;
+    let ka = ja.class == Class::Keep;
+    let kb = jb.class == Class::Keep;
+    let mut o = kb.cmp(&ka);
+    for c in order {
+        if o != Ordering::Equal {
+            return o;
+        }
+        o = match c.as_str() {
+            "served_desc" => cb.served.len().cmp(&ca.served.len()),
+            "bytes_asc" => ca.measures.bytes.cmp(&cb.measures.bytes),
+            "rhs_terms_asc" => ca.measures.rhs_terms.cmp(&cb.measures.rhs_terms),
+            "monomials_asc" => ca.measures.monomials.cmp(&cb.measures.monomials),
+            "record_digest" => ca.record_sha256.cmp(&cb.record_sha256),
+            // "regular_at": reserved (no regularity data yet)
+            _ => Ordering::Equal,
+        };
+    }
+    o.then(ca.record_sha256.cmp(&cb.record_sha256))
+}
+
 /// One candidate rule of a settled step-S job.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CandidateAnswer {
@@ -178,12 +209,7 @@ pub fn decide(
                                 .map(|c| (judge(&c.measures, c.served.len() as u64, open, p), c))
                                 .collect();
                             js.sort_by(|(ja, ca), (jb, cb)| {
-                                let ka = ja.class == Class::Keep;
-                                let kb = jb.class == Class::Keep;
-                                kb.cmp(&ka)
-                                    .then(cb.served.len().cmp(&ca.served.len()))
-                                    .then(ca.measures.bytes.cmp(&cb.measures.bytes))
-                                    .then(ca.record_sha256.cmp(&cb.record_sha256))
+                                compare_candidates((ja, ca), (jb, cb), &p.keep.choice_order)
                             });
                             let (j, c) = js.swap_remove(0);
                             if j.class == Class::Keep {

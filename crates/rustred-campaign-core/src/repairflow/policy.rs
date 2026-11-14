@@ -138,7 +138,20 @@ pub struct KeepPolicy {
     pub min_keys_served: u64,
     /// ... or at a smaller share of the face's open keys.
     pub min_served_fraction: f64,
+    /// The ONE ordering among several admissible candidates of a face (after `keep` first): criteria in order, from
+    /// [`CHOICE_CRITERIA`]; `regular_at` uses `recipes.prefer_regular_at` (reserved: equal until evaluated).
+    pub choice_order: Vec<String>,
 }
+
+/// Criteria of [`KeepPolicy::choice_order`].
+pub const CHOICE_CRITERIA: &[&str] = &[
+    "served_desc",
+    "regular_at",
+    "bytes_asc",
+    "rhs_terms_asc",
+    "monomials_asc",
+    "record_digest",
+];
 
 impl Default for KeepPolicy {
     fn default() -> Self {
@@ -149,6 +162,12 @@ impl Default for KeepPolicy {
             max_trace_rows: 5000,
             min_keys_served: 2,
             min_served_fraction: 0.0,
+            choice_order: vec![
+                "served_desc".into(),
+                "regular_at".into(),
+                "bytes_asc".into(),
+                "record_digest".into(),
+            ],
         }
     }
 }
@@ -225,9 +244,11 @@ pub struct RecipePolicy {
     pub numerator_priority: Option<Vec<usize>>,
     /// Cap of faces given per-face recipes (in `symbolic.face_order`); null = all.
     pub max_faces: Option<usize>,
-    /// RESERVED (not implemented: must stay false): among several admissible relations for one key prefer the one
-    /// regular at d = 4 (two seed sets gave relations for the same key with and without a 1/(d-4) pole).
-    pub prefer_regular_at_d4: bool,
+    /// Tie-break among ADMISSIBLE relations / candidates only: prefer the one regular at these dimensions (USER ruling:
+    /// ON by default with [4]; [] = off). Never changes whether a node closes; recorded when it changes a choice.
+    /// RESERVED: not evaluated yet (needs the engine's fixed-d solve entry, interfaces/pole-diagnostics.md): the
+    /// criterion `regular_at` of [`KeepPolicy::choice_order`] compares equal until the data exists.
+    pub prefer_regular_at: Vec<i64>,
 }
 
 impl Default for RecipePolicy {
@@ -236,16 +257,17 @@ impl Default for RecipePolicy {
             enabled: true,
             per_face: true,
             escalation: vec![
+                // prior (helper k13 classification of 8,215 unserved T162 arrival keys): ~78 % symmetry only, ~22 %
+                // depth 2 (last line 1,477, union 320), depth 3 rare (9): depth 3 only under an explicit policy
                 "d0_cnone_foff_ssym_mM1C".into(),
                 "d2_clast_fon_mM1C".into(),
-                "d2_cnum_foff_mM1C".into(),
+                "d2_cnum_fon_mM1C".into(),
                 "d2_cunion_fon_mM1C".into(),
-                "d3_clast_fon_mM1C".into(),
             ],
             line_priority: None,
             numerator_priority: None,
             max_faces: None,
-            prefer_regular_at_d4: false,
+            prefer_regular_at: vec![4],
         }
     }
 }
@@ -415,8 +437,10 @@ impl RepairPolicy {
                 self.node_budget.order
             ));
         }
-        if self.recipes.prefer_regular_at_d4 {
-            return Err("repair policy: recipes.prefer_regular_at_d4 is reserved (not implemented)".into());
+        for c in &self.keep.choice_order {
+            if !CHOICE_CRITERIA.contains(&c.as_str()) {
+                return Err(format!("repair policy: keep.choice_order: unknown criterion {c:?}"));
+            }
         }
         if self.symbolic.wall_case_s == 0 {
             return Err("repair policy: symbolic.wall_case_s must be > 0".into());
