@@ -9,8 +9,8 @@ use rustred_campaign_core::accept::facts::{ClosureFacts, ExactRecordFacts};
 use rustred_campaign_core::accept::prover::{EvidenceProver, ReplayProver};
 use rustred_campaign_core::accept::rule::{RuleText, sha256_tag};
 use rustred_campaign_core::accept::{
-    AcceptInput, AcceptPolicy, AcceptVerdict, Candidate, NodeTarget, NodeView, Position, PriorityClass,
-    RequiredEvidence, RuleSource, accept_candidate,
+    AcceptInput, AcceptPolicy, AcceptVerdict, Candidate, NodeTarget, NodeView, Position,
+    PriorityClass, RequiredEvidence, RuleSource, accept_candidate,
 };
 use rustred_campaign_core::closure::{
     ClosureConfig, HandDowns, KeyCodec, KeySet, NoFacts, RuleBodies, Tier, closure,
@@ -20,7 +20,9 @@ use rustred_campaign_core::domain::DomainOptions;
 use rustred_campaign_core::ibp_rows::RowsOptions;
 use rustred_campaign_core::key::{Key, NodeFrame};
 use rustred_campaign_core::order::NodeComparator;
-use rustred_campaign_core::record::{ReadOptions, RhsMode, TableFile, TableHeader, read_table_file};
+use rustred_campaign_core::record::{
+    ReadOptions, RhsMode, TableFile, TableHeader, read_table_file,
+};
 use rustred_campaign_core::replay_base::family::Family;
 use serde_json::Value;
 
@@ -37,14 +39,23 @@ pub fn slice(node: &str) -> PathBuf {
 }
 
 pub fn scratch(name: &str) -> PathBuf {
-    let d = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("accept").join(name);
+    let d = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join("accept")
+        .join(name);
     std::fs::create_dir_all(&d).unwrap();
     d
 }
 
 pub fn parse_key(s: &str) -> Key {
-    let inner = s.trim().strip_prefix("I(").and_then(|x| x.strip_suffix(')')).unwrap();
-    inner.split(',').map(|x| x.trim().parse().unwrap()).collect()
+    let inner = s
+        .trim()
+        .strip_prefix("I(")
+        .and_then(|x| x.strip_suffix(')'))
+        .unwrap();
+    inner
+        .split(',')
+        .map(|x| x.trim().parse().unwrap())
+        .collect()
 }
 
 pub struct Node {
@@ -90,9 +101,18 @@ pub fn load_node(name: &str) -> Node {
         }
     }
     let mut box_keys = Vec::new();
-    for line in std::fs::read_to_string(dir.join("base/winners.jsonl")).unwrap().lines() {
+    for line in std::fs::read_to_string(dir.join("base/winners.jsonl"))
+        .unwrap()
+        .lines()
+    {
         let v: Value = serde_json::from_str(line).unwrap();
-        box_keys.push(v[0].as_array().unwrap().iter().map(|x| x.as_i64().unwrap() as i32).collect());
+        box_keys.push(
+            v[0].as_array()
+                .unwrap()
+                .iter()
+                .map(|x| x.as_i64().unwrap() as i32)
+                .collect(),
+        );
     }
     let expected: Value =
         serde_json::from_str(&std::fs::read_to_string(dir.join("EXPECTED.json")).unwrap()).unwrap();
@@ -117,14 +137,24 @@ pub fn load_node(name: &str) -> Node {
 }
 
 pub fn ko_entry<'a>(node: &'a Node, ko: &str) -> &'a Value {
-    node.expected["ko"].as_array().unwrap().iter().find(|k| k["id"] == ko).unwrap()
+    node.expected["ko"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|k| k["id"] == ko)
+        .unwrap()
 }
 
 /// The derived KO table, rebuilt from table.jsonl by deleting the removed rule lines (the fixture's definition,
 /// README "Files per node"), checked against the fixture's sha256; written to scratch. Returns the path.
 pub fn ko_table(node: &Node, ko: &str) -> PathBuf {
     let e = ko_entry(node, ko);
-    let removed: BTreeSet<i64> = e["removed_record_indices"].as_array().unwrap().iter().map(|x| x.as_i64().unwrap()).collect();
+    let removed: BTreeSet<i64> = e["removed_record_indices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_i64().unwrap())
+        .collect();
     let text = std::fs::read(node.dir.join("table.jsonl")).unwrap();
     let mut out = Vec::new();
     for line in text.split_inclusive(|&b| b == b'\n') {
@@ -135,10 +165,16 @@ pub fn ko_table(node: &Node, ko: &str) -> PathBuf {
         out.extend_from_slice(line);
     }
     let want = e["derived_table_sha256_uncompressed"].as_str().unwrap();
-    assert_eq!(sha256_tag(&out), format!("sha256:{want}"), "{} {ko}: derived table digest", node.name);
+    assert_eq!(
+        sha256_tag(&out),
+        format!("sha256:{want}"),
+        "{} {ko}: derived table digest",
+        node.name
+    );
     // atomic write (tests run in parallel and share the file)
     let p = scratch(&node.name).join(format!("{ko}.table.jsonl"));
-    let tmp = p.with_extension(format!("{:?}.part", std::thread::current().id()).replace(['(', ')'], ""));
+    let tmp =
+        p.with_extension(format!("{:?}.part", std::thread::current().id()).replace(['(', ')'], ""));
     std::fs::write(&tmp, &out).unwrap();
     std::fs::rename(&tmp, &p).unwrap();
     p
@@ -170,12 +206,29 @@ pub fn witness_lines(node: &str, ko: &str) -> Vec<(u64, Vec<u8>)> {
 }
 
 pub fn gap_keys(node: &Node, ko: &str) -> Vec<Key> {
-    ko_entry(node, ko)["gap"]["gap_keys"].as_array().unwrap().iter().map(|k| parse_key(k.as_str().unwrap())).collect()
+    ko_entry(node, ko)["gap"]["gap_keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|k| parse_key(k.as_str().unwrap()))
+        .collect()
 }
 
 pub fn load_table(path: &Path, name: &str) -> (TableFile, Table) {
-    let tf = read_table_file(path, ReadOptions { rhs: RhsMode::KeysOnly }).unwrap();
-    let t = Table::from_table_file(name, path.display().to_string(), &tf, DomainOptions::default()).unwrap();
+    let tf = read_table_file(
+        path,
+        ReadOptions {
+            rhs: RhsMode::KeysOnly,
+        },
+    )
+    .unwrap();
+    let t = Table::from_table_file(
+        name,
+        path.display().to_string(),
+        &tf,
+        DomainOptions::default(),
+    )
+    .unwrap();
     (tf, t)
 }
 
@@ -192,12 +245,19 @@ pub fn view<'a>(node: &'a Node, target: NodeTarget, required: RequiredEvidence) 
 }
 
 pub fn replay_prover(node: &Node) -> ReplayProver {
-    ReplayProver::new(Family::parse(&node.family_text).unwrap(), RowsOptions::default())
+    ReplayProver::new(
+        Family::parse(&node.family_text).unwrap(),
+        RowsOptions::default(),
+    )
 }
 
 pub fn position(rule: &RuleText, ko: &str, i: usize) -> Position {
     Position {
-        class: if rule.is_point() { PriorityClass::Point } else { PriorityClass::FaceOrLocus },
+        class: if rule.is_point() {
+            PriorityClass::Point
+        } else {
+            PriorityClass::FaceOrLocus
+        },
         input_priority: 0,
         round: 1,
         item: ko.into(),
@@ -252,14 +312,25 @@ pub fn accepted_table(arity: usize, rules: &[&RuleText]) -> Table {
 
 /// The acceptance pipeline of a KO set: the witnesses are offered in file order, each judged by the chain against
 /// the KO table plus the witnesses accepted before it.
-pub fn run_ko(node: &Node, ko: &str, prover: &mut dyn EvidenceProver, required: RequiredEvidence) -> KoRun {
+pub fn run_ko(
+    node: &Node,
+    ko: &str,
+    prover: &mut dyn EvidenceProver,
+    required: RequiredEvidence,
+) -> KoRun {
     let ko_path = ko_table(node, ko);
     let (tf, ko_t) = load_table(&ko_path, "ko");
     let lines = witness_lines(&node.name, ko);
-    let rules: Vec<RuleText> = lines.iter().map(|(_, l)| RuleText::parse(l, &node.frame).unwrap()).collect();
+    let rules: Vec<RuleText> = lines
+        .iter()
+        .map(|(_, l)| RuleText::parse(l, &node.frame).unwrap())
+        .collect();
     // working range: closure of the box under KO + all witnesses
     let all = Dispatcher::new(
-        vec![ko_t.clone(), accepted_table(node.frame.arity(), &rules.iter().collect::<Vec<_>>())],
+        vec![
+            ko_t.clone(),
+            accepted_table(node.frame.arity(), &rules.iter().collect::<Vec<_>>()),
+        ],
         vec![0, 1],
     )
     .unwrap();
@@ -276,9 +347,19 @@ pub fn run_ko(node: &Node, ko: &str, prover: &mut dyn EvidenceProver, required: 
     let mut rejected = Vec::new();
     for (i, ((off, _), r)) in lines.iter().zip(&rules).enumerate() {
         let acc: Vec<&RuleText> = accepted.iter().map(|(_, _, r, _)| r).collect();
-        let before = Dispatcher::new(vec![ko_t.clone(), accepted_table(node.frame.arity(), &acc)], vec![0, 1]).unwrap();
+        let before = Dispatcher::new(
+            vec![ko_t.clone(), accepted_table(node.frame.arity(), &acc)],
+            vec![0, 1],
+        )
+        .unwrap();
         let input = AcceptInput {
-            node: view(node, NodeTarget::Boxed { box_id: "fixture-box".into() }, required),
+            node: view(
+                node,
+                NodeTarget::Boxed {
+                    box_id: "fixture-box".into(),
+                },
+                required,
+            ),
             before: Some(&before),
             after: None,
             candidate: Candidate {
@@ -307,7 +388,10 @@ pub fn run_ko(node: &Node, ko: &str, prover: &mut dyn EvidenceProver, required: 
 }
 
 /// Closure facts for every record of the given tables of a dispatcher (table name, record) -> rule text.
-pub fn closure_facts(frame: &NodeFrame, tables: &[(&str, &Path, Option<&[RuleText]>)]) -> ClosureFacts {
+pub fn closure_facts(
+    frame: &NodeFrame,
+    tables: &[(&str, &Path, Option<&[RuleText]>)],
+) -> ClosureFacts {
     let mut cf = ClosureFacts::new();
     for (name, path, given) in tables {
         match given {

@@ -27,12 +27,19 @@ impl Instantiator {
         let dom = rule.domain.clone().ok_or("candidate without a domain")?;
         let arity = dom.arity;
         let mut t = Table::new("candidate", arity);
-        t.push(rule.index().unwrap_or(0), dom).map_err(|e| e.to_string())?;
+        t.push(rule.index().unwrap_or(0), dom)
+            .map_err(|e| e.to_string())?;
         let disp = Dispatcher::new(vec![t], vec![0]).map_err(|e| e.to_string())?;
         let mut bodies = RuleBodies::new(&disp);
         let pats: Vec<&str> = rule.rhs.iter().map(|(k, _)| k.as_str()).collect();
-        bodies.set(&disp, 0, 0, &pats).map_err(|e| format!("{e:?}"))?;
-        Ok(Instantiator { disp, bodies, arity })
+        bodies
+            .set(&disp, 0, 0, &pats)
+            .map_err(|e| format!("{e:?}"))?;
+        Ok(Instantiator {
+            disp,
+            bodies,
+            arity,
+        })
     }
 
     /// The RHS keys at `key` with their constant-slot masks.
@@ -70,7 +77,11 @@ pub enum DescentAt {
         hand_downs: usize,
     },
     Fail(DescentFailure),
-    Unknown { term: usize, rhs: Vec<i32>, why: String },
+    Unknown {
+        term: usize,
+        rhs: Vec<i32>,
+        why: String,
+    },
 }
 
 /// d3 of `rule` at `key`.
@@ -147,7 +158,11 @@ pub fn descent_at(
 /// Symbolic descent of every RHS pattern against the target pattern (`cmp_pattern` on the node mask): the terms
 /// that are NOT proved lower (an incomparable pattern, a mismatch of symbolic slots, or not `Less`). Terms whose
 /// pattern lies in a subsector for every value (a line slot fixed at <= 0) are hand-downs and not compared.
-pub fn symbolic_not_proved(rule: &RuleText, cmp: &NodeComparator, lines: &[bool]) -> BTreeSet<usize> {
+pub fn symbolic_not_proved(
+    rule: &RuleText,
+    cmp: &NodeComparator,
+    lines: &[bool],
+) -> BTreeSet<usize> {
     let mut bad = BTreeSet::new();
     let target = match rule.record.target.as_deref().map(parse_pattern) {
         Some(Ok(t)) => t,

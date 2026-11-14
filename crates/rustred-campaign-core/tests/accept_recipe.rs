@@ -40,16 +40,35 @@ fn recipe_certification_and_assembly() {
     let w = RuleText::parse(&line, &node.frame).unwrap();
     let solve = json!({"centre": "Target", "offsets": [], "floor": false, "depth": 2, "tight": false,
         "elimination": "engine-default-v1", "symmetry_rows": false});
-    let recipe = Recipe::new(&w.value, "sha256:order", &solve, "test-contract-v1", &node.frame).unwrap();
+    let recipe = Recipe::new(
+        &w.value,
+        "sha256:order",
+        &solve,
+        "test-contract-v1",
+        &node.frame,
+    )
+    .unwrap();
     let gaps = gap_keys(&node, "K2-single");
     // keys: the 20 gap keys (served) + one key the KO table already serves (not dispatched to the recipe)
     let mut keys = gaps.clone();
-    let covered = node.box_keys.iter().find(|k| ko.first_match(k).unwrap().is_covered()).unwrap().clone();
+    let covered = node
+        .box_keys
+        .iter()
+        .find(|k| ko.first_match(k).unwrap().is_covered())
+        .unwrap()
+        .clone();
     keys.push(covered.clone());
     let inst = Instantiator::new(&w).unwrap();
-    let rhs_of = |k: &Key| -> Vec<Key> { inst.terms(k).unwrap().into_iter().map(|(t, _)| t).collect() };
+    let rhs_of =
+        |k: &Key| -> Vec<Key> { inst.terms(k).unwrap().into_iter().map(|(t, _)| t).collect() };
     let mk_input = |det| RecipeInput {
-        node: view(&node, NodeTarget::Boxed { box_id: "fixture-box".into() }, RequiredEvidence::PerKey),
+        node: view(
+            &node,
+            NodeTarget::Boxed {
+                box_id: "fixture-box".into(),
+            },
+            RequiredEvidence::PerKey,
+        ),
         before: Some(&ko),
         after: None,
         recipe: &recipe,
@@ -60,12 +79,18 @@ fn recipe_certification_and_assembly() {
     // 1. no answers: a request for the 20 dispatched keys and the determinism sample
     let mut ans = SolveAnswers::new(&recipe.digest);
     let v = accept_recipe(&mk_input(Determinism::Count(3)), &ans).unwrap();
-    let RecipeVerdict::NeedsExternal { requests } = &v else { panic!("{v:?}") };
+    let RecipeVerdict::NeedsExternal { requests } = &v else {
+        panic!("{v:?}")
+    };
     assert_eq!(requests[0].keys_file.lines().count(), 20);
     // 2. answers: key 0 solve failed, key 1 rhs not lower, key 2 exact check failed, others fine; run 2 for a sample
     let mut text = String::new();
     for (i, k) in gaps.iter().enumerate() {
-        let rhs = if i == 1 { vec![vec![k[0] + 1, k[1], k[2], 1, 1]] } else { rhs_of(k) };
+        let rhs = if i == 1 {
+            vec![vec![k[0] + 1, k[1], k[2], 1, 1]]
+        } else {
+            rhs_of(k)
+        };
         let edit = |v: &mut Value| match i {
             0 => {
                 v["status"] = json!("failed");
@@ -80,14 +105,35 @@ fn recipe_certification_and_assembly() {
     }
     ans.load(&text).unwrap();
     let v = accept_recipe(&mk_input(Determinism::Count(3)), &ans).unwrap();
-    let RecipeVerdict::Certified { certified, open, cost_ms, determinism_checked, .. } = &v else { panic!("{v:?}") };
+    let RecipeVerdict::Certified {
+        certified,
+        open,
+        cost_ms,
+        determinism_checked,
+        ..
+    } = &v
+    else {
+        panic!("{v:?}")
+    };
     assert_eq!(certified.len(), 17);
     assert_eq!(*cost_ms, 17 * 7);
     assert!(*determinism_checked >= 2);
-    assert!(open.iter().any(|(k, r)| *k == covered && matches!(r, OpenReason::NotDispatched(_))));
-    assert!(open.iter().any(|(_, r)| matches!(r, OpenReason::SolveFailed(_))));
-    assert!(open.iter().any(|(_, r)| matches!(r, OpenReason::NotDescending { .. })));
-    assert!(open.iter().any(|(_, r)| matches!(r, OpenReason::ExactCheck(_))));
+    assert!(
+        open.iter()
+            .any(|(k, r)| *k == covered && matches!(r, OpenReason::NotDispatched(_)))
+    );
+    assert!(
+        open.iter()
+            .any(|(_, r)| matches!(r, OpenReason::SolveFailed(_)))
+    );
+    assert!(
+        open.iter()
+            .any(|(_, r)| matches!(r, OpenReason::NotDescending { .. }))
+    );
+    assert!(
+        open.iter()
+            .any(|(_, r)| matches!(r, OpenReason::ExactCheck(_)))
+    );
     // 3. assembly by form
     let dir = scratch("recipes");
     let (p, eco) = write(
@@ -96,7 +142,13 @@ fn recipe_certification_and_assembly() {
         Some(&ko_path),
         &[RecipeToShip {
             recipe: &recipe,
-            position: Position { class: PriorityClass::FaceOrLocus, input_priority: 0, round: 1, item: "K2".into(), index: 0 },
+            position: Position {
+                class: PriorityClass::FaceOrLocus,
+                input_priority: 0,
+                round: 1,
+                item: "K2".into(),
+                index: 0,
+            },
             verdict: &v,
         }],
     )
@@ -111,7 +163,9 @@ fn recipe_certification_and_assembly() {
     let mut t2 = String::new();
     for kk in &gaps {
         t2.push_str(&answer(&recipe.digest, kk, 1, &rhs_of(kk), |_| {}));
-        t2.push_str(&answer(&recipe.digest, kk, 2, &rhs_of(kk), |v| v["relation_digest"] = json!("sha256:other")));
+        t2.push_str(&answer(&recipe.digest, kk, 2, &rhs_of(kk), |v| {
+            v["relation_digest"] = json!("sha256:other")
+        }));
     }
     bad.load(&t2).unwrap();
     let v = accept_recipe(&mk_input(Determinism::PerMille(1000)), &bad).unwrap();
@@ -127,16 +181,28 @@ fn recipe_certification_and_assembly() {
     }
     stale.load(&t3).unwrap();
     let v = accept_recipe(&mk_input(Determinism::None), &stale).unwrap();
-    assert!(matches!(&v, RecipeVerdict::Undecided { what } if what.contains("stale")), "{v:?}");
+    assert!(
+        matches!(&v, RecipeVerdict::Undecided { what } if what.contains("stale")),
+        "{v:?}"
+    );
     // another determinism contract id: stale as well
     let mut other = SolveAnswers::new(&recipe.digest);
     let mut t4 = String::new();
     for kk in &gaps {
-        t4.push_str(&answer(&recipe.digest, kk, 1, &rhs_of(kk), |v| v["determinism_contract"] = json!("v2")));
+        t4.push_str(&answer(&recipe.digest, kk, 1, &rhs_of(kk), |v| {
+            v["determinism_contract"] = json!("v2")
+        }));
     }
     other.load(&t4).unwrap();
     let v = accept_recipe(&mk_input(Determinism::None), &other).unwrap();
-    assert!(matches!(&v, RecipeVerdict::Undecided { what } if what.contains("stale")), "{v:?}");
+    assert!(
+        matches!(&v, RecipeVerdict::Undecided { what } if what.contains("stale")),
+        "{v:?}"
+    );
     // dispatch semantics: a certified recipe matches only certified keys of its domain
-    let RecipeVerdict::Certified { .. } = accept_recipe(&mk_input(Determinism::Count(3)), &ans).unwrap() else { panic!() };
+    let RecipeVerdict::Certified { .. } =
+        accept_recipe(&mk_input(Determinism::Count(3)), &ans).unwrap()
+    else {
+        panic!()
+    };
 }

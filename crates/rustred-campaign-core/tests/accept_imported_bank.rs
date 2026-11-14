@@ -15,8 +15,8 @@ use rustred_campaign_core::accept::facts::{ExactRecordFacts, RegVerdict, Regular
 use rustred_campaign_core::accept::prover::{ImportedEvidence, ImportedProver};
 use rustred_campaign_core::accept::rule::RuleText;
 use rustred_campaign_core::accept::{
-    AcceptInput, AcceptPolicy, AcceptVerdict, Candidate, Check, FactPair, NodeTarget, NodeView, Position, PriorityClass,
-    RequiredEvidence, RuleSource, accept_candidate,
+    AcceptInput, AcceptPolicy, AcceptVerdict, Candidate, Check, FactPair, NodeTarget, NodeView,
+    Position, PriorityClass, RequiredEvidence, RuleSource, accept_candidate,
 };
 use rustred_campaign_core::cover::{Dispatch, Dispatcher, Table};
 use rustred_campaign_core::domain::DomainOptions;
@@ -26,7 +26,8 @@ use rustred_campaign_core::record::{ReadOptions, RhsMode, read_table_file};
 use serde_json::Value;
 
 const BANK: &str = "/common/build-cache/vhirschi/p_integral_dev/bank-conv/20261114";
-const OUT: &str = "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/SCRATCHPAD/bank-conv/out/20261114";
+const OUT: &str =
+    "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/SCRATCHPAD/bank-conv/out/20261114";
 
 /// TEST ONLY: grants Regular for every requested (rule, key) and calls itself an engine fact source.
 struct GrantRegular;
@@ -54,22 +55,42 @@ fn keys(path: PathBuf) -> Vec<Key> {
 #[test]
 #[ignore = "large inputs: the T162 bank tables"]
 fn imported_bank_rules_reach_imported_plus_fact_only() {
-    let prio: Value = serde_json::from_str(&std::fs::read_to_string(format!("{OUT}/DISPATCH-PRIORITY.json")).unwrap()).unwrap();
+    let prio: Value = serde_json::from_str(
+        &std::fs::read_to_string(format!("{OUT}/DISPATCH-PRIORITY.json")).unwrap(),
+    )
+    .unwrap();
     let mut tables = Vec::new();
     let mut files = Vec::new();
     let mut frame = None;
     let mut header = None;
     for t in prio["qualified"].as_array().unwrap() {
         let p = PathBuf::from(BANK).join(t["file"].as_str().unwrap());
-        let tf = read_table_file(&p, ReadOptions { rhs: RhsMode::KeysOnly }).unwrap();
+        let tf = read_table_file(
+            &p,
+            ReadOptions {
+                rhs: RhsMode::KeysOnly,
+            },
+        )
+        .unwrap();
         if frame.is_none() {
             frame = Some(NodeFrame::from_header(tf.header.as_ref().unwrap()).unwrap());
             header = Some(tf.header.as_ref().unwrap().raw.clone());
         }
         // the IN-FORCE dispatch: witness check off (records without loci would block every key); every credit
         // is decided below by the chain per rule with per-key facts (addendum 3)
-        let opts = DomainOptions { witness: false, ..DomainOptions::default() };
-        tables.push(Table::from_table_file(t["origin"].as_str().unwrap(), p.display().to_string(), &tf, opts).unwrap());
+        let opts = DomainOptions {
+            witness: false,
+            ..DomainOptions::default()
+        };
+        tables.push(
+            Table::from_table_file(
+                t["origin"].as_str().unwrap(),
+                p.display().to_string(),
+                &tf,
+                opts,
+            )
+            .unwrap(),
+        );
         files.push(p);
     }
     let frame = frame.unwrap();
@@ -83,14 +104,23 @@ fn imported_bank_rules_reach_imported_plus_fact_only() {
     let mut by_rule: BTreeMap<(usize, usize), Vec<Key>> = BTreeMap::new();
     for k in &covered {
         match disp.first_match(k).unwrap() {
-            Dispatch::Covered(r) => by_rule.entry((r.table, r.record)).or_default().push(k.clone()),
+            Dispatch::Covered(r) => by_rule
+                .entry((r.table, r.record))
+                .or_default()
+                .push(k.clone()),
             other => panic!("sampled covered key {k:?} -> {other:?}"),
         }
     }
     for g in &gaps {
-        assert!(disp.first_match(g).unwrap().is_open(), "gap key {g:?} covered");
+        assert!(
+            disp.first_match(g).unwrap().is_open(),
+            "gap key {g:?} covered"
+        );
     }
-    let imports = ImportedEvidence::read(&std::fs::read_to_string(format!("{OUT}/ACCEPT/T162.bank.accept.jsonl")).unwrap()).unwrap();
+    let imports = ImportedEvidence::read(
+        &std::fs::read_to_string(format!("{OUT}/ACCEPT/T162.bank.accept.jsonl")).unwrap(),
+    )
+    .unwrap();
     assert_eq!(imports.len(), 2448);
     // rule lines per (table, record)
     let mut lines: BTreeMap<(usize, usize), (u64, Vec<u8>)> = BTreeMap::new();
@@ -100,7 +130,10 @@ fn imported_bank_rules_reach_imported_plus_fact_only() {
         for l in text.split_inclusive(|&b| b == b'\n') {
             if l.starts_with(br#"{"type":"rule""#) || l.starts_with(br#"{"type": "rule""#) {
                 if by_rule.contains_key(&(ti, rec)) {
-                    lines.insert((ti, rec), (off, l.strip_suffix(b"\n").unwrap_or(l).to_vec()));
+                    lines.insert(
+                        (ti, rec),
+                        (off, l.strip_suffix(b"\n").unwrap_or(l).to_vec()),
+                    );
                 }
                 rec += 1;
             }
@@ -112,13 +145,18 @@ fn imported_bank_rules_reach_imported_plus_fact_only() {
     for ((ti, rec), served) in &by_rule {
         let (off, line) = &lines[&(*ti, *rec)];
         let rule = RuleText::parse(line, &frame).unwrap();
-        assert!(imports.get(&rule).is_some(), "no import record for table {ti} record {rec}");
+        assert!(
+            imports.get(&rule).is_some(),
+            "no import record for table {ti} record {rec}"
+        );
         let input = AcceptInput {
             node: NodeView {
                 node: "T162".into(),
                 frame: &frame,
                 cmp: &cmp,
-                target: NodeTarget::Boxed { box_id: "R*".into() },
+                target: NodeTarget::Boxed {
+                    box_id: "R*".into(),
+                },
                 required: RequiredEvidence::PerKey,
                 zero_sectors: None,
                 terminals: Default::default(),
@@ -135,28 +173,58 @@ fn imported_bank_rules_reach_imported_plus_fact_only() {
                     byte_offset: Some(*off),
                     producer: None,
                 },
-                position: Position { class: PriorityClass::Input, input_priority: *ti as u32, round: 0, item: format!("bank.{ti}"), index: *rec as u32 },
+                position: Position {
+                    class: PriorityClass::Input,
+                    input_priority: *ti as u32,
+                    round: 0,
+                    item: format!("bank.{ti}"),
+                    index: *rec as u32,
+                },
             },
             gap_points: served,
             working: served,
             policy: AcceptPolicy::default(),
         };
-        let mut facts = FactPair { regularity: GrantRegular, coefficients: ExactRecordFacts::new() };
-        let mut prover = ImportedProver { imports: imports.clone() };
+        let mut facts = FactPair {
+            regularity: GrantRegular,
+            coefficients: ExactRecordFacts::new(),
+        };
+        let mut prover = ImportedProver {
+            imports: imports.clone(),
+        };
         let v = accept_candidate(&input, &mut facts, &mut prover).unwrap();
         let tag = match &v {
             AcceptVerdict::Accepted { .. } => "ACCEPTED".to_string(),
-            AcceptVerdict::Undecided { check, missing } => format!("undecided {check:?}: {}", missing[0].what.chars().take(60).collect::<String>()),
-            AcceptVerdict::Rejected { check, witness } => format!("rejected {check:?}: {witness:?}"),
+            AcceptVerdict::Undecided { check, missing } => format!(
+                "undecided {check:?}: {}",
+                missing[0].what.chars().take(60).collect::<String>()
+            ),
+            AcceptVerdict::Rejected { check, witness } => {
+                format!("rejected {check:?}: {witness:?}")
+            }
             AcceptVerdict::NeedsExternal { check, .. } => format!("needs external {check:?}"),
         };
-        assert!(!v.is_accepted(), "an imported label must never accept at per-key: {tag}");
-        if matches!(v, AcceptVerdict::Undecided { check: Check::Evidence, .. }) {
+        assert!(
+            !v.is_accepted(),
+            "an imported label must never accept at per-key: {tag}"
+        );
+        if matches!(
+            v,
+            AcceptVerdict::Undecided {
+                check: Check::Evidence,
+                ..
+            }
+        ) {
             keys_imported += served.len();
         }
         *counts.entry(tag).or_default() += 1;
     }
-    println!("bank: {} sampled covered keys, {} winning rules, {} gap keys open", covered.len(), by_rule.len(), gaps.len());
+    println!(
+        "bank: {} sampled covered keys, {} winning rules, {} gap keys open",
+        covered.len(),
+        by_rule.len(),
+        gaps.len()
+    );
     println!("keys at 'imported + regular fact' (Undecided at Evidence): {keys_imported}");
     for (t, c) in &counts {
         println!("  {c:5} {t}");

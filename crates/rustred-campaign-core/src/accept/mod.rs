@@ -28,8 +28,10 @@ use crate::partition::{Containment, contained_in};
 
 use descent::{DescentAt, DescentFailure, Instantiator, descent_at, symbolic_not_proved};
 use facts::{CoefficientFacts, RegVerdict, Regularity};
-use prover::{EvidenceArtefact, EvidenceProver, ExternalRequest, KeyFailure, KeyStatus, ProverAnswer};
 pub use prover::RequiredEvidence;
+use prover::{
+    EvidenceArtefact, EvidenceProver, ExternalRequest, KeyFailure, KeyStatus, ProverAnswer,
+};
 use record::AcceptanceRecord;
 use rule::{RuleText, WitnessStatus};
 
@@ -281,7 +283,12 @@ impl<R: Regularity, C> Regularity for FactPair<R, C> {
     }
 }
 impl<R, C: CoefficientFacts> CoefficientFacts for FactPair<R, C> {
-    fn coefficient(&mut self, rule: &RuleText, key: &[i32], term: usize) -> crate::closure::facts::CoefFact {
+    fn coefficient(
+        &mut self,
+        rule: &RuleText,
+        key: &[i32],
+        term: usize,
+    ) -> crate::closure::facts::CoefFact {
         self.coefficients.coefficient(rule, key, term)
     }
 }
@@ -339,7 +346,9 @@ pub fn composed_stop_domain(
         return Ok(Stop::Terminal);
     }
     if let Some(b) = before {
-        let d = b.first_match(key).map_err(|e| AcceptError::Cover(e.to_string()))?;
+        let d = b
+            .first_match(key)
+            .map_err(|e| AcceptError::Cover(e.to_string()))?;
         if d != Dispatch::Uncovered {
             return Ok(Stop::Before(d));
         }
@@ -361,7 +370,8 @@ pub fn composed_stop_domain(
         Stage::NotSelected => match after {
             None => Ok(Stop::After(None)),
             Some(a) => Ok(Stop::After(Some(
-                a.first_match(key).map_err(|e| AcceptError::Cover(e.to_string()))?,
+                a.first_match(key)
+                    .map_err(|e| AcceptError::Cover(e.to_string()))?,
             ))),
         },
     }
@@ -444,7 +454,9 @@ struct KeyLedger {
 
 impl KeyLedger {
     fn fail(&mut self, k: &Key, kind: FailureKind, check: Check, detail: String) {
-        self.failed.entry(k.clone()).or_insert((kind, check, detail));
+        self.failed
+            .entry(k.clone())
+            .or_insert((kind, check, detail));
         self.unknown.remove(k);
     }
     fn unknown(&mut self, k: &Key, check: Check, why: String) {
@@ -480,7 +492,10 @@ pub enum Scope {
     /// FULL node: the symbolic conditions hold on the whole effective domain.
     FullDomain,
     /// Only the working range (digest) is certified; `missing` = why not the whole domain (FULL nodes).
-    KeyRange { digest: String, missing: Vec<String> },
+    KeyRange {
+        digest: String,
+        missing: Vec<String>,
+    },
 }
 
 /// Run the acceptance chain (interface section 2).
@@ -504,13 +519,19 @@ pub fn accept_candidate(
     let pos = &input.candidate.position;
     match pos.class {
         PriorityClass::Point if !rule.is_point() => {
-            return Err(AcceptError::Position("class Point for a rule with free slots".into()));
+            return Err(AcceptError::Position(
+                "class Point for a rule with free slots".into(),
+            ));
         }
         PriorityClass::FaceOrLocus if rule.is_point() => {
-            return Err(AcceptError::Position("class FaceOrLocus for a point rule".into()));
+            return Err(AcceptError::Position(
+                "class FaceOrLocus for a point rule".into(),
+            ));
         }
         PriorityClass::SymmetryCredit | PriorityClass::Terminal => {
-            return Err(AcceptError::Position("a rule is never placed in the credit / terminal class".into()));
+            return Err(AcceptError::Position(
+                "a rule is never placed in the credit / terminal class".into(),
+            ));
         }
         _ => {}
     }
@@ -519,14 +540,20 @@ pub fn accept_candidate(
         return rejected(Check::Record, Witness::Structural(format!("domain: {e}")));
     }
     if rule.empty_exception_branch {
-        return rejected(Check::Record, Witness::Structural("empty exception AND-list".into()));
+        return rejected(
+            Check::Record,
+            Witness::Structural("empty exception AND-list".into()),
+        );
     }
     // witness loci (R24 (6)) and guard version: a record without its loci (or pre-guard-fix) may credit a key ONLY
     // with per-key exact engine facts (coordinator ruling, addendum 3); elided loci are never liftable
     let fact_digest = facts.engine_fact_digest();
     let credit_basis = match (rule.witness_status(), rule.guard_version.unwrap_or(0) >= 2) {
         (WitnessStatus::Elided, _) => {
-            return rejected(Check::Record, Witness::Structural("witness loci elided (R24 (6))".into()));
+            return rejected(
+                Check::Record,
+                Witness::Structural("witness loci elided (R24 (6))".into()),
+            );
         }
         (WitnessStatus::Present { .. }, true) => "witness_loci".to_string(),
         (status, _) => match &fact_digest {
@@ -561,7 +588,9 @@ pub fn accept_candidate(
         if let Containment::Proved { certificate } = &c {
             return rejected(
                 Check::Served,
-                Witness::Rule(format!("shadowed on the whole domain by the tables in force: {certificate}")),
+                Witness::Rule(format!(
+                    "shadowed on the whole domain by the tables in force: {certificate}"
+                )),
             );
         }
         shadow = Some(c);
@@ -569,7 +598,10 @@ pub fn accept_candidate(
     if sets.served.is_empty() {
         return rejected(
             Check::Served,
-            Witness::Structural(format!("wins no key of the working range ({} keys)", sets.working)),
+            Witness::Structural(format!(
+                "wins no key of the working range ({} keys)",
+                sets.working
+            )),
         );
     }
     checks.push(outcome(
@@ -607,25 +639,48 @@ pub fn accept_candidate(
     if credited.is_empty() {
         return rejected(
             Check::Coverage,
-            Witness::Structural(format!("serves none of the {} gap points", input.gap_points.len())),
+            Witness::Structural(format!(
+                "serves none of the {} gap points",
+                input.gap_points.len()
+            )),
         );
     }
     checks.push(outcome(
         Check::Coverage,
         "pass",
-        &[("credited", credited.len() as u64), ("not_credited", not_credited.len() as u64)],
+        &[
+            ("credited", credited.len() as u64),
+            ("not_credited", not_credited.len() as u64),
+        ],
     ));
 
     // ---- 3 Regularity at every served key (exact, per key, R38)
     for k in &sets.served {
         match facts.regular(rule, k) {
             RegVerdict::Regular => {}
-            RegVerdict::Pole { term } => led.fail(k, FailureKind::Irregular, Check::Regularity, format!("pole of term {term}")),
-            RegVerdict::Hidden { locus } => led.fail(k, FailureKind::Hidden, Check::Regularity, format!("witness locus {locus} vanishes")),
+            RegVerdict::Pole { term } => led.fail(
+                k,
+                FailureKind::Irregular,
+                Check::Regularity,
+                format!("pole of term {term}"),
+            ),
+            RegVerdict::Hidden { locus } => led.fail(
+                k,
+                FailureKind::Hidden,
+                Check::Regularity,
+                format!("witness locus {locus} vanishes"),
+            ),
             RegVerdict::Unknown(w) => led.unknown(k, Check::Regularity, w),
         }
     }
-    checks.push(outcome(Check::Regularity, "done", &[("failed", led.failed.len() as u64), ("unknown", led.unknown.len() as u64)]));
+    checks.push(outcome(
+        Check::Regularity,
+        "done",
+        &[
+            ("failed", led.failed.len() as u64),
+            ("unknown", led.unknown.len() as u64),
+        ],
+    ));
 
     // ---- 4 Descent at every served key (comparator with tie-breaks; coefficient zero verified)
     let inst = match Instantiator::new(rule) {
@@ -642,23 +697,33 @@ pub fn accept_candidate(
             continue;
         }
         match descent_at(&inst, &sectors, node.cmp, facts, rule, k) {
-            DescentAt::Pass { dropped_zero: z, .. } => dropped_zero += z as u64,
+            DescentAt::Pass {
+                dropped_zero: z, ..
+            } => dropped_zero += z as u64,
             DescentAt::Fail(f) => {
                 let d = match f {
-                    DescentFailure::NotLower { term, rhs } => format!("term {term} rhs {rhs:?} not lower, coefficient nonzero"),
+                    DescentFailure::NotLower { term, rhs } => {
+                        format!("term {term} rhs {rhs:?} not lower, coefficient nonzero")
+                    }
                     DescentFailure::PositiveNumeratorNonZero { term, rhs } => {
                         format!("term {term} rhs {rhs:?} positive numerator, coefficient nonzero")
                     }
                 };
                 led.fail(k, FailureKind::NotDescending, Check::Descent, d)
             }
-            DescentAt::Unknown { term, rhs, why } => led.unknown(k, Check::Descent, format!("term {term} rhs {rhs:?}: {why}")),
+            DescentAt::Unknown { term, rhs, why } => {
+                led.unknown(k, Check::Descent, format!("term {term} rhs {rhs:?}: {why}"))
+            }
         }
     }
     checks.push(outcome(
         Check::Descent,
         "done",
-        &[("failed", led.failed.len() as u64), ("unknown", led.unknown.len() as u64), ("dropped_zero", dropped_zero)],
+        &[
+            ("failed", led.failed.len() as u64),
+            ("unknown", led.unknown.len() as u64),
+            ("dropped_zero", dropped_zero),
+        ],
     ));
 
     // Non-excludable failures reject; unknowns make the chain undecided BEFORE any evidence is spent.
@@ -684,7 +749,12 @@ pub fn accept_candidate(
     let mut rule_failure: Option<prover::RuleLevel> = None;
     let mut rounds = 0;
     loop {
-        let keys: Vec<Key> = sets.served.iter().filter(|k| led.open(k)).cloned().collect();
+        let keys: Vec<Key> = sets
+            .served
+            .iter()
+            .filter(|k| led.open(k))
+            .cloned()
+            .collect();
         if keys.is_empty() {
             break;
         }
@@ -719,27 +789,42 @@ pub fn accept_candidate(
                 artefact: art,
                 rule_level,
             } => {
-                let answered: BTreeMap<&Key, &KeyStatus> = statuses.iter().map(|(k, s)| (k, s)).collect();
+                let answered: BTreeMap<&Key, &KeyStatus> =
+                    statuses.iter().map(|(k, s)| (k, s)).collect();
                 let mut new_failures = false;
                 for k in &keys {
                     match answered.get(k) {
                         Some(KeyStatus::Reached(l)) if node.required.satisfied_by(*l) => {}
-                        Some(KeyStatus::Reached(l)) => led.unknown(k, Check::Evidence, format!("reached {l:?} only")),
+                        Some(KeyStatus::Reached(l)) => {
+                            led.unknown(k, Check::Evidence, format!("reached {l:?} only"))
+                        }
                         Some(KeyStatus::Failed(f)) => {
                             new_failures = true;
                             let (kind, d) = match f {
-                                KeyFailure::NonMembership { disproof } => (FailureKind::NonMembership, disproof.clone()),
-                                KeyFailure::Irregular { detail } => (FailureKind::Irregular, detail.clone()),
-                                KeyFailure::Hidden { detail } => (FailureKind::Hidden, detail.clone()),
+                                KeyFailure::NonMembership { disproof } => {
+                                    (FailureKind::NonMembership, disproof.clone())
+                                }
+                                KeyFailure::Irregular { detail } => {
+                                    (FailureKind::Irregular, detail.clone())
+                                }
+                                KeyFailure::Hidden { detail } => {
+                                    (FailureKind::Hidden, detail.clone())
+                                }
                             };
                             led.fail(k, kind, Check::Evidence, d);
                         }
                         Some(KeyStatus::NotCredited(w)) => {
                             led.unknown(k, Check::Evidence, format!("prover: {w}, d1 says applies"))
                         }
-                        Some(KeyStatus::Unsupported(w)) => led.unknown(k, Check::Evidence, format!("unsupported: {w}")),
+                        Some(KeyStatus::Unsupported(w)) => {
+                            led.unknown(k, Check::Evidence, format!("unsupported: {w}"))
+                        }
                         Some(KeyStatus::Unknown(w)) => led.unknown(k, Check::Evidence, w.clone()),
-                        None => led.unknown(k, Check::Evidence, "the prover did not answer this key".into()),
+                        None => led.unknown(
+                            k,
+                            Check::Evidence,
+                            "the prover did not answer this key".into(),
+                        ),
                     }
                 }
                 if let Some(r) = &rule_level {
@@ -773,14 +858,24 @@ pub fn accept_candidate(
     checks.push(outcome(
         Check::Evidence,
         "done",
-        &[("reached", n_reached), ("failed", led.failed.len() as u64), ("unknown", led.unknown.len() as u64), ("rounds", rounds as u64)],
+        &[
+            ("reached", n_reached),
+            ("failed", led.failed.len() as u64),
+            ("unknown", led.unknown.len() as u64),
+            ("rounds", rounds as u64),
+        ],
     ));
 
     // ---- 6 Exclusions
     if let Some(v) = reject_or_undecide(&led, &input.policy) {
         return Ok(v);
     }
-    let final_served: Vec<Key> = sets.served.iter().filter(|k| led.open(k)).cloned().collect();
+    let final_served: Vec<Key> = sets
+        .served
+        .iter()
+        .filter(|k| led.open(k))
+        .cloned()
+        .collect();
     let credited_final: Vec<Key> = credited.iter().filter(|k| led.open(k)).cloned().collect();
     for k in credited.iter().filter(|k| !led.open(k)) {
         let (_, _, d) = &led.failed[k];
@@ -792,8 +887,17 @@ pub fn accept_candidate(
             .iter()
             .find(|(k, _)| credited.contains(k))
             .map(|(k, v)| (k.clone(), v.clone()))
-            .unwrap_or((credited[0].clone(), (FailureKind::Blocked, Check::Exclusions, String::new())));
-        return rejected(check, Witness::AtKey { key: k, detail: format!("{kind:?}: {d}; no gap point left") });
+            .unwrap_or((
+                credited[0].clone(),
+                (FailureKind::Blocked, Check::Exclusions, String::new()),
+            ));
+        return rejected(
+            check,
+            Witness::AtKey {
+                key: k,
+                detail: format!("{kind:?}: {d}; no gap point left"),
+            },
+        );
     }
     let art = match artefact {
         Some(a) if a.keys_digest == prover::keys_digest(n, &final_served) => a,
@@ -816,7 +920,11 @@ pub fn accept_candidate(
             disproof: d.clone(),
         })
         .collect();
-    checks.push(outcome(Check::Exclusions, "pass", &[("exclusions", exclusions.len() as u64)]));
+    checks.push(outcome(
+        Check::Exclusions,
+        "pass",
+        &[("exclusions", exclusions.len() as u64)],
+    ));
 
     // ---- 7 Scope
     let working_digest = prover::keys_digest(n, input.working);
@@ -832,14 +940,19 @@ pub fn accept_candidate(
                 missing.push(format!("{} exclusions", exclusions.len()));
             }
             if art.schema != crate::ibp_rows::REPLAY_SCHEMA {
-                missing.push("identity not tested at generic points (per-key artefact only)".into());
+                missing
+                    .push("identity not tested at generic points (per-key artefact only)".into());
             }
             if !not_proved.is_empty() {
-                missing.push(format!("symbolic descent not proved for terms {not_proved:?}"));
+                missing.push(format!(
+                    "symbolic descent not proved for terms {not_proved:?}"
+                ));
             }
             match &shadow {
                 Some(Containment::NotContained { .. }) => {}
-                Some(Containment::Unknown { reason }) => missing.push(format!("shadowing undecided: {reason}")),
+                Some(Containment::Unknown { reason }) => {
+                    missing.push(format!("shadowing undecided: {reason}"))
+                }
                 _ => missing.push("shadowing not decided".into()),
             }
             if missing.is_empty() {
@@ -852,7 +965,15 @@ pub fn accept_candidate(
             }
         }
     };
-    checks.push(outcome(Check::Scope, if scope == Scope::FullDomain { "full_domain" } else { "key_range" }, &[]));
+    checks.push(outcome(
+        Check::Scope,
+        if scope == Scope::FullDomain {
+            "full_domain"
+        } else {
+            "key_range"
+        },
+        &[],
+    ));
 
     let effective = EffectiveDomain {
         rule_sha256: rule.line_sha256.clone(),
@@ -904,7 +1025,12 @@ fn reject_or_undecide(led: &KeyLedger, policy: &AcceptPolicy) -> Option<AcceptVe
         });
     }
     if !led.unknown.is_empty() {
-        let check = led.unknown.values().map(|(c, _)| *c).min().unwrap_or(Check::Evidence);
+        let check = led
+            .unknown
+            .values()
+            .map(|(c, _)| *c)
+            .min()
+            .unwrap_or(Check::Evidence);
         return Some(AcceptVerdict::Undecided {
             check,
             missing: led

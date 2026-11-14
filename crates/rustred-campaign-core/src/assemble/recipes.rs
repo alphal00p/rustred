@@ -49,12 +49,18 @@ pub fn write(
     if let Some(t) = table {
         let text = std::fs::read(t).map_err(|e| e.to_string())?;
         eco.table_bytes = text.len() as u64;
-        for l in text.split(|&b| b == b'\n').filter(|l| l.starts_with(br#"{"type":"rule""#)) {
+        for l in text
+            .split(|&b| b == b'\n')
+            .filter(|l| l.starts_with(br#"{"type":"rule""#))
+        {
             let v: serde_json::Value = match serde_json::from_slice(l) {
                 Ok(v) => v,
                 Err(e) => return Err(e.to_string()),
             };
-            if v["fixed"].as_array().is_some_and(|a| a.iter().all(|x| !x.is_null())) {
+            if v["fixed"]
+                .as_array()
+                .is_some_and(|a| a.iter().all(|x| !x.is_null()))
+            {
                 eco.point_rules += 1;
             } else {
                 eco.symbolic_rules += 1;
@@ -80,10 +86,20 @@ pub fn write(
             return Err(format!("recipe {} is not certified", r.recipe.digest));
         };
         let arity = r.recipe.domain.arity;
-        let maxv = certified.iter().flatten().map(|v| v.unsigned_abs()).max().unwrap_or(0);
-        let bits = (4..=16).find(|b| (maxv as u64) < (1u64 << (b - 1))).ok_or("key values too large")?;
-        let ks = KeySet::from_keys(KeyCodec::new(arity, bits).map_err(|e| format!("{e:?}"))?, certified.iter().map(|k| k.as_slice()))
-            .map_err(|e| format!("{e:?}"))?;
+        let maxv = certified
+            .iter()
+            .flatten()
+            .map(|v| v.unsigned_abs())
+            .max()
+            .unwrap_or(0);
+        let bits = (4..=16)
+            .find(|b| (maxv as u64) < (1u64 << (b - 1)))
+            .ok_or("key values too large")?;
+        let ks = KeySet::from_keys(
+            KeyCodec::new(arity, bits).map_err(|e| format!("{e:?}"))?,
+            certified.iter().map(|k| k.as_slice()),
+        )
+        .map_err(|e| format!("{e:?}"))?;
         let tag = &recipe_digest[7..23];
         let kf = out_dir.join(format!("{node}.recipe-{tag}.keys"));
         let mut buf = Vec::new();

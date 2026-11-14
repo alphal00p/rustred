@@ -69,9 +69,14 @@ fn rhs_pairs(v: &Value) -> Result<Vec<(String, String)>, String> {
         Some(_) => return Err("rhs is not an array".into()),
     };
     arr.iter()
-        .map(|t| match (t.get(0).and_then(Value::as_str), t.get(1).and_then(Value::as_str)) {
-            (Some(k), Some(c)) => Ok((k.to_string(), c.to_string())),
-            _ => Err("rhs term is not [pattern, coefficient]".to_string()),
+        .map(|t| {
+            match (
+                t.get(0).and_then(Value::as_str),
+                t.get(1).and_then(Value::as_str),
+            ) {
+                (Some(k), Some(c)) => Ok((k.to_string(), c.to_string())),
+                _ => Err("rhs term is not [pattern, coefficient]".to_string()),
+            }
         })
         .collect()
 }
@@ -87,10 +92,19 @@ impl RuleText {
         if value.get("type").and_then(Value::as_str) != Some("rule") {
             return Err(RuleTextError::NotARule("type is not \"rule\"".into()));
         }
-        let mut rd = RecordReader::new(line, ReadOptions { rhs: RhsMode::KeysOnly });
+        let mut rd = RecordReader::new(
+            line,
+            ReadOptions {
+                rhs: RhsMode::KeysOnly,
+            },
+        );
         let record = match rd.next() {
             Some(Ok(TableLine::Rule(r))) => *r,
-            Some(Ok(_)) => return Err(RuleTextError::NotARule("reader saw another line kind".into())),
+            Some(Ok(_)) => {
+                return Err(RuleTextError::NotARule(
+                    "reader saw another line kind".into(),
+                ));
+            }
             Some(Err(e)) => return Err(RuleTextError::Reader(e.to_string())),
             None => return Err(RuleTextError::NotARule("empty line".into())),
         };
@@ -139,7 +153,12 @@ impl RuleText {
             Some(w) if w.iter().any(|s| s.trim() == "elided" || s.contains("...")) => {
                 WitnessStatus::Elided
             }
-            Some(_) if self.value.get("witness_loci_elided").is_some_and(|v| v != &Value::Bool(false)) => {
+            Some(_)
+                if self
+                    .value
+                    .get("witness_loci_elided")
+                    .is_some_and(|v| v != &Value::Bool(false)) =>
+            {
                 WitnessStatus::Elided
             }
             Some(w) => WitnessStatus::Present { count: w.len() },

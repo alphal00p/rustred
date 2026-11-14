@@ -105,7 +105,9 @@ impl std::fmt::Display for AssembleError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AssembleError::Io(e) => write!(f, "io: {e}"),
-            AssembleError::HeaderMismatch { field, table } => write!(f, "header field {field} of {table} differs"),
+            AssembleError::HeaderMismatch { field, table } => {
+                write!(f, "header field {field} of {table} differs")
+            }
             AssembleError::Record { source, detail } => write!(f, "{source}: {detail}"),
             AssembleError::Retire(e) => write!(f, "retirement: {e}"),
             AssembleError::Other(e) => write!(f, "{e}"),
@@ -305,10 +307,13 @@ fn scan_input(t: &InputTable, keep_skipped: bool) -> Result<Scanned, AssembleErr
                         detail: "second header".into(),
                     });
                 }
-                out.header = Some(serde_json::from_slice(line).map_err(|e| AssembleError::Record {
-                    source: t.id.clone(),
-                    detail: e.to_string(),
-                })?);
+                out.header =
+                    Some(
+                        serde_json::from_slice(line).map_err(|e| AssembleError::Record {
+                            source: t.id.clone(),
+                            detail: e.to_string(),
+                        })?,
+                    );
             }
             Some("zero_sectors") => out.zero_sectors = Some(line.to_vec()),
             Some("chart") => out.charts.push(line.to_vec()),
@@ -401,14 +406,23 @@ pub fn splice_index(head: &[u8], expected: Option<i64>, n: u64) -> Option<Vec<u8
 
 /// A key as the engine's `I(..)` text.
 pub fn key_text(k: &[i32]) -> String {
-    format!("I({})", k.iter().map(i32::to_string).collect::<Vec<_>>().join(","))
+    format!(
+        "I({})",
+        k.iter().map(i32::to_string).collect::<Vec<_>>().join(",")
+    )
 }
 
 /// Parse `I(a,b,..)` or `a,b,..`.
 pub fn parse_key_text(s: &str) -> Option<Key> {
     let s = s.trim();
-    let inner = s.strip_prefix("I(").and_then(|x| x.strip_suffix(')')).unwrap_or(s);
-    inner.split(',').map(|x| x.trim().parse::<i32>().ok()).collect()
+    let inner = s
+        .strip_prefix("I(")
+        .and_then(|x| x.strip_suffix(')'))
+        .unwrap_or(s);
+    inner
+        .split(',')
+        .map(|x| x.trim().parse::<i32>().ok())
+        .collect()
 }
 
 /// Build a containment proof object for a FULL-node retirement from the partition module's verdict (R33): only a
@@ -459,7 +473,13 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
     let header = scans[first].header.clone().unwrap_or(Value::Null);
     for (s, t) in scans.iter().zip(&inputs) {
         if let Some(h) = &s.header {
-            for f in ["denominators", "mask", "power_shifts", "family_source", "family"] {
+            for f in [
+                "denominators",
+                "mask",
+                "power_shifts",
+                "family_source",
+                "family",
+            ] {
                 if h.get(f) != header.get(f) {
                     return Err(AssembleError::HeaderMismatch {
                         field: f.into(),
@@ -498,11 +518,16 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
         if d != a.line_sha256 {
             return Err(AssembleError::Record {
                 source: a.source_id.clone(),
-                detail: format!("line at offset {} has digest {d}, expected {}", a.byte_offset, a.line_sha256),
+                detail: format!(
+                    "line at offset {} has digest {d}, expected {}",
+                    a.byte_offset, a.line_sha256
+                ),
             });
         }
         if a.position.class == PriorityClass::Input {
-            return Err(AssembleError::Other("a campaign rule in the input class".into()));
+            return Err(AssembleError::Other(
+                "a campaign rule in the input class".into(),
+            ));
         }
         let rec = parse_rule_line(&line, &a.source_id)?;
         entries.push(Entry {
@@ -553,12 +578,17 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
     entries.sort_by(|a, b| a.position.cmp(&b.position));
     // ---- exclusions: make safe in the table where possible
     let terminals: BTreeSet<&Key> = input.terminals.iter().collect();
-    let domains: Vec<Option<CaseDomain>> = entries.iter().map(|e| domain_of(&e.record, &frame)).collect();
+    let domains: Vec<Option<CaseDomain>> = entries
+        .iter()
+        .map(|e| domain_of(&e.record, &frame))
+        .collect();
     let mut hoist: BTreeMap<usize, usize> = BTreeMap::new(); // point entry -> before entry
     let mut extras: Vec<Value> = Vec::new();
     let mut safe_by: Vec<(usize, Key, String)> = Vec::new();
     for ri in 0..entries.len() {
-        let Some(ci) = entries[ri].campaign else { continue };
+        let Some(ci) = entries[ri].campaign else {
+            continue;
+        };
         for ex in &input.accepted[ci].exclusions {
             let k = match &ex.target {
                 ExclusionTarget::Key(k) => k,
@@ -589,7 +619,9 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
             }
             let point = (ri + 1..entries.len()).find(|&j| {
                 is_point(&entries[j].record)
-                    && domains[j].as_ref().is_some_and(|d| d.applies(k).stage() == Stage::Applies)
+                    && domains[j]
+                        .as_ref()
+                        .is_some_and(|d| d.applies(k).stage() == Stage::Applies)
             });
             match point {
                 Some(j) => {
@@ -621,7 +653,9 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
             for &p in ps {
                 if let Some(e) = placed[p].take() {
                     old_to_new.insert(p, final_entries.len());
-                    report.hoisted.push((final_entries.len() as u64, e.hoisted_for.clone()));
+                    report
+                        .hoisted
+                        .push((final_entries.len() as u64, e.hoisted_for.clone()));
                     final_entries.push(e);
                 }
             }
@@ -640,23 +674,29 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
     for (ri, k, how) in &safe_by {
         report.exclusions_safe += 1;
         let n = old_to_new[ri];
-        extras.push(json!({"schema": EXTRAS_SCHEMA, "kind": "key_exclusion", "rule_n": n,
-            "rule_sha256": entries[n].line_sha256, "key": k, "safe_by": how}));
+        extras.push(
+            json!({"schema": EXTRAS_SCHEMA, "kind": "key_exclusion", "rule_n": n,
+            "rule_sha256": entries[n].line_sha256, "key": k, "safe_by": how}),
+        );
     }
     for b in &mut report.blocking {
         b.rule_n = old_to_new[&(b.rule_n as usize)] as u64;
         let (kind, key, eqs) = match &b.target {
             ExclusionTarget::Key(k) => ("key_exclusion", Some(k.clone()), None),
-            ExclusionTarget::Locus { equations } => ("locus_exclusion", None, Some(equations.clone())),
+            ExclusionTarget::Locus { equations } => {
+                ("locus_exclusion", None, Some(equations.clone()))
+            }
         };
         extras.push(json!({"schema": EXTRAS_SCHEMA, "kind": kind, "rule_n": b.rule_n,
             "rule_sha256": b.rule_sha256, "key": key, "equations": eqs, "safe_by": Value::Null, "why": b.why}));
     }
     for c in &input.credits {
         report.credits_need_importer += 1;
-        extras.push(json!({"schema": EXTRAS_SCHEMA, "kind": "symmetry_credit", "key": c.key,
+        extras.push(
+            json!({"schema": EXTRAS_SCHEMA, "kind": "symmetry_credit", "key": c.key,
             "element": c.element, "image": c.image, "rule_sha256": c.rule_sha256,
-            "rule_n": by_sha.get(c.rule_sha256.as_str()), "descent_checked": true}));
+            "rule_n": by_sha.get(c.rule_sha256.as_str()), "descent_checked": true}),
+        );
     }
     // ---- write the table
     std::fs::create_dir_all(out_dir)?;
@@ -765,11 +805,16 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
                 let m = (left as usize).min(chunk.len());
                 f.read_exact(&mut chunk[..m])?;
                 lh.update(&chunk[..m]);
-                let head = splice_index(&chunk[..m], e.record.index, n_of[&(e.path.clone(), e.offset)])
-                    .ok_or_else(|| AssembleError::Record {
-                        source: e.source_id.clone(),
-                        detail: "no top-level \"index\" field in the record head (renumbering refused)".into(),
-                    })?;
+                let head = splice_index(
+                    &chunk[..m],
+                    e.record.index,
+                    n_of[&(e.path.clone(), e.offset)],
+                )
+                .ok_or_else(|| AssembleError::Record {
+                    source: e.source_id.clone(),
+                    detail: "no top-level \"index\" field in the record head (renumbering refused)"
+                        .into(),
+                })?;
                 put(&mut w, &head, &mut th_sha)?;
                 left -= m as u64;
             }

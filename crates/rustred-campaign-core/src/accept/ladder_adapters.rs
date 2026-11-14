@@ -36,11 +36,21 @@ impl std::fmt::Display for RuleName {
 pub enum KeyCoverage {
     /// A declared terminal: never dispatched.
     Terminal,
-    Covered { rule: RuleName },
+    Covered {
+        rule: RuleName,
+    },
     Uncovered,
-    Blocked { rule: RuleName, verdict: String },
-    Undecided { rule: RuleName, why: String },
-    OutsideChart { slot: usize },
+    Blocked {
+        rule: RuleName,
+        verdict: String,
+    },
+    Undecided {
+        rule: RuleName,
+        why: String,
+    },
+    OutsideChart {
+        slot: usize,
+    },
     Error(String),
 }
 
@@ -192,7 +202,12 @@ fn level_of(e: Evidence) -> EvidenceLevel {
 }
 
 impl<P: EvidenceProver> KeyProver for ChainProver<P> {
-    fn prove(&mut self, rule: &CandidateRule, keys: &[Key], wanted: EvidenceLevel) -> Vec<KeyEvidence> {
+    fn prove(
+        &mut self,
+        rule: &CandidateRule,
+        keys: &[Key],
+        wanted: EvidenceLevel,
+    ) -> Vec<KeyEvidence> {
         let all = |f: ProofFailure| {
             keys.iter()
                 .map(|k| KeyEvidence {
@@ -213,9 +228,9 @@ impl<P: EvidenceProver> KeyProver for ChainProver<P> {
         };
         match self.prover.prove(rt, src, keys) {
             ProverAnswer::Unavailable(w) => all(ProofFailure::Unsupported(w)),
-            ProverAnswer::NeedsExternal(_) => {
-                all(ProofFailure::Unknown("needs an external run (file-backed prover)".into()))
-            }
+            ProverAnswer::NeedsExternal(_) => all(ProofFailure::Unknown(
+                "needs an external run (file-backed prover)".into(),
+            )),
             ProverAnswer::PerKey { keys: st, .. } => keys
                 .iter()
                 .map(|k| {
@@ -225,9 +240,15 @@ impl<P: EvidenceProver> KeyProver for ChainProver<P> {
                         Some(KeyStatus::Failed(KeyFailure::NonMembership { .. })) => {
                             (None, Some(ProofFailure::NonMembership))
                         }
-                        Some(KeyStatus::Failed(KeyFailure::Irregular { .. })) => (None, Some(ProofFailure::Irregular)),
-                        Some(KeyStatus::Failed(KeyFailure::Hidden { .. })) => (None, Some(ProofFailure::Hidden)),
-                        Some(KeyStatus::Unsupported(w)) => (None, Some(ProofFailure::Unsupported(w))),
+                        Some(KeyStatus::Failed(KeyFailure::Irregular { .. })) => {
+                            (None, Some(ProofFailure::Irregular))
+                        }
+                        Some(KeyStatus::Failed(KeyFailure::Hidden { .. })) => {
+                            (None, Some(ProofFailure::Hidden))
+                        }
+                        Some(KeyStatus::Unsupported(w)) => {
+                            (None, Some(ProofFailure::Unsupported(w)))
+                        }
                         Some(KeyStatus::NotCredited(w)) | Some(KeyStatus::Unknown(w)) => {
                             (None, Some(ProofFailure::Unknown(w)))
                         }

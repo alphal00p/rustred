@@ -22,11 +22,19 @@ pub struct CoreView {
 
 /// Load an assembled table the way the core does (records in file order; terminals from `residual` records).
 pub fn core_view(path: &Path) -> Result<CoreView, String> {
-    let tf = read_table_file(path, ReadOptions { rhs: RhsMode::Skip }).map_err(|e| e.to_string())?;
-    let t = Table::from_table_file("assembled", path.display().to_string(), &tf, DomainOptions::default())
-        .map_err(|e| e.to_string())?;
+    let tf =
+        read_table_file(path, ReadOptions { rhs: RhsMode::Skip }).map_err(|e| e.to_string())?;
+    let t = Table::from_table_file(
+        "assembled",
+        path.display().to_string(),
+        &tf,
+        DomainOptions::default(),
+    )
+    .map_err(|e| e.to_string())?;
     if t.skipped_count() > 0 {
-        return Err("assembled table holds non-Partition records: positions would differ (refused)".into());
+        return Err(
+            "assembled table holds non-Partition records: positions would differ (refused)".into(),
+        );
     }
     let disp = Dispatcher::new(vec![t], vec![0]).map_err(|e| e.to_string())?;
     let mut terminals = BTreeSet::new();
@@ -82,7 +90,9 @@ pub struct DispatchEqual {
 impl DispatchEqual {
     /// Equal with `core_blocked` allowed only when `allow_core_blocked`.
     pub fn equal(&self, allow_core_blocked: bool) -> bool {
-        self.mismatches.is_empty() && (allow_core_blocked || self.core_blocked == 0) && self.agree == self.keys
+        self.mismatches.is_empty()
+            && (allow_core_blocked || self.core_blocked == 0)
+            && self.agree == self.keys
     }
 }
 
@@ -96,12 +106,19 @@ pub fn compare(core: &CoreView, keys: &[Key], engine_out: &str) -> Result<Dispat
         }
     }
     if lines.len() != keys.len() {
-        return Err(format!("engine answered {} keys, {} given", lines.len(), keys.len()));
+        return Err(format!(
+            "engine answered {} keys, {} given",
+            lines.len(),
+            keys.len()
+        ));
     }
     let mut r = DispatchEqual::default();
     for (k, v) in keys.iter().zip(&lines) {
         r.keys += 1;
-        let ek = v.get("key").and_then(Value::as_str).and_then(parse_key_text);
+        let ek = v
+            .get("key")
+            .and_then(Value::as_str)
+            .and_then(parse_key_text);
         if ek.as_ref() != Some(k) {
             return Err(format!("engine key {ek:?} differs from {k:?}"));
         }
@@ -115,12 +132,16 @@ pub fn compare(core: &CoreView, keys: &[Key], engine_out: &str) -> Result<Dispat
         let d = core.disp.first_match(k).map_err(|e| e.to_string())?;
         let (ok, cs, blocked) = match (&d, decision) {
             _ if core_term => (decision == "master", "terminal".to_string(), false),
-            (Dispatch::Covered(rr), "rule") => (sel == Some(rr.record), format!("rule {}", rr.record), false),
+            (Dispatch::Covered(rr), "rule") => {
+                (sel == Some(rr.record), format!("rule {}", rr.record), false)
+            }
             (Dispatch::Uncovered, "none") => (true, "none".into(), false),
             (Dispatch::Blocked { at, .. }, "rule") if sel == Some(at.record) => {
                 (true, format!("blocked {}", at.record), true)
             }
-            (Dispatch::OutsideChart { .. }, "lower" | "zero") => (true, "outside chart".into(), false),
+            (Dispatch::OutsideChart { .. }, "lower" | "zero") => {
+                (true, "outside chart".into(), false)
+            }
             (other, _) => (false, format!("{other:?}"), false),
         };
         if ok {

@@ -55,11 +55,17 @@ impl Recipe {
             line["equations"] = json!([]);
         }
         let text = serde_json::to_vec(&line).map_err(|e| e.to_string())?;
-        let rec = match RecordReader::new(text.as_slice(), ReadOptions { rhs: RhsMode::Skip }).next() {
-            Some(Ok(TableLine::Rule(r))) => *r,
-            other => return Err(format!("recipe domain is not a rule-like record: {other:?}")),
-        };
-        let domain = CaseDomain::from_rule_record(&rec, frame, DomainOptions::default()).map_err(|e| e.to_string())?;
+        let rec =
+            match RecordReader::new(text.as_slice(), ReadOptions { rhs: RhsMode::Skip }).next() {
+                Some(Ok(TableLine::Rule(r))) => *r,
+                other => {
+                    return Err(format!(
+                        "recipe domain is not a rule-like record: {other:?}"
+                    ));
+                }
+            };
+        let domain = CaseDomain::from_rule_record(&rec, frame, DomainOptions::default())
+            .map_err(|e| e.to_string())?;
         Ok(Recipe {
             contract: contract.to_string(),
             digest: sha256_tag(canonical.as_bytes()),
@@ -110,10 +116,13 @@ impl SolveAnswers {
                 continue;
             }
             let v: Value = serde_json::from_str(l).map_err(|e| format!("line {}: {e}", no + 1))?;
-            if v["schema"] != SOLVE_ANSWER_SCHEMA || v["recipe_digest"] != self.recipe_digest.as_str() {
+            if v["schema"] != SOLVE_ANSWER_SCHEMA
+                || v["recipe_digest"] != self.recipe_digest.as_str()
+            {
                 continue;
             }
-            let key: Key = serde_json::from_value(v["key"].clone()).map_err(|e| format!("line {}: key {e}", no + 1))?;
+            let key: Key = serde_json::from_value(v["key"].clone())
+                .map_err(|e| format!("line {}: key {e}", no + 1))?;
             let rhs: Vec<Key> = serde_json::from_value(v["rhs_keys"].clone()).unwrap_or_default();
             let a = SolveAnswer {
                 key: key.clone(),
@@ -127,7 +136,8 @@ impl SolveAnswers {
                 cost_ms: v["cost_ms"].as_u64().unwrap_or(0),
                 binary_sha256: v["binary_sha256"].as_str().map(str::to_string),
                 determinism_contract: v["determinism_contract"].as_str().map(str::to_string),
-                line: crate::schema::canon::canonical_json(&v, false).unwrap_or_else(|_| l.to_string()),
+                line: crate::schema::canon::canonical_json(&v, false)
+                    .unwrap_or_else(|_| l.to_string()),
             };
             let id = (key, a.run);
             if let Some(old) = self.map.get(&id)
@@ -204,13 +214,24 @@ pub enum RecipeVerdict {
         cost_ms: u64,
         determinism_checked: usize,
     },
-    Rejected { what: String },
-    Undecided { what: String },
-    NeedsExternal { requests: Vec<SolveRequest> },
+    Rejected {
+        what: String,
+    },
+    Undecided {
+        what: String,
+    },
+    NeedsExternal {
+        requests: Vec<SolveRequest>,
+    },
 }
 
 /// The request for `keys` (`run2` = the determinism sample, solved a second time independently).
-pub fn solve_request(recipe: &Recipe, keys: &[Key], run2: &[Key], binary: Option<&str>) -> SolveRequest {
+pub fn solve_request(
+    recipe: &Recipe,
+    keys: &[Key],
+    run2: &[Key],
+    binary: Option<&str>,
+) -> SolveRequest {
     let mut kf = String::new();
     for k in keys {
         kf.push_str(&k.iter().map(i32::to_string).collect::<Vec<_>>().join(","));
@@ -232,7 +253,9 @@ fn sample(cands: &[Key], d: Determinism) -> Vec<Key> {
     let want = match d {
         Determinism::None => 0,
         Determinism::Count(c) => c.min(cands.len()),
-        Determinism::PerMille(p) => ((cands.len() as u64 * p as u64).div_ceil(1000) as usize).min(cands.len()),
+        Determinism::PerMille(p) => {
+            ((cands.len() as u64 * p as u64).div_ceil(1000) as usize).min(cands.len())
+        }
     };
     if want == 0 {
         return vec![];
@@ -242,7 +265,10 @@ fn sample(cands: &[Key], d: Determinism) -> Vec<Key> {
 }
 
 /// Certify a recipe on its key set from the solve answers (interface 10.3).
-pub fn accept_recipe(input: &RecipeInput, answers: &SolveAnswers) -> Result<RecipeVerdict, AcceptError> {
+pub fn accept_recipe(
+    input: &RecipeInput,
+    answers: &SolveAnswers,
+) -> Result<RecipeVerdict, AcceptError> {
     let node = &input.node;
     if answers.recipe_digest != input.recipe.digest {
         return Ok(RecipeVerdict::Undecided {
@@ -265,35 +291,68 @@ pub fn accept_recipe(input: &RecipeInput, answers: &SolveAnswers) -> Result<Reci
                 got: k.len(),
             });
         }
-        match composed_stop_domain(node, input.before, Some(&input.recipe.domain), input.after, k)? {
+        match composed_stop_domain(
+            node,
+            input.before,
+            Some(&input.recipe.domain),
+            input.after,
+            k,
+        )? {
             Stop::Served => cands.push(k.clone()),
             other => open.push((k.clone(), OpenReason::NotDispatched(format!("{other:?}")))),
         }
     }
     let run2 = sample(&cands, input.determinism);
-    let missing: Vec<Key> = cands.iter().filter(|k| answers.get(k, 1).is_none()).cloned().collect();
-    let missing2: Vec<Key> = run2.iter().filter(|k| answers.get(k, 2).is_none()).cloned().collect();
+    let missing: Vec<Key> = cands
+        .iter()
+        .filter(|k| answers.get(k, 1).is_none())
+        .cloned()
+        .collect();
+    let missing2: Vec<Key> = run2
+        .iter()
+        .filter(|k| answers.get(k, 2).is_none())
+        .cloned()
+        .collect();
     if !missing.is_empty() || !missing2.is_empty() {
-        let keys_req: Vec<Key> = if missing.is_empty() { missing2.clone() } else { missing };
+        let keys_req: Vec<Key> = if missing.is_empty() {
+            missing2.clone()
+        } else {
+            missing
+        };
         return Ok(RecipeVerdict::NeedsExternal {
-            requests: vec![solve_request(input.recipe, &keys_req, &missing2, input.expected_binary.as_deref())],
+            requests: vec![solve_request(
+                input.recipe,
+                &keys_req,
+                &missing2,
+                input.expected_binary.as_deref(),
+            )],
         });
     }
     let binary = input
         .expected_binary
         .clone()
-        .or_else(|| cands.first().and_then(|k| answers.get(k, 1)).and_then(|a| a.binary_sha256.clone()))
+        .or_else(|| {
+            cands
+                .first()
+                .and_then(|k| answers.get(k, 1))
+                .and_then(|a| a.binary_sha256.clone())
+        })
         .unwrap_or_default();
     for k in run2.iter() {
         let (a, b) = (answers.get(k, 1).unwrap(), answers.get(k, 2).unwrap());
-        if a.binary_sha256.as_deref() != Some(binary.as_str()) || b.binary_sha256.as_deref() != Some(binary.as_str()) {
+        if a.binary_sha256.as_deref() != Some(binary.as_str())
+            || b.binary_sha256.as_deref() != Some(binary.as_str())
+        {
             return Ok(RecipeVerdict::Undecided {
                 what: format!("stale: determinism answers at {k:?} not from binary {binary}"),
             });
         }
         if (a.ok, &a.relation_digest) != (b.ok, &b.relation_digest) {
             return Ok(RecipeVerdict::Rejected {
-                what: format!("determinism: two solves at {k:?} give {:?} and {:?}", a.relation_digest, b.relation_digest),
+                what: format!(
+                    "determinism: two solves at {k:?} give {:?} and {:?}",
+                    a.relation_digest, b.relation_digest
+                ),
             });
         }
     }
@@ -313,7 +372,10 @@ pub fn accept_recipe(input: &RecipeInput, answers: &SolveAnswers) -> Result<Reci
             });
         }
         if !a.ok || a.relation_digest.is_none() {
-            open.push((k.clone(), OpenReason::SolveFailed(a.failure.clone().unwrap_or_default())));
+            open.push((
+                k.clone(),
+                OpenReason::SolveFailed(a.failure.clone().unwrap_or_default()),
+            ));
             continue;
         }
         if a.exact_check != "pass" {

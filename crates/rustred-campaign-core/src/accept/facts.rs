@@ -22,9 +22,13 @@ use crate::poly::Poly;
 pub enum RegVerdict {
     Regular,
     /// RHS term `term` has a denominator that vanishes identically in d at the rule point.
-    Pole { term: usize },
+    Pole {
+        term: usize,
+    },
     /// Witness locus `locus` vanishes at the rule point (a hidden weight pole: the key needs its own proof).
-    Hidden { locus: usize },
+    Hidden {
+        locus: usize,
+    },
     Unknown(String),
 }
 
@@ -78,7 +82,10 @@ pub fn split_ratio(text: &str) -> Result<(&str, Option<&str>), String> {
 
 #[derive(Clone, Debug)]
 enum Parsed {
-    Ok { num: PoleLocus, den: Option<PoleLocus> },
+    Ok {
+        num: PoleLocus,
+        den: Option<PoleLocus>,
+    },
     Bad(String),
 }
 
@@ -95,29 +102,31 @@ impl ExactRecordFacts {
 
     fn parsed(&mut self, rule: &RuleText) -> &Vec<Parsed> {
         let arity = rule.record.fixed.len();
-        self.cache.entry(rule.line_sha256.clone()).or_insert_with(|| {
-            rule.rhs
-                .iter()
-                .map(|(_, c)| {
-                    let (n, d) = match split_ratio(c.trim()) {
-                        Ok(x) => x,
-                        Err(e) => return Parsed::Bad(e),
-                    };
-                    let num = match Poly::parse(n.trim(), arity, true) {
-                        Ok(p) => PoleLocus::new(PoleKind::Denominator, &p),
-                        Err(e) => return Parsed::Bad(format!("numerator: {e:?}")),
-                    };
-                    let den = match d {
-                        None => None,
-                        Some(d) => match Poly::parse(d.trim(), arity, true) {
-                            Ok(p) => Some(PoleLocus::new(PoleKind::Denominator, &p)),
-                            Err(e) => return Parsed::Bad(format!("denominator: {e:?}")),
-                        },
-                    };
-                    Parsed::Ok { num, den }
-                })
-                .collect()
-        })
+        self.cache
+            .entry(rule.line_sha256.clone())
+            .or_insert_with(|| {
+                rule.rhs
+                    .iter()
+                    .map(|(_, c)| {
+                        let (n, d) = match split_ratio(c.trim()) {
+                            Ok(x) => x,
+                            Err(e) => return Parsed::Bad(e),
+                        };
+                        let num = match Poly::parse(n.trim(), arity, true) {
+                            Ok(p) => PoleLocus::new(PoleKind::Denominator, &p),
+                            Err(e) => return Parsed::Bad(format!("numerator: {e:?}")),
+                        };
+                        let den = match d {
+                            None => None,
+                            Some(d) => match Poly::parse(d.trim(), arity, true) {
+                                Ok(p) => Some(PoleLocus::new(PoleKind::Denominator, &p)),
+                                Err(e) => return Parsed::Bad(format!("denominator: {e:?}")),
+                            },
+                        };
+                        Parsed::Ok { num, den }
+                    })
+                    .collect()
+            })
     }
 }
 
@@ -214,7 +223,8 @@ impl InstantiateFacts {
             if line.trim().is_empty() {
                 continue;
             }
-            let v: Value = serde_json::from_str(line).map_err(|e| format!("line {}: {e}", no + 1))?;
+            let v: Value =
+                serde_json::from_str(line).map_err(|e| format!("line {}: {e}", no + 1))?;
             if v.get("schema").and_then(Value::as_str) == Some("rustred.campaign.fact.v1") {
                 continue;
             }
@@ -252,7 +262,10 @@ impl InstantiateFacts {
             if let Some(old) = f.answers.get(&(rule, key.clone()))
                 && (old.regular != ans.regular || old.coef != ans.coef)
             {
-                return Err(format!("line {}: conflicting answers for rule {rule}", no + 1));
+                return Err(format!(
+                    "line {}: conflicting answers for rule {rule}",
+                    no + 1
+                ));
             }
             f.answers.insert((rule, key), ans);
         }
@@ -293,9 +306,10 @@ impl Regularity for InstantiateFacts {
     fn regular(&mut self, rule: &RuleText, key: &[i32]) -> RegVerdict {
         match self.get(rule, key) {
             None => RegVerdict::Unknown("no instantiate answer".into()),
-            Some(a) if a.error.is_some() => {
-                RegVerdict::Unknown(format!("instantiate error {}", a.error.clone().unwrap_or_default()))
-            }
+            Some(a) if a.error.is_some() => RegVerdict::Unknown(format!(
+                "instantiate error {}",
+                a.error.clone().unwrap_or_default()
+            )),
             Some(a) => match a.regular.as_str() {
                 "regular" => RegVerdict::Regular,
                 "irregular" => RegVerdict::Pole { term: usize::MAX },
@@ -307,7 +321,12 @@ impl Regularity for InstantiateFacts {
 }
 
 /// EC-2 request line, form (A): `{"table": PATH, "offset": BYTES?, "rule": INDEX, "keys": [[..], ..]}`.
-pub fn instantiate_request(table: &str, offset: Option<u64>, index: i64, keys: &[Vec<i32>]) -> String {
+pub fn instantiate_request(
+    table: &str,
+    offset: Option<u64>,
+    index: i64,
+    keys: &[Vec<i32>],
+) -> String {
     let mut v = json!({"table": table, "rule": index, "keys": keys});
     if let Some(o) = offset {
         v["offset"] = json!(o);
@@ -349,7 +368,12 @@ impl Default for ClosureFacts {
 }
 
 impl crate::closure::facts::FactSource for ClosureFacts {
-    fn coefficient(&self, rule: &crate::closure::facts::RuleId, key: &[i32], term: usize) -> CoefFact {
+    fn coefficient(
+        &self,
+        rule: &crate::closure::facts::RuleId,
+        key: &[i32],
+        term: usize,
+    ) -> CoefFact {
         match self.rules.get(&(rule.table.to_string(), rule.record)) {
             Some(r) => self
                 .inner
@@ -359,7 +383,11 @@ impl crate::closure::facts::FactSource for ClosureFacts {
             None => CoefFact::Unknown,
         }
     }
-    fn regularity(&self, rule: &crate::closure::facts::RuleId, key: &[i32]) -> crate::closure::facts::RegFact {
+    fn regularity(
+        &self,
+        rule: &crate::closure::facts::RuleId,
+        key: &[i32],
+    ) -> crate::closure::facts::RegFact {
         use crate::closure::facts::RegFact;
         let Some(r) = self.rules.get(&(rule.table.to_string(), rule.record)) else {
             return RegFact::Unknown;
@@ -383,7 +411,10 @@ mod tests {
     fn split_forms() {
         assert_eq!(split_ratio("1").unwrap(), ("1", None));
         assert_eq!(split_ratio("(a)/(b)").unwrap(), ("(a)", Some("(b)")));
-        assert_eq!(split_ratio("-n0/(-1+n4)").unwrap(), ("-n0", Some("(-1+n4)")));
+        assert_eq!(
+            split_ratio("-n0/(-1+n4)").unwrap(),
+            ("-n0", Some("(-1+n4)"))
+        );
         assert!(split_ratio("a/b/c").is_err());
         assert!(split_ratio("(a/b").is_err());
     }

@@ -205,7 +205,9 @@ pub mod replay_adapter {
         let arity = rule.record.fixed.len();
         let rr = match RowsRule::from_value(rule.value.clone(), arity) {
             Ok(r) => r,
-            Err(e) => return ProverAnswer::Unavailable(format!("identity test refuses the record: {e}")),
+            Err(e) => {
+                return ProverAnswer::Unavailable(format!("identity test refuses the record: {e}"));
+            }
         };
         let keys64: Vec<Vec<i64>> = served
             .iter()
@@ -223,8 +225,11 @@ pub mod replay_adapter {
             tool: rec.tool_version.to_string(),
             body: Some(body),
         };
-        let served_set: BTreeMap<Vec<i64>, usize> =
-            keys64.iter().enumerate().map(|(i, k)| (k.clone(), i)).collect();
+        let served_set: BTreeMap<Vec<i64>, usize> = keys64
+            .iter()
+            .enumerate()
+            .map(|(i, k)| (k.clone(), i))
+            .collect();
         let mut status: Vec<Option<KeyStatus>> = vec![None; served.len()];
         let mut rule_level: Vec<String> = Vec::new();
         let mut disproof = false;
@@ -250,9 +255,11 @@ pub mod replay_adapter {
                         })
                         .unwrap_or_else(|| "not in span".into()),
                 })),
-                PointStatus::Pole { coefficient } => Some(KeyStatus::Failed(KeyFailure::Irregular {
-                    detail: format!("identity test: pole of coefficient {coefficient}"),
-                })),
+                PointStatus::Pole { coefficient } => {
+                    Some(KeyStatus::Failed(KeyFailure::Irregular {
+                        detail: format!("identity test: pole of coefficient {coefficient}"),
+                    }))
+                }
                 other => Some(KeyStatus::Unknown(format!("identity point: {other:?}"))),
             };
             match (at, bad) {
@@ -285,10 +292,12 @@ pub mod replay_adapter {
         }
         let established = rec.level == ReplayLevel::Established;
         let key_failures = status.iter().any(Option::is_some);
-        if !established && !key_failures && rule_level.is_empty() {
-            if let ReplayLevel::NotEstablished { reasons } = &rec.level {
-                rule_level.extend(reasons.iter().cloned());
-            }
+        if !established
+            && !key_failures
+            && rule_level.is_empty()
+            && let ReplayLevel::NotEstablished { reasons } = &rec.level
+        {
+            rule_level.extend(reasons.iter().cloned());
         }
         let keys = served
             .iter()
@@ -296,7 +305,9 @@ pub mod replay_adapter {
             .map(|(k, s)| {
                 let s = match s {
                     Some(s) => s,
-                    None if established && rule_level.is_empty() => KeyStatus::Reached(Evidence::Replay),
+                    None if established && rule_level.is_empty() => {
+                        KeyStatus::Reached(Evidence::Replay)
+                    }
                     None if rule_level.is_empty() => {
                         KeyStatus::Unknown("replay not established on the whole served set".into())
                     }
@@ -373,8 +384,10 @@ fn answer_key(v: &Value, fixed: &[Option<i64>]) -> Option<Vec<i32>> {
             .map(|x| x.as_i64().and_then(|y| i32::try_from(y).ok()))
             .collect(),
         Value::Object(m) => {
-            let mut k: Vec<Option<i32>> =
-                fixed.iter().map(|f| f.and_then(|x| i32::try_from(x).ok())).collect();
+            let mut k: Vec<Option<i32>> = fixed
+                .iter()
+                .map(|f| f.and_then(|x| i32::try_from(x).ok()))
+                .collect();
             for (name, x) in m {
                 let i: usize = name.strip_prefix('n')?.parse().ok()?;
                 *k.get_mut(i)? = Some(i32::try_from(x.as_i64()?).ok()?);
@@ -415,7 +428,10 @@ impl FilePerKeyProver {
             return Some("symmetry rows: instance-span has no symmetry rows (R46)".into());
         }
         if !self.arities.contains(&arity) {
-            return Some(format!("arity {arity}: the prover is built for {:?}", self.arities));
+            return Some(format!(
+                "arity {arity}: the prover is built for {:?}",
+                self.arities
+            ));
         }
         if rule.witness_status() == WitnessStatus::Elided {
             return Some("witness loci elided".into());
@@ -424,7 +440,9 @@ impl FilePerKeyProver {
             match unit_pivot(e, arity) {
                 Ok(true) => {}
                 Ok(false) => {
-                    return Some(format!("affine case equation without a unit coefficient: {e}"));
+                    return Some(format!(
+                        "affine case equation without a unit coefficient: {e}"
+                    ));
                 }
                 Err(err) => return Some(format!("case equation unreadable: {e}: {err}")),
             }
@@ -459,7 +477,12 @@ impl FilePerKeyProver {
         if let Some(c) = &self.cert {
             argv.extend(["--cert".to_string(), c.clone()]);
         }
-        argv.extend(["--keys".to_string(), "KEYS".into(), "--out".into(), "OUT".into()]);
+        argv.extend([
+            "--keys".to_string(),
+            "KEYS".into(),
+            "--out".into(),
+            "OUT".into(),
+        ]);
         ExternalRequest {
             tool: "rr_proof instance-span".into(),
             path_hint: format!("instance-span/{}.request.jsonl", &rule.line_sha256[7..23]),
@@ -476,7 +499,8 @@ impl FilePerKeyProver {
             if line.trim().is_empty() {
                 continue;
             }
-            let v: Value = serde_json::from_str(line).map_err(|e| format!("line {}: {e}", no + 1))?;
+            let v: Value =
+                serde_json::from_str(line).map_err(|e| format!("line {}: {e}", no + 1))?;
             let verdict = v.get("verdict").and_then(Value::as_str).unwrap_or("");
             if v.get("schema").and_then(Value::as_str) != Some(SPAN_ANSWER_SCHEMA) {
                 if matches!(verdict, "ERROR" | "UNSUPPORTED") || verdict.starts_with("MISSING_") {
@@ -490,12 +514,24 @@ impl FilePerKeyProver {
             if let (Some(r), Some(i)) = (v.get("rule").and_then(Value::as_i64), rule.index())
                 && r != i
             {
-                return Err(format!("line {}: answer for rule {r}, expected {i}", no + 1));
+                return Err(format!(
+                    "line {}: answer for rule {r}, expected {i}",
+                    no + 1
+                ));
             }
-            for k in v.get("keys").and_then(Value::as_array).into_iter().flatten() {
+            for k in v
+                .get("keys")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
                 let key = answer_key(k.get("key").unwrap_or(&Value::Null), &rule.record.fixed)
                     .ok_or_else(|| format!("line {}: unreadable key {k}", no + 1))?;
-                let st = k.get("status").and_then(Value::as_str).unwrap_or("").to_string();
+                let st = k
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
                 if let Some(old) = per_key.insert(key.clone(), st.clone())
                     && old != st
                 {
@@ -521,16 +557,20 @@ pub fn map_span_status(status: &str) -> KeyStatus {
     let word = status.split_whitespace().next().unwrap_or("");
     match word {
         "EXACT_IN_SPAN_AT_KEY" | "EXACT_PROVED_AT_KEY" => KeyStatus::Reached(Evidence::PerKey),
-        "EXACT_NOT_IN_SPAN_AT_KEY" | "FAIL_AT_KEY" => KeyStatus::Failed(KeyFailure::NonMembership {
-            disproof: status.to_string(),
-        }),
+        "EXACT_NOT_IN_SPAN_AT_KEY" | "FAIL_AT_KEY" => {
+            KeyStatus::Failed(KeyFailure::NonMembership {
+                disproof: status.to_string(),
+            })
+        }
         "IRREGULAR_KEY" => KeyStatus::Failed(KeyFailure::Irregular {
             detail: status.to_string(),
         }),
         "HIDDEN_KEY" => KeyStatus::Failed(KeyFailure::Hidden {
             detail: status.to_string(),
         }),
-        "ON_EXCEPTION_BRANCH" | "NOT_IN_CASE" | "NOT_IN_CHART" => KeyStatus::NotCredited(word.to_string()),
+        "ON_EXCEPTION_BRANCH" | "NOT_IN_CASE" | "NOT_IN_CHART" => {
+            KeyStatus::NotCredited(word.to_string())
+        }
         "" => KeyStatus::Unknown("no status".into()),
         other => KeyStatus::Unknown(other.to_string()),
     }
@@ -619,16 +659,26 @@ impl ImportedEvidence {
             if v["schema"] != crate::schema::ACCEPT_SCHEMA {
                 continue;
             }
-            let Some(d) = v["bank"]["rule_line_sha256"].as_str().or(v["rule"]["rule_line_sha256"].as_str()) else {
+            let Some(d) = v["bank"]["rule_line_sha256"]
+                .as_str()
+                .or(v["rule"]["rule_line_sha256"].as_str())
+            else {
                 continue;
             };
             let info = ImportedInfo {
                 rule_id: v["rule"]["id"].as_str().unwrap_or("").into(),
                 label: v["imported_from"]["label"].as_str().unwrap_or("").into(),
-                original_verdict: v["imported_from"]["original_verdict"].as_str().unwrap_or("").into(),
+                original_verdict: v["imported_from"]["original_verdict"]
+                    .as_str()
+                    .unwrap_or("")
+                    .into(),
                 producer_known: v["rule"]["producer"]["bin_blake3"].as_str().is_some(),
                 level_after: v["level_after"].as_str().unwrap_or("").into(),
-                line_digest: sha256_tag(crate::schema::canon::canonical_json(&v, true).unwrap_or_default().as_bytes()),
+                line_digest: sha256_tag(
+                    crate::schema::canon::canonical_json(&v, true)
+                        .unwrap_or_default()
+                        .as_bytes(),
+                ),
             };
             e.by_line.insert(d.to_string(), info);
         }
@@ -646,7 +696,9 @@ impl ImportedEvidence {
         let mut with_lf = rule.line.clone();
         with_lf.push(b'\n');
         let lf = sha256_tag(&with_lf);
-        self.by_line.get(bare).or_else(|| self.by_line.get(lf.trim_start_matches("sha256:")))
+        self.by_line
+            .get(bare)
+            .or_else(|| self.by_line.get(lf.trim_start_matches("sha256:")))
     }
 }
 
@@ -665,7 +717,10 @@ impl EvidenceProver for ImportedProver {
             return ProverAnswer::Unavailable("no import record for this rule line".into());
         };
         ProverAnswer::PerKey {
-            keys: served.iter().map(|k| (k.clone(), KeyStatus::Reached(Evidence::Imported))).collect(),
+            keys: served
+                .iter()
+                .map(|k| (k.clone(), KeyStatus::Reached(Evidence::Imported)))
+                .collect(),
             artefact: Some(EvidenceArtefact {
                 schema: crate::schema::ACCEPT_SCHEMA.into(),
                 digest: info.line_digest.clone(),
