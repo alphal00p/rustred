@@ -32,12 +32,9 @@ use crate::accept::{
 };
 use crate::closure::sha256::Sha256;
 use crate::domain::{CaseDomain, DomainOptions, Stage};
-use crate::economy::{ContainmentProof, CoverageState, RetireError, Retirement};
+use crate::economy::{CoverageState, RetireError, Retirement};
 use crate::key::{Key, NodeFrame};
 use crate::order::NodeComparator;
-use crate::partition::{
-    CoverageNotion, DispatchOrderStatement, PartitionReport, dispatch_proof_method,
-};
 use crate::record::{ReadOptions, RecordReader, RhsMode, RuleRecord, TableHeader, TableLine};
 
 pub const ASSEMBLY_SCHEMA: &str = "rustred.campaign.assembly.v1";
@@ -744,37 +741,9 @@ pub fn parse_key_text(s: &str) -> Option<Key> {
         .collect()
 }
 
-/// Build a containment proof object for a FULL-node retirement (R33) from the partition module's DISPATCH-mode
-/// verdict: only a report of the NEW table set computed with `CoverageNotion::DispatchCoverage` whose
-/// `proves_no_gap(DispatchCoverage)` is `Ok` gives one; its method is `dispatch_proof_method(order)`, so the proof
-/// states whether the dispatch order is the old one or a new one (digest). A union-coverage report (or a
-/// `contained_in` `Proved`) does NOT give a proof any more (audit-part-A M3: union coverage is not a first-match
-/// proof; `Retirement::new` on a FULL node refuses every other method). `None` = no proof available.
-pub fn containment_proof(
-    report: &PartitionReport,
-    order: &DispatchOrderStatement,
-    old_tables_digest: &str,
-    new_tables_digest: &str,
-) -> Option<ContainmentProof> {
-    let certificate = report
-        .proves_no_gap(CoverageNotion::DispatchCoverage)
-        .ok()?;
-    if let DispatchOrderStatement::NewOrder(d) = order
-        && d.is_empty()
-    {
-        return None;
-    }
-    let mut h = Sha256::new();
-    h.update(certificate.as_bytes());
-    // The proof type has private fields (ladder audit A M5): it is built only here, from a dispatch-mode no-gap
-    // verdict of the partition module, through the crate-internal checked constructor.
-    Some(ContainmentProof::checked(
-        old_tables_digest,
-        new_tables_digest,
-        &dispatch_proof_method(order),
-        &h.finish_hex(),
-    ))
-}
+// (re-audit ladder-A M3, lane ladderfix2: the former `containment_proof(report, ..)` minted a FULL-node proof from a
+// caller-supplied partition report, i.e. from a verdict; removed. The only constructor is now
+// `crate::economy::prove_coverage_preserved`, which runs the dispatch-mode partition itself.)
 
 fn domain_of(rec: &RuleRecord, frame: &NodeFrame) -> Option<CaseDomain> {
     CaseDomain::from_rule_record(rec, frame, DomainOptions::default()).ok()

@@ -16,7 +16,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::affine::AffineEq;
 use super::children::{derive_children, excepting_branch};
 use super::items::{Budgets, CaseSpec, EvidenceLevel, Item, ItemId, ItemKind, Key, NodeParams};
-use super::seed::{AttemptBudget, SeedSetting, attempt_budget, engine_seed_args, seed_space};
+use super::seed::{
+    AttemptBudget, BudgetClass, SeedSetting, attempt_budget, engine_seed_args, is_information,
+    seed_space, setting_work,
+};
 use crate::domain::{CaseDomain, Stage, Verdict};
 use crate::economy::SelectionScore;
 use crate::repair::{Descent, FactSource};
@@ -164,6 +167,24 @@ pub struct AttemptRecord {
     /// The case the record's candidates were generated for, when it is not the item's own case (a reserve candidate
     /// inherited from the parent item, see [`InheritedCandidate`]).
     pub case: Option<CaseSpec>,
+    /// A WORK-COUNTER budget stop in the OVERSIZED (largest) class: the shells were searched up to this work counter
+    /// (`AttemptBudget::max_rows`) and nothing was found. Counts as "tried within budget" for the exhaustion token
+    /// (flagged there, re-audit A ruling 4.1) as long as the node's CURRENT oversized budget is not larger; a retry
+    /// with a larger budget re-opens the setting (it is never shadowed by this record).
+    pub budget_limited: Option<u64>,
+}
+
+/// State of one setting of the seed space at the node's CURRENT budgets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SettingState {
+    /// `Rules` / `NoRelation`.
+    Verdict,
+    /// Searched to the current largest work counter without a relation (re-audit A ruling 4.1).
+    WithinBudget,
+    /// The retry caps are used up without a verdict (crash, kill, refusal, wall-clock stop, infra cap).
+    NoVerdict,
+    /// Still to be run (or re-run: the budget grew since a work-counter stop).
+    Open,
 }
 
 impl AttemptRecord {
@@ -177,6 +198,7 @@ impl AttemptRecord {
             infra_interrupts: 0,
             cpu_ms_total: 0,
             case: None,
+            budget_limited: None,
         }
     }
 
@@ -189,13 +211,35 @@ impl AttemptRecord {
     /// setting then has NO verdict: it can never count for an exhaustion token).
     pub fn settled(&self, b: &Budgets) -> bool {
         self.answer.is_some()
+            || self.budget_limited.is_some()
             || self.non_verdict.len() as u64 > b.nonverdict_retries as u64
             || self.infra_interrupts > b.infra_retries
     }
 
+    /// The setting's state at the CURRENT budgets: `current_rows` is the work counter of the setting's oversized
+    /// (largest) class under the node's parameters now. A work-counter stop recorded under a SMALLER counter is
+    /// open again (a retry with a larger budget re-runs exactly those settings).
+    pub fn state(&self, b: &Budgets, current_rows: u64) -> SettingState {
+        if self.answer.is_some() {
+            return SettingState::Verdict;
+        }
+        if self
+            .budget_limited
+            .is_some_and(|m| m > 0 && m >= current_rows)
+        {
+            return SettingState::WithinBudget;
+        }
+        if self.non_verdict.len() as u64 > b.nonverdict_retries as u64
+            || self.infra_interrupts > b.infra_retries
+        {
+            return SettingState::NoVerdict;
+        }
+        SettingState::Open
+    }
+
     /// Settled without a verdict.
     pub fn settled_without_verdict(&self, b: &Budgets) -> bool {
-        self.answer.is_none() && self.settled(b)
+        self.answer.is_none() && self.budget_limited.is_none() && self.settled(b)
     }
 
     pub fn candidates(&self) -> &[CandidateRule] {
@@ -493,6 +537,12 @@ pub enum ExclusionReason {
     /// The locus of a child item read from this rule's POLE locus: the rule is excluded there so that the child is
     /// reached (a pole blocks first-match dispatch).
     PoleLocusChild { child: ItemId },
+    /// A gap point of an item the run did NOT process (the run STOPPED at a limit before reaching it; re-audit B
+    /// C1): the rule was never judged there. PROVISIONAL: a retry that processes the item decides the key.
+    NotProcessed { item: ItemId },
+    /// The winner-diff stage (repair-library.md v1.3 6.1) found the rule winning at this key and its per-key
+    /// check did not pass (fail or unknown): the rule is not dispatched there.
+    WinnerCheckFailed { why: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -529,15 +579,18 @@ pub fn exclusion_reason(v: &PointVerdict) -> Option<ExclusionReason> {
 // ------------------------------------------------------------------------------------------------------------------
 // The exhaustion token (C3, (e))
 
-/// The token that a POINT's ladder failed completely: EVERY setting of the policy's seed space of the item has a
-/// VERDICT outcome (no crash, kill, refusal, budget stop or interrupt counts) and no candidate was accepted at the
-/// key. Fields are private and it has no `Deserialize`: the only constructors are the ladder (`next_steps`) and
+/// The token that a POINT's ladder failed completely: EVERY GATING setting of the policy's seed space of the item has
+/// a VERDICT outcome or was searched to the node's largest work counter ("within budget", flagged in
+/// [`Self::budget_limited`]); no crash, kill, refusal, wall-clock stop or interrupt counts; no candidate was accepted
+/// at the key. INFORMATION settings (symmetry rows without a certificate route, [`is_information`]) never gate it;
+/// a relation they found is listed in [`Self::uncertified_relations`] ("relation found, awaiting a certificate
+/// route"). Fields are private and it has no `Deserialize`: the only constructors are the ladder (`next_steps`) and
 /// [`LadderExhaustedRecord::verify`], which re-checks the item state.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct LadderExhausted {
     item: ItemId,
     key: Key,
-    /// Number of verdict outcomes (= the size of the seed space).
+    /// Number of gating settings with a verdict or a within-budget stop (= the size of the gating seed space).
     attempts: u32,
     settings: u32,
     depth3_tried: bool,
@@ -546,41 +599,115 @@ pub struct LadderExhausted {
     /// replace the space).
     space_has_depth3_unfloored: bool,
     parent: Option<ItemId>,
+    /// Gating settings searched only to the largest WORK COUNTER (label, counter): "terminal within budget"; a later
+    /// run with a larger budget retries exactly these (re-audit A ruling 4.1).
+    budget_limited: Vec<(String, u64)>,
+    /// Relations found by information settings or with symmetry rows the provers cannot certify: (setting label,
+    /// rule digest). Never accepted, never a failure: the terminal proposal is "awaiting a certificate route" and is
+    /// re-queued when the capabilities change (re-audit A ruling 4.3).
+    uncertified_relations: Vec<(String, String)>,
+    /// Information settings and their outcome tag ("no answer" if never answered); they do not gate the token.
+    information: Vec<(String, String)>,
+}
+
+/// (gating settings with their state, information settings with their outcome tag).
+type RungCensus = (Vec<(SeedSetting, SettingState)>, Vec<(String, String)>);
+
+/// Classification of the seed space of an item for the terminal rung: gating settings (label, record state) and the
+/// information settings (label, outcome).
+fn rung_census(state: &ItemState, params: &NodeParams, point: bool) -> RungCensus {
+    let item = &state.item;
+    let b = &params.budgets;
+    let mut gating = Vec::new();
+    let mut info = Vec::new();
+    for s in seed_space(&item.case, params).into_iter().flatten() {
+        let rec = state.records.get(&attempt_key(&item.id, &s));
+        if is_information(&s, params) {
+            let tag = match rec {
+                Some(r) => match &r.answer {
+                    Some(a) => a.outcome.tag().to_string(),
+                    None => r
+                        .non_verdict
+                        .last()
+                        .cloned()
+                        .unwrap_or_else(|| "no answer".into()),
+                },
+                None => "no answer".into(),
+            };
+            info.push((s.label(), tag));
+            continue;
+        }
+        let rows = current_rows(&s, &item.case, params, point);
+        let st = rec.map_or(SettingState::Open, |r| r.state(b, rows));
+        gating.push((s, st));
+    }
+    (gating, info)
+}
+
+/// The work counter of a setting's oversized (largest) class under the node's current parameters.
+fn current_rows(s: &SeedSetting, case: &CaseSpec, params: &NodeParams, point: bool) -> u64 {
+    attempt_budget(s, case, params, point, true).max_rows
+}
+
+/// Candidates the provers can never certify at the node's level (symmetry rows without capability), with the label
+/// of the setting that found them.
+fn uncertified_relations(state: &ItemState, params: &NodeParams) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    if params.capabilities.can(true, params.min_evidence) {
+        return out;
+    }
+    for r in state.records.values() {
+        for c in r.candidates() {
+            if r.setting.symmetry_rows || c.symmetry_rows {
+                out.push((r.setting.label(), c.digest.clone()));
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
 }
 
 impl LadderExhausted {
-    /// Mint the token from the item state, or `None` if a setting lacks a verdict.
+    /// Mint the token from the item state, or `None` if a gating setting lacks a verdict / within-budget stop.
     pub(crate) fn mint(state: &ItemState, params: &NodeParams, key: &[i32]) -> Option<Self> {
         let item = &state.item;
         if !item.gap_points.iter().any(|k| k.as_slice() == key) {
             return None;
         }
-        let space: Vec<SeedSetting> = seed_space(&item.case, params)
-            .into_iter()
-            .flatten()
-            .collect();
-        if space.is_empty() {
+        let point = item.kind == ItemKind::Point || item.case.is_point();
+        let (gating, information) = rung_census(state, params, point);
+        if gating.is_empty() {
             return None;
         }
-        let mut recs = Vec::new();
-        for s in &space {
-            let r = state.records.get(&attempt_key(&item.id, s))?;
-            if !r.is_verdict() {
-                return None;
+        let mut budget_limited = Vec::new();
+        for (s, st) in &gating {
+            match st {
+                SettingState::Verdict => {}
+                SettingState::WithinBudget => budget_limited.push((
+                    s.label(),
+                    state
+                        .records
+                        .get(&attempt_key(&item.id, s))
+                        .and_then(|r| r.budget_limited)
+                        .unwrap_or(0),
+                )),
+                _ => return None,
             }
-            recs.push(r);
         }
+        let space: Vec<&SeedSetting> = gating.iter().map(|(s, _)| s).collect();
         Some(LadderExhausted {
             item: item.id.clone(),
             key: key.to_vec(),
-            attempts: recs.len() as u32,
-            settings: space.len() as u32,
-            depth3_tried: recs.iter().any(|r| r.setting.depth >= 3),
-            depth3_unfloored_tried: recs
-                .iter()
-                .any(|r| r.setting.depth >= 3 && !r.setting.floor),
+            attempts: gating.len() as u32,
+            settings: gating.len() as u32,
+            depth3_tried: space.iter().any(|s| s.depth >= 3),
+            depth3_unfloored_tried: space.iter().any(|s| s.depth >= 3 && !s.floor),
             space_has_depth3_unfloored: space.iter().any(|s| s.depth >= 3 && !s.floor),
             parent: item.parent.clone(),
+            budget_limited,
+            uncertified_relations: uncertified_relations(state, params),
+            information,
         })
     }
 
@@ -605,6 +732,26 @@ impl LadderExhausted {
     pub fn parent(&self) -> Option<&ItemId> {
         self.parent.as_ref()
     }
+    /// Settings searched only to the largest work counter: the proposal is a "terminal within budget".
+    pub fn budget_limited(&self) -> &[(String, u64)] {
+        &self.budget_limited
+    }
+    /// Some gating setting was searched only to the work counter (not to the end of its shells).
+    pub fn within_budget(&self) -> bool {
+        !self.budget_limited.is_empty()
+    }
+    /// Relations found that no prover can certify at the node's level (symmetry rows).
+    pub fn uncertified_relations(&self) -> &[(String, String)] {
+        &self.uncertified_relations
+    }
+    /// A relation exists for the key but awaits a certificate route (re-audit A ruling 4.3).
+    pub fn awaiting_certificate_route(&self) -> bool {
+        !self.uncertified_relations.is_empty()
+    }
+    /// The information settings and their outcomes (they never gate the token).
+    pub fn information(&self) -> &[(String, String)] {
+        &self.information
+    }
     /// The deep condition of plan 2.4.4 (7): if the space has a depth >= 3 unfloored setting, it was tried (always
     /// true for a minted token; kept as an explicit check for the terminal set).
     pub fn deep_condition_met(&self) -> bool {
@@ -621,6 +768,9 @@ impl LadderExhausted {
             depth3_unfloored_tried: self.depth3_unfloored_tried,
             space_has_depth3_unfloored: self.space_has_depth3_unfloored,
             parent: self.parent.clone(),
+            budget_limited: self.budget_limited.clone(),
+            uncertified_relations: self.uncertified_relations.clone(),
+            information: self.information.clone(),
         }
     }
     #[cfg(test)]
@@ -634,6 +784,9 @@ impl LadderExhausted {
             depth3_unfloored_tried,
             space_has_depth3_unfloored: true,
             parent: None,
+            budget_limited: vec![],
+            uncertified_relations: vec![],
+            information: vec![],
         }
     }
 }
@@ -651,6 +804,12 @@ pub struct LadderExhaustedRecord {
     #[serde(default)]
     pub space_has_depth3_unfloored: bool,
     pub parent: Option<ItemId>,
+    #[serde(default)]
+    pub budget_limited: Vec<(String, u64)>,
+    #[serde(default)]
+    pub uncertified_relations: Vec<(String, String)>,
+    #[serde(default)]
+    pub information: Vec<(String, String)>,
 }
 
 impl LadderExhaustedRecord {
@@ -769,13 +928,42 @@ pub enum Disposition {
     },
     /// Optimise item: no acceptable replacement; the old rules stay (U-13).
     OptimiseKept { why: String },
-    /// RECIPE outcome (R48): the item's face is closed by a recipe rule on its CERTIFIED key set (keys of the item not
-    /// certified stay for other forms / children). Produced by [`super::recipe::recipe_disposition`] after the
-    /// node's full attempt ended; never by the symbolic search itself.
+    /// RECIPE outcome (R48): the item's face is closed by a recipe rule on its CERTIFIED key set. Produced by
+    /// [`super::recipe::recipe_disposition`] after the node's full attempt ended; never by the symbolic search
+    /// itself. The keys of the item the recipe does NOT certify are `uncertified` and MUST be given another
+    /// disposition by the caller: they are returned as the gap points of `rest` (a copy of the item restricted to
+    /// them, to be laddered / given another recipe / declared open), so every gap point has exactly one disposition
+    /// (re-audit A m5).
     RecipeRule {
         rule: Box<super::recipe::RecipeRule>,
         uncertified: Vec<Key>,
+        rest: Option<Box<Item>>,
     },
+    /// The item's case was dropped BEFORE any search (R31 evidence 04:37Z): fully shadowed by earlier dispatch
+    /// entries (a rule for it would never fire), or its domain is empty. Its gap points are listed in `keys` with
+    /// the reason: a shadowed gap point is matched (served or BLOCKED) by an earlier entry, which the caller must
+    /// look at, never lost silently.
+    Dropped { reason: DropReason, keys: Vec<Key> },
+}
+
+/// Why an item's case was dropped before search.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DropReason {
+    /// Every key of the case is matched by an earlier dispatch entry (certificate of the containment test).
+    Shadowed { certificate: String },
+    /// No chart key satisfies the case (certificate of the emptiness test).
+    EmptyDomain { certificate: String },
+}
+
+/// Answer of the SHADOWING test of a new case (R31 evidence; `crate::partition::shadowed` /
+/// `crate::loci::contain::is_empty` behind [`crate::repair::ShadowCheck`]). Only a PROVED shadowing / emptiness
+/// drops the case; `Unknown` (or no check available) never does.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ShadowVerdict {
+    NotShadowed,
+    Shadowed { certificate: String },
+    EmptyDomain { certificate: String },
+    Unknown { why: String },
 }
 
 impl Disposition {
@@ -795,6 +983,9 @@ pub enum Next {
     /// WAVE 0 (R43): ask the candidate source(s) for offers on this item; record them with
     /// [`ItemState::record_offers`] (an empty list is a valid answer).
     NeedOffers,
+    /// FIRST of all (R31 evidence 04:37Z): the shadowing / emptiness test of the item's case against the dispatch
+    /// entries in force before it; record with [`ItemState::record_shadowing`] (asked once per item).
+    NeedShadowing,
     Done(Disposition),
 }
 
@@ -822,6 +1013,8 @@ pub struct ItemState {
     pub preferred_hits: BTreeMap<(String, usize), u64>,
     /// Wave 0 answered (offers recorded, possibly none).
     pub offers_recorded: bool,
+    /// The shadowing test of the case (first answer kept).
+    pub shadowing: Option<ShadowVerdict>,
     /// Number of driver answers recorded (every `record_*` call): the item's global step counter (C2).
     pub steps: u64,
 }
@@ -835,6 +1028,7 @@ impl ItemState {
             containment: BTreeMap::new(),
             preferred_hits: BTreeMap::new(),
             offers_recorded: false,
+            shadowing: None,
             steps: 0,
             item,
         };
@@ -883,6 +1077,14 @@ impl ItemState {
         self.records.insert(key, r);
     }
 
+    /// Record the shadowing test of the case (the first answer is kept).
+    pub fn record_shadowing(&mut self, v: ShadowVerdict) {
+        self.steps += 1;
+        if self.shadowing.is_none() {
+            self.shadowing = Some(v);
+        }
+    }
+
     pub fn record_preferred_hits(&mut self, attempt_key: &str, index: usize, hits: u64) {
         if hits > 0 {
             self.preferred_hits
@@ -915,11 +1117,23 @@ impl ItemState {
         ) {
             r.cpu_ms_total = r.cpu_ms_total.saturating_add(answer.cpu_ms);
         }
+        // a WORK-COUNTER stop in the largest (oversized) class: searched within budget (re-audit A ruling 4.1);
+        // wall-clock stops, crashes, kills and refusals stay non-verdict outcomes
+        let work_stop = matches!(
+            answer.outcome,
+            SolveOutcome::BudgetStop {
+                time_decided: false
+            }
+        ) && attempt.budget.class == BudgetClass::Oversized
+            && attempt.budget.max_rows > 0;
         match answer.outcome.class() {
             OutcomeClass::Operator => {
                 r.operator_interrupts = r.operator_interrupts.saturating_add(1)
             }
             OutcomeClass::Infra => r.infra_interrupts = r.infra_interrupts.saturating_add(1),
+            OutcomeClass::NonVerdict if work_stop => {
+                r.budget_limited = Some(r.budget_limited.unwrap_or(0).max(attempt.budget.max_rows))
+            }
             OutcomeClass::NonVerdict => r.non_verdict.push(answer.outcome.tag().to_string()),
             OutcomeClass::Verdict => r.answer = Some(answer),
         }
@@ -1045,6 +1259,14 @@ pub(crate) fn accepted_candidates(
             continue;
         };
         for (idx, cand) in rec.candidates().iter().enumerate() {
+            // CAPABILITY FIRST, before any work (re-audit B M1): a rule found WITH symmetry rows whose class cannot
+            // reach the node's required level is never judged nor accepted: "found, awaiting a certificate route"
+            // (kept in the records, listed in the exhaustion token, shown by explain; addendum 3 of R46)
+            if (setting.symmetry_rows || cand.symmetry_rows)
+                && !params.capabilities.can(true, params.min_evidence)
+            {
+                continue;
+            }
             let Some(v) = state.verdicts.get(&(key.clone(), idx)) else {
                 need.push(VerdictRequest {
                     attempt_key: key.clone(),
@@ -1053,13 +1275,6 @@ pub(crate) fn accepted_candidates(
                 });
                 continue;
             };
-            // a rule found WITH symmetry rows whose class cannot reach the node's required level is never accepted:
-            // "found, awaiting a certificate route" (kept in the records, shown by explain; addendum 3 of R46)
-            if (setting.symmetry_rows || cand.symmetry_rows)
-                && !params.capabilities.can(true, params.min_evidence)
-            {
-                continue;
-            }
             if v.len() != gp.len() || v.iter().any(|x| matches!(x, PointVerdict::HiddenPole)) {
                 continue; // incomplete exceptions (or malformed answer): rejected for this item
             }
@@ -1110,12 +1325,14 @@ pub(crate) fn accepted_candidates(
     if need.is_empty() { Ok(out) } else { Err(need) }
 }
 
-fn score(a: &Accepted, n_points: usize) -> SelectionScore {
+fn score(a: &Accepted, n_points: usize, w: &crate::economy::EconomyWeights) -> SelectionScore {
+    let weighted = w.rule_size(a.rule.rhs_terms, a.rule.monomials);
     SelectionScore {
         failed: (n_points - a.credited.len()) as u64,
         cases: 1,
-        size_class: SelectionScore::size_class_of(a.rule.rhs_terms),
+        size_class: SelectionScore::size_class_of(weighted.max(0) as u64),
         preferred_misses: u64::MAX - a.preferred_hits,
+        weighted,
         rhs_terms: a.rule.rhs_terms,
         monomials: a.rule.monomials.unwrap_or(u64::MAX),
         degree: a.rule.max_degree.unwrap_or(u32::MAX),
@@ -1123,11 +1340,16 @@ fn score(a: &Accepted, n_points: usize) -> SelectionScore {
     }
 }
 
-/// Best ONE-CASE cover among accepted candidates (credits every gap point), by the economy selection score.
-pub(crate) fn best_one_case(acc: &[Accepted], n_points: usize) -> Option<usize> {
+/// Best ONE-CASE cover among accepted candidates (credits every gap point), by the economy selection score (with
+/// the node's economy weights, R46 (5)).
+pub(crate) fn best_one_case(
+    acc: &[Accepted],
+    n_points: usize,
+    w: &crate::economy::EconomyWeights,
+) -> Option<usize> {
     (0..acc.len())
         .filter(|&i| acc[i].credited.len() == n_points)
-        .min_by_key(|&i| score(&acc[i], n_points))
+        .min_by_key(|&i| score(&acc[i], n_points, w))
 }
 
 /// Deterministic tie key of a candidate (no collision: tuples, not `order * 1000 + index`).
@@ -1135,12 +1357,16 @@ fn tie(a: &Accepted) -> (usize, usize) {
     (a.order, a.index)
 }
 
-/// (volume, tie keys, members) of the best exact cover found so far.
-type BestCover = (u64, Vec<(usize, usize)>, Vec<usize>);
+/// (weighted volume, tie keys, members) of the best exact cover found so far.
+type BestCover = (i64, Vec<(usize, usize)>, Vec<usize>);
 
 /// Minimum set cover over the accepted candidates of the coverable points: exact (fewest members, then smallest
-/// RHS volume, then enumeration order) up to [`EXACT_COVER_MAX`] candidates and 6 members, else greedy.
-pub(crate) fn min_cover(acc: &[Accepted]) -> (Vec<usize>, bool) {
+/// WEIGHTED volume under the node's economy weights (R46 (5): the weights decide among covers of the same case
+/// count), then enumeration order) up to [`EXACT_COVER_MAX`] candidates and 6 members, else greedy.
+pub(crate) fn min_cover(
+    acc: &[Accepted],
+    w: &crate::economy::EconomyWeights,
+) -> (Vec<usize>, bool) {
     let coverable: BTreeSet<usize> = acc
         .iter()
         .flat_map(|a| a.credited.iter().copied())
@@ -1159,10 +1385,10 @@ pub(crate) fn min_cover(acc: &[Accepted]) -> (Vec<usize>, bool) {
                     .flat_map(|&i| acc[i].credited.iter().copied())
                     .collect();
                 if u == coverable {
-                    let vol: u64 = comb
+                    let vol: i64 = comb
                         .iter()
-                        .map(|&i| acc[i].rule.rhs_terms)
-                        .fold(0u64, |a, b| a.saturating_add(b));
+                        .map(|&i| w.rule_size(acc[i].rule.rhs_terms, acc[i].rule.monomials))
+                        .fold(0i64, |a, b| a.saturating_add(b));
                     let key: Vec<(usize, usize)> = comb.iter().map(|&i| tie(&acc[i])).collect();
                     let better = match &best {
                         None => true,
@@ -1197,8 +1423,12 @@ pub(crate) fn min_cover(acc: &[Accepted]) -> (Vec<usize>, bool) {
         let Some(pick) = (0..n).filter(|i| !chosen.contains(i)).max_by(|&a, &b| {
             let ga = acc[a].credited.intersection(&left).count();
             let gb = acc[b].credited.intersection(&left).count();
+            let (wa, wb) = (
+                w.rule_size(acc[a].rule.rhs_terms, acc[a].rule.monomials),
+                w.rule_size(acc[b].rule.rhs_terms, acc[b].rule.monomials),
+            );
             ga.cmp(&gb)
-                .then(acc[b].rule.rhs_terms.cmp(&acc[a].rule.rhs_terms))
+                .then(wb.cmp(&wa))
                 .then(tie(&acc[b]).cmp(&tie(&acc[a])))
         }) else {
             break;
@@ -1292,6 +1522,31 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
     if item.case.dim() > item.root_dim {
         return Next::Done(Disposition::attention(AttentionReason::DimensionAboveRoot));
     }
+    let optimise = item.kind == ItemKind::Optimise;
+    // R31 evidence (04:37Z): the SHADOWING test of a new case BEFORE any search; only a proved shadowing or a proved
+    // empty domain drops it (typed), `Unknown` proceeds
+    if !optimise {
+        match &state.shadowing {
+            None => return Next::NeedShadowing,
+            Some(ShadowVerdict::Shadowed { certificate }) => {
+                return Next::Done(Disposition::Dropped {
+                    reason: DropReason::Shadowed {
+                        certificate: certificate.clone(),
+                    },
+                    keys: gp.clone(),
+                });
+            }
+            Some(ShadowVerdict::EmptyDomain { certificate }) => {
+                return Next::Done(Disposition::Dropped {
+                    reason: DropReason::EmptyDomain {
+                        certificate: certificate.clone(),
+                    },
+                    keys: gp.clone(),
+                });
+            }
+            Some(_) => {}
+        }
+    }
     if !state.offers_recorded {
         return Next::NeedOffers;
     }
@@ -1307,9 +1562,14 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
         }
     }
     let point = item.kind == ItemKind::Point || item.case.is_point();
-    let optimise = item.kind == ItemKind::Optimise;
     let waves = seed_space(&item.case, params);
-    // wave 0: offered and inherited candidates (order 0), judged and selected like searched ones
+    // a setting is SETTLED at the CURRENT budgets (a work-counter stop under a smaller budget is open again)
+    let settled = |s: &SeedSetting, k: &String| {
+        state.records.get(k).is_some_and(|r| {
+            r.state(b, current_rows(s, &item.case, params, point)) != SettingState::Open
+        })
+    };
+    // wave 0: offered and inherited candidates (order 0, no solver work), judged and selected like searched ones
     let prefix = format!("{}|offer|", item.id.0);
     let mut done_settings: Vec<(usize, SeedSetting, String)> = state
         .records
@@ -1326,46 +1586,54 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
                 (order, s.clone(), attempt_key(&item.id, s))
             })
             .collect();
-        let settled = |k: &String| state.records.get(k).is_some_and(|r| r.settled(b));
-        let finished: Vec<(usize, SeedSetting, String)> =
-            entries.iter().filter(|e| settled(&e.2)).cloned().collect();
-        let pending: Vec<&(usize, SeedSetting, String)> =
-            entries.iter().filter(|e| !settled(&e.2)).collect();
-        let mut all_done = done_settings.clone();
-        all_done.extend(finished.iter().cloned());
-        let mut acc = match accepted_candidates(state, params, &all_done) {
-            Ok(a) => a,
-            Err(need) => return Next::NeedVerdicts(need),
-        };
-        if optimise && let Err(req) = optimise_filter(state, &mut acc) {
-            return Next::NeedContainment(req);
-        }
-        let one = match one_case_with_evidence(&acc, gp, params) {
-            Ok(o) => o,
-            Err(req) => return Next::NeedEvidence(req),
-        };
-        // WAVE SEMANTICS (audit B M3, addendum 4): a wave is the set of its settings fixed when it is issued; it is
-        // ALWAYS run to the end, so the choice is a function of the SET of verdict results of the wave and a
-        // sequential driver and a parallel batch driver reach the same disposition. The next wave runs only if this
-        // one gave no one-case cover. Only a wave-0 candidate (offered / inherited, no solver CPU) that covers every
-        // gap point before the first wave starts ends the search.
-        let offer = match one {
-            None => !pending.is_empty(),
-            Some(bi) => {
-                !pending.is_empty() && !(acc[bi].order == 0 && w == 0 && finished.is_empty())
+        // WAVE SEMANTICS + ECONOMY EXTRA BUDGET (audit B M3, U-13; repair-library.md v1.3 4.4). Everything below is
+        // a function of the settled PREFIX of the wave in POLICY ORDER, so a sequential driver (which runs the first
+        // pending setting) and a parallel batch driver (which may run the whole wave speculatively) decide the same.
+        // f = the shortest settled prefix (offers = prefix 0) whose candidates hold an acceptable one-case cover;
+        // after f only the settings whose cumulative WORK stays <= economy_extra_factor x work(f) are run; the
+        // choice is among the settings up to that cap. No f in a fully settled wave: the next wave.
+        let settled_prefix = entries.iter().take_while(|e| settled(&e.1, &e.2)).count();
+        let mut first: Option<usize> = None;
+        for i in 0..=settled_prefix {
+            if i > 0
+                && state
+                    .records
+                    .get(&entries[i - 1].2)
+                    .is_none_or(|r| r.candidates().is_empty())
+            {
+                continue; // nothing new in this prefix: same answer as the shorter one
             }
-        };
-        if offer {
+            let mut set = done_settings.clone();
+            set.extend(entries[..i].iter().cloned());
+            let mut acc = match accepted_candidates(state, params, &set) {
+                Ok(a) => a,
+                Err(need) => return Next::NeedVerdicts(need),
+            };
+            if optimise && let Err(req) = optimise_filter(state, &mut acc, params) {
+                return Next::NeedContainment(req);
+            }
+            match one_case_with_evidence(&acc, gp, params) {
+                Err(req) => return Next::NeedEvidence(req),
+                Ok(Some(_)) => {
+                    first = Some(i);
+                    break;
+                }
+                Ok(None) => {}
+            }
+        }
+        let run_list = |list: Vec<&(usize, SeedSetting, String)>| -> Next {
             let heavy = state
                 .records
                 .values()
                 .any(|r| r.non_verdict.iter().any(|t| t == "refused_heavy"));
-            let attempts: Vec<Attempt> = pending
+            let attempts: Vec<Attempt> = list
                 .iter()
                 .map(|(_, s, k)| {
                     let r = state.records.get(k);
-                    // a retry after a non-verdict outcome runs in the larger (oversized) resource class (C3)
-                    let retry = r.is_some_and(|r| !r.non_verdict.is_empty());
+                    // a retry after a non-verdict outcome (or after a work-counter stop under a smaller budget) runs in
+                    // the larger (oversized) resource class (C3)
+                    let retry =
+                        r.is_some_and(|r| !r.non_verdict.is_empty() || r.budget_limited.is_some());
                     Attempt {
                         item: item.id.clone(),
                         key: k.clone(),
@@ -1379,17 +1647,53 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
                             r.operator_interrupts
                                 .saturating_add(r.infra_interrupts)
                                 .saturating_add(r.non_verdict.len() as u32)
+                                .saturating_add(u32::from(r.budget_limited.is_some()))
                         }),
                     }
                 })
                 .collect();
-            return Next::Run(attempts);
+            Next::Run(attempts)
+        };
+        match first {
+            Some(i) => {
+                let cap_end = economy_cap(&entries, i, params);
+                let pending: Vec<&(usize, SeedSetting, String)> = entries[..cap_end]
+                    .iter()
+                    .filter(|e| !settled(&e.1, &e.2))
+                    .collect();
+                if !pending.is_empty() {
+                    return run_list(pending);
+                }
+                let mut set = done_settings.clone();
+                set.extend(entries[..cap_end].iter().cloned());
+                let mut acc = match accepted_candidates(state, params, &set) {
+                    Ok(a) => a,
+                    Err(need) => return Next::NeedVerdicts(need),
+                };
+                if optimise && let Err(req) = optimise_filter(state, &mut acc, params) {
+                    return Next::NeedContainment(req);
+                }
+                match one_case_with_evidence(&acc, gp, params) {
+                    Err(req) => return Next::NeedEvidence(req),
+                    Ok(Some(bi)) => {
+                        let cover = make_cover(state, &acc, &[bi], false);
+                        return Next::Done(Disposition::Covered { cover });
+                    }
+                    // unreachable (the prefix's cover is in the capped set); fail closed: carry on with the wave
+                    Ok(None) => {}
+                }
+                if settled_prefix < entries.len() {
+                    return run_list(entries.iter().filter(|e| !settled(&e.1, &e.2)).collect());
+                }
+                done_settings.extend(entries);
+            }
+            None => {
+                if settled_prefix < entries.len() {
+                    return run_list(entries.iter().filter(|e| !settled(&e.1, &e.2)).collect());
+                }
+                done_settings.extend(entries);
+            }
         }
-        if let Some(bi) = one {
-            let cover = make_cover(state, &acc, &[bi], false);
-            return Next::Done(Disposition::Covered { cover });
-        }
-        done_settings.extend(finished);
     }
     if optimise {
         return Next::Done(Disposition::OptimiseKept {
@@ -1401,7 +1705,7 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
         Ok(a) => a,
         Err(need) => return Next::NeedVerdicts(need),
     };
-    let (members, greedy) = min_cover(&acc);
+    let (members, greedy) = min_cover(&acc, &params.economy);
     let mut req = Vec::new();
     for &m in &members {
         let a = &acc[m];
@@ -1501,19 +1805,16 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
         ));
     }
     if point {
-        // C3: a terminal proposal only when EVERY setting of the space has a verdict outcome
-        let no_verdict: Vec<String> = waves
+        // C3: a terminal proposal only when EVERY GATING setting of the space has a verdict outcome or was searched
+        // to the largest work counter (flagged "within budget"); INFORMATION settings (symmetry rows without a
+        // certificate route) never gate it (re-audit A M1)
+        let (gating, _) = rung_census(state, params, point);
+        let no_verdict: Vec<String> = gating
             .iter()
-            .flatten()
-            .filter(|s| {
-                !state
-                    .records
-                    .get(&attempt_key(&item.id, s))
-                    .is_some_and(|r| r.is_verdict())
-            })
-            .map(|s| s.label())
+            .filter(|(_, st)| !matches!(st, SettingState::Verdict | SettingState::WithinBudget))
+            .map(|(s, _)| s.label())
             .collect();
-        if waves.iter().all(|w| w.is_empty()) {
+        if gating.is_empty() {
             return Next::Done(Disposition::attention(AttentionReason::EmptySeedSpace));
         }
         if !no_verdict.is_empty() {
@@ -1599,7 +1900,7 @@ fn one_case_with_evidence(
     gp: &[Key],
     params: &NodeParams,
 ) -> Result<Option<usize>, Vec<EvidenceRequest>> {
-    let Some(bi) = best_one_case(acc, gp.len()) else {
+    let Some(bi) = best_one_case(acc, gp.len(), &params.economy) else {
         return Ok(None);
     };
     let a = &acc[bi];
@@ -1614,43 +1915,74 @@ fn one_case_with_evidence(
     }])
 }
 
+/// The END of the capped wave (U-13 economy extra budget, deterministic): `first` = the settled prefix length whose
+/// candidates hold the first acceptable one-case cover (0 = the wave-0 offers); the settings after it are kept while
+/// their cumulative WORK ([`setting_work`]) stays <= `economy_extra_factor` x the work of the setting that closed
+/// the prefix (0 for offers: no extra search).
+pub(crate) fn economy_cap(
+    entries: &[(usize, SeedSetting, String)],
+    first: usize,
+    params: &NodeParams,
+) -> usize {
+    let base = if first == 0 {
+        0
+    } else {
+        setting_work(&entries[first - 1].1, params)
+    };
+    let f = params.budgets.economy_extra_factor;
+    let allowance: u64 = if base == 0 || f.is_nan() || f <= 0.0 {
+        0
+    } else if f.is_infinite() {
+        u64::MAX
+    } else {
+        (base as f64 * f).min(u64::MAX as f64) as u64
+    };
+    let mut end = first;
+    let mut used = 0u64;
+    while end < entries.len() {
+        let w = setting_work(&entries[end].1, params);
+        match used.checked_add(w) {
+            Some(u) if u <= allowance => {
+                used = u;
+                end += 1;
+            }
+            _ => break,
+        }
+    }
+    end
+}
+
 /// Optimise items (U-13): keep only candidates whose domain CONTAINS the old rules' (driver verdict, R33 proof on
-/// FULL nodes) and whose measure is STRICTLY better than the old rules' together; ask for missing containment.
+/// FULL nodes) and whose measure is STRICTLY better than the old rules' together under the node's economy WEIGHTS
+/// (R46 (5): `cases x case + weighted size`; ties: the lexicographic measure); ask for missing containment.
 fn optimise_filter(
     state: &ItemState,
     acc: &mut Vec<Accepted>,
+    params: &NodeParams,
 ) -> Result<(), Vec<ContainmentRequest>> {
+    let w = &params.economy;
     let old = &state.item.replaces;
     let old_rhs: u64 = old.iter().map(|o| o.rhs_terms).sum();
-    let old_score = SelectionScore {
-        failed: 0,
-        cases: old.len() as u64,
-        size_class: SelectionScore::size_class_of(old_rhs),
-        preferred_misses: u64::MAX,
-        rhs_terms: old_rhs,
-        monomials: old
-            .iter()
-            .map(|o| o.monomials.unwrap_or(u64::MAX / 4))
-            .fold(0u64, |a, b| a.saturating_add(b)),
-        degree: old
-            .iter()
-            .map(|o| o.max_degree.unwrap_or(u32::MAX))
-            .max()
-            .unwrap_or(u32::MAX),
-        order: 0,
-    };
+    let old_mono: u64 = old
+        .iter()
+        .map(|o| o.monomials.unwrap_or(u64::MAX / 4))
+        .fold(0u64, |a, b| a.saturating_add(b));
+    let old_degree = old
+        .iter()
+        .map(|o| o.max_degree.unwrap_or(u32::MAX))
+        .max()
+        .unwrap_or(u32::MAX);
+    let old_weighted = old
+        .iter()
+        .map(|o| w.rule_size(o.rhs_terms, o.monomials))
+        .fold(w.cases_cost(old.len() as u64), |a, b| a.saturating_add(b));
     let n = state.item.gap_points.len();
     let mut need = Vec::new();
     acc.retain(|a| {
-        let s = score(a, n);
-        let better = (s.failed, s.cases, s.rhs_terms, s.monomials, s.degree)
-            < (
-                old_score.failed,
-                old_score.cases,
-                old_score.rhs_terms,
-                old_score.monomials,
-                old_score.degree,
-            );
+        let s = score(a, n, w);
+        let new_weighted = w.cases_cost(1).saturating_add(s.weighted);
+        let better = (s.failed, new_weighted, s.rhs_terms, s.monomials, s.degree)
+            < (0, old_weighted, old_rhs, old_mono, old_degree);
         if !better || a.credited.len() != n {
             return false;
         }

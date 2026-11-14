@@ -50,7 +50,11 @@ fn preferred_keys_are_allowed_terminals_and_reported() {
             1,
             &rustred_campaign_core::repair::NoTables,
             &p.preferred,
-            &p.lines
+            &rustred_campaign_core::terminals::TerminalContext {
+                lines: &p.lines,
+                honoured: &[k(2, 1)].into_iter().collect(),
+                explicit: &[k(1, 2)].into_iter().collect(),
+            }
         )
         .is_empty()
     );

@@ -144,6 +144,15 @@ pub struct SeedPolicy {
     pub classes: Vec<PolicyClass>,
     #[serde(default)]
     pub evidence: Vec<SeedEvidence>,
+    /// The symmetry-rows seed dimension (R46 (1); seed-policy.md 5) as SPEC DATA (re-audit A m8 / M7): `true`
+    /// (default) = added for a node with a nontrivial group as the capabilities allow; `false` = never (the plain
+    /// space only, no information attempt either).
+    #[serde(default = "symmetry_dimension_default")]
+    pub symmetry_dimension: bool,
+}
+
+fn symmetry_dimension_default() -> bool {
+    true
 }
 
 fn s(centre: CentreSpec, floor: Option<bool>) -> SettingSpec {
@@ -202,6 +211,7 @@ impl SeedPolicy {
                 replace_builtin: false,
             }],
             evidence: vec![],
+            symmetry_dimension: true,
         }
     }
 
