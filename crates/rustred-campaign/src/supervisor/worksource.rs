@@ -157,6 +157,21 @@ pub trait WorkSource {
     fn outcome(&self, st: &CampaignState) -> CampaignOutcome {
         default_outcome(st)
     }
+    /// lane closeloop4 (closeloop.md 19): Some(text) while the source waits for an OPERATOR DECISION that only a
+    /// control request can give (e.g. terminal proposals): the supervisor then stops with exit 8 (ATTENTION) when
+    /// nothing else runs, instead of finishing. Default: never.
+    fn awaiting_operator(&self, _st: &CampaignState) -> Option<String> {
+        None
+    }
+    /// lane closeloop4 (closeloop.md 19): an operator decision request (`resolve-terminals`): the events (and records)
+    /// that record it. Default: refused.
+    fn operator_decision(
+        &mut self,
+        _st: &CampaignState,
+        req: &super::ControlRequest,
+    ) -> Result<Routing, String> {
+        Err(format!("verb {} not supported by this work source", req.verb))
+    }
 }
 
 /// How a FINISHED campaign's work ended (procfix5, gate4 m3).

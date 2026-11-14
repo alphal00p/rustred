@@ -9,11 +9,13 @@
 //! for the import's proof requests and for the point records of our own relations (13.1); a relation is per-key only
 //! with its bound proof (import hook `Evidence::recipe_proofs`).
 
-use super::config::{Budgets, HandCfg};
+use super::config::{Budgets, HandCfg, SecondRouteCfg, TerminalAccept, TerminalsCfg};
 use super::proofs::{
-    ProofBatch, REASON_EXACT, REASON_FACTS, REASON_IMPORT_PROOF, REASON_RELATION, RecordReq,
-    relation_records,
+    ProofBatch, REASON_EXACT, REASON_FACTS, REASON_IMPORT_PROOF, REASON_RELATION,
+    REASON_SECOND_ROUTE, RecordReq, relation_records,
 };
+use super::terminals::TerminalDecision;
+use super::zeros;
 use rustred_campaign_core::closure::relations::DispatchSlot;
 use rustred_campaign_core::closure::{Tier, Verdict};
 use rustred_campaign_core::import::load::RelEntry;
@@ -96,6 +98,15 @@ pub struct PassIn {
     /// lane closeloop3 (closeloop.md 16.9): this run's box clause id and the earlier clauses (id, result.json).
     pub box_clause: String,
     pub prior_clauses: Vec<(String, PathBuf)>,
+    // ---- lane closeloop4 ----
+    /// Second-route fact answer files (role `closeloop_facts2`), recorded BLAKE3 (closeloop.md 18).
+    pub fact2_files: Vec<(PathBuf, String)>,
+    /// (record_sha256, key) pairs already given to a second-route fact item.
+    pub issued_facts2: BTreeSet<(String, Vec<i32>)>,
+    pub second_route: SecondRouteCfg,
+    /// closeloop.md 19: the terminal policy and the recorded decisions (ledger order).
+    pub terminals: TerminalsCfg,
+    pub terminal_decisions: Vec<TerminalDecision>,
 }
 
 impl PassIn {
@@ -134,6 +145,11 @@ impl PassIn {
             target: "boxed".into(),
             box_clause: "box".into(),
             prior_clauses: vec![],
+            fact2_files: vec![],
+            issued_facts2: BTreeSet::new(),
+            second_route: SecondRouteCfg::default(),
+            terminals: TerminalsCfg::default(),
+            terminal_decisions: vec![],
         }
     }
 }
@@ -173,6 +189,10 @@ pub struct PassOut {
     pub import_manifest: Value,
     pub spec_digest: String,
     pub seconds: f64,
+    /// lane closeloop4 (closeloop.md 19): terminal proposals waiting for an operator decision (no final verdict yet).
+    pub terminal_proposals: Option<Value>,
+    /// lane closeloop4: proposals accepted automatically now (`terminals.accept = auto`, at most `max_auto`).
+    pub terminal_decision: Option<TerminalDecision>,
 }
 
 impl std::fmt::Debug for PassOut {
@@ -327,6 +347,34 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         ev.load_facts(&set, Path::new("/"), &fref(p))
             .map_err(|e| format!("facts {}: {e}", p.display()))?;
     }
+    // lane closeloop4 (closeloop.md 18): the SECOND route's answers in their OWN evidence, compared with the first
+    // route pair by pair over every term BEFORE the check: agreement confirms the fact (basis of both routes), a
+    // disagreement DISPUTES it (every term of the pair is unknown: an edge, the key uncertified) and blocks the node
+    let t_sr = std::time::Instant::now();
+    let mut ev2 = Evidence::new(&set);
+    let mut answered2: BTreeSet<(String, Vec<i32>)> = BTreeSet::new();
+    for (p, b3) in &inp.fact2_files {
+        verify_b3(p, b3)?;
+        ev2.load_facts(&set, Path::new("/"), &fref(p))
+            .map_err(|e| format!("second-route facts {}: {e}", p.display()))?;
+        answered2.extend(zeros::answered_pairs(p)?);
+    }
+    let mut second = zeros::SecondRoute::default();
+    for (sha, key) in &answered2 {
+        let Some(c) = zeros::compare_pair(&set, &ev, &ev2, sha, key) else {
+            continue;
+        };
+        let elided = set
+            .find_sha(sha)
+            .is_some_and(|(t, r)| set.rules[t][r].witness == WitnessKind::Elided);
+        if c.agree() {
+            ev.confirm_basis(sha, key, zeros::confirmed_basis(c.first, elided));
+        } else {
+            ev.dispute(sha, key);
+        }
+        second.compared.insert((sha.clone(), key.clone()), c);
+    }
+    second.seconds = t_sr.elapsed().as_secs_f64();
     // our relations: their point records and the per-key proofs bound to (record_sha256, key)
     let mut rels: Vec<RelRec> = vec![];
     for (p, b3, source) in &inp.relation_tables {
@@ -538,6 +586,142 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     if inp.proof_attention > 0 {
         blocking.push(format!("proof_items_in_attention:{}", inp.proof_attention));
     }
+    // lane closeloop4 (closeloop.md 18): the decisive zeros of the decided exact tier and their second route
+    let mut second_missing: BTreeMap<(usize, usize, &'static str), BTreeSet<Vec<i32>>> =
+        BTreeMap::new();
+    let mut second_v = Value::Null;
+    let mut decisive_lines: Vec<Value> = vec![];
+    if tier_c_now && (inp.second_route.decisive_zeros || inp.second_route.elided) {
+        let scan = if inp.second_route.decisive_zeros {
+            zeros::scan(&set, &ev, res, threads)?
+        } else {
+            zeros::ZeroScan::default()
+        };
+        // the pairs to confirm: every decisive zero's (record, applied key); with `elided`, every served pair of a
+        // record with elided loci (its first route is the exact evaluation)
+        let mut pairs: BTreeMap<(String, Vec<i32>), (usize, usize, bool, bool)> = BTreeMap::new();
+        for z in &scan.decisive {
+            let sha = set.rules[z.table][z.record].record_sha256.clone();
+            pairs
+                .entry((sha, z.applied.clone()))
+                .or_insert((z.table, z.record, true, false))
+                .2 = true;
+        }
+        let has_elided = set
+            .rules
+            .iter()
+            .flatten()
+            .any(|r| r.witness == WitnessKind::Elided);
+        if inp.second_route.elided && has_elided {
+            for (_, applied, t, r) in zeros::served_rule_rows(&set, res)? {
+                if set.rules[t][r].witness == WitnessKind::Elided {
+                    let sha = set.rules[t][r].record_sha256.clone();
+                    pairs.entry((sha, applied)).or_insert((t, r, false, true)).3 = true;
+                }
+            }
+        }
+        let rr_proof_ok = inp.proof.as_ref().is_some_and(|p| p.facts);
+        let exact_ok = inp
+            .proof
+            .as_ref()
+            .is_some_and(|p| p.exact_keys_per_job.is_some());
+        let (mut confirmed, mut disagree, mut pending, mut unanswered, mut unavailable, mut no_first) =
+            (0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+        let mut status_of: BTreeMap<(String, Vec<i32>), &'static str> = BTreeMap::new();
+        for ((sha, key), (t, r, dec, _)) in &pairs {
+            let st = if let Some(c) = second.compared.get(&(sha.clone(), key.clone())) {
+                if c.agree() {
+                    confirmed += 1;
+                    "confirmed"
+                } else {
+                    disagree += 1;
+                    "disagreement"
+                }
+            } else {
+                let rid = zeros::rule_id(&set, *t, *r);
+                let first = ev.fact_basis(&rid, key);
+                match first.and_then(zeros::second_route_of) {
+                    // no fact bound: no zero was used at this pair (its terms are edges); a DECISIVE zero always
+                    // has one, so this is only an elided pair whose first route did not run (nothing to confirm)
+                    None => {
+                        if *dec {
+                            no_first += 1;
+                        }
+                        "no_fact"
+                    }
+                    Some(route) => {
+                        if inp.issued_facts2.contains(&(sha.clone(), key.clone())) {
+                            unanswered += 1;
+                            "unanswered"
+                        } else if (route == "rr_proof" && !rr_proof_ok)
+                            || (route == "exact_eval" && !exact_ok)
+                        {
+                            unavailable += 1;
+                            "unavailable"
+                        } else {
+                            pending += 1;
+                            second_missing
+                                .entry((*t, *r, route))
+                                .or_default()
+                                .insert(key.clone());
+                            "pending"
+                        }
+                    }
+                }
+            };
+            status_of.insert((sha.clone(), key.clone()), st);
+        }
+        for z in &scan.decisive {
+            let info = &set.rules[z.table][z.record];
+            let id = (info.record_sha256.clone(), z.applied.clone());
+            let c = second.compared.get(&id);
+            let first = c
+                .map(|c| c.first)
+                .or_else(|| ev.fact_basis(&zeros::rule_id(&set, z.table, z.record), &z.applied))
+                .unwrap_or("none");
+            decisive_lines.push(zeros::decisive_line(
+                &set,
+                z,
+                first,
+                c,
+                status_of.get(&id).copied().unwrap_or("pending"),
+            ));
+        }
+        let dis_list: Vec<Value> = second.disagreements().map(zeros::PairCompare::json).collect();
+        // the disputed pairs of earlier answers stay blocking even when no longer decisive (their terms are edges now)
+        let disputed_all = second.disagreements().count() as u64;
+        if disputed_all > 0 {
+            blocking.push(format!("second_route_disagreement:{disputed_all}"));
+        }
+        if pending > 0 {
+            blocking.push(format!("second_route_pending:{pending}"));
+        }
+        if unanswered > 0 {
+            blocking.push(format!("second_route_unanswered:{unanswered}"));
+        }
+        if unavailable > 0 {
+            blocking.push(format!("second_route_unavailable:{unavailable}"));
+        }
+        if no_first > 0 {
+            blocking.push(format!("second_route_first_fact_missing:{no_first}"));
+        }
+        let by_kind = scan.decisive.iter().fold(BTreeMap::new(), |mut m, z| {
+            *m.entry(z.kind).or_insert(0u64) += 1;
+            m
+        });
+        let decisive_pairs = pairs.values().filter(|p| p.2).count();
+        let elided_pairs = pairs.values().filter(|p| p.3).count();
+        let _ = disagree;
+        second_v = json!({"decisive_zeros": scan.decisive.len(), "decisive_by_kind": by_kind,
+            "decisive_pairs": decisive_pairs, "elided_pairs": elided_pairs, "pairs": pairs.len(),
+            "confirmed": confirmed, "disagreements": disputed_all, "pending": pending, "unanswered": unanswered,
+            "unavailable": unavailable, "first_route_missing": no_first,
+            "zero_terms": {"top": scan.zero_top, "positive_numerator": scan.zero_positive_numerator,
+                           "other": scan.zero_other},
+            "keys_scanned": scan.keys_scanned, "scan_s": scan.seconds, "compare_s": second.seconds,
+            "compared_pairs": second.compared.len(), "disagreement_list": dis_list,
+            "config": {"decisive_zeros": inp.second_route.decisive_zeros, "elided": inp.second_route.elided}});
+    }
     let closed = certified == keys && blocking.is_empty();
     // a verdict blocker without a per-key count counts as one defect (the node machine needs defect > 0 to end)
     let defect = if closed { 0 } else { (keys - certified).max(1) };
@@ -702,6 +886,32 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                 proof_batches.extend(exact_batches(&set, &missing_exact, cap.max(1)));
             }
         }
+        // lane closeloop4: the second route of the facts to confirm (kept apart: reason second_route)
+        if !second_missing.is_empty() {
+            let pick = |route: &str| -> BTreeMap<(usize, usize), BTreeSet<Vec<i32>>> {
+                second_missing
+                    .iter()
+                    .filter(|((_, _, r), _)| *r == route)
+                    .map(|((t, r, _), ks)| ((*t, *r), ks.clone()))
+                    .collect()
+            };
+            if let Some(cap) = pp.exact_keys_per_job {
+                proof_batches.extend(record_batches(
+                    &set,
+                    &pick("exact_eval"),
+                    cap.max(1),
+                    "exact",
+                    REASON_SECOND_ROUTE,
+                ));
+            }
+            proof_batches.extend(record_batches(
+                &set,
+                &pick("rr_proof"),
+                pp.max_fact_keys_per_job.max(1),
+                "facts",
+                REASON_SECOND_ROUTE,
+            ));
+        }
     }
     // work-counter budgets: issue batches up to what is left (a batch may be cut); a budget stop is recorded when
     // requests remain and nothing more may be issued
@@ -822,6 +1032,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         "budget": budget_why, "budget_stop": budget_stop,
         "cap_hits": {"wall_time_decided": cap_wall, "work": cap_work},
         "engine_failures": {"retried_this_round": inp.engine_retried, "attention": inp.engine_attention},
+        "second_route": second_v,
     });
     let dispatch_order = json!({
         "schema": DISPATCH_SCHEMA, "node": inp.node, "spec_digest": set.report.spec_digest,
@@ -837,7 +1048,60 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     let import_manifest = json!({
         "schema": IMPORT_SCHEMA, "node": inp.node, "report": serde_json::to_value(set.report()).unwrap_or(Value::Null),
     });
-    let final_ = if closed || (batches.is_empty() && proof_batches.is_empty()) {
+    // lane closeloop4 (closeloop.md 19): an uncovered key that nothing more can serve is a terminal PROPOSAL; it becomes
+    // a terminal only by a decision (operator, or `auto` within `max_auto`); until then the node has no final verdict
+    let mut terminal_proposals: Option<Value> = None;
+    let mut terminal_decision: Option<TerminalDecision> = None;
+    if !closed && batches.is_empty() && proof_batches.is_empty() && !budget_stop {
+        let rejected: BTreeSet<Vec<i32>> = inp
+            .terminal_decisions
+            .iter()
+            .flat_map(|d| d.reject.iter().cloned())
+            .collect();
+        let uncovered = |r: &KeyRow| {
+            r.status == RowStatus::Open && r.open_status.as_deref() == Some("uncovered")
+        };
+        let not_cert: Vec<&KeyRow> = res
+            .rows
+            .iter()
+            .filter(|r| !row_certified(r, required, basis_ok))
+            .collect();
+        let only_uncovered = !not_cert.is_empty()
+            && not_cert.iter().all(|r| uncovered(r))
+            && blocking
+                .iter()
+                .all(|b| b.starts_with("open_keys:") || b.starts_with("import_open_keys:"));
+        let proposals: Vec<Vec<i32>> = not_cert
+            .iter()
+            .filter(|r| uncovered(r) && !rejected.contains(&r.key))
+            .map(|r| r.key.clone())
+            .collect();
+        let n_rejected = not_cert
+            .iter()
+            .filter(|r| rejected.contains(&r.key))
+            .count();
+        if n_rejected > 0 {
+            blocking.push(format!("terminal_proposals_rejected:{n_rejected}"));
+        }
+        if only_uncovered && !proposals.is_empty() {
+            let rec = super::terminals::proposals_record(&inp.node, inp.round, &proposals, &res.rows);
+            let auto_ok = inp.terminals.accept == TerminalAccept::Auto
+                && proposals.len() <= inp.terminals.max_auto;
+            if auto_ok {
+                terminal_decision = Some(super::terminals::auto_decision(
+                    &inp.node,
+                    inp.round,
+                    &proposals,
+                    inp.terminals.max_auto,
+                ));
+            } else {
+                terminal_proposals = Some(rec);
+            }
+        }
+    }
+    let final_ = if terminal_proposals.is_some() || terminal_decision.is_some() {
+        None
+    } else if closed || (batches.is_empty() && proof_batches.is_empty()) {
         let verdict = if closed {
             "closed"
         } else if budget_stop {
@@ -863,6 +1127,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                 elapsed: t0.elapsed().as_secs_f64(),
                 required,
                 basis_ok,
+                decisive: &decisive_lines,
             },
         )?)
     } else {
@@ -883,6 +1148,8 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         import_manifest,
         seconds: t0.elapsed().as_secs_f64(),
         set,
+        terminal_proposals,
+        terminal_decision,
     })
 }
 
@@ -942,6 +1209,8 @@ struct FinalCtx<'a> {
     elapsed: f64,
     required: Level,
     basis_ok: bool,
+    /// lane closeloop4: the decisive-zero table (both sources per zero), written into the statement directory.
+    decisive: &'a [Value],
 }
 
 /// Phase D: our statement, the comparison with the hand statement, the open list, the economy numbers, the result.
@@ -1006,6 +1275,17 @@ fn write_final(
         "fact_basis": f.check["fact_basis"].clone()}});
     let dig = write_statement(set, ev, res, &sdir, Some(header))
         .map_err(|e| format!("statement: {e}"))?;
+    // lane closeloop4 (closeloop.md 18.4): the decisive zeros with BOTH sources, in the statement's evidence
+    let mut dz = String::new();
+    for v in f.decisive {
+        dz.push_str(&v.to_string());
+        dz.push('\n');
+    }
+    std::fs::write(sdir.join("decisive_zeros.jsonl"), &dz)
+        .map_err(|e| format!("decisive_zeros: {e}"))?;
+    // lane closeloop4 (closeloop.md 19.3): who accepted each terminal of the closure
+    let terminals_accepted =
+        super::terminals::accepted_terminals(set, res, &inp.terminal_decisions);
     let compare_into = |r: &CheckResult, dir: &str| -> Result<Value, String> {
         let Some(h) = &inp.hand else {
             return Ok(Value::Null);
@@ -1203,6 +1483,11 @@ fn write_final(
         "box_clause": inp.box_clause, "clauses": clauses,
         "clause_keys": {"file": "clause_keys.jsonl", "count": clause_keys.len(), "not_certified": clause_open,
                         "by_rule_class_level": clause_by_class},
+        // lane closeloop4 (closeloop.md 18 / 19): the second route of the zero test and who accepted each terminal
+        "second_route": f.check["second_route"].clone(),
+        "decisive_zeros": {"file": "statement/decisive_zeros.jsonl", "count": f.decisive.len()},
+        "terminals_accepted": terminals_accepted,
+        "terminal_policy": {"accept": inp.terminals.accept, "max_auto": inp.terminals.max_auto},
     });
     Ok(FinalOut {
         verdict: f.verdict.to_string(),
@@ -1216,6 +1501,18 @@ fn exact_batches(
     set: &rustred_campaign_core::import::ImportedSet,
     missing: &BTreeMap<(usize, usize), BTreeSet<Vec<i32>>>,
     cap: usize,
+) -> Vec<ProofBatch> {
+    record_batches(set, missing, cap, "exact", REASON_EXACT)
+}
+
+/// Batches of kind `kind` (reason `reason`) of the (record, key) pairs of `missing`: one table per batch, at most `cap`
+/// pairs (a record's keys may be split over batches).
+fn record_batches(
+    set: &rustred_campaign_core::import::ImportedSet,
+    missing: &BTreeMap<(usize, usize), BTreeSet<Vec<i32>>>,
+    cap: usize,
+    kind: &str,
+    reason: &str,
 ) -> Vec<ProofBatch> {
     let mut by_table: BTreeMap<String, Vec<RecordReq>> = BTreeMap::new();
     for ((t, r), ks) in missing {
@@ -1238,8 +1535,8 @@ fn exact_batches(
             for chunk in rr.keys.chunks(cap) {
                 if n + chunk.len() > cap && !cur.is_empty() {
                     out.push(ProofBatch {
-                        kind: "exact".into(),
-                        reason: REASON_EXACT.into(),
+                        kind: kind.into(),
+                        reason: reason.into(),
                         table: table.clone(),
                         records: std::mem::take(&mut cur),
                         relation_source: None,
@@ -1255,8 +1552,8 @@ fn exact_batches(
         }
         if !cur.is_empty() {
             out.push(ProofBatch {
-                kind: "exact".into(),
-                reason: REASON_EXACT.into(),
+                kind: kind.into(),
+                reason: reason.into(),
                 table,
                 records: cur,
                 relation_source: None,

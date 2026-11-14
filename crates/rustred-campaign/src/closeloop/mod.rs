@@ -10,6 +10,9 @@ pub mod proofs;
 pub mod source;
 // lane termmin (interfaces/termmin.md): phase E, terminal minimisation (FOR CLOSELOOP2: one line)
 pub mod termmin;
+// lane closeloop4 (closeloop.md 18 / 19): second route of the zero test, terminals behind a decision
+pub mod terminals;
+pub mod zeros;
 
 pub use config::{CONFIG_ROLE, CONFIG_SCHEMA, CloseLoopConfig, NodeCfg, SolveCfg, Target};
 pub use source::CloseFromMaterialSource;

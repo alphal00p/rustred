@@ -359,6 +359,15 @@ fn a_recipe_failure_is_a_structured_error_and_the_node_ends_open() {
     };
     let (_t, files, sp, cdir) = setup("clfail", &cfg);
     std::fs::write(&files.hand, "").unwrap();
+    // lane closeloop4 (closeloop.md 19): the uncovered key is a terminal PROPOSAL: the run stops for the operator
+    // (exit 8); the operator rejects it and the node ends open (exit 10), as before
+    let mut c = start(&sp, &cdir, &["--plain"], &[]);
+    assert_eq!(wait(&mut c, Duration::from_secs(600)), ATTENTION, "{}", log_tail(&cdir));
+    assert_eq!(
+        latest_proposals(&cdir, "toy").unwrap()["proposals"][0]["key"],
+        serde_json::json!([4, 1, 0])
+    );
+    assert_eq!(resolve_terminals(&cdir, Some("toy"), None), 0);
     assert_eq!(run_to_end(&sp, &cdir, &["--plain"]).last(), Some(&10));
     let st = state(&cdir);
     assert_eq!(

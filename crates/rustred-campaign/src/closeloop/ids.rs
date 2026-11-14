@@ -96,6 +96,21 @@ pub fn input_answers_prefix(n: &str) -> String {
 pub fn input_final(n: &str) -> String {
     format!("closeloop:{n}:final")
 }
+/// lane closeloop4 (closeloop.md 18): the second route's fact answers of a fact item (kept apart from the first's).
+pub fn input_facts2(item: &str, job: &str) -> String {
+    format!("closeloop:{item}:facts2:{job}")
+}
+/// lane closeloop4 (closeloop.md 19): the terminal proposals of node `n` at check round `k` (awaiting a decision).
+pub fn input_tproposals(n: &str, k: u32) -> String {
+    format!("closeloop:{n}:tproposals:r{k}")
+}
+/// lane closeloop4: prefix of the terminal decisions of node `n` (operator or automatic).
+pub fn input_tdecision_prefix(n: &str) -> String {
+    format!("closeloop:{n}:tdecision:")
+}
+pub fn input_tdecision(n: &str, id: &str) -> String {
+    format!("{}{}", input_tdecision_prefix(n), safe(id))
+}
 
 pub const ROLE_SPEC: &str = "table_set_spec";
 pub const ROLE_BOX: &str = "box";
@@ -108,6 +123,9 @@ pub const ROLE_PROOFS: &str = "closeloop_proofs";
 pub const ROLE_FACTS: &str = "closeloop_facts";
 pub const ROLE_RELATIONS: &str = "closeloop_relations";
 pub const ROLE_RETRY: &str = "closeloop_retry";
+pub const ROLE_FACTS2: &str = "closeloop_facts2";
+pub const ROLE_TPROPOSALS: &str = "closeloop_terminal_proposals";
+pub const ROLE_TDECISION: &str = "closeloop_terminal_decision";
 
 pub const KIND_IMPORT: &str = "import";
 pub const KIND_SOLVE: &str = "recipe-solve";

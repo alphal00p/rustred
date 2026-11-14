@@ -213,6 +213,70 @@ pub struct NodeCfg {
     pub box_clause: Option<String>,
     #[serde(default)]
     pub prior_clauses: Vec<PriorClause>,
+    /// lane closeloop4 (closeloop.md 18): the standing second route of the exact tier's zero test (ON by default).
+    #[serde(default)]
+    pub second_route: SecondRouteCfg,
+    /// lane closeloop4 (closeloop.md 19): which terminals are terminals (default: only the declared ones).
+    #[serde(default)]
+    pub terminals: TerminalsCfg,
+}
+
+/// lane closeloop4 (closeloop.md 18): every zero-coefficient fact that changes the exact closure (a DECISIVE zero) is
+/// confirmed by the other route (rr_proof instantiate <-> exact evaluation); records with elided loci get BOTH routes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SecondRouteCfg {
+    /// Confirm every decisive zero by the second route (a disagreement blocks the node).
+    #[serde(default = "d_yes")]
+    pub decisive_zeros: bool,
+    /// Records with elided witness loci: their exact-evaluation facts are also asked from rr_proof
+    /// (`--elided-loci facts`) and compared over every term (basis `exact_eval + rr_proof_elided`).
+    #[serde(default = "d_yes")]
+    pub elided: bool,
+}
+
+impl Default for SecondRouteCfg {
+    fn default() -> Self {
+        SecondRouteCfg {
+            decisive_zeros: true,
+            elided: true,
+        }
+    }
+}
+
+/// lane closeloop4 (closeloop.md 19): an uncovered key that nothing more can serve is a terminal PROPOSAL.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalAccept {
+    /// Only the terminals the import spec / imported statement declares are terminals; proposals wait for an operator
+    /// decision (`rr_campaign control CDIR resolve-terminals`): the run stops with exit 8 until then.
+    #[default]
+    DeclaredOnly,
+    /// Proposals are accepted automatically when there are at most `max_auto` of them (explicit choice only); more
+    /// wait for the operator as under `declared_only`.
+    Auto,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TerminalsCfg {
+    #[serde(default)]
+    pub accept: TerminalAccept,
+    #[serde(default = "d_max_auto")]
+    pub max_auto: usize,
+}
+
+impl Default for TerminalsCfg {
+    fn default() -> Self {
+        TerminalsCfg {
+            accept: TerminalAccept::DeclaredOnly,
+            max_auto: d_max_auto(),
+        }
+    }
+}
+
+fn d_max_auto() -> usize {
+    8
 }
 
 /// An earlier box clause of the node, decided by another run (its final result record).

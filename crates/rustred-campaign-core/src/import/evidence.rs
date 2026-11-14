@@ -56,6 +56,8 @@ fn fact_producer(v: &Value, compact: bool) -> &'static str {
     match v.get("producer").and_then(Value::as_str) {
         Some("exact_eval") => "exact_eval",
         Some("rr_proof") => "rr_proof",
+        // lane closeloop4: rr_proof instantiate `--elided-loci facts` (coefficient facts of an elided record only)
+        Some("rr_proof_elided") => "rr_proof_elided",
         _ => "compact",
     }
 }
@@ -172,6 +174,10 @@ pub struct Evidence {
     pub counts: EvidenceCounts,
     label: String,
     fact_files: Vec<String>,
+    /// lane closeloop4 (closeloop.md 18): (rule, key) pairs whose coefficient facts are DISPUTED (the two independent
+    /// routes disagree): every term is `Unknown` there (a term is an edge unless its zero is confirmed; the key's
+    /// row is never certified).
+    disputed: std::collections::HashSet<(u32, Vec<i32>)>,
 }
 
 /// How many foreign record digests are kept as examples (diagnosis only).
@@ -786,6 +792,33 @@ impl Evidence {
             .is_some_and(|f| !matches!(&f.terms, Terms::Full(t) if t.is_empty()) || f.lift)
     }
 
+    /// lane closeloop4 (closeloop.md 18): the coefficient facts of (record `sha`, `key`) are DISPUTED by a second
+    /// route: from now on every term there is `Unknown` (an edge, the key uncertified). False = no such record.
+    pub fn dispute(&mut self, sha: &str, key: &[i32]) -> bool {
+        match self.sha_index.get(sha) {
+            Some(&ri) => {
+                self.disputed.insert((ri, key.to_vec()));
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// lane closeloop4 (closeloop.md 18): the bound fact of (record `sha`, `key`) was CONFIRMED term by term by a
+    /// second, independent route: its fact basis becomes `basis` (e.g. `rr_proof + exact_eval`). False = no fact.
+    pub fn confirm_basis(&mut self, sha: &str, key: &[i32], basis: &'static str) -> bool {
+        let Some(&ri) = self.sha_index.get(sha) else {
+            return false;
+        };
+        match self.facts.get_mut(&(ri, key.to_vec())) {
+            Some(f) => {
+                f.producer = basis;
+                true
+            }
+            None => false,
+        }
+    }
+
     /// lane closeloop3: the fact basis of (rule, key): the producer of the bound fact line (`rr_proof` | `exact_eval`
     /// | `compact`), `None` without a fact.
     pub fn fact_basis(&self, rule: &RuleId, key: &[i32]) -> Option<&'static str> {
@@ -819,6 +852,14 @@ fn locate(set: &ImportedSet, ri: u32) -> (usize, usize) {
 
 impl FactSource for Evidence {
     fn coefficient(&self, rule: &RuleId, key: &[i32], term: usize, term_key: &[i32]) -> CoefFact {
+        if !self.disputed.is_empty()
+            && self
+                .rule_index
+                .get(&(rule.table.to_string(), rule.label))
+                .is_some_and(|ri| self.disputed.contains(&(*ri, key.to_vec())))
+        {
+            return CoefFact::Unknown;
+        }
         self.rec(rule, key)
             .map(|f| f.coefficient(term, term_key))
             .unwrap_or(CoefFact::Unknown)

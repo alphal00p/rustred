@@ -42,6 +42,8 @@ type Issued = (BTreeSet<(String, Vec<i32>)>, u64, u64, u64, u64, Vec<Value>);
 struct ProofIssued {
     spans: BTreeSet<(String, Vec<i32>)>,
     facts: BTreeSet<(String, Vec<i32>)>,
+    /// lane closeloop4: pairs given to a SECOND-route fact item (reason second_route).
+    facts2: BTreeSet<(String, Vec<i32>)>,
     jobs: u64,
     attention: u64,
 }
@@ -77,6 +79,9 @@ struct NodeRt {
     exact_oracle: ProofOracle,
     /// BLAKE3 of the proof config's family / cert / symmetry group files.
     proof_inputs: BTreeMap<String, (PathBuf, String)>,
+    /// lane closeloop4: BLAKE3 of the import spec text `set` was loaded from (the effective spec grows with decided
+    /// terminals: a cached set of another text is never reused).
+    set_spec_b3: Option<String>,
 }
 
 /// The close-from-material work source.
@@ -439,6 +444,7 @@ impl CloseFromMaterialSource {
                 proof_oracle,
                 exact_oracle,
                 proof_inputs,
+                set_spec_b3: None,
             });
         }
         Ok(s)
@@ -637,7 +643,9 @@ impl CloseFromMaterialSource {
         let mut out = ProofIssued::default();
         for (item, ph) in &items {
             let b = self.pbatch(st, i, item)?;
-            if b.kind == "facts" || b.kind == "exact" {
+            if b.reason == proofs::REASON_SECOND_ROUTE {
+                out.facts2.extend(b.pairs());
+            } else if b.kind == "facts" || b.kind == "exact" {
                 out.facts.extend(b.pairs());
             } else {
                 out.spans.extend(b.pairs());
@@ -672,6 +680,10 @@ impl CloseFromMaterialSource {
         if r.running.is_some() || st.inputs.contains_key(&input_final(&r.n)) {
             return None;
         }
+        // lane closeloop4: proposals waiting for the operator: no pass until a decision is recorded
+        if self.awaiting(st, i).is_some() {
+            return None;
+        }
         let node = &r.cfg.node;
         let nr = st.nodes.get(node)?;
         if nr.state.phase == NodePhase::Registered || nr.state.phase == NodePhase::Stale {
@@ -693,10 +705,18 @@ impl CloseFromMaterialSource {
     }
 
     fn start_pass(&mut self, st: &CampaignState, i: usize, round: u32) -> Result<(), String> {
-        let cached = self.nodes[i].set.clone();
+        // lane closeloop4 (closeloop.md 19): the effective import spec = the node's spec + the decided terminals
+        let decisions = self.terminal_decisions(st, i)?;
+        let spec_text = super::terminals::effective_spec(&self.nodes[i].spec_text, &decisions)?;
+        let spec_b3 = blake3_hex(spec_text.as_bytes());
+        let cached = self.nodes[i]
+            .set
+            .clone()
+            .filter(|_| self.nodes[i].set_spec_b3.as_deref().is_none_or(|b| b == spec_b3));
+        self.nodes[i].set_spec_b3 = Some(spec_b3);
         if round == 0 {
             let r = &self.nodes[i];
-            let text = r.spec_text.clone();
+            let text = spec_text.clone();
             let base = r.cfg.base();
             let h = std::thread::Builder::new()
                 .name(format!("closeloop-load-{}", r.n))
@@ -730,12 +750,17 @@ impl CloseFromMaterialSource {
             .into_iter()
             .map(|(_, p, b)| (p, b))
             .collect();
+        let fact2_files = self
+            .inputs_of_role(st, i, ROLE_FACTS2)
+            .into_iter()
+            .map(|(_, p, b)| (p, b))
+            .collect();
         let relation_tables = self.relation_tables(st, i);
         let r = &self.nodes[i];
         let inp = PassIn {
             node: r.cfg.node.clone(),
             round,
-            spec_text: r.spec_text.clone(),
+            spec_text,
             base: r.cfg.base(),
             answers,
             threads: r.cfg.check_threads,
@@ -779,6 +804,11 @@ impl CloseFromMaterialSource {
                 .iter()
                 .map(|c| (c.id.clone(), c.result.clone()))
                 .collect(),
+            fact2_files,
+            issued_facts2: pi.facts2,
+            second_route: r.cfg.second_route,
+            terminals: r.cfg.terminals,
+            terminal_decisions: decisions,
         };
         let h = std::thread::Builder::new()
             .name(format!("closeloop-pass-{}", r.n))
@@ -905,7 +935,9 @@ impl CloseFromMaterialSource {
             rustred_campaign_core::import::load(&spec, &r.cfg.base())
                 .map_err(|e| format!("import load: {e}"))?,
         );
+        let b3 = blake3_hex(self.nodes[i].spec_text.as_bytes());
         self.nodes[i].set = Some(set.clone());
+        self.nodes[i].set_spec_b3 = Some(b3);
         Ok(set)
     }
 
@@ -1077,6 +1109,33 @@ impl CloseFromMaterialSource {
         // lane closeloop2: new proof (span) and fact items
         for (j, b) in out.proof_batches.iter().enumerate() {
             self.new_proof_item(&mut rt, i, k, j, b)?;
+        }
+        // lane closeloop4 (closeloop.md 19): terminal proposals waiting for a decision / an automatic decision
+        if let Some(p) = &out.terminal_proposals {
+            let rec = record(
+                format!("{}/final/terminal_proposals.r{k}.json", node_dir(&n)),
+                json_bytes(p),
+            );
+            let fr = rec.file_ref();
+            rt.events.push(Event::InputRegistered {
+                input: input_tproposals(&n, k),
+                role: ROLE_TPROPOSALS.into(),
+                path: self.abs(&rec.path).display().to_string(),
+                bytes: fr.bytes,
+                blake3: fr.blake3,
+            });
+            rt.events.push(Event::Note {
+                text: format!(
+                    "closeloop {node}: {} (round {k}); `rr_campaign control CDIR resolve-terminals --node {node} --accept KEYS | --reject`",
+                    p["label"].as_str().unwrap_or("terminal proposals")
+                ),
+            });
+            rt.accepts.push(rec);
+        }
+        if let Some(d) = &out.terminal_decision {
+            let (ev, rec) = self.decision_record(i, d)?;
+            rt.events.push(ev);
+            rt.accepts.push(rec);
         }
         // phase D
         if let Some(f) = &out.final_ {
@@ -1383,7 +1442,12 @@ impl CloseFromMaterialSource {
                 .map(|x| x.program_key())
                 .unwrap_or(pc.program_key())
                 .to_string(),
-            args: vec![],
+            // lane closeloop4: a second-route rr_proof job instantiates records with elided loci in facts mode
+            args: if kind == JobKind::ProofInstantiate && b.reason == proofs::REASON_SECOND_ROUTE {
+                vec!["--elided-loci".into(), "facts".into()]
+            } else {
+                vec![]
+            },
             inputs,
             depends_on: vec![input_pbatch(item)],
             budgets: JobBudgets::default(),
@@ -1645,7 +1709,10 @@ impl CloseFromMaterialSource {
             }
         };
         let n = self.nodes[i].n.clone();
-        let (sub, input, role) = if b.kind == "facts" || b.kind == "exact" {
+        let (sub, input, role) = if b.reason == proofs::REASON_SECOND_ROUTE {
+            // lane closeloop4: the second route's answers are kept apart (compared with the first, never merged)
+            ("facts2", input_facts2(&done.item, &done.job), ROLE_FACTS2)
+        } else if b.kind == "facts" || b.kind == "exact" {
             ("facts", input_facts(&done.item, &done.job), ROLE_FACTS)
         } else {
             ("proofs", input_proofs(&done.item, &done.job), ROLE_PROOFS)
@@ -1710,6 +1777,79 @@ impl CloseFromMaterialSource {
         rt.accepts.push(keys);
         rt.accepts.push(ans);
         Ok(rt)
+    }
+}
+
+// lane closeloop4 (closeloop.md 19): terminal proposals and decisions
+impl CloseFromMaterialSource {
+    /// The recorded terminal decisions of node `i` (ledger order; each file verified by its digest).
+    fn terminal_decisions(
+        &self,
+        st: &CampaignState,
+        i: usize,
+    ) -> Result<Vec<super::terminals::TerminalDecision>, String> {
+        let pre = input_tdecision_prefix(&self.nodes[i].n);
+        let mut ids: Vec<(u64, String)> = st
+            .inputs
+            .iter()
+            .filter(|(id, _)| id.starts_with(&pre))
+            .map(|(id, r)| (r.registered_seq, id.clone()))
+            .collect();
+        ids.sort();
+        ids.into_iter()
+            .map(|(_, id)| {
+                serde_json::from_slice(&self.input_file(st, &id)?)
+                    .map_err(|e| format!("terminal decision {id}: {e}"))
+            })
+            .collect()
+    }
+
+    /// (round, proposals) when node `i`'s latest proposals record has no decision yet.
+    fn awaiting(&self, st: &CampaignState, i: usize) -> Option<(u32, u64)> {
+        let n = &self.nodes[i].n;
+        if st.inputs.contains_key(&input_final(n)) {
+            return None;
+        }
+        let k = Self::rounds_done(st, n);
+        let p = st.inputs.get(&input_tproposals(n, k))?;
+        let pre = input_tdecision_prefix(n);
+        let decided = st
+            .inputs
+            .iter()
+            .any(|(id, r)| id.starts_with(&pre) && r.registered_seq > p.registered_seq);
+        if decided {
+            return None;
+        }
+        let count = std::fs::read(self.abs_or(&p.path))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            .and_then(|v| v["count"].as_u64())
+            .unwrap_or(0);
+        Some((k, count))
+    }
+
+    /// The ledger input and the file of a terminal decision.
+    fn decision_record(
+        &self,
+        i: usize,
+        d: &super::terminals::TerminalDecision,
+    ) -> Result<(Event, AcceptedRecord), String> {
+        let n = &self.nodes[i].n;
+        let rec = record(
+            format!("{}/terminals/decision.{}.json", node_dir(n), safe(&d.id)),
+            json_bytes(&serde_json::to_value(d).map_err(|e| e.to_string())?),
+        );
+        let fr = rec.file_ref();
+        Ok((
+            Event::InputRegistered {
+                input: input_tdecision(n, &d.id),
+                role: ROLE_TDECISION.into(),
+                path: self.abs(&rec.path).display().to_string(),
+                bytes: fr.bytes,
+                blake3: fr.blake3,
+            },
+            rec,
+        ))
     }
 }
 
@@ -2168,6 +2308,101 @@ impl WorkSource for CloseFromMaterialSource {
             .all(|r| r.running.is_none() && st.inputs.contains_key(&input_final(&r.n)))
     }
 
+    /// lane closeloop4 (closeloop.md 19): nodes whose terminal proposals wait for the operator (exit 8).
+    fn awaiting_operator(&self, st: &CampaignState) -> Option<String> {
+        let v: Vec<String> = (0..self.nodes.len())
+            .filter(|&i| self.nodes[i].running.is_none())
+            .filter_map(|i| {
+                self.awaiting(st, i).map(|(k, n)| {
+                    format!(
+                        "{}: open: awaiting operator decision on {n} terminal proposals (round {k}; `rr_campaign control CDIR resolve-terminals --node {} --accept KEYS_FILE | --reject`)",
+                        self.nodes[i].cfg.node, self.nodes[i].cfg.node
+                    )
+                })
+            })
+            .collect();
+        (!v.is_empty()).then(|| v.join(" | "))
+    }
+
+    /// lane closeloop4 (closeloop.md 19): the operator's `resolve-terminals` request.
+    fn operator_decision(
+        &mut self,
+        st: &CampaignState,
+        req: &crate::supervisor::ControlRequest,
+    ) -> Result<Routing, String> {
+        let mut rt = Routing::default();
+        let targets: Vec<usize> = (0..self.nodes.len())
+            .filter(|&i| {
+                req.target
+                    .as_deref()
+                    .is_none_or(|t| t == self.nodes[i].cfg.node)
+            })
+            .filter(|&i| self.awaiting(st, i).is_some())
+            .collect();
+        if targets.is_empty() {
+            return Err(format!(
+                "no node {}awaits a terminal decision",
+                req.target
+                    .as_deref()
+                    .map(|t| format!("{t} "))
+                    .unwrap_or_default()
+            ));
+        }
+        let p = req.payload.clone().unwrap_or(Value::Null);
+        let accept: Option<Vec<Vec<i32>>> = if p["reject"] == true {
+            None
+        } else {
+            Some(
+                serde_json::from_value(p["accept"].clone())
+                    .map_err(|e| format!("payload accept: {e}"))?,
+            )
+        };
+        for i in targets {
+            let (k, _) = self.awaiting(st, i).expect("awaiting");
+            let pr: Value = serde_json::from_slice(
+                &self.input_file(st, &input_tproposals(&self.nodes[i].n, k))?,
+            )
+            .map_err(|e| format!("proposals: {e}"))?;
+            let proposed: Vec<Vec<i32>> = pr["proposals"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|x| serde_json::from_value(x["key"].clone()).ok())
+                .collect();
+            // with several nodes, each takes the listed keys that are its own proposals
+            let acc: Option<Vec<Vec<i32>>> = accept.as_ref().map(|a| {
+                if req.target.is_some() {
+                    a.clone()
+                } else {
+                    a.iter().filter(|k| proposed.contains(k)).cloned().collect()
+                }
+            });
+            let d = super::terminals::operator_decision(
+                &self.nodes[i].cfg.node,
+                k,
+                &proposed,
+                acc.as_deref(),
+                &req.id,
+                if req.by.is_empty() { "operator" } else { &req.by },
+                req.reason.as_deref().unwrap_or(""),
+            )?;
+            let (ev, rec) = self.decision_record(i, &d)?;
+            rt.events.push(ev);
+            rt.accepts.push(rec);
+            rt.events.push(Event::Note {
+                text: format!(
+                    "closeloop {}: terminal decision {} by {}: accepted {}, rejected {}",
+                    d.node,
+                    d.id,
+                    d.by,
+                    d.accept.len(),
+                    d.reject.len()
+                ),
+            });
+        }
+        Ok(rt)
+    }
+
     /// lane closeloop3 (procfix5, supervisor.md 19.4): the outcome from every node's FINAL verdict (the recorded
     /// `final/result.json`): `closed` -> Closed; `error` (or an unreadable result) -> Error; anything else (`open`,
     /// `budget`, no result) -> Open. Error wins over Open.
@@ -2179,7 +2414,10 @@ impl WorkSource for CloseFromMaterialSource {
                 open.push(format!("{node}: no final verdict"));
                 continue;
             };
-            let v: Option<Value> = std::fs::read(self.abs_or(&inp.path))
+            // lane closeloop4 (audit-closeloop F-OUT): the result is read through its RECORDED digest (input_file
+            // refuses a changed file: then the verdict is unreadable -> error), never the bare file
+            let v: Option<Value> = self
+                .input_file(st, &input_final(&r.n))
                 .ok()
                 .and_then(|b| serde_json::from_slice(&b).ok());
             match v.as_ref().and_then(|v| v["verdict"].as_str()) {

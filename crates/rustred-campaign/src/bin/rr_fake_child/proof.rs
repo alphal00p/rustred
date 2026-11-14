@@ -253,11 +253,30 @@ pub fn run(spec_path: &Path, kind: &str) -> ! {
             }
             let keys: Vec<Vec<i64>> =
                 serde_json::from_value(v["keys"].clone()).unwrap_or_else(|_| die("keys"));
+            // lane closeloop4: `--elided-loci facts` (a second-route job): the answer carries the record's REAL
+            // per-term coefficient facts (the campaign core's exact evaluation) and an elided record answers as rr_proof
+            // does in facts mode (`elided_cover`, never `regular`); without it a record with elided loci is refused
+            let facts_mode = spec.arg_value("--elided-loci") == Some("facts");
             for k in keys {
                 let mut a = json!({"schema": "rustred.proof-kernel.instantiate.v1", "record_sha256": sha,
                     "rule": rule, "key": k, "in_case": true, "chart_ok": true, "branch": null,
                     "regular": "regular", "irregular_terms": [], "hidden_loci": [], "rhs": [],
                     "zero_test": "exact", "error": null});
+                if facts_mode {
+                    let k32: Vec<i32> = k.iter().map(|&x| x as i32).collect();
+                    let (terms, elided, regular) = core_terms(Path::new(table), off, rule, &k32)
+                        .unwrap_or_else(|e| die(&e));
+                    a["rhs"] = json!(terms
+                        .iter()
+                        .enumerate()
+                        .map(|(j, (tk, c))| json!({"term": j, "key": tk, "coef": c}))
+                        .collect::<Vec<_>>());
+                    a["regular"] = json!(regular);
+                    if elided {
+                        a["regular"] = json!(if regular == "irregular" { "irregular" } else { "hidden" });
+                        a["elided_cover"] = json!("guards_v2");
+                    }
+                }
                 if let Some(FakeOp::ProofAnswer {
                     ms,
                     record_sha256,
@@ -305,6 +324,70 @@ pub fn run(spec_path: &Path, kind: &str) -> ! {
         json!({"fake": true, "written": name, "lines": out_lines.len()})
     );
     std::process::exit(0)
+}
+
+/// lane closeloop4: the per-term (term key, `zero` | `nonzero` | `unknown`) facts of (record at `off` of `table`, key)
+/// from the campaign core's exact evaluation, whether the record's witness loci are elided, and its regularity word.
+#[allow(clippy::type_complexity)]
+fn core_terms(
+    table: &Path,
+    off: u64,
+    rule: i64,
+    key: &[i32],
+) -> Result<(Vec<(Vec<i32>, &'static str)>, bool, String), String> {
+    use rustred_campaign_core::accept::facts::{
+        CoefficientFacts, ExactRecordFacts, RegVerdict, Regularity,
+    };
+    use rustred_campaign_core::accept::rule::RuleText;
+    use rustred_campaign_core::closure::CoefFact;
+    use rustred_campaign_core::closure::bodies::{RhsSlot, parse_rhs_pattern, rule_point};
+    let h = rustred_campaign_core::import::lines::read_header("fake", table)
+        .map_err(|e| e.to_string())?;
+    let frame =
+        rustred_campaign_core::key::NodeFrame::from_header(&h).map_err(|e| format!("{e:?}"))?;
+    let mut f = std::fs::File::open(table).map_err(|e| e.to_string())?;
+    f.seek(SeekFrom::Start(off)).map_err(|e| e.to_string())?;
+    let mut all = Vec::new();
+    f.read_to_end(&mut all).map_err(|e| e.to_string())?;
+    let end = all.iter().position(|&c| c == b'\n').unwrap_or(all.len());
+    let line = &all[..end];
+    let elided = serde_json::from_slice::<Value>(line)
+        .ok()
+        .and_then(|v| v["witness_loci"].as_array().cloned())
+        .is_some_and(|w| w.iter().any(|x| x == "elided"));
+    let rt = RuleText::parse(line, &frame).map_err(|e| format!("{e:?}"))?;
+    if rt.index() != Some(rule) {
+        return Err("rule record not found in table".into());
+    }
+    let dom = rt.domain.as_ref().ok_or("record without a domain")?;
+    let mut pt = vec![];
+    if !rule_point(dom, key, &mut pt) {
+        return Err(format!("no rule point at {key:?}"));
+    }
+    let mut ex = ExactRecordFacts::new();
+    let mut out = vec![];
+    for (j, (pattern, _)) in rt.rhs.iter().enumerate() {
+        let slots = parse_rhs_pattern(pattern, pt.len())?;
+        let tk: Vec<i32> = slots
+            .iter()
+            .map(|s| match *s {
+                RhsSlot::Param { param, offset } => pt[param] + offset,
+                RhsSlot::Const(c) => c,
+            })
+            .collect();
+        let c = match ex.coefficient(&rt, key, j) {
+            CoefFact::Zero => "zero",
+            CoefFact::NonZero => "nonzero",
+            CoefFact::Unknown => "unknown",
+        };
+        out.push((tk, c));
+    }
+    let regular = match ex.regular(&rt, key) {
+        RegVerdict::Pole { .. } => "irregular",
+        RegVerdict::Regular => "regular",
+        _ => "hidden",
+    };
+    Ok((out, elided, regular.to_string()))
 }
 
 /// The fact line of (record at `off` of `table`, key) from the campaign core's exact evaluation (lane closeloop3).
