@@ -313,13 +313,17 @@ fn second_signal_is_the_hard_safe_stop() {
     let mut c = spawn(&s);
     wait_for_rules(&s, 10, Duration::from_secs(120));
     let t = Instant::now();
+    // two DIFFERENT signals back to back: they cannot merge into one pending signal (two SIGTERMs sent at once can),
+    // so the child receives two signals, normally inside one 20 ms watchdog poll
     signal(&c, libc::SIGTERM);
-    signal(&c, libc::SIGTERM);
+    signal(&c, libc::SIGINT);
     let w = wait(&mut c);
     eprintln!("stop took {:?}", t.elapsed());
     assert_eq!(w, WaitStatus::Exited(30));
     let o = outcome(&s);
     assert_eq!(o.job.stop.code, Some(StopCode::Interrupted));
+    // (lane engfix3, audit-engjob m3) two signals inside one watchdog poll are a second signal: hard-safe stop
+    assert!(!o.job.stop.graceful, "hard-safe stop");
     let cl = classified(&s, w, KillReason::Stop);
     assert_eq!(cl.row, 11);
 }
@@ -1410,4 +1414,59 @@ fn not_lower_rule_maps_to_row_6_before_any_other_end() {
     let end = lines.last().unwrap();
     assert_eq!(end["type"], "partial");
     assert_eq!(end["native_descent_not_lower"][0], "I(1,1,1,1,1,1,1,1,0)");
+}
+
+/// audit-engjob M2: with `--strict-numeric-search`, a stop honoured after an exhausted endpoint (SIGTERM during the
+/// master's search; the next safe point is the endpoint after it) is `interrupted` (exit 30, row 11: nothing accepted,
+/// resume), never overwritten by the strict refusal `numeric_search_refused` (exit 10, row 4: committed rules
+/// accepted from an interrupted attempt). The uninterrupted strict job ends with that refusal.
+#[test]
+#[ignore]
+fn strict_numeric_search_stop_is_interrupted_not_refused() {
+    let r = root("strict");
+    let lines: Vec<serde_json::Value> = L3A_POINTS
+        .iter()
+        .map(|p| serde_json::json!({"frame": "ORIGINAL", "fixed": p, "equations": []}))
+        .collect();
+    let args = [
+        "--order",
+        "id",
+        "--numeric-depth",
+        "0",
+        "--numeric-depth-max",
+        "3",
+        "--strict-numeric-search",
+    ];
+    let full = spec_with_cases(&r, "l3a-strict-full", 1, "L3a", &args, &lines);
+    let (w, _) = run_to_end(&full);
+    assert_eq!(w, WaitStatus::Exited(10));
+    assert_eq!(
+        outcome(&full).job.stop.code,
+        Some(StopCode::NumericSearchRefused)
+    );
+    let a = spec_with_cases(&r, "l3a-strict", 1, "L3a", &args, &lines);
+    let mut c = spawn(&a);
+    // the master is the 7th endpoint and takes about 0.5 s
+    wait_events(&a, Duration::from_secs(120), "7th endpoint", |ev| {
+        count_kind(ev, "case_started", |v| v["numerical"] == 1) >= 7
+    });
+    std::thread::sleep(Duration::from_millis(100));
+    signal(&c, libc::SIGTERM);
+    let w = wait(&mut c);
+    let o = outcome(&a);
+    eprintln!(
+        "strict + stop after the exhausted master: {w:?} {:?}",
+        o.job.stop.code
+    );
+    assert_eq!(w, WaitStatus::Exited(30));
+    assert_eq!(o.job.stop.code, Some(StopCode::Interrupted));
+    assert_eq!(classified(&a, w, KillReason::Stop).row, 11);
+    let res = resume_json(&a);
+    assert_eq!(
+        res["engine"]["numeric_stage"]["exhausted"]
+            .as_array()
+            .map(Vec::len),
+        Some(1),
+        "{res}"
+    );
 }
