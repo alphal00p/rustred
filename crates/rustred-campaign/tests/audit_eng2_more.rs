@@ -6,12 +6,9 @@
 mod audit_eng2_common;
 use audit_eng2_common::*;
 
-// ---- shim: the campaign core's import module is not exported yet (as in its own tests/import_synthetic.rs)
-#[allow(unused_imports)]
-use rustred_campaign_core::{closure, cover, domain, key, order, poly, record, schema, symmetry};
-#[allow(dead_code, unused_imports, clippy::all)]
-#[path = "../../rustred-campaign-core/src/import/mod.rs"]
-mod import;
+// the campaign core's import module (exported since; lane engfix4 replaced the audit's path-include shim, which no
+// longer compiles against the current core)
+use rustred_campaign_core::{cover, import};
 
 use rustred_campaign_contract::classify::{Accept, KillReason, WaitStatus};
 use rustred_campaign_contract::layout::RunLayout;
