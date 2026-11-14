@@ -801,7 +801,7 @@ pub(crate) fn gap_partition_with(
     rep.subset = opts.rule_subset.clone();
     // a prove-mode run with an uncovered class can never be a proof: no sub-partition is computed (the report is a
     // refusal; `proves_no_gap` names the U classes)
-    let refuted = mode == RunMode::Prove && rep.n_u() > 0;
+    let mut refuted = mode == RunMode::Prove && rep.n_u() > 0;
     // one sub-problem per stop piece of each blocker, one at a time (memory): built, partitioned, then COMPACTED to
     // its complement variants (the rules of the earlier records are answered by the main normal form, see
     // `uncovered`). The SAME meter: after an exhaustion no sub-partition starts (re-audit RA2-M5).
@@ -862,11 +862,9 @@ pub(crate) fn gap_partition_with(
             b.nf.sources.drain(..keep);
             b.nf.quick.drain(..keep);
             b.compacted = true;
-            let refutes = mode == RunMode::Prove && b.n_u() > 0;
+            // prove mode: an uncovered class in a stop region refutes the proof: no further sub-partition
+            refuted = refuted || (mode == RunMode::Prove && b.n_u() > 0);
             rep.blocked.push((e, b));
-            if refutes {
-                break;
-            }
         }
         if skipped {
             rep.blocked_skipped.push((e, pe));
@@ -1042,7 +1040,7 @@ fn partition_nf(
     };
     rep.cap_truncated = rep.count_cap_truncated();
     // prove mode: an uncovered class already refutes the proof (no locus resolution, no face list)
-    let refuted = mode == RunMode::Prove && rep.n_u() > 0;
+    let mut refuted = mode == RunMode::Prove && rep.n_u() > 0;
     if !rep.stats.aborted && !meter.exhausted() && opts.resolve_loci && !refuted {
         // the call's budget reaches the locus resolution (audit-part-B M3, re-audit RA2-M5): regions left when it is
         // exhausted are OPEN (a bounded summary per class, never one region per pending call)

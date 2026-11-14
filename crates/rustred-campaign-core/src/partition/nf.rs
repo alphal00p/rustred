@@ -173,6 +173,10 @@ pub struct NfRules {
     /// Per source the stop pieces evaluated BEFORE the equations (rule-point overflow, modular zero risk;
     /// audit-part3 M1 / C2); such a source is a blocker even when it never applies.
     pub extra_stops: BTreeMap<usize, Vec<StopPiece>>,
+    /// Per literal: first interned while building a stop piece. Such a literal is a state boundary only where a rule
+    /// of the run refers to it (`classes::slot_states`): the main partition's states are those of its rules, the
+    /// blocked sub-partitions of a piece refer to its literals through their complement rules.
+    pub stop_lits: Vec<bool>,
 }
 
 impl NfRules {
@@ -260,6 +264,7 @@ impl NfRules {
                     .collect()
             })
             .collect();
+        let nlits = b.lits.len();
         Ok(NfRules {
             arity: self.arity,
             lines: self.lines.clone(),
@@ -271,6 +276,11 @@ impl NfRules {
             elided: vec![],
             blockers: vec![],
             extra_stops: BTreeMap::new(),
+            stop_lits: {
+                let mut v = self.stop_lits.clone();
+                v.resize(nlits, false);
+                v
+            },
             notes: if inexact {
                 vec![SourceNote {
                     source: e,
@@ -950,6 +960,7 @@ pub fn build(
     let mut notes: Vec<SourceNote> = vec![];
     let mut selected: BTreeMap<usize, NfRule> = BTreeMap::new();
     let mut extra_stops: BTreeMap<usize, Vec<StopPiece>> = BTreeMap::new();
+    let mut stop_created: Vec<u32> = vec![];
     type PoleKey = (Vec<Poly>, Option<Vec<Affine>>);
     let mut pole_cache: HashMap<PoleKey, (Vec<Vec<MPoly>>, bool)> = HashMap::new();
     let idx: Vec<usize> = match &opts.subset {
@@ -1060,6 +1071,7 @@ pub fn build(
             bad: vec![],
         };
         let mut extra: Vec<StopPiece> = vec![];
+        let lits_before = b.lits.len();
         for (j, ok) in &range {
             // violated: -ok - 1 >= 0 (n_j - o outside i32)
             let viol = ok.scale(-1).and_then(|p| p.sub(&MPoly::constant(arity, 1)));
@@ -1226,6 +1238,9 @@ pub fn build(
             piece.rule.eq.dedup();
             piece.rule.ge.sort_unstable();
             piece.rule.ge.dedup();
+        }
+        for id in lits_before..b.lits.len() {
+            stop_created.push(lit_id(id)?);
         }
         let pre_blocker = !extra.is_empty();
         if pre_blocker {
@@ -1482,6 +1497,12 @@ pub fn build(
     }
     stats.distinct = rules.len();
     stats.literals = b.lits.len();
+    let mut stop_lits = vec![false; b.lits.len()];
+    for id in stop_created {
+        if let Some(x) = stop_lits.get_mut(id as usize) {
+            *x = true;
+        }
+    }
     let quick = rules
         .iter()
         .map(|r| {
@@ -1503,6 +1524,7 @@ pub fn build(
         notes,
         selected,
         extra_stops,
+        stop_lits,
     })
 }
 

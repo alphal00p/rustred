@@ -156,8 +156,21 @@ pub fn slot_states(
     let key_range = |x: i128| -> Option<i64> {
         i32::try_from(x).ok().map(i64::from) // keys are i32: x +- 1 below never overflows i64
     };
-    for l in &nf.lits {
+    // literals first interned for a stop piece are boundaries only where a rule of this run refers to them
+    // (partfix3: the main partition's states are those of its rules; see `NfRules::stop_lits`)
+    let mut referenced = vec![false; nf.lits.len()];
+    for r in nf.rules.iter().chain(nf.selected.values()) {
+        for &l in r.eq.iter().chain(&r.ge).chain(r.bad.iter().flatten()) {
+            if let Some(x) = referenced.get_mut(l as usize) {
+                *x = true;
+            }
+        }
+    }
+    for (li, l) in nf.lits.iter().enumerate() {
         if l.support.len() != 1 {
+            continue;
+        }
+        if nf.stop_lits.get(li).copied().unwrap_or(false) && !referenced[li] {
             continue;
         }
         let s = l.support[0];
