@@ -605,20 +605,20 @@ pub struct NodeOptions {
     pub unsafe_shared_registry: bool,
     /// With a registry: postpone a case contained in a sibling's rule case until the queue (and the pool) is empty,
     /// wait up to `lease_wait` seconds for the siblings to end, then discharge it by proof or solve it here.
-    #[serde(default = "yes")]
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
     pub registry_lease: bool,
-    #[serde(default = "lease_wait")]
+    #[serde(default = "lease_wait", skip_serializing_if = "is_default_lease_wait")]
     pub lease_wait: u64,
     /// A case whose every relation is refused (or whose guard extraction times out) becomes an OPEN OBLIGATION of
     /// the run (listed in `F.obligations.json`) and the queue continues; default: the node stops there.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub open_on_refusal: bool,
     /// Initial cases in PRESENTED slots (as `F.obligations.json` / queue logs record them), added to `initial`.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub initial_presented: Vec<CaseSpec>,
     /// Obligation pool directory (`POOL.json` + `claims/`): when the queue is empty, the next unclaimed item is
     /// claimed atomically and becomes an initial case of this run (dynamic work distribution of a split node).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pool: Option<String>,
     /// Lift ladder rung after SymbolicFirst: the same case searched with these finite seed shells (ShiftShells; Astra
     /// T162: depth-2 shells select far smaller relations than the mandatory depth-0/1 seeds).
@@ -626,7 +626,7 @@ pub struct NodeOptions {
     pub case_seed_rung: Option<CaseSeedSchedule>,
     /// Drop the RHS and the trace sources of a symbolic rule once it is written (memory of long split pieces: the
     /// queue reads only case and exceptional branches of earlier rules).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub slim_rules: bool,
     /// Region-restricted run (t266-regions): the conjunction (PRESENTED `n<i>`, `= 0`) of ONE deferred region whose
     /// chart is the run's initial case. The modular discovery point of every case search is placed on the region
@@ -780,6 +780,16 @@ fn seed_setting_json<const N: usize>(
 
 fn lease_wait() -> u64 {
     1800
+}
+
+// engine line: the registry-line options are serialised only when set, so that a default run's table header
+// (node_options) is byte-identical to batch 6's
+fn is_default_lease_wait(value: &u64) -> bool {
+    *value == lease_wait()
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 fn is_zero(value: &usize) -> bool {
@@ -6018,15 +6028,32 @@ fn run<const N: usize>(
     )
     .map_err(|e| e.to_string())?;
     let chart_errors = usize::from(error.is_some() || stop.is_some());
+    // engine line: the registry line's end-record fields (state, open obligations) and harness label only when a
+    // registry-line option is in use; a default run's end record is batch 6's (OUTCOME.json and F.obligations.json
+    // carry the state in every run)
+    let registry_line = opts.registry.is_some()
+        || opts.pool.is_some()
+        || opts.open_on_refusal
+        || !opts.initial_presented.is_empty();
+    let (harness, registry_fields) = if registry_line {
+        (
+            "rr-registry",
+            format!(
+                ",\"state\":{},\"open_obligations\":{}",
+                q(&outcome.state),
+                outcome.open_obligations
+            ),
+        )
+    } else {
+        ("rr-consolidate", String::new())
+    };
     writeln!(
         out,
-        "{{\"type\":\"{end_record}\",\"charts\":1,\"rules\":{},\"rhs_terms\":{terms},\"residuals\":{},\"chart_errors\":{chart_errors},\"seconds\":{:.3},\"vmhwm_kb\":{},\"harness\":\"rustred node driver (rr-registry)\",\"state\":{},\"open_obligations\":{},\"native_descent_not_lower\":{}{terminal_note}}}",
+        "{{\"type\":\"{end_record}\",\"charts\":1,\"rules\":{},\"rhs_terms\":{terms},\"residuals\":{},\"chart_errors\":{chart_errors},\"seconds\":{:.3},\"vmhwm_kb\":{},\"harness\":\"rustred node driver ({harness})\"{registry_fields},\"native_descent_not_lower\":{}{terminal_note}}}",
         rules.len() + adopted_rules,
         residual_keys.len(),
         t_total.elapsed().as_secs_f64(),
         vmhwm_kb(),
-        q(&outcome.state),
-        outcome.open_obligations,
         strings(outcome.not_lower.iter())
     )
     .map_err(|e| e.to_string())?;
