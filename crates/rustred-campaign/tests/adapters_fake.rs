@@ -955,3 +955,80 @@ fn import_fact_requests_are_bound_to_their_record() {
     assert!(fact_request_from_import(mk(&"0".repeat(64), 0).as_bytes()).is_err());
     assert!(fact_request_from_import(mk(&r.record_sha256, 1).as_bytes()).is_err());
 }
+
+// ------------------------------------------------------------------------------------------------ supervisor job_spec
+
+/// closeloop.md 6.5: the supervisor's fake-child mode keeps an emulated kind (solve-recipe) and its args; the default
+/// script answers every key SOLVED; the attempt classifies through the contract like the real kind.
+#[test]
+fn supervisor_job_spec_keeps_an_emulated_kind_and_its_args() {
+    use rustred_campaign::adapters::job::{Ended, Prepared, classify_attempt, drive};
+    use rustred_campaign::adapters::{AdapterInput, AdapterKind, job_spec, prepare_run};
+    use rustred_campaign::launch::ChildLauncher;
+    use rustred_campaign::state::Rung;
+    use rustred_campaign::supervisor::worksource::JobRequest;
+    use rustred_campaign_contract::layout::RunLayout;
+    require_namespace();
+    let _g = serial();
+    let root = Root::new("jobspec");
+    let fam = root.file("family.sym", b"f\n");
+    let rec = root.file("recipe.json", b"{}\n");
+    let keys = root.file("keys.jsonl", b"{\"key\":[1,0]}\n{\"key\":[2,0]}\n");
+    let req = JobRequest {
+        job: "n.s1.0-t0".into(),
+        item: "n.s1.0".into(),
+        rung: Rung(0),
+        kind: JobKind::SolveRecipe,
+        priority: 0,
+        cap_bytes: 1 << 30,
+        expected_peak_bytes: 1 << 28,
+        cores: 1,
+        heartbeat_s: 1,
+        stop_grace_s: 5,
+        program: "rr_node".into(),
+        args: vec![
+            "--order".into(),
+            "id".into(),
+            "--threads".into(),
+            "1".into(),
+        ],
+        inputs: vec![fam.input("family"), rec.input("recipe"), keys.input("keys")],
+        depends_on: vec![],
+        budgets: Default::default(),
+        sample_seed: 0,
+        fake: None,
+    };
+    let run = rustred_campaign_contract::layout::attempt_dir(
+        &std::path::absolute(root.path()).unwrap(),
+        &req.job,
+        1,
+    );
+    let prog = fake_program();
+    let spec = job_spec(
+        AdapterKind::Fake,
+        &req,
+        &AdapterInput {
+            run_dir: &run,
+            attempt: 1,
+            program_name: &prog.name,
+            program_path: &prog.path,
+            program_blake3: &prog.blake3,
+            resume: None,
+        },
+    );
+    assert_eq!(spec.kind, JobKind::SolveRecipe);
+    assert_eq!(spec.args, req.args);
+    spec.validate().unwrap();
+    let (ls, digest) = prepare_run(&spec, &prog.path).unwrap();
+    let mut l = launcher();
+    let mut h = l.launch(&ls).unwrap();
+    let r = drive(&mut h, &RunOptions::default());
+    let p = Prepared {
+        spec: spec.clone(),
+        spec_blake3: digest,
+        layout: RunLayout::new(&run),
+        launch: ls,
+    };
+    let (_, c) = classify_attempt(&p, &Ended::from_report(&r));
+    assert_eq!(c.row, 1, "{}", c.why);
+}

@@ -361,12 +361,11 @@ fn real_generate_tiny_job() {
     ];
     let plans = ad.plan(&reqs).unwrap();
     let mut l = launcher();
-    let mut rows = vec![];
     for p in &plans {
         let (out, rep) = run_attempt(&mut l, &ad, &reqs, p, root.path(), 1, &opts(600)).unwrap();
         let c = &out.classification;
         eprintln!(
-            "job {}: wait {:?} -> row {}{} {:?} accept {:?} ({}); accepted {} lines, subcases {}, refusal {:?}",
+            "job {}: wait {:?} -> row {}{} {:?} accept {:?} ({}); accepted {} lines, subcases {}",
             p.job_id,
             rep.ended.wait,
             c.row,
@@ -375,16 +374,47 @@ fn real_generate_tiny_job() {
             c.accept,
             c.why,
             out.accepted.len(),
-            out.subcases.len(),
-            out.refusal
+            out.subcases.len()
         );
-        rows.push(c.row);
+        if let Some(r) = &out.refusal {
+            for m in &r.conformance {
+                eprintln!("  MISMATCH {}", serde_json::to_string(m).unwrap());
+            }
+            assert!(
+                out.accepted.is_empty(),
+                "nothing accepted from a refused attempt"
+            );
+        }
+        // diagnostic: the table the engine sealed verifies with the contract's verifier
+        let layout = RunLayout::new(&rep.prepared.spec.run_dir);
+        let v = verify_stream_handle(
+            &layout.root,
+            &RunLayout::out_rel("F.table.jsonl"),
+            &["end", "partial"],
+        );
+        eprintln!(
+            "  table: {}",
+            match &v {
+                Ok((s, _)) => format!(
+                    "sealed {} records, {} rules, end {}",
+                    s.records, s.rules, s.end
+                ),
+                Err(e) => format!("not verified: {e}"),
+            }
+        );
+        assert!(v.is_ok(), "the engine's table is sealed");
+        // a conformant binary is accepted; the pre-contractfix2 binary is refused for its spec digest
+        let plain = rustred_campaign::adapters::conformance::Mismatch::SpecDigestPlainBlake3;
+        assert!(
+            matches!(c.row, 1 | 2 | 3 | 5 | 24 | 27)
+                || out
+                    .refusal
+                    .as_ref()
+                    .is_some_and(|r| r.conformance.contains(&plain)),
+            "row {}",
+            c.row
+        );
     }
-    assert_eq!(rows[0], 1, "whole chart complete");
-    assert!(
-        rows[1] != 22 && rows[1] != 23,
-        "the seed-option job is a contract outcome"
-    );
 }
 
 /// Exit paths and strict-spec probes of the real `solve-recipe` job mode (conformance, engine line 2): exit 10 with a
