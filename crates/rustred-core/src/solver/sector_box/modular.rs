@@ -3,6 +3,13 @@
 //! Batches arrive top-down by sector level; within a batch rows are inserted
 //! easiest first (by leading integral), with one native column registration
 //! per batch. Accepted rows keep only their provenance.
+//!
+//! The pivot set depends only on the row space and the column order. Within
+//! one batch the result is a function of the row set; across batches (top-down
+//! insertion) U, the L patterns and hence the selected rows also depend on the
+//! batch partition, while the pivots and the masters do not. `register` and
+//! `insert_batch` return `Result` for future fallible storage but cannot fail
+//! today.
 
 use std::cmp::Ordering;
 use std::sync::Arc;

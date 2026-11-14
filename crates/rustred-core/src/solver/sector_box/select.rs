@@ -218,12 +218,24 @@ pub(crate) struct Replay<const N: usize, O> {
 
 impl<const N: usize, O: ColumnComparator<N>> Replay<N, O> {
     /// Insert `rows` in order; row `i` must reproduce pivot `expected[i]`.
+    /// `rows` and `expected` must have the same length (`InvalidInput`
+    /// otherwise); a row that does not reproduce its pivot (also an empty or
+    /// dependent row) is `UnluckyBoxSample { Replay }`.
     pub(crate) fn new(
         order: O,
         field: Zp64,
         rows: &[Vec<super::super::Term<N, Zp>>],
         expected: &[Integral<N>],
     ) -> Result<Self, SolverError> {
+        // One expected pivot per row: a missing or extra row is a broken
+        // selection, never silently accepted.
+        if rows.len() != expected.len() {
+            return Err(SolverError::InvalidInput(format!(
+                "replay of {} rows with {} expected pivots",
+                rows.len(),
+                expected.len()
+            )));
+        }
         let mut columns: Vec<Integral<N>> =
             rows.iter().flatten().map(|term| term.integral).collect();
         columns.sort_unstable_by(|left, right| order.compare(left, right));

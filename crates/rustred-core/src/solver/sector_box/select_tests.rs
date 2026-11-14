@@ -193,6 +193,20 @@ fn replay_of_the_selected_rows_reproduces_pivots_and_reduced_rows() {
                 .collect();
             assert_eq!(a, b, "seed {seed}");
         }
+        // Review finding (PR 5): a missing or an extra row is refused.
+        if !selected_rows.is_empty() {
+            let short = &selected_rows[..selected_rows.len() - 1];
+            assert!(matches!(
+                Replay::new(order.clone(), field.clone(), short, &expected),
+                Err(SolverError::InvalidInput(_))
+            ));
+            let mut long = selected_rows.clone();
+            long.push(selected_rows[0].clone());
+            assert!(matches!(
+                Replay::new(order.clone(), field.clone(), &long, &expected),
+                Err(SolverError::InvalidInput(_))
+            ));
+        }
         if selected_rows.len() > 1 {
             // Pivots are distinct, so a permuted expectation fails at row 0.
             let mut wrong = expected.clone();
