@@ -17,24 +17,30 @@ use std::time::{Duration, Instant};
 pub const D0: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 static N: AtomicU64 = AtomicU64::new(0);
 
+/// The drill's scratch root: `RR_DRILL_DIR` when set (kept for inspection), else ONE TMPDIR-rooted directory unique to
+/// this test process (lane int5: never the pid alone).
 pub fn scratch() -> PathBuf {
+    static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     std::env::var_os("RR_DRILL_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir().join(format!("rr-drill-{}", std::process::id())))
+        .unwrap_or_else(|| ROOT.get_or_init(|| super::unique_temp_dir("rr-drill")).clone())
 }
 pub fn bin() -> PathBuf {
     PathBuf::from(super::BIN)
 }
 
-/// A fresh directory under scratch/runs/<tag>-<pid>-<n>.
+/// A fresh directory under scratch/runs/<tag>-<token>-<n> (created new; never an existing one removed).
 pub fn fresh(tag: &str) -> PathBuf {
-    let p = scratch().join("runs").join(format!(
-        "{tag}-{}-{}",
-        std::process::id(),
+    let runs = scratch().join("runs");
+    std::fs::create_dir_all(&runs).unwrap();
+    let u = super::unique_temp_dir(&format!("rr-drill-run-{tag}"));
+    let _ = std::fs::remove_dir(&u);
+    let p = runs.join(format!(
+        "{}-{}",
+        u.file_name().unwrap().to_string_lossy(),
         N.fetch_add(1, Ordering::Relaxed)
     ));
-    let _ = std::fs::remove_dir_all(&p);
-    std::fs::create_dir_all(&p).unwrap();
+    std::fs::create_dir(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
     p
 }
 

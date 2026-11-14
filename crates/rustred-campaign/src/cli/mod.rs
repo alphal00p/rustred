@@ -18,7 +18,8 @@ pub const USAGE: &str = "usage:
   rr_campaign status CDIR [--once] [--width N] [--height M] [--json]
   rr_campaign control CDIR pause [NODE|ITEM]|resume [NODE|ITEM]|stop|retry ITEM|skip ITEM|resolve JOB [--reason TEXT]
   rr_campaign verify CDIR
-  rr_campaign result CDIR";
+  rr_campaign result CDIR
+  rr_campaign rebuild-manifest CDIR         (recovery: a ledger whose MANIFEST.json is missing; refused while a supervisor holds the lock)";
 
 /// `println!` without the panic on a closed / hung-up stdout (EPIPE, EIO): output is best effort (gate-B m4).
 macro_rules! outln {
@@ -49,6 +50,7 @@ pub fn main_with(args: &[String]) -> i32 {
         "status" => cmd_status(rest),
         "watch" | "dashboard" => cmd_watch(rest),
         "result" => cmd_result(rest),
+        "rebuild-manifest" => cmd_rebuild_manifest(rest),
         "-h" | "--help" | "help" => {
             outln!("{USAGE}");
             exit::OK
@@ -704,6 +706,70 @@ pub fn write_control_with(
     let p = dir.join(format!("{id}.json"));
     crate::atomic::write_json_atomic(&p, &req).map_err(|e| (exit::INTERNAL, e.to_string()))?;
     Ok(p)
+}
+
+/// `rebuild-manifest CDIR` (ledgerfix2's request, lane int5): the recovery verb for a ledger whose MANIFEST.json is
+/// missing (a supervisor start refuses such a directory: ledgerfix2 M1). Takes the campaign lock (REFUSED while a live
+/// supervisor holds it: never a second writer), then `ledger::rebuild_manifest` verifies the WHOLE chain from record 1
+/// and writes only the new manifest (nothing deleted or rewritten). Prints what it rebuilt. Exit 0 rebuilt, 1 refused
+/// (lock held, a manifest present, any doubt about the chain), 2 usage, 3 no ledger directory.
+fn cmd_rebuild_manifest(rest: &[String]) -> i32 {
+    let [cdir] = rest else {
+        errln!("{USAGE}");
+        return exit::USAGE;
+    };
+    let cdir = Path::new(cdir);
+    let ldir = crate::ledger::ledger_dir(cdir);
+    if !ldir.is_dir() {
+        errln!("no ledger directory in {}", cdir.display());
+        return exit::NOT_FOUND;
+    }
+    if ldir.join(crate::ledger::MANIFEST_FILE).exists() {
+        errln!(
+            "refused: {} exists; nothing to rebuild",
+            ldir.join(crate::ledger::MANIFEST_FILE).display()
+        );
+        return exit::REFUSED;
+    }
+    let clock = crate::clock::SystemClock::new();
+    let argv: Vec<String> = ["rr_campaign".to_string(), "rebuild-manifest".to_string()]
+        .into_iter()
+        .chain(rest.iter().cloned())
+        .collect();
+    let (lock, outcome) = match crate::lock::acquire(cdir, &clock, &argv) {
+        Ok(x) => x,
+        Err(e) => {
+            errln!("refused: the campaign lock is not free ({e}); stop the supervisor first");
+            return exit::REFUSED;
+        }
+    };
+    if let crate::lock::LockOutcome::TookOver {
+        previous, reason, ..
+    } = &outcome
+    {
+        outln!(
+            "stale lock of pid {} taken over ({reason:?})",
+            previous.identity.pid
+        );
+    }
+    let r = crate::ledger::rebuild_manifest(cdir, &lock);
+    let _ = lock.release();
+    match r {
+        Ok(rep) => {
+            outln!(
+                "rebuilt {}: {} record(s) verified from record 1, {} sealed segment(s), active segment {}; no snapshot (the next rotation writes one)",
+                ldir.join(crate::ledger::MANIFEST_FILE).display(),
+                rep.records,
+                rep.sealed,
+                rep.active
+            );
+            exit::OK
+        }
+        Err(e) => {
+            errln!("refused: {e}");
+            exit::REFUSED
+        }
+    }
 }
 
 fn cmd_verify(rest: &[String]) -> i32 {

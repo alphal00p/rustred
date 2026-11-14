@@ -26,6 +26,8 @@ pub mod fake;
 pub mod layout;
 pub mod outcome;
 pub mod preflight;
+// lane adapters' request (granted by lane int5): kind solve-recipe's records and per-key outcomes
+pub mod recipe;
 pub mod resume;
 pub mod seal;
 pub mod spec;

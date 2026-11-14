@@ -6,7 +6,7 @@
 //! Everything here works on VERIFIED canonical lines (`seal::VerifiedHandle::canonical_lines`), never on a path.
 //! Generic: a key is an integer vector of the length the keys input gives; nothing here knows an arity.
 //!
-//! Mounted as `classify::recipe` (the crate root `lib.rs` belongs to the integration lane; REQUEST: `pub mod recipe;`).
+//! Mounted at the crate root (`rustred_campaign_contract::recipe`, lane int5); `classify::recipe` re-exports it.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

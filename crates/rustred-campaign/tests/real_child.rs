@@ -47,17 +47,19 @@ fn b3(p: &Path) -> String {
 
 /// A fresh root for one test.
 fn root(tag: &str) -> PathBuf {
-    let base = std::env::var("RR_REAL_OUT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir());
-    let p = base.join(format!(
-        "real-{tag}-{}-{}",
-        std::process::id(),
-        N.fetch_add(1, Ordering::Relaxed)
-    ));
-    let _ = std::fs::remove_dir_all(&p);
-    std::fs::create_dir_all(&p).unwrap();
-    p
+    // lane int5: a NEW directory unique on the host (never the pid alone; an existing one is never removed)
+    let u = unique_temp_dir(&format!("real-{tag}"));
+    let _ = N.fetch_add(1, Ordering::Relaxed);
+    match std::env::var("RR_REAL_OUT") {
+        Ok(b) => {
+            let p = PathBuf::from(b).join(u.file_name().unwrap());
+            let _ = std::fs::remove_dir(&u);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::create_dir(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
+            p
+        }
+        Err(_) => u,
+    }
 }
 
 /// A generate job spec for `node` with `args` (an explicit order among them).
@@ -774,4 +776,35 @@ fn symmetry_case_records_are_refused_in_job_mode() {
     let o = outcome(&s);
     assert_eq!(o.job.exit_code, ExitCode::Refused);
     assert!(o.job.outputs.table.is_none() || !o.job.outputs.table.as_ref().unwrap().sealed);
+}
+
+/// A NEW directory `<TMPDIR>/<prefix>-<token>` unique on the host (lane int5, procfix3 item 0): never derived from the
+/// pid alone (inside the private pid namespaces of rule L10 every test binary is pid 1, and two lanes may share a temp
+/// root), and created with `create_dir` (a directory it did not create is never reused or removed).
+#[allow(dead_code)]
+pub fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let base = std::env::temp_dir();
+    std::fs::create_dir_all(&base).unwrap();
+    let ns = std::fs::read_link("/proc/self/ns/pid")
+        .map(|l| l.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+    loop {
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let n = SEQ.fetch_add(1, Ordering::Relaxed);
+        let token = blake3::hash(format!("{ns}|{}|{stat}|{t}|{n}", std::process::id()).as_bytes())
+            .to_hex()[..12]
+            .to_string();
+        let p = base.join(format!("{prefix}-{token}"));
+        match std::fs::create_dir(&p) {
+            Ok(()) => return p,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => panic!("{}: {e}", p.display()),
+        }
+    }
 }

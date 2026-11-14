@@ -15,9 +15,9 @@
 //! - W unknown (6.6): O valid => c := O.exit_code and the table applies; else row 21 (R valid: resume once) or
 //!   row 21 with "restart from scratch" (R invalid).
 
-// lane adapters: kind solve-recipe's records and per-key outcomes (crate root belongs to the integration lane)
-#[path = "recipe.rs"]
-pub mod recipe;
+// lane adapters: kind solve-recipe's records and per-key outcomes. Mounted at the crate root since lane int5
+// (`rustred_campaign_contract::recipe`); the old path `classify::recipe` stays valid through this re-export.
+pub use crate::recipe;
 
 use crate::exit::ExitCode;
 use crate::layout::RunLayout;

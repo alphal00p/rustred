@@ -879,8 +879,11 @@ fn build(name: &str, root: &Path) -> BTreeMap<String, Vec<u8>> {
 
 const FIXTURES: [&str; 4] = ["cdir-empty", "cdir-mid", "cdir-finished", "cdir-stale"];
 
+/// `<one TMPDIR-rooted directory unique to this test process>/<tag>` (lane int5: never the pid alone); the same tag
+/// gives the same path within the process (the tests remove and recreate their own scratch directories by tag).
 fn scratch(tag: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("rr-schema-{tag}-{}", std::process::id()))
+    static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    ROOT.get_or_init(|| unique_temp_dir("rr-schema")).join(tag)
 }
 
 fn committed(dir: &Path) -> BTreeMap<String, Vec<u8>> {
@@ -1420,4 +1423,35 @@ fn coordinator_bank_accept_lines_validate() {
             .collect::<Vec<_>>()
             .join("\n")
     );
+}
+
+/// A NEW directory `<TMPDIR>/<prefix>-<token>` unique on the host (lane int5, procfix3 item 0): never derived from the
+/// pid alone (inside the private pid namespaces of rule L10 every test binary is pid 1, and two lanes may share a temp
+/// root), and created with `create_dir` (a directory it did not create is never reused or removed).
+#[allow(dead_code)]
+pub fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let base = std::env::temp_dir();
+    std::fs::create_dir_all(&base).unwrap();
+    let ns = std::fs::read_link("/proc/self/ns/pid")
+        .map(|l| l.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+    loop {
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let n = SEQ.fetch_add(1, Ordering::Relaxed);
+        let token = blake3::hash(format!("{ns}|{}|{stat}|{t}|{n}", std::process::id()).as_bytes())
+            .to_hex()[..12]
+            .to_string();
+        let p = base.join(format!("{prefix}-{token}"));
+        match std::fs::create_dir(&p) {
+            Ok(()) => return p,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => panic!("{}: {e}", p.display()),
+        }
+    }
 }
