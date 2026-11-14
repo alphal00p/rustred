@@ -455,8 +455,8 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
     row_ids.sort();
 
     // ---------------------------------------------------------------- rule fields
-    let mut fixed: [Option<i64>; 20] = [None; 20];
-    for (i, x) in tj.get(&tline, "fixed").unwrap().arr().iter().enumerate() { if let J::Num(..) = x { fixed[i] = Some(x.int(&tline)); } }
+    let (na, fixed) = fixed_slots(&tj, &tline);
+    put!("arity", format!("{}", na));
     let eq_aff: Vec<Aff> = tj.get(&tline, "equations").map(|x| x.arr().iter().map(|e| parse_affine(e.s(&tline)).unwrap_or_else(|er| die(&format!("case equation: {}", er)))).collect()).unwrap_or_default();
     let exc: Vec<Vec<&[u8]>> = tj.get(&tline, "exceptions").map(|e| e.arr().iter().map(|b| b.arr().iter().map(|x| x.s(&tline)).collect()).collect()).unwrap_or_default();
     if exc.iter().any(|b| b.is_empty()) { die("UNSUPPORTED: EMPTY_EXCEPTION_BRANCH (an exception AND-list is empty; the engine never writes one (solver/exception.rs) and refuses it in replay (node/replay/mod.rs:823); read logically it excludes the rule everywhere, as rr_node reduce (node/mastermap.rs:456) and cover (node/driver.rs:1527) treat it)"); }
@@ -482,11 +482,11 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
                     true
                 });
             }
-            match rc { Some(v) => { recenter_from = "cert_rule record"; v } None => { recenter_from = "none (zero)"; vec![0; 20] } }
+            match rc { Some(v) => { recenter_from = "cert_rule record"; v } None => { recenter_from = "none (zero)"; vec![0; na] } }
         }
     };
     put!("recenter_from", jstr(recenter_from));
-    if recenter.len() != 20 { die("recenter arity"); }
+    if recenter.len() != na { die("recenter arity != rule arity"); }
     let target = parse_pat(tj.get(&tline, "target").unwrap().s(&tline));
     let rhs_arr = tj.get(&tline, "rhs").unwrap().arr();
     let rhs: Vec<(Pat, &[u8], Option<&[u8]>)> = rhs_arr.iter().map(|x| { let a = x.arr(); let (n, d) = split_coef(a[1].s(&tline)); (parse_pat(a[0].s(&tline)), n, d) }).collect();
@@ -499,7 +499,7 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
     for key in &args.keys {
         let mut kv: [Option<i64>; 20] = fixed;
         let mut bad = None;
-        for &(i, x) in key { if fixed[i].is_some() && fixed[i] != Some(x) { bad = Some("NOT_IN_CASE (key contradicts a fixed slot)".to_string()); } kv[i] = Some(x); }
+        for &(i, x) in key { if i >= na { die("key slot beyond the rule's arity"); } if fixed[i].is_some() && fixed[i] != Some(x) { bad = Some("NOT_IN_CASE (key contradicts a fixed slot)".to_string()); } kv[i] = Some(x); }
         if (0..20).any(|i| kv[i].is_none()) { die("key does not assign every free index"); }
         let kv: [i64; 20] = std::array::from_fn(|i| kv[i].unwrap());
         let keystr = key.iter().map(|(i, x)| format!("\"n{}\":{}", i, x)).collect::<Vec<_>>().join(",");
@@ -507,7 +507,7 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
         if bad.is_none() {
             let tv = pat_at(&target, &kv);
             let cb = chart.as_bytes();
-            if !(0..20).all(|i| if cb[i] == b'1' { tv[i] >= 1 } else { tv[i] <= 0 }) { bad = Some("NOT_IN_CHART (target at the key violates the chart guards)".into()); }
+            if !(0..na).all(|i| if cb[i] == b'1' { tv[i] >= 1 } else { tv[i] <= 0 }) { bad = Some("NOT_IN_CHART (target at the key violates the chart guards)".into()); }
         }
         ks.push(KeyState { kv, keystr, status: bad });
     }
@@ -800,6 +800,7 @@ fn span_at_key(kv: &[i64; 20], target: &Pat, rhs: &[(Pat, &[u8], Option<&[u8]>)]
             if let Some(dir) = &args.emit_dir {
                 let ps = |p: &BigPoly| format!("[{}]", p.iter().map(|c| format!("\"{}\"", c.to_dec())).collect::<Vec<_>>().join(","));
                 let ws: Vec<String> = s_rows.iter().zip(&wz).filter(|(_, w)| !w.is_empty()).map(|(&ri, w)| format!("[{},{},{}]", inst.row_label[ri].0, inst.row_label[ri].1, ps(w))).collect();
+                let kv = &kv[..target.len()];
                 let kv_s = kv.iter().map(|x| x.to_string()).collect::<Vec<_>>().join("_");
                 let body = format!("{{\"schema\":\"rustred.proof-kernel.span-cert.v1\",\"key\":{:?},\"statement\":\"sum over rows of (W/L) * IBP row(seed+recenter, m) = e_target - sum r_c e_c at the key, exactly in Q(d)\",\"L\":{},\"weights\":[{}],\"weights_format\":\"[seed index in the record, source row m, W coefficients ascending in d]\"}}", kv, ps(&lz), ws.join(","));
                 let _ = std::fs::create_dir_all(dir);

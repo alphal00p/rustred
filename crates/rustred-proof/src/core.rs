@@ -12,6 +12,17 @@ pub use crate::big::*;
 
 pub const NV: usize = 21; // n0..n19, d
 pub const DV: usize = 20; // index of d
+/// Largest arity (number of index slots) the kernel stores; the arity of a record is the length of its `fixed` list
+/// (any value 1..=MAXN); slots at and above the arity are phantom slots fixed to 0 internally.
+pub const MAXN: usize = 20;
+/// `fixed` list of a rule record -> (arity, 20-slot array with phantom slots fixed at 0).
+pub fn fixed_slots(j: &J, line: &[u8]) -> (usize, [Option<i64>; MAXN]) {
+    let a = j.get(line, "fixed").unwrap_or_else(|| die("rule without fixed")).arr();
+    if a.is_empty() || a.len() > MAXN { die(&format!("UNSUPPORTED: arity {} (1..={} supported)", a.len(), MAXN)); }
+    let mut f: [Option<i64>; MAXN] = [Some(0); MAXN];
+    for (i, x) in a.iter().enumerate() { f[i] = if let J::Num(..) = x { Some(x.int(line)) } else { None }; }
+    (a.len(), f)
+}
 
 #[derive(Debug)]
 pub struct KernelError(pub String);

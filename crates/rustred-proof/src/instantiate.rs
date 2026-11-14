@@ -77,8 +77,7 @@ fn facts_for_rule(line: &[u8], keys: &[Vec<i64>]) -> Vec<String> {
     let j = jparse(line);
     let idx = j.get(line, "index").unwrap().int(line);
     let chart = j.get(line, "chart").unwrap().s(line).to_vec();
-    let mut fixed: [Option<i64>; 20] = [None; 20];
-    for (i, x) in j.get(line, "fixed").unwrap().arr().iter().enumerate() { if let J::Num(..) = x { fixed[i] = Some(x.int(line)); } }
+    let (na, fixed) = fixed_slots(&j, line);
     let eqs: Vec<Aff> = j.get(line, "equations").map(|x| x.arr().iter().map(|e| parse_affine(e.s(line)).unwrap_or_else(|er| die(&format!("case equation: {}", er)))).collect()).unwrap_or_default();
     let exc: Vec<Vec<&[u8]>> = j.get(line, "exceptions").map(|e| e.arr().iter().map(|b| b.arr().iter().map(|x| x.s(line)).collect()).collect()).unwrap_or_default();
     if exc.iter().any(|b| b.is_empty()) {
@@ -95,11 +94,11 @@ fn facts_for_rule(line: &[u8], keys: &[Vec<i64>]) -> Vec<String> {
     for s in texts { let mut it = Terms::new(s); while let Some(t) = it.next() { for q in 0..t.nf { maxe = maxe.max(t.fe[q]); } } }
     let mut out = vec![];
     for key in keys {
-        if key.len() != 20 { die("key arity != 20"); }
-        let kv: [i64; 20] = std::array::from_fn(|i| key[i]);
-        let in_case = (0..20).all(|i| fixed[i].map_or(true, |f| f == kv[i])) && eqs.iter().all(|e| e.lin.iter().fold(e.c0, |s, &(v, c)| s + c * kv[v as usize]) == 0);
+        if key.len() != na { die(&format!("key arity {} != rule arity {}", key.len(), na)); }
+        let kv: [i64; 20] = std::array::from_fn(|i| if i < na { key[i] } else { 0 });
+        let in_case = (0..na).all(|i| fixed[i].map_or(true, |f| f == kv[i])) && eqs.iter().all(|e| e.lin.iter().fold(e.c0, |s, &(v, c)| s + c * kv[v as usize]) == 0);
         let tv = pat_at(&target, &kv);
-        let chart_ok = (0..20).all(|i| if chart[i] == b'1' { tv[i] >= 1 } else { tv[i] <= 0 });
+        let chart_ok = (0..na).all(|i| if chart[i] == b'1' { tv[i] >= 1 } else { tv[i] <= 0 });
         let kp: Vec<Vec<Big>> = (0..20).map(|v| { let mut t = vec![Big::one()]; for e in 1..=maxe as usize { let y = t[e - 1].mul_i64(kv[v]); t.push(y); } t }).collect();
         let branch = exc.iter().position(|b| !b.is_empty() && b.iter().all(|s| eval_text_d(s, &kp).is_empty()));
         let mut irregular = vec![];

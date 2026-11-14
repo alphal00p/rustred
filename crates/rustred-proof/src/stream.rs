@@ -211,8 +211,7 @@ pub fn run_stored(args: &StoredArgs, engine: Option<&EngineRows>) -> String {
     let t_hash = th.elapsed().as_secs_f64();
 
     // ---------------------------------------------------------------- case (coordinate or affine)
-    let mut fixed: [Option<i64>; 20] = [None; 20];
-    for (i, x) in tj.get(&tline, "fixed").unwrap().arr().iter().enumerate() { if let J::Num(..) = x { fixed[i] = Some(x.int(&tline)); } }
+    let (na, fixed) = fixed_slots(&tj, &tline);
     let eq_texts: Vec<&[u8]> = tj.get(&tline, "equations").map(|x| x.arr().iter().map(|e| e.s(&tline)).collect()).unwrap_or_default();
     let eq_aff: Vec<Aff> = eq_texts.iter().map(|s| parse_affine(s).unwrap_or_else(|e| die(&format!("case equation not affine: {}", e)))).collect();
     let dependents = solve_case(&eq_aff, &fixed).unwrap_or_else(|e| die(&e));
@@ -220,7 +219,7 @@ pub fn run_stored(args: &StoredArgs, engine: Option<&EngineRows>) -> String {
     let free: Vec<usize> = (0..NV).filter(|&v| idv[v]).collect();
     let draw: Vec<usize> = free.iter().copied().filter(|v| !dependents.iter().any(|d| d.0 == *v)).collect();
     let vname = |v: usize| if v == DV { "d".to_string() } else { format!("n{}", v) };
-    put!("rule", format!("{}", args.rule)); put!("chart", jstr(&chart));
+    put!("rule", format!("{}", args.rule)); put!("chart", jstr(&chart)); put!("arity", format!("{}", na));
     put!("free_vars", format!("[{}]", free.iter().map(|&v| jstr(&vname(v))).collect::<Vec<_>>().join(",")));
     if !dependents.is_empty() {
         put!("affine_case", format!("{{\"equations\":{},\"dependent\":[{}],\"drawn_vars\":[{}]}}", eq_texts.len(),
@@ -534,7 +533,7 @@ pub fn run_stored(args: &StoredArgs, engine: Option<&EngineRows>) -> String {
     for key in &args.keys {
         let tk = Instant::now();
         let mut kv: [Option<i64>; 20] = fixed;
-        for &(i, x) in key { if fixed[i].is_some() { die("key sets a fixed slot"); } kv[i] = Some(x); }
+        for &(i, x) in key { if i >= na { die("key slot beyond the rule's arity"); } if fixed[i].is_some() { die("key sets a fixed slot"); } kv[i] = Some(x); }
         if (0..20).any(|i| kv[i].is_none()) { die("key does not assign every free index"); }
         let keystr = key.iter().map(|(i, x)| format!("\"n{}\":{}", i, x)).collect::<Vec<_>>().join(",");
         // affine case: equations must hold at the key
@@ -544,7 +543,7 @@ pub fn run_stored(args: &StoredArgs, engine: Option<&EngineRows>) -> String {
             // chart guards on the target at the key (the rule is used only inside its chart)
             let tp = parse_pat(tj.get(&tline, "target").unwrap().s(&tline));
             let cb = chart.as_bytes();
-            let ok = (0..20).all(|i| { let x = if tp[i].0 { kv[i].unwrap() + tp[i].1 } else { tp[i].1 }; if cb[i] == b'1' { x >= 1 } else { x <= 0 } });
+            let ok = (0..na).all(|i| { let x = if tp[i].0 { kv[i].unwrap() + tp[i].1 } else { tp[i].1 }; if cb[i] == b'1' { x >= 1 } else { x <= 0 } });
             if !ok { inst_other += 1; inst_json.push(format!("{{\"key\":{{{}}},\"status\":\"NOT_IN_CHART (target at the key violates the chart guards)\"}}", keystr)); continue; }
         }
         let mut kp = mk_point(PKind::Ex, "key".into()); for i in 0..20 { kp.ev[i] = Big::from_i128(kv[i].unwrap() as i128); } kp.ev[DV] = Big::zero();
