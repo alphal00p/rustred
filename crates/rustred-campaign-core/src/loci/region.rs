@@ -3,10 +3,18 @@
 //! integer point), exact lattice parametrisation of the integer solutions of one linear equation (extended-gcd
 //! column reduction = Hermite normal form of one row; any integer coefficients), exact integer witness search.
 
+#![deny(
+    clippy::arithmetic_side_effects,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)]
+
 use std::collections::HashSet;
 
 use crate::partition::exact::{
-    Affine, ExactError, MPoly, XResult, div_ceil, div_floor, ext_gcd, gcd,
+    Affine, ExactError, MPoly, XResult, add, ceil_neg_div, div_floor, ext_gcd, floor_neg_div,
+    gcd_all, mul, quot, rem, succ,
 };
 
 /// A lattice region.
@@ -22,33 +30,68 @@ pub struct Region {
     pub names: Vec<String>,
 }
 
-fn ck(o: Option<i128>) -> XResult<i128> {
-    o.ok_or(ExactError::Overflow)
-}
-
-/// Normalise a constraint `a t + b >= 0`: divide by gcd(a), round b down (valid for integer t). `None` = trivially
-/// true; `Some(Err)` never; a constant negative constraint stays (infeasible marker).
-fn normalise(c: &Affine) -> Option<Affine> {
-    let g = c.coef.iter().fold(0, |g, &a| gcd(g, a));
+/// Normalise a constraint `a t + b >= 0`: divide by gcd(a), round b down (valid for integer t). `Ok(None)` = trivially
+/// true; a constant negative constraint becomes the constant `-1` (infeasible marker). `Err(Overflow)` only when the
+/// gcd is 2^127 (re-audit RA2-C1: never a clamped divisor).
+pub fn normalise(c: &Affine) -> XResult<Option<Affine>> {
+    let g = gcd_all(c.coef.iter().copied())?;
     if g == 0 {
-        return if c.c >= 0 {
+        return Ok(if c.c >= 0 {
             None
         } else {
             Some(Affine::constant(c.coef.len(), -1))
-        };
+        });
     }
-    Some(Affine {
-        coef: c.coef.iter().map(|&a| a / g).collect(),
-        c: div_floor(c.c, g),
-    })
+    Ok(Some(Affine {
+        coef: c.coef.iter().map(|&a| quot(a, g)).collect::<XResult<_>>()?,
+        c: div_floor(c.c, g)?,
+    }))
 }
 
-/// Rational feasibility (with integer rounding) of `cons >= 0` in `k` variables. `Ok(false)` = PROVED integer-empty.
+/// [`normalise`], keeping the constraint as it is when normalising overflows (the raw constraint is the same set:
+/// normalisation only strengthens it for integers).
+fn norm_or_raw(c: &Affine) -> Option<Affine> {
+    match normalise(c) {
+        Ok(n) => n,
+        Err(_) => Some(c.clone()),
+    }
+}
+
+/// The Fourier-Motzkin combination `an * p + ap * n` (eliminating a variable with coefficients ap > 0 in p and
+/// -an < 0 in n), checked.
+fn combine(p: &Affine, n: &Affine, ap: i128, an: i128) -> XResult<Affine> {
+    let coef = p
+        .coef
+        .iter()
+        .zip(&n.coef)
+        .map(|(&pj, &nj)| add(mul(an, pj)?, mul(ap, nj)?))
+        .collect::<XResult<Vec<_>>>()?;
+    let c = add(mul(an, p.c)?, mul(ap, n.c)?)?;
+    Ok(Affine { coef, c })
+}
+
+/// The two sides `f >= 1` and `f <= -1` of the hyperplane `f = coef . t + c = 0`, checked (re-audit RA2-C1: never an
+/// unchecked negation; `Err(Overflow)` when a coefficient is `i128::MIN`).
+pub fn off_sides(coef: &[i128], c: i128) -> XResult<(Affine, Affine)> {
+    let f = Affine {
+        coef: coef.to_vec(),
+        c,
+    };
+    let pos = f.shifted(1)?; // f - 1 >= 0
+    let negs = Affine {
+        coef: crate::partition::exact::neg_all(coef)?,
+        c: crate::partition::exact::pred(crate::partition::exact::neg(c)?)?,
+    }; // -f - 1 >= 0
+    Ok((pos, negs))
+}
+
+/// Rational feasibility (with integer rounding) of `cons >= 0` in `k` variables. `Ok(false)` = PROVED integer-empty;
+/// `Err` (overflow, cap) = undecided (callers never read it as empty).
 pub fn fm_feasible(cons: &[Affine], k: usize) -> XResult<bool> {
     let mut cur: Vec<Affine> = vec![];
     let mut seen: HashSet<Affine> = HashSet::new();
     for c in cons {
-        if let Some(n) = normalise(c) {
+        if let Some(n) = norm_or_raw(c) {
             if n.is_constant() {
                 if n.c < 0 {
                     return Ok(false);
@@ -67,31 +110,25 @@ pub fn fm_feasible(cons: &[Affine], k: usize) -> XResult<bool> {
         for (ai, &v) in alive.iter().enumerate() {
             let p = cur.iter().filter(|c| c.coef[v] > 0).count();
             let n = cur.iter().filter(|c| c.coef[v] < 0).count();
-            if p * n < best.0 {
-                best = (p * n, ai);
+            let pn = p.saturating_mul(n);
+            if pn < best.0 {
+                best = (pn, ai);
             }
         }
         let v = alive.remove(best.1);
-        let (mut pos, mut neg, mut rest) = (vec![], vec![], vec![]);
+        let (mut pos, mut negs, mut rest) = (vec![], vec![], vec![]);
         for c in cur {
             match c.coef[v].signum() {
                 1 => pos.push(c),
-                -1 => neg.push(c),
+                -1 => negs.push(c),
                 _ => rest.push(c),
             }
         }
         let mut seen: HashSet<Affine> = rest.iter().cloned().collect();
         for p in &pos {
-            for n in &neg {
-                let (ap, an) = (p.coef[v], -n.coef[v]);
-                let mut coef = vec![0i128; k];
-                for (j, cj) in coef.iter_mut().enumerate() {
-                    *cj =
-                        ck(ck(an.checked_mul(p.coef[j]))?
-                            .checked_add(ck(ap.checked_mul(n.coef[j]))?))?;
-                }
-                let c = ck(ck(an.checked_mul(p.c))?.checked_add(ck(ap.checked_mul(n.c))?))?;
-                if let Some(nc) = normalise(&Affine { coef, c }) {
+            for n in &negs {
+                let (ap, an) = (p.coef[v], crate::partition::exact::neg(n.coef[v])?);
+                if let Some(nc) = norm_or_raw(&combine(p, n, ap, an)?) {
                     if nc.is_constant() {
                         if nc.c < 0 {
                             return Ok(false);
@@ -114,56 +151,53 @@ pub fn fm_feasible(cons: &[Affine], k: usize) -> XResult<bool> {
     Ok(true)
 }
 
-/// Bounds of variable 0 implied by constraints in which only variable 0 occurs.
-fn bounds0(cons: &[Affine]) -> (Option<i128>, Option<i128>, bool) {
+/// Bounds of variable 0 implied by constraints in which only variable 0 occurs; `ok = false`: a constant constraint
+/// is violated (empty). Checked (re-audit RA2-M1: `-c / a` without an unchecked negation).
+#[allow(clippy::type_complexity)]
+fn bounds0(cons: &[Affine]) -> XResult<(Option<i128>, Option<i128>, bool)> {
     let mut lo: Option<i128> = None;
     let mut hi: Option<i128> = None;
     for c in cons {
         if c.coef.iter().skip(1).any(|&a| a != 0) {
             continue;
         }
-        let a = c.coef[0];
+        let a = c.coef.first().copied().unwrap_or(0);
         if a == 0 {
             if c.c < 0 {
-                return (None, None, false);
+                return Ok((None, None, false));
             }
             continue;
         }
         if a > 0 {
-            let l = div_ceil(-c.c, a);
+            // a t + c >= 0 -> t >= ceil(-c / a)
+            let l = ceil_neg_div(c.c, a)?;
             lo = Some(lo.map_or(l, |x: i128| x.max(l)));
         } else {
-            let h = div_floor(-c.c, a);
+            // a t + c >= 0, a < 0 -> t <= floor(-c / a)
+            let h = floor_neg_div(c.c, a)?;
             hi = Some(hi.map_or(h, |x: i128| x.min(h)));
         }
     }
-    (lo, hi, true)
+    Ok((lo, hi, true))
 }
 
 /// Eliminate variables 1..k-1 (projection onto variable 0), exact.
 fn project0(cons: &[Affine], k: usize) -> XResult<Vec<Affine>> {
-    let mut cur: Vec<Affine> = cons.iter().filter_map(normalise).collect();
+    let mut cur: Vec<Affine> = cons.iter().filter_map(norm_or_raw).collect();
     for v in 1..k {
-        let (mut pos, mut neg, mut rest) = (vec![], vec![], vec![]);
+        let (mut pos, mut negs, mut rest) = (vec![], vec![], vec![]);
         for c in cur {
             match c.coef[v].signum() {
                 1 => pos.push(c),
-                -1 => neg.push(c),
+                -1 => negs.push(c),
                 _ => rest.push(c),
             }
         }
         let mut seen: HashSet<Affine> = rest.iter().cloned().collect();
         for p in &pos {
-            for n in &neg {
-                let (ap, an) = (p.coef[v], -n.coef[v]);
-                let mut coef = vec![0i128; k];
-                for (j, cj) in coef.iter_mut().enumerate() {
-                    *cj =
-                        ck(ck(an.checked_mul(p.coef[j]))?
-                            .checked_add(ck(ap.checked_mul(n.coef[j]))?))?;
-                }
-                let c = ck(ck(an.checked_mul(p.c))?.checked_add(ck(ap.checked_mul(n.c))?))?;
-                if let Some(nc) = normalise(&Affine { coef, c })
+            for n in &negs {
+                let (ap, an) = (p.coef[v], crate::partition::exact::neg(n.coef[v])?);
+                if let Some(nc) = norm_or_raw(&combine(p, n, ap, an)?)
                     && seen.insert(nc.clone())
                 {
                     rest.push(nc);
@@ -185,8 +219,8 @@ fn fix0(cons: &[Affine], v: i128) -> XResult<Vec<Affine>> {
     cons.iter()
         .map(|c| {
             Ok(Affine {
-                coef: c.coef[1..].to_vec(),
-                c: ck(c.c.checked_add(ck(c.coef[0].checked_mul(v))?))?,
+                coef: c.coef.get(1..).unwrap_or(&[]).to_vec(),
+                c: add(c.c, mul(c.coef.first().copied().unwrap_or(0), v)?)?,
             })
         })
         .collect()
@@ -200,15 +234,15 @@ pub fn find_point(
     tries: usize,
     anchor: &[i128],
 ) -> XResult<Option<Vec<i128>>> {
-    if k == 0 {
+    let Some(k1) = k.checked_sub(1) else {
         return Ok(if cons.iter().all(|c| c.c >= 0) {
             Some(vec![])
         } else {
             None
         });
-    }
+    };
     let proj = project0(cons, k)?;
-    let (lo, hi, ok) = bounds0(&proj);
+    let (lo, hi, ok) = bounds0(&proj)?;
     if !ok {
         return Ok(None);
     }
@@ -224,19 +258,24 @@ pub fn find_point(
         (None, Some(h)) => a.min(h),
         (None, None) => a,
     };
+    let inside = |c: i128| lo.is_none_or(|l| c >= l) && hi.is_none_or(|h| c <= h);
     let mut cands = vec![start];
-    let mut d = 1;
-    while cands.len() < tries && d < 4 * tries as i128 + 4 {
-        for c in [start + d, start - d] {
-            if lo.is_none_or(|l| c >= l) && hi.is_none_or(|h| c <= h) {
+    let reach = i128::try_from(tries.saturating_mul(4).saturating_add(4)).unwrap_or(i128::MAX);
+    let mut d: i128 = 1;
+    while cands.len() < tries && d < reach {
+        for c in [start.checked_add(d), start.checked_sub(d)]
+            .into_iter()
+            .flatten()
+        {
+            if inside(c) {
                 cands.push(c);
             }
         }
-        d += 1;
+        d = d.saturating_add(1);
     }
     for v in cands.into_iter().take(tries) {
         let sub = fix0(cons, v)?;
-        if let Some(mut rest) = find_point(&sub, k - 1, tries, anchor.get(1..).unwrap_or(&[]))? {
+        if let Some(mut rest) = find_point(&sub, k1, tries, anchor.get(1..).unwrap_or(&[]))? {
             rest.insert(0, v);
             return Ok(Some(rest));
         }
@@ -247,21 +286,21 @@ pub fn find_point(
 /// EXHAUSTIVE integer search of `cons >= 0` (audit-part-B M1): every value of each variable inside its projected
 /// bounds (Fourier-Motzkin with rounding keeps every integer point, so the range is a superset). `Some(Some(t))` = a
 /// point, `Some(None)` = PROVED integer-empty, `None` = undecided (an unbounded projection or the `budget` of tried
-/// values exhausted).
+/// values exhausted). `Err` (overflow) = undecided as well.
 pub fn exhaustive_point(
     cons: &[Affine],
     k: usize,
     budget: &mut u64,
 ) -> XResult<Option<Option<Vec<i128>>>> {
-    if k == 0 {
+    let Some(k1) = k.checked_sub(1) else {
         return Ok(Some(if cons.iter().all(|c| c.c >= 0) {
             Some(vec![])
         } else {
             None
         }));
-    }
+    };
     let proj = project0(cons, k)?;
-    let (lo, hi, ok) = bounds0(&proj);
+    let (lo, hi, ok) = bounds0(&proj)?;
     if !ok {
         return Ok(Some(None));
     }
@@ -273,13 +312,13 @@ pub fn exhaustive_point(
     }
     let mut unknown = false;
     let mut v = l;
-    while v <= h {
+    loop {
         if *budget == 0 {
             return Ok(None);
         }
-        *budget -= 1;
+        *budget = budget.saturating_sub(1);
         let sub = fix0(cons, v)?;
-        match exhaustive_point(&sub, k - 1, budget)? {
+        match exhaustive_point(&sub, k1, budget)? {
             Some(Some(mut r)) => {
                 r.insert(0, v);
                 return Ok(Some(Some(r)));
@@ -287,7 +326,10 @@ pub fn exhaustive_point(
             Some(None) => {}
             None => unknown = true,
         }
-        v += 1;
+        if v >= h {
+            break;
+        }
+        v = succ(v)?;
     }
     Ok(if unknown { None } else { Some(None) })
 }
@@ -320,6 +362,10 @@ impl Region {
     /// Restrict to the integer solutions of `f(t) = 0` (f linear in t). `Ok(None)` = no integer solution.
     pub fn cut(&self, coef: &[i128], c: i128) -> XResult<Option<Region>> {
         let k = self.k;
+        let Some(nk) = k.checked_sub(1) else {
+            // no parameter: the equation is the constant c
+            return Ok(if c == 0 { Some(self.clone()) } else { None });
+        };
         // column reduction of the row `coef` to (g, 0, ..., 0) by unimodular U: coef U = (g, 0, ...)
         let mut row = coef.to_vec();
         let mut u: Vec<Vec<i128>> = (0..k)
@@ -334,13 +380,13 @@ impl Region {
             if g == 0 {
                 continue;
             }
-            let (a0, aj) = (row[0] / g, row[j] / g);
+            let (a0, aj) = (quot(row[0], g)?, quot(row[j], g)?);
             // new col0 = x col0 + y colj ; new colj = -aj col0 + a0 colj  (determinant x a0 + y aj = 1)
             for r in u.iter_mut() {
                 let c0 = r[0];
                 let cj = r[j];
-                r[0] = ck(ck(x.checked_mul(c0))?.checked_add(ck(y.checked_mul(cj))?))?;
-                r[j] = ck(ck(a0.checked_mul(cj))?.checked_sub(ck(aj.checked_mul(c0))?))?;
+                r[0] = add(mul(x, c0)?, mul(y, cj)?)?;
+                r[j] = crate::partition::exact::sub(mul(a0, cj)?, mul(aj, c0)?)?;
             }
             row[0] = g;
             row[j] = 0;
@@ -349,19 +395,17 @@ impl Region {
         if g == 0 {
             return Ok(if c == 0 { Some(self.clone()) } else { None });
         }
-        let g_abs = g.abs();
-        if c % g_abs != 0 {
+        if g.unsigned_abs() != 1 && rem(c, g)? != 0 {
             return Ok(None);
         }
-        // coef U s = g s0 => s0 = -c / g
-        let s0 = ck((-c).checked_div(g))?;
+        // coef U s = g s0 => s0 = -c / g (exact division)
+        let s0 = floor_neg_div(c, g)?;
         // t = U s, s = (s0, s1..s_{k-1}); new parameters s1..
-        let nk = k - 1;
         let map: Vec<Affine> = (0..k)
             .map(|i| -> XResult<Affine> {
                 Ok(Affine {
                     coef: (1..k).map(|j| u[i][j]).collect(),
-                    c: ck(u[i][0].checked_mul(s0))?,
+                    c: mul(u[i][0], s0)?,
                 })
             })
             .collect::<XResult<_>>()?;
@@ -372,16 +416,16 @@ impl Region {
                 if ai == 0 {
                     continue;
                 }
-                cc = ck(cc.checked_add(ck(ai.checked_mul(map[i].c))?))?;
+                cc = add(cc, mul(ai, map[i].c)?)?;
                 for (cj, mj) in coef.iter_mut().zip(&map[i].coef) {
-                    *cj = ck(cj.checked_add(ck(ai.checked_mul(*mj))?))?;
+                    *cj = add(*cj, mul(ai, *mj)?)?;
                 }
             }
             Ok(Affine { coef, c: cc })
         };
         let x = self.x.iter().map(comp).collect::<XResult<Vec<_>>>()?;
         let cons = self.cons.iter().map(comp).collect::<XResult<Vec<_>>>()?;
-        let cons: Vec<Affine> = cons.into_iter().filter_map(|c| normalise(&c)).collect();
+        let cons: Vec<Affine> = cons.iter().filter_map(norm_or_raw).collect();
         let names = (0..nk)
             .map(|j| format!("s{}_{j}", self.names.len()))
             .collect();
@@ -400,30 +444,30 @@ impl Region {
             let cj = coef.remove(j);
             Ok(Affine {
                 coef,
-                c: ck(a.c.checked_add(ck(cj.checked_mul(v))?))?,
+                c: add(a.c, mul(cj, v)?)?,
             })
         };
         let mut names = self.names.clone();
         names.remove(j);
         Ok(Region {
-            k: self.k - 1,
+            k: self.k.saturating_sub(1),
             x: self.x.iter().map(sub).collect::<XResult<_>>()?,
             cons: self
                 .cons
                 .iter()
                 .map(sub)
                 .collect::<XResult<Vec<_>>>()?
-                .into_iter()
-                .filter_map(|c| normalise(&c))
+                .iter()
+                .filter_map(norm_or_raw)
                 .collect(),
             names,
         })
     }
 
-    /// Add a constraint `a(t) >= 0`.
+    /// Add a constraint `a(t) >= 0` (normalised when possible; kept as given when normalising overflows).
     pub fn with(&self, c: Affine) -> Region {
         let mut r = self.clone();
-        if let Some(n) = normalise(&c) {
+        if let Some(n) = norm_or_raw(&c) {
             r.cons.push(n);
         }
         r
@@ -432,6 +476,40 @@ impl Region {
     /// An integer point (parameters) of the region, if the exact search finds one.
     pub fn point(&self, tries: usize) -> XResult<Option<Vec<i128>>> {
         find_point(&self.cons, self.k, tries, &vec![0; self.k])
+    }
+
+    /// Exact integer emptiness decision of the region: a point by the cheap search, else the EXHAUSTIVE search of a
+    /// bounded region (`budget` values). `Ok(Some(Some(t)))` a point, `Ok(Some(None))` PROVED integer-empty,
+    /// `Ok(None)` / `Err` undecided (re-audit RA2-M3).
+    pub fn decide_point(&self, tries: usize, budget: u64) -> XResult<Option<Option<Vec<i128>>>> {
+        if !self.feasible()? {
+            return Ok(Some(None));
+        }
+        if let Some(t) = self.point(tries)? {
+            return Ok(Some(Some(t)));
+        }
+        let mut b = budget;
+        exhaustive_point(&self.cons, self.k, &mut b)
+    }
+
+    /// The integer range of parameter `j` implied by the constraints (Fourier-Motzkin projection with rounding: a
+    /// superset of the true range). An empty region gives `lo > hi`.
+    pub fn range_of(&self, j: usize) -> XResult<(Option<i128>, Option<i128>)> {
+        let cons: Vec<Affine> = self
+            .cons
+            .iter()
+            .map(|a| {
+                let mut coef = a.coef.clone();
+                coef.swap(0, j);
+                Affine { coef, c: a.c }
+            })
+            .collect();
+        let proj = project0(&cons, self.k)?;
+        let (lo, hi, ok) = bounds0(&proj)?;
+        if !ok {
+            return Ok((Some(1), Some(0)));
+        }
+        Ok((lo, hi))
     }
 
     /// Is the region unbounded (rationally)? Exact: some direction e_j or -e_j stays feasible from a point.
@@ -447,9 +525,7 @@ impl Region {
                         c: 0,
                     })
                     .collect();
-                let mut e = Affine::constant(self.k, -1);
-                e.coef[j] = s;
-                cons.push(e); // s d_j >= 1
+                cons.push(Affine::unit(self.k, j, s, -1)); // s d_j >= 1
                 if fm_feasible(&cons, self.k)? {
                     return Ok(true);
                 }
@@ -467,6 +543,7 @@ impl Region {
 }
 
 #[cfg(test)]
+#[allow(clippy::arithmetic_side_effects)] // test arithmetic on small literals
 mod tests {
     use super::*;
 

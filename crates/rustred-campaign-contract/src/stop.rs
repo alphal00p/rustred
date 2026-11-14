@@ -25,10 +25,13 @@ pub enum StopCode {
     InternalError,
     Panic,
     Refused,
+    /// Kind `solve-recipe` (lane adapters; the coordinator lane's name): the batch finished and some keys are typed
+    /// non-SOLVED records (exit 10; decision rows 28 / 29).
+    KeysUnsolved,
 }
 
 impl StopCode {
-    pub const ALL: [StopCode; 18] = [
+    pub const ALL: [StopCode; 19] = [
         StopCode::MaxCases,
         StopCode::LiftRefused,
         StopCode::GuardTimeout,
@@ -47,6 +50,7 @@ impl StopCode {
         StopCode::InternalError,
         StopCode::Panic,
         StopCode::Refused,
+        StopCode::KeysUnsolved,
     ];
 
     /// The engine's domain stops (exit 10, INCOMPLETE, for producing kinds).
@@ -61,6 +65,7 @@ impl StopCode {
                 | StopCode::BeforeNumeric
                 | StopCode::NumericSearchRefused
                 | StopCode::NotLower
+                | StopCode::KeysUnsolved
         )
     }
 
