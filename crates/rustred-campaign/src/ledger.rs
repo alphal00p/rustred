@@ -1147,6 +1147,10 @@ pub struct LedgerConfig {
     /// the state is frozen (copy-on-write maps: milliseconds) and the snapshot is streamed to disk by a background
     /// thread, referenced from the next rotation on, so appends never wait for it (audit-ledger2 m10).
     pub background_snapshot_min_entries: usize,
+    /// Background mode: a rotation WAITS for the running snapshot only when the manifest's snapshot already lags
+    /// this many sealed segments behind (appends outpacing snapshots; never at campaign rates), so `open` never
+    /// replays more than about this many segments after the snapshot.
+    pub snapshot_max_lag_segments: usize,
 }
 
 impl Default for LedgerConfig {
@@ -1158,6 +1162,7 @@ impl Default for LedgerConfig {
             keep_old_snapshots: 1,
             rotation_retry_ms: 10_000,
             background_snapshot_min_entries: 20_000,
+            snapshot_max_lag_segments: 6,
         }
     }
 }
@@ -1946,12 +1951,30 @@ impl std::fmt::Debug for Ledger {
 }
 
 impl Drop for Ledger {
-    /// A running background snapshot is cancelled and joined (no write into the directory after the handle is
-    /// gone); an unreferenced snapshot file it left is removed by the next `open`.
+    /// ORDERLY CLOSE of a healthy handle: a running background snapshot is finished and named by the manifest
+    /// (best effort: one atomic manifest install; the next `open` then replays little). A poisoned handle cancels
+    /// it instead. Either way nothing writes into the directory after the handle is gone; an unreferenced snapshot
+    /// file is removed by the next `open`.
     fn drop(&mut self) {
-        if let Some(job) = self.snapshot_job.take() {
+        let Some(job) = self.snapshot_job.take() else {
+            return;
+        };
+        if self.poisoned.is_some() {
             job.cancel.store(true, Ordering::SeqCst);
             let _ = job.handle.join();
+            return;
+        }
+        if self.collect_job(job).is_some()
+            && let Some(r) = self.ready_snapshot.take()
+            && self.manifest.snapshot.as_ref().is_none_or(|cur| r.seq > cur.seq)
+        {
+            let mut m = self.manifest.clone();
+            m.snapshot = Some(r);
+            let _ = install(
+                self.ops.as_ref(),
+                &self.dir.join(MANIFEST_FILE),
+                &manifest_bytes(&m),
+            );
         }
     }
 }
@@ -2861,8 +2884,15 @@ impl Ledger {
         let mut inline_snapshot = None;
         if background {
             if let Some(job) = self.snapshot_job.take() {
-                if job.handle.is_finished() {
-                    self.collect_job(job);
+                let snap_seq = self.manifest.snapshot.as_ref().map_or(0, |s| s.seq);
+                let lag = 1 + self
+                    .manifest
+                    .sealed
+                    .iter()
+                    .filter(|x| x.last_seq > snap_seq)
+                    .count();
+                if job.handle.is_finished() || lag > self.cfg.snapshot_max_lag_segments {
+                    self.collect_job(job); // waits only when snapshots fall that far behind
                 } else {
                     self.snapshot_job = Some(job); // still writing: keep it, start none now
                 }
