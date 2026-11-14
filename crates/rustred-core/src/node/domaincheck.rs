@@ -71,7 +71,9 @@ impl DomainCheckError {
     }
     pub fn message(&self) -> &str {
         match self {
-            DomainCheckError::Input(m) | DomainCheckError::Io(m) | DomainCheckError::Internal(m) => m,
+            DomainCheckError::Input(m)
+            | DomainCheckError::Io(m)
+            | DomainCheckError::Internal(m) => m,
         }
     }
 }
@@ -389,7 +391,8 @@ pub fn run(args: &DomainCheckArgs) -> Result<usize, DomainCheckError> {
     // keys: a file, or the literal list of `reduce --keys`
     let key_source: Box<dyn Iterator<Item = Result<Option<Key>, String>>> =
         if Path::new(&args.keys).is_file() {
-            let f = std::fs::File::open(&args.keys).map_err(|e| Input(format!("{}: {e}", args.keys)))?;
+            let f = std::fs::File::open(&args.keys)
+                .map_err(|e| Input(format!("{}: {e}", args.keys)))?;
             Box::new(BufReader::new(f).lines().map(|l| match l {
                 Ok(l) => parse_key_line(&l),
                 Err(e) => Err(e.to_string()),
@@ -554,7 +557,11 @@ mod tests {
 "#;
 
     fn run_on(keys: &str) -> Vec<Value> {
-        let dir = std::env::temp_dir().join(format!("rr-domaincheck-{}-{}", std::process::id(), keys.len()));
+        let dir = std::env::temp_dir().join(format!(
+            "rr-domaincheck-{}-{}",
+            std::process::id(),
+            keys.len()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let t = dir.join("F.table.jsonl");
         std::fs::write(&t, TABLE).unwrap();
@@ -579,9 +586,14 @@ mod tests {
 
     #[test]
     fn decisions_and_reasons() {
-        let v = run_on("I(2,2,0);I(2,1,0);I(3,3,0);I(3,2,0);I(3,2,-1);I(1,1,-1);I(0,1,0);I(1,0,0);I(1,1,1)");
+        let v = run_on(
+            "I(2,2,0);I(2,1,0);I(3,3,0);I(3,2,0);I(3,2,-1);I(1,1,-1);I(0,1,0);I(1,0,0);I(1,1,1)",
+        );
         assert_eq!(v[0]["rules"], 4);
-        assert_eq!(v[0]["rules_skipped_at_load"]["by_dispatch"]["AfterBaselinePartitionWholePiece"], 1);
+        assert_eq!(
+            v[0]["rules_skipped_at_load"]["by_dispatch"]["AfterBaselinePartitionWholePiece"],
+            1
+        );
         let sel = |i: usize| v[i]["selected"]["rule"].as_u64();
         // fixed slot + exception not hit
         assert_eq!(sel(1), Some(1));
@@ -615,7 +627,10 @@ mod tests {
         assert_eq!(parse_key_line("1,2,0").unwrap(), Some(vec![1, 2, 0]));
         assert_eq!(parse_key_line("I(1,2,0)").unwrap(), Some(vec![1, 2, 0]));
         assert_eq!(parse_key_line("[1,2,0]").unwrap(), Some(vec![1, 2, 0]));
-        assert_eq!(parse_key_line("[[1,2,0],17,3]").unwrap(), Some(vec![1, 2, 0]));
+        assert_eq!(
+            parse_key_line("[[1,2,0],17,3]").unwrap(),
+            Some(vec![1, 2, 0])
+        );
         assert_eq!(parse_key_line("  # c").unwrap(), None);
         assert!(parse_key_line("[1,x]").is_err());
     }

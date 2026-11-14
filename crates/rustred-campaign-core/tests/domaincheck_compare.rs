@@ -30,11 +30,12 @@ use rustred_campaign_core::key::{Key, NodeFrame, parse_key};
 use rustred_campaign_core::record::{ReadOptions, read_bank_predicates, read_table_file};
 use serde_json::Value;
 
-const T162_BANK_EXPORT: &str =
-    "/shared/vhirschi/t3code/astra_5L/m5-rule-search/wave1945/wave5/T162-BANK2448-EXPORT-20261113T07";
+const T162_BANK_EXPORT: &str = "/shared/vhirschi/t3code/astra_5L/m5-rule-search/wave1945/wave5/T162-BANK2448-EXPORT-20261113T07";
 
 fn fixtures() -> PathBuf {
-    PathBuf::from(std::env::var("RUSTRED_CAMPAIGN_FIXTURES").expect("set RUSTRED_CAMPAIGN_FIXTURES"))
+    PathBuf::from(
+        std::env::var("RUSTRED_CAMPAIGN_FIXTURES").expect("set RUSTRED_CAMPAIGN_FIXTURES"),
+    )
 }
 
 fn dc_dir() -> PathBuf {
@@ -49,7 +50,11 @@ fn dc_dir() -> PathBuf {
     )
 }
 
-fn box_keys(frame: &NodeFrame, max_r: impl Fn(u32) -> u32, max_line_power: Option<i32>) -> Vec<Key> {
+fn box_keys(
+    frame: &NodeFrame,
+    max_r: impl Fn(u32) -> u32,
+    max_line_power: Option<i32>,
+) -> Vec<Key> {
     let mut k = vec![];
     for d in 0..=4 {
         for r in 0..=max_r(d) {
@@ -77,12 +82,22 @@ fn piece_names() -> Vec<String> {
         .as_array()
         .unwrap()
         .iter()
-        .map(|t| t.as_str().unwrap().rsplit('/').next().unwrap().trim_end_matches(".jsonl").to_string())
+        .map(|t| {
+            t.as_str()
+                .unwrap()
+                .rsplit('/')
+                .next()
+                .unwrap()
+                .trim_end_matches(".jsonl")
+                .to_string()
+        })
         .collect()
 }
 
 fn raw_piece(name: &str) -> PathBuf {
-    fixtures().join("eng/T178B_raw").join(format!("{name}.F.table.jsonl"))
+    fixtures()
+        .join("eng/T178B_raw")
+        .join(format!("{name}.F.table.jsonl"))
 }
 
 /// A core table from a raw `table_dump.v1` file, plus core record -> engine rule position (`Table::load` keeps every
@@ -90,7 +105,13 @@ fn raw_piece(name: &str) -> PathBuf {
 fn core_raw(path: &Path, name: &str) -> (Table, Vec<usize>, NodeFrame) {
     let tf = read_table_file(path, ReadOptions::default()).unwrap();
     let frame = NodeFrame::from_header(tf.header.as_ref().unwrap()).unwrap();
-    let table = Table::from_table_file(name, path.display().to_string(), &tf, DomainOptions::default()).unwrap();
+    let table = Table::from_table_file(
+        name,
+        path.display().to_string(),
+        &tf,
+        DomainOptions::default(),
+    )
+    .unwrap();
     let kept: Vec<usize> = tf
         .rules
         .iter()
@@ -115,16 +136,19 @@ fn prepare() {
     // order (byte slices of NATIVE-RULE-BODIES.jsonl). Table::load reads only denominators / mask / power_shifts of a
     // header; all 56 origins agree on them and on the presentation (checked here). Not an accepted table: the export's
     // README forbids loading the flat stream as one; this file serves the matcher comparison only.
-    let export = PathBuf::from(std::env::var("T162_BANK_EXPORT").unwrap_or_else(|_| T162_BANK_EXPORT.into()));
+    let export = PathBuf::from(
+        std::env::var("T162_BANK_EXPORT").unwrap_or_else(|_| T162_BANK_EXPORT.into()),
+    );
     let mut bank = read_bank_predicates(fx.join("T162/RULE-PREDICATES2440.json")).unwrap();
     bank.sort_by_key(|p| p.global_ordinal0);
-    let index: BTreeMap<i64, Value> = std::io::BufReader::new(std::fs::File::open(export.join("bank/RULE-INDEX.jsonl")).unwrap())
-        .lines()
-        .map(|l| {
-            let v: Value = serde_json::from_str(&l.unwrap()).unwrap();
-            (v["study_ordinal0"].as_i64().unwrap(), v)
-        })
-        .collect();
+    let index: BTreeMap<i64, Value> =
+        std::io::BufReader::new(std::fs::File::open(export.join("bank/RULE-INDEX.jsonl")).unwrap())
+            .lines()
+            .map(|l| {
+                let v: Value = serde_json::from_str(&l.unwrap()).unwrap();
+                (v["study_ordinal0"].as_i64().unwrap(), v)
+            })
+            .collect();
     let header_of = |rel: &str| -> Value {
         let text = std::fs::read_to_string(export.join(rel)).unwrap();
         text.lines()
@@ -133,10 +157,16 @@ fn prepare() {
             .unwrap()
     };
     let h0_text = std::fs::read_to_string(export.join("origins/origin000/HEADER.jsonl")).unwrap();
-    let h0_line = h0_text.lines().find(|l| l.contains("\"type\":\"header\"")).unwrap().to_string();
+    let h0_line = h0_text
+        .lines()
+        .find(|l| l.contains("\"type\":\"header\""))
+        .unwrap()
+        .to_string();
     let h0: Value = serde_json::from_str(&h0_line).unwrap();
     let same = |h: &Value| {
-        ["denominators", "mask", "power_shifts"].iter().all(|f| h[f] == h0[f])
+        ["denominators", "mask", "power_shifts"]
+            .iter()
+            .all(|f| h[f] == h0[f])
             && h["node_order"]["slot_permutation"] == h0["node_order"]["slot_permutation"]
     };
     let mut bodies = std::fs::File::open(export.join("bank/NATIVE-RULE-BODIES.jsonl")).unwrap();
@@ -148,13 +178,23 @@ fn prepare() {
         let r = &index[&p.global_ordinal0];
         let origin = r["local_header"].as_str().unwrap();
         if origins.insert(origin.to_string()) {
-            assert!(same(&header_of(origin)), "{origin}: header differs from origin000");
+            assert!(
+                same(&header_of(origin)),
+                "{origin}: header differs from origin000"
+            );
         }
-        bodies.seek(SeekFrom::Start(r["local_body_offset"].as_u64().unwrap())).unwrap();
+        bodies
+            .seek(SeekFrom::Start(r["local_body_offset"].as_u64().unwrap()))
+            .unwrap();
         let mut buf = vec![0u8; r["local_body_bytes"].as_u64().unwrap() as usize];
         bodies.read_exact(&mut buf).unwrap();
         let v: Value = serde_json::from_slice(&buf).unwrap();
-        let fixed: Vec<Option<i64>> = v["fixed"].as_array().unwrap().iter().map(Value::as_i64).collect();
+        let fixed: Vec<Option<i64>> = v["fixed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(Value::as_i64)
+            .collect();
         assert_eq!(fixed, p.raw_fixed20, "gid {}", p.global_ordinal0);
         w.write_all(&buf).unwrap();
         if buf.last() != Some(&b'\n') {
@@ -162,7 +202,12 @@ fn prepare() {
         }
     }
     drop(w);
-    println!("T162 matcher table: {} rules from {} origins -> {}", bank.len(), origins.len(), out.display());
+    println!(
+        "T162 matcher table: {} rules from {} origins -> {}",
+        bank.len(),
+        origins.len(),
+        out.display()
+    );
     let frame162 = NodeFrame::without_header_lines_first(20, 9);
     let keys162 = box_keys(&frame162, |d| if d == 0 { 1 } else { 2 }, Some(5));
     assert_eq!(keys162.len(), 55_704);
@@ -186,9 +231,13 @@ fn prepare() {
         let (table, _, _) = core_raw(&raw_piece(name), name);
         let disp = Dispatcher::new(vec![table], vec![0]).unwrap();
         let rep = disp.batch(&keys, 4).unwrap();
-        let covered: Vec<usize> = (0..keys.len()).filter(|&i| rep.results[i].is_covered()).collect();
+        let covered: Vec<usize> = (0..keys.len())
+            .filter(|&i| rep.results[i].is_covered())
+            .collect();
         let take = covered.len().min(5_000);
-        let mut chosen: Vec<usize> = (0..take).map(|j| covered[j * covered.len() / take.max(1)]).collect();
+        let mut chosen: Vec<usize> = (0..take)
+            .map(|j| covered[j * covered.len() / take.max(1)])
+            .collect();
         let set: HashSet<usize> = chosen.iter().copied().collect();
         let rest: Vec<usize> = (0..keys.len()).filter(|i| !set.contains(i)).collect();
         let fill = 10_000 - take;
@@ -202,7 +251,11 @@ fn prepare() {
             dc.join(format!("t178/keys_{name}.txt")).display(),
             dc.join(format!("t178/out_{name}.jsonl")).display()
         );
-        println!("piece {name}: covers {} of the box alone; {} covered keys chosen", covered.len(), take);
+        println!(
+            "piece {name}: covers {} of the box alone; {} covered keys chosen",
+            covered.len(),
+            take
+        );
     }
     for name in ["R0_try1", "pool1.pieces_rgq-g0-10"] {
         run += &format!(
@@ -294,7 +347,12 @@ impl Tally {
 /// Compare one engine output with the core on the same keys. `to_engine[r]` = engine rule position of core record
 /// `r`; `written_exceptions[r]` = number of written exception branches of core record `r` (larger branch indices are
 /// cached bank loci).
-fn compare(out: &Path, table: &Table, to_engine: &[usize], written_exceptions: Option<&[usize]>) -> Tally {
+fn compare(
+    out: &Path,
+    table: &Table,
+    to_engine: &[usize],
+    written_exceptions: Option<&[usize]>,
+) -> Tally {
     let disp = Dispatcher::new(vec![table.clone()], vec![0]).unwrap();
     let mut from_engine = vec![usize::MAX; to_engine.iter().max().map_or(0, |m| m + 1)];
     for (r, &e) in to_engine.iter().enumerate() {
@@ -321,16 +379,23 @@ fn compare(out: &Path, table: &Table, to_engine: &[usize], written_exceptions: O
         let key = parse_key(v["key"].as_str().unwrap()).unwrap();
         let e_sel = v["selected"]["rule"].as_u64().map(|x| x as usize);
         let ambiguous = v["ambiguous"].as_bool().unwrap();
-        assert_eq!(v["in_sector"], true, "box key out of the engine's sector: {}", v["key"]);
+        assert_eq!(
+            v["in_sector"], true,
+            "box key out of the engine's sector: {}",
+            v["key"]
+        );
         let c = disp.first_match(&key).unwrap();
         let same = |r: usize| Some(to_engine[r]) == e_sel;
         let finding = |t: &mut Tally, what: String| {
-            t.findings.push(format!("{} engine {:?} core {what}", v["key"], e_sel));
+            t.findings
+                .push(format!("{} engine {:?} core {what}", v["key"], e_sel));
         };
         match &c {
             Dispatch::Covered(r) if same(r.record) => {
                 t.agree_rule += 1;
-                *t.point_valid.entry(v["point_valid"].as_str().unwrap_or("null").to_string()).or_insert(0) += 1;
+                *t.point_valid
+                    .entry(v["point_valid"].as_str().unwrap_or("null").to_string())
+                    .or_insert(0) += 1;
             }
             Dispatch::Uncovered if e_sel.is_none() => t.agree_none += 1,
             Dispatch::Blocked { at, reason } if same(at.record) => match reason {
@@ -349,15 +414,18 @@ fn compare(out: &Path, table: &Table, to_engine: &[usize], written_exceptions: O
                     Some(es) if core_pos.is_none_or(|cp| cp > es) => {
                         let r = from_engine[es];
                         match table.domains[r].applies(&key) {
-                            Verdict::NotInCase(rustred_campaign_core::domain::NotInCase::Bound(_)) => {
-                                t.bump("recenter_bounds")
-                            }
+                            Verdict::NotInCase(
+                                rustred_campaign_core::domain::NotInCase::Bound(_),
+                            ) => t.bump("recenter_bounds"),
                             Verdict::OnException { branch }
                                 if written_exceptions.is_some_and(|w| branch >= w[r]) =>
                             {
                                 t.bump("bank_cached_loci")
                             }
-                            other => finding(&mut t, format!("{c:?}; engine rule in the core: {other:?}")),
+                            other => finding(
+                                &mut t,
+                                format!("{c:?}; engine rule in the core: {other:?}"),
+                            ),
                         }
                     }
                     _ => finding(&mut t, format!("{c:?}")),
@@ -382,7 +450,10 @@ fn report(name: &str, t: &Tally) {
 fn t_domain_t162() {
     let dc = dc_dir();
     let out = dc.join("t162/out.jsonl");
-    let (table, kept, _) = core_raw(&dc.join("t162/bank2440_matcher.table.jsonl"), "T162-matcher");
+    let (table, kept, _) = core_raw(
+        &dc.join("t162/bank2440_matcher.table.jsonl"),
+        "T162-matcher",
+    );
     let a1 = compare(&out, &table, &kept, None);
     report("T162 (a1) native records", &a1);
 
@@ -398,12 +469,18 @@ fn t_domain_t162() {
         },
     )
     .unwrap();
-    let written: Vec<usize> = bank.iter().map(|p| p.exceptions.as_ref().map_or(0, Vec::len)).collect();
+    let written: Vec<usize> = bank
+        .iter()
+        .map(|p| p.exceptions.as_ref().map_or(0, Vec::len))
+        .collect();
     let ident: Vec<usize> = (0..bank.len()).collect();
     let a2 = compare(&out, &bt, &ident, Some(&written));
     report("T162 (a2) bank predicates", &a2);
     assert_eq!(a1.keys, 55_704);
-    assert!(a1.findings.is_empty() && a2.findings.is_empty(), "findings: see the report");
+    assert!(
+        a1.findings.is_empty() && a2.findings.is_empty(),
+        "findings: see the report"
+    );
 }
 
 /// (b) every T178 order-B piece as its own table, 10,000 box keys each; the raw table's domains equal the case
@@ -415,7 +492,11 @@ fn t_domain_t178_pieces() {
     let mut total = Tally::default();
     for name in piece_names() {
         let (table, kept, _) = core_raw(&raw_piece(&name), &name);
-        let tf = read_table_file(fixtures().join(format!("T178B/cases/{name}.jsonl")), ReadOptions::default()).unwrap();
+        let tf = read_table_file(
+            fixtures().join(format!("T178B/cases/{name}.jsonl")),
+            ReadOptions::default(),
+        )
+        .unwrap();
         let export = Table::from_table_file(
             name.clone(),
             "case export",
@@ -430,9 +511,18 @@ fn t_domain_t178_pieces() {
         .unwrap();
         assert_eq!(export.len(), table.len(), "{name}: records");
         for (a, b) in table.domains.iter().zip(&export.domains) {
-            assert_eq!(a.canonical_form(), b.canonical_form(), "{name}: raw table and case export differ");
+            assert_eq!(
+                a.canonical_form(),
+                b.canonical_form(),
+                "{name}: raw table and case export differ"
+            );
         }
-        let t = compare(&dc.join(format!("t178/out_{name}.jsonl")), &table, &kept, None);
+        let t = compare(
+            &dc.join(format!("t178/out_{name}.jsonl")),
+            &table,
+            &kept,
+            None,
+        );
         report(&name, &t);
         total.keys += t.keys;
         total.agree_rule += t.agree_rule;
@@ -460,7 +550,12 @@ fn t_domain_raw_full() {
     let dc = dc_dir();
     for name in ["R0_try1", "pool1.pieces_rgq-g0-10"] {
         let (table, kept, _) = core_raw(&raw_piece(name), name);
-        let t = compare(&dc.join(format!("t178/out_full_{name}.jsonl")), &table, &kept, None);
+        let t = compare(
+            &dc.join(format!("t178/out_full_{name}.jsonl")),
+            &table,
+            &kept,
+            None,
+        );
         report(name, &t);
         assert_eq!(t.keys, 286_066);
         assert!(t.findings.is_empty(), "findings: see the report");
