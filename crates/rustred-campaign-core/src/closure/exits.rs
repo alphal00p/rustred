@@ -55,6 +55,11 @@ pub struct ExitStatus {
     pub class: Option<String>,
     pub lane: Option<String>,
     pub route_digest: Option<String>,
+    /// Whether `distinct_keys` / `key_set_digest` are complete for the closure's configuration (hand-down mode `keys`,
+    /// not truncated; audit loop-A M3). `false`: counts only, never a complete exit key set.
+    pub keys_complete: bool,
+    /// The configuration identity digest of the closure that produced the exit sets.
+    pub config_digest: String,
     /// Always `not_available` until the engine's exit dispatch reports coverage per mapped key (EC-16).
     pub provider_coverage: String,
 }
@@ -132,6 +137,7 @@ impl ExitRouting {
 /// Exit-dispatch status of every child sector the closure handed down to.
 pub fn check_exits(cl: &super::Closure, routing: Option<&ExitRouting>) -> Vec<ExitStatus> {
     let s = cl.summary();
+    let ex = cl.exit_sets();
     let mut out = vec![];
     let sets = cl.hand_down_sets();
     let mut masks: BTreeMap<u64, u64> = s.hand_downs.iter().map(|(&m, v)| (m, v[0])).collect();
@@ -164,6 +170,8 @@ pub fn check_exits(cl: &super::Closure, routing: Option<&ExitRouting>) -> Vec<Ex
             class,
             lane,
             route_digest: rd,
+            keys_complete: ex.complete,
+            config_digest: ex.config_digest.clone(),
             provider_coverage: "not_available".into(),
         });
     }

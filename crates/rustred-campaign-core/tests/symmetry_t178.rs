@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use closure_common::{k3_common, t178, t178_group};
 use rustred_campaign_core::closure::{ClosureConfig, HandDowns, NoFacts, Sectors, Tier, closure};
 use rustred_campaign_core::cover::Dispatch;
-use rustred_campaign_core::symmetry::{CreditChecker, CreditFrame, CreditPolicy, Refusal};
+use rustred_campaign_core::symmetry::{CreditChecker, CreditPolicy, Refusal};
 
 const S1: &str = "/common/ben/sym-investigation/h13/out/s1_points.json";
 
@@ -31,16 +31,8 @@ fn t178_safe_symmetry_list() {
     let group = t178_group();
     assert_eq!(group.len(), 8);
     let sectors = Sectors::new((0..20).map(|s| s < 10).collect());
-    let chk = CreditChecker::new(&t.disp, &t.bodies, &t.cmp, sectors, &NoFacts, true);
-    let pol = CreditPolicy {
-        group: group.clone(),
-        tier: Tier::K,
-        frame: CreditFrame::Direct,
-    };
-    let polm = CreditPolicy {
-        frame: CreditFrame::MappedBack,
-        ..pol.clone()
-    };
+    let chk = CreditChecker::new(&t.disp, &t.bodies, &t.cmp, sectors, &NoFacts, Tier::K);
+    let pol = CreditPolicy::new(group.clone());
 
     let count = |keys: &[Vec<i32>]| -> (usize, usize, usize, usize) {
         let (mut with_cov, mut adopted, mut rejected_image_lower, mut mapped_back) = (0, 0, 0, 0);
@@ -71,7 +63,8 @@ fn t178_safe_symmetry_list() {
             }) {
                 rejected_image_lower += 1;
             }
-            if chk.serve(k, &polm).unwrap().is_ok() {
+            // test-only diagnostic (not an acceptance condition): mapped-back comparison
+            if chk.serve_mapped_back_diagnostic(k, &pol).unwrap().is_ok() {
                 mapped_back += 1;
             }
         }

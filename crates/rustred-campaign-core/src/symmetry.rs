@@ -1,44 +1,103 @@
 //! Symmetry credits (plan 2.4.6; DESIGN-COMMENTS A1, A7; COORDINATOR_REQUIREMENTS R8, R9). Interface:
-//! plan/auto-campaign/interfaces/closure.md section 3.
+//! plan/auto-campaign/interfaces/closure.md section 3 and 11.
 //!
-//! THE ADOPTED CONDITION (the only one implemented here): a key k without a rule may be served by an image g k
+//! THE ADOPTED CONDITION (the only acceptance condition): a key k without a rule may be served by an image g k
 //! (g in the node's automorphism group, applied per POINT by [`GroupElement::apply`]; a key with a non-zero
-//! numerator and no numerator map has no image) ONLY IF
-//!  (i) the rule R that the dispatch (over the tables WITHOUT credits) selects at g k COVERS g k (never an image of an
-//!      image, never "any rule that covers g k": the first-match winner);
-//!  (ii) EVERY top-sector right-hand-side key of R instantiated at g k is strictly below the ORIGINAL k under the
-//!      node comparator (by default the RHS key itself, the integral it names, as the checker's h13b d2.py compares;
-//!      [`CreditFrame::MappedBack`] compares g^-1 of it instead);
-//!  (iii) Tier C: every positive-numerator term of R at g k has a verified zero coefficient, and R is regular at g k.
-//! NOT "image lower than key", NOT "least orbit member". The first group element (in the given order) that passes
-//! gives the credit; every credit names the group element, the image and the rule.
+//! numerator and no numerator map has no image; a key with a non-zero numerator is credited only through an element
+//! whose numerator map is certified PURE, i.e. a one-term identity: [`CreditPolicy::pure_numerator_maps`]) ONLY IF
+//!  (i) the image is not a declared terminal, and the rule R that the dispatch (over the tables WITHOUT credits, with
+//!      the rule-level key exclusions) selects at g k COVERS g k (never an image of an image, never "any rule that
+//!      covers g k": the first-match winner);
+//!  (ii) EVERY followed top-sector right-hand-side key of R instantiated at g k is strictly below the ORIGINAL k under
+//!      the node comparator (the RHS key itself, the integral it names: the DIRECT comparison; audit loop-A ruling);
+//!  (iii) the checks of the CLOSURE's tier (there is no separate credit tier, audit loop-A C2): Tier C: R regular at
+//!      g k by a fact, every dropped term of R at g k justified by its coefficient-zero fact, a positive-numerator or
+//!      non-lower top term with a NonZero fact refuses the element; with Unknown facts the credit is PENDING (its
+//!      unknowns are counted undecided and requested by the closure, never `closed`). Tier K: positive-numerator terms
+//!      flagged "requires coefficient zero", regularity not checked (Tier K is never closed).
+//! NOT "image lower than key", NOT "least orbit member", NOT "mapped back" (g^-1 of the RHS key: a test-only
+//! diagnostic, [`CreditChecker::serve_mapped_back_diagnostic`], never an acceptance path). The first group element
+//! (in the given order) that is not refused gives the credit (clean, or pending on unknown Tier C facts); every credit names
+//! the group element, the image and the rule. ASSUMPTION ON THE CONSUMER (recorded in closure.md): the importer
+//! applies the credit I(k) = I(g k) and the image's rule R as ONE step (the step k -> RHS(R at g k) is what descends).
+
+use std::collections::BTreeSet;
 
 use crate::closure::internal::{CtxView, StandaloneCtx};
 use crate::closure::{
-    ClosureError, CoefFact, FactSource, FastDispatch, RegFact, RuleBodies, RuleName, Sectors,
-    TermClass, Tier,
+    ClosureError, CoefFact, FactSource, FastDispatch, RegFact, RuleBodies, Sectors, TermClass, Tier,
 };
 use crate::cover::{Dispatch, Dispatcher, RuleRef};
 use crate::order::NodeComparator;
 
 pub use crate::order::GroupElement;
 
-/// How the right-hand-side keys at g k are compared with k.
+/// How the right-hand-side keys at g k are compared with k. Only `Direct` is an acceptance condition; `MappedBack`
+/// exists for the test-only diagnostic [`CreditChecker::serve_mapped_back_diagnostic`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum CreditFrame {
-    /// The RHS key itself (adopted; reproduces the checker's 75 of 170 on T178).
+    /// The RHS key itself (adopted; reproduces the checker's 75 of 170 on the reference node).
     #[default]
     Direct,
-    /// g^-1 applied to the RHS key (the integral's preimage).
+    /// g^-1 applied to the RHS key (the integral's preimage): DIAGNOSTIC ONLY.
     MappedBack,
 }
 
-/// The credit policy of a node.
-#[derive(Clone, Debug)]
+/// The credit policy of a node: the group and which elements have a certified pure numerator map.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CreditPolicy {
     pub group: Vec<GroupElement>,
-    pub tier: Tier,
-    pub frame: CreditFrame,
+    /// Indices of elements whose numerator map (`numerators: Some`) is CERTIFIED a one-term identity by the group
+    /// data. A key with a non-zero numerator is never credited through any other element (plan 2.4.6 (iii)).
+    pub pure_numerator_maps: BTreeSet<usize>,
+}
+
+impl CreditPolicy {
+    /// A policy with no certified numerator maps (numerator-free keys only, unless maps are certified later).
+    pub fn new(group: Vec<GroupElement>) -> CreditPolicy {
+        CreditPolicy {
+            group,
+            pure_numerator_maps: BTreeSet::new(),
+        }
+    }
+    /// Check the policy against the node's line mask (audit loop-A m1, loop-B m2): an element's `lines` permutes the
+    /// LINE slots of the mask (in slot order, wherever they sit: the action is generic over the frame, L8) and its
+    /// `numerators` (if given) the remaining slots; both must be permutations of the right length. Certified indices
+    /// must exist.
+    pub fn validate(&self, lines: &[bool]) -> Result<(), String> {
+        let nl = lines.iter().filter(|&&l| l).count();
+        let nn = lines.len() - nl;
+        let perm = |v: &[usize], n: usize| {
+            let mut seen = vec![false; n];
+            v.len() == n
+                && v.iter()
+                    .all(|&j| j < n && !std::mem::replace(&mut seen[j], true))
+        };
+        for (i, g) in self.group.iter().enumerate() {
+            if !perm(&g.lines, nl) {
+                return Err(format!(
+                    "group element {i}: lines is not a permutation of the node's {nl} line slots"
+                ));
+            }
+            if let Some(m) = &g.numerators
+                && !perm(m, nn)
+            {
+                return Err(format!(
+                    "group element {i}: numerators is not a permutation of the node's {nn} other slots"
+                ));
+            }
+        }
+        if let Some(&i) = self
+            .pure_numerator_maps
+            .iter()
+            .find(|&&i| i >= self.group.len())
+        {
+            return Err(format!(
+                "certified numerator map of element {i}: no such element"
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// A symmetry credit: k is served by `rule` at `image` = g_element k.
@@ -49,13 +108,15 @@ pub struct Credit {
     pub rule: RuleRef,
     /// Dispatch position of `rule`.
     pub position: u32,
-    /// Distinct top-sector RHS keys (all strictly below k).
+    /// Distinct followed top-sector RHS keys (strictly below k, or pending a coefficient fact).
     pub top_terms: Vec<Vec<i32>>,
-    /// Indices of positive-numerator terms (Tier K: flagged "requires coefficient zero"; Tier C: verified zero).
+    /// Indices of positive-numerator terms flagged "requires coefficient zero" (Tier K).
     pub zero_required: Vec<usize>,
+    /// Tier C: the unknown facts this credit still needs (pending credit; empty = decided).
+    pub undecided: Vec<Refusal>,
 }
 
-/// Why a group element does not give a credit.
+/// Why a group element does not give a credit (or, in [`Credit::undecided`], what a pending credit still needs).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Refusal {
     /// No image (non-zero numerator and no numerator map, or a malformed element).
@@ -63,8 +124,14 @@ pub enum Refusal {
     ImageEqualsKey,
     /// The group element does not fit the key (core `GroupElement::apply` error).
     MalformedElement(String),
+    /// The key has a non-zero numerator and the element's numerator map is not certified pure.
+    NumeratorMapNotPure,
+    /// The image is a declared terminal (never reduced by a rule; audit loop-A m3).
+    ImageIsTerminal,
     /// The dispatch at g k is not `Covered`.
     ImageNotCovered(Dispatch),
+    /// A relation set (recipe) serves g k: credits through recipe-served images are not implemented yet.
+    ImageServedByRecipe,
     NoBody,
     TermNotBelow {
         term: usize,
@@ -73,28 +140,50 @@ pub enum Refusal {
     CoefficientNonZero {
         term: usize,
     },
+    Irregular,
+    /// Pending (Tier C): a positive-numerator term without a coefficient fact.
     CoefficientUnknown {
         term: usize,
     },
-    Irregular,
+    /// Pending (Tier C): a top term that is not below k, without a coefficient fact.
+    TermNotBelowUnknown {
+        term: usize,
+        rhs: Vec<i32>,
+    },
+    /// Pending (Tier C): no regularity fact for R at g k.
     RegularityUnknown,
 }
 
-/// g^-1 applied to `key` (inverse of [`GroupElement::apply`]).
-fn apply_inverse(g: &GroupElement, key: &[i32]) -> Option<Vec<i32>> {
-    let nl = g.lines.len();
+/// The slot lists of a line mask: (line slots, other slots), in slot order.
+fn slot_lists(lines: &[bool]) -> (Vec<usize>, Vec<usize>) {
+    let l = (0..lines.len()).filter(|&s| lines[s]).collect();
+    let o = (0..lines.len()).filter(|&s| !lines[s]).collect();
+    (l, o)
+}
+
+/// `g k` in the node's frame: `(g k)[L[lines[i]]] = k[L[i]]` over the line slots L of the mask, likewise `numerators`
+/// over the other slots; `None` when the key has a non-zero numerator and no numerator map is given (or the element
+/// does not fit the mask). Equals the core's `GroupElement::apply` when the lines come first.
+pub fn apply_framed(g: &GroupElement, key: &[i32], lines: &[bool]) -> Option<Vec<i32>> {
+    let (ls, os) = slot_lists(lines);
+    if g.lines.len() != ls.len() || key.len() != lines.len() {
+        return None;
+    }
     let mut out = key.to_vec();
     for (i, &j) in g.lines.iter().enumerate() {
-        out[i] = *key.get(j)?;
+        out[*ls.get(j)?] = key[ls[i]];
     }
     match &g.numerators {
         Some(m) => {
+            if m.len() != os.len() {
+                return None;
+            }
             for (i, &j) in m.iter().enumerate() {
-                out[nl + i] = *key.get(nl + j)?;
+                out[*os.get(j)?] = key[os[i]];
             }
         }
         None => {
-            if key[nl..].iter().any(|&x| x != 0) {
+            if os.iter().any(|&s| key[s] != 0) {
                 return None;
             }
         }
@@ -102,52 +191,92 @@ fn apply_inverse(g: &GroupElement, key: &[i32]) -> Option<Vec<i32>> {
     Some(out)
 }
 
-/// The adopted condition for one element (see the module documentation).
+/// g^-1 applied to `key` in the node's frame (inverse of [`apply_framed`]).
+fn apply_inverse(g: &GroupElement, key: &[i32], lines: &[bool]) -> Option<Vec<i32>> {
+    let (ls, os) = slot_lists(lines);
+    let mut out = key.to_vec();
+    for (i, &j) in g.lines.iter().enumerate() {
+        out[ls[i]] = key[*ls.get(j)?];
+    }
+    match &g.numerators {
+        Some(m) => {
+            for (i, &j) in m.iter().enumerate() {
+                out[os[i]] = key[*os.get(j)?];
+            }
+        }
+        None => {
+            if os.iter().any(|&s| key[s] != 0) {
+                return None;
+            }
+        }
+    }
+    Some(out)
+}
+
+/// The adopted condition for one element (see the module documentation). `frame` is `Direct` except in the
+/// diagnostic.
 fn try_element(
     key: &[i32],
-    g: &GroupElement,
+    ei: usize,
     pol: &CreditPolicy,
     ctx: &dyn CtxView,
+    frame: CreditFrame,
 ) -> Result<Result<Credit, Refusal>, ClosureError> {
-    if g.lines.len() > key.len() {
-        return Ok(Err(Refusal::NoImage));
+    let g = &pol.group[ei];
+    let lines = &ctx.sectors().lines;
+    if g.lines.len() != lines.iter().filter(|&&l| l).count() {
+        return Ok(Err(Refusal::MalformedElement(
+            "line permutation does not fit the line mask".into(),
+        )));
     }
-    let image = match g.apply(key) {
-        Ok(Some(x)) => x,
-        Ok(None) => return Ok(Err(Refusal::NoImage)),
-        Err(e) => return Ok(Err(Refusal::MalformedElement(format!("{e:?}")))),
+    let Some(image) = apply_framed(g, key, lines) else {
+        return Ok(Err(Refusal::NoImage));
     };
     if image == key {
         return Ok(Err(Refusal::ImageEqualsKey));
     }
-    let rule = match ctx.dispatch(&image) {
+    let has_numerator = key.iter().zip(lines).any(|(&v, &l)| !l && v != 0);
+    if has_numerator && !pol.pure_numerator_maps.contains(&ei) {
+        return Ok(Err(Refusal::NumeratorMapNotPure));
+    }
+    if ctx.is_terminal(&image) {
+        return Ok(Err(Refusal::ImageIsTerminal));
+    }
+    let d = ctx.dispatch(&image);
+    if ctx.recipe_serves(&image, &d) {
+        // the image is served by a relation set (R48), not by the table rule: credits through recipe-served images
+        // are not implemented yet (refused, fail closed)
+        return Ok(Err(Refusal::ImageServedByRecipe));
+    }
+    let rule = match d {
         Dispatch::Covered(r) => r,
         d => return Ok(Err(Refusal::ImageNotCovered(d))),
     };
     let pos = ctx.position(rule);
-    let tier_c = pol.tier == Tier::C;
+    let (mut buf, mut cm) = (vec![], vec![]);
+    let Some(nt) = ctx.instantiate(pos, &image, &mut buf, &mut cm)? else {
+        return Ok(Err(Refusal::NoBody));
+    };
+    let tier_c = ctx.tier() == Tier::C;
+    let mut undecided = vec![];
     if tier_c {
         match ctx.facts().regularity(&ctx.rule_id(pos), &image) {
             RegFact::Regular => {}
             RegFact::Pole => return Ok(Err(Refusal::Irregular)),
             RegFact::Unknown => {
-                if ctx.require_regularity() {
-                    return Ok(Err(Refusal::RegularityUnknown));
+                if !ctx.relax_regularity() {
+                    undecided.push(Refusal::RegularityUnknown);
                 }
             }
         }
     }
-    let (mut buf, mut cm) = (vec![], vec![]);
-    let Some(nt) = ctx.instantiate(pos, &image, &mut buf, &mut cm)? else {
-        return Ok(Err(Refusal::NoBody));
-    };
     let n = ctx.arity();
     let mut top = vec![];
     let mut zero_required = vec![];
     for j in 0..nt {
         let t = &buf[j * n..(j + 1) * n];
         let fact = if tier_c {
-            ctx.facts().coefficient(&ctx.rule_id(pos), &image, j)
+            ctx.facts().coefficient(&ctx.rule_id(pos), &image, j, t)
         } else {
             CoefFact::Unknown
         };
@@ -156,33 +285,31 @@ fn try_element(
         }
         match ctx.sectors().classify_masked(t, cm[j]) {
             TermClass::PositiveNumerator { .. } => {
-                if tier_c {
-                    return Ok(Err(if fact == CoefFact::NonZero {
-                        Refusal::CoefficientNonZero { term: j }
-                    } else {
-                        Refusal::CoefficientUnknown { term: j }
-                    }));
+                if !tier_c {
+                    zero_required.push(j);
+                } else if fact == CoefFact::NonZero {
+                    return Ok(Err(Refusal::CoefficientNonZero { term: j }));
+                } else {
+                    undecided.push(Refusal::CoefficientUnknown { term: j });
                 }
-                zero_required.push(j);
             }
             TermClass::Top => {
-                let cmpd = match pol.frame {
-                    CreditFrame::Direct => t.to_vec(),
-                    CreditFrame::MappedBack => match apply_inverse(g, t) {
-                        Some(x) => x,
-                        None => {
-                            return Ok(Err(Refusal::TermNotBelow {
-                                term: j,
-                                rhs: t.to_vec(),
-                            }));
-                        }
-                    },
+                let cmpd = match frame {
+                    CreditFrame::Direct => Some(t.to_vec()),
+                    CreditFrame::MappedBack => apply_inverse(g, t, lines),
                 };
-                if !ctx.cmp().lower(&cmpd, key) {
-                    return Ok(Err(Refusal::TermNotBelow {
+                let below = cmpd.is_some_and(|c| ctx.cmp().lower(&c, key));
+                if !below {
+                    if !tier_c || fact == CoefFact::NonZero {
+                        return Ok(Err(Refusal::TermNotBelow {
+                            term: j,
+                            rhs: t.to_vec(),
+                        }));
+                    }
+                    undecided.push(Refusal::TermNotBelowUnknown {
                         term: j,
                         rhs: t.to_vec(),
-                    }));
+                    });
                 }
                 top.push(t.to_vec());
             }
@@ -192,28 +319,38 @@ fn try_element(
     top.sort();
     top.dedup();
     Ok(Ok(Credit {
-        element: 0,
+        element: ei,
         image,
         rule,
         position: pos,
         top_terms: top,
         zero_required,
+        undecided,
     }))
 }
 
-/// Internal entry used by the closure (dispatch through its index).
+/// Internal entry used by the closure (dispatch through its index): the first element that is not refused (clean or
+/// pending), else every element's refusal.
 pub(crate) fn serve_with(
     key: &[i32],
     pol: &CreditPolicy,
     ctx: &dyn CtxView,
 ) -> Result<Result<Credit, Vec<(usize, Refusal)>>, ClosureError> {
+    serve_frame(key, pol, ctx, CreditFrame::Direct)
+}
+
+fn serve_frame(
+    key: &[i32],
+    pol: &CreditPolicy,
+    ctx: &dyn CtxView,
+    frame: CreditFrame,
+) -> Result<Result<Credit, Vec<(usize, Refusal)>>, ClosureError> {
     let mut refusals = vec![];
-    for (ei, g) in pol.group.iter().enumerate() {
-        match try_element(key, g, pol, ctx)? {
-            Ok(mut c) => {
-                c.element = ei;
-                return Ok(Ok(c));
-            }
+    for ei in 0..pol.group.len() {
+        match try_element(key, ei, pol, ctx, frame)? {
+            // the first element not refused, clean or PENDING (its unknown facts are requested): the choice does not
+            // depend on which facts happen to be known, so it never flips when facts arrive
+            Ok(c) => return Ok(Ok(c)),
             Err(r) => refusals.push((ei, r)),
         }
     }
@@ -221,7 +358,9 @@ pub(crate) fn serve_with(
 }
 
 /// The adopted symmetry-credit condition at one key (standalone; the closure uses the same function through its
-/// dispatch index). Fact identities use the table's `provenance.source` (the EC-2 table path). `sectors` gives the line mask (and zero sectors). Returns the credit, or every element's refusal.
+/// dispatch index), with the checks of `tier`. Fact identities: the table's `provenance.source` (the EC-2 table path)
+/// and rule digests without a table coefficient-file digest (`unrecorded`). No declared terminals, no exclusions.
+/// `sectors` gives the line mask (and zero sectors). Returns the credit, or every element's refusal.
 #[allow(clippy::too_many_arguments)]
 pub fn serve_by_image(
     key: &[i32],
@@ -231,7 +370,7 @@ pub fn serve_by_image(
     cmp: &NodeComparator,
     sectors: &Sectors,
     facts: &dyn FactSource,
-    require_regularity: bool,
+    tier: Tier,
 ) -> Result<Result<Credit, Vec<(usize, Refusal)>>, ClosureError> {
     if key.len() != disp.arity() {
         return Err(ClosureError::KeyArity {
@@ -239,28 +378,7 @@ pub fn serve_by_image(
             got: key.len(),
         });
     }
-    let fast = FastDispatch::new(disp);
-    let names = (0..fast.n_entries() as u32)
-        .map(|p| {
-            let r = fast.rule(p);
-            RuleName {
-                table: disp.tables()[r.table].provenance.source.clone(),
-                record: r.record,
-                label: r.label,
-            }
-        })
-        .collect();
-    let ctx = StandaloneCtx {
-        fast,
-        disp,
-        bodies,
-        cmp,
-        sectors: sectors.clone(),
-        facts,
-        names,
-        require_regularity,
-    };
-    serve_with(key, policy, &ctx)
+    CreditChecker::new(disp, bodies, cmp, sectors.clone(), facts, tier).serve(key, policy)
 }
 
 /// A reusable standalone credit checker (builds the dispatch index once; for many keys).
@@ -269,25 +387,17 @@ pub struct CreditChecker<'a> {
 }
 
 impl<'a> CreditChecker<'a> {
+    /// A checker with the checks of `tier` (see [`serve_by_image`]).
     pub fn new(
         disp: &'a Dispatcher,
         bodies: &'a RuleBodies,
         cmp: &'a NodeComparator,
         sectors: Sectors,
         facts: &'a dyn FactSource,
-        require_regularity: bool,
+        tier: Tier,
     ) -> Self {
         let fast = FastDispatch::new(disp);
-        let names = (0..fast.n_entries() as u32)
-            .map(|p| {
-                let r = fast.rule(p);
-                RuleName {
-                    table: disp.tables()[r.table].provenance.source.clone(),
-                    record: r.record,
-                    label: r.label,
-                }
-            })
-            .collect();
+        let (names, digests) = crate::closure::standalone_rule_ids(disp, bodies, &fast);
         CreditChecker {
             ctx: StandaloneCtx {
                 fast,
@@ -297,7 +407,8 @@ impl<'a> CreditChecker<'a> {
                 sectors,
                 facts,
                 names,
-                require_regularity,
+                digests,
+                tier,
             },
         }
     }
@@ -306,7 +417,19 @@ impl<'a> CreditChecker<'a> {
         key: &[i32],
         policy: &CreditPolicy,
     ) -> Result<Result<Credit, Vec<(usize, Refusal)>>, ClosureError> {
+        if let Err(e) = policy.validate(&self.ctx.sectors.lines) {
+            return Err(ClosureError::Config(e));
+        }
         serve_with(key, policy, &self.ctx)
+    }
+    /// TEST-ONLY DIAGNOSTIC (not an acceptance condition, audit loop-A ruling on D1): as [`Self::serve`] but the
+    /// top terms are compared mapped back (g^-1 of the RHS key) with k.
+    pub fn serve_mapped_back_diagnostic(
+        &self,
+        key: &[i32],
+        policy: &CreditPolicy,
+    ) -> Result<Result<Credit, Vec<(usize, Refusal)>>, ClosureError> {
+        serve_frame(key, policy, &self.ctx, CreditFrame::MappedBack)
     }
     /// The first-match dispatch (the same as `Dispatcher::first_match`).
     pub fn dispatch(&self, key: &[i32]) -> Dispatch {
