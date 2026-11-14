@@ -1,0 +1,40 @@
+{
+  "campaign_id": "test-campaign",
+  "file": "jobs",
+  "ledger": {
+    "head": "d59131f73374aad6f2bb9e65c008f6bec70d79d95b55b0ba0c404ec57c6ccc0e",
+    "last_utc": "2026-11-13T23:00:25.250Z",
+    "seq": 102
+  },
+  "list": [
+    {
+      "attempt": 1,
+      "budget_mem_bytes": 2147483648,
+      "budget_seconds": 300,
+      "cpu_set": [
+        29,
+        30
+      ],
+      "cpus": 2,
+      "heartbeat_utc": "2026-11-13T23:09:59.000Z",
+      "item": "F010",
+      "item_id": "T162-item-00010",
+      "job": "T162-job-00010-L0",
+      "kind": "generate",
+      "node": "T162",
+      "pgid": 5150,
+      "phase": "seeding",
+      "pid": 5150,
+      "reserved_bytes": 2147483648,
+      "rss_bytes": 431000000,
+      "run_dir": "large:jobs/T162-job-00010-L0.a1",
+      "rung": "L0",
+      "seconds": 18,
+      "state": "running"
+    }
+  ],
+  "sampled_utc": "2026-11-13T23:10:00.000Z",
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "written_utc": "2026-11-13T23:10:01.000Z"
+}

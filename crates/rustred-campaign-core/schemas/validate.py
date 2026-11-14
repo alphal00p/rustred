@@ -519,7 +519,15 @@ def _sem_accept(doc, errs):
     if v.get("normalised") != "PASS" and lvl in ("A2", "A3", "A4") and doc.get("imported_from") is None:
         errs.append(("/level_after", "a %s verdict cannot raise the level to %s" % (v.get("normalised"), lvl)))
     chk = doc.get("check", {})
-    lift = set(doc.get("rule", {}).get("producer", {}).get("lift_primes") or [])
+    prod = doc.get("rule", {}).get("producer", {})
+    # an accept line whose producer digest is unknown (historical import) can never BY ITSELF yield a level above A0
+    # (imported, provenance only); only a check of our own (not kind `imported`, no `imported_from`) can raise it
+    if prod.get("bin_blake3", "") is None and (chk.get("kind") == "imported" or doc.get("imported_from") is not None) \
+            and (lvl != "A0" or ev is not None):
+        errs.append(("/level_after", "producer digest unknown (%s): an imported line cannot raise the level above A0, found %s"
+                     % (prod.get("provenance"), lvl)))
+    lift_v = prod.get("lift_primes")
+    lift = set(lift_v if isinstance(lift_v, list) else [])
     if lift & set(chk.get("primes", [])):
         errs.append(("/check/primes", "verification prime inside the rule's lift-prime set (plan 6.7)"))
 
@@ -591,6 +599,8 @@ def _sem_ledger_record(doc, errs):
     body = ev.get("body") if isinstance(ev, dict) else None
     if isinstance(body, dict) and ev.get("kind") == "item":
         e = body.get("ev", {})
+        if e.get("ev") == "accept" and e.get("level") != "geometry_accepted" and not e.get("evidence"):
+            errs.append(("/event/body/ev/evidence", "a level above geometry_accepted cites its evidence artefacts (audit A M3)"))
         if e.get("ev") == "accept" and e.get("elided") is True:
             errs.append(("/event/body/ev/elided", "a record with elided witness loci is unusable (ruling R-f)"))
         if e.get("ev") == "retire" and (e.get("proof") or {}).get("kind") == "replaced_by" and not e.get("superseded_by"):
@@ -832,12 +842,17 @@ def _validate_ledger(cdir, rep):
             if sealed and first and rec.get("seq") != s["first_seq"]:
                 rep.err(where, "first seq differs from the manifest")
             first = False
+            # line framing: `h` = BLAKE3 of the line without its `,"h":"..."` suffix (= the canonical record bytes)
+            body = line[:-72] + b"}" if isinstance(line, bytes) else (line[:-72] + "}").encode()
+            raw = line if isinstance(line, bytes) else line.encode()
+            if not raw.endswith(b'"}') or raw[-72:-66] != b',"h":"':
+                rep.err(where, "record lacks its digest suffix")
             if chain:
+                if blake3_hex(body) != rec.get("h"):
+                    rep.err(where, "record digest h does not match the line (altered record: broken hash chain)")
                 if rec.get("prev") != prev_hash:
                     rep.err(where, "broken hash chain: prev %s..., expected %s..." % (str(rec.get("prev"))[:12], prev_hash[:12]))
-                prev_hash = blake3_hex(line)
-            else:
-                prev_hash = rec.get("prev")
+            prev_hash = rec.get("h") if chain else rec.get("prev")
             expect_seq += 1
             records.append(rec)
         if sealed:

@@ -2,7 +2,7 @@
 //! `RR_CAMPAIGN_FAILPOINT=<site>:<n>` aborts the supervisor itself (SIGABRT, no unwinding) at the n-th pass of `<site>` (1-based). The
 //! special site `ledger_enospc` makes the n-th ledger append and every later one fail with ENOSPC.
 
-use crate::ledger::{SegmentFile, SegmentOpener};
+use crate::ledger::{FileOps, RealFile, SegmentFile};
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
@@ -49,37 +49,35 @@ impl Failpoints {
         }
     }
 
-    /// The ENOSPC segment opener when `ledger_enospc:<n>` is configured.
-    pub fn ledger_opener(&self) -> Option<Arc<dyn SegmentOpener>> {
+    /// The ENOSPC file operations when `ledger_enospc:<n>` is configured (only segment appends fail; the commit
+    /// mark and the other file operations are the real ones).
+    pub fn ledger_ops(&self) -> Option<Arc<dyn FileOps>> {
         (self.site.as_deref() == Some("ledger_enospc")).then(|| {
-            Arc::new(EnospcOpener {
+            Arc::new(EnospcOps {
                 after: self.n,
                 count: Arc::new(AtomicU64::new(0)),
-            }) as Arc<dyn SegmentOpener>
+            }) as Arc<dyn FileOps>
         })
     }
 }
 
-/// Real segment files whose `after`-th append (1-based, counted over all segments) and every later one fail with ENOSPC.
-struct EnospcOpener {
+/// Real ledger file operations whose `after`-th segment append (1-based, counted over all segments) and every later one
+/// fail with ENOSPC.
+struct EnospcOps {
     after: u64,
     count: Arc<AtomicU64>,
 }
 
 struct EnospcFile {
-    file: std::fs::File,
+    inner: Box<dyn SegmentFile>,
     after: u64,
     count: Arc<AtomicU64>,
 }
 
-impl SegmentOpener for EnospcOpener {
-    fn open(&self, path: &Path) -> io::Result<Box<dyn SegmentFile>> {
-        let file = std::fs::OpenOptions::new()
-            .append(true)
-            .create(true)
-            .open(path)?;
+impl FileOps for EnospcOps {
+    fn open_segment(&self, path: &Path) -> io::Result<Box<dyn SegmentFile>> {
         Ok(Box::new(EnospcFile {
-            file,
+            inner: RealFile::open(path)?,
             after: self.after,
             count: Arc::clone(&self.count),
         }))
@@ -88,18 +86,19 @@ impl SegmentOpener for EnospcOpener {
 
 impl SegmentFile for EnospcFile {
     fn append(&mut self, bytes: &[u8]) -> io::Result<()> {
-        use std::io::Write;
         let k = self.count.fetch_add(1, Ordering::SeqCst) + 1;
         if k >= self.after {
             return Err(io::Error::from_raw_os_error(libc::ENOSPC));
         }
-        self.file.write_all(bytes)
+        self.inner.append(bytes)
     }
     fn sync(&mut self) -> io::Result<()> {
-        self.file.sync_data()
+        self.inner.sync()
     }
     fn truncate(&mut self, len: u64) -> io::Result<()> {
-        self.file.set_len(len)?;
-        self.file.sync_all()
+        self.inner.truncate(len)
+    }
+    fn write_at(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
+        self.inner.write_at(offset, bytes)
     }
 }

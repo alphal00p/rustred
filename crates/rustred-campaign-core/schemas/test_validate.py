@@ -133,6 +133,9 @@ CASES = {
     "retire_replaced_without_successor": doc_case(record("item.retire"), lambda d: d["event"]["body"]["ev"].update(
         {"proof": {"kind": "replaced_by", "proof": d["event"]["body"]["ev"]["proof"].get("proof") or d["event"]["body"]["ev"]["proof"].get("closure")}, "superseded_by": None}),
         "replaced_by needs superseded_by"),
+    "unknown_producer_above_a0": doc_case(ex_lines("accept-bank-import.jsonl")[0], lambda d: d.update({"level_after": "A1", "evidence_level": "geometry_accepted"}), "producer digest unknown"),
+    "unknown_producer_without_class": doc_case(ex_lines("accept-bank-import.jsonl")[0], delp(["rule", "producer", "provenance"]), "missing required field 'provenance'"),
+    "evidence_unknown_producer_without_class": doc_case(record("evidence_imported"), lambda d: d["event"]["body"].update({"producer_blake3": None, "provenance_class": None}), "is not one of"),
     "duplicate_key": lambda: _dup(),
     # campaign-directory mutations
     "broken_hash_chain": cdir_case("cdir-stale", lambda d: edit_ledger_line(d, "segment-000001.jsonl", 3, lambda l: l.replace(b'"bytes":', b'"bytes": ')), "broken hash chain"),

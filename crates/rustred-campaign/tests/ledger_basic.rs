@@ -7,10 +7,10 @@ use std::io::Write;
 
 use ledger_support::*;
 use rustred_campaign::ledger::{
-    self, AcceptSource, Event, ItemEvent, JobEvent, Ledger, LedgerConfig, LedgerError, line_hash,
+    self, AcceptSource, Event, ItemEvent, JobEvent, LedgerConfig, LedgerError,
 };
 use rustred_campaign::state::{
-    AttemptState, EvidenceLevel, FinishClass, ItemPhase, ReduceError, Rung,
+    AttemptState, ContractAccept, EvidenceLevel, FinishClass, ItemPhase, ReduceError, Rung,
 };
 
 fn active_segment(cdir: &std::path::Path) -> std::path::PathBuf {
@@ -29,18 +29,18 @@ fn append_reopen_and_chain() {
     let head = l.head().to_string();
     let digest = l.state().digest();
     drop(l);
-    let (l2, rep) = Ledger::open(&d, as_dyn(&clk), LedgerConfig::default()).unwrap();
+    let (l2, rep) = open_ledger(&d, as_dyn(&clk), LedgerConfig::default()).unwrap();
     assert_eq!(rep.recovery, None);
     assert_eq!(rep.replayed, seq);
     assert_eq!((l2.seq(), l2.head()), (seq, head.as_str()));
     assert_eq!(l2.state().digest(), digest, "reopen reproduces the state");
-    // chain: every prev is the hash of the previous line
+    // chain: every prev is the digest `h` of the previous record; every line carries its own digest
     let bytes = fs::read(active_segment(&d)).unwrap();
     let mut prev = ledger::GENESIS.to_string();
     for line in bytes.split(|&b| b == b'\n').filter(|l| !l.is_empty()) {
-        let r: ledger::Record = serde_json::from_slice(line).unwrap();
+        let (r, h) = ledger::decode_record(line).unwrap();
         assert_eq!(r.prev, prev);
-        prev = line_hash(line);
+        prev = h;
     }
     assert_eq!(prev, head);
     let chain = ledger::verify_chain(&d).unwrap();
@@ -122,6 +122,8 @@ fn acceptance_only_from_a_sealed_success_and_never_elided() {
             record: record.clone(),
             source: source.clone(),
             elided: true,
+            evidence: level_evidence(level, "x"),
+            round: None,
         },
     };
     assert!(matches!(l.append(elided), Err(LedgerError::Refused(_))));
@@ -141,6 +143,8 @@ fn acceptance_only_from_a_sealed_success_and_never_elided() {
                 table_blake3: digest("other"),
             },
             elided: false,
+            evidence: level_evidence(level, "x"),
+            round: None,
         },
     };
     assert!(matches!(l.append(wrong), Err(LedgerError::Refused(_))));
@@ -156,6 +160,8 @@ fn acceptance_only_from_a_sealed_success_and_never_elided() {
             record,
             source,
             elided: false,
+            evidence: level_evidence(level, "x"),
+            round: None,
         },
     };
     assert!(matches!(l.append(other), Err(LedgerError::Refused(_))));
@@ -179,6 +185,7 @@ fn acceptance_only_from_a_sealed_success_and_never_elided() {
             spec_blake3: digest("j2"),
             binary: "rr_node".into(),
             reserved_bytes: 1,
+            inputs: vec![],
         },
         Event::Job {
             job: "j2".into(),
@@ -187,6 +194,7 @@ fn acceptance_only_from_a_sealed_success_and_never_elided() {
                 run_dir: "r".into(),
                 cpus: vec![],
                 reserved_bytes: 1,
+                spec_blake3: digest("j2"),
             },
         },
     ])
@@ -195,7 +203,14 @@ fn acceptance_only_from_a_sealed_success_and_never_elided() {
         l.append(Event::Job {
             job: "j2".into(),
             attempt: 1,
-            ev: finished(FinishClass::RuleFound, None, 5)
+            ev: finished_with(
+                "j2",
+                1,
+                FinishClass::RuleFound,
+                ContractAccept::Canonical,
+                None,
+                5
+            )
         }),
         Err(LedgerError::Refused(ReduceError::Illegal { .. }))
     ));
@@ -233,7 +248,7 @@ fn torn_tail_is_truncated_saved_and_recorded() {
         .unwrap()
         .write_all(torn)
         .unwrap();
-    let (l2, rep) = Ledger::open(&d, as_dyn(&clk), LedgerConfig::default()).unwrap();
+    let (l2, rep) = open_ledger(&d, as_dyn(&clk), LedgerConfig::default()).unwrap();
     let rec = rep.recovery.expect("recovery reported");
     assert_eq!(rec.last_good_seq, seq);
     assert_eq!(rec.truncated_bytes, torn.len() as u64);
@@ -241,7 +256,7 @@ fn torn_tail_is_truncated_saved_and_recorded() {
     assert_eq!(fs::read(saved).unwrap(), torn);
     assert_eq!(l2.seq(), seq + 1, "recovery record appended");
     assert_eq!(l2.state().torn_tail_recoveries, 1);
-    let last: ledger::Record = serde_json::from_slice(
+    let (last, _) = ledger::decode_record(
         fs::read(&seg).unwrap()[good_len as usize..]
             .strip_suffix(b"\n")
             .unwrap(),
@@ -263,7 +278,7 @@ fn torn_tail_is_truncated_saved_and_recorded() {
         .unwrap()
         .write_all(b"\n")
         .unwrap();
-    let (_l3, rep) = Ledger::open(&d, as_dyn(&clk), LedgerConfig::default()).unwrap();
+    let (_l3, rep) = open_ledger(&d, as_dyn(&clk), LedgerConfig::default()).unwrap();
     assert_eq!(rep.recovery.unwrap().truncated_bytes, 38);
     assert!(ledger::verify_chain(&d).is_ok());
 }
@@ -284,9 +299,9 @@ fn corruption_followed_by_valid_records_refuses() {
     let mut edited = bytes.clone();
     edited[pos + 9] = b'9';
     fs::write(&seg, &edited).unwrap();
-    match Ledger::open(&d, as_dyn(&clk), LedgerConfig::default()) {
+    match open_ledger(&d, as_dyn(&clk), LedgerConfig::default()) {
         Err(LedgerError::Corrupt { why, .. }) => {
-            assert!(why.contains("valid records follow"), "{why}")
+            assert!(why.contains("digest mismatch"), "{why}")
         }
         other => panic!("expected Corrupt, got {other:?}"),
     }
@@ -308,7 +323,7 @@ fn corruption_followed_by_valid_records_refuses() {
     }
     fs::write(&seg, &cut).unwrap();
     assert!(matches!(
-        Ledger::open(&d, as_dyn(&clk), LedgerConfig::default()),
+        open_ledger(&d, as_dyn(&clk), LedgerConfig::default()),
         Err(LedgerError::Corrupt { .. })
     ));
 }
@@ -329,7 +344,7 @@ fn pending_operations_survive_reopen() {
     // a crash here: the intent is pending after reopen, so the supervisor redoes the (idempotent,
     // content-addressed) side effect and then writes `done`.
     drop(l);
-    let (mut l, _) = Ledger::open(&d, as_dyn(&clk), LedgerConfig::default()).unwrap();
+    let (mut l, _) = open_ledger(&d, as_dyn(&clk), LedgerConfig::default()).unwrap();
     assert!(l.state().pending_ops.contains_key("op-1"));
     l.append(Event::Done {
         op: "op-1".into(),
@@ -369,7 +384,10 @@ fn lazy_records_are_written_at_once() {
     assert_eq!(
         Event::Item {
             item: "x".into(),
-            ev: ItemEvent::Reject { reason: "r".into() }
+            ev: ItemEvent::Reject {
+                reason: "r".into(),
+                disproof: None
+            }
         }
         .durability(),
         ledger::Durability::Sync

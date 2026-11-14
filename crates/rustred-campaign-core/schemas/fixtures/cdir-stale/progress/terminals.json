@@ -1,0 +1,26 @@
+{
+  "campaign_id": "fixture-stale",
+  "declared": 0,
+  "file": "terminals",
+  "ledger": {
+    "head": "d16748e5d4d345950b5cddfe7a014722c1a54e0525ad7868df08fd162c1274c2",
+    "last_utc": "2026-11-14T10:00:06.750Z",
+    "seq": 27
+  },
+  "nodes": {
+    "T162": {
+      "report": {
+        "bound": 100,
+        "counted": 0,
+        "other": 0,
+        "preferred_listed": null,
+        "preferred_not_needed": null,
+        "preferred_used": 0
+      },
+      "terminals": []
+    }
+  },
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "written_utc": "2026-11-14T10:00:07.000Z"
+}

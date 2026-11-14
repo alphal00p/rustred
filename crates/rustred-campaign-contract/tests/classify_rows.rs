@@ -362,6 +362,69 @@ fn row_11_interrupted() {
 }
 
 #[test]
+fn row_11b_11c_supervisor_kill_decides_over_interrupted_outcome() {
+    // | 11b | c=30, O, K=time or unresponsive | killed_time | | 11c | c=30, O, K=memory | killed_memory |
+    // (supervisor lane's request: a child stopped for time / silence / memory may still write `interrupted`)
+    for (k, row_sub, kind, action, timed) in [
+        (
+            KillReason::Time,
+            "b",
+            OutcomeKind::KilledTime,
+            Action::LadderDecides,
+            true,
+        ),
+        (
+            KillReason::Unresponsive,
+            "b",
+            OutcomeKind::KilledTime,
+            Action::LadderDecides,
+            true,
+        ),
+        (
+            KillReason::Memory,
+            "c",
+            OutcomeKind::KilledMemory,
+            Action::NextMemoryClassOrRung,
+            false,
+        ),
+        (
+            KillReason::Stop,
+            "",
+            OutcomeKind::Interrupted,
+            Action::ResumeOnCampaignResume,
+            false,
+        ),
+        (
+            KillReason::None,
+            "",
+            OutcomeKind::Interrupted,
+            Action::ResumeOnCampaignResume,
+            false,
+        ),
+    ] {
+        let mut e = ev(
+            WaitStatus::Exited(30),
+            Some(o(ExitCode::Interrupted, Some(StopCode::Interrupted))),
+            true,
+        );
+        e.kill = k;
+        let c = x(e);
+        assert_eq!(
+            (
+                c.row,
+                c.sub.as_str(),
+                c.kind,
+                c.accept,
+                c.action,
+                c.time_decided
+            ),
+            (11, row_sub, kind, Accept::Nothing, action, timed),
+            "{k:?}"
+        );
+    }
+}
+
+#[test]
 fn row_12_usage_error() {
     // | 12 | c=40 | usage_error | supervisor bug: stop launching this kind, attention |
     let c = x(ev(WaitStatus::Exited(40), None, false));
@@ -551,7 +614,7 @@ fn row_22_elided_loci_when_forbidden() {
         (c.row, c.kind, c.accept, c.action),
         (
             25,
-            OutcomeKind::Crashed,
+            OutcomeKind::SealedWithElided,
             Accept::Nothing,
             Action::RerunWithoutElision
         )

@@ -118,6 +118,10 @@ pub enum OutcomeKind {
     Lost,
     DecidedNegative,
     Undecided,
+    /// Row 25: sealed, but the verifier found elided witness loci (elision allowed by the spec); never used (R-f).
+    SealedWithElided,
+    /// Row 26: a "success" of a kind without a sealing rule; nothing can be verified, nothing is accepted.
+    UnverifiableKind,
 }
 
 /// What may be accepted from the attempt.
@@ -215,8 +219,9 @@ const fn rs(
 
 /// The decision table. Evaluation order (first match wins): O normalisation (row 22 reasons), W unknown (21b, 21c,
 /// 22), then the c rows in this order: 26, the kind's exit-code set (22), S (22), 25, 1-8 with 24 and 27 after their
-/// siblings, 9-17; then the signal rows 18-21; then 22; then 23.
-pub const ROWS: [RowSpec; 30] = {
+/// siblings, 9-17 (11b / 11c before 11: the supervisor's kill reason K decides over an `interrupted` OUTCOME); then
+/// the signal rows 18-21; then 22; then 23.
+pub const ROWS: [RowSpec; 32] = {
     use Accept::*;
     use Action::*;
     use OutcomeKind::*;
@@ -306,7 +311,7 @@ pub const ROWS: [RowSpec; 30] = {
             25,
             "",
             "c in {0, 10, 20}, O, S, the spec allowed elision and the verifier found elided witness loci",
-            Crashed,
+            SealedWithElided,
             Nothing,
             RerunWithoutElision,
         ),
@@ -314,9 +319,9 @@ pub const ROWS: [RowSpec; 30] = {
             26,
             "",
             "c in {0, 10, 20}, O, the kind has no sealing rule (generate-auto)",
-            Crashed,
+            OutcomeKind::UnverifiableKind,
             Nothing,
-            UnverifiableKind,
+            Action::UnverifiableKind,
         ),
         rs(9, "", "c=21, O", KilledTime, Nothing, LadderDecides),
         rs(
@@ -329,8 +334,24 @@ pub const ROWS: [RowSpec; 30] = {
         ),
         rs(
             11,
+            "b",
+            "c=30, O, K=time or unresponsive (the supervisor stopped the child for time or silence)",
+            KilledTime,
+            Nothing,
+            LadderDecides,
+        ),
+        rs(
+            11,
+            "c",
+            "c=30, O, K=memory (the supervisor stopped the child for memory)",
+            KilledMemory,
+            Nothing,
+            NextMemoryClassOrRung,
+        ),
+        rs(
+            11,
             "",
-            "c=30, O",
+            "c=30, O, K=none or stop",
             Interrupted,
             Nothing,
             ResumeOnCampaignResume,
@@ -663,7 +684,27 @@ fn decide(
                     return x;
                 }
                 22 => return row(10, "", "soft memory limit"),
-                30 => return row(11, "", "interrupted"),
+                // The supervisor's own kill reason decides over the child's `interrupted` OUTCOME (rows 11b / 11c):
+                // a child stopped for time, silence or memory may still write a valid OUTCOME on its way out.
+                30 => match k {
+                    KillReason::Time | KillReason::Unresponsive => {
+                        let mut x = row(
+                            11,
+                            "b",
+                            format!("interrupted OUTCOME, but the supervisor killed it ({k:?})"),
+                        );
+                        x.time_decided = true;
+                        return x;
+                    }
+                    KillReason::Memory => {
+                        return row(
+                            11,
+                            "c",
+                            "interrupted OUTCOME, but the supervisor killed it for memory",
+                        );
+                    }
+                    KillReason::None | KillReason::Stop => return row(11, "", "interrupted"),
+                },
                 _ => {}
             }
         }

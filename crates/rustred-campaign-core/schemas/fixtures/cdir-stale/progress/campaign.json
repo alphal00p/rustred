@@ -1,8 +1,17 @@
 {
+  "attention": {
+    "count": 0,
+    "top": []
+  },
   "campaign": {
     "crash_recoveries": 0,
-    "created_utc": "2026-11-14T10:00:00.000Z",
+    "created_utc": "2026-11-14T10:00:00.250Z",
+    "forced_recoveries": 0,
+    "last_verify": null,
     "lock_takeovers": 0,
+    "mode": "close",
+    "orphans_killed": 0,
+    "paused": false,
     "pending_operations": 0,
     "phase": "running",
     "segments_opened": 0,
@@ -12,9 +21,19 @@
     "unsettled_jobs": 1
   },
   "campaign_id": "fixture-stale",
+  "certification": {
+    "accepted": 1,
+    "asked": {
+      "per-key": 1
+    },
+    "basis": "certified = every live rule at the level its node's spec asks (FULL: replay, BOXED: per-key by default)",
+    "identity_proved": 0,
+    "identity_tested": 1,
+    "nodes_certified": 0
+  },
   "certified": {
     "accepted": 1,
-    "basis": "accepted items at identity_proved / all accepted items",
+    "basis": "accepted items at identity_proved / all accepted items (per-key share; see certification)",
     "identity_proved": 0,
     "share": 0.0
   },
@@ -24,6 +43,7 @@
     "nodes_with_defect": 0
   },
   "cost": {
+    "budget_cpu_hours": null,
     "by_level": {
       "L0": {
         "cpu_seconds": 1.5,
@@ -52,6 +72,7 @@
       "rhs_terms": 300,
       "rules": 1
     },
+    "replaced": 0,
     "retired": 0,
     "rules_after": 1,
     "rules_before": 1
@@ -67,21 +88,27 @@
   },
   "file": "campaign",
   "files": {
+    "attention": "attention.json",
     "events": "events.json",
+    "heartbeat": "heartbeat.json",
+    "jobs": "jobs.json",
     "nodes": {
       "T162": "nodes/T162.json"
-    }
+    },
+    "terminals": "terminals.json"
   },
   "items": {
     "by_level": {
       "L0": {
         "accepted": 1,
+        "attention": 0,
         "escalated": 0,
         "in_progress": 1,
         "open": 0,
         "produced": 0,
         "rejected": 0,
         "retired": 0,
+        "skipped": 0,
         "stale": 0,
         "terminal": 0,
         "terminal_candidate": 0
@@ -89,12 +116,14 @@
     },
     "by_phase": {
       "accepted": 1,
+      "attention": 0,
       "escalated": 0,
       "in_progress": 1,
       "open": 0,
       "produced": 0,
       "rejected": 0,
       "retired": 0,
+      "skipped": 0,
       "stale": 0,
       "terminal": 0,
       "terminal_candidate": 0
@@ -113,6 +142,7 @@
       "running": 1,
       "succeeded_sealed": 1
     },
+    "failed_attempts": 0,
     "reserved_bytes_running": 2147483648,
     "settled_by_class": {
       "rule_found": 1
@@ -120,8 +150,8 @@
     "total": 2
   },
   "ledger": {
-    "head": "5d3e16796b842ec188a54d64b41aa3984d7193bc07b05c945405f91c436697b5",
-    "last_utc": "2026-11-14T10:00:06.500Z",
+    "head": "d16748e5d4d345950b5cddfe7a014722c1a54e0525ad7868df08fd162c1274c2",
+    "last_utc": "2026-11-14T10:00:06.750Z",
     "seq": 27
   },
   "nodes": {
@@ -140,18 +170,24 @@
       "stale": 0
     },
     "certified": 0,
+    "provisional": 0,
     "total": 1
   },
   "resources": {
+    "budget_cpu_hours": null,
     "cpus_allowed": 70,
     "cpus_in_use": 2,
+    "disk_free_bytes": null,
     "host_floor_bytes": 50000000000,
     "host_mem_available_bytes": 287762808832,
+    "jobs": [],
+    "large_free_bytes": null,
     "live_jobs": 1,
     "measured_rss_bytes": 450000000,
     "mem_cap_bytes": 200000000000,
     "reserved_bytes": 2147483648,
-    "sampled_utc": "2026-11-14T10:00:06.750Z"
+    "sampled_utc": "2026-11-14T10:00:07.000Z",
+    "supervisor": null
   },
   "rules": {
     "accepted": 1,
@@ -160,16 +196,24 @@
       "identity_proved": 0,
       "identity_tested": 1
     },
+    "imported": 0,
     "rejected": 0,
     "rejected_by_reason": {},
     "upgrades": 0
   },
   "schema": "rustred.campaign.progress.v1",
   "source_of_truth": "ledger",
+  "supervisor": null,
   "terminals": {
     "bound_per_node_default": 100,
     "candidates": 0,
-    "declared": 0
+    "declared": 0,
+    "other": 0,
+    "preferred": {
+      "not_needed": null,
+      "total": null,
+      "used": 0
+    }
   },
-  "written_utc": "2026-11-14T10:00:06.750Z"
+  "written_utc": "2026-11-14T10:00:07.000Z"
 }

@@ -59,15 +59,16 @@ pub struct CampaignBlock {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Resource inputs of the supervisor (ledger-and-progress.md 9): every number `null` when not measured.
 pub struct ResourcesBlock {
-    pub cpus_in_use: u32,
-    pub cpus_allowed: u32,
-    pub live_jobs: u32,
-    pub reserved_bytes: u64,
-    pub measured_rss_bytes: u64,
-    pub mem_cap_bytes: u64,
-    pub host_mem_available_bytes: u64,
-    pub host_floor_bytes: u64,
+    pub cpus_in_use: Option<u32>,
+    pub cpus_allowed: Option<u32>,
+    pub live_jobs: Option<u32>,
+    pub reserved_bytes: Option<u64>,
+    pub measured_rss_bytes: Option<u64>,
+    pub mem_cap_bytes: Option<u64>,
+    pub host_mem_available_bytes: Option<u64>,
+    pub host_floor_bytes: Option<u64>,
     pub sampled_utc: Option<String>,
     #[serde(flatten)]
     pub extra: Extra,
@@ -217,6 +218,9 @@ pub struct Eta {
 pub struct Files {
     pub events: String,
     pub nodes: BTreeMap<String, String>,
+    /// `terminals`, `attention`, `jobs`, `heartbeat` (the further progress files) and later additions.
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 /// `progress/nodes/<node>.json`.
@@ -291,6 +295,8 @@ pub struct NodeEconomy {
     pub unmeasured: u64,
     pub before: Economy,
     pub after: Economy,
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -298,6 +304,9 @@ pub struct NodeTerminals {
     pub declared: u32,
     pub bound: u32,
     pub candidates: u64,
+    /// Later additive fields (ledgerfix: preferred / other, by_kind, ...).
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -305,6 +314,9 @@ pub struct NodeItems {
     pub by_phase: Counts,
     pub by_level: BTreeMap<String, Counts>,
     pub open: u64,
+    /// Later additive fields (ledgerfix: preferred / other, by_kind, ...).
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 /// `progress/events.json`.
@@ -338,6 +350,8 @@ pub struct ItemDetail {
     pub jobs: Vec<ItemJob>,
     pub children: Vec<String>,
     pub why: String,
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -347,6 +361,8 @@ pub struct ItemJob {
     pub state: Value,
     pub cpu_seconds: f64,
     pub run_dir: Option<String>,
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 impl NodeProgress {

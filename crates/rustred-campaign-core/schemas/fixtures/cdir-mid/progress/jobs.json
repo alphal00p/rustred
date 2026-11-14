@@ -1,0 +1,59 @@
+{
+  "campaign_id": "fixture-mid",
+  "file": "jobs",
+  "ledger": {
+    "head": "6272e6de22dde8d111877c7b881a660cd4ae676f11ca8f828ee98bae85139a50",
+    "last_utc": "2026-11-14T11:58:34.000Z",
+    "seq": 136
+  },
+  "list": [
+    {
+      "attempt": 1,
+      "budget_mem_bytes": null,
+      "budget_seconds": null,
+      "cpu_set": null,
+      "cpus": null,
+      "heartbeat_utc": null,
+      "item": "F003",
+      "item_id": "T178:I0003",
+      "job": "T178-J0003-L0",
+      "kind": "generate",
+      "node": "T178",
+      "pgid": null,
+      "phase": null,
+      "pid": 20063,
+      "reserved_bytes": 2147483648,
+      "rss_bytes": null,
+      "run_dir": "large:jobs/T178-J0003-L0/a1",
+      "rung": "L0",
+      "seconds": null,
+      "state": "running"
+    },
+    {
+      "attempt": 1,
+      "budget_mem_bytes": null,
+      "budget_seconds": null,
+      "cpu_set": null,
+      "cpus": null,
+      "heartbeat_utc": null,
+      "item": "F004",
+      "item_id": "T178:I0004",
+      "job": "T178-J0004-L0",
+      "kind": "generate",
+      "node": "T178",
+      "pgid": null,
+      "phase": null,
+      "pid": 20064,
+      "reserved_bytes": 2147483648,
+      "rss_bytes": null,
+      "run_dir": "large:jobs/T178-J0004-L0/a1",
+      "rung": "L0",
+      "seconds": null,
+      "state": "running"
+    }
+  ],
+  "sampled_utc": "2026-11-14T11:58:34.250Z",
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "written_utc": "2026-11-14T11:58:34.250Z"
+}

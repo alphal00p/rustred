@@ -6,7 +6,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
 use ledger_support::*;
-use rustred_campaign::ledger::{self, Event, Ledger, LedgerConfig, LedgerError};
+use rustred_campaign::ledger::{self, Event, LedgerConfig, LedgerError};
 use rustred_campaign::state::{EvidenceLevel, reduce};
 
 fn small() -> LedgerConfig {
@@ -43,7 +43,7 @@ fn snapshot_plus_tail_equals_full_replay() {
     let (seq, head) = (l.seq(), l.head().to_string());
     drop(l);
     // open uses the snapshot and replays only the active segment
-    let (l2, rep) = Ledger::open(&d, as_dyn(&clk), small()).unwrap();
+    let (l2, rep) = open_ledger(&d, as_dyn(&clk), small()).unwrap();
     assert_eq!(rep.from_snapshot, Some(snap.seq));
     assert_eq!(rep.replayed, seq - snap.seq);
     assert_eq!(l2.state(), &live, "snapshot + tail == live state");
@@ -119,8 +119,11 @@ fn edited_sealed_segment_is_detected() {
         }
         other => panic!("expected Corrupt, got {other:?}"),
     }
-    // open with a snapshot does not read sealed segments (fast path); verify does
-    assert!(Ledger::open(&d, as_dyn(&clk), small()).is_ok());
+    // open (snapshot path) checks every sealed segment's length and the last one's digest (audit A M2)
+    assert!(matches!(
+        open_ledger(&d, as_dyn(&clk), small()),
+        Err(LedgerError::Corrupt { .. })
+    ));
 }
 
 #[test]
@@ -142,7 +145,7 @@ fn crash_during_rotation_leaves_removable_leftovers() {
     )
     .unwrap();
     fs::write(ld.join(".MANIFEST.json.rr-tmp-1-0"), b"partial").unwrap();
-    let (l2, rep) = Ledger::open(&d, as_dyn(&clk), LedgerConfig::default()).unwrap();
+    let (l2, rep) = open_ledger(&d, as_dyn(&clk), LedgerConfig::default()).unwrap();
     assert_eq!(
         rep.removed_unreferenced.len(),
         2,
@@ -159,7 +162,7 @@ fn crash_during_rotation_leaves_removable_leftovers() {
     )
     .unwrap();
     assert!(matches!(
-        Ledger::open(&d, as_dyn(&clk), LedgerConfig::default()),
+        open_ledger(&d, as_dyn(&clk), LedgerConfig::default()),
         Err(LedgerError::Corrupt { .. })
     ));
 }

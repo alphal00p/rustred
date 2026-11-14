@@ -923,11 +923,17 @@ impl Main {
         let dur = ctx.ms(ms);
         let t0 = Instant::now();
         let mut budget_open = false;
+        // Work advances in a FIXED number of steps (one per 50 ms of the script's unscaled time), not by the wall-clock
+        // fraction: the counter values at a budget hit (and every other counter then) are a function of the script
+        // alone, never of scheduling delays under load (lane int2: the flaky "deterministic" budget test compared
+        // counters that had advanced by wall time).
+        let steps = ms.div_ceil(50).max(1);
+        let mut step = 0u64;
         loop {
             let frac = if dur.is_zero() {
                 1.0
             } else {
-                (t0.elapsed().as_secs_f64() / dur.as_secs_f64()).min(1.0)
+                (step as f64 / steps as f64).min(1.0)
             };
             // advance every counter to its linear target, clamped at a per-case limit
             let mut hit = None;
@@ -1016,12 +1022,20 @@ impl Main {
             if let Some(f) = self.safe_point() {
                 return Err(f);
             }
-            std::thread::sleep(
-                Duration::from_millis(50).min(
-                    dur.saturating_sub(t0.elapsed())
-                        .max(Duration::from_millis(1)),
-                ),
-            );
+            step += 1;
+            // sleep until this step's share of the (scaled) case time, in slices of at most 50 ms with a safe point
+            // after each; a late wake-up only delays the next step, it never skips work
+            let due = dur.mul_f64(step as f64 / steps as f64);
+            loop {
+                let wait = due.saturating_sub(t0.elapsed());
+                std::thread::sleep(wait.clamp(Duration::from_millis(1), Duration::from_millis(50)));
+                if t0.elapsed() >= due {
+                    break;
+                }
+                if let Some(f) = self.safe_point() {
+                    return Err(f);
+                }
+            }
         }
         let result = if budget_open {
             CaseResult::Budget

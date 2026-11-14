@@ -1,0 +1,20 @@
+{
+  "schema": "rustred.campaign.progress.v1",
+  "campaign_id": "p5l-boxed-final",
+  "ledger": {
+    "seq": 91233,
+    "head": "77aa000000000000000000000000000000000000000000000000000000000000",
+    "last_utc": "2026-11-27T10:59:59.000Z"
+  },
+  "source_of_truth": "ledger",
+  "file": "heartbeat",
+  "written_utc": "2026-11-27T11:00:00.000Z",
+  "supervisor": {
+    "heartbeat_utc": "2026-11-27T11:00:00.000Z",
+    "started_utc": null,
+    "pid": null,
+    "host": null,
+    "grace_left_s": null,
+    "stopping": false
+  }
+}

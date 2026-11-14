@@ -1,0 +1,14 @@
+{
+  "campaign_id": "fixture-mid",
+  "count": 0,
+  "file": "attention",
+  "items": [],
+  "ledger": {
+    "head": "6272e6de22dde8d111877c7b881a660cd4ae676f11ca8f828ee98bae85139a50",
+    "last_utc": "2026-11-14T11:58:34.000Z",
+    "seq": 136
+  },
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "written_utc": "2026-11-14T11:58:34.250Z"
+}

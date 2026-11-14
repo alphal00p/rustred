@@ -8,6 +8,8 @@
 //! Waits are for markers on the pty with generous timeouts, never fixed sleeps.
 //! Run with `LIGHT_PIDNS=1` (lane rule L10): the tests spawn children and signal them.
 
+#[path = "sup_common/mod.rs"]
+mod sup;
 mod tui_support;
 
 use std::io::Read;
@@ -114,12 +116,16 @@ impl Pty {
     }
 
     fn spawn(&self, args: &[&str]) -> Child {
+        self.spawn_cmd(host_command(args))
+    }
+
+    /// Any command as the session leader of this terminal (stdin / stdout / stderr = the pty).
+    fn spawn_cmd(&self, mut cmd: Command) -> Child {
         let s = self.slave;
         let dup = |fd: RawFd| -> Stdio {
             // SAFETY: dup of an open descriptor; the new descriptor is owned by the Stdio.
             Stdio::from(unsafe { OwnedFd::from_raw_fd(libc::dup(fd)) })
         };
-        let mut cmd = host_command(args);
         cmd.env("TERM", "xterm-256color")
             .env("LANG", "C")
             .env_remove("LC_ALL")
@@ -472,4 +478,163 @@ fn m1_ctrl_c_is_handled_while_every_read_blocks() {
     );
     p.wait_for(0, "exit reason: ViewerQuit", 10);
     assert_restored(&p, &p.text());
+}
+
+/// The screen text of the LAST view a dashboard printed to the normal screen after leaving the alternate screen.
+fn final_view(text: &str) -> String {
+    let leave = text.rfind("\u{1b}[?1049l").expect("alternate screen left");
+    let tail = &text[leave + "\u{1b}[?1049l".len()..];
+    // strip the remaining CSI sequences (cursor / colour resets) and carriage returns
+    let mut out = String::new();
+    let mut it = tail.chars().peekable();
+    while let Some(c) = it.next() {
+        if c == '\u{1b}' {
+            if it.peek() == Some(&'[') {
+                it.next();
+                for d in it.by_ref() {
+                    if d.is_ascii_alphabetic() || d == '~' {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        if c != '\r' {
+            out.push(c);
+        }
+    }
+    out.trim_start_matches('\n').to_string()
+}
+
+fn rr_campaign(args: &[&str]) -> Command {
+    let mut c = Command::new(sup::SUP);
+    c.args(args).env_remove("RR_CAMPAIGN_FAILPOINT");
+    c
+}
+
+/// End to end (lane int2, requirement R5): `rr_campaign run --fake-child` on a small scripted campaign in a
+/// pseudo-terminal shows the dashboard with running jobs; one Ctrl-C BYTE (raw mode) drains with the countdown banner
+/// and stops cleanly (exit 130, as for SIGINT); a second run resumes and finishes (exit 0); the terminal modes are
+/// restored each time; `watch` from a second process shows the same header numbers as campaign.json ("website =
+/// terminal"). Run with LIGHT_PIDNS=1 (L10).
+#[test]
+fn e2e_run_dashboard_ctrl_c_drains_resume_finishes_watch_matches_campaign_json() {
+    let _g = sup::serial();
+    let t = sup::Tmp::new("e2e");
+    let syn = serde_json::json!({"items": 40, "nodes": 2, "case_ms": [2000, 4000], "deps": 0.0,
+                                 "p_crash": 0.0, "p_mem": 0.0, "p_norule": 0.2});
+    let spec_p = sup::write_spec(
+        &t,
+        "spec.json",
+        &sup::spec(
+            &t,
+            syn,
+            serde_json::json!({"max_jobs": 4, "grace_seconds": 5}),
+        ),
+    );
+    let d = t.cdir("run");
+    let (sp, ds) = (
+        spec_p.to_string_lossy().into_owned(),
+        d.to_string_lossy().into_owned(),
+    );
+    let run = || rr_campaign(&["run", "--spec", &sp, "--dir", &ds, "--fake-child"]);
+    // session 1: the dashboard with running jobs, then one Ctrl-C byte
+    let p = Pty::open(120, 40);
+    let mut c = p.spawn_cmd(run());
+    p.wait_for(0, "RUNNING", 60);
+    // running jobs in jobs.json, and their ids on the screen (the jobs table)
+    let t0 = Instant::now();
+    let running = loop {
+        let list: Vec<String> = std::fs::read(d.join("progress/jobs.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+            .and_then(|v| v["list"].as_array().cloned())
+            .unwrap_or_default()
+            .iter()
+            .filter(|j| j["state"] == "running")
+            .filter_map(|j| j["job"].as_str().map(String::from))
+            .collect();
+        if !list.is_empty() {
+            break list;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(60),
+            "no running job in jobs.json"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    p.wait_for(0, "Running jobs", 30);
+    let t0 = Instant::now();
+    while !running.iter().any(|j| p.text().contains(j.as_str())) {
+        assert!(
+            t0.elapsed() < Duration::from_secs(30),
+            "running jobs {running:?} not on the screen: {}",
+            printable(&p.text())
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let mark = p.len();
+    p.send(b"\x03");
+    p.wait_for(mark, "STOPPING", 30);
+    let st = wait_exit(&mut c, 120);
+    assert_eq!(st.code(), Some(130), "{st:?}: {}", printable(&p.text()));
+    let text = p.text();
+    assert_restored(&p, &text);
+    assert!(
+        text.contains("STOPPED (exit 130)"),
+        "{}",
+        printable(&text[text.len().saturating_sub(2000)..])
+    );
+    let st1 = sup::state(&d);
+    assert!(
+        st1.jobs
+            .values()
+            .all(|j| j.state.is_settled()
+                || j.state == rustred_campaign::state::AttemptState::Queued)
+    );
+    drop(p);
+    // session 2: the same command resumes and finishes
+    let p = Pty::open(120, 40);
+    let mut c = p.spawn_cmd(run());
+    let st = wait_exit(&mut c, 600);
+    assert_eq!(st.code(), Some(0), "{}", printable(&p.text()));
+    let text = p.text();
+    assert_restored(&p, &text);
+    assert!(text.contains("FINISHED (exit 0)"), "{}", printable(&text));
+    drop(p);
+    assert_eq!(sup::verify(&d), 0);
+    sup::assert_no_marked(&t.campaign);
+    // watch from a second process: the header numbers equal campaign.json's
+    let p = Pty::open(120, 40);
+    let mut w = p.spawn_cmd(rr_campaign(&["watch", &ds]));
+    p.wait_for(0, "FINISHED", 30);
+    p.send(b"q");
+    let st = wait_exit(&mut w, 30);
+    assert!(st.success(), "{st:?}");
+    let text = p.text();
+    assert_restored(&p, &text);
+    let screen = final_view(&text);
+    let campaign: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(d.join("progress/campaign.json")).unwrap()).unwrap();
+    let got = rustred_campaign::tui::screen_numbers(&screen);
+    let want = rustred_campaign::tui::campaign_json_numbers(&campaign);
+    assert!(!want.is_empty());
+    for (k, v) in &want {
+        assert_eq!(got.get(k), Some(v), "{k}\n{screen}");
+    }
+    // the viewer never wrote: no lock taken, the ledger unchanged
+    assert!(!d.join(rustred_campaign::lock::OWNER_FILE).exists());
+    // `status --once` is the same view-model, one rendering
+    let out = rr_campaign(&["status", &ds, "--once", "--width", "120", "--height", "40"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let once = String::from_utf8_lossy(&out.stdout).into_owned();
+    for (k, v) in &want {
+        assert_eq!(
+            rustred_campaign::tui::screen_numbers(&once).get(k),
+            Some(v),
+            "{k}\n{once}"
+        );
+    }
 }

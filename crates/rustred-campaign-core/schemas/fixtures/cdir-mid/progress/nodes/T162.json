@@ -4,6 +4,10 @@
     "identity_proved": 0,
     "identity_tested": 1
   },
+  "attempt": {
+    "cpu_ms_on_target": 0,
+    "fixer_rounds_on_target": 0
+  },
   "attempt_ended": false,
   "blockers": {
     "box": null,
@@ -19,19 +23,37 @@
     }
   },
   "campaign_id": "fixture-mid",
+  "certification": {
+    "asked": "per-key",
+    "boxed": "per-key",
+    "full": "per-key",
+    "reached": "replay"
+  },
   "certified": false,
   "closure": {
+    "binding": {
+      "closure_keys": 150000,
+      "defect_keys": 0,
+      "dispatch_order_digest": "a61a8594b58fe437830a29a4eced3e4806d3aff73ae0ca9bb0a6de5a23ad49fe",
+      "envelope": "proved",
+      "envelope_tables": [],
+      "round": 2,
+      "rule_set_digest": "baecad23c49c3ecd54c82b9edacdd19357560f7c508b97c70936e960c4eb8eaf"
+    },
     "closure_keys": 150000,
     "defect_keys": 0,
+    "dispatch_order": "a61a8594b58fe437830a29a4eced3e4806d3aff73ae0ca9bb0a6de5a23ad49fe",
     "keyset": {
       "blake3": "8a998b2bf4ea45b9257a261a610a76db57b6dc30f7908d395659520c80c7a6c3",
       "bytes": 1027,
       "path": "large:keysets/T162-closure-2.keys"
     },
+    "provisional": false,
     "rounds": 2,
-    "rules_total": 2440,
-    "rules_used": 5,
-    "used_share": 0.002
+    "rule_set_digest": "baecad23c49c3ecd54c82b9edacdd19357560f7c508b97c70936e960c4eb8eaf",
+    "rules_total": 1,
+    "rules_used": 1,
+    "used_share": 1.0
   },
   "closure_kind": "boxed",
   "cpu_seconds": 10.0,
@@ -57,33 +79,52 @@
     "superseded": 1,
     "unmeasured": 0
   },
+  "envelope": "proved",
+  "faces_summary": {
+    "closed": 3,
+    "total": 3
+  },
   "file": "node",
   "inputs": [
     "T162.family",
     "T162.bank"
   ],
   "items": {
+    "by_kind": {
+      "face": {
+        "done": 3,
+        "total": 3
+      },
+      "locus": {
+        "done": 2,
+        "total": 2
+      }
+    },
     "by_level": {
       "L0": {
         "accepted": 0,
+        "attention": 0,
         "escalated": 1,
         "in_progress": 0,
         "open": 0,
         "produced": 0,
         "rejected": 0,
         "retired": 2,
+        "skipped": 0,
         "stale": 0,
         "terminal": 0,
         "terminal_candidate": 0
       },
       "L1": {
         "accepted": 1,
+        "attention": 0,
         "escalated": 0,
         "in_progress": 0,
         "open": 0,
         "produced": 0,
         "rejected": 0,
         "retired": 0,
+        "skipped": 0,
         "stale": 0,
         "terminal": 1,
         "terminal_candidate": 0
@@ -91,12 +132,14 @@
     },
     "by_phase": {
       "accepted": 1,
+      "attention": 0,
       "escalated": 1,
       "in_progress": 0,
       "open": 0,
       "produced": 0,
       "rejected": 0,
       "retired": 2,
+      "skipped": 0,
       "stale": 0,
       "terminal": 1,
       "terminal_candidate": 0
@@ -104,14 +147,25 @@
     "open": 0
   },
   "ledger": {
-    "head": "0c892333623389922bce9c931ba25feff166add6aacd92ae06aaf28d2aa21746",
-    "last_utc": "2026-11-14T11:58:32.750Z",
-    "seq": 132
+    "head": "6272e6de22dde8d111877c7b881a660cd4ae676f11ca8f828ee98bae85139a50",
+    "last_utc": "2026-11-14T11:58:34.000Z",
+    "seq": 136
   },
   "node": "T162",
+  "paused": false,
   "phase": "closed",
+  "provisional": false,
+  "reference": null,
+  "reopen_cause": null,
+  "reopens": 0,
   "schema": "rustred.campaign.progress.v1",
   "source_of_truth": "ledger",
+  "spec": {
+    "full_attempt_cpu_ms": 180000000,
+    "full_attempt_fixer_rounds": 1,
+    "preferred_terminals": null,
+    "terminal_rung": "L1"
+  },
   "spec_box": "T162.box",
   "stale_reason": null,
   "target": {
@@ -121,7 +175,14 @@
   "terminals": {
     "bound": 100,
     "candidates": 0,
-    "declared": 2
+    "declared": 2,
+    "other": 2,
+    "preferred": {
+      "not_needed": null,
+      "total": null,
+      "used": 0
+    },
+    "preferred_declared": 0
   },
-  "written_utc": "2026-11-14T11:58:33.000Z"
+  "written_utc": "2026-11-14T11:58:34.250Z"
 }

@@ -1,0 +1,26 @@
+{
+  "campaign_id": "fixture-empty",
+  "declared": 0,
+  "file": "terminals",
+  "ledger": {
+    "head": "80bdcd6cc5edbaa9faf54b0c3ff9b0414e2188ff10743aafc0eb7caed200de02",
+    "last_utc": "2026-11-14T08:00:02.000Z",
+    "seq": 8
+  },
+  "nodes": {
+    "T162": {
+      "report": {
+        "bound": 100,
+        "counted": 0,
+        "other": 0,
+        "preferred_listed": null,
+        "preferred_not_needed": null,
+        "preferred_used": 0
+      },
+      "terminals": []
+    }
+  },
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "written_utc": "2026-11-14T08:00:02.250Z"
+}

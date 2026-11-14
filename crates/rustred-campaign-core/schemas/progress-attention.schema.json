@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "progress-attention.schema.json",
+  "title": "Progress file CDIR/progress/attention.json (items needing a person, pending operator controls)",
+  "description": "AS BUILT: rustred_campaign::progress::derive (\"file\": \"attention\"); ledger-and-progress.md 9.",
+  "x-rr-names": [
+    "rustred.campaign.progress.v1"
+  ],
+  "x-rr-select": {
+    "file": "attention"
+  },
+  "x-rr-owner": "I-LEDGER (co-signer C-DASH)",
+  "x-rr-freeze": "M0",
+  "allOf": [
+    {
+      "$ref": "progress-common.schema.json#/$defs/envelope"
+    }
+  ],
+  "type": "object",
+  "required": [
+    "count",
+    "items"
+  ],
+  "properties": {
+    "file": {
+      "const": "attention"
+    },
+    "count": {
+      "$ref": "common.schema.json#/$defs/u64"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "code",
+          "severity",
+          "text",
+          "since_seq",
+          "options"
+        ],
+        "properties": {
+          "severity": {
+            "enum": [
+              "decision",
+              "warning",
+              "error"
+            ]
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}
