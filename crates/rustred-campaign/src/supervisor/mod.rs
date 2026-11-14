@@ -176,6 +176,13 @@ impl Log {
         self.quiet = flag;
         self
     }
+    /// A line to the log file only (the terminal is gone or blocked).
+    pub fn line_file_only(&mut self, level: &str, text: &str) {
+        let l = format!("{} {level} {text}\n", crate::cpu_policy::utc_now());
+        if let Some(f) = &mut self.file {
+            let _ = f.write_all(l.as_bytes());
+        }
+    }
     pub fn line(&mut self, level: &str, text: &str) {
         let l = format!("{} {level} {text}\n", crate::cpu_policy::utc_now());
         if !self

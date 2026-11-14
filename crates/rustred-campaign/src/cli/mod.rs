@@ -172,7 +172,7 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
         && std::io::stdout().is_terminal()
         && std::env::var("TERM").ok().as_deref() != Some("dumb");
     let done = Arc::new(AtomicBool::new(false));
-    let mut dash: Option<std::thread::JoinHandle<crate::tui::ExitReason>> = None;
+    let mut dash: Option<std::sync::mpsc::Receiver<crate::tui::ExitReason>> = None;
     let opts = RunOptions {
         spec,
         spec_blake3: digest,
@@ -204,19 +204,40 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
             Arc::new(crate::tui::DirSource::new(cdir.clone()));
         let o = dash_opts.clone();
         let q = Arc::clone(&quiet);
-        dash = std::thread::Builder::new()
+        let (tx, rx) = std::sync::mpsc::channel();
+        if std::thread::Builder::new()
             .name("dashboard".into())
             .spawn(move || {
                 let reason = crate::tui::run_dashboard(source, &controls, &o);
-                // Terminal restored: later supervisor log lines go to stderr again.
-                q.store(false, Ordering::SeqCst);
-                reason
+                // Terminal restored: later supervisor log lines go to stderr again (unless it is gone: see below).
+                if reason != crate::tui::ExitReason::Hangup {
+                    q.store(false, Ordering::SeqCst);
+                }
+                let _ = tx.send(reason);
             })
-            .ok();
+            .is_ok()
+        {
+            dash = Some(rx);
+        }
     });
     done.store(true, Ordering::SeqCst);
-    if let Some(h) = dash {
-        let _ = h.join();
+    // procfix3 (gate-B M2): a dashboard whose terminal is gone or blocked (a write to a tty nobody reads waits for
+    // ever) must not hold the process: wait for it at most 10 s; the terminal output is then skipped (log file only).
+    let mut terminal_ok = true;
+    if let Some(rx) = dash {
+        match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(crate::tui::ExitReason::Hangup) => terminal_ok = false,
+            Ok(_) => {}
+            Err(_) => terminal_ok = false,
+        }
+    }
+    if !terminal_ok {
+        let mut log = crate::supervisor::Log::open(&cdir);
+        log.line_file_only(
+            "WARN",
+            &format!("terminal lost or blocked: final summary only here ({:?}, exit {})", r, r.code()),
+        );
+        return r.code();
     }
     quiet.store(false, Ordering::SeqCst);
     match &r {
