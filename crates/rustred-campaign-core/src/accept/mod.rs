@@ -426,23 +426,44 @@ impl InForce {
 /// judged with the set placed before it in the assembled table (the served set depends on that SET only, not on the
 /// order among the earlier records).
 pub fn record_set_digest<'a>(ids: impl IntoIterator<Item = &'a str>) -> String {
-    let mut acc = [0u64; 4];
+    let mut d = SetDigest::default();
     for id in ids {
+        d.add(id);
+    }
+    d.digest()
+}
+
+/// Incremental [`record_set_digest`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SetDigest {
+    acc: [u64; 4],
+    count: u64,
+}
+
+impl SetDigest {
+    pub fn add(&mut self, id: &str) {
         let h = sha256_tag(id.as_bytes());
         let hex = h.trim_start_matches("sha256:");
         let mut carry = 0u128;
-        for (i, a) in acc.iter_mut().enumerate() {
+        for (i, a) in self.acc.iter_mut().enumerate() {
             let chunk = &hex[(3 - i) * 16..(4 - i) * 16];
             let v = u64::from_str_radix(chunk, 16).unwrap_or(0);
             let s = *a as u128 + v as u128 + carry;
             *a = s as u64;
             carry = s >> 64;
         }
+        self.count += 1;
     }
-    format!(
-        "adsum256:{:016x}{:016x}{:016x}{:016x}",
-        acc[3], acc[2], acc[1], acc[0]
-    )
+    pub fn count(&self) -> u64 {
+        self.count
+    }
+    pub fn digest(&self) -> String {
+        let a = &self.acc;
+        format!(
+            "adsum256:{:016x}{:016x}{:016x}{:016x}",
+            a[3], a[2], a[1], a[0]
+        )
+    }
 }
 
 /// Identity of the frame and comparator a rule is judged in (and an assembled table dispatches in): mask, power
@@ -590,6 +611,45 @@ impl<'a> InForceBuilder<'a> {
             table: t.name.clone(),
             line_sha256: rule.line_sha256.clone(),
         });
+        Ok(self)
+    }
+
+    /// A CERTIFIED recipe in force (audit-accept-B M5): as one point domain per CERTIFIED key, so that an uncertified
+    /// key of its domain falls through to the later rules exactly as at run time (R48 addendum 2) and a later rule is
+    /// judged there. Identity of each entry: `<recipe digest>#<key>` (recipes are not table records: a token judged
+    /// with recipes in force is not assemblable into a table until the engine's recipe form exists, EC-recipe).
+    pub fn recipe(
+        &mut self,
+        recipe: &recipe::Recipe,
+        verdict: &recipe::RecipeVerdict,
+    ) -> Result<&mut Self, AcceptError> {
+        let recipe::RecipeVerdict::Certified {
+            recipe_digest,
+            certified,
+            ..
+        } = verdict
+        else {
+            return Err(AcceptError::InForce("recipe not certified".into()));
+        };
+        if *recipe_digest != recipe.digest {
+            return Err(AcceptError::InForce(format!(
+                "certification of recipe {recipe_digest} given with recipe {}",
+                recipe.digest
+            )));
+        }
+        let mut t = Table::new(format!("recipe:{}", self.tables.len()), recipe.domain.arity);
+        for (i, k) in certified.iter().enumerate() {
+            let mut d = recipe.domain.clone();
+            d.fixed = k.iter().map(|&x| Some(x)).collect();
+            t.push(i as i64, d)
+                .map_err(|e| AcceptError::InForce(e.to_string()))?;
+            self.records.push(InForceRecord {
+                table: t.name.clone(),
+                line_sha256: format!("{recipe_digest}#{k:?}"),
+            });
+        }
+        self.tables.push(t);
+        self.campaign_open = false;
         Ok(self)
     }
 

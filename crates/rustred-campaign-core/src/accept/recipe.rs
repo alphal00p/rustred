@@ -108,7 +108,8 @@ impl SolveAnswers {
             map: BTreeMap::new(),
         }
     }
-    /// Read an answer file; lines of other recipes or schemas are skipped; conflicting lines are an error.
+    /// Read an answer file of THIS recipe (interim schema of interface 10.2). No silent drop: a line of another schema
+    /// or of another recipe is an error, as are conflicting lines.
     pub fn load(&mut self, text: &str) -> Result<usize, String> {
         let mut n = 0;
         for (no, l) in text.lines().enumerate() {
@@ -116,10 +117,16 @@ impl SolveAnswers {
                 continue;
             }
             let v: Value = serde_json::from_str(l).map_err(|e| format!("line {}: {e}", no + 1))?;
-            if v["schema"] != SOLVE_ANSWER_SCHEMA
-                || v["recipe_digest"] != self.recipe_digest.as_str()
-            {
-                continue;
+            if v["schema"] != SOLVE_ANSWER_SCHEMA {
+                return Err(format!("line {}: schema {} is not {SOLVE_ANSWER_SCHEMA}", no + 1, v["schema"]));
+            }
+            if v["recipe_digest"] != self.recipe_digest.as_str() {
+                return Err(format!(
+                    "line {}: answer of recipe {}, this file answers {}",
+                    no + 1,
+                    v["recipe_digest"],
+                    self.recipe_digest
+                ));
             }
             let key: Key = serde_json::from_value(v["key"].clone())
                 .map_err(|e| format!("line {}: key {e}", no + 1))?;
@@ -157,6 +164,9 @@ impl SolveAnswers {
     /// SOLVED -> ok; `rhs` I(..) texts -> rhs keys (keys only; descent is re-checked by the chain); `relation_digest`
     /// -> `blake3:<hex>`; IRREGULAR -> regular "pole"; `proof.ok` -> exact check pass / fail (null -> not_run);
     /// `determinism_id` -> the determinism contract; `seconds` -> cost (volatile, cost only). Returns records read.
+    /// SEALED (audit-accept-A M6): the last record must be the `end` record (`records` = the relation count, same recipe
+    /// digest); a `partial` end, a missing end, a record after the end, any other record type, or two answers for one
+    /// (key, run) with different relation digests are errors.
     pub fn load_engine_results(
         &mut self,
         text: &str,
@@ -165,13 +175,39 @@ impl SolveAnswers {
         binary: &str,
     ) -> Result<usize, String> {
         let mut n = 0;
+        let mut sealed = false;
+        let mut staged: Vec<((Key, u32), SolveAnswer)> = Vec::new();
         for (no, l) in text.lines().enumerate() {
             if l.trim().is_empty() {
                 continue;
             }
             let v: Value = serde_json::from_str(l).map_err(|e| format!("line {}: {e}", no + 1))?;
-            if v["type"] != "relation" {
-                continue;
+            if sealed {
+                return Err(format!("line {}: a record after the end record", no + 1));
+            }
+            match v["type"].as_str() {
+                Some("relation") => {}
+                Some("end") => {
+                    if v["records"].as_u64() != Some(n as u64) {
+                        return Err(format!(
+                            "line {}: end record counts {}, {n} relation records read",
+                            no + 1,
+                            v["records"]
+                        ));
+                    }
+                    if !v["recipe_digest"].is_null() && v["recipe_digest"] != engine_recipe_digest {
+                        return Err(format!("line {}: end record of another recipe", no + 1));
+                    }
+                    sealed = true;
+                    continue;
+                }
+                Some("partial") => {
+                    return Err(format!(
+                        "line {}: partial end record (interrupted job): not a sealed result",
+                        no + 1
+                    ));
+                }
+                other => return Err(format!("line {}: unexpected record type {other:?}", no + 1)),
             }
             if v["recipe_digest"] != engine_recipe_digest {
                 return Err(format!(
@@ -222,10 +258,29 @@ impl SolveAnswers {
                 determinism_contract: v["determinism_id"].as_str().map(str::to_string),
                 line: canon,
             };
-            self.map.insert((key, run), a);
+            staged.push(((key, run), a));
             n += 1;
         }
+        if !sealed {
+            return Err("results without an end record (not sealed)".into());
+        }
+        for (id, a) in staged {
+            if let Some(old) = self.map.get(&id)
+                && old.relation_digest != a.relation_digest
+            {
+                return Err(format!("conflicting answers for {id:?}"));
+            }
+            self.map.insert(id, a);
+        }
         Ok(n)
+    }
+    /// Every run-2 answer held (for the determinism check over ALL of them, audit-accept-B M6).
+    pub fn run2_keys(&self) -> Vec<Key> {
+        self.map
+            .keys()
+            .filter(|(_, r)| *r == 2)
+            .map(|(k, _)| k.clone())
+            .collect()
     }
     pub fn get(&self, key: &[i32], run: u32) -> Option<&SolveAnswer> {
         self.map.get(&(key.to_vec(), run))
@@ -264,6 +319,8 @@ pub enum OpenReason {
     ExactCheck(String),
     Irregular(String),
     NotDescending { rhs: Key },
+    /// The answer is not a usable relation (an empty right-hand side, an rhs key of the wrong length; audit-accept-B m2).
+    Malformed(String),
 }
 
 /// The request file of a solve job.
@@ -404,17 +461,20 @@ pub fn accept_recipe(
             )],
         });
     }
-    let binary = input
-        .expected_binary
-        .clone()
-        .or_else(|| {
-            cands
-                .first()
-                .and_then(|k| answers.get(k, 1))
-                .and_then(|a| a.binary_sha256.clone())
-        })
-        .unwrap_or_default();
-    for k in run2.iter() {
+    // audit-accept-A M6: the certification is bound to a STATED engine binary (never taken from the answers)
+    let Some(binary) = input.expected_binary.clone() else {
+        return Ok(RecipeVerdict::Undecided {
+            what: "no expected engine binary: a certification is bound to the binary that solved".into(),
+        });
+    };
+    // audit-accept-B M6: every run-2 answer held for a candidate is a determinism witness, sampled or not
+    let mut det_keys: Vec<Key> = run2.clone();
+    for k in answers.run2_keys() {
+        if cands.contains(&k) && !det_keys.contains(&k) {
+            det_keys.push(k);
+        }
+    }
+    for k in det_keys.iter() {
         let (a, b) = (answers.get(k, 1).unwrap(), answers.get(k, 2).unwrap());
         if a.binary_sha256.as_deref() != Some(binary.as_str())
             || b.binary_sha256.as_deref() != Some(binary.as_str())
@@ -462,6 +522,20 @@ pub fn accept_recipe(
             open.push((k.clone(), OpenReason::Irregular(a.regular.clone())));
             continue;
         }
+        if a.rhs_keys.is_empty() {
+            open.push((
+                k.clone(),
+                OpenReason::Malformed("empty right-hand side (I(k) = 0 needs a zero-sector statement)".into()),
+            ));
+            continue;
+        }
+        if let Some(r) = a.rhs_keys.iter().find(|r| r.len() != node.arity()) {
+            open.push((
+                k.clone(),
+                OpenReason::Malformed(format!("rhs key {r:?} of length {}", r.len())),
+            ));
+            continue;
+        }
         for r in &a.rhs_keys {
             let fine = match sectors.classify_masked(r, 0) {
                 TermClass::Subsector { .. } | TermClass::ZeroSector { .. } => true,
@@ -483,7 +557,7 @@ pub fn accept_recipe(
             what: format!("no key certified ({} open)", open.len()),
         });
     }
-    let determinism_checked = run2.iter().filter(|k| certified.contains(k)).count();
+    let determinism_checked = det_keys.iter().filter(|k| certified.contains(k)).count();
     Ok(RecipeVerdict::Certified {
         recipe_digest: input.recipe.digest.clone(),
         certified_digest: keys_digest(node.arity(), &certified),
