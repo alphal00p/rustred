@@ -138,6 +138,8 @@ pub fn t178_tables(
                 &cases,
                 DomainOptions {
                     targets: EXPORT_TARGETS,
+                    // legacy reference numbers: exports carry no witness loci (re-audit RA-MAJOR-1, lane corefix2)
+                    witness: false,
                     ..Default::default()
                 },
             )

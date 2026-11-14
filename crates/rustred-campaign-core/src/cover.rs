@@ -749,7 +749,10 @@ fn check_against_raw(
 /// the table (`record`, an index into [`Table::domains`]), its position in the SOURCE file (`source_index`, stable
 /// under skipped records: credits name the rule by it; re-audit RA minor N-m2), its label, and the basis of the
 /// credit ([`CreditBasis`]: what its witness status and target rest on, whether the chart was tested).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+///
+/// Equality and hash are the RULE IDENTITY `(table, record, label)`: `source_index` and `basis` are functions of the
+/// dispatcher's tables. Build one with [`Dispatcher::rule_ref`] (full data) or [`RuleRef::bare`] (identity only).
+#[derive(Clone, Copy, Debug)]
 pub struct RuleRef {
     pub table: usize,
     /// Position in [`Table::domains`] (dispatch position; equals `source_index` when no record was skipped).
@@ -758,6 +761,37 @@ pub struct RuleRef {
     pub source_index: usize,
     pub label: i64,
     pub basis: CreditBasis,
+}
+
+impl PartialEq for RuleRef {
+    fn eq(&self, o: &Self) -> bool {
+        (self.table, self.record, self.label) == (o.table, o.record, o.label)
+    }
+}
+impl Eq for RuleRef {}
+impl std::hash::Hash for RuleRef {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        (self.table, self.record, self.label).hash(h)
+    }
+}
+
+impl RuleRef {
+    /// An identity-only reference for local indexing (lookups by position, hand-built domain lists): `source_index`
+    /// = `record`, basis `Caller` / `Caller`, chart not checked. Never use it as a credit of a dispatcher: take
+    /// [`Dispatcher::rule_ref`].
+    pub fn bare(table: usize, record: usize, label: i64) -> RuleRef {
+        RuleRef {
+            table,
+            record,
+            source_index: record,
+            label,
+            basis: CreditBasis {
+                witness: Assurance::Caller,
+                target: Assurance::Caller,
+                chart_checked: false,
+            },
+        }
+    }
 }
 
 /// Union mode (legacy tuple of [`Dispatcher::union_cover`]): the applying rules, and the rules selected but blocked or
@@ -1230,13 +1264,21 @@ impl Dispatcher {
 
     fn rref(&self, e: u32) -> RuleRef {
         let (t, r) = self.entries[e as usize];
-        let tb = &self.tables[t as usize];
-        let m = &tb.meta[r as usize];
+        self.rule_ref(t as usize, r as usize)
+    }
+
+    /// The full reference (source index, label, credit basis) of record `record` (dispatch position) of table
+    /// `table`. For modules that run their own dispatch over [`Dispatcher::tables`] (closure, partition): their credits
+    /// then carry the same basis as [`Dispatcher::first_match`]'s. Panics on an index out of range.
+    pub fn rule_ref(&self, table: usize, record: usize) -> RuleRef {
+        let (t, r) = (table, record);
+        let tb = &self.tables[t];
+        let m = &tb.meta[r];
         RuleRef {
-            table: t as usize,
-            record: r as usize,
+            table: t,
+            record: r,
             source_index: m.source_index,
-            label: tb.labels[r as usize],
+            label: tb.labels[r],
             basis: CreditBasis {
                 witness: m.witness_basis,
                 target: m.target_basis,

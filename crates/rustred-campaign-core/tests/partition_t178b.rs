@@ -181,7 +181,11 @@ fn t178b_oracle_equals_union_cover() {
     let mut n = 0;
     for k in keys.iter().step_by(7) {
         let u = rep.uncovered(k).unwrap();
-        let (cov, _) = disp.union_cover(k).unwrap();
+        // corefix2: `union` replaces the deprecated `union_cover` (box keys are inside the chart)
+        let cov = match disp.union(k).unwrap() {
+            rustred_campaign_core::cover::UnionResult::Rules { applies, .. } => applies,
+            o => panic!("{k:?}: {o:?}"),
+        };
         assert_eq!(u, cov.is_empty(), "{k:?}");
         n += 1;
     }

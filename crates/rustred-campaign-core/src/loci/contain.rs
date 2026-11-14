@@ -330,14 +330,7 @@ impl Splitter {
 fn nf_of(ds: &[&CaseDomain], frame: &NodeFrame) -> Result<NfRules, String> {
     let mut l = DomainList::new(frame.arity());
     for (i, d) in ds.iter().enumerate() {
-        l.push(
-            RuleRef {
-                table: 0,
-                record: i,
-                label: i as i64,
-            },
-            (*d).clone(),
-        );
+        l.push(RuleRef::bare(0, i, i as i64), (*d).clone());
     }
     nf::build(
         &l,
