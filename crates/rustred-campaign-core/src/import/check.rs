@@ -17,6 +17,9 @@ use crate::closure::{
     Tier, WitnessAbsent, closure,
 };
 
+/// Basis word of a key served by a supplied symmetry relation VERIFIED by re-derivation from the verified group.
+pub const BASIS_SYMMETRY_RELATION: &str = "symmetry_relation";
+
 /// Basis word of a key served through the per-key lift (elided / witness-absent record + bound per-key proof).
 pub const BASIS_PER_KEY_PROOF: &str = "per_key_proof";
 
@@ -441,13 +444,23 @@ pub fn check(
             }
         } else if c.is_recipe_served(i) {
             let w = c.winner(i);
-            let name = w.map(|w| w.table).unwrap_or_default();
+            let name: String = w.map(|w| w.table).unwrap_or_default();
             let recipe = recipe_names.contains(&name);
             row.status = RowStatus::Served;
+            let verified_relation = set
+                .supplied_info
+                .get(&name)
+                .and_then(|m| m.get(&row.key))
+                .and_then(|i| i.check.as_ref())
+                .is_some_and(|c| c.verified());
             row.server = Some(Server::Relation { set: name, recipe });
             if recipe {
                 row.evidence = Some(Level::PerKey);
                 row.basis = Some("recipe_certified");
+            } else if verified_relation {
+                // re-derived from the verified group at the key: exact, at the key (interfaces/import.md 13.2)
+                row.evidence = Some(Level::PerKey);
+                row.basis = Some(BASIS_SYMMETRY_RELATION);
             } else {
                 row.evidence = Some(Level::Imported);
                 row.basis = Some("supplied");
@@ -664,6 +677,45 @@ impl CheckResult {
             }
             if r.status == RowStatus::Served && r.evidence.is_some_and(|e| e >= self.required) {
                 *m.entry("certified".into()).or_default() += 1;
+            }
+        }
+        m
+    }
+
+    /// The evidence level VISIBLE per rule class (the coordinator's ruling: per class, with counts): class -> {
+    /// `served:<level>:<basis>`, `terminal`, `open:<status>`, `at_required` (served at >= the required level) } ->
+    /// keys. The class of a served key is its server's (a rule's source class, a relation set's class); of an open key
+    /// its blocking rule's (else `none`); terminals count under `terminal`.
+    pub fn evidence_by_class(&self, set: &ImportedSet) -> BTreeMap<String, BTreeMap<String, u64>> {
+        let mut m: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
+        for r in &self.rows {
+            let class = match (&r.server, r.open_rule) {
+                (Some(Server::Rule { table, record }), _)
+                | (Some(Server::Credit { table, record }), _) => {
+                    set.rules[*table][*record].class.clone()
+                }
+                (Some(Server::Relation { set: name, .. }), _) => set
+                    .classes
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| name.clone()),
+                (None, Some((t, k))) => set.rules[t][k].class.clone(),
+                (None, None) if r.status == RowStatus::Terminal => "terminal".into(),
+                (None, None) => "none".into(),
+            };
+            let e = m.entry(class).or_default();
+            let k = match r.status {
+                RowStatus::Served => format!(
+                    "served:{}:{}",
+                    r.evidence.map(|x| x.word()).unwrap_or("none"),
+                    r.basis.unwrap_or("-")
+                ),
+                RowStatus::Terminal => "terminal".into(),
+                RowStatus::Open => format!("open:{}", r.open_status.as_deref().unwrap_or("open")),
+            };
+            *e.entry(k).or_default() += 1;
+            if r.status == RowStatus::Served && r.evidence.is_some_and(|x| x >= self.required) {
+                *e.entry("at_required".into()).or_default() += 1;
             }
         }
         m

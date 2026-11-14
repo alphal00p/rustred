@@ -250,8 +250,8 @@ impl SourceKind {
                 "domain",
             ],
             SourceKind::Recipe => &["path", "sha256", "engine_digest"],
-            SourceKind::SuppliedRelations => &["path", "sha256", "verification"],
-            SourceKind::SymmetryCredit => &["group"],
+            SourceKind::SuppliedRelations => &["path", "sha256", "verification", "verify"],
+            SourceKind::SymmetryCredit => &["group", "family", "group_format", "max_candidates"],
             SourceKind::Terminals => &["keys", "path", "sha256", "preferred"],
         }
     }
@@ -297,6 +297,17 @@ pub struct SourceSpec {
     pub verification: Option<FileRef>,
     #[serde(default)]
     pub group: Option<FileRef>,
+    /// `symmetry_credit`: the family file of the VERIFIED group (interfaces/import.md 13); absent = the legacy
+    /// hand-written `rustred.campaign.credit-group.v1` file in `group` (unverified: the closure is `diagnostic`).
+    #[serde(default)]
+    pub family: Option<FileRef>,
+    #[serde(default)]
+    pub group_format: Option<super::symmetry::GroupFormat>,
+    #[serde(default)]
+    pub max_candidates: Option<u64>,
+    /// `supplied_relations`: re-derive every relation from the verified group at its key (interfaces/import.md 13.2).
+    #[serde(default)]
+    pub verify: Option<super::symmetry::GroupSpec>,
     #[serde(default)]
     pub keys: Option<Vec<Vec<i32>>>,
     #[serde(default)]
@@ -454,7 +465,9 @@ impl TableSetSpec {
                 }
                 SourceKind::Recipe => need(s.path.is_some(), "path")?,
                 SourceKind::SuppliedRelations => need(s.path.is_some(), "path")?,
-                SourceKind::SymmetryCredit => need(s.group.is_some(), "group")?,
+                SourceKind::SymmetryCredit => {
+                    need(s.group.is_some() || s.family.is_some(), "group or family")?
+                }
                 SourceKind::Terminals => need(
                     s.keys.is_some() != s.path.is_some(),
                     "exactly one of keys / path",

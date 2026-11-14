@@ -304,6 +304,7 @@ pub fn write_statement(
         "keys": res.rows.len(),
         "in_start": res.rows.iter().filter(|r| r.in_start).count(),
         "counts": counts,
+        "evidence_by_class": res.evidence_by_class(set),
         "required_evidence": res.required.word(),
         "tier": format!("{:?}", res.tier),
         "closure": serde_json::to_value(&res.summary).unwrap_or(Value::Null),

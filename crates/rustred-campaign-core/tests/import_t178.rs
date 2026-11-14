@@ -145,6 +145,48 @@ fn build_spec(ws: &Path, stmt: &Path) -> Value {
         "sources": sources})
 }
 
+/// The bound per-key proofs of lane t178-bind (test data; `RUSTRED_T178_PROOFS` overrides the directory).
+fn proofs_dir() -> PathBuf {
+    std::env::var_os("RUSTRED_T178_PROOFS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(
+                "/common/build-cache/vhirschi/p_integral_dev/t178-close/proofs-bound-20261114T091622Z",
+            )
+        })
+}
+const PROOFS_SHA256: &str = "66f3022f09178891fab64e71be1ddb8517131f4268ce59558607de190a6ecbbe";
+
+/// Verify the proofs' manifest of canonical rule lines ourselves: every line at (path, offset, bytes) hashes to its
+/// record_sha256; returns the manifest digests by class.
+fn verify_manifest(dir: &Path) -> BTreeMap<String, Vec<String>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut by_class: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut files: BTreeMap<String, std::fs::File> = BTreeMap::new();
+    for l in std::fs::read_to_string(dir.join("manifest.rules.jsonl"))
+        .unwrap()
+        .lines()
+    {
+        let v: Value = serde_json::from_str(l).unwrap();
+        let path = v["path"].as_str().unwrap().to_string();
+        let f = files
+            .entry(path.clone())
+            .or_insert_with(|| std::fs::File::open(&path).unwrap());
+        let mut buf = vec![0u8; v["bytes"].as_u64().unwrap() as usize];
+        f.seek(SeekFrom::Start(v["offset"].as_u64().unwrap())).unwrap();
+        f.read_exact(&mut buf).unwrap();
+        let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
+        h.update(&buf);
+        let sha = v["record_sha256"].as_str().unwrap().to_string();
+        assert_eq!(h.finish_hex(), sha, "manifest line {} at {path}", v["name"]);
+        by_class
+            .entry(v["class"].as_str().unwrap_or("?").to_string())
+            .or_default()
+            .push(sha);
+    }
+    by_class
+}
+
 #[test]
 #[ignore = "big data: the T178 hand statement and its material; run with --ignored in release"]
 fn t178_reproduction_of_the_hand_statement() {
@@ -165,14 +207,41 @@ fn t178_reproduction_of_the_hand_statement() {
     .unwrap();
     let hand = read_hand_statement(&stmt.join("statement.jsonl"), &hand_format(), 20).unwrap();
     assert_eq!(hand.rows.len(), 335_306);
-    for policy in ["block", "lift_with_per_key_proof"] {
+    let pdir = proofs_dir();
+    let manifest = pdir
+        .join("manifest.rules.jsonl")
+        .is_file()
+        .then(|| verify_manifest(&pdir));
+    if let Some(m) = &manifest {
+        println!(
+            "T178 proofs manifest: every canonical line hashes to its record_sha256; rules by class {:?}",
+            m.iter().map(|(k, v)| (k.clone(), v.len())).collect::<BTreeMap<_, _>>()
+        );
+    }
+    let runs: Vec<(&str, bool)> = if manifest.is_some() {
+        vec![("block", false), ("lift_with_per_key_proof", false), ("lift_with_per_key_proof", true)]
+    } else {
+        vec![("block", false), ("lift_with_per_key_proof", false)]
+    };
+    for (policy, with_proofs) in runs {
         let t0 = std::time::Instant::now();
         let mut sv = spec_v.clone();
         sv["policies"]["elided"] = json!(policy);
+        if with_proofs {
+            sv["evidence"] = json!({"proofs":[{"path": pdir.join("proofs.jsonl").display().to_string(),
+                                               "sha256": PROOFS_SHA256}]});
+        }
         let spec = TableSetSpec::from_json(&sv.to_string()).unwrap();
         let set = load(&spec, Path::new("/")).unwrap();
         let t_load = t0.elapsed().as_secs_f64();
         assert_eq!(set.start.len(), 286_066);
+        if let Some(m) = &manifest {
+            // the spec imports exactly the manifest's canonical byte copies (never the re-written mixed copies)
+            for (class, shas) in m {
+                let found = shas.iter().filter(|h| set.find_sha(h).is_some()).count();
+                println!("T178 manifest class {class}: {} rules, {found} imported with that record_sha256", shas.len());
+            }
+        }
         let ev = Evidence::from_spec(&set, Path::new("/")).unwrap();
         let res = check(
             &set,
@@ -183,13 +252,24 @@ fn t178_reproduction_of_the_hand_statement() {
             },
         )
         .unwrap();
-        let dir = out.join(format!("statement-{policy}"));
+        let tag = if with_proofs { "-proofs" } else { "" };
+        let dir = out.join(format!("statement-{policy}{tag}"));
         let timing = json!({"load_s": t_load, "check_s": res.seconds, "vm_hwm_kb": vm_hwm_kb()});
         write_statement(&set, &ev, &res, &dir, Some(timing)).unwrap();
         let cmp = compare(&set, &res, &hand);
         cmp.write(&dir).unwrap();
         println!(
-            "T178 [{policy}]: load {:.1}s check {:.1}s VmHWM {} MB; tables {} records {}; keys ours {} hand {}; \
+            "T178 [{policy}{tag}] evidence import {:?}; evidence by class {:?}; closure per_key_lifted {:?} \
+             requires_per_key_proof {} dispatch_not_strict {:?} diagnostic {}",
+            ev.counts,
+            res.evidence_by_class(&set),
+            res.summary.per_key_lifted,
+            res.summary.requires_per_key_proof,
+            res.summary.dispatch_not_strict,
+            res.summary.diagnostic
+        );
+        println!(
+            "T178 [{policy}{tag}]: load {:.1}s check {:.1}s VmHWM {} MB; tables {} records {}; keys ours {} hand {}; \
              counts {:?}; closure verdict {:?} rounds {} edges {} violations {}; blocking {:?}",
             t_load,
             res.seconds,
@@ -206,7 +286,7 @@ fn t178_reproduction_of_the_hand_statement() {
             res.blocking()
         );
         println!(
-            "T178 [{policy}] comparison: key sets equal {} same server {} terminals equal {} ({:?} vs {:?}) rounds {:?} vs {}; \
+            "T178 [{policy}{tag}] comparison: key sets equal {} same server {} terminals equal {} ({:?} vs {:?}) rounds {:?} vs {}; \
              differences {:?}; unmapped hand rules {}; label matrix {:?}; requests solve {} facts {} proofs {}",
             cmp.key_sets_equal,
             cmp.same_server,

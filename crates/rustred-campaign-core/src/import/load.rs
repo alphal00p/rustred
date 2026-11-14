@@ -31,6 +31,10 @@ use crate::order::{GroupElement, NodeComparator};
 use crate::poly::Poly;
 use crate::record::{TableFile, TableHeader};
 use crate::symmetry::CreditPolicy;
+use super::symmetry::{
+    DEFAULT_MAX_TERMS, GroupFormat, GroupReport, GroupSpec, RelationCheck, load_verified_group,
+    verify_relation_with,
+};
 
 /// Witness status of an imported record as the dispatch sees it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -82,6 +86,8 @@ pub struct SuppliedInfo {
     pub record_sha256: String,
     pub hand_name: Option<String>,
     pub verification_sha256: Option<String>,
+    /// `verify`: the re-derivation from the verified group at the key (None: not asked).
+    pub check: Option<RelationCheck>,
 }
 
 /// One relation-set entry of the dispatch (in spec order).
@@ -110,6 +116,11 @@ pub struct SourceReport {
     pub line_kinds: BTreeMap<String, usize>,
     /// Files without an `end` record (an unterminated run table: imported as it is, reported).
     pub files_without_end: Vec<String>,
+    /// The verified symmetry group of a `symmetry_credit` / `supplied_relations.verify` source.
+    pub group: Option<GroupReport>,
+    /// `supplied_relations.verify`: relations verified / not verified by re-derivation from the verified group.
+    pub relations_verified: usize,
+    pub relations_not_verified: Vec<(Vec<i32>, String)>,
 }
 
 /// The load report.
@@ -513,15 +524,49 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
                         "more than one symmetry_credit source".into(),
                     ));
                 }
-                let g = src
-                    .group
-                    .as_ref()
-                    .ok_or_else(|| ImportError::Spec("group".into()))?;
-                let path = resolve(base, &g.path);
-                let d = verify_file(&path, g.sha256.as_deref())?;
-                rep.files
-                    .push((path.display().to_string(), format!("sha256:{d}")));
-                credits = Some(read_credit_group(&path, frame.mask())?);
+                if let Some(fam) = &src.family {
+                    // the VERIFIED group: derived from the family (presented into the tables' frame), supplied data
+                    // checked against it (interfaces/import.md 13.1)
+                    let gs = GroupSpec {
+                        family: fam.clone(),
+                        group: src.group.clone(),
+                        group_format: src.group_format.unwrap_or(if src.group.is_some() {
+                            GroupFormat::Symgroup
+                        } else {
+                            GroupFormat::Derive
+                        }),
+                        max_candidates: src.max_candidates,
+                        max_terms: None,
+                    };
+                    let (vg, gr) = load_verified_group(
+                        &gs,
+                        base,
+                        frame.mask(),
+                        cmp.presentation().new_to_old(),
+                    )?;
+                    rep.files.push((gr.family.clone(), format!("sha256:{}", gr.family_sha256)));
+                    if let Some(f) = &gr.group_file {
+                        rep.files.push(f.clone());
+                    }
+                    let pol = CreditPolicy::from_verified(&vg, frame.mask()).map_err(|m| {
+                        ImportError::Source {
+                            source: src.id.clone(),
+                            msg: format!("verified group -> credit policy: {m}"),
+                        }
+                    })?;
+                    rep.group = Some(gr);
+                    credits = Some(pol);
+                } else {
+                    let g = src
+                        .group
+                        .as_ref()
+                        .ok_or_else(|| ImportError::Spec("group".into()))?;
+                    let path = resolve(base, &g.path);
+                    let d = verify_file(&path, g.sha256.as_deref())?;
+                    rep.files
+                        .push((path.display().to_string(), format!("sha256:{d}")));
+                    credits = Some(read_credit_group(&path, frame.mask())?);
+                }
             }
         }
         reports.push(rep);
@@ -1051,6 +1096,23 @@ fn load_supplied(
         None => None,
     };
     let n = frame.arity();
+    // `verify`: the verified group and the coefficient texts of every record (small files: read whole)
+    let vgroup = match &src.verify {
+        Some(gs) => {
+            let (vg, gr) =
+                load_verified_group(gs, base, frame.mask(), cmp.presentation().new_to_old())?;
+            rep.files
+                .push((gr.family.clone(), format!("sha256:{}", gr.family_sha256)));
+            rep.group = Some(gr);
+            Some((vg, gs.max_terms.unwrap_or(DEFAULT_MAX_TERMS)))
+        }
+        None => None,
+    };
+    let coefs: HashMap<usize, Vec<(Vec<i32>, String)>> = if vgroup.is_some() {
+        supplied_coefficients(&src.id, &path, n)?
+    } else {
+        HashMap::new()
+    };
     let mut b = RelationStoreBuilder::new(codec);
     let mut info = BTreeMap::new();
     rep.records_in_files = raw.records.len();
@@ -1116,8 +1178,32 @@ fn load_supplied(
         if descends {
             bits |= VERDICT_DESCENDS;
         }
-        if ver.is_some() {
-            bits |= VERDICT_EXACT;
+        // re-derivation from the verified group (fail closed: a relation that is not verified does not serve)
+        let check = vgroup.as_ref().map(|(vg, max_terms)| {
+            let rhs_c = coefs.get(&r.ordinal).cloned().unwrap_or_default();
+            if rhs_c.iter().map(|(k, _)| k).ne(rhs.iter()) {
+                RelationCheck::Unknown("the coefficient list differs from the rhs keys".into())
+            } else {
+                verify_relation_with(
+                    &crate::independent_algebra::Independent,
+                    vg,
+                    &key,
+                    &rhs_c,
+                    &[],
+                    *max_terms,
+                )
+            }
+        });
+        match &check {
+            Some(c) if c.verified() => {
+                bits |= VERDICT_EXACT;
+                rep.relations_verified += 1;
+            }
+            Some(c) => rep
+                .relations_not_verified
+                .push((key.clone(), format!("{c:?}"))),
+            None if ver.is_some() => bits |= VERDICT_EXACT,
+            None => {}
         }
         b.push(&key, &rhs, digest, bits)
             .map_err(|e| lerr(format!("{e:?}")))?;
@@ -1136,6 +1222,7 @@ fn load_supplied(
                     .as_ref()
                     .map(|h| hand_name(h, &src.id, None, r, label.unwrap_or(r.ordinal as i64))),
                 verification_sha256: ver.clone(),
+                check,
             },
         );
     }
@@ -1156,6 +1243,50 @@ fn load_supplied(
         },
         info,
     ))
+}
+
+/// The coefficient texts of every rule record of a supplied file (ordinal -> [(rhs key, coefficient text)]), from
+/// the raw `rhs` arrays `[[key, coefficient], ..]` (small files only: the file is read whole).
+fn supplied_coefficients(
+    source: &str,
+    path: &Path,
+    n: usize,
+) -> Result<HashMap<usize, Vec<(Vec<i32>, String)>>, ImportError> {
+    let txt = std::fs::read_to_string(path).map_err(|e| io_err(path, e))?;
+    let mut out = HashMap::new();
+    let mut ordinal = 0usize;
+    for (i, l) in txt.lines().enumerate() {
+        if l.trim().is_empty() {
+            continue;
+        }
+        let v: Value = serde_json::from_str(l).map_err(|e| ImportError::Line {
+            source: source.into(),
+            path: path.display().to_string(),
+            line: i + 1,
+            msg: e.to_string(),
+        })?;
+        if v.get("type").and_then(Value::as_str) != Some("rule") {
+            continue;
+        }
+        let mut terms = vec![];
+        for t in v.get("rhs").and_then(Value::as_array).into_iter().flatten() {
+            let (k, c) = (t.get(0).and_then(Value::as_str), t.get(1).and_then(Value::as_str));
+            match (k.and_then(|k| parse_key_text(k, n)), c) {
+                (Some(k), Some(c)) => terms.push((k, c.to_string())),
+                _ => {
+                    return Err(ImportError::Line {
+                        source: source.into(),
+                        path: path.display().to_string(),
+                        line: i + 1,
+                        msg: "rhs entry is not [key text, coefficient text]".into(),
+                    });
+                }
+            }
+        }
+        out.insert(ordinal, terms);
+        ordinal += 1;
+    }
+    Ok(out)
 }
 
 fn load_recipe(
