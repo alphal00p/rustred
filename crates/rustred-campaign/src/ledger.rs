@@ -805,11 +805,19 @@ impl CommitMark {
     }
 }
 
-/// Reads the commit mark of a ledger directory (`None`: no valid slot).
+/// Reads the commit mark of a ledger directory. A ledger always has a valid slot (record 1 is fsynced and marked
+/// before the manifest exists), so a missing file or a file without a valid slot is corruption.
 pub fn read_commit_mark(dir: &Path) -> Result<Option<CommitMark>, LedgerError> {
     let p = dir.join(COMMIT_FILE);
     match fs::read(&p) {
-        Ok(b) => Ok(CommitMark::read(&b)),
+        Ok(b) => match CommitMark::read(&b) {
+            Some(m) => Ok(Some(m)),
+            None => Err(LedgerError::Corrupt {
+                file: COMMIT_FILE.into(),
+                line: 0,
+                why: "commit mark has no valid slot".into(),
+            }),
+        },
         Err(e) if e.kind() == io::ErrorKind::NotFound => Err(LedgerError::Corrupt {
             file: COMMIT_FILE.into(),
             line: 0,
