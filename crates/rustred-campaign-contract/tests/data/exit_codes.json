@@ -246,6 +246,13 @@
         "vmhwm_kb"
       ],
       "type": "relation"
+    },
+    {
+      "keys": [
+        "seconds",
+        "vmhwm_kb"
+      ],
+      "type": "probe"
     }
   ]
 }

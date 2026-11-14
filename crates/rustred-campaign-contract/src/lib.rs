@@ -17,13 +17,19 @@
 //! - [`classify`]: the supervisor's decision table (6.5) and the file assessment feeding it;
 //! - [`fake`]: the script of the fake child `rr_fake_child` (section 4) and the witness-locus elision policy (R-f).
 
+// line 7: canonical rationals, distinct-integer lists, the deterministic u64 primality test
+pub mod arith;
 pub mod atomic;
 pub mod canon;
 pub mod classify;
 pub mod events;
 pub mod exit;
 pub mod fake;
+// line 7: answers of kind proof-instantiate (`--elided-loci facts`: coefficient facts only, never regularity)
+pub mod instantiate;
 pub mod layout;
+// line 7: records of the diagnostic kind node-basis
+pub mod node_basis;
 pub mod outcome;
 pub mod preflight;
 // lane adapters' request (granted by lane int5): kind solve-recipe's records and per-key outcomes
