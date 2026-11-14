@@ -390,6 +390,18 @@ pub fn load_with(
     base: &Path,
     lopts: &LoadOptions,
 ) -> Result<ImportedSet, ImportError> {
+    load_inner(spec, base, lopts, false)
+}
+
+/// [`load_with`]; `validate_bodies_only` (the classify-only sweep, `import::sweep`): the body pass streams every
+/// dispatched record's rhs keys and parses each one as a key pattern of the frame's arity, but KEEPS none (bounded
+/// memory on tables of several GB); the returned set has no bodies and must not be checked.
+pub(crate) fn load_inner(
+    spec: &TableSetSpec,
+    base: &Path,
+    lopts: &LoadOptions,
+    validate_bodies_only: bool,
+) -> Result<ImportedSet, ImportError> {
     let spec_digest = spec.digest();
     // open table indexes by file (kept for the body pass)
     let mut indexes: BTreeMap<PathBuf, TableIndex> = BTreeMap::new();
@@ -906,6 +918,30 @@ pub fn load_with(
                     ),
                 });
             }
+            if validate_bodies_only {
+                for k in &rhs {
+                    // the parse of `RuleBodies::set` and its i8 ranges (offsets, constants, parameters)
+                    use crate::closure::bodies::{RhsSlot, parse_rhs_pattern};
+                    let ok = parse_rhs_pattern(k, arity).is_ok_and(|p| {
+                        p.iter().all(|a| match *a {
+                            RhsSlot::Param { param, offset } => {
+                                i8::try_from(param).is_ok() && i8::try_from(offset).is_ok()
+                            }
+                            RhsSlot::Const(c) => i8::try_from(c).is_ok(),
+                        })
+                    });
+                    if !ok {
+                        return Err(ImportError::Source {
+                            source: src_id.clone(),
+                            msg: format!(
+                                "{}: record {o}: rhs key {k:?} is not a key pattern of arity {arity}",
+                                path.display()
+                            ),
+                        });
+                    }
+                }
+                return Ok(());
+            }
             for &(t, k) in places {
                 bodies.set(&disp, t, k, &rhs).map_err(|e| {
                     ImportError::Core(format!("bodies of {}: {e:?}", disp.tables()[t].name))
@@ -916,6 +952,9 @@ pub fn load_with(
     }
     drop(indexes);
     for t in 0..disp.tables().len() {
+        if validate_bodies_only {
+            break;
+        }
         let with = bodies.count_with_body(t);
         if with != disp.tables()[t].len() {
             return Err(ImportError::Source {

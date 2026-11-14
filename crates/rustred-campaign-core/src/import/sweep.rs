@@ -1,6 +1,6 @@
 //! CLASSIFY-ONLY LOAD of one table file (lane import5, interfaces/import.md 18.6): the table is loaded by the import
 //! exactly as a one-source spec would load it (`engine_table` source, the table its own frame, an empty start set),
-//! with NO closure: every refusal of the importer is reported typed, and a loaded table reports what it carries (line
+//! with NO closure and the rule bodies parsed but not kept (bounded memory): every refusal of the importer is reported typed, and a loaded table reports what it carries (line
 //! kinds, rule and `sym` records, witness status, markers, table-declared terminals). It is the honest answer to "can
 //! the campaign load this table": the same code path as a campaign load, minus the check.
 //!
@@ -14,7 +14,7 @@ use serde::Serialize;
 use serde_json::json;
 
 use super::error::ImportError;
-use super::load::{LoadOptions, load_with};
+use super::load::{LoadOptions, load_inner};
 use super::spec::TableSetSpec;
 
 /// Outcome of [`classify_table`].
@@ -118,12 +118,14 @@ fn classify_inner(path: &Path, opts: &ClassifyOptions, out: &mut TableClass) -> 
             "sources": [src],
         });
         let spec = TableSetSpec::from_json(&spec.to_string())?;
-        let set = load_with(
+        // bodies validated (every rhs key parsed) but not kept: bounded memory on tables of several GB
+        let set = load_inner(
             &spec,
             &scratch,
             &LoadOptions {
                 index_dir: opts.index_dir.clone(),
             },
+            true,
         )?;
         let rep = &set.report().sources[0];
         out.kinds = rep.line_kinds.clone();
