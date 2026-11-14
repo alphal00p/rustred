@@ -39,7 +39,32 @@ pub const ELIMINATION_CONVENTION: &str = "rustred.recipe-elim.v1";
 pub const PRIME: u64 = (1u64 << 61) - 1;
 pub const SAMPLE_SEED: u64 = 0;
 /// Identity of the whole convention: a cached relation is valid only for an equal id (and binary, recipe, key).
-pub const DETERMINISM_ID: &str = "rustred.recipe-solve.v1/elim=rustred.recipe-elim.v1/prime=2305843009213693951/seed=0/backend=sparse-target-only-factorized/proof=exact-weights";
+pub const DETERMINISM_ID: &str = "rustred.recipe-solve.v2/elim=rustred.recipe-elim.v1/prime=2305843009213693951/seed=0/backend=sparse-target-only-factorized/proof=exact-weights/relation-rule=recorded";
+/// Upper limit of same-layer eliminations of the m1_first rule per key (then the first admissible relation is kept).
+pub const M1_MAX_STEPS: usize = 256;
+
+/// Which relation a solve takes (recipe field `relation_rule`, recorded in every solved record and in the relation
+/// digest). `m1_first` (default): a relation whose top-sector right-hand-side keys are all strictly lower in D+r
+/// (dots + rank) than the target, obtained from the first admissible (comparator) relation by eliminating its
+/// same-layer top-sector keys highest first, each with its own solve from the SAME seed rows; if one of them has no
+/// relation in these seeds, the first admissible relation is kept (`relation_rule_taken: "c_fallback"`).
+/// `first_admissible`: the engine's first hit under the node comparator (v1 behaviour).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelationRule {
+    #[default]
+    M1First,
+    FirstAdmissible,
+}
+
+impl RelationRule {
+    fn name(self) -> &'static str {
+        match self {
+            Self::M1First => "m1_first",
+            Self::FirstAdmissible => "first_admissible",
+        }
+    }
+}
 /// Schema of a failure object (R48 addendum 3).
 pub const FAILURE_SCHEMA: &str = "rustred.recipe-failure.v1";
 
@@ -66,6 +91,9 @@ pub struct Domain {
     pub exceptions: Vec<Vec<String>>,
     #[serde(default)]
     pub bounds: Option<Bounds>,
+    /// v1.2: an explicit key set (per-KEY recipe assignment): when present the key must be one of these
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keys: Option<Vec<Vec<i64>>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -152,6 +180,9 @@ pub struct Recipe {
     pub seeds: SeedSpec,
     #[serde(default)]
     pub symmetry_rows: bool,
+    /// v1.2: which relation the solve takes (default m1_first)
+    #[serde(default)]
+    pub relation_rule: RelationRule,
     #[serde(default)]
     pub elimination: Elimination,
     /// informational: provenance of the recipe (free JSON, part of the digest)
@@ -1465,6 +1496,14 @@ fn domain_check<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Result<Case<N>
             }
         }
     }
+    if let Some(set) = &ctx.recipe.domain.keys {
+        if !set.iter().any(|k| k.as_slice() == key) {
+            return out(
+                json!({"reason":"key_set","keys":set.len()}),
+                "the key is not in the recipe's explicit key set".into(),
+            );
+        }
+    }
     let spec = CaseSpec {
         fixed: key.iter().map(|&x| Some(x)).collect(),
         equations: vec![],
@@ -1543,19 +1582,10 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
         s16.push(v);
     }
     let n_seeds = seeds.len();
-    let options = SearchOptions {
-        max_depth: None,
-        prime: PRIME,
-        sample_seed: SAMPLE_SEED,
-    };
-    let (res, cap) = with_proof_capture::<N, _>(|| {
-        with_explicit_seeds(Arc::new(s16), || {
-            ctx.solver.solve_case(point.clone(), options)
-        })
-    });
-    let candidate = match res {
-        Ok(c) => c,
-        Err(SolverError::SearchExhausted { rows, .. }) => {
+    let seeds_arc = Arc::new(s16);
+    let main = match raw_solve(ctx, &point, &seeds_arc) {
+        Ok(x) => x,
+        Err(RawErr::Exhausted(rows)) => {
             return failure(
                 ctx,
                 key,
@@ -1569,7 +1599,7 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
                 json!({"seeds": n_seeds, "rows": rows}),
             );
         }
-        Err(SolverError::ExactReplay(m)) => {
+        Err(RawErr::Irregular(m)) => {
             return failure(
                 ctx,
                 key,
@@ -1579,19 +1609,13 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
                 json!({"pole": m}),
             );
         }
-        Err(e) => {
-            return failure(
-                ctx,
-                key,
-                "ERROR",
-                "error",
-                &format!("{e:?}"),
-                json!({"message": format!("{e:?}")}),
-            );
+        Err(RawErr::Error(m)) => {
+            return failure(ctx, key, "ERROR", "error", &m, json!({"message": m}));
         }
     };
+    let target_int = main.target;
     let target: Vec<i64> = (0..ctx.n)
-        .map(|i| i64::from(candidate.target[i].value()))
+        .map(|i| i64::from(target_int[i].value()))
         .collect();
     if target != key {
         return failure(
@@ -1604,58 +1628,124 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
         );
     }
     if let Some(limit) = ctx.opts.max_trace_rows {
-        if candidate.sources.len() > limit {
+        if main.trace_rows > limit {
             return failure(
                 ctx,
                 key,
                 "BUDGET_WORK",
                 "budget_work",
                 "trace rows above --max-trace-rows",
-                json!({"counter":"trace_rows","limit":limit,"value":candidate.sources.len()}),
+                json!({"counter":"trace_rows","limit":limit,"value":main.trace_rows}),
             );
         }
     }
     let order = ctx.solver.ordering();
     let lines = ctx.recipe.lines();
+    let to_vec = |k: &crate::solver::Integral<N>| -> Vec<i64> {
+        (0..ctx.n).map(|i| i64::from(k[i].value())).collect()
+    };
+    let in_top = |k: &[i64]| (0..ctx.n).all(|j| !lines[j] || k[j] >= 1);
+    let layer = |k: &[i64]| -> i64 {
+        (0..ctx.n)
+            .map(|j| if lines[j] { k[j] - 1 } else { -k[j] })
+            .sum()
+    };
+    // relation rule: m1_first eliminates the same-layer top-sector keys of the first admissible relation
+    let rule = ctx.recipe.relation_rule;
+    let mut rel = main.clone();
+    let mut taken = "first_admissible";
+    let mut m1_steps = 0usize;
+    let mut fallback_reason: Option<String> = None;
+    if rule == RelationRule::M1First {
+        taken = "m1";
+        let lt = layer(key);
+        loop {
+            let bad = rel
+                .p
+                .keys()
+                .filter(|k| **k != target_int)
+                .filter(|k| {
+                    let v = to_vec(k);
+                    in_top(&v) && layer(&v) >= lt
+                })
+                .min_by(|a, b| order.compare(a, b))
+                .copied();
+            let Some(s) = bad else { break };
+            if m1_steps >= M1_MAX_STEPS {
+                fallback_reason = Some(format!("more than {M1_MAX_STEPS} same-layer eliminations"));
+                break;
+            }
+            let sv = to_vec(&s);
+            let spec = CaseSpec {
+                fixed: sv.iter().map(|&x| Some(x)).collect(),
+                equations: vec![],
+            };
+            let sub = match build_case::<N>(&spec, &ctx.template, &ctx.idx, &ctx.sector, ctx.n) {
+                Ok(Some(c)) => raw_solve(ctx, &c, &seeds_arc).map_err(|e| e.text()),
+                Ok(None) => Err("not an admissible point".to_string()),
+                Err(e) => Err(e),
+            };
+            match sub {
+                Ok(rs) if rs.target == s => {
+                    let a = rel.p.get(&s).cloned().expect("bad key is a term");
+                    rel.subtract(&a, &rs);
+                    m1_steps += 1;
+                }
+                Ok(_) => {
+                    fallback_reason = Some(format!(
+                        "the solve at {} returned another target",
+                        key_text(&sv)
+                    ));
+                    break;
+                }
+                Err(m) => {
+                    fallback_reason = Some(format!(
+                        "no relation for the same-layer key {} in these seeds ({m})",
+                        key_text(&sv)
+                    ));
+                    break;
+                }
+            }
+        }
+        if fallback_reason.is_some() {
+            rel = main.clone();
+            taken = "c_fallback";
+        }
+    }
+    // the relation's terms (target excluded), comparator order (highest first), rhs coefficient = -P_k
+    let mut terms: Vec<(&crate::solver::Integral<N>, &Coefficient)> =
+        rel.p.iter().filter(|(k, _)| **k != target_int).collect();
+    terms.sort_by(|a, b| order.compare(a.0, b.0));
     let mut rhs = Vec::new();
     let mut rhs_canon = Vec::new();
     let mut top = Vec::new();
     let mut n_sub = 0usize;
     let mut all_lower = true;
     let mut first_not_lower: Option<Vec<i64>> = None;
-    let mut poles: BTreeSet<String> = BTreeSet::new();
-    for t in &candidate.rhs {
-        let k: Vec<i64> = (0..ctx.n)
-            .map(|i| i64::from(t.integral[i].value()))
-            .collect();
-        let lower = order.compare(&candidate.target, &t.integral) == std::cmp::Ordering::Less;
+    let mut poles: BTreeSet<String> = rel.hidden.iter().cloned().collect();
+    for (ki, pc) in &terms {
+        let k = to_vec(ki);
+        let coef = -(*pc).clone();
+        let lower = order.compare(&target_int, ki) == std::cmp::Ordering::Less;
         if !lower {
             all_lower = false;
             first_not_lower.get_or_insert(k.clone());
         }
-        let in_top = (0..ctx.n).all(|j| !lines[j] || k[j] >= 1);
-        if in_top {
-            top.push(json!({"key": k, "lower": lower}));
+        let it = in_top(&k);
+        if it {
+            top.push(json!({"key": k, "lower": lower, "layer_lower": layer(&k) < layer(key)}));
         } else {
             n_sub += 1;
         }
-        if !t.coefficient.denominator.is_constant() {
-            poles.insert(t.coefficient.denominator.to_string());
+        if !coef.denominator.is_constant() {
+            poles.insert(coef.denominator.to_string());
         }
-        let c = t.coefficient.to_string();
-        // every RHS term: key text, exact coefficient, and whether the key is in the chart's top sector or a proper
-        // subsector (proved-zero sectors never appear: their integrals vanish and are dropped by the engine)
-        rhs.push(json!([
-            t.integral.to_string(),
-            c,
-            if in_top { "top" } else { "sub" }
-        ]));
+        let c = coef.to_string();
+        // every RHS term: key text, exact coefficient, top sector or a proper subsector (proved-zero sectors never appear)
+        rhs.push(json!([ki.to_string(), c, if it { "top" } else { "sub" }]));
         rhs_canon.push(json!([k, c]));
     }
-    for p in &candidate.hidden_poles {
-        poles.insert(p.to_string());
-    }
-    let canon = json!({"rhs": rhs_canon, "target": key});
+    let canon = json!({"relation_rule": rule.name(), "rhs": rhs_canon, "target": key});
     let relation_digest = blake3::hash(format!("{canon}\n").as_bytes())
         .to_hex()
         .to_string();
@@ -1671,51 +1761,21 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
         r["relation_digest"] = json!(relation_digest);
         return r;
     }
-    // exact proof with the lift's own weights
+    // exact proof: sum_r W_r * row_r == P on every column (the combined weights of all solves of the rule)
     let mut seeds_used: Vec<Vec<i64>> = Vec::new();
     let proof = if !ctx.opts.proof {
         Value::Null
     } else {
-        let Some(cap) = cap else {
-            return failure(
-                ctx,
-                key,
-                "PROOF_FAILED",
-                "proof_failed",
-                "the lift recorded no proof capture",
-                json!({}),
-            );
-        };
-        let Some(weights) = cap.weights.as_ref() else {
-            return failure(
-                ctx,
-                key,
-                "PROOF_FAILED",
-                "proof_failed",
-                "the lift recorded no source weights",
-                json!({}),
-            );
-        };
-        if cap.rows.len() != candidate.sources.len() {
-            return failure(
-                ctx,
-                key,
-                "PROOF_FAILED",
-                "proof_failed",
-                "trace rows and sources differ in length",
-                json!({}),
-            );
-        }
         let mut acc: BTreeMap<crate::solver::Integral<N>, Coefficient> = BTreeMap::new();
-        for (j, w) in weights {
-            let Some(row) = cap.rows.get(*j) else {
+        for (rk, w) in &rel.w {
+            let Some(row) = rel.rows.get(rk) else {
                 return failure(
                     ctx,
                     key,
                     "PROOF_FAILED",
                     "proof_failed",
                     "a weight names a missing row",
-                    json!({"row": j}),
+                    json!({}),
                 );
             };
             for term in row {
@@ -1728,11 +1788,11 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
                 }
             }
         }
-        for term in &cap.exact {
-            match acc.get_mut(&term.integral) {
-                Some(e) => *e = &*e - &term.coefficient,
+        for (k, c) in &rel.p {
+            match acc.get_mut(k) {
+                Some(e) => *e = &*e - c,
                 None => {
-                    acc.insert(term.integral, -term.coefficient.clone());
+                    acc.insert(*k, -c.clone());
                 }
             }
         }
@@ -1742,33 +1802,175 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
                 key,
                 "PROOF_FAILED",
                 "proof_failed",
-                "sum_j w_j row_j differs from the lifted row",
+                "sum_j w_j row_j differs from the relation",
                 json!({"column": col.to_string()}),
             );
         }
         let mut used: BTreeSet<Vec<i64>> = BTreeSet::new();
-        for (j, w) in weights {
+        for (rk, w) in &rel.w {
             if !w.is_zero() {
-                let s = &candidate.sources[*j].seed.integral;
                 used.insert(
                     (0..ctx.n)
-                        .map(|i| i64::from(s[i].value()) - key[i])
+                        .map(|i| i64::from(rk.1[i].value()) - key[i])
                         .collect(),
                 );
             }
         }
         seeds_used = used.into_iter().collect();
-        json!({"kind": "exact-weights", "weights": weights.len(), "ok": true,
+        json!({"kind": "exact-weights", "weights": rel.w.len(), "ok": true,
             "modulo": "proved-zero sectors (their integrals vanish)"})
     };
     json!({
         "type": "relation", "key": key, "verdict": if ctx.opts.proof { "SOLVED" } else { "SOLVED_UNPROVED" },
         "determinism_id": DETERMINISM_ID, "recipe_digest": ctx.recipe_digest,
-        "target": candidate.target.to_string(), "rhs": rhs, "relation_digest": relation_digest,
-        "rhs_count": candidate.rhs.len(), "rhs_sub_count": n_sub, "top_rhs": top, "all_lower": all_lower,
-        "seeds_total": n_seeds, "rows": candidate.stats.rows, "trace_rows": candidate.sources.len(),
+        "relation_rule": rule.name(), "relation_rule_taken": taken, "m1_steps": m1_steps,
+        "m1_fallback_reason": fallback_reason,
+        "target": target_int.to_string(), "rhs": rhs, "relation_digest": relation_digest,
+        "rhs_count": terms.len(), "rhs_sub_count": n_sub, "top_rhs": top, "all_lower": all_lower,
+        "seeds_total": n_seeds, "rows": main.stats_rows, "trace_rows": main.trace_rows,
         "seeds_used": seeds_used, "proof": proof, "d_poles": poles.into_iter().collect::<Vec<_>>(),
         "failure": Value::Null,
+    })
+}
+
+/// Identity of one trace row across the solves of a key (basis row, seed, leading term, length).
+type RowKey<const N: usize> = (
+    usize,
+    crate::solver::Integral<N>,
+    crate::solver::Integral<N>,
+    usize,
+);
+
+/// A relation in row form `P = I(target) - sum rhs`, normalised to target coefficient 1, with its exact weights on the
+/// trace rows (`sum W_r row_r == P`).
+#[derive(Clone)]
+struct LinRel<const N: usize> {
+    target: crate::solver::Integral<N>,
+    p: BTreeMap<crate::solver::Integral<N>, Coefficient>,
+    w: BTreeMap<RowKey<N>, Coefficient>,
+    rows: BTreeMap<RowKey<N>, crate::solver::ExactRow<N>>,
+    hidden: Vec<String>,
+    stats_rows: usize,
+    trace_rows: usize,
+}
+
+impl<const N: usize> LinRel<N> {
+    /// self -= a * other (exact)
+    fn subtract(&mut self, a: &Coefficient, other: &LinRel<N>) {
+        for (k, c) in &other.p {
+            let d = a * c;
+            match self.p.get_mut(k) {
+                Some(e) => *e = &*e - &d,
+                None => {
+                    self.p.insert(*k, -d);
+                }
+            }
+        }
+        self.p.retain(|_, v| !v.is_zero());
+        for (k, c) in &other.w {
+            let d = a * c;
+            match self.w.get_mut(k) {
+                Some(e) => *e = &*e - &d,
+                None => {
+                    self.w.insert(*k, -d);
+                }
+            }
+        }
+        self.w.retain(|_, v| !v.is_zero());
+        for (k, r) in &other.rows {
+            self.rows.entry(*k).or_insert_with(|| r.clone());
+        }
+        self.hidden.extend(other.hidden.iter().cloned());
+        self.trace_rows += other.trace_rows;
+    }
+}
+
+enum RawErr {
+    Exhausted(usize),
+    Irregular(String),
+    Error(String),
+}
+
+impl RawErr {
+    fn text(&self) -> String {
+        match self {
+            Self::Exhausted(rows) => format!("search exhausted, {rows} rows"),
+            Self::Irregular(m) | Self::Error(m) => m.clone(),
+        }
+    }
+}
+
+/// One engine solve of a fully fixed case with the explicit seed list: the first admissible relation in row form with
+/// its exact weights.
+fn raw_solve<const N: usize>(
+    ctx: &Ctx<'_, N>,
+    point: &Case<N>,
+    seeds: &Arc<Vec<Vec<i16>>>,
+) -> Result<LinRel<N>, RawErr> {
+    let options = SearchOptions {
+        max_depth: None,
+        prime: PRIME,
+        sample_seed: SAMPLE_SEED,
+    };
+    let (res, cap) = with_proof_capture::<N, _>(|| {
+        with_explicit_seeds(seeds.clone(), || {
+            ctx.solver.solve_case(point.clone(), options)
+        })
+    });
+    let c = match res {
+        Ok(c) => c,
+        Err(SolverError::SearchExhausted { rows, .. }) => return Err(RawErr::Exhausted(rows)),
+        Err(SolverError::ExactReplay(m)) => return Err(RawErr::Irregular(m)),
+        Err(e) => return Err(RawErr::Error(format!("{e:?}"))),
+    };
+    let cap = cap.ok_or_else(|| RawErr::Error("the lift recorded no proof capture".into()))?;
+    let weights = cap
+        .weights
+        .as_ref()
+        .ok_or_else(|| RawErr::Error("the lift recorded no source weights".into()))?;
+    if cap.rows.len() != c.sources.len() {
+        return Err(RawErr::Error(
+            "trace rows and sources differ in length".into(),
+        ));
+    }
+    let lead = cap
+        .exact
+        .iter()
+        .find(|t| t.integral == c.target)
+        .map(|t| t.coefficient.clone())
+        .ok_or_else(|| RawErr::Error("the lifted row lacks its target".into()))?;
+    let mut p = BTreeMap::new();
+    for t in &cap.exact {
+        p.insert(t.integral, &t.coefficient / &lead);
+    }
+    let mut w = BTreeMap::new();
+    let mut rows = BTreeMap::new();
+    for (j, wt) in weights {
+        let row = &cap.rows[*j];
+        let src = &c.sources[*j];
+        let rk: RowKey<N> = (
+            src.basis_row,
+            src.seed.integral,
+            row.first().map(|t| t.integral).unwrap_or(src.seed.integral),
+            row.len(),
+        );
+        let v = wt / &lead;
+        match w.get_mut(&rk) {
+            Some(e) => *e = &*e + &v,
+            None => {
+                w.insert(rk, v);
+            }
+        }
+        rows.entry(rk).or_insert_with(|| row.clone());
+    }
+    Ok(LinRel {
+        target: c.target,
+        p,
+        w,
+        rows,
+        hidden: c.hidden_poles.iter().map(|p| p.to_string()).collect(),
+        stats_rows: c.stats.rows,
+        trace_rows: c.sources.len(),
     })
 }
 
