@@ -397,3 +397,37 @@ fn interrupt_and_resume_gives_the_same_final_set() {
         assert_eq!(verify(&cb), 0);
     }
 }
+
+#[test]
+fn the_mixed_shell_step_runs_before_depth_3_and_eliminates() {
+    let _g = serial();
+    // E has no relation at depth 2; the mixed shell (placed before depth 3) has one
+    let t = TmToy {
+        termmin: Some(json!({"schema": "rustred.campaign.termmin.v1",
+            "sequence": ["dispatch", "symmetry_relation", "d1_cnone_foff", "d2_clast_fon", "mixed_shell", "d3_cfirst_foff"]})),
+        overrides: vec![
+            ("termmin/d2_clast_fon".into(), E, "NO_RELATION_IN_SEEDS".into(), vec![]),
+            ("termmin/mixed_shell".into(), E, "SOLVED".into(), vec![M, [2, 0, 0]]),
+        ],
+        ..TmToy::default()
+    };
+    let (_t, _f, sp, cdir) = setup("tmmixed", &t);
+    assert_eq!(run_to_end(&sp, &cdir, &["--plain"]).last(), Some(&0), "{}", log_tail(&cdir));
+    closed(&cdir);
+    let rep = report(&cdir);
+    let e = rep["terminals"].as_array().unwrap().iter().find(|x| x["key"] == json!(E)).unwrap().clone();
+    assert_eq!(e["outcome"], "eliminated", "{e:#}");
+    assert_eq!(e["steps"][4]["step"], "mixed_shell", "{e:#}");
+    assert_eq!(e["steps"][4]["outcome"], "eliminated", "{e:#}");
+    assert_eq!(e["steps"][5]["outcome"], "pending", "depth 3 never asked: {e:#}");
+    // the data path: the mixed-shell recipe is an explicit offset list (one centre per seed, shell S0, no floor)
+    let order: Vec<Value> = rep["terminals"].as_array().unwrap().iter().map(|x| x["key"].clone()).collect();
+    let ti = order.iter().position(|k| *k == json!(E)).unwrap();
+    let r = read_json(&cdir.join(format!("closeloop/toy/termmin/recipes/t{ti}.s4.json")));
+    assert_eq!(r["seeds"]["generator"], json!({"shells": ["S0"]}), "{r:#}");
+    assert_eq!(r["domain"]["fixed"], json!(E));
+    assert!(r["seeds"].get("min_offset").is_none_or(|m| m.as_object().is_none_or(|o| o.is_empty())));
+    let n = r["seeds"]["centres"].as_array().unwrap().len() as u64;
+    assert_eq!(e["steps"][4]["seeds"].as_u64(), Some(n));
+    assert_eq!(rep["final_terminals"], json!([M, N]), "{rep:#}");
+}

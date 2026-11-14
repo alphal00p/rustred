@@ -393,9 +393,16 @@ impl Termmin {
                         s.name.clone(),
                         Some(point_recipe(s, key, lines, line_priority, num_priority)?),
                     ),
+                    StepKind::MixedShell => (
+                        "mixed_shell".to_string(),
+                        Some(super::steps::point_recipe_mixed(key, lines, &spec.mixed_shell)?),
+                    ),
                 };
                 let mut skip = None;
-                if let Some(r) = &recipe {
+                if matches!(k, StepKind::MixedShell) && !spec.mixed_shell.enabled {
+                    skip = Some("disabled by the spec (mixed_shell.enabled = false)".into());
+                }
+                if let (None, Some(r)) = (&skip, &recipe) {
                     if r.seeds > spec.caps.max_seeds {
                         skip = Some(format!(
                             "over_seed_cap ({} > {})",
@@ -659,7 +666,7 @@ impl Termmin {
                         continue;
                     }
                 },
-                StepKind::Recipe(_) => match self.answers.get(&Self::step_id(i, s)).cloned() {
+                StepKind::Recipe(_) | StepKind::MixedShell => match self.answers.get(&Self::step_id(i, s)).cloned() {
                     None => return Ok(false),
                     Some(SolveAnswer::Failed {
                         class,
