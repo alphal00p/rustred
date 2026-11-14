@@ -65,7 +65,16 @@ fn t178_closure_reference_numbers_and_frozen_tree() {
         s.requires_coefficient_zero,
         s.terms.positive_numerator_top + s.terms.positive_numerator_sub
     );
-    assert_eq!(s.verdict, Verdict::Open);
+    // the legacy tables rest on the witness check OFF and an unchecked target attestation: never a closure verdict
+    // (re-audit F2, lane closurefix): diagnostic, the verdict it would have is `open`
+    assert_eq!(s.verdict, Verdict::Diagnostic);
+    assert_eq!(s.verdict_if_not_diagnostic, Some(Verdict::Open));
+    assert!(!s.dispatch_not_strict.is_empty());
+    assert!(
+        s.blocking
+            .iter()
+            .any(|b| b.starts_with("dispatch_not_strict:witness_check_off"))
+    );
     assert!(s.superset);
     // longest chain endpoints (h13b D4): from I(1,1,1,5,1^6,0^8,-3,0) down to the corner
     let ch = s.longest_chain.as_ref().unwrap();
