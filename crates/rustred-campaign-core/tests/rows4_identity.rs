@@ -301,3 +301,47 @@ fn rows4_traced_certificate_runs_record_without_changing_the_run() {
     assert_eq!(r1.level, ReplayLevel::Established);
     assert!(!rec.take().is_empty());
 }
+
+/// RA3-M1 for GROUPS (mutation N02 survived the first harness run: nothing checked the refusal): a certificate run
+/// REFUSES a symmetry group of diagnostic origin (verified through a generic backend), even an honest one; the same group
+/// verified on the certificate path is accepted; a diagnostic run accepts both.
+#[test]
+fn rows4_certificate_run_refuses_a_diagnostic_group() {
+    use rustred_campaign_core::ibp_rows::{SymUse, Unsupported, identity_test_with};
+    use std::sync::Arc;
+    let f = face();
+    let n = f.fam.n();
+    let good = RowsRule::from_value(f.good.clone(), n).unwrap();
+    let chart: Vec<bool> = (0..n).map(|i| i < 7).collect();
+    let cert = verify_derived(&f.fam, &chart, &DeriveOptions::default()).unwrap();
+    let diag = verify_group_with(&Independent, &f.fam, cert.group().clone(), "test").unwrap();
+    assert!(cert.origin().is_certificate() && !diag.origin().is_certificate());
+    let opts = |g: Arc<_>| RowsOptions {
+        symmetry: Some(g),
+        sym_use: SymUse::Always,
+        ..RowsOptions::default()
+    };
+    let (cert, diag) = (Arc::new(cert), Arc::new(diag));
+    let pts = [PointSpec::Generic];
+    let vd = identity_test(&f.fam, &good, &pts, &opts(diag.clone()));
+    let vc = identity_test(&f.fam, &good, &pts, &opts(cert.clone()));
+    let vw = identity_test_with(&Independent, &f.fam, &good, &pts, &opts(diag));
+    println!(
+        "group origin: certificate run with a diagnostic group {:?}; with the certificate group {}; diagnostic run with the diagnostic group {} ({} elements)",
+        vd.verdict,
+        vc.verdict.kind(),
+        vw.verdict.kind(),
+        cert.group().elements.len()
+    );
+    assert!(
+        matches!(&vd.verdict, Verdict::Unsupported(Unsupported::SymGroupMismatch(w)) if w.contains("diagnostic origin")),
+        "{:?}",
+        vd.verdict
+    );
+    for v in [&vc.verdict, &vw.verdict] {
+        assert!(
+            !matches!(v, Verdict::Unsupported(Unsupported::SymGroupMismatch(_))),
+            "{v:?}"
+        );
+    }
+}
