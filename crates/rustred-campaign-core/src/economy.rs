@@ -453,7 +453,10 @@ pub fn engine_readable_bound(
 ) -> Result<(), String> {
     let mut slot: Option<(usize, i128)> = None;
     let mut b: i128 = 0;
-    for (m, c) in g.terms() {
+    let terms = g
+        .small_terms()
+        .ok_or("a coefficient beyond i128 (the engine's domain_bounds are i64)")?;
+    for (m, c) in terms {
         match m.as_slice() {
             [] => b = *c,
             [(v, 1)] if *v != crate::poly::D_VAR && slot.is_none() => {

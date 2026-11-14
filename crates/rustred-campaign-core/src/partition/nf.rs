@@ -633,7 +633,12 @@ fn factor_can_vanish(f: &Poly, m: &[u128], pm: u128, p1: u128, p2: u128) -> bool
 fn literal_modular_risk(f: &Poly, m: &[u128]) -> Result<LitRisk, String> {
     let p1 = u128::from(ENGINE_PRIMES[0]);
     let p2 = u128::from(ENGINE_PRIMES[1]);
-    if f.terms()
+    // a coefficient beyond i128 (exact parser: big literal): the normal form cannot represent it either (the record
+    // is excluded / weakened: a caveat); here: risk anywhere (conservative)
+    let terms: &[(crate::poly::Mono, i128)] = f
+        .small_terms()
+        .ok_or_else(|| format!("literal {f}: a coefficient beyond i128"))?;
+    if terms
         .iter()
         .any(|(mo, _)| mo.iter().any(|&(v, _)| v == D_VAR))
     {
@@ -642,7 +647,7 @@ fn literal_modular_risk(f: &Poly, m: &[u128]) -> Result<LitRisk, String> {
         return Ok(LitRisk::Points(vec![]));
     }
     let mut g: u128 = 0;
-    for (_, c) in f.terms() {
+    for (_, c) in terms {
         let mut a = c.unsigned_abs();
         let mut b = g;
         while b != 0 {
@@ -667,8 +672,7 @@ fn literal_modular_risk(f: &Poly, m: &[u128]) -> Result<LitRisk, String> {
         ));
     }
     let gi = i128::try_from(g).map_err(|_| format!("literal {f}: content 2^127"))?;
-    let q: Vec<(&crate::poly::Mono, i128)> = f
-        .terms()
+    let q: Vec<(&crate::poly::Mono, i128)> = terms
         .iter()
         .map(|(mo, c)| c.checked_div(gi).map(|x| (mo, x)))
         .collect::<Option<_>>()
