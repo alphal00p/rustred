@@ -99,11 +99,7 @@ impl<'a> FastDispatch<'a> {
     #[inline]
     pub fn rule(&self, pos: u32) -> RuleRef {
         let (t, r) = self.entries[pos as usize];
-        RuleRef {
-            table: t as usize,
-            record: r as usize,
-            label: self.disp.tables()[t as usize].labels[r as usize],
-        }
+        self.disp.rule_ref(t as usize, r as usize)
     }
 
     /// Candidate positions (records whose fixed slots all match), ascending.

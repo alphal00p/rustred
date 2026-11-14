@@ -381,7 +381,13 @@ fn first_match_priority_is_data_and_union_is_separate() {
             .map(|w| (w.table, w.record, w.label)),
         Some((1, 0, 20))
     );
-    let (u, und) = ab.union_cover(&k).unwrap();
+    let rustred_campaign_core::cover::UnionResult::Rules {
+        applies: u,
+        open: und,
+    } = ab.union(&k).unwrap()
+    else {
+        panic!()
+    };
     assert_eq!(
         u.iter().map(|w| w.label).collect::<Vec<_>>(),
         vec![10, 20, 21]
