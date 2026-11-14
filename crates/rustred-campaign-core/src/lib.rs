@@ -7,6 +7,8 @@
 //! - [`domain`]: case domains (fixed slots, equations, chart, exceptions) and their verdict at a key.
 //! - [`cover`]: prioritized tables, first-match dispatch, batch and union coverage.
 //! - [`order`]: the node comparator on `&[i32]` slices (owned by the sibling package core-order).
+//! - [`import`]: existing material (rule tables, bank sets, recipes, supplied relations) -> in-force dispatch ->
+//!   closure check -> statement (interfaces/import.md).
 
 pub mod cover;
 pub mod domain;
