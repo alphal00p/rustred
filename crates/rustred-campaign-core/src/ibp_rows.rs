@@ -2685,6 +2685,16 @@ fn pole_at<A: CheckAlgebra>(
     for (k, (_, text)) in rule.rhs.iter().enumerate() {
         alg.eval_ratio(text, rule.arity, &ctxs, &mut num, &mut den)
             .map_err(|e| format!("rhs[{k}]: {e}"))?;
+        alg.observe(
+            Stage::Coefficient,
+            &|| format!("pole scan {pt:?} rhs[{k}]"),
+            &|| {
+                format!(
+                    "denominator zero at the two primes: {:?}",
+                    den.map(|x| x == 0)
+                )
+            },
+        );
         if den.contains(&0) {
             let z0 = den_identically_zero(alg, rule, k, pt, primes[0], &mut s)?;
             let z1 = den_identically_zero(alg, rule, k, pt, primes[1], &mut s)?;
