@@ -299,6 +299,12 @@ struct PendingSettle {
     next_sweep: Instant,
     inconclusive: u32,
     survivors_noted: bool,
+    /// The CPU lease and the memory reservation stay with the attempt until it is settled (the ledger shows it running
+    /// until then; admission counts it).
+    lease: Option<CpuLease>,
+    cap: u64,
+    cores: usize,
+    seq: u64,
 }
 
 impl PendingSettle {
@@ -1822,7 +1828,7 @@ impl Supervisor {
             if let Some(crate::launch::RetireEvent::Cleared {
                 lease_note: Some(n),
                 ..
-            }) = self.launcher.retire(ch.handle, ch.lease)
+            }) = self.launcher.retire(ch.handle, None)
             {
                 self.note(format!("lease {marker}: {n}"));
             }
@@ -1839,6 +1845,10 @@ impl Supervisor {
                 next_sweep: Instant::now(),
                 inconclusive: 0,
                 survivors_noted: false,
+                lease: ch.lease,
+                cap: ch.cap,
+                cores: ch.cores,
+                seq: ch.seq,
             });
             let _ = &ch.item;
         }
@@ -1935,7 +1945,32 @@ impl Supervisor {
         }
     }
 
-    fn settle_pending(&mut self, p: PendingSettle) {
+    fn settle_pending(&mut self, mut p: PendingSettle) {
+        let label = p.label();
+        if let Some(l) = p.lease.take() {
+            // Released after the settle below has been committed (or attempted).
+            let lease_after = l;
+            self.settle_pending_inner(&p);
+            let (r, held) = lease_after.release_checked();
+            let mut notes: Vec<String> = Vec::new();
+            if let Err(e) = r {
+                notes.push(format!("release: {e}"));
+            }
+            for h in held {
+                notes.push(format!(
+                    "CPU {} still held after release by {:?} (unmarked survivor? not signalled; its claim stays in the ledger)",
+                    h.cpu, h.holders
+                ));
+            }
+            if !notes.is_empty() {
+                self.note(format!("lease {label}: {}", notes.join("; ")));
+            }
+            return;
+        }
+        self.settle_pending_inner(&p);
+    }
+
+    fn settle_pending_inner(&mut self, p: &PendingSettle) {
         if self.ledger_dead.is_some() {
             return;
         }
@@ -2415,10 +2450,11 @@ impl Supervisor {
 
     fn schedule(&mut self) {
         let max_jobs = self.opts.spec.resources.max_jobs;
-        if self.children.len() >= max_jobs {
+        let busy = self.children.len() + self.pending.len();
+        if busy >= max_jobs {
             return;
         }
-        let limit = (max_jobs - self.children.len()) * 4 + 8;
+        let limit = (max_jobs - busy) * 4 + 8;
         let running_ids: Vec<String> = self.children.iter().map(|c| c.job.clone()).collect();
         let st = self.ledger.state();
         // Paused nodes / items (operator controls) get no launch (the ledger would refuse it).
@@ -2466,6 +2502,18 @@ impl Supervisor {
                     stopping: c.stopping,
                 }
             })
+            .chain(self.pending.iter().map(|p| RunningJob {
+                // Finished, not settled: its whole cap stays reserved and its cores leased until the settle.
+                id: u64::MAX - p.seq,
+                cap_bytes: p.cap,
+                expected_peak_bytes: p.cap,
+                rss_bytes: 0,
+                rss_measured_at: None,
+                cores: p.cores,
+                started_seq: p.seq,
+                cpu_seconds: 0.0,
+                stopping: true,
+            }))
             .collect();
         let cands: Vec<Candidate> = reqs
             .iter()
@@ -2496,7 +2544,9 @@ impl Supervisor {
             let r = &reqs[*id as usize];
             match d {
                 Decision::Admit => {
-                    if self.children.len() >= max_jobs || self.ledger_dead.is_some() {
+                    if self.children.len() + self.pending.len() >= max_jobs
+                        || self.ledger_dead.is_some()
+                    {
                         break;
                     }
                     match self
@@ -2613,7 +2663,10 @@ impl Supervisor {
             cpus_in_use: Some(self.policy.in_use() as u32),
             cpus_allowed: Some(self.policy.budget() as u32),
             live_jobs: Some(self.children.len() as u32),
-            reserved_bytes: Some(self.children.iter().map(|c| c.cap).sum()),
+            reserved_bytes: Some(
+                self.children.iter().map(|c| c.cap).sum::<u64>()
+                    + self.pending.iter().map(|p| p.cap).sum::<u64>(),
+            ),
             measured_rss_bytes: rss,
             mem_cap_bytes: self.admission.campaign_mem_cap_bytes,
             host_mem_available_bytes: mem.map(|m| m.effective_available()),

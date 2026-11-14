@@ -645,8 +645,8 @@ impl Hunt<'_> {
                     });
                 }
             }
-            let r = scope.kill();
-            trace(|| format!("sid {} scope cgroup.kill: {r:?}", self.s.sid));
+            let r = scope.kill_members();
+            trace(|| format!("sid {} scope kill: {r:?}", self.s.sid));
         }
         request_reap();
         left

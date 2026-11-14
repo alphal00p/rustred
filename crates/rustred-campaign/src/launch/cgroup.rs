@@ -468,7 +468,7 @@ impl ScopeRef {
 
     /// `cgroup.kill` of the job's scope: kills every process in it. Only after the guarded hunt (never instead of it),
     /// and only while the directory is still the recorded one (dev, inode, owner) under our user manager.
-    pub(crate) fn kill(&self) -> io::Result<()> {
+    pub(crate) fn kill_members(&self) -> io::Result<()> {
         let uid = crate::resources::our_uid();
         if !self.dir.starts_with(user_manager_root(uid)) || !self.still_same(uid) {
             return Err(io::Error::other("scope directory is not the recorded one"));
