@@ -118,6 +118,79 @@ impl CaseSeedSchedule {
     }
 }
 
+/// t266-tight (2026-11-13, default OFF = every search unchanged): seed LAYER CAP. A seed `S` of a search whose target
+/// is `T` is offered only when its layer does not rise above the target's: with displacements `s_i = S_i - T_i`
+/// (symbolic slots: the seed's shift; numeric slots: the value difference), `dD = sum over line axes s_i` and
+/// `dr = -sum over numerator axes s_i`, the seed is admitted iff `dD <= dots_above (+ dot_free_bonus when every line
+/// of T is numeric at 1)` and `dr <= rank_above`. Line axes: sector-true axes (symbolic) or numeric target value >= 1;
+/// frozen axes are ignored. Seeds BELOW the target (dD < 0, dr < 0) are admitted. The filter never changes the shell
+/// depths, so the caller's `max_depth` stays the single exhaustion authority (use a finite `--max-depth`: layer-keeping
+/// seeds exist at every depth). Process-global, set once by `rr_node --seed-layer-cap`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SeedLayerCap {
+    pub dots_above: i32,
+    pub rank_above: i32,
+    pub dot_free_bonus: i32,
+}
+
+static SEED_LAYER_CAP: std::sync::OnceLock<SeedLayerCap> = std::sync::OnceLock::new();
+
+impl SeedLayerCap {
+    /// Install the process-wide cap (first call wins; returns false if one was already set differently).
+    pub fn install(self) -> bool {
+        SEED_LAYER_CAP.get_or_init(|| self) == &self
+    }
+
+    /// The installed cap, if any.
+    pub fn installed() -> Option<SeedLayerCap> {
+        SEED_LAYER_CAP.get().copied()
+    }
+
+    /// (dD, dr) of `seed` relative to `target`, and whether every line of `target` is numeric at 1.
+    pub fn layer<const N: usize>(
+        target: &Integral<N>,
+        seed: &Integral<N>,
+        sector: &[bool; N],
+        frozen: &[bool; N],
+    ) -> (i32, i32, bool) {
+        let (mut dd, mut dr, mut dot_free) = (0i32, 0i32, true);
+        for i in 0..N {
+            if frozen[i] {
+                continue;
+            }
+            let t = target[i];
+            let line = if t.is_symbolic() {
+                sector[i]
+            } else {
+                t.value() >= 1
+            };
+            let s = i32::from(seed[i].value()) - i32::from(t.value());
+            if line {
+                dd += s;
+                if t.is_symbolic() || t.value() != 1 {
+                    dot_free = false;
+                }
+            } else {
+                dr -= s;
+            }
+        }
+        (dd, dr, dot_free)
+    }
+
+    /// True when `seed` lies in the admitted layers of `target`.
+    pub fn admits<const N: usize>(
+        &self,
+        target: &Integral<N>,
+        seed: &Integral<N>,
+        sector: &[bool; N],
+        frozen: &[bool; N],
+    ) -> bool {
+        let (dd, dr, dot_free) = Self::layer(target, seed, sector, frozen);
+        let dots = self.dots_above + if dot_free { self.dot_free_bonus } else { 0 };
+        dd <= dots && dr <= self.rank_above
+    }
+}
+
 /// One seed for a simple coordinate case.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Seed<const N: usize> {
@@ -152,6 +225,156 @@ pub struct Seeds<const N: usize> {
     depth: i16,
     first: bool,
     done: bool,
+    /// seed-centre: symbolic displacement of the stream's centre from the case target (all zero = historical stream);
+    /// added to every reported symbolic shift so `shifts` stays the displacement from the TARGET.
+    /// Boxed so that the default stream keeps its historical size (None = all zero).
+    centre_shift: Option<Box<[i16; N]>>,
+}
+
+/// seed-centre (2026-11-13, default off = every existing search unchanged): the seed recipe "floor" of the hard
+/// numerator-free T162 faces (helper H2, X1b/X1c/X4a): (1) the L1 seed shells are built around a CENTRE = case target
+/// plus `centre_offset` (target, comparator and pivot test unchanged); (2) the shells themselves are the existing ones
+/// (with `--max-depth 2`: every shell 0..=2 around the centre, numeric ISP axes at 0 move to rank 1 and 2); (3) with
+/// `face_floor = Some(k)` every seed whose power on a FACE LINE (a sector line that is symbolic, or numeric at >= 2,
+/// in the case) lies below `target - k` is dropped (seeds stay on the face).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SeedRecipe {
+    /// Per stored axis (missing trailing axes = 0). An axis whose offset would move a numeric power out of its sector
+    /// side (line 1 -> 0, ISP 0 -> +1) or that is frozen keeps the target value (see [`SeedRecipe::centre`]).
+    pub centre_offset: Vec<i16>,
+    /// Further centres (same convention): the seed set is the UNION of the shells around every centre, visited shell
+    /// by shell (depth d of every centre before depth d + 1), each seed once. Needed where the face's own stabiliser
+    /// moves the centre line (helper H2 X4b: face {1,3,4} closes only from the union of its three centres).
+    pub extra_centres: Vec<Vec<i16>>,
+    pub face_floor: Option<u16>,
+}
+
+impl SeedRecipe {
+    /// True when the recipe changes nothing (no offset, no floor).
+    pub fn is_default(&self) -> bool {
+        self.centre_offset.iter().all(|&d| d == 0)
+            && self.extra_centres.iter().all(|c| c.iter().all(|&d| d == 0))
+            && self.face_floor.is_none()
+    }
+
+    /// Every centre offset of the recipe (the first one, then the extra ones).
+    pub fn offsets(&self) -> Vec<&[i16]> {
+        std::iter::once(self.centre_offset.as_slice())
+            .chain(self.extra_centres.iter().map(Vec::as_slice))
+            .collect()
+    }
+
+    /// The centre of the shells for `target` and its symbolic displacement per axis, plus the offsets actually
+    /// applied (an inapplicable axis gets 0).
+    pub fn centre<const N: usize>(
+        &self,
+        target: &Integral<N>,
+        frozen: &[bool; N],
+        two_sided: &[bool; N],
+    ) -> Result<(Integral<N>, [i16; N]), PowerError> {
+        Self::centre_of(&self.centre_offset, target, frozen, two_sided)
+    }
+
+    /// [`Self::centre`] for one explicit offset.
+    pub fn centre_of<const N: usize>(
+        offset: &[i16],
+        target: &Integral<N>,
+        frozen: &[bool; N],
+        two_sided: &[bool; N],
+    ) -> Result<(Integral<N>, [i16; N]), PowerError> {
+        let mut powers = *target.powers();
+        let mut shift = [0i16; N];
+        for (axis, &delta) in offset.iter().enumerate().take(N) {
+            if delta == 0 || frozen[axis] {
+                continue;
+            }
+            let p = target[axis];
+            if !p.is_symbolic() && !two_sided[axis] {
+                let v = i32::from(p.value());
+                if (v + i32::from(delta) > 0) != (v > 0) {
+                    continue;
+                }
+            }
+            powers[axis] = p.shifted(delta)?;
+            if p.is_symbolic() {
+                shift[axis] = delta;
+            }
+        }
+        Ok((Integral::new(powers), shift))
+    }
+
+    /// Face lines of `target`: sector lines that are symbolic or numeric at >= 2.
+    pub fn face_lines<const N: usize>(target: &Integral<N>, sector: &[bool; N]) -> [bool; N] {
+        std::array::from_fn(|i| sector[i] && (target[i].is_symbolic() || target[i].value() >= 2))
+    }
+
+    /// True when `seed` keeps every face line at >= target - k (always true without a floor).
+    pub fn on_face<const N: usize>(
+        &self,
+        target: &Integral<N>,
+        face: &[bool; N],
+        seed: &Integral<N>,
+    ) -> bool {
+        let Some(k) = self.face_floor else {
+            return true;
+        };
+        (0..N).all(|i| {
+            !face[i] || i32::from(seed[i].value()) >= i32::from(target[i].value()) - i32::from(k)
+        })
+    }
+}
+
+thread_local! {
+    static SEED_RECIPE: std::cell::RefCell<Option<SeedRecipe>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Run `f` with the case search's seed recipe set on this thread (None or a default recipe = unchanged search);
+/// restored afterwards.
+pub fn with_seed_recipe<R>(recipe: Option<SeedRecipe>, f: impl FnOnce() -> R) -> R {
+    struct Restore(Option<SeedRecipe>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let previous = self.0.take();
+            SEED_RECIPE.with(|a| *a.borrow_mut() = previous);
+        }
+    }
+    let recipe = recipe.filter(|r| !r.is_default());
+    let previous = SEED_RECIPE.with(|a| std::mem::replace(&mut *a.borrow_mut(), recipe));
+    let _restore = Restore(previous);
+    f()
+}
+
+/// The seed recipe installed on this thread, if any (never a default one).
+pub fn seed_recipe_override() -> Option<SeedRecipe> {
+    SEED_RECIPE.with(|a| a.borrow().clone())
+}
+
+thread_local! {
+    /// engine-line recipe solve (default None = unchanged): an EXPLICIT, ordered seed list (absolute numeric keys)
+    /// replacing the case seed stream of the next searches on this thread ([`with_explicit_seeds`]).
+    static EXPLICIT_SEEDS: std::cell::RefCell<Option<std::sync::Arc<Vec<Vec<i16>>>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// engine-line recipe solve: run `f` with the case search fed by exactly `seeds` (absolute numeric keys, in this
+/// order; each must have the solver's arity) instead of the shell stream. Used by `node::recipe` only; restored on
+/// exit (also on panic). Without it every search is unchanged.
+pub fn with_explicit_seeds<R>(seeds: std::sync::Arc<Vec<Vec<i16>>>, f: impl FnOnce() -> R) -> R {
+    struct Restore(Option<std::sync::Arc<Vec<Vec<i16>>>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let previous = self.0.take();
+            EXPLICIT_SEEDS.with(|a| *a.borrow_mut() = previous);
+        }
+    }
+    let previous = EXPLICIT_SEEDS.with(|a| a.borrow_mut().replace(seeds));
+    let _restore = Restore(previous);
+    f()
+}
+
+/// The explicit seed list installed by [`with_explicit_seeds`] on this thread, if any.
+pub fn explicit_seeds() -> Option<std::sync::Arc<Vec<Vec<i16>>>> {
+    EXPLICIT_SEEDS.with(|a| a.borrow().clone())
 }
 
 impl<const N: usize> Seeds<N> {
@@ -192,7 +415,17 @@ impl<const N: usize> Seeds<N> {
             depth: 0,
             first: true,
             done: false,
+            centre_shift: None,
         }
+    }
+
+    /// seed-centre: report symbolic shifts relative to a target `centre_shift` away from this stream's centre.
+    pub fn with_centre_shift(mut self, centre_shift: [i16; N]) -> Self {
+        self.centre_shift = centre_shift
+            .iter()
+            .any(|&d| d != 0)
+            .then(|| Box::new(centre_shift));
+        self
     }
 
     /// Two-sided axes of this stream (all false for [`Self::new`]).
@@ -269,7 +502,7 @@ impl<const N: usize> Seeds<N> {
             };
             powers[index] = powers[index].shifted(delta)?;
             if powers[index].is_symbolic() {
-                shifts[index] = delta;
+                shifts[index] = delta + self.centre_shift.as_ref().map_or(0, |c| c[index]);
             }
         }
         Ok(Some(Seed {
@@ -290,7 +523,7 @@ impl<const N: usize> Iterator for Seeds<N> {
             self.first = false;
             return Some(Ok(Seed {
                 integral: self.initial,
-                shifts: [0; N],
+                shifts: self.centre_shift.as_deref().copied().unwrap_or([0; N]),
             }));
         }
         if self.active_count == 0 {
@@ -473,6 +706,8 @@ pub(super) struct CaseSeedStream<const N: usize> {
     skip_symbolic_upto: Option<u32>,
     /// FixedDotShell: seeds still offered (None = unbounded).
     seeds_left: Option<u32>,
+    /// seed-centre floor filter: (recipe, case target, face lines); None = no filter.
+    floor: Option<(SeedRecipe, Integral<N>, [bool; N])>,
 }
 
 impl CaseSeedSchedule {
@@ -504,8 +739,22 @@ impl<const N: usize> CaseSeedStream<N> {
         two_sided: [bool; N],
         schedule: &CaseSeedSchedule,
     ) -> Result<Self, SolverError> {
+        Self::new_centred(initial, [0; N], sector, frozen, two_sided, schedule)
+    }
+
+    /// seed-centre: the stream around `centre` (= case target + applied offsets, see [`SeedRecipe::centre`]) whose
+    /// symbolic shifts are reported relative to the target (`centre_shift`). All-zero shift = [`Self::new`].
+    pub(super) fn new_centred(
+        initial: Integral<N>,
+        centre_shift: [i16; N],
+        sector: [bool; N],
+        frozen: [bool; N],
+        two_sided: [bool; N],
+        schedule: &CaseSeedSchedule,
+    ) -> Result<Self, SolverError> {
         schedule.validate(N)?;
-        let mut inner = Seeds::new_two_sided(initial, sector, frozen, two_sided);
+        let mut inner = Seeds::new_two_sided(initial, sector, frozen, two_sided)
+            .with_centre_shift(centre_shift);
         let mut first_depth = 0;
         let mut symbolic = None;
         let mut seeds_left = None;
@@ -556,7 +805,38 @@ impl<const N: usize> CaseSeedStream<N> {
             symbolic,
             skip_symbolic_upto: None,
             seeds_left,
+            floor: None,
         })
+    }
+
+    /// seed-centre: drop seeds that leave the face of `target` by more than the recipe's floor (no-op without one).
+    /// Seeds beyond the search depth limit are never dropped, so the caller still sees the exhausting shell.
+    pub(super) fn with_face_floor(
+        mut self,
+        recipe: &SeedRecipe,
+        target: Integral<N>,
+        sector: &[bool; N],
+    ) -> Self {
+        if recipe.face_floor.is_some() {
+            self.floor = Some((
+                recipe.clone(),
+                target,
+                SeedRecipe::face_lines(&target, sector),
+            ));
+        }
+        self
+    }
+
+    fn dropped(&self, seed: &Result<Seed<N>, PowerError>) -> bool {
+        match (&self.floor, seed) {
+            (Some((recipe, target, face)), Ok(s)) => {
+                !self
+                    .search_max_depth
+                    .is_some_and(|limit| self.inner.depth() > limit)
+                    && !recipe.on_face(target, face, &s.integral)
+            }
+            _ => false,
+        }
     }
 
     pub(super) fn with_search_max_depth(mut self, limit: Option<u32>) -> Self {
@@ -578,7 +858,7 @@ impl<const N: usize> Iterator for CaseSeedStream<N> {
         while let Some((depth_cap, then_full, _)) = self.symbolic.as_ref().map(|s| (s.0, s.1, ())) {
             match self.inner.next() {
                 Some(Ok(seed)) if self.inner.depth() <= depth_cap => {
-                    if self.inner.symbolic_only(&seed) {
+                    if self.inner.symbolic_only(&seed) && !self.dropped(&Ok(seed)) {
                         return Some(Ok(seed));
                     }
                 }
@@ -599,6 +879,9 @@ impl<const N: usize> Iterator for CaseSeedStream<N> {
                 && self.inner.depth() <= cap
                 && self.inner.symbolic_only(s)
             {
+                continue;
+            }
+            if self.dropped(&seed) {
                 continue;
             }
             // Expose the first over-budget shell to the caller's existing
@@ -628,6 +911,177 @@ impl<const N: usize> Iterator for CaseSeedStream<N> {
 impl<const N: usize> ShellSeedSource<N> for CaseSeedStream<N> {
     fn shell_depth(&self) -> u32 {
         self.depth()
+    }
+}
+
+/// seed-centre: the union of several centred streams, shell by shell (every centre's depth-d seeds before any depth
+/// d + 1 seed), each seed integral once. The first seed beyond the search depth limit is passed on only when every
+/// centre has reached it, so the caller's depth-exhaustion check stays the single authority.
+pub(super) struct MultiCentreStream<const N: usize> {
+    streams: Vec<CaseSeedStream<N>>,
+    /// Per stream: the next seed already pulled (with its depth), None = not pulled yet.
+    pending: Vec<Option<(Result<Seed<N>, PowerError>, u32)>>,
+    finished: Vec<bool>,
+    depth: u32,
+    cursor: usize,
+    seen: std::collections::HashSet<Integral<N>>,
+    done: bool,
+}
+
+impl<const N: usize> MultiCentreStream<N> {
+    pub(super) fn new(streams: Vec<CaseSeedStream<N>>) -> Self {
+        let k = streams.len();
+        Self {
+            streams,
+            pending: (0..k).map(|_| None).collect(),
+            finished: vec![false; k],
+            depth: 0,
+            cursor: 0,
+            seen: Default::default(),
+            done: false,
+        }
+    }
+
+    fn peek(&mut self, k: usize) -> Option<u32> {
+        if self.pending[k].is_none() && !self.finished[k] {
+            match self.streams[k].next() {
+                Some(seed) => {
+                    let d = self.streams[k].depth();
+                    self.pending[k] = Some((seed, d));
+                }
+                None => self.finished[k] = true,
+            }
+        }
+        self.pending[k].as_ref().map(|(_, d)| *d)
+    }
+}
+
+impl<const N: usize> Iterator for MultiCentreStream<N> {
+    type Item = Result<Seed<N>, PowerError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+        loop {
+            // emit the cursor stream's seeds of the current depth
+            while self.cursor < self.streams.len() {
+                let k = self.cursor;
+                match self.peek(k) {
+                    Some(d) if d <= self.depth => {
+                        let (seed, _) = self.pending[k].take().expect("peeked");
+                        match seed {
+                            Ok(s) => {
+                                if self.seen.insert(s.integral) {
+                                    return Some(Ok(s));
+                                }
+                            }
+                            Err(e) => {
+                                self.done = true;
+                                return Some(Err(e));
+                            }
+                        }
+                    }
+                    _ => self.cursor += 1,
+                }
+            }
+            // every stream is past the current depth (or finished): next shell
+            let next = (0..self.streams.len()).filter_map(|k| self.peek(k)).min();
+            let Some(next) = next else {
+                self.done = true;
+                return None;
+            };
+            let limit_hit = self
+                .streams
+                .iter()
+                .any(|s| s.search_max_depth.is_some_and(|limit| next > limit));
+            self.depth = next;
+            self.cursor = 0;
+            if limit_hit {
+                // hand the first over-limit seed to the caller (it stops there)
+                let k = (0..self.streams.len())
+                    .find(|&k| self.pending[k].as_ref().is_some_and(|(_, d)| *d == next))
+                    .expect("min exists");
+                let (seed, _) = self.pending[k].take().expect("peeked");
+                return Some(seed);
+            }
+        }
+    }
+}
+
+impl<const N: usize> ShellSeedSource<N> for MultiCentreStream<N> {
+    fn shell_depth(&self) -> u32 {
+        self.depth
+    }
+}
+
+/// The case search's seed source: the historical single stream (default), or the seed-centre union.
+pub(super) enum CentredSeeds<const N: usize> {
+    Single(CaseSeedStream<N>),
+    Multi(MultiCentreStream<N>),
+}
+
+impl<const N: usize> Iterator for CentredSeeds<N> {
+    type Item = Result<Seed<N>, PowerError>;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Single(s) => s.next(),
+            Self::Multi(s) => s.next(),
+        }
+    }
+}
+
+impl<const N: usize> ShellSeedSource<N> for CentredSeeds<N> {
+    fn shell_depth(&self) -> u32 {
+        match self {
+            Self::Single(s) => s.shell_depth(),
+            Self::Multi(s) => s.shell_depth(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod layer_cap_tests {
+    use super::super::Power;
+    use super::*;
+
+    fn key(sym: [bool; 4], v: [i16; 4]) -> Integral<4> {
+        Integral::new(std::array::from_fn(|i| Power::new(sym[i], v[i]).unwrap()))
+    }
+
+    #[test]
+    fn layer_cap_admits_own_layer_and_below_only() {
+        // axes 0,1 lines (sector true), 2,3 numerators; target: line 0 symbolic, line 1 = 1, numerators n2 symbolic, 0
+        let sector = [true, true, false, false];
+        let frozen = [false; 4];
+        let t = key([true, false, true, false], [0, 1, 0, 0]);
+        let cap = SeedLayerCap {
+            dots_above: 0,
+            rank_above: 0,
+            dot_free_bonus: 1,
+        };
+        assert!(cap.admits(&t, &t, &sector, &frozen));
+        // dot moved from line 1 to line 0: same layer
+        let s = key([true, false, true, false], [1, 1, 0, 0]);
+        assert_eq!(SeedLayerCap::layer(&t, &s, &sector, &frozen), (1, 0, false));
+        assert!(!cap.admits(&t, &s, &sector, &frozen));
+        // one dot below, one rank above (trade): refused on rank
+        let s = key([true, false, true, false], [-1, 1, 0, -1]);
+        assert_eq!(
+            SeedLayerCap::layer(&t, &s, &sector, &frozen),
+            (-1, 1, false)
+        );
+        assert!(!cap.admits(&t, &s, &sector, &frozen));
+        // below in both
+        let s = key([true, false, true, false], [-1, 1, 1, 0]);
+        assert!(cap.admits(&t, &s, &sector, &frozen));
+        // dot-free target: one dot level allowed
+        let t0 = key([false, false, true, false], [1, 1, 0, 0]);
+        let s = key([false, false, true, false], [2, 1, 0, 0]);
+        assert_eq!(SeedLayerCap::layer(&t0, &s, &sector, &frozen), (1, 0, true));
+        assert!(cap.admits(&t0, &s, &sector, &frozen));
+        let s = key([false, false, true, false], [2, 2, 0, 0]);
+        assert!(!cap.admits(&t0, &s, &sector, &frozen));
     }
 }
 
@@ -1110,6 +1564,395 @@ mod tests {
             .map(|s| s.unwrap().shifts)
             .collect();
         assert_eq!(spired, raw);
+    }
+
+    /// T162 presented frame: slots 0..8 lines, 9..19 ISPs; `face` lines symbolic, other lines at 1, ISPs at 0.
+    fn t162_face(face: &[usize]) -> (Integral<20>, [bool; 20]) {
+        let sector: [bool; 20] = std::array::from_fn(|i| i < 9);
+        let powers = std::array::from_fn(|i| {
+            if face.contains(&i) {
+                Power::new(true, 0).unwrap()
+            } else {
+                Power::new(false, if i < 9 { 1 } else { 0 }).unwrap()
+            }
+        });
+        (Integral::new(powers), sector)
+    }
+
+    /// Seeds (offsets from the TARGET, symbolic displacement or numeric value - target value) of the case search
+    /// stream with `recipe`, shells 0..=depth around the centre.
+    fn recipe_seeds(face: &[usize], recipe: &SeedRecipe, depth: u32) -> Vec<[i16; 20]> {
+        let (target, sector) = t162_face(face);
+        let (centre, shift) = recipe.centre(&target, &[false; 20], &[false; 20]).unwrap();
+        let mut stream = CaseSeedStream::new_centred(
+            centre,
+            shift,
+            sector,
+            [false; 20],
+            [false; 20],
+            &CaseSeedSchedule::Reference,
+        )
+        .unwrap()
+        .with_search_max_depth(Some(depth))
+        .with_face_floor(recipe, target, &sector);
+        let mut out = Vec::new();
+        while let Some(seed) = stream.next() {
+            if stream.depth() > depth {
+                break;
+            }
+            let seed = seed.unwrap();
+            let off: [i16; 20] =
+                std::array::from_fn(|i| seed.integral[i].value() - target[i].value());
+            // reported shifts stay the displacement from the target (replay contract)
+            for i in 0..20 {
+                if seed.integral[i].is_symbolic() {
+                    assert_eq!(seed.shifts[i], seed.integral[i].value());
+                } else {
+                    assert_eq!(seed.shifts[i], 0);
+                }
+            }
+            out.push(off);
+        }
+        out
+    }
+
+    /// The helper H2 shell set (h2/face.py `shells` + `seed_ok`): S0+S1+Sm1+S1m1+S2 around centre C, u_j = +1 on a
+    /// line, -1 on an ISP; seeds that move a fixed line to <= 0 or a fixed ISP to > 0 dropped; optional floor
+    /// (offset from target >= -k on the face lines).
+    fn helper_seeds(face: &[usize], centre: &[i16; 20], floor: Option<i16>) -> Vec<[i16; 20]> {
+        let u = |j: usize| -> [i16; 20] {
+            std::array::from_fn(|i| {
+                if i == j {
+                    if j < 9 { 1 } else { -1 }
+                } else {
+                    0
+                }
+            })
+        };
+        let add = |vs: &[[i16; 20]]| -> [i16; 20] {
+            std::array::from_fn(|i| centre[i] + vs.iter().map(|v| v[i]).sum::<i16>())
+        };
+        let neg = |v: [i16; 20]| -> [i16; 20] { v.map(|x| -x) };
+        let mut all = vec![add(&[])];
+        all.extend((0..20).map(|j| add(&[u(j)])));
+        all.extend((0..20).map(|j| add(&[neg(u(j))])));
+        for a in 0..20 {
+            for c in 0..20 {
+                if a != c {
+                    all.push(add(&[u(a), neg(u(c))]));
+                }
+            }
+        }
+        for a in 0..20 {
+            for c in a..20 {
+                all.push(add(&[u(a), u(c)]));
+            }
+        }
+        let fixed_value = |i: usize| if i < 9 { 1 } else { 0 };
+        let mut out: Vec<[i16; 20]> = Vec::new();
+        for s in all {
+            let ok = (0..20).all(|i| {
+                if face.contains(&i) {
+                    floor.is_none_or(|k| s[i] >= -k)
+                } else if i < 9 {
+                    fixed_value(i) + s[i] > 0
+                } else {
+                    fixed_value(i) + s[i] <= 0
+                }
+            });
+            if ok && !out.contains(&s) {
+                out.push(s);
+            }
+        }
+        out
+    }
+
+    fn sorted(mut v: Vec<[i16; 20]>) -> Vec<[i16; 20]> {
+        v.sort();
+        v
+    }
+
+    /// True for the seeds the engine's L1 ball has and the helper's shells lack: two LOWERINGS (Sm2 around C).
+    fn double_lowering(off: &[i16; 20], centre: &[i16; 20], face: &[usize]) -> bool {
+        face.iter()
+            .map(|&i| (centre[i] - off[i]).max(0))
+            .sum::<i16>()
+            == 2
+    }
+
+    #[test]
+    fn seed_centre_floor_counts_match_the_helper_t162_reference() {
+        let face = [0usize, 2, 7];
+        let mut centre = [0i16; 20];
+        centre[0] = -1;
+        let mut offset = vec![0i16; 20];
+        offset[0] = -1;
+        let plain = SeedRecipe {
+            centre_offset: offset.clone(),
+            extra_centres: vec![],
+            face_floor: None,
+        };
+        let floored = SeedRecipe {
+            centre_offset: offset,
+            extra_centres: vec![],
+            face_floor: Some(1),
+        };
+        let engine = recipe_seeds(&face, &plain, 2);
+        let engine_floor = recipe_seeds(&face, &floored, 2);
+        // centre seed first, at target - e0, depth 0
+        assert_eq!(engine[0], centre);
+        // engine L1 ball (radius 2, symbolic axes both ways, lines up, ISPs to rank 1, 2) = 297; floor drops 25 -> 272
+        assert_eq!(engine.len(), 297);
+        assert_eq!(engine_floor.len(), 272);
+        // helper reference: 291 seeds / 271 with the floor (X1b, X1c)
+        let helper = helper_seeds(&face, &centre, None);
+        let helper_floor = helper_seeds(&face, &centre, Some(1));
+        assert_eq!(helper.len(), 291);
+        assert_eq!(helper_floor.len(), 271);
+        // the difference is exactly the double-lowering shell Sm2 (6 seeds; 1 of them, target - e0 - e2 - e7, is on
+        // the face and survives the floor)
+        let strip = |v: &[[i16; 20]]| -> Vec<[i16; 20]> {
+            v.iter()
+                .copied()
+                .filter(|s| !double_lowering(s, &centre, &face))
+                .collect()
+        };
+        assert_eq!(sorted(strip(&engine)), sorted(helper));
+        assert_eq!(sorted(strip(&engine_floor)), sorted(helper_floor));
+        let extra: Vec<_> = engine_floor
+            .iter()
+            .filter(|s| double_lowering(s, &centre, &face))
+            .collect();
+        let mut t = [0i16; 20];
+        t[0] = -1;
+        t[2] = -1;
+        t[7] = -1;
+        assert_eq!(extra, vec![&t]);
+        // floor: no face line below target - 1, and rows 30 per seed -> 8,160 vs the helper's 8,130
+        assert!(
+            engine_floor
+                .iter()
+                .all(|s| face.iter().all(|&i| s[i] >= -1))
+        );
+        // ISP axes fixed at 0 move: rank-1 and rank-2 numerator seeds present
+        assert!(engine_floor.iter().any(|s| (9..20).any(|i| s[i] == -1)));
+        assert!(engine_floor.iter().any(|s| (9..20).any(|i| s[i] == -2)));
+        assert!(engine_floor.iter().all(|s| (9..20).all(|i| s[i] <= 0)));
+    }
+
+    #[test]
+    fn four_line_face_counts_against_the_helper() {
+        let face = [0usize, 1, 2, 7];
+        let mut centre = [0i16; 20];
+        centre[0] = -1;
+        let mut offset = vec![0i16; 20];
+        offset[0] = -1;
+        let plain = SeedRecipe {
+            centre_offset: offset,
+            extra_centres: vec![],
+            face_floor: None,
+        };
+        let engine = recipe_seeds(&face, &plain, 2);
+        let helper = helper_seeds(&face, &centre, None);
+        assert_eq!(helper.len(), 311); // X4a
+        assert_eq!(engine.len(), 321); // + Sm2: 4 double + 6 pairs
+        let strip: Vec<_> = engine
+            .iter()
+            .copied()
+            .filter(|s| !double_lowering(s, &centre, &face))
+            .collect();
+        assert_eq!(sorted(strip), sorted(helper));
+    }
+
+    #[test]
+    fn union_of_centres_matches_the_helper_134_union() {
+        // face {1,3,4}: centres T - e1, T - e3, T - e4, floor 1 (helper H2 X4b: 708 seeds in the union)
+        let face = [1usize, 3, 4];
+        let (target, sector) = t162_face(&face);
+        let unit =
+            |j: usize| -> Vec<i16> { (0..20).map(|i| if i == j { -1 } else { 0 }).collect() };
+        let recipe = SeedRecipe {
+            centre_offset: unit(1),
+            extra_centres: vec![unit(3), unit(4)],
+            face_floor: Some(1),
+        };
+        let streams: Vec<_> = recipe
+            .offsets()
+            .into_iter()
+            .map(|o| {
+                let (c, sh) =
+                    SeedRecipe::centre_of(o, &target, &[false; 20], &[false; 20]).unwrap();
+                CaseSeedStream::new_centred(
+                    c,
+                    sh,
+                    sector,
+                    [false; 20],
+                    [false; 20],
+                    &CaseSeedSchedule::Reference,
+                )
+                .unwrap()
+                .with_search_max_depth(Some(2))
+                .with_face_floor(&recipe, target, &sector)
+            })
+            .collect();
+        let mut multi = MultiCentreStream::new(streams);
+        let mut got: Vec<[i16; 20]> = Vec::new();
+        let mut depths = Vec::new();
+        while let Some(seed) = multi.next() {
+            if multi.shell_depth() > 2 {
+                break;
+            }
+            let seed = seed.unwrap();
+            depths.push(multi.shell_depth());
+            for i in 0..20 {
+                if seed.integral[i].is_symbolic() {
+                    assert_eq!(seed.shifts[i], seed.integral[i].value());
+                }
+            }
+            got.push(std::array::from_fn(|i| {
+                seed.integral[i].value() - target[i].value()
+            }));
+        }
+        assert!(depths.windows(2).all(|w| w[0] <= w[1]));
+        let mut uniq = got.clone();
+        uniq.sort();
+        uniq.dedup();
+        assert_eq!(uniq.len(), got.len(), "each seed once");
+        let mut helper: Vec<[i16; 20]> = Vec::new();
+        let mut engine_strip: Vec<[i16; 20]> = Vec::new();
+        for x in face {
+            let mut c = [0i16; 20];
+            c[x] = -1;
+            for s in helper_seeds(&face, &c, Some(1)) {
+                if !helper.contains(&s) {
+                    helper.push(s);
+                }
+            }
+            for s in got.iter().filter(|s| !double_lowering(s, &c, &face)) {
+                // a seed is "helper-like" if it is in the helper shells of SOME centre
+                let _ = s;
+            }
+        }
+        assert_eq!(helper.len(), 708);
+        // every helper seed is in the engine union; the engine has only extra double-lowering seeds
+        for s in &helper {
+            assert!(got.contains(s));
+        }
+        for s in &got {
+            if !helper.contains(s) {
+                let lowered = face.iter().map(|&i| (-s[i]).max(0)).sum::<i16>();
+                assert!(lowered >= 2, "{s:?}");
+                engine_strip.push(*s);
+            }
+        }
+        assert!(got.len() >= 708);
+    }
+
+    #[test]
+    fn centre_at_the_target_and_default_recipe_change_nothing() {
+        let (target, sector) = t162_face(&[0, 2, 7]);
+        let reference: Vec<_> = CaseSeedStream::new(
+            target,
+            sector,
+            [false; 20],
+            [false; 20],
+            &CaseSeedSchedule::Reference,
+        )
+        .unwrap()
+        .take(400)
+        .collect();
+        let default = SeedRecipe::default();
+        assert!(default.is_default());
+        let (centre, shift) = default.centre(&target, &[false; 20], &[false; 20]).unwrap();
+        assert_eq!((centre, shift), (target, [0; 20]));
+        let same: Vec<_> = CaseSeedStream::new_centred(
+            centre,
+            shift,
+            sector,
+            [false; 20],
+            [false; 20],
+            &CaseSeedSchedule::Reference,
+        )
+        .unwrap()
+        .with_face_floor(&default, target, &sector)
+        .take(400)
+        .collect();
+        assert_eq!(same, reference);
+        // a default recipe is never installed
+        with_seed_recipe(Some(SeedRecipe::default()), || {
+            assert!(seed_recipe_override().is_none())
+        });
+        let r = SeedRecipe {
+            centre_offset: vec![-1],
+            extra_centres: vec![],
+            face_floor: Some(1),
+        };
+        with_seed_recipe(Some(r.clone()), || {
+            assert_eq!(seed_recipe_override(), Some(r.clone()))
+        });
+        assert!(seed_recipe_override().is_none());
+    }
+
+    #[test]
+    fn centre_offsets_never_leave_the_sector_side() {
+        // line at 1 (cannot go to 0), ISP at 0 (cannot go to +1), line at 2 -> 1 allowed, frozen axis ignored
+        let target = Integral::new([
+            Power::new(false, 1).unwrap(),
+            Power::new(false, 0).unwrap(),
+            Power::new(false, 2).unwrap(),
+            Power::new(true, 0).unwrap(),
+        ]);
+        let r = SeedRecipe {
+            centre_offset: vec![-1, 1, -1, -1],
+            extra_centres: vec![],
+            face_floor: None,
+        };
+        let (centre, shift) = r
+            .centre(&target, &[false, false, false, true], &[false; 4])
+            .unwrap();
+        assert_eq!(centre.powers().map(|p| p.value()), [1, 0, 1, 0]);
+        assert_eq!(shift, [0; 4]);
+        let r = SeedRecipe {
+            centre_offset: vec![0, 0, 0, -1],
+            extra_centres: vec![],
+            face_floor: None,
+        };
+        let (centre, shift) = r.centre(&target, &[false; 4], &[false; 4]).unwrap();
+        assert_eq!(centre[3].value(), -1);
+        assert!(centre[3].is_symbolic());
+        assert_eq!(shift, [0, 0, 0, -1]);
+    }
+
+    #[test]
+    fn floor_filter_does_not_hide_the_exhausting_shell() {
+        let face = [0usize, 2, 7];
+        let (target, sector) = t162_face(&face);
+        // a floor that drops every lowering: the stream still exposes depth 1 to a depth-0 search
+        let r = SeedRecipe {
+            centre_offset: vec![],
+            extra_centres: vec![],
+            face_floor: Some(0),
+        };
+        let mut stream = CaseSeedStream::new(
+            target,
+            sector,
+            [false; 20],
+            [false; 20],
+            &CaseSeedSchedule::Reference,
+        )
+        .unwrap()
+        .with_search_max_depth(Some(0))
+        .with_face_floor(&r, target, &sector);
+        assert!(stream.next().unwrap().is_ok());
+        assert_eq!(stream.depth(), 0);
+        let first_over = stream.next().unwrap().unwrap();
+        assert_eq!(stream.depth(), 1);
+        // the first depth-1 seed in SpIRed order is the lowering of axis 0, returned although below the floor
+        assert_eq!(first_over.integral[0].value(), -1);
+        // numeric face line at 2 (off-floor) counts as a face line; a line at 1 does not
+        let t2 = Integral::new([Power::new(false, 2).unwrap(), Power::new(false, 1).unwrap()]);
+        let face2 = SeedRecipe::face_lines(&t2, &[true, true]);
+        assert_eq!(face2, [true, false]);
     }
 
     #[test]

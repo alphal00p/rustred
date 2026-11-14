@@ -231,6 +231,8 @@ struct Rule {
     rhs_text: Vec<String>,
     rhs_expr: Option<Vec<Expr>>,
     skip: bool,
+    /// the record's `index` (a set label for converted banks), for `rr_node first-match`
+    label: Option<u64>,
 }
 
 /// A node table loaded for reduction.
@@ -357,6 +359,15 @@ impl Table {
                                 .collect::<Result<Vec<_>, _>>()
                         })
                         .collect::<Result<Vec<_>, String>>()?;
+                    // optional domain_bounds (imported rules): extra exception branches (node::bounds)
+                    let mut exceptions = exceptions;
+                    for b in super::bounds::bound_exclusions(&v)? {
+                        exceptions.push(
+                            b.iter()
+                                .map(|x| Expr::parse(x, n))
+                                .collect::<Result<Vec<_>, _>>()?,
+                        );
+                    }
                     let mut rhs_pats = vec![];
                     let mut rhs_text = vec![];
                     for term in v["rhs"].as_array().ok_or("rule without rhs")? {
@@ -376,7 +387,48 @@ impl Table {
                         rhs_text,
                         rhs_expr: None,
                         skip,
+                        label: v["index"].as_u64(),
                     });
+                }
+                // sym-gen (engine-line port of f6ebb974): I(target) = s I(image), one term, no exceptions (the sign
+                // "key" is not supported here)
+                "sym" => {
+                    let n = t.n;
+                    let fixed = v["fixed"]
+                        .as_array()
+                        .ok_or("sym without fixed")?
+                        .iter()
+                        .map(Value::as_i64)
+                        .collect();
+                    let equations = v
+                        .get("equations")
+                        .and_then(Value::as_array)
+                        .map(|a| {
+                            a.iter()
+                                .map(|x| Expr::parse(x.as_str().unwrap_or(""), n))
+                                .collect::<Result<Vec<_>, _>>()
+                        })
+                        .transpose()?
+                        .unwrap_or_default();
+                    let sign = match v["sign"].as_str() {
+                        Some("+") => "1",
+                        Some("-") => "-1",
+                        other => return Err(format!("sym record sign {other:?} not supported")),
+                    };
+                    t.rules.push(Rule {
+                        fixed,
+                        equations,
+                        exceptions: vec![],
+                        target: parse_pat(v["target"].as_str().unwrap_or(""), n)?,
+                        rhs_pats: vec![parse_pat(v["image"].as_str().unwrap_or(""), n)?],
+                        rhs_text: vec![sign.to_string()],
+                        rhs_expr: None,
+                        skip: false,
+                        label: v["index"].as_u64(),
+                    });
+                }
+                "sym_zero" => {
+                    return Err("sym_zero records are not supported by the table reducer".into());
                 }
                 "residual" => t
                     .masters
@@ -415,6 +467,11 @@ impl Table {
             return Err(format!("ISP in a denominator: {}", key_text(k)));
         }
         Ok((0..self.n).all(|i| !self.mask[i] || k[i] >= 1))
+    }
+
+    /// The first applicable rule of key `k` (table order): its position and its record `index` (label).
+    pub fn first_match(&self, k: &[i64]) -> Option<(usize, Option<u64>)> {
+        self.find_rule(k).map(|(ri, _)| (ri, self.rules[ri].label))
     }
 
     /// First applicable rule (table order) and the rule point of key `k`.
