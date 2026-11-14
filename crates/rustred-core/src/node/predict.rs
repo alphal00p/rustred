@@ -980,9 +980,7 @@ pub fn table_cases(path: &str) -> Result<(serde_json::Value, Vec<WeightedCase>),
         line_no += 1;
         // the record kind: this reader keeps a 64 KB prefix per line, so it can classify a record only when `type`
         // is its FIRST member (the engine's layout); any other layout is a typed refusal, never a skip
-        let kind_at_start = text
-            .strip_prefix("{\"type\":\"")
-            .and_then(|r| r.split('"').next())
+        let kind_at_start = super::records::first_member_kind(&text)
             .filter(|k| super::records::TABLE_KINDS.contains(k));
         let Some(kind) = kind_at_start else {
             if text.trim().is_empty() {

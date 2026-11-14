@@ -43,7 +43,16 @@ fn header_family(table: &str) -> Option<String> {
     let mut fam = None;
     read_lines_matching(table, |l| {
         if rustred_proof::core::record_kind(l, table, 1, rustred_proof::core::TABLE_KINDS) == Some(b"header") {
-            let v: serde_like::Val = serde_like::field_string(l, "family_source");
+            // the parsed top-level member (any key order, any whitespace); field_string unescapes the JSON string
+            let v: serde_like::Val = rustred_proof::core::top_members_raw(l, |_, _| true).ok().and_then(|_| {
+                let mut raw: Option<&[u8]> = None;
+                rustred_proof::core::top_members_raw(l, |k, v| { if k == b"family_source" { raw = Some(v); false } else { true } }).ok()?;
+                let raw = raw?;
+                let mut wrapped = b"{\"family_source\":".to_vec();
+                wrapped.extend_from_slice(raw);
+                wrapped.push(b'}');
+                serde_like::field_string(&wrapped, "family_source")
+            });
             fam = v;
         }
         false

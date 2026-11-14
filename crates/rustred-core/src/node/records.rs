@@ -20,7 +20,11 @@ pub const TABLE_KINDS: &[&str] = &[
     "chart_end",
     "chart_error",
     "end",
+    // external composite assemblies (Astra) found in accepted ledger tables (scan of 618 ledger table paths)
     "assembly_provenance",
+    "composite_assembly_complete",
+    "assembly_end",
+    "composite_terminal_ledger",
 ];
 /// Record kinds of a certificate (`F.cert.jsonl`).
 pub const CERT_KINDS: &[&str] = &["cert_header", "source_row", "basis_row", "cert_rule", "cert_end"];
@@ -114,6 +118,25 @@ pub fn top_members<'a>(
             _ => return Err("',' or '}' expected"),
         }
     }
+}
+
+/// The kind of a record from the START of its line (a bounded prefix): `{`, optional whitespace, `"type"`, optional
+/// whitespace, `:`, optional whitespace, a plain string. None when `type` is not the first member (the caller decides).
+pub fn first_member_kind(head: &str) -> Option<&str> {
+    let b = head.as_bytes();
+    let mut i = skip_ws(b, 0);
+    if b.get(i) != Some(&b'{') {
+        return None;
+    }
+    i = skip_ws(b, i + 1);
+    let rest = head.get(i..)?.strip_prefix("\"type\"")?;
+    let j = skip_ws(rest.as_bytes(), 0);
+    let rest = rest.get(j..)?.strip_prefix(':')?;
+    let j = skip_ws(rest.as_bytes(), 0);
+    let rest = rest.get(j..)?.strip_prefix('"')?;
+    let end = rest.find('"')?;
+    let k = &rest[..end];
+    k.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_').then_some(k)
 }
 
 /// Byte range of the RAW value of the top-level member `name` (a string keeps its quotes), None if absent.
@@ -212,6 +235,13 @@ mod tests {
             assert!(e.starts_with(want), "{bad}: {e}");
         }
         assert_eq!(record_kind(r#"{"type":"cert_rule","rule":3}"#, "c", 1, CERT_KINDS), Ok(Some("cert_rule")));
+        // Python-written tables: whitespace after ':' and ','
+        let spaced = r#"{"type": "rule", "chart": "110", "index": 7, "fixed": [1, null]}"#;
+        assert_eq!(record_kind(spaced, "t", 6, TABLE_KINDS), Ok(Some("rule")));
+        assert_eq!(top_int(spaced, "index"), Some(7));
+        assert_eq!(first_member_kind(spaced), Some("rule"));
+        assert_eq!(first_member_kind(r#"{"type":"end","rules":2"#), Some("end"));
+        assert_eq!(first_member_kind(r#"{"case":"x","type":"rule"}"#), None);
         // sym-gen tables carry symmetry records; they are known kinds, not refused
         assert_eq!(record_kind(r#"{"type":"sym","chart":"110","index":3}"#, "t", 4, TABLE_KINDS), Ok(Some("sym")));
         assert_eq!(record_kind(r#"{"type":"sym_zero","chart":"110","index":4}"#, "t", 5, TABLE_KINDS), Ok(Some("sym_zero")));
