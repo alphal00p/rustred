@@ -39,13 +39,35 @@ pub struct Tmp {
     pub campaign: String,
 }
 
+/// A token unique to THIS test process on the host (procfix3 item 0). `std::process::id()` alone is NOT: inside the
+/// private pid namespaces the suites run in (`unshare -Urpf`, rule L10) every test binary is pid 1, and the host's
+/// /tmp is shared, so two concurrent runs of one test binary (two lanes) used the SAME directory and the second one's
+/// `remove_dir_all` deleted the first one's campaign directory and log while its supervisor ran.
+pub fn process_token() -> String {
+    static T: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    T.get_or_init(|| {
+        let ns = std::fs::read_link("/proc/self/ns/pid")
+            .map(|l| l.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let h = blake3::hash(format!("{ns}|{}|{stat}|{t}", std::process::id()).as_bytes());
+        h.to_hex()[..8].to_string()
+    })
+    .clone()
+}
+
 impl Tmp {
     pub fn new(tag: &str) -> Tmp {
         let n = N.fetch_add(1, Ordering::Relaxed);
-        let campaign = format!("sup-{tag}-{}-{n}", std::process::id());
+        let campaign = format!("sup-{tag}-{}-{n}", process_token());
         let path = std::env::temp_dir().join(format!("rr-{campaign}"));
-        let _ = std::fs::remove_dir_all(&path);
-        std::fs::create_dir_all(&path).unwrap();
+        // Never delete a directory we did not create: create_dir (not _all) fails if it exists.
+        std::fs::create_dir_all(std::env::temp_dir()).unwrap();
+        std::fs::create_dir(&path).unwrap_or_else(|e| panic!("{}: {e} (not unique?)", path.display()));
         Tmp { path, campaign }
     }
     pub fn cdir(&self, name: &str) -> PathBuf {

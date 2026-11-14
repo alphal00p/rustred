@@ -41,7 +41,12 @@ fn i1_random_interrupts_give_the_reference_result() {
     let mut per_kind = [(0u32, 0u32); 4];
     let mut sessions_total = 0;
     let mut interrupts_total = 0;
-    for run in 0..runs {
+    // RR_SUP_I1_FIRST=k replays from run k (the seeds depend on the run index only): reproductions of one run.
+    let first: u64 = std::env::var("RR_SUP_I1_FIRST")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    for run in first..runs {
         let kind = (run % 4) as usize;
         let seed = mix(0x5eed_0000 + run);
         let dir = t.cdir(&format!("run{run:03}"));
