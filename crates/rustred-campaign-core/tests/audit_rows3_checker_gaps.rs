@@ -242,6 +242,8 @@ impl CheckAlgebra for ControlLie {
         q_rref(rows: &[Vec<Q>], ncols: usize) -> Result<(Vec<Vec<Q>>, Vec<usize>), Unknown>;
         q_unit_in_row_space(rows: &[Vec<Q>], col: usize) -> Result<bool, Unknown>;
         gcd_i128(a: i128, b: i128) -> i128;
+        int_mat_mul(a: &[i128], b: &[i128], r: usize, k: usize, c: usize) -> Option<Vec<i128>>;
+        int_div_exact(a: i128, b: i128) -> Option<i128>;
         zpoly_det(m: &[Vec<ZPoly>], dim: usize, t: usize) -> ZPoly;
         cross_check_coefficient(text: &str, arity: usize, ctx: &Ctx, num: u64, den: u64) -> Result<(), Unknown>;
         expr_linear(text: &str, n: usize) -> Result<Vec<Q>, Unknown>;

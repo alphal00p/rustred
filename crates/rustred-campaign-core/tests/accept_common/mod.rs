@@ -263,12 +263,17 @@ pub fn view<'a>(node: &'a Node, target: NodeTarget, required: RequiredEvidence) 
 
 pub fn replay_prover(node: &Node) -> ReplayProver {
     ReplayProver::new(
-        Family::parse(&node.family_text).unwrap(),
+        // rows4 (re-audit RA3-M1): the prover parses the spec text itself with the certificate backend
+        &node.family_text,
         // rows3 (re-audit A NEW-M1): the `replay` level requires a family binding: the node table's header
         // (family_source compared with the family text); the constructor makes it mandatory (acceptfix)
         rustred_campaign_core::ibp_rows::TableBinding::from_header(&node.header.raw).unwrap(),
+        // rows4 (re-audit RA3-m2): the campaign's nonce beacon (a test value here)
+        rustred_campaign_core::ibp_rows::Beacon::from_hex("0123456789abcdef0123456789abcdef")
+            .unwrap(),
         RowsOptions::default(),
     )
+    .unwrap()
 }
 
 /// Tables in force = the given table file (input) followed by accepted rules (token, record) in dispatch order.

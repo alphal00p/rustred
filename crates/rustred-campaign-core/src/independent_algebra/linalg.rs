@@ -216,6 +216,28 @@ pub fn zpoly_det(m: &[Vec<ZPoly>], dim: usize, t: usize) -> ZPoly {
     det(m, &idx, &idx, &mut HashMap::new(), t)
 }
 
+/// The integer matrix product `a b` (row-major, `a` r x k, `b` k x c), checked (rows4: the symmetry proof's products).
+pub fn int_mat_mul(a: &[i128], b: &[i128], r: usize, k: usize, c: usize) -> Option<Vec<i128>> {
+    if a.len() != r * k || b.len() != k * c {
+        return None;
+    }
+    let mut out = vec![0i128; r * c];
+    for i in 0..r {
+        for j in 0..c {
+            for m in 0..k {
+                out[i * c + j] =
+                    out[i * c + j].checked_add(a[i * k + m].checked_mul(b[m * c + j])?)?;
+            }
+        }
+    }
+    Some(out)
+}
+
+/// Exact integer quotient (`None` if `b` is 0 or does not divide `a`).
+pub fn int_div_exact(a: i128, b: i128) -> Option<i128> {
+    (b != 0 && a.checked_rem(b)? == 0).then(|| a / b)
+}
+
 /// gcd of two i128 (non-negative result; gcd(0, 0) = 0).
 pub fn gcd_i128(mut a: i128, mut b: i128) -> i128 {
     a = a.abs();

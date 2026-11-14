@@ -4,7 +4,9 @@
 //! [`algebra::CheckAlgebra`] (DEV-17 REVISED, rows3): the segregated Symbolica-free implementation is
 //! `crate::independent_algebra` (read its header), the Symbolica-backed one is the crate `rustred-campaign-algebra`.
 //!
-//! - [`algebra`]: the trait and the data types exchanged through it (no algebra).
+//! - [`algebra`]: the trait and the data types exchanged through it (no algebra); `AlgebraOrigin`, `Recorder`.
+//! - `certificate` (crate-private, rows4): the certificate binding `CertAlg` (Independent + optional recorder): the only
+//!   backend value that yields objects of certificate origin.
 //! - [`family`]: copy of `rustred-core/src/node/replay/family.rs` at b9f06de7 (domain parts; arithmetic via the trait).
 //! - [`record`], [`rows`]: the listed items of `replay/mod.rs` at b9f06de7.
 //! - [`primes`]: NEW verify-range prime policy and SplitMix64 streams (primality via the trait).
@@ -16,6 +18,7 @@
 //! routines of `symrows` / `family` / `ibp_rows` (now `linalg`).
 
 pub mod algebra;
+pub(crate) mod certificate;
 pub mod family;
 pub mod primes;
 pub mod record;

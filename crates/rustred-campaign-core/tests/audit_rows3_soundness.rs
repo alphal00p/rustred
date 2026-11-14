@@ -15,8 +15,7 @@ use rows_common::face::{face, form_text, gcd, pat, served};
 use rows_common::*;
 use rustred_campaign_core::ibp_rows::{
     NonceSource, PointSpec, ReplayLevel, ReplayPolicy, RowsOptions, RowsRule, TableBinding,
-    Verdict, identity_test, replay_evidence, replay_evidence_drawn, replay_evidence_with,
-    verify_record,
+    Verdict, identity_test, replay_evidence, replay_evidence_with, verify_record,
 };
 use rustred_campaign_core::independent_algebra::{Independent, elim};
 use rustred_campaign_core::replay_base::algebra::{
@@ -259,6 +258,19 @@ impl CheckAlgebra for Liar {
     fn gcd_i128(&self, a: i128, b: i128) -> i128 {
         Independent.gcd_i128(a, b)
     }
+    fn int_mat_mul(
+        &self,
+        a: &[i128],
+        b: &[i128],
+        r: usize,
+        k: usize,
+        c: usize,
+    ) -> Option<Vec<i128>> {
+        Independent.int_mat_mul(a, b, r, k, c)
+    }
+    fn int_div_exact(&self, a: i128, b: i128) -> Option<i128> {
+        Independent.int_div_exact(a, b)
+    }
     fn zpoly_det(&self, m: &[Vec<ZPoly>], dim: usize, t: usize) -> ZPoly {
         Independent.zpoly_det(m, dim, t)
     }
@@ -343,8 +355,9 @@ fn audit_rows3_single_bad_key_never_established() {
             &bad,
             &keys,
             &ReplayPolicy::default(),
+            // rows4: a fresh campaign beacon per trial (a non-default master seed is an override)
             &RowsOptions {
-                seed,
+                beacon: Some(test_beacon(seed)),
                 ..bound(&f.fam)
             },
         );
@@ -555,16 +568,20 @@ fn audit_rows3_dimension_and_degree_perturbations() {
     assert!(matches!(r.verdict, Verdict::Unsupported(_)));
 }
 
-/// HOLE (major): a `Family` parsed with ANY `CheckAlgebra` (here one whose matrix inverse is perturbed) has the SAME
-/// digests as the honest parse, is accepted by the CERTIFICATE run, and its (wrong) operator table certifies a rule
-/// that the honest family refuses; `verify_record` given that family object accepts the record.
+/// CLOSED by rows4 (was the HOLE `audit_rows3_family_parsed_by_foreign_backend_hole`, major RA3-M1): a `Family` parsed
+/// with ANY other `CheckAlgebra` (here one whose matrix inverse is perturbed) has the same text digests as the honest
+/// parse but a DIAGNOSTIC origin and another operator-table digest: the certificate run refuses it
+/// (`Unsupported(Family)`, never Established) and `verify_record` given that family object refuses the record.
 #[test]
-fn audit_rows3_family_parsed_by_foreign_backend_hole() {
+fn audit_rows3_family_parsed_by_foreign_backend_closed() {
     let src = data("LA3_handwritten.sym");
     let honest = Family::parse(&src).unwrap();
     let forged = Family::parse_with(&Liar(Lie::FamilyInverse), &src).unwrap();
     assert_eq!(honest.source_digest(), forged.source_digest());
     assert_eq!(honest.squashed_digest(), forged.squashed_digest());
+    assert!(honest.origin().is_certificate());
+    assert!(!forged.origin().is_certificate());
+    assert_ne!(honest.table_digest(), forged.table_digest());
     let n = honest.n();
     let (rule_v, tshift) = row_rule(&forged, 0);
     let rule = RowsRule::from_value(rule_v.clone(), n).unwrap();
@@ -586,29 +603,44 @@ fn audit_rows3_family_parsed_by_foreign_backend_hole() {
     let v_forged = verify_record(&on_forged, &rule, &forged, &keys);
     let v_honest = verify_record(&on_forged, &rule, &honest, &keys);
     println!(
-        "foreign-backend family: certificate run on it: {} (algebra {}), on the honest parse: {} / identity {}; \
-         verify_record(forged family) = {:?}; verify_record(honest family) = {}",
+        "foreign-backend family: certificate run on it: {} / identity {:?}; on the honest parse: {} / identity {}; \
+         verify_record(forged family) ok={}; verify_record(honest family) ok={}",
         level_kind(&on_forged.level),
-        on_forged.algebra,
+        on_forged.identity.verdict,
         level_kind(&on_honest.level),
         on_honest.identity.verdict.kind(),
-        v_forged,
-        v_honest
-            .as_ref()
-            .map_or_else(|e| e.chars().take(80).collect::<String>(), |_| "Ok".into())
+        v_forged.is_ok(),
+        v_honest.is_ok()
     );
-    assert_eq!(on_forged.level, ReplayLevel::Established);
-    assert_eq!(on_forged.family_digest, on_honest.family_digest);
+    assert!(matches!(
+        on_forged.level,
+        ReplayLevel::NotEstablished { .. }
+    ));
+    assert!(matches!(
+        on_forged.identity.verdict,
+        Verdict::Unsupported(rustred_campaign_core::ibp_rows::Unsupported::Family(_))
+    ));
+    assert!(!on_forged.certificate);
     assert!(matches!(on_honest.identity.verdict, Verdict::Fail { .. }));
-    assert!(v_forged.is_ok());
+    assert!(v_forged.is_err());
     assert!(v_honest.is_err());
+    // a record made honestly verifies only with the certificate parse: the forged object is refused by its table
+    let good = replay_evidence(
+        &honest,
+        &rule,
+        &keys,
+        &ReplayPolicy::default(),
+        &bound(&honest),
+    );
+    assert!(verify_record(&good, &rule, &honest, &keys).is_ok());
+    assert!(verify_record(&good, &rule, &forged, &keys).is_err());
 }
 
-/// HOLE (minor, API): the level is gated on the STRING `CheckAlgebra::name()`; any backend (here one whose rule-vector
-/// span test lies) that answers "independent" gets `Established` with `algebra: "independent"` for a FALSE rule.
-/// The record verifier (re-run on the concrete `Independent`) does reject it.
+/// CLOSED by rows4 (was the HOLE `audit_rows3_backend_name_gate_hole`, minor RA3-m1): the level is no longer gated on
+/// the STRING `CheckAlgebra::name()`: every generic `replay_evidence_with` run is DIAGNOSTIC (`certificate: false`,
+/// `ReplayLevel::Diagnostic`), here for a backend that answers "independent" and lies on the span test.
 #[test]
-fn audit_rows3_backend_name_gate_hole() {
+fn audit_rows3_backend_name_gate_closed() {
     let f = face();
     let n = f.fam.n();
     let keys = served(&f);
@@ -638,23 +670,26 @@ fn audit_rows3_backend_name_gate_hole() {
     );
     let ver = verify_record(&lying, &false_rule, &f.fam, &keys);
     println!(
-        "name gate: honest {} ; lying backend {} (algebra {:?}) ; delegating backend {} ; verify_record(lying) ok={}",
+        "name gate: honest {} ; lying backend {} (algebra {:?}, certificate {}) ; delegating backend {} ; verify_record(lying) ok={}",
         level_kind(&honest.level),
         level_kind(&lying.level),
         lying.algebra,
+        lying.certificate,
         level_kind(&named.level),
         ver.is_ok()
     );
     assert!(matches!(honest.level, ReplayLevel::NotEstablished { .. }));
-    assert_eq!(lying.level, ReplayLevel::Established);
-    assert_eq!(lying.algebra, "independent");
+    assert!(matches!(lying.level, ReplayLevel::Diagnostic { .. }));
+    assert!(matches!(named.level, ReplayLevel::Diagnostic { .. }));
+    assert!(!lying.certificate && !named.certificate);
     assert!(ver.is_err());
 }
 
 /// Forged records against `verify_record`: (1) a NotEstablished record relabelled Established, (2) a record made on a
 /// subset of the served keys presented for the full set, (3) a caller-nonce (Overridden) record relabelled as an OS
-/// nonce, (4) a record of `replay_evidence_drawn` given a chosen nonce labelled `Os`. (1), (2) are rejected; (3) and
-/// (4) VERIFY (the nonce source is self-declared; the protection is the grinding cost, see the report).
+/// nonce, (4) the same record relabelled as a DERIVED nonce with a beacon. All four are rejected (rows4, RA3-m2: the
+/// certificate nonce is derived from the rule digest and the recorded beacon, so a relabelled caller nonce no longer
+/// verifies; before rows4 (3) and (4) verified).
 #[test]
 fn audit_rows3_forged_records() {
     let f = face();
@@ -678,7 +713,7 @@ fn audit_rows3_forged_records() {
     );
     let v2 = verify_record(&r2, &bad, &f.fam, &keys);
     // (3)
-    let mut r3 = replay_evidence(
+    let r3 = replay_evidence(
         &f.fam,
         &good,
         &keys,
@@ -689,31 +724,35 @@ fn audit_rows3_forged_records() {
         },
     );
     assert!(matches!(r3.level, ReplayLevel::Overridden { .. }));
-    r3.nonce_source = NonceSource::Os;
-    r3.overrides.clear();
-    r3.level = ReplayLevel::Established;
-    let v3 = verify_record(&r3, &good, &f.fam, &keys);
+    let mut r3os = r3.clone();
+    r3os.nonce_source = NonceSource::Os;
+    r3os.overrides.clear();
+    r3os.level = ReplayLevel::Established;
+    let v3 = verify_record(&r3os, &good, &f.fam, &keys);
     // (4)
-    let r4 = replay_evidence_drawn(
-        &Independent,
-        &f.fam,
-        &good,
-        &keys,
-        &pol,
-        &bound(&f.fam),
-        (42, NonceSource::Os),
-    );
+    let mut r4 = r3.clone();
+    r4.nonce_source = NonceSource::Derived;
+    r4.overrides.clear();
+    r4.level = ReplayLevel::Established;
     let v4 = verify_record(&r4, &good, &f.fam, &keys);
+    // the honest record verifies
+    let r5 = replay_evidence(&f.fam, &good, &keys, &pol, &bound(&f.fam));
+    let v5 = verify_record(&r5, &good, &f.fam, &keys);
     println!(
-        "forged records: (1) relabelled level ok={} (2) subset record for the full set ok={} (3) caller nonce relabelled Os ok={} (4) chosen nonce declared Os: {} ok={}",
+        "forged records: (1) relabelled level ok={} (2) subset record for the full set ok={} (3) caller nonce relabelled Os ok={} (4) caller nonce relabelled Derived ok={}; honest {} ok={} (nonce {:?})",
         v1.is_ok(),
         v2.is_ok(),
         v3.is_ok(),
-        level_kind(&r4.level),
-        v4.is_ok()
+        v4.is_ok(),
+        level_kind(&r5.level),
+        v5.is_ok(),
+        r5.nonce_source
     );
     assert!(v1.is_err());
     assert!(v2.is_err());
-    assert!(v3.is_ok());
-    assert!(v4.is_ok() && r4.level == ReplayLevel::Established);
+    assert!(v3.is_err());
+    assert!(v4.is_err());
+    assert_eq!(r5.level, ReplayLevel::Established);
+    assert_eq!(r5.nonce_source, NonceSource::Derived);
+    assert!(v5.is_ok(), "{v5:?}");
 }
