@@ -99,6 +99,11 @@ fn spec(root: &Path, job: &str, attempt: u32, node: &str, args: &[&str]) -> JobS
 
 /// Write job.json (read-only) and spawn the child in its own session, as the supervisor does (6.1).
 fn spawn(spec: &JobSpec) -> Child {
+    spawn_with(spec, &["job"])
+}
+
+/// [`spawn`] with the program words before the spec path (`job`, or the alias `solve-recipe --job`).
+fn spawn_with(spec: &JobSpec, words: &[&str]) -> Child {
     let layout = RunLayout::new(&spec.run_dir);
     let p = layout.job_spec();
     std::fs::write(&p, spec.to_json_line()).unwrap();
@@ -108,7 +113,7 @@ fn spawn(spec: &JobSpec) -> Child {
     let out = std::fs::File::create(layout.stdout_log()).unwrap();
     let err = std::fs::File::create(layout.stderr_log()).unwrap();
     let mut cmd = Command::new(bin());
-    cmd.arg("job")
+    cmd.args(words)
         .arg(&p)
         .stdin(Stdio::null())
         .stdout(out)
@@ -1469,4 +1474,264 @@ fn strict_numeric_search_stop_is_interrupted_not_refused() {
         Some(1),
         "{res}"
     );
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// job kind solve-recipe through the ONE job entry (lane engbase2). Test data: RR_RECIPE_FIXTURES (default
+// /common/build-cache/vhirschi/p_integral_dev/implementer-scratch/fixtures/recipe-solve: a family, recipes, key lists,
+// an order and the hand reference results of each recipe; see its README.md and MANIFEST.sha256).
+
+fn recipe_fixtures() -> PathBuf {
+    let p = std::env::var("RR_RECIPE_FIXTURES").map(PathBuf::from).unwrap_or_else(|_| {
+        PathBuf::from("/common/build-cache/vhirschi/p_integral_dev/implementer-scratch/fixtures/recipe-solve")
+    });
+    assert!(p.join("order.json").is_file(), "{}", p.display());
+    p
+}
+
+/// The key lines of a recipe's key list.
+fn recipe_keys(rid: &str) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(recipe_fixtures().join("keys").join(format!("{rid}.jsonl")))
+        .unwrap()
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
+}
+
+/// A solve-recipe job spec: the fixture family, recipe `rid`, `keys` written to RUN/in/keys.jsonl (input path relative
+/// to the run directory), args `--order <fixture order> --threads 1` + `extra`.
+fn recipe_spec(
+    root: &Path,
+    job: &str,
+    rid: &str,
+    keys: &[serde_json::Value],
+    extra: &[&str],
+) -> JobSpec {
+    let run = rustred_campaign_contract::layout::attempt_dir(root, job, 1);
+    std::fs::create_dir_all(run.join("in")).unwrap();
+    let fx = recipe_fixtures();
+    let fam = fx.join("T178.sym");
+    let rec = fx.join("recipes").join(format!("{rid}.json"));
+    let kp = run.join("in/keys.jsonl");
+    let text: String = keys.iter().map(|k| format!("{k}\n")).collect();
+    std::fs::write(&kp, text).unwrap();
+    let order = std::fs::read_to_string(fx.join("order.json")).unwrap();
+    let mut args: Vec<String> = vec!["--order".into(), order, "--threads".into(), "1".into()];
+    args.extend(extra.iter().map(|s| s.to_string()));
+    let input = |role: &str, path: String, file: &Path| InputRef {
+        role: role.into(),
+        path,
+        blake3: b3(file),
+        upto: None,
+    };
+    JobSpec {
+        schema: rustred_campaign_contract::CONTRACT.into(),
+        job_id: job.into(),
+        attempt: 1,
+        kind: JobKind::SolveRecipe,
+        run_dir: run.to_str().unwrap().into(),
+        program: ProgramRef {
+            name: "rr_node".into(),
+            blake3: b3(&bin()),
+            features_required: vec!["job".into(), "solve_recipe".into()],
+        },
+        inputs: vec![
+            input("family", fam.to_str().unwrap().into(), &fam),
+            input("recipe", rec.to_str().unwrap().into(), &rec),
+            input("keys", "in/keys.jsonl".into(), &kp),
+        ],
+        args,
+        seed: SeedSpec { sample_seed: 0 },
+        budgets: Budgets::default(),
+        on_case_budget: OnCaseBudget::Stop,
+        determinism: Determinism::Recorded,
+        output: OutputOptions::default(),
+        heartbeat_s: 1,
+        stop_grace_s: 5,
+        resume_every_s: 0,
+        resume: None,
+        env_allow: vec![],
+        fake: None,
+    }
+}
+
+/// (key, verdict, relation digest) of every relation record of a results file.
+fn relations_of(p: &Path) -> Vec<(serde_json::Value, String, Option<String>)> {
+    std::fs::read_to_string(p)
+        .unwrap()
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|v| v["type"] == "relation")
+        .map(|v| {
+            (
+                v["key"].clone(),
+                v["verdict"].as_str().unwrap_or("").to_string(),
+                v["relation_digest"].as_str().map(str::to_string),
+            )
+        })
+        .collect()
+}
+
+fn results_canonical(spec: &JobSpec) -> String {
+    outcome(spec).job.outputs.extra[0]
+        .canonical_blake3
+        .clone()
+        .unwrap()
+}
+
+#[test]
+#[ignore]
+fn solve_recipe_job_and_alias_match_the_hand_reference() {
+    let r = root("recipe-ref");
+    let fx = recipe_fixtures();
+    let mut canon_job = None;
+    for (n, rid) in ["results_47_fix10m1_n10_M1_json", "results_13_x8_C_json"]
+        .iter()
+        .enumerate()
+    {
+        let keys = recipe_keys(rid);
+        let s = recipe_spec(&r, &format!("sr{n}"), rid, &keys, &[]);
+        let (w, t) = run_to_end(&s);
+        let c = classified(&s, w, KillReason::None);
+        assert_eq!(w, WaitStatus::Exited(0), "{rid}: {}", c.why);
+        assert_eq!(c.row, 1, "{rid}: {}", c.why);
+        let o = outcome(&s);
+        assert_eq!(o.job.kind, JobKind::SolveRecipe);
+        assert_eq!(o.job.stop.code, None);
+        assert_eq!(o.job.counters.rules_committed, keys.len() as u64);
+        assert!(!o.job.time_decided);
+        assert_eq!(
+            o.legacy["result"]["schema"],
+            "rustred.solve-recipe.outcome.v0"
+        );
+        let mine = relations_of(&RunLayout::new(&s.run_dir).results());
+        let reference = relations_of(&fx.join("reference").join(format!("{rid}.results.jsonl")));
+        assert_eq!(
+            mine, reference,
+            "{rid}: verdicts / relation digests differ from the hand reference"
+        );
+        let ev = events_of(&s);
+        assert_eq!(
+            count_kind(&ev, "engine", |_| true),
+            keys.len(),
+            "{rid}: one RecipeKey event per key"
+        );
+        assert_eq!(ev.last().unwrap()["kind"], "job_finished");
+        eprintln!(
+            "{rid}: {} keys SOLVED, digests = reference, {t:?}",
+            keys.len()
+        );
+        if n == 0 {
+            canon_job = Some(results_canonical(&s));
+        }
+    }
+    // the engine line's spelling `solve-recipe --job` is the same dispatcher: same classification and results
+    let rid = "results_47_fix10m1_n10_M1_json";
+    let s = recipe_spec(&r, "sr-alias", rid, &recipe_keys(rid), &[]);
+    let mut ch = spawn_with(&s, &["solve-recipe", "--job"]);
+    let w = wait(&mut ch);
+    assert_eq!(classified(&s, w, KillReason::None).row, 1);
+    assert_eq!(
+        Some(results_canonical(&s)),
+        canon_job,
+        "alias run canonically identical to the job run"
+    );
+}
+
+#[test]
+#[ignore]
+fn solve_recipe_job_with_an_off_domain_key_is_row_28() {
+    let r = root("recipe-28");
+    let rid = "results_47_fix10m1_n10_M1_json";
+    let mut keys = recipe_keys(rid);
+    keys.truncate(2);
+    // the recipe's domain fixes slot 10 at -1: the same key with -2 there is outside it (typed NOT_IN_DOMAIN)
+    let mut off = keys[1].clone();
+    off["key"][10] = serde_json::json!(-2);
+    off["tag"] = serde_json::json!("off-domain");
+    keys.push(off);
+    let s = recipe_spec(&r, "sr28", rid, &keys, &[]);
+    let (w, _) = run_to_end(&s);
+    let c = classified(&s, w, KillReason::None);
+    assert_eq!(w, WaitStatus::Exited(10), "{}", c.why);
+    assert_eq!(c.row, 28, "{}", c.why);
+    let o = outcome(&s);
+    assert_eq!(o.job.stop.code, Some(StopCode::KeysUnsolved));
+    assert_eq!(o.job.counters.rules_committed, 2);
+    let rel = relations_of(&RunLayout::new(&s.run_dir).results());
+    assert_eq!(rel[2].1, "NOT_IN_DOMAIN");
+    // only the off-domain key: row 29 (no accepted relation)
+    let s = recipe_spec(&r, "sr29", rid, &keys[2..], &[]);
+    let (w, _) = run_to_end(&s);
+    let c = classified(&s, w, KillReason::None);
+    assert_eq!((w, c.row), (WaitStatus::Exited(10), 29), "{}", c.why);
+}
+
+/// Wait until the job's EVENTS hold `n` RecipeKey engine events.
+fn wait_recipe_keys(spec: &JobSpec, n: usize, limit: Duration) {
+    let t = Instant::now();
+    while count_kind(&events_of(spec), "engine", |_| true) < n {
+        assert!(t.elapsed() < limit, "no {n} solved keys within {limit:?}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+#[ignore]
+fn solve_recipe_job_signals_graceful_then_hard() {
+    let r = root("recipe-sig");
+    let rid = "results_47_fix10m1_n10_M1_json";
+    let keys = recipe_keys(rid);
+    // first signal: running key finishes, the rest INTERRUPTED, sealed partial, exit 30 (row 11)
+    let s = recipe_spec(&r, "srsig", rid, &keys, &[]);
+    let mut ch = spawn(&s);
+    wait_recipe_keys(&s, 1, Duration::from_secs(600));
+    signal(&ch, libc::SIGTERM);
+    let w = wait(&mut ch);
+    let c = classified(&s, w, KillReason::None);
+    assert_eq!((w, c.row), (WaitStatus::Exited(30), 11), "{}", c.why);
+    let o = outcome(&s);
+    assert_eq!(o.job.stop.code, Some(StopCode::Interrupted));
+    assert!(o.job.stop.graceful);
+    assert_eq!(o.job.outputs.extra.len(), 1);
+    let rel = relations_of(&RunLayout::new(&s.run_dir).results());
+    assert!(rel.iter().any(|x| x.1 == "INTERRUPTED"), "{rel:?}");
+    assert!(rel.iter().any(|x| x.1 == "SOLVED"), "{rel:?}");
+    // two distinct signals: the hard-safe stop (no sealed output listed), exit 30
+    let s = recipe_spec(&r, "srhard", rid, &keys, &[]);
+    let mut ch = spawn(&s);
+    wait_recipe_keys(&s, 1, Duration::from_secs(600));
+    signal(&ch, libc::SIGTERM);
+    signal(&ch, libc::SIGINT);
+    let w = wait(&mut ch);
+    let c = classified(&s, w, KillReason::None);
+    assert_eq!((w, c.row), (WaitStatus::Exited(30), 11), "{}", c.why);
+    let o = outcome(&s);
+    assert!(!o.job.stop.graceful);
+    assert!(o.job.outputs.extra.is_empty());
+}
+
+#[test]
+#[ignore]
+fn solve_recipe_job_strict_spec_checks_refuse() {
+    let r = root("recipe-refuse");
+    let rid = "results_13_x8_C_json";
+    let keys = recipe_keys(rid);
+    // an arg outside the kind's allow-list (the verb's --no-proof): usage, 40
+    let s = recipe_spec(&r, "srno", rid, &keys, &["--no-proof"]);
+    let (w, _) = run_to_end(&s);
+    assert_eq!(w, WaitStatus::Exited(40));
+    assert_eq!(classified(&s, w, KillReason::None).row, 12);
+    // a job wall budget (an L1 kind is bounded by the supervisor's cap): 40
+    let mut s = recipe_spec(&r, "srwall", rid, &keys, &[]);
+    s.budgets.wall.job_s = Some(60);
+    let (w, _) = run_to_end(&s);
+    assert_eq!(w, WaitStatus::Exited(40));
+    // a keys input changed after the spec was written: input, 41
+    let s = recipe_spec(&r, "srdig", rid, &keys, &[]);
+    std::fs::write(Path::new(&s.run_dir).join("in/keys.jsonl"), "[1]\n").unwrap();
+    let (w, _) = run_to_end(&s);
+    assert_eq!(w, WaitStatus::Exited(41));
+    assert_eq!(classified(&s, w, KillReason::None).row, 13);
 }
