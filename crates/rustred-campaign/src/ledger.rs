@@ -2022,14 +2022,17 @@ impl Ledger {
         let mut seqs = Vec::with_capacity(events.len());
         let mut need_sync = false;
         let mut buf = Vec::new();
-        let saved_state = if events.len() > 1 {
-            Some(self.state.clone())
-        } else {
-            None
-        };
-        let restore = |l: &mut Ledger, s: Option<CampaignState>| {
-            if let Some(s) = s {
-                l.state = s;
+        // No clone of the state per batch (O(state) per group commit at scale): a record refused after earlier
+        // records of the same batch were applied rebuilds the state from disk (the batch is not written yet).
+        let saved_state: Option<CampaignState> = None;
+        let restore = |l: &mut Ledger, applied: usize| {
+            if applied > 0 {
+                match l.rebuild_state(l.active_len) {
+                    Ok(st) => l.state = st,
+                    Err(e) => {
+                        l.poisoned = Some(format!("batch refused and state rebuild failed: {e}"))
+                    }
+                }
             }
         };
         let (mut seq, mut head) = (self.seq, self.head.clone());
@@ -2044,11 +2047,11 @@ impl Ledger {
             };
             let (line, h) = encode_record(&rec);
             if line.len() > MAX_RECORD_BYTES {
-                restore(self, saved_state);
+                restore(self, seqs.len());
                 return Err(LedgerError::TooLarge { bytes: line.len() });
             }
             if let Err(e) = self.state.apply_record(&rec) {
-                restore(self, saved_state);
+                restore(self, seqs.len());
                 return Err(LedgerError::Refused(e));
             }
             seq = rec.seq;

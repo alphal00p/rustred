@@ -663,12 +663,13 @@
         "created_seq": 14,
         "failures": 0,
         "generation": 0,
-        "inputs": {
-          "T162.bank": "7f10a8a5ecb5d2ce424d28f0bca54e2109ebaaebc4b12b48c8b902fbc58bf12e",
-          "T162.box": "95fc20052bebae2c1a61ff89ac810ad17fa8ce6b54bf711074a53cd000dc0e9f",
-          "T162.family": "9456b757701dbeb0d154659e41b3251b1f70400b61866ae8f5fce5228fa9be99",
-          "rr_node": "249c46a7daa9c3022897d643d72caae0e2f159baea768e07fc10ea3c2fbfd757"
-        },
+        "inputs": [
+          "T162.bank",
+          "T162.box",
+          "T162.family",
+          "rr_node"
+        ],
+        "inputs_digest": "807aa7e3fc64621d2ca22130bf408f84132f9357921ba2178c39fe9e67108717",
         "item": "T162-item-00000",
         "kind": "generate",
         "outcome": {
@@ -704,12 +705,13 @@
         "created_seq": 24,
         "failures": 0,
         "generation": 0,
-        "inputs": {
-          "T162.bank": "7f10a8a5ecb5d2ce424d28f0bca54e2109ebaaebc4b12b48c8b902fbc58bf12e",
-          "T162.box": "95fc20052bebae2c1a61ff89ac810ad17fa8ce6b54bf711074a53cd000dc0e9f",
-          "T162.family": "9456b757701dbeb0d154659e41b3251b1f70400b61866ae8f5fce5228fa9be99",
-          "rr_node": "249c46a7daa9c3022897d643d72caae0e2f159baea768e07fc10ea3c2fbfd757"
-        },
+        "inputs": [
+          "T162.bank",
+          "T162.box",
+          "T162.family",
+          "rr_node"
+        ],
+        "inputs_digest": "807aa7e3fc64621d2ca22130bf408f84132f9357921ba2178c39fe9e67108717",
         "item": "T162-item-00001",
         "kind": "generate",
         "outcome": {
@@ -745,12 +747,13 @@
         "created_seq": 34,
         "failures": 0,
         "generation": 0,
-        "inputs": {
-          "T162.bank": "7f10a8a5ecb5d2ce424d28f0bca54e2109ebaaebc4b12b48c8b902fbc58bf12e",
-          "T162.box": "95fc20052bebae2c1a61ff89ac810ad17fa8ce6b54bf711074a53cd000dc0e9f",
-          "T162.family": "9456b757701dbeb0d154659e41b3251b1f70400b61866ae8f5fce5228fa9be99",
-          "rr_node": "249c46a7daa9c3022897d643d72caae0e2f159baea768e07fc10ea3c2fbfd757"
-        },
+        "inputs": [
+          "T162.bank",
+          "T162.box",
+          "T162.family",
+          "rr_node"
+        ],
+        "inputs_digest": "807aa7e3fc64621d2ca22130bf408f84132f9357921ba2178c39fe9e67108717",
         "item": "T162-item-00002",
         "kind": "generate",
         "outcome": {
@@ -786,12 +789,13 @@
         "created_seq": 44,
         "failures": 0,
         "generation": 0,
-        "inputs": {
-          "T162.bank": "7f10a8a5ecb5d2ce424d28f0bca54e2109ebaaebc4b12b48c8b902fbc58bf12e",
-          "T162.box": "95fc20052bebae2c1a61ff89ac810ad17fa8ce6b54bf711074a53cd000dc0e9f",
-          "T162.family": "9456b757701dbeb0d154659e41b3251b1f70400b61866ae8f5fce5228fa9be99",
-          "rr_node": "249c46a7daa9c3022897d643d72caae0e2f159baea768e07fc10ea3c2fbfd757"
-        },
+        "inputs": [
+          "T162.bank",
+          "T162.box",
+          "T162.family",
+          "rr_node"
+        ],
+        "inputs_digest": "807aa7e3fc64621d2ca22130bf408f84132f9357921ba2178c39fe9e67108717",
         "item": "T162-item-00003",
         "kind": "generate",
         "outcome": {
@@ -827,12 +831,13 @@
         "created_seq": 54,
         "failures": 0,
         "generation": 0,
-        "inputs": {
-          "T162.bank": "7f10a8a5ecb5d2ce424d28f0bca54e2109ebaaebc4b12b48c8b902fbc58bf12e",
-          "T162.box": "95fc20052bebae2c1a61ff89ac810ad17fa8ce6b54bf711074a53cd000dc0e9f",
-          "T162.family": "9456b757701dbeb0d154659e41b3251b1f70400b61866ae8f5fce5228fa9be99",
-          "rr_node": "249c46a7daa9c3022897d643d72caae0e2f159baea768e07fc10ea3c2fbfd757"
-        },
+        "inputs": [
+          "T162.bank",
+          "T162.box",
+          "T162.family",
+          "rr_node"
+        ],
+        "inputs_digest": "807aa7e3fc64621d2ca22130bf408f84132f9357921ba2178c39fe9e67108717",
         "item": "T162-item-00004",
         "kind": "generate",
         "outcome": {
@@ -868,12 +873,13 @@
         "created_seq": 69,
         "failures": 0,
         "generation": 0,
-        "inputs": {
-          "T162.bank": "7f10a8a5ecb5d2ce424d28f0bca54e2109ebaaebc4b12b48c8b902fbc58bf12e",
-          "T162.box": "95fc20052bebae2c1a61ff89ac810ad17fa8ce6b54bf711074a53cd000dc0e9f",
-          "T162.family": "9456b757701dbeb0d154659e41b3251b1f70400b61866ae8f5fce5228fa9be99",
-          "rr_node": "249c46a7daa9c3022897d643d72caae0e2f159baea768e07fc10ea3c2fbfd757"
-        },
+        "inputs": [
+          "T162.bank",
+          "T162.box",
+          "T162.family",
+          "rr_node"
+        ],
+        "inputs_digest": "807aa7e3fc64621d2ca22130bf408f84132f9357921ba2178c39fe9e67108717",
         "item": "T162-item-00006",
         "kind": "descent",
         "outcome": {

@@ -1856,8 +1856,10 @@ pub struct JobRec {
     pub reserved_bytes: u64,
     /// Generation of the item when the job was queued.
     pub generation: u32,
-    /// Input identity: digest of every input the job depends on, at queue time.
-    pub inputs: BTreeMap<String, String>,
+    /// Input identity: the ids of every input the job depends on, and one digest over (id, input digest) of all of
+    /// them at queue time ([`stamp_digest`]).
+    pub inputs: Vec<String>,
+    pub inputs_digest: String,
     /// Set (never cleared) when one of those inputs changed: the job can feed no result.
     pub stale: Option<String>,
     pub attempt: u32,
@@ -2370,14 +2372,10 @@ impl CampaignState {
                     ids.extend(it.inputs.iter());
                     ids.extend(n.inputs.iter());
                     ids.extend(n.state.spec_box.iter());
-                    let mut stamp = BTreeMap::new();
-                    for i in ids {
-                        let r = self
-                            .inputs
-                            .get(i)
-                            .ok_or_else(|| invalid(format!("job {job}: unknown input {i}")))?;
-                        stamp.insert(i.clone(), r.blake3.clone());
-                    }
+                    let ids: Vec<String> = ids.into_iter().cloned().collect();
+                    let stamp = self
+                        .stamp_digest(&ids)
+                        .map_err(|i| invalid(format!("job {job}: unknown input {i}")))?;
                     let generation = it.generation;
                     self.items.get_mut(item).unwrap().jobs.push(job.clone());
                     self.jobs.insert(
@@ -2390,7 +2388,8 @@ impl CampaignState {
                             binary: binary.clone(),
                             reserved_bytes: *reserved_bytes,
                             generation,
-                            inputs: stamp,
+                            inputs: ids,
+                            inputs_digest: stamp,
                             stale: None,
                             attempt: 1,
                             state: AttemptState::Queued,
@@ -2575,7 +2574,7 @@ impl CampaignState {
     fn mark_stale_by_input(&mut self, rec: &Record, input: &str) -> usize {
         let mut stale_jobs = BTreeSet::new();
         for (id, j) in self.jobs.iter_mut() {
-            if j.inputs.contains_key(input) && j.stale.is_none() {
+            if j.inputs.iter().any(|i| i == input) && j.stale.is_none() {
                 j.stale = Some(input.to_string());
             }
             if j.stale.as_deref() == Some(input) {
@@ -2871,10 +2870,8 @@ impl CampaignState {
                 "job {job} is stale: input {i} changed after it was queued"
             ));
         }
-        for (i, d) in &j.inputs {
-            if self.inputs.get(i).map(|r| &r.blake3) != Some(d) {
-                return Err(format!("job {job}: input {i} differs from its stamp"));
-            }
+        if self.stamp_digest(&j.inputs).as_deref() != Ok(j.inputs_digest.as_str()) {
+            return Err(format!("job {job}: its inputs differ from its stamp"));
         }
         if !j.state.is_settled() || matches!(j.state, AttemptState::Queued) {
             return Err(format!("job {job} attempt {attempt} has not finished"));
@@ -3989,6 +3986,19 @@ impl CampaignState {
             .preferred_listed
             .map(|l| l.saturating_sub(r.preferred_used));
         r
+    }
+
+    /// [`stamp_digest`] of the CURRENT digests of `ids` (Err: the first unknown id).
+    pub fn stamp_digest(&self, ids: &[String]) -> Result<String, String> {
+        let mut h = blake3::Hasher::new();
+        for i in ids {
+            let r = self.inputs.get(i).ok_or_else(|| i.clone())?;
+            h.update(i.as_bytes());
+            h.update(&[0]);
+            h.update(r.blake3.as_bytes());
+            h.update(&[1]);
+        }
+        Ok(h.finalize().to_hex().to_string())
     }
 
     /// The node's current rule-set digest (what a closure result must cite).

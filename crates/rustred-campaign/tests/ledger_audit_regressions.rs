@@ -140,10 +140,15 @@ fn a_c1_stale_results_are_never_reaccepted_and_jobs_carry_input_identity() {
     // a second item only PRODUCED (not accepted) when the binary changes
     l.append_all(item_until_produced(N, 1, 0, 10)).unwrap();
     let job0 = job_id(N, 0, 0);
-    assert_eq!(
-        l.state().jobs[&job0].inputs.get("rr_node"),
-        Some(&digest("rr_node v1")),
+    let j0 = &l.state().jobs[&job0];
+    assert!(
+        j0.inputs.contains(&"rr_node".to_string()),
         "the job is stamped with its inputs"
+    );
+    assert_eq!(
+        l.state().stamp_digest(&j0.inputs).unwrap(),
+        j0.inputs_digest,
+        "and their digests at queue time"
     );
     l.append(input("rr_node", "binary", "rr_node v2")).unwrap();
     let st = l.state();
