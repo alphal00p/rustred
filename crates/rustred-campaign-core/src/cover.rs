@@ -534,7 +534,7 @@ impl Table {
         } else {
             Assurance::AttestedUnchecked
         };
-        let mut seen_labels: HashMap<i64, usize> = HashMap::new();
+        let mut seen_labels = std::collections::HashSet::new();
         for (source_index, r) in tf.rules.iter().enumerate() {
             let label =
                 r.i.or(r.index)
@@ -569,8 +569,7 @@ impl Table {
                     });
                 }
             };
-            if let Some(prev) = seen_labels.insert(label, r.line_no) {
-                let _ = prev;
+            if !seen_labels.insert(label) {
                 return Err(LoadError::DuplicateLabel {
                     line_no: r.line_no,
                     label,
