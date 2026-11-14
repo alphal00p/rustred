@@ -1077,8 +1077,9 @@ impl SchemeTemplate {
             BTreeMap::new();
         // Trusted, a rule dispatching on Forcer's terms needs its relation only
         // for the checks that are skipped (certificate, terms == relation).
-        let on_terms =
-            |rule: &ParsedRule| rule.dispatch_terms && !rule.raw.is_empty() && !rule.relation.is_empty();
+        let on_terms = |rule: &ParsedRule| {
+            rule.dispatch_terms && !rule.raw.is_empty() && !rule.relation.is_empty()
+        };
         for rule in (scheme.rules.iter())
             .filter(|rule| !rule.master && !rule.relation.is_empty())
             .filter(|rule| verify || !on_terms(rule))

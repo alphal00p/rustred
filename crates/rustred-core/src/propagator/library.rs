@@ -428,7 +428,8 @@ impl PLibrary {
     /// `P_SCHEME_TEMPLATE_VERSION` and a `P_PACKAGE_REVISION`; no value
     /// depends on it (the verdicts are the verified ones, gate test).
     pub fn set_scheme_certificates_trusted(&self, on: bool) {
-        self.scheme_certificates_trusted.store(on, Ordering::Relaxed);
+        self.scheme_certificates_trusted
+            .store(on, Ordering::Relaxed);
     }
 
     /// Whether [`Self::set_scheme_certificates_trusted`] is on.

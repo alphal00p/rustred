@@ -1667,7 +1667,11 @@ fn verification_catches_a_corrupted_certificate() {
         CertificateCheck, EMBEDDED_SCHEMES, SchemeTemplate, Verification,
     };
     let (node, _, presentation) = lanes(4).by_name("no1");
-    let json = EMBEDDED_SCHEMES.iter().find(|(n, _)| *n == "no1").unwrap().1;
+    let json = EMBEDDED_SCHEMES
+        .iter()
+        .find(|(n, _)| *n == "no1")
+        .unwrap()
+        .1;
     let mut file: serde_json::Value = serde_json::from_str(json).unwrap();
     let rule = (file["rules"].as_array_mut().unwrap().iter_mut())
         .find(|rule| rule.get("certificate").is_some_and(|c| !c.is_null()))
