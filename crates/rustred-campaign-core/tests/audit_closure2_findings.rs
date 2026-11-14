@@ -9,8 +9,9 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use rustred_campaign_core::closure::{
-    ClosureConfig, CoefFact, DispatchSlot, FactSource, HandDowns, KeyCodec, KeySet, NoFacts, RegFact,
-    RelationSet, RelationStoreBuilder, RuleBodies, RuleId, Tier, VERDICT_CERTIFIED, Verdict, closure,
+    ClosureConfig, CoefFact, DispatchSlot, FactSource, HandDowns, KeyCodec, KeySet, NoFacts,
+    RegFact, RelationSet, RelationStoreBuilder, RuleBodies, RuleId, Tier, VERDICT_CERTIFIED,
+    Verdict, closure,
 };
 use rustred_campaign_core::cover::{Assurance, Dispatcher, RecordMeta, Table, WitnessStatus};
 use rustred_campaign_core::domain::CaseDomain;
@@ -267,11 +268,17 @@ fn f2_weakened_dispatch_checks_never_give_closed() {
         let mut r = rec_at(&k, &["I(0,1,1,0)"]);
         r.meta = Some(meta);
         let (d, b) = node(n, nl, vec![("T", vec![r])]);
-        assert!(!d.summary().is_strict(), "{label}: dispatcher is not strict");
+        assert!(
+            !d.summary().is_strict(),
+            "{label}: dispatcher is not strict"
+        );
         let s = closure(&d, &b, &cmp, &ks(n, 6, &[&k]), &cfg(Tier::C, &d), &facts)
             .unwrap()
             .summary();
-        println!("{label}: verdict {:?}, blocking {:?}", s.verdict, s.blocking);
+        println!(
+            "{label}: verdict {:?}, blocking {:?}",
+            s.verdict, s.blocking
+        );
         verdicts.push((label, s.verdict));
     }
     // control: the same elided record with the check ON is blocked (open)
@@ -281,9 +288,17 @@ fn f2_weakened_dispatch_checks_never_give_closed() {
     let s = closure(&d, &b, &cmp, &ks(n, 6, &[&k]), &cfg(Tier::C, &d), &facts)
         .unwrap()
         .summary();
-    assert_eq!(s.verdict, Verdict::Open, "control: elided with the check on");
+    assert_eq!(
+        s.verdict,
+        Verdict::Open,
+        "control: elided with the check on"
+    );
     for (label, v) in verdicts {
-        assert_ne!(v, Verdict::Closed, "{label}: a weakened dispatch check gave `closed`");
+        assert_ne!(
+            v,
+            Verdict::Closed,
+            "{label}: a weakened dispatch check gave `closed`"
+        );
     }
 }
 
@@ -297,15 +312,23 @@ fn f2_weakened_dispatch_checks_never_give_closed() {
 fn f3_longest_chain_never_changes_the_verdict() {
     let (n, nl) = (4, 3);
     let k = [2, 1, 1, 0];
-    let (d, b) = node(n, nl, vec![("T", vec![rec_at(&k, &["I(n0,n1,n2,n3)", "I(0,1,1,0)"])])]);
+    let (d, b) = node(
+        n,
+        nl,
+        vec![("T", vec![rec_at(&k, &["I(n0,n1,n2,n3)", "I(0,1,1,0)"])])],
+    );
     let cmp = NodeComparator::legacy(n, None).unwrap();
     let facts = Facts::new(|_, _, _| CoefFact::Unknown);
     let mut on = cfg(Tier::C, &d);
     on.longest_chain = true;
     let mut off = on.clone();
     off.longest_chain = false;
-    let a = closure(&d, &b, &cmp, &ks(n, 6, &[&k]), &on, &facts).unwrap().summary();
-    let z = closure(&d, &b, &cmp, &ks(n, 6, &[&k]), &off, &facts).unwrap().summary();
+    let a = closure(&d, &b, &cmp, &ks(n, 6, &[&k]), &on, &facts)
+        .unwrap()
+        .summary();
+    let z = closure(&d, &b, &cmp, &ks(n, 6, &[&k]), &off, &facts)
+        .unwrap()
+        .summary();
     println!(
         "chain on: {:?} {:?} cycles {:?}; chain off: {:?} {:?}",
         a.verdict, a.blocking, a.cycles, z.verdict, z.blocking
@@ -362,7 +385,10 @@ fn f4_arity_above_64_is_refused_or_classified_correctly() {
         Ok(Ok(cl)) => {
             let s = cl.summary();
             println!("terms {:?}, hand_downs {:?}", s.terms, s.hand_downs);
-            assert_eq!(s.terms.zero_sector, 0, "a live hand-down was dropped as zero");
+            assert_eq!(
+                s.terms.zero_sector, 0,
+                "a live hand-down was dropped as zero"
+            );
             assert_eq!(s.terms.subsector, 1);
         }
     }
@@ -386,7 +412,11 @@ fn f5_summary_does_not_materialise_the_fact_requests() {
         format!(
             "I({})",
             (0..n)
-                .map(|s| if s == slot { format!("n{s}{off}") } else { format!("n{s}") })
+                .map(|s| if s == slot {
+                    format!("n{s}{off}")
+                } else {
+                    format!("n{s}")
+                })
                 .collect::<Vec<_>>()
                 .join(",")
         )
@@ -427,7 +457,10 @@ fn f5_summary_does_not_materialise_the_fact_requests() {
         (hwm_c.saturating_sub(hwm_b)) >> 20,
     );
     assert_eq!(s.keys_total, 160_000);
-    assert!(transient < 64.0, "summary() allocated {transient:.0} bytes per fact request");
+    assert!(
+        transient < 64.0,
+        "summary() allocated {transient:.0} bytes per fact request"
+    );
 }
 
 fn hwm() -> u64 {
@@ -444,19 +477,41 @@ fn hwm() -> u64 {
 fn ok_rule_rhs_contains_its_own_key() {
     let (n, nl) = (4, 3);
     let k = [2, 1, 1, 0];
-    let (d, b) = node(n, nl, vec![("T", vec![rec_at(&k, &["I(n0,n1,n2,n3)", "I(0,1,1,0)"])])]);
+    let (d, b) = node(
+        n,
+        nl,
+        vec![("T", vec![rec_at(&k, &["I(n0,n1,n2,n3)", "I(0,1,1,0)"])])],
+    );
     let cmp = NodeComparator::legacy(n, None).unwrap();
     let start = ks(n, 6, &[&k]);
-    let sk = closure(&d, &b, &cmp, &start, &cfg(Tier::K, &d), &NoFacts).unwrap().summary();
+    let sk = closure(&d, &b, &cmp, &start, &cfg(Tier::K, &d), &NoFacts)
+        .unwrap()
+        .summary();
     assert_eq!(sk.verdict, Verdict::Failed);
     assert_eq!(sk.descent_violations, 1);
     assert_eq!(sk.cycles, Some(1));
-    let zero = Facts::new(|key, _, tk| if tk == key { CoefFact::Zero } else { CoefFact::Unknown });
-    let sz = closure(&d, &b, &cmp, &start, &cfg(Tier::C, &d), &zero).unwrap().summary();
+    let zero = Facts::new(|key, _, tk| {
+        if tk == key {
+            CoefFact::Zero
+        } else {
+            CoefFact::Unknown
+        }
+    });
+    let sz = closure(&d, &b, &cmp, &start, &cfg(Tier::C, &d), &zero)
+        .unwrap()
+        .summary();
     assert_eq!(sz.verdict, Verdict::Closed, "{:?}", sz.blocking);
     assert_eq!(sz.terms.dropped_zero, 1);
-    let nz = Facts::new(|key, _, tk| if tk == key { CoefFact::NonZero } else { CoefFact::Unknown });
-    let sn = closure(&d, &b, &cmp, &start, &cfg(Tier::C, &d), &nz).unwrap().summary();
+    let nz = Facts::new(|key, _, tk| {
+        if tk == key {
+            CoefFact::NonZero
+        } else {
+            CoefFact::Unknown
+        }
+    });
+    let sn = closure(&d, &b, &cmp, &start, &cfg(Tier::C, &d), &nz)
+        .unwrap()
+        .summary();
     assert_eq!(sn.verdict, Verdict::Failed);
 }
 
@@ -469,11 +524,17 @@ fn ok_codec_boundary_never_wraps() {
         let max = (1i32 << (bits - 1)) - 1;
         let k = [max, 1, 1, 0];
         // n1+1 at slot 1 is fine; n0+1 leaves the range; the term is still LOWER? no: it is higher -> violation too
-        let (d, b) = node(n, nl, vec![("T", vec![rec_at(&k, &["I(n0+1,n1-1,n2,n3-1)"])])]);
+        let (d, b) = node(
+            n,
+            nl,
+            vec![("T", vec![rec_at(&k, &["I(n0+1,n1-1,n2,n3-1)"])])],
+        );
         let cmp = NodeComparator::legacy(n, None).unwrap();
         let mut c = cfg(Tier::K, &d);
         c.bits = bits;
-        let s = closure(&d, &b, &cmp, &ks(n, bits, &[&k]), &c, &NoFacts).unwrap().summary();
+        let s = closure(&d, &b, &cmp, &ks(n, bits, &[&k]), &c, &NoFacts)
+            .unwrap()
+            .summary();
         assert_eq!(s.unrepresentable, 1, "bits {bits}");
         assert_eq!(s.keys_total, 1, "bits {bits}: no wrapped key reached");
         assert_eq!(s.verdict, Verdict::Failed);
@@ -555,7 +616,10 @@ fn ok_credit_direct_comparison_and_no_chaining() {
         let mut c = cfg(Tier::K, &d);
         c.credits = Some(swap01.clone());
         let cl = closure(&d, &b, &cmp, &ks(n, 6, &[&k]), &c, &NoFacts).unwrap();
-        assert!(!cl.is_credited(0), "credited through a term not below k: {t:?}");
+        assert!(
+            !cl.is_credited(0),
+            "credited through a term not below k: {t:?}"
+        );
         checked += 1;
     }
     // (i-b) a term below k but not below the image: accepted
@@ -591,8 +655,14 @@ fn ok_credit_direct_comparison_and_no_chaining() {
     let cl = closure(&d, &b, &cmp, &ks(n, 6, &[&k3, &g(&k3)]), &c, &NoFacts).unwrap();
     let i_k3 = cl.index_of(&k3).unwrap();
     let i_gk3 = cl.index_of(&g(&k3)).unwrap();
-    assert!(cl.is_credited(i_gk3), "g k3 is credited through g^2 k3 (one step)");
-    assert!(!cl.is_credited(i_k3), "k3 must not be credited through a credited image (chain)");
+    assert!(
+        cl.is_credited(i_gk3),
+        "g k3 is credited through g^2 k3 (one step)"
+    );
+    assert!(
+        !cl.is_credited(i_k3),
+        "k3 must not be credited through a credited image (chain)"
+    );
     // (iii) Elided image record (check on): refused even with lift facts in Tier C
     let mut r = rec_at(&gk2, &["I(1,1,1,0)"]);
     r.meta = Some((WitnessStatus::Elided, Assurance::Record));
@@ -634,14 +704,21 @@ fn ok_recipe_match_needs_domain_and_certified_and_respects_its_slot() {
         nl,
         vec![
             ("A", vec![rec_at(&a, &["I(1,1,1,0)"])]),
-            ("B", vec![rec_at(&bkey, &["I(1,1,1,0)"]), rec_at(&c_out, &["I(1,1,1,0)"])]),
+            (
+                "B",
+                vec![
+                    rec_at(&bkey, &["I(1,1,1,0)"]),
+                    rec_at(&c_out, &["I(1,1,1,0)"]),
+                ],
+            ),
         ],
     );
     let mut dom = CaseDomain::free(n, Some(lines.clone()));
     dom.fixed[2] = Some(1);
     let mut sb = RelationStoreBuilder::new(KeyCodec::new(n, 6).unwrap());
     for k in [a, bkey, c_out] {
-        sb.push(&k, &[vec![1, 1, 1, 0]], [9; 32], VERDICT_CERTIFIED).unwrap();
+        sb.push(&k, &[vec![1, 1, 1, 0]], [9; 32], VERDICT_CERTIFIED)
+            .unwrap();
     }
     let set = Arc::new(RelationSet {
         name: "S".into(),
@@ -657,7 +734,11 @@ fn ok_recipe_match_needs_domain_and_certified_and_respects_its_slot() {
     let w = |k: &[i32]| cl.winner(cl.index_of(k).unwrap()).unwrap().table;
     assert_eq!(w(&a), "A", "A precedes the set");
     assert_eq!(w(&bkey), "S", "the set precedes B");
-    assert_eq!(w(&c_out), "B", "certified but outside the domain: falls through");
+    assert_eq!(
+        w(&c_out),
+        "B",
+        "certified but outside the domain: falls through"
+    );
     // in domain, not certified: (1,1,1,0) is uncovered by the tables and not certified -> open
     assert!(cl.is_open(cl.index_of(&[1, 1, 1, 0]).unwrap()));
     // excluded set at bkey: falls through to B
@@ -688,7 +769,11 @@ fn ok_arity_parameter_and_thread_independence() {
                 format!(
                     "I({})",
                     (0..n)
-                        .map(|s| if s == l { format!("n{s}-1") } else { format!("n{s}") })
+                        .map(|s| if s == l {
+                            format!("n{s}-1")
+                        } else {
+                            format!("n{s}")
+                        })
                         .collect::<Vec<_>>()
                         .join(",")
                 )
@@ -717,4 +802,208 @@ fn ok_arity_parameter_and_thread_independence() {
             "arity {n}: threads changed the report"
         );
     }
+}
+
+// ------------------------------------------------------------------------------------------------ F7
+
+/// F7 (MAJOR): `closure_recheck` reuses every earlier disposition when the configuration identity is unchanged, but
+/// the identity binds the records' WITNESS STATUS only through the per-table COUNTS of `Dispatcher::summary()` (the
+/// table dispatch digest covers labels and domains, not `RecordMeta`). Swapping the statuses of two records (one
+/// NotCarried, one Elided) keeps every count: the recheck accepts, keeps the old LIFTED key served (Tier C `closed`),
+/// while the closure of the union under the new dispatcher has that key blocked by `Elided` (`open`).
+/// (`closure_incremental` is not affected: it re-evaluates the stopping record; checked here as the control.)
+#[test]
+#[ignore = "AUDIT-CLOSURE2 F7: fails on b5ba6b33 (recheck stale after a witness-status swap)"]
+fn f7_recheck_refuses_or_matches_after_a_witness_status_change() {
+    use rustred_campaign_core::closure::{closure_incremental, closure_recheck};
+    let (n, nl) = (4, 3);
+    let k1 = [2, 1, 1, 0];
+    let k2 = [1, 2, 1, 0];
+    let mk = |w1: WitnessStatus, w2: WitnessStatus| {
+        let mut r1 = rec_at(&k1, &["I(0,1,1,0)"]);
+        r1.meta = Some((w1, Assurance::Record));
+        let mut r2 = rec_at(&k2, &["I(1,0,1,0)"]);
+        r2.meta = Some((w2, Assurance::Record));
+        node(n, nl, vec![("T", vec![r1, r2])])
+    };
+    let (d0, b0) = mk(WitnessStatus::NotCarried, WitnessStatus::Elided);
+    let (d1, b1) = mk(WitnessStatus::Elided, WitnessStatus::NotCarried);
+    assert_eq!(format!("{:?}", d0.summary()), format!("{:?}", d1.summary()));
+    let cmp = NodeComparator::legacy(n, None).unwrap();
+    let mut facts = Facts::new(|_, _, _| CoefFact::Unknown);
+    facts.lift = RegFact::Regular;
+    let c0 = cfg(Tier::C, &d0);
+    let prev = closure(&d0, &b0, &cmp, &ks(n, 6, &[&k1]), &c0, &facts).unwrap();
+    assert_eq!(
+        prev.summary().verdict,
+        Verdict::Closed,
+        "{:?}",
+        prev.summary().blocking
+    );
+    let c1 = cfg(Tier::C, &d1);
+    let union = closure(&d1, &b1, &cmp, &ks(n, 6, &[&k1, &k2]), &c1, &facts).unwrap();
+    let inc = closure_incremental(
+        &prev.dispatch_cache(),
+        &d1,
+        &b1,
+        &cmp,
+        &ks(n, 6, &[&k1, &k2]),
+        &c1,
+        &facts,
+    )
+    .unwrap();
+    assert_eq!(
+        inc.summary().verdict,
+        union.summary().verdict,
+        "control: incremental"
+    );
+    match closure_recheck(&prev, &d1, &b1, &cmp, &ks(n, 6, &[&k2]), &c1, &facts) {
+        Err(e) => println!("refused (acceptable): {e:?}"),
+        Ok(re) => {
+            println!(
+                "recheck: {:?} {:?}; union: {:?} {:?}",
+                re.summary().verdict,
+                re.summary().blocking,
+                union.summary().verdict,
+                union.summary().blocking
+            );
+            assert_eq!(
+                re.summary().verdict,
+                union.summary().verdict,
+                "stale recheck"
+            );
+        }
+    }
+}
+
+/// Audit loop-A C2 / C3 closed: a Tier C credit through an image whose rule has a POLE there is refused (the credit
+/// takes the closure's tier); the diagnostic relaxation of the regularity check stamps the run `diagnostic`.
+#[test]
+fn ok_audit_a_c2_c3_closed() {
+    let (n, nl) = (4, 3);
+    let k = [1, 2, 1, 0];
+    let gk = [2, 1, 1, 0];
+    let (d, b) = node(n, nl, vec![("T", vec![rec_at(&gk, &["I(0,1,1,0)"])])]);
+    let cmp = NodeComparator::legacy(n, None).unwrap();
+    let mut c = cfg(Tier::C, &d);
+    c.credits = Some(CreditPolicy::new(vec![GroupElement {
+        lines: vec![1, 0, 2],
+        numerators: None,
+    }]));
+    let mut pole = Facts::new(|_, _, _| CoefFact::Unknown);
+    pole.reg = RegFact::Pole;
+    let cl = closure(&d, &b, &cmp, &ks(n, 6, &[&k]), &c, &pole).unwrap();
+    assert!(!cl.is_credited(0) && cl.is_open(0), "credit through a pole");
+    let mut unknown = Facts::new(|_, _, _| CoefFact::Unknown);
+    unknown.reg = RegFact::Unknown;
+    let s = closure(&d, &b, &cmp, &ks(n, 6, &[&k]), &c, &unknown)
+        .unwrap()
+        .summary();
+    assert_eq!(
+        s.verdict,
+        Verdict::Undecided,
+        "pending credit: {:?}",
+        s.blocking
+    );
+    c.diagnostic.allow_unknown_regularity = true;
+    let s = closure(&d, &b, &cmp, &ks(n, 6, &[&k]), &c, &unknown)
+        .unwrap()
+        .summary();
+    assert_eq!(s.verdict, Verdict::Diagnostic);
+    c.diagnostic.allow_unknown_regularity = false;
+    c.require_regularity = false;
+    let s = closure(&d, &b, &cmp, &ks(n, 6, &[&k]), &c, &unknown)
+        .unwrap()
+        .summary();
+    assert_eq!(s.verdict, Verdict::Diagnostic);
+}
+
+// ------------------------------------------------------------------------------------------------ nits
+
+/// N1 (NIT): `ClosureSummary.open_by_status` keys are the Debug names lowercased ("outsidechart", "nobody",
+/// "recipeunverified") while `OpenKey.status` serialises snake_case ("outside_chart", "no_body", "recipe_unverified"):
+/// a consumer joining the two misses every multi-word status.
+#[test]
+#[ignore = "AUDIT-CLOSURE2 N1: fails on b5ba6b33 (status spellings differ)"]
+fn n1_open_by_status_uses_the_serde_names() {
+    let (n, nl) = (4, 3);
+    let k = [2, 1, 1, 0];
+    let (d, b) = node(n, nl, vec![("T", vec![rec_at(&k, &[])])]); // no body: open `no_body`
+    let cmp = NodeComparator::legacy(n, None).unwrap();
+    let cl = closure(&d, &b, &cmp, &ks(n, 6, &[&k]), &cfg(Tier::K, &d), &NoFacts).unwrap();
+    let ser = serde_json::to_value(&cl.open_keys()[0]).unwrap()["status"].clone();
+    let keys: Vec<String> = cl.summary().open_by_status.keys().cloned().collect();
+    println!("open_keys status {ser}, open_by_status keys {keys:?}");
+    assert_eq!(keys, vec![ser.as_str().unwrap().to_string()]);
+}
+
+/// N2 (NIT, statistics only): a positive numerator produced by an OFFSET on a FIXED numerator slot (canonical target,
+/// fixed n3 = -1, body `n3+2`) is counted `positive_numerator_symbolic`, although the slot is fixed (a constant of the
+/// rule), not "a symbolic slot raised past zero" (closure.md 1, term class 1).
+#[test]
+#[ignore = "AUDIT-CLOSURE2 N2: fails on b5ba6b33 (fixed-slot offset counted symbolic)"]
+fn n2_fixed_slot_offset_is_not_symbolic() {
+    let (n, nl) = (4, 3);
+    let k = [2, 1, 1, -1];
+    let (d, b) = node(
+        n,
+        nl,
+        vec![("T", vec![rec_at(&k, &["I(n0,n1,n2,n3+2)", "I(0,1,1,-1)"])])],
+    );
+    let cmp = NodeComparator::legacy(n, None).unwrap();
+    let s = closure(&d, &b, &cmp, &ks(n, 6, &[&k]), &cfg(Tier::K, &d), &NoFacts)
+        .unwrap()
+        .summary();
+    println!("terms {:?}", s.terms);
+    assert_eq!(s.terms.positive_numerator_constant, 1);
+}
+
+// ------------------------------------------------------------------------------------------------ F8
+
+/// F8 (MINOR, completeness, fail closed): R44 "the dispatch condition ranges over ALL accepted rules of the node
+/// (table and new)" and closure.md 12 ("Credits may point to a recipe-served image under the same adopted condition")
+/// against closure.md 12 "NOT YET ... REFUSED". A key whose image is served by a CERTIFIED relation set whose recorded
+/// right-hand side lies strictly below the ORIGINAL key is refused (`ImageServedByRecipe`) and stays open.
+#[test]
+#[ignore = "AUDIT-CLOSURE2 F8: fails on b5ba6b33 (no credit through a recipe-served image)"]
+fn f8_credit_through_a_recipe_served_image() {
+    let (n, nl) = (4, 3);
+    let k = [1, 2, 1, 0];
+    let gk = [2, 1, 1, 0];
+    let low = [1, 1, 1, 0];
+    let (d, b) = node(n, nl, vec![("T", vec![rec_at(&low, &["I(0,1,1,0)"])])]);
+    let cmp = NodeComparator::legacy(n, None).unwrap();
+    assert!(cmp.lower(&low, &k));
+    let mut sb = RelationStoreBuilder::new(KeyCodec::new(n, 6).unwrap());
+    sb.push(&gk, &[low.to_vec()], [3; 32], VERDICT_CERTIFIED)
+        .unwrap();
+    let set = Arc::new(RelationSet {
+        name: "S".into(),
+        recipe_digest: "sha256:s".into(),
+        domain: CaseDomain::free(n, Some(chart(n, nl))),
+        relations: sb.finish().unwrap(),
+        slot: DispatchSlot::Last,
+    });
+    let mut c = cfg(Tier::K, &d);
+    c.relation_sets = vec![set];
+    c.credits = Some(CreditPolicy::new(vec![GroupElement {
+        lines: vec![1, 0, 2],
+        numerators: None,
+    }]));
+    let cl = closure(&d, &b, &cmp, &ks(n, 6, &[&k, &gk]), &c, &NoFacts).unwrap();
+    assert!(
+        cl.is_recipe_served(cl.index_of(&gk).unwrap()),
+        "the image is recipe-served"
+    );
+    let i = cl.index_of(&k).unwrap();
+    println!(
+        "k open: {}, credited: {}, open keys {:?}",
+        cl.is_open(i),
+        cl.is_credited(i),
+        cl.open_keys()
+    );
+    assert!(
+        cl.is_credited(i),
+        "R44: credit through an accepted (recipe) rule at the image"
+    );
 }

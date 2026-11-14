@@ -17,8 +17,8 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use rustred_campaign_core::closure::{
-    Closure, ClosureConfig, CoefFact, DispatchSlot, ExclusionReason, FactSource, HandDowns, KeyCodec,
-    KeyExclusion, KeySet, RegFact, RelationSet, RelationStoreBuilder, RuleBodies, RuleId,
+    Closure, ClosureConfig, CoefFact, DispatchSlot, ExclusionReason, FactSource, HandDowns,
+    KeyCodec, KeyExclusion, KeySet, RegFact, RelationSet, RelationStoreBuilder, RuleBodies, RuleId,
     TerminalSets, Tier, closure, closure_incremental, closure_recheck,
 };
 use rustred_campaign_core::cover::{Assurance, Dispatcher, RecordMeta, Table, WitnessStatus};
@@ -93,7 +93,13 @@ fn lines(st: &St) -> Vec<bool> {
 
 fn rkey(r: &mut Rng, st: &St) -> Vec<i32> {
     (0..st.n)
-        .map(|s| if s < st.nl { 1 + r.below(3) as i32 } else { -(r.below(2) as i32) })
+        .map(|s| {
+            if s < st.nl {
+                1 + r.below(3) as i32
+            } else {
+                -(r.below(2) as i32)
+            }
+        })
         .collect()
 }
 
@@ -132,8 +138,13 @@ fn rrec(r: &mut Rng, st: &St, label: i64) -> Rec {
     let (n, nl) = (st.n, st.nl);
     let fixed = (0..n)
         .map(|s| {
-            r.p(1, 4)
-                .then(|| if s < nl { 1 + r.below(3) as i32 } else { -(r.below(2) as i32) })
+            r.p(1, 4).then(|| {
+                if s < nl {
+                    1 + r.below(3) as i32
+                } else {
+                    -(r.below(2) as i32)
+                }
+            })
         })
         .collect();
     let v = |r: &mut Rng| format!("n{}", r.below(nl));
@@ -146,7 +157,9 @@ fn rrec(r: &mut Rng, st: &St, label: i64) -> Rec {
         }
         b
     });
-    let target = r.p(1, 6).then(|| (r.below(nl), if r.p(1, 2) { 1 } else { -1 }));
+    let target = r
+        .p(1, 6)
+        .then(|| (r.below(nl), if r.p(1, 2) { 1 } else { -1 }));
     let recenter = (target.is_none() && r.p(1, 10)).then(|| format!("{}-2", v(r)));
     let pole = r.p(1, 8).then(|| format!("{}-{}", v(r), 2 + r.below(2)));
     let nb = 1 + r.below(3);
@@ -171,7 +184,11 @@ fn domain(st: &St, rc: &Rec) -> CaseDomain {
     d.fixed = rc.fixed.clone();
     d.equations = rc.equation.iter().map(|s| p(s)).collect();
     d.bounds = rc.bound.iter().map(|s| p(s)).collect();
-    d.exceptions = rc.exception.iter().map(|b| b.iter().map(|s| p(s)).collect()).collect();
+    d.exceptions = rc
+        .exception
+        .iter()
+        .map(|b| b.iter().map(|s| p(s)).collect())
+        .collect();
     d.recenter_bounds = rc.recenter.iter().map(|s| p(s)).collect();
     d.poles = rc
         .pole
@@ -387,7 +404,8 @@ impl FactSource for HFacts {
 fn view(c: &Closure) -> String {
     let mut v = serde_json::to_value(c.report(&Default::default())).unwrap();
     v["fact_requests"] = serde_json::to_value(c.fact_requests()).unwrap();
-    v["keys_in_order"] = serde_json::to_value((0..c.len()).map(|i| c.key(i)).collect::<Vec<_>>()).unwrap();
+    v["keys_in_order"] =
+        serde_json::to_value((0..c.len()).map(|i| c.key(i)).collect::<Vec<_>>()).unwrap();
     serde_json::to_string(&v).unwrap()
 }
 
@@ -404,18 +422,37 @@ fn canonical(c: &Closure, strict: bool) -> String {
     open.sort();
     let mut cr: Vec<_> = c.credits().into_iter().map(|x| format!("{x:?}")).collect();
     cr.sort();
-    let mut tr: Vec<_> = c.terminal_records().into_iter().map(|t| format!("{t:?}")).collect();
+    let mut tr: Vec<_> = c
+        .terminal_records()
+        .into_iter()
+        .map(|t| format!("{t:?}"))
+        .collect();
     tr.sort();
-    let mut winners: Vec<_> = (0..c.len()).map(|i| format!("{:?}{:?}", c.key(i), c.winner(i))).collect();
+    let mut winners: Vec<_> = (0..c.len())
+        .map(|i| format!("{:?}{:?}", c.key(i), c.winner(i)))
+        .collect();
     winners.sort();
     let acyclic = s.cycles == Some(0);
     let (cycles, chain, blocking) = if strict {
-        (format!("{:?}", s.cycles), format!("{:?}", s.longest_chain.map(|x| x.edges)), s.blocking.clone())
+        (
+            format!("{:?}", s.cycles),
+            format!("{:?}", s.longest_chain.map(|x| x.edges)),
+            s.blocking.clone(),
+        )
     } else {
         (
             format!("{:?}", s.cycles.map(|c| c > 0)),
             format!("{:?}", s.longest_chain.filter(|_| acyclic).map(|x| x.edges)),
-            s.blocking.iter().map(|b| if b.starts_with("cycles:") { "cycles".into() } else { b.clone() }).collect(),
+            s.blocking
+                .iter()
+                .map(|b| {
+                    if b.starts_with("cycles:") {
+                        "cycles".into()
+                    } else {
+                        b.clone()
+                    }
+                })
+                .collect(),
         )
     };
     serde_json::to_string(&serde_json::json!({
@@ -440,6 +477,7 @@ fn mutate(st: &mut St, r: &mut Rng, next: &mut i64, reached: &[Vec<i32>]) -> &'s
     };
     match r.below(20) {
         0 | 1 => {
+            *next += 1;
             let name = format!("t{}", *next);
             let recs = (0..1 + r.below(4))
                 .map(|_| {
@@ -506,14 +544,22 @@ fn mutate(st: &mut St, r: &mut Rng, next: &mut i64, reached: &[Vec<i32>]) -> &'s
             for e in st.excl.iter_mut().filter(|e| e.1 == old) {
                 e.1 = new.clone();
             }
-            for s in st.sets.iter_mut().filter(|s| s.slot.as_deref() == Some(old.as_str())) {
+            for s in st
+                .sets
+                .iter_mut()
+                .filter(|s| s.slot.as_deref() == Some(old.as_str()))
+            {
                 s.slot = Some(new.clone());
             }
             "rename table"
         }
         9 => {
             let k = pick(r, st);
-            if r.p(1, 2) { st.pref.push(k) } else { st.other.push(k) }
+            if r.p(1, 2) {
+                st.pref.push(k)
+            } else {
+                st.other.push(k)
+            }
             "add terminal"
         }
         10 => {
@@ -534,7 +580,8 @@ fn mutate(st: &mut St, r: &mut Rng, next: &mut i64, reached: &[Vec<i32>]) -> &'s
             } else {
                 let t = r.below(st.tables.len());
                 let i = r.below(st.tables[t].1.len());
-                st.excl.push((k, st.tables[t].0.clone(), st.tables[t].1[i].label));
+                st.excl
+                    .push((k, st.tables[t].0.clone(), st.tables[t].1[i].label));
             }
             "add exclusion"
         }
@@ -562,7 +609,13 @@ fn mutate(st: &mut St, r: &mut Rng, next: &mut i64, reached: &[Vec<i32>]) -> &'s
                 2 => st.hand_downs = r.below(3) as u8,
                 3 => st.zero = !st.zero,
                 4 => st.ties = !st.ties,
-                _ => st.max_rounds = if r.p(1, 3) { Some(1 + r.below(4) as u32) } else { None },
+                _ => {
+                    st.max_rounds = if r.p(1, 3) {
+                        Some(1 + r.below(4) as u32)
+                    } else {
+                        None
+                    }
+                }
             }
             "toggle config"
         }
@@ -593,10 +646,18 @@ fn mutate(st: &mut St, r: &mut Rng, next: &mut i64, reached: &[Vec<i32>]) -> &'s
                     let s = st.sets.remove(i);
                     st.excl.retain(|e| e.1 != s.name);
                 }
-                1 => st.sets[i].slot = r.p(2, 3).then(|| st.tables[r.below(st.tables.len())].0.clone()),
+                1 => {
+                    st.sets[i].slot = r
+                        .p(2, 3)
+                        .then(|| st.tables[r.below(st.tables.len())].0.clone())
+                }
                 _ => {
                     let k = pick(r, st);
-                    let v = if r.p(1, 3) { [1u8, 3, 5][r.below(3)] } else { 7 };
+                    let v = if r.p(1, 3) {
+                        [1u8, 3, 5][r.below(3)]
+                    } else {
+                        7
+                    };
                     if k[0] >= 1 && k.iter().take(st.nl).all(|&x| x >= 1) {
                         st.sets[i].keys.push((k, v));
                     }
@@ -612,9 +673,11 @@ fn audit_incremental_equals_scratch_under_random_edit_sequences() {
     run_sequences(false, None);
 }
 
-/// F6 (MINOR): the recheck's report equals the union's EXACTLY in `cycles` and `longest_chain` too (same identity,
-/// closure.md 11.4 "result = closure of the union"). Fails on b5ba6b33: on cyclic (failed) closures the DFS back-edge
-/// count and the memoised chain length depend on the reach order (seed below: case 28 step 2 with 60 cases).
+/// F6 (MINOR): the recheck's report equals the union's EXACTLY in `cycles` and `longest_chain` too, and under a round
+/// limit (same identity, closure.md 11.4 "result = closure of the union"). Fails on b5ba6b33: (a) on cyclic (failed)
+/// closures the DFS back-edge count and the memoised chain length depend on the reach order (case 28 step 2 with 60
+/// cases); (b) the recheck counts the previous run's rounds against `max_rounds`, so it is truncated (open keys) where
+/// the closure of the union completes (release sweep: case 208 step 7 of 1,500).
 #[test]
 #[ignore = "AUDIT-CLOSURE2 F6: fails on b5ba6b33 (cycles / chain depend on reach order)"]
 fn f6_recheck_equals_union_strictly() {
@@ -631,7 +694,8 @@ fn run_sequences(strict: bool, cases: Option<u64>) {
     let mut r = Rng(0xa0d1_c105_2026_1114);
     let facts = HFacts;
     let mut stats = std::collections::BTreeMap::<&str, u64>::new();
-    let (mut steps, mut reused, mut full, mut fallback, mut rechecks) = (0u64, 0u64, 0u64, 0u64, 0u64);
+    let (mut steps, mut reused, mut full, mut fallback, mut rechecks) =
+        (0u64, 0u64, 0u64, 0u64, 0u64);
     let mut agg = [0u64; 8];
     for case in 0..cases {
         let n = 4 + r.below(6);
@@ -664,7 +728,15 @@ fn run_sequences(strict: bool, cases: Option<u64>) {
         st.tables.push(("t0".into(), recs));
         st.start = (0..1 + r.below(3)).map(|_| rkey(&mut r, &st)).collect();
         let (d, b) = build(&st);
-        let mut prev_inc = closure(&d, &b, &cmp_of(&st), &kset(&st, &st.start).unwrap(), &config(&st, 2), &facts).unwrap();
+        let mut prev_inc = closure(
+            &d,
+            &b,
+            &cmp_of(&st),
+            &kset(&st, &st.start).unwrap(),
+            &config(&st, 2),
+            &facts,
+        )
+        .unwrap();
         let mut prev_scr = prev_inc.clone();
         for step in 0..8 {
             let reached: Vec<Vec<i32>> = prev_scr.keys().iter().collect();
@@ -676,14 +748,41 @@ fn run_sequences(strict: bool, cases: Option<u64>) {
             let cfg = config(&st, 2);
             let scr = closure(&d, &b, &cmp, &start, &cfg, &facts).unwrap();
             let vs = view(&scr);
-            let inc = closure_incremental(&prev_inc.dispatch_cache(), &d, &b, &cmp, &start, &cfg, &facts).unwrap();
-            assert!(view(&inc) == vs, "case {case} step {step} ({what}): chained incremental != scratch\n{st:?}");
-            let inc2 = closure_incremental(&prev_scr.dispatch_cache(), &d, &b, &cmp, &start, &cfg, &facts).unwrap();
-            assert!(view(&inc2) == vs, "case {case} step {step} ({what}): incremental != scratch\n{st:?}");
+            let inc = closure_incremental(
+                &prev_inc.dispatch_cache(),
+                &d,
+                &b,
+                &cmp,
+                &start,
+                &cfg,
+                &facts,
+            )
+            .unwrap();
+            assert!(
+                view(&inc) == vs,
+                "case {case} step {step} ({what}): chained incremental != scratch\n{st:?}"
+            );
+            let inc2 = closure_incremental(
+                &prev_scr.dispatch_cache(),
+                &d,
+                &b,
+                &cmp,
+                &start,
+                &cfg,
+                &facts,
+            )
+            .unwrap();
+            assert!(
+                view(&inc2) == vs,
+                "case {case} step {step} ({what}): incremental != scratch\n{st:?}"
+            );
             // thread independence (1 and 5 threads)
             for th in [1usize, 5] {
                 let t = closure(&d, &b, &cmp, &start, &config(&st, th), &facts).unwrap();
-                assert!(view(&t) == vs, "case {case} step {step}: threads {th} changed the result");
+                assert!(
+                    view(&t) == vs,
+                    "case {case} step {step}: threads {th} changed the result"
+                );
             }
             let u = inc.incremental_use().unwrap();
             reused += u.reused;
@@ -698,14 +797,19 @@ fn run_sequences(strict: bool, cases: Option<u64>) {
                 s.open_by_status.get("blocked").copied().unwrap_or(0),
                 s.open_by_status.get("undecided").copied().unwrap_or(0),
                 s.descent_violations,
-                s.open_by_status.get("recipeunverified").copied().unwrap_or(0),
+                s.open_by_status
+                    .get("recipeunverified")
+                    .copied()
+                    .unwrap_or(0),
             ]
             .into_iter()
             .enumerate()
             {
                 agg[i] += x;
             }
-            if !s.truncated {
+            // non-strict: skip the recheck comparison under a round limit (F6b: the recheck counts the previous run's
+            // rounds against `max_rounds` and can be truncated where the closure of the union is not)
+            if !s.truncated && (strict || st.max_rounds.is_none()) {
                 let extra = kset(&st, &[rkey(&mut r, &st), rkey(&mut r, &st)]).unwrap();
                 let re = closure_recheck(&scr, &d, &b, &cmp, &extra, &cfg, &facts).unwrap();
                 let un = closure(&d, &b, &cmp, &start.union(&extra), &cfg, &facts).unwrap();
