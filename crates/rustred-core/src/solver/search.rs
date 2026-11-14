@@ -669,11 +669,30 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             }
         };
         // Astra's shifted-shell stream (CaseSeedSchedule) under the opt-in in-shell SeedSchedule (SymbolicFirst).
-        let mut seeds = super::ScheduledSeeds::over(
-            stream,
-            centre,
-            crate::node::screen::seed_schedule_override().unwrap_or(self.config.seed_schedule),
-        );
+        // engine-line recipe solve (default off): an explicit seed list replaces the stream (no depth limit)
+        let mut seeds = match super::seed::explicit_seeds() {
+            None => SeedFeed::Engine(super::ScheduledSeeds::over(
+                stream,
+                centre,
+                crate::node::screen::seed_schedule_override().unwrap_or(self.config.seed_schedule),
+            )),
+            Some(list) => SeedFeed::Explicit(
+                list.iter()
+                    .map(|values| {
+                        let values: [i16; N] = values.as_slice().try_into().map_err(|_| {
+                            SolverError::InvalidInput("explicit seed of another arity".into())
+                        })?;
+                        Ok(Seed {
+                            integral: Integral::numeric(values).map_err(|e| {
+                                SolverError::InvalidInput(format!("explicit seed: {e:?}"))
+                            })?,
+                            shifts: [0; N],
+                        })
+                    })
+                    .collect::<Result<Vec<_>, SolverError>>()?
+                    .into_iter(),
+            ),
+        };
         // A coupled affine chart can determine the sign of a symbolic power
         // only after its equations are solved together with the sector.  The
         // rectangular zero-sector census cannot make that inference: pruning
@@ -839,6 +858,15 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     } else {
                         Vec::new()
                     };
+                    if super::discovery::weight_capture_on() {
+                        let one: crate::algebra::Coefficient =
+                            leading.coefficient.numerator.one().into();
+                        store_proof(ProofCapture {
+                            rows: vec![row.clone()],
+                            exact: row.clone(),
+                            weights: Some(vec![(0, one)]),
+                        });
+                    }
                     let (target, rhs) = canonicalize(row, &self.system.indices)?;
                     stats.discovery = probe.as_ref().map(|p: &Probe<N>| p.discovery.stats());
                     return Ok(RuleCandidate {
@@ -850,7 +878,9 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                         hidden_poles,
                     });
                 }
+                // (an explicit recipe seed list keeps rows above the target: the elimination removes them)
                 if case.is_numerical()
+                    && !seeds.is_explicit()
                     && self.order.compare(&initial, &leading.integral) == Ordering::Less
                 {
                     continue;
@@ -996,6 +1026,13 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                             terms: exact.len(),
                             direct_hit: false,
                         });
+                        if super::discovery::weight_capture_on() {
+                            store_proof(ProofCapture {
+                                rows: selected.clone(),
+                                exact: exact.clone(),
+                                weights: super::discovery::take_captured_weights(),
+                            });
+                        }
                         let (target, rhs) = canonicalize(exact, &self.system.indices)?;
                         stats.exact_materialization = exact_start.elapsed();
                         stats.discovery = Some(discovery);
@@ -1016,6 +1053,65 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             rows: stats.rows,
         }
         .into())
+    }
+}
+
+/// engine-line recipe solve: what the last successful search on this thread lifted (with [`with_proof_capture`]):
+/// the exact trace rows (aligned with [`RuleCandidate::sources`]), the exact winning row before canonicalisation and
+/// the exact source weights (input row index into `rows`, weight), all in the ORIGINAL coefficient map; the caller
+/// proves `sum_j w_j rows[j] == exact` by exact arithmetic.
+pub struct ProofCapture<const N: usize> {
+    pub rows: Vec<ExactRow<N>>,
+    pub exact: ExactRow<N>,
+    pub weights: Option<Vec<(usize, crate::algebra::Coefficient)>>,
+}
+
+thread_local! {
+    static PROOF_CAPTURE: std::cell::RefCell<Option<Box<dyn std::any::Any>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn store_proof<const N: usize>(capture: ProofCapture<N>) {
+    PROOF_CAPTURE.with(|c| *c.borrow_mut() = Some(Box::new(capture)));
+}
+
+/// Run `f` with the lift's exact weights captured; returns `f`'s result and the capture of the last successful
+/// search inside it (None when nothing was lifted). Default off everywhere else.
+pub fn with_proof_capture<const N: usize, R>(
+    f: impl FnOnce() -> R,
+) -> (R, Option<ProofCapture<N>>) {
+    PROOF_CAPTURE.with(|c| *c.borrow_mut() = None);
+    let r = super::discovery::with_weight_capture(f);
+    let cap = PROOF_CAPTURE
+        .with(|c| c.borrow_mut().take())
+        .and_then(|b| b.downcast::<ProofCapture<N>>().ok())
+        .map(|b| *b);
+    (r, cap)
+}
+
+/// The seeds of one case search: the engine's shell stream, or (engine-line recipe solve) an explicit list.
+enum SeedFeed<const N: usize> {
+    Engine(super::ScheduledSeeds<N, super::seed::CentredSeeds<N>>),
+    Explicit(std::vec::IntoIter<Seed<N>>),
+}
+
+impl<const N: usize> SeedFeed<N> {
+    fn next(&mut self) -> Option<Result<Seed<N>, super::PowerError>> {
+        match self {
+            Self::Engine(s) => s.next(),
+            Self::Explicit(i) => i.next().map(Ok),
+        }
+    }
+
+    fn depth(&self) -> u32 {
+        match self {
+            Self::Engine(s) => s.depth(),
+            Self::Explicit(_) => 0,
+        }
+    }
+
+    fn is_explicit(&self) -> bool {
+        matches!(self, Self::Explicit(_))
     }
 }
 

@@ -25,6 +25,8 @@
 //!                  around target + offset, ';' = several centres, seed set = union; per case "seed_centre_offset":[..] or
 //!                  [[..],..] in --initial-presented; drop seeds below target - K on a face line; default off)
 //! rr_node symmetry --family F.sym [--chart MASK]   (authenticated automorphism group of the chart, JSON)
+//! rr_node solve-recipe --family F.sym --order JSON|NAME --recipe RECIPE.json (--keys KEYS.jsonl | --key K,..) --out DIR
+//!                  [--threads T] [--max-trace-rows R] [--no-proof]   (R48 recipe rules, node::recipe)
 //! rr_node probe    --family F.sym --case 'SPEC [EQS]' --out DIR [--variants all|NAME,..] [--cap S] [--depth K] [--parallel P] [--portfolio K]
 //! rr_node variants --family F.sym --case 'SPEC [EQS]'
 //! rr_node predict  --family F.sym (--table F.table.jsonl | --cases CASES.jsonl) --out PREDICT.json [--base-order JSON|NAME]
@@ -1329,6 +1331,117 @@ fn cmd_symmetry(mut a: Args) -> i32 {
     }
 }
 
+/// `rr_node solve-recipe` (engine line, R48 recipe rules): one recipe, many keys; see node::recipe and
+/// plan/auto-campaign/interfaces/coord-recipe-solve.md. Exit 0 all SOLVED, 10 some not (typed records), 30
+/// interrupted (sealed partial), 40 usage, 41 input, 70 internal.
+fn cmd_solve_recipe(mut a: Args) -> i32 {
+    use rustred::node::recipe;
+    let usage = |m: &str| -> ! {
+        eprintln!("rr_node solve-recipe: {m}");
+        std::process::exit(40)
+    };
+    let input = |m: &str| -> ! {
+        eprintln!("rr_node solve-recipe: {m}");
+        std::process::exit(41)
+    };
+    let family_path = a
+        .take("--family")
+        .unwrap_or_else(|| usage("missing --family"));
+    let order_text = a
+        .take("--order")
+        .unwrap_or_else(|| usage("missing --order"));
+    let recipe_path = a
+        .take("--recipe")
+        .unwrap_or_else(|| usage("missing --recipe"));
+    let keys_path = a.take("--keys");
+    let key_inline = a.take("--key");
+    let out = a.take("--out").unwrap_or_else(|| usage("missing --out"));
+    let threads: usize = a.parse("--threads").unwrap_or(1);
+    let max_trace_rows: Option<usize> = a.parse("--max-trace-rows");
+    let no_proof = a.flag("--no-proof");
+    a.done();
+    let family = std::fs::read_to_string(&family_path)
+        .unwrap_or_else(|e| input(&format!("{family_path}: {e}")));
+    let recipe_text = std::fs::read_to_string(&recipe_path)
+        .unwrap_or_else(|e| input(&format!("{recipe_path}: {e}")));
+    let keys = match (keys_path, key_inline) {
+        (Some(p), None) => {
+            let text = std::fs::read_to_string(&p).unwrap_or_else(|e| input(&format!("{p}: {e}")));
+            recipe::parse_keys(&text).unwrap_or_else(|e| input(&e))
+        }
+        (None, Some(k)) => vec![recipe::KeyInput {
+            key: k
+                .split(',')
+                .map(|x| {
+                    x.trim()
+                        .parse::<i64>()
+                        .unwrap_or_else(|_| usage("--key: integers"))
+                })
+                .collect(),
+            tag: None,
+        }],
+        _ => usage("give exactly one of --keys FILE / --key K1,K2,.."),
+    };
+    let outp = std::path::Path::new(&out);
+    if outp.exists()
+        && std::fs::read_dir(outp)
+            .map(|mut d| d.next().is_some())
+            .unwrap_or(true)
+    {
+        usage(&format!("--out {out} exists and is not empty"));
+    }
+    if let Err(e) = recipe::Recipe::parse(&recipe_text) {
+        usage(&e);
+    }
+    let order = order_arg(&order_text, &family, None);
+    recipe::install_stop_handler();
+    let opts = recipe::BatchOptions {
+        threads,
+        max_trace_rows,
+        proof: !no_proof,
+        family_path: std::fs::canonicalize(&family_path)
+            .map(|p| p.display().to_string())
+            .unwrap_or(family_path.clone()),
+        recipe_path: std::fs::canonicalize(&recipe_path)
+            .map(|p| p.display().to_string())
+            .unwrap_or(recipe_path.clone()),
+        order_text: order.to_json(),
+        binary: recipe::binary_identity(),
+    };
+    let single = keys.len() == 1;
+    match recipe::run_batch(&family, &order, &recipe_text, &keys, outp, &opts) {
+        Ok(code) => {
+            if single && code != 0 {
+                // stand-alone reproduction: the failure object on stderr as one line
+                if let Ok(text) = std::fs::read_to_string(outp.join("results.jsonl")) {
+                    if let Some(first) = text.lines().next() {
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(first) {
+                            eprintln!("{}", v["failure"]);
+                        }
+                    }
+                }
+            }
+            println!(
+                "{}",
+                std::fs::read_to_string(outp.join("OUTCOME.json"))
+                    .map(|t| serde_json::from_str::<serde_json::Value>(&t)
+                        .map(|v| serde_json::json!({"exit_code": v["exit_code"], "counts": v["counts"], "out": out}).to_string())
+                        .unwrap_or_default())
+                    .unwrap_or_default()
+            );
+            code
+        }
+        Err(e) => {
+            eprintln!("rr_node solve-recipe: {e}");
+            if e.starts_with("recipe") || e.contains("arity") || e.contains("two-sided") {
+                41
+            } else {
+                70
+            }
+        }
+    }
+}
+
 fn dims_arg(a: &mut Args) -> Vec<rustred::node::replay::arith::Q> {
     use rustred::node::replay::arith::Q;
     match a.take("--dims") {
@@ -1725,7 +1838,7 @@ fn main() {
     let mut items: Vec<String> = std::env::args().skip(1).collect();
     if items.is_empty() {
         die(
-            "usage: rr_node generate|probe|variants|descent|replay|cover-index|obligations|join|predict|oracle|affine|witness|locus-rank|symmetry|reduce|mastermap|mapcheck|symmasters|laporta ... (see the source header)",
+            "usage: rr_node generate|probe|variants|descent|replay|cover-index|obligations|join|predict|oracle|affine|witness|locus-rank|symmetry|solve-recipe|reduce|mastermap|mapcheck|symmasters|laporta ... (see the source header)",
         );
     }
     let cmd = items.remove(0);
@@ -1750,6 +1863,7 @@ fn main() {
         "symmasters" => cmd_symmasters(a),
         "laporta" => cmd_laporta(a),
         "symmetry" => cmd_symmetry(a),
+        "solve-recipe" => cmd_solve_recipe(a),
         other => die(&format!("unknown command {other}")),
     };
     let _ = Path::new(".");

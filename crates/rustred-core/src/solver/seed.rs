@@ -349,6 +349,34 @@ pub fn seed_recipe_override() -> Option<SeedRecipe> {
     SEED_RECIPE.with(|a| a.borrow().clone())
 }
 
+thread_local! {
+    /// engine-line recipe solve (default None = unchanged): an EXPLICIT, ordered seed list (absolute numeric keys)
+    /// replacing the case seed stream of the next searches on this thread ([`with_explicit_seeds`]).
+    static EXPLICIT_SEEDS: std::cell::RefCell<Option<std::sync::Arc<Vec<Vec<i16>>>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// engine-line recipe solve: run `f` with the case search fed by exactly `seeds` (absolute numeric keys, in this
+/// order; each must have the solver's arity) instead of the shell stream. Used by `node::recipe` only; restored on
+/// exit (also on panic). Without it every search is unchanged.
+pub fn with_explicit_seeds<R>(seeds: std::sync::Arc<Vec<Vec<i16>>>, f: impl FnOnce() -> R) -> R {
+    struct Restore(Option<std::sync::Arc<Vec<Vec<i16>>>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let previous = self.0.take();
+            EXPLICIT_SEEDS.with(|a| *a.borrow_mut() = previous);
+        }
+    }
+    let previous = EXPLICIT_SEEDS.with(|a| std::mem::replace(&mut *a.borrow_mut(), Some(seeds)));
+    let _restore = Restore(previous);
+    f()
+}
+
+/// The explicit seed list installed by [`with_explicit_seeds`] on this thread, if any.
+pub fn explicit_seeds() -> Option<std::sync::Arc<Vec<Vec<i16>>>> {
+    EXPLICIT_SEEDS.with(|a| a.borrow().clone())
+}
+
 impl<const N: usize> Seeds<N> {
     /// Construct the seed stream, including the initial seed consumed by the
     /// reference solver's `do`/`while` loop. `sector` describes symbolic signs;
