@@ -6,6 +6,8 @@
 // Interfaces and their self-contained implementations (M2-I0; class and
 // census bodies: M2-T1 and M2-T2; library bodies: M2-T6; programs body: M2-T8a).
 pub mod census;
+// vk5l WP1: the certified key set of a boxed node.
+pub mod certified_keys;
 pub mod class;
 pub mod error;
 pub mod families;

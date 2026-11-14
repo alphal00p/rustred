@@ -389,6 +389,15 @@ impl PLaneStep for PEvictableStep {
     fn order_key(&self, cx: &PStepContext<'_>, powers: &[i64]) -> Result<POrderKey, PError> {
         self.program()?.order_key(cx, powers)
     }
+
+    /// vk5l WP1: a lazy boxed owner keeps its box (built on use).
+    fn box_contains(&self, powers: &[i64]) -> Option<bool> {
+        self.program().ok()?.box_contains(powers)
+    }
+
+    fn boxed_record(&self) -> Option<Arc<super::table_import::BoxedNodeRecord>> {
+        self.program().ok()?.boxed_record()
+    }
 }
 
 #[cfg(test)]

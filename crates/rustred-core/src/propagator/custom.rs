@@ -61,6 +61,7 @@ use super::bundle_wire::{
     StoredProgram, candidate_sections, decode_family_record, decode_program_record,
     storage_variables, validate_dispatch, validate_rule_ids, validate_sectors,
 };
+use super::certified_keys::CertifiedKeySet;
 use super::error::PError;
 use super::lane::OwnerLane;
 use super::library::{CustomOwnerMeta, PTerminal};
@@ -930,6 +931,9 @@ pub struct CustomStep<const N: usize> {
     programs: DeferredCandidateOwnerPrograms<N>,
     /// boxed-node: the box of a boxed table's payload.
     boxed: Option<Arc<BoxedNodeRecord>>,
+    /// vk5l WP1: the certified key set of a boxed payload (decoded when the
+    /// owner's program is built: on its first use).
+    certified: Option<Arc<CertifiedKeySet>>,
 }
 
 impl<const N: usize> fmt::Debug for CustomStep<N> {
@@ -945,6 +949,7 @@ impl<const N: usize> fmt::Debug for CustomStep<N> {
                 "boxed",
                 &self.boxed.as_ref().map(|record| record.describe()),
             )
+            .field("certified", &self.certified.as_ref().map(|set| set.len()))
             .finish_non_exhaustive()
     }
 }
@@ -974,18 +979,40 @@ impl<const N: usize> CustomStep<N> {
         self.boxed.as_deref()
     }
 
+    /// vk5l WP1: the certified key set of a boxed owner.
+    pub fn certified(&self) -> Option<&CertifiedKeySet> {
+        self.certified.as_deref()
+    }
+
     /// The typed refusal of a key no rule covers: [`PError::OutsideBox`] for a
     /// key outside a boxed owner's box, [`PError::Uncovered`] otherwise (inside
-    /// the box it is a defect of a partial table).
+    /// the box it is a defect of a partial table). vk5l WP1: with a certified
+    /// set, [`PError::OutsideCertifiedSet`] for a key outside it (inside it,
+    /// [`PError::Uncovered`], a defect).
     fn uncovered(&self, class: OwnerClassId, key: IntegralKey) -> PError {
-        match &self.boxed {
-            Some(record) if !record.contains(key.powers()) => PError::OutsideBox {
+        match (&self.boxed, &self.certified) {
+            (Some(record), Some(set)) if !set.contains(key.powers()) => {
+                outside_certified(class, key, record, set)
+            }
+            (Some(record), None) if !record.contains(key.powers()) => PError::OutsideBox {
                 class,
+                violated: record.violation(key.powers()),
                 key,
                 node: record.node.clone(),
                 definition: record.describe(),
+                request: None,
             },
             _ => PError::Uncovered { class, key },
+        }
+    }
+
+    /// vk5l WP1: `powers` is in the domain of a boxed owner: its certified
+    /// set, else its box (`None`: not boxed).
+    fn in_domain(&self, powers: &[i64]) -> Option<bool> {
+        match (&self.boxed, &self.certified) {
+            (Some(_), Some(set)) => Some(set.contains(powers)),
+            (Some(record), None) => Some(record.contains(powers)),
+            _ => None,
         }
     }
 
@@ -1090,6 +1117,24 @@ fn check_residual_positions(forced: u64, residuals: &[IntegralKey]) -> Result<()
     Ok(())
 }
 
+/// vk5l WP1: the refusal of `key`, outside the certified set of a boxed owner.
+fn outside_certified(
+    class: OwnerClassId,
+    key: IntegralKey,
+    record: &BoxedNodeRecord,
+    set: &CertifiedKeySet,
+) -> PError {
+    PError::OutsideCertifiedSet {
+        class,
+        violated: record.violation(key.powers()),
+        key,
+        node: record.node.clone(),
+        definition: record.describe(),
+        certified_keys: set.len() as u64,
+        request: None,
+    }
+}
+
 fn step_error(class: OwnerClassId, error: CandidateReductionError) -> PError {
     match error {
         CandidateReductionError::Application(error) => PError::Engine(error),
@@ -1124,6 +1169,13 @@ impl<const N: usize> PLaneStep for CustomStep<N> {
         let class = cx.owner.spec.class;
         let integral = IntegralKey::try_new(key.powers.iter().copied())
             .map_err(|error| PError::Contract(error.to_string()))?;
+        // vk5l WP1 (decision Q1): a boxed owner with a certified set reduces
+        // only the keys of the set (the authoritative check, before any rule).
+        if let (Some(record), Some(set)) = (&self.boxed, &self.certified)
+            && !set.contains(key.powers)
+        {
+            return Err(outside_certified(class, integral, record, set));
+        }
         let chart = self.chart(key.powers);
         let mut conditions = Vec::new();
         let mut request = ReductionRequest::default();
@@ -1197,7 +1249,11 @@ impl<const N: usize> PLaneStep for CustomStep<N> {
     }
 
     fn box_contains(&self, powers: &[i64]) -> Option<bool> {
-        self.boxed.as_ref().map(|record| record.contains(powers))
+        self.in_domain(powers)
+    }
+
+    fn boxed_record(&self) -> Option<Arc<BoxedNodeRecord>> {
+        self.boxed.clone()
     }
 }
 
@@ -1379,6 +1435,27 @@ fn build<const N: usize>(
     }
     check_residual_positions(forced, &residuals)?;
     let boxed = super::table_import::boxed_node_of_source(&program.family_source)?;
+    // vk5l WP1: the certified set of a boxed payload, with its record.
+    let certified = match &boxed {
+        Some(record) => {
+            let set = super::table_import::certified_keys_of_source(&program.family_source)?;
+            match (&record.certified, &set) {
+                (None, None) => {}
+                (Some(summary), Some(set))
+                    if summary.keys == set.len() as u64
+                        && set.arity() == arity
+                        && set.frame() == "presentation" => {}
+                _ => {
+                    return Err(payload_error(format!(
+                        "boxed node {}: the record's certified key set does not describe the payload's",
+                        record.node
+                    )));
+                }
+            }
+            set.map(Arc::new)
+        }
+        None => None,
+    };
     if let Some(record) = &boxed {
         let held: BTreeSet<Vec<i64>> = residuals.iter().map(|key| key.powers().to_vec()).collect();
         let declared: BTreeSet<Vec<i64>> = record.terminals.iter().cloned().collect();
@@ -1449,6 +1526,7 @@ fn build<const N: usize>(
         residuals: residuals.into_iter().collect(),
         programs,
         boxed: boxed.map(Arc::new),
+        certified,
     };
     if prepare {
         step.prepare_charts()?;
@@ -1674,6 +1752,8 @@ trait CustomOwnerOps {
     fn box_partial(&self) -> bool;
     /// The box record of a boxed owner.
     fn box_record(&self) -> Option<&BoxedNodeRecord>;
+    /// vk5l WP1: the certified key set of a boxed owner.
+    fn certified_set(&self) -> Option<&CertifiedKeySet>;
 }
 
 impl<const N: usize> CustomOwnerOps for CustomStep<N> {
@@ -1737,7 +1817,7 @@ impl<const N: usize> CustomOwnerOps for CustomStep<N> {
     }
 
     fn box_contains(&self, powers: &[i64]) -> Option<bool> {
-        self.boxed.as_ref().map(|record| record.contains(powers))
+        self.in_domain(powers)
     }
 
     fn box_partial(&self) -> bool {
@@ -1746,6 +1826,10 @@ impl<const N: usize> CustomOwnerOps for CustomStep<N> {
 
     fn box_record(&self) -> Option<&BoxedNodeRecord> {
         self.boxed.as_deref()
+    }
+
+    fn certified_set(&self) -> Option<&CertifiedKeySet> {
+        self.certified.as_deref()
     }
 }
 
@@ -1777,6 +1861,39 @@ fn custom_owner_ops(
     with_candidate_runtime_arities!(dispatch)
 }
 
+/// vk5l WP1 (e): what loading one Custom owner takes ([`custom_payload_load`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CustomPayloadLoad {
+    /// Seconds to build the owner program with every chart prepared.
+    pub build_seconds: f64,
+    /// The boxed node, if any.
+    pub node: Option<String>,
+    /// Keys of the certified set (0 without one).
+    pub certified_keys: usize,
+    /// Bytes the decoded certified set holds.
+    pub certified_heap_bytes: usize,
+}
+
+/// vk5l WP1 (e): build the owner program of one payload as a library does on
+/// its first use (every chart prepared, the certified set decoded) and report
+/// it; the caller reads the process memory around it.
+pub fn custom_payload_load(
+    presentation: &Presentation,
+    payload: &[u8],
+    meta: &CustomOwnerMeta,
+) -> Result<CustomPayloadLoad, PError> {
+    let started = std::time::Instant::now();
+    let ops = custom_owner_ops(presentation, payload, meta)?;
+    let build_seconds = started.elapsed().as_secs_f64();
+    let certified = ops.certified_set();
+    Ok(CustomPayloadLoad {
+        build_seconds,
+        node: ops.box_record().map(|record| record.node.clone()),
+        certified_keys: certified.map_or(0, CertifiedKeySet::len),
+        certified_heap_bytes: certified.map_or(0, CertifiedKeySet::heap_bytes),
+    })
+}
+
 /// What [`verify_custom_payload`] checked on one payload.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CustomPayloadCheck {
@@ -1795,7 +1912,10 @@ pub struct CustomPayloadCheck {
     pub open_box_keys: usize,
     /// boxed-node, mixed box (point rules + parametric rules): box keys
     /// stepped by the closure check (every non-terminal key of the box).
+    /// vk5l WP1: with a certified set, every non-terminal certified key.
     pub box_keys_stepped: usize,
+    /// vk5l WP1: keys of the certified set (0 without one).
+    pub certified_keys: usize,
 }
 
 /// The load-time checks of a Custom owner (`descent::check` items 1, 2 and 7)
@@ -1895,14 +2015,30 @@ pub fn verify_custom_payload(
     // the closure of the box is checked here by stepping every box key: a
     // rule (point or parametric, first match) applies and every child on the
     // chart lies in the box.
+    // vk5l WP1: with a certified set, the closure of the SET is checked the
+    // same way (every certified key stepped, every chart child certified):
+    // the set, not the layer box, is the dispatch domain.
+    let certified = ops.certified_set();
+    check.certified_keys = certified.map_or(0, CertifiedKeySet::len);
     if let Some(record) = ops
         .box_record()
-        .filter(|record| record.parametric_rules > 0 && record.complete)
+        .filter(|record| record.complete && (record.parametric_rules > 0 || certified.is_some()))
     {
-        let keys = record
-            .definition
-            .keys(&record.chart, super::table_import::MAX_BOX_KEYS)
-            .map_err(|detail| fail(format!("boxed node {}: {detail}", record.node)))?;
+        let keys: Vec<Vec<i64>> = match certified {
+            Some(set) => set.keys().collect(),
+            None => record
+                .definition
+                .keys(&record.chart, super::table_import::MAX_BOX_KEYS)
+                .map_err(|detail| fail(format!("boxed node {}: {detail}", record.node)))?,
+        };
+        let inside = |key: &[i64]| match certified {
+            Some(set) => set.contains(key),
+            None => record.contains(key),
+        };
+        let domain = match certified {
+            Some(set) => format!("its certified key set ({} keys)", set.len()),
+            None => record.describe(),
+        };
         for key in keys {
             if ops.is_residual(&key) {
                 continue;
@@ -1915,11 +2051,10 @@ pub fn verify_custom_payload(
             })?;
             if let Applied::Children(children) = applied {
                 for (child, _) in children {
-                    if support_of(&child) == support && !record.contains(&child) {
+                    if support_of(&child) == support && !inside(&child) {
                         return Err(fail(format!(
-                            "boxed node {}: the box is not closed: the rule of {key:?} gives {child:?} outside {}",
+                            "boxed node {}: the box is not closed: the rule of {key:?} gives {child:?} outside {domain}",
                             record.node,
-                            record.describe()
                         )));
                     }
                 }

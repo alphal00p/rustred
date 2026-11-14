@@ -19,7 +19,7 @@ use crate::solver::{CandidateOrderedReductionProgress, UnresolvedPolicy};
 use super::census::{PCensus, PSectorFate};
 use super::custom::PRuleOrder;
 use super::engine::{PEngine, merge};
-use super::error::PError;
+use super::error::{PError, PRequestContext, PRequestInput};
 use super::lane::{LaneRoles, OwnerLane};
 use super::payload_cache::PProgramBudget;
 use super::presentation::{EdgeMap, Presentation, PresentationKind, verify_edge_map};
@@ -178,9 +178,20 @@ pub struct PReductionRequest<'a> {
     pub inspector: Option<&'a mut dyn PInspector>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PUncoveredPolicy {
+    /// A key no rule covers is the request's typed error (the default).
+    #[default]
     Reject,
+    /// vk5l WP1 (plan VK5L §3.2, decision Q9), the vacuum path's Retain
+    /// mirror: a key the library cannot reduce ([`PError::Uncovered`],
+    /// [`PError::OutsideBox`], [`PError::OutsideCertifiedSet`],
+    /// [`PError::NodeNotClosed`]) stays in the result as a residual terminal
+    /// ([`PBasis::Residual`]; [`PLibrary::residual_terminal`] names it and
+    /// gives the refusal in [`PResidualTerminal::retained`]). Never a master,
+    /// never a value. A Retain request uses no step cache (a retained
+    /// terminal's id is local to the process) and skips the early box check.
+    Retain,
 }
 
 /// A Masters.prc name, e.g. `no`, `t105`.
@@ -202,6 +213,25 @@ pub struct PResidualTerminal {
     pub key: IntegralKey,
     /// A terminal of a BOXED node: an unknown integral, never evaluated.
     pub boxed: bool,
+    /// vk5l WP1: a key kept by [`PUncoveredPolicy::Retain`]: the refusal
+    /// it would have been (`None` for a terminal of the library).
+    pub retained: Option<PError>,
+}
+
+/// vk5l WP1: a node the package declares not closed (no table, e.g. T266):
+/// a key reaching its owner is [`PError::NodeNotClosed`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct POpenNode {
+    pub node: String,
+    pub status: String,
+}
+
+/// vk5l WP1: the keys retained by Retain requests of one library, ids after
+/// the library's terminals (process-local, never persisted).
+#[derive(Debug, Default)]
+struct PRetained {
+    ids: BTreeMap<(OwnerClassId, IntegralKey), PTerminalId>,
+    records: Vec<(OwnerClassId, IntegralKey, PError)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -257,6 +287,13 @@ pub struct PLibrary {
     /// p5l-library session 2: the memory budget of the programs of Custom
     /// owners whose payload is not held in memory ([`super::payload_cache`]).
     program_budget: Option<Arc<PProgramBudget>>,
+    /// vk5l WP1: nodes declared not closed, by owner class.
+    open_nodes: BTreeMap<OwnerClassId, POpenNode>,
+    /// vk5l WP1: keys retained by Retain requests.
+    retained: std::sync::Mutex<PRetained>,
+    /// vk5l WP1: where the library was loaded from (a package directory),
+    /// for the reproduction line of a typed refusal.
+    source: OnceLock<String>,
     engine: OnceLock<Result<PEngine, PError>>,
     /// Orbit canonicalisation of Apply keys (M5 R0 A2); off by default
     /// (M5 batch 2: opt-in until the coordinator switches it on).
@@ -297,6 +334,7 @@ impl PLibrary {
             revision: None,
             saved_routes: None,
             saved_orbits: None,
+            open_nodes: BTreeMap::new(),
         }
     }
 
@@ -509,7 +547,7 @@ impl PLibrary {
     /// provenance prefix of a Custom owner's payload.
     pub fn residual_terminal(&self, id: PTerminalId) -> Result<Option<PResidualTerminal>, PError> {
         let Some(PTerminal::Residual { owner, key }) = self.terminals.get(id.0 as usize) else {
-            return Ok(None);
+            return self.retained_terminal(id);
         };
         let owner_record = self
             .owners
@@ -519,7 +557,9 @@ impl PLibrary {
         // A built program knows its box; else read the payload's prefix (a
         // lazy payload is read once more: name terminals after a reduction).
         let boxed = match (owner_record.program.get(), &spec.payload) {
-            (Some(Ok(OwnerProgram::Lane(step))), _) => step.boxed_node().map(str::to_owned),
+            (Some(Ok(OwnerProgram::Lane(step))), _) => {
+                step.boxed_record().map(|record| record.node.clone())
+            }
             (_, Some(payload)) if spec.lane == OwnerLane::Custom => {
                 super::custom::custom_payload_boxed_node(&payload.bytes()?)?
                     .map(|record| record.node)
@@ -535,7 +575,166 @@ impl PLibrary {
             }),
             key: key.clone(),
             boxed: boxed.is_some(),
+            retained: None,
         }))
+    }
+
+    /// vk5l WP1: [`Self::residual_terminal`] of a key retained by a Retain
+    /// request (`id` after the library's terminals).
+    fn retained_terminal(&self, id: PTerminalId) -> Result<Option<PResidualTerminal>, PError> {
+        let Some(index) = (id.0 as usize).checked_sub(self.terminals.len()) else {
+            return Ok(None);
+        };
+        let retained = self.retained.lock().unwrap_or_else(|e| e.into_inner());
+        let Some((class, key, refusal)) = retained.records.get(index) else {
+            return Ok(None);
+        };
+        let node = match refusal {
+            PError::OutsideBox { node, .. }
+            | PError::OutsideCertifiedSet { node, .. }
+            | PError::NodeNotClosed { node, .. } => node.clone(),
+            _ => match self.owners.get(class) {
+                Some(owner) => self
+                    .presentation(owner.spec.presentation)
+                    .family
+                    .name()
+                    .to_owned(),
+                None => format!("{:016x}", class.0),
+            },
+        };
+        Ok(Some(PResidualTerminal {
+            node,
+            key: key.clone(),
+            boxed: matches!(
+                refusal,
+                PError::OutsideBox { .. } | PError::OutsideCertifiedSet { .. }
+            ),
+            retained: Some(refusal.clone()),
+        }))
+    }
+
+    /// vk5l WP1: the id of a retained key (one id per (owner, key)).
+    pub(crate) fn retain(
+        &self,
+        class: OwnerClassId,
+        key: IntegralKey,
+        refusal: PError,
+    ) -> Result<PTerminalId, PError> {
+        let mut retained = self.retained.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(&id) = retained.ids.get(&(class, key.clone())) {
+            return Ok(id);
+        }
+        let id = u32::try_from(self.terminals.len() + retained.records.len())
+            .ok()
+            .filter(|&id| id < PTerminalCodec::ID_LIMIT)
+            .map(PTerminalId)
+            .ok_or_else(|| malformed("too many retained keys"))?;
+        retained.ids.insert((class, key.clone()), id);
+        retained.records.push((class, key, refusal));
+        Ok(id)
+    }
+
+    /// vk5l WP1: the first terminal id without a terminal: the library's
+    /// terminals, then the keys retained so far.
+    pub(crate) fn terminal_limit(&self) -> usize {
+        self.terminals.len()
+            + self
+                .retained
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .records
+                .len()
+    }
+
+    /// vk5l WP1: the node `class` declares not closed.
+    pub fn open_node(&self, class: OwnerClassId) -> Option<&POpenNode> {
+        self.open_nodes.get(&class)
+    }
+
+    /// vk5l WP1: the nodes declared not closed.
+    pub fn open_nodes(&self) -> &BTreeMap<OwnerClassId, POpenNode> {
+        &self.open_nodes
+    }
+
+    /// vk5l WP1: record where the library was loaded from (the package
+    /// directory of the reproduction line); the first call wins.
+    pub fn set_source(&self, source: impl Into<String>) {
+        let _ = self.source.set(source.into());
+    }
+
+    /// vk5l WP1: the original request of a typed refusal and its
+    /// reproduction command line (`p5l_library reduce`).
+    pub fn request_context(
+        &self,
+        inputs: &[(PresentationId, IntegralKey, Coefficient)],
+    ) -> PRequestContext {
+        let inputs: Vec<PRequestInput> = inputs
+            .iter()
+            .map(|(id, key, _)| PRequestInput {
+                presentation: *id,
+                family: self
+                    .presentations
+                    .get(id.0 as usize)
+                    .map_or_else(|| "?".to_owned(), |p| p.family.name().to_owned()),
+                powers: key.powers().to_vec(),
+            })
+            .collect();
+        let package = self.source.get().map_or("<package dir>", String::as_str);
+        let keys: Vec<String> = inputs
+            .iter()
+            .map(|input| {
+                let powers: Vec<String> = input.powers.iter().map(i64::to_string).collect();
+                format!("p{}:{}", input.presentation.0, powers.join(","))
+            })
+            .collect();
+        PRequestContext {
+            library: self.identity(),
+            reproduce: format!(
+                "cargo run --release -p rustred-app --example p5l_library -- reduce '{package}' {}",
+                keys.join(" ")
+            ),
+            inputs,
+        }
+    }
+
+    /// vk5l WP1 (plan VK5L §3.4, decision Q7): the early check of a request
+    /// against the box of a boxed node: an input on a sector a boxed Custom
+    /// owner owns directly must lie in its box, else [`PError::OutsideBox`]
+    /// naming node, key and the violated bound (before any step). Inputs on
+    /// routed sectors are left to the dispatch check (the authoritative one).
+    fn check_boxed_inputs(
+        &self,
+        engine: &PEngine,
+        inputs: &[(PresentationId, IntegralKey, Coefficient)],
+    ) -> Result<(), PError> {
+        for (presentation, key, _) in inputs {
+            let Some(class) = engine.direct_owner(*presentation, key.powers()) else {
+                continue;
+            };
+            let Some(owner) = self.owners.get(&class) else {
+                continue;
+            };
+            if owner.spec.lane != OwnerLane::Custom || self.open_nodes.contains_key(&class) {
+                continue;
+            }
+            let Ok(OwnerProgram::Lane(step)) = owner.program(self) else {
+                continue;
+            };
+            let Some(record) = step.boxed_record() else {
+                continue;
+            };
+            if let Some(violated) = record.violation(key.powers()) {
+                return Err(PError::OutsideBox {
+                    class,
+                    key: key.clone(),
+                    node: record.node.clone(),
+                    definition: record.describe(),
+                    violated: Some(violated),
+                    request: None,
+                });
+            }
+        }
+        Ok(())
     }
 
     /// Reduce one weighted sum of inputs of one loop count onto the terminals
@@ -552,12 +751,18 @@ impl PLibrary {
             arithmetic,
             scheduler,
             step_cache,
-            uncovered: PUncoveredPolicy::Reject,
+            uncovered,
             onto_masters,
             limits,
             inspector,
         } = request;
+        let retain = uncovered == PUncoveredPolicy::Retain;
+        // vk5l WP1: a retained terminal's id is local to this process.
+        let step_cache = if retain { None } else { step_cache };
         let loops = self.request_loops(&inputs)?;
+        // vk5l WP1: the original request, recorded on a typed refusal.
+        let context = Arc::new(self.request_context(&inputs));
+        let with_request = |error: PError| error.with_request(&context);
         if let Some(cache) = &step_cache {
             let binding = self.step_cache_binding()?;
             cache.check_binding(
@@ -572,22 +777,29 @@ impl PLibrary {
             .get_or_init(|| PEngine::new(self))
             .as_ref()
             .map_err(Clone::clone)?;
+        if !retain {
+            self.check_boxed_inputs(engine, &inputs)
+                .map_err(with_request)?;
+        }
         let initial = engine.initial(self, inputs, &limits)?;
-        let output = engine.run(
-            self,
-            initial,
-            arithmetic,
-            scheduler,
-            step_cache.as_deref(),
-            limits,
-            inspector,
-        )?;
+        let output = engine
+            .run(
+                self,
+                initial,
+                arithmetic,
+                scheduler,
+                step_cache.as_deref(),
+                limits,
+                inspector,
+                retain,
+            )
+            .map_err(with_request)?;
         let mut terms = PTermSum::default();
         let raw = output
             .terms
             .iter()
             .map(|(key, coefficient)| {
-                let (terminal, tag) = engine.decode_terminal(key)?;
+                let (terminal, tag) = engine.decode_terminal(key, self.terminal_limit())?;
                 Ok((terminal, tag, coefficient.clone()))
             })
             .collect::<Result<Vec<_>, PError>>()?;
@@ -674,7 +886,12 @@ impl PLibrary {
             let coefficient = context
                 .try_mul(&coefficient, &factor, exact)
                 .map_err(algebra)?;
-            let Some(map) = &self.basis_map else {
+            // vk5l WP1: a retained key has no basis row: it stays residual.
+            let Some(map) = self
+                .basis_map
+                .as_ref()
+                .filter(|_| (terminal.0 as usize) < self.terminals.len())
+            else {
                 terms.add(self, Self::plain_basis(terminal), tag, coefficient, limits)?;
                 continue;
             };
@@ -780,6 +997,7 @@ pub struct PLibraryBuilder {
     revision: Option<String>,
     saved_routes: Option<Arc<PSavedRoutes>>,
     saved_orbits: Option<Arc<PSavedOrbits>>,
+    open_nodes: BTreeMap<OwnerClassId, POpenNode>,
 }
 
 /// p5l-library-6: the identity key of a package content revision.
@@ -971,6 +1189,34 @@ impl PLibraryBuilder {
         Ok(())
     }
 
+    /// vk5l WP1 (plan VK5L §3.6, decision Q8): declare the node of owner
+    /// `class` NOT CLOSED (its owner is added as usual, typically with an
+    /// `OwnerProgram::Missing` program): any key reaching it is
+    /// [`PError::NodeNotClosed`] naming `node` and `status`. Not part of the
+    /// identity (it changes no value: such a key never reduces).
+    pub fn declare_open_node(
+        &mut self,
+        class: OwnerClassId,
+        node: &str,
+        status: &str,
+    ) -> Result<(), PError> {
+        if node.is_empty() {
+            return Err(malformed("an open node without a name"));
+        }
+        let open = POpenNode {
+            node: node.to_owned(),
+            status: status.to_owned(),
+        };
+        if self.open_nodes.contains_key(&class) {
+            return Err(malformed(format!(
+                "the open node of class {:016x} is declared twice",
+                class.0
+            )));
+        }
+        self.open_nodes.insert(class, open);
+        Ok(())
+    }
+
     /// p artefact v2: saved route verifications (`routes.rrbin`). Values do
     /// not depend on them (a restored map is the verified one), so they are
     /// not part of the identity.
@@ -1002,6 +1248,16 @@ impl PLibraryBuilder {
         self.check_sectors(&census)?;
         self.check_owners(&census)?;
         self.check_terminals(&census)?;
+        if let Some(class) = self
+            .open_nodes
+            .keys()
+            .find(|class| !self.owners.contains_key(class))
+        {
+            return Err(malformed(format!(
+                "the open node of class {:016x} has no owner",
+                class.0
+            )));
+        }
         let mut tops = BTreeMap::new();
         for presentation in &self.presentations {
             if let PresentationKind::Top { name } = &presentation.kind
@@ -1034,6 +1290,9 @@ impl PLibraryBuilder {
             saved_routes: self.saved_routes,
             saved_orbits: self.saved_orbits,
             program_budget: PProgramBudget::from_env(max_loops),
+            open_nodes: self.open_nodes,
+            retained: Default::default(),
+            source: OnceLock::new(),
             engine: OnceLock::new(),
             orbit_canonicalization: AtomicBool::new(orbit_default),
             route_canonicalization: AtomicBool::new(true),

@@ -5,6 +5,7 @@
 //!                        --label <name> --lp <count> --out <dir> [--force]
 //!                        [--replay <seeds.json>] [--census-family <T.sym>] [--order-map <ORDER-MAP.json>]
 //!                        [--coef-form expanded|factored] [--partial-box] [--mixed-box] [--no-verify]
+//!                        [--certified-keys <keys.jsonl | .rrkeys>]
 //! rustred p-import-table --check <dir>/<label>.json [--force]
 //! ```
 //!
@@ -44,13 +45,25 @@
 //! point rules of a boxed table, in any order (first match), as the header
 //! flag `parametric_after_points` does.
 //!
+//! `--certified-keys <file>` (vk5l WP1) gives a boxed table its CERTIFIED
+//! KEY SET, the forward closure its rules are certified on (a closure
+//! statement's key list, one key `I(..)` or one JSON row with the key text
+//! first per line, in the TABLE's slot order; or a `.rrkeys` file of
+//! `rustred::propagator::certified_keys`): rule targets, terminals and chart
+//! right-hand sides are checked against it instead of the layer box, it must
+//! hold every box key, the payload carries it (presentation slots) and every
+//! dispatch of the node checks it (`PError::OutsideCertifiedSet`).
+//!
 //! `--no-verify` (t162-export) writes the payload and the import record
 //! without the load-time check (`"verify": null`), so import and check can
 //! run as separate jobs; `--check <dir>/<label>.json` then runs the check on
 //! `<dir>/<label>.rrbin` (presentation rebuilt from the record's slots, family
 //! fingerprint compared) and writes `<dir>/<label>.check.json`. The record of
 //! a boxed payload reports `open_box_keys` (witness keys inside a partial box
-//! without rule) and `box_keys_stepped`.
+//! without rule) and `box_keys_stepped`. vk5l WP1: the check record also
+//! reports the load memory of the payload (`load`: payload bytes, owner build
+//! time, certified set bytes, RSS after the read, after the build and the
+//! peak of the whole check, from `/proc/self/status`).
 //!
 //! `--coef-form factored` (coef-form prototype) writes the payload's
 //! coefficient section in the factored format
@@ -67,8 +80,10 @@ use rustred::persistence::{
     SectionTag, encode_factored_table, encode_program, inspect_program,
 };
 use rustred::propagator::PresentationId;
+use rustred::propagator::certified_keys::CertifiedKeySet;
 use rustred::propagator::custom::{
-    CustomPayloadCheck, inspect_custom_payload, replay_custom_payload, verify_custom_payload,
+    CustomPayloadCheck, custom_payload_load, inspect_custom_payload, replay_custom_payload,
+    verify_custom_payload,
 };
 use rustred::propagator::error::PError;
 use rustred::propagator::presentation::{Presentation, PresentationKind, Slot, SlotIsp, SlotLine};
@@ -102,6 +117,7 @@ struct Arguments {
     partial_box: bool,
     mixed_box: bool,
     no_verify: bool,
+    certified_keys: Option<PathBuf>,
 }
 
 fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
@@ -111,6 +127,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
     let (mut census_family, mut order_map) = (None, None);
     let (mut factored, mut partial_box, mut no_verify) = (false, false, false);
     let mut mixed_box = false;
+    let mut certified_keys = None;
     let mut seen = BTreeSet::new();
     while let Some(argument) = arguments.next() {
         let argument = argument.into_string().map_err(ArgError::NonUtf8Option)?;
@@ -129,6 +146,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             "--partial-box" => "--partial-box",
             "--no-verify" => "--no-verify",
             "--mixed-box" => "--mixed-box",
+            "--certified-keys" => "--certified-keys",
             _ => return Err(ArgError::UnknownOption(argument)),
         };
         if !seen.insert(option) {
@@ -138,6 +156,9 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             "--table" => table = Some(PathBuf::from(next_value(&mut arguments, option)?)),
             "--out" => out = Some(PathBuf::from(next_value(&mut arguments, option)?)),
             "--replay" => replay = Some(PathBuf::from(next_value(&mut arguments, option)?)),
+            "--certified-keys" => {
+                certified_keys = Some(PathBuf::from(next_value(&mut arguments, option)?))
+            }
             "--census-family" => {
                 census_family = Some(PathBuf::from(next_value(&mut arguments, option)?))
             }
@@ -200,6 +221,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
         partial_box,
         mixed_box,
         no_verify,
+        certified_keys,
     })
 }
 
@@ -270,6 +292,10 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         },
         partial_box: arguments.partial_box,
         mixed_box: arguments.mixed_box,
+        certified_keys: match &arguments.certified_keys {
+            Some(path) => Some(read_certified_keys(path, &arguments.table)?),
+            None => None,
+        },
     };
     let mut imported = import_table_from(
         std::io::BufReader::with_capacity(1 << 20, table),
@@ -479,6 +505,49 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     .map_err(|error| CliError::OutputIo(error.to_string()))
 }
 
+/// vk5l WP1: the certified key set of `--certified-keys`, in the table's
+/// slot order: its arity and node from the table's header line.
+fn read_certified_keys(
+    path: &std::path::Path,
+    table: &std::path::Path,
+) -> Result<CertifiedKeySet, CliError> {
+    use std::io::BufRead;
+    let file = std::fs::File::open(table).map_err(|error| {
+        CliError::InputIo(format!("cannot open input {}: {error}", table.display()))
+    })?;
+    let mut line = String::new();
+    std::io::BufReader::new(file)
+        .read_line(&mut line)
+        .map_err(|error| CliError::InputIo(format!("{}: {error}", table.display())))?;
+    let header: serde_json::Value = serde_json::from_str(&line)
+        .map_err(|error| CliError::Input(format!("{}: header: {error}", table.display())))?;
+    let arity = header["mask"]
+        .as_str()
+        .map(str::len)
+        .ok_or_else(|| CliError::Input(format!("{}: header without mask", table.display())))?;
+    let node = header["boxed_node"]["node"]
+        .as_str()
+        .or_else(|| header["family"].as_str())
+        .unwrap_or("?");
+    let bytes = std::fs::read(path)
+        .map_err(|error| CliError::InputIo(format!("cannot read {}: {error}", path.display())))?;
+    CertifiedKeySet::read(&bytes, node, arity, "table").map_err(failed)
+}
+
+/// vk5l WP1: `VmRSS` and `VmHWM` of this process in bytes.
+fn rss_bytes() -> (u64, u64) {
+    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let field = |name: &str| {
+        status
+            .lines()
+            .find(|line| line.starts_with(name))
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|kb| kb.parse::<u64>().ok())
+            .map_or(0, |kb| kb * 1024)
+    };
+    (field("VmRSS:"), field("VmHWM:"))
+}
+
 fn check_json(check: &CustomPayloadCheck) -> serde_json::Value {
     serde_json::json!({
         "charts": check.charts,
@@ -490,6 +559,7 @@ fn check_json(check: &CustomPayloadCheck) -> serde_json::Value {
         "terminals": check.terminals,
         "open_box_keys": check.open_box_keys,
         "box_keys_stepped": check.box_keys_stepped,
+        "certified_keys": check.certified_keys,
     })
 }
 
@@ -595,14 +665,24 @@ fn run_check(arguments: Vec<OsString>) -> Result<(), CliError> {
             record_path.display()
         )));
     }
+    let (rss_start, _) = rss_bytes();
+    let read_started = Instant::now();
     let payload = std::fs::read(&payload_path).map_err(|error| {
         CliError::InputIo(format!("cannot read {}: {error}", payload_path.display()))
     })?;
+    let read_seconds = read_started.elapsed().as_secs_f64();
+    let (rss_read, _) = rss_bytes();
     let meta = (inspect_custom_payload(&payload).and_then(|summary| summary.meta(lp_count)))
         .map_err(failed)?;
+    // vk5l WP1 (e): the load memory of the owner alone (program built, every
+    // chart prepared, certified set decoded), before the check steps keys.
+    let built = custom_payload_load(&presentation, &payload, &meta).map_err(failed)?;
+    let (rss_built, peak_built) = rss_bytes();
     let started = Instant::now();
     let check = verify_custom_payload(&presentation, &payload, &meta).map_err(failed)?;
     let seconds = started.elapsed().as_secs_f64();
+    let (rss_end, peak) = rss_bytes();
+    let gb = |bytes: u64| bytes as f64 / 1e9;
     let out = serde_json::json!({
         "schema": "rustred.p-imported-owner-check.v1",
         "label": label,
@@ -610,6 +690,21 @@ fn run_check(arguments: Vec<OsString>) -> Result<(), CliError> {
         "payload_bytes": payload.len(),
         "verify": check_json(&check),
         "verify_seconds": seconds,
+        "load": {
+            "payload_bytes": payload.len(),
+            "read_seconds": read_seconds,
+            "build_seconds": built.build_seconds,
+            "node": built.node,
+            "certified_keys": built.certified_keys,
+            "certified_heap_bytes": built.certified_heap_bytes,
+            "rss_start_gb": gb(rss_start),
+            "rss_after_read_gb": gb(rss_read),
+            "rss_after_build_gb": gb(rss_built),
+            "peak_after_build_gb": gb(peak_built),
+            "rss_after_check_gb": gb(rss_end),
+            "peak_gb": gb(peak),
+            "note": "the payload bytes are held during the check (eager read); a library load reads a lazy payload on use",
+        },
     });
     let text = serde_json::to_string_pretty(&out).map_err(json_error)?;
     write_output(

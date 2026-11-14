@@ -1018,5 +1018,9 @@ pub fn load_p_library(
             check_layer_derivation(&library, layer)?;
         }
     }
+    // vk5l WP1: the package directory of a typed refusal's reproduction line.
+    if let PLibrarySource::Directory(directory) = &source {
+        library.set_source(directory.display().to_string());
+    }
     Ok(Arc::new(library))
 }

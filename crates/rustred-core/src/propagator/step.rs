@@ -34,6 +34,13 @@ pub trait PLaneStep: Send + Sync {
     fn boxed_node(&self) -> Option<&str> {
         None
     }
+
+    /// vk5l WP1: the box record of a boxed Custom owner (`None` for every
+    /// other owner); forwarded by an evictable (lazy) program, unlike
+    /// [`Self::boxed_node`].
+    fn boxed_record(&self) -> Option<std::sync::Arc<super::table_import::BoxedNodeRecord>> {
+        None
+    }
 }
 
 /// The entries of [`POrderKey::Lexicographic`].

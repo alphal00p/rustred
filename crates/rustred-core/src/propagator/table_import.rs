@@ -65,6 +65,7 @@ use super::bundle_wire::{
     EncodedSectorRecord, IntegralRecord, ProgramRecord, RuleDispatchRecord, RuleRecord, TermRecord,
     encode_program_record_with_sectors,
 };
+use super::certified_keys::CertifiedKeySet;
 use super::custom::{CustomPayloadSummary, inspect_custom_payload};
 use super::error::PError;
 use super::library::CustomOwnerMeta;
@@ -1284,6 +1285,57 @@ impl BoxDefinition {
             .any(|&[d, r]| i64::from(d) == dots && rank <= i64::from(r))
     }
 
+    /// vk5l WP1: the first bound of the box that `powers` violates on
+    /// `chart`, in the order arity, chart, cap, dots, rank (`None`: inside).
+    pub fn violation(&self, powers: &[i64], chart: &[bool]) -> Option<super::error::BoxViolation> {
+        use super::error::BoxViolation;
+        if powers.len() != chart.len() {
+            return Some(BoxViolation::Arity {
+                found: powers.len(),
+                expected: chart.len(),
+            });
+        }
+        let (mut dots, mut rank) = (0_i64, 0_i64);
+        for (slot, (&power, &line)) in powers.iter().zip(chart).enumerate() {
+            if line && power < 1 || !line && power > 0 {
+                return Some(BoxViolation::OffChart { slot, power, line });
+            }
+            if line {
+                dots += power - 1;
+            } else {
+                rank -= power;
+            }
+        }
+        if let Some((slot, &power)) = (powers.iter().enumerate())
+            .find(|&(slot, &power)| chart[slot] && self.cap.is_some_and(|cap| power > cap))
+        {
+            return Some(BoxViolation::LineCap {
+                slot,
+                power,
+                cap: self.cap.unwrap_or(0),
+            });
+        }
+        let layers: Vec<&[u32; 2]> = (self.layers.iter())
+            .filter(|&&[d, _]| i64::from(d) == dots)
+            .collect();
+        if layers.is_empty() {
+            let mut all: Vec<u32> = self.layers.iter().map(|&[d, _]| d).collect();
+            all.sort_unstable();
+            all.dedup();
+            return Some(BoxViolation::Dots { dots, layers: all });
+        }
+        let r_max = layers.iter().map(|&&[_, r]| r).max().unwrap_or(0);
+        if rank > i64::from(r_max) {
+            return Some(BoxViolation::Rank {
+                dots,
+                rank,
+                r_max,
+                lines: chart.iter().filter(|&&line| line).count(),
+            });
+        }
+        None
+    }
+
     /// Every key of the box on `chart`, at most `limit` of them.
     pub fn keys(&self, chart: &[bool], limit: usize) -> Result<Vec<Vec<i64>>, String> {
         #[allow(clippy::too_many_arguments)]
@@ -1397,6 +1449,42 @@ pub struct BoxedNodeRecord {
     /// applies). Not written when zero (payload bytes unchanged).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub shadowed_point_rules: u64,
+    /// vk5l WP1: the certified key set of the node (its line
+    /// [`CERTIFIED_KEYS_MARKER`] in the provenance holds the keys), when the
+    /// import was given one. Not written without one (payload bytes
+    /// unchanged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub certified: Option<CertifiedSummary>,
+}
+
+/// vk5l WP1: what a boxed record says about its certified key set
+/// ([`super::certified_keys`]).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CertifiedSummary {
+    pub schema: String,
+    pub version: u32,
+    /// Keys of the set (terminals included).
+    pub keys: u64,
+    /// Of them inside the user box (every box key is one).
+    pub in_box: u64,
+    /// Bytes of the encoding.
+    pub bytes: u64,
+}
+
+/// vk5l WP1: the certified key set of a boxed payload is the provenance line
+/// after this marker (base64 of [`CertifiedKeySet::encode`], presentation
+/// frame), after the box record and before the slot order.
+pub const CERTIFIED_KEYS_MARKER: &str = "\ncertified_keys ";
+
+/// vk5l WP1: the certified key set of a payload's provenance text, if any.
+pub fn certified_keys_of_source(family_source: &str) -> Result<Option<CertifiedKeySet>, PError> {
+    let Some(at) = family_source.find(CERTIFIED_KEYS_MARKER) else {
+        return Ok(None);
+    };
+    let text = &family_source[at + CERTIFIED_KEYS_MARKER.len()..];
+    let text = text.split('\n').next().unwrap_or("");
+    let bytes = super::certified_keys::base64_decode(text)?;
+    CertifiedKeySet::decode(&bytes).map(Some)
 }
 
 fn is_zero(value: &u64) -> bool {
@@ -1407,6 +1495,11 @@ impl BoxedNodeRecord {
     /// `powers` (presentation slots) lies in the box.
     pub fn contains(&self, powers: &[i64]) -> bool {
         self.definition.contains(powers, &self.chart)
+    }
+
+    /// vk5l WP1: the first box bound `powers` violates (`None`: inside).
+    pub fn violation(&self, powers: &[i64]) -> Option<super::error::BoxViolation> {
+        self.definition.violation(powers, &self.chart)
     }
 
     /// The box as one line of text (error messages).
@@ -1499,6 +1592,9 @@ struct BoxChecker {
     symmetry_groups: Vec<SymmetryGroupProvenance>,
     parametric_rules: u64,
     shadowed_point_rules: u64,
+    /// vk5l WP1: the certified key set (table frame): the domain of the
+    /// node's rules and terminals instead of the layer box.
+    certified: Option<CertifiedKeySet>,
 }
 
 fn box_fail(detail: String) -> PError {
@@ -1511,6 +1607,7 @@ impl BoxChecker {
         family: &TableFamily,
         charts: &[String],
         mixed: bool,
+        certified: Option<CertifiedKeySet>,
     ) -> Result<Self, PError> {
         let mut spec: BoxedHeader = serde_json::from_value(value.clone())
             .map_err(|error| box_fail(format!("header field boxed_node: {error}")))?;
@@ -1551,11 +1648,25 @@ impl BoxChecker {
             symmetry_groups: Vec::new(),
             parametric_rules: 0,
             shadowed_point_rules: 0,
+            certified,
         })
     }
 
+    /// The domain of rule targets, terminals and chart right-hand sides: the
+    /// certified set when the import has one, else the box.
     fn in_box(&self, key: &[i64]) -> bool {
-        self.spec.definition.contains(key, &self.chart)
+        match &self.certified {
+            Some(set) => set.contains(key),
+            None => self.spec.definition.contains(key, &self.chart),
+        }
+    }
+
+    fn domain(&self) -> &'static str {
+        if self.certified.is_some() {
+            "the certified key set"
+        } else {
+            "the box"
+        }
     }
 
     /// One record of the table and its JSONL line.
@@ -1591,7 +1702,8 @@ impl BoxChecker {
                 }
                 if !self.in_box(&target) {
                     return Err(box_fail(format!(
-                        "rule target {target_text} outside the box"
+                        "rule target {target_text} outside {}",
+                        self.domain()
                     )));
                 }
                 if self.targets.contains(&target) {
@@ -1628,7 +1740,10 @@ impl BoxChecker {
                 let text = str_field(record, "key")?;
                 let key = numeric_key(text, arity)?;
                 if !self.in_box(&key) {
-                    return Err(box_fail(format!("terminal {text} outside the box")));
+                    return Err(box_fail(format!(
+                        "terminal {text} outside {}",
+                        self.domain()
+                    )));
                 }
                 if record["boxed_terminal"].as_bool() == Some(true) {
                     self.flagged += 1;
@@ -1652,7 +1767,12 @@ impl BoxChecker {
     }
 
     /// Coverage and closure; the record in presentation slots.
-    fn finish(self, slot_map: &[usize], partial: bool) -> Result<BoxedNodeRecord, PError> {
+    /// vk5l WP1: and the certified set in presentation slots.
+    fn finish(
+        self,
+        slot_map: &[usize],
+        partial: bool,
+    ) -> Result<(BoxedNodeRecord, Option<CertifiedKeySet>), PError> {
         let Self {
             spec,
             chart,
@@ -1664,10 +1784,14 @@ impl BoxChecker {
             symmetry_groups,
             parametric_rules,
             shadowed_point_rules,
+            certified,
             ..
         } = self;
         let definition = spec.definition;
-        let in_box = |key: &[i64]| definition.contains(key, &chart);
+        let in_box = |key: &[i64]| match &certified {
+            Some(set) => set.contains(key),
+            None => definition.contains(key, &chart),
+        };
         if let Some(key) = terminals.iter().find(|key| targets.contains(*key)) {
             return Err(box_fail(format!(
                 "the terminal {key:?} is also a rule target"
@@ -1679,18 +1803,46 @@ impl BoxChecker {
             .iter()
             .filter(|key| in_box(key) && !covered(key))
             .count() as u64;
-        let keys = definition
+        let box_keys = definition
             .keys(&chart, MAX_BOX_KEYS)
             .map_err(|detail| box_fail(detail))?;
-        let uncovered: Vec<&Vec<i64>> = keys.iter().filter(|key| !covered(key)).collect();
         if let Some(declared) = spec.box_keys
-            && declared != keys.len() as u64
+            && declared != box_keys.len() as u64
         {
             return Err(box_fail(format!(
                 "the header declares {declared} box keys, the box has {}",
-                keys.len()
+                box_keys.len()
             )));
         }
+        // vk5l WP1: the certified set is the closure OF the box: it holds
+        // every box key and only keys of the chart.
+        if let Some(set) = &certified {
+            if let Some(key) = box_keys.iter().find(|key| !set.contains(key)) {
+                return Err(box_fail(format!(
+                    "the box key {key:?} is not in the certified key set ({} keys)",
+                    set.len()
+                )));
+            }
+            if let Some(key) = set.keys().find(|key| {
+                matches!(
+                    definition.violation(key, &chart),
+                    Some(
+                        super::error::BoxViolation::OffChart { .. }
+                            | super::error::BoxViolation::Arity { .. }
+                    )
+                )
+            }) {
+                return Err(box_fail(format!(
+                    "the certified key {key:?} is not on the boxed chart"
+                )));
+            }
+        }
+        // The keys to cover: the certified set, else the box.
+        let keys: Vec<Vec<i64>> = match &certified {
+            Some(set) => set.keys().collect(),
+            None => box_keys.clone(),
+        };
+        let uncovered: Vec<&Vec<i64>> = keys.iter().filter(|key| !covered(key)).collect();
         // A mixed box leaves the box keys without point rule or terminal to
         // its parametric rules (checked at load by stepping them).
         let left_to_parametric = parametric_rules > 0;
@@ -1698,9 +1850,14 @@ impl BoxChecker {
             && (left_to_parametric || (uncovered.is_empty() && rhs_without_rule == 0));
         if !complete && (!partial || spec.complete == Some(true)) {
             return Err(box_fail(format!(
-                "the box is not closed: {} of {} box keys without rule or terminal (first {:?}), {rhs_outside_box} chart RHS keys outside the box, {rhs_without_rule} in the box without rule or terminal{}",
+                "the box is not closed: {} of {} {} keys without rule or terminal (first {:?}), {rhs_outside_box} chart RHS keys outside it, {rhs_without_rule} in it without rule or terminal{}",
                 uncovered.len(),
                 keys.len(),
+                if certified.is_some() {
+                    "certified"
+                } else {
+                    "box"
+                },
                 uncovered.first(),
                 if partial {
                     "; the header says complete"
@@ -1714,12 +1871,23 @@ impl BoxChecker {
             .map(|key| permuted(key, slot_map))
             .collect();
         presented.sort_unstable();
-        Ok(BoxedNodeRecord {
+        let certified = match certified {
+            Some(set) => Some(set.permuted(slot_map, "presentation")?),
+            None => None,
+        };
+        let certified_summary = certified.as_ref().map(|set| CertifiedSummary {
+            schema: super::certified_keys::CERTIFIED_KEYS_SCHEMA.to_owned(),
+            version: super::certified_keys::P_CERTIFIED_KEYS_VERSION,
+            keys: set.len() as u64,
+            in_box: box_keys.len() as u64,
+            bytes: set.encode().len() as u64,
+        });
+        let record = BoxedNodeRecord {
             schema: BOXED_NODE_SCHEMA.to_owned(),
             node: spec.node,
             definition,
             chart: permuted(&chart, slot_map),
-            box_keys: keys.len() as u64,
+            box_keys: box_keys.len() as u64,
             point_rules: targets.len() as u64,
             terminals: presented,
             flagged_terminals: flagged,
@@ -1731,7 +1899,9 @@ impl BoxChecker {
             symmetry_groups,
             parametric_rules,
             shadowed_point_rules,
-        })
+            certified: certified_summary,
+        };
+        Ok((record, certified))
     }
 }
 
@@ -1760,6 +1930,13 @@ pub struct TableImportOptions {
     /// boxed table, in any order beside its point rules (first match), as the
     /// header flag `parametric_after_points` does. Off: only the flag does.
     pub mixed_box: bool,
+    /// vk5l WP1: the certified key set of a boxed table (its forward
+    /// closure, in the TABLE's slot order, e.g. read from a closure
+    /// statement with [`CertifiedKeySet::read`]): rule targets, terminals and
+    /// chart right-hand sides must lie in it (not in the layer box), it must
+    /// hold every box key, and the payload carries it (presentation slots)
+    /// for the dispatch check. Ignored for a table without `boxed_node`.
+    pub certified_keys: Option<CertifiedKeySet>,
 }
 
 /// One table (`table_dump.v1` JSONL text) as the Custom payload of `graph`,
@@ -2013,7 +2190,13 @@ pub fn import_table_from<R: std::io::BufRead>(
     // terminals, closure) while its records are read, in presentation slots.
     let charts = charts_of(header)?;
     let mut box_checker = match boxed_header {
-        Some(value) => Some(BoxChecker::new(value, &family, &charts, options.mixed_box)?),
+        Some(value) => Some(BoxChecker::new(
+            value,
+            &family,
+            &charts,
+            options.mixed_box,
+            options.certified_keys.clone(),
+        )?),
         None => None,
     };
 
@@ -2206,14 +2389,21 @@ pub fn import_table_from<R: std::io::BufRead>(
             format!("{} chart errors", end["chart_errors"]),
         ));
     }
-    let boxed = match box_checker {
-        Some(checker) => Some(checker.finish(&slot_map, options.partial_box)?),
-        None => None,
+    let (boxed, certified) = match box_checker {
+        Some(checker) => {
+            let (record, certified) = checker.finish(&slot_map, options.partial_box)?;
+            (Some(record), certified)
+        }
+        None => (None, None),
     };
     let boxed_provenance = match &boxed {
         Some(record) => format!(
-            "{BOXED_NODE_MARKER}{}",
-            serde_json::to_string(record).map_err(|error| malformed(error))?
+            "{BOXED_NODE_MARKER}{}{}",
+            serde_json::to_string(record).map_err(|error| malformed(error))?,
+            certified.as_ref().map_or_else(String::new, |set| format!(
+                "{CERTIFIED_KEYS_MARKER}{}",
+                super::certified_keys::base64_encode(&set.encode())
+            ))
         ),
         None => String::new(),
     };
@@ -2581,6 +2771,7 @@ mod tests {
             order_map: None,
             partial_box,
             mixed_box: false,
+            certified_keys: None,
         }
     }
 
@@ -2687,6 +2878,175 @@ mod tests {
             }
             other => panic!("expected OutsideBox, got {other:?}"),
         }
+    }
+
+    /// vk5l WP1 (a): a certified key set as the domain of a boxed table: a
+    /// box `d0` (the corner) whose rules target dotted keys outside it is
+    /// refused without a set and imported with one; the set travels in the
+    /// payload (presentation frame), the load check steps every certified
+    /// key, and a set that misses a rule target, a box key or leaves the
+    /// chart is refused. A key outside the set is `OutsideCertifiedSet` with
+    /// the violated box bound.
+    #[test]
+    fn a_certified_key_set_is_the_domain_of_a_boxed_table() {
+        use super::super::certified_keys::CertifiedKeySet;
+        use super::super::error::BoxViolation;
+        use super::super::testing::{boxed_kite_certified_keys, boxed_kite_table_with_box};
+        let text = boxed_kite_table_with_box(&[[0, 0]], 1);
+        let refused = import_table(&text, &kite_graph(), &kite_options(false)).unwrap_err();
+        assert!(refused.to_string().contains("outside the box"), "{refused}");
+        let with = |set: CertifiedKeySet| TableImportOptions {
+            certified_keys: Some(set),
+            ..kite_options(false)
+        };
+        let set = boxed_kite_certified_keys();
+        let imported = import_table(&text, &kite_graph(), &with(set.clone())).unwrap();
+        let boxed = imported.boxed.clone().unwrap();
+        assert!(boxed.complete);
+        let summary = boxed.certified.clone().expect("a certified summary");
+        assert_eq!((summary.keys, summary.in_box, boxed.box_keys), (6, 1, 1));
+        assert_eq!(
+            summary.version,
+            super::super::certified_keys::P_CERTIFIED_KEYS_VERSION
+        );
+        let payload_record =
+            super::super::custom::custom_payload_boxed_node(&imported.payload).unwrap();
+        assert_eq!(payload_record, Some(boxed.clone()));
+        let check = super::super::custom::verify_custom_payload(
+            &imported.presentation,
+            &imported.payload,
+            &imported.meta,
+        )
+        .unwrap();
+        assert_eq!((check.certified_keys, check.box_keys_stepped), (6, 5));
+        assert_eq!((check.witness_keys, check.terminals), (6, 1));
+        let load = super::super::custom::custom_payload_load(
+            &imported.presentation,
+            &imported.payload,
+            &imported.meta,
+        )
+        .unwrap();
+        assert_eq!(
+            (load.node.as_deref(), load.certified_keys),
+            (Some("KITE"), 6)
+        );
+        assert!(load.certified_heap_bytes >= 30);
+        // A dotted key replays (in the set, outside the box); a doubly dotted
+        // one is outside the set.
+        let to_presentation = |key: [i64; 5]| permuted(&key, &imported.slot_map);
+        let replay = super::super::custom::replay_custom_payload(
+            &imported.presentation,
+            &imported.payload,
+            &imported.meta,
+            &[to_presentation([2, 1, 1, 1, 1])],
+        )
+        .unwrap();
+        assert_eq!(replay[0].steps, 2);
+        let outside = to_presentation([1, 1, 2, 2, 1]);
+        match super::super::custom::replay_custom_payload(
+            &imported.presentation,
+            &imported.payload,
+            &imported.meta,
+            std::slice::from_ref(&outside),
+        ) {
+            Err(PError::OutsideCertifiedSet {
+                node,
+                key,
+                violated,
+                certified_keys,
+                ..
+            }) => {
+                assert_eq!((node.as_str(), certified_keys), ("KITE", 6));
+                assert_eq!(key.powers(), outside.as_slice());
+                assert_eq!(
+                    violated,
+                    Some(BoxViolation::Dots {
+                        dots: 2,
+                        layers: vec![0]
+                    })
+                );
+            }
+            other => panic!("expected OutsideCertifiedSet, got {other:?}"),
+        }
+        // A set without one rule target, without the box key, or with a key
+        // off the chart is refused.
+        let keys: Vec<Vec<i64>> = set.keys().collect();
+        let without = |drop: &[i64]| {
+            CertifiedKeySet::new(
+                "KITE",
+                5,
+                "table",
+                keys.iter().filter(|key| key.as_slice() != drop).cloned(),
+            )
+            .unwrap()
+        };
+        for (set, part) in [
+            (without(&[1, 1, 2, 1, 1]), "outside the certified key set"),
+            (without(&[1, 1, 1, 1, 1]), "terminal I(1,1,1,1,1) outside the certified key set"),
+            (
+                CertifiedKeySet::new(
+                    "KITE",
+                    5,
+                    "table",
+                    keys.iter().cloned().chain([vec![1, 1, 1, 1, 0]]),
+                )
+                .unwrap(),
+                "not on the boxed chart",
+            ),
+        ] {
+            let error = import_table(&text, &kite_graph(), &with(set)).unwrap_err();
+            assert!(error.to_string().contains(part), "{part}: {error}");
+        }
+        // The layer violations, one per bound.
+        let definition = BoxDefinition {
+            name: "B".into(),
+            measure: BOX_MEASURE.into(),
+            layers: vec![[0, 1], [1, 0]],
+            cap: Some(2),
+        };
+        let chart = [true, true, false];
+        assert_eq!(definition.violation(&[1, 1, -1], &chart), None);
+        assert_eq!(
+            definition.violation(&[1, 1], &chart),
+            Some(BoxViolation::Arity {
+                found: 2,
+                expected: 3
+            })
+        );
+        assert_eq!(
+            definition.violation(&[0, 1, 0], &chart),
+            Some(BoxViolation::OffChart {
+                slot: 0,
+                power: 0,
+                line: true
+            })
+        );
+        assert_eq!(
+            definition.violation(&[1, 3, 0], &chart),
+            Some(BoxViolation::LineCap {
+                slot: 1,
+                power: 3,
+                cap: 2
+            })
+        );
+        assert_eq!(
+            definition.violation(&[2, 2, 0], &chart),
+            Some(BoxViolation::Dots {
+                dots: 2,
+                layers: vec![0, 1]
+            })
+        );
+        let rank = definition.violation(&[2, 1, -1], &chart).unwrap();
+        assert_eq!(
+            rank,
+            BoxViolation::Rank {
+                dots: 1,
+                rank: 1,
+                r_max: 0,
+                lines: 2
+            }
+        );
+        assert_eq!(rank.to_string(), "D = 1: r = 1 > r_max = 0 (E_S = 2)");
     }
 
     /// Without `boxed_node` nothing changes: the payload provenance is the
@@ -2897,6 +3257,7 @@ mod tests {
         assert!(import_table(&flagless, &kite_graph(), &kite_options(false)).is_err());
         let mixed = TableImportOptions {
             mixed_box: true,
+            certified_keys: None,
             ..kite_options(false)
         };
         assert_eq!(

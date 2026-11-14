@@ -13,6 +13,10 @@
 //! p5l_library encoding <sample> <payload .rrbin>...
 //!     per payload: read, structure and decode time, decode RSS, coefficient terms, and the digits of an
 //!     expanded vs a factored coefficient encoding on a sample (session 2).
+//! p5l_library reduce <package dir> p<presentation>:<powers,...> ...
+//!     vk5l WP1: the reproduction line of a typed refusal (OutsideBox, OutsideCertifiedSet, NodeNotClosed):
+//!     the inputs at weight one reduced onto the terminals (Exact arithmetic, one thread); prints the terms, or the
+//!     error and exits 3. P_RETAIN=1 uses PUncoveredPolicy::Retain.
 //! p5l_library check <package dir> <top name> <dots> <rank> <ibp seeds> <laporta dots> <laporta rank>
 //!     the cell numerator of the benchmark grid (rank r = dot(k1,p) dot(k2,p) dot(k1,k3) ...) times the top at
 //!     powers 1 (first line 1 + dots): (A) the library reduction; (B) its top-sector part against a RustRed
@@ -86,6 +90,7 @@ fn main() {
             load(&args[2], args[3] == "1");
         }
         Some("check") => check(&args[2..]),
+        Some("reduce") => reduce_cli(&args[2..]),
         Some("encoding") => encoding(&args[2..]),
         Some("edges") => edges(
             &args[2],
@@ -354,6 +359,72 @@ fn assemble(args: &[String]) {
 // ---------------------------------------------------------------------------
 // load
 // ---------------------------------------------------------------------------
+
+/// `reduce <package dir> p<id>:<powers> ...` (vk5l WP1 reproduction line).
+fn reduce_cli(args: &[String]) {
+    let (library, _) = load(&args[0], false);
+    let one = library.coefficient_context().one();
+    let inputs: Vec<Input> = args[1..]
+        .iter()
+        .map(|spec| {
+            let (id, powers) = spec
+                .strip_prefix('p')
+                .and_then(|rest| rest.split_once(':'))
+                .unwrap_or_else(|| panic!("input {spec:?}: p<presentation>:<powers,...>"));
+            let powers: Vec<i64> = powers
+                .split(',')
+                .map(|power| power.trim().parse().expect("an integer power"))
+                .collect();
+            (
+                PresentationId(id.parse().expect("a presentation id")),
+                IntegralKey::try_new(powers).expect("a key"),
+                one.clone(),
+            )
+        })
+        .collect();
+    let uncovered = if std::env::var("P_RETAIN").as_deref() == Ok("1") {
+        PUncoveredPolicy::Retain
+    } else {
+        PUncoveredPolicy::Reject
+    };
+    let result = library.reduce(PReductionRequest {
+        inputs,
+        arithmetic: OrderedWeightArithmetic::Exact,
+        scheduler: OrderedSchedulerOptions::default(),
+        step_cache: None,
+        uncovered,
+        onto_masters: false,
+        limits: ReductionLimits::default(),
+        inspector: None,
+    });
+    match result {
+        Ok(reduction) => {
+            for term in &reduction.terms {
+                let basis = match &term.basis {
+                    PBasis::Residual(id) => match library.residual_terminal(*id) {
+                        Ok(Some(named)) => format!(
+                            "PResidual({}, {:?}){}",
+                            named.node,
+                            named.key.powers(),
+                            if named.retained.is_some() {
+                                " [retained]"
+                            } else {
+                                ""
+                            }
+                        ),
+                        _ => format!("{:?}", term.basis),
+                    },
+                    other => format!("{other:?}"),
+                };
+                println!("{basis} {:?} : {}", term.tag, term.coefficient);
+            }
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            std::process::exit(3);
+        }
+    }
+}
 
 fn load(dir: &str, verify: bool) -> (Arc<PLibrary>, f64) {
     let started = Instant::now();

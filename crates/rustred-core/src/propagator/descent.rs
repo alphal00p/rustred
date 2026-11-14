@@ -906,7 +906,10 @@ struct Refusal(TraceFailureKind, String);
 impl From<PError> for Refusal {
     fn from(error: PError) -> Self {
         let kind = match error {
-            PError::Uncovered { .. } | PError::OutsideBox { .. } => TraceFailureKind::Uncovered,
+            PError::Uncovered { .. }
+            | PError::OutsideBox { .. }
+            | PError::OutsideCertifiedSet { .. } => TraceFailureKind::Uncovered,
+            PError::NodeNotClosed { .. } => TraceFailureKind::MissingOwner,
             PError::MissingOwner { .. } => TraceFailureKind::MissingOwner,
             _ => TraceFailureKind::Other,
         };

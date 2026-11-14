@@ -295,6 +295,15 @@ fn boxed_kite_key(powers: [i64; 5]) -> String {
 /// The table of rustred's boxed-node import tests, for consumers.
 #[doc(hidden)]
 pub fn boxed_kite_table() -> String {
+    boxed_kite_table_with_box(&[[0, 0], [1, 0]], 6)
+}
+
+/// vk5l WP1: [`boxed_kite_table`] with the box `layers` (`box_keys` keys);
+/// with `[[0, 0]]` (the corner alone) the five point rules target keys
+/// outside the box, which only a certified key set
+/// ([`boxed_kite_certified_keys`]) admits.
+#[doc(hidden)]
+pub fn boxed_kite_table_with_box(layers: &[[u32; 2]], box_keys: u64) -> String {
     use super::table_import::{BOX_MEASURE, BOXED_NODE_SCHEMA};
     let mut source =
         String::from("I(\n  name(KITE),\n  loops(k1,k2),\n  externals(q),\n  dimension(d),\n");
@@ -311,8 +320,8 @@ pub fn boxed_kite_table() -> String {
         "charts": ["11111"],
         "boxed_node": {
             "schema": BOXED_NODE_SCHEMA, "node": "KITE", "chart": "11111",
-            "box": {"name": "d1", "measure": BOX_MEASURE, "layers": [[0, 0], [1, 0]], "cap": null},
-            "box_keys": 6,
+            "box": {"name": if layers.len() == 1 { "d0" } else { "d1" }, "measure": BOX_MEASURE, "layers": layers, "cap": null},
+            "box_keys": box_keys,
         },
     });
     let mut lines = vec![
@@ -414,6 +423,38 @@ fn line_matching_map(source: &Presentation, target: &Presentation) -> Option<Sig
 /// exists to test a consumer on boxed terminals and `OutsideBox`.
 #[doc(hidden)]
 pub fn boxed_kite_library() -> Result<Arc<PLibrary>, PError> {
+    boxed_kite_library_with(&boxed_kite_table(), None)
+}
+
+/// vk5l WP1: the certified key set of the kite with box `d0`: the corner
+/// and the five dotted keys (its forward closure on the chart), table frame.
+#[doc(hidden)]
+pub fn boxed_kite_certified_keys() -> super::certified_keys::CertifiedKeySet {
+    let mut keys = vec![vec![1_i64; 5]];
+    for i in 0..5 {
+        let mut key = vec![1_i64; 5];
+        key[i] = 2;
+        keys.push(key);
+    }
+    super::certified_keys::CertifiedKeySet::new("KITE", 5, "table", keys)
+        .expect("a valid certified set")
+}
+
+/// vk5l WP1: [`boxed_kite_library`] with box `d0` and the certified key set
+/// [`boxed_kite_certified_keys`] (the dotted keys lie outside the box but in
+/// the set).
+#[doc(hidden)]
+pub fn boxed_kite_library_certified() -> Result<Arc<PLibrary>, PError> {
+    boxed_kite_library_with(
+        &boxed_kite_table_with_box(&[[0, 0]], 1),
+        Some(boxed_kite_certified_keys()),
+    )
+}
+
+fn boxed_kite_library_with(
+    table: &str,
+    certified_keys: Option<super::certified_keys::CertifiedKeySet>,
+) -> Result<Arc<PLibrary>, PError> {
     use super::custom::inspect_custom_payload;
     use super::library::PTerminal;
     use super::programs::CustomPayloadRef;
@@ -431,7 +472,7 @@ pub fn boxed_kite_library() -> Result<Arc<PLibrary>, PError> {
     let (p1l, p2l) = (top("P1L", 0)?, top("P2L", 1)?);
     let (_, graph) = canonical_node_graph(BOXED_KITE_GRAPH, 2, 3)?;
     let imported = import_table(
-        &boxed_kite_table(),
+        table,
         &graph,
         &TableImportOptions {
             id: BOXED_KITE_OWNER,
@@ -441,6 +482,7 @@ pub fn boxed_kite_library() -> Result<Arc<PLibrary>, PError> {
             order_map: None,
             partial_box: false,
             mixed_box: false,
+            certified_keys,
         },
     )?;
     let route = line_matching_map(&p2l, &imported.presentation).ok_or_else(|| {
@@ -551,5 +593,203 @@ mod boxed_kite_tests {
             Err(PError::OutsideBox { node, .. }) => assert_eq!(node, "KITE"),
             other => panic!("expected OutsideBox, got {other:?}"),
         }
+    }
+
+    fn request_on(
+        library: &PLibrary,
+        presentation: PresentationId,
+        key: [i64; 5],
+        uncovered: PUncoveredPolicy,
+    ) -> Result<super::super::library::PReduction, PError> {
+        library.reduce(PReductionRequest {
+            inputs: vec![(
+                presentation,
+                IntegralKey::try_new(key).unwrap(),
+                library.coefficient_context().one(),
+            )],
+            arithmetic: OrderedWeightArithmetic::Exact,
+            scheduler: OrderedSchedulerOptions {
+                threads: 1,
+                ..Default::default()
+            },
+            step_cache: None,
+            uncovered,
+            onto_masters: true,
+            limits: ReductionLimits::default(),
+            inspector: None,
+        })
+    }
+
+    /// vk5l WP1 (a): with a certified set, a key of the chart outside it is
+    /// `OutsideCertifiedSet` at dispatch, naming node, key, the violated box
+    /// bound, the set's size and the original request with its reproduction
+    /// line; the corner (in the set) still reduces.
+    #[test]
+    fn a_key_outside_the_certified_set_is_refused_at_dispatch_with_its_bound_and_request() {
+        use crate::propagator::error::BoxViolation;
+        let library = boxed_kite_library_certified().unwrap();
+        library.set_source("/packages/kite");
+        let corner = reduce(&library, [1; 5]).unwrap();
+        assert_eq!(corner.terms.len(), 1);
+        let error = reduce(&library, [3, 1, 1, 1, 1]).unwrap_err();
+        match &error {
+            PError::OutsideCertifiedSet {
+                node,
+                key,
+                violated,
+                certified_keys,
+                request,
+                ..
+            } => {
+                assert_eq!(node, "KITE");
+                assert_eq!(*certified_keys, 6);
+                assert_eq!(key.powers().iter().sum::<i64>(), 7);
+                assert_eq!(
+                    *violated,
+                    Some(BoxViolation::Dots {
+                        dots: 2,
+                        layers: vec![0]
+                    })
+                );
+                let request = request.as_ref().expect("the request is recorded");
+                assert_eq!(request.inputs.len(), 1);
+                assert_eq!(request.inputs[0].powers, [3, 1, 1, 1, 1]);
+                assert_eq!(request.inputs[0].presentation, PresentationId(1));
+                assert!(
+                    request
+                        .reproduce
+                        .contains("p5l_library -- reduce '/packages/kite' p1:3,1,1,1,1")
+                );
+            }
+            other => panic!("expected OutsideCertifiedSet, got {other:?}"),
+        }
+        let text = error.to_string();
+        for part in [
+            "boxed node KITE",
+            "D = 2 is no layer",
+            "certified set (6 keys)",
+            "reproduce: cargo run",
+        ] {
+            assert!(text.contains(part), "{part:?} not in {text}");
+        }
+        assert_eq!(error.request().map(|r| r.inputs.len()), Some(1));
+    }
+
+    /// vk5l WP1 (b): the early check: a request input on the boxed owner's
+    /// own sector outside its USER box is refused before any step, naming the
+    /// violated bound, even when the key is certified (decision Q7: both
+    /// checks); inside the box it reduces.
+    #[test]
+    fn a_direct_input_outside_the_user_box_is_refused_early_with_its_bound() {
+        use crate::propagator::error::BoxViolation;
+        let library = boxed_kite_library_certified().unwrap();
+        match request_on(
+            &library,
+            BOXED_KITE_OWNER,
+            [1, 2, 1, 1, 1],
+            PUncoveredPolicy::Reject,
+        ) {
+            Err(PError::OutsideBox {
+                node,
+                violated,
+                request,
+                ..
+            }) => {
+                assert_eq!(node, "KITE");
+                assert_eq!(
+                    violated,
+                    Some(BoxViolation::Dots {
+                        dots: 1,
+                        layers: vec![0]
+                    })
+                );
+                assert_eq!(request.unwrap().inputs[0].powers, [1, 2, 1, 1, 1]);
+            }
+            other => panic!("expected an early OutsideBox, got {other:?}"),
+        }
+        let plain = boxed_kite_library().unwrap();
+        match request_on(
+            &plain,
+            BOXED_KITE_OWNER,
+            [1, 1, 4, 1, 1],
+            PUncoveredPolicy::Reject,
+        ) {
+            Err(error @ PError::OutsideBox { .. }) => {
+                assert!(
+                    error
+                        .to_string()
+                        .contains("D = 3 is no layer of the box (D in [0, 1])"),
+                    "{error}"
+                );
+            }
+            other => panic!("expected an early OutsideBox, got {other:?}"),
+        }
+        let corner =
+            request_on(&plain, BOXED_KITE_OWNER, [1; 5], PUncoveredPolicy::Reject).unwrap();
+        assert_eq!(corner.terms.len(), 1);
+    }
+
+    /// vk5l WP1 (d): Retain keeps a refused key as a residual terminal named
+    /// by its node, with the refusal; the default (Reject) is unchanged.
+    #[test]
+    fn retain_keeps_a_refused_boxed_key_as_a_named_residual() {
+        let library = boxed_kite_library().unwrap();
+        assert!(matches!(
+            request_on(
+                &library,
+                PresentationId(1),
+                [3, 1, 1, 1, 1],
+                PUncoveredPolicy::default()
+            ),
+            Err(PError::OutsideBox { .. })
+        ));
+        let kept = request_on(
+            &library,
+            PresentationId(1),
+            [3, 1, 1, 1, 1],
+            PUncoveredPolicy::Retain,
+        )
+        .unwrap();
+        assert_eq!(kept.terms.len(), 1, "{:?}", kept.terms);
+        let PBasis::Residual(id) = kept.terms[0].basis else {
+            panic!("a residual, got {:?}", kept.terms[0].basis);
+        };
+        assert!(id.0 as usize >= library.terminals().len());
+        let named = library.residual_terminal(id).unwrap().unwrap();
+        assert_eq!((named.node.as_str(), named.boxed), ("KITE", true));
+        assert_eq!(named.key.powers().iter().sum::<i64>(), 7);
+        assert!(matches!(named.retained, Some(PError::OutsideBox { .. })));
+        // The same key again: the same id; the corner is still the library's terminal.
+        let again = request_on(
+            &library,
+            PresentationId(1),
+            [3, 1, 1, 1, 1],
+            PUncoveredPolicy::Retain,
+        )
+        .unwrap();
+        assert_eq!(again.terms[0].basis, PBasis::Residual(id));
+        let corner = request_on(
+            &library,
+            PresentationId(1),
+            [1; 5],
+            PUncoveredPolicy::Retain,
+        )
+        .unwrap();
+        assert_eq!(corner.terms[0].basis, PBasis::Residual(PTerminalId(1)));
+        let certified = boxed_kite_library_certified().unwrap();
+        let kept = request_on(
+            &certified,
+            PresentationId(1),
+            [3, 1, 1, 1, 1],
+            PUncoveredPolicy::Retain,
+        )
+        .unwrap();
+        let PBasis::Residual(id) = kept.terms[0].basis else {
+            panic!("a residual");
+        };
+        assert!(matches!(
+            certified.residual_terminal(id).unwrap().unwrap().retained,
+            Some(PError::OutsideCertifiedSet { .. })
+        ));
     }
 }
