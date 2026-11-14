@@ -544,7 +544,7 @@ fn assemble(
     // read from a checkpoint.
     // vk5l WP6: `seeded` (with a census seed and the descent certificate on)
     // checks shape, ids and owners in full but the zero proofs and routes only
-    // of presentations with a sector not taken unchanged from the seed. The
+    // of the sectors not taken unchanged from the seed. The
     // seed must be a package whose census was checked when it was made (its
     // zero proofs are not repeated: no second audit); the descent certificate
     // verifies and compiles every route again (it does not re-prove zeros).
@@ -560,36 +560,25 @@ fn assemble(
     }
     match (&seeded, check_mode.as_str()) {
         (Some(seed), "seeded") => {
-            let skip: BTreeSet<PresentationId> = (presentations.iter())
-                .filter(|p| {
-                    let mine = census.sectors.range((p.id, 0)..=(p.id, u64::MAX));
-                    let mut all = true;
-                    let mut any = false;
-                    for (sector, fate) in mine {
-                        any = true;
-                        let same = seed.sectors.get(sector) == Some(fate)
-                            && match fate {
-                                rustred::propagator::census::PSectorFate::Zero => true,
-                                rustred::propagator::census::PSectorFate::Owner {
-                                    class, ..
-                                } => match (seed.classes.get(class), census.classes.get(class)) {
+            let skip: BTreeSet<(PresentationId, u64)> = (census.sectors.iter())
+                .filter(|(sector, fate)| {
+                    seed.sectors.get(sector) == Some(*fate)
+                        && match fate {
+                            rustred::propagator::census::PSectorFate::Zero => true,
+                            rustred::propagator::census::PSectorFate::Owner { class, .. } => {
+                                match (seed.classes.get(class), census.classes.get(class)) {
                                     (Some(o), Some(n)) => o.key == n.key && o.owner == n.owner,
                                     _ => false,
-                                },
-                            };
-                        if !same {
-                            all = false;
-                            break;
+                                }
+                            }
                         }
-                    }
-                    any && all
                 })
-                .map(|p| p.id)
+                .map(|(sector, _)| *sector)
                 .collect();
             eprintln!(
-                "[census] check seeded: {} of {} presentations taken unchanged from the seed",
+                "[census] check seeded: {} of {} sectors taken unchanged from the seed",
                 skip.len(),
-                presentations.len()
+                census.sectors.len()
             );
             census.check_complete_except(&presentations, Some(&dag), &census_options, &skip)?;
         }

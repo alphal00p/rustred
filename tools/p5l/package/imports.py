@@ -11,6 +11,7 @@ import csv
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -44,6 +45,99 @@ for f in glob.glob(SC + '/p5l-converter/out_v2*/T*.json') + glob.glob(SC + '/p5l
         order_maps[(os.path.basename(f)[:-5], r.get('table'))] = r['order_map']
 
 
+TRANSLATED = SC + '/p5l/close/libimports5/translated'
+ASTRA_ENDS = ('assembly_end', 'composite_assembly_complete')
+
+
+def record_type(line):
+    """(type, record or None): the fast path reads a leading "type" key; any other record is parsed."""
+    m = re.match(r'\{\s*"type"\s*:\s*"(\w+)"', line)
+    if m:
+        return m.group(1), None
+    r = json.loads(line)
+    return r.get('type'), r
+
+
+def prepare(t, path):
+    """The table as the importer takes it (as p5l-close's libimports prepared the ledger tables): when the header's
+    `charts` miss a chart its records use, the union in first-appearance order; residual records taken from
+    p5l-close's translated copy of the node (libimports5/translated/<T>.table.jsonl) when the table has none; a rule
+    whose `index` breaks the consecutive numbering of its chart (a record the minimiser did not renumber, e.g.
+    T211's trailing composite rule) renumbered in place (file order = first-match order is kept); an Astra end record
+    (assembly_end, composite_assembly_complete) or a missing one replaced by a v1 `end` record, the original kept as
+    an `assembly_provenance` record. Rules and their order are never touched otherwise. Returns the path to import
+    (the original when nothing is needed) and a note."""
+    with open(path) as f:
+        header = json.loads(f.readline())
+    charts, seen, residuals, rules, ends = list(header.get('charts') or []), [], 0, 0, 0
+    count, renumber, last_type = {}, {}, None
+    with open(path) as f:
+        f.readline()
+        for n, line in enumerate(f):
+            ty, rec = record_type(line)
+            last_type = ty
+            if ty == 'chart':
+                c = (rec or json.loads(line))['chart']
+                if c not in seen:
+                    seen.append(c)
+            elif ty == 'residual':
+                residuals += 1
+            elif ty == 'rule':
+                rules += 1
+                head = line[:4000]
+                mc = re.search(r'"chart"\s*:\s*"([01]+)"', head)
+                mi = re.search(r'"index"\s*:\s*(\d+)', head)
+                if rec is not None or not mc or not mi:
+                    rec = rec or json.loads(line)
+                    c, i = rec['chart'], rec['index']
+                else:
+                    c, i = mc.group(1), int(mi.group(1))
+                if i != count.get(c, 0):
+                    renumber[n] = count.get(c, 0)
+                count[c] = count.get(c, 0) + 1
+            elif ty == 'end':
+                ends += 1
+    fix_charts = [c for c in seen if c not in charts]
+    fix_end = ends == 0
+    extra_residuals = []
+    if residuals == 0 and os.path.exists(f'{TRANSLATED}/{t}.table.jsonl'):
+        with open(f'{TRANSLATED}/{t}.table.jsonl') as f:
+            for line in f:
+                if record_type(line)[0] == 'residual':
+                    extra_residuals.append(line if line.endswith('\n') else line + '\n')
+    if not fix_charts and not fix_end and not extra_residuals and not renumber:
+        return path, None
+    out = f'{D}/prepared/{t}.table.jsonl'
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    note = {'type': 'assembly_provenance', 'tool': 'vk5l-wp6 imports.py prepare', 'source': path,
+            'header_charts_added': fix_charts, 'rules_renumbered': {str(k): v for k, v in renumber.items()},
+            'residuals_from': f'{TRANSLATED}/{t}.table.jsonl' if extra_residuals else None, 'end_added': fix_end}
+    with open(path) as f, open(out + '.tmp', 'w') as g:
+        h = json.loads(f.readline())
+        if fix_charts:
+            h['charts'] = charts + fix_charts
+        g.write(json.dumps(h) + '\n')
+        for n, line in enumerate(f):
+            ty, rec = record_type(line)
+            if fix_end and ty in ASTRA_ENDS:
+                note.setdefault('original_end_records', []).append(rec or json.loads(line))
+                continue
+            if n in renumber:
+                rec = rec or json.loads(line)
+                rec['index'] = renumber[n]
+                line = json.dumps(rec)
+            g.write(line if line.endswith('\n') else line + '\n')
+        for line in extra_residuals:
+            g.write(line)
+        if fix_end:
+            g.write(json.dumps({'type': 'end', 'charts': len(charts + fix_charts), 'rules': rules,
+                                'residuals': residuals + len(extra_residuals), 'chart_errors': 0,
+                                'harness': 'vk5l-wp6: end record added for the library import (see the provenance record)'}) + '\n')
+        g.write(json.dumps(note) + '\n')
+    os.replace(out + '.tmp', out)
+    return out, {k: v for k, v in note.items() if k not in ('type', 'original_end_records')}
+
+
 def job(t):
     n = nodes[t]
     out = f'{D}/imports'
@@ -53,7 +147,10 @@ def job(t):
     lp = next(x for x in led_lp['nodes'] if x['id'] == t).get('lp')
     if lp is None:
         lp = tg['masters_lp_nosym']
-    cmd = [BIN, 'p-import-table', '--table', n['path'], '--graph', tg['edges'], '--ext', f"{tg['S']},{tg['T']}",
+    table, note = prepare(t, n['path']) if n['kind'] != 'boxed' else (n['path'], None)
+    if note:
+        print(f'{t}: prepared {table}: {note}', flush=True)
+    cmd = [BIN, 'p-import-table', '--table', table, '--graph', tg['edges'], '--ext', f"{tg['S']},{tg['T']}",
            '--label', t, '--lp', str(lp), '--out', out, '--force',
            '--census-family', f'{WS}/rules_study/classify/families/{t}.sym']
     orig = (simp.get(t) or {}).get('original', {}).get('path')
@@ -97,10 +194,12 @@ def worker():
             if not queue or os.path.exists(WS + '/ops/PAUSE'):
                 return
             t = queue.pop(0)
-        run, full, mem = job(t)
-        rcf = run + '/rc'
+        rcf = f'{D}/runs/import-{t}/rc'
         if os.path.exists(rcf) and open(rcf).read().strip() == '0' and os.path.exists(f'{D}/imports/{t}.rrbin'):
             continue
+        run, full, mem = job(t)
+        if os.path.exists(rcf):
+            os.rename(run, f'{run}.failed-{int(time.time())}')
         t0 = time.time()
         rc = subprocess.run(full).returncode
         with lock:

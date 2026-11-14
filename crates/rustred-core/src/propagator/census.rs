@@ -986,17 +986,17 @@ impl PCensus {
         )
     }
 
-    /// vk5l WP6: [`Self::check_complete_with`] whose per-presentation part
-    /// (every zero proof and every route of the presentation) skips the
-    /// presentations in `skip`; the shape, class ids and owners are checked
-    /// in full. For a census seeded from a checked package: `skip` = the
-    /// presentations whose every sector was taken from it unchanged.
+    /// vk5l WP6: [`Self::check_complete_with`] whose per-sector part (the
+    /// zero proof or the route of a sector) skips the sectors in `skip`; the
+    /// shape, class ids and owners are checked in full. For a census seeded
+    /// from a checked package: `skip` = the sectors taken from it unchanged
+    /// (same fate, and a class with the same key and owner in both).
     pub fn check_complete_except(
         &self,
         presentations: &[Arc<Presentation>],
         dag: Option<&Dag>,
         options: &PCensusOptions,
-        skip: &std::collections::BTreeSet<PresentationId>,
+        skip: &std::collections::BTreeSet<(PresentationId, u64)>,
     ) -> Result<(), PError> {
         let ordered = by_id(presentations)?;
         self.check_class_ids()?;
@@ -1019,11 +1019,16 @@ impl PCensus {
             })
             .collect::<Result<BTreeMap<_, _>, PError>>()?;
         let checked: Vec<&Arc<Presentation>> = (ordered.iter())
-            .filter(|p| !skip.contains(&p.id))
+            .filter(|p| {
+                skip.is_empty()
+                    || Axes::of(p)
+                        .map(|axes| axes.supports().any(|s| !skip.contains(&(p.id, s))))
+                        .unwrap_or(true)
+            })
             .copied()
             .collect();
         parallel_map_labeled("check", &checked, options.threads(), |p| {
-            self.check_presentation(p, &owners, limits)
+            self.check_presentation(p, &owners, limits, skip)
         })?;
         Ok(())
     }
@@ -1127,10 +1132,14 @@ impl PCensus {
         p: &Presentation,
         owners: &BTreeMap<OwnerClassId, ClassedSector>,
         limits: &ClassLimits,
+        skip: &std::collections::BTreeSet<(PresentationId, u64)>,
     ) -> Result<(), PError> {
         let axes = Axes::of(p)?;
         let analyzer = Analyzer::try_unrestricted(&p.family).map_err(|e| zero_error(p, e))?;
         for support in axes.supports() {
+            if skip.contains(&(p.id, support)) {
+                continue;
+            }
             let sector = |detail: String| {
                 PError::MalformedLibrary(format!("sector ({}, {support:#x}): {detail}", p.id.0))
             };

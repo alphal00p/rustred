@@ -130,6 +130,9 @@ def write_manifest(package, release, selection=None, link=False, name=None):
                        'stored_bytes': sum(f['stored_bytes'] for f in files.values() if f['kind'] == k)}
                    for k in sorted({f['kind'] for f in files.values()})},
         'files': files,
+        # (5) The optional pre-filled recipe cache (WP2 `p-materialise-recipes`, later): layout
+        # vakint.p-recipe-cache.v1 = the shipped p step-cache layout; null until one is staged next to the package.
+        'recipe_cache': recipe_cache_record(package, release),
     }
     if selection:
         sel = json.load(open(selection))
@@ -152,6 +155,30 @@ def write_manifest(package, release, selection=None, link=False, name=None):
     json.dump(manifest, open(tmp, 'w'), indent=1, sort_keys=True)
     os.replace(tmp, os.path.join(release, MANIFEST))
     return manifest
+
+
+P_RECIPE_CACHE_SCHEMA = 'vakint.p-recipe-cache.v1'
+P_RECIPE_CACHE_VERSION = 1
+
+
+def recipe_cache_record(package, release):
+    """The optional recipe cache staged as <package>/../recipe-cache/ (recipe-cache.json + the step-cache directory):
+    one gzip tar asset `recipe-cache.tar.gz`, or None."""
+    root = os.path.join(os.path.dirname(os.path.abspath(package)), 'recipe-cache')
+    meta = os.path.join(root, 'recipe-cache.json')
+    if not os.path.exists(meta):
+        return None
+    m = json.load(open(meta))
+    if m.get('schema') != P_RECIPE_CACHE_SCHEMA or m.get('version') != P_RECIPE_CACHE_VERSION:
+        raise Refused(f'{meta}: schema {m.get("schema")} v{m.get("version")}')
+    import tarfile
+    dst = os.path.join(release, 'assets', 'recipe-cache.tar.gz')
+    with tarfile.open(dst + '.tmp', 'w:gz') as tar:
+        tar.add(root, arcname='recipe-cache')
+    os.replace(dst + '.tmp', dst)
+    return {'schema': P_RECIPE_CACHE_SCHEMA, 'version': P_RECIPE_CACHE_VERSION, 'identity': m.get('identity'),
+            'asset': 'recipe-cache.tar.gz', 'stored_bytes': os.path.getsize(dst), 'sha256': sha256_file(dst),
+            'optional': True}
 
 
 def node_payload_files(package, lib):

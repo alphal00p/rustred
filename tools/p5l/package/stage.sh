@@ -58,6 +58,8 @@ if ! done_step assemble; then
     [ -e "$PKG/lib/library.json" ] && break
     rm -rf "$PKG/lib.partial" "$PKG/run-asm-$try"
     log "assembly try $try ($THREADS threads, cap $MEM)"
+    # Thread re-pinning watcher (multi-NUMA CPU sets are not balanced by the kernel).
+    (sleep 60; python3 -I "$T/repin.py" "$PKG/run-asm-$try" "$PKG/lib" 300) &
     python3 -I "$T/job6.py" --tag "asm-$NAME-$try" --ncpu "$THREADS" --mem "$MEM" --max-seconds 172800 \
       --out "$PKG/run-asm-$try" --wait 14400 -- bash -c "source $WS/ops/env.sh; \
       export RUSTRED_P_ASSEMBLE_CENSUS=$PKG/census.ckpt.rrbin RUSTRED_P_CENSUS_PROGRESS=1 \
