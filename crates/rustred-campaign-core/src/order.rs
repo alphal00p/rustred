@@ -40,7 +40,10 @@
 //! Every `i32` key is accepted: sums are taken in `i64`/`i128`, so the order is total on all of Z^n. The engine stores
 //! powers in 7 signed bits (`index.rs:32-53`, -64..=63); [`NodeComparator::check_engine_range`] reports keys the
 //! engine could not represent, it does not change the order. Comparing keys of different arity is a caller error:
-//! [`NodeComparator::try_cmp`] returns [`OrderError::Arity`], [`NodeComparator::cmp`] panics.
+//! [`NodeComparator::try_cmp`] returns [`OrderError::Arity`], [`NodeComparator::cmp`] panics. Every panicking
+//! hot-path function has a checked twin returning [`OrderError::Arity`] (re-audit RB m5): `try_cmp`, `try_lower`,
+//! `try_cmp_original`, `try_rank`, [`Presentation::try_present`] / [`Presentation::try_original`]; campaign code that
+//! compares keys from data uses them (the crate's own `Descent` impl and `automorphism_invariance` do).
 //!
 //! Symbolic patterns (`I(n0, n1+1, 0, ...)`) are compared with [`NodeComparator::cmp_pattern`], which ports the
 //! engine's symbolic branches; where the engine asserts (different symbolic patterns, `index.rs:366-369` and
@@ -265,10 +268,33 @@ impl Presentation {
         self.new_to_old.iter().enumerate().all(|(j, &i)| i == j)
     }
 
-    /// ORIGINAL -> PRESENTED: `out[j] = original[new_to_old[j]]`.
+    /// ORIGINAL -> PRESENTED: `out[j] = original[new_to_old[j]]`. Panics if the key length differs from the arity;
+    /// use [`Self::try_present`] for keys from data.
     pub fn present(&self, original: &[i32]) -> Vec<i32> {
         assert_eq!(original.len(), self.arity(), "key arity");
         self.new_to_old.iter().map(|&i| original[i]).collect()
+    }
+
+    /// [`Self::present`] with a typed error instead of a panic (re-audit RB m5).
+    pub fn try_present(&self, original: &[i32]) -> Result<Vec<i32>, OrderError> {
+        self.check_len(original)?;
+        Ok(self.present(original))
+    }
+
+    /// [`Self::original`] with a typed error instead of a panic (re-audit RB m5).
+    pub fn try_original(&self, presented: &[i32]) -> Result<Vec<i32>, OrderError> {
+        self.check_len(presented)?;
+        Ok(self.original(presented))
+    }
+
+    fn check_len(&self, key: &[i32]) -> Result<(), OrderError> {
+        if key.len() != self.arity() {
+            return Err(OrderError::Arity {
+                expected: self.arity(),
+                actual: key.len(),
+            });
+        }
+        Ok(())
     }
 
     /// PRESENTED -> ORIGINAL: `out[new_to_old[j]] = presented[j]`.
@@ -594,10 +620,16 @@ impl NodeComparator {
         Ok(self.cmp(a, b))
     }
 
-    /// `a` strictly LOWER than `b` (a right-hand-side key `a` of a rule with target `b` descends).
+    /// `a` strictly LOWER than `b` (a right-hand-side key `a` of a rule with target `b` descends). Panics if a key
+    /// length differs from [`Self::arity`]; use [`Self::try_lower`] for keys from data.
     #[inline]
     pub fn lower(&self, a: &[i32], b: &[i32]) -> bool {
         self.cmp(a, b) == Ordering::Less
+    }
+
+    /// [`Self::lower`] with arity errors instead of a panic (re-audit RB m5).
+    pub fn try_lower(&self, a: &[i32], b: &[i32]) -> Result<bool, OrderError> {
+        Ok(self.try_cmp(a, b)? == Ordering::Less)
     }
 
     /// Compare keys that carry their frame (audit A N3): each key is brought to the PRESENTED frame first, so a
@@ -628,7 +660,13 @@ impl NodeComparator {
         })
     }
 
-    /// Compare keys given in the ORIGINAL frame: both are presented first ([`Presentation::present`]).
+    /// [`Self::cmp_original`] with arity errors instead of a panic (re-audit RB m5).
+    pub fn try_cmp_original(&self, a: &[i32], b: &[i32]) -> Result<Ordering, OrderError> {
+        self.cmp_framed(FramedKey::Original(a), FramedKey::Original(b))
+    }
+
+    /// Compare keys given in the ORIGINAL frame: both are presented first ([`Presentation::present`]). Panics if a
+    /// key length differs from [`Self::arity`]; use [`Self::try_cmp_original`] for keys from data.
     pub fn cmp_original(&self, a: &[i32], b: &[i32]) -> Ordering {
         if self.presentation.is_identity() {
             return self.cmp(a, b);
@@ -692,12 +730,26 @@ impl NodeComparator {
 
     /// A sort key: `rank(a) < rank(b)` (lexicographic) iff `cmp(a, b) == Less`. One allocation per key; prefer
     /// [`Self::cmp`] for single comparisons. Components: see [`Rank`].
+    /// Panics if the key length differs from [`Self::arity`]; use [`Self::try_rank`] for keys from data.
     pub fn rank(&self, key: &[i32]) -> Rank {
         assert_eq!(key.len(), self.arity, "NodeComparator::rank: key arity");
         match &self.engine {
             Engine::Legacy { ties } => legacy_rank(ties.as_deref(), key),
             Engine::Program(p) => program_rank(p.descriptor(), key),
         }
+    }
+}
+
+impl NodeComparator {
+    /// [`Self::rank`] with an arity error instead of a panic (re-audit RB m5).
+    pub fn try_rank(&self, key: &[i32]) -> Result<Rank, OrderError> {
+        if key.len() != self.arity {
+            return Err(OrderError::Arity {
+                expected: self.arity,
+                actual: key.len(),
+            });
+        }
+        Ok(self.rank(key))
     }
 }
 
@@ -1255,7 +1307,7 @@ pub fn automorphism_invariance(
                 continue;
             };
             e.pairs_tested += 1;
-            if comparator.cmp(&ga, &gb) != comparator.cmp(a, b) {
+            if comparator.try_cmp(&ga, &gb)? != comparator.try_cmp(a, b)? {
                 e.pairs_disagreeing += 1;
                 if e.first_counterexample.is_none() {
                     e.first_counterexample = Some((a.clone(), b.clone()));

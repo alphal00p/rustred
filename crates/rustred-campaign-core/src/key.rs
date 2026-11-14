@@ -22,7 +22,9 @@
 //!   [`NodeFrame::without_header_from_mask`] / [`NodeFrame::without_header_lines_first`], which record
 //!   [`FrameSource::WithoutHeader`] (audit A M5).
 //! - Predicates on a key of the wrong length fail closed (`false` / `None`); [`NodeFrame::sector`] and
-//!   [`NodeFrame::sector_slots`] panic on it (documented), [`NodeFrame::classify`] returns [`FrameError::Arity`].
+//!   [`NodeFrame::sector_slots`] panic on it (documented hot paths), their checked variants
+//!   [`NodeFrame::try_sector`] / [`NodeFrame::try_sector_slots`] and [`NodeFrame::classify`] return
+//!   [`FrameError::Arity`]. Campaign code that handles keys from data uses the checked variants.
 
 use std::fmt;
 
@@ -251,6 +253,23 @@ impl NodeFrame {
             }
         }
         m
+    }
+    /// [`Self::sector`] with typed errors instead of panics (re-audit RB m5): a key of the wrong length is
+    /// [`FrameError::Arity`], an arity above 64 is [`FrameError::Unsupported`].
+    pub fn try_sector(&self, key: &[i32]) -> Result<u64, FrameError> {
+        if self.arity() > 64 {
+            return Err(FrameError::Unsupported(format!(
+                "sector bitmask needs arity <= 64, frame arity {}",
+                self.arity()
+            )));
+        }
+        self.check_arity(key)?;
+        Ok(self.sector(key))
+    }
+    /// [`Self::sector_slots`] with a typed error instead of a panic (re-audit RB m5).
+    pub fn try_sector_slots(&self, key: &[i32]) -> Result<Vec<usize>, FrameError> {
+        self.check_arity(key)?;
+        Ok(self.sector_slots(key))
     }
     /// Line slots with index >= 1. Panics if the key length differs from the arity.
     pub fn sector_slots(&self, key: &[i32]) -> Vec<usize> {
