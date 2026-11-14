@@ -81,9 +81,13 @@ pub struct AssemblyInput {
     pub removals: Vec<Removal>,
     /// Copy records whose `dispatch` is not Partition (both matchers skip them).
     pub keep_skipped: bool,
+    /// Rewrite the top-level `index` of every record to its assembled position (the ONLY byte change; unique
+    /// indices = `find_rule`'s rule number, so `rr_proof --rule`, closure labels and domaincheck agree). The manifest
+    /// keeps the source index and the source line digest.
     /// Rules that win at least one key of the final closure (line sha256): BOXED nodes ship only these (R20);
     /// FULL nodes keep everything (R33). `None` = no report attached.
     pub used: Option<BTreeSet<String>>,
+    pub renumber_index: bool,
 }
 
 /// Errors (I/O and inconsistent inputs; never a silent pass).
@@ -336,6 +340,62 @@ fn read_line_at(path: &Path, offset: u64) -> Result<Vec<u8>, AssembleError> {
         buf.pop();
     }
     Ok(buf)
+}
+
+/// Replace the TOP-LEVEL `"index":<int>` of a record head by `n` (string-aware scan, depth 1 only); the value found
+/// must equal `expected`. `None` if there is no such field in `head`.
+pub fn splice_index(head: &[u8], expected: Option<i64>, n: u64) -> Option<Vec<u8>> {
+    let pat = br#""index""#;
+    let mut depth = 0i32;
+    let mut i = 0usize;
+    while i < head.len() {
+        match head[i] {
+            b'"' => {
+                if depth == 1 && head[i..].starts_with(pat) {
+                    let mut j = i + pat.len();
+                    while j < head.len() && head[j].is_ascii_whitespace() {
+                        j += 1;
+                    }
+                    if head.get(j) != Some(&b':') {
+                        return None;
+                    }
+                    j += 1;
+                    while j < head.len() && head[j].is_ascii_whitespace() {
+                        j += 1;
+                    }
+                    let start = j;
+                    if head.get(j) == Some(&b'-') {
+                        j += 1;
+                    }
+                    while j < head.len() && head[j].is_ascii_digit() {
+                        j += 1;
+                    }
+                    let v: i64 = std::str::from_utf8(&head[start..j]).ok()?.parse().ok()?;
+                    if Some(v) != expected || j >= head.len() {
+                        return None;
+                    }
+                    let mut out = Vec::with_capacity(head.len() + 8);
+                    out.extend_from_slice(&head[..start]);
+                    out.extend_from_slice(n.to_string().as_bytes());
+                    out.extend_from_slice(&head[j..]);
+                    return Some(out);
+                }
+                // skip the string
+                i += 1;
+                while i < head.len() && head[i] != b'"' {
+                    if head[i] == b'\\' {
+                        i += 1;
+                    }
+                    i += 1;
+                }
+            }
+            b'{' | b'[' => depth += 1,
+            b'}' | b']' => depth -= 1,
+            _ => {}
+        }
+        i += 1;
+    }
+    None
 }
 
 /// A key as the engine's `I(..)` text.
@@ -643,6 +703,7 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
         man.push_str(
             &json!({"n": n, "source": e.source_id, "source_sha256": e.source_sha256, "source_ordinal": e.ordinal,
                 "byte_offset": e.offset, "bytes": e.bytes, "line_sha256": e.line_sha256, "index": e.record.index,
+                "assembled_index": if input.renumber_index { json!(n) } else { json!(e.record.index) },
                 "campaign": e.campaign.is_some(), "position": e.position,
                 "hoisted_for": if e.hoisted_for.is_empty() { Value::Null } else { json!(e.hoisted_for) }})
             .to_string(),
@@ -681,6 +742,11 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
             put(&mut w, c, &mut th_sha)?;
             put(&mut w, b"\n", &mut th_sha)?;
         }
+        let n_of: HashMap<(PathBuf, u64), u64> = entries
+            .iter()
+            .enumerate()
+            .map(|(n, e)| ((e.path.clone(), e.offset), n as u64))
+            .collect();
         let mut files: HashMap<PathBuf, File> = HashMap::new();
         let mut chunk = vec![0u8; 1 << 20];
         for e in &entries {
@@ -694,6 +760,18 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
             f.seek(SeekFrom::Start(e.offset))?;
             let mut left = e.bytes;
             let mut lh = Sha256::new();
+            if input.renumber_index {
+                let m = (left as usize).min(chunk.len());
+                f.read_exact(&mut chunk[..m])?;
+                lh.update(&chunk[..m]);
+                let head = splice_index(&chunk[..m], e.record.index, n_of[&(e.path.clone(), e.offset)])
+                    .ok_or_else(|| AssembleError::Record {
+                        source: e.source_id.clone(),
+                        detail: "no top-level \"index\" field in the record head (renumbering refused)".into(),
+                    })?;
+                put(&mut w, &head, &mut th_sha)?;
+                left -= m as u64;
+            }
             while left > 0 {
                 let m = (left as usize).min(chunk.len());
                 f.read_exact(&mut chunk[..m])?;
