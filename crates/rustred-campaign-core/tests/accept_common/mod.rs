@@ -272,7 +272,11 @@ pub fn replay_prover(node: &Node) -> ReplayProver {
 }
 
 /// Tables in force = the given table file (input) followed by accepted rules (token, record) in dispatch order.
-pub fn in_force(node: &Node, table: Option<&Path>, accepted: &[(&AcceptVerdict, &RuleText)]) -> InForce {
+pub fn in_force(
+    node: &Node,
+    table: Option<&Path>,
+    accepted: &[(&AcceptVerdict, &RuleText)],
+) -> InForce {
     let mut b = InForceBuilder::new(&node.frame);
     if let Some(t) = table {
         b.table_file("ko", t).unwrap();

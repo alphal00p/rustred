@@ -118,7 +118,11 @@ impl SolveAnswers {
             }
             let v: Value = serde_json::from_str(l).map_err(|e| format!("line {}: {e}", no + 1))?;
             if v["schema"] != SOLVE_ANSWER_SCHEMA {
-                return Err(format!("line {}: schema {} is not {SOLVE_ANSWER_SCHEMA}", no + 1, v["schema"]));
+                return Err(format!(
+                    "line {}: schema {} is not {SOLVE_ANSWER_SCHEMA}",
+                    no + 1,
+                    v["schema"]
+                ));
             }
             if v["recipe_digest"] != self.recipe_digest.as_str() {
                 return Err(format!(
@@ -328,7 +332,9 @@ pub enum OpenReason {
     SolveFailed(String),
     ExactCheck(String),
     Irregular(String),
-    NotDescending { rhs: Key },
+    NotDescending {
+        rhs: Key,
+    },
     /// The answer is not a usable relation (an empty right-hand side, an rhs key of the wrong length; audit-accept-B m2).
     Malformed(String),
 }
@@ -474,7 +480,8 @@ pub fn accept_recipe(
     // audit-accept-A M6: the certification is bound to a STATED engine binary (never taken from the answers)
     let Some(binary) = input.expected_binary.clone() else {
         return Ok(RecipeVerdict::Undecided {
-            what: "no expected engine binary: a certification is bound to the binary that solved".into(),
+            what: "no expected engine binary: a certification is bound to the binary that solved"
+                .into(),
         });
     };
     // audit-accept-B M6: every run-2 answer held for a candidate is a determinism witness, sampled or not
@@ -535,7 +542,9 @@ pub fn accept_recipe(
         if a.rhs_keys.is_empty() {
             open.push((
                 k.clone(),
-                OpenReason::Malformed("empty right-hand side (I(k) = 0 needs a zero-sector statement)".into()),
+                OpenReason::Malformed(
+                    "empty right-hand side (I(k) = 0 needs a zero-sector statement)".into(),
+                ),
             ));
             continue;
         }

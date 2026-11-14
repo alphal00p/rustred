@@ -146,7 +146,10 @@ pub fn compare(core: &CoreView, keys: &[Key], engine_out: &str) -> Result<Dispat
                 if let Some(n) = v.get("keys").and_then(Value::as_u64)
                     && n != keys.len() as u64
                 {
-                    return Err(format!("engine summary counts {n} keys, {} given", keys.len()));
+                    return Err(format!(
+                        "engine summary counts {n} keys, {} given",
+                        keys.len()
+                    ));
                 }
             }
             other => return Err(format!("unexpected engine output line type {other:?}")),

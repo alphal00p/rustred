@@ -301,7 +301,9 @@ pub mod replay_adapter {
         let key_failures = status.iter().any(Option::is_some);
         if !established && !key_failures && rule_level.is_empty() {
             match &rec.level {
-                ReplayLevel::NotEstablished { reasons } => rule_level.extend(reasons.iter().cloned()),
+                ReplayLevel::NotEstablished { reasons } => {
+                    rule_level.extend(reasons.iter().cloned())
+                }
                 // rows3: a record without a family binding, of a diagnostic backend, with caller overrides or a
                 // sampled replay is never the level (named, so the chain says why)
                 other => rule_level.push(format!("replay level {other:?} is not Established")),

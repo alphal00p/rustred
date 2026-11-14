@@ -460,7 +460,10 @@ fn file_backed_per_key_prover_round_trip() {
     };
     assert_eq!(a.exclusions().len(), 1);
     assert_eq!(a.exclusions()[0].reason, FailureKind::NonMembership);
-    assert_eq!(a.record().value()["evidence"]["ledger_word"], "identity_proved");
+    assert_eq!(
+        a.record().value()["evidence"]["ledger_word"],
+        "identity_proved"
+    );
     assert_eq!(a.record().value()["served"]["count"], 19);
     // 4. a refusal line: Unsupported for every key -> Undecided
     p.load_answer(&rule, r#"{"verdict":"UNSUPPORTED","error":"affine case"}"#)
@@ -527,7 +530,12 @@ fn full_node_scope_is_key_range_with_reasons() {
     println!("symbolic: {}", a.record().value()["symbolic"]);
     // audit-accept-A m6: the scope is asserted, not only printed: the witness (exception n2 = 1, locus -1+n2,
     // coefficients over (-1+n2), all rhs terms hand-downs or lower) is FULL-domain certified by its replay record
-    assert_eq!(a.scope(), &Scope::FullDomain, "{}", a.record().value()["scope"]);
+    assert_eq!(
+        a.scope(),
+        &Scope::FullDomain,
+        "{}",
+        a.record().value()["scope"]
+    );
     // the same rule on a BOXED node: key range only, nothing missing
     let mut p = replay_prover(&c.node);
     let v = judge_with(

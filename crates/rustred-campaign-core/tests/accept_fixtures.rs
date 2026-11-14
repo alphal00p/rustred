@@ -152,7 +152,8 @@ fn check_node(name: &str) {
             run.accepted
                 .iter()
                 .map(|(_, _, _, v)| match v {
-                    AcceptVerdict::Accepted(a) => a.record().value()["served"]["count"].as_u64().unwrap(),
+                    AcceptVerdict::Accepted(a) =>
+                        a.record().value()["served"]["count"].as_u64().unwrap(),
                     _ => 0,
                 })
                 .sum::<u64>(),
@@ -185,7 +186,10 @@ fn check_node(name: &str) {
         for (_, _, r, v) in &run.accepted {
             let a = v.accepted().expect("accepted");
             assert_eq!(a.record().value()["rule"]["line_sha256"], r.line_sha256);
-            assert_eq!(a.record().value()["evidence"]["ledger_word"], "identity_tested");
+            assert_eq!(
+                a.record().value()["evidence"]["ledger_word"],
+                "identity_tested"
+            );
             assert_eq!(a.artefact().rule_sha256, r.line_sha256);
             assert!(
                 a.exclusions().is_empty(),

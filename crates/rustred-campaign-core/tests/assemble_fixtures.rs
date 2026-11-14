@@ -65,7 +65,12 @@ fn accepted_rules(run: &KoRun) -> Vec<Accepted> {
         .collect()
 }
 
-fn input_of(node: &Node, run: &KoRun, accepted: Vec<Accepted>, target: NodeTarget) -> AssemblyInput {
+fn input_of(
+    node: &Node,
+    run: &KoRun,
+    accepted: Vec<Accepted>,
+    target: NodeTarget,
+) -> AssemblyInput {
     AssemblyInput {
         node: node.name.clone(),
         target,
@@ -248,6 +253,7 @@ fn l4a_assembled_closes_and_matches_engine() {
     assemble_node("L4a");
 }
 
+#[allow(clippy::too_many_arguments)]
 /// The chain on the BOXED fixture node with the per-key prover fed SYNTHETIC statuses (plumbing only; every answer
 /// echoes the rule digest): `fail` maps served keys to a status word, every other served key is in span.
 fn judge_per_key(
@@ -341,7 +347,10 @@ fn exclusions_hoist_terminal_and_unsafe() {
             (k_term.clone(), "HIDDEN_KEY (synthetic)"),
         ],
     );
-    let face_acc = face.accepted().unwrap_or_else(|| panic!("{face:?}")).clone();
+    let face_acc = face
+        .accepted()
+        .unwrap_or_else(|| panic!("{face:?}"))
+        .clone();
     assert_eq!(face_acc.exclusions().len(), 3);
     // a POINT record at k_hoist (a copy of the face rule with every slot fixed), judged by the chain against the KO
     // table and the face rule WITH its exclusions honoured: it wins k_hoist
@@ -388,7 +397,10 @@ fn exclusions_hoist_terminal_and_unsafe() {
         &node.box_keys,
         &[],
     );
-    let point_acc = point.accepted().unwrap_or_else(|| panic!("{point:?}")).clone();
+    let point_acc = point
+        .accepted()
+        .unwrap_or_else(|| panic!("{point:?}"))
+        .clone();
     assert_eq!(point_acc.served().1, 1);
     // without the exclusion honoured, the face rule would have won k_hoist and the point rule served nothing
     let mut inp = input_of(
@@ -512,7 +524,10 @@ fn retirement_rules() {
         reason: "test".into(),
         disproof: "free text".into(),
     }];
-    assert!(assemble(&inp, &scratch("remove-full")).is_err(), "FULL removal refused");
+    assert!(
+        assemble(&inp, &scratch("remove-full")).is_err(),
+        "FULL removal refused"
+    );
     let mut inp = input_of(
         &node,
         &run,

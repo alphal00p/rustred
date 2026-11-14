@@ -331,7 +331,10 @@ impl AcceptVerdict {
 /// Caller mistakes (every mathematical outcome is a verdict).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AcceptError {
-    Arity { expected: usize, got: usize },
+    Arity {
+        expected: usize,
+        got: usize,
+    },
     Cover(String),
     Position(String),
     /// Building the tables in force (unreadable table, a token for another rule, an exclusion that can not be honoured).
@@ -599,8 +602,10 @@ impl<'a> InForceBuilder<'a> {
             .ok_or_else(|| AcceptError::InForce("accepted rule without a domain".into()))?;
         honour_exclusions(&mut dom, acc.exclusions())?;
         if !self.campaign_open {
-            self.tables
-                .push(Table::new(format!("campaign:{}", self.tables.len()), dom.arity));
+            self.tables.push(Table::new(
+                format!("campaign:{}", self.tables.len()),
+                dom.arity,
+            ));
             self.campaign_open = true;
         }
         let t = self.tables.last_mut().expect("just pushed");

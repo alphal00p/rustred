@@ -28,8 +28,8 @@ use rustred_campaign_core::accept::{
 use rustred_campaign_core::assemble::domaincheck::{DispatchEqual, compare, core_view};
 use rustred_campaign_core::assemble::recipes::{RecipeToShip, write as write_recipes};
 use rustred_campaign_core::assemble::{
-    AssembleError, AssemblyInput, FullRetirements, InputTable, Splice, assemble,
-    containment_proof, splice_index_head, table_set_digest, verify_assembled,
+    AssembleError, AssemblyInput, FullRetirements, InputTable, Splice, assemble, containment_proof,
+    splice_index_head, table_set_digest, verify_assembled,
 };
 use rustred_campaign_core::closure::facts::CoefFact;
 use rustred_campaign_core::cover::{Dispatch, Dispatcher, Table};
@@ -193,7 +193,12 @@ fn judge_per_key(
     )
 }
 
-fn assembly(t: &Toy, inputs: Vec<InputTable>, accepted: Vec<rustred_campaign_core::accept::Accepted>, target: NodeTarget) -> AssemblyInput {
+fn assembly(
+    t: &Toy,
+    inputs: Vec<InputTable>,
+    accepted: Vec<rustred_campaign_core::accept::Accepted>,
+    target: NodeTarget,
+) -> AssemblyInput {
     AssemblyInput {
         node: t.node.name.clone(),
         target,
@@ -286,7 +291,8 @@ fn b_c1_per_key_answers_bound_to_the_rule() {
     .to_string();
     for bad in ["2", "2*(1)", "-(1)", "(1)+1"] {
         let m = RuleText::parse(
-            s.replace(from, &format!(r#"["I(n0,n1,n2,1,0)","{bad}"]"#)).as_bytes(),
+            s.replace(from, &format!(r#"["I(n0,n1,n2,1,0)","{bad}"]"#))
+                .as_bytes(),
             &t.node.frame,
         )
         .unwrap();
@@ -302,7 +308,10 @@ fn b_c1_per_key_answers_bound_to_the_rule() {
         p.binding = AnswerBinding::Structural;
         if bad != "2" {
             // the structural echo (record bytes) still tells these mutants apart
-            assert!(p.load_answer(&m, &without_digest).is_err(), "{bad}: record bytes");
+            assert!(
+                p.load_answer(&m, &without_digest).is_err(),
+                "{bad}: record bytes"
+            );
         }
     }
     // the true rule: loaded, and the chain accepts with the artefact naming it
@@ -378,7 +387,10 @@ fn b_c2_instantiate_facts_bound_to_the_rule() {
     assert_eq!(f.load(&a, &a_text).unwrap(), keys.len());
     assert!(f.fact_digest_for(&a).is_some());
     assert!(f.fact_digest_for(&b).is_none());
-    assert_eq!(f.regular(&a, &keys[0]), rustred_campaign_core::accept::facts::RegVerdict::Regular);
+    assert_eq!(
+        f.regular(&a, &keys[0]),
+        rustred_campaign_core::accept::facts::RegVerdict::Regular
+    );
     assert!(matches!(
         f.regular(&b, &keys[0]),
         rustred_campaign_core::accept::facts::RegVerdict::Unknown(_)
@@ -400,12 +412,22 @@ fn b_c2_instantiate_facts_bound_to_the_rule() {
         &t.gaps,
     );
     assert!(
-        matches!(v, AcceptVerdict::Undecided { check: Check::Record, .. }),
+        matches!(
+            v,
+            AcceptVerdict::Undecided {
+                check: Check::Record,
+                ..
+            }
+        ),
         "{v:?}"
     );
     // a line not in case / on a branch gives no usable fact
     let mut g = InstantiateFacts::new(AnswerBinding::DigestEcho);
-    let on_branch = a_text.lines().next().unwrap().replace(r#""branch":null"#, r#""branch":0"#);
+    let on_branch = a_text
+        .lines()
+        .next()
+        .unwrap()
+        .replace(r#""branch":null"#, r#""branch":0"#);
     g.load(&a, &on_branch).unwrap();
     assert!(matches!(
         g.regular(&a, &keys[0]),
@@ -484,7 +506,9 @@ fn rows3_replay_needs_the_right_family_binding() {
     );
     assert!(!v.is_accepted(), "{v:?}");
     let ok = judge_replay(&t, &t.w0, boxed());
-    let a = ok.accepted().expect("accepted with the table header binding");
+    let a = ok
+        .accepted()
+        .expect("accepted with the table header binding");
     assert_eq!(
         a.artefact().body.as_ref().unwrap()["family_bound_to_table"],
         json!(true)
@@ -514,14 +538,14 @@ fn a_c1_positive_numerator_term_is_not_symbolically_proved() {
             .map(str::to_string)
             .collect();
         // a free numerator slot j whose target slot is n<j>, and a free line slot i
-        let Some(j) = (0..args.len()).find(|&j| {
-            !lines_mask[j] && r.record.fixed[j].is_none() && args[j] == format!("n{j}")
-        }) else {
+        let Some(j) = (0..args.len())
+            .find(|&j| !lines_mask[j] && r.record.fixed[j].is_none() && args[j] == format!("n{j}"))
+        else {
             continue;
         };
-        let Some(i) = (0..args.len()).find(|&i| {
-            lines_mask[i] && r.record.fixed[i].is_none() && args[i] == format!("n{i}")
-        }) else {
+        let Some(i) = (0..args.len())
+            .find(|&i| lines_mask[i] && r.record.fixed[i].is_none() && args[i] == format!("n{i}"))
+        else {
             continue;
         };
         let mut pat = args.clone();
@@ -531,7 +555,11 @@ fn a_c1_positive_numerator_term_is_not_symbolically_proved() {
         let m = edit(l.as_bytes(), |v| v["rhs"][0] = json!([p, "1"]));
         let mr = RuleText::parse(&m, &node.frame).unwrap();
         let bad = symbolic_not_proved(&mr, &node.cmp, &lines_mask);
-        assert!(bad.contains(&0), "rule {:?}: term n{j}+1 on a numerator slot", r.index());
+        assert!(
+            bad.contains(&0),
+            "rule {:?}: term n{j}+1 on a numerator slot",
+            r.index()
+        );
         tested += 1;
         break;
     }
@@ -550,7 +578,10 @@ fn b_c3_dropped_locus_and_exception_never_full_domain() {
     });
     let mr = RuleText::parse(&m, &t.node.frame).unwrap();
     let why = symbolic_regularity_not_proved(&mr);
-    assert!(!why.is_empty(), "the denominators (-1+n2) vanish on the face n2 = 1");
+    assert!(
+        !why.is_empty(),
+        "the denominators (-1+n2) vanish on the face n2 = 1"
+    );
     let v = judge_replay(&t, &m, NodeTarget::Full);
     if let Some(a) = v.accepted() {
         assert!(
@@ -567,6 +598,9 @@ fn b_c3_dropped_locus_and_exception_never_full_domain() {
 // =================================================================================================================
 // 3. HEADER IDENTITY and 4. NO SILENT DROPS (assembly inputs)
 // =================================================================================================================
+
+/// An edit of one table line (kind, value): true = edited.
+type LineEdit = dyn Fn(&str, &mut Value) -> bool;
 
 /// audit-accept-A C2 / B C5: tables with another frame / order / guard version / chart line / zero sectors, or none.
 #[test]
@@ -586,14 +620,70 @@ fn a_c2_b_c5_header_identity_enforced() {
     )
     .unwrap();
     assert!(out.report.input_records > 0);
-    let cases: Vec<(&str, Box<dyn Fn(&str, &mut Value) -> bool>)> = vec![
-        ("order_name", Box::new(|k: &str, v: &mut Value| k == "header" && { v["order_name"] = json!("other"); true })),
-        ("node_order", Box::new(|k: &str, v: &mut Value| k == "header" && { v["node_order"] = json!({"name": "x", "slot_permutation": [4, 3, 2, 1, 0]}); true })),
-        ("guard_version", Box::new(|k: &str, v: &mut Value| k == "header" && { v["guard_version"] = json!(1); true })),
-        ("charts", Box::new(|k: &str, v: &mut Value| k == "header" && { v["charts"] = json!(["11110"]); true })),
-        ("chart line", Box::new(|k: &str, v: &mut Value| k == "chart" && { v["zero"] = json!(true); true })),
-        ("zero_sectors absent", Box::new(|k: &str, v: &mut Value| k == "zero_sectors" && { *v = Value::Null; true })),
-        ("no header", Box::new(|k: &str, v: &mut Value| k == "header" && { *v = Value::Null; true })),
+    let cases: Vec<(&str, Box<LineEdit>)> = vec![
+        (
+            "order_name",
+            Box::new(|k: &str, v: &mut Value| {
+                k == "header" && {
+                    v["order_name"] = json!("other");
+                    true
+                }
+            }),
+        ),
+        (
+            "node_order",
+            Box::new(|k: &str, v: &mut Value| {
+                k == "header" && {
+                    v["node_order"] = json!({"name": "x", "slot_permutation": [4, 3, 2, 1, 0]});
+                    true
+                }
+            }),
+        ),
+        (
+            "guard_version",
+            Box::new(|k: &str, v: &mut Value| {
+                k == "header" && {
+                    v["guard_version"] = json!(1);
+                    true
+                }
+            }),
+        ),
+        (
+            "charts",
+            Box::new(|k: &str, v: &mut Value| {
+                k == "header" && {
+                    v["charts"] = json!(["11110"]);
+                    true
+                }
+            }),
+        ),
+        (
+            "chart line",
+            Box::new(|k: &str, v: &mut Value| {
+                k == "chart" && {
+                    v["zero"] = json!(true);
+                    true
+                }
+            }),
+        ),
+        (
+            "zero_sectors absent",
+            Box::new(|k: &str, v: &mut Value| {
+                k == "zero_sectors" && {
+                    *v = Value::Null;
+                    true
+                }
+            }),
+        ),
+        (
+            "no header",
+            Box::new(|k: &str, v: &mut Value| {
+                k == "header" && {
+                    *v = Value::Null;
+                    true
+                }
+            }),
+        ),
     ];
     for (what, f) in cases {
         let other = InputTable {
@@ -607,7 +697,10 @@ fn a_c2_b_c5_header_identity_enforced() {
             &scratch("regress-hdr"),
         );
         assert!(
-            matches!(r, Err(AssembleError::HeaderMismatch { .. }) | Err(AssembleError::Record { .. })),
+            matches!(
+                r,
+                Err(AssembleError::HeaderMismatch { .. }) | Err(AssembleError::Record { .. })
+            ),
             "{what}: {:?}",
             r.as_ref().map(|o| o.report.records)
         );
@@ -627,8 +720,16 @@ fn b_c4_every_line_classified_never_dropped() {
         true // every line re-serialised with sorted keys: "type" is no longer first
     });
     let first = std::fs::read_to_string(&sorted).unwrap();
-    assert!(first.lines().nth(1).is_some_and(|l| !l.starts_with(r#"{"type""#)));
-    let n_removed = first.lines().filter(|l| l.contains(r#""type":"rule""#)).count();
+    assert!(
+        first
+            .lines()
+            .nth(1)
+            .is_some_and(|l| !l.starts_with(r#"{"type""#))
+    );
+    let n_removed = first
+        .lines()
+        .filter(|l| l.contains(r#""type":"rule""#))
+        .count();
     assert!(n_removed > 0);
     let inp = InputTable {
         id: "sorted".into(),
@@ -637,7 +738,11 @@ fn b_c4_every_line_classified_never_dropped() {
         sha256: None,
     };
     let dir = scratch("regress-sorted");
-    let out = assemble(&assembly(&t, vec![ko_input(&t), inp], vec![], boxed()), &dir).unwrap();
+    let out = assemble(
+        &assembly(&t, vec![ko_input(&t), inp], vec![], boxed()),
+        &dir,
+    )
+    .unwrap();
     let ko_rules = std::fs::read_to_string(&t.ko_path)
         .unwrap()
         .lines()
@@ -655,19 +760,43 @@ fn b_c4_every_line_classified_never_dropped() {
         priority: 0,
         sha256: Some(out.table_sha256.clone()),
     };
-    let out2 = assemble(&assembly(&t, vec![again], vec![], boxed()), &scratch("regress-again")).unwrap();
+    let out2 = assemble(
+        &assembly(&t, vec![again], vec![], boxed()),
+        &scratch("regress-again"),
+    )
+    .unwrap();
     assert_eq!(out2.report.input_records, out.report.input_records);
     // an unknown line kind / no end record / a wrong digest are errors
-    let unknown = removed_part(&t, "unknown", |k, v| k == "chart" && { v["type"] = json!("mystery"); true });
-    let truncated = removed_part(&t, "truncated", |k, v| k == "end" && { *v = Value::Null; true });
-    for (p, sha) in [(unknown, None), (truncated, None), (sorted, Some("sha256:00".to_string()))] {
+    let unknown = removed_part(&t, "unknown", |k, v| {
+        k == "chart" && {
+            v["type"] = json!("mystery");
+            true
+        }
+    });
+    let truncated = removed_part(&t, "truncated", |k, v| {
+        k == "end" && {
+            *v = Value::Null;
+            true
+        }
+    });
+    for (p, sha) in [
+        (unknown, None),
+        (truncated, None),
+        (sorted, Some("sha256:00".to_string())),
+    ] {
         let inp = InputTable {
             id: "bad".into(),
             path: p,
             priority: 1,
             sha256: sha,
         };
-        assert!(assemble(&assembly(&t, vec![ko_input(&t), inp], vec![], boxed()), &scratch("regress-bad")).is_err());
+        assert!(
+            assemble(
+                &assembly(&t, vec![ko_input(&t), inp], vec![], boxed()),
+                &scratch("regress-bad")
+            )
+            .is_err()
+        );
     }
 }
 
@@ -679,7 +808,8 @@ fn readers_refuse_unclassified_lines() {
     let mut p = FilePerKeyProver::new(vec![5], None);
     assert!(p.load_answer(&rule, r#"{"type":"summary"}"#).is_err());
     assert!(
-        ImportedEvidence::read(r#"{"schema":"rustred.campaign.accept.v1","rule":{"id":"r"}}"#).is_err(),
+        ImportedEvidence::read(r#"{"schema":"rustred.campaign.accept.v1","rule":{"id":"r"}}"#)
+            .is_err(),
         "an accept line naming no rule line"
     );
     let mut s = SolveAnswers::new("sha256:r");
@@ -728,7 +858,10 @@ fn exclusions_honoured_in_force_and_no_circular_hoist() {
     v["fixed"] = json!(k0);
     v["target"] = json!(format!(
         "I({})",
-        k0.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")
+        k0.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
     ));
     v["exceptions"] = json!([]);
     v["witness_loci"] = json!([]);
@@ -837,10 +970,17 @@ fn b_c7_judged_order_must_be_the_assembled_order() {
             recipes: 0,
         };
         let r = assemble(&inp, &scratch("regress-order"));
-        assert!(matches!(r, Err(AssembleError::Order { .. })), "{ko}: {:?}", r.err());
+        assert!(
+            matches!(r, Err(AssembleError::Order { .. })),
+            "{ko}: {:?}",
+            r.err()
+        );
         found += 1;
     }
-    assert!(found > 0, "no KO set with two accepted rules judged naively");
+    assert!(
+        found > 0,
+        "no KO set with two accepted rules judged naively"
+    );
 }
 
 /// audit-accept-A M1 / B M2: tokens bind the node, the target and the frame; the same record twice (A m3) refused.
@@ -850,10 +990,16 @@ fn tokens_bind_node_target_and_are_unique() {
     let v = judge_replay(&t, &t.w0, boxed());
     let a = v.accepted().unwrap().clone();
     let full = assembly(&t, vec![ko_input(&t)], vec![a.clone()], NodeTarget::Full);
-    assert!(matches!(assemble(&full, &scratch("regress-bind")), Err(AssembleError::Binding { .. })));
+    assert!(matches!(
+        assemble(&full, &scratch("regress-bind")),
+        Err(AssembleError::Binding { .. })
+    ));
     let mut other = assembly(&t, vec![ko_input(&t)], vec![a.clone()], boxed());
     other.node = "another-node".into();
-    assert!(matches!(assemble(&other, &scratch("regress-bind")), Err(AssembleError::Binding { .. })));
+    assert!(matches!(
+        assemble(&other, &scratch("regress-bind")),
+        Err(AssembleError::Binding { .. })
+    ));
     let twice = assembly(&t, vec![ko_input(&t)], vec![a.clone(), a], boxed());
     assert!(assemble(&twice, &scratch("regress-bind")).is_err());
 }
@@ -868,7 +1014,12 @@ fn dispatch_equal_not_vacuous_and_file_verified() {
     let Some(t) = toy() else { return };
     let v = judge_replay(&t, &t.w0, boxed());
     let out = assemble(
-        &assembly(&t, vec![ko_input(&t)], vec![v.accepted().unwrap().clone()], boxed()),
+        &assembly(
+            &t,
+            vec![ko_input(&t)],
+            vec![v.accepted().unwrap().clone()],
+            boxed(),
+        ),
         &scratch("regress-de"),
     )
     .unwrap();
@@ -882,7 +1033,10 @@ fn dispatch_equal_not_vacuous_and_file_verified() {
         none: 3,
         ..Default::default()
     };
-    assert!(!disjoint.equal(true), "no key decided by a rule or a terminal");
+    assert!(
+        !disjoint.equal(true),
+        "no key decided by a rule or a terminal"
+    );
     let k = t.node.box_keys[0].clone();
     let other_table = format!(
         "{}\n",
@@ -892,7 +1046,9 @@ fn dispatch_equal_not_vacuous_and_file_verified() {
     // a reordered or modified file no longer matches its manifest
     let text = std::fs::read_to_string(&out.table).unwrap();
     let mut lines: Vec<&str> = text.lines().collect();
-    let rules: Vec<usize> = (0..lines.len()).filter(|&i| lines[i].contains(r#""type":"rule""#)).collect();
+    let rules: Vec<usize> = (0..lines.len())
+        .filter(|&i| lines[i].contains(r#""type":"rule""#))
+        .collect();
     assert!(rules.len() >= 2);
     lines.swap(rules[0], rules[1]);
     let swapped = out.table.with_extension("swapped.jsonl");
@@ -957,12 +1113,18 @@ fn full_retirement_refused_unless_bound() {
     };
     let mut inp = assembly(&t, vec![ko_input(&t)], vec![], NodeTarget::Full);
     inp.retirements = vec![retire(&before, &after)];
-    assert!(assemble(&inp, &scratch("regress-ret")).is_err(), "refused by default");
+    assert!(
+        assemble(&inp, &scratch("regress-ret")).is_err(),
+        "refused by default"
+    );
     inp.full_retirements = FullRetirements::BoundProof;
     let ok = assemble(&inp, &scratch("regress-ret")).unwrap();
     assert_eq!(ok.report.retired, vec![victim.clone()]);
     inp.retirements = vec![retire("unrelated-old", "unrelated-new")];
-    assert!(assemble(&inp, &scratch("regress-ret")).is_err(), "proof about other tables");
+    assert!(
+        assemble(&inp, &scratch("regress-ret")).is_err(),
+        "proof about other tables"
+    );
 }
 
 // =================================================================================================================
@@ -990,7 +1152,10 @@ fn f2_guard_version_one_rule_for_chain_and_tables_in_force() {
     std::fs::write(&p, stripped).unwrap();
     let tf = read_table_file(&p, ReadOptions { rhs: RhsMode::Skip }).unwrap();
     let core = Dispatcher::new(
-        vec![Table::from_table_file("ko", p.display().to_string(), &tf, DomainOptions::default()).unwrap()],
+        vec![
+            Table::from_table_file("ko", p.display().to_string(), &tf, DomainOptions::default())
+                .unwrap(),
+        ],
         vec![0],
     )
     .unwrap();
@@ -1032,7 +1197,16 @@ fn f2_guard_version_one_rule_for_chain_and_tables_in_force() {
     if let Some(a) = v.accepted() {
         assert_eq!(a.record().value()["credit_basis"], "witness_loci");
     } else {
-        assert!(!matches!(v, AcceptVerdict::Undecided { check: Check::Record, .. }), "{v:?}");
+        assert!(
+            !matches!(
+                v,
+                AcceptVerdict::Undecided {
+                    check: Check::Record,
+                    ..
+                }
+            ),
+            "{v:?}"
+        );
     }
 }
 
@@ -1048,7 +1222,10 @@ fn a_m7_sum_after_ratio_is_unknown() {
         .find(|g| r.domain.as_ref().unwrap().applies(g).applies())
         .unwrap()
         .clone();
-    assert_eq!(ExactRecordFacts::new().coefficient(&r, &k, 1), CoefFact::Unknown);
+    assert_eq!(
+        ExactRecordFacts::new().coefficient(&r, &k, 1),
+        CoefFact::Unknown
+    );
 }
 
 /// audit-accept-B m3 / A m5: a string VALUE "index" before the key, and an index beyond the first MiB, are spliced.
@@ -1056,11 +1233,17 @@ fn a_m7_sum_after_ratio_is_unknown() {
 fn splice_index_value_string_and_deep_index() {
     let rec = br#"{"type":"rule","note":"index","index":3,"rhs":[]}"#;
     match splice_index_head(rec, Some(3), 7) {
-        Splice::Done(v) => assert_eq!(v, br#"{"type":"rule","note":"index","index":7,"rhs":[]}"#.to_vec()),
+        Splice::Done(v) => assert_eq!(
+            v,
+            br#"{"type":"rule","note":"index","index":7,"rhs":[]}"#.to_vec()
+        ),
         other => panic!("{other:?}"),
     }
     let dup = br#"{"type":"rule","index":3,"index":3,"rhs":[]}"#;
-    assert!(matches!(splice_index_head(dup, Some(3), 7), Splice::Refused(_)));
+    assert!(matches!(
+        splice_index_head(dup, Some(3), 7),
+        Splice::Refused(_)
+    ));
     let cut = br#"{"type":"rule","pad":"xx","ind"#;
     assert_eq!(splice_index_head(cut, Some(3), 7), Splice::NotInHead);
 }
@@ -1121,16 +1304,27 @@ fn recipes_bound_sealed_and_deterministic() {
     // the determinism sample (Count(1)) is the first candidate; give it run 2
     let first = keys.iter().min().unwrap().clone();
     let fr = &rhs[keys.iter().position(|k| *k == first).unwrap()];
-    a.load(&ans(&recipe.digest, &first, 2, fr, &format!("sha256:rel-{first:?}"))).unwrap();
+    a.load(&ans(
+        &recipe.digest,
+        &first,
+        2,
+        fr,
+        &format!("sha256:rel-{first:?}"),
+    ))
+    .unwrap();
     // A M6: no stated binary -> never certified
-    assert!(matches!(accept_recipe(&input(None), &a).unwrap(), RecipeVerdict::Undecided { .. }));
+    assert!(matches!(
+        accept_recipe(&input(None), &a).unwrap(),
+        RecipeVerdict::Undecided { .. }
+    ));
     let ok = accept_recipe(&input(Some("sha256:bin")), &a).unwrap();
     assert!(matches!(ok, RecipeVerdict::Certified { .. }), "{ok:?}");
     // B M6: a differing run-2 answer OUTSIDE the sample is a determinism witness too
     let other = keys.iter().max().unwrap().clone();
     let orr = &rhs[keys.iter().position(|k| *k == other).unwrap()];
     let mut b = a.clone();
-    b.load(&ans(&recipe.digest, &other, 2, orr, "sha256:different")).unwrap();
+    b.load(&ans(&recipe.digest, &other, 2, orr, "sha256:different"))
+        .unwrap();
     assert!(matches!(
         accept_recipe(&input(Some("sha256:bin")), &b).unwrap(),
         RecipeVerdict::Rejected { .. }
@@ -1138,10 +1332,21 @@ fn recipes_bound_sealed_and_deterministic() {
     // B m2: an empty right-hand side is open (malformed), never certified on the exact check alone
     let mut c = SolveAnswers::new(&recipe.digest);
     let mut ctext = text.replacen(&serde_json::to_string(&rhs[0]).unwrap(), "[]", 1);
-    ctext.push_str(&ans(&recipe.digest, &first, 2, fr, &format!("sha256:rel-{first:?}")));
+    ctext.push_str(&ans(
+        &recipe.digest,
+        &first,
+        2,
+        fr,
+        &format!("sha256:rel-{first:?}"),
+    ));
     c.load(&ctext).unwrap();
-    if let RecipeVerdict::Certified { open, .. } = accept_recipe(&input(Some("sha256:bin")), &c).unwrap() {
-        assert!(open.iter().any(|(_, r)| matches!(r, OpenReason::Malformed(_))));
+    if let RecipeVerdict::Certified { open, .. } =
+        accept_recipe(&input(Some("sha256:bin")), &c).unwrap()
+    {
+        assert!(
+            open.iter()
+                .any(|(_, r)| matches!(r, OpenReason::Malformed(_)))
+        );
     }
     // A M6: shipping a verdict with another recipe is an error, not a silent mix
     let other_recipe = Recipe::new(
@@ -1166,15 +1371,33 @@ fn recipes_bound_sealed_and_deterministic() {
     };
     let k = keys[0].clone();
     let mut e = SolveAnswers::new(&recipe.digest);
-    assert!(e.load_engine_results(&format!("{}\n", rel(&k, "aa")), 1, "e", "b").is_err(), "no end record");
     assert!(
-        e.load_engine_results(&format!("{}\n{}\n", rel(&k, "aa"), json!({"type":"partial","records":1})), 1, "e", "b")
+        e.load_engine_results(&format!("{}\n", rel(&k, "aa")), 1, "e", "b")
             .is_err(),
+        "no end record"
+    );
+    assert!(
+        e.load_engine_results(
+            &format!(
+                "{}\n{}\n",
+                rel(&k, "aa"),
+                json!({"type":"partial","records":1})
+            ),
+            1,
+            "e",
+            "b"
+        )
+        .is_err(),
         "partial"
     );
     assert!(
         e.load_engine_results(
-            &format!("{}\n{}\n{}\n", rel(&k, "aa"), rel(&k, "bb"), json!({"type":"end","records":2})),
+            &format!(
+                "{}\n{}\n{}\n",
+                rel(&k, "aa"),
+                rel(&k, "bb"),
+                json!({"type":"end","records":2})
+            ),
             1,
             "e",
             "b"
@@ -1183,8 +1406,13 @@ fn recipes_bound_sealed_and_deterministic() {
         "conflicting answers"
     );
     assert_eq!(
-        e.load_engine_results(&format!("{}\n{}\n", rel(&k, "aa"), json!({"type":"end","records":1})), 1, "e", "b")
-            .unwrap(),
+        e.load_engine_results(
+            &format!("{}\n{}\n", rel(&k, "aa"), json!({"type":"end","records":1})),
+            1,
+            "e",
+            "b"
+        )
+        .unwrap(),
         1
     );
 }
@@ -1211,7 +1439,10 @@ fn b_m5_recipe_in_force_only_on_certified_keys() {
     for (i, (k, r)) in keys.iter().zip(&rhs).enumerate() {
         if i == 0 {
             // key 0 fails to solve: open, not certified
-            text.push_str(&ans(&recipe.digest, k, 1, r, "x").replace(r#""status":"ok""#, r#""status":"failed""#));
+            text.push_str(
+                &ans(&recipe.digest, k, 1, r, "x")
+                    .replace(r#""status":"ok""#, r#""status":"failed""#),
+            );
         } else {
             text.push_str(&ans(&recipe.digest, k, 1, r, &format!("sha256:rel-{k:?}")));
         }
@@ -1228,7 +1459,11 @@ fn b_m5_recipe_in_force_only_on_certified_keys() {
     b.recipe(&recipe, &v).unwrap();
     let inf = b.build().unwrap();
     let d = inf.dispatcher().unwrap();
-    assert_eq!(d.first_match(&keys[0]).unwrap(), Dispatch::Uncovered, "falls through");
+    assert_eq!(
+        d.first_match(&keys[0]).unwrap(),
+        Dispatch::Uncovered,
+        "falls through"
+    );
     assert!(d.first_match(&certified[0]).unwrap().is_covered());
 }
 

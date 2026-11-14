@@ -332,7 +332,9 @@ pub(crate) fn check_echo(
     if let (Some(c), Some(rc)) = (v.get("chart").and_then(Value::as_str), &rule.record.chart)
         && c != rc
     {
-        return Err(format!("line {no}: answer for chart {c}, the record has {rc}"));
+        return Err(format!(
+            "line {no}: answer for chart {c}, the record has {rc}"
+        ));
     }
     if let Some(sz) = v.get("rule_sizes") {
         let eq = |field: &str, n: usize| -> Result<(), String> {
@@ -403,7 +405,9 @@ impl InstantiateFacts {
                 Some(other) => return Err(format!("line {no}: unexpected schema {other}")),
             }
             if v.get("key").is_none() {
-                return Err(format!("line {no}: neither an instantiate answer nor a closure fact"));
+                return Err(format!(
+                    "line {no}: neither an instantiate answer nor a closure fact"
+                ));
             }
             check_echo(&v, rule, self.binding, no)?;
             let key: Vec<i32> = v["key"]
@@ -672,7 +676,13 @@ mod tests {
         assert!(split_ratio("(a)/(b)+1").is_err());
         assert!(split_ratio("(a)/-(b)").is_err());
         assert_eq!(split_ratio("-(a)/(b)").unwrap(), ("-(a)", Some("(b)")));
-        assert_eq!(split_ratio("(3+n9-d)/n15").unwrap(), ("(3+n9-d)", Some("n15")));
-        assert_eq!(split_ratio("2*n1^2/(n3)").unwrap(), ("2*n1^2", Some("(n3)")));
+        assert_eq!(
+            split_ratio("(3+n9-d)/n15").unwrap(),
+            ("(3+n9-d)", Some("n15"))
+        );
+        assert_eq!(
+            split_ratio("2*n1^2/(n3)").unwrap(),
+            ("2*n1^2", Some("(n3)"))
+        );
     }
 }

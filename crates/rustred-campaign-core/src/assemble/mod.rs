@@ -172,7 +172,9 @@ impl std::fmt::Display for AssembleError {
             }
             AssembleError::Record { source, detail } => write!(f, "{source}: {detail}"),
             AssembleError::Retire(e) => write!(f, "retirement: {e}"),
-            AssembleError::Order { rule, detail } => write!(f, "dispatch order at {rule}: {detail}"),
+            AssembleError::Order { rule, detail } => {
+                write!(f, "dispatch order at {rule}: {detail}")
+            }
             AssembleError::Binding { rule, detail } => write!(f, "token of {rule}: {detail}"),
             AssembleError::Other(e) => write!(f, "{e}"),
         }
@@ -283,7 +285,11 @@ pub struct AssemblyOutput {
 impl AssemblyOutput {
     /// Export-ready AND `dispatch_equal` passed on a non-empty key set (audit-accept-A M3, m4): the core dispatcher and
     /// the engine's matcher agree on the assembled file, with `core_blocked` keys allowed only when declared.
-    pub fn export_ready_with(&self, eq: &domaincheck::DispatchEqual, allow_core_blocked: bool) -> bool {
+    pub fn export_ready_with(
+        &self,
+        eq: &domaincheck::DispatchEqual,
+        allow_core_blocked: bool,
+    ) -> bool {
         self.report.export_ready && eq.equal(allow_core_blocked)
     }
 }
@@ -317,7 +323,9 @@ fn parse_rule_line(line: &[u8], source: &str) -> Result<RuleRecord, AssembleErro
 pub(crate) fn line_kind(line: &[u8]) -> Result<Option<String>, String> {
     if let Some(rest) = line.strip_prefix(br#"{"type":""#)
         && let Some(end) = rest.iter().take(64).position(|&b| b == b'"')
-        && rest[..end].iter().all(|b| b.is_ascii_alphanumeric() || *b == b'_')
+        && rest[..end]
+            .iter()
+            .all(|b| b.is_ascii_alphanumeric() || *b == b'_')
     {
         return Ok(Some(String::from_utf8_lossy(&rest[..end]).into_owned()));
     }
@@ -468,7 +476,9 @@ fn scan_input(t: &InputTable, keep_skipped: bool) -> Result<Scanned, AssembleErr
             other => {
                 return Err(bad(
                     line_no,
-                    format!("unknown line kind {other:?} (assembly copies or drops only known kinds)"),
+                    format!(
+                        "unknown line kind {other:?} (assembly copies or drops only known kinds)"
+                    ),
                 ));
             }
         }
@@ -477,7 +487,8 @@ fn scan_input(t: &InputTable, keep_skipped: bool) -> Result<Scanned, AssembleErr
     if out.header.is_none() {
         return Err(AssembleError::Record {
             source: t.id.clone(),
-            detail: "input table without a header (refused: its frame and order are unknown)".into(),
+            detail: "input table without a header (refused: its frame and order are unknown)"
+                .into(),
         });
     }
     if ends != 1 || last_kind != "end" {
@@ -516,12 +527,14 @@ fn source_header(path: &Path) -> Result<Option<Value>, AssembleError> {
             continue;
         }
         return match line_kind(line) {
-            Ok(Some(k)) if k == "header" => serde_json::from_slice(line).map(Some).map_err(|e| {
-                AssembleError::Record {
-                    source: path.display().to_string(),
-                    detail: e.to_string(),
-                }
-            }),
+            Ok(Some(k)) if k == "header" => {
+                serde_json::from_slice(line)
+                    .map(Some)
+                    .map_err(|e| AssembleError::Record {
+                        source: path.display().to_string(),
+                        detail: e.to_string(),
+                    })
+            }
             _ => Ok(None),
         };
     }
@@ -686,7 +699,8 @@ fn copy_record(
                 Splice::NotInHead => {
                     return Err(AssembleError::Record {
                         source: source.into(),
-                        detail: "no top-level \"index\" field in the record (renumbering refused)".into(),
+                        detail: "no top-level \"index\" field in the record (renumbering refused)"
+                            .into(),
                     });
                 }
                 Splice::Refused(why) => {
@@ -770,7 +784,6 @@ fn is_point(rec: &RuleRecord) -> bool {
     !rec.fixed.is_empty() && rec.fixed.iter().all(Option::is_some)
 }
 
-
 /// Digest of a table SET in dispatch order (the identity a FULL-node containment proof binds, [`FullRetirements`]):
 /// `sha256:` of the canonical JSON list of the records' line digests.
 pub fn table_set_digest<'a>(line_digests: impl IntoIterator<Item = &'a str>) -> String {
@@ -800,7 +813,8 @@ fn header_line(line: &[u8], value: &Value, assembly: &Value) -> Result<Vec<u8>, 
         .ok_or_else(|| AssembleError::Other("header is not an object".into()))?;
     m.remove("type");
     m.insert("assembly".into(), assembly.clone());
-    let rest = serde_json::to_string(&Value::Object(m)).map_err(|e| AssembleError::Other(e.to_string()))?;
+    let rest = serde_json::to_string(&Value::Object(m))
+        .map_err(|e| AssembleError::Other(e.to_string()))?;
     Ok(format!("{{\"type\":\"header\",{}", &rest[1..]).into_bytes())
 }
 
@@ -819,7 +833,10 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
     for t in &inputs {
         scans.push(scan_input(t, input.keep_skipped)?);
     }
-    let header = scans[0].header.clone().expect("scan_input requires a header");
+    let header = scans[0]
+        .header
+        .clone()
+        .expect("scan_input requires a header");
     // ---- header identity (audit-accept-A C2, B C5): every identity field, chart / symmetry / zero-sector lines
     let mut charts0 = scans[0].charts.clone();
     charts0.sort_by_key(|v| v.to_string());
@@ -858,7 +875,8 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
     }
     let th = TableHeader::from_value(header.clone()).map_err(AssembleError::Other)?;
     let frame = NodeFrame::from_header(&th).map_err(|e| AssembleError::Other(e.to_string()))?;
-    let cmp = NodeComparator::from_header(&header).map_err(|e| AssembleError::Other(format!("{e:?}")))?;
+    let cmp =
+        NodeComparator::from_header(&header).map_err(|e| AssembleError::Other(format!("{e:?}")))?;
     let identity = node_identity(&frame, &cmp);
     let declared: BTreeSet<&Key> = input.terminals.iter().collect();
     let mut entries: Vec<Entry> = Vec::new();
@@ -1007,7 +1025,9 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
         }
         for id in r.retired() {
             if !entries.iter().any(|e| e.line_sha256 == *id) {
-                return Err(AssembleError::Retire(format!("retired rule {id} is not assembled")));
+                return Err(AssembleError::Retire(format!(
+                    "retired rule {id} is not assembled"
+                )));
             }
             report.retired.push(id.clone());
         }
@@ -1099,8 +1119,11 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
             }
             continue;
         }
-        let selects =
-            |ei: usize| domains[ei].as_ref().is_some_and(|d| d.applies(k).stage() != Stage::NotSelected);
+        let selects = |ei: usize| {
+            domains[ei]
+                .as_ref()
+                .is_some_and(|d| d.applies(k).stage() != Stage::NotSelected)
+        };
         let Some(fpos) = order.iter().position(|&ei| selects(ei)) else {
             for &ei in rules {
                 safe_by.push((ei, k.clone(), "not_selected".into()));
@@ -1149,7 +1172,9 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
         }
     }
     for (ei, k, how) in &safe_by {
-        if let Some(pj) = how.strip_prefix("hoisted_point_rule:").and_then(|x| x.parse::<usize>().ok())
+        if let Some(pj) = how
+            .strip_prefix("hoisted_point_rule:")
+            .and_then(|x| x.parse::<usize>().ok())
             && !entries[pj].hoisted_for.contains(k)
         {
             entries[pj].hoisted_for.push(k.clone());
@@ -1167,7 +1192,9 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
     let entries = final_entries;
     for &pj in &hoisted_entries {
         let n = old_to_new[&pj];
-        report.hoisted.push((n as u64, entries[n].hoisted_for.clone()));
+        report
+            .hoisted
+            .push((n as u64, entries[n].hoisted_for.clone()));
     }
     let mut extras: Vec<Value> = Vec::new();
     for (ei, k, how) in &safe_by {
@@ -1175,7 +1202,10 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
         let n = old_to_new[ei];
         let how = match how.split_once(':') {
             Some((tag, x)) if tag == "earlier_rule" || tag == "hoisted_point_rule" => {
-                format!("{tag}:{}", x.parse::<usize>().map(|j| old_to_new[&j]).unwrap_or(0))
+                format!(
+                    "{tag}:{}",
+                    x.parse::<usize>().map(|j| old_to_new[&j]).unwrap_or(0)
+                )
             }
             _ => how.clone(),
         };
@@ -1333,10 +1363,12 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
             let line = json!({"type": "residual", "chart": mask, "key": key_text(k), "assembled_terminal": true});
             put(format!("{line}\n").as_bytes())?;
         }
-        put(format!("{}\n", json!({"type": "end", "records": entries.len(), "residuals": input.terminals.len(),
-            "assembly": ASSEMBLY_SCHEMA}))
+        put(format!(
+            "{}\n",
+            json!({"type": "end", "records": entries.len(), "residuals": input.terminals.len(),
+            "assembly": ASSEMBLY_SCHEMA})
+        )
         .as_bytes())?;
-        drop(put);
         w.flush()?;
     }
     std::fs::rename(&tmp, &table_path)?;
@@ -1345,17 +1377,21 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
     report.input_records = report.records - report.campaign_records;
     // ---- export readiness (audit-accept-A M3)
     if !report.blocking.is_empty() {
-        report
-            .not_ready
-            .push(format!("{} exclusions not safe in the table", report.blocking.len()));
+        report.not_ready.push(format!(
+            "{} exclusions not safe in the table",
+            report.blocking.len()
+        ));
     }
     if report.credits_need_importer > 0 {
-        report
-            .not_ready
-            .push(format!("{} symmetry credits need the importer (EC-8)", report.credits_need_importer));
+        report.not_ready.push(format!(
+            "{} symmetry credits need the importer (EC-8)",
+            report.credits_need_importer
+        ));
     }
     if input.recipes > 0 {
-        report.not_ready.push("recipes_need_engine_dispatcher".into());
+        report
+            .not_ready
+            .push("recipes_need_engine_dispatcher".into());
     }
     if !report.undeclared_input_terminals.is_empty() {
         report.not_ready.push(format!(
@@ -1399,8 +1435,8 @@ pub fn verify_assembled(table: &Path, manifest: &Path) -> Result<usize, String> 
     let man_digest = sha_tag(mh);
     let man = String::from_utf8(man).map_err(|e| e.to_string())?;
     let mut lines = man.lines();
-    let mhead: Value = serde_json::from_str(lines.next().ok_or("empty manifest")?)
-        .map_err(|e| e.to_string())?;
+    let mhead: Value =
+        serde_json::from_str(lines.next().ok_or("empty manifest")?).map_err(|e| e.to_string())?;
     let renumbered = mhead["renumber_index"].as_bool().unwrap_or(true);
     let rows: Vec<Value> = lines
         .map(|l| serde_json::from_str(l).map_err(|e| e.to_string()))
@@ -1436,7 +1472,9 @@ pub fn verify_assembled(table: &Path, manifest: &Path) -> Result<usize, String> 
                 header_seen = true;
             }
             "rule" => {
-                let row = rows.get(n).ok_or("more rule records than the manifest lists")?;
+                let row = rows
+                    .get(n)
+                    .ok_or("more rule records than the manifest lists")?;
                 let bytes = line.len() as u64;
                 let src_index = row["index"].as_i64();
                 fr.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
@@ -1461,9 +1499,10 @@ pub fn verify_assembled(table: &Path, manifest: &Path) -> Result<usize, String> 
                     "assembled",
                 )
                 .map_err(|e| format!("record {n}: {e}"))?;
-                drop(put);
                 if sha_tag(out_hash) != row["line_sha256"].as_str().unwrap_or("") {
-                    return Err(format!("record {n} differs from the manifest's source line"));
+                    return Err(format!(
+                        "record {n} differs from the manifest's source line"
+                    ));
                 }
                 n += 1;
             }
@@ -1474,7 +1513,10 @@ pub fn verify_assembled(table: &Path, manifest: &Path) -> Result<usize, String> 
         return Err("no header".into());
     }
     if n != rows.len() {
-        return Err(format!("{n} rule records, the manifest lists {}", rows.len()));
+        return Err(format!(
+            "{n} rule records, the manifest lists {}",
+            rows.len()
+        ));
     }
     Ok(n)
 }
