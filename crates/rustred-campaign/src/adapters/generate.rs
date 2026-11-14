@@ -5,7 +5,7 @@
 use super::conformance::diagnose;
 use super::job::{
     AdapterError, Ended, InputFile, JobAdapter, JobPlan, Prepared, Program, classify_attempt,
-    create_run, write_input, write_spec,
+    create_run, is_refusal, write_input, write_spec,
 };
 use super::solve_recipe::AdapterRefusal;
 use rustred_campaign_contract::classify::{Accept, Classification};
@@ -179,8 +179,9 @@ impl JobAdapter for GenerateAdapter {
                 let id = json!({"kind": "generate", "family": r.family.blake3, "args": self.args(r),
                     "cases": rustred_campaign_contract::blake3_hex(&cases_bytes(&r.cases)),
                     "max_cases": r.max_cases, "wall": [r.wall_case_s, r.wall_job_s]});
-                let content =
-                    rustred_campaign_contract::blake3_hex(id.to_string().as_bytes())[..16].to_string();
+                let content = rustred_campaign_contract::blake3_hex(id.to_string().as_bytes())
+                    [..16]
+                    .to_string();
                 JobPlan {
                     job_id: rustred_campaign_contract::layout::job_id(&content, RUNG),
                     members: vec![i],
@@ -202,7 +203,12 @@ impl JobAdapter for GenerateAdapter {
         let layout = create_run(&root, &plan.job_id, attempt)?;
         let mut inputs = vec![r.family.input("family")];
         if !r.cases.is_empty() {
-            inputs.push(write_input(&layout, "cases.jsonl", "cases", &cases_bytes(&r.cases))?);
+            inputs.push(write_input(
+                &layout,
+                "cases.jsonl",
+                "cases",
+                &cases_bytes(&r.cases),
+            )?);
         }
         let fake = self.fake.is_some();
         let spec = JobSpec {
@@ -299,7 +305,7 @@ impl JobAdapter for GenerateAdapter {
                     return out;
                 }
             }
-        } else if !matches!(c.row, 3 | 24 | 27 | 9 | 10 | 11 | 18 | 19 | 20 | 21) {
+        } else if is_refusal(&c) {
             out.refusal = Some(AdapterRefusal {
                 row: c.row,
                 sub: c.sub.clone(),

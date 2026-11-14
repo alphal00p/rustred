@@ -256,7 +256,9 @@ impl RelationTally {
 }
 
 fn is_hex64(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    s.len() == 64
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// Parse an `I(a,b,..)` key text of length `arity`.
@@ -289,13 +291,13 @@ pub fn key_outcomes(
     lines: &[Vec<u8>],
     keys: &[KeyLine],
 ) -> Result<(Vec<KeyOutcome>, RelationTally), String> {
-    let (end_line, recs) = lines
-        .split_last()
-        .ok_or("results file without records")?;
+    let (end_line, recs) = lines.split_last().ok_or("results file without records")?;
     let end: Value = serde_json::from_slice(end_line).map_err(|e| format!("end record: {e}"))?;
     let end_type = end["type"].as_str().unwrap_or("");
     if !matches!(end_type, "end" | "partial") {
-        return Err(format!("last record of type {end_type:?} is not an end record"));
+        return Err(format!(
+            "last record of type {end_type:?} is not an end record"
+        ));
     }
     let sealed_end = end_type == "end";
     if recs.len() != keys.len() {
@@ -356,12 +358,15 @@ pub fn key_outcomes(
                 if !r["failure"].is_null() {
                     return Err(at("SOLVED with a failure object"));
                 }
-                let rhs = r["rhs"].as_array().ok_or_else(|| at("SOLVED without rhs"))?;
+                let rhs = r["rhs"]
+                    .as_array()
+                    .ok_or_else(|| at("SOLVED without rhs"))?;
                 let mut rhs_keys = Vec::with_capacity(rhs.len());
                 for x in rhs {
                     let txt = x[0].as_str().ok_or_else(|| at("rhs entry"))?;
                     rhs_keys.push(
-                        parse_key_text(txt, arity).ok_or_else(|| at(&format!("rhs key {txt:?}")))?,
+                        parse_key_text(txt, arity)
+                            .ok_or_else(|| at(&format!("rhs key {txt:?}")))?,
                     );
                 }
                 t.accepted += 1;
@@ -384,7 +389,9 @@ pub fn key_outcomes(
                 }
                 let f = &r["failure"];
                 if f["schema"] != FAILURE_SCHEMA || f["class"].as_str() != Some(&class.name()) {
-                    return Err(at("failure object without the schema or with another class"));
+                    return Err(at(
+                        "failure object without the schema or with another class",
+                    ));
                 }
                 if !r["relation_digest"].is_null() {
                     return Err(at("an unsolved record with a relation digest"));
@@ -438,10 +445,7 @@ mod tests {
             }
         }
         assert_eq!(Verdict::Solved.class(), None);
-        assert_eq!(
-            FailureClass::NotInDomain.route(),
-            KeyRoute::NextRecipeRung
-        );
+        assert_eq!(FailureClass::NotInDomain.route(), KeyRoute::NextRecipeRung);
         assert_eq!(FailureClass::BudgetWall.route(), KeyRoute::LadderDecides);
         assert_eq!(FailureClass::Irregular.route(), KeyRoute::SubCase);
         assert_eq!(FailureClass::DigestMismatch.route(), KeyRoute::Attention);

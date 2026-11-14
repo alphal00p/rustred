@@ -671,7 +671,10 @@ fn decide(
                         return row(
                             22,
                             "",
-                            format!("contract violation: stop keys_unsolved of kind {:?}", e.kind),
+                            format!(
+                                "contract violation: stop keys_unsolved of kind {:?}",
+                                e.kind
+                            ),
                         );
                     }
                     _ => {}
