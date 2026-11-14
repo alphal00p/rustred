@@ -61,10 +61,19 @@ pub(super) fn collect(
     }
     #[cfg(any(test, feature = "weighted-lowering-diagnostics"))]
     testing::GENERIC_CALLS.with(|calls| calls.set(calls.get() + 1));
+    // Only literal zeros are dropped here: the statistical zero test of the
+    // default expression field samples every coefficient product in finite
+    // fields, which dominated five-loop vacuum lowering. A coefficient that is
+    // zero but not literally so only keeps a term with a vanishing weight.
+    let field = AtomField {
+        statistical_zero_test: false,
+        ..AtomField::new()
+    };
     native("whole denominator polynomial conversion", || {
-        translated
-            .atom
-            .to_polynomial_in_vars::<u32>(prepared.scalar_product_variables.clone())
+        translated.atom.to_polynomial_in_vars_with_field::<u32>(
+            prepared.scalar_product_variables.clone(),
+            &field,
+        )
     })
 }
 
