@@ -58,7 +58,11 @@ fn setup(tag: &str, exact: bool, lies: &[Value]) -> (Tmp, PathBuf, PathBuf) {
         serde_json::from_slice(&std::fs::read(&files.import_spec).unwrap()).unwrap();
     spec["sources"][0]["sha256"] = json!(sha256_file(&a));
     spec["evidence"] = json!({"proofs":[{"path": dir.join("proofs.json").display().to_string()}]});
-    std::fs::write(&files.import_spec, serde_json::to_vec_pretty(&spec).unwrap()).unwrap();
+    std::fs::write(
+        &files.import_spec,
+        serde_json::to_vec_pretty(&spec).unwrap(),
+    )
+    .unwrap();
     let mut c: Value = serde_json::from_slice(&std::fs::read(&files.config).unwrap()).unwrap();
     if exact {
         let lp = dir.join("exact-lies.jsonl");
@@ -242,7 +246,9 @@ fn answer_lines(cdir: &Path) -> Vec<Value> {
     let mut v = vec![];
     for e in std::fs::read_dir(cdir.join("closeloop/toy/answers")).unwrap() {
         let p = e.unwrap().path();
-        if p.to_string_lossy().ends_with(".keys.json") || p.to_string_lossy().ends_with(".retry.jsonl") {
+        if p.to_string_lossy().ends_with(".keys.json")
+            || p.to_string_lossy().ends_with(".retry.jsonl")
+        {
             continue;
         }
         for l in std::fs::read_to_string(&p).unwrap().lines() {
@@ -260,7 +266,10 @@ fn a_key_over_a_per_key_cap_goes_to_the_next_recipe_step() {
     // the m1_first S3 slowdown of closeloop2's run (a), in small: recipe R1 needs too long at [3,1,0] -> the per-key
     // cap stops it (wall: time-decided; work: work-decided); the key is asked of the NEXT candidate recipe (the
     // chart-wide default recipe), never of R1 again and never under another relation rule
-    for (tag, verdict, work_cap) in [("cl3capwall", "BUDGET_WALL", None), ("cl3capwork", "BUDGET_WORK", Some(5000u64))] {
+    for (tag, verdict, work_cap) in [
+        ("cl3capwall", "BUDGET_WALL", None),
+        ("cl3capwork", "BUDGET_WORK", Some(5000u64)),
+    ] {
         let t = Tmp::new(tag);
         let cfg = Toy {
             overrides: vec![
@@ -277,7 +286,8 @@ fn a_key_over_a_per_key_cap_goes_to_the_next_recipe_step() {
         let files = toy(&t.path.join("material"), &cfg, FAKE);
         std::fs::write(&files.hand, "").unwrap();
         if let Some(w) = work_cap {
-            let mut c: Value = serde_json::from_slice(&std::fs::read(&files.config).unwrap()).unwrap();
+            let mut c: Value =
+                serde_json::from_slice(&std::fs::read(&files.config).unwrap()).unwrap();
             c["nodes"][0]["solve"]["max_trace_rows"] = json!(w);
             std::fs::write(&files.config, serde_json::to_vec_pretty(&c).unwrap()).unwrap();
         }
@@ -302,12 +312,18 @@ fn a_key_over_a_per_key_cap_goes_to_the_next_recipe_step() {
             assert_eq!(cap["kind"], "wall", "{tag}: {cap}");
             assert_eq!(cap["time_decided"], true);
             assert_eq!(cap["key_budget_s"], 1800);
-            assert_eq!(r["economy"]["cap_hits"], json!({"wall_time_decided": 1, "work": 0}));
+            assert_eq!(
+                r["economy"]["cap_hits"],
+                json!({"wall_time_decided": 1, "work": 0})
+            );
         } else {
             assert_eq!(cap["kind"], "work", "{tag}: {cap}");
             assert_eq!(cap["time_decided"], false);
             assert_eq!(cap["max_trace_rows"], 5000);
-            assert_eq!(r["economy"]["cap_hits"], json!({"wall_time_decided": 0, "work": 1}));
+            assert_eq!(
+                r["economy"]["cap_hits"],
+                json!({"wall_time_decided": 0, "work": 1})
+            );
         }
         // the next step served it
         let dflt: Vec<&Value> = ans
@@ -317,7 +333,10 @@ fn a_key_over_a_per_key_cap_goes_to_the_next_recipe_step() {
         assert_eq!(dflt.len(), 1, "{tag}");
         assert_eq!(dflt[0]["verdict"], "SOLVED");
         let row = statement_row(&cdir, json!([3, 1, 0]));
-        assert!(row["server"].to_string().contains("default-recipe"), "{tag}: {row}");
+        assert!(
+            row["server"].to_string().contains("default-recipe"),
+            "{tag}: {row}"
+        );
         // every solve job carried the caps as data (default wall cap 1,800 s)
         let st = state(&cdir);
         let mut solve_jobs = 0;
@@ -327,10 +346,16 @@ fn a_key_over_a_per_key_cap_goes_to_the_next_recipe_step() {
                 serde_json::from_slice(&std::fs::read(Path::new(&run).join("job.json")).unwrap())
                     .unwrap();
             let args: Vec<String> = serde_json::from_value(spec["args"].clone()).unwrap();
-            let at = args.iter().position(|a| a == "--key-budget-s").expect("wall cap");
+            let at = args
+                .iter()
+                .position(|a| a == "--key-budget-s")
+                .expect("wall cap");
             assert_eq!(args[at + 1], "1800");
             if let Some(w) = work_cap {
-                let at = args.iter().position(|a| a == "--max-trace-rows").expect("work cap");
+                let at = args
+                    .iter()
+                    .position(|a| a == "--max-trace-rows")
+                    .expect("work cap");
                 assert_eq!(args[at + 1], w.to_string());
             }
             solve_jobs += 1;
@@ -363,7 +388,8 @@ fn a_key_typed_error_or_irregular_is_retried_then_in_attention_never_moved_to_th
         assert_eq!(r["verdict"], "open", "{tag}: {r:#}");
         let b = blockers(&r);
         assert!(
-            b.iter().any(|x| x == "solve_keys_engine_failure_attention:1"),
+            b.iter()
+                .any(|x| x == "solve_keys_engine_failure_attention:1"),
             "{tag}: {b:?}"
         );
         let att = &r["check"]["engine_failures"]["attention"];
@@ -396,12 +422,16 @@ fn a_key_typed_error_or_irregular_is_retried_then_in_attention_never_moved_to_th
             assert!(v["failure_record"].is_object());
         }
         // the open list names the engine failure
-        let open: Vec<Value> = std::fs::read_to_string(cdir.join("closeloop/toy/final/open_keys.jsonl"))
-            .unwrap()
-            .lines()
-            .map(|l| serde_json::from_str(l).unwrap())
-            .collect();
-        let o = open.iter().find(|v| v["key"] == json!([3, 1, 0])).expect("open");
+        let open: Vec<Value> =
+            std::fs::read_to_string(cdir.join("closeloop/toy/final/open_keys.jsonl"))
+                .unwrap()
+                .lines()
+                .map(|l| serde_json::from_str(l).unwrap())
+                .collect();
+        let o = open
+            .iter()
+            .find(|v| v["key"] == json!([3, 1, 0]))
+            .expect("open");
         assert_eq!(o["engine_failure"][0]["verdict"], verdict, "{tag}: {o}");
         assert_eq!(verify(&cdir), 0);
     }

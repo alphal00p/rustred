@@ -90,7 +90,6 @@ pub struct CloseFromMaterialSource {
     last_progress: Option<(Instant, String)>,
 }
 
-
 // ------------------------------------------------------------------------------------------------------------------
 // lane closeloop3 (closeloop.md 16.7): the proof pass for PHASE-E (termmin) relations. Phase E (`termmin::TermminSource`)
 // records its certified relations as point-record tables (role `closeloop_relations`, like the closing loop's own);
@@ -111,7 +110,12 @@ impl CloseFromMaterialSource {
         let Some(i) = self.node_of(node) else {
             return Ok(None);
         };
-        if self.nodes[i].cfg.proof.as_ref().is_none_or(|p| !p.relations) {
+        if self.nodes[i]
+            .cfg
+            .proof
+            .as_ref()
+            .is_none_or(|p| !p.relations)
+        {
             return Ok(None);
         }
         let mut b2 = b.clone();
@@ -131,7 +135,12 @@ impl CloseFromMaterialSource {
         let Some(i) = self.node_of(node) else {
             return Ok(rt);
         };
-        if self.nodes[i].cfg.proof.as_ref().is_none_or(|p| !p.relations) {
+        if self.nodes[i]
+            .cfg
+            .proof
+            .as_ref()
+            .is_none_or(|p| !p.relations)
+        {
             return Ok(rt);
         }
         let asked = self.proof_issued(st, i)?.spans;
@@ -140,7 +149,10 @@ impl CloseFromMaterialSource {
         let mut j = st
             .items
             .keys()
-            .filter_map(|k| k.strip_prefix(&prefix).and_then(|x| x.parse::<usize>().ok()))
+            .filter_map(|k| {
+                k.strip_prefix(&prefix)
+                    .and_then(|x| x.parse::<usize>().ok())
+            })
             .map(|x| x + 1)
             .max()
             .unwrap_or(0);
@@ -397,7 +409,10 @@ impl CloseFromMaterialSource {
                 if let Some(x) = &pc.exact_eval {
                     let prog = x.program_key().to_string();
                     let path = s.programs.get(&prog).cloned().ok_or_else(|| {
-                        format!("node {}: exact_eval program {prog} not in the spec", nc.node)
+                        format!(
+                            "node {}: exact_eval program {prog} not in the spec",
+                            nc.node
+                        )
                     })?;
                     s.sha256.insert(prog.clone(), file_sha256(&path)?);
                     s.blake3.insert(prog, file_blake3(&path)?);
@@ -556,7 +571,8 @@ impl CloseFromMaterialSource {
         for (_, p, _) in self.inputs_of_role(st, i, ROLE_RETRY) {
             let t = std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?;
             for l in t.lines().filter(|l| !l.trim().is_empty()) {
-                let v: Value = serde_json::from_str(l).map_err(|e| format!("{}: {e}", p.display()))?;
+                let v: Value =
+                    serde_json::from_str(l).map_err(|e| format!("{}: {e}", p.display()))?;
                 let key: Vec<i32> =
                     serde_json::from_value(v["key"].clone()).map_err(|e| e.to_string())?;
                 let e = failed
@@ -576,7 +592,9 @@ impl CloseFromMaterialSource {
                 pairs.remove(&pair);
                 retried += 1;
             } else {
-                attention.push(json!({"source": pair.0, "key": pair.1, "verdict": verdict, "attempts": n}));
+                attention.push(
+                    json!({"source": pair.0, "key": pair.1, "verdict": verdict, "attempts": n}),
+                );
             }
         }
         Ok((pairs, keys, items.len() as u64, att, retried, attention))
@@ -1313,7 +1331,9 @@ impl CloseFromMaterialSource {
             .then_some(pc.exact_eval.as_ref())
             .flatten();
         if b.kind == "exact" && exact.is_none() {
-            return Err(format!("{item}: an exact-eval batch without proof.exact_eval"));
+            return Err(format!(
+                "{item}: an exact-eval batch without proof.exact_eval"
+            ));
         }
         let fake = match exact {
             Some(x) => x
@@ -1799,8 +1819,7 @@ impl WorkSource for CloseFromMaterialSource {
                 .items
                 .iter()
                 .filter(|(_, it)| {
-                    it.node == node
-                        && (it.kind == KIND_SOLVE || is_proof_kind(&it.kind))
+                    it.node == node && (it.kind == KIND_SOLVE || is_proof_kind(&it.kind))
                 })
                 .map(|(k, it)| {
                     (

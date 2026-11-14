@@ -1546,14 +1546,10 @@ impl WorkSource for TermminSource {
                     rustred_campaign_core::termmin::extend::candidate_source(&terminal, candidate)
                 };
                 let node = self.nodes[i].cfg.node.clone();
-                if let Some(rel) = self.inner.phase_e_relation_table(
-                    &node,
-                    &b,
-                    &src,
-                    &done.item,
-                    &done.job,
-                    &d.records,
-                )? {
+                if let Some(rel) = self
+                    .inner
+                    .phase_e_relation_table(&node, &b, &src, &done.item, &done.job, &d.records)?
+                {
                     let f = rel.file_ref();
                     rt.events.push(Event::InputRegistered {
                         input: super::ids::input_relations(&done.item, &done.job),

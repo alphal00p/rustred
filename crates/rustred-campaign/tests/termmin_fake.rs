@@ -144,10 +144,13 @@ fn phase_e_eliminates_two_of_three_terminals_and_writes_a_second_statement() {
         .collect();
     assert!(!p0.is_empty(), "no phase-E relation proof item");
     assert!(
-        p0.iter().all(|(_, it)| it.phase.tag() == "accepted" && it.label == "span:relation"),
+        p0.iter()
+            .all(|(_, it)| it.phase.tag() == "accepted" && it.label == "span:relation"),
         "{p0:?}"
     );
-    let second = std::fs::read_to_string(cdir.join("closeloop/toy/termmin/statement/statement.jsonl")).unwrap();
+    let second =
+        std::fs::read_to_string(cdir.join("closeloop/toy/termmin/statement/statement.jsonl"))
+            .unwrap();
     for l in second.lines() {
         let v: Value = serde_json::from_str(l).unwrap();
         if v["status"] == "served" {

@@ -237,13 +237,21 @@ impl SymbolicaRecordFacts {
             .witness_loci
             .iter()
             .flatten()
-            .map(|t| self.parse_side(t, arity).map_err(|e| format!("witness locus {t:?}: {e}")))
+            .map(|t| {
+                self.parse_side(t, arity)
+                    .map_err(|e| format!("witness locus {t:?}: {e}"))
+            })
             .collect()
     }
 
     /// The facts of `rule` at `key` (module documentation). `table_guard`: the table header's guard version (a
     /// record's witness loci count as complete only with guard version >= 2, the core's witness rule).
-    pub fn key_facts(&mut self, rule: &RuleText, table_guard: Option<i64>, key: &[i32]) -> KeyFacts {
+    pub fn key_facts(
+        &mut self,
+        rule: &RuleText,
+        table_guard: Option<i64>,
+        key: &[i32],
+    ) -> KeyFacts {
         let Some(dom) = rule.domain.as_ref() else {
             return KeyFacts::unusable(format!(
                 "domain: {}",
@@ -375,7 +383,10 @@ impl Regularity for SymbolicaRecordFacts {
         }
         match self.loci(rule) {
             Err(e) => RegVerdict::Unknown(e),
-            Ok(loci) => match loci.iter().position(|l| side_at(l, &vals) != SideAt::NonZero) {
+            Ok(loci) => match loci
+                .iter()
+                .position(|l| side_at(l, &vals) != SideAt::NonZero)
+            {
                 Some(locus) => RegVerdict::Hidden { locus },
                 None => RegVerdict::Regular,
             },
@@ -422,7 +433,12 @@ pub fn fact_line(
         "nonzero": nonzero, "unknown": unknown, "zero_terms": zero,
         "seconds": (seconds * 1e3).round() / 1e3});
     if detail {
-        v["coef"] = json!(f.terms.iter().map(|(_, c)| coef_word(*c)).collect::<Vec<_>>());
+        v["coef"] = json!(
+            f.terms
+                .iter()
+                .map(|(_, c)| coef_word(*c))
+                .collect::<Vec<_>>()
+        );
         v["term_keys"] = json!(f.terms.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>());
     }
     v
@@ -626,7 +642,8 @@ pub fn cross_check(
             if t.usable != usable_o {
                 c.disagree += 1;
                 if c.first_disagreements.len() < 20 {
-                    c.first_disagreements.push(json!({"record_sha256": sha, "key": key,
+                    c.first_disagreements
+                        .push(json!({"record_sha256": sha, "key": key,
                         "what": "usability", "ours": o.verdict, "rr_proof": t.head}));
                 }
             }
@@ -643,8 +660,10 @@ pub fn cross_check(
         if t.terms.len() != o.terms.len() {
             c.disagree += 1;
             if c.first_disagreements.len() < 20 {
-                c.first_disagreements.push(json!({"record_sha256": sha, "key": key, "what": "term count",
-                    "ours": o.terms.len(), "rr_proof": t.terms.len()}));
+                c.first_disagreements.push(
+                    json!({"record_sha256": sha, "key": key, "what": "term count",
+                    "ours": o.terms.len(), "rr_proof": t.terms.len()}),
+                );
             }
             return;
         }

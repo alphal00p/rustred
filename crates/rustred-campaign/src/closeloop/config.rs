@@ -424,7 +424,9 @@ impl CloseLoopConfig {
                 if p.max_keys_per_job == 0
                     || p.max_fact_keys_per_job == 0
                     || p.threads == 0
-                    || p.exact_eval.as_ref().is_some_and(|x| x.max_keys_per_job == 0)
+                    || p.exact_eval
+                        .as_ref()
+                        .is_some_and(|x| x.max_keys_per_job == 0)
                 {
                     return Err(format!(
                         "node {}: proof batch sizes and threads must be >= 1",

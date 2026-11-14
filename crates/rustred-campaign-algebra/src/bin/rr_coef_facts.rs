@@ -106,7 +106,10 @@ fn backend(threads: usize) -> coef_facts::SymbolicaRecordFacts {
 }
 
 fn requests(a: &Args) -> Vec<coef_facts::Request> {
-    let p = a.requests.as_ref().unwrap_or_else(|| die("--requests missing"));
+    let p = a
+        .requests
+        .as_ref()
+        .unwrap_or_else(|| die("--requests missing"));
     let t = std::fs::read_to_string(p).unwrap_or_else(|e| die(&format!("{}: {e}", p.display())));
     let r = coef_facts::parse_requests(&t).unwrap_or_else(|e| die(&e));
     if r.is_empty() {
@@ -151,7 +154,8 @@ fn main() {
                 reqs.retain(|r| !r.keys.is_empty());
             }
             // only the answers of requested keys are kept (answer files of a whole node do not fit in memory)
-            let wanted: HashSet<Vec<i32>> = reqs.iter().flat_map(|r| r.keys.iter().cloned()).collect();
+            let wanted: HashSet<Vec<i32>> =
+                reqs.iter().flat_map(|r| r.keys.iter().cloned()).collect();
             let mut theirs: HashMap<(String, Vec<i32>), coef_facts::TheirAnswer> = HashMap::new();
             for p in &a.answers {
                 let f = std::fs::File::open(p)

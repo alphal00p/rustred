@@ -10,7 +10,9 @@ mod coef_facts;
 
 use coef_facts::{SymbolicaRecordFacts, fact_line, for_each_pair, parse_requests};
 use rustred_campaign_algebra::SymbolicaAlgebra;
-use rustred_campaign_core::accept::facts::{CoefficientFacts, ExactRecordFacts, RegVerdict, Regularity};
+use rustred_campaign_core::accept::facts::{
+    CoefficientFacts, ExactRecordFacts, RegVerdict, Regularity,
+};
 use rustred_campaign_core::accept::rule::RuleText;
 use rustred_campaign_core::closure::CoefFact;
 use rustred_campaign_core::key::NodeFrame;
@@ -86,10 +88,12 @@ fn symbolica_facts_equal_the_core_exact_facts_on_every_term() {
     for line in records() {
         let rt = RuleText::parse(line.as_bytes(), &f).unwrap();
         for k in keys() {
-            if !matches!(rt.domain.as_ref().unwrap().applies(&k), rustred_campaign_core::domain::Verdict::Applies
-                | rustred_campaign_core::domain::Verdict::Elided
-                | rustred_campaign_core::domain::Verdict::OnPole { .. })
-            {
+            if !matches!(
+                rt.domain.as_ref().unwrap().applies(&k),
+                rustred_campaign_core::domain::Verdict::Applies
+                    | rustred_campaign_core::domain::Verdict::Elided
+                    | rustred_campaign_core::domain::Verdict::OnPole { .. }
+            ) {
                 continue;
             }
             for j in 0..rt.rhs.len() {
@@ -109,14 +113,20 @@ fn symbolica_facts_equal_the_core_exact_facts_on_every_term() {
                 (RegVerdict::Pole { term: x }, RegVerdict::Pole { term: y }) => assert_eq!(x, y),
                 (RegVerdict::Pole { .. }, _) | (_, RegVerdict::Pole { .. }) => {
                     // the refused text form (term 5) makes ours Unknown before a later pole: both must be non-regular
-                    assert!(!matches!(ra, RegVerdict::Regular) && !matches!(rb, RegVerdict::Regular), "{ra:?} {rb:?}")
+                    assert!(
+                        !matches!(ra, RegVerdict::Regular) && !matches!(rb, RegVerdict::Regular),
+                        "{ra:?} {rb:?}"
+                    )
                 }
                 _ => {}
             }
         }
     }
     assert!(n > 300, "{n}");
-    assert!(zero > 20 && nonzero > 100 && unknown > 20, "{zero} {nonzero} {unknown}");
+    assert!(
+        zero > 20 && nonzero > 100 && unknown > 20,
+        "{zero} {nonzero} {unknown}"
+    );
 }
 
 #[test]
@@ -131,7 +141,10 @@ fn key_facts_verdicts_and_fact_lines() {
     assert!(kf.in_case && kf.branch.is_none());
     let words: Vec<CoefFact> = kf.terms.iter().map(|(_, c)| *c).collect();
     use CoefFact::*;
-    assert_eq!(words, vec![NonZero, Zero, NonZero, Zero, NonZero, Unknown, NonZero]);
+    assert_eq!(
+        words,
+        vec![NonZero, Zero, NonZero, Zero, NonZero, Unknown, NonZero]
+    );
     assert_eq!(kf.terms[1].0, vec![3, 1, 0]);
     // a vanishing denominator: irregular, the term unknown
     let kf2 = sym.key_facts(&rt, Some(2), &[2, 1, -1]);
@@ -171,7 +184,11 @@ fn requests_are_answered_from_the_table_at_their_offsets() {
     std::fs::create_dir_all(&dir).unwrap();
     let recs = records();
     let t = dir.join("T.table.jsonl");
-    let body = format!("{HEADER}\n{}\n{}\n", recs[0], recs[1].replace("\"index\":7", "\"index\":8"));
+    let body = format!(
+        "{HEADER}\n{}\n{}\n",
+        recs[0],
+        recs[1].replace("\"index\":7", "\"index\":8")
+    );
     std::fs::write(&t, &body).unwrap();
     let off1 = (HEADER.len() + 1) as u64;
     let off2 = off1 + recs[0].len() as u64 + 1;
@@ -194,7 +211,10 @@ fn requests_are_answered_from_the_table_at_their_offsets() {
     assert_eq!(seen[2].0, 8);
     assert_eq!(seen[2].3, "regular");
     // a request naming another rule at the offset is refused as a whole
-    let bad = parse_requests(&json!({"table": t, "offset": off1, "rule": 8, "keys": [[3,1,-1]]}).to_string()).unwrap();
+    let bad = parse_requests(
+        &json!({"table": t, "offset": off1, "rule": 8, "keys": [[3,1,-1]]}).to_string(),
+    )
+    .unwrap();
     assert!(for_each_pair(&bad, &mut sym, |_, _, _, _, _| {}).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }

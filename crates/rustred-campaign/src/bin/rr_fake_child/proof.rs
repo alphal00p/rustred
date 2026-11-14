@@ -138,8 +138,8 @@ pub fn run(spec_path: &Path, kind: &str) -> ! {
             let keys: Vec<Vec<i32>> =
                 serde_json::from_value(v["keys"].clone()).unwrap_or_else(|_| die("keys"));
             for k in keys {
-                let mut a = core_fact_line(Path::new(table), off, rule, &k)
-                    .unwrap_or_else(|e| die(&e));
+                let mut a =
+                    core_fact_line(Path::new(table), off, rule, &k).unwrap_or_else(|e| die(&e));
                 if let Some(FakeOp::ProofAnswer {
                     ms,
                     record_sha256,
@@ -313,13 +313,17 @@ pub fn run(spec_path: &Path, kind: &str) -> ! {
 
 /// The fact line of (record at `off` of `table`, key) from the campaign core's exact evaluation (lane closeloop3).
 fn core_fact_line(table: &Path, off: u64, rule: i64, key: &[i32]) -> Result<Value, String> {
-    use rustred_campaign_core::accept::facts::{CoefficientFacts, ExactRecordFacts, RegVerdict, Regularity};
+    use rustred_campaign_core::accept::facts::{
+        CoefficientFacts, ExactRecordFacts, RegVerdict, Regularity,
+    };
     use rustred_campaign_core::accept::rule::{CreditWitness, RuleText};
     use rustred_campaign_core::closure::CoefFact;
     use rustred_campaign_core::closure::bodies::{RhsSlot, parse_rhs_pattern, rule_point};
-    let h = rustred_campaign_core::import::lines::read_header("fake", table).map_err(|e| e.to_string())?;
+    let h = rustred_campaign_core::import::lines::read_header("fake", table)
+        .map_err(|e| e.to_string())?;
     let guard = h.guard_version;
-    let frame = rustred_campaign_core::key::NodeFrame::from_header(&h).map_err(|e| format!("{e:?}"))?;
+    let frame =
+        rustred_campaign_core::key::NodeFrame::from_header(&h).map_err(|e| format!("{e:?}"))?;
     let mut f = std::fs::File::open(table).map_err(|e| e.to_string())?;
     f.seek(SeekFrom::Start(off)).map_err(|e| e.to_string())?;
     let mut all = Vec::new();
@@ -349,7 +353,10 @@ fn core_fact_line(table: &Path, off: u64, rule: i64, key: &[i32]) -> Result<Valu
                 RhsSlot::Const(c) => c,
             })
             .collect();
-        let d = format!("{:016x}", rustred_campaign_core::import::lines::term_key_digest(&tk));
+        let d = format!(
+            "{:016x}",
+            rustred_campaign_core::import::lines::term_key_digest(&tk)
+        );
         match ex.coefficient(&rt, key, j) {
             CoefFact::Zero => zero += 1,
             CoefFact::NonZero => nonzero.push(d),
@@ -367,8 +374,10 @@ fn core_fact_line(table: &Path, off: u64, rule: i64, key: &[i32]) -> Result<Valu
         RegVerdict::Hidden { .. } => "hidden".into(),
         RegVerdict::Unknown(m) => format!("unusable:{m}"),
     };
-    Ok(json!({"schema": rustred_campaign_core::import::evidence::FACT_VERDICT_SCHEMA, "producer": "exact_eval",
+    Ok(
+        json!({"schema": rustred_campaign_core::import::evidence::FACT_VERDICT_SCHEMA, "producer": "exact_eval",
         "backend": "fake-core-poly", "record_sha256": sha, "rule": rule, "index": rule, "key": key,
         "in_case": true, "branch": null, "verdict": verdict, "n_terms": rt.rhs.len(), "nonzero": nonzero,
-        "unknown": unknown, "zero_terms": zero}))
+        "unknown": unknown, "zero_terms": zero}),
+    )
 }

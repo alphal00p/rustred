@@ -12,10 +12,7 @@ use rustred_campaign::state::{
 const N: &str = "N0";
 
 fn node(ev: NodeEvent) -> Event {
-    Event::Node {
-        node: N.into(),
-        ev,
-    }
+    Event::Node { node: N.into(), ev }
 }
 
 /// genesis + the standard setup with the node's spec changed by `f`.
@@ -68,7 +65,10 @@ fn a_node_registered_boxed_starts_on_its_spec_box_and_closes_boxed() {
     let n = &st.nodes[N];
     assert_eq!(n.state.phase, NodePhase::Closed);
     assert_eq!(n.state.closure_kind(), "boxed");
-    assert!(!n.state.full_closed_ever, "a node registered boxed was never FULL");
+    assert!(
+        !n.state.full_closed_ever,
+        "a node registered boxed was never FULL"
+    );
     // the same box again is a no-op repeat; another box is refused
     let mut st2 = st.clone();
     let seq = ev.len() as u64 + 1;
@@ -148,7 +148,10 @@ fn an_open_boxed_start_node_is_declared_open_without_any_fallback() {
     }));
     let st = reduce_events(&ev);
     assert_eq!(st.nodes[N].state.phase, NodePhase::Open);
-    assert!(matches!(st.nodes[N].state.target, ClosureTarget::Boxed { .. }));
+    assert!(matches!(
+        st.nodes[N].state.target,
+        ClosureTarget::Boxed { .. }
+    ));
 }
 
 #[test]

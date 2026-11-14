@@ -76,8 +76,10 @@ pub fn cap_record(verdict: &str, max_trace_rows: Option<u64>, key_budget_s: Opti
     match verdict {
         "BUDGET_WALL" => json!({"kind": "wall", "time_decided": true, "key_budget_s": key_budget_s,
                                 "next": "next_recipe_step"}),
-        "BUDGET_WORK" => json!({"kind": "work", "time_decided": false, "max_trace_rows": max_trace_rows,
-                                "next": "next_recipe_step"}),
+        "BUDGET_WORK" => {
+            json!({"kind": "work", "time_decided": false, "max_trace_rows": max_trace_rows,
+                                "next": "next_recipe_step"})
+        }
         _ => Value::Null,
     }
 }
