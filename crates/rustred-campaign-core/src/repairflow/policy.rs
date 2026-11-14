@@ -18,6 +18,7 @@ pub struct RepairPolicy {
     pub enabled: bool,
     /// Shadowing test before any symbolic search (R31 evidence 04:37Z).
     pub shadow_test: bool,
+    pub route0: Route0Policy,
     pub faces: FacesPolicy,
     pub symbolic: SymbolicPolicy,
     pub keep: KeepPolicy,
@@ -33,6 +34,7 @@ impl Default for RepairPolicy {
         RepairPolicy {
             enabled: true,
             shadow_test: true,
+            route0: Route0Policy::default(),
             faces: FacesPolicy::default(),
             symbolic: SymbolicPolicy::default(),
             keep: KeepPolicy::default(),
@@ -41,6 +43,28 @@ impl Default for RepairPolicy {
             recipes: RecipePolicy::default(),
             proposals: ProposalPolicy::default(),
             runtime: RuntimePolicy::default(),
+        }
+    }
+}
+
+/// ROUTE 0 (coordinator 2026-11-14): an exact symmetry image before any generate job. v1 = POINTWISE: the import's
+/// verified symmetry credits (`symmetry_credit` source, group derived from the family and proved, `CreditPolicy::
+/// from_verified`) serve a key through the image's rule at that key (descent and evidence checked per key). The
+/// all-layers version (image domain contained in one record's domain for every layer) is NOT implemented.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct Route0Policy {
+    /// Add the verified symmetry-credit source to the node's spec (when it has none).
+    pub symmetry_credit: bool,
+    /// Family file of the group (null = derived from the frame table header's family).
+    pub family: Option<String>,
+}
+
+impl Default for Route0Policy {
+    fn default() -> Self {
+        Route0Policy {
+            symmetry_credit: true,
+            family: None,
         }
     }
 }

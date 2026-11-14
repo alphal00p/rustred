@@ -560,6 +560,7 @@ impl<S: WorkSource> RepairFlowSource<S> {
         // the composed spec: the closeloop's effective spec + the extension BEFORE the default recipe
         let base_text = String::from_utf8(read_input(st, &input_import_spec(&n))?)
             .map_err(|e| format!("import spec: {e}"))?;
+        let (base_text, _) = with_route0(&base_text, &self.nodes[i].policy)?;
         let mut v: Value = serde_json::from_str(&base_text).map_err(|e| e.to_string())?;
         let srcs = v
             .get_mut("sources")
@@ -1249,6 +1250,37 @@ fn fake_gen_script(f: &FakeGen, face: &str) -> FakeScript {
     }
 }
 
+/// ROUTE 0 (pointwise): the node's spec with the verified symmetry-credit source added (when the policy asks and the
+/// spec has none). Returns (spec text, the added source if any).
+fn with_route0(text: &str, policy: &RepairPolicy) -> Result<(String, Option<Value>), String> {
+    if !policy.route0.symmetry_credit {
+        return Ok((text.to_string(), None));
+    }
+    let mut v: Value = serde_json::from_str(text).map_err(|e| format!("import spec: {e}"))?;
+    let srcs = v
+        .get_mut("sources")
+        .and_then(Value::as_array_mut)
+        .ok_or("import spec: no sources")?;
+    if srcs.iter().any(|s| s["kind"] == "symmetry_credit") {
+        return Ok((text.to_string(), None));
+    }
+    let src = match &policy.route0.family {
+        Some(f) => {
+            json!({"id": "rf:symmetry-credit", "kind": "symmetry_credit", "class": "symmetry-credit",
+                          "family": {"path": f}})
+        }
+        None => {
+            json!({"id": "rf:symmetry-credit", "kind": "symmetry_credit", "class": "symmetry-credit",
+                       "group_format": "derive"})
+        }
+    };
+    srcs.push(src.clone());
+    Ok((
+        serde_json::to_string_pretty(&v).expect("json") + "\n",
+        Some(src),
+    ))
+}
+
 /// P1: load + check the node's effective spec; faces of the uncovered open keys; shadowing test; the check record.
 fn p1_pass(
     node: &str,
@@ -1258,6 +1290,8 @@ fn p1_pass(
     threads: usize,
     rows: &Path,
 ) -> Result<P1, String> {
+    let (text, route0) = with_route0(text, policy)?;
+    let text = text.as_str();
     let spec = TableSetSpec::from_json(text).map_err(|e| format!("import spec: {e}"))?;
     let set = rustred_campaign_core::import::load(&spec, base)
         .map_err(|e| format!("import load: {e}"))?;
@@ -1273,6 +1307,19 @@ fn p1_pass(
         rows,
     )
     .map_err(|e| format!("import check: {e}"))?;
+    // keys served by a verified symmetry credit (route 0, pointwise), by support signature
+    let mut route0_keys: BTreeMap<String, u64> = BTreeMap::new();
+    for r in &res.rows {
+        if r.status == RowStatus::Served
+            && matches!(
+                r.server,
+                Some(rustred_campaign_core::import::check::Server::Credit { .. })
+            )
+            && let Some(f) = Face::of_key(&r.key, set.frame.mask())
+        {
+            *route0_keys.entry(f.label()).or_default() += 1;
+        }
+    }
     let mut uncovered: Vec<Vec<i32>> = vec![];
     let mut other_open: BTreeMap<String, u64> = BTreeMap::new();
     for r in &res.rows {
@@ -1375,6 +1422,7 @@ fn p1_pass(
             "open_keys": f.open_keys, "shadow": s})).collect::<Vec<_>>(),
         "outside_chart": outside, "line_priority": lp, "numerator_priority": np,
         "attribution": astats,
+        "route0": {"source": route0, "credit_served_keys_by_signature": route0_keys},
         "frame_header_sha256": sha256_hex(header_line.as_bytes()),
     });
     Ok(P1 {

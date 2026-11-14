@@ -531,3 +531,61 @@ fn measure_exception_faces_of_a_real_node() {
             "largest": faces.iter().take(5).map(|f| json!({"face": f.label, "keys": f.open_keys.len(), "case": f.exception.as_ref().unwrap().case})).collect::<Vec<_>>()})
     );
 }
+
+/// MEASUREMENT (ignored; real material, no child process, one thread): first match of a binary arrival key file
+/// (`RF_KEYS`: one signed byte per slot, arity of the spec's frame) against an import spec's TABLES (`RF_SPEC`);
+/// writes the unserved keys (`RF_OUT`, JSONL) and prints their support signatures (the faces of the repair flow).
+#[test]
+#[ignore]
+fn measure_unserved_arrivals() {
+    let spec = std::env::var("RF_SPEC").expect("RF_SPEC");
+    let keys = std::env::var("RF_KEYS").expect("RF_KEYS");
+    let out = std::env::var("RF_OUT").expect("RF_OUT");
+    let ts = rustred_campaign_core::import::TableSetSpec::from_json(
+        &std::fs::read_to_string(&spec).unwrap(),
+    )
+    .unwrap();
+    let t0 = std::time::Instant::now();
+    let set = rustred_campaign_core::import::load(&ts, std::path::Path::new("/")).unwrap();
+    let n = set.frame.arity();
+    let lines = set.frame.mask().to_vec();
+    let raw = std::fs::read(&keys).unwrap();
+    assert_eq!(raw.len() % n, 0);
+    let mut unserved: Vec<Vec<i32>> = vec![];
+    let mut outside = 0u64;
+    for c in raw.chunks_exact(n) {
+        let k: Vec<i32> = c.iter().map(|&b| b as i8 as i32).collect();
+        if !k
+            .iter()
+            .zip(&lines)
+            .all(|(&v, &l)| if l { v >= 1 } else { v <= 0 })
+        {
+            outside += 1;
+            continue;
+        }
+        if !set
+            .disp
+            .first_match(&k)
+            .map(|d| d.is_covered())
+            .unwrap_or(false)
+        {
+            unserved.push(k);
+        }
+    }
+    let (faces, _) = group_open_keys(&unserved, &lines, "open_keys_desc");
+    std::fs::write(
+        &out,
+        unserved
+            .iter()
+            .map(|k| format!("{}\n", json!(k)))
+            .collect::<String>(),
+    )
+    .unwrap();
+    println!(
+        "{}",
+        json!({"arrival_keys": raw.len() / n, "outside_chart": outside, "unserved": unserved.len(),
+            "seconds": t0.elapsed().as_secs_f64(), "signatures": faces.len(),
+            "faces": faces.iter().map(|f| json!({"face": f.label, "keys": f.open_keys.len(),
+                "layers": rustred_campaign_core::repairflow::faces::layers(f, &lines)})).collect::<Vec<_>>()})
+    );
+}

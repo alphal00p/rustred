@@ -149,7 +149,8 @@ fn material(dir: &Path, ms: u64) -> Files {
         serde_json::to_vec_pretty(&json!({"schema":"rustred.campaign.repairflow.v1",
             "repair_policy":{"symbolic":{"heartbeat_s":1,"stop_grace_s":3,"cap_bytes":268435456,
                                          "expected_peak_bytes":67108864},
-                             "recipes":{"escalation":["d2_clast_fon_mM1C","d3_clast_fon_mM1C"]}},
+                             "recipes":{"escalation":["d2_clast_fon_mM1C","d3_clast_fon_mM1C"]},
+                             "route0":{"symmetry_credit":false}},
             "nodes":{},
             "fake":{"program":"rr_fake_child","ms":ms,"faces":{
                 F_KEPT: {"rule": kept}, F_BIG: {"rule": big},
