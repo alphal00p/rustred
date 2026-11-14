@@ -436,12 +436,14 @@ pub fn containment_proof(
         Containment::Proved { certificate } => {
             let mut h = Sha256::new();
             h.update(certificate.as_bytes());
-            Some(ContainmentProof {
-                old_tables_digest: old_tables_digest.into(),
-                new_tables_digest: new_tables_digest.into(),
-                method: "exact_partition".into(),
-                artefact_sha256: h.finish_hex(),
-            })
+            // The proof type has private fields (ladder audit A M5): it is built only here, from a `Proved`
+            // verdict of the partition module, through the crate-internal checked constructor.
+            Some(ContainmentProof::checked(
+                old_tables_digest,
+                new_tables_digest,
+                "exact_partition",
+                &h.finish_hex(),
+            ))
         }
         _ => None,
     }
