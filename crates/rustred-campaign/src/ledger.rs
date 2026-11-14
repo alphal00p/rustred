@@ -309,11 +309,14 @@ pub struct OutcomeBinding {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "ev", rename_all = "snake_case")]
 pub enum JobEvent {
-    /// WRITE-AHEAD intent: fsynced before the child is spawned.
+    /// WRITE-AHEAD intent: fsynced before the child is spawned. `spec_blake3` = BLAKE3 of the attempt's `job.json`
+    /// exactly as written (the digest the contract binds OUTCOME / RESUME to; the job-level `job_queued.spec_blake3`
+    /// is the attempt-independent request digest).
     Launch {
         run_dir: String,
         cpus: Vec<u32>,
         reserved_bytes: u64,
+        spec_blake3: String,
     },
     Started {
         pid: u32,

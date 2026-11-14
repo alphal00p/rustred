@@ -156,7 +156,7 @@ pub use rustred_campaign_contract::classify::Accept as ContractAccept;
 pub use rustred_campaign_contract::classify::OutcomeKind as FinishClass;
 
 /// Every outcome kind (for exhaustive tests).
-pub const FINISH_CLASSES: [FinishClass; 14] = [
+pub const FINISH_CLASSES: [FinishClass; 16] = [
     FinishClass::RuleFound,
     FinishClass::Complete,
     FinishClass::NoRule,
@@ -171,6 +171,8 @@ pub const FINISH_CLASSES: [FinishClass; 14] = [
     FinishClass::Lost,
     FinishClass::DecidedNegative,
     FinishClass::Undecided,
+    FinishClass::SealedWithElided,
+    FinishClass::UnverifiableKind,
 ];
 
 /// THE mapping from the contract's classification to acceptance legality: the `accept` values the decision
@@ -197,6 +199,8 @@ pub fn contract_accepts(class: FinishClass) -> &'static [ContractAccept] {
         Lost => &[A::Nothing],                      // rows 15, 21
         Crashed => &[A::Nothing],                   // rows 6, 16, 17, 22, 23
         SetupError => &[A::Nothing],
+        SealedWithElided => &[A::Nothing],          // row 25 (elided witness loci: never used, R-f)
+        UnverifiableKind => &[A::Nothing],          // row 26 (no sealing rule for the kind)
     }
 }
 
@@ -226,7 +230,9 @@ pub fn class_target(c: FinishClass) -> AttemptTarget {
         Spill | KilledTime | KilledMemory => AttemptTarget::BudgetStopped,
         Interrupted => AttemptTarget::Interrupted,
         Lost => AttemptTarget::Lost,
-        UsageError | SetupError | Refused | Crashed => AttemptTarget::Failed,
+        UsageError | SetupError | Refused | Crashed | SealedWithElided | UnverifiableKind => {
+            AttemptTarget::Failed
+        }
     }
 }
 
@@ -248,6 +254,8 @@ pub fn class_word(c: FinishClass) -> &'static str {
         Lost => "lost",
         DecidedNegative => "decided_negative",
         Undecided => "undecided",
+        SealedWithElided => "sealed_with_elided",
+        UnverifiableKind => "unverifiable_kind",
     }
 }
 
@@ -1871,6 +1879,10 @@ pub struct JobRec {
     pub boot_id: Option<String>,
     pub sealed_table: Option<FileRef>,
     pub outcome: Option<FileRef>,
+    /// `spec_blake3` of the CURRENT attempt's launch record (its job.json digest): the OUTCOME binding must name it.
+    pub attempt_spec: Option<String>,
+    /// The same of the PREVIOUS attempt (kept across a new attempt: a resume reads that attempt's run directory).
+    pub prev_attempt_spec: Option<String>,
     pub time_decided: bool,
     /// Attempts that ended `failed` (retry caps count these only).
     pub failures: u32,
@@ -2400,6 +2412,8 @@ impl CampaignState {
                             boot_id: None,
                             sealed_table: None,
                             outcome: None,
+                            attempt_spec: None,
+                            prev_attempt_spec: None,
                             time_decided: false,
                             failures: 0,
                             cpu_ms: 0,
@@ -3649,13 +3663,18 @@ impl CampaignState {
         } = ev
             && accept_permits_records(*accept)
         {
+            // The binding names the digest of the job.json THIS attempt was launched with (its launch record).
+            let launched = j.attempt_spec.as_deref().unwrap_or("");
             match binding {
                 Some(b)
-                    if b.job == job && b.attempt == attempt && b.spec_blake3 == j.spec_blake3 => {}
+                    if b.job == job
+                        && b.attempt == attempt
+                        && !launched.is_empty()
+                        && b.spec_blake3 == launched => {}
                 _ => {
                     return Err(invalid(format!(
-                        "job {job} attempt {attempt}: accepting records needs the OUTCOME binding (job, attempt, spec digest {})",
-                        short(&j.spec_blake3)
+                        "job {job} attempt {attempt}: accepting records needs the OUTCOME binding (job, attempt, launched spec digest {})",
+                        short(launched)
                     )));
                 }
             }
@@ -3679,9 +3698,17 @@ impl CampaignState {
             j.outcome = None;
             j.accept = None;
             j.time_decided = false;
+            j.prev_attempt_spec = j.attempt_spec.take();
         }
         match ev {
-            JE::Launch { run_dir, .. } => j.run_dir = Some(run_dir.clone()),
+            JE::Launch {
+                run_dir,
+                spec_blake3,
+                ..
+            } => {
+                j.run_dir = Some(run_dir.clone());
+                j.attempt_spec = Some(spec_blake3.clone());
+            }
             JE::Started {
                 pid,
                 start_ticks,
