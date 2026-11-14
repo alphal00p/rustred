@@ -143,42 +143,15 @@ pub fn read_marker_at(root: &Path, pid: u32, tid: Option<u32>, timeout: Duration
     }
 }
 
-/// The marker of `pid` read on the CALLING thread (no helper thread; for callers that already run off the control
-/// loop: the campaign sweep, the end-of-job hunt). Same rules as [`read_marker_at`] (empty environ re-read after 1 ms).
-pub(crate) fn read_marker_inline(pid: u32, tid: Option<u32>) -> MarkerRead {
-    let path = match tid {
-        Some(t) => format!("/proc/{pid}/task/{t}/environ"),
-        None => format!("/proc/{pid}/environ"),
-    };
-    let read = |p: &str| match fs::read(p) {
-        Ok(b) => Ok(b),
-        Err(e) if matches!(e.raw_os_error(), Some(libc::ENOENT) | Some(libc::ESRCH)) => Err(None),
-        Err(e) => Err(Some(e)),
-    };
-    let b = match read(&path) {
-        Ok(b) if b.is_empty() => {
-            std::thread::sleep(Duration::from_millis(1));
-            match read(&path) {
-                Ok(b) if b.is_empty() => return MarkerRead::NoMarker,
-                Ok(b) => b,
-                Err(None) => return MarkerRead::Gone,
-                Err(Some(_)) => return MarkerRead::Unreadable,
-            }
-        }
-        Ok(b) => b,
-        Err(None) => return MarkerRead::Gone,
-        Err(Some(_)) => return MarkerRead::Unreadable,
-    };
-    match marker_in_environ(&b) {
-        Some(v) => MarkerRead::Marker(v),
-        None => MarkerRead::NoMarker,
-    }
-}
+/// Bound of one environ read of the strict scan (a process holding its mmap lock must not hold a sweep: a timed-out read
+/// is counted as unreadable, which makes the scan inconclusive, never hung).
+pub(crate) const STRICT_ENVIRON_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// A STRICT scan for live processes of our uid carrying a marker of `campaign_id` (optionally exactly attempt
-/// `only`), started at or after `not_before_ticks`; reads on the calling thread (call it off the control loop).
-/// Unlike [`scan_campaign`], an unreadable environ of a candidate is COUNTED (the caller decides whether the scan is
-/// conclusive) and an empty environ is re-read once (exec window). A process that vanished is not a candidate.
+/// `only`), started at or after `not_before_ticks` (call it off the control loop). Unlike [`scan_campaign`], an
+/// unreadable environ of a candidate is COUNTED (the caller decides whether the scan is conclusive); every environ read
+/// is bounded ([`STRICT_ENVIRON_TIMEOUT`]) and an empty environ is re-read once (exec window). A process that vanished is
+/// not a candidate.
 pub(crate) fn scan_marked_inline(
     campaign_id: &str,
     not_before_ticks: u64,
@@ -216,7 +189,7 @@ pub(crate) fn scan_marked_inline(
             continue;
         }
         let Some(tid) = live_tid(&st) else { continue };
-        match read_marker_inline(pid, tid) {
+        match read_marker_at(root, pid, tid, STRICT_ENVIRON_TIMEOUT) {
             MarkerRead::Marker(v) => {
                 if let Some(m) = CampaignMarker::parse(&v)
                     && m.campaign_id == campaign_id

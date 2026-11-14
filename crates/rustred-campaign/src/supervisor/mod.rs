@@ -370,6 +370,11 @@ pub struct Supervisor {
     /// Attempts with a journalled but unconfirmed launch whose execution is UNKNOWN (requirement 05:23Z): never retried
     /// automatically; `control resolve JOB` requeues them. job -> attempt.
     unknown: BTreeMap<String, u32>,
+    /// What each execution-unknown attempt is charged in admission (its cap and cores: the ledger shows it launching,
+    /// so the reservation stays until the operator resolves it). job -> (cap, cores).
+    unknown_charge: BTreeMap<String, (u64, usize)>,
+    /// Since when nothing runs or waits to be settled while execution-unknown attempts exist (operator-decision exit).
+    blocked_since: Option<Instant>,
     /// Start bound (clock ticks) of campaign-wide sweeps: this boot's first supervisor start of this campaign.
     campaign_min_ticks: Option<u64>,
     /// The periodic campaign-wide sweep for orphans of attempts that are not live (gate-B M1).
@@ -790,6 +795,8 @@ impl Supervisor {
             last_dir_check: None,
             pending: Vec::new(),
             unknown: BTreeMap::new(),
+            unknown_charge: BTreeMap::new(),
+            blocked_since: None,
             campaign_min_ticks: None,
             periodic: None,
             last_periodic: Instant::now(),
@@ -1197,6 +1204,21 @@ impl Supervisor {
 
     fn execution_unknown(&mut self, job: &str, attempt: u32, why: &str) {
         self.unknown.insert(job.to_string(), attempt);
+        let cap = self.st().jobs.get(job).map_or(0, |j| j.reserved_bytes);
+        let cores = crate::ledger::read_records(&self.cdir)
+            .ok()
+            .and_then(|recs| {
+                recs.iter().rev().find_map(|r| match &r.event {
+                    Event::Job {
+                        job: j,
+                        attempt: a,
+                        ev: JobEvent::Launch { cpus, .. },
+                    } if j == job && *a == attempt => Some(cpus.len()),
+                    _ => None,
+                })
+            })
+            .unwrap_or(1);
+        self.unknown_charge.insert(job.to_string(), (cap, cores));
         self.log.line(
             "WARN",
             &format!(
@@ -2249,6 +2271,7 @@ impl Supervisor {
         ));
         if self.commit(ev) {
             self.unknown.remove(&target);
+            self.unknown_charge.remove(&target);
             self.log.line(
                 "INFO",
                 &format!("control {}: {target} a{attempt} resolved: requeued", r.id),
@@ -2581,6 +2604,24 @@ impl Supervisor {
                     stopping: c.stopping,
                 }
             })
+            .chain(
+                self.unknown_charge
+                    .values()
+                    .enumerate()
+                    .map(|(k, &(cap, cores))| RunningJob {
+                        // Execution unknown: charged in full until the operator resolves it (the ledger shows it
+                        // launching).
+                        id: u64::MAX / 2 - k as u64,
+                        cap_bytes: cap,
+                        expected_peak_bytes: cap,
+                        rss_bytes: 0,
+                        rss_measured_at: None,
+                        cores,
+                        started_seq: 0,
+                        cpu_seconds: 0.0,
+                        stopping: false,
+                    }),
+            )
             .chain(self.pending.iter().map(|p| RunningJob {
                 // Finished, not settled: its whole cap stays reserved and its cores leased until the settle.
                 id: u64::MAX - p.seq,
@@ -2912,6 +2953,9 @@ impl Supervisor {
             // 6. progress
             self.write_progress(false);
             // 7. exit conditions
+            if !self.children.is_empty() || !self.pending.is_empty() {
+                self.blocked_since = None;
+            }
             if self.children.is_empty() && level > StopLevel::Running {
                 // Draining: attempts still waiting for a proof stay unsettled (the restart's recovery settles them).
                 self.pending
@@ -2949,13 +2993,19 @@ impl Supervisor {
                     }
                     return RunExit::Finished;
                 }
-                // Nothing runs, nothing is ready, and attempts of unknown execution block the rest: an operator decides.
+                // Nothing runs and attempts of unknown execution block the rest (nothing is ready, or their reservations
+                // keep admission waiting for more than 2 s with nothing running): an operator decides.
+                let blocked_for = self
+                    .blocked_since
+                    .get_or_insert_with(Instant::now)
+                    .elapsed();
                 if level == StopLevel::Running
                     && !self.unknown.is_empty()
-                    && self.last_ready == 0
+                    && (self.last_ready == 0 || blocked_for > Duration::from_secs(2))
                     && self
                         .resource_backoff_until
                         .is_none_or(|t| Instant::now() >= t)
+                    && !self.st().paused
                 {
                     let jobs: Vec<String> = self
                         .unknown

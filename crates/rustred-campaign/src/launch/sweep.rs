@@ -24,8 +24,9 @@
 
 use super::guard::{self, ProcessTarget, Proof, StartRule, Verdict};
 use crate::resources::{
-    CampaignMarker, FactRead, MarkedProcess, MarkerRead, boot_id, children_of, our_uid,
-    owner_uid_at, read_marker_inline, read_proc_facts, read_stat, request_reap, scan_marked_inline,
+    CampaignMarker, FactRead, MarkedProcess, MarkerRead, STRICT_ENVIRON_TIMEOUT, boot_id,
+    children_of, our_uid, owner_uid_at, read_marker_at, read_proc_facts, read_stat, request_reap,
+    scan_marked_inline,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -168,7 +169,7 @@ impl Sweep<'_> {
             if st.start_ticks < self.s.not_before_ticks || st.is_dead() {
                 continue;
             }
-            match read_marker_inline(c, None) {
+            match read_marker_at(Path::new("/proc"), c, None, STRICT_ENVIRON_TIMEOUT) {
                 MarkerRead::Marker(v) => {
                     if let Some(m) = CampaignMarker::parse(&v)
                         && m.campaign_id == self.s.campaign_id

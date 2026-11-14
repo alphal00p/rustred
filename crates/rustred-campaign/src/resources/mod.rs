@@ -36,7 +36,7 @@ pub use marked::{
     MarkerRead, marker_in_environ, our_uid, owner_uid_at, read_marker_at, scan_campaign,
     validate_campaign_id,
 };
-pub(crate) use marked::{read_marker_inline, scan_marked_inline};
+pub(crate) use marked::{STRICT_ENVIRON_TIMEOUT, scan_marked_inline};
 pub use pid::{InvalidPid, PID_MAX_LIMIT, ValidPid, pid_max};
 pub(crate) use scan::Leaders;
 pub use scan::{
