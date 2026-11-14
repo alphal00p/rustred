@@ -615,24 +615,29 @@ fn closure_line(vm: &ViewModel, w: usize, c: &Ctx) -> Line<'static> {
             Role::Normal,
             t,
         ),
-        kv(
-            "cpu-h",
-            format!(
-                "{}{}",
-                cpu_hours(vm.cost_cpu_s),
-                vm.budget_cpu_hours
-                    .map(|b| format!("/{b:.0}"))
-                    .unwrap_or_default()
-            ),
-            Role::Normal,
-            t,
-        ),
     ];
     segments(segs, w, 2)
 }
 
 fn eta_line(vm: &ViewModel, w: usize, c: &Ctx) -> Line<'static> {
-    Line::from(span(fit(&eta_text(vm), w), Role::Estimate, c.theme))
+    let t = c.theme;
+    let used = kv(
+        "cpu-h",
+        format!(
+            "{}{}",
+            cpu_hours(vm.cost_cpu_s),
+            vm.budget_cpu_hours
+                .map(|b| format!("/{b:.0}"))
+                .unwrap_or_default()
+        ),
+        Role::Normal,
+        t,
+    );
+    let n: usize = used.iter().map(|s| s.content.chars().count()).sum();
+    let mut spans = used;
+    spans.push(Span::raw("  "));
+    spans.push(span(fit(&eta_text(vm), w.saturating_sub(n + 2)), Role::Estimate, t));
+    Line::from(spans)
 }
 
 /// Banner lines: stop protocol, STALE, problems, transient message.

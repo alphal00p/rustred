@@ -1,0 +1,24 @@
+rr_campaign  p5l-boxed-final  FINISHED  age 8d06h  hb 2s  seq 91,233  sessions 4
+CPU 0/32   RAM 0.0 used, 0.0 res / 30.0G cap   host 412.0G (floor 50.0)   jobs 0
+NODES 3  FULL 0  BOXED 3  OPEN 0  certified 2  attention 0
+ITEMS 1,634  open 0  run 0  acc 1,333  esc 241  rej 0  term 3  ret 57  stale 0
+RULES accepted 1,201  rejected 31  CERT 99.1% (987/1,144 proved)  upgrades 640
+TERMINALS 5 (cand 0, bound 100/node)  DEFECT 0 keys (0 of 3 nodes with defect)
+cpu-h 417.0  ETA: nothing left
+-[ Work list by ladder level ]----------------------------- Tab: next table ----
+rung   open  run prod    acc  rej  esc tcand term stale  ret  jobs  med s
+L0        0    -    -    849    -  132     -    -     -   40 1,001   41.0
+L1        0    -    -    254    -   70     -    -     -   12   288   96.0
+L2        0    -    -    172    -   28     -    -     -    5   184   38.0
+L3        0    -    -     26    -    7     -    -     -    -    31  140.0
+L4        0    -    -     32    -    4     -    -     -    -    25  210.0
+L5        0    -    -      -    -    -     -    3     -    -     -      -
+-[ Recent events ]-------------------------------------------------- e: all ----
+10:59:59 .    campaign          campaign finished
+10:59:58 box  node              T178: certified (boxed)
+10:40:00 box  node              T266: closed (boxed), defect 0 of 13951428 keys
+08:15:02 ok   item_upgraded     T178 F012: evidence -> identity_proved
+08:14:55 ok   item_accepted     T178 F087: rule T178:R:campaign:640 accepted (i~
+08:14:31 esc  item_escalated    T178 F019: escalated to L2 (rule_covers_none)
+08:14:10 FAIL item_rejected     T178 F044: rejected (irregular_point)
+Tab table  n/N node  Enter detail  a attention(0)  ?help  q/Ctrl-C close viewer~

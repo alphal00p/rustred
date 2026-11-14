@@ -543,7 +543,7 @@ pub fn build(raw: &RawSnapshot, o: BuildOptions) -> ViewModel {
         FileRead::Ok(v) => (v, None),
         FileRead::Absent => {
             problems.push(format!(
-                "{}/progress/campaign.json absent (campaign not started yet, or wrong directory)",
+                "progress/campaign.json absent (campaign not started yet, or wrong directory): {}",
                 clean(&raw.origin)
             ));
             (&null, Some(Banner::NoData))

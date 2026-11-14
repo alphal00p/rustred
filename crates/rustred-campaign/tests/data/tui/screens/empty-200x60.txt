@@ -1,0 +1,60 @@
+rr_campaign  p5l-boxed-final  STARTING  age 4s  hb 2s  seq 4  sessions 1  dir /shared/vhirschi/t3code/vakint_dev/p_integral_dev/wt/ac-tui/crates/rustred-campaign/tests/data/tui/empty
+CPU 0/32   RAM 0.0 used, 0.0 res / 30.0G cap   host 412.0G (floor 50.0)   jobs 0
+NODES 0  FULL 0  BOXED 0  OPEN 0  certified 0  attention 0
+ITEMS 0  open 0  run 0  acc 0  esc 0  rej 0  term 0  ret 0  stale 0
+RULES accepted 0  rejected 0  CERT - (0/0 proved)  upgrades 0  retired 0
+TERMINALS 0 (cand 0, bound 100/node)  DEFECT not checked yet  ECONOMY rules 0->0  RHS 0->0
+cpu-h 0.0  ETA: nothing left
+-[ Nodes (0) ]---------------------------------------------------------------------------------- Enter: node detail ----  -[ Attention (0) ]------------------------------------------------ a: all ----
+node     coverage            phase           open by rung               term   defect  cert%   rules  used%       RHS     (nothing needs a decision)
+(no node files yet)
+-[ Work list by ladder level ]------------------------------------  -[ Rules and certificates ]-------------------------
+rung   open  run prod    acc  rej  esc tcand term  jobs  med s      accepted 0  rejected 0  upgrades 0  retired 0
+(no items yet)                                                      rejected by reason: -
+                                                                    evidence: geometry 0  tested 0  proved 0
+                                                                    certified share - (accepted items at identity_prove~
+                                                                    economy: rules 0 -> 0, RHS terms 0 -> 0
+                                                                    closure defect keys: not checked yet
+                                                                    jobs 0 settled: -
+-[ Running jobs 0 ]-------------------------------------------------------------------------------------------------------------------------------------------------------------------- j: all jobs ----
+running 0 (job list not in the progress files and not available from the ledger)
+-[ Recent events ]------------------------------------------------------------------------------------------------------------------------------------------------------------------- e: all events ----
+04:03:11 .    campaign          campaign starting (session 1)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+n/N select node  Enter node detail  j jobs  e events  a attention(0)  ?help  q/Ctrl-C close viewer (campaign unaffected)
