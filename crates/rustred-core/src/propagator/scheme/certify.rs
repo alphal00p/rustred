@@ -45,7 +45,7 @@ use super::super::error::PError;
 use super::super::lane::{LaneRoles, OwnerLane};
 use super::super::library::{PLibrary, POwnerSpec};
 use super::super::presentation::Slot;
-use super::{Builder, Cond, ParsedRule, layout, parity, scheme_at};
+use super::{Builder, Cond, ParsedRule, full_scheme_at, layout, parity};
 
 /// The search policy of one rule.
 #[derive(Clone, Debug)]
@@ -149,7 +149,7 @@ pub fn uncertified_rules(
     redo: bool,
 ) -> Result<Vec<String>, PError> {
     let (_, node) = owner_node(library, owner)?;
-    let scheme = scheme_at(node)?;
+    let scheme = full_scheme_at(node)?;
     Ok((scheme.rules.iter())
         .filter(|rule| {
             !rule.master
@@ -194,9 +194,9 @@ pub fn certify_rules(
     mut report: impl FnMut(&CertifyOutcome),
 ) -> Result<Vec<CertifyOutcome>, PError> {
     let (_, node) = owner_node(library, owner)?;
-    let scheme = scheme_at(node)?;
+    let scheme = full_scheme_at(node)?;
     let p = library.presentation(owner.presentation);
-    let layout = layout(scheme, &node.topo)?;
+    let layout = layout(&scheme, &node.topo)?;
     if layout.slots != p.slots {
         return Err(PError::Contract(
             "the presentation is not the scheme's layout".to_owned(),

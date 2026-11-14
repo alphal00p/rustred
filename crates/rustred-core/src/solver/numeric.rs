@@ -97,6 +97,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
     /// the same exact union replay as the IBP rows. Their sources carry `basis_row` = [`SYMMETRY_ROW`] and the seed
     /// `a`. Residuals then form a basis modulo IBP AND symmetry (masters modulo symmetry) as far as the seed depth
     /// reaches. `None` is exactly the IBP-only solve.
+    #[allow(clippy::type_complexity)]
     pub fn solve_numeric_cases_with_symmetry(
         &self,
         mut cases: Vec<CoordinateCase<N>>,
