@@ -9,8 +9,8 @@
 //! the fake child; the contract crate's verifier classifies them (a differential test of the verifier).
 
 use super::{
-    LAST_SIG, PROGRAM, SIGNALS, alloc_touch, git_commit, own, refuse_exit, sigkill_self,
-    source_of, status_of, vmhwm_kb,
+    LAST_SIG, PROGRAM, SIGNALS, alloc_touch, git_commit, own, refuse_exit, sigkill_self, source_of,
+    status_of, vmhwm_kb,
 };
 use rustred_campaign_contract::classify::recipe::{FAILURE_SCHEMA, RELATION_TYPE, Verdict};
 use rustred_campaign_contract::events::{Event, EventSink, Phase};
@@ -38,7 +38,10 @@ fn hex(b: &[u8]) -> String {
 fn key_text(k: &[i64]) -> String {
     format!(
         "I({})",
-        k.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")
+        k.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
     )
 }
 
@@ -225,7 +228,10 @@ pub fn run(spec_path: &Path) -> ! {
         Err(r) => refuse_exit(r),
     };
     let spec = prep.spec.clone();
-    let script = spec.fake.clone().expect("validated: an emulated kind has a script");
+    let script = spec
+        .fake
+        .clone()
+        .expect("validated: an emulated kind has a script");
     let layout = prep.layout.clone();
     let input = |role: &str| {
         spec.inputs
@@ -243,10 +249,7 @@ pub fn run(spec_path: &Path) -> ! {
         let v: Value = serde_json::from_str(l).unwrap_or(Value::Null);
         let (k, t) = match &v {
             Value::Array(_) => (v.clone(), None),
-            _ => (
-                v["key"].clone(),
-                v["tag"].as_str().map(str::to_string),
-            ),
+            _ => (v["key"].clone(), v["tag"].as_str().map(str::to_string)),
         };
         match serde_json::from_value::<Vec<i64>>(k) {
             Ok(k) => keys.push((k, t)),
@@ -364,10 +367,14 @@ pub fn run(spec_path: &Path) -> ! {
                         *x = Value::from(x.as_i64().unwrap_or(0) + 1);
                     }
                 }
-                if *verdict == Verdict::BudgetWall && !r.quirks.contains(&RecipeQuirk::NoTimeDecision) {
+                if *verdict == Verdict::BudgetWall
+                    && !r.quirks.contains(&RecipeQuirk::NoTimeDecision)
+                {
                     let budget = r.spec.budgets.wall.case_s.unwrap_or(1) as f64;
-                    time_decisions.push(json!({"what": "case_wall", "case_ordinal": next, "rule": null,
-                        "limit_s": budget, "measured_s": budget + 1.0, "taken": "budget_wall"}));
+                    time_decisions.push(
+                        json!({"what": "case_wall", "case_ordinal": next, "rule": null,
+                        "limit_s": budget, "measured_s": budget + 1.0, "taken": "budget_wall"}),
+                    );
                 }
                 let _ = r.sink.emit(Event::Engine {
                     event: json!({"RecipeKey": {"unique": next, "verdict": verdict.name()}}),
@@ -489,7 +496,12 @@ pub fn run(spec_path: &Path) -> ! {
     } else if all_solved && accepted == records.len() as u64 {
         (ExitCode::Complete, None, None, true)
     } else {
-        (ExitCode::Incomplete, Some(StopCode::KeysUnsolved), None, true)
+        (
+            ExitCode::Incomplete,
+            Some(StopCode::KeysUnsolved),
+            None,
+            true,
+        )
     };
     let b = r.outcome(
         code,

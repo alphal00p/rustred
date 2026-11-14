@@ -259,7 +259,10 @@ fn may_accept(e: &Evidence) -> Result<(), String> {
         let unsolved: u64 = t.unsolved.values().sum();
         return match c {
             0 if unsolved == 0 => Ok(()),
-            10 if j.stop.code == Some(StopCode::KeysUnsolved) && t.accepted >= 1 && unsolved >= 1 => {
+            10 if j.stop.code == Some(StopCode::KeysUnsolved)
+                && t.accepted >= 1
+                && unsolved >= 1 =>
+            {
                 Ok(())
             }
             _ => Err(format!(

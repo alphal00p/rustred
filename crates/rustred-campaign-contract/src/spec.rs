@@ -1024,7 +1024,10 @@ impl JobSpec {
         }
         let k = self.kind;
         if self.resume.is_some() {
-            return Err(bad("resume", format!("kind {k:?} has no resume (rerun from scratch)")));
+            return Err(bad(
+                "resume",
+                format!("kind {k:?} has no resume (rerun from scratch)"),
+            ));
         }
         if !self.budgets.work.limits().is_empty() {
             return Err(bad(
@@ -1033,7 +1036,10 @@ impl JobSpec {
             ));
         }
         if self.budgets.mem_soft_bytes.is_some() {
-            return Err(bad("budgets.mem_soft_bytes", format!("not implemented by kind {k:?}")));
+            return Err(bad(
+                "budgets.mem_soft_bytes",
+                format!("not implemented by kind {k:?}"),
+            ));
         }
         if self.budgets.wall.job_s.is_some() {
             return Err(bad(
@@ -1042,14 +1048,20 @@ impl JobSpec {
             ));
         }
         if self.seed.sample_seed != 0 {
-            return Err(bad("seed.sample_seed", format!("kind {k:?} fixes the sample seed 0")));
+            return Err(bad(
+                "seed.sample_seed",
+                format!("kind {k:?} fixes the sample seed 0"),
+            ));
         }
         if self.on_case_budget != OnCaseBudget::Stop {
             return Err(bad("on_case_budget", format!("kind {k:?}: stop only")));
         }
         let key_budget = self.args.iter().any(|a| a == "--key-budget-s");
         if k == JobKind::ProofInstantiate && self.budgets.wall.case_s.is_some() {
-            return Err(bad("budgets.wall.case_s", "kind ProofInstantiate has no per-case budget"));
+            return Err(bad(
+                "budgets.wall.case_s",
+                "kind ProofInstantiate has no per-case budget",
+            ));
         }
         if key_budget && self.budgets.wall.case_s.is_some() {
             return Err(bad(
@@ -1057,7 +1069,8 @@ impl JobSpec {
                 "the per-key wall budget is given twice (--key-budget-s and budgets.wall.case_s)",
             ));
         }
-        if self.determinism == Determinism::Strict && (key_budget || self.budgets.wall.case_s.is_some())
+        if self.determinism == Determinism::Strict
+            && (key_budget || self.budgets.wall.case_s.is_some())
         {
             return Err(bad(
                 "determinism",

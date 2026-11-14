@@ -43,6 +43,9 @@ pub struct Program {
     /// `program.features_required` of every spec this adapter writes.
     #[serde(default)]
     pub features_required: Vec<String>,
+    /// SHA-256 (hex) of the file: the `binary_sha256` of solved-relation lines (interfaces/import.md 6.2).
+    #[serde(default)]
+    pub sha256: Option<String>,
 }
 
 impl Program {
@@ -52,13 +55,15 @@ impl Program {
         path: &Path,
         invocation: Invocation,
     ) -> Result<Program, AdapterError> {
-        let b3 = file_blake3(path)?;
+        let b = std::fs::read(path)
+            .map_err(|e| AdapterError::Io(format!("{}: {e}", path.display())))?;
         Ok(Program {
             name: name.into(),
             path: path.to_path_buf(),
-            blake3: b3,
+            blake3: rustred_campaign_contract::blake3_hex(&b),
             invocation,
             features_required: vec![],
+            sha256: Some(sha256_hex(&b)),
         })
     }
 }
@@ -85,6 +90,13 @@ impl InputFile {
             upto: None,
         }
     }
+}
+
+/// SHA-256 (hex) of bytes (campaign-core's implementation; the digest kind of the import's bindings).
+pub fn sha256_hex(b: &[u8]) -> String {
+    let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
+    h.update(b);
+    h.finish_hex()
 }
 
 /// Raw BLAKE3 (hex) of a file.
@@ -195,6 +207,28 @@ pub fn classify_attempt(p: &Prepared, end: &Ended) -> (Evidence, Classification)
     (ev, c)
 }
 
+/// Whether a classification that accepts nothing is a REFUSAL of the attempt (a child deviation, a crash, an error:
+/// worth an `AdapterRefusal` with the conformance diagnosis) rather than an ordinary outcome the work source routes
+/// (time / memory / stop / lost / no rule / open list / typed failures), decided by the row's action.
+pub fn is_refusal(c: &Classification) -> bool {
+    use rustred_campaign_contract::classify::{Accept, Action::*};
+    c.accept == Accept::Nothing
+        && !matches!(
+            c.action,
+            LadderDecides
+                | NextMemoryClassOrRung
+                | ResumeOnCampaignResume
+                | ResumeOnceThenAttention
+                | RestartFromScratch
+                | PauseAllLaunches
+                | NextRung
+                | ConfirmCoverageElseNextRung
+                | QueueOpenList
+                | QueueFailures
+                | RecordNegativeVerdict
+        )
+}
+
 /// The adapter trait (interfaces/adapters.md 2.1).
 pub trait JobAdapter {
     type Request;
@@ -222,11 +256,7 @@ pub trait JobAdapter {
 
 /// Create a fresh attempt directory with `in/ out/ tmp/ sup/` (refuses an existing one: an attempt directory is
 /// never reused).
-pub fn create_run(
-    work_root: &Path,
-    job_id: &str,
-    attempt: u32,
-) -> Result<RunLayout, AdapterError> {
+pub fn create_run(work_root: &Path, job_id: &str, attempt: u32) -> Result<RunLayout, AdapterError> {
     let run = rustred_campaign_contract::layout::attempt_dir(work_root, job_id, attempt);
     if run.exists() {
         return Err(AdapterError::Io(format!(

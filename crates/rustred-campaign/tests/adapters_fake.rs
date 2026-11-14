@@ -18,17 +18,18 @@ use rustred_campaign::adapters::solve_recipe::{
 };
 use rustred_campaign_contract::classify::recipe::{FailureClass, KeyRoute, Verdict};
 use rustred_campaign_contract::classify::{Accept, Action, WaitStatus};
+use rustred_campaign_contract::exit::ExitCode;
 use rustred_campaign_contract::fake::{
     FakeOp, FakeRule, FakeScript, Fault, FaultKind, OnSigterm, RecipeQuirk, RssPlan,
 };
-use rustred_campaign_contract::exit::ExitCode;
 use rustred_campaign_contract::spec::JobKind;
 use rustred_campaign_contract::stop::{CaseResult, StopCode};
 use serde_json::json;
 use std::path::Path;
 use std::time::Duration;
 
-const ORDER: &str = r#"{"name":"o","slot_permutation":null,"coordinate_priority":null,"source_order":"Input"}"#;
+const ORDER: &str =
+    r#"{"name":"o","slot_permutation":null,"coordinate_priority":null,"source_order":"Input"}"#;
 
 fn config(root: &Root, fake: Option<FakeScript>) -> SolveRecipeConfig {
     SolveRecipeConfig {
@@ -58,6 +59,7 @@ fn recipe(root: &Root) -> RecipeInput {
         id: "R/face-1".into(),
         file: root.file("recipe.json", b"{\"fake\":\"recipe\"}\n"),
         digest: None,
+        sha256: None,
     }
 }
 
@@ -152,6 +154,7 @@ fn solve_recipe_spec_for_a_real_engine_validates_with_the_contract() {
             verb: "solve-recipe".into(),
         },
         features_required: vec![],
+        sha256: None,
     };
     c.max_trace_rows = Some(5000);
     c.key_budget_s = Some(60);
@@ -164,13 +167,25 @@ fn solve_recipe_spec_for_a_real_engine_validates_with_the_contract() {
     assert_eq!(
         p.spec.args,
         vec![
-            "--order", ORDER, "--threads", "1", "--max-trace-rows", "5000", "--key-budget-s", "60"
+            "--order",
+            ORDER,
+            "--threads",
+            "1",
+            "--max-trace-rows",
+            "5000",
+            "--key-budget-s",
+            "60"
         ]
     );
     let roles: Vec<&str> = p.spec.inputs.iter().map(|i| i.role.as_str()).collect();
     assert_eq!(roles, vec!["family", "recipe", "keys"]);
     // the launch line is the verb's job form, the keys input is RUN-relative
-    let argv: Vec<String> = p.launch.args.iter().map(|a| a.to_string_lossy().into()).collect();
+    let argv: Vec<String> = p
+        .launch
+        .args
+        .iter()
+        .map(|a| a.to_string_lossy().into())
+        .collect();
     assert_eq!(argv[0], "solve-recipe");
     assert_eq!(argv[1], "--job");
     assert_eq!(p.spec.inputs[2].path, "in/keys.jsonl");
@@ -218,7 +233,9 @@ fn generate_seed_options_map_one_to_one_and_validate() {
     let reqs = vec![
         GenerateRequest {
             family: fam.clone(),
-            cases: vec![json!({"frame":"presented","fixed":[1,null,0],"seed_centre_offset":[0,-1,0]})],
+            cases: vec![
+                json!({"frame":"PRESENTED","fixed":[1,null,0],"seed_centre_offset":[0,-1,0]}),
+            ],
             order: "id".into(),
             seed,
             max_cases: Some(1),
@@ -254,10 +271,18 @@ fn all_solved_is_row_1_and_relations_reach_the_relation_file() {
     let _g = serial();
     let root = Root::new("solved");
     let r = recipe(&root);
-    let reqs = vec![req(&r, &[3, 1, 1]), req(&r, &[4, 1, 1]), req(&r, &[3, 1, 1])];
+    let reqs = vec![
+        req(&r, &[3, 1, 1]),
+        req(&r, &[4, 1, 1]),
+        req(&r, &[3, 1, 1]),
+    ];
     let ad = SolveRecipeAdapter::new(config(
         &root,
-        Some(recipe_script(&[Verdict::Solved, Verdict::Solved], &[3, 1, 1], &[])),
+        Some(recipe_script(
+            &[Verdict::Solved, Verdict::Solved],
+            &[3, 1, 1],
+            &[],
+        )),
     ));
     let out = run_solve(&root, &ad, &reqs, &RunOptions::default());
     assert_eq!(out.classification.row, 1, "{}", out.classification.why);
@@ -273,7 +298,7 @@ fn all_solved_is_row_1_and_relations_reach_the_relation_file() {
         dir: root.path().join("rel"),
         bits: 8,
     };
-    let files = sink.write(&out.relations).unwrap();
+    let files = sink.write(&[&out]).unwrap();
     assert_eq!(files.len(), 1);
     let f = std::fs::File::open(&files[0].0).unwrap();
     let (_name, rd, store) =
@@ -347,7 +372,11 @@ fn no_solved_key_is_row_29_and_budget_work_goes_to_the_next_work_class() {
     let reqs: Vec<SolveRequest> = (1..=2).map(|i| req(&r, &[i, 0])).collect();
     let mut c = config(
         &root,
-        Some(recipe_script(&[Verdict::BudgetWork, Verdict::BudgetWork], &[1, 0], &[])),
+        Some(recipe_script(
+            &[Verdict::BudgetWork, Verdict::BudgetWork],
+            &[1, 0],
+            &[],
+        )),
     );
     c.max_trace_rows = Some(10);
     let ad = SolveRecipeAdapter::new(c);
@@ -356,7 +385,11 @@ fn no_solved_key_is_row_29_and_budget_work_goes_to_the_next_work_class() {
     assert_eq!(out.classification.accept, Accept::Nothing);
     assert!(out.relations.is_empty());
     assert_eq!(out.failures.len(), 2);
-    assert!(out.failures.iter().all(|f| f.route == KeyRoute::NextWorkClass));
+    assert!(
+        out.failures
+            .iter()
+            .all(|f| f.route == KeyRoute::NextWorkClass)
+    );
     assert!(out.failures[0].reproduce.contains("--max-trace-rows 10"));
 }
 
@@ -369,7 +402,11 @@ fn a_per_key_wall_budget_is_time_decided() {
     let reqs: Vec<SolveRequest> = (1..=2).map(|i| req(&r, &[i, 0])).collect();
     let mut c = config(
         &root,
-        Some(recipe_script(&[Verdict::Solved, Verdict::BudgetWall], &[1, 0], &[])),
+        Some(recipe_script(
+            &[Verdict::Solved, Verdict::BudgetWall],
+            &[1, 0],
+            &[],
+        )),
     );
     c.key_budget_s = Some(30);
     let ad = SolveRecipeAdapter::new(c);
@@ -414,12 +451,23 @@ fn a_stop_file_interrupts_row_11_and_every_key_is_left_undecided() {
         }
     });
     let mut l = launcher();
-    let (out, _) = run_attempt(&mut l, &ad, &reqs, &plan, root.path(), 1, &RunOptions::default())
-        .unwrap();
+    let (out, _) = run_attempt(
+        &mut l,
+        &ad,
+        &reqs,
+        &plan,
+        root.path(),
+        1,
+        &RunOptions::default(),
+    )
+    .unwrap();
     t.join().unwrap();
     assert_eq!(out.classification.row, 11, "{}", out.classification.why);
     assert_eq!(out.classification.sub, "");
-    assert!(out.relations.is_empty(), "nothing from an interrupted attempt (R-b)");
+    assert!(
+        out.relations.is_empty(),
+        "nothing from an interrupted attempt (R-b)"
+    );
     assert_eq!(out.not_decided.len(), 3);
     assert!(out.refusal.is_none());
 }
@@ -438,15 +486,23 @@ fn the_supervisor_wall_cap_is_row_11b_time_decided() {
         ..RunOptions::default()
     };
     let out = run_solve(&root, &ad, &reqs, &opts);
-    assert_eq!((out.classification.row, out.classification.sub.as_str()), (11, "b"));
+    assert_eq!(
+        (out.classification.row, out.classification.sub.as_str()),
+        (11, "b")
+    );
     assert!(out.classification.time_decided);
     assert!(out.relations.is_empty());
 }
 
-fn quirk_refusal(q: RecipeQuirk, verdicts: &[Verdict]) -> rustred_campaign::adapters::solve_recipe::SolveBatch {
+fn quirk_refusal(
+    q: RecipeQuirk,
+    verdicts: &[Verdict],
+) -> rustred_campaign::adapters::solve_recipe::SolveBatch {
     let root = Root::new("quirk");
     let r = recipe(&root);
-    let reqs: Vec<SolveRequest> = (1..=verdicts.len() as i64).map(|i| req(&r, &[i, 0])).collect();
+    let reqs: Vec<SolveRequest> = (1..=verdicts.len() as i64)
+        .map(|i| req(&r, &[i, 0]))
+        .collect();
     let mut c = config(&root, Some(recipe_script(verdicts, &[1, 0], &[q])));
     c.key_budget_s = Some(5);
     let ad = SolveRecipeAdapter::new(c);
@@ -463,23 +519,30 @@ fn deviations_of_the_child_are_refused_and_diagnosed() {
     assert_eq!(o.classification.row, 22);
     assert!(o.relations.is_empty());
     let r = o.refusal.expect("refusal");
-    assert!(r.conformance.contains(&Mismatch::SpecDigestPlainBlake3), "{r:?}");
+    assert!(
+        r.conformance.contains(&Mismatch::SpecDigestPlainBlake3),
+        "{r:?}"
+    );
     // outputs.extra without canonical_blake3
     let o = quirk_refusal(RecipeQuirk::NoCanonicalDigest, &two);
     assert_eq!(o.classification.row, 22);
     let r = o.refusal.expect("refusal");
-    assert!(r.conformance.contains(&Mismatch::ExtraWithoutCanonicalDigest {
-        role: "results".into()
-    }));
+    assert!(
+        r.conformance
+            .contains(&Mismatch::ExtraWithoutCanonicalDigest {
+                role: "results".into()
+            })
+    );
     // effective without its digest: OUTCOME unreadable by the contract
     let o = quirk_refusal(RecipeQuirk::EffectiveWithoutDigest, &two);
     assert_eq!(o.classification.row, 22);
     let r = o.refusal.expect("refusal");
     assert!(r.conformance.contains(&Mismatch::EffectiveWithoutDigest));
-    assert!(r
-        .conformance
-        .iter()
-        .any(|m| matches!(m, Mismatch::OutcomeUnparsable { .. })));
+    assert!(
+        r.conformance
+            .iter()
+            .any(|m| matches!(m, Mismatch::OutcomeUnparsable { .. }))
+    );
     // record-level deviations make S false: nothing accepted
     for (q, why) in [
         (RecipeQuirk::UnprovedSolved, "exact proof"),
@@ -489,11 +552,23 @@ fn deviations_of_the_child_are_refused_and_diagnosed() {
         assert_eq!(o.classification.row, 22, "{q:?}");
         assert!(o.relations.is_empty());
         let r = o.refusal.expect("refusal");
-        assert!(r.unsealed_why.as_deref().unwrap_or("").contains(why), "{r:?}");
+        assert!(
+            r.unsealed_why.as_deref().unwrap_or("").contains(why),
+            "{r:?}"
+        );
     }
-    let o = quirk_refusal(RecipeQuirk::NoTimeDecision, &[Verdict::Solved, Verdict::BudgetWall]);
+    let o = quirk_refusal(
+        RecipeQuirk::NoTimeDecision,
+        &[Verdict::Solved, Verdict::BudgetWall],
+    );
     assert_eq!(o.classification.row, 22);
-    assert!(o.refusal.unwrap().unsealed_why.unwrap().contains("time_decided"));
+    assert!(
+        o.refusal
+            .unwrap()
+            .unsealed_why
+            .unwrap()
+            .contains("time_decided")
+    );
 }
 
 #[test]
@@ -519,7 +594,12 @@ fn a_record_of_another_recipe_digest_is_refused_against_its_request() {
 fn errors_and_crashes_map_to_their_rows() {
     require_namespace();
     let _g = serial();
-    for (case, row) in [("input", 13u8), ("internal", 17), ("abort", 23), ("exit", 23)] {
+    for (case, row) in [
+        ("input", 13u8),
+        ("internal", 17),
+        ("abort", 23),
+        ("exit", 23),
+    ] {
         let root = Root::new(case);
         let r = recipe(&root);
         let reqs = vec![req(&r, &[1, 0])];
@@ -556,7 +636,11 @@ fn errors_and_crashes_map_to_their_rows() {
         }
         let ad = SolveRecipeAdapter::new(config(&root, Some(s)));
         let out = run_solve(&root, &ad, &reqs, &RunOptions::default());
-        assert_eq!(out.classification.row, row, "{case}: {}", out.classification.why);
+        assert_eq!(
+            out.classification.row, row,
+            "{case}: {}",
+            out.classification.why
+        );
         assert!(out.relations.is_empty());
         assert_eq!(out.not_decided.len(), 1);
         assert!(out.refusal.is_some(), "{case}");
@@ -572,12 +656,24 @@ fn unknown_wait_consumes_the_sealed_results_of_an_unconfirmed_launch() {
     let reqs = vec![req(&r, &[1, 0]), req(&r, &[2, 0])];
     let ad = SolveRecipeAdapter::new(config(
         &root,
-        Some(recipe_script(&[Verdict::Solved, Verdict::NotInDomain], &[1, 0], &[])),
+        Some(recipe_script(
+            &[Verdict::Solved, Verdict::NotInDomain],
+            &[1, 0],
+            &[],
+        )),
     ));
     let plan = ad.plan(&reqs).unwrap().remove(0);
     let mut l = launcher();
-    let (first, rep) =
-        run_attempt(&mut l, &ad, &reqs, &plan, root.path(), 1, &RunOptions::default()).unwrap();
+    let (first, rep) = run_attempt(
+        &mut l,
+        &ad,
+        &reqs,
+        &plan,
+        root.path(),
+        1,
+        &RunOptions::default(),
+    )
+    .unwrap();
     // recovery hazard rule: the launch was never confirmed -> execution UNKNOWN, classified from the files (6.6)
     let again = ad.finish(&reqs, &plan, &rep.prepared, &Ended::unknown());
     assert_eq!(again.classification.row, 28);
@@ -636,7 +732,9 @@ fn rr_proof_legacy_child_is_sealed_by_the_wrapper_and_bound_by_record_sha256() {
         let ans = root.path().join("answers.jsonl");
         std::fs::write(&ans, lines.join("\n") + "\n").unwrap();
         let body = match mode {
-            "exit2" => "echo '{\"verdict\":\"ERROR\",\"error\":\"bad requests\"}'; exit 2".to_string(),
+            "exit2" => {
+                "echo '{\"verdict\":\"ERROR\",\"error\":\"bad requests\"}'; exit 2".to_string()
+            }
             _ => format!("cp '{}' \"$5\"", ans.display()),
         };
         let ad = ProofInstantiateAdapter {
@@ -646,10 +744,20 @@ fn rr_proof_legacy_child_is_sealed_by_the_wrapper_and_bound_by_record_sha256() {
         let plans = ad.plan(&reqs).unwrap();
         assert_eq!(plans.len(), 1, "one job per table");
         let mut l = launcher();
-        let (out, _) =
-            run_attempt(&mut l, &ad, &reqs, &plans[0], root.path(), 1, &RunOptions::default())
-                .unwrap();
-        eprintln!("{mode}: row {} ({})", out.classification.row, out.classification.why);
+        let (out, _) = run_attempt(
+            &mut l,
+            &ad,
+            &reqs,
+            &plans[0],
+            root.path(),
+            1,
+            &RunOptions::default(),
+        )
+        .unwrap();
+        eprintln!(
+            "{mode}: row {} ({})",
+            out.classification.row, out.classification.why
+        );
         match mode {
             "ok" => {
                 assert_eq!(out.classification.row, 1);
@@ -733,8 +841,16 @@ fn generate_through_the_fake_child_accepts_the_verified_table() {
     }];
     let plans = ad.plan(&reqs).unwrap();
     let mut l = launcher();
-    let (out, _) =
-        run_attempt(&mut l, &ad, &reqs, &plans[0], root.path(), 1, &RunOptions::default()).unwrap();
+    let (out, _) = run_attempt(
+        &mut l,
+        &ad,
+        &reqs,
+        &plans[0],
+        root.path(),
+        1,
+        &RunOptions::default(),
+    )
+    .unwrap();
     assert_eq!(out.classification.row, 2, "{}", out.classification.why);
     assert!(out.refusal.is_none());
     let rules = out
@@ -743,4 +859,99 @@ fn generate_through_the_fake_child_accepts_the_verified_table() {
         .filter(|l| String::from_utf8_lossy(l).contains("\"type\":\"rule\""))
         .count();
     assert_eq!(rules, 1);
+}
+
+// ------------------------------------------------------------------------------------------------ import formats
+
+#[test]
+fn import_solve_requests_in_and_solved_relation_lines_out() {
+    use rustred_campaign::adapters::job::sha256_hex;
+    use rustred_campaign::adapters::solve_recipe::{
+        SOLVED_RELATION_SCHEMA, SolvedRelationsV1, solve_request_from_import,
+    };
+    require_namespace();
+    let _g = serial();
+    let root = Root::new("import");
+    let rbytes = b"{\"fake\":\"recipe for import\"}\n";
+    let rpath = root.path().join("recipe-imp.json");
+    std::fs::write(&rpath, rbytes).unwrap();
+    let line = |key: &[i64], sha: &str| {
+        json!({"schema": "rustred.campaign.solve-request.v1", "spec_digest": "sha256:00", "source": "T/face-7",
+               "recipe_path": rpath.display().to_string(), "recipe_sha256": sha, "engine_digest": null,
+               "key": key, "reason": "in_domain_uncovered", "in_start": true})
+        .to_string()
+    };
+    let sha = sha256_hex(rbytes);
+    let reqs: Vec<SolveRequest> = [[1i64, 0], [2, 0]]
+        .iter()
+        .map(|k| solve_request_from_import(line(k, &sha).as_bytes()).unwrap())
+        .collect();
+    assert_eq!(reqs[0].recipe.id, "T/face-7");
+    assert_eq!(reqs[0].recipe.sha256.as_deref(), Some(sha.as_str()));
+    assert!(solve_request_from_import(line(&[1, 0], &"0".repeat(64)).as_bytes()).is_err());
+    let ad = SolveRecipeAdapter::new(config(
+        &root,
+        Some(recipe_script(
+            &[Verdict::Solved, Verdict::NotInDomain],
+            &[1, 0],
+            &[],
+        )),
+    ));
+    let out = run_solve(&root, &ad, &reqs, &RunOptions::default());
+    assert_eq!(out.classification.row, 28);
+    let mut sink = SolvedRelationsV1 {
+        path: root.path().join("solved.jsonl"),
+    };
+    let files = sink.write(&[&out]).unwrap();
+    let text = std::fs::read_to_string(&files[0].0).unwrap();
+    assert_eq!(files[0].1, sha256_hex(text.as_bytes()));
+    let lines: Vec<serde_json::Value> = text
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 2, "one line per (recipe, key)");
+    let results = std::fs::read(&out.relations[0].results.path).unwrap();
+    for (i, v) in lines.iter().enumerate() {
+        assert_eq!(v["schema"], SOLVED_RELATION_SCHEMA);
+        assert_eq!(v["source"], "T/face-7");
+        assert_eq!(v["recipe_sha256"], sha.as_str());
+        assert_eq!(
+            v["binary_sha256"],
+            ad.config.program.sha256.clone().unwrap().as_str()
+        );
+        assert_eq!(v["results"]["ordinal"], i as u64);
+        assert_eq!(v["results"]["sha256"], sha256_hex(&results).as_str());
+    }
+    assert_eq!(lines[0]["verdict"], "SOLVED");
+    assert_eq!(lines[0]["regular"], true);
+    assert_eq!(lines[0]["proof"]["ok"], true);
+    assert_eq!(lines[0]["rhs"][0]["key"], json!([0, 0]));
+    assert_eq!(
+        lines[0]["rhs"][0]["coef_sha256"].as_str().unwrap().len(),
+        64
+    );
+    assert_eq!(lines[0]["rhs"][0]["mark"], "top");
+    assert_eq!(lines[1]["verdict"], "NOT_IN_DOMAIN");
+    assert_eq!(lines[1]["regular"], false);
+    assert_eq!(lines[1]["relation_digest"], serde_json::Value::Null);
+    assert_eq!(lines[1]["failure"]["class"], "not_in_domain");
+}
+
+#[test]
+fn import_fact_requests_are_bound_to_their_record() {
+    use rustred_campaign::adapters::proof::fact_request_from_import;
+    let root = Root::new("import-facts");
+    let (t, o0, _) = table(&root);
+    let r = fact_request(&t, o0, 0, vec![vec![1, 1]]).unwrap();
+    let mk = |sha: &str, rule: u64| {
+        json!({"table": t.path.display().to_string(), "offset": o0, "rule": rule, "record_sha256": sha,
+               "keys": [[1, 1]], "reasons": ["regularity"]})
+        .to_string()
+    };
+    assert_eq!(
+        fact_request_from_import(mk(&r.record_sha256, 0).as_bytes()).unwrap(),
+        r
+    );
+    assert!(fact_request_from_import(mk(&"0".repeat(64), 0).as_bytes()).is_err());
+    assert!(fact_request_from_import(mk(&r.record_sha256, 1).as_bytes()).is_err());
 }
