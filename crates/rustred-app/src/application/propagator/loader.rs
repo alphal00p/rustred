@@ -59,7 +59,7 @@ use rustred::propagator::custom::inspect_custom_payload;
 use rustred::propagator::descent;
 use rustred::propagator::error::PError;
 use rustred::propagator::families::PFamiliesFile;
-use rustred::propagator::library::{PLibrary, POwnerSpec};
+use rustred::propagator::library::{OwnerProgram, PLibrary, POwnerSpec};
 use rustred::propagator::payload_cache::{PPayloadCheck, PPayloadFile};
 use rustred::propagator::presentation::{Presentation, PresentationKind};
 use rustred::propagator::programs::CustomPayloadRef;
@@ -70,9 +70,9 @@ use rustred::propagator::{
 
 use super::format::{
     CENSUS_FILE, CENSUS_JSON_FILE, CountsRecord, FAMILIES_FILE, LAYER_FILE, LIBRARY_FILE,
-    LaneRecord, LibraryManifest, OwnerRecord, SYMBOLICA_SAVE_FORMAT, TOPOLOGY_FILE, TerminalRecord,
-    check_save_format, decode_census, decode_family_file, decode_payload_file, decode_topology,
-    family_file, malformed, owner_file,
+    LaneRecord, LibraryManifest, OwnerRecord, P_OPEN_NODE_RECORD_VERSION, SYMBOLICA_SAVE_FORMAT,
+    TOPOLOGY_FILE, TerminalRecord, check_save_format, decode_census, decode_family_file,
+    decode_payload_file, decode_topology, family_file, malformed, owner_file,
 };
 use super::generate::CustomOwnerPayload;
 use super::ordering::{ORBITS_FILE, ORDERING_FILE, ROUTES_FILE, read_ordering};
@@ -895,6 +895,49 @@ pub fn load_p_library(
             )));
         }
     }
+    // vk5l WP6: the nodes the package declares not closed.
+    let mut open: BTreeMap<OwnerClassId, (String, String)> = BTreeMap::new();
+    for record in &manifest.open_nodes {
+        if record.version != P_OPEN_NODE_RECORD_VERSION {
+            return Err(version_mismatch(
+                "P_OPEN_NODE_RECORD_VERSION",
+                record.version.to_string(),
+                P_OPEN_NODE_RECORD_VERSION.to_string(),
+            ));
+        }
+        let class = *classes.get(&record.class).ok_or_else(|| {
+            malformed(format!(
+                "the open node {} names the class {}, not in the census",
+                record.node, record.class
+            ))
+        })?;
+        let owner = manifest
+            .owners
+            .iter()
+            .find(|owner| owner.class == record.class);
+        match owner {
+            Some(owner)
+                if owner.lane == LaneRecord::Custom
+                    && owner.payload.is_none()
+                    && owner.custom.is_none()
+                    && owner.terminals.is_empty() => {}
+            _ => {
+                return Err(malformed(format!(
+                    "the open node {} ({}) needs a Custom owner without payload or terminals",
+                    record.node, record.class
+                )));
+            }
+        }
+        if open
+            .insert(class, (record.node.clone(), record.status.clone()))
+            .is_some()
+        {
+            return Err(malformed(format!(
+                "the open node {} is listed twice",
+                record.node
+            )));
+        }
+    }
     let mut owners = Vec::with_capacity(manifest.owners.len());
     let lazy = lazy_payloads(&source, last);
     for record in &manifest.owners {
@@ -946,7 +989,14 @@ pub fn load_p_library(
     }
     builder.set_census(census)?;
     for owner in owners {
-        builder.add_owner(owner)?;
+        if open.contains_key(&owner.class) {
+            builder.add_owner_with_program(owner, OwnerProgram::Missing { ledger: 0 })?;
+        } else {
+            builder.add_owner(owner)?;
+        }
+    }
+    for (class, (node, status)) in &open {
+        builder.declare_open_node(*class, node, status)?;
     }
     if let Some(layer) = &layer {
         builder.set_basis_map(Arc::new(layer.clone()))?;
