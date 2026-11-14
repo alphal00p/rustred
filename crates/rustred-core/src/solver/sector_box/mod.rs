@@ -316,6 +316,11 @@ pub struct ModularReport<const N: usize> {
     pub demand: usize,
     /// Targets and preferred integrals in proved-zero sectors.
     pub zero_demand: usize,
+    /// Preferred integrals (after routing onto their representative sector)
+    /// that are NOT masters: reducible to easier preferred integrals or to
+    /// other masters. Preferred integrals of zero sectors are not listed here
+    /// (they count in `zero_demand`).
+    pub preferred_not_masters: Vec<[i16; N]>,
     pub closure_columns: usize,
     pub closure_pivots: usize,
     pub candidates: usize,

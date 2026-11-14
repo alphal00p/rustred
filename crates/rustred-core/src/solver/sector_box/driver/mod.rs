@@ -361,12 +361,21 @@ impl<const N: usize> BoxLaportaSession<N> {
     }
 
     /// Add targets and preferred masters; seed, eliminate and select until
-    /// the masters are stable. Earlier rows and seeds are kept.
+    /// the masters are stable. Earlier rows and seeds are kept. With Kira
+    /// boxes this is one round (the boxes are fixed); growth comes with
+    /// demand and staircase seeding.
     ///
     /// Preferred integrals of non-representative sectors are replaced by
     /// their single-term route onto the representative sector (an error if
     /// the route has several terms); preferred integrals of zero sectors
-    /// are reported as unneeded.
+    /// are reported as unneeded (`zero_demand`), and preferred integrals that
+    /// do not end up as masters are listed in
+    /// [`ModularReport::preferred_not_masters`].
+    ///
+    /// A new preferred set rebuilds the whole system from the recorded seeds
+    /// (the column order changes), so callers should pass all preferred
+    /// integrals in one call. An unlucky sample (`UnluckyBoxSample`) is
+    /// returned to the caller, who resamples with another `Sample::seed`.
     pub fn extend(
         &mut self,
         targets: &[[i16; N]],
@@ -468,11 +477,19 @@ impl<const N: usize> BoxLaportaSession<N> {
         self.refresh_totals();
         let seeds = reports.iter().map(|report| report.seeds).sum();
         let hull_seeds = reports.iter().map(|report| report.hull_seeds).sum();
+        let masters: BTreeSet<[i16; N]> = self.masters.iter().copied().collect();
+        let preferred_not_masters = self
+            .preferred
+            .iter()
+            .filter(|preferred| !masters.contains(*preferred))
+            .copied()
+            .collect();
         Ok(ModularReport {
             masters: self.masters.clone(),
             sectors: reports,
             demand: self.demand.len(),
             zero_demand: self.zero_demand.len(),
+            preferred_not_masters,
             closure_columns: selection.closure_columns,
             closure_pivots: selection.closure_pivots,
             candidates: selection.candidates,
