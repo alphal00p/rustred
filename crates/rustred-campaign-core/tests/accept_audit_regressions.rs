@@ -35,7 +35,8 @@ use rustred_campaign_core::closure::facts::CoefFact;
 use rustred_campaign_core::cover::{Dispatch, Dispatcher, Table};
 use rustred_campaign_core::domain::DomainOptions;
 use rustred_campaign_core::economy::{
-    CoverageState, Retirement, RuleMeasure, SupersedeReason, prove_coverage_preserved, table_set_digest,
+    CoverageState, Retirement, RuleMeasure, SupersedeReason, prove_coverage_preserved,
+    table_set_digest,
 };
 use rustred_campaign_core::ibp_rows::TableBinding;
 use rustred_campaign_core::key::Key;
@@ -1106,7 +1107,12 @@ fn full_retirement_refused_unless_bound() {
         .unwrap();
     let originals = rule_lines(&whole.path);
     let victim = rule_lines(&copy_path)[0].1.clone();
-    let by = originals.iter().find(|(i, _)| *i == copied).unwrap().1.clone();
+    let by = originals
+        .iter()
+        .find(|(i, _)| *i == copied)
+        .unwrap()
+        .1
+        .clone();
     let copy = InputTable {
         id: "copy".into(),
         path: copy_path,
@@ -1118,8 +1124,14 @@ fn full_retirement_refused_unless_bound() {
     let same = DispatchOrderStatement::SameOrder;
     let before = tables_in_force(&inp, &[]).unwrap();
     let after = tables_in_force(&inp, std::slice::from_ref(&victim)).unwrap();
-    let (bs, asrc) = (DispatcherSource::new(&before), DispatcherSource::new(&after));
-    assert_eq!((bs.len(), asrc.len()), (originals.len() + 1, originals.len()));
+    let (bs, asrc) = (
+        DispatcherSource::new(&before),
+        DispatcherSource::new(&after),
+    );
+    assert_eq!(
+        (bs.len(), asrc.len()),
+        (originals.len() + 1, originals.len())
+    );
     let proof = prove_coverage_preserved(&bs, &asrc, &t.node.frame, &o, &same)
         .expect("the copy never serves: dispatch coverage preserved");
     assert_eq!(proof.old_tables_digest(), table_set_digest(&bs));
@@ -1154,7 +1166,9 @@ fn full_retirement_refused_unless_bound() {
     // the shipped table's dispatch set is the one the proof is about (labels / renumbering enter no digest)
     let tf = read_table_file(&ok.table, ReadOptions { rhs: RhsMode::Skip }).unwrap();
     let shipped = Dispatcher::new(
-        vec![Table::from_table_file("shipped", "assembled", &tf, DomainOptions::default()).unwrap()],
+        vec![
+            Table::from_table_file("shipped", "assembled", &tf, DomainOptions::default()).unwrap(),
+        ],
         vec![0],
     )
     .unwrap();

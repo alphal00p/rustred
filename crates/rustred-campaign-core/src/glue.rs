@@ -242,7 +242,8 @@ pub fn relation_set_from_accepted_recipe(
     if *recipe_digest != recipe.digest() || answers.recipe_digest != recipe.digest() {
         return Err(GlueError::NotCertified(format!(
             "recipe {} / verdict {recipe_digest} / answers {}",
-            recipe.digest(), answers.recipe_digest
+            recipe.digest(),
+            answers.recipe_digest
         )));
     }
     let mut b = RelationStoreBuilder::new(codec);

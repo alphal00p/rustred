@@ -557,7 +557,9 @@ fn m3_pole_blocking_modelled_in_dispatch_mode() {
         if open {
             assert_ne!(d.class_of(&k).unwrap(), ClassHit::Covered, "{k:?}");
             assert!(
-                d.faces().iter().any(|x| x.key() == face_of(&d.nf().lines, &k)),
+                d.faces()
+                    .iter()
+                    .any(|x| x.key() == face_of(&d.nf().lines, &k)),
                 "{k:?}"
             );
         }

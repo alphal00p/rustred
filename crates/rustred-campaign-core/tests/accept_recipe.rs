@@ -217,8 +217,13 @@ fn engine_results_shape_is_read() {
     let (_, line) = witness_lines("TOY2kite", "K2-single")[0].clone();
     let w = RuleText::parse(&line, &node.frame).unwrap();
     let det = "rustred.recipe-solve.v1/elim=rustred.recipe-elim.v1/prime=2305843009213693951/seed=0/backend=sparse-target-only-factorized";
-    let recipe = Recipe::from_file(&recipe_file(&w.value, &node.frame, 2), "sha256:order", det, &node.frame)
-        .unwrap();
+    let recipe = Recipe::from_file(
+        &recipe_file(&w.value, &node.frame, 2),
+        "sha256:order",
+        det,
+        &node.frame,
+    )
+    .unwrap();
     let gaps = gap_keys(&node, "K2-single");
     let inst = Instantiator::new(&w).unwrap();
     let mut text = String::new();

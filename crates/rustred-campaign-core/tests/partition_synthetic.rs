@@ -198,9 +198,11 @@ fn memoised_equals_reference_mode_capped() {
             let ca: BTreeSet<_> = a.classes().iter().cloned().collect();
             let cb: BTreeSet<_> = b.classes().iter().cloned().collect();
             assert_eq!(
-                ca, cb,
+                ca,
+                cb,
                 "seed {seed} arity {n}: memo {} nodes vs reference {} nodes",
-                a.stats().nodes, b.stats().nodes
+                a.stats().nodes,
+                b.stats().nodes
             );
             // and the uncapped memoised run restricted to <= cap off-floor slots has the same classes
             let full = gap_partition(

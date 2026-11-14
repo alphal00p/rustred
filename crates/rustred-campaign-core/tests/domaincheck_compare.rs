@@ -67,7 +67,11 @@ fn bank_tables_dir() -> PathBuf {
 fn bank_tables(opts: DomainOptions) -> (Table, Vec<i64>) {
     let dir = bank_tables_dir();
     let sums_text = std::fs::read(dir.join("SHA256SUMS")).unwrap();
-    assert_eq!(sha256_tag(&sums_text), BANK_TABLES_SUMS_SHA256, "SHA256SUMS of the set");
+    assert_eq!(
+        sha256_tag(&sums_text),
+        BANK_TABLES_SUMS_SHA256,
+        "SHA256SUMS of the set"
+    );
     let sums: BTreeMap<String, String> = String::from_utf8(sums_text)
         .unwrap()
         .lines()
@@ -88,7 +92,12 @@ fn bank_tables(opts: DomainOptions) -> (Table, Vec<i64>) {
     let mut all = TableFile::default();
     let key_fields = |tf: &TableFile| -> Value {
         let h = &tf.header.as_ref().unwrap().raw;
-        serde_json::json!([h["denominators"], h["mask"], h["power_shifts"], h["node_order"]["slot_permutation"]])
+        serde_json::json!([
+            h["denominators"],
+            h["mask"],
+            h["power_shifts"],
+            h["node_order"]["slot_permutation"]
+        ])
     };
     for (i, (_, tf)) in parts.into_iter().enumerate() {
         if i == 0 {
@@ -101,9 +110,12 @@ fn bank_tables(opts: DomainOptions) -> (Table, Vec<i64>) {
         all.rules.extend(tf.rules);
     }
     let labels: Vec<i64> = all.rules.iter().map(|r| r.index.unwrap()).collect();
-    assert!(labels.windows(2).all(|w| w[0] < w[1]), "labels in first-match order, unique");
-    let table = Table::from_table_file("T162-bank-tables", dir.display().to_string(), &all, opts)
-        .unwrap();
+    assert!(
+        labels.windows(2).all(|w| w[0] < w[1]),
+        "labels in first-match order, unique"
+    );
+    let table =
+        Table::from_table_file("T162-bank-tables", dir.display().to_string(), &all, opts).unwrap();
     assert_eq!(table.len(), labels.len(), "every bank record is dispatched");
     (table, labels)
 }
@@ -568,7 +580,10 @@ fn t_domain_t162() {
     // (a2) measured 2026-11-14 (engine rr_node sha256 dafdce8a... and eedb3092..., byte-identical outputs): identical
     // decisions on every key, both ways
     assert!(a2.findings.is_empty(), "findings: see the report");
-    assert_eq!((a2.keys, a2.agree_rule, a2.agree_none), (55_704, 54_714, 990));
+    assert_eq!(
+        (a2.keys, a2.agree_rule, a2.agree_none),
+        (55_704, 54_714, 990)
+    );
     assert_eq!(a2.differences(), 0);
     assert_eq!(a2.point_valid.get("ok"), Some(&54_714));
     // (a1) 2,437 of the 2,440 qualified records carry no witness loci (coord-bank-tables.md v1.2 s.0): the core blocks
@@ -578,14 +593,24 @@ fn t_domain_t162() {
         .iter()
         .filter(|m| m.witness == WitnessStatus::NotCarried)
         .count();
-    println!("converted qualified records without witness loci: {without} of {}", table.len());
+    println!(
+        "converted qualified records without witness loci: {without} of {}",
+        table.len()
+    );
     assert_eq!((without, table.len()), (2_437, 2_440));
     assert!(a1.findings.is_empty(), "findings: see the report");
     assert_eq!((a1.keys, a1.agree_none), (55_704, 990));
     assert_eq!(a1.witness_not_carried, a1.engine_on_not_carried);
-    assert_eq!(a1.differences(), a1.witness_not_carried, "the ONLY difference class");
+    assert_eq!(
+        a1.differences(),
+        a1.witness_not_carried,
+        "the ONLY difference class"
+    );
     assert_eq!(a1.agree_rule + a1.witness_not_carried, 54_714);
-    assert_eq!(a1.point_valid.get("ok").copied().unwrap_or(0), a1.agree_rule);
+    assert_eq!(
+        a1.point_valid.get("ok").copied().unwrap_or(0),
+        a1.agree_rule
+    );
     // (a3) core vs core on every box key: bank predicates vs our domain code on the converted records, (i) with the
     // witness check off: the same first match everywhere; (ii) strict: differs only where the converted record is
     // NotCarried and blocks
@@ -605,7 +630,11 @@ fn t_domain_t162() {
         let l = dl.first_match(k).unwrap();
         let s = ds.first_match(k).unwrap();
         let pos = |d: &Dispatch| d.winner().map(|w| w.record);
-        assert_eq!(pos(&b), pos(&l), "{k:?}: bank predicates {b:?} vs domain code {l:?}");
+        assert_eq!(
+            pos(&b),
+            pos(&l),
+            "{k:?}: bank predicates {b:?} vs domain code {l:?}"
+        );
         assert_eq!(b.is_covered(), l.is_covered(), "{k:?}");
         same += 1;
         covered += usize::from(b.is_covered());

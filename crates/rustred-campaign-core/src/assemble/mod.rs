@@ -31,12 +31,12 @@ use crate::accept::{
     node_identity,
 };
 use crate::closure::sha256::Sha256;
-use crate::domain::{CaseDomain, DomainOptions, Stage};
 use crate::cover::{Dispatcher, Table};
+use crate::domain::{CaseDomain, DomainOptions, Stage};
 use crate::economy::{CoverageState, RetireError, Retirement};
-use crate::partition::{DispatchOrderStatement, DispatcherSource, parse_dispatch_proof_method};
 use crate::key::{Key, NodeFrame};
 use crate::order::NodeComparator;
+use crate::partition::{DispatchOrderStatement, DispatcherSource, parse_dispatch_proof_method};
 use crate::record::{
     ReadOptions, RecordReader, RhsMode, RuleRecord, TableFile, TableHeader, TableLine,
 };
@@ -989,8 +989,9 @@ fn dispatch_set<'a>(
         r.index = Some(n as i64);
         tf.rules.push(r);
     }
-    let table = Table::from_table_file("tables_in_force", "assembly", &tf, DomainOptions::default())
-        .map_err(|e| AssembleError::Retire(format!("tables in force: {e}")))?;
+    let table =
+        Table::from_table_file("tables_in_force", "assembly", &tf, DomainOptions::default())
+            .map_err(|e| AssembleError::Retire(format!("tables in force: {e}")))?;
     Dispatcher::new(vec![table], vec![0])
         .map_err(|e| AssembleError::Retire(format!("tables in force: {e:?}")))
 }
@@ -1002,7 +1003,10 @@ fn dispatch_set<'a>(
 /// [`crate::economy::prove_coverage_preserved`] with `old` = `tables_in_force(input, &[])` and `new` =
 /// `tables_in_force(input, retired)` (as [`DispatcherSource`]s), order statement `SameOrder`: assembly recomputes both
 /// sets and checks the proof with [`Retirement::check_tables`]. The caller proves on exactly what assembly checks.
-pub fn tables_in_force(input: &AssemblyInput, minus: &[String]) -> Result<Dispatcher, AssembleError> {
+pub fn tables_in_force(
+    input: &AssemblyInput,
+    minus: &[String],
+) -> Result<Dispatcher, AssembleError> {
     let c = collect(input)?;
     let mut entries = c.entries;
     for r in &input.retirements {
@@ -1059,7 +1063,9 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
                 )));
             }
             // records are removed IN PLACE: the proof must state the same dispatch order
-            if parse_dispatch_proof_method(proof.method()) != Some(DispatchOrderStatement::SameOrder) {
+            if parse_dispatch_proof_method(proof.method())
+                != Some(DispatchOrderStatement::SameOrder)
+            {
                 return Err(AssembleError::Retire(format!(
                     "the containment proof states {:?}; a retirement removes records in place (order=same)",
                     proof.method()
@@ -1086,7 +1092,8 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
         // `Retirement::check_tables`): both sets rebuilt here from the records assembly ships, digested by the ONE
         // definition `economy::table_set_digest`. A BOXED retirement is checked when it carries a proof.
         if full || r.tables().is_some() {
-            let before = dispatch_set(entries.iter().map(|e| &e.record), &header, &scans[0].charts)?;
+            let before =
+                dispatch_set(entries.iter().map(|e| &e.record), &header, &scans[0].charts)?;
             let after = dispatch_set(
                 entries
                     .iter()

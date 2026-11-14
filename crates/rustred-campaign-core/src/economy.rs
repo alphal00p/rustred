@@ -277,7 +277,14 @@ pub fn table_set_digest(src: &dyn crate::partition::DomainSource) -> String {
         .as_bytes(),
     );
     for i in 0..src.len() {
-        h.update(format!("{:?};witness_block={:?}\n", src.domain(i), src.witness_block(i)).as_bytes());
+        h.update(
+            format!(
+                "{:?};witness_block={:?}\n",
+                src.domain(i),
+                src.witness_block(i)
+            )
+            .as_bytes(),
+        );
     }
     format!("sha256:{}", h.hex())
 }
