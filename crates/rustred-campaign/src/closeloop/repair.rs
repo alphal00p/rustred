@@ -30,6 +30,7 @@ use crate::supervisor::spec::CampaignSpec;
 use crate::supervisor::worksource::{
     AcceptedRecord, JobRequest, Routing, Settled, SourceContext, WorkSource,
 };
+use rustred_campaign_contract::classify::OutcomeKind;
 use rustred_campaign_contract::fake::{FakeOp, FakeRule, FakeScript, OnSigterm, RssPlan};
 use rustred_campaign_contract::spec::{
     Budgets as JobBudgets, InputRef, JobKind, WallBudgets, WorkBudgets,
@@ -432,10 +433,14 @@ impl<S: WorkSource> RepairFlowSource<S> {
         let node = self.nodes[i].cfg.node.clone();
         let p1 = self.nodes[i].p1.clone().ok_or("p1 not loaded")?;
         let items = self.s_items(st, i);
-        if items
-            .iter()
-            .any(|(_, ph, _)| matches!(ph, ItemPhase::Open | ItemPhase::InProgress))
-        {
+        // an item in attention (its job was refused by the contract: a bug, not evidence about the face) holds the
+        // barrier until the operator retries or skips it (a skipped face goes to its recipes)
+        if items.iter().any(|(_, ph, _)| {
+            matches!(
+                ph,
+                ItemPhase::Open | ItemPhase::InProgress | ItemPhase::Attention(_)
+            )
+        }) {
             return Ok(());
         }
         // answers by face label (the last answer input of each item)
@@ -1379,6 +1384,16 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
         };
         let has =
             matches!(&answer, FaceAnswer::Candidates { candidates, .. } if !candidates.is_empty());
+        // a contract-level refusal / crash says nothing about the face: attention (operator retry / skip), never a
+        // decision
+        let infra = matches!(
+            c.kind,
+            OutcomeKind::Refused
+                | OutcomeKind::UsageError
+                | OutcomeKind::SetupError
+                | OutcomeKind::Crashed
+                | OutcomeKind::UnverifiableKind
+        );
         let rec = record(
             format!(
                 "{}/answers/{}.{}.answer.json",
@@ -1397,7 +1412,18 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
             ROLE_ANSWER,
             rec,
         );
-        if has && let Some(t) = &done.table {
+        if infra && !has {
+            rt.events.push(Event::Item {
+                item: done.item.clone(),
+                ev: ItemEvent::Attention {
+                    code: "repair_symbolic_refused".into(),
+                    text: format!(
+                        "repairflow: the generate job was refused ({}): operator retry or skip",
+                        c.why
+                    ),
+                },
+            });
+        } else if has && let Some(t) = &done.table {
             rt.events.push(Event::Item {
                 item: done.item.clone(),
                 ev: ItemEvent::Produce {

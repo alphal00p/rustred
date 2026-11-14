@@ -189,7 +189,8 @@ pub fn shadow_face(
     }
 }
 
-/// The PRESENTED case line of a face (cases input of the generate job): face slots free, the rest at the floor.
+/// The PRESENTED case line of a face (cases input of the generate job, child-job.md 3.8.3: `frame` PRESENTED): face
+/// slots free, the rest at the floor.
 pub fn case_line(face: &Face, lines: &[bool]) -> Value {
     let slots = face.slots();
     let fixed: Vec<Value> = (0..lines.len())
@@ -201,7 +202,7 @@ pub fn case_line(face: &Face, lines: &[bool]) -> Value {
             }
         })
         .collect();
-    json!({"fixed": fixed, "equations": []})
+    json!({"frame": "PRESENTED", "fixed": fixed, "equations": []})
 }
 
 /// The centre / floor arguments of the face search (`symbolic.centre`), with the priorities of the node order.

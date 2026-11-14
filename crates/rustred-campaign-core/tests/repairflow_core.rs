@@ -89,7 +89,7 @@ fn faces_group_order_and_requests() {
     let f = Face::new(vec![0, 2], vec![3]);
     assert_eq!(
         case_line(&f, &lines()),
-        json!({"fixed": [null, 1, null, null, 0], "equations": []})
+        json!({"frame": "PRESENTED", "fixed": [null, 1, null, null, 0], "equations": []})
     );
     let p = RepairPolicy::default();
     let a = s_args(&f, &p, "id", &[2, 1, 0], &[4, 3]);
