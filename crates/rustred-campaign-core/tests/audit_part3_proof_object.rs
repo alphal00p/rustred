@@ -397,3 +397,80 @@ fn p3_m2_face_expansion_is_not_charged_to_the_work_budget_defect() {
     assert!(rep.outcome().is_complete());
     assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
 }
+
+/// P3-M2 (second shape): one record coupling an early and a late slot (exception {n0 - n1 = 0, n10 - 2 = 0}) makes the
+/// class recursion split every intermediate slot (no rule completes before slot 11); the memo keeps the recursion
+/// small, but `collect_classes` lists one class per PATH of the memo DAG (2^8 paths through slots 2..9, per leaf
+/// kind), each Fragile class is expanded into cells and resolved. None of this is bounded by the node budget. The
+/// auditor's arity-20 fuzz set 0x38ecb4765e420c4c (same shape, coupled slots 0, 1, 16) grew past 0.5 GB at ~13 MB/s.
+#[test]
+fn p3_m2_classes_are_memo_dag_paths_not_charged_to_the_budget_defect() {
+    let n = 14;
+    let f = NodeFrame::without_header_lines_first(n, n);
+    let mut d = CaseDomain::free(n, Some(vec![true; n]));
+    d.exceptions = vec![vec![
+        Poly::parse("n0-n1", n, false).unwrap(),
+        Poly::parse("n10-2", n, false).unwrap(),
+    ]];
+    let l = list(&[d], n);
+    let o = PartitionOptions {
+        resolve_loci: false,
+        budget: rustred_campaign_core::partition::Budget {
+            max_nodes: Some(300),
+            max_faces: Some(1),
+            ..Default::default()
+        },
+        ..dispatch_opts()
+    };
+    let rep = gap_partition(&l, &f, &o, None).unwrap();
+    assert!(
+        rep.budget_exhausted().is_none(),
+        "the recursion fits 300 units"
+    );
+    assert!(rep.stats().nodes <= 300);
+    // DEFECT (robustness): the listed classes grow as 2^(intermediate slots), outside the budget
+    assert!(
+        rep.classes().len() >= 1 << 8,
+        "{} classes",
+        rep.classes().len()
+    );
+    assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
+}
+
+/// P3-M3 (major, liveness of `shadowed` / `contained_in` / `is_empty`): when the sign split ends on a leaf with only
+/// NONLINEAR literals, its candidate point is verified against the domains; if that fails, `verified_witness`
+/// (loci/contain.rs) walks EVERY point of the L1 ball of radius 1..=12 around a base point in all k parameters with no
+/// node, work or wall check: about D(k, 12) points per radius (k = 6: ~3.7e5, k = 20: ~6e10). Shape: subject free;
+/// earlier records A (free except on n0*n1 = 4) and C (exactly n0*n1 = 4) match every key, so the true answer is
+/// "shadowed", and the walk never finds a witness. The auditor's arity-20 fuzz set 0x73e0f4246dfa99d0 (4 records, one
+/// quadratic member) spent > 10 min in this walk (gdb backtrace) inside `shadowed_with` with a 1 s wall budget;
+/// acceptance calls `partition::shadowed` on every FULL-node candidate. Here: arity 8, a 10 ms wall budget (arity 6 took 56 ms, arity 8 ~10x more).
+#[test]
+fn p3_m3_verified_witness_walk_ignores_the_proof_budget_defect() {
+    use rustred_campaign_core::loci::contain::ProofBudget;
+    use rustred_campaign_core::partition::{Containment, shadowed_with};
+    let n = 8;
+    let f = NodeFrame::without_header_lines_first(n, n);
+    let c = Some(vec![true; n]);
+    let mut a = CaseDomain::free(n, c.clone());
+    a.exceptions = vec![vec![Poly::parse("n0*n1-4", n, false).unwrap()]];
+    let mut on = CaseDomain::free(n, c.clone());
+    on.equations = vec![Poly::parse("n0*n1-4", n, false).unwrap()];
+    let subject = CaseDomain::free(n, c);
+    let l = list(&[a, on, subject], n);
+    let budget = ProofBudget {
+        max_nodes: 10,
+        wall: Some(std::time::Duration::from_millis(10)),
+        ..Default::default()
+    };
+    let t0 = std::time::Instant::now();
+    let v = shadowed_with(&l, 2, &f, &budget);
+    let ms = t0.elapsed().as_millis();
+    eprintln!("shadowed_with on arity {n}: {v:?} after {ms} ms (wall budget 10 ms)");
+    assert!(
+        !matches!(v, Containment::NotContained { .. }),
+        "every key is matched"
+    );
+    // DEFECT: the walk runs far beyond the 10 ms wall budget (grows as D(k, 12): a hang at arity 20)
+    assert!(ms >= 150, "{ms} ms");
+}
