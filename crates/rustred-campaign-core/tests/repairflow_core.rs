@@ -91,7 +91,7 @@ fn faces_group_order_and_requests() {
         case_line(&f, &lines()),
         json!({"frame": "PRESENTED", "fixed": [null, 1, null, null, 0], "equations": []})
     );
-    let p = RepairPolicy::default();
+    let p = policy(json!({"symbolic": {"centre": "last_line_floored"}}));
     let a = s_args(&f, &p, "id", &[2, 1, 0], &[4, 3]);
     let s = a.join(" ");
     // last line in the priority among the face lines = 0, floored
@@ -101,7 +101,9 @@ fn faces_group_order_and_requests() {
     );
     assert!(s.contains("--descend open"));
     assert!(s.contains("--screen 0,64,24,2500 --on-heavy refuse --open-on-refusal"));
-    let pn = policy(json!({"symbolic": {"centre": "union_floored"}}));
+    // the DEFAULT seed setting: every free slot one step to its floor, floored (helper w13: reproduces the engine's
+    // minimal face rule term for term)
+    let pn = RepairPolicy::default();
     assert!(
         s_args(&f, &pn, "id", &[0, 1, 2], &[3, 4])
             .join(" ")
@@ -619,4 +621,97 @@ fn job_family_is_derived_from_the_frame_header() {
             println!("{p}: {f}, {} bytes", t.len());
         }
     }
+}
+
+/// MEASUREMENT (ignored; real material, in-process, no child): ROUTE 0b = the EXACT multi-term symmetry relation at the
+/// key (verified group derived from the frame header's family, `termmin::symrel::symmetry_relation_at_key`) at given
+/// keys (`RF_KEYS_JSONL`), restricted to one signature (`RF_FACE`, e.g. "{9}x{11,13,14,15}"); right-hand side checked
+/// against the tables of `RF_SPEC` (first match) and the keys of the same set.
+#[test]
+#[ignore]
+fn measure_route0b_symmetry_relations() {
+    use rustred_campaign_core::independent_algebra::Independent;
+    use rustred_campaign_core::termmin::symrel::{SymRelation, symmetry_relation_at_key};
+    let spec = std::env::var("RF_SPEC").expect("RF_SPEC");
+    let keys = std::env::var("RF_KEYS_JSONL").expect("RF_KEYS_JSONL");
+    let want = std::env::var("RF_FACE").ok();
+    let ts = rustred_campaign_core::import::TableSetSpec::from_json(
+        &std::fs::read_to_string(&spec).unwrap(),
+    )
+    .unwrap();
+    let base = std::path::Path::new("/");
+    let set = rustred_campaign_core::import::load(&ts, base).unwrap();
+    let lines = set.frame.mask().to_vec();
+    let fsrc = ts.sources.iter().find(|s| s.id == ts.frame_from).unwrap();
+    let h: serde_json::Value = serde_json::from_str(
+        std::fs::read_to_string(fsrc.path.as_ref().unwrap())
+            .unwrap()
+            .lines()
+            .next()
+            .unwrap(),
+    )
+    .unwrap();
+    let fam = h["family_source"].as_str().map(str::to_string);
+    let gs: rustred_campaign_core::import::symmetry::GroupSpec =
+        serde_json::from_value(json!({})).unwrap();
+    let (g, rep) = rustred_campaign_core::import::symmetry::load_verified_group(
+        &gs,
+        base,
+        &lines,
+        set.cmp.presentation().new_to_old(),
+        fam.as_deref(),
+    )
+    .unwrap();
+    let all: Vec<Vec<i32>> = std::fs::read_to_string(&keys)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let keyset: std::collections::BTreeSet<Vec<i32>> = all.iter().cloned().collect();
+    let cmp = |a: &[i32], b: &[i32]| set.cmp.cmp(a, b);
+    let mut out = vec![];
+    let (mut served, mut tested, mut rhs_ok) = (0, 0, 0);
+    let mut elems = std::collections::BTreeMap::new();
+    for k in &all {
+        let f = rustred_campaign_core::worklist::items::Face::of_key(k, &lines).map(|f| f.label());
+        if want.is_some() && f != want {
+            continue;
+        }
+        tested += 1;
+        match symmetry_relation_at_key(&Independent, &g, k, &cmp, 65_536) {
+            SymRelation::Relation {
+                rhs,
+                rows,
+                elements,
+                ..
+            } => {
+                served += 1;
+                *elems.entry(format!("{elements:?}")).or_insert(0u64) += 1;
+                let ok = rhs.iter().all(|(r, _)| {
+                    r.iter().zip(&lines).any(|(&v, &l)| l && v <= 0)
+                        || set
+                            .disp
+                            .first_match(r)
+                            .map(|d| d.is_covered())
+                            .unwrap_or(false)
+                        || !keyset.contains(r) && false
+                });
+                if ok {
+                    rhs_ok += 1;
+                }
+                out.push(json!({"key": k, "rhs_terms": rhs.len(), "rows": rows, "elements": elements, "rhs_served_by_tables": ok}));
+            }
+            SymRelation::NoRelation { rows, rank, .. } => {
+                out.push(json!({"key": k, "no_relation": {"rows": rows, "rank": rank}}))
+            }
+            SymRelation::Unknown(w) => out.push(json!({"key": k, "unknown": w})),
+        }
+    }
+    println!(
+        "{}",
+        json!({"group": format!("{rep:?}").chars().take(300).collect::<String>(), "face": want, "tested": tested,
+            "served": served, "rhs_all_served_by_tables": rhs_ok, "elements": elems,
+            "rhs_terms": out.iter().filter_map(|o| o["rhs_terms"].as_u64()).collect::<Vec<_>>(),
+            "first": out.iter().take(3).collect::<Vec<_>>()})
+    );
 }

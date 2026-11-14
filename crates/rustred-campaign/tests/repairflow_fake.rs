@@ -150,7 +150,8 @@ fn material(dir: &Path, ms: u64) -> Files {
             "repair_policy":{"symbolic":{"heartbeat_s":1,"stop_grace_s":3,"cap_bytes":268435456,
                                          "expected_peak_bytes":67108864},
                              "recipes":{"escalation":["d2_clast_fon_mM1C","d3_clast_fon_mM1C"]},
-                             "route0":{"symmetry_credit":false}},
+                             "route0":{"symmetry_credit":false},
+                             "proposals":{"declare_terminal":true}},
             "nodes":{},
             "fake":{"program":"rr_fake_child","ms":ms,"faces":{
                 F_KEPT: {"rule": kept}, F_BIG: {"rule": big},
@@ -355,7 +356,10 @@ fn the_flow_decides_per_face_and_exports_recipes() {
 #[test]
 fn closeout_rule_declares_proposals_only_when_nothing_else_blocks() {
     use rustred_campaign::closeloop::repair::closeout_check;
-    let p = rustred_campaign_core::repairflow::policy::ProposalPolicy::default();
+    let p = rustred_campaign_core::repairflow::policy::ProposalPolicy {
+        declare_terminal: true,
+        ..Default::default()
+    };
     let fin = |blockers: Value, closure: u64, cert: u64| json!({"verdict": "open", "blockers": blockers, "keys": {"closure": closure, "certified": cert}});
     assert!(
         closeout_check(

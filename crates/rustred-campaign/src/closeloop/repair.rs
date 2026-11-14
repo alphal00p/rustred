@@ -835,9 +835,15 @@ impl<S: WorkSource> RepairFlowSource<S> {
                     .and_then(|fl| d.faces.iter().find(|f| &f.face == fl))
                     .map(|f| f.recipe_steps.clone())
                     .unwrap_or_default();
+                let known = self.nodes[i].policy.proposals.known_open.contains(&key);
+                let status = if known {
+                    "known_open"
+                } else {
+                    "terminal_proposal (no relation within the policy; awaiting an operator decision)"
+                };
                 proposals.push(
                     json!({"key": key, "face": face, "tried_steps": steps, "default_recipe": true,
-                    "status": "terminal_proposal"}),
+                    "status": status}),
                 );
             }
         }
@@ -993,7 +999,8 @@ impl<S: WorkSource> RepairFlowSource<S> {
             let status = if f.kept.is_some() {
                 json!("closed_symbolic_all_layers")
             } else if size_stop && pf.1 > 0 && pf.2 == 0 {
-                json!({"candidate_larger_budget_symbolic": f.symbolic.class})
+                json!({"candidate_larger_budget_symbolic": f.symbolic.class,
+                    "note": "large with the current engine (unminimised seeds): a candidate for the minimised attempt, not evidence that no small rule exists"})
             } else if pf.1 > 0 && pf.2 == 0 {
                 json!("pointwise_certified_where_solved")
             } else if pf.2 > 0 {

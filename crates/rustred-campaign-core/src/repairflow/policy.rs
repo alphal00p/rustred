@@ -129,7 +129,9 @@ impl Default for SymbolicPolicy {
         SymbolicPolicy {
             enabled: true,
             max_depth: 2,
-            centre: "last_line_floored".into(),
+            // helper (w13, 2026-11-14): centre = every free slot one step to its floor, floored, depth 2 reproduces the
+            // engine's own minimal face rule term for term (T162 sc-c010#1: 6 terms, 50 monomials, 0.1 s)
+            centre: "union_floored".into(),
             numeric_depth: 2,
             wall_case_s: 120,
             screen: Screen::default(),
@@ -267,12 +269,17 @@ impl Default for CostModel {
     fn default() -> Self {
         CostModel {
             enabled: true,
-            load_ns_per_byte: 30.0,
-            apply_ns_base: 20_000.0,
-            apply_ns_per_monomial: 100.0,
-            recipe_solve_s: 12.0,
-            cached_ns_base: 20_000.0,
-            cached_ns_per_rhs_term: 2_000.0,
+            // MEASURED (lane repairflow timing, unified frozen engine, T178 kept rules 61 KB / 407 KB / 1.53 MB,
+            // rr_proof instantiate = exact evaluation of every coefficient at the key): per key 1.75 / 6.2 / 11.2 ms ->
+            // slope 82 ns per monomial, base 1.3 ms; load ~15 ns per byte; face recipe solved with the recipe known
+            // (d2 last line floored) 16-47 s per key (median 36 s); a cached relation (point record re-evaluated)
+            // <= 20 ms per key beyond process start (1 and 1,144 terms): base 1 ms + 10 us per term (provisional split)
+            load_ns_per_byte: 15.0,
+            apply_ns_base: 1_300_000.0,
+            apply_ns_per_monomial: 82.0,
+            recipe_solve_s: 36.0,
+            cached_ns_base: 1_000_000.0,
+            cached_ns_per_rhs_term: 10_000.0,
             cache_hit_fraction: 0.9,
             uses_per_served_key: 1.0,
             unbounded_direction_uses: 1_000_000.0,
@@ -334,14 +341,19 @@ pub struct ProposalPolicy {
     pub declare_terminal: bool,
     /// At most this many proposals are declared (the terminal set must stay finite and small); above: none declared.
     pub max_terminals: usize,
+    /// Keys KNOWN to have no relation within the policy (spec data): labelled `known_open` instead of new proposals.
+    pub known_open: Vec<Vec<i32>>,
 }
 
 impl Default for ProposalPolicy {
     fn default() -> Self {
         ProposalPolicy {
             enabled: true,
-            declare_terminal: true,
+            // directing session 2026-11-14: keys nothing serves become terminal PROPOSALS awaiting an operator
+            // decision, NEVER automatic terminals: the close-out by declaration is opt-in
+            declare_terminal: false,
             max_terminals: 100,
+            known_open: vec![],
         }
     }
 }
