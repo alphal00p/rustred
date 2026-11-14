@@ -1451,20 +1451,52 @@ fn load_recipe(
     let exceptions = exc.into_iter().map(polys).collect::<Result<Vec<_>, _>>()?;
     let mut bounds = vec![];
     if let Some(b) = dom.get("bounds").filter(|b| !b.is_null()) {
+        match b.as_object() {
+            Some(o) if o.keys().all(|k| k == "min" || k == "max") => {}
+            _ => return Err(bad(format!("domain.bounds {b} (refused, never ignored)"))),
+        }
         for (side, sign) in [("min", 1i32), ("max", -1)] {
-            if let Some(a) = b.get(side).and_then(Value::as_array) {
+            let a = match b.get(side) {
+                None | Some(Value::Null) => None,
+                Some(Value::Array(a)) => Some(a),
+                Some(o) => {
+                    return Err(bad(format!(
+                        "domain.bounds.{side} {o} (refused, never ignored)"
+                    )));
+                }
+            };
+            if let Some(a) = a {
                 if a.len() != n {
                     return Err(bad(format!("bounds.{side} length")));
                 }
                 for (i, x) in a.iter().enumerate() {
-                    if let Some(c) = x.as_i64() {
-                        let p = Poly::slot_minus(i, c as i128);
-                        bounds.push(if sign > 0 {
-                            p
-                        } else {
-                            p.neg().map_err(|e| bad(e.to_string()))?
-                        });
-                    }
+                    // exact or refused, never dropped (audit-credits m1: a dropped bound GROWS the domain). JSON
+                    // integers in the 64-bit range are exact (i64 / u64); a number beyond them reaches us as a float
+                    // whose exact value is lost: the recipe is refused (typed), as is any non-integer entry.
+                    let c: i128 = match x {
+                        Value::Null => continue,
+                        Value::Number(num) => match (num.as_i64(), num.as_u64()) {
+                            (Some(c), _) => c as i128,
+                            (None, Some(c)) => c as i128,
+                            (None, None) => {
+                                return Err(bad(format!(
+                                    "domain.bounds.{side}[{i}] = {num} is not an exact integer (a bound beyond \
+                                     64 bits loses its exact value in JSON: refused, never dropped)"
+                                )));
+                            }
+                        },
+                        o => {
+                            return Err(bad(format!(
+                                "domain.bounds.{side}[{i}] = {o} is not an integer or null (refused, never dropped)"
+                            )));
+                        }
+                    };
+                    let p = Poly::slot_minus(i, c);
+                    bounds.push(if sign > 0 {
+                        p
+                    } else {
+                        p.neg().map_err(|e| bad(e.to_string()))?
+                    });
                 }
             }
         }

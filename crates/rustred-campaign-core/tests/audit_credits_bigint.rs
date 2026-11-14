@@ -320,11 +320,12 @@ fn ok_engine_prime_divisible_literal_leaves_the_key_undecided() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
-/// PRE-EXISTING (commit bf10aed88, src/import/load.rs recipe domain): a recipe `domain.bounds.min` entry that is not an
-/// i64 (here 10^30) is SILENTLY DROPPED by `if let Some(c) = x.as_i64()`: the recipe's domain loses the bound (grows).
-/// Specified (directing session): never narrow, never skip: a typed refusal or an exact bound.
+/// PRE-EXISTING m1 (commit bf10aed88, src/import/load.rs recipe domain), FIXED by lane import4: a recipe
+/// `domain.bounds.min` entry that is not an i64 (here 10^30) was SILENTLY DROPPED by `if let Some(c) = x.as_i64()`: the
+/// recipe's domain lost the bound (grew). Specified (directing session): never narrow, never skip: a typed refusal or an
+/// exact bound. A JSON number beyond 64 bits reaches the loader as a float whose exact value is lost: typed refusal;
+/// a bound in the u64 range beyond i64 (2^63) is kept exactly.
 #[test]
-#[ignore = "AUDIT-CREDITS finding (pre-existing): recipe domain.bounds entry beyond i64 silently dropped"]
 fn recipe_domain_bound_beyond_i64_is_not_dropped() {
     let d = scratch("rbound");
     let a = write_table(
@@ -354,7 +355,14 @@ fn recipe_domain_bound_beyond_i64_is_not_dropped() {
                    {"id":"R","kind":"recipe","class":"recipe","path":rp.display().to_string()}]});
     let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
     match load(&s, &d) {
-        Err(e) => println!("refused (typed): {e}"),
+        Err(e) => {
+            println!("refused (typed): {e}");
+            assert!(
+                matches!(e, rustred_campaign_core::import::ImportError::Source { .. })
+                    && e.to_string().contains("domain.bounds.min[0]"),
+                "{e}"
+            );
+        }
         Ok(set) => {
             let dom = &set.recipes[0].domain;
             println!("recipe domain bounds: {:?}", dom.bounds);
@@ -365,5 +373,22 @@ fn recipe_domain_bound_beyond_i64_is_not_dropped() {
             );
         }
     }
+    // a bound in the u64 range beyond i64 (n0 >= 2^63) is kept exactly; a non-integer entry is refused
+    let txt2 = std::fs::read_to_string(&rp)
+        .unwrap()
+        .replace("1000000000000000000000000000000", "9223372036854775808");
+    std::fs::write(&rp, &txt2).unwrap();
+    let set = load(&s, &d).expect("a u64 bound loads");
+    let dom = &set.recipes[0].domain;
+    assert_eq!(dom.bounds.len(), 1);
+    assert!(
+        !dom.applies(&[2, 1, 0]).applies(),
+        "n0 >= 2^63 kept exactly"
+    );
+    std::fs::write(&rp, txt2.replace("9223372036854775808", "\"7\"")).unwrap();
+    assert!(
+        load(&s, &d).is_err(),
+        "a string bound is refused, never dropped"
+    );
     let _ = std::fs::remove_dir_all(&d);
 }
