@@ -670,6 +670,8 @@ pub struct SitePolicy {
     foreign_pinned: Option<BTreeSet<usize>>,
     extra_pause: Vec<PathBuf>,
     ledger: LedgerWriter,
+    /// SMT siblings per CPU when the "sibling quiet" rule is on (coord-site-policy.md rule 2c).
+    siblings: Option<BTreeMap<usize, Vec<usize>>>,
 }
 
 impl SitePolicy {
@@ -715,6 +717,7 @@ impl SitePolicy {
             foreign_pinned: None,
             extra_pause: Vec::new(),
             ledger,
+            siblings: None,
         })
     }
 
@@ -734,6 +737,52 @@ impl SitePolicy {
 
     pub fn config(&self) -> &SiteConfig {
         &self.config
+    }
+
+    /// Turn on the coordinator's "SMT sibling not busy" rule (coord-site-policy.md rule 2c): a CPU is eligible only if
+    /// every sibling is idle by the same `idle_min` measure (or itself leased by us). `siblings` maps a CPU to its
+    /// siblings; [`read_smt_siblings`] reads them from sysfs. Additive (lane I-SUP, 2026-11-14).
+    pub fn set_sibling_quiet(&mut self, siblings: BTreeMap<usize, Vec<usize>>) {
+        self.siblings = Some(siblings);
+    }
+
+    /// Restart reconciliation (audit-proc-A M6; coord-site-policy.md test 3): for every CPU our tag still claims in
+    /// the CPU ledger whose flock can be taken now (no live holder: the claimant died), append the missing RELEASED
+    /// line while holding the flock, then drop it. Claims whose flock is held (a live job of ours or a sibling
+    /// supervisor with the same tag) are left alone. Returns the CPUs released. Additive (lane I-SUP, 2026-11-14).
+    pub fn reconcile_own_claims(&mut self) -> Result<Vec<usize>, PolicyError> {
+        let lines = tail_lines(&self.config.ledger_file, self.config.ledger_scan_lines)
+            .map_err(io_err(format!("read {}", self.config.ledger_file.display())))?;
+        let claims = ledger_claims(lines.iter().map(String::as_str));
+        let Some(own) = claims.get(&self.config.tag) else {
+            return Ok(Vec::new());
+        };
+        let in_use = lock(&self.book).in_use.clone();
+        let mut held: Vec<(usize, File)> = Vec::new();
+        for &c in own {
+            if in_use.contains(&c) {
+                continue;
+            }
+            let path = self.lock_path(c);
+            let f = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&path)
+                .map_err(io_err(format!("open {}", path.display())))?;
+            if f.try_lock().is_ok() {
+                held.push((c, f));
+            }
+        }
+        let cpus: Vec<usize> = held.iter().map(|x| x.0).collect();
+        if !cpus.is_empty() {
+            self.ledger
+                .append(&self.ledger.release_line(&cpus, "stale claims of a dead supervisor"))
+                .map_err(io_err(format!("append to {}", self.config.ledger_file.display())))?;
+        }
+        drop(held);
+        Ok(cpus)
     }
 
     fn lock_path(&self, cpu: usize) -> PathBuf {
@@ -804,6 +853,18 @@ impl CpuPolicy for SitePolicy {
             .filter(|c| match self.idle.idle(*c) {
                 Some(i) => i >= self.config.idle_min,
                 None => self.config.idle_min <= 0.0,
+            })
+            .filter(|c| match &self.siblings {
+                None => true,
+                Some(map) => map.get(c).is_none_or(|sib| {
+                    sib.iter().all(|s| {
+                        in_use.contains(s)
+                            || match self.idle.idle(*s) {
+                                Some(i) => i >= self.config.idle_min,
+                                None => self.config.idle_min <= 0.0,
+                            }
+                    })
+                }),
             })
             .collect();
         eligible.sort_by(|a, b| {
@@ -910,6 +971,24 @@ pub fn utc_string(secs: u64) -> String {
     )
 }
 
+/// SMT siblings of every CPU from `/sys/devices/system/cpu/cpu<n>/topology/thread_siblings_list` (the CPU itself
+/// removed). CPUs without the file are absent from the map.
+pub fn read_smt_siblings() -> BTreeMap<usize, Vec<usize>> {
+    let mut out = BTreeMap::new();
+    let Ok(cpus) = allowed_cpus() else {
+        return out;
+    };
+    for c in cpus {
+        let p = format!("/sys/devices/system/cpu/cpu{c}/topology/thread_siblings_list");
+        if let Ok(t) = fs::read_to_string(&p)
+            && let Ok(set) = parse_cpu_list(t.trim())
+        {
+            out.insert(c, set.into_iter().filter(|&s| s != c).collect());
+        }
+    }
+    out
+}
+
 /// For the pre-flight: a readable summary of what a site policy would exclude now.
 pub fn describe_exclusions(p: &SitePolicy) -> String {
     match p.exclusions() {
@@ -992,6 +1071,48 @@ mod tests {
         let h = ledger_claims([c.as_str(), r.as_str()]);
         assert_eq!(h["rr-campaign"], BTreeSet::from([5]));
         assert!(c.contains("+ CPUs 3,5 (flock) -> job a1 _x_."), "{c}");
+    }
+
+    #[test]
+    fn reconcile_and_sibling_quiet() {
+        let root = std::env::temp_dir().join(format!("rr-site-reconcile-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("locks")).unwrap();
+        let mut c: SiteConfig = serde_json::from_str(SITE_EXAMPLE).unwrap();
+        c.lock_dir = root.join("locks");
+        c.ledger_file = root.join("CPU_LEDGER.md");
+        c.held_files.clear();
+        c.pause_files.clear();
+        c.exclude.clear();
+        c.candidates = Some("0-3".into());
+        c.respect_foreign_pinning = false;
+        c.idle_min = 0.5;
+        // Our dead supervisor claimed 0 and 1; a live holder still has the flock of 1.
+        fs::write(
+            &c.ledger_file,
+            "2026-11-14T00:00:00Z (rr-campaign): + CPUs 0,1 (flock) -> old job. Released at its end.\n",
+        )
+        .unwrap();
+        let live = OpenOptions::new().read(true).write(true).create(true).truncate(false)
+            .open(root.join("locks/cpu.1")).unwrap();
+        live.try_lock().unwrap();
+        let aff: BTreeSet<usize> = (0..4).collect();
+        let mut p = SitePolicy::with_affinity(c.clone(), &aff).unwrap();
+        assert_eq!(p.reconcile_own_claims().unwrap(), vec![0]);
+        let text = fs::read_to_string(&c.ledger_file).unwrap();
+        assert_eq!(ledger_claims(text.lines())["rr-campaign"], BTreeSet::from([1]));
+        assert!(p.reconcile_own_claims().unwrap().is_empty());
+        drop(live);
+        // Sibling rule: 2 and 3 are siblings; 3 busy -> 2 not eligible, 0 (sibling 1 idle) eligible.
+        p.idle_tracker_mut().set_idle([(0, 0.9), (1, 0.9), (2, 0.9), (3, 0.1)].into());
+        p.set_sibling_quiet([(0, vec![1]), (1, vec![0]), (2, vec![3]), (3, vec![2])].into());
+        let a = p.acquire(2, "x").unwrap().granted().unwrap();
+        let mut got = a.cpus().to_vec();
+        got.sort();
+        assert_eq!(got, vec![0, 1]);
+        assert!(matches!(p.acquire(1, "y").unwrap(), Acquire::NotNow(_)));
+        drop(a);
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
