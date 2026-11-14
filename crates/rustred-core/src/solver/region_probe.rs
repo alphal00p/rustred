@@ -77,6 +77,7 @@ fn minimal_polynomial(
     let mut cur = template.one().reduce(basis);
     let mut columns: HashMap<Vec<u16>, usize> = HashMap::new();
     // echelon rows: (pivot column, row over the columns, combination over the powers x^0..x^k)
+    #[allow(clippy::type_complexity)]
     let mut rows: Vec<(
         usize,
         Vec<FiniteFieldElement<u64>>,

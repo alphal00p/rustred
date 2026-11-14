@@ -153,6 +153,7 @@ fn call_args(src: &str, name: &str) -> Option<String> {
 }
 
 /// `(loops, [(momentum over loops then q, physical)])` of a compact family `I(..., prop(Dk,(mom)^2,flag), ...)`.
+#[allow(clippy::type_complexity)]
 pub fn parse_props(text: &str) -> Result<(usize, Vec<(Vec<i64>, bool)>), String> {
     let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
     let loops: Vec<String> = call_args(&compact, "loops")
@@ -501,6 +502,7 @@ pub enum CaseVerdict {
 }
 
 /// The verdict of the group on a case (first element in group order that decides).
+#[allow(clippy::needless_range_loop)]
 pub fn case_verdict(group: &NodeGroup, forms: &ChartForms, fixed: &[Option<i64>]) -> CaseVerdict {
     let n = fixed.len();
     'elements: for (k, e) in group.elements.iter().enumerate() {
@@ -579,6 +581,7 @@ pub fn least_image(
 }
 
 /// A key pattern of a case under an element: `I(..)` with `n<i>` at the image position of each free slot.
+#[allow(clippy::needless_range_loop)]
 pub fn image_pattern(e: &SymElement, fixed: &[Option<i64>]) -> String {
     let n = fixed.len();
     let mut out = vec![String::new(); n];

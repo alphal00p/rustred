@@ -67,6 +67,7 @@ pub struct SectorConfig<const N: usize> {
     /// in the free indices because `g y` keeps every symbolic power in place. Sources carry
     /// [`super::SYMMETRY_ROW`]; such rows go through the modular first-hit path only (never a direct hit), so every
     /// rule keeps a raw pivot and exported seeds for the sampled replay. Affine cases get no rows.
+    #[allow(clippy::type_complexity)]
     pub case_symmetry: Option<Arc<[Vec<Option<(usize, bool)>>]>>,
 }
 
@@ -111,6 +112,7 @@ pub(crate) fn case_stabiliser<const N: usize>(
 
 /// sym-7master: the exact image `(g y, negative)` of a seed key under a case-stabilising action, or `None` when a
 /// nonzero numeric slot has no image, a numeric sector line is below 1, or the image collides with a symbolic slot.
+#[allow(clippy::needless_range_loop)]
 pub(crate) fn stabiliser_image<const N: usize>(
     action: &[Option<(usize, bool)>],
     y: &Integral<N>,

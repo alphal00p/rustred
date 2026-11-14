@@ -3113,6 +3113,7 @@ fn run<const N: usize>(
     } else {
         None
     };
+    #[allow(clippy::type_complexity)]
     let case_symmetry: Option<Arc<[Vec<Option<(usize, bool)>>]>> = early_group.as_ref().map(|g| {
         g.elements
             .iter()
@@ -5707,6 +5708,7 @@ fn run<const N: usize>(
                     })
                     .collect()
             };
+            #[allow(clippy::type_complexity)]
             let images_dyn: Option<&dyn Fn(&Integral<N>) -> Vec<(Integral<N>, bool)>> = row_group
                 .as_ref()
                 .map(|_| &images as &dyn Fn(&Integral<N>) -> Vec<(Integral<N>, bool)>);

@@ -1,4 +1,3 @@
-use symbolica::domains::RingOps;
 use symbolica::domains::finite_field::{FiniteFieldCore, Zp64};
 use symbolica::prelude::{Integer, Ring};
 
