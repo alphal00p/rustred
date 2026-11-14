@@ -406,6 +406,8 @@ pub struct Supervisor {
     /// procfix6 (gate5 m4): a child died by SIGXFSZ under THIS supervisor's own finite file-size limit (inherited by its
     /// children): drain and stop with exit 75.
     fsize_stop: bool,
+    /// procfix6: items reopened at recovery for foreign attempts; the work source's retry follow-up runs after bootstrap.
+    deferred_source_retries: Vec<String>,
     last_disk_check: Option<Instant>,
     last_block_log: String,
     last_wait_log: String,
@@ -1023,6 +1025,7 @@ impl Supervisor {
             control_stop: false,
             disk_floor_hit: false,
             fsize_stop: false,
+            deferred_source_retries: Vec::new(),
             last_disk_check: None,
             last_block_log: String::new(),
             last_wait_log: String::new(),
@@ -1310,9 +1313,10 @@ impl Supervisor {
             let unconfirmed = state == AttemptState::Unconfirmed;
             if self.moved {
                 if unconfirmed {
-                    // Execution unknown in the ORIGINAL directory: never "lost" automatically (its run directory names
-                    // the original campaign id, so it does not authenticate here: the operator decides).
-                    self.recover_unconfirmed(&job, attempt);
+                    // procfix6 (directing session's ruling, 2026-11-14): an unconfirmed launch of the ORIGINAL campaign
+                    // is not ours to authenticate and never waits on an operator here: a foreign attempt, its item
+                    // reopened as new work of this copy (never execution unknown, never signalled, nothing consumed).
+                    self.foreign_unconfirmed(&job, attempt);
                     continue;
                 }
                 // Copied / moved directory: the recorded attempt's process (if any) belongs to the ORIGINAL directory.
@@ -1321,8 +1325,9 @@ impl Supervisor {
                         job: job.clone(),
                         attempt,
                         ev: JobEvent::Lose {
-                            reason: "campaign directory copied / moved: recorded process is not ours (not signalled)"
-                                .into(),
+                            reason: format!(
+                                "{FOREIGN_ATTEMPT}: of the original directory (campaign directory copied / moved: recorded process is not ours, not signalled)"
+                            ),
                         },
                     },
                     Event::Job {
@@ -1332,10 +1337,11 @@ impl Supervisor {
                             reason: "lost (moved campaign directory)".into(),
                         },
                     },
+                    self.foreign_note(&job, attempt, "started"),
                 ];
                 self.log.line(
                     "WARN",
-                    &format!("{job} a{attempt}: recorded in the original directory; marked lost, not signalled"),
+                    &format!("{job} a{attempt}: {FOREIGN_ATTEMPT} of the original directory; marked lost, not signalled, its work redone here"),
                 );
                 self.commit(ev);
                 continue;
@@ -1607,6 +1613,126 @@ impl Supervisor {
                 );
                 false
             }
+        }
+    }
+
+    /// procfix6: the note `foreign_attempt` (once per attempt of the ORIGINAL campaign met in a copied / moved directory).
+    fn foreign_note(&self, job: &str, attempt: u32, was: &str) -> Event {
+        let original = identity::recorded_id(self.st()).unwrap_or_default();
+        Event::Note {
+            text: format!(
+                "{FOREIGN_ATTEMPT} {{\"job\":{job:?},\"attempt\":{attempt},\"was\":{was:?},\"original_id\":{original:?},\"this_id\":{:?}}} (of the original directory: not authenticated here, not signalled, nothing of it consumed; its item is new work of this campaign)",
+                self.ctx.campaign_key
+            ),
+        }
+    }
+
+    /// procfix6 (directing session's ruling, 2026-11-14): in a COPIED / MOVED campaign directory an UNCONFIRMED launch of
+    /// the ORIGINAL campaign (another marker id) is a FOREIGN attempt: its run directory names the original's id (it can
+    /// never authenticate here), its process (if any) is the original's (never signalled), and the copy never waits on an
+    /// operator for it. Recorded in the reducer's own verbs (it stays the arbiter): the item goes to attention
+    /// `foreign_attempt`, a SUPERVISOR `control retry` reopens it (a new generation), `job.cancel` closes the attempt
+    /// (reason `foreign_attempt: of the original directory ...`), a note `foreign_attempt`; the work source then gets the
+    /// retry like an operator's. The rule "unconfirmed launch = execution unknown, never retried automatically" stays in
+    /// force for launches of THIS campaign id.
+    fn foreign_unconfirmed(&mut self, job: &str, attempt: u32) {
+        let Some(jr) = self.st().jobs.get(job).cloned() else {
+            return;
+        };
+        if jr.state != AttemptState::Unconfirmed {
+            return;
+        }
+        let why = format!(
+            "{FOREIGN_ATTEMPT}: of the original directory (unconfirmed launch recorded under campaign id {}; this copy is {}: not authenticated here, not signalled, nothing consumed; its item is reopened as new work of this campaign)",
+            identity::recorded_id(self.st()).unwrap_or_default(),
+            self.ctx.campaign_key
+        );
+        let note = self.foreign_note(job, attempt, "unconfirmed");
+        // Work already superseded (the item moved on): a plain cancel, as for this campaign's own launches.
+        if !self.feeds_item(job) {
+            let ev = vec![
+                Event::Job {
+                    job: job.into(),
+                    attempt,
+                    ev: JobEvent::Cancel {
+                        reason: why.clone(),
+                    },
+                },
+                note,
+            ];
+            if let Err(e) = self.commit_or_refused(ev) {
+                self.log.line(
+                    "ERROR",
+                    &format!("{job} a{attempt}: foreign attempt not recorded: {e}"),
+                );
+            }
+            return;
+        }
+        let item = jr.item.clone();
+        let id = format!("foreign-{job}-a{attempt}");
+        let mut first = Vec::new();
+        if !matches!(
+            self.st().items.get(&item).map(|it| &it.phase),
+            Some(ItemPhase::Attention(_))
+        ) {
+            first.push(Event::Item {
+                item: item.clone(),
+                ev: crate::ledger::ItemEvent::Attention {
+                    code: FOREIGN_ATTEMPT.into(),
+                    text: why.clone(),
+                },
+            });
+        }
+        first.push(Event::Control {
+            id: id.clone(),
+            ev: ControlEvent::Requested {
+                verb: ControlVerb::Retry,
+                target: ControlTarget::Item { item: item.clone() },
+                by: "supervisor (copied / moved campaign directory)".into(),
+                reason: why.clone(),
+            },
+        });
+        match self.commit_or_refused(first) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(e) => {
+                self.log.line(
+                    "ERROR",
+                    &format!("{job} a{attempt}: foreign attempt not recorded: {e}"),
+                );
+                return;
+            }
+        }
+        let ev = vec![
+            Event::Control {
+                id: id.clone(),
+                ev: ControlEvent::Applied {
+                    effect: format!(
+                        "item {item} reopened: {job} a{attempt} is a foreign attempt of the original directory"
+                    ),
+                },
+            },
+            Event::Job {
+                job: job.into(),
+                attempt,
+                ev: JobEvent::Cancel { reason: why },
+            },
+            note,
+        ];
+        match self.commit_or_refused(ev) {
+            Ok(true) => {
+                self.log.line(
+                    "WARN",
+                    &format!("{job} a{attempt}: {FOREIGN_ATTEMPT} (unconfirmed launch of the original directory): not signalled, item {item} reopened as new work of this campaign"),
+                );
+                // the source's follow-up after its bootstrap (main loop), as for an operator's retry
+                self.deferred_source_retries.push(item);
+            }
+            Ok(false) => {}
+            Err(e) => self.log.line(
+                "ERROR",
+                &format!("{job} a{attempt}: foreign attempt not recorded: {e}"),
+            ),
         }
     }
 
@@ -4269,6 +4395,18 @@ impl Supervisor {
             }
             Err(e) => return RunExit::Internal(format!("work source: {e}")),
         }
+        for item in std::mem::take(&mut self.deferred_source_retries) {
+            match self.source.control(self.ledger.state(), "retry", &item) {
+                Ok(ev) => {
+                    if !self.commit(ev) {
+                        return self.ledger_dead.clone().unwrap_or(RunExit::DiskFull);
+                    }
+                }
+                Err(e) => self
+                    .log
+                    .line("WARN", &format!("item {item}: work source retry: {e}")),
+            }
+        }
         self.commit(vec![Event::Campaign {
             ev: crate::state::CampaignEvent::Run,
             reason: "recovered; scheduling".into(),
@@ -4925,6 +5063,10 @@ fn fake_program(p: &Path) -> bool {
         .and_then(|l| serde_json::from_str::<serde_json::Value>(l.trim()).ok())
         .is_some_and(|v| v.get("program").and_then(|x| x.as_str()) == Some("rr_fake_child"))
 }
+
+/// procfix6: the word of an attempt of the ORIGINAL campaign met in a copied / moved directory (note, attention code,
+/// cancel / lose reasons).
+pub const FOREIGN_ATTEMPT: &str = "foreign_attempt";
 
 /// Start of the m4 reason of a SIGXFSZ death.
 const SIGXFSZ_WHY: &str = "killed by SIGXFSZ";
