@@ -103,7 +103,7 @@ pub struct EnumStats {
 /// Per-slot states in the general form: index 0 = the floor singleton, then outward; the last is the half-infinite
 /// tail. Critical values: every integer root in chart range of every one-slot zero-set literal, and the sign
 /// boundary of every one-slot GE literal.
-pub fn slot_states(nf: &NfRules) -> Result<(Vec<Vec<Range>>, u64), PartitionError> {
+pub fn slot_states(nf: &NfRules, extra: Option<&[Vec<i64>]>) -> Result<(Vec<Vec<Range>>, u64), PartitionError> {
     let n = nf.arity;
     let mut crit: Vec<Vec<i64>> = (0..n).map(|i| vec![nf.floor(i)]).collect();
     let mut unknown = 0u64;
@@ -146,6 +146,15 @@ pub fn slot_states(nf: &NfRules) -> Result<(Vec<Vec<Range>>, u64), PartitionErro
         for x in vals {
             if (nf.lines[s] && x >= 1) || (!nf.lines[s] && x <= 0) {
                 crit[s].push(x);
+            }
+        }
+    }
+    if let Some(ex) = extra {
+        for (i, v) in ex.iter().enumerate().take(n) {
+            for &x in v {
+                if (nf.lines[i] && x >= 1) || (!nf.lines[i] && x <= 0) {
+                    crit[i].push(x);
+                }
             }
         }
     }

@@ -188,6 +188,9 @@ pub struct PartitionOptions {
     pub resolve_loci: bool,
     pub loci: crate::loci::LociOptions,
     pub budget: Budget,
+    /// Additional critical values per slot (DATA, e.g. to refine the states to a coarser reference granularity);
+    /// `None` = only the critical values derived from the literals.
+    pub extra_critical: Option<Vec<Vec<i64>>>,
 }
 
 impl Default for PartitionOptions {
@@ -203,6 +206,7 @@ impl Default for PartitionOptions {
             resolve_loci: true,
             loci: crate::loci::LociOptions::default(),
             budget: Budget::default(),
+            extra_critical: None,
         }
     }
 }
@@ -409,7 +413,7 @@ pub fn partition_nf(
     progress: Option<&dyn Fn(&Progress)>,
     t0: Instant,
 ) -> Result<PartitionReport, PartitionError> {
-    let (states, state_unknown) = classes::slot_states(&nf)?;
+    let (states, state_unknown) = classes::slot_states(&nf, opts.extra_critical.as_deref())?;
     let (root, stats) = {
         let mut eng = classes::Engine::new(&nf, states.clone(), opts.literal_tests)?;
         eng.use_memo = opts.memo;

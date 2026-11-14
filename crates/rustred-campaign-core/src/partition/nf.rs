@@ -252,6 +252,7 @@ pub fn build(src: &dyn DomainSource, frame: &NodeFrame, opts: &NfOptions) -> Res
     let mut sources: Vec<Vec<usize>> = vec![];
     let mut seen: HashMap<NfRule, usize> = HashMap::new();
     let mut elided: Vec<usize> = vec![];
+    let mut pole_cache: HashMap<Vec<Poly>, Vec<Vec<MPoly>>> = HashMap::new();
     let idx: Vec<usize> = match &opts.subset {
         Some(s) => s.clone(),
         None => (0..src.len()).collect(),
@@ -330,7 +331,14 @@ pub fn build(src: &dyn DomainSource, frame: &NodeFrame, opts: &NfOptions) -> Res
             }
         }
         for pl in &d.poles {
-            let pb = pole_branches(&pl.coeffs, arity, &mut stats.pole_linear_factors)?;
+            let pb = match pole_cache.get(&pl.coeffs) {
+                Some(x) => x.clone(),
+                None => {
+                    let x = pole_branches(&pl.coeffs, arity, &mut stats.pole_linear_factors)?;
+                    pole_cache.insert(pl.coeffs.clone(), x.clone());
+                    x
+                }
+            };
             stats.pole_branches += pb.len();
             branches.extend(pb);
         }

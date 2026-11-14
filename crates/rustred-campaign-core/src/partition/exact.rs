@@ -157,6 +157,51 @@ fn cauchy_bound(c: &[i128]) -> u128 {
     m.saturating_add(1)
 }
 
+/// Smallest integer r with r^k >= q (k >= 1).
+fn iroot_ceil(q: u128, k: u32) -> u128 {
+    if q <= 1 || k == 1 {
+        return q;
+    }
+    let (mut lo, mut hi) = (1u128, 1u128 << (128 / k).min(64));
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2;
+        let mut p: u128 = 1;
+        let mut big = false;
+        for _ in 0..k {
+            match p.checked_mul(mid) {
+                Some(v) => p = v,
+                None => {
+                    big = true;
+                    break;
+                }
+            }
+        }
+        if big || p >= q {
+            hi = mid;
+        } else {
+            lo = mid + 1;
+        }
+    }
+    lo
+}
+
+/// Fujiwara bound (integer upper bound on |root|): 2 max_i |c_{n-i}/c_n|^{1/i}, the last term with an extra 1/2.
+fn fujiwara_bound(c: &[i128]) -> u128 {
+    let c = trim(c);
+    let n = c.len() - 1;
+    let lead = c[n].unsigned_abs();
+    let mut m: u128 = 0;
+    for i in 1..=n {
+        let a = c[n - i].unsigned_abs();
+        if a == 0 {
+            continue;
+        }
+        let q = if i == n { a.div_ceil(2 * lead) } else { a.div_ceil(lead) };
+        m = m.max(iroot_ceil(q, i as u32));
+    }
+    m.saturating_mul(2).saturating_add(1)
+}
+
 /// All integer roots of a nonzero univariate polynomial with |x| <= i32::MAX, ascending, exact.
 pub fn int_roots(c: &[i128]) -> XResult<Vec<i64>> {
     let c = trim(c);
@@ -175,15 +220,14 @@ pub fn int_roots(c: &[i128]) -> XResult<Vec<i64>> {
     if c.len() <= 1 {
         return Ok(roots);
     }
-    let bound = cauchy_bound(c).min(i32::MAX as u128);
+    let bound = cauchy_bound(c).min(fujiwara_bound(c)).min(i32::MAX as u128);
     let c0 = c[0].unsigned_abs();
-    let cands: Vec<u128> = match divisors(c0) {
-        Some(d) => d.into_iter().filter(|&x| x <= bound).collect(),
-        None => {
-            if bound > 2_000_000 {
-                return Err(ExactError::TooLarge("integer roots: constant term and root bound both large"));
-            }
-            (1..=bound).filter(|x| c0 % x == 0).collect()
+    let cands: Vec<u128> = if bound <= 1_000_000 {
+        (1..=bound).filter(|x| c0 % x == 0).collect()
+    } else {
+        match divisors(c0) {
+            Some(d) => d.into_iter().filter(|&x| x <= bound).collect(),
+            None => return Err(ExactError::TooLarge("integer roots: constant term and root bound both large")),
         }
     };
     for x in cands {
@@ -842,6 +886,25 @@ fn signed_divisors(n: i128) -> Option<Vec<i128>> {
 /// must be divisible by the factor's remainder); every candidate is verified by exact division, so an incomplete
 /// search only leaves a reducible cofactor, never a wrong factor.
 pub fn linear_factors(p: &MPoly) -> XResult<(Vec<MPoly>, MPoly)> {
+    thread_local! {
+        static MEMO: std::cell::RefCell<std::collections::HashMap<MPoly, (Vec<MPoly>, MPoly)>> =
+            std::cell::RefCell::new(std::collections::HashMap::new());
+    }
+    if let Some(r) = MEMO.with(|m| m.borrow().get(p).cloned()) {
+        return Ok(r);
+    }
+    let r = linear_factors_uncached(p)?;
+    MEMO.with(|m| {
+        let mut m = m.borrow_mut();
+        if m.len() > 200_000 {
+            m.clear();
+        }
+        m.insert(p.clone(), r.clone());
+    });
+    Ok(r)
+}
+
+fn linear_factors_uncached(p: &MPoly) -> XResult<(Vec<MPoly>, MPoly)> {
     let mut rest = p.clone();
     let mut out = vec![];
     if rest.is_zero() || rest.total_degree() <= 1 {
@@ -895,8 +958,38 @@ pub fn linear_factors(p: &MPoly) -> XResult<(Vec<MPoly>, MPoly)> {
                     }
                 }
             }
+            // cheap necessary test at two integer points y: a^n P(-m(y)/a, y) = 0
+            let pts: Vec<Vec<i128>> = (0..2)
+                .map(|r| (0..rest.nvars).map(|i| ((i as i128 * (7 + 4 * r) + 3 + r) % 29) + 2).collect())
+                .collect();
+            let evs: Vec<Option<Vec<i128>>> = pts.iter().map(|y| cs.iter().map(|c| c.eval(y).ok()).collect()).collect();
+            let passes = |a: i128, m: &MPoly| -> bool {
+                for (y, ev) in pts.iter().zip(&evs) {
+                    let (Some(ev), Ok(mv)) = (ev, m.eval(y)) else { continue };
+                    let n = ev.len() - 1;
+                    // sum_k e_k (-mv)^k a^(n-k)
+                    let mut acc: Option<i128> = Some(0);
+                    let mut pw_m: Option<i128> = Some(1);
+                    for (k, &e) in ev.iter().enumerate() {
+                        let pw_a = (0..n - k).try_fold(1i128, |x, _| x.checked_mul(a));
+                        let t = pw_m.and_then(|pm| pw_a.and_then(|pa| e.checked_mul(pm)?.checked_mul(pa)));
+                        acc = match (acc, t) {
+                            (Some(x), Some(t)) => x.checked_add(t),
+                            _ => None,
+                        };
+                        pw_m = pw_m.and_then(|pm| pm.checked_mul(-mv));
+                    }
+                    if acc.is_some_and(|x| x != 0) {
+                        return false;
+                    }
+                }
+                true
+            };
             for a in &a_cands {
                 for m in &m_cands {
+                    if !passes(*a as i128, m) {
+                        continue;
+                    }
                     if let Some(q) = rest.div_linear(v, *a as i128, m)? {
                         let mut f = m.clone();
                         let mut e = vec![0; rest.nvars];
