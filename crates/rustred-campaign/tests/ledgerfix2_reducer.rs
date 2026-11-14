@@ -299,15 +299,20 @@ fn unconfirmed_launch_late_confirmation_and_operator_retry() {
 
 #[test]
 fn strict_mode_refuses_the_legacy_recovery_of_an_unconfirmed_launch() {
-    // legacy (default until the supervisor adopts the hook): lose accepted
+    // lane int5: strict mode is ON by default (ENFORCE_UNCONFIRMED_ACROSS_SESSIONS, the supervisor adopted the hook):
+    // the legacy lose of an earlier session's launch is refused even without the per-state switch
+    assert!(rustred_campaign::state::ENFORCE_UNCONFIRMED_ACROSS_SESSIONS);
     let mut h = unconfirmed_setup();
-    h.ok(job(
-        "J",
-        1,
-        JobEvent::Lose {
-            reason: "legacy".into(),
-        },
-    ));
+    h.refused(
+        job(
+            "J",
+            1,
+            JobEvent::Lose {
+                reason: "legacy".into(),
+            },
+        ),
+        "legacy lose (strict by default)",
+    );
     // strict: lose / interrupt / an unauthenticated finish of an earlier session's launch are refused
     let mut h = unconfirmed_setup();
     h.st.strict_unconfirmed = true;
@@ -484,4 +489,42 @@ fn m4_children_index_carries_staleness_through_chains() {
         "reopen of a parent with a live child",
     );
     assert!(why.contains("carries the work"), "{why}");
+}
+
+/// Lane int5: `not_spawned` (the spawn of an unconfirmed launch PROVABLY never happened: authenticated run directory
+/// without the spawn sentinel) is the only way from `unconfirmed` to "did not run": unconfirmed -> lost, then requeue.
+/// Not from `launching` (the hook marks first), not from a confirmed (running) attempt; lose / requeue from
+/// `unconfirmed` stay refused.
+#[test]
+fn not_spawned_is_the_only_proven_did_not_run_of_an_unconfirmed_launch() {
+    let ns = || JobEvent::NotSpawned {
+        reason: "authenticated run directory without RUN/sup/SPAWN".into(),
+    };
+    let rq = || JobEvent::Requeue {
+        reason: "spawn provably never happened".into(),
+    };
+    // from launching (not marked): refused
+    let mut h = unconfirmed_setup();
+    h.refused(job("J", 1, ns()), "not_spawned from launching");
+    h.ok(job("J", 1, unconfirmed()));
+    h.refused(job("J", 1, JobEvent::Lose { reason: "x".into() }), "lose from unconfirmed");
+    h.refused(job("J", 2, rq()), "requeue from unconfirmed");
+    h.ok(job("J", 1, ns()));
+    assert_eq!(h.st.jobs["J"].state, AttemptState::Lost);
+    assert!(h.st.execution_unknown_jobs().is_empty());
+    h.ok(job("J", 2, rq()));
+    assert_eq!(h.st.jobs["J"].attempt, 2);
+    // after a late confirmation (running) it is refused
+    let mut h = unconfirmed_setup();
+    h.ok(job("J", 1, unconfirmed()));
+    h.ok(job(
+        "J",
+        1,
+        JobEvent::Started {
+            pid: 4242,
+            start_ticks: 7,
+            boot_id: "b".into(),
+        },
+    ));
+    h.refused(job("J", 1, ns()), "not_spawned of a running attempt");
 }
