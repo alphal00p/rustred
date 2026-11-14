@@ -284,6 +284,27 @@ fn the_flow_decides_per_face_and_exports_recipes() {
     assert_eq!(man["default_sequence"][0]["certified_keys"], 1);
     assert_eq!(man["runtime"]["max_solves_per_input"], 10000);
     assert!(man["descent"].as_str().unwrap().contains("STRICTLY LOWER"));
+    // rustred.relation-entry.v1 entries: one per certified recipe relation, entry_digest = sha256(canonical(body))
+    let ents = std::fs::read_to_string(
+        cdir.join("closeloop/toy/repairflow/export/relations.entries.jsonl"),
+    )
+    .unwrap();
+    let ents: Vec<Value> = ents
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(
+        ents.len() as u64,
+        keys["face_recipe"].as_u64().unwrap() + keys["default_recipe"].as_u64().unwrap(),
+        "{rep:#}"
+    );
+    for e in &ents {
+        assert_eq!(e["schema"], "rustred.relation-entry.v1");
+        let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
+        h.update(e["body"].to_string().as_bytes());
+        assert_eq!(e["entry_digest"].as_str().unwrap(), h.finish_hex());
+        assert_eq!(e["key"], e["body"]["key"]);
+    }
     // the export lists the recipe files used (face {1}x{} by step d3 only, face {}x{2} by d2) with digests
     let used: Vec<String> = rep["recipes_used"]
         .as_array()

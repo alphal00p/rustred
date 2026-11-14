@@ -1040,6 +1040,40 @@ impl<S: WorkSource> RepairFlowSource<S> {
             "symbolic_table": if exported_table_bytes > 0 { json!("symbolic.table.jsonl") } else { Value::Null },
             "policy_digest": d.policy_digest,
         });
+        // rustred.relation-entry.v1 entries of the certified recipe relations (+ the d = 4 pole presence)
+        let mut cert_set: BTreeSet<(String, Vec<i32>)> = BTreeSet::new();
+        for (src, ks) in &by_server {
+            for k in ks {
+                if let Ok(key) = serde_json::from_value::<Vec<i32>>(k["key"].clone()) {
+                    cert_set.insert((src.clone(), key));
+                }
+            }
+        }
+        let fam_text = self.nodes[i]
+            .p1
+            .as_ref()
+            .and_then(|p| {
+                p.frame_header["original_family_source"]
+                    .as_str()
+                    .map(str::to_string)
+            })
+            .unwrap_or_default();
+        let order_canon = self.nodes[i].cfg.solve.order.to_string();
+        let ident_src = json!({"family_blake3": blake3_hex(fam_text.as_bytes()),
+            "order": serde_json::from_str::<Value>(&order_canon).unwrap_or(Value::Null),
+            "arity": mask.len()});
+        let node_identity = blake3_hex(ident_src.to_string().as_bytes());
+        let (entries, rel_stats) =
+            relation_entries(st, &node, &node_identity, &cert_set, &self.cdir);
+        let ej: String = entries.iter().map(|e| format!("{e}\n")).collect();
+        sums.push_str(&format!(
+            "{}  relations.entries.jsonl\n",
+            sha256_hex(ej.as_bytes())
+        ));
+        rt.accepts.push(record(
+            format!("{exp}/relations.entries.jsonl"),
+            ej.into_bytes(),
+        ));
         let mb = json_bytes(&manifest);
         sums.push_str(&format!("{}  manifest.json\n", sha256_hex(&mb)));
         rt.accepts.push(record(format!("{exp}/manifest.json"), mb));
@@ -1077,6 +1111,7 @@ impl<S: WorkSource> RepairFlowSource<S> {
                 "per_key_cpu_s": costs.get("default-recipe").map(|c| range(&c.2)).unwrap_or(Value::Null)},
             "recipes_used": recipes, "terminal_proposals": proposals,
             "closeout": {"closed_by_declared_proposals": closed, "why": why},
+            "relation_entries": {"count": entries.len(), "node_identity": node_identity, "d4": rel_stats},
             "exported_bytes": {"symbolic_table": exported_table_bytes, "recipes": exported_recipe_bytes},
             "s_jobs": {"jobs": s_jobs, "cpu_s": s_cpu, "wall_s": s_wall, "peak_kb": s_peak},
             "solve_costs_by_source": costs.iter().map(|(k, v)| (k.clone(), json!({"jobs": v.0, "keys": v.1, "per_key_cpu_s": range(&v.2)}))).collect::<BTreeMap<_, _>>(),
@@ -1752,4 +1787,131 @@ fn candidates_of(
         }
     }
     Ok(Ok(out))
+}
+
+/// Does a univariate polynomial in d (engine text, e.g. `-13+4*d`) vanish at `d0`? (exact, core polynomial reader)
+fn vanishes_at(text: &str, d0: i64) -> Option<bool> {
+    use rustred_campaign_core::poly::{BigInt, Poly};
+    let p = Poly::parse(text, 1, true).ok()?;
+    let mut acc = BigInt::from_i128(0);
+    for (j, c) in p.d_coefficients() {
+        let mut pw = BigInt::from_i128(1);
+        for _ in 0..j {
+            pw = pw.mul(&BigInt::from_i128(d0 as i128));
+        }
+        for (_, cc) in c.exact_terms() {
+            acc = acc.add(&cc.mul(&pw));
+        }
+    }
+    Some(acc.is_zero())
+}
+
+/// `rustred.relation-entry.v1` entries (plan/vk5l/interfaces/relation-entry.md) for the certified recipe relations of a
+/// node: body = the engine's relation record from the job's verified results stream (volatile keys dropped, canonical
+/// JSON), entry_digest = sha256(canonical(body)); evidence per-key (the verb's exact weights); diagnostics: whether some
+/// d-denominator factor vanishes at d = 4 (`d_poles`; the multiplicity is not in the record: `pole_order_at` null).
+fn relation_entries(
+    st: &CampaignState,
+    node: &str,
+    node_identity: &str,
+    certified: &BTreeSet<(String, Vec<i32>)>,
+    cdir: &Path,
+) -> (Vec<String>, Value) {
+    let mut out = vec![];
+    let (mut with_pole, mut regular, mut unread) = (0u64, 0u64, 0u64);
+    let mut files: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+    for (id, r) in st.inputs.iter() {
+        if r.role != super::ids::ROLE_ANSWERS {
+            continue;
+        }
+        let item = id
+            .strip_prefix("closeloop:")
+            .and_then(|x| x.split_once(":answers:"))
+            .map(|(it, _)| it.to_string())
+            .unwrap_or_default();
+        if st.items.get(&item).is_none_or(|it| it.node != node) {
+            continue;
+        }
+        let Ok(b) = read_input(st, id) else {
+            unread += 1;
+            continue;
+        };
+        for l in String::from_utf8_lossy(&b).lines() {
+            let Ok(a) = serde_json::from_str::<Value>(l) else {
+                continue;
+            };
+            if a["verdict"] != "SOLVED" {
+                continue;
+            }
+            let key: Vec<i32> = serde_json::from_value(a["key"].clone()).unwrap_or_default();
+            let src = a["source"].as_str().unwrap_or("").to_string();
+            if !certified.contains(&(src.clone(), key.clone())) {
+                continue;
+            }
+            let rp = a["results"]["path"].as_str().unwrap_or("").to_string();
+            let recs = match files.get(&rp) {
+                Some(v) => v.clone(),
+                None => {
+                    let p = cdir.join(&rp);
+                    let v: Vec<Value> = match std::fs::read(&p) {
+                        Ok(b)
+                            if blake3_hex(&b) == a["results"]["blake3"].as_str().unwrap_or("") =>
+                        {
+                            String::from_utf8_lossy(&b)
+                                .lines()
+                                .filter_map(|x| serde_json::from_str::<Value>(x).ok())
+                                .collect()
+                        }
+                        _ => vec![],
+                    };
+                    files.insert(rp.clone(), v.clone());
+                    v
+                }
+            };
+            let Some(rec) = recs.iter().find(|r| {
+                r["type"] == "relation"
+                    && r["ordinal"] == a["results"]["ordinal"]
+                    && r["key"] == a["key"]
+            }) else {
+                unread += 1;
+                continue;
+            };
+            let mut body = rec.clone();
+            if let Some(o) = body.as_object_mut() {
+                for k in ["seconds", "vmhwm_kb", "ordinal", "tag"] {
+                    o.remove(k);
+                }
+            }
+            let canon = body.to_string();
+            let entry_digest = sha256_hex(canon.as_bytes());
+            let pole4 = body["d_poles"].as_array().map(|ps| {
+                ps.iter()
+                    .filter_map(|p| p.as_str())
+                    .any(|p| vanishes_at(p, 4) == Some(true))
+            });
+            match pole4 {
+                Some(true) => with_pole += 1,
+                Some(false) => regular += 1,
+                None => {}
+            }
+            let e = json!({"schema": "rustred.relation-entry.v1", "node": node, "node_identity": node_identity,
+                "key_frame": "table", "key": key, "entry_digest": entry_digest, "body": body,
+                "recipe": {"id": src, "file_sha256": a["recipe_sha256"], "engine_digest": a["recipe_digest"]},
+                "bound_to": {"engine": {"git_commit": Value::Null, "binary_sha256": a["binary_sha256"]},
+                    "relation_rule": body["relation_rule"], "determinism_id": body["determinism_id"],
+                    "node_identity": node_identity, "package_revision": Value::Null,
+                    "symbolica_save_format": Value::Null},
+                "evidence": {"level": "per-key", "proof": {"tool": "rustred.recipe-solve/exact-weights",
+                    "tool_digest": a["binary_sha256"], "record_sha256": entry_digest, "verdict": "SOLVED"},
+                    "fact": Value::Null},
+                "diagnostics": {"pole_order_at": {"4": Value::Null}, "pole_at_4": pole4,
+                    "regular_alternative": "not_tried", "recipe": src, "outside_certified_set": false},
+                "written": {"by": "rustred-campaign repairflow campaign-export"}});
+            out.push(e.to_string());
+        }
+    }
+    (
+        out,
+        json!({"relations_with_pole_at_d4": with_pole, "relations_regular_at_d4": regular, "unread": unread}),
+    )
 }
