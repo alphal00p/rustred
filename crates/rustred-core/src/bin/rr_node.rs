@@ -25,6 +25,7 @@
 //!                  around target + offset, ';' = several centres, seed set = union; per case "seed_centre_offset":[..] or
 //!                  [[..],..] in --initial-presented; drop seeds below target - K on a face line; default off)
 //! rr_node symmetry --family F.sym [--chart MASK]   (authenticated automorphism group of the chart, JSON)
+//! rr_node first-match --table T (--key K,.. | --keys FILE)   (first applicable rule per key, table reducer dispatch)
 //! rr_node solve-recipe --family F.sym --order JSON|NAME --recipe RECIPE.json (--keys KEYS.jsonl | --key K,..) --out DIR
 //!                  [--threads T] [--max-trace-rows R] [--key-budget-s S] [--expect DIGESTS.jsonl] [--no-proof]
 //!                  (R48 recipe rules, node::recipe); job mode: rr_node job RUN/job.json (kind solve-recipe;
@@ -1673,6 +1674,45 @@ fn cmd_solve_recipe(mut a: Args) -> i32 {
     }
 }
 
+/// `rr_node first-match --table T (--key K1,..,Kn | --keys FILE)`: the first applicable rule of every key under the
+/// table reducer's dispatch (node::mastermap::Table::find_rule: fixed slots, target pattern, case equations, exception
+/// branches incl. the optional `domain_bounds`), one JSON line per key {key, position, label}; label = the record's
+/// `index` (a set label for converted banks), null when no rule applies.
+fn cmd_first_match(mut a: Args) -> i32 {
+    let table = a.need("--table");
+    let key = a.take("--key");
+    let keys_file = a.take("--keys");
+    a.done();
+    let t = rustred::node::mastermap::Table::load(&table).unwrap_or_else(|e| die(&e));
+    let mut keys: Vec<Vec<i64>> = Vec::new();
+    if let Some(k) = key {
+        keys.push(
+            k.split(',')
+                .map(|x| x.trim().parse().unwrap_or_else(|_| die("--key: integers")))
+                .collect(),
+        );
+    }
+    if let Some(p) = keys_file {
+        for l in read(&p).lines().filter(|l| !l.trim().is_empty()) {
+            let v: serde_json::Value =
+                serde_json::from_str(l).unwrap_or_else(|e| die(&format!("{p}: {e}")));
+            let k = if v.is_array() { v } else { v["key"].clone() };
+            keys.push(serde_json::from_value(k).unwrap_or_else(|e| die(&format!("{p}: {e}"))));
+        }
+    }
+    for k in keys {
+        let (pos, label) = match t.first_match(&k) {
+            Some((p, l)) => (serde_json::json!(p), serde_json::json!(l)),
+            None => (serde_json::Value::Null, serde_json::Value::Null),
+        };
+        println!(
+            "{}",
+            serde_json::json!({"key": k, "position": pos, "label": label})
+        );
+    }
+    0
+}
+
 /// `p` relative to `base` (`..` where needed; both made absolute).
 fn relative_to(base: &std::path::Path, p: &str) -> String {
     let abs = |x: &std::path::Path| std::fs::canonicalize(x).unwrap_or_else(|_| x.to_path_buf());
@@ -1786,7 +1826,7 @@ fn cmd_laporta(mut a: Args) -> i32 {
 }
 
 /// Every subcommand `main` dispatches (reported by `rr_node --capabilities`).
-const VERBS: [&str; 23] = [
+const VERBS: [&str; 24] = [
     "generate",
     "probe",
     "variants",
@@ -1801,6 +1841,7 @@ const VERBS: [&str; 23] = [
     "witness",
     "locus-rank",
     "symmetry",
+    "first-match",
     "solve-recipe",
     "reduce",
     "mastermap",
@@ -2155,7 +2196,7 @@ fn main() {
     let mut items: Vec<String> = std::env::args().skip(1).collect();
     if items.is_empty() {
         die(
-            "usage: rr_node generate|probe|variants|descent|replay|cover-index|obligations|join|predict|oracle|affine|witness|locus-rank|symmetry|solve-recipe|reduce|mastermap|mapcheck|symmasters|laporta|domaincheck|job|version|--capabilities ... (see the source header)",
+            "usage: rr_node generate|probe|variants|descent|replay|cover-index|obligations|join|predict|oracle|affine|witness|locus-rank|symmetry|first-match|solve-recipe|reduce|mastermap|mapcheck|symmasters|laporta|domaincheck|job|version|--capabilities ... (see the source header)",
         );
     }
     let cmd = items.remove(0);
@@ -2181,6 +2222,7 @@ fn main() {
         "laporta" => cmd_laporta(a),
         "symmetry" => cmd_symmetry(a),
         "solve-recipe" => cmd_solve_recipe(a),
+        "first-match" => cmd_first_match(a),
         "domaincheck" => cmd_domaincheck(a),
         "--capabilities" => cmd_capabilities(a),
         "job" => job::cmd_job(a),
