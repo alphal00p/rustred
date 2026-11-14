@@ -826,6 +826,9 @@ pub fn verify_outputs(
             }
         } else {
             let Some(x) = o.outputs.extra.iter().find(|x| x.role == r.role) else {
+                if r.optional {
+                    continue;
+                }
                 return Err(UnsealReason::MissingOutput(r.role.into()));
             };
             if x.path != rel {

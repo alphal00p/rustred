@@ -343,3 +343,24 @@ fn t281_twice_canonically_identical() {
     assert_eq!(classified(&a, wa, KillReason::None).row, 1);
     assert_eq!(canonical(&a), canonical(&b));
 }
+
+/// Diagnostic: verify the table and cert of the run directory in `RR_VERIFY_DIR` with the contract verifier.
+#[test]
+#[ignore]
+fn verify_dir() {
+    let d = PathBuf::from(std::env::var("RR_VERIFY_DIR").expect("RR_VERIFY_DIR"));
+    for (rel, ends) in [
+        ("out/F.table.jsonl", &rustred_campaign_contract::seal::TABLE_END_TYPES),
+        ("out/F.cert.jsonl", &rustred_campaign_contract::seal::CERT_END_TYPES),
+    ] {
+        match rustred_campaign_contract::seal::verify_stream(&d, rel, ends) {
+            Ok(s) => eprintln!("{rel}: sealed bytes {} records {} rules {} end {}", s.bytes, s.records, s.rules, s.end),
+            Err(e) => eprintln!("{rel}: NOT sealed: {e}"),
+        }
+        let mut sd = rustred_campaign_contract::seal::StreamDigest::new(ends);
+        for c in std::fs::read(d.join(rel)).unwrap().chunks(8192) {
+            sd.feed(c);
+        }
+        eprintln!("{rel}: StreamDigest seal {:?} failed {:?} boundary {}", sd.seal().is_some(), sd.failed(), sd.at_boundary());
+    }
+}

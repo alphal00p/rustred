@@ -48,12 +48,15 @@ use crate::solver::{Case, CoordinateCase};
 /// Program name in job mode.
 pub const PROGRAM: &str = "rr_node";
 /// Features this build reports in `version --json` (3.2.1) and accepts in `program.features_required`.
-pub const FEATURES: [&str; 5] = [
+pub const FEATURES: [&str; 8] = [
     "job",
+    "initial_presented",
+    "descend_open",
     "no_elision",
     "family_blake3",
     "signals",
     "heartbeat",
+    "resume",
 ];
 
 static JOB: OnceLock<Arc<Job>> = OnceLock::new();
@@ -87,10 +90,19 @@ pub enum Stream {
 pub struct ChildFile {
     file: File,
     digest: Option<Arc<Mutex<StreamDigest>>>,
+    suppressible: bool,
 }
+
+/// A resumed attempt: the table and queue log already hold the committed prefix (copied and verified before the
+/// driver starts), so what the driver writes before the resume point (header, zero sectors, chart, the initial
+/// queue) is swallowed until [`resume_arm`].
+static SUPPRESS: AtomicBool = AtomicBool::new(false);
 
 impl Write for ChildFile {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if self.suppressible && SUPPRESS.load(Relaxed) {
+            return Ok(buf.len());
+        }
         match self.file.write(buf) {
             Ok(n) => {
                 if let Some(d) = &self.digest {
@@ -123,23 +135,37 @@ pub fn create_stream(path: &Path, kind: Stream) -> io::Result<ChildFile> {
         return Ok(ChildFile {
             file: File::create(path)?,
             digest: None,
+            suppressible: false,
         });
     };
     use std::os::unix::fs::OpenOptionsExt;
-    let file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)
-        .inspect_err(note_io_error)?;
-    if let Some(d) = path.parent() {
-        cc::atomic::fsync_dir(d)?;
-    }
-    let digest = Arc::new(Mutex::new(match kind {
+    let mut digest = match kind {
         Stream::Table => StreamDigest::new(&TABLE_END_TYPES).recording_types(),
         Stream::Queue => StreamDigest::new(&TABLE_END_TYPES).recording_types(),
         Stream::Cert => StreamDigest::new(&CERT_END_TYPES),
-    }));
+    };
+    // a resumed attempt continues the copied committed prefix of the table and the queue log
+    let resumed = RESUMED.get().is_some() && kind != Stream::Cert;
+    let file = if resumed {
+        digest.feed_file(path)?;
+        let _ = digest.take_records();
+        std::fs::OpenOptions::new()
+            .append(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)
+            .inspect_err(note_io_error)?
+    } else {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)
+            .inspect_err(note_io_error)?
+    };
+    if let Some(d) = path.parent() {
+        cc::atomic::fsync_dir(d)?;
+    }
+    let digest = Arc::new(Mutex::new(digest));
     let slot = match kind {
         Stream::Table => &j.table,
         Stream::Queue => &j.queue,
@@ -149,8 +175,50 @@ pub fn create_stream(path: &Path, kind: Stream) -> io::Result<ChildFile> {
     Ok(ChildFile {
         file,
         digest: Some(digest),
+        suppressible: resumed,
     })
 }
+
+/// What a resumed attempt continues from (RESUME.json of the previous attempt, its committed table prefix).
+pub struct Resumed {
+    /// The open queue, `current` first (PRESENTED slots).
+    pub cases: Vec<CaseSpec>,
+    /// Open numeric endpoints (all slots fixed).
+    pub numerical: Vec<Vec<i64>>,
+    /// The committed rule records (they become cover entries; indices continue after them).
+    pub rules: Vec<Value>,
+    pub symbolic_cases: usize,
+    /// The driver's running counters at the commit point: [rhs terms, branches, discarded, deferred regions,
+    /// deferred branches].
+    pub counters: [usize; 5],
+    /// Deferred regions (charts, PRESENTED slots).
+    pub deferred: Vec<CaseSpec>,
+}
+
+static RESUMED: OnceLock<Resumed> = OnceLock::new();
+
+/// The resume state of a resumed attempt (job mode only).
+pub fn resumed() -> Option<&'static Resumed> {
+    RESUMED.get()
+}
+
+/// The resume point is reached: from here the driver's writes go to the table and queue log again.
+pub fn resume_arm(out: &mut impl Write, qlog: &mut impl Write) -> Result<(), String> {
+    out.flush().map_err(|e| format!("table: {e}"))?;
+    qlog.flush().map_err(|e| format!("queue log: {e}"))?;
+    SUPPRESS.store(false, SeqCst);
+    Ok(())
+}
+
+/// The driver's running counters at a safe point (see [`Resumed::counters`]).
+pub type EngineCounters = [usize; 5];
+const ENGINE_KEYS: [&str; 5] = [
+    "rhs_terms",
+    "branches",
+    "discarded",
+    "deferred_regions",
+    "deferred_branches",
+];
 
 /// Whether witness loci above the record size limit are written as the literal "elided" (C17, ruling R-f): true in
 /// legacy mode (today's behaviour), else `output.elide_witness_loci` of the job spec (default false = forbidden:
@@ -225,18 +293,30 @@ pub fn tick_reducer_row() {
 pub(crate) fn queue_lists<const N: usize>(
     pending: &[Case<N>],
     numerical: &[CoordinateCase<N>],
+    deferred: &[Case<N>],
     n: usize,
-) -> (Vec<JobCase>, Vec<Vec<i64>>) {
-    (
-        pending
+) -> OpenQueue {
+    OpenQueue {
+        pending: pending
             .iter()
             .map(|c| job_case(&super::driver::case_spec(c, n)))
             .collect(),
-        numerical
+        numerical: numerical
             .iter()
             .map(|p| p.fixed()[..n].iter().map(|v| v.map_or(0, i64::from)).collect())
             .collect(),
-    )
+        deferred: deferred
+            .iter()
+            .map(|c| serde_json::json!({"chart": job_case(&super::driver::case_spec(c, n))}))
+            .collect(),
+    }
+}
+
+/// The open queue at a safe point (RESUME `pending`, `numerical`, `deferred`).
+pub struct OpenQueue {
+    pub pending: Vec<JobCase>,
+    pub numerical: Vec<Vec<i64>>,
+    pub deferred: Vec<Value>,
 }
 
 fn job_case(c: &CaseSpec) -> JobCase {
@@ -258,31 +338,75 @@ pub fn case_boundary(
     out: &mut impl Write,
     qlog: &mut impl Write,
     symbolic_cases: usize,
+    counters: EngineCounters,
     current: CaseSpec,
     numerical: bool,
-    open: &mut dyn FnMut() -> (Vec<JobCase>, Vec<Vec<i64>>),
-) -> Result<Option<StopReason>, String> {
-    let Some(j) = job() else { return Ok(None) };
+    open: &mut dyn FnMut() -> OpenQueue,
+) -> Result<Boundary, String> {
+    let Some(j) = job() else { return Ok(Boundary::Go) };
     j.commit_point(out, qlog, symbolic_cases)?;
+    lock(&j.st).engine = counters;
     let current = job_case(&current);
     if j.stop.load(SeqCst) {
-        let (pending, numeric) = open();
-        j.write_resume(Some(current), pending.clone(), numeric, true);
+        let q = open();
+        let pending = q.pending.len();
+        j.remember_open(Some(&current), &q);
+        j.write_resume(Some(current), q, true);
         let source = lock(&j.stop_source).unwrap_or(StopSource::Sigterm);
-        return Ok(Some(StopReason::Interrupted {
+        return Ok(Boundary::Stop(StopReason::Interrupted {
             source: serde_json::to_value(source)
                 .ok()
                 .and_then(|v| v.as_str().map(str::to_string))
                 .unwrap_or_default(),
-            pending: pending.len() + 1,
+            pending: pending + 1,
         }));
     }
+    // `--descend open`: only the job's own cases are solved; every other case is returned (F.subcases.jsonl)
+    if DESCEND_OPEN.load(Relaxed) {
+        let key = serde_json::to_string(&current).unwrap_or_default();
+        let mut own = lock(&OWN_CASES);
+        if own.is_none() {
+            let q = open();
+            let mut set: std::collections::BTreeSet<String> = q
+                .pending
+                .iter()
+                .map(|c| serde_json::to_string(c).unwrap_or_default())
+                .collect();
+            set.insert(key.clone());
+            *own = Some(set);
+        }
+        if numerical || !own.as_ref().is_some_and(|s| s.contains(&key)) {
+            drop(own);
+            lock(&j.st).returned.push((if numerical { "numeric" } else { "case" }, current));
+            return Ok(Boundary::Skip);
+        }
+    }
     if j.resume_due() {
-        let (pending, numeric) = open();
-        j.write_resume(Some(current.clone()), pending, numeric, false);
+        let q = open();
+        j.write_resume(Some(current.clone()), q, false);
     }
     j.start_case(current, numerical);
-    Ok(None)
+    Ok(Boundary::Go)
+}
+
+/// What the driver does after a safe point.
+pub enum Boundary {
+    /// Work on the case.
+    Go,
+    /// Do not work on it (returned to the supervisor, `--descend open`): `continue`.
+    Skip,
+    /// Stop (the driver's normal stop path).
+    Stop(StopReason),
+}
+
+static DESCEND_OPEN: AtomicBool = AtomicBool::new(false);
+/// The job's own cases (`--descend open`): the queue at the first safe point.
+static OWN_CASES: Mutex<Option<std::collections::BTreeSet<String>>> = Mutex::new(None);
+
+/// `--descend open` (job mode): solve the job's own cases only and return every sub-case, numeric endpoint and
+/// deferred region (sealed `out/F.subcases.jsonl`, stop `max_cases`, exit 10) instead of descending into them.
+pub fn set_descend_open() {
+    DESCEND_OPEN.store(true, Relaxed);
 }
 
 /// Safe point (c): the symbolic queue ended (empty, `max_cases`, or a stop). Closes the last case and makes the
@@ -291,17 +415,29 @@ pub fn queue_done(
     out: &mut impl Write,
     qlog: &mut impl Write,
     symbolic_cases: usize,
-    open: &mut dyn FnMut() -> (Vec<JobCase>, Vec<Vec<i64>>),
-) -> Result<(), String> {
-    let Some(j) = job() else { return Ok(()) };
+    counters: EngineCounters,
+    open: &mut dyn FnMut() -> OpenQueue,
+) -> Result<Option<StopReason>, String> {
+    let Some(j) = job() else { return Ok(None) };
     j.commit_point(out, qlog, symbolic_cases)?;
-    let (pending, numeric) = open();
+    lock(&j.st).engine = counters;
     let interrupted = j.stop.load(SeqCst) && lock(&j.st).resume_current.is_some();
+    let mut stop = None;
     if !interrupted {
-        j.write_resume(None, pending, numeric, true);
+        let q = open();
+        j.remember_open(None, &q);
+        if DESCEND_OPEN.load(Relaxed) {
+            let mut st = j.st();
+            let n = st.returned.len() + q.pending.len() + q.numerical.len() + q.deferred.len();
+            if n > 0 {
+                stop = Some(StopReason::Descended { returned: n });
+            }
+            st.open_on_end = true;
+        }
+        j.write_resume(None, q, true);
     }
     j.phase.store(Phase::Numeric as u8, Relaxed);
-    Ok(())
+    Ok(stop)
 }
 
 // -------------------------------------------------------------------------------------------------------------
@@ -342,6 +478,14 @@ struct State {
     resume_valid: bool,
     /// `current` of the last RESUME written (an interrupted case).
     resume_current: Option<JobCase>,
+    /// The driver's running counters at the last commit point.
+    engine: EngineCounters,
+    /// Cases returned by `--descend open` (kind, case).
+    returned: Vec<(&'static str, JobCase)>,
+    /// The open list at the last stop / queue end: (kind, case).
+    open_list: Vec<(&'static str, JobCase)>,
+    /// `--descend open` decided at the queue end: the open list goes into F.subcases.jsonl even without a stop.
+    open_on_end: bool,
 }
 
 /// Inputs to start a job (from the bin's `rr_node job`).
@@ -351,6 +495,8 @@ pub struct JobStart {
     pub layout: RunLayout,
     pub inputs: Vec<InputCheck>,
     pub program: ProgramInfo,
+    /// The verified resume source (preflight step 9), when the spec resumes an earlier attempt.
+    pub resume: Option<cc::preflight::VerifiedResume>,
 }
 
 /// The job context (one per process).
@@ -593,6 +739,34 @@ impl Job {
         });
     }
 
+    /// Remember the open list (F.subcases.jsonl of a stopped job).
+    fn remember_open(&self, current: Option<&JobCase>, q: &OpenQueue) {
+        let mut l: Vec<(&'static str, JobCase)> = Vec::new();
+        if let Some(c) = current {
+            l.push(("case", c.clone()));
+        }
+        l.extend(q.pending.iter().map(|c| ("case", c.clone())));
+        l.extend(q.numerical.iter().map(|f| {
+            (
+                "numeric",
+                JobCase {
+                    frame: Frame::Presented,
+                    fixed: f.iter().map(|&v| Some(v)).collect(),
+                    equations: vec![],
+                    seed_centre_offset: None,
+                    extra: Default::default(),
+                },
+            )
+        }));
+        l.extend(
+            q.deferred
+                .iter()
+                .filter_map(|d| serde_json::from_value::<JobCase>(d["chart"].clone()).ok())
+                .map(|c| ("region", c)),
+        );
+        self.st().open_list = l;
+    }
+
     fn resume_due(&self) -> bool {
         let st = self.st();
         let every = self.spec.resume_every_s as u64;
@@ -603,13 +777,12 @@ impl Job {
     }
 
     /// RESUME.json at the last commit point (3.8.1). The table and queue prefixes it names are fsynced first.
-    fn write_resume(
-        &self,
-        current: Option<JobCase>,
-        pending: Vec<JobCase>,
-        numerical: Vec<Vec<i64>>,
-        force: bool,
-    ) {
+    fn write_resume(&self, current: Option<JobCase>, q: OpenQueue, force: bool) {
+        let OpenQueue {
+            pending,
+            numerical,
+            deferred,
+        } = q;
         if !force && !self.resume_due() {
             return;
         }
@@ -636,11 +809,16 @@ impl Job {
                 current,
                 pending,
                 numerical,
-                deferred: vec![],
+                deferred,
                 refused_open: vec![],
                 counters_at_commit: self.counters(Some(&st)),
                 symbolic_cases: st.symbolic_cases,
-                discarded: 0,
+                discarded: st.engine[2] as u64,
+                engine: ENGINE_KEYS
+                    .iter()
+                    .zip(st.engine)
+                    .map(|(k, v)| (k.to_string(), Value::from(v)))
+                    .collect(),
             }
         };
         if r.check().is_err() {
@@ -1068,6 +1246,7 @@ pub fn run_generate(start: JobStart, resolve: &dyn Fn(&JobSpec) -> Resolved) -> 
         layout,
         inputs,
         program,
+        resume,
     } = start;
     let family_blake3 = spec
         .inputs
@@ -1079,6 +1258,24 @@ pub fn run_generate(start: JobStart, resolve: &dyn Fn(&JobSpec) -> Resolved) -> 
         if let Err(e) = std::fs::create_dir_all(&d) {
             eprintln!("rr_node job: {}: {e}", d.display());
             std::process::exit(cc::atomic::exit_for_io(&e).code());
+        }
+    }
+    // resume: copy the committed prefixes (verified again WHILE copying, into a temporary name renamed only when
+    // complete) before anything else is written; a refusal here leaves out/ without tables (exit 41)
+    let resumed_from = resume.as_ref().map(|v| v.state.attempt);
+    if let Some(v) = &resume {
+        if let Err(m) = copy_resume(v, &layout) {
+            refuse_exit(
+                cc::preflight::Refusal {
+                    code: ExitCode::Input,
+                    stop: StopCode::InputError,
+                    class: ErrorClass::Input,
+                    message: format!("resume: {m}"),
+                    spec: Some((Box::new(spec.clone()), spec_blake3.clone())),
+                    write_outcome: true,
+                },
+                &program,
+            );
         }
     }
     if let Err(e) = cc::atomic::create_reserve(&layout.reserve(), cc::layout::RESERVE_BYTES) {
@@ -1118,6 +1315,10 @@ pub fn run_generate(start: JobStart, resolve: &dyn Fn(&JobSpec) -> Resolved) -> 
             resume_written_at: None,
             resume_valid: false,
             resume_current: None,
+            engine: [0; 5],
+            returned: vec![],
+            open_list: vec![],
+            open_on_end: false,
         }),
         stop: AtomicBool::new(false),
         stop_source: Mutex::new(None),
@@ -1134,6 +1335,9 @@ pub fn run_generate(start: JobStart, resolve: &dyn Fn(&JobSpec) -> Resolved) -> 
     if JOB.set(j.clone()).is_err() {
         eprintln!("rr_node job: one job per process");
         std::process::exit(ExitCode::Internal.code());
+    }
+    if let Some(v) = &resume {
+        restore(&j, v);
     }
     // panic messages are recorded (the engine itself relies on catch_unwind, so the hook never exits)
     let default_hook = std::panic::take_hook();
@@ -1153,7 +1357,7 @@ pub fn run_generate(start: JobStart, resolve: &dyn Fn(&JobSpec) -> Resolved) -> 
         program: PROGRAM.into(),
         version: program.version.clone(),
         git_commit: program.git_commit.clone(),
-        resume_from: None,
+        resume_from: resumed_from,
     });
     let wd = j.clone();
     std::thread::Builder::new()
@@ -1203,13 +1407,141 @@ pub fn run_generate(start: JobStart, resolve: &dyn Fn(&JobSpec) -> Resolved) -> 
 
 static PANIC_MESSAGE: Mutex<Option<String>> = Mutex::new(None);
 
+/// Write `out/F.subcases.jsonl` (records `{"type":"subcase","kind":"case|numeric|region|refused","case":{..}}` in
+/// PRESENTED slots, then `{"type":"end","subcases":N}`) and return its OUTCOME entry (role `subcases`).
+fn write_subcases(j: &Job, outcome: &super::driver::NodeOutcome) -> Option<cc::outcome::ExtraOutput> {
+    let mut list: Vec<(&'static str, JobCase)> = Vec::new();
+    {
+        let st = j.st();
+        list.extend(st.returned.iter().cloned());
+        if outcome.stop.is_some() || st.open_on_end {
+            list.extend(st.open_list.iter().cloned());
+        }
+    }
+    match &outcome.stop {
+        Some(StopReason::LiftRefused { case, .. }) | Some(StopReason::GuardTimeout { case, .. }) => {
+            list.push(("refused", job_case(case)));
+        }
+        Some(StopReason::NumericSearchRefused { cases }) => {
+            list.extend(cases.iter().map(|c| ("numeric", job_case(c))));
+        }
+        Some(StopReason::OpenRegions { charts, .. }) => {
+            list.retain(|(k, _)| *k != "region");
+            list.extend(charts.iter().map(|c| ("region", job_case(c))));
+        }
+        _ => {}
+    }
+    let rel = RunLayout::out_rel(cc::layout::SUBCASES);
+    let mut w = cc::seal::RecordWriter::create(&j.layout.subcases()).ok()?;
+    for (kind, c) in &list {
+        let line = serde_json::json!({"type": "subcase", "kind": kind, "case": c});
+        w.append(&serde_json::to_vec(&line).ok()?).ok()?;
+    }
+    let end = serde_json::json!({"type": "end", "subcases": list.len()});
+    let seal = w.seal(&serde_json::to_vec(&end).ok()?).ok()?;
+    Some(cc::outcome::ExtraOutput {
+        role: "subcases".into(),
+        path: rel,
+        bytes: seal.bytes,
+        blake3: seal.blake3,
+        records: Some(seal.records),
+        canonical_blake3: Some(seal.canonical_blake3),
+        end: Some(seal.end),
+        sealed: true,
+    })
+}
+
+/// A resumed attempt: the commit state, the counters and the queue of the previous attempt's RESUME.
+fn restore(j: &Job, v: &cc::preflight::VerifiedResume) {
+    let r = &v.state;
+    {
+        let mut st = j.st();
+        st.table_commit = r.table.clone();
+        if let Some(q) = &r.queue {
+            st.queue_commit = q.clone();
+        }
+        st.rules_committed = r.rules_committed;
+        st.symbolic_cases = r.symbolic_cases;
+        st.pending = r.pending.len() as u64;
+    }
+    for (i, w) in WorkCounter::ALL.iter().enumerate() {
+        let c = &r.counters_at_commit;
+        let val = match w {
+            WorkCounter::Cases => 0,
+            WorkCounter::TraceRows => c.trace_rows_max,
+            _ => c.get(*w),
+        };
+        j.counters[i].store(val, Relaxed);
+    }
+    let rules = match resume_rules(&j.layout.table()) {
+        Ok(r) => r,
+        Err(m) => fail(ExitCode::Input, &format!("resume: committed table: {m}")),
+    };
+    let spec_of = |c: &JobCase| CaseSpec {
+        fixed: c.fixed.clone(),
+        equations: c
+            .equations
+            .iter()
+            .map(|e| e.as_str().map(str::to_string).unwrap_or_else(|| e.to_string()))
+            .collect(),
+    };
+    let engine = |k: &str| r.engine.get(k).and_then(Value::as_u64).unwrap_or(0) as usize;
+    let _ = RESUMED.set(Resumed {
+        cases: r.current.iter().chain(r.pending.iter()).map(spec_of).collect(),
+        numerical: r.numerical.clone(),
+        rules,
+        symbolic_cases: r.symbolic_cases as usize,
+        counters: [
+            engine(ENGINE_KEYS[0]),
+            engine(ENGINE_KEYS[1]),
+            r.discarded as usize,
+            engine(ENGINE_KEYS[3]),
+            engine(ENGINE_KEYS[4]),
+        ],
+        deferred: r
+            .deferred
+            .iter()
+            .filter_map(|d| serde_json::from_value::<JobCase>(d["chart"].clone()).ok())
+            .map(|c| spec_of(&c))
+            .collect(),
+    });
+    SUPPRESS.store(true, SeqCst);
+}
+
+/// Copy the committed table and queue prefixes of the previous attempt into this run directory
+/// (`seal::RecordWriter::resume_from`: every figure verified while copying).
+fn copy_resume(v: &cc::preflight::VerifiedResume, layout: &RunLayout) -> Result<(), String> {
+    cc::seal::RecordWriter::resume_from(&v.prev.root, &v.state.table, &TABLE_END_TYPES, &layout.table())
+        .map_err(|e| format!("table prefix: {e}"))?;
+    match &v.state.queue {
+        Some(q) => {
+            cc::seal::RecordWriter::resume_from(&v.prev.root, q, &TABLE_END_TYPES, &layout.queue())
+                .map_err(|e| format!("queue prefix: {e}"))?;
+        }
+        None => {
+            cc::seal::RecordWriter::create(&layout.queue()).map_err(|e| format!("queue: {e}"))?;
+        }
+    }
+    Ok(())
+}
+
+/// The rule records of the copied committed table prefix, in file order.
+fn resume_rules(table: &Path) -> Result<Vec<Value>, String> {
+    let text = std::fs::read_to_string(table).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for l in text.lines() {
+        let v: Value = serde_json::from_str(l).map_err(|e| e.to_string())?;
+        if v["type"] == "rule" {
+            out.push(v);
+        }
+    }
+    Ok(out)
+}
+
 fn unsupported_or_exit(spec: &JobSpec) {
     use cc::spec::{Determinism, JobKind};
     if spec.kind != JobKind::Generate {
         fail(ExitCode::Refused, "this build runs job kind generate only");
-    }
-    if spec.resume.is_some() {
-        fail(ExitCode::Refused, "resume is not supported by this build");
     }
     if spec.determinism == Determinism::Strict {
         fail(
@@ -1249,6 +1581,7 @@ fn unsupported_or_exit(spec: &JobSpec) {
 /// `initial_presented` engine feature, which this line does not have (refused, 42); spill lines likewise.
 pub fn initial_cases(spec: &JobSpec) -> Vec<CaseSpec> {
     let mut out = Vec::new();
+    let mut presented = PresentedCases::default();
     for i in spec.inputs.iter().filter(|i| i.role == "cases") {
         let p = spec.input_path(i);
         let text = std::fs::read_to_string(&p)
@@ -1271,15 +1604,14 @@ pub fn initial_cases(spec: &JobSpec) -> Vec<CaseSpec> {
                         fixed: c.fixed,
                         equations: eqs,
                     });
+                    continue;
                 }
-                Ok(cc::resume::CasesLine::Case(_)) => fail(
-                    ExitCode::Refused,
-                    "PRESENTED cases need the initial_presented engine feature",
-                ),
-                Ok(_) => fail(
-                    ExitCode::Refused,
-                    "spill lines need the initial_presented engine feature",
-                ),
+                Ok(cc::resume::CasesLine::Case(c)) => presented.cases.push(c),
+                Ok(cc::resume::CasesLine::Spill(sp)) => {
+                    presented.cases.extend(sp.current);
+                    presented.cases.extend(sp.pending);
+                    presented.numerical.extend(sp.numerical);
+                }
                 Err(e) => fail(
                     ExitCode::Input,
                     &format!("cases line {}: {e}", k + 1),
@@ -1287,7 +1619,51 @@ pub fn initial_cases(spec: &JobSpec) -> Vec<CaseSpec> {
             }
         }
     }
+    if !presented.cases.is_empty() || !presented.numerical.is_empty() {
+        if !out.is_empty() {
+            fail(
+                ExitCode::Usage,
+                "ORIGINAL and PRESENTED cases cannot be mixed in one job",
+            );
+        }
+        if presented.cases.iter().any(|c| c.seed_centre_offset.is_some()) {
+            fail(
+                ExitCode::Refused,
+                "seed_centre_offset needs the seed_centre engine feature",
+            );
+        }
+        // PRESENTED cases replace the driver's initial queue at the resume point (a resumed attempt keeps the
+        // queue of its RESUME instead)
+        if RESUMED.get().is_none() {
+            let _ = RESUMED.set(Resumed {
+                cases: presented.cases.iter().map(driver_case).collect(),
+                numerical: presented.numerical,
+                rules: vec![],
+                symbolic_cases: 0,
+                counters: [0; 5],
+                deferred: vec![],
+            });
+        }
+    }
     out
+}
+
+/// PRESENTED cases and spill lines of the cases input (3.8.3).
+#[derive(Default)]
+struct PresentedCases {
+    cases: Vec<JobCase>,
+    numerical: Vec<Vec<i64>>,
+}
+
+fn driver_case(c: &JobCase) -> CaseSpec {
+    CaseSpec {
+        fixed: c.fixed.clone(),
+        equations: c
+            .equations
+            .iter()
+            .map(|e| e.as_str().map(str::to_string).unwrap_or_else(|| e.to_string()))
+            .collect(),
+    }
 }
 
 /// The cover inputs as `cover_tables` (path, upto).
@@ -1412,6 +1788,7 @@ fn finish(j: &Arc<Job>, res: GenResult) -> ! {
             Some(ErrorInfo::new(ErrorClass::Internal, m.clone())),
             None,
         ),
+        Some(StopReason::Descended { .. }) => (ExitCode::Incomplete, Some(StopCode::MaxCases), None, None),
         Some(StopReason::Interrupted { .. }) => {
             let (c, s) = stop_codes(j);
             (c, Some(s), None, src)
@@ -1439,7 +1816,7 @@ fn finish(j: &Arc<Job>, res: GenResult) -> ! {
     });
     let cert = lock(&j.cert).clone().map(|d| {
         let d = lock(d.as_ref());
-        let seal = d.seal();
+        let seal = d.sealed_figures(&RunLayout::out_rel(CERT));
         StreamOutput {
             path: RunLayout::out_rel(CERT),
             bytes: seal.as_ref().map(|s| s.bytes),
@@ -1477,9 +1854,19 @@ fn finish(j: &Arc<Job>, res: GenResult) -> ! {
         };
         let _ = pending;
         if !j.st().resume_valid {
-            j.write_resume(None, vec![], vec![], true);
+            j.write_resume(
+                None,
+                OpenQueue {
+                    pending: vec![],
+                    numerical: vec![],
+                    deferred: vec![],
+                },
+                true,
+            );
         }
     }
+    // the open list, sealed (F.subcases.jsonl): returned sub-cases, and for a stopped job its open cases
+    let subcases = write_subcases(j, &outcome);
     let legacy = match serde_json::to_value(&outcome) {
         Ok(Value::Object(m)) => m,
         _ => serde_json::Map::new(),
@@ -1498,11 +1885,14 @@ fn finish(j: &Arc<Job>, res: GenResult) -> ! {
         source,
         graceful: true,
     };
-    let o = {
+    let mut o = {
         let st = j.st();
         let sealed = table.map(|t| (t, cert));
         j.outcome(Some(&st), code, info, sealed, error, legacy, peak)
     };
+    if let Some(x) = subcases {
+        o.job.outputs.extra.push(x);
+    }
     if let Err(e) = j.write_outcome(&o) {
         let _ = cc::atomic::release_reserve(&j.layout.reserve());
         eprintln!("rr_node job: OUTCOME: {e}");

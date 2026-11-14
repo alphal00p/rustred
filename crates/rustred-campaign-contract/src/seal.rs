@@ -6,7 +6,8 @@
 //!   symlink, opened with O_NOFOLLOW, a regular file whose (dev, inode) equals the directory entry's;
 //! - every line is a record with a canonical form ([`crate::canon`]), the file ends with "\n", exactly one end
 //!   record exists and it is the LAST line (no interior end record, no byte after it);
-//! - rule records (`type` = `rule`) have unique (`chart`, `index`) and unique (`chart`, `target`), `index` an integer;
+//! - rule records (`type` = `rule`) have unique (`chart`, `index`) and unique (`chart`, `target`, `case`), `index` an
+//!   integer;
 //! - every figure OUTCOME reports about it (size, BLAKE3, records, rules, end kind, canonical digest, elided witness
 //!   loci) equals the figure recomputed here.
 //!
@@ -248,6 +249,10 @@ impl SealVerdict {
     }
 }
 
+fn t_key(t: Option<&[u8]>) -> Vec<u8> {
+    t.unwrap_or(b"").to_vec()
+}
+
 /// Line-by-line accumulator shared by the writer (resume copy), the verifier and the prefix check.
 struct Scan<'a> {
     end_types: &'a [&'a str],
@@ -306,9 +311,14 @@ impl<'a> Scan<'a> {
             if !self.ids.insert((chart.clone(), index.to_vec())) {
                 return Err(UnsealReason::DuplicateRuleIndex { line: line_no });
             }
-            if let Some(t) = c.member("target")
-                && !self.targets.insert((chart, t.to_vec()))
-            {
+            // (lane eng2) the identity of a rule's TARGET includes its case: the engine legitimately writes one rule
+            // for a coordinate case and another for an affine face case with the same canonical target (the frozen
+            // b6 tables of L3a, L4a and T281 contain such pairs); a repeated case (a resume that re-ran committed
+            // cases) still repeats (chart, target, case)
+            let mut key = t_key(c.member("target"));
+            key.push(0);
+            key.extend_from_slice(c.member("case").unwrap_or(b""));
+            if c.member("target").is_some() && !self.targets.insert((chart, key)) {
                 return Err(UnsealReason::DuplicateRuleTarget { line: line_no });
             }
             self.rules += 1;
@@ -965,6 +975,14 @@ impl StreamDigest {
         })
     }
 
+    /// The figures of a sealed stream of ANY end-record kind (e.g. a cert ending in `cert_end` / `cert_partial`, which
+    /// [`StreamDigest::seal`] does not express as an [`EndKind`]): `None` unless the stream ends exactly after its end
+    /// record and no record failed. `path` is the layout path reported.
+    pub fn sealed_figures(&self, path: &str) -> Option<CommittedFile> {
+        (self.at_boundary() && self.failed.is_none() && self.scan.end.is_some())
+            .then(|| self.scan.committed(path))
+    }
+
     /// The records seen since the last call (only with [`StreamDigest::recording_types`]).
     pub fn take_records(&mut self) -> Vec<RecordInfo> {
         std::mem::take(&mut self.records)
@@ -1022,6 +1040,7 @@ mod stream_digest_tests {
             assert_eq!(d.elided_loci(), 1);
             assert_eq!(d.rules(), 2);
             assert!(d.committed("out/F.table.jsonl").is_none(), "end record seen");
+            assert_eq!(d.sealed_figures("x").map(|c| c.bytes), Some(want.bytes));
         }
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -1056,6 +1075,22 @@ mod stream_digest_tests {
         let mut d = StreamDigest::new(&TABLE_END_TYPES);
         d.feed(file_of(&[LINES[4], LINES[3]]).as_slice());
         assert!(d.seal().is_none(), "interior end record");
+    }
+
+    #[test]
+    fn same_target_on_another_case_is_a_distinct_rule() {
+        let mut d = StreamDigest::new(&TABLE_END_TYPES);
+        d.feed(file_of(&[
+            r#"{"type":"rule","chart":"1","index":0,"case":"Coordinate(a)","target":"I(1)","rhs":[]}"#,
+            r#"{"type":"rule","chart":"1","index":1,"case":"Affine(a)","target":"I(1)","rhs":[]}"#,
+        ])
+        .as_slice());
+        assert!(d.failed().is_none());
+        d.feed(file_of(&[
+            r#"{"type":"rule","chart":"1","index":2,"case":"Affine(a)","target":"I(1)","rhs":[]}"#,
+        ])
+        .as_slice());
+        assert!(d.failed().is_some(), "a repeated (chart, target, case)");
     }
 
     #[test]

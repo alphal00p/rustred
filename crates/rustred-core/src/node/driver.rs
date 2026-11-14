@@ -796,6 +796,9 @@ pub enum StopReason {
     /// child-job (job mode only): a stop request (signal, STOP file, soft memory limit) honoured at a safe point;
     /// `pending` counts the open cases including the interrupted one (RESUME.json lists them).
     Interrupted { source: String, pending: usize },
+    /// child-job `--descend open` (job mode only): the job's own cases are done; `returned` sub-cases, numeric
+    /// endpoints and regions were returned to the supervisor (F.subcases.jsonl) instead of being searched.
+    Descended { returned: usize },
 }
 
 /// Result of [`generate`]. `complete` = the chart closed (no stop, no error).
@@ -3698,6 +3701,23 @@ fn run<const N: usize>(
         orders
     };
     let mut symbolic_cases = 0usize;
+    // child-job (job mode only): a resumed attempt continues from RESUME.json: its queue and counters, and the
+    // committed rules of the copied table prefix as cover entries (rule indices continue after them)
+    if let Some(r) = super::childjob::resumed() {
+        super::childjob::resume_arm(&mut out, &mut qlog)?;
+        let built = |c: &CaseSpec| build_case::<N>(c, &template, &idx, &sector, n);
+        pending = r.cases.iter().map(built).collect::<Result<Vec<_>, _>>()?.into_iter().flatten().collect();
+        numerical = r.numerical.iter().filter_map(|f| CoordinateCase::new(std::array::from_fn(|i| Some(if i < n { f[i] as i16 } else { 0 }))).ok()).collect();
+        deferred_charts = r.deferred.iter().map(built).collect::<Result<Vec<_>, _>>()?.into_iter().flatten().collect();
+        for v in &r.rules {
+            if let Some((c, b)) = parse_cover_entry::<N>(v, &template, &idx, &sector, n) {
+                cover.push((format!("resume#{}", v["index"]), c, b));
+            }
+        }
+        adopted_rules = r.rules.len();
+        symbolic_cases = r.symbolic_cases;
+        [terms, branches_total, discarded, deferred_regions, deferred_branches] = r.counters;
+    }
     while !pending.is_empty() {
         if opts.max_cases.is_some_and(|m| symbolic_cases >= m) {
             stop = Some(StopReason::MaxCases {
@@ -3708,9 +3728,13 @@ fn run<const N: usize>(
         let current = pending.remove(0);
         // child-job (job mode only): commit point of the previous case, safe point, start of this one
         if super::childjob::active() {
-            if let Some(s) = super::childjob::case_boundary(&mut out, &mut qlog, symbolic_cases, case_spec(&current, n), false, &mut || super::childjob::queue_lists(&pending, &numerical, n))? {
-                stop = Some(s);
-                break;
+            match super::childjob::case_boundary(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], case_spec(&current, n), false, &mut || super::childjob::queue_lists(&pending, &numerical, &deferred_charts, n))? {
+                super::childjob::Boundary::Stop(s) => {
+                    stop = Some(s);
+                    break;
+                }
+                super::childjob::Boundary::Skip => continue,
+                super::childjob::Boundary::Go => {}
             }
         }
         if terminal_ledger
@@ -4511,7 +4535,10 @@ fn run<const N: usize>(
     }
     // child-job (job mode only): commit point at the end of the symbolic queue
     if super::childjob::active() {
-        super::childjob::queue_done(&mut out, &mut qlog, symbolic_cases, &mut || super::childjob::queue_lists(&pending, &numerical, n))?;
+        let s = super::childjob::queue_done(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], &mut || super::childjob::queue_lists(&pending, &numerical, &deferred_charts, n))?;
+        if stop.is_none() && error.is_none() {
+            stop = s;
+        }
     }
     *WATCH.lock().unwrap() = None;
     // ---- numeric endpoints: one by one under the node's source order and exact backend; exhausted ones in bulk
@@ -4546,9 +4573,13 @@ fn run<const N: usize>(
         for (point_index, point) in numerical.clone().into_iter().enumerate() {
             // child-job (job mode only): safe point and commit point before each numeric endpoint
             if super::childjob::active() {
-                if let Some(s) = super::childjob::case_boundary(&mut out, &mut qlog, symbolic_cases, case_spec(&Case::from(point), n), true, &mut || super::childjob::queue_lists(&[], &numerical[point_index + 1..], n))? {
-                    stop = Some(s);
-                    break;
+                match super::childjob::case_boundary(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], case_spec(&Case::from(point), n), true, &mut || super::childjob::queue_lists(&[], &numerical[point_index + 1..], &deferred_charts, n))? {
+                    super::childjob::Boundary::Stop(s) => {
+                        stop = Some(s);
+                        break;
+                    }
+                    super::childjob::Boundary::Skip => continue,
+                    super::childjob::Boundary::Go => {}
                 }
             }
             if terminal_ledger

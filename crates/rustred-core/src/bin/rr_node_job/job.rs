@@ -88,6 +88,7 @@ pub fn cmd_job(a: Args) -> i32 {
             layout: prep.layout,
             inputs: prep.inputs,
             program: program_info(),
+            resume: prep.resume,
         },
         &resolve,
     )
@@ -99,6 +100,12 @@ fn resolve(spec: &JobSpec) -> Resolved {
     let mut a = Args {
         items: spec.args.clone(),
     };
+    if let Some(d) = a.take("--descend") {
+        if d != "open" {
+            super::die("--descend open");
+        }
+        childjob::set_descend_open();
+    }
     let order = a
         .take("--order")
         .unwrap_or_else(|| super::die("a generate job needs --order (an explicit order; auto is not a job kind)"));

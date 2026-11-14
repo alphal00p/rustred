@@ -95,7 +95,8 @@ impl JobKind {
     /// accepted. `generate-auto` is legacy and not a campaign kind (7, Q7).
     pub const fn sealed_outputs(self) -> Option<&'static [OutputRule]> {
         match self {
-            JobKind::Generate | JobKind::TableDump | JobKind::Fake => Some(&TABLE_OUTPUTS),
+            JobKind::Generate => Some(&GENERATE_OUTPUTS),
+            JobKind::TableDump | JobKind::Fake => Some(&TABLE_OUTPUTS),
             JobKind::Witness => Some(&WITNESS_OUTPUTS),
             JobKind::Descent
             | JobKind::Replay
@@ -142,6 +143,8 @@ pub struct OutputRule {
     pub role: &'static str,
     pub file: &'static str,
     pub end_types: &'static [&'static str],
+    /// (lane eng2) an optional output is verified when OUTCOME lists it and may be absent otherwise.
+    pub optional: bool,
 }
 
 /// End record types of the L1 result files (published once, at the end).
@@ -151,23 +154,37 @@ const TABLE_OUTPUTS: [OutputRule; 1] = [OutputRule {
     role: "table",
     file: crate::layout::TABLE,
     end_types: &crate::seal::TABLE_END_TYPES,
+    optional: false,
 }];
+/// `generate` (lane eng2): the table and the sealed open list `out/F.subcases.jsonl` (role `subcases`).
+const GENERATE_OUTPUTS: [OutputRule; 2] = [
+    TABLE_OUTPUTS[0],
+    OutputRule {
+        role: "subcases",
+        file: crate::layout::SUBCASES,
+        end_types: &RESULT_END_TYPES,
+        optional: true,
+    },
+];
 const WITNESS_OUTPUTS: [OutputRule; 2] = [
     OutputRule {
         role: "witness",
         file: crate::layout::WITNESS,
         end_types: &crate::seal::TABLE_END_TYPES,
+        optional: false,
     },
     OutputRule {
         role: "loci",
         file: crate::layout::LOCI,
         end_types: &crate::seal::TABLE_END_TYPES,
+        optional: false,
     },
 ];
 const RESULT_OUTPUTS: [OutputRule; 1] = [OutputRule {
     role: "results",
     file: crate::layout::RESULTS,
     end_types: &RESULT_END_TYPES,
+    optional: false,
 }];
 
 /// The shape of a flag's value.
@@ -270,8 +287,10 @@ pub const ON_HEAVY: ArgRule = ArgRule {
     strict_values: Some(&["refuse", "proceed"]),
 };
 
-const GENERATE_ARGS: [ArgRule; 36] = [
+const GENERATE_ARGS: [ArgRule; 37] = [
     a("--order", ArgShape::JsonOrName),
+    // lane eng2: return the sub-cases instead of descending into them (node-loop.md 5.2)
+    a("--descend", ArgShape::Choice(&["open"])),
     a("--chart", ArgShape::Mask),
     ON_HEAVY,
     a("--symmetry", ArgShape::Flag),
