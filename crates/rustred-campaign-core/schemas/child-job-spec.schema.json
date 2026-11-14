@@ -40,8 +40,9 @@
   },
   "$defs": {
     "job_kind": {"enum": ["generate", "generate-auto", "descent", "replay", "witness", "laporta", "proof-span", "proof-exact", "proof-stream", "table-dump", "fake"]},
-    "resume_ref": {"type": "object", "required": ["from", "blake3", "table", "committed_bytes", "prefix_blake3"], "additionalProperties": false, "properties": {
-      "from": {"type": "string"}, "blake3": {"$ref": "common.schema.json#/$defs/blake3"}, "table": {"type": "string"},
-      "committed_bytes": {"$ref": "common.schema.json#/$defs/u64"}, "prefix_blake3": {"$ref": "common.schema.json#/$defs/blake3"}}}
+    "resume_ref": {"type": "object", "required": ["from", "blake3"], "additionalProperties": false,
+      "description": "contract resume::ResumeRef (lane contractfix, audit A C1): the LAST RESUME record of the previous attempt by absolute path and digest; every committed size and digest comes from that record",
+      "properties": {
+      "from": {"type": "string", "pattern": "^/.*/RESUME\\.json$"}, "blake3": {"$ref": "common.schema.json#/$defs/blake3"}}}
   }
 }

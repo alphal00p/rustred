@@ -8,7 +8,7 @@ use rustred_campaign_contract::classify::{Accept, KillReason, OutcomeKind, WaitS
 use rustred_campaign_contract::events::Event;
 use rustred_campaign_contract::fake::*;
 use rustred_campaign_contract::outcome::TimeDecisionWhat;
-use rustred_campaign_contract::seal::{SealVerdict, verify_sealed};
+use rustred_campaign_contract::seal::verify_table;
 use rustred_campaign_contract::spec::*;
 use rustred_campaign_contract::{ExitCode, StopCode};
 use std::time::Duration;
@@ -60,7 +60,7 @@ fn f1_success_after_heartbeats_with_rules() {
     assert_eq!(o.job.counters.rules_committed, 2);
     assert_eq!(o.job.counters.cases, 3);
     let t = o.job.outputs.table.clone().unwrap();
-    assert_eq!(verify_sealed(&r.layout.table(), &t), SealVerdict::Sealed);
+    assert!(verify_table(&r.layout, &t).is_sealed());
     assert_eq!((t.records, t.rules), (Some(4), Some(2)));
     assert!(!r.layout.reserve().exists(), "reserve released at the end");
     // determinism: a second run of the same spec in a new RUN gives the same canonical table and digest
@@ -124,7 +124,8 @@ fn f2_end_with_each_stop_code() {
         let c = r.classify(w, KillReason::None);
         assert_eq!(c.row, row, "{stop:?}: {c:?}");
     }
-    // checker-like verdicts 11 / 12 -> row 7
+    // verdicts 11 / 12 from the fake kind (a PRODUCING kind): a code outside the kind's set is a contract violation
+    // (audit A m1: row 22; row 7 is for checker kinds, tested in classify_rows)
     for (k, v) in [ExitCode::DecidedNegative, ExitCode::Undecided]
         .into_iter()
         .enumerate()
@@ -142,7 +143,7 @@ fn f2_end_with_each_stop_code() {
         );
         let (r, w) = run_to_end(&mut root, &s, T);
         assert_eq!(w, WaitStatus::Exited(v.code()));
-        assert_eq!(r.classify(w, KillReason::None).row, 7);
+        assert_eq!(r.classify(w, KillReason::None).row, 22);
     }
     root.assert_no_process_left();
 }
@@ -349,11 +350,15 @@ fn witness_loci_full_when_forbidden_elided_when_allowed() {
         r.outcome().job.outputs.table.unwrap().witness_loci_elided,
         3
     );
-    // the spec allowed it: classification under the spec's own option is row 1 ...
-    assert_eq!(r.classify(w, KillReason::None).row, 1);
-    // ... but under the campaign's rule (forbid) the record is unusable: fail closed
-    let mut e =
-        rustred_campaign_contract::classify::assess(&r.layout, &r.spec, w, KillReason::None, false);
+    // the spec allowed it: the table seals, but the class is sealed_with_elided (row 25, never used; audit A M2) ...
+    assert_eq!(r.classify(w, KillReason::None).row, 25);
+    // ... and under the campaign's rule (forbid) the record is a contract violation: fail closed
+    let mut e = r.evidence(w, KillReason::None);
+    assert_eq!(
+        e.verified.as_ref().unwrap().elided_loci,
+        3,
+        "counted by the verifier"
+    );
     e.elision_forbidden = true;
     assert_eq!(rustred_campaign_contract::classify::classify(&e).row, 22);
     root.assert_no_process_left();

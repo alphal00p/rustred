@@ -3,15 +3,16 @@
 //! supervisor does, contract 3.4.6), in a temp dir under the system temp dir, classify its files with the contract's
 //! decision table, and make sure no process is left behind.
 
+#[allow(dead_code)]
+pub mod drill;
+
 use rustred_campaign_contract::classify::{
-    Classification, KillReason, WaitStatus, assess, classify,
+    Classification, Evidence, KillReason, WaitStatus, assess, classify, resume_ref_for,
 };
 use rustred_campaign_contract::events::{Event, EventLine};
 use rustred_campaign_contract::fake::*;
 use rustred_campaign_contract::layout::RunLayout;
 use rustred_campaign_contract::outcome::Outcome;
-use rustred_campaign_contract::resume::{ResumeRef, ResumeState};
-use rustred_campaign_contract::seal::file_blake3;
 use rustred_campaign_contract::spec::*;
 use rustred_campaign_contract::stop::CaseResult;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
@@ -320,8 +321,24 @@ impl Running {
         }
     }
 
+    /// The supervisor's own digest of the job.json it wrote.
+    pub fn spec_blake3(&self) -> String {
+        rustred_campaign_contract::spec::spec_blake3(&self.spec.to_json_line())
+    }
+
+    pub fn evidence(&self, wait: WaitStatus, kill: KillReason) -> Evidence {
+        assess(
+            &self.layout,
+            &self.spec,
+            &self.spec_blake3(),
+            wait,
+            kill,
+            false,
+        )
+    }
+
     pub fn classify(&self, wait: WaitStatus, kill: KillReason) -> Classification {
-        classify(&assess(&self.layout, &self.spec, wait, kill, false))
+        classify(&self.evidence(wait, kill))
     }
 
     pub fn outcome(&self) -> Outcome {
@@ -359,22 +376,15 @@ pub fn read_events(layout: &RunLayout) -> Vec<EventLine> {
     v
 }
 
-/// Spec of a resume attempt `attempt` from the run of `prev` (same script).
+/// Spec of a resume attempt `attempt` from the run of `prev` (same script): `spec.resume` names the LAST RESUME
+/// record of `prev` by path and digest (the only resume source, contract 3.8.2), as the classifier advises.
 pub fn resume_spec(root: &Root, prev: &Running, attempt: u32) -> JobSpec {
-    let r: ResumeState =
-        serde_json::from_slice(&std::fs::read(prev.layout.resume()).unwrap()).unwrap();
-    let (_, d) = file_blake3(&prev.layout.resume()).unwrap();
+    let b = std::fs::read(prev.layout.resume()).unwrap();
     let dir = root.run_dir(&prev.spec.job_id, attempt);
     let mut s = prev.spec.clone();
     s.attempt = attempt;
     s.run_dir = dir.to_str().unwrap().into();
-    s.resume = Some(ResumeRef {
-        from: prev.layout.resume().to_str().unwrap().into(),
-        blake3: d,
-        table: prev.layout.table().to_str().unwrap().into(),
-        committed_bytes: r.table_committed_bytes,
-        prefix_blake3: r.table_prefix_blake3,
-    });
+    s.resume = Some(resume_ref_for(&prev.layout, &b));
     if let Some(f) = s.fake.as_mut() {
         f.faults.clear();
         f.on_sigterm = OnSigterm::Graceful;

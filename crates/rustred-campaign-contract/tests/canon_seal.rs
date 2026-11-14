@@ -3,7 +3,9 @@
 mod common;
 use common::TempDir;
 use rustred_campaign_contract::canon::{canonical_digest_file, canonical_line, is_volatile};
+use rustred_campaign_contract::layout::RunLayout;
 use rustred_campaign_contract::outcome::{EndKind, TableOutput};
+use rustred_campaign_contract::resume::CommittedFile;
 use rustred_campaign_contract::seal::*;
 use std::io::Write;
 use std::path::Path;
@@ -119,8 +121,10 @@ fn volatile_value_change_inside_a_key_name_is_not_volatile() {
     );
 }
 
+/// Write a sealed table at the layout path `dir/out/F.table.jsonl`.
 fn write_table(dir: &Path, lines: &[&str]) -> (std::path::PathBuf, TableSeal) {
-    let p = dir.join("F.table.jsonl");
+    std::fs::create_dir_all(dir.join("out")).unwrap();
+    let p = dir.join("out/F.table.jsonl");
     let mut w = RecordWriter::create(&p).unwrap();
     for l in &lines[..lines.len() - 1] {
         w.append(l.as_bytes()).unwrap();
@@ -135,7 +139,12 @@ fn out_of(seal: &TableSeal) -> TableOutput {
         ..Default::default()
     };
     seal.apply(&mut t);
+    t.rules_committed = seal.rules;
     t
+}
+
+fn sealed(v: &SealVerdict) -> bool {
+    v.is_sealed()
 }
 
 #[test]
@@ -153,66 +162,61 @@ fn writer_seal_matches_file_and_seal_file() {
         (s.canonical_blake3.clone(), 3)
     );
     assert_eq!(seal_file(&p).unwrap(), s);
-    assert_eq!(verify_sealed(&p, &out_of(&s)), SealVerdict::Sealed);
+    let v = verify_table(&RunLayout::new(d.path()), &out_of(&s));
+    let SealVerdict::Sealed(v) = v else {
+        panic!("{v:?}")
+    };
+    assert_eq!((v.records, v.rules, v.bytes), (3, 1, s.bytes));
 }
 
 #[test]
 fn verifier_catches_tampering() {
     let d = TempDir::new("tamper");
     let (p, s) = write_table(d.path(), &[HEADER, RULE, END]);
+    let layout = RunLayout::new(d.path());
     let good = std::fs::read(&p).unwrap();
     let t = out_of(&s);
     let check = |bytes: &[u8], t: &TableOutput| {
         std::fs::write(&p, bytes).unwrap();
-        verify_sealed(&p, t)
+        verify_table(&layout, t)
     };
-    // truncated table
+    // OUTCOME consistent with arbitrary bytes (size + digest + count of the bytes as they are)
+    let claim = |bytes: &[u8]| {
+        let mut t = t.clone();
+        t.bytes = Some(bytes.len() as u64);
+        t.blake3 = Some(rustred_campaign_contract::blake3_hex(bytes));
+        t
+    };
     assert!(matches!(
         check(&good[..good.len() - 5], &t),
-        SealVerdict::Unsealed(UnsealReason::SizeMismatch { .. })
+        SealVerdict::Unsealed(UnsealReason::TornLastLine | UnsealReason::SizeMismatch { .. })
     ));
-    // appended line
     let mut app = good.clone();
     app.extend_from_slice(b"{\"type\":\"rule\",\"index\":1}\n");
     assert!(matches!(
         check(&app, &t),
-        SealVerdict::Unsealed(UnsealReason::SizeMismatch { .. })
+        SealVerdict::Unsealed(UnsealReason::InteriorEndRecord { .. })
     ));
-    // changed byte (same size)
     let mut ch = good.clone();
     let i = good.len() / 2;
     ch[i] = if ch[i] == b'1' { b'2' } else { b'1' };
-    assert_eq!(
-        check(&ch, &t),
-        SealVerdict::Unsealed(UnsealReason::DigestMismatch)
-    );
-    // digest mismatch in OUTCOME
+    assert!(!sealed(&check(&ch, &t)));
     let mut t2 = t.clone();
     t2.blake3 = Some(common::D1.into());
     assert_eq!(
         check(&good, &t2),
         SealVerdict::Unsealed(UnsealReason::DigestMismatch)
     );
-    // missing end record, OUTCOME consistent with the file (bytes + digest of the file as it is)
     let no_end = table_bytes(&[HEADER, RULE]);
-    let mut t3 = t.clone();
-    t3.bytes = Some(no_end.len() as u64);
-    t3.blake3 = Some(rustred_campaign_contract::blake3_hex(&no_end));
-    t3.records = None;
     assert_eq!(
-        check(&no_end, &t3),
-        SealVerdict::Unsealed(UnsealReason::NoEndRecord(Some("rule".into())))
+        check(&no_end, &claim(&no_end)),
+        SealVerdict::Unsealed(UnsealReason::NoEndRecord(None))
     );
-    // torn last line, OUTCOME consistent with the bytes
     let torn = &good[..good.len() - 1];
-    let mut t4 = t.clone();
-    t4.bytes = Some(torn.len() as u64);
-    t4.blake3 = Some(rustred_campaign_contract::blake3_hex(torn));
     assert_eq!(
-        check(torn, &t4),
+        check(torn, &claim(torn)),
         SealVerdict::Unsealed(UnsealReason::TornLastLine)
     );
-    // OUTCOME says unsealed / incomplete
     let mut t5 = t.clone();
     t5.sealed = false;
     assert_eq!(
@@ -225,7 +229,6 @@ fn verifier_catches_tampering() {
         check(&good, &t6),
         SealVerdict::Unsealed(UnsealReason::OutcomeIncomplete)
     );
-    // end kind / record count disagree with OUTCOME
     let mut t7 = t.clone();
     t7.end = Some(EndKind::End);
     assert!(matches!(
@@ -238,14 +241,19 @@ fn verifier_catches_tampering() {
         check(&good, &t8),
         SealVerdict::Unsealed(UnsealReason::RecordCountMismatch { .. })
     ));
-    // missing file
+    // audit B F10: a wrong canonical digest in OUTCOME is caught
+    let mut t9 = t.clone();
+    t9.canonical_blake3 = Some(common::D1.into());
+    assert_eq!(
+        check(&good, &t9),
+        SealVerdict::Unsealed(UnsealReason::CanonicalDigestMismatch)
+    );
     std::fs::remove_file(&p).unwrap();
     assert!(matches!(
-        verify_sealed(&p, &t),
+        verify_table(&layout, &t),
         SealVerdict::Unsealed(UnsealReason::FileUnreadable(_))
     ));
-    // and the good bytes still verify
-    assert_eq!(check(&good, &t), SealVerdict::Sealed);
+    assert!(sealed(&check(&good, &t)));
 }
 
 #[test]
@@ -262,12 +270,16 @@ fn seal_refuses_non_end_record_and_invalid_records() {
     );
     w.append(RULE.as_bytes()).unwrap();
     assert!(w.seal(RULE.as_bytes()).is_err());
+    // create never truncates an existing file (O_EXCL)
+    assert!(RecordWriter::create(&p).is_err());
 }
 
 #[test]
-fn resume_from_prefix_continues_the_digests() {
+fn resume_from_continues_the_digests() {
     let d = TempDir::new("prefix");
-    let a = d.path().join("a.jsonl");
+    let a_run = d.path().join("a1");
+    std::fs::create_dir_all(a_run.join("out")).unwrap();
+    let a = a_run.join("out/F.table.jsonl");
     let mut w = RecordWriter::create(&a).unwrap();
     w.append(HEADER.as_bytes()).unwrap();
     w.append(RULE.as_bytes()).unwrap();
@@ -275,33 +287,52 @@ fn resume_from_prefix_continues_the_digests() {
     // an uncommitted torn tail after the commit point
     w.raw_file().write_all(b"{\"type\":\"rule\",\"ind").unwrap();
     drop(w);
-    assert_eq!(
-        prefix_blake3(&a, cp.bytes).unwrap().as_deref(),
-        Some(cp.prefix_blake3.as_str())
-    );
-    let b = d.path().join("b.jsonl");
-    let w2 = RecordWriter::resume_from_prefix(&a, cp.bytes, &cp.prefix_blake3, &b).unwrap();
+    let want = cp.committed("out/F.table.jsonl");
+    verify_prefix(&a_run, &want, &TABLE_END_TYPES).unwrap();
+    let b_run = d.path().join("a2");
+    std::fs::create_dir_all(b_run.join("out")).unwrap();
+    let b = b_run.join("out/F.table.jsonl");
+    let w2 = RecordWriter::resume_from(&a_run, &want, &TABLE_END_TYPES, &b).unwrap();
     let s = w2.seal(END.as_bytes()).unwrap();
     let c = d.path().join("c");
-    std::fs::create_dir(&c).unwrap();
     let (_, s_direct) = write_table(&c, &[HEADER, RULE, END]);
     assert_eq!(s, s_direct, "resumed table == uninterrupted table");
-    // wrong digest / not at a line boundary
-    assert!(
-        RecordWriter::resume_from_prefix(&a, cp.bytes, common::D0, &d.path().join("x")).is_err()
-    );
-    assert!(
-        RecordWriter::resume_from_prefix(&a, cp.bytes - 3, &cp.prefix_blake3, &d.path().join("y"))
-            .is_err()
-    );
+    // any figure wrong / not at a line boundary: refused, nothing left at the destination
+    for bad in [
+        CommittedFile {
+            blake3: common::D0.into(),
+            ..want.clone()
+        },
+        CommittedFile {
+            bytes: want.bytes - 3,
+            ..want.clone()
+        },
+        CommittedFile {
+            records: 1,
+            ..want.clone()
+        },
+        CommittedFile {
+            rules: 0,
+            ..want.clone()
+        },
+        CommittedFile {
+            canonical_blake3: common::D0.into(),
+            ..want.clone()
+        },
+    ] {
+        let x = d.path().join("x.jsonl");
+        assert!(RecordWriter::resume_from(&a_run, &bad, &TABLE_END_TYPES, &x).is_err());
+        assert!(!x.exists());
+    }
 }
 
 #[test]
 fn hundred_megabyte_line() {
     // a rule with a 110 MB witness locus (elision forbidden writes it in full, R-f): writer, sealing, verifier,
-    // canonical digest all handle it; the verifier keeps only the bounded last line.
+    // canonical digest all handle it.
     let d = TempDir::new("big");
-    let p = d.path().join("F.table.jsonl");
+    std::fs::create_dir_all(d.path().join("out")).unwrap();
+    let p = d.path().join("out/F.table.jsonl");
     let big = "n1+".repeat(110 * 1024 * 1024 / 3);
     let rule =
         format!(r#"{{"type":"rule","index":0,"seconds_search":0.5,"witness_loci":["{big}"]}}"#);
@@ -312,26 +343,11 @@ fn hundred_megabyte_line() {
     assert!(pos.bytes > 110_000_000);
     let s = w.seal(END.as_bytes()).unwrap();
     let t = out_of(&s);
-    assert_eq!(verify_sealed(&p, &t), SealVerdict::Sealed);
+    assert!(sealed(&verify_table(&RunLayout::new(d.path()), &t)));
     let rule2 = rule.replace("0.5", "7.25");
     assert_eq!(
         canonical_line(rule.as_bytes()).unwrap(),
         canonical_line(rule2.as_bytes()).unwrap(),
         "volatile change on a 110 MB line"
-    );
-    // the 110 MB line as the LAST line: not an end record, too long to be one
-    let q = d.path().join("G.jsonl");
-    std::fs::write(&q, format!("{HEADER}\n{rule}\n")).unwrap();
-    let (n, dg) = file_blake3(&q).unwrap();
-    let tq = TableOutput {
-        path: "x".into(),
-        bytes: Some(n),
-        blake3: Some(dg),
-        sealed: true,
-        ..Default::default()
-    };
-    assert_eq!(
-        verify_sealed(&q, &tq),
-        SealVerdict::Unsealed(UnsealReason::LastLineTooLong)
     );
 }

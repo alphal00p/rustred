@@ -183,11 +183,13 @@ pub struct EventSink {
 }
 
 impl EventSink {
-    /// Create (or append to, when resuming in the same file is ever needed) `path`.
+    /// Create `path`, which must not exist (O_EXCL + O_NOFOLLOW: a planted file or symlink is refused, audit B F7).
     pub fn create(path: &Path) -> io::Result<EventSink> {
+        use std::os::unix::fs::OpenOptionsExt;
         let file = std::fs::OpenOptions::new()
-            .create(true)
+            .create_new(true)
             .append(true)
+            .custom_flags(crate::seal::O_NOFOLLOW)
             .open(path)?;
         Ok(EventSink {
             inner: Mutex::new(SinkInner {

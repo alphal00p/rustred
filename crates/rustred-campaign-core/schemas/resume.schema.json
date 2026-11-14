@@ -2,13 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "resume.schema.json",
   "title": "RUN/RESUME.json of a generate job",
-  "description": "AS BUILT: rustred_campaign_contract::resume::ResumeState (child-job.md 3.8.1). Readers tolerate unknown fields.",
+  "description": "AS BUILT: rustred_campaign_contract::resume::ResumeState (child-job.md 3.8.1, revised by lane contractfix: committed prefixes + spec binding). Readers tolerate unknown fields.",
   "x-rr-names": ["rustred.child-job.resume.v1"],
   "x-rr-owner": "I-ENG / package contract",
   "x-rr-struct": "rustred_campaign_contract::resume::ResumeState",
   "x-rr-freeze": "M0",
   "type": "object",
-  "required": ["schema", "job_id", "attempt", "chart", "frame", "rules_committed", "table_committed_bytes", "table_prefix_blake3", "current", "counters_at_commit"],
+  "required": ["schema", "job_id", "attempt", "spec_blake3", "chart", "frame", "rules_committed", "table", "current", "counters_at_commit"],
   "properties": {
     "schema": {"const": "rustred.child-job.resume.v1"},
     "job_id": {"type": "string"},
@@ -16,8 +16,9 @@
     "chart": true,
     "frame": {"const": "PRESENTED"},
     "rules_committed": {"$ref": "common.schema.json#/$defs/u64"},
-    "table_committed_bytes": {"$ref": "common.schema.json#/$defs/u64"},
-    "table_prefix_blake3": {"$ref": "common.schema.json#/$defs/blake3"},
+    "spec_blake3": {"$ref": "common.schema.json#/$defs/blake3", "description": "BLAKE3 of the job.json of the attempt that wrote this RESUME (audit A M7)"},
+    "table": {"$ref": "#/$defs/committed", "description": "committed prefix of out/F.table.jsonl (audit A C1: one consistent resume point)"},
+    "queue": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/committed"}], "description": "committed prefix of out/F.queue.jsonl"},
     "current": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/case"}]},
     "pending": {"type": "array", "items": {"$ref": "#/$defs/case"}},
     "numerical": {"type": "array", "items": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/i64"}}},
@@ -28,6 +29,16 @@
     "discarded": {"$ref": "common.schema.json#/$defs/u64"}
   },
   "$defs": {
+    "committed": {"type": "object", "required": ["path", "bytes", "blake3", "records", "canonical_blake3"],
+      "description": "contract resume::CommittedFile: a committed stream prefix (never containing an end record)",
+      "properties": {
+        "path": {"enum": ["out/F.table.jsonl", "out/F.queue.jsonl"]},
+        "bytes": {"$ref": "common.schema.json#/$defs/u64"},
+        "blake3": {"$ref": "common.schema.json#/$defs/blake3"},
+        "records": {"$ref": "common.schema.json#/$defs/u64"},
+        "rules": {"$ref": "common.schema.json#/$defs/u64"},
+        "canonical_blake3": {"$ref": "common.schema.json#/$defs/blake3"}
+      }},
     "case": {"type": "object", "required": ["frame", "fixed"], "description": "contract resume::CaseSpec; unknown fields kept (`extra`)",
       "properties": {
         "frame": {"enum": ["PRESENTED", "ORIGINAL"]},

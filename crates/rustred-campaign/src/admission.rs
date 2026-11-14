@@ -28,11 +28,27 @@
 //! Victims are requeued and marked (`host_memory_emergency`); the whole campaign is killed only when the RSS of ALL
 //! its jobs does not cover the deficit ("nothing else helps"), and launching pauses while the host is below the floor.
 //!
+//! MEASUREMENTS WITH TIMESTAMPS (audit A M3, M2): every number carries the monotonic time it was measured at (same
+//! clock for all: the caller's, e.g. `Instant` since supervisor start as a `Duration`). A running job's measured memory
+//! (`rss_bytes`: PSS where the sampler had it, else RSS; BYTES) reduces its charge below its cap ONLY when the
+//! measurement is fresh (`now - rss_measured_at <= max_sample_age`) and not older than the host reading by more than
+//! `max_skew`; otherwise the job is charged its FULL cap ("treated as at its cap": all of the cap may still be needed
+//! beyond what MemAvailable shows), so a stale or skewed measurement can only make LESS room, never more. A host reading
+//! older than `max_sample_age` admits nothing (`StaleMeasurements`). The host number should be the smaller of the two
+//! MemAvailable readings bracketing the scan that produced the job numbers (`Snapshot::mem_available_min`): a job that
+//! frees memory during the scan is then not counted twice as room. All arithmetic is checked: an overflow is a wait.
+//!
+//! EMERGENCY persistence and victims in flight (policy point confirmed by the audits): victims are chosen only after
+//! `emergency_after_samples` consecutive low readings that also span at least `emergency_persist` (default 5 s: no kill
+//! storm for brief foreign pressure); jobs already being killed (`stopping`) stay in `running` and their memory counts
+//! as being freed before anything else is chosen; the chosen set is pruned to an inclusion-minimal one.
+//!
 //! PER-JOB CAP: [`check_cap`]: above its cap a job's group is killed alone (`memory_cap_exceeded`, see
 //! `launch::MEMORY_CAP_EXCEEDED`); [`escalate_cap`] gives the next cap for a retry, the scheduler decides whether to
 //! retry with it or to move to another ladder rung.
 
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 pub const GB: u64 = 1_000_000_000;
 pub const DEFAULT_FLOOR_BYTES: u64 = 50 * GB;
@@ -64,6 +80,12 @@ pub struct AdmissionPolicy {
     pub emergency_after_samples: u32,
     /// Free this much more than the deficit (hysteresis; default 2 GB).
     pub emergency_margin_bytes: u64,
+    /// A job measurement older than this (against `HostView::now`) is not used: the job is charged its cap (10 s).
+    pub max_sample_age: Duration,
+    /// A job measurement older than the host reading by more than this is not used (5 s).
+    pub max_skew: Duration,
+    /// The low readings must span at least this long before victims are chosen (5 s).
+    pub emergency_persist: Duration,
 }
 
 impl AdmissionPolicy {
@@ -76,6 +98,9 @@ impl AdmissionPolicy {
             victim_order: VictimOrder::NewestFirst,
             emergency_after_samples: 2,
             emergency_margin_bytes: 2 * GB,
+            max_sample_age: Duration::from_secs(10),
+            max_skew: Duration::from_secs(5),
+            emergency_persist: Duration::from_secs(5),
         }
     }
 }
@@ -87,18 +112,42 @@ pub struct RunningJob {
     /// Its memory cap = its reservation.
     pub cap_bytes: u64,
     pub expected_peak_bytes: u64,
-    /// Latest measured RSS of its session (0 before the first sample).
+    /// Latest measured memory of the job in BYTES (PSS where available, else RSS; 0 before the first sample).
     pub rss_bytes: u64,
+    /// When `rss_bytes` was measured (scan start, caller's monotonic clock); None = never: charged its full cap.
+    pub rss_measured_at: Option<Duration>,
     pub cores: usize,
     /// Launch order (larger = newer).
     pub started_seq: u64,
     pub cpu_seconds: f64,
+    /// Being killed (terminate / kill_now issued, final report not yet in): its memory is being freed.
+    pub stopping: bool,
 }
 
 impl RunningJob {
-    /// Reserved but not yet used.
+    /// Reserved but not yet used, by the raw numbers (no freshness rule; see [`charge`]).
     pub fn outstanding(&self) -> u64 {
         self.cap_bytes.saturating_sub(self.rss_bytes)
+    }
+
+    /// Is the measurement usable against this host reading?
+    pub fn measurement_fresh(&self, policy: &AdmissionPolicy, host: &HostView) -> bool {
+        match self.rss_measured_at {
+            Some(t) => {
+                host.now.saturating_sub(t) <= policy.max_sample_age
+                    && t.saturating_add(policy.max_skew) >= host.measured_at
+            }
+            None => false,
+        }
+    }
+}
+
+/// What a running job is charged against the floor: `cap - min(rss, cap)` with a fresh measurement, else the cap.
+pub fn charge(policy: &AdmissionPolicy, host: &HostView, j: &RunningJob) -> u64 {
+    if j.measurement_fresh(policy, host) {
+        j.cap_bytes - j.rss_bytes.min(j.cap_bytes)
+    } else {
+        j.cap_bytes
     }
 }
 
@@ -116,8 +165,23 @@ pub struct Candidate {
 /// What the host says now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostView {
-    /// `MemInfo::effective_available()`.
+    /// `MemInfo::effective_available()` (bytes), ideally the min of the readings bracketing the job measurements.
     pub mem_available_bytes: u64,
+    /// When it was read (caller's monotonic clock).
+    pub measured_at: Duration,
+    /// The decision time (same clock).
+    pub now: Duration,
+}
+
+impl HostView {
+    /// A reading taken now (measured_at = now = 0; jobs then need `rss_measured_at` = Some(0) to count as fresh).
+    pub fn at(mem_available_bytes: u64) -> Self {
+        Self {
+            mem_available_bytes,
+            measured_at: Duration::ZERO,
+            now: Duration::ZERO,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -143,6 +207,10 @@ pub enum WaitReason {
     /// An older candidate holds the line (aging).
     HeldForOlder {
         holder: u64,
+    },
+    /// The host reading is older than `max_sample_age`: nothing is admitted on it.
+    StaleMeasurements {
+        age_ms: u64,
     },
     /// Can never start under this policy (cap above the campaign limit, more cores than the budget).
     NeverFits {
@@ -171,11 +239,11 @@ pub enum Decision {
     Wait(WaitReason),
 }
 
-fn outstanding(running: &[RunningJob]) -> u64 {
+/// Sum of the charges (None on overflow).
+fn outstanding(policy: &AdmissionPolicy, host: &HostView, running: &[RunningJob]) -> Option<u64> {
     running
         .iter()
-        .map(RunningJob::outstanding)
-        .fold(0u64, u64::saturating_add)
+        .try_fold(0u64, |a, j| a.checked_add(charge(policy, host, j)))
 }
 
 /// Decide one candidate against the running set.
@@ -188,6 +256,12 @@ pub fn admit_one(
     if c.cores == 0 {
         return Decision::Wait(WaitReason::InvalidCandidate {
             why: "zero cores".into(),
+        });
+    }
+    let host_age = host.now.saturating_sub(host.measured_at);
+    if host_age > policy.max_sample_age {
+        return Decision::Wait(WaitReason::StaleMeasurements {
+            age_ms: host_age.as_millis().min(u128::from(u64::MAX)) as u64,
         });
     }
     if c.cap_bytes < c.expected_peak_bytes {
@@ -210,8 +284,10 @@ pub fn admit_one(
             why: format!("cap {} > campaign memory cap {limit}", c.cap_bytes),
         });
     }
-    let in_use: usize = running.iter().map(|j| j.cores).sum();
-    if in_use + c.cores > policy.core_budget {
+    let in_use: usize = running
+        .iter()
+        .fold(0usize, |a, j| a.saturating_add(j.cores));
+    if in_use.saturating_add(c.cores) > policy.core_budget {
         return Decision::Wait(WaitReason::CoreBudget {
             in_use,
             need: c.cores,
@@ -221,9 +297,10 @@ pub fn admit_one(
     if let Some(limit) = policy.campaign_mem_cap_bytes {
         let reserved = running
             .iter()
-            .map(|j| j.cap_bytes)
-            .fold(0u64, u64::saturating_add);
-        if reserved.saturating_add(c.cap_bytes) > limit {
+            .try_fold(0u64, |a, j| a.checked_add(j.cap_bytes));
+        let total = reserved.and_then(|r| r.checked_add(c.cap_bytes));
+        if total.is_none_or(|t| t > limit) {
+            let reserved = reserved.unwrap_or(u64::MAX);
             return Decision::Wait(WaitReason::CampaignMemCap {
                 reserved,
                 cap: c.cap_bytes,
@@ -231,12 +308,15 @@ pub fn admit_one(
             });
         }
     }
-    let out = outstanding(running);
-    let need = policy
-        .floor_bytes
-        .saturating_add(out)
-        .saturating_add(c.cap_bytes);
-    if host.mem_available_bytes < need {
+    let out = outstanding(policy, &host, running);
+    let need = out.and_then(|o| {
+        policy
+            .floor_bytes
+            .checked_add(o)
+            .and_then(|x| x.checked_add(c.cap_bytes))
+    });
+    let out = out.unwrap_or(u64::MAX);
+    if need.is_none_or(|n| host.mem_available_bytes < n) {
         return Decision::Wait(WaitReason::HostFloor {
             available: host.mem_available_bytes,
             outstanding: out,
@@ -254,12 +334,15 @@ pub fn fits_when_idle(
     running: &[RunningJob],
     c: &Candidate,
 ) -> bool {
+    // Only fresh measurements count as memory that would come back.
     let returned = running
         .iter()
-        .map(|j| j.rss_bytes)
+        .filter(|j| j.measurement_fresh(policy, &host))
+        .map(|j| j.rss_bytes.min(j.cap_bytes))
         .fold(0u64, u64::saturating_add);
     let idle_host = HostView {
         mem_available_bytes: host.mem_available_bytes.saturating_add(returned),
+        ..host
     };
     admit_one(policy, idle_host, &[], c) == Decision::Admit
 }
@@ -313,9 +396,11 @@ pub fn decide_batch(
                     cap_bytes: c.cap_bytes,
                     expected_peak_bytes: c.expected_peak_bytes,
                     rss_bytes: 0,
+                    rss_measured_at: None, // charged its full cap
                     cores: c.cores,
                     started_seq: next_seq,
                     cpu_seconds: 0.0,
+                    stopping: false,
                 });
                 next_seq += 1;
             }
@@ -349,13 +434,23 @@ pub struct EmergencyPlan {
     pub pause_launching: bool,
 }
 
-/// Host below the floor: which jobs to kill. None when the host is at or above the floor. With fewer than
-/// `emergency_after_samples` consecutive low samples the plan only pauses launching (no victims yet).
+/// Consecutive low readings, with the time of the first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LowState {
+    pub samples: u32,
+    /// When the first of these consecutive low readings was taken (caller's monotonic clock).
+    pub since: Duration,
+}
+
+/// Host below the floor: which jobs to kill. None when the host is at or above the floor. Victims only after
+/// `emergency_after_samples` consecutive low readings spanning `emergency_persist`; before that the plan only pauses
+/// launching. Jobs with `stopping` (victims in flight) are never chosen again and their memory counts first. The set is
+/// pruned to be inclusion-minimal (audit B M4).
 pub fn choose_victims(
     policy: &AdmissionPolicy,
     host: HostView,
     running: &[RunningJob],
-    low_samples: u32,
+    low: LowState,
 ) -> Option<EmergencyPlan> {
     if host.mem_available_bytes >= policy.floor_bytes {
         return None;
@@ -368,11 +463,25 @@ pub fn choose_victims(
         whole_campaign: false,
         pause_launching: true,
     };
-    if low_samples < policy.emergency_after_samples {
+    let persisted = host.now.saturating_sub(low.since) >= policy.emergency_persist;
+    if low.samples < policy.emergency_after_samples || !persisted {
         return Some(plan);
     }
     let target = deficit.saturating_add(policy.emergency_margin_bytes);
-    let mut holders: Vec<&RunningJob> = running.iter().filter(|j| j.rss_bytes > 0).collect();
+    let in_flight = running
+        .iter()
+        .filter(|j| j.stopping)
+        .map(|j| j.rss_bytes)
+        .fold(0u64, u64::saturating_add);
+    if in_flight >= target {
+        plan.freed_estimate_bytes = in_flight;
+        return Some(plan);
+    }
+    let need = target - in_flight;
+    let mut holders: Vec<&RunningJob> = running
+        .iter()
+        .filter(|j| j.rss_bytes > 0 && !j.stopping)
+        .collect();
     match policy.victim_order {
         VictimOrder::NewestFirst => {
             holders.sort_by(|a, b| b.started_seq.cmp(&a.started_seq).then(a.id.cmp(&b.id)))
@@ -388,16 +497,31 @@ pub fn choose_victims(
                 .then(b.started_seq.cmp(&a.started_seq))
         }),
     }
+    let mut chosen: Vec<&RunningJob> = Vec::new();
+    let mut freed = 0u64;
     for j in &holders {
-        if plan.freed_estimate_bytes >= target {
+        if freed >= need {
             break;
         }
-        plan.victims.push(j.id);
-        plan.freed_estimate_bytes = plan.freed_estimate_bytes.saturating_add(j.rss_bytes);
+        chosen.push(j);
+        freed = freed.saturating_add(j.rss_bytes);
     }
-    plan.whole_campaign = !holders.is_empty()
-        && plan.victims.len() == holders.len()
-        && plan.freed_estimate_bytes < target;
+    // Prune (in kill order): drop a victim whenever the others still cover the need.
+    if freed >= need {
+        let mut i = 0;
+        while i < chosen.len() {
+            let rest = freed - chosen[i].rss_bytes;
+            if rest >= need {
+                freed = rest;
+                chosen.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+    }
+    plan.victims = chosen.iter().map(|j| j.id).collect();
+    plan.freed_estimate_bytes = freed.saturating_add(in_flight);
+    plan.whole_campaign = !holders.is_empty() && chosen.len() == holders.len();
     Some(plan)
 }
 
@@ -472,18 +596,18 @@ mod tests {
             cap_bytes: cap_gb * GB,
             expected_peak_bytes: cap_gb * GB,
             rss_bytes: rss_gb * GB,
+            rss_measured_at: Some(Duration::ZERO),
             cores,
             started_seq: seq,
             cpu_seconds: seq as f64,
+            stopping: false,
         }
     }
 
     #[test]
     fn literal_rule_examples() {
         let p = AdmissionPolicy::new(48);
-        let host = HostView {
-            mem_available_bytes: 100 * GB,
-        };
+        let host = HostView::at(100 * GB);
         // 100 - 0 - 50 >= 50: admit exactly at the floor.
         assert_eq!(
             admit_one(&p, host, &[], &cand(1, 40, 50, 1)),
@@ -562,9 +686,7 @@ mod tests {
                     c
                 })
                 .collect();
-            let host = HostView {
-                mem_available_bytes: rng.below(400) * GB,
-            };
+            let host = HostView::at(rng.below(400) * GB);
             let out = decide_batch(&p, host, &running, &queue);
             let admitted: Vec<&Candidate> = queue
                 .iter()
@@ -576,7 +698,7 @@ mod tests {
             }
             let worst = host
                 .mem_available_bytes
-                .saturating_sub(outstanding(&running))
+                .saturating_sub(outstanding(&p, &host, &running).unwrap())
                 .saturating_sub(admitted.iter().map(|c| c.cap_bytes).sum());
             assert!(
                 worst >= p.floor_bytes,
@@ -610,9 +732,7 @@ mod tests {
         for t in 0..ticks {
             running.retain(|(_, end)| *end > t);
             let used: u64 = running.iter().map(|(j, _)| j.rss_bytes).sum();
-            let host = HostView {
-                mem_available_bytes: external_available - used,
-            };
+            let host = HostView::at(external_available - used);
             // Queue: the large job (it arrives at tick 5, when the stream already fills the host), then three new
             // small jobs each tick (a stream that alone keeps the host full).
             let mut queue = if t >= 5 { vec![large.clone()] } else { vec![] };
@@ -636,9 +756,11 @@ mod tests {
                         cap_bytes: c.cap_bytes,
                         expected_peak_bytes: c.expected_peak_bytes,
                         rss_bytes: c.cap_bytes,
+                        rss_measured_at: Some(Duration::ZERO),
                         cores: c.cores,
                         started_seq: seq,
                         cpu_seconds: 0.0,
+                        stopping: false,
                     },
                     t + 3,
                 ));
@@ -668,9 +790,7 @@ mod tests {
     fn a_job_that_cannot_fit_even_when_idle_does_not_block() {
         let mut p = AdmissionPolicy::new(8);
         p.max_bypass = 0;
-        let host = HostView {
-            mem_available_bytes: 80 * GB,
-        };
+        let host = HostView::at(80 * GB);
         let mut big = cand(0, 100, 100, 1);
         big.bypassed = 10;
         let out = decide_batch(&p, host, &[], &[big, cand(1, 5, 5, 1)]);
@@ -683,9 +803,7 @@ mod tests {
         let mut p = AdmissionPolicy::new(8);
         p.max_bypass = 2;
         // MemAvailable 80 already excludes the running job's 30 GB: 30 GB above the floor; idle it would be 60.
-        let host = HostView {
-            mem_available_bytes: 80 * GB,
-        };
+        let host = HostView::at(80 * GB);
         let running = [job(9, 30, 30, 1, 0)];
         let mut big = cand(0, 40, 40, 1);
         big.bypassed = 2;
@@ -701,6 +819,22 @@ mod tests {
         assert_eq!(out.bypassed, vec![0]);
     }
 
+    /// Host view at t = 10 s; low readings since t = 0 (persisted) unless stated.
+    fn hv(gb: u64) -> HostView {
+        HostView {
+            mem_available_bytes: gb * GB,
+            measured_at: Duration::from_secs(10),
+            now: Duration::from_secs(10),
+        }
+    }
+
+    fn low(n: u32) -> LowState {
+        LowState {
+            samples: n,
+            since: Duration::ZERO,
+        }
+    }
+
     #[test]
     fn emergency_victims() {
         let p = AdmissionPolicy::new(64);
@@ -710,78 +844,46 @@ mod tests {
             job(3, 10, 6, 1, 2),
             job(4, 5, 0, 1, 3),
         ];
-        assert_eq!(
-            choose_victims(
-                &p,
-                HostView {
-                    mem_available_bytes: 50 * GB
-                },
-                &running,
-                5
-            ),
-            None
-        );
+        assert_eq!(choose_victims(&p, hv(50), &running, low(5)), None);
         // Deficit 4 GB + 2 GB margin: newest holder (3: 6 GB) suffices; job 4 holds nothing and is skipped.
-        let first = choose_victims(
-            &p,
-            HostView {
-                mem_available_bytes: 46 * GB,
-            },
-            &running,
-            1,
-        )
-        .unwrap();
+        let first = choose_victims(&p, hv(46), &running, low(1)).unwrap();
         assert!(first.victims.is_empty() && first.pause_launching);
-        let plan = choose_victims(
+        // Two samples, but within 5 s: not persisted yet.
+        let brief = choose_victims(
             &p,
-            HostView {
-                mem_available_bytes: 46 * GB,
-            },
+            hv(46),
             &running,
-            2,
+            LowState {
+                samples: 2,
+                since: Duration::from_secs(8),
+            },
         )
         .unwrap();
+        assert!(brief.victims.is_empty());
+        let plan = choose_victims(&p, hv(46), &running, low(2)).unwrap();
         assert_eq!(plan.victims, vec![3]);
         assert!(!plan.whole_campaign);
         // Deficit 12 + 2: 3 (6) + 2 (8) = 14 suffices; the old 30 GB job is spared.
-        let plan = choose_victims(
-            &p,
-            HostView {
-                mem_available_bytes: 38 * GB,
-            },
-            &running,
-            2,
-        )
-        .unwrap();
+        let plan = choose_victims(&p, hv(38), &running, low(2)).unwrap();
         assert_eq!(plan.victims, vec![3, 2]);
         // Largest first: one kill.
         let mut q = p.clone();
         q.victim_order = VictimOrder::LargestRssFirst;
         assert_eq!(
-            choose_victims(
-                &q,
-                HostView {
-                    mem_available_bytes: 38 * GB
-                },
-                &running,
-                2
-            )
-            .unwrap()
-            .victims,
+            choose_victims(&q, hv(38), &running, low(2))
+                .unwrap()
+                .victims,
             vec![1]
         );
         // Deficit beyond everything we hold: all holders, whole_campaign.
-        let plan = choose_victims(
-            &p,
-            HostView {
-                mem_available_bytes: 0,
-            },
-            &running,
-            2,
-        )
-        .unwrap();
+        let plan = choose_victims(&p, hv(0), &running, low(2)).unwrap();
         assert_eq!(plan.victims, vec![3, 2, 1]);
         assert!(plan.whole_campaign);
+        // A victim already being killed counts as freed: nothing more is chosen while it covers the need.
+        let mut inflight = running.clone();
+        inflight[2].stopping = true;
+        let plan = choose_victims(&p, hv(46), &inflight, low(3)).unwrap();
+        assert!(plan.victims.is_empty(), "{plan:?}");
     }
 
     #[test]
