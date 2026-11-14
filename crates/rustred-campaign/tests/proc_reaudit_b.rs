@@ -196,11 +196,8 @@ fn run_scenario(scen: &str, extra_env: &[(&str, &str)], timeout: Duration) -> St
     );
     // SUBAGENT_RULES rule 2 since 2026-11-14T12:05Z: only the implementer account's flag binds (WS/ops/PAUSE reflects the
     // coordinator's account alone)
-    for f in [
-        "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/plan/auto-campaign/implementer_ops/PAUSE",
-    ] {
-        assert!(!Path::new(f).exists(), "PAUSE flag {f}");
-    }
+    let pause = "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/plan/auto-campaign/implementer_ops/PAUSE";
+    assert!(!Path::new(pause).exists(), "PAUSE flag {pause}");
     // One scenario at a time (host load; churn timing).
     static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _g = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
