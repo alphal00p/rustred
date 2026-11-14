@@ -473,6 +473,11 @@ fn canon_path(p: &std::path::Path) -> String {
 /// Exit code of an error the batch returns before any key ran (mirrors the CLI: recipe, arity and two-sided family
 /// problems are input errors, everything else internal).
 fn batch_error_code(e: &str) -> ExitCode {
+    // the verb marks the errors of sealing its outputs (engine-line 0e9a4cb8): an I/O error (51) when no OS error
+    // number was carried (with one, `batch_failure` maps it first: 50 / 51)
+    if e.starts_with(crate::node::recipe_job::IO_ERROR_PREFIX) {
+        return ExitCode::Io;
+    }
     if e.starts_with("recipe") || e.contains("arity") || e.contains("two-sided") {
         ExitCode::Input
     } else {
@@ -507,6 +512,23 @@ fn finish(j: &RJob, verb: &Value, exit: i32, graceful: bool) -> i32 {
         Ok(l) => l,
         Err(e) => return internal(format!("{rel}: {e}")),
     };
+    // engine-line 0e9a4cb8 computes the results' digests at the source (the verb's own `outputs.results`): the
+    // dispatcher VERIFIES them against the contract's verifier instead of trusting or rewriting them (lane engfix4)
+    let vr = &verb["outputs"]["results"];
+    if vr["blake3"].as_str() != Some(vs.blake3.as_str())
+        || vr["canonical_blake3"].as_str() != Some(vs.canonical_blake3.as_str())
+        || vr["records"].as_u64() != Some(vs.records)
+    {
+        return internal(format!(
+            "the verb's own results digests ({}, canonical {}, {} records) differ from the contract verifier's ({}, canonical {}, {} records)",
+            vr["blake3"],
+            vr["canonical_blake3"],
+            vr["records"],
+            vs.blake3,
+            vs.canonical_blake3,
+            vs.records
+        ));
+    }
     let keys = lock(&j.keys).clone();
     let (outs, tally) = match key_outcomes(&lines, &keys) {
         Ok(x) => x,
@@ -716,23 +738,22 @@ pub fn run(start: JobStart, resolve: &dyn Fn(&JobSpec, &str) -> RecipeArgs) -> !
     let a = resolve(spec, &family_text);
     *lock(&j.key_budget_s) = a.key_budget_s;
     let order_json: Value = serde_json::from_str(&a.order.to_json()).unwrap_or(Value::Null);
+    // `job.effective` (contract 3.2.4, ruling 2026-11-14): node_options exactly as the verb's job envelope lists them
+    // (coord-recipe-solve.md 14 M5), env = the behaviour-changing variables (licence: presence only), `blake3` = the
+    // contract's domain-separated digest of the five members (`Effective::sealed`)
     *lock(&j.effective) = Some({
-        let mut e = Effective {
+        let e = Effective {
             subcommand: "solve-recipe".into(),
             args: spec.args.clone(),
-            node_options: json!({"threads": a.threads.max(1), "max_trace_rows": a.max_trace_rows,
-                "key_budget_s": a.key_budget_s, "proof": true, "expect_keys": expect.len(),
-                "determinism_id": recipe::DETERMINISM_ID, "relation_rule": relation_rule,
-                "recipe_id": parsed.id.clone(), "recipe_digest": parsed.digest()}),
+            node_options: json!({"recipe_digest": parsed.digest(), "determinism_id": recipe::DETERMINISM_ID,
+                "relation_rule": relation_rule, "threads": a.threads.max(1),
+                "max_trace_rows": a.max_trace_rows, "key_budget_s": a.key_budget_s, "proof": true}),
             order: order_json,
             env: effective_env(),
             blake3: String::new(),
         };
-        let bytes = serde_json::to_vec(&e).unwrap_or_default();
-        e.blake3 = cc::canon::canonical_line(&bytes)
-            .map(|c| cc::blake3_hex(&c))
-            .unwrap_or_else(|_| cc::blake3_hex(&bytes));
-        e
+        e.sealed()
+            .unwrap_or_else(|err| fail(ExitCode::Internal, &format!("effective digest: {err}")))
     });
     // the verb's informational `inputs` echo (its own OUTCOME in out/); the contract OUTCOME carries the preflight's
     let inputs_echo: Vec<Value> = spec

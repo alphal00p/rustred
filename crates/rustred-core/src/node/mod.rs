@@ -35,6 +35,7 @@ pub mod mastermap;
 pub mod order;
 pub mod predict;
 pub mod recipe;
+pub mod recipe_job;
 pub mod registry;
 pub mod replay;
 pub mod screen;

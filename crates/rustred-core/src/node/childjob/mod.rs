@@ -1928,7 +1928,9 @@ pub fn run_generate(start: JobStart, resolve: &dyn Fn(&JobSpec) -> Resolved) -> 
         let node_options = serde_json::to_value(&opts).unwrap_or(Value::Null);
         let order = serde_json::to_value(&opts.order).unwrap_or(Value::Null);
         let env = effective_env();
-        let mut e = Effective {
+        // `blake3`: the contract's domain-separated digest of exactly the five members (ruling 2026-11-14, contract
+        // `Effective::sealed`; before: the canonical line of the struct including `"blake3":""`)
+        let e = Effective {
             subcommand: "generate".into(),
             args: j.spec.args.clone(),
             node_options,
@@ -1936,11 +1938,8 @@ pub fn run_generate(start: JobStart, resolve: &dyn Fn(&JobSpec) -> Resolved) -> 
             env,
             blake3: String::new(),
         };
-        let bytes = serde_json::to_vec(&e).unwrap_or_default();
-        e.blake3 = cc::canon::canonical_line(&bytes)
-            .map(|c| cc::blake3_hex(&c))
-            .unwrap_or_else(|_| cc::blake3_hex(&bytes));
-        e
+        e.sealed()
+            .unwrap_or_else(|err| fail(ExitCode::Internal, &format!("effective digest: {err}")))
     });
     j.set_phase(Phase::ZeroCensus);
     let out_dir = j.layout.out_dir();
