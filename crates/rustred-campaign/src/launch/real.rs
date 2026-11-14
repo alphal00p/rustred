@@ -1786,7 +1786,12 @@ impl ChildHandle for RealChild {
             self.next_hunt_at = None;
             self.start_hunt();
         }
-        Ok(ChildProgress::Stopping)
+        // An adopted job that is only monitored is still running while its (observe-only) hunt looks.
+        Ok(if self.kill_requested {
+            ChildProgress::Stopping
+        } else {
+            ChildProgress::Running
+        })
     }
 }
 
