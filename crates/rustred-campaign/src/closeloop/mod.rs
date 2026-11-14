@@ -6,6 +6,7 @@ pub mod accept;
 pub mod config;
 pub mod ids;
 pub mod pass;
+pub mod proofs;
 pub mod source;
 
 pub use config::{CONFIG_ROLE, CONFIG_SCHEMA, CloseLoopConfig, NodeCfg, SolveCfg, Target};

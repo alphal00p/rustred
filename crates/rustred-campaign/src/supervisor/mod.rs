@@ -1858,6 +1858,8 @@ impl Supervisor {
     ) -> SettleEnd {
         // The supervisor's own kill reason K is an input of the decision table: a child stopped for time, silence or
         // memory that still writes an `interrupted` OUTCOME is killed_time / killed_memory there (rows 11b / 11c).
+        // lane closeloop2 (closeloop.md 13.1): the legacy rr_proof kinds are sealed by the wrapper before classification
+        let wait = crate::adapters::legacy::wrap(layout, spec, spec_digest, wait);
         let ev = classify::assess(layout, spec, spec_digest, wait, kill, false);
         // gate (c), lane int5: the SUPERVISOR's own resource failure while reading the attempt's files (EMFILE, ENFILE,
         // ENOMEM, EAGAIN) is never a verdict about the attempt (never "contract violation", never "crashed"): settled
@@ -2279,6 +2281,13 @@ impl Supervisor {
         {
             let jp = RunLayout::new(&spec.run_dir).job_spec();
             ls.args = vec![verb.into(), "--job".into(), jp.into_os_string()];
+        }
+        // lane closeloop2 (closeloop.md 13.1): a legacy-wrapped rr_proof kind gets the argv derived from its spec
+        if kind == AdapterKind::Contract && spec.kind.legacy_wrapped() {
+            ls.args = crate::adapters::legacy::argv(&spec)?
+                .into_iter()
+                .map(Into::into)
+                .collect();
         }
         // The launcher sets the marker `<campaign id>:<label>`: the label is the attempt id.
         ls.label = format!("{}:a{attempt}", req.job);

@@ -5,7 +5,8 @@
 use super::accept::{AcceptCtx, BATCH_SCHEMA, BatchFile, decide};
 use super::config::{CONFIG_ROLE, CloseLoopConfig, NodeCfg, Target};
 use super::ids::*;
-use super::pass::{Batch, PassIn, PassOut, prefix_dispatcher, run_pass};
+use super::pass::{Batch, PassIn, PassOut, ProofPlan, prefix_dispatcher, run_pass};
+use super::proofs::{self, PBATCH_SCHEMA, ProofBatch, ProofBatchFile, ProofOracle};
 use crate::ledger::{AcceptSource, Event, FileRef, ItemEvent, LevelEvidence, NodeSpecValues};
 use crate::state::{
     AttemptEndCause, AttemptState, Blockers, CampaignState, ClosureTarget, EvidenceLevel,
@@ -34,6 +35,16 @@ type Oracle = BTreeMap<(String, Vec<i32>), (Verdict, Vec<Vec<i64>>)>;
 /// Issued (recipe source, key) pairs, keys issued, jobs issued, items in attention.
 type Issued = (BTreeSet<(String, Vec<i32>)>, u64, u64, u64);
 
+/// lane closeloop2: (record, key) pairs given to proof (span) items and to fact items, proof jobs issued, proof items
+/// in attention.
+#[derive(Default)]
+struct ProofIssued {
+    spans: BTreeSet<(String, Vec<i32>)>,
+    facts: BTreeSet<(String, Vec<i32>)>,
+    jobs: u64,
+    attention: u64,
+}
+
 enum PassResult {
     Loaded(Arc<ImportedSet>),
     Checked(Box<PassOut>),
@@ -58,6 +69,11 @@ struct NodeRt {
     oracle: Oracle,
     last_check: Option<Value>,
     pass_started: Option<Instant>,
+    // lane closeloop2
+    pbatches: BTreeMap<String, ProofBatchFile>,
+    proof_oracle: ProofOracle,
+    /// BLAKE3 of the proof config's family / cert / symmetry group files.
+    proof_inputs: BTreeMap<String, (PathBuf, String)>,
 }
 
 /// The close-from-material work source.
@@ -197,6 +213,28 @@ impl CloseFromMaterialSource {
                 }
             }
             let family_blake3 = file_blake3(&nc.solve.family)?;
+            let mut proof_inputs = BTreeMap::new();
+            let mut proof_oracle = BTreeMap::new();
+            if let Some(pc) = &nc.proof {
+                let prog = pc.program_key().to_string();
+                let path = s.programs.get(&prog).cloned().ok_or_else(|| {
+                    format!("node {}: proof program {prog} not in the spec", nc.node)
+                })?;
+                s.sha256.insert(prog.clone(), file_sha256(&path)?);
+                s.blake3.insert(prog, file_blake3(&path)?);
+                for (role, p) in [
+                    ("family", &pc.family),
+                    ("cert", &pc.cert),
+                    ("symmetry_group", &pc.symmetry_group),
+                ] {
+                    if let Some(p) = p {
+                        proof_inputs.insert(role.to_string(), (p.clone(), file_blake3(p)?));
+                    }
+                }
+                if let Some(f) = &pc.fake {
+                    proof_oracle = proofs::read_oracle(&f.oracle)?;
+                }
+            }
             s.nodes.push(NodeRt {
                 cfg: nc.clone(),
                 spec_rel: format!("{}/import-spec.json", node_dir(&n)),
@@ -211,6 +249,9 @@ impl CloseFromMaterialSource {
                 oracle,
                 last_check: None,
                 pass_started: None,
+                pbatches: BTreeMap::new(),
+                proof_oracle,
+                proof_inputs,
             });
         }
         Ok(s)
@@ -282,15 +323,25 @@ impl CloseFromMaterialSource {
 
     /// Answers inputs of node `i` in ledger order.
     fn answers(&self, st: &CampaignState, i: usize) -> Vec<(String, PathBuf, String)> {
+        self.inputs_of_role(st, i, ROLE_ANSWERS)
+    }
+
+    /// Inputs `closeloop:<item>:<what>:<job>` of role `role` of node `i`'s items, in ledger order.
+    fn inputs_of_role(
+        &self,
+        st: &CampaignState,
+        i: usize,
+        role: &str,
+    ) -> Vec<(String, PathBuf, String)> {
         let node = &self.nodes[i].cfg.node;
         let mut v: Vec<_> = st
             .inputs
             .iter()
             .filter(|(id, r)| {
-                r.role == ROLE_ANSWERS
+                r.role == role
                     && id
                         .strip_prefix("closeloop:")
-                        .and_then(|x| x.split_once(":answers:"))
+                        .and_then(|x| x.split_once(':'))
                         .and_then(|(item, _)| st.items.get(item))
                         .is_some_and(|it| it.node == *node)
             })
@@ -328,6 +379,62 @@ impl CloseFromMaterialSource {
         Ok((pairs, keys, items.len() as u64, att))
     }
 
+    fn pbatch(
+        &mut self,
+        st: &CampaignState,
+        i: usize,
+        item: &str,
+    ) -> Result<ProofBatchFile, String> {
+        if let Some(b) = self.nodes[i].pbatches.get(item) {
+            return Ok(b.clone());
+        }
+        let b: ProofBatchFile = serde_json::from_slice(&self.input_file(st, &input_pbatch(item))?)
+            .map_err(|e| format!("proof batch of {item}: {e}"))?;
+        self.nodes[i].pbatches.insert(item.to_string(), b.clone());
+        Ok(b)
+    }
+
+    /// (record, key) pairs of every proof / fact item of the node, proof jobs, proof items in attention.
+    fn proof_issued(&mut self, st: &CampaignState, i: usize) -> Result<ProofIssued, String> {
+        let node = self.nodes[i].cfg.node.clone();
+        let items: Vec<(String, ItemPhase)> = st
+            .items
+            .iter()
+            .filter(|(_, it)| it.node == node && (it.kind == KIND_PROOF || it.kind == KIND_FACTS))
+            .map(|(k, it)| (k.clone(), it.phase.clone()))
+            .collect();
+        let mut out = ProofIssued::default();
+        for (item, ph) in &items {
+            let b = self.pbatch(st, i, item)?;
+            if b.kind == "facts" {
+                out.facts.extend(b.pairs());
+            } else {
+                out.spans.extend(b.pairs());
+            }
+            if matches!(ph, ItemPhase::Attention(_)) {
+                out.attention += 1;
+            }
+        }
+        out.jobs = items.len() as u64;
+        Ok(out)
+    }
+
+    /// The relation point-record tables of node `i` (path, BLAKE3, recipe source), in ledger order.
+    fn relation_tables(&mut self, st: &CampaignState, i: usize) -> Vec<(PathBuf, String, String)> {
+        let mut v = vec![];
+        for (id, p, b3) in self.inputs_of_role(st, i, ROLE_RELATIONS) {
+            let item = id
+                .strip_prefix("closeloop:")
+                .and_then(|x| x.split_once(':'))
+                .map(|(it, _)| it.to_string())
+                .unwrap_or_default();
+            if let Ok(b) = self.batch(st, i, &item) {
+                v.push((p, b3, b.source));
+            }
+        }
+        v
+    }
+
     /// What node `i` needs now: None (nothing), Some(0) (load the set only), Some(k) (check pass k).
     fn needs_pass(&self, st: &CampaignState, i: usize) -> Option<u32> {
         let r = &self.nodes[i];
@@ -343,7 +450,11 @@ impl CloseFromMaterialSource {
         if imp.phase == ItemPhase::Open {
             return Some(1);
         }
-        let busy = Self::items_of(st, node, KIND_SOLVE).any(|(_, it)| !Self::item_final(&it.phase));
+        let busy = st.items.values().any(|it| {
+            it.node == *node
+                && (it.kind == KIND_SOLVE || it.kind == KIND_PROOF || it.kind == KIND_FACTS)
+                && !Self::item_final(&it.phase)
+        });
         if busy {
             return if r.set.is_none() { Some(0) } else { None };
         }
@@ -376,6 +487,18 @@ impl CloseFromMaterialSource {
             .into_iter()
             .map(|(_, p, b)| (p, b))
             .collect();
+        let pi = self.proof_issued(st, i)?;
+        let proof_files = self
+            .inputs_of_role(st, i, ROLE_PROOFS)
+            .into_iter()
+            .map(|(_, p, b)| (p, b))
+            .collect();
+        let fact_files = self
+            .inputs_of_role(st, i, ROLE_FACTS)
+            .into_iter()
+            .map(|(_, p, b)| (p, b))
+            .collect();
+        let relation_tables = self.relation_tables(st, i);
         let r = &self.nodes[i];
         let inp = PassIn {
             node: r.cfg.node.clone(),
@@ -394,6 +517,26 @@ impl CloseFromMaterialSource {
             final_dir: self.abs(&format!("{}/final", node_dir(&r.n))),
             attention_items: att,
             relation_rule: r.cfg.solve.relation_rule.clone(),
+            proof_files,
+            fact_files,
+            relation_tables,
+            issued_proofs: pi.spans,
+            issued_facts: pi.facts,
+            proof_jobs_issued: pi.jobs,
+            proof_attention: pi.attention,
+            proof: r.cfg.proof.as_ref().map(|p| ProofPlan {
+                import_requests: p.import_requests,
+                relations: p.relations,
+                facts: p.facts,
+                max_keys_per_job: p.max_keys_per_job,
+                max_fact_keys_per_job: p.max_fact_keys_per_job,
+            }),
+            exact_tier: r.cfg.exact_tier,
+            rows_path: self.abs(&format!("{}/checks/r{round}.rows.jsonl", node_dir(&r.n))),
+            target: match r.cfg.target {
+                Target::Boxed => "boxed".into(),
+                Target::Full => "full".into(),
+            },
         };
         let h = std::thread::Builder::new()
             .name(format!("closeloop-pass-{}", r.n))
@@ -663,12 +806,14 @@ impl CloseFromMaterialSource {
         let mut on_full_closed = false;
         if boxed && nr.state.target == ClosureTarget::Full {
             if out.defect > 0 {
-                // D-CL1: the FULL attempt of a close-from-material node is its import check (budget 0 rounds)
+                // closeloop.md 13.3: the node is BOXED from its first record; the ledger has no boxed start (NodeState
+                // is FULL at registration, FallBackToBox needs an ended attempt): this pair is the ledger's only legal
+                // way into the spec box until the ledger owner adds `NodeSpecValues.start_target` (lane notes)
                 rt.events.push(Event::Node {
                     node: node.clone(),
                     ev: NodeEvent::AttemptEnded {
                         blockers: blockers(&check_ref),
-                        reason: "close from material: the FULL target's attempt is the import check of the start set (FULL budget 0 rounds, spec data)".into(),
+                        reason: "spec box from the start (closeloop.md 13.3): ledger transition only, no FULL attempt was made (the ledger has no boxed start)".into(),
                         cause: AttemptEndCause::FixerRounds,
                     },
                 });
@@ -686,6 +831,10 @@ impl CloseFromMaterialSource {
         // new solve items
         for (j, b) in out.batches.iter().enumerate() {
             self.new_item(&mut rt, i, k, j, b)?;
+        }
+        // lane closeloop2: new proof (span) and fact items
+        for (j, b) in out.proof_batches.iter().enumerate() {
+            self.new_proof_item(&mut rt, i, k, j, b)?;
         }
         // phase D
         if let Some(f) = &out.final_ {
@@ -804,6 +953,171 @@ impl CloseFromMaterialSource {
         Ok(())
     }
 
+    /// lane closeloop2: one proof / fact item (its batch file and the job's input files are accepted records).
+    fn new_proof_item(
+        &mut self,
+        rt: &mut Routing,
+        i: usize,
+        k: u32,
+        j: usize,
+        b: &ProofBatch,
+    ) -> Result<(), String> {
+        let (n, node) = (self.nodes[i].n.clone(), self.nodes[i].cfg.node.clone());
+        let pc = self.nodes[i]
+            .cfg
+            .proof
+            .clone()
+            .ok_or("proof batch without a proof config")?;
+        let item = proof_item(&n, k, j, &b.kind);
+        let tp = PathBuf::from(&b.table);
+        let bf = ProofBatchFile {
+            schema: PBATCH_SCHEMA.into(),
+            node: node.clone(),
+            item: item.clone(),
+            round: k,
+            kind: b.kind.clone(),
+            reason: b.reason.clone(),
+            table: tp.display().to_string(),
+            table_blake3: file_blake3(&tp)?,
+            records: b.records.clone(),
+            relation_source: b.relation_source.clone(),
+            rows: pc.rows.clone(),
+            drop_zero_sectors: b.relation_source.is_some() && pc.drop_zero_sectors_relations,
+        };
+        let dir = format!("{}/proofs", node_dir(&n));
+        if bf.kind == "span" {
+            rt.accepts.push(record(
+                format!("{dir}/{item}.request.json"),
+                proofs::span_request_bytes(&bf),
+            ));
+            rt.accepts.push(record(
+                format!("{dir}/{item}.keys.txt"),
+                proofs::span_keys_bytes(&bf),
+            ));
+        } else {
+            rt.accepts.push(record(
+                format!("{dir}/{item}.requests.jsonl"),
+                proofs::fact_requests_bytes(&bf),
+            ));
+        }
+        let bfr = record(
+            format!("{dir}/{item}.json"),
+            json_bytes(&serde_json::to_value(&bf).expect("json")),
+        );
+        let r = bfr.file_ref();
+        rt.events.push(Event::InputRegistered {
+            input: input_pbatch(&item),
+            role: ROLE_PBATCH.into(),
+            path: self.abs(&bfr.path).display().to_string(),
+            bytes: r.bytes,
+            blake3: r.blake3,
+        });
+        rt.events.push(Event::ItemCreated {
+            item: item.clone(),
+            node,
+            kind: if bf.kind == "facts" {
+                KIND_FACTS.into()
+            } else {
+                KIND_PROOF.into()
+            },
+            rung: Rung(0),
+            parent: Some(import_item(&n)),
+            inputs: vec![input_pbatch(&item)],
+            label: format!("{}:{}", bf.kind, bf.reason),
+            weight: b.keys(),
+        });
+        rt.accepts.push(bfr);
+        self.nodes[i].pbatches.insert(item, bf);
+        Ok(())
+    }
+
+    /// lane closeloop2: the job of a proof / fact item (legacy rr_proof; argv derived from the inputs by the supervisor).
+    fn request_proof(
+        &mut self,
+        st: &CampaignState,
+        i: usize,
+        item: &str,
+        job: String,
+        priority: i64,
+    ) -> Result<JobRequest, String> {
+        let b = self.pbatch(st, i, item)?;
+        let r = &self.nodes[i];
+        let pc = r
+            .cfg
+            .proof
+            .as_ref()
+            .ok_or("proof item without a proof config")?;
+        let dir = format!("{}/proofs", node_dir(&r.n));
+        let file = |rel: String, role: &str| -> Result<InputRef, String> {
+            let p = self.abs(&rel);
+            Ok(InputRef {
+                role: role.into(),
+                path: p.display().to_string(),
+                blake3: file_blake3(&p)?,
+                upto: None,
+            })
+        };
+        let table = InputRef {
+            role: "table".into(),
+            path: b.table.clone(),
+            blake3: b.table_blake3.clone(),
+            upto: None,
+        };
+        let (kind, inputs) = if b.kind == "span" {
+            let mut v = vec![
+                file(format!("{dir}/{item}.request.json"), "request")?,
+                table,
+                file(format!("{dir}/{item}.keys.txt"), "keys")?,
+            ];
+            let rows_role = if pc.rows == "cert" { "cert" } else { "family" };
+            for role in [rows_role, "symmetry_group"] {
+                if role == "symmetry_group" && b.relation_source.is_none() {
+                    continue; // imported records carry their own group records (rr_proof reads the table's)
+                }
+                if let Some((p, d)) = r.proof_inputs.get(role) {
+                    v.push(InputRef {
+                        role: role.into(),
+                        path: p.display().to_string(),
+                        blake3: d.clone(),
+                        upto: None,
+                    });
+                }
+            }
+            (JobKind::ProofInstanceSpan, v)
+        } else {
+            (
+                JobKind::ProofInstantiate,
+                vec![
+                    file(format!("{dir}/{item}.requests.jsonl"), "requests")?,
+                    table,
+                ],
+            )
+        };
+        let fake = pc
+            .fake
+            .as_ref()
+            .map(|f| proofs::fake_script(&b, &r.proof_oracle, f.ms));
+        Ok(JobRequest {
+            job,
+            item: item.to_string(),
+            rung: Rung(0),
+            kind,
+            priority,
+            cap_bytes: pc.cap_bytes,
+            expected_peak_bytes: pc.expected_peak_bytes,
+            cores: pc.threads as usize,
+            heartbeat_s: pc.heartbeat_s(),
+            stop_grace_s: 5,
+            program: pc.program_key().to_string(),
+            args: vec![],
+            inputs,
+            depends_on: vec![input_pbatch(item)],
+            budgets: JobBudgets::default(),
+            sample_seed: 0,
+            fake,
+        })
+    }
+
     fn error_final(&mut self, st: &CampaignState, i: usize, round: u32, e: &str) -> Routing {
         let n = self.nodes[i].n.clone();
         let node = self.nodes[i].cfg.node.clone();
@@ -888,6 +1202,26 @@ impl CloseFromMaterialSource {
             };
             let lc = r.last_check.clone().unwrap_or(Value::Null);
             let answers = self.answers(st, i).len();
+            // lane closeloop2: proof / fact items and their jobs
+            let mut proof_by_phase: BTreeMap<String, u64> = BTreeMap::new();
+            let (mut proof_running, mut proof_cpu_ms) = (0u64, 0u64);
+            for it in st
+                .items
+                .values()
+                .filter(|it| it.node == *node && (it.kind == KIND_PROOF || it.kind == KIND_FACTS))
+            {
+                *proof_by_phase
+                    .entry(format!("{}:{}", it.kind, it.phase.tag()))
+                    .or_default() += 1;
+                for j in &it.jobs {
+                    if let Some(jr) = st.jobs.get(j) {
+                        proof_cpu_ms += jr.cpu_ms;
+                        if matches!(jr.state, AttemptState::Launching | AttemptState::Running) {
+                            proof_running += 1;
+                        }
+                    }
+                }
+            }
             nodes.push(json!({
                 "node": node, "phase": phase, "round": Self::rounds_done(st, &r.n),
                 "keys": {"closure": lc["keys"], "certified": lc["certified"], "open": lc["open"],
@@ -898,6 +1232,10 @@ impl CloseFromMaterialSource {
                 "pass_running_s": r.pass_started.filter(|_| r.running.is_some()).map(|t| t.elapsed().as_secs()),
                 "last_check": {"defect": lc["defect"], "blocking": lc["blocking"], "closed": lc["closed"]},
                 "evidence_by_class": lc["evidence_by_class"], "relation_rule": r.cfg.solve.relation_rule,
+                "target": lc["target"], "tier": lc["tier"], "exact_tier": lc["exact_tier"],
+                "by_rule_class_level": lc["by_rule_class_level"], "relations": lc["relations"],
+                "proof_items_by_phase": proof_by_phase,
+                "proof_jobs": {"running": proof_running, "cpu_s": proof_cpu_ms as f64 / 1000.0},
             }));
         }
         let v = json!({"schema": PROGRESS_SCHEMA, "ledger_seq": st.last_seq, "nodes": nodes});
@@ -916,6 +1254,188 @@ impl CloseFromMaterialSource {
             let _ = crate::atomic::write_atomic(&p, text.as_bytes());
             self.last_progress = Some((Instant::now(), text));
         }
+    }
+}
+
+impl CloseFromMaterialSource {
+    /// A job without a decision: rerun (ready) until max_job_attempts, then attention (its keys stay open).
+    fn fail_or_attention(
+        &self,
+        st: &CampaignState,
+        i: usize,
+        done: &Settled,
+        code: &str,
+        what: &str,
+        rt: &mut Routing,
+    ) {
+        let Some(it) = st.items.get(&done.item) else {
+            return;
+        };
+        let c = &done.classification;
+        let failed_before = it
+            .jobs
+            .iter()
+            .filter(|j| *j != &done.job)
+            .filter(|j| {
+                matches!(
+                    st.jobs.get(*j).map(|r| r.state),
+                    Some(AttemptState::Failed(_) | AttemptState::BudgetStopped(_))
+                )
+            })
+            .count() as u32;
+        if failed_before + 1 >= self.nodes[i].cfg.budgets.max_job_attempts {
+            rt.events.push(Event::Item {
+                item: done.item.clone(),
+                ev: ItemEvent::Attention {
+                    code: code.into(),
+                    text: format!(
+                        "row {}{} ({}): {}; job {} attempt {}; {what}",
+                        c.row,
+                        if c.sub.is_empty() {
+                            String::new()
+                        } else {
+                            format!("/{}", c.sub)
+                        },
+                        crate::state::class_word(c.kind),
+                        c.why,
+                        done.job,
+                        done.attempt,
+                    ),
+                },
+            });
+        }
+    }
+
+    /// lane closeloop2: the point-record table of the certified relations of one settled solve attempt.
+    fn relation_table(
+        &self,
+        i: usize,
+        b: &BatchFile,
+        item: &str,
+        job: &str,
+        records: &[(Vec<i32>, Value)],
+    ) -> Result<AcceptedRecord, String> {
+        let r = &self.nodes[i];
+        let recipe: Value = std::fs::read(&b.recipe_path)
+            .ok()
+            .and_then(|x| serde_json::from_slice(&x).ok())
+            .unwrap_or(Value::Null);
+        let group = r.proof_inputs.contains_key("symmetry_group");
+        let sym = recipe["symmetry_rows"] == true && group;
+        let mut text = proofs::relation_header(&r.cfg.node, item, job, &b.source);
+        text.push('\n');
+        for (idx, (key, rec)) in records.iter().enumerate() {
+            let chart = proofs::chart_of(&recipe, key);
+            text.push_str(&proofs::relation_record(idx, key, rec, &chart, sym)?);
+            text.push('\n');
+        }
+        Ok(record(
+            format!("{}/relations/{item}.{job}.table.jsonl", node_dir(&r.n)),
+            text.into_bytes(),
+        ))
+    }
+
+    /// lane closeloop2: a settled proof / fact job: its verified answers bound again to the batch, written as the
+    /// node's evidence file (compact proof / fact verdict lines), recorded; no decision -> rerun, then attention.
+    fn route_proof(
+        &mut self,
+        st: &CampaignState,
+        i: usize,
+        done: &Settled,
+    ) -> Result<Routing, String> {
+        let b = self.pbatch(st, i, &done.item)?;
+        let c = &done.classification;
+        let mut rt = Routing::default();
+        if !(c.row == 1
+            && c.sub.is_empty()
+            && !done.canonical_lines.is_empty()
+            && done.table.is_some())
+        {
+            let what = format!("{} {} keys stay below their level", b.pairs().len(), b.kind);
+            self.fail_or_attention(st, i, done, "proof_job_failed", &what, &mut rt);
+            return Ok(rt);
+        }
+        let table = done.table.clone().expect("checked");
+        let lines = match proofs::evidence_lines(&b, &done.canonical_lines) {
+            Ok(l) => l,
+            Err(e) => {
+                // the sealed answers do not bind to the batch the ledger names: never recorded
+                rt.events.push(Event::Item {
+                    item: done.item.clone(),
+                    ev: ItemEvent::Attention {
+                        code: "proof_answers_refused".into(),
+                        text: format!("job {}: {e}", done.job),
+                    },
+                });
+                return Ok(rt);
+            }
+        };
+        let n = self.nodes[i].n.clone();
+        let (sub, input, role) = if b.kind == "facts" {
+            ("facts", input_facts(&done.item, &done.job), ROLE_FACTS)
+        } else {
+            ("proofs", input_proofs(&done.item, &done.job), ROLE_PROOFS)
+        };
+        let mut body = lines.join("\n").into_bytes();
+        body.push(b'\n');
+        let ans = record(
+            format!("{}/{sub}/{}.{}.jsonl", node_dir(&n), done.item, done.job),
+            body,
+        );
+        let aref = ans.file_ref();
+        rt.events.push(Event::InputRegistered {
+            input,
+            role: role.into(),
+            path: self.abs(&ans.path).display().to_string(),
+            bytes: aref.bytes,
+            blake3: aref.blake3.clone(),
+        });
+        let keys = record(
+            format!(
+                "{}/{sub}/{}.{}.keys.json",
+                node_dir(&n),
+                done.item,
+                done.job
+            ),
+            json_bytes(&json!({"schema": "rustred.campaign.closeloop-keys.v1",
+                               "pairs": b.pairs().into_iter().collect::<Vec<_>>()})),
+        );
+        let kref = keys.file_ref();
+        let canon = done
+            .canonical_blake3
+            .clone()
+            .unwrap_or_else(|| aref.blake3.clone());
+        let (round, _) = parse_proof_item(&n, &done.item).unwrap_or((0, 0));
+        rt.events.push(Event::Item {
+            item: done.item.clone(),
+            ev: ItemEvent::Produce {
+                job: done.job.clone(),
+                attempt: done.attempt,
+                table: table.clone(),
+            },
+        });
+        rt.events.push(Event::Item {
+            item: done.item.clone(),
+            ev: ItemEvent::Accept {
+                rule: format!("{}:{}", done.item, &canon[..16.min(canon.len())]),
+                level: EvidenceLevel::IdentityProved,
+                record: aref.clone(),
+                source: AcceptSource::Job {
+                    job: done.job.clone(),
+                    attempt: done.attempt,
+                    table_blake3: table.blake3.clone(),
+                },
+                elided: false,
+                evidence: Some(LevelEvidence::IdentityProved {
+                    proofs: aref,
+                    keys: kref,
+                }),
+                round: Some(round),
+            },
+        });
+        rt.accepts.push(keys);
+        rt.accepts.push(ans);
+        Ok(rt)
     }
 }
 
@@ -1036,12 +1556,26 @@ impl WorkSource for CloseFromMaterialSource {
         for i in 0..self.nodes.len() {
             let node = self.nodes[i].cfg.node.clone();
             let max_att = self.nodes[i].cfg.budgets.max_job_attempts;
-            let items: Vec<(String, ItemPhase, Vec<String>)> =
-                Self::items_of(st, &node, KIND_SOLVE)
-                    .map(|(k, it)| (k.clone(), it.phase.clone(), it.jobs.clone()))
-                    .collect();
-            for (item, ph, jobs) in items {
-                let (k, j) = parse_solve_item(&self.nodes[i].n, &item).unwrap_or((0, 0));
+            let items: Vec<(String, String, ItemPhase, Vec<String>)> = st
+                .items
+                .iter()
+                .filter(|(_, it)| {
+                    it.node == node
+                        && (it.kind == KIND_SOLVE || it.kind == KIND_PROOF || it.kind == KIND_FACTS)
+                })
+                .map(|(k, it)| {
+                    (
+                        k.clone(),
+                        it.kind.clone(),
+                        it.phase.clone(),
+                        it.jobs.clone(),
+                    )
+                })
+                .collect();
+            for (item, ikind, ph, jobs) in items {
+                let (k, j) = parse_solve_item(&self.nodes[i].n, &item)
+                    .or_else(|| parse_proof_item(&self.nodes[i].n, &item))
+                    .unwrap_or((0, 0));
                 let base = -(k as i64) * 1_000_000 - j as i64;
                 let failed = jobs
                     .iter()
@@ -1068,7 +1602,12 @@ impl WorkSource for CloseFromMaterialSource {
                     _ => None,
                 };
                 if let Some(job) = job {
-                    match self.request(st, i, &item, job, base) {
+                    let req = if ikind == KIND_SOLVE {
+                        self.request(st, i, &item, job, base)
+                    } else {
+                        self.request_proof(st, i, &item, job, base)
+                    };
+                    match req {
                         Ok(r) => out.push(r),
                         Err(e) => eprintln!("closeloop: no job for {item}: {e}"),
                     }
@@ -1093,6 +1632,9 @@ impl WorkSource for CloseFromMaterialSource {
         let i = self
             .node_of(&it.node)
             .ok_or_else(|| format!("item {} of a node this source does not hold", done.item))?;
+        if it.kind == KIND_PROOF || it.kind == KIND_FACTS {
+            return self.route_proof(st, i, done);
+        }
         if it.kind != KIND_SOLVE {
             return Err(format!("item {} is not a solve item", done.item));
         }
@@ -1102,40 +1644,8 @@ impl WorkSource for CloseFromMaterialSource {
         let mut rt = Routing::default();
         if !(decided_row && !done.canonical_lines.is_empty() && done.table.is_some()) {
             // no per-key decision: rerun (ready) until max_job_attempts, then attention
-            let failed_before = it
-                .jobs
-                .iter()
-                .filter(|j| *j != &done.job)
-                .filter(|j| {
-                    matches!(
-                        st.jobs.get(*j).map(|r| r.state),
-                        Some(AttemptState::Failed(_) | AttemptState::BudgetStopped(_))
-                    )
-                })
-                .count() as u32;
-            if failed_before + 1 >= self.nodes[i].cfg.budgets.max_job_attempts {
-                rt.events.push(Event::Item {
-                    item: done.item.clone(),
-                    ev: ItemEvent::Attention {
-                        code: "solve_job_failed".into(),
-                        text: format!(
-                            "row {}{} ({}): {}; job {} attempt {}; {} keys of recipe {} stay open",
-                            c.row,
-                            if c.sub.is_empty() {
-                                String::new()
-                            } else {
-                                format!("/{}", c.sub)
-                            },
-                            crate::state::class_word(c.kind),
-                            c.why,
-                            done.job,
-                            done.attempt,
-                            b.keys.len(),
-                            b.source
-                        ),
-                    },
-                });
-            }
+            let what = format!("{} keys of recipe {} stay open", b.keys.len(), b.source);
+            self.fail_or_attention(st, i, done, "solve_job_failed", &what, &mut rt);
             return Ok(rt);
         }
         let table = done.table.clone().expect("checked");
@@ -1199,6 +1709,19 @@ impl WorkSource for CloseFromMaterialSource {
             blake3: aref.blake3.clone(),
         });
         let (round, _) = parse_solve_item(&n, &done.item).unwrap_or((0, 0));
+        if !d.records.is_empty() {
+            // lane closeloop2 (closeloop.md 13.1): our relations as POINT RECORDS, proved per key by proof jobs
+            let rel = self.relation_table(i, &b, &done.item, &done.job, &d.records)?;
+            let rref = rel.file_ref();
+            rt.events.push(Event::InputRegistered {
+                input: input_relations(&done.item, &done.job),
+                role: ROLE_RELATIONS.into(),
+                path: self.abs(&rel.path).display().to_string(),
+                bytes: rref.bytes,
+                blake3: rref.blake3,
+            });
+            rt.accepts.push(rel);
+        }
         if !d.certified.is_empty() {
             let keys = record(
                 format!("{dir}/{}.{}.keys.json", done.item, done.job),

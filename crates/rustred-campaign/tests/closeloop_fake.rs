@@ -143,6 +143,7 @@ fn pass_round_one_lists_the_first_batches_in_process() {
         final_dir: t.path.join("final"),
         attention_items: 0,
         relation_rule: "first_admissible".into(),
+        ..PassIn::first("toy", String::new(), Default::default(), Default::default())
     };
     // a key budget of 1: the batch list is cut (not final); with that key already spent: a budget stop (final)
     let small = rustred_campaign::closeloop::config::Budgets {
@@ -181,6 +182,7 @@ fn pass_round_one_lists_the_first_batches_in_process() {
             final_dir: t.path.join("final"),
             attention_items: 0,
             relation_rule: "first_admissible".into(),
+            ..PassIn::first("toy", String::new(), Default::default(), Default::default())
         },
         None,
     )
@@ -244,8 +246,16 @@ fn fake_children_close_the_toy_end_to_end_with_the_default_recipe() {
     assert_eq!(r["verdict"], "closed", "{r:#}");
     assert_eq!(r["comparison"]["key_sets_equal"], true, "{r:#}");
     assert_eq!(r["check"]["strict"], true);
+    // lane closeloop2: the import's per-class counts (`at_required`) and the class x level table
     assert!(
-        r["evidence_by_class"]["recipe"]["certified"]
+        r["evidence_by_class"]["recipe"]["at_required"]
+            .as_u64()
+            .unwrap()
+            >= 7,
+        "{r:#}"
+    );
+    assert!(
+        r["by_rule_class_level"]["recipe"]["per-key"]
             .as_u64()
             .unwrap()
             >= 7,
@@ -260,7 +270,7 @@ fn fake_children_close_the_toy_end_to_end_with_the_default_recipe() {
         "{ans:#?}"
     );
     assert!(ans.iter().all(|v| v["relation_rule"].as_str().is_some()));
-    // node machine: FULL attempt = the import check, then the box, then closed
+    // node machine: boxed from the start (closeloop.md 13.3: the ledger's transition into the spec box), then closed
     let ev = node_events(&cdir);
     assert!(
         ev.contains(&"fall_back_to_box".to_string())
@@ -382,6 +392,24 @@ fn a_recipe_failure_is_a_structured_error_and_the_node_ends_open() {
         "{rep}"
     );
     assert_eq!(fr["key"], serde_json::json!([4, 1, 0]));
+    // lane closeloop2 (closeloop.md 13.4): the statement's open list carries the recipe's per-key failure
+    let open: Vec<Value> =
+        std::fs::read_to_string(cdir.join("closeloop/toy/final/open_keys.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+    let o = open
+        .iter()
+        .find(|v| v["key"] == serde_json::json!([4, 1, 0]))
+        .expect("[4,1,0] in the open list");
+    let rf = &o["recipe_refusals"][0];
+    assert_eq!(rf["recipe"], "R1", "{o}");
+    assert_eq!(rf["class"], "no_relation_in_seeds", "{o}");
+    assert!(
+        rf["reproduce"].as_str().unwrap().contains("--key 4,1,0"),
+        "{o}"
+    );
     // the item whose only key failed escalated (never accepted)
     assert!(
         st.items

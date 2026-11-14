@@ -71,6 +71,8 @@ pub struct Decided {
     /// One solved-relation v1 line per decided key (certified first-class, failures typed), in batch order.
     pub lines: Vec<String>,
     pub certified: Vec<Vec<i32>>,
+    /// lane closeloop2: the verified results record of every certified key (its point record is proved per key).
+    pub records: Vec<(Vec<i32>, Value)>,
     pub failed: Vec<(Vec<i32>, String)>,
     /// The engine digest the answers carry (pinned by this attempt when none was pinned).
     pub engine_digest: Option<String>,
@@ -254,9 +256,13 @@ pub fn decide(c: &AcceptCtx<'_>, canonical_lines: &[String]) -> Result<Decided, 
                             verdicts.insert(k, Err(open_word(&why)));
                         }
                     }
-                    RecipeVerdict::Rejected { what } => {
+                    RecipeVerdict::Rejected { what, open } => {
+                        // the per-key reasons when the core gives them (no key certified), else the recipe's
                         for k in &c.batch.keys {
                             verdicts.insert(k.clone(), Err(format!("rejected: {what}")));
+                        }
+                        for (k, why) in open {
+                            verdicts.insert(k, Err(format!("rejected: {}", open_word(&why))));
                         }
                     }
                     RecipeVerdict::Undecided { what } => {
@@ -323,6 +329,7 @@ pub fn decide(c: &AcceptCtx<'_>, canonical_lines: &[String]) -> Result<Decided, 
                             "results": {"path": c.results_path, "blake3": c.results_blake3, "ordinal": a.ordinal},
                             "relation_rule": rule_label, "failure": null});
                         out.lines.push(line(&v));
+                        out.records.push((k32.clone(), rec.clone()));
                         out.certified.push(k32);
                     }
                     Err(why) => {
