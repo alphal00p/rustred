@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "resume.schema.json",
+  "title": "RUN/RESUME.json of a generate job",
+  "description": "AS BUILT: rustred_campaign_contract::resume::ResumeState (child-job.md 3.8.1). Readers tolerate unknown fields.",
+  "x-rr-names": ["rustred.child-job.resume.v1"],
+  "x-rr-owner": "I-ENG / package contract",
+  "x-rr-struct": "rustred_campaign_contract::resume::ResumeState",
+  "x-rr-freeze": "M0",
+  "type": "object",
+  "required": ["schema", "job_id", "attempt", "chart", "frame", "rules_committed", "table_committed_bytes", "table_prefix_blake3", "current", "counters_at_commit"],
+  "properties": {
+    "schema": {"const": "rustred.child-job.resume.v1"},
+    "job_id": {"type": "string"},
+    "attempt": {"type": "integer", "minimum": 1},
+    "chart": true,
+    "frame": {"const": "PRESENTED"},
+    "rules_committed": {"$ref": "common.schema.json#/$defs/u64"},
+    "table_committed_bytes": {"$ref": "common.schema.json#/$defs/u64"},
+    "table_prefix_blake3": {"$ref": "common.schema.json#/$defs/blake3"},
+    "current": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/case"}]},
+    "pending": {"type": "array", "items": {"$ref": "#/$defs/case"}},
+    "numerical": {"type": "array", "items": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/i64"}}},
+    "deferred": {"type": "array"},
+    "refused_open": {"type": "array"},
+    "counters_at_commit": {"$ref": "common.schema.json#/$defs/counters"},
+    "symbolic_cases": {"$ref": "common.schema.json#/$defs/u64"},
+    "discarded": {"$ref": "common.schema.json#/$defs/u64"}
+  },
+  "$defs": {
+    "case": {"type": "object", "required": ["frame", "fixed"], "description": "contract resume::CaseSpec; unknown fields kept (`extra`)",
+      "properties": {
+        "frame": {"enum": ["PRESENTED", "ORIGINAL"]},
+        "fixed": {"type": "array", "items": {"anyOf": [{"type": "null"}, {"$ref": "common.schema.json#/$defs/i64"}]}},
+        "equations": {"type": "array"},
+        "seed_centre_offset": true
+      }}
+  }
+}

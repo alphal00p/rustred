@@ -1,0 +1,105 @@
+{
+  "artefact": {
+    "blake3": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "bytes": 5242880,
+    "path": "large:accept/art/c1.cert.jsonl.gz"
+  },
+  "check": {
+    "arithmetic": "exact",
+    "d_values": [
+      "1171/313"
+    ],
+    "drawn_before_start": true,
+    "keys": {
+      "count": 46,
+      "file": {
+        "blake3": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "bytes": 2048,
+        "path": "large:accept/art/k1.keys.jsonl"
+      },
+      "sample": [
+        [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          2,
+          -1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    "kind": "instance_span",
+    "primes": [
+      8070450532247928833
+    ],
+    "scope": "per_key",
+    "tool": "rr_proof",
+    "tool_blake3": "5555555555555555555555555555555555555555555555555555555555555555",
+    "tool_version": "rustred-proof 0.1"
+  },
+  "cost": {
+    "cpu_ms": 96600,
+    "memory_class": "2G",
+    "peak_rss_bytes": 104000000
+  },
+  "credits": {
+    "keys": {
+      "count": 46,
+      "file": {
+        "blake3": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "bytes": 2048,
+        "path": "large:accept/art/k1.keys.jsonl"
+      }
+    },
+    "via_symmetry": []
+  },
+  "evidence_level": "identity_tested",
+  "fixture_origin": "hand",
+  "imported_from": null,
+  "level_after": "A2",
+  "level_policy": "acc-level-v1",
+  "rule": {
+    "byte_offset": 18734,
+    "case_blake3": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "chart": "11111111100000000000",
+    "id": "kite.b9:R:campaign:1",
+    "node": "kite.b9",
+    "ordinal": 1,
+    "producer": {
+      "backend": "targetonlyfactorized",
+      "bin_blake3": "4444444444444444444444444444444444444444444444444444444444444444",
+      "guard_version": 2,
+      "lift_primes": "unknown",
+      "seed_recipe": "floor:centre=T-e_x",
+      "seeds_blake3": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    "rule_line_blake3": "d334f95938057bcd2a7b7a14133d7ad3530455d2f245014563111eaaad1329e8",
+    "table_blake3": "09c6d83c7cdfe3ab6750441844cb6308d252c806700e0146589c1a9ef5868d53"
+  },
+  "schema": "rustred.campaign.accept.v1",
+  "seq_ref": null,
+  "utc": "2026-11-20T08:14:55Z",
+  "verdict": {
+    "disproof": null,
+    "error_bound_log10": null,
+    "normalised": "PASS",
+    "per_key_counts": {
+      "IN_SPAN": 46
+    },
+    "tool_word": "EXACT_ALL_KEYS_IN_SPAN"
+  }
+}

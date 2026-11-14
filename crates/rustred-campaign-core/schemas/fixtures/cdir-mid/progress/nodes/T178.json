@@ -1,0 +1,117 @@
+{
+  "accepted_by_evidence": {
+    "geometry_accepted": 1,
+    "identity_proved": 0,
+    "identity_tested": 0
+  },
+  "attempt_ended": false,
+  "blockers": {
+    "box": null,
+    "full": null
+  },
+  "campaign_id": "fixture-mid",
+  "certified": false,
+  "closure": {
+    "closure_keys": 150409,
+    "defect_keys": 409,
+    "keyset": {
+      "blake3": "41d83c16b4ff809eb49cd7ebfc4c987974c9236a1881f52e90969500e0c333e0",
+      "bytes": 1027,
+      "path": "large:keysets/T178-closure-1.keys"
+    },
+    "rounds": 1,
+    "rules_total": 2440,
+    "rules_used": 5,
+    "used_share": 0.002
+  },
+  "closure_kind": "open",
+  "cpu_seconds": 3.3,
+  "economy": {
+    "after": {
+      "bytes": 18000,
+      "cases": 1,
+      "coefficient_degree": 12,
+      "monomials": 1050,
+      "rhs_terms": 150,
+      "rules": 1
+    },
+    "before": {
+      "bytes": 18000,
+      "cases": 1,
+      "coefficient_degree": 12,
+      "monomials": 1050,
+      "rhs_terms": 150,
+      "rules": 1
+    },
+    "rules_after": 1,
+    "rules_before": 1,
+    "superseded": 0,
+    "unmeasured": 0
+  },
+  "file": "node",
+  "inputs": [
+    "T178.family",
+    "T178.bank"
+  ],
+  "items": {
+    "by_level": {
+      "L0": {
+        "accepted": 1,
+        "escalated": 1,
+        "in_progress": 2,
+        "open": 0,
+        "produced": 0,
+        "rejected": 0,
+        "retired": 0,
+        "stale": 0,
+        "terminal": 0,
+        "terminal_candidate": 0
+      },
+      "L1": {
+        "accepted": 0,
+        "escalated": 0,
+        "in_progress": 0,
+        "open": 0,
+        "produced": 0,
+        "rejected": 0,
+        "retired": 0,
+        "stale": 0,
+        "terminal": 0,
+        "terminal_candidate": 1
+      }
+    },
+    "by_phase": {
+      "accepted": 1,
+      "escalated": 1,
+      "in_progress": 2,
+      "open": 0,
+      "produced": 0,
+      "rejected": 0,
+      "retired": 0,
+      "stale": 0,
+      "terminal": 0,
+      "terminal_candidate": 1
+    },
+    "open": 3
+  },
+  "ledger": {
+    "head": "0c892333623389922bce9c931ba25feff166add6aacd92ae06aaf28d2aa21746",
+    "last_utc": "2026-11-14T11:58:32.750Z",
+    "seq": 132
+  },
+  "node": "T178",
+  "phase": "closure_check",
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "spec_box": "T178.box",
+  "stale_reason": null,
+  "target": {
+    "target": "full"
+  },
+  "terminals": {
+    "bound": 100,
+    "candidates": 1,
+    "declared": 0
+  },
+  "written_utc": "2026-11-14T11:58:33.000Z"
+}

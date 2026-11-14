@@ -1,0 +1,58 @@
+{
+ "schema": "rustred.campaign.progress.v1",
+ "file": "events",
+ "fixture_origin": "hand",
+ "campaign_id": "p5l-boxed-final",
+ "written_utc": "2026-11-27T11:00:00.000Z",
+ "source_of_truth": "ledger",
+ "ledger": {
+  "seq": 91233,
+  "head": "77aa000000000000000000000000000000000000000000000000000000000000",
+  "last_utc": "2026-11-27T10:59:59.000Z"
+ },
+ "cap": 64,
+ "events": [
+  {
+   "seq": 18385,
+   "utc": "2026-11-20T08:14:10.000Z",
+   "kind": "item_rejected",
+   "text": "T178 F044: rejected (irregular_point)"
+  },
+  {
+   "seq": 18398,
+   "utc": "2026-11-20T08:14:31.000Z",
+   "kind": "item_escalated",
+   "text": "T178 F019: escalated to L2 (rule_covers_none)"
+  },
+  {
+   "seq": 18399,
+   "utc": "2026-11-20T08:14:55.000Z",
+   "kind": "item_accepted",
+   "text": "T178 F087: rule T178:R:campaign:640 accepted (identity_proved), diag n2=n6 covers 11/11 points"
+  },
+  {
+   "seq": 18401,
+   "utc": "2026-11-20T08:15:02.000Z",
+   "kind": "item_upgraded",
+   "text": "T178 F012: evidence -> identity_proved"
+  },
+  {
+   "seq": 91200,
+   "utc": "2026-11-27T10:40:00.000Z",
+   "kind": "node",
+   "text": "T266: closed (boxed), defect 0 of 13951428 keys"
+  },
+  {
+   "seq": 91230,
+   "utc": "2026-11-27T10:59:58.000Z",
+   "kind": "node",
+   "text": "T178: certified (boxed)"
+  },
+  {
+   "seq": 91233,
+   "utc": "2026-11-27T10:59:59.000Z",
+   "kind": "campaign",
+   "text": "campaign finished"
+  }
+ ]
+}

@@ -171,6 +171,13 @@ fn table_file(text: &str) -> TableFile {
     t
 }
 
+/// A minimal arity-3 bank predicate with every required field; `witness` is the witness-loci JSON list.
+fn bank_json(witness: &str) -> String {
+    format!(
+        r#"{{"global_ordinal0":0,"raw_fixed20":[null,null,null],"all_raw_Case_equations":[],"domain_atoms":[],"raw_written_exceptions_OR_of_AND":[],"cached_domain_exception_or_pole_AND_loci":[],"literal_written_denominators_generic_d_nonzero":[],"raw_header_source_conditions_generic_d_nonzero":[],"raw_rule_witness_loci_generic_d_nonzero":{witness},"no_recenter_or_permutation_applied":true}}"#
+    )
+}
+
 const H3: &str = r#"{"type":"header","schema":"table_dump.v1","denominators":3,"mask":"110","power_shifts":["0","0","0"]}"#;
 
 fn frame3() -> NodeFrame {
@@ -303,10 +310,8 @@ fn audit_a_m1_target_pattern_is_matched_as_the_engine() {
     assert_eq!(t.provenance.targets, Some(EXPORT));
     assert_eq!(t.provenance.format, SourceFormat::CaseExport);
     // bank predicates carry no target: FromRecord is refused
-    let bank: rustred_campaign_core::record::BankPredicate = serde_json::from_str(
-        r#"{"global_ordinal0":0,"raw_fixed20":[null,null,null],"no_recenter_or_permutation_applied":true}"#,
-    )
-    .unwrap();
+    let bank: rustred_campaign_core::record::BankPredicate =
+        serde_json::from_str(&bank_json("[]")).unwrap();
     assert_eq!(
         CaseDomain::from_bank_predicate(&bank, 3, TargetSource::FromRecord),
         Err(DomainError::MissingTarget)
@@ -586,10 +591,8 @@ fn ruling_f1_elided_witness_loci_block_from_every_source_format() {
     .unwrap();
     assert_eq!(t.provenance.witness, WitnessProvenance::Disabled);
     // bank predicate with an elided witness locus
-    let bank: rustred_campaign_core::record::BankPredicate = serde_json::from_str(
-        r#"{"global_ordinal0":0,"raw_fixed20":[null,null,null],"raw_rule_witness_loci_generic_d_nonzero":["elided","n0-7"],"no_recenter_or_permutation_applied":true}"#,
-    )
-    .unwrap();
+    let bank: rustred_campaign_core::record::BankPredicate =
+        serde_json::from_str(&bank_json(r#"["elided","n0-7"]"#)).unwrap();
     let d = CaseDomain::from_bank_predicate(&bank, 3, EXPORT).unwrap();
     assert!(d.witness_elided);
     assert_eq!(d.applies(&[1, 1, 0]), Verdict::Elided);
@@ -1091,4 +1094,145 @@ fn audit_a_m5_group_element_apply_is_checked() {
     ] {
         assert!(bad.apply(&[3, 2, 1, -1, 0]).is_err(), "{bad:?}");
     }
+}
+
+// ============================================================================================== audit B
+
+/// B M1: a record without `exceptions` loaded as having none (`Applies` where the rule should be excluded); a missing
+/// `equations` likewise. Both are now format errors (the engine requires `exceptions`; `equations` is required here,
+/// stricter than the engine, because every record at hand carries it).
+#[test]
+fn audit_b_m1_missing_exceptions_or_equations_is_an_error() {
+    let rec = r#"{"i":0,"index":0,"chart":"110","fixed":[1,null,null],"equations":[],"exceptions":[],"dispatch":"Partition","numerical":false}"#;
+    assert!(read_lines(rec)[0].is_ok());
+    assert!(read_lines(&rec.replace(r#""exceptions":[],"#, ""))[0].is_err());
+    assert!(read_lines(&rec.replace(r#""equations":[],"#, ""))[0].is_err());
+    assert!(read_lines(&rec.replace(r#""equations":[]"#, r#""equations":null"#))[0].is_err());
+}
+
+/// B M2: a case-export rule line without `fixed` was classed as a non-rule line and DROPPED silently (a later rule
+/// then won the key). Now a format error; only the `other` / `summary` wrappers are non-rule lines.
+#[test]
+fn audit_b_m2_rule_line_without_fixed_is_an_error() {
+    let rec =
+        r#"{"i":0,"index":0,"chart":"110","equations":[],"exceptions":[],"dispatch":"Partition"}"#;
+    assert!(read_lines(rec)[0].is_err());
+    assert!(matches!(
+        read_lines(r#"{"summary":{"rules":3}}"#)[0],
+        Ok(TableLine::Other { .. })
+    ));
+    assert!(matches!(
+        read_lines(r#"{"other":{"type":"zero_sectors","masks":[]}}"#)[0],
+        Ok(TableLine::Other { .. })
+    ));
+    assert!(read_lines(r#"{"summary":{},"i":1}"#)[0].is_err());
+}
+
+/// B M3: a bank predicate without `domain_atoms` loaded with no chart/recenter bounds (`Applies` at keys they
+/// exclude). Every domain field of a bank predicate is now required (null = empty list).
+#[test]
+fn audit_b_m3_bank_predicate_fields_are_required() {
+    use rustred_campaign_core::record::BankPredicate;
+    let full = bank_json("[]");
+    assert!(serde_json::from_str::<BankPredicate>(&full).is_ok());
+    for field in [
+        "domain_atoms",
+        "all_raw_Case_equations",
+        "raw_written_exceptions_OR_of_AND",
+        "cached_domain_exception_or_pole_AND_loci",
+        "literal_written_denominators_generic_d_nonzero",
+        "raw_header_source_conditions_generic_d_nonzero",
+        "raw_rule_witness_loci_generic_d_nonzero",
+        "raw_fixed20",
+    ] {
+        let mut v: serde_json::Value = serde_json::from_str(&full).unwrap();
+        v.as_object_mut().unwrap().remove(field);
+        assert!(
+            serde_json::from_value::<BankPredicate>(v).is_err(),
+            "missing {field} must be refused"
+        );
+    }
+    let mut v: serde_json::Value = serde_json::from_str(&full).unwrap();
+    v["raw_written_exceptions_OR_of_AND"] = serde_json::Value::Null;
+    assert!(serde_json::from_value::<BankPredicate>(v).is_ok());
+}
+
+/// B M4: case exports carry no `witness_loci`, so elision cannot be seen there; the old crate gave no sign of it.
+/// The loaded table now says `WitnessProvenance::NotCarried` (and a raw table `Checked`); with the raw rgq-g0-10 table
+/// the 21 keys are Blocked (ruling F1; `cover_raw_tables::f1_raw_tables_witness_check_409_uncovered_21_blocked`).
+#[test]
+fn audit_b_m4_exports_without_witness_loci_are_flagged() {
+    let export = r#"{"i":0,"index":0,"chart":"110","fixed":[null,null,null],"equations":[],"exceptions":[],"dispatch":"Partition"}"#;
+    let t = Table::from_table_file(
+        "e",
+        "e",
+        &table_file(&format!("{H3}\n{export}")),
+        DomainOptions {
+            targets: EXPORT,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(t.provenance.witness, WitnessProvenance::NotCarried);
+    let raw = rule3(r#","witness_loci":[]"#);
+    let t = Table::from_table_file(
+        "r",
+        "r",
+        &table_file(&format!("{H3}\n{raw}")),
+        DomainOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(t.provenance.witness, WitnessProvenance::Checked);
+    let mixed = table_file(&format!("{H3}\n{raw}\n{}", rule3("")));
+    let t = Table::from_table_file("m", "m", &mixed, DomainOptions::default()).unwrap();
+    assert_eq!(
+        t.provenance.witness,
+        WitnessProvenance::Partial { with: 1, total: 2 }
+    );
+}
+
+/// B m1: `first_match` on a key of the wrong length returned `Uncovered`; now `CoverError::KeyArity` (see also A m6).
+#[test]
+fn audit_b_m1_wrong_length_key_is_an_error() {
+    let mut t = Table::new("t", 3);
+    t.push(0, CaseDomain::free(3, None)).unwrap();
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    assert!(matches!(
+        disp.first_match(&[1, 1]),
+        Err(CoverError::KeyArity { .. })
+    ));
+}
+
+/// B m2: `Table` has public fields; `labels.len() < domains.len()` made `first_match` panic. `Dispatcher::new`
+/// validates it now.
+#[test]
+fn audit_b_m2_label_count_mismatch_is_refused() {
+    let mut t = Table::new("t", 3);
+    t.push(0, CaseDomain::free(3, None)).unwrap();
+    t.push(1, CaseDomain::free(3, None)).unwrap();
+    t.labels.pop();
+    assert!(matches!(
+        Dispatcher::new(vec![t], vec![0]),
+        Err(CoverError::Invalid(_))
+    ));
+}
+
+/// B m3: 30,000 nested parentheses overflowed the parser's stack and aborted the process. Nesting is now bounded
+/// (`MAX_NESTING`) with a typed syntax error.
+#[test]
+fn audit_b_m3_deep_nesting_is_a_typed_error() {
+    use rustred_campaign_core::poly::MAX_NESTING;
+    let deep = format!("{}n0{}", "(".repeat(30_000), ")".repeat(30_000));
+    assert!(matches!(
+        Poly::parse_d_free(&deep, 3),
+        Err(PolyError::Syntax { .. })
+    ));
+    let signs = format!("{}n0", "-".repeat(30_000));
+    assert!(Poly::parse_d_free(&signs, 3).is_err());
+    let ok = format!(
+        "{}n0{}",
+        "(".repeat(MAX_NESTING - 2),
+        ")".repeat(MAX_NESTING - 2)
+    );
+    assert_eq!(Poly::parse_d_free(&ok, 3).unwrap(), Poly::var(0));
 }
