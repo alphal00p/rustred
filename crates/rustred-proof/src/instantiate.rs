@@ -373,7 +373,7 @@ mod tests {
         assert!(o.contains("\"rule\":2894") && o.contains("\"in_case\":true"), "{o}");
         assert_eq!(header_guard_version(table.to_str().unwrap()), 2);
         // an unknown record kind and an unreadable line are refused, never skipped
-        for (bad, want) in [("{\"type\":\"mystery\"}", "UNKNOWN_RECORD_KIND"), ("{\"type\":\"rule\",\"index\":", "UNREADABLE_RECORD"),
+        for (bad, want) in [("{\"type\":\"mystery\"}", "UNKNOWN_RECORD_KIND"), ("{\"type\":\"rule\",\"index\":", "UNREADABLE_RECORD"), ("{\"type\":\"residual\",\"chart\":\"1", "UNREADABLE_RECORD"),
                             ("{\"index\":5}", "UNREADABLE_RECORD"), ("{\"type\":7}", "UNREADABLE_RECORD"), ("not json", "UNREADABLE_RECORD")] {
             std::fs::write(&table, format!("{}{}\n", body, bad)).unwrap();
             std::fs::write(&req, format!("{{\"table\":\"{}\",\"rule\":99,\"keys\":[[3,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]}}\n", table.display())).unwrap();

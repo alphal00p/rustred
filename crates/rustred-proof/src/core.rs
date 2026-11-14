@@ -513,7 +513,8 @@ pub fn top_field<'a>(l: &'a [u8], key: &str) -> Option<&'a [u8]> {
 pub fn record_kind<'a>(l: &'a [u8], file: &str, line_no: usize, allowed: &[&str]) -> Option<&'a [u8]> {
     if l.iter().all(|c| (*c as char).is_ascii_whitespace()) { return None; }
     let mut kind: Option<&[u8]> = None;
-    if let Err(e) = top_members_raw(l, |k, v| { if k == b"type" { kind = Some(v); false } else { true } }) {
+    // the WHOLE line is scanned (a line truncated after its type member is unreadable, never classified)
+    if let Err(e) = top_members_raw(l, |k, v| { if k == b"type" && kind.is_none() { kind = Some(v); } true }) {
         die(&format!("UNREADABLE_RECORD: {} line {}: {}", file, line_no, e));
     }
     // a plain string kind (quoted, no escapes)

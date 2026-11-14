@@ -184,13 +184,12 @@ pub fn record_kind<'a>(
     }
     let b = l.as_bytes();
     let mut kind: Option<&[u8]> = None;
+    // the WHOLE line is scanned (a line truncated after its type member is unreadable, never classified)
     top_members(b, |k, v| {
-        if k == b"type" {
+        if k == b"type" && kind.is_none() {
             kind = Some(v);
-            false
-        } else {
-            true
         }
+        true
     })
     .map_err(|e| format!("UNREADABLE_RECORD: {file} line {line_no}: {e}"))?;
     let k = match kind {
