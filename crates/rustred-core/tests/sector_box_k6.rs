@@ -928,7 +928,11 @@ fn harness_solution_round_trips() {
     untimed.report.build_seconds = read.report.build_seconds;
     untimed.report.seconds = read.report.seconds;
     assert_eq!(read, untimed);
-    assert_eq!(record.family, family);
+    // A file carries the router fingerprint it was written with; the legacy
+    // ones are accepted by the reader, never written.
+    let mut written = family.clone();
+    written.legacy_router_fingerprints.clear();
+    assert_eq!(record.family, written);
     assert_eq!(record.extra, serde_json::json!({"job": "k6"}));
     assert_eq!(record.certificates.len(), 1);
     assert_eq!(
@@ -1107,15 +1111,21 @@ fn golden_files_are_certified_at_an_independent_prime() {
     }
 }
 
-/// The census router fingerprint (format v1, `Debug` renderings) is the one
-/// in every solution file of the campaign engine. If this fails, a
-/// rendering changed: existing files would be refused by the reader.
+/// The census router fingerprints: v2 (explicit bytes) is written; v1
+/// (`Debug` renderings) is the one in every solution file of the campaign
+/// engine and stays accepted as a legacy fingerprint. Both are pinned: if
+/// either changes, existing files or checkpoints would no longer be read.
 #[test]
-fn router_fingerprint_matches_the_campaign_files() {
+fn router_fingerprints_are_pinned() {
     let (session, _) = session(1);
+    let family = session.harness_family();
     assert_eq!(
-        session.harness_family().router_fingerprint.as_deref(),
-        Some("5768f971f58aa0b01f0508ca51cabff8fb1234f1048d192072059ed9e388f73b")
+        family.legacy_router_fingerprints,
+        vec!["5768f971f58aa0b01f0508ca51cabff8fb1234f1048d192072059ed9e388f73b".to_string()]
+    );
+    assert_eq!(
+        family.router_fingerprint.as_deref(),
+        Some("8adaf0153da8d02cfdf7bb901fc01303054bec186bbfe483d24e7eb2a185349f")
     );
 }
 
