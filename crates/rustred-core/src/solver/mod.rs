@@ -22,6 +22,7 @@ mod instantiate;
 pub mod litered;
 mod numeric;
 mod precondition;
+pub mod region_probe;
 mod row;
 mod search;
 mod sector;
@@ -121,7 +122,7 @@ pub use execution::{
 };
 pub use geometry::GeometryError;
 pub use index::{Integral, IntegralOrder, Power, PowerError};
-pub use numeric::{NumericResult, NumericStats, NumericalExactBackend};
+pub use numeric::{NumericResult, NumericStats, NumericalExactBackend, SYMMETRY_ROW};
 pub(crate) use precondition::PreconditionProvenance;
 pub use precondition::{precondition, precondition_with_variable_order};
 pub use row::{ExactRow, PolynomialRow, Row, Term};

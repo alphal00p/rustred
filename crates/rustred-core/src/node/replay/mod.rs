@@ -1039,8 +1039,9 @@ fn rows_for(
     f: &Family,
     cert: Option<&Cert>,
     chart: &str,
+    sym: Option<&[Vec<Option<usize>>]>,
 ) -> Result<Built, Unknown> {
-    rows_for_p(P, support, point, recenter, d, f, cert, chart)
+    rows_for_p(P, support, point, recenter, d, f, cert, chart, sym)
 }
 
 /// [`rows_for`] modulo the prime `p` (guard-fix replay hardening: second prime).
@@ -1054,6 +1055,7 @@ fn rows_for_p(
     f: &Family,
     cert: Option<&Cert>,
     chart: &str,
+    sym: Option<&[Vec<Option<usize>>]>,
 ) -> Result<Built, Unknown> {
     let n = f.n;
     let mut out = Built {
@@ -1129,6 +1131,17 @@ fn rows_for_p(
                 out.rows.push(strip_p(p, &rr));
                 out.labels
                     .push(json!({"independent_original_operator": op, "at": y}));
+            }
+            if let Some(actions) = sym {
+                for (a, b) in sym_rows_at(&y, chart, actions) {
+                    let mut rr = Row::new();
+                    out.universe.insert(a.clone());
+                    out.universe.insert(b.clone());
+                    addto(&mut rr, a.clone(), 1);
+                    addto(&mut rr, b.clone(), P - 1);
+                    out.rows.push(strip(&rr));
+                    out.labels.push(json!({"exact_symmetry_row": [a, b]}));
+                }
             }
         }
     }
@@ -1224,7 +1237,7 @@ fn reconstruct_direct(
             let mut accepted = true;
             let sup = Support::Direct(vec![(bid, pat.clone())]);
             for ((_, d), wanted) in dims.iter().zip(&desireds) {
-                let built = rows_for(&sup, point, &rc, *d, f, Some(cert), &rule.chart)?;
+                let built = rows_for(&sup, point, &rc, *d, f, Some(cert), &rule.chart, None)?;
                 let r = &built.rows[0];
                 let pivot = r.get(&target).copied().unwrap_or(0);
                 if pivot == 0 {
@@ -1412,6 +1425,38 @@ struct Ctx<'a> {
     f: &'a Family,
     cert: Option<&'a Cert>,
     dims: Vec<(String, u64, Q)>,
+    /// sym-gen step 2: per chart, the slot actions of the table's `symmetry_group` elements that passed
+    /// [`check_symmetry_record`] on this family (integer momentum check); used only for rules with `sym_rows`.
+    sym: HashMap<String, Vec<Vec<Option<usize>>>>,
+}
+
+/// Exact symmetry rows `I(y) - I(g y)` at a chart key `y` (every chart line >= 1, every nonzero slot mapped).
+fn sym_rows_at(y: &[i64], chart: &str, actions: &[Vec<Option<usize>>]) -> Vec<(Key, Key)> {
+    let lines: Vec<bool> = chart.chars().map(|c| c == '1').collect();
+    if lines.len() != y.len() || y.iter().zip(&lines).any(|(v, l)| *l && *v < 1) {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for act in actions {
+        let mut img = vec![0i64; y.len()];
+        let mut ok = true;
+        for (i, &v) in y.iter().enumerate() {
+            if v == 0 {
+                continue;
+            }
+            match act.get(i).copied().flatten() {
+                Some(t) if t < y.len() => img[t] = v,
+                _ => {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if ok && img != y {
+            out.push((y.to_vec(), img));
+        }
+    }
+    out
 }
 
 fn replay_rule(
@@ -1615,10 +1660,39 @@ fn replay_point(
     if ctx.f.zero_key(&target) {
         return Err("target is independently scaleless; not a nonzero-rule test".into());
     }
+    // sym-gen step 2 (engine-line port of ca40fe99): a rule whose trace used exact symmetry rows is replayed on ALL
+    // original IBPs plus the exact symmetry rows of the table's verified group at its exported seeds (its cand dump
+    // names no basis row for them)
+    let sym_rows = rule.raw["sym_rows"].as_u64().unwrap_or(0);
+    let used_sym = sym_rows > 0;
+    let sym_actions: Option<&[Vec<Option<usize>>]> = if used_sym {
+        Some(
+            ctx.sym
+                .get(&rule.chart)
+                .filter(|v| !v.is_empty())
+                .ok_or("rule uses symmetry rows but the table has no verified symmetry_group for its chart")?
+                .as_slice(),
+        )
+    } else {
+        None
+    };
+    let no_dump: Option<PathBuf> = None;
+    let dump_dir = if used_sym {
+        &no_dump
+    } else {
+        &ctx.args.cand_dump_dir
+    };
+    let b_sup = if used_sym {
+        let mut c = b.clone();
+        if let Some(o) = c.as_object_mut() {
+            o.remove("cand_dump");
+        }
+        c
+    } else {
+        b.clone()
+    };
     let (candidates, authority, sup, supp_meta) = match recenter_for(rule, b, n).and_then(
-        |(rc, a)| {
-            support(rule, b, &ctx.args.cand_dump_dir, n, ctx.cert).map(|(s, m)| (vec![rc], a, s, m))
-        },
+        |(rc, a)| support(rule, &b_sup, dump_dir, n, ctx.cert).map(|(s, m)| (vec![rc], a, s, m)),
     ) {
         Ok(x) => x,
         Err(e)
@@ -1662,7 +1736,18 @@ fn replay_point(
     let mut tried = Vec::new();
     let mut last = None;
     for rc in candidates.iter().take(recenter_search_limit()) {
-        let cells = replay_cells(rule, ctx, &point, rc, &sup, &coefs, &target, &rhskeys, out)?;
+        let cells = replay_cells(
+            rule,
+            ctx,
+            &point,
+            rc,
+            &sup,
+            &coefs,
+            &target,
+            &rhskeys,
+            out,
+            sym_actions,
+        )?;
         let pass = cells.iter().all(|c| c["result"] == "PASS");
         tried.push(json!({"recenter": rc, "pass": pass}));
         last = Some((rc.clone(), cells));
@@ -1680,7 +1765,7 @@ fn replay_point(
         "fail_meaning": "FAIL = not derived from these seeds at this point (mod-P span test); not evidence that the rule is false",
         "point": point, "sample_authority": sample_kind, "recenter": rc, "recenter_authority": authority,
         "recenter_tried": tried,
-        "support_kind": sup.kind(), "support": supp_meta, "cells": cells, "elapsed_seconds": started.elapsed().as_secs_f64(),
+        "support_kind": sup.kind(), "support": supp_meta, "symmetry_rows": used_sym, "cells": cells, "elapsed_seconds": started.elapsed().as_secs_f64(),
     }))
 }
 
@@ -1709,7 +1794,7 @@ fn recenter_candidates(
     let n = ctx.f.n;
     let zero = vec![0i64; n];
     let d = ctx.dims.first().ok_or("no dimension")?.1;
-    let built = rows_for(sup, point, &zero, d, ctx.f, ctx.cert, &rule.chart)?;
+    let built = rows_for(sup, point, &zero, d, ctx.f, ctx.cert, &rule.chart, None)?;
     let pat = parse_integral(&rule.target, n)?;
     let numeric: Vec<bool> = pat.iter().map(|(ax, _)| ax.is_none()).collect();
     let mut cands: Vec<Vec<i64>> = built
@@ -1757,6 +1842,7 @@ fn replay_cells(
     target: &Key,
     rhskeys: &[Key],
     out: &Path,
+    sym: Option<&[Vec<Option<usize>>]>,
 ) -> Result<Vec<Value>, Unknown> {
     let (point, rc, target) = (point.to_vec(), rc.to_vec(), target.clone());
     let mut cells = Vec::new();
@@ -1817,7 +1903,7 @@ fn replay_cells(
             for (k, v) in rhskeys.iter().zip(&values) {
                 addto_p(p, &mut desired, k.clone(), arith::neg(p, *v));
             }
-            let built = rows_for_p(p, sup, &point, &rc, d, ctx.f, ctx.cert, &rule.chart)?;
+            let built = rows_for_p(p, sup, &point, &rc, d, ctx.f, ctx.cert, &rule.chart, sym)?;
             let mut universe = built.universe.clone();
             universe.insert(target.clone());
             universe.extend(rhskeys.iter().cloned());
@@ -1901,6 +1987,50 @@ fn replay_cells(
                 }
             }
             let nonzero_control_ok = corners_in_span.is_empty();
+            // sym-gen (engine-line port of bd4a134d, owed content control for symmetry-row rules): the chart's CORNER
+            // (every chart line at 1, every other slot 0) must not be in the span of the rows projected onto the
+            // top-sector columns of the chart either (corner = lower-sector integrals only); the exact case is the
+            // nonzero-integral control above.
+            let chart_lines: Vec<bool> = rule.chart.chars().map(|c| c == '1').collect();
+            let corner_mod_sub = if sym.is_some() && chart_lines.len() == ctx.f.n {
+                let corner: Key = chart_lines.iter().map(|&l| i64::from(l)).collect();
+                let mut ccols = columns.clone();
+                if !ids.contains_key(&corner) {
+                    ccols.push(corner.clone());
+                }
+                let cids: HashMap<&Key, usize> =
+                    ccols.iter().enumerate().map(|(i, k)| (k, i)).collect();
+                let top = |k: &Key| k.iter().zip(&chart_lines).all(|(v, l)| !*l || *v >= 1);
+                let proj: Vec<Vec<(usize, u64)>> = built
+                    .rows
+                    .iter()
+                    .map(|r| {
+                        let mut es: Vec<(usize, u64)> = strip_p(p, r)
+                            .into_iter()
+                            .filter(|(k, _)| !zeros.contains(k) && top(k))
+                            .map(|(k, v)| (cids[&k], v))
+                            .collect();
+                        es.sort_unstable();
+                        es
+                    })
+                    .collect();
+                let pe = Elim::new(&proj, ccols.len(), p)?;
+                Some(pe.solve(&[(cids[&corner], 1)])?.in_span)
+            } else {
+                None
+            };
+            let nonzero_control_ok = nonzero_control_ok && corner_mod_sub != Some(true);
+            let sym_list: Vec<Value> = if sym.is_some() {
+                built
+                    .labels
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, l)| l.get("exact_symmetry_row").is_some())
+                    .map(|(i, l)| json!({"row": l["exact_symmetry_row"], "weight_nonzero": sp.weights.get(&i).is_some_and(|w| *w != 0)}))
+                    .collect()
+            } else {
+                Vec::new()
+            };
             let nonzero_sector_columns = columns.len() - zeros.len();
             let content = sp.rank < nonzero_sector_columns;
             let derived = sp.in_span && bad.is_empty();
@@ -1918,6 +2048,8 @@ fn replay_cells(
                 "nonzero_integral_control": {"sectors_touched": sectors_touched.len(), "corners_tested": corners_tested,
                     "corners_in_span": corners_in_span, "ok": nonzero_control_ok},
                 "elimination": {"status": if sp.in_span { "IN_SPAN" } else { "NOT_IN_SPAN" }, "rank": sp.rank, "weights": sp.weights.len()},
+                "corner_in_span_mod_subsectors": corner_mod_sub,
+                "symmetry_rows_list": sym_list,
             });
             let cp = out.join(format!("cell-{label}.json"));
             std::fs::write(&cp, serde_json::to_string_pretty(&cell).unwrap() + "\n")
@@ -2015,6 +2147,112 @@ fn family_check(header: &Value, text: &str, f: &Family) -> Result<(), Unknown> {
 
 /// Run the replay; writes `OUT/RESULT.json` and per rule `OUT/<chart>-r<index>/RESULT.json`.
 /// Returns the overall status (`PASS_RS2_RS3_SAMPLED`, `FAIL`, `UNKNOWN`) and the result document.
+/// Exact check of a sym-gen record (`"type":"sym"` / `"sym_zero"`): the matrix `T` (row-vector convention over
+/// `(k_1, .., k_L, q)`) sends `q` to `+-q` and the loop momenta unimodularly (`|det A| = 1`: unit Jacobian); every
+/// slot of the record's action is mapped EXACTLY: `c_i T = +-c_t` (a squared propagator never changes sign, so the
+/// action's flip must be false), chart lines onto chart lines; a slot without image is fixed at 0 on the case.
+/// Then `D_i(k T) = D_t(k)` for every mapped slot and the change of variables proves `I(a) = I(g a)` on the case.
+/// A `sym_zero` record must be a pointwise fixed point with an odd flipped power (impossible for squares: FAIL).
+/// Descent of a `sym` record is the descent gate's (rr_node descent), not this check.
+pub fn check_symmetry_record(r: &Value, f: &Family) -> Result<(), String> {
+    let n = f.n;
+    let l = f.loops;
+    let w = l + 1;
+    let m: Vec<i64> = r["matrix"]
+        .as_array()
+        .ok_or("no matrix")?
+        .iter()
+        .map(|x| x.as_i64().ok_or("matrix entry"))
+        .collect::<Result<_, _>>()?;
+    if m.len() != w * w {
+        return Err(format!("matrix of {} entries, expected {}", m.len(), w * w));
+    }
+    if (0..l).any(|j| m[l * w + j] != 0) || m[l * w + l].abs() != 1 {
+        return Err("q is not mapped to +-q".into());
+    }
+    let a: Vec<Vec<i128>> = (0..l)
+        .map(|i| (0..l).map(|j| i128::from(m[i * w + j])).collect())
+        .collect();
+    let det = det_i128(a);
+    if det.abs() != 1 {
+        return Err(format!("loop part has determinant {det}"));
+    }
+    let chart: Vec<bool> = r["chart"]
+        .as_str()
+        .ok_or("no chart")?
+        .chars()
+        .map(|c| c == '1')
+        .collect();
+    let fixed: Vec<Option<i64>> = r["fixed"]
+        .as_array()
+        .ok_or("no fixed")?
+        .iter()
+        .map(|x| x.as_i64())
+        .collect();
+    let action = r["action"].as_array().ok_or("no action")?;
+    if chart.len() != n || fixed.len() != n || action.len() != n {
+        return Err("record arity".into());
+    }
+    let mut seen = vec![false; n];
+    for i in 0..n {
+        if action[i].is_null() {
+            if fixed[i] != Some(0) {
+                return Err(format!("slot {i} has no image but is not fixed at 0"));
+            }
+            continue;
+        }
+        let t = action[i][0].as_u64().ok_or("action target")? as usize;
+        let flip = action[i][1].as_bool().ok_or("action flip")?;
+        if t >= n || std::mem::replace(&mut seen[t], true) {
+            return Err(format!("slot {i}: target {t} invalid or repeated"));
+        }
+        if flip {
+            return Err(format!("slot {i}: a squared propagator cannot change sign"));
+        }
+        if chart[i] != chart[t] {
+            return Err(format!("slot {i}: chart line / non-line mismatch with {t}"));
+        }
+        let ci = f.momentum(i).ok_or("momentum")?;
+        let ct = f.momentum(t).ok_or("momentum")?;
+        let image: Vec<i64> = (0..w)
+            .map(|col| (0..w).map(|row| ci[row] * m[row * w + col]).sum())
+            .collect();
+        let minus: Vec<i64> = ct.iter().map(|x| -x).collect();
+        if image != ct && image != minus {
+            return Err(format!("slot {i}: image momentum {image:?} is not +-{ct:?}"));
+        }
+    }
+    if r["type"] == "sym_zero" {
+        // squared propagators never flip: no sign, no zero by symmetry
+        return Err("zero by symmetry needs a sign flip (impossible with squared propagators)".into());
+    }
+    Ok(())
+}
+
+fn det_i128(mut a: Vec<Vec<i128>>) -> i128 {
+    let n = a.len();
+    let mut sign = 1i128;
+    let mut prev = 1i128;
+    for k in 0..n {
+        if a[k][k] == 0 {
+            match (k + 1..n).find(|&r| a[r][k] != 0) {
+                Some(r) => {
+                    a.swap(k, r);
+                    sign = -sign;
+                }
+                None => return 0,
+            }
+        }
+        for i in k + 1..n {
+            for j in k + 1..n {
+                a[i][j] = (a[i][j] * a[k][k] - a[i][k] * a[k][j]) / prev;
+            }
+        }
+        prev = a[k][k];
+    }
+    if n == 0 { 1 } else { sign * a[n - 1][n - 1] }
+}
+
 pub fn run(args: &ReplayArgs) -> Result<(String, Value), String> {
     if args.out.exists() {
         return Err("output directory already exists".into());
@@ -2027,6 +2265,8 @@ pub fn run(args: &ReplayArgs) -> Result<(String, Value), String> {
         let mut header: Option<Value> = None;
         let mut charts: HashMap<String, Value> = HashMap::new();
         let mut rules: Vec<Rule> = Vec::new();
+        let mut syms: Vec<Value> = Vec::new();
+        let mut groups: Vec<Value> = Vec::new();
         for line in text.lines().filter(|l| !l.trim().is_empty()) {
             let r: Value = serde_json::from_str(line).map_err(|e| format!("table json: {e}"))?;
             match r["type"].as_str() {
@@ -2049,11 +2289,24 @@ pub fn run(args: &ReplayArgs) -> Result<(String, Value), String> {
                         rules.push(rule_from(&r)?);
                     }
                 }
+                Some("symmetry_group") => {
+                    groups.push(r);
+                }
+                Some("sym") | Some("sym_zero") => {
+                    let idx = r["index"].as_u64().unwrap_or(u64::MAX) as usize;
+                    let chart_ok = args
+                        .chart
+                        .as_ref()
+                        .is_none_or(|c| r["chart"].as_str() == Some(c));
+                    if chart_ok && args.rules.as_ref().is_none_or(|w| w.contains(&idx)) {
+                        syms.push(r);
+                    }
+                }
                 _ => {}
             }
         }
         let header = header
-            .filter(|_| !rules.is_empty())
+            .filter(|_| !rules.is_empty() || !syms.is_empty())
             .ok_or("no header/selected rules")?;
         let family_text = match &args.family {
             Some(p) => std::fs::read_to_string(p).map_err(|e| format!("family: {e}"))?,
@@ -2099,11 +2352,36 @@ pub fn run(args: &ReplayArgs) -> Result<(String, Value), String> {
                 Ok((ds.clone(), q.modp(P).ok_or("dimension pole")?, q))
             })
             .collect::<Result<_, Unknown>>()?;
+        // sym-gen step 2: verify every element of each symmetry_group record on the family (as a record with the
+        // unmapped slots fixed at 0: the rows use an element only on keys with zero power there)
+        let mut sym: HashMap<String, Vec<Vec<Option<usize>>>> = HashMap::new();
+        for g in &groups {
+            let chart = g["chart"].as_str().unwrap_or_default().to_string();
+            let mut ok = Vec::new();
+            for e in g.pointer("/group/elements").and_then(Value::as_array).into_iter().flatten() {
+                let action = e["action"].clone();
+                let fixed: Vec<Value> = action
+                    .as_array()
+                    .map(|a| a.iter().map(|x| if x.is_null() { json!(0) } else { Value::Null }).collect())
+                    .unwrap_or_default();
+                let rec = json!({"type": "sym", "matrix": e["matrix"], "action": action, "chart": chart, "fixed": fixed});
+                if check_symmetry_record(&rec, &f).is_ok() {
+                    ok.push(
+                        action
+                            .as_array()
+                            .map(|a| a.iter().map(|x| x[0].as_u64().map(|t| t as usize)).collect())
+                            .unwrap_or_default(),
+                    );
+                }
+            }
+            sym.insert(chart, ok);
+        }
         let ctx = Ctx {
             args,
             f: &f,
             cert: cert.as_ref(),
             dims,
+            sym,
         };
         let mut recs = Vec::new();
         for rule in &rules {
@@ -2146,6 +2424,23 @@ pub fn run(args: &ReplayArgs) -> Result<(String, Value), String> {
             );
             recs.push(rec);
         }
+        // sym-gen records: the momentum map is checked EXACTLY on the family (integer arithmetic, no solver code)
+        for r in &syms {
+            let mut rec = json!({"chart": r["chart"], "index": r["index"], "type": r["type"], "fixed": r["fixed"],
+                "image": r["image"], "rhs_terms": 1});
+            match check_symmetry_record(r, &f) {
+                Ok(()) => rec["status"] = json!("PASS_SYM_EXACT"),
+                Err(e) => {
+                    rec["status"] = json!("FAIL_SYM_EXACT");
+                    rec["reason"] = json!(e);
+                }
+            }
+            eprintln!(
+                "{}",
+                json!({"stage": "sym_complete", "chart": r["chart"], "index": r["index"], "status": rec["status"], "reason": rec.get("reason")})
+            );
+            recs.push(rec);
+        }
         Ok(vec![auth, Value::Array(recs)])
     })();
     let status = match inner {
@@ -2159,7 +2454,10 @@ pub fn run(args: &ReplayArgs) -> Result<(String, Value), String> {
             result["rules"] = Value::Array(recs);
             if ss.iter().any(|s| s.starts_with("FAIL")) {
                 "FAIL".to_string()
-            } else if ss.iter().all(|s| s == "PASS_RS2_RS3_SAMPLED") {
+            } else if ss
+                .iter()
+                .all(|s| s == "PASS_RS2_RS3_SAMPLED" || s == "PASS_SYM_EXACT")
+            {
                 "PASS_RS2_RS3_SAMPLED".to_string()
             } else {
                 "UNKNOWN".to_string()
@@ -2176,7 +2474,13 @@ pub fn run(args: &ReplayArgs) -> Result<(String, Value), String> {
             .as_array()
             .map_or(0, |r| r.iter().filter(|x| x["status"] == s).count())
     };
-    result["counts"] = json!({"PASS": counts("PASS_RS2_RS3_SAMPLED"), "FAIL": counts("FAIL_RS2_RS3_SAMPLED"), "UNKNOWN": counts("UNKNOWN")});
+    let mut c = json!({"PASS": counts("PASS_RS2_RS3_SAMPLED"), "FAIL": counts("FAIL_RS2_RS3_SAMPLED"), "UNKNOWN": counts("UNKNOWN")});
+    let (ps, fs) = (counts("PASS_SYM_EXACT"), counts("FAIL_SYM_EXACT"));
+    if ps + fs > 0 {
+        c["PASS_SYM"] = json!(ps);
+        c["FAIL_SYM"] = json!(fs);
+    }
+    result["counts"] = c;
     std::fs::write(
         args.out.join("RESULT.json"),
         serde_json::to_string_pretty(&result).unwrap() + "\n",

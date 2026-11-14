@@ -12,6 +12,7 @@
 //! * [`mastermap`]: table reduction at exact / symbolic `d` and exact old <-> new master maps of a node (with an
 //!   independent Laporta and a few-integral cross-check);
 //! * [`symmasters`]: masters modulo the node's symmetry group (IBP + exact symmetry rows, trace certificate);
+//! * [`symmetry`]: the chart's authenticated automorphism group and symmetry rules (sym-gen, default off);
 //! * [`replay`]: the independent numeric replay of a table (P61, three values of d, all physical columns, independent
 //!   IBP-span witness, mutation control), semantics of Astra's `p5l-replay.v1`.
 //!
@@ -28,6 +29,8 @@ pub mod driver;
 pub mod mastermap;
 pub mod order;
 pub mod predict;
+pub mod registry;
 pub mod replay;
 pub mod screen;
 pub mod symmasters;
+pub mod symmetry;

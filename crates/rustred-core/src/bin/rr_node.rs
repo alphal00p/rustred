@@ -8,16 +8,20 @@
 //!                  [--symfirst-from-rows R|none] [--sampled-budget S] [--max-box K] [--min-target-block K] [--sampled-threads K]
 //!                  [--case-seed-priority symbolic-isp-first|affine-coupled-first] [--affine-rung]
 //!                  [--max-rule-monomials K|none] [--fallback-rule-monomials K|none] [--fallback-after K] [--no-refused-bank]
-//!                  [--adopt-bank F.refused.jsonl]... [--union-cover-depth K] [--registry DIR:PIECE --unsafe-shared-registry]
+//!                  [--adopt-bank F.refused.jsonl]... [--union-cover-depth K] [--registry DIR:PIECE [--unsafe-shared-registry]] [--no-registry-lease]
+//!                  [--lease-wait S] [--pool DIR] [--open-on-refusal] [--initial-presented CASES.json] [--case-seed-rung JSON] [--slim-rules]
 //!                  [--seed-schedule spired|symfirst] [--case-seed-schedule JSON] [--no-symbolic-first-rung] [--no-empty-domain-check] [--pose-probe PROBES.jsonl]
 //!                  [--seed-pose-rung [--seed-pose-keep C] [--seed-pose-trigger C|none] [--seed-pose-min-rows R]
 //!                   [--seed-pose-fixed-dot K] [--seed-pose-fixed-dot-lines K] [--seed-pose-fixed-dot-seeds M]
 //!                   [--seed-pose-fixed-dot-first] [--seed-pose-fixed-dot-no-static-skip]]
 //!                  [--case-budget S] [--max-attempts K] [--attempt-cap S] [--probe-cap S] [--probe-depth K]
 //!                  [--probe-fallback-depth K|none] [--probe-parallel P] [--probe-portfolio K] [--probe-follow-on K]
-//!                  [--cover PATH:UPTO]... [--cand-dump] [--strict-numeric-search] [--known-terminals FILE] [--numeric-depth K] [--numeric-depth-max K]
+//!                  [--cover PATH:UPTO]... [--cand-dump] [--strict-numeric-search] [--numeric-depth K] [--numeric-depth-max K]
 //!                  [--stop-before-numeric]   (finish symbolic work; numeric endpoints stay OPEN, never searched)
 //!                  [--no-witness-guards]   (A/B only: drop the source-weight-pole guards, table guard_version 1)
+//!                  [--known-terminals FILE]   (Astra: declared masters, never searched; with --registry: refused)
+//!                  [--symmetry] [--symmetry-rows] [--symmetry-symbolic]
+//! rr_node symmetry --family F.sym [--chart MASK]   (authenticated automorphism group of the chart, JSON)
 //! rr_node probe    --family F.sym --case 'SPEC [EQS]' --out DIR [--variants all|NAME,..] [--cap S] [--depth K] [--parallel P] [--portfolio K]
 //! rr_node variants --family F.sym --case 'SPEC [EQS]'
 //! rr_node predict  --family F.sym (--table F.table.jsonl | --cases CASES.jsonl) --out PREDICT.json [--base-order JSON|NAME]
@@ -34,6 +38,10 @@
 //!                  listed locus; every valid case point with free coordinates in the box |n| <= K, at most M = 2000)
 //!                  [--dump-weights]   (per cell weights-<d>-<P|P2>.json: rows, pivot rows, weights mod p, columns, zero keys)
 //!                  [--fixed-d] [--single-prime]   (default: d random in F_p per cell unless --dimensions; primes P and P2 = 2^61-31)
+//! rr_node cover-index --table F.table.jsonl --out F.cover.jsonl [--upto K]
+//! rr_node obligations --family F.sym --order NAME|JSON --run DIR --out F.obligations.json   (rebuild from F.queue.jsonl)
+//! rr_node join     --run DIR[:OBLIGATIONS[:COVER_INDEX]]... --out DIR [--expect-residuals K] [--region-proof F.json]...
+//!                  [--union-depth K] [--no-table]
 //! rr_node reduce   --table F.table.jsonl --keys 'K1;K2' --out OUT.json [--masters 'K;..'] [--dims 37/7,-11/5,9/13]
 //!                  [--primes N] [--lower] [--symbolic [--points 80] [--first-d 1001]]
 //!                  (reduce keys with the table's rules to its masters (+ lower-sector keys): exact rationals per d, or
@@ -57,7 +65,7 @@
 //!                   reductions red(m) - red(g m), symbolic in d, with (d-4) orders; node::symmasters;
 //!                   exit 0 certificate holds / 1 not)
 //! ```
-//! Exit status: generate 0 complete / 1 not complete / 2 usage; replay 0 PASS / 1 FAIL / 2 UNKNOWN; descent 0 pass / 1 fail.
+//! Exit status: join 0 closed / 1 open / 3 rejected. Exit status: generate 0 complete / 1 not complete / 2 usage; replay 0 PASS / 1 FAIL / 2 UNKNOWN; descent 0 pass / 1 fail.
 
 #![allow(
     clippy::field_reassign_with_default,
@@ -352,9 +360,47 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
             .unwrap_or_else(|| die("--registry DIR:PIECE"));
         o.registry = Some((dir.to_string(), piece.to_string()));
     }
-    // M5 batch 3: the shared case registry is experimental and refused without this flag.
+    // the M5 batch 3 opt-in of the old registry: accepted, without effect (the registry is proof-bearing now)
     if a.flag("--unsafe-shared-registry") {
         o.unsafe_shared_registry = true;
+    }
+    if a.flag("--no-registry-lease") {
+        o.registry_lease = false;
+    }
+    if let Some(v) = a.parse("--lease-wait") {
+        o.lease_wait = v;
+    }
+    o.pool = a.take("--pool");
+    if a.flag("--slim-rules") {
+        o.slim_rules = true;
+    }
+    if a.flag("--open-on-refusal") {
+        o.open_on_refusal = true;
+    }
+    if let Some(f) = a.take("--initial-presented") {
+        o.initial_presented = serde_json::from_str(&read(&f))
+            .unwrap_or_else(|e| die(&format!("--initial-presented {f}: {e}")));
+    }
+    // t266-regions: a region-restricted run on ONE deferred region {chart (PRESENTED), conjunction}; the chart is
+    // added to the initial cases and the run owns that region only
+    if let Some(f) = a.take("--region") {
+        let v: serde_json::Value = serde_json::from_str(&read(&f))
+            .unwrap_or_else(|e| die(&format!("--region {f}: {e}")));
+        let chart: rustred::node::driver::CaseSpec = serde_json::from_value(v["chart"].clone())
+            .unwrap_or_else(|e| die(&format!("--region {f}: chart: {e}")));
+        let conj: Vec<String> = serde_json::from_value(v["conjunction"].clone())
+            .unwrap_or_else(|e| die(&format!("--region {f}: conjunction: {e}")));
+        if conj.is_empty() {
+            die(&format!("--region {f}: empty conjunction"));
+        }
+        o.initial_presented.push(chart);
+        o.region = Some(conj);
+    }
+    if let Some(v) = a.take("--case-seed-rung") {
+        o.case_seed_rung = Some(
+            parse_case_seed_schedule(&v, rustred::node::order::family_props(family).len())
+                .unwrap_or_else(|e| die(&format!("--case-seed-rung: {e}"))),
+        );
     }
     if a.flag("--no-empty-domain-check") {
         o.empty_domain_check = false;
@@ -420,6 +466,12 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
     if let Some(d) = a.parse("--numeric-depth-max") {
         o.numeric_depth_max = Some(d);
     }
+    // sym-gen (default off): symmetry rules / zero records for cases the chart's automorphisms lower
+    o.symmetry = a.flag("--symmetry");
+    // sym-gen step 2 (default off): exact one-term symmetry rows in the shared numeric bulk solve
+    o.symmetry_rows = a.flag("--symmetry-rows");
+    // sym-7master (default off): symmetry rows also in the symbolic case search (case-stabilising elements)
+    o.symmetry_symbolic = a.flag("--symmetry-symbolic");
     let _ = family;
     o
 }
@@ -729,6 +781,38 @@ fn utc() -> String {
     format!("{:02}:{:02}:{:02}Z", s / 3600 % 24, s / 60 % 60, s % 60)
 }
 
+fn cmd_cover_index(mut a: Args) -> i32 {
+    let table = a.need("--table");
+    let out = a.need("--out");
+    let upto = a.parse("--upto").unwrap_or(usize::MAX);
+    a.done();
+    let k =
+        rustred::node::registry::write_cover_index(&table, upto, &out).unwrap_or_else(|e| die(&e));
+    println!("{}", serde_json::json!({"cover_index": out, "rules": k}));
+    0
+}
+
+fn cmd_obligations(mut a: Args) -> i32 {
+    let family = read(&a.need("--family"));
+    let order = a.need("--order");
+    let run = PathBuf::from(a.need("--run"));
+    let out = PathBuf::from(a.need("--out"));
+    a.done();
+    let order = order_arg(&order, &family, None);
+    let o = rustred::node::registry::obligations_from_queue(&family, &order, &run)
+        .unwrap_or_else(|e| die(&e));
+    o.write(&out).unwrap_or_else(|e| die(&e));
+    let mut kinds: std::collections::BTreeMap<&str, usize> = Default::default();
+    for x in &o.open {
+        *kinds.entry(x.kind.as_str()).or_default() += 1;
+    }
+    println!(
+        "{}",
+        serde_json::json!({"state": o.state, "open": o.open.len(), "kinds": kinds, "rules": o.rules, "math_key": o.math_key, "stop": o.stop})
+    );
+    0
+}
+
 fn read_cases(path: &str) -> Vec<rustred::node::predict::WeightedCase> {
     read(path)
         .lines()
@@ -848,6 +932,54 @@ fn cmd_predict(mut a: Args) -> i32 {
         p.no_depth1_big[1]
     );
     0
+}
+
+fn cmd_join(mut a: Args) -> i32 {
+    use rustred::node::registry::{JoinOptions, JoinRun, join};
+    let runs: Vec<JoinRun> = a
+        .take_all("--run")
+        .iter()
+        .map(|r| {
+            let mut it = r.split(':');
+            let dir = PathBuf::from(it.next().unwrap_or_default());
+            let obligations = it
+                .next()
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| dir.join("F.obligations.json"));
+            let cover_index = it.next().filter(|s| !s.is_empty()).map(PathBuf::from);
+            JoinRun {
+                dir,
+                obligations,
+                cover_index,
+            }
+        })
+        .collect();
+    let opts = JoinOptions {
+        runs,
+        out: PathBuf::from(a.need("--out")),
+        expect_residuals: a.parse("--expect-residuals"),
+        region_proofs: a
+            .take_all("--region-proof")
+            .into_iter()
+            .map(PathBuf::from)
+            .collect(),
+        union_depth: a.parse("--union-depth").unwrap_or(3),
+        write_table: !a.flag("--no-table"),
+    };
+    a.done();
+    let r = join(&opts).unwrap_or_else(|e| die(&e));
+    println!(
+        "{}",
+        serde_json::json!({"verdict": r.verdict, "rules": r.rules, "unresolved": r.unresolved.len(),
+        "cycles": r.cycles.len(), "residuals": r.residual_keys.len(), "residuals_ok": r.residuals_ok,
+        "discharged": r.discharged, "reasons": r.reasons, "table": r.table, "seconds": r.seconds})
+    );
+    match r.verdict.as_str() {
+        "closed" => 0,
+        "open" => 1,
+        _ => 3,
+    }
 }
 
 fn cmd_oracle(mut a: Args) -> i32 {
@@ -1096,6 +1228,33 @@ fn cmd_witness(mut a: Args) -> i32 {
     std::fs::write(out.join("WITNESS.jsonl"), report).unwrap_or_else(|e| die(&e.to_string()));
     std::fs::write(out.join("LOCI.jsonl"), loci).unwrap_or_else(|e| die(&e.to_string()));
     0
+}
+
+/// `rr_node symmetry --family F.sym [--chart MASK]`: the authenticated automorphism group of the chart (default: the
+/// physical lines of the family) as JSON (sym-gen census).
+fn cmd_symmetry(mut a: Args) -> i32 {
+    let text = read(&a.need("--family"));
+    let chart = a.take("--chart");
+    a.done();
+    let chart: Vec<bool> = match chart {
+        Some(m) => m.chars().map(|c| c == '1').collect(),
+        None => rustred::node::order::physical_slots(&text),
+    };
+    let t = std::time::Instant::now();
+    match rustred::node::symmetry::node_group(&text, &chart) {
+        Ok(g) => {
+            let json = g.to_json();
+            println!(
+                "{{\"ok\":true,\"seconds\":{:.3},\"group\":{json}}}",
+                t.elapsed().as_secs_f64()
+            );
+            0
+        }
+        Err(e) => {
+            println!("{}", serde_json::json!({"ok": false, "error": e}));
+            1
+        }
+    }
 }
 
 fn dims_arg(a: &mut Args) -> Vec<rustred::node::replay::arith::Q> {
@@ -1494,7 +1653,7 @@ fn main() {
     let mut items: Vec<String> = std::env::args().skip(1).collect();
     if items.is_empty() {
         die(
-            "usage: rr_node generate|probe|variants|descent|replay|predict|oracle|affine|witness|locus-rank|reduce|mastermap|mapcheck|symmasters|laporta ... (see the source header)",
+            "usage: rr_node generate|probe|variants|descent|replay|cover-index|obligations|join|predict|oracle|affine|witness|locus-rank|symmetry|reduce|mastermap|mapcheck|symmasters|laporta ... (see the source header)",
         );
     }
     let cmd = items.remove(0);
@@ -1505,6 +1664,9 @@ fn main() {
         "variants" => cmd_variants(a),
         "descent" => cmd_descent(a),
         "replay" => cmd_replay(a),
+        "cover-index" => cmd_cover_index(a),
+        "obligations" => cmd_obligations(a),
+        "join" => cmd_join(a),
         "predict" => cmd_predict(a),
         "oracle" => cmd_oracle(a),
         "affine" => cmd_affine(a),
@@ -1515,6 +1677,7 @@ fn main() {
         "mapcheck" => cmd_mapcheck(a),
         "symmasters" => cmd_symmasters(a),
         "laporta" => cmd_laporta(a),
+        "symmetry" => cmd_symmetry(a),
         other => die(&format!("unknown command {other}")),
     };
     let _ = Path::new(".");
