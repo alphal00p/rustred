@@ -437,6 +437,39 @@ pub type StopFn = Arc<dyn Fn() -> bool + Send + Sync>;
 /// ends the process itself (grace expired, only budget-expired keys left).
 pub type EndFn = Arc<dyn Fn(&Value, i32, bool) -> i32 + Send + Sync>;
 
+/// An embedding caller's failure hook (lane engfix4, re-audit MJ-2): called with the error of the output writer on
+/// the paths where the batch's watchdog ends the process itself (grace expired, only budget-expired keys left), so
+/// that the caller writes its error OUTCOME (the child-job dispatcher: 50 / 51 on a full disk or an I/O error); its
+/// return value is the exit code. Without a hook the code is 70.
+pub type FailFn = Arc<dyn Fn(&str) -> i32 + Send + Sync>;
+
+static FAIL_HOOK: std::sync::OnceLock<FailFn> = std::sync::OnceLock::new();
+
+/// Install the failure hook (once per process; see [`FailFn`]).
+pub fn set_fail_hook(f: FailFn) {
+    let _ = FAIL_HOOK.set(f);
+}
+
+fn failed_exit(e: &str) -> i32 {
+    FAIL_HOOK.get().map_or(70, |h| h(e))
+}
+
+/// The OS error number of the first failed write of the batch's outputs (0 = none, -1 = a failure without one):
+/// an embedding caller maps it to its exit code (child-job 3.10: no space = 50, other I/O = 51), the errors
+/// themselves are strings (lane engfix4, re-audit MJ-2).
+pub fn output_errno() -> i32 {
+    OUTPUT_ERRNO.load(AtomicOrdering::Relaxed)
+}
+
+static OUTPUT_ERRNO: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+/// An output I/O error as the batch's error string, its OS error number noted first ([`output_errno`]).
+fn io_error(what: &str, e: std::io::Error) -> String {
+    let n = e.raw_os_error().unwrap_or(-1);
+    let _ = OUTPUT_ERRNO.compare_exchange(0, n, AtomicOrdering::Relaxed, AtomicOrdering::Relaxed);
+    format!("{what}: {e}")
+}
+
 /// Options of one batch (command line of `rr_node solve-recipe`).
 #[derive(Clone)]
 pub struct BatchOptions {
@@ -1113,7 +1146,7 @@ fn run_prepared<const N: usize>(
             if hard && active.load(AtomicOrdering::SeqCst) > 0 {
                 let code =
                     write_outputs(ctx, keys, &uniq_of, &shared, out, prepare_s, &events, false);
-                std::process::exit(code.unwrap_or(70));
+                std::process::exit(code.unwrap_or_else(|e| failed_exit(&e)));
             }
             if events.contract && last_beat.elapsed().as_secs_f64() >= opts.heartbeat_s {
                 last_beat = Instant::now();
@@ -1170,7 +1203,7 @@ fn run_prepared<const N: usize>(
             if exhausted && stuck_only {
                 let code =
                     write_outputs(ctx, keys, &uniq_of, &shared, out, prepare_s, &events, true);
-                std::process::exit(code.unwrap_or(70));
+                std::process::exit(code.unwrap_or_else(|e| failed_exit(&e)));
             }
         }
     });
@@ -1191,19 +1224,26 @@ fn write_outputs<const N: usize>(
     let opts = ctx.opts;
     let results = shared.results.lock().unwrap().clone();
     let interrupted = results.iter().any(Option::is_none);
-    // results.jsonl in INPUT order, then the end record; written to a temporary name and renamed
-    let tmp = out.join("results.jsonl.part");
+    // results.jsonl in INPUT order, then the end record; written to a temporary name and renamed. Job mode (lane
+    // engfix4): the temporary name is in the run directory's `tmp/` (child-job 3.9), never in `out/`
+    let tdir = opts
+        .path_base
+        .as_ref()
+        .map(|b| b.join("tmp"))
+        .filter(|d| d.is_dir())
+        .unwrap_or_else(|| out.to_path_buf());
+    let tmp = tdir.join("results.jsonl.part");
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
     // lane engbase2 (child-job 3.9): created exclusively, never through a symlink (`--out` is verified empty first)
-    let file = {
+    let create = |p: &Path| {
         use std::os::unix::fs::OpenOptionsExt;
         std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .custom_flags(libc::O_NOFOLLOW)
-            .open(&tmp)
+            .open(p)
     };
-    let mut f = std::io::BufWriter::new(file.map_err(|e| format!("results: {e}"))?);
+    let mut f = std::io::BufWriter::new(create(&tmp).map_err(|e| io_error("results", e))?);
     for (ordinal, k) in keys.iter().enumerate() {
         let mut rec = match &results[uniq_of[ordinal]] {
             Some(r) => r.clone(),
@@ -1221,16 +1261,20 @@ fn write_outputs<const N: usize>(
         *counts
             .entry(rec["verdict"].as_str().unwrap_or("?").to_string())
             .or_default() += 1;
-        writeln!(f, "{rec}").map_err(|e| e.to_string())?;
+        writeln!(f, "{rec}").map_err(|e| io_error("results", e))?;
     }
     let end = json!({"type": if interrupted { "partial" } else { "end" }, "records": keys.len(),
         "counts": counts, "recipe_digest": ctx.recipe_digest, "determinism_id": DETERMINISM_ID});
-    writeln!(f, "{end}").map_err(|e| e.to_string())?;
-    f.flush().map_err(|e| e.to_string())?;
-    drop(f);
+    writeln!(f, "{end}").map_err(|e| io_error("results", e))?;
+    f.flush().map_err(|e| io_error("results", e))?;
+    let file = f
+        .into_inner()
+        .map_err(|e| io_error("results", e.into_error()))?;
+    file.sync_all().map_err(|e| io_error("results", e))?;
+    drop(file);
     let path = out.join("results.jsonl");
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
-    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| io_error("results", e))?;
+    let bytes = std::fs::read(&path).map_err(|e| io_error("results", e))?;
     let all_solved = counts.keys().all(|k| k == "SOLVED");
     let exit = if interrupted {
         30
@@ -1321,13 +1365,18 @@ fn write_outputs<const N: usize>(
         .outcome_path
         .clone()
         .unwrap_or_else(|| out.join("OUTCOME.json"));
-    let otmp = target.with_extension("json.part");
-    std::fs::write(
-        &otmp,
-        serde_json::to_string_pretty(&outcome).unwrap() + "\n",
-    )
-    .map_err(|e| e.to_string())?;
-    std::fs::rename(&otmp, &target).map_err(|e| e.to_string())?;
+    // lane engfix4 (re-audit mn-6): created exclusively, never through a symlink, beside the results' temporary file
+    let otmp = tdir.join(
+        target
+            .with_extension("json.part")
+            .file_name()
+            .unwrap_or_else(|| std::ffi::OsStr::new("OUTCOME.json.part")),
+    );
+    let body = serde_json::to_string_pretty(&outcome).map_err(|e| e.to_string())? + "\n";
+    create(&otmp)
+        .and_then(|mut o| o.write_all(body.as_bytes()))
+        .map_err(|e| io_error("verb OUTCOME", e))?;
+    std::fs::rename(&otmp, &target).map_err(|e| io_error("verb OUTCOME", e))?;
     events.emit(
         "job_finished",
         json!({"exit_code": exit, "status": outcome["status"], "stop_code": stop_code}),

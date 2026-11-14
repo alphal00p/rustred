@@ -219,6 +219,14 @@ pub struct Resumed {
     /// stage, endpoints already exhausted by the per-point search, in order). `numerical` then holds the endpoints
     /// not yet searched.
     pub numeric_stage: Option<(usize, Vec<Vec<i64>>)>,
+    /// RESUME names a `current` case (the first of `cases`): the attempt stopped AT a symbolic safe point.
+    pub current: bool,
+    /// `--descend open`: RESUME `engine.descend_open.own` as case keys ([`case_key`]); None when absent.
+    pub own: Option<Vec<String>>,
+    /// `--descend open`: RESUME `engine.descend_open.returned` as `kind|case key`, in order.
+    pub returned: Vec<String>,
+    /// RESUME `counters_at_commit` (the derivable members are checked by the driver's replay, engfix4 MJ-1).
+    pub work: Counters,
 }
 
 static RESUMED: OnceLock<Resumed> = OnceLock::new();
@@ -226,6 +234,26 @@ static RESUMED: OnceLock<Resumed> = OnceLock::new();
 /// The resume state of a resumed attempt (job mode only).
 pub fn resumed() -> Option<&'static Resumed> {
     RESUMED.get()
+}
+
+/// The key of a case (PRESENTED slots) as RESUME's `engine.descend_open` and the own-case set write it: the
+/// serialised contract case.
+pub(crate) fn case_key(c: &CaseSpec) -> String {
+    serde_json::to_string(&job_case(c)).unwrap_or_default()
+}
+
+/// Whether the job runs `--descend open`.
+pub(crate) fn descend_open() -> bool {
+    DESCEND_OPEN.load(Relaxed)
+}
+
+/// The PRESENTED cases and numeric endpoints of the job's cases input, in input order (engfix4 MJ-1: the replay of a
+/// resumed attempt rebuilds the queue that replaced the initial one from the input, bound by the spec's input digest).
+static PRESENTED_INPUT: OnceLock<(Vec<CaseSpec>, Vec<Vec<i64>>)> = OnceLock::new();
+
+/// See [`PRESENTED_INPUT`]; None when the job has no PRESENTED case.
+pub(crate) fn presented_input() -> Option<&'static (Vec<CaseSpec>, Vec<Vec<i64>>)> {
+    PRESENTED_INPUT.get()
 }
 
 /// The resume point is reached: from here the driver's writes go to the table and queue log again.
@@ -263,10 +291,57 @@ pub fn set_legacy_no_elision() {
 /// The table header's `family_blake3` member (C16) as a JSON fragment `,"family_blake3":"<hex>"` placed after
 /// `family_file`; empty in legacy mode (the header stays byte-identical).
 pub fn header_family_digest() -> String {
-    match job().and_then(|j| j.family_blake3.as_deref()) {
+    match FAMILY_DIGEST.get().filter(|_| active()) {
         Some(d) => format!(",\"family_blake3\":\"{d}\""),
         None => String::new(),
     }
+}
+
+/// BLAKE3 of the family bytes the job actually uses (engfix4, re-audit mn-1: computed from the bytes read ONCE by
+/// [`family_input`], equal to the spec's digest or the job is refused with 41; never copied from the spec).
+static FAMILY_DIGEST: OnceLock<String> = OnceLock::new();
+
+/// An input read ONCE into memory, its BLAKE3 compared with the spec's again (41 when it changed after the start-up
+/// check; engfix4 mn-1): the engine uses exactly the bytes whose digest it checked. Returns (bytes, digest).
+fn verified_input(spec: &JobSpec, i: &cc::spec::InputRef) -> (Vec<u8>, String) {
+    let p = spec.input_path(i);
+    let b = std::fs::read(&p).unwrap_or_else(|e| {
+        fail(
+            ExitCode::Input,
+            &format!("input {} {}: {e}", i.role, p.display()),
+        )
+    });
+    let d = cc::blake3_hex(&b);
+    if d != i.blake3 {
+        fail(
+            ExitCode::Input,
+            &format!(
+                "input {} {}: blake3 {d} differs from the spec's {} (changed after the start-up check)",
+                i.role,
+                p.display(),
+                i.blake3
+            ),
+        );
+    }
+    (b, d)
+}
+
+/// Inputs the driver reads by path itself (cover tables), opened ONCE and hashed through that open file (engfix4
+/// mn-1): (spec path, the open file). The driver reads them through [`input_read_path`].
+static OPEN_INPUTS: Mutex<Vec<(String, File)>> = Mutex::new(Vec::new());
+
+/// The path through which the driver reads an input: in job mode the verified open file (`/proc/self/fd/N`: the very
+/// inode whose BLAKE3 matched the spec, whatever happens to the path afterwards); else `path` unchanged. Labels and
+/// records keep the spec path.
+pub fn input_read_path(path: &str) -> String {
+    use std::os::fd::AsRawFd;
+    lock(&OPEN_INPUTS)
+        .iter()
+        .find(|(p, _)| p == path)
+        .map_or_else(
+            || path.to_string(),
+            |(_, f)| format!("/proc/self/fd/{}", f.as_raw_fd()),
+        )
 }
 
 /// Whether the chart / end / cert end records are the partial kinds. Job mode: whenever the chart did not close
@@ -505,6 +580,26 @@ pub fn case_boundary(
     };
     j.commit_point(out, qlog, symbolic_cases)?;
     lock(&j.st).engine = counters;
+    // engfix4 MJ-1: the queue-log journal record of the pop (`job_taken`), written after the commit point when the
+    // case leaves the open state (worked on, or returned by `--descend open`); a stop at this safe point writes none
+    // (the case stays RESUME `current` / the first of `numerical`)
+    let taken = |back: bool| -> String {
+        let what = if numerical {
+            let p: Vec<i64> = current.fixed.iter().map(|v| v.unwrap_or(0)).collect();
+            format!(
+                "\"numerical\":true,\"fixed\":{}",
+                serde_json::to_string(&p).unwrap_or_default()
+            )
+        } else {
+            format!(
+                "\"case\":{}",
+                serde_json::to_string(&current).unwrap_or_default()
+            )
+        };
+        let back = if back { ",\"returned\":true" } else { "" };
+        format!("{{\"type\":\"job_taken\",{what}{back}}}")
+    };
+    let (taken_go, taken_back) = (taken(false), taken(true));
     let current = job_case(&current);
     let key = serde_json::to_string(&current).unwrap_or_default();
     // `--descend open`: the job's own cases are the queue at its FIRST safe point (restored from RESUME on a resume,
@@ -541,6 +636,7 @@ pub fn case_boundary(
             lock(&j.st)
                 .returned
                 .push((if numerical { "numeric" } else { "case" }, current));
+            writeln!(qlog, "{taken_back}").map_err(|e| format!("queue log: {e}"))?;
             return Ok(Boundary::Skip);
         }
     }
@@ -562,6 +658,7 @@ pub fn case_boundary(
         let cur = resume_form(current.clone(), &mut q);
         j.write_resume(cur, q, false);
     }
+    writeln!(qlog, "{taken_go}").map_err(|e| format!("queue log: {e}"))?;
     j.start_case(current, numerical);
     Ok(Boundary::Go)
 }
@@ -613,6 +710,7 @@ pub fn queue_done(
     qlog: &mut impl Write,
     symbolic_cases: usize,
     counters: EngineCounters,
+    errored: bool,
     open: &mut dyn FnMut() -> OpenQueue,
 ) -> Result<Option<StopReason>, String> {
     let Some(j) = job() else { return Ok(None) };
@@ -624,6 +722,13 @@ pub fn queue_done(
     }
     let q = open();
     j.remember_open(None, &q);
+    // engfix4 (MJ-1 follow-up): the queue ended on an engine ERROR (the case in flight was popped but neither closed
+    // nor kept open: search / exception error, a not-lower winner, no progress). No RESUME names this state: the last
+    // safe point's RESUME (that case as `current`) stays the resume source, so an attempt killed before its error
+    // OUTCOME is resumed to redo the case, never past it.
+    if errored {
+        return Ok(None);
+    }
     if j.stop.load(SeqCst) {
         let pending = q.pending.len();
         j.write_resume(None, q, true);
@@ -694,6 +799,85 @@ pub fn deferred_check_started() {
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// A diagnostic line on stderr that NEVER panics (engfix4, re-audit MJ-2): `eprintln!` panics when the write fails,
+/// e.g. on a full disk holding the supervisor's `stderr.log`; on every job path a failed diagnostic is dropped.
+pub(crate) fn say(msg: impl std::fmt::Display) {
+    let _ = writeln!(io::stderr(), "rr_node job: {msg}");
+}
+
+/// The OS error of a panic raised by a failed print (`failed printing to stderr: ... (os error 28)`, the panic of
+/// `eprintln!` / `println!` anywhere in the engine or its libraries), if the message is one (engfix4 MJ-2): such a
+/// panic IS an I/O failure of the environment (50 / 51), never an engine error.
+pub(crate) fn print_failure_errno(panic_message: &str) -> Option<i32> {
+    let at = panic_message.find("failed printing to std")?;
+    let rest = &panic_message[at..];
+    let k = rest.find("(os error ")? + "(os error ".len();
+    let digits: String = rest[k..].chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok().or(Some(-1))
+}
+
+/// The panic hook of a job (generate and solve-recipe): the first message is kept for the error OUTCOME, and a
+/// print-failure panic notes its OS error as the job's I/O failure, whether or not some engine code catches the
+/// panic (engfix4 MJ-2: a full disk must end in 50, also when it is first met by a diagnostic print).
+pub(crate) fn install_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let text = info.to_string();
+        if let Some(e) = print_failure_errno(&text) {
+            let _ = IO_ERRNO.compare_exchange(0, e, Relaxed, Relaxed);
+        }
+        if let Ok(mut m) = PANIC_MESSAGE.lock() {
+            if m.is_none() {
+                *m = Some(text);
+            }
+        }
+        default_hook(info);
+    }));
+}
+
+/// The OS error number of the job's first output / print failure (0 = none; -1 = a failure without one).
+pub(crate) fn io_errno() -> i32 {
+    IO_ERRNO.load(Relaxed)
+}
+
+/// The job's event sink with a lock-free copy of the next `seq` (engfix4, re-audit mn-4): the hard-safe stop reads
+/// `last_seq` from the copy instead of the sink's mutex, which the main thread may hold across a write and fsync.
+pub(crate) struct Sink {
+    inner: EventSink,
+    seen: AtomicU64,
+}
+
+impl Sink {
+    pub(crate) fn new(inner: EventSink) -> Self {
+        Self {
+            inner,
+            seen: AtomicU64::new(0),
+        }
+    }
+
+    pub(crate) fn emit(&self, e: Event) -> io::Result<u64> {
+        let r = self.inner.emit(e);
+        if let Ok(seq) = &r {
+            self.seen.fetch_max(seq + 1, Relaxed);
+        }
+        r
+    }
+
+    /// The next `seq` under the sink's lock (normal paths).
+    pub(crate) fn next_seq(&self) -> u64 {
+        self.inner.next_seq()
+    }
+
+    /// The next `seq` as last seen, never blocking (hard-safe stop).
+    pub(crate) fn seen(&self) -> u64 {
+        self.seen.load(Relaxed)
+    }
+
+    pub(crate) fn try_emit_for(&self, e: Event, timeout: Duration) -> bool {
+        self.inner.try_emit_for(e, timeout)
+    }
 }
 
 static IO_ERRNO: AtomicI32 = AtomicI32::new(0);
@@ -771,9 +955,8 @@ pub struct Job {
     spec_blake3: String,
     layout: RunLayout,
     inputs: Vec<InputCheck>,
-    family_blake3: Option<String>,
     program: ProgramInfo,
-    sink: EventSink,
+    sink: Sink,
     started: Instant,
     started_utc: String,
     table: Mutex<Option<Arc<Mutex<StreamDigest>>>>,
@@ -1168,6 +1351,7 @@ impl Job {
     }
 
     /// The OUTCOME for the current state. `sealed`: (table output, cert output) of a normal end.
+    /// `bounded`: the hard-safe stop (no lock without a time bound: `last_seq` from the sink's lock-free copy).
     #[allow(clippy::too_many_arguments)]
     fn outcome(
         &self,
@@ -1178,6 +1362,7 @@ impl Job {
         error: Option<ErrorInfo>,
         legacy: serde_json::Map<String, Value>,
         helpers_peak: u64,
+        bounded: bool,
     ) -> Outcome {
         let mut j = JobOutcome::for_spec(
             &self.spec,
@@ -1197,9 +1382,19 @@ impl Job {
         let (rules, commit) = st.map_or((0, empty_commit(&RunLayout::out_rel(TABLE))), |s| {
             (s.rules_committed, s.table_commit.clone())
         });
-        let elided = lock(&self.table)
-            .clone()
-            .map_or(0, |d| lock(d.as_ref()).elided_loci());
+        let elided = if bounded {
+            // hard-safe stop: the digest lock is held by `ChildFile::write` across a write; never wait for it
+            self.table
+                .try_lock()
+                .ok()
+                .and_then(|g| g.clone())
+                .and_then(|d| d.try_lock().ok().map(|d| d.elided_loci()))
+                .unwrap_or(0)
+        } else {
+            lock(&self.table)
+                .clone()
+                .map_or(0, |d| lock(d.as_ref()).elided_loci())
+        };
         let (table, cert) = match sealed {
             Some((t, c)) => (t, c),
             None => (
@@ -1226,7 +1421,11 @@ impl Job {
             cert,
             queue: Some(QueueOutput { bytes: queue_bytes }),
             events: Some(EventsOutput {
-                last_seq: self.sink.next_seq(),
+                last_seq: if bounded {
+                    self.sink.seen()
+                } else {
+                    self.sink.next_seq()
+                },
             }),
             resume: Some(ResumeOutput {
                 path: RESUME.to_string(),
@@ -1255,7 +1454,7 @@ impl Job {
 
     fn write_outcome(&self, o: &Outcome) -> io::Result<()> {
         if let Err(e) = o.job.check() {
-            eprintln!("rr_node job: OUTCOME self-check: {e}");
+            say(format!("OUTCOME self-check: {e}"));
         }
         o.write_new(&self.layout.outcome())
     }
@@ -1286,11 +1485,14 @@ impl Job {
             None,
             serde_json::Map::new(),
             peak,
+            true,
         );
         drop(g);
         if g_none_time(&o, &td) {
             o.job.time_decided = true;
         }
+        // the OUTCOME is written from the reserve (a full disk must not cost the hard-safe OUTCOME, MJ-2)
+        let _ = cc::atomic::release_reserve(&self.layout.reserve());
         let _ = self.write_outcome(&o);
         self.sink.try_emit_for(
             Event::JobFinished {
@@ -1467,7 +1669,7 @@ fn stop_codes(j: &Job) -> (ExitCode, StopCode) {
 
 /// Error OUTCOME of a refused start (after the run directory was verified), no-clobber; then exit.
 pub fn refuse_exit(r: cc::preflight::Refusal, program: &ProgramInfo) -> ! {
-    eprintln!("rr_node job: {}", r.message);
+    say(&r.message);
     if r.write_outcome {
         if let Some((spec, digest)) = &r.spec {
             let stop = StopInfo {
@@ -1500,12 +1702,15 @@ pub fn fail_now(code: ExitCode, message: &str) {
         ExitCode::Io => (StopCode::IoError, ErrorClass::Io),
         _ => (StopCode::InternalError, ErrorClass::Internal),
     };
-    eprintln!("rr_node job: {message}");
     // audit-engjob m2: the watchdog's hard-safe stop already writes the OUTCOME and exits with ITS code; exiting
     // here with another code would contradict that OUTCOME (row 22 / 23)
     if FINAL.swap(true, SeqCst) {
         park_forever();
     }
+    // engfix4 MJ-2: the reserve is released FIRST (the OUTCOME of a full disk is written from it), the diagnostic
+    // never panics
+    let _ = cc::atomic::release_reserve(&j.layout.reserve());
+    say(message);
     {
         let peak = proc::kill_helpers();
         let info = StopInfo {
@@ -1524,6 +1729,7 @@ pub fn fail_now(code: ExitCode, message: &str) {
                 Some(ErrorInfo::new(class, message)),
                 serde_json::Map::new(),
                 peak,
+                false,
             )
         };
         let _ = j.write_outcome(&o);
@@ -1532,7 +1738,6 @@ pub fn fail_now(code: ExitCode, message: &str) {
             status: JobStatus::for_exit(code),
             stop_code: Some(stop),
         });
-        let _ = cc::atomic::release_reserve(&j.layout.reserve());
     }
     std::process::exit(code.code())
 }
@@ -1608,15 +1813,10 @@ pub fn run_generate(start: JobStart, resolve: &dyn Fn(&JobSpec) -> Resolved) -> 
         program,
         resume,
     } = start;
-    let family_blake3 = spec
-        .inputs
-        .iter()
-        .find(|i| i.role == "family")
-        .map(|i| i.blake3.clone());
     // out/ and tmp/ (preflight verified out/ absent or empty)
     for d in [layout.out_dir(), layout.tmp_dir()] {
         if let Err(e) = std::fs::create_dir_all(&d) {
-            eprintln!("rr_node job: {}: {e}", d.display());
+            say(format!("{}: {e}", d.display()));
             std::process::exit(cc::atomic::exit_for_io(&e).code());
         }
     }
@@ -1639,21 +1839,21 @@ pub fn run_generate(start: JobStart, resolve: &dyn Fn(&JobSpec) -> Resolved) -> 
         }
     }
     if let Err(e) = cc::atomic::create_reserve(&layout.reserve(), cc::layout::RESERVE_BYTES) {
-        eprintln!("rr_node job: reserve: {e}");
         let _ = cc::atomic::release_reserve(&layout.reserve());
+        say(format!("reserve: {e}"));
         std::process::exit(ExitCode::NoSpace.code());
     }
     let sink = match EventSink::create(&layout.events()) {
-        Ok(s) => s,
+        Ok(s) => Sink::new(s),
         Err(e) => {
-            eprintln!("rr_node job: EVENTS: {e}");
+            let _ = cc::atomic::release_reserve(&layout.reserve());
+            say(format!("EVENTS: {e}"));
             std::process::exit(cc::atomic::exit_for_io(&e).code());
         }
     };
     let rel_t = RunLayout::out_rel(TABLE);
     let rel_q = RunLayout::out_rel(QUEUE);
     let j = Arc::new(Job {
-        family_blake3,
         program: program.clone(),
         sink,
         started: Instant::now(),
@@ -1696,22 +1896,15 @@ pub fn run_generate(start: JobStart, resolve: &dyn Fn(&JobSpec) -> Resolved) -> 
         inputs,
     });
     if JOB.set(j.clone()).is_err() {
-        eprintln!("rr_node job: one job per process");
+        say("one job per process");
         std::process::exit(ExitCode::Internal.code());
     }
+    // panic messages are recorded (the engine itself relies on catch_unwind, so the hook never exits); a failed print
+    // is the job's I/O failure (MJ-2). Installed before the restore, whose refusals may print.
+    install_panic_hook();
     if let Some(v) = &resume {
         restore(&j, v);
     }
-    // panic messages are recorded (the engine itself relies on catch_unwind, so the hook never exits)
-    let default_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        if let Ok(mut m) = PANIC_MESSAGE.lock() {
-            if m.is_none() {
-                *m = Some(info.to_string());
-            }
-        }
-        default_hook(info);
-    }));
     let _ = j.sink.emit(Event::JobStarted {
         job_id: j.spec.job_id.clone(),
         attempt: j.spec.attempt,
@@ -1829,6 +2022,7 @@ fn restore(j: &Job, v: &cc::preflight::VerifiedResume) {
     });
     // `--descend open` (audit-engjob C2): own cases and the cases returned before the stop
     let mut returned: Vec<(&'static str, JobCase)> = Vec::new();
+    let mut own_keys: Option<Vec<String>> = None;
     if let Some(d) = r.engine.get("descend_open") {
         let bad = |m: String| -> ! {
             fail(
@@ -1838,12 +2032,16 @@ fn restore(j: &Job, v: &cc::preflight::VerifiedResume) {
         };
         let own: Vec<JobCase> =
             serde_json::from_value(d["own"].clone()).unwrap_or_else(|e| bad(e.to_string()));
-        *lock(&OWN_CASES) = Some(
-            own.iter()
-                .map(|c| serde_json::to_string(c).unwrap_or_default())
-                .collect(),
-        );
-        for x in d["returned"].as_array().cloned().unwrap_or_default() {
+        let keys: Vec<String> = own
+            .iter()
+            .map(|c| serde_json::to_string(c).unwrap_or_default())
+            .collect();
+        *lock(&OWN_CASES) = Some(keys.iter().cloned().collect());
+        own_keys = Some(keys);
+        let Some(list) = d["returned"].as_array() else {
+            bad("returned is not a list".into())
+        };
+        for x in list.clone() {
             let kind = match x["kind"].as_str() {
                 Some("case") => "case",
                 Some("numeric") => "numeric",
@@ -1894,7 +2092,39 @@ fn restore(j: &Job, v: &cc::preflight::VerifiedResume) {
             })
             .collect(),
     };
-    let engine = |k: &str| r.engine.get(k).and_then(Value::as_u64).unwrap_or(0) as usize;
+    // engfix4 (re-audit MJ-1): every member restore uses is parsed strictly (a missing or malformed member is a
+    // refusal, never a default or a silently dropped entry); the values are then checked by the driver's replay of
+    // the committed prefixes (`resume_replay_check`)
+    let engine = |k: &str| -> usize {
+        r.engine.get(k).and_then(Value::as_u64).unwrap_or_else(|| {
+            fail(
+                ExitCode::Input,
+                &format!("resume: engine.{k} missing or not an integer"),
+            )
+        }) as usize
+    };
+    if engine("discarded") as u64 != r.discarded {
+        fail(
+            ExitCode::Input,
+            "resume: discarded and engine.discarded differ",
+        );
+    }
+    let entry = |d: &Value, member: &str, list: &str| -> (CaseSpec, Value) {
+        let c = serde_json::from_value::<JobCase>(d[member].clone())
+            .unwrap_or_else(|e| fail(ExitCode::Input, &format!("resume: {list} entry {d}: {e}")));
+        let detail = d.get("detail").cloned().unwrap_or_else(|| {
+            fail(
+                ExitCode::Input,
+                &format!("resume: {list} entry without detail"),
+            )
+        });
+        (spec_of(&c), detail)
+    };
+    let returned_keys: Vec<String> = lock(&j.st)
+        .returned
+        .iter()
+        .map(|(k, c)| format!("{k}|{}", serde_json::to_string(c).unwrap_or_default()))
+        .collect();
     let _ = RESUMED.set(Resumed {
         cases: r
             .current
@@ -1915,22 +2145,20 @@ fn restore(j: &Job, v: &cc::preflight::VerifiedResume) {
         deferred: r
             .deferred
             .iter()
-            .filter_map(|d| {
-                let c = serde_json::from_value::<JobCase>(d["chart"].clone()).ok()?;
-                Some((spec_of(&c), d.get("detail").cloned().unwrap_or(Value::Null)))
-            })
+            .map(|d| entry(d, "chart", "deferred"))
             .collect(),
         refused_open: r
             .refused_open
             .iter()
-            .filter_map(|d| {
-                let c = serde_json::from_value::<JobCase>(d["case"].clone()).ok()?;
-                Some((spec_of(&c), d.get("detail").cloned().unwrap_or(Value::Null)))
-            })
+            .map(|d| entry(d, "case", "refused_open"))
             .collect(),
         prefix: true,
         not_lower,
         numeric_stage,
+        current: r.current.is_some(),
+        own: own_keys,
+        returned: returned_keys,
+        work: r.counters_at_commit,
     });
     SUPPRESS.store(true, SeqCst);
 }
@@ -2026,7 +2254,7 @@ pub fn initial_cases(spec: &JobSpec) -> (Vec<CaseSpec>, Vec<super::driver::CaseS
     let mut presented = PresentedCases::default();
     for i in spec.inputs.iter().filter(|i| i.role == "cases") {
         let p = spec.input_path(i);
-        let text = std::fs::read_to_string(&p)
+        let text = String::from_utf8(verified_input(spec, i).0)
             .unwrap_or_else(|e| fail(ExitCode::Input, &format!("cases {}: {e}", p.display())));
         for (k, line) in text
             .lines()
@@ -2078,6 +2306,10 @@ pub fn initial_cases(spec: &JobSpec) -> (Vec<CaseSpec>, Vec<super::driver::CaseS
                 centres.push(case_seed_centre(c, v));
             }
         }
+        let _ = PRESENTED_INPUT.set((
+            presented.cases.iter().map(driver_case).collect(),
+            presented.numerical.clone(),
+        ));
         // PRESENTED cases replace the driver's initial queue at the resume point (a resumed attempt keeps the
         // queue of its RESUME instead)
         if RESUMED.get().is_none() {
@@ -2092,6 +2324,10 @@ pub fn initial_cases(spec: &JobSpec) -> (Vec<CaseSpec>, Vec<super::driver::CaseS
                 prefix: false,
                 not_lower: vec![],
                 numeric_stage: None,
+                current: false,
+                own: None,
+                returned: vec![],
+                work: Counters::default(),
             });
         }
     }
@@ -2151,26 +2387,56 @@ pub fn cover_tables(spec: &JobSpec) -> Vec<(String, usize)> {
         .iter()
         .filter(|i| i.role == "cover")
         .map(|i| {
-            (
-                spec.input_path(i).display().to_string(),
-                i.upto.unwrap_or(0) as usize,
-            )
+            let p = spec.input_path(i).display().to_string();
+            // engfix4 mn-1: opened once, hashed through the open file, read by the driver through it
+            let f = open_verified(&p, &i.blake3);
+            lock(&OPEN_INPUTS).push((p.clone(), f));
+            (p, i.upto.unwrap_or(0) as usize)
         })
         .collect()
 }
 
+/// Open `path` once and compare the BLAKE3 of its content, read through that open file, with `want` (41 otherwise).
+fn open_verified(path: &str, want: &str) -> File {
+    use std::io::Read;
+    let bad = |m: String| -> ! { fail(ExitCode::Input, &format!("input cover {path}: {m}")) };
+    let mut f = File::open(path).unwrap_or_else(|e| bad(e.to_string()));
+    let mut h = blake3::Hasher::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        match f.read(&mut buf) {
+            Ok(0) => break,
+            Ok(k) => {
+                h.update(&buf[..k]);
+            }
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => bad(e.to_string()),
+        }
+    }
+    let d = h.finalize().to_hex().to_string();
+    if d != want {
+        bad(format!(
+            "blake3 {d} differs from the spec's {want} (changed after the start-up check)"
+        ));
+    }
+    f
+}
+
 /// The family input: (text, path).
 pub fn family_input(spec: &JobSpec) -> (String, String) {
-    let i = spec
-        .inputs
-        .iter()
-        .find(|i| i.role == "family")
-        .expect("checked: one family input");
+    let Some(i) = spec.inputs.iter().find(|i| i.role == "family") else {
+        fail(
+            ExitCode::Usage,
+            "a generate job needs exactly one input of role family",
+        )
+    };
     let p: PathBuf = spec.input_path(i);
-    match std::fs::read_to_string(&p) {
-        Ok(t) => (t, p.display().to_string()),
-        Err(e) => fail(ExitCode::Input, &format!("family {}: {e}", p.display())),
-    }
+    // engfix4 mn-1: read ONCE, re-hashed; the header's family_blake3 is the digest of these bytes
+    let (bytes, digest) = verified_input(spec, i);
+    let text = String::from_utf8(bytes)
+        .unwrap_or_else(|e| fail(ExitCode::Input, &format!("family {}: {e}", p.display())));
+    let _ = FAMILY_DIGEST.set(digest);
+    (text, p.display().to_string())
 }
 
 type GenResult = std::thread::Result<Result<super::driver::NodeOutcome, String>>;
@@ -2224,6 +2490,7 @@ fn finish(j: &Arc<Job>, res: GenResult) -> ! {
             if FINAL.swap(true, SeqCst) {
                 park_forever();
             }
+            let _ = cc::atomic::release_reserve(&j.layout.reserve());
             let peak = proc::kill_helpers();
             let info = StopInfo {
                 code: Some(StopCode::Panic),
@@ -2241,6 +2508,7 @@ fn finish(j: &Arc<Job>, res: GenResult) -> ! {
                     Some(ErrorInfo::new(ErrorClass::Panic, m)),
                     serde_json::Map::new(),
                     peak,
+                    false,
                 )
             };
             let _ = j.write_outcome(&o);
@@ -2445,12 +2713,13 @@ fn finish(j: &Arc<Job>, res: GenResult) -> ! {
     let mut o = {
         let st = j.st();
         let sealed = table.map(|t| (t, cert));
-        j.outcome(Some(&st), code, info, sealed, error, legacy, peak)
+        j.outcome(Some(&st), code, info, sealed, error, legacy, peak, false)
     };
     o.job.outputs.extra.push(subcases);
+    // the final OUTCOME is written from the reserve (engfix4 MJ-2: released first; every output it names is sealed)
+    let _ = cc::atomic::release_reserve(&j.layout.reserve());
     if let Err(e) = j.write_outcome(&o) {
-        let _ = cc::atomic::release_reserve(&j.layout.reserve());
-        eprintln!("rr_node job: OUTCOME: {e}");
+        say(format!("OUTCOME: {e}"));
         std::process::exit(cc::atomic::exit_for_io(&e).code());
     }
     let _ = j.sink.emit(Event::JobFinished {
