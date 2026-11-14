@@ -138,14 +138,16 @@ fn unconfirmed_setup() -> H {
         },
     });
     h.ok(job("J", 1, launch("a1")));
-    assert!(h.st.unconfirmed_launches().is_empty(), "same session: not unconfirmed yet");
+    assert!(
+        h.st.unconfirmed_launches().is_empty(),
+        "same session: not unconfirmed yet"
+    );
     session(&mut h);
-    let u: Vec<String> = h
-        .st
-        .unconfirmed_launches()
-        .into_iter()
-        .map(|(j, _)| j.clone())
-        .collect();
+    let u: Vec<String> =
+        h.st.unconfirmed_launches()
+            .into_iter()
+            .map(|(j, _)| j.clone())
+            .collect();
     assert_eq!(u, vec!["J".to_string()], "the recovery hook's worklist");
     h
 }
@@ -156,17 +158,16 @@ fn unconfirmed_launch_is_never_did_not_run_and_never_retried_automatically() {
     let item = item_id("N", 0);
     h.ok(job("J", 1, unconfirmed()));
     assert_eq!(h.st.jobs["J"].state, AttemptState::Unconfirmed);
-    assert!(!h.st.jobs["J"].state.is_settled(), "not settled: the campaign cannot finish");
+    assert!(
+        !h.st.jobs["J"].state.is_settled(),
+        "not settled: the campaign cannot finish"
+    );
     assert_eq!(h.st.execution_unknown_jobs().len(), 1);
     assert!(h.st.unconfirmed_launches().is_empty());
     // never reduced to "did not run"
     for ev in [
-        JobEvent::Lose {
-            reason: "x".into(),
-        },
-        JobEvent::Interrupt {
-            reason: "x".into(),
-        },
+        JobEvent::Lose { reason: "x".into() },
+        JobEvent::Interrupt { reason: "x".into() },
     ] {
         h.refused(job("J", 1, ev), "lose / interrupt of an unconfirmed launch");
     }
@@ -175,12 +176,18 @@ fn unconfirmed_launch_is_never_did_not_run_and_never_retried_automatically() {
         "requeue",
     );
     h.refused(job("J", 2, JobEvent::Retry { reason: "x".into() }), "retry");
-    h.refused(job("J", 1, finished("J", 1, None, false)), "unauthenticated finish (no OUTCOME binding)");
+    h.refused(
+        job("J", 1, finished("J", 1, None, false)),
+        "unauthenticated finish (no OUTCOME binding)",
+    );
     h.refused(
         job("J", 1, finished("J", 1, Some("another launch"), true)),
         "finish bound to another launch",
     );
-    h.refused(job("J", 1, JobEvent::Cancel { reason: "x".into() }), "cancel of the current work");
+    h.refused(
+        job("J", 1, JobEvent::Cancel { reason: "x".into() }),
+        "cancel of the current work",
+    );
     // never retried automatically through the item either
     for ev in [
         ItemEvent::Requeue { reason: "x".into() },
@@ -202,7 +209,10 @@ fn unconfirmed_launch_is_never_did_not_run_and_never_retried_automatically() {
             "item requeue / escalate / terminal over an unconfirmed launch",
         );
     }
-    h.refused(job_queued("J2", &item, 0, "generate"), "a new job for the same work");
+    h.refused(
+        job_queued("J2", &item, 0, "generate"),
+        "a new job for the same work",
+    );
     h.refused(
         Event::Campaign {
             ev: CampaignEvent::Finish,
@@ -212,7 +222,10 @@ fn unconfirmed_launch_is_never_did_not_run_and_never_retried_automatically() {
     );
     // authenticated outcome of exactly this launch: consumed without re-solving
     h.ok(job("J", 1, finished("J", 1, Some("a1"), true)));
-    assert!(matches!(h.st.jobs["J"].state, AttemptState::SucceededSealed(_)));
+    assert!(matches!(
+        h.st.jobs["J"].state,
+        AttemptState::SucceededSealed(_)
+    ));
     h.ok(Event::Item {
         item: item.clone(),
         ev: ItemEvent::Produce {
@@ -274,7 +287,13 @@ fn unconfirmed_launch_late_confirmation_and_operator_retry() {
     });
     assert_eq!(h.st.items[&item].phase, ItemPhase::Open);
     // the old attempt can no longer feed: it may now be cleared (cancel), and new work queued
-    h.ok(job("J", 1, JobEvent::Cancel { reason: "superseded by the operator retry".into() }));
+    h.ok(job(
+        "J",
+        1,
+        JobEvent::Cancel {
+            reason: "superseded by the operator retry".into(),
+        },
+    ));
     h.ok(job_queued("J2", &item, 0, "generate"));
 }
 
@@ -282,16 +301,28 @@ fn unconfirmed_launch_late_confirmation_and_operator_retry() {
 fn strict_mode_refuses_the_legacy_recovery_of_an_unconfirmed_launch() {
     // legacy (default until the supervisor adopts the hook): lose accepted
     let mut h = unconfirmed_setup();
-    h.ok(job("J", 1, JobEvent::Lose { reason: "legacy".into() }));
+    h.ok(job(
+        "J",
+        1,
+        JobEvent::Lose {
+            reason: "legacy".into(),
+        },
+    ));
     // strict: lose / interrupt / an unauthenticated finish of an earlier session's launch are refused
     let mut h = unconfirmed_setup();
     h.st.strict_unconfirmed = true;
-    h.refused(job("J", 1, JobEvent::Lose { reason: "x".into() }), "strict lose");
+    h.refused(
+        job("J", 1, JobEvent::Lose { reason: "x".into() }),
+        "strict lose",
+    );
     h.refused(
         job("J", 1, JobEvent::Interrupt { reason: "x".into() }),
         "strict interrupt",
     );
-    h.refused(job("J", 1, finished("J", 1, None, false)), "strict unauthenticated finish");
+    h.refused(
+        job("J", 1, finished("J", 1, None, false)),
+        "strict unauthenticated finish",
+    );
     h.ok(job("J", 1, unconfirmed()));
     // within ONE session the supervisor knows the truth (e.g. spawn failed): not affected
     let mut h = H::new();
@@ -328,7 +359,11 @@ fn m2_property_no_acceptance_from_provenance_older_than_an_input_change() {
                 kind: "face".into(),
                 rung: Rung(0),
                 parent: None,
-                inputs: if k % 2 == 0 { vec!["X0".into()] } else { vec![] },
+                inputs: if k % 2 == 0 {
+                    vec!["X0".into()]
+                } else {
+                    vec![]
+                },
                 label: format!("I{k}"),
                 weight: 1,
             });
@@ -350,7 +385,11 @@ fn m2_property_no_acceptance_from_provenance_older_than_an_input_change() {
                 1 => {
                     let i = (next() % 3) as usize;
                     versions[i] += 1;
-                    input(ids[i], if i == 2 { "box" } else { "family" }, &format!("{} v{}", ids[i], versions[i]))
+                    input(
+                        ids[i],
+                        if i == 2 { "box" } else { "family" },
+                        &format!("{} v{}", ids[i], versions[i]),
+                    )
                 }
                 2 => Event::Node {
                     node: "N".into(),
@@ -385,8 +424,7 @@ fn m2_property_no_acceptance_from_provenance_older_than_an_input_change() {
                 let (ItemPhase::Accepted(_), Some(a)) = (&it.phase, &it.accepted) else {
                     continue;
                 };
-                let rustred_campaign::state::AcceptedFrom::Import { provenance } = &a.source
-                else {
+                let rustred_campaign::state::AcceptedFrom::Import { provenance } = &a.source else {
                     continue;
                 };
                 let p = &h.st.provenance[provenance];
@@ -400,7 +438,10 @@ fn m2_property_no_acceptance_from_provenance_older_than_an_input_change() {
         }
     }
     eprintln!("M2 property: {accepted_total} accepted-item checks, {refused_m2} M2 refusals");
-    assert!(refused_m2 > 0 && accepted_total > 0, "the generator exercises both sides");
+    assert!(
+        refused_m2 > 0 && accepted_total > 0,
+        "the generator exercises both sides"
+    );
 }
 
 /// M4: the children index carries staleness through a deep escalation chain, and reopen / retry see the child.

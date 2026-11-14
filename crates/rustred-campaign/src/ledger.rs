@@ -1162,7 +1162,7 @@ impl Default for LedgerConfig {
             keep_old_snapshots: 1,
             rotation_retry_ms: 10_000,
             background_snapshot_min_entries: 20_000,
-            snapshot_max_lag_segments: 6,
+            snapshot_max_lag_segments: 16,
         }
     }
 }
@@ -1491,15 +1491,24 @@ fn check_sealed(
     }
     let bad = |why: &str| corrupt(&s.file, 0, format!("sealed segment {why}"));
     if s.first_seq != seq_before + 1 || !bytes.ends_with(b"\n") {
-        return Err(bad("does not continue the chain (first seq) or ends inside a line"));
+        return Err(bad(
+            "does not continue the chain (first seq) or ends inside a line",
+        ));
     }
-    let first_nl = bytes.iter().position(|&b| b == b'\n').expect("ends with a newline");
+    let first_nl = bytes
+        .iter()
+        .position(|&b| b == b'\n')
+        .expect("ends with a newline");
     let (first, _) = decode_record(&bytes[..first_nl]).map_err(|w| bad(&w))?;
     if first.seq != seq_before + 1 || first.prev != head_before {
         return Err(bad("first record does not continue the chain"));
     }
     let body = &bytes[..bytes.len() - 1];
-    let last_start = body.iter().rposition(|&b| b == b'\n').map(|p| p + 1).unwrap_or(0);
+    let last_start = body
+        .iter()
+        .rposition(|&b| b == b'\n')
+        .map(|p| p + 1)
+        .unwrap_or(0);
     let (last, h) = decode_record(&body[last_start..]).map_err(|w| bad(&w))?;
     if last.seq != s.last_seq || h != s.last_hash {
         return Err(bad("ends elsewhere than the manifest says"));
@@ -1747,10 +1756,7 @@ fn load_base(dir: &Path, m: &Manifest) -> Result<Base, LedgerError> {
                 corrupt(
                     MANIFEST_FILE,
                     0,
-                    format!(
-                        "snapshot seq {} is not the end of a sealed segment",
-                        s.seq
-                    ),
+                    format!("snapshot seq {} is not the end of a sealed segment", s.seq),
                 )
             })?;
         let (mut cs, mut ch) = (0u64, GENESIS.to_string());
@@ -1966,7 +1972,11 @@ impl Drop for Ledger {
         }
         if self.collect_job(job).is_some()
             && let Some(r) = self.ready_snapshot.take()
-            && self.manifest.snapshot.as_ref().is_none_or(|cur| r.seq > cur.seq)
+            && self
+                .manifest
+                .snapshot
+                .as_ref()
+                .is_none_or(|cur| r.seq > cur.seq)
         {
             let mut m = self.manifest.clone();
             m.snapshot = Some(r);
@@ -2155,7 +2165,15 @@ pub fn rebuild_manifest(cdir: &Path, lock: &CampaignLock) -> Result<RebuildRepor
                     "commit mark names records beyond the segments found",
                 ));
             }
-            let scan = scan_active(&file, &bytes, seq, head.clone(), am, None, &mut reducer(&mut st, None))?;
+            let scan = scan_active(
+                &file,
+                &bytes,
+                seq,
+                head.clone(),
+                am,
+                None,
+                &mut reducer(&mut st, None),
+            )?;
             if let Some((line, why)) = scan.corrupt {
                 return Err(corrupt(&file, line, why));
             }
@@ -2169,7 +2187,11 @@ pub fn rebuild_manifest(cdir: &Path, lock: &CampaignLock) -> Result<RebuildRepor
         }
     }
     if st.campaign_id.is_empty() {
-        return Err(corrupt("segment-000001.jsonl", 1, "no campaign_created record"));
+        return Err(corrupt(
+            "segment-000001.jsonl",
+            1,
+            "no campaign_created record",
+        ));
     }
     let manifest = Manifest {
         schema: MANIFEST_SCHEMA.into(),
@@ -2219,10 +2241,7 @@ fn background_snapshot(
     let temp = dir.join(format!(".{name}.rr-tmp-{}-{n}", std::process::id()));
     let mut digests = None;
     let r = ops.write_new_synced_with(&temp, &mut |w| {
-        let mut cw = CancelWrite {
-            w,
-            cancel: &cancel,
-        };
+        let mut cw = CancelWrite { w, cancel: &cancel };
         digests = Some(write_snapshot_to(&mut cw, seq, &head, &state)?);
         Ok(())
     });
@@ -2237,7 +2256,8 @@ fn background_snapshot(
         return Err("cancelled".into());
     }
     ops.rename(&temp, &path).map_err(|e| fail("rename", e))?;
-    ops.sync_dir(&dir).map_err(|e| format!("sync dir after {name}: {e}"))?;
+    ops.sync_dir(&dir)
+        .map_err(|e| format!("sync dir after {name}: {e}"))?;
     let (blake3, state_digest) = digests.expect("written");
     Ok(SnapshotRef {
         file: name,
@@ -2405,23 +2425,15 @@ impl Ledger {
         let seg_path = dir.join(&manifest.active.file);
         let bytes = read_segment_file(&dir, &manifest.active.file)?;
         let mut state = base.state;
-        let mut scan = {
-            // the base state is needed again only if an override replays a prefix: keep the cheap COW clone
-            let mut probe = state.clone();
-            let r = scan_active(
-                &manifest.active.file,
-                &bytes,
-                base_seq,
-                base_head.clone(),
-                am.as_ref(),
-                None,
-                &mut reducer(&mut probe, None),
-            )?;
-            if r.corrupt.is_none() {
-                state = probe;
-            }
-            r
-        };
+        let mut scan = scan_active(
+            &manifest.active.file,
+            &bytes,
+            base_seq,
+            base_head.clone(),
+            am.as_ref(),
+            None,
+            &mut reducer(&mut state, None),
+        )?;
         let mut recovery: Option<(RecoveryInfo, u64)> = None;
         if let Some((line, why)) = scan.corrupt.take() {
             let Some(to) = opts.accept_truncation_to else {
@@ -2437,6 +2449,8 @@ impl Ledger {
                     ),
                 ));
             }
+            // the override replays the active segment again from the base state (rare: reload it, no copy kept)
+            state = load_base(&dir, &manifest)?.state;
             scan = scan_active(
                 &manifest.active.file,
                 &bytes,
@@ -2637,8 +2651,10 @@ impl Ledger {
                 Some(seq)
             }
             Ok(Err(e)) => {
-                self.warnings
-                    .push(format!("background snapshot at seq {} failed: {e}", job.seq));
+                self.warnings.push(format!(
+                    "background snapshot at seq {} failed: {e}",
+                    job.seq
+                ));
                 None
             }
             Err(_) => {
@@ -2760,7 +2776,11 @@ impl Ledger {
             // so it is neither truncated nor removed from the state (after reopen the ledger is the truth).
             if let Err(e) = self.write_mark() {
                 let err = io_err(&self.dir.join(COMMIT_FILE), "commit mark")(e);
-                self.poison(format!("{err}; batch durable, not acknowledged"), Some(&err), true);
+                self.poison(
+                    format!("{err}; batch durable, not acknowledged"),
+                    Some(&err),
+                    true,
+                );
                 return Err(err);
             }
         } else {

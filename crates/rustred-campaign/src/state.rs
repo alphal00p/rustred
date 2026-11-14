@@ -3889,7 +3889,10 @@ impl CampaignState {
         {
             let launched = j.attempt_spec.as_deref().unwrap_or("");
             let bound = binding.as_ref().is_some_and(|b| {
-                b.job == job && b.attempt == attempt && !launched.is_empty() && b.spec_blake3 == launched
+                b.job == job
+                    && b.attempt == attempt
+                    && !launched.is_empty()
+                    && b.spec_blake3 == launched
             });
             if !bound || outcome.is_none() {
                 return Err(invalid(format!(

@@ -76,7 +76,10 @@ fn m1_manifest_missing_is_refused_and_rebuilt_from_the_verified_chain() {
     assert_eq!(ledger::read_records(&d).unwrap(), before);
     let (l, rep) = open_ledger(&d, as_dyn(&clock()), small()).unwrap();
     assert_eq!(l.seq(), seq);
-    assert_eq!(rep.from_snapshot, None, "the rebuilt manifest names no snapshot");
+    assert_eq!(
+        rep.from_snapshot, None,
+        "the rebuilt manifest names no snapshot"
+    );
     assert_eq!(ledger::verify_chain(&d).unwrap().state, *l.state());
 }
 
@@ -141,7 +144,10 @@ fn m8_a_deleted_segment_is_corrupt_for_every_reader() {
             Err(LedgerError::Corrupt { .. }) => {}
             other => panic!("{which} {what}: {other:?}"),
         };
-        corrupt(open_ledger(&d, as_dyn(&clock()), small()).map(|_| ()), "open");
+        corrupt(
+            open_ledger(&d, as_dyn(&clock()), small()).map(|_| ()),
+            "open",
+        );
         corrupt(ledger::open_read_only(&d).map(|_| ()), "open_read_only");
         corrupt(ledger::verify_chain(&d).map(|_| ()), "verify_chain");
         corrupt(ledger::read_records(&d).map(|_| ()), "read_records");
@@ -159,8 +165,13 @@ fn m11_fsync_gate_precedes_the_recovery_record() {
         lazy_max_ms: 1 << 40,
         ..LedgerConfig::default()
     };
-    let mut l =
-        new_ledger_with(&d, as_dyn(&clk), cfg.clone(), Arc::new(RecordingOps(ops.clone()))).unwrap();
+    let mut l = new_ledger_with(
+        &d,
+        as_dyn(&clk),
+        cfg.clone(),
+        Arc::new(RecordingOps(ops.clone())),
+    )
+    .unwrap();
     l.append_all(setup_events("N1")).unwrap();
     for k in 0..3 {
         l.append(Event::Note {
@@ -214,7 +225,10 @@ fn m10_background_snapshots_never_block_and_are_used_one_rotation_later() {
     let m = l.manifest().clone();
     let snap = m.snapshot.clone().expect("a background snapshot is named");
     if let Some(s) = named {
-        assert_eq!(snap.seq, s, "the finished snapshot is named by the next rotation");
+        assert_eq!(
+            snap.seq, s,
+            "the finished snapshot is named by the next rotation"
+        );
     }
     assert!(snap.seq < m.sealed.last().unwrap().last_seq);
     let seq = l.seq();
@@ -259,9 +273,11 @@ fn m10_an_older_snapshot_version_is_ignored_full_replay() {
     let m = ledger::read_manifest(&ldir).unwrap();
     let p = ldir.join(&m.snapshot.as_ref().unwrap().file);
     let b = fs::read(&p).unwrap();
-    let old = String::from_utf8(b)
-        .unwrap()
-        .replacen("rustred.campaign.snapshot.v2", "rustred.campaign.snapshot.v1", 1);
+    let old = String::from_utf8(b).unwrap().replacen(
+        "rustred.campaign.snapshot.v2",
+        "rustred.campaign.snapshot.v1",
+        1,
+    );
     fs::write(&p, old).unwrap();
     let (l, rep) = open_ledger(&d, as_dyn(&clock()), small()).unwrap();
     assert_eq!(rep.from_snapshot, None);
@@ -415,7 +431,14 @@ fn session(d: &Path, limit: i64, items: usize) -> (u64, bool) {
     let r = if manifest.exists() {
         Ledger::open_with(d, &lk, clk, small(), ops, OpenOptions::default()).map(|(l, _)| l)
     } else {
-        Ledger::create_with(d, &lk, clk, small(), ops, Genesis::new("c", &digest("s"), 9))
+        Ledger::create_with(
+            d,
+            &lk,
+            clk,
+            small(),
+            ops,
+            Genesis::new("c", &digest("s"), 9),
+        )
     };
     let mut l = match r {
         Ok(l) => l,
@@ -443,7 +466,13 @@ fn start_path_crash_points_never_make_a_history_look_new() {
     fs::create_dir_all(&full).unwrap();
     let (acked_full, dead) = session(&full, i64::MAX, 10);
     assert!(!dead && acked_full > 20);
-    assert!(ledger::read_manifest(&ledger::ledger_dir(&full)).unwrap().sealed.len() >= 3);
+    assert!(
+        ledger::read_manifest(&ledger::ledger_dir(&full))
+            .unwrap()
+            .sealed
+            .len()
+            >= 3
+    );
     let mut fails = Vec::new();
     let (mut new_after, mut opened_after) = (0, 0);
     let mut n = 1;
@@ -456,21 +485,33 @@ fn start_path_crash_points_never_make_a_history_look_new() {
         }
         let manifest = ledger::ledger_dir(&d).join(ledger::MANIFEST_FILE).exists();
         // the next start, with the real operations
-        let (lk, _) = lock::acquire(&d, &rustred_campaign::clock::SystemClock::new(), &["x".into()]).unwrap();
+        let (lk, _) = lock::acquire(
+            &d,
+            &rustred_campaign::clock::SystemClock::new(),
+            &["x".into()],
+        )
+        .unwrap();
         if manifest {
             opened_after += 1;
             match Ledger::open(&d, &lk, as_dyn(&clock()), small()) {
                 Ok((l, _)) if l.seq() >= acked => {}
-                Ok((l, _)) => fails.push(format!("op {n}: reopened at {} < acknowledged {acked}", l.seq())),
+                Ok((l, _)) => fails.push(format!(
+                    "op {n}: reopened at {} < acknowledged {acked}",
+                    l.seq()
+                )),
                 Err(e) => fails.push(format!("op {n}: reopen refused: {e}")),
             }
         } else {
             new_after += 1;
             if acked > 1 {
-                fails.push(format!("op {n}: NO MANIFEST although seq {acked} was acknowledged"));
+                fails.push(format!(
+                    "op {n}: NO MANIFEST although seq {acked} was acknowledged"
+                ));
             }
             if let Err(e) = Ledger::create(&d, &lk, as_dyn(&clock()), small(), genesis()) {
-                fails.push(format!("op {n}: create after a crashed create refused: {e}"));
+                fails.push(format!(
+                    "op {n}: create after a crashed create refused: {e}"
+                ));
             }
         }
         drop(lk);
@@ -487,4 +528,3 @@ fn start_path_crash_points_never_make_a_history_look_new() {
     }
     assert!(fails.is_empty());
 }
-

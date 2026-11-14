@@ -197,7 +197,10 @@ mod tests {
         a.insert("a".into(), vec![1]);
         assert_eq!(a.len(), 2);
         assert_eq!(a["a"], vec![1]);
-        assert_eq!(a.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(), ["a", "b"]);
+        assert_eq!(
+            a.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(),
+            ["a", "b"]
+        );
         let frozen = a.clone();
         assert!(a.is_shared("a"));
         a.get_mut("a").unwrap().push(9);
