@@ -483,7 +483,9 @@ pub fn term_key_digest(k: &[i32]) -> u64 {
 
 /// Parse a 16-hex term-key digest.
 pub fn parse_term_key_digest(s: &str) -> Option<u64> {
-    (s.len() == 16).then(|| u64::from_str_radix(s, 16).ok()).flatten()
+    (s.len() == 16)
+        .then(|| u64::from_str_radix(s, 16).ok())
+        .flatten()
 }
 
 #[cfg(test)]

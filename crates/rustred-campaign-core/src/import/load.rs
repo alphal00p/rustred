@@ -19,6 +19,10 @@ use super::lines::{
 use super::spec::{
     DomainMode, HandName, SourceKind, SourceSpec, StartFormat, TableSetSpec, resolve,
 };
+use super::symmetry::{
+    DEFAULT_MAX_TERMS, GroupFormat, GroupReport, GroupSpec, RelationCheck, load_verified_group,
+    verify_relation_with,
+};
 use crate::closure::relations::{
     DispatchSlot, RelationSet, RelationStoreBuilder, VERDICT_DESCENDS, VERDICT_EXACT,
     VERDICT_REGULAR,
@@ -31,10 +35,6 @@ use crate::order::{GroupElement, NodeComparator};
 use crate::poly::Poly;
 use crate::record::{TableFile, TableHeader};
 use crate::symmetry::CreditPolicy;
-use super::symmetry::{
-    DEFAULT_MAX_TERMS, GroupFormat, GroupReport, GroupSpec, RelationCheck, load_verified_group,
-    verify_relation_with,
-};
 
 /// Witness status of an imported record as the dispatch sees it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -548,7 +548,8 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
                         cmp.presentation().new_to_old(),
                         fhead.raw.get("family_source").and_then(Value::as_str),
                     )?;
-                    rep.files.push((gr.family.clone(), format!("sha256:{}", gr.family_sha256)));
+                    rep.files
+                        .push((gr.family.clone(), format!("sha256:{}", gr.family_sha256)));
                     if let Some(f) = &gr.group_file {
                         rep.files.push(f.clone());
                     }
@@ -1279,7 +1280,10 @@ fn supplied_coefficients(
         }
         let mut terms = vec![];
         for t in v.get("rhs").and_then(Value::as_array).into_iter().flatten() {
-            let (k, c) = (t.get(0).and_then(Value::as_str), t.get(1).and_then(Value::as_str));
+            let (k, c) = (
+                t.get(0).and_then(Value::as_str),
+                t.get(1).and_then(Value::as_str),
+            );
             match (k.and_then(|k| parse_key_text(k, n)), c) {
                 (Some(k), Some(c)) => terms.push((k, c.to_string())),
                 _ => {
@@ -1405,9 +1409,15 @@ fn load_recipe(
         ),
         Some(o) => return Err(bad(format!("domain.keys {o}"))),
     };
-    for k in dom.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()).unwrap_or_default() {
+    for k in dom
+        .as_object()
+        .map(|o| o.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default()
+    {
         if !["fixed", "equations", "exceptions", "bounds", "keys"].contains(&k.as_str()) {
-            return Err(bad(format!("unknown recipe domain field {k:?} (refused, never ignored)")));
+            return Err(bad(format!(
+                "unknown recipe domain field {k:?} (refused, never ignored)"
+            )));
         }
     }
     let recipe_id = v.get("id").and_then(Value::as_str).map(str::to_string);
@@ -1432,14 +1442,20 @@ fn load_recipe(
                 continue;
             }
             named = true;
-            let mut keys: Vec<&Value> = e.get("keys").and_then(Value::as_array).map(|a| a.iter().collect()).unwrap_or_default();
+            let mut keys: Vec<&Value> = e
+                .get("keys")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().collect())
+                .unwrap_or_default();
             if let Some(k) = e.get("key") {
                 keys.push(k);
             }
             for k in keys {
                 let key = match k {
                     Value::String(t) => parse_key_text(t, n),
-                    _ => serde_json::from_value::<Vec<i32>>(k.clone()).ok().filter(|k| k.len() == n),
+                    _ => serde_json::from_value::<Vec<i32>>(k.clone())
+                        .ok()
+                        .filter(|k| k.len() == n),
                 }
                 .ok_or_else(|| ImportError::Line {
                     source: src.id.clone(),

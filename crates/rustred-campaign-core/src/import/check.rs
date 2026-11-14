@@ -576,7 +576,9 @@ fn check_inner(
                     Level::Imported
                 });
                 row.basis = Some(match (info.witness, lifted) {
-                    (WitnessKind::Elided, _) | (WitnessKind::NotCarried, true) => BASIS_PER_KEY_PROOF,
+                    (WitnessKind::Elided, _) | (WitnessKind::NotCarried, true) => {
+                        BASIS_PER_KEY_PROOF
+                    }
                     (WitnessKind::Complete, _) => "witness_loci",
                     (WitnessKind::NotCarried, false) => "regularity_fact",
                 });

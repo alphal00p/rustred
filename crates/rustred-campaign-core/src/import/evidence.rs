@@ -83,6 +83,9 @@ pub struct ProofStatus {
     pub file: String,
 }
 
+/// Schema of bank-conv's bound proof lines (coord-bank-tables.md v1.4): a compact proof verdict line with `binds`.
+pub const BANK_CONV_PROOF_SCHEMA: &str = "rustred.bank-conv.proof.v1";
+
 /// Status words that give the level `per-key` (rr_proof instance-span / instance-exact, per key).
 pub fn is_per_key_status(word: &str) -> bool {
     word == "EXACT_IN_SPAN_AT_KEY" || word == "EXACT_PROVED_AT_KEY"
@@ -385,14 +388,23 @@ impl Evidence {
                         Ok(d.into_boxed_slice())
                     };
                     let terms = Terms::NonZero {
-                        nonzero: if usable { digests("nonzero")? } else { Box::new([]) },
-                        unknown: if usable { digests("unknown")? } else { Box::new([]) },
-                        n_terms: v
-                            .get("n_terms")
-                            .and_then(Value::as_u64)
-                            .map(|n| n as u32),
+                        nonzero: if usable {
+                            digests("nonzero")?
+                        } else {
+                            Box::new([])
+                        },
+                        unknown: if usable {
+                            digests("unknown")?
+                        } else {
+                            Box::new([])
+                        },
+                        n_terms: v.get("n_terms").and_then(Value::as_u64).map(|n| n as u32),
                     };
-                    (usable, regular, if usable { terms } else { Terms::Full(vec![]) })
+                    (
+                        usable,
+                        regular,
+                        if usable { terms } else { Terms::Full(vec![]) },
+                    )
                 } else {
                     let usable = v["in_case"] == true
                         && v["chart_ok"] == true
@@ -464,7 +476,10 @@ impl Evidence {
             .get("index")
             .and_then(Value::as_i64)
             .or_else(|| v.get("rule").and_then(Value::as_i64));
-        match (echo, self.rule_record_index.get(ri as usize).copied().flatten()) {
+        match (
+            echo,
+            self.rule_record_index.get(ri as usize).copied().flatten(),
+        ) {
             (Some(e), Some(i)) if e != i => Err(format!(
                 "the answer names rule index {e}, the record with this record_sha256 has index {i}"
             )),
@@ -540,7 +555,7 @@ impl Evidence {
                     msg: m,
                 };
                 let schema = v.get("schema").and_then(Value::as_str);
-                let compact = schema.is_none()
+                let compact = (schema.is_none() || schema == Some(BANK_CONV_PROOF_SCHEMA))
                     && v.get("keys").is_none()
                     && v.get("record_sha256").is_some_and(Value::is_string)
                     && v.get("key").is_some()
@@ -565,7 +580,9 @@ impl Evidence {
                         .next()
                         .unwrap_or("")
                         .to_string();
-                    if v.get("sha_ok").is_some_and(|x| x != true) {
+                    if v.get("sha_ok").is_some_and(|x| x != true)
+                        || v.get("binds").is_some_and(|x| x != true)
+                    {
                         // the producer itself says the line it proved is not this record's byte copy
                         self.counts.proof_refusals += 1;
                         word = format!("SHA_NOT_OK:{word}");
@@ -778,7 +795,10 @@ impl FactSource for Evidence {
     }
     fn per_key_proof(&self, rule: &RuleId, key: &[i32]) -> bool {
         // a Pole fact for the same (rule, key) contradicts the proof: fail closed (no lift)
-        self.per_key(rule, key) && self.rec(rule, key).is_none_or(|f| f.regular != RegFact::Pole)
+        self.per_key(rule, key)
+            && self
+                .rec(rule, key)
+                .is_none_or(|f| f.regular != RegFact::Pole)
     }
     fn label(&self) -> String {
         self.label.clone()

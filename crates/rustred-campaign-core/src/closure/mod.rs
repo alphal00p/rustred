@@ -2804,7 +2804,9 @@ fn dispose(
                 && (reason == crate::domain::Verdict::WitnessNotCarried
                     || reason == crate::domain::Verdict::Elided)
                 && ctx.bodies.has(at.table, at.record)
-                && ctx.facts.per_key_proof(&ctx.rid(ctx.fast.position(at)), key) =>
+                && ctx
+                    .facts
+                    .per_key_proof(&ctx.rid(ctx.fast.position(at)), key) =>
         {
             KeyRes::PerKey(ctx.fast.position(at))
         }
@@ -3789,7 +3791,10 @@ impl Closure {
             requires_per_key_proof: self
                 .open
                 .values()
-                .filter(|o| o.status == OpenStatus::Blocked && o.detail.ends_with("requires the per-key proof"))
+                .filter(|o| {
+                    o.status == OpenStatus::Blocked
+                        && o.detail.ends_with("requires the per-key proof")
+                })
                 .count() as u64,
             recipe_served: self.recipe_of.len() as u64,
             recipe_served_in_start: self

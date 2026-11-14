@@ -113,6 +113,8 @@ fn import_symmetry_relations_symbolica_equals_independent() {
             n_ok += 1;
         }
     }
-    println!("{n_ok} relations verified identically by both backends (and their planted variants refused)");
+    println!(
+        "{n_ok} relations verified identically by both backends (and their planted variants refused)"
+    );
     assert!(n_ok >= 1);
 }

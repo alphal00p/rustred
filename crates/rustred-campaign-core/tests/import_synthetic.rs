@@ -437,7 +437,9 @@ fn per_key_lift_closes_tier_c_and_serves_exactly_the_proved_keys() {
             "evidence":{"facts":[{"path": facts.display().to_string()}],"proofs":[{"path": proofs.display().to_string()}]}})
     };
     // (1) the proof bound to (sha0, I(2,1,0)): Tier C closed, the key served at `per-key`
-    let p = write_proofs(json!([{"record_sha256": sha0, "key": [2,1,0], "status":"EXACT_IN_SPAN_AT_KEY"}]));
+    let p = write_proofs(
+        json!([{"record_sha256": sha0, "key": [2,1,0], "status":"EXACT_IN_SPAN_AT_KEY"}]),
+    );
     let (_set, _ev, r) = run(&spec_with(&p), &d);
     assert_eq!(r.tier, closure::Tier::C);
     assert_eq!(
@@ -448,7 +450,10 @@ fn per_key_lift_closes_tier_c_and_serves_exactly_the_proved_keys() {
     );
     assert!(r.blocking().is_empty(), "{:?}", r.blocking());
     let x = row(&r, [2, 1, 0]);
-    assert_eq!((x.evidence, x.basis), (Some(Level::PerKey), Some("per_key_proof")));
+    assert_eq!(
+        (x.evidence, x.basis),
+        (Some(Level::PerKey), Some("per_key_proof"))
+    );
     assert!(!x.regularity_unknown);
     assert_eq!(r.summary.per_key_lifted.get("A"), Some(&1));
     assert_eq!(row(&r, [1, 1, 0]).basis, Some("witness_loci"));
@@ -484,7 +489,9 @@ fn per_key_lift_closes_tier_c_and_serves_exactly_the_proved_keys() {
     let (set, _ev, r) = run(&spec_b, &d);
     let shab = set.rules[0][0].record_sha256.clone();
     assert_eq!(row(&r, [2, 1, 0]).status, RowStatus::Open);
-    let p = write_proofs(json!([{"record_sha256": shab, "key": [2,1,0], "status":"EXACT_PROVED_AT_KEY"}]));
+    let p = write_proofs(
+        json!([{"record_sha256": shab, "key": [2,1,0], "status":"EXACT_PROVED_AT_KEY"}]),
+    );
     let mut spec_b2 = spec_b.clone();
     spec_b2["evidence"] = json!({"proofs":[{"path": p.display().to_string()}]});
     let (_set, _ev, r) = run(&spec_b2, &d);
@@ -492,7 +499,11 @@ fn per_key_lift_closes_tier_c_and_serves_exactly_the_proved_keys() {
     let x = row(&r, [2, 1, 0]);
     assert_eq!(
         (x.status, x.evidence, x.basis),
-        (RowStatus::Served, Some(Level::PerKey), Some("per_key_proof"))
+        (
+            RowStatus::Served,
+            Some(Level::PerKey),
+            Some("per_key_proof")
+        )
     );
 }
 
@@ -1140,8 +1151,10 @@ fn compact_fact_and_proof_verdict_lines() {
         s
     };
     // (1) I(1,1,0) and I(2,1,1) unlisted (zero), I(2,0,0) non-zero: only the hand-down remains; closed
-    let p = write(&[json!({"schema":"rustred.campaign.fact-verdict.v1","index":0,"record_sha256":sha,
-        "key":[2,1,0],"verdict":"regular","n_terms":3,"nonzero":[hex([2,0,0])]})]);
+    let p = write(&[
+        json!({"schema":"rustred.campaign.fact-verdict.v1","index":0,"record_sha256":sha,
+        "key":[2,1,0],"verdict":"regular","n_terms":3,"nonzero":[hex([2,0,0])]}),
+    ]);
     let (_s, ev, r) = run(&with_facts(&p), &d);
     assert_eq!(ev.counts.fact_verdict_lines, 1);
     assert_eq!(r.tier, closure::Tier::C);
@@ -1153,8 +1166,10 @@ fn compact_fact_and_proof_verdict_lines() {
         r.summary.blocking
     );
     // (2) the top term non-zero: followed (I(1,1,0) open); the positive-numerator term listed: the closure FAILS
-    let p = write(&[json!({"schema":"rustred.campaign.fact-verdict.v1","index":0,"record_sha256":sha,
-        "key":[2,1,0],"verdict":"regular","n_terms":3,"nonzero":[hex([1,1,0]),hex([2,0,0]),hex([2,1,1])]})]);
+    let p = write(&[
+        json!({"schema":"rustred.campaign.fact-verdict.v1","index":0,"record_sha256":sha,
+        "key":[2,1,0],"verdict":"regular","n_terms":3,"nonzero":[hex([1,1,0]),hex([2,0,0]),hex([2,1,1])]}),
+    ]);
     let (_s, _ev, r) = run(&with_facts(&p), &d);
     assert_eq!(r.rows.len(), 2);
     assert_eq!(r.summary.verdict, closure::Verdict::Failed);
@@ -1215,7 +1230,13 @@ fn streamed_check_equals_the_in_memory_check() {
                 Some(json!([])),
                 json!({"exceptions":[["n0-1"]]}),
             ),
-            rule(1, [Some(1), Some(1), Some(0)], &["I(1,0,0)"], None, json!({})),
+            rule(
+                1,
+                [Some(1), Some(1), Some(0)],
+                &["I(1,0,0)"],
+                None,
+                json!({}),
+            ),
         ],
     );
     let st = write_keys(&d, &[[5, 1, 0], [3, 1, 0]]);
@@ -1227,7 +1248,8 @@ fn streamed_check_equals_the_in_memory_check() {
     let ev = Evidence::from_spec(&set, &d).unwrap();
     let mem = check(&set, &ev, &CheckOptions::default()).unwrap();
     let rows_path = d.join("stream").join("rows.jsonl");
-    let st = import::check::check_streamed(&set, &ev, &CheckOptions::default(), &rows_path).unwrap();
+    let st =
+        import::check::check_streamed(&set, &ev, &CheckOptions::default(), &rows_path).unwrap();
     assert_eq!(mem.rows.len(), 5, "I(5..1,1,0)");
     assert_eq!(st.counts(), mem.counts());
     assert_eq!(st.evidence_by_class(&set), mem.evidence_by_class(&set));
@@ -1260,7 +1282,9 @@ fn streamed_check_equals_the_in_memory_check() {
     c.sort();
     assert_eq!(a, b);
     assert_eq!(c, b);
-    let sm: Value = serde_json::from_str(&std::fs::read_to_string(dir_s.join("summary.json")).unwrap()).unwrap();
+    let sm: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir_s.join("summary.json")).unwrap())
+            .unwrap();
     assert_eq!(sm["keys"], 5);
 }
 
@@ -1282,7 +1306,8 @@ fn per_key_recipe_assignment_side_file_and_domain_keys() {
         )],
     );
     let r1 = recipe_file(&d, [None, Some(1), Some(0)]);
-    let rid: String = serde_json::from_str::<Value>(&std::fs::read_to_string(&r1).unwrap()).unwrap()["id"]
+    let rid: String = serde_json::from_str::<Value>(&std::fs::read_to_string(&r1).unwrap())
+        .unwrap()["id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -1318,19 +1343,32 @@ fn per_key_recipe_assignment_side_file_and_domain_keys() {
         .iter()
         .map(|q| (q.source.as_str(), q.key.clone()))
         .collect();
-    assert_eq!(reqs, vec![("R2", vec![2, 1, 0])], "R1 is not assigned I(2,1,0)");
+    assert_eq!(
+        reqs,
+        vec![("R2", vec![2, 1, 0])],
+        "R1 is not assigned I(2,1,0)"
+    );
     // a SOLVED answer of R1 at the unassigned key is refused
     let f = d.join("solved.jsonl");
     std::fs::write(
         &f,
-        solved("R1", &sha(&r1), [2, 1, 0], &[[1, 1, 0], [2, 0, 0]], "SOLVED", true),
+        solved(
+            "R1",
+            &sha(&r1),
+            [2, 1, 0],
+            &[[1, 1, 0], [2, 0, 0]],
+            "SOLVED",
+            true,
+        ),
     )
     .unwrap();
     spec["evidence"] = json!({"solved":[{"path": f.display().to_string()}],
         "expected_recipe_binary": "bb".repeat(32)});
     let (_set, _ev, r) = run(&spec, &d);
     assert!(
-        r.solve_refusals.iter().any(|x| x.source == "R1" && x.reason.contains("not assigned")),
+        r.solve_refusals
+            .iter()
+            .any(|x| x.source == "R1" && x.reason.contains("not assigned")),
         "{:?}",
         r.solve_refusals
     );
@@ -1342,4 +1380,51 @@ fn per_key_recipe_assignment_side_file_and_domain_keys() {
     spec["sources"][2]["path"] = json!(r3.display().to_string());
     let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
     assert!(load(&s, &d).is_err());
+}
+
+/// Recipe steps (interfaces/import.md 14): the step grammar and the explicit seeds at a key (toy arity 3, mask 110).
+#[test]
+fn recipe_step_grammar_and_explicit_seeds() {
+    use import::recipe_steps::{Centre, RecipeForm, explicit_seeds, parse_step, recipes_for_steps};
+    let s = parse_step("d2_cfirst_fon_sfirst_mM1C").unwrap();
+    assert_eq!(
+        (s.depth, s.centre, s.floor, s.symmetry_first),
+        (2, Centre::First, true, true)
+    );
+    assert!(parse_step("d2_cweird").is_err() && parse_step("x2").is_err());
+    let lines = [true, true, false];
+    // key I(3,1,-1): off-floor line 0, numerator 2
+    let (c, f, sh, _) = explicit_seeds(&s, &[3, 1, -1], &lines, &[1, 0], &[2]);
+    assert_eq!(
+        (c, f, sh),
+        (
+            vec![vec![-1, 0, 0]],
+            vec![0],
+            vec!["S0".into(), "S1".into(), "S2".into()]
+        )
+    );
+    let u = parse_step("d1_cunion_foff").unwrap();
+    let (c, f, _, sym) = explicit_seeds(&u, &[3, 1, -1], &lines, &[1, 0], &[2]);
+    assert_eq!(
+        (c, f.len(), sym),
+        (vec![vec![-1, 0, 0], vec![0, 0, 1]], 0, false)
+    );
+    let n = parse_step("d0_cnum").unwrap();
+    assert_eq!(
+        explicit_seeds(&n, &[3, 1, -1], &lines, &[1, 0], &[2]).0,
+        vec![vec![0, 0, 1]]
+    );
+    // grouping: two keys with the same explicit seed set -> one v1.2 recipe with domain.keys
+    let asg = vec![
+        ("d1_cnone_foff".to_string(), vec![2, 1, 0]),
+        ("d1_cnone_foff".to_string(), vec![3, 1, 0]),
+        ("d1_cfirst_foff".to_string(), vec![3, 1, 0]),
+    ];
+    let g = recipes_for_steps(&asg, &lines, &[0, 1], &[2], RecipeForm::V1_2, "toy/").unwrap();
+    assert_eq!(g.len(), 2);
+    assert_eq!(g[0].recipe["domain"]["keys"], json!([[2, 1, 0], [3, 1, 0]]));
+    assert_eq!(g[0].recipe["relation_rule"], json!("first_admissible"));
+    let g = recipes_for_steps(&asg, &lines, &[0, 1], &[2], RecipeForm::V1_1, "toy/").unwrap();
+    assert_eq!(g.len(), 3);
+    assert_eq!(g[0].recipe["domain"]["fixed"], json!([2, 1, 0]));
 }

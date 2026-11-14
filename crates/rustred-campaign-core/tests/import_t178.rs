@@ -173,7 +173,8 @@ fn verify_manifest(dir: &Path) -> BTreeMap<String, Vec<String>> {
             .entry(path.clone())
             .or_insert_with(|| std::fs::File::open(&path).unwrap());
         let mut buf = vec![0u8; v["bytes"].as_u64().unwrap() as usize];
-        f.seek(SeekFrom::Start(v["offset"].as_u64().unwrap())).unwrap();
+        f.seek(SeekFrom::Start(v["offset"].as_u64().unwrap()))
+            .unwrap();
         f.read_exact(&mut buf).unwrap();
         let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
         h.update(&buf);
@@ -215,11 +216,17 @@ fn t178_reproduction_of_the_hand_statement() {
     if let Some(m) = &manifest {
         println!(
             "T178 proofs manifest: every canonical line hashes to its record_sha256; rules by class {:?}",
-            m.iter().map(|(k, v)| (k.clone(), v.len())).collect::<BTreeMap<_, _>>()
+            m.iter()
+                .map(|(k, v)| (k.clone(), v.len()))
+                .collect::<BTreeMap<_, _>>()
         );
     }
     let runs: Vec<(&str, bool)> = if manifest.is_some() {
-        vec![("block", false), ("lift_with_per_key_proof", false), ("lift_with_per_key_proof", true)]
+        vec![
+            ("block", false),
+            ("lift_with_per_key_proof", false),
+            ("lift_with_per_key_proof", true),
+        ]
     } else {
         vec![("block", false), ("lift_with_per_key_proof", false)]
     };
@@ -239,7 +246,10 @@ fn t178_reproduction_of_the_hand_statement() {
             // the spec imports exactly the manifest's canonical byte copies (never the re-written mixed copies)
             for (class, shas) in m {
                 let found = shas.iter().filter(|h| set.find_sha(h).is_some()).count();
-                println!("T178 manifest class {class}: {} rules, {found} imported with that record_sha256", shas.len());
+                println!(
+                    "T178 manifest class {class}: {} rules, {found} imported with that record_sha256",
+                    shas.len()
+                );
             }
         }
         let ev = Evidence::from_spec(&set, Path::new("/")).unwrap();

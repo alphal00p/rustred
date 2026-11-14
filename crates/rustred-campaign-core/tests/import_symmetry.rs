@@ -57,11 +57,20 @@ fn t162_symmetry_relation_n9_verified_and_planted_ones_refused() {
     let vg = verify_derived(&fam, &chart, &DeriveOptions::default()).unwrap();
     let target = key("I(1,1,1,1,1,1,1,1,1,-1,0,0,0,0,0,0,0,0,0,0)", n);
     let good = vec![
-        (key("I(1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0)", n), "1".to_string()),
-        (key("I(1,1,1,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0)", n), "1".to_string()),
+        (
+            key("I(1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0)", n),
+            "1".to_string(),
+        ),
+        (
+            key("I(1,1,1,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0)", n),
+            "1".to_string(),
+        ),
     ];
     let c = verify_relation_with(&Independent, &vg, &target, &good, &[], 1 << 16);
-    println!("T162 I(1^9; n9=-1) = I(1^9) + I(D4=0): {c:?} (group: {} elements)", vg.group().elements.len());
+    println!(
+        "T162 I(1^9; n9=-1) = I(1^9) + I(D4=0): {c:?} (group: {} elements)",
+        vg.group().elements.len()
+    );
     assert!(c.verified(), "{c:?}");
     let mut wrong = good.clone();
     wrong[1].1 = "2".into();
@@ -99,7 +108,10 @@ fn t178_supplied_symmetry_relations_verified_by_rederivation() {
     let start = tmp.join("start.jsonl");
     std::fs::write(
         &start,
-        targets.iter().map(|k| format!("{}\n", json!(k))).collect::<String>(),
+        targets
+            .iter()
+            .map(|k| format!("{}\n", json!(k)))
+            .collect::<String>(),
     )
     .unwrap();
     let spec_for = |rel: &Path| {
@@ -115,7 +127,12 @@ fn t178_supplied_symmetry_relations_verified_by_rederivation() {
     let t0 = std::time::Instant::now();
     let spec = TableSetSpec::from_json(&spec_for(&sym).to_string()).unwrap();
     let set = load(&spec, Path::new("/")).unwrap();
-    let rep = set.report.sources.iter().find(|s| s.id == "symmetry").unwrap();
+    let rep = set
+        .report
+        .sources
+        .iter()
+        .find(|s| s.id == "symmetry")
+        .unwrap();
     println!(
         "T178 supplied relations: verified {} not verified {:?}; group {:?} ({:.2}s)",
         rep.relations_verified,
@@ -125,34 +142,63 @@ fn t178_supplied_symmetry_relations_verified_by_rederivation() {
     );
     assert_eq!(rep.relations_verified, 4);
     assert!(rep.relations_not_verified.is_empty());
-    let cred = set.report.sources.iter().find(|s| s.id == "credits").unwrap();
-    assert!(cred.group.as_ref().is_some_and(|g| g.provenance == "Derived" && g.elements == 7));
+    let cred = set
+        .report
+        .sources
+        .iter()
+        .find(|s| s.id == "credits")
+        .unwrap();
+    assert!(
+        cred.group
+            .as_ref()
+            .is_some_and(|g| g.provenance == "Derived" && g.elements == 7)
+    );
     let ev = Evidence::new(&set);
     let res = check(&set, &ev, &CheckOptions::default()).unwrap();
     for k in &targets {
         let r = res.rows.iter().find(|r| &r.key == k).unwrap();
         assert_eq!(
             (r.status, r.evidence, r.basis),
-            (RowStatus::Served, Some(Level::PerKey), Some("symmetry_relation")),
+            (
+                RowStatus::Served,
+                Some(Level::PerKey),
+                Some("symmetry_relation")
+            ),
             "{k:?}"
         );
     }
     // a verified group never makes the closure diagnostic
-    assert!(!res.summary.relaxed_checks.iter().any(|c| c.contains("credits")));
+    assert!(
+        !res.summary
+            .relaxed_checks
+            .iter()
+            .any(|c| c.contains("credits"))
+    );
     // planted: the multi-term relation with 3/2 -> 5/4
     let bad = tmp.join("symrules.bad.jsonl");
-    let txt = std::fs::read_to_string(&sym).unwrap().replace("\"3/2\"", "\"5/4\"");
+    let txt = std::fs::read_to_string(&sym)
+        .unwrap()
+        .replace("\"3/2\"", "\"5/4\"");
     std::fs::write(&bad, txt).unwrap();
     let spec = TableSetSpec::from_json(&spec_for(&bad).to_string()).unwrap();
     let set = load(&spec, Path::new("/")).unwrap();
-    let rep = set.report.sources.iter().find(|s| s.id == "symmetry").unwrap();
+    let rep = set
+        .report
+        .sources
+        .iter()
+        .find(|s| s.id == "symmetry")
+        .unwrap();
     assert_eq!(rep.relations_verified, 3);
     assert_eq!(rep.relations_not_verified.len(), 1);
     let ev = Evidence::new(&set);
     let res = check(&set, &ev, &CheckOptions::default()).unwrap();
     let k = key("I(1,1,1,1,1,1,1,1,1,1,0,-1,0,0,0,0,0,0,0,0)", 20);
     let r = res.rows.iter().find(|r| r.key == k).unwrap();
-    assert_ne!(r.status, RowStatus::Served, "a relation that is not verified must not serve");
+    assert_ne!(
+        r.status,
+        RowStatus::Served,
+        "a relation that is not verified must not serve"
+    );
     println!("planted relation: {:?} {:?}", r.open_status, r.open_reason);
     let _ = std::fs::remove_dir_all(&tmp);
 }

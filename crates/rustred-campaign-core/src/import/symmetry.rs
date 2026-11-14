@@ -156,11 +156,10 @@ pub fn load_verified_group(
     let text = if identity {
         src
     } else {
-        presented_family_text(&src, new_to_old)
-            .map_err(|m| ImportError::Source {
-                source: fpath.display().to_string(),
-                msg: format!("family presentation: {m}"),
-            })?
+        presented_family_text(&src, new_to_old).map_err(|m| ImportError::Source {
+            source: fpath.display().to_string(),
+            msg: format!("family presentation: {m}"),
+        })?
     };
     let family = Family::parse(&text).map_err(|e| ImportError::Source {
         source: fpath.display().to_string(),
@@ -265,9 +264,9 @@ fn verify_generators(
     let mut gen_perms = vec![];
     for (k, g) in gens.elements.iter().enumerate() {
         let p = perm_of(g)?;
-        let cands = by_perm
-            .get(&p)
-            .ok_or_else(|| format!("{source}: generator {k} (line images {p:?}) is not in the derived group"))?;
+        let cands = by_perm.get(&p).ok_or_else(|| {
+            format!("{source}: generator {k} (line images {p:?}) is not in the derived group")
+        })?;
         // every image the generator states must equal the derived element's (Exact onto t == Linear 1*D_t)
         let ok = cands.iter().any(|d| {
             g.action.iter().zip(&d.action).all(|(a, b)| {
@@ -275,8 +274,20 @@ fn verify_generators(
                 match (a, b) {
                     (S::Unknown, _) => true,
                     (x, y) if x == y => true,
-                    (S::Exact { target, flip: false }, S::Linear { terms, constant })
-                    | (S::Linear { terms, constant }, S::Exact { target, flip: false }) => {
+                    (
+                        S::Exact {
+                            target,
+                            flip: false,
+                        },
+                        S::Linear { terms, constant },
+                    )
+                    | (
+                        S::Linear { terms, constant },
+                        S::Exact {
+                            target,
+                            flip: false,
+                        },
+                    ) => {
                         constant.n == 0
                             && terms.len() == 1
                             && terms[0].0 == *target

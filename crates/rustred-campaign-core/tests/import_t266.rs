@@ -43,10 +43,12 @@ fn t266_jointest9_import_as_far_as_the_material_allows() {
     if std::env::var("T266_KEEP_BIG_LITERALS").is_err() {
         let reason = "exception literal with a coefficient beyond i128: refused by the core polynomial parser \
                       (Poly::parse, CoefficientOverflow); removed in this DIAGNOSTIC run";
-        sv["sources"][0]["removed"] = json!([29474, 30764, 31751, 33573]
-            .iter()
-            .map(|l| json!({"label": l, "reason": reason}))
-            .collect::<Vec<_>>());
+        sv["sources"][0]["removed"] = json!(
+            [29474, 30764, 31751, 33573]
+                .iter()
+                .map(|l| json!({"label": l, "reason": reason}))
+                .collect::<Vec<_>>()
+        );
     }
     let out = std::env::var_os("RUSTRED_IMPORT_SCRATCH")
         .map(PathBuf::from)
@@ -134,4 +136,88 @@ fn t266_jointest9_import_as_far_as_the_material_allows() {
         res.proof_requests.len(),
         res.blocking()
     );
+}
+
+/// Item 6: the T266 delivery's per-key recipe steps (solves.jsonl: the serving step of each relation-served key) mapped
+/// onto explicit recipes: v1.2 (one recipe per (step, explicit seed set), `domain.keys`, `relation_rule`) and v1.1 (point
+/// recipes; the M1C steps are refused: v1.1 cannot state the relation rule). Writes the recipes and the per-key
+/// assignment side file under the scratch directory. Line / numerator priorities: the table header's coordinate
+/// priority (test data; [inferred] equal to the checker's).
+#[test]
+fn t266_recipe_steps_map_onto_explicit_recipes() {
+    use import::recipe_steps::{RecipeForm, assignment_lines, parse_step, recipes_for_steps};
+    let p = Path::new("/common/ben/sym-investigation/k7/runs/jointest9-full/deliver/solves.jsonl");
+    if !p.is_file() {
+        println!("SKIP: {} missing", p.display());
+        return;
+    }
+    assert_eq!(
+        import::lines::file_sha256(p).unwrap(),
+        "7dc5ffa9c368d7939c24b2a36a5444b7c61423b90bb7b7d9f49850bf8748809e"
+    );
+    let mut asg: Vec<(String, Vec<i32>)> = vec![];
+    let mut none = 0;
+    for l in std::fs::read_to_string(p).unwrap().lines() {
+        let v: Value = serde_json::from_str(l).unwrap();
+        let k = import::lines::parse_key_text(v["key"].as_str().unwrap(), 20).unwrap();
+        match (v["result"].as_str(), v["recipe"].as_str()) {
+            (Some("served"), Some(r)) => asg.push((r.to_string(), k)),
+            _ => none += 1,
+        }
+    }
+    assert_eq!((asg.len(), none), (2117, 3));
+    // the DEFAULT sequence's step names all parse
+    for s in [
+        "d0",
+        "d1_cnone_foff_sfirst_mM1C",
+        "d2_cunion_fon_sfirst_mM1C",
+        "d3_cunion_fon_sfirst_mM1C",
+    ] {
+        parse_step(s).unwrap();
+    }
+    let lines: Vec<bool> = (0..20).map(|i| i < 14).collect();
+    let lp: Vec<usize> = (0..14).collect();
+    let np: Vec<usize> = (14..20).collect();
+    let v12 =
+        recipes_for_steps(&asg, &lines, &lp, &np, RecipeForm::V1_2, "T266/jointest9/").unwrap();
+    let mut by_step: std::collections::BTreeMap<String, (usize, usize)> = Default::default();
+    for g in &v12 {
+        let e = by_step.entry(g.step.clone()).or_default();
+        e.0 += 1;
+        e.1 += g.keys.len();
+    }
+    println!(
+        "T266 steps -> v1.2 recipes: {} recipes for {} keys; per step (recipes, keys) {:?}",
+        v12.len(),
+        asg.len(),
+        by_step
+    );
+    assert_eq!(v12.iter().map(|g| g.keys.len()).sum::<usize>(), 2117);
+    let v11 = recipes_for_steps(&asg, &lines, &lp, &np, RecipeForm::V1_1, "T266/jointest9/");
+    println!(
+        "T266 steps -> v1.1: {:?}",
+        v11.as_ref().err().map(|e| e.to_string())
+    );
+    assert!(
+        v11.is_err(),
+        "every T266 step carries M1C: v1.1 cannot state it"
+    );
+    let out = std::env::var_os("RUSTRED_IMPORT_SCRATCH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(format!(
+                "/common/build-cache/{}/p_integral_dev/implementer-scratch/import2",
+                std::env::var("USER").unwrap_or_else(|_| "vhirschi".into())
+            ))
+        })
+        .join("t266-recipes");
+    std::fs::create_dir_all(out.join("recipes")).unwrap();
+    for (i, g) in v12.iter().enumerate() {
+        std::fs::write(
+            out.join("recipes").join(format!("r{i:05}.json")),
+            serde_json::to_string_pretty(&g.recipe).unwrap(),
+        )
+        .unwrap();
+    }
+    std::fs::write(out.join("assignment.jsonl"), assignment_lines(&v12)).unwrap();
 }
