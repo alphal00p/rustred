@@ -622,3 +622,156 @@ fn same_files_and_outcome_members_as_the_fake_child() {
     let cf = classified(&fake, WaitStatus::Exited(10), KillReason::None);
     assert_eq!(cr.row, cf.row, "same decision-table row");
 }
+
+/// The table header, the queue log and OUTCOME of a job (lane engbase helpers).
+fn table_lines(spec: &JobSpec) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(RunLayout::new(&spec.run_dir).table())
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+        .collect()
+}
+
+/// (lane engbase) the engine line's seed options (coord-ec1-seed-centre.md v2) pass the allow-list, reach the engine
+/// through the legacy parser and are recorded (header node_options, queue seed_recipe, rule seed_setting, OUTCOME
+/// seed_recipe); the job ends through the contract (sealed table, a decision-table row of a producing kind).
+#[test]
+#[ignore]
+fn engine_line_seed_options_reach_the_engine_in_job_mode() {
+    let r = root("seedopts");
+    let mut s = spec(
+        &r,
+        "l4a-seed",
+        1,
+        "L4a",
+        &[
+            "--order",
+            "id",
+            "--max-depth",
+            "3",
+            "--seed-layer-cap",
+            "2,2,1",
+            "--seed-centre-offset",
+            "0:-1",
+            "--seed-face-floor",
+            "1",
+            "--symmetry-symbolic",
+        ],
+    );
+    s.budgets.work.cases = Some(2);
+    let (w, t) = run_to_end(&s);
+    assert!(
+        w == WaitStatus::Exited(0) || w == WaitStatus::Exited(10),
+        "{w:?} {t:?}"
+    );
+    let c = classified(&s, w, KillReason::None);
+    assert!(
+        matches!(c.row, 1 | 2 | 3 | 24 | 4 | 5 | 27),
+        "row {}",
+        c.row
+    );
+    let lines = table_lines(&s);
+    let opts = &lines[0]["node_options"];
+    assert_eq!(lines[0]["type"], "header");
+    assert_eq!(
+        opts["seed_layer_cap"],
+        serde_json::json!([2, 2, 1]),
+        "{opts}"
+    );
+    assert_eq!(opts["seed_face_floor"], 1);
+    assert_eq!(opts["max_depth"], 3);
+    assert_eq!(opts["symmetry_symbolic"], true);
+    assert_eq!(opts["seed_centre_offset"][0], -1);
+    let settings: Vec<&serde_json::Value> = lines
+        .iter()
+        .filter(|v| v["type"] == "rule")
+        .filter_map(|v| v.get("seed_setting"))
+        .collect();
+    eprintln!(
+        "{} rules, {} with seed_setting",
+        lines.iter().filter(|v| v["type"] == "rule").count(),
+        settings.len()
+    );
+    for st in &settings {
+        assert_eq!(st["layer_cap"], serde_json::json!([2, 2, 1]), "{st}");
+        assert_eq!(st["face_floor"], 1, "{st}");
+    }
+    let queue = std::fs::read_to_string(RunLayout::new(&s.run_dir).queue()).unwrap();
+    assert!(queue.contains("\"type\":\"seed_recipe\""));
+    let o = outcome(&s);
+    assert!(
+        o.legacy.contains_key("seed_recipe"),
+        "legacy OUTCOME seed_recipe"
+    );
+    assert!(o.job.outputs.table.as_ref().unwrap().sealed);
+}
+
+/// (lane engbase) a PRESENTED case of the cases input may carry `seed_centre_offset` (feature case_seed_centres): it
+/// becomes the engine line's per-case seed centre (header node_options.case_seed_centres); an ORIGINAL case with a
+/// centre is refused (42).
+#[test]
+#[ignore]
+fn presented_case_seed_centres_are_accepted() {
+    let r = root("casecentre");
+    let mut off = vec![0i64; 14];
+    off[0] = -1;
+    let line = serde_json::json!({"frame": "PRESENTED", "fixed": vec![serde_json::Value::Null; 14],
+        "equations": [], "seed_centre_offset": off});
+    let input = r.join("cases.jsonl");
+    std::fs::write(&input, format!("{line}\n")).unwrap();
+    let mut s = spec(
+        &r,
+        "l4a-centre",
+        1,
+        "L4a",
+        &["--order", "id", "--max-depth", "2"],
+    );
+    s.budgets.work.cases = Some(1);
+    s.program.features_required.push("case_seed_centres".into());
+    s.inputs.push(InputRef {
+        role: "cases".into(),
+        path: input.to_str().unwrap().into(),
+        blake3: b3(&input),
+        upto: None,
+    });
+    let (w, _) = run_to_end(&s);
+    assert!(
+        w == WaitStatus::Exited(0) || w == WaitStatus::Exited(10),
+        "{w:?}"
+    );
+    let c = classified(&s, w, KillReason::None);
+    assert!(matches!(c.row, 1 | 2 | 3 | 24 | 4), "row {}", c.row);
+    let lines = table_lines(&s);
+    let centres = &lines[0]["node_options"]["case_seed_centres"];
+    assert_eq!(centres.as_array().map(Vec::len), Some(1), "{centres}");
+    assert_eq!(centres[0]["seed_centre_offset"][0], -1);
+    // ORIGINAL frame with a centre: refused
+    let line = serde_json::json!({"frame": "ORIGINAL", "fixed": vec![serde_json::Value::Null; 14],
+        "equations": [], "seed_centre_offset": off});
+    let input = r.join("cases-original.jsonl");
+    std::fs::write(&input, format!("{line}\n")).unwrap();
+    let mut s = spec(&r, "l4a-centre-orig", 1, "L4a", &["--order", "id"]);
+    s.inputs.push(InputRef {
+        role: "cases".into(),
+        path: input.to_str().unwrap().into(),
+        blake3: b3(&input),
+        upto: None,
+    });
+    let (w, _) = run_to_end(&s);
+    assert_eq!(w, WaitStatus::Exited(42));
+    assert_eq!(classified(&s, w, KillReason::None).row, 14);
+}
+
+/// (lane engbase) `--symmetry` (sym-gen `sym` / `sym_zero` case records, no rule in the contract) is refused (42).
+#[test]
+#[ignore]
+fn symmetry_case_records_are_refused_in_job_mode() {
+    let r = root("symrefuse");
+    let s = spec(&r, "l4a-sym", 1, "L4a", &["--order", "id", "--symmetry"]);
+    let (w, _) = run_to_end(&s);
+    assert_eq!(w, WaitStatus::Exited(42));
+    assert_eq!(classified(&s, w, KillReason::None).row, 14);
+    let o = outcome(&s);
+    assert_eq!(o.job.exit_code, ExitCode::Refused);
+    assert!(o.job.outputs.table.is_none() || !o.job.outputs.table.as_ref().unwrap().sealed);
+}

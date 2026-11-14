@@ -344,9 +344,8 @@ pub fn p_library_differences(a: &PLibrary, b: &PLibrary) -> Result<Vec<String>, 
     let unordered = |library: &PLibrary| -> String {
         let identity = library.identity();
         match library.ordering() {
-            Some(tag) => identity
-                .strip_suffix(&format!(",P_ORDERING_VERSION={tag}"))
-                .map_or(identity.clone(), str::to_owned),
+            // The tag precedes a package content revision (batch 6).
+            Some(tag) => identity.replacen(&format!(",P_ORDERING_VERSION={tag}"), "", 1),
             None => identity,
         }
     };
