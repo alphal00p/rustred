@@ -218,7 +218,7 @@ fn generate_seed_options_map_one_to_one_and_validate() {
     let reqs = vec![
         GenerateRequest {
             family: fam.clone(),
-            cases: vec![json!({"frame":"presented","fixed":[1,null,0],"seed_centre_offset":[0,-1,0]})],
+            cases: vec![json!({"frame":"PRESENTED","fixed":[1,null,0],"seed_centre_offset":[0,-1,0]})],
             order: "id".into(),
             seed,
             max_cases: Some(1),
