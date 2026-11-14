@@ -1674,7 +1674,7 @@ fn verification_catches_a_corrupted_certificate() {
         .unwrap();
     let name = rule["name"].as_str().unwrap().to_owned();
     // The first generator's weight 1 -> 2.
-    rule["certificate"][0][3] = serde_json::json!([[[0; 15], "2"]]);
+    rule["certificate"][0][3] = serde_json::json!([[vec![0; 15], "2"]]);
     let corrupted = serde_json::to_string(&file).unwrap();
     let verdict = |check| {
         let template =

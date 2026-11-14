@@ -1075,10 +1075,13 @@ impl SchemeTemplate {
         // Relations in presentation coordinates and RustRed's sign.
         let mut converted: BTreeMap<String, BTreeMap<Vec<i64>, IndexedCoefficient>> =
             BTreeMap::new();
-        for rule in scheme
-            .rules
-            .iter()
+        // Trusted, a rule dispatching on Forcer's terms needs its relation only
+        // for the checks that are skipped (certificate, terms == relation).
+        let on_terms =
+            |rule: &ParsedRule| rule.dispatch_terms && !rule.raw.is_empty() && !rule.relation.is_empty();
+        for rule in (scheme.rules.iter())
             .filter(|rule| !rule.master && !rule.relation.is_empty())
+            .filter(|rule| verify || !on_terms(rule))
         {
             let mut map = BTreeMap::new();
             for (shift, poly) in &rule.relation {
@@ -1195,7 +1198,7 @@ impl SchemeTemplate {
             }
             let mut terms = Vec::new();
             let mut raw = Vec::new();
-            let on_terms = rule.dispatch_terms && !rule.raw.is_empty() && !rule.relation.is_empty();
+            let on_terms = on_terms(rule);
             if !rule.master && (rule.relation.is_empty() || on_terms) {
                 for (shift, num, dens) in &rule.raw {
                     let mut factors = Vec::with_capacity(dens.len());
