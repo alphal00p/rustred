@@ -59,6 +59,87 @@ fn box_b(codec: KeyCodec) -> rustred_campaign_core::closure::KeySet {
     b.finish()
 }
 
+/// Test-side workaround for d-free exception literals whose coefficients overflow i128 (the core's `Poly::parse`
+/// refuses them; REQUEST to the core): the integer zero set of the literal on the codec range [-32, 31]^v (v <= 3
+/// variables; a key outside that range is reported `unrepresentable` by the closure, so nothing outside matters) is
+/// computed EXACTLY (p(x) mod 8 primes near 2^61, product > 2^480 > |p(x)| for these sizes) and the exception
+/// branch holding the literal is replaced by one branch per zero point (the other literals plus `n_v - a` per
+/// variable); no zero point: the branch is dropped (it can never hold). Same verdict on every representable key.
+fn zero_points(text: &str) -> Option<(Vec<usize>, Vec<Vec<i64>>)> {
+    const P: [u64; 8] = [2305843009213693951, 2305843009213693921, 2305843009213693907, 2305843009213693723,
+        2305843009213693693, 2305843009213693669, 2305843009213693613, 2305843009213693561];
+    let b = text.as_bytes();
+    // terms: (neg, coefficient digits, [(var, exp)])
+    let mut terms: Vec<(bool, String, Vec<(usize, u32)>)> = vec![];
+    let mut vars: Vec<usize> = vec![];
+    let mut start = 0;
+    for i in 1..=b.len() {
+        if i == b.len() || ((b[i] == b'+' || b[i] == b'-') && b[i - 1] != b'^' && b[i - 1] != b'*') {
+            let t = &text[start..i];
+            let (neg, t) = match t.as_bytes()[0] {
+                b'-' => (true, &t[1..]),
+                b'+' => (false, &t[1..]),
+                _ => (false, t),
+            };
+            let nd = t.bytes().take_while(|c| c.is_ascii_digit()).count();
+            let (c, rest) = if nd == 0 { ("1".to_string(), t) } else { (t[..nd].to_string(), t[nd..].trim_start_matches('*')) };
+            let mut mono = vec![];
+            for f in rest.split('*').filter(|f| !f.is_empty()) {
+                let (v, e) = f.split_once('^').map(|(v, e)| (v, e.parse::<u32>().ok())).unwrap_or((f, Some(1)));
+                let v: usize = v.strip_prefix('n')?.parse().ok()?;
+                if !vars.contains(&v) {
+                    vars.push(v);
+                }
+                mono.push((v, e?));
+            }
+            terms.push((neg, c, mono));
+            start = i;
+        }
+    }
+    if vars.len() > 3 {
+        return None;
+    }
+    vars.sort_unstable();
+    let coef: Vec<[u128; 8]> = terms
+        .iter()
+        .map(|(neg, c, _)| {
+            let mut r = [0u128; 8];
+            for (j, &p) in P.iter().enumerate() {
+                let p = p as u128;
+                let v = c.bytes().fold(0u128, |a, d| (a * 10 + (d - b'0') as u128) % p);
+                r[j] = if *neg { (p - v) % p } else { v };
+            }
+            r
+        })
+        .collect();
+    let mut pts = vec![];
+    let n = vars.len();
+    let total = 64usize.pow(n as u32);
+    for idx in 0..total {
+        let x: Vec<i64> = (0..n).map(|q| ((idx / 64usize.pow(q as u32)) % 64) as i64 - 32).collect();
+        let zero = P.iter().enumerate().all(|(j, &p)| {
+            let p = p as u128;
+            let mut sum = 0u128;
+            for (t, c) in terms.iter().zip(&coef) {
+                let mut v = c[j];
+                for &(var, e) in &t.2 {
+                    let q = vars.iter().position(|&w| w == var).unwrap();
+                    let xm = x[q].rem_euclid(p as i64) as u128;
+                    for _ in 0..e {
+                        v = v * xm % p;
+                    }
+                }
+                sum = (sum + v) % p;
+            }
+            sum == 0
+        });
+        if zero {
+            pts.push(x);
+        }
+    }
+    Some((vars, pts))
+}
+
 #[test]
 #[ignore = "T266 scale run (minutes, ~2 GB): run explicitly with --ignored in release"]
 fn t266_tier_k_closure() {
@@ -69,7 +150,37 @@ fn t266_tier_k_closure() {
         return;
     }
     let t0 = Instant::now();
-    let tf = read_table_file(&cases, ReadOptions::default()).unwrap();
+    let mut tf = read_table_file(&cases, ReadOptions::default()).unwrap();
+    // Test-side workaround (REQUEST to the core: Poly::parse refuses coefficients beyond i128): a d-free literal whose
+    // coefficients overflow i128 is replaced by its exact zero points (see `zero_points`).
+    let mut reduced = 0usize;
+    for r in tf.rules.iter_mut() {
+        assert!(r.equations.iter().all(|e| rustred_campaign_core::poly::Poly::parse_d_free(e, 20).is_ok()));
+        let mut out: Vec<Vec<String>> = vec![];
+        for br in &r.exceptions {
+            let mut branches: Vec<Vec<String>> = vec![vec![]];
+            for lit in br {
+                if rustred_campaign_core::poly::Poly::parse_d_free(lit, 20).is_ok() {
+                    branches.iter_mut().for_each(|b| b.push(lit.clone()));
+                    continue;
+                }
+                let (vars, pts) = zero_points(lit).expect("big literal with at most 3 variables");
+                reduced += 1;
+                let mut nb = vec![];
+                for b in &branches {
+                    for p in &pts {
+                        let mut b2 = b.clone();
+                        b2.extend(vars.iter().zip(p).map(|(v, a)| format!("n{v}-({a})")));
+                        nb.push(b2);
+                    }
+                }
+                branches = nb;
+            }
+            out.extend(branches);
+        }
+        r.exceptions = out;
+    }
+    println!("T266: {reduced} literal(s) replaced by their exact zero points on the codec range (i128 overflow workaround)");
     let header = tf.header.as_ref().unwrap().raw.clone();
     let table = Table::from_table_file(
         "t266-jointest9",
