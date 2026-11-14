@@ -1118,7 +1118,7 @@ fn load_supplied(
         }
         None => None,
     };
-    let coefs: HashMap<usize, Vec<(Vec<i32>, String)>> = if vgroup.is_some() {
+    let coefs: SuppliedCoefficients = if vgroup.is_some() {
         supplied_coefficients(&src.id, &path, n)?
     } else {
         HashMap::new()
@@ -1257,11 +1257,14 @@ fn load_supplied(
 
 /// The coefficient texts of every rule record of a supplied file (ordinal -> [(rhs key, coefficient text)]), from
 /// the raw `rhs` arrays `[[key, coefficient], ..]` (small files only: the file is read whole).
+/// Ordinal -> [(rhs key, coefficient text)] of a supplied file.
+type SuppliedCoefficients = HashMap<usize, Vec<(Vec<i32>, String)>>;
+
 fn supplied_coefficients(
     source: &str,
     path: &Path,
     n: usize,
-) -> Result<HashMap<usize, Vec<(Vec<i32>, String)>>, ImportError> {
+) -> Result<SuppliedCoefficients, ImportError> {
     let txt = std::fs::read_to_string(path).map_err(|e| io_err(path, e))?;
     let mut out = HashMap::new();
     let mut ordinal = 0usize;

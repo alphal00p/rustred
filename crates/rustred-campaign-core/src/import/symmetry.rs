@@ -445,9 +445,9 @@ pub fn verify_relation_with<A: CheckAlgebra>(
         Err(e) => return unknown(format!("{e:?}")),
     };
     let dense = |m: &BTreeMap<Vec<i64>, Q>| -> Vec<Q> {
-        let mut v = vec![zero.clone(); cols.len()];
+        let mut v = vec![zero; cols.len()];
         for (k, c) in m {
-            v[index[k]] = c.clone();
+            v[index[k]] = *c;
         }
         v
     };

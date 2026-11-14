@@ -341,19 +341,21 @@ pub fn check_streamed(
     let mut w = std::io::BufWriter::with_capacity(1 << 20, f);
     let mut h = crate::closure::sha256::Sha256::new();
     let mut n = 0u64;
-    let mut sink = |row: &KeyRow| -> Result<(), ImportError> {
-        let t = crate::schema::canon::canonical_json(&super::statement::row_json(set, row), false)
-            .map_err(ImportError::Core)?;
-        w.write_all(t.as_bytes())
-            .and_then(|_| w.write_all(b"\n"))
-            .map_err(|e| super::error::io_err(rows_path, e))?;
-        h.update(t.as_bytes());
-        h.update(b"\n");
-        n += 1;
-        Ok(())
+    let mut res = {
+        let mut sink = |row: &KeyRow| -> Result<(), ImportError> {
+            let t =
+                crate::schema::canon::canonical_json(&super::statement::row_json(set, row), false)
+                    .map_err(ImportError::Core)?;
+            w.write_all(t.as_bytes())
+                .and_then(|_| w.write_all(b"\n"))
+                .map_err(|e| super::error::io_err(rows_path, e))?;
+            h.update(t.as_bytes());
+            h.update(b"\n");
+            n += 1;
+            Ok(())
+        };
+        check_inner(set, ev, opts, Some(&mut sink))?
     };
-    let mut res = check_inner(set, ev, opts, Some(&mut sink))?;
-    drop(sink);
     w.flush().map_err(|e| super::error::io_err(rows_path, e))?;
     res.streamed = Some(StreamedRows {
         path: rows_path.display().to_string(),
