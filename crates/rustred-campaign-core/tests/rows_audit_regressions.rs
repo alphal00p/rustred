@@ -896,3 +896,93 @@ fn ra_m3_verified_group_and_family_are_unforgeable() {
         );
     }
 }
+
+/// re-audit A NEW-m1 / NEW-m3 and re-audit B (finding candidate 1b): caller-chosen nonce / primes, controls off and
+/// zero generic points are MARKED in the record and block the level; the nonce source is recorded. The B attack: an
+/// extra RHS term whose coefficient is p1*p2 vanishes modulo caller-chosen primes [p1, p2] (it passed before).
+#[test]
+fn ra_minor_overrides_are_marked_and_block_the_level() {
+    let f = face();
+    let n = f.fam.n();
+    let good = RowsRule::from_value(f.good.clone(), n).unwrap();
+    let keys = &served(&f)[..4];
+    let base = bound(&f.fam);
+    let r = replay_evidence(&f.fam, &good, keys, &ReplayPolicy::default(), &base);
+    assert_eq!(r.level, ReplayLevel::Established);
+    assert_eq!(
+        r.nonce_source,
+        rustred_campaign_core::ibp_rows::NonceSource::Os
+    );
+    assert!(r.overrides.is_empty());
+    let pp = verify_primes(7, &[]);
+    for (what, o, pol) in [
+        (
+            "caller nonce",
+            RowsOptions {
+                nonce: Some(7),
+                ..base.clone()
+            },
+            ReplayPolicy::default(),
+        ),
+        (
+            "caller primes",
+            RowsOptions {
+                primes: Some(pp),
+                ..base.clone()
+            },
+            ReplayPolicy::default(),
+        ),
+        (
+            "controls off",
+            RowsOptions {
+                controls: false,
+                ..base.clone()
+            },
+            ReplayPolicy::default(),
+        ),
+        (
+            "no generic points",
+            base.clone(),
+            ReplayPolicy {
+                generic_points: 0,
+                ..ReplayPolicy::default()
+            },
+        ),
+    ] {
+        let r = replay_evidence(&f.fam, &good, keys, &pol, &o);
+        println!("override {what}: {:?} {:?}", r.overrides, r.level);
+        assert_eq!(r.overrides.len(), 1, "{what}");
+        assert!(
+            matches!(r.level, ReplayLevel::NotEstablished { .. }),
+            "{what}"
+        );
+    }
+    // the B attack: + p1*p2 * I(Z) is invisible modulo [p1, p2]
+    let mut atk = f.bad.clone();
+    let rhs = atk["rhs"].as_array_mut().unwrap();
+    let last = rhs.len() - 1;
+    rhs[last][1] = json!(format!("{}", u128::from(pp[0]) * u128::from(pp[1])));
+    let atk = RowsRule::from_value(atk, n).unwrap();
+    let o = RowsOptions {
+        primes: Some(pp),
+        ..base.clone()
+    };
+    let r = replay_evidence(&f.fam, &atk, keys, &ReplayPolicy::default(), &o);
+    println!(
+        "B attack with caller primes: identity {:?} level {:?}",
+        r.identity.verdict, r.level
+    );
+    assert_eq!(
+        r.identity.verdict,
+        Verdict::Pass,
+        "the attack is invisible at these primes"
+    );
+    assert!(matches!(r.level, ReplayLevel::NotEstablished { .. }));
+    // with run-time primes the extra term is the planted boundary-face term (nonzero): caught on the face keys
+    let r = replay_evidence(&f.fam, &atk, &served(&f), &ReplayPolicy::default(), &base);
+    assert!(
+        matches!(r.identity.verdict, Verdict::Fail { .. }),
+        "{:?}",
+        r.identity.verdict
+    );
+}

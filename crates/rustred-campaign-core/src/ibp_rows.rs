@@ -1798,20 +1798,34 @@ pub fn stream_seed(
     u64::from_str_radix(&h[..16], 16).unwrap_or(master)
 }
 
-/// A run-time nonce from the OS (recorded in the evidence record).
-pub fn os_nonce() -> u64 {
+/// Where the nonce of a `replay` record came from (re-audit A NEW-m1 / NEW-m3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum NonceSource {
+    /// drawn from /dev/urandom at run time (the only source the `replay` level accepts)
+    Os,
+    /// /dev/urandom was unreadable: clock nanoseconds xor pid (predictable; the level is not granted)
+    ClockFallback,
+    /// given by the caller (`RowsOptions.nonce`): a re-run of a recorded nonce; diagnostic, the level is not granted
+    Caller,
+}
+
+/// A run-time nonce from the OS (recorded in the evidence record), and its source.
+pub fn os_nonce() -> (u64, NonceSource) {
     use std::io::Read;
     let mut b = [0u8; 8];
     if std::fs::File::open("/dev/urandom")
         .and_then(|mut f| f.read_exact(&mut b))
         .is_ok()
     {
-        return u64::from_le_bytes(b);
+        return (u64::from_le_bytes(b), NonceSource::Os);
     }
     let t = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos() as u64);
-    t ^ (u64::from(std::process::id()) << 32)
+    (
+        t ^ (u64::from(std::process::id()) << 32),
+        NonceSource::ClockFallback,
+    )
 }
 
 fn points_digest(points: &[PointSpec]) -> String {
@@ -2391,6 +2405,11 @@ pub struct ReplayRecord {
     pub master_seed: u64,
     /// the run-time nonce bound into the stream seed (re-run with `RowsOptions.nonce = Some(nonce)`)
     pub nonce: u64,
+    /// where the nonce came from: only `Os` can carry the level
+    pub nonce_source: NonceSource,
+    /// caller choices that make this run diagnostic (caller nonce / primes, controls off, no generic points): any
+    /// entry blocks the level
+    pub overrides: Vec<String>,
     pub primes: [u64; 2],
     pub policy: ReplayPolicy,
     pub served_keys: usize,
@@ -2699,7 +2718,25 @@ pub fn replay_evidence(
     opts: &RowsOptions,
 ) -> ReplayRecord {
     let master_seed = opts.seed;
-    let nonce = opts.nonce.unwrap_or_else(os_nonce);
+    let (nonce, nonce_source) = match opts.nonce {
+        Some(x) => (x, NonceSource::Caller),
+        None => os_nonce(),
+    };
+    // re-audit A NEW-m1 / B: caller-chosen draws or weakened checks are MARKED and block the level (the per-key
+    // certificate is explicit, but a caller who picks the primes can tailor a coefficient to them)
+    let mut overrides: Vec<String> = Vec::new();
+    if nonce_source != NonceSource::Os {
+        overrides.push(format!("nonce: {nonce_source:?}"));
+    }
+    if opts.primes.is_some() {
+        overrides.push("primes: chosen by the caller".into());
+    }
+    if !opts.controls {
+        overrides.push("controls: false".into());
+    }
+    if policy.generic_points == 0 && rule.fixed.iter().any(Option::is_none) {
+        overrides.push("generic_points: 0 for a rule with free slots".into());
+    }
     let mut dedup0: Vec<Vec<i64>> = served_keys.to_vec();
     dedup0.sort();
     dedup0.dedup();
@@ -2953,6 +2990,11 @@ pub fn replay_evidence(
             ),
         }
     });
+    reasons.extend(
+        overrides
+            .iter()
+            .map(|o| format!("override (diagnostic run, never the level): {o}")),
+    );
     let level = if !reasons.is_empty() {
         reasons.extend(unbound);
         ReplayLevel::NotEstablished { reasons }
@@ -2979,6 +3021,8 @@ pub fn replay_evidence(
         seed: opts.seed,
         master_seed,
         nonce,
+        nonce_source,
+        overrides,
         primes,
         policy: policy.clone(),
         served_keys: served_keys.len(),
