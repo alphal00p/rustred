@@ -356,9 +356,20 @@ pub(super) fn procs_of(dir: &Path) -> io::Result<Vec<u32>> {
         .collect()
 }
 
-/// `cgroup.kill` of a job cgroup WE created (the only caller passes `JobCgroup` paths).
+/// `cgroup.kill` of a job cgroup WE created (the only caller passes `JobCgroup` paths). A successful write is a
+/// delivered SIGKILL to every process in it: logged like every guarded delivery (gate3 M2).
 pub(super) fn kill_path(dir: &Path) -> io::Result<()> {
-    write_file(&dir.join("cgroup.kill"), "1")
+    write_file(&dir.join("cgroup.kill"), "1")?;
+    super::guard::log_delivery(
+        0,
+        None,
+        libc::SIGKILL,
+        "cgroup",
+        None,
+        "job cgroup",
+        Some(dir.display().to_string()),
+    );
+    Ok(())
 }
 
 /// Freeze (`cgroup.freeze` = 1), wait up to `wait` for `frozen 1`, then `cgroup.kill`. Errors: a write failed.
@@ -382,9 +393,275 @@ pub(super) fn freeze_and_kill_path(dir: &Path, wait: std::time::Duration) -> io:
     kill_path(dir)
 }
 
+// ------------------------------------------------------------------------------------------------ systemd job scopes
+
+/// The cgroup of a job's transient `systemd-run --user --scope` (procfix3, an ADDITIONAL belt; never a replacement of the
+/// identity checks): kernel-maintained membership that also holds descendants which cleared the marker and left the
+/// session. Recorded once, while the job's leader is held UNREAPED (its pid cannot be reused), from the leader's own
+/// `/proc/<sid>/cgroup`, and only when every check of [`ScopeRef::from_leader_cgroup`] holds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ScopeRef {
+    pub dir: PathBuf,
+    pub dev: u64,
+    pub ino: u64,
+    pub sid: u32,
+}
+
+/// Where systemd puts a user's transient scopes: `/sys/fs/cgroup/user.slice/user-<uid>.slice/user@<uid>.service/`.
+fn user_manager_root(uid: u32) -> PathBuf {
+    PathBuf::from(format!(
+        "/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service"
+    ))
+}
+
+impl ScopeRef {
+    /// From the text of the pinned leader's `/proc/<sid>/cgroup`. Every condition must hold, else `None` (the belt is
+    /// then simply not used): a cgroup-v2 line `0::<path>`; the path lies under OUR user manager
+    /// (`user.slice/user-<uid>.slice/user@<uid>.service/`), has no `..`, and its last component is systemd-run's
+    /// transient scope name for THIS leader, `run-p<sid>-i<digits>.scope` (systemd-run registers its own pid, which is
+    /// the leader's: it execs the program in place); the directory exists, is owned by our uid; its (dev, inode) is
+    /// recorded so that a later use refuses a different directory under the same name.
+    pub(crate) fn from_leader_cgroup(
+        text: &str,
+        sid: u32,
+        uid: u32,
+        unit: Option<&str>,
+    ) -> Option<ScopeRef> {
+        let rel = text.lines().find_map(|l| l.strip_prefix("0::"))?.trim();
+        let rel = rel.strip_prefix('/')?;
+        if rel
+            .split('/')
+            .any(|c| c.is_empty() || c == "." || c == "..")
+        {
+            return None;
+        }
+        let dir = Path::new("/sys/fs/cgroup").join(rel);
+        if !dir.starts_with(user_manager_root(uid)) {
+            return None;
+        }
+        let name = dir.file_name()?.to_str()?;
+        match unit {
+            // gate3 M5: the job's deterministic unit name (campaign id + label), exactly
+            Some(u) => {
+                if name != format!("{u}.scope") {
+                    return None;
+                }
+            }
+            None => {
+                let digits = name
+                    .strip_prefix(&format!("run-p{sid}-i"))?
+                    .strip_suffix(".scope")?;
+                if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+                    return None;
+                }
+            }
+        }
+        Self::check_dir(&dir, uid).map(|(dev, ino)| ScopeRef { dir, dev, ino, sid })
+    }
+
+    fn check_dir(dir: &Path, uid: u32) -> Option<(u64, u64)> {
+        let md = fs::symlink_metadata(dir).ok()?;
+        (md.file_type().is_dir() && md.uid() == uid).then(|| (md.dev(), md.ino()))
+    }
+
+    /// The same directory as recorded (dev, inode, owner)? `Ok(false)`: gone or replaced (no process of ours in it).
+    fn still_same(&self, uid: u32) -> bool {
+        Self::check_dir(&self.dir, uid) == Some((self.dev, self.ino))
+    }
+
+    /// Live processes in the scope other than the job's own (pinned) leader. A scope directory that no longer exists,
+    /// or is not the recorded one, holds nothing of ours: empty. A failed read of an existing scope: error.
+    pub(crate) fn live_members(&self) -> Result<Vec<u32>, String> {
+        let uid = crate::resources::our_uid();
+        if !self.still_same(uid) {
+            return Ok(Vec::new());
+        }
+        let pids = match procs_of(&self.dir) {
+            Ok(p) => p,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(format!("{}/cgroup.procs: {e}", self.dir.display())),
+        };
+        let mut out = Vec::new();
+        for pid in pids {
+            if pid == self.sid {
+                continue;
+            }
+            match crate::resources::read_stat(pid) {
+                Ok(Some(st)) if !st.is_dead() => out.push(pid),
+                Ok(_) => {}
+                Err(e) => return Err(format!("stat of scope member {pid}: {e}")),
+            }
+        }
+        Ok(out)
+    }
+
+    /// `cgroup.kill` of the job's scope: kills every process in it. Only after the guarded hunt (never instead of it),
+    /// and only while the directory is still the recorded one (dev, inode, owner) under our user manager.
+    pub(crate) fn kill_members(&self) -> io::Result<()> {
+        let uid = crate::resources::our_uid();
+        if !self.dir.starts_with(user_manager_root(uid)) || !self.still_same(uid) {
+            return Err(io::Error::other("scope directory is not the recorded one"));
+        }
+        kill_path(&self.dir)
+    }
+}
+
+// ------------------------------------------------------------------------------------------------ named job scopes (gate3 M5)
+
+/// The deterministic systemd unit name of a job's transient scope (lane int5, gate3 M5): `rr-<campaign id>-<label>`
+/// with every character outside `[A-Za-z0-9_.-]` replaced by `_`, shortened, and ALWAYS suffixed by 16 hex of
+/// BLAKE3(campaign id | label) so that two different (campaign, label) pairs never share a name. The campaign id binds
+/// the campaign directory (nonce, device, inode): another campaign, or a copy of this directory, never produces it.
+/// `systemd-run --unit=NAME --scope` creates `NAME.scope`.
+pub fn scope_unit_name(campaign_id: &str, label: &str) -> String {
+    let clean = |s: &str| -> String {
+        s.chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-') {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect()
+    };
+    let h = blake3::hash(format!("{campaign_id}|{label}").as_bytes()).to_hex();
+    let mut stem = format!("rr-{}-{}", clean(campaign_id), clean(label));
+    stem.truncate(160);
+    format!("{stem}-{}", &h[..16])
+}
+
+/// The cgroup directories where systemd may have put the user scope `<unit>.scope` (exact names only, never a
+/// pattern): under our user manager, in `app.slice` (systemd >= 247) or at its root.
+fn scope_candidates(unit: &str, uid: u32) -> Vec<PathBuf> {
+    let root = user_manager_root(uid);
+    vec![
+        root.join("app.slice").join(format!("{unit}.scope")),
+        root.join(format!("{unit}.scope")),
+    ]
+}
+
+/// RESTART BACKSTOP (gate3 M5): kill every process left in the job scope `<unit>.scope` whose NAME and leader pid the
+/// caller found recorded in THIS campaign's ledger (the supervisor checks both: the launch record names the unit, the
+/// `started` record the leader of this boot). Exact directory names only (never a pattern), the directory must be ours
+/// (owner uid) and lie under our user manager. `Ok(None)`: no such scope (gone, or systemd never made it); `Ok(Some(n))`:
+/// `cgroup.kill` written for a scope with `n` live processes (logged as a delivery, proof "job scope"); `Ok(Some(0))`:
+/// the scope exists but is empty (nothing signalled).
+pub fn kill_recorded_scope(unit: &str) -> io::Result<Option<usize>> {
+    let uid = crate::resources::our_uid();
+    for dir in scope_candidates(unit, uid) {
+        let Ok(md) = fs::symlink_metadata(&dir) else {
+            continue;
+        };
+        if !md.file_type().is_dir() || md.uid() != uid {
+            continue;
+        }
+        let procs = procs_of(&dir)?;
+        if procs.is_empty() {
+            return Ok(Some(0));
+        }
+        write_file(&dir.join("cgroup.kill"), "1")?;
+        super::guard::log_delivery(
+            0,
+            None,
+            libc::SIGKILL,
+            "cgroup",
+            None,
+            "job scope",
+            Some(dir.display().to_string()),
+        );
+        return Ok(Some(procs.len()));
+    }
+    Ok(None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// procfix3: the scope belt accepts only the leader's own transient scope under our user manager.
+    #[test]
+    fn scope_ref_accepts_only_this_leaders_transient_scope() {
+        let uid = 4242; // no such directory exists for this uid: every valid name still fails the directory check
+        let ok = "0::/user.slice/user-4242.slice/user@4242.service/app.slice/run-p77-i123.scope\n";
+        assert_eq!(ScopeRef::from_leader_cgroup(ok, 77, uid, None), None);
+        for bad in [
+            "0::/user.slice/user-4242.slice/user@4242.service/app.slice/run-p78-i123.scope",
+            "0::/user.slice/user-4242.slice/user@4242.service/app.slice/run-p77-i.scope",
+            "0::/user.slice/user-4242.slice/user@4242.service/app.slice/run-p77-i12x.scope",
+            "0::/user.slice/user-1.slice/user@1.service/app.slice/run-p77-i123.scope",
+            "0::/system.slice/run-p77-i123.scope",
+            "0::/user.slice/user-4242.slice/user@4242.service/../run-p77-i123.scope",
+            "1:name=systemd:/run-p77-i123.scope",
+        ] {
+            assert_eq!(
+                ScopeRef::from_leader_cgroup(bad, 77, uid, None),
+                None,
+                "{bad}"
+            );
+        }
+        // The name rule itself (directory check aside).
+        let dir = Path::new(
+            "/sys/fs/cgroup/user.slice/user-4242.slice/user@4242.service/app.slice/run-p77-i9.scope",
+        );
+        assert!(dir.starts_with(user_manager_root(uid)));
+    }
+
+    /// gate3 M5: deterministic, unique per (campaign, label), a valid unit name, and the scope belt accepts exactly it.
+    #[test]
+    fn scope_unit_names_are_deterministic_unique_and_exact() {
+        let a = scope_unit_name("camp.0123456789abcdef", "N0.i0001.L0-t0:a1");
+        assert_eq!(
+            a,
+            scope_unit_name("camp.0123456789abcdef", "N0.i0001.L0-t0:a1")
+        );
+        assert!(
+            a.starts_with("rr-camp.0123456789abcdef-N0.i0001.L0-t0_a1-"),
+            "{a}"
+        );
+        assert!(
+            a.chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+        );
+        // labels that sanitise alike still differ (the hash), another campaign id differs
+        assert_ne!(
+            a,
+            scope_unit_name("camp.0123456789abcdef", "N0.i0001.L0-t0_a1")
+        );
+        assert_ne!(
+            a,
+            scope_unit_name("camp.fedcba9876543210", "N0.i0001.L0-t0:a1")
+        );
+        assert!(scope_unit_name("c", &"x".repeat(1000)).len() < 200);
+        // the belt: only exactly <unit>.scope under our user manager (the directory check aside)
+        let uid = 4242;
+        let ok = format!("0::/user.slice/user-4242.slice/user@4242.service/app.slice/{a}.scope\n");
+        assert_eq!(
+            ScopeRef::from_leader_cgroup(&ok, 77, uid, Some(&a)),
+            None,
+            "no such directory"
+        );
+        for bad in [
+            format!("0::/user.slice/user-4242.slice/user@4242.service/app.slice/{a}x.scope"),
+            "0::/user.slice/user-4242.slice/user@4242.service/app.slice/run-p77-i1.scope"
+                .to_string(),
+            format!("0::/user.slice/user-1.slice/user@1.service/app.slice/{a}.scope"),
+        ] {
+            assert_eq!(
+                ScopeRef::from_leader_cgroup(&bad, 77, uid, Some(&a)),
+                None,
+                "{bad}"
+            );
+        }
+        // nothing recorded under a unit name that does not exist: no kill
+        assert!(matches!(
+            kill_recorded_scope(&scope_unit_name(
+                "no-such-campaign.0000000000000000",
+                "x:a1"
+            )),
+            Ok(None)
+        ));
+    }
 
     #[test]
     fn probe_refuses_non_cgroup_paths() {

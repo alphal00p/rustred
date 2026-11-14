@@ -1,3 +1,10 @@
+# Decision table of the child-job contract (child-job.md 6.5)
+
+GENERATED from `rustred_campaign_contract::classify::ROWS` by `decision_table_markdown()`; do not edit by hand.
+Regenerate: `RR_UPDATE_GOLDEN=1 cargo test -p rustred-campaign-contract --test audit_regressions decision_table`.
+Rows are evaluated in the order of child-job.md 6.5 (first match wins); the order of the lines below is the
+order of `ROWS`.
+
 | # | condition | kind | accept | ledger action |
 |---|---|---|---|---|
 | 1 | c=0, O, S | complete | canonical | item_done |
@@ -24,6 +31,7 @@
 | 13 | c=41 | refused | nothing | item_attention_no_retry |
 | 14 | c=42 | refused | nothing | attention |
 | 15 | c=50 | lost | nothing | pause_all_launches |
+| 15b | c in {51, 70}, O whose error names a host resource errno (EAGAIN, EMFILE, ENFILE, ENOMEM, ENOSPC, EDQUOT) | lost | nothing | retry_after_resource_backoff |
 | 16 | c=51 | crashed | nothing | retry_once_then_attention |
 | 17 | c=70, O | crashed | nothing | retry_same_spec_once_then_attention |
 | 18 | s=9, K=memory (or cgroup oom_kill count increased) | killed_memory | nothing | next_memory_class_or_rung |
