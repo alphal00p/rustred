@@ -48,7 +48,9 @@ pub struct FaultInjection {
     /// `(prime ordinal, entry)`: at the prime with this position in the
     /// prime stream ([`reconstruction_primes`]), every probe value of
     /// `entry` (row-major `target * masters + master`) is doubled, i.e. a
-    /// corrupted prime image that the lifting must reject.
+    /// corrupted prime image that the lifting must reject. It is rejected
+    /// by the leave-one-prime-out retry at 8 images, so this needs
+    /// `max_primes >= 8`.
     pub corrupt_prime: Option<(usize, usize)>,
     /// Discard this many otherwise good probe lanes as if unlucky (counted
     /// as `injected`). With parallel bunches, which lanes are discarded
@@ -63,7 +65,11 @@ pub struct FfOptions {
     pub bunch: usize,
     /// Random stream of the probe points.
     pub seed: u64,
-    /// Reconstruction primes at most (a typed error when exceeded).
+    /// Reconstruction primes at most (a typed error when exceeded). A
+    /// corrupted prime image is recovered from only once a function holds 8
+    /// images (see
+    /// [`crate::algebra::reconstruct::UnivariateOptions::max_primes`]), so
+    /// with fewer than 8 the run fails loudly instead.
     pub max_primes: usize,
     /// Probe points per prime at most, failed ones included.
     pub max_points_per_prime: usize,

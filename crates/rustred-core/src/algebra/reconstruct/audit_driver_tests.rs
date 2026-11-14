@@ -42,6 +42,9 @@ struct Exact {
     truncate_to: Option<usize>,
     /// Corrupt function k (add 1 to its value) at every prime.
     corrupt_fn: Option<usize>,
+    /// Corrupt function k at the first prime only (a same-shape bad image).
+    corrupt_first_prime: Option<usize>,
+    primes_seen: AtomicUsize,
     calls: AtomicUsize,
 }
 
@@ -77,6 +80,8 @@ impl Exact {
             int_form,
             truncate_to: None,
             corrupt_fn: None,
+            corrupt_first_prime: None,
+            primes_seen: AtomicUsize::new(0),
             calls: AtomicUsize::new(0),
         }
     }
@@ -116,7 +121,11 @@ impl<'a> BlackBox for &'a Exact {
             field,
             images,
             truncate_to: self.truncate_to,
-            corrupt_fn: self.corrupt_fn,
+            corrupt_fn: if self.primes_seen.fetch_add(1, Ordering::Relaxed) == 0 {
+                self.corrupt_fn.or(self.corrupt_first_prime)
+            } else {
+                self.corrupt_fn
+            },
             calls: &self.calls,
         })
     }
@@ -444,4 +453,41 @@ fn d12_swapped_log_files_are_refused() {
     let b = reconstruct_univariate(&&bb, &&bb, &opts(), Some(&mut log));
     assert!(matches!(b, Err(ReconstructionError::Log(_))), "{b:?}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// D13 (re-audit of #24): a corrupted image of the same shape at the first
+/// prime is dropped only by the leave-one-prime-out retry, which first runs
+/// at 8 images. With `max_primes < 8` the run fails loudly with
+/// `OutOfPrimes`; with more primes the image is dropped and the result is
+/// exact.
+#[test]
+fn d13_a_corrupted_first_prime_is_recovered_only_from_eight_images() {
+    let f = exact(vec![q(1), q(2), q(5)], vec![q(1), q(3)]);
+    let fs = vec![f];
+    let verifier = Exact::new(fs.clone());
+    let corrupted = || {
+        let mut bb = Exact::new(fs.clone());
+        bb.corrupt_first_prime = Some(0);
+        bb
+    };
+    let short = UnivariateOptions {
+        max_primes: 7,
+        ..opts()
+    };
+    let r = reconstruct_univariate(&&corrupted(), &&verifier, &short, None);
+    assert!(
+        matches!(r, Err(ReconstructionError::OutOfPrimes { .. })),
+        "{:?}",
+        r.err()
+    );
+    let long = UnivariateOptions {
+        max_primes: 16,
+        ..opts()
+    };
+    let r = reconstruct_univariate(&&corrupted(), &&verifier, &long, None).unwrap();
+    assert_eq!(r.functions, fs);
+    // The retry dropped the corrupted image: at least 8 primes were
+    // drawn, and the accepted lift keeps the others.
+    assert_eq!(r.report.recovered, 1);
+    assert!(r.report.primes.len() >= 8);
 }

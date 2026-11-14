@@ -106,6 +106,13 @@ pub struct UnivariateOptions {
     /// Probe points evaluated per prime at most (incl. failed ones).
     pub max_points_per_prime: usize,
     /// Primes used for lifting at most.
+    ///
+    /// A bad image of the same shape as the good ones (a corrupted probe) is
+    /// dropped only by the leave-one-prime-out retry, which first runs when
+    /// a function holds 8 images (see `retry_due`). With `max_primes < 8`
+    /// such a function therefore ends in
+    /// [`ReconstructionError::OutOfPrimes`]: a loud failure, never a wrong
+    /// result.
     pub max_primes: usize,
     /// Extra points of a known-shape prime.
     pub check_points: usize,
@@ -501,6 +508,8 @@ type NewImage = (usize, Option<(Vec<Zp>, Vec<Zp>)>, bool);
 /// five-loop production run recovered none), and one retry at `k` images
 /// costs `2k` reconstruction races, so retries are kept to `O(log k)` per
 /// function, starting when a function needs clearly more primes than usual.
+/// Consequence: a corrupted image is recovered from only once 8 images are
+/// in, so a run with `max_primes < 8` fails with `OutOfPrimes` instead.
 fn retry_due(images: usize) -> bool {
     images >= 8 && images.is_power_of_two()
 }
