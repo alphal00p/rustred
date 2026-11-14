@@ -1,0 +1,40 @@
+rr_campaign  test-campaign  RUNNING  age 10m03s  hb 2s  seq 84  sessions 1  dir memory
+-[ Recent events (22) ]------------------------------------------------------------------------------------ q: back ----
+23:00:19 .    rule_retired      T162 F003: rule T162:R:campaign:3 superseded by T162-item-00002 (replaced_by)
+23:00:18 .    node              T162: closure round 1, defect 37 of 154783 keys
+23:00:18 ok   item_upgraded     T162 F006: evidence -> identity_tested
+23:00:17 ok   item_accepted     T162 F006: rule T162:R:bank:1043 accepted (geometry_accepted)
+23:00:17 .    job_finished      T162 F006 L0: job T162-job (complete)
+23:00:16 T    terminal_declared T162 F004 n9=-1: 2 terminal key(s) declared
+23:00:15 esc  terminal_proposed T162 F004 n9=-1: terminal candidate (terminal_after_ladder)
+23:00:15 esc  item_escalated    T162 F004 n9=-1: escalated to L1 (rule_covers_none)
+23:00:15 FAIL item_rejected     T162 F004 n9=-1: rejected (rule_covers_none)
+23:00:14 .    job_finished      T162 F004 n9=-1 L0: job T162-job (no_rule)
+23:00:12 ok   item_accepted     T162 F003: rule T162:R:campaign:3 accepted (geometry_accepted)
+23:00:11 .    job_finished      T162 F003 L0: job T162-job (rule_found)
+23:00:10 ok   item_accepted     T162 F002: rule T162:R:campaign:2 accepted (identity_proved)
+23:00:09 .    job_finished      T162 F002 L0: job T162-job (rule_found)
+23:00:07 ok   item_accepted     T162 F001: rule T162:R:campaign:1 accepted (geometry_accepted)
+23:00:06 .    job_finished      T162 F001 L0: job T162-job (rule_found)
+23:00:05 ok   item_accepted     T162 F000: rule T162:R:campaign:0 accepted (identity_proved)
+23:00:04 .    job_finished      T162 F000 L0: job T162-job (rule_found)
+23:00:02 .    evidence          imported evidence astra-bank-20261113 by Astra (Codex session), hand closure of T162 (2~
+23:00:02 .    node              T162: running (open)
+23:00:02 .    campaign          campaign running (preflight ok)
+23:00:01 .    campaign          campaign starting (test)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+arrows/PgUp/PgDn scroll  q back  q/Ctrl-C close viewer (campaign unaffected)
