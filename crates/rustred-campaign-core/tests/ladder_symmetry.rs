@@ -265,7 +265,8 @@ impl ImageCredit for CreditExcept {
     }
 }
 
-const TOY2KITE: &str = "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/fixtures/campaign-20261114/m2/TOY2kite";
+const TOY2KITE: &str =
+    "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/fixtures/campaign-20261114/m2/TOY2kite";
 
 /// The fixture node TOY2kite (arity 5, all slots lines) with its group VERIFIED by the identity-test lane's exact
 /// momentum proof (the only accepted form for a one-term symmetry relation since lane ladderfix2, re-audit B M2).
@@ -307,34 +308,57 @@ fn orbit_reduction_image_service_and_own_search_fallback() {
     let b = root_item(
         &p,
         Face::new(vec![2], vec![]),
-        vec![kk([1, 1, 2, 1, 1]), kk([1, 1, 3, 1, 1]), kk([1, 1, 4, 1, 1])],
+        vec![
+            kk([1, 1, 2, 1, 1]),
+            kk([1, 1, 3, 1, 1]),
+            kk([1, 1, 4, 1, 1]),
+        ],
     );
     let c = root_item(&p, Face::new(vec![1, 2], vec![]), vec![kk([1, 2, 2, 1, 1])]);
     let orbits = orbit_reduce(vec![a.clone(), b.clone(), c.clone()], &g, &lines, &cmp);
     let o = orbits
         .iter()
-        .find(|o| !o.members.is_empty() && (o.representative.case == a.case || o.representative.case == b.case))
+        .find(|o| {
+            !o.members.is_empty()
+                && (o.representative.case == a.case || o.representative.case == b.case)
+        })
         .expect("{D2} and {D3} form one orbit");
     let (rep, member) = (&o.representative, &o.members[0]);
     assert_eq!(
-        g.image_case(member.element, &member.item.case, &lines).as_ref(),
+        g.image_case(member.element, &member.item.case, &lines)
+            .as_ref(),
         Some(&rep.case)
     );
     let rep_keys: BTreeSet<Key> = rep.gap_points.iter().cloned().collect();
     let credited: BTreeMap<String, BTreeSet<Key>> =
         [("repRule".to_string(), rep_keys)].into_iter().collect();
     let failing = member.item.gap_points[0].clone();
-    let out = serve_by_image(member, &vg, &lines, &credited, &mut CreditExcept(failing.clone()));
+    let out = serve_by_image(
+        member,
+        &vg,
+        &lines,
+        &credited,
+        &mut CreditExcept(failing.clone()),
+    );
     let own = out
         .own_search
         .expect("the failing credit and the uncredited image go to the own search");
     assert!(own.gap_points.contains(&failing));
     for s in &out.served {
-        assert_eq!(g.image_key(s.element, &s.key, &lines).as_ref(), Some(&s.image));
+        assert_eq!(
+            g.image_key(s.element, &s.key, &lines).as_ref(),
+            Some(&s.image)
+        );
         assert!(credited["repRule"].contains(&s.image));
     }
-    assert_eq!(out.served.len() + own.gap_points.len(), member.item.gap_points.len());
-    assert!(!out.served.is_empty(), "a true element serves the credited images");
+    assert_eq!(
+        out.served.len() + own.gap_points.len(),
+        member.item.gap_points.len()
+    );
+    assert!(
+        !out.served.is_empty(),
+        "a true element serves the credited images"
+    );
     // an element index outside the verified group serves nothing (never a fall-back onto data)
     let mut alien = member.clone();
     alien.element = 99;
@@ -342,7 +366,13 @@ fn orbit_reduction_image_service_and_own_search_fallback() {
     assert!(none.served.is_empty());
     // a chart that is not the verified group's: nothing
     let other_lines = vec![true, true, true, true, false];
-    let none = serve_by_image(member, &vg, &other_lines, &credited, &mut CreditExcept(vec![]));
+    let none = serve_by_image(
+        member,
+        &vg,
+        &other_lines,
+        &credited,
+        &mut CreditExcept(vec![]),
+    );
     assert!(none.served.is_empty());
 }
 
@@ -352,13 +382,18 @@ fn orbit_reduction_image_service_and_own_search_fallback() {
 #[test]
 fn reaudit_b_m2_false_element_is_refused_before_any_image_credit() {
     use rustred_campaign_core::replay_base::family::Family;
-    use rustred_campaign_core::replay_base::symrows::{SlotImage, SymElement, SymGroup, verify_group};
+    use rustred_campaign_core::replay_base::symrows::{
+        SlotImage, SymElement, SymGroup, verify_group,
+    };
     let Ok(fam) = std::fs::read_to_string(format!("{TOY2KITE}/family.sym")) else {
         eprintln!("SKIP: {TOY2KITE} absent");
         return;
     };
     let fam = Family::parse(&fam).unwrap();
-    let ex = |t: usize| SlotImage::Exact { target: t, flip: false };
+    let ex = |t: usize| SlotImage::Exact {
+        target: t,
+        flip: false,
+    };
     let forged = SymGroup {
         arity: 5,
         loops: 0,
@@ -368,7 +403,10 @@ fn reaudit_b_m2_false_element_is_refused_before_any_image_credit() {
             action: vec![ex(1), ex(0), ex(2), ex(3), ex(4)],
         }],
     };
-    assert!(verify_group(&fam, forged, "forged").is_err(), "the false element is refused");
+    assert!(
+        verify_group(&fam, forged, "forged").is_err(),
+        "the false element is refused"
+    );
     // the data form may CLAIM verification; the relation functions do not take it (type level), and the verified
     // group of the node does not contain the false element
     let Some((_f, vg)) = toy2kite_verified() else {
@@ -391,7 +429,11 @@ fn terminal_merge_needs_a_verified_group() {
     };
     let cmp = NodeComparator::legacy(5, None).unwrap();
     let lines = vec![true; 5];
-    let terms = vec![kk([1, 2, 1, 1, 1]), kk([1, 1, 2, 1, 1]), kk([1, 1, 1, 1, 1])];
+    let terms = vec![
+        kk([1, 2, 1, 1, 1]),
+        kk([1, 1, 2, 1, 1]),
+        kk([1, 1, 1, 1, 1]),
+    ];
     let (keep, rel) = merge_terminals_by_symmetry(&terms, &vg, &lines, &cmp);
     assert_eq!(keep.len(), 2, "{keep:?}");
     assert_eq!(rel.len(), 1);
@@ -400,7 +442,8 @@ fn terminal_merge_needs_a_verified_group() {
         assert_eq!(g.image_key(*el, t, &lines).as_ref(), Some(k));
     }
     // a chart that is not the verified group's: no merge
-    let (keep, rel) = merge_terminals_by_symmetry(&terms, &vg, &[true, true, true, true, false], &cmp);
+    let (keep, rel) =
+        merge_terminals_by_symmetry(&terms, &vg, &[true, true, true, true, false], &cmp);
     assert_eq!((keep.len(), rel.len()), (3, 0));
 }
 

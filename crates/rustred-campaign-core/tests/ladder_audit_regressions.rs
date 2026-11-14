@@ -451,7 +451,11 @@ fn drive_item(
             }
             Next::NeedOffers => st.record_offers("none", vec![]),
 
-            Next::NeedShadowing => st.record_shadowing(rustred_campaign_core::worklist::ladder::ShadowVerdict::Unknown { why: "no shadowing test in this driver".into() }),
+            Next::NeedShadowing => st.record_shadowing(
+                rustred_campaign_core::worklist::ladder::ShadowVerdict::Unknown {
+                    why: "no shadowing test in this driver".into(),
+                },
+            ),
             Next::NeedContainment(r) => {
                 for q in r {
                     st.record_containment(&q.attempt_key, q.index, Tri::Unknown);
@@ -1359,7 +1363,7 @@ fn m3_a6_preferred_top_sector_is_ignored_and_preferences_are_bounded() {
             }
         )
         .iter()
-            .any(|f| matches!(f, TerminalFlag::OverBound { .. }))
+        .any(|f| matches!(f, TerminalFlag::OverBound { .. }))
     );
     // explicit keys: at most max_preferred honoured, the surplus "not applied" (stays a gap point)
     p.preferred = PreferredTerminals {

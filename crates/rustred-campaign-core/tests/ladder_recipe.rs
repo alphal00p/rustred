@@ -8,10 +8,10 @@ use std::collections::BTreeMap;
 use ladder_common::root_item;
 use rustred_campaign_core::order::NodeComparator;
 use rustred_campaign_core::repair::{CaseRequest, CaseSolver};
+use rustred_campaign_core::repair::{TreeLimits, drive_tree};
 use rustred_campaign_core::worklist::items::{
     CaseSpec, EvidenceLevel, Face, FullAttemptEnded, FullAttemptEvidence, Key, NodeParams,
 };
-use rustred_campaign_core::repair::{TreeLimits, drive_tree};
 use rustred_campaign_core::worklist::ladder::{
     Disposition, ItemState, SolveAnswer, SolveOutcome, Tri,
 };

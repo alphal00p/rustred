@@ -133,7 +133,10 @@ impl ShadowCheck for PartitionShadowCheck<'_> {
         for (r, ex) in earlier {
             if ex.is_empty() {
                 let at = list.items.len();
-                list.push(crate::cover::RuleRef::bare(usize::MAX, at, -1), r.domain.clone());
+                list.push(
+                    crate::cover::RuleRef::bare(usize::MAX, at, -1),
+                    r.domain.clone(),
+                );
             }
         }
         let me = list.items.len();
@@ -346,7 +349,9 @@ pub fn seal_tree(items: &mut [ItemReport], pending: &[Item], params: &NodeParams
     for it in pending {
         for k in &it.gap_points {
             if !tree_points.contains(k) {
-                pending_points.entry(k.clone()).or_insert_with(|| it.id.clone());
+                pending_points
+                    .entry(k.clone())
+                    .or_insert_with(|| it.id.clone());
             }
         }
     }
@@ -464,12 +469,9 @@ pub fn honoured_preferred(params: &NodeParams, key: &[i32]) -> bool {
     }
     let keys = honoured_preferred_keys(params);
     keys.iter().any(|k| k.as_slice() == key)
-        || (!params
-            .preferred
-            .entries
-            .iter()
-            .any(|e| matches!(e, crate::worklist::items::PreferredEntry::Key(k) if k.as_slice() == key))
-            && keys.len() < params.preferred.bound(params.terminals_max))
+        || (!params.preferred.entries.iter().any(
+            |e| matches!(e, crate::worklist::items::PreferredEntry::Key(k) if k.as_slice() == key),
+        ) && keys.len() < params.preferred.bound(params.terminals_max))
 }
 
 /// Sequential in-process driver of the ladder over a tree of items: each root, then depth first its PRIMARY
@@ -1076,11 +1078,9 @@ impl PartialEq for PendingWinnerDiff {
     fn eq(&self, o: &Self) -> bool {
         self.stopped == o.stopped
             && self.rules.len() == o.rules.len()
-            && self
-                .rules
-                .iter()
-                .zip(&o.rules)
-                .all(|(a, b)| a.rule.digest == b.rule.digest && a.exclusions == b.exclusions && a.rank == b.rank)
+            && self.rules.iter().zip(&o.rules).all(|(a, b)| {
+                a.rule.digest == b.rule.digest && a.exclusions == b.exclusions && a.rank == b.rank
+            })
     }
 }
 impl Eq for PendingWinnerDiff {}

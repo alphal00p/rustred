@@ -13,8 +13,8 @@ use rustred_campaign_core::economy::EconomyWeights;
 use rustred_campaign_core::order::NodeComparator;
 use rustred_campaign_core::repair::{
     CaseRequest, CaseSolver, FactSource, FirstMatch, NoTables, PartitionShadowCheck, RepairBudget,
-    RepairFailure, RepairInputs, ShadowCheck, TreeLimits, WinnerCheck, drive_tree,
-    drive_tree_with, first_match_with_exclusions, repair_key, seal_tree,
+    RepairFailure, RepairInputs, ShadowCheck, TreeLimits, WinnerCheck, drive_tree, drive_tree_with,
+    first_match_with_exclusions, repair_key, seal_tree,
 };
 use rustred_campaign_core::terminals::{TerminalContext, TerminalFlag, check_terminals};
 use rustred_campaign_core::worklist::items::{
@@ -29,7 +29,9 @@ use rustred_campaign_core::worklist::orbits::{GroupElement, SymmetryGroup};
 use rustred_campaign_core::worklist::recipe::{
     KeyRelation, Recipe, RecipeEconomy, RecipeFailure, accept_recipe, default_recipes,
 };
-use rustred_campaign_core::worklist::seed::{AttemptBudget, SeedSetting, attempt_budget, seed_space};
+use rustred_campaign_core::worklist::seed::{
+    AttemptBudget, SeedSetting, attempt_budget, seed_space,
+};
 
 fn p() -> NodeParams {
     NodeParams::new("P", 6, 3)
@@ -67,7 +69,11 @@ impl FactSource for Facts {
     fn facts(&mut self, r: &CandidateRule, k: &[i32]) -> PointFacts {
         self.calls += 1;
         let mut rhs = k.to_vec();
-        if self.bad.iter().any(|(t, kk)| *t == r.digest && kk.as_slice() == k) {
+        if self
+            .bad
+            .iter()
+            .any(|(t, kk)| *t == r.digest && kk.as_slice() == k)
+        {
             rhs[0] += 3;
         } else if let Some(i) = (0..3).find(|&i| rhs[i] >= 2) {
             rhs[i] -= 1;
@@ -127,7 +133,10 @@ fn r1_information_only_symmetry_attempt_never_blocks_a_terminal() {
     p1.symmetry = Some(swap01());
     let case = CaseSpec::face_case(Face::new(vec![], vec![]));
     let sp = seed_space(&case, &p1);
-    assert!(sp[0].iter().any(|s| s.symmetry_rows && s.depth == 0), "info attempt kept");
+    assert!(
+        sp[0].iter().any(|s| s.symmetry_rows && s.depth == 0),
+        "info attempt kept"
+    );
     let inp = RepairInputs {
         params: &p1,
         descent: &cmp,
@@ -211,13 +220,20 @@ fn r1b_symmetry_only_relation_marks_the_terminal_awaiting_a_certificate_route() 
                     explicit: &BTreeSet::new(),
                 },
             );
-            assert!(flags.iter().any(|f| matches!(f, TerminalFlag::AwaitingCertificateRoute { .. })));
+            assert!(
+                flags
+                    .iter()
+                    .any(|f| matches!(f, TerminalFlag::AwaitingCertificateRoute { .. }))
+            );
             assert!(flags.iter().all(|f| !f.is_blocking()), "{flags:?}");
         }
         other => panic!("{other:?}"),
     }
     // capability check BEFORE any work (re-audit B M1 / brief item 2): the uncertifiable candidate was never judged
-    assert_eq!(facts.calls, 0, "no facts were fetched for an uncertifiable candidate");
+    assert_eq!(
+        facts.calls, 0,
+        "no facts were fetched for an uncertifiable candidate"
+    );
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -231,7 +247,12 @@ fn r2_oversized_retry_has_a_larger_work_counter() {
     for s in seed_space(&case, &p).iter().flatten() {
         let std = attempt_budget(s, &case, &p, false, false);
         let big = attempt_budget(s, &case, &p, false, true);
-        assert_eq!(big.max_rows, std.max_rows * p.budgets.oversized_work_factor, "{}", s.label());
+        assert_eq!(
+            big.max_rows,
+            std.max_rows * p.budgets.oversized_work_factor,
+            "{}",
+            s.label()
+        );
         assert!(big.max_rows > std.max_rows);
     }
 }
@@ -249,7 +270,10 @@ struct WorkLimited {
 impl CaseSolver for WorkLimited {
     fn solve(&mut self, r: &CaseRequest, b: &AttemptBudget) -> SolveAnswer {
         self.calls.push((r.setting.label(), b.max_rows));
-        let o = if !r.setting.symmetry_rows && r.setting.label().starts_with("target") && b.max_rows < self.need {
+        let o = if !r.setting.symmetry_rows
+            && r.setting.label().starts_with("target")
+            && b.max_rows < self.need
+        {
             SolveOutcome::BudgetStop {
                 time_decided: false,
             }
@@ -286,7 +310,11 @@ fn item6_work_counter_stop_is_tried_within_budget_and_retried_with_a_larger_budg
     assert_eq!(terms.len(), 1, "{:?}", rep.items[0].disposition);
     let tok = &terms[0].1;
     assert!(tok.within_budget(), "flagged");
-    assert!(tok.budget_limited().iter().any(|(l, _)| l.starts_with("target")));
+    assert!(
+        tok.budget_limited()
+            .iter()
+            .any(|(l, _)| l.starts_with("target"))
+    );
     let flags = check_terminals(
         &[(point.clone(), Some(tok.clone()))],
         10,
@@ -298,7 +326,11 @@ fn item6_work_counter_stop_is_tried_within_budget_and_retried_with_a_larger_budg
             explicit: &BTreeSet::new(),
         },
     );
-    assert!(flags.iter().any(|f| matches!(f, TerminalFlag::WithinBudget { .. })));
+    assert!(
+        flags
+            .iter()
+            .any(|f| matches!(f, TerminalFlag::WithinBudget { .. }))
+    );
     // the token re-verifies against the recorded state
     let st = rep.items[0].state.clone();
     assert!(tok.to_record().verify(&st, &p).is_ok());
@@ -310,7 +342,10 @@ fn item6_work_counter_stop_is_tried_within_budget_and_retried_with_a_larger_budg
         Next::Run(list) => {
             assert_eq!(list.len(), 1, "{list:?}");
             assert!(list[0].setting.label().starts_with("target"));
-            assert_eq!(list[0].budget.class, rustred_campaign_core::worklist::seed::BudgetClass::Oversized);
+            assert_eq!(
+                list[0].budget.class,
+                rustred_campaign_core::worklist::seed::BudgetClass::Oversized
+            );
         }
         other => panic!("{other:?}"),
     }
@@ -354,7 +389,10 @@ fn item6_work_counter_stop_is_tried_within_budget_and_retried_with_a_larger_budg
         &TreeLimits::default(),
     );
     assert!(rep3.terminal_candidates().is_empty());
-    assert!(matches!(rep3.items[0].disposition, Some(Disposition::Attention { .. })));
+    assert!(matches!(
+        rep3.items[0].disposition,
+        Some(Disposition::Attention { .. })
+    ));
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -364,8 +402,14 @@ fn item6_work_counter_stop_is_tried_within_budget_and_retried_with_a_larger_budg
 fn r3_containment_proof_has_no_constructor_from_a_verdict() {
     let root = env!("CARGO_MANIFEST_DIR");
     let assemble = std::fs::read_to_string(format!("{root}/src/assemble/mod.rs")).unwrap();
-    assert!(!assemble.contains("pub fn containment_proof"), "the verdict-taking constructor is gone");
-    assert!(!assemble.contains("ContainmentProof::"), "assemble mints no proof");
+    assert!(
+        !assemble.contains("pub fn containment_proof"),
+        "the verdict-taking constructor is gone"
+    );
+    assert!(
+        !assemble.contains("ContainmentProof::"),
+        "assemble mints no proof"
+    );
     let economy = std::fs::read_to_string(format!("{root}/src/economy.rs")).unwrap();
     // the only non-test construction site is the checking function
     let lit = economy.matches("Ok(ContainmentProof {").count();
@@ -402,7 +446,11 @@ impl CaseSolver for RecipeOk {
     fn solve(&mut self, _r: &CaseRequest, _b: &AttemptBudget) -> SolveAnswer {
         ans(SolveOutcome::NoRelation, 0)
     }
-    fn solve_recipe_at_key(&mut self, _r: &Recipe, k: &[i32]) -> Result<KeyRelation, RecipeFailure> {
+    fn solve_recipe_at_key(
+        &mut self,
+        _r: &Recipe,
+        k: &[i32],
+    ) -> Result<KeyRelation, RecipeFailure> {
         self.calls += 1;
         let mut rhs = k.to_vec();
         rhs[0] -= 1;
@@ -443,17 +491,27 @@ fn r4_recipe_acceptance_checks_node_identity_and_capability_before_any_solve() {
     let keys = [key(3, 2), key(2, 4)];
     // (a) a token of ANOTHER node: nothing solved, nothing certified
     let plain = Recipe::from_setting("r", &SeedSetting::target(2), &case, &pb, "legacy");
-    let mut s = RecipeOk { calls: 0, det: Some("det".into()) };
+    let mut s = RecipeOk {
+        calls: 0,
+        det: Some("det".into()),
+    };
     let rr = accept_recipe(&plain, &keys, &mut s, &cmp, &pb, &ended_for(&pa));
     assert_eq!(rr.certified_count(), 0);
     assert_eq!(s.calls, 0);
-    assert!(rr.failed().iter().all(|(_, f)| matches!(f, RecipeFailure::Unsupported { .. })));
+    assert!(
+        rr.failed()
+            .iter()
+            .all(|(_, f)| matches!(f, RecipeFailure::Unsupported { .. }))
+    );
     // (b) symmetry rows without a certificate route: refused before any solve
     let mut sym = SeedSetting::target(2);
     sym.symmetry_rows = true;
     let recipe = Recipe::from_setting("r", &sym, &case, &pb, "legacy");
     assert!(!pb.capabilities.can(true, pb.min_evidence));
-    let mut s = RecipeOk { calls: 0, det: Some("det".into()) };
+    let mut s = RecipeOk {
+        calls: 0,
+        det: Some("det".into()),
+    };
     let rr = accept_recipe(&recipe, &keys, &mut s, &cmp, &pb, &ended_for(&pb));
     assert_eq!((rr.certified_count(), s.calls), (0, 0));
     // with the capability the same recipe certifies
@@ -462,16 +520,25 @@ fn r4_recipe_acceptance_checks_node_identity_and_capability_before_any_solve() {
         plain: Some(EvidenceLevel::A4),
         symmetry_rows: Some(EvidenceLevel::A3),
     };
-    let mut s = RecipeOk { calls: 0, det: Some("det".into()) };
+    let mut s = RecipeOk {
+        calls: 0,
+        det: Some("det".into()),
+    };
     let rr = accept_recipe(&recipe, &keys, &mut s, &cmp, &pc, &ended_for(&pc));
     assert_eq!(rr.certified_count(), 2);
     // (c) answers WITHOUT a determinism id certify nothing (re-audit B m5)
-    let mut s = RecipeOk { calls: 0, det: None };
+    let mut s = RecipeOk {
+        calls: 0,
+        det: None,
+    };
     let rr = accept_recipe(&plain, &keys, &mut s, &cmp, &pb, &ended_for(&pb));
     assert_eq!(rr.certified_count(), 0);
     // (d) a recipe of another node (provenance) is refused
     let foreign = Recipe::from_setting("r", &SeedSetting::target(2), &case, &pa, "legacy");
-    let mut s = RecipeOk { calls: 0, det: Some("det".into()) };
+    let mut s = RecipeOk {
+        calls: 0,
+        det: Some("det".into()),
+    };
     let rr = accept_recipe(&foreign, &keys, &mut s, &cmp, &pb, &ended_for(&pb));
     assert_eq!((rr.certified_count(), s.calls), (0, 0));
 }
@@ -521,11 +588,22 @@ fn r6_economy_extra_budget_is_enforced_by_work_counters() {
     let mut all = p();
     all.budgets.economy_extra_factor = f64::INFINITY;
     let (r0, r2, ra) = (run(&zero), run(&two), run(&all));
-    assert_eq!(r0.attempts.len(), 1, "factor 0: the first acceptable setting only");
-    assert!(r2.attempts.len() > 1 && r2.attempts.len() < wave, "{} of {wave}", r2.attempts.len());
+    assert_eq!(
+        r0.attempts.len(),
+        1,
+        "factor 0: the first acceptable setting only"
+    );
+    assert!(
+        r2.attempts.len() > 1 && r2.attempts.len() < wave,
+        "{} of {wave}",
+        r2.attempts.len()
+    );
     assert_eq!(ra.attempts.len(), wave, "infinite factor: the whole wave");
     for r in [&r0, &r2, &ra] {
-        assert!(matches!(r.items[0].disposition, Some(Disposition::Covered { .. })));
+        assert!(matches!(
+            r.items[0].disposition,
+            Some(Disposition::Covered { .. })
+        ));
     }
     // the cap is decided by WORK COUNTERS, never by the reported CPU: the same run with other CPU figures is identical
     struct SlowFirst(NodeParams);
@@ -536,7 +614,11 @@ fn r6_economy_extra_budget_is_enforced_by_work_counters() {
             a
         }
     }
-    let item = root_item(&two, Face::new(vec![0, 1], vec![]), vec![key(2, 2), key(3, 4)]);
+    let item = root_item(
+        &two,
+        Face::new(vec![0, 1], vec![]),
+        vec![key(2, 2), key(3, 4)],
+    );
     let r2b = drive_tree(
         vec![item],
         &two,
@@ -553,7 +635,11 @@ fn r6_economy_extra_budget_is_enforced_by_work_counters() {
         r2b.attempts.iter().map(|a| &a.setting).collect::<Vec<_>>()
     );
     // a PARALLEL driver that answers the WHOLE wave (in reverse order) decides the same as the sequential one
-    let item = root_item(&two, Face::new(vec![0, 1], vec![]), vec![key(2, 2), key(3, 4)]);
+    let item = root_item(
+        &two,
+        Face::new(vec![0, 1], vec![]),
+        vec![key(2, 2), key(3, 4)],
+    );
     let mut st = rustred_campaign_core::worklist::ladder::ItemState::new(item);
     let mut fw = FirstWins { p: two.clone() };
     let mut facts = Facts::default();
@@ -585,7 +671,9 @@ fn r6_economy_extra_budget_is_enforced_by_work_counters() {
             Next::NeedVerdicts(r) => {
                 for q in r {
                     let c = st.records[&q.attempt_key].candidates()[q.index].clone();
-                    let v = rustred_campaign_core::worklist::ladder::judge_points(&c, &q.keys, &mut facts, &cmp);
+                    let v = rustred_campaign_core::worklist::ladder::judge_points(
+                        &c, &q.keys, &mut facts, &cmp,
+                    );
                     st.record_verdicts(&q.attempt_key, q.index, v);
                 }
             }
@@ -703,7 +791,9 @@ fn r7_every_permutation_serves_every_asked_key_by_a_credited_rule() {
     let c3 = CaseSpec::face_case(Face::new(vec![0, 1], vec![]))
         .constrained(&[(0, 3)], &[])
         .unwrap();
-    facts.bad.push((format!("D1:{}", c3.canonical_text()), key(3, 2)));
+    facts
+        .bad
+        .push((format!("D1:{}", c3.canonical_text()), key(3, 2)));
     let inp = RepairInputs {
         params: &p,
         descent: &cmp,
@@ -728,7 +818,10 @@ fn r7_every_permutation_serves_every_asked_key_by_a_credited_rule() {
         .collect();
     let mut asked = vec![k.clone()];
     asked.extend(extra);
-    assert_eq!(out.usable_at.iter().collect::<BTreeSet<_>>(), asked.iter().collect::<BTreeSet<_>>());
+    assert_eq!(
+        out.usable_at.iter().collect::<BTreeSet<_>>(),
+        asked.iter().collect::<BTreeSet<_>>()
+    );
     fn perms(n: usize) -> Vec<Vec<usize>> {
         if n == 0 {
             return vec![vec![]];
@@ -790,7 +883,10 @@ fn r8_rules_dispatched_together_are_sealed_together() {
     for it in &all {
         if let Some(Disposition::Covered { cover }) = &it.disposition {
             for m in &cover.members {
-                rules.push((it.state.records[&m.attempt_key].candidates()[m.index].clone(), m.clone()));
+                rules.push((
+                    it.state.records[&m.attempt_key].candidates()[m.index].clone(),
+                    m.clone(),
+                ));
             }
         }
     }
@@ -855,7 +951,10 @@ fn r9_terminal_without_token_is_flagged() {
 fn r10_preferred_bound_applies_in_seal_tree_and_repair_key() {
     let mut p = p();
     p.preferred = PreferredTerminals {
-        entries: vec![PreferredEntry::Key(key(5, 5)), PreferredEntry::Key(key(6, 6))],
+        entries: vec![
+            PreferredEntry::Key(key(5, 5)),
+            PreferredEntry::Key(key(6, 6)),
+        ],
         count_against_bound: false,
         max_preferred: Some(0),
     };
@@ -875,7 +974,10 @@ fn r10_preferred_bound_applies_in_seal_tree_and_repair_key() {
         &mut ReplayProver,
         None,
     );
-    assert!(!matches!(r, Err(RepairFailure::PreferredTerminal { .. })), "{r:?}");
+    assert!(
+        !matches!(r, Err(RepairFailure::PreferredTerminal { .. })),
+        "{r:?}"
+    );
     let inp2 = RepairInputs {
         params: &p,
         descent: &cmp,
@@ -917,7 +1019,10 @@ fn r10_preferred_bound_applies_in_seal_tree_and_repair_key() {
         &mut ReplayProver,
         None,
     );
-    assert!(matches!(r, Err(RepairFailure::PreferredTerminal { .. })), "{r:?}");
+    assert!(
+        matches!(r, Err(RepairFailure::PreferredTerminal { .. })),
+        "{r:?}"
+    );
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -936,15 +1041,24 @@ fn mutation_c_first_match_blocked_is_not_skipped() {
     let blocked = rule(d, "pole", 1, false);
     let later = rule(dom(&p, &case), "later", 1, false);
     let list: Vec<(&CandidateRule, &[Exclusion])> = vec![(&blocked, &[]), (&later, &[])];
-    assert_eq!(first_match_with_exclusions(&list, &key(2, 3)), FirstMatch::Blocked(0));
-    assert_eq!(first_match_with_exclusions(&list, &key(3, 3)), FirstMatch::Rule(0));
+    assert_eq!(
+        first_match_with_exclusions(&list, &key(2, 3)),
+        FirstMatch::Blocked(0)
+    );
+    assert_eq!(
+        first_match_with_exclusions(&list, &key(3, 3)),
+        FirstMatch::Rule(0)
+    );
     // with an exclusion at the key the later rule serves
     let ex = vec![Exclusion {
         target: ExclusionTarget::Key(key(2, 3)),
         reason: ExclusionReason::OnPole,
     }];
     let list: Vec<(&CandidateRule, &[Exclusion])> = vec![(&blocked, &ex), (&later, &[])];
-    assert_eq!(first_match_with_exclusions(&list, &key(2, 3)), FirstMatch::Rule(1));
+    assert_eq!(
+        first_match_with_exclusions(&list, &key(2, 3)),
+        FirstMatch::Rule(1)
+    );
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -982,12 +1096,20 @@ fn reaudit_b_c1_stopped_run_excludes_rules_at_unprocessed_roots() {
         rustred_campaign_core::domain::Stage::NotSelected,
         "the rule's written domain contains the unprocessed gap point"
     );
-    assert!(m.exclusions.iter().any(|e| e.target == ExclusionTarget::Key(k2.clone())
-        && matches!(e.reason, ExclusionReason::NotProcessed { .. })));
+    assert!(
+        m.exclusions
+            .iter()
+            .any(|e| e.target == ExclusionTarget::Key(k2.clone())
+                && matches!(e.reason, ExclusionReason::NotProcessed { .. }))
+    );
     let list: Vec<(&CandidateRule, &[Exclusion])> = vec![(c, m.exclusions.as_slice())];
     assert_eq!(first_match_with_exclusions(&list, &k2), FirstMatch::None);
     // the winner-diff stage also knows the run stopped
-    assert!(rep.pending_winner_diff().run(&[], &NoTables, &mut PassAll).from_stopped_run());
+    assert!(
+        rep.pending_winner_diff()
+            .run(&[], &NoTables, &mut PassAll)
+            .from_stopped_run()
+    );
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -1003,11 +1125,20 @@ fn reaudit_b_m1_capability_gate_holds_at_a1() {
     assert!(!p.capabilities.can(true, EvidenceLevel::A0));
     assert!(p.capabilities.can(false, EvidenceLevel::A1));
     let face = CaseSpec::face_case(Face::new(vec![0, 1], vec![]));
-    assert!(seed_space(&face, &p).iter().flatten().all(|s| !s.symmetry_rows), "not capable: plain space");
+    assert!(
+        seed_space(&face, &p)
+            .iter()
+            .flatten()
+            .all(|s| !s.symmetry_rows),
+        "not capable: plain space"
+    );
     struct SymOnly(NodeParams);
     impl CaseSolver for SymOnly {
         fn solve(&mut self, r: &CaseRequest, _b: &AttemptBudget) -> SolveAnswer {
-            ans(SolveOutcome::Rules(vec![rule(dom(&self.0, &r.case), "s", 3, true)]), 1)
+            ans(
+                SolveOutcome::Rules(vec![rule(dom(&self.0, &r.case), "s", 3, true)]),
+                1,
+            )
         }
     }
     let cmp = cmp6();
@@ -1024,7 +1155,10 @@ fn reaudit_b_m1_capability_gate_holds_at_a1() {
         None,
         &TreeLimits::default(),
     );
-    assert!(rep.accepted_members().is_empty(), "never accepted at A1 without the capability");
+    assert!(
+        rep.accepted_members().is_empty(),
+        "never accepted at A1 without the capability"
+    );
     assert_eq!(facts.calls, 0, "never judged");
     // capable: the symmetry-first space and the rule is accepted
     p.capabilities.symmetry_rows = Some(EvidenceLevel::A2);
@@ -1042,14 +1176,21 @@ fn reaudit_b_m1_check_terminals_honoured_reference_set() {
     p.terminals_max = 1;
     let a: Key = vec![2, 1, 0];
     let b: Key = vec![3, 1, 0];
-    p.preferred.entries = vec![PreferredEntry::Key(a.clone()), PreferredEntry::Key(b.clone())];
-    let at_strip = p.preferred.honoured(&[a.clone(), b.clone()], &lines, p.terminals_max);
+    p.preferred.entries = vec![
+        PreferredEntry::Key(a.clone()),
+        PreferredEntry::Key(b.clone()),
+    ];
+    let at_strip = p
+        .preferred
+        .honoured(&[a.clone(), b.clone()], &lines, p.terminals_max);
     assert!(at_strip.contains(&a) && !at_strip.contains(&b));
     struct CoverB(Key);
     impl rustred_campaign_core::repair::Coverage for CoverB {
         fn verdict(&self, key: &[i32]) -> rustred_campaign_core::repair::CoverageVerdict {
             if key == self.0.as_slice() {
-                rustred_campaign_core::repair::CoverageVerdict::Covered { rule: "tbl#1".into() }
+                rustred_campaign_core::repair::CoverageVerdict::Covered {
+                    rule: "tbl#1".into(),
+                }
             } else {
                 rustred_campaign_core::repair::CoverageVerdict::Uncovered
             }
@@ -1066,7 +1207,12 @@ fn reaudit_b_m1_check_terminals_honoured_reference_set() {
             explicit: &BTreeSet::new(),
         },
     );
-    assert!(flags.iter().any(|f| matches!(f, TerminalFlag::CoveredTerminal { .. })), "{flags:?}");
+    assert!(
+        flags
+            .iter()
+            .any(|f| matches!(f, TerminalFlag::CoveredTerminal { .. })),
+        "{flags:?}"
+    );
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -1082,7 +1228,11 @@ impl WinnerCheck for PassAll {
 struct FailAt(Key);
 impl WinnerCheck for FailAt {
     fn check(&mut self, _r: &CandidateRule, k: &[i32]) -> Tri {
-        if k == self.0.as_slice() { Tri::Fail } else { Tri::Unknown }
+        if k == self.0.as_slice() {
+            Tri::Fail
+        } else {
+            Tri::Unknown
+        }
     }
 }
 
@@ -1104,20 +1254,39 @@ fn item8_winner_diff_stage_is_mandatory_and_excludes_failed_winners() {
     );
     assert!(rep.dispatch.winner_diff_required);
     let range = vec![key(2, 2), key(3, 3), key(4, 2)];
-    let checked = rep.pending_winner_diff().run(&range, &NoTables, &mut FailAt(key(3, 3)));
+    let checked = rep
+        .pending_winner_diff()
+        .run(&range, &NoTables, &mut FailAt(key(3, 3)));
     let c = checked.counts();
     assert_eq!((c.keys, c.credited), (3, 1));
     assert_eq!(c.excluded, 2, "{c:?}: (3,3) failed, (4,2) unknown");
     let list = checked.dispatch_list();
-    assert!(matches!(first_match_with_exclusions(&list, &key(2, 2)), FirstMatch::Rule(0)));
-    assert_eq!(first_match_with_exclusions(&list, &key(3, 3)), FirstMatch::None);
-    assert!(checked.rules()[0].exclusions().iter().any(|e| matches!(e.reason, ExclusionReason::WinnerCheckFailed { .. })));
+    assert!(matches!(
+        first_match_with_exclusions(&list, &key(2, 2)),
+        FirstMatch::Rule(0)
+    ));
+    assert_eq!(
+        first_match_with_exclusions(&list, &key(3, 3)),
+        FirstMatch::None
+    );
+    assert!(
+        checked.rules()[0]
+            .exclusions()
+            .iter()
+            .any(|e| matches!(e.reason, ExclusionReason::WinnerCheckFailed { .. }))
+    );
     assert_eq!(checked.range(), &range[..]);
-    let ok = rep.pending_winner_diff().run(&range, &NoTables, &mut PassAll);
+    let ok = rep
+        .pending_winner_diff()
+        .run(&range, &NoTables, &mut PassAll);
     assert_eq!((ok.counts().checked, ok.counts().excluded), (2, 0));
     // no public constructor of the checked form: fields private, built only by PendingWinnerDiff::run
-    let src = std::fs::read_to_string(format!("{}/src/repair.rs", env!("CARGO_MANIFEST_DIR"))).unwrap();
-    assert_eq!(src.matches("WinnerChecked {\n            rules,").count(), 1);
+    let src =
+        std::fs::read_to_string(format!("{}/src/repair.rs", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    assert_eq!(
+        src.matches("WinnerChecked {\n            rules,").count(),
+        1
+    );
     assert!(src.contains("pub struct WinnerChecked {\n    rules: Vec<NewRule>,"));
     assert!(src.contains("pub struct PendingWinnerDiff {\n    rules: Vec<NewRule>,"));
 }
@@ -1175,8 +1344,14 @@ fn shadowing_test_before_search_drops_shadowed_and_empty_cases() {
         &rep.items[0].disposition,
         Some(Disposition::Dropped { reason: DropReason::Shadowed { .. }, keys }) if keys == &shadowed.gap_points
     ));
-    assert!(matches!(rep.items[1].disposition, Some(Disposition::Covered { .. })));
-    assert!(rep.attempts.iter().all(|a| a.item != shadowed.id), "no search for the dropped case");
+    assert!(matches!(
+        rep.items[1].disposition,
+        Some(Disposition::Covered { .. })
+    ));
+    assert!(
+        rep.attempts.iter().all(|a| a.item != shadowed.id),
+        "no search for the dropped case"
+    );
     // the partition-module implementation: a table set covering the whole chart shadows every case
     let frame = rustred_campaign_core::key::NodeFrame::without_header_lines_first(6, 3);
     let mut tables = rustred_campaign_core::partition::DomainList::new(6);
@@ -1189,7 +1364,10 @@ fn shadowing_test_before_search_drops_shadowed_and_empty_cases() {
         frame: &frame,
         budget: Default::default(),
     };
-    assert!(matches!(real.check(&shadowed, &[]), ShadowVerdict::Shadowed { .. }));
+    assert!(matches!(
+        real.check(&shadowed, &[]),
+        ShadowVerdict::Shadowed { .. }
+    ));
     let none = rustred_campaign_core::partition::DomainList::new(6);
     let mut real0 = PartitionShadowCheck {
         tables: &none,
@@ -1202,10 +1380,17 @@ fn shadowing_test_before_search_drops_shadowed_and_empty_cases() {
     empty.case = CaseSpec::face_case(Face::new(vec![0, 1], vec![]))
         .constrained(
             &[],
-            &[rustred_campaign_core::worklist::affine::AffineEq::new(vec![(0, 1), (1, 1)], 1).unwrap()],
+            &[
+                rustred_campaign_core::worklist::affine::AffineEq::new(vec![(0, 1), (1, 1)], 1)
+                    .unwrap(),
+            ],
         )
         .unwrap();
-    assert!(matches!(real0.check(&empty, &[]), ShadowVerdict::EmptyDomain { .. }), "{:?}", real0.check(&empty, &[]));
+    assert!(
+        matches!(real0.check(&empty, &[]), ShadowVerdict::EmptyDomain { .. }),
+        "{:?}",
+        real0.check(&empty, &[])
+    );
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -1225,24 +1410,46 @@ fn recipe_is_the_engine_file_format() {
     };
     let r = Recipe::from_setting("toy/x", &s, &case, &p, "legacy");
     let v = serde_json::to_value(&r).unwrap();
-    for f in ["schema", "id", "arity", "chart", "domain", "seeds", "symmetry_rows", "elimination", "provenance"] {
+    for f in [
+        "schema",
+        "id",
+        "arity",
+        "chart",
+        "domain",
+        "seeds",
+        "symmetry_rows",
+        "elimination",
+        "provenance",
+    ] {
         assert!(v.get(f).is_some(), "{f}");
     }
     assert_eq!(v["schema"], "rustred.recipe.v1");
     assert_eq!(v["chart"], "111000");
     assert_eq!(v["seeds"]["unit"], "harder");
     assert_eq!(v["seeds"]["generator"]["ball"]["radius"], 2);
-    assert_eq!(v["seeds"]["generator"]["ball"]["down"], serde_json::json!([1]));
+    assert_eq!(
+        v["seeds"]["generator"]["ball"]["down"],
+        serde_json::json!([1])
+    );
     // the floor NAMES its slots: the free dotted line 1 and the line 0 fixed at 2 (R48 addendum 2)
-    assert_eq!(v["seeds"]["min_offset"], serde_json::json!({"0": -1, "1": -1}));
-    assert_eq!(v["seeds"]["sector_slots"], serde_json::json!([0, 2, 3, 4, 5]));
+    assert_eq!(
+        v["seeds"]["min_offset"],
+        serde_json::json!({"0": -1, "1": -1})
+    );
+    assert_eq!(
+        v["seeds"]["sector_slots"],
+        serde_json::json!([0, 2, 3, 4, 5])
+    );
     assert_eq!(v["elimination"]["convention"], "rustred.recipe-elim.v1");
     assert_eq!(v["provenance"]["node"], "P");
     let back = Recipe::parse(&serde_json::to_string(&r).unwrap()).unwrap();
     assert_eq!(back, r);
     let mut bad = v.clone();
     bad["group_digest"] = serde_json::json!("x");
-    assert!(Recipe::parse(&bad.to_string()).is_err(), "unknown fields are refused");
+    assert!(
+        Recipe::parse(&bad.to_string()).is_err(),
+        "unknown fields are refused"
+    );
     let engine = r#"{ "schema": "rustred.recipe.v1", "id": "T/face-12/x6", "arity": 6, "chart": "111000",
       "domain": { "fixed": [null, 1, 1, 0, 0, null], "equations": ["n0+n5-1"], "exceptions": [["n0-4"]],
                   "bounds": {"min": [null, null, null, null, null, -3], "max": [null, null, null, null, null, null]} },
@@ -1254,7 +1461,10 @@ fn recipe_is_the_engine_file_format() {
     assert!(e.in_domain(&[2, 1, 1, 0, 0, -1]));
     assert!(!e.in_domain(&[3, 1, 1, 0, 0, 0]), "n0 + n5 - 1 = 2");
     assert!(!e.in_domain(&[5, 1, 1, 0, 0, -4]), "below the bound");
-    assert!(!e.in_domain(&[4, 1, 1, 0, 0, -3]), "on the exception branch n0 = 4");
+    assert!(
+        !e.in_domain(&[4, 1, 1, 0, 0, -3]),
+        "on the exception branch n0 = 4"
+    );
     assert!(!e.in_domain(&[2, 2, 1, 0, 0, -1]), "a fixed slot differs");
 }
 
@@ -1267,9 +1477,17 @@ fn default_recipe_and_recipe_economy_measure() {
     let k = vec![2, 3, 1, -1, 0, 0];
     let rs = default_recipes(&k, &p, "legacy");
     assert_eq!(rs.len(), 2, "no capable group: line centre + union");
-    assert_eq!(rs[0].seeds.centres, vec![vec![0, -1, 0, 0, 0, 0]], "the key's LAST dotted line");
+    assert_eq!(
+        rs[0].seeds.centres,
+        vec![vec![0, -1, 0, 0, 0, 0]],
+        "the key's LAST dotted line"
+    );
     assert_eq!(rs[0].seeds.min_offset, BTreeMap::from([(0, -1), (1, -1)]));
-    assert_eq!(rs[1].seeds.centres.len(), 3, "one centre per off-floor slot");
+    assert_eq!(
+        rs[1].seeds.centres.len(),
+        3,
+        "one centre per off-floor slot"
+    );
     for r in &rs {
         assert!(r.in_domain(&k) && r.in_domain(&[4, 2, 1, -3, 0, 0]));
         assert!(r.validate().is_ok());
@@ -1278,7 +1496,10 @@ fn default_recipe_and_recipe_economy_measure() {
     p.capabilities.symmetry_rows = Some(EvidenceLevel::A4);
     let rs = default_recipes(&k, &p, "legacy");
     assert_eq!(rs.len(), 3);
-    assert!(rs[0].symmetry_rows, "symmetry rows at the key first when certifiable");
+    assert!(
+        rs[0].symmetry_rows,
+        "symmetry rows at the key first when certifiable"
+    );
     // closure size and used rules weigh ABOVE the number of recipes
     let per_face = RecipeEconomy {
         closure_keys: 471,
@@ -1305,7 +1526,12 @@ fn m8_symmetry_dimension_is_policy_data() {
     p.capabilities.symmetry_rows = Some(EvidenceLevel::A4);
     let point = CaseSpec::face_case(Face::new(vec![], vec![]));
     let face = CaseSpec::face_case(Face::new(vec![0, 1], vec![]));
-    assert!(seed_space(&face, &p).iter().flatten().any(|s| s.symmetry_rows));
+    assert!(
+        seed_space(&face, &p)
+            .iter()
+            .flatten()
+            .any(|s| s.symmetry_rows)
+    );
     p.policy.symmetry_dimension = false;
     for c in [&point, &face] {
         assert!(seed_space(c, &p).iter().flatten().all(|s| !s.symmetry_rows));

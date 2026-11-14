@@ -196,9 +196,9 @@ impl CaseSpec {
         let n = lines.len();
         let mut d = crate::domain::CaseDomain::free(n, Some(lines.to_vec()));
         let free: BTreeSet<usize> = self.free().into_iter().collect();
-        for i in 0..n {
+        for (i, &is_line) in lines.iter().enumerate() {
             if !free.contains(&i) {
-                d.fixed[i] = Some(self.fixed.get(&i).copied().unwrap_or(floor_of(lines[i])));
+                d.fixed[i] = Some(self.fixed.get(&i).copied().unwrap_or(floor_of(is_line)));
             }
         }
         for e in &self.equations {

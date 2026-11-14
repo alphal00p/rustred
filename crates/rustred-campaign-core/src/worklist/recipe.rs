@@ -16,7 +16,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::items::{CaseSpec, EvidenceLevel, Face, FullAttemptEnded, Item, Key, NodeParams, fnv1a128};
+use super::items::{
+    CaseSpec, EvidenceLevel, Face, FullAttemptEnded, Item, Key, NodeParams, fnv1a128,
+};
 use super::ladder::{ItemState, Tri};
 use super::seed::{CentreKind, SeedSetting};
 use crate::domain::CaseDomain;
@@ -270,7 +272,8 @@ impl Recipe {
     /// slots, equations, exception branches, bounds).
     pub fn case_domain(&self) -> Result<CaseDomain, String> {
         let n = self.arity;
-        let parse = |t: &str| crate::poly::Poly::parse_d_free(t, n).map_err(|e| format!("{t}: {e:?}"));
+        let parse =
+            |t: &str| crate::poly::Poly::parse_d_free(t, n).map_err(|e| format!("{t}: {e:?}"));
         let mut d = CaseDomain::free(n, Some(self.lines()));
         d.fixed = self.domain.fixed.clone();
         for e in &self.domain.equations {
@@ -304,10 +307,7 @@ impl Recipe {
 
     /// The key lies in the recipe's domain (the dispatcher's domain semantics, [`Self::case_domain`]).
     pub fn in_domain(&self, key: &[i32]) -> bool {
-        key.len() == self.arity
-            && self
-                .case_domain()
-                .is_ok_and(|d| d.applies(key).applies())
+        key.len() == self.arity && self.case_domain().is_ok_and(|d| d.applies(key).applies())
     }
 
     /// The acceptance lane's record of THIS recipe (re-audit A M6: one definition): its domain fields are this
@@ -532,7 +532,11 @@ pub fn accept_recipe(
     {
         Some(format!(
             "the provers cannot bring a recipe {} symmetry rows to {:?}",
-            if recipe.symmetry_rows { "with" } else { "without" },
+            if recipe.symmetry_rows {
+                "with"
+            } else {
+                "without"
+            },
             params.min_evidence
         ))
     } else if EvidenceLevel::A3 < params.min_evidence {
@@ -702,10 +706,10 @@ pub enum RecipeRefusal {
 fn symbolic_tried(state: &ItemState, params: &NodeParams) -> bool {
     let point = state.item.kind == super::items::ItemKind::Point || state.item.case.is_point();
     let waves = super::seed::seed_space(&state.item.case, params);
-    let Some(first) = waves.iter().find(|w| {
-        w.iter()
-            .any(|s| !super::seed::is_information(s, params))
-    }) else {
+    let Some(first) = waves
+        .iter()
+        .find(|w| w.iter().any(|s| !super::seed::is_information(s, params)))
+    else {
         return true; // no symbolic search space at all
     };
     first.iter().all(|s| {
@@ -713,7 +717,8 @@ fn symbolic_tried(state: &ItemState, params: &NodeParams) -> bool {
             .records
             .get(&super::ladder::attempt_key(&state.item.id, s))
             .is_some_and(|r| {
-                let rows = super::seed::attempt_budget(s, &state.item.case, params, point, true).max_rows;
+                let rows =
+                    super::seed::attempt_budget(s, &state.item.case, params, point, true).max_rows;
                 r.state(&params.budgets, rows) != super::ladder::SettingState::Open
             })
     })
@@ -817,7 +822,9 @@ pub fn default_recipes(key: &[i32], params: &NodeParams, node_order: &str) -> Ve
 
 /// The economy of a RECIPE SET (R48 addendum 4 ruling): the CLOSURE SIZE it produces and the number of USED rules weigh
 /// ABOVE the number of recipes; then the summed per-key solve cost. Smaller is better, lexicographic in field order.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
+)]
 pub struct RecipeEconomy {
     /// Keys of the node's forward closure with this recipe set (new keys reached while closing included).
     pub closure_keys: u64,

@@ -675,7 +675,8 @@ fn m3_economy_requires_a_dispatch_proof() {
     let u = gap_partition(&l, &f, &ordinary(), None).unwrap();
     assert!(u.proves_no_gap(CoverageNotion::UnionCoverage).is_ok());
     // the checking function runs the DISPATCH-mode partition even when the options name union coverage
-    let p = prove_coverage_preserved(&l, &l, &f, &ordinary(), &DispatchOrderStatement::SameOrder).unwrap();
+    let p = prove_coverage_preserved(&l, &l, &f, &ordinary(), &DispatchOrderStatement::SameOrder)
+        .unwrap();
     assert_eq!(
         p.method(),
         dispatch_proof_method(&DispatchOrderStatement::SameOrder)
@@ -710,8 +711,14 @@ fn m3_economy_requires_a_dispatch_proof() {
     let (a, b) = pole_tables();
     let gap = list(vec![a, b], n);
     assert!(
-        prove_coverage_preserved(&l, &gap, &f, &PartitionOptions::default(), &DispatchOrderStatement::SameOrder)
-            .is_err()
+        prove_coverage_preserved(
+            &l,
+            &gap,
+            &f,
+            &PartitionOptions::default(),
+            &DispatchOrderStatement::SameOrder
+        )
+        .is_err()
     );
     assert_eq!(
         r.check_tables(&l, &gap).unwrap_err(),

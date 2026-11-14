@@ -261,7 +261,14 @@ pub struct ContainmentProof {
 /// dispatch order (a version-1 text, not a fingerprint of the files).
 pub fn table_set_digest(src: &dyn crate::partition::DomainSource) -> String {
     let mut h = crate::replay_base::sha256::Sha256::new();
-    h.update(format!("containment-tables.v1;arity={};n={}\n", src.arity(), src.len()).as_bytes());
+    h.update(
+        format!(
+            "containment-tables.v1;arity={};n={}\n",
+            src.arity(),
+            src.len()
+        )
+        .as_bytes(),
+    );
     for i in 0..src.len() {
         h.update(format!("{:?}\n", src.domain(i)).as_bytes());
     }
@@ -287,8 +294,8 @@ pub fn prove_coverage_preserved(
     }
     let mut o = opts.clone();
     o.coverage = CoverageNotion::DispatchCoverage;
-    let rep =
-        crate::partition::gap_partition(new_tables, frame, &o, None).map_err(|e| format!("{e:?}"))?;
+    let rep = crate::partition::gap_partition(new_tables, frame, &o, None)
+        .map_err(|e| format!("{e:?}"))?;
     let certificate = rep.proves_no_gap(CoverageNotion::DispatchCoverage)?;
     Ok(ContainmentProof {
         old_tables_digest: table_set_digest(old_tables),

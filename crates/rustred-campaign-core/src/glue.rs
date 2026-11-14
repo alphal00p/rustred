@@ -633,7 +633,11 @@ mod tests {
             }
             let closure_match = set.in_domain(&k) && set.relations.find(&k).is_some();
             assert_eq!(rule.matches(&k), closure_match, "{k:?}");
-            assert_eq!(rule.recipe().in_domain(&k), set.in_domain(&k), "domain {k:?}");
+            assert_eq!(
+                rule.recipe().in_domain(&k),
+                set.in_domain(&k),
+                "domain {k:?}"
+            );
             n_match += closure_match as usize;
         }
         assert_eq!(n_match, 1, "only (2,1): (3,2) is on the exception branch");

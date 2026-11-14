@@ -192,13 +192,21 @@ pub enum TerminalFlag {
     },
     /// A declared terminal that is neither an honoured preferred key nor an explicit spec key and carries NO
     /// exhaustion token (re-audit A m2): blocks its declaration.
-    MissingToken { key: Key },
+    MissingToken {
+        key: Key,
+    },
     /// INFORMATION: the key's ladder was searched only to the largest work counter on these settings ("terminal
     /// within budget"; a run with a larger budget retries them).
-    WithinBudget { key: Key, settings: Vec<String> },
+    WithinBudget {
+        key: Key,
+        settings: Vec<String>,
+    },
     /// INFORMATION: a relation exists for the key but no prover can certify it at the node's level (symmetry rows):
     /// "awaiting a certificate route" (rule digests).
-    AwaitingCertificateRoute { key: Key, relations: Vec<String> },
+    AwaitingCertificateRoute {
+        key: Key,
+        relations: Vec<String>,
+    },
 }
 
 impl TerminalFlag {

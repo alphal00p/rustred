@@ -223,7 +223,10 @@ impl AttemptRecord {
         if self.answer.is_some() {
             return SettingState::Verdict;
         }
-        if self.budget_limited.is_some_and(|m| m > 0 && m >= current_rows) {
+        if self
+            .budget_limited
+            .is_some_and(|m| m > 0 && m >= current_rows)
+        {
             return SettingState::WithinBudget;
         }
         if self.non_verdict.len() as u64 > b.nonverdict_retries as u64
@@ -607,13 +610,12 @@ pub struct LadderExhausted {
     information: Vec<(String, String)>,
 }
 
+/// (gating settings with their state, information settings with their outcome tag).
+type RungCensus = (Vec<(SeedSetting, SettingState)>, Vec<(String, String)>);
+
 /// Classification of the seed space of an item for the terminal rung: gating settings (label, record state) and the
 /// information settings (label, outcome).
-fn rung_census(
-    state: &ItemState,
-    params: &NodeParams,
-    point: bool,
-) -> (Vec<(SeedSetting, SettingState)>, Vec<(String, String)>) {
+fn rung_census(state: &ItemState, params: &NodeParams, point: bool) -> RungCensus {
     let item = &state.item;
     let b = &params.budgets;
     let mut gating = Vec::new();
@@ -1130,11 +1132,7 @@ impl ItemState {
             }
             OutcomeClass::Infra => r.infra_interrupts = r.infra_interrupts.saturating_add(1),
             OutcomeClass::NonVerdict if work_stop => {
-                r.budget_limited = Some(
-                    r.budget_limited
-                        .unwrap_or(0)
-                        .max(attempt.budget.max_rows),
-                )
+                r.budget_limited = Some(r.budget_limited.unwrap_or(0).max(attempt.budget.max_rows))
             }
             OutcomeClass::NonVerdict => r.non_verdict.push(answer.outcome.tag().to_string()),
             OutcomeClass::Verdict => r.answer = Some(answer),

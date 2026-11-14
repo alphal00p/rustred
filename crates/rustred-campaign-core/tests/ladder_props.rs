@@ -175,7 +175,11 @@ fn batch_one(item: Item, p: &NodeParams, solver: &mut RandomSolver) -> (ItemStat
             Next::NeedContainment(_) => unreachable!(),
             Next::NeedOffers => st.record_offers("none", vec![]),
 
-            Next::NeedShadowing => st.record_shadowing(rustred_campaign_core::worklist::ladder::ShadowVerdict::Unknown { why: "no shadowing test in this driver".into() }),
+            Next::NeedShadowing => st.record_shadowing(
+                rustred_campaign_core::worklist::ladder::ShadowVerdict::Unknown {
+                    why: "no shadowing test in this driver".into(),
+                },
+            ),
             Next::Done(d) => return (st, d),
         }
     }

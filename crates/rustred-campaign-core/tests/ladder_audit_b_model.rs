@@ -1259,7 +1259,11 @@ pub fn batch_tree(
                 }
                 Next::NeedOffers => st.record_offers("none", vec![]),
 
-                Next::NeedShadowing => st.record_shadowing(rustred_campaign_core::worklist::ladder::ShadowVerdict::Unknown { why: "no shadowing test in this driver".into() }),
+                Next::NeedShadowing => st.record_shadowing(
+                    rustred_campaign_core::worklist::ladder::ShadowVerdict::Unknown {
+                        why: "no shadowing test in this driver".into(),
+                    },
+                ),
                 Next::NeedContainment(reqs) => {
                     for r in reqs {
                         st.record_containment(&r.attempt_key, r.index, Tri::Unknown);
@@ -3554,7 +3558,11 @@ fn debug_part2_seed() {
                 }
                 Next::NeedOffers => st.record_offers("none", vec![]),
 
-                Next::NeedShadowing => st.record_shadowing(rustred_campaign_core::worklist::ladder::ShadowVerdict::Unknown { why: "no shadowing test in this driver".into() }),
+                Next::NeedShadowing => st.record_shadowing(
+                    rustred_campaign_core::worklist::ladder::ShadowVerdict::Unknown {
+                        why: "no shadowing test in this driver".into(),
+                    },
+                ),
                 Next::NeedContainment(_) => unreachable!(),
                 Next::Done(d) => {
                     if let Disposition::Covered { cover } | Disposition::Split { cover, .. } = &d {
@@ -4029,7 +4037,10 @@ fn reaudit_b_c1_stopped_run_is_sealed_at_unprocessed_roots() {
         let rules: Vec<(CandidateRule, Vec<Exclusion>)> = rep
             .accepted_members()
             .into_iter()
-            .filter_map(|(i, m)| rep.rule_of(i, &m).map(|c| (c.clone(), m.exclusions.clone())))
+            .filter_map(|(i, m)| {
+                rep.rule_of(i, &m)
+                    .map(|c| (c.clone(), m.exclusions.clone()))
+            })
             .collect();
         let credited: Vec<BTreeSet<Key>> = rep
             .accepted_members()

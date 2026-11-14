@@ -518,9 +518,9 @@ pub fn merge_terminals_by_symmetry(
         }
     }
     let mut groups: BTreeMap<usize, Vec<Key>> = BTreeMap::new();
-    for i in 0..n {
+    for (i, k) in keys.iter().enumerate() {
         let r = root(&mut class, i);
-        groups.entry(r).or_default().push(keys[i].clone());
+        groups.entry(r).or_default().push(k.clone());
     }
     let mut keep = Vec::new();
     let mut related = Vec::new();
