@@ -723,6 +723,69 @@ fn domain_bounds_and_qualified_recenter_are_selection_bounds() {
     ));
 }
 
+/// engfix4 (re-audit mn-2): the importer refuses exactly the `domain_bounds` the engine refuses (rustred-core
+/// node/bounds.rs): a min on a numerator slot or a max on a line slot also when the slot is FIXED, and a bound that
+/// excludes more than `MAX_BOUND_EXCLUSIONS_PER_SLOT` values on a FREE slot; a far bound on a fixed slot is a plain
+/// comparison (accepted by both).
+#[test]
+fn domain_bounds_refusals_match_the_engine() {
+    let d = scratch("bounds-rule");
+    let st = write_keys(&d, &[[3, 1, 0]]);
+    let try_bounds = |name: &str, fixed: [Option<i64>; 3], bounds: Value| {
+        let t = write_table(
+            &d,
+            &format!("{name}.table.jsonl"),
+            &[rule(
+                0,
+                fixed,
+                &["I(n0-1,1,0)"],
+                Some(json!([])),
+                json!({"domain_bounds": bounds}),
+            )],
+        );
+        let spec = json!({"schema":"rustred.campaign.import-spec.v1","frame_from":name,
+            "start":{"path": st.display().to_string(),"format":"keys_jsonl"},
+            "sources":[{"id":name,"kind":"engine_table","path":t.display().to_string()}]});
+        load(&TableSetSpec::from_json(&spec.to_string()).unwrap(), &d)
+    };
+    // a min on the FIXED numerator slot 2 (the engine accepted it before engfix4): refused
+    assert!(matches!(
+        try_bounds(
+            "F1",
+            [None, Some(1), Some(0)],
+            json!({"min":[null,null,-1]})
+        )
+        .unwrap_err(),
+        ImportError::Line { .. }
+    ));
+    // a min of 100 on the FREE line slot 0 (the engine refuses it: 99 excluded values): refused
+    let e = try_bounds(
+        "F2",
+        [None, Some(1), Some(0)],
+        json!({"min":[100,null,null]}),
+    )
+    .unwrap_err();
+    assert!(format!("{e:?}").contains("excludes more than"), "{e:?}");
+    // the limit itself is accepted (min 65 excludes 64 values)
+    assert!(
+        try_bounds(
+            "F3",
+            [None, Some(1), Some(0)],
+            json!({"min":[65,null,null]})
+        )
+        .is_ok()
+    );
+    // a far min on the FIXED line slot 1: a comparison with the fixed value, accepted
+    assert!(
+        try_bounds(
+            "F4",
+            [None, Some(1), Some(0)],
+            json!({"min":[null,100,null]})
+        )
+        .is_ok()
+    );
+}
+
 fn recipe_file(dir: &Path, fixed: [Option<i64>; 3]) -> PathBuf {
     let p = dir.join("recipe.json");
     std::fs::write(
