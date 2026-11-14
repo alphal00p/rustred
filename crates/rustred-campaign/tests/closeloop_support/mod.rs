@@ -86,6 +86,10 @@ pub struct Toy {
     pub max_keys_per_job: usize,
     /// Give the table rule its fact + per-key proof (else the node cannot close: Tier C, per-key required).
     pub table_evidence: bool,
+    /// lane closeloop2: proof jobs (fake rr_proof) for our relations and the import's requests.
+    pub proof: bool,
+    /// Fake rr_proof oracle lines (`closeloop::proofs::ProofOracle`), e.g. a lie for one key.
+    pub proof_oracle: Vec<Value>,
 }
 
 impl Default for Toy {
@@ -101,6 +105,8 @@ impl Default for Toy {
             r1_engine_digest: None,
             max_keys_per_job: 2,
             table_evidence: true,
+            proof: true,
+            proof_oracle: vec![],
         }
     }
 }
@@ -258,10 +264,27 @@ pub fn toy(dir: &Path, t: &Toy, fake: &str) -> ToyFiles {
         "default_recipe": if t.default_recipe { json!(dflt.display().to_string()) } else { Value::Null },
         "budgets": {"max_rounds": 20, "max_job_attempts": 2},
         "solve": {"program": "rr_fake_child", "family": family.display().to_string(), "order": "toy-order",
+                  "relation_rule": "first_admissible",
                   "max_keys_per_job": t.max_keys_per_job, "threads": 1, "cap_bytes": 268435456,
                   "expected_peak_bytes": 67108864, "heartbeat_s": 1, "stop_grace_s": 3,
                   "fake": {"oracle": op.display().to_string(), "ms": t.ms, "quirks": t.quirks, "program": "rr_fake_child"}}
     }]});
+    let mut cfg = cfg;
+    if t.proof {
+        let po = dir.join("proof-oracle.jsonl");
+        std::fs::write(
+            &po,
+            t.proof_oracle
+                .iter()
+                .map(|v| format!("{v}\n"))
+                .collect::<String>(),
+        )
+        .unwrap();
+        cfg["nodes"][0]["proof"] = json!({"program": "rr_proof", "rows": "engine",
+            "family": family.display().to_string(), "max_keys_per_job": 4, "wall_s": 60,
+            "cap_bytes": 268435456, "expected_peak_bytes": 67108864,
+            "fake": {"oracle": po.display().to_string(), "ms": t.ms, "program": "rr_fake_child"}});
+    }
     std::fs::write(&config, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
     let _ = fake;
     ToyFiles {
