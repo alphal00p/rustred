@@ -5,8 +5,10 @@
 //!   and its completion line (the gate4 E3 check: daemons that only a signal can end);
 //! - M2: every verb refuses to start from an environment carrying the campaign marker (gate4 E11);
 //! - m1: a child that deletes `RUN/sup/SPAWN` and escapes cannot act before its spawn is in the ledger (gate4 E4);
-//! - m2: `ulimit -f` ends the supervisor with exit 75 (disk full), never by SIGXFSZ.
+//! - m2: `ulimit -f` ends the supervisor with exit 75 (disk full), never by SIGXFSZ;
+//! - letter (a): real children are refused without scope containment unless the spec says `containment: marker_only`.
 
+mod closeloop_support;
 #[path = "sup_common/mod.rs"]
 mod common;
 
@@ -311,5 +313,82 @@ fn m2_file_size_limit_is_disk_full_never_sigxfsz() {
     assert_eq!(codes.last(), ref_codes.last());
     assert_eq!(result(&d), result(&r));
     assert_eq!(verify(&d), 0);
+    assert_no_marked(&t.campaign);
+}
+
+/// gate4 letter (a), item 5: inside a pid namespace there is no systemd scope; a campaign whose program is NOT the fake
+/// child (its `version --json` names another program) is refused (exit 1) unless `resources.containment` is
+/// `"marker_only"`; an unknown containment value is refused. (The toy closeloop campaign; its program wraps the fake child
+/// for jobs.)
+#[test]
+fn real_children_need_scope_containment_unless_marker_only() {
+    if !rustred_campaign::launch::in_private_namespace() {
+        eprintln!("SKIPPED: only meaningful inside a private namespace (no systemd scope there)");
+        return;
+    }
+    let _g = serial();
+    let t = Tmp::new("pf5-cont");
+    let real = t.path.join("realish.sh");
+    std::fs::write(
+        &real,
+        format!(
+            "#!/bin/sh\nif [ \"$1\" = version ]; then echo '{{\"program\":\"rr_node_stand_in\"}}'; exit 0; fi\nexec {} \"$@\"\n",
+            FAKE
+        ),
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let r = real.to_str().unwrap();
+    let files = closeloop_support::toy(&t.path.join("m"), &closeloop_support::Toy::default(), r);
+    let base = closeloop_support::campaign_spec(&t.campaign, &files, r, &cpus());
+    // default (scope): refused, nothing launched
+    let p1 = write_spec(&t, "s1.json", &base);
+    let d1 = t.cdir("refused");
+    let mut c = start(&p1, &d1, &["--plain"], &[]);
+    assert_eq!(
+        wait(&mut c, Duration::from_secs(120)),
+        1,
+        "{}",
+        log_tail(&d1)
+    );
+    assert!(
+        log_tail(&d1).contains("real children need scope containment"),
+        "{}",
+        log_tail(&d1)
+    );
+    assert!(
+        !d1.join("jobs").exists() || std::fs::read_dir(d1.join("jobs")).unwrap().next().is_none(),
+        "nothing launched"
+    );
+    // an unknown value: refused
+    let mut bad = base.clone();
+    bad["resources"]["containment"] = serde_json::json!("cgroupish");
+    let p2 = write_spec(&t, "s2.json", &bad);
+    let d2 = t.cdir("bad");
+    let mut c = start(&p2, &d2, &["--plain"], &[]);
+    assert_eq!(
+        wait(&mut c, Duration::from_secs(120)),
+        1,
+        "{}",
+        log_tail(&d2)
+    );
+    // explicit marker_only: runs (warning logged)
+    let mut ok = base.clone();
+    ok["resources"]["containment"] = serde_json::json!("marker_only");
+    let p3 = write_spec(&t, "s3.json", &ok);
+    let d3 = t.cdir("marker_only");
+    let codes = run_to_end(&p3, &d3, &["--plain"]);
+    assert!(
+        finished(*codes.last().unwrap()),
+        "{codes:?} {}",
+        log_tail(&d3)
+    );
+    assert!(
+        std::fs::read_to_string(d3.join("log").join("supervisor.log"))
+            .unwrap()
+            .contains("containment: marker only"),
+        "the operator is told"
+    );
     assert_no_marked(&t.campaign);
 }

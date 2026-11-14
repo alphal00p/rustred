@@ -29,7 +29,12 @@ fn i1_random_interrupts_give_the_reference_result() {
     // Reference.
     let reference_dir = t.cdir("reference");
     let codes = run_to_end(&spec_p, &reference_dir, &[]);
-    assert_eq!(codes, vec![0], "reference must run uninterrupted");
+    // procfix5 (gate4 m3/m4): 10 = finished with an item in attention (a synthetic item that crashed twice)
+    assert!(
+        codes.len() == 1 && finished(codes[0]),
+        "reference must run uninterrupted: {codes:?}"
+    );
+    let ref_code = codes[0];
     let reference = result(&reference_dir);
     let rf = ledger_facts(&reference_dir);
     assert_eq!(rf.interrupted, 0);
@@ -77,22 +82,33 @@ fn i1_random_interrupts_give_the_reference_result() {
             // left by an earlier SIGKILL between spawn and `job.started`, procfix3 item 6); run_to_end resolves it.
             match KINDS[kind] {
                 "sigint" | "sigint2" => {
-                    assert!(code == 130 || code == 0 || code == ATTENTION, "exit {code}")
+                    assert!(
+                        code == 130 || finished(code) || code == ATTENTION,
+                        "exit {code}"
+                    )
                 }
-                "sigterm" => assert!(code == 143 || code == 0 || code == ATTENTION, "exit {code}"),
+                "sigterm" => assert!(
+                    code == 143 || finished(code) || code == ATTENTION,
+                    "exit {code}"
+                ),
                 _ => assert!(
                     code == 128 + libc::SIGKILL || code == ATTENTION,
                     "exit {code}"
                 ),
             }
             codes.push(code);
-            if code == 0 {
+            if finished(code) {
                 break;
             }
         }
-        if codes.last() != Some(&0) {
+        if !codes.last().is_some_and(|c| finished(*c)) {
             codes.extend(run_to_end(&spec_p, &dir, &[]));
         }
+        assert_eq!(
+            codes.last(),
+            Some(&ref_code),
+            "same exit code as the reference: {codes:?}"
+        );
         sessions_total += codes.len();
         let got = result(&dir);
         let same = got == reference;

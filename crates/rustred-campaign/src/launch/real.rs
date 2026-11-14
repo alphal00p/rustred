@@ -1979,3 +1979,53 @@ impl Drop for RealChild {
 pub(super) fn raw(f: &fs::File) -> RawFd {
     f.as_raw_fd()
 }
+
+/// The barrier shim (procfix5 m1), run by the hidden verb [`super::BARRIER_VERB`] of a binary that hosts the supervisor:
+/// `args` = `<fd> -- <program> <args...>`. Waits for one byte on `fd` (the supervisor writes it after recording the
+/// spawn durably), closes it and execs the program in place with the current environment. EOF or anything else: exit
+/// [`super::BARRIER_NOT_RELEASED`] without executing anything. Returns only on failure (the exit code to use).
+pub fn barrier_shim(args: &[String]) -> i32 {
+    use std::io::Write;
+    use std::os::unix::process::CommandExt;
+    let (Some(fd), Some("--"), Some(prog)) = (
+        args.first().and_then(|s| s.parse::<RawFd>().ok()),
+        args.get(1).map(String::as_str),
+        args.get(2),
+    ) else {
+        let _ = writeln!(
+            std::io::stderr(),
+            "{}: usage <fd> -- <program> [args]",
+            super::BARRIER_VERB
+        );
+        return 2;
+    };
+    if fd < 3 {
+        return 2;
+    }
+    let mut b = [0u8; 1];
+    let n = loop {
+        // SAFETY: a one-byte read into a stack buffer from an inherited descriptor.
+        let r = unsafe { libc::read(fd, b.as_mut_ptr().cast(), 1) };
+        if r < 0 && io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+            continue;
+        }
+        break r;
+    };
+    // SAFETY: closing the inherited barrier descriptor (the program must not inherit it).
+    unsafe { libc::close(fd) };
+    if n != 1 || b[0] != b'G' {
+        let _ = writeln!(
+            std::io::stderr(),
+            "{}: the supervisor ended before it recorded this spawn: the program was not started",
+            super::BARRIER_VERB
+        );
+        return super::BARRIER_NOT_RELEASED;
+    }
+    let e = std::process::Command::new(prog).args(&args[3..]).exec();
+    let _ = writeln!(
+        std::io::stderr(),
+        "{}: exec {prog}: {e}",
+        super::BARRIER_VERB
+    );
+    127
+}

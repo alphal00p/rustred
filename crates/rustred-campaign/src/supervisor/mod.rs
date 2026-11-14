@@ -809,6 +809,13 @@ impl Supervisor {
                 moved = true;
             }
         }
+        // procfix5 (run book): where the operator finds the campaign id (every job's marker starts with it).
+        log.line(
+            "INFO",
+            &format!(
+                "campaign id {key} (every job carries RR_CAMPAIGN_JOB={key}:<job>:a<k>; ledger input campaign:marker_id)"
+            ),
+        );
         // A transient probe failure (EMFILE ...) is not "unsupported" (gate re-audit m-2/m-3): only a permanent answer refuses.
         if crate::launch::pidfd_probe() == crate::launch::PidfdProbe::Unsupported
             && !opts.spec.resources.allow_no_pidfd
@@ -4155,7 +4162,13 @@ impl Supervisor {
                         code: self.stop_code(),
                     };
                 }
-                if self.source.finished(self.ledger.state()) {
+                // procfix5: a source that is "finished" while operator decisions are pending (unknown executions,
+                // items in attention for repeated resource ends, live marked survivors) does NOT finish: the exit-8 rule
+                // below decides (a source may count an item in attention as settled for its own purposes).
+                let decisions_pending = !self.unknown.is_empty()
+                    || !self.attention.is_empty()
+                    || !self.survivors.is_empty();
+                if !decisions_pending && self.source.finished(self.ledger.state()) {
                     if let Err(msg) = self.final_sweep() {
                         self.log.line("WARN", &msg);
                         self.commit(vec![Event::Campaign {
@@ -4170,6 +4183,10 @@ impl Supervisor {
                             ev: crate::state::CampaignEvent::Finish,
                             reason: "all work final".into(),
                         }]);
+                    }
+                    // procfix5: a refused / failed finish record is never reported as a finished campaign.
+                    if let Some(e) = self.ledger_dead.clone() {
+                        return e;
                     }
                     self.write_progress(true);
                     if let Err(e) = self.final_consistency() {

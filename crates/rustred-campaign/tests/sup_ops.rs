@@ -64,12 +64,9 @@ fn pause_flag_blocks_launching() {
         log_tail(&d)
     );
     std::fs::remove_file(&flag).unwrap();
-    assert_eq!(
-        wait(&mut c, Duration::from_secs(300)),
-        0,
-        "{}",
-        log_tail(&d)
-    );
+    // procfix5 (gate4 m3/m4): 10 when a synthetic item crashed twice (attention)
+    let code = wait(&mut c, Duration::from_secs(300));
+    assert_eq!(code, finish_code_by_items(&d), "{}", log_tail(&d));
     assert!(launches(&d) > 0);
     assert_no_marked(&t.campaign);
 }
@@ -224,7 +221,7 @@ fn heartbeat_timeout_kills_a_silent_child_and_memory_caps_kill() {
         ),
     );
     let d = t.cdir("run");
-    assert_eq!(run_to_end(&spec_p, &d, &[]), vec![0]);
+    assert_eq!(run_to_end(&spec_p, &d, &[]), vec![finish_code_by_items(&d)]);
     let st = state(&d);
     let j = &st.jobs["N0.i0000.L0-t0"];
     assert!(

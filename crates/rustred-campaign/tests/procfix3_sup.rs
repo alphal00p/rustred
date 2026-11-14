@@ -50,7 +50,7 @@ fn unconfirmed_launch_with_a_valid_outcome_is_consumed_and_unspawned_is_requeued
     let syn = serde_json::json!({"items": 6, "case_ms": [4000, 6000], "seed": 5, "p_mem": 0.0, "p_crash": 0.0});
     let spec_p = write_spec(&t, "spec.json", &spec(&t, syn, serde_json::json!({})));
     let r = t.cdir("reference");
-    assert_eq!(run_to_end(&spec_p, &r, &[]), vec![0]);
+    assert_eq!(run_to_end(&spec_p, &r, &[]), vec![finish_code_by_items(&r)]);
     let reference = result(&r);
 
     let d = t.cdir("spawned");
@@ -58,7 +58,8 @@ fn unconfirmed_launch_with_a_valid_outcome_is_consumed_and_unspawned_is_requeued
         &spec_p,
         &d,
         &[],
-        &[("RR_CAMPAIGN_FAILPOINT", "after_spawn:2")],
+        // procfix5: the int5 / procfix3 rules for a launch WITHOUT the spawn barrier (older binaries; test knob)
+        &[("RR_CAMPAIGN_FAILPOINT", "after_spawn:2,no_spawn_barrier:1")],
     );
     assert_eq!(
         wait(&mut c, Duration::from_secs(300)),
@@ -103,7 +104,12 @@ fn unconfirmed_launch_with_a_valid_outcome_is_consumed_and_unspawned_is_requeued
         status.status,
         String::from_utf8_lossy(&status.stderr)
     );
-    assert_eq!(run_to_end(&spec_p, &d, &[]), vec![0], "{}", log_tail(&d));
+    assert_eq!(
+        run_to_end(&spec_p, &d, &[]),
+        vec![finish_code_by_items(&d)],
+        "{}",
+        log_tail(&d)
+    );
     assert_eq!(result(&d), reference);
     assert!(notes(&d, "execution_unknown").is_empty());
     let j = &state(&d).jobs[&unconfirmed[0]];
@@ -136,7 +142,12 @@ fn unconfirmed_launch_with_a_valid_outcome_is_consumed_and_unspawned_is_requeued
         &[("RR_CAMPAIGN_FAILPOINT", "after_launch_record:2")],
     );
     assert_eq!(wait(&mut c, Duration::from_secs(300)), 134);
-    assert_eq!(run_to_end(&spec_p, &d, &[]), vec![0], "{}", log_tail(&d));
+    assert_eq!(
+        run_to_end(&spec_p, &d, &[]),
+        vec![finish_code_by_items(&d)],
+        "{}",
+        log_tail(&d)
+    );
     assert_eq!(result(&d), reference);
     assert!(notes(&d, "execution_unknown").is_empty());
     // lane int5: the only automatic requeue of an unconfirmed launch is the PROVEN one (`not_spawned`); never `lose`.
@@ -175,14 +186,15 @@ fn unconfirmed_launch_without_outcome_waits_for_the_operator() {
     let syn = serde_json::json!({"items": 6, "case_ms": [4000, 6000], "seed": 5, "p_mem": 0.0, "p_crash": 0.0});
     let spec_p = write_spec(&t, "spec.json", &spec(&t, syn, serde_json::json!({})));
     let r = t.cdir("reference");
-    assert_eq!(run_to_end(&spec_p, &r, &[]), vec![0]);
+    assert_eq!(run_to_end(&spec_p, &r, &[]), vec![finish_code_by_items(&r)]);
     let reference = result(&r);
     let d = t.cdir("spawned");
     let mut c = start(
         &spec_p,
         &d,
         &[],
-        &[("RR_CAMPAIGN_FAILPOINT", "after_spawn:2")],
+        // procfix5: the int5 / procfix3 rules for a launch WITHOUT the spawn barrier (older binaries; test knob)
+        &[("RR_CAMPAIGN_FAILPOINT", "after_spawn:2,no_spawn_barrier:1")],
     );
     assert_eq!(
         wait(&mut c, Duration::from_secs(300)),
@@ -244,7 +256,12 @@ fn unconfirmed_launch_without_outcome_waits_for_the_operator() {
         "checked by hand",
     ]);
     assert_eq!(code, 0);
-    assert_eq!(run_to_end(&spec_p, &d, &[]), vec![0], "{}", log_tail(&d));
+    assert_eq!(
+        run_to_end(&spec_p, &d, &[]),
+        vec![finish_code_by_items(&d)],
+        "{}",
+        log_tail(&d)
+    );
     assert_eq!(result(&d), reference);
     assert_eq!(notes(&d, "control_resolve").len(), 1);
     assert!(
@@ -289,7 +306,8 @@ fn control_requests_of_one_second_apply_in_written_order() {
         assert_eq!(cli(&["control", d.to_str().unwrap(), "resume"]).0, 0);
     }
     let code = wait(&mut c, Duration::from_secs(600));
-    assert_eq!(code, 0, "{}", log_tail(&d));
+    // procfix5 (gate4 m3/m4): the exit code follows the items (10 when a synthetic item crashed twice)
+    assert_eq!(code, finish_code_by_items(&d), "{}", log_tail(&d));
     let ctl = controls(&d);
     assert_eq!(ctl.len(), 10, "{ctl:?}");
     assert!(!state(&d).paused);

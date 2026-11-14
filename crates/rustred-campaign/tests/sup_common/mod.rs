@@ -176,6 +176,17 @@ pub fn finished(code: i32) -> bool {
     matches!(code, 0 | FINISHED_OPEN | FINISHED_ERROR)
 }
 
+/// procfix5 (gate4 m3): the exit code a finished run must have by the DEFAULT outcome rule on its final ledger state
+/// (`worksource::default_outcome`: 0 every item closed, 10 otherwise).
+pub fn finish_code_by_items(cdir: &Path) -> i32 {
+    use rustred_campaign::supervisor::worksource::{CampaignOutcome, default_outcome};
+    match default_outcome(&state(cdir)) {
+        CampaignOutcome::Closed => 0,
+        CampaignOutcome::Open(_) => FINISHED_OPEN,
+        CampaignOutcome::Error(_) => FINISHED_ERROR,
+    }
+}
+
 /// Act as the operator for every attempt of UNKNOWN execution (an `unconfirmed` launch whose run directory holds no
 /// valid OUTCOME; lane int5: the ledger state, not `launching`) and every item in attention for repeated host-resource
 /// ends: `rr_campaign control CDIR resolve JOB`. Returns the jobs resolved.

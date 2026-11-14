@@ -23,7 +23,7 @@ fn reference(
     spec_p: &std::path::Path,
 ) -> rustred_campaign::supervisor::result::FinalResult {
     let d = t.cdir("reference");
-    assert_eq!(run_to_end(spec_p, &d, &[]), vec![0]);
+    assert_eq!(run_to_end(spec_p, &d, &[]), vec![finish_code_by_items(&d)]);
     result(&d)
 }
 
@@ -133,7 +133,7 @@ fn helpers_that_escape_the_group_are_killed_by_marker() {
         serde_json::json!({"items": 6, "case_ms": [80, 200], "seed": 5, "escape_helpers": true});
     let spec_p = write_spec(&t, "spec.json", &spec(&t, syn, serde_json::json!({})));
     let d = t.cdir("run");
-    assert_eq!(run_to_end(&spec_p, &d, &[]), vec![0]);
+    assert_eq!(run_to_end(&spec_p, &d, &[]), vec![finish_code_by_items(&d)]);
     // Ledger kind `orphan_killed` (job recorded), and the log names the contract violation.
     let killed = count(&d, |e| {
         matches!(e, Event::OrphanKilled { job: Some(_), .. })
