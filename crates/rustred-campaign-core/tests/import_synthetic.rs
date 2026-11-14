@@ -723,6 +723,69 @@ fn domain_bounds_and_qualified_recenter_are_selection_bounds() {
     ));
 }
 
+/// engfix4 (re-audit mn-2): the importer refuses exactly the `domain_bounds` the engine refuses (rustred-core
+/// node/bounds.rs): a min on a numerator slot or a max on a line slot also when the slot is FIXED, and a bound that
+/// excludes more than `MAX_BOUND_EXCLUSIONS_PER_SLOT` values on a FREE slot; a far bound on a fixed slot is a plain
+/// comparison (accepted by both).
+#[test]
+fn domain_bounds_refusals_match_the_engine() {
+    let d = scratch("bounds-rule");
+    let st = write_keys(&d, &[[3, 1, 0]]);
+    let try_bounds = |name: &str, fixed: [Option<i64>; 3], bounds: Value| {
+        let t = write_table(
+            &d,
+            &format!("{name}.table.jsonl"),
+            &[rule(
+                0,
+                fixed,
+                &["I(n0-1,1,0)"],
+                Some(json!([])),
+                json!({"domain_bounds": bounds}),
+            )],
+        );
+        let spec = json!({"schema":"rustred.campaign.import-spec.v1","frame_from":name,
+            "start":{"path": st.display().to_string(),"format":"keys_jsonl"},
+            "sources":[{"id":name,"kind":"engine_table","path":t.display().to_string()}]});
+        load(&TableSetSpec::from_json(&spec.to_string()).unwrap(), &d)
+    };
+    // a min on the FIXED numerator slot 2 (the engine accepted it before engfix4): refused
+    assert!(matches!(
+        try_bounds(
+            "F1",
+            [None, Some(1), Some(0)],
+            json!({"min":[null,null,-1]})
+        )
+        .unwrap_err(),
+        ImportError::Line { .. }
+    ));
+    // a min of 100 on the FREE line slot 0 (the engine refuses it: 99 excluded values): refused
+    let e = try_bounds(
+        "F2",
+        [None, Some(1), Some(0)],
+        json!({"min":[100,null,null]}),
+    )
+    .unwrap_err();
+    assert!(format!("{e:?}").contains("excludes more than"), "{e:?}");
+    // the limit itself is accepted (min 65 excludes 64 values)
+    assert!(
+        try_bounds(
+            "F3",
+            [None, Some(1), Some(0)],
+            json!({"min":[65,null,null]})
+        )
+        .is_ok()
+    );
+    // a far min on the FIXED line slot 1: a comparison with the fixed value, accepted
+    assert!(
+        try_bounds(
+            "F4",
+            [None, Some(1), Some(0)],
+            json!({"min":[null,100,null]})
+        )
+        .is_ok()
+    );
+}
+
 fn recipe_file(dir: &Path, fixed: [Option<i64>; 3]) -> PathBuf {
     let p = dir.join("recipe.json");
     std::fs::write(
@@ -1516,4 +1579,157 @@ fn streaming_fact_pass_after_a_tier_k_check() {
         ),
         (2, 1, 1)
     );
+}
+
+/// Lane import3 (item 1): a DOMAIN literal whose coefficients exceed i128 (here 45 and 46 digits, as in four T266
+/// records) is read EXACTLY, never refused and never truncated: the record loads, its exception is evaluated exactly at
+/// the rule point and the dispatch falls through exactly on its zero set.
+#[test]
+fn big_exception_literals_load_and_dispatch_exactly() {
+    let d = scratch("biglit");
+    let big = "123456789012345678901234567890123456789012345";
+    let a = write_table(
+        &d,
+        "A.table.jsonl",
+        &[rule(
+            0,
+            [None, Some(1), Some(0)],
+            &["I(n0-1,1,0)", "I(n0,0,0)"],
+            Some(json!([])),
+            // branch 0 vanishes at n0 = 2 only (a big multiple of n0 - 2); branch 1 never vanishes on keys (a big
+            // constant offset); branch 2 is an AND whose second literal (big, nonzero at n0 = 4) keeps n0 = 4 selected
+            json!({"exceptions": [[format!("{big}*n0 - 2*{big}")], [format!("{big}0*n0^2 + 1")],
+                                  ["n0 - 4".to_string(), format!("{big}*n0 - 1")]]}),
+        )],
+    );
+    let st = write_keys(&d, &[[4, 1, 0], [3, 1, 0]]);
+    let spec = json!({"schema":"rustred.campaign.import-spec.v1","node":"toy","frame_from":"A","bits":6,
+        "start":{"path": st.display().to_string(),"format":"keys_jsonl"},
+        "sources":[{"id":"A","kind":"engine_table","class":"base","path":a.display().to_string(),
+                    "sha256": sha(&a)}]});
+    let (_set, _ev, r) = run(&spec, &d);
+    assert_eq!(row(&r, [4, 1, 0]).status, RowStatus::Served);
+    assert_eq!(row(&r, [3, 1, 0]).status, RowStatus::Served);
+    let k2 = row(&r, [2, 1, 0]);
+    assert_eq!(
+        k2.status,
+        RowStatus::Open,
+        "on the big exception: the dispatch falls through"
+    );
+    assert_eq!(k2.open_status.as_deref(), Some("uncovered"));
+    // the core domain itself: exact literal, exact verdicts
+    use rustred_campaign_core::poly::{Poly, PolyError};
+    let lit = format!("{big}*n0 - 2*{big}");
+    assert_eq!(
+        Poly::parse_d_free(&lit, 3),
+        Err(PolyError::CoefficientOverflow)
+    );
+    let p = Poly::parse_d_free_exact(&lit, 3).unwrap();
+    assert!(p.is_big() && p.small_terms().is_none());
+    assert!(p.is_zero_at(&[2, 1, 0]).unwrap());
+    assert!(!p.is_zero_at(&[3, 1, 0]).unwrap());
+    assert_eq!(
+        p.to_string(),
+        format!(
+            "-{}+{big}*n0",
+            "246913578024691357802469135780246913578024690"
+        )
+    );
+}
+
+/// Lane import3 (item 2): the table index. One pass builds it (domains + digests + rhs keys); the records read back
+/// from it equal a direct scan field by field (record_sha256 of the ORIGINAL line, offset, bytes, domain fields,
+/// rhs keys, file sha256); a second open REUSES it (size, mtime, sampled digest unchanged); a changed file is
+/// re-indexed; a load through a persistent index gives the same check as a load without one.
+#[test]
+fn table_index_one_pass_reuse_and_equality() {
+    use import::index::{INDEX_VERSION, open_or_build};
+    use import::lines::scan_table;
+    let d = scratch("index");
+    let mut spec = base(&d);
+    let a = d.join("A.table.jsonl");
+    // a second, larger record (with origin / domain_bounds fields) and a non-rule line between the records
+    let mut txt = std::fs::read_to_string(&a).unwrap();
+    let extra = rule(
+        7,
+        [None, None, Some(0)],
+        &["I(n0-1,n1,0)", "I(n0,n1-1,0)", "I(2,1,0)"],
+        None,
+        json!({"origin":"tb-x","origin_index":4,"domain_bounds":{"min":[2,null,null],"max":null}}),
+    );
+    txt = txt.replace(
+        r#"{"type":"end""#,
+        &format!("{{\"type\":\"residual\",\"key\":[1,1,0]}}\n\n{extra}\n{{\"type\":\"end\""),
+    );
+    std::fs::write(&a, &txt).unwrap();
+    spec["sources"][0]["sha256"] = json!(sha(&a));
+    let direct = scan_table("A", &a, true, &|_, _| true).unwrap();
+    let cache = d.join("idx");
+    let (ix, o1) = open_or_build("A", &a, Some(&cache)).unwrap();
+    assert_eq!(o1.how, "built");
+    assert_eq!(ix.meta.version, INDEX_VERSION);
+    assert_eq!(ix.meta.file_sha256, direct.file_sha256);
+    assert_eq!(ix.meta.rule_records, 2);
+    let mut recs = vec![];
+    let t = ix
+        .scan_domains("A", &|_, _| true, &mut |r| {
+            recs.push(r);
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(t.kinds, direct.kinds);
+    assert_eq!(t.file_sha256, direct.file_sha256);
+    assert_eq!(t.file_bytes, direct.file_bytes);
+    assert_eq!(recs.len(), direct.records.len());
+    for (x, y) in recs.iter().zip(&direct.records) {
+        assert_eq!(
+            (x.ordinal, x.line_no, x.offset, x.bytes, &x.sha256),
+            (y.ordinal, y.line_no, y.offset, y.bytes, &y.sha256)
+        );
+        assert_eq!(
+            (&x.origin, x.origin_index, &x.domain_bounds),
+            (&y.origin, y.origin_index, &y.domain_bounds)
+        );
+        let mut yr = y.rec.clone();
+        yr.rhs_keys = None;
+        assert_eq!(x.rec, yr, "domain fields");
+    }
+    let mut bodies = vec![];
+    ix.scan_bodies(&|_| true, &mut |o, s, k| {
+        bodies.push((o, s.to_string(), k));
+        Ok(())
+    })
+    .unwrap();
+    for (b, y) in bodies.iter().zip(&direct.records) {
+        assert_eq!(
+            (b.0, &b.1, Some(&b.2)),
+            (y.ordinal, &y.sha256, y.rec.rhs_keys.as_ref())
+        );
+    }
+    drop(ix);
+    let (ix2, o2) = open_or_build("A", &a, Some(&cache)).unwrap();
+    assert_eq!(o2.how, "reused");
+    assert_eq!(ix2.meta.file_sha256, direct.file_sha256);
+    drop(ix2);
+    // the persistent-index load equals the temporary-index load
+    let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
+    let opts = import::LoadOptions {
+        index_dir: Some(cache.clone()),
+    };
+    let set1 = import::load_with(&s, &d, &opts).unwrap();
+    assert_eq!(set1.report.sources[0].indexes[0].how, "reused");
+    let set0 = load(&s, &d).unwrap();
+    assert_eq!(set0.report.sources[0].indexes[0].how, "built_temporary");
+    let ev = Evidence::from_spec(&set0, &d).unwrap();
+    let r0 = check(&set0, &ev, &CheckOptions::default()).unwrap();
+    let ev1 = Evidence::from_spec(&set1, &d).unwrap();
+    let r1 = check(&set1, &ev1, &CheckOptions::default()).unwrap();
+    assert_eq!(r0.key_set_digest, r1.key_set_digest);
+    assert_eq!(r0.counts(), r1.counts());
+    // a changed file (same size, other bytes and mtime) is indexed again
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(&a, txt.replace("\"origin_index\":4", "\"origin_index\":5")).unwrap();
+    let (ix3, o3) = open_or_build("A", &a, Some(&cache)).unwrap();
+    assert_eq!(o3.how, "built");
+    assert_ne!(ix3.meta.file_sha256, direct.file_sha256);
 }

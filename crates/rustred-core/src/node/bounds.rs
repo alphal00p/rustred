@@ -10,6 +10,12 @@
 //! (`n >= 1`) only a lower bound `min = m` is accepted and excludes `n = 1, .., m - 1`; on a non-line slot (`n <= 0`)
 //! only an upper bound `max = M` excludes `n = M + 1, .., 0`; both are finite sets. A bound that would cut an infinite
 //! set (a max on a line, a min on a numerator) is refused. On a FIXED slot a violated bound excludes the whole case.
+//!
+//! ONE refusal rule with the campaign core's importer (lane engfix4, re-audit mn-2; crates/rustred-campaign-core
+//! import/load.rs): `domain_bounds` must be an object with only `min` / `max` (each null or an array of the arity of
+//! integers / nulls); a `min` only on a line slot and a `max` only on a non-line slot, FIXED OR NOT (before engfix4 a
+//! fixed slot took either kind here and was refused by the core); on a FREE slot at most [`MAX_EXCLUDED_PER_SLOT`]
+//! excluded values (the core refuses the same); a non-object value is refused (it was silently ignored here).
 
 use serde_json::Value;
 
@@ -30,6 +36,12 @@ pub fn bound_exclusions(record: &Value) -> Result<Vec<Vec<String>>, String> {
     let Some(b) = record.get("domain_bounds").filter(|b| !b.is_null()) else {
         return Ok(Vec::new());
     };
+    let Some(o) = b.as_object() else {
+        return Err("domain_bounds: not an object".into());
+    };
+    if let Some(k) = o.keys().find(|k| *k != "min" && *k != "max") {
+        return Err(format!("domain_bounds: unknown field {k}"));
+    }
     let chart: Vec<bool> = record["chart"]
         .as_str()
         .ok_or("domain_bounds: rule without chart")?
@@ -56,17 +68,23 @@ pub fn bound_exclusions(record: &Value) -> Result<Vec<Vec<String>>, String> {
         }
     };
     let (min, max) = (list("min")?, list("max")?);
-    if let Some(o) = b.as_object() {
-        if let Some(k) = o.keys().find(|k| *k != "min" && *k != "max") {
-            return Err(format!("domain_bounds: unknown field {k}"));
-        }
-    }
     let fixed: Vec<Option<i64>> = record["fixed"]
         .as_array()
         .map(|a| a.iter().map(Value::as_i64).collect())
         .unwrap_or_else(|| vec![None; n]);
     let mut out = Vec::new();
     for i in 0..n {
+        // the kind of a bound depends on the slot kind only (fixed or not): the core's rule (mn-2)
+        if chart[i] && max[i].is_some() {
+            return Err(format!(
+                "domain_bounds: a max on line slot {i} would cut an infinite set"
+            ));
+        }
+        if !chart[i] && min[i].is_some() {
+            return Err(format!(
+                "domain_bounds: a min on non-line slot {i} would cut an infinite set"
+            ));
+        }
         if let Some(f) = fixed.get(i).copied().flatten() {
             if min[i].is_some_and(|m| f < m) || max[i].is_some_and(|m| f > m) {
                 // the fixed value violates the bound: n_i == f on the whole case, so this branch excludes it all
@@ -75,11 +93,6 @@ pub fn bound_exclusions(record: &Value) -> Result<Vec<Vec<String>>, String> {
             continue;
         }
         if chart[i] {
-            if max[i].is_some() {
-                return Err(format!(
-                    "domain_bounds: a max on line slot {i} would cut an infinite set"
-                ));
-            }
             if let Some(m) = min[i] {
                 if m - 1 > MAX_EXCLUDED_PER_SLOT {
                     return Err(format!(
@@ -91,11 +104,6 @@ pub fn bound_exclusions(record: &Value) -> Result<Vec<Vec<String>>, String> {
                 }
             }
         } else {
-            if min[i].is_some() {
-                return Err(format!(
-                    "domain_bounds: a min on non-line slot {i} would cut an infinite set"
-                ));
-            }
             if let Some(m) = max[i] {
                 if -m > MAX_EXCLUDED_PER_SLOT {
                     return Err(format!(
@@ -168,6 +176,25 @@ mod tests {
             json!({"chart":"110","fixed":[null,1,null],"domain_bounds":{"min":[null,2,null]}});
         assert_eq!(
             bound_exclusions(&fixed_violated).unwrap(),
+            vec![vec!["-1+n1".to_string()]]
+        );
+        // engfix4 mn-2 (one rule with the campaign core): the bound kind follows the slot kind on FIXED slots too,
+        // a non-object value is refused, a far bound on a fixed slot is a comparison (no enumeration, no limit)
+        let min_on_fixed_numerator =
+            json!({"chart":"110","fixed":[null,1,0],"domain_bounds":{"min":[null,null,-1]}});
+        assert!(bound_exclusions(&min_on_fixed_numerator).is_err());
+        let max_on_fixed_line =
+            json!({"chart":"110","fixed":[null,1,null],"domain_bounds":{"max":[null,3,null]}});
+        assert!(bound_exclusions(&max_on_fixed_line).is_err());
+        let not_object = json!({"chart":"110","fixed":[null,1,null],"domain_bounds":[1,2,3]});
+        assert!(bound_exclusions(&not_object).is_err());
+        let far_free =
+            json!({"chart":"110","fixed":[null,1,null],"domain_bounds":{"min":[100,null,null]}});
+        assert!(bound_exclusions(&far_free).is_err());
+        let far_fixed =
+            json!({"chart":"110","fixed":[null,1,null],"domain_bounds":{"min":[null,100,null]}});
+        assert_eq!(
+            bound_exclusions(&far_fixed).unwrap(),
             vec![vec!["-1+n1".to_string()]]
         );
         let rc = json!({"chart":"110","recenter":[-1,0,1]});

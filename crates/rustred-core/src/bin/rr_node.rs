@@ -61,7 +61,7 @@
 //! rr_node --capabilities   (JSON list of verbs and the domaincheck options)
 //! rr_node job RUN/job.json   (child-job contract rustred.child-job.v1: one generate job described by a job spec;
 //!                  exit codes of the contract 0/10/20/21/22/30/40/41/42/50/51/70; node::childjob)
-//! rr_node version --json | rr_node --version --json   (program, version, build git commit, contract, features)
+//! rr_node version --json | rr_node --version --json   (program, version, build commit, contract, features, job kinds)
 //! rr_node generate|witness ... --no-elide-witness-loci   (opt-in: witness loci written in full whatever their size)
 //! rr_node mastermap --old OLD.table.jsonl --new NEW.table.jsonl --out MAP.json [--old-masters 'K;..'] [--new-masters 'K;..']
 //!                  [--dims ..] [--primes N] [--no-symbolic] [--points 80] [--sym-primes 8] [--symbolic-lower]
@@ -151,8 +151,14 @@ impl Args {
     }
 }
 
+/// Job mode (`solve-recipe --job`): what `die` does instead of exit 2 (an error OUTCOME, exit 40).
+static DIE_HOOK: std::sync::OnceLock<Box<dyn Fn(&str) + Send + Sync>> = std::sync::OnceLock::new();
+
 fn die(msg: &str) -> ! {
     job::on_die(msg);
+    if let Some(h) = DIE_HOOK.get() {
+        h(msg);
+    }
     eprintln!("rr_node: {msg}");
     std::process::exit(2)
 }
@@ -1358,7 +1364,7 @@ fn cmd_symmetry(mut a: Args) -> i32 {
 /// interrupted (sealed partial), 40 usage, 41 input, 42 refused (job mode), 70 internal.
 /// Job mode: `rr_node solve-recipe --job RUN/job.json` (child-job contract subset, kind "solve-recipe").
 fn cmd_solve_recipe(mut a: Args) -> i32 {
-    use rustred::node::recipe;
+    use rustred::node::{recipe, recipe_job};
     // lane engbase2: ONE job entry. `solve-recipe --job RUN/job.json` is the same dispatcher as `rr_node job
     // RUN/job.json` (contract preflight, signal flags, sealing, spec-digest binding); the verb's own job reader below
     // is no longer reached.
@@ -1398,130 +1404,55 @@ fn cmd_solve_recipe(mut a: Args) -> i32 {
         (None, 20.0f64, 10.0f64, None, None);
     if let Some(jp) = job_path {
         a.done();
-        let spec_text =
-            std::fs::read_to_string(&jp).unwrap_or_else(|e| usage(&format!("{jp}: {e}")));
-        let spec: serde_json::Value =
-            serde_json::from_str(&spec_text).unwrap_or_else(|e| usage(&format!("job spec: {e}")));
-        if spec["schema"] != "rustred.child-job.v1" || spec["kind"] != "solve-recipe" {
-            usage("job spec: schema rustred.child-job.v1 and kind solve-recipe required");
-        }
-        let run_dir = std::path::PathBuf::from(
-            spec["run_dir"]
-                .as_str()
-                .unwrap_or_else(|| usage("job spec: run_dir")),
-        );
-        let spec_dir = std::fs::canonicalize(
-            std::path::Path::new(&jp)
-                .parent()
-                .unwrap_or(std::path::Path::new(".")),
-        )
-        .unwrap_or_default();
-        if !run_dir.is_absolute() || std::fs::canonicalize(&run_dir).ok() != Some(spec_dir) {
-            fail(
-                42,
-                "job spec: run_dir must be the absolute directory of job.json",
-            );
-        }
-        if run_dir.join("OUTCOME.json").exists() {
-            fail(42, "job: OUTCOME.json exists (a finished job is final)");
-        }
-        let resolve = |p: &str| -> String {
-            let pp = std::path::Path::new(p);
-            if pp.is_absolute() {
-                p.to_string()
-            } else {
-                run_dir.join(pp).display().to_string()
+        // the contract's pre-flight (strict spec, run directory, program digest, features, gated env, input digests)
+        let prep = recipe_job::preflight(std::path::Path::new(&jp), &|k| std::env::var(k).ok())
+            .unwrap_or_else(|r| r.exit());
+        let spec = &prep.spec;
+        let run_dir = prep.run_dir.clone();
+        let refuse = |code: i32, m: &str| -> ! {
+            recipe_job::Refusal {
+                code,
+                message: m.to_string(),
+                outcome: Some((Box::new(spec.clone()), prep.spec_blake3.clone())),
             }
+            .exit()
         };
-        let mut roles: std::collections::BTreeMap<String, String> =
-            std::collections::BTreeMap::new();
-        let mut echo = Vec::new();
-        for i in spec["inputs"].as_array().cloned().unwrap_or_default() {
-            let role = i["role"]
-                .as_str()
-                .unwrap_or_else(|| usage("job spec: input role"))
-                .to_string();
-            if !["family", "recipe", "keys", "expect"].contains(&role.as_str()) {
-                usage(&format!(
-                    "job spec: input role {role} (family, recipe, keys, expect)"
-                ));
-            }
-            let p = resolve(
-                i["path"]
-                    .as_str()
-                    .unwrap_or_else(|| usage("job spec: input path")),
-            );
-            let (bytes, d) = digest(&p);
-            if let Some(want) = i["blake3"].as_str() {
-                if want != d {
-                    input(&format!(
-                        "job: input {role} {p}: blake3 {d} differs from the spec's {want}"
-                    ));
-                }
-            }
-            echo.push(serde_json::json!({"role": role, "path": p, "bytes": bytes, "blake3": d, "verified": i["blake3"].is_string()}));
-            roles.insert(role, p);
-        }
         let mut args = Args {
-            items: spec["args"]
-                .as_array()
-                .cloned()
-                .unwrap_or_default()
-                .iter()
-                .map(|v| {
-                    v.as_str()
-                        .unwrap_or_else(|| usage("job spec: args are strings"))
-                        .to_string()
-                })
-                .collect(),
+            items: spec.args.clone(),
         };
         order_text = args
             .take("--order")
-            .unwrap_or_else(|| usage("job: --order in args"));
+            .unwrap_or_else(|| refuse(40, "job: --order in args"));
         threads = args.parse("--threads").unwrap_or(1);
         max_trace_rows = args.parse("--max-trace-rows");
+        // the per-key wall budget: integer seconds (`--key-budget-s` or `budgets.wall.case_s`, never both)
         key_budget_s = args
-            .parse::<f64>("--key-budget-s")
-            .or_else(|| spec["budgets"]["wall"]["case_s"].as_f64());
+            .parse::<u64>("--key-budget-s")
+            .or(spec.budgets.wall.case_s)
+            .map(|b| b as f64);
         no_proof = false;
         if !args.items.is_empty() {
-            usage(&format!(
-                "job: args outside the solve-recipe allow-list (--order, --threads, --max-trace-rows, --key-budget-s): {:?}",
-                args.items
-            ));
+            refuse(
+                40,
+                &format!("job: args outside the allow-list: {:?}", args.items),
+            );
         }
-        family_path = roles
-            .get("family")
-            .cloned()
-            .unwrap_or_else(|| usage("job: input role family"));
-        recipe_path = roles
-            .get("recipe")
-            .cloned()
-            .unwrap_or_else(|| usage("job: input role recipe"));
-        keys_path = Some(
-            roles
-                .get("keys")
-                .cloned()
-                .unwrap_or_else(|| usage("job: input role keys")),
-        );
+        let role = |r: &str| prep.inputs.get(r).cloned();
+        family_path = role("family").unwrap_or_else(|| refuse(40, "job: input role family"));
+        recipe_path = role("recipe").unwrap_or_else(|| refuse(40, "job: input role recipe"));
+        keys_path = Some(role("keys").unwrap_or_else(|| refuse(40, "job: input role keys")));
         key_inline = None;
-        expect_path = roles.get("expect").cloned();
+        expect_path = role("expect");
         out = run_dir.join("out").display().to_string();
         outcome_path = Some(run_dir.join("OUTCOME.json"));
-        for i in echo.iter_mut() {
-            // inputs echoed relative to the run directory (no absolute paths in the job's records)
-            let p = i["path"].as_str().unwrap_or("").to_string();
-            i["path"] = serde_json::json!(relative_to(&run_dir, &p));
-        }
         job = Some(
-            serde_json::json!({"schema": "rustred.child-job.outcome.v1", "job_id": spec["job_id"],
-            "attempt": spec["attempt"], "kind": "solve-recipe",
-            "spec_blake3": blake3::hash(spec_text.as_bytes()).to_hex().to_string(), "inputs": echo,
-            "args": spec["args"], "started_utc": recipe::utc_now()}),
+            serde_json::json!({"schema": recipe_job::OUTCOME_SCHEMA, "job_id": spec.job_id,
+            "attempt": spec.attempt, "kind": "solve-recipe", "spec_blake3": prep.spec_blake3,
+            "inputs": prep.echo, "args": spec.args, "started_utc": recipe::utc_now()}),
         );
         stop_file = Some(run_dir.join("STOP"));
-        stop_grace_s = spec["stop_grace_s"].as_f64().unwrap_or(20.0);
-        heartbeat_s = spec["heartbeat_s"].as_f64().unwrap_or(10.0);
+        stop_grace_s = spec.stop_grace_s as f64;
+        heartbeat_s = spec.heartbeat_s as f64;
         path_base = Some(run_dir.clone());
         events_path = Some(run_dir.join("EVENTS.jsonl"));
     } else {
@@ -1546,6 +1477,24 @@ fn cmd_solve_recipe(mut a: Args) -> i32 {
         outcome_path = None;
         a.done();
     }
+    // job mode: every later refusal or error writes an error OUTCOME (no-clobber) before its exit
+    let job_ctx = job.clone().zip(path_base.clone());
+    if let Some((j, b)) = job_ctx.clone() {
+        let _ = DIE_HOOK.set(Box::new(move |m: &str| {
+            eprintln!("rr_node solve-recipe: {m}");
+            let _ = recipe_job::error_outcome_job(&j, &b, 40, m);
+            std::process::exit(40)
+        }));
+    }
+    let fail = |code: i32, m: &str| -> ! {
+        eprintln!("rr_node solve-recipe: {m}");
+        if let Some((j, b)) = &job_ctx {
+            let _ = recipe_job::error_outcome_job(j, b, code, m);
+        }
+        std::process::exit(code)
+    };
+    let usage = |m: &str| -> ! { fail(40, m) };
+    let input = |m: &str| -> ! { fail(41, m) };
     let family = std::fs::read_to_string(&family_path)
         .unwrap_or_else(|e| input(&format!("{family_path}: {e}")));
     let recipe_text = std::fs::read_to_string(&recipe_path)
@@ -1664,12 +1613,14 @@ fn cmd_solve_recipe(mut a: Args) -> i32 {
             code
         }
         Err(e) => {
-            eprintln!("rr_node solve-recipe: {e}");
-            if e.starts_with("recipe") || e.contains("arity") || e.contains("two-sided") {
+            let code = if e.starts_with(recipe_job::IO_ERROR_PREFIX) {
+                51
+            } else if e.starts_with("recipe") || e.contains("arity") || e.contains("two-sided") {
                 41
             } else {
                 70
-            }
+            };
+            fail(code, &e)
         }
     }
 }
@@ -1713,21 +1664,18 @@ fn cmd_first_match(mut a: Args) -> i32 {
     0
 }
 
-/// `p` relative to `base` (`..` where needed; both made absolute).
-fn relative_to(base: &std::path::Path, p: &str) -> String {
-    let abs = |x: &std::path::Path| std::fs::canonicalize(x).unwrap_or_else(|_| x.to_path_buf());
-    let (b, t) = (abs(base), abs(std::path::Path::new(p)));
-    let bc: Vec<_> = b.components().collect();
-    let tc: Vec<_> = t.components().collect();
-    let common = bc.iter().zip(&tc).take_while(|(x, y)| x == y).count();
-    let mut out = std::path::PathBuf::new();
-    for _ in common..bc.len() {
-        out.push("..");
+/// `rr_node version --json` / `rr_node --version --json`: one JSON line (child-job contract 3.2.1: program, package
+/// version, build commit, contract, features, job kinds, arities).
+/// Merged build (lane engfix4): superseded by `job::cmd_version` (ONE job entry, both kinds generate and solve-recipe);
+/// kept unchanged for the next engine-line merge.
+#[allow(dead_code)]
+fn cmd_version(mut a: Args) -> i32 {
+    if !a.flag("--json") {
+        die("usage: rr_node version --json");
     }
-    for c in &tc[common..] {
-        out.push(c.as_os_str());
-    }
-    out.display().to_string()
+    a.done();
+    println!("{}", rustred::node::recipe_job::version_json());
+    0
 }
 
 fn dims_arg(a: &mut Args) -> Vec<rustred::node::replay::arith::Q> {

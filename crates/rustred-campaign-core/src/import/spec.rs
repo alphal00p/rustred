@@ -267,7 +267,9 @@ impl SourceKind {
                 "domain",
             ],
             SourceKind::Recipe => &["path", "sha256", "engine_digest", "assignment"],
-            SourceKind::SuppliedRelations => &["path", "sha256", "verification", "verify"],
+            SourceKind::SuppliedRelations => {
+                &["path", "sha256", "verification", "verify", "diagnostic"]
+            }
             SourceKind::SymmetryCredit => &["group", "family", "group_format", "max_candidates"],
             SourceKind::Terminals => &["keys", "path", "sha256", "preferred"],
         }
@@ -334,6 +336,12 @@ pub struct SourceSpec {
     pub keys: Option<Vec<Vec<i32>>>,
     #[serde(default)]
     pub preferred: Option<bool>,
+    /// `supplied_relations` only: KEYS-ONLY relations of an external checker (no coefficients, no verification): the
+    /// closure follows them as if they were certified, but a key they serve is NEVER certified (evidence none, basis
+    /// `keys_only_relation_diagnostic`) and the check is blocked by `keys_only_relations_diagnostic` (lane import3: the
+    /// key-set comparison with a checker's delivery before the solves exist). Refused with `verify` / `verification`.
+    #[serde(default)]
+    pub diagnostic: bool,
 }
 
 impl SourceSpec {
@@ -486,7 +494,15 @@ impl TableSetSpec {
                     need(s.variant.is_some(), "variant")?;
                 }
                 SourceKind::Recipe => need(s.path.is_some(), "path")?,
-                SourceKind::SuppliedRelations => need(s.path.is_some(), "path")?,
+                SourceKind::SuppliedRelations => {
+                    need(s.path.is_some(), "path")?;
+                    if s.diagnostic && (s.verify.is_some() || s.verification.is_some()) {
+                        return Err(ImportError::Spec(format!(
+                            "source {}: diagnostic keys-only relations cannot carry verify / verification",
+                            s.id
+                        )));
+                    }
+                }
                 SourceKind::SymmetryCredit => need(
                     s.group.is_some() || s.family.is_some() || s.group_format.is_some(),
                     "group, family or group_format",
@@ -495,6 +511,12 @@ impl TableSetSpec {
                     s.keys.is_some() != s.path.is_some(),
                     "exactly one of keys / path",
                 )?,
+            }
+            if s.diagnostic && s.kind != SourceKind::SuppliedRelations {
+                return Err(ImportError::Spec(format!(
+                    "source {}: `diagnostic` is a supplied_relations field",
+                    s.id
+                )));
             }
             let mut rm = BTreeSet::new();
             for r in &s.removed {

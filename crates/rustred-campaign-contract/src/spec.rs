@@ -33,6 +33,9 @@ pub enum JobKind {
     /// `rr_proof instantiate` (coord-ec2-instantiate.md 3) run as a LEGACY child: no job mode in the child; the
     /// supervisor-side wrapper (interfaces/adapters.md 2.3) seals its output and writes OUTCOME (lane adapters).
     ProofInstantiate,
+    /// `rr_proof --mode instance-span` (coord-ec2-instantiate.md 1, 4) at MANY keys of ONE rule record, run as a LEGACY
+    /// child like `proof-instantiate`; the supervisor-side wrapper seals its answers (lane closeloop2; closeloop.md 13.1).
+    ProofInstanceSpan,
 }
 
 /// Compliance level (1.1).
@@ -48,7 +51,7 @@ pub enum Level {
 }
 
 impl JobKind {
-    pub const ALL: [JobKind; 13] = [
+    pub const ALL: [JobKind; 14] = [
         JobKind::Generate,
         JobKind::GenerateAuto,
         JobKind::Descent,
@@ -62,12 +65,15 @@ impl JobKind {
         JobKind::Fake,
         JobKind::SolveRecipe,
         JobKind::ProofInstantiate,
+        JobKind::ProofInstanceSpan,
     ];
 
     pub const fn level(self) -> Level {
         match self {
             JobKind::Generate | JobKind::Witness | JobKind::Fake => Level::L2,
-            JobKind::TableDump | JobKind::ProofInstantiate => Level::Legacy,
+            JobKind::TableDump | JobKind::ProofInstantiate | JobKind::ProofInstanceSpan => {
+                Level::Legacy
+            }
             _ => Level::L1,
         }
     }
@@ -85,7 +91,8 @@ impl JobKind {
             JobKind::ProofSpan
             | JobKind::ProofExact
             | JobKind::ProofStream
-            | JobKind::ProofInstantiate => "rr_proof",
+            | JobKind::ProofInstantiate
+            | JobKind::ProofInstanceSpan => "rr_proof",
             JobKind::TableDump => "table_dump",
             JobKind::Fake => "rr_fake_child",
         }
@@ -116,7 +123,8 @@ impl JobKind {
             | JobKind::ProofExact
             | JobKind::ProofStream
             | JobKind::SolveRecipe
-            | JobKind::ProofInstantiate => Some(&RESULT_OUTPUTS),
+            | JobKind::ProofInstantiate
+            | JobKind::ProofInstanceSpan => Some(&RESULT_OUTPUTS),
             JobKind::GenerateAuto => None,
         }
     }
@@ -134,7 +142,7 @@ impl JobKind {
             JobKind::Fake => &[],
             JobKind::SolveRecipe => &SOLVE_RECIPE_ARGS,
             // the wrapper builds the legacy argv itself (`instantiate --requests in/requests.jsonl --out ...`)
-            JobKind::ProofInstantiate => &[],
+            JobKind::ProofInstantiate | JobKind::ProofInstanceSpan => &[],
         }
     }
 
@@ -151,13 +159,26 @@ impl JobKind {
                 required: &["requests", "table"],
                 optional: &[],
             }),
+            // one rule record of one table at many keys; rows from the family (engine build) or a cert / ROWS file
+            JobKind::ProofInstanceSpan => Some(InputRoles {
+                required: &["request", "table", "keys"],
+                optional: &["family", "cert", "symmetry_group"],
+            }),
             _ => None,
         }
     }
 
     /// Kinds the fake child `rr_fake_child` can emulate under their own kind name (lane adapters).
     pub const fn fake_emulated(self) -> bool {
-        matches!(self, JobKind::SolveRecipe)
+        matches!(
+            self,
+            JobKind::SolveRecipe | JobKind::ProofInstantiate | JobKind::ProofInstanceSpan
+        )
+    }
+
+    /// The rr_proof kinds run as LEGACY children whose output the supervisor-side wrapper seals (closeloop.md 13.1).
+    pub const fn legacy_wrapped(self) -> bool {
+        matches!(self, JobKind::ProofInstantiate | JobKind::ProofInstanceSpan)
     }
 
     /// Checker kinds (exit 11 / 12 possible).
@@ -1019,7 +1040,10 @@ impl JobSpec {
 
     /// Constraints of the L1 / legacy kinds added by lane adapters (exit 40; interfaces/adapters.md 1.1).
     pub fn check_kind_constraints(&self) -> Result<(), SpecError> {
-        if !matches!(self.kind, JobKind::SolveRecipe | JobKind::ProofInstantiate) {
+        if !matches!(
+            self.kind,
+            JobKind::SolveRecipe | JobKind::ProofInstantiate | JobKind::ProofInstanceSpan
+        ) {
             return Ok(());
         }
         let k = self.kind;
@@ -1057,10 +1081,10 @@ impl JobSpec {
             return Err(bad("on_case_budget", format!("kind {k:?}: stop only")));
         }
         let key_budget = self.args.iter().any(|a| a == "--key-budget-s");
-        if k == JobKind::ProofInstantiate && self.budgets.wall.case_s.is_some() {
+        if k.legacy_wrapped() && self.budgets.wall.case_s.is_some() {
             return Err(bad(
                 "budgets.wall.case_s",
-                "kind ProofInstantiate has no per-case budget",
+                format!("kind {k:?} has no per-case budget"),
             ));
         }
         if key_budget && self.budgets.wall.case_s.is_some() {

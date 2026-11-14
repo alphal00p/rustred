@@ -32,7 +32,10 @@
 //! The T162 bank's written `GE` atoms are part of the bank's DEFINITION of the domain and count as selection.
 //!
 //! Domain literals (equations, bounds, exceptions) must be d-free: parsing asserts it ([`DomainError::Poly`] with
-//! `PolyError::ContainsD`). Evaluation is exact (i128 with an arbitrary-precision fallback). A literal that is
+//! `PolyError::ContainsD`). They are read with the EXACT parser ([`Poly::parse_d_free_exact`]; pole loci with
+//! [`Poly::parse_exact`]): a coefficient beyond `i128` is kept exactly (a big literal), never refused, never truncated
+//! (lane import3: four T266 records carry exception literals with 39-46 digit coefficients). Evaluation is exact (i128
+//! with an arbitrary-precision fallback). A literal that is
 //! nonzero but vanishes modulo both of the engine's primes is reported as an evaluation error (the engine would read
 //! it as zero; audit A N1).
 //!
@@ -418,7 +421,7 @@ pub struct CaseDomain {
 fn parse_list(v: &[String], arity: usize, field: &'static str) -> Result<Vec<Poly>, DomainError> {
     v.iter()
         .map(|s| {
-            Poly::parse_d_free(s, arity).map_err(|err| DomainError::Poly {
+            Poly::parse_d_free_exact(s, arity).map_err(|err| DomainError::Poly {
                 field,
                 text: s.clone(),
                 err,
@@ -434,7 +437,7 @@ fn parse_poles(
     out: &mut Vec<PoleLocus>,
 ) -> Result<(), DomainError> {
     for s in v {
-        let p = Poly::parse(s, arity, true).map_err(|err| DomainError::Poly {
+        let p = Poly::parse_exact(s, arity, true).map_err(|err| DomainError::Poly {
             field: "pole",
             text: s.clone(),
             err,
@@ -659,7 +662,7 @@ impl CaseDomain {
         )?;
         let mut bounds = vec![];
         for (rel, t) in &p.domain_atoms {
-            let q = Poly::parse_d_free(t, arity).map_err(|err| DomainError::Poly {
+            let q = Poly::parse_d_free_exact(t, arity).map_err(|err| DomainError::Poly {
                 field: "atom",
                 text: t.clone(),
                 err,

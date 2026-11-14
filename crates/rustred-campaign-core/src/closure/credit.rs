@@ -139,6 +139,20 @@ pub(super) fn serve_credit(
                     refusals.push((ei, Refusal::NoBody));
                     continue;
                 }
+                // an image blocked only for missing per-key evidence (elided / witness loci not carried) under the
+                // per-key lift: structurally admissible (a Tier C run with the per-key proof at the image credits it,
+                // closure.md 17), so the superset follows it; it passes the keys-only check only when the proof is bound
+                Dispatch::Blocked { at, reason }
+                    if ctx.cfg.per_key_lift == super::PerKeyLift::Proof
+                        && matches!(
+                            reason,
+                            crate::domain::Verdict::WitnessNotCarried | crate::domain::Verdict::Elided
+                        )
+                        && ctx.bodies.has(at.table, at.record) =>
+                {
+                    let clean = symmetry::try_one(key, ei, pol, ctx)?.is_ok();
+                    cands.push((ei, image, Server::Rule(ctx.position(at)), clean));
+                }
                 d => {
                     refusals.push((ei, Refusal::ImageNotCovered(d)));
                     continue;

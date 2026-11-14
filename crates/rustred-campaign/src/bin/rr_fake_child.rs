@@ -143,6 +143,9 @@ fn program_json() -> Value {
 // lane adapters: kind solve-recipe emulated (src/bin/rr_fake_child/solve_recipe.rs)
 #[path = "rr_fake_child/solve_recipe.rs"]
 mod solve_recipe;
+// lane closeloop2: the legacy rr_proof kinds emulated (src/bin/rr_fake_child/proof.rs)
+#[path = "rr_fake_child/proof.rs"]
+mod proof;
 
 mod own {
     use serde_json::Value;
@@ -1263,10 +1266,12 @@ impl Main {
                         message: message.clone(),
                     };
                 }
-                FakeOp::Relation { .. } | FakeOp::RecipeQuirk { .. } => {
+                FakeOp::Relation { .. }
+                | FakeOp::RecipeQuirk { .. }
+                | FakeOp::ProofAnswer { .. } => {
                     return Finish::Fail {
                         code: ExitCode::Usage,
-                        message: "op only for kind solve-recipe".into(),
+                        message: "op only for an emulated kind (solve-recipe, rr_proof)".into(),
                     };
                 }
             }
@@ -1607,6 +1612,14 @@ fn run_job(spec_path: &Path) -> ! {
         .is_some_and(|v| v["kind"] == "solve-recipe")
     {
         solve_recipe::run(spec_path)
+    }
+    if let Some(k) = std::fs::read(spec_path)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .and_then(|v| v["kind"].as_str().map(str::to_string))
+        .filter(|k| k == "proof-instance-span" || k == "proof-instantiate")
+    {
+        proof::run(spec_path, &k)
     }
     let me = ProgramSelf {
         name: PROGRAM,
