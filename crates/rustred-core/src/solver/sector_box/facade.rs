@@ -1,5 +1,8 @@
 //! Bridge facade: reduce targets with a fresh sector-box session and
-//! return RustRed rules ([`DynamicSolution`]), like `solve_laporta`.
+//! return RustRed rules, like `solve_laporta`, but as [`BoxRules`]: the
+//! rules hold only at the `fixed` parameter values, which the result records
+//! and checks ([`BoxRules::at`]; [`BoxRules::into_general`] when nothing
+//! is fixed).
 //!
 //! The engine is const-generic over the storage arity `N`; this entry
 //! point takes `N` explicitly (it must equal the family's denominator
@@ -13,10 +16,9 @@ use crate::family::IntegralFamily;
 use crate::sector::CutConstraint;
 
 use super::super::SolverError;
-use super::super::bridge::DynamicSolution;
 use super::{
-    BoxLaportaSession, BoxOptions, CensusRouter, IdentityRouter, Lane, ParameterAssignment,
-    SectorRouter,
+    BoxLaportaSession, BoxOptions, BoxRules, CensusRouter, IdentityRouter, Lane,
+    ParameterAssignment, SectorRouter,
 };
 
 /// Sector routing of the facade.
@@ -43,7 +45,7 @@ pub fn solve_box_laporta<const N: usize>(
     options: BoxOptions,
     fixed: &ParameterAssignment,
     lane: &Lane,
-) -> Result<DynamicSolution, SolverError> {
+) -> Result<BoxRules, SolverError> {
     if family.denominator_count() != N {
         return Err(SolverError::InvalidInput(format!(
             "arity {N} differs from the family denominator count {}",

@@ -717,7 +717,7 @@ fn certificates_refuse_primes_the_reconstruction_used() {
     // truncating or panicking.
     let context = session.family().coefficient_context().clone();
     assert!(matches!(
-        short.to_dynamic_solution(&context),
+        short.to_rules(&context),
         Err(SolverError::InvalidInput(_))
     ));
     let exact = session
@@ -765,6 +765,91 @@ fn golden_reproductions_are_certified_at_an_independent_prime() {
     }
 }
 
+/// Rules materialised at a fixed `d` hold only there: they record the
+/// value, hand themselves out only at a point that agrees, and are refused
+/// at another `d` (the audit of #32: reuse at another `d` must not give a
+/// wrong reduction silently). Only rules with nothing fixed are general.
+#[test]
+fn rules_hold_only_at_their_fixed_point() {
+    let (mut session, targets) = session(1);
+    let context = session.family().coefficient_context().clone();
+    let at = |d: Rational| vec![("d".to_string(), d)];
+    let mut by_lane = Vec::new();
+    for lane in [Lane::Exact, Lane::FiniteField(FfOptions::default())] {
+        let fixed = ParameterAssignment {
+            values: vec![(
+                "d".into(),
+                context
+                    .try_div(
+                        &context.integer(37),
+                        &context.integer(11),
+                        ExactAlgebraLimits::default(),
+                    )
+                    .unwrap(),
+            )],
+        };
+        let rules = session.materialize(&targets, &fixed, &lane).unwrap();
+        assert_eq!(rules.fixed(), &at(q(37, 11))[..]);
+        assert_eq!(rules.free(), &["eta".to_string()][..]);
+        assert!(rules.at(&at(q(37, 11))).is_ok());
+        let mut with_eta = at(q(37, 11));
+        with_eta.push(("eta".into(), q(3, 7)));
+        assert!(rules.at(&with_eta).is_ok());
+        for point in [
+            at(q(319999, 80000)),
+            at(q(74, 22)),
+            vec![],
+            vec![("x".into(), q(1, 1))],
+        ] {
+            let result = rules.at(&point);
+            if point == at(q(74, 22)) {
+                assert!(result.is_ok(), "74/22 is the same value as 37/11");
+            } else {
+                assert!(
+                    matches!(result, Err(SolverError::InvalidInput(_))),
+                    "{point:?}"
+                );
+            }
+        }
+        let twice = vec![("d".to_string(), q(3, 1)), ("d".to_string(), q(3, 1))];
+        assert!(matches!(
+            rules.at(&twice),
+            Err(SolverError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            rules.clone().into_general(),
+            Err(SolverError::InvalidInput(_))
+        ));
+        by_lane.push(rules);
+    }
+    // The finite-field solution's rules carry its `fixed` (the same list the
+    // harness file writes).
+    let solution = session
+        .materialize_ff(&targets, &at(q(319999, 80000)), &FfOptions::default())
+        .unwrap();
+    let rules = solution.to_rules(&context).unwrap();
+    assert_eq!(rules.fixed(), solution.fixed.as_slice());
+    assert!(matches!(
+        rules.at(&at(q(37, 11))),
+        Err(SolverError::InvalidInput(_))
+    ));
+    // Different values of d give different rules, each refused at the other d.
+    assert_ne!(
+        format!("{:?}", by_lane[0].at(&at(q(37, 11))).unwrap().rules),
+        format!("{:?}", rules.at(&at(q(319999, 80000))).unwrap().rules)
+    );
+    // With nothing fixed the exact rules are general.
+    let general = session
+        .materialize(
+            &targets,
+            &ParameterAssignment { values: vec![] },
+            &Lane::Exact,
+        )
+        .unwrap();
+    assert!(general.fixed().is_empty());
+    assert!(general.into_general().is_ok());
+}
+
 /// The facade equals a session's `materialize`, in both lanes.
 #[test]
 fn facade_matches_the_session() {
@@ -800,7 +885,9 @@ fn facade_matches_the_session() {
         fresh.extend(&targets, &[TOP]).unwrap();
         let via_session = fresh.materialize(&targets, &assignment, &lane).unwrap();
         assert_eq!(format!("{via_facade:?}"), format!("{via_session:?}"));
-        assert_eq!(via_session.residuals.len(), 12);
+        let point = [("d".to_string(), q(37, 11))];
+        assert_eq!(via_session.at(&point).unwrap().residuals.len(), 12);
+        assert_eq!(via_facade.fixed(), &point[..]);
     }
     let symbolic = ParameterAssignment {
         values: vec![("d".into(), context.parameter("eta").unwrap())],

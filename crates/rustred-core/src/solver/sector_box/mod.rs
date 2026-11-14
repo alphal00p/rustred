@@ -109,7 +109,7 @@ pub use exact::{BoxCertificate, CertificateMode};
 pub use facade::{RouterChoice, solve_box_laporta};
 pub use ff::{FaultInjection, FfOptions, FfReport};
 pub use order::{ColumnOrder, SlotPriority};
-pub use output::{BoxProvenance, BoxSolution, ExactSolution};
+pub use output::{BoxProvenance, BoxRules, BoxSolution, ExactSolution};
 pub use probe::LaneFailure;
 pub use router::{IdentityRouter, Route, SectorRouter};
 pub use router_census::CensusRouter;

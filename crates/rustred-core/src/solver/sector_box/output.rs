@@ -1,5 +1,6 @@
 //! Materialised reductions: [`BoxSolution`] (finite-field lane),
-//! [`ExactSolution`] (exact lane) and their [`DynamicSolution`] form.
+//! [`ExactSolution`] (exact lane) and their rule form [`BoxRules`]
+//! ([`DynamicSolution`] rules plus the parameter point they hold at).
 
 use symbolica::domains::rational::{Rational, RationalField};
 use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
@@ -14,6 +15,84 @@ use super::super::bridge::{
     DynamicPower, DynamicRule, DynamicSolution, DynamicSolveStats, DynamicTerm,
 };
 use super::ff::FfReport;
+
+/// RustRed rules of a sector-box materialisation, with the parameter point
+/// they hold at.
+///
+/// The coefficients are exact in the free parameters, but they were
+/// computed with the fixed parameters substituted (for the eta-DE: at one
+/// value of `d`), so the rules hold only at those values. [`Self::at`]
+/// hands them out for a point that agrees with every fixed value, and
+/// [`Self::into_general`] only when nothing was fixed; reusing them at
+/// another point is an error, never a silently wrong reduction.
+#[derive(Clone, Debug)]
+pub struct BoxRules {
+    fixed: Vec<(String, Rational)>,
+    free: Vec<String>,
+    rules: DynamicSolution,
+}
+
+impl BoxRules {
+    /// The fixed parameters and their values (the same list as the
+    /// solution's `fixed` and the harness file's `fixed`).
+    pub fn fixed(&self) -> &[(String, Rational)] {
+        &self.fixed
+    }
+
+    /// The free parameters, in which the coefficients are exact.
+    pub fn free(&self) -> &[String] {
+        &self.free
+    }
+
+    /// The rules for use at `point` (parameter values by name). Every fixed
+    /// parameter must be given with exactly its fixed value; free
+    /// parameters may be given any value or be omitted.
+    ///
+    /// Errors: [`SolverError::InvalidInput`] when a fixed parameter is
+    /// missing or has another value (the rules do not hold there), or when
+    /// a name is given twice or is not a parameter of the rules.
+    pub fn at(&self, point: &[(String, Rational)]) -> Result<&DynamicSolution, SolverError> {
+        for (index, (name, _)) in point.iter().enumerate() {
+            if point[..index].iter().any(|(other, _)| other == name) {
+                return Err(SolverError::InvalidInput(format!(
+                    "parameter {name} is given twice"
+                )));
+            }
+            if !self.free.contains(name) && !self.fixed.iter().any(|(fixed, _)| fixed == name) {
+                return Err(SolverError::InvalidInput(format!(
+                    "{name} is not a parameter of these rules"
+                )));
+            }
+        }
+        for (name, value) in &self.fixed {
+            match point.iter().find(|(given, _)| given == name) {
+                Some((_, given)) if given == value => {}
+                Some((_, given)) => {
+                    return Err(SolverError::InvalidInput(format!(
+                        "these rules hold only at {name} = {value}, not at {name} = {given}"
+                    )));
+                }
+                None => {
+                    return Err(SolverError::InvalidInput(format!(
+                        "these rules hold only at {name} = {value}, which the point does not give"
+                    )));
+                }
+            }
+        }
+        Ok(&self.rules)
+    }
+
+    /// The rules as general RustRed rules, valid at every parameter value:
+    /// only when no parameter was fixed.
+    pub fn into_general(self) -> Result<DynamicSolution, SolverError> {
+        if let Some((name, value)) = self.fixed.first() {
+            return Err(SolverError::InvalidInput(format!(
+                "these rules hold only at {name} = {value} (and any other fixed value); use `at`"
+            )));
+        }
+        Ok(self.rules)
+    }
+}
 
 /// Provenance of a materialisation.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -34,7 +113,9 @@ pub struct BoxProvenance {
 pub struct BoxSolution<const N: usize> {
     /// Family parameters, in coefficient-variable order.
     pub parameters: Vec<String>,
-    /// Fixed parameters and their exact values.
+    /// Fixed parameters and their exact values: the coefficients hold only
+    /// there. Written as `fixed` in the harness file and carried by
+    /// [`Self::to_rules`].
     pub fixed: Vec<(String, Rational)>,
     /// The free parameter.
     pub free: String,
@@ -226,8 +307,9 @@ fn check_table<T>(
 }
 
 impl<const N: usize> ExactSolution<N> {
-    /// The reduction as RustRed rules (see [`BoxSolution::to_dynamic_solution`]).
-    pub fn to_dynamic_solution(&self) -> Result<DynamicSolution, SolverError> {
+    /// The reduction as RustRed rules at its fixed values (see
+    /// [`BoxSolution::to_rules`]).
+    pub fn to_rules(&self) -> Result<BoxRules, SolverError> {
         check_table(
             &self.coefficients,
             self.targets.len(),
@@ -235,13 +317,17 @@ impl<const N: usize> ExactSolution<N> {
             self.arity,
             N,
         )?;
-        Ok(dynamic_solution(
-            &self.targets,
-            &self.masters,
-            &self.coefficients,
-            self.arity,
-            self.rows,
-        ))
+        Ok(BoxRules {
+            fixed: self.fixed.clone(),
+            free: self.free.clone(),
+            rules: dynamic_solution(
+                &self.targets,
+                &self.masters,
+                &self.coefficients,
+                self.arity,
+                self.rows,
+            ),
+        })
     }
 }
 
@@ -271,13 +357,11 @@ impl<const N: usize> BoxSolution<N> {
         Ok(())
     }
 
-    /// The reduction as RustRed rules: one numeric rule per target that is
-    /// not a master, onto the masters (residuals), with the coefficient
-    /// denominators as nonzero conditions.
-    pub fn to_dynamic_solution(
-        &self,
-        context: &CoefficientContext,
-    ) -> Result<DynamicSolution, SolverError> {
+    /// The reduction as RustRed rules at the fixed values: one numeric rule
+    /// per target that is not a master, onto the masters (residuals), with
+    /// the coefficient denominators as nonzero conditions. The rules carry
+    /// `fixed` ([`BoxRules`]).
+    pub fn to_rules(&self, context: &CoefficientContext) -> Result<BoxRules, SolverError> {
         self.check_shape()?;
         let variable = parameter_index(context, &self.free)?;
         let coefficients: Vec<Vec<Coefficient>> = self
@@ -289,13 +373,17 @@ impl<const N: usize> BoxSolution<N> {
                     .collect()
             })
             .collect();
-        Ok(dynamic_solution(
-            &self.targets,
-            &self.masters,
-            &coefficients,
-            self.arity,
-            self.report.rows,
-        ))
+        Ok(BoxRules {
+            fixed: self.fixed.clone(),
+            free: vec![self.free.clone()],
+            rules: dynamic_solution(
+                &self.targets,
+                &self.masters,
+                &coefficients,
+                self.arity,
+                self.report.rows,
+            ),
+        })
     }
 
     /// `(target, master)` positions where this solution differs from the

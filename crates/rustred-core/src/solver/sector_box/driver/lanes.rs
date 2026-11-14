@@ -12,12 +12,11 @@ use symbolica::prelude::{Integer, Rational};
 use crate::algebra::reconstruct::rational_image;
 use crate::algebra::{Coefficient, CoefficientPolynomial};
 
-use super::super::super::bridge::DynamicSolution;
 use super::super::super::{Integral, SolverError};
 use super::super::BoxPhase;
 use super::super::exact::{self, BoxCertificate};
 use super::super::ff::{self, FfOptions};
-use super::super::output::{BoxProvenance, BoxSolution, ExactSolution, coefficient_of};
+use super::super::output::{BoxProvenance, BoxRules, BoxSolution, ExactSolution, coefficient_of};
 use super::super::probe::{self, LaneRequest};
 use super::super::router::integral_bits;
 use super::super::rows::ZpRowFactory;
@@ -139,13 +138,14 @@ impl<const N: usize> BoxLaportaSession<N> {
     /// Materialise `targets` (each must have been demanded by
     /// [`Self::extend`]) in `lane`, as RustRed rules: one numeric rule per
     /// target that is not a master, with the coefficient denominators as
-    /// nonzero conditions.
+    /// nonzero conditions. The rules hold only at the `fixed` values, which
+    /// [`BoxRules`] records and checks ([`BoxRules::at`]).
     pub fn materialize(
         &mut self,
         targets: &[[i16; N]],
         fixed: &ParameterAssignment,
         lane: &Lane,
-    ) -> Result<DynamicSolution, SolverError> {
+    ) -> Result<BoxRules, SolverError> {
         let mut values = Vec::with_capacity(fixed.values.len());
         for (name, coefficient) in &fixed.values {
             values.push((name.clone(), constant_rational(name, coefficient)?));
@@ -153,10 +153,8 @@ impl<const N: usize> BoxLaportaSession<N> {
         match lane {
             Lane::FiniteField(options) => self
                 .materialize_ff(targets, &values, options)?
-                .to_dynamic_solution(self.family.coefficient_context()),
-            Lane::Exact => self
-                .materialize_exact(targets, &values)?
-                .to_dynamic_solution(),
+                .to_rules(self.family.coefficient_context()),
+            Lane::Exact => self.materialize_exact(targets, &values)?.to_rules(),
         }
     }
 
