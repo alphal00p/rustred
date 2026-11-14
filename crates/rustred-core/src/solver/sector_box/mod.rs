@@ -73,14 +73,16 @@
 //!   the selected rows over Q(free parameters), and
 //!   [`BoxLaportaSession::certify`], which checks a reduction against the
 //!   span of the recorded rows, exactly or modulo a prime independent of the
-//!   reconstruction.
-//!
-//! The exchange format of the solution follows in the next step.
+//!   reconstruction;
+//! - the solution exchange format `rustred-harness-solution.v1`: a writer
+//!   ([`BoxSolution::to_harness_json`]) and a strict reader
+//!   ([`BoxSolution::from_harness_json`]); see `docs/interfaces.md`.
 
 mod driver;
 mod exact;
 mod facade;
 mod ff;
+mod harness;
 mod modular;
 mod order;
 mod output;
@@ -108,6 +110,7 @@ pub use driver::{
 pub use exact::{BoxCertificate, CertificateMode};
 pub use facade::{RouterChoice, solve_box_laporta};
 pub use ff::{FaultInjection, FfOptions, FfReport};
+pub use harness::{HARNESS_SOLUTION_SCHEMA, HarnessFamily, HarnessRecord};
 pub use order::{ColumnOrder, SlotPriority};
 pub use output::{BoxProvenance, BoxSolution, ExactSolution};
 pub use probe::LaneFailure;

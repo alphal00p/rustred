@@ -17,6 +17,7 @@ use super::super::super::{Integral, SolverError};
 use super::super::BoxPhase;
 use super::super::exact::{self, BoxCertificate};
 use super::super::ff::{self, FfOptions};
+use super::super::harness::HarnessFamily;
 use super::super::output::{BoxProvenance, BoxSolution, ExactSolution, coefficient_of};
 use super::super::probe::{self, LaneRequest};
 use super::super::router::integral_bits;
@@ -331,6 +332,23 @@ impl<const N: usize> BoxLaportaSession<N> {
             routes.push(route);
         }
         exact::certify_probabilistic(&request, &field, &rows, &routes, &solution.coefficients, &x)
+    }
+
+    /// The `family` block of exchange files written from this session
+    /// (family fingerprint, arity and router fingerprint).
+    pub fn harness_family(&self) -> HarnessFamily {
+        HarnessFamily {
+            name: self.family.name().to_string(),
+            arity: self.arity,
+            fingerprint: self.family.fingerprint().to_string(),
+            router_fingerprint: Some(
+                self.router
+                    .fingerprint()
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect(),
+            ),
+        }
     }
 
     /// The finite-field lane: replay the selected rows at points of the
