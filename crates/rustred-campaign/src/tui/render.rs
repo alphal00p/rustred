@@ -1844,7 +1844,10 @@ fn help_text(vm: &ViewModel) -> Vec<String> {
             "ETA      {}",
             vm.eta.estimator.clone().unwrap_or_else(|| "remaining items x per-rung CPU quantiles / parallelism".into())
         ),
-        "STALE    the campaign says running but no heartbeat (campaign.json rewrite / resource sample) for > 60 s".into(),
+        format!(
+            "STALE    the campaign says running but no heartbeat (campaign.json rewrite / resource sample) for > {} s",
+            vm.stale_after_s as u64
+        ),
         "DATA     progress/campaign.json, nodes/<node>.json, events.json; drill-down from a read-only ledger reduction".into(),
     ]
 }
