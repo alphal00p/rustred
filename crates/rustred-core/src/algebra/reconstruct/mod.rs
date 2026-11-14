@@ -28,7 +28,7 @@
 //! - [`rational`]: [`RationalFunction`] over Q, Wang and MQRR;
 //! - [`lift`]: [`Lift`] (CRT + race + acceptance);
 //! - [`driver`]: [`reconstruct_univariate`] over a [`BlackBox`];
-//! - [`checkpoint`]: [`FileProbeLog`].
+//! - [`checkpoint`]: the resumable probe log, [`FileProbeLog`].
 //!
 //! The LiteRed lane's `solver/litered/reconstruct.rs` (Thiele with early
 //! termination, `CrtAccumulator` with MQRR, the same normalisation) is the
@@ -58,8 +58,10 @@ pub use lift::{Lift, LiftMethod, LiftStatus};
 pub use rational::{RationalFunction, mqrr_reconstruction, rational_image, wang_reconstruction};
 
 #[cfg(test)]
-mod driver_tests;
+mod audit_driver_tests;
 #[cfg(test)]
 mod audit_primitive_tests;
+#[cfg(test)]
+mod driver_tests;
 #[cfg(test)]
 mod primitive_tests;

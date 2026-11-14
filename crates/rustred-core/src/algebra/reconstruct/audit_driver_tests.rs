@@ -10,10 +10,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use rand::{Rng, SeedableRng, rngs::StdRng};
+use symbolica::domains::RingOps;
 use symbolica::domains::finite_field::{FiniteFieldCore, Zp64};
 use symbolica::domains::integer::Integer;
 use symbolica::domains::rational::Rational;
-use symbolica::domains::{Field, RingOps};
 use symbolica::prelude::Ring;
 
 use super::Zp;
@@ -152,14 +152,6 @@ impl PrimeBlackBox for ExactPrime<'_> {
             })
             .collect()
     }
-}
-
-fn same(f: &RationalFunction, g: &RationalFunction) -> bool {
-    let mut rng = StdRng::seed_from_u64(99);
-    (0..4).all(|_| {
-        let x = &q(rng.random_range(-500..500)) / &q(rng.random_range(1..500));
-        f.evaluate_rational(&x) == g.evaluate_rational(&x)
-    })
 }
 
 /// Normalise an exact N/D: lowest nonzero denominator coefficient one (no gcd step: inputs are coprime).

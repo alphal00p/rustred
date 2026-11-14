@@ -88,7 +88,9 @@ impl<'a> BlackBox for &'a Random {
             .iter()
             .map(|f| {
                 let (n, d) = f.image(&field).expect("integer coefficients");
-                let raw = |p: &[super::Zp]| -> Vec<u64> { p.iter().map(|c| field.from_element(c)).collect() };
+                let raw = |p: &[super::Zp]| -> Vec<u64> {
+                    p.iter().map(|c| field.from_element(c)).collect()
+                };
                 (raw(&n), raw(&d))
             })
             .collect();
@@ -193,7 +195,7 @@ struct Interrupting {
 }
 
 impl ProbeLog for Interrupting {
-    fn load(&mut self, prime: u64) -> Vec<(u64, Option<Vec<u64>>)> {
+    fn load(&mut self, prime: u64) -> io::Result<Vec<(u64, Option<Vec<u64>>)>> {
         self.inner.load(prime)
     }
     fn record(&mut self, prime: u64, probes: &[(u64, Option<Vec<u64>>)]) -> io::Result<()> {
@@ -217,16 +219,22 @@ fn an_interrupted_run_resumes_from_its_probe_log_with_an_identical_result() {
         inner: FileProbeLog::new(&dir, key, outputs).unwrap(),
         budget: 150,
     };
-    let stopped = reconstruct_univariate(&&black_box, &&black_box, &options(), Some(&mut interrupted));
+    let stopped =
+        reconstruct_univariate(&&black_box, &&black_box, &options(), Some(&mut interrupted));
     assert!(stopped.is_err(), "the interrupted run must stop");
+    let written = interrupted.inner.written;
+    // One writer per directory and key: release the first log's lock.
+    drop(interrupted);
     let mut log = FileProbeLog::new(&dir, key, outputs).unwrap();
     black_box.calls.store(0, Ordering::Relaxed);
     let resumed =
         reconstruct_univariate(&&black_box, &&black_box, &options(), Some(&mut log)).unwrap();
     assert_eq!(resumed.functions, reference.functions);
-    let written = interrupted.inner.written;
     let replayed: usize = resumed.report.primes.iter().map(|p| p.replayed).sum();
-    assert!(written > 0 && replayed >= written, "replayed {replayed}, written {written}");
+    assert!(
+        written > 0 && replayed >= written,
+        "replayed {replayed}, written {written}"
+    );
     let points: usize = reference.report.primes.iter().map(|p| p.points).sum();
     assert!(black_box.calls.load(Ordering::Relaxed) < points);
     let _ = std::fs::remove_dir_all(&dir);

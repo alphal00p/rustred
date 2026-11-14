@@ -25,7 +25,22 @@
 //! parallel (Rayon). A probe failure at a point (an unlucky point) discards
 //! that point only; a new point is drawn. Probe values can be logged and
 //! replayed ([`ProbeLog`]): points are drawn from a deterministic stream
-//! per prime, so a resumed run re-reads exactly the probes it needs.
+//! per prime, so a resumed run re-reads exactly the probes it needs. A failed
+//! point is logged as failed and stays failed on resume, so black boxes must
+//! report only deterministic failures (poles), never transient ones.
+//!
+//! Acceptance strength: a wrong function passes the final check with
+//! probability at most about `((dN + dD + dN' + dD') / p)^verify_points`
+//! (degrees of the true and of the wrong function, `p` the fresh prime,
+//! Schwartz-Zippel), plus an order-`1/p` chance that the fresh prime divides
+//! every coefficient difference. With the default 2 points at a prime near
+//! `2^62` this is negligible for degrees in the hundreds.
+//!
+//! Contracts checked at run time (typed errors, never a panic or a hang):
+//! the black box and the verifier report the same number of outputs and
+//! return one result per point and one value per output; caller primes are
+//! primes of at least 16 bits and each is used once; the point budget of a
+//! prime is capped by its `p - 1` residues.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
@@ -72,7 +87,9 @@ pub trait PrimeBlackBox: Sync {
 pub trait ProbeLog {
     /// Probes recorded earlier at `prime`: `(x, values)`, `None` for a
     /// failed point.
-    fn load(&mut self, prime: u64) -> Vec<(u64, Option<Vec<u64>>)>;
+    /// A log that belongs to another black box, or a corrupted one, is an
+    /// error: it must never be mixed in.
+    fn load(&mut self, prime: u64) -> std::io::Result<Vec<(u64, Option<Vec<u64>>)>>;
     /// Append new probes at `prime`.
     fn record(&mut self, prime: u64, probes: &[(u64, Option<Vec<u64>>)]) -> std::io::Result<()>;
 }
@@ -101,6 +118,7 @@ pub struct UnivariateOptions {
     pub primes: Option<Vec<u64>>,
     /// Test hook: the first points of the first prime (for example a
     /// known pole). They are probed like any other point.
+    #[doc(hidden)]
     pub forced_points: Vec<Rational>,
     /// Denominator first: the group of each function (for example the
     /// master coefficients of one integral). The least common denominator
@@ -148,6 +166,10 @@ pub fn reconstruction_primes(count: usize) -> Vec<u64> {
     }
     primes
 }
+
+/// Smallest caller prime accepted (16 bits): smaller primes have too few
+/// residues for useful point budgets and too high unlucky-point rates.
+pub const MIN_PRIME: u64 = 1 << 16;
 
 /// Per-prime statistics.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -228,6 +250,11 @@ pub enum ReconstructionError {
         prime: u64,
     },
     Log(String),
+    /// The black box or the verifier broke its contract (output count,
+    /// results per point, values per output).
+    BlackBox(String),
+    /// Invalid options (for example a caller prime that is not a prime).
+    InvalidOptions(String),
 }
 
 impl fmt::Display for ReconstructionError {
@@ -247,6 +274,8 @@ impl fmt::Display for ReconstructionError {
                 write!(f, "no usable verification point at prime {prime}")
             }
             Self::Log(message) => write!(f, "probe log: {message}"),
+            Self::BlackBox(message) => write!(f, "black-box contract: {message}"),
+            Self::InvalidOptions(message) => write!(f, "invalid options: {message}"),
         }
     }
 }
@@ -265,21 +294,40 @@ struct FunctionState {
 }
 
 impl FunctionState {
+    /// The lift of every image but `skip`, accepted (`Stable`) when the
+    /// guesses at the last two moduli agree. The CRT runs over all kept
+    /// images, but the reconstruction race only twice (before and after the
+    /// last kept image), so one rebuild costs two reconstructions, not one
+    /// per image.
     fn rebuild(&self, skip: usize) -> Option<Lift> {
+        let kept: Vec<&(u64, Vec<u64>, Vec<u64>)> = self
+            .images
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != skip)
+            .map(|(_, image)| image)
+            .collect();
+        let (last, rest) = kept.split_last()?;
         let mut lift = Lift::default();
-        let mut status = LiftStatus::Pending;
-        for (index, (prime, numerator, denominator)) in self.images.iter().enumerate() {
-            if index == skip {
-                continue;
+        let accumulate =
+            |lift: &mut Lift, (prime, numerator, denominator): &(u64, Vec<u64>, Vec<u64>)| {
+                let field = Zp64::new(*prime);
+                lift.accumulate(
+                    &field,
+                    &from_u64(&field, numerator),
+                    &from_u64(&field, denominator),
+                )
+            };
+        for image in rest {
+            if accumulate(&mut lift, image) != LiftStatus::Pending {
+                return None;
             }
-            let field = Zp64::new(*prime);
-            status = lift.add(
-                &field,
-                &from_u64(&field, numerator),
-                &from_u64(&field, denominator),
-            );
         }
-        (status == LiftStatus::Stable).then_some(lift)
+        lift.race();
+        if accumulate(&mut lift, last) != LiftStatus::Pending {
+            return None;
+        }
+        (lift.race() == LiftStatus::Stable).then_some(lift)
     }
 
     fn consistent(&self, candidate: &RationalFunction, skip: usize) -> bool {
@@ -329,6 +377,7 @@ impl GroupState {
 /// Points and probe values gathered at one prime.
 struct PrimeSampler<'a, P: PrimeBlackBox> {
     black_box: &'a P,
+    outputs: usize,
     field: Zp64,
     rng: StdRng,
     forced: Vec<u64>,
@@ -340,30 +389,38 @@ struct PrimeSampler<'a, P: PrimeBlackBox> {
 }
 
 impl<P: PrimeBlackBox> PrimeSampler<'_, P> {
-    fn draw(&mut self) -> u64 {
+    /// A point not used before at this prime; `None` once every nonzero
+    /// residue is used (a small prime), so drawing always terminates.
+    fn draw(&mut self) -> Option<u64> {
+        let prime = self.field.get_prime();
+        if self.used.len() as u64 >= prime - 1 {
+            return None;
+        }
         loop {
             let x = if self.forced.is_empty() {
-                self.rng.random_range(1..self.field.get_prime())
+                self.rng.random_range(1..prime)
             } else {
                 self.forced.remove(0)
             };
-            if self.used.insert(x) {
-                return x;
+            if x != 0 && x < prime && self.used.insert(x) {
+                return Some(x);
             }
         }
     }
 
-    /// Evaluate `count` new points (at least one round of bunches).
+    /// Evaluate up to `count` new points (at least one); `false` when no new
+    /// point is left at this prime.
     fn sample(
         &mut self,
         count: usize,
         options: &UnivariateOptions,
         log: &mut Option<&mut dyn ProbeLog>,
         seconds: &mut f64,
-    ) -> Result<(), ReconstructionError> {
+    ) -> Result<bool, ReconstructionError> {
         let bunch = options.bunch.max(1);
         let count = count.max(1);
-        let points: Vec<u64> = (0..count).map(|_| self.draw()).collect();
+        let points: Vec<u64> = (0..count).map_while(|_| self.draw()).collect();
+        let drawn = !points.is_empty();
         let fresh: Vec<u64> = points
             .iter()
             .copied()
@@ -371,10 +428,30 @@ impl<P: PrimeBlackBox> PrimeSampler<'_, P> {
             .collect();
         let started = Instant::now();
         let black_box = self.black_box;
+        let outputs = self.outputs;
         let results: Vec<ProbeResult> = fresh
             .par_chunks(bunch)
-            .map(|chunk| black_box.probe(chunk))
-            .collect::<Vec<_>>()
+            .map(|chunk| {
+                let results = black_box.probe(chunk);
+                if results.len() != chunk.len() {
+                    return Err(ReconstructionError::BlackBox(format!(
+                        "{} results for {} points",
+                        results.len(),
+                        chunk.len()
+                    )));
+                }
+                if let Some(Ok(values)) = results
+                    .iter()
+                    .find(|result| result.as_ref().is_ok_and(|values| values.len() != outputs))
+                {
+                    return Err(ReconstructionError::BlackBox(format!(
+                        "{} values for {outputs} outputs",
+                        values.len()
+                    )));
+                }
+                Ok(results)
+            })
+            .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .flatten()
             .collect();
@@ -394,28 +471,38 @@ impl<P: PrimeBlackBox> PrimeSampler<'_, P> {
             };
             records.push((*x, entry));
         }
-        if let Some(log) = log.as_deref_mut() {
-            if !records.is_empty() {
-                log.record(self.field.get_prime(), &records)
-                    .map_err(|error| ReconstructionError::Log(error.to_string()))?;
-            }
+        if let Some(log) = log.as_deref_mut()
+            && !records.is_empty()
+        {
+            log.record(self.field.get_prime(), &records)
+                .map_err(|error| ReconstructionError::Log(error.to_string()))?;
         }
         self.cache.extend(records);
+        self.report.replayed += points.len() - fresh.len();
         // Every point is drawn once per prime: consume its cache entry.
         for x in points {
             self.report.points += 1;
-            match self.cache.remove(&x).flatten() {
-                Some(values) => {
-                    self.report.good_points += 1;
-                    self.xs.push(self.field.to_element(x));
-                    self.values.push(values);
-                }
-                None => {}
+            if let Some(values) = self.cache.remove(&x).flatten() {
+                self.report.good_points += 1;
+                self.xs.push(self.field.to_element(x));
+                self.values.push(values);
             }
         }
-        self.report.replayed += count - fresh.len();
-        Ok(())
+        Ok(drawn)
     }
+}
+
+/// A function's new image at one prime: `(function, normalised image or
+/// None, interpolated (true) or fitted to a known shape (false))`.
+type NewImage = (usize, Option<(Vec<Zp>, Vec<Zp>)>, bool);
+
+/// Image counts at which a pending function tries leave-one-prime-out:
+/// 8, 16, 32, ... A same-shape bad image (a corrupted probe) is rare (the
+/// five-loop production run recovered none), and one retry at `k` images
+/// costs `2k` reconstruction races, so retries are kept to `O(log k)` per
+/// function, starting when a function needs clearly more primes than usual.
+fn retry_due(images: usize) -> bool {
+    images >= 8 && images.is_power_of_two()
 }
 
 fn prime_rng(seed: u64, prime: u64, salt: u64) -> StdRng {
@@ -434,6 +521,21 @@ pub fn reconstruct_univariate<B: BlackBox, V: BlackBox>(
     mut log: Option<&mut dyn ProbeLog>,
 ) -> Result<Reconstruction, ReconstructionError> {
     let outputs = black_box.outputs();
+    if verifier.outputs() != outputs {
+        return Err(ReconstructionError::BlackBox(format!(
+            "the verifier has {} outputs, the black box {outputs}",
+            verifier.outputs()
+        )));
+    }
+    if let Some(primes) = &options.primes
+        && let Some(&bad) = primes
+            .iter()
+            .find(|&&p| p < MIN_PRIME || !symbolica::domains::integer::Integer::from(p).is_prime(0))
+    {
+        return Err(ReconstructionError::InvalidOptions(format!(
+            "caller prime {bad} is not a prime of at least 16 bits"
+        )));
+    }
     let mut report = ReconstructionReport {
         functions: outputs,
         ..Default::default()
@@ -569,11 +671,24 @@ pub fn reconstruct_univariate<B: BlackBox, V: BlackBox>(
             if pole {
                 continue;
             }
-            let probe = at_prime.probe(&[x]).pop().expect("one point");
+            let mut results = at_prime.probe(&[x]);
+            if results.len() != 1 {
+                return Err(ReconstructionError::BlackBox(format!(
+                    "the verifier returned {} results for 1 point",
+                    results.len()
+                )));
+            }
+            let probe = results.pop().expect("one result");
             let Ok(values) = probe else {
                 verification.failed_points += 1;
                 continue;
             };
+            if values.len() != outputs {
+                return Err(ReconstructionError::BlackBox(format!(
+                    "the verifier returned {} values for {outputs} outputs",
+                    values.len()
+                )));
+            }
             verification.points += 1;
             for (index, (value, expected)) in values.iter().zip(&predicted).enumerate() {
                 if *value != field.from_element(expected) {
@@ -671,11 +786,16 @@ fn run_prime<P: PrimeBlackBox>(
         .max()
         .unwrap_or(0);
     let cache: HashMap<u64, Option<Vec<u64>>> = match log.as_deref_mut() {
-        Some(log) => log.load(prime).into_iter().collect(),
+        Some(log) => log
+            .load(prime)
+            .map_err(|error| ReconstructionError::Log(error.to_string()))?
+            .into_iter()
+            .collect(),
         None => HashMap::new(),
     };
     let mut sampler = PrimeSampler {
         black_box,
+        outputs: states.len(),
         field: field.clone(),
         rng: prime_rng(options.seed, prime, 0x7072_6f62_6573),
         forced,
@@ -696,6 +816,10 @@ fn run_prime<P: PrimeBlackBox>(
         .collect();
     let mut fed = 0usize;
     let round = options.bunch.max(1) * options.parallel_bunches.max(1);
+    // A prime has `p - 1` usable points at most.
+    let budget = options
+        .max_points_per_prime
+        .min(usize::try_from(prime - 1).unwrap_or(usize::MAX));
     loop {
         let interpolating = interpolators
             .iter()
@@ -703,7 +827,7 @@ fn run_prime<P: PrimeBlackBox>(
         if !interpolating && sampler.xs.len() >= need_known {
             break;
         }
-        if sampler.report.points >= options.max_points_per_prime {
+        if sampler.report.points >= budget {
             break;
         }
         let want = if interpolating {
@@ -711,9 +835,11 @@ fn run_prime<P: PrimeBlackBox>(
         } else {
             need_known - sampler.xs.len()
         };
-        let want = want.min(options.max_points_per_prime - sampler.report.points);
+        let want = want.min(budget - sampler.report.points);
         let mut probe_seconds = 0.0;
-        sampler.sample(want, options, log, &mut probe_seconds)?;
+        if !sampler.sample(want, options, log, &mut probe_seconds)? {
+            break;
+        }
         report.probe_seconds += probe_seconds;
         let started = Instant::now();
         let xs = &sampler.xs[fed..];
@@ -736,7 +862,7 @@ fn run_prime<P: PrimeBlackBox>(
     let started = Instant::now();
     let mut prime_report = sampler.report;
     // New images: from the interpolators, then from known-shape fits.
-    let mut images: Vec<(usize, Option<(Vec<Zp>, Vec<Zp>)>, bool)> = interpolators
+    let mut images: Vec<NewImage> = interpolators
         .par_iter()
         .map(|(index, interpolator)| {
             let image = (interpolator.done() && !interpolator.failed())
@@ -758,7 +884,7 @@ fn run_prime<P: PrimeBlackBox>(
             })
         })
         .collect();
-    let fitted: Vec<(usize, Option<(Vec<Zp>, Vec<Zp>)>, bool)> = known
+    let fitted: Vec<NewImage> = known
         .par_iter()
         .map(|&index| {
             let shape = states[index].shape.expect("known");
@@ -846,7 +972,11 @@ fn run_prime<P: PrimeBlackBox>(
                 state.images = vec![image];
             }
             LiftStatus::Pending => {
-                if state.images.len() >= 3 {
+                // Leave-one-prime-out (one unlucky or corrupted image must
+                // not poison the CRT), only at stall checkpoints of the image
+                // count (`retry_due`): O(k) races per function over k primes
+                // instead of O(k^3) for a retry at every pending prime.
+                if retry_due(state.images.len()) {
                     for skip in 0..state.images.len() {
                         let Some(lift) = state.rebuild(skip) else {
                             continue;
