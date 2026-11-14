@@ -801,10 +801,7 @@ fn ra_minor_overrides_are_marked_and_block_the_level() {
         let r = replay_evidence(&f.fam, &good, keys, &pol, &o);
         println!("override {what}: {:?} {:?}", r.overrides, r.level);
         assert_eq!(r.overrides.len(), 1, "{what}");
-        assert!(
-            matches!(r.level, ReplayLevel::NotEstablished { .. }),
-            "{what}"
-        );
+        assert!(matches!(r.level, ReplayLevel::Overridden { .. }), "{what}");
     }
     // the B attack: + p1*p2 * I(Z) is invisible modulo [p1, p2]
     let mut atk = f.bad.clone();
@@ -826,7 +823,7 @@ fn ra_minor_overrides_are_marked_and_block_the_level() {
         Verdict::Pass,
         "the attack is invisible at these primes"
     );
-    assert!(matches!(r.level, ReplayLevel::NotEstablished { .. }));
+    assert!(matches!(r.level, ReplayLevel::Overridden { .. }));
     // with run-time primes the extra term is the planted boundary-face term (nonzero): caught on the face keys
     let r = replay_evidence(&f.fam, &atk, &served(&f), &ReplayPolicy::default(), &base);
     assert!(
@@ -868,4 +865,56 @@ fn rb_record_verifier_rejects_tampering() {
     t.level = ReplayLevel::Established;
     assert!(verify_replay_record(&f.fam, &bad, &served(&f), &pol, &opts, &t).is_err());
     verify_replay_record(&f.fam, &bad, &served(&f), &pol, &opts, &rb).unwrap();
+}
+
+/// re-audit B C-1 reproduction (run/C3_full.json): f111 with RHS[4] "1" -> "(1+68295123492997455104552967828870906523)" and
+/// the caller primes [8202739654570610321, 8325891881128160363] (their product + 1 = that constant): the record is
+/// `Overridden` (never Established) and `verify_record` rejects a copy claiming Established; with the module's own
+/// primes the false rule fails.
+#[test]
+fn rb_c1_caller_primes_reproduction_is_diagnostic() {
+    use rustred_campaign_core::ibp_rows::verify_record;
+    let Some(o) = oracle() else { return };
+    let case = o
+        .jsonl("span/F6_span_cases.jsonl")
+        .into_iter()
+        .find(|c| c["id"] == "f111")
+        .unwrap();
+    let Some(line) = f6_line(&o, &case) else {
+        return;
+    };
+    let mut rule = rule0(&line);
+    rule.rhs[4].1 = "(1+68295123492997455104552967828870906523)".into();
+    let pp = [8_202_739_654_570_610_321u64, 8_325_891_881_128_160_363];
+    assert_eq!(
+        u128::from(pp[0]) * u128::from(pp[1]) + 1,
+        68_295_123_492_997_455_104_552_967_828_870_906_524
+    );
+    let fam = t162_family();
+    let keys: Vec<Vec<i64>> = vec![
+        vec![1, 2, 2, 2, 1, 1, 1, 1, 1, -2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        vec![1, 3, 2, 2, 1, 1, 1, 1, 1, -2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        vec![1, 2, 3, 2, 1, 1, 1, 1, 1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    ];
+    let o2 = RowsOptions {
+        primes: Some(pp),
+        ..bound(&fam)
+    };
+    let r = replay_evidence(&fam, &rule, &keys, &ReplayPolicy::default(), &o2);
+    println!(
+        "C3 with caller primes: identity {:?} level {:?}",
+        r.identity.verdict, r.level
+    );
+    assert!(matches!(r.level, ReplayLevel::Overridden { .. }));
+    let mut forged = r.clone();
+    forged.overrides.clear();
+    forged.level = ReplayLevel::Established;
+    assert!(verify_record(&forged, &rule, &fam, &keys).is_err());
+    let r = replay_evidence(&fam, &rule, &keys, &ReplayPolicy::default(), &bound(&fam));
+    assert!(
+        matches!(r.identity.verdict, Verdict::Fail { .. }),
+        "{:?}",
+        r.identity.verdict
+    );
+    assert!(verify_record(&r, &rule, &fam, &keys).is_ok());
 }

@@ -1945,6 +1945,12 @@ fn points_digest(points: &[PointSpec]) -> String {
 }
 
 /// Estimated heap of the rows of `seeds` distinct seed keys (audit B M3: guard BEFORE building the rows).
+/// The row-memory estimate of one identity test of `rule` (bytes, before any row is built; re-audit B m-1): the
+/// guard `RowsOptions.max_row_bytes` applies PER CALL, so a caller running calls in parallel budgets with this sum.
+pub fn row_memory_estimate(family: &Family, rule: &RowsRule) -> usize {
+    rows_bytes_estimate(family, rule.seeds.iter().collect::<BTreeSet<_>>().len())
+}
+
 fn rows_bytes_estimate(family: &Family, seeds: usize) -> usize {
     seeds
         .saturating_mul(family.n_ops())
@@ -2503,6 +2509,12 @@ pub enum ReplayLevel {
         backend: String,
         level_if_certificate: Box<ReplayLevel>,
     },
+    /// the caller chose draws or weakened checks (primes, rule_id, nonce, controls off, no generic points: re-audit B
+    /// C-1): a DIAGNOSTIC record, never accepted; the level the same checks gave is kept
+    Overridden {
+        overrides: Vec<String>,
+        level_if_default: Box<ReplayLevel>,
+    },
     /// every other check passed but the family identity was NOT bound (re-audit A NEW-M1): no table header with
     /// `family_source` and no spec family digest was given (`RowsOptions.table`), so the record cannot say WHICH
     /// family its rows are identities of. Never accepted.
@@ -2544,6 +2556,8 @@ pub struct ReplayRecord {
     pub nonce: u64,
     /// where the nonce came from: only `Os` can carry the level
     pub nonce_source: NonceSource,
+    /// the rule's lift primes excluded from the verify primes (needed to re-derive the primes)
+    pub lift_primes: Vec<u64>,
     /// caller choices that make this run diagnostic (caller nonce / primes, controls off, no generic points): any
     /// entry blocks the level
     pub overrides: Vec<String>,
@@ -2905,6 +2919,9 @@ pub fn replay_evidence_drawn<A: CheckAlgebra>(
     if opts.primes.is_some() {
         overrides.push("primes: chosen by the caller".into());
     }
+    if opts.rule_id.is_some() {
+        overrides.push("rule_id (stream id): chosen by the caller".into());
+    }
     if !opts.controls {
         overrides.push("controls: false".into());
     }
@@ -3166,11 +3183,6 @@ pub fn replay_evidence_drawn<A: CheckAlgebra>(
             ),
         }
     });
-    reasons.extend(
-        overrides
-            .iter()
-            .map(|o| format!("override (diagnostic run, never the level): {o}")),
-    );
     let level = if !reasons.is_empty() {
         reasons.extend(unbound);
         ReplayLevel::NotEstablished { reasons }
@@ -3183,6 +3195,16 @@ pub fn replay_evidence_drawn<A: CheckAlgebra>(
         }
     } else {
         ReplayLevel::Established
+    };
+    // re-audit A NEW-m1 / B C-1: caller-chosen draws or weakened checks make the record DIAGNOSTIC (type-level: a
+    // separate variant, never Established)
+    let level = if overrides.is_empty() {
+        level
+    } else {
+        ReplayLevel::Overridden {
+            overrides: overrides.clone(),
+            level_if_default: Box::new(level),
+        }
     };
     // DEV-17 REVISED: only the certificate backend grants the level; another backend's record is diagnostic
     let level = if alg.name() == CERTIFICATE_BACKEND {
@@ -3208,6 +3230,7 @@ pub fn replay_evidence_drawn<A: CheckAlgebra>(
         master_seed,
         nonce,
         nonce_source,
+        lift_primes: opts.lift_primes.clone(),
         overrides,
         primes,
         policy: policy.clone(),
@@ -3229,6 +3252,32 @@ pub fn replay_evidence_drawn<A: CheckAlgebra>(
         level,
         checked_elsewhere: "descent under the node comparator (order/accept), domain and exception guards at the served keys (domain/accept)",
     }
+}
+
+/// [`verify_replay_record`] from the record alone (re-audit B C-1: the call of the ledger / acceptance chain and of
+/// third parties): the family binding is the given family's own identity when the record says it was bound, the
+/// policy and lift primes are the recorded ones. A rule with symmetry rows needs its group: use
+/// [`verify_replay_record`] with the options of the run.
+pub fn verify_record(
+    record: &ReplayRecord,
+    rule: &RowsRule,
+    family: &Family,
+    served_keys: &[Vec<i64>],
+) -> Result<(), String> {
+    if record.symmetry_group.is_some() {
+        return Err(
+            "record uses symmetry rows: verify with verify_replay_record and the verified group"
+                .into(),
+        );
+    }
+    let opts = RowsOptions {
+        table: record
+            .family_bound_to_table
+            .then(|| TableBinding::from_family_digest(family.squashed_digest())),
+        lift_primes: record.lift_primes.clone(),
+        ..RowsOptions::default()
+    };
+    verify_replay_record(family, rule, served_keys, &record.policy, &opts, record)
 }
 
 /// THIRD-PARTY VERIFICATION of a [`ReplayRecord`] (re-audit B: the module offered no record verifier): on the
@@ -3257,6 +3306,11 @@ pub fn verify_replay_record(
     );
     eq("schema", record.schema == REPLAY_SCHEMA);
     eq(
+        "an Established record has no override and an OS nonce",
+        record.level != ReplayLevel::Established
+            || (record.overrides.is_empty() && record.nonce_source == NonceSource::Os),
+    );
+    eq(
         "family digest",
         record.family_digest == family.source_digest(),
     );
@@ -3284,6 +3338,11 @@ pub fn verify_replay_record(
         seed: record.master_seed,
         nonce: None,
         primes: caller_primes.then_some(record.primes),
+        rule_id: record
+            .overrides
+            .iter()
+            .any(|o| o.starts_with("rule_id"))
+            .then_some(record.identity.rule_id),
         ..opts.clone()
     };
     let again = replay_evidence_drawn(
