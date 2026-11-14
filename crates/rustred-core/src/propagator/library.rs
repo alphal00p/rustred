@@ -729,7 +729,7 @@ impl PLibrary {
                     key: key.clone(),
                     node: record.node.clone(),
                     definition: record.describe(),
-                    violated: Some(violated),
+                    violated: Some(Box::new(violated)),
                     request: None,
                 });
             }

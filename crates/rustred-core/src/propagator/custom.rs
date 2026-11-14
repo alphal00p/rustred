@@ -996,7 +996,7 @@ impl<const N: usize> CustomStep<N> {
             }
             (Some(record), None) if !record.contains(key.powers()) => PError::OutsideBox {
                 class,
-                violated: record.violation(key.powers()),
+                violated: record.violation(key.powers()).map(Box::new),
                 key,
                 node: record.node.clone(),
                 definition: record.describe(),
@@ -1126,7 +1126,7 @@ fn outside_certified(
 ) -> PError {
     PError::OutsideCertifiedSet {
         class,
-        violated: record.violation(key.powers()),
+        violated: record.violation(key.powers()).map(Box::new),
         key,
         node: record.node.clone(),
         definition: record.describe(),

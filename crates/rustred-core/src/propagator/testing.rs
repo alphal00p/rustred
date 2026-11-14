@@ -645,8 +645,8 @@ mod boxed_kite_tests {
                 assert_eq!(*certified_keys, 6);
                 assert_eq!(key.powers().iter().sum::<i64>(), 7);
                 assert_eq!(
-                    *violated,
-                    Some(BoxViolation::Dots {
+                    violated.as_deref(),
+                    Some(&BoxViolation::Dots {
                         dots: 2,
                         layers: vec![0]
                     })
@@ -697,7 +697,7 @@ mod boxed_kite_tests {
             }) => {
                 assert_eq!(node, "KITE");
                 assert_eq!(
-                    violated,
+                    violated.map(|bound| *bound),
                     Some(BoxViolation::Dots {
                         dots: 1,
                         layers: vec![0]

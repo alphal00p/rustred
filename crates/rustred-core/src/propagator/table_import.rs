@@ -2959,7 +2959,7 @@ mod tests {
                 assert_eq!((node.as_str(), certified_keys), ("KITE", 6));
                 assert_eq!(key.powers(), outside.as_slice());
                 assert_eq!(
-                    violated,
+                    violated.map(|bound| *bound),
                     Some(BoxViolation::Dots {
                         dots: 2,
                         layers: vec![0]
@@ -2982,7 +2982,10 @@ mod tests {
         };
         for (set, part) in [
             (without(&[1, 1, 2, 1, 1]), "outside the certified key set"),
-            (without(&[1, 1, 1, 1, 1]), "terminal I(1,1,1,1,1) outside the certified key set"),
+            (
+                without(&[1, 1, 1, 1, 1]),
+                "terminal I(1,1,1,1,1) outside the certified key set",
+            ),
             (
                 CertifiedKeySet::new(
                     "KITE",

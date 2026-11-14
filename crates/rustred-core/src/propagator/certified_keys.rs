@@ -342,7 +342,7 @@ impl CertifiedKeySet {
             }
             return Ok(set);
         }
-        let text = std::str::from_utf8(bytes).map_err(|error| bad(error))?;
+        let text = std::str::from_utf8(bytes).map_err(bad)?;
         Self::parse_key_lines(node, arity, frame, text)
     }
 }
@@ -400,7 +400,7 @@ pub(crate) fn base64_decode(text: &str) -> Result<Vec<u8>, PError> {
         } as u32)
     };
     let text = text.trim().as_bytes();
-    if text.len() % 4 != 0 {
+    if !text.len().is_multiple_of(4) {
         return Err(bad("base64 length"));
     }
     let mut out = Vec::with_capacity(text.len() / 4 * 3);

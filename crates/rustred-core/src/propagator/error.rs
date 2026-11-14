@@ -161,7 +161,7 @@ pub enum PError {
         key: IntegralKey,
         node: String,
         definition: String,
-        violated: Option<BoxViolation>,
+        violated: Option<Box<BoxViolation>>,
         request: Option<Arc<PRequestContext>>,
     },
     /// vk5l WP1 (plan VK5L §3.4, decision Q1): a key of a boxed node's chart
@@ -175,7 +175,7 @@ pub enum PError {
         node: String,
         /// The user box (name and layers) for the message.
         definition: String,
-        violated: Option<BoxViolation>,
+        violated: Option<Box<BoxViolation>>,
         certified_keys: u64,
         request: Option<Arc<PRequestContext>>,
     },

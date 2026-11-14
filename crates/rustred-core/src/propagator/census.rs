@@ -340,7 +340,7 @@ fn parallel_map_labeled<T: Sync, R: Send>(
         let out = f(item);
         if census_progress() {
             let count = finished.fetch_add(1, Ordering::Relaxed) + 1;
-            if count % step == 0 || count == items.len() {
+            if count.is_multiple_of(step) || count == items.len() {
                 eprintln!(
                     "[census] {label}: {count}/{} in {:.1} s",
                     items.len(),
