@@ -498,12 +498,41 @@ pub fn slices(subs: &[usize], max: i64, total: bool) -> Vec<BTreeMap<usize, i64>
     out
 }
 
+/// Upper estimate of the expanded terms of one slice: prod_j C(b_j + k_j - 1, k_j - 1), k_j = terms of slot j's
+/// combination (constant included). Saturates at u128::MAX.
+pub fn expansion_estimate(subs: &BTreeMap<usize, Combination>, slice: &BTreeMap<usize, i64>) -> u128 {
+    let mut total: u128 = 1;
+    for (j, c) in subs {
+        let k = c.coef.iter().filter(|x| **x != 0).count() as u128 + u128::from(c.constant != 0);
+        let b = (-slice[j]) as u128;
+        // C(b + k - 1, k - 1)
+        let mut binom: u128 = 1;
+        for i in 0..k.saturating_sub(1) {
+            binom = binom.saturating_mul(b + i + 1) / (i + 1);
+        }
+        total = total.saturating_mul(binom.max(1));
+    }
+    total
+}
+
+/// The slice rule of `rules` serving `key` (the substituted slots' powers of the key), if generated.
+pub fn rule_for_key<'a>(rules: &'a [SliceRule], key: &[i64]) -> Option<&'a SliceRule> {
+    rules.iter().find(|r| r.slice.iter().all(|(s, v)| key[*s] == *v))
+}
+
+/// A pattern instantiated at a key (symbolic slots take the key's values).
+pub fn instantiate(p: &[Pow], key: &[i64]) -> Vec<i64> {
+    p.iter().map(|w| w.var.map_or(0, |v| key[v]) + w.c).collect()
+}
+
 /// Result for one element on one face: its slice rules, or why it was refused.
 pub struct ElementResult {
     pub element: usize,
     pub substituted: Vec<usize>,
     pub rules: Vec<SliceRule>,
     pub refused: Option<String>,
+    /// --check-keys: (keys on the face, keys served by a generated slice, keys beyond the slice bound)
+    pub checked: (usize, usize, usize),
 }
 
 impl ElementResult {
@@ -524,6 +553,8 @@ pub fn try_elements(
     forms: &ChartForms,
     concrete: &dyn Fn(&[i64], &[i64]) -> std::cmp::Ordering,
     only: Option<usize>,
+    max_expansion: u128,
+    check_keys: &[Vec<i64>],
 ) -> Vec<ElementResult> {
     let mut out = Vec::new();
     for (k, e) in group.elements.iter().enumerate() {
@@ -535,6 +566,7 @@ pub fn try_elements(
             substituted: vec![],
             rules: vec![],
             refused: None,
+            checked: (0, 0, 0),
         };
         match face_action(ff, e, face) {
             Err(m) => res.refused = Some(m),
@@ -545,6 +577,21 @@ pub fn try_elements(
                 } else {
                     slices(&res.substituted, slice_max, total)
                 };
+                // size bound first (typed refusal, no expansion attempted)
+                if let Some((sl, est)) = slice_list
+                    .iter()
+                    .map(|sl| (sl, expansion_estimate(&subs, sl)))
+                    .find(|(_, est)| *est > max_expansion)
+                {
+                    res.refused = Some(format!(
+                        "EXPANSION_TOO_LARGE: about {est} terms at slice {sl:?} (--max-expansion {max_expansion})"
+                    ));
+                    out.push(res);
+                    continue;
+                }
+                // slices in increasing size: a not-lower element is refused at its smallest slice
+                let mut slice_list = slice_list;
+                slice_list.sort_by_key(|sl| (sl.values().map(|v| -v).sum::<i64>(), sl.clone()));
                 for sl in &slice_list {
                     match slice_rule(e, face, &subs, sl, zero)
                         .and_then(|r| slice_descends(&r, face, forms, concrete, 25).map(|_| r))
@@ -552,6 +599,42 @@ pub fn try_elements(
                         Ok(r) => res.rules.push(r),
                         Err(m) => {
                             res.refused = Some(format!("slice {sl:?}: {m}"));
+                            res.rules.clear();
+                            break;
+                        }
+                    }
+                }
+                // --check-keys: every listed key of the face, at its slice, with the engine order term by term
+                if res.refused.is_none() {
+                    let on_face = |key: &[i64]| {
+                        (0..face.chart.len()).all(|i| {
+                            if face.dotted.contains(&i) {
+                                key[i] >= 2
+                            } else if face.numerators.contains(&i) {
+                                key[i] <= -1
+                            } else {
+                                key[i] == i64::from(face.chart[i])
+                            }
+                        })
+                    };
+                    for key in check_keys.iter().filter(|k| on_face(k)) {
+                        res.checked.0 += 1;
+                        match rule_for_key(&res.rules, key) {
+                            None => res.checked.2 += 1,
+                            Some(r) => {
+                                res.checked.1 += 1;
+                                for (p, _) in &r.terms {
+                                    let t = instantiate(p, key);
+                                    if concrete(key, &t) != std::cmp::Ordering::Less {
+                                        res.refused = Some(format!(
+                                            "check key {key:?}: term {t:?} is not strictly lower (full node order)"
+                                        ));
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if res.refused.is_some() {
                             res.rules.clear();
                             break;
                         }
@@ -629,6 +712,8 @@ pub struct RunOptions {
     pub total_bound: bool,
     pub element: Option<usize>,
     pub out: std::path::PathBuf,
+    pub max_expansion: u128,
+    pub check_keys: Vec<Vec<i64>>,
 }
 
 macro_rules! with_n {
@@ -688,7 +773,8 @@ pub fn run(o: &RunOptions) -> Result<Value, String> {
             };
             io.compare(&to(a), &to(b))
         };
-        Ok(try_elements(&ff, &group, &o.face, o.slice_max, o.total_bound, &zero_fn, &forms, &concrete, o.element))
+        Ok(try_elements(&ff, &group, &o.face, o.slice_max, o.total_bound, &zero_fn, &forms, &concrete, o.element,
+            o.max_expansion, &o.check_keys))
     })?;
     // choice: the accepted element with the fewest total terms; ties by element index
     let chosen = results
@@ -700,6 +786,7 @@ pub fn run(o: &RunOptions) -> Result<Value, String> {
         .iter()
         .map(|r| json!({"element": r.element, "substituted": r.substituted, "accepted": r.refused.is_none(),
             "refused": r.refused, "slice_rules": r.rules.len(), "terms": r.total_terms(),
+            "check_keys": {"on_face": r.checked.0, "served": r.checked.1, "beyond_bound": r.checked.2},
             "max_terms": r.rules.iter().map(|x| x.terms.len()).max()}))
         .collect();
     std::fs::create_dir_all(&o.out).map_err(|e| e.to_string())?;
@@ -738,6 +825,20 @@ pub fn run(o: &RunOptions) -> Result<Value, String> {
         report["max_terms_per_rule"] = json!(c.rules.iter().map(|x| x.terms.len()).max());
         report["table_bytes"] = json!(text.len());
         report["table_blake3"] = json!(blake3::hash(text.as_bytes()).to_hex().to_string());
+        // the chosen element's relation at every checked key (term for term comparisons)
+        if !o.check_keys.is_empty() {
+            let mut lines = String::new();
+            for key in &o.check_keys {
+                if let Some(r) = rule_for_key(&c.rules, key) {
+                    if (0..n).all(|i| r.target[i].var.is_some() || r.target[i].c == key[i]) {
+                        let terms: Vec<Value> = r.terms.iter().map(|(p, co)| json!([instantiate(p, key), co.to_string()])).collect();
+                        lines.push_str(&json!({"key": key, "element": c.element, "terms": terms}).to_string());
+                        lines.push('\n');
+                    }
+                }
+            }
+            std::fs::write(o.out.join("check_keys.jsonl"), lines).map_err(|e| e.to_string())?;
+        }
     }
     report["seconds"] = json!(t0.elapsed().as_secs_f64());
     std::fs::write(o.out.join("REPORT.json"), serde_json::to_string_pretty(&report).unwrap()).map_err(|e| e.to_string())?;

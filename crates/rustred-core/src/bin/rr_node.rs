@@ -2018,6 +2018,20 @@ fn cmd_symface(mut a: Args) -> i32 {
         Some(o) => die(&format!("--slice-bound each|total, not {o}")),
     };
     let element: Option<usize> = a.parse("--element");
+    let max_expansion: u128 = a.parse("--max-expansion").unwrap_or(2_000_000);
+    let check_keys: Vec<Vec<i64>> = match a.take("--check-keys") {
+        None => vec![],
+        Some(p) => std::fs::read_to_string(&p)
+            .unwrap_or_else(|e| die(&format!("{p}: {e}")))
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| {
+                let v: serde_json::Value = serde_json::from_str(l).unwrap_or_else(|e| die(&format!("--check-keys: {e}")));
+                let k = if v.is_array() { v } else { v["key"].clone() };
+                serde_json::from_value::<Vec<i64>>(k).unwrap_or_else(|e| die(&format!("--check-keys key: {e}")))
+            })
+            .collect(),
+    };
     let out = a.need("--out");
     a.done();
     let o = RunOptions {
@@ -2028,6 +2042,8 @@ fn cmd_symface(mut a: Args) -> i32 {
         total_bound,
         element,
         out: out.into(),
+        max_expansion,
+        check_keys,
     };
     match run(&o) {
         Ok(r) => {
