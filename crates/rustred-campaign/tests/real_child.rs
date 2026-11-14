@@ -1083,8 +1083,9 @@ fn descend_spec(root: &Path, job: &str) -> JobSpec {
     )
 }
 
-/// audit-engjob C2 (REQUIRED TEST): `--descend open` with resume. Interrupted (a) during the own cases and (b) in
-/// the returned phase (right after the last own case), the resumed attempt solves exactly the job's OWN cases (never
+/// audit-engjob C2 (REQUIRED TEST): `--descend open` with resume. Interrupted (a) during the own cases and (b) during
+/// the LAST own case (the stop is then honoured at the queue end, after every not-own case was returned: C3 with
+/// returned cases), the resumed attempt solves exactly the job's OWN cases (never
 /// a returned sub-case: counters.cases and the table equal the uninterrupted run's) and returns the same sub-cases
 /// (F.subcases.jsonl canonically identical), the ones returned before the stop included (RESUME
 /// `engine.descend_open.returned`).
@@ -1106,7 +1107,6 @@ fn descend_open_resume_solves_only_own_cases_and_returns_the_rest() {
     let want_sub = canonical_of(&full, "F.subcases.jsonl").unwrap();
     let n_sub = subcase_lines(&full).len();
     assert!(n_sub > 0, "sub-cases returned");
-    let finished = |ev: &[serde_json::Value]| count_kind(ev, "case_finished", |_| true);
     let started = |ev: &[serde_json::Value]| count_kind(ev, "case_started", |_| true);
     let mut returned_before_stop = 0usize;
     for (k, phase) in ["own", "returned"].into_iter().enumerate() {
@@ -1118,10 +1118,12 @@ fn descend_open_resume_solves_only_own_cases_and_returns_the_rest() {
                 started(ev) >= 2
             });
         } else {
-            // the last own case is closed at the first returned boundary
-            wait_events(&a, Duration::from_secs(300), "4 own cases closed", |ev| {
-                finished(ev) >= 4
+            // during the LAST own case: the following not-own cases are returned (no work) even with the stop
+            // pending, and the stop is honoured at the queue end (C3) with all of them in RESUME `returned`
+            wait_events(&a, Duration::from_secs(300), "4th own case", |ev| {
+                started(ev) >= 4
             });
+            std::thread::sleep(Duration::from_millis(300));
         }
         signal(&c, libc::SIGTERM);
         let w = wait(&mut c);
@@ -1142,6 +1144,8 @@ fn descend_open_resume_solves_only_own_cases_and_returns_the_rest() {
         let ret = d["returned"].as_array().map_or(0, Vec::len);
         if phase == "returned" {
             returned_before_stop = ret;
+            assert!(res["current"].is_null(), "stopped at the queue end: {res}");
+            assert!(res["pending"].as_array().unwrap().is_empty(), "{res}");
         }
         let b = resume_spec(&r, &a);
         let (w2, t2) = run_to_end(&b);
@@ -1255,10 +1259,12 @@ fn open_on_refusal_interrupted_and_resumed_equals_uninterrupted() {
     assert!(refused >= 1, "refused cases listed");
     let want = canonical(&full);
     let want_sub = canonical_of(&full, "F.subcases.jsonl").unwrap();
-    let total_rules = of.job.outputs.table.as_ref().unwrap().rules.unwrap();
     let a = spec(&r, "t281-ref-r", 1, "T281-b6", &args);
     let mut c = spawn(&a);
-    wait_for_rules(&a, total_rules / 2, Duration::from_secs(600));
+    // after the second refused case (refusals start late in this node): the first is then in RESUME refused_open
+    wait_events(&a, Duration::from_secs(900), "two refused cases", |ev| {
+        count_kind(ev, "case_finished", |v| v["result"] == "refused") >= 2
+    });
     signal(&c, libc::SIGTERM);
     let w1 = wait(&mut c);
     assert_eq!(w1, WaitStatus::Exited(30));
@@ -1267,13 +1273,13 @@ fn open_on_refusal_interrupted_and_resumed_equals_uninterrupted() {
     let b = resume_spec(&r, &a);
     let (w2, _) = run_to_end(&b);
     eprintln!("refused open in RESUME: {open_before} of {refused}; resumed -> {w2:?}");
+    assert_eq!(w2, WaitStatus::Exited(10));
+    assert_eq!(canonical(&b), want);
+    assert_eq!(canonical_of(&b, "F.subcases.jsonl").unwrap(), want_sub);
     assert!(
         open_before >= 1,
         "the interruption came after a refusal (RESUME refused_open non-empty)"
     );
-    assert_eq!(w2, WaitStatus::Exited(10));
-    assert_eq!(canonical(&b), want);
-    assert_eq!(canonical_of(&b, "F.subcases.jsonl").unwrap(), want_sub);
 }
 
 /// audit-engjob M5: a clock decision is recorded. `--native-try 0` makes every native guard try time out at once,
@@ -1348,4 +1354,60 @@ fn rule_committed_events_cover_every_rule_with_sizes() {
     assert_eq!(o.legacy["rhs_terms"].as_u64().unwrap(), rhs);
     let mono: u64 = rc.iter().map(|v| v["monomials"].as_u64().unwrap()).sum();
     assert_eq!(o.job.counters.lift_monomials, mono);
+}
+
+/// audit-engjob M1: a not-lower rule is never in a sealed table that an accepting row can reach. No small fixture
+/// produces a not-lower rule, so the test injects one through the path a resumed attempt takes: a valid RESUME of
+/// an interrupted numeric-stage attempt gets `engine.not_lower` (and a new digest in the resume reference). The
+/// resumed attempt completes its work, yet ends with stop `not_lower`, exit 10, decision row 6 (crashed,
+/// attention, NOTHING accepted), and its end record lists the key; without the key it ends complete (row 1).
+#[test]
+#[ignore]
+fn not_lower_rule_maps_to_row_6_before_any_other_end() {
+    let r = root("notlower");
+    let a = numeric_spec(&r, "l3a-notlower");
+    let mut c = spawn(&a);
+    wait_events(&a, Duration::from_secs(120), "numeric start", |ev| {
+        count_kind(ev, "case_started", |v| v["numerical"] == 1) >= 2
+    });
+    signal(&c, libc::SIGTERM);
+    assert_eq!(wait(&mut c), WaitStatus::Exited(30));
+    // control: the untouched RESUME completes (row 1)
+    let ok = resume_spec(&r, &a);
+    let (w, _) = run_to_end(&ok);
+    assert_eq!(w, WaitStatus::Exited(0));
+    assert_eq!(classified(&ok, w, KillReason::None).row, 1);
+    // the same RESUME with a not-lower key (rewritten in place after the control used it; new digest)
+    let layout = RunLayout::new(&a.run_dir);
+    let mut res = resume_json(&a);
+    res["engine"]["not_lower"] = serde_json::json!(["I(1,1,1,1,1,1,1,1,0)"]);
+    let injected = layout.resume();
+    std::fs::write(&injected, serde_json::to_vec(&res).unwrap()).unwrap();
+    let mut b = resume_spec(&r, &a);
+    b.attempt = 3;
+    b.run_dir = rustred_campaign_contract::layout::attempt_dir(&r, &a.job_id, 3)
+        .to_str()
+        .unwrap()
+        .into();
+    std::fs::create_dir_all(&b.run_dir).unwrap();
+    b.resume = Some(rustred_campaign_contract::resume::ResumeRef {
+        from: injected.to_str().unwrap().into(),
+        blake3: b3(&injected),
+    });
+    let (w, _) = run_to_end(&b);
+    let o = outcome(&b);
+    eprintln!("injected not_lower: {w:?} stop {:?}", o.job.stop.code);
+    assert_eq!(w, WaitStatus::Exited(10));
+    assert_eq!(o.job.stop.code, Some(StopCode::NotLower));
+    assert!(o.job.error.is_none());
+    let cl = classified(&b, w, KillReason::None);
+    assert_eq!(cl.row, 6, "not_lower: attention, nothing accepted");
+    assert_eq!(
+        cl.accept,
+        rustred_campaign_contract::classify::Accept::Nothing
+    );
+    let lines = table_lines(&b);
+    let end = lines.last().unwrap();
+    assert_eq!(end["type"], "partial");
+    assert_eq!(end["native_descent_not_lower"][0], "I(1,1,1,1,1,1,1,1,0)");
 }
