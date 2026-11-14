@@ -6,13 +6,13 @@
 use super::conformance::{Mismatch, diagnose};
 use super::job::{
     AdapterError, Ended, InputFile, JobAdapter, JobPlan, Prepared, Program, classify_attempt,
-    create_run, sha256_hex, shell_quote, write_input, write_spec,
+    create_run, is_refusal, sha256_hex, shell_quote, write_input, write_spec,
 };
 use rustred_campaign_contract::classify::recipe::{FailureClass, KeyOutcome, KeyRoute, Verdict};
-use rustred_campaign_contract::layout::RunLayout;
-use rustred_campaign_contract::seal::VerifiedHandle;
 use rustred_campaign_contract::classify::{self, Accept, Action, Classification, OutcomeState};
 use rustred_campaign_contract::fake::FakeScript;
+use rustred_campaign_contract::layout::RunLayout;
+use rustred_campaign_contract::seal::VerifiedHandle;
 use rustred_campaign_contract::spec::{
     Budgets, Determinism, JobKind, JobSpec, OnCaseBudget, OutputOptions, ProgramRef, SeedSpec,
 };
@@ -47,8 +47,8 @@ pub const SOLVED_RELATION_SCHEMA: &str = "rustred.campaign.solved-relation.v1";
 /// One import solve-request line (6.1) -> a request: the recipe file's SHA-256 is checked against `recipe_sha256`,
 /// its BLAKE3 computed for the job spec; `source` is the recipe id, `engine_digest` the expected recipe digest.
 pub fn solve_request_from_import(line: &[u8]) -> Result<SolveRequest, AdapterError> {
-    let v: Value =
-        serde_json::from_slice(line).map_err(|e| AdapterError::Request(format!("solve request: {e}")))?;
+    let v: Value = serde_json::from_slice(line)
+        .map_err(|e| AdapterError::Request(format!("solve request: {e}")))?;
     if v["schema"] != SOLVE_REQUEST_SCHEMA {
         return Err(AdapterError::Request(format!(
             "not a {SOLVE_REQUEST_SCHEMA} line"
@@ -60,7 +60,8 @@ pub fn solve_request_from_import(line: &[u8]) -> Result<SolveRequest, AdapterErr
             .ok_or_else(|| AdapterError::Request(format!("solve request: {k}")))
     };
     let path = PathBuf::from(s("recipe_path")?);
-    let b = std::fs::read(&path).map_err(|e| AdapterError::Io(format!("{}: {e}", path.display())))?;
+    let b =
+        std::fs::read(&path).map_err(|e| AdapterError::Io(format!("{}: {e}", path.display())))?;
     let sha = sha256_hex(&b);
     if sha != s("recipe_sha256")? {
         return Err(AdapterError::Request(format!(
@@ -309,7 +310,10 @@ pub struct SolveRecipeAdapter {
 }
 
 /// The unique keys of a plan (first-appearance order) with the request indices of each.
-fn unique_keys(reqs: &[SolveRequest], members: &[usize]) -> Vec<(Vec<i64>, Option<String>, Vec<usize>)> {
+fn unique_keys(
+    reqs: &[SolveRequest],
+    members: &[usize],
+) -> Vec<(Vec<i64>, Option<String>, Vec<usize>)> {
     let mut out: Vec<(Vec<i64>, Option<String>, Vec<usize>)> = Vec::new();
     let mut at: HashMap<Vec<i64>, usize> = HashMap::new();
     for &m in members {
@@ -595,7 +599,7 @@ impl JobAdapter for SolveRecipeAdapter {
                         requests: m.clone(),
                     });
                 }
-                if c.accept == Accept::Nothing && !matches!(c.row, 9 | 10 | 11 | 18 | 19 | 20 | 21) {
+                if is_refusal(&c) {
                     out.refusal = Some(AdapterRefusal {
                         row: c.row,
                         sub: c.sub.clone(),
@@ -612,7 +616,11 @@ impl JobAdapter for SolveRecipeAdapter {
         let results_sha = ev
             .verified
             .as_ref()
-            .and_then(|v| v.streams.iter().find(|s| s.rel == RunLayout::out_rel(rustred_campaign_contract::layout::RESULTS)))
+            .and_then(|v| {
+                v.streams.iter().find(|s| {
+                    s.rel == RunLayout::out_rel(rustred_campaign_contract::layout::RESULTS)
+                })
+            })
             .and_then(|s| VerifiedHandle::reopen(&prep.layout.root, s).ok())
             .and_then(|h| h.read_verified().ok())
             .map(|b| sha256_hex(&b));
@@ -662,7 +670,9 @@ impl JobAdapter for SolveRecipeAdapter {
                         .collect();
                     let results = rref(a.ordinal);
                     if why.is_none() && results.is_none() {
-                        why = Some("the results file could not be read back through its handle".into());
+                        why = Some(
+                            "the results file could not be read back through its handle".into(),
+                        );
                     }
                     match (why, results) {
                         (None, Some(results)) => out.relations.push(SolvedRelation {
@@ -693,7 +703,14 @@ impl JobAdapter for SolveRecipeAdapter {
                 }
                 KeyOutcome::Unsolved(u) => {
                     let ctx = requests.first().and_then(|&r| reqs[r].context.as_ref());
-                    let f = self.failure(recipe, &u, ctx, &prep.layout.root, rref(u.ordinal), requests);
+                    let f = self.failure(
+                        recipe,
+                        &u,
+                        ctx,
+                        &prep.layout.root,
+                        rref(u.ordinal),
+                        requests,
+                    );
                     out.failures.push(f);
                 }
             }

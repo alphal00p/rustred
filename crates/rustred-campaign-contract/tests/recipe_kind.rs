@@ -18,7 +18,12 @@ fn sr_spec() -> JobSpec {
     s.kind = JobKind::SolveRecipe;
     s.program.features_required = vec![];
     s.budgets = Budgets::default();
-    s.args = vec!["--order".into(), "id".into(), "--threads".into(), "4".into()];
+    s.args = vec![
+        "--order".into(),
+        "id".into(),
+        "--threads".into(),
+        "4".into(),
+    ];
     s.inputs = ["family", "recipe", "keys"]
         .iter()
         .map(|r| InputRef {
@@ -51,7 +56,12 @@ fn solve_recipe_spec_rules() {
     );
     // allow-list: the four flags, everything else 40
     let mut x = s.clone();
-    x.args.extend(["--max-trace-rows".into(), "9".into(), "--key-budget-s".into(), "30".into()]);
+    x.args.extend([
+        "--max-trace-rows".into(),
+        "9".into(),
+        "--key-budget-s".into(),
+        "30".into(),
+    ]);
     x.validate().unwrap();
     for bad in [
         vec!["--expect", "x"],
@@ -188,7 +198,10 @@ fn solved(i: u64, key: &[i64]) -> Value {
     let t = |k: &[i64]| {
         format!(
             "I({})",
-            k.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")
+            k.iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
         )
     };
     json!({"type":"relation","ordinal":i,"key":key,"tag":null,"verdict":"SOLVED","determinism_id":DET,
@@ -215,7 +228,9 @@ fn end(ty: &str, recs: &[Value]) -> Value {
 fn lines(recs: &[Value], end_rec: Value) -> Vec<Vec<u8>> {
     recs.iter()
         .chain(std::iter::once(&end_rec))
-        .map(|v| rustred_campaign_contract::canon::canonical_line(v.to_string().as_bytes()).unwrap())
+        .map(|v| {
+            rustred_campaign_contract::canon::canonical_line(v.to_string().as_bytes()).unwrap()
+        })
         .collect()
 }
 
@@ -273,15 +288,36 @@ fn key_outcomes_refuse_every_inconsistency() {
     };
     cases.push(("unproved", mutate(&|r| r[0]["proof"]["ok"] = json!(false))));
     cases.push(("not lower", mutate(&|r| r[0]["all_lower"] = json!(false))));
-    cases.push(("bad digest", mutate(&|r| r[0]["relation_digest"] = json!("abc"))));
-    cases.push(("failure on solved", mutate(&|r| r[0]["failure"] = json!({}))));
+    cases.push((
+        "bad digest",
+        mutate(&|r| r[0]["relation_digest"] = json!("abc")),
+    ));
+    cases.push((
+        "failure on solved",
+        mutate(&|r| r[0]["failure"] = json!({})),
+    ));
     cases.push(("wrong key", mutate(&|r| r[0]["key"] = json!([9, 1]))));
     cases.push(("wrong ordinal", mutate(&|r| r[1]["ordinal"] = json!(5))));
-    cases.push(("unknown verdict", mutate(&|r| r[1]["verdict"] = json!("MAYBE"))));
-    cases.push(("class mismatch", mutate(&|r| r[1]["failure"]["class"] = json!("error"))));
-    cases.push(("two recipe digests", mutate(&|r| r[1]["recipe_digest"] = json!(D1))));
-    cases.push(("two determinism ids", mutate(&|r| r[1]["determinism_id"] = json!("x"))));
-    cases.push(("rhs arity", mutate(&|r| r[0]["rhs"] = json!([["I(1)", "1", "top"]]))));
+    cases.push((
+        "unknown verdict",
+        mutate(&|r| r[1]["verdict"] = json!("MAYBE")),
+    ));
+    cases.push((
+        "class mismatch",
+        mutate(&|r| r[1]["failure"]["class"] = json!("error")),
+    ));
+    cases.push((
+        "two recipe digests",
+        mutate(&|r| r[1]["recipe_digest"] = json!(D1)),
+    ));
+    cases.push((
+        "two determinism ids",
+        mutate(&|r| r[1]["determinism_id"] = json!("x")),
+    ));
+    cases.push((
+        "rhs arity",
+        mutate(&|r| r[0]["rhs"] = json!([["I(1)", "1", "top"]])),
+    ));
     cases.push((
         "interrupted in end",
         mutate(&|r| r[1] = unsolved(1, &[3, 1], "INTERRUPTED")),
@@ -362,13 +398,27 @@ fn rows_of_solve_recipe() {
         (29, Accept::Nothing, Action::QueueFailures)
     );
     assert_eq!(r(ev(ExitCode::Incomplete, ks, Some((2, 0)))).0, 22);
-    assert_eq!(r(ev(ExitCode::Incomplete, ks, None)).0, 22, "S needs the tally");
     assert_eq!(
-        r(ev(ExitCode::Incomplete, Some(StopCode::MaxCases), Some((1, 1)))).0,
+        r(ev(ExitCode::Incomplete, ks, None)).0,
+        22,
+        "S needs the tally"
+    );
+    assert_eq!(
+        r(ev(
+            ExitCode::Incomplete,
+            Some(StopCode::MaxCases),
+            Some((1, 1))
+        ))
+        .0,
         22
     );
     assert_eq!(
-        r(ev(ExitCode::BudgetWork, Some(StopCode::BudgetWork), Some((1, 0)))).0,
+        r(ev(
+            ExitCode::BudgetWork,
+            Some(StopCode::BudgetWork),
+            Some((1, 0))
+        ))
+        .0,
         22
     );
     // keys_unsolved of another kind

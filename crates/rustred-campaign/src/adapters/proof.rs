@@ -7,7 +7,7 @@
 use super::conformance::Mismatch;
 use super::job::{
     AdapterError, Ended, InputFile, JobAdapter, JobPlan, Prepared, Program, classify_attempt,
-    create_run, write_input, write_spec,
+    create_run, is_refusal, write_input, write_spec,
 };
 use super::solve_recipe::AdapterRefusal;
 use rustred_campaign_contract::classify::{Classification, OutcomeState, WaitStatus};
@@ -60,7 +60,9 @@ pub fn fact_request(
     let mut line = Vec::new();
     let mut buf = [0u8; 1 << 16];
     loop {
-        let n = f.read(&mut buf).map_err(|e| AdapterError::Io(e.to_string()))?;
+        let n = f
+            .read(&mut buf)
+            .map_err(|e| AdapterError::Io(e.to_string()))?;
         if n == 0 {
             break;
         }
@@ -167,6 +169,11 @@ fn requests_bytes(reqs: &[FactRequest], members: &[usize]) -> Vec<u8> {
     b
 }
 
+/// One answer line (raw bytes) with its binding.
+type CheckedAnswer = (Vec<u8>, FactAnswer);
+/// Why the child's answers do not check, with the conformance mismatch when one applies.
+type CheckFailure = (String, Option<Mismatch>);
+
 impl ProofInstantiateAdapter {
     /// The wrapper's check of the child's answers against the requests (every answer bound by record_sha256 and a
     /// requested key of a request with that rule; every requested (record_sha256, key) answered exactly once).
@@ -175,7 +182,7 @@ impl ProofInstantiateAdapter {
         reqs: &[FactRequest],
         members: &[usize],
         text: &[u8],
-    ) -> Result<Vec<(Vec<u8>, FactAnswer)>, (String, Option<Mismatch>)> {
+    ) -> Result<Vec<CheckedAnswer>, CheckFailure> {
         let mut want: BTreeMap<(String, Vec<i64>), Vec<usize>> = BTreeMap::new();
         let mut rule_of: BTreeMap<String, u64> = BTreeMap::new();
         for &m in members {
@@ -474,7 +481,7 @@ impl JobAdapter for ProofInstantiateAdapter {
         let lines = match lines {
             Ok(l) => l,
             Err(why) => {
-                if !matches!(c.row, 9 | 10 | 11 | 18 | 19 | 20 | 21) {
+                if is_refusal(&c) {
                     out.refusal = Some(refuse(why, binding.into_iter().collect()));
                 }
                 return out;

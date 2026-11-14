@@ -15,7 +15,9 @@ mod adapters_support;
 use adapters_support::*;
 
 use rustred_campaign::adapters::generate::{GenerateAdapter, GenerateRequest, SeedOptions};
-use rustred_campaign::adapters::job::{InputFile, Invocation, JobAdapter, Program, RunOptions, run_attempt};
+use rustred_campaign::adapters::job::{
+    InputFile, Invocation, JobAdapter, Program, RunOptions, run_attempt,
+};
 use rustred_campaign::adapters::proof::{ProofInstantiateAdapter, fact_request};
 use rustred_campaign::adapters::solve_recipe::{
     BatchPolicy, RecipeInput, SolveRecipeAdapter, SolveRecipeConfig, SolveRequest,
@@ -199,9 +201,15 @@ fn real_solve_recipe_engine_line2_conformance_and_digests() {
             assert!(out.relations.is_empty());
         }
     }
-    eprintln!("DIGESTS vs hand reference: {equal}/{compared} equal ({} requests)", reqs.len());
+    eprintln!(
+        "DIGESTS vs hand reference: {equal}/{compared} equal ({} requests)",
+        reqs.len()
+    );
     assert_eq!(compared, want_count(&reqs), "every key solved");
-    assert_eq!(equal, compared, "relation digests equal to the hand reference");
+    assert_eq!(
+        equal, compared,
+        "relation digests equal to the hand reference"
+    );
 }
 
 fn want_count(reqs: &[SolveRequest]) -> usize {
@@ -238,7 +246,10 @@ fn real_solve_recipe_through_the_contract_job_subcommand() {
             .trim()
     );
     assert!(out.relations.is_empty());
-    assert!(matches!(c.row, 12 | 14), "refused by the binary's contract crate");
+    assert!(
+        matches!(c.row, 12 | 14),
+        "refused by the binary's contract crate"
+    );
 }
 
 /// One rr_proof `instantiate` batch (legacy child, sealed by the wrapper, answers bound by record_sha256 + key) on the
@@ -255,7 +266,10 @@ fn real_rr_proof_instantiate_batch() {
             &t,
             off[&0],
             0,
-            vec![vec![2, 1, 1, 1, 1, 1, 1, 2, -1], vec![1, 1, 1, 1, 1, 1, 1, 2, -1]],
+            vec![
+                vec![2, 1, 1, 1, 1, 1, 1, 2, -1],
+                vec![1, 1, 1, 1, 1, 1, 1, 2, -1],
+            ],
         )
         .unwrap(),
         fact_request(&t, off[&2], 2, vec![vec![1, 1, 1, 1, 1, 1, 1, 2, 0]]).unwrap(),
@@ -309,7 +323,8 @@ fn rule_offsets(p: &Path) -> BTreeMap<u64, u64> {
 fn real_generate_tiny_job() {
     require_namespace();
     let root = Root::new("real-gen");
-    let fam = InputFile::from_file(&env("RR_M2_SLICE").join("TOY2kite").join("family.sym")).unwrap();
+    let fam =
+        InputFile::from_file(&env("RR_M2_SLICE").join("TOY2kite").join("family.sym")).unwrap();
     let mut prog =
         Program::from_file("rr_node", &env("RR_NODE_CONTRACT"), Invocation::Contract).unwrap();
     prog.features_required = vec!["job".into(), "no_elision".into()];
@@ -333,7 +348,9 @@ fn real_generate_tiny_job() {
         },
         GenerateRequest {
             family: fam,
-            cases: vec![serde_json::json!({"frame": "PRESENTED", "fixed": [null, null, null, null, 1]})],
+            cases: vec![
+                serde_json::json!({"frame": "PRESENTED", "fixed": [null, null, null, null, 1]}),
+            ],
             order: "id".into(),
             seed: SeedOptions::symmetry_at_key_alone(),
             max_cases: Some(1),
@@ -364,7 +381,10 @@ fn real_generate_tiny_job() {
         rows.push(c.row);
     }
     assert_eq!(rows[0], 1, "whole chart complete");
-    assert!(rows[1] != 22 && rows[1] != 23, "the seed-option job is a contract outcome");
+    assert!(
+        rows[1] != 22 && rows[1] != 23,
+        "the seed-option job is a contract outcome"
+    );
 }
 
 /// Exit paths and strict-spec probes of the real `solve-recipe` job mode (conformance, engine line 2): exit 10 with a
@@ -388,7 +408,8 @@ fn real_solve_recipe_exit_paths_and_spec_probes() {
     .unwrap();
     let (base, _) = t178_requests();
     let mut l = launcher();
-    let report = |tag: &str, out: &rustred_campaign::adapters::solve_recipe::SolveBatch,
+    let report = |tag: &str,
+                  out: &rustred_campaign::adapters::solve_recipe::SolveBatch,
                   rep: &rustred_campaign::adapters::job::AttemptReport| {
         let c = &out.classification;
         let layout = RunLayout::new(&rep.prepared.spec.run_dir);
@@ -398,17 +419,27 @@ fn real_solve_recipe_exit_paths_and_spec_probes() {
             .unwrap_or_default();
         eprintln!(
             "{tag}: wait {:?} -> row {}{} ({}); child stop {} source {} time_decided {}",
-            rep.ended.wait, c.row, c.sub, c.why, o["job"]["stop"]["code"], o["job"]["stop"]["source"],
+            rep.ended.wait,
+            c.row,
+            c.sub,
+            c.why,
+            o["job"]["stop"]["code"],
+            o["job"]["stop"]["source"],
             o["job"]["time_decided"]
         );
         for m in diagnose(&layout, &rep.prepared.spec, &rep.prepared.spec_blake3) {
             eprintln!("  MISMATCH {}", serde_json::to_string(&m).unwrap());
         }
-        if let Ok((_, h)) =
-            verify_stream_handle(&layout.root, &RunLayout::out_rel("results.jsonl"), &["end", "partial"])
-        {
+        if let Ok((_, h)) = verify_stream_handle(
+            &layout.root,
+            &RunLayout::out_rel("results.jsonl"),
+            &["end", "partial"],
+        ) {
             let lines = h.canonical_lines().unwrap();
-            for v in lines.iter().filter_map(|l| serde_json::from_slice::<serde_json::Value>(l).ok()) {
+            for v in lines
+                .iter()
+                .filter_map(|l| serde_json::from_slice::<serde_json::Value>(l).ok())
+            {
                 if v["type"] == "relation" {
                     eprintln!("  record {:?} {}", v["key"], v["verdict"]);
                 } else {
@@ -470,7 +501,9 @@ fn real_solve_recipe_exit_paths_and_spec_probes() {
     .into_iter()
     .enumerate()
     {
-        let prep = ad.prepare(&reqs, &plans[0], root.path(), attempt as u32 + 1).unwrap();
+        let prep = ad
+            .prepare(&reqs, &plans[0], root.path(), attempt as u32 + 1)
+            .unwrap();
         let path = prep.layout.job_spec();
         let mut v: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
