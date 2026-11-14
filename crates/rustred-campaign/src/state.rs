@@ -926,6 +926,9 @@ pub struct NodeSpec {
     pub preferred_terminals: Option<FileRef>,
     pub preferred_listed: Option<u64>,
     pub preferred_count_against_bound: bool,
+    /// lane closeloop3: the start target (`full` unless the spec says `boxed`; `full` is not serialized).
+    #[serde(default, skip_serializing_if = "crate::ledger::StartTarget::is_full")]
+    pub start_target: crate::ledger::StartTarget,
 }
 
 impl NodeSpec {
@@ -944,6 +947,7 @@ impl NodeSpec {
             preferred_terminals: v.preferred_terminals.clone(),
             preferred_listed: v.preferred_listed,
             preferred_count_against_bound: v.preferred_count_against_bound.unwrap_or(false),
+            start_target: v.start_target.unwrap_or_default(),
         }
     }
 }
@@ -1002,9 +1006,12 @@ pub struct NodeState {
 
 impl NodeState {
     pub fn new(spec_box: Option<String>, terminal_bound: u32, spec: NodeSpec) -> Self {
+        // lane closeloop3: a node registered `start_target: boxed` is BOXED from its first record (the registration
+        // refuses it without a spec box)
+        let target = start_target_of(&spec, &spec_box);
         NodeState {
             phase: NodePhase::Registered,
-            target: ClosureTarget::Full,
+            target,
             spec_box,
             spec,
             attempt_ended: false,
@@ -1054,6 +1061,15 @@ impl NodeState {
             ClosureTarget::Full => self.spec.certify_full,
             ClosureTarget::Boxed { .. } => self.spec.certify_boxed,
         }
+    }
+}
+
+/// lane closeloop3: the target a node starts on (and returns to on a reopen): its spec box when registered
+/// `start_target: boxed`, else FULL.
+pub fn start_target_of(spec: &NodeSpec, spec_box: &Option<String>) -> ClosureTarget {
+    match (spec.start_target, spec_box) {
+        (crate::ledger::StartTarget::Boxed, Some(b)) => ClosureTarget::Boxed { box_id: b.clone() },
+        _ => ClosureTarget::Full,
     }
 }
 
@@ -1551,18 +1567,22 @@ pub fn apply_node(
         (_, NodeEvent::EnvelopeRecheck { .. }) => {
             return illegal("only a closed node is rechecked".into());
         }
-        (P::Running, NodeEvent::Reopen { .. }) if state.target == ClosureTarget::Full => {}
+        (P::Running, NodeEvent::Reopen { .. })
+            if state.target == start_target_of(&state.spec, &state.spec_box) => {}
         (
             P::Running | P::ClosureCheck | P::Closed | P::Certified | P::Open | P::Stale,
             NodeEvent::Reopen { reason },
         ) => {
             next.phase = P::Running;
-            if state.target != ClosureTarget::Full {
+            // lane closeloop3: back to the START target (FULL, or the spec box of a node registered boxed: it never
+            // had a FULL target)
+            let start = start_target_of(&state.spec, &state.spec_box);
+            if state.target != start {
                 next.cpu_ms_on_target = 0;
                 next.fixer_rounds_on_target = 0;
                 next.closure = None;
             }
-            next.target = ClosureTarget::Full;
+            next.target = start;
             next.attempt_ended = false;
             next.reopens += 1;
             next.reopen_cause = Some(reason.clone());
@@ -2344,6 +2364,13 @@ impl CampaignState {
                         if !self.inputs.contains_key(i) {
                             return Err(invalid(format!("node {node}: unknown input {i}")));
                         }
+                    }
+                    if spec.start_target == Some(crate::ledger::StartTarget::Boxed)
+                        && spec_box.is_none()
+                    {
+                        return Err(invalid(format!(
+                            "node {node}: start_target boxed needs a spec box (the campaign never chooses one)"
+                        )));
                     }
                     if let Some(b) = spec_box {
                         match self.inputs.get(b) {

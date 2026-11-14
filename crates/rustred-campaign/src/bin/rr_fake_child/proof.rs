@@ -1,4 +1,4 @@
-//! `rr_fake_child` emulating the LEGACY rr_proof kinds (lane closeloop2; interfaces/closeloop.md 13.1):
+//! `rr_fake_child` emulating the LEGACY kinds (lane closeloop2; interfaces/closeloop.md 13.1; lane closeloop3: 16):
 //! `proof-instance-span` writes ONE `rustred.proof-kernel.span.v1` record to `out/span.jsonl` (one `keys[]` entry per
 //! requested key, in request order), `proof-instantiate` one `rustred.proof-kernel.instantiate.v1` line per requested
 //! (record, key) to `out/instantiate.jsonl`; then exit 0 WITHOUT OUTCOME (a legacy child: the supervisor-side wrapper
@@ -6,6 +6,10 @@
 //! `fail` = rr_proof's refusal (an ERROR line on stdout, exit 2); a signal ends the child like rr_proof's default
 //! disposition (killed by that signal). Independence: record digests are computed here with the `sha2`-free code of
 //! the campaign core (the same function the import uses), keys parsed by this program's own code.
+//! `coefficient-facts` (lane closeloop3) writes one `rustred.campaign.fact-verdict.v1` line per requested (record, key)
+//! to `out/coefficient_facts.jsonl` (`producer: exact_eval`, `backend: fake-core-poly`), computed with the campaign
+//! CORE's exact evaluation (`accept::facts::ExactRecordFacts`: `poly::Poly`, not Symbolica): an independent route to the
+//! real child's facts; `proof_answer` ops may replace fields of a line (`line`) or lie about its binding.
 
 use super::SIGNALS;
 use rustred_campaign_contract::fake::FakeOp;
@@ -117,7 +121,56 @@ pub fn run(spec_path: &Path, kind: &str) -> ! {
         }
     }
     let mut next = || answers.next().cloned();
-    let out_lines: Vec<String> = if kind == "proof-instance-span" {
+    let out_lines: Vec<String> = if kind == "coefficient-facts" {
+        let mut lines = vec![];
+        for l in String::from_utf8_lossy(&input("requests")).lines() {
+            if l.trim().is_empty() {
+                continue;
+            }
+            let v: Value = serde_json::from_str(l).unwrap_or(Value::Null);
+            let (Some(table), Some(off), Some(rule)) = (
+                v["table"].as_str(),
+                v["offset"].as_u64(),
+                v["rule"].as_i64(),
+            ) else {
+                die("request: table / offset / rule");
+            };
+            let keys: Vec<Vec<i32>> =
+                serde_json::from_value(v["keys"].clone()).unwrap_or_else(|_| die("keys"));
+            for k in keys {
+                let mut a = core_fact_line(Path::new(table), off, rule, &k)
+                    .unwrap_or_else(|e| die(&e));
+                if let Some(FakeOp::ProofAnswer {
+                    ms,
+                    record_sha256,
+                    rule: r,
+                    key,
+                    line,
+                    ..
+                }) = next()
+                {
+                    nap(ms);
+                    if let Some(Value::Object(o)) = line {
+                        for (f, x) in o {
+                            a[f] = x;
+                        }
+                    }
+                    if let Some(x) = record_sha256 {
+                        a["record_sha256"] = json!(x);
+                    }
+                    if let Some(x) = r {
+                        a["rule"] = json!(x);
+                        a["index"] = json!(x);
+                    }
+                    if let Some(x) = key {
+                        a["key"] = json!(x);
+                    }
+                }
+                lines.push(a.to_string());
+            }
+        }
+        lines
+    } else if kind == "proof-instance-span" {
         let req: Value = serde_json::from_slice(&input("request")).unwrap_or(Value::Null);
         let (Some(rule), Some(sha)) = (req["rule"].as_i64(), req["record_sha256"].as_str()) else {
             die("request: rule / record_sha256");
@@ -240,10 +293,10 @@ pub fn run(spec_path: &Path, kind: &str) -> ! {
         lines
     };
     check_signal();
-    let name = if kind == "proof-instance-span" {
-        "span.jsonl"
-    } else {
-        "instantiate.jsonl"
+    let name = match kind {
+        "proof-instance-span" => "span.jsonl",
+        "coefficient-facts" => "coefficient_facts.jsonl",
+        _ => "instantiate.jsonl",
     };
     let mut body = out_lines.join("\n");
     body.push('\n');
@@ -256,4 +309,66 @@ pub fn run(spec_path: &Path, kind: &str) -> ! {
         json!({"fake": true, "written": name, "lines": out_lines.len()})
     );
     std::process::exit(0)
+}
+
+/// The fact line of (record at `off` of `table`, key) from the campaign core's exact evaluation (lane closeloop3).
+fn core_fact_line(table: &Path, off: u64, rule: i64, key: &[i32]) -> Result<Value, String> {
+    use rustred_campaign_core::accept::facts::{CoefficientFacts, ExactRecordFacts, RegVerdict, Regularity};
+    use rustred_campaign_core::accept::rule::{CreditWitness, RuleText};
+    use rustred_campaign_core::closure::CoefFact;
+    use rustred_campaign_core::closure::bodies::{RhsSlot, parse_rhs_pattern, rule_point};
+    let h = rustred_campaign_core::import::lines::read_header("fake", table).map_err(|e| e.to_string())?;
+    let guard = h.guard_version;
+    let frame = rustred_campaign_core::key::NodeFrame::from_header(&h).map_err(|e| format!("{e:?}"))?;
+    let mut f = std::fs::File::open(table).map_err(|e| e.to_string())?;
+    f.seek(SeekFrom::Start(off)).map_err(|e| e.to_string())?;
+    let mut all = Vec::new();
+    f.read_to_end(&mut all).map_err(|e| e.to_string())?;
+    let end = all.iter().position(|&c| c == b'\n').unwrap_or(all.len());
+    let line = &all[..end];
+    let mut hs = rustred_campaign_core::closure::sha256::Sha256::new();
+    hs.update(line);
+    let sha = hs.finish_hex();
+    let rt = RuleText::parse(line, &frame).map_err(|e| format!("{e:?}"))?;
+    if rt.index() != Some(rule) {
+        return Err("rule record not found in table".into());
+    }
+    let dom = rt.domain.as_ref().ok_or("record without a domain")?;
+    let mut pt = vec![];
+    if !rule_point(dom, key, &mut pt) {
+        return Err(format!("no rule point at {key:?}"));
+    }
+    let mut ex = ExactRecordFacts::new();
+    let (mut nonzero, mut unknown, mut zero) = (vec![], vec![], 0usize);
+    for (j, (pattern, _)) in rt.rhs.iter().enumerate() {
+        let slots = parse_rhs_pattern(pattern, pt.len())?;
+        let tk: Vec<i32> = slots
+            .iter()
+            .map(|s| match *s {
+                RhsSlot::Param { param, offset } => pt[param] + offset,
+                RhsSlot::Const(c) => c,
+            })
+            .collect();
+        let d = format!("{:016x}", rustred_campaign_core::import::lines::term_key_digest(&tk));
+        match ex.coefficient(&rt, key, j) {
+            CoefFact::Zero => zero += 1,
+            CoefFact::NonZero => nonzero.push(d),
+            CoefFact::Unknown => unknown.push(d),
+        }
+    }
+    nonzero.sort();
+    nonzero.dedup();
+    unknown.sort();
+    unknown.dedup();
+    let verdict = match ex.regular(&rt, key) {
+        RegVerdict::Pole { .. } => "irregular".to_string(),
+        _ if rt.credit_witness(guard) != CreditWitness::Complete => "hidden".into(),
+        RegVerdict::Regular => "regular".into(),
+        RegVerdict::Hidden { .. } => "hidden".into(),
+        RegVerdict::Unknown(m) => format!("unusable:{m}"),
+    };
+    Ok(json!({"schema": rustred_campaign_core::import::evidence::FACT_VERDICT_SCHEMA, "producer": "exact_eval",
+        "backend": "fake-core-poly", "record_sha256": sha, "rule": rule, "index": rule, "key": key,
+        "in_case": true, "branch": null, "verdict": verdict, "n_terms": rt.rhs.len(), "nonzero": nonzero,
+        "unknown": unknown, "zero_terms": zero}))
 }

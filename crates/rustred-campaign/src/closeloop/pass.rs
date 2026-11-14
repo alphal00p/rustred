@@ -11,7 +11,8 @@
 
 use super::config::{Budgets, HandCfg};
 use super::proofs::{
-    ProofBatch, REASON_FACTS, REASON_IMPORT_PROOF, REASON_RELATION, RecordReq, relation_records,
+    ProofBatch, REASON_EXACT, REASON_FACTS, REASON_IMPORT_PROOF, REASON_RELATION, RecordReq,
+    relation_records,
 };
 use rustred_campaign_core::closure::relations::DispatchSlot;
 use rustred_campaign_core::closure::{Tier, Verdict};
@@ -39,6 +40,9 @@ pub struct ProofPlan {
     pub facts: bool,
     pub max_keys_per_job: usize,
     pub max_fact_keys_per_job: usize,
+    /// lane closeloop3: (record, key) pairs per `coefficient-facts` job; None = no exact evaluation configured (the
+    /// records rr_proof instantiate refuses get no fact job).
+    pub exact_keys_per_job: Option<usize>,
 }
 
 /// Input of one pass.
@@ -369,15 +373,32 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     .map_err(|e| format!("check: {e}"))?;
     // the facts the exact tier needs: every served rule key's (record, key) not asked yet
     let mut missing_facts: BTreeMap<(usize, usize), BTreeSet<Vec<i32>>> = BTreeMap::new();
-    // records with ELIDED witness loci: rr_proof instantiate refuses them as a whole (fail closed, R-f): their keys
-    // get no fact job; the exact tier judges them from their bound per-key proofs and lists what stays unknown
+    // records with ELIDED witness loci: rr_proof instantiate refuses them as a whole (fail closed, R-f). Lane
+    // closeloop3 (closeloop.md 16): with `proof.exact_eval` their facts come from the EXACT evaluation of their own
+    // coefficient text (`coefficient-facts` jobs, producer exact_eval; regularity from the bound per-key proof);
+    // without it they get no fact job and the exact tier lists what stays unknown
+    let exact_eval = inp
+        .proof
+        .as_ref()
+        .is_some_and(|p| p.exact_keys_per_job.is_some());
+    let mut missing_exact: BTreeMap<(usize, usize), BTreeSet<Vec<i32>>> = BTreeMap::new();
     let mut elided_no_facts = 0u64;
     if inp.exact_tier {
         for r in &res_k.rows {
             if let (RowStatus::Served, Some(Server::Rule { table, record })) = (r.status, &r.server)
             {
                 if set.rules[*table][*record].witness == WitnessKind::Elided {
-                    elided_no_facts += 1;
+                    let sha = &set.rules[*table][*record].record_sha256;
+                    if !exact_eval {
+                        elided_no_facts += 1;
+                    } else if !ev.has_fact(&set, *table, *record, &r.key)
+                        && !inp.issued_facts.contains(&(sha.clone(), r.key.clone()))
+                    {
+                        missing_exact
+                            .entry((*table, *record))
+                            .or_default()
+                            .insert(r.key.clone());
+                    }
                     continue;
                 }
                 let sha = &set.rules[*table][*record].record_sha256;
@@ -393,7 +414,8 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             }
         }
     }
-    let n_missing: usize = missing_facts.values().map(BTreeSet::len).sum();
+    let n_missing: usize = missing_facts.values().map(BTreeSet::len).sum::<usize>()
+        + missing_exact.values().map(BTreeSet::len).sum::<usize>();
     let can_ask_facts = inp.proof.as_ref().is_some_and(|p| p.facts);
     let tier_c_now = inp.exact_tier && n_missing == 0;
     let streamed_res;
@@ -589,17 +611,24 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             for fr in &res.fact_requests {
                 if let Some((t, r)) = set.rules.iter().enumerate().find_map(|(t, v)| {
                     v.iter()
-                        .position(|x| {
-                            x.record_sha256 == fr.record_sha256 && x.witness != WitnessKind::Elided
-                        })
+                        .position(|x| x.record_sha256 == fr.record_sha256)
                         .map(|r| (t, r))
                 }) {
+                    let elided = set.rules[t][r].witness == WitnessKind::Elided;
+                    if elided && !exact_eval {
+                        continue;
+                    }
                     for k in &fr.keys {
                         if !inp
                             .issued_facts
                             .contains(&(fr.record_sha256.clone(), k.clone()))
                         {
-                            missing_facts.entry((t, r)).or_default().insert(k.clone());
+                            let m = if elided {
+                                &mut missing_exact
+                            } else {
+                                &mut missing_facts
+                            };
+                            m.entry((t, r)).or_default().insert(k.clone());
                         }
                     }
                 }
@@ -649,6 +678,11 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                         relation_source: None,
                     });
                 }
+            }
+            // lane closeloop3: the elided records' facts, exact evaluation (one `coefficient-facts` job per table
+            // and at most `exact_keys_per_job` (record, key) pairs)
+            if let Some(cap) = pp.exact_keys_per_job {
+                proof_batches.extend(exact_batches(&set, &missing_exact, cap.max(1)));
             }
         }
     }
@@ -727,12 +761,25 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             .sum::<u64>()
     };
     let level_word = required.word();
+    // lane closeloop3 (closeloop.md 16.4): keys whose solve hit a per-key cap (each went to its next recipe step)
+    let (mut cap_wall, mut cap_work) = (0u64, 0u64);
+    for m in ev.solved.values() {
+        for r in m.values() {
+            match r.verdict.as_str() {
+                "BUDGET_WALL" => cap_wall += 1,
+                "BUDGET_WORK" => cap_work += 1,
+                _ => {}
+            }
+        }
+    }
     let check_v = json!({
         "schema": CHECK_SCHEMA, "node": inp.node, "round": inp.round, "target": inp.target,
         "spec_digest": res.spec_digest, "key_set_digest": res.key_set_digest,
         "tier": format!("{:?}", res.tier), "exact_tier": {"wanted": inp.exact_tier, "reached": tier_c_now,
             "facts_missing_keys": n_missing, "keys_only_closure": res_k.rows.len(),
-            "facts_unavailable_elided_keys": elided_no_facts},
+            "facts_unavailable_elided_keys": elided_no_facts,
+            "exact_eval": exact_eval,
+            "exact_eval_missing_keys": missing_exact.values().map(BTreeSet::len).sum::<usize>()},
         "required_evidence": level_word,
         "keys": keys, "in_start": res.summary.keys_in_start, "served": served, "terminal": terminal, "open": open,
         "certified": certified, "defect": defect, "closed": closed,
@@ -752,8 +799,11 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         "batches": batches.iter().map(|b| json!({"source": b.source, "keys": b.keys.len()})).collect::<Vec<_>>(),
         "proof_batches": {"span_import": pb_count("span", REASON_IMPORT_PROOF),
                           "span_relation": pb_count("span", REASON_RELATION),
-                          "facts": pb_count("facts", REASON_FACTS), "jobs": proof_batches.len()},
+                          "facts": pb_count("facts", REASON_FACTS),
+                          "exact_eval": pb_count("exact", REASON_EXACT), "jobs": proof_batches.len()},
+        "fact_basis": fact_basis_counts(&counts),
         "budget": budget_why, "budget_stop": budget_stop,
+        "cap_hits": {"wall_time_decided": cap_wall, "work": cap_work},
     });
     let dispatch_order = json!({
         "schema": DISPATCH_SCHEMA, "node": inp.node, "spec_digest": set.report.spec_digest,
@@ -932,7 +982,8 @@ fn write_final(
     let sdir = inp.final_dir.join("statement");
     let header = json!({"check_pass_s": f.elapsed, "closeloop": {"target": inp.target,
         "relation_rule": inp.relation_rule, "required_evidence": f.required.word(),
-        "tier": format!("{:?}", res.tier), "verdict": f.verdict}});
+        "tier": format!("{:?}", res.tier), "verdict": f.verdict,
+        "fact_basis": f.check["fact_basis"].clone()}});
     let dig = write_statement(set, ev, res, &sdir, Some(header))
         .map_err(|e| format!("statement: {e}"))?;
     let compare_into = |r: &CheckResult, dir: &str| -> Result<Value, String> {
@@ -1012,9 +1063,12 @@ fn write_final(
         "economy": {"closure_keys": f.check["keys"].clone(), "used_rules": res.summary.used_rules,
                     "recipes_used": served_by_recipe.len(), "keys_by_recipe": served_by_recipe,
                     "supplied_sets_used": served_by_supplied, "solved_keys": solved_keys, "failed_keys": failed_keys,
-                    "answers_by_recipe": answered, "relation_rule": inp.relation_rule},
+                    "answers_by_recipe": answered, "relation_rule": inp.relation_rule,
+                    "cap_hits": f.check["cap_hits"].clone()},
         "evidence_by_class": f.check["evidence_by_class"].clone(),
         "by_rule_class_level": f.check["by_rule_class_level"].clone(),
+        // lane closeloop3: who produced the facts of the served keys (rr_proof / exact_eval / compact)
+        "fact_basis": f.check["fact_basis"].clone(),
         "relation_rule": inp.relation_rule,
         "requests_left": {"solve": res.solve_requests.len(), "fact_records": res.fact_requests.len(),
                           "proof_records": res.proof_requests.len()},
@@ -1024,4 +1078,68 @@ fn write_final(
         verdict: f.verdict.to_string(),
         result,
     })
+}
+
+/// lane closeloop3: `coefficient-facts` batches of the (record, key) pairs of `missing`: one table per batch, at most
+/// `cap` pairs (a record's keys may be split over batches).
+fn exact_batches(
+    set: &rustred_campaign_core::import::ImportedSet,
+    missing: &BTreeMap<(usize, usize), BTreeSet<Vec<i32>>>,
+    cap: usize,
+) -> Vec<ProofBatch> {
+    let mut by_table: BTreeMap<String, Vec<RecordReq>> = BTreeMap::new();
+    for ((t, r), ks) in missing {
+        let info = &set.rules[*t][*r];
+        by_table
+            .entry(info.path.clone())
+            .or_default()
+            .push(RecordReq {
+                rule: info.index.unwrap_or(info.label),
+                offset: info.offset,
+                record_sha256: info.record_sha256.clone(),
+                keys: ks.iter().cloned().collect(),
+            });
+    }
+    let mut out = vec![];
+    for (table, recs) in by_table {
+        let mut cur: Vec<RecordReq> = vec![];
+        let mut n = 0usize;
+        for rr in recs {
+            for chunk in rr.keys.chunks(cap) {
+                if n + chunk.len() > cap && !cur.is_empty() {
+                    out.push(ProofBatch {
+                        kind: "exact".into(),
+                        reason: REASON_EXACT.into(),
+                        table: table.clone(),
+                        records: std::mem::take(&mut cur),
+                        relation_source: None,
+                    });
+                    n = 0;
+                }
+                n += chunk.len();
+                cur.push(RecordReq {
+                    keys: chunk.to_vec(),
+                    ..rr.clone()
+                });
+            }
+        }
+        if !cur.is_empty() {
+            out.push(ProofBatch {
+                kind: "exact".into(),
+                reason: REASON_EXACT.into(),
+                table,
+                records: cur,
+                relation_source: None,
+            });
+        }
+    }
+    out
+}
+
+/// lane closeloop3: the fact basis counts of the served keys (`facts:basis:<producer>` of the import's counts).
+pub fn fact_basis_counts(counts: &BTreeMap<String, u64>) -> BTreeMap<String, u64> {
+    counts
+        .iter()
+        .filter_map(|(k, v)| k.strip_prefix("facts:basis:").map(|b| (b.to_string(), *v)))
+        .collect()
 }

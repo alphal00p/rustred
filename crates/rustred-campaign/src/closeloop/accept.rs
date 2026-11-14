@@ -63,6 +63,23 @@ pub struct AcceptCtx<'a> {
     pub results_path: String,
     pub results_blake3: String,
     pub run_dir: String,
+    /// lane closeloop3: the per-key caps of the solve jobs (`--max-trace-rows`, `--key-budget-s`), recorded on the
+    /// answer line of a key that hit one (closeloop.md 16.4).
+    pub max_trace_rows: Option<u64>,
+    pub key_budget_s: Option<u64>,
+}
+
+/// lane closeloop3 (closeloop.md 16.4): the cap a key hit, recorded on its answer line: `wall` (TIME-decided: the
+/// per-key wall cap, a safety net) or `work` (the deterministic work cap); either way the key goes to the NEXT recipe
+/// step of its escalation (the import asks the next candidate recipe; never another relation rule of the same recipe).
+pub fn cap_record(verdict: &str, max_trace_rows: Option<u64>, key_budget_s: Option<u64>) -> Value {
+    match verdict {
+        "BUDGET_WALL" => json!({"kind": "wall", "time_decided": true, "key_budget_s": key_budget_s,
+                                "next": "next_recipe_step"}),
+        "BUDGET_WORK" => json!({"kind": "work", "time_decided": false, "max_trace_rows": max_trace_rows,
+                                "next": "next_recipe_step"}),
+        _ => Value::Null,
+    }
 }
 
 /// The per-key decisions of one attempt.
@@ -382,6 +399,7 @@ pub fn decide(c: &AcceptCtx<'_>, canonical_lines: &[String]) -> Result<Decided, 
                     "results": {"path": c.results_path, "blake3": c.results_blake3, "ordinal": u.ordinal},
                     "relation_rule": c.batch.relation_rule,
                     "failure": {"class": u.class.name(), "route": u.route, "message": u.failure["message"].clone()},
+                    "cap": cap_record(&u.verdict.name(), c.max_trace_rows, c.key_budget_s),
                     "failure_record": f});
                 out.lines.push(line(&v));
                 out.failed.push((k32, u.class.name().to_string()));

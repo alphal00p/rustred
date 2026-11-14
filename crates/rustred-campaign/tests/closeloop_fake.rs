@@ -270,13 +270,16 @@ fn fake_children_close_the_toy_end_to_end_with_the_default_recipe() {
         "{ans:#?}"
     );
     assert!(ans.iter().all(|v| v["relation_rule"].as_str().is_some()));
-    // node machine: boxed from the start (closeloop.md 13.3: the ledger's transition into the spec box), then closed
+    // node machine: boxed from the start (lane closeloop3, closeloop.md 16.5: registered `start_target: boxed`, no
+    // AttemptEnded + FallBackToBox pair any more), then closed BOXED
     let ev = node_events(&cdir);
     assert!(
-        ev.contains(&"fall_back_to_box".to_string())
+        !ev.contains(&"fall_back_to_box".to_string())
+            && !ev.contains(&"attempt_ended".to_string())
             && ev.last().map(String::as_str) == Some("declare_closed"),
         "{ev:?}"
     );
+    assert_eq!(state(&cdir).nodes["toy"].state.closure_kind(), "boxed");
     // statement + comparison files, progress file
     assert!(
         cdir.join("closeloop/toy/final/statement/statement.jsonl")

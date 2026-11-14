@@ -1617,7 +1617,7 @@ fn run_job(spec_path: &Path) -> ! {
         .ok()
         .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
         .and_then(|v| v["kind"].as_str().map(str::to_string))
-        .filter(|k| k == "proof-instance-span" || k == "proof-instantiate")
+        .filter(|k| k == "proof-instance-span" || k == "proof-instantiate" || k == "coefficient-facts")
     {
         proof::run(spec_path, &k)
     }

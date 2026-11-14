@@ -72,6 +72,8 @@ struct NodeRt {
     // lane closeloop2
     pbatches: BTreeMap<String, ProofBatchFile>,
     proof_oracle: ProofOracle,
+    /// lane closeloop3: TESTS ONLY, lies of the fake `coefficient-facts` child (keyed by key).
+    exact_oracle: ProofOracle,
     /// BLAKE3 of the proof config's family / cert / symmetry group files.
     proof_inputs: BTreeMap<String, (PathBuf, String)>,
 }
@@ -85,6 +87,11 @@ pub struct CloseFromMaterialSource {
     sha256: BTreeMap<String, String>,
     blake3: BTreeMap<String, String>,
     last_progress: Option<(Instant, String)>,
+}
+
+/// lane closeloop2 / closeloop3: the item kinds of proof jobs (span, rr_proof facts, exact-eval facts).
+fn is_proof_kind(k: &str) -> bool {
+    k == KIND_PROOF || k == KIND_FACTS || k == KIND_EXACT
 }
 
 fn blake3_hex(b: &[u8]) -> String {
@@ -215,6 +222,7 @@ impl CloseFromMaterialSource {
             let family_blake3 = file_blake3(&nc.solve.family)?;
             let mut proof_inputs = BTreeMap::new();
             let mut proof_oracle = BTreeMap::new();
+            let mut exact_oracle = BTreeMap::new();
             if let Some(pc) = &nc.proof {
                 let prog = pc.program_key().to_string();
                 let path = s.programs.get(&prog).cloned().ok_or_else(|| {
@@ -234,6 +242,18 @@ impl CloseFromMaterialSource {
                 if let Some(f) = &pc.fake {
                     proof_oracle = proofs::read_oracle(&f.oracle)?;
                 }
+                // lane closeloop3: the exact-evaluation program (its digests are recorded like every program's)
+                if let Some(x) = &pc.exact_eval {
+                    let prog = x.program_key().to_string();
+                    let path = s.programs.get(&prog).cloned().ok_or_else(|| {
+                        format!("node {}: exact_eval program {prog} not in the spec", nc.node)
+                    })?;
+                    s.sha256.insert(prog.clone(), file_sha256(&path)?);
+                    s.blake3.insert(prog, file_blake3(&path)?);
+                    if let Some(o) = x.fake.as_ref().and_then(|f| f.oracle.as_ref()) {
+                        exact_oracle = proofs::read_oracle(o)?;
+                    }
+                }
             }
             s.nodes.push(NodeRt {
                 cfg: nc.clone(),
@@ -251,6 +271,7 @@ impl CloseFromMaterialSource {
                 pass_started: None,
                 pbatches: BTreeMap::new(),
                 proof_oracle,
+                exact_oracle,
                 proof_inputs,
             });
         }
@@ -400,13 +421,13 @@ impl CloseFromMaterialSource {
         let items: Vec<(String, ItemPhase)> = st
             .items
             .iter()
-            .filter(|(_, it)| it.node == node && (it.kind == KIND_PROOF || it.kind == KIND_FACTS))
+            .filter(|(_, it)| it.node == node && (is_proof_kind(&it.kind)))
             .map(|(k, it)| (k.clone(), it.phase.clone()))
             .collect();
         let mut out = ProofIssued::default();
         for (item, ph) in &items {
             let b = self.pbatch(st, i, item)?;
-            if b.kind == "facts" {
+            if b.kind == "facts" || b.kind == "exact" {
                 out.facts.extend(b.pairs());
             } else {
                 out.spans.extend(b.pairs());
@@ -452,7 +473,7 @@ impl CloseFromMaterialSource {
         }
         let busy = st.items.values().any(|it| {
             it.node == *node
-                && (it.kind == KIND_SOLVE || it.kind == KIND_PROOF || it.kind == KIND_FACTS)
+                && (it.kind == KIND_SOLVE || is_proof_kind(&it.kind))
                 && !Self::item_final(&it.phase)
         });
         if busy {
@@ -530,6 +551,7 @@ impl CloseFromMaterialSource {
                 facts: p.facts,
                 max_keys_per_job: p.max_keys_per_job,
                 max_fact_keys_per_job: p.max_fact_keys_per_job,
+                exact_keys_per_job: p.exact_eval.as_ref().map(|x| x.max_keys_per_job),
             }),
             exact_tier: r.cfg.exact_tier,
             rows_path: self.abs(&format!("{}/checks/r{round}.rows.jsonl", node_dir(&r.n))),
@@ -806,9 +828,9 @@ impl CloseFromMaterialSource {
         let mut on_full_closed = false;
         if boxed && nr.state.target == ClosureTarget::Full {
             if out.defect > 0 {
-                // closeloop.md 13.3: the node is BOXED from its first record; the ledger has no boxed start (NodeState
-                // is FULL at registration, FallBackToBox needs an ended attempt): this pair is the ledger's only legal
-                // way into the spec box until the ledger owner adds `NodeSpecValues.start_target` (lane notes)
+                // closeloop.md 13.3 / 16.5: a node registered `start_target: boxed` (lane closeloop3) is BOXED from its
+                // first record and never comes here; this pair stays ONLY for nodes of a campaign directory registered
+                // before the ledger had a boxed start (resume of an older ledger: FULL at registration)
                 rt.events.push(Event::Node {
                     node: node.clone(),
                     ev: NodeEvent::AttemptEnded {
@@ -1015,10 +1037,10 @@ impl CloseFromMaterialSource {
         rt.events.push(Event::ItemCreated {
             item: item.clone(),
             node,
-            kind: if bf.kind == "facts" {
-                KIND_FACTS.into()
-            } else {
-                KIND_PROOF.into()
+            kind: match bf.kind.as_str() {
+                "facts" => KIND_FACTS.into(),
+                "exact" => KIND_EXACT.into(),
+                _ => KIND_PROOF.into(),
             },
             rung: Rung(0),
             parent: Some(import_item(&n)),
@@ -1084,6 +1106,14 @@ impl CloseFromMaterialSource {
                 }
             }
             (JobKind::ProofInstanceSpan, v)
+        } else if b.kind == "exact" {
+            (
+                JobKind::CoefficientFacts,
+                vec![
+                    file(format!("{dir}/{item}.requests.jsonl"), "requests")?,
+                    table,
+                ],
+            )
         } else {
             (
                 JobKind::ProofInstantiate,
@@ -1093,22 +1123,44 @@ impl CloseFromMaterialSource {
                 ],
             )
         };
-        let fake = pc
-            .fake
-            .as_ref()
-            .map(|f| proofs::fake_script(&b, &r.proof_oracle, f.ms));
+        // lane closeloop3: a `coefficient-facts` job runs the exact-evaluation program under its own caps
+        let exact = (b.kind == "exact")
+            .then_some(pc.exact_eval.as_ref())
+            .flatten();
+        if b.kind == "exact" && exact.is_none() {
+            return Err(format!("{item}: an exact-eval batch without proof.exact_eval"));
+        }
+        let fake = match exact {
+            Some(x) => x
+                .fake
+                .as_ref()
+                .map(|f| proofs::fake_script(&b, &r.exact_oracle, f.ms)),
+            None => pc
+                .fake
+                .as_ref()
+                .map(|f| proofs::fake_script(&b, &r.proof_oracle, f.ms)),
+        };
         Ok(JobRequest {
             job,
             item: item.to_string(),
             rung: Rung(0),
             kind,
             priority,
-            cap_bytes: pc.cap_bytes,
-            expected_peak_bytes: pc.expected_peak_bytes,
-            cores: pc.threads as usize,
-            heartbeat_s: pc.heartbeat_s(),
+            cap_bytes: exact.map(|x| x.cap_bytes).unwrap_or(pc.cap_bytes),
+            expected_peak_bytes: exact
+                .map(|x| x.expected_peak_bytes)
+                .unwrap_or(pc.expected_peak_bytes),
+            cores: if exact.is_some() {
+                1
+            } else {
+                pc.threads as usize
+            },
+            heartbeat_s: exact.map(|x| x.heartbeat_s()).unwrap_or(pc.heartbeat_s()),
             stop_grace_s: 5,
-            program: pc.program_key().to_string(),
+            program: exact
+                .map(|x| x.program_key())
+                .unwrap_or(pc.program_key())
+                .to_string(),
             args: vec![],
             inputs,
             depends_on: vec![input_pbatch(item)],
@@ -1208,7 +1260,7 @@ impl CloseFromMaterialSource {
             for it in st
                 .items
                 .values()
-                .filter(|it| it.node == *node && (it.kind == KIND_PROOF || it.kind == KIND_FACTS))
+                .filter(|it| it.node == *node && (is_proof_kind(&it.kind)))
             {
                 *proof_by_phase
                     .entry(format!("{}:{}", it.kind, it.phase.tag()))
@@ -1371,7 +1423,7 @@ impl CloseFromMaterialSource {
             }
         };
         let n = self.nodes[i].n.clone();
-        let (sub, input, role) = if b.kind == "facts" {
+        let (sub, input, role) = if b.kind == "facts" || b.kind == "exact" {
             ("facts", input_facts(&done.item, &done.job), ROLE_FACTS)
         } else {
             ("proofs", input_proofs(&done.item, &done.job), ROLE_PROOFS)
@@ -1513,6 +1565,8 @@ impl WorkSource for CloseFromMaterialSource {
                         spec: NodeSpecValues {
                             full_attempt_cpu_hours: Some(0),
                             full_attempt_fixer_rounds: Some(0),
+                            // lane closeloop3 (closeloop.md 16.5): a boxed node is BOXED from its first ledger record
+                            start_target: boxed.then_some(crate::ledger::StartTarget::Boxed),
                             ..NodeSpecValues::default()
                         },
                         reference: None,
@@ -1561,7 +1615,7 @@ impl WorkSource for CloseFromMaterialSource {
                 .iter()
                 .filter(|(_, it)| {
                     it.node == node
-                        && (it.kind == KIND_SOLVE || it.kind == KIND_PROOF || it.kind == KIND_FACTS)
+                        && (it.kind == KIND_SOLVE || is_proof_kind(&it.kind))
                 })
                 .map(|(k, it)| {
                     (
@@ -1632,7 +1686,7 @@ impl WorkSource for CloseFromMaterialSource {
         let i = self
             .node_of(&it.node)
             .ok_or_else(|| format!("item {} of a node this source does not hold", done.item))?;
-        if it.kind == KIND_PROOF || it.kind == KIND_FACTS {
+        if is_proof_kind(&it.kind) {
             return self.route_proof(st, i, done);
         }
         if it.kind != KIND_SOLVE {
@@ -1688,6 +1742,8 @@ impl WorkSource for CloseFromMaterialSource {
                 .get(&done.job)
                 .and_then(|j| j.run_dir.clone())
                 .unwrap_or_default(),
+            max_trace_rows: r.cfg.solve.max_trace_rows,
+            key_budget_s: r.cfg.solve.key_budget_s,
         };
         let d = decide(&ctx, &done.canonical_lines)?;
         if let (None, Some(e)) = (self.nodes[i].pins.get(&b.source), &d.engine_digest)

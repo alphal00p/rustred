@@ -225,6 +225,16 @@ fn rule_json(set: &ImportedSet, tr: Option<(usize, usize)>) -> Value {
     }
 }
 
+/// The `facts` object of a statement row (lane closeloop3: `basis` = who produced the key's fact line, only when one
+/// is bound: `rr_proof` | `exact_eval` | `compact`).
+fn facts_json(row: &KeyRow) -> Value {
+    let mut f = json!({"regularity_unknown": row.regularity_unknown, "coefficient_unknown": row.coefficient_unknown});
+    if let Some(b) = row.fact_basis {
+        f["basis"] = Value::from(b);
+    }
+    f
+}
+
 /// The JSON of one statement row.
 pub fn row_json(set: &ImportedSet, row: &KeyRow) -> Value {
     let status = match row.status {
@@ -242,7 +252,7 @@ pub fn row_json(set: &ImportedSet, row: &KeyRow) -> Value {
         "server": if row.status == RowStatus::Served { server_json(set, row) } else { Value::Null },
         "evidence": if row.status == RowStatus::Served { row.evidence.map(|e| e.word()) } else { None },
         "basis": row.basis,
-        "facts": json!({"regularity_unknown": row.regularity_unknown, "coefficient_unknown": row.coefficient_unknown}),
+        "facts": facts_json(row),
         "open": open,
     })
 }

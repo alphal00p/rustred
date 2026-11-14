@@ -76,6 +76,9 @@ pub struct KeyRow {
     /// Tier C: the winner's regularity fact at the key is missing / some coefficient fact is missing.
     pub regularity_unknown: bool,
     pub coefficient_unknown: bool,
+    /// lane closeloop3: Tier C, a rule-served key with a bound fact line: who produced it (`rr_proof` | `exact_eval` |
+    /// `compact`; interfaces/closeloop.md 16).
+    pub fact_basis: Option<&'static str>,
     /// Open keys: the core status word, the reason and the blocking rule.
     pub open_status: Option<String>,
     pub open_reason: Option<String>,
@@ -486,6 +489,7 @@ fn check_inner(
             basis: None,
             regularity_unknown: false,
             coefficient_unknown: false,
+            fact_basis: None,
             open_status: None,
             open_reason: None,
             open_rule: None,
@@ -612,6 +616,8 @@ fn check_inner(
                     row.regularity_unknown = ev.regularity(&rid, &row.key) == RegFact::Unknown;
                     row.coefficient_unknown =
                         coef_missing.contains(&(info.path.clone(), info.label, row.key.clone()));
+                    // lane closeloop3: the fact basis of the key (who produced its fact line)
+                    row.fact_basis = ev.fact_basis(&rid, &row.key);
                 }
             }
         } else {
@@ -855,6 +861,12 @@ fn count_row(m: &mut BTreeMap<String, u64>, r: &KeyRow, required: Level) {
     }
     if r.coefficient_unknown {
         *m.entry("facts:coefficient_unknown".into()).or_default() += 1;
+    }
+    // lane closeloop3: fact basis of the served keys (Tier C only; absent otherwise)
+    if let Some(b) = r.fact_basis
+        && r.status == RowStatus::Served
+    {
+        *m.entry(format!("facts:basis:{b}")).or_default() += 1;
     }
     if r.status == RowStatus::Served && r.evidence.is_some_and(|e| e >= required) {
         *m.entry("certified".into()).or_default() += 1;

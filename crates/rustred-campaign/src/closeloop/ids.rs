@@ -34,16 +34,23 @@ pub fn parse_solve_item(n: &str, item: &str) -> Option<(u32, usize)> {
     Some((k.parse().ok()?, j.parse().ok()?))
 }
 
-/// lane closeloop2: proof (span) and fact items of round `k`.
+/// lane closeloop2: proof (span) and fact items of round `k`; lane closeloop3: `exact` (coefficient-facts) items `x`.
 pub fn proof_item(n: &str, k: u32, j: usize, kind: &str) -> String {
-    let tag = if kind == "facts" { "f" } else { "p" };
+    let tag = match kind {
+        "facts" => "f",
+        "exact" => "x",
+        _ => "p",
+    };
     format!("{n}.{tag}{k}.{j}")
 }
 
 /// (round, batch index) of a proof / fact item of node `n`.
 pub fn parse_proof_item(n: &str, item: &str) -> Option<(u32, usize)> {
     let rest = item.strip_prefix(n)?.strip_prefix('.')?;
-    let rest = rest.strip_prefix('p').or_else(|| rest.strip_prefix('f'))?;
+    let rest = rest
+        .strip_prefix('p')
+        .or_else(|| rest.strip_prefix('f'))
+        .or_else(|| rest.strip_prefix('x'))?;
     let (k, j) = rest.split_once('.')?;
     Some((k.parse().ok()?, j.parse().ok()?))
 }
@@ -101,6 +108,8 @@ pub const KIND_IMPORT: &str = "import";
 pub const KIND_SOLVE: &str = "recipe-solve";
 pub const KIND_PROOF: &str = "proof-span";
 pub const KIND_FACTS: &str = "proof-facts";
+/// lane closeloop3: items of `coefficient-facts` jobs (exact evaluation of elided records' coefficients).
+pub const KIND_EXACT: &str = "proof-exact-eval";
 
 /// CDIR-relative directory of a node's files.
 pub fn node_dir(n: &str) -> String {
@@ -126,6 +135,11 @@ mod tests {
             parse_proof_item("N0", &proof_item("N0", 2, 5, "facts")),
             Some((2, 5))
         );
+        assert_eq!(
+            parse_proof_item("N0", &proof_item("N0", 2, 5, "exact")),
+            Some((2, 5))
+        );
+        assert_eq!(proof_item("N0", 2, 5, "exact"), "N0.x2.5");
         assert_eq!(parse_proof_item("N0", "N0.s2.5"), None);
     }
 }
