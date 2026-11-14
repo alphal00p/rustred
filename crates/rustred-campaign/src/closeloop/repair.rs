@@ -605,20 +605,26 @@ impl<S: WorkSource> RepairFlowSource<S> {
                         },
                     });
                 }
-                (Some(f), _, _) => rt.events.push(Event::Item {
-                    item: item.clone(),
-                    ev: ItemEvent::Reject {
-                        reason: format!("repairflow: {}", class_text(&f.symbolic.class)),
-                        disproof: None,
-                    },
-                }),
-                (None, _, _) => rt.events.push(Event::Item {
-                    item: item.clone(),
-                    ev: ItemEvent::Reject {
-                        reason: "repairflow: face not in the decisions".into(),
-                        disproof: None,
-                    },
-                }),
+                (fd, _, _) => {
+                    // rejected (the class recorded), then superseded: the face goes to its recipe escalation
+                    let reason = fd
+                        .map(|f| format!("repairflow: {}", class_text(&f.symbolic.class)))
+                        .unwrap_or_else(|| "repairflow: face not in the decisions".into());
+                    rt.events.push(Event::Item {
+                        item: item.clone(),
+                        ev: ItemEvent::Reject {
+                            reason,
+                            disproof: None,
+                        },
+                    });
+                    rt.events.push(Event::Item {
+                        item: item.clone(),
+                        ev: ItemEvent::Escalate {
+                            to: Rung(1),
+                            reason: "repairflow: the face goes to its recipe escalation".into(),
+                        },
+                    });
+                }
             }
         }
         let rec = record(
