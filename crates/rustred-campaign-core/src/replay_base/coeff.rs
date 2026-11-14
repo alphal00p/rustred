@@ -137,7 +137,9 @@ impl Lex<'_> {
         match self.peek() {
             Some(c) if c.is_ascii_digit() => {
                 let (a, b) = self.digits();
-                if self.i < self.s.len() && (self.s[self.i].is_ascii_alphabetic() || self.s[self.i] == b'.') {
+                if self.i < self.s.len()
+                    && (self.s[self.i].is_ascii_alphabetic() || self.s[self.i] == b'.')
+                {
                     return self.err("noninteger or malformed literal");
                 }
                 Ok(Factor::Num(a, b))
@@ -170,7 +172,9 @@ impl Lex<'_> {
         }
     }
     fn after_var(&mut self, var: usize) -> Result<Factor, CoeffError> {
-        if self.i < self.s.len() && (self.s[self.i].is_ascii_alphanumeric() || self.s[self.i] == b'_') {
+        if self.i < self.s.len()
+            && (self.s[self.i].is_ascii_alphanumeric() || self.s[self.i] == b'_')
+        {
             return self.err("unknown identifier");
         }
         if self.peek() == Some(b'^') {
@@ -187,7 +191,12 @@ impl Lex<'_> {
     }
 
     /// One signed monomial added into `acc` (per context). Returns (total degree, d degree, n degree).
-    fn monomial(&mut self, neg: bool, ctxs: &[Ctx], acc: &mut [u64]) -> Result<(u32, u32, u32), CoeffError> {
+    fn monomial(
+        &mut self,
+        neg: bool,
+        ctxs: &[Ctx],
+        acc: &mut [u64],
+    ) -> Result<(u32, u32, u32), CoeffError> {
         let mut val: Vec<u64> = ctxs.iter().map(|c| 1 % c.p).collect();
         let (mut deg, mut degd) = (0u64, 0u64);
         loop {
@@ -232,7 +241,12 @@ impl Lex<'_> {
     }
 
     /// A polynomial up to ')' / '/' / end (not consumed). `stats` accumulates.
-    fn poly(&mut self, ctxs: &[Ctx], acc: &mut [u64], st: &mut SideStats) -> Result<(), CoeffError> {
+    fn poly(
+        &mut self,
+        ctxs: &[Ctx],
+        acc: &mut [u64],
+        st: &mut SideStats,
+    ) -> Result<(), CoeffError> {
         let mut first = true;
         loop {
             let neg = match self.peek() {
@@ -263,7 +277,12 @@ impl Lex<'_> {
     }
 
     /// side := '(' poly ')' | bare poly. Returns whether it was parenthesized.
-    fn side(&mut self, ctxs: &[Ctx], acc: &mut [u64], st: &mut SideStats) -> Result<bool, CoeffError> {
+    fn side(
+        &mut self,
+        ctxs: &[Ctx],
+        acc: &mut [u64],
+        st: &mut SideStats,
+    ) -> Result<bool, CoeffError> {
         if self.peek() == Some(b'(') {
             self.i += 1;
             self.poly(ctxs, acc, st)?;
@@ -287,7 +306,10 @@ pub fn eval_ratio(
     num: &mut [u64],
     den: &mut [u64],
 ) -> Result<CoeffStats, CoeffError> {
-    assert!(num.len() == ctxs.len() && den.len() == ctxs.len(), "output length");
+    assert!(
+        num.len() == ctxs.len() && den.len() == ctxs.len(),
+        "output length"
+    );
     debug_assert!(ctxs.iter().all(|c| c.vals.len() == arity + 1));
     let mut lx = Lex {
         s: text.as_bytes(),
@@ -381,7 +403,10 @@ mod tests {
             for p in [P, p2] {
                 let c = ctx(p, &pt, 29);
                 let (a, b) = val(t, 20, &c).unwrap();
-                let want = Expr::parse(t, 20).unwrap().at_point(p, &pt, Q::int(29)).unwrap();
+                let want = Expr::parse(t, 20)
+                    .unwrap()
+                    .at_point(p, &pt, Q::int(29))
+                    .unwrap();
                 assert_eq!(arith::mul(p, a, arith::inv(p, b).unwrap()), want, "{t}");
             }
         }
@@ -391,28 +416,35 @@ mod tests {
     fn refuses_outside_the_grammar() {
         let c = ctx(P, &[1, 2, 3], 5);
         for bad in [
-            "n1+1/(n2)",        // bare sum before '/'
-            "(n1)/(n2)/(n3)",   // two divisions
-            "((n1))",           // nested
-            "2*(n1+1)",         // implicit product with a parenthesis
-            "n1**2",            // python power
-            "n3",               // out of range (arity 3)
-            "n01",              // leading zero
-            "x+1",              // unknown variable
-            "1.5",              // noninteger
-            "(n1)/n2+1",        // bare sum denominator
-            "n1^100001",        // exponent
-            "n1 n2",            // missing operator
-            "",                 // empty
-            "(n1",              // unbalanced
-            "n1/(n2))",         // trailing
-            "nd",               // malformed
-            "d2",               // identifier
+            "n1+1/(n2)",      // bare sum before '/'
+            "(n1)/(n2)/(n3)", // two divisions
+            "((n1))",         // nested
+            "2*(n1+1)",       // implicit product with a parenthesis
+            "n1**2",          // python power
+            "n3",             // out of range (arity 3)
+            "n01",            // leading zero
+            "x+1",            // unknown variable
+            "1.5",            // noninteger
+            "(n1)/n2+1",      // bare sum denominator
+            "n1^100001",      // exponent
+            "n1 n2",          // missing operator
+            "",               // empty
+            "(n1",            // unbalanced
+            "n1/(n2))",       // trailing
+            "nd",             // malformed
+            "d2",             // identifier
         ] {
             assert!(val(bad, 3, &c).is_err(), "{bad:?} must be refused");
         }
         // accepted forms
-        for good in ["-1/(n0)", "(n1)/n2", "n0*n1/(1+d)", "+(n0)", " - ( n0 ) / ( d ) ", "0"] {
+        for good in [
+            "-1/(n0)",
+            "(n1)/n2",
+            "n0*n1/(1+d)",
+            "+(n0)",
+            " - ( n0 ) / ( d ) ",
+            "0",
+        ] {
             assert!(val(good, 3, &c).is_ok(), "{good:?}");
         }
     }
@@ -421,17 +453,42 @@ mod tests {
     fn stats_and_zero_denominator() {
         let c = ctx(P, &[1, 2, 3], 5);
         let (mut n, mut d) = ([0u64], [0u64]);
-        let st = eval_ratio("(n0*d^2+n1^3)/(n0-1)", 3, std::slice::from_ref(&c), &mut n, &mut d).unwrap();
+        let st = eval_ratio(
+            "(n0*d^2+n1^3)/(n0-1)",
+            3,
+            std::slice::from_ref(&c),
+            &mut n,
+            &mut d,
+        )
+        .unwrap();
         assert_eq!(d[0], 0); // pole reported to the caller
-        assert_eq!(st.num, SideStats { terms: 2, deg: 3, degd: 2, degn: 3 });
-        assert_eq!(st.den, SideStats { terms: 2, deg: 1, degd: 0, degn: 1 });
+        assert_eq!(
+            st.num,
+            SideStats {
+                terms: 2,
+                deg: 3,
+                degd: 2,
+                degn: 3
+            }
+        );
+        assert_eq!(
+            st.den,
+            SideStats {
+                terms: 2,
+                deg: 1,
+                degd: 0,
+                degn: 1
+            }
+        );
         assert!(st.has_den);
     }
 
     #[test]
     fn many_contexts_one_pass() {
         let ps = crate::replay_base::primes::verify_primes(3, &[]);
-        let cs: Vec<Ctx> = (0..6).map(|k| ctx(ps[k % 2], &[k as i64, 2, 9], 11 + k as i64)).collect();
+        let cs: Vec<Ctx> = (0..6)
+            .map(|k| ctx(ps[k % 2], &[k as i64, 2, 9], 11 + k as i64))
+            .collect();
         let t = "(n0^2*d-4*n1+n2*n0)/(d-1)";
         let (mut n, mut d) = (vec![0; 6], vec![0; 6]);
         eval_ratio(t, 3, &cs, &mut n, &mut d).unwrap();

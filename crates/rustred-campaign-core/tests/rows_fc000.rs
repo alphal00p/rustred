@@ -7,7 +7,9 @@
 mod rows_common;
 
 use rows_common::*;
-use rustred_campaign_core::ibp_rows::{PointSpec, PointStatus, RowsOptions, RowsRule, Verdict, identity_test};
+use rustred_campaign_core::ibp_rows::{
+    PointSpec, PointStatus, RowsOptions, RowsRule, Verdict, identity_test,
+};
 use serde_json::Value;
 
 /// (rule 0 of the line, the points, the F6 control coefficient: rhs[0] numerator doubled)
@@ -28,7 +30,11 @@ fn f000() -> Option<(Value, Vec<PointSpec>, Value)> {
     ] {
         points.push(PointSpec::Key(k.to_vec()));
     }
-    Some((v["rules"][0].clone(), points, case["control"]["coef_after"].clone()))
+    Some((
+        v["rules"][0].clone(),
+        points,
+        case["control"]["coef_after"].clone(),
+    ))
 }
 
 fn rule(v: &Value) -> RowsRule {
@@ -37,7 +43,9 @@ fn rule(v: &Value) -> RowsRule {
 
 #[test]
 fn rows_fc000_passes_at_its_seeds_and_corrupted_copies_fail() {
-    let Some((r, points, coef_after)) = f000() else { return };
+    let Some((r, points, coef_after)) = f000() else {
+        return;
+    };
     let fam = t162_family();
     let opts = RowsOptions::default();
     let clean = identity_test(&fam, &rule(&r), &points, &opts);
@@ -70,10 +78,27 @@ fn rows_fc000_passes_at_its_seeds_and_corrupted_copies_fail() {
     let t0 = target["target"].as_str().unwrap().to_string();
     assert!(t0.starts_with("I(n0,"));
     target["target"] = Value::String(t0.replacen("I(n0,", "I(n0+1,", 1));
-    for (name, bad) in [("coefficient x2", coef2), ("rhs key n11+1 -> n11+2", key), ("target n0 -> n0+1", target)] {
+    // with its raw pivot the shifted target is refused before any span test (recenter authority, engine
+    // `recenter_for`); without it, the span test itself must fail
+    let refused = identity_test(&fam, &rule(&target), &points, &opts);
+    assert!(
+        matches!(refused.verdict, Verdict::Unsupported(_)),
+        "{:?}",
+        refused.verdict
+    );
+    target["raw_pivot_encoded"] = Value::Null;
+    for (name, bad) in [
+        ("coefficient x2", coef2),
+        ("rhs key n11+1 -> n11+2", key),
+        ("target n0 -> n0+1", target),
+    ] {
         let v = identity_test(&fam, &rule(&bad), &points, &opts);
         println!("{}", summary(&format!("f-c000 [{name}]"), &v));
-        assert!(matches!(v.verdict, Verdict::Fail { .. }), "{name}: {:?}", v.verdict);
+        assert!(
+            matches!(v.verdict, Verdict::Fail { .. }),
+            "{name}: {:?}",
+            v.verdict
+        );
         // every point that applies fails at both primes (the shifted target moves the rule point: keys may not apply)
         for p in &v.points {
             if !matches!(p.status, PointStatus::NotApplicable(_)) {
@@ -82,14 +107,19 @@ fn rows_fc000_passes_at_its_seeds_and_corrupted_copies_fail() {
                 assert!(p.cells.iter().all(|c| !c.in_span && c.witness.is_some()));
             }
         }
-        assert!(v.points[..2].iter().all(|p| p.status == PointStatus::Fail), "{name}: generic points");
+        assert!(
+            v.points[..2].iter().all(|p| p.status == PointStatus::Fail),
+            "{name}: generic points"
+        );
     }
 }
 
 #[test]
 #[ignore = "slow: ~10 min release (45,750 rows x 117,055 columns, 44 M entries, two primes)"]
 fn rows_fc000_shell_diagnostic_on_the_doubled_coefficient() {
-    let Some((r, _, coef_after)) = f000() else { return };
+    let Some((r, _, coef_after)) = f000() else {
+        return;
+    };
     let mut bad = r.clone();
     bad["rhs"][0][1] = coef_after;
     let fam = t162_family();
@@ -102,7 +132,12 @@ fn rows_fc000_shell_diagnostic_on_the_doubled_coefficient() {
     let sh: Vec<String> = v.points[0]
         .shell
         .iter()
-        .map(|c| format!("{:?} rank {} cols {} rows {} entries {} {:.1}s", c.status, c.rank, c.row_columns, c.rows, c.entries, c.seconds))
+        .map(|c| {
+            format!(
+                "{:?} rank {} cols {} rows {} entries {} {:.1}s",
+                c.status, c.rank, c.row_columns, c.rows, c.entries, c.seconds
+            )
+        })
         .collect();
     println!("shell cells: {sh:?}");
     assert!(matches!(v.verdict, Verdict::Fail { .. }));

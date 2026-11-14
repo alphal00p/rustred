@@ -5,7 +5,9 @@
 mod rows_common;
 
 use rows_common::*;
-use rustred_campaign_core::ibp_rows::{LineContext, PointSpec, RowsOptions, RowsRule, identity_test_batch};
+use rustred_campaign_core::ibp_rows::{
+    LineContext, PointSpec, RowsOptions, RowsRule, identity_test_batch,
+};
 use serde_json::Value;
 
 fn strip_seconds(v: &mut Value) {
@@ -38,7 +40,11 @@ fn rows_batch_stream_order_and_determinism() {
     let run = || {
         let mut out = Vec::new();
         let sum = identity_test_batch(&fam, input.as_bytes(), &plan, &opts, &mut out).unwrap();
-        let mut lines: Vec<Value> = String::from_utf8(out).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        let mut lines: Vec<Value> = String::from_utf8(out)
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
         lines.iter_mut().for_each(strip_seconds);
         (sum, lines)
     };
@@ -48,7 +54,10 @@ fn rows_batch_stream_order_and_determinism() {
     assert_eq!(a, b, "deterministic output");
     assert_eq!((sum.lines, sum.rules), (4, 3));
     assert_eq!(sum.by_verdict.get("pass"), Some(&1));
-    assert_eq!(sum.by_verdict.get("unsupported_needs_symmetry_rows"), Some(&1));
+    assert_eq!(
+        sum.by_verdict.get("unsupported_needs_symmetry_rows"),
+        Some(&1)
+    );
     assert_eq!(sum.by_verdict.get("unsupported"), Some(&1));
     let lines: Vec<u64> = a.iter().map(|v| v["line_no"].as_u64().unwrap()).collect();
     assert_eq!(lines, vec![2, 3, 4]);

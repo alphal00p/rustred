@@ -14,7 +14,8 @@ use serde_json::Value;
 pub use k3_common::{HO, Oracle, oracle, sha256_hex};
 
 /// sha256 of HO/t162-bank/family/T162-presented-P3.sym (k3 README: 91403065...56118).
-pub const T162_FAMILY_SHA: &str = "91403065869aea5a9aee9504fa7623276a521653833bb88a395a356f83e56118";
+pub const T162_FAMILY_SHA: &str =
+    "91403065869aea5a9aee9504fa7623276a521653833bb88a395a356f83e56118";
 
 pub fn data(name: &str) -> String {
     let p = format!("{}/tests/data/rows/{name}", env!("CARGO_MANIFEST_DIR"));
@@ -23,7 +24,11 @@ pub fn data(name: &str) -> String {
 
 pub fn t162_family() -> Family {
     let src = data("T162-presented-P3.sym");
-    assert_eq!(sha256_hex(src.as_bytes()), T162_FAMILY_SHA, "T162 family copy changed");
+    assert_eq!(
+        sha256_hex(src.as_bytes()),
+        T162_FAMILY_SHA,
+        "T162 family copy changed"
+    );
     Family::parse(&src).expect("T162 family")
 }
 

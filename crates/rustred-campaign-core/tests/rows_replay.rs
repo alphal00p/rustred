@@ -8,22 +8,37 @@ mod rows_common;
 
 use rows_common::*;
 use rustred_campaign_core::ibp_rows::{
-    LocusStatus, PointSpec, ReplayLevel, ReplayPolicy, RowsOptions, RowsRule, Verdict, identity_test, replay_evidence,
-    rule_digest,
+    LocusStatus, PointSpec, ReplayLevel, ReplayPolicy, RowsOptions, RowsRule, Verdict,
+    identity_test, replay_evidence, rule_digest,
 };
 use rustred_campaign_core::replay_base::family::Family;
 use serde_json::Value;
 
 fn f6_rule(id: &str) -> Option<(Value, Vec<Vec<i64>>)> {
     let o = oracle()?;
-    let case = o.jsonl("span/F6_span_cases.jsonl").into_iter().find(|c| c["id"] == id).unwrap();
+    let case = o
+        .jsonl("span/F6_span_cases.jsonl")
+        .into_iter()
+        .find(|c| c["id"] == id)
+        .unwrap();
     let line = f6_line(&o, &case)?;
     let v: Value = serde_json::from_str(line.trim_end()).unwrap();
-    let r = if v.get("rules").is_some() { v["rules"][0].clone() } else { v };
+    let r = if v.get("rules").is_some() {
+        v["rules"][0].clone()
+    } else {
+        v
+    };
     let mut keys = Vec::new();
     for k in ["C2", "C5"] {
         for p in case["clean"][0][k].as_array().into_iter().flatten() {
-            keys.push(p["point"].as_array().unwrap().iter().map(|x| x.as_i64().unwrap()).collect());
+            keys.push(
+                p["point"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.as_i64().unwrap())
+                    .collect(),
+            );
         }
     }
     Some((r, keys))
@@ -57,7 +72,11 @@ fn rows_replay_record_fc000_and_fd006() {
         let js = serde_json::to_string(&rec).unwrap();
         assert!(js.contains("\"rule_digest\""));
         // every d-free witness locus of these rules is one of its exception branches
-        assert!(rec.loci.iter().all(|l| matches!(l.status, LocusStatus::Guarded | LocusStatus::Parameter)));
+        assert!(
+            rec.loci
+                .iter()
+                .all(|l| matches!(l.status, LocusStatus::Guarded | LocusStatus::Parameter))
+        );
     }
 }
 
@@ -65,20 +84,36 @@ fn rows_replay_record_fc000_and_fd006() {
 fn rows_replay_planted_controls() {
     let fam = t162_family();
     let opts = RowsOptions::default();
-    let Some((r, keys)) = f6_rule("f111") else { return };
+    let Some((r, keys)) = f6_rule("f111") else {
+        return;
+    };
     // (1) dropped exception branch [-1+n3]: the witness locus -1+n3 is no longer guarded; its point hits the
     //     denominator (1-n3-n2+n2*n3) = (1-n2)(1-n3): identity Pole there -> not established
     let mut dropped = r.clone();
     dropped["exceptions"] = serde_json::json!([["-1+n2"], ["n9"]]);
     let rule = RowsRule::from_value(dropped, 20).unwrap();
     let rec = replay_evidence(&fam, &rule, &keys, &ReplayPolicy::default(), &opts);
-    println!("dropped exception: {:?} loci {:?}", rec.level, rec.loci.iter().map(|l| &l.status).collect::<Vec<_>>());
+    println!(
+        "dropped exception: {:?} loci {:?}",
+        rec.level,
+        rec.loci.iter().map(|l| &l.status).collect::<Vec<_>>()
+    );
     assert!(matches!(rec.level, ReplayLevel::NotEstablished { .. }));
-    assert!(rec.loci.iter().any(|l| matches!(l.status, LocusStatus::Tested { .. })));
+    assert!(
+        rec.loci
+            .iter()
+            .any(|l| matches!(l.status, LocusStatus::Tested { .. }))
+    );
     assert!(matches!(rec.identity.verdict, Verdict::Pole { .. }));
     // (2) the pole scan at served keys: a key ON the dropped branch is served -> a pole hit
     let on_locus: Vec<i64> = vec![1, 2, 3, 1, 1, 1, 1, 1, 1, -2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    let rec = replay_evidence(&fam, &rule, &[on_locus.clone()], &ReplayPolicy::default(), &opts);
+    let rec = replay_evidence(
+        &fam,
+        &rule,
+        std::slice::from_ref(&on_locus),
+        &ReplayPolicy::default(),
+        &opts,
+    );
     assert_eq!(rec.pole_scan.poles.len(), 1, "{:?}", rec.pole_scan);
     assert_eq!(rec.pole_scan.poles[0].key, on_locus);
     // (3) elided witness loci: never established
@@ -92,7 +127,11 @@ fn rows_replay_planted_controls() {
     rp["recenter"][2] = serde_json::json!(0);
     let rule = RowsRule::from_value(rp, 20).unwrap();
     let v = identity_test(&fam, &rule, &[PointSpec::Generic], &opts);
-    assert!(matches!(v.verdict, Verdict::Unsupported(_)), "{:?}", v.verdict);
+    assert!(
+        matches!(v.verdict, Verdict::Unsupported(_)),
+        "{:?}",
+        v.verdict
+    );
     // the digest changes with any coefficient
     let a = rule_digest(&RowsRule::from_value(r.clone(), 20).unwrap());
     let mut r2 = r.clone();
@@ -111,7 +150,12 @@ fn rows_replay_engine_locus_rule_with_affine_equations() {
         for rule in RowsRule::from_json_line(l, fam.n).unwrap() {
             assert!(!rule.equations.is_empty());
             let opts = RowsOptions::default();
-            let v = identity_test(&fam, &rule, &[PointSpec::Generic, PointSpec::Generic], &opts);
+            let v = identity_test(
+                &fam,
+                &rule,
+                &[PointSpec::Generic, PointSpec::Generic],
+                &opts,
+            );
             println!("{}", summary("T225 locus r38", &v));
             assert_eq!(v.verdict, Verdict::Pass, "{:?}", v.verdict);
             let rec = replay_evidence(&fam, &rule, &[], &ReplayPolicy::default(), &opts);

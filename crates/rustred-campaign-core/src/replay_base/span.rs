@@ -20,7 +20,12 @@ pub struct Span {
     pub pivot_rows: Vec<usize>,
 }
 
-pub fn sparse_subtract(p: u64, a: &[(usize, u64)], b: &[(usize, u64)], f: u64) -> Vec<(usize, u64)> {
+pub fn sparse_subtract(
+    p: u64,
+    a: &[(usize, u64)],
+    b: &[(usize, u64)],
+    f: u64,
+) -> Vec<(usize, u64)> {
     let mut out = Vec::with_capacity(a.len() + b.len());
     let (mut i, mut j) = (0, 0);
     while i < a.len() || j < b.len() {

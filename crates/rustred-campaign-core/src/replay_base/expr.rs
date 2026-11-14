@@ -513,8 +513,8 @@ fn short(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::super::arith::P; // campaign copy: path
+    use super::super::arith::P;
+    use super::*; // campaign copy: path
 
     #[test]
     fn parse_eval_precedence() {
@@ -565,7 +565,7 @@ mod tests {
     #[test]
     fn deep_and_large_scalar_regressions() {
         for text in [
-            include_str!("../../tests/data/rows/scalar_deep_T206_r1132.json") /* campaign copy: path */,
+            include_str!("../../tests/data/rows/scalar_deep_T206_r1132.json"), /* campaign copy: path */
             include_str!("../../tests/data/rows/scalar_large_T211_r2510.json"),
         ] {
             let x: serde_json::Value = serde_json::from_str(text).unwrap();

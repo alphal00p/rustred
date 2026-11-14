@@ -10,7 +10,9 @@
 mod rows_common;
 
 use rows_common::*;
-use rustred_campaign_core::ibp_rows::{PointSpec, PointStatus, RowsOptions, RowsRule, Verdict, identity_test};
+use rustred_campaign_core::ibp_rows::{
+    PointSpec, PointStatus, RowsOptions, RowsRule, Verdict, identity_test,
+};
 use rustred_campaign_core::replay_base::arith::Q;
 use rustred_campaign_core::replay_base::family::Family;
 use serde_json::json;
@@ -45,7 +47,11 @@ fn form_text(form: &[Q], m: i128, n: usize) -> String {
             j if j == n + 1 => "d".into(),
             j => format!("n{}", j - 1),
         };
-        terms.push(if var.is_empty() { format!("{c}") } else { format!("{c}*{var}") });
+        terms.push(if var.is_empty() {
+            format!("{c}")
+        } else {
+            format!("{c}*{var}")
+        });
     }
     let mut s = terms.join("+").replace("+-", "-");
     if s.is_empty() {
@@ -88,7 +94,12 @@ fn built_rule(fam: &Family, lines: &[bool], op: usize) -> serde_json::Value {
     let rhs: Vec<serde_json::Value> = row
         .iter()
         .filter(|(s, _)| **s != tshift)
-        .map(|(s, f)| json!([pat(s), format!("(-({}))/({den})", form_text(f, m, n)).replace("(-(", "(-1*(")]))
+        .map(|(s, f)| {
+            json!([
+                pat(s),
+                format!("(-({}))/({den})", form_text(f, m, n)).replace("(-(", "(-1*(")
+            ])
+        })
         .collect();
     let chart: String = lines.iter().map(|&l| if l { '1' } else { '0' }).collect();
     json!({
@@ -132,11 +143,21 @@ fn check_family(file: &str, loops: usize, arity: usize, eps_lines: usize) {
     let src = data(file);
     let fam = Family::parse(&src).unwrap();
     let lines = line_flags(&src);
-    assert_eq!((fam.loops, fam.n, lines.len()), (loops, arity, arity), "{file}");
+    assert_eq!(
+        (fam.loops, fam.n, lines.len()),
+        (loops, arity, arity),
+        "{file}"
+    );
     assert_eq!(fam.n_ops(), loops * (loops + 1), "{file}: L(L+1) operators");
     assert_eq!(fam.eps_axes.len(), eps_lines, "{file}: eps lines");
-    assert!(!fam.zero_mask(&lines), "{file}: the top sector is not scaleless");
-    assert!(fam.zero_mask(&vec![false; arity]), "{file}: the empty sector is scaleless");
+    assert!(
+        !fam.zero_mask(&lines),
+        "{file}: the top sector is not scaleless"
+    );
+    assert!(
+        fam.zero_mask(&vec![false; arity]),
+        "{file}: the empty sector is scaleless"
+    );
     let opts = RowsOptions::default();
     // an integer key: lines at 2, numerators at -1, shifted by the target offsets of the built rule
     let mut tested = 0;
@@ -157,30 +178,65 @@ fn check_family(file: &str, loops: usize, arity: usize, eps_lines: usize) {
         assert!(v.meets_a2_policy);
         for p in &v.points {
             assert_eq!(p.status, PointStatus::Pass);
-            assert!(p.cells.iter().all(|c| c.mutation_rejected == Some(true) && c.rows == loops * (loops + 1)));
+            assert!(
+                p.cells
+                    .iter()
+                    .all(|c| c.mutation_rejected == Some(true) && c.rows == loops * (loops + 1))
+            );
         }
         // coefficient x2 of rhs[0]
         let mut bad = rule_v.clone();
         let c = bad["rhs"][0][1].as_str().unwrap().to_string();
         let (p, q) = c.split_once(")/(").unwrap();
-        bad["rhs"][0][1] = json!(format!("(2*{})/({q}", p.trim_start_matches('(').replace('+', "+2*").replace('-', "-2*")).replace("(2*-2*", "(-2*"));
-        let vb = identity_test(&fam, &RowsRule::from_value(bad, arity).unwrap(), &pts, &opts);
-        assert!(matches!(vb.verdict, Verdict::Fail { .. }), "{file} op {op} x2: {:?}", vb.verdict);
+        bad["rhs"][0][1] = json!(
+            format!(
+                "(2*{})/({q}",
+                p.trim_start_matches('(')
+                    .replace('+', "+2*")
+                    .replace('-', "-2*")
+            )
+            .replace("(2*-2*", "(-2*")
+        );
+        let vb = identity_test(
+            &fam,
+            &RowsRule::from_value(bad, arity).unwrap(),
+            &pts,
+            &opts,
+        );
+        assert!(
+            matches!(vb.verdict, Verdict::Fail { .. }),
+            "{file} op {op} x2: {:?}",
+            vb.verdict
+        );
         // rhs[0] key shifted by +1 on slot 0
         let mut bad = rule_v.clone();
         let k = bad["rhs"][0][0].as_str().unwrap().to_string();
         let first = k[2..].split(',').next().unwrap().to_string();
-        let shifted = match first.split_once('+').map(|(_, o)| o.parse::<i64>().unwrap()).or_else(|| {
-            first.split_once('-').map(|(_, o)| -o.parse::<i64>().unwrap())
-        }) {
+        let shifted = match first
+            .split_once('+')
+            .map(|(_, o)| o.parse::<i64>().unwrap())
+            .or_else(|| {
+                first
+                    .split_once('-')
+                    .map(|(_, o)| -o.parse::<i64>().unwrap())
+            }) {
             Some(o) if o + 1 == 0 => "n0".to_string(),
             Some(o) if o + 1 > 0 => format!("n0+{}", o + 1),
             Some(o) => format!("n0{}", o + 1),
             None => "n0+1".to_string(),
         };
         bad["rhs"][0][0] = json!(k.replacen(&format!("I({first},"), &format!("I({shifted},"), 1));
-        let vb = identity_test(&fam, &RowsRule::from_value(bad, arity).unwrap(), &pts, &opts);
-        assert!(matches!(vb.verdict, Verdict::Fail { .. }), "{file} op {op} shifted key: {:?}", vb.verdict);
+        let vb = identity_test(
+            &fam,
+            &RowsRule::from_value(bad, arity).unwrap(),
+            &pts,
+            &opts,
+        );
+        assert!(
+            matches!(vb.verdict, Verdict::Fail { .. }),
+            "{file} op {op} shifted key: {:?}",
+            vb.verdict
+        );
         tested += 1;
     }
     assert_eq!(tested, 2);

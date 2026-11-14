@@ -16,15 +16,18 @@ use std::io::BufReader;
 
 use rows_common::*;
 use rustred_campaign_core::ibp_rows::{
-    LineContext, PointSpec, PointStatus, RowsOptions, RowsRule, Unsupported, Verdict, identity_test,
-    identity_test_batch,
+    LineContext, PointSpec, PointStatus, RowsOptions, RowsRule, Unsupported, Verdict,
+    identity_test, identity_test_batch,
 };
 use serde_json::Value;
 
 const W: &str = "/common/ben/sym-investigation";
 
-/// (line0, rule index) -> (checker C1 verdict, sym_rows, C1 points [(rank, ncols)])
-fn checker(files: &[&str]) -> HashMap<(u64, i64), (String, bool, Vec<(u64, u64)>)> {
+/// (checker C1 verdict, sym_rows, C1 points [(rank, ncols)])
+type CheckerRecord = (String, bool, Vec<(u64, u64)>);
+
+/// (line0, rule index) -> checker record
+fn checker(files: &[&str]) -> HashMap<(u64, i64), CheckerRecord> {
     let mut m = HashMap::new();
     for f in files {
         let Ok(t) = std::fs::read_to_string(format!("{W}/{f}")) else {
@@ -42,9 +45,13 @@ fn checker(files: &[&str]) -> HashMap<(u64, i64), (String, bool, Vec<(u64, u64)>
                 .iter()
                 .map(|p| (p["rank"].as_u64().unwrap(), p["ncols"].as_u64().unwrap()))
                 .collect();
-            let sym = r["size"]["sym_rows"].as_i64().unwrap_or(0) != 0 || r["size"]["sym_rows"].as_bool() == Some(true);
+            let sym = r["size"]["sym_rows"].as_i64().unwrap_or(0) != 0
+                || r["size"]["sym_rows"].as_bool() == Some(true);
             m.insert(
-                (r["line"].as_u64().unwrap(), r["rule_index"].as_i64().unwrap()),
+                (
+                    r["line"].as_u64().unwrap(),
+                    r["rule_index"].as_i64().unwrap(),
+                ),
                 (r["C1"]["verdict"].as_str().unwrap().to_string(), sym, pts),
             );
         }
@@ -67,8 +74,18 @@ fn agree(export: &str, checker_files: &[&str], expect_records: usize) {
     let opts = RowsOptions::default();
     let plan = |_: &RowsRule, _: &LineContext| vec![PointSpec::Generic, PointSpec::Generic];
     let mut out: Vec<u8> = Vec::new();
-    let sum = identity_test_batch(&fam, BufReader::with_capacity(1 << 20, f), &plan, &opts, &mut out).unwrap();
-    println!("{export}: batch summary {}", serde_json::to_string(&sum).unwrap());
+    let sum = identity_test_batch(
+        &fam,
+        BufReader::with_capacity(1 << 20, f),
+        &plan,
+        &opts,
+        &mut out,
+    )
+    .unwrap();
+    println!(
+        "{export}: batch summary {}",
+        serde_json::to_string(&sum).unwrap()
+    );
     let (mut compared, mut excluded, mut equal_numbers, mut seen) = (0, 0, 0, 0);
     let mut slow: Vec<(f64, String)> = Vec::new();
     for l in std::str::from_utf8(&out).unwrap().lines() {
@@ -76,12 +93,26 @@ fn agree(export: &str, checker_files: &[&str], expect_records: usize) {
         let line0 = v["line_no"].as_u64().unwrap() - 1;
         let res = &v["result"];
         let idx = res["rule_index"].as_i64().unwrap();
-        let Some((cv, sym, pts)) = ck.get(&(line0, idx)) else { continue };
+        let Some((cv, sym, pts)) = ck.get(&(line0, idx)) else {
+            continue;
+        };
         seen += 1;
-        let kind = res["verdict"].as_str().map(str::to_string).unwrap_or_else(|| {
-            res["verdict"].as_object().unwrap().keys().next().unwrap().clone()
-        });
-        slow.push((res["cost"]["seconds"].as_f64().unwrap(), format!("{} line {line0}", v["run"])));
+        let kind = res["verdict"]
+            .as_str()
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                res["verdict"]
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .next()
+                    .unwrap()
+                    .clone()
+            });
+        slow.push((
+            res["cost"]["seconds"].as_f64().unwrap(),
+            format!("{} line {line0}", v["run"]),
+        ));
         if *sym {
             assert!(
                 res["verdict"].get("Unsupported").is_some(),
@@ -91,7 +122,11 @@ fn agree(export: &str, checker_files: &[&str], expect_records: usize) {
             continue;
         }
         assert_eq!(cv, "pass");
-        assert_eq!(kind, "Pass", "{export} line {line0} rule {idx}: {}", res["verdict"]);
+        assert_eq!(
+            kind, "Pass",
+            "{export} line {line0} rule {idx}: {}",
+            res["verdict"]
+        );
         compared += 1;
         // generic-point numbers vs the checker's C1 points (same for every point of a rule)
         let (rank, ncols) = pts[0];
@@ -100,7 +135,12 @@ fn agree(export: &str, checker_files: &[&str], expect_records: usize) {
             .unwrap()
             .iter()
             .flat_map(|p| p["cells"].as_array().unwrap().iter())
-            .map(|c| (c["rank"].as_u64().unwrap(), c["row_columns"].as_u64().unwrap()))
+            .map(|c| {
+                (
+                    c["rank"].as_u64().unwrap(),
+                    c["row_columns"].as_u64().unwrap(),
+                )
+            })
             .collect();
         if cells.iter().all(|&c| c == (rank, ncols)) {
             equal_numbers += 1;
@@ -127,7 +167,11 @@ fn rows_agree_with_checker_f() {
 #[test]
 #[ignore = "release, minutes: 141 rules of batch-01/fs.faces.jsonl (756 MB, one 123 MB line)"]
 fn rows_agree_with_checker_fs() {
-    agree("batch-01/fs.faces.jsonl", &["h3b/results_fsA.jsonl", "h3c/results_fsB_merged.jsonl"], 141);
+    agree(
+        "batch-01/fs.faces.jsonl",
+        &["h3b/results_fsA.jsonl", "h3c/results_fsB_merged.jsonl"],
+        141,
+    );
 }
 
 #[test]
@@ -151,10 +195,14 @@ fn rows_f4_nearcorner_verified_covers() {
     let opts = RowsOptions::default();
     let (mut pass, mut sym) = (0, 0);
     // entries grouped by file; each file streamed once (f1.faces.jsonl is 1.6 GB), lines read one at a time
-    let mut by_file: std::collections::BTreeMap<String, Vec<Value>> = std::collections::BTreeMap::new();
+    let mut by_file: std::collections::BTreeMap<String, Vec<Value>> =
+        std::collections::BTreeMap::new();
     for e in o.jsonl("T162/F4_nearcorner.jsonl") {
         if e["verified_by_us"] == true {
-            by_file.entry(e["rule_file"].as_str().unwrap().to_string()).or_default().push(e);
+            by_file
+                .entry(e["rule_file"].as_str().unwrap().to_string())
+                .or_default()
+                .push(e);
         }
     }
     for (file, mut es) in by_file {
@@ -171,7 +219,10 @@ fn rows_f4_nearcorner_verified_covers() {
             let line0 = e["rule_line0"].as_u64().unwrap() as usize;
             loop {
                 buf.clear();
-                assert!(std::io::BufRead::read_until(&mut rd, b'\n', &mut buf).unwrap() > 0, "{file}: short");
+                assert!(
+                    std::io::BufRead::read_until(&mut rd, b'\n', &mut buf).unwrap() > 0,
+                    "{file}: short"
+                );
                 at += 1;
                 if at - 1 == line0 {
                     break;
@@ -179,14 +230,32 @@ fn rows_f4_nearcorner_verified_covers() {
             }
             let claimed = e["claimed"].as_str().unwrap();
             let k: i64 = claimed.split('#').nth(1).unwrap().parse().unwrap();
-            let rules = RowsRule::from_json_line(std::str::from_utf8(&buf).unwrap().trim_end(), 20).unwrap();
+            let rules = RowsRule::from_json_line(std::str::from_utf8(&buf).unwrap().trim_end(), 20)
+                .unwrap();
             // export wrapper: rule `#k` by index; a bare point-rule line (batch-03) holds exactly one rule
-            let rule = if rules.len() == 1 { &rules[0] } else { rules.iter().find(|r| r.index == Some(k)).unwrap() };
-            let key: Vec<i64> = e["key"].as_array().unwrap().iter().map(|x| x.as_i64().unwrap()).collect();
-            let v = identity_test(&fam, rule, &[PointSpec::Key(key), PointSpec::Generic], &opts);
+            let rule = if rules.len() == 1 {
+                &rules[0]
+            } else {
+                rules.iter().find(|r| r.index == Some(k)).unwrap()
+            };
+            let key: Vec<i64> = e["key"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|x| x.as_i64().unwrap())
+                .collect();
+            let v = identity_test(
+                &fam,
+                rule,
+                &[PointSpec::Key(key), PointSpec::Generic],
+                &opts,
+            );
             println!("{}", summary(claimed, &v));
             if e["sym_rows"] == true {
-                assert!(matches!(v.verdict, Verdict::Unsupported(Unsupported::NeedsSymmetryRows { .. })));
+                assert!(matches!(
+                    v.verdict,
+                    Verdict::Unsupported(Unsupported::NeedsSymmetryRows { .. })
+                ));
                 sym += 1;
             } else {
                 assert_eq!(v.verdict, Verdict::Pass, "{claimed}");

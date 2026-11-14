@@ -42,13 +42,13 @@ pub fn is_prime(n: u64) -> bool {
         return false;
     }
     for p in [2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37] {
-        if n % p == 0 {
+        if n.is_multiple_of(p) {
             return n == p;
         }
     }
     let mut d = n - 1;
     let mut s = 0;
-    while d % 2 == 0 {
+    while d.is_multiple_of(2) {
         d /= 2;
         s += 1;
     }
@@ -117,7 +117,9 @@ pub fn check_verify_prime(p: u64, exclude: &[u64]) -> Result<(), String> {
         return Err(format!("prime {p} is an engine/h3 stream prime"));
     }
     if !(VERIFY_LO..VERIFY_HI).contains(&p) {
-        return Err(format!("prime {p} outside the verify range [7*2^60, 7.5*2^60)"));
+        return Err(format!(
+            "prime {p} outside the verify range [7*2^60, 7.5*2^60)"
+        ));
     }
     if exclude.contains(&p) {
         return Err(format!("prime {p} is a lift prime of the rule"));
@@ -177,7 +179,7 @@ mod tests {
             assert!(a != b);
             for p in [a, b] {
                 check_verify_prime(p, &[]).unwrap();
-                assert!(p >= VERIFY_LO && p < VERIFY_HI && 64 - p.leading_zeros() >= 61);
+                assert!((VERIFY_LO..VERIFY_HI).contains(&p) && 64 - p.leading_zeros() >= 61);
             }
             assert_eq!(verify_primes(seed, &[]), [a, b]);
             let [c, d] = verify_primes(seed, &[a]);

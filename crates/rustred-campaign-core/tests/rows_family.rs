@@ -6,6 +6,7 @@
 //! - our scaleless line sectors (Lee criterion of the copied `Family::zero_mask`) == the checker's
 //!   zero_sectors_T162P.json (490 of 512 line masks; sha256 352690b4...);
 //! - the ADDED `rows_at_mod` (generic points) == the engine's `rows_at` at integer points, and both == the exact rows.
+//!
 //! The engine replay path itself is used unchanged for integer keys (`replay_base::rows::rows_for_p`, a copy).
 
 mod rows_common;
@@ -25,14 +26,24 @@ fn rows_t162_raw_identities_equal_the_checkers() {
     let mut entries = 0;
     for (op, r) in rows.iter().enumerate() {
         let ours = fam.exact_row(op).unwrap();
-        let jv: Vec<u64> = r["op"].as_array().unwrap().iter().map(|x| x.as_u64().unwrap()).collect();
+        let jv: Vec<u64> = r["op"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_u64().unwrap())
+            .collect();
         assert_eq!(jv, vec![(op / 6) as u64, (op % 6) as u64], "operator order");
         let theirs: Vec<(Vec<i64>, Vec<Q>)> = r["row"]
             .as_array()
             .unwrap()
             .iter()
             .map(|e| {
-                let shift: Vec<i64> = e[0].as_array().unwrap().iter().map(|x| x.as_i64().unwrap()).collect();
+                let shift: Vec<i64> = e[0]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.as_i64().unwrap())
+                    .collect();
                 let mut form = vec![Q::ZERO; n + 2];
                 for (var, c) in e[1].as_object().unwrap() {
                     let idx = match var.as_str() {
@@ -51,15 +62,21 @@ fn rows_t162_raw_identities_equal_the_checkers() {
             entries += 1;
         }
     }
-    println!("T162: 30 raw identities, {entries} (shift, linear form) entries equal to the checker's generator");
+    println!(
+        "T162: 30 raw identities, {entries} (shift, linear form) entries equal to the checker's generator"
+    );
 }
 
 #[test]
 fn rows_t162_zero_sectors_equal_the_checkers() {
     let fam = t162_family();
     let ck: Value = serde_json::from_str(&data("checker_zero_sectors_T162P.json")).unwrap();
-    let zero: std::collections::BTreeSet<String> =
-        ck.as_array().unwrap().iter().map(|x| x.as_str().unwrap().to_string()).collect();
+    let zero: std::collections::BTreeSet<String> = ck
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_str().unwrap().to_string())
+        .collect();
     assert_eq!(zero.len(), 490);
     let mut count = 0;
     for m in 0u32..512 {

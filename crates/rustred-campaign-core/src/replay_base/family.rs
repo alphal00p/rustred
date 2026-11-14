@@ -480,7 +480,12 @@ impl Family {
             m[i] = true;
         }
         // campaign copy: Mutex (a poisoned lock is recovered: the cache holds only computed values)
-        if let Some(z) = self.zero_cache.lock().unwrap_or_else(|e| e.into_inner()).get(&m) {
+        if let Some(z) = self
+            .zero_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&m)
+        {
             return *z;
         }
         let z = self.zero(&m);
