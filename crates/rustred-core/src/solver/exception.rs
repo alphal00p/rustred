@@ -258,20 +258,26 @@ mod child {
         // handlers and destructors of state shared with the parent. A lock
         // held by another parent thread at the fork can only make the child
         // hang; it is then killed at the timeout like any slow child.
+        let parent = crate::node::childjob::proc::pid();
         let pid = unsafe { libc::fork() };
         if pid < 0 {
             return NativeGuardTry::Unavailable;
         }
         if pid == 0 {
+            crate::node::childjob::proc::after_fork_child(parent);
             let finished = catch_unwind(AssertUnwindSafe(work)).unwrap_or(false);
             unsafe { libc::_exit(if finished { 0 } else { 3 }) };
         }
+        crate::node::childjob::proc::register_helper(pid);
         let deadline = Instant::now() + timeout;
         let mut pause = Duration::from_millis(1);
         loop {
             let mut status = 0;
             // SAFETY: plain waitpid on our own child.
             let reaped = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) };
+            if reaped == pid || reaped < 0 {
+                crate::node::childjob::proc::unregister_helper(pid);
+            }
             if reaped == pid {
                 return if libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0 {
                     NativeGuardTry::Finished
@@ -289,6 +295,7 @@ mod child {
                     libc::kill(pid, libc::SIGKILL);
                     libc::waitpid(pid, &mut status, 0);
                 }
+                crate::node::childjob::proc::unregister_helper(pid);
                 return NativeGuardTry::TimedOut;
             }
             std::thread::sleep(pause.min(deadline - now));

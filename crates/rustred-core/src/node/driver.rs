@@ -793,6 +793,9 @@ pub enum StopReason {
         cases: Vec<CaseSpec>,
     },
     Error(String),
+    /// child-job (job mode only): a stop request (signal, STOP file, soft memory limit) honoured at a safe point;
+    /// `pending` counts the open cases including the interrupted one (RESUME.json lists them).
+    Interrupted { source: String, pending: usize },
 }
 
 /// Result of [`generate`]. `complete` = the chart closed (no stop, no error).
@@ -1419,7 +1422,7 @@ fn write_rule<const N: usize>(
                 .any(|w| w[0] == b'n' && w[1].is_ascii_digit())
         })
         .map(|t| {
-            if t.len() > 4000 {
+            if t.len() > 4000 && super::childjob::elide_witness_loci() {
                 "elided".to_string()
             } else {
                 t
@@ -1439,7 +1442,7 @@ fn write_rule<const N: usize>(
         .hidden_poles
         .iter()
         .filter(|p| {
-            let long = p.to_string().len() > 4000;
+            let long = p.to_string().len() > 4000 && super::childjob::elide_witness_loci();
             if long {
                 witness_d_poles.push("elided".to_string());
             }
@@ -1839,6 +1842,7 @@ pub fn forked<F: FnOnce() -> String>(dir: &Path, tag: &str, secs: u64, f: F) -> 
     let path = dir.join(format!("rr_fork_{}_{}.out", std::process::id(), tag));
     let _ = std::fs::remove_file(&path);
     let t = Instant::now();
+    let parent = super::childjob::proc::pid();
     // SAFETY: fork in a process whose other threads (if any) hold no locks the child needs; the child only runs
     // `f`, writes one file and _exits.
     let pid = unsafe { fork() };
@@ -1846,6 +1850,7 @@ pub fn forked<F: FnOnce() -> String>(dir: &Path, tag: &str, secs: u64, f: F) -> 
         return Forked::Failed("fork failed".into(), 0.0);
     }
     if pid == 0 {
+        super::childjob::proc::after_fork_child(parent);
         let s = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
             .unwrap_or_else(|_| "{\"child_panic\":true}".to_string());
         let tmp = path.with_extension("part");
@@ -1854,12 +1859,14 @@ pub fn forked<F: FnOnce() -> String>(dir: &Path, tag: &str, secs: u64, f: F) -> 
         unsafe { _exit(if ok { 0 } else { 3 }) }
     }
     FORK_CHILD.store(pid, std::sync::atomic::Ordering::SeqCst);
+    super::childjob::proc::register_helper(pid);
     loop {
         let mut status = 0i32;
         // SAFETY: own child, WNOHANG.
         let r = unsafe { waitpid(pid, &mut status, 1) };
         if r == pid {
             FORK_CHILD.store(0, std::sync::atomic::Ordering::SeqCst);
+            super::childjob::proc::unregister_helper(pid);
             let used = t.elapsed().as_secs_f64();
             return match std::fs::read_to_string(&path) {
                 Ok(s) => {
@@ -1878,6 +1885,7 @@ pub fn forked<F: FnOnce() -> String>(dir: &Path, tag: &str, secs: u64, f: F) -> 
             let _ = std::fs::remove_file(&path);
             let _ = std::fs::remove_file(path.with_extension("part"));
             FORK_CHILD.store(0, std::sync::atomic::Ordering::SeqCst);
+            super::childjob::proc::unregister_helper(pid);
             return Forked::Timeout(t.elapsed().as_secs_f64());
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
@@ -2849,20 +2857,22 @@ fn run<const N: usize>(
     let zero_seconds = t0.elapsed().as_secs_f64();
     let table_path = out_dir.join("F.table.jsonl");
     let mut out = std::io::BufWriter::new(
-        std::fs::File::create(&table_path).map_err(|e| format!("table: {e}"))?,
+        super::childjob::create_stream(&table_path, super::childjob::Stream::Table)
+            .map_err(|e| format!("table: {e}"))?,
     );
     let mut qlog = std::io::BufWriter::new(
-        std::fs::File::create(out_dir.join("F.queue.jsonl"))
+        super::childjob::create_stream(&out_dir.join("F.queue.jsonl"), super::childjob::Stream::Queue)
             .map_err(|e| format!("queue log: {e}"))?,
     );
     let options_json = serde_json::to_string(opts).map_err(|e| e.to_string())?;
     writeln!(
         out,
-        "{{\"type\":\"header\",\"schema\":{},\"node_schema\":{},\"source_base\":\"rustred-node\",\"family\":{},\"family_file\":{},\"family_source\":{},\"original_family_source\":{},\"loops\":{},\"externals\":{},\"denominators\":{n},\"parameters\":{},\"power_shifts\":{},\"mask\":{},\"node_order\":{},\"order_name\":{},\"order_is_program\":{},\"order\":{},\"two_sided_axes\":{:?},\"charts\":{},\"numerical_depth\":{},\"max_numerator_rank\":null,\"source_conditions\":{},\"zero_scope\":\"downset\",\"zero_seconds\":{zero_seconds:.3},\"guard_version\":{},\"node_options\":{options_json}}}",
+        "{{\"type\":\"header\",\"schema\":{},\"node_schema\":{},\"source_base\":\"rustred-node\",\"family\":{},\"family_file\":{}{},\"family_source\":{},\"original_family_source\":{},\"loops\":{},\"externals\":{},\"denominators\":{n},\"parameters\":{},\"power_shifts\":{},\"mask\":{},\"node_order\":{},\"order_name\":{},\"order_is_program\":{},\"order\":{},\"two_sided_axes\":{:?},\"charts\":{},\"numerical_depth\":{},\"max_numerator_rank\":null,\"source_conditions\":{},\"zero_scope\":\"downset\",\"zero_seconds\":{zero_seconds:.3},\"guard_version\":{},\"node_options\":{options_json}}}",
         q(SCHEMA),
         q(NODE_SCHEMA),
         q(fam.name()),
         q(family_path),
+        super::childjob::header_family_digest(),
         q(presented),
         q(original_text),
         fam.loop_count(),
@@ -2968,7 +2978,8 @@ fn run<const N: usize>(
         .clone();
     // certificate file: header, original source rows, basis derivation (replay authority for retained traces)
     let mut cert = std::io::BufWriter::new(
-        std::fs::File::create(out_dir.join("F.cert.jsonl")).map_err(|e| format!("cert: {e}"))?,
+        super::childjob::create_stream(&out_dir.join("F.cert.jsonl"), super::childjob::Stream::Cert)
+            .map_err(|e| format!("cert: {e}"))?,
     );
     write_cert_header(&mut cert, fam, &sources);
     for (k, row) in derivation.rows.iter().enumerate() {
@@ -3496,6 +3507,7 @@ fn run<const N: usize>(
                             pivot, trace_rows, ..
                         } => {
                             raw = Some(pivot);
+                            super::childjob::exact_started(trace_rows);
                             started = Some(Instant::now());
                             eprintln!(
                                 "EVENT {:.3}s ExactStarted rows={trace_rows} pivot={pivot}",
@@ -3694,6 +3706,13 @@ fn run<const N: usize>(
             break;
         }
         let current = pending.remove(0);
+        // child-job (job mode only): commit point of the previous case, safe point, start of this one
+        if super::childjob::active() {
+            if let Some(s) = super::childjob::case_boundary(&mut out, &mut qlog, symbolic_cases, case_spec(&current, n), false, &mut || super::childjob::queue_lists(&pending, &numerical, n))? {
+                stop = Some(s);
+                break;
+            }
+        }
         if terminal_ledger
             .as_ref()
             .is_some_and(|ledger| ledger.is_point(&current, n))
@@ -4490,6 +4509,10 @@ fn run<const N: usize>(
         }
         rules.push(rule);
     }
+    // child-job (job mode only): commit point at the end of the symbolic queue
+    if super::childjob::active() {
+        super::childjob::queue_done(&mut out, &mut qlog, symbolic_cases, &mut || super::childjob::queue_lists(&pending, &numerical, n))?;
+    }
     *WATCH.lock().unwrap() = None;
     // ---- numeric endpoints: one by one under the node's source order and exact backend; exhausted ones in bulk
     let mut residual_keys: Vec<String> = terminal_ledger.as_ref().map_or_else(Vec::new, |l| {
@@ -4521,6 +4544,13 @@ fn run<const N: usize>(
         };
         let mut exhausted: Vec<CoordinateCase<N>> = Vec::new();
         for (point_index, point) in numerical.clone().into_iter().enumerate() {
+            // child-job (job mode only): safe point and commit point before each numeric endpoint
+            if super::childjob::active() {
+                if let Some(s) = super::childjob::case_boundary(&mut out, &mut qlog, symbolic_cases, case_spec(&Case::from(point), n), true, &mut || super::childjob::queue_lists(&[], &numerical[point_index + 1..], n))? {
+                    stop = Some(s);
+                    break;
+                }
+            }
             if terminal_ledger
                 .as_ref()
                 .is_some_and(|ledger| ledger.is_point(&Case::from(point), n))
@@ -4975,8 +5005,9 @@ fn run<const N: usize>(
         writeln!(out, "{{\"type\":\"chart_error\",\"chart\":{},\"seconds\":{seconds:.3},\"error\":{},\"stop\":{reason}}}", q(&label), q("node stopped (see stop)")).map_err(|e| e.to_string())?;
         events(&NodeEvent::Stopped { reason });
     }
-    let active_partial = (terminal_ledger.is_some() || opts.stop_before_numeric)
-        && (error.is_some() || stop.is_some() || !outcome.not_lower.is_empty());
+    let active_partial = ((terminal_ledger.is_some() || opts.stop_before_numeric)
+        && (error.is_some() || stop.is_some() || !outcome.not_lower.is_empty()))
+        || super::childjob::partial_end(error.is_some() || stop.is_some() || !outcome.not_lower.is_empty());
     let chart_record = if active_partial {
         "chart_partial"
     } else {

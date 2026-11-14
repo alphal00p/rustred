@@ -829,8 +829,18 @@ pub struct StreamDigest {
     scan: Scan<'static>,
     partial: Vec<u8>,
     failed: Option<String>,
-    types: Vec<Option<String>>,
+    records: Vec<RecordInfo>,
     record_types: bool,
+}
+
+/// One complete record seen by a [`StreamDigest`] that records them: its `type`, offset, line length (with "\n")
+/// and the BLAKE3 of its canonical line + "\n" (the `rule_committed.canon_blake3` of child-job.md 3.5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordInfo {
+    pub record_type: Option<String>,
+    pub offset: u64,
+    pub bytes: u64,
+    pub canon_blake3: String,
 }
 
 impl StreamDigest {
@@ -840,13 +850,13 @@ impl StreamDigest {
             scan: Scan::new(end_types),
             partial: Vec::new(),
             failed: None,
-            types: Vec::new(),
+            records: Vec::new(),
             record_types: false,
         }
     }
 
-    /// Also remember the `type` of every complete record until [`StreamDigest::take_types`] (the queue log: the
-    /// engine derives a case's result from the records of that case).
+    /// Also remember every complete record ([`RecordInfo`]) until [`StreamDigest::take_records`] (the engine derives
+    /// a case's result from the queue records of that case and reports the rule lines it committed).
     pub fn recording_types(mut self) -> StreamDigest {
         self.record_types = true;
         self
@@ -874,10 +884,19 @@ impl StreamDigest {
             self.scan.bytes += line_nl.len() as u64;
             return;
         }
+        let offset = self.scan.bytes;
         match self.scan.push(line_nl) {
             Ok(c) => {
                 if self.record_types {
-                    self.types.push(c.record_type);
+                    let mut h = blake3::Hasher::new();
+                    h.update(&c.bytes);
+                    h.update(b"\n");
+                    self.records.push(RecordInfo {
+                        record_type: c.record_type,
+                        offset,
+                        bytes: line_nl.len() as u64,
+                        canon_blake3: h.finalize().to_hex().to_string(),
+                    });
                 }
             }
             Err(e) => {
@@ -946,9 +965,9 @@ impl StreamDigest {
         })
     }
 
-    /// The record types seen since the last call (only with [`StreamDigest::recording_types`]).
-    pub fn take_types(&mut self) -> Vec<Option<String>> {
-        std::mem::take(&mut self.types)
+    /// The records seen since the last call (only with [`StreamDigest::recording_types`]).
+    pub fn take_records(&mut self) -> Vec<RecordInfo> {
+        std::mem::take(&mut self.records)
     }
 
     /// Feed a whole existing file (a verified resume prefix that the caller continues to append to).
@@ -1043,9 +1062,13 @@ mod stream_digest_tests {
     fn record_types_are_taken_in_order() {
         let mut d = StreamDigest::new(&TABLE_END_TYPES).recording_types();
         d.feed(b"{\"type\":\"covered\"}\n{\"x\":1}\n{\"type\":\"enq");
-        assert_eq!(d.take_types(), vec![Some("covered".to_string()), None]);
+        let r = d.take_records();
+        let types: Vec<_> = r.iter().map(|x| x.record_type.clone()).collect();
+        assert_eq!(types, vec![Some("covered".to_string()), None]);
+        assert_eq!((r[1].offset, r[1].bytes), (19, 8));
+        assert_eq!(r[1].canon_blake3, crate::blake3_hex(b"{\"x\":1}\n"));
         d.feed(b"ueue\"}\n");
-        assert_eq!(d.take_types(), vec![Some("enqueue".to_string())]);
-        assert!(d.take_types().is_empty());
+        assert_eq!(d.take_records()[0].record_type.as_deref(), Some("enqueue"));
+        assert!(d.take_records().is_empty());
     }
 }
