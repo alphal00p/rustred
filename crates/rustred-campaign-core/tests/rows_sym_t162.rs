@@ -263,3 +263,27 @@ fn rows_sym_t162_determinism() {
     assert_eq!(strip(&a), strip(&b));
     assert_eq!(a.points[0].status, PointStatus::Pass);
 }
+
+/// audit B M2 and section 10.5: a POINT rule with symmetry rows reaches `replay` at its own key (duplicates count once);
+/// without the group it does not.
+#[test]
+fn rows_sym_t162_point_rule_replay_level() {
+    use rustred_campaign_core::ibp_rows::{ReplayLevel, ReplayPolicy, replay_evidence};
+    let Some(o) = oracle() else { return };
+    let fam = t162_family();
+    let g = t162_group(&fam);
+    let case = o.jsonl("span/F6_span_cases.jsonl").into_iter().find(|c| c["id"] == "bp010").unwrap();
+    let Some(line) = f6_line(&o, &case) else { return };
+    let rule = rule0(&line);
+    let key: Vec<i64> = rule.fixed.iter().map(|f| f.unwrap()).collect();
+    let opts = RowsOptions { symmetry: Some(g.clone()), ..RowsOptions::default() };
+    let rec = replay_evidence(&fam, &rule, &[key.clone(), key.clone()], &ReplayPolicy::default(), &opts);
+    println!("bp010 replay: {:?} served {} symmetry {:?}", rec.level, rec.served_keys, rec.symmetry_group);
+    assert_eq!(rec.level, ReplayLevel::Established);
+    assert_eq!(rec.served_keys, 1);
+    let sg = rec.symmetry_group.as_ref().unwrap();
+    assert_eq!(sg.group_digest, g.digest);
+    assert!(!sg.support.is_empty());
+    let rec = replay_evidence(&fam, &rule, &[key], &ReplayPolicy::default(), &RowsOptions::default());
+    assert!(matches!(rec.level, ReplayLevel::NotEstablished { .. }));
+}

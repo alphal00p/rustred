@@ -430,3 +430,40 @@ fn b1_generic_only_pass_with_boundary_columns_is_not_a2() {
     assert!(bc.iter().all(|&b| b > 0));
     assert!(!v.meets_a2_policy);
 }
+
+/// audit B M1: the random stream (primes, d) derives from the rule digest: changing a coefficient changes the primes.
+#[test]
+fn bm1_stream_seed_bound_to_rule_digest() {
+    let f = face();
+    let a = RowsRule::from_value(f.good.clone(), f.fam.n).unwrap();
+    let mut g2 = f.good.clone();
+    let c = g2["rhs"][0][1].as_str().unwrap().to_string();
+    g2["rhs"][0][1] = json!(format!("{c}+0"));
+    let b = RowsRule::from_value(g2, f.fam.n).unwrap();
+    let va = identity_test(&f.fam, &a, &[PointSpec::Generic], &RowsOptions::default());
+    let vb = identity_test(&f.fam, &b, &[PointSpec::Generic], &RowsOptions::default());
+    assert_ne!(va.primes, vb.primes);
+    assert_eq!(va.master_seed, vb.master_seed);
+    assert_ne!(va.seed, vb.seed);
+    let r = replay_evidence(&f.fam, &a, &served(&f)[..5], &ReplayPolicy::default(), &RowsOptions::default());
+    assert_eq!(r.primes, r.identity.primes);
+    // a run-time nonce: two runs differ in nonce and primes; re-running with the recorded nonce reproduces the record
+    let r2 = replay_evidence(&f.fam, &a, &served(&f)[..5], &ReplayPolicy::default(), &RowsOptions::default());
+    assert_ne!(r.nonce, r2.nonce);
+    let o = RowsOptions { nonce: Some(r.nonce), ..RowsOptions::default() };
+    let r3 = replay_evidence(&f.fam, &a, &served(&f)[..5], &ReplayPolicy::default(), &o);
+    assert_eq!((r3.seed, r3.primes), (r.seed, r.primes));
+}
+
+/// audit B M3: a seed set whose rows would not fit is refused BEFORE the rows are built.
+#[test]
+fn bm3_row_memory_guard_before_building() {
+    let f = face();
+    let mut g = f.good.clone();
+    let seeds: Vec<String> = (0..2000).map(|k| pat(&(0..f.fam.n).map(|i| if i == 0 { k } else { 0 }).collect::<Vec<i64>>())).collect();
+    g["seeds"] = json!(seeds);
+    let r = RowsRule::from_value(g, f.fam.n).unwrap();
+    let o = RowsOptions { max_row_bytes: 1_000_000, ..RowsOptions::default() };
+    let v = identity_test(&f.fam, &r, &[PointSpec::Generic], &o);
+    assert!(matches!(v.verdict, Verdict::MemoryGuard { .. }), "{:?}", v.verdict);
+}

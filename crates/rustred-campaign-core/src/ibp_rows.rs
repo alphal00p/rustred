@@ -198,7 +198,8 @@ impl RowsRule {
             }
         };
         let (witness_present, mut witness_elided, mut witness_loci) = (
-            v.get("witness_loci").is_some_and(|x| !x.is_null()),
+            // audit B m3: only a LIST counts as present (a string or number is a malformed record)
+            v.get("witness_loci").is_some_and(Value::is_array),
             false,
             Vec::new(),
         );
@@ -399,6 +400,8 @@ pub struct RowsOptions {
     pub sym_use: SymUse,
     /// bound on the terms of one expanded (multi-term) symmetry row
     pub sym_max_terms: usize,
+    /// nonce bound into the stream seed (`replay_evidence` draws one from the OS when `None`; `identity_test` uses 0)
+    pub nonce: Option<u64>,
     /// the rule's table header (family binding, guard version); `None` = no header known (recorded as such)
     pub table: Option<TableBinding>,
     pub seed: u64,
@@ -407,6 +410,8 @@ pub struct RowsOptions {
     pub lift_primes: Vec<u64>,
     pub generated_with_symmetry_rows: bool,
     pub max_entries: usize,
+    /// guard on the estimated heap of the rows BEFORE they are built (audit B M3), default 1.2 GB
+    pub max_row_bytes: usize,
     pub shell_diagnostic: bool,
     pub d_attempts: u32,
     pub controls: bool,
@@ -419,6 +424,7 @@ impl Default for RowsOptions {
             sym_mode: SymRowMode::Engine,
             sym_use: SymUse::Declared,
             sym_max_terms: 200_000,
+            nonce: None,
             table: None,
             seed: 20_261_113,
             rule_id: None,
@@ -426,6 +432,7 @@ impl Default for RowsOptions {
             lift_primes: Vec::new(),
             generated_with_symmetry_rows: false,
             max_entries: 60_000_000,
+            max_row_bytes: 1_200_000_000,
             shell_diagnostic: false,
             d_attempts: 8,
             controls: true,
@@ -614,7 +621,11 @@ pub struct RowsVerdict {
     pub rule_index: Option<i64>,
     pub target: String,
     pub rule_id: u64,
+    /// the stream seed actually used (derived from `master_seed` and the rule digest)
     pub seed: u64,
+    pub master_seed: u64,
+    /// the nonce bound into `seed` (0 = none given)
+    pub nonce: u64,
     pub primes: [u64; 2],
     pub points: Vec<PointReport>,
     pub points_passed: usize,
@@ -1685,6 +1696,8 @@ fn unsupported_verdict(
         target: rule.target_text.clone(),
         rule_id,
         seed: opts.seed,
+        master_seed: opts.seed,
+        nonce: 0,
         primes,
         points: Vec::new(),
         points_passed: 0,
@@ -1700,8 +1713,73 @@ fn unsupported_verdict(
     }
 }
 
+/// The random stream seed of a rule (audit B M1): sha256(master seed, rule digest), first 8 bytes. Primes, d values
+/// and generic points all derive from it, so a coefficient tailored to the recorded draws changes the draws.
+/// The stream seed binds the master seed, the rule digest, the family digest, the digest of the points / served keys
+/// and a nonce (audit B M1: reproducible from the record, not predictable before the rule exists when the nonce is
+/// drawn at run time, which `replay_evidence` does unless `RowsOptions.nonce` is given).
+pub fn stream_seed(master: u64, rule: &RowsRule, family_digest: &str, keys_digest: &str, nonce: u64) -> u64 {
+    let h = crate::replay_base::sha256::sha256_hex(
+        format!("{master}\x00{}\x00{family_digest}\x00{keys_digest}\x00{nonce}", rule_digest(rule)).as_bytes(),
+    );
+    u64::from_str_radix(&h[..16], 16).unwrap_or(master)
+}
+
+/// A run-time nonce from the OS (recorded in the evidence record).
+pub fn os_nonce() -> u64 {
+    use std::io::Read;
+    let mut b = [0u8; 8];
+    if std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut b))
+        .is_ok()
+    {
+        return u64::from_le_bytes(b);
+    }
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos() as u64);
+    t ^ (u64::from(std::process::id()) << 32)
+}
+
+fn points_digest(points: &[PointSpec]) -> String {
+    let keys: Vec<Vec<i64>> = points
+        .iter()
+        .filter_map(|p| match p {
+            PointSpec::Key(k) => Some(k.clone()),
+            PointSpec::Generic => None,
+        })
+        .collect();
+    let generic = points.len() - keys.len();
+    format!("{}g{generic}", key_set_digest(&keys))
+}
+
+/// Estimated heap of the rows of `seeds` distinct seed keys (audit B M3: guard BEFORE building the rows).
+fn rows_bytes_estimate(family: &Family, seeds: usize) -> usize {
+    seeds
+        .saturating_mul(family.n_ops())
+        .saturating_mul(2 * family.n + 2)
+        .saturating_mul(family.n * 8 + 64)
+}
+
 /// THE A2 test of one rule at the given points (each at both primes). See the module doc and interfaces/ibp-rows.md.
 pub fn identity_test(
+    family: &Family,
+    rule: &RowsRule,
+    points: &[PointSpec],
+    opts: &RowsOptions,
+) -> RowsVerdict {
+    let nonce = opts.nonce.unwrap_or(0);
+    let derived_opts = RowsOptions {
+        seed: stream_seed(opts.seed, rule, &family.source_digest, &points_digest(points), nonce),
+        ..opts.clone()
+    };
+    let mut v = identity_test_derived(family, rule, points, &derived_opts);
+    v.master_seed = opts.seed;
+    v.nonce = nonce;
+    v
+}
+
+fn identity_test_derived(
     family: &Family,
     rule: &RowsRule,
     points: &[PointSpec],
@@ -1785,6 +1863,13 @@ pub fn identity_test(
     }
     if let Err(e) = check_recenter_authority(rule) {
         return unsupported_verdict(family, rule, rule_id, opts, primes, Unsupported::Record(e));
+    }
+    let distinct_seeds = rule.seeds.iter().collect::<BTreeSet<_>>().len();
+    let est = rows_bytes_estimate(family, distinct_seeds);
+    if est > opts.max_row_bytes {
+        let mut v = unsupported_verdict(family, rule, rule_id, opts, primes, Unsupported::NoSeeds);
+        v.verdict = Verdict::MemoryGuard { entries: est };
+        return v;
     }
     let cx = CellCtx {
         family,
@@ -2006,6 +2091,8 @@ pub fn identity_test(
         target: rule.target_text.clone(),
         rule_id,
         seed: opts.seed,
+        master_seed: opts.seed,
+        nonce: 0,
         primes,
         points: reports,
         points_passed,
@@ -2158,7 +2245,11 @@ pub struct ReplayRecord {
     pub rule_digest: String,
     pub rule_index: Option<i64>,
     pub target: String,
+    /// stream seed (derived from `master_seed` and the rule digest)
     pub seed: u64,
+    pub master_seed: u64,
+    /// the run-time nonce bound into the stream seed (re-run with `RowsOptions.nonce = Some(nonce)`)
+    pub nonce: u64,
     pub primes: [u64; 2],
     pub policy: ReplayPolicy,
     pub served_keys: usize,
@@ -2472,6 +2563,17 @@ pub fn replay_evidence(
     policy: &ReplayPolicy,
     opts: &RowsOptions,
 ) -> ReplayRecord {
+    let master_seed = opts.seed;
+    let nonce = opts.nonce.unwrap_or_else(os_nonce);
+    let mut dedup0: Vec<Vec<i64>> = served_keys.to_vec();
+    dedup0.sort();
+    dedup0.dedup();
+    let derived_opts = RowsOptions {
+        seed: stream_seed(opts.seed, rule, &family.source_digest, &key_set_digest(&dedup0), nonce),
+        nonce: Some(nonce),
+        ..opts.clone()
+    };
+    let opts = &derived_opts;
     let rule_id = opts.rule_id.unwrap_or_else(|| rule.default_id());
     let primes = opts
         .primes
@@ -2487,6 +2589,11 @@ pub fn replay_evidence(
     } else {
         served_keys
     };
+    // audit B M2: duplicate served keys count once
+    let mut dedup: Vec<Vec<i64>> = served_keys.to_vec();
+    dedup.sort();
+    dedup.dedup();
+    let served_keys: &[Vec<i64>] = &dedup;
     // pole scan and applicability at every served key
     let mut ps = PoleScan {
         keys_given: served_keys.len(),
@@ -2599,7 +2706,14 @@ pub fn replay_evidence(
             status,
         });
     }
-    let identity = identity_test(family, rule, &points, opts);
+    // the identity uses the record's primes and nonce (its d values derive from its own stream seed)
+    let id_opts = RowsOptions {
+        seed: master_seed,
+        primes: Some(primes),
+        nonce: Some(nonce),
+        ..opts.clone()
+    };
+    let identity = identity_test(family, rule, &points, &id_opts);
     for (li, pi) in tested {
         let name = loci[li].locus.clone();
         if let LocusStatus::Tested { status, .. } = &mut loci[li].status {
@@ -2615,7 +2729,8 @@ pub fn replay_evidence(
     }
     if identity.verdict != Verdict::Pass {
         reasons.push(format!("identity: {}", identity.verdict.kind()));
-    } else if identity.points_passed < 2 {
+    } else if identity.points_passed < 2 && rule.fixed.iter().any(Option::is_none) {
+        // symbolic rules: >= 2 points (the generic points); a POINT rule is decided at its one key at both primes
         reasons.push(format!(
             "identity passed at {} point(s), 2 required",
             identity.points_passed
@@ -2704,6 +2819,8 @@ pub fn replay_evidence(
         rule_index: rule.index,
         target: rule.target_text.clone(),
         seed: opts.seed,
+        master_seed,
+        nonce,
         primes,
         policy: policy.clone(),
         served_keys: served_keys.len(),
@@ -2842,6 +2959,8 @@ pub fn identity_test_batch<R: BufRead, W: Write>(
                     target: String::new(),
                     rule_id: 0,
                     seed: opts.seed,
+                    master_seed: opts.seed,
+                    nonce: 0,
                     primes: opts
                         .primes
                         .unwrap_or_else(|| primes::verify_primes(opts.seed, &opts.lift_primes)),
