@@ -3,6 +3,7 @@
 //! - `defect_*`: CONFIRMING reproductions of findings (they assert the defect as it is today; a fix inverts the
 //!   assertion, as the first audit round's tests were ported);
 //! - `diff_*` / `exact_*`: differential property tests against brute force (they must pass; a failure is a finding).
+//!
 //! Report: WS/notes/implementer.reaudit-part.md.
 
 #![allow(clippy::too_many_arguments)]
@@ -228,19 +229,24 @@ fn described(rep: &PartitionReport, k: &[i32]) -> Result<(), String> {
         let hit = r.class_of(k).unwrap();
         if hit == ClassHit::Uncovered && r.classes.iter().any(|c| c.label == Label::Uncovered) {
             // must be in a listed generic cell of r's own faces
-            if let Some(f) = r.faces.iter().find(|f| f.key() == fk) {
-                if f.generic_cells.iter().any(|c| {
+            if let Some(f) = r.faces.iter().find(|f| f.key() == fk)
+                && f.generic_cells.iter().any(|c| {
                     c.iter()
                         .zip(&cell)
                         .all(|(&cs, &st)| cs == st || (cs == ANY_OFF && st != 0))
-                }) {
-                    return Ok(());
-                }
+                })
+            {
+                return Ok(());
             }
         }
         if let Some(res) = &r.resolution {
             // harness guard: a face with tens of thousands of open regions (capped classes) is not re-solved per key
-            let parts: usize = res.loci.iter().filter(|l| l.face == fk).map(|l| l.pieces.len() + l.unresolved_parts.len()).sum();
+            let parts: usize = res
+                .loci
+                .iter()
+                .filter(|l| l.face == fk)
+                .map(|l| l.pieces.len() + l.unresolved_parts.len())
+                .sum();
             if parts > 3_000 {
                 return Ok(());
             }
@@ -262,7 +268,9 @@ fn described(rep: &PartitionReport, k: &[i32]) -> Result<(), String> {
             }
         }
     }
-    Err(format!("key on face {fk:?} in no generic cell / locus piece"))
+    Err(format!(
+        "key on face {fk:?} in no generic cell / locus piece"
+    ))
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -289,8 +297,15 @@ fn defect_varying_multislot_bound_gives_spurious_generic_face() {
     assert!(rep.outcome.is_complete());
     // the defect: a U class and a generic face with an exact-partition proof, on a fully covered chart
     assert_eq!(rep.n_u(), 1, "U classes");
-    let face = rep.faces.iter().find(|x| x.key() == (vec![0, 1], vec![])).expect("face listed");
-    assert_eq!(face.kind, rustred_campaign_core::partition::FaceKind::Generic);
+    let face = rep
+        .faces
+        .iter()
+        .find(|x| x.key() == (vec![0, 1], vec![]))
+        .expect("face listed");
+    assert_eq!(
+        face.kind,
+        rustred_campaign_core::partition::FaceKind::Generic
+    );
     assert_eq!(face.proof.tag(), "exact_partition");
     assert!(face.witness.is_none(), "no uncovered key exists");
     assert!(rep.proves_no_gap(CoverageNotion::UnionCoverage).is_err());
@@ -319,7 +334,10 @@ fn defect_one_slot_nonlinear_bound_killed_on_its_own_tail() {
     let rep = gap_partition(&list(&ds, n), &f, &absent(), None).unwrap();
     assert!(rep.n_u() >= 1, "the tail is labelled Uncovered");
     assert!(rep.faces.iter().any(|x| x.key() == (vec![0], vec![])));
-    assert!(rep.uncovered(&[7]).unwrap() == false, "the point oracle knows it is covered");
+    assert!(
+        !rep.uncovered(&[7]).unwrap(),
+        "the point oracle knows it is covered"
+    );
     assert_eq!(rep.class_of(&[7]).unwrap(), ClassHit::Uncovered);
 }
 
@@ -468,7 +486,10 @@ fn exact_int_roots_vs_brute_force() {
     }
     // far roots: (x - 10^9)(x + 3), (x - 2^40)(x - 1), x^3 (x - 7^11)
     let far: [(Vec<i128>, Vec<i64>); 3] = [
-        (poly_mul(&[-1_000_000_000, 1], &[3, 1]), vec![-3, 1_000_000_000]),
+        (
+            poly_mul(&[-1_000_000_000, 1], &[3, 1]),
+            vec![-3, 1_000_000_000],
+        ),
         (poly_mul(&[-(1i128 << 40), 1], &[-1, 1]), vec![1, 1 << 40]),
         (
             poly_mul(&[0, 0, 0, 1], &[-(7i128.pow(11)), 1]),
@@ -538,7 +559,11 @@ fn exact_fourier_motzkin_and_exhaustive_vs_brute_force() {
         let fm = fm_feasible(&cons, k).unwrap();
         if !fm {
             refuted += 1;
-            assert!(pts.is_empty(), "case {case}: FM refuted a system with {} points: {cons:?}", pts.len());
+            assert!(
+                pts.is_empty(),
+                "case {case}: FM refuted a system with {} points: {cons:?}",
+                pts.len()
+            );
         } else if pts.is_empty() {
             gap += 1;
             if gap_example.is_none() {
@@ -553,7 +578,10 @@ fn exact_fourier_motzkin_and_exhaustive_vs_brute_force() {
                 cons.iter().all(|c| c.eval(&t).unwrap() >= 0),
                 "case {case}: bad point"
             ),
-            Some(None) => assert!(pts.is_empty(), "case {case}: exhaustive said empty: {cons:?}"),
+            Some(None) => assert!(
+                pts.is_empty(),
+                "case {case}: exhaustive said empty: {cons:?}"
+            ),
             None => undecided += 1,
         }
     }
@@ -594,15 +622,26 @@ fn exact_lattice_cut_vs_brute_force() {
         match r.cut(&coef, c).unwrap() {
             None => {
                 let gg = coef.iter().fold(0, |a, &x| gcd(a, x));
-                assert!(sols.is_empty(), "case {case}: cut None but {} solutions", sols.len());
-                assert!(gg != 0 && c % gg != 0 || gg == 0 && c != 0, "case {case}: None without a gcd reason");
+                assert!(
+                    sols.is_empty(),
+                    "case {case}: cut None but {} solutions",
+                    sols.len()
+                );
+                assert!(
+                    gg != 0 && c % gg != 0 || gg == 0 && c != 0,
+                    "case {case}: None without a gcd reason"
+                );
             }
             Some(s) => {
                 for t in &sols {
                     let key: Vec<i32> = t.iter().map(|&v| v as i32).collect();
-                    let tt = solve_params(&s, &key)
-                        .unwrap_or_else(|| panic!("case {case}: solution {t:?} not on the lattice"));
-                    assert!(s.contains_t(&tt).unwrap(), "case {case}: {t:?} outside the constraints");
+                    let tt = solve_params(&s, &key).unwrap_or_else(|| {
+                        panic!("case {case}: solution {t:?} not on the lattice")
+                    });
+                    assert!(
+                        s.contains_t(&tt).unwrap(),
+                        "case {case}: {t:?} outside the constraints"
+                    );
                 }
                 if let Ok(Some(t)) = s.point(8) {
                     let x = s.at(&t).unwrap();
@@ -618,7 +657,11 @@ fn exact_lattice_cut_vs_brute_force() {
 fn defect_gcd_clamps_two_to_the_127() {
     let g = gcd(i128::MIN, 0);
     assert_eq!(g, i128::MAX);
-    assert_ne!(i128::MIN % g, 0, "the returned gcd does not divide its argument");
+    assert_ne!(
+        i128::MIN % g,
+        0,
+        "the returned gcd does not divide its argument"
+    );
 }
 
 /// FINDING (major, exactness): a locus piece whose region is rationally feasible but has NO integer point is
@@ -662,11 +705,21 @@ fn defect_integer_empty_locus_piece_is_reported() {
         }
     }
     assert!(empty_pieces >= 1, "an integer-empty piece is reported");
-    let face = rep.faces.iter().find(|x| x.key() == (vec![0, 1, 2], vec![])).expect("spurious face listed");
-    assert_eq!(face.kind, rustred_campaign_core::partition::FaceKind::LocusOnly);
+    let face = rep
+        .faces
+        .iter()
+        .find(|x| x.key() == (vec![0, 1, 2], vec![]))
+        .expect("spurious face listed");
+    assert_eq!(
+        face.kind,
+        rustred_campaign_core::partition::FaceKind::LocusOnly
+    );
     assert_eq!(face.proof.tag(), "exact_partition");
     assert!(face.witness.is_none());
-    assert!(rep.proves_no_gap(CoverageNotion::UnionCoverage).is_err(), "conservative: no proof");
+    assert!(
+        rep.proves_no_gap(CoverageNotion::UnionCoverage).is_err(),
+        "conservative: no proof"
+    );
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -689,7 +742,12 @@ fn lit(g: &mut Rng, n: usize, nonlinear: bool) -> String {
     match g.below(shapes) {
         0 => format!("n{a}-({k})"),
         1 => format!("{}*n{a}+{}*n{b}-({k})", coefs(g), coefs(g)),
-        2 => format!("{}*n{a}+{}*n{b}+{}*n{c}-({k})", coefs(g), coefs(g), coefs(g)),
+        2 => format!(
+            "{}*n{a}+{}*n{b}+{}*n{c}-({k})",
+            coefs(g),
+            coefs(g),
+            coefs(g)
+        ),
         3 => format!("2*n{a}-2*n{b}-({})", 2 * g.range(-2, 2) + 1), // parity trap: never zero
         4 => format!("(n{a}-({}))*(n{a}-({}))", g.range(-3, 3), g.range(-3, 4)),
         5 => format!("n{a}*n{b}-({})", g.range(-6, 6)),
@@ -787,7 +845,9 @@ fn check_case(seed: u64, t: &mut Tally, containment: bool) {
     let e = 1 + g.below(n as u64) as usize; // at least one line
     let w: i32 = if n <= 3 { 7 } else { 5 };
     let nr = 1 + g.below(6) as usize;
-    let ds: Vec<CaseDomain> = (0..nr).map(|_| gen_domain(&mut g, n, e, true, true)).collect();
+    let ds: Vec<CaseDomain> = (0..nr)
+        .map(|_| gen_domain(&mut g, n, e, true, true))
+        .collect();
     check_tables(seed, n, e, w, ds, t, containment);
 }
 
@@ -797,7 +857,15 @@ fn trace(what: &str, t0: &std::time::Instant) {
     }
 }
 
-fn check_tables(seed: u64, n: usize, e: usize, w: i32, ds: Vec<CaseDomain>, t: &mut Tally, containment: bool) {
+fn check_tables(
+    seed: u64,
+    n: usize,
+    e: usize,
+    w: i32,
+    ds: Vec<CaseDomain>,
+    t: &mut Tally,
+    containment: bool,
+) {
     let nr = ds.len();
     let tt = std::time::Instant::now();
     let f = NodeFrame::without_header_lines_first(n, e);
@@ -808,7 +876,8 @@ fn check_tables(seed: u64, n: usize, e: usize, w: i32, ds: Vec<CaseDomain>, t: &
     let what = |m: &str| format!("seed {seed} (n={n}, e={e}, {nr} rules) {m}: {ds:?}");
 
     // ---------------- union mode (elided records absent: brute force = some record APPLIES)
-    let rep = gap_partition(&l, &f, &absent(), None).unwrap_or_else(|e| panic!("{}: {e:?}", what("union")));
+    let rep = gap_partition(&l, &f, &absent(), None)
+        .unwrap_or_else(|e| panic!("{}: {e:?}", what("union")));
     match &rep.outcome {
         o if o.is_complete() => t.complete += 1,
         rustred_campaign_core::partition::Outcome::Incomplete { .. } => t.incomplete += 1,
@@ -849,12 +918,25 @@ fn check_tables(seed: u64, n: usize, e: usize, w: i32, ds: Vec<CaseDomain>, t: &
             })
             .collect();
         let cov = union_covered(&ds, &k);
-        assert_eq!(rep.uncovered(&k).unwrap(), !cov, "{}: far key {k:?}", what("union"));
+        assert_eq!(
+            rep.uncovered(&k).unwrap(),
+            !cov,
+            "{}: far key {k:?}",
+            what("union")
+        );
         if !cov {
             any_unc = true;
-            assert_ne!(rep.class_of(&k).unwrap(), ClassHit::Covered, "{}: far {k:?} Covered", what("union"));
+            assert_ne!(
+                rep.class_of(&k).unwrap(),
+                ClassHit::Covered,
+                "{}: far {k:?} Covered",
+                what("union")
+            );
             if let Err(why) = described(&rep, &k) {
-                panic!("{}: far uncovered {k:?} not described: {why}", what("union"));
+                panic!(
+                    "{}: far uncovered {k:?} not described: {why}",
+                    what("union")
+                );
             }
         }
     }
@@ -869,7 +951,11 @@ fn check_tables(seed: u64, n: usize, e: usize, w: i32, ds: Vec<CaseDomain>, t: &
             for pc in &loc.pieces {
                 t.flagged_pieces += u64::from(pc.covered_part_unresolved);
                 for wk in &pc.witness {
-                    assert!(!union_covered(&ds, wk), "{}: covered witness {wk:?}", what("union"));
+                    assert!(
+                        !union_covered(&ds, wk),
+                        "{}: covered witness {wk:?}",
+                        what("union")
+                    );
                 }
             }
         }
@@ -900,7 +986,7 @@ fn check_tables(seed: u64, n: usize, e: usize, w: i32, ds: Vec<CaseDomain>, t: &
     let cb: BTreeSet<_> = r2.classes.iter().cloned().collect();
     assert_eq!(ca, cb, "{}: memo vs reference classes", what("union"));
     // determinism: the same report from a fresh thread (cold thread-local caches)
-    if seed % 8 == 0 {
+    if seed.is_multiple_of(8) {
         let j1 = json_without_time(&rep, &f);
         let (l2, f2) = (l.clone(), f.clone());
         let j2 = std::thread::spawn(move || {
@@ -914,10 +1000,11 @@ fn check_tables(seed: u64, n: usize, e: usize, w: i32, ds: Vec<CaseDomain>, t: &
     }
 
     if rep.outcome.is_complete()
-        && rep
-            .resolution
-            .as_ref()
-            .is_some_and(|r| r.loci.iter().any(|l| l.pieces.iter().any(|p| p.covered_part_unresolved)))
+        && rep.resolution.as_ref().is_some_and(|r| {
+            r.loci
+                .iter()
+                .any(|l| l.pieces.iter().any(|p| p.covered_part_unresolved))
+        })
     {
         t.flagged_but_complete += 1;
     }
@@ -932,17 +1019,24 @@ fn check_tables(seed: u64, n: usize, e: usize, w: i32, ds: Vec<CaseDomain>, t: &
             max_off_floor: cap,
             ..absent()
         };
-        let c = gap_partition(&l, &f, &o, None).unwrap_or_else(|e| panic!("{}: {e:?}", what("capped")));
+        let c =
+            gap_partition(&l, &f, &o, None).unwrap_or_else(|e| panic!("{}: {e:?}", what("capped")));
         t.capped_runs += 1;
         for k in &keys {
             if !union_covered(&ds, k) {
                 let hit = c.class_of(k).unwrap();
-                assert_ne!(hit, ClassHit::Covered, "{}: capped run reads {k:?} Covered", what("capped"));
+                assert_ne!(
+                    hit,
+                    ClassHit::Covered,
+                    "{}: capped run reads {k:?} Covered",
+                    what("capped")
+                );
                 let off = face_of(&c.nf.lines, k);
-                if cap.is_none_or(|cc| off.0.len() + off.1.len() <= cc) && hit != ClassHit::Unexplored {
-                    if let Err(why) = described(&c, k) {
-                        panic!("{}: capped run, {k:?} not described: {why}", what("capped"));
-                    }
+                if cap.is_none_or(|cc| off.0.len() + off.1.len() <= cc)
+                    && hit != ClassHit::Unexplored
+                    && let Err(why) = described(&c, k)
+                {
+                    panic!("{}: capped run, {k:?} not described: {why}", what("capped"));
                 }
             }
         }
@@ -950,7 +1044,11 @@ fn check_tables(seed: u64, n: usize, e: usize, w: i32, ds: Vec<CaseDomain>, t: &
             assert!(c.proves_no_gap(CoverageNotion::UnionCoverage).is_err());
         }
         if cap.is_some() && c.stats.pruned_off_floor > 0 {
-            assert!(!c.outcome.is_complete(), "{}: capped run says complete", what("capped"));
+            assert!(
+                !c.outcome.is_complete(),
+                "{}: capped run says complete",
+                what("capped")
+            );
         }
     }
 
@@ -977,9 +1075,19 @@ fn check_tables(seed: u64, n: usize, e: usize, w: i32, ds: Vec<CaseDomain>, t: &
                 && first_applies.is_none_or(|a| a > j)
         });
         let unc_fc = first_applies.is_none() || blocked_by_elided;
-        assert_eq!(fc.uncovered(k).unwrap(), unc_fc, "{}: FailClosed oracle at {k:?}", what("failclosed"));
+        assert_eq!(
+            fc.uncovered(k).unwrap(),
+            unc_fc,
+            "{}: FailClosed oracle at {k:?}",
+            what("failclosed")
+        );
         if unc_fc {
-            assert_ne!(fc.class_of(k).unwrap(), ClassHit::Covered, "{}: {k:?}", what("failclosed"));
+            assert_ne!(
+                fc.class_of(k).unwrap(),
+                ClassHit::Covered,
+                "{}: {k:?}",
+                what("failclosed")
+            );
             if let Err(why) = described(&fc, k) {
                 panic!("{}: {k:?} not described: {why}", what("failclosed"));
             }
@@ -988,16 +1096,30 @@ fn check_tables(seed: u64, n: usize, e: usize, w: i32, ds: Vec<CaseDomain>, t: &
             let v = d.applies(k);
             v == Verdict::Applies || (d.witness_elided && v == Verdict::Elided)
         });
-        assert_eq!(ord.uncovered(k).unwrap(), !cov_ord, "{}: Ordinary oracle at {k:?}", what("ordinary"));
+        assert_eq!(
+            ord.uncovered(k).unwrap(),
+            !cov_ord,
+            "{}: Ordinary oracle at {k:?}",
+            what("ordinary")
+        );
         if !cov_ord {
-            assert_ne!(ord.class_of(k).unwrap(), ClassHit::Covered, "{}: {k:?}", what("ordinary"));
+            assert_ne!(
+                ord.class_of(k).unwrap(),
+                ClassHit::Covered,
+                "{}: {k:?}",
+                what("ordinary")
+            );
         }
     }
     if fc.proves_no_gap(CoverageNotion::UnionCoverage).is_ok() {
         assert!(keys.iter().all(|k| !fc.uncovered(k).unwrap()));
     }
     if ds.iter().any(|d| d.witness_elided) {
-        assert!(ord.proves_no_gap(CoverageNotion::UnionCoverage).is_err(), "{}: Ordinary credited elided records but claims a proof", what("ordinary"));
+        assert!(
+            ord.proves_no_gap(CoverageNotion::UnionCoverage).is_err(),
+            "{}: Ordinary credited elided records but claims a proof",
+            what("ordinary")
+        );
     }
 
     trace("failclosed/ordinary done", &tt);
@@ -1007,13 +1129,19 @@ fn check_tables(seed: u64, n: usize, e: usize, w: i32, ds: Vec<CaseDomain>, t: &
         tab.push(i as i64, d.clone()).unwrap();
     }
     let disp = Dispatcher::new(vec![tab], vec![0]).unwrap();
-    let drep = gap_partition(&l, &f, &dispatch(), None).unwrap_or_else(|e| panic!("{}: {e:?}", what("dispatch")));
+    let drep = gap_partition(&l, &f, &dispatch(), None)
+        .unwrap_or_else(|e| panic!("{}: {e:?}", what("dispatch")));
     let mut any_open = false;
     for k in &keys {
         let fm = disp.first_match(k).unwrap();
         let open = fm.is_open();
         // the engine's modular zero test (documented UNKNOWN) never triggers on these small values
-        assert_eq!(drep.uncovered(k).unwrap(), open, "{}: dispatch oracle at {k:?} ({fm:?})", what("dispatch"));
+        assert_eq!(
+            drep.uncovered(k).unwrap(),
+            open,
+            "{}: dispatch oracle at {k:?} ({fm:?})",
+            what("dispatch")
+        );
         if open {
             any_open = true;
             t.dispatch_open += 1;
@@ -1024,13 +1152,20 @@ fn check_tables(seed: u64, n: usize, e: usize, w: i32, ds: Vec<CaseDomain>, t: &
                 what("dispatch")
             );
             if let Err(why) = described(&drep, k) {
-                panic!("{}: open {k:?} not described: {why} ({fm:?})", what("dispatch"));
+                panic!(
+                    "{}: open {k:?} not described: {why} ({fm:?})",
+                    what("dispatch")
+                );
             }
         }
     }
     if drep.proves_no_gap(CoverageNotion::DispatchCoverage).is_ok() {
         t.dispatch_proofs += 1;
-        assert!(!any_open, "{}: FALSE dispatch no-gap proof", what("dispatch"));
+        assert!(
+            !any_open,
+            "{}: FALSE dispatch no-gap proof",
+            what("dispatch")
+        );
     }
 
     trace("dispatch done", &tt);
@@ -1045,21 +1180,33 @@ fn check_tables(seed: u64, n: usize, e: usize, w: i32, ds: Vec<CaseDomain>, t: &
     let linear_dom = |d: &CaseDomain| {
         d.target == rustred_campaign_core::domain::TargetMap::Canonical
             && d.poles.is_empty()
-            && d.equations.iter().chain(&d.bounds).chain(d.exceptions.iter().flatten()).chain(&d.recenter_bounds)
+            && d.equations
+                .iter()
+                .chain(&d.bounds)
+                .chain(d.exceptions.iter().flatten())
+                .chain(&d.recenter_bounds)
                 .all(|q| q.degree() <= 1)
     };
-    let all_linear = ds.iter().all(|d| linear_dom(d));
+    let all_linear = ds.iter().all(linear_dom);
     for i in 0..nr {
         let d = &ds[i];
         match is_empty(d, &f) {
             Emptiness::ProvedEmpty { certificate } => {
                 t.empty_ok += 1;
                 for k in &keys {
-                    assert!(!geo(d, k), "{}: ProvedEmpty({certificate}) but {k:?} applies (record {i})", what("empty"));
+                    assert!(
+                        !geo(d, k),
+                        "{}: ProvedEmpty({certificate}) but {k:?} applies (record {i})",
+                        what("empty")
+                    );
                 }
             }
             Emptiness::NonEmpty { witness } => {
-                assert!(geo(d, &witness), "{}: bad NonEmpty witness {witness:?} (record {i})", what("empty"));
+                assert!(
+                    geo(d, &witness),
+                    "{}: bad NonEmpty witness {witness:?} (record {i})",
+                    what("empty")
+                );
             }
             Emptiness::Unknown { reason } => {
                 t.empty_unknown += 1;
@@ -1089,7 +1236,9 @@ fn check_tables(seed: u64, n: usize, e: usize, w: i32, ds: Vec<CaseDomain>, t: &
                 t.contain_not += 1;
                 assert!(geo(d, &witness), "{}: witness {witness:?}", what("contain"));
                 assert!(
-                    !others.iter().any(|o| o.applies(&witness) == Verdict::Applies),
+                    !others
+                        .iter()
+                        .any(|o| o.applies(&witness) == Verdict::Applies),
                     "{}: witness {witness:?} covered by an other",
                     what("contain")
                 );
@@ -1119,7 +1268,11 @@ fn check_tables(seed: u64, n: usize, e: usize, w: i32, ds: Vec<CaseDomain>, t: &
             }
             Containment::NotContained { witness } => {
                 t.shadow_not += 1;
-                assert!(geo(d, &witness), "{}: shadow witness {witness:?}", what("shadow"));
+                assert!(
+                    geo(d, &witness),
+                    "{}: shadow witness {witness:?}",
+                    what("shadow")
+                );
                 assert!(
                     !(0..i).any(|j| ds[j].applies(&witness).stage() != Stage::NotSelected),
                     "{}: shadow witness {witness:?} matched by an earlier record",
@@ -1144,7 +1297,11 @@ fn check_tables(seed: u64, n: usize, e: usize, w: i32, ds: Vec<CaseDomain>, t: &
 fn diff_random_tables_against_brute_force() {
     let mut t = Tally::default();
     for seed in 0..2_000u64 {
-        check_case(seed.wrapping_mul(0x2545_F491_4F6C_DD1D) ^ 0x51, &mut t, true);
+        check_case(
+            seed.wrapping_mul(0x2545_F491_4F6C_DD1D) ^ 0x51,
+            &mut t,
+            true,
+        );
     }
     eprintln!("{t:#?}");
 }
@@ -1155,7 +1312,11 @@ fn diff_random_tables_against_brute_force() {
 fn diff_random_tables_against_brute_force_large() {
     let mut t = Tally::default();
     for seed in 0..40_000u64 {
-        check_case(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0xA5A5, &mut t, true);
+        check_case(
+            seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0xA5A5,
+            &mut t,
+            true,
+        );
     }
     eprintln!("{t:#?}");
 }
@@ -1174,7 +1335,11 @@ fn explore_integer_empty_pieces() {
         let m = 3;
         let mut gs: Vec<(i128, i128, i128)> = vec![];
         for _ in 0..m {
-            gs.push((g.range(-5, 5) as i128, g.range(-5, 5) as i128, g.range(-60, 60) as i128));
+            gs.push((
+                g.range(-5, 5) as i128,
+                g.range(-5, 5) as i128,
+                g.range(-60, 60) as i128,
+            ));
         }
         let mk = |sw: bool| -> Vec<Affine> {
             let mut c = vec![];
@@ -1216,14 +1381,27 @@ fn explore_integer_empty_pieces() {
             }
         }
         let rep = gap_partition(&list(&ds, n), &f, &absent(), None).unwrap();
-        let Some(res) = rep.resolution.as_ref() else { continue };
+        let Some(res) = rep.resolution.as_ref() else {
+            continue;
+        };
         for l in &res.loci {
             for pc in &l.pieces {
                 let mut budget = 1_000_000u64;
-                if exhaustive_point(&pc.region.cons, pc.region.k, &mut budget).unwrap() == Some(None) {
+                if exhaustive_point(&pc.region.cons, pc.region.k, &mut budget).unwrap()
+                    == Some(None)
+                {
                     found += 1;
                     if found <= 3 {
-                        eprintln!("case {case}: polygon {gs:?}: empty piece x {:?} cons {:?} faces {:?} witness {:?}", pc.region.render_x(), pc.region.render_cons(), rep.faces.iter().map(|x| (x.key(), x.kind, x.proof.tag())).collect::<Vec<_>>(), pc.witness);
+                        eprintln!(
+                            "case {case}: polygon {gs:?}: empty piece x {:?} cons {:?} faces {:?} witness {:?}",
+                            pc.region.render_x(),
+                            pc.region.render_cons(),
+                            rep.faces
+                                .iter()
+                                .map(|x| (x.key(), x.kind, x.proof.tag()))
+                                .collect::<Vec<_>>(),
+                            pc.witness
+                        );
                     }
                 }
             }
@@ -1250,11 +1428,34 @@ fn explore_triangle_debug() {
     eprintln!("states {:?}", rep.states);
     eprintln!("classes {:?}", rep.classes);
     let res = rep.resolution.as_ref().unwrap();
-    eprintln!("resolved {} with gaps {} capped {} errors {}", res.classes_resolved, res.classes_with_gaps, res.classes_capped, res.exact_errors);
+    eprintln!(
+        "resolved {} with gaps {} capped {} errors {}",
+        res.classes_resolved, res.classes_with_gaps, res.classes_capped, res.exact_errors
+    );
     // the triangle in the cut coordinates, both variable orders
     for (cons, what) in [
-        (vec![aff(&[1, 0], -2), aff(&[0, 1], -2), aff(&[0, -1], 11), aff(&[1, 0], -5), aff(&[3, 1], -39), aff(&[-3, 1], 18)], "n0,n1"),
-        (vec![aff(&[0, 1], -2), aff(&[1, 0], -2), aff(&[-1, 0], 11), aff(&[0, 1], -5), aff(&[1, 3], -39), aff(&[1, -3], 18)], "n1,n0"),
+        (
+            vec![
+                aff(&[1, 0], -2),
+                aff(&[0, 1], -2),
+                aff(&[0, -1], 11),
+                aff(&[1, 0], -5),
+                aff(&[3, 1], -39),
+                aff(&[-3, 1], 18),
+            ],
+            "n0,n1",
+        ),
+        (
+            vec![
+                aff(&[0, 1], -2),
+                aff(&[1, 0], -2),
+                aff(&[-1, 0], 11),
+                aff(&[0, 1], -5),
+                aff(&[1, 3], -39),
+                aff(&[1, -3], 18),
+            ],
+            "n1,n0",
+        ),
     ] {
         eprintln!("{what}: fm {:?}", fm_feasible(&cons, 2));
     }
@@ -1289,7 +1490,11 @@ fn gen_domain_adv(g: &mut Rng, n: usize, e: usize, prev: &[CaseDomain]) -> CaseD
             0 => {}
             1 => {
                 let s = slot(g, n);
-                d.fixed[s] = Some(if s < e { g.range(1, 3) as i32 } else { -(g.range(0, 2) as i32) });
+                d.fixed[s] = Some(if s < e {
+                    g.range(1, 3) as i32
+                } else {
+                    -(g.range(0, 2) as i32)
+                });
             }
             2 => d.exceptions.push(vec![p(&lit(g, n, true), n)]),
             3 => {
@@ -1313,7 +1518,11 @@ fn gen_domain_adv(g: &mut Rng, n: usize, e: usize, prev: &[CaseDomain]) -> CaseD
         // single-point domain
         1 => {
             for s in 0..n {
-                d.fixed[s] = Some(if s < e { g.range(1, 4) as i32 } else { -(g.range(0, 3) as i32) });
+                d.fixed[s] = Some(if s < e {
+                    g.range(1, 4) as i32
+                } else {
+                    -(g.range(0, 3) as i32)
+                });
             }
         }
         // a non-canonical target pattern (permutation with offsets, sometimes a constant slot)
@@ -1326,7 +1535,11 @@ fn gen_domain_adv(g: &mut Rng, n: usize, e: usize, prev: &[CaseDomain]) -> CaseD
             let mut t = vec![];
             for (j, &a) in perm.iter().enumerate() {
                 if g.chance(1, 6) {
-                    t.push(TargetSlot::Const(if j < e { g.range(1, 3) } else { -g.range(0, 2) }));
+                    t.push(TargetSlot::Const(if j < e {
+                        g.range(1, 3)
+                    } else {
+                        -g.range(0, 2)
+                    }));
                 } else {
                     t.push(TargetSlot::Param {
                         param: a,
@@ -1379,7 +1592,11 @@ fn check_case_adv(seed: u64, t: &mut Tally, containment: bool) {
 fn diff_adversarial_tables_against_brute_force() {
     let mut t = Tally::default();
     for seed in 0..2_000u64 {
-        check_case_adv(seed.wrapping_mul(0xD1B5_4A32_D192_ED03) ^ 0x77, &mut t, true);
+        check_case_adv(
+            seed.wrapping_mul(0xD1B5_4A32_D192_ED03) ^ 0x77,
+            &mut t,
+            true,
+        );
     }
     eprintln!("{t:#?}");
 }
@@ -1393,8 +1610,14 @@ fn diff_adversarial_tables_against_brute_force_large() {
     let mut crate_panics = vec![];
     let quiet = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
-    let from: u64 = std::env::var("AUDIT_FROM").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
-    let to: u64 = std::env::var("AUDIT_TO").ok().and_then(|s| s.parse().ok()).unwrap_or(14_000);
+    let from: u64 = std::env::var("AUDIT_FROM")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let to: u64 = std::env::var("AUDIT_TO")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(14_000);
     let skip: Vec<u64> = std::env::var("AUDIT_SKIP")
         .ok()
         .map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect())
@@ -1402,7 +1625,9 @@ fn diff_adversarial_tables_against_brute_force_large() {
     for seed in (from..to).filter(|s| !skip.contains(s)) {
         let s = seed.wrapping_mul(0xA076_1D64_78BD_642F) ^ 0x1234;
         let mut tl = Tally::default();
-        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| check_case_adv(s, &mut tl, true)));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            check_case_adv(s, &mut tl, true)
+        }));
         match r {
             Ok(()) => {
                 t.cases += tl.cases;
@@ -1434,7 +1659,11 @@ fn diff_adversarial_tables_against_brute_force_large() {
     }
     std::panic::set_hook(quiet);
     eprintln!("{t:#?}");
-    eprintln!("crate arithmetic panics: {} (first {:?})", crate_panics.len(), crate_panics.iter().take(5).collect::<Vec<_>>());
+    eprintln!(
+        "crate arithmetic panics: {} (first {:?})",
+        crate_panics.len(),
+        crate_panics.iter().take(5).collect::<Vec<_>>()
+    );
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -1466,9 +1695,13 @@ fn defect_levels_checkpoint_resumed_for_other_inputs() {
     // resumed run of B from A's checkpoint: A's levels, "proved", no face
     let resumed = gap_partition_levels(&list(&b, n), &f, &absent(), 2, Some(&cp), None).unwrap();
     assert_eq!(resumed.len(), 3);
-    assert!(resumed.iter().all(|r| r.proved && r.faces.is_empty()), "stale levels reported proved");
+    assert!(
+        resumed.iter().all(|r| r.proved && r.faces.is_empty()),
+        "stale levels reported proved"
+    );
     // even a DISPATCH-mode resume accepts the union-mode checkpoint
-    let resumed_d = gap_partition_levels(&list(&b, n), &f, &dispatch(), 2, Some(&cp), None).unwrap();
+    let resumed_d =
+        gap_partition_levels(&list(&b, n), &f, &dispatch(), 2, Some(&cp), None).unwrap();
     assert!(resumed_d.iter().all(|r| r.proved && r.faces.is_empty()));
     let _ = std::fs::remove_file(&cp);
 }
@@ -1484,7 +1717,9 @@ fn budget_abort_is_deterministic_and_never_a_proof() {
     let mut checked = 0;
     for seed in 0..8u64 {
         let mut g = Rng(4242 + seed);
-        let ds: Vec<CaseDomain> = (0..24).map(|_| gen_domain(&mut g, n, e, true, false)).collect();
+        let ds: Vec<CaseDomain> = (0..24)
+            .map(|_| gen_domain(&mut g, n, e, true, false))
+            .collect();
         let l = list(&ds, n);
         let o = |cov| PartitionOptions {
             coverage: cov,
@@ -1494,7 +1729,10 @@ fn budget_abort_is_deterministic_and_never_a_proof() {
             },
             ..absent()
         };
-        for cov in [CoverageNotion::UnionCoverage, CoverageNotion::DispatchCoverage] {
+        for cov in [
+            CoverageNotion::UnionCoverage,
+            CoverageNotion::DispatchCoverage,
+        ] {
             let r1 = gap_partition(&l, &f, &o(cov), None).unwrap();
             if !r1.outcome.is_aborted() {
                 continue;
@@ -1525,7 +1763,8 @@ fn t266_load() -> Option<(DomainList, NodeFrame)> {
         println!("SKIP: T266 sources not found");
         return None;
     }
-    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     let e = v["E"].as_u64().unwrap() as usize;
     let n = 20;
     let frame = NodeFrame::without_header_lines_first(n, e);
@@ -1533,7 +1772,12 @@ fn t266_load() -> Option<(DomainList, NodeFrame)> {
     for r in v["rules"].as_array().unwrap() {
         let mut d = free(n, e);
         let pp = |s: &serde_json::Value| {
-            Poly::parse(&s.as_str().unwrap().replace("**", "^").replace(' ', ""), n, false).ok()
+            Poly::parse(
+                &s.as_str().unwrap().replace("**", "^").replace(' ', ""),
+                n,
+                false,
+            )
+            .ok()
         };
         let eq: Option<Vec<Poly>> = r["EQ"].as_array().unwrap().iter().map(pp).collect();
         let bad: Option<Vec<Vec<Poly>>> = r["BAD"]
@@ -1542,7 +1786,9 @@ fn t266_load() -> Option<(DomainList, NodeFrame)> {
             .iter()
             .map(|b| b.as_array().unwrap().iter().map(pp).collect())
             .collect();
-        let (Some(eq), Some(bad)) = (eq, bad) else { continue };
+        let (Some(eq), Some(bad)) = (eq, bad) else {
+            continue;
+        };
         d.equations = eq;
         d.exceptions = bad;
         let k = r["k"].as_u64().unwrap() as usize;
@@ -1559,7 +1805,9 @@ fn t266_load() -> Option<(DomainList, NodeFrame)> {
 fn t266_node_budget_is_honest_and_deterministic() {
     use rustred_campaign_core::assemble::containment_proof;
     use rustred_campaign_core::partition::DispatchOrderStatement;
-    let Some((l, frame)) = t266_load() else { return };
+    let Some((l, frame)) = t266_load() else {
+        return;
+    };
     let o = PartitionOptions {
         elided: ElidedPolicy::Ordinary,
         resolve_loci: false,
@@ -1589,7 +1837,10 @@ fn t266_node_budget_is_honest_and_deterministic() {
     assert!(r1.outcome.is_aborted());
     assert_eq!(r1.stats.nodes, r2.stats.nodes);
     assert_eq!(r1.classes, r2.classes);
-    for cov in [CoverageNotion::UnionCoverage, CoverageNotion::DispatchCoverage] {
+    for cov in [
+        CoverageNotion::UnionCoverage,
+        CoverageNotion::DispatchCoverage,
+    ] {
         assert!(r1.proves_no_gap(cov).is_err());
     }
     assert!(containment_proof(&r1, &DispatchOrderStatement::SameOrder, "o", "n").is_none());
@@ -1637,14 +1888,30 @@ fn defect_blocked_face_cells_use_sub_report_state_indices() {
     let rep = gap_partition(&list(&ds, n), &f, &dispatch(), None).unwrap();
     assert!(disp.first_match(&[5, 3]).unwrap().is_open());
     assert!(rep.uncovered(&[5, 3]).unwrap());
-    let face = rep.faces.iter().find(|x| x.key() == (vec![0, 1], vec![])).expect("face");
+    let face = rep
+        .faces
+        .iter()
+        .find(|x| x.key() == (vec![0, 1], vec![]))
+        .expect("face");
     let main_n0 = &rep.states[0];
     let idx5 = rep.state_index(0, 5).unwrap();
     let idx3 = rep.state_index(1, 3).unwrap();
-    let described_by_main_states = face.generic_cells.iter().any(|c| c[0] == idx5 && c[1] == idx3);
-    let out_of_range = face.generic_cells.iter().any(|c| c[0] != ANY_OFF && c[0] as usize >= main_n0.len());
-    eprintln!("main states n0 {main_n0:?}; sub states n0 {:?}; merged cells {:?}", rep.blocked[0].1.states[0], face.generic_cells);
-    assert!(!described_by_main_states || out_of_range, "merged cells use the sub-report's state indices");
+    let described_by_main_states = face
+        .generic_cells
+        .iter()
+        .any(|c| c[0] == idx5 && c[1] == idx3);
+    let out_of_range = face
+        .generic_cells
+        .iter()
+        .any(|c| c[0] != ANY_OFF && c[0] as usize >= main_n0.len());
+    eprintln!(
+        "main states n0 {main_n0:?}; sub states n0 {:?}; merged cells {:?}",
+        rep.blocked[0].1.states[0], face.generic_cells
+    );
+    assert!(
+        !described_by_main_states || out_of_range,
+        "merged cells use the sub-report's state indices"
+    );
     assert_ne!(rep.blocked[0].1.states[0], rep.states[0]);
 }
 
@@ -1678,7 +1945,10 @@ fn locate_adversarial_panics() {
 #[test]
 #[ignore]
 fn locate_one_adversarial_seed() {
-    let seed: u64 = std::env::var("AUDIT_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(2100);
+    let seed: u64 = std::env::var("AUDIT_SEED")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2100);
     let s = seed.wrapping_mul(0xA076_1D64_78BD_642F) ^ 0x1234;
     let mut g = Rng(s);
     let n = 2 + g.below(4) as usize;
@@ -1693,12 +1963,26 @@ fn locate_one_adversarial_seed() {
         }
     }
     for (i, d) in ds.iter().enumerate() {
-        eprintln!("n={n} e={e} record {i}: fixed {:?} target {:?} eqs {:?} bounds {:?} exc {:?} recenter {:?} poles {:?} elided {}",
-            d.fixed, d.target, d.equations.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
+        eprintln!(
+            "n={n} e={e} record {i}: fixed {:?} target {:?} eqs {:?} bounds {:?} exc {:?} recenter {:?} poles {:?} elided {}",
+            d.fixed,
+            d.target,
+            d.equations
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>(),
             d.bounds.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
-            d.exceptions.iter().map(|b| b.iter().map(|x| x.to_string()).collect::<Vec<_>>()).collect::<Vec<_>>(),
-            d.recenter_bounds.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
-            d.poles, d.witness_elided);
+            d.exceptions
+                .iter()
+                .map(|b| b.iter().map(|x| x.to_string()).collect::<Vec<_>>())
+                .collect::<Vec<_>>(),
+            d.recenter_bounds
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>(),
+            d.poles,
+            d.witness_elided
+        );
     }
     let mut t = Tally::default();
     let t0 = std::time::Instant::now();
@@ -1710,8 +1994,14 @@ fn locate_one_adversarial_seed() {
 #[test]
 #[ignore]
 fn locate_slow_adversarial_seeds() {
-    let from: u64 = std::env::var("AUDIT_FROM").ok().and_then(|s| s.parse().ok()).unwrap_or(2101);
-    let to: u64 = std::env::var("AUDIT_TO").ok().and_then(|s| s.parse().ok()).unwrap_or(14_000);
+    let from: u64 = std::env::var("AUDIT_FROM")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2101);
+    let to: u64 = std::env::var("AUDIT_TO")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(14_000);
     for seed in from..to {
         let s = seed.wrapping_mul(0xA076_1D64_78BD_642F) ^ 0x1234;
         eprintln!("start {seed}");
@@ -1750,7 +2040,8 @@ fn defect_dispatch_partition_panics_on_bound_complement() {
     let (n, e) = (1, 1);
     let f = NodeFrame::without_header_lines_first(n, e);
     let mut r0 = free(n, e);
-    r0.bounds.push(p("n0+170141183460469231731687303715884105727", n));
+    r0.bounds
+        .push(p("n0+170141183460469231731687303715884105727", n));
     r0.poles.push(PoleLocus::new(
         PoleKind::Denominator,
         &Poly::parse("(n0-3)*d+(n0-3)", n, true).unwrap(),
@@ -1768,7 +2059,8 @@ fn defect_shadowed_panics_on_huge_case_equation() {
     let (n, e) = (3, 3);
     let f = NodeFrame::without_header_lines_first(n, e);
     let mut r0 = free(n, e);
-    r0.equations.push(p("-170141183460469231731687303715884105727+n0", n));
+    r0.equations
+        .push(p("-170141183460469231731687303715884105727+n0", n));
     r0.bounds.push(p("1-n0+n1-n2", n));
     r0.poles.push(PoleLocus::new(
         PoleKind::Denominator,
@@ -1780,7 +2072,8 @@ fn defect_shadowed_panics_on_huge_case_equation() {
     let mut r3 = free(n, e);
     r3.equations.push(p("-3-2*n2+n2^2", n));
     r3.bounds.push(p("1+3*n1+n2", n));
-    r3.exceptions.push(vec![p("-2+n0^2", n), p("2+2*n1-3*n2", n)]);
+    r3.exceptions
+        .push(vec![p("-2+n0^2", n), p("2+2*n1-3*n2", n)]);
     r3.exceptions.push(vec![p("-3+2*n1", n), p("3+n0+n1", n)]);
     r3.exceptions.push(vec![p("4+n0+2*n2", n)]);
     r3.poles.push(PoleLocus::new(
@@ -1791,7 +2084,12 @@ fn defect_shadowed_panics_on_huge_case_equation() {
     let l = list(&ds, n);
     for i in 0..ds.len() {
         let _ = shadowed(&l, i, &f);
-        let others: Vec<&CaseDomain> = ds.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, d)| d).collect();
+        let others: Vec<&CaseDomain> = ds
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| *j != i)
+            .map(|(_, d)| d)
+            .collect();
         let _ = contained_in(&ds[i], &others, &f);
         let _ = is_empty(&ds[i], &f);
     }
@@ -1809,7 +2107,9 @@ fn defect_dispatch_budget_is_per_subpartition() {
     let mut shown = false;
     for seed in 0..60u64 {
         let mut g = Rng(99 + seed);
-        let ds: Vec<CaseDomain> = (0..24).map(|_| gen_domain(&mut g, n, e, true, false)).collect();
+        let ds: Vec<CaseDomain> = (0..24)
+            .map(|_| gen_domain(&mut g, n, e, true, false))
+            .collect();
         let o = PartitionOptions {
             budget: Budget {
                 max_nodes: Some(1),
@@ -1829,12 +2129,18 @@ fn defect_dispatch_budget_is_per_subpartition() {
             );
             assert!(rep.outcome.is_aborted());
             assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
-            assert!(sub_nodes > rep.stats.nodes, "total work exceeds the budget of one run");
+            assert!(
+                sub_nodes > rep.stats.nodes,
+                "total work exceeds the budget of one run"
+            );
             shown = true;
             break;
         }
     }
-    assert!(shown, "a run whose sub-partitions each used a full budget after the main abort");
+    assert!(
+        shown,
+        "a run whose sub-partitions each used a full budget after the main abort"
+    );
 }
 
 fn adv_tables(seed: u64) -> (usize, usize, Vec<CaseDomain>) {
@@ -1857,15 +2163,32 @@ fn adv_tables(seed: u64) -> (usize, usize, Vec<CaseDomain>) {
 #[test]
 #[ignore]
 fn locate_phases_of_one_seed() {
-    let seed: u64 = std::env::var("AUDIT_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(6209);
+    let seed: u64 = std::env::var("AUDIT_SEED")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(6209);
     let (n, e, ds) = adv_tables(seed);
     for (i, d) in ds.iter().enumerate() {
-        eprintln!("n={n} e={e} record {i}: fixed {:?} target {:?} eqs {:?} bounds {:?} exc {:?} recenter {:?} poles {:?} elided {}",
-            d.fixed, d.target, d.equations.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
+        eprintln!(
+            "n={n} e={e} record {i}: fixed {:?} target {:?} eqs {:?} bounds {:?} exc {:?} recenter {:?} poles {:?} elided {}",
+            d.fixed,
+            d.target,
+            d.equations
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>(),
             d.bounds.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
-            d.exceptions.iter().map(|b| b.iter().map(|x| x.to_string()).collect::<Vec<_>>()).collect::<Vec<_>>(),
-            d.recenter_bounds.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
-            d.poles, d.witness_elided);
+            d.exceptions
+                .iter()
+                .map(|b| b.iter().map(|x| x.to_string()).collect::<Vec<_>>())
+                .collect::<Vec<_>>(),
+            d.recenter_bounds
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>(),
+            d.poles,
+            d.witness_elided
+        );
     }
     let f = NodeFrame::without_header_lines_first(n, e);
     let l = list(&ds, n);
@@ -1874,25 +2197,62 @@ fn locate_phases_of_one_seed() {
     let r = gap_partition(&l, &f, &absent(), None).unwrap();
     eprintln!("union {} ms ({:?})", ms(&t0), r.outcome.tag());
     let t0 = std::time::Instant::now();
-    let _ = gap_partition(&l, &f, &PartitionOptions { memo: false, ..absent() }, None).unwrap();
+    let _ = gap_partition(
+        &l,
+        &f,
+        &PartitionOptions {
+            memo: false,
+            ..absent()
+        },
+        None,
+    )
+    .unwrap();
     eprintln!("union no-memo {} ms", ms(&t0));
     let t0 = std::time::Instant::now();
     let _ = gap_partition(&l, &f, &PartitionOptions::default(), None).unwrap();
     eprintln!("failclosed {} ms", ms(&t0));
     let t0 = std::time::Instant::now();
     let d = gap_partition(&l, &f, &dispatch(), None).unwrap();
-    eprintln!("dispatch {} ms, blockers kept {} empty {}", ms(&t0), d.blocked.len(), d.blocked_empty);
+    eprintln!(
+        "dispatch {} ms, blockers kept {} empty {}",
+        ms(&t0),
+        d.blocked.len(),
+        d.blocked_empty
+    );
     for i in 0..ds.len() {
         let t0 = std::time::Instant::now();
         let a = is_empty(&ds[i], &f);
-        eprintln!("is_empty({i}) {} ms {:?}", ms(&t0), std::mem::discriminant(&a));
-        let others: Vec<&CaseDomain> = ds.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, d)| d).collect();
+        eprintln!(
+            "is_empty({i}) {} ms {:?}",
+            ms(&t0),
+            std::mem::discriminant(&a)
+        );
+        let others: Vec<&CaseDomain> = ds
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| *j != i)
+            .map(|(_, d)| d)
+            .collect();
         let t0 = std::time::Instant::now();
         let b = contained_in(&ds[i], &others, &f);
-        eprintln!("contained_in({i}) {} ms {}", ms(&t0), match &b { Containment::Unknown { reason } => reason.clone(), x => format!("{:?}", std::mem::discriminant(x)) });
+        eprintln!(
+            "contained_in({i}) {} ms {}",
+            ms(&t0),
+            match &b {
+                Containment::Unknown { reason } => reason.clone(),
+                x => format!("{:?}", std::mem::discriminant(x)),
+            }
+        );
         let t0 = std::time::Instant::now();
         let c = shadowed(&l, i, &f);
-        eprintln!("shadowed({i}) {} ms {}", ms(&t0), match &c { Containment::Unknown { reason } => reason.clone(), x => format!("{:?}", std::mem::discriminant(x)) });
+        eprintln!(
+            "shadowed({i}) {} ms {}",
+            ms(&t0),
+            match &c {
+                Containment::Unknown { reason } => reason.clone(),
+                x => format!("{:?}", std::mem::discriminant(x)),
+            }
+        );
     }
 }
 
@@ -1900,8 +2260,13 @@ fn locate_phases_of_one_seed() {
 #[test]
 #[ignore]
 fn locate_ordinary_of_one_seed() {
-    let seed: u64 = std::env::var("AUDIT_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(6209);
-    let wall: Option<u64> = std::env::var("AUDIT_WALL_S").ok().and_then(|s| s.parse().ok());
+    let seed: u64 = std::env::var("AUDIT_SEED")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(6209);
+    let wall: Option<u64> = std::env::var("AUDIT_WALL_S")
+        .ok()
+        .and_then(|s| s.parse().ok());
     let (n, e, ds) = adv_tables(seed);
     let f = NodeFrame::without_header_lines_first(n, e);
     let l = list(&ds, n);
@@ -1930,7 +2295,9 @@ fn locate_ordinary_of_one_seed() {
         },
         ..Default::default()
     };
-    let cb = |p: &rustred_campaign_core::partition::Progress| eprintln!("progress nodes {} at {} ms", p.nodes, p.seconds_x1000);
+    let cb = |p: &rustred_campaign_core::partition::Progress| {
+        eprintln!("progress nodes {} at {} ms", p.nodes, p.seconds_x1000)
+    };
     let r = gap_partition(&l, &f, &o, Some(&cb)).unwrap();
     eprintln!(
         "ordinary {} ms outcome {} nodes {} U {} F {} loci {:?}",
@@ -1939,7 +2306,12 @@ fn locate_ordinary_of_one_seed() {
         r.stats.nodes,
         r.n_u(),
         r.n_f(),
-        r.resolution.as_ref().map(|x| (x.loci.len(), x.classes_resolved, x.classes_capped, x.exact_errors))
+        r.resolution.as_ref().map(|x| (
+            x.loci.len(),
+            x.classes_resolved,
+            x.classes_capped,
+            x.exact_errors
+        ))
     );
 }
 
@@ -1947,7 +2319,10 @@ fn locate_ordinary_of_one_seed() {
 #[test]
 #[ignore]
 fn locate_tables_of_rng_seed() {
-    let s: u64 = std::env::var("AUDIT_RSEED").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let s: u64 = std::env::var("AUDIT_RSEED")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     let mut g = Rng(s);
     let n = 2 + g.below(4) as usize;
     let e = 1 + g.below(n as u64) as usize;
@@ -1960,11 +2335,24 @@ fn locate_tables_of_rng_seed() {
         }
     }
     for (i, d) in ds.iter().enumerate() {
-        eprintln!("n={n} e={e} record {i}: fixed {:?} target {:?} eqs {:?} bounds {:?} exc {:?} recenter {:?}",
-            d.fixed, d.target, d.equations.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
+        eprintln!(
+            "n={n} e={e} record {i}: fixed {:?} target {:?} eqs {:?} bounds {:?} exc {:?} recenter {:?}",
+            d.fixed,
+            d.target,
+            d.equations
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>(),
             d.bounds.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
-            d.exceptions.iter().map(|b| b.iter().map(|x| x.to_string()).collect::<Vec<_>>()).collect::<Vec<_>>(),
-            d.recenter_bounds.iter().map(|x| x.to_string()).collect::<Vec<_>>());
+            d.exceptions
+                .iter()
+                .map(|b| b.iter().map(|x| x.to_string()).collect::<Vec<_>>())
+                .collect::<Vec<_>>(),
+            d.recenter_bounds
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+        );
     }
 }
 
@@ -2021,5 +2409,56 @@ fn defect_capped_loci_emit_unbounded_open_regions() {
     );
     assert!(!r.outcome.is_complete());
     assert!(r.proves_no_gap(CoverageNotion::UnionCoverage).is_err());
-    assert!(parts > 10 * rustred_campaign_core::loci::LociOptions::default().max_nodes as usize / 10, "open regions exceed the per-class node cap");
+    assert!(
+        parts > 10 * rustred_campaign_core::loci::LociOptions::default().max_nodes as usize / 10,
+        "open regions exceed the per-class node cap"
+    );
+}
+
+/// FINDING (CRITICAL if reproduced, contrived input): `loci::Resolver::ge` negates the bound's coefficients
+/// UNCHECKED (`coef.iter().map(|a| -a)`); for a coefficient of exactly -2^127 the "q <= -1" half keeps the WRONG
+/// sign, and `gcd`'s 2^127 -> i128::MAX clamp makes both halves look empty to Fourier-Motzkin: the fragile region is
+/// split into two empty halves and its uncovered points vanish. A: bound -2^127 n0 + 5 >= 0 (never true on the
+/// chart), B: exception n0 = n1, C: the point (1,1). The diagonal n0 = n1 >= 2 is uncovered, e.g. (2,2).
+#[test]
+fn defect_i128_min_bound_coefficient_drops_a_fragile_gap() {
+    use rustred_campaign_core::assemble::containment_proof;
+    use rustred_campaign_core::partition::DispatchOrderStatement;
+    let (n, e) = (2, 2);
+    let f = NodeFrame::without_header_lines_first(n, e);
+    let mut a = free(n, e);
+    a.bounds
+        .push(p("-170141183460469231731687303715884105727*n0-n0+5", n));
+    let mut b = free(n, e);
+    b.exceptions.push(vec![p("n0-n1", n)]);
+    let mut c = free(n, e);
+    c.fixed = vec![Some(1), Some(1)];
+    let ds = vec![a, b, c];
+    assert!(
+        !union_covered(&ds, &[2, 2]),
+        "brute force: (2,2) is uncovered"
+    );
+    let rep = gap_partition(&list(&ds, n), &f, &absent(), None).unwrap();
+    assert!(rep.uncovered(&[2, 2]).unwrap(), "the point oracle agrees");
+    let res = rep.resolution.as_ref().unwrap();
+    eprintln!(
+        "outcome {} U {} F {} loci {} capped {} proves_no_gap(union) {:?} class_of(2,2) {:?}",
+        rep.outcome.tag(),
+        rep.n_u(),
+        rep.n_f(),
+        res.loci.len(),
+        res.classes_capped,
+        rep.proves_no_gap(CoverageNotion::UnionCoverage),
+        rep.class_of(&[2, 2]).unwrap()
+    );
+    let d = gap_partition(&list(&ds, n), &f, &dispatch(), None).unwrap();
+    let proof = containment_proof(&d, &DispatchOrderStatement::SameOrder, "o", "n");
+    eprintln!(
+        "dispatch: proves_no_gap {:?}; FULL-node containment proof issued: {}",
+        d.proves_no_gap(CoverageNotion::DispatchCoverage),
+        proof.is_some()
+    );
+    // the defect: a no-gap PROOF although (2,2) is uncovered
+    assert!(rep.proves_no_gap(CoverageNotion::UnionCoverage).is_ok());
+    assert!(proof.is_some());
 }
