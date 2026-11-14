@@ -61,6 +61,8 @@ pub enum Refusal {
     /// No image (non-zero numerator and no numerator map, or a malformed element).
     NoImage,
     ImageEqualsKey,
+    /// The group element does not fit the key (core `GroupElement::apply` error).
+    MalformedElement(String),
     /// The dispatch at g k is not `Covered`.
     ImageNotCovered(Dispatch),
     NoBody,
@@ -110,8 +112,10 @@ fn try_element(
     if g.lines.len() > key.len() {
         return Ok(Err(Refusal::NoImage));
     }
-    let Some(image) = g.apply(key) else {
-        return Ok(Err(Refusal::NoImage));
+    let image = match g.apply(key) {
+        Ok(Some(x)) => x,
+        Ok(None) => return Ok(Err(Refusal::NoImage)),
+        Err(e) => return Ok(Err(Refusal::MalformedElement(format!("{e:?}")))),
     };
     if image == key {
         return Ok(Err(Refusal::ImageEqualsKey));

@@ -63,7 +63,7 @@ fn t178_safe_symmetry_list() {
             }
             // REJECTED condition (test only): some covered image g k with g k lower than k
             if group.iter().any(|g| {
-                g.apply(k).is_some_and(|gk| {
+                g.apply(k).ok().flatten().is_some_and(|gk| {
                     gk != *k
                         && matches!(chk.dispatch(&gk), Dispatch::Covered(_))
                         && t.cmp.lower(&gk, k)
@@ -172,7 +172,7 @@ fn t178_safe_symmetry_list() {
             (t.disp.tables()[r.table].name.clone(), r.label),
             (c.rule.table.clone(), c.rule.label)
         );
-        assert_eq!(group[c.element].apply(&c.key).unwrap(), c.image);
+        assert_eq!(group[c.element].apply(&c.key).unwrap().unwrap(), c.image);
     }
     assert_eq!(credited.len() as u64, s.credited);
 }
