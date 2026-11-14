@@ -38,11 +38,15 @@ pub fn phase_is_open(p: &str) -> bool {
 /// Display word of the per-key proof level (accepted items at `identity_proved`).
 pub const PER_KEY: &str = "per-key";
 
-/// Optional progress files: key, campaign.json `files.<key>` override, default names tried in order.
-/// Names proposed to the progress owner (dashboard.md 2.2); rename here only.
+/// The further progress files (ledger-and-progress.md 9): key, campaign.json `files.<key>` override, default
+/// name. `heartbeat.json` (`supervisor.heartbeat_utc`, rewritten at least every 10 s by a live supervisor),
+/// `jobs.json` (`list`: running attempts with their live samples), `attention.json` (`items`), `terminals.json`
+/// (`declared`, per node `report` / `terminals`). When a file is ABSENT (a directory of an older writer) the
+/// dashboard falls back, with a visible label: staleness inferred from file times, job rows from the ledger
+/// (partial), attention rows derived from the summary.
 const OPTIONAL_FILES: &[(&str, &[&str])] = &[
-    ("supervisor", &["supervisor.json"]),
-    ("jobs", &["jobs.json", "running.json"]),
+    ("heartbeat", &["heartbeat.json"]),
+    ("jobs", &["jobs.json"]),
     ("attention", &["attention.json"]),
     ("terminals", &["terminals.json"]),
 ];
@@ -70,22 +74,14 @@ fn extra<'a>(raw: &'a RawSnapshot, key: &str) -> Option<&'a Value> {
     raw.extra.get(key).and_then(FileRead::value)
 }
 
-/// True when the progress files carry no running-job list, so the source's (ledger) fallback is wanted.
+/// True when `jobs.json` is ABSENT, so the source's (ledger, partial) fallback is wanted. A present but unreadable
+/// file is reported as a problem, never replaced by the fallback.
 pub fn needs_job_fallback(raw: &RawSnapshot) -> bool {
-    let in_campaign = raw
-        .campaign
-        .value()
-        .and_then(|c| c.pointer("/jobs/list"))
-        .is_some_and(Value::is_array);
-    let in_file = jobs_array(raw).is_some();
-    !in_campaign && !in_file
+    matches!(raw.extra.get("jobs"), None | Some(FileRead::Absent))
 }
 
 fn jobs_array(raw: &RawSnapshot) -> Option<&Vec<Value>> {
-    let j = extra(raw, "jobs")?;
-    j.get("jobs")
-        .or_else(|| j.get("running"))
-        .and_then(Value::as_array)
+    extra(raw, "jobs")?.get("list").and_then(Value::as_array)
 }
 
 /// The headline state word.
@@ -144,9 +140,9 @@ impl Coverage {
 /// Where the staleness judgement comes from (audit M4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum HeartbeatSource {
-    /// The supervisor's heartbeat field (`supervisor.json` or campaign.json `supervisor.heartbeat_utc`).
+    /// The supervisor's heartbeat field (`heartbeat.json` `supervisor.heartbeat_utc`).
     Field,
-    /// No heartbeat field: inferred from the newest file time (resource sample, written_utc, mtime).
+    /// No `heartbeat.json`: inferred from the newest file time (resource sample, written_utc, mtime).
     Inferred,
     None,
 }
@@ -989,7 +985,9 @@ pub fn build(raw: &RawSnapshot, o: BuildOptions) -> ViewModel {
             problems.push(cl(format!("{key} file: {w}")));
         }
     }
-    let sup = extra(raw, "supervisor");
+    let hb_file = extra(raw, "heartbeat");
+    let hb_present = !matches!(raw.extra.get("heartbeat"), None | Some(FileRead::Absent));
+    let sup = hb_file.and_then(|h| h.get("supervisor")).filter(|v| v.is_object());
     let phase = s(c, "/campaign/phase");
     let written = s(c, "/written_utc");
     let res_v = c.get("resources").unwrap_or(&null);
@@ -1018,15 +1016,16 @@ pub fn build(raw: &RawSnapshot, o: BuildOptions) -> ViewModel {
     if resources.rss_bytes == Some(0) && resources.live_jobs.unwrap_or(0) > 0 {
         resources.rss_bytes = None;
     }
-    // heartbeat (audit M4): the supervisor's field when present, else inferred from file times
-    let hb_field = sup
-        .and_then(|v| s(v, "/heartbeat_utc"))
-        .or_else(|| s(c, "/supervisor/heartbeat_utc"));
+    // heartbeat (audit M4): heartbeat.json's field; inferred from file times ONLY when that file is absent
+    let hb_field = sup.and_then(|v| s(v, "/heartbeat_utc"));
     // (stamp, written by a clock of its own): a written stamp in the future is another host's clock and is
     // reported; a file time in the future (the viewer's own file system, or a test clock) is ignored silently
     let mut stamps: Vec<(f64, bool)> = Vec::new();
     let heartbeat_source = if let Some(t) = hb_field.as_deref_str().and_then(iso_s) {
         stamps.push((t, true));
+        HeartbeatSource::Field
+    } else if hb_present {
+        // the file is there but names no live supervisor heartbeat (supervisor gone): no age, never inferred
         HeartbeatSource::Field
     } else {
         for t in [
@@ -1200,9 +1199,9 @@ pub fn build(raw: &RawSnapshot, o: BuildOptions) -> ViewModel {
     } else {
         u(c, "/measures/faces/closed")
     };
-    // jobs: the jobs file, else campaign.json `jobs.list`
+    // jobs: the running-job list of jobs.json (the ledger fallback of the source only when that file is absent)
     let by_state = counts_map(c.pointer("/jobs/by_state"));
-    let list_v = jobs_array(raw).or_else(|| c.pointer("/jobs/list").and_then(Value::as_array));
+    let list_v = jobs_array(raw);
     if list_v.is_some_and(|a| a.len() > 1024) {
         problems.push(cl(
             "more than 1024 running jobs listed; the first 1024 shown",
@@ -1218,7 +1217,7 @@ pub fn build(raw: &RawSnapshot, o: BuildOptions) -> ViewModel {
                 rung: s(j, "/rung").unwrap_or_default(),
                 cpus: u(j, "/cpus").or_else(|| u(j, "/cpu").map(|_| 1)),
                 rss_bytes: u(j, "/rss_bytes"),
-                cap_bytes: u(j, "/budget_mem_bytes").or_else(|| u(j, "/cap_bytes")),
+                cap_bytes: u(j, "/budget_mem_bytes").or_else(|| u(j, "/reserved_bytes")),
                 elapsed_s: f(j, "/seconds").or_else(|| f(j, "/elapsed_s")),
                 budget_s: f(j, "/budget_seconds"),
                 heartbeat_age_s: s(j, "/heartbeat_utc")
@@ -1343,19 +1342,21 @@ pub fn build(raw: &RawSnapshot, o: BuildOptions) -> ViewModel {
         problems: Vec::new(),
         suspect: BTreeSet::new(),
     };
-    // terminals file (counts override the campaign's when present)
-    if let Some(t) = extra(raw, "terminals") {
-        if let Some(a) = t.get("candidates").and_then(Value::as_array) {
-            vm.terminal_candidates = Some(a.len() as u64);
-        }
-        if let Some(a) = t.get("declared").and_then(Value::as_array) {
-            vm.terminals_declared = Some(a.len() as u64);
-        }
+    // terminals.json: the declared total (candidates are counted in campaign.json)
+    if let Some(n) = extra(raw, "terminals").and_then(|t| u(t, "/declared")) {
+        vm.terminals_declared = Some(n);
     }
     vm.cert = certification(c, &nodes, &vm.rules);
     vm.attention = attention(c, raw, &vm, &nodes, o);
+    // item rows of attention.json name their node
+    let attention_nodes: BTreeSet<Clean> = extra(raw, "attention")
+        .and_then(|a| a.get("items"))
+        .and_then(Value::as_array)
+        .map(|a| a.iter().take(100).filter_map(|x| s(x, "/node")).collect())
+        .unwrap_or_default();
     for n in &mut nodes {
-        n.attention = vm.attention.iter().any(|a| a.id == n.id);
+        n.attention =
+            vm.attention.iter().any(|a| a.id == n.id) || attention_nodes.contains(&n.id);
     }
     nodes.sort_by(|a, b| {
         node_rank(a)
@@ -1540,9 +1541,10 @@ fn attention(
     o: BuildOptions,
 ) -> Vec<AttentionRow> {
     let mut out = Vec::new();
-    // the attention file / campaign.json `attention.top` when present; derived rows otherwise
+    // attention.json `items` (campaign.json `attention.top` while that file is absent); rows DERIVED from the summary
+    // only when neither is there (shown as derived)
     let given = extra(raw, "attention")
-        .and_then(|a| a.get("attention").or_else(|| a.get("items")))
+        .and_then(|a| a.get("items"))
         .or_else(|| c.pointer("/attention/top"))
         .and_then(Value::as_array);
     if let Some(a) = given {
