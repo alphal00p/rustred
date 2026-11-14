@@ -510,8 +510,11 @@ impl ChildHandle for ScriptedChild {
             sigkill_sent: sigkill,
             leftovers_killed: Vec::new(),
             escaped: Vec::new(),
+            unattributed_children: Vec::new(),
             session_verified_empty: true,
-            verification: super::Verification::Verified,
+            verification: super::Verification::Verified {
+                by: super::VerifiedBy::Scripted,
+            },
             peak_rss_bytes: p.peak_until(t),
             cpu_seconds: t.saturating_sub(p.launched_at).as_secs_f64(),
             wall_seconds: t.saturating_sub(p.launched_at).as_secs_f64(),

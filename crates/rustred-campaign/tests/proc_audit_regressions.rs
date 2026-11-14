@@ -139,7 +139,7 @@ fn record_and_end_a_child(dir: &Path, label: &str) -> ProcessIdentity {
     let id = h.identity().clone();
     h.kill_now(KillReason::Other("test".into()));
     let r = drive(&mut h);
-    assert_eq!(r.verification, Verification::Verified);
+    assert!(r.verification.is_verified(), "{r:?}");
     assert_session_gone(id.pid);
     id
 }
@@ -415,7 +415,7 @@ fn a_m1_stale_group_number_reused_by_decoy_group_survives() {
     );
     h.terminate(Duration::from_secs(2), KillReason::Stop);
     let r = drive(&mut h);
-    assert_eq!(r.verification, Verification::Verified, "{r:?}");
+    assert!(r.verification.is_verified(), "{r:?}");
     assert_session_gone(sid);
     assert!(
         pid_alive(dm, dstart),
@@ -445,7 +445,9 @@ fn a_m2_stale_sampler_is_reported_and_verify_is_unverified() {
         }
     ));
     assert!(s.health(Duration::from_secs(3600)).is_fresh());
-    // stale_after = 0: no snapshot ever counts as fresh -> usage Stale, verification Unverified after the timeout.
+    // stale_after = 0: no snapshot ever counts as fresh -> usage Stale. Since the second fix package (procfix2) the end of
+    // a job is PROVEN by the end-of-job hunt, which does not depend on the sampler at all: a stale sampler no longer makes
+    // the verification give up (the explicit Unverified path is exercised by proc_reaudit_regressions rb_c1_*).
     let dir = TempDir::new("a-m2");
     let mut l = launcher_cfg(|c| {
         c.stale_after = Duration::ZERO;
@@ -455,17 +457,13 @@ fn a_m2_stale_sampler_is_reported_and_verify_is_unverified() {
     let pid = h.identity().pid;
     let r = drive(&mut h);
     assert!(matches!(h.usage_reading(), UsageReading::Stale { .. }));
-    match &r.verification {
-        Verification::Unverified { reason, .. } => assert!(reason.contains("fresh"), "{reason}"),
-        v => panic!("expected Unverified, got {v:?}"),
-    }
-    assert!(!r.session_verified_empty);
-    // The zombie is kept unreaped (pinned) while Unverified.
     assert!(
-        peek_exit(pid).unwrap().is_some(),
-        "leader still an unreaped zombie"
+        matches!(r.verification, Verification::Verified { .. }),
+        "{:?}",
+        r.verification
     );
-    drop(h); // hands the reap to a helper thread
+    assert!(r.session_verified_empty);
+    drop(h);
     wait_until("leader reaped", Duration::from_secs(30), || {
         peek_exit(pid).is_err()
     });
@@ -792,7 +790,7 @@ fn a_subreaper_double_fork_is_found_killed_and_reaped() {
     let st = read_stat(d).unwrap().unwrap();
     assert_eq!(st.ppid, std::process::id(), "re-parented to the subreaper");
     let r = drive(&mut h);
-    assert_eq!(r.verification, Verification::Verified, "{r:?}");
+    assert!(r.verification.is_verified(), "{r:?}");
     assert!(r.leftovers_killed.iter().any(|x| x.pid == d), "{r:?}");
     wait_until("daemon reaped (no zombie)", Duration::from_secs(60), || {
         read_stat(d)
@@ -1061,7 +1059,7 @@ fn b_c4_orphans_daemons_and_escapees() {
         r.leftovers_killed.iter().any(|x| x.pid == d),
         "daemon reported: {r:?}"
     );
-    assert_eq!(r.verification, Verification::Verified);
+    assert!(r.verification.is_verified(), "{r:?}");
     wait_until("daemon dead", Duration::from_secs(30), || {
         read_stat(d)
             .ok()
@@ -1087,7 +1085,7 @@ fn b_c4_orphans_daemons_and_escapees() {
         matches!(r.kill_reason, Some(KillReason::MemoryCap { .. })),
         "{r:?}"
     );
-    assert_eq!(r.verification, Verification::Verified, "{r:?}");
+    assert!(r.verification.is_verified(), "{r:?}");
     // (d) orphan after a supervisor SIGKILL.
     let mut sup = l.launch(&helper(dir.path(), "minisup", "minisup")).unwrap();
     let cfile = dir.path().join("campaign");
@@ -1147,7 +1145,7 @@ fn b_m1_adopted_zombie_leader_with_live_thread_keeps_running() {
     // The launching handle's job end kills the marked thread-leader (outside its session) through the checklist.
     h.kill_now(KillReason::Other("test".into()));
     let r = drive(&mut h);
-    assert_eq!(r.verification, Verification::Verified, "{r:?}");
+    assert!(r.verification.is_verified(), "{r:?}");
     let tstart = id.start_ticks;
     wait_until(
         "thread leader gone (no live thread)",
@@ -1359,7 +1357,7 @@ fn b_minor_m4_adopted_leaderless_job_gets_sigterm_first() {
         panic!("leaderless job not found by its marker")
     };
     let r = drive(&mut a);
-    assert_eq!(r.verification, Verification::Verified, "{r:?}");
+    assert!(r.verification.is_verified(), "{r:?}");
     assert!(mark.exists(), "the member got SIGTERM before any SIGKILL");
     drop(h);
 }

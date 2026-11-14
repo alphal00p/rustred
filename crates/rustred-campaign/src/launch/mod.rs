@@ -8,19 +8,21 @@
 //! 2. At the grace deadline: SIGKILL to every group of the session (and `cgroup.kill` when the job has a cgroup).
 //! 3. The leader's exit is observed with `waitid(WNOWAIT)`: its zombie stays unreaped, which pins the session number
 //!    and the leader's group number, so no signal can reach a recycled number.
-//! 4. A scan that BEGAN after the exit (and after the last SIGKILL) must show the job empty: no session member and no
-//!    live process carrying this attempt's campaign marker (escapees and double-forked daemons, which the supervisor as
-//!    child subreaper also inherits); leftovers are killed one by one through the identity checklist (`guard`) and
-//!    recorded.
-//! 5. Only then is the leader reaped and the session untracked. If the job does not empty within `verify_timeout`,
-//!    the report says `Verification::Unverified { leftovers, reason }`, the zombie stays unreaped and the session
-//!    tracked, and later `poll()` calls keep working on it.
+//! 4. The end-of-job HUNT (`hunt`, on a helper thread; second fix package): freeze every process of the job (job
+//!    cgroup, pinned group, then each member found through the supervisor's children lists, through the guard), reach a
+//!    fixed point, SIGKILL them all, then PROVE the job empty with two consecutive conclusive passes while the leader is
+//!    still held unreaped. Leftovers killed are recorded.
+//! 5. Only then is the leader reaped and the session untracked (`Verification::Verified { by }`). If the proof cannot be
+//!    made within `verify_timeout`, the report says `Verification::Unverified { leftovers, reason }`, the zombie stays
+//!    unreaped, and the handle (or the launcher's quarantine, [`RealLauncher::retire`]) keeps hunting.
 //!
 //! Every signal of this crate goes through `guard` (see its module documentation for the identity checklist).
 
 mod cgroup;
 mod fake;
 pub mod guard;
+mod hunt;
+mod idlock;
 mod real;
 
 pub use cgroup::{CgroupRoot, JobCgroup};
@@ -28,15 +30,16 @@ pub use fake::{
     FakeEvent, FakeEventKind, ManualTime, MonotonicTime, OnTerm, Script, ScriptedChild,
     ScriptedLauncher, TimeSource,
 };
-pub(crate) use guard::reap_exact;
+pub(crate) use guard::reap_adopted;
 pub use guard::{
     PidfdProbe, ProcessTarget, Proof, Refusal, SigchldSetup, StartRule, Verdict,
     ensure_sigchld_default, is_child_subreaper, kill_orphan, pidfd_probe, pidfd_supported,
     set_child_subreaper, sigchld_autoreaps, signal_verified_process,
 };
+pub use idlock::{IdLockError, default_lock_dir};
 pub use real::{
-    CapPreference, LauncherSetup, RealChild, RealConfig, RealLauncher, adhoc_campaign_id,
-    audit_inheritable_fds, in_private_namespace, peek_exit,
+    CapPreference, LauncherError, LauncherSetup, RealChild, RealConfig, RealLauncher, RetireEvent,
+    TrackingPreference, adhoc_campaign_id, audit_inheritable_fds, in_private_namespace, peek_exit,
 };
 
 use crate::resources::{CampaignMarker, EscapeeRecord, MARKER_VAR, ProcessIdentity, SessionUsage};
@@ -137,17 +140,57 @@ pub enum MemoryMechanism {
     None,
 }
 
+/// How the job's processes were enumerated for the proof (second fix package).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum Enumeration {
+    /// The supervisor is a child subreaper (or pid 1): every live descendant is in its children tree; direct children are
+    /// enumerated by the kernel's children lists AND a strict full /proc listing (ppid == us).
+    SubreaperTree,
+    /// A strict full /proc listing (adopted jobs of a previous supervisor; no subreaper). An entry that vanishes during a
+    /// pass makes it inconclusive.
+    FullProc,
+}
+
+/// What a `Verified` proof rests on.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub enum VerifiedBy {
+    /// The job's own cgroup (created by us in a DELEGATED subtree) was frozen and killed, and `cgroup.procs` was empty in
+    /// two passes (kernel-maintained membership), with the /proc passes also empty.
+    Cgroup,
+    /// Two consecutive conclusive /proc passes, a short interval apart, with the leader held unreaped during both.
+    ProcTwoPass { enumeration: Enumeration },
+    /// The scripted fake launcher (tests).
+    Scripted,
+}
+
+/// A direct child of the supervisor (re-parented) that is NOT proven to be any job's: no marker, not in the supervisor's
+/// session, not a registered leader (e.g. a job's descendant that cleared its environment and called setsid). Never
+/// signalled; reported for a human (gate re-audit B m1).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct UnattributedChild {
+    pub pid: u32,
+    pub start_ticks: u64,
+    pub session: u32,
+    pub comm: String,
+}
+
 /// How far the end of a job was verified (audit A M2: a verification never gives up silently).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum Verification {
-    /// A scan begun after the exit and the last SIGKILL showed no session member and no marked process of the attempt.
-    Verified,
+    /// PROVEN gone (positive evidence only, see [`VerifiedBy`]): no session member and no marked process of the attempt.
+    Verified { by: VerifiedBy },
     /// Not shown empty in time: what is left (as far as known) and why. Keep the job's CPU lease and memory
     /// reservation, and keep polling the handle: it keeps killing verified leftovers and may still upgrade to Verified.
     Unverified {
         leftovers: Vec<LeftoverRecord>,
         reason: String,
     },
+}
+
+impl Verification {
+    pub fn is_verified(&self) -> bool {
+        matches!(self, Verification::Verified { .. })
+    }
 }
 
 /// Everything known about a finished child. Written to the ledger by the scheduler.
@@ -164,6 +207,8 @@ pub struct FinalReport {
     pub sigkill_sent: bool,
     pub leftovers_killed: Vec<LeftoverRecord>,
     pub escaped: Vec<EscapeeRecord>,
+    /// Re-parented children not proven to be any job's, first seen while this job's end was proven (never signalled).
+    pub unattributed_children: Vec<UnattributedChild>,
     /// `verification == Verified` (kept for readers of the first interface).
     pub session_verified_empty: bool,
     pub verification: Verification,
@@ -350,9 +395,8 @@ impl LaunchSpec {
             }
         }
         for (i, (k, _)) in self.env.iter().enumerate() {
-            let ok = k
-                .to_str()
-                .is_some_and(|k| !k.is_empty() && !k.contains('=') && !k.contains('\0'));
+            // Gate re-audit B m4: a key must be a NAME (a misuse "NAME=value" is refused and never echoed).
+            let ok = k.to_str().is_some_and(is_env_name);
             if !ok {
                 return Err(LaunchError::InvalidSpec(format!(
                     "env entry #{i} has an invalid name"
@@ -416,7 +460,8 @@ impl UsageReading {
     }
 }
 
-/// Debug never prints environment values of passthrough variables (they are not stored) and prints `env` keys only.
+/// Debug never prints environment values: passthrough values are not stored, `env` values are never printed, and a key
+/// or passthrough entry that is not a valid name (a misuse like "NAME=value") is printed as `<not a name: hidden>`.
 impl fmt::Debug for LaunchSpec {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("LaunchSpec")
@@ -426,7 +471,14 @@ impl fmt::Debug for LaunchSpec {
             .field("cwd", &self.cwd)
             .field(
                 "env_keys",
-                &self.env.iter().map(|(k, _)| k).collect::<Vec<_>>(),
+                &self
+                    .env
+                    .iter()
+                    .map(|(k, _)| match k.to_str() {
+                        Some(n) if is_env_name(n) => n,
+                        _ => "<not a name: hidden>",
+                    })
+                    .collect::<Vec<_>>(),
             )
             .field(
                 "env_passthrough_names",

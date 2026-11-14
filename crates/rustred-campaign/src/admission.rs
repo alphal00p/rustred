@@ -132,14 +132,48 @@ impl RunningJob {
 
     /// Is the measurement usable against this host reading?
     pub fn measurement_fresh(&self, policy: &AdmissionPolicy, host: &HostView) -> bool {
-        match self.rss_measured_at {
-            Some(t) => {
-                host.now.saturating_sub(t) <= policy.max_sample_age
-                    && t.saturating_add(policy.max_skew) >= host.measured_at
-            }
-            None => false,
-        }
+        self.measurement_check(policy, host).is_ok()
     }
+
+    /// Why a measurement is NOT usable (typed input error; every error is treated as stale = the job is charged its full
+    /// cap). Gate re-audit B m5: a measurement dated in the FUTURE (after `host.now`) or NEWER than the host reading
+    /// (after `host.measured_at`: memory it saw allocated may be missing from the older host number) is rejected.
+    pub fn measurement_check(
+        &self,
+        policy: &AdmissionPolicy,
+        host: &HostView,
+    ) -> Result<(), MeasurementError> {
+        let Some(t) = self.rss_measured_at else {
+            return Err(MeasurementError::Missing);
+        };
+        if t > host.now {
+            return Err(MeasurementError::InTheFuture);
+        }
+        if t > host.measured_at {
+            return Err(MeasurementError::NewerThanHost);
+        }
+        if host.now - t > policy.max_sample_age {
+            return Err(MeasurementError::TooOld);
+        }
+        if t.saturating_add(policy.max_skew) < host.measured_at {
+            return Err(MeasurementError::SkewedFromHost);
+        }
+        Ok(())
+    }
+}
+
+/// Why a job measurement is not used (it is then treated as stale: the full cap is charged).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum MeasurementError {
+    Missing,
+    /// Dated after the decision time.
+    InTheFuture,
+    /// Dated after the host reading it would be combined with.
+    NewerThanHost,
+    /// Older than `max_sample_age`.
+    TooOld,
+    /// More than `max_skew` older than the host reading.
+    SkewedFromHost,
 }
 
 /// What a running job is charged against the floor: `cap - min(rss, cap)` with a fresh measurement, else the cap.
