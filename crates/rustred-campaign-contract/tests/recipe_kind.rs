@@ -387,3 +387,25 @@ fn rows_of_solve_recipe() {
     e.verified = None;
     assert_eq!(classify(&e).row, 11);
 }
+
+#[test]
+fn v1_2_records_are_tolerated() {
+    // coord-recipe-solve.md 13 (v1.2): relation_rule fields on SOLVED records, NOT_IN_DOMAIN reason key_set, a v2
+    // determinism id: nothing in the record checks depends on them
+    let mut s = solved(0, &[2, 1]);
+    s["relation_rule"] = json!("m1_first");
+    s["relation_rule_taken"] = json!("c_fallback");
+    s["m1_steps"] = json!(47);
+    s["m1_fallback_reason"] = json!("no relation at a same-layer key");
+    s["top_rhs"] = json!([{"key": [1, 1], "lower": true, "layer_lower": true}]);
+    s["determinism_id"] = json!("rustred.recipe-solve.v2/x/relation-rule=recorded");
+    let mut u = unsolved(1, &[3, 1], "NOT_IN_DOMAIN");
+    u["failure"]["detail"] = json!({"reason": "key_set"});
+    u["determinism_id"] = json!("rustred.recipe-solve.v2/x/relation-rule=recorded");
+    let recs = vec![s, u];
+    let mut e = end("end", &recs);
+    e["determinism_id"] = json!("rustred.recipe-solve.v2/x/relation-rule=recorded");
+    let (out, t) = recipe::key_outcomes(&lines(&recs, e), &keys(&[&[2, 1], &[3, 1]])).unwrap();
+    assert_eq!((t.accepted, t.unsolved_total()), (1, 1));
+    assert!(matches!(out[0], KeyOutcome::Accepted(_)));
+}

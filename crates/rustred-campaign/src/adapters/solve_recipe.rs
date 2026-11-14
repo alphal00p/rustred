@@ -6,9 +6,11 @@
 use super::conformance::{Mismatch, diagnose};
 use super::job::{
     AdapterError, Ended, InputFile, JobAdapter, JobPlan, Prepared, Program, classify_attempt,
-    create_run, shell_quote, write_input, write_spec,
+    create_run, sha256_hex, shell_quote, write_input, write_spec,
 };
-use rustred_campaign_contract::classify::recipe::{FailureClass, KeyOutcome, KeyRoute};
+use rustred_campaign_contract::classify::recipe::{FailureClass, KeyOutcome, KeyRoute, Verdict};
+use rustred_campaign_contract::layout::RunLayout;
+use rustred_campaign_contract::seal::VerifiedHandle;
 use rustred_campaign_contract::classify::{self, Accept, Action, Classification, OutcomeState};
 use rustred_campaign_contract::fake::FakeScript;
 use rustred_campaign_contract::spec::{
@@ -32,6 +34,56 @@ pub struct RecipeInput {
     pub file: InputFile,
     #[serde(default)]
     pub digest: Option<String>,
+    /// SHA-256 (hex) of the recipe file (the import's binding, interfaces/import.md 6.1 / 6.2).
+    #[serde(default)]
+    pub sha256: Option<String>,
+}
+
+/// Schema of a solve request line written by the import (interfaces/import.md 6.1).
+pub const SOLVE_REQUEST_SCHEMA: &str = "rustred.campaign.solve-request.v1";
+/// Schema of a solved-relation line read by the import (interfaces/import.md 6.2).
+pub const SOLVED_RELATION_SCHEMA: &str = "rustred.campaign.solved-relation.v1";
+
+/// One import solve-request line (6.1) -> a request: the recipe file's SHA-256 is checked against `recipe_sha256`,
+/// its BLAKE3 computed for the job spec; `source` is the recipe id, `engine_digest` the expected recipe digest.
+pub fn solve_request_from_import(line: &[u8]) -> Result<SolveRequest, AdapterError> {
+    let v: Value =
+        serde_json::from_slice(line).map_err(|e| AdapterError::Request(format!("solve request: {e}")))?;
+    if v["schema"] != SOLVE_REQUEST_SCHEMA {
+        return Err(AdapterError::Request(format!(
+            "not a {SOLVE_REQUEST_SCHEMA} line"
+        )));
+    }
+    let s = |k: &str| {
+        v[k].as_str()
+            .map(str::to_string)
+            .ok_or_else(|| AdapterError::Request(format!("solve request: {k}")))
+    };
+    let path = PathBuf::from(s("recipe_path")?);
+    let b = std::fs::read(&path).map_err(|e| AdapterError::Io(format!("{}: {e}", path.display())))?;
+    let sha = sha256_hex(&b);
+    if sha != s("recipe_sha256")? {
+        return Err(AdapterError::Request(format!(
+            "recipe {}: sha256 {sha} is not the request's",
+            path.display()
+        )));
+    }
+    let key: Vec<i64> = serde_json::from_value(v["key"].clone())
+        .map_err(|e| AdapterError::Request(format!("solve request: key: {e}")))?;
+    Ok(SolveRequest {
+        recipe: RecipeInput {
+            id: s("source")?,
+            file: InputFile {
+                path,
+                blake3: rustred_campaign_contract::blake3_hex(&b),
+            },
+            digest: v["engine_digest"].as_str().map(str::to_string),
+            sha256: Some(sha),
+        },
+        key,
+        tag: v["reason"].as_str().map(str::to_string),
+        context: None,
+    })
 }
 
 /// The caller's context of a key (R48 3b): the ORIGINAL input key of the reduction request and the chain of rules
@@ -104,20 +156,44 @@ pub struct SolveRecipeConfig {
     pub fake: Option<FakeScript>,
 }
 
-/// An accepted relation (row 1 or 28), checked again against its request.
+/// Where a record sits: the sealed results file (absolute path), its SHA-256 (of the verified bytes) and the
+/// record's ordinal (interfaces/import.md 6.2 `results`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResultsRef {
+    pub path: String,
+    pub sha256: String,
+    pub ordinal: u64,
+}
+
+/// One right-hand-side term: its key, the SHA-256 of the exact coefficient text (the text stays in the sealed
+/// results file) and the verb's mark (`top` | `sub`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RhsTerm {
+    pub key: Vec<i64>,
+    pub coef_sha256: String,
+    pub mark: String,
+}
+
+/// An accepted relation (row 1 or 28), checked again against its request.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SolvedRelation {
     pub recipe_id: String,
+    pub recipe_sha256: Option<String>,
     pub recipe_digest: String,
     pub determinism_id: String,
     pub key: Vec<i64>,
     pub tag: Option<String>,
     pub rhs_keys: Vec<Vec<i64>>,
+    pub rhs: Vec<RhsTerm>,
     pub relation_digest: String,
+    /// The record's `proof` object (exact weights).
+    pub proof: Value,
     /// closure.md 12 verdict bits (regular | descends | exact): an accepted record has all three.
     pub verdict_bits: u8,
-    /// The verified canonical line of the record.
-    pub canonical: String,
+    /// v1.2 records (coord-recipe-solve.md 13): `relation_rule` and `relation_rule_taken`, when present.
+    pub relation_rule: Option<String>,
+    pub relation_rule_taken: Option<String>,
+    pub results: ResultsRef,
     /// Request indices served by this relation.
     pub requests: Vec<usize>,
 }
@@ -137,6 +213,7 @@ pub struct RecipeRef {
     pub digest: String,
     pub path: String,
     pub blake3: String,
+    pub sha256: Option<String>,
 }
 
 /// Binary identity in a failure.
@@ -154,8 +231,10 @@ pub struct RecipeFailure {
     pub package: Option<PackageId>,
     pub recipe: RecipeRef,
     pub key: Vec<i64>,
+    pub ordinal: u64,
     pub request_key: Option<Vec<i64>>,
     pub rule_chain: Vec<Value>,
+    pub verdict: Verdict,
     pub class: FailureClass,
     pub route: KeyRoute,
     pub message: String,
@@ -168,6 +247,9 @@ pub struct RecipeFailure {
     /// The child's own reproduction line, verbatim (job mode writes it relative to the run directory).
     pub child_reproduce: Option<String>,
     pub run_dir: String,
+    /// The child's `failure` object, verbatim.
+    pub child_failure: Value,
+    pub results: Option<ResultsRef>,
     pub requests: Vec<usize>,
 }
 
@@ -211,6 +293,8 @@ pub struct AdapterRefusal {
 pub struct SolveBatch {
     pub job_id: String,
     pub run_dir: PathBuf,
+    /// SHA-256 of the binary the spec named (`binary_sha256` of the solved-relation lines).
+    pub binary_sha256: Option<String>,
     pub classification: Classification,
     pub relations: Vec<SolvedRelation>,
     pub failures: Vec<RecipeFailure>,
@@ -320,6 +404,7 @@ impl SolveRecipeAdapter {
         u: &rustred_campaign_contract::classify::recipe::UnsolvedKey,
         ctx: Option<&FailureContext>,
         run_dir: &Path,
+        results: Option<ResultsRef>,
         requests: Vec<usize>,
     ) -> RecipeFailure {
         let c = &self.config;
@@ -336,10 +421,13 @@ impl SolveRecipeAdapter {
                 digest: u.recipe_digest.clone(),
                 path: recipe.file.path.display().to_string(),
                 blake3: recipe.file.blake3.clone(),
+                sha256: recipe.sha256.clone(),
             },
             key: u.key.clone(),
+            ordinal: u.ordinal,
             request_key: ctx.and_then(|x| x.request_key.clone()),
             rule_chain: ctx.map(|x| x.rule_chain.clone()).unwrap_or_default(),
+            verdict: u.verdict,
             class: u.class,
             route: u.route,
             message: u.failure["message"].as_str().unwrap_or("").to_string(),
@@ -353,6 +441,8 @@ impl SolveRecipeAdapter {
             reproduce: self.reproduce(recipe, &u.key, run_dir),
             child_reproduce: u.failure["reproduce"].as_str().map(str::to_string),
             run_dir: run_dir.display().to_string(),
+            child_failure: u.failure.clone(),
+            results,
             requests,
         }
     }
@@ -478,6 +568,7 @@ impl JobAdapter for SolveRecipeAdapter {
         let mut out = SolveBatch {
             job_id: plan.job_id.clone(),
             run_dir: prep.layout.root.clone(),
+            binary_sha256: self.config.program.sha256.clone(),
             classification: c.clone(),
             relations: vec![],
             failures: vec![],
@@ -516,6 +607,22 @@ impl JobAdapter for SolveRecipeAdapter {
                 return out;
             }
         };
+        // the sealed results file's SHA-256, over the VERIFIED bytes (read through the handle)
+        let results_path = prep.layout.results();
+        let results_sha = ev
+            .verified
+            .as_ref()
+            .and_then(|v| v.streams.iter().find(|s| s.rel == RunLayout::out_rel(rustred_campaign_contract::layout::RESULTS)))
+            .and_then(|s| VerifiedHandle::reopen(&prep.layout.root, s).ok())
+            .and_then(|h| h.read_verified().ok())
+            .map(|b| sha256_hex(&b));
+        let rref = |ordinal: u64| {
+            results_sha.as_ref().map(|sha| ResultsRef {
+                path: results_path.display().to_string(),
+                sha256: sha.clone(),
+                ordinal,
+            })
+        };
         for o in outcomes {
             let i = o.ordinal() as usize;
             let requests = uk.get(i).map(|x| x.2.clone()).unwrap_or_default();
@@ -541,29 +648,52 @@ impl JobAdapter for SolveRecipeAdapter {
                             a.determinism_id
                         ));
                     }
-                    match why {
-                        Some(why) => out.refused_records.push(RecordRefusal {
-                            key: a.key,
-                            why,
-                            requests,
-                        }),
-                        None => out.relations.push(SolvedRelation {
+                    let rec: Value = serde_json::from_slice(&a.canonical).unwrap_or_default();
+                    let rhs: Vec<RhsTerm> = rec["rhs"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .zip(&a.rhs_keys)
+                        .map(|(t, k)| RhsTerm {
+                            key: k.clone(),
+                            coef_sha256: sha256_hex(t[1].as_str().unwrap_or("").as_bytes()),
+                            mark: t[2].as_str().unwrap_or("").to_string(),
+                        })
+                        .collect();
+                    let results = rref(a.ordinal);
+                    if why.is_none() && results.is_none() {
+                        why = Some("the results file could not be read back through its handle".into());
+                    }
+                    match (why, results) {
+                        (None, Some(results)) => out.relations.push(SolvedRelation {
                             recipe_id: recipe.id.clone(),
+                            recipe_sha256: recipe.sha256.clone(),
                             recipe_digest: a.recipe_digest,
                             determinism_id: a.determinism_id,
                             key: a.key,
                             tag: a.tag,
                             rhs_keys: a.rhs_keys,
+                            rhs,
                             relation_digest: a.relation_digest,
+                            proof: rec["proof"].clone(),
                             verdict_bits: VERDICT_ALL,
-                            canonical: String::from_utf8_lossy(&a.canonical).into_owned(),
+                            relation_rule: rec["relation_rule"].as_str().map(str::to_string),
+                            relation_rule_taken: rec["relation_rule_taken"]
+                                .as_str()
+                                .map(str::to_string),
+                            results,
+                            requests,
+                        }),
+                        (why, _) => out.refused_records.push(RecordRefusal {
+                            key: a.key,
+                            why: why.unwrap_or_default(),
                             requests,
                         }),
                     }
                 }
                 KeyOutcome::Unsolved(u) => {
                     let ctx = requests.first().and_then(|&r| reqs[r].context.as_ref());
-                    let f = self.failure(recipe, &u, ctx, &prep.layout.root, requests);
+                    let f = self.failure(recipe, &u, ctx, &prep.layout.root, rref(u.ordinal), requests);
                     out.failures.push(f);
                 }
             }
@@ -575,14 +705,67 @@ impl JobAdapter for SolveRecipeAdapter {
 /// closure.md 12 verdict bits: regular 1 | descends 2 | exact 4.
 pub const VERDICT_ALL: u8 = 7;
 
-/// Where accepted relations go (interfaces/adapters.md 2.2): one implementation per file format.
+/// Where the outcomes of solve-recipe attempts go (interfaces/adapters.md 2.2): one implementation per file format.
 pub trait RelationSink {
-    /// Write the relations; returns the files written (path, digest).
-    fn write(&mut self, rels: &[SolvedRelation]) -> Result<Vec<(PathBuf, String)>, AdapterError>;
+    /// Write the batches; returns the files written (path, digest).
+    fn write(&mut self, batches: &[&SolveBatch]) -> Result<Vec<(PathBuf, String)>, AdapterError>;
 }
 
-/// closure.md section 12's `rustred.campaign.relations.v1` (one file per (recipe digest, determinism id)), through
-/// campaign-core's `RelationStoreBuilder`.
+/// The solved-relation line (interfaces/import.md 6.2) of an accepted relation.
+pub fn solved_line(r: &SolvedRelation, binary_sha256: Option<&str>) -> Value {
+    json!({"schema": SOLVED_RELATION_SCHEMA, "source": r.recipe_id, "recipe_sha256": r.recipe_sha256,
+        "recipe_digest": r.recipe_digest, "determinism_id": r.determinism_id, "binary_sha256": binary_sha256,
+        "key": r.key, "verdict": "SOLVED", "relation_digest": r.relation_digest, "rhs": r.rhs,
+        "proof": r.proof, "regular": true, "results": r.results, "failure": null,
+        "relation_rule": r.relation_rule, "relation_rule_taken": r.relation_rule_taken})
+}
+
+/// The solved-relation line (interfaces/import.md 6.2) of an unsolved key (never certifies: `regular` false).
+pub fn unsolved_line(f: &RecipeFailure, binary_sha256: Option<&str>) -> Value {
+    json!({"schema": SOLVED_RELATION_SCHEMA, "source": f.recipe.id, "recipe_sha256": f.recipe.sha256,
+        "recipe_digest": f.recipe.digest, "determinism_id": f.determinism_id, "binary_sha256": binary_sha256,
+        "key": f.key, "verdict": f.verdict.name(), "relation_digest": null, "rhs": [], "proof": null,
+        "regular": false, "results": f.results, "failure": f.child_failure})
+}
+
+/// interfaces/import.md 6.2: ONE JSONL file `rustred.campaign.solved-relation.v1`, one line per (recipe, key) decided
+/// by a sealed results file (accepted relations and typed unsolved keys; keys without a per-key decision and records
+/// refused against their request are not written), in batch order then record order. Digest = SHA-256 of the file.
+pub struct SolvedRelationsV1 {
+    pub path: PathBuf,
+}
+
+impl RelationSink for SolvedRelationsV1 {
+    fn write(&mut self, batches: &[&SolveBatch]) -> Result<Vec<(PathBuf, String)>, AdapterError> {
+        let mut lines: Vec<(u64, String)> = Vec::new();
+        let mut bytes = Vec::new();
+        for b in batches {
+            let bin = b.binary_sha256.as_deref();
+            lines.clear();
+            for r in &b.relations {
+                lines.push((r.results.ordinal, solved_line(r, bin).to_string()));
+            }
+            for f in &b.failures {
+                let o = f.results.as_ref().map_or(f.ordinal, |x| x.ordinal);
+                lines.push((o, unsolved_line(f, bin).to_string()));
+            }
+            lines.sort_by_key(|(o, _)| *o);
+            for (_, l) in &lines {
+                bytes.extend_from_slice(l.as_bytes());
+                bytes.push(b'\n');
+            }
+        }
+        if let Some(d) = self.path.parent() {
+            std::fs::create_dir_all(d).map_err(|e| AdapterError::Io(e.to_string()))?;
+        }
+        crate::atomic::create_new_atomic(&self.path, &bytes)
+            .map_err(|e| AdapterError::Io(format!("{}: {e}", self.path.display())))?;
+        Ok(vec![(self.path.clone(), sha256_hex(&bytes))])
+    }
+}
+
+/// closure.md section 12's `rustred.campaign.relations.v1` (one file per (recipe digest, determinism id)) of the
+/// ACCEPTED relations, through campaign-core's `RelationStoreBuilder`.
 pub struct ClosureRelationsV1 {
     pub dir: PathBuf,
     /// Bits per key slot of the key codec (4..=16).
@@ -590,10 +773,10 @@ pub struct ClosureRelationsV1 {
 }
 
 impl RelationSink for ClosureRelationsV1 {
-    fn write(&mut self, rels: &[SolvedRelation]) -> Result<Vec<(PathBuf, String)>, AdapterError> {
+    fn write(&mut self, batches: &[&SolveBatch]) -> Result<Vec<(PathBuf, String)>, AdapterError> {
         use rustred_campaign_core::closure::{KeyCodec, RelationStoreBuilder};
         let mut groups: Vec<((String, String), Vec<&SolvedRelation>)> = Vec::new();
-        for r in rels {
+        for r in batches.iter().flat_map(|b| b.relations.iter()) {
             let id = (r.recipe_digest.clone(), r.determinism_id.clone());
             match groups.iter_mut().find(|(g, _)| *g == id) {
                 Some((_, v)) => v.push(r),
@@ -602,7 +785,9 @@ impl RelationSink for ClosureRelationsV1 {
         }
         let to32 = |k: &[i64]| -> Result<Vec<i32>, AdapterError> {
             k.iter()
-                .map(|&x| i32::try_from(x).map_err(|_| AdapterError::Request(format!("key value {x}"))))
+                .map(|&x| {
+                    i32::try_from(x).map_err(|_| AdapterError::Request(format!("key value {x}")))
+                })
                 .collect()
         };
         std::fs::create_dir_all(&self.dir).map_err(|e| AdapterError::Io(e.to_string()))?;

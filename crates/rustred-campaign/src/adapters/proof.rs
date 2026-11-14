@@ -88,6 +88,35 @@ pub fn fact_request(
     })
 }
 
+/// One import fact-request line (interfaces/import.md 6.3: form (A) + `record_sha256` + `reasons`) -> a request; the
+/// record at `offset` is read again and its SHA-256 must equal the line's (a stale request is refused).
+pub fn fact_request_from_import(line: &[u8]) -> Result<FactRequest, AdapterError> {
+    let v: Value = serde_json::from_slice(line)
+        .map_err(|e| AdapterError::Request(format!("fact request: {e}")))?;
+    let table = v["table"]
+        .as_str()
+        .ok_or_else(|| AdapterError::Request("fact request: table".into()))?;
+    let (Some(offset), Some(rule), Some(sha)) = (
+        v["offset"].as_u64(),
+        v["rule"].as_u64(),
+        v["record_sha256"].as_str(),
+    ) else {
+        return Err(AdapterError::Request(
+            "fact request: offset / rule / record_sha256".into(),
+        ));
+    };
+    let keys: Vec<Vec<i64>> = serde_json::from_value(v["keys"].clone())
+        .map_err(|e| AdapterError::Request(format!("fact request: keys: {e}")))?;
+    let r = fact_request(&InputFile::from_file(Path::new(table))?, offset, rule, keys)?;
+    if r.record_sha256 != sha {
+        return Err(AdapterError::Request(format!(
+            "fact request: the record at offset {offset} of {table} has sha256 {} (request: {sha})",
+            r.record_sha256
+        )));
+    }
+    Ok(r)
+}
+
 /// One answer (instantiate line), bound to its request by (record_sha256, key).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FactAnswer {

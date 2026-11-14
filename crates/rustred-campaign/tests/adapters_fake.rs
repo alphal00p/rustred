@@ -58,6 +58,7 @@ fn recipe(root: &Root) -> RecipeInput {
         id: "R/face-1".into(),
         file: root.file("recipe.json", b"{\"fake\":\"recipe\"}\n"),
         digest: None,
+        sha256: None,
     }
 }
 
@@ -152,6 +153,7 @@ fn solve_recipe_spec_for_a_real_engine_validates_with_the_contract() {
             verb: "solve-recipe".into(),
         },
         features_required: vec![],
+        sha256: None,
     };
     c.max_trace_rows = Some(5000);
     c.key_budget_s = Some(60);
@@ -273,7 +275,7 @@ fn all_solved_is_row_1_and_relations_reach_the_relation_file() {
         dir: root.path().join("rel"),
         bits: 8,
     };
-    let files = sink.write(&out.relations).unwrap();
+    let files = sink.write(&[&out]).unwrap();
     assert_eq!(files.len(), 1);
     let f = std::fs::File::open(&files[0].0).unwrap();
     let (_name, rd, store) =
@@ -743,4 +745,87 @@ fn generate_through_the_fake_child_accepts_the_verified_table() {
         .filter(|l| String::from_utf8_lossy(l).contains("\"type\":\"rule\""))
         .count();
     assert_eq!(rules, 1);
+}
+
+// ------------------------------------------------------------------------------------------------ import formats
+
+#[test]
+fn import_solve_requests_in_and_solved_relation_lines_out() {
+    use rustred_campaign::adapters::job::sha256_hex;
+    use rustred_campaign::adapters::solve_recipe::{
+        SOLVED_RELATION_SCHEMA, SolvedRelationsV1, solve_request_from_import,
+    };
+    require_namespace();
+    let _g = serial();
+    let root = Root::new("import");
+    let rbytes = b"{\"fake\":\"recipe for import\"}\n";
+    let rpath = root.path().join("recipe-imp.json");
+    std::fs::write(&rpath, rbytes).unwrap();
+    let line = |key: &[i64], sha: &str| {
+        json!({"schema": "rustred.campaign.solve-request.v1", "spec_digest": "sha256:00", "source": "T/face-7",
+               "recipe_path": rpath.display().to_string(), "recipe_sha256": sha, "engine_digest": null,
+               "key": key, "reason": "in_domain_uncovered", "in_start": true})
+        .to_string()
+    };
+    let sha = sha256_hex(rbytes);
+    let reqs: Vec<SolveRequest> = [[1i64, 0], [2, 0]]
+        .iter()
+        .map(|k| solve_request_from_import(line(k, &sha).as_bytes()).unwrap())
+        .collect();
+    assert_eq!(reqs[0].recipe.id, "T/face-7");
+    assert_eq!(reqs[0].recipe.sha256.as_deref(), Some(sha.as_str()));
+    assert!(solve_request_from_import(line(&[1, 0], &"0".repeat(64)).as_bytes()).is_err());
+    let ad = SolveRecipeAdapter::new(config(
+        &root,
+        Some(recipe_script(&[Verdict::Solved, Verdict::NotInDomain], &[1, 0], &[])),
+    ));
+    let out = run_solve(&root, &ad, &reqs, &RunOptions::default());
+    assert_eq!(out.classification.row, 28);
+    let mut sink = SolvedRelationsV1 {
+        path: root.path().join("solved.jsonl"),
+    };
+    let files = sink.write(&[&out]).unwrap();
+    let text = std::fs::read_to_string(&files[0].0).unwrap();
+    assert_eq!(files[0].1, sha256_hex(text.as_bytes()));
+    let lines: Vec<serde_json::Value> =
+        text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    assert_eq!(lines.len(), 2, "one line per (recipe, key)");
+    let results = std::fs::read(&out.relations[0].results.path).unwrap();
+    for (i, v) in lines.iter().enumerate() {
+        assert_eq!(v["schema"], SOLVED_RELATION_SCHEMA);
+        assert_eq!(v["source"], "T/face-7");
+        assert_eq!(v["recipe_sha256"], sha.as_str());
+        assert_eq!(v["binary_sha256"], ad.config.program.sha256.clone().unwrap().as_str());
+        assert_eq!(v["results"]["ordinal"], i as u64);
+        assert_eq!(v["results"]["sha256"], sha256_hex(&results).as_str());
+    }
+    assert_eq!(lines[0]["verdict"], "SOLVED");
+    assert_eq!(lines[0]["regular"], true);
+    assert_eq!(lines[0]["proof"]["ok"], true);
+    assert_eq!(lines[0]["rhs"][0]["key"], json!([0, 0]));
+    assert_eq!(lines[0]["rhs"][0]["coef_sha256"].as_str().unwrap().len(), 64);
+    assert_eq!(lines[0]["rhs"][0]["mark"], "top");
+    assert_eq!(lines[1]["verdict"], "NOT_IN_DOMAIN");
+    assert_eq!(lines[1]["regular"], false);
+    assert_eq!(lines[1]["relation_digest"], serde_json::Value::Null);
+    assert_eq!(lines[1]["failure"]["class"], "not_in_domain");
+}
+
+#[test]
+fn import_fact_requests_are_bound_to_their_record() {
+    use rustred_campaign::adapters::proof::fact_request_from_import;
+    let root = Root::new("import-facts");
+    let (t, o0, _) = table(&root);
+    let r = fact_request(&t, o0, 0, vec![vec![1, 1]]).unwrap();
+    let mk = |sha: &str, rule: u64| {
+        json!({"table": t.path.display().to_string(), "offset": o0, "rule": rule, "record_sha256": sha,
+               "keys": [[1, 1]], "reasons": ["regularity"]})
+        .to_string()
+    };
+    assert_eq!(
+        fact_request_from_import(mk(&r.record_sha256, 0).as_bytes()).unwrap(),
+        r
+    );
+    assert!(fact_request_from_import(mk(&"0".repeat(64), 0).as_bytes()).is_err());
+    assert!(fact_request_from_import(mk(&r.record_sha256, 1).as_bytes()).is_err());
 }

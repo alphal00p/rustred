@@ -43,6 +43,9 @@ pub struct Program {
     /// `program.features_required` of every spec this adapter writes.
     #[serde(default)]
     pub features_required: Vec<String>,
+    /// SHA-256 (hex) of the file: the `binary_sha256` of solved-relation lines (interfaces/import.md 6.2).
+    #[serde(default)]
+    pub sha256: Option<String>,
 }
 
 impl Program {
@@ -52,13 +55,14 @@ impl Program {
         path: &Path,
         invocation: Invocation,
     ) -> Result<Program, AdapterError> {
-        let b3 = file_blake3(path)?;
+        let b = std::fs::read(path).map_err(|e| AdapterError::Io(format!("{}: {e}", path.display())))?;
         Ok(Program {
             name: name.into(),
             path: path.to_path_buf(),
-            blake3: b3,
+            blake3: rustred_campaign_contract::blake3_hex(&b),
             invocation,
             features_required: vec![],
+            sha256: Some(sha256_hex(&b)),
         })
     }
 }
@@ -85,6 +89,13 @@ impl InputFile {
             upto: None,
         }
     }
+}
+
+/// SHA-256 (hex) of bytes (campaign-core's implementation; the digest kind of the import's bindings).
+pub fn sha256_hex(b: &[u8]) -> String {
+    let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
+    h.update(b);
+    h.finish_hex()
 }
 
 /// Raw BLAKE3 (hex) of a file.

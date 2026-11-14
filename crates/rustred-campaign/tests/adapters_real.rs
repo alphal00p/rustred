@@ -64,6 +64,7 @@ fn t178_requests() -> (Vec<SolveRequest>, BTreeMap<Vec<i64>, String>) {
             id: id.into(),
             file: InputFile::from_file(&dir.join("recipes").join(format!("{id}.json"))).unwrap(),
             digest: None,
+            sha256: None,
         };
         let keys = std::fs::read_to_string(dir.join("keys").join(format!("{id}.jsonl"))).unwrap();
         for l in keys.lines().take(n) {
