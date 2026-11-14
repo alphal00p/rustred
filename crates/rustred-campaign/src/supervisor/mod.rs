@@ -185,6 +185,7 @@ struct Child {
     handle: RealChild,
     lease: Option<CpuLease>,
     spec: JobSpec,
+    spec_digest: String,
     layout: RunLayout,
     tail: EventsTail,
     last_event: Instant,
@@ -717,13 +718,14 @@ impl Supervisor {
             };
             let layout = RunLayout::new(&run_dir);
             match read_spec(&layout) {
-                Some(spec) => {
+                Some((spec, spec_digest)) => {
                     let kill = if was_killed { CKill::Stop } else { CKill::None };
                     self.settle(
                         &job,
                         attempt,
                         &layout,
                         &spec,
+                        &spec_digest,
                         WaitStatus::Unknown,
                         kill,
                         was_killed,
@@ -824,12 +826,13 @@ impl Supervisor {
         attempt: u32,
         layout: &RunLayout,
         spec: &JobSpec,
+        spec_digest: &str,
         wait: WaitStatus,
         kill: CKill,
         killed_at_recovery: bool,
         report: Option<&FinalReport>,
     ) {
-        let ev = classify::assess(layout, spec, wait, kill, false);
+        let ev = classify::assess(layout, spec, spec_digest, wait, kill, false);
         let mut c = classify::classify(&ev);
         // A child the SUPERVISOR stopped for time / silence / memory may still write a valid "interrupted" OUTCOME on
         // its way out (row 11 precedes rows 18-19): the supervisor's own kill reason decides then, otherwise such a job
@@ -1057,7 +1060,7 @@ impl Supervisor {
                 resume,
             },
         );
-        let mut ls =
+        let (mut ls, spec_digest) =
             adapters::prepare_run(&spec, &prog_path).map_err(|e| format!("run dir: {e}"))?;
         // The launcher sets the marker `<campaign id>:<label>`: the label is the attempt id.
         ls.label = format!("{}:a{attempt}", req.job);
@@ -1156,6 +1159,7 @@ impl Supervisor {
             lease: Some(lease),
             layout: RunLayout::new(&run_dir),
             spec,
+            spec_digest,
             tail: EventsTail::new(1 << 20),
             last_event: Instant::now(),
             started_seen: false,
@@ -1222,6 +1226,7 @@ impl Supervisor {
                     ch.attempt,
                     &ch.layout,
                     &ch.spec,
+                    &ch.spec_digest,
                     map_wait(report.exit),
                     contract_kill_reason(report.kill_reason.as_ref()),
                     false,
@@ -1728,24 +1733,24 @@ pub struct ControlRequest {
 
 pub const CONTROL_SCHEMA: &str = "rustred.campaign.control.v1";
 
-fn read_spec(layout: &RunLayout) -> Option<JobSpec> {
+/// The attempt's spec and the supervisor's OWN record of its digest (`RUN/sup/spec.blake3`, written before the launch
+/// record): the classification binds OUTCOME / RESUME to that digest, never to a re-read of job.json.
+fn read_spec(layout: &RunLayout) -> Option<(JobSpec, String)> {
     let b = std::fs::read(layout.job_spec()).ok()?;
-    JobSpec::from_json(&b).ok()
+    let spec = JobSpec::from_json(&b).ok()?;
+    let d = std::fs::read_to_string(layout.sup_dir().join(adapters::SPEC_DIGEST_FILE)).ok()?;
+    let d = d.trim().to_string();
+    rustred_campaign_contract::is_blake3_hex(&d).then_some((spec, d))
 }
 
 /// RESUME of a previous attempt directory, when valid (child-job 3.4.4 item 3).
 fn resume_from(prev: &Path) -> Option<ResumeRef> {
     let layout = RunLayout::new(prev);
-    let spec = read_spec(&layout)?;
-    let r = classify::resume_state(&layout, &spec).ok()?;
-    let (_, b3) = crate::atomic::blake3_file(&layout.resume()).ok()?;
-    Some(ResumeRef {
-        from: layout.resume().to_string_lossy().into_owned(),
-        blake3: b3,
-        table: layout.table().to_string_lossy().into_owned(),
-        committed_bytes: r.table_committed_bytes,
-        prefix_blake3: r.table_prefix_blake3,
-    })
+    let (spec, digest) = read_spec(&layout)?;
+    // The LAST RESUME record of that attempt (contract audit C1), never sizes taken from OUTCOME.
+    classify::resume_state(&layout, &spec, &digest)
+        .ok()
+        .map(|(_, r)| r)
 }
 
 fn file_ref(p: &Path, rel: String) -> Option<FileRef> {

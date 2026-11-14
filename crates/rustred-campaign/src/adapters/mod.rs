@@ -110,9 +110,13 @@ pub fn job_spec(kind: AdapterKind, req: &JobRequest, a: &AdapterInput<'_>) -> Jo
     }
 }
 
-/// Creates the run directory, writes `job.json` (0444) and returns the launch spec (without marker, CPUs, licence: the
-/// supervisor adds those).
-pub fn prepare_run(spec: &JobSpec, program_path: &Path) -> std::io::Result<LaunchSpec> {
+/// Name of the supervisor's own record of the attempt's spec digest, in `RUN/sup/` (a directory the child never reads
+/// or writes, contract 3.1.3): the digest the classification binds OUTCOME / RESUME to is never re-read from job.json.
+pub const SPEC_DIGEST_FILE: &str = "spec.blake3";
+
+/// Creates the run directory, writes `job.json` (0444) and the supervisor's digest record, and returns the launch spec
+/// (without CPUs, licence: the supervisor adds those; the launcher sets the marker) and the spec digest.
+pub fn prepare_run(spec: &JobSpec, program_path: &Path) -> std::io::Result<(LaunchSpec, String)> {
     let layout = RunLayout::new(&spec.run_dir);
     for d in [
         layout.in_dir(),
@@ -123,7 +127,11 @@ pub fn prepare_run(spec: &JobSpec, program_path: &Path) -> std::io::Result<Launc
         std::fs::create_dir_all(d)?;
     }
     let p = layout.job_spec();
-    crate::atomic::create_new_atomic(&p, &spec.to_json_line()).map_err(std::io::Error::other)?;
+    let bytes = spec.to_json_line();
+    let digest = rustred_campaign_contract::spec::spec_blake3(&bytes);
+    crate::atomic::create_new_atomic(&layout.sup_dir().join(SPEC_DIGEST_FILE), digest.as_bytes())
+        .map_err(std::io::Error::other)?;
+    crate::atomic::create_new_atomic(&p, &bytes).map_err(std::io::Error::other)?;
     let mut perm = std::fs::metadata(&p)?.permissions();
     perm.set_readonly(true);
     std::fs::set_permissions(&p, perm)?;
@@ -131,9 +139,12 @@ pub fn prepare_run(spec: &JobSpec, program_path: &Path) -> std::io::Result<Launc
         .arg("job")
         .arg(p.as_os_str())
         .with_contract_env(&layout.tmp_dir());
-    Ok(LaunchSpec {
-        stdout: layout.stdout_log(),
-        stderr: layout.stderr_log(),
-        ..ls
-    })
+    Ok((
+        LaunchSpec {
+            stdout: layout.stdout_log(),
+            stderr: layout.stderr_log(),
+            ..ls
+        },
+        digest,
+    ))
 }
