@@ -1,13 +1,16 @@
 //! Materialisation entry points of a session that has a modular selection:
-//! the request (exact selected system, routed targets, parameter split) and
-//! the explicit-sample probe.
+//! the request (exact selected system, routed targets, parameter split),
+//! the explicit-sample probe and the finite-field lane.
 
 use std::sync::Arc;
 
 use symbolica::prelude::Rational;
 
 use super::super::super::{Integral, SolverError};
+use super::super::ff::{self, FfOptions};
+use super::super::output::{BoxProvenance, BoxSolution};
 use super::super::probe::{self, LaneRequest};
+use super::super::router::integral_bits;
 use super::super::system::ExactRowBuilder;
 use super::BoxLaportaSession;
 
@@ -69,6 +72,97 @@ impl<const N: usize> BoxLaportaSession<N> {
             values: split_rows(values, targets.len(), masters.len()),
             masters,
         })
+    }
+
+    /// The finite-field lane: replay the selected rows at points of the
+    /// single free parameter modulo word-size primes and reconstruct every
+    /// `(target, master)` coefficient over Q, verified at a fresh prime
+    /// with the independent reference elimination. `fixed` gives exact
+    /// values of every other family parameter. Every target must have been
+    /// demanded by [`Self::extend`].
+    ///
+    /// The result does not depend on the worker count. With
+    /// `options.checkpoint_dir` the probe values are logged per prime and a
+    /// resumed call replays them; the log is bound to the family, the
+    /// routing, the column order, the selection, the request, the point
+    /// stream and the fault injection.
+    ///
+    /// Errors: [`SolverError::InvalidInput`] for a bad request (as for
+    /// [`Self::probe_explicit`], or not exactly one free parameter, a bunch
+    /// size outside 1, 2, 4, 8, 16, no verification, an unusable checkpoint
+    /// directory); [`SolverError::Certification`] when the prime or point
+    /// budget is exhausted or the fresh-prime verification keeps failing;
+    /// [`SolverError::UnluckyBoxSample`] when no fresh verification point is
+    /// usable.
+    pub fn materialize_ff(
+        &mut self,
+        targets: &[[i16; N]],
+        fixed: &[(String, Rational)],
+        options: &FfOptions,
+    ) -> Result<BoxSolution<N>, SolverError> {
+        let built = std::time::Instant::now();
+        let (request, masters) = self.lane_request(targets, fixed)?;
+        let build_seconds = built.elapsed().as_secs_f64();
+        let names = self.family.coefficient_context().parameter_names().to_vec();
+        let free = request.free();
+        if free.len() != 1 {
+            return Err(SolverError::InvalidInput(format!(
+                "the univariate finite-field lane needs exactly one free parameter, got {}",
+                free.len()
+            )));
+        }
+        let key = self.session_key();
+        let workers = self.options.workers.max(1);
+        let (functions, mut report) = self
+            .pool
+            .install(|| ff::reconstruct(&request, options, workers, &key))?;
+        report.build_seconds = build_seconds;
+        let selection = self
+            .selection
+            .as_ref()
+            .expect("lane_request checked the selection");
+        let unseeded_master_sectors = masters
+            .iter()
+            .map(integral_bits)
+            .filter(|bits| !self.boxes.contains_key(bits))
+            .map(|bits| bits as u32)
+            .collect();
+        let fixed = request
+            .fixed
+            .iter()
+            .zip(&names)
+            .filter_map(|(value, name)| Some((name.clone(), value.clone()?)))
+            .collect();
+        Ok(BoxSolution {
+            free: names[free[0]].clone(),
+            parameters: names,
+            fixed,
+            targets: targets.to_vec(),
+            coefficients: split_rows(functions, targets.len(), masters.len()),
+            masters,
+            report,
+            provenance: BoxProvenance {
+                selected_hash: selection.selected_hash.clone(),
+                master_hash: selection.master_hash.clone(),
+                unseeded_master_sectors,
+            },
+            arity: self.arity,
+        })
+    }
+
+    /// Binds probe logs to the family, the routing, the column order and
+    /// the selection.
+    fn session_key(&self) -> Vec<u8> {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"rustred-sector-box-session-v1\0");
+        hasher.update(self.family.fingerprint().as_bytes());
+        hasher.update(&self.router.fingerprint());
+        hasher.update(self.order.fingerprint());
+        if let Some(selection) = &self.selection {
+            hasher.update(selection.selected_hash.as_bytes());
+            hasher.update(selection.master_hash.as_bytes());
+        }
+        hasher.finalize().as_bytes().to_vec()
     }
 
     /// The exact selected system and the target routes, with `fixed`
@@ -161,6 +255,7 @@ impl<const N: usize> BoxLaportaSession<N> {
         Ok((
             LaneRequest {
                 system,
+                targets: targets.to_vec(),
                 routes,
                 fixed: fixed_values,
             },

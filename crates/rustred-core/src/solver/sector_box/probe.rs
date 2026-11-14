@@ -78,6 +78,7 @@ impl LaneFailure {
 /// targets routed onto its columns and the parameter split.
 pub(crate) struct LaneRequest<const N: usize> {
     pub system: Arc<ExactSystem<N>>,
+    pub targets: Vec<[i16; N]>,
     pub routes: Vec<TargetRoute>,
     /// Fixed value of each family parameter, `None` for free parameters.
     pub fixed: Vec<Option<Rational>>,

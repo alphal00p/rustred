@@ -70,6 +70,11 @@ impl<const N: usize> ExactSystem<N> {
             .binary_search_by(|column| self.order.compare(column, integral))
             .ok()
     }
+
+    /// Nonzero entries of the rows.
+    pub(crate) fn terms(&self) -> usize {
+        self.rows.iter().map(Vec::len).sum()
+    }
 }
 
 /// Exact image of a routed integral: `(representative integral, factor)`.
