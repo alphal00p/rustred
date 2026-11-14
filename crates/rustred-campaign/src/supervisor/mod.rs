@@ -1228,9 +1228,16 @@ impl Supervisor {
                     Some(&report),
                 );
             }
-            // Leftovers carrying the attempt's marker (e.g. a helper that escaped the group).
-            let rules = self.scan_rules_launched();
+            // Leftovers the process layer already killed through its verified path (helpers that outlived the job).
             let marker = format!("{}:a{}", ch.job, ch.attempt);
+            for l in &report.leftovers_killed {
+                self.note(format!(
+                    "orphan_killed {{\"marker\":\"{marker}\",\"pid\":{},\"start_ticks\":{},\"comm\":{:?},\"by\":\"launcher\"}} (contract violation: process outlived its job)",
+                    l.pid, l.start_ticks, l.comm
+                ));
+            }
+            // Anything still carrying the attempt's marker (e.g. a helper that escaped the group before any scan).
+            let rules = self.scan_rules_launched();
             let killed = orphans::sweep(&rules, Some(&marker), Duration::from_secs(10), |_, _| {});
             for k in killed {
                 self.note(format!(
