@@ -493,10 +493,29 @@ fn modular_json<const N: usize>(report: &ModularReport<N>, seconds: f64) -> Valu
 
 /// File name of the solution at `d = value`: `/` -> `_`, `-` -> `m`.
 pub fn solution_file_name(value: &str) -> String {
-    format!(
-        "solution-{}.json",
-        value.trim().replace('/', "_").replace('-', "m")
-    )
+    format!("solution-{}.json", file_safe(value))
+}
+
+/// The file name of a solution whose certificates did not all pass
+/// (`solution-<d>.rejected.json`): kept for diagnosis, never read as a
+/// solution by name.
+pub fn rejected_file_name(value: &str) -> String {
+    format!("solution-{}.rejected.json", file_safe(value))
+}
+
+fn file_safe(value: &str) -> String {
+    value.trim().replace('/', "_").replace('-', "m")
+}
+
+/// A certificate's verdict: `passed`; `refuted` (a reduction is not in the
+/// span); or `no-verdict` (the certificate met only special points, or
+/// could not run).
+fn verdict<T>(result: &Result<T, SolverError>) -> &'static str {
+    match result {
+        Ok(_) => "passed",
+        Err(SolverError::Certification(_)) => "refuted",
+        Err(_) => "no-verdict",
+    }
 }
 
 fn run<const N: usize>(
@@ -780,7 +799,6 @@ fn run<const N: usize>(
                 "verification prime {prime} is also a reconstruction prime"
             )));
         }
-        let name = solution_file_name(value);
         let ff_seconds = clock.elapsed().as_secs_f64();
         // The certificate prime must be independent of the solution. The
         // certificates that pass are written into the solution file.
@@ -788,12 +806,13 @@ fn run<const N: usize>(
         let certificate = if primes.contains(&certificate_prime)
             || verification.contains(&certificate_prime)
         {
-            json!({"prime": certificate_prime, "ok": false,
+            json!({"prime": certificate_prime, "ok": false, "verdict": "no-verdict",
                    "detail": "the certificate prime is a reconstruction or verification prime of this solution"})
         } else {
             let clock = Instant::now();
             let result = session.certify(&solution, Some(certificate_prime), 0x5345_4354);
             let entry = json!({"prime": certificate_prime, "ok": result.is_ok(),
+                   "verdict": verdict(&result),
                    "seconds": clock.elapsed().as_secs_f64(), "detail": format!("{result:?}")});
             passed.extend(result.ok());
             entry
@@ -804,7 +823,7 @@ fn run<const N: usize>(
             let clock = Instant::now();
             let result = session.certify(&solution, None, 0);
             ok &= result.is_ok();
-            certificates["exact"] = json!({"ok": result.is_ok(),
+            certificates["exact"] = json!({"ok": result.is_ok(), "verdict": verdict(&result),
                 "seconds": clock.elapsed().as_secs_f64(), "detail": format!("{result:?}")});
             passed.extend(result.ok());
         }
@@ -812,10 +831,16 @@ fn run<const N: usize>(
         let text = solution
             .to_harness_json(&session.harness_family(), &extra, &passed)
             .map_err(engine(&format!("solution file at {dimension} = {value}")))?;
-        write_atomic(&spec.out_dir.join(&name), text.as_bytes())?;
-        if !ok {
+        // Only a certified solution takes the name consumers read; one whose
+        // certificates did not all pass is kept for diagnosis under another
+        // name and never replaces an existing `solution-<d>.json`.
+        let name = if ok {
+            solution_file_name(value)
+        } else {
             status = "certificate-failed";
-        }
+            rejected_file_name(value)
+        };
+        write_atomic(&spec.out_dir.join(&name), text.as_bytes())?;
         per_d.push(json!({
             "d": value, "file": name, "blake3": blake3::hash(text.as_bytes()).to_hex().to_string(),
             "ff_seconds": ff_seconds, "free": solution.free,

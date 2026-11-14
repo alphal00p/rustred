@@ -184,7 +184,10 @@ fn k6_eta_derivative_equations_match_the_campaign_goldens() {
     assert_eq!(code, 0, "{third}");
     assert_eq!(third["restored_from_checkpoint"], false);
     // A reconstruction prime as the certificate prime is refused: the
-    // solution is written, the certificate fails, exit 1.
+    // certificate fails, exit 1, and the solution is kept for diagnosis as
+    // `solution-37_11.rejected.json`; the certified `solution-37_11.json`
+    // of the earlier run is not replaced.
+    let good = std::fs::read(dir.join("out").join("solution-37_11.json")).unwrap();
     let mut reused = spec.clone();
     reused["d_list"] = json!(["37/11"]);
     reused["certificate_prime"] = json!(
@@ -198,6 +201,20 @@ fn k6_eta_derivative_equations_match_the_campaign_goldens() {
     assert_eq!(
         verdict["per_d"][0]["certificates"]["probabilistic"]["ok"],
         false
+    );
+    assert_eq!(
+        verdict["per_d"][0]["certificates"]["probabilistic"]["verdict"],
+        "no-verdict"
+    );
+    assert_eq!(verdict["per_d"][0]["file"], "solution-37_11.rejected.json");
+    assert!(
+        dir.join("out")
+            .join("solution-37_11.rejected.json")
+            .exists()
+    );
+    assert_eq!(
+        std::fs::read(dir.join("out").join("solution-37_11.json")).unwrap(),
+        good
     );
     std::fs::remove_dir_all(&dir).unwrap();
 }

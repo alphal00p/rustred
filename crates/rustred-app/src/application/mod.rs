@@ -105,7 +105,7 @@ pub use saved_application::{
 pub use sector_box::{
     DEFAULT_CERTIFICATE_PRIME, LimitsSpec, SECTOR_BOX_ARITIES, SECTOR_BOX_REDUCE_REPORT_SCHEMA,
     SECTOR_BOX_REDUCE_SPEC_SCHEMA, SectorBoxReduceOutcome, SectorBoxReduceSpec, SeedingSpec,
-    TubeSpec, sector_box_reduce, solution_file_name,
+    TubeSpec, rejected_file_name, sector_box_reduce, solution_file_name,
 };
 
 pub(crate) use routed_campaign::{
