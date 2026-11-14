@@ -285,7 +285,13 @@ pub fn escalate(
                 skipped.push(json!({"step": name, "why": "over_seed_cap", "seeds": pr.seeds}));
                 continue;
             }
-            if !seen_sets.insert(format!("{}|{}|{}", pr.seed_set_digest, pr.symmetry_rows, pr.relation_rule)) {
+            if !seen_sets.insert(format!(
+                "{}|{}|{}|{}",
+                pr.seed_set_digest,
+                pr.shells.join("+"),
+                pr.symmetry_rows,
+                pr.relation_rule
+            )) {
                 skipped.push(json!({"step": name, "why": "same_seed_set_as_an_earlier_step", "seeds": pr.seeds}));
                 continue;
             }

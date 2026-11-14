@@ -25,6 +25,19 @@ const STEPS: [&str; 2] = ["d0_cnone_foff_mM1C", "d1_cnone_foff_mM1C"];
 
 /// The toy without recipe sources, with the escalation (and optionally the big-node mode) configured.
 fn setup(tag: &str, top: i32, max_terminals: Option<usize>, scale: bool, ms: u64) -> (Tmp, PathBuf, PathBuf) {
+    setup_with(tag, top, max_terminals, scale, ms, false)
+}
+
+/// `clauses`: the start set is the union of clause "box" = {[top+1,1,0]} and clause "layer" = {[top+2,1,0]} (a key
+/// outside the first clause's closure, uncovered: escalated and solved onto [top+1,1,0]).
+fn setup_with(
+    tag: &str,
+    top: i32,
+    max_terminals: Option<usize>,
+    scale: bool,
+    ms: u64,
+    clauses: bool,
+) -> (Tmp, PathBuf, PathBuf) {
     let t = Tmp::new(tag);
     let cfg = Toy {
         top,
@@ -51,7 +64,10 @@ fn setup(tag: &str, top: i32, max_terminals: Option<usize>, scale: bool, ms: u64
     // the oracle: the first step solves [k,1,0] for k >= 2, nothing solves [1,1,0]
     let op = files.dir.join("oracle.jsonl");
     let mut o = String::new();
-    for k in 2..=top {
+    for k in 2..=top + if clauses { 2 } else { 0 } {
+        if k == top + 1 {
+            continue;
+        }
         o.push_str(&format!(
             "{}\n",
             json!({"source": recipe_source_id(&[k, 1, 0], STEPS[0]), "key": [k, 1, 0], "verdict": "SOLVED",
@@ -65,9 +81,24 @@ fn setup(tag: &str, top: i32, max_terminals: Option<usize>, scale: bool, ms: u64
     node["escalation"] = json!({"symmetry_at_key": true, "steps": STEPS,
         "terminals": max_terminals.map(|m| json!({"max_terminals": m}))});
     if scale {
-        node["scale"] = json!({"store_budget_mib": 1, "store_chunk_files": 2});
+        // the clause test also runs the exact tier at once (no keys-only pass first)
+        node["scale"] = json!({"store_budget_mib": 1, "store_chunk_files": 2, "keys_only_first": !clauses});
     }
     node["budgets"]["max_rounds"] = json!(40);
+    if clauses {
+        let a = files.dir.join("clause-box.jsonl");
+        let b = files.dir.join("clause-layer.jsonl");
+        std::fs::write(&a, format!("{}\n", json!([top + 1, 1, 0]))).unwrap();
+        std::fs::write(&b, format!("{}\n", json!([top + 2, 1, 0]))).unwrap();
+        let mut sp: Value = serde_json::from_slice(&std::fs::read(&files.import_spec).unwrap()).unwrap();
+        let st = PathBuf::from(sp["start"]["path"].as_str().unwrap());
+        std::fs::write(&st, format!("{}\n{}\n", json!([top + 1, 1, 0]), json!([top + 2, 1, 0]))).unwrap();
+        sp["start"] = json!({"path": st.display().to_string(), "format": "keys_jsonl"});
+        std::fs::write(&files.import_spec, serde_json::to_vec_pretty(&sp).unwrap()).unwrap();
+        node["clauses"] = json!([
+            {"id": "box", "start": {"path": a.display().to_string(), "format": "keys_jsonl"}},
+            {"id": "layer", "start": {"path": b.display().to_string(), "format": "keys_jsonl"}}]);
+    }
     std::fs::write(&files.config, serde_json::to_vec_pretty(&c).unwrap()).unwrap();
     let spec = campaign_spec(&t.campaign, &files, FAKE, &cpus());
     let sp = write_spec(&t, "spec.json", &spec);
@@ -243,4 +274,28 @@ fn interrupt_and_resume_through_the_escalation_gives_the_same_decisions() {
         assert_eq!(result_json(&cb)["verdict"], "closed");
         assert_eq!(verify(&cb), 0);
     }
+}
+
+#[test]
+fn two_box_clauses_get_their_own_verdicts_and_every_key_its_clause() {
+    let _g = serial();
+    let (_t, sp, cdir) = setup_with("t2cl", 3, Some(2), true, 20, true);
+    let codes = run_to_end(&sp, &cdir, &["--plain"]);
+    assert_eq!(codes.last(), Some(&0), "{}", log_tail(&cdir));
+    let r = result_json(&cdir);
+    assert_eq!(r["verdict"], "closed", "{r:#}");
+    let cl = r["clauses"].as_array().unwrap_or_else(|| panic!("{r:#}"));
+    assert_eq!(cl.len(), 2);
+    assert_eq!((cl[0]["id"].as_str(), cl[0]["verdict"].as_str()), (Some("box"), Some("closed")), "{cl:?}");
+    assert_eq!((cl[1]["id"].as_str(), cl[1]["verdict"].as_str()), (Some("layer"), Some("closed")), "{cl:?}");
+    assert_eq!(cl[1]["label"], "layer: closed");
+    // the layer key [5,1,0] is the only key outside the first clause's closure; the layer's own closure contains the
+    // whole first clause's chain below it
+    assert_eq!(cl[1]["brought_in"], 1, "{cl:?}");
+    assert!(cl[1]["closure_keys"].as_u64().unwrap() > cl[0]["closure_keys"].as_u64().unwrap(), "{cl:?}");
+    let ck = std::fs::read_to_string(cdir.join("closeloop/toy/final/statement/clause-keys.jsonl")).unwrap();
+    let v: Vec<Value> = ck.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    assert_eq!(v, vec![json!({"key": [5, 1, 0], "clause": "layer"})]);
+    assert_eq!(r["clause_attribution"]["union_keys_outside_every_clause"], 0);
+    assert_eq!(verify(&cdir), 0);
 }

@@ -98,6 +98,8 @@ pub struct PassIn {
     pub derived: DerivedState,
     /// lane t266run: absolute directory of this round's escalation recipe files.
     pub recipe_dir: PathBuf,
+    /// lane t266run: the clauses of the box (closeloop.md 17.4); None = one box.
+    pub clauses: Option<Vec<super::config::ClauseCfg>>,
 }
 
 impl PassIn {
@@ -136,6 +138,7 @@ impl PassIn {
             escalation: None,
             derived: DerivedState::default(),
             recipe_dir: PathBuf::from("/nonexistent-escalation-dir"),
+            clauses: None,
         }
     }
 }
@@ -294,7 +297,7 @@ struct RelRec {
 
 /// Whether a row is CERTIFIED (closeloop.md 8 / 13.2): a declared terminal, or served at >= the required level with
 /// the facts decided at the key, on a basis that allows it (Tier C, strict, not diagnostic).
-fn row_certified(r: &KeyRow, required: Level, basis_ok: bool) -> bool {
+pub(super) fn row_certified(r: &KeyRow, required: Level, basis_ok: bool) -> bool {
     match r.status {
         RowStatus::Terminal => true,
         RowStatus::Served => {
@@ -434,23 +437,31 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         tier: if inp.exact_tier { Some(Tier::K) } else { None },
         max_rounds: None,
     };
-    let res_k = if stream_k {
-        rustred_campaign_core::import::check::check_streamed(&set, &ev, &opts_k, &krows)
+    // lane t266run: with `scale.keys_only_first: false` the exact tier runs at once (its own fact / proof requests
+    // drive the jobs; only sensible when the evidence is mostly in, else the requests are many)
+    let skip_k = inp.exact_tier && inp.scale.as_ref().is_some_and(|s| !s.keys_only_first);
+    let res_k: Option<CheckResult> = if skip_k {
+        None
     } else {
-        check(&set, &ev, &opts_k)
-    }
-    .map_err(|e| format!("check: {e}"))?;
+        Some(
+            if stream_k {
+                rustred_campaign_core::import::check::check_streamed(&set, &ev, &opts_k, &krows)
+            } else {
+                check(&set, &ev, &opts_k)
+            }
+            .map_err(|e| format!("check: {e}"))?,
+        )
+    };
     let keys_only_n = res_k
-        .streamed
         .as_ref()
-        .map(|s| s.rows as usize)
-        .unwrap_or(res_k.rows.len());
+        .map(|r| r.streamed.as_ref().map(|s| s.rows as usize).unwrap_or(r.rows.len()))
+        .unwrap_or(0);
     // the facts the exact tier needs: every served rule key's (record, key) not asked yet
     let mut missing_facts: BTreeMap<(usize, usize), BTreeSet<Vec<i32>>> = BTreeMap::new();
     // records with ELIDED witness loci: rr_proof instantiate refuses them as a whole (fail closed, R-f): their keys
     // get no fact job; the exact tier judges them from their bound per-key proofs and lists what stays unknown
     let mut elided_no_facts = 0u64;
-    if inp.exact_tier && stream_k {
+    if inp.exact_tier && stream_k && !skip_k {
         super::scale::missing_facts_streamed(
             &set,
             &ev,
@@ -460,7 +471,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             &mut elided_no_facts,
         )?;
     } else if inp.exact_tier {
-        for r in &res_k.rows {
+        for r in res_k.iter().flat_map(|x| x.rows.iter()) {
             if let (RowStatus::Served, Some(Server::Rule { table, record })) = (r.status, &r.server)
             {
                 if set.rules[*table][*record].witness == WitnessKind::Elided {
@@ -483,23 +494,27 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     let n_missing: usize = missing_facts.values().map(BTreeSet::len).sum();
     let can_ask_facts = inp.proof.as_ref().is_some_and(|p| p.facts);
     let tier_c_now = inp.exact_tier && n_missing == 0;
-    let streamed_res;
-    let res: &CheckResult = if tier_c_now {
-        streamed_res = rustred_campaign_core::import::check::check_streamed(
-            &set,
-            &ev,
-            &CheckOptions {
-                threads,
-                tier: Some(Tier::C),
-                max_rounds: None,
-            },
-            &inp.rows_path,
+    let streamed_res: Option<CheckResult> = if tier_c_now {
+        Some(
+            rustred_campaign_core::import::check::check_streamed(
+                &set,
+                &ev,
+                &CheckOptions {
+                    threads,
+                    tier: Some(Tier::C),
+                    max_rounds: None,
+                },
+                &inp.rows_path,
+            )
+            .map_err(|e| format!("exact-tier check: {e}"))?,
         )
-        .map_err(|e| format!("exact-tier check: {e}"))?;
-        &streamed_res
     } else {
-        &res_k
+        None
     };
+    let res: &CheckResult = streamed_res
+        .as_ref()
+        .or(res_k.as_ref())
+        .ok_or("no check result")?;
     let required = inp.required.unwrap_or(res.required);
     let (strict, strict_why) = strictness(&set);
     let diagnostic = res.summary.diagnostic || res.summary.verdict == Verdict::Diagnostic;
@@ -599,8 +614,11 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     uncovered.sort();
     uncovered.dedup();
     let mut esc_out: Option<EscOut> = None;
+    // (at the exact tier only when it is wanted: a key of the keys-only superset may be reached through zero terms)
+    let decided_tier = !inp.exact_tier || tier_c_now;
     if let Some(esc) = &inp.escalation
         && !closed
+        && decided_tier
         && inp.round <= inp.budgets.max_rounds
     {
         let group = if esc.symmetry_at_key
@@ -653,7 +671,9 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     // new proof / fact batches (closeloop.md 13.1)
     let mut proof_batches: Vec<ProofBatch> = vec![];
     if let (Some(pp), false) = (&inp.proof, closed) {
-        if pp.import_requests {
+        // lane t266run: per-key proofs only for the closure that is decided (the exact tier when it is wanted): the
+        // keys-only superset holds keys reached only through zero terms
+        if pp.import_requests && (decided_tier || inp.scale.is_none()) {
             for r in &res.proof_requests {
                 let keys: Vec<Vec<i32>> = r
                     .keys
@@ -832,6 +852,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     // progress -> every uncovered key is a proposal; accepted under the spec's finite-terminal rule, else open
     if let Some(esc) = &inp.escalation
         && !closed
+        && decided_tier
         && batches.is_empty()
         && proof_batches.is_empty()
         && !uncovered.is_empty()
@@ -964,7 +985,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             &set,
             &ev,
             res,
-            (tier_c_now && !stream_k).then_some(&res_k),
+            res_k.as_ref().filter(|_| tier_c_now && !stream_k),
             FinalCtx {
                 verdict,
                 blocking: &blocking,
@@ -982,14 +1003,73 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     } else {
         None
     };
+    let rules_used = res.summary.used_rules;
+    let res_tier = res.tier;
+    // the union's rows: write_statement ADOPTS the streamed rows file as the statement's statement.jsonl
+    let union_rows = res.streamed.as_ref().map(|s| {
+        let st = inp.final_dir.join("statement").join("statement.jsonl");
+        if st.is_file() { st } else { PathBuf::from(&s.path) }
+    });
+    // lane t266run (closeloop.md 17.4): per-clause verdicts and attribution at the final pass, one closure at a time
+    // (the union's results are dropped first)
+    let mut final_ = final_;
+    if let (Some(f), Some(cl)) = (final_.as_mut(), inp.clauses.as_ref()) {
+        drop(streamed_res);
+        drop(res_k);
+        match union_rows {
+            Some(ur) => {
+                let v = super::clauses::per_clause(
+                    cl,
+                    &inp.spec_text,
+                    &inp.base,
+                    &set,
+                    &ev,
+                    res_tier,
+                    threads,
+                    required,
+                    basis_ok,
+                    &ur,
+                    &inp.final_dir.join("clauses"),
+                    &inp.final_dir.join("statement"),
+                )?;
+                // the clause of every open key
+                let op = inp.final_dir.join("open_keys.jsonl");
+                let text = std::fs::read_to_string(&op).unwrap_or_default();
+                let mut lines: Vec<Value> = text
+                    .lines()
+                    .filter(|l| !l.trim().is_empty())
+                    .filter_map(|l| serde_json::from_str(l).ok())
+                    .collect();
+                let keys: Vec<Vec<i32>> = lines
+                    .iter()
+                    .map(|v| serde_json::from_value(v["key"].clone()).unwrap_or_default())
+                    .collect();
+                let cof = super::clauses::clause_of_keys(cl, &inp.final_dir.join("clauses"), &keys)?;
+                let mut out = String::new();
+                for (v, c) in lines.iter_mut().zip(cof) {
+                    v["clause"] = json!(c);
+                    out.push_str(&v.to_string());
+                    out.push('\n');
+                }
+                std::fs::write(&op, out).map_err(|e| format!("open_keys: {e}"))?;
+                f.result["clauses"] = v["clauses"].clone();
+                f.result["clause_attribution"] = json!({"default_clause": v["default_clause"],
+                    "clause_keys_file": v["clause_keys_file"],
+                    "union_keys_outside_every_clause": v["union_keys_outside_every_clause"]});
+            }
+            None => {
+                f.result["clauses"] = json!("not computed: the union check kept its rows in memory (no rows file)");
+            }
+        }
+    }
     Ok(PassOut {
         round: inp.round,
         spec_digest: set.report.spec_digest.clone(),
         check: check_v,
         defect,
         closure_keys: keys,
-        rules_used: res.summary.used_rules,
-        rules_total: rules_total.max(res.summary.used_rules),
+        rules_used,
+        rules_total: rules_total.max(rules_used),
         batches,
         proof_batches,
         final_,

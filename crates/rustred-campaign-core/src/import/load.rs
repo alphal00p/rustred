@@ -1728,7 +1728,8 @@ pub fn read_key_list(path: &Path, arity: usize) -> Result<Vec<Vec<i32>>, ImportE
     Ok(out)
 }
 
-fn read_start(spec: &TableSetSpec, base: &Path, codec: KeyCodec) -> Result<KeySet, ImportError> {
+/// The start set of a spec (lane t266run: also used for one clause of a box made of several clauses).
+pub fn read_start(spec: &TableSetSpec, base: &Path, codec: KeyCodec) -> Result<KeySet, ImportError> {
     let path = resolve(base, &spec.start.path);
     verify_file(&path, spec.start.sha256.as_deref())?;
     let arity = codec.arity();

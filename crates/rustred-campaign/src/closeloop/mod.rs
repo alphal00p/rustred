@@ -3,6 +3,7 @@
 //! (R49) -> statement + comparison. Generic over nodes (L8): node names, paths, orders and budgets are configuration.
 
 pub mod accept;
+pub mod clauses;
 pub mod config;
 // lane t266run (closeloop.md 17): own escalation of uncovered keys, terminal proposals, derived spec part
 pub mod derived;

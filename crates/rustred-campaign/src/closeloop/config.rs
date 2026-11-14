@@ -208,6 +208,19 @@ pub struct NodeCfg {
     /// the escalation cannot serve into terminal proposals; None = as before (only the spec's recipe sources).
     #[serde(default)]
     pub escalation: Option<EscalationCfg>,
+    /// lane t266run (closeloop.md 17.4): the box as CLAUSES (data), e.g. a proved box and an added layer; the import
+    /// spec's start must be their union; the result gives a verdict per clause and attributes every key to the first
+    /// clause whose own closure contains it. None = one box.
+    #[serde(default)]
+    pub clauses: Option<Vec<ClauseCfg>>,
+}
+
+/// One clause of the box: an id and an import start spec (`{"path", "format", ..}`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClauseCfg {
+    pub id: String,
+    pub start: serde_json::Value,
 }
 
 /// The escalation of uncovered keys (DATA; lane t266run). Step names are the import's recipe-step grammar
@@ -250,20 +263,20 @@ pub struct TerminalRule {
 fn d_sym_terms() -> usize {
     4096
 }
-/// The default escalation: the symmetry rows at the key, then depth-2 shells centred one step toward the floor on a
-/// NUMERATOR slot, on the last / first off-floor line and on every off-floor slot (coord-ec1-seed-centre.md v2: centres
-/// on lines / numerators / union; a numerator-centred depth-2 shell comes before any depth 3), then depth 3. All with
-/// the M1-first relation rule. Data overrides it.
+/// The default escalation (after the exact symmetry relation at the key, in-process): depth-2 shells of the checker's
+/// shell family (`_wdown`: S0, S1, Sm1, S1m1, S2) centred one step toward the floor on the last off-floor line, on a
+/// NUMERATOR slot, on the first line and on every off-floor slot (coord-ec1-seed-centre.md v2), then without the
+/// floor, depth 3 last (each solve under the per-key budget). Cheapest first (measured prior on a neighbouring node:
+/// 78 % of unserved keys need only symmetry, 22 % a depth-2 recipe, depth 3 rare). All M1-first. Data overrides it.
 fn d_steps() -> Vec<String> {
     [
-        "d0_cnone_foff_ssym_mM1C",
-        "d2_cnum_fon_mM1C",
-        "d2_cnum_foff_mM1C",
-        "d2_clast_fon_mM1C",
-        "d2_cfirst_fon_mM1C",
-        "d2_cunion_fon_mM1C",
-        "d3_cfirst_foff_mM1C",
-        "d3_cunion_fon_mM1C",
+        "d2_clast_fon_wdown_mM1C",
+        "d2_cnum_fon_wdown_mM1C",
+        "d2_cfirst_fon_wdown_mM1C",
+        "d2_cunion_fon_wdown_mM1C",
+        "d2_cnum_foff_wdown_mM1C",
+        "d2_cfirst_foff_wdown_mM1C",
+        "d3_cfirst_foff_wdown_mM1C",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -293,6 +306,10 @@ pub struct ScaleCfg {
     /// Write the keys-only pass's rows to a file (only exceptional rows in memory) instead of keeping every row.
     #[serde(default = "d_yes")]
     pub stream_keys_only: bool,
+    /// Run the keys-only pass before the exact tier (it lists every served rule key without a fact); false = the exact
+    /// tier at once, its own fact / proof requests drive the jobs (when the imported evidence covers most keys).
+    #[serde(default = "d_yes")]
+    pub keys_only_first: bool,
 }
 
 fn d_store_budget() -> u64 {

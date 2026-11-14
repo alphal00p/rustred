@@ -622,6 +622,7 @@ impl CloseFromMaterialSource {
             escalation: r.cfg.escalation.clone(),
             derived,
             recipe_dir,
+            clauses: r.cfg.clauses.clone(),
         };
         let h = std::thread::Builder::new()
             .name(format!("closeloop-pass-{}", r.n))

@@ -48,6 +48,9 @@ pub struct Step {
     pub symmetry_first: bool,
     /// `Some("M1C")` etc. (an M1-first relation rule)
     pub relation: Option<String>,
+    /// lane t266run: `_wdown` = the independent checker's shell family (its tool/recipe.py, as t266-close ran it):
+    /// besides the up-shells S0..Sk, the one-down shells `Sm1` (k >= 1) and `S1m1` (k >= 2). Absent = up-shells only.
+    pub down_shells: bool,
 }
 
 /// Parse `d<k>[_c<centre>][_f<on|off>][_s<..>][_m<..>]` (parts after `d<k>` in any order; unknown parts refused).
@@ -66,6 +69,7 @@ pub fn parse_step(name: &str) -> Result<Step, ImportError> {
         floor: false,
         symmetry_first: false,
         relation: None,
+        down_shells: false,
     };
     for p in parts {
         match p.split_at(1) {
@@ -83,6 +87,7 @@ pub fn parse_step(name: &str) -> Result<Step, ImportError> {
             ("f", "off") => st.floor = false,
             ("s", _) => st.symmetry_first = true,
             ("m", m) if !m.is_empty() => st.relation = Some(m.to_string()),
+            ("w", "down") => st.down_shells = true,
             _ => return Err(bad(&format!("unknown part {p:?}"))),
         }
     }
@@ -158,7 +163,22 @@ pub fn explicit_seeds(
     } else {
         vec![]
     };
-    let shells: Vec<String> = (0..=st.depth).map(|k| format!("S{k}")).collect();
+    let shells: Vec<String> = if st.down_shells {
+        // the checker's family: S0; S1, Sm1 (k >= 1); S1m1, S2 (k >= 2); S3 .. Sk
+        let mut v = vec!["S0".to_string()];
+        if st.depth >= 1 {
+            v.push("S1".into());
+            v.push("Sm1".into());
+        }
+        if st.depth >= 2 {
+            v.push("S1m1".into());
+            v.push("S2".into());
+        }
+        v.extend((3..=st.depth).map(|k| format!("S{k}")));
+        v
+    } else {
+        (0..=st.depth).map(|k| format!("S{k}")).collect()
+    };
     (centres, floor, shells, st.symmetry_first)
 }
 
@@ -265,4 +285,29 @@ pub fn assignment_lines(recipes: &[GeneratedRecipe]) -> String {
         .iter()
         .map(|g| format!("{}\n", json!({"recipe": g.id, "keys": g.keys})))
         .collect()
+}
+
+#[cfg(test)]
+mod t266run_tests {
+    use super::*;
+
+    #[test]
+    fn down_shell_family_is_the_checkers() {
+        let st = parse_step("d2_cnum_fon_wdown_mM1C").unwrap();
+        assert!(st.down_shells);
+        let lines: Vec<bool> = (0..4).map(|i| i < 3).collect();
+        let (c, f, s, sym) = explicit_seeds(&st, &[2, 1, 1, -1], &lines, &[0, 1, 2], &[3]);
+        assert_eq!(c, vec![vec![0, 0, 0, 1]]);
+        assert_eq!(f, vec![0]);
+        assert_eq!(s, vec!["S0", "S1", "Sm1", "S1m1", "S2"]);
+        assert!(!sym);
+        let (_, _, s1, _) = explicit_seeds(&parse_step("d1_cnone_wdown").unwrap(), &[2, 1, 1, -1], &lines, &[0, 1, 2], &[3]);
+        assert_eq!(s1, vec!["S0", "S1", "Sm1"]);
+        let (_, _, s3, _) = explicit_seeds(&parse_step("d3_cfirst_wdown").unwrap(), &[2, 1, 1, -1], &lines, &[0, 1, 2], &[3]);
+        assert_eq!(s3, vec!["S0", "S1", "Sm1", "S1m1", "S2", "S3"]);
+        // without the part: up-shells only (unchanged)
+        let (_, _, su, _) = explicit_seeds(&parse_step("d2_cnum_fon").unwrap(), &[2, 1, 1, -1], &lines, &[0, 1, 2], &[3]);
+        assert_eq!(su, vec!["S0", "S1", "S2"]);
+        assert!(parse_step("d2_wup").is_err());
+    }
 }
