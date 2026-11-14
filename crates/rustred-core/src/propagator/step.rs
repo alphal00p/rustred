@@ -41,6 +41,18 @@ pub trait PLaneStep: Send + Sync {
     fn boxed_record(&self) -> Option<std::sync::Arc<super::table_import::BoxedNodeRecord>> {
         None
     }
+
+    /// vk5l WP2: one rule chain of a boxed Custom owner from `from` to `to`
+    /// (owner keys) through its rules and the recipe relations solved so far,
+    /// at most `budget` keys expanded (`None`: not found, or no such owner).
+    fn recipe_chain(
+        &self,
+        _from: &[i64],
+        _to: &[i64],
+        _budget: usize,
+    ) -> Option<Vec<super::recipes::PChainLink>> {
+        None
+    }
 }
 
 /// The entries of [`POrderKey::Lexicographic`].

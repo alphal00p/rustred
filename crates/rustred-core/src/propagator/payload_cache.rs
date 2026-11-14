@@ -398,6 +398,15 @@ impl PLaneStep for PEvictableStep {
     fn boxed_record(&self) -> Option<Arc<super::table_import::BoxedNodeRecord>> {
         self.program().ok()?.boxed_record()
     }
+
+    fn recipe_chain(
+        &self,
+        from: &[i64],
+        to: &[i64],
+        budget: usize,
+    ) -> Option<Vec<super::recipes::PChainLink>> {
+        self.program().ok()?.recipe_chain(from, to, budget)
+    }
 }
 
 #[cfg(test)]

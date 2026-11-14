@@ -815,10 +815,11 @@ impl PEngine {
     }
 
     /// Run one request; the terminal keys of the output are [`PTerminalCodec`]
-    /// keys.
+    /// keys. vk5l WP2: every stepped (or replayed) key of a boxed node
+    /// outside its certified set is added to `outside`.
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::mutable_key_type)] // PKey views cache their IntegralKey lazily; Hash/Ord read only the packed powers (rr-alloc)
-    pub(crate) fn run(
+    pub(crate) fn run_reporting(
         &self,
         library: &PLibrary,
         initial: BTreeMap<PKey, Coefficient>,
@@ -828,6 +829,7 @@ impl PEngine {
         limits: ReductionLimits,
         mut inspector: Option<&mut dyn PInspector>,
         retain: bool,
+        outside: &mut BTreeSet<super::library::POutsideKey>,
     ) -> Result<OrderedOutput, PError> {
         // p requests run the p profile (M5 batch 2) unless the caller chose one.
         let scheduler = scheduler.resolve_profile(OrderedProfile::P);
@@ -878,6 +880,7 @@ impl PEngine {
                 retain,
             },
             inspector,
+            outside: BTreeSet::new(),
         };
         let output = run_with_step_cache_and_options(
             &mut kernel,
@@ -917,6 +920,7 @@ impl PEngine {
         }
         super::step_memo::end(shared_memo);
         canon_stats::flush();
+        outside.append(&mut kernel.outside);
         output
     }
 }
@@ -2725,7 +2729,36 @@ impl<'l> PStepper<'l> {
         Ok(step)
     }
 
+    /// vk5l WP2: `key` as an outside key of a boxed node whose program is
+    /// built (an Apply key outside its certified set), else `None`.
+    fn outside_of(&self, key: &PKey) -> Option<super::library::POutsideKey> {
+        let PKey::Apply { class, view } = key else {
+            return None;
+        };
+        let owner = self.library.owner(*class)?;
+        if owner.spec.lane != OwnerLane::Custom {
+            return None;
+        }
+        let OwnerProgram::Lane(lane) = owner.loaded_program()? else {
+            return None;
+        };
+        let node = lane.boxed_node()?;
+        let slot = self.engine.owner(*class).ok()?;
+        let slots = view.slots();
+        let (powers, _) = self.engine.split(slot.presentation, &slots).ok()?;
+        (lane.box_contains(powers) == Some(false)).then(|| super::library::POutsideKey {
+            node: node.to_owned(),
+            presentation: slot.presentation,
+            powers: powers.to_vec(),
+        })
+    }
+
     fn shard(&self, key: &PKey) -> Option<OrderedStepShard> {
+        // vk5l WP2: a step outside a certified set is never recorded nor
+        // replayed, so every request that meets it steps (and reports) it.
+        if self.outside_of(key).is_some() {
+            return None;
+        }
         let (stage, t, class) = match key {
             PKey::Route { presentation, view } => (
                 OrderedStepStage::Route,
@@ -2900,9 +2933,18 @@ impl OrderedStepper for PStepper<'_> {
 struct PKernel<'l, 'r> {
     stepper: PStepper<'l>,
     inspector: Option<&'r mut dyn PInspector>,
+    /// vk5l WP2: keys of boxed nodes outside their certified sets, met so far.
+    outside: BTreeSet<super::library::POutsideKey>,
 }
 
 impl PKernel<'_, '_> {
+    /// vk5l WP2: note `key` when it is outside a boxed node's certified set.
+    fn note_outside(&mut self, key: &PKey) {
+        if let Some(outside) = self.stepper.outside_of(key) {
+            self.outside.insert(outside);
+        }
+    }
+
     /// The path census of the request, when it is on.
     fn census(&mut self) -> Option<&mut PPathCensus> {
         if !self.stepper.census.on {
@@ -2971,6 +3013,9 @@ impl OrderedKernel for PKernel<'_, '_> {
     ) -> Result<OrderedStep<PKey>, PError> {
         let (result, account) = OrderedStepper::step(&self.stepper, key);
         self.account(account, request, work)?;
+        if result.is_ok() {
+            self.note_outside(key);
+        }
         result
     }
 
@@ -3085,12 +3130,14 @@ impl<'l> ConcurrentOrderedKernel for PKernel<'l, '_> {
 
     fn absorb(
         &mut self,
-        _: &PKey,
+        key: &PKey,
         account: PAccount,
         request: &mut ReductionRequest,
         work: &mut ReductionStatistics,
     ) -> Result<(), PError> {
-        self.account(account, request, work)
+        self.account(account, request, work)?;
+        self.note_outside(key);
+        Ok(())
     }
 }
 
@@ -3099,7 +3146,12 @@ impl OrderedStepCacheKernel for PKernel<'_, '_> {
         self.stepper.shard(key)
     }
 
-    fn step_cache_hit(&mut self, _key: &PKey) -> Result<(), PError> {
+    fn step_may_record(&self, key: &PKey) -> bool {
+        self.stepper.outside_of(key).is_none()
+    }
+
+    fn step_cache_hit(&mut self, key: &PKey) -> Result<(), PError> {
+        self.note_outside(key);
         if let Some(census) = self.census() {
             census.cache_hit();
         }
@@ -3195,6 +3247,17 @@ impl<'l> ConcurrentStepCacheKernel for PKernel<'l, '_> {
         Self: 's,
     {
         stepper.recorded_key(stage, view)
+    }
+
+    fn stepper_may_record<'s>(stepper: &PStepper<'s>, key: &PKey) -> bool
+    where
+        Self: 's,
+    {
+        stepper.outside_of(key).is_none()
+    }
+
+    fn detached_may_record(stepper: &PStepper<'l>, key: &PKey) -> bool {
+        stepper.outside_of(key).is_none()
     }
 
     fn detached_shard(stepper: &PStepper<'l>, key: &PKey) -> Option<OrderedStepShard> {

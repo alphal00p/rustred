@@ -1,7 +1,7 @@
 //! `PLibrary`, its builder and the reduction request (types and builder:
 //! M2-I0 rr-iface; reduce, step-cache binding and onto-masters bodies:
 //! M2-T6 rr-plib).
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::ops::RangeInclusive;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -119,6 +119,11 @@ impl POwner {
             spec,
             program: OnceLock::from(Ok(program)),
         }
+    }
+
+    /// The program if it is already built (never builds it).
+    pub fn loaded_program(&self) -> Option<&OwnerProgram> {
+        self.program.get().and_then(|program| program.as_ref().ok())
     }
 
     /// The owner's program: the seeded one, or built once through [`lane_program`].
@@ -254,6 +259,22 @@ pub struct PReduction {
     pub terms: Vec<PTerm>,
     pub nonzero_conditions: Vec<Coefficient>,
     pub statistics: PStatistics,
+    /// vk5l WP2: the keys of boxed nodes OUTSIDE their certified sets that
+    /// this request reduced at run time (rules, then recipe families at the
+    /// key); empty when every key stayed inside. Sorted.
+    pub outside_certified: Vec<POutsideKey>,
+    /// vk5l WP2: the relation caches during this request (process-wide
+    /// counters before / after: approximate when requests run concurrently).
+    pub relation_cache: super::relation_entries::RelationCacheStatistics,
+}
+
+/// vk5l WP2: one key of a boxed node outside its certified set, reduced at
+/// run time.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct POutsideKey {
+    pub node: String,
+    pub presentation: PresentationId,
+    pub powers: Vec<i64>,
 }
 
 /// One library program: presentations, census, owners, edge maps and
@@ -439,6 +460,15 @@ impl PLibrary {
         }
         if !prune_zero_children_enabled() {
             identity.push_str(",P_PRUNE_ZERO_CHILDREN=off");
+        }
+        // vk5l WP2: recipe steps (boxed nodes, 5L only) are steps of their
+        // Custom owners; their semantics version joins the cache binding of a
+        // library that reaches 5 loops (scope 1-4 bindings unchanged).
+        if *self.scope.end() >= 5 {
+            identity.push_str(&format!(
+                ",P_RECIPE_VERSION={}",
+                super::recipes::P_RECIPE_VERSION
+            ));
         }
         identity
     }
@@ -697,6 +727,60 @@ impl PLibrary {
         }
     }
 
+    /// vk5l WP2: a recipe failure with one rule chain from a request input
+    /// to the failing key, searched inside the boxed owner (its rules and the
+    /// recipe relations solved so far, no new solve, at most
+    /// [`RECIPE_CHAIN_BUDGET`] keys): only from inputs that lie on that owner
+    /// directly; otherwise the failure says why no chain is given.
+    fn with_recipe_chain(&self, engine: &PEngine, error: PError) -> PError {
+        let PError::RecipeFailed(mut failure) = error else {
+            return error;
+        };
+        if failure.rule_chain.is_some() {
+            return PError::RecipeFailed(failure);
+        }
+        let Some(request) = failure.request.clone() else {
+            return PError::RecipeFailed(failure);
+        };
+        let mut direct = 0;
+        for input in &request.inputs {
+            let Some(class) = engine.direct_owner(input.presentation, &input.powers) else {
+                continue;
+            };
+            let Some(owner) = self.owners.get(&class) else {
+                continue;
+            };
+            let Ok(OwnerProgram::Lane(step)) = owner.program(self) else {
+                continue;
+            };
+            if step
+                .boxed_record()
+                .is_none_or(|record| record.node != failure.node)
+            {
+                continue;
+            }
+            direct += 1;
+            if let Some(chain) = step.recipe_chain(&input.powers, &failure.key, RECIPE_CHAIN_BUDGET)
+            {
+                failure.rule_chain = Some(chain);
+                return PError::RecipeFailed(failure);
+            }
+        }
+        failure.rule_chain_note = Some(if direct == 0 {
+            format!(
+                "not reconstructed: no request input lies directly on node {} (it is reached through routes \
+                 from other sectors)",
+                failure.node
+            )
+        } else {
+            format!(
+                "not found within {RECIPE_CHAIN_BUDGET} keys from the {direct} request input(s) on node {}",
+                failure.node
+            )
+        });
+        PError::RecipeFailed(failure)
+    }
+
     /// vk5l WP1 (plan VK5L §3.4, decision Q7): the early check of a request
     /// against the box of a boxed node: an input on a sector a boxed Custom
     /// owner owns directly must lie in its box, else [`PError::OutsideBox`]
@@ -723,6 +807,13 @@ impl PLibrary {
             let Some(record) = step.boxed_record() else {
                 continue;
             };
+            // vk5l WP2 (user ruling 2026-11-14): under the Solve policy a key
+            // outside the box is reduced at run time, not refused early.
+            if super::recipes::outside_policy_of(&record.node)
+                == super::recipes::POutsidePolicy::Solve
+            {
+                continue;
+            }
             if let Some(violated) = record.violation(key.powers()) {
                 return Err(PError::OutsideBox {
                     class,
@@ -782,8 +873,10 @@ impl PLibrary {
                 .map_err(with_request)?;
         }
         let initial = engine.initial(self, inputs, &limits)?;
+        let cache_before = super::relation_entries::relation_cache_statistics();
+        let mut outside = BTreeSet::new();
         let output = engine
-            .run(
+            .run_reporting(
                 self,
                 initial,
                 arithmetic,
@@ -792,8 +885,10 @@ impl PLibrary {
                 limits,
                 inspector,
                 retain,
+                &mut outside,
             )
-            .map_err(with_request)?;
+            .map_err(with_request)
+            .map_err(|error| self.with_recipe_chain(engine, error))?;
         let mut terms = PTermSum::default();
         let raw = output
             .terms
@@ -818,6 +913,9 @@ impl PLibrary {
                 work: output.work,
                 progress: output.progress,
             },
+            outside_certified: outside.into_iter().collect(),
+            relation_cache: super::relation_entries::relation_cache_statistics()
+                .since(&cache_before),
         })
     }
 
@@ -999,6 +1097,9 @@ pub struct PLibraryBuilder {
     saved_orbits: Option<Arc<PSavedOrbits>>,
     open_nodes: BTreeMap<OwnerClassId, POpenNode>,
 }
+
+/// vk5l WP2: keys a rule-chain search of a recipe failure may expand.
+pub const RECIPE_CHAIN_BUDGET: usize = 200_000;
 
 /// p5l-library-6: the identity key of a package content revision.
 pub const P_PACKAGE_REVISION_KEY: &str = "P_PACKAGE_REVISION";

@@ -51,6 +51,10 @@ pub mod scheme;
 
 // Custom owners (M2-T7c).
 pub mod custom;
+/// vk5l WP2: recipe records, the in-process solve and its relation cache.
+pub mod recipes;
+// vk5l WP2: relation entries + the persistent relation cache.
+pub mod relation_entries;
 // The candidate bundle's wire records, reader and restore (M3-T7d).
 pub mod bundle_wire;
 // table_dump.v1 rule tables as Custom payloads (p5l-converter).

@@ -354,6 +354,94 @@ pub fn boxed_kite_table_with_box(layers: &[[u32; 2]], box_keys: u64) -> String {
     lines.iter().map(|line| format!("{line}\n")).collect()
 }
 
+/// vk5l WP2: a boxed kite table of node `node` with box `D <= 2, r = 0`, line
+/// cap 2 (16 keys: the corner, 5 keys with one dot, 10 with two dotted
+/// lines) and TOY rules that stay on the chart (every reduction ends on the
+/// corner terminal): `I(1 + e_i) = (d-4)/(d-3) I(corner)`,
+/// `I(1 + e_a + e_b) = I(1 + e_a) + (d-4) I(corner)` (`a < b`). The rules of
+/// the targets in `omit` (table slots) are left out (for recipe records).
+/// The header carries the node order (`NodeOrder::identity`) and the family
+/// text a recipe bundle needs.
+#[doc(hidden)]
+pub fn boxed_kite_table_d2(node: &str, omit: &[[i64; 5]]) -> String {
+    use super::table_import::{BOX_MEASURE, BOXED_NODE_SCHEMA};
+    let mut source =
+        String::from("I(\n  name(KITE),\n  loops(k1,k2),\n  externals(q),\n  dimension(d),\n");
+    for (i, momentum) in BOXED_KITE_LINES.iter().enumerate() {
+        source.push_str(&format!("  prop(D{},{momentum},1),\n", i + 1));
+    }
+    source.push_str("  gram(q,q,1)\n)\n");
+    let header = serde_json::json!({
+        "type": "header", "schema": "table_dump.v1", "family": "KITE",
+        "family_file": "KITE.sym", "family_source": source, "original_family_source": source,
+        "node_order": serde_json::from_str::<serde_json::Value>(&crate::node::order::NodeOrder::identity().to_json()).expect("json"),
+        "power_shifts": ["0", "0", "0", "0", "0"], "mask": "11111",
+        "order_name": "legacy", "order_is_program": false,
+        "order": {"support_priority": [0, 1, 2, 3, 4], "coordinate_priority": [0, 1, 2, 3, 4], "two_sided": []},
+        "charts": ["11111"],
+        "boxed_node": {
+            "schema": BOXED_NODE_SCHEMA, "node": node, "chart": "11111",
+            "box": {"name": "d2", "measure": BOX_MEASURE, "layers": [[0, 0], [1, 0], [2, 0]], "cap": 2},
+            "box_keys": 16,
+        },
+    });
+    let mut lines = vec![
+        header,
+        serde_json::json!({"type": "zero_sectors", "scope": "downset", "count": 0, "masks": []}),
+        serde_json::json!({"type": "chart", "chart": "11111", "zero": false}),
+    ];
+    type Rhs = Vec<(String, String)>;
+    let mut rules: Vec<([i64; 5], Rhs)> = Vec::new();
+    for i in 0..5 {
+        let mut target = [1_i64; 5];
+        target[i] = 2;
+        rules.push((
+            target,
+            vec![(boxed_kite_key([1; 5]), "(d-4)/(d-3)".to_owned())],
+        ));
+    }
+    for a in 0..5 {
+        for b in a + 1..5 {
+            let mut target = [1_i64; 5];
+            target[a] = 2;
+            target[b] = 2;
+            let mut lower = [1_i64; 5];
+            lower[a] = 2;
+            rules.push((
+                target,
+                vec![
+                    (boxed_kite_key(lower), "1".to_owned()),
+                    (boxed_kite_key([1; 5]), "d-4".to_owned()),
+                ],
+            ));
+        }
+    }
+    let mut index = 0;
+    for (target, rhs) in rules {
+        if omit.contains(&target) {
+            continue;
+        }
+        lines.push(serde_json::json!({
+            "type": "rule", "chart": "11111", "index": index,
+            "case": format!("Coordinate(CoordinateCase {{ fixed: {target:?} }})"),
+            "fixed": target, "equations": [], "target": boxed_kite_key(target),
+            "rhs": rhs.iter().map(|(k, c)| serde_json::json!([k, c])).collect::<Vec<_>>(),
+            "exceptions": [], "dispatch": "Partition", "sym_rows": 0,
+        }));
+        index += 1;
+    }
+    lines.push(
+        serde_json::json!({"type": "residual", "chart": "11111", "key": boxed_kite_key([1; 5]),
+        "boxed_terminal": true, "status": "unknown integral"}),
+    );
+    lines.push(
+        serde_json::json!({"type": "chart_end", "chart": "11111", "deferred_cases": 0,
+        "deferred_branches": 0, "deferred_regions": 0}),
+    );
+    lines.push(serde_json::json!({"type": "end", "chart_errors": 0, "state": "complete"}));
+    lines.iter().map(|line| format!("{line}\n")).collect()
+}
+
 /// A unimodular map `source -> target` (entries in {-1, 0, 1}) under which
 /// the lines of `source` are those of `target` up to sign, one to one.
 fn line_matching_map(source: &Presentation, target: &Presentation) -> Option<SignedAffineLoopMap> {
@@ -451,9 +539,29 @@ pub fn boxed_kite_library_certified() -> Result<Arc<PLibrary>, PError> {
     )
 }
 
+/// vk5l WP2: [`boxed_kite_library`] over any boxed kite `table`, with an
+/// optional certified set and recipe records (and a scope ending at
+/// `scope_end`, `2` for the toy).
+#[doc(hidden)]
+pub fn boxed_kite_library_with_recipes(
+    table: &str,
+    certified_keys: Option<super::certified_keys::CertifiedKeySet>,
+    recipes: Option<super::recipes::RecipeImport>,
+) -> Result<Arc<PLibrary>, PError> {
+    boxed_kite_library_inner(table, certified_keys, recipes)
+}
+
 fn boxed_kite_library_with(
     table: &str,
     certified_keys: Option<super::certified_keys::CertifiedKeySet>,
+) -> Result<Arc<PLibrary>, PError> {
+    boxed_kite_library_inner(table, certified_keys, None)
+}
+
+fn boxed_kite_library_inner(
+    table: &str,
+    certified_keys: Option<super::certified_keys::CertifiedKeySet>,
+    recipes: Option<super::recipes::RecipeImport>,
 ) -> Result<Arc<PLibrary>, PError> {
     use super::custom::inspect_custom_payload;
     use super::library::PTerminal;
@@ -483,6 +591,7 @@ fn boxed_kite_library_with(
             partial_box: false,
             mixed_box: false,
             certified_keys,
+            recipes,
         },
     )?;
     let route = line_matching_map(&p2l, &imported.presentation).ok_or_else(|| {
@@ -573,11 +682,21 @@ mod boxed_kite_tests {
         })
     }
 
+    /// These tests pin the WP1 refusal of the KITE node (vk5l WP2: the
+    /// default policy solves outside keys at run time).
+    fn refuse_outside_kite() {
+        crate::propagator::recipes::set_outside_policy_for(
+            "KITE",
+            crate::propagator::recipes::POutsidePolicy::Refuse,
+        );
+    }
+
     /// The toy boxed library: the corner of P2L is the boxed terminal (a
     /// residual of the kite's class, coefficient 1), a key of the chart
     /// outside the box is `OutsideBox` naming the node.
     #[test]
     fn the_boxed_kite_library_returns_its_terminal_and_refuses_outside_its_box() {
+        refuse_outside_kite();
         let library = boxed_kite_library().unwrap();
         assert_eq!(library.scope(), 1..=2);
         assert_eq!(library.terminals().len(), 2);
@@ -626,6 +745,7 @@ mod boxed_kite_tests {
     /// line; the corner (in the set) still reduces.
     #[test]
     fn a_key_outside_the_certified_set_is_refused_at_dispatch_with_its_bound_and_request() {
+        refuse_outside_kite();
         use crate::propagator::error::BoxViolation;
         let library = boxed_kite_library_certified().unwrap();
         library.set_source("/packages/kite");
@@ -681,6 +801,7 @@ mod boxed_kite_tests {
     /// checks); inside the box it reduces.
     #[test]
     fn a_direct_input_outside_the_user_box_is_refused_early_with_its_bound() {
+        refuse_outside_kite();
         use crate::propagator::error::BoxViolation;
         let library = boxed_kite_library_certified().unwrap();
         match request_on(
@@ -733,6 +854,7 @@ mod boxed_kite_tests {
     /// by its node, with the refusal; the default (Reject) is unchanged.
     #[test]
     fn retain_keeps_a_refused_boxed_key_as_a_named_residual() {
+        refuse_outside_kite();
         let library = boxed_kite_library().unwrap();
         assert!(matches!(
             request_on(

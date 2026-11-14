@@ -164,6 +164,8 @@ pub struct ImportedOwner {
     pub slot_order: SlotOrderRecord,
     /// boxed-node: the box record of a boxed table (`None` otherwise).
     pub boxed: Option<BoxedNodeRecord>,
+    /// vk5l WP2: the recipe bundle the payload carries.
+    pub recipes: Option<super::recipes::RecipeBundle>,
 }
 
 // ----- the family -----
@@ -1595,6 +1597,10 @@ struct BoxChecker {
     /// vk5l WP1: the certified key set (table frame): the domain of the
     /// node's rules and terminals instead of the layer box.
     certified: Option<CertifiedKeySet>,
+    /// vk5l WP2: the explicit keys of the import's recipe records (table
+    /// frame): covered by their recipes (solved at the key at run time; the
+    /// load check steps them).
+    recipe_keys: std::collections::HashSet<Vec<i64>>,
 }
 
 fn box_fail(detail: String) -> PError {
@@ -1649,7 +1655,44 @@ impl BoxChecker {
             parametric_rules: 0,
             shadowed_point_rules: 0,
             certified,
+            recipe_keys: Default::default(),
         })
+    }
+
+    /// vk5l WP2: the explicit keys of recipe records: on the chart, inside the
+    /// domain (certified set, else box), none a terminal or a point-rule
+    /// target (first match would never reach the recipe).
+    fn add_recipe_keys(&mut self, records: &[super::recipes::RecipeRecord]) -> Result<(), PError> {
+        for record in records {
+            let super::recipes::RecipeDomain::Keys(keys) = &record.domain else {
+                continue;
+            };
+            for key in keys {
+                if key.len() != self.arity {
+                    return Err(box_fail(format!(
+                        "recipe {}: a key of {} slots on a table of {}",
+                        record.id,
+                        key.len(),
+                        self.arity
+                    )));
+                }
+                if !self.in_box(key) {
+                    return Err(box_fail(format!(
+                        "recipe {}: the key {key:?} lies outside {}",
+                        record.id,
+                        self.domain()
+                    )));
+                }
+                if self.terminals.contains(key) || self.targets.contains(key) {
+                    return Err(box_fail(format!(
+                        "recipe {}: the key {key:?} is also a terminal or a point-rule target",
+                        record.id
+                    )));
+                }
+                self.recipe_keys.insert(key.clone());
+            }
+        }
+        Ok(())
     }
 
     /// The domain of rule targets, terminals and chart right-hand sides: the
@@ -1785,6 +1828,7 @@ impl BoxChecker {
             parametric_rules,
             shadowed_point_rules,
             certified,
+            recipe_keys,
             ..
         } = self;
         let definition = spec.definition;
@@ -1797,7 +1841,9 @@ impl BoxChecker {
                 "the terminal {key:?} is also a rule target"
             )));
         }
-        let covered = |key: &Vec<i64>| targets.contains(key) || terminals.contains(key);
+        let covered = |key: &Vec<i64>| {
+            targets.contains(key) || terminals.contains(key) || recipe_keys.contains(key)
+        };
         let rhs_outside_box = chart_rhs.iter().filter(|key| !in_box(key)).count() as u64;
         let rhs_without_rule = chart_rhs
             .iter()
@@ -1937,6 +1983,12 @@ pub struct TableImportOptions {
     /// hold every box key, and the payload carries it (presentation slots)
     /// for the dispatch check. Ignored for a table without `boxed_node`.
     pub certified_keys: Option<CertifiedKeySet>,
+    /// vk5l WP2: recipe records of a boxed table ([`super::recipes`]): the
+    /// payload carries them as its recipe bundle (family text and node order
+    /// from the table header, the import's slot map); their explicit keys
+    /// count as covered. Ignored without one; refused for a table without
+    /// `boxed_node`.
+    pub recipes: Option<super::recipes::RecipeImport>,
 }
 
 /// One table (`table_dump.v1` JSONL text) as the Custom payload of `graph`,
@@ -2403,6 +2455,15 @@ pub fn import_table_from<R: std::io::BufRead>(
             format!("{} chart errors", end["chart_errors"]),
         ));
     }
+    if options.recipes.is_some() && box_checker.is_none() {
+        return Err(gap(
+            "recipes",
+            "recipe records need a boxed table (header boxed_node)".to_owned(),
+        ));
+    }
+    if let (Some(checker), Some(recipes)) = (&mut box_checker, &options.recipes) {
+        checker.add_recipe_keys(&recipes.records)?;
+    }
     let (boxed, certified) = match box_checker {
         Some(checker) => {
             let (record, certified) = checker.finish(&slot_map, options.partial_box)?;
@@ -2410,14 +2471,47 @@ pub fn import_table_from<R: std::io::BufRead>(
         }
         None => (None, None),
     };
+    // vk5l WP2: the recipe bundle (family text and node order of the header).
+    let recipe_bundle = match (&options.recipes, &boxed) {
+        (Some(recipes), Some(record)) => {
+            let family_text = header["original_family_source"]
+                .as_str()
+                .or_else(|| header["family_source"].as_str())
+                .ok_or_else(|| malformed("a recipe bundle needs the header's family source"))?;
+            let order = header
+                .get("node_order")
+                .filter(|order| !order.is_null())
+                .cloned()
+                .ok_or_else(|| {
+                    gap(
+                        "recipes",
+                        "a recipe bundle needs the table header's node_order".to_owned(),
+                    )
+                })?;
+            Some(super::recipes::RecipeBundle::new(
+                record.node.clone(),
+                recipes.revision.clone(),
+                family_text,
+                order,
+                slot_map.clone(),
+                recipes.dispatch,
+                recipes.records.clone(),
+            )?)
+        }
+        _ => None,
+    };
     let boxed_provenance = match &boxed {
         Some(record) => format!(
-            "{BOXED_NODE_MARKER}{}{}",
+            "{BOXED_NODE_MARKER}{}{}{}",
             serde_json::to_string(record).map_err(|error| malformed(error))?,
             certified.as_ref().map_or_else(String::new, |set| format!(
                 "{CERTIFIED_KEYS_MARKER}{}",
                 super::certified_keys::base64_encode(&set.encode())
-            ))
+            )),
+            match &recipe_bundle {
+                Some(bundle) => bundle.provenance_line()?,
+                None => String::new(),
+            }
         ),
         None => String::new(),
     };
@@ -2512,6 +2606,7 @@ pub fn import_table_from<R: std::io::BufRead>(
         order_name,
         slot_order,
         boxed,
+        recipes: recipe_bundle,
     })
 }
 
@@ -2786,6 +2881,7 @@ mod tests {
             partial_box,
             mixed_box: false,
             certified_keys: None,
+            recipes: None,
         }
     }
 
@@ -2911,6 +3007,7 @@ mod tests {
         assert!(refused.to_string().contains("outside the box"), "{refused}");
         let with = |set: CertifiedKeySet| TableImportOptions {
             certified_keys: Some(set),
+            recipes: None,
             ..kite_options(false)
         };
         let set = boxed_kite_certified_keys();
@@ -3275,6 +3372,7 @@ mod tests {
         let mixed = TableImportOptions {
             mixed_box: true,
             certified_keys: None,
+            recipes: None,
             ..kite_options(false)
         };
         assert_eq!(

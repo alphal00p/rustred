@@ -6,7 +6,9 @@
 //!                        [--replay <seeds.json>] [--census-family <T.sym>] [--order-map <ORDER-MAP.json>]
 //!                        [--coef-form expanded|factored] [--partial-box] [--mixed-box] [--no-verify]
 //!                        [--certified-keys <keys.jsonl | .rrkeys>]
+//!                        [--recipes <recipes.jsonl> [--recipe-revision <name>] [--recipes-first]]
 //! rustred p-import-table --check <dir>/<label>.json [--force]
+//!                        [--recipe-cache <dir>] [--recipe-prefilled <dir>[,<dir>..]] [--recipe-workers <n>]
 //! ```
 //!
 //! Converts one `table_dump.v1` rule table of a 5L-campaign node into a Custom
@@ -65,6 +67,20 @@
 //! time, certified set bytes, RSS after the read, after the build and the
 //! peak of the whole check, from `/proc/self/status`).
 //!
+//! `--recipes <file>` (vk5l WP2) gives a boxed table RECIPE RECORDS
+//! (`rustred::propagator::recipes`): one JSON object per line, a
+//! `rustred.recipe.v1` recipe (its `domain.keys` are its explicit certified
+//! keys, TABLE slots) or `{"recipe": {..}, "relation_digests": {"n0,..": d},
+//! "max_trace_rows": n}`. The payload carries them as its recipe bundle (family
+//! text and node order from the table header, the slot map of the import, the
+//! revision name `--recipe-revision`, default `<label>-r1`); their keys count as
+//! covered, and dispatch solves them in process (table rules first, unless
+//! `--recipes-first`). `--check` steps them too (each solved, or read from the
+//! relation caches `--recipe-cache` (read-write) and `--recipe-prefilled`
+//! (read-only overlays), default `RUSTRED_P_RECIPE_CACHE` /
+//! `RUSTRED_P_RECIPE_PREFILLED`), reports `recipes` (keys, solves, seconds,
+//! cache hits) and, on a recipe failure, writes `<label>.recipe-failure.json`.
+//!
 //! `--coef-form factored` (coef-form prototype) writes the payload's
 //! coefficient section in the factored format
 //! (`rustred::persistence::FACTORED_TABLE_VERSION`): every reader decodes it to
@@ -82,11 +98,15 @@ use rustred::persistence::{
 use rustred::propagator::PresentationId;
 use rustred::propagator::certified_keys::CertifiedKeySet;
 use rustred::propagator::custom::{
-    CustomPayloadCheck, custom_payload_load, inspect_custom_payload, replay_custom_payload,
-    verify_custom_payload,
+    CustomPayloadCheck, custom_payload_boxed_node, custom_payload_load, inspect_custom_payload,
+    replay_custom_payload, verify_custom_payload,
 };
 use rustred::propagator::error::PError;
 use rustred::propagator::presentation::{Presentation, PresentationKind, Slot, SlotIsp, SlotLine};
+use rustred::propagator::recipes::{
+    EngineRecipeSolver, RecipeBundle, RecipeCacheRoots, RecipeDispatchOrder, RecipeImport,
+    recipe_statistics,
+};
 use rustred::propagator::table_import::{
     P_TABLE_IMPORT_VERSION, TableImportOptions, canonical_node_graph, import_table_from,
     slot_map_text,
@@ -118,6 +138,9 @@ struct Arguments {
     mixed_box: bool,
     no_verify: bool,
     certified_keys: Option<PathBuf>,
+    recipes: Option<PathBuf>,
+    recipe_revision: Option<String>,
+    recipes_first: bool,
 }
 
 fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
@@ -128,6 +151,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
     let (mut factored, mut partial_box, mut no_verify) = (false, false, false);
     let mut mixed_box = false;
     let mut certified_keys = None;
+    let (mut recipes, mut recipe_revision, mut recipes_first) = (None, None, false);
     let mut seen = BTreeSet::new();
     while let Some(argument) = arguments.next() {
         let argument = argument.into_string().map_err(ArgError::NonUtf8Option)?;
@@ -147,6 +171,9 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             "--no-verify" => "--no-verify",
             "--mixed-box" => "--mixed-box",
             "--certified-keys" => "--certified-keys",
+            "--recipes" => "--recipes",
+            "--recipe-revision" => "--recipe-revision",
+            "--recipes-first" => "--recipes-first",
             _ => return Err(ArgError::UnknownOption(argument)),
         };
         if !seen.insert(option) {
@@ -159,6 +186,9 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             "--certified-keys" => {
                 certified_keys = Some(PathBuf::from(next_value(&mut arguments, option)?))
             }
+            "--recipes" => recipes = Some(PathBuf::from(next_value(&mut arguments, option)?)),
+            "--recipe-revision" => recipe_revision = Some(next_utf8_value(&mut arguments, option)?),
+            "--recipes-first" => recipes_first = true,
             "--census-family" => {
                 census_family = Some(PathBuf::from(next_value(&mut arguments, option)?))
             }
@@ -222,10 +252,13 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
         mixed_box,
         no_verify,
         certified_keys,
+        recipes,
+        recipe_revision,
+        recipes_first,
     })
 }
 
-fn failed(error: PError) -> CliError {
+pub(super) fn failed(error: PError) -> CliError {
     CliError::Application(AppError::derivation(format!("p import-table: {error}")))
 }
 
@@ -294,6 +327,21 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         mixed_box: arguments.mixed_box,
         certified_keys: match &arguments.certified_keys {
             Some(path) => Some(read_certified_keys(path, &arguments.table)?),
+            None => None,
+        },
+        recipes: match &arguments.recipes {
+            Some(path) => Some(RecipeImport {
+                revision: arguments
+                    .recipe_revision
+                    .clone()
+                    .unwrap_or_else(|| format!("{}-r1", arguments.label)),
+                dispatch: if arguments.recipes_first {
+                    RecipeDispatchOrder::RecipesFirst
+                } else {
+                    RecipeDispatchOrder::RulesFirst
+                },
+                records: read_recipe_records(path)?,
+            }),
             None => None,
         },
     };
@@ -384,6 +432,9 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     record["slot_order"] = serde_json::to_value(&imported.slot_order).map_err(json_error)?;
     if let Some(boxed) = &imported.boxed {
         record["boxed"] = serde_json::to_value(boxed).map_err(json_error)?;
+    }
+    if let Some(bundle) = &imported.recipes {
+        record["recipes"] = recipes_summary(bundle);
     }
     if arguments.factored {
         record["coef_form"] = serde_json::json!({
@@ -505,6 +556,85 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     .map_err(|error| CliError::OutputIo(error.to_string()))
 }
 
+/// vk5l WP2: the recipe records of `--recipes` (one JSON object per line).
+pub(super) fn read_recipe_records(
+    path: &std::path::Path,
+) -> Result<Vec<rustred::propagator::recipes::RecipeRecord>, CliError> {
+    let text = read_input(&StreamPath::File(path.to_path_buf()))?;
+    let mut records = Vec::new();
+    for (line_number, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let at = |detail: String| {
+            CliError::Input(format!("{}:{}: {detail}", path.display(), line_number + 1))
+        };
+        let value: serde_json::Value =
+            serde_json::from_str(line).map_err(|error| at(error.to_string()))?;
+        let (recipe, extra) = if value.get("schema").is_some() {
+            (value.clone(), serde_json::Value::Null)
+        } else {
+            (value["recipe"].clone(), value.clone())
+        };
+        let mut record =
+            RecipeBundle::record_of(&recipe.to_string()).map_err(|error| at(error.to_string()))?;
+        if let Some(digests) = extra["relation_digests"].as_object() {
+            for (key, digest) in digests {
+                let digest = digest
+                    .as_str()
+                    .ok_or_else(|| at("a relation digest is not a string".into()))?;
+                record
+                    .relation_digests
+                    .insert(key.clone(), digest.to_owned());
+            }
+        }
+        if let Some(rows) = extra["max_trace_rows"].as_u64() {
+            record.max_trace_rows = Some(rows as usize);
+        }
+        records.push(record);
+    }
+    if records.is_empty() {
+        return Err(CliError::Input(format!(
+            "{}: no recipe records",
+            path.display()
+        )));
+    }
+    Ok(records)
+}
+
+/// vk5l WP2: the recipe bundle in one JSON object (import record).
+pub(super) fn recipes_summary(bundle: &RecipeBundle) -> serde_json::Value {
+    use rustred::propagator::recipes::RecipeDomain;
+    let keys: usize = bundle
+        .records
+        .iter()
+        .map(|record| match &record.domain {
+            RecipeDomain::Keys(keys) => keys.len(),
+            RecipeDomain::Predicate => 0,
+        })
+        .sum();
+    serde_json::json!({
+        "schema": bundle.schema,
+        "P_RECIPE_VERSION": bundle.version,
+        "node": bundle.node,
+        "revision": bundle.revision,
+        "dispatch": bundle.dispatch,
+        "records": bundle.records.len(),
+        "explicit_keys": keys,
+        "predicate_records": bundle
+            .records
+            .iter()
+            .filter(|record| record.domain == RecipeDomain::Predicate)
+            .count(),
+        "ids": bundle
+            .records
+            .iter()
+            .map(|record| serde_json::json!({"id": record.id, "digest": record.recipe_digest, "kind": record.kind()}))
+            .collect::<Vec<_>>(),
+        "determinism_id": rustred::node::recipe::DETERMINISM_ID,
+    })
+}
+
 /// vk5l WP1: the certified key set of `--certified-keys`, in the table's
 /// slot order: its arity and node from the table's header line.
 fn read_certified_keys(
@@ -560,6 +690,7 @@ fn check_json(check: &CustomPayloadCheck) -> serde_json::Value {
         "open_box_keys": check.open_box_keys,
         "box_keys_stepped": check.box_keys_stepped,
         "certified_keys": check.certified_keys,
+        "recipe_keys": check.recipe_keys,
     })
 }
 
@@ -575,25 +706,23 @@ fn check_text(check: &CustomPayloadCheck) -> String {
     )
 }
 
-/// `--check <dir>/<label>.json [--force]`: the load-time check of an imported
-/// payload as its own job (t162-export).
-fn run_check(arguments: Vec<OsString>) -> Result<(), CliError> {
-    let mut arguments = arguments.into_iter().skip(1);
-    let record_path =
-        PathBuf::from(next_value(&mut arguments, "--check").map_err(CliError::Usage)?);
-    let mut force = false;
-    for argument in arguments {
-        match argument.to_str() {
-            Some("--force") if !force => force = true,
-            _ => {
-                return Err(CliError::Usage(ArgError::UnknownOption(
-                    argument.to_string_lossy().into_owned(),
-                )));
-            }
-        }
-    }
+/// vk5l WP2: an imported payload loaded from its import record.
+pub(super) struct LoadedOwner {
+    pub label: String,
+    pub presentation: Presentation,
+    pub payload: Vec<u8>,
+    pub payload_path: PathBuf,
+    pub meta: rustred::propagator::library::CustomOwnerMeta,
+    /// Table slot -> presentation slot.
+    pub slot_map: Vec<usize>,
+    pub read_seconds: f64,
+}
+
+/// The payload `<dir>/<label>.rrbin` of an import record, its presentation
+/// rebuilt from the record's slots (family fingerprint compared).
+pub(super) fn load_owner(record_path: &std::path::Path) -> Result<LoadedOwner, CliError> {
     let record: serde_json::Value =
-        serde_json::from_str(&read_input(&StreamPath::File(record_path.clone()))?)
+        serde_json::from_str(&read_input(&StreamPath::File(record_path.to_path_buf()))?)
             .map_err(|error| CliError::Input(format!("{}: {error}", record_path.display())))?;
     let field = |name: &str| {
         record
@@ -643,10 +772,18 @@ fn run_check(arguments: Vec<OsString>) -> Result<(), CliError> {
     let lp_count = (field("lp_count")?.as_u64())
         .and_then(|count| u32::try_from(count).ok())
         .ok_or_else(|| bad("lp_count"))?;
-    let label = field("label")?.as_str().ok_or_else(|| bad("label"))?;
+    let label = field("label")?
+        .as_str()
+        .ok_or_else(|| bad("label"))?
+        .to_owned();
+    let slot_map: Vec<usize> = field("slot_map")?
+        .as_array()
+        .ok_or_else(|| bad("slot_map"))?
+        .iter()
+        .map(|value| value.as_u64().map(|value| value as usize))
+        .collect::<Option<_>>()
+        .ok_or_else(|| bad("slot_map"))?;
     let payload_path = record_path.with_file_name(format!("{label}.rrbin"));
-    let check_path = record_path.with_file_name(format!("{label}.check.json"));
-    preflight_output_destination(&StreamPath::File(check_path.clone()), force)?;
     let context = rustred::algebra::CoefficientContext::try_new(["d"])
         .map_err(|error| CliError::Input(format!("context: {error}")))?;
     let presentation = Presentation::from_slots(
@@ -665,25 +802,170 @@ fn run_check(arguments: Vec<OsString>) -> Result<(), CliError> {
             record_path.display()
         )));
     }
-    let (rss_start, _) = rss_bytes();
     let read_started = Instant::now();
     let payload = std::fs::read(&payload_path).map_err(|error| {
         CliError::InputIo(format!("cannot read {}: {error}", payload_path.display()))
     })?;
     let read_seconds = read_started.elapsed().as_secs_f64();
-    let (rss_read, _) = rss_bytes();
     let meta = (inspect_custom_payload(&payload).and_then(|summary| summary.meta(lp_count)))
         .map_err(failed)?;
+    Ok(LoadedOwner {
+        label,
+        presentation,
+        payload,
+        payload_path,
+        meta,
+        slot_map,
+        read_seconds,
+    })
+}
+
+/// vk5l WP2: `--recipe-cache`, `--recipe-prefilled`, `--recipe-workers` of a
+/// command that steps recipe keys: the cache roots (else the environment's)
+/// and the engine solver of the payload's node.
+pub(super) fn install_recipe_options(
+    payload: &[u8],
+    user: Option<PathBuf>,
+    prefilled: Option<String>,
+    workers: Option<usize>,
+) -> Result<(), CliError> {
+    if user.is_some() || prefilled.is_some() {
+        let mut roots = rustred::propagator::recipes::recipe_cache_roots();
+        if let Some(user) = user {
+            roots.user = Some(user);
+        }
+        if let Some(list) = prefilled {
+            roots.prefilled = list
+                .split([',', ':'])
+                .filter(|part| !part.is_empty())
+                .map(PathBuf::from)
+                .collect();
+        }
+        rustred::propagator::recipes::set_recipe_cache_roots(RecipeCacheRoots {
+            user: roots.user,
+            prefilled: roots.prefilled,
+        });
+    }
+    if let Some(workers) = workers
+        && let Some(boxed) = custom_payload_boxed_node(payload).map_err(failed)?
+    {
+        rustred::propagator::recipes::override_recipe_solver(
+            &boxed.node,
+            std::sync::Arc::new(EngineRecipeSolver::new(workers)),
+        );
+    }
+    Ok(())
+}
+
+/// vk5l WP2: the recipe counters of this process as JSON.
+pub(super) fn recipe_statistics_json() -> serde_json::Value {
+    let stats = recipe_statistics();
+    let relations = rustred::propagator::relation_entries::relation_cache_statistics();
+    let relation_cache = serde_json::json!({
+        "shipped_hits": relations.shipped_hits, "cache_hits": relations.cache_hits,
+        "misses": relations.misses, "inserts": relations.inserts,
+        "inserts_skipped_cap": relations.inserts_skipped_cap, "foreign": relations.foreign,
+        "corrupt": relations.corrupt, "bytes_written": relations.bytes_written,
+    });
+    let roots = rustred::propagator::recipes::recipe_cache_roots();
+    serde_json::json!({
+        "solves": stats.solves,
+        "solve_seconds": stats.solve_seconds,
+        "memo_hits": stats.memo_hits,
+        "prefilled_hits": stats.prefilled_hits,
+        "user_cache_hits": stats.user_cache_hits,
+        "failures": stats.failures,
+        "outside_solves": stats.outside_solves,
+        "outside_failures": stats.outside_failures,
+        "relation_cache": relation_cache,
+        "cache_roots": {
+            "user": roots.user.map(|path| path.display().to_string()),
+            "prefilled": roots.prefilled.iter().map(|path| path.display().to_string()).collect::<Vec<_>>(),
+        },
+    })
+}
+
+/// vk5l WP2: a recipe failure written as `<path>` (JSON) next to its error.
+pub(super) fn recipe_failure_out(error: PError, path: &std::path::Path) -> CliError {
+    if let PError::RecipeFailed(failure) = &error {
+        let text = serde_json::to_string_pretty(&failure.to_json()).unwrap_or_default();
+        let _ = std::fs::write(path, format!("{text}\n"));
+        let _ = writeln!(
+            std::io::stderr().lock(),
+            "rustred: recipe failure record written to {}",
+            path.display()
+        );
+    }
+    failed(error)
+}
+
+/// `--check <dir>/<label>.json [--force]`: the load-time check of an imported
+/// payload as its own job (t162-export).
+fn run_check(arguments: Vec<OsString>) -> Result<(), CliError> {
+    let mut arguments = arguments.into_iter().skip(1);
+    let record_path =
+        PathBuf::from(next_value(&mut arguments, "--check").map_err(CliError::Usage)?);
+    let mut force = false;
+    let (mut cache, mut prefilled, mut workers) = (None, None, None);
+    while let Some(argument) = arguments.next() {
+        match argument.to_str() {
+            Some("--force") if !force => force = true,
+            Some("--recipe-cache") if cache.is_none() => {
+                cache = Some(PathBuf::from(
+                    next_value(&mut arguments, "--recipe-cache").map_err(CliError::Usage)?,
+                ));
+            }
+            Some("--recipe-prefilled") if prefilled.is_none() => {
+                prefilled = Some(
+                    next_utf8_value(&mut arguments, "--recipe-prefilled")
+                        .map_err(CliError::Usage)?,
+                );
+            }
+            Some("--recipe-workers") if workers.is_none() => {
+                let value =
+                    next_utf8_value(&mut arguments, "--recipe-workers").map_err(CliError::Usage)?;
+                workers = Some(value.parse().map_err(|_| {
+                    CliError::Usage(ArgError::InvalidValue {
+                        option: "--recipe-workers",
+                        value: value.clone(),
+                        expected: "a positive worker count",
+                    })
+                })?);
+            }
+            _ => {
+                return Err(CliError::Usage(ArgError::UnknownOption(
+                    argument.to_string_lossy().into_owned(),
+                )));
+            }
+        }
+    }
+    let (rss_start, _) = rss_bytes();
+    let loaded = load_owner(&record_path)?;
+    let LoadedOwner {
+        label,
+        presentation,
+        payload,
+        payload_path,
+        meta,
+        read_seconds,
+        ..
+    } = &loaded;
+    let check_path = record_path.with_file_name(format!("{label}.check.json"));
+    preflight_output_destination(&StreamPath::File(check_path.clone()), force)?;
+    install_recipe_options(payload, cache, prefilled, workers)?;
+    let (rss_read, _) = rss_bytes();
     // vk5l WP1 (e): the load memory of the owner alone (program built, every
     // chart prepared, certified set decoded), before the check steps keys.
-    let built = custom_payload_load(&presentation, &payload, &meta).map_err(failed)?;
+    let built = custom_payload_load(presentation, payload, meta).map_err(failed)?;
     let (rss_built, peak_built) = rss_bytes();
     let started = Instant::now();
-    let check = verify_custom_payload(&presentation, &payload, &meta).map_err(failed)?;
+    let failure_path = record_path.with_file_name(format!("{label}.recipe-failure.json"));
+    let check = verify_custom_payload(presentation, payload, meta)
+        .map_err(|error| recipe_failure_out(error, &failure_path))?;
     let seconds = started.elapsed().as_secs_f64();
     let (rss_end, peak) = rss_bytes();
     let gb = |bytes: u64| bytes as f64 / 1e9;
-    let out = serde_json::json!({
+    let mut out = serde_json::json!({
         "schema": "rustred.p-imported-owner-check.v1",
         "label": label,
         "payload": payload_path.display().to_string(),
@@ -706,6 +988,10 @@ fn run_check(arguments: Vec<OsString>) -> Result<(), CliError> {
             "note": "the payload bytes are held during the check (eager read); a library load reads a lazy payload on use",
         },
     });
+    if check.recipe_keys > 0 {
+        out["recipes"] = recipe_statistics_json();
+        out["recipes"]["recipe_keys"] = serde_json::json!(check.recipe_keys);
+    }
     let text = serde_json::to_string_pretty(&out).map_err(json_error)?;
     write_output(
         &StreamPath::File(check_path),

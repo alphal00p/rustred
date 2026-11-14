@@ -188,6 +188,12 @@ pub enum PError {
         status: String,
         request: Option<Arc<PRequestContext>>,
     },
+    /// vk5l WP2 (plan VK5L §3.3): a recipe of a boxed node failed at run
+    /// time (no relation in its seeds, outside its own domain, a budget, a
+    /// proof or certified-digest mismatch): node, recipe id, the key being
+    /// solved, the kind, the verb's failure object, the original request, one
+    /// rule chain and a reproduction command. Never a silent fallback.
+    RecipeFailed(Box<super::recipes::PRecipeFailure>),
     /// One request mixes loop counts.
     MixedDimension,
     /// A Gamma tag outside `|m| <= P_GAMMA_TAG_MAX_M`, `|e| <= 127`.
@@ -284,6 +290,7 @@ impl fmt::Display for PError {
                 key.powers(),
                 request_suffix(request)
             ),
+            Self::RecipeFailed(failure) => write!(formatter, "{failure}"),
             Self::MixedDimension => {
                 formatter.write_str("one p reduction request mixes loop counts")
             }
@@ -318,6 +325,12 @@ impl PError {
     /// vk5l WP1: the same error with the original request recorded (only the
     /// typed refusals that carry one; a request already recorded is kept).
     pub fn with_request(mut self, context: &Arc<PRequestContext>) -> Self {
+        if let Self::RecipeFailed(failure) = &mut self
+            && failure.request.is_none()
+        {
+            failure.request = Some(Arc::clone(context));
+            return self;
+        }
         if let Self::OutsideBox { request, .. }
         | Self::OutsideCertifiedSet { request, .. }
         | Self::NodeNotClosed { request, .. } = &mut self
@@ -334,6 +347,7 @@ impl PError {
             Self::OutsideBox { request, .. }
             | Self::OutsideCertifiedSet { request, .. }
             | Self::NodeNotClosed { request, .. } => request.as_deref(),
+            Self::RecipeFailed(failure) => failure.request.as_deref(),
             _ => None,
         }
     }
