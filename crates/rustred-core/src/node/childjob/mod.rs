@@ -19,6 +19,7 @@
 //! the DEVIATION note in the lane notes), canonicalisation.
 
 pub mod proc;
+pub mod recipe_job;
 
 use std::fs::File;
 use std::io::{self, Write};
@@ -48,7 +49,7 @@ use crate::solver::{Case, CoordinateCase};
 /// Program name in job mode.
 pub const PROGRAM: &str = "rr_node";
 /// Features this build reports in `version --json` (3.2.1) and accepts in `program.features_required`.
-pub const FEATURES: [&str; 18] = [
+pub const FEATURES: [&str; 19] = [
     "job",
     "initial_presented",
     "descend_open",
@@ -68,6 +69,8 @@ pub const FEATURES: [&str; 18] = [
     "case_seed_rung",
     "slim_rules",
     "open_on_refusal",
+    // lane engbase2: job kind solve-recipe (node::recipe through this module's contract checks, recipe_job.rs)
+    "solve_recipe",
 ];
 
 static JOB: OnceLock<Arc<Job>> = OnceLock::new();
@@ -1484,7 +1487,11 @@ pub fn refuse_exit(r: cc::preflight::Refusal, program: &ProgramInfo) -> ! {
 /// A usage / setup failure once the job context exists (e.g. the legacy flag parser's `die`): error OUTCOME with
 /// the code and exit. No-op (returns) in legacy mode.
 pub fn fail_now(code: ExitCode, message: &str) {
-    let Some(j) = job() else { return };
+    let Some(j) = job() else {
+        // a `solve-recipe` job (lane engbase2) has its own context; no-op in legacy mode
+        recipe_job::fail_now(code, message);
+        return;
+    };
     let (stop, class) = match code {
         ExitCode::Usage => (StopCode::Refused, ErrorClass::Usage),
         ExitCode::Input => (StopCode::InputError, ErrorClass::Input),

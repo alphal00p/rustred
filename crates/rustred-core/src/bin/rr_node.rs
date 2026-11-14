@@ -27,7 +27,8 @@
 //! rr_node symmetry --family F.sym [--chart MASK]   (authenticated automorphism group of the chart, JSON)
 //! rr_node solve-recipe --family F.sym --order JSON|NAME --recipe RECIPE.json (--keys KEYS.jsonl | --key K,..) --out DIR
 //!                  [--threads T] [--max-trace-rows R] [--key-budget-s S] [--expect DIGESTS.jsonl] [--no-proof]
-//!                  (R48 recipe rules, node::recipe); job mode: rr_node solve-recipe --job RUN/job.json
+//!                  (R48 recipe rules, node::recipe); job mode: rr_node job RUN/job.json (kind solve-recipe;
+//!                  `rr_node solve-recipe --job RUN/job.json` is an alias of the same dispatcher)
 //! rr_node probe    --family F.sym --case 'SPEC [EQS]' --out DIR [--variants all|NAME,..] [--cap S] [--depth K] [--parallel P] [--portfolio K]
 //! rr_node variants --family F.sym --case 'SPEC [EQS]'
 //! rr_node predict  --family F.sym (--table F.table.jsonl | --cases CASES.jsonl) --out PREDICT.json [--base-order JSON|NAME]
@@ -1357,6 +1358,13 @@ fn cmd_symmetry(mut a: Args) -> i32 {
 /// Job mode: `rr_node solve-recipe --job RUN/job.json` (child-job contract subset, kind "solve-recipe").
 fn cmd_solve_recipe(mut a: Args) -> i32 {
     use rustred::node::recipe;
+    // lane engbase2: ONE job entry. `solve-recipe --job RUN/job.json` is the same dispatcher as `rr_node job
+    // RUN/job.json` (contract preflight, signal flags, sealing, spec-digest binding); the verb's own job reader below
+    // is no longer reached.
+    if let Some(jp) = a.take("--job") {
+        a.done();
+        return job::cmd_job_at(&jp);
+    }
     let fail = |code: i32, m: &str| -> ! {
         eprintln!("rr_node solve-recipe: {m}");
         std::process::exit(code)
@@ -1628,6 +1636,7 @@ fn cmd_solve_recipe(mut a: Args) -> i32 {
         path_base: path_base.clone(),
         events_path: events_path.clone(),
         heartbeat_s,
+        on_end: None,
     };
     let single = keys.len() == 1;
     match recipe::run_batch(&family, &order, &recipe_text, &keys, outp, &opts) {

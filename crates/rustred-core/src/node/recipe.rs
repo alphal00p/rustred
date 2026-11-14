@@ -400,6 +400,12 @@ pub fn build_seeds(recipe: &Recipe, key: &[i64]) -> Vec<Vec<i64>> {
 /// An external stop request (an embedding supervisor's flag, e.g. the child-job contract's signal counter).
 pub type StopFn = Arc<dyn Fn() -> bool + Send + Sync>;
 
+/// An embedding caller's end hook (lane engbase2: the child-job dispatcher `rr_node job` writes the contract OUTCOME
+/// here): called ONCE, after `results.jsonl` is sealed and the verb's own OUTCOME written, with (that outcome, the
+/// verb's exit code, graceful); its return value is the exit code, also on the paths where the batch's watchdog
+/// ends the process itself (grace expired, only budget-expired keys left).
+pub type EndFn = Arc<dyn Fn(&Value, i32, bool) -> i32 + Send + Sync>;
+
 /// Options of one batch (command line of `rr_node solve-recipe`).
 #[derive(Clone)]
 pub struct BatchOptions {
@@ -432,6 +438,8 @@ pub struct BatchOptions {
     pub events_path: Option<PathBuf>,
     /// heartbeat period of the contract events (job mode), seconds
     pub heartbeat_s: f64,
+    /// end hook of an embedding caller (see [`EndFn`]); None = the verb's exit code
+    pub on_end: Option<EndFn>,
 }
 
 impl BatchOptions {
@@ -456,6 +464,7 @@ impl BatchOptions {
             path_base: None,
             events_path: None,
             heartbeat_s: 10.0,
+            on_end: None,
         }
     }
 
@@ -1284,7 +1293,10 @@ fn write_outputs<const N: usize>(
         "job_finished",
         json!({"exit_code": exit, "status": outcome["status"], "stop_code": stop_code}),
     );
-    Ok(exit)
+    Ok(opts
+        .on_end
+        .as_ref()
+        .map_or(exit, |h| h(&outcome, exit, graceful)))
 }
 
 /// The contract's work counters (child-job 3.3.1); this kind counts keys as cases and solved keys as commits.
@@ -1796,6 +1808,27 @@ pub fn parse_keys(text: &str) -> Result<Vec<KeyInput>, String> {
         out.push(KeyInput { key, tag });
     }
     Ok(out)
+}
+
+/// Parse an `--expect` text (lane engbase2, for the job dispatcher; the CLI's inline reader does the same): JSONL of
+/// certified digests `{"key":[..],"relation_digest":".."}` (results.jsonl lines qualify; lines without both members
+/// are skipped).
+pub fn parse_expect(text: &str) -> Result<BTreeMap<Vec<i64>, String>, String> {
+    let mut expect = BTreeMap::new();
+    for (i, l) in text
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| !l.trim().is_empty())
+    {
+        let v: Value =
+            serde_json::from_str(l).map_err(|e| format!("expect line {}: {e}", i + 1))?;
+        if let (Some(k), Some(d)) = (v.get("key"), v["relation_digest"].as_str()) {
+            let k: Vec<i64> = serde_json::from_value(k.clone())
+                .map_err(|e| format!("expect line {}: {e}", i + 1))?;
+            expect.insert(k, d.to_string());
+        }
+    }
+    Ok(expect)
 }
 
 /// The binary's identity for records (path, BLAKE3 of the executable, build commit if exported at build time).
