@@ -464,7 +464,7 @@ pub const ROWS: [RowSpec; 35] = {
         rs(
             22,
             "",
-            "contract violation: OUTCOME unreadable, inconsistent (`check`), of another attempt or spec (job_id, attempt, kind, spec_blake3), exit_code != c, a path not the layout path, family_blake3 not the spec's, elided loci under \"forbidden\"; or c in {0, 10, 20} with O and an output not sealed / not verified; or c outside the kind's set (checker 10 / 20, producing kind 11 / 12, solve-recipe 20 or an exit-10 stop other than keys_unsolved, keys_unsolved of another kind, proof-instantiate / proof-instance-span 10 / 20); or solve-recipe exit 0 with an unsolved record, keys_unsolved without one; or W unknown with an invalid OUTCOME",
+            "contract violation: OUTCOME unreadable, inconsistent (`check`), of another attempt or spec (job_id, attempt, kind, spec_blake3), exit_code != c, a path not the layout path, family_blake3 not the spec's, elided loci under \"forbidden\"; or c in {0, 10, 20} with O and an output not sealed / not verified; or c outside the kind's set (checker 10 / 20, producing kind 11 / 12, solve-recipe 20 or an exit-10 stop other than keys_unsolved, keys_unsolved of another kind, proof-instantiate / proof-instance-span / coefficient-facts 10 / 20); or solve-recipe exit 0 with an unsolved record, keys_unsolved without one; or W unknown with an invalid OUTCOME",
             Crashed,
             Nothing,
             Attention,
@@ -694,7 +694,11 @@ fn decide(
                 // lane adapters: the exit-code sets of the kinds without a rule table
                 match e.kind {
                     JobKind::SolveRecipe => return solve_recipe_row(c, stop, v),
-                    JobKind::ProofInstantiate | JobKind::ProofInstanceSpan if c != 0 => {
+                    JobKind::ProofInstantiate
+                    | JobKind::ProofInstanceSpan
+                    | JobKind::CoefficientFacts
+                        if c != 0 =>
+                    {
                         return row(
                             22,
                             "",

@@ -34,6 +34,8 @@ pub struct RecordReq {
 pub const REASON_IMPORT_PROOF: &str = "import_proof_request";
 pub const REASON_RELATION: &str = "relation";
 pub const REASON_FACTS: &str = "import_fact_request";
+/// lane closeloop3: fact requests of records rr_proof instantiate refuses (elided witness loci): exact evaluation.
+pub const REASON_EXACT: &str = "import_fact_request_exact_eval";
 
 /// One new proof / fact batch (output of a pass, before its item exists).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -231,6 +233,24 @@ pub fn evidence_lines(
         let line = if b.kind == "span" {
             json!({"record_sha256": sha, "key": key, "verdict": v["verdict"], "index": v["rule"],
                    "status": v["status"], "source": "closeloop"})
+        } else if b.kind == "exact" {
+            // lane closeloop3: already a compact fact verdict line of the exact evaluation; its provenance is kept
+            // (producer / backend / method / record_sha256), per-term detail is not recorded
+            if v["schema"] != FACT_VERDICT_SCHEMA || v["producer"] != "exact_eval" {
+                return Err(format!(
+                    "answer {}: not an exact_eval fact verdict line ({} / {})",
+                    i + 1,
+                    v["schema"],
+                    v["producer"]
+                ));
+            }
+            let mut o = v.clone();
+            if let Some(m) = o.as_object_mut() {
+                m.remove("coef");
+                m.remove("term_keys");
+                m.insert("source".into(), json!("closeloop"));
+            }
+            o
         } else {
             let usable = v["in_case"] == true
                 && v["chart_ok"] == true
@@ -264,7 +284,8 @@ pub fn evidence_lines(
                 }
             }
             json!({"schema": FACT_VERDICT_SCHEMA, "index": v["rule"], "record_sha256": sha, "key": key,
-                   "verdict": verdict, "n_terms": terms.len(), "nonzero": nonzero, "unknown": unknown})
+                   "verdict": verdict, "n_terms": terms.len(), "nonzero": nonzero, "unknown": unknown,
+                   "producer": "rr_proof"})
         };
         out.push(
             rustred_campaign_core::schema::canon::canonical_json(&line, false)

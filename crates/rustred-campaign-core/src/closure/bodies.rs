@@ -237,7 +237,7 @@ fn skip_fixed(dom: &CaseDomain) -> Vec<Option<i32>> {
 }
 
 /// Rule point of `domain` at `key` (canonical target: the key itself).
-pub(crate) fn rule_point(domain: &CaseDomain, key: &[i32], pt: &mut Vec<i32>) -> bool {
+pub fn rule_point(domain: &CaseDomain, key: &[i32], pt: &mut Vec<i32>) -> bool {
     pt.clear();
     match &domain.target {
         TargetMap::Canonical => {

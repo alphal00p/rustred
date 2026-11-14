@@ -104,6 +104,9 @@ pub struct AcceptBits {
     pub family_path: String,
     pub family_blake3: String,
     pub order: String,
+    /// lane closeloop3: the per-key caps of the solves (recorded on the answer line of a key that hit one).
+    pub max_trace_rows: Option<u64>,
+    pub key_budget_s: Option<u64>,
 }
 
 /// Run the closeloop's accept chain on one settled point solve: `undeclare` = the terminal the solve is FOR (removed
@@ -143,6 +146,8 @@ pub fn accept_point(
             results_path: results.0.to_string(),
             results_blake3: results.1.to_string(),
             run_dir: run_dir.to_string(),
+            max_trace_rows: bits.max_trace_rows,
+            key_budget_s: bits.key_budget_s,
         };
         decide(&ctx, lines)
     });
@@ -690,6 +695,8 @@ impl TermminSource {
                 .map(|x| x.1)
                 .unwrap_or_default(),
             order: p.cfg.solve.order_arg(),
+            max_trace_rows: p.spec.caps.max_trace_rows.or(p.cfg.solve.max_trace_rows),
+            key_budget_s: p.spec.caps.key_budget_s.or(p.cfg.solve.key_budget_s),
         }
     }
 
@@ -1203,13 +1210,16 @@ impl TermminSource {
                     &inner,
                 )?;
                 let threads = self.nodes[i].cfg.check_threads;
+                // lane closeloop3: recipe-served keys of the second statement are per-key only with their bound proof
+                let proved = self.inner.proved_relations(st, &node);
                 let h = std::thread::Builder::new()
                     .name(format!("termmin-second-{n}"))
                     .spawn(move || -> Result<Loaded, String> {
                         let isp = TableSetSpec::read(&sp).map_err(|e| format!("extended spec: {e}"))?;
                         let base = sp.parent().map(Path::to_path_buf).unwrap_or_default();
                         let set = rustred_campaign_core::import::load(&isp, &base).map_err(|e| format!("extended load: {e}"))?;
-                        let ev = Evidence::from_spec(&set, &base).map_err(|e| format!("extended evidence: {e}"))?;
+                        let mut ev = Evidence::from_spec(&set, &base).map_err(|e| format!("extended evidence: {e}"))?;
+                        ev.recipe_proofs = Some(proved);
                         let res = rustred_campaign_core::import::check(
                             &set,
                             &ev,
@@ -1523,7 +1533,35 @@ impl WorkSource for TermminSource {
                 rt.accepts.push(keys);
                 rt.accepts.push(lines_rec);
             }
-            answer_of(&d, &b.keys[0], &step, &rid, &b.recipe_path, cost)
+            let ans = answer_of(&d, &b.keys[0], &step, &rid, &b.recipe_path, cost);
+            // lane closeloop3 (closeloop.md 16.7): the certified relation as point records for the proof pass (its
+            // recipe id = the one the extended spec gives it: the termmin point recipe, or the node's own recipe for a
+            // closing solve)
+            if let SolveAnswer::Relation { candidate, .. } = &ans
+                && !d.records.is_empty()
+            {
+                let src = if step == "closing" {
+                    b.source.clone()
+                } else {
+                    rustred_campaign_core::termmin::extend::candidate_source(&terminal, candidate)
+                };
+                let node = self.nodes[i].cfg.node.clone();
+                if let Some(rel) = self
+                    .inner
+                    .phase_e_relation_table(&node, &b, &src, &done.item, &done.job, &d.records)?
+                {
+                    let f = rel.file_ref();
+                    rt.events.push(Event::InputRegistered {
+                        input: super::ids::input_relations(&done.item, &done.job),
+                        role: super::ids::ROLE_RELATIONS.into(),
+                        path: self.abs(&rel.path).display().to_string(),
+                        bytes: f.bytes,
+                        blake3: f.blake3,
+                    });
+                    rt.accepts.push(rel);
+                }
+            }
+            ans
         };
         if !matches!(answer, SolveAnswer::Relation { .. }) {
             rt.events.push(Event::Item {
@@ -1614,14 +1652,20 @@ impl WorkSource for TermminSource {
             }
             // finished when the machine is done (or failed) and no termmin item is in flight
             let node = self.nodes[i].cfg.node.clone();
-            let busy = st.items.values().any(|it| {
-                it.node == node
-                    && it.kind == KIND_TERMMIN
-                    && matches!(
-                        it.phase,
-                        ItemPhase::Open | ItemPhase::InProgress | ItemPhase::Produced
-                    )
-            });
+            // lane closeloop3 (closeloop.md 16.7): phase-E relations get span proof items of the inner's proof pass;
+            // the second statement waits until every proof item of the node is final
+            let pr = self.inner.phase_e_proof_items(st, &node, KIND_TERMMIN)?;
+            rt.events.extend(pr.events);
+            rt.accepts.extend(pr.accepts);
+            let busy = self.inner.proofs_pending(st, &node)
+                || st.items.values().any(|it| {
+                    it.node == node
+                        && it.kind == KIND_TERMMIN
+                        && matches!(
+                            it.phase,
+                            ItemPhase::Open | ItemPhase::InProgress | ItemPhase::Produced
+                        )
+                });
             let new_items = rt
                 .events
                 .iter()
@@ -1639,6 +1683,11 @@ impl WorkSource for TermminSource {
             }
         }
         Ok(rt)
+    }
+
+    /// lane closeloop3 (procfix5): the closing loop's outcome (phase E never changes a node's verdict).
+    fn outcome(&self, st: &CampaignState) -> crate::supervisor::worksource::CampaignOutcome {
+        self.inner.outcome(st)
     }
 
     fn finished(&self, st: &CampaignState) -> bool {

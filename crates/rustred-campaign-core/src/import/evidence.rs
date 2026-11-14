@@ -42,6 +42,22 @@ struct FactRec {
     /// in case, chart ok, no branch, no error, regular.
     lift: bool,
     terms: Terms,
+    /// lane closeloop3: who produced the fact (the FACT BASIS of the keys it decides; not part of the fact itself).
+    producer: &'static str,
+}
+
+/// lane closeloop3 (interfaces/closeloop.md 16): the fact basis word of a fact line: `rr_proof` (rr_proof instantiate
+/// answers, or compact lines stating `producer: rr_proof`), `exact_eval` (compact lines of the exact evaluation of the
+/// record's own coefficient text, `rr_coef_facts`), `compact` (a compact line that states no known producer).
+fn fact_producer(v: &Value, compact: bool) -> &'static str {
+    if !compact {
+        return "rr_proof";
+    }
+    match v.get("producer").and_then(Value::as_str) {
+        Some("exact_eval") => "exact_eval",
+        Some("rr_proof") => "rr_proof",
+        _ => "compact",
+    }
 }
 
 impl FactRec {
@@ -450,9 +466,14 @@ impl Evidence {
                     regular,
                     lift: usable && regular == RegFact::Regular,
                     terms,
+                    producer: fact_producer(&v, compact),
                 };
                 match self.facts.get(&(ri, key.clone())) {
-                    Some(old) if *old != rec => {
+                    // two producers agreeing on the same fact are no conflict (the first one stays the basis)
+                    Some(old)
+                        if (old.regular, old.lift, &old.terms)
+                            != (rec.regular, rec.lift, &rec.terms) =>
+                    {
                         return Err(bad(format!(
                             "conflicting facts for record {sha} at {key:?}"
                         )));
@@ -754,6 +775,21 @@ impl Evidence {
 
     pub fn has_facts(&self) -> bool {
         !self.fact_files.is_empty()
+    }
+
+    /// lane closeloop3: whether ANY usable fact line (whatever its regularity verdict) is bound to (rule, key).
+    pub fn has_fact(&self, set: &ImportedSet, table: usize, record: usize, key: &[i32]) -> bool {
+        let sha = &set.rules[table][record].record_sha256;
+        self.sha_index
+            .get(sha)
+            .and_then(|ri| self.facts.get(&(*ri, key.to_vec())))
+            .is_some_and(|f| !matches!(&f.terms, Terms::Full(t) if t.is_empty()) || f.lift)
+    }
+
+    /// lane closeloop3: the fact basis of (rule, key): the producer of the bound fact line (`rr_proof` | `exact_eval`
+    /// | `compact`), `None` without a fact.
+    pub fn fact_basis(&self, rule: &RuleId, key: &[i32]) -> Option<&'static str> {
+        self.rec(rule, key).map(|f| f.producer)
     }
 
     fn rec(&self, rule: &RuleId, key: &[i32]) -> Option<&FactRec> {

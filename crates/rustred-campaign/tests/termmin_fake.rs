@@ -134,6 +134,29 @@ fn phase_e_eliminates_two_of_three_terminals_and_writes_a_second_statement() {
         cdir.join("closeloop/toy/termmin/statement/statement.jsonl")
             .is_file()
     );
+    // lane closeloop3 (closeloop.md 16.7): phase E's relations got span proofs of the closing loop's proof pass (items
+    // <n>.p0.<j>, accepted) and the second statement's served keys are per-key (recipe relations with bound proofs)
+    let st = state(&cdir);
+    let p0: Vec<_> = st
+        .items
+        .iter()
+        .filter(|(k, it)| k.starts_with("toy.p0.") && it.kind == "proof-span")
+        .collect();
+    assert!(!p0.is_empty(), "no phase-E relation proof item");
+    assert!(
+        p0.iter()
+            .all(|(_, it)| it.phase.tag() == "accepted" && it.label == "span:relation"),
+        "{p0:?}"
+    );
+    let second =
+        std::fs::read_to_string(cdir.join("closeloop/toy/termmin/statement/statement.jsonl"))
+            .unwrap();
+    for l in second.lines() {
+        let v: Value = serde_json::from_str(l).unwrap();
+        if v["status"] == "served" {
+            assert_eq!(v["evidence"], "per-key", "{v}");
+        }
+    }
     assert!(
         cdir.join("closeloop/toy/final/statement/statement.jsonl")
             .is_file()

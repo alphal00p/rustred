@@ -62,7 +62,8 @@ impl Default for Caps {
         Caps {
             max_seeds: 12_000,
             max_trace_rows: None,
-            key_budget_s: None,
+            // directing session 2026-11-14 (lane closeloop3): depth 3 decides in 13-19 min per key; 540 s was too short
+            key_budget_s: Some(1800),
             threads: 1,
             cap_bytes: 2 << 30,
             expected_peak_bytes: 1 << 30,

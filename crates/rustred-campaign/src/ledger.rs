@@ -411,6 +411,28 @@ pub struct NodeSpecValues {
     pub preferred_listed: Option<u64>,
     /// Whether preferred terminals count against the node's terminal bound (default false).
     pub preferred_count_against_bound: Option<bool>,
+    /// lane closeloop3 (closeloop2's request; closeloop.md 13.3 / 16.5): the target the node STARTS on (None = full,
+    /// as before; written only when given, so older records are unchanged). `boxed` needs the spec box.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_target: Option<StartTarget>,
+}
+
+/// The target a node starts on (lane closeloop3): `full` (default) or `boxed`: BOXED from its first record (the
+/// spec box; a node whose spec gives the box as the user's fallback and which never makes a FULL attempt). Such a node
+/// never had a FULL target: a reopen returns it to its box (R33 unchanged: a node closed FULL once is never boxed).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StartTarget {
+    #[default]
+    Full,
+    Boxed,
+}
+
+impl StartTarget {
+    /// `full` (the default: not serialized in a resolved node spec, so older snapshots stay byte-identical).
+    pub fn is_full(&self) -> bool {
+        *self == StartTarget::Full
+    }
 }
 
 /// What an operator control does.
