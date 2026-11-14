@@ -1650,6 +1650,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustred-campaign-algebra"
+version = "0.1.0"
+dependencies = [
+ "rustred-campaign-core",
+ "serde",
+ "serde_json",
+ "symbolica",
+]
+
+[[package]]
 name = "rustred-campaign-contract"
 version = "0.1.0"
 dependencies = [

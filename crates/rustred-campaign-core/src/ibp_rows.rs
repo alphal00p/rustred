@@ -776,10 +776,14 @@ fn eval_coeffs<A: CheckAlgebra>(
             .eval_ratio(text, rule.arity, ctxs, &mut num, &mut den)
             .map_err(|e| format!("rhs[{k}] coefficient: {e}"))?;
         for j in 0..m {
+            // the VALUE num/den mod p (backends may scale or cancel numerator and denominator differently)
             alg.observe(
                 Stage::Coefficient,
                 &|| format!("{at} context {j} rhs[{k}]"),
-                &|| format!("{}/{}", num[j], den[j]),
+                &|| match alg.inv(ctxs[j].p, den[j]) {
+                    Some(iv) => format!("{}", alg.mul(ctxs[j].p, num[j], iv)),
+                    None => "pole (denominator 0)".to_string(),
+                },
             );
         }
         deg.max_num_deg = deg.max_num_deg.max(st.num.deg as u64);
@@ -2861,11 +2865,27 @@ pub fn replay_evidence_with<A: CheckAlgebra>(
     policy: &ReplayPolicy,
     opts: &RowsOptions,
 ) -> ReplayRecord {
-    let master_seed = opts.seed;
-    let (nonce, nonce_source) = match opts.nonce {
+    let drawn = match opts.nonce {
         Some(x) => (x, NonceSource::Caller),
         None => os_nonce(),
     };
+    replay_evidence_drawn(alg, family, rule, served_keys, policy, opts, drawn)
+}
+
+/// [`replay_evidence_with`] with the nonce already drawn (`drawn` = (nonce, its source); `opts.nonce` is ignored):
+/// the triage draws ONE nonce from the OS and runs both backends on it, so their random streams are identical and
+/// the certificate run keeps `NonceSource::Os`.
+pub fn replay_evidence_drawn<A: CheckAlgebra>(
+    alg: &A,
+    family: &Family,
+    rule: &RowsRule,
+    served_keys: &[Vec<i64>],
+    policy: &ReplayPolicy,
+    opts: &RowsOptions,
+    drawn: (u64, NonceSource),
+) -> ReplayRecord {
+    let master_seed = opts.seed;
+    let (nonce, nonce_source) = drawn;
     // re-audit A NEW-m1 / B: caller-chosen draws or weakened checks are MARKED and block the level (the per-key
     // certificate is explicit, but a caller who picks the primes can tailor a coefficient to them)
     let mut overrides: Vec<String> = Vec::new();

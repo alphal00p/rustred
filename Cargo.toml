@@ -9,6 +9,7 @@ members = [
     "crates/rustred-campaign-core",
     "crates/rustred-campaign-contract",
     "crates/rustred-campaign",
+    "crates/rustred-campaign-algebra",
 ]
 default-members = [
     "crates/rustred-order",
