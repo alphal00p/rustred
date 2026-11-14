@@ -1592,7 +1592,8 @@ fn relations_of(p: &Path) -> Vec<(serde_json::Value, String, Option<String>)> {
         .collect()
 }
 
-/// (key, verdict, rhs) of every relation record (relations compared across digest versions).
+/// (key, verdict, rhs as [key, coefficient] terms) of every relation record: relations compared across digest
+/// versions (v1 records have no top/sub mark; v2 digests include the relation rule).
 fn rhs_of(p: &Path) -> Vec<(serde_json::Value, String, serde_json::Value)> {
     std::fs::read_to_string(p)
         .unwrap()
@@ -1603,7 +1604,14 @@ fn rhs_of(p: &Path) -> Vec<(serde_json::Value, String, serde_json::Value)> {
             (
                 v["key"].clone(),
                 v["verdict"].as_str().unwrap_or("").to_string(),
-                v["rhs"].clone(),
+                v["rhs"]
+                    .as_array()
+                    .map(|t| {
+                        t.iter()
+                            .map(|x| serde_json::json!([x[0], x[1]]))
+                            .collect::<Vec<_>>()
+                    })
+                    .into(),
             )
         })
         .collect()
