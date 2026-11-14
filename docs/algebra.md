@@ -323,7 +323,18 @@ not the missing multivariate service listed below.
 - `rational`: `RationalFunction` over Q, Wang's reconstruction and MQRR;
 - `lift`: `Lift`, CRT accumulation with Wang and MQRR raced, accepted once a
   guess is unchanged over two consecutive primes; an image of another shape
-  (an unlucky prime) is reported as `ShapeMismatch` and not accumulated.
+  (an unlucky prime) is reported as `ShapeMismatch` and not accumulated;
+- `driver`: `reconstruct_univariate` over a `BlackBox` that evaluates many
+  functions together at points of one free variable: interpolation in the
+  first prime, known-shape fits in later primes, pruning of accepted
+  functions, a leave-one-prime-out retry, optional common denominators per
+  group, and a final check of every accepted function at fresh points of a
+  fresh prime. The verification primes are drawn from the same prime stream
+  after the reconstruction primes, so they never coincide with one; the
+  report lists both. A probe failure at a point (a pole) discards that point;
+- `checkpoint`: `FileProbeLog`, an append-only per-prime probe log bound to a
+  caller key, so that an interrupted reconstruction resumes and re-reads
+  exactly the probes it needs (a torn last record is dropped).
 
 The algorithms follow the FireFly papers (arXiv:1904.00009, arXiv:2004.01463)
 and were implemented from the papers only. The LiteRed lane's own

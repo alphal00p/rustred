@@ -7,7 +7,7 @@
 //! raced on the accumulated residues. A guess is accepted ("probably
 //! correct") once either method returns the same function for two
 //! consecutive moduli; the caller then checks it in a fresh prime (FireFly
-//! Alg. 3, done by the black-box driver). An unlucky prime can only lower
+//! Alg. 3, see [`super::driver`]). An unlucky prime can only lower
 //! degrees or raise the normalisation index, so an image of a strictly larger
 //! shape restarts the accumulation (an unlucky FIRST prime is recovered), and
 //! an image of a smaller shape is rejected.

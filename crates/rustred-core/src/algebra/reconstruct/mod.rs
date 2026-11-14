@@ -27,16 +27,16 @@
 //! - [`known`]: [`Shape`] and [`fit_known_shape`];
 //! - [`rational`]: [`RationalFunction`] over Q, Wang and MQRR;
 //! - [`lift`]: [`Lift`] (CRT + race + acceptance);
-//!
-//! The black-box driver (`reconstruct_univariate`, fresh-prime
-//! verification, probe bunches and a resumable probe log) builds on these
-//! primitives and is added separately.
+//! - [`driver`]: [`reconstruct_univariate`] over a [`BlackBox`];
+//! - [`checkpoint`]: [`FileProbeLog`].
 //!
 //! The LiteRed lane's `solver/litered/reconstruct.rs` (Thiele with early
 //! termination, `CrtAccumulator` with MQRR, the same normalisation) is the
 //! special case `Interpolator` + `Lift` of this module; that lane moves
 //! onto it when both are on main.
 
+pub mod checkpoint;
+pub mod driver;
 pub mod interpolate;
 pub mod known;
 pub mod lift;
@@ -46,11 +46,19 @@ pub mod rational;
 /// A `Zp64` element.
 pub type Zp = symbolica::domains::finite_field::FiniteFieldElement<u64>;
 
+pub use checkpoint::FileProbeLog;
+pub use driver::{
+    BlackBox, PrimeBlackBox, PrimeReport, ProbeFailure, ProbeLog, ProbeResult, Reconstruction,
+    ReconstructionError, ReconstructionReport, UnivariateOptions, VerificationReport,
+    reconstruct_univariate, reconstruction_primes,
+};
 pub use interpolate::{Interpolator, Newton, Thiele};
 pub use known::{Shape, fit_known_shape};
 pub use lift::{Lift, LiftMethod, LiftStatus};
 pub use rational::{RationalFunction, mqrr_reconstruction, rational_image, wang_reconstruction};
 
+#[cfg(test)]
+mod driver_tests;
 #[cfg(test)]
 mod audit_primitive_tests;
 #[cfg(test)]
