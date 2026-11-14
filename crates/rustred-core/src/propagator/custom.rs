@@ -810,7 +810,7 @@ pub fn custom_payload_coefficient_stats(
         decode_seconds: started.elapsed().as_secs_f64(),
         ..CustomCoefficientStats::default()
     };
-    let coefficient = |index: usize| -> Result<&Coefficient, PError> {
+    let coefficient = |index: usize| -> Result<Arc<Coefficient>, PError> {
         let id = CoefficientId::try_from_index(index).map_err(|e| payload_error(e.to_string()))?;
         decoded
             .table
