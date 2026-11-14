@@ -84,6 +84,15 @@ if ! done_step load; then
   [ "$(cat "$PKG/run-load/rc")" = 0 ] && mark load
 fi
 
+# Optional acceptance cell (WP6_CELL_TOP=<5L top>): p5l_library check <pkg> <top> 0 0 0 0 0 = the d0_r0 cell of that top
+# reduced through the package (A) and its top sector against a RustRed Laporta modulo subsectors at 3 d (B).
+paused cell
+if [ -n "${WP6_CELL_TOP:-}" ] && ! done_step cell; then
+  python3 -I "$T/job6.py" --tag "cell-$NAME" --ncpu 1 --mem ${WP6_CELL_MEM:-32G} --max-seconds 7200 --out "$PKG/run-cell" -- \
+    bash -c "source $WS/ops/env.sh; /run/current-system/sw/bin/time -v $BIN/examples/p5l_library check $PKG/lib $WP6_CELL_TOP 0 0 0 0 0"
+  [ "$(cat "$PKG/run-cell/rc")" = 0 ] && mark cell
+fi
+
 paused release
 if ! done_step release; then
   python3 -I "$T/release.py" manifest "$PKG/lib" "$PKG/release" --selection "$SELPLAN/selection.json" --link \
