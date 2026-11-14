@@ -27,6 +27,9 @@ pub const CONTEXT_CANONICAL_STREAM: &str =
     "rustred.child-job.v1 2026-11-14 canonical stream digest";
 /// BLAKE3 key-derivation context of the per-record digest.
 pub const CONTEXT_RECORD: &str = "rustred.child-job.v1 2026-11-14 record digest";
+/// BLAKE3 key-derivation context of `job.effective.blake3` (contract outcome.rs `CONTEXT_EFFECTIVE`; contract owner's
+/// ruling 2026-11-14, `EFFECTIVE_DIGEST_VERSION` 2).
+pub const CONTEXT_EFFECTIVE: &str = "rustred.child-job.v1 2026-11-14 effective digest";
 /// The program name of the spec (`program.name`).
 pub const PROGRAM: &str = "rr_node";
 /// Features of THIS build in job mode (kind solve-recipe only; `version --json`, `features_required`).
@@ -160,14 +163,24 @@ pub fn effective_env() -> BTreeMap<String, String> {
     m
 }
 
-/// `job.effective` with its digest: `blake3` = BLAKE3 of the compact canonical JSON of
-/// `{subcommand,args,node_options,order,env}` (contract outcome.rs `Effective`).
+/// `job.effective` with its digest (contract outcome.rs `Effective::digest`, version 2): `blake3` = BLAKE3 in the
+/// [`CONTEXT_EFFECTIVE`] domain over the canonical JSON line of exactly `{subcommand,args,node_options,order,env}`
+/// (`blake3` itself is not hashed).
 pub fn effective(args: &Value, node_options: Value, order: Value) -> Value {
     let mut e = json!({"subcommand": "solve-recipe", "args": args, "node_options": node_options,
         "order": order, "env": effective_env()});
-    let d = blake3::hash(canonical(&e).as_bytes()).to_hex().to_string();
+    let d = effective_digest(&e);
     e["blake3"] = json!(d);
     e
+}
+
+/// [`CONTEXT_EFFECTIVE`] digest of the five members of an effective object (any other member is ignored).
+pub fn effective_digest(e: &Value) -> String {
+    let five = json!({"subcommand": e["subcommand"], "args": e["args"], "node_options": e["node_options"],
+        "order": e["order"], "env": e["env"]});
+    let mut h = blake3::Hasher::new_derive_key(CONTEXT_EFFECTIVE);
+    h.update(canonical(&five).as_bytes());
+    h.finalize().to_hex().to_string()
 }
 
 /// The one line of `rr_node version --json` (contract 3.2.1).
@@ -838,6 +851,26 @@ mod tests {
             blake3::hash(canonical(&e).as_bytes()).to_hex().to_string(),
             "0eb6af6ae058bfb993267685545f53b84cdc71c3423e910ae586e2dc42121c3f"
         );
+    }
+
+    #[test]
+    fn effective_digest_is_the_contract_version_2_vector() {
+        // contract crate tests/effective_digest.rs (lane engfix4, outcome.rs Effective::digest, version 2)
+        let mut e = json!({"subcommand":"solve-recipe","args":["--order","id"],
+            "node_options":{"threads":1,"proof":true,"relation_rule":"m1_first","key_budget_s":null,
+                "max_trace_rows":null,"recipe_digest":"abc","determinism_id":"d"},
+            "order":{"name":"id"},"env":{"SYMBOLICA_LICENSE":"<present>"}});
+        let d = effective_digest(&e);
+        assert_eq!(d, "04d5bb45173ff273bc02b20999b0c851f668226c22b5abafc519a2c27bb05012");
+        // `blake3` (and any other extra member) is not hashed
+        e["blake3"] = json!("f".repeat(64));
+        assert_eq!(effective_digest(&e), d);
+        // version 1 (plain BLAKE3 of the canonical JSON) differs
+        e.as_object_mut().unwrap().remove("blake3");
+        assert_ne!(blake3::hash(canonical(&e).as_bytes()).to_hex().to_string(), d);
+        // the sealing function writes exactly this digest
+        let s = effective(&json!(["--order", "id"]), json!({"threads": 1}), json!({"name": "id"}));
+        assert_eq!(s["blake3"], json!(effective_digest(&s)));
     }
 
     #[test]
