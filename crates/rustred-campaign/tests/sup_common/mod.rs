@@ -167,6 +167,14 @@ pub fn signal(c: &Child, sig: i32) {
 
 /// Exit code of a supervisor that stopped for an operator decision (execution-unknown attempts, procfix3 item 6).
 pub const ATTENTION: i32 = 8;
+/// procfix5 (gate4 m3): finished, not every node closed / a node in error.
+pub const FINISHED_OPEN: i32 = 10;
+pub const FINISHED_ERROR: i32 = 11;
+
+/// The exit codes of a run that FINISHED its work (0: every node closed; 10 / 11: not all closed).
+pub fn finished(code: i32) -> bool {
+    matches!(code, 0 | FINISHED_OPEN | FINISHED_ERROR)
+}
 
 /// Act as the operator for every attempt of UNKNOWN execution (an `unconfirmed` launch whose run directory holds no
 /// valid OUTCOME; lane int5: the ledger state, not `launching`) and every item in attention for repeated host-resource
@@ -215,7 +223,9 @@ pub fn run_to_end(spec: &Path, cdir: &Path, extra: &[&str]) -> Vec<i32> {
         let mut c = start(spec, cdir, extra, &[]);
         let code = wait(&mut c, Duration::from_secs(900));
         codes.push(code);
-        if code == 0 {
+        // procfix5 (gate4 m3): 10 / 11 = finished, not every node closed (e.g. a synthetic item that crashed twice is
+        // in attention, decision rows 22 / 23): the work is done as well.
+        if matches!(code, 0 | FINISHED_OPEN | FINISHED_ERROR) {
             return codes;
         }
         if code == ATTENTION {

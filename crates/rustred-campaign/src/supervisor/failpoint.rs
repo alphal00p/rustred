@@ -22,6 +22,9 @@ pub struct Failpoints {
     n: u64,
     #[cfg(debug_assertions)]
     passes: std::sync::atomic::AtomicU64,
+    /// procfix5: further sites of a comma-separated value (`after_spawn:2,no_spawn_barrier:1`), each with its own count.
+    #[cfg(debug_assertions)]
+    more: Vec<Failpoints>,
 }
 
 impl Failpoints {
@@ -44,7 +47,12 @@ impl Failpoints {
     pub fn active(&self) -> Option<String> {
         #[cfg(debug_assertions)]
         {
-            self.site.as_ref().map(|s| format!("{s}:{}", self.n))
+            self.site.as_ref().map(|s| {
+                std::iter::once(format!("{s}:{}", self.n))
+                    .chain(self.more.iter().filter_map(Failpoints::active))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            })
         }
         #[cfg(not(debug_assertions))]
         {
@@ -56,7 +64,7 @@ impl Failpoints {
     /// the final sweep reports itself unproven). Always false in a release build.
     #[cfg(debug_assertions)]
     pub fn armed(&self, site: &str) -> bool {
-        self.site.as_deref() == Some(site)
+        self.site.as_deref() == Some(site) || self.more.iter().any(|f| f.armed(site))
     }
 
     #[cfg(not(debug_assertions))]
@@ -67,20 +75,28 @@ impl Failpoints {
 
     #[cfg(debug_assertions)]
     pub fn parse(v: &str) -> Failpoints {
-        match v.rsplit_once(':') {
+        let mut parts = v.split(',').map(str::trim).filter(|p| !p.is_empty());
+        let one = |p: &str| match p.rsplit_once(':') {
             Some((site, n)) => Failpoints {
                 site: Some(site.to_string()),
                 n: n.parse().unwrap_or(1).max(1),
                 passes: std::sync::atomic::AtomicU64::new(0),
+                more: Vec::new(),
             },
             None => Failpoints::default(),
-        }
+        };
+        let mut first = parts.next().map(one).unwrap_or_default();
+        first.more = parts.map(one).collect();
+        first
     }
 
     /// Pass `site`: abort ourselves at the configured pass (test builds); nothing in a release build.
     #[cfg(debug_assertions)]
     pub fn hit(&self, site: &str) {
         use std::sync::atomic::Ordering;
+        for f in &self.more {
+            f.hit(site);
+        }
         if self.site.as_deref() != Some(site) {
             return;
         }
@@ -101,6 +117,9 @@ impl Failpoints {
     pub fn ledger_ops(&self) -> Option<Arc<dyn FileOps>> {
         #[cfg(debug_assertions)]
         {
+            if self.site.as_deref() != Some("ledger_enospc") {
+                return self.more.iter().find_map(Failpoints::ledger_ops);
+            }
             (self.site.as_deref() == Some("ledger_enospc")).then(|| {
                 Arc::new(enospc::EnospcOps {
                     after: self.n,

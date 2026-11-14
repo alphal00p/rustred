@@ -38,9 +38,12 @@ pub use fake::{
 };
 pub(crate) use guard::reap_adopted;
 pub use guard::{
-    DELIVERY_LOG_MAX, Delivery, PidfdProbe, ProcessTarget, Proof, Refusal, SigchldSetup, StartRule,
-    Verdict, ensure_sigchld_default, is_child_subreaper, kill_orphan, pidfd_probe, pidfd_supported,
+    DELIVERY_LOG_MAX, Delivery, INTENT_LOG_FILE, INTENT_RESERVE_FILE, INTENT_SCHEMA, IntentLine,
+    LoggedIntent, PidfdProbe, ProcessTarget, Proof, Refusal, SigchldSetup, StartRule, Verdict,
+    ensure_sigchld_default, ignore_sigxfsz, install_intent_log, intent_id_in, intent_log_installed,
+    is_child_subreaper, kill_orphan, pidfd_probe, pidfd_supported, read_intent_log,
     set_child_subreaper, sigchld_autoreaps, signal_verified_process, take_deliveries,
+    uninstall_intent_log,
 };
 pub use idlock::{IdLockError, default_lock_dir};
 pub use real::{
@@ -48,6 +51,50 @@ pub use real::{
     TrackingPreference, adhoc_campaign_id, audit_inheritable_fds, in_private_namespace, peek_exit,
 };
 pub use sweep::{LeftMarked, Narrowing, SweepReport, SweepSpec};
+
+/// The barrier shim (procfix5 m1), run by the hidden verb [`BARRIER_VERB`] of a binary that hosts the supervisor:
+/// `args` = `<fd> -- <program> <args...>`. Waits for one byte on `fd` (the supervisor writes it after recording the
+/// spawn durably), closes it and execs the program in place with the current environment. EOF or anything else: exit
+/// [`BARRIER_NOT_RELEASED`] without executing anything. Returns only on failure (the exit code to use).
+pub fn barrier_shim(args: &[String]) -> i32 {
+    use std::io::Write;
+    use std::os::unix::process::CommandExt;
+    let (Some(fd), Some("--"), Some(prog)) = (
+        args.first().and_then(|s| s.parse::<RawFd>().ok()),
+        args.get(1).map(String::as_str),
+        args.get(2),
+    ) else {
+        let _ = writeln!(
+            std::io::stderr(),
+            "{BARRIER_VERB}: usage <fd> -- <program> [args]"
+        );
+        return 2;
+    };
+    if fd < 3 {
+        return 2;
+    }
+    let mut b = [0u8; 1];
+    let n = loop {
+        // SAFETY: a one-byte read into a stack buffer from an inherited descriptor.
+        let r = unsafe { libc::read(fd, b.as_mut_ptr().cast(), 1) };
+        if r < 0 && io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+            continue;
+        }
+        break r;
+    };
+    // SAFETY: closing the inherited barrier descriptor (the program must not inherit it).
+    unsafe { libc::close(fd) };
+    if n != 1 || b[0] != b'G' {
+        let _ = writeln!(
+            std::io::stderr(),
+            "{BARRIER_VERB}: the supervisor ended before it recorded this spawn: the program was not started"
+        );
+        return BARRIER_NOT_RELEASED;
+    }
+    let e = std::process::Command::new(prog).args(&args[3..]).exec();
+    let _ = writeln!(std::io::stderr(), "{BARRIER_VERB}: exec {prog}: {e}");
+    127
+}
 
 use crate::resources::{CampaignMarker, EscapeeRecord, MARKER_VAR, ProcessIdentity, SessionUsage};
 use serde::Serialize;
@@ -315,7 +362,20 @@ pub struct LaunchSpec {
     /// scope, used with `systemd-run --unit=` when the systemd-scope mechanism is chosen (recorded by the supervisor in
     /// the launch record, so that a restart after a crash can find exactly this scope). None: an anonymous scope.
     pub scope_unit: Option<String>,
+    /// procfix5 (gate4 m1): start the child behind a SPAWN BARRIER: the child execs this process's own binary
+    /// (`/proc/self/exe`) with the hidden verb [`BARRIER_VERB`], which waits on an inherited pipe until the caller calls
+    /// [`RealChild::release_barrier`] (after recording the spawn durably) and only then execs the program in place
+    /// (same pid, session, start time, marker, PDEATHSIG, affinity, scope). If the caller dies first, the pipe reports
+    /// EOF and the program is never executed. Only for binaries whose `main` dispatches [`BARRIER_VERB`] (the
+    /// `rr_campaign` CLI does: `cli::main_with`). Default false.
+    pub spawn_barrier: bool,
 }
+
+/// The hidden verb of the spawn barrier: `<exe> __spawn-barrier <fd> -- <program> <args...>` (see
+/// [`LaunchSpec::spawn_barrier`]).
+pub const BARRIER_VERB: &str = "__spawn-barrier";
+/// Exit code of a barrier shim whose barrier was never released (the program was not executed).
+pub const BARRIER_NOT_RELEASED: i32 = 125;
 
 impl LaunchSpec {
     /// Defaults: cwd = run_dir, stdout/stderr = run_dir/stdout.log, run_dir/stderr.log, empty environment, no pinning,
@@ -338,6 +398,7 @@ impl LaunchSpec {
             inherit_fds: Vec::new(),
             pdeathsig: true,
             scope_unit: None,
+            spawn_barrier: false,
         }
     }
 
@@ -514,6 +575,8 @@ impl fmt::Debug for LaunchSpec {
             .field("cap_mechanism", &self.cap_mechanism)
             .field("inherit_fds", &self.inherit_fds)
             .field("pdeathsig", &self.pdeathsig)
+            .field("scope_unit", &self.scope_unit)
+            .field("spawn_barrier", &self.spawn_barrier)
             .finish()
     }
 }
