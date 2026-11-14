@@ -16,8 +16,8 @@ use common::*;
 use rustred_campaign::admission::{AdmissionPolicy, HostView, MeasurementError, RunningJob};
 use rustred_campaign::cpu_policy::{Acquire, CpuPolicy, SITE_SCHEMA, SiteConfig, SitePolicy};
 use rustred_campaign::launch::{
-    CapPreference, ChildHandle, ChildLauncher, ChildProgress, FinalReport, KillReason,
-    LaunchSpec, LauncherError, PidfdProbe, RealChild, RealConfig, RealLauncher, RetireEvent,
+    CapPreference, ChildHandle, ChildLauncher, ChildProgress, FinalReport, KillReason, LaunchSpec,
+    LauncherError, PidfdProbe, RealChild, RealConfig, RealLauncher, RetireEvent,
     TrackingPreference, Verdict, Verification, kill_orphan, peek_exit, pidfd_probe,
 };
 use rustred_campaign::resources::{
@@ -141,7 +141,9 @@ struct FdStorm {
 impl FdStorm {
     fn start() -> Self {
         let saved = nofile();
-        let n = fs::read_dir("/proc/self/fd").map(|d| d.count()).unwrap_or(64) as u64;
+        let n = fs::read_dir("/proc/self/fd")
+            .map(|d| d.count())
+            .unwrap_or(64) as u64;
         set_nofile(n + 8, saved.1);
         let mut held = Vec::new();
         while let Ok(f) = fs::File::open("/dev/null") {
@@ -358,8 +360,7 @@ fn rb_c1d_unverified_end_keeps_its_lease_until_proven() {
     let mut p = SitePolicy::new(site_cfg(&dir.path().join("site"), usable_cpu())).unwrap();
     let lease = p.acquire(1, "rbc1d").unwrap().granted().unwrap();
     let mut l = launcher_with(|c| c.verify_timeout = Duration::from_secs(2));
-    let script =
-        format!("setsid sh -c 'echo $$ > {d}/e; exec sleep 600' & sleep 1; exit 0");
+    let script = format!("setsid sh -c 'echo $$ > {d}/e; exec sleep 600' & sleep 1; exit 0");
     let mut h = l.launch(&sh(dir.path(), "rbc1d", &script)).unwrap();
     let e = read_pid_file(&dir.path().join("e"));
     let se = start_of(e);
@@ -381,7 +382,10 @@ fn rb_c1d_unverified_end_keeps_its_lease_until_proven() {
         unreachable!()
     };
     assert!(report.verification.is_verified(), "{report:?}");
-    assert!(!alive(e, se), "the escapee was killed by the quarantine hunt");
+    assert!(
+        !alive(e, se),
+        "the escapee was killed by the quarantine hunt"
+    );
     assert!(
         matches!(p.acquire(1, "other").unwrap(), Acquire::Granted(_)),
         "lease released once proven"
@@ -400,7 +404,10 @@ fn rb_c2_reforking_relay_never_verified_while_it_runs() {
     require_namespace();
     let dir = TempDir::new("rb-c2");
     let mut l = launcher_with(|c| c.verify_timeout = Duration::from_secs(10));
-    for (i, pause_us) in [20_000u32, 5_000, 2_000, 500, 100, 0].into_iter().enumerate() {
+    for (i, pause_us) in [20_000u32, 5_000, 2_000, 500, 100, 0]
+        .into_iter()
+        .enumerate()
+    {
         let label = format!("relay{i}");
         let cf = dir.path().join(format!("{label}.count"));
         let mut s = helper_spec(dir.path(), &label, "helper_entry", "relay");
@@ -463,9 +470,11 @@ fn rb_m1_adopted_zombies_are_reaped_and_a_registered_leader_never() {
     let mut h = l.launch(&sh(dir.path(), "rbm1", &script)).unwrap();
     let r = drive(&mut h);
     assert!(r.verification.is_verified(), "{r:?}");
-    wait_until("every adopted zombie reaped", Duration::from_secs(30), || {
-        my_zombies().is_empty()
-    });
+    wait_until(
+        "every adopted zombie reaped",
+        Duration::from_secs(30),
+        || my_zombies().is_empty(),
+    );
     let after = reaper_stats();
     assert!(after.reaped_total >= before + 400, "{after:?}");
     // The invariant: a registered leader that exited is not reaped by the reaper.
@@ -482,9 +491,11 @@ fn rb_m1_adopted_zombies_are_reaped_and_a_registered_leader_never() {
     );
     let r = drive(&mut h);
     assert!(r.verification.is_verified(), "{r:?}");
-    wait_until("leader reaped after release", Duration::from_secs(30), || {
-        peek_exit(pid).is_err()
-    });
+    wait_until(
+        "leader reaped after release",
+        Duration::from_secs(30),
+        || peek_exit(pid).is_err(),
+    );
 }
 
 // ------------------------------------------------------------------------------------------------ RB-M2
@@ -532,7 +543,10 @@ fn rb_m2_a_second_process_with_the_same_id_is_refused_and_signals_nothing() {
     };
     let t = run_helper("h1");
     assert!(t.starts_with("refused:") && t.contains("in use"), "{t}");
-    assert!(t.contains("replaced=Some"), "with_config replaces the id: {t}");
+    assert!(
+        t.contains("replaced=Some"),
+        "with_config replaces the id: {t}"
+    );
     assert!(
         matches!(j.poll().unwrap(), ChildProgress::Running),
         "A's job untouched"
@@ -542,7 +556,10 @@ fn rb_m2_a_second_process_with_the_same_id_is_refused_and_signals_nothing() {
     assert!(drive(&mut j).verification.is_verified());
     drop(a);
     let t = run_helper("h2");
-    assert!(t.starts_with("accepted"), "lock released with its holder: {t}");
+    assert!(
+        t.starts_with("accepted"),
+        "lock released with its holder: {t}"
+    );
 }
 
 fn start_of_self() -> u32 {
@@ -593,8 +610,15 @@ fn rb_minor_m3_transient_pidfd_failure_is_never_a_fallback() {
     };
     assert_ne!(probe, PidfdProbe::Unsupported);
     assert!(matches!(v, Verdict::Unverified(_)), "{v:?}");
-    assert!(d.try_wait().map(|s| s.is_none()).unwrap_or(false), "not signalled");
-    assert_eq!(pidfd_probe(), PidfdProbe::Supported, "not cached as unsupported");
+    assert!(
+        d.try_wait().map(|s| s.is_none()).unwrap_or(false),
+        "not signalled"
+    );
+    assert_eq!(
+        pidfd_probe(),
+        PidfdProbe::Supported,
+        "not cached as unsupported"
+    );
     assert_eq!(
         kill_orphan("rbm3camp", &boot, &p, libc::SIGKILL),
         Verdict::Delivered
@@ -640,10 +664,7 @@ fn rb_minor_m1_m2_unmarked_survivor_reported_with_the_lease_it_holds() {
     assert!(note.contains(&format!("pid {u}")), "{note}");
     let mut q = SitePolicy::new(site).unwrap();
     let rec = q.reconcile_own_claims().unwrap();
-    assert!(
-        rec.held_by.iter().any(|(_, h)| h.contains(&u)),
-        "{rec:?}"
-    );
+    assert!(rec.held_by.iter().any(|(_, h)| h.contains(&u)), "{rec:?}");
     kill_own(u, su);
 }
 
@@ -709,9 +730,18 @@ fn ra_m5_tripwire_covers_every_signal_form_and_directory() {
         ("bin/x.rs", "Command::new(\"kill\").arg(\"-9\")"),
         ("supervisor/y.rs", "libc::sigqueue(pid, 9, v)"),
         ("supervisor/z.rs", "libc::pthread_kill(t, 9)"),
-        ("supervisor/w.rs", "libc::syscall(libc::SYS_rt_sigqueueinfo, p, 9, i)"),
-        ("launch/real.rs", "fs::write(dir.join(\"cgroup.kill\"), \"1\")"),
-        ("supervisor/v.rs", "Command::new(\"systemctl\").args([\"kill\"])"),
+        (
+            "supervisor/w.rs",
+            "libc::syscall(libc::SYS_rt_sigqueueinfo, p, 9, i)",
+        ),
+        (
+            "launch/real.rs",
+            "fs::write(dir.join(\"cgroup.kill\"), \"1\")",
+        ),
+        (
+            "supervisor/v.rs",
+            "Command::new(\"systemctl\").args([\"kill\"])",
+        ),
         ("resources/x.rs", "Command::new(\"timeout\").arg(\"-k\")"),
     ];
     for (f, text) in planted {
@@ -743,7 +773,14 @@ fn ra_m5_tripwire_covers_every_signal_form_and_directory() {
                 .map(|c| c.as_os_str().to_string_lossy().into_owned())
         })
         .collect();
-    for want in ["supervisor", "cli", "adapters", "bin", "launch", "resources"] {
+    for want in [
+        "supervisor",
+        "cli",
+        "adapters",
+        "bin",
+        "launch",
+        "resources",
+    ] {
         assert!(dirs.contains(want), "{want} scanned: {dirs:?}");
     }
     let mut hits = Vec::new();

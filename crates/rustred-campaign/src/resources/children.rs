@@ -19,7 +19,7 @@
 //! process: do not spawn setsid'd children outside the launcher and expect to wait for them yourself (their status would
 //! be taken by this reaper; a wait then fails with ECHILD).
 
-use super::{ProcStat, Leaders, parse_stat, page_size};
+use super::{Leaders, ProcStat, page_size, parse_stat};
 use std::collections::BTreeSet;
 use std::fs;
 use std::io;
@@ -58,7 +58,10 @@ pub(crate) fn children_of(pid: u32) -> Result<Option<BTreeSet<u32>>, String> {
         match fs::read_to_string(&f) {
             Ok(t) => {
                 for w in t.split_whitespace() {
-                    out.insert(w.parse::<u32>().map_err(|_| format!("{f}: unparsable {w:?}"))?);
+                    out.insert(
+                        w.parse::<u32>()
+                            .map_err(|_| format!("{f}: unparsable {w:?}"))?,
+                    );
                 }
             }
             // A thread that exited between the listing and the read has no children to report.
@@ -129,11 +132,27 @@ pub(crate) fn strict_listing_counted() -> Result<(Vec<ProcStat>, usize), String>
     Ok((out, vanished))
 }
 
+/// Read an environ file; an EMPTY read is repeated once after 1 ms. Why: during execve the new mm is installed before
+/// its environment bounds are set (`env_start == env_end`), so a marked process caught in that window reads as empty
+/// (observed: 16 of 4,000 self-ending jobs with a setsid'd `sleep` were judged unmarked that way). The window is
+/// microseconds; an environment that is still empty 1 ms later is a real empty environment (`env -i`). Ok(None): empty.
+fn read_environ_settled(path: &str) -> io::Result<Option<Vec<u8>>> {
+    let b = fs::read(path)?;
+    if !b.is_empty() {
+        return Ok(Some(b));
+    }
+    std::thread::sleep(Duration::from_millis(1));
+    let b = fs::read(path)?;
+    Ok((!b.is_empty()).then_some(b))
+}
+
 /// What the environment of a process says about the campaign marker.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum MarkerFact {
     Value(String),
     Absent,
+    /// The environ of a live process stayed empty (`env -i`): no marker NOW. Never cached (a later exec may change it).
+    EmptyEnviron,
     /// EACCES (non-dumpable / other uid), an empty environ of a live process, or another read error.
     Unreadable(String),
 }
@@ -251,14 +270,13 @@ pub(crate) fn read_proc_facts(pid: u32, want_marker: bool) -> FactRead {
             (true, Some(t)) => format!("/proc/{pid}/task/{t}/environ"),
             _ => format!("/proc/{pid}/environ"),
         };
-        match fs::read(&path) {
-            // An empty environ of a LIVE process (not dead, pidfd not exited: checked by the caller) is `env -i`: no
-            // marker. (A process without mm is a kernel thread, never of our uid, or an exiting one, which cannot fork.)
-            Ok(b) if b.is_empty() => MarkerFact::Absent,
-            Ok(b) => match super::marker_in_environ(&b) {
+        match read_environ_settled(&path) {
+            Ok(Some(b)) => match super::marker_in_environ(&b) {
                 Some(v) => MarkerFact::Value(v),
                 None => MarkerFact::Absent,
             },
+            // Empty twice, 1 ms apart: a live process without environment (`env -i`).
+            Ok(None) => MarkerFact::EmptyEnviron,
             Err(e) if is_gone(&e) => return FactRead::Gone,
             Err(e) => MarkerFact::Unreadable(format!("{path}: {e}")),
         }

@@ -138,7 +138,7 @@ pub fn main(a: &[String]) {
                 unsafe { libc::setsid() };
                 i += 1;
                 if let Some(f) = &counter
-                    && i % 10 == 0
+                    && i.is_multiple_of(10)
                 {
                     let _ = std::fs::write(f, i.to_string());
                 }

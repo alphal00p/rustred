@@ -31,12 +31,12 @@ pub use fake::{
     ScriptedLauncher, TimeSource,
 };
 pub(crate) use guard::reap_adopted;
-pub use idlock::{IdLockError, default_lock_dir};
 pub use guard::{
     PidfdProbe, ProcessTarget, Proof, Refusal, SigchldSetup, StartRule, Verdict,
     ensure_sigchld_default, is_child_subreaper, kill_orphan, pidfd_probe, pidfd_supported,
     set_child_subreaper, sigchld_autoreaps, signal_verified_process,
 };
+pub use idlock::{IdLockError, default_lock_dir};
 pub use real::{
     CapPreference, LauncherError, LauncherSetup, RealChild, RealConfig, RealLauncher, RetireEvent,
     TrackingPreference, adhoc_campaign_id, audit_inheritable_fds, in_private_namespace, peek_exit,

@@ -1,14 +1,17 @@
 //! SUPERVISOR side of each scenario: drives the process layer through its PUBLIC API only.
 use crate::{CAMP, alive, exe, hex, my_zombies, rb_args, read_u32_file, stat, which, write_atomic};
-use rustred_campaign::cpu_policy::{CpuPolicy, CpuSpec, HeldFile, SITE_SCHEMA, SiteConfig, SitePolicy};
+use rustred_campaign::cpu_policy::{
+    CpuPolicy, CpuSpec, HeldFile, SITE_SCHEMA, SiteConfig, SitePolicy,
+};
 use rustred_campaign::launch::{
-    CapPreference, CapRequest, ChildHandle, ChildLauncher, ChildProgress, FinalReport, KillReason, LaunchSpec,
-    RealConfig, RealLauncher, ReattachChoice, Reattached, Refusal, Verdict, Verification, kill_orphan,
-    pidfd_probe, pidfd_supported, signal_verified_process, PidfdProbe, RetireEvent,
+    CapPreference, CapRequest, ChildHandle, ChildLauncher, ChildProgress, FinalReport, KillReason,
+    LaunchSpec, PidfdProbe, RealConfig, RealLauncher, ReattachChoice, Reattached, Refusal,
+    RetireEvent, Verdict, Verification, kill_orphan, pidfd_probe, pidfd_supported,
+    signal_verified_process,
 };
 use rustred_campaign::resources::{
-    CampaignMarker, InvalidPid, MarkedProcess, ProcessIdentity, Sampler, SamplerConfig, ValidPid, boot_id,
-    parse_cpu_list, pid_max, scan_campaign,
+    CampaignMarker, InvalidPid, MarkedProcess, ProcessIdentity, Sampler, SamplerConfig, ValidPid,
+    boot_id, parse_cpu_list, pid_max, scan_campaign,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -77,11 +80,19 @@ impl Ctx {
     /// Ask the driver (pid 1) for a decoy; returns (pid, start).
     fn decoy(&mut self, spec: Value) -> (u32, u64) {
         let r = self.req(spec);
-        assert!(r["ok"].as_bool().unwrap_or(false), "decoy spawn failed: {r}");
-        (r["pid"].as_u64().unwrap() as u32, r["start"].as_u64().unwrap())
+        assert!(
+            r["ok"].as_bool().unwrap_or(false),
+            "decoy spawn failed: {r}"
+        );
+        (
+            r["pid"].as_u64().unwrap() as u32,
+            r["start"].as_u64().unwrap(),
+        )
     }
     fn register(&mut self, name: &str, class: &str, pid: u32, start: u64) {
-        self.req(json!({"kind": "register", "name": name, "class": class, "pid": pid, "start": start}));
+        self.req(
+            json!({"kind": "register", "name": name, "class": class, "pid": pid, "start": start}),
+        );
     }
 }
 
@@ -115,14 +126,17 @@ fn launcher_ms(camp: &str, ms: u64) -> RealLauncher {
 
 fn sh(run: &Path, label: &str, script: &str) -> LaunchSpec {
     let mut s = LaunchSpec::new(label, "/bin/sh", run).arg("-c").arg(script);
-    s.env.push(("PATH".into(), std::env::var_os("PATH").unwrap()));
+    s.env
+        .push(("PATH".into(), std::env::var_os("PATH").unwrap()));
     s.stdout = run.join(format!("job-{}.out", sanitize(label)));
     s.stderr = run.join(format!("job-{}.err", sanitize(label)));
     s
 }
 
 fn sanitize(l: &str) -> String {
-    l.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect()
+    l.chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect()
 }
 
 fn helper_spec(run: &Path, label: &str, args: &[&str]) -> LaunchSpec {
@@ -132,7 +146,8 @@ fn helper_spec(run: &Path, label: &str, args: &[&str]) -> LaunchSpec {
     for a in rb_args(&v) {
         s = s.arg(a);
     }
-    s.env.push(("PATH".into(), std::env::var_os("PATH").unwrap()));
+    s.env
+        .push(("PATH".into(), std::env::var_os("PATH").unwrap()));
     s.stdout = run.join(format!("job-{}.out", sanitize(label)));
     s.stderr = run.join(format!("job-{}.err", sanitize(label)));
     s
@@ -154,7 +169,9 @@ fn drive<H: ChildHandle>(h: &mut H, t: Duration) -> Option<FinalReport> {
 fn rs(r: &FinalReport) -> String {
     let ver = match &r.verification {
         Verification::Verified { by } => format!("Verified({by:?})"),
-        Verification::Unverified { leftovers, reason } => format!("Unverified({reason}; {} left)", leftovers.len()),
+        Verification::Unverified { leftovers, reason } => {
+            format!("Unverified({reason}; {} left)", leftovers.len())
+        }
     };
     format!(
         "exit={:?} kill_reason={:?} term={} kill={} {ver} leftovers_killed={:?} escaped={:?} mech={:?}",
@@ -163,7 +180,10 @@ fn rs(r: &FinalReport) -> String {
         r.sigterm_sent,
         r.sigkill_sent,
         r.leftovers_killed.iter().map(|l| l.pid).collect::<Vec<_>>(),
-        r.escaped.iter().map(|e| (e.pid, e.alive)).collect::<Vec<_>>(),
+        r.escaped
+            .iter()
+            .map(|e| (e.pid, e.alive))
+            .collect::<Vec<_>>(),
         r.memory_mechanism
     )
 }
@@ -184,7 +204,8 @@ fn mp(pid: u32, start: u64, attempt: &str) -> MarkedProcess {
 }
 
 fn invalid_pid_err(e: &std::io::Error) -> bool {
-    e.get_ref().is_some_and(|x| x.downcast_ref::<InvalidPid>().is_some())
+    e.get_ref()
+        .is_some_and(|x| x.downcast_ref::<InvalidPid>().is_some())
 }
 
 fn is_invalid(v: &Verdict) -> bool {
@@ -200,8 +221,12 @@ fn reat<H>(r: &std::io::Result<Reattached<H>>) -> String {
 }
 
 fn wait_scan(l: &RealLauncher) {
-    let _ = l.sampler().wait_for_scan_after(Instant::now(), Duration::from_secs(10));
-    let _ = l.sampler().wait_for_scan_after(Instant::now(), Duration::from_secs(10));
+    let _ = l
+        .sampler()
+        .wait_for_scan_after(Instant::now(), Duration::from_secs(10));
+    let _ = l
+        .sampler()
+        .wait_for_scan_after(Instant::now(), Duration::from_secs(10));
 }
 
 fn nofile() -> (u64, u64) {
@@ -212,7 +237,10 @@ fn nofile() -> (u64, u64) {
 }
 
 fn set_nofile(cur: u64, max: u64) {
-    let r = libc::rlimit { rlim_cur: cur, rlim_max: max };
+    let r = libc::rlimit {
+        rlim_cur: cur,
+        rlim_max: max,
+    };
     // SAFETY: setrlimit with a valid pointer (soft <= hard).
     unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &r) };
 }
@@ -221,7 +249,9 @@ fn set_nofile(cur: u64, max: u64) {
 /// The caller restores with `set_nofile(cur, max)` after dropping the returned files.
 fn exhaust_fds() -> Vec<std::fs::File> {
     let (_, max) = nofile();
-    let n = std::fs::read_dir("/proc/self/fd").map(|d| d.count()).unwrap_or(64) as u64;
+    let n = std::fs::read_dir("/proc/self/fd")
+        .map(|d| d.count())
+        .unwrap_or(64) as u64;
     set_nofile(n + 8, max);
     let mut held = vec![];
     while let Ok(f) = std::fs::File::open("/dev/null") {
@@ -239,77 +269,214 @@ fn s_pid1(c: &mut Ctx) {
     let boot = boot_id().unwrap();
     let s1 = stat(1).unwrap().start_ticks;
     let env1 = std::fs::read("/proc/1/environ").unwrap_or_default();
-    let has = env1.split(|b| *b == 0).any(|kv| kv == b"RR_CAMPAIGN_JOB=rbcamp:L1");
-    c.res("pid 1 (driver) carries THIS campaign's marker rbcamp:L1", "true (adversarial set-up)", format!("{has}"), if has { V::Pass } else { V::Note });
+    let has = env1
+        .split(|b| *b == 0)
+        .any(|kv| kv == b"RR_CAMPAIGN_JOB=rbcamp:L1");
+    c.res(
+        "pid 1 (driver) carries THIS campaign's marker rbcamp:L1",
+        "true (adversarial set-up)",
+        format!("{has}"),
+        if has { V::Pass } else { V::Note },
+    );
     let me = std::process::id();
     let st = stat(me).unwrap();
-    c.res("pid 1 is not my parent / session / group", "true", format!("ppid={} sid={} pgrp={}", st.ppid, st.session, st.pgrp), if st.ppid != 1 && st.session != 1 && st.pgrp != 1 { V::Pass } else { V::Fail });
+    c.res(
+        "pid 1 is not my parent / session / group",
+        "true",
+        format!("ppid={} sid={} pgrp={}", st.ppid, st.session, st.pgrp),
+        if st.ppid != 1 && st.session != 1 && st.pgrp != 1 {
+            V::Pass
+        } else {
+            V::Fail
+        },
+    );
     let j = format!(r#"{{"pid":1,"start_ticks":{s1},"boot_id":"{boot}"}}"#);
     let r = serde_json::from_str::<ProcessIdentity>(&j);
-    c.chk("serde ProcessIdentity pid 1", "rejected", format!("{:?}", r.as_ref().err().map(|e| e.to_string())), r.is_err());
+    c.chk(
+        "serde ProcessIdentity pid 1",
+        "rejected",
+        format!("{:?}", r.as_ref().err().map(|e| e.to_string())),
+        r.is_err(),
+    );
     let r = ProcessIdentity::capture(1);
-    c.chk("ProcessIdentity::capture(1)", "error", format!("{:?}", r.as_ref().err()), r.is_err());
-    let id = ProcessIdentity { pid: 1, start_ticks: s1, boot_id: boot.clone() };
+    c.chk(
+        "ProcessIdentity::capture(1)",
+        "error",
+        format!("{:?}", r.as_ref().err()),
+        r.is_err(),
+    );
+    let id = ProcessIdentity {
+        pid: 1,
+        start_ticks: s1,
+        boot_id: boot.clone(),
+    };
     let r = id.check();
-    c.chk("literal identity pid 1 (real start time) .check()", "error", format!("{r:?}"), r.is_err());
+    c.chk(
+        "literal identity pid 1 (real start time) .check()",
+        "error",
+        format!("{r:?}"),
+        r.is_err(),
+    );
     let m = CampaignMarker::new(CAMP, "L1").unwrap();
     for sig in [0, libc::SIGUSR1, libc::SIGTERM, libc::SIGKILL] {
         let v = signal_verified_process(&id, &m, sig);
-        c.chk(&format!("signal_verified_process(pid 1, correct marker, sig {sig})"), "NotOurs(InvalidPid)", format!("{v:?}"), is_invalid(&v));
+        c.chk(
+            &format!("signal_verified_process(pid 1, correct marker, sig {sig})"),
+            "NotOurs(InvalidPid)",
+            format!("{v:?}"),
+            is_invalid(&v),
+        );
         let v = kill_orphan(CAMP, &boot, &mp(1, s1, "L1"), sig);
-        c.chk(&format!("kill_orphan(pid 1, sig {sig})"), "NotOurs(InvalidPid)", format!("{v:?}"), is_invalid(&v));
+        c.chk(
+            &format!("kill_orphan(pid 1, sig {sig})"),
+            "NotOurs(InvalidPid)",
+            format!("{v:?}"),
+            is_invalid(&v),
+        );
     }
     let mut l = launcher(CAMP);
-    for ch in [ReattachChoice::Kill { grace: Duration::ZERO }, ReattachChoice::Adopt] {
+    for ch in [
+        ReattachChoice::Kill {
+            grace: Duration::ZERO,
+        },
+        ReattachChoice::Adopt,
+    ] {
         let r = l.reattach(&id, "L1", ch);
         let ok = matches!(&r, Err(e) if invalid_pid_err(e));
-        c.chk(&format!("reattach(pid 1, {ch:?})"), "Err(InvalidPid)", reat(&r), ok);
+        c.chk(
+            &format!("reattach(pid 1, {ch:?})"),
+            "Err(InvalidPid)",
+            reat(&r),
+            ok,
+        );
     }
     let sc = scan_campaign(CAMP, 0, &BTreeSet::new()).unwrap();
-    c.chk("scan_campaign never lists pid 1", "no pid 1", format!("{:?}", sc.processes.iter().map(|p| p.pid).collect::<Vec<_>>()), !sc.processes.iter().any(|p| p.pid == 1));
+    c.chk(
+        "scan_campaign never lists pid 1",
+        "no pid 1",
+        format!(
+            "{:?}",
+            sc.processes.iter().map(|p| p.pid).collect::<Vec<_>>()
+        ),
+        !sc.processes.iter().any(|p| p.pid == 1),
+    );
     wait_scan(&l);
     let snap = l.sampler().latest().unwrap();
-    c.chk("sampler Snapshot::marked never lists pid 1", "no pid 1", format!("{:?}", snap.marked.iter().map(|p| p.pid).collect::<Vec<_>>()), !snap.marked.iter().any(|p| p.pid == 1));
-    c.chk("ValidPid::new(1) / for_signal(1)", "both Err", format!("{:?} {:?}", ValidPid::new(1).is_err(), ValidPid::for_signal(1).is_err()), ValidPid::new(1).is_err() && ValidPid::for_signal(1).is_err());
+    c.chk(
+        "sampler Snapshot::marked never lists pid 1",
+        "no pid 1",
+        format!(
+            "{:?}",
+            snap.marked.iter().map(|p| p.pid).collect::<Vec<_>>()
+        ),
+        !snap.marked.iter().any(|p| p.pid == 1),
+    );
+    c.chk(
+        "ValidPid::new(1) / for_signal(1)",
+        "both Err",
+        format!(
+            "{:?} {:?}",
+            ValidPid::new(1).is_err(),
+            ValidPid::for_signal(1).is_err()
+        ),
+        ValidPid::new(1).is_err() && ValidPid::for_signal(1).is_err(),
+    );
     // own pid, parent, own session leader, own group leader
-    for (what, p) in [("self", me), ("parent", st.ppid), ("own session leader", st.session), ("own group leader", st.pgrp)] {
+    for (what, p) in [
+        ("self", me),
+        ("parent", st.ppid),
+        ("own session leader", st.session),
+        ("own group leader", st.pgrp),
+    ] {
         let v = match ProcessIdentity::capture(p) {
             Ok(idp) => signal_verified_process(&idp, &m, libc::SIGTERM),
             Err(e) => Verdict::Unverified(format!("capture: {e}")),
         };
-        c.chk(&format!("signal_verified_process({what} = pid {p})"), "refused", format!("{v:?}"), !v.delivered());
+        c.chk(
+            &format!("signal_verified_process({what} = pid {p})"),
+            "refused",
+            format!("{v:?}"),
+            !v.delivered(),
+        );
     }
     // a job in the same launcher to make sure the launcher itself is functional here
-    let mut h = l.launch(&sh(&c.run, "pid1-job", "exec sleep 3000")).unwrap();
+    let mut h = l
+        .launch(&sh(&c.run, "pid1-job", "exec sleep 3000"))
+        .unwrap();
     h.terminate(Duration::from_millis(500), KillReason::Stop);
     let r = drive(&mut h, Duration::from_secs(30));
-    c.chk("control: own job terminated & verified", "Verified", r.as_ref().map(rs).unwrap_or("timeout".into()), r.is_some_and(|r| r.verification.is_verified()));
+    c.chk(
+        "control: own job terminated & verified",
+        "Verified",
+        r.as_ref().map(rs).unwrap_or("timeout".into()),
+        r.is_some_and(|r| r.verification.is_verified()),
+    );
     std::thread::sleep(Duration::from_millis(500));
 }
 
 fn s_pid0(c: &mut Ctx) {
     let boot = boot_id().unwrap();
-    for j in [r#"{"pid":0,"start_ticks":0,"boot_id":"B"}"#.replace('B', &boot)] {
+    {
+        let j = r#"{"pid":0,"start_ticks":0,"boot_id":"B"}"#.replace('B', &boot);
         let r = serde_json::from_str::<ProcessIdentity>(&j);
-        c.chk("serde pid 0", "rejected", format!("{:?}", r.as_ref().err().map(|e| e.to_string())), r.is_err());
+        c.chk(
+            "serde pid 0",
+            "rejected",
+            format!("{:?}", r.as_ref().err().map(|e| e.to_string())),
+            r.is_err(),
+        );
     }
     let r = ProcessIdentity::capture(0);
-    c.chk("capture(0)", "error", format!("{:?}", r.as_ref().err()), r.is_err());
+    c.chk(
+        "capture(0)",
+        "error",
+        format!("{:?}", r.as_ref().err()),
+        r.is_err(),
+    );
     let mut l = launcher(CAMP);
     for start in [0u64, 1, stat(std::process::id()).unwrap().start_ticks] {
-        let id = ProcessIdentity { pid: 0, start_ticks: start, boot_id: boot.clone() };
-        c.chk(&format!("literal pid 0 start {start} .check()"), "error", format!("{:?}", id.check()), id.check().is_err());
+        let id = ProcessIdentity {
+            pid: 0,
+            start_ticks: start,
+            boot_id: boot.clone(),
+        };
+        c.chk(
+            &format!("literal pid 0 start {start} .check()"),
+            "error",
+            format!("{:?}", id.check()),
+            id.check().is_err(),
+        );
         let m = CampaignMarker::new(CAMP, "L0").unwrap();
         for sig in [0, libc::SIGTERM, libc::SIGKILL] {
             let v = signal_verified_process(&id, &m, sig);
-            c.chk(&format!("signal_verified_process(pid 0, start {start}, sig {sig})"), "NotOurs(InvalidPid)", format!("{v:?}"), is_invalid(&v));
+            c.chk(
+                &format!("signal_verified_process(pid 0, start {start}, sig {sig})"),
+                "NotOurs(InvalidPid)",
+                format!("{v:?}"),
+                is_invalid(&v),
+            );
             let v = kill_orphan(CAMP, &boot, &mp(0, start, "L0"), sig);
-            c.chk(&format!("kill_orphan(pid 0, sig {sig})"), "NotOurs(InvalidPid)", format!("{v:?}"), is_invalid(&v));
+            c.chk(
+                &format!("kill_orphan(pid 0, sig {sig})"),
+                "NotOurs(InvalidPid)",
+                format!("{v:?}"),
+                is_invalid(&v),
+            );
         }
-        for ch in [ReattachChoice::Kill { grace: Duration::ZERO }, ReattachChoice::Adopt] {
+        for ch in [
+            ReattachChoice::Kill {
+                grace: Duration::ZERO,
+            },
+            ReattachChoice::Adopt,
+        ] {
             let r = l.reattach(&id, "L0", ch);
             let ok = matches!(&r, Err(e) if invalid_pid_err(e));
-            c.chk(&format!("reattach(pid 0, start {start}, {ch:?})"), "Err(InvalidPid)", reat(&r), ok);
+            c.chk(
+                &format!("reattach(pid 0, start {start}, {ch:?})"),
+                "Err(InvalidPid)",
+                reat(&r),
+                ok,
+            );
         }
     }
     wait_scan(&l);
@@ -339,23 +506,81 @@ fn s_bigpid(c: &mut Ctx) {
     ] {
         let j = format!(r#"{{"pid":{raw},"start_ticks":5,"boot_id":"{boot}"}}"#);
         let r = serde_json::from_str::<ProcessIdentity>(&j);
-        c.chk(&format!("serde pid {raw}"), "rejected", format!("{:?}", r.as_ref().map(|i| i.pid).map_err(|e| e.to_string())), r.is_err());
+        c.chk(
+            &format!("serde pid {raw}"),
+            "rejected",
+            format!("{:?}", r.as_ref().map(|i| i.pid).map_err(|e| e.to_string())),
+            r.is_err(),
+        );
     }
-    for v in [i64::MIN, -(1i64 << 31), -1, 0, 1, i64::from(pm) + 1, 1i64 << 31, (1i64 << 32) + 5, i64::MAX] {
-        c.chk(&format!("ValidPid::new({v})"), "Err", format!("{:?}", ValidPid::new(v)), ValidPid::new(v).is_err());
+    for v in [
+        i64::MIN,
+        -(1i64 << 31),
+        -1,
+        0,
+        1,
+        i64::from(pm) + 1,
+        1i64 << 31,
+        (1i64 << 32) + 5,
+        i64::MAX,
+    ] {
+        c.chk(
+            &format!("ValidPid::new({v})"),
+            "Err",
+            format!("{:?}", ValidPid::new(v)),
+            ValidPid::new(v).is_err(),
+        );
     }
     let mut l = launcher(CAMP);
     let m = CampaignMarker::new(CAMP, "big").unwrap();
-    for p in [0u32, 1, pm + 1, (1u32 << 31), (1u32 << 31) + 5, u32::MAX, u32::MAX - 1] {
-        let id = ProcessIdentity { pid: p, start_ticks: 5, boot_id: boot.clone() };
+    for p in [
+        0u32,
+        1,
+        pm + 1,
+        (1u32 << 31),
+        (1u32 << 31) + 5,
+        u32::MAX,
+        u32::MAX - 1,
+    ] {
+        let id = ProcessIdentity {
+            pid: p,
+            start_ticks: 5,
+            boot_id: boot.clone(),
+        };
         let v = signal_verified_process(&id, &m, libc::SIGKILL);
-        c.chk(&format!("signal_verified_process(pid {p})"), "NotOurs(InvalidPid)", format!("{v:?}"), is_invalid(&v));
+        c.chk(
+            &format!("signal_verified_process(pid {p})"),
+            "NotOurs(InvalidPid)",
+            format!("{v:?}"),
+            is_invalid(&v),
+        );
         let v = kill_orphan(CAMP, &boot, &mp(p, 5, "big"), libc::SIGKILL);
-        c.chk(&format!("kill_orphan(pid {p})"), "NotOurs(InvalidPid)", format!("{v:?}"), is_invalid(&v));
-        let r = l.reattach(&id, "big", ReattachChoice::Kill { grace: Duration::ZERO });
+        c.chk(
+            &format!("kill_orphan(pid {p})"),
+            "NotOurs(InvalidPid)",
+            format!("{v:?}"),
+            is_invalid(&v),
+        );
+        let r = l.reattach(
+            &id,
+            "big",
+            ReattachChoice::Kill {
+                grace: Duration::ZERO,
+            },
+        );
         let ok = matches!(&r, Err(e) if invalid_pid_err(e));
-        c.chk(&format!("reattach(pid {p}, Kill)"), "Err(InvalidPid)", reat(&r), ok);
-        c.chk(&format!("check(pid {p})"), "error", format!("{:?}", id.check()), id.check().is_err());
+        c.chk(
+            &format!("reattach(pid {p}, Kill)"),
+            "Err(InvalidPid)",
+            reat(&r),
+            ok,
+        );
+        c.chk(
+            &format!("check(pid {p})"),
+            "error",
+            format!("{:?}", id.check()),
+            id.check().is_err(),
+        );
     }
     std::thread::sleep(Duration::from_millis(500));
 }
@@ -367,13 +592,21 @@ fn record_and_end(c: &mut Ctx, l: &mut RealLauncher, label: &str) -> ProcessIden
     h.kill_now(KillReason::Other("test".into()));
     let r = drive(&mut h, Duration::from_secs(30)).expect("job end");
     assert!(r.verification.is_verified());
-    assert!(crate::wait_for(Duration::from_secs(20), || stat(id.pid).is_none()), "pid not freed");
+    assert!(
+        crate::wait_for(Duration::from_secs(20), || stat(id.pid).is_none()),
+        "pid not freed"
+    );
     id
 }
 
 fn try_reattach_all(c: &mut Ctx, id: &ProcessIdentity, label: &str, case: &str, expect_lost: bool) {
     let mut l2 = launcher(CAMP);
-    for ch in [ReattachChoice::Kill { grace: Duration::ZERO }, ReattachChoice::Adopt] {
+    for ch in [
+        ReattachChoice::Kill {
+            grace: Duration::ZERO,
+        },
+        ReattachChoice::Adopt,
+    ] {
         let r = l2.reattach(id, label, ch);
         let s = reat(&r);
         let lost = matches!(r, Ok(Reattached::Lost(_)));
@@ -384,13 +617,36 @@ fn try_reattach_all(c: &mut Ctx, id: &ProcessIdentity, label: &str, case: &str, 
                 h.kill_now(KillReason::Reattach);
             }
             let rr = drive(&mut h, Duration::from_secs(20));
-            println!("  adopted handle ended: {}", rr.as_ref().map(rs).unwrap_or("timeout".into()));
+            println!(
+                "  adopted handle ended: {}",
+                rr.as_ref().map(rs).unwrap_or("timeout".into())
+            );
         }
-        c.res(&format!("{case}: reattach {ch:?}"), if expect_lost { "Lost" } else { "Live (by design: carries marker)" }, s, if lost == expect_lost { V::Pass } else if expect_lost { V::Fail } else { V::Note });
+        c.res(
+            &format!("{case}: reattach {ch:?}"),
+            if expect_lost {
+                "Lost"
+            } else {
+                "Live (by design: carries marker)"
+            },
+            s,
+            if lost == expect_lost {
+                V::Pass
+            } else if expect_lost {
+                V::Fail
+            } else {
+                V::Note
+            },
+        );
     }
     let m = CampaignMarker::new(CAMP, label).unwrap();
     let v = signal_verified_process(id, &m, libc::SIGTERM);
-    c.chk(&format!("{case}: signal_verified_process(recorded id)"), "refused (start mismatch)", format!("{v:?}"), !v.delivered());
+    c.chk(
+        &format!("{case}: signal_verified_process(recorded id)"),
+        "refused (start mismatch)",
+        format!("{v:?}"),
+        !v.delivered(),
+    );
 }
 
 fn s_reuse(c: &mut Ctx) {
@@ -399,33 +655,80 @@ fn s_reuse(c: &mut Ctx) {
     let mut l = launcher(CAMP);
     let rounds: Vec<(&str, Vec<Vec<u8>>, &str, bool)> = vec![
         ("unmarked", vec![], "decoy", true),
-        ("other_campaign", vec![b"RR_CAMPAIGN_JOB=othercamp:LBL".to_vec()], "decoy", true),
-        ("ours_other_attempt", vec![b"RR_CAMPAIGN_JOB=rbcamp:other".to_vec()], "decoy", true),
-        ("prefix_id", vec![b"RR_CAMPAIGN_JOB=rbcampX:LBL".to_vec()], "decoy", true),
-        ("ours_same_attempt", vec![b"RR_CAMPAIGN_JOB=rbcamp:LBL".to_vec()], "bydesign", false),
+        (
+            "other_campaign",
+            vec![b"RR_CAMPAIGN_JOB=othercamp:LBL".to_vec()],
+            "decoy",
+            true,
+        ),
+        (
+            "ours_other_attempt",
+            vec![b"RR_CAMPAIGN_JOB=rbcamp:other".to_vec()],
+            "decoy",
+            true,
+        ),
+        (
+            "prefix_id",
+            vec![b"RR_CAMPAIGN_JOB=rbcampX:LBL".to_vec()],
+            "decoy",
+            true,
+        ),
+        (
+            "ours_same_attempt",
+            vec![b"RR_CAMPAIGN_JOB=rbcamp:LBL".to_vec()],
+            "bydesign",
+            false,
+        ),
         ("leaderless_unmarked", vec![], "decoy", true),
-        ("leaderless_other", vec![b"RR_CAMPAIGN_JOB=othercamp:LBL".to_vec()], "decoy", true),
+        (
+            "leaderless_other",
+            vec![b"RR_CAMPAIGN_JOB=othercamp:LBL".to_vec()],
+            "decoy",
+            true,
+        ),
     ];
     for (i, (name, env, class, expect_lost)) in rounds.into_iter().enumerate() {
         let label = format!("ru{i}");
-        let env: Vec<Vec<u8>> = env.into_iter().map(|e| String::from_utf8(e).unwrap().replace("LBL", &label).into_bytes()).collect();
+        let env: Vec<Vec<u8>> = env
+            .into_iter()
+            .map(|e| {
+                String::from_utf8(e)
+                    .unwrap()
+                    .replace("LBL", &label)
+                    .into_bytes()
+            })
+            .collect();
         let id = record_and_end(c, &mut l, &label);
         let mf = c.run.join(format!("ru{i}.mpid"));
         let script = if name.starts_with("leaderless") {
             format!("{sleep} 3000 & echo $! > {}; exit 0", mf.display())
         } else {
-            format!("{sleep} 3000 & echo $! > {}; exec {sleep} 3000", mf.display())
+            format!(
+                "{sleep} 3000 & echo $! > {}; exec {sleep} 3000",
+                mf.display()
+            )
         };
         let r = c.req(json!({"name": format!("reuse:{name}"), "class": class, "argv": [shp, "-c", script],
             "env": env.iter().map(|e| hex(e)).collect::<Vec<_>>(), "setsid": true, "force_pid": id.pid,
             "member_pidfile": mf.display().to_string(), "leader_class": if name.starts_with("leaderless") { "exits" } else { class }}));
         if !r["ok"].as_bool().unwrap_or(false) {
-            c.res(&format!("reuse {name}"), "decoy on recorded pid", "could not force the pid", V::Note);
+            c.res(
+                &format!("reuse {name}"),
+                "decoy on recorded pid",
+                "could not force the pid",
+                V::Note,
+            );
             continue;
         }
         std::thread::sleep(Duration::from_millis(400));
         let st = stat(id.pid);
-        println!("  round {name}: recorded pid {} start {} now held by start {:?} sid {:?}", id.pid, id.start_ticks, st.as_ref().map(|s| s.start_ticks), st.as_ref().map(|s| s.session));
+        println!(
+            "  round {name}: recorded pid {} start {} now held by start {:?} sid {:?}",
+            id.pid,
+            id.start_ticks,
+            st.as_ref().map(|s| s.start_ticks),
+            st.as_ref().map(|s| s.session)
+        );
         try_reattach_all(c, &id, &label, &format!("reuse {name}"), expect_lost);
     }
     std::thread::sleep(Duration::from_millis(800));
@@ -438,8 +741,18 @@ fn s_leaderless(c: &mut Ctx) {
     let my_start = stat(std::process::id()).unwrap().start_ticks;
     for (i, (name, env, class, expect_lost)) in [
         ("unmarked", vec![], "decoy", true),
-        ("other", vec![b"RR_CAMPAIGN_JOB=othercamp:ll".to_vec()], "decoy", true),
-        ("ours_same_label", vec![b"RR_CAMPAIGN_JOB=rbcamp:ll".to_vec()], "bydesign", false),
+        (
+            "other",
+            vec![b"RR_CAMPAIGN_JOB=othercamp:ll".to_vec()],
+            "decoy",
+            true,
+        ),
+        (
+            "ours_same_label",
+            vec![b"RR_CAMPAIGN_JOB=rbcamp:ll".to_vec()],
+            "bydesign",
+            false,
+        ),
     ]
     .into_iter()
     .enumerate()
@@ -452,8 +765,18 @@ fn s_leaderless(c: &mut Ctx) {
         let sid = r["pid"].as_u64().unwrap() as u32;
         std::thread::sleep(Duration::from_millis(500));
         // record: the session number with an OLDER start time (mine)
-        let id = ProcessIdentity { pid: sid, start_ticks: my_start, boot_id: boot.clone() };
-        try_reattach_all(c, &id, "ll", &format!("leaderless {name} (older record)"), expect_lost);
+        let id = ProcessIdentity {
+            pid: sid,
+            start_ticks: my_start,
+            boot_id: boot.clone(),
+        };
+        try_reattach_all(
+            c,
+            &id,
+            "ll",
+            &format!("leaderless {name} (older record)"),
+            expect_lost,
+        );
     }
     std::thread::sleep(Duration::from_millis(800));
 }
@@ -461,19 +784,54 @@ fn s_leaderless(c: &mut Ctx) {
 fn s_nonleader(c: &mut Ctx) {
     for (name, env, class, expect_lost) in [
         ("unmarked", vec![], "decoy", true),
-        ("other", vec![b"RR_CAMPAIGN_JOB=othercamp:nl".to_vec()], "decoy", true),
-        ("ours_same_label", vec![b"RR_CAMPAIGN_JOB=rbcamp:nl".to_vec()], "bydesign", false),
+        (
+            "other",
+            vec![b"RR_CAMPAIGN_JOB=othercamp:nl".to_vec()],
+            "decoy",
+            true,
+        ),
+        (
+            "ours_same_label",
+            vec![b"RR_CAMPAIGN_JOB=rbcamp:nl".to_vec()],
+            "bydesign",
+            false,
+        ),
     ] {
-        let mut spec = ds(&format!("nonleader:{name}"), class, &env.iter().map(|e: &Vec<u8>| e.as_slice()).collect::<Vec<_>>(), false);
+        let mut spec = ds(
+            &format!("nonleader:{name}"),
+            class,
+            &env.iter()
+                .map(|e: &Vec<u8>| e.as_slice())
+                .collect::<Vec<_>>(),
+            false,
+        );
         spec["setpgid"] = json!(true);
         let (pid, _) = c.decoy(spec);
         std::thread::sleep(Duration::from_millis(200));
         let id = ProcessIdentity::capture(pid).unwrap();
         let st = stat(pid).unwrap();
-        println!("  nonleader {name}: pid {pid} pgrp {} sid {}", st.pgrp, st.session);
+        println!(
+            "  nonleader {name}: pid {pid} pgrp {} sid {}",
+            st.pgrp, st.session
+        );
         let m = CampaignMarker::new(CAMP, "nl").unwrap();
         let v = signal_verified_process(&id, &m, 0);
-        c.res(&format!("nonleader {name}: signal_verified_process(CORRECT identity, sig 0 probe)"), if expect_lost { "refused" } else { "Delivered (by design: marker)" }, format!("{v:?}"), if v.delivered() != expect_lost { V::Pass } else if expect_lost { V::Fail } else { V::Note });
+        c.res(
+            &format!("nonleader {name}: signal_verified_process(CORRECT identity, sig 0 probe)"),
+            if expect_lost {
+                "refused"
+            } else {
+                "Delivered (by design: marker)"
+            },
+            format!("{v:?}"),
+            if v.delivered() != expect_lost {
+                V::Pass
+            } else if expect_lost {
+                V::Fail
+            } else {
+                V::Note
+            },
+        );
         try_reattach_all(c, &id, "nl", &format!("nonleader {name}"), expect_lost);
     }
     std::thread::sleep(Duration::from_millis(800));
@@ -485,11 +843,19 @@ fn s_stalegroup(c: &mut Ctx) {
     let boot = boot_id().unwrap();
     let mut l = launcher(CAMP);
     let gf = c.run.join("g.pid");
-    let script = format!("set -m; {sleep} 3000 & echo $! > {}; while :; do {sleep} 1; done", gf.display());
+    let script = format!(
+        "set -m; {sleep} 3000 & echo $! > {}; while :; do {sleep} 1; done",
+        gf.display()
+    );
     let mut h = l.launch(&sh(&c.run, "sg", &script)).unwrap();
     let g = read_u32_file(&gf, Duration::from_secs(10)).unwrap();
     let gs = stat(g).unwrap();
-    println!("  job sid {} ; member {g} pgrp {} sid {}", h.identity().pid, gs.pgrp, gs.session);
+    println!(
+        "  job sid {} ; member {g} pgrp {} sid {}",
+        h.identity().pid,
+        gs.pgrp,
+        gs.session
+    );
     wait_scan(&l);
     let mut l2 = launcher(CAMP);
     let mut h2 = match l2.reattach(h.identity(), "sg", ReattachChoice::Adopt) {
@@ -508,7 +874,12 @@ fn s_stalegroup(c: &mut Ctx) {
     let r = c.req(json!({"name": "stalegroup:decoy-group", "class": "decoy", "argv": [shp, "-c", format!("{sleep} 3000 & echo $! > {}; exec {sleep} 3000", mf.display())],
         "env": [], "setsid": true, "force_pid": g, "member_pidfile": mf.display().to_string()}));
     if !r["ok"].as_bool().unwrap_or(false) {
-        c.res("stalegroup", "decoy group on the stale group number", "could not force pid", V::Note);
+        c.res(
+            "stalegroup",
+            "decoy group on the stale group number",
+            "could not force pid",
+            V::Note,
+        );
         return;
     }
     std::thread::sleep(Duration::from_millis(400));
@@ -521,12 +892,28 @@ fn s_stalegroup(c: &mut Ctx) {
     h2.terminate(Duration::ZERO, KillReason::Stop);
     h2.kill_now(KillReason::Reattach);
     let r2 = drive(&mut h2, Duration::from_secs(30));
-    println!("  adopted handle: {}", r2.as_ref().map(rs).unwrap_or("timeout".into()));
+    println!(
+        "  adopted handle: {}",
+        r2.as_ref().map(rs).unwrap_or("timeout".into())
+    );
     h.terminate(Duration::ZERO, KillReason::Stop);
     let r1 = drive(&mut h, Duration::from_secs(30));
-    c.chk("stalegroup: original job ended", "Verified", r1.as_ref().map(rs).unwrap_or("timeout".into()), r1.is_some_and(|r| r.verification.is_verified()));
-    let alive_d = alive(r["pid"].as_u64().unwrap() as u32, r["start"].as_u64().unwrap());
-    c.chk("stalegroup: decoy group on the stale number survives", "alive", format!("{alive_d}"), alive_d);
+    c.chk(
+        "stalegroup: original job ended",
+        "Verified",
+        r1.as_ref().map(rs).unwrap_or("timeout".into()),
+        r1.is_some_and(|r| r.verification.is_verified()),
+    );
+    let alive_d = alive(
+        r["pid"].as_u64().unwrap() as u32,
+        r["start"].as_u64().unwrap(),
+    );
+    c.chk(
+        "stalegroup: decoy group on the stale number survives",
+        "alive",
+        format!("{alive_d}"),
+        alive_d,
+    );
 }
 
 fn s_daemon(c: &mut Ctx) {
@@ -550,37 +937,89 @@ fn s_daemon(c: &mut Ctx) {
     for k in 1..=5 {
         let p = read_u32_file(&c.run.join(format!("d{k}")), Duration::from_secs(10)).unwrap();
         let s = stat(p).unwrap();
-        println!("  d{k}: pid {p} ppid {} (me {me}) sid {} start {}", s.ppid, s.session, s.start_ticks);
+        println!(
+            "  d{k}: pid {p} ppid {} (me {me}) sid {} start {}",
+            s.ppid, s.session, s.start_ticks
+        );
         d.push((p, s.start_ticks));
     }
     let rep = drive(&mut h, Duration::from_secs(40));
-    println!("  report: {}", rep.as_ref().map(rs).unwrap_or("timeout".into()));
+    println!(
+        "  report: {}",
+        rep.as_ref().map(rs).unwrap_or("timeout".into())
+    );
     let rep = rep.unwrap();
     std::thread::sleep(Duration::from_millis(500));
     let a: Vec<bool> = d.iter().map(|(p, s)| alive(*p, *s)).collect();
     let in_left = |p: u32| rep.leftovers_killed.iter().any(|x| x.pid == p);
     let in_esc = |p: u32| rep.escaped.iter().any(|x| x.pid == p);
-    c.chk("daemon d1 (double fork + setsid, marked): found, killed, reported", "dead & in leftovers_killed", format!("alive={} leftover={}", a[0], in_left(d[0].0)), !a[0] && in_left(d[0].0));
-    c.chk("daemon d2 (double fork, same session, marked)", "dead & reported", format!("alive={} leftover={}", a[1], in_left(d[1].0)), !a[1] && in_left(d[1].0));
-    c.chk("daemon d5 (env -i, same session)", "dead (session proof)", format!("alive={} leftover={}", a[4], in_left(d[4].0)), !a[4]);
-    c.res("daemon d3 (env -i + setsid: no marker, own session) NOT killed", "alive (cannot be proven ours; documented)", format!("alive={}", a[2]), if a[2] { V::Pass } else { V::Fail });
+    c.chk(
+        "daemon d1 (double fork + setsid, marked): found, killed, reported",
+        "dead & in leftovers_killed",
+        format!("alive={} leftover={}", a[0], in_left(d[0].0)),
+        !a[0] && in_left(d[0].0),
+    );
+    c.chk(
+        "daemon d2 (double fork, same session, marked)",
+        "dead & reported",
+        format!("alive={} leftover={}", a[1], in_left(d[1].0)),
+        !a[1] && in_left(d[1].0),
+    );
+    c.chk(
+        "daemon d5 (env -i, same session)",
+        "dead (session proof)",
+        format!("alive={} leftover={}", a[4], in_left(d[4].0)),
+        !a[4],
+    );
+    c.res(
+        "daemon d3 (env -i + setsid: no marker, own session) NOT killed",
+        "alive (cannot be proven ours; documented)",
+        format!("alive={}", a[2]),
+        if a[2] { V::Pass } else { V::Fail },
+    );
     let in_un = |p: u32| rep.unattributed_children.iter().any(|x| x.pid == p);
     let reported = in_left(d[2].0) || in_esc(d[2].0) || in_un(d[2].0);
-    c.res("daemon d3 reported anywhere in the FinalReport", "reported (it is a live descendant re-parented to us)", format!("leftovers={} escaped={} unattributed={} verification={:?}", in_left(d[2].0), in_esc(d[2].0), in_un(d[2].0), rep.verification), if reported { V::Pass } else { V::Fail });
+    c.res(
+        "daemon d3 reported anywhere in the FinalReport",
+        "reported (it is a live descendant re-parented to us)",
+        format!(
+            "leftovers={} escaped={} unattributed={} verification={:?}",
+            in_left(d[2].0),
+            in_esc(d[2].0),
+            in_un(d[2].0),
+            rep.verification
+        ),
+        if reported { V::Pass } else { V::Fail },
+    );
     let ppid3 = stat(d[2].0).map(|s| s.ppid);
-    c.res("daemon d3 is now a child of the supervisor (subreaper)", "ppid == supervisor", format!("ppid={ppid3:?} me={me}"), V::Note);
+    c.res(
+        "daemon d3 is now a child of the supervisor (subreaper)",
+        "ppid == supervisor",
+        format!("ppid={ppid3:?} me={me}"),
+        V::Note,
+    );
     std::thread::sleep(Duration::from_secs(5));
     let z = my_zombies();
     let d4z = z.iter().any(|(p, _)| *p == d[3].0);
-    c.res("unmarked re-parented daemon d4 exited (sleep 4): zombie left unreaped by the supervisor?", "reaped (no zombie)", format!("zombies of supervisor: {z:?}"), if d4z { V::Fail } else { V::Pass });
-    println!("  reaper: {:?}", rustred_campaign::resources::reaper_stats());
+    c.res(
+        "unmarked re-parented daemon d4 exited (sleep 4): zombie left unreaped by the supervisor?",
+        "reaped (no zombie)",
+        format!("zombies of supervisor: {z:?}"),
+        if d4z { V::Fail } else { V::Pass },
+    );
+    println!(
+        "  reaper: {:?}",
+        rustred_campaign::resources::reaper_stats()
+    );
     let _ = l;
 }
 
 fn s_escapee(c: &mut Ctx) {
     let r = c.run.display().to_string();
     let mut l = launcher(CAMP);
-    let script = format!("setsid sh -c 'echo $$ > {r}/e1; exec sleep 3000' & sh -c 'echo $$ > {r}/m1; exec sleep 3000' & exec sleep 3000");
+    let script = format!(
+        "setsid sh -c 'echo $$ > {r}/e1; exec sleep 3000' & sh -c 'echo $$ > {r}/m1; exec sleep 3000' & exec sleep 3000"
+    );
     let mut h = l.launch(&sh(&c.run, "esc", &script)).unwrap();
     let e1 = read_u32_file(&c.run.join("e1"), Duration::from_secs(10)).unwrap();
     let m1 = read_u32_file(&c.run.join("m1"), Duration::from_secs(10)).unwrap();
@@ -591,9 +1030,22 @@ fn s_escapee(c: &mut Ctx) {
     }
     h.terminate(Duration::from_secs(1), KillReason::Stop);
     let rep = drive(&mut h, Duration::from_secs(40));
-    println!("  report: {}", rep.as_ref().map(rs).unwrap_or("timeout".into()));
+    println!(
+        "  report: {}",
+        rep.as_ref().map(rs).unwrap_or("timeout".into())
+    );
     std::thread::sleep(Duration::from_millis(300));
-    c.chk("setsid escapee + member killed on terminate, Verified", "both dead, Verified", format!("e1 alive={} m1 alive={} ver={:?}", alive(e1, se), alive(m1, sm), rep.as_ref().map(|r| r.verification.clone())), !alive(e1, se) && !alive(m1, sm) && rep.is_some_and(|r| r.verification.is_verified()));
+    c.chk(
+        "setsid escapee + member killed on terminate, Verified",
+        "both dead, Verified",
+        format!(
+            "e1 alive={} m1 alive={} ver={:?}",
+            alive(e1, se),
+            alive(m1, sm),
+            rep.as_ref().map(|r| r.verification.clone())
+        ),
+        !alive(e1, se) && !alive(m1, sm) && rep.is_some_and(|r| r.verification.is_verified()),
+    );
 }
 
 /// Supervisor 1 of the crash/recovery choreography: launches jobs, writes records, then waits to be SIGKILLed.
@@ -602,10 +1054,23 @@ fn s_recover1(c: &mut Ctx) {
     let mut l = launcher(CAMP);
     let mut recs = vec![];
     let jobs: Vec<(&str, LaunchSpec)> = vec![
-        ("J1", sh(&c.run, "J1", "sleep 3000 & sleep 3000 & exec sleep 3000")),
+        (
+            "J1",
+            sh(&c.run, "J1", "sleep 3000 & sleep 3000 & exec sleep 3000"),
+        ),
         ("J2", helper_spec(&c.run, "J2", &["nopdeath"])),
-        ("J3", sh(&c.run, "J3", "setsid sleep 3000 & exec sleep 3000")),
-        ("J4", helper_spec(&c.run, "J4", &["thread-leader", &c.run.join("j4.pid").display().to_string()])),
+        (
+            "J3",
+            sh(&c.run, "J3", "setsid sleep 3000 & exec sleep 3000"),
+        ),
+        (
+            "J4",
+            helper_spec(
+                &c.run,
+                "J4",
+                &["thread-leader", &c.run.join("j4.pid").display().to_string()],
+            ),
+        ),
         ("J5", sh(&c.run, "J5", "exec sleep 3000")),
     ];
     let mut handles = vec![];
@@ -617,10 +1082,25 @@ fn s_recover1(c: &mut Ctx) {
     // decoys owned by the driver
     for s in [
         ds("rec:unmarked", "decoy", &[], true),
-        ds("rec:other", "decoy", &[b"RR_CAMPAIGN_JOB=othercamp:J1"], true),
-        ds("rec:prefix", "decoy", &[b"RR_CAMPAIGN_JOB=rbcampd:J1"], true),
+        ds(
+            "rec:other",
+            "decoy",
+            &[b"RR_CAMPAIGN_JOB=othercamp:J1"],
+            true,
+        ),
+        ds(
+            "rec:prefix",
+            "decoy",
+            &[b"RR_CAMPAIGN_JOB=rbcampd:J1"],
+            true,
+        ),
         ds("rec:shorter", "decoy", &[b"RR_CAMPAIGN_JOB=rbcam:J1"], true),
-        ds("rec:value", "decoy", &[b"X=RR_CAMPAIGN_JOB=rbcamp:J1"], true),
+        ds(
+            "rec:value",
+            "decoy",
+            &[b"X=RR_CAMPAIGN_JOB=rbcamp:J1"],
+            true,
+        ),
         ds("rec:nogroup", "decoy", &[], false),
     ] {
         c.decoy(s);
@@ -631,7 +1111,10 @@ fn s_recover1(c: &mut Ctx) {
         let _ = h.poll();
     }
     write_atomic(&c.run.join("records.json"), &Value::Array(recs).to_string());
-    write_atomic(&c.run.join("sup1.pid"), &format!("{me} {}", stat(me).unwrap().start_ticks));
+    write_atomic(
+        &c.run.join("sup1.pid"),
+        &format!("{me} {}", stat(me).unwrap().start_ticks),
+    );
     write_atomic(&c.run.join("ready"), "1");
     println!("  supervisor-1 ready; waiting for SIGKILL");
     std::thread::sleep(Duration::from_secs(200));
@@ -639,10 +1122,17 @@ fn s_recover1(c: &mut Ctx) {
 
 fn s_recover2(c: &mut Ctx) {
     let boot = boot_id().unwrap();
-    let recs: Value = serde_json::from_str(&std::fs::read_to_string(c.run.join("records.json")).unwrap()).unwrap();
+    let recs: Value =
+        serde_json::from_str(&std::fs::read_to_string(c.run.join("records.json")).unwrap())
+            .unwrap();
     let mut l = launcher(CAMP);
     // B-M1: adopt the thread-leader job (main thread exited, a thread lives): must stay Running
-    let j4 = recs.as_array().unwrap().iter().find(|r| r["label"] == "J4").unwrap();
+    let j4 = recs
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["label"] == "J4")
+        .unwrap();
     let id4: ProcessIdentity = serde_json::from_value(j4["identity"].clone()).unwrap();
     match l.reattach(&id4, "J4", ReattachChoice::Adopt) {
         Ok(Reattached::Live(mut h)) => {
@@ -656,53 +1146,125 @@ fn s_recover2(c: &mut Ctx) {
                 });
                 std::thread::sleep(Duration::from_millis(250));
             }
-            c.chk("adopted job whose main thread exited (live thread): stays Running", "all R", states.join(""), states.iter().all(|s| *s == "R"));
+            c.chk(
+                "adopted job whose main thread exited (live thread): stays Running",
+                "all R",
+                states.join(""),
+                states.iter().all(|s| *s == "R"),
+            );
         }
         r => c.res("adopt thread-leader J4", "Live", reat(&r), V::Fail),
     }
     let sc = scan_campaign(CAMP, 0, &BTreeSet::new()).unwrap();
-    println!("  orphan scan: {} marked, {} unreadable", sc.processes.len(), sc.unreadable);
+    println!(
+        "  orphan scan: {} marked, {} unreadable",
+        sc.processes.len(),
+        sc.unreadable
+    );
     for p in &sc.processes {
         let v = kill_orphan(CAMP, &boot, p, libc::SIGTERM);
-        println!("  kill_orphan(TERM) pid {} attempt {} comm {}: {v:?}", p.pid, p.attempt_id, p.comm);
+        println!(
+            "  kill_orphan(TERM) pid {} attempt {} comm {}: {v:?}",
+            p.pid, p.attempt_id, p.comm
+        );
     }
     std::thread::sleep(Duration::from_secs(1));
     let sc2 = scan_campaign(CAMP, 0, &BTreeSet::new()).unwrap();
     for p in &sc2.processes {
         let v = kill_orphan(CAMP, &boot, p, libc::SIGKILL);
-        println!("  kill_orphan(KILL) pid {} attempt {}: {v:?}", p.pid, p.attempt_id);
+        println!(
+            "  kill_orphan(KILL) pid {} attempt {}: {v:?}",
+            p.pid, p.attempt_id
+        );
     }
     std::thread::sleep(Duration::from_secs(1));
     for r in recs.as_array().unwrap() {
         let id: ProcessIdentity = serde_json::from_value(r["identity"].clone()).unwrap();
         let lab = r["label"].as_str().unwrap();
-        let x = l.reattach(&id, lab, ReattachChoice::Kill { grace: Duration::from_millis(500) });
+        let x = l.reattach(
+            &id,
+            lab,
+            ReattachChoice::Kill {
+                grace: Duration::from_millis(500),
+            },
+        );
         let s = reat(&x);
         if let Ok(Reattached::Live(mut h)) = x {
             let rr = drive(&mut h, Duration::from_secs(20));
-            println!("  reattach-kill {lab}: {}", rr.as_ref().map(rs).unwrap_or("timeout".into()));
+            println!(
+                "  reattach-kill {lab}: {}",
+                rr.as_ref().map(rs).unwrap_or("timeout".into())
+            );
         }
-        c.res(&format!("after the orphan kill: reattach(Kill) of record {lab}"), "Lost(Gone)", s, V::Note);
+        c.res(
+            &format!("after the orphan kill: reattach(Kill) of record {lab}"),
+            "Lost(Gone)",
+            s,
+            V::Note,
+        );
     }
     let sc3 = scan_campaign(CAMP, 0, &BTreeSet::new()).unwrap();
-    c.chk("rescan after recovery", "no marked process left", format!("{:?}", sc3.processes.iter().map(|p| (p.pid, p.attempt_id.clone())).collect::<Vec<_>>()), sc3.processes.is_empty());
+    c.chk(
+        "rescan after recovery",
+        "no marked process left",
+        format!(
+            "{:?}",
+            sc3.processes
+                .iter()
+                .map(|p| (p.pid, p.attempt_id.clone()))
+                .collect::<Vec<_>>()
+        ),
+        sc3.processes.is_empty(),
+    );
     std::thread::sleep(Duration::from_millis(500));
 }
 
 fn s_cpurange(c: &mut Ctx) {
-    let lim = libc::rlimit { rlim_cur: 300 << 20, rlim_max: 300 << 20 };
+    let lim = libc::rlimit {
+        rlim_cur: 300 << 20,
+        rlim_max: 300 << 20,
+    };
     // SAFETY: setrlimit with a valid pointer.
     unsafe { libc::setrlimit(libc::RLIMIT_AS, &lim) };
-    for s in ["0-60000000", "0-4000000000", "0-18446744073709551615", "99999999999999999999999", "1023", "1024", "0-1023", "5-3"] {
+    for s in [
+        "0-60000000",
+        "0-4000000000",
+        "0-18446744073709551615",
+        "99999999999999999999999",
+        "1023",
+        "1024",
+        "0-1023",
+        "5-3",
+    ] {
         let t0 = Instant::now();
         let r = parse_cpu_list(s);
-        c.chk(&format!("parse_cpu_list({s:?})"), if s == "1023" || s == "0-1023" { "Ok" } else { "Err, cheaply" }, format!("{:?} in {:?}", r.as_ref().map(|x| x.len()), t0.elapsed()), (r.is_ok() == (s == "1023" || s == "0-1023")) && t0.elapsed() < Duration::from_secs(1));
+        c.chk(
+            &format!("parse_cpu_list({s:?})"),
+            if s == "1023" || s == "0-1023" {
+                "Ok"
+            } else {
+                "Err, cheaply"
+            },
+            format!("{:?} in {:?}", r.as_ref().map(|x| x.len()), t0.elapsed()),
+            (r.is_ok() == (s == "1023" || s == "0-1023")) && t0.elapsed() < Duration::from_secs(1),
+        );
         let r = CpuSpec::parse(s);
-        println!("  CpuSpec::parse({s:?}) -> {:?}", r.as_ref().map(|x| match x { CpuSpec::List(l) => format!("List({})", l.len()), CpuSpec::Count(n) => format!("Count({n})") }));
+        println!(
+            "  CpuSpec::parse({s:?}) -> {:?}",
+            r.as_ref().map(|x| match x {
+                CpuSpec::List(l) => format!("List({})", l.len()),
+                CpuSpec::Count(n) => format!("Count({n})"),
+            })
+        );
     }
     let root = c.run.join("site");
     std::fs::create_dir_all(root.join("locks")).unwrap();
-    let cpu = rustred_campaign::resources::allowed_cpus().unwrap().into_iter().rev().find(|c| !(168..=175).contains(c) && !(288..=319).contains(c)).unwrap();
+    let cpu = rustred_campaign::resources::allowed_cpus()
+        .unwrap()
+        .into_iter()
+        .rev()
+        .find(|c| !(168..=175).contains(c) && !(288..=319).contains(c))
+        .unwrap();
     let base = SiteConfig {
         schema: SITE_SCHEMA.into(),
         tag: "rb-reaudit".into(),
@@ -721,15 +1283,33 @@ fn s_cpurange(c: &mut Ctx) {
     };
     let mut ex = base.clone();
     ex.exclude = vec!["0-60000000".into()];
-    c.chk("site exclude \"0-60000000\" validate", "Err", format!("{:?}", ex.validate().err().map(|e| e.to_string())), ex.validate().is_err());
+    c.chk(
+        "site exclude \"0-60000000\" validate",
+        "Err",
+        format!("{:?}", ex.validate().err().map(|e| e.to_string())),
+        ex.validate().is_err(),
+    );
     let mut cand = base.clone();
     cand.candidates = Some("0-60000000".into());
-    c.chk("site candidates \"0-60000000\" validate", "Err", format!("{:?}", cand.validate().err().map(|e| e.to_string())), cand.validate().is_err());
-    for (k, content) in [("held", r#"{"held":"0-60000000"}"#), ("held", r#"{"held":["0-4000000000"]}"#), ("held", r#"{"held":60000000}"#)] {
+    c.chk(
+        "site candidates \"0-60000000\" validate",
+        "Err",
+        format!("{:?}", cand.validate().err().map(|e| e.to_string())),
+        cand.validate().is_err(),
+    );
+    for (k, content) in [
+        ("held", r#"{"held":"0-60000000"}"#),
+        ("held", r#"{"held":["0-4000000000"]}"#),
+        ("held", r#"{"held":60000000}"#),
+    ] {
         let hf = root.join("held.json");
         std::fs::write(&hf, content).unwrap();
         let mut h = base.clone();
-        h.held_files = vec![HeldFile { path: hf.clone(), key: k.into(), required: false }];
+        h.held_files = vec![HeldFile {
+            path: hf.clone(),
+            key: k.into(),
+            required: false,
+        }];
         let t0 = Instant::now();
         let r = SitePolicy::new(h).and_then(|mut p| p.acquire(1, "x"));
         let s = match &r {
@@ -737,9 +1317,23 @@ fn s_cpurange(c: &mut Ctx) {
             Err(e) => format!("Err({e})"),
         };
         let refused = !matches!(r, Ok(rustred_campaign::cpu_policy::Acquire::Granted(_)));
-        c.res(&format!("held file {content} then acquire"), "refused / NotNow, no abort", format!("{s} in {:?}", t0.elapsed()), if refused || content.contains("60000000}") { V::Pass } else { V::Fail });
+        c.res(
+            &format!("held file {content} then acquire"),
+            "refused / NotNow, no abort",
+            format!("{s} in {:?}", t0.elapsed()),
+            if refused || content.contains("60000000}") {
+                V::Pass
+            } else {
+                V::Fail
+            },
+        );
     }
-    c.res("process survived every case under a 300 MB address-space limit", "no abort", "alive", V::Pass);
+    c.res(
+        "process survived every case under a 300 MB address-space limit",
+        "no abort",
+        "alive",
+        V::Pass,
+    );
 }
 
 fn s_cow(c: &mut Ctx) {
@@ -759,13 +1353,24 @@ fn s_cow(c: &mut Ctx) {
             }
             _ => {
                 if let Some(u) = h.usage() {
-                    last = format!("rss={} pss={:?} mem={:?} members={}", u.rss_bytes, u.pss_bytes, u.mem_bytes(), u.members.len());
+                    last = format!(
+                        "rss={} pss={:?} mem={:?} members={}",
+                        u.rss_bytes,
+                        u.pss_bytes,
+                        u.mem_bytes(),
+                        u.members.len()
+                    );
                 }
             }
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    c.chk("CoW 80 MB + fork (unique ~85 MB) under a 120 MB cap", "not killed (PSS)", format!("killed={killed:?} last usage {last}"), killed.is_none());
+    c.chk(
+        "CoW 80 MB + fork (unique ~85 MB) under a 120 MB cap",
+        "not killed (PSS)",
+        format!("killed={killed:?} last usage {last}"),
+        killed.is_none(),
+    );
     h.kill_now(KillReason::Other("end".into()));
     let _ = drive(&mut h, Duration::from_secs(30));
     let mut spec = helper_spec(&c.run, "alloc", &["alloc", "250"]);
@@ -773,17 +1378,32 @@ fn s_cow(c: &mut Ctx) {
     spec.cap_mechanism = CapRequest::Sampling;
     let mut h = l.launch(&spec).unwrap();
     let r = drive(&mut h, Duration::from_secs(30));
-    c.chk("control: 250 MB allocation under a 120 MB cap", "killed memory_cap_exceeded", r.as_ref().map(rs).unwrap_or("timeout".into()), r.is_some_and(|r| matches!(r.kill_reason, Some(KillReason::MemoryCap { .. }))));
+    c.chk(
+        "control: 250 MB allocation under a 120 MB cap",
+        "killed memory_cap_exceeded",
+        r.as_ref().map(rs).unwrap_or("timeout".into()),
+        r.is_some_and(|r| matches!(r.kill_reason, Some(KillReason::MemoryCap { .. }))),
+    );
 }
 
 fn s_exitterm(c: &mut Ctx) {
     let mut l = launcher(CAMP);
     let mut h = l.launch(&sh(&c.run, "et", "exit 0")).unwrap();
-    crate::wait_for(Duration::from_secs(10), || matches!(h.poll_exit(), Ok(Some(_))));
+    crate::wait_for(Duration::from_secs(10), || {
+        matches!(h.poll_exit(), Ok(Some(_)))
+    });
     h.terminate(Duration::from_secs(1), KillReason::Stop);
     h.kill_now(KillReason::ForceStop);
     let r = drive(&mut h, Duration::from_secs(30)).unwrap();
-    c.chk("terminate()/kill_now() after a normal exit", "kill_reason None, no TERM/KILL, outcome None", rs(&r), r.kill_reason.is_none() && !r.sigterm_sent && !r.sigkill_sent && r.supervisor_outcome().is_none());
+    c.chk(
+        "terminate()/kill_now() after a normal exit",
+        "kill_reason None, no TERM/KILL, outcome None",
+        rs(&r),
+        r.kill_reason.is_none()
+            && !r.sigterm_sent
+            && !r.sigkill_sent
+            && r.supervisor_outcome().is_none(),
+    );
 }
 
 fn s_leak(c: &mut Ctx) {
@@ -796,15 +1416,33 @@ fn s_leak(c: &mut Ctx) {
     ] {
         let mut s = sh(&c.run, "lk", "exit 0");
         match f {
-            0 => s.env_passthrough.push(format!("SYMBOLICA_LICENSE={SECRET}")),
+            0 => s
+                .env_passthrough
+                .push(format!("SYMBOLICA_LICENSE={SECRET}")),
             1 => s.env_passthrough.push(format!("X {SECRET}")),
             _ => s.env.push((format!("A={SECRET}").into(), "v".into())),
         }
-        let e = s.validate().err().map(|e| e.to_string()).unwrap_or_default();
+        let e = s
+            .validate()
+            .err()
+            .map(|e| e.to_string())
+            .unwrap_or_default();
         let dbg = format!("{s:?}");
-        let le = l.launch(&s).err().map(|e| e.to_string()).unwrap_or_else(|| "LAUNCHED".into());
+        let le = l
+            .launch(&s)
+            .err()
+            .map(|e| e.to_string())
+            .unwrap_or_else(|| "LAUNCHED".into());
         let leaked = e.contains(SECRET) || dbg.contains(SECRET) || le.contains(SECRET);
-        c.chk(&format!("{what}: refused and never echoed"), "Err without the value (validate, Debug, launch)", format!("validate={e:?} launch={le:?} debug_leak={}", dbg.contains(SECRET)), !leaked && !e.is_empty() && le != "LAUNCHED");
+        c.chk(
+            &format!("{what}: refused and never echoed"),
+            "Err without the value (validate, Debug, launch)",
+            format!(
+                "validate={e:?} launch={le:?} debug_leak={}",
+                dbg.contains(SECRET)
+            ),
+            !leaked && !e.is_empty() && le != "LAUNCHED",
+        );
     }
 }
 
@@ -820,43 +1458,302 @@ fn s_marker(c: &mut Ctx) {
     };
     let mut long_att = b"RR_CAMPAIGN_JOB=rbcamp:".to_vec();
     long_att.extend(std::iter::repeat_n(b'a', 300));
-    let cases: Vec<(&str, &str, Vec<Vec<u8>>, Option<Vec<String>>, bool, bool)> = vec![
+    type Case<'a> = (
+        &'a str,
+        &'a str,
+        Vec<Vec<u8>>,
+        Option<Vec<String>>,
+        bool,
+        bool,
+    );
+    let cases: Vec<Case> = vec![
         ("m_none_empty_environ", "decoy", vec![], None, true, false),
-        ("m_none", "decoy", vec![b"PATH=/x".to_vec()], None, true, false),
-        ("m_other", "decoy", vec![b"RR_CAMPAIGN_JOB=othercamp:a".to_vec()], None, true, false),
-        ("m_value", "decoy", vec![b"FOO=RR_CAMPAIGN_JOB=rbcamp:a".to_vec()], None, true, false),
-        ("m_suffix_name", "decoy", vec![b"XRR_CAMPAIGN_JOB=rbcamp:a".to_vec()], None, true, false),
-        ("m_name_prefix", "decoy", vec![b"RR_CAMPAIGN_JOBX=rbcamp:a".to_vec()], None, true, false),
-        ("m_lower_name", "decoy", vec![b"rr_campaign_job=rbcamp:a".to_vec()], None, true, false),
-        ("m_space_name1", "decoy", vec![b" RR_CAMPAIGN_JOB=rbcamp:a".to_vec()], None, true, false),
-        ("m_space_name2", "decoy", vec![b"RR_CAMPAIGN_JOB =rbcamp:a".to_vec()], None, true, false),
-        ("m_id_longer(rbcampd)", "decoy", vec![b"RR_CAMPAIGN_JOB=rbcampd:a".to_vec()], None, true, false),
-        ("m_id_shorter(rbcam)", "decoy", vec![b"RR_CAMPAIGN_JOB=rbcam:a".to_vec()], None, true, false),
-        ("m_id_case", "decoy", vec![b"RR_CAMPAIGN_JOB=RBCAMP:a".to_vec()], None, true, false),
-        ("m_empty_value", "decoy", vec![b"RR_CAMPAIGN_JOB=".to_vec()], None, true, false),
-        ("m_empty_id", "decoy", vec![b"RR_CAMPAIGN_JOB=:a".to_vec()], None, true, false),
-        ("m_no_colon", "decoy", vec![b"RR_CAMPAIGN_JOB=rbcamp".to_vec()], None, true, false),
-        ("m_empty_attempt", "decoy", vec![b"RR_CAMPAIGN_JOB=rbcamp:".to_vec()], None, true, false),
-        ("m_newline_in_id1", "decoy", vec![b"RR_CAMPAIGN_JOB=rbcamp\n:a".to_vec()], None, true, false),
-        ("m_newline_in_id2", "decoy", vec![b"RR_CAMPAIGN_JOB=\nrbcamp:a".to_vec()], None, true, false),
-        ("m_eq_in_id1", "decoy", vec![b"RR_CAMPAIGN_JOB=rbcamp=:a".to_vec()], None, true, false),
-        ("m_eq_in_id2", "decoy", vec![b"RR_CAMPAIGN_JOB==rbcamp:a".to_vec()], None, true, false),
-        ("m_space_in_id1", "decoy", vec![b"RR_CAMPAIGN_JOB= rbcamp:a".to_vec()], None, true, false),
-        ("m_space_in_id2", "decoy", vec![b"RR_CAMPAIGN_JOB=rbcamp :a".to_vec()], None, true, false),
-        ("m_dup_other_first", "decoy", vec![b"RR_CAMPAIGN_JOB=othercamp:a".to_vec(), b"RR_CAMPAIGN_JOB=rbcamp:a".to_vec()], None, true, false),
-        ("m_badutf8_in_id", "decoy", vec![b"RR_CAMPAIGN_JOB=rbcamp\xff:a".to_vec()], None, true, false),
-        ("m_unicode_lookalike_id", "decoy", vec!["RR_CAMPAIGN_JOB=rbc\u{0430}mp:a".as_bytes().to_vec()], None, true, false),
-        ("m_attempt_too_long(300)", "decoy", vec![long_att], None, true, false),
-        ("m_other_zmain", "decoy", vec![b"RR_CAMPAIGN_JOB=othercamp:z".to_vec()], Some(hz("zmain")), true, false),
-        ("m_unmarked_nonleader", "decoy", vec![b"PATH=/x".to_vec()], None, false, true),
-        ("o_plain", "ours", vec![b"RR_CAMPAIGN_JOB=rbcamp:a".to_vec()], None, true, false),
-        ("o_dup_ours_first", "ours", vec![b"RR_CAMPAIGN_JOB=rbcamp:a".to_vec(), b"RR_CAMPAIGN_JOB=othercamp:a".to_vec()], None, true, false),
-        ("o_badutf8_attempt", "ours", vec![b"RR_CAMPAIGN_JOB=rbcamp:a\xff".to_vec()], None, true, false),
-        ("o_colons_in_attempt", "ours", vec![b"RR_CAMPAIGN_JOB=rbcamp:a:b:c".to_vec()], None, true, false),
-        ("o_zmain(thread alive)", "ours", vec![b"RR_CAMPAIGN_JOB=rbcamp:z".to_vec()], Some(hz("zmain")), true, false),
-        ("o_stopped", "ours", vec![b"RR_CAMPAIGN_JOB=rbcamp:s".to_vec()], Some(hz("stopself")), true, false),
-        ("o_nonleader", "ours", vec![b"RR_CAMPAIGN_JOB=rbcamp:n".to_vec()], None, false, true),
-        ("o_in_pid1_group", "ours", vec![b"RR_CAMPAIGN_JOB=rbcamp:g".to_vec()], None, false, false),
+        (
+            "m_none",
+            "decoy",
+            vec![b"PATH=/x".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_other",
+            "decoy",
+            vec![b"RR_CAMPAIGN_JOB=othercamp:a".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_value",
+            "decoy",
+            vec![b"FOO=RR_CAMPAIGN_JOB=rbcamp:a".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_suffix_name",
+            "decoy",
+            vec![b"XRR_CAMPAIGN_JOB=rbcamp:a".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_name_prefix",
+            "decoy",
+            vec![b"RR_CAMPAIGN_JOBX=rbcamp:a".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_lower_name",
+            "decoy",
+            vec![b"rr_campaign_job=rbcamp:a".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_space_name1",
+            "decoy",
+            vec![b" RR_CAMPAIGN_JOB=rbcamp:a".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_space_name2",
+            "decoy",
+            vec![b"RR_CAMPAIGN_JOB =rbcamp:a".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_id_longer(rbcampd)",
+            "decoy",
+            vec![b"RR_CAMPAIGN_JOB=rbcampd:a".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_id_shorter(rbcam)",
+            "decoy",
+            vec![b"RR_CAMPAIGN_JOB=rbcam:a".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_id_case",
+            "decoy",
+            vec![b"RR_CAMPAIGN_JOB=RBCAMP:a".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_empty_value",
+            "decoy",
+            vec![b"RR_CAMPAIGN_JOB=".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_empty_id",
+            "decoy",
+            vec![b"RR_CAMPAIGN_JOB=:a".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_no_colon",
+            "decoy",
+            vec![b"RR_CAMPAIGN_JOB=rbcamp".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_empty_attempt",
+            "decoy",
+            vec![b"RR_CAMPAIGN_JOB=rbcamp:".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_newline_in_id1",
+            "decoy",
+            vec![b"RR_CAMPAIGN_JOB=rbcamp\n:a".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_newline_in_id2",
+            "decoy",
+            vec![b"RR_CAMPAIGN_JOB=\nrbcamp:a".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_eq_in_id1",
+            "decoy",
+            vec![b"RR_CAMPAIGN_JOB=rbcamp=:a".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_eq_in_id2",
+            "decoy",
+            vec![b"RR_CAMPAIGN_JOB==rbcamp:a".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_space_in_id1",
+            "decoy",
+            vec![b"RR_CAMPAIGN_JOB= rbcamp:a".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_space_in_id2",
+            "decoy",
+            vec![b"RR_CAMPAIGN_JOB=rbcamp :a".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_dup_other_first",
+            "decoy",
+            vec![
+                b"RR_CAMPAIGN_JOB=othercamp:a".to_vec(),
+                b"RR_CAMPAIGN_JOB=rbcamp:a".to_vec(),
+            ],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_badutf8_in_id",
+            "decoy",
+            vec![b"RR_CAMPAIGN_JOB=rbcamp\xff:a".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_unicode_lookalike_id",
+            "decoy",
+            vec!["RR_CAMPAIGN_JOB=rbc\u{0430}mp:a".as_bytes().to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_attempt_too_long(300)",
+            "decoy",
+            vec![long_att],
+            None,
+            true,
+            false,
+        ),
+        (
+            "m_other_zmain",
+            "decoy",
+            vec![b"RR_CAMPAIGN_JOB=othercamp:z".to_vec()],
+            Some(hz("zmain")),
+            true,
+            false,
+        ),
+        (
+            "m_unmarked_nonleader",
+            "decoy",
+            vec![b"PATH=/x".to_vec()],
+            None,
+            false,
+            true,
+        ),
+        (
+            "o_plain",
+            "ours",
+            vec![b"RR_CAMPAIGN_JOB=rbcamp:a".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "o_dup_ours_first",
+            "ours",
+            vec![
+                b"RR_CAMPAIGN_JOB=rbcamp:a".to_vec(),
+                b"RR_CAMPAIGN_JOB=othercamp:a".to_vec(),
+            ],
+            None,
+            true,
+            false,
+        ),
+        (
+            "o_badutf8_attempt",
+            "ours",
+            vec![b"RR_CAMPAIGN_JOB=rbcamp:a\xff".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "o_colons_in_attempt",
+            "ours",
+            vec![b"RR_CAMPAIGN_JOB=rbcamp:a:b:c".to_vec()],
+            None,
+            true,
+            false,
+        ),
+        (
+            "o_zmain(thread alive)",
+            "ours",
+            vec![b"RR_CAMPAIGN_JOB=rbcamp:z".to_vec()],
+            Some(hz("zmain")),
+            true,
+            false,
+        ),
+        (
+            "o_stopped",
+            "ours",
+            vec![b"RR_CAMPAIGN_JOB=rbcamp:s".to_vec()],
+            Some(hz("stopself")),
+            true,
+            false,
+        ),
+        (
+            "o_nonleader",
+            "ours",
+            vec![b"RR_CAMPAIGN_JOB=rbcamp:n".to_vec()],
+            None,
+            false,
+            true,
+        ),
+        (
+            "o_in_pid1_group",
+            "ours",
+            vec![b"RR_CAMPAIGN_JOB=rbcamp:g".to_vec()],
+            None,
+            false,
+            false,
+        ),
     ];
     let mut spawned: Vec<(String, String, u32, u64)> = vec![];
     for (name, class, env, argv, setsid, setpgid) in &cases {
@@ -873,25 +1770,88 @@ fn s_marker(c: &mut Ctx) {
     wait_scan(&l);
     let sc = scan_campaign(CAMP, 0, &BTreeSet::new()).unwrap();
     let found: BTreeSet<u32> = sc.processes.iter().map(|p| p.pid).collect();
-    let expect: BTreeSet<u32> = spawned.iter().filter(|x| x.1 == "ours").map(|x| x.2).collect();
-    let name_of = |p: &u32| spawned.iter().find(|x| x.2 == *p).map(|x| x.0.clone()).unwrap_or(format!("?{p}"));
-    c.chk("scan_campaign(rbcamp) lists EXACTLY the marked non-children", "the 8 o_* processes", format!("found {:?}; unreadable={}", found.iter().map(name_of).collect::<Vec<_>>(), sc.unreadable), found == expect);
+    let expect: BTreeSet<u32> = spawned
+        .iter()
+        .filter(|x| x.1 == "ours")
+        .map(|x| x.2)
+        .collect();
+    let name_of = |p: &u32| {
+        spawned
+            .iter()
+            .find(|x| x.2 == *p)
+            .map(|x| x.0.clone())
+            .unwrap_or(format!("?{p}"))
+    };
+    c.chk(
+        "scan_campaign(rbcamp) lists EXACTLY the marked non-children",
+        "the 8 o_* processes",
+        format!(
+            "found {:?}; unreadable={}",
+            found.iter().map(name_of).collect::<Vec<_>>(),
+            sc.unreadable
+        ),
+        found == expect,
+    );
     let snap = l.sampler().latest().unwrap();
     let sm: BTreeSet<u32> = snap.marked.iter().map(|p| p.pid).collect();
-    c.chk("sampler Snapshot::marked == scan", "same set", format!("{:?}", sm.iter().map(name_of).collect::<Vec<_>>()), sm == expect);
-    for (camp, want) in [("rbcam", "m_id_shorter(rbcam)"), ("rbcampd", "m_id_longer(rbcampd)")] {
+    c.chk(
+        "sampler Snapshot::marked == scan",
+        "same set",
+        format!("{:?}", sm.iter().map(name_of).collect::<Vec<_>>()),
+        sm == expect,
+    );
+    for (camp, want) in [
+        ("rbcam", "m_id_shorter(rbcam)"),
+        ("rbcampd", "m_id_longer(rbcampd)"),
+    ] {
         let s = scan_campaign(camp, 0, &BTreeSet::new()).unwrap();
         let names: Vec<String> = s.processes.iter().map(|p| name_of(&p.pid)).collect();
-        c.chk(&format!("scan_campaign({camp}) (prefix relation with rbcamp)"), want, format!("{names:?}"), names == vec![want.to_string()]);
+        c.chk(
+            &format!("scan_campaign({camp}) (prefix relation with rbcamp)"),
+            want,
+            format!("{names:?}"),
+            names == vec![want.to_string()],
+        );
     }
-    for bad in ["", "rb:camp", "rb=camp", "rb\ncamp", "rb camp", &"x".repeat(65)] {
+    for bad in [
+        "",
+        "rb:camp",
+        "rb=camp",
+        "rb\ncamp",
+        "rb camp",
+        &"x".repeat(65),
+    ] {
         let r = scan_campaign(bad, 0, &BTreeSet::new());
-        c.chk(&format!("scan_campaign({bad:?})"), "Err (invalid id)", format!("{:?}", r.as_ref().map(|s| s.processes.len()).map_err(|e| e.to_string())), r.is_err());
-        let cfg = RealConfig { campaign_id: bad.to_string(), cap_preference: CapPreference::NoSystemd, ..RealConfig::default() };
+        c.chk(
+            &format!("scan_campaign({bad:?})"),
+            "Err (invalid id)",
+            format!(
+                "{:?}",
+                r.as_ref()
+                    .map(|s| s.processes.len())
+                    .map_err(|e| e.to_string())
+            ),
+            r.is_err(),
+        );
+        let cfg = RealConfig {
+            campaign_id: bad.to_string(),
+            cap_preference: CapPreference::NoSystemd,
+            ..RealConfig::default()
+        };
         let l2 = RealLauncher::with_config(sampler(500), cfg);
         let got = l2.config().campaign_id.clone();
-        c.chk(&format!("RealConfig.campaign_id {bad:?}"), "replaced by an ad-hoc id", got.clone(), got.starts_with("adhoc-"));
-        c.chk(&format!("CampaignMarker::new({bad:?}, a)"), "Err", format!("{:?}", CampaignMarker::new(bad, "a").is_err()), CampaignMarker::new(bad, "a").is_err());
+        c.chk(
+            &format!("RealConfig.campaign_id {bad:?}"),
+            "replaced by an ad-hoc id",
+            got.clone(),
+            got.starts_with("adhoc-"),
+        );
+        c.chk(
+            &format!("CampaignMarker::new({bad:?}, a)"),
+            "Err",
+            format!("{:?}", CampaignMarker::new(bad, "a").is_err()),
+            CampaignMarker::new(bad, "a").is_err(),
+        );
     }
     // probes with signal 0 (nothing delivered for real): which processes WOULD the verified paths signal?
     let mut wrong = vec![];
@@ -901,7 +1861,9 @@ fn s_marker(c: &mut Ctx) {
             Ok(id) => signal_verified_process(&id, &CampaignMarker::new(CAMP, "a").unwrap(), 0),
             Err(e) => Verdict::Unverified(e.to_string()),
         };
-        println!("  probe {name:28} class={class:6} kill_orphan={v1:?} signal_verified_process(rbcamp:a)={v2:?}");
+        println!(
+            "  probe {name:28} class={class:6} kill_orphan={v1:?} signal_verified_process(rbcamp:a)={v2:?}"
+        );
         if class == "decoy" && (v1.delivered() || v2.delivered()) {
             wrong.push(name.clone());
         }
@@ -909,7 +1871,12 @@ fn s_marker(c: &mut Ctx) {
             wrong.push(format!("{name}(ours not accepted)"));
         }
     }
-    c.chk("signal-0 probes: kill_orphan / signal_verified_process accept only this campaign's marker", "decoys refused, o_* accepted by kill_orphan", format!("wrong={wrong:?}"), wrong.is_empty());
+    c.chk(
+        "signal-0 probes: kill_orphan / signal_verified_process accept only this campaign's marker",
+        "decoys refused, o_* accepted by kill_orphan",
+        format!("wrong={wrong:?}"),
+        wrong.is_empty(),
+    );
     // the REAL kills: first through the scan, then adversarially at EVERY process directly
     for p in &sc.processes {
         let _ = kill_orphan(CAMP, &boot, p, libc::SIGTERM);
@@ -923,16 +1890,27 @@ fn s_marker(c: &mut Ctx) {
         }
     }
     std::thread::sleep(Duration::from_millis(500));
-    c.chk("adversarial kill_orphan(SIGKILL) at every decoy", "none delivered", format!("{delivered_to_decoy:?}"), delivered_to_decoy.is_empty());
+    c.chk(
+        "adversarial kill_orphan(SIGKILL) at every decoy",
+        "none delivered",
+        format!("{delivered_to_decoy:?}"),
+        delivered_to_decoy.is_empty(),
+    );
 }
 
 /// Two supervisors with the SAME campaign id (a copied campaign directory, or a fixed id from the spec). Since the second
 /// fix package (RB-M2) the second one is REFUSED at construction (host-wide id lock) and signals nothing.
 fn s_two_a(c: &mut Ctx) {
     let mut l = launcher(CAMP);
-    let mut h1 = l.launch(&sh(&c.run, "J1", "sleep 3000 & exec sleep 3000")).unwrap();
+    let mut h1 = l
+        .launch(&sh(&c.run, "J1", "sleep 3000 & exec sleep 3000"))
+        .unwrap();
     let mut h2 = l.launch(&sh(&c.run, "J2", "exec sleep 3000")).unwrap();
-    println!("  A: J1 leader {} J2 leader {}", h1.identity().pid, h2.identity().pid);
+    println!(
+        "  A: J1 leader {} J2 leader {}",
+        h1.identity().pid,
+        h2.identity().pid
+    );
     wait_scan(&l);
     write_atomic(&c.run.join("A.ready"), "1");
     crate::wait_for(Duration::from_secs(60), || c.run.join("B.done").exists());
@@ -951,8 +1929,22 @@ fn s_two_a(c: &mut Ctx) {
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    c.res("supervisor A's live job J1 after B's attempt", "keeps running (it is not B's)", r1.as_ref().map(|r| format!("KILLED BY THE OTHER SUPERVISOR: {}", rs(r))).unwrap_or("running".into()), if r1.is_some() { V::Fail } else { V::Pass });
-    c.res("supervisor A's live job J2 after B's attempt", "keeps running", r2.as_ref().map(|r| format!("KILLED BY THE OTHER SUPERVISOR: {}", rs(r))).unwrap_or("running".into()), if r2.is_some() { V::Fail } else { V::Pass });
+    c.res(
+        "supervisor A's live job J1 after B's attempt",
+        "keeps running (it is not B's)",
+        r1.as_ref()
+            .map(|r| format!("KILLED BY THE OTHER SUPERVISOR: {}", rs(r)))
+            .unwrap_or("running".into()),
+        if r1.is_some() { V::Fail } else { V::Pass },
+    );
+    c.res(
+        "supervisor A's live job J2 after B's attempt",
+        "keeps running",
+        r2.as_ref()
+            .map(|r| format!("KILLED BY THE OTHER SUPERVISOR: {}", rs(r)))
+            .unwrap_or("running".into()),
+        if r2.is_some() { V::Fail } else { V::Pass },
+    );
     h1.kill_now(KillReason::Other("end".into()));
     h2.kill_now(KillReason::Other("end".into()));
     let _ = drive(&mut h1, Duration::from_secs(30));
@@ -968,7 +1960,15 @@ fn s_two_b(c: &mut Ctx) {
     };
     let r = RealLauncher::try_with_config(sampler(200), cfg);
     let refused = r.is_err();
-    c.res("second supervisor with the same campaign id", "refused at construction (host-wide id lock), nothing signalled", match &r { Ok(_) => "STARTED".to_string(), Err(e) => format!("refused: {e}") }, if refused { V::Pass } else { V::Fail });
+    c.res(
+        "second supervisor with the same campaign id",
+        "refused at construction (host-wide id lock), nothing signalled",
+        match &r {
+            Ok(_) => "STARTED".to_string(),
+            Err(e) => format!("refused: {e}"),
+        },
+        if refused { V::Pass } else { V::Fail },
+    );
     drop(r);
     write_atomic(&c.run.join("B.done"), "1");
 }
@@ -999,7 +1999,12 @@ fn s_lease(c: &mut Ctx) {
     let setsid = which("setsid").display().to_string();
     let envp = which("env").display().to_string();
     let r = c.run.display().to_string();
-    let cpu = rustred_campaign::resources::allowed_cpus().unwrap().into_iter().rev().find(|c| !(168..=175).contains(c) && !(288..=319).contains(c)).unwrap();
+    let cpu = rustred_campaign::resources::allowed_cpus()
+        .unwrap()
+        .into_iter()
+        .rev()
+        .find(|c| !(168..=175).contains(c) && !(288..=319).contains(c))
+        .unwrap();
     let cfg = site_cfg(&c.run.join("site"), cpu);
     let mut p = SitePolicy::new(cfg.clone()).unwrap();
     let lease = p.acquire(1, "lease job").unwrap().granted().unwrap();
@@ -1008,15 +2013,42 @@ fn s_lease(c: &mut Ctx) {
     let script = format!(
         "( {envp} -i {setsid} {shp} -c 'echo $$ > {r}/u; exec {sleep} 3000' & ); ( {setsid} {shp} -c 'echo $$ > {r}/m; exec {sleep} 3000' & ); {sleep} 1; exit 0"
     );
-    let mut h = l.launch(&sh(&c.run, "ls", &script).with_lease(&lease)).unwrap();
+    let mut h = l
+        .launch(&sh(&c.run, "ls", &script).with_lease(&lease))
+        .unwrap();
     let u = read_u32_file(&c.run.join("u"), Duration::from_secs(10)).unwrap();
     let rep = drive(&mut h, Duration::from_secs(40));
-    println!("  job report: {}", rep.as_ref().map(rs).unwrap_or("timeout".into()));
-    let fds: Vec<String> = std::fs::read_dir(format!("/proc/{u}/fd")).map(|d| d.flatten().filter_map(|e| std::fs::read_link(e.path()).ok()).map(|p| p.display().to_string()).filter(|p| p.contains("locks")).collect()).unwrap_or_default();
-    c.res("unmarked escapee (env -i + setsid) survives holding the inherited CPU lock fd", "documented: invisible to the layer", format!("alive={} lock fds held={fds:?}", stat(u).is_some()), V::Note);
+    println!(
+        "  job report: {}",
+        rep.as_ref().map(rs).unwrap_or("timeout".into())
+    );
+    let fds: Vec<String> = std::fs::read_dir(format!("/proc/{u}/fd"))
+        .map(|d| {
+            d.flatten()
+                .filter_map(|e| std::fs::read_link(e.path()).ok())
+                .map(|p| p.display().to_string())
+                .filter(|p| p.contains("locks"))
+                .collect()
+        })
+        .unwrap_or_default();
+    c.res(
+        "unmarked escapee (env -i + setsid) survives holding the inherited CPU lock fd",
+        "documented: invisible to the layer",
+        format!("alive={} lock fds held={fds:?}", stat(u).is_some()),
+        V::Note,
+    );
     let (rr, held) = lease.release_checked();
     println!("  lease.release_checked() -> {rr:?}, still held: {held:?}");
-    c.res("CPU still held after the release is reported with its holder", "held by the unmarked survivor's pid", format!("{held:?}"), if held.iter().any(|h| h.holders.contains(&u)) { V::Pass } else { V::Fail });
+    c.res(
+        "CPU still held after the release is reported with its holder",
+        "held by the unmarked survivor's pid",
+        format!("{held:?}"),
+        if held.iter().any(|h| h.holders.contains(&u)) {
+            V::Pass
+        } else {
+            V::Fail
+        },
+    );
     let t0 = Instant::now();
     let a = p.acquire(1, "second");
     let el = t0.elapsed();
@@ -1024,14 +2056,46 @@ fn s_lease(c: &mut Ctx) {
         Ok(x) => format!("{x:?}"),
         Err(e) => format!("Err({e})"),
     };
-    let clean = matches!(a, Ok(rustred_campaign::cpu_policy::Acquire::NotNow(_))) && el < Duration::from_secs(12);
-    c.chk("next acquire of that CPU while the escapee holds its flock", "NotNow quickly (fails cleanly, no grant)", format!("{s} after {el:?}"), clean);
+    let clean = matches!(a, Ok(rustred_campaign::cpu_policy::Acquire::NotNow(_)))
+        && el < Duration::from_secs(12);
+    c.chk(
+        "next acquire of that CPU while the escapee holds its flock",
+        "NotNow quickly (fails cleanly, no grant)",
+        format!("{s} after {el:?}"),
+        clean,
+    );
     let mut q = SitePolicy::new(cfg).unwrap();
     let rec = q.reconcile_own_claims();
-    c.res("reconcile_own_claims at restart", "the CPU listed as held (reported)", format!("{rec:?}"), V::Note);
-    let reported = rep.as_ref().is_some_and(|r| r.escaped.iter().any(|e| e.pid == u) || r.leftovers_killed.iter().any(|e| e.pid == u) || r.unattributed_children.iter().any(|e| e.pid == u));
-    c.res("is the lock-holding survivor reported in the job's FinalReport?", "reported", format!("{reported}"), if reported { V::Pass } else { V::Fail });
-    c.res("reconcile_own_claims lists the holder", "held_by contains the survivor", format!("{:?}", rec.as_ref().map(|r| r.held_by.clone())), if rec.as_ref().is_ok_and(|r| r.held_by.iter().any(|(_, h)| h.contains(&u))) { V::Pass } else { V::Fail });
+    c.res(
+        "reconcile_own_claims at restart",
+        "the CPU listed as held (reported)",
+        format!("{rec:?}"),
+        V::Note,
+    );
+    let reported = rep.as_ref().is_some_and(|r| {
+        r.escaped.iter().any(|e| e.pid == u)
+            || r.leftovers_killed.iter().any(|e| e.pid == u)
+            || r.unattributed_children.iter().any(|e| e.pid == u)
+    });
+    c.res(
+        "is the lock-holding survivor reported in the job's FinalReport?",
+        "reported",
+        format!("{reported}"),
+        if reported { V::Pass } else { V::Fail },
+    );
+    c.res(
+        "reconcile_own_claims lists the holder",
+        "held_by contains the survivor",
+        format!("{:?}", rec.as_ref().map(|r| r.held_by.clone())),
+        if rec
+            .as_ref()
+            .is_ok_and(|r| r.held_by.iter().any(|(_, h)| h.contains(&u)))
+        {
+            V::Pass
+        } else {
+            V::Fail
+        },
+    );
 }
 
 /// (e1) RLIMIT_NOFILE exhausted at the moment of the FIRST pidfd probe; later the limit is restored.
@@ -1043,21 +2107,52 @@ fn s_fd1(c: &mut Ctx) {
     drop(held);
     set_nofile(cur, max);
     let later = pidfd_supported();
-    c.res("pidfd probe first called while fds are exhausted (EMFILE)", "never cached as unsupported; supported once fds are back", format!("probe under EMFILE={probe:?}; afterwards supported={later}"), if probe != PidfdProbe::Unsupported && later { V::Pass } else { V::Fail });
+    c.res(
+        "pidfd probe first called while fds are exhausted (EMFILE)",
+        "never cached as unsupported; supported once fds are back",
+        format!("probe under EMFILE={probe:?}; afterwards supported={later}"),
+        if probe != PidfdProbe::Unsupported && later {
+            V::Pass
+        } else {
+            V::Fail
+        },
+    );
     let mut l = launcher(CAMP);
     println!("  launcher setup: {:?}", l.setup());
-    let (po, ps) = c.decoy(ds("fd1:ours-orphan", "ours", &[b"RR_CAMPAIGN_JOB=rbcamp:fd"], true));
+    let (po, ps) = c.decoy(ds(
+        "fd1:ours-orphan",
+        "ours",
+        &[b"RR_CAMPAIGN_JOB=rbcamp:fd"],
+        true,
+    ));
     let (pd, sd) = c.decoy(ds("fd1:unmarked", "decoy", &[b"PATH=/x"], true));
     let v1 = kill_orphan(CAMP, &boot, &mp(pd, sd, "fd"), libc::SIGKILL);
-    c.chk("unmarked decoy via kill_orphan (fallback path)", "refused", format!("{v1:?}"), !v1.delivered());
+    c.chk(
+        "unmarked decoy via kill_orphan (fallback path)",
+        "refused",
+        format!("{v1:?}"),
+        !v1.delivered(),
+    );
     let v2 = kill_orphan(CAMP, &boot, &mp(po, ps, "fd"), libc::SIGKILL);
-    c.res("marked orphan via kill_orphan (which syscall? see strace)", "Delivered", format!("{v2:?}"), V::Note);
-    let mut h = l.launch(&sh(&c.run, "fd1job", "sleep 3000 & exec sleep 3000")).unwrap();
+    c.res(
+        "marked orphan via kill_orphan (which syscall? see strace)",
+        "Delivered",
+        format!("{v2:?}"),
+        V::Note,
+    );
+    let mut h = l
+        .launch(&sh(&c.run, "fd1job", "sleep 3000 & exec sleep 3000"))
+        .unwrap();
     wait_scan(&l);
     let _ = h.poll();
     h.terminate(Duration::from_millis(300), KillReason::Stop);
     let r = drive(&mut h, Duration::from_secs(30));
-    c.chk("own job terminated without pidfds", "Verified", r.as_ref().map(rs).unwrap_or("timeout".into()), r.is_some_and(|r| r.verification.is_verified()));
+    c.chk(
+        "own job terminated without pidfds",
+        "Verified",
+        r.as_ref().map(rs).unwrap_or("timeout".into()),
+        r.is_some_and(|r| r.verification.is_verified()),
+    );
     std::thread::sleep(Duration::from_millis(500));
 }
 
@@ -1066,16 +2161,27 @@ fn s_fd2(c: &mut Ctx) {
     let boot = boot_id().unwrap();
     assert!(pidfd_supported());
     let mut l = launcher(CAMP);
-    let (po, ps) = c.decoy(ds("fd2:ours-orphan", "bydesign", &[b"RR_CAMPAIGN_JOB=rbcamp:fdo"], true));
+    let (po, ps) = c.decoy(ds(
+        "fd2:ours-orphan",
+        "bydesign",
+        &[b"RR_CAMPAIGN_JOB=rbcamp:fdo"],
+        true,
+    ));
     let (pd, sd) = c.decoy(ds("fd2:unmarked", "decoy", &[b"PATH=/x"], true));
     let idd = ProcessIdentity::capture(pd).unwrap();
-    let mut h = l.launch(&sh(&c.run, "fd2job", "sleep 3000 & exec sleep 3000")).unwrap();
+    let mut h = l
+        .launch(&sh(&c.run, "fd2job", "sleep 3000 & exec sleep 3000"))
+        .unwrap();
     wait_scan(&l);
     let _ = h.poll();
     let (cur, max) = nofile();
     let held = exhaust_fds();
     let v1 = kill_orphan(CAMP, &boot, &mp(po, ps, "fdo"), libc::SIGKILL);
-    let v2 = signal_verified_process(&idd, &CampaignMarker::new(CAMP, "fdo").unwrap(), libc::SIGKILL);
+    let v2 = signal_verified_process(
+        &idd,
+        &CampaignMarker::new(CAMP, "fdo").unwrap(),
+        libc::SIGKILL,
+    );
     let v3 = kill_orphan(CAMP, &boot, &mp(pd, sd, "fdo"), libc::SIGKILL);
     h.terminate(Duration::ZERO, KillReason::Stop);
     let t0 = Instant::now();
@@ -1091,19 +2197,46 @@ fn s_fd2(c: &mut Ctx) {
     }
     drop(held);
     set_nofile(cur, max);
-    c.chk("kill_orphan of a MARKED process while fds are exhausted", "Unverified (no unchecked fallback)", format!("{v1:?}"), matches!(v1, Verdict::Unverified(_)));
-    c.chk("signal_verified_process / kill_orphan of an UNMARKED decoy while fds are exhausted", "not delivered", format!("{v2:?} / {v3:?}"), !v2.delivered() && !v3.delivered());
-    c.res("own job terminate() while fds are exhausted (poll states)", "pinned group signal still works; no false Verified", st.join(" "), V::Note);
+    c.chk(
+        "kill_orphan of a MARKED process while fds are exhausted",
+        "Unverified (no unchecked fallback)",
+        format!("{v1:?}"),
+        matches!(v1, Verdict::Unverified(_)),
+    );
+    c.chk(
+        "signal_verified_process / kill_orphan of an UNMARKED decoy while fds are exhausted",
+        "not delivered",
+        format!("{v2:?} / {v3:?}"),
+        !v2.delivered() && !v3.delivered(),
+    );
+    c.res(
+        "own job terminate() while fds are exhausted (poll states)",
+        "pinned group signal still works; no false Verified",
+        st.join(" "),
+        V::Note,
+    );
     let r = drive(&mut h, Duration::from_secs(40));
-    c.chk("own job after the limit is restored", "Verified", r.as_ref().map(rs).unwrap_or("timeout".into()), r.is_some_and(|r| r.verification.is_verified()));
-    c.chk("decoy alive after the fd episode", "alive", format!("{}", alive(pd, sd)), alive(pd, sd));
+    c.chk(
+        "own job after the limit is restored",
+        "Verified",
+        r.as_ref().map(rs).unwrap_or("timeout".into()),
+        r.is_some_and(|r| r.verification.is_verified()),
+    );
+    c.chk(
+        "decoy alive after the fd episode",
+        "alive",
+        format!("{}", alive(pd, sd)),
+        alive(pd, sd),
+    );
 }
 
 /// (e3) the leader exits while fds are exhausted: can the job be reported Verified while members still live?
 fn s_fd3(c: &mut Ctx) {
     let r = c.run.display().to_string();
     let mut l = launcher(CAMP);
-    let script = format!("sleep 3000 & echo $! > {r}/m; setsid sh -c 'echo $$ > {r}/e; exec sleep 3000' & sleep 3; exit 0");
+    let script = format!(
+        "sleep 3000 & echo $! > {r}/m; setsid sh -c 'echo $$ > {r}/e; exec sleep 3000' & sleep 3; exit 0"
+    );
     let mut h = l.launch(&sh(&c.run, "fd3", &script)).unwrap();
     let m = read_u32_file(&c.run.join("m"), Duration::from_secs(10)).unwrap();
     let e = read_u32_file(&c.run.join("e"), Duration::from_secs(10)).unwrap();
@@ -1126,20 +2259,36 @@ fn s_fd3(c: &mut Ctx) {
     drop(held);
     set_nofile(cur, max);
     let (am, ae) = (alive(m, sm), alive(e, se));
-    let ver = fin.as_ref().map(|r| r.verification.is_verified()).unwrap_or(false);
+    let ver = fin
+        .as_ref()
+        .map(|r| r.verification.is_verified())
+        .unwrap_or(false);
     c.res(
         "leader exits while the supervisor cannot open files (EMFILE): report vs reality",
         "never Verified while a member / marked escapee lives",
-        format!("finished={} member alive={am} escapee alive={ae} report={}", fin.is_some(), fin.as_ref().map(rs).unwrap_or("-".into())),
+        format!(
+            "finished={} member alive={am} escapee alive={ae} report={}",
+            fin.is_some(),
+            fin.as_ref().map(rs).unwrap_or("-".into())
+        ),
         if ver && (am || ae) { V::Fail } else { V::Pass },
     );
     if fin.is_none() {
         let r2 = drive(&mut h, Duration::from_secs(40));
-        println!("  after restore: {}", r2.as_ref().map(rs).unwrap_or("timeout".into()));
+        println!(
+            "  after restore: {}",
+            r2.as_ref().map(rs).unwrap_or("timeout".into())
+        );
     }
     std::thread::sleep(Duration::from_secs(1));
     let sc = scan_campaign(CAMP, 0, &BTreeSet::new()).unwrap();
-    println!("  later orphan scan sees: {:?}", sc.processes.iter().map(|p| (p.pid, p.attempt_id.clone())).collect::<Vec<_>>());
+    println!(
+        "  later orphan scan sees: {:?}",
+        sc.processes
+            .iter()
+            .map(|p| (p.pid, p.attempt_id.clone()))
+            .collect::<Vec<_>>()
+    );
     let ses: Vec<u32> = [m, e].into_iter().filter(|p| stat(*p).is_some()).collect();
     println!("  still alive after the scenario: {ses:?} (left for the driver's final check)");
 }
@@ -1174,7 +2323,8 @@ fn s_churn(c: &mut Ctx, cycles: u64, seed: u64) {
         format!("( setsid {sleep} 30 & ); exit 0"),
     ];
     let mut kind_of: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    let mut verify_ctx: std::collections::HashMap<String, (u64, usize, u64, usize)> = std::collections::HashMap::new();
+    let mut verify_ctx: std::collections::HashMap<String, (u64, usize, u64, usize)> =
+        std::collections::HashMap::new();
     struct J {
         h: rustred_campaign::launch::RealChild,
         stop_at: Instant,
@@ -1183,7 +2333,15 @@ fn s_churn(c: &mut Ctx, cycles: u64, seed: u64) {
         stopped: bool,
     }
     let mut active: Vec<J> = vec![];
-    let (mut launched, mut finished, mut verified, mut unverified, mut leftovers, mut errors, mut orphans) = (0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+    let (
+        mut launched,
+        mut finished,
+        mut verified,
+        mut unverified,
+        mut leftovers,
+        mut errors,
+        mut orphans,
+    ) = (0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
     // procfix2: attempts reported Verified (only these may never have a marked survivor) and the quarantine of the others.
     let mut verified_labels: BTreeSet<String> = BTreeSet::new();
     let mut cleared = 0u64;
@@ -1239,7 +2397,15 @@ fn s_churn(c: &mut Ctx, cycles: u64, seed: u64) {
                     }
                     leftovers += r.leftovers_killed.len() as u64;
                     if let Some(sn) = l.sampler().latest() {
-                        verify_ctx.insert(r.label.clone(), (sn.seq, sn.marked_unreadable, sn.read_errors, sn.processes_seen));
+                        verify_ctx.insert(
+                            r.label.clone(),
+                            (
+                                sn.seq,
+                                sn.marked_unreadable,
+                                sn.read_errors,
+                                sn.processes_seen,
+                            ),
+                        );
                     }
                     pending_freed.push((Instant::now(), r.identity.pid));
                     for x in &r.leftovers_killed {
@@ -1281,11 +2447,19 @@ fn s_churn(c: &mut Ctx, cycles: u64, seed: u64) {
             drop(held);
             set_nofile(cur, max);
         }
-        let ready: Vec<u32> = pending_freed.iter().filter(|(t, _)| t.elapsed() > Duration::from_millis(300)).map(|(_, p)| *p).collect();
+        let ready: Vec<u32> = pending_freed
+            .iter()
+            .filter(|(t, _)| t.elapsed() > Duration::from_millis(300))
+            .map(|(_, p)| *p)
+            .collect();
         if !ready.is_empty() {
             pending_freed.retain(|(t, _)| t.elapsed() <= Duration::from_millis(300));
             use std::io::Write;
-            let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&freed).unwrap();
+            let mut f = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&freed)
+                .unwrap();
             for p in ready {
                 let _ = writeln!(f, "{p}");
             }
@@ -1294,10 +2468,24 @@ fn s_churn(c: &mut Ctx, cycles: u64, seed: u64) {
             let live: BTreeSet<String> = active.iter().map(|j| j.h.label().to_string()).collect();
             if let Ok(sc) = scan_campaign(CAMP, 0, &live) {
                 // Only attempts REPORTED VERIFIED count (unverified ones are in the quarantine, hunted there).
-                for p in sc.processes.iter().filter(|p| verified_labels.contains(&p.attempt_id)) {
+                for p in sc
+                    .processes
+                    .iter()
+                    .filter(|p| verified_labels.contains(&p.attempt_id))
+                {
                     orphans += 1;
                     let v = kill_orphan(CAMP, &boot, p, libc::SIGKILL);
-                    println!("  ORPHAN of finished (Verified) attempt {} (script {:?}) pid {} sid {} ppid {} start {} comm {}: {v:?}; snapshot at report (seq, marked_unreadable, read_errors, seen)={:?}", p.attempt_id, kind_of.get(&p.attempt_id), p.pid, p.session, p.ppid, p.start_ticks, p.comm, verify_ctx.get(&p.attempt_id));
+                    println!(
+                        "  ORPHAN of finished (Verified) attempt {} (script {:?}) pid {} sid {} ppid {} start {} comm {}: {v:?}; snapshot at report (seq, marked_unreadable, read_errors, seen)={:?}",
+                        p.attempt_id,
+                        kind_of.get(&p.attempt_id),
+                        p.pid,
+                        p.session,
+                        p.ppid,
+                        p.start_ticks,
+                        p.comm,
+                        verify_ctx.get(&p.attempt_id)
+                    );
                 }
             }
         }
@@ -1310,12 +2498,34 @@ fn s_churn(c: &mut Ctx, cycles: u64, seed: u64) {
         }
     }
     let still_q = l.quarantined().len();
-    let final_scan = scan_campaign(CAMP, 0, &BTreeSet::new()).map(|s| s.processes).unwrap_or_default();
-    let verified_left = final_scan.iter().filter(|p| verified_labels.contains(&p.attempt_id)).count();
+    let final_scan = scan_campaign(CAMP, 0, &BTreeSet::new())
+        .map(|s| s.processes)
+        .unwrap_or_default();
+    let verified_left = final_scan
+        .iter()
+        .filter(|p| verified_labels.contains(&p.attempt_id))
+        .count();
     let sc = final_scan.len();
-    println!("CHURNSUP cycles_launched={launched} finished={finished} verified={verified} unverified={unverified} cleared_by_quarantine={cleared} still_quarantined={still_q} leftovers_killed_total={leftovers} launch_errors={errors} verified_with_marked_survivor={} marked_left_at_end={sc} fd_storms={storms} elapsed={:?} seed={seed}", orphans + verified_left as u64, t0.elapsed());
-    c.chk("churn: ZERO jobs Verified with a marked survivor (acceptance)", "0", format!("{} (periodic scans {orphans}, final scan {verified_left})", orphans + verified_left as u64), orphans == 0 && verified_left == 0);
-    c.chk("churn: every unverified end cleared by the quarantine, nothing marked left", "still_quarantined=0, left=0", format!("unverified={unverified} cleared={cleared} still={still_q} left={sc}"), still_q == 0 && sc == 0);
+    println!(
+        "CHURNSUP cycles_launched={launched} finished={finished} verified={verified} unverified={unverified} cleared_by_quarantine={cleared} still_quarantined={still_q} leftovers_killed_total={leftovers} launch_errors={errors} verified_with_marked_survivor={} marked_left_at_end={sc} fd_storms={storms} elapsed={:?} seed={seed}",
+        orphans + verified_left as u64,
+        t0.elapsed()
+    );
+    c.chk(
+        "churn: ZERO jobs Verified with a marked survivor (acceptance)",
+        "0",
+        format!(
+            "{} (periodic scans {orphans}, final scan {verified_left})",
+            orphans + verified_left as u64
+        ),
+        orphans == 0 && verified_left == 0,
+    );
+    c.chk(
+        "churn: every unverified end cleared by the quarantine, nothing marked left",
+        "still_quarantined=0, left=0",
+        format!("unverified={unverified} cleared={cleared} still={still_q} left={sc}"),
+        still_q == 0 && sc == 0,
+    );
     std::thread::sleep(Duration::from_secs(2));
 }
 
@@ -1323,14 +2533,39 @@ fn s_churn(c: &mut Ctx, cycles: u64, seed: u64) {
 fn s_relay(c: &mut Ctx) {
     let boot = boot_id().unwrap();
     let mut l = launcher_ms(CAMP, 100);
-    let count = |f: &Path| std::fs::read_to_string(f).ok().and_then(|s| s.trim().parse::<u64>().ok()).unwrap_or(0);
-    for (i, pause_us) in [20_000u64, 5_000, 2_000, 500, 20_000, 5_000, 2_000, 500].into_iter().enumerate() {
+    let count = |f: &Path| {
+        std::fs::read_to_string(f)
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .unwrap_or(0)
+    };
+    for (i, pause_us) in [20_000u64, 5_000, 2_000, 500, 20_000, 5_000, 2_000, 500]
+        .into_iter()
+        .enumerate()
+    {
         let label = format!("relay{i}");
         let cf = c.run.join(format!("relay{i}.count"));
-        let h = match l.launch(&helper_spec(&c.run, &label, &["relay", "18446744073709551615", &pause_us.to_string(), &cf.display().to_string()])) {
+        let h = match l.launch(&helper_spec(
+            &c.run,
+            &label,
+            &[
+                "relay",
+                "18446744073709551615",
+                &pause_us.to_string(),
+                &cf.display().to_string(),
+            ],
+        )) {
             Ok(h) => h,
             Err(e) => {
-                c.res(&format!("relay job #{i}: launch"), "launched", format!("LAUNCH FAILED: {e}; zombies of the supervisor now: {}", my_zombies().len()), V::Fail);
+                c.res(
+                    &format!("relay job #{i}: launch"),
+                    "launched",
+                    format!(
+                        "LAUNCH FAILED: {e}; zombies of the supervisor now: {}",
+                        my_zombies().len()
+                    ),
+                    V::Fail,
+                );
                 continue;
             }
         };
@@ -1340,7 +2575,10 @@ fn s_relay(c: &mut Ctx) {
         std::thread::sleep(Duration::from_millis(1000));
         let c2 = count(&cf);
         let running = c2 > c1;
-        let ver = r.as_ref().map(|r| r.verification.is_verified()).unwrap_or(false);
+        let ver = r
+            .as_ref()
+            .map(|r| r.verification.is_verified())
+            .unwrap_or(false);
         c.res(
             &format!("relay job #{i} (hop every {pause_us} us, new session each hop; leader exits at once)"),
             "never Verified while the marked relay still runs",
@@ -1352,10 +2590,18 @@ fn s_relay(c: &mut Ctx) {
             let _ = l.retire(h, None);
             let mut ok = false;
             while tq.elapsed() < Duration::from_secs(60) && !ok {
-                ok = l.tick().iter().any(|e| matches!(e, RetireEvent::Cleared { label: x, .. } if *x == label));
+                ok = l
+                    .tick()
+                    .iter()
+                    .any(|e| matches!(e, RetireEvent::Cleared { label: x, .. } if *x == label));
                 std::thread::sleep(Duration::from_millis(50));
             }
-            c.res(&format!("relay job #{i}: unverified end cleared by the quarantine"), "within 60 s", format!("cleared={ok} after {:?}", tq.elapsed()), if ok { V::Pass } else { V::Fail });
+            c.res(
+                &format!("relay job #{i}: unverified end cleared by the quarantine"),
+                "within 60 s",
+                format!("cleared={ok} after {:?}", tq.elapsed()),
+                if ok { V::Pass } else { V::Fail },
+            );
         }
         // clean up: repeated verified orphan kills of this attempt until the counter stops
         let t0 = Instant::now();
@@ -1382,7 +2628,11 @@ fn s_relay(c: &mut Ctx) {
                 last = now;
             }
         }
-        println!("  relay{i}: cleanup needed {kills} verified kills over {:?}; counter stopped at {last}; zombies of the supervisor now: {}", t0.elapsed(), my_zombies().len());
+        println!(
+            "  relay{i}: cleanup needed {kills} verified kills over {:?}; counter stopped at {last}; zombies of the supervisor now: {}",
+            t0.elapsed(),
+            my_zombies().len()
+        );
     }
 }
 
@@ -1429,16 +2679,29 @@ fn s_vrace(c: &mut Ctx, cycles: u64) {
             }
             i += 1;
         }
-        let due: Vec<(String, usize)> = checks.iter().filter(|x| x.0.elapsed() > Duration::from_millis(300)).map(|x| (x.1.clone(), x.2)).collect();
+        let due: Vec<(String, usize)> = checks
+            .iter()
+            .filter(|x| x.0.elapsed() > Duration::from_millis(300))
+            .map(|x| (x.1.clone(), x.2))
+            .collect();
         if !due.is_empty() {
             checks.retain(|x| x.0.elapsed() <= Duration::from_millis(300));
             if let Ok(sc) = scan_campaign(CAMP, 0, &BTreeSet::new()) {
                 for (lab, k) in &due {
-                    let left: Vec<&MarkedProcess> = sc.processes.iter().filter(|p| &p.attempt_id == lab).collect();
+                    let left: Vec<&MarkedProcess> = sc
+                        .processes
+                        .iter()
+                        .filter(|p| &p.attempt_id == lab)
+                        .collect();
                     if !left.is_empty() {
                         missed[*k] += 1;
                         if missed.iter().sum::<u64>() <= 8 {
-                            println!("  MISSED: attempt {lab} (script {k}) reported Verified, still alive: {:?}", left.iter().map(|p| (p.pid, p.session, p.ppid, p.comm.clone())).collect::<Vec<_>>());
+                            println!(
+                                "  MISSED: attempt {lab} (script {k}) reported Verified, still alive: {:?}",
+                                left.iter()
+                                    .map(|p| (p.pid, p.session, p.ppid, p.comm.clone()))
+                                    .collect::<Vec<_>>()
+                            );
                         }
                         for p in left {
                             let _ = kill_orphan(CAMP, &boot, p, libc::SIGKILL);
@@ -1450,12 +2713,21 @@ fn s_vrace(c: &mut Ctx, cycles: u64) {
         std::thread::sleep(Duration::from_millis(5));
     }
     let _ = l.shutdown(Duration::from_secs(60));
-    println!("VRACE pid_max={} jobs={fin} unverified={unver} per_script={per:?} verified_but_marked_orphan_alive={missed:?} elapsed={:?}", pid_max(), t0.elapsed());
+    println!(
+        "VRACE pid_max={} jobs={fin} unverified={unver} per_script={per:?} verified_but_marked_orphan_alive={missed:?} elapsed={:?}",
+        pid_max(),
+        t0.elapsed()
+    );
     for (k, s) in scripts.iter().enumerate() {
         println!("VRACE   script {k}: {s}");
     }
     let total: u64 = missed.iter().sum();
-    c.chk("job reported Verified while a marked process of the attempt was still alive", "0", format!("{total} of {fin} (per script {missed:?})"), total == 0);
+    c.chk(
+        "job reported Verified while a marked process of the attempt was still alive",
+        "0",
+        format!("{total} of {fin} (per script {missed:?})"),
+        total == 0,
+    );
 }
 
 /// Short-lived double-forked descendants that leave the session: are their zombies reaped by the subreaper?
@@ -1470,7 +2742,10 @@ fn s_zombies(c: &mut Ctx) {
     );
     let mut h = l.launch(&sh(&c.run, "zb", &script)).unwrap();
     let r = drive(&mut h, Duration::from_secs(60));
-    println!("  report: {}", r.as_ref().map(rs).unwrap_or("timeout".into()));
+    println!(
+        "  report: {}",
+        r.as_ref().map(rs).unwrap_or("timeout".into())
+    );
     std::thread::sleep(Duration::from_secs(4));
     let z = my_zombies();
     let _ = &l;
@@ -1485,11 +2760,24 @@ fn s_zombies(c: &mut Ctx) {
 pub fn main(a: &[String]) {
     let scen = a[0].clone();
     let run = PathBuf::from(a.last().unwrap());
-    let mut c = Ctx { scen: scen.clone(), run, n: 0, pass: 0, fail: 0, note: 0 };
+    let mut c = Ctx {
+        scen: scen.clone(),
+        run,
+        n: 0,
+        pass: 0,
+        fail: 0,
+        note: 0,
+    };
     let me = std::process::id();
     println!("SUP {scen} pid {me} start {}", crate::utc());
-    let seed: u64 = std::env::var("RB_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(0x5eed_0000_0000_b001);
-    let cycles: u64 = std::env::var("RB_CYCLES").ok().and_then(|s| s.parse().ok()).unwrap_or(3000);
+    let seed: u64 = std::env::var("RB_SEED")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0x5eed_0000_0000_b001);
+    let cycles: u64 = std::env::var("RB_CYCLES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3000);
     match scen.as_str() {
         "pid1" => s_pid1(&mut c),
         "pid0" => s_pid0(&mut c),
@@ -1522,5 +2810,11 @@ pub fn main(a: &[String]) {
             std::process::exit(2);
         }
     }
-    println!("SUPSUMMARY {scen} pass={} fail={} note={} end {}", c.pass, c.fail, c.note, crate::utc());
+    println!(
+        "SUPSUMMARY {scen} pass={} fail={} note={} end {}",
+        c.pass,
+        c.fail,
+        c.note,
+        crate::utc()
+    );
 }

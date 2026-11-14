@@ -39,8 +39,6 @@ use crate::resources::{
     ProcStat, ProcessIdentity, Sampler, SessionUsage, Snapshot, ValidPid, boot_id, read_bounded,
     request_reap, run_bounded, scan_campaign, ticks_per_second,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
 use std::collections::BTreeSet;
 use std::fs::{self, OpenOptions};
 use std::io;
@@ -49,6 +47,8 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 /// How the launcher should cap a job's memory when the spec says `CapRequest::Auto`.
@@ -189,7 +189,7 @@ pub enum RetireEvent {
     /// The job is proven gone now; its lease was released (`lease_note`: e.g. a CPU still held by an unmarked survivor).
     Cleared {
         label: String,
-        report: FinalReport,
+        report: Box<FinalReport>,
         lease_note: Option<String>,
         after: Duration,
     },
@@ -307,7 +307,10 @@ impl RealLauncher {
     ///
     /// Second fix package: also refuses (`LauncherError::IdLock`) when another LIVE process holds the host-wide lock of
     /// this campaign id (gate re-audit B RB-M2); nothing is signalled then.
-    pub fn try_with_config(sampler: Arc<Sampler>, config: RealConfig) -> Result<Self, LauncherError> {
+    pub fn try_with_config(
+        sampler: Arc<Sampler>,
+        config: RealConfig,
+    ) -> Result<Self, LauncherError> {
         crate::resources::validate_campaign_id(&config.campaign_id)
             .map_err(LauncherError::InvalidId)?;
         let lock = idlock::acquire(&config.campaign_id, config.id_lock_dir.as_deref())
@@ -423,7 +426,7 @@ impl RealLauncher {
     pub fn retire(&mut self, handle: RealChild, lease: Option<CpuLease>) -> Option<RetireEvent> {
         match &handle.finished {
             Some(r) if r.verification.is_verified() => {
-                let report = r.clone();
+                let report = Box::new(r.clone());
                 let lease_note = lease.and_then(release_lease);
                 Some(RetireEvent::Cleared {
                     label: handle.label.clone(),
@@ -456,7 +459,7 @@ impl RealLauncher {
                     let lease_note = q.lease.and_then(release_lease);
                     out.push(RetireEvent::Cleared {
                         label: q.handle.label.clone(),
-                        report: r,
+                        report: Box::new(r),
                         lease_note,
                         after: q.since.elapsed(),
                     });
@@ -485,7 +488,13 @@ impl RealLauncher {
     pub fn quarantined(&self) -> Vec<(String, Duration, String)> {
         self.quarantine
             .iter()
-            .map(|q| (q.handle.label.clone(), q.since.elapsed(), q.last_reason.clone()))
+            .map(|q| {
+                (
+                    q.handle.label.clone(),
+                    q.since.elapsed(),
+                    q.last_reason.clone(),
+                )
+            })
             .collect()
     }
 
@@ -1612,12 +1621,12 @@ impl ChildHandle for RealChild {
                 self.start_hunt();
             }
             return Ok(ChildProgress::Finished(
-                self.finished
-                    .clone()
-                    .unwrap_or_else(|| self.report(Verification::Unverified {
+                self.finished.clone().unwrap_or_else(|| {
+                    self.report(Verification::Unverified {
                         leftovers: Vec::new(),
                         reason: "unknown".into(),
-                    })),
+                    })
+                }),
             ));
         }
         let now = Instant::now();
@@ -1760,7 +1769,9 @@ impl ChildHandle for RealChild {
                         std::mem::take(&mut self.last_hunt_left),
                         self.last_hunt_reason.clone(),
                     );
-                    return Ok(ChildProgress::Finished(self.finish_unverified(left, reason)));
+                    return Ok(ChildProgress::Finished(
+                        self.finish_unverified(left, reason),
+                    ));
                 }
             }
             None => {
@@ -1771,7 +1782,9 @@ impl ChildHandle for RealChild {
                         self.config.verify_timeout, self.last_hunt_reason
                     );
                     let left = self.last_hunt_left.clone();
-                    return Ok(ChildProgress::Finished(self.finish_unverified(left, reason)));
+                    return Ok(ChildProgress::Finished(
+                        self.finish_unverified(left, reason),
+                    ));
                 }
             }
         }

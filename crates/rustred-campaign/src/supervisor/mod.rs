@@ -1253,7 +1253,9 @@ impl Supervisor {
                     k.pid, k.start_ticks
                 ));
             }
-            if let crate::launch::Verification::Unverified { leftovers, reason } = &report.verification {
+            if let crate::launch::Verification::Unverified { leftovers, reason } =
+                &report.verification
+            {
                 // Process layer (procfix2, RB-C1 d): an unproven end is a ledger record; the job and its CPU lease stay
                 // in the launcher's quarantine (below) until a later hunt proves it gone.
                 self.note(format!(

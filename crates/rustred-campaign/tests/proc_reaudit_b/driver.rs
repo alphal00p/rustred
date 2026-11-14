@@ -26,7 +26,19 @@ extern "C" fn on_sig(sig: libc::c_int, info: *mut libc::siginfo_t, _c: *mut libc
 fn install_handlers() {
     for s in 1..=64 {
         // not KILL/STOP (cannot), not CHLD (we reap), not glibc-internal 32/33, not real faults (would loop)
-        if [libc::SIGKILL, libc::SIGSTOP, libc::SIGCHLD, 32, 33, 4, 7, 8, 11].contains(&s) {
+        if [
+            libc::SIGKILL,
+            libc::SIGSTOP,
+            libc::SIGCHLD,
+            32,
+            33,
+            4,
+            7,
+            8,
+            11,
+        ]
+        .contains(&s)
+        {
             continue;
         }
         // SAFETY: a zeroed sigaction with our handler.
@@ -131,7 +143,13 @@ impl Drv {
         }
     }
 
-    fn spawn_raw(&self, argv: &[String], env: &[String], setsid: bool, setpgid: bool) -> std::io::Result<u32> {
+    fn spawn_raw(
+        &self,
+        argv: &[String],
+        env: &[String],
+        setsid: bool,
+        setpgid: bool,
+    ) -> std::io::Result<u32> {
         let mut args: Vec<String> = vec!["helper".into(), "rawexec".into()];
         args.extend(env.iter().cloned());
         args.push("--".into());
@@ -159,7 +177,15 @@ impl Drv {
     }
 
     /// Spawn with a forced pid (ns_last_pid; namespace only). Wrong-pid attempts are our own unreaped children: killed.
-    fn spawn_forced(&mut self, want: u32, argv: &[String], env: &[String], setsid: bool, setpgid: bool, tries: usize) -> Option<u32> {
+    fn spawn_forced(
+        &mut self,
+        want: u32,
+        argv: &[String],
+        env: &[String],
+        setsid: bool,
+        setpgid: bool,
+        tries: usize,
+    ) -> Option<u32> {
         for _ in 0..tries {
             if std::fs::write("/proc/sys/kernel/ns_last_pid", (want - 1).to_string()).is_err() {
                 return None;
@@ -196,13 +222,19 @@ impl Drv {
             None => self.spawn_raw(&argv, &env, setsid, setpgid).ok(),
         };
         let Some(pid) = pid else {
-            println!("DRIVER decoy {name}: SPAWN FAILED (forced={:?})", spec["force_pid"]);
+            println!(
+                "DRIVER decoy {name}: SPAWN FAILED (forced={:?})",
+                spec["force_pid"]
+            );
             return json!({"ok": false});
         };
         self.kids.insert(pid, Kid::Decoy);
         std::thread::sleep(Duration::from_millis(30));
         let start = stat(pid).map(|s| s.start_ticks).unwrap_or(0);
-        let leader_class = spec["leader_class"].as_str().map(str::to_string).unwrap_or_else(|| class.clone());
+        let leader_class = spec["leader_class"]
+            .as_str()
+            .map(str::to_string)
+            .unwrap_or_else(|| class.clone());
         self.decoys.push(Decoy {
             name: name.clone(),
             class: leader_class,
@@ -230,7 +262,9 @@ impl Drv {
 
     fn handle_requests(&mut self) {
         let dir = self.run.join("req");
-        let Ok(rd) = std::fs::read_dir(&dir) else { return };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            return;
+        };
         let mut names: Vec<String> = rd
             .flatten()
             .filter_map(|e| e.file_name().to_str().map(str::to_string))
@@ -241,8 +275,12 @@ impl Drv {
             if self.handled.contains(&n) {
                 continue;
             }
-            let Ok(text) = std::fs::read_to_string(dir.join(&n)) else { continue };
-            let Ok(v) = serde_json::from_str::<Value>(&text) else { continue };
+            let Ok(text) = std::fs::read_to_string(dir.join(&n)) else {
+                continue;
+            };
+            let Ok(v) = serde_json::from_str::<Value>(&text) else {
+                continue;
+            };
             self.handled.insert(n.clone());
             let rep = match v["kind"].as_str() {
                 Some("decoy") => self.spawn_decoy(&v),
@@ -273,9 +311,19 @@ impl Drv {
             let k = self.churn.n % 4;
             let (argv, env, ss, pg): (Vec<String>, Vec<String>, bool, bool) = match k {
                 0 => (vec![sleep.clone(), "0.5".into()], vec![], false, false),
-                1 => (vec![sleep.clone(), "0.5".into()], vec![other.clone()], false, false),
+                1 => (
+                    vec![sleep.clone(), "0.5".into()],
+                    vec![other.clone()],
+                    false,
+                    false,
+                ),
                 2 => (vec![sleep.clone(), "0.8".into()], vec![], true, false),
-                _ => (vec![sleep.clone(), "0.3".into()], vec![other.clone()], false, true),
+                _ => (
+                    vec![sleep.clone(), "0.3".into()],
+                    vec![other.clone()],
+                    false,
+                    true,
+                ),
             };
             if let Ok(p) = self.spawn_raw(&argv, &env, ss, pg) {
                 self.kids.insert(p, Kid::Churn);
@@ -295,11 +343,17 @@ impl Drv {
             let complete = new.rfind('\n').map(|i| i + 1).unwrap_or(0);
             self.churn.freed_pos += complete;
             for line in new[..complete].lines().take(4) {
-                let Ok(p) = line.trim().parse::<u32>() else { continue };
+                let Ok(p) = line.trim().parse::<u32>() else {
+                    continue;
+                };
                 if p < 3 || stat(p).is_some() {
                     continue;
                 }
-                let env = if p % 2 == 0 { vec![] } else { vec![other.clone()] };
+                let env = if p % 2 == 0 {
+                    vec![]
+                } else {
+                    vec![other.clone()]
+                };
                 match self.spawn_forced(p, &[sleep.clone(), "1.5".into()], &env, true, false, 20) {
                     Some(q) => {
                         self.kids.insert(q, Kid::Churn);
@@ -365,8 +419,15 @@ impl Drv {
     fn final_report(&mut self, scenario: &str) {
         std::thread::sleep(Duration::from_millis(500));
         self.reap();
-        let (mut bad, mut ours_missed, mut ours_ok, mut decoys_ok, mut decoys_n, mut by_killed, mut by_n) =
-            (0, 0, 0, 0, 0, 0, 0);
+        let (
+            mut bad,
+            mut ours_missed,
+            mut ours_ok,
+            mut decoys_ok,
+            mut decoys_n,
+            mut by_killed,
+            mut by_n,
+        ) = (0, 0, 0, 0, 0, 0, 0);
         for d in &self.decoys {
             let a = alive(d.pid, d.start);
             let st = d.status.map(decode_status).unwrap_or_else(|| "-".into());
@@ -395,7 +456,11 @@ impl Drv {
                     if !a {
                         by_killed += 1;
                     }
-                    if a { "note:alive" } else { "note:killed(by design: carries this campaign's marker)" }
+                    if a {
+                        "note:alive"
+                    } else {
+                        "note:killed(by design: carries this campaign's marker)"
+                    }
                 }
                 _ => "-",
             };
@@ -408,7 +473,10 @@ impl Drv {
         for (s, c) in SIGCOUNT.iter().enumerate() {
             let n = c.load(Ordering::SeqCst);
             if n > 0 {
-                sigs.push(format!("sig{s}x{n}(from pid {})", SIGFROM[s].load(Ordering::SeqCst)));
+                sigs.push(format!(
+                    "sig{s}x{n}(from pid {})",
+                    SIGFROM[s].load(Ordering::SeqCst)
+                ));
             }
         }
         if self.churn.on {
@@ -432,7 +500,11 @@ impl Drv {
         }
         println!(
             "SUMMARY {scenario} decoys_alive={decoys_ok}/{decoys_n} decoys_dead={bad} marked_orphans_killed={ours_ok} marked_orphans_missed={ours_missed} bydesign_killed={by_killed}/{by_n} driver_signals={} reaped_orphans_by_signal={:?}",
-            if sigs.is_empty() { "none".into() } else { sigs.join(",") },
+            if sigs.is_empty() {
+                "none".into()
+            } else {
+                sigs.join(",")
+            },
             sig_orph
         );
     }
@@ -475,13 +547,22 @@ pub fn main(a: &[String]) {
         churn: Churn::default(),
         sleep: which("sleep"),
     };
-    println!("DRIVER {scenario} start {} (pid 1, run dir {})", crate::utc(), run.display());
+    println!(
+        "DRIVER {scenario} start {} (pid 1, run dir {})",
+        crate::utc(),
+        run.display()
+    );
     let stfile = |n: &str| run.join(format!("strace.{n}.txt")).display().to_string();
     // Decoys in SESSION 0 (outside view) must exist before we setsid.
     if scenario == "pid0" {
         for s in [
             d("sid0_unmarked", "decoy", &[], false),
-            d("sid0_other", "decoy", &[b"RR_CAMPAIGN_JOB=othercamp:L0"], false),
+            d(
+                "sid0_other",
+                "decoy",
+                &[b"RR_CAMPAIGN_JOB=othercamp:L0"],
+                false,
+            ),
         ] {
             drv.spawn_decoy(&s);
         }
@@ -502,9 +583,19 @@ pub fn main(a: &[String]) {
             // In pid 1's own group and session (a killpg(1) or kill(-1) would hit them), and in their own sessions.
             for s in [
                 d("g1_unmarked", "decoy", &[], false),
-                d("g1_other", "decoy", &[b"RR_CAMPAIGN_JOB=othercamp:L1"], false),
+                d(
+                    "g1_other",
+                    "decoy",
+                    &[b"RR_CAMPAIGN_JOB=othercamp:L1"],
+                    false,
+                ),
                 d("own_unmarked", "decoy", &[], true),
-                d("own_other", "decoy", &[b"RR_CAMPAIGN_JOB=othercamp:L1"], true),
+                d(
+                    "own_other",
+                    "decoy",
+                    &[b"RR_CAMPAIGN_JOB=othercamp:L1"],
+                    true,
+                ),
             ] {
                 drv.spawn_decoy(&s);
             }
@@ -512,26 +603,42 @@ pub fn main(a: &[String]) {
         _ => {}
     }
     let deadline = Instant::now()
-        + Duration::from_secs(if scenario.starts_with("churn") { 1500 } else { 280 });
+        + Duration::from_secs(if scenario.starts_with("churn") {
+            1500
+        } else {
+            280
+        });
     match scenario.as_str() {
         "recover" => {
             let m1 = drv.run_sup(&["recover1"], None);
             let rd = run.join("ready");
-            drv.pump_until(deadline, |dv| rd.exists() || dv.mid_status.contains_key(&m1));
+            drv.pump_until(deadline, |dv| {
+                rd.exists() || dv.mid_status.contains_key(&m1)
+            });
             let text = std::fs::read_to_string(run.join("sup1.pid")).unwrap_or_default();
-            let f: Vec<u64> = text.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+            let f: Vec<u64> = text
+                .split_whitespace()
+                .filter_map(|x| x.parse().ok())
+                .collect();
             if f.len() == 2 && alive(f[0] as u32, f[1]) {
                 // SAFETY: our own descendant (start time verified just now) inside our namespace.
                 unsafe { libc::kill(f[0] as i32, libc::SIGKILL) };
-                println!("DRIVER SIGKILLed supervisor-1 pid {} (simulated crash)", f[0]);
+                println!(
+                    "DRIVER SIGKILLed supervisor-1 pid {} (simulated crash)",
+                    f[0]
+                );
             } else {
                 println!("DRIVER could not find supervisor-1 ({text:?})");
             }
             drv.wait_mids(&[m1], deadline);
             let t = Instant::now() + Duration::from_secs(2);
             drv.pump_until(t, |_| false);
-            let scan = rustred_campaign::resources::scan_campaign(CAMP, 0, &BTreeSet::new()).unwrap();
-            println!("DRIVER expected marked orphans before recovery: {}", scan.processes.len());
+            let scan =
+                rustred_campaign::resources::scan_campaign(CAMP, 0, &BTreeSet::new()).unwrap();
+            println!(
+                "DRIVER expected marked orphans before recovery: {}",
+                scan.processes.len()
+            );
             for p in &scan.processes {
                 println!(
                     "DRIVER   orphan pid={} start={} attempt={} ppid={} sid={} pgrp={} comm={} state={}",
@@ -585,9 +692,19 @@ fn summarize_strace(path: &Path, drv: &Drv) {
     let mut opened_decoy = 0;
     for line in text.lines() {
         let l = line.split_once(' ').map(|x| x.1).unwrap_or(line).trim();
-        if let Some(r) = l.strip_prefix("kill(").or_else(|| l.strip_prefix("tkill(")).or_else(|| l.strip_prefix("tgkill(")) {
+        if let Some(r) = l
+            .strip_prefix("kill(")
+            .or_else(|| l.strip_prefix("tkill("))
+            .or_else(|| l.strip_prefix("tgkill("))
+        {
             kill_calls += 1;
-            let target: i64 = r.split([',', ')']).next().unwrap_or("").trim().parse().unwrap_or(0);
+            let target: i64 = r
+                .split([',', ')'])
+                .next()
+                .unwrap_or("")
+                .trim()
+                .parse()
+                .unwrap_or(0);
             if (-1..=1).contains(&target) || decoy_pids.contains(&target.abs()) {
                 bad.push(line.to_string());
             }
@@ -595,7 +712,13 @@ fn summarize_strace(path: &Path, drv: &Drv) {
             pidfd_sends += 1;
         } else if let Some(r) = l.strip_prefix("pidfd_open(") {
             pidfd_opens += 1;
-            let target: i64 = r.split([',', ')']).next().unwrap_or("").trim().parse().unwrap_or(0);
+            let target: i64 = r
+                .split([',', ')'])
+                .next()
+                .unwrap_or("")
+                .trim()
+                .parse()
+                .unwrap_or(0);
             if decoy_pids.contains(&target) {
                 opened_decoy += 1;
             }

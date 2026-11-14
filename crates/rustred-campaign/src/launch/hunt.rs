@@ -88,7 +88,10 @@ pub(crate) enum HuntResult {
 
 enum Class {
     Ours(Proof, ProcFacts),
-    NotOurs { unattributed: bool, facts: Option<ProcFacts> },
+    NotOurs {
+        unattributed: bool,
+        facts: Option<ProcFacts>,
+    },
     Dead,
     Inconclusive(String),
 }
@@ -163,17 +166,35 @@ impl Hunt<'_> {
     fn classify(&mut self, pid: u32, parent: Option<u32>) -> (Class, Option<OwnedFd>) {
         let me = me();
         if pid <= 1 || pid == me {
-            return (Class::NotOurs { unattributed: false, facts: None }, None);
+            return (
+                Class::NotOurs {
+                    unattributed: false,
+                    facts: None,
+                },
+                None,
+            );
         }
         if self.registered(pid) {
             // Another job's live leader, or J's own zombie leader: never J's survivor.
-            return (Class::NotOurs { unattributed: false, facts: None }, None);
+            return (
+                Class::NotOurs {
+                    unattributed: false,
+                    facts: None,
+                },
+                None,
+            );
         }
         let fd = match guard::open_pidfd(pid) {
             Ok(fd) => fd,
             Err(Verdict::Gone) => return (Class::Dead, None),
             Err(Verdict::NotOurs(_)) => {
-                return (Class::NotOurs { unattributed: false, facts: None }, None);
+                return (
+                    Class::NotOurs {
+                        unattributed: false,
+                        facts: None,
+                    },
+                    None,
+                );
             }
             Err(Verdict::Unverified(e)) => return (Class::Inconclusive(e), None),
             Err(Verdict::Delivered) => return (Class::Inconclusive("impossible".into()), None),
@@ -205,36 +226,83 @@ impl Hunt<'_> {
         }
         let key = (pid, facts.stat.start_ticks);
         if self.not_ours.contains(&key) {
-            return (Class::NotOurs { unattributed: false, facts: None }, None);
+            return (
+                Class::NotOurs {
+                    unattributed: false,
+                    facts: None,
+                },
+                None,
+            );
         }
         let direct_child = facts.stat.ppid == me;
         if facts.stat.start_ticks < self.s.launch_ticks {
             self.not_ours.insert(key);
-            return (Class::NotOurs { unattributed: false, facts: Some(facts) }, None);
+            return (
+                Class::NotOurs {
+                    unattributed: false,
+                    facts: Some(facts),
+                },
+                None,
+            );
         }
         if self.s.pinned && facts.stat.session == self.s.sid {
-            return (Class::Ours(Proof::PinnedSession(self.s.sid), facts), Some(fd));
+            return (
+                Class::Ours(Proof::PinnedSession(self.s.sid), facts),
+                Some(fd),
+            );
         }
         if facts.stat.session == self.own_session {
             self.not_ours.insert(key);
-            return (Class::NotOurs { unattributed: false, facts: Some(facts) }, None);
+            return (
+                Class::NotOurs {
+                    unattributed: false,
+                    facts: Some(facts),
+                },
+                None,
+            );
         }
         match &facts.marker {
             MarkerFact::Value(v) => match CampaignMarker::parse(v) {
                 Some(m) if m == self.s.marker => (Class::Ours(Proof::Marker(m), facts), Some(fd)),
                 _ => {
                     self.not_ours.insert(key);
-                    (Class::NotOurs { unattributed: false, facts: Some(facts) }, None)
+                    (
+                        Class::NotOurs {
+                            unattributed: false,
+                            facts: Some(facts),
+                        },
+                        None,
+                    )
                 }
             },
             MarkerFact::Absent => {
                 self.not_ours.insert(key);
-                (Class::NotOurs { unattributed: direct_child, facts: Some(facts) }, None)
+                (
+                    Class::NotOurs {
+                        unattributed: direct_child,
+                        facts: Some(facts),
+                    },
+                    None,
+                )
             }
+            // Not cached: an empty environment is re-examined in every round and pass.
+            MarkerFact::EmptyEnviron => (
+                Class::NotOurs {
+                    unattributed: direct_child,
+                    facts: Some(facts),
+                },
+                None,
+            ),
             MarkerFact::Unreadable(e) => {
                 if facts.real_uid != self.uid {
                     self.not_ours.insert(key);
-                    (Class::NotOurs { unattributed: false, facts: Some(facts) }, None)
+                    (
+                        Class::NotOurs {
+                            unattributed: false,
+                            facts: Some(facts),
+                        },
+                        None,
+                    )
                 } else {
                     (
                         Class::Inconclusive(format!("pid {pid}: environ unreadable ({e})")),
@@ -318,7 +386,10 @@ impl Hunt<'_> {
                 self.s.sid,
                 match class {
                     Class::Ours(p, f) => format!("OURS {p:?} state {}", f.stat.state),
-                    Class::NotOurs { unattributed, facts } => format!(
+                    Class::NotOurs {
+                        unattributed,
+                        facts,
+                    } => format!(
                         "not ours (unattributed {unattributed}) {:?}",
                         facts.as_ref().map(|f| (f.stat.session, f.marker.clone()))
                     ),
@@ -336,7 +407,9 @@ impl Hunt<'_> {
     /// born after that read (the relay of re-audit B); that child is re-parented to us when the candidate dies. So every
     /// round ends with a fresh snapshot of our children (pid AND start time): any entry not examined yet sends the loop
     /// round again; the newest children are examined first.
-    fn freeze_fixed_point(&mut self) -> Result<BTreeMap<u32, Member>, (String, BTreeMap<u32, Member>)> {
+    fn freeze_fixed_point(
+        &mut self,
+    ) -> Result<BTreeMap<u32, Member>, (String, BTreeMap<u32, Member>)> {
         let mut known: BTreeMap<u32, Member> = BTreeMap::new();
         if self.s.pinned {
             let _ = guard::signal_pinned_group(&self.s.leaders, self.s.sid, libc::SIGSTOP);
@@ -386,7 +459,13 @@ impl Hunt<'_> {
                 }
             }
             let mut seen: BTreeSet<u32> = BTreeSet::new();
-            trace(|| format!("sid {} round {round} queue {queue:?} known {:?}", self.s.sid, known.keys().collect::<Vec<_>>()));
+            trace(|| {
+                format!(
+                    "sid {} round {round} queue {queue:?} known {:?}",
+                    self.s.sid,
+                    known.keys().collect::<Vec<_>>()
+                )
+            });
             // pop() takes the highest pid first: the newest child (a re-forking process's current member).
             queue.sort_unstable();
             while let Some((pid, parent)) = queue.pop() {
@@ -400,7 +479,13 @@ impl Hunt<'_> {
                         let Some(fd) = fd else { continue };
                         match self.stop(&fd, &facts, &proof) {
                             Stop::Stopped => {
-                                trace(|| format!("sid {} stopped {pid}; children {:?}", self.s.sid, children_of(pid)));
+                                trace(|| {
+                                    format!(
+                                        "sid {} stopped {pid}; children {:?}",
+                                        self.s.sid,
+                                        children_of(pid)
+                                    )
+                                });
                                 changed = true;
                                 if self.s.enumeration == Enumeration::SubreaperTree {
                                     match children_of(pid) {
@@ -417,7 +502,10 @@ impl Hunt<'_> {
                             Stop::Failed(e) => inconclusive = Some(e),
                         }
                     }
-                    Class::NotOurs { unattributed: true, facts: Some(f) } => self.note_unattributed(&f),
+                    Class::NotOurs {
+                        unattributed: true,
+                        facts: Some(f),
+                    } => self.note_unattributed(&f),
                     Class::NotOurs { .. } | Class::Dead => {}
                     Class::Inconclusive(e) => {
                         // Examine it again next round.

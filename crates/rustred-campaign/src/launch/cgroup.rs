@@ -256,7 +256,10 @@ impl CgroupRoot {
         let mut why = Vec::new();
         for dir in candidates {
             if !delegated(&dir) {
-                why.push(format!("{}: not delegated (no user.delegate xattr)", dir.display()));
+                why.push(format!(
+                    "{}: not delegated (no user.delegate xattr)",
+                    dir.display()
+                ));
                 continue;
             }
             match fs::metadata(&dir) {
@@ -276,12 +279,20 @@ impl CgroupRoot {
                 SEQ.fetch_add(1, Ordering::Relaxed)
             ));
             if let Err(e) = fs::create_dir(&probe) {
-                why.push(format!("{}: cannot create a child cgroup: {e}", dir.display()));
+                why.push(format!(
+                    "{}: cannot create a child cgroup: {e}",
+                    dir.display()
+                ));
                 continue;
             }
-            let ok = ["cgroup.procs", "cgroup.kill", "cgroup.freeze", "cgroup.events"]
-                .iter()
-                .all(|f| probe.join(f).exists())
+            let ok = [
+                "cgroup.procs",
+                "cgroup.kill",
+                "cgroup.freeze",
+                "cgroup.events",
+            ]
+            .iter()
+            .all(|f| probe.join(f).exists())
                 && OpenOptions::new()
                     .write(true)
                     .open(probe.join("cgroup.procs"))
@@ -317,7 +328,10 @@ impl CgroupRoot {
             SEQ.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
-        match OpenOptions::new().write(true).open(dir.join("cgroup.procs")) {
+        match OpenOptions::new()
+            .write(true)
+            .open(dir.join("cgroup.procs"))
+        {
             Ok(procs) => Ok(JobCgroup {
                 dir,
                 procs,

@@ -163,7 +163,12 @@ pub(crate) fn acquire(id: &str, dir: Option<&Path>) -> Result<Arc<IdLock>, IdLoc
     // Informational content: who holds it.
     let _ = file.set_len(0);
     let _ = file.rewind();
-    let _ = writeln!(file, "{} {}", std::process::id(), crate::resources::boot_id().unwrap_or_default());
+    let _ = writeln!(
+        file,
+        "{} {}",
+        std::process::id(),
+        crate::resources::boot_id().unwrap_or_default()
+    );
     let l = Arc::new(IdLock {
         path: path.clone(),
         file,

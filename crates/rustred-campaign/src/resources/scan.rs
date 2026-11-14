@@ -849,7 +849,8 @@ mod tests {
         // on the host.
         let mut u = u;
         let deadline = Instant::now() + Duration::from_secs(60);
-        while !(u.members.iter().any(|m| m.pid == cpid && m.comm == "sleep") && u.pss_bytes.is_some())
+        while !(u.members.iter().any(|m| m.pid == cpid && m.comm == "sleep")
+            && u.pss_bytes.is_some())
             && Instant::now() < deadline
         {
             let snap = s
@@ -860,7 +861,10 @@ mod tests {
         assert!(u.rss_bytes > 0, "{u:?}");
         assert!(u.pss_bytes.unwrap_or(0) > 0, "{u:?}");
         let exact = statm_rss(cpid).unwrap();
-        let approx = crate::resources::read_stat(cpid).unwrap().unwrap().rss_bytes;
+        let approx = crate::resources::read_stat(cpid)
+            .unwrap()
+            .unwrap()
+            .rss_bytes;
         println!("sampler RSS {} (statm {exact}, stat {approx})", u.rss_bytes);
         s.untrack(sid);
         child.kill().unwrap();

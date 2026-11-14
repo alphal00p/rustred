@@ -26,17 +26,17 @@ pub use bounded::{
     Bounded, MAX_STUCK, ReadOutcome, outstanding_helpers, read_bounded, run_bounded,
     run_bounded_with,
 };
+pub(crate) use children::{
+    FactRead, MarkerFact, ProcFacts, children_of, own_children, own_children_by_scan,
+    read_proc_facts, start_reaper, strict_listing_counted,
+};
+pub use children::{ReaperStats, reaper_stats, request_reap};
 pub use marked::{
     CampaignMarker, CampaignScan, ENVIRON_READ_TIMEOUT, InvalidMarker, MARKER_VAR, MarkedProcess,
     MarkerRead, marker_in_environ, our_uid, owner_uid_at, read_marker_at, scan_campaign,
     validate_campaign_id,
 };
 pub use pid::{InvalidPid, PID_MAX_LIMIT, ValidPid, pid_max};
-pub(crate) use children::{
-    FactRead, MarkerFact, ProcFacts, children_of, own_children, own_children_by_scan, read_proc_facts,
-    start_reaper, strict_listing_counted,
-};
-pub use children::{ReaperStats, reaper_stats, request_reap};
 pub(crate) use scan::Leaders;
 pub use scan::{
     EscapeeRecord, MemKind, Sampler, SamplerConfig, SamplerHealth, SessionUsage, Snapshot,

@@ -460,8 +460,7 @@ fn precheck(t: &ProcessTarget, sig: i32, leaders: Option<&Leaders>) -> Result<Va
         Err(e) => return Err(Verdict::Unverified(format!("boot id unreadable: {e}"))),
     }
     if let Proof::PinnedSession(sid) = t.proof {
-        let pinned_now =
-            leaders.is_some_and(|l| l.lock().contains(&sid) && leader_unreaped(sid));
+        let pinned_now = leaders.is_some_and(|l| l.lock().contains(&sid) && leader_unreaped(sid));
         if !pinned_now {
             return Err(Verdict::NotOurs(Refusal::SessionNotPinned { sid }));
         }

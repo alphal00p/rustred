@@ -78,10 +78,16 @@ pub fn exe() -> PathBuf {
 
 /// libtest arguments that run `rb_entry` with these role arguments.
 pub fn rb_args(args: &[String]) -> Vec<String> {
-    let mut v: Vec<String> = ["--exact", "rb_entry", "--nocapture", "--test-threads=1", "-q"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    let mut v: Vec<String> = [
+        "--exact",
+        "rb_entry",
+        "--nocapture",
+        "--test-threads=1",
+        "-q",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
     v.extend(args.iter().map(|a| format!("RBARG={a}")));
     v
 }
@@ -252,10 +258,7 @@ fn run_scenario(scen: &str, extra_env: &[(&str, &str)], timeout: Duration) -> St
     }
     let text = reader.join().unwrap_or_default();
     let etext = ereader.join().unwrap_or_default();
-    let env_tag: String = extra_env
-        .iter()
-        .map(|(k, v)| format!("-{k}={v}"))
-        .collect();
+    let env_tag: String = extra_env.iter().map(|(k, v)| format!("-{k}={v}")).collect();
     let log = log_dir().join(format!("{scen}{env_tag}.log"));
     let _ = std::fs::write(
         &log,
@@ -266,7 +269,11 @@ fn run_scenario(scen: &str, extra_env: &[(&str, &str)], timeout: Duration) -> St
         ),
     );
     println!("scenario {scen}: {:?}, log {}", t0.elapsed(), log.display());
-    assert!(!timed_out, "scenario {scen} timed out; log {}", log.display());
+    assert!(
+        !timed_out,
+        "scenario {scen} timed out; log {}",
+        log.display()
+    );
     text
 }
 
@@ -290,7 +297,11 @@ fn check(scen: &str, text: &str) {
         .lines()
         .find(|l| l.starts_with("SUMMARY"))
         .unwrap_or_else(|| panic!("{scen}: no SUMMARY line"));
-    for want in [" decoys_dead=0 ", " marked_orphans_missed=0 ", " driver_signals=none "] {
+    for want in [
+        " decoys_dead=0 ",
+        " marked_orphans_missed=0 ",
+        " driver_signals=none ",
+    ] {
         assert!(summary.contains(want), "{scen}: {summary}");
     }
     assert!(
@@ -397,6 +408,12 @@ fn rb_zombies() {
 fn rb_churn_short() {
     scenario("churn", &[("RB_CYCLES", "200"), ("RB_SEED", "7")], 900);
 }
+/// A short verify race (400 self-ending jobs, pid_max 4096) in the normal suite: catches a marked process judged
+/// unmarked in the execve window (empty environ), see resources::children::read_environ_settled.
+#[test]
+fn rb_vrace_short() {
+    scenario("churn_vrace", &[("RB_CYCLES", "400")], 900);
+}
 #[test]
 #[ignore = "long: relay at 8 fork rates (run with --ignored)"]
 fn rb_churn_relay() {
@@ -417,7 +434,8 @@ fn rb_vrace_nowrap() {
 #[test]
 #[ignore = "long: acceptance churn 60,200 cycles (run with --ignored, release)"]
 fn rb_churn_acceptance() {
-    let seeds = std::env::var("RB_ACCEPT_SEEDS").unwrap_or_else(|_| "101,202,303,101,404,505".into());
+    let seeds =
+        std::env::var("RB_ACCEPT_SEEDS").unwrap_or_else(|_| "101,202,303,101,404,505".into());
     let cycles = std::env::var("RB_ACCEPT_CYCLES").unwrap_or_else(|_| "10000".into());
     for seed in seeds.split(',') {
         let mut env = vec![("RB_CYCLES", cycles.as_str()), ("RB_SEED", seed)];
@@ -438,7 +456,11 @@ fn rb_churn_fdstorm_acceptance() {
     for seed in seeds.split(',') {
         scenario(
             "churn",
-            &[("RB_CYCLES", cycles.as_str()), ("RB_SEED", seed), ("RB_FDSTORM", "1")],
+            &[
+                ("RB_CYCLES", cycles.as_str()),
+                ("RB_SEED", seed),
+                ("RB_FDSTORM", "1"),
+            ],
             1700,
         );
     }
