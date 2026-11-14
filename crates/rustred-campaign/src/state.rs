@@ -186,7 +186,7 @@ pub fn contract_accepts(class: FinishClass) -> &'static [ContractAccept] {
     use FinishClass::*;
     match class {
         Complete => &[A::Canonical, A::Nothing],    // rows 1, 3
-        RuleFound => &[A::Canonical],               // rows 2, 5
+        RuleFound => &[A::Canonical, A::SolvedRecords], // rows 2, 5; 28 (solve-recipe, lane adapters)
         NoRule => &[A::CommittedRules, A::Nothing], // rows 4, 24
         Spill => &[A::CommittedRules],              // row 8
         DecidedNegative => &[A::Nothing],           // row 7 (c=11)
@@ -207,7 +207,7 @@ pub fn contract_accepts(class: FinishClass) -> &'static [ContractAccept] {
 /// Whether an `accept` value lets records come from the attempt's sealed table.
 pub fn accept_permits_records(a: ContractAccept) -> bool {
     match a {
-        ContractAccept::Canonical | ContractAccept::CommittedRules => true,
+        ContractAccept::Canonical | ContractAccept::CommittedRules | ContractAccept::SolvedRecords => true,
         ContractAccept::Nothing => false,
     }
 }
@@ -216,6 +216,7 @@ pub fn accept_word(a: ContractAccept) -> &'static str {
     match a {
         ContractAccept::Canonical => "canonical",
         ContractAccept::CommittedRules => "committed_rules",
+        ContractAccept::SolvedRecords => "solved_records", // lane adapters (row 28)
         ContractAccept::Nothing => "nothing",
     }
 }
@@ -4173,9 +4174,10 @@ mod tests {
         }
     }
 
-    const ACCEPTS: [ContractAccept; 3] = [
+    const ACCEPTS: [ContractAccept; 4] = [
         ContractAccept::Canonical,
         ContractAccept::CommittedRules,
+        ContractAccept::SolvedRecords,
         ContractAccept::Nothing,
     ];
 

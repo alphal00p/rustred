@@ -9,10 +9,14 @@
 //! predicate "accept != nothing ONLY with a valid OUTCOME of this exit code, c in {0, 10, 20}, a kind with a
 //! sealing rule, verified outputs without elided loci, a stop the row allows" holds.
 //! The full product runs in release (`--release -- --ignored`); the default test samples every 97th combination.
+//! Extended by lane adapters (2026-11-14): kinds solve-recipe / proof-instantiate, stop keys_unsolved, rows 28 / 29
+//! (oracle written from interfaces/adapters.md 1.2 and the regenerated child-job.md 6.5), the solve-recipe verified
+//! states (results tally: accepted 0 / 1 x unsolved 0 / 1, or no tally) and the `solved_records` accept mode.
 
 mod common;
 use common::*;
 use rustred_campaign_contract::ExitCode;
+use rustred_campaign_contract::classify::recipe::{FailureClass, RelationTally};
 use rustred_campaign_contract::classify::{
     self, Accept, Evidence, KillReason, OutcomeState, ROWS, VerifiedOutputs, WaitStatus,
 };
@@ -90,6 +94,28 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                 };
                 if v.elided_loci > 0 {
                     return (25, "");
+                }
+                // adapters.md 1.2: solve-recipe uses rows 1 / 28 / 29 and needs the results tally (S); proof-instantiate
+                // has exit 0 only; keys_unsolved belongs to solve-recipe only
+                if e.kind == JobKind::SolveRecipe {
+                    let Some(t) = &v.relations else {
+                        return (22, "");
+                    };
+                    let unsolved: u64 = t.unsolved.values().sum();
+                    return match (c, stop) {
+                        (0, _) if unsolved == 0 => (1, ""),
+                        (10, Some(StopCode::KeysUnsolved)) if unsolved >= 1 && t.accepted >= 1 => {
+                            (28, "")
+                        }
+                        (10, Some(StopCode::KeysUnsolved)) if unsolved >= 1 => (29, ""),
+                        _ => (22, ""),
+                    };
+                }
+                if e.kind == JobKind::ProofInstantiate && c != 0 {
+                    return (22, "");
+                }
+                if stop == Some(StopCode::KeysUnsolved) {
+                    return (22, "");
                 }
                 if c == 0 {
                     return (1, "");
@@ -222,6 +248,25 @@ fn may_accept(e: &Evidence) -> Result<(), String> {
     }
     if e.kind.is_checker() && c != 0 {
         return Err("checker accepted on 10 / 20".into());
+    }
+    if matches!(e.kind, JobKind::SolveRecipe | JobKind::ProofInstantiate) && c == 20 {
+        return Err("a kind without work budgets accepted on 20".into());
+    }
+    if e.kind == JobKind::SolveRecipe {
+        let Some(t) = &v.relations else {
+            return Err("solve-recipe accepted without the results tally".into());
+        };
+        let unsolved: u64 = t.unsolved.values().sum();
+        return match c {
+            0 if unsolved == 0 => Ok(()),
+            10 if j.stop.code == Some(StopCode::KeysUnsolved) && t.accepted >= 1 && unsolved >= 1 => {
+                Ok(())
+            }
+            _ => Err(format!(
+                "solve-recipe accepted on exit {c} with {} accepted / {unsolved} unsolved",
+                t.accepted
+            )),
+        };
     }
     if c == 10 {
         match j.stop.code {
@@ -383,24 +428,46 @@ fn run(stride: u64) -> BTreeMap<String, u64> {
         KillReason::Stop,
         KillReason::Unresponsive,
     ];
-    let verified: Vec<Option<VerifiedOutputs>> = vec![
+    let base: Vec<Option<VerifiedOutputs>> = vec![
         None,
         Some(VerifiedOutputs {
             rules: 0,
             elided_loci: 0,
             streams: vec![],
+            relations: None,
         }),
         Some(VerifiedOutputs {
             rules: 1,
             elided_loci: 0,
             streams: vec![],
+            relations: None,
         }),
         Some(VerifiedOutputs {
             rules: 1,
             elided_loci: 2,
             streams: vec![],
+            relations: None,
         }),
     ];
+    // solve-recipe: the same states plus the results tally (accepted 0 / 1 x unsolved 0 / 1)
+    let tally = |accepted: u64, unsolved: u64| {
+        let mut t = RelationTally {
+            records: accepted + unsolved,
+            accepted,
+            ..Default::default()
+        };
+        if unsolved > 0 {
+            t.unsolved.insert(FailureClass::NoRelationInSeeds, unsolved);
+        }
+        Some(VerifiedOutputs {
+            rules: 0,
+            elided_loci: 0,
+            streams: vec![],
+            relations: Some(t),
+        })
+    };
+    let mut with_tally = base.clone();
+    with_tally.extend([tally(0, 0), tally(1, 0), tally(0, 1), tally(1, 1)]);
     let rref = ResumeRef {
         from: "/w/jobs/J.a1/RESUME.json".into(),
         blake3: D0.into(),
@@ -422,9 +489,14 @@ fn run(stride: u64) -> BTreeMap<String, u64> {
                 .into_iter()
                 .map(|j| OutcomeState::Valid(Box::new(j))),
         );
+        let verified = if kind == JobKind::SolveRecipe {
+            &with_tally
+        } else {
+            &base
+        };
         for wait in waits() {
             for o in &outcomes {
-                for v in &verified {
+                for v in verified {
                     for r in [false, true] {
                         for k in kills {
                             for oom in [false, true] {
