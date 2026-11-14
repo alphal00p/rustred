@@ -6,7 +6,7 @@
 //! restarted supervisor gets the same answers (resume = replay + the same questions).
 
 use super::spec::Synthetic;
-use crate::ledger::{AcceptSource, Event, FileRef, ItemEvent};
+use crate::ledger::{AcceptSource, Event, FileRef, ItemEvent, NodeSpecValues};
 use crate::state::{
     AttemptState, CampaignState, EvidenceLevel, ItemPhase, NodeEvent, NodePhase, Rung,
 };
@@ -47,6 +47,9 @@ pub struct JobRequest {
     pub program: String,
     pub args: Vec<String>,
     pub inputs: Vec<InputRef>,
+    /// Ledger input ids the job depends on beyond its binary and its item's / node's inputs (tables, seed policy,
+    /// ...): stamped into `job_queued.inputs` (input identity).
+    pub depends_on: Vec<String>,
     pub budgets: Budgets,
     pub sample_seed: u64,
     pub fake: Option<FakeScript>,
@@ -58,7 +61,7 @@ impl JobRequest {
         let v = serde_json::json!({
             "job": self.job, "item": self.item, "rung": self.rung.0, "kind": self.kind, "program": self.program,
             "args": self.args, "inputs": self.inputs, "budgets": self.budgets, "seed": self.sample_seed,
-            "cap": self.cap_bytes, "fake": self.fake,
+            "cap": self.cap_bytes, "fake": self.fake, "depends_on": self.depends_on,
         });
         blake3::hash(&serde_json::to_vec(&v).expect("json"))
             .to_hex()
@@ -118,7 +121,8 @@ pub trait WorkSource {
         ctx: &SourceContext,
         done: &Settled,
     ) -> Result<Routing, String>;
-    /// Operator verbs `retry` / `skip`.
+    /// Follow-up events after the ledger APPLIED an operator `retry` / `skip` of `target` (the item's phase change is
+    /// the ledger's own; most sources return nothing).
     fn control(
         &mut self,
         st: &CampaignState,
@@ -143,6 +147,58 @@ struct AcceptedFile<'a> {
 
 pub const ACCEPTED_SCHEMA: &str = "rustred.campaign.accepted.v1";
 
+/// A file name component from an id (characters outside `[A-Za-z0-9.-]` become `_`).
+fn safe_name(id: &str) -> String {
+    id.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// The two artefacts of a terminal declaration (ledger 5.2, audit A M4): the record that the item's ladder was
+/// exhausted within its budgets (cited by `propose_terminal.exhausted`) and the key-set file of the declared
+/// terminal (`declare_terminal.keys`). Deterministic content (no time, no attempt): a resumed campaign writes the
+/// same bytes.
+pub fn terminal_artefacts(
+    node: &str,
+    item: &str,
+    rung: Rung,
+    reason: &str,
+    keys: &[String],
+) -> (AcceptedRecord, AcceptedRecord) {
+    let dir = PathBuf::from("terminals").join(node);
+    let exhausted = serde_json::to_vec(&serde_json::json!({
+        "schema": "rustred.campaign.ladder-exhausted.v1", "item": item, "rung": rung, "reason": reason,
+    }))
+    .expect("json");
+    let keyset = serde_json::to_vec(&serde_json::json!({
+        "schema": "rustred.campaign.keyset.v1", "item": item, "keys": keys,
+    }))
+    .expect("json");
+    let safe = safe_name(item);
+    (
+        AcceptedRecord {
+            path: dir
+                .join(format!("{safe}.exhausted.json"))
+                .to_string_lossy()
+                .into_owned(),
+            bytes: exhausted,
+        },
+        AcceptedRecord {
+            path: dir
+                .join(format!("{safe}.keys.json"))
+                .to_string_lossy()
+                .into_owned(),
+            bytes: keyset,
+        },
+    )
+}
+
 /// Rule id and record file of an accepted sealed table (shared by sources).
 pub fn accepted_record(
     node: &str,
@@ -159,16 +215,7 @@ pub fn accepted_record(
         records: lines,
     })
     .expect("json");
-    let safe: String = item
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
+    let safe = safe_name(item);
     let path = PathBuf::from("accepted")
         .join(node)
         .join(format!("{safe}.{}.json", &canon[..16.min(canon.len())]));
@@ -285,6 +332,7 @@ impl ScriptedWorkSource {
                     | ItemPhase::Terminal
                     | ItemPhase::Retired
                     | ItemPhase::TerminalCandidate
+                    | ItemPhase::Skipped
             )
         )
     }
@@ -401,6 +449,7 @@ impl ScriptedWorkSource {
             program: "rr_fake_child".into(),
             args: vec![],
             inputs: vec![],
+            depends_on: vec![],
             budgets: Budgets::default(),
             sample_seed: self.h(i as u64, r as u64, 5),
             fake: Some(self.script(i, r)),
@@ -415,45 +464,57 @@ impl ScriptedWorkSource {
         Some((i, r))
     }
 
-    fn escalate_or_terminal(&self, item: &str, i: u32, r: u8, reason: &str) -> Vec<Event> {
+    fn escalate_or_terminal(&self, item: &str, i: u32, r: u8, reason: &str) -> Routing {
         if r + 1 < self.cfg.rungs {
             let next = self.item_id(i, r + 1);
-            vec![
-                Event::Item {
-                    item: item.to_string(),
-                    ev: ItemEvent::Escalate {
-                        to: Rung(r + 1),
-                        reason: reason.to_string(),
+            Routing {
+                events: vec![
+                    Event::Item {
+                        item: item.to_string(),
+                        ev: ItemEvent::Escalate {
+                            to: Rung(r + 1),
+                            reason: reason.to_string(),
+                        },
                     },
-                },
-                Event::ItemCreated {
-                    item: next,
-                    node: self.node_of(i),
-                    kind: "synthetic".into(),
-                    rung: Rung(r + 1),
-                    parent: Some(item.to_string()),
-                    inputs: vec![],
-                    label: format!("i{i:04}"),
-                    weight: 1,
-                },
-            ]
+                    Event::ItemCreated {
+                        item: next,
+                        node: self.node_of(i),
+                        kind: "synthetic".into(),
+                        rung: Rung(r + 1),
+                        parent: Some(item.to_string()),
+                        inputs: vec![],
+                        label: format!("i{i:04}"),
+                        weight: 1,
+                    },
+                ],
+                accepts: vec![],
+            }
         } else {
-            vec![
-                Event::Item {
-                    item: item.to_string(),
-                    ev: ItemEvent::ProposeTerminal {
-                        reason: format!("ladder exhausted ({reason})"),
+            let why = format!("ladder exhausted ({reason})");
+            let (exhausted, keys) =
+                terminal_artefacts(&self.node_of(i), item, Rung(r), &why, &[format!("I({i})")]);
+            Routing {
+                events: vec![
+                    Event::Item {
+                        item: item.to_string(),
+                        ev: ItemEvent::ProposeTerminal {
+                            reason: why,
+                            preferred: false,
+                            exhausted: Some(exhausted.file_ref()),
+                        },
                     },
-                },
-                Event::Item {
-                    item: item.to_string(),
-                    ev: ItemEvent::DeclareTerminal {
-                        count: 1,
-                        keys: None,
-                        reason: "ladder exhausted".into(),
+                    Event::Item {
+                        item: item.to_string(),
+                        ev: ItemEvent::DeclareTerminal {
+                            count: 1,
+                            keys: keys.file_ref(),
+                            reason: "ladder exhausted".into(),
+                            preferred: false,
+                        },
                     },
-                },
-            ]
+                ],
+                accepts: vec![exhausted, keys],
+            }
         }
     }
 }
@@ -474,6 +535,12 @@ impl WorkSource for ScriptedWorkSource {
                     inputs: vec![bin.clone()],
                     terminal_bound: Some(self.cfg.items),
                     spec_box: None,
+                    // The synthetic ladder's top rung is where a non-preferred terminal may be proposed.
+                    spec: NodeSpecValues {
+                        terminal_rung: Some(Rung(self.cfg.rungs.saturating_sub(1))),
+                        ..NodeSpecValues::default()
+                    },
+                    reference: None,
                 }),
                 Some(n) if n.state.phase == NodePhase::Stale => ev.push(Event::Node {
                     node: node.clone(),
@@ -594,6 +661,8 @@ impl WorkSource for ScriptedWorkSource {
                             table_blake3: table.blake3.clone(),
                         },
                         elided: false,
+                        evidence: None,
+                        round: None,
                     },
                 });
                 out.accepts.push(rec);
@@ -615,48 +684,30 @@ impl WorkSource for ScriptedWorkSource {
                     })
                     .count();
                 if failed_before + 1 >= 2 {
-                    out.events = self.escalate_or_terminal(&done.item, i, r, "crashed twice");
+                    out = self.escalate_or_terminal(&done.item, i, r, "crashed twice");
                 }
             }
             k => {
-                out.events =
-                    self.escalate_or_terminal(&done.item, i, r, crate::state::class_word(k));
+                out = self.escalate_or_terminal(&done.item, i, r, crate::state::class_word(k));
             }
         }
         Ok(out)
     }
 
+    /// Retry / skip are applied by the ledger itself (`control` records, ledger 5.7: skip -> skipped, retry ->
+    /// open with a new generation); the synthetic source needs no follow-up.
     fn control(
         &mut self,
         st: &CampaignState,
         verb: &str,
         target: &str,
     ) -> Result<Vec<Event>, String> {
-        let it = st
-            .items
-            .get(target)
-            .ok_or_else(|| format!("unknown item {target}"))?;
-        match (verb, &it.phase) {
-            ("skip", ItemPhase::Open) => Ok(vec![Event::Item {
-                item: target.into(),
-                ev: ItemEvent::ProposeTerminal {
-                    reason: "skipped by operator".into(),
-                },
-            }]),
-            ("skip", ItemPhase::TerminalCandidate) => Ok(vec![]),
-            ("skip", p) => Err(format!("skip needs an open item; {target} is {}", p.tag())),
-            ("retry", ItemPhase::TerminalCandidate) => Ok(vec![Event::Item {
-                item: target.into(),
-                ev: ItemEvent::Reopen {
-                    reason: "retry by operator".into(),
-                },
-            }]),
-            ("retry", ItemPhase::Open) => Ok(vec![]),
-            ("retry", p) => Err(format!(
-                "retry needs a skipped (terminal candidate) item; {target} is {}",
-                p.tag()
-            )),
-            (v, _) => Err(format!("verb {v} not supported by the synthetic source")),
+        if !st.items.contains_key(target) {
+            return Err(format!("unknown item {target}"));
+        }
+        match verb {
+            "retry" | "skip" => Ok(vec![]),
+            v => Err(format!("verb {v} not supported by the synthetic source")),
         }
     }
 
