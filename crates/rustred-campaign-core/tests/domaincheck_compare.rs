@@ -476,11 +476,13 @@ fn t_domain_t162() {
     let ident: Vec<usize> = (0..bank.len()).collect();
     let a2 = compare(&out, &bt, &ident, Some(&written));
     report("T162 (a2) bank predicates", &a2);
-    assert_eq!(a1.keys, 55_704);
-    assert!(
-        a1.findings.is_empty() && a2.findings.is_empty(),
-        "findings: see the report"
-    );
+    // measured 2026-11-14 (engine rr_node sha256 dafdce8a...): identical decisions on every key, both ways
+    for t in [&a1, &a2] {
+        assert!(t.findings.is_empty(), "findings: see the report");
+        assert_eq!((t.keys, t.agree_rule, t.agree_none), (55_704, 54_714, 990));
+        assert_eq!(t.differences(), 0);
+        assert_eq!(t.point_valid.get("ok"), Some(&54_714));
+    }
 }
 
 /// (b) every T178 order-B piece as its own table, 10,000 box keys each; the raw table's domains equal the case
@@ -490,6 +492,7 @@ fn t_domain_t162() {
 fn t_domain_t178_pieces() {
     let dc = dc_dir();
     let mut total = Tally::default();
+    let (mut raw_elided, mut raw_witness_poles) = (0usize, 0usize);
     for name in piece_names() {
         let (table, kept, _) = core_raw(&raw_piece(&name), &name);
         let tf = read_table_file(
@@ -510,12 +513,14 @@ fn t_domain_t178_pieces() {
         )
         .unwrap();
         assert_eq!(export.len(), table.len(), "{name}: records");
+        // the case export carries no witness loci (s.2: WitnessProvenance::NotCarried): compare without them
         for (a, b) in table.domains.iter().zip(&export.domains) {
-            assert_eq!(
-                a.canonical_form(),
-                b.canonical_form(),
-                "{name}: raw table and case export differ"
-            );
+            let (mut ca, cb) = (a.canonical_form(), b.canonical_form());
+            raw_elided += usize::from(ca.witness_elided);
+            raw_witness_poles += ca.poles.iter().filter(|p| p.0 == 2).count();
+            ca.witness_elided = false;
+            ca.poles.retain(|p| p.0 != 2);
+            assert_eq!(ca, cb, "{name}: raw table and case export differ");
         }
         let t = compare(
             &dc.join(format!("t178/out_{name}.jsonl")),
@@ -539,8 +544,19 @@ fn t_domain_t178_pieces() {
         }
     }
     report("T178 pieces total", &total);
-    assert_eq!(total.keys, 380_000);
+    println!(
+        "raw tables vs case exports: equal up to witness loci ({raw_elided} elided records, {raw_witness_poles} witness pole loci in the raw tables)"
+    );
+    // measured 2026-11-14: the only differences are records with elided witness loci (ruling F1), 8 keys
     assert!(total.findings.is_empty(), "findings: see the report");
+    assert_eq!(
+        (total.keys, total.agree_rule, total.agree_none),
+        (380_000, 127_901, 252_091)
+    );
+    assert_eq!(total.elided, 8);
+    assert_eq!(total.differences(), 8);
+    assert_eq!(total.point_valid.get("ok"), Some(&127_901));
+    assert_eq!((raw_elided, raw_witness_poles), (16, 10_438));
 }
 
 /// (c) the two raw tables the core already reads (R0_try1, rgq-g0-10), every T178 box key.
@@ -548,7 +564,11 @@ fn t_domain_t178_pieces() {
 #[ignore = "T-DOMAIN step 3: needs DOMAINCHECK_DIR/t178/out_full_*.jsonl"]
 fn t_domain_raw_full() {
     let dc = dc_dir();
-    for name in ["R0_try1", "pool1.pieces_rgq-g0-10"] {
+    // measured 2026-11-14: (name, engine rule, engine none, elided differences)
+    for (name, rule, none, elided) in [
+        ("R0_try1", 264_234, 21_832, 0),
+        ("pool1.pieces_rgq-g0-10", 10_140, 275_905, 21),
+    ] {
         let (table, kept, _) = core_raw(&raw_piece(name), name);
         let t = compare(
             &dc.join(format!("t178/out_full_{name}.jsonl")),
@@ -557,7 +577,10 @@ fn t_domain_raw_full() {
             None,
         );
         report(name, &t);
-        assert_eq!(t.keys, 286_066);
         assert!(t.findings.is_empty(), "findings: see the report");
+        assert_eq!(t.keys, 286_066);
+        assert_eq!((t.agree_rule, t.agree_none), (rule, none));
+        assert_eq!((t.elided, t.differences()), (elided, elided));
+        assert_eq!(t.point_valid.get("ok"), Some(&rule));
     }
 }
