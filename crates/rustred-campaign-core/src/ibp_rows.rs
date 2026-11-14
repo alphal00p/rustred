@@ -2176,11 +2176,12 @@ fn identity_test_derived<A: CheckAlgebra>(
                 ctxs.push(Ctx { p, vals });
             }
         }
-        if ctxs.len() > 1 && ctxs.len().saturating_mul(rule.rhs.len().max(1)) <= PRE_MAX_VALUES {
-            if let Ok(ev) = eval_coeffs(alg, rule, &ctxs, "key batch") {
-                for ((id, c), v) in ids.into_iter().zip(&ctxs).zip(ev.values) {
-                    pre.insert(id, (c.vals[rule.arity], v, ev.deg));
-                }
+        if ctxs.len() > 1
+            && ctxs.len().saturating_mul(rule.rhs.len().max(1)) <= PRE_MAX_VALUES
+            && let Ok(ev) = eval_coeffs(alg, rule, &ctxs, "key batch")
+        {
+            for ((id, c), v) in ids.into_iter().zip(&ctxs).zip(ev.values) {
+                pre.insert(id, (c.vals[rule.arity], v, ev.deg));
             }
         }
     }
