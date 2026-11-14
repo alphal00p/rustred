@@ -5,21 +5,22 @@
 //! The house rule of RustRed is "use Symbolica" (docs/algebra.md: one computer-algebra authority; lane rule L11: own
 //! algebra only when verified missing). This module BREAKS that rule ON PURPOSE, for one consumer only: the
 //! INDEPENDENT IDENTITY TEST of the automatic IBP campaign (`crate::ibp_rows`, `crate::replay_base`), which grants
-//! the `replay` evidence level, the certificate of record for complete nodes. Everything here exists in Symbolica /
-//! numerica as well; the table says where (vendored tree `vendor/symbolica`, `num/` = `lib/numerica/src`, `sym/` =
-//! `src`; verified by the study plan/auto-campaign/interfaces/symbolica-usage.md, section 2):
+//! the `replay` evidence level, the certificate of record for complete nodes. Every routine here has a Symbolica /
+//! numerica counterpart (except the one-pass multi-prime streaming evaluation of `coeff`, see its row); the table says
+//! where (vendored tree `vendor/symbolica`, `num/` = `lib/numerica/src`, `sym/` = `src`; verified by the study
+//! plan/auto-campaign/interfaces/symbolica-usage.md, section 2):
 //!
 //! | routine here | what it does | Symbolica / numerica counterpart |
 //! |---|---|---|
 //! | [`arith`] `add sub mul pow inv neg from_i128` | the prime field on u64 residues (u128 products) | `num/domains/finite_field.rs:41` `Zp64 = FiniteField<u64>` (Montgomery; `Zp64::new(p)` for odd p < 2^64) |
 //! | [`arith`] `QArith` on `Q` | checked i128 rationals | `num/domains/rational.rs` `Rational`, field `Q` |
-//! | [`expr`] `Expr` (engine copy) | parse + evaluate the engine expression language mod p, affine forms | `sym/parser.rs` (`Atom::parse`), `Atom::evaluate`, `to_rational_polynomial` (`sym/poly.rs:2795`) |
+//! | [`expr`] `Expr` (engine copy), `Literal` | parse + evaluate the engine expression language mod p, affine forms, exact case literals | `sym/parser.rs` (`Atom::parse`), `Atom::evaluate`, `to_rational_polynomial` (`sym/poly.rs:2773`) |
 //! | [`coeff`] `eval_ratio` | one-pass streaming evaluation of "(P)/(Q)" at several (prime, point) contexts | `sym/parser.rs:1909` `Token::parse_polynomial` + `sym/poly/polynomial.rs:2966` `replace_all` per prime (no one-pass multi-prime streaming evaluator exists: study 2.3) |
 //! | [`elim`] `Elim`, `sparse_subtract` (engine copy) | sparse Gaussian elimination mod p with a re-verified certificate | `num/tensors/sparse.rs:1791` `SparseRowReducer` (`add_row`, `pivots` 1777, `back_substitute` 1884), `SparseMatrix::solve` (1040) |
 //! | [`primes`] `is_prime` | deterministic Miller-Rabin for u64 | `num/domains/integer.rs:1751-1771` `Integer::is_prime`; `PrimeIteratorU64` (`finite_field.rs:3444`) |
 //! | [`linalg`] `det_i128 inverse_q rank_q rref_q` | exact small linear algebra (symmetry proofs, case equations, quadratic basis) | `num/tensors/matrix.rs` `Matrix::det` (1256), `inv` (1731), `rank` (2023), `row_reduce` (2016) |
 //! | [`linalg`] `unit_in_row_space` | Lee's scaleless-sector test (affine hull of the U+F support) | `Matrix<Q>::rank` of the support with / without the ones column |
-//! | [`linalg`] `gcd_i128` | integer gcd (locus emptiness proof) | `num/domains/integer.rs:1905` `Integer::gcd` |
+//! | [`linalg`] `gcd_i128 int_mat_mul int_div_exact` | integer gcd, products, exact division (locus proof, symmetry maps) | `Integer::gcd` (`num/domains/integer.rs:1905`), `Matrix<Z>` product, `Integer::quot_rem` |
 //! | [`linalg`] `zpoly_det` | the graph polynomials U, F as determinants of polynomial matrices | `sym/poly/polynomial.rs` `MultivariatePolynomial<Z>` arithmetic |
 //!
 //! ## WHY it exists nevertheless
@@ -54,15 +55,17 @@
 //!    test module). Raising the budget needs the user.
 //! 3. EVERY ROUTINE HAS A DIFFERENTIAL TEST against the Symbolica-backed implementation (crate
 //!    `rustred-campaign-algebra`, `tests/differential.rs`); a new routine comes with its test there.
-//! 4. Only the [`Independent`] backend grants the `replay` level (`ReplayRecord.algebra == "independent"`).
+//! 4. Only the concrete certificate entry points (which run [`Independent`] themselves) grant the `replay` level (rows4:
+//!    `AlgebraOrigin`, sealed; a generic run on any backend is diagnostic).
 //!
 //! ## HOW to run the checker in the alternative modes
 //!
 //! `rustred_campaign_algebra::{identity_test_mode, replay_evidence_mode}` with `IdentityMode::Independent` (default,
 //! the certificate of record), `IdentityMode::Symbolica` (the same domain logic on Symbolica / numerica; its records
 //! are DIAGNOSTIC and never carry the level) or `IdentityMode::Both` (both backends on the same rule, family, served
-//! keys, primes and random stream; a TRIAGE report says `AgreePass`, `AgreeFail` (the rule is bad) or `Differ` with
-//! the first differing intermediate quantity and, when a cheap third opinion exists, which side is the outlier).
+//! keys, primes and random stream; a TRIAGE report says `AgreePass`, `AgreeFail` (not derived from its recorded seeds),
+//! `RecordInconsistent`, `SharedLogicDiffers` (the shared domain logic disagrees with the oracle) or `Differ` with the
+//! first differing intermediate quantity and the outlier named by a third implementation, the referee).
 //! Tests of that crate need the Symbolica licence: `source WS/ops/env.sh` first (interfaces/ibp-rows.md section 11).
 
 pub mod arith;
@@ -72,7 +75,6 @@ pub mod expr;
 pub mod linalg;
 pub mod primes;
 
-use crate::poly::Poly;
 use crate::replay_base::algebra::{
     CheckAlgebra, CoeffError, CoeffStats, Ctx, Eliminator, Q, QResult, Span, Unknown, ZPoly,
 };
@@ -101,9 +103,9 @@ impl Eliminator for elim::Elim<'_> {
 }
 
 impl CheckAlgebra for Independent {
-    /// case literals use the campaign's shared literal type `crate::poly` (study C2: not part of this module; its
-    /// own Symbolica migration is DEV-17 step (4))
-    type Literal = Poly;
+    /// case literals: the exact expansion [`expr::Literal`] of the engine expression reader (rows4: no longer the
+    /// shared `crate::poly`, re-audit RA3-m5)
+    type Literal = expr::Literal;
     type Elim<'r> = elim::Elim<'r>;
 
     fn name(&self) -> &'static str {
@@ -174,6 +176,19 @@ impl CheckAlgebra for Independent {
     fn gcd_i128(&self, a: i128, b: i128) -> i128 {
         linalg::gcd_i128(a, b)
     }
+    fn int_mat_mul(
+        &self,
+        a: &[i128],
+        b: &[i128],
+        r: usize,
+        k: usize,
+        c: usize,
+    ) -> Option<Vec<i128>> {
+        linalg::int_mat_mul(a, b, r, k, c)
+    }
+    fn int_div_exact(&self, a: i128, b: i128) -> Option<i128> {
+        linalg::int_div_exact(a, b)
+    }
     fn zpoly_det(&self, m: &[Vec<ZPoly>], dim: usize, t: usize) -> ZPoly {
         linalg::zpoly_det(m, dim, t)
     }
@@ -203,15 +218,15 @@ impl CheckAlgebra for Independent {
     fn expr_has_d(&self, text: &str, n: usize) -> Result<bool, Unknown> {
         expr::Expr::parse(text, n).map(|e| e.has_d())
     }
-    fn literal_parse(&self, text: &str, n: usize) -> Result<Poly, Unknown> {
-        Poly::parse(text, n, false).map_err(|e| e.to_string())
+    fn literal_parse(&self, text: &str, n: usize) -> Result<expr::Literal, Unknown> {
+        expr::Literal::parse(text, n)
     }
-    fn literal_is_zero_at(&self, lit: &Poly, point: &[i32]) -> Result<bool, Unknown> {
-        lit.is_zero_at(point).map_err(|e| e.to_string())
+    fn literal_is_zero_at(&self, lit: &expr::Literal, point: &[i32]) -> Result<bool, Unknown> {
+        lit.is_zero_at(point)
     }
     fn literal_same_up_to_constant(&self, a: &str, b: &str, n: usize) -> bool {
-        match (Poly::parse(a, n, false), Poly::parse(b, n, false)) {
-            (Ok(x), Ok(y)) => x.primitive_normal() == y.primitive_normal(),
+        match (expr::Literal::parse(a, n), expr::Literal::parse(b, n)) {
+            (Ok(x), Ok(y)) => x.same_up_to_constant(&y),
             _ => false,
         }
     }
