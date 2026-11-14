@@ -85,11 +85,17 @@ pub fn cmd_job(a: Args) -> i32 {
 pub fn cmd_job_at(path: &str) -> i32 {
     // first thing, before any thread or fork (3.4.1)
     childjob::proc::install_signals();
+    // preflight step 6 checks the running binary's raw BLAKE3 against `spec.program.blake3` only when it is given
+    // (lane engbase2: it was None since lane eng2, so a spec naming another binary ran; adapters' probe
+    // `foreign_program_digest`). Unreadable executable: unchecked, as before.
+    let own = std::fs::read("/proc/self/exe")
+        .ok()
+        .map(|b| cc::blake3_hex(&b));
     let me = ProgramSelf {
         name: PROGRAM,
         features: &FEATURES,
         kinds: &JOB_KINDS,
-        blake3: None,
+        blake3: own.as_deref(),
     };
     let prep = match preflight(Path::new(path), &me, &|k| std::env::var(k).ok()) {
         Ok(p) => p,
