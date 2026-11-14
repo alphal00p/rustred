@@ -10,30 +10,30 @@
 //! - [`import`]: existing material (rule tables, bank sets, recipes, supplied relations) -> in-force dispatch ->
 //!   closure check -> statement (interfaces/import.md).
 
-pub mod cover;
-pub mod domain;
-pub mod key;
-pub mod order;
-pub mod poly;
-pub mod record;
-pub mod boxdef;
-pub mod winner;
-pub mod contain;
-pub mod ibp_rows;
-pub mod partition;
-pub mod loci;
-pub mod closure;
-pub mod symmetry;
 pub mod accept;
 pub mod assemble;
-pub mod worklist;
-pub mod terminals;
-pub mod explain;
-pub mod repair;
+pub mod boxdef;
+pub mod closure;
+pub mod contain;
+pub mod cover;
+pub mod domain;
 pub mod economy;
+pub mod explain;
 pub mod glue;
-pub mod replay_base;
+pub mod ibp_rows;
 pub mod independent_algebra;
+pub mod key;
+pub mod loci;
+pub mod order;
+pub mod partition;
+pub mod poly;
+pub mod record;
+pub mod repair;
+pub mod replay_base;
 pub mod schema;
+pub mod symmetry;
+pub mod terminals;
+pub mod winner;
+pub mod worklist;
 // lane import (interfaces/import.md; listed by lane closeloop as its one line in this file)
 pub mod import;
