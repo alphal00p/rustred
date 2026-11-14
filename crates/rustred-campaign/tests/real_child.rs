@@ -775,3 +775,555 @@ fn symmetry_case_records_are_refused_in_job_mode() {
     assert_eq!(o.job.exit_code, ExitCode::Refused);
     assert!(o.job.outputs.table.is_none() || !o.job.outputs.table.as_ref().unwrap().sealed);
 }
+
+// ------------------------------------------------------------------------------------------------------------------
+// lane engfix3: regression tests of the engine child-job audit (WS/notes/implementer.audit-engjob.md)
+
+/// A generate job spec with a `cases` input made of `lines` (written once per job id under the test root, so every
+/// attempt of the job names the same file and digest).
+fn spec_with_cases(
+    root: &Path,
+    job: &str,
+    attempt: u32,
+    node: &str,
+    args: &[&str],
+    lines: &[serde_json::Value],
+) -> JobSpec {
+    let input = root.join(format!("{job}.cases.jsonl"));
+    if !input.exists() {
+        let text: String = lines.iter().map(|l| format!("{l}\n")).collect();
+        std::fs::write(&input, text).unwrap();
+    }
+    let mut s = spec(root, job, attempt, node, args);
+    s.inputs.push(InputRef {
+        role: "cases".into(),
+        path: input.to_str().unwrap().into(),
+        blake3: b3(&input),
+        upto: None,
+    });
+    s
+}
+
+fn events_of(spec: &JobSpec) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(RunLayout::new(&spec.run_dir).events())
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .collect()
+}
+
+/// Wait until `pred` holds on the job's EVENTS (polled every 2 ms), or panic after `limit`.
+fn wait_events(
+    spec: &JobSpec,
+    limit: Duration,
+    what: &str,
+    pred: impl Fn(&[serde_json::Value]) -> bool,
+) {
+    let t = Instant::now();
+    loop {
+        if pred(&events_of(spec)) {
+            return;
+        }
+        assert!(t.elapsed() < limit, "{what}: not within {limit:?}");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+fn count_kind(
+    ev: &[serde_json::Value],
+    kind: &str,
+    f: impl Fn(&serde_json::Value) -> bool,
+) -> usize {
+    ev.iter().filter(|v| v["kind"] == kind && f(v)).count()
+}
+
+fn resume_json(spec: &JobSpec) -> serde_json::Value {
+    serde_json::from_slice(&std::fs::read(RunLayout::new(&spec.run_dir).resume()).unwrap()).unwrap()
+}
+
+/// Canonical digest of a stream of the run (`out/<name>`), None when absent.
+fn canonical_of(spec: &JobSpec, name: &str) -> Option<String> {
+    let p = RunLayout::new(&spec.run_dir).out_dir().join(name);
+    p.exists().then(|| {
+        rustred_campaign_contract::canon::canonical_digest_file(&p)
+            .unwrap()
+            .0
+    })
+}
+
+/// The C1 numeric-endpoint fixture: L3a (arity 9, chart 8 lines + 1 numerator) with 8 fully fixed ORIGINAL cases
+/// (order id: presented = original) under `--numeric-depth 0 --numeric-depth-max 2`. Every endpoint exhausts the
+/// depth-0 search; seven get a per-point rule at depth 1; the master I(1^8,0) stays exhausted through depth 2 and is
+/// bulk-solved after the loop (one residual). The engine's numeric order puts the master 7th of 8, so a stop at the
+/// 8th endpoint, or after the loop, has an exhausted endpoint waiting for the shared solve (audit-engjob C1).
+const L3A_POINTS: [[i64; 9]; 8] = [
+    [1, 1, 1, 1, 1, 1, 1, 1, 0],
+    [2, 1, 1, 1, 1, 1, 1, 1, 0],
+    [1, 2, 1, 1, 1, 1, 1, 1, 0],
+    [1, 1, 1, 2, 1, 1, 1, 1, 0],
+    [1, 1, 1, 1, 1, 1, 1, 1, -1],
+    [1, 1, 1, 1, 1, 2, 1, 1, 0],
+    [1, 1, 1, 1, 1, 1, 1, 2, 0],
+    [2, 1, 1, 1, 1, 1, 1, 1, -1],
+];
+
+fn numeric_spec(root: &Path, job: &str) -> JobSpec {
+    let lines: Vec<serde_json::Value> = L3A_POINTS
+        .iter()
+        .map(|p| serde_json::json!({"frame": "ORIGINAL", "fixed": p, "equations": []}))
+        .collect();
+    spec_with_cases(
+        root,
+        job,
+        1,
+        "L3a",
+        &[
+            "--order",
+            "id",
+            "--numeric-depth",
+            "0",
+            "--numeric-depth-max",
+            "2",
+        ],
+        &lines,
+    )
+}
+
+/// audit-engjob C1 (REQUIRED TEST): interrupt the NUMERIC stage at several endpoints (graceful SIGTERM after the
+/// k-th numeric `case_started`, and a SIGKILL), resume, and require the final sealed table (and cert) to be
+/// canonically identical to the uninterrupted run. At least one interruption must land after the exhausted master
+/// (RESUME `engine.numeric_stage.exhausted` non-empty): the case the audit found broken.
+#[test]
+#[ignore]
+fn numeric_stage_interrupted_and_resumed_equals_uninterrupted() {
+    let r = root("numeric");
+    let full = numeric_spec(&r, "l3a-num-full");
+    let (w, t) = run_to_end(&full);
+    assert_eq!(w, WaitStatus::Exited(0), "{t:?}");
+    assert_eq!(classified(&full, w, KillReason::None).row, 1);
+    let o = outcome(&full);
+    assert_eq!(o.legacy["numerical_cases"], 8, "8 numeric endpoints");
+    assert_eq!(
+        o.legacy["numeric_bulk_fallback"], 1,
+        "one endpoint bulk-solved"
+    );
+    assert_eq!(o.legacy["residuals"], 1);
+    let want = canonical(&full);
+    let want_cert = canonical_of(&full, "F.cert.jsonl");
+    let numeric_started =
+        |ev: &[serde_json::Value]| count_kind(ev, "case_started", |v| v["numerical"] == 1);
+    let mut landed: Vec<(usize, usize, i32)> = Vec::new();
+    for (k, (started, sig)) in [
+        (1usize, libc::SIGTERM),
+        (3, libc::SIGTERM),
+        (5, libc::SIGKILL),
+        (6, libc::SIGTERM),
+        (7, libc::SIGTERM),
+        (8, libc::SIGTERM),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let a = numeric_spec(&r, &format!("l3a-num-r{k}"));
+        let mut c = spawn(&a);
+        wait_events(&a, Duration::from_secs(120), "numeric case_started", |ev| {
+            numeric_started(ev) >= started
+        });
+        if sig == libc::SIGKILL {
+            std::thread::sleep(Duration::from_millis(40));
+        }
+        signal(&c, sig);
+        let w = wait(&mut c);
+        if w == WaitStatus::Exited(0) {
+            eprintln!(
+                "drill {k}: the job ended before the stop (started {started}): no interruption"
+            );
+            continue;
+        }
+        let kill = if sig == libc::SIGKILL {
+            KillReason::None
+        } else {
+            KillReason::Stop
+        };
+        let cl = classified(&a, w, kill);
+        assert!(
+            cl.resume_from.is_some(),
+            "drill {k}: RESUME valid (row {})",
+            cl.row
+        );
+        let res = resume_json(&a);
+        let stage = &res["engine"]["numeric_stage"];
+        assert!(
+            stage.is_object(),
+            "drill {k}: a numeric-stage RESUME carries engine.numeric_stage: {res}"
+        );
+        assert_eq!(stage["numerical_cases"], 8);
+        assert!(
+            res["current"].is_null(),
+            "drill {k}: a numeric endpoint is never `current`"
+        );
+        assert!(
+            res["pending"].as_array().unwrap().is_empty(),
+            "drill {k}: no symbolic case"
+        );
+        let (left, ex) = (
+            res["numerical"].as_array().unwrap().len(),
+            stage["exhausted"].as_array().unwrap().len(),
+        );
+        if sig == libc::SIGTERM {
+            assert_eq!(w, WaitStatus::Exited(30));
+            // F.subcases of the stopped attempt: every open endpoint (not yet searched or exhausted) as kind numeric
+            let sub = std::fs::read_to_string(RunLayout::new(&a.run_dir).subcases()).unwrap();
+            let kinds: Vec<serde_json::Value> = sub
+                .lines()
+                .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+                .filter(|v| v["type"] == "subcase")
+                .map(|v| v["kind"].clone())
+                .collect();
+            assert_eq!(kinds.len(), left + ex, "drill {k}: {sub}");
+            assert!(
+                kinds.iter().all(|x| x == "numeric"),
+                "drill {k} (m7): {sub}"
+            );
+        }
+        landed.push((left, ex, sig));
+        let b = resume_spec(&r, &a);
+        let (w2, t2) = run_to_end(&b);
+        eprintln!(
+            "drill {k}: stop after {started} numeric starts by signal {sig}: RESUME numerical {left}, exhausted {ex}; resumed run {t2:?} -> {w2:?}"
+        );
+        assert_eq!(w2, WaitStatus::Exited(0));
+        assert_eq!(classified(&b, w2, KillReason::None).row, 1);
+        let ob = outcome(&b);
+        assert!(ob.job.resumed);
+        assert_eq!(ob.legacy["numerical_cases"], 8);
+        assert_eq!(
+            canonical(&b),
+            want,
+            "drill {k}: resumed table canonically identical"
+        );
+        assert_eq!(
+            canonical_of(&b, "F.cert.jsonl"),
+            want_cert,
+            "drill {k}: cert"
+        );
+    }
+    eprintln!("landed (numerical left, exhausted, signal): {landed:?}");
+    assert!(
+        landed.len() >= 4,
+        "at least four interruptions inside the numeric stage: {landed:?}"
+    );
+    assert!(
+        landed.iter().any(|&(_, ex, _)| ex >= 1),
+        "an interruption after the exhausted endpoint (C1): {landed:?}"
+    );
+}
+
+/// The PRESENTED case of rule `index` of a frozen fixture table (generated with order id).
+fn fixture_case(node: &str, index: u64) -> serde_json::Value {
+    let root = std::env::var("RUSTRED_CAMPAIGN_FIXTURES").expect("RUSTRED_CAMPAIGN_FIXTURES");
+    let p = Path::new(&root)
+        .join("small/m2-slice")
+        .join(node)
+        .join("table.jsonl");
+    let text = std::fs::read_to_string(&p).unwrap();
+    let v = text
+        .lines()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+        .find(|v| v["type"] == "rule" && v["index"] == index)
+        .unwrap_or_else(|| panic!("{node} rule {index}"));
+    serde_json::json!({"frame": "PRESENTED", "fixed": v["fixed"], "equations": v["equations"]})
+}
+
+fn subcase_lines(spec: &JobSpec) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(RunLayout::new(&spec.run_dir).subcases())
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+        .filter(|v| v["type"] == "subcase")
+        .collect()
+}
+
+/// Own cases of the C2 test: four T281-b6 cases with exceptional children (rules 363, 367, 370, 380 of the
+/// frozen table, 0.6-1.2 s each).
+fn descend_spec(root: &Path, job: &str) -> JobSpec {
+    let lines: Vec<serde_json::Value> = [363, 367, 370, 380]
+        .iter()
+        .map(|&i| fixture_case("T281-b6", i))
+        .collect();
+    spec_with_cases(
+        root,
+        job,
+        1,
+        "T281-b6",
+        &["--order", "id", "--descend", "open"],
+        &lines,
+    )
+}
+
+/// audit-engjob C2 (REQUIRED TEST): `--descend open` with resume. Interrupted (a) during the own cases and (b) in
+/// the returned phase (right after the last own case), the resumed attempt solves exactly the job's OWN cases (never
+/// a returned sub-case: counters.cases and the table equal the uninterrupted run's) and returns the same sub-cases
+/// (F.subcases.jsonl canonically identical), the ones returned before the stop included (RESUME
+/// `engine.descend_open.returned`).
+#[test]
+#[ignore]
+fn descend_open_resume_solves_only_own_cases_and_returns_the_rest() {
+    let r = root("descend-resume");
+    let full = descend_spec(&r, "t281-desc-full");
+    let (w, t) = run_to_end(&full);
+    eprintln!("uninterrupted: {w:?} in {t:?}");
+    assert_eq!(w, WaitStatus::Exited(10));
+    let of = outcome(&full);
+    assert_eq!(of.job.stop.code, Some(StopCode::MaxCases));
+    assert_eq!(
+        of.job.counters.cases, 4,
+        "only the four own cases are searched"
+    );
+    let want = canonical(&full);
+    let want_sub = canonical_of(&full, "F.subcases.jsonl").unwrap();
+    let n_sub = subcase_lines(&full).len();
+    assert!(n_sub > 0, "sub-cases returned");
+    let finished = |ev: &[serde_json::Value]| count_kind(ev, "case_finished", |_| true);
+    let started = |ev: &[serde_json::Value]| count_kind(ev, "case_started", |_| true);
+    let mut returned_before_stop = 0usize;
+    for (k, phase) in ["own", "returned"].into_iter().enumerate() {
+        let a = descend_spec(&r, &format!("t281-desc-r{k}"));
+        let mut c = spawn(&a);
+        if phase == "own" {
+            // during the second own case
+            wait_events(&a, Duration::from_secs(300), "2nd own case", |ev| {
+                started(ev) >= 2
+            });
+        } else {
+            // the last own case is closed at the first returned boundary
+            wait_events(&a, Duration::from_secs(300), "4 own cases closed", |ev| {
+                finished(ev) >= 4
+            });
+        }
+        signal(&c, libc::SIGTERM);
+        let w = wait(&mut c);
+        assert_eq!(
+            w,
+            WaitStatus::Exited(30),
+            "{phase}: interrupted (never exit 0 / 10 with a pending stop)"
+        );
+        let cl = classified(&a, w, KillReason::Stop);
+        assert_eq!(cl.row, 11);
+        let res = resume_json(&a);
+        let d = &res["engine"]["descend_open"];
+        assert_eq!(
+            d["own"].as_array().map(Vec::len),
+            Some(4),
+            "{phase}: own cases in RESUME: {res}"
+        );
+        let ret = d["returned"].as_array().map_or(0, Vec::len);
+        if phase == "returned" {
+            returned_before_stop = ret;
+        }
+        let b = resume_spec(&r, &a);
+        let (w2, t2) = run_to_end(&b);
+        eprintln!(
+            "{phase}: RESUME returned {ret}, pending {}; resumed {t2:?} -> {w2:?}",
+            res["pending"].as_array().map_or(0, Vec::len)
+        );
+        assert_eq!(w2, WaitStatus::Exited(10));
+        let ob = outcome(&b);
+        assert_eq!(
+            ob.job.counters.cases, 4,
+            "{phase}: no returned case was solved"
+        );
+        assert_eq!(canonical(&b), want, "{phase}: table");
+        assert_eq!(
+            canonical_of(&b, "F.subcases.jsonl").unwrap(),
+            want_sub,
+            "{phase}: F.subcases"
+        );
+        let clb = classified(&b, w2, KillReason::None);
+        assert!(matches!(clb.row, 2 | 24), "row {}", clb.row);
+    }
+    assert!(
+        returned_before_stop >= 1,
+        "the returned-phase stop recorded returned cases in RESUME ({returned_before_stop})"
+    );
+}
+
+/// audit-engjob C3 (REQUIRED TEST): `--descend open`, a stop requested during the LAST own case (T281-b6 rule 389's
+/// case: about 3 s, no exceptional child, so no case boundary follows it) is honoured at the end of the queue:
+/// exit 30 with a valid RESUME (it used to end with exit 0, the stop taken as handled); the resumed attempt ends
+/// like the uninterrupted job (same table, same F.subcases).
+#[test]
+#[ignore]
+fn descend_open_stop_during_the_last_own_case_is_honoured() {
+    let r = root("descend-last");
+    let lines = [fixture_case("T281-b6", 389)];
+    let mk = |job: &str| {
+        spec_with_cases(
+            &r,
+            job,
+            1,
+            "T281-b6",
+            &["--order", "id", "--descend", "open"],
+            &lines,
+        )
+    };
+    let full = mk("t281-last-full");
+    let (w, _) = run_to_end(&full);
+    assert!(
+        w == WaitStatus::Exited(0) || w == WaitStatus::Exited(10),
+        "{w:?}"
+    );
+    let want = canonical(&full);
+    let want_sub = canonical_of(&full, "F.subcases.jsonl");
+    let a = mk("t281-last");
+    let mut c = spawn(&a);
+    wait_events(&a, Duration::from_secs(300), "own case started", |ev| {
+        count_kind(ev, "case_started", |_| true) >= 1
+    });
+    std::thread::sleep(Duration::from_millis(500));
+    signal(&c, libc::SIGTERM);
+    let w1 = wait(&mut c);
+    let ev = events_of(&a);
+    let committed = count_kind(&ev, "rule_committed", |_| true);
+    eprintln!("stop during the last own case: {w1:?}, rules committed {committed}");
+    assert_eq!(w1, WaitStatus::Exited(30), "the stop is not ignored");
+    let o = outcome(&a);
+    assert_eq!(o.job.stop.code, Some(StopCode::Interrupted));
+    assert!(o.job.stop.graceful);
+    let cl = classified(&a, w1, KillReason::Stop);
+    assert_eq!(cl.row, 11);
+    assert!(cl.resume_from.is_some());
+    let res = resume_json(&a);
+    assert!(res["current"].is_null(), "stopped at the queue end: {res}");
+    let b = resume_spec(&r, &a);
+    let (w2, _) = run_to_end(&b);
+    assert_eq!(w2, w, "resumed attempt ends as the uninterrupted job");
+    assert_eq!(canonical(&b), want);
+    assert_eq!(canonical_of(&b, "F.subcases.jsonl"), want_sub);
+}
+
+/// engbase open point: `--open-on-refusal` with resume. Rules above 400 coefficient monomials are refused
+/// (`--max-rule-monomials 400 --fallback-rule-monomials 400 --no-refused-bank`: a deterministic refusal, no clock),
+/// their cases become open obligations (RESUME `refused_open`); a run interrupted mid-way and resumed ends with the
+/// table and F.subcases of the uninterrupted run (stop open_obligations, exit 10).
+#[test]
+#[ignore]
+fn open_on_refusal_interrupted_and_resumed_equals_uninterrupted() {
+    let r = root("refusal-resume");
+    let args = [
+        "--order",
+        "id",
+        "--open-on-refusal",
+        "--max-rule-monomials",
+        "400",
+        "--fallback-rule-monomials",
+        "400",
+        "--no-refused-bank",
+    ];
+    let full = spec(&r, "t281-ref-full", 1, "T281-b6", &args);
+    let (w, t) = run_to_end(&full);
+    eprintln!("uninterrupted: {w:?} in {t:?}");
+    assert_eq!(w, WaitStatus::Exited(10));
+    let of = outcome(&full);
+    assert_eq!(of.job.stop.code, Some(StopCode::OpenObligations));
+    let refused = subcase_lines(&full)
+        .iter()
+        .filter(|v| v["kind"] == "refused")
+        .count();
+    assert!(refused >= 1, "refused cases listed");
+    let want = canonical(&full);
+    let want_sub = canonical_of(&full, "F.subcases.jsonl").unwrap();
+    let total_rules = of.job.outputs.table.as_ref().unwrap().rules.unwrap();
+    let a = spec(&r, "t281-ref-r", 1, "T281-b6", &args);
+    let mut c = spawn(&a);
+    wait_for_rules(&a, total_rules / 2, Duration::from_secs(600));
+    signal(&c, libc::SIGTERM);
+    let w1 = wait(&mut c);
+    assert_eq!(w1, WaitStatus::Exited(30));
+    let res = resume_json(&a);
+    let open_before = res["refused_open"].as_array().map_or(0, Vec::len);
+    let b = resume_spec(&r, &a);
+    let (w2, _) = run_to_end(&b);
+    eprintln!("refused open in RESUME: {open_before} of {refused}; resumed -> {w2:?}");
+    assert!(
+        open_before >= 1,
+        "the interruption came after a refusal (RESUME refused_open non-empty)"
+    );
+    assert_eq!(w2, WaitStatus::Exited(10));
+    assert_eq!(canonical(&b), want);
+    assert_eq!(canonical_of(&b, "F.subcases.jsonl").unwrap(), want_sub);
+}
+
+/// audit-engjob M5: a clock decision is recorded. `--native-try 0` makes every native guard try time out at once,
+/// the content route takes over (the table is complete), and OUTCOME says `time_decided` with one `guard_route`
+/// decision per guarded rule; the contract's OUTCOME check passes (row 1, flag carried).
+#[test]
+#[ignore]
+fn clock_decisions_are_recorded_as_time_decisions() {
+    let r = root("timedec");
+    let s = spec(
+        &r,
+        "l4a-native0",
+        1,
+        "L4a",
+        &["--order", "id", "--native-try", "0"],
+    );
+    let (w, _) = run_to_end(&s);
+    assert_eq!(w, WaitStatus::Exited(0));
+    let cl = classified(&s, w, KillReason::None);
+    assert_eq!(cl.row, 1);
+    assert!(cl.time_decided);
+    let o = outcome(&s);
+    assert!(o.job.time_decided);
+    let n = o
+        .job
+        .time_decisions
+        .iter()
+        .filter(|d| d.what == rustred_campaign_contract::outcome::TimeDecisionWhat::GuardRoute)
+        .count();
+    eprintln!(
+        "{} time decisions, {n} guard_route",
+        o.job.time_decisions.len()
+    );
+    assert!(n >= 1);
+    let ev = events_of(&s);
+    assert_eq!(
+        count_kind(&ev, "time_decision", |_| true),
+        o.job.time_decisions.len()
+    );
+    // the default run of the same node: no clock decided anything
+    let d = spec(&r, "l4a-default", 1, "L4a", &["--order", "id"]);
+    let (w, _) = run_to_end(&d);
+    assert_eq!(w, WaitStatus::Exited(0));
+    let od = outcome(&d);
+    eprintln!("default run: time decisions {:?}", od.job.time_decisions);
+    assert!(!od.job.time_decided);
+}
+
+/// audit-engjob m6: `rule_committed` events carry the rule's RHS term count, trace rows and monomials, every rule
+/// of the sealed table has exactly one (also those written after the last safe point), and the job counters
+/// `rhs_terms` / `lift_monomials` are their sums.
+#[test]
+#[ignore]
+fn rule_committed_events_cover_every_rule_with_sizes() {
+    let r = root("rulecommitted");
+    let s = numeric_spec(&r, "l3a-num-events");
+    let (w, _) = run_to_end(&s);
+    assert_eq!(w, WaitStatus::Exited(0));
+    let o = outcome(&s);
+    let rules = o.job.outputs.table.as_ref().unwrap().rules.unwrap();
+    let ev = events_of(&s);
+    let rc: Vec<&serde_json::Value> = ev
+        .iter()
+        .filter(|v| v["kind"] == "rule_committed")
+        .collect();
+    assert_eq!(rc.len() as u64, rules, "one rule_committed per rule");
+    let idx: Vec<u64> = rc.iter().map(|v| v["index"].as_u64().unwrap()).collect();
+    assert_eq!(idx, (0..rules).collect::<Vec<_>>());
+    let rhs: u64 = rc.iter().map(|v| v["rhs"].as_u64().unwrap()).sum();
+    assert!(rc.iter().all(|v| v["rhs"].as_u64().unwrap() > 0));
+    assert_eq!(o.job.counters.rhs_terms, rhs);
+    assert_eq!(o.legacy["rhs_terms"].as_u64().unwrap(), rhs);
+    let mono: u64 = rc.iter().map(|v| v["monomials"].as_u64().unwrap()).sum();
+    assert_eq!(o.job.counters.lift_monomials, mono);
+}
