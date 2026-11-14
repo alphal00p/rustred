@@ -250,6 +250,10 @@ pub struct PLibrary {
     route_canonicalization: AtomicBool,
     /// The greatest exact image represents an orbit (the default), or the least.
     orbit_prefer_high: AtomicBool,
+    /// b7-schemeload: the Scheme owners' stored certificates are trusted at
+    /// program build (set by the package loader only, see
+    /// [`super::scheme::package_trusts_scheme_certificates`]); off by default.
+    scheme_certificates_trusted: AtomicBool,
 }
 
 impl fmt::Debug for PLibrary {
@@ -397,6 +401,21 @@ impl PLibrary {
     /// Whether requests canonicalise Apply keys under owner automorphisms.
     pub fn orbit_canonicalization(&self) -> bool {
         self.orbit_canonicalization.load(Ordering::Relaxed)
+    }
+
+    /// b7-schemeload: trust the stored certificates of the embedded Scheme
+    /// owners at program build instead of re-verifying them (the trust rule is
+    /// [`super::scheme::certificate_check`]). The package loader sets it for a
+    /// package whose identity carries this binary's
+    /// `P_SCHEME_TEMPLATE_VERSION` and a `P_PACKAGE_REVISION`; no value
+    /// depends on it (the verdicts are the verified ones, gate test).
+    pub fn set_scheme_certificates_trusted(&self, on: bool) {
+        self.scheme_certificates_trusted.store(on, Ordering::Relaxed);
+    }
+
+    /// Whether [`Self::set_scheme_certificates_trusted`] is on.
+    pub fn scheme_certificates_trusted(&self) -> bool {
+        self.scheme_certificates_trusted.load(Ordering::Relaxed)
     }
 
     /// With orbit canonicalisation on, canonicalise the Route keys of routed
@@ -973,6 +992,7 @@ impl PLibraryBuilder {
             orbit_canonicalization: AtomicBool::new(orbit_default),
             route_canonicalization: AtomicBool::new(true),
             orbit_prefer_high: AtomicBool::new(true),
+            scheme_certificates_trusted: AtomicBool::new(false),
         })
     }
 

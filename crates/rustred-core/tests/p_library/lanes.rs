@@ -1617,3 +1617,104 @@ fn explicit_row_isps_present_generic_lanes() {
     assert!(generic > 20, "{generic} generic nodes");
     assert!(eps > 0);
 }
+
+/// b7-schemeload: the trusted program of every embedded scheme (stored
+/// certificates not rebuilt) equals the verified one rule by rule, terms,
+/// verdicts and metadata included, and the verified set has 276 certificates
+/// and no unverified rule (P_SCHEME_TEMPLATE_VERSION 5). This is the gate's
+/// link between `scheme_check` and the trust a loaded package takes.
+#[test]
+fn trusted_scheme_programs_equal_the_verified_ones() {
+    use rustred::propagator::scheme::{CertificateCheck, SchemeTemplate, Verification};
+    assert_eq!(rustred::propagator::P_SCHEME_TEMPLATE_VERSION, 5);
+    let four = lanes(4);
+    let mut certificates = 0;
+    for name in ["no1", "haha", "bubu", "no2", "no6"] {
+        let (node, _, presentation) = four.by_name(name);
+        let started = Instant::now();
+        let verified =
+            SchemeTemplate::extract_with(presentation, node, CertificateCheck::Verify).unwrap();
+        let verify_time = started.elapsed();
+        let started = Instant::now();
+        let trusted =
+            SchemeTemplate::extract_with(presentation, node, CertificateCheck::Trust).unwrap();
+        eprintln!(
+            "{name}: verified {verify_time:?}, trusted {:?}",
+            started.elapsed()
+        );
+        assert_eq!(
+            format!("{:?}", verified.rules()),
+            format!("{:?}", trusted.rules()),
+            "{name}"
+        );
+        assert!(
+            (verified.rules().iter()).all(|rule| rule.verification != Verification::None),
+            "{name}: an unverified rule"
+        );
+        certificates += (verified.rules().iter())
+            .filter(|rule| rule.verification == Verification::Certificate)
+            .count();
+    }
+    assert_eq!(certificates, 276);
+}
+
+/// b7-schemeload: verification still catches a corrupted stored certificate
+/// (the rule loses its Certificate verdict); trust would not, which is why
+/// only the gated embedded set is ever trusted.
+#[test]
+fn verification_catches_a_corrupted_certificate() {
+    use rustred::propagator::scheme::{
+        CertificateCheck, EMBEDDED_SCHEMES, SchemeTemplate, Verification,
+    };
+    let (node, _, presentation) = lanes(4).by_name("no1");
+    let json = EMBEDDED_SCHEMES.iter().find(|(n, _)| *n == "no1").unwrap().1;
+    let mut file: serde_json::Value = serde_json::from_str(json).unwrap();
+    let rule = (file["rules"].as_array_mut().unwrap().iter_mut())
+        .find(|rule| rule.get("certificate").is_some_and(|c| !c.is_null()))
+        .unwrap();
+    let name = rule["name"].as_str().unwrap().to_owned();
+    // The first generator's weight 1 -> 2.
+    rule["certificate"][0][3] = serde_json::json!([[[0; 15], "2"]]);
+    let corrupted = serde_json::to_string(&file).unwrap();
+    let verdict = |check| {
+        let template =
+            SchemeTemplate::extract_from_json(&corrupted, presentation, node, check).unwrap();
+        (template.rules().iter())
+            .find(|rule| rule.name == name)
+            .unwrap()
+            .verification
+    };
+    assert_ne!(verdict(CertificateCheck::Verify), Verification::Certificate);
+    assert_eq!(verdict(CertificateCheck::Trust), Verification::Certificate);
+    // The uncorrupted file verifies that rule.
+    let template =
+        SchemeTemplate::extract_from_json(json, presentation, node, CertificateCheck::Verify)
+            .unwrap();
+    let rule = template.rules().iter().find(|r| r.name == name).unwrap();
+    assert_eq!(rule.verification, Verification::Certificate);
+}
+
+/// b7-schemeload: a library trusts the Scheme certificates only when the loader
+/// marked it (a revisioned package of this P_SCHEME_TEMPLATE_VERSION), and only
+/// for a node whose scheme is embedded.
+#[test]
+fn scheme_certificates_are_trusted_only_when_the_library_is_marked() {
+    use rustred::propagator::scheme::{CertificateCheck, certificate_check};
+    let library = super::plib::unit_owner_library(context(), 1);
+    let four = lanes(4);
+    let (no1, _, _) = four.by_name("no1");
+    let other = (four.dag.nodes.iter())
+        .find(|node| rustred::propagator::scheme::scheme_for(node).is_none())
+        .unwrap();
+    assert!(!library.scheme_certificates_trusted());
+    if std::env::var("RUSTRED_P_SCHEME_VERIFY").is_ok_and(|v| v == "1") {
+        // The opt-in verification overrides the mark.
+        library.set_scheme_certificates_trusted(true);
+        assert_eq!(certificate_check(&library, no1), CertificateCheck::Verify);
+        return;
+    }
+    assert_eq!(certificate_check(&library, no1), CertificateCheck::Verify);
+    library.set_scheme_certificates_trusted(true);
+    assert_eq!(certificate_check(&library, no1), CertificateCheck::Trust);
+    assert_eq!(certificate_check(&library, other), CertificateCheck::Verify);
+}
