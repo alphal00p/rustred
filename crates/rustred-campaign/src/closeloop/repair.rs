@@ -1803,8 +1803,12 @@ fn candidates_of(
             Some("header") => {
                 let fake = v["schema"].as_str() == Some("rustred.fake.table.v1");
                 if !fake {
-                    let a = rustred_campaign_core::assemble::header_identity(&v);
-                    let f = rustred_campaign_core::assemble::header_identity(&p1.frame_header);
+                    // `family_blake3` (the job-mode engine's digest of its family INPUT FILE) is provenance: the family
+                    // TEXT (`family_source`) is compared (REQUEST to the core owner: add it to HEADER_PROVENANCE_FIELDS)
+                    let mut a = rustred_campaign_core::assemble::header_identity(&v);
+                    let mut f = rustred_campaign_core::assemble::header_identity(&p1.frame_header);
+                    a.remove("family_blake3");
+                    f.remove("family_blake3");
                     if a != f {
                         let k = a
                             .keys()
