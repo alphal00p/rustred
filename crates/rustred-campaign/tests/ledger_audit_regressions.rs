@@ -91,6 +91,7 @@ fn new_job(l: &mut Ledger, k: usize, job: &str) -> ledger::FileRef {
                 cpus: vec![1],
                 reserved_bytes: 1,
                 spec_blake3: digest(job),
+                scope_unit: None,
             },
         },
         Event::Job {
@@ -1077,6 +1078,7 @@ fn a_m12_minor_failed_attempts_are_counted_apart_from_interrupts() {
                 cpus: vec![],
                 reserved_bytes: 1,
                 spec_blake3: digest(&j),
+                scope_unit: None,
             },
         ),
         ev(
@@ -1468,6 +1470,7 @@ fn operator_controls_and_attention() {
             cpus: vec![],
             reserved_bytes: 1,
             spec_blake3: digest("jp"),
+            scope_unit: None,
         }
     })));
     // skip

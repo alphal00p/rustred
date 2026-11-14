@@ -194,18 +194,15 @@ fn run_scenario(scen: &str, extra_env: &[(&str, &str)], timeout: Duration) -> St
         1,
         "run inside a private pid namespace (LIGHT_PIDNS=1 light_build.sh ...)"
     );
-    for f in [
-        "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/ops/PAUSE",
-        "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/plan/auto-campaign/implementer_ops/PAUSE",
-    ] {
-        assert!(!Path::new(f).exists(), "PAUSE flag {f}");
-    }
+    // SUBAGENT_RULES rule 2 since 2026-11-14T12:05Z: only the implementer account's flag binds (WS/ops/PAUSE reflects the
+    // coordinator's account alone)
+    let pause = "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/plan/auto-campaign/implementer_ops/PAUSE";
+    assert!(!Path::new(pause).exists(), "PAUSE flag {pause}");
     // One scenario at a time (host load; churn timing).
     static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _g = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
-    let run = std::env::temp_dir().join(format!("rr-reaudit-b-{}-{scen}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&run);
-    std::fs::create_dir_all(&run).unwrap();
+    // lane int5: a new TMPDIR-rooted directory unique on the host (never the pid: it is 1 in the namespace)
+    let run = unique_temp_dir(&format!("rr-reaudit-b-{scen}"));
     // A private runtime directory per scenario: the host-wide campaign-id lock of "rbcamp" is then private to it.
     let xdg = run.join("xdg");
     {
@@ -489,5 +486,36 @@ fn rb_prop() {
             !text.contains(&format!("UNDOCUMENTED-CATEGORY violations {bad}")),
             "{bad} still violates: {text}"
         );
+    }
+}
+
+/// A NEW directory `<TMPDIR>/<prefix>-<token>` unique on the host (lane int5, procfix3 item 0): never derived from the
+/// pid alone (inside the private pid namespaces of rule L10 every test binary is pid 1, and two lanes may share a temp
+/// root), and created with `create_dir` (a directory it did not create is never reused or removed).
+#[allow(dead_code)]
+pub fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let base = std::env::temp_dir();
+    std::fs::create_dir_all(&base).unwrap();
+    let ns = std::fs::read_link("/proc/self/ns/pid")
+        .map(|l| l.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+    loop {
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let n = SEQ.fetch_add(1, Ordering::Relaxed);
+        let token = blake3::hash(format!("{ns}|{}|{stat}|{t}|{n}", std::process::id()).as_bytes())
+            .to_hex()[..12]
+            .to_string();
+        let p = base.join(format!("{prefix}-{token}"));
+        match std::fs::create_dir(&p) {
+            Ok(()) => return p,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => panic!("{}: {e}", p.display()),
+        }
     }
 }

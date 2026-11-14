@@ -1,16 +1,28 @@
 //! The ORPHAN SCAN of the supervisor (plan 2.7.1; interfaces/supervisor.md section 8): a thin wrapper around the
 //! process layer's verified primitives. The supervisor has NO signal path of its own (gate re-audit M-1): processes are
 //! found with `resources::scan_campaign` (our uid, started late enough, carrying a marker of THIS campaign id) and
-//! killed one by one with `launch::kill_orphan` (pidfd + exact start time + marker re-checked + boot id). This module
-//! only NARROWS that set, never widens it: a ledger from another boot signals nothing, and the process's cwd must lie
-//! under the campaign or work directory (coord-site-policy rule 5).
+//! killed one by one through the guard (pidfd + exact start time + marker re-checked + boot id). This module only
+//! NARROWS that set, never widens it: a ledger from another boot signals nothing.
+//!
+//! procfix3 (gate-B M1, gate-A M-1): the sweep is the process layer's FREEZING campaign sweep (`launch::sweep`: strict
+//! scans with the exec-window re-read, SIGSTOP of every member through the guard until a fixed point, then SIGKILL, then
+//! two conclusive empty scans).
+//!
+//! Lane int5 (gate3 M1): NO cwd rule any more. Ownership is the MARKER with the identity checklist (THE ONE OWNERSHIP
+//! RULE, `launch::guard::marker_target`: this campaign's id, which binds the directory's nonce, device and inode; the
+//! attempt label; our uid; this boot; a start time not before the bound): a process carrying this campaign's exact
+//! marker is ours wherever its cwd is, and is killed through the guarded path and recorded (`orphan_killed`,
+//! `signal_sent`). The former rule (only report a marked orphan whose cwd lies outside the campaign directories) left a
+//! double-forked, setsid'd daemon that did chdir("/") alive forever and its attempt unsettled. What a sweep cannot
+//! verify or signal is reported (`left`) and stops the campaign with exit 8 (never exit 0) listing the pids.
 
-use crate::launch::kill_orphan;
+use crate::launch::{SweepReport, SweepSpec};
 use crate::resources::{MarkedProcess, scan_campaign};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
 /// What the scan may touch.
 #[derive(Clone, Debug)]
@@ -21,7 +33,8 @@ pub struct ScanRules {
     pub recorded_boot_id: Option<String>,
     /// Processes started before this (clock ticks after boot) are never ours.
     pub min_start_ticks: u64,
-    /// cwd must lie under one of these (canonicalised).
+    /// The campaign and work directories (canonicalised): only for the log annotation of a kill (cwd inside / outside);
+    /// NOT an ownership criterion (gate3 M1).
     pub roots: Vec<PathBuf>,
 }
 
@@ -29,10 +42,14 @@ fn current_boot_id() -> Option<String> {
     crate::resources::boot_id().ok()
 }
 
-fn cwd_under(pid: u32, roots: &[PathBuf]) -> bool {
+/// The cwd of `pid` relative to the campaign directories, for logs only ("inside" / "outside <cwd>" / "unreadable").
+pub fn cwd_note(pid: u32, roots: &[PathBuf]) -> String {
     match fs::read_link(format!("/proc/{pid}/cwd")) {
-        Ok(cwd) => roots.iter().any(|r| cwd.starts_with(r)),
-        Err(_) => false,
+        Ok(cwd) if roots.iter().any(|r| cwd.starts_with(r)) => {
+            "cwd inside the campaign directories".into()
+        }
+        Ok(cwd) => format!("cwd {} outside the campaign directories", cwd.display()),
+        Err(e) => format!("cwd unreadable ({e})"),
     }
 }
 
@@ -46,8 +63,13 @@ impl ScanRules {
         }
     }
 
-    /// Marked processes of this campaign (optionally of one attempt id `<job>:a<k>`), narrowed by the cwd rule.
+    /// Every live marked process of this campaign (optionally one attempt id `<job>:a<k>`).
     pub fn scan(&self, only: Option<&str>) -> Vec<MarkedProcess> {
+        self.scan_all(only)
+    }
+
+    /// Every live marked process of this campaign (optionally one attempt).
+    pub fn scan_all(&self, only: Option<&str>) -> Vec<MarkedProcess> {
         if self.other_boot() {
             return Vec::new();
         }
@@ -57,45 +79,35 @@ impl ScanRules {
         s.processes
             .into_iter()
             .filter(|p| only.is_none_or(|o| o == p.attempt_id))
-            .filter(|p| cwd_under(p.pid, &self.roots))
             .collect()
+    }
+
+    /// The process layer's sweep spec: THE ONE OWNERSHIP RULE, no narrowing of the supervisor's own (gate3 M1). `None`
+    /// for another boot: nothing may be signalled then.
+    pub fn sweep_spec(&self, only: Option<&str>, budget: Duration) -> Option<SweepSpec> {
+        if self.other_boot() {
+            return None;
+        }
+        Some(SweepSpec {
+            campaign_id: self.campaign_id.clone(),
+            only_attempt: only.map(str::to_string),
+            not_before_ticks: self.min_start_ticks,
+            budget,
+            pass_gap: Duration::from_millis(20),
+            narrowing: None,
+        })
     }
 }
 
-/// SIGKILL every marked process (optionally of one attempt) through the verified path until none is left or `timeout`
-/// passes. Returns the processes the signal was delivered to (each once). `progress(round, found)` is called per round.
-pub fn sweep(
-    rules: &ScanRules,
-    only: Option<&str>,
-    timeout: Duration,
-    mut progress: impl FnMut(usize, usize),
-) -> Vec<MarkedProcess> {
-    let t0 = Instant::now();
-    let mut killed: Vec<MarkedProcess> = Vec::new();
-    let Some(boot) = current_boot_id() else {
-        return killed;
-    };
-    let mut round = 0;
-    loop {
-        let found = rules.scan(only);
-        if found.is_empty() {
-            return killed;
-        }
-        round += 1;
-        progress(round, found.len());
-        for m in &found {
-            if kill_orphan(&rules.campaign_id, &boot, m, libc::SIGKILL).delivered()
-                && !killed
-                    .iter()
-                    .any(|k| k.pid == m.pid && k.start_ticks == m.start_ticks)
-            {
-                killed.push(m.clone());
-            }
-        }
-        if t0.elapsed() > timeout {
-            return killed;
-        }
-        std::thread::sleep(Duration::from_millis(50));
+/// The freezing sweep of every marked process of this campaign (optionally one attempt), BLOCKING (restart time).
+pub fn sweep(rules: &ScanRules, only: Option<&str>, budget: Duration) -> SweepReport {
+    match rules.sweep_spec(only, budget) {
+        Some(spec) => crate::launch::sweep::sweep(&spec, &AtomicBool::new(false)),
+        None => SweepReport {
+            proven: true,
+            reason: None,
+            ..Default::default()
+        },
     }
 }
 

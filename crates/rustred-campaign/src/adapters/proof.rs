@@ -24,6 +24,7 @@ use rustred_campaign_contract::stop::StopCode;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
@@ -309,14 +310,20 @@ impl ProofInstantiateAdapter {
                                 end: Some(EndKind::End),
                                 sealed: true,
                             }),
-                            Err(e) => eprintln!("proof wrapper: sealing failed: {e}"),
+                            Err(e) => {
+                                // gate3 m1: no panic on a closed stderr
+                                let _ = writeln!(
+                                    std::io::stderr(),
+                                    "proof wrapper: sealing failed: {e}"
+                                );
+                            }
                         }
                         write(j);
                         (mapped, None)
                     }
                     // the child's answers do not check: an OUTCOME without a sealed file (row 22, nothing accepted)
                     Err((why, m)) => {
-                        eprintln!("proof wrapper: {why}");
+                        let _ = writeln!(std::io::stderr(), "proof wrapper: {why}");
                         write(j);
                         (mapped, m)
                     }

@@ -119,25 +119,22 @@ pub fn opts_for(campaign: &Value) -> DashboardOptions {
     opts_at(fixture_now(campaign)).0
 }
 
-/// A scratch directory under the non-snapshotted build cache (never under /shared or /home), unique per test.
+/// A scratch directory unique per call on the host (lane int5): under `RR_TUI_SCRATCH` when set, else under TMPDIR
+/// (light_build.sh sets a private one on the non-snapshotted build cache); never the pid alone, never removing a
+/// directory it did not create.
 pub fn scratch(name: &str) -> PathBuf {
-    let base = std::env::var_os("RR_TUI_SCRATCH")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(format!(
-                "/common/build-cache/{}/p_integral_dev/implementer-scratch/tui",
-                std::env::var("USER").unwrap_or_else(|_| "user".into())
-            ))
-        });
-    let base = if std::fs::create_dir_all(&base).is_ok() {
-        base
-    } else {
-        std::env::temp_dir().join("rr-tui-tests")
-    };
-    let d = base.join(format!("{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&d);
-    std::fs::create_dir_all(&d).unwrap();
-    d
+    match std::env::var_os("RR_TUI_SCRATCH") {
+        Some(b) => {
+            let base = PathBuf::from(b);
+            std::fs::create_dir_all(&base).unwrap();
+            let u = unique_temp_dir(&format!("rr-tui-{name}"));
+            let d = base.join(u.file_name().unwrap());
+            let _ = std::fs::remove_dir(&u);
+            std::fs::create_dir(&d).unwrap_or_else(|e| panic!("{}: {e}", d.display()));
+            d
+        }
+        None => unique_temp_dir(&format!("rr-tui-{name}")),
+    }
 }
 
 /// Compares `text` with the golden screen `tests/data/tui/screens/<name>.txt` (rewritten with
@@ -173,5 +170,36 @@ pub fn check_golden(name: &str, text: &str) {
             text.lines().count(),
             diff.join("\n")
         );
+    }
+}
+
+/// A NEW directory `<TMPDIR>/<prefix>-<token>` unique on the host (lane int5, procfix3 item 0): never derived from the
+/// pid alone (inside the private pid namespaces of rule L10 every test binary is pid 1, and two lanes may share a temp
+/// root), and created with `create_dir` (a directory it did not create is never reused or removed).
+#[allow(dead_code)]
+pub fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let base = std::env::temp_dir();
+    std::fs::create_dir_all(&base).unwrap();
+    let ns = std::fs::read_link("/proc/self/ns/pid")
+        .map(|l| l.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+    loop {
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let n = SEQ.fetch_add(1, Ordering::Relaxed);
+        let token = blake3::hash(format!("{ns}|{}|{stat}|{t}|{n}", std::process::id()).as_bytes())
+            .to_hex()[..12]
+            .to_string();
+        let p = base.join(format!("{prefix}-{token}"));
+        match std::fs::create_dir(&p) {
+            Ok(()) => return p,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => panic!("{}: {e}", p.display()),
+        }
     }
 }
