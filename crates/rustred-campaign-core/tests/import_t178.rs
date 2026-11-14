@@ -9,12 +9,7 @@
 //! `RUSTRED_IMPORT_SCRATCH` (default /common/build-cache/$USER/p_integral_dev/implementer-scratch/import).
 //! Run: `light_build.sh import test -p rustred-campaign-core --release --test import_t178 -- --ignored --nocapture`.
 
-// ---- shim until I-INT adds `pub mod import;` to lib.rs (interfaces/import.md s.10)
-#[allow(unused_imports)]
-use rustred_campaign_core::{closure, cover, domain, key, order, poly, record, schema, symmetry};
-#[allow(dead_code, unused_imports)]
-#[path = "../src/import/mod.rs"]
-mod import;
+use rustred_campaign_core::import;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

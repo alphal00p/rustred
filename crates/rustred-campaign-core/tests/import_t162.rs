@@ -11,12 +11,7 @@
 //! p_integral_dev/bank-conv), scratch `RUSTRED_IMPORT_SCRATCH`.
 //! Run: `light_build.sh import test -p rustred-campaign-core --release --test import_t162 -- --ignored --nocapture`.
 
-// ---- shim until I-INT adds `pub mod import;` to lib.rs (interfaces/import.md s.10)
-#[allow(unused_imports)]
-use rustred_campaign_core::{closure, cover, domain, key, order, poly, record, schema, symmetry};
-#[allow(dead_code, unused_imports)]
-#[path = "../src/import/mod.rs"]
-mod import;
+use rustred_campaign_core::import;
 
 use std::path::{Path, PathBuf};
 

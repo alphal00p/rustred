@@ -3,12 +3,7 @@
 //! (record_sha256, key) only, per-key proofs, recipe relations (domain + certification), supplied relations, terminals,
 //! statement writing and the comparison with a hand statement that differs in one key.
 
-// ---- shim until I-INT adds `pub mod import;` to lib.rs (interfaces/import.md s.10)
-#[allow(unused_imports)]
-use rustred_campaign_core::{closure, cover, domain, key, order, poly, record, schema, symmetry};
-#[allow(dead_code, unused_imports)]
-#[path = "../src/import/mod.rs"]
-mod import;
+use rustred_campaign_core::{closure, import};
 
 use std::path::{Path, PathBuf};
 
