@@ -131,7 +131,10 @@ mod tests {
             r#"{"B":true,"a":null,"b":[3,{"a":"é\n","z":1}]}"#
         );
         assert!(canonical_json(&json!({"x": 1.5}), false).is_err());
-        assert_eq!(canonical_json(&json!({"x": 1.5}), true).unwrap(), r#"{"x":1.5}"#);
+        assert_eq!(
+            canonical_json(&json!({"x": 1.5}), true).unwrap(),
+            r#"{"x":1.5}"#
+        );
         assert!(has_duplicate_keys(br#"{"a":1,"b":{"c":1,"c":2}}"#).unwrap());
         assert!(!has_duplicate_keys(br#"{"a":1,"b":{"c":1,"d":[{"c":2}]}}"#).unwrap());
     }

@@ -355,7 +355,9 @@ impl NodeProgress {
         let closed = matches!(self.phase.as_str(), "closed" | "certified");
         match (self.closure_kind.as_str(), &self.target) {
             ("full", Target::Full) => closed,
-            ("boxed", Target::Boxed { box_id }) => closed && self.spec_box.as_deref() == Some(box_id),
+            ("boxed", Target::Boxed { box_id }) => {
+                closed && self.spec_box.as_deref() == Some(box_id)
+            }
             ("open", _) => !closed,
             _ => false,
         }

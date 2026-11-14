@@ -172,7 +172,10 @@ pub struct FullAttempt {
 impl Default for FullAttempt {
     /// U-6 default: 50 CPU-hours or 5 fixer rounds, whichever first.
     fn default() -> Self {
-        FullAttempt { cpu_hours: 50, fixer_rounds: 5 }
+        FullAttempt {
+            cpu_hours: 50,
+            fixer_rounds: 5,
+        }
     }
 }
 
@@ -322,7 +325,10 @@ impl CampaignSpec {
             }
             for k in ["knockout", "lp", "master_lower_bound", "masters"] {
                 if n.extra.contains_key(k) {
-                    return Err(format!("node {}: `{k}` is not an input (U-9; use `reference`)", n.id));
+                    return Err(format!(
+                        "node {}: `{k}` is not an input (U-9; use `reference`)",
+                        n.id
+                    ));
                 }
             }
         }

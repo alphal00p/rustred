@@ -16,12 +16,14 @@ use std::sync::Arc;
 use rustred_campaign::clock::{Clock, ManualClock};
 use rustred_campaign::cpu_policy::SiteConfig;
 use rustred_campaign::ledger::{
-    self, AcceptSource, Event, FileRef, ItemEvent, JobEvent, Ledger, LedgerConfig, Manifest, Record,
-    RetirementProof, RuleEconomy, Snapshot,
+    self, AcceptSource, Event, FileRef, ItemEvent, JobEvent, Ledger, LedgerConfig, Manifest,
+    Record, RetirementProof, RuleEconomy, Snapshot,
 };
 use rustred_campaign::lock::{DeadReason, OwnerRecord, ProcessIdentity};
 use rustred_campaign::progress::{self, Resources};
-use rustred_campaign::state::{Blockers, CampaignEvent, EvidenceLevel, FinishClass, NodeEvent, Rung};
+use rustred_campaign::state::{
+    Blockers, CampaignEvent, EvidenceLevel, FinishClass, NodeEvent, Rung,
+};
 use rustred_campaign_core::schema::canon::canonical_json;
 use rustred_campaign_core::schema::spec::CampaignSpec;
 use serde::Serialize;
@@ -80,7 +82,8 @@ fn large(path: &str) -> FileRef {
 /// non-five-loop family set).
 fn spec_for(id: &str, nodes: &[(&str, bool, &str, usize)]) -> CampaignSpec {
     let mut v: Value =
-        serde_json::from_slice(&fs::read(schemas().join("examples/campaign-spec.json")).unwrap()).unwrap();
+        serde_json::from_slice(&fs::read(schemas().join("examples/campaign-spec.json")).unwrap())
+            .unwrap();
     v["campaign"] = json!(id);
     v["dirs"]["campaign_dir"] = json!(format!("/abs/campaigns/{id}"));
     v["dirs"]["large_root"] = json!(format!("/common/build-cache/campaigns/{id}"));
@@ -146,7 +149,10 @@ fn register(spec: &CampaignSpec, spec_ref: &FileRef) -> Vec<Event> {
             v.push(Event::InputRegistered {
                 input: b.id.clone(),
                 role: "box".into(),
-                path: b.path.clone().unwrap_or_else(|| format!("spec.json#/nodes/{}/box", n.id)),
+                path: b
+                    .path
+                    .clone()
+                    .unwrap_or_else(|| format!("spec.json#/nodes/{}/box", n.id)),
                 bytes: 900,
                 blake3: b.blake3.clone(),
             });
@@ -197,7 +203,13 @@ fn created(n: &str, i: &str, kind: &str, rung: u8, parent: Option<&str>, label: 
     }
 }
 
-fn finished(class: FinishClass, exit: i32, sealed: Option<FileRef>, cpu_ms: u64, time_decided: bool) -> JobEvent {
+fn finished(
+    class: FinishClass,
+    exit: i32,
+    sealed: Option<FileRef>,
+    cpu_ms: u64,
+    time_decided: bool,
+) -> JobEvent {
     JobEvent::Finished {
         class,
         exit_code: Some(exit),
@@ -223,7 +235,12 @@ fn launch(l: &mut Ledger, i: &str, j: &str, rung: u8, cpu: u32) {
             binary: "program:rr_node".into(),
             reserved_bytes: 2 << 30,
         },
-        item(i, ItemEvent::Start { job: Some(j.into()) }),
+        item(
+            i,
+            ItemEvent::Start {
+                job: Some(j.into()),
+            },
+        ),
         job(
             j,
             1,
@@ -248,7 +265,8 @@ fn launch(l: &mut Ledger, i: &str, j: &str, rung: u8, cpu: u32) {
 
 /// The accept record file of an accepted rule (hand-made shape: no as-built writer of accept records yet).
 fn accept_record(node: &str, rule: &str, table: &FileRef, level: &str, k: u64) -> Vec<u8> {
-    let mut v: Value = serde_json::from_slice(&fs::read(schemas().join("examples/accept.json")).unwrap()).unwrap();
+    let mut v: Value =
+        serde_json::from_slice(&fs::read(schemas().join("examples/accept.json")).unwrap()).unwrap();
     v["rule"]["id"] = json!(rule);
     v["rule"]["node"] = json!(node);
     v["rule"]["table_blake3"] = json!(table.blake3);
@@ -285,12 +303,23 @@ fn accepted_item(
 ) -> String {
     let i = format!("{n}:I{k:04}");
     let j = format!("{n}-J{k:04}-L{rung}");
-    l.append(created(n, &i, "face", rung, None, &format!("F{k:03}"))).unwrap();
+    l.append(created(n, &i, "face", rung, None, &format!("F{k:03}")))
+        .unwrap();
     launch(l, &i, &j, rung, 20 + k as u32);
     let table = large(&format!("jobs/{j}/a1/out/F.table.jsonl"));
     let rule = format!("{n}:R:campaign:{k}");
     l.append_all(vec![
-        job(&j, 1, finished(FinishClass::RuleFound, 10, Some(table.clone()), cpu_ms, false)),
+        job(
+            &j,
+            1,
+            finished(
+                FinishClass::RuleFound,
+                10,
+                Some(table.clone()),
+                cpu_ms,
+                false,
+            ),
+        ),
         item(
             &i,
             ItemEvent::Produce {
@@ -349,14 +378,31 @@ fn accepted_item(
 fn rejected_then_terminal(l: &mut Ledger, n: &str, k: u64, declare: bool) {
     let i = format!("{n}:I{k:04}");
     let j = format!("{n}-J{k:04}-L0");
-    l.append(created(n, &i, "locus", 0, None, &format!("F{k:03} n9=-1"))).unwrap();
+    l.append(created(n, &i, "locus", 0, None, &format!("F{k:03} n9=-1")))
+        .unwrap();
     launch(l, &i, &j, 0, 40 + k as u32);
     let t = large(&format!("jobs/{j}/a1/out/F.table.jsonl"));
     let c = format!("{n}:I{:04}", k + 1);
     l.append_all(vec![
-        job(&j, 1, finished(FinishClass::NoRule, 10, Some(t.clone()), 2500, true)),
-        item(&i, ItemEvent::Produce { job: j, attempt: 1, table: t }),
-        item(&i, ItemEvent::Reject { reason: "rule_covers_none".into() }),
+        job(
+            &j,
+            1,
+            finished(FinishClass::NoRule, 10, Some(t.clone()), 2500, true),
+        ),
+        item(
+            &i,
+            ItemEvent::Produce {
+                job: j,
+                attempt: 1,
+                table: t,
+            },
+        ),
+        item(
+            &i,
+            ItemEvent::Reject {
+                reason: "rule_covers_none".into(),
+            },
+        ),
         item(
             &i,
             ItemEvent::Escalate {
@@ -404,10 +450,23 @@ fn closure(n: &str, round: u32, defect: u64) -> Event {
 fn full_node(l: &mut Ledger, fx: &mut Fx, n: &str, base: u64) {
     l.append(node(n, NodeEvent::Start)).unwrap();
     for k in 0..2 {
-        accepted_item(l, fx, n, base + k, 0, EvidenceLevel::IdentityProved, 1000 * (k + 1), 300);
+        accepted_item(
+            l,
+            fx,
+            n,
+            base + k,
+            0,
+            EvidenceLevel::IdentityProved,
+            1000 * (k + 1),
+            300,
+        );
     }
-    l.append_all(vec![closure(n, 1, 0), node(n, NodeEvent::DeclareClosed), node(n, NodeEvent::DeclareCertified)])
-        .unwrap();
+    l.append_all(vec![
+        closure(n, 1, 0),
+        node(n, NodeEvent::DeclareClosed),
+        node(n, NodeEvent::DeclareCertified),
+    ])
+    .unwrap();
 }
 
 /// A node with a spec box: the full attempt ends, falls back to the box, closes there with declared terminals; a
@@ -415,8 +474,26 @@ fn full_node(l: &mut Ledger, fx: &mut Fx, n: &str, base: u64) {
 fn boxed_node(l: &mut Ledger, fx: &mut Fx, n: &str, base: u64) {
     l.append(node(n, NodeEvent::Start)).unwrap();
     let a = accepted_item(l, fx, n, base, 0, EvidenceLevel::IdentityProved, 3000, 2000);
-    let b = accepted_item(l, fx, n, base + 1, 1, EvidenceLevel::IdentityTested, 4000, 400);
-    let c = accepted_item(l, fx, n, base + 2, 0, EvidenceLevel::GeometryAccepted, 500, 90);
+    let b = accepted_item(
+        l,
+        fx,
+        n,
+        base + 1,
+        1,
+        EvidenceLevel::IdentityTested,
+        4000,
+        400,
+    );
+    let c = accepted_item(
+        l,
+        fx,
+        n,
+        base + 2,
+        0,
+        EvidenceLevel::GeometryAccepted,
+        500,
+        90,
+    );
     rejected_then_terminal(l, n, base + 3, true);
     l.append_all(vec![
         closure(n, 1, 37),
@@ -432,7 +509,12 @@ fn boxed_node(l: &mut Ledger, fx: &mut Fx, n: &str, base: u64) {
                 reason: "full attempt: 5 fixer rounds without closure (U-6)".into(),
             },
         ),
-        node(n, NodeEvent::FallBackToBox { box_id: format!("{n}.box") }),
+        node(
+            n,
+            NodeEvent::FallBackToBox {
+                box_id: format!("{n}.box"),
+            },
+        ),
         item(
             &a,
             ItemEvent::Retire {
@@ -503,25 +585,44 @@ fn owner(pid: u32) -> OwnerRecord {
             boot_id: "6b1f0c55-0000-4000-8000-000000000000".into(),
             host: "itphlies".into(),
         },
-        argv: vec!["rr_campaign".into(), "run".into(), "--spec".into(), "spec.json".into()],
+        argv: vec![
+            "rr_campaign".into(),
+            "run".into(),
+            "--spec".into(),
+            "spec.json".into(),
+        ],
         started_utc: "2026-11-14T09:00:00.000Z".into(),
         token: "0123456789abcdef0123456789abcdef".into(),
     }
 }
 
 fn hand_doc(name: &str, edit: impl FnOnce(&mut Value)) -> Vec<u8> {
-    let mut v: Value = serde_json::from_slice(&fs::read(schemas().join("examples").join(name)).unwrap()).unwrap();
+    let mut v: Value =
+        serde_json::from_slice(&fs::read(schemas().join("examples").join(name)).unwrap()).unwrap();
     edit(&mut v);
     v["fixture_origin"] = json!("hand");
     pretty(&v)
 }
 
-fn start_ledger(fx: &mut Fx, id: &str, nodes: &[(&str, bool, &str, usize)], t0: &str) -> (Ledger, Arc<ManualClock>) {
+fn start_ledger(
+    fx: &mut Fx,
+    id: &str,
+    nodes: &[(&str, bool, &str, usize)],
+    t0: &str,
+) -> (Ledger, Arc<ManualClock>) {
     let spec = spec_for(id, nodes);
     let sref = fx.put("spec.json", pretty(&spec));
     let clk = Arc::new(ManualClock::at(t0).with_tick(250));
     let c: Arc<dyn Clock> = clk.clone();
-    let mut l = Ledger::create(&fx.root, c, LedgerConfig::default(), id, &sref.blake3, spec.terminal_bound).unwrap();
+    let mut l = Ledger::create(
+        &fx.root,
+        c,
+        LedgerConfig::default(),
+        id,
+        &sref.blake3,
+        spec.terminal_bound,
+    )
+    .unwrap();
     l.append_all(register(&spec, &sref)).unwrap();
     (l, clk)
 }
@@ -536,32 +637,56 @@ fn build(name: &str, root: &Path) -> BTreeMap<String, Vec<u8>> {
     };
     match name {
         "cdir-empty" => {
-            let (l, clk) = start_ledger(&mut fx, "fixture-empty", &[("T162", true, "per-key", 20)], "2026-11-14T08:00:00Z");
+            let (l, clk) = start_ledger(
+                &mut fx,
+                "fixture-empty",
+                &[("T162", true, "per-key", 20)],
+                "2026-11-14T08:00:00Z",
+            );
             let t = clk.now_utc().to_iso();
             write_progress(&mut fx, &l, &Resources::default(), &t);
         }
         "cdir-mid" => {
-            let nodes = [("T164", false, "replay", 20), ("T162", true, "per-key", 20), ("T178", true, "per-key", 20)];
+            let nodes = [
+                ("T164", false, "replay", 20),
+                ("T162", true, "per-key", 20),
+                ("T178", true, "per-key", 20),
+            ];
             let (mut l, clk) = start_ledger(&mut fx, "fixture-mid", &nodes, "2026-11-14T11:58:00Z");
-            l.append_all(vec![camp(CampaignEvent::Start, "rr_campaign run"), camp(CampaignEvent::Run, "preflight ok")])
-                .unwrap();
+            l.append_all(vec![
+                camp(CampaignEvent::Start, "rr_campaign run"),
+                camp(CampaignEvent::Run, "preflight ok"),
+            ])
+            .unwrap();
             full_node(&mut l, &mut fx, "T164", 0);
             l.rotate().unwrap();
             boxed_node(&mut l, &mut fx, "T162", 0);
             // T178: OPEN, full attempt still running: a rejected item escalated to a terminal candidate (attention), one
             // accepted rule, two running jobs.
             l.append(node("T178", NodeEvent::Start)).unwrap();
-            accepted_item(&mut l, &mut fx, "T178", 0, 0, EvidenceLevel::GeometryAccepted, 800, 150);
+            accepted_item(
+                &mut l,
+                &mut fx,
+                "T178",
+                0,
+                0,
+                EvidenceLevel::GeometryAccepted,
+                800,
+                150,
+            );
             rejected_then_terminal(&mut l, "T178", 1, false);
             for k in [3u64, 4] {
                 let i = format!("T178:I{k:04}");
-                l.append(created("T178", &i, "face", 0, None, &format!("F{k:03}"))).unwrap();
+                l.append(created("T178", &i, "face", 0, None, &format!("F{k:03}")))
+                    .unwrap();
                 launch(&mut l, &i, &format!("T178-J{k:04}-L0"), 0, 60 + k as u32);
             }
             l.append(Event::JobProgress {
                 job: "T178-J0004-L0".into(),
                 attempt: 1,
-                counters: [("rows".to_string(), 412u64), ("seeds".to_string(), 9000)].into_iter().collect(),
+                counters: [("rows".to_string(), 412u64), ("seeds".to_string(), 9000)]
+                    .into_iter()
+                    .collect(),
             })
             .unwrap();
             l.append(closure("T178", 1, 409)).unwrap();
@@ -597,13 +722,21 @@ fn build(name: &str, root: &Path) -> BTreeMap<String, Vec<u8>> {
         }
         "cdir-finished" => {
             // GENERICITY (P-5): an invented toy family set (arities 5 and 9), no five-loop name or number.
-            let nodes = [("tri-a", false, "replay", 5), ("kite.b9", true, "per-key", 9)];
-            let (mut l, clk) = start_ledger(&mut fx, "fixture-finished", &nodes, "2026-11-14T06:00:00Z");
-            l.append_all(vec![camp(CampaignEvent::Start, "rr_campaign run"), camp(CampaignEvent::Run, "preflight ok")])
-                .unwrap();
+            let nodes = [
+                ("tri-a", false, "replay", 5),
+                ("kite.b9", true, "per-key", 9),
+            ];
+            let (mut l, clk) =
+                start_ledger(&mut fx, "fixture-finished", &nodes, "2026-11-14T06:00:00Z");
+            l.append_all(vec![
+                camp(CampaignEvent::Start, "rr_campaign run"),
+                camp(CampaignEvent::Run, "preflight ok"),
+            ])
+            .unwrap();
             full_node(&mut l, &mut fx, "tri-a", 0);
             boxed_node(&mut l, &mut fx, "kite.b9", 0);
-            l.append(camp(CampaignEvent::Finish, "every node closed")).unwrap();
+            l.append(camp(CampaignEvent::Finish, "every node closed"))
+                .unwrap();
             fx.put(
                 "control/done/20261114T061000Z-0001.json",
                 hand_doc("control.json", |v| {
@@ -641,13 +774,30 @@ fn build(name: &str, root: &Path) -> BTreeMap<String, Vec<u8>> {
             write_progress(&mut fx, &l, &resources(&t, 0), &t);
         }
         "cdir-stale" => {
-            let (mut l, clk) =
-                start_ledger(&mut fx, "fixture-stale", &[("T162", true, "per-key", 20)], "2026-11-14T10:00:00Z");
-            l.append_all(vec![camp(CampaignEvent::Start, "rr_campaign run"), camp(CampaignEvent::Run, "preflight ok")])
-                .unwrap();
+            let (mut l, clk) = start_ledger(
+                &mut fx,
+                "fixture-stale",
+                &[("T162", true, "per-key", 20)],
+                "2026-11-14T10:00:00Z",
+            );
+            l.append_all(vec![
+                camp(CampaignEvent::Start, "rr_campaign run"),
+                camp(CampaignEvent::Run, "preflight ok"),
+            ])
+            .unwrap();
             l.append(node("T162", NodeEvent::Start)).unwrap();
-            accepted_item(&mut l, &mut fx, "T162", 0, 0, EvidenceLevel::IdentityTested, 1500, 300);
-            l.append(created("T162", "T162:I0001", "face", 0, None, "F001")).unwrap();
+            accepted_item(
+                &mut l,
+                &mut fx,
+                "T162",
+                0,
+                0,
+                EvidenceLevel::IdentityTested,
+                1500,
+                300,
+            );
+            l.append(created("T162", "T162:I0001", "face", 0, None, "F001"))
+                .unwrap();
             launch(&mut l, "T162:I0001", "T162-J0001-L0", 0, 7);
             // the supervisor died here (no drain / stop record): heartbeat and written_utc stay at 10:00
             fx.put("LOCK.json", pretty(&owner(31337)));
@@ -674,7 +824,10 @@ fn committed(dir: &Path) -> BTreeMap<String, Vec<u8>> {
             if p.is_dir() {
                 walk(root, &p, out);
             } else {
-                out.insert(p.strip_prefix(root).unwrap().to_string_lossy().into_owned(), fs::read(&p).unwrap());
+                out.insert(
+                    p.strip_prefix(root).unwrap().to_string_lossy().into_owned(),
+                    fs::read(&p).unwrap(),
+                );
             }
         }
     }
@@ -707,11 +860,18 @@ fn fixtures_are_deterministic_and_committed() {
             "{name}: file list differs from the committed fixture (RR_UPDATE_FIXTURES=1 regenerates)"
         );
         for (rel, bytes) in &a {
-            assert!(c[rel] == *bytes, "{name}/{rel} differs from the committed fixture (RR_UPDATE_FIXTURES=1)");
+            assert!(
+                c[rel] == *bytes,
+                "{name}/{rel} differs from the committed fixture (RR_UPDATE_FIXTURES=1)"
+            );
         }
         // the as-built verifier agrees with the progress files and the chain
         let rep = progress::verify(&dest).unwrap();
-        assert!(rep.clean(), "{name}: progress::verify differences {:?}", rep.differences);
+        assert!(
+            rep.clean(),
+            "{name}: progress::verify differences {:?}",
+            rep.differences
+        );
         let _ = fs::remove_dir_all(scratch(&format!("{name}-a")));
     }
     let reg = hand_doc("registry.json", |v| {
@@ -729,7 +889,11 @@ fn fixtures_are_deterministic_and_committed() {
     if update {
         fs::write(&p, &reg).unwrap();
     }
-    assert_eq!(fs::read(&p).unwrap(), reg, "fixtures/INDEX.json differs (RR_UPDATE_FIXTURES=1)");
+    assert_eq!(
+        fs::read(&p).unwrap(),
+        reg,
+        "fixtures/INDEX.json differs (RR_UPDATE_FIXTURES=1)"
+    );
 }
 
 /// examples/ledger-record.jsonl: one line per record kind and sub-event that the as-built ledger accepts, written by the
@@ -747,7 +911,11 @@ fn ledger_record_examples_cover_every_kind() {
     let c: Arc<dyn Clock> = clk.clone();
     let mut l = Ledger::create(&d, c, LedgerConfig::default(), "catalogue", &h('1'), 100).unwrap();
     let spec = spec_for("catalogue", &[("T162", true, "per-key", 20)]);
-    let sref = FileRef { path: "spec.json".into(), bytes: 1, blake3: h('1') };
+    let sref = FileRef {
+        path: "spec.json".into(),
+        bytes: 1,
+        blake3: h('1'),
+    };
     l.append_all(register(&spec, &sref)).unwrap();
     let id = owner(4242).identity;
     l.append_all(vec![
@@ -779,7 +947,12 @@ fn ledger_record_examples_cover_every_kind() {
         camp(CampaignEvent::Run, "ok"),
         node("T162", NodeEvent::Start),
         created("T162", "T162:I0000", "face", 0, None, "F000"),
-        item("T162:I0000", ItemEvent::Requeue { reason: "operator retry".into() }),
+        item(
+            "T162:I0000",
+            ItemEvent::Requeue {
+                reason: "operator retry".into(),
+            },
+        ),
         Event::JobQueued {
             job: "j0".into(),
             item: "T162:I0000".into(),
@@ -789,7 +962,13 @@ fn ledger_record_examples_cover_every_kind() {
             binary: "program:rr_node".into(),
             reserved_bytes: 1 << 30,
         },
-        job("j0", 1, JobEvent::Cancel { reason: "skip".into() }),
+        job(
+            "j0",
+            1,
+            JobEvent::Cancel {
+                reason: "skip".into(),
+            },
+        ),
         Event::JobQueued {
             job: "j1".into(),
             item: "T162:I0000".into(),
@@ -799,23 +978,98 @@ fn ledger_record_examples_cover_every_kind() {
             binary: "program:rr_node".into(),
             reserved_bytes: 1 << 30,
         },
-        job("j1", 1, JobEvent::Launch { run_dir: "large:jobs/j1/a1".into(), cpus: vec![3], reserved_bytes: 1 << 30 }),
-        job("j1", 1, JobEvent::Lose { reason: "host reboot".into() }),
-        job("j1", 2, JobEvent::Requeue { reason: "resume".into() }),
-        job("j1", 2, JobEvent::Launch { run_dir: "large:jobs/j1/a2".into(), cpus: vec![3], reserved_bytes: 1 << 30 }),
+        job(
+            "j1",
+            1,
+            JobEvent::Launch {
+                run_dir: "large:jobs/j1/a1".into(),
+                cpus: vec![3],
+                reserved_bytes: 1 << 30,
+            },
+        ),
+        job(
+            "j1",
+            1,
+            JobEvent::Lose {
+                reason: "host reboot".into(),
+            },
+        ),
+        job(
+            "j1",
+            2,
+            JobEvent::Requeue {
+                reason: "resume".into(),
+            },
+        ),
+        job(
+            "j1",
+            2,
+            JobEvent::Launch {
+                run_dir: "large:jobs/j1/a2".into(),
+                cpus: vec![3],
+                reserved_bytes: 1 << 30,
+            },
+        ),
         job("j1", 2, finished(FinishClass::Crashed, 70, None, 10, false)),
-        job("j1", 3, JobEvent::Retry { reason: "crashed once".into() }),
-        Event::Note { text: "catalogue".into() },
+        job(
+            "j1",
+            3,
+            JobEvent::Retry {
+                reason: "crashed once".into(),
+            },
+        ),
+        Event::Note {
+            text: "catalogue".into(),
+        },
         node(
             "T162",
-            NodeEvent::AttemptEnded { blockers: Blockers { faces: 1, loci: 0, keys: 3, list: None }, reason: "budget".into() },
+            NodeEvent::AttemptEnded {
+                blockers: Blockers {
+                    faces: 1,
+                    loci: 0,
+                    keys: 3,
+                    list: None,
+                },
+                reason: "budget".into(),
+            },
         ),
-        node("T162", NodeEvent::FallBackToBox { box_id: "T162.box".into() }),
-        node("T162", NodeEvent::AttemptEnded { blockers: Blockers::default(), reason: "box budget".into() }),
-        node("T162", NodeEvent::DeclareOpen { reason: "box attempt ended".into() }),
-        node("T162", NodeEvent::Reopen { reason: "new seeds".into() }),
-        node("T162", NodeEvent::MarkStale { reason: "family changed".into() }),
-        item("T162:I0000", ItemEvent::MarkStale { input: "T162.family".into() }),
+        node(
+            "T162",
+            NodeEvent::FallBackToBox {
+                box_id: "T162.box".into(),
+            },
+        ),
+        node(
+            "T162",
+            NodeEvent::AttemptEnded {
+                blockers: Blockers::default(),
+                reason: "box budget".into(),
+            },
+        ),
+        node(
+            "T162",
+            NodeEvent::DeclareOpen {
+                reason: "box attempt ended".into(),
+            },
+        ),
+        node(
+            "T162",
+            NodeEvent::Reopen {
+                reason: "new seeds".into(),
+            },
+        ),
+        node(
+            "T162",
+            NodeEvent::MarkStale {
+                reason: "family changed".into(),
+            },
+        ),
+        item(
+            "T162:I0000",
+            ItemEvent::MarkStale {
+                input: "T162.family".into(),
+            },
+        ),
     ])
     .unwrap();
     recs.extend(ledger::read_records(&d).unwrap());
@@ -824,20 +1078,33 @@ fn ledger_record_examples_cover_every_kind() {
     for r in &recs {
         let v = serde_json::to_value(r).unwrap();
         let mut key = r.event.kind().to_string();
-        if let Some(ev) = v["event"]["body"]["ev"].get("ev").or(v["event"]["body"].get("ev")) {
-            if matches!(key.as_str(), "item" | "job" | "node" | "campaign") {
+        if let Some(ev) = v["event"]["body"]["ev"]
+            .get("ev")
+            .or(v["event"]["body"].get("ev"))
+            && matches!(key.as_str(), "item" | "job" | "node" | "campaign")
+        {
+            {
                 key = format!("{key}.{}", ev.as_str().unwrap_or(""));
             }
         }
-        seen.entry(key).or_insert_with(|| serde_json::to_string(r).unwrap());
+        seen.entry(key)
+            .or_insert_with(|| serde_json::to_string(r).unwrap());
     }
     let text: String = seen.values().map(|l| format!("{l}\n")).collect();
     let p = schemas().join("examples/ledger-record.jsonl");
     if std::env::var_os("RR_UPDATE_FIXTURES").is_some() {
         fs::write(&p, &text).unwrap();
     }
-    assert_eq!(fs::read_to_string(&p).unwrap(), text, "examples/ledger-record.jsonl differs (RR_UPDATE_FIXTURES=1)");
-    println!("ledger record kinds / sub-events exampled: {} ({:?})", seen.len(), seen.keys().collect::<Vec<_>>());
+    assert_eq!(
+        fs::read_to_string(&p).unwrap(),
+        text,
+        "examples/ledger-record.jsonl differs (RR_UPDATE_FIXTURES=1)"
+    );
+    println!(
+        "ledger record kinds / sub-events exampled: {} ({:?})",
+        seen.len(),
+        seen.keys().collect::<Vec<_>>()
+    );
 }
 
 fn roundtrip<T: DeserializeOwned + Serialize>(text: &[u8], what: &str) {
@@ -858,12 +1125,19 @@ fn as_built_structs_roundtrip_examples_and_fixtures() {
     let e = schemas().join("examples");
     let mut lines = 0;
     let mut texts: Vec<(String, Vec<u8>)> = Vec::new();
-    for l in fs::read(e.join("ledger-record.jsonl")).unwrap().split(|b| *b == b'\n').filter(|l| !l.is_empty()) {
+    for l in fs::read(e.join("ledger-record.jsonl"))
+        .unwrap()
+        .split(|b| *b == b'\n')
+        .filter(|l| !l.is_empty())
+    {
         texts.push(("examples/ledger-record.jsonl".into(), l.to_vec()));
     }
     for name in FIXTURES {
         let dir = schemas().join("fixtures").join(name).join("ledger");
-        let mut names: Vec<_> = fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).collect();
+        let mut names: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
         names.sort();
         for p in names {
             let fname = p.file_name().unwrap().to_string_lossy().into_owned();
@@ -885,13 +1159,29 @@ fn as_built_structs_roundtrip_examples_and_fixtures() {
     }
     for (what, l) in &texts {
         let r: Record = serde_json::from_slice(l).unwrap_or_else(|e| panic!("{what}: {e}"));
-        assert_eq!(serde_json::to_vec(&r).unwrap(), *l, "{what}: ledger line does not re-serialise byte for byte");
+        assert_eq!(
+            serde_json::to_vec(&r).unwrap(),
+            *l,
+            "{what}: ledger line does not re-serialise byte for byte"
+        );
         lines += 1;
     }
-    roundtrip::<Manifest>(&fs::read(e.join("ledger-manifest.json")).unwrap(), "examples/ledger-manifest.json");
-    roundtrip::<Snapshot>(&fs::read(e.join("ledger-snapshot.json")).unwrap(), "examples/ledger-snapshot.json");
-    roundtrip::<OwnerRecord>(&fs::read(e.join("lock.json")).unwrap(), "examples/lock.json");
-    roundtrip::<SiteConfig>(&fs::read(e.join("site-policy.json")).unwrap(), "examples/site-policy.json");
+    roundtrip::<Manifest>(
+        &fs::read(e.join("ledger-manifest.json")).unwrap(),
+        "examples/ledger-manifest.json",
+    );
+    roundtrip::<Snapshot>(
+        &fs::read(e.join("ledger-snapshot.json")).unwrap(),
+        "examples/ledger-snapshot.json",
+    );
+    roundtrip::<OwnerRecord>(
+        &fs::read(e.join("lock.json")).unwrap(),
+        "examples/lock.json",
+    );
+    roundtrip::<SiteConfig>(
+        &fs::read(e.join("site-policy.json")).unwrap(),
+        "examples/site-policy.json",
+    );
     SiteConfig::read(&e.join("site-policy.json")).unwrap();
     println!("ledger lines round-tripped byte for byte: {lines}");
 }

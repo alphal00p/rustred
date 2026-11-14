@@ -4,7 +4,9 @@
 //! (`schemas/test_validate.py`): skipped with a printed reason only when no `python3` is on PATH.
 
 use rustred_campaign_core::schema::canon::{canonical_json, has_duplicate_keys};
-use rustred_campaign_core::schema::{accept, control, item, job, progress, registry, spec, terminals};
+use rustred_campaign_core::schema::{
+    accept, control, item, job, progress, registry, spec, terminals,
+};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -18,9 +20,14 @@ fn schemas() -> PathBuf {
 /// Parse `path` into `T`, write it back, compare the canonical forms of both (floats allowed: progress files).
 fn roundtrip<T: DeserializeOwned + Serialize>(path: &Path) {
     let text = std::fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    assert!(!has_duplicate_keys(&text).unwrap(), "{}: duplicate keys", path.display());
+    assert!(
+        !has_duplicate_keys(&text).unwrap(),
+        "{}: duplicate keys",
+        path.display()
+    );
     let original: Value = serde_json::from_slice(&text).unwrap();
-    let typed: T = serde_json::from_slice(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let typed: T =
+        serde_json::from_slice(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let back = serde_json::to_value(&typed).unwrap();
     let a = canonical_json(&original, true).unwrap();
     let b = canonical_json(&back, true).unwrap();
@@ -50,7 +57,9 @@ fn examples_roundtrip_through_core_structs() {
 }
 
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut v: Vec<PathBuf> = rd.filter_map(|e| e.ok().map(|e| e.path())).collect();
     v.sort();
     for p in v {
@@ -67,12 +76,17 @@ fn fixture_documents_roundtrip() {
     let mut files = Vec::new();
     walk(&schemas().join("fixtures"), &mut files);
     let mut n = 0;
-    for p in files.iter().filter(|p| p.extension().is_some_and(|x| x == "json")) {
+    for p in files
+        .iter()
+        .filter(|p| p.extension().is_some_and(|x| x == "json"))
+    {
         let v: Value = serde_json::from_slice(&std::fs::read(p).unwrap()).unwrap();
         let schema = v.get("schema").and_then(|s| s.as_str()).unwrap_or("");
         let file = v.get("file").and_then(|s| s.as_str()).unwrap_or("");
         match (schema, file) {
-            ("rustred.campaign.progress.v1", "campaign") => roundtrip::<progress::CampaignProgress>(p),
+            ("rustred.campaign.progress.v1", "campaign") => {
+                roundtrip::<progress::CampaignProgress>(p)
+            }
             ("rustred.campaign.progress.v1", "node") => roundtrip::<progress::NodeProgress>(p),
             ("rustred.campaign.progress.v1", "events") => roundtrip::<progress::EventsProgress>(p),
             ("rustred.campaign.spec.v1", _) => roundtrip::<spec::CampaignSpec>(p),
@@ -114,7 +128,11 @@ fn run_py(args: &[&str]) -> (i32, String) {
         .current_dir(schemas())
         .output()
         .unwrap();
-    let text = format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&o.stdout),
+        String::from_utf8_lossy(&o.stderr)
+    );
     (o.status.code().unwrap_or(-1), text)
 }
 
@@ -142,7 +160,10 @@ fn validator_accepts_every_example_and_fixture() {
         let (code, out) = run_py(&["validate.py", "--cdir", &p, "--now", "2026-11-14T11:59:00Z"]);
         assert_eq!(code, 0, "validate.py --cdir {p}:\n{out}");
         if d == "cdir-stale" {
-            assert!(out.contains("STALE"), "stale fixture not reported STALE:\n{out}");
+            assert!(
+                out.contains("STALE"),
+                "stale fixture not reported STALE:\n{out}"
+            );
         } else {
             assert!(!out.contains("STALE"), "{d} reported STALE:\n{out}");
         }
@@ -163,10 +184,15 @@ fn validator_rejects_mutations() {
 /// integers above 2^64 and `-0`, are skipped: they are refused or normalised by serde_json itself).
 #[test]
 fn document_canonical_form_on_shared_vectors() {
-    let v: Value = serde_json::from_slice(&std::fs::read(schemas().join("canon-vectors.json")).unwrap()).unwrap();
+    let v: Value =
+        serde_json::from_slice(&std::fs::read(schemas().join("canon-vectors.json")).unwrap())
+            .unwrap();
     let mut n = 0;
     for x in v["vectors"].as_array().unwrap() {
-        if matches!(x["name"].as_str(), Some("integer_above_2_64" | "minus_zero")) {
+        if matches!(
+            x["name"].as_str(),
+            Some("integer_above_2_64" | "minus_zero")
+        ) {
             continue;
         }
         let got = rustred_campaign_core::schema::canon::canonical_bytes(
@@ -174,7 +200,12 @@ fn document_canonical_form_on_shared_vectors() {
             x["floats"].as_bool().unwrap(),
         )
         .unwrap();
-        assert_eq!(got, x["document_rule"].as_str().unwrap(), "vector {}", x["name"]);
+        assert_eq!(
+            got,
+            x["document_rule"].as_str().unwrap(),
+            "vector {}",
+            x["name"]
+        );
         n += 1;
     }
     println!("document-rule vectors equal in Rust and Python: {n}");

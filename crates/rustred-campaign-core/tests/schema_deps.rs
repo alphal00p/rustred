@@ -27,7 +27,11 @@ fn graph(text: &str) -> BTreeMap<String, BTreeSet<String>> {
             name = Some(n);
         } else if l.starts_with("dependencies = [") {
             in_deps = !l.ends_with(']');
-            for d in l.trim_start_matches("dependencies = [").trim_end_matches(']').split(',') {
+            for d in l
+                .trim_start_matches("dependencies = [")
+                .trim_end_matches(']')
+                .split(',')
+            {
                 let d = d.trim().trim_matches('"');
                 if let (Some(n), Some(dep)) = (&name, d.split_whitespace().next()) {
                     g.get_mut(n).unwrap().insert(dep.to_string());
@@ -36,7 +40,12 @@ fn graph(text: &str) -> BTreeMap<String, BTreeSet<String>> {
         } else if in_deps {
             if l == "]" {
                 in_deps = false;
-            } else if let (Some(n), Some(dep)) = (&name, l.trim_matches(|c| c == '"' || c == ',').split_whitespace().next()) {
+            } else if let (Some(n), Some(dep)) = (
+                &name,
+                l.trim_matches(|c| c == '"' || c == ',')
+                    .split_whitespace()
+                    .next(),
+            ) {
                 g.get_mut(n).unwrap().insert(dep.to_string());
             }
         }
@@ -58,15 +67,37 @@ fn closure(g: &BTreeMap<String, BTreeSet<String>>, root: &str) -> BTreeSet<Strin
 #[test]
 fn light_crates_have_no_engine_math_dependency() {
     let g = graph(&lock());
-    assert!(g.contains_key("symbolica"), "the lock parser found no symbolica entry: parser broken");
-    assert!(closure(&g, "rustred").contains("symbolica"), "control: rustred depends on symbolica");
-    for root in ["rustred-campaign-core", "rustred-campaign-contract", "rustred-campaign"] {
+    assert!(
+        g.contains_key("symbolica"),
+        "the lock parser found no symbolica entry: parser broken"
+    );
+    assert!(
+        closure(&g, "rustred").contains("symbolica"),
+        "control: rustred depends on symbolica"
+    );
+    for root in [
+        "rustred-campaign-core",
+        "rustred-campaign-contract",
+        "rustred-campaign",
+    ] {
         let deps = closure(&g, root);
-        let bad: Vec<&str> = ["symbolica", "graphica", "numerica", "rustred", "rustred-app"]
-            .into_iter()
-            .filter(|b| deps.contains(*b))
-            .collect();
-        assert!(bad.is_empty(), "{root} depends on {bad:?} (plan 4.0 forbids it)");
-        println!("{root}: {} packages in the dependency superset, none of symbolica/graphica/numerica", deps.len());
+        let bad: Vec<&str> = [
+            "symbolica",
+            "graphica",
+            "numerica",
+            "rustred",
+            "rustred-app",
+        ]
+        .into_iter()
+        .filter(|b| deps.contains(*b))
+        .collect();
+        assert!(
+            bad.is_empty(),
+            "{root} depends on {bad:?} (plan 4.0 forbids it)"
+        );
+        println!(
+            "{root}: {} packages in the dependency superset, none of symbolica/graphica/numerica",
+            deps.len()
+        );
     }
 }

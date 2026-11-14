@@ -41,22 +41,35 @@ fn contract_examples_roundtrip() {
     roundtrip::<ResumeState>(&r("resume.json"), "resume.json");
     roundtrip::<VersionInfo>(&r("version.json"), "version.json");
     let mut n = 0;
-    for l in r("events-line.jsonl").split(|b| *b == b'\n').filter(|l| !l.is_empty()) {
+    for l in r("events-line.jsonl")
+        .split(|b| *b == b'\n')
+        .filter(|l| !l.is_empty())
+    {
         roundtrip::<EventLine>(l, "events-line.jsonl");
         n += 1;
     }
-    JobSpec::from_json(&r("child-job-spec.json")).unwrap().validate().unwrap();
+    JobSpec::from_json(&r("child-job-spec.json"))
+        .unwrap()
+        .validate()
+        .unwrap();
     println!("contract examples round-tripped: 5 documents + {n} EVENTS lines");
 }
 
 #[test]
 fn record_canonical_form_on_shared_vectors() {
-    let v: Value = serde_json::from_slice(&std::fs::read(schemas().join("canon-vectors.json")).unwrap()).unwrap();
+    let v: Value =
+        serde_json::from_slice(&std::fs::read(schemas().join("canon-vectors.json")).unwrap())
+            .unwrap();
     let mut differ = Vec::new();
     for x in v["vectors"].as_array().unwrap() {
         let input = x["input"].as_str().unwrap();
         let got = String::from_utf8(canonical_line(input.as_bytes()).unwrap()).unwrap();
-        assert_eq!(got, x["record_rule"].as_str().unwrap(), "vector {}", x["name"]);
+        assert_eq!(
+            got,
+            x["record_rule"].as_str().unwrap(),
+            "vector {}",
+            x["name"]
+        );
         if !x["agree"].as_bool().unwrap() {
             differ.push(x["name"].as_str().unwrap().to_string());
         }
