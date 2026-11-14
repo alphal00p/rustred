@@ -9,7 +9,8 @@
 //! for the import's proof requests and for the point records of our own relations (13.1); a relation is per-key only
 //! with its bound proof (import hook `Evidence::recipe_proofs`).
 
-use super::config::{Budgets, HandCfg};
+use super::config::{Budgets, EscalationCfg, HandCfg, ScaleCfg};
+use super::derived::{DerivedState, EscOut};
 use super::proofs::{
     ProofBatch, REASON_FACTS, REASON_IMPORT_PROOF, REASON_RELATION, RecordReq, relation_records,
 };
@@ -21,6 +22,8 @@ use rustred_campaign_core::import::{
     CheckOptions, CheckResult, Evidence, HandFormat, ImportedSet, KeyRow, Level, RowStatus, Server,
     TableSetSpec, WitnessKind, check, compare, load, read_hand_statement, write_statement,
 };
+use rustred_campaign_core::import::evidence::EvidenceOptions;
+use rustred_campaign_core::import::store::{EvidenceStore, StoreOptions};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
@@ -39,6 +42,8 @@ pub struct ProofPlan {
     pub facts: bool,
     pub max_keys_per_job: usize,
     pub max_fact_keys_per_job: usize,
+    /// lane t266run: instantiated terms of one facts job (None = no term cap).
+    pub max_fact_terms_per_job: Option<u64>,
 }
 
 /// Input of one pass.
@@ -85,6 +90,14 @@ pub struct PassIn {
     pub rows_path: PathBuf,
     /// `boxed` | `full` (closeloop.md 13.3: boxed from the first record).
     pub target: String,
+    /// lane t266run: big-node mode (evidence store, streamed keys-only pass); None = as before.
+    pub scale: Option<ScaleCfg>,
+    /// lane t266run: the node's own escalation of uncovered keys (closeloop.md 17); None = as before.
+    pub escalation: Option<EscalationCfg>,
+    /// lane t266run: the escalation recorded so far (from the ledger's inputs).
+    pub derived: DerivedState,
+    /// lane t266run: absolute directory of this round's escalation recipe files.
+    pub recipe_dir: PathBuf,
 }
 
 impl PassIn {
@@ -119,6 +132,10 @@ impl PassIn {
             proof: None,
             exact_tier: false,
             target: "boxed".into(),
+            scale: None,
+            escalation: None,
+            derived: DerivedState::default(),
+            recipe_dir: PathBuf::from("/nonexistent-escalation-dir"),
         }
     }
 }
@@ -158,6 +175,8 @@ pub struct PassOut {
     pub import_manifest: Value,
     pub spec_digest: String,
     pub seconds: f64,
+    /// lane t266run: the escalation output of the pass (closeloop.md 17).
+    pub escalation: Option<EscOut>,
 }
 
 impl std::fmt::Debug for PassOut {
@@ -294,23 +313,73 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     let spec = TableSetSpec::from_json(&inp.spec_text).map_err(|e| format!("import spec: {e}"))?;
     let set = match cached {
         Some(s) => s,
-        None => Arc::new(load(&spec, &inp.base).map_err(|e| format!("import load: {e}"))?),
+        None => Arc::new(match &inp.scale {
+            // lane t266run: a persistent table index in big-node mode
+            Some(sc) => rustred_campaign_core::import::load_with(
+                &spec,
+                &inp.base,
+                &rustred_campaign_core::import::LoadOptions {
+                    index_dir: Some(sc.index_dir.clone().unwrap_or_else(|| {
+                        inp.final_dir
+                            .parent()
+                            .unwrap_or_else(|| Path::new("/"))
+                            .join("index")
+                    })),
+                },
+            ),
+            None => load(&spec, &inp.base),
+        }
+        .map_err(|e| format!("import load: {e}"))?),
     };
-    let mut ev = Evidence::from_spec(&set, &inp.base).map_err(|e| format!("evidence: {e}"))?;
+    // lane t266run: in big-node mode the spec's facts / proofs and the node's own answer files live in disk-backed
+    // evidence stores (interfaces/evidence-store.md), never in memory
+    let store_opts = inp.scale.as_ref().map(|sc| StoreOptions {
+        dir: sc.store_dir.clone().unwrap_or_else(|| {
+            inp.final_dir
+                .parent()
+                .unwrap_or_else(|| Path::new("/"))
+                .join("store")
+        }),
+        budget_bytes: (sc.store_budget_mib as usize) << 20,
+        threads: sc.store_threads,
+    });
+    let mut ev = Evidence::from_spec_with(
+        &set,
+        &inp.base,
+        &EvidenceOptions {
+            store: store_opts.clone(),
+        },
+    )
+    .map_err(|e| format!("evidence: {e}"))?;
     for (p, b3) in &inp.answers {
         verify_b3(p, b3)?;
         ev.load_solved(&set, Path::new("/"), &fref(p))
             .map_err(|e| format!("answers {}: {e}", p.display()))?;
     }
-    for (p, b3) in &inp.proof_files {
-        verify_b3(p, b3)?;
-        ev.load_proofs(&set, Path::new("/"), &fref(p))
-            .map_err(|e| format!("proofs {}: {e}", p.display()))?;
-    }
-    for (p, b3) in &inp.fact_files {
-        verify_b3(p, b3)?;
-        ev.load_facts(&set, Path::new("/"), &fref(p))
-            .map_err(|e| format!("facts {}: {e}", p.display()))?;
+    if let (Some(so), Some(sc)) = (&store_opts, &inp.scale) {
+        for files in [&inp.proof_files, &inp.fact_files] {
+            for chunk in files.chunks(sc.store_chunk_files.max(1)) {
+                for (p, b3) in chunk {
+                    verify_b3(p, b3)?;
+                }
+                let list: Vec<(PathBuf, Option<String>)> =
+                    chunk.iter().map(|(p, _)| (p.clone(), None)).collect();
+                let st = EvidenceStore::open_or_build(&set, &list, so)
+                    .map_err(|e| format!("evidence store: {e}"))?;
+                ev.attach_store(st);
+            }
+        }
+    } else {
+        for (p, b3) in &inp.proof_files {
+            verify_b3(p, b3)?;
+            ev.load_proofs(&set, Path::new("/"), &fref(p))
+                .map_err(|e| format!("proofs {}: {e}", p.display()))?;
+        }
+        for (p, b3) in &inp.fact_files {
+            verify_b3(p, b3)?;
+            ev.load_facts(&set, Path::new("/"), &fref(p))
+                .map_err(|e| format!("facts {}: {e}", p.display()))?;
+        }
     }
     // our relations: their point records and the per-key proofs bound to (record_sha256, key)
     let mut rels: Vec<RelRec> = vec![];
@@ -356,23 +425,41 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     // a relation of our own solve is per-key ONLY with its bound proof (closeloop.md 13.1)
     ev.recipe_proofs = Some(proved.iter().cloned().collect());
     let threads = inp.threads.max(1);
-    // pass 1: keys-only when the exact tier is wanted (cheap; every row kept: the fact requests come from it)
-    let res_k = check(
-        &set,
-        &ev,
-        &CheckOptions {
-            threads,
-            tier: if inp.exact_tier { Some(Tier::K) } else { None },
-            max_rounds: None,
-        },
-    )
+    // pass 1: keys-only when the exact tier is wanted (cheap; every row kept: the fact requests come from it; in
+    // big-node mode the rows go to a file and only the exceptional ones stay in memory)
+    let stream_k = inp.scale.as_ref().is_some_and(|s| s.stream_keys_only);
+    let krows = inp.rows_path.with_extension("k.jsonl");
+    let opts_k = CheckOptions {
+        threads,
+        tier: if inp.exact_tier { Some(Tier::K) } else { None },
+        max_rounds: None,
+    };
+    let res_k = if stream_k {
+        rustred_campaign_core::import::check::check_streamed(&set, &ev, &opts_k, &krows)
+    } else {
+        check(&set, &ev, &opts_k)
+    }
     .map_err(|e| format!("check: {e}"))?;
+    let keys_only_n = res_k
+        .streamed
+        .as_ref()
+        .map(|s| s.rows as usize)
+        .unwrap_or(res_k.rows.len());
     // the facts the exact tier needs: every served rule key's (record, key) not asked yet
     let mut missing_facts: BTreeMap<(usize, usize), BTreeSet<Vec<i32>>> = BTreeMap::new();
     // records with ELIDED witness loci: rr_proof instantiate refuses them as a whole (fail closed, R-f): their keys
     // get no fact job; the exact tier judges them from their bound per-key proofs and lists what stays unknown
     let mut elided_no_facts = 0u64;
-    if inp.exact_tier {
+    if inp.exact_tier && stream_k {
+        super::scale::missing_facts_streamed(
+            &set,
+            &ev,
+            &krows,
+            &inp.issued_facts,
+            &mut missing_facts,
+            &mut elided_no_facts,
+        )?;
+    } else if inp.exact_tier {
         for r in &res_k.rows {
             if let (RowStatus::Served, Some(Server::Rule { table, record })) = (r.status, &r.server)
             {
@@ -502,11 +589,42 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     let closed = certified == keys && blocking.is_empty();
     // a verdict blocker without a per-key count counts as one defect (the node machine needs defect > 0 to end)
     let defect = if closed { 0 } else { (keys - certified).max(1) };
+    // lane t266run (closeloop.md 17): the node's own escalation of the keys nothing serves
+    let mut uncovered: Vec<Vec<i32>> = res
+        .rows
+        .iter()
+        .filter(|r| r.status == RowStatus::Open && r.open_status.as_deref() == Some("uncovered"))
+        .map(|r| r.key.clone())
+        .collect();
+    uncovered.sort();
+    uncovered.dedup();
+    let mut esc_out: Option<EscOut> = None;
+    if let Some(esc) = &inp.escalation
+        && !closed
+        && inp.round <= inp.budgets.max_rounds
+    {
+        let group = if esc.symmetry_at_key
+            && uncovered.iter().any(|k| !inp.derived.symrel_tried.contains(k))
+        {
+            super::derived::group_of(esc, &inp.spec_text, &inp.base, &set)?
+        } else {
+            None
+        };
+        esc_out = Some(super::derived::escalate(
+            &set,
+            esc,
+            &inp.derived,
+            &uncovered,
+            group.as_ref(),
+            &inp.recipe_dir,
+        )?);
+    }
+    let hold: BTreeSet<Vec<i32>> = esc_out.as_ref().map(|e| e.hold.clone()).unwrap_or_default();
     // new solve requests: those of no item yet (termination: finitely many keys x recipes; descent, R49)
     let new_reqs: Vec<_> = res
         .solve_requests
         .iter()
-        .filter(|r| !inp.issued.contains(&(r.source.clone(), r.key.clone())))
+        .filter(|r| !inp.issued.contains(&(r.source.clone(), r.key.clone())) && !hold.contains(&r.key))
         .collect();
     let mut batches: Vec<Batch> = vec![];
     if !closed {
@@ -604,26 +722,31 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                     }
                 }
             }
-            let mut by_table: BTreeMap<String, Vec<RecordReq>> = BTreeMap::new();
+            let mut by_table: BTreeMap<String, Vec<(RecordReq, u64)>> = BTreeMap::new();
             for ((t, r), ks) in &missing_facts {
                 let info = &set.rules[*t][*r];
-                by_table
-                    .entry(info.path.clone())
-                    .or_default()
-                    .push(RecordReq {
+                by_table.entry(info.path.clone()).or_default().push((
+                    RecordReq {
                         rule: info.index.unwrap_or(info.label),
                         offset: info.offset,
                         record_sha256: info.record_sha256.clone(),
                         keys: ks.iter().cloned().collect(),
-                    });
+                    },
+                    (set.bodies.n_terms(*t, *r) as u64).max(1),
+                ));
             }
             let cap = pp.max_fact_keys_per_job.max(1);
+            // lane t266run: a term cap too (keys x the record's term count), at least one key per job
+            let tcap = pp.max_fact_terms_per_job.unwrap_or(u64::MAX).max(1);
             for (table, recs) in by_table {
                 let mut cur: Vec<RecordReq> = vec![];
                 let mut n = 0usize;
-                for rr in recs {
-                    for chunk in rr.keys.chunks(cap) {
-                        if n + chunk.len() > cap && !cur.is_empty() {
+                let mut nt = 0u64;
+                for (rr, terms) in recs {
+                    let per = ((tcap / terms) as usize).clamp(1, cap);
+                    for chunk in rr.keys.chunks(per) {
+                        let ct = chunk.len() as u64 * terms;
+                        if (n + chunk.len() > cap || nt.saturating_add(ct) > tcap) && !cur.is_empty() {
                             proof_batches.push(ProofBatch {
                                 kind: "facts".into(),
                                 reason: REASON_FACTS.into(),
@@ -632,8 +755,10 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                                 relation_source: None,
                             });
                             n = 0;
+                            nt = 0;
                         }
                         n += chunk.len();
+                        nt = nt.saturating_add(ct);
                         cur.push(RecordReq {
                             keys: chunk.to_vec(),
                             ..rr.clone()
@@ -703,6 +828,61 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             ));
         }
     }
+    // lane t266run: TERMINAL PROPOSALS (closeloop.md 17): nothing more can be issued and the escalation made no
+    // progress -> every uncovered key is a proposal; accepted under the spec's finite-terminal rule, else open
+    if let Some(esc) = &inp.escalation
+        && !closed
+        && batches.is_empty()
+        && proof_batches.is_empty()
+        && !uncovered.is_empty()
+        && !esc_out.as_ref().is_some_and(EscOut::progress)
+    {
+        let eo = esc_out.get_or_insert_with(EscOut::default);
+        match &esc.terminals {
+            Some(rule) if uncovered.len() <= rule.max_terminals => {
+                let attempts: Vec<Value> = uncovered
+                    .iter()
+                    .map(|k| {
+                        let recipes: Vec<Value> = ev
+                            .solved
+                            .iter()
+                            .filter_map(|(src, m)| {
+                                m.get(k).map(|r| json!({"recipe": src, "verdict": r.verdict}))
+                            })
+                            .collect();
+                        let pending: Vec<&str> = res
+                            .solve_requests
+                            .iter()
+                            .filter(|r| &r.key == k)
+                            .map(|r| r.source.as_str())
+                            .collect();
+                        json!({"key": k, "symmetry_at_key_tried": inp.derived.symrel_tried.contains(k),
+                               "escalated": inp.derived.escalated.contains(k), "recipe_answers": recipes,
+                               "unanswered_candidates": pending,
+                               "refusals": res.solve_refusals.iter().filter(|r| &r.key == k)
+                                   .map(|r| json!({"recipe": r.source, "reason": r.reason})).collect::<Vec<_>>()})
+                    })
+                    .collect();
+                eo.terminals = Some(json!({"schema": "rustred.campaign.closeloop-terminals.v1",
+                    "node": inp.node, "round": inp.round, "rule": {"max_terminals": rule.max_terminals},
+                    "terminals": uncovered, "attempts": attempts}));
+            }
+            Some(rule) => {
+                let w = format!(
+                    "terminal_proposals_over_rule: {} uncovered keys exhausted, the finite-terminal rule allows {}",
+                    uncovered.len(),
+                    rule.max_terminals
+                );
+                eo.over_rule = Some(w.clone());
+                blocking.push(w);
+            }
+            None => blocking.push(format!(
+                "terminal_proposals_without_rule: {} uncovered keys exhausted (no finite-terminal rule configured)",
+                uncovered.len()
+            )),
+        }
+    }
+    let progress = esc_out.as_ref().is_some_and(EscOut::progress);
     // the budget stops the loop only when nothing could be issued
     let budget_stop = batches.is_empty() && proof_batches.is_empty() && budget_why.is_some();
     if budget_stop {
@@ -731,7 +911,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         "schema": CHECK_SCHEMA, "node": inp.node, "round": inp.round, "target": inp.target,
         "spec_digest": res.spec_digest, "key_set_digest": res.key_set_digest,
         "tier": format!("{:?}", res.tier), "exact_tier": {"wanted": inp.exact_tier, "reached": tier_c_now,
-            "facts_missing_keys": n_missing, "keys_only_closure": res_k.rows.len(),
+            "facts_missing_keys": n_missing, "keys_only_closure": keys_only_n,
             "facts_unavailable_elided_keys": elided_no_facts},
         "required_evidence": level_word,
         "keys": keys, "in_start": res.summary.keys_in_start, "served": served, "terminal": terminal, "open": open,
@@ -755,6 +935,8 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                           "facts": pb_count("facts", REASON_FACTS), "jobs": proof_batches.len()},
         "budget": budget_why, "budget_stop": budget_stop,
     });
+    let mut check_v = check_v;
+    check_v["escalation"] = esc_summary(esc_out.as_ref(), uncovered.len());
     let dispatch_order = json!({
         "schema": DISPATCH_SCHEMA, "node": inp.node, "spec_digest": set.report.spec_digest,
         "tables": set.disp.priority().iter().map(|&t| set.disp.tables()[t].name.clone()).collect::<Vec<_>>(),
@@ -769,7 +951,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     let import_manifest = json!({
         "schema": IMPORT_SCHEMA, "node": inp.node, "report": serde_json::to_value(set.report()).unwrap_or(Value::Null),
     });
-    let final_ = if closed || (batches.is_empty() && proof_batches.is_empty()) {
+    let final_ = if closed || (batches.is_empty() && proof_batches.is_empty() && !progress) {
         let verdict = if closed {
             "closed"
         } else if budget_stop {
@@ -782,7 +964,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             &set,
             &ev,
             res,
-            tier_c_now.then_some(&res_k),
+            (tier_c_now && !stream_k).then_some(&res_k),
             FinalCtx {
                 verdict,
                 blocking: &blocking,
@@ -815,7 +997,23 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         import_manifest,
         seconds: t0.elapsed().as_secs_f64(),
         set,
+        escalation: esc_out,
     })
+}
+
+/// lane t266run: the escalation numbers of a check record (closeloop.md 17).
+fn esc_summary(e: Option<&EscOut>, uncovered: usize) -> Value {
+    let Some(e) = e else {
+        return Value::Null;
+    };
+    let proposed = e
+        .terminals
+        .as_ref()
+        .and_then(|t| t["terminals"].as_array().map(Vec::len));
+    json!({"uncovered": uncovered, "symmetry_attempts": e.symrel_lines.len(),
+        "symmetry_relations": e.symrel_relations, "recipe_keys": e.recipe_manifest.len(),
+        "recipe_files": e.recipe_files.len(), "held": e.hold.len(), "terminals_proposed": proposed,
+        "over_rule": e.over_rule})
 }
 
 /// Rule class x level (closeloop.md 13.2) from the import's evidence by class: the class is the import source's
