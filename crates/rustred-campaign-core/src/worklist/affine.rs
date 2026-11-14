@@ -47,15 +47,21 @@ fn gcd(a: i128, b: i128) -> i128 {
 }
 
 impl AffineEq {
-    /// Normalised equation; `None` when every coefficient is zero (then the equation is `constant = 0`).
+    /// Normalised equation; `None` when every coefficient is zero (then the equation is `constant = 0`) or when the
+    /// normalised coefficients leave the i64 range (use [`Self::try_new`] to tell the two apart).
     pub fn new(coeffs: Vec<(usize, i64)>, constant: i64) -> Option<Self> {
+        Self::try_new(coeffs, constant).ok().flatten()
+    }
+
+    /// [`Self::new`] with overflow reported (`Err(AffineError::Overflow)`), never a silent truncation (audit A).
+    pub fn try_new(coeffs: Vec<(usize, i64)>, constant: i64) -> Result<Option<Self>, AffineError> {
         let mut m: BTreeMap<usize, i128> = BTreeMap::new();
         for (s, c) in coeffs {
             *m.entry(s).or_insert(0) += c as i128;
         }
         let terms: Vec<(usize, i128)> = m.into_iter().filter(|(_, c)| *c != 0).collect();
         if terms.is_empty() {
-            return None;
+            return Ok(None);
         }
         let mut g = constant as i128;
         for (_, c) in &terms {
@@ -63,10 +69,13 @@ impl AffineEq {
         }
         let sign = if terms[0].1 < 0 { -1 } else { 1 };
         let g = g.max(1) * sign;
-        Some(AffineEq {
-            coeffs: terms.iter().map(|(s, c)| (*s, (*c / g) as i64)).collect(),
-            constant: (constant as i128 / g) as i64,
-        })
+        let coeffs = terms
+            .iter()
+            .map(|(s, c)| i64::try_from(*c / g).map(|c| (*s, c)))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| AffineError::Overflow)?;
+        let constant = i64::try_from(constant as i128 / g).map_err(|_| AffineError::Overflow)?;
+        Ok(Some(AffineEq { coeffs, constant }))
     }
 
     /// `n_slot = value`.
@@ -120,7 +129,9 @@ impl AffineEq {
                 _ => return None,
             }
         }
-        AffineEq::new(coeffs, i64::try_from(constant).ok()?)
+        AffineEq::try_new(coeffs, i64::try_from(constant).ok()?)
+            .ok()
+            .flatten()
     }
 
     /// Engine spelling of the left-hand side (`--initial 'SPEC [EQS]'` takes linear equations `= 0`): "n6+2*n11-1".
@@ -190,7 +201,7 @@ pub fn canonical_system(
                 }
             }
             let constant = i64::try_from(constant).map_err(|_| AffineError::Overflow)?;
-            match AffineEq::new(coeffs, constant) {
+            match AffineEq::try_new(coeffs, constant)? {
                 Some(n) => subst.push(n),
                 None if constant == 0 => {}
                 None => return Err(AffineError::Inconsistent),
@@ -282,7 +293,7 @@ pub fn rref(eqs: &[AffineEq]) -> Result<Vec<AffineEq>, AffineError> {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| AffineError::Overflow)?;
         let constant = i64::try_from(r[n]).map_err(|_| AffineError::Overflow)?;
-        if let Some(e) = AffineEq::new(coeffs, constant) {
+        if let Some(e) = AffineEq::try_new(coeffs, constant)? {
             out.push(e);
         }
     }

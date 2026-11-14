@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::items::{CaseSpec, NodeParams};
-use super::policy::{CentreSpec, SettingSpec, builtin_wave, face_type_of_case};
+use super::policy::{CentreSpec, SettingSpec, face_type_of_case};
 
 /// Which centre a setting uses (label; the offsets are authoritative).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -286,26 +286,41 @@ fn expand(
     out
 }
 
-/// The seed-search space of a case, as WAVES (wave 0 = depth 2, wave 1 = depth 3): the policy's ordered entries for
-/// the case's class, then (completeness rule) every built-in entry not yet present, duplicates removed, then a
-/// stable reorder by the policy's evidence priors (never a removal). Finite and known when the item is created: its
-/// total length is the seed-search sub-counter (D-43).
+/// The seed-search space of a case, as WAVES (one wave per shell depth, in the order the depths first appear in the
+/// policy class, then the built-in depths): the class's ordered entries, then (completeness rule, unless the class
+/// says `replace_builtin`) every built-in entry not yet present, duplicates removed, then a stable reorder by the
+/// policy's evidence priors (never a removal). Finite and known when the item is created: its total length is the
+/// seed-search sub-counter (D-43).
 pub fn seed_space(case: &CaseSpec, params: &NodeParams) -> Vec<Vec<SeedSetting>> {
     let face_type = face_type_of_case(case);
     let class = params.policy.class_for(&params.node_class, &face_type);
     let priors = params.policy.priors(&face_type);
+    let builtin = super::policy::SeedPolicy::builtin();
+    let builtin_waves = &builtin.classes[0].waves;
+    let mut depths: Vec<u8> = Vec::new();
+    for w in class
+        .waves
+        .iter()
+        .chain(builtin_waves.iter().filter(|_| !class.replace_builtin))
+    {
+        if !depths.contains(&w.depth) {
+            depths.push(w.depth);
+        }
+    }
     let mut seen = BTreeSet::new();
     let mut waves = Vec::new();
-    for depth in [2u8, 3u8] {
+    for depth in depths {
         let mut wave = Vec::new();
-        let listed: Vec<&SettingSpec> = class
+        let listed = class
             .waves
             .iter()
             .filter(|w| w.depth == depth)
-            .flat_map(|w| &w.settings)
-            .collect();
-        let builtin = builtin_wave(depth);
-        for spec in listed.into_iter().chain(builtin.settings.iter()) {
+            .flat_map(|w| &w.settings);
+        let extra = builtin_waves
+            .iter()
+            .filter(|w| w.depth == depth && !class.replace_builtin)
+            .flat_map(|w| &w.settings);
+        for spec in listed.chain(extra) {
             for st in expand(spec, depth, case, params, class.tight) {
                 if seen.insert(st.canonical_key()) {
                     wave.push(st);
@@ -364,15 +379,27 @@ pub fn estimated_seeds(s: &SeedSetting, arity: usize) -> u64 {
     (raises + 2 * n) * (s.offsets.len().max(1) as u64)
 }
 
-/// Attempt budget: seconds = base(depth) x max(1, estimated seeds / `scale_reference_seeds`), capped (R34 (d)); memory by depth; the
-/// point and oversized classes have their own figures.
+/// Attempt budget: seconds = base(depth) x max(1, estimated seeds / `scale_reference_seeds`), capped (R34 (d));
+/// memory by depth (depth >= 3 uses the deep figures); the point and oversized classes have their own figures. The
+/// policy class of the case may override the base figures (`PolicyClass.budgets`).
 pub fn attempt_budget(
     s: &SeedSetting,
+    case: &CaseSpec,
     params: &NodeParams,
     point: bool,
     oversized: bool,
 ) -> AttemptBudget {
-    let b = &params.budgets;
+    let mut b = params.budgets.clone();
+    let class = params
+        .policy
+        .class_for(&params.node_class, &face_type_of_case(case));
+    if let Some(pb) = &class.budgets {
+        b.base_seconds_d2 = pb.seconds_d2;
+        b.base_seconds_d3 = pb.seconds_d3;
+        b.cap_seconds = pb.cap_seconds;
+        b.mem_mb_d2 = pb.mem_mb_d2;
+        b.mem_mb_d3 = pb.mem_mb_d3;
+    }
     let est = estimated_seeds(s, params.arity);
     let max_rows = est.saturating_mul(params.ibp_rows_per_seed as u64);
     if oversized {
@@ -464,7 +491,7 @@ mod tests {
             .cloned()
             .unwrap();
         assert_eq!(engine_seed_args(&u)[1], "0:-1;6:-1");
-        let b = attempt_budget(&u, &p, false, false);
+        let b = attempt_budget(&u, &c, &p, false, false);
         assert_eq!(b.seconds, 300);
     }
 }

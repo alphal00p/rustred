@@ -25,6 +25,7 @@ fn preferred_keys_are_allowed_terminals_and_reported() {
             PreferredEntry::Sector { lines: vec![0, 4] }, // slot 4 is not a line: warning only
         ],
         count_against_bound: false,
+        max_preferred: None,
     };
     // (a) never a gap point
     let items = items_from_closure_keys(&[k(2, 1), k(3, 1), k(1, 2)], &p).unwrap();

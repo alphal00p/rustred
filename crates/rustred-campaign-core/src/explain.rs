@@ -59,6 +59,7 @@ fn verdict_kind(v: &PointVerdict) -> &'static str {
         PointVerdict::OnException { .. } => "on_exception",
         PointVerdict::OnPole => "on_pole",
         PointVerdict::Elided => "elided",
+        PointVerdict::Blocked { .. } => "blocked",
         PointVerdict::HiddenPole => "hidden_pole",
         PointVerdict::NotDescending { .. } => "not_descending",
         PointVerdict::Unknown { .. } => "unknown",
@@ -71,13 +72,36 @@ pub fn explain(state: &ItemState, params: &NodeParams) -> Explanation {
     let waves = seed_space(&item.case, params);
     let total: usize = waves.iter().map(|w| w.len()).sum();
     let mut attempts = Vec::new();
+    // wave-0 offers / inherited candidates first, then the seed space wave by wave
+    let prefix = format!("{}|offer|", item.id.0);
+    let mut listed: Vec<(u8, String, String)> = state
+        .records
+        .iter()
+        .filter(|(k, _)| k.starts_with(&prefix))
+        .map(|(k, _)| (0u8, format!("offer:{}", &k[prefix.len()..]), k.clone()))
+        .collect();
     for (w, wave) in waves.iter().enumerate() {
         for s in wave {
-            let k = attempt_key(&item.id, s);
+            listed.push((w as u8, s.label(), attempt_key(&item.id, s)));
+        }
+    }
+    for (w, label, k) in listed {
+        {
             let Some(r) = state.records.get(&k) else {
                 continue;
             };
             let (outcome, detail) = match &r.answer {
+                None if r.settled_without_verdict(&params.budgets) => (
+                    "no_verdict".to_string(),
+                    Some(format!(
+                        "non-verdict outcomes {:?}, infra interrupts {}",
+                        r.non_verdict, r.infra_interrupts
+                    )),
+                ),
+                None if !r.non_verdict.is_empty() => (
+                    "retry_pending".to_string(),
+                    Some(format!("non-verdict outcomes {:?}", r.non_verdict)),
+                ),
                 None => ("interrupted".to_string(), None),
                 Some(a) => (
                     a.outcome.tag().to_string(),
@@ -119,8 +143,8 @@ pub fn explain(state: &ItemState, params: &NodeParams) -> Explanation {
                 })
                 .collect();
             attempts.push(AttemptLine {
-                setting: s.label(),
-                wave: w as u8,
+                setting: label,
+                wave: w,
                 outcome,
                 detail,
                 cpu_ms: r.cpu_ms_total,
@@ -215,7 +239,7 @@ pub fn explain(state: &ItemState, params: &NodeParams) -> Explanation {
                     exhausted.depth3_unfloored_tried()
                 ),
             ),
-            Disposition::Attention { why } => (
+            Disposition::Attention { why, .. } => (
                 "attention".into(),
                 "operator".into(),
                 Some(why.clone()),

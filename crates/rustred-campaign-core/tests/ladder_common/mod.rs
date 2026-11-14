@@ -439,7 +439,7 @@ pub fn outcome(rep: &TreeReport) -> Outcome {
         .items
         .iter()
         .filter_map(|r| match &r.disposition {
-            Some(Disposition::Attention { why }) => Some(why.clone()),
+            Some(Disposition::Attention { why, .. }) => Some(why.clone()),
             _ => None,
         })
         .collect();

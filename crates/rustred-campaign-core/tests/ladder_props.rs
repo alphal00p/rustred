@@ -193,7 +193,7 @@ fn summary(d: &Disposition) -> String {
             children.iter().map(|c| &c.id).collect::<Vec<_>>()
         ),
         Disposition::TerminalCandidates { keys, .. } => format!("terminal {keys:?}"),
-        Disposition::Attention { why } => format!("attention {why}"),
+        Disposition::Attention { why, .. } => format!("attention {why}"),
         Disposition::OptimiseKept { why } => format!("kept {why}"),
     }
 }

@@ -1,6 +1,8 @@
 //! The seed-policy file `rustred.campaign.seed-policy.v1` (R37; interface `interfaces/seed-policy.md`): per node class
 //! and face type the ordered settings of the seed-search rung, plus the evidence table. The rung takes the policy as
-//! INPUT DATA; a policy REORDERS the search space, it never removes a setting (completeness rule).
+//! INPUT DATA. By default a policy REORDERS the built-in search space and never removes a setting (completeness rule);
+//! a class with `replace_builtin: true` REPLACES it entirely (centres, floors, depths, order, budgets): nothing beyond
+//! the built-in default DATA is hard-coded (audit A M7, rule L8).
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -70,6 +72,9 @@ pub struct PolicyClass {
     pub tight: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budgets: Option<PolicyBudgets>,
+    /// The class's waves ARE the search space (no built-in settings or depths appended). Default false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub replace_builtin: bool,
 }
 
 /// Setting part of an evidence record.
@@ -170,7 +175,7 @@ impl SeedPolicy {
         SeedPolicy {
             schema: SEED_POLICY_SCHEMA.into(),
             name: "builtin-20261113".into(),
-            source: "I-LADDER built-in: R15, R21, R25-R27, R29, R37 (T266 tight-seed pilot recorded, tight off)".into(),
+            source: "I-LADDER built-in default data (seed-policy.md section 4; tight seeds off)".into(),
             classes: vec![PolicyClass {
                 matcher: ClassMatch {
                     node_class: "*".into(),
@@ -179,6 +184,7 @@ impl SeedPolicy {
                 waves: vec![builtin_wave(2), builtin_wave(3)],
                 tight: false,
                 budgets: None,
+                replace_builtin: false,
             }],
             evidence: vec![],
         }
@@ -197,8 +203,8 @@ impl SeedPolicy {
         let mut notes = Vec::new();
         for c in &p.classes {
             for w in &c.waves {
-                if w.depth != 2 && w.depth != 3 {
-                    return Err(format!("wave depth {} (2 or 3)", w.depth));
+                if w.depth == 0 {
+                    return Err("wave depth 0 (shell depth must be >= 1)".to_string());
                 }
             }
         }

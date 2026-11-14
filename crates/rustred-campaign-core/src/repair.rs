@@ -8,10 +8,12 @@ use std::collections::BTreeSet;
 
 use crate::cover::{Dispatch, Dispatcher};
 use crate::order::NodeComparator;
+use crate::domain::Stage;
 use crate::worklist::items::{CaseSpec, EvidenceLevel, Item, ItemId, Key, NodeParams, repair_item};
 use crate::worklist::ladder::{
-    Attempt, CandidateRule, Disposition, ItemState, KeyEvidence, LadderExhausted, Next, PointFacts,
-    SolveAnswer, SolveOutcome, Tri, judge_points_with_hits, next_steps,
+    Attempt, AttentionReason, CandidateRule, CoverMember, Disposition, Exclusion, ExclusionReason,
+    ExclusionTarget, ItemState, KeyEvidence, LadderExhausted, Next, PointFacts, SolveAnswer,
+    SolveOutcome, Tri, judge_points_with_hits, next_steps,
 };
 use crate::worklist::seed::{AttemptBudget, SeedSetting};
 use crate::worklist::supplied::CandidateSource;
@@ -114,12 +116,20 @@ impl Coverage for NoTables {
     }
 }
 
-/// Limits of a sequential tree run (no clock: CPU is summed from the solver's answers).
+/// Limits of a sequential tree run (no clock: CPU is summed from the solver's answers). `max_steps` is the GLOBAL
+/// bound on driver iterations (every `next_steps` call answered, over all items): the run stops (`stopped`) when it
+/// is reached, whatever the trait answers (C2).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TreeLimits {
     pub max_attempts: u32,
     pub max_cpu_ms: u64,
     pub max_items: u32,
+    #[serde(default = "default_tree_steps")]
+    pub max_steps: u64,
+}
+
+fn default_tree_steps() -> u64 {
+    1_000_000
 }
 
 impl Default for TreeLimits {
@@ -128,6 +138,7 @@ impl Default for TreeLimits {
             max_attempts: 100_000,
             max_cpu_ms: u64::MAX,
             max_items: 100_000,
+            max_steps: default_tree_steps(),
         }
     }
 }
@@ -153,13 +164,17 @@ pub struct TreeReport {
     pub items: Vec<ItemReport>,
     pub attempts: Vec<AttemptSummary>,
     pub cpu_ms: u64,
+    /// Driver iterations (answered `next_steps` calls) over the whole run.
+    pub steps: u64,
     /// Why the run stopped early (a limit), if it did.
     pub stopped: Option<String>,
 }
 
 impl TreeReport {
-    /// Accepted cover members over all items (the rules a table would receive).
-    pub fn accepted_rules(&self) -> Vec<(ItemId, crate::worklist::ladder::CoverMember)> {
+    /// Accepted cover members over all items (the rules a table would receive), in DISPATCH RANK order: items in
+    /// the order they were processed (a parent before its children), members in cover order inside an item. The
+    /// rank is the position in this list.
+    pub fn accepted_rules(&self) -> Vec<(ItemId, CoverMember)> {
         let mut out = Vec::new();
         for r in &self.items {
             let cover = match &r.disposition {
@@ -175,6 +190,15 @@ impl TreeReport {
             }
         }
         out
+    }
+
+    /// The candidate rule (with its domain) of an accepted member.
+    pub fn rule_of(&self, item: &ItemId, m: &CoverMember) -> Option<&CandidateRule> {
+        self.items
+            .iter()
+            .find(|r| &r.state.item.id == item)
+            .and_then(|r| r.state.records.get(&m.attempt_key))
+            .and_then(|rec| rec.candidates().get(m.index))
     }
 
     /// Terminal proposals over all items (each key once: the first exhausted ladder that proposed it).
@@ -193,10 +217,135 @@ impl TreeReport {
     }
 }
 
+/// Outcome of first-match dispatch over NEW rules with their exclusions (the tables in force come first and are
+/// not part of this list).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FirstMatch {
+    /// Index of the rule that is selected and applies.
+    Rule(usize),
+    /// A rule is selected but blocked / undecided at the key (index): the key stays open.
+    Blocked(usize),
+    None,
+}
+
+/// First-match dispatch in the given order, skipping a rule at the keys / loci of its exclusions (the semantics
+/// the library's outputs assume; the engine's `key_excluded` records).
+pub fn first_match_with_exclusions(rules: &[(&CandidateRule, &[Exclusion])], key: &[i32]) -> FirstMatch {
+    for (i, (r, ex)) in rules.iter().enumerate() {
+        if ex.iter().any(|e| e.target.holds(key)) {
+            continue;
+        }
+        match r.domain.applies(key).stage() {
+            Stage::NotSelected => continue,
+            Stage::Applies => return FirstMatch::Rule(i),
+            Stage::Blocked | Stage::Undecided => return FirstMatch::Blocked(i),
+        }
+    }
+    FirstMatch::None
+}
+
+/// Complete the EFFECTIVE DOMAINS of every accepted member of a tree run (C1, both drivers call it once the tree is
+/// done; [`drive_tree`] does): every gap point of ANY item of the run that lies in a member's written domain
+/// (first-match stage other than "not selected") and at which the member is not credited becomes an exclusion
+/// (`NotCreditedHere`, unless an item-level reason is already recorded); every preferred KEY of the spec inside the
+/// domain becomes an exclusion (`PreferredTerminal`); a child read from a member's POLE locus excludes the member on
+/// the child's locus (`PoleLocusChild`, so the child is reached). Afterwards, at every gap point of the run, every
+/// new rule that would be selected there is credited there: dispatch at the gap points is independent of the order
+/// of the new rules.
+pub fn seal_tree(items: &mut [ItemReport], params: &NodeParams) {
+    let mut tree_points: BTreeSet<Key> = BTreeSet::new();
+    for r in items.iter() {
+        tree_points.extend(r.state.item.gap_points.iter().cloned());
+    }
+    let preferred: Vec<Key> = params
+        .preferred
+        .entries
+        .iter()
+        .filter_map(|e| match e {
+            crate::worklist::items::PreferredEntry::Key(k) if k.len() == params.arity => {
+                Some(k.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    for r in items.iter_mut() {
+        let ItemReport { state, disposition } = r;
+        let (cover, children) = match disposition {
+            Some(Disposition::Covered { cover }) => (cover, Vec::new()),
+            Some(Disposition::Split {
+                cover, children, ..
+            }) => (cover, children.clone()),
+            _ => continue,
+        };
+        for m in &mut cover.members {
+            let Some(rule) = state
+                .records
+                .get(&m.attempt_key)
+                .and_then(|rec| rec.candidates().get(m.index))
+            else {
+                continue;
+            };
+            let credited: BTreeSet<&Key> = m.credited.iter().collect();
+            for k in &tree_points {
+                if credited.contains(k) {
+                    continue;
+                }
+                if rule.domain.applies(k).stage() != Stage::NotSelected {
+                    crate::worklist::ladder::add_exclusion(
+                        &mut m.exclusions,
+                        Exclusion {
+                            target: ExclusionTarget::Key(k.clone()),
+                            reason: ExclusionReason::NotCreditedHere,
+                        },
+                    );
+                }
+            }
+            for k in &preferred {
+                if !credited.contains(k) && rule.domain.applies(k).stage() != Stage::NotSelected {
+                    crate::worklist::ladder::add_exclusion(
+                        &mut m.exclusions,
+                        Exclusion {
+                            target: ExclusionTarget::Key(k.clone()),
+                            reason: ExclusionReason::PreferredTerminal,
+                        },
+                    );
+                }
+            }
+            for c in &children {
+                if let crate::worklist::items::ChildOrigin::ExceptionBranch { branches, .. } = &c.origin
+                    && branches
+                        .iter()
+                        .any(|b| b.starts_with(&format!("{}#pole", rule.digest)))
+                {
+                    let mut eqs: Vec<crate::worklist::affine::AffineEq> = c
+                        .case
+                        .fixed
+                        .iter()
+                        .map(|(&s, &v)| crate::worklist::affine::AffineEq::fixed(s, v))
+                        .collect();
+                    eqs.extend(c.case.equations.iter().cloned());
+                    crate::worklist::ladder::add_exclusion(
+                        &mut m.exclusions,
+                        Exclusion {
+                            target: ExclusionTarget::Locus { equations: eqs },
+                            reason: ExclusionReason::PoleLocusChild {
+                                child: c.id.clone(),
+                            },
+                        },
+                    );
+                }
+            }
+            m.exclusions.sort();
+        }
+    }
+}
+
 /// Sequential in-process driver of the ladder over a tree of items: each root, then depth first its PRIMARY
-/// children, then its ALTERNATIVE children for the points the primaries' subtrees left unserved; one solve at a
-/// time in wave order, verdicts through `facts` + `descent`, evidence through `prover`. Used by [`repair_key`] and by
-/// the replay tests; the batch campaign drives [`next_steps`] itself.
+/// children (which receive the parent's reserve candidates as inherited wave-0 candidates), then its ALTERNATIVE
+/// children for the points the primaries' subtrees left unserved; one solve at a time in wave order, verdicts
+/// through `facts` + `descent`, evidence through `prover`; finally [`seal_tree`]. Bounded by `limits` (attempts,
+/// CPU, items, GLOBAL steps) and by each item's own step bound. Used by [`repair_key`] and by the replay tests; the
+/// batch campaign drives [`next_steps`] itself (and must call [`seal_tree`] on its finished tree).
 #[allow(clippy::too_many_arguments)]
 pub fn drive_tree(
     roots: Vec<Item>,
@@ -236,6 +385,7 @@ pub fn drive_tree(
             keys.retain(|k| !served.contains(k));
         }
     }
+    seal_tree(&mut report.items, params);
     report
 }
 
@@ -273,6 +423,11 @@ impl Driver<'_, '_, '_, '_, '_, '_, '_> {
         });
         let idx = self.report.items.len() - 1;
         loop {
+            if self.report.steps >= self.limits.max_steps {
+                self.report.stopped = Some(format!("step limit {}", self.limits.max_steps));
+                return;
+            }
+            self.report.steps += 1;
             let st = &mut self.report.items[idx].state;
             match next_steps(st, self.params) {
                 Next::Run(list) => {
@@ -286,7 +441,10 @@ impl Driver<'_, '_, '_, '_, '_, '_, '_> {
                             Some(format!("cpu limit {} ms", self.limits.max_cpu_ms));
                         return;
                     }
-                    let a = &list[0];
+                    let Some(a) = list.first() else {
+                        self.report.stopped = Some("empty attempt list".into());
+                        return;
+                    };
                     let ans = self
                         .solver
                         .solve(&CaseRequest::from_attempt(&self.params.node, a), &a.budget);
@@ -323,7 +481,8 @@ impl Driver<'_, '_, '_, '_, '_, '_, '_> {
                     for r in reqs {
                         let cand = st.records[&r.attempt_key].candidates()[r.index].clone();
                         let mut ev = self.prover.prove(&cand, &r.keys, r.level);
-                        // a key the prover did not answer counts as Unknown (never PASS)
+                        // only the requested keys are kept; a requested key the prover did not answer is Unknown
+                        ev.retain(|e| r.keys.contains(&e.key));
                         for k in &r.keys {
                             if !ev.iter().any(|e| &e.key == k) {
                                 ev.push(KeyEvidence {
@@ -371,31 +530,17 @@ impl Driver<'_, '_, '_, '_, '_, '_, '_> {
                         Disposition::Split {
                             children,
                             alternatives,
-                            reserve,
                             ..
-                        } => Some((children.clone(), alternatives.clone(), reserve.clone())),
+                        } => Some((children.clone(), alternatives.clone())),
                         _ => None,
                     };
                     self.report.items[idx].disposition = Some(d);
-                    if let Some((children, alternatives, reserve)) = follow {
+                    if let Some((children, alternatives)) = follow {
                         for c in children {
                             self.process(c);
                         }
                         for c in alternatives {
                             self.process(c);
-                        }
-                        // reserve members serve what the subtrees left (economy pruning, repair-library.md 4.2)
-                        for mut m in reserve {
-                            m.served.retain(|k| !self.served.contains(k));
-                            if m.served.is_empty() {
-                                continue;
-                            }
-                            self.served.extend(m.served.iter().cloned());
-                            if let Some(Disposition::Split { cover, .. }) =
-                                &mut self.report.items[idx].disposition
-                            {
-                                cover.members.push(m);
-                            }
                         }
                     }
                     return;
@@ -414,11 +559,18 @@ pub struct RepairInputs<'a> {
     pub tables: &'a dyn Coverage,
 }
 
+/// Budget of one live repair: solver calls, reported CPU, items, and the GLOBAL step bound (driver iterations).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepairBudget {
     pub max_attempts: u32,
     pub max_cpu_ms: u64,
     pub max_items: u32,
+    #[serde(default = "default_repair_steps")]
+    pub max_steps: u64,
+}
+
+fn default_repair_steps() -> u64 {
+    20_000
 }
 
 impl Default for RepairBudget {
@@ -427,21 +579,54 @@ impl Default for RepairBudget {
             max_attempts: 200,
             max_cpu_ms: 3_600_000,
             max_items: 64,
+            max_steps: default_repair_steps(),
         }
     }
 }
 
-/// An accepted repair rule.
+/// An accepted repair rule with its EFFECTIVE DOMAIN (written case minus `exclusions`) and dispatch rank.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AcceptedRule {
     pub digest: String,
     pub item: ItemId,
+    /// The rule's WRITTEN case.
     pub case: CaseSpec,
     pub setting: String,
     pub served: Vec<Key>,
+    /// Keys asked about where the rule is credited (verdict covered + evidence at the required level).
+    pub credited: Vec<Key>,
+    /// The rule must not be dispatched at these keys / loci (key_excluded records).
+    pub exclusions: Vec<Exclusion>,
+    /// Position among the NEW rules of this call (0 first), all of them AFTER the tables in force.
+    pub rank: u32,
     pub rhs_terms: u64,
     /// This rule serves the repaired key.
     pub serves_key: bool,
+}
+
+/// THE SAFE-DISPATCH OBLIGATION of every rule the library returns (repair-library.md v1.2 section 6.1).
+pub const SAFE_DISPATCH_STATEMENT: &str = "The new rules are safe only if (1) dispatched AFTER every table in force \
+at the call (keys those tables cover keep their old winner), (2) in the order of their rank among themselves, and \
+(3) with their exclusions honoured (key_excluded). Under (1)-(3) every key the library was asked about is either \
+served by a rule credited there (coverage, descent under the node comparator, no hidden pole, identity at the \
+required level) or not touched by the new rules. At keys of a rule's effective domain that were NOT asked about the \
+library established nothing: the closure / winner-diff stage (plan 2.4.7 D3/D6) must check d1-d4 at every key where \
+a new rule becomes the winner, or the caller must not dispatch the rule there.";
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DispatchContract {
+    /// Always true: the library assumes the new rules are dispatched after every table in force.
+    pub after_tables_in_force: bool,
+    pub statement: String,
+}
+
+impl Default for DispatchContract {
+    fn default() -> Self {
+        DispatchContract {
+            after_tables_in_force: true,
+            statement: SAFE_DISPATCH_STATEMENT.into(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -450,10 +635,12 @@ pub struct RepairOutcome {
     pub evidence: EvidenceLevel,
     pub attempts: Vec<AttemptSummary>,
     pub already_covered: bool,
+    pub dispatch: DispatchContract,
 }
 
-/// Typed failures of a live repair; every one names what was tried.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Typed failures of a live repair; every one names what was tried. Serialise only: `Terminal` carries the
+/// unforgeable exhaustion token (deserialise its `LadderExhaustedRecord` and re-verify instead).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum RepairFailure {
     NotImplemented,
     InvalidKey {
@@ -469,6 +656,13 @@ pub enum RepairFailure {
         why: String,
         attempts: Vec<AttemptSummary>,
     },
+    /// The ladder could not decide (crashes, kills, refusals, step bound, interrupts): a human is needed; never a
+    /// terminal (C3).
+    Attention {
+        reason: AttentionReason,
+        why: String,
+        attempts: Vec<AttemptSummary>,
+    },
     Terminal {
         key: Key,
         exhausted: LadderExhausted,
@@ -481,7 +675,9 @@ pub enum RepairFailure {
 }
 
 /// Repair ONE key (plan 3.9): if the tables in force cover it, nothing to do; else the whole face of the key is
-/// driven through the ladder (seed search, children, point), sequentially, within the budget.
+/// driven through the ladder (seed search, children, point), sequentially, within the budget. On success the rule
+/// serving the key is returned with every other rule of the run, each with its exclusions and rank, and the
+/// [`DispatchContract`]; the result is checked by first-match dispatch at every key asked about.
 pub fn repair_key(
     inputs: &RepairInputs,
     budget: &RepairBudget,
@@ -508,6 +704,7 @@ pub fn repair_key(
                 evidence: p.min_evidence,
                 attempts: vec![],
                 already_covered: true,
+                dispatch: DispatchContract::default(),
             });
         }
         CoverageVerdict::Uncovered => {}
@@ -519,10 +716,12 @@ pub fn repair_key(
     }
     let item = repair_item(&inputs.key, &inputs.extra_targets, p)
         .map_err(|e| RepairFailure::InvalidKey { why: e.to_string() })?;
+    let asked: Vec<Key> = item.gap_points.clone();
     let limits = TreeLimits {
         max_attempts: budget.max_attempts,
         max_cpu_ms: budget.max_cpu_ms,
         max_items: budget.max_items,
+        max_steps: budget.max_steps,
     };
     let rep = drive_tree(
         vec![item],
@@ -535,33 +734,51 @@ pub fn repair_key(
         source,
         &limits,
     );
-    let rules: Vec<AcceptedRule> = rep
-        .accepted_rules()
-        .into_iter()
-        .map(|(item, m)| {
-            let case = rep
-                .items
-                .iter()
-                .find(|r| r.state.item.id == item)
-                .map(|r| r.state.item.case.clone())
-                .expect("item of a member");
-            AcceptedRule {
-                digest: m.digest.clone(),
-                serves_key: m.served.contains(&inputs.key),
-                item,
-                case,
-                setting: m.setting.label(),
-                served: m.served.clone(),
-                rhs_terms: m.rhs_terms,
-            }
-        })
-        .collect();
+    let members = rep.accepted_rules();
+    let mut rules: Vec<AcceptedRule> = Vec::new();
+    let mut cands: Vec<(&CandidateRule, &[Exclusion])> = Vec::new();
+    for (rank, (item, m)) in members.iter().enumerate() {
+        let Some(c) = rep.rule_of(item, m) else {
+            return Err(RepairFailure::NotAccepted {
+                why: format!("internal: no candidate for member {}", m.digest),
+                attempts: rep.attempts.clone(),
+            });
+        };
+        cands.push((c, m.exclusions.as_slice()));
+        rules.push(AcceptedRule {
+            digest: m.digest.clone(),
+            serves_key: m.served.contains(&inputs.key),
+            item: item.clone(),
+            case: m.case.clone(),
+            setting: m.setting.label(),
+            served: m.served.clone(),
+            credited: m.credited.clone(),
+            exclusions: m.exclusions.clone(),
+            rank: rank as u32,
+            rhs_terms: m.rhs_terms,
+        });
+    }
     if rules.iter().any(|r| r.serves_key) {
+        // self-check: at every key asked about, first match over the new rules (in rank order, with exclusions)
+        // is a rule credited there, or nothing; at the repaired key it must be a credited rule
+        for k in &asked {
+            match first_match_with_exclusions(&cands, k) {
+                FirstMatch::Rule(i) if rules[i].credited.contains(k) => {}
+                FirstMatch::None if k != &inputs.key => {}
+                other => {
+                    return Err(RepairFailure::NotAccepted {
+                        why: format!("dispatch check failed at {k:?}: {other:?}"),
+                        attempts: rep.attempts,
+                    });
+                }
+            }
+        }
         return Ok(RepairOutcome {
             rules,
             evidence: p.min_evidence,
             attempts: rep.attempts,
             already_covered: false,
+            dispatch: DispatchContract::default(),
         });
     }
     if let Some((k, ex)) = rep
@@ -580,22 +797,23 @@ pub fn repair_key(
             attempts: rep.attempts,
         });
     }
+    if let Some((reason, why)) = rep.items.iter().find_map(|r| match &r.disposition {
+        Some(Disposition::Attention { reason, why }) => Some((reason.clone(), why.clone())),
+        _ => None,
+    }) {
+        return Err(RepairFailure::Attention {
+            reason,
+            why,
+            attempts: rep.attempts,
+        });
+    }
     if rep.attempts.iter().all(|a| a.candidates == 0) {
         return Err(RepairFailure::NoRelation {
             attempts: rep.attempts,
         });
     }
-    let why = rep
-        .items
-        .iter()
-        .filter_map(|r| match &r.disposition {
-            Some(Disposition::Attention { why }) => Some(why.clone()),
-            _ => None,
-        })
-        .next()
-        .unwrap_or_else(|| "no candidate was accepted at the key".into());
     Err(RepairFailure::NotAccepted {
-        why,
+        why: "no candidate was accepted at the key".into(),
         attempts: rep.attempts,
     })
 }
