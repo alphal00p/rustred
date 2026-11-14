@@ -416,3 +416,17 @@ fn m3m4_minor_refusals() {
     println!("m4: {:?}", v.verdict);
     assert_eq!(v.verdict, Verdict::Unsupported(Unsupported::TargetInZeroSector));
 }
+
+/// audit B (first finding, same mechanism as C1): a generic-only pass with boundary-sensitive columns does not meet
+/// the A2 policy; the true rule's generic pass has no such column issue only if none is dropped (reported either way).
+#[test]
+fn b1_generic_only_pass_with_boundary_columns_is_not_a2() {
+    let f = face();
+    let bad = RowsRule::from_value(f.bad.clone(), f.fam.n).unwrap();
+    let v = identity_test(&f.fam, &bad, &[PointSpec::Generic, PointSpec::Generic], &RowsOptions::default());
+    let bc: Vec<usize> = v.points.iter().flat_map(|p| p.cells.iter().map(|c| c.boundary_columns)).collect();
+    println!("B1 bad: {:?} meets_a2 {} boundary columns {bc:?}", v.verdict, v.meets_a2_policy);
+    assert_eq!(v.verdict, Verdict::Pass);
+    assert!(bc.iter().all(|&b| b > 0));
+    assert!(!v.meets_a2_policy);
+}

@@ -512,6 +512,10 @@ pub struct CellReport {
     pub corners_in_span: Vec<String>,
     /// stored elimination entries (pivot rows + dependency lists)
     pub entries: usize,
+    /// generic point only: columns dropped as scaleless under the generic convention that are NOT scaleless on a
+    /// boundary face (a symbolic non-line slot at positive offset becomes active there; audit A C1 / audit B). A
+    /// generic-point pass says nothing on those faces.
+    pub boundary_columns: usize,
     /// Schwartz-Zippel degree of this cell's false-PASS event
     pub sz_degree: u64,
     pub seconds: f64,
@@ -1004,6 +1008,7 @@ struct SolveOut {
     corners_in_span: Vec<String>,
     entries: usize,
     bytes: usize,
+    boundary_columns: usize,
 }
 
 /// Columns, zero sectors, elimination, span test and controls of one cell.
@@ -1035,9 +1040,22 @@ fn solve_system(
     };
     let mut nonzero: Vec<&ColKey> = Vec::new();
     let mut zero_columns = 0;
+    let mut boundary_columns = 0;
     for k in &universe {
         if is_zero(k) {
             zero_columns += 1;
+            // symbolic non-line slots at positive offset: active on the face where n_i + off >= 1
+            if (0..n).any(|i| k.0 >> i & 1 == 1 && !chart[i] && k.1[i] > 0) {
+                let mut a = active(k, chart);
+                for (i, ai) in a.iter_mut().enumerate() {
+                    if k.0 >> i & 1 == 1 && !chart[i] && k.1[i] > 0 {
+                        *ai = true;
+                    }
+                }
+                if !cx.family.zero_mask(&a) {
+                    boundary_columns += 1;
+                }
+            }
         } else {
             nonzero.push(k);
         }
@@ -1094,6 +1112,7 @@ fn solve_system(
         corners_in_span: Vec::new(),
         entries: 0,
         bytes: row_entries * 16 + bytes_cols,
+        boundary_columns,
     };
     if target_zero {
         out.status = CellStatus::Refused(Unsupported::TargetInZeroSector);
@@ -1217,6 +1236,7 @@ fn empty_cell(p: u64, d: u64, status: CellStatus) -> CellReport {
         corners_tested: 0,
         corners_in_span: Vec::new(),
         entries: 0,
+        boundary_columns: 0,
         sz_degree: 0,
         seconds: 0.0,
     }
@@ -1235,6 +1255,7 @@ fn fill_cell(c: &mut CellReport, s: SolveOut) -> usize {
     c.corners_tested = s.corners_tested;
     c.corners_in_span = s.corners_in_span;
     c.entries = s.entries;
+    c.boundary_columns = s.boundary_columns;
     s.bytes
 }
 
@@ -1753,7 +1774,13 @@ pub fn identity_test(
         family_digest: family.source_digest.clone(),
         family_name: family.name.clone(),
         family_bound_to_table: opts.table.is_some(),
-        meets_a2_policy: verdict == Verdict::Pass && points_passed >= 2,
+        // a pass resting only on generic points with boundary-sensitive columns does not meet A2 (audit A C1 / B)
+        meets_a2_policy: verdict == Verdict::Pass
+            && points_passed >= 2
+            && (reports.iter().all(|r| r.cells.iter().all(|c| c.boundary_columns == 0))
+                || reports
+                    .iter()
+                    .any(|r| matches!(r.spec, PointSpec::Key(_)) && r.status == PointStatus::Pass)),
         verdict,
         rule_index: rule.index,
         target: rule.target_text.clone(),
