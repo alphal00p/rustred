@@ -364,3 +364,172 @@ fn verify_dir() {
         eprintln!("{rel}: StreamDigest seal {:?} failed {:?} boundary {}", sd.seal().is_some(), sd.failed(), sd.at_boundary());
     }
 }
+
+/// The next attempt of `prev`, resuming from its RESUME.json.
+fn resume_spec(root: &Path, prev: &JobSpec) -> JobSpec {
+    let attempt = prev.attempt + 1;
+    let run = rustred_campaign_contract::layout::attempt_dir(root, &prev.job_id, attempt);
+    std::fs::create_dir_all(&run).unwrap();
+    let from = RunLayout::new(&prev.run_dir).resume();
+    let mut s = prev.clone();
+    s.attempt = attempt;
+    s.run_dir = run.to_str().unwrap().into();
+    s.resume = Some(rustred_campaign_contract::resume::ResumeRef {
+        from: from.to_str().unwrap().into(),
+        blake3: b3(&from),
+    });
+    s
+}
+
+/// E6: interrupt T281 at a safe point (graceful SIGTERM) and by SIGKILL mid-case, resume, and compare the final sealed
+/// table with an uninterrupted run (canonical digest).
+#[test]
+#[ignore]
+fn interrupted_and_resumed_equals_uninterrupted() {
+    let r = root("resume");
+    let full = spec(&r, "t281-full", 1, "T281-b6", &["--order", "id"]);
+    let (w, t) = run_to_end(&full);
+    assert_eq!(w, WaitStatus::Exited(0), "{t:?}");
+    let want = canonical(&full);
+    for (k, (rules, sig)) in [(7u64, libc::SIGTERM), (150, libc::SIGKILL), (300, libc::SIGTERM)].into_iter().enumerate() {
+        let a = spec(&r, &format!("t281-r{k}"), 1, "T281-b6", &["--order", "id"]);
+        let mut c = spawn(&a);
+        wait_for_rules(&a, rules, Duration::from_secs(300));
+        std::thread::sleep(Duration::from_millis(37 * k as u64));
+        signal(&c, sig);
+        let w = wait(&mut c);
+        let kill = if sig == libc::SIGKILL { KillReason::None } else { KillReason::Stop };
+        let cl = classified(&a, w, kill);
+        assert!(cl.resume_from.is_some(), "attempt 1 resumable (row {})", cl.row);
+        let b = resume_spec(&r, &a);
+        let (w2, t2) = run_to_end(&b);
+        eprintln!("resume {k}: interrupted after >= {rules} rules by signal {sig}, resumed run {t2:?} -> {w2:?}");
+        assert_eq!(w2, WaitStatus::Exited(0));
+        assert_eq!(classified(&b, w2, KillReason::None).row, 1);
+        assert!(outcome(&b).job.resumed);
+        assert_eq!(canonical(&b), want, "resumed table canonically identical to the uninterrupted one");
+    }
+}
+
+/// `--descend open`: the job solves its own case(s) and returns the sub-cases (sealed F.subcases.jsonl); a second job
+/// takes some of them back as PRESENTED cases.
+#[test]
+#[ignore]
+fn descend_open_returns_subcases_that_are_accepted_back() {
+    let r = root("descend");
+    let a = spec(&r, "l4a-top", 1, "L4a", &["--order", "id", "--descend", "open"]);
+    let (w, _) = run_to_end(&a);
+    assert_eq!(w, WaitStatus::Exited(10));
+    let o = outcome(&a);
+    assert_eq!(o.job.stop.code, Some(StopCode::MaxCases));
+    assert_eq!(o.job.counters.cases, 1, "only the job's own case was searched");
+    let cl = classified(&a, w, KillReason::None);
+    assert!(cl.row == 2 || cl.row == 24, "row {}", cl.row);
+    let sub = std::fs::read_to_string(RunLayout::new(&a.run_dir).subcases()).unwrap();
+    let cases: Vec<serde_json::Value> = sub
+        .lines()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+        .filter(|v| v["type"] == "subcase")
+        .collect();
+    eprintln!("{} sub-cases returned", cases.len());
+    assert!(!cases.is_empty());
+    let input = r.join("cases.jsonl");
+    let lines: Vec<String> = cases
+        .iter()
+        .filter(|v| v["kind"] == "case")
+        .take(3)
+        .map(|v| v["case"].to_string())
+        .collect();
+    std::fs::write(&input, lines.join("\n") + "\n").unwrap();
+    let mut b = spec(&r, "l4a-children", 1, "L4a", &["--order", "id", "--descend", "open"]);
+    b.inputs.push(InputRef {
+        role: "cases".into(),
+        path: input.to_str().unwrap().into(),
+        blake3: b3(&input),
+        upto: None,
+    });
+    let (w, _) = run_to_end(&b);
+    assert!(w == WaitStatus::Exited(10) || w == WaitStatus::Exited(0), "{w:?}");
+    let ob = outcome(&b);
+    assert!(ob.job.counters.cases <= lines.len() as u64);
+    let clb = classified(&b, w, KillReason::None);
+    assert!(matches!(clb.row, 1 | 2 | 3 | 24), "row {}", clb.row);
+}
+
+/// Differential check against the fake child: the same job shape (a one-case stop with max_cases) leaves the same
+/// top-level files and the same OUTCOME `job` members.
+#[test]
+#[ignore]
+fn same_files_and_outcome_members_as_the_fake_child() {
+    use rustred_campaign_contract::fake::*;
+    let r = root("diff");
+    let mut real = spec(&r, "real", 1, "L4a", &["--order", "id"]);
+    real.budgets.work.cases = Some(1);
+    let (w, _) = run_to_end(&real);
+    assert_eq!(w, WaitStatus::Exited(10));
+    let run = rustred_campaign_contract::layout::attempt_dir(&r, "fake", 1);
+    std::fs::create_dir_all(&run).unwrap();
+    let mut fake = real.clone();
+    fake.job_id = "fake".into();
+    fake.run_dir = run.to_str().unwrap().into();
+    fake.kind = JobKind::Fake;
+    fake.args = vec![];
+    fake.program = ProgramRef {
+        name: "rr_fake_child".into(),
+        blake3: "0".repeat(64),
+        features_required: vec!["fake".into()],
+    };
+    fake.fake = Some(FakeScript {
+        script: vec![
+            FakeOp::Case {
+                ordinal: 0,
+                ms: 10,
+                work: Default::default(),
+                result: rustred_campaign_contract::stop::CaseResult::Rule,
+                rule: Some(FakeRule {
+                    record: serde_json::json!({"chart":"1","case":0,"target":"I(1)","rhs":[]}),
+                    loci: None,
+                }),
+                children: vec![],
+            },
+            FakeOp::End { stop: Some(StopCode::MaxCases), verdict: None },
+        ],
+        on_sigterm: OnSigterm::Graceful,
+        slow_ms: 0,
+        start_delay_ms: 0,
+        rss: RssPlan::default(),
+        helpers: vec![],
+        faults: vec![],
+        time_scale: 1.0,
+        volatile_jitter: false,
+    });
+    let p = RunLayout::new(&fake.run_dir).job_spec();
+    std::fs::write(&p, fake.to_json_line()).unwrap();
+    let mut c = Command::new(env!("CARGO_BIN_EXE_rr_fake_child"))
+        .arg("job")
+        .arg(&p)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    assert_eq!(wait(&mut c), WaitStatus::Exited(10));
+    let names = |d: &str| -> std::collections::BTreeSet<String> {
+        std::fs::read_dir(d)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .filter(|n| !n.ends_with(".log"))
+            .collect()
+    };
+    assert_eq!(names(&real.run_dir), names(&fake.run_dir), "top-level files");
+    let keys = |s: &JobSpec| -> Vec<String> {
+        let v: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(RunLayout::new(&s.run_dir).outcome()).unwrap()).unwrap();
+        let mut k: Vec<String> = v["job"].as_object().unwrap().keys().cloned().collect();
+        k.sort();
+        k
+    };
+    assert_eq!(keys(&real), keys(&fake), "OUTCOME job members");
+    let cr = classified(&real, WaitStatus::Exited(10), KillReason::None);
+    let cf = classified(&fake, WaitStatus::Exited(10), KillReason::None);
+    assert_eq!(cr.row, cf.row, "same decision-table row");
+}

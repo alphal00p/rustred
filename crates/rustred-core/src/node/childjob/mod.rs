@@ -145,7 +145,7 @@ pub fn create_stream(path: &Path, kind: Stream) -> io::Result<ChildFile> {
         Stream::Cert => StreamDigest::new(&CERT_END_TYPES),
     };
     // a resumed attempt continues the copied committed prefix of the table and the queue log
-    let resumed = RESUMED.get().is_some() && kind != Stream::Cert;
+    let resumed = RESUMED.get().is_some_and(|r| r.prefix) && kind != Stream::Cert;
     let file = if resumed {
         digest.feed_file(path)?;
         let _ = digest.take_records();
@@ -193,6 +193,8 @@ pub struct Resumed {
     pub counters: [usize; 5],
     /// Deferred regions (charts, PRESENTED slots).
     pub deferred: Vec<CaseSpec>,
+    /// A resume of an earlier attempt (the table and queue log continue a copied prefix); false for PRESENTED cases.
+    pub prefix: bool,
 }
 
 static RESUMED: OnceLock<Resumed> = OnceLock::new();
@@ -1504,6 +1506,7 @@ fn restore(j: &Job, v: &cc::preflight::VerifiedResume) {
             .filter_map(|d| serde_json::from_value::<JobCase>(d["chart"].clone()).ok())
             .map(|c| spec_of(&c))
             .collect(),
+        prefix: true,
     });
     SUPPRESS.store(true, SeqCst);
 }
@@ -1642,6 +1645,7 @@ pub fn initial_cases(spec: &JobSpec) -> Vec<CaseSpec> {
                 symbolic_cases: 0,
                 counters: [0; 5],
                 deferred: vec![],
+                prefix: false,
             });
         }
     }
