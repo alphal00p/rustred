@@ -505,7 +505,7 @@ pub fn case_boundary(
     let current = job_case(&current);
     let key = serde_json::to_string(&current).unwrap_or_default();
     // `--descend open`: the job's own cases are the queue at its FIRST safe point (restored from RESUME on a resume,
-    // audit-engjob C2); fixed before the stop check so that every RESUME of the job names them
+    // audit-engjob C2); fixed before anything else so that every RESUME of the job names them
     if DESCEND_OPEN.load(Relaxed) && !numerical {
         let mut own = lock(&OWN_CASES);
         if own.is_none() {
@@ -528,6 +528,19 @@ pub fn case_boundary(
             Some(current)
         }
     };
+    // `--descend open`: only the job's own cases are solved; every other case is returned (F.subcases.jsonl). A
+    // returned case needs no work, so it is returned even when a stop is pending: the stop is honoured at the next
+    // own case or at the queue end, with every case returned so far in RESUME `engine.descend_open.returned`
+    if DESCEND_OPEN.load(Relaxed) {
+        let own = lock(&OWN_CASES);
+        if numerical || !own.as_ref().is_some_and(|s| s.contains(&key)) {
+            drop(own);
+            lock(&j.st)
+                .returned
+                .push((if numerical { "numeric" } else { "case" }, current));
+            return Ok(Boundary::Skip);
+        }
+    }
     if j.stop.load(SeqCst) {
         let mut q = open();
         let cur = resume_form(current, &mut q);
@@ -540,17 +553,6 @@ pub fn case_boundary(
         j.write_resume(cur, q, true);
         j.st().stopped_at_boundary = true;
         return Ok(Boundary::Stop(interrupted(j, pending)));
-    }
-    // `--descend open`: only the job's own cases are solved; every other case is returned (F.subcases.jsonl)
-    if DESCEND_OPEN.load(Relaxed) {
-        let own = lock(&OWN_CASES);
-        if numerical || !own.as_ref().is_some_and(|s| s.contains(&key)) {
-            drop(own);
-            lock(&j.st)
-                .returned
-                .push((if numerical { "numeric" } else { "case" }, current));
-            return Ok(Boundary::Skip);
-        }
     }
     if j.resume_due() {
         let mut q = open();
