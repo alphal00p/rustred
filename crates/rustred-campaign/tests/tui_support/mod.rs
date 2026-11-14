@@ -1,12 +1,14 @@
 //! Shared helpers of the dashboard tests (lane I-TUI).
 #![allow(dead_code)]
 
+pub mod demo;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rustred_campaign::clock::{ManualClock, UtcMillis};
-use rustred_campaign::tui::{DashboardOptions, MemorySource};
+use rustred_campaign::tui::{DashboardOptions, DirSource, MemorySource};
 use serde_json::Value;
 
 pub fn data() -> PathBuf {
@@ -16,6 +18,29 @@ pub fn data() -> PathBuf {
 /// Hand fixture directory (a CDIR with `progress/`).
 pub fn fixture_dir(name: &str) -> PathBuf {
     data().join("tui").join(name)
+}
+
+/// A DirSource on a hand fixture that SHOWS a checkout-independent label instead of the absolute path (audit M5:
+/// golden screens must not contain machine- or checkout-specific text).
+pub fn fixture_source(name: &str) -> DirSource {
+    DirSource::new(fixture_dir(name)).with_display(format!("tests/data/tui/{name}"))
+}
+
+/// Text that would make a golden depend on the machine or the checkout.
+pub fn machine_specific(text: &str) -> Option<String> {
+    let manifest = env!("CARGO_MANIFEST_DIR");
+    let mut needles = vec![
+        manifest.to_string(),
+        "/shared/".into(),
+        "/home/".into(),
+        "/common/".into(),
+    ];
+    if let Ok(u) = std::env::var("USER")
+        && !u.is_empty()
+    {
+        needles.push(format!("/{u}/"));
+    }
+    needles.into_iter().find(|n| text.contains(n.as_str()))
 }
 
 pub fn read_json(p: &Path) -> Value {
@@ -118,6 +143,9 @@ pub fn scratch(name: &str) -> PathBuf {
 /// Compares `text` with the golden screen `tests/data/tui/screens/<name>.txt` (rewritten with
 /// `RR_TUI_UPDATE_GOLDENS=1`).
 pub fn check_golden(name: &str, text: &str) {
+    if let Some(n) = machine_specific(text) {
+        panic!("golden {name} would contain machine-specific text {n:?}:\n{text}");
+    }
     let p = data().join("tui/screens").join(format!("{name}.txt"));
     if std::env::var_os("RR_TUI_UPDATE_GOLDENS").is_some() {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();

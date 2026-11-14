@@ -3,8 +3,8 @@
 2026-11-13T23:00:18.000Z event item_upgraded T162 F006: evidence -> identity_tested
 2026-11-13T23:00:18.250Z event node T162: closure round 1, defect 37 of 154783 keys
 2026-11-13T23:00:19.500Z event rule_retired T162 F003: rule T162:R:campaign:3 superseded by T162-item-00002 (replaced_by)
-2026-11-13T23:10:03Z RUNNING seq 84 cpu 21/48 ram 1.1/30.0G host 268.0G nodes 1 (full 0 boxed 0 open 1) items-open 3 rules 5/1 cert 50.0% defect 37 term 2 cpu-h 0.0 eta ~1s-3s
-2026-11-13T23:10:03Z RUNNING seq 84 cpu 21/48 ram 1.1/30.0G host 268.0G nodes 1 (full 0 boxed 0 open 1) items-open 3 rules 5/1 cert 50.0% defect 37 term 2 cpu-h 0.0 eta ~1s-3s
-2026-11-13T23:10:03Z STOPPING seq 84 cpu 21/48 ram 1.1/30.0G host 268.0G nodes 1 (full 0 boxed 0 open 1) items-open 3 rules 5/1 cert 50.0% defect 37 term 2 cpu-h 0.0 eta ~1s-3s
-2026-11-20T08:15:06Z RUNNING seq 18,402 cpu 21/32 ram 9.8/30.0G host 60.0G nodes 4 (full 1 boxed 1 open 2) items-open 226 rules 1,201/31 cert 86.3% defect 449 term 3 cpu-h 61.4 eta ~54m-2.6h attention 2
-2026-11-20T08:25:10Z STALE seq 18,402 cpu 21/32 ram 9.8/30.0G host 60.0G nodes 1 (full 0 boxed 1 open 0) items-open 226 rules 1,201/31 cert 86.3% defect 449 term 3 cpu-h 61.4 eta ~54m-2.6h hb-age 10m06s attention 1
+2026-11-13T23:10:03Z RUNNING seq 84 cpu 21/48 ram 1.1/30.0GiB host 268.0GiB nodes 1 (full 0 boxed 0 open 1) items-open 3 rules 5/1 certified 0/1 defect 37 term 2 cpu-h 0.0 eta ~1s-3s
+2026-11-13T23:10:03Z RUNNING seq 84 cpu 21/48 ram 1.1/30.0GiB host 268.0GiB nodes 1 (full 0 boxed 0 open 1) items-open 3 rules 5/1 certified 0/1 defect 37 term 2 cpu-h 0.0 eta ~1s-3s
+2026-11-13T23:10:03Z STOPPING seq 84 cpu 21/48 ram 1.1/30.0GiB host 268.0GiB nodes 1 (full 0 boxed 0 open 1) items-open 3 rules 5/1 certified 0/1 defect 37 term 2 cpu-h 0.0 eta ~1s-3s
+2026-11-20T08:15:06Z RUNNING seq 18,402 cpu 21/32 ram 9.8/30.0GiB host 60.0GiB nodes 4 (full 1 boxed 1 open 2) items-open 226 rules 1,201/31 certified 1/4 defect 449 term 3 cpu-h 61.4 eta ~54m-2.6h attention 2
+2026-11-20T08:25:10Z STALE seq 18,402 cpu 21/32 ram 9.8/30.0GiB host 60.0GiB nodes 1 (full 0 boxed 1 open 0) items-open 226 rules 1,201/31 certified 0/1 defect 0 term 3 cpu-h 61.4 eta ? hb-age 10m06s attention 1

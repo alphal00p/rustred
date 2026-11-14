@@ -33,7 +33,7 @@ fn golden_screens_of_every_fixture_at_three_widths() {
     for name in ["empty", "midrun", "finished", "stale", "toy"] {
         let dir = fixture_dir(name);
         let c = read_json(&dir.join("progress/campaign.json"));
-        let src = DirSource::new(&dir);
+        let src = fixture_source(name);
         for (w, h) in SIZES {
             let o = opts_for(&c);
             check_golden(
@@ -80,16 +80,20 @@ fn boxed_rows_are_blue_full_green_stale_yellow_and_colour_off_has_no_colour() {
     let app = App::new(false, 120);
     let buf = tui::render_to_buffer(&vm, &app, true, false, now, 120, 40);
     let (x, y) = find(&buf, "[BOXED T162.rstar]").expect("boxed tag shown");
-    assert_eq!(buf[(x, y)].fg, Color::Blue, "BOXED tag blue (2.4.15)");
-    // the whole BOXED row is blue (node id cell)
-    let (x2, y2) = find(&buf, "T162     [BOXED").unwrap();
-    assert_eq!(buf[(x2, y2)].fg, Color::Blue);
-    let (x, y) = find(&buf, "FULL  ").expect("FULL shown");
+    assert_eq!(
+        buf[(x, y)].fg,
+        Color::LightBlue,
+        "BOXED tag (bright) blue (2.4.15, audit m5)"
+    );
+    // the whole BOXED row is blue (node id cell, first column)
+    assert_eq!(buf[(0, y)].symbol(), "T");
+    assert_eq!(buf[(0, y)].fg, Color::LightBlue);
+    let (x, y) = find(&buf, "FULL   ").expect("FULL shown");
     assert_eq!(buf[(x, y)].fg, Color::Green);
     let (x, y) = find(&buf, "RUNNING").unwrap();
     assert_eq!(buf[(x, y)].fg, Color::Green);
     // host MemAvailable 60 G vs floor 50 G: within 25 % of the floor -> yellow
-    let (x, y) = find(&buf, "60.0G (floor").unwrap();
+    let (x, y) = find(&buf, "60.0 GiB (floor").unwrap();
     assert_eq!(buf[(x, y)].fg, Color::Yellow);
     // no background colours anywhere, only named colours
     let a = buf.area;
@@ -127,7 +131,7 @@ fn boxed_rows_are_blue_full_green_stale_yellow_and_colour_off_has_no_colour() {
         120,
         40,
     );
-    let (x, y) = find(&sbuf, " STALE: no heartbeat for 10m06s").expect("stale banner");
+    let (x, y) = find(&sbuf, " STALE since 08:15:04 UTC (10m06s").expect("stale banner");
     assert_eq!(sbuf[(x + 1, y)].fg, Color::Yellow);
 }
 
@@ -284,11 +288,15 @@ fn absent_garbage_half_written_and_unknown_major_files() {
     assert!(
         vm.problems
             .iter()
-            .any(|p| p.starts_with("node T162: not JSON")),
+            .any(|p| p.as_str().starts_with("node T162: not JSON")),
         "{:?}",
         vm.problems
     );
-    assert!(vm.events.iter().all(|e| !e.text.contains('\u{1b}')));
+    assert!(
+        vm.events
+            .iter()
+            .all(|e| !e.text.as_str().contains('\u{1b}'))
+    );
     let _ = std::fs::remove_dir_all(&d);
 }
 
@@ -388,8 +396,8 @@ fn thirty_thousand_items_render_windowed_and_fast() {
     let now = o.clock.now_utc().0 as f64 / 1000.0;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
-    app.on_key(key(KeyCode::Down), &vm, &src, &controls, now);
-    app.on_key(key(KeyCode::Down), &vm, &src, &controls, now); // T178
+    // nodes are sorted attention first: T178 (terminal candidates waiting) is the first row
+    assert_eq!(vm.nodes[0].id, "T178");
     app.on_key(key(KeyCode::Enter), &vm, &src, &controls, now);
     app.on_key(key(KeyCode::End), &vm, &src, &controls, now);
     let t0 = Instant::now();
@@ -431,7 +439,7 @@ fn toy_campaign_generic_columns_provisional_certification_preferred_reference_op
         t.contains("2/3 nn1"),
         "preferred used/total, not needed: {t}"
     );
-    assert!(t.contains("preferred used 2/3"), "{t}");
+    assert!(t.contains("pref 2/3"), "{t}");
     assert!(
         t.contains("14>8") && t.contains("280>151"),
         "optimise before>after: {t}"
@@ -443,6 +451,12 @@ fn toy_campaign_generic_columns_provisional_certification_preferred_reference_op
         !matches!(buf[(x, y)].fg, Color::Red | Color::Yellow),
         "a reference difference is information, not an error"
     );
+    // audit M3: the sunset node reached the level its spec asks: no 0 % certification headline
+    assert!(
+        t.contains("CERTIFIED at the level asked: 1 of 2 nodes"),
+        "{t}"
+    );
+    assert!(!t.contains("CERT 0.0%"), "{t}");
     // no expected-master pass/fail wording anywhere
     for word in ["master", "knock", "expected"] {
         assert!(!t.to_lowercase().contains(word), "{word} on screen: {t}");

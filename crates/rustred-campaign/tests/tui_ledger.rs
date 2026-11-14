@@ -73,7 +73,7 @@ fn real_ledger_and_progress_files_summary_and_drill_down() {
     assert_eq!(src.running_jobs(), Some(vec![]));
     // keyboard path: Enter on the node, select item 4, w
     let vm = tui::view_model(&src, &o);
-    assert_eq!(vm.jobs.list_origin, "ledger");
+    assert_eq!(vm.jobs.list_origin, tui::model::JobsOrigin::LedgerPartial);
     let w = WatchControls::new();
     let mut app = App::new(false, 120);
     let k = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
@@ -82,7 +82,7 @@ fn real_ledger_and_progress_files_summary_and_drill_down() {
     let pos = app
         .visible_items()
         .iter()
-        .position(|i| i.item == it4.item)
+        .position(|i| i.item.as_str() == it4.item)
         .unwrap();
     for _ in 0..pos {
         app.on_key(k(KeyCode::Down), &vm, &src, &w, 0.0);
