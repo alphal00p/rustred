@@ -304,6 +304,32 @@ The relevant upstream implementations are the pinned
 as well as the
 [`multivariate polynomial`](../vendor/symbolica/src/poly/polynomial.rs).
 
+## Univariate rational reconstruction
+
+[`algebra::reconstruct`](../crates/rustred-core/src/algebra/reconstruct/mod.rs)
+reconstructs univariate rational functions over Q from their values modulo
+word-size primes. It is RustRed code on numerica primitives that every
+Symbolica lineage RustRed builds against provides (`Zp64`,
+`Integer::chinese_remainder`, `Rational::maximal_quotient_reconstruction`);
+it needs no Symbolica `poly::reconstruction`. It is univariate only and is
+not the missing multivariate service listed below.
+
+- `poly`: dense `Zp64` polynomials and the normalisation of a fraction
+  (lowest nonzero denominator coefficient one);
+- `interpolate`: Newton and Thiele interpolation with early termination,
+  raced on shared points (`Interpolator`);
+- `known`: the shape (degrees, normalisation index) of a normalised image and
+  the fit of a known shape from `unknowns + 1` points;
+- `rational`: `RationalFunction` over Q, Wang's reconstruction and MQRR;
+- `lift`: `Lift`, CRT accumulation with Wang and MQRR raced, accepted once a
+  guess is unchanged over two consecutive primes; an image of another shape
+  (an unlucky prime) is reported as `ShapeMismatch` and not accumulated.
+
+The algorithms follow the FireFly papers (arXiv:1904.00009, arXiv:2004.01463)
+and were implemented from the papers only. The LiteRed lane's own
+reconstructor (`solver/litered/reconstruct.rs`, Thiele + CRT + MQRR) is the
+special case `Interpolator` + `Lift` of this module and is unchanged.
+
 ## Known public-API gaps
 
 At the pinned revision, exhaustive public-API searches found no directly

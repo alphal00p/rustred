@@ -3,6 +3,7 @@
 mod coefficient;
 pub mod indexed;
 pub(crate) mod matrix;
+pub mod reconstruct;
 mod symbol;
 pub(crate) mod thread_owned;
 
