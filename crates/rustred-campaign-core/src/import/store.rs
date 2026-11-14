@@ -154,9 +154,12 @@ pub struct EvidenceStore {
     pub origin: String,
 }
 
-type CacheSlot = Option<(u64, u32, Vec<i32>, Option<Arc<StoreEntry>>)>;
+/// One cached lookup per store and thread: (store id, record id, key, entry).
+type CacheSlot = (u64, u32, Vec<i32>, Option<Arc<StoreEntry>>);
+/// Stores with their own slot per thread (an evidence set holds a few stores; more evict round-robin).
+const CACHE_SLOTS: usize = 16;
 thread_local! {
-    static CACHE: RefCell<CacheSlot> = const { RefCell::new(None) };
+    static CACHE: RefCell<Vec<CacheSlot>> = const { RefCell::new(Vec::new()) };
 }
 
 // ---------------------------------------------------------------- encoding
@@ -1004,15 +1007,27 @@ impl EvidenceStore {
     /// The entry of (record id, key) (per-thread one-entry cache).
     pub fn get_rec(&self, rec: u32, key: &[i32]) -> Option<Arc<StoreEntry>> {
         let hit = CACHE.with(|c| {
-            c.borrow().as_ref().and_then(|(id, r, k, e)| {
-                (*id == self.id && *r == rec && k.as_slice() == key).then(|| e.clone())
-            })
+            c.borrow()
+                .iter()
+                .find(|(id, r, k, _)| *id == self.id && *r == rec && k.as_slice() == key)
+                .map(|(_, _, _, e)| e.clone())
         });
         if let Some(e) = hit {
             return e;
         }
         let e = self.lookup(rec, key).map(Arc::new);
-        CACHE.with(|c| *c.borrow_mut() = Some((self.id, rec, key.to_vec(), e.clone())));
+        CACHE.with(|c| {
+            let mut c = c.borrow_mut();
+            let slot = (self.id, rec, key.to_vec(), e.clone());
+            if let Some(i) = c.iter().position(|(id, ..)| *id == self.id) {
+                c[i] = slot;
+            } else if c.len() < CACHE_SLOTS {
+                c.push(slot);
+            } else {
+                let i = (self.id as usize) % CACHE_SLOTS;
+                c[i] = slot;
+            }
+        });
         e
     }
 

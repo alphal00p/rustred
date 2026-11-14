@@ -243,6 +243,9 @@ pub struct EvidenceCounts {
 #[derive(Default)]
 pub struct Evidence {
     rule_index: HashMap<(String, i64), u32>,
+    /// lane t266run: the same index as table name / path -> label -> rule (looked up without allocating: the closure
+    /// asks per term).
+    rule_index2: HashMap<String, HashMap<i64, u32>>,
     sha_index: HashMap<String, u32>,
     facts: HashMap<(u32, Vec<i32>), FactRec>,
     /// (rule, key) -> index into `statuses` (compact: no per-entry strings).
@@ -391,6 +394,8 @@ impl Evidence {
             for r in t {
                 ev.rule_index.insert((r.path.clone(), r.label), n);
                 ev.rule_index.insert((r.table_name.clone(), r.label), n);
+                ev.rule_index2.entry(r.path.clone()).or_default().insert(r.label, n);
+                ev.rule_index2.entry(r.table_name.clone()).or_default().insert(r.label, n);
                 ev.sha_index.insert(r.record_sha256.clone(), n);
                 ev.rule_record_index.push(r.index);
                 ev.rule_sha.push(r.record_sha256.clone());
@@ -505,7 +510,12 @@ impl Evidence {
 
     /// The fact of (rule index, key) from memory and / or the stores.
     fn fact_ref(&self, ri: u32, key: &[i32]) -> Option<FactRef<'_>> {
-        let m = self.facts.get(&(ri, key.to_vec()));
+        // (no allocation when nothing is in memory: the store-backed case asks per term)
+        let m = if self.facts.is_empty() {
+            None
+        } else {
+            self.facts.get(&(ri, key.to_vec()))
+        };
         let s = if self.stores.is_empty() {
             None
         } else {
@@ -522,7 +532,11 @@ impl Evidence {
     /// The proof status index of (rule index, key): memory first (the strongest is kept there), else the stores; a
     /// per-key status wins.
     fn proof_index(&self, ri: u32, key: &[i32]) -> Option<u32> {
-        let m = self.proofs.get(&(ri, Box::<[i32]>::from(key))).copied();
+        let m = if self.proofs.is_empty() {
+            None
+        } else {
+            self.proofs.get(&(ri, Box::<[i32]>::from(key))).copied()
+        };
         if m.is_some_and(|i| self.statuses[i as usize].per_key) || self.stores.is_empty() {
             return m;
         }
@@ -1008,14 +1022,15 @@ impl Evidence {
     }
 
     fn rec(&self, rule: &RuleId, key: &[i32]) -> Option<FactRef<'_>> {
-        let ri = self.rule_index.get(&(rule.table.to_string(), rule.label))?;
+        let ri = self.rule_index2.get(rule.table)?.get(&rule.label)?;
         self.fact_ref(*ri, key)
     }
 
     /// Whether an exact per-key proof is bound to the record named by `rule` at `key`.
     fn per_key(&self, rule: &RuleId, key: &[i32]) -> bool {
-        self.rule_index
-            .get(&(rule.table.to_string(), rule.label))
+        self.rule_index2
+            .get(rule.table)
+            .and_then(|m| m.get(&rule.label))
             .and_then(|ri| self.proof_index(*ri, key))
             .is_some_and(|i| self.statuses[i as usize].per_key)
     }
