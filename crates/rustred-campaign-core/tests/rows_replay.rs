@@ -30,7 +30,11 @@ fn f6_rule(id: &str) -> Option<(Value, Vec<Vec<i64>>)> {
     };
     let mut keys = Vec::new();
     for k in ["C2", "C5"] {
+        // the SERVED keys of the rule: the census keys it covers (excepted / not-in-case keys are not served by it)
         for p in case["clean"][0][k].as_array().into_iter().flatten() {
+            if p["verdict"] != "covered_regular" {
+                continue;
+            }
             keys.push(
                 p["point"]
                     .as_array()
@@ -65,7 +69,12 @@ fn rows_replay_record_fc000_and_fd006() {
             loci
         );
         assert_eq!(rec.level, ReplayLevel::Established, "{id}");
-        assert_eq!(rec.schema, "rustred.campaign.replay_evidence.v1");
+        assert_eq!(rec.schema, "rustred.campaign.replay_evidence.v2");
+        assert_eq!(
+            rec.served_keys_replayed, rec.pole_scan.keys_applicable,
+            "{id}: every served key replayed"
+        );
+        assert_eq!(rec.family_digest, T162_FAMILY_SHA);
         assert_eq!(rec.rule_digest.len(), 64);
         assert!(rec.pole_scan.poles.is_empty());
         // the record serialises (the ledger cites it)

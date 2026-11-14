@@ -60,8 +60,9 @@ pub trait Descent {
 }
 
 impl Descent for NodeComparator {
+    /// Checked comparison (re-audit RB m5): a key of the wrong length is "not lower" (fail closed), never a panic.
     fn lower(&self, a: &[i32], b: &[i32]) -> bool {
-        NodeComparator::lower(self, a, b)
+        NodeComparator::try_lower(self, a, b).unwrap_or(false)
     }
 }
 

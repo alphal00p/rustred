@@ -219,6 +219,8 @@ fn t266_tier_k_closure() {
         &tf,
         DomainOptions {
             targets: T266_TARGETS,
+            // legacy reference numbers: exports carry no witness loci (re-audit RA-MAJOR-1, lane corefix2)
+            witness: false,
             ..Default::default()
         },
     )

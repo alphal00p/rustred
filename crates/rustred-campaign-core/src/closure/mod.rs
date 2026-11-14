@@ -1132,11 +1132,9 @@ fn run(
                                         None => 0, // never seen: evaluate everything
                                         Some(ci) => match c.stop[ci as usize] {
                                             None => u32::MAX,
-                                            Some((t, r)) => ctx.fast.position(RuleRef {
-                                                table: t as usize,
-                                                record: r as usize,
-                                                label: 0,
-                                            }),
+                                            Some((t, r)) => ctx
+                                                .fast
+                                                .position(RuleRef::bare(t as usize, r as usize, 0)),
                                         },
                                     };
                                     ctx.fast

@@ -7,6 +7,7 @@
 //! - [`coeff`]: NEW streaming evaluator of rule coefficients "(P)/(Q)" modulo several primes at once (no tree).
 //! - [`primes`]: NEW verify-range primes (deterministic Miller-Rabin) and SplitMix64 streams.
 //! - [`sha256`]: NEW plain SHA-256 for the rule identity digest of the `replay` evidence record.
+//! - [`symrows`]: NEW symmetry group (data, derivation, exact verification, cross-check) and symmetry rows.
 
 pub mod arith;
 pub mod coeff;
@@ -17,3 +18,4 @@ pub mod record;
 pub mod rows;
 pub mod sha256;
 pub mod span;
+pub mod symrows;
