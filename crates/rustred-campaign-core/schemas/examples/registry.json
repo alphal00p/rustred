@@ -1,0 +1,15 @@
+{
+  "schema": "rustred.campaign.registry.v1",
+  "written_utc": "2026-11-20T04:03:10Z",
+  "campaigns": [
+    {
+      "id": "p5l-boxed-example",
+      "dir": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/campaigns/p5l-boxed-example",
+      "kind": "boxed",
+      "mode": "close",
+      "started_utc": "2026-11-19T04:03:10Z",
+      "owner": "vhirschi",
+      "optimised_from": null
+    }
+  ]
+}

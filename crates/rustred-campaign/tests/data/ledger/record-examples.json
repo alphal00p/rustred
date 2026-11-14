@@ -241,7 +241,7 @@
       },
       "kind": "item"
     },
-    "prev": "9bd7ee8357275a20ae408e0ad8d8ac581f612ac30926c418661b3eee0d02ddd5",
+    "prev": "4d424542a66fe960dcaa1ab3595d02504b0e75f24fec3de04da08bc4e9959d5b",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 79,
     "utc": "2026-11-13T23:00:19.500Z"
@@ -416,7 +416,7 @@
       },
       "kind": "job_progress"
     },
-    "prev": "07172181f7af4163b9ec09f59f12a8e43ff420ec8d77863a7289bf0c00dd79df",
+    "prev": "b2b9d660abb9a77cad7f32e48de422420a90bee516b7b542696d445da0cbb826",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 80,
     "utc": "2026-11-13T23:00:19.750Z"
@@ -452,6 +452,7 @@
             "path": "large:keysets/T162-closure-1.keys"
           },
           "round": 1,
+          "rules_total": 2440,
           "rules_used": 5
         },
         "node": "T162"
@@ -503,7 +504,7 @@
       },
       "kind": "note"
     },
-    "prev": "0d0a0d62ef7cf06257e911eac8d109260afb9a52e883a69535388f40911d07d9",
+    "prev": "349948332013d934baa38badd380c6814036b47709a5aaa1fce07e35706e7799",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 81,
     "utc": "2026-11-13T23:00:20.000Z"
@@ -523,7 +524,7 @@
       },
       "kind": "rule_economy"
     },
-    "prev": "6c98a479d52975a64f39f2f5a96048624d2d232d00eb7df5217c00d220f3f0ed",
+    "prev": "1a69188d24b34d8873dcf24b1d6f7b4287e5123153cc53f6c41c5d8d8576e47f",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 75,
     "utc": "2026-11-13T23:00:18.500Z"
@@ -532,12 +533,12 @@
     "event": {
       "body": {
         "index": 2,
-        "previous_blake3": "aaab9567d5705d71429c8578590ec022f8c608688db66997328433748d94f702",
+        "previous_blake3": "a8af45e0a3ba43c2c1bd9f4bd785f3c024fb726e690cabbb23612ae198198559",
         "snapshot_seq": 81
       },
       "kind": "segment_opened"
     },
-    "prev": "1a72f4d92433a0aaf2a8a2927eb6fc535f76cc9c33b59a24628b2a5b4e5c8dac",
+    "prev": "960ac4b0d7bd1c20b1c1a9e4a6bcfede58526efb52ffd9b109a2d5d5349f49e7",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 82,
     "utc": "2026-11-13T23:00:20.250Z"

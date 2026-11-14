@@ -1,0 +1,13 @@
+{
+  "args": {
+    "text": "fixture"
+  },
+  "by": "vhirschi (tty)",
+  "fixture_origin": "hand",
+  "id": "c-20261114T061000Z-0001",
+  "reason": "operator note",
+  "schema": "rustred.campaign.control.v1",
+  "target": null,
+  "utc": "2026-11-14T06:10:00Z",
+  "verb": "note"
+}

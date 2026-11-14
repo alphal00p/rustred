@@ -16,9 +16,26 @@ compile_error!(
     "rustred-campaign's process layer (resources, launch, cpu_policy) requires Linux: /proc, sched_setaffinity, prctl"
 );
 
+mod bounded;
+mod marked;
+mod pid;
 mod scan;
 
-pub use scan::{EscapeeRecord, Sampler, SamplerConfig, SessionUsage, Snapshot, scan_sessions_now};
+pub use bounded::{
+    Bounded, MAX_STUCK, ReadOutcome, outstanding_helpers, read_bounded, run_bounded,
+    run_bounded_with,
+};
+pub use marked::{
+    CampaignMarker, CampaignScan, ENVIRON_READ_TIMEOUT, InvalidMarker, MARKER_VAR, MarkedProcess,
+    MarkerRead, marker_in_environ, our_uid, owner_uid_at, read_marker_at, scan_campaign,
+    validate_campaign_id,
+};
+pub use pid::{InvalidPid, PID_MAX_LIMIT, ValidPid, pid_max};
+pub(crate) use scan::Leaders;
+pub use scan::{
+    EscapeeRecord, MemKind, Sampler, SamplerConfig, SamplerHealth, SessionUsage, Snapshot,
+    scan_sessions_now,
+};
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -107,10 +124,10 @@ fn gone(e: &io::Error) -> bool {
 /// Read `/proc/<pid>/stat`. `Ok(None)`: the process does not exist (or vanished while being read).
 /// This read can block in the kernel (see guarded_run.py): call it from a helper thread or for single pids only.
 pub fn read_stat(pid: u32) -> io::Result<Option<ProcStat>> {
-    read_stat_path(pid, &format!("/proc/{pid}/stat"))
+    read_stat_path(pid, Path::new(&format!("/proc/{pid}/stat")))
 }
 
-fn read_stat_path(pid: u32, path: &str) -> io::Result<Option<ProcStat>> {
+pub(crate) fn read_stat_path(pid: u32, path: &Path) -> io::Result<Option<ProcStat>> {
     match fs::read(path) {
         Ok(bytes) => Ok(parse_stat(
             pid,
@@ -125,6 +142,11 @@ fn read_stat_path(pid: u32, path: &str) -> io::Result<Option<ProcStat>> {
 /// For a process whose main thread is a zombie: the stat of a live thread, if any (a dead leader with live threads
 /// still holds memory and can still fork; guarded_run.py `live_thread`).
 pub fn live_thread_stat(pid: u32) -> io::Result<Option<ProcStat>> {
+    Ok(live_thread(pid)?.map(|(_, st)| st))
+}
+
+/// As [`live_thread_stat`], with the live thread's id.
+pub fn live_thread(pid: u32) -> io::Result<Option<(u32, ProcStat)>> {
     let entries = match fs::read_dir(format!("/proc/{pid}/task")) {
         Ok(e) => e,
         Err(e) if gone(&e) => return Ok(None),
@@ -139,10 +161,10 @@ pub fn live_thread_stat(pid: u32) -> io::Result<Option<ProcStat>> {
         else {
             continue;
         };
-        if let Some(st) = read_stat_path(pid, &format!("/proc/{pid}/task/{tid}/stat"))?
+        if let Some(st) = read_stat_path(pid, Path::new(&format!("/proc/{pid}/task/{tid}/stat")))?
             && !st.is_dead()
         {
-            return Ok(Some(st));
+            return Ok(Some((tid, st)));
         }
     }
     Ok(None)
@@ -166,11 +188,35 @@ pub fn boot_id() -> io::Result<String> {
 /// The identity of a child: (pid, start time in ticks after boot, boot id). Rule: a signal is sent to a pid (or to the
 /// group or session it leads) only after its CURRENT start time and the current boot id were found equal to the
 /// recorded ones. A different boot id proves the recorded process dead; a different start time proves the pid recycled.
+///
+/// Deserialisation REJECTS pids outside 2..=pid_max (audit B C1/C2: a hand-edited or corrupted record must never name
+/// pid 0, 1 or a value that turns negative). The fields stay public for tests and fakes; every signal path re-checks
+/// the pid through [`ValidPid`] anyway.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "RawIdentity")]
 pub struct ProcessIdentity {
     pub pid: u32,
     pub start_ticks: u64,
     pub boot_id: String,
+}
+
+#[derive(Deserialize)]
+struct RawIdentity {
+    pid: i64,
+    start_ticks: u64,
+    boot_id: String,
+}
+
+impl TryFrom<RawIdentity> for ProcessIdentity {
+    type Error = InvalidPid;
+    fn try_from(r: RawIdentity) -> Result<Self, InvalidPid> {
+        let pid = ValidPid::new(r.pid)?.get();
+        Ok(Self {
+            pid,
+            start_ticks: r.start_ticks,
+            boot_id: r.boot_id,
+        })
+    }
 }
 
 /// What a recorded identity corresponds to now.
@@ -188,7 +234,9 @@ pub enum Liveness {
 
 impl ProcessIdentity {
     /// Identity of a live pid, read now.
+    /// Refuses pids outside 2..=pid_max (`InvalidPid` payload).
     pub fn capture(pid: u32) -> io::Result<Self> {
+        ValidPid::new(i64::from(pid)).map_err(InvalidPid::into_io)?;
         let st = read_stat(pid)?.ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::NotFound,
@@ -202,7 +250,9 @@ impl ProcessIdentity {
         })
     }
 
+    /// Errors with an `InvalidPid` payload for a pid outside 2..=pid_max (no /proc read is made).
     pub fn check(&self) -> io::Result<Liveness> {
+        ValidPid::new(i64::from(self.pid)).map_err(InvalidPid::into_io)?;
         if self.boot_id != boot_id()? {
             return Ok(Liveness::OtherBoot);
         }
@@ -238,9 +288,17 @@ pub struct MemInfo {
 impl MemInfo {
     /// What the rule compares with the floor: MemAvailable, reduced to the cgroup headroom when that is smaller
     /// (host RAM alone can overstate what this process may use inside a container or a capped slice).
+    ///
+    /// Audit A m8: the cgroup headroom gets its OWN margin (zero), not the host floor: the value is
+    /// `min(MemAvailable, headroom + floor)`, so that `effective - outstanding - cap >= floor` means for the cgroup
+    /// `headroom - outstanding - cap >= 0`. Uses the default 50 GB floor; [`Self::effective_available_for`] takes another.
     pub fn effective_available(&self) -> u64 {
+        self.effective_available_for(crate::admission::DEFAULT_FLOOR_BYTES)
+    }
+
+    pub fn effective_available_for(&self, floor: u64) -> u64 {
         match self.cgroup_headroom {
-            Some(h) => self.mem_available.min(h),
+            Some(h) => self.mem_available.min(h.saturating_add(floor)),
             None => self.mem_available,
         }
     }
@@ -317,7 +375,10 @@ pub fn allowed_cpus() -> io::Result<BTreeSet<usize>> {
 }
 
 /// Parse a kernel-style CPU list ("0-3,8,10-11"; also accepts spaces as separators). Errors name the bad part.
+/// Audit B M3: every CPU number must be below `CPU_SETSIZE` (1024); a range like "0-60000000" is an error, never
+/// materialised.
 pub fn parse_cpu_list(text: &str) -> Result<BTreeSet<usize>, String> {
+    let limit = libc::CPU_SETSIZE as usize;
     let mut out = BTreeSet::new();
     for part in text
         .split([',', ' ', '\n', '\t'])
@@ -336,12 +397,18 @@ pub fn parse_cpu_list(text: &str) -> Result<BTreeSet<usize>, String> {
             if a > b {
                 return Err(format!("bad CPU range {part:?}"));
             }
+            if b >= limit {
+                return Err(format!("CPU range {part:?} beyond CPU_SETSIZE {limit}"));
+            }
             out.extend(a..=b);
         } else {
-            out.insert(
-                part.parse()
-                    .map_err(|_| format!("bad CPU number {part:?}"))?,
-            );
+            let n: usize = part
+                .parse()
+                .map_err(|_| format!("bad CPU number {part:?}"))?;
+            if n >= limit {
+                return Err(format!("CPU number {part:?} beyond CPU_SETSIZE {limit}"));
+            }
+            out.insert(n);
         }
     }
     Ok(out)
@@ -508,7 +575,12 @@ mod tests {
 
     #[test]
     fn own_identity_is_alive_and_wrong_start_is_recycled() {
-        let me = ProcessIdentity::capture(std::process::id()).unwrap();
+        // A child of the test (our own pid is 1 inside the test pid namespace, which capture refuses).
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        let me = ProcessIdentity::capture(child.id()).unwrap();
         assert_eq!(me.check().unwrap(), Liveness::Alive { zombie: false });
         let wrong = ProcessIdentity {
             start_ticks: me.start_ticks + 1,
@@ -520,6 +592,8 @@ mod tests {
             ..me
         };
         assert_eq!(other_boot.check().unwrap(), Liveness::OtherBoot);
+        child.kill().unwrap();
+        child.wait().unwrap();
     }
 
     #[test]

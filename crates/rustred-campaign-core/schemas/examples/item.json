@@ -1,0 +1,44 @@
+{
+  "schema": "rustred.campaign.item.v1",
+  "id": "8f0c1a07d3e4b5a6c0ffee00a1b2c3d4",
+  "short": "T162:I0423",
+  "node": "T162",
+  "kind": "locus",
+  "face": {
+    "sd": [
+      0,
+      1,
+      8
+    ],
+    "sn": [
+      9
+    ]
+  },
+  "locus": {
+    "equations": [
+      "n9+1"
+    ],
+    "type": "plane"
+  },
+  "frozen": null,
+  "points": 5,
+  "rung": "L2",
+  "parent": "T162:I0402",
+  "origin": "spawned_by_exception",
+  "label": "F041 n9=-1",
+  "weight": 9,
+  "inputs": [
+    "T162.family",
+    "T162.bank"
+  ],
+  "node_inputs_digest": "8888888888888888888888888888888888888888888888888888888888888888",
+  "phase": "in_progress",
+  "level": null,
+  "jobs": [
+    "a71d0c9e"
+  ],
+  "why": {
+    "code": "spawned_by_exception",
+    "text": "rule T162:R:faces:117 (L0) excepts n9=-1, which holds 5 gap points"
+  }
+}

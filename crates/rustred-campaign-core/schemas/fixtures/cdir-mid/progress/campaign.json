@@ -1,0 +1,216 @@
+{
+  "campaign": {
+    "crash_recoveries": 0,
+    "created_utc": "2026-11-14T11:58:00.000Z",
+    "lock_takeovers": 0,
+    "pending_operations": 0,
+    "phase": "running",
+    "segments_opened": 1,
+    "sessions": 1,
+    "spec_blake3": "fd0dc660eb9fd818e07a850b3039c3523cb36e7fa60bd1b6e76e59a270c594cf",
+    "torn_tail_recoveries": 0,
+    "unsettled_jobs": 2
+  },
+  "campaign_id": "fixture-mid",
+  "certified": {
+    "accepted": 4,
+    "basis": "accepted items at identity_proved / all accepted items",
+    "identity_proved": 2,
+    "share": 0.5
+  },
+  "closure": {
+    "defect_keys": 409,
+    "nodes_checked": 3,
+    "nodes_with_defect": 1
+  },
+  "cost": {
+    "by_level": {
+      "L0": {
+        "cpu_seconds": 12.3,
+        "jobs": 7,
+        "p25_s": 0.8,
+        "p50_s": 2.0,
+        "p75_s": 2.5
+      },
+      "L1": {
+        "cpu_seconds": 4.0,
+        "jobs": 1,
+        "p25_s": 4.0,
+        "p50_s": 4.0,
+        "p75_s": 4.0
+      }
+    },
+    "cpu_seconds": 16.3
+  },
+  "economy": {
+    "after": {
+      "bytes": 138000,
+      "cases": 4,
+      "coefficient_degree": 12,
+      "monomials": 8050,
+      "rhs_terms": 1150,
+      "rules": 4
+    },
+    "before": {
+      "bytes": 388800,
+      "cases": 6,
+      "coefficient_degree": 12,
+      "monomials": 22680,
+      "rhs_terms": 3240,
+      "rules": 6
+    },
+    "retired": 2,
+    "rules_after": 4,
+    "rules_before": 6
+  },
+  "eta": {
+    "by_level": {
+      "L0": {
+        "p25_s": 0.8,
+        "p50_s": 2.0,
+        "p75_s": 2.5,
+        "remaining": 2,
+        "samples": 7
+      }
+    },
+    "cpu_seconds": {
+      "high": 5.0,
+      "low": 1.6,
+      "mid": 4.0
+    },
+    "estimator": "sum over levels of remaining items (open + in_progress) x CPU-seconds quantile (p25 / p50 / p75) of finished jobs at that level, divided by live parallelism",
+    "parallelism": 2,
+    "pooled_levels": [],
+    "reason": null,
+    "remaining_items": 2,
+    "wall_seconds": {
+      "high": 2.5,
+      "low": 0.8,
+      "mid": 2.0
+    }
+  },
+  "file": "campaign",
+  "files": {
+    "events": "events.json",
+    "nodes": {
+      "T162": "nodes/T162.json",
+      "T164": "nodes/T164.json",
+      "T178": "nodes/T178.json"
+    }
+  },
+  "items": {
+    "by_level": {
+      "L0": {
+        "accepted": 3,
+        "escalated": 2,
+        "in_progress": 2,
+        "open": 0,
+        "produced": 0,
+        "rejected": 0,
+        "retired": 2,
+        "stale": 0,
+        "terminal": 0,
+        "terminal_candidate": 0
+      },
+      "L1": {
+        "accepted": 1,
+        "escalated": 0,
+        "in_progress": 0,
+        "open": 0,
+        "produced": 0,
+        "rejected": 0,
+        "retired": 0,
+        "stale": 0,
+        "terminal": 1,
+        "terminal_candidate": 1
+      }
+    },
+    "by_phase": {
+      "accepted": 4,
+      "escalated": 2,
+      "in_progress": 2,
+      "open": 0,
+      "produced": 0,
+      "rejected": 0,
+      "retired": 2,
+      "stale": 0,
+      "terminal": 1,
+      "terminal_candidate": 1
+    },
+    "total": 12
+  },
+  "jobs": {
+    "by_state": {
+      "budget_stopped": 0,
+      "cancelled": 0,
+      "failed": 0,
+      "interrupted": 0,
+      "launching": 0,
+      "lost": 0,
+      "queued": 0,
+      "running": 2,
+      "succeeded_sealed": 8
+    },
+    "reserved_bytes_running": 4294967296,
+    "settled_by_class": {
+      "no_rule": 2,
+      "rule_found": 6
+    },
+    "total": 10
+  },
+  "ledger": {
+    "head": "0c892333623389922bce9c931ba25feff166add6aacd92ae06aaf28d2aa21746",
+    "last_utc": "2026-11-14T11:58:32.750Z",
+    "seq": 132
+  },
+  "nodes": {
+    "by_closure": {
+      "boxed": 1,
+      "full": 1,
+      "open": 1
+    },
+    "by_phase": {
+      "certified": 1,
+      "closed": 1,
+      "closure_check": 1,
+      "open": 0,
+      "registered": 0,
+      "running": 0,
+      "stale": 0
+    },
+    "certified": 1,
+    "total": 3
+  },
+  "resources": {
+    "cpus_allowed": 70,
+    "cpus_in_use": 4,
+    "host_floor_bytes": 50000000000,
+    "host_mem_available_bytes": 287762808832,
+    "live_jobs": 2,
+    "measured_rss_bytes": 900000000,
+    "mem_cap_bytes": 200000000000,
+    "reserved_bytes": 4294967296,
+    "sampled_utc": "2026-11-14T11:58:33.000Z"
+  },
+  "rules": {
+    "accepted": 6,
+    "accepted_items_by_evidence": {
+      "geometry_accepted": 1,
+      "identity_proved": 2,
+      "identity_tested": 1
+    },
+    "rejected": 2,
+    "rejected_by_reason": {
+      "rule_covers_none": 2
+    },
+    "upgrades": 0
+  },
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "terminals": {
+    "bound_per_node_default": 100,
+    "candidates": 1,
+    "declared": 2
+  },
+  "written_utc": "2026-11-14T11:58:33.000Z"
+}

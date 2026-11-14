@@ -533,11 +533,18 @@ fn parse_line(buf: &[u8], line: usize, opts: ReadOptions) -> Result<TableLine, R
                     return chart_line(&v);
                 }
             }
+            // case-domain export: the only non-rule lines are the single-key wrappers `other` / `summary`;
+            // anything else must be a rule and carry `fixed` (audit B M2: never drop a malformed rule silently)
+            if fields.len() == 1 && matches!(fields[0].0.as_str(), "other" | "summary") {
+                return Ok(TableLine::Other {
+                    kind: fields[0].0.clone(),
+                });
+            }
             if get("fixed").is_none() {
-                let k = fields
-                    .first()
-                    .map_or("empty".to_string(), |(n, _)| n.clone());
-                return Ok(TableLine::Other { kind: k });
+                return Err(fmt(format!(
+                    "line without type, not a header/other/summary wrapper and without fixed (keys {:?})",
+                    fields.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>()
+                )));
             }
         }
     }
@@ -562,9 +569,13 @@ fn parse_line(buf: &[u8], line: usize, opts: ReadOptions) -> Result<TableLine, R
         "fixed",
         line,
     )?;
-    if let Some(b) = get("equations") {
-        r.equations = de::<Option<Vec<String>>>(b, "equations", line)?.unwrap_or_default();
-    }
+    // stricter than the engine (which reads a missing `equations` as none): every record at hand carries it, and a
+    // record without it is malformed (audit B M1)
+    r.equations = de::<Vec<String>>(
+        get("equations").ok_or_else(|| fmt("rule without equations".into()))?,
+        "equations",
+        line,
+    )?;
     // the engine: `v["exceptions"].as_array().ok_or("rule without exceptions")`
     r.exceptions = de::<Vec<Vec<String>>>(
         get("exceptions").ok_or_else(|| fmt("rule without exceptions".into()))?,
@@ -608,7 +619,17 @@ fn parse_line(buf: &[u8], line: usize, opts: ReadOptions) -> Result<TableLine, R
 // T162 bank predicates
 // ------------------------------------------------------------------------------------------------------------------
 
-/// One rule of `RULE-PREDICATES2440.json` (schema `t162-exact-written-domain-complement.v1`; fields as listed in the
+/// A field that must be present (it may be `null`): serde's default for a missing `Option` would be `None`.
+fn required<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(d)
+}
+
+/// One rule of `RULE-PREDICATES2440.json`. Every domain field must be PRESENT (audit B M3: a predicate without
+/// `domain_atoms` used to load with no chart/recenter bounds); `null` reads as an empty list. (schema `t162-exact-written-domain-complement.v1`; fields as listed in the
 /// helper's TOOLS-INVENTORY "partition / Inputs"). Unused fields are ignored.
 #[derive(Clone, Debug, Deserialize)]
 pub struct BankPredicate {
@@ -617,21 +638,35 @@ pub struct BankPredicate {
     pub source_id: Option<String>,
     /// 20 values or null.
     pub raw_fixed20: Vec<Option<i64>>,
-    #[serde(default, rename = "all_raw_Case_equations")]
+    #[serde(deserialize_with = "required", rename = "all_raw_Case_equations")]
     pub case_equations: Option<Vec<String>>,
-    /// `[rel, text]` with rel `EQ` (= 0) or `GE` (>= 0): the chart/recenter bounds and fixed slots.
-    #[serde(default)]
+    /// `[rel, text]` with rel `EQ` (= 0) or `GE` (>= 0): the chart/recenter bounds and fixed slots. REQUIRED.
     pub domain_atoms: Vec<(String, String)>,
-    #[serde(default, rename = "raw_written_exceptions_OR_of_AND")]
+    #[serde(
+        deserialize_with = "required",
+        rename = "raw_written_exceptions_OR_of_AND"
+    )]
     pub exceptions: Option<Vec<Vec<String>>>,
-    #[serde(default, rename = "cached_domain_exception_or_pole_AND_loci")]
+    #[serde(
+        deserialize_with = "required",
+        rename = "cached_domain_exception_or_pole_AND_loci"
+    )]
     pub cached_loci: Option<Vec<Vec<String>>>,
     /// d-polynomials; forbidden where all d-coefficients vanish.
-    #[serde(default, rename = "literal_written_denominators_generic_d_nonzero")]
+    #[serde(
+        deserialize_with = "required",
+        rename = "literal_written_denominators_generic_d_nonzero"
+    )]
     pub denominators: Option<Vec<String>>,
-    #[serde(default, rename = "raw_header_source_conditions_generic_d_nonzero")]
+    #[serde(
+        deserialize_with = "required",
+        rename = "raw_header_source_conditions_generic_d_nonzero"
+    )]
     pub source_conditions: Option<Vec<String>>,
-    #[serde(default, rename = "raw_rule_witness_loci_generic_d_nonzero")]
+    #[serde(
+        deserialize_with = "required",
+        rename = "raw_rule_witness_loci_generic_d_nonzero"
+    )]
     pub witness_loci: Option<Vec<String>>,
     /// Must be `true` for the domain loader (the bank's own statement that its slots are the canonical ones).
     #[serde(default)]

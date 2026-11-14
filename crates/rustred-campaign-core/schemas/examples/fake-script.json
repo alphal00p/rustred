@@ -1,0 +1,104 @@
+{
+  "script": [
+    {
+      "op": "prepare",
+      "ms": 200
+    },
+    {
+      "op": "case",
+      "ordinal": 0,
+      "ms": 1500,
+      "work": {
+        "seeds": 40000,
+        "rows": 900000
+      },
+      "result": "rule",
+      "rule": {
+        "record": {
+          "chart": "C",
+          "rhs": [
+            [
+              "I(0)",
+              "1"
+            ]
+          ],
+          "target": "I(1)"
+        },
+        "loci": {
+          "n": 2,
+          "len": 5000
+        }
+      },
+      "children": [
+        {
+          "frame": "PRESENTED",
+          "fixed": [
+            1,
+            null,
+            0
+          ],
+          "equations": []
+        }
+      ]
+    },
+    {
+      "op": "case",
+      "ordinal": 1,
+      "ms": 800,
+      "work": {},
+      "result": "covered",
+      "rule": null,
+      "children": []
+    },
+    {
+      "op": "heartbeats",
+      "n": 5
+    },
+    {
+      "op": "time_decision",
+      "what": "guard_route",
+      "limit_s": 60.0,
+      "measured_s": 60.5,
+      "taken": "content"
+    },
+    {
+      "op": "alloc",
+      "mb": 16
+    },
+    {
+      "op": "helper",
+      "index": 0
+    },
+    {
+      "op": "end",
+      "stop": "max_cases",
+      "verdict": null
+    }
+  ],
+  "on_sigterm": "slow",
+  "slow_ms": 3000,
+  "start_delay_ms": 0,
+  "rss": {
+    "grow_bytes_per_s": 0,
+    "max_bytes": 0
+  },
+  "helpers": [
+    {
+      "sleep_ms": 60000,
+      "pdeathsig": true,
+      "ignore_sigterm": true,
+      "escape_group": false
+    }
+  ],
+  "faults": [
+    {
+      "at_op": 2,
+      "kind": "torn_write",
+      "bytes": 37,
+      "code": 0,
+      "path": null
+    }
+  ],
+  "time_scale": 1.0,
+  "volatile_jitter": true
+}

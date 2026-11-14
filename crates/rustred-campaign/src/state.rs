@@ -658,6 +658,7 @@ pub struct NodeState {
     /// Size (keys) of the last closure pass and rules of the node's table used on it (R31 economy).
     pub closure_keys: Option<u64>,
     pub rules_used: Option<u64>,
+    pub rules_total: Option<u64>,
     pub terminals: u32,
     pub terminal_bound: u32,
 }
@@ -675,6 +676,7 @@ impl NodeState {
             last_defect: None,
             closure_keys: None,
             rules_used: None,
+            rules_total: None,
             terminals: 0,
             terminal_bound,
         }
@@ -709,7 +711,9 @@ pub enum NodeEvent {
         round: u32,
         defect_keys: u64,
         closure_keys: u64,
+        /// Rules of the node's dispatch (all its tables) that fire on the closure, and their total.
         rules_used: Option<u64>,
+        rules_total: Option<u64>,
         keyset: Option<FileRef>,
     },
     /// The attempt on the current target ended within its budgets without closure.
@@ -849,6 +853,7 @@ pub fn apply_node(
                 defect_keys,
                 closure_keys,
                 rules_used,
+                rules_total,
                 ..
             },
         ) => {
@@ -868,6 +873,7 @@ pub fn apply_node(
             next.last_defect = Some(*defect_keys);
             next.closure_keys = Some(*closure_keys);
             next.rules_used = *rules_used;
+            next.rules_total = *rules_total;
             next.phase = match phase {
                 P::Closed | P::Certified if *defect_keys == 0 => phase,
                 _ => P::ClosureCheck,
@@ -2517,6 +2523,7 @@ mod tests {
             defect_keys: defect,
             closure_keys: 100,
             rules_used: Some(7),
+            rules_total: Some(2_440),
             keyset: None,
         };
         let s = apply_node(&base, &NodeEvent::Start, ctx).unwrap();
@@ -2642,6 +2649,7 @@ mod tests {
                 defect_keys: 0,
                 closure_keys: 55704,
                 rules_used: Some(906),
+                rules_total: Some(2_440),
                 keyset: None,
             },
             ctx,

@@ -1,0 +1,94 @@
+{
+  "schema": "rustred.child-job.resume.v1",
+  "job_id": "a71d0c9e",
+  "attempt": 1,
+  "spec_blake3": "0000000000000000000000000000000000000000000000000000000000000000",
+  "chart": "11111111100000000000",
+  "frame": "PRESENTED",
+  "rules_committed": 1,
+  "table": {
+    "path": "out/F.table.jsonl",
+    "bytes": 2716,
+    "blake3": "1111111111111111111111111111111111111111111111111111111111111111",
+    "records": 2,
+    "rules": 1,
+    "canonical_blake3": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "queue": {
+    "path": "out/F.queue.jsonl",
+    "bytes": 300,
+    "blake3": "1111111111111111111111111111111111111111111111111111111111111111",
+    "records": 1,
+    "rules": 0,
+    "canonical_blake3": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "current": {
+    "frame": "PRESENTED",
+    "fixed": [
+      2,
+      null,
+      -1
+    ],
+    "equations": [
+      "n1-n2"
+    ],
+    "seed_centre_offset": [
+      [
+        3,
+        -1
+      ]
+    ]
+  },
+  "pending": [
+    {
+      "frame": "PRESENTED",
+      "fixed": [
+        2,
+        null,
+        -1
+      ],
+      "equations": [
+        "n1-n2"
+      ],
+      "seed_centre_offset": [
+        [
+          3,
+          -1
+        ]
+      ]
+    }
+  ],
+  "numerical": [
+    [
+      1,
+      1,
+      2,
+      0,
+      -1
+    ]
+  ],
+  "deferred": [
+    {
+      "branch": 1,
+      "chart": "C",
+      "conjunction": "n1=2",
+      "reason": "admit_timeout",
+      "rule": 0
+    }
+  ],
+  "refused_open": [],
+  "counters_at_commit": {
+    "cases": 1,
+    "seeds": 0,
+    "rows": 0,
+    "probe_evals": 0,
+    "reducer_rows": 0,
+    "trace_rows_max": 0,
+    "lift_monomials": 0,
+    "rhs_terms": 0,
+    "numeric_points": 0,
+    "rules_committed": 1
+  },
+  "symbolic_cases": 1,
+  "discarded": 0
+}

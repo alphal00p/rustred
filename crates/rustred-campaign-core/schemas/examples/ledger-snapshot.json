@@ -1,0 +1,743 @@
+{
+  "head": "960ac4b0d7bd1c20b1c1a9e4a6bcfede58526efb52ffd9b109a2d5d5349f49e7",
+  "schema": "rustred.campaign.snapshot.v1",
+  "seq": 81,
+  "state": {
+    "campaign_id": "test-campaign",
+    "costs_ms": {
+      "L0": [
+        1000,
+        2000,
+        3000,
+        4000,
+        2500,
+        400
+      ]
+    },
+    "cpu_ms_total": 12900,
+    "crash_recoveries": 0,
+    "created_utc": "2026-11-13T23:00:00.000Z",
+    "done_ops": [
+      "op-accept-T162-job-00000-L0",
+      "op-accept-T162-job-00001-L0",
+      "op-accept-T162-job-00002-L0",
+      "op-accept-T162-job-00003-L0"
+    ],
+    "evidence": {
+      "astra-bank-20261113": {
+        "description": "T162 bank, 2,448 rules; imported as hand-made evidence (M4)",
+        "files": [
+          {
+            "blake3": "2db7e03454ffcd5597befa2d402481d66db54dc11c3ef31452be39fe6f290a62",
+            "bytes": 3700,
+            "path": "large:handoff/t162-bank/MANIFEST.json"
+          },
+          {
+            "blake3": "bc87b4060cb1220a809e8f0b712c141f63cb5caf672f4ffb2abd38c86d24b899",
+            "bytes": 4800,
+            "path": "large:handoff/t162-bank/NATIVE-RULE-BODIES.jsonl"
+          }
+        ],
+        "producer": "Astra (Codex session), hand closure of T162",
+        "seq": 11
+      }
+    },
+    "inputs": {
+      "T162.bank": {
+        "blake3": "7f10a8a5ecb5d2ce424d28f0bca54e2109ebaaebc4b12b48c8b902fbc58bf12e",
+        "bytes": 77000000,
+        "path": "large:T162.bank.jsonl",
+        "registered_seq": 5,
+        "role": "table",
+        "versions": 1
+      },
+      "T162.box": {
+        "blake3": "c800a9b467b4c053a5be379511c7a0d6ba80c69d1314b6dd3b395a2a87b5fddf",
+        "bytes": 900,
+        "path": "boxes/T162.Rstar.json",
+        "registered_seq": 6,
+        "role": "box",
+        "versions": 1
+      },
+      "T162.family": {
+        "blake3": "9456b757701dbeb0d154659e41b3251b1f70400b61866ae8f5fce5228fa9be99",
+        "bytes": 3000,
+        "path": "T162.sym",
+        "registered_seq": 4,
+        "role": "family",
+        "versions": 1
+      },
+      "rr_node": {
+        "blake3": "249c46a7daa9c3022897d643d72caae0e2f159baea768e07fc10ea3c2fbfd757",
+        "bytes": 9000000,
+        "path": "bin/rr_node",
+        "registered_seq": 3,
+        "role": "binary",
+        "versions": 1
+      },
+      "spec": {
+        "blake3": "27b4a909df84b7e16dfa4e36bd17e1b64b67f2e1dd9e56ee3397c549e2955d79",
+        "bytes": 1200,
+        "path": "spec.json",
+        "registered_seq": 2,
+        "role": "spec",
+        "versions": 1
+      }
+    },
+    "items": {
+      "T162-item-00000": {
+        "accepted": {
+          "level": "identity_proved",
+          "record": {
+            "blake3": "00e89da7a6d82d1329b6ded3452604962cc789d9449a71c47258d7ed31920750",
+            "bytes": 2400,
+            "path": "accepted/T162/00000.json"
+          },
+          "rule": "T162:R:campaign:0",
+          "seq": 21,
+          "source": {
+            "attempt": 1,
+            "from": "job",
+            "job": "T162-job-00000-L0",
+            "table_blake3": "0277c132dc1e4394199f090e050f3671ef022a01cd833794af253a57c38a858e"
+          }
+        },
+        "cpu_ms": 1000,
+        "created_seq": 12,
+        "economy": {
+          "bytes": 90000,
+          "cases": 1,
+          "coefficient_degree": 12,
+          "monomials": 5000,
+          "rhs_terms": 700,
+          "rules": 1
+        },
+        "inputs": [
+          "rr_node"
+        ],
+        "jobs": [
+          "T162-job-00000-L0"
+        ],
+        "kind": "face",
+        "label": "F000",
+        "node": "T162",
+        "parent": null,
+        "phase": {
+          "detail": "identity_proved",
+          "phase": "accepted"
+        },
+        "retired": null,
+        "rung": "L0",
+        "stale_from": null,
+        "stale_input": null,
+        "terminal_keys": 0,
+        "updated_seq": 21,
+        "weight": 3
+      },
+      "T162-item-00001": {
+        "accepted": {
+          "level": "geometry_accepted",
+          "record": {
+            "blake3": "8ff004fe44a6f1179647859a233a729e06d09d9e1943c31706e4c4be28ff12f3",
+            "bytes": 2400,
+            "path": "accepted/T162/00001.json"
+          },
+          "rule": "T162:R:campaign:1",
+          "seq": 31,
+          "source": {
+            "attempt": 1,
+            "from": "job",
+            "job": "T162-job-00001-L0",
+            "table_blake3": "7a312d88253ad4325f1434d0c6e07e799ae5bf6a0be8f36c170a434c0d44dd61"
+          }
+        },
+        "cpu_ms": 2000,
+        "created_seq": 22,
+        "economy": {
+          "bytes": 90001,
+          "cases": 1,
+          "coefficient_degree": 13,
+          "monomials": 10000,
+          "rhs_terms": 710,
+          "rules": 1
+        },
+        "inputs": [
+          "rr_node"
+        ],
+        "jobs": [
+          "T162-job-00001-L0"
+        ],
+        "kind": "face",
+        "label": "F001",
+        "node": "T162",
+        "parent": null,
+        "phase": {
+          "detail": "geometry_accepted",
+          "phase": "accepted"
+        },
+        "retired": null,
+        "rung": "L0",
+        "stale_from": null,
+        "stale_input": null,
+        "terminal_keys": 0,
+        "updated_seq": 31,
+        "weight": 3
+      },
+      "T162-item-00002": {
+        "accepted": {
+          "level": "identity_proved",
+          "record": {
+            "blake3": "619e94845283dfecbaf8283c1455c93ae5d8edcdf36dbda06a27f836b20aefda",
+            "bytes": 2400,
+            "path": "accepted/T162/00002.json"
+          },
+          "rule": "T162:R:campaign:2",
+          "seq": 41,
+          "source": {
+            "attempt": 1,
+            "from": "job",
+            "job": "T162-job-00002-L0",
+            "table_blake3": "1909ae8abf36ac072bb6afd5666219f554d9f73b07fc4a6e1be875ca7abe25dd"
+          }
+        },
+        "cpu_ms": 3000,
+        "created_seq": 32,
+        "economy": {
+          "bytes": 90002,
+          "cases": 1,
+          "coefficient_degree": 14,
+          "monomials": 15000,
+          "rhs_terms": 720,
+          "rules": 1
+        },
+        "inputs": [
+          "rr_node"
+        ],
+        "jobs": [
+          "T162-job-00002-L0"
+        ],
+        "kind": "face",
+        "label": "F002",
+        "node": "T162",
+        "parent": null,
+        "phase": {
+          "detail": "identity_proved",
+          "phase": "accepted"
+        },
+        "retired": null,
+        "rung": "L0",
+        "stale_from": null,
+        "stale_input": null,
+        "terminal_keys": 0,
+        "updated_seq": 41,
+        "weight": 3
+      },
+      "T162-item-00003": {
+        "accepted": {
+          "level": "geometry_accepted",
+          "record": {
+            "blake3": "76bd8b3d8dcaae0a9939a65a5ff8b9aa070097ea11a47919ba17adb53e6bb934",
+            "bytes": 2400,
+            "path": "accepted/T162/00003.json"
+          },
+          "rule": "T162:R:campaign:3",
+          "seq": 51,
+          "source": {
+            "attempt": 1,
+            "from": "job",
+            "job": "T162-job-00003-L0",
+            "table_blake3": "698d3240528fc607c7addceddd76bceab712166caf2843dc1b92fd602905eaec"
+          }
+        },
+        "cpu_ms": 4000,
+        "created_seq": 42,
+        "economy": {
+          "bytes": 90003,
+          "cases": 1,
+          "coefficient_degree": 15,
+          "monomials": 20000,
+          "rhs_terms": 730,
+          "rules": 1
+        },
+        "inputs": [
+          "rr_node"
+        ],
+        "jobs": [
+          "T162-job-00003-L0"
+        ],
+        "kind": "face",
+        "label": "F003",
+        "node": "T162",
+        "parent": null,
+        "phase": {
+          "phase": "retired"
+        },
+        "retired": {
+          "proof": {
+            "kind": "replaced_by",
+            "proof": {
+              "blake3": "75d97febdd7d40db218258380973cf816a71ea2228d5f2f8ef29e20afa30153a",
+              "bytes": 4100,
+              "path": "large:proofs/T162-containment-3-in-2.json"
+            }
+          },
+          "seq": 79,
+          "superseded_by": "T162-item-00002"
+        },
+        "rung": "L0",
+        "stale_from": null,
+        "stale_input": null,
+        "terminal_keys": 0,
+        "updated_seq": 79,
+        "weight": 3
+      },
+      "T162-item-00004": {
+        "accepted": null,
+        "cpu_ms": 2500,
+        "created_seq": 52,
+        "economy": null,
+        "inputs": [],
+        "jobs": [
+          "T162-job-00004-L0"
+        ],
+        "kind": "locus",
+        "label": "F004 n9=-1",
+        "node": "T162",
+        "parent": null,
+        "phase": {
+          "detail": "L1",
+          "phase": "escalated"
+        },
+        "retired": null,
+        "rung": "L0",
+        "stale_from": null,
+        "stale_input": null,
+        "terminal_keys": 0,
+        "updated_seq": 62,
+        "weight": 5
+      },
+      "T162-item-00005": {
+        "accepted": null,
+        "cpu_ms": 0,
+        "created_seq": 63,
+        "economy": null,
+        "inputs": [],
+        "jobs": [],
+        "kind": "locus",
+        "label": "F004 n9=-1",
+        "node": "T162",
+        "parent": "T162-item-00004",
+        "phase": {
+          "phase": "terminal"
+        },
+        "retired": null,
+        "rung": "L1",
+        "stale_from": null,
+        "stale_input": null,
+        "terminal_keys": 2,
+        "updated_seq": 65,
+        "weight": 5
+      },
+      "T162-item-00006": {
+        "accepted": {
+          "level": "identity_tested",
+          "record": {
+            "blake3": "ff406e017be28419f4dee83098f6db5e83b7856e8dd596725f11537ac3f1575e",
+            "bytes": 2800,
+            "path": "accepted/T162/bank-1043.json"
+          },
+          "rule": "T162:R:bank:1043",
+          "seq": 72,
+          "source": {
+            "evidence": "astra-bank-20261113",
+            "from": "evidence"
+          }
+        },
+        "cpu_ms": 400,
+        "created_seq": 66,
+        "economy": null,
+        "inputs": [],
+        "jobs": [
+          "T162-job-00006-L0"
+        ],
+        "kind": "face",
+        "label": "F006",
+        "node": "T162",
+        "parent": null,
+        "phase": {
+          "detail": "identity_tested",
+          "phase": "accepted"
+        },
+        "retired": null,
+        "rung": "L0",
+        "stale_from": null,
+        "stale_input": null,
+        "terminal_keys": 0,
+        "updated_seq": 73,
+        "weight": 1
+      }
+    },
+    "jobs": {
+      "T162-job-00000-L0": {
+        "attempt": 1,
+        "binary": "rr_node",
+        "boot_id": "boot",
+        "cpu_ms": 1000,
+        "created_seq": 13,
+        "item": "T162-item-00000",
+        "kind": "generate",
+        "peak_rss_bytes": 419430400,
+        "pid": 10000,
+        "reserved_bytes": 2147483648,
+        "run_dir": "large:jobs/T162-job-00000-L0.a1",
+        "rung": "L0",
+        "sealed_table": {
+          "blake3": "0277c132dc1e4394199f090e050f3671ef022a01cd833794af253a57c38a858e",
+          "bytes": 4900,
+          "path": "large:jobs/T162-job-00000-L0.a1/out/F.table.jsonl"
+        },
+        "spec_blake3": "e8fee4392710dca801283511cb9fa175e84611d980a9fc225543624c89860421",
+        "start_ticks": 777,
+        "state": {
+          "class": "rule_found",
+          "state": "succeeded_sealed"
+        },
+        "time_decided": false
+      },
+      "T162-job-00001-L0": {
+        "attempt": 1,
+        "binary": "rr_node",
+        "boot_id": "boot",
+        "cpu_ms": 2000,
+        "created_seq": 23,
+        "item": "T162-item-00001",
+        "kind": "generate",
+        "peak_rss_bytes": 419430400,
+        "pid": 10001,
+        "reserved_bytes": 2147483648,
+        "run_dir": "large:jobs/T162-job-00001-L0.a1",
+        "rung": "L0",
+        "sealed_table": {
+          "blake3": "7a312d88253ad4325f1434d0c6e07e799ae5bf6a0be8f36c170a434c0d44dd61",
+          "bytes": 4900,
+          "path": "large:jobs/T162-job-00001-L0.a1/out/F.table.jsonl"
+        },
+        "spec_blake3": "1df35455431f519193225f9335a29f176b8575df4f5ac02d93b2206b504e8aa9",
+        "start_ticks": 777,
+        "state": {
+          "class": "rule_found",
+          "state": "succeeded_sealed"
+        },
+        "time_decided": false
+      },
+      "T162-job-00002-L0": {
+        "attempt": 1,
+        "binary": "rr_node",
+        "boot_id": "boot",
+        "cpu_ms": 3000,
+        "created_seq": 33,
+        "item": "T162-item-00002",
+        "kind": "generate",
+        "peak_rss_bytes": 419430400,
+        "pid": 10002,
+        "reserved_bytes": 2147483648,
+        "run_dir": "large:jobs/T162-job-00002-L0.a1",
+        "rung": "L0",
+        "sealed_table": {
+          "blake3": "1909ae8abf36ac072bb6afd5666219f554d9f73b07fc4a6e1be875ca7abe25dd",
+          "bytes": 4900,
+          "path": "large:jobs/T162-job-00002-L0.a1/out/F.table.jsonl"
+        },
+        "spec_blake3": "e055773325558824fc2e088e3de6027cf20c6a5167b15aad279c185fb682f2fd",
+        "start_ticks": 777,
+        "state": {
+          "class": "rule_found",
+          "state": "succeeded_sealed"
+        },
+        "time_decided": false
+      },
+      "T162-job-00003-L0": {
+        "attempt": 1,
+        "binary": "rr_node",
+        "boot_id": "boot",
+        "cpu_ms": 4000,
+        "created_seq": 43,
+        "item": "T162-item-00003",
+        "kind": "generate",
+        "peak_rss_bytes": 419430400,
+        "pid": 10003,
+        "reserved_bytes": 2147483648,
+        "run_dir": "large:jobs/T162-job-00003-L0.a1",
+        "rung": "L0",
+        "sealed_table": {
+          "blake3": "698d3240528fc607c7addceddd76bceab712166caf2843dc1b92fd602905eaec",
+          "bytes": 4900,
+          "path": "large:jobs/T162-job-00003-L0.a1/out/F.table.jsonl"
+        },
+        "spec_blake3": "a2a008a4a0d6f2c02953db2e116630e7493a3a22f3849ddff3506a3a4ba25ef0",
+        "start_ticks": 777,
+        "state": {
+          "class": "rule_found",
+          "state": "succeeded_sealed"
+        },
+        "time_decided": false
+      },
+      "T162-job-00004-L0": {
+        "attempt": 2,
+        "binary": "rr_node",
+        "boot_id": null,
+        "cpu_ms": 2500,
+        "created_seq": 53,
+        "item": "T162-item-00004",
+        "kind": "generate",
+        "peak_rss_bytes": 419430400,
+        "pid": null,
+        "reserved_bytes": 1073741824,
+        "run_dir": "large:jobs/j4.a2",
+        "rung": "L0",
+        "sealed_table": {
+          "blake3": "4d8a3580f232ef1394abd1d3a6eaf492cc5427d6738a2fcdb7a51977f39a6538",
+          "bytes": 2700,
+          "path": "large:jobs/j4/F.table.jsonl"
+        },
+        "spec_blake3": "898acdde838a103b510bbceec9c79ae18d45d86c73c50c49cc889493249568f7",
+        "start_ticks": null,
+        "state": {
+          "class": "no_rule",
+          "state": "succeeded_sealed"
+        },
+        "time_decided": false
+      },
+      "T162-job-00006-L0": {
+        "attempt": 1,
+        "binary": "rr_node",
+        "boot_id": null,
+        "cpu_ms": 400,
+        "created_seq": 68,
+        "item": "T162-item-00006",
+        "kind": "descent",
+        "peak_rss_bytes": 419430400,
+        "pid": null,
+        "reserved_bytes": 536870912,
+        "run_dir": "large:jobs/j6.a1",
+        "rung": "L0",
+        "sealed_table": {
+          "blake3": "06830c322c27d4348d77764c57eb572a14c7ce7f7daf5077b62ddb999cefaf9c",
+          "bytes": 2600,
+          "path": "large:jobs/j6/verdict.json"
+        },
+        "spec_blake3": "0c1ca9904397720c6fc03a44c0d15ca4fb0c7422281611fe6a1c7e7128298114",
+        "start_ticks": null,
+        "state": {
+          "class": "complete",
+          "state": "succeeded_sealed"
+        },
+        "time_decided": false
+      }
+    },
+    "last_seq": 81,
+    "last_utc": "2026-11-13T23:00:20.000Z",
+    "nodes": {
+      "T162": {
+        "accepted_by_level": [
+          1,
+          1,
+          2
+        ],
+        "cpu_ms": 12900,
+        "inputs": [
+          "T162.family",
+          "T162.bank"
+        ],
+        "items_by_phase": [
+          0,
+          0,
+          0,
+          4,
+          0,
+          1,
+          0,
+          1,
+          0,
+          1
+        ],
+        "last_keyset": {
+          "blake3": "d28f0b8f276e6c5e24f35c559a528919b62f6f82d88f15d9fa1535bc1eea73dc",
+          "bytes": 3300,
+          "path": "large:keysets/T162-closure-1.keys"
+        },
+        "stale_reason": null,
+        "state": {
+          "attempt_ended": false,
+          "box_blockers": null,
+          "closure_keys": 154783,
+          "closure_rounds": 1,
+          "full_blockers": null,
+          "last_defect": 37,
+          "phase": "closure_check",
+          "rules_total": 2440,
+          "rules_used": 5,
+          "spec_box": "T162.box",
+          "target": {
+            "target": "full"
+          },
+          "terminal_bound": 100,
+          "terminals": 2
+        }
+      }
+    },
+    "pending_ops": {},
+    "phase": "running",
+    "progress_records": 2,
+    "recent": [
+      {
+        "kind": "campaign",
+        "seq": 8,
+        "text": "campaign starting (test)",
+        "utc": "2026-11-13T23:00:01.750Z"
+      },
+      {
+        "kind": "campaign",
+        "seq": 9,
+        "text": "campaign running (preflight ok)",
+        "utc": "2026-11-13T23:00:02.000Z"
+      },
+      {
+        "kind": "node",
+        "seq": 10,
+        "text": "T162: running (open)",
+        "utc": "2026-11-13T23:00:02.250Z"
+      },
+      {
+        "kind": "evidence",
+        "seq": 11,
+        "text": "imported evidence astra-bank-20261113 by Astra (Codex session), hand closure of T162 (2 files)",
+        "utc": "2026-11-13T23:00:02.500Z"
+      },
+      {
+        "kind": "job_finished",
+        "seq": 17,
+        "text": "T162 F000 L0: job T162-job (rule_found)",
+        "utc": "2026-11-13T23:00:04.000Z"
+      },
+      {
+        "kind": "item_accepted",
+        "seq": 21,
+        "text": "T162 F000: rule T162:R:campaign:0 accepted (identity_proved)",
+        "utc": "2026-11-13T23:00:05.000Z"
+      },
+      {
+        "kind": "job_finished",
+        "seq": 27,
+        "text": "T162 F001 L0: job T162-job (rule_found)",
+        "utc": "2026-11-13T23:00:06.500Z"
+      },
+      {
+        "kind": "item_accepted",
+        "seq": 31,
+        "text": "T162 F001: rule T162:R:campaign:1 accepted (geometry_accepted)",
+        "utc": "2026-11-13T23:00:07.500Z"
+      },
+      {
+        "kind": "job_finished",
+        "seq": 37,
+        "text": "T162 F002 L0: job T162-job (rule_found)",
+        "utc": "2026-11-13T23:00:09.000Z"
+      },
+      {
+        "kind": "item_accepted",
+        "seq": 41,
+        "text": "T162 F002: rule T162:R:campaign:2 accepted (identity_proved)",
+        "utc": "2026-11-13T23:00:10.000Z"
+      },
+      {
+        "kind": "job_finished",
+        "seq": 47,
+        "text": "T162 F003 L0: job T162-job (rule_found)",
+        "utc": "2026-11-13T23:00:11.500Z"
+      },
+      {
+        "kind": "item_accepted",
+        "seq": 51,
+        "text": "T162 F003: rule T162:R:campaign:3 accepted (geometry_accepted)",
+        "utc": "2026-11-13T23:00:12.500Z"
+      },
+      {
+        "kind": "job_finished",
+        "seq": 59,
+        "text": "T162 F004 n9=-1 L0: job T162-job (no_rule)",
+        "utc": "2026-11-13T23:00:14.500Z"
+      },
+      {
+        "kind": "item_rejected",
+        "seq": 61,
+        "text": "T162 F004 n9=-1: rejected (rule_covers_none)",
+        "utc": "2026-11-13T23:00:15.000Z"
+      },
+      {
+        "kind": "item_escalated",
+        "seq": 62,
+        "text": "T162 F004 n9=-1: escalated to L1 (rule_covers_none)",
+        "utc": "2026-11-13T23:00:15.250Z"
+      },
+      {
+        "kind": "terminal_proposed",
+        "seq": 64,
+        "text": "T162 F004 n9=-1: terminal candidate (terminal_after_ladder)",
+        "utc": "2026-11-13T23:00:15.750Z"
+      },
+      {
+        "kind": "terminal_declared",
+        "seq": 65,
+        "text": "T162 F004 n9=-1: 2 terminal key(s) declared",
+        "utc": "2026-11-13T23:00:16.000Z"
+      },
+      {
+        "kind": "job_finished",
+        "seq": 70,
+        "text": "T162 F006 L0: job T162-job (complete)",
+        "utc": "2026-11-13T23:00:17.250Z"
+      },
+      {
+        "kind": "item_accepted",
+        "seq": 72,
+        "text": "T162 F006: rule T162:R:bank:1043 accepted (geometry_accepted)",
+        "utc": "2026-11-13T23:00:17.750Z"
+      },
+      {
+        "kind": "item_upgraded",
+        "seq": 73,
+        "text": "T162 F006: evidence -> identity_tested",
+        "utc": "2026-11-13T23:00:18.000Z"
+      },
+      {
+        "kind": "node",
+        "seq": 74,
+        "text": "T162: closure round 1, defect 37 of 154783 keys",
+        "utc": "2026-11-13T23:00:18.250Z"
+      },
+      {
+        "kind": "rule_retired",
+        "seq": 79,
+        "text": "T162 F003: rule T162:R:campaign:3 superseded by T162-item-00002 (replaced_by)",
+        "utc": "2026-11-13T23:00:19.500Z"
+      }
+    ],
+    "rules": {
+      "accepted": 5,
+      "rejected": 1,
+      "rejected_by_reason": {
+        "rule_covers_none": 1
+      },
+      "retired": 1,
+      "upgrades": 1
+    },
+    "segments_opened": 0,
+    "sessions": 1,
+    "spec_blake3": "27b4a909df84b7e16dfa4e36bd17e1b64b67f2e1dd9e56ee3397c549e2955d79",
+    "takeovers": 0,
+    "terminal_bound": 100,
+    "terminals_total": 2,
+    "torn_tail_recoveries": 0
+  }
+}

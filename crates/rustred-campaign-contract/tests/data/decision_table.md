@@ -1,0 +1,32 @@
+| # | condition | kind | accept | ledger action |
+|---|---|---|---|---|
+| 1 | c=0, O, S | complete | canonical | item_done |
+| 2 | c=10, O, S, stop max_cases, verified rules >= 1 | rule_found | canonical | queue_children |
+| 3 | c=10, O, S, stop max_cases, no verified rule, every case result covered / empty / finite / declared_terminal | complete | nothing | item_done_no_rule |
+| 24 | c=10, O, S, stop max_cases, no verified rule, another case result or no per-case list | no_rule | nothing | next_rung |
+| 4 | c=10, O, S, stop lift_refused / guard_timeout / numeric_search_refused / before_numeric | no_rule | committed_rules | next_rung |
+| 5 | c=10, O, S, stop open_regions / open_obligations, verified rules >= 1 | rule_found | canonical | queue_open_list |
+| 27 | c=10, O, S, stop open_regions / open_obligations, no verified rule | no_rule | nothing | queue_open_list |
+| 6 | c=10, O, S, stop not_lower | crashed | nothing | attention |
+| 7 | c=11, O, checker kind | decided_negative | nothing | record_negative_verdict |
+| 7b | c=12, O, checker kind | undecided | nothing | other_tool_or_attention |
+| 8 | c=20, O, S (producing kind) | spill | committed_rules | next_rung_after_spill |
+| 25 | c in {0, 10, 20}, O, S, the spec allowed elision and the verifier found elided witness loci | crashed | nothing | rerun_without_elision |
+| 26 | c in {0, 10, 20}, O, the kind has no sealing rule (generate-auto) | crashed | nothing | unverifiable_kind |
+| 9 | c=21, O | killed_time | nothing | ladder_decides |
+| 10 | c=22, O | killed_memory | nothing | next_memory_class_or_rung |
+| 11 | c=30, O | interrupted | nothing | resume_on_campaign_resume |
+| 12 | c=40 | usage_error | nothing | stop_launching_kind |
+| 13 | c=41 | refused | nothing | item_attention_no_retry |
+| 14 | c=42 | refused | nothing | attention |
+| 15 | c=50 | lost | nothing | pause_all_launches |
+| 16 | c=51 | crashed | nothing | retry_once_then_attention |
+| 17 | c=70, O | crashed | nothing | retry_same_spec_once_then_attention |
+| 18 | s=9, K=memory (or cgroup oom_kill count increased) | killed_memory | nothing | next_memory_class_or_rung |
+| 19 | s in {9, 15, 2, 1}, K=time or unresponsive | killed_time | nothing | ladder_decides |
+| 20 | s in {9, 15, 2, 1}, K=stop | interrupted | nothing | resume_on_campaign_resume |
+| 21 | s=9, K=none, no OUTCOME | lost | nothing | resume_once_then_attention |
+| 21b | W unknown (supervisor restart), no OUTCOME, R valid | lost | nothing | resume_once_then_attention |
+| 21c | W unknown, no OUTCOME, R invalid | lost | nothing | restart_from_scratch |
+| 22 | contract violation: OUTCOME unreadable, inconsistent (`check`), of another attempt or spec (job_id, attempt, kind, spec_blake3), exit_code != c, a path not the layout path, family_blake3 not the spec's, elided loci under "forbidden"; or c in {0, 10, 20} with O and an output not sealed / not verified; or c outside the kind's set (checker 10 / 20, producing kind 11 / 12); or W unknown with an invalid OUTCOME | crashed | nothing | attention |
+| 23 | any other c or s (an exit status 128+N is read as signal N) | crashed | nothing | resume_once_if_valid_else_attention |

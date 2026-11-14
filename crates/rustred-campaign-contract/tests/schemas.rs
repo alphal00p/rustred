@@ -191,6 +191,10 @@ fn golden_outcome_complete_and_hard_stop() {
         path: "out/WITNESS.jsonl".into(),
         bytes: 10,
         blake3: D0.into(),
+        records: Some(2),
+        canonical_blake3: Some(D1.into()),
+        end: Some(EndKind::End),
+        sealed: true,
     }];
     j.timing = Timing {
         started_utc: Some("2026-11-13T23:00:00.000Z".into()),
@@ -446,9 +450,24 @@ fn golden_resume_and_cases() {
         attempt: 1,
         chart: serde_json::json!("11111111100000000000"),
         frame: Frame::Presented,
+        spec_blake3: D0.into(),
         rules_committed: 1,
-        table_committed_bytes: 2716,
-        table_prefix_blake3: D1.into(),
+        table: CommittedFile {
+            path: "out/F.table.jsonl".into(),
+            bytes: 2716,
+            blake3: D1.into(),
+            records: 2,
+            rules: 1,
+            canonical_blake3: D0.into(),
+        },
+        queue: Some(CommittedFile {
+            path: "out/F.queue.jsonl".into(),
+            bytes: 300,
+            blake3: D1.into(),
+            records: 1,
+            rules: 0,
+            canonical_blake3: D0.into(),
+        }),
         current: Some(case.clone()),
         pending: vec![case.clone()],
         numerical: vec![vec![1, 1, 2, 0, -1]],
@@ -469,10 +488,8 @@ fn golden_resume_and_cases() {
     let rr = ResumeRef {
         from: "/abs/run/a1/RESUME.json".into(),
         blake3: D0.into(),
-        table: "/abs/run/a1/out/F.table.jsonl".into(),
-        committed_bytes: 2716,
-        prefix_blake3: D1.into(),
     };
+    rr.validate().unwrap();
     golden("resume_ref.json", &rr);
     // cases input lines
     let lines = [

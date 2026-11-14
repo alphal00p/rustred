@@ -35,12 +35,13 @@ fn stop_counter_drain_then_force_winch_and_hangup() {
     assert!(!h.take_winch(), "the flag is consumed once");
     assert!(!h.hangup_seen());
     raise(libc::SIGHUP);
-    wait_until("SIGHUP", Duration::from_secs(30), || {
-        h.hangup_seen() && h.count() == 4
-    });
+    // SIGHUP never escalates (audit A m10): the flag is set, the counter stays.
+    wait_until("SIGHUP", Duration::from_secs(30), || h.hangup_seen());
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(h.count(), 3);
     drop(s);
     // After unregistering, signal-hook keeps the signals caught and ignored: the process survives a late SIGTERM.
     raise(libc::SIGTERM);
     std::thread::sleep(Duration::from_millis(200));
-    assert_eq!(h.count(), 4);
+    assert_eq!(h.count(), 3);
 }

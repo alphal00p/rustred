@@ -1,0 +1,14 @@
+{
+  "schema": "rustred.campaign.control.v1",
+  "id": "c-20261120T081502Z-7f3a",
+  "utc": "2026-11-20T08:15:02Z",
+  "by": "vhirschi (tty)",
+  "verb": "retry",
+  "target": "T162:I0377",
+  "args": {
+    "rung": "L4",
+    "seconds": 1800,
+    "mem_bytes": 8589934592
+  },
+  "reason": "BIGMEM authorised by the coordinator"
+}

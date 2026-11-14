@@ -1,0 +1,174 @@
+{
+  "schema": "rustred.campaign.accept.v1",
+  "utc": "2026-11-20T08:14:55Z",
+  "seq_ref": 18350,
+  "rule": {
+    "id": "T162:R:faces:117",
+    "node": "T162",
+    "table_blake3": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "rule_line_blake3": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "ordinal": 412,
+    "byte_offset": 18734,
+    "chart": "11111111100000000000",
+    "case_blake3": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "producer": {
+      "bin_blake3": "4444444444444444444444444444444444444444444444444444444444444444",
+      "backend": "targetonlyfactorized",
+      "guard_version": 2,
+      "lift_primes": "unknown",
+      "seed_recipe": "floor:centre=T-e_x",
+      "seeds_blake3": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  },
+  "check": {
+    "kind": "instance_span",
+    "tool": "rr_proof",
+    "tool_blake3": "5555555555555555555555555555555555555555555555555555555555555555",
+    "tool_version": "rustred-proof 0.1",
+    "arithmetic": "exact",
+    "primes": [
+      8070450532247928833
+    ],
+    "d_values": [
+      "1171/313"
+    ],
+    "scope": "per_key",
+    "keys": {
+      "file": {
+        "path": "large:accept/art/k1.keys.jsonl",
+        "bytes": 2048,
+        "blake3": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      },
+      "count": 46,
+      "sample": [
+        [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          2,
+          -1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    "drawn_before_start": true
+  },
+  "verdict": {
+    "tool_word": "EXACT_ALL_KEYS_IN_SPAN",
+    "normalised": "PASS",
+    "per_key_counts": {
+      "IN_SPAN": 46
+    },
+    "error_bound_log10": null,
+    "disproof": null
+  },
+  "cost": {
+    "cpu_ms": 96600,
+    "peak_rss_bytes": 104000000,
+    "memory_class": "2G"
+  },
+  "artefact": {
+    "path": "large:accept/art/c1.cert.jsonl.gz",
+    "bytes": 5242880,
+    "blake3": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "credits": {
+    "keys": {
+      "file": {
+        "path": "large:accept/art/k1.keys.jsonl",
+        "bytes": 2048,
+        "blake3": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      },
+      "count": 46
+    },
+    "via_symmetry": [
+      {
+        "key": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          2,
+          -1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "group_element": [
+          3,
+          1,
+          2,
+          0,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "mapped_key": [
+          2,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          -1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "image_rule_lower": true
+      }
+    ]
+  },
+  "imported_from": null,
+  "level_policy": "acc-level-v1",
+  "level_after": "A3",
+  "evidence_level": "identity_proved"
+}

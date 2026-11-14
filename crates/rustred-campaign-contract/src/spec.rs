@@ -89,6 +89,38 @@ impl JobKind {
         )
     }
 
+    /// The sealing rule of the kind's result files (audit A M4): every listed stream must be present in OUTCOME at its
+    /// layout path and verify (end record + size + digest + records + canonical digest). `None` = the contract has
+    /// no sealing rule for this kind yet: a "success" of it is classified `unverifiable_kind` (row 26), never
+    /// accepted. `generate-auto` is legacy and not a campaign kind (7, Q7).
+    pub const fn sealed_outputs(self) -> Option<&'static [OutputRule]> {
+        match self {
+            JobKind::Generate | JobKind::TableDump | JobKind::Fake => Some(&TABLE_OUTPUTS),
+            JobKind::Witness => Some(&WITNESS_OUTPUTS),
+            JobKind::Descent
+            | JobKind::Replay
+            | JobKind::Laporta
+            | JobKind::ProofSpan
+            | JobKind::ProofExact
+            | JobKind::ProofStream => Some(&RESULT_OUTPUTS),
+            JobKind::GenerateAuto => None,
+        }
+    }
+
+    /// The flags `args` may carry for this kind (audit A M5): a closed ALLOW-list, each with its value shape.
+    pub const fn allowed_args(self) -> &'static [ArgRule] {
+        match self {
+            JobKind::Generate | JobKind::GenerateAuto => &GENERATE_ARGS,
+            JobKind::Descent => &DESCENT_ARGS,
+            JobKind::Replay => &REPLAY_ARGS,
+            JobKind::Witness => &WITNESS_ARGS,
+            JobKind::Laporta => &LAPORTA_ARGS,
+            JobKind::ProofSpan | JobKind::ProofExact | JobKind::ProofStream => &PROOF_ARGS,
+            JobKind::TableDump => &TABLE_DUMP_ARGS,
+            JobKind::Fake => &[],
+        }
+    }
+
     /// Checker kinds (exit 11 / 12 possible).
     pub const fn is_checker(self) -> bool {
         matches!(
@@ -102,6 +134,231 @@ impl JobKind {
         )
     }
 }
+
+/// One sealed output stream of a kind: its role (`table`, or `outputs.extra[].role`), its file in `out/`, and the
+/// types its end record may have.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OutputRule {
+    pub role: &'static str,
+    pub file: &'static str,
+    pub end_types: &'static [&'static str],
+}
+
+/// End record types of the L1 result files (published once, at the end).
+pub const RESULT_END_TYPES: [&str; 1] = ["end"];
+
+const TABLE_OUTPUTS: [OutputRule; 1] = [OutputRule {
+    role: "table",
+    file: crate::layout::TABLE,
+    end_types: &crate::seal::TABLE_END_TYPES,
+}];
+const WITNESS_OUTPUTS: [OutputRule; 2] = [
+    OutputRule {
+        role: "witness",
+        file: crate::layout::WITNESS,
+        end_types: &crate::seal::TABLE_END_TYPES,
+    },
+    OutputRule {
+        role: "loci",
+        file: crate::layout::LOCI,
+        end_types: &crate::seal::TABLE_END_TYPES,
+    },
+];
+const RESULT_OUTPUTS: [OutputRule; 1] = [OutputRule {
+    role: "results",
+    file: crate::layout::RESULTS,
+    end_types: &RESULT_END_TYPES,
+}];
+
+/// The shape of a flag's value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArgShape {
+    /// No value.
+    Flag,
+    /// `[0-9]+` (at most 20 digits).
+    UInt,
+    /// `[0-9]+(.[0-9]+)?`.
+    Decimal,
+    /// `[A-Za-z0-9._-]+`, not starting with `-`, at most 128 characters.
+    Name,
+    /// A `Name` or a JSON object (orders).
+    JsonOrName,
+    /// `[0-9]+` (a chart / mask written as digits).
+    Mask,
+    /// `[A-Za-z0-9_.:;,+=*()-]+`, not starting with `--`, at most 4096 characters (no `/`: never a path).
+    Spec,
+    /// `[0-9,-]+` (rule ranges).
+    Range,
+    /// One of the listed words.
+    Choice(&'static [&'static str]),
+}
+
+impl ArgShape {
+    /// Whether `v` has this shape.
+    pub fn accepts(self, v: &str) -> bool {
+        let all = |f: fn(u8) -> bool| !v.is_empty() && v.bytes().all(f);
+        match self {
+            ArgShape::Flag => false,
+            ArgShape::UInt => v.len() <= 20 && all(|b| b.is_ascii_digit()),
+            ArgShape::Decimal => {
+                let (i, f) = v.split_once('.').unwrap_or((v, "1"));
+                !i.is_empty()
+                    && !f.is_empty()
+                    && i.bytes().all(|b| b.is_ascii_digit())
+                    && f.bytes().all(|b| b.is_ascii_digit())
+            }
+            ArgShape::Name => {
+                v.len() <= 128
+                    && !v.starts_with('-')
+                    && all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+            }
+            ArgShape::JsonOrName => {
+                ArgShape::Name.accepts(v)
+                    || serde_json::from_str::<serde_json::Value>(v).is_ok_and(|x| x.is_object())
+            }
+            ArgShape::Mask => all(|b| b.is_ascii_digit()),
+            ArgShape::Spec => {
+                v.len() <= 4096
+                    && !v.starts_with("--")
+                    && all(|b| {
+                        b.is_ascii_alphanumeric()
+                            || matches!(
+                                b,
+                                b'_' | b'.'
+                                    | b':'
+                                    | b';'
+                                    | b','
+                                    | b'+'
+                                    | b'='
+                                    | b'*'
+                                    | b'('
+                                    | b')'
+                                    | b'-'
+                            )
+                    })
+            }
+            ArgShape::Range => all(|b| b.is_ascii_digit() || b == b',' || b == b'-'),
+            ArgShape::Choice(c) => c.contains(&v),
+        }
+    }
+}
+
+/// One allowed flag: name, value shape, whether it may repeat, and (for choices) the values allowed under
+/// `determinism: strict` (`None` = every value).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArgRule {
+    pub flag: &'static str,
+    pub shape: ArgShape,
+    pub repeat: bool,
+    pub strict_values: Option<&'static [&'static str]>,
+}
+
+const fn a(flag: &'static str, shape: ArgShape) -> ArgRule {
+    ArgRule {
+        flag,
+        shape,
+        repeat: false,
+        strict_values: None,
+    }
+}
+
+/// `--on-heavy`: `auto` decides by a measured time (3.3.4), so under strict only `refuse` / `proceed`.
+pub const ON_HEAVY: ArgRule = ArgRule {
+    flag: "--on-heavy",
+    shape: ArgShape::Choice(&["auto", "refuse", "sampled", "proceed"]),
+    repeat: false,
+    strict_values: Some(&["refuse", "proceed"]),
+};
+
+const GENERATE_ARGS: [ArgRule; 36] = [
+    a("--order", ArgShape::JsonOrName),
+    a("--chart", ArgShape::Mask),
+    ON_HEAVY,
+    a("--symmetry", ArgShape::Flag),
+    a("--symmetry-rows", ArgShape::Flag),
+    a("--symmetry-symbolic", ArgShape::Flag),
+    a("--slim-rules", ArgShape::Flag),
+    a("--open-on-refusal", ArgShape::Flag),
+    a("--no-content-fallback", ArgShape::Flag),
+    a("--no-empty-domain-check", ArgShape::Flag),
+    a("--no-gsplit", ArgShape::Flag),
+    a("--no-refused-bank", ArgShape::Flag),
+    a("--no-symbolic-first-rung", ArgShape::Flag),
+    a("--no-screen", ArgShape::Flag),
+    a("--seed-pose-rung", ArgShape::Flag),
+    a("--strict-numeric-search", ArgShape::Flag),
+    a("--numeric-depth", ArgShape::UInt),
+    a("--numeric-depth-max", ArgShape::UInt),
+    a("--native-try", ArgShape::UInt),
+    a("--admit-try", ArgShape::UInt),
+    a("--max-rule-monomials", ArgShape::UInt),
+    a("--fallback-rule-monomials", ArgShape::UInt),
+    a("--fallback-after", ArgShape::UInt),
+    a("--max-box", ArgShape::UInt),
+    a("--max-depth", ArgShape::UInt),
+    a("--min-target-block", ArgShape::UInt),
+    a("--union-cover-depth", ArgShape::UInt),
+    a("--seed-face-floor", ArgShape::UInt),
+    a("--seed-pose-min-rows", ArgShape::UInt),
+    a("--sampled-from-rows", ArgShape::UInt),
+    a("--seed-pose-keep", ArgShape::Decimal),
+    a("--seed-centre-offset", ArgShape::Spec),
+    a("--seed-schedule", ArgShape::Spec),
+    a("--case-seed-schedule", ArgShape::Spec),
+    a("--case-seed-rung", ArgShape::Spec),
+    a("--backend", ArgShape::Name),
+];
+const DESCENT_ARGS: [ArgRule; 1] = [a("--order", ArgShape::JsonOrName)];
+const REPLAY_ARGS: [ArgRule; 9] = [
+    a("--chart", ArgShape::Mask),
+    a("--dimensions", ArgShape::Spec),
+    a("--sample-attempts", ArgShape::UInt),
+    a("--extra-points", ArgShape::UInt),
+    a("--loci", ArgShape::UInt),
+    a("--box", ArgShape::UInt),
+    a("--box-max", ArgShape::UInt),
+    a("--fixed-d", ArgShape::Flag),
+    a("--single-prime", ArgShape::Flag),
+];
+const WITNESS_ARGS: [ArgRule; 1] = [a("--rules", ArgShape::Range)];
+const LAPORTA_ARGS: [ArgRule; 6] = [
+    a("--mask", ArgShape::Mask),
+    a("--target", ArgShape::Spec),
+    a("--basis", ArgShape::Spec),
+    a("--box", ArgShape::Spec),
+    a("--dims", ArgShape::Spec),
+    a("--primes", ArgShape::UInt),
+];
+const PROOF_ARGS: [ArgRule; 11] = [
+    a("--rule", ArgShape::UInt),
+    a("--offset", ArgShape::UInt),
+    ArgRule {
+        flag: "--key",
+        shape: ArgShape::Spec,
+        repeat: true,
+        strict_values: None,
+    },
+    a("--drop-zero-sectors", ArgShape::Flag),
+    a("--max-primes", ArgShape::UInt),
+    a("--max-points", ArgShape::UInt),
+    a("--chart", ArgShape::Spec),
+    a("--kmod", ArgShape::UInt),
+    a("--kexact", ArgShape::UInt),
+    a("--rows", ArgShape::Choice(&["engine", "cert"])),
+    a("--ignore-exceptions", ArgShape::Flag),
+];
+const TABLE_DUMP_ARGS: [ArgRule; 10] = [
+    a("--mask", ArgShape::Mask),
+    a("--order", ArgShape::JsonOrName),
+    a("--workers", ArgShape::UInt),
+    a("--charts", ArgShape::Mask),
+    a("--defer-unsupported", ArgShape::Flag),
+    a("--case-gsplit", ArgShape::Flag),
+    a("--exact-backend", ArgShape::Name),
+    a("--spill-after", ArgShape::UInt),
+    a("--numeric-endpoints", ArgShape::Spec),
+    a("--source-order", ArgShape::Name),
+];
 
 /// Work counters (3.3.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -440,12 +697,15 @@ pub const REFUSED_FLAGS: [&str; 4] = [
     "--lease-wait",
 ];
 
-/// Environment variables refused in job mode unless listed in `env_allow` (3.2.2).
-pub const GATED_ENV: [&str; 4] = [
+/// Environment variables refused in job mode unless listed in `env_allow` (3.2.2; 2.5: every variable that changes
+/// results, audit A M5).
+pub const GATED_ENV: [&str; 6] = [
     "RUSTRED_PROBE_POINT",
     "RUSTRED_TRACE_DUMP",
     "RUSTRED_TRACE_DUMP_MIN_ROWS",
     "RUSTRED_TRACE_DUMP_EXIT",
+    "RR_REPLAY_RECENTER_SEARCH",
+    "RR_REPLAY_RECENTER_LIMIT",
 ];
 
 /// A spec that cannot be run. [`SpecError::exit_code`] says 40 or 42.
@@ -469,6 +729,9 @@ pub enum SpecError {
     },
     /// `kind` and `fake` disagree.
     FakeMismatch(String),
+    /// An `args` token that is not on the kind's allow-list, a `--flag=value` spelling, a positional, a repeated
+    /// flag or a value of the wrong shape (40).
+    ArgNotAllowed(String),
 }
 
 impl SpecError {
@@ -500,6 +763,7 @@ impl fmt::Display for SpecError {
                 )
             }
             SpecError::FakeMismatch(m) => write!(f, "job spec kind/fake: {m}"),
+            SpecError::ArgNotAllowed(m) => write!(f, "args: {m}"),
         }
     }
 }
@@ -586,26 +850,7 @@ impl JobSpec {
                 ));
             }
         }
-        for a in &self.args {
-            let f = flag_name(a);
-            if REFUSED_FLAGS.contains(&f) {
-                return Err(SpecError::RefusedFlag(f.to_string()));
-            }
-            if TYPED_FIELD_FLAGS.contains(&f) {
-                return Err(SpecError::TypedFlagInArgs(f.to_string()));
-            }
-        }
-        if self.determinism == Determinism::Strict
-            && self
-                .args
-                .windows(2)
-                .any(|w| flag_name(&w[0]) == "--on-heavy" && w[1] == "auto")
-        {
-            return Err(bad(
-                "args",
-                "--on-heavy auto is a clock decision, refused under determinism strict",
-            ));
-        }
+        self.check_args()?;
         let w = &self.budgets.work;
         if w.limits().iter().any(|&(_, _, l)| l == 0) {
             return Err(bad(
@@ -681,6 +926,119 @@ impl JobSpec {
         } else {
             Path::new(&self.run_dir).join(p)
         }
+    }
+
+    /// The allow-list check of `args` (audit A M5, B F8): two-token `--flag value` form only (any `--flag=value` is
+    /// refused, so no spelling escapes the value check); every flag on the kind's list, with a value of its shape;
+    /// no positional; no repeat unless the flag repeats; under `determinism: strict` only the strict values of a
+    /// choice, and a `generate` job must name `--on-heavy` explicitly (its default `auto` is a clock decision).
+    pub fn check_args(&self) -> Result<(), SpecError> {
+        let rules = self.kind.allowed_args();
+        let mut seen: Vec<&str> = Vec::new();
+        let mut on_heavy = false;
+        let mut k = 0;
+        while k < self.args.len() {
+            let tok = self.args[k].as_str();
+            let f = flag_name(tok);
+            if REFUSED_FLAGS.contains(&f) {
+                return Err(SpecError::RefusedFlag(f.to_string()));
+            }
+            if TYPED_FIELD_FLAGS.contains(&f) {
+                return Err(SpecError::TypedFlagInArgs(f.to_string()));
+            }
+            if !tok.starts_with("--") {
+                return Err(SpecError::ArgNotAllowed(format!("positional {tok:?}")));
+            }
+            if tok.contains('=') {
+                return Err(SpecError::ArgNotAllowed(format!(
+                    "{tok:?}: write `{f} VALUE` as two tokens"
+                )));
+            }
+            let Some(r) = rules.iter().find(|r| r.flag == tok) else {
+                return Err(SpecError::ArgNotAllowed(format!(
+                    "{tok} is not allowed for kind {:?}",
+                    self.kind
+                )));
+            };
+            if seen.contains(&r.flag) && !r.repeat {
+                return Err(SpecError::ArgNotAllowed(format!("{tok} repeated")));
+            }
+            seen.push(r.flag);
+            if r.flag == ON_HEAVY.flag {
+                on_heavy = true;
+            }
+            if r.shape == ArgShape::Flag {
+                k += 1;
+                continue;
+            }
+            let Some(v) = self.args.get(k + 1) else {
+                return Err(SpecError::ArgNotAllowed(format!("{tok} needs a value")));
+            };
+            if !r.shape.accepts(v) {
+                return Err(SpecError::ArgNotAllowed(format!(
+                    "{tok}: value {v:?} is not of shape {:?}",
+                    r.shape
+                )));
+            }
+            if self.determinism == Determinism::Strict
+                && let Some(ok) = r.strict_values
+                && !ok.contains(&v.as_str())
+            {
+                return Err(bad(
+                    "args",
+                    format!("{tok} {v} is a clock decision, refused under determinism strict"),
+                ));
+            }
+            k += 2;
+        }
+        if self.determinism == Determinism::Strict
+            && matches!(self.kind, JobKind::Generate | JobKind::GenerateAuto)
+            && !on_heavy
+        {
+            return Err(bad(
+                "args",
+                "determinism strict needs an explicit --on-heavy refuse|proceed (the default auto is a clock decision)",
+            ));
+        }
+        Ok(())
+    }
+
+    /// The identity of a JOB across attempts (audit A M7 / C1): the spec as JSON without `attempt`, `run_dir`,
+    /// `resume`, and, for the fake kind, without the test-stand behaviour that does not change what is computed
+    /// (`on_sigterm`, `slow_ms`, `start_delay_ms`, `faults`, `helpers`, `rss`, `time_scale` and the `ms` of every op).
+    pub fn job_identity(&self) -> serde_json::Value {
+        let mut v = serde_json::to_value(self).expect("JobSpec serialises");
+        if let Some(m) = v.as_object_mut() {
+            for k in ["attempt", "run_dir", "resume"] {
+                m.remove(k);
+            }
+            if let Some(f) = m.get_mut("fake").and_then(|f| f.as_object_mut()) {
+                for k in [
+                    "on_sigterm",
+                    "slow_ms",
+                    "start_delay_ms",
+                    "faults",
+                    "helpers",
+                    "rss",
+                    "time_scale",
+                ] {
+                    f.remove(k);
+                }
+                if let Some(ops) = f.get_mut("script").and_then(|s| s.as_array_mut()) {
+                    for op in ops {
+                        if let Some(o) = op.as_object_mut() {
+                            o.remove("ms");
+                        }
+                    }
+                }
+            }
+        }
+        v
+    }
+
+    /// Whether `prev` (the spec of an earlier attempt) is the same job: same identity ([`JobSpec::job_identity`]).
+    pub fn same_job(&self, prev: &JobSpec) -> bool {
+        self.job_identity() == prev.job_identity()
     }
 
     /// Whether the campaign may use witness loci of this job's records (R-f: elided loci are unusable).

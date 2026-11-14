@@ -446,6 +446,7 @@ pub fn scenario() -> Vec<Event> {
             defect_keys: 37,
             closure_keys: 154_783,
             rules_used: Some(5),
+            rules_total: Some(2_440),
             keyset: Some(fref("large:keysets/T162-closure-1.keys")),
         },
     });

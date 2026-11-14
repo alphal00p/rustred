@@ -1,0 +1,39 @@
+{
+  "schema": "rustred.campaign.job.v1",
+  "job": "a71d0c9e",
+  "display": "J000917",
+  "item": "8f0c1a07d3e4b5a6c0ffee00a1b2c3d4",
+  "node": "T162",
+  "rung": "L0",
+  "attempt": 1,
+  "kind": "generate",
+  "program": {
+    "name": "rr_node",
+    "blake3": "4444444444444444444444444444444444444444444444444444444444444444"
+  },
+  "spec_blake3": "9999999999999999999999999999999999999999999999999999999999999999",
+  "run_dir": "large:jobs/a71d0c9e/a1",
+  "cpus": [
+    29
+  ],
+  "reserved_bytes": 2147483648,
+  "started_utc": "2026-11-20T08:13:22Z",
+  "finished_utc": "2026-11-20T08:13:40Z",
+  "class": "rule_found",
+  "exit_code": 10,
+  "signal": null,
+  "sealed_output": {
+    "path": "large:jobs/a71d0c9e/a1/out/F.table.jsonl",
+    "bytes": 4900,
+    "blake3": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "outcome": {
+    "path": "large:jobs/a71d0c9e/a1/OUTCOME.json",
+    "bytes": 3100,
+    "blake3": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "cpu_ms": 17400,
+  "wall_ms": 18100,
+  "peak_rss_bytes": 431000000,
+  "time_decided": false
+}

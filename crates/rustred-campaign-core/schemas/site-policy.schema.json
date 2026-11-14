@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "site-policy.schema.json",
+  "title": "Site-policy file of the CPU policy (this host's exclusions as data)",
+  "description": "AS BUILT: rustred_campaign::cpu_policy::SiteConfig (interfaces/process-layer.md 7); unknown fields refused. Plan 4.3 item 5 describes a policy COMMAND (pick / release / paused / floor) instead (DISAGREEMENTS).",
+  "x-rr-names": ["rustred.campaign.site-policy.v1"],
+  "x-rr-owner": "I-SUP (co-signer C-OPS)",
+  "x-rr-struct": "rustred_campaign::cpu_policy::SiteConfig",
+  "x-rr-freeze": "M0",
+  "type": "object",
+  "required": ["schema", "tag", "lock_dir", "ledger_file", "max_cores"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "rustred.campaign.site-policy.v1"},
+    "tag": {"type": "string", "minLength": 1, "pattern": "^[^(),\\n]+$"},
+    "lock_dir": {"type": "string", "minLength": 1},
+    "lock_name": {"type": "string", "pattern": "\\{n\\}"},
+    "ledger_file": {"type": "string", "minLength": 1},
+    "ledger_scan_lines": {"$ref": "common.schema.json#/$defs/u64"},
+    "candidates": {"type": ["string", "null"], "pattern": "^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$"},
+    "exclude": {"type": "array", "items": {"type": "string", "pattern": "^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$"}},
+    "held_files": {"type": "array", "items": {"type": "object", "required": ["path", "key"], "additionalProperties": false, "properties": {
+      "path": {"type": "string", "minLength": 1}, "key": {"type": "string", "minLength": 1}, "required": {"type": "boolean"}}}},
+    "pause_files": {"type": "array", "items": {"type": "string"}},
+    "idle_min": {"type": "number", "minimum": 0, "maximum": 1},
+    "max_cores": {"type": "integer", "minimum": 1},
+    "respect_foreign_pinning": {"type": "boolean"},
+    "ignore_own_tag_claims": {"type": "boolean"}
+  }
+}

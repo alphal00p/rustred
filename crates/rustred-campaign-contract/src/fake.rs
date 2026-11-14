@@ -320,6 +320,13 @@ impl FakeScript {
             if f.at_op > self.script.len() {
                 return Err(format!("fault at_op {} beyond the script", f.at_op));
             }
+            // audit B F6: a fault hook never writes a regular file anywhere; only a device under /dev/ (the fake
+            // child also checks that it is a character device before opening it)
+            if let Some(p) = &f.path
+                && (!p.starts_with("/dev/") || p.contains("/.") || p.contains("//"))
+            {
+                return Err(format!("fault path {p:?} is not a device under /dev/"));
+            }
         }
         Ok(())
     }
