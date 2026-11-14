@@ -528,9 +528,15 @@ pub enum CellStatus {
     Fail,
     /// refused at this cell (target in a zero sector)
     Refused(Unsupported),
-    Pole { coefficient: usize },
-    MemoryGuard { entries: usize },
-    Undecided { reason: String },
+    Pole {
+        coefficient: usize,
+    },
+    MemoryGuard {
+        entries: usize,
+    },
+    Undecided {
+        reason: String,
+    },
 }
 
 /// One (point, prime) evaluation.
@@ -977,13 +983,19 @@ fn add_sym_rows(
 ) -> Result<(), String> {
     let Some(g) = cx.sym else { return Ok(()) };
     for r in symrows::rows_at(g, seed, cx.opts.sym_mode, cx.opts.sym_max_terms)? {
-        let canon: Vec<(ColKey, (i128, i128))> = r.terms.iter().map(|(k, c)| (k.clone(), (c.n, c.d))).collect();
+        let canon: Vec<(ColKey, (i128, i128))> = r
+            .terms
+            .iter()
+            .map(|(k, c)| (k.clone(), (c.n, c.d)))
+            .collect();
         if !seen.insert(canon) {
             continue;
         }
         let mut row: BTreeMap<ColKey, u64> = BTreeMap::new();
         for (k, c) in r.terms {
-            let v = c.modp(p).ok_or("symmetry row coefficient denominator divisible by p")?;
+            let v = c
+                .modp(p)
+                .ok_or("symmetry row coefficient denominator divisible by p")?;
             if v != 0 {
                 row.insert(k, v);
             }
@@ -1089,15 +1101,17 @@ fn pattern_col(pat: &Pat, generic: bool, pt: &[i64], fixed: &[Option<i64>]) -> C
         let v = pat
             .iter()
             .enumerate()
-            .map(|(i, &(ax, off))| match (ax, fixed.get(i).copied().flatten()) {
-                // audit m6: a fixed slot is a constant
-                (Some(_), Some(f)) => f + off,
-                (Some(_), None) => {
-                    mask |= 1 << i;
-                    off
-                }
-                (None, _) => off,
-            })
+            .map(
+                |(i, &(ax, off))| match (ax, fixed.get(i).copied().flatten()) {
+                    // audit m6: a fixed slot is a constant
+                    (Some(_), Some(f)) => f + off,
+                    (Some(_), None) => {
+                        mask |= 1 << i;
+                        off
+                    }
+                    (None, _) => off,
+                },
+            )
             .collect();
         (mask, v)
     } else {
@@ -1347,12 +1361,15 @@ fn solve_system(
                     return out;
                 }
             };
-            let top = |k: &ColKey| {
-                (0..n).all(|i| !chart[i] || (k.0 >> i & 1 == 1) || k.1[i] >= 1)
-            };
+            let top = |k: &ColKey| (0..n).all(|i| !chart[i] || (k.0 >> i & 1 == 1) || k.1[i] >= 1);
             let proj: Vec<Vec<(usize, u64)>> = enc_rows
                 .iter()
-                .map(|r| r.iter().copied().filter(|(c, _)| top(nonzero[*c])).collect())
+                .map(|r| {
+                    r.iter()
+                        .copied()
+                        .filter(|(c, _)| top(nonzero[*c]))
+                        .collect()
+                })
                 .collect();
             match Elim::new_guarded(&proj, nonzero.len(), p, cx.opts.max_entries)
                 .and_then(|e2| e2.solve(&[(cc, 1)]))
@@ -1718,9 +1735,19 @@ fn unsupported_verdict(
 /// The stream seed binds the master seed, the rule digest, the family digest, the digest of the points / served keys
 /// and a nonce (audit B M1: reproducible from the record, not predictable before the rule exists when the nonce is
 /// drawn at run time, which `replay_evidence` does unless `RowsOptions.nonce` is given).
-pub fn stream_seed(master: u64, rule: &RowsRule, family_digest: &str, keys_digest: &str, nonce: u64) -> u64 {
+pub fn stream_seed(
+    master: u64,
+    rule: &RowsRule,
+    family_digest: &str,
+    keys_digest: &str,
+    nonce: u64,
+) -> u64 {
     let h = crate::replay_base::sha256::sha256_hex(
-        format!("{master}\x00{}\x00{family_digest}\x00{keys_digest}\x00{nonce}", rule_digest(rule)).as_bytes(),
+        format!(
+            "{master}\x00{}\x00{family_digest}\x00{keys_digest}\x00{nonce}",
+            rule_digest(rule)
+        )
+        .as_bytes(),
     );
     u64::from_str_radix(&h[..16], 16).unwrap_or(master)
 }
@@ -1770,7 +1797,13 @@ pub fn identity_test(
 ) -> RowsVerdict {
     let nonce = opts.nonce.unwrap_or(0);
     let derived_opts = RowsOptions {
-        seed: stream_seed(opts.seed, rule, &family.source_digest, &points_digest(points), nonce),
+        seed: stream_seed(
+            opts.seed,
+            rule,
+            &family.source_digest,
+            &points_digest(points),
+            nonce,
+        ),
         ..opts.clone()
     };
     let mut v = identity_test_derived(family, rule, points, &derived_opts);
@@ -1796,7 +1829,14 @@ fn identity_test_derived(
         .find_map(|&p| primes::check_verify_prime(p, &opts.lift_primes).err())
         .or_else(|| (primes[0] == primes[1]).then(|| "the two primes are equal".to_string()))
     {
-        return unsupported_verdict(family, rule, rule_id, opts, primes, Unsupported::BadPrime(e));
+        return unsupported_verdict(
+            family,
+            rule,
+            rule_id,
+            opts,
+            primes,
+            Unsupported::BadPrime(e),
+        );
     }
     if family.n != rule.arity {
         let u = Unsupported::Record(format!(
@@ -1807,7 +1847,14 @@ fn identity_test_derived(
     }
     // audit C2: the family must be inside what the replay models and match the rule's table header
     if let Err(e) = &family.check {
-        return unsupported_verdict(family, rule, rule_id, opts, primes, Unsupported::Family(e.clone()));
+        return unsupported_verdict(
+            family,
+            rule,
+            rule_id,
+            opts,
+            primes,
+            Unsupported::Family(e.clone()),
+        );
     }
     if let Some(t) = &opts.table
         && let Err(e) = family_header_check(&t.header, family)
@@ -1836,14 +1883,25 @@ fn identity_test_derived(
             }
             Some(g) => {
                 let why = if g.group.arity != rule.arity || g.group.chart != rule.chart {
-                    Some(format!("group chart {} vs rule chart {}", g.group.chart_text(), rule.chart_text))
+                    Some(format!(
+                        "group chart {} vs rule chart {}",
+                        g.group.chart_text(),
+                        rule.chart_text
+                    ))
                 } else if g.family_digest != family.source_digest {
                     Some("group verified on another family".to_string())
                 } else {
                     None
                 };
                 if let Some(w) = why {
-                    return unsupported_verdict(family, rule, rule_id, opts, primes, Unsupported::SymGroupMismatch(w));
+                    return unsupported_verdict(
+                        family,
+                        rule,
+                        rule_id,
+                        opts,
+                        primes,
+                        Unsupported::SymGroupMismatch(w),
+                    );
                 }
                 Some(g)
             }
@@ -1852,7 +1910,14 @@ fn identity_test_derived(
         None
     };
     if let Some(e) = &rule.syntax_error {
-        return unsupported_verdict(family, rule, rule_id, opts, primes, Unsupported::Syntax(e.clone()));
+        return unsupported_verdict(
+            family,
+            rule,
+            rule_id,
+            opts,
+            primes,
+            Unsupported::Syntax(e.clone()),
+        );
     }
     if rule.seeds.is_empty() {
         return unsupported_verdict(family, rule, rule_id, opts, primes, Unsupported::NoSeeds);
@@ -2082,7 +2147,9 @@ fn identity_test_derived(
         // a pass resting only on generic points with boundary-sensitive columns does not meet A2 (audit A C1 / B)
         meets_a2_policy: verdict == Verdict::Pass
             && points_passed >= 2
-            && (reports.iter().all(|r| r.cells.iter().all(|c| c.boundary_columns == 0))
+            && (reports
+                .iter()
+                .all(|r| r.cells.iter().all(|c| c.boundary_columns == 0))
                 || reports
                     .iter()
                     .any(|r| matches!(r.spec, PointSpec::Key(_)) && r.status == PointStatus::Pass)),
@@ -2196,9 +2263,13 @@ pub enum LocusStatus {
     /// proved free of integer points in the case (affine locus, gcd of the coefficients does not divide the constant)
     NoIntegerPoint,
     /// no applicable integer point found in the search window: UNTESTED, blocks the level (audit M3)
-    NoPoint { candidates: usize },
+    NoPoint {
+        candidates: usize,
+    },
     /// served keys lie on the locus; they are replayed with every other served key
-    TestedAtServed { keys: usize },
+    TestedAtServed {
+        keys: usize,
+    },
     /// replayed at a searched integer point on the locus (index into the identity points)
     Tested {
         key: Vec<i64>,
@@ -2219,8 +2290,13 @@ pub enum ReplayLevel {
     /// every check passed at EVERY served key (plus the generic points)
     Established,
     /// every check passed, but the identity was replayed at a SAMPLE of the served keys only: never accepted
-    ReplaySampled { replayed: usize, applicable: usize },
-    NotEstablished { reasons: Vec<String> },
+    ReplaySampled {
+        replayed: usize,
+        applicable: usize,
+    },
+    NotEstablished {
+        reasons: Vec<String>,
+    },
 }
 
 /// Witness-guard completeness of the record (audit M3).
@@ -2331,13 +2407,7 @@ pub fn key_set_digest(keys: &[Vec<i64>]) -> String {
     ks.dedup();
     let text: String = ks
         .iter()
-        .map(|k| {
-            k.iter()
-                .map(i64::to_string)
-                .collect::<Vec<_>>()
-                .join(",")
-                + "\n"
-        })
+        .map(|k| k.iter().map(i64::to_string).collect::<Vec<_>>().join(",") + "\n")
         .collect();
     crate::replay_base::sha256::sha256_hex(text.as_bytes())
 }
@@ -2569,7 +2639,13 @@ pub fn replay_evidence(
     dedup0.sort();
     dedup0.dedup();
     let derived_opts = RowsOptions {
-        seed: stream_seed(opts.seed, rule, &family.source_digest, &key_set_digest(&dedup0), nonce),
+        seed: stream_seed(
+            opts.seed,
+            rule,
+            &family.source_digest,
+            &key_set_digest(&dedup0),
+            nonce,
+        ),
         nonce: Some(nonce),
         ..opts.clone()
     };
@@ -2581,14 +2657,14 @@ pub fn replay_evidence(
     let mut reasons: Vec<String> = Vec::new();
     // a point rule with no served key given: its own key is the served set
     let own: Vec<Vec<i64>>;
-    let served_keys: &[Vec<i64>] = if served_keys.is_empty() && rule.fixed.iter().all(Option::is_some)
-    {
-        let pt: Vec<i64> = rule.fixed.iter().map(|f| f.unwrap_or(0)).collect();
-        own = vec![record::key_at(&rule.target, &pt)];
-        &own
-    } else {
-        served_keys
-    };
+    let served_keys: &[Vec<i64>] =
+        if served_keys.is_empty() && rule.fixed.iter().all(Option::is_some) {
+            let pt: Vec<i64> = rule.fixed.iter().map(|f| f.unwrap_or(0)).collect();
+            own = vec![record::key_at(&rule.target, &pt)];
+            &own
+        } else {
+            served_keys
+        };
     // audit B M2: duplicate served keys count once
     let mut dedup: Vec<Vec<i64>> = served_keys.to_vec();
     dedup.sort();
@@ -2782,7 +2858,8 @@ pub fn replay_evidence(
         .guard_version
         .or_else(|| opts.table.as_ref().and_then(|t| t.guard_version));
     let free = rule.fixed.iter().any(Option::is_none);
-    let witness_list_complete = !free || !rule.witness_loci.is_empty() || guard_version.unwrap_or(1) >= 2;
+    let witness_list_complete =
+        !free || !rule.witness_loci.is_empty() || guard_version.unwrap_or(1) >= 2;
     if !witness_list_complete {
         reasons.push(
             "no witness guards: empty witness-locus list with guard_version 1 or absent (Unsupported(no witness guards))"
@@ -2791,7 +2868,9 @@ pub fn replay_evidence(
     }
     for l in &loci {
         match &l.status {
-            LocusStatus::Unreadable(e) => reasons.push(format!("witness locus {} unreadable: {e}", l.locus)),
+            LocusStatus::Unreadable(e) => {
+                reasons.push(format!("witness locus {} unreadable: {e}", l.locus))
+            }
             LocusStatus::NoPoint { candidates } => reasons.push(format!(
                 "witness locus {} UNTESTED: no point in {candidates} candidates",
                 l.locus

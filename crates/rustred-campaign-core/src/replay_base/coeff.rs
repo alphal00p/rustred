@@ -378,12 +378,19 @@ pub const CROSS_CHECK_BYTES: usize = 2_000_000;
 /// `num / den` (`den != 0`). Ok(true) = equal, Ok(false) = skipped (text above [`CROSS_CHECK_BYTES`] or a pole of the
 /// engine reader at this context), Err = the two readers DISAGREE or the engine reader refuses the text: a typed
 /// refusal, never a silent choice.
-pub fn cross_check_engine(text: &str, arity: usize, ctx: &Ctx, num: u64, den: u64) -> Result<bool, String> {
+pub fn cross_check_engine(
+    text: &str,
+    arity: usize,
+    ctx: &Ctx,
+    num: u64,
+    den: u64,
+) -> Result<bool, String> {
     if text.len() > CROSS_CHECK_BYTES || den == 0 {
         return Ok(false);
     }
-    let e = super::expr::Expr::parse(text, arity)
-        .map_err(|e| format!("engine expression reader refuses a coefficient the streaming reader accepts: {e}"))?;
+    let e = super::expr::Expr::parse(text, arity).map_err(|e| {
+        format!("engine expression reader refuses a coefficient the streaming reader accepts: {e}")
+    })?;
     let p = ctx.p;
     match e.at_mod(p, &ctx.vals[..arity], ctx.vals[arity]) {
         Ok(v) => {

@@ -70,7 +70,10 @@ fn rows_replay_record_fc000_and_fd006() {
         );
         assert_eq!(rec.level, ReplayLevel::Established, "{id}");
         assert_eq!(rec.schema, "rustred.campaign.replay_evidence.v2");
-        assert_eq!(rec.served_keys_replayed, rec.pole_scan.keys_applicable, "{id}: every served key replayed");
+        assert_eq!(
+            rec.served_keys_replayed, rec.pole_scan.keys_applicable,
+            "{id}: every served key replayed"
+        );
         assert_eq!(rec.family_digest, T162_FAMILY_SHA);
         assert_eq!(rec.rule_digest.len(), 64);
         assert!(rec.pole_scan.poles.is_empty());

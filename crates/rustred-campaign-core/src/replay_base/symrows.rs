@@ -47,10 +47,12 @@ pub struct SymElement {
 
 impl SymElement {
     pub fn is_identity(&self) -> bool {
-        self.action
-            .iter()
-            .enumerate()
-            .all(|(i, a)| *a == SlotImage::Exact { target: i, flip: false })
+        self.action.iter().enumerate().all(|(i, a)| {
+            *a == SlotImage::Exact {
+                target: i,
+                flip: false,
+            }
+        })
     }
 
     /// The images of the chart lines (the line permutation), `None` if a chart line is not mapped exactly.
@@ -121,7 +123,10 @@ fn slot_from(v: &Value, arity: usize) -> Result<SlotImage, String> {
                 .and_then(Value::as_array)
                 .ok_or("linear image without terms")?
             {
-                let pair = t.as_array().filter(|p| p.len() == 2).ok_or("term [slot, c]")?;
+                let pair = t
+                    .as_array()
+                    .filter(|p| p.len() == 2)
+                    .ok_or("term [slot, c]")?;
                 let m = pair[0].as_u64().ok_or("term slot")? as usize;
                 if m >= arity {
                     return Err(format!("term slot {m} >= arity {arity}"));
@@ -139,7 +144,9 @@ fn slot_from(v: &Value, arity: usize) -> Result<SlotImage, String> {
                 constant,
             })
         }
-        _ => Err(format!("slot image must be null, [t, flip] or {{terms, constant}}: {v}")),
+        _ => Err(format!(
+            "slot image must be null, [t, flip] or {{terms, constant}}: {v}"
+        )),
     }
 }
 
@@ -168,7 +175,11 @@ fn elements_from(els: &[Value], arity: usize, w: Option<usize>) -> Result<Vec<Sy
                 if let Some(w) = w
                     && m.len() != w * w
                 {
-                    return Err(format!("element {k}: matrix of {} entries, expected {}", m.len(), w * w));
+                    return Err(format!(
+                        "element {k}: matrix of {} entries, expected {}",
+                        m.len(),
+                        w * w
+                    ));
                 }
                 Some(m)
             }
@@ -183,7 +194,10 @@ fn elements_from(els: &[Value], arity: usize, w: Option<usize>) -> Result<Vec<Sy
             .collect::<Result<_, _>>()
             .map_err(|x| format!("element {k}: {x}"))?;
         if action.len() != arity {
-            return Err(format!("element {k}: action of length {} for arity {arity}", action.len()));
+            return Err(format!(
+                "element {k}: action of length {} for arity {arity}",
+                action.len()
+            ));
         }
         let el = SymElement { matrix, action };
         if !el.is_identity() {
@@ -201,11 +215,17 @@ impl SymGroup {
         {
             return Err(format!("unknown group schema {s}"));
         }
-        let arity = v.get("arity").and_then(Value::as_u64).ok_or("group without arity")? as usize;
+        let arity = v
+            .get("arity")
+            .and_then(Value::as_u64)
+            .ok_or("group without arity")? as usize;
         let loops = v.get("loops").and_then(Value::as_u64).unwrap_or(0) as usize;
         let chart = chart_from(v.get("chart").ok_or("group without chart")?, arity)?;
         let w = (loops > 0).then_some(loops + 1);
-        let els = v.get("elements").and_then(Value::as_array).ok_or("group without elements")?;
+        let els = v
+            .get("elements")
+            .and_then(Value::as_array)
+            .ok_or("group without elements")?;
         Ok(SymGroup {
             arity,
             loops,
@@ -218,11 +238,17 @@ impl SymGroup {
     /// elements `{matrix, action: [[t, flip] | null, ..]}`; a `null` slot is `Unknown` (the engine's partial action).
     pub fn from_engine_record(v: &Value) -> Result<SymGroup, String> {
         let g = v.get("group").unwrap_or(v);
-        let arity = g.get("arity").and_then(Value::as_u64).ok_or("engine group without arity")? as usize;
+        let arity = g
+            .get("arity")
+            .and_then(Value::as_u64)
+            .ok_or("engine group without arity")? as usize;
         let loops = g.get("loops").and_then(Value::as_u64).unwrap_or(0) as usize;
         let chart = chart_from(g.get("chart").ok_or("engine group without chart")?, arity)?;
         let w = (loops > 0).then_some(loops + 1);
-        let els = g.get("elements").and_then(Value::as_array).ok_or("engine group without elements")?;
+        let els = g
+            .get("elements")
+            .and_then(Value::as_array)
+            .ok_or("engine group without elements")?;
         Ok(SymGroup {
             arity,
             loops,
@@ -260,7 +286,11 @@ impl SymGroup {
                 .ok_or_else(|| format!("unknown slot name {name}"))
         };
         let mut chart = vec![false; n];
-        for l in v.get("lines").and_then(Value::as_array).ok_or("group file without lines")? {
+        for l in v
+            .get("lines")
+            .and_then(Value::as_array)
+            .ok_or("group file without lines")?
+        {
             chart[slot(l.as_str().ok_or("line name")?)?] = true;
         }
         let l = family.loops;
@@ -308,8 +338,12 @@ impl SymGroup {
                             *e2 = e2.add(c)?;
                         }
                     }
-                    let terms: Vec<(usize, Q)> = terms.into_iter().filter(|(_, c)| !c.is_zero()).collect();
-                    action[i] = if constant.is_zero() && terms.len() == 1 && terms[0].1 == Q::ONE && !chart[terms[0].0]
+                    let terms: Vec<(usize, Q)> =
+                        terms.into_iter().filter(|(_, c)| !c.is_zero()).collect();
+                    action[i] = if constant.is_zero()
+                        && terms.len() == 1
+                        && terms[0].1 == Q::ONE
+                        && !chart[terms[0].0]
                     {
                         SlotImage::Exact {
                             target: terms[0].0,
@@ -358,7 +392,10 @@ impl SymGroup {
     }
 
     pub fn chart_text(&self) -> String {
-        self.chart.iter().map(|&b| if b { '1' } else { '0' }).collect()
+        self.chart
+            .iter()
+            .map(|&b| if b { '1' } else { '0' })
+            .collect()
     }
 
     /// The canonical JSON (elements in input order).
@@ -385,7 +422,12 @@ impl SymGroup {
             .collect();
         acts.sort();
         acts.dedup();
-        let text = format!("{SYMGROUP_SCHEMA}\x00{}\x00{}\x00{}", self.arity, self.chart_text(), acts.join("\x01"));
+        let text = format!(
+            "{SYMGROUP_SCHEMA}\x00{}\x00{}\x00{}",
+            self.arity,
+            self.chart_text(),
+            acts.join("\x01")
+        );
         super::sha256::sha256_hex(text.as_bytes())
     }
 }
@@ -436,7 +478,9 @@ fn inverse_q(m: &[Vec<Q>]) -> Result<Vec<Vec<Q>>, String> {
         })
         .collect();
     for c in 0..n {
-        let p = (c..n).find(|&r| !a[r][c].is_zero()).ok_or("singular matrix")?;
+        let p = (c..n)
+            .find(|&r| !a[r][c].is_zero())
+            .ok_or("singular matrix")?;
         a.swap(c, p);
         let f = a[c][c];
         a[c] = a[c].iter().map(|x| x.div(f)).collect::<Result<_, _>>()?;
@@ -466,7 +510,9 @@ fn canon(v: &[i64]) -> Vec<i64> {
 fn vec_times(v: &[i64], t: &[i64], w: usize) -> Option<Vec<i64>> {
     (0..w)
         .map(|col| {
-            (0..w).try_fold(0i64, |acc, row| acc.checked_add(v[row].checked_mul(t[row * w + col])?))
+            (0..w).try_fold(0i64, |acc, row| {
+                acc.checked_add(v[row].checked_mul(t[row * w + col])?)
+            })
         })
         .collect()
 }
@@ -490,7 +536,10 @@ impl QuadBasis {
             .filter(|&(a, b)| !(a == l && b == l))
             .collect();
         if pairs.len() != n {
-            return Err(format!("{} scalar products for {n} propagators: incomplete basis", pairs.len()));
+            return Err(format!(
+                "{} scalar products for {n} propagators: incomplete basis",
+                pairs.len()
+            ));
         }
         let mut m = vec![vec![Q::ZERO; n]; n];
         let mut c0 = vec![Q::ZERO; n];
@@ -535,7 +584,10 @@ impl QuadBasis {
             }
         }
         Ok((
-            x.into_iter().enumerate().filter(|(_, q)| !q.is_zero()).collect(),
+            x.into_iter()
+                .enumerate()
+                .filter(|(_, q)| !q.is_zero())
+                .collect(),
             constant,
         ))
     }
@@ -561,7 +613,10 @@ impl<'f> Geometry<'f> {
     fn new(family: &'f Family, chart: &[bool]) -> Result<Geometry<'f>, GroupNotDerived> {
         let n = family.n;
         if chart.len() != n {
-            return Err(GroupNotDerived::Family(format!("chart of length {} for arity {n}", chart.len())));
+            return Err(GroupNotDerived::Family(format!(
+                "chart of length {} for arity {n}",
+                chart.len()
+            )));
         }
         let l = family.loops;
         let w = l + 1;
@@ -577,9 +632,15 @@ impl<'f> Geometry<'f> {
         for i in 0..n {
             let key = canon(&c[i]);
             if key.iter().all(|&x| x == 0) {
-                return Err(GroupNotDerived::Family(format!("slot {i} has zero momentum")));
+                return Err(GroupNotDerived::Family(format!(
+                    "slot {i} has zero momentum"
+                )));
             }
-            let map = if chart[i] { &mut line_of } else { &mut other_of };
+            let map = if chart[i] {
+                &mut line_of
+            } else {
+                &mut other_of
+            };
             if map.insert(key, i).is_some() {
                 return Err(GroupNotDerived::Family(format!(
                     "two slots with the same momentum up to sign (slot {i})"
@@ -606,15 +667,23 @@ impl<'f> Geometry<'f> {
         let b: Vec<Vec<i128>> = basis
             .iter()
             .map(|&i| c[i].iter().map(|&x| x as i128).collect())
-            .chain(std::iter::once((0..w).map(|j| i128::from(j == l)).collect()))
+            .chain(std::iter::once(
+                (0..w).map(|j| i128::from(j == l)).collect(),
+            ))
             .collect();
-        let det_b = det_i128(b.clone()).ok_or_else(|| GroupNotDerived::Overflow("det(B)".into()))?;
-        let bq: Vec<Vec<Q>> = b.iter().map(|r| r.iter().map(|&x| Q::int(x)).collect()).collect();
+        let det_b =
+            det_i128(b.clone()).ok_or_else(|| GroupNotDerived::Overflow("det(B)".into()))?;
+        let bq: Vec<Vec<Q>> = b
+            .iter()
+            .map(|r| r.iter().map(|&x| Q::int(x)).collect())
+            .collect();
         let inv = inverse_q(&bq).map_err(GroupNotDerived::Overflow)?;
         let mut adj = vec![0i128; w * w];
         for r in 0..w {
             for s in 0..w {
-                let v = inv[r][s].mul(Q::int(det_b)).map_err(GroupNotDerived::Overflow)?;
+                let v = inv[r][s]
+                    .mul(Q::int(det_b))
+                    .map_err(GroupNotDerived::Overflow)?;
                 if v.d != 1 {
                     return Err(GroupNotDerived::Overflow("adjugate not integer".into()));
                 }
@@ -695,7 +764,10 @@ impl<'f> Geometry<'f> {
                     if std::mem::replace(&mut hit[tg], true) {
                         return Err(format!("slot {tg} hit twice"));
                     }
-                    out.push(SlotImage::Exact { target: tg, flip: false });
+                    out.push(SlotImage::Exact {
+                        target: tg,
+                        flip: false,
+                    });
                 }
                 None if self.chart[i] => {
                     return Err(format!("chart line {i} is not mapped onto a chart line"));
@@ -726,10 +798,14 @@ fn rank_q(rows: &[Vec<Q>]) -> usize {
             if a[i][c].is_zero() {
                 continue;
             }
-            let Ok(f) = a[i][c].div(a[r][c]) else { return 0 };
+            let Ok(f) = a[i][c].div(a[r][c]) else {
+                return 0;
+            };
             let pivot = a[r].clone();
             for (x, y) in a[i].iter_mut().zip(&pivot) {
-                let Ok(v) = f.mul(*y).and_then(|z| x.sub(z)) else { return 0 };
+                let Ok(v) = f.mul(*y).and_then(|z| x.sub(z)) else {
+                    return 0;
+                };
                 *x = v;
             }
         }
@@ -760,7 +836,10 @@ pub enum GroupNotDerived {
     /// the chart lines do not span the loop momenta
     NoLineBasis,
     /// the enumeration would exceed `max_candidates`
-    SearchBound { candidates: u128, bound: u64 },
+    SearchBound {
+        candidates: u128,
+        bound: u64,
+    },
     /// the family is outside the supported class (one external momentum, distinct momenta, complete basis)
     Family(String),
     Overflow(String),
@@ -824,7 +903,9 @@ pub fn derive_group(
                     continue;
                 }
                 stats.unimodular += 1;
-                let Ok(action) = g.action_of(&t) else { continue };
+                let Ok(action) = g.action_of(&t) else {
+                    continue;
+                };
                 stats.automorphisms += 1;
                 let el = SymElement {
                     matrix: Some(t),
@@ -937,7 +1018,9 @@ fn check_against(g: &Geometry, el: &SymElement, t: &[i64]) -> Result<ElementProo
                     SlotImage::Unknown => false,
                 };
                 if !ok {
-                    return Err(format!("slot {i}: stated image D{target} is not the momentum image"));
+                    return Err(format!(
+                        "slot {i}: stated image D{target} is not the momentum image"
+                    ));
                 }
                 exact_slots += 1;
             }
@@ -950,7 +1033,9 @@ fn check_against(g: &Geometry, el: &SymElement, t: &[i64]) -> Result<ElementProo
                     x => x.clone(),
                 };
                 if *given != as_linear {
-                    return Err(format!("slot {i}: stated linear image differs from the momentum image"));
+                    return Err(format!(
+                        "slot {i}: stated linear image differs from the momentum image"
+                    ));
                 }
                 linear_slots += 1;
             }
@@ -976,10 +1061,16 @@ pub fn verify_group(
 ) -> Result<VerifiedGroup, GroupRefused> {
     let refuse = |element: Option<usize>, reason: String| GroupRefused { element, reason };
     if group.arity != family.n {
-        return Err(refuse(None, format!("group arity {} != family {}", group.arity, family.n)));
+        return Err(refuse(
+            None,
+            format!("group arity {} != family {}", group.arity, family.n),
+        ));
     }
     if group.loops != 0 && group.loops != family.loops {
-        return Err(refuse(None, format!("group loops {} != family {}", group.loops, family.loops)));
+        return Err(refuse(
+            None,
+            format!("group loops {} != family {}", group.loops, family.loops),
+        ));
     }
     let g = Geometry::new(family, &group.chart).map_err(|e| refuse(None, format!("{e:?}")))?;
     let l = family.loops;
@@ -994,7 +1085,10 @@ pub fn verify_group(
             return Err(refuse(Some(k), "a chart line has no exact image".into()));
         };
         if perm.iter().any(|&t| !group.chart[t]) {
-            return Err(refuse(Some(k), "a chart line goes onto a non-line slot".into()));
+            return Err(refuse(
+                Some(k),
+                "a chart line goes onto a non-line slot".into(),
+            ));
         }
         let proof = match &el.matrix {
             Some(t) => {
@@ -1076,9 +1170,12 @@ type PermIndex<'a> = BTreeMap<Vec<usize>, Vec<&'a SymElement>>;
 fn perm_index(g: &SymGroup) -> Result<PermIndex<'_>, String> {
     let mut m: PermIndex<'_> = BTreeMap::new();
     for e in &g.elements {
-        m.entry(e.line_perm(&g.chart).ok_or("an element without exact line images")?)
-            .or_default()
-            .push(e);
+        m.entry(
+            e.line_perm(&g.chart)
+                .ok_or("an element without exact line images")?,
+        )
+        .or_default()
+        .push(e);
     }
     Ok(m)
 }
@@ -1106,10 +1203,21 @@ pub fn cross_check(a: &SymGroup, b: &SymGroup) -> GroupCheck {
         (Ok(x), Ok(y)) => (x, y),
         (Err(e), _) | (_, Err(e)) => return mismatch(e),
     };
-    let only_a: Vec<Vec<usize>> = ia.keys().filter(|k| !ib.contains_key(*k)).cloned().collect();
-    let only_b: Vec<Vec<usize>> = ib.keys().filter(|k| !ia.contains_key(*k)).cloned().collect();
+    let only_a: Vec<Vec<usize>> = ia
+        .keys()
+        .filter(|k| !ib.contains_key(*k))
+        .cloned()
+        .collect();
+    let only_b: Vec<Vec<usize>> = ib
+        .keys()
+        .filter(|k| !ia.contains_key(*k))
+        .cloned()
+        .collect();
     let norm = |s: &SlotImage| match s {
-        SlotImage::Exact { target, flip: false } => SlotImage::Linear {
+        SlotImage::Exact {
+            target,
+            flip: false,
+        } => SlotImage::Linear {
             terms: vec![(*target, Q::ONE)],
             constant: Q::ZERO,
         },
@@ -1144,7 +1252,9 @@ pub fn cross_check(a: &SymGroup, b: &SymGroup) -> GroupCheck {
         }
         for y in eb {
             if !ea.iter().any(|x| agrees(x, y).is_some()) {
-                differing.push(format!("line permutation {perm:?}: an element of b has no match in a"));
+                differing.push(format!(
+                    "line permutation {perm:?}: an element of b has no match in a"
+                ));
             }
         }
     }
@@ -1218,7 +1328,12 @@ pub fn rows_at(
         let mut taken = vec![false; n];
         let mut neg = false;
         for i in (0..n).filter(|&i| sym(i)) {
-            if e.action[i] != (SlotImage::Exact { target: i, flip: false }) {
+            if e.action[i]
+                != (SlotImage::Exact {
+                    target: i,
+                    flip: false,
+                })
+            {
                 continue 'el;
             }
             base[i] = vals[i];
@@ -1247,7 +1362,11 @@ pub fn rows_at(
         let mut terms: BTreeMap<Vec<i64>, Q> = BTreeMap::new();
         terms.insert(vec![0; n], Q::ONE);
         for (i, times) in expand {
-            let SlotImage::Linear { terms: lin, constant } = &e.action[i] else {
+            let SlotImage::Linear {
+                terms: lin,
+                constant,
+            } = &e.action[i]
+            else {
                 unreachable!()
             };
             for _ in 0..times {
@@ -1309,11 +1428,27 @@ mod tests {
         assert_eq!(g.elements.len(), 5, "{:?}", g.to_json());
         assert!(st.automorphisms >= 5);
         // the swap k1 <-> k2: D1<->D2, D4<->D5 exact
-        assert!(g.elements.iter().any(|e| e.action[0] == SlotImage::Exact { target: 1, flip: false }
-            && e.action[2] == SlotImage::Exact { target: 2, flip: false }
-            && e.action[3] == SlotImage::Exact { target: 4, flip: false }));
+        assert!(g.elements.iter().any(|e| e.action[0]
+            == SlotImage::Exact {
+                target: 1,
+                flip: false
+            }
+            && e.action[2]
+                == SlotImage::Exact {
+                    target: 2,
+                    flip: false
+                }
+            && e.action[3]
+                == SlotImage::Exact {
+                    target: 4,
+                    flip: false
+                }));
         // some element maps an ISP to a combination: (k1+k2)^2 = D1 + D2 + D3 - D4 - D5 + q^2 shape
-        assert!(g.elements.iter().any(|e| e.action.iter().any(|s| matches!(s, SlotImage::Linear { .. }))));
+        assert!(g.elements.iter().any(|e| {
+            e.action
+                .iter()
+                .any(|s| matches!(s, SlotImage::Linear { .. }))
+        }));
         let v = verify_group(&f, g.clone(), Provenance::Derived).unwrap();
         assert_eq!(v.proofs.len(), 5);
         // round trip through JSON and through a matrix-free copy (reconstruction)
@@ -1323,7 +1458,14 @@ mod tests {
         for e in &mut nomat.elements {
             e.matrix = None;
         }
-        let v2 = verify_group(&f, nomat, Provenance::Supplied { source: "test".into() }).unwrap();
+        let v2 = verify_group(
+            &f,
+            nomat,
+            Provenance::Supplied {
+                source: "test".into(),
+            },
+        )
+        .unwrap();
         assert!(v2.proofs.iter().all(|p| p.reconstructed));
         assert_eq!(v2.digest, v.digest);
         assert!(matches!(cross_check(&g, &back), GroupCheck::Equal { .. }));
@@ -1341,15 +1483,36 @@ mod tests {
             elements: vec![SymElement {
                 matrix: None,
                 action: vec![
-                    SlotImage::Exact { target: 1, flip: false },
-                    SlotImage::Exact { target: 0, flip: false },
-                    SlotImage::Exact { target: 2, flip: false },
-                    SlotImage::Exact { target: 3, flip: false },
-                    SlotImage::Exact { target: 4, flip: false },
+                    SlotImage::Exact {
+                        target: 1,
+                        flip: false,
+                    },
+                    SlotImage::Exact {
+                        target: 0,
+                        flip: false,
+                    },
+                    SlotImage::Exact {
+                        target: 2,
+                        flip: false,
+                    },
+                    SlotImage::Exact {
+                        target: 3,
+                        flip: false,
+                    },
+                    SlotImage::Exact {
+                        target: 4,
+                        flip: false,
+                    },
                 ],
             }],
         };
-        let r = verify_group(&f, bad, Provenance::Supplied { source: "planted".into() });
+        let r = verify_group(
+            &f,
+            bad,
+            Provenance::Supplied {
+                source: "planted".into(),
+            },
+        );
         assert!(r.is_err(), "{r:?}");
         // a flip is refused
         let flip = SymGroup {
@@ -1359,11 +1522,26 @@ mod tests {
             elements: vec![SymElement {
                 matrix: None,
                 action: vec![
-                    SlotImage::Exact { target: 1, flip: true },
-                    SlotImage::Exact { target: 0, flip: false },
-                    SlotImage::Exact { target: 2, flip: false },
-                    SlotImage::Exact { target: 4, flip: false },
-                    SlotImage::Exact { target: 3, flip: false },
+                    SlotImage::Exact {
+                        target: 1,
+                        flip: true,
+                    },
+                    SlotImage::Exact {
+                        target: 0,
+                        flip: false,
+                    },
+                    SlotImage::Exact {
+                        target: 2,
+                        flip: false,
+                    },
+                    SlotImage::Exact {
+                        target: 4,
+                        flip: false,
+                    },
+                    SlotImage::Exact {
+                        target: 3,
+                        flip: false,
+                    },
                 ],
             }],
         };
@@ -1379,9 +1557,13 @@ mod tests {
         // numerator-free dotted key: every element exact, images distinct from the key except the stabiliser
         let r = rows_at(&v, &(0, vec![2, 1, 1, 0, 0]), SymRowMode::Engine, 1000).unwrap();
         assert!(!r.is_empty());
-        assert!(r.iter().all(|x| x.terms.len() == 2
-            && x.terms.iter().any(|t| t.0 == (0, vec![2, 1, 1, 0, 0]) && t.1 == Q::ONE)
-            && x.terms.iter().any(|t| t.1 == Q::ONE.neg())));
+        assert!(r.iter().all(|x| {
+            x.terms.len() == 2
+                && x.terms
+                    .iter()
+                    .any(|t| t.0 == (0, vec![2, 1, 1, 0, 0]) && t.1 == Q::ONE)
+                && x.terms.iter().any(|t| t.1 == Q::ONE.neg())
+        }));
         // with a numerator on D4: engine rows only from elements exact on D4; expanded rows from all
         let y = (0, vec![1, 1, 1, -1, 0]);
         let re = rows_at(&v, &y, SymRowMode::Engine, 1000).unwrap();
@@ -1389,7 +1571,11 @@ mod tests {
         assert!(rx.len() > re.len(), "{} vs {}", rx.len(), re.len());
         assert!(rx.iter().any(|x| x.terms.len() > 2));
         // subsector seed: no engine rows
-        assert!(rows_at(&v, &(0, vec![0, 1, 1, 0, 0]), SymRowMode::Engine, 1000).unwrap().is_empty());
+        assert!(
+            rows_at(&v, &(0, vec![0, 1, 1, 0, 0]), SymRowMode::Engine, 1000)
+                .unwrap()
+                .is_empty()
+        );
         // bound
         let deep = (0, vec![1, 1, 1, -12, 0]);
         assert!(rows_at(&v, &deep, SymRowMode::Expanded, 3).is_err());
@@ -1397,6 +1583,9 @@ mod tests {
         let gs = (0b1, vec![0, 1, 1, 0, 0]);
         let rg = rows_at(&v, &gs, SymRowMode::Engine, 1000).unwrap();
         assert!(rg.iter().all(|x| v.group.elements[x.element].action[0]
-            == SlotImage::Exact { target: 0, flip: false }));
+            == SlotImage::Exact {
+                target: 0,
+                flip: false
+            }));
     }
 }

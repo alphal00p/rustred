@@ -4,14 +4,13 @@
 //! `#[ignore]` (release): `-- --ignored`.
 
 mod rows_common;
-#[path = "rows_sym_t162.rs"]
-#[allow(dead_code)]
-mod sym_t162;
 
 use std::io::{BufRead, BufReader};
 
 use rows_common::*;
-use rustred_campaign_core::ibp_rows::{PointSpec, RowsOptions, RowsRule, SymUse, Verdict, identity_test};
+use rustred_campaign_core::ibp_rows::{
+    PointSpec, RowsOptions, RowsRule, SymUse, Verdict, identity_test,
+};
 
 fn run(file: &str, max_lines: usize) -> (usize, usize, usize, usize) {
     let path = format!("{HO}/t162-faces/{file}");
@@ -20,9 +19,16 @@ fn run(file: &str, max_lines: usize) -> (usize, usize, usize, usize) {
         return (0, 0, 0, 0);
     };
     let fam = t162_family();
-    let g = sym_t162::t162_group(&fam);
-    let with = RowsOptions { symmetry: Some(g.clone()), ..RowsOptions::default() };
-    let without = RowsOptions { symmetry: Some(g), sym_use: SymUse::Without, ..RowsOptions::default() };
+    let g = rows_common::sym_t162::t162_group(&fam);
+    let with = RowsOptions {
+        symmetry: Some(g.clone()),
+        ..RowsOptions::default()
+    };
+    let without = RowsOptions {
+        symmetry: Some(g),
+        sym_use: SymUse::Without,
+        ..RowsOptions::default()
+    };
     let (mut sym, mut pass, mut fail_without, mut plain_pass) = (0, 0, 0, 0);
     let t0 = std::time::Instant::now();
     for (ln, line) in BufReader::with_capacity(1 << 20, f).lines().enumerate() {
@@ -44,7 +50,12 @@ fn run(file: &str, max_lines: usize) -> (usize, usize, usize, usize) {
                 continue;
             }
             sym += 1;
-            assert_eq!(v.verdict, Verdict::Pass, "{file} line {ln} rule {:?}: a FINDING if this fails", r.index);
+            assert_eq!(
+                v.verdict,
+                Verdict::Pass,
+                "{file} line {ln} rule {:?}: a FINDING if this fails",
+                r.index
+            );
             pass += 1;
             let w = identity_test(&fam, &r, &pts, &without);
             if matches!(w.verdict, Verdict::Fail { .. }) {

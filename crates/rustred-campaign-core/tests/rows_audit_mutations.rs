@@ -42,7 +42,11 @@ fn form_text(form: &[Q], m: i128, n: usize) -> String {
             j if j == n + 1 => "d".into(),
             j => format!("n{}", j - 1),
         };
-        terms.push(if var.is_empty() { format!("{c}") } else { format!("{c}*{var}") });
+        terms.push(if var.is_empty() {
+            format!("{c}")
+        } else {
+            format!("{c}*{var}")
+        });
     }
     let s = terms.join("+").replace("+-", "-");
     if s.is_empty() { "0".into() } else { s }
@@ -56,7 +60,13 @@ fn built(text: &str, op: usize) -> (Family, Value) {
     let chart: String = compact
         .split("prop(")
         .skip(1)
-        .map(|p| if p.contains(",1)") && p.find(",1)") < p.find("prop").or(Some(usize::MAX)) { '1' } else { '0' })
+        .map(|p| {
+            if p.contains(",1)") && p.find(",1)") < p.find("prop").or(Some(usize::MAX)) {
+                '1'
+            } else {
+                '0'
+            }
+        })
         .collect();
     let row = fam.exact_row(op).unwrap();
     let (tshift, tform) = row
@@ -97,7 +107,11 @@ fn shift_key(k: &str, slot: usize, by: i64) -> String {
             }
             if let Some(rest) = x.strip_prefix('n') {
                 let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-                let off: i64 = rest[digits.len()..].trim_start_matches('+').parse().unwrap_or(0) + by;
+                let off: i64 = rest[digits.len()..]
+                    .trim_start_matches('+')
+                    .parse()
+                    .unwrap_or(0)
+                    + by;
                 match off {
                     0 => format!("n{digits}"),
                     o if o > 0 => format!("n{digits}+{o}"),
@@ -152,9 +166,15 @@ fn rows_mutation_baseline() {
     if let Some(o) = oracle() {
         for case in o.jsonl("span/F6_span_cases.jsonl") {
             let id = case["id"].as_str().unwrap().to_string();
-            let Some(line) = f6_line(&o, &case) else { continue };
+            let Some(line) = f6_line(&o, &case) else {
+                continue;
+            };
             let v: Value = serde_json::from_str(line.trim_end()).unwrap();
-            let r = if v.get("rules").is_some() { v["rules"][0].clone() } else { v };
+            let r = if v.get("rules").is_some() {
+                v["rules"][0].clone()
+            } else {
+                v
+            };
             if r.get("sym_rows").is_some_and(|x| !x.is_null()) {
                 continue;
             }
@@ -162,13 +182,24 @@ fn rows_mutation_baseline() {
                 .iter()
                 .flat_map(|k| case["clean"][0][*k].as_array().cloned().unwrap_or_default())
                 .filter(|p| p["verdict"] == "covered_regular")
-                .map(|p| p["point"].as_array().unwrap().iter().map(|x| x.as_i64().unwrap()).collect())
+                .map(|p| {
+                    p["point"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|x| x.as_i64().unwrap())
+                        .collect()
+                })
                 .take(1)
                 .collect();
             rules.push((id, t162_family(), r, keys));
         }
     }
-    for (name, ops) in [("T001c.sym", vec![0, 3]), ("LA3_handwritten.sym", vec![0, 5]), ("bubu.sym", vec![0])] {
+    for (name, ops) in [
+        ("T001c.sym", vec![0, 3]),
+        ("LA3_handwritten.sym", vec![0, 5]),
+        ("bubu.sym", vec![0]),
+    ] {
         for op in ops {
             let (fam, r) = built(&data(name), op);
             rules.push((format!("{name}#op{op}"), fam, r, Vec::new()));
@@ -185,10 +216,20 @@ fn rows_mutation_baseline() {
         }
         pts.extend(keys.iter().cloned().map(PointSpec::Key));
         if pts.is_empty() {
-            pts.push(PointSpec::Key(rule.fixed.iter().map(|f| f.unwrap()).collect()));
+            pts.push(PointSpec::Key(
+                rule.fixed.iter().map(|f| f.unwrap()).collect(),
+            ));
         }
         for seed in 1..=5u64 {
-            let v = identity_test(fam, &rule, &pts, &RowsOptions { seed, ..RowsOptions::default() });
+            let v = identity_test(
+                fam,
+                &rule,
+                &pts,
+                &RowsOptions {
+                    seed,
+                    ..RowsOptions::default()
+                },
+            );
             assert_eq!(v.verdict, Verdict::Pass, "{id} seed {seed}: true rule");
             true_pass += 1;
         }

@@ -77,10 +77,21 @@ pub fn family_text_check(text: &str, n: usize) -> Result<(), Unknown> {
     calls.push(&inner[start..]);
     for call in calls {
         let head = call.split('(').next().unwrap_or("");
-        if !["name", "loops", "externals", "dimension", "prop", "gram", "power_shift"].contains(&head)
+        if ![
+            "name",
+            "loops",
+            "externals",
+            "dimension",
+            "prop",
+            "gram",
+            "power_shift",
+        ]
+        .contains(&head)
             || !call.ends_with(')')
         {
-            return Err(format!("family element not modelled by the replay: {call:.60}"));
+            return Err(format!(
+                "family element not modelled by the replay: {call:.60}"
+            ));
         }
     }
     Ok(())
@@ -99,7 +110,10 @@ pub fn family_header_check(header: &serde_json::Value, f: &Family) -> Result<(),
     if let Some(name) = header.get("family").and_then(|x| x.as_str())
         && f.name.as_deref() != Some(name)
     {
-        return Err(format!("table family {name:?} differs from the family's name {:?}", f.name));
+        return Err(format!(
+            "table family {name:?} differs from the family's name {:?}",
+            f.name
+        ));
     }
     if let Some(x) = header.get("denominators")
         && x.as_u64() != Some(f.n as u64)
@@ -121,7 +135,9 @@ pub fn family_header_check(header: &serde_json::Value, f: &Family) -> Result<(),
         .and_then(|x| x.as_array())
         .is_some_and(|a| !a.is_empty())
     {
-        return Err("nonempty source conditions require an explicit independent implementation".into());
+        return Err(
+            "nonempty source conditions require an explicit independent implementation".into(),
+        );
     }
     Ok(())
 }
