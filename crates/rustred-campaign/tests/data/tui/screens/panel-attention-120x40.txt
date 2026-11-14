@@ -1,4 +1,4 @@
-rr_campaign  test-campaign  RUNNING  age 10m03s  hb 2s  seq 84  sessions 1  dir memory
+rr_campaign  test-campaign  RUNNING  hb 2s  age 10m03s  seq 84  sessions 1  dir memory
 -[ Attention (0) ]----------------------------------------------------------------------------------------- q: back ----
 (nothing needs a decision)
 

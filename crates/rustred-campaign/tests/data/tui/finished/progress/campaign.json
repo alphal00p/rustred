@@ -210,7 +210,7 @@
   "bound_per_node_default": 100
  },
  "certified": {
-  "share": 0.991,
+  "share": 0.863,
   "identity_proved": 987,
   "accepted": 1144,
   "basis": "accepted items at identity_proved / all accepted items"

@@ -13,7 +13,7 @@
  "node": "T074",
  "phase": "certified",
  "closure_kind": "full",
- "certified": true,
+ "certified": true, "certification": {"asked": "replay", "reached": "replay"},
  "target": {
   "target": "full"
  },

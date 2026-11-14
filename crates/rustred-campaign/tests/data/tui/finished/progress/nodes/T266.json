@@ -13,7 +13,7 @@
  "node": "T266",
  "phase": "closed",
  "closure_kind": "boxed",
- "certified": false,
+ "certified": false, "certification": {"asked": "per-key", "reached": null},
  "target": {
   "target": "boxed",
   "box_id": "T266.rstar"

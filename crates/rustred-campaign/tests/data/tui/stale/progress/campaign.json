@@ -268,9 +268,9 @@
   "basis": "accepted items at identity_proved / all accepted items"
  },
  "closure": {
-  "defect_keys": 449,
-  "nodes_checked": 3,
-  "nodes_with_defect": 2
+  "defect_keys": 0,
+  "nodes_checked": 1,
+  "nodes_with_defect": 0
  },
  "cost": {
   "cpu_seconds": 221040.0,
