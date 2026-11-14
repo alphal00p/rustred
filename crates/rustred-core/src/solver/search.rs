@@ -885,11 +885,12 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 {
                     continue;
                 }
-                let active_probe = probe.get_or_insert_with(|| {
+                if probe.is_none() {
                     let mut p = Probe::new(self.order.clone(), self.system.variable_count, options);
-                    p.place_on_region(&case, &self.system.indices, options.sample_seed);
-                    p
-                });
+                    p.place_on_region(&case, &self.system.indices, options.sample_seed)?;
+                    probe = Some(p);
+                }
+                let active_probe = probe.as_mut().expect("probe created above");
                 let modular_row = active_probe.evaluate(&row)?;
                 if let Some(pivot) = active_probe.discovery.add_row(&modular_row) {
                     original_rows.push(row);
@@ -1179,12 +1180,19 @@ impl<const N: usize> Probe<N> {
 
     /// Region-restricted run (t266-regions): move the discovery point onto the run's region intersected with
     /// `case` (fixed slots, affine equations); unchanged when no region is installed or no Zp point is found.
-    pub(super) fn place_on_region(&mut self, case: &Case<N>, indices: &[usize; N], seed: u64) {
+    /// Place the modular point on the run-wide region (no region: unchanged). `Err(SolverError::RegionPoint)` when
+    /// the region probe refuses the region (quotient ring above its cap): the caller refuses the case.
+    pub(super) fn place_on_region(
+        &mut self,
+        case: &Case<N>,
+        indices: &[usize; N],
+        seed: u64,
+    ) -> Result<(), SolverError> {
         let Some(mut system) = super::region_probe::region() else {
-            return;
+            return Ok(());
         };
         let Some(template) = system.first().cloned() else {
-            return;
+            return Ok(());
         };
         let vars = template.variables();
         for (axis, value) in case.fixed().iter().enumerate() {
@@ -1199,10 +1207,12 @@ impl<const N: usize> Probe<N> {
         }
         if let Some(point) =
             super::region_probe::region_point(&system, &self.point, &self.field, seed)
+                .map_err(|refusal| SolverError::RegionPoint(refusal.0))?
         {
             self.point = point;
             super::region_probe::record_point(self.field.get_prime(), &self.point, &self.field);
         }
+        Ok(())
     }
 
     pub(super) fn evaluate(

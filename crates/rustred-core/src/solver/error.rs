@@ -15,6 +15,9 @@ pub enum SolverError {
     ExactReplay(String),
     /// A solution failed an independent certificate check.
     Certification(String),
+    /// The region probe refused to place the discovery point on the run's region (region-restricted runs only;
+    /// `solver::region_probe::RegionRefusal`, e.g. a quotient ring above its cap).
+    RegionPoint(String),
 }
 
 impl fmt::Display for SolverError {
@@ -32,6 +35,7 @@ impl fmt::Display for SolverError {
             Self::UnluckySample => write!(f, "the modular sample lies on a coefficient pole"),
             Self::ExactReplay(message) => write!(f, "exact pivot replay failed: {message}"),
             Self::Certification(message) => write!(f, "certification failed: {message}"),
+            Self::RegionPoint(message) => write!(f, "region point not placed: {message}"),
         }
     }
 }
