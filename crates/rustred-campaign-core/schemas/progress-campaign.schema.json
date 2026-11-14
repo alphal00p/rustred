@@ -230,7 +230,8 @@
             "budget_stopped",
             "interrupted",
             "lost",
-            "cancelled"
+            "cancelled",
+            "unconfirmed"
           ],
           "propertyNames": {
             "$ref": "common.schema.json#/$defs/attempt_state_tag"

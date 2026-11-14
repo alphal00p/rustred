@@ -19,9 +19,9 @@
     }
   ],
   "snapshot": {
-    "blake3": "df9033479a8f44e74ec084c04b6569dab8577cefd2deaed95777963f4429742a",
+    "blake3": "9b0ae1cf37edd7c64d1970a0b0ee27fe8a46b8a80e15b527cbbf06a92187064b",
     "file": "snapshot-000000000103.json",
     "seq": 103,
-    "state_digest": "3620b7b7a410b0f6091a0cb1774ff85da7cf96101263ee31194f0fef0adfdf14"
+    "state_digest": "ea63ccf8369c63da09d15aa52985146d950cacd8a43941874cb18b94f45092c4"
   }
 }
