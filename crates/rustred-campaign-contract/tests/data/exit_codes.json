@@ -171,6 +171,10 @@
     {
       "exit": 42,
       "stop": "refused"
+    },
+    {
+      "exit": 10,
+      "stop": "keys_unsolved"
     }
   ],
   "volatile": [
@@ -235,6 +239,13 @@
         "vmhwm_kb"
       ],
       "type": "cert_partial"
+    },
+    {
+      "keys": [
+        "seconds",
+        "vmhwm_kb"
+      ],
+      "type": "relation"
     }
   ]
 }

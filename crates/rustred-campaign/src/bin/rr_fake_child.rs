@@ -140,6 +140,10 @@ fn program_json() -> Value {
 /// The fake child's OWN writers (audit A M6): a second, deliberately simple implementation of the record stream with
 /// running digests, the seal, the canonical record form and the no-clobber OUTCOME write. It must not call the
 /// contract crate's sealing / canonical functions: the crate's verifier is then tested against it.
+// lane adapters: kind solve-recipe emulated (src/bin/rr_fake_child/solve_recipe.rs)
+#[path = "rr_fake_child/solve_recipe.rs"]
+mod solve_recipe;
+
 mod own {
     use serde_json::Value;
     use std::fs::{File, OpenOptions};
@@ -155,7 +159,7 @@ mod own {
             Some("rule") => key == "seconds_search" || key == "lift_seconds",
             Some(
                 "chart_end" | "chart_partial" | "end" | "partial" | "chart_error" | "cert_end"
-                | "cert_partial",
+                | "cert_partial" | "relation",
             ) => key == "seconds" || key == "vmhwm_kb",
             Some("verdict") | None => key == "seconds" || key == "utc" || key.ends_with("_seconds"),
             Some(_) => false,
@@ -452,7 +456,7 @@ fn base_job(
     });
     let j = json!({
         "schema": rustred_campaign_contract::OUTCOME_SCHEMA,
-        "job_id": spec.job_id, "attempt": spec.attempt, "kind": "fake", "spec_blake3": digest,
+        "job_id": spec.job_id, "attempt": spec.attempt, "kind": spec.kind, "spec_blake3": digest,
         "status": status_of(code), "exit_code": code.code(),
         "stop": {"code": stop, "detail": detail, "source": source, "graceful": graceful},
         "program": program_json(), "effective": null,
@@ -1259,6 +1263,12 @@ impl Main {
                         message: message.clone(),
                     };
                 }
+                FakeOp::Relation { .. } | FakeOp::RecipeQuirk { .. } => {
+                    return Finish::Fail {
+                        code: ExitCode::Usage,
+                        message: "op only for kind solve-recipe".into(),
+                    };
+                }
             }
         }
         for f in script
@@ -1590,6 +1600,14 @@ fn run_job(spec_path: &Path) -> ! {
         .and_then(|s| s.fake.map(|f| f.on_sigterm))
         .unwrap_or_default();
     install_signals(on);
+    // lane adapters: an emulated kind runs its own mode (kind solve-recipe)
+    if std::fs::read(spec_path)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .is_some_and(|v| v["kind"] == "solve-recipe")
+    {
+        solve_recipe::run(spec_path)
+    }
     let me = ProgramSelf {
         name: PROGRAM,
         features: &FEATURES,
@@ -1810,7 +1828,7 @@ fn main() {
                 git_commit: git_commit(),
                 contract: vec![CONTRACT.into()],
                 features: FEATURES.iter().map(|s| s.to_string()).collect(),
-                job_kinds: vec![JobKind::Fake],
+                job_kinds: vec![JobKind::Fake, JobKind::SolveRecipe],
                 arities: vec![],
             };
             println!("{}", serde_json::to_string(&v).unwrap());

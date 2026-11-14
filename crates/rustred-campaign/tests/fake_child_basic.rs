@@ -486,7 +486,7 @@ fn refusals_and_version() {
         v.contract,
         vec![rustred_campaign_contract::CONTRACT.to_string()]
     );
-    assert_eq!(v.job_kinds, vec![JobKind::Fake]);
+    assert_eq!(v.job_kinds, vec![JobKind::Fake, JobKind::SolveRecipe]);
     assert!(!v.git_commit.is_empty());
     root.assert_no_process_left();
 }

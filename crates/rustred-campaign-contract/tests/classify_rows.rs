@@ -21,11 +21,13 @@ fn ev(wait: WaitStatus, o: Option<JobOutcome>, sealed: bool) -> Evidence {
                 .as_ref()
                 .map_or(0, |t| t.witness_loci_elided),
             streams: vec![],
+            relations: None,
         }),
         (None, true) => Some(VerifiedOutputs {
             rules: 0,
             elided_loci: 0,
             streams: vec![],
+            relations: None,
         }),
         _ => None,
     };

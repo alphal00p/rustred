@@ -15,6 +15,10 @@
 //! - W unknown (6.6): O valid => c := O.exit_code and the table applies; else row 21 (R valid: resume once) or
 //!   row 21 with "restart from scratch" (R invalid).
 
+// lane adapters: kind solve-recipe's records and per-key outcomes (crate root belongs to the integration lane)
+#[path = "recipe.rs"]
+pub mod recipe;
+
 use crate::exit::ExitCode;
 use crate::layout::RunLayout;
 use crate::outcome::{JobOutcome, Outcome};
@@ -75,6 +79,9 @@ pub struct VerifiedOutputs {
     pub elided_loci: u64,
     /// Every verified stream (table first), with (dev, inode), size and digests: the importer re-checks them.
     pub streams: Vec<VerifiedStream>,
+    /// Kind solve-recipe (lane adapters): the tally of the verified results file against the job's keys input
+    /// ([`recipe::key_outcomes`]); `None` for every other kind. For solve-recipe, S needs it.
+    pub relations: Option<recipe::RelationTally>,
 }
 
 /// Everything the table looks at.
@@ -132,6 +139,9 @@ pub enum Accept {
     Canonical,
     /// The committed rules of the sealed partial table.
     CommittedRules,
+    /// Kind solve-recipe (row 28, lane adapters): each SOLVED + proved record of the sealed results file, on its own
+    /// ([`recipe::KeyOutcome::Accepted`]); the other records are typed per-key outcomes.
+    SolvedRecords,
     Nothing,
 }
 
@@ -187,6 +197,9 @@ pub enum Action {
     RerunWithoutElision,
     /// Row 26 (`unverifiable_kind`): a "success" of a kind without a sealing rule; nothing accepted, attention.
     UnverifiableKind,
+    /// Rows 28 / 29 (kind solve-recipe, lane adapters): every unsolved key is a typed per-key outcome routed by its
+    /// failure class ([`recipe::FailureClass::route`]).
+    QueueFailures,
 }
 
 /// One row of the decision table (6.5): the single source of the classifier AND of the document's table
@@ -221,10 +234,10 @@ const fn rs(
 }
 
 /// The decision table. Evaluation order (first match wins): O normalisation (row 22 reasons), W unknown (21b, 21c,
-/// 22), then the c rows in this order: 26, the kind's exit-code set (22), S (22), 25, 1-8 with 24 and 27 after their
-/// siblings, 9-17 (11b / 11c before 11: the supervisor's kill reason K decides over an `interrupted` OUTCOME); then
+/// 22), then the c rows in this order: 26, the kind's exit-code set (22), S (22), 25, then for kind solve-recipe 1 /
+/// 28 / 29 / 22 and for every other kind 1-8 with 24 and 27 after their siblings, 9-17 (11b / 11c before 11: the supervisor's kill reason K decides over an `interrupted` OUTCOME); then
 /// the signal rows 18-21; then 22; then 23.
-pub const ROWS: [RowSpec; 32] = {
+pub const ROWS: [RowSpec; 34] = {
     use Accept::*;
     use Action::*;
     use OutcomeKind::*;
@@ -285,6 +298,22 @@ pub const ROWS: [RowSpec; 32] = {
             Crashed,
             Nothing,
             Attention,
+        ),
+        rs(
+            28,
+            "",
+            "c=10, O, S, kind solve-recipe, stop keys_unsolved, accepted relation records >= 1",
+            RuleFound,
+            SolvedRecords,
+            QueueFailures,
+        ),
+        rs(
+            29,
+            "",
+            "c=10, O, S, kind solve-recipe, stop keys_unsolved, no accepted relation record",
+            NoRule,
+            Nothing,
+            QueueFailures,
         ),
         rs(
             7,
@@ -423,7 +452,7 @@ pub const ROWS: [RowSpec; 32] = {
         rs(
             22,
             "",
-            "contract violation: OUTCOME unreadable, inconsistent (`check`), of another attempt or spec (job_id, attempt, kind, spec_blake3), exit_code != c, a path not the layout path, family_blake3 not the spec's, elided loci under \"forbidden\"; or c in {0, 10, 20} with O and an output not sealed / not verified; or c outside the kind's set (checker 10 / 20, producing kind 11 / 12); or W unknown with an invalid OUTCOME",
+            "contract violation: OUTCOME unreadable, inconsistent (`check`), of another attempt or spec (job_id, attempt, kind, spec_blake3), exit_code != c, a path not the layout path, family_blake3 not the spec's, elided loci under \"forbidden\"; or c in {0, 10, 20} with O and an output not sealed / not verified; or c outside the kind's set (checker 10 / 20, producing kind 11 / 12, solve-recipe 20 or an exit-10 stop other than keys_unsolved, keys_unsolved of another kind, proof-instantiate 10 / 20); or solve-recipe exit 0 with an unsolved record, keys_unsolved without one; or W unknown with an invalid OUTCOME",
             Crashed,
             Nothing,
             Attention,
@@ -626,6 +655,27 @@ fn decide(
                         format!("{} elided witness loci (elision allowed)", v.elided_loci),
                     );
                 }
+                // lane adapters: the exit-code sets of the kinds without a rule table
+                match e.kind {
+                    JobKind::SolveRecipe => return solve_recipe_row(c, stop, v),
+                    JobKind::ProofInstantiate if c != 0 => {
+                        return row(
+                            22,
+                            "",
+                            format!(
+                                "contract violation: exit {c} is not an exit code of kind proof-instantiate"
+                            ),
+                        );
+                    }
+                    _ if stop == Some(StopCode::KeysUnsolved) => {
+                        return row(
+                            22,
+                            "",
+                            format!("contract violation: stop keys_unsolved of kind {:?}", e.kind),
+                        );
+                    }
+                    _ => {}
+                }
                 let rules = v.rules;
                 match (c, stop) {
                     (0, _) => return row(1, "", "exit 0, OUTCOME, sealed"),
@@ -752,6 +802,93 @@ fn decide(
     }
 }
 
+/// Rows 1 / 28 / 29 / 22 of kind solve-recipe (lane adapters): S needs the tally of the results file.
+fn solve_recipe_row(c: i32, stop: Option<StopCode>, v: &VerifiedOutputs) -> Classification {
+    let Some(t) = &v.relations else {
+        return row(
+            22,
+            "",
+            "contract violation: solve-recipe results not tallied against the keys input",
+        );
+    };
+    let unsolved = t.unsolved_total();
+    match (c, stop) {
+        (0, _) if unsolved == 0 => row(1, "", "exit 0, OUTCOME, sealed, every key solved"),
+        (0, _) => row(
+            22,
+            "",
+            format!("contract violation: exit 0 with {unsolved} unsolved records"),
+        ),
+        (10, Some(StopCode::KeysUnsolved)) if unsolved == 0 => row(
+            22,
+            "",
+            "contract violation: keys_unsolved without an unsolved record",
+        ),
+        (10, Some(StopCode::KeysUnsolved)) if t.accepted >= 1 => row(
+            28,
+            "",
+            format!(
+                "keys_unsolved: {} accepted relations, {unsolved} unsolved keys",
+                t.accepted
+            ),
+        ),
+        (10, Some(StopCode::KeysUnsolved)) => row(
+            29,
+            "",
+            format!("keys_unsolved: no accepted relation, {unsolved} unsolved keys"),
+        ),
+        _ => row(
+            22,
+            "",
+            format!("contract violation: exit {c} with stop {stop:?} for kind solve-recipe"),
+        ),
+    }
+}
+
+/// S of kind solve-recipe (lane adapters): the verified results stream (read through its [`crate::seal::VerifiedHandle`],
+/// never a re-opened path), its records against the spec's `keys` input (raw digest = the spec's), and against OUTCOME
+/// (`counters.rules_committed` = accepted records; a per-key wall-budget record needs `time_decided`).
+pub fn solve_recipe_tally(
+    layout: &RunLayout,
+    spec: &JobSpec,
+    o: &JobOutcome,
+    v: &VerifiedOutputs,
+) -> Result<(Vec<recipe::KeyOutcome>, recipe::RelationTally), String> {
+    let rel = RunLayout::out_rel(crate::layout::RESULTS);
+    let s = v
+        .streams
+        .iter()
+        .find(|s| s.rel == rel)
+        .ok_or("no verified results stream")?;
+    let lines = crate::seal::VerifiedHandle::reopen(&layout.root, s)
+        .and_then(|h| h.canonical_lines())
+        .map_err(|e| format!("results: {e}"))?;
+    let k = spec
+        .inputs
+        .iter()
+        .find(|i| i.role == "keys")
+        .ok_or("no keys input")?;
+    let kb = std::fs::read(spec.input_path(k)).map_err(|e| format!("keys input: {e}"))?;
+    if crate::blake3_hex(&kb) != k.blake3 {
+        return Err("keys input digest differs from the spec's".into());
+    }
+    let keys = recipe::parse_keys_input(&kb)?;
+    let (out, t) = recipe::key_outcomes(&lines, &keys)?;
+    if t.time_decided_keys() > 0 && !o.time_decided {
+        return Err(format!(
+            "{} per-key wall-budget records but OUTCOME time_decided is false",
+            t.time_decided_keys()
+        ));
+    }
+    if o.counters.rules_committed != t.accepted {
+        return Err(format!(
+            "OUTCOME counters.rules_committed {} but {} accepted relation records",
+            o.counters.rules_committed, t.accepted
+        ));
+    }
+    Ok((out, t))
+}
+
 fn read_layout_file(layout: &RunLayout, rel: &str) -> Result<Option<Vec<u8>>, String> {
     use std::io::Read;
     if std::fs::symlink_metadata(layout.root.join(rel)).is_err() {
@@ -860,6 +997,7 @@ pub fn verify_outputs(
         rules: 0,
         elided_loci: 0,
         streams: Vec::new(),
+        relations: None,
     };
     for r in rules {
         let rel = RunLayout::out_rel(r.file);
@@ -944,7 +1082,14 @@ pub fn assess(
     let mut unsealed_why = None;
     if let OutcomeState::Valid(o) = &outcome {
         match verify_outputs(layout, spec.kind, o) {
-            Ok(v) => {
+            Ok(mut v) => {
+                // kind solve-recipe (lane adapters): S needs the results' tally against the keys input
+                if spec.kind == JobKind::SolveRecipe {
+                    match solve_recipe_tally(layout, spec, o, &v) {
+                        Ok((_, t)) => v.relations = Some(t),
+                        Err(why) => unsealed_why = Some(format!("solve-recipe results: {why}")),
+                    }
+                }
                 // every verified stream's header (at most one per stream, on line 1: the verifier refuses any other,
                 // ac2-m6) is bound to the spec's family input
                 let want = spec.inputs.iter().find(|i| i.role == "family");
@@ -956,7 +1101,9 @@ pub fn assess(
                         );
                     }
                 }
-                verified = Some(v);
+                if unsealed_why.is_none() {
+                    verified = Some(v);
+                }
             }
             Err(UnsealReason::PathNotLayout(p)) => {
                 outcome = OutcomeState::Invalid(format!(
