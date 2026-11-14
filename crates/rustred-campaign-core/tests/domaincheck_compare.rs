@@ -476,7 +476,7 @@ fn t_domain_t162() {
     let ident: Vec<usize> = (0..bank.len()).collect();
     let a2 = compare(&out, &bt, &ident, Some(&written));
     report("T162 (a2) bank predicates", &a2);
-    // measured 2026-11-14 (engine rr_node sha256 dafdce8a...): identical decisions on every key, both ways
+    // measured 2026-11-14 (engine rr_node sha256 dafdce8a... and eedb3092..., byte-identical outputs): identical decisions on every key, both ways
     for t in [&a1, &a2] {
         assert!(t.findings.is_empty(), "findings: see the report");
         assert_eq!((t.keys, t.agree_rule, t.agree_none), (55_704, 54_714, 990));
