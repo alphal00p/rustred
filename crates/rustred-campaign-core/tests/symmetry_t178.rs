@@ -163,8 +163,14 @@ fn t178_safe_symmetry_list() {
         (340_809, 295, 677, s.open_followed)
     );
     assert_eq!(s.cycles, Some(14));
-    assert!(s.credit_requires_zero > 0, "the cycles need counted non-lower edges");
-    assert_eq!(s.verdict_if_not_diagnostic, Some(rustred_campaign_core::closure::Verdict::Open));
+    assert!(
+        s.credit_requires_zero > 0,
+        "the cycles need counted non-lower edges"
+    );
+    assert_eq!(
+        s.verdict_if_not_diagnostic,
+        Some(rustred_campaign_core::closure::Verdict::Open)
+    );
     // every credit names element, image and rule, and the image's dispatch winner is that rule
     let credited: HashSet<Vec<i32>> = cl.credits().iter().map(|c| c.key.clone()).collect();
     for c in cl.credits().iter().filter(|c| c.in_start) {

@@ -266,8 +266,13 @@ fn recipe_candidates_terminals_exclusions_credits() {
     assert_eq!((c.summary().credited, c.summary().keys_total), (0, 1));
     // a recorded key NOT below the original key refuses the element in both tiers (recorded terms are non-zero)
     let mut hb = RelationStoreBuilder::new(KeyCodec::new(4, 6).unwrap());
-    hb.push(&[3, 1, 0, 0], &[vec![1, 4, 0, 0]], [7; 32], VERDICT_CERTIFIED)
-        .unwrap();
+    hb.push(
+        &[3, 1, 0, 0],
+        &[vec![1, 4, 0, 0]],
+        [7; 32],
+        VERDICT_CERTIFIED,
+    )
+    .unwrap();
     let rhigh = Arc::new(RelationSet {
         relations: hb.finish().unwrap(),
         ..(*r).clone()
@@ -287,7 +292,11 @@ fn recipe_candidates_terminals_exclusions_credits() {
         )
         .unwrap();
         assert_eq!(
-            (c.summary().credited, c.summary().keys_total, c.summary().open_followed),
+            (
+                c.summary().credited,
+                c.summary().keys_total,
+                c.summary().open_followed
+            ),
             (0, 1, 0),
             "{tier:?}"
         );

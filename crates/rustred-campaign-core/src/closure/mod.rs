@@ -335,7 +335,10 @@ pub enum ClosureError {
     /// More reached keys than the u32 key index allows (checked before every insertion), or a request store limit.
     Capacity(String),
     /// Arity above the closure's slot-mask width [`MAX_ARITY`] (re-audit F4: refused, never a silent wrap).
-    Arity { arity: usize, max: usize },
+    Arity {
+        arity: usize,
+        max: usize,
+    },
     /// A spill file could not be written or read.
     Io(String),
 }
@@ -2170,10 +2173,7 @@ fn run(
         None => None,
     };
     let budget = cfg.spill.as_ref().map(|s| s.budget_bytes as usize);
-    let mut exits = ExitAcc::new(
-        codec,
-        spill_dir.clone().zip(budget),
-    );
+    let mut exits = ExitAcc::new(codec, spill_dir.clone().zip(budget));
     match resume {
         None => {
             table = KeyTable::new(codec, start.len().max(1) * 2);
@@ -2433,14 +2433,7 @@ fn run(
                             res[i] = OPEN;
                             open.insert(i as u32, o);
                             witness_absent_keys.insert(i as u32);
-                            acc.request(
-                                i as u32,
-                                p,
-                                None,
-                                RequestReason::WitnessLift,
-                                false,
-                                None,
-                            );
+                            acc.request(i as u32, p, None, RequestReason::WitnessLift, false, None);
                         }
                         KeyRes::Recipe(si, ri) => {
                             res[i] = RECIPE;
@@ -2920,7 +2913,9 @@ fn chain_pass(ctx: &Ctx, cl: &mut Closure) -> Result<(), ClosureError> {
             for &u in &succ {
                 let h = a[u as usize] + 1;
                 if h > best
-                    || (h == best && bn != u32::MAX && table.code(u as usize) < table.code(bn as usize))
+                    || (h == best
+                        && bn != u32::MAX
+                        && table.code(u as usize) < table.code(bn as usize))
                 {
                     best = h;
                     bn = u;
@@ -3360,7 +3355,9 @@ impl Closure {
                 let t = r.term.unwrap_or(u32::MAX);
                 let i = img
                     .iter()
-                    .position(|x| x.0 == fid[r.pos as usize] && x.1 == applied && x.2 == t && x.3 == r.reason)
+                    .position(|x| {
+                        x.0 == fid[r.pos as usize] && x.1 == applied && x.2 == t && x.3 == r.reason
+                    })
                     .expect("image request collected");
                 if hit[i] || !written.insert((img[i].0, applied, t, r.reason)) {
                     return;

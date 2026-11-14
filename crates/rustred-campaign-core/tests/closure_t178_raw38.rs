@@ -1,8 +1,9 @@
 //! T178 order B closure over the 38 RAW piece tables with the core's witness check ON (corefix2, coordinator
 //! addendum 3): the box gives 285,618 covered / 409 uncovered / 39 Blocked(Elided) (tests/data/t178b_raw38_blocked39.
 //! json); the closure from that box treats those 39 as open keys naming their blocking records. NEW reference numbers
-//! (recorded here). The same from the case exports with the checked attestation of each raw table (the elided records
-//! are not attested and block as WitnessNotCarried); with the witness check OFF the legacy 330,287 keys / 753 open.
+//! (recorded here). The same open keys from the case exports with the checked attestation of each raw table (the elided
+//! records are not attested and block as WitnessNotCarried, whose bodies Tier K follows since lane closurefix); with the
+//! witness check OFF the legacy 330,287 keys / 753 open.
 //! `#[ignore]`: needs RUSTRED_CAMPAIGN_FIXTURES and the raw tables (RUSTRED_T178B_RAW, cover_raw_tables.rs);
 //! `light_build.sh <lane> test -p rustred-campaign-core --release --test closure_t178_raw38 -- --ignored --nocapture`.
 
@@ -218,15 +219,27 @@ fn t178b_raw38_closure_witness_on() {
     );
     assert_eq!(s1.open_by_status.get("blocked"), Some(&46));
     assert_eq!(s1.open_by_status.get("uncovered"), Some(&753));
-    // (2) exports + checked attestation: the same closure
+    // (2) exports + checked attestation: the same open keys and blocking records. Since lane closurefix (re-audit F1b)
+    // the 46 keys block there as WitnessNotCarried (the elided records are not attested), so Tier K FOLLOWS their
+    // bodies (a Tier C run may lift them) and reaches the legacy key set (330,287 keys, 4,387,847 edges, 1,439 used);
+    // in the raw tables they block as Elided (never lifted, never followed).
     let (s2, b2) = run(
         &Dispatcher::new(attested, prio.clone()).unwrap(),
         "exports attested (checked)",
     );
     assert_eq!(
-        (s2.keys_total, s2.edges, s2.open_total, s2.open_in_start),
-        (s1.keys_total, s1.edges, s1.open_total, s1.open_in_start)
+        (
+            s2.open_total,
+            s2.open_in_start,
+            s2.open_by_status.get("blocked")
+        ),
+        (s1.open_total, s1.open_in_start, Some(&46))
     );
+    assert_eq!(
+        (s2.keys_total, s2.edges, s2.used_rules, s2.open_followed),
+        (330_287, 4_387_847, 1_439, 46)
+    );
+    assert_eq!((s1.open_followed, s1.requires_regularity_fact), (0, 0));
     assert_eq!(b2, b1);
     // (3) witness check off: the legacy numbers
     let (s3, _) = run(

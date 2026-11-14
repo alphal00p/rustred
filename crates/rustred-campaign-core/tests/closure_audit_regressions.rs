@@ -289,7 +289,10 @@ fn c3_relaxed_regularity_is_diagnostic() {
     assert_eq!(r.summary.verdict, Verdict::Diagnostic);
     assert_eq!(r.summary.verdict_if_not_diagnostic, Some(Verdict::Closed));
     assert!(r.summary.diagnostic);
-    assert_eq!(r.config["diagnostic"], "allow_unknown_regularity,credits_group_unverified");
+    assert_eq!(
+        r.config["diagnostic"],
+        "allow_unknown_regularity,credits_group_unverified"
+    );
     // the same run without the relaxation: undecided (pending credit)
     let s = closure(
         &d2,

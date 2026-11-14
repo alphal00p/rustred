@@ -99,9 +99,8 @@ fn t162_bank_box_b_closure() {
         hand_downs: HandDowns::Counts,
         ..Default::default()
     };
-    let a = closure(&disp, &bodies, &cmp, &bx, &cfg, &NoFacts)
-        .unwrap()
-        .summary();
+    let a_cl = closure(&disp, &bodies, &cmp, &bx, &cfg, &NoFacts).unwrap();
+    let a = a_cl.summary();
     println!(
         "T162 bank (a) Tier K, witness_absent block: keys {} open {} = {} + {} by status {:?} requires regularity fact {} used {}",
         a.keys_total,
@@ -113,15 +112,19 @@ fn t162_bank_box_b_closure() {
         a.used_rules
     );
     assert_eq!(a.verdict, Verdict::Open);
-    // NEW reference (2026-11-14): 54,712 box keys blocked by witness-absent records, 990 uncovered, 2 served
+    // reference since lane closurefix (re-audit F1b, 2026-11-14): the witness-absent keys stay open (blocked, requiring
+    // the per-key regularity fact) but Tier K FOLLOWS their records' bodies (superset of every Tier C run): it reaches
+    // the 59,248 keys of the lift-granted run (b) below; 57,928 blocked + 1,318 uncovered open; 936 used rules (= (b)).
+    // (Before: 55,704 keys, 54,712 blocked box keys, 1 used rule: the walk stopped at the blocked keys.)
     assert_eq!(
         (
             a.keys_total,
             a.requires_regularity_fact,
             a.open_in_start,
-            a.used_rules
+            a.used_rules,
+            a.open_followed
         ),
-        (55_704, 54_712, 55_702, 1)
+        (59_248, 57_928, 55_702, 936, 57_928)
     );
     // (b) lift granted (test-only facts)
     let cfg_c = ClosureConfig {
@@ -159,6 +162,8 @@ fn t162_bank_box_b_closure() {
     assert_eq!(s.descent_violations, 0);
     assert_eq!(s.cycles, Some(0));
     assert_eq!(s.open_in_start, 990, "box B: 990 keys without a bank rule");
+    // Tier K (a) is a superset of this Tier C run (re-audit F1)
+    assert!(c.keys().difference(&a_cl.keys()).is_empty());
     // NEW reference (2026-11-14, bank only, Tier K reach): 20 rounds, 59,248 keys = 55,704 + 3,544, 954,974 edges,
     // open 1,318 = 990 + 328, 936 used rules (906 on the box = the coordinator's 906)
     assert_eq!(

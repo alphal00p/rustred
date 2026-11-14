@@ -430,7 +430,12 @@ impl ExitAcc {
             return Ok((sets, BTreeMap::new()));
         }
         self.write_runs()?;
-        let dir = self.spill.as_ref().expect("runs need a spill dir").0.clone();
+        let dir = self
+            .spill
+            .as_ref()
+            .expect("runs need a spill dir")
+            .0
+            .clone();
         let mut files = BTreeMap::new();
         for (m, runs) in std::mem::take(&mut self.runs) {
             let body = dir.join(format!("exits-{m:016x}.body"));
@@ -510,7 +515,11 @@ impl RunReader {
         for (i, x) in c.iter_mut().take(self.w).enumerate() {
             match self.rd.read_exact(&mut b8) {
                 Ok(()) => *x = u64::from_le_bytes(b8),
-                Err(e) if e.kind() == io::ErrorKind::UnexpectedEof && i == 0 && self.left.is_none() => {
+                Err(e)
+                    if e.kind() == io::ErrorKind::UnexpectedEof
+                        && i == 0
+                        && self.left.is_none() =>
+                {
                     return Ok(None);
                 }
                 Err(e) => return Err(e),

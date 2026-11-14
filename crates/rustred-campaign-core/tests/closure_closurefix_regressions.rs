@@ -7,6 +7,7 @@
 //!   the in-memory run; the streaming request writer writes each distinct request once;
 //! - recheck under a round limit truncates exactly as the closure of the union (F6b);
 //! - comparator frame check (audit loop-A m7) and the arity refusal (F4).
+//!
 //! Fixture names and numbers are TEST DATA only (L8).
 
 mod accept_common;
@@ -15,9 +16,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use accept_common::{available, load_node, load_table, slice};
 use rustred_campaign_core::closure::{
-    ClosureConfig, ClosureError, ClosureSummary, CoefFact, FactSource, HandDowns, KeyCodec,
-    KeySet, NoFacts, OpenStatus, RegFact, RuleBodies, RuleId, SpillConfig, Tier, Verdict,
-    closure, closure_recheck,
+    ClosureConfig, ClosureError, ClosureSummary, CoefFact, FactSource, HandDowns, KeyCodec, KeySet,
+    NoFacts, OpenStatus, RegFact, RuleBodies, RuleId, SpillConfig, Tier, Verdict, closure,
+    closure_recheck,
 };
 use rustred_campaign_core::cover::{Dispatch, Dispatcher, Table};
 use rustred_campaign_core::domain::CaseDomain;
@@ -60,7 +61,10 @@ fn credit_policy_only_from_a_verified_group() {
             let mut want = key.clone();
             for s in (0..n).filter(|&s| lines[s]) {
                 let t = match &e.action[s] {
-                    SlotImage::Exact { target, flip: false } => *target,
+                    SlotImage::Exact {
+                        target,
+                        flip: false,
+                    } => *target,
                     SlotImage::Linear { terms, .. } => terms[0].0,
                     a => panic!("{name}: line slot {s} image {a:?}"),
                 };
@@ -196,12 +200,18 @@ fn m7_tier_k_reports_the_core_blocked_keys_on_a_witness_absent_table() {
         s.verdict_if_not_diagnostic,
         s.keys_total
     );
-    assert!(!core_blocked.is_empty(), "the fixture's records carry no loci");
+    assert!(
+        !core_blocked.is_empty(),
+        "the fixture's records carry no loci"
+    );
     assert_eq!(closure_blocked, core_blocked);
     assert_ne!(s.verdict, Verdict::SupersetClean);
     assert!(s.open_total >= core_blocked.len() as u64);
     assert!(s.requires_regularity_fact >= core_blocked.len() as u64);
-    assert!(s.open_followed >= 1, "Tier K follows witness-absent bodies (F1b)");
+    assert!(
+        s.open_followed >= 1,
+        "Tier K follows witness-absent bodies (F1b)"
+    );
 }
 
 // ------------------------------------------------------------------------------------------------ spill (F5, F9)
@@ -322,8 +332,10 @@ fn spilled_run_equals_the_in_memory_run_and_streams_each_request_once() {
     assert_eq!(r, q);
     // the spilled files are complete key-set files with the digests of the in-memory sets
     for (m, f) in sp.exit_files() {
-        let ks =
-            KeySet::read(std::io::BufReader::new(std::fs::File::open(&f.path).unwrap())).unwrap();
+        let ks = KeySet::read(std::io::BufReader::new(
+            std::fs::File::open(&f.path).unwrap(),
+        ))
+        .unwrap();
         assert_eq!(ks, mem.hand_down_sets()[m]);
     }
     // requests: identical, and the distinct count needs no materialisation
@@ -368,7 +380,15 @@ fn spilled_run_equals_the_in_memory_run_and_streams_each_request_once() {
         &UnknownFacts,
     )
     .unwrap();
-    let un = closure(&d, &b, &cmp, &start.union(&extra), &spill_cfg(None), &UnknownFacts).unwrap();
+    let un = closure(
+        &d,
+        &b,
+        &cmp,
+        &start.union(&extra),
+        &spill_cfg(None),
+        &UnknownFacts,
+    )
+    .unwrap();
     assert_eq!(re.keys(), un.keys());
     assert_eq!(re.exit_counts(), un.exit_counts());
     assert_eq!(re.fact_requests(), un.fact_requests());
@@ -382,7 +402,8 @@ fn spilled_run_equals_the_in_memory_run_and_streams_each_request_once() {
 #[test]
 fn recheck_under_a_round_limit_truncates_as_the_union() {
     let mut t = Table::new("A", 4);
-    t.push(0, CaseDomain::free(4, Some(CHART.to_vec()))).unwrap();
+    t.push(0, CaseDomain::free(4, Some(CHART.to_vec())))
+        .unwrap();
     let d = Dispatcher::new(vec![t], vec![0]).unwrap();
     let mut b = RuleBodies::new(&d);
     b.set(&d, 0, 0, &["I(n0-1,n1,n2,n3)"]).unwrap();
@@ -399,9 +420,20 @@ fn recheck_under_a_round_limit_truncates_as_the_union() {
     assert!(!prev.summary().truncated);
     let extra = ks(&[[6, 1, 0, 0]]);
     let re = closure_recheck(&prev, &d, &b, &cmp, &extra, &cfg, &NoFacts).unwrap();
-    let un = closure(&d, &b, &cmp, &ks(&[[2, 1, 0, 0], [6, 1, 0, 0]]), &cfg, &NoFacts).unwrap();
+    let un = closure(
+        &d,
+        &b,
+        &cmp,
+        &ks(&[[2, 1, 0, 0], [6, 1, 0, 0]]),
+        &cfg,
+        &NoFacts,
+    )
+    .unwrap();
     let open = |c: &rustred_campaign_core::closure::Closure| -> BTreeMap<Vec<i32>, OpenStatus> {
-        c.open_keys().into_iter().map(|o| (o.key, o.status)).collect()
+        c.open_keys()
+            .into_iter()
+            .map(|o| (o.key, o.status))
+            .collect()
     };
     println!(
         "recheck open {:?} truncated {}; union open {:?} truncated {}",
@@ -421,7 +453,8 @@ fn recheck_under_a_round_limit_truncates_as_the_union() {
 #[test]
 fn frame_check_and_arity_refusal() {
     let mut t = Table::new("A", 4);
-    t.push(0, CaseDomain::free(4, Some(CHART.to_vec()))).unwrap();
+    t.push(0, CaseDomain::free(4, Some(CHART.to_vec())))
+        .unwrap();
     let d = Dispatcher::new(vec![t], vec![0]).unwrap();
     let mut b = RuleBodies::new(&d);
     b.set(&d, 0, 0, &["I(n0-1,n1,n2,n3)"]).unwrap();

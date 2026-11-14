@@ -234,7 +234,9 @@ fn compare(sp: &NodeSpec, c: &Closure, r: &RefOut, credits: bool) -> Vec<String>
         d.push(format!("cycles: crate {:?} ref {}", s.cycles, r.has_cycle));
     }
     // lane closurefix (re-audit F3): a cycle is never a failure by itself (it needs a counted non-lower edge)
-    if r.has_cycle && s.descent_violations + s.undecided.coef_unknown_not_lower + s.credit_requires_zero == 0 {
+    if r.has_cycle
+        && s.descent_violations + s.undecided.coef_unknown_not_lower + s.credit_requires_zero == 0
+    {
         d.push(format!(
             "cycle_without_counted_non_lower_edge: verdict {:?}",
             s.verdict

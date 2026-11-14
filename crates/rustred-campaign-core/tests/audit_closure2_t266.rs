@@ -480,10 +480,7 @@ fn closurefix_t266_tier_c_fact_requests() {
     let rss0 = peak_rss();
     let cl = closure(&disp, &bodies, &cmp, &bx, &cfg, &UnknownFacts).unwrap();
     let s = cl.summary();
-    let file = cl
-        .spill_dir()
-        .map(|d| d.join("fact-requests.bin"))
-        .unwrap();
+    let file = cl.spill_dir().map(|d| d.join("fact-requests.bin")).unwrap();
     let fbytes = std::fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
     let coef = s.undecided.coef_unknown_positive_numerator + s.undecided.coef_unknown_not_lower;
     let reg = s.undecided.regularity_unknown;
@@ -502,9 +499,16 @@ fn closurefix_t266_tier_c_fact_requests() {
         cl.seconds,
         t0.elapsed().as_secs_f64()
     );
-    assert_eq!(s.keys_total, 13_951_428, "Tier C reach equals Tier K's with no fact known");
+    assert_eq!(
+        s.keys_total, 13_951_428,
+        "Tier C reach equals Tier K's with no fact known"
+    );
     assert!(s.fact_requests_spilled);
-    assert_eq!(s.fact_requests, coef + reg, "no image requests without credits: all distinct");
+    assert_eq!(
+        s.fact_requests,
+        coef + reg,
+        "no image requests without credits: all distinct"
+    );
     // the spilled part on disk; the tail below the budget stays in memory (12 B + 16 B per coefficient request)
     assert!(fbytes > 0 && fbytes <= 12 * s.fact_requests + 16 * coef);
     println!(
@@ -512,7 +516,10 @@ fn closurefix_t266_tier_c_fact_requests() {
         (12 * s.fact_requests + 16 * coef) as f64 / s.fact_requests.max(1) as f64,
         s.fact_requests
     );
-    assert_eq!(s.verdict_if_not_diagnostic, Some(rustred_campaign_core::closure::Verdict::Open));
+    assert_eq!(
+        s.verdict_if_not_diagnostic,
+        Some(rustred_campaign_core::closure::Verdict::Open)
+    );
     if std::env::var("T266_STREAM").is_ok() {
         let t1 = Instant::now();
         let mut c = Count(0, 0);

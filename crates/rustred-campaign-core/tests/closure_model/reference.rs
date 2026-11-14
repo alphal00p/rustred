@@ -409,113 +409,90 @@ pub fn run(sp: &NodeSpec, cmp: &NodeComparator, cfg: &RefCfg) -> RefOut {
             let mut dist: BTreeSet<Vec<i32>> = BTreeSet::new();
             let mut used_here: BTreeSet<(String, usize)> = BTreeSet::new();
             for (t, r, pt, fkey) in servers {
-            let rule = &sp.tables[t].rules[r];
-            let tname = sp.tables[t].name.clone();
-            let credited = fkey != *k;
-            if cfg.tier_c && cfg.require_regularity {
-                match cfg.facts.unwrap().reg(&tname, r, rule.label, &fkey) {
-                    Rf::Pole if !credited => {
-                        o.open
-                            .insert(k.clone(), ("irregular".into(), Some((tname, r))));
-                        continue;
-                    }
-                    Rf::Pole => unreachable!("a credit through a pole is refused"),
-                    Rf::Unknown => {
-                        o.und_reg += 1;
-                        o.needed.insert((
-                            tname.clone(),
-                            r,
-                            rule.label,
-                            fkey.clone(),
-                            "regularity".into(),
-                            None,
-                        ));
-                    }
-                    Rf::Regular => {}
-                }
-            }
-            if used_here.insert((tname.clone(), r)) {
-                let e = o.used.entry((tname.clone(), r)).or_default();
-                e.0 += 1;
-                if ins {
-                    e.1 += 1;
-                }
-            }
-            let terms = instantiate(rule.body.as_ref().unwrap(), &pt);
-            for (j, tm) in terms.iter().enumerate() {
-                let cls = classify(sp, tm);
-                let f = if cfg.tier_c {
-                    cfg.facts.unwrap().coef(&tname, r, rule.label, &fkey, j)
-                } else {
-                    Cf::Unknown
-                };
-                if f == Cf::Zero {
-                    o.dropped_zero += 1;
-                    continue;
-                }
-                if !matches!(cls, Cls::Pn { .. }) && tm.iter().any(|&x| !(-32..=31).contains(&x)) {
-                    o.unrep += 1;
-                    if cls == Cls::Top {
-                        o.top_terms += 1;
-                        if !cmp.lower(tm, k) {
-                            if credited && !cfg.tier_c {
-                                o.credit_rz += 1;
-                            } else if !cfg.tier_c || f == Cf::NonZero {
-                                o.nondesc
-                                    .insert((k.clone(), tname.clone(), r, j, tm.clone()));
-                            } else {
-                                o.und_nl += 1;
-                                o.needed.insert((
-                                    tname.clone(),
-                                    r,
-                                    rule.label,
-                                    fkey.clone(),
-                                    "coefficient".into(),
-                                    Some(j),
-                                ));
-                            }
+                let rule = &sp.tables[t].rules[r];
+                let tname = sp.tables[t].name.clone();
+                let credited = fkey != *k;
+                if cfg.tier_c && cfg.require_regularity {
+                    match cfg.facts.unwrap().reg(&tname, r, rule.label, &fkey) {
+                        Rf::Pole if !credited => {
+                            o.open
+                                .insert(k.clone(), ("irregular".into(), Some((tname, r))));
+                            continue;
                         }
-                    }
-                    continue;
-                }
-                match cls {
-                    Cls::Pn { top } => {
-                        if top {
-                            o.pn_top += 1
-                        } else {
-                            o.pn_sub += 1
-                        }
-                        if !cfg.tier_c {
-                            o.requires_zero += 1;
-                        } else if f == Cf::NonZero {
-                            o.pos_nonzero += 1;
-                        } else {
-                            o.und_pn += 1;
+                        Rf::Pole => unreachable!("a credit through a pole is refused"),
+                        Rf::Unknown => {
+                            o.und_reg += 1;
                             o.needed.insert((
                                 tname.clone(),
                                 r,
                                 rule.label,
                                 fkey.clone(),
-                                "coefficient".into(),
-                                Some(j),
+                                "regularity".into(),
+                                None,
                             ));
                         }
+                        Rf::Regular => {}
                     }
-                    Cls::Sub(m) => {
-                        o.sub_terms += 1;
-                        o.hand.entry(m).or_default().insert(tm.clone());
+                }
+                if used_here.insert((tname.clone(), r)) {
+                    let e = o.used.entry((tname.clone(), r)).or_default();
+                    e.0 += 1;
+                    if ins {
+                        e.1 += 1;
                     }
-                    Cls::Top => {
-                        o.top_terms += 1;
-                        dist.insert(tm.clone());
-                        if !cmp.lower(tm, k) {
-                            if credited && !cfg.tier_c {
-                                o.credit_rz += 1;
-                            } else if !cfg.tier_c || f == Cf::NonZero {
-                                o.nondesc
-                                    .insert((k.clone(), tname.clone(), r, j, tm.clone()));
+                }
+                let terms = instantiate(rule.body.as_ref().unwrap(), &pt);
+                for (j, tm) in terms.iter().enumerate() {
+                    let cls = classify(sp, tm);
+                    let f = if cfg.tier_c {
+                        cfg.facts.unwrap().coef(&tname, r, rule.label, &fkey, j)
+                    } else {
+                        Cf::Unknown
+                    };
+                    if f == Cf::Zero {
+                        o.dropped_zero += 1;
+                        continue;
+                    }
+                    if !matches!(cls, Cls::Pn { .. })
+                        && tm.iter().any(|&x| !(-32..=31).contains(&x))
+                    {
+                        o.unrep += 1;
+                        if cls == Cls::Top {
+                            o.top_terms += 1;
+                            if !cmp.lower(tm, k) {
+                                if credited && !cfg.tier_c {
+                                    o.credit_rz += 1;
+                                } else if !cfg.tier_c || f == Cf::NonZero {
+                                    o.nondesc
+                                        .insert((k.clone(), tname.clone(), r, j, tm.clone()));
+                                } else {
+                                    o.und_nl += 1;
+                                    o.needed.insert((
+                                        tname.clone(),
+                                        r,
+                                        rule.label,
+                                        fkey.clone(),
+                                        "coefficient".into(),
+                                        Some(j),
+                                    ));
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                    match cls {
+                        Cls::Pn { top } => {
+                            if top {
+                                o.pn_top += 1
                             } else {
-                                o.und_nl += 1;
+                                o.pn_sub += 1
+                            }
+                            if !cfg.tier_c {
+                                o.requires_zero += 1;
+                            } else if f == Cf::NonZero {
+                                o.pos_nonzero += 1;
+                            } else {
+                                o.und_pn += 1;
                                 o.needed.insert((
                                     tname.clone(),
                                     r,
@@ -526,12 +503,37 @@ pub fn run(sp: &NodeSpec, cmp: &NodeComparator, cfg: &RefCfg) -> RefOut {
                                 ));
                             }
                         }
-                        if o.keys.insert(tm.clone()) {
-                            next.push(tm.clone());
+                        Cls::Sub(m) => {
+                            o.sub_terms += 1;
+                            o.hand.entry(m).or_default().insert(tm.clone());
+                        }
+                        Cls::Top => {
+                            o.top_terms += 1;
+                            dist.insert(tm.clone());
+                            if !cmp.lower(tm, k) {
+                                if credited && !cfg.tier_c {
+                                    o.credit_rz += 1;
+                                } else if !cfg.tier_c || f == Cf::NonZero {
+                                    o.nondesc
+                                        .insert((k.clone(), tname.clone(), r, j, tm.clone()));
+                                } else {
+                                    o.und_nl += 1;
+                                    o.needed.insert((
+                                        tname.clone(),
+                                        r,
+                                        rule.label,
+                                        fkey.clone(),
+                                        "coefficient".into(),
+                                        Some(j),
+                                    ));
+                                }
+                            }
+                            if o.keys.insert(tm.clone()) {
+                                next.push(tm.clone());
+                            }
                         }
                     }
                 }
-            }
             }
             o.edges += dist.len() as u64
                 + if mutant() == 3 && dist.len() > 2 {

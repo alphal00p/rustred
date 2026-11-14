@@ -96,7 +96,9 @@ impl CreditPolicy {
     /// not a proof; a verified policy derives them from the verified action).
     pub fn with_pure_numerator_maps(self, pure: BTreeSet<usize>) -> CreditPolicy {
         let source = match &self.basis {
-            GroupBasis::Verified { digest, .. } => format!("{digest} with caller-declared numerator maps"),
+            GroupBasis::Verified { digest, .. } => {
+                format!("{digest} with caller-declared numerator maps")
+            }
             GroupBasis::Unverified { source } => source.clone(),
         };
         CreditPolicy::unverified(self.group, pure, &source)
@@ -145,7 +147,9 @@ impl CreditPolicy {
                     exact(e.action.get(s))
                         .and_then(|t| pos_l.get(t).copied().flatten())
                         .ok_or_else(|| {
-                            format!("verified element {ei}: line slot {s} has no exact image on a line")
+                            format!(
+                                "verified element {ei}: line slot {s} has no exact image on a line"
+                            )
                         })
                 })
                 .collect::<Result<_, _>>()?;
