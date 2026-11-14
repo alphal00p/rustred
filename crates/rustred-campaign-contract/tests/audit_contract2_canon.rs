@@ -79,8 +79,28 @@ fn meq(a: &M, b: &M) -> bool {
 
 /// A small alphabet makes collisions between independently drawn values likely (the injectivity test needs them).
 const CHARS: &[char] = &[
-    'a', 'b', '"', '\\', '/', '\u{0}', '\u{8}', '\u{c}', '\n', '\r', '\t', '\u{1f}', '\u{7f}', 'é',
-    '\u{2028}', '\u{fffd}', '\u{feff}', '😀', '\u{10ffff}', ' ', 'A', '0',
+    'a',
+    'b',
+    '"',
+    '\\',
+    '/',
+    '\u{0}',
+    '\u{8}',
+    '\u{c}',
+    '\n',
+    '\r',
+    '\t',
+    '\u{1f}',
+    '\u{7f}',
+    'é',
+    '\u{2028}',
+    '\u{fffd}',
+    '\u{feff}',
+    '😀',
+    '\u{10ffff}',
+    ' ',
+    'A',
+    '0',
 ];
 
 fn gen_str(r: &mut Rng, small: bool) -> String {
@@ -137,7 +157,16 @@ fn gen_float(r: &mut Rng, small: bool) -> f64 {
         1 => -0.0,
         2 => (r.below(1_000_000) as f64) / 1000.0,
         3 => f64::from_bits(r.next()),
-        4 => [1e300, -1e-300, 5e-324, f64::MAX, f64::MIN_POSITIVE, 1e16, 1e15, 0.1][r.below(8) as usize],
+        4 => [
+            1e300,
+            -1e-300,
+            5e-324,
+            f64::MAX,
+            f64::MIN_POSITIVE,
+            1e16,
+            1e15,
+            0.1,
+        ][r.below(8) as usize],
         _ => (r.next() as i64) as f64,
     }
 }
@@ -236,8 +265,8 @@ fn enc_spell_str(r: &mut Rng, s: &str, out: &mut String) {
         if forced || r.chance(1, 4) {
             match r.below(3) {
                 0 if c == '/' => out.push_str("\\/"),
-                0 if matches!(c, '\u{8}' | '\u{c}' | '\n' | '\r' | '\t' | '"' | '\\') => {
-                    out.push_str(match c {
+                0 if matches!(c, '\u{8}' | '\u{c}' | '\n' | '\r' | '\t' | '"' | '\\') => out
+                    .push_str(match c {
                         '\u{8}' => "\\b",
                         '\u{c}' => "\\f",
                         '\n' => "\\n",
@@ -245,8 +274,7 @@ fn enc_spell_str(r: &mut Rng, s: &str, out: &mut String) {
                         '\t' => "\\t",
                         '"' => "\\\"",
                         _ => "\\\\",
-                    })
-                }
+                    }),
                 _ => {
                     let mut b = [0u16; 2];
                     for u in c.encode_utf16(&mut b) {
@@ -359,8 +387,7 @@ fn ac2_canon_respell_invariance_property() {
         ws(&mut r, &mut s);
         enc_spell(&mut r, &v, &mut s);
         ws(&mut r, &mut s);
-        let got = canonical_line(s.as_bytes())
-            .unwrap_or_else(|e| panic!("case {i}: {e} on {s:?}"));
+        let got = canonical_line(s.as_bytes()).unwrap_or_else(|e| panic!("case {i}: {e} on {s:?}"));
         assert_eq!(
             String::from_utf8(got).unwrap(),
             want,
@@ -449,22 +476,36 @@ fn ac2_canon_mutation_differential_fuzz() {
         }
         let ours = std::panic::catch_unwind(|| canonical_record(&b));
         let Ok(ours) = ours else {
-            panic!("canonical_record panicked on {:?}", String::from_utf8_lossy(&b));
+            panic!(
+                "canonical_record panicked on {:?}",
+                String::from_utf8_lossy(&b)
+            );
         };
         let theirs = serde_json::from_slice::<serde_json::Value>(&b);
         let tag = match (&ours, &theirs) {
             (Ok(c), Ok(_)) => {
                 // fixed point, valid JSON
                 let again = canonical_line(&c.bytes).expect("canonical form re-canonicalises");
-                assert_eq!(again, c.bytes, "not a fixed point: {:?}", String::from_utf8_lossy(&b));
+                assert_eq!(
+                    again,
+                    c.bytes,
+                    "not a fixed point: {:?}",
+                    String::from_utf8_lossy(&b)
+                );
                 serde_json::from_slice::<serde_json::Value>(&c.bytes)
                     .expect("canonical form is JSON");
                 "both accept"
             }
             (Err(_), Err(_)) => "both refuse",
-            (Err(CanonError::DuplicateKey(_)), Ok(_)) => "ours refuses: duplicate key (contract stricter)",
-            (Err(CanonError::NotObject), Ok(_)) => "ours refuses: not an object (contract stricter)",
-            (Err(CanonError::TypeNotString), Ok(_)) => "ours refuses: type not a string (contract stricter)",
+            (Err(CanonError::DuplicateKey(_)), Ok(_)) => {
+                "ours refuses: duplicate key (contract stricter)"
+            }
+            (Err(CanonError::NotObject), Ok(_)) => {
+                "ours refuses: not an object (contract stricter)"
+            }
+            (Err(CanonError::TypeNotString), Ok(_)) => {
+                "ours refuses: type not a string (contract stricter)"
+            }
             (Err(_), Ok(_)) => "OURS REFUSES, serde accepts (other)",
             (Ok(_), Err(e)) if e.to_string().contains("duplicate") => "serde refuses duplicate",
             (Ok(_), Err(_)) => "OURS ACCEPTS, serde refuses",
@@ -554,8 +595,15 @@ fn ac2_canon_negative_zero_integer_vs_serde_reader() {
     // evidence (holds today): serde_json reads `-0` as the float -0.0, not as the integer 0
     let va: serde_json::Value = serde_json::from_slice(br#"{"index":-0}"#).unwrap();
     let vb: serde_json::Value = serde_json::from_slice(br#"{"index":0}"#).unwrap();
-    assert_ne!(va, vb, "serde_json distinguishes -0 (f64 -0.0) from 0 (u64)");
-    assert_eq!(va["index"].as_u64(), None, "an engine reading index as u64 refuses -0");
+    assert_ne!(
+        va, vb,
+        "serde_json distinguishes -0 (f64 -0.0) from 0 (u64)"
+    );
+    assert_eq!(
+        va["index"].as_u64(),
+        None,
+        "an engine reading index as u64 refuses -0"
+    );
     assert!(va["index"].is_f64());
     // float zero keeps its sign: -0 and -0e0 are one f64 value for serde_json but two canonical forms today
     let c = canonical_line(br#"{"x":-0e0}"#).unwrap();
@@ -602,7 +650,13 @@ fn ac2_canon_volatile_list_is_closed() {
         "index",
     ];
     let mut types: Vec<Option<&str>> = VOLATILE_BY_TYPE.iter().map(|(t, _)| Some(*t)).collect();
-    types.extend([Some("verdict"), Some("residual"), Some("queue"), Some("cert_row"), None]);
+    types.extend([
+        Some("verdict"),
+        Some("residual"),
+        Some("queue"),
+        Some("cert_row"),
+        None,
+    ]);
     for t in &types {
         for k in probe {
             let mut line = String::from("{");
@@ -612,7 +666,13 @@ fn ac2_canon_volatile_list_is_closed() {
             // spell the key with escapes: removal compares DECODED keys
             let spelled: String = k
                 .chars()
-                .map(|c| if c == '_' { "\\u005f".to_string() } else { c.to_string() })
+                .map(|c| {
+                    if c == '_' {
+                        "\\u005f".to_string()
+                    } else {
+                        c.to_string()
+                    }
+                })
                 .collect();
             line.push_str(&format!("\"{spelled}\":7,\"nested\":{{\"{k}\":1}}}}"));
             let c = canonical_record(line.as_bytes()).unwrap();
@@ -640,10 +700,21 @@ fn ac2_canon_volatile_list_is_closed() {
     // family_file: volatile only in a header that carries a 64-hex family_blake3
     let d = "ab".repeat(32);
     let h = format!(r#"{{"type":"header","family_file":"/p","family_blake3":"{d}"}}"#);
-    assert!(canonical_record(h.as_bytes()).unwrap().member("family_file").is_none());
-    let h2 = format!(r#"{{"type":"header","family_file":"/p","family_blake3":"{}"}}"#, d.to_uppercase());
     assert!(
-        canonical_record(h2.as_bytes()).unwrap().member("family_file").is_some(),
+        canonical_record(h.as_bytes())
+            .unwrap()
+            .member("family_file")
+            .is_none()
+    );
+    let h2 = format!(
+        r#"{{"type":"header","family_file":"/p","family_blake3":"{}"}}"#,
+        d.to_uppercase()
+    );
+    assert!(
+        canonical_record(h2.as_bytes())
+            .unwrap()
+            .member("family_file")
+            .is_some(),
         "upper-case hex is not a contract digest"
     );
     let _ = canon::VOLATILE_KEYS_VERSION;
@@ -668,7 +739,10 @@ fn ac2_canon_typeless_record_in_a_table_hides_seconds_keys() {
 #[test]
 #[ignore = "FINDING ac2-m2: fails until an integer outside the f64 range is refused"]
 fn ac2_canon_huge_integer_accepted_but_serde_refuses() {
-    let line = format!("{{\"type\":\"rule\",\"index\":0,\"x\":{}}}", "9".repeat(400));
+    let line = format!(
+        "{{\"type\":\"rule\",\"index\":0,\"x\":{}}}",
+        "9".repeat(400)
+    );
     // evidence (holds today): serde_json refuses the line
     let e = serde_json::from_str::<serde_json::Value>(&line).unwrap_err();
     assert!(e.to_string().contains("out of range"), "{e}");
@@ -699,4 +773,32 @@ fn ac2_canon_depth_boundary_vs_serde() {
     }
     eprintln!("ac2_canon_depth_boundary_vs_serde: {}", report.join("; "));
     assert!(agree, "depth limits disagree: {}", report.join("; "));
+}
+
+/// FINDING ac2-m8 (minor): the canonical rule takes a float token's EXACT f64 value (`str::parse`, correctly
+/// rounded); serde_json as built for the contract crate (no `float_roundtrip` feature) parses floats best-effort and
+/// can be 1 ULP off. So the canonical form of the BYTES and the canonical form of the value a serde_json reader
+/// (supervisor, engine, fake child) holds can differ, and a record re-serialised by a reader no longer has the
+/// canonical digest it was certified with. Found by the parser fuzz at 4x scale (EVENTS / RESUME round trips).
+/// Smallest fix: `serde_json = { version = "1.0.151", features = ["float_roundtrip"] }` in the contract crate's
+/// Cargo.toml (feature unification gives every reader exact parsing; a shared-file change for the integration lane).
+#[test]
+#[ignore = "FINDING ac2-m8: fails until serde_json parses floats exactly (float_roundtrip)"]
+fn ac2_canon_float_value_is_reader_dependent() {
+    let s = "4.1844674407370955e+21";
+    let exact: f64 = s.parse().unwrap();
+    let reader: f64 = serde_json::from_str(s).unwrap();
+    eprintln!(
+        "exact {exact:e} ({:#x}), serde_json {reader:e} ({:#x})",
+        exact.to_bits(),
+        reader.to_bits()
+    );
+    let line = format!("{{\"type\":\"header\",\"x\":{s}}}");
+    let canon_of_bytes = canonical_line(line.as_bytes()).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    let canon_of_reader_value = canonical_line(&serde_json::to_vec(&v).unwrap()).unwrap();
+    assert_eq!(
+        canon_of_bytes, canon_of_reader_value,
+        "a serde_json reader holds a different float than the canonical form certifies"
+    );
 }

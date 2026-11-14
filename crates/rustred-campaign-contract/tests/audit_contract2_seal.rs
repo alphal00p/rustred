@@ -13,7 +13,9 @@ use rustred_campaign_contract::classify::{
     self, Accept, Classification, Evidence, KillReason, OutcomeState, WaitStatus,
 };
 use rustred_campaign_contract::layout::RunLayout;
-use rustred_campaign_contract::outcome::{EndKind, ExtraOutput, JobOutcome, Outcome, StopInfo, TableOutput};
+use rustred_campaign_contract::outcome::{
+    EndKind, ExtraOutput, JobOutcome, Outcome, StopInfo, TableOutput,
+};
 use rustred_campaign_contract::resume::{CommittedFile, Frame, ResumeRef, ResumeState};
 use rustred_campaign_contract::seal::{self, RecordWriter, TableSeal};
 use rustred_campaign_contract::spec::{Counters, JobKind, JobSpec};
@@ -68,7 +70,13 @@ fn write_table(run: &Run, n: u64, end_type: &str) -> TableSeal {
         .unwrap()
 }
 
-fn outcome_for(run: &Run, code: ExitCode, stop: Option<StopCode>, seal: Option<&TableSeal>, rules: u64) -> JobOutcome {
+fn outcome_for(
+    run: &Run,
+    code: ExitCode,
+    stop: Option<StopCode>,
+    seal: Option<&TableSeal>,
+    rules: u64,
+) -> JobOutcome {
     let mut j = JobOutcome::for_spec(
         &run.spec,
         &run.digest,
@@ -96,11 +104,20 @@ fn outcome_for(run: &Run, code: ExitCode, stop: Option<StopCode>, seal: Option<&
 
 fn write_outcome(run: &Run, j: &JobOutcome) {
     let _ = std::fs::remove_file(run.layout.outcome());
-    Outcome::new(j.clone()).write_new(&run.layout.outcome()).unwrap();
+    Outcome::new(j.clone())
+        .write_new(&run.layout.outcome())
+        .unwrap();
 }
 
 fn judge(run: &Run, wait: WaitStatus) -> (Evidence, Classification) {
-    let ev = classify::assess(&run.layout, &run.spec, &run.digest, wait, KillReason::None, false);
+    let ev = classify::assess(
+        &run.layout,
+        &run.spec,
+        &run.digest,
+        wait,
+        KillReason::None,
+        false,
+    );
     let c = classify::classify(&ev);
     (ev, c)
 }
@@ -109,7 +126,10 @@ fn judge(run: &Run, wait: WaitStatus) -> (Evidence, Classification) {
 fn honest(tag: &str) -> (Run, TableSeal) {
     let run = new_run(tag, 1);
     let s = write_table(&run, 3, "end");
-    write_outcome(&run, &outcome_for(&run, ExitCode::Complete, None, Some(&s), 3));
+    write_outcome(
+        &run,
+        &outcome_for(&run, ExitCode::Complete, None, Some(&s), 3),
+    );
     (run, s)
 }
 
@@ -147,7 +167,12 @@ fn lie_about(run: &Run, j: &mut JobOutcome, b: &[u8], rules: u64, end: EndKind) 
 fn ac2_seal_baseline_honest_run_is_accepted() {
     let (run, _) = honest("base");
     let (ev, c) = judge(&run, WaitStatus::Exited(0));
-    assert_eq!((c.row, c.accept), (1, Accept::Canonical), "{c:?} {:?}", ev.unsealed_why);
+    assert_eq!(
+        (c.row, c.accept),
+        (1, Accept::Canonical),
+        "{c:?} {:?}",
+        ev.unsealed_why
+    );
     assert_eq!(ev.verified.unwrap().rules, 3);
 }
 
@@ -162,7 +187,10 @@ fn ac2_seal_truncated_table_claiming_success_never_accepted() {
     for k in 0..full.len() {
         std::fs::write(run.layout.table(), &full[..k]).unwrap();
         // stale claim
-        write_outcome(&run, &outcome_for(&run, ExitCode::Complete, None, Some(&s), 3));
+        write_outcome(
+            &run,
+            &outcome_for(&run, ExitCode::Complete, None, Some(&s), 3),
+        );
         let (_, c) = judge(&run, WaitStatus::Exited(0));
         if c.accept != Accept::Nothing {
             accepted.push(format!("stale k={k}"));
@@ -179,8 +207,14 @@ fn ac2_seal_truncated_table_claiming_success_never_accepted() {
             accepted.push(format!("consistent k={k}"));
         }
     }
-    eprintln!("ac2_seal_truncated_table_claiming_success_never_accepted: {} lengths x 2 lies", full.len());
-    assert!(accepted.is_empty(), "accepted truncated tables: {accepted:?}");
+    eprintln!(
+        "ac2_seal_truncated_table_claiming_success_never_accepted: {} lengths x 2 lies",
+        full.len()
+    );
+    assert!(
+        accepted.is_empty(),
+        "accepted truncated tables: {accepted:?}"
+    );
 }
 
 /// Writes after sealing: a record appended after the end record (stale OUTCOME, and OUTCOME rewritten to match the
@@ -188,17 +222,29 @@ fn ac2_seal_truncated_table_claiming_success_never_accepted() {
 #[test]
 fn ac2_seal_write_after_seal_never_accepted() {
     let (run, s) = honest("after");
-    let mut f = std::fs::OpenOptions::new().append(true).open(run.layout.table()).unwrap();
+    let mut f = std::fs::OpenOptions::new()
+        .append(true)
+        .open(run.layout.table())
+        .unwrap();
     use std::io::Write;
     f.write_all(format!("{}\n", rule(9)).as_bytes()).unwrap();
     drop(f);
     let (_, c) = judge(&run, WaitStatus::Exited(0));
-    assert_eq!((c.row, c.accept), (22, Accept::Nothing), "stale OUTCOME: {c:?}");
+    assert_eq!(
+        (c.row, c.accept),
+        (22, Accept::Nothing),
+        "stale OUTCOME: {c:?}"
+    );
     let b = std::fs::read(run.layout.table()).unwrap();
     let mut j = outcome_for(&run, ExitCode::Complete, None, Some(&s), 4);
     lie_about(&run, &mut j, &b, 4, EndKind::End);
     let (ev, c) = judge(&run, WaitStatus::Exited(0));
-    assert_eq!((c.row, c.accept), (22, Accept::Nothing), "{c:?} {:?}", ev.unsealed_why);
+    assert_eq!(
+        (c.row, c.accept),
+        (22, Accept::Nothing),
+        "{c:?} {:?}",
+        ev.unsealed_why
+    );
 }
 
 /// OUTCOME of another attempt / another spec, and a child that replaces job.json to match a forged OUTCOME.
@@ -213,20 +259,35 @@ fn ac2_seal_outcome_bound_to_this_attempt_and_spec() {
     j.attempt = 2;
     j.spec_blake3 = d2.clone();
     write_outcome(&run, &j);
-    assert_eq!(judge(&run, WaitStatus::Exited(0)).1.accept, Accept::Nothing, "(a)");
+    assert_eq!(
+        judge(&run, WaitStatus::Exited(0)).1.accept,
+        Accept::Nothing,
+        "(a)"
+    );
     // (b) same job / attempt, spec digest of a spec differing only in run_dir
     let mut spec3 = run.spec.clone();
     spec3.run_dir = "/elsewhere/J.a1".into();
     let mut j = outcome_for(&run, ExitCode::Complete, None, Some(&s), 3);
     j.spec_blake3 = rustred_campaign_contract::spec::spec_blake3(&spec3.to_json_line());
     write_outcome(&run, &j);
-    assert_eq!(judge(&run, WaitStatus::Exited(0)).1.accept, Accept::Nothing, "(b)");
+    assert_eq!(
+        judge(&run, WaitStatus::Exited(0)).1.accept,
+        Accept::Nothing,
+        "(b)"
+    );
     // (c) the child rewrites job.json to spec3 and binds OUTCOME to it: the supervisor's own digest decides
     let _ = std::fs::remove_file(run.layout.job_spec());
     std::fs::write(run.layout.job_spec(), spec3.to_json_line()).unwrap();
-    assert_eq!(judge(&run, WaitStatus::Exited(0)).1.accept, Accept::Nothing, "(c)");
+    assert_eq!(
+        judge(&run, WaitStatus::Exited(0)).1.accept,
+        Accept::Nothing,
+        "(c)"
+    );
     // (d) the right OUTCOME again but job.json still replaced
-    write_outcome(&run, &outcome_for(&run, ExitCode::Complete, None, Some(&s), 3));
+    write_outcome(
+        &run,
+        &outcome_for(&run, ExitCode::Complete, None, Some(&s), 3),
+    );
     let (ev, c) = judge(&run, WaitStatus::Exited(0));
     assert_eq!(c.accept, Accept::Nothing, "(d) {:?}", ev.outcome);
     // (e) exit-code lie: OUTCOME says 0, the process exited 10
@@ -251,13 +312,21 @@ fn ac2_seal_symlinks_in_the_run_are_refused() {
     let elsewhere = run.layout.root.parent().unwrap().join("elsewhere");
     std::fs::rename(run.layout.out_dir(), &elsewhere).unwrap();
     symlink(&elsewhere, run.layout.out_dir()).unwrap();
-    assert_eq!(judge(&run, WaitStatus::Exited(0)).1.accept, Accept::Nothing, "(a) out/ symlink");
+    assert_eq!(
+        judge(&run, WaitStatus::Exited(0)).1.accept,
+        Accept::Nothing,
+        "(a) out/ symlink"
+    );
     // (b) the table itself is a symlink
     let (run, _) = honest("lnk-table");
     let real = run.layout.root.parent().unwrap().join("real.jsonl");
     std::fs::rename(run.layout.table(), &real).unwrap();
     symlink(&real, run.layout.table()).unwrap();
-    assert_eq!(judge(&run, WaitStatus::Exited(0)).1.accept, Accept::Nothing, "(b) table symlink");
+    assert_eq!(
+        judge(&run, WaitStatus::Exited(0)).1.accept,
+        Accept::Nothing,
+        "(b) table symlink"
+    );
     // (c) OUTCOME is a symlink
     let (run, _) = honest("lnk-outcome");
     let real = run.layout.root.parent().unwrap().join("o.json");
@@ -274,9 +343,15 @@ fn ac2_seal_symlinks_in_the_run_are_refused() {
     // (e) a FIFO as the table (lstat says not regular): refused without blocking
     let (run, _) = honest("fifo");
     std::fs::remove_file(run.layout.table()).unwrap();
-    let st = std::process::Command::new("mkfifo").arg(run.layout.table()).status();
+    let st = std::process::Command::new("mkfifo")
+        .arg(run.layout.table())
+        .status();
     if st.is_ok_and(|s| s.success()) {
-        assert_eq!(judge(&run, WaitStatus::Exited(0)).1.accept, Accept::Nothing, "(e) fifo");
+        assert_eq!(
+            judge(&run, WaitStatus::Exited(0)).1.accept,
+            Accept::Nothing,
+            "(e) fifo"
+        );
     }
 }
 
@@ -289,7 +364,10 @@ fn ac2_seal_hard_link_from_outside_the_run_passes() {
     let outside = run.layout.root.parent().unwrap().join("outside.jsonl");
     std::fs::rename(run.layout.table(), &outside).unwrap();
     std::fs::hard_link(&outside, run.layout.table()).unwrap();
-    assert_eq!(judge(&run, WaitStatus::Exited(0)).1.accept, Accept::Canonical);
+    assert_eq!(
+        judge(&run, WaitStatus::Exited(0)).1.accept,
+        Accept::Canonical
+    );
 }
 
 /// FINDING ac2-m3 (minor): `seal::open_in_run` checks every path component with lstat and then opens the joined path
@@ -345,7 +423,10 @@ fn ac2_seal_race_symlink_swap_of_out_dir_escapes_the_run() {
         "ac2_seal_race_symlink_swap_of_out_dir_escapes_the_run: {tries} verifications, {own_ok} own table, {escaped} FOREIGN table certified ({:.1} s)",
         t0.elapsed().as_secs_f64()
     );
-    assert_eq!(escaped, 0, "the verifier certified a table outside the run directory");
+    assert_eq!(
+        escaped, 0,
+        "the verifier certified a table outside the run directory"
+    );
 }
 
 // ------------------------------------------------------------------------------------------------ TOCTOU in the consumer
@@ -392,7 +473,10 @@ fn ac2_toctou_settle_reread_is_not_bound_to_the_verified_stream() {
     // (b) garbage appended after classification: invisible to the re-read digest
     {
         use std::io::Write;
-        let mut f = std::fs::OpenOptions::new().append(true).open(run.layout.table()).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(run.layout.table())
+            .unwrap();
         f.write_all(b"{\"type\":\"rule\",\"index\":99,\"rhs\":[[\"I(5)\",\"7\"]],\"target\":\"I(9)\"} trailing garbage\n")
             .unwrap();
     }
@@ -422,7 +506,12 @@ fn ac2_toctou_settle_reread_is_not_bound_to_the_verified_stream() {
 
 // ------------------------------------------------------------------------------------------------ RESUME
 
-fn resume_state_for(run: &Run, table: CommittedFile, attempt: u32, spec_blake3: &str) -> ResumeState {
+fn resume_state_for(
+    run: &Run,
+    table: CommittedFile,
+    attempt: u32,
+    spec_blake3: &str,
+) -> ResumeState {
     ResumeState {
         schema: RESUME_SCHEMA.into(),
         job_id: run.spec.job_id.clone(),
@@ -457,7 +546,12 @@ fn stopped_run(tag: &str, n: u64) -> (Run, ResumeState) {
         w.append(rule(i).as_bytes()).unwrap();
     }
     let cp = w.commit().unwrap();
-    let r = resume_state_for(&run, cp.committed("out/F.table.jsonl"), 1, &run.digest.clone());
+    let r = resume_state_for(
+        &run,
+        cp.committed("out/F.table.jsonl"),
+        1,
+        &run.digest.clone(),
+    );
     std::fs::write(run.layout.resume(), serde_json::to_vec(&r).unwrap()).unwrap();
     (run, r)
 }
@@ -465,16 +559,33 @@ fn stopped_run(tag: &str, n: u64) -> (Run, ResumeState) {
 #[test]
 fn ac2_resume_one_record_bound_to_this_attempt() {
     let (run, r) = stopped_run("res", 2);
-    assert!(classify::resume_state(&run.layout, &run.spec, &run.digest).is_ok(), "honest RESUME");
+    assert!(
+        classify::resume_state(&run.layout, &run.spec, &run.digest).is_ok(),
+        "honest RESUME"
+    );
     let ok = std::fs::read(run.layout.resume()).unwrap();
     let mut bad: Vec<(&str, Vec<u8>)> = Vec::new();
     // written twice (two objects in the file; appended instead of replaced)
     bad.push(("two objects", [ok.clone(), ok.clone()].concat()));
-    bad.push(("two objects, newline", [ok.clone(), b"\n".to_vec(), ok.clone()].concat()));
+    bad.push((
+        "two objects, newline",
+        [ok.clone(), b"\n".to_vec(), ok.clone()].concat(),
+    ));
     // duplicate keys inside the one object
     let s = String::from_utf8(ok.clone()).unwrap();
-    bad.push(("duplicate table key", s.replacen("{", &format!("{{\"table\":{},", serde_json::to_string(&r.table).unwrap()), 1).into_bytes()));
-    bad.push(("duplicate attempt key", s.replacen("{", "{\"attempt\":1,", 1).into_bytes()));
+    bad.push((
+        "duplicate table key",
+        s.replacen(
+            "{",
+            &format!("{{\"table\":{},", serde_json::to_string(&r.table).unwrap()),
+            1,
+        )
+        .into_bytes(),
+    ));
+    bad.push((
+        "duplicate attempt key",
+        s.replacen("{", "{\"attempt\":1,", 1).into_bytes(),
+    ));
     // another attempt / another spec
     let mut x = r.clone();
     x.attempt = 2;
@@ -483,7 +594,14 @@ fn ac2_resume_one_record_bound_to_this_attempt() {
     x.spec_blake3 = D0.into();
     bad.push(("other spec digest", serde_json::to_vec(&x).unwrap()));
     // path fields
-    for p in ["out/../out/F.table.jsonl", "/abs/out/F.table.jsonl", "out/F.queue.jsonl", "./out/F.table.jsonl", "out//F.table.jsonl", "job.json"] {
+    for p in [
+        "out/../out/F.table.jsonl",
+        "/abs/out/F.table.jsonl",
+        "out/F.queue.jsonl",
+        "./out/F.table.jsonl",
+        "out//F.table.jsonl",
+        "job.json",
+    ] {
         let mut x = r.clone();
         x.table.path = p.into();
         bad.push(("table path", serde_json::to_vec(&x).unwrap()));
@@ -511,7 +629,14 @@ fn ac2_resume_one_record_bound_to_this_attempt() {
 
 #[test]
 fn ac2_resume_ref_path_validation() {
-    let ok = |f: &str| ResumeRef { from: f.into(), blake3: D0.into() }.validate().is_ok();
+    let ok = |f: &str| {
+        ResumeRef {
+            from: f.into(),
+            blake3: D0.into(),
+        }
+        .validate()
+        .is_ok()
+    };
     assert!(ok("/w/jobs/J.a1/RESUME.json"));
     for bad in [
         "w/jobs/J.a1/RESUME.json",
@@ -542,19 +667,44 @@ fn ac2_outcome_duplicate_keys_refused() {
     let good = String::from_utf8(std::fs::read(run.layout.outcome()).unwrap()).unwrap();
     let _ = s;
     let cases: Vec<(&str, String)> = vec![
-        ("duplicate job", good.replacen("{", &format!("{{\"job\":{},", serde_json::to_string(&serde_json::from_str::<serde_json::Value>(&good).unwrap()["job"]).unwrap()), 1)),
-        ("duplicate legacy key", good.replacen("{", "{\"complete\":true,\"complete\":false,", 1)),
-        ("duplicate in stop.detail", good.replacen("\"detail\": null", "\"detail\": {\"a\":1,\"a\":2}", 1)),
+        (
+            "duplicate job",
+            good.replacen(
+                "{",
+                &format!(
+                    "{{\"job\":{},",
+                    serde_json::to_string(
+                        &serde_json::from_str::<serde_json::Value>(&good).unwrap()["job"]
+                    )
+                    .unwrap()
+                ),
+                1,
+            ),
+        ),
+        (
+            "duplicate legacy key",
+            good.replacen("{", "{\"complete\":true,\"complete\":false,", 1),
+        ),
+        (
+            "duplicate in stop.detail",
+            good.replacen("\"detail\": null", "\"detail\": {\"a\":1,\"a\":2}", 1),
+        ),
     ];
     let mut accepted = Vec::new();
     for (what, b) in &cases {
         let parsed = Outcome::from_slice(b.as_bytes());
-        eprintln!("{what}: from_slice {}", if parsed.is_ok() { "ACCEPTS" } else { "refuses" });
+        eprintln!(
+            "{what}: from_slice {}",
+            if parsed.is_ok() { "ACCEPTS" } else { "refuses" }
+        );
         if parsed.is_ok() {
             accepted.push(*what);
         }
     }
-    assert!(accepted.is_empty(), "duplicate keys accepted in OUTCOME: {accepted:?}");
+    assert!(
+        accepted.is_empty(),
+        "duplicate keys accepted in OUTCOME: {accepted:?}"
+    );
 }
 
 #[test]
@@ -563,19 +713,32 @@ fn ac2_versions_and_unknown_fields() {
     let (run, s) = honest("ver");
     let mut v: serde_json::Value = serde_json::from_slice(&run.spec.to_json_line()).unwrap();
     v["schema"] = "rustred.child-job.v2".into();
-    assert!(JobSpec::from_json(&serde_json::to_vec(&v).unwrap()).is_err(), "spec v2");
+    assert!(
+        JobSpec::from_json(&serde_json::to_vec(&v).unwrap()).is_err(),
+        "spec v2"
+    );
     let mut v: serde_json::Value = serde_json::from_slice(&run.spec.to_json_line()).unwrap();
     v["budgets"]["work"]["seeds_per_cas"] = 5.into();
-    assert!(JobSpec::from_json(&serde_json::to_vec(&v).unwrap()).is_err(), "misspelt budget");
+    assert!(
+        JobSpec::from_json(&serde_json::to_vec(&v).unwrap()).is_err(),
+        "misspelt budget"
+    );
     let mut v: serde_json::Value = serde_json::from_slice(&run.spec.to_json_line()).unwrap();
     v["kind"] = "generate2".into();
-    assert!(JobSpec::from_json(&serde_json::to_vec(&v).unwrap()).is_err(), "unknown kind");
+    assert!(
+        JobSpec::from_json(&serde_json::to_vec(&v).unwrap()).is_err(),
+        "unknown kind"
+    );
     // OUTCOME: unknown major version -> invalid (row 22); unknown exit code / stop code / status -> unreadable
     let mut j = outcome_for(&run, ExitCode::Complete, None, Some(&s), 3);
     j.schema = "rustred.child-job.outcome.v2".into();
     write_outcome(&run, &j);
     let (ev, c) = judge(&run, WaitStatus::Exited(0));
-    assert!(matches!(ev.outcome, OutcomeState::Invalid(_)), "{:?}", ev.outcome);
+    assert!(
+        matches!(ev.outcome, OutcomeState::Invalid(_)),
+        "{:?}",
+        ev.outcome
+    );
     assert_eq!(c.row, 22);
     let good = Outcome::new(outcome_for(&run, ExitCode::Complete, None, Some(&s), 3)).to_bytes();
     let good = String::from_utf8(good).unwrap();
@@ -591,7 +754,11 @@ fn ac2_versions_and_unknown_fields() {
         let _ = std::fs::remove_file(run.layout.outcome());
         std::fs::write(run.layout.outcome(), bad.as_bytes()).unwrap();
         let (ev, c) = judge(&run, WaitStatus::Exited(0));
-        assert!(matches!(ev.outcome, OutcomeState::Unreadable(_)), "{to}: {:?}", ev.outcome);
+        assert!(
+            matches!(ev.outcome, OutcomeState::Unreadable(_)),
+            "{to}: {:?}",
+            ev.outcome
+        );
         assert_eq!((c.row, c.accept), (22, Accept::Nothing), "{to}");
     }
 }
@@ -602,13 +769,23 @@ fn ac2_versions_and_unknown_fields() {
 #[test]
 fn ac2_misspelt_time_decided_pair_reads_as_deterministic() {
     let (run, s) = honest("time");
-    let mut v = serde_json::to_value(Outcome::new(outcome_for(&run, ExitCode::Complete, None, Some(&s), 3))).unwrap();
+    let mut v = serde_json::to_value(Outcome::new(outcome_for(
+        &run,
+        ExitCode::Complete,
+        None,
+        Some(&s),
+        3,
+    )))
+    .unwrap();
     v["job"]["time_decisionz"] = serde_json::json!([{"what":"guard_route","limit_s":60.0,"measured_s":61.0,"taken":"content"}]);
     v["job"]["time_decidedd"] = true.into();
     let _ = std::fs::remove_file(run.layout.outcome());
     std::fs::write(run.layout.outcome(), serde_json::to_vec(&v).unwrap()).unwrap();
     let (_, c) = judge(&run, WaitStatus::Exited(0));
-    assert_eq!((c.row, c.accept, c.time_decided), (1, Accept::Canonical, false));
+    assert_eq!(
+        (c.row, c.accept, c.time_decided),
+        (1, Accept::Canonical, false)
+    );
 }
 
 // ------------------------------------------------------------------------------------------------ outputs beyond the table
@@ -623,7 +800,8 @@ fn ac2_outputs_extra_duplicate_role_refused() {
     let (run, s) = honest("extra");
     // a sealed subcases file
     let mut w = RecordWriter::create(&run.layout.out_dir().join("F.subcases.jsonl")).unwrap();
-    w.append(br#"{"type":"subcase","kind":"case","case":{"frame":"PRESENTED","fixed":[1]}}"#).unwrap();
+    w.append(br#"{"type":"subcase","kind":"case","case":{"frame":"PRESENTED","fixed":[1]}}"#)
+        .unwrap();
     let sub = w.seal(br#"{"type":"end","subcases":1}"#).unwrap();
     let mut j = outcome_for(&run, ExitCode::Complete, None, Some(&s), 3);
     j.outputs.extra.push(ExtraOutput {
@@ -657,7 +835,11 @@ fn ac2_outputs_extra_duplicate_role_refused() {
 #[test]
 fn ac2_cert_is_verified_only_when_listed() {
     let (run, s) = honest("cert");
-    std::fs::write(run.layout.cert(), b"{\"type\":\"cert_header\"}\n{\"type\":\"basis\",\"x\":").unwrap();
+    std::fs::write(
+        run.layout.cert(),
+        b"{\"type\":\"cert_header\"}\n{\"type\":\"basis\",\"x\":",
+    )
+    .unwrap();
     let (_, c) = judge(&run, WaitStatus::Exited(0));
     assert_eq!(c.accept, Accept::Canonical, "omitted cert is not looked at");
     let mut j = outcome_for(&run, ExitCode::Complete, None, Some(&s), 3);
@@ -669,7 +851,11 @@ fn ac2_cert_is_verified_only_when_listed() {
     });
     write_outcome(&run, &j);
     let (_, c) = judge(&run, WaitStatus::Exited(0));
-    assert_eq!(c.accept, Accept::Nothing, "a listed torn cert blocks acceptance");
+    assert_eq!(
+        c.accept,
+        Accept::Nothing,
+        "a listed torn cert blocks acceptance"
+    );
 }
 
 /// FINDING ac2-m6 (minor): the family binding (table header `family_blake3` = spec family input) is checked only
@@ -689,9 +875,16 @@ fn ac2_family_binding_only_checks_a_first_line_header() {
     )
     .unwrap();
     let s = w.seal(br#"{"type":"end","rules":1}"#).unwrap();
-    write_outcome(&run, &outcome_for(&run, ExitCode::Complete, None, Some(&s), 1));
+    write_outcome(
+        &run,
+        &outcome_for(&run, ExitCode::Complete, None, Some(&s), 1),
+    );
     let (_, c) = judge(&run, WaitStatus::Exited(0));
-    assert_eq!(c.accept, Accept::Nothing, "a foreign family digest was accepted: {c:?}");
+    assert_eq!(
+        c.accept,
+        Accept::Nothing,
+        "a foreign family digest was accepted: {c:?}"
+    );
 }
 
 /// Observation ac2-n6: rule identity. (chart, index) is unique; (chart, target, case) only when `target` is present:
@@ -700,12 +893,18 @@ fn ac2_family_binding_only_checks_a_first_line_header() {
 fn ac2_rule_identity_edges() {
     let run = new_run("ident", 1);
     let mut w = RecordWriter::create(&run.layout.table()).unwrap();
-    w.append(br#"{"type":"rule","chart":"1","index":0,"case":"c","rhs":[]}"#).unwrap();
-    w.append(br#"{"type":"rule","chart":"1","index":1,"case":"c","rhs":[]}"#).unwrap();
-    w.append(br#"{"type":"rule","chart":"1","index":-7,"case":"d","target":"I(1)","rhs":[]}"#).unwrap();
+    w.append(br#"{"type":"rule","chart":"1","index":0,"case":"c","rhs":[]}"#)
+        .unwrap();
+    w.append(br#"{"type":"rule","chart":"1","index":1,"case":"c","rhs":[]}"#)
+        .unwrap();
+    w.append(br#"{"type":"rule","chart":"1","index":-7,"case":"d","target":"I(1)","rhs":[]}"#)
+        .unwrap();
     w.append(br#"{"type":"rule","chart":"1","index":123456789012345678901234567890,"case":"e","target":"I(2)","rhs":[]}"#).unwrap();
     let s = w.seal(br#"{"type":"end","rules":4}"#).unwrap();
-    write_outcome(&run, &outcome_for(&run, ExitCode::Complete, None, Some(&s), 4));
+    write_outcome(
+        &run,
+        &outcome_for(&run, ExitCode::Complete, None, Some(&s), 4),
+    );
     let (_, c) = judge(&run, WaitStatus::Exited(0));
     assert_eq!(c.accept, Accept::Canonical);
 }
@@ -727,9 +926,16 @@ fn ac2_checker_results_sealing_end_to_end() {
     let digest = rustred_campaign_contract::spec::spec_blake3(&bytes);
     let layout = RunLayout::new(&root);
     let mut w = RecordWriter::create(&root.join("out/results.jsonl")).unwrap();
-    w.append(br#"{"type":"verdict","verdict":"PASS","seconds":1.0}"#).unwrap();
+    w.append(br#"{"type":"verdict","verdict":"PASS","seconds":1.0}"#)
+        .unwrap();
     let s = w.seal(br#"{"type":"end"}"#).unwrap();
-    let mut j = JobOutcome::for_spec(&spec, &digest, program_info(), ExitCode::Complete, StopInfo::none());
+    let mut j = JobOutcome::for_spec(
+        &spec,
+        &digest,
+        program_info(),
+        ExitCode::Complete,
+        StopInfo::none(),
+    );
     j.outputs.extra.push(ExtraOutput {
         role: "results".into(),
         path: "out/results.jsonl".into(),
@@ -740,10 +946,25 @@ fn ac2_checker_results_sealing_end_to_end() {
         end: Some(EndKind::End),
         sealed: true,
     });
-    Outcome::new(j.clone()).write_new(&layout.outcome()).unwrap();
-    let ev = classify::assess(&layout, &spec, &digest, WaitStatus::Exited(0), KillReason::None, false);
+    Outcome::new(j.clone())
+        .write_new(&layout.outcome())
+        .unwrap();
+    let ev = classify::assess(
+        &layout,
+        &spec,
+        &digest,
+        WaitStatus::Exited(0),
+        KillReason::None,
+        false,
+    );
     let c = classify::classify(&ev);
-    assert_eq!((c.row, c.accept), (1, Accept::Canonical), "{:?} {:?}", ev.outcome, ev.unsealed_why);
+    assert_eq!(
+        (c.row, c.accept),
+        (1, Accept::Canonical),
+        "{:?} {:?}",
+        ev.outcome,
+        ev.unsealed_why
+    );
     // the same OUTCOME with exit 20 (budget_work) is a contract violation for a checker
     let mut j20 = j.clone();
     j20.exit_code = ExitCode::BudgetWork;
@@ -751,7 +972,14 @@ fn ac2_checker_results_sealing_end_to_end() {
     j20.stop.code = Some(StopCode::BudgetWork);
     std::fs::remove_file(layout.outcome()).unwrap();
     Outcome::new(j20).write_new(&layout.outcome()).unwrap();
-    let ev = classify::assess(&layout, &spec, &digest, WaitStatus::Exited(20), KillReason::None, false);
+    let ev = classify::assess(
+        &layout,
+        &spec,
+        &digest,
+        WaitStatus::Exited(20),
+        KillReason::None,
+        false,
+    );
     assert_eq!(classify::classify(&ev).accept, Accept::Nothing);
     let _ = Path::new("");
 }

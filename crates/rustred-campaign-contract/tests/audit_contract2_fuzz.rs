@@ -33,17 +33,51 @@ impl Rng {
 }
 
 fn scale(n: u64) -> u64 {
-    n * std::env::var("AC2_FUZZ_SCALE").ok().and_then(|s| s.parse().ok()).unwrap_or(1)
+    n * std::env::var("AC2_FUZZ_SCALE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1)
 }
 
 fn data(name: &str) -> Vec<u8> {
-    std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data").join(name)).unwrap()
+    std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/data")
+            .join(name),
+    )
+    .unwrap()
 }
 
 const TOK: &[&[u8]] = &[
-    b"{", b"}", b"[", b"]", b":", b",", b"\"", b"\\", b"null", b"true", b"false", b"0", b"-0", b"1e999", b"-1",
-    b"18446744073709551616", b"0.5", b"\"\"", b"\\u0000", b"\\ud800", b"\"x\":1,", b"\"schema\":\"v9\",", b"\n", b" ",
-    b"\"job\":{},", b"\"attempt\":0,", b"\"exit_code\":13,", b"\"sealed\":true,", b"\"path\":\"../x\",",
+    b"{",
+    b"}",
+    b"[",
+    b"]",
+    b":",
+    b",",
+    b"\"",
+    b"\\",
+    b"null",
+    b"true",
+    b"false",
+    b"0",
+    b"-0",
+    b"1e999",
+    b"-1",
+    b"18446744073709551616",
+    b"0.5",
+    b"\"\"",
+    b"\\u0000",
+    b"\\ud800",
+    b"\"x\":1,",
+    b"\"schema\":\"v9\",",
+    b"\n",
+    b" ",
+    b"\"job\":{},",
+    b"\"attempt\":0,",
+    b"\"exit_code\":13,",
+    b"\"sealed\":true,",
+    b"\"path\":\"../x\",",
 ];
 
 fn mutate(r: &mut Rng, src: &[u8]) -> Vec<u8> {
@@ -85,6 +119,26 @@ fn mutate(r: &mut Rng, src: &[u8]) -> Vec<u8> {
     b
 }
 
+/// Value equality where floats may differ by a few ULP (serde_json without `float_roundtrip`, FINDING ac2-m8).
+fn same_up_to_ulp(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+    use serde_json::Value as V;
+    match (a, b) {
+        (V::Number(x), V::Number(y)) if x.is_f64() || y.is_f64() => {
+            let (p, q) = (x.as_f64().unwrap(), y.as_f64().unwrap());
+            p == q || (p.to_bits() as i64 - q.to_bits() as i64).abs() <= 2
+        }
+        (V::Array(x), V::Array(y)) => {
+            x.len() == y.len() && x.iter().zip(y).all(|(p, q)| same_up_to_ulp(p, q))
+        }
+        (V::Object(x), V::Object(y)) => {
+            x.len() == y.len()
+                && x.iter()
+                    .all(|(k, v)| y.get(k).is_some_and(|w| same_up_to_ulp(v, w)))
+        }
+        _ => a == b,
+    }
+}
+
 fn no_panic<T>(what: &str, input: &[u8], f: impl FnOnce() -> T) -> T {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(t) => t,
@@ -96,7 +150,11 @@ fn no_panic<T>(what: &str, input: &[u8], f: impl FnOnce() -> T) -> T {
 fn ac2_fuzz_outcome_parser() {
     let n = scale(60_000);
     let mut r = Rng(0xAC2_F001);
-    let seeds = [data("outcome.incomplete.json"), data("outcome.hard_stop.json"), data("outcome.input_error.json")];
+    let seeds = [
+        data("outcome.incomplete.json"),
+        data("outcome.hard_stop.json"),
+        data("outcome.input_error.json"),
+    ];
     let (mut parsed, mut checked) = (0u64, 0u64);
     for _ in 0..n {
         let k = r.below(3) as usize;
@@ -108,12 +166,20 @@ fn ac2_fuzz_outcome_parser() {
             if ok {
                 checked += 1;
             }
-            // round trip
+            // round trip (floats: serde_json parses best-effort, see FINDING ac2-m8)
             let again = Outcome::from_slice(&o.to_bytes()).expect("re-parses");
-            assert_eq!(again, o);
+            assert!(
+                same_up_to_ulp(
+                    &serde_json::to_value(&again).unwrap(),
+                    &serde_json::to_value(&o).unwrap()
+                ),
+                "OUTCOME round trip"
+            );
         }
     }
-    eprintln!("ac2_fuzz_outcome_parser: {n} mutated OUTCOMEs, {parsed} parsed, {checked} passed check()");
+    eprintln!(
+        "ac2_fuzz_outcome_parser: {n} mutated OUTCOMEs, {parsed} parsed, {checked} passed check()"
+    );
 }
 
 #[test]
@@ -124,7 +190,9 @@ fn ac2_fuzz_resume_parser() {
     let (mut parsed, mut checked) = (0u64, 0u64);
     for _ in 0..n {
         let b = mutate(&mut r, &seed);
-        let s = no_panic("ResumeState parse", &b, || serde_json::from_slice::<ResumeState>(&b));
+        let s = no_panic("ResumeState parse", &b, || {
+            serde_json::from_slice::<ResumeState>(&b)
+        });
         if let Ok(s) = s {
             parsed += 1;
             if no_panic("ResumeState::check", &b, || s.check().is_ok()) {
@@ -135,11 +203,20 @@ fn ac2_fuzz_resume_parser() {
                     assert_eq!(q.path, "out/F.queue.jsonl");
                 }
             }
-            let again: ResumeState = serde_json::from_slice(&serde_json::to_vec(&s).unwrap()).unwrap();
-            assert_eq!(again, s);
+            let again: ResumeState =
+                serde_json::from_slice(&serde_json::to_vec(&s).unwrap()).unwrap();
+            assert!(
+                same_up_to_ulp(
+                    &serde_json::to_value(&again).unwrap(),
+                    &serde_json::to_value(&s).unwrap()
+                ),
+                "RESUME round trip"
+            );
         }
     }
-    eprintln!("ac2_fuzz_resume_parser: {n} mutated RESUMEs, {parsed} parsed, {checked} passed check()");
+    eprintln!(
+        "ac2_fuzz_resume_parser: {n} mutated RESUMEs, {parsed} parsed, {checked} passed check()"
+    );
 }
 
 #[test]
@@ -158,7 +235,11 @@ fn ac2_fuzz_job_spec_parser() {
         if let Ok(s) = s {
             ok += 1;
             // a valid spec has a safe job id and an absolute run_dir; args pass the allow-list again
-            assert!(!s.job_id.starts_with('.') && !s.job_id.contains('/'), "{}", s.job_id);
+            assert!(
+                !s.job_id.starts_with('.') && !s.job_id.contains('/'),
+                "{}",
+                s.job_id
+            );
             assert!(Path::new(&s.run_dir).is_absolute());
             let again = JobSpec::from_json(&s.to_json_line()).expect("valid spec re-validates");
             assert_eq!(again, s);
@@ -172,7 +253,10 @@ fn ac2_fuzz_events_and_cases_parsers() {
     let n = scale(60_000);
     let mut r = Rng(0xAC2_F004);
     let ev = data("events.jsonl");
-    let lines: Vec<&[u8]> = ev.split(|&b| b == b'\n').filter(|l| !l.is_empty()).collect();
+    let lines: Vec<&[u8]> = ev
+        .split(|&b| b == b'\n')
+        .filter(|l| !l.is_empty())
+        .collect();
     let cases: Vec<&[u8]> = vec![
         br#"{"frame":"PRESENTED","fixed":[1,null,0],"equations":["n0-n1"]}"#,
         br#"{"type":"spill","pending":[{"frame":"PRESENTED","fixed":[null]}],"current":null,"numerical":[[1,2]]}"#,
@@ -185,7 +269,11 @@ fn ac2_fuzz_events_and_cases_parsers() {
         if let Ok(e) = no_panic("EventLine::parse", &b, || EventLine::parse(&b)) {
             ev_ok += 1;
             let again = EventLine::parse(&e.to_line()).expect("event line re-parses");
-            assert_eq!(again.to_line(), e.to_line());
+            let (x, y): (serde_json::Value, serde_json::Value) = (
+                serde_json::from_slice(&again.to_line()).unwrap(),
+                serde_json::from_slice(&e.to_line()).unwrap(),
+            );
+            assert!(same_up_to_ulp(&x, &y), "event round trip");
         }
         let k = r.below(3) as usize;
         let c = mutate(&mut r, cases[k]);
@@ -194,10 +282,16 @@ fn ac2_fuzz_events_and_cases_parsers() {
             case_ok += 1;
         }
         // canonical helpers on arbitrary bytes
-        no_panic("count_string_elements", &b, || count_string_elements(&b, "elided"));
-        no_panic("decode_canonical_string", &b, || decode_canonical_string(&b));
+        no_panic("count_string_elements", &b, || {
+            count_string_elements(&b, "elided")
+        });
+        no_panic("decode_canonical_string", &b, || {
+            decode_canonical_string(&b)
+        });
     }
-    eprintln!("ac2_fuzz_events_and_cases_parsers: {n} event lines ({ev_ok} parsed), {n} cases lines ({case_ok} parsed), {n} x 2 canonical helper calls");
+    eprintln!(
+        "ac2_fuzz_events_and_cases_parsers: {n} event lines ({ev_ok} parsed), {n} cases lines ({case_ok} parsed), {n} x 2 canonical helper calls"
+    );
 }
 
 #[test]
@@ -244,7 +338,13 @@ fn independent_verify(b: &[u8]) -> Option<(u64, u64)> {
         if ty == Some("rule") {
             let idx = c.member("index")?;
             let s = std::str::from_utf8(idx).ok()?;
-            if s.is_empty() || !s.trim_start_matches('-').bytes().all(|x| x.is_ascii_digit()) || s.trim_start_matches('-').is_empty() {
+            if s.is_empty()
+                || !s
+                    .trim_start_matches('-')
+                    .bytes()
+                    .all(|x| x.is_ascii_digit())
+                || s.trim_start_matches('-').is_empty()
+            {
                 return None;
             }
             let chart = c.member("chart").unwrap_or(b"null").to_vec();
@@ -267,12 +367,26 @@ fn random_table(r: &mut Rng) -> Vec<u8> {
     let mut lines: Vec<String> = vec![r#"{"type":"header","x":1}"#.into()];
     let n = r.below(6);
     for i in 0..n {
-        let idx = if r.below(8) == 0 { r.below(n.max(1)) } else { i };
+        let idx = if r.below(8) == 0 {
+            r.below(n.max(1))
+        } else {
+            i
+        };
         let tgt = if r.below(8) == 0 { r.below(3) } else { 100 + i };
-        let case = if r.below(4) == 0 { "c".to_string() } else { format!("c{i}") };
+        let case = if r.below(4) == 0 {
+            "c".to_string()
+        } else {
+            format!("c{i}")
+        };
         let chart = if r.below(10) == 0 { "\"12\"" } else { "\"11\"" };
-        let target = if r.below(10) == 0 { String::new() } else { format!(",\"target\":\"I({tgt})\"") };
-        lines.push(format!(r#"{{"type":"rule","chart":{chart},"index":{idx},"case":"{case}"{target},"rhs":[]}}"#));
+        let target = if r.below(10) == 0 {
+            String::new()
+        } else {
+            format!(",\"target\":\"I({tgt})\"")
+        };
+        lines.push(format!(
+            r#"{{"type":"rule","chart":{chart},"index":{idx},"case":"{case}"{target},"rhs":[]}}"#
+        ));
         if r.below(5) == 0 {
             lines.push(r#"{"type":"residual","key":"I(7)"}"#.into());
         }
@@ -354,14 +468,24 @@ fn ac2_fuzz_verifier_differential() {
         }
         match (&ours, sd.seal()) {
             (Ok(v), Some(s)) => {
-                assert_eq!((s.bytes, &s.blake3, s.records, s.rules, &s.canonical_blake3), (v.bytes, &v.blake3, v.records, v.rules, &v.canonical_blake3), "case {i}");
+                assert_eq!(
+                    (s.bytes, &s.blake3, s.records, s.rules, &s.canonical_blake3),
+                    (v.bytes, &v.blake3, v.records, v.rules, &v.canonical_blake3),
+                    "case {i}"
+                );
             }
             (Err(_), None) => {}
             // the file verifier needs an end record of type end/partial; StreamDigest::seal also requires it
-            (o, s) => panic!("case {i}: verify {:?} vs StreamDigest {:?}", o.as_ref().map(|v| v.bytes), s.map(|s| s.bytes)),
+            (o, s) => panic!(
+                "case {i}: verify {:?} vs StreamDigest {:?}",
+                o.as_ref().map(|v| v.bytes),
+                s.map(|s| s.bytes)
+            ),
         }
     }
-    eprintln!("ac2_fuzz_verifier_differential: {n} random tables ({sealed} sealed, {refused} refused), verifier == independent verifier == StreamDigest");
+    eprintln!(
+        "ac2_fuzz_verifier_differential: {n} random tables ({sealed} sealed, {refused} refused), verifier == independent verifier == StreamDigest"
+    );
 }
 
 /// Prefix verification: for random honest tables and EVERY byte length, `verify_prefix` accepts exactly the line
@@ -401,5 +525,7 @@ fn ac2_fuzz_prefix_every_length() {
             }
         }
     }
-    eprintln!("ac2_fuzz_prefix_every_length: {n} tables, {checked} committed prefixes verified (+ off-by-one refused)");
+    eprintln!(
+        "ac2_fuzz_prefix_every_length: {n} tables, {checked} committed prefixes verified (+ off-by-one refused)"
+    );
 }

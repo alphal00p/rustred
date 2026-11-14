@@ -16,7 +16,9 @@ use rustred_campaign_contract::ExitCode;
 use rustred_campaign_contract::classify::{
     self, Accept, Evidence, KillReason, OutcomeState, ROWS, VerifiedOutputs, WaitStatus,
 };
-use rustred_campaign_contract::outcome::{JobOutcome, PerCase, StopInfo, TimeDecision, TimeDecisionWhat};
+use rustred_campaign_contract::outcome::{
+    JobOutcome, PerCase, StopInfo, TimeDecision, TimeDecisionWhat,
+};
 use rustred_campaign_contract::resume::ResumeRef;
 use rustred_campaign_contract::spec::JobKind;
 use rustred_campaign_contract::stop::{CaseResult, StopCode};
@@ -58,7 +60,9 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
     // W unknown (6.6)
     let w = match (w, &o) {
         (WaitStatus::Unknown, O::Ok(j)) => WaitStatus::Exited(j.exit_code.code()),
-        (WaitStatus::Unknown, O::Absent) => return if e.resume_valid { (21, "b") } else { (21, "c") },
+        (WaitStatus::Unknown, O::Absent) => {
+            return if e.resume_valid { (21, "b") } else { (21, "c") };
+        }
         (WaitStatus::Unknown, O::Bad) => return (22, ""),
         (w, _) => w,
     };
@@ -81,7 +85,9 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                 if checker && c != 0 {
                     return (22, "");
                 }
-                let Some(v) = &e.verified else { return (22, "") };
+                let Some(v) = &e.verified else {
+                    return (22, "");
+                };
                 if v.elided_loci > 0 {
                     return (25, "");
                 }
@@ -118,7 +124,11 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                         | StopCode::BeforeNumeric,
                     ) => (4, ""),
                     Some(StopCode::OpenRegions | StopCode::OpenObligations) => {
-                        if v.rules >= 1 { (5, "") } else { (27, "") }
+                        if v.rules >= 1 {
+                            (5, "")
+                        } else {
+                            (27, "")
+                        }
                     }
                     Some(StopCode::NotLower) => (6, ""),
                     _ => (22, ""),
@@ -188,7 +198,10 @@ fn may_accept(e: &Evidence) -> Result<(), String> {
     let c = match e.wait {
         WaitStatus::Exited(c) => {
             if c != j.exit_code.code() {
-                return Err(format!("accepted with process exit {c} != OUTCOME {}", j.exit_code.code()));
+                return Err(format!(
+                    "accepted with process exit {c} != OUTCOME {}",
+                    j.exit_code.code()
+                ));
             }
             c
         }
@@ -212,14 +225,20 @@ fn may_accept(e: &Evidence) -> Result<(), String> {
     }
     if c == 10 {
         match j.stop.code {
-            Some(StopCode::MaxCases | StopCode::OpenRegions | StopCode::OpenObligations) if v.rules >= 1 => {}
+            Some(StopCode::MaxCases | StopCode::OpenRegions | StopCode::OpenObligations)
+                if v.rules >= 1 => {}
             Some(
                 StopCode::LiftRefused
                 | StopCode::GuardTimeout
                 | StopCode::NumericSearchRefused
                 | StopCode::BeforeNumeric,
             ) => {}
-            s => return Err(format!("accepted on exit 10 with stop {s:?} and {} verified rules", v.rules)),
+            s => {
+                return Err(format!(
+                    "accepted on exit 10 with stop {s:?} and {} verified rules",
+                    v.rules
+                ));
+            }
         }
     }
     Ok(())
@@ -229,13 +248,55 @@ fn may_accept(e: &Evidence) -> Result<(), String> {
 
 fn waits() -> Vec<WaitStatus> {
     let mut w: Vec<WaitStatus> = [
-        0, 1, 2, 9, 10, 11, 12, 13, 20, 21, 22, 23, 30, 31, 40, 41, 42, 43, 50, 51, 52, 69, 70, 71, 101, 127, 128, 129,
-        130, 134, 137, 143, 158, 192, 193, 255, 256, -1, i32::MIN, i32::MAX,
+        0,
+        1,
+        2,
+        9,
+        10,
+        11,
+        12,
+        13,
+        20,
+        21,
+        22,
+        23,
+        30,
+        31,
+        40,
+        41,
+        42,
+        43,
+        50,
+        51,
+        52,
+        69,
+        70,
+        71,
+        101,
+        127,
+        128,
+        129,
+        130,
+        134,
+        137,
+        143,
+        158,
+        192,
+        193,
+        255,
+        256,
+        -1,
+        i32::MIN,
+        i32::MAX,
     ]
     .iter()
     .map(|&c| WaitStatus::Exited(c))
     .collect();
-    w.extend([0, 1, 2, 3, 6, 9, 11, 13, 15, 31, 64, -9].iter().map(|&s| WaitStatus::Signaled(s)));
+    w.extend(
+        [0, 1, 2, 3, 6, 9, 11, 13, 15, 31, 64, -9]
+            .iter()
+            .map(|&s| WaitStatus::Signaled(s)),
+    );
     w.push(WaitStatus::Unknown);
     w
 }
@@ -246,7 +307,9 @@ fn valid_outcomes(kind: JobKind) -> Vec<JobOutcome> {
     let mut spec = sample_spec("/r");
     spec.kind = kind;
     let mut out = Vec::new();
-    let stops: Vec<Option<StopCode>> = std::iter::once(None).chain(StopCode::ALL.iter().copied().map(Some)).collect();
+    let stops: Vec<Option<StopCode>> = std::iter::once(None)
+        .chain(StopCode::ALL.iter().copied().map(Some))
+        .collect();
     for &code in ExitCode::ALL.iter() {
         for &stop in &stops {
             for rules in [0u64, 1] {
@@ -268,8 +331,14 @@ fn valid_outcomes(kind: JobKind) -> Vec<JobOutcome> {
                             };
                             j.per_case = match pc {
                                 0 => vec![],
-                                1 => vec![per_case(CaseResult::Covered), per_case(CaseResult::Finite)],
-                                _ => vec![per_case(CaseResult::Covered), per_case(CaseResult::Refused)],
+                                1 => vec![
+                                    per_case(CaseResult::Covered),
+                                    per_case(CaseResult::Finite),
+                                ],
+                                _ => vec![
+                                    per_case(CaseResult::Covered),
+                                    per_case(CaseResult::Refused),
+                                ],
                             };
                             j.time_decisions = if td {
                                 vec![TimeDecision {
@@ -316,9 +385,21 @@ fn run(stride: u64) -> BTreeMap<String, u64> {
     ];
     let verified: Vec<Option<VerifiedOutputs>> = vec![
         None,
-        Some(VerifiedOutputs { rules: 0, elided_loci: 0, streams: vec![] }),
-        Some(VerifiedOutputs { rules: 1, elided_loci: 0, streams: vec![] }),
-        Some(VerifiedOutputs { rules: 1, elided_loci: 2, streams: vec![] }),
+        Some(VerifiedOutputs {
+            rules: 0,
+            elided_loci: 0,
+            streams: vec![],
+        }),
+        Some(VerifiedOutputs {
+            rules: 1,
+            elided_loci: 0,
+            streams: vec![],
+        }),
+        Some(VerifiedOutputs {
+            rules: 1,
+            elided_loci: 2,
+            streams: vec![],
+        }),
     ];
     let rref = ResumeRef {
         from: "/w/jobs/J.a1/RESUME.json".into(),
@@ -336,7 +417,11 @@ fn run(stride: u64) -> BTreeMap<String, u64> {
             OutcomeState::Unreadable("torn".into()),
             OutcomeState::Invalid("other attempt".into()),
         ];
-        outcomes.extend(valid_outcomes(kind).into_iter().map(|j| OutcomeState::Valid(Box::new(j))));
+        outcomes.extend(
+            valid_outcomes(kind)
+                .into_iter()
+                .map(|j| OutcomeState::Valid(Box::new(j))),
+        );
         for wait in waits() {
             for o in &outcomes {
                 for v in &verified {
@@ -345,7 +430,7 @@ fn run(stride: u64) -> BTreeMap<String, u64> {
                             for oom in [false, true] {
                                 for elision_forbidden in [true, false] {
                                     n += 1;
-                                    if n % stride != 0 {
+                                    if !n.is_multiple_of(stride) {
                                         continue;
                                     }
                                     checked += 1;
@@ -366,9 +451,11 @@ fn run(stride: u64) -> BTreeMap<String, u64> {
                                         panics += 1;
                                         continue;
                                     };
-                                    let spec_row = ROWS.iter().find(|x| x.row == c.row && x.sub == c.sub);
+                                    let spec_row =
+                                        ROWS.iter().find(|x| x.row == c.row && x.sub == c.sub);
                                     let Some(spec_row) = spec_row else {
-                                        mismatches.push(format!("row {}{} not in ROWS", c.row, c.sub));
+                                        mismatches
+                                            .push(format!("row {}{} not in ROWS", c.row, c.sub));
                                         continue;
                                     };
                                     assert_eq!(
@@ -392,12 +479,16 @@ fn run(stride: u64) -> BTreeMap<String, u64> {
                                         && let Err(why) = may_accept(&e)
                                         && unsafe_accepts.len() < 20
                                     {
-                                        unsafe_accepts.push(format!("row {}{}: {why}", c.row, c.sub));
+                                        unsafe_accepts
+                                            .push(format!("row {}{}: {why}", c.row, c.sub));
                                     }
                                     if c.resume_from.is_some() && !r {
-                                        unsafe_accepts.push("resume_from without a valid RESUME".into());
+                                        unsafe_accepts
+                                            .push("resume_from without a valid RESUME".into());
                                     }
-                                    *stats.entry(format!("{:>2}{:<1}", c.row, c.sub)).or_default() += 1;
+                                    *stats
+                                        .entry(format!("{:>2}{:<1}", c.row, c.sub))
+                                        .or_default() += 1;
                                 }
                             }
                         }
@@ -406,10 +497,20 @@ fn run(stride: u64) -> BTreeMap<String, u64> {
             }
         }
     }
-    eprintln!("decision table: {n} combinations in the space, {checked} classified (stride {stride}), {panics} panics");
+    eprintln!(
+        "decision table: {n} combinations in the space, {checked} classified (stride {stride}), {panics} panics"
+    );
     assert_eq!(panics, 0, "classify panicked");
-    assert!(mismatches.is_empty(), "rows differ from the document's oracle:\n{}", mismatches.join("\n"));
-    assert!(unsafe_accepts.is_empty(), "unsafe acceptance:\n{}", unsafe_accepts.join("\n"));
+    assert!(
+        mismatches.is_empty(),
+        "rows differ from the document's oracle:\n{}",
+        mismatches.join("\n")
+    );
+    assert!(
+        unsafe_accepts.is_empty(),
+        "unsafe acceptance:\n{}",
+        unsafe_accepts.join("\n")
+    );
     stats.insert("_classified".into(), checked);
     stats
 }
