@@ -852,8 +852,8 @@ fn canonical_of(spec: &JobSpec, name: &str) -> Option<String> {
 }
 
 /// The C1 numeric-endpoint fixture: L3a (arity 9, chart 8 lines + 1 numerator) with 8 fully fixed ORIGINAL cases
-/// (order id: presented = original) under `--numeric-depth 0 --numeric-depth-max 2`. Every endpoint exhausts the
-/// depth-0 search; seven get a per-point rule at depth 1; the master I(1^8,0) stays exhausted through depth 2 and is
+/// (order id: presented = original) under `--numeric-depth 0 --numeric-depth-max 3`. Every endpoint exhausts the
+/// depth-0 search; seven get a per-point rule at depth 1; the master I(1^8,0) stays exhausted through depth 3 (its retries make it the slow endpoint) and is
 /// bulk-solved after the loop (one residual). The engine's numeric order puts the master 7th of 8, so a stop at the
 /// 8th endpoint, or after the loop, has an exhausted endpoint waiting for the shared solve (audit-engjob C1).
 const L3A_POINTS: [[i64; 9]; 8] = [
@@ -883,7 +883,7 @@ fn numeric_spec(root: &Path, job: &str) -> JobSpec {
             "--numeric-depth",
             "0",
             "--numeric-depth-max",
-            "2",
+            "3",
         ],
         &lines,
     )
@@ -892,7 +892,8 @@ fn numeric_spec(root: &Path, job: &str) -> JobSpec {
 /// audit-engjob C1 (REQUIRED TEST): interrupt the NUMERIC stage at several endpoints (graceful SIGTERM after the
 /// k-th numeric `case_started`, and a SIGKILL), resume, and require the final sealed table (and cert) to be
 /// canonically identical to the uninterrupted run. At least one interruption must land after the exhausted master
-/// (RESUME `engine.numeric_stage.exhausted` non-empty): the case the audit found broken.
+/// (RESUME `engine.numeric_stage.exhausted` non-empty): the case the audit found broken. `RR_DRILL_CANONICAL_ONLY=1`
+/// skips the checks of the new RESUME form (to run the drill against a binary from before the fix).
 #[test]
 #[ignore]
 fn numeric_stage_interrupted_and_resumed_equals_uninterrupted() {
@@ -953,6 +954,18 @@ fn numeric_stage_interrupted_and_resumed_equals_uninterrupted() {
         );
         let res = resume_json(&a);
         let stage = &res["engine"]["numeric_stage"];
+        if std::env::var_os("RR_DRILL_CANONICAL_ONLY").is_some() {
+            let b = resume_spec(&r, &a);
+            let (w2, _) = run_to_end(&b);
+            let same = w2 == WaitStatus::Exited(0) && canonical(&b) == want;
+            eprintln!(
+                "drill {k} (canonical only): RESUME current {} numerical {}; resumed {w2:?}; canonical identical: {same}",
+                res["current"],
+                res["numerical"].as_array().map_or(0, Vec::len)
+            );
+            landed.push((usize::from(same), 0, sig));
+            continue;
+        }
         assert!(
             stage.is_object(),
             "drill {k}: a numeric-stage RESUME carries engine.numeric_stage: {res}"
@@ -970,7 +983,9 @@ fn numeric_stage_interrupted_and_resumed_equals_uninterrupted() {
             res["numerical"].as_array().unwrap().len(),
             stage["exhausted"].as_array().unwrap().len(),
         );
-        if sig == libc::SIGTERM {
+        // a graceful stop (a safe point within stop_grace_s) seals F.subcases; a stop during a search longer than the
+        // grace is the hard-safe stop (RESUME of the last commit point, no sealed output)
+        if sig == libc::SIGTERM && outcome(&a).job.stop.graceful {
             assert_eq!(w, WaitStatus::Exited(30));
             // F.subcases of the stopped attempt: every open endpoint (not yet searched or exhausted) as kind numeric
             let sub = std::fs::read_to_string(RunLayout::new(&a.run_dir).subcases()).unwrap();
@@ -1009,6 +1024,13 @@ fn numeric_stage_interrupted_and_resumed_equals_uninterrupted() {
         );
     }
     eprintln!("landed (numerical left, exhausted, signal): {landed:?}");
+    if std::env::var_os("RR_DRILL_CANONICAL_ONLY").is_some() {
+        assert!(
+            landed.iter().all(|&(same, _, _)| same == 1),
+            "resumed tables differ from the uninterrupted one: {landed:?}"
+        );
+        return;
+    }
     assert!(
         landed.len() >= 4,
         "at least four interruptions inside the numeric stage: {landed:?}"
