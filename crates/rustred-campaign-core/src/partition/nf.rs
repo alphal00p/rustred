@@ -559,8 +559,19 @@ pub enum ModularRisk {
     /// Only at rule points whose variable `.0` equals one of the values `.1` (one-variable linear literals: the
     /// residue class is solved exactly); the record stops dispatch there (an exact superset of its undecided keys).
     Points(Vec<(usize, i128)>),
+    /// Only at rule points with `|pt[v]| >= r` for some listed `(v, r)` (a value bound: below that radius in every
+    /// variable the literal's primitive part stays below the prime modulus, so it vanishes modulo it only where it is
+    /// 0); the record stops dispatch on `fixed & constants & (pt_v >= r or pt_v <= -r)` (an over-approximation confined
+    /// to far keys).
+    Far(Vec<(usize, i128)>),
     /// Possibly anywhere on the record's fixed-slot / target-constant set (an over-approximation), with the reason.
     Anywhere(String),
+}
+
+/// The risk of one literal ([`literal_modular_risk`]).
+enum LitRisk {
+    Points(Vec<(usize, i128)>),
+    Far(Vec<(usize, i128)>),
 }
 
 /// `a * b mod m` for `a, b < m < 2^126` (double-and-add, every step checked; `None` never happens for such inputs).
@@ -578,13 +589,48 @@ fn mulmod(a: u128, b: u128, m: u128) -> Option<u128> {
     Some(r)
 }
 
+/// `sum |c| prod m[v]^e` of a polynomial in the slot variables (`None` on overflow).
+fn mpoly_bound(q: &MPoly, m: &[u128]) -> Option<u128> {
+    let mut acc: u128 = 0;
+    for (e, c) in &q.terms {
+        let mut t = c.unsigned_abs();
+        for (v, &x) in e.iter().enumerate() {
+            if x > 0 {
+                t = t.checked_mul(m.get(v)?.checked_pow(x)?)?;
+            }
+        }
+        acc = acc.checked_add(t)?;
+    }
+    Some(acc)
+}
+
+/// The factor criterion of [`literal_modular_risk`]: can every prime of `pm` (each of `p1`, `p2` not dividing the
+/// content) divide the primitive part of `f` at a reachable rule point without the value being 0? `true` when the
+/// factorisation is unavailable (conservative).
+fn factor_can_vanish(f: &Poly, m: &[u128], pm: u128, p1: u128, p2: u128) -> bool {
+    let Ok(q) = MPoly::from_poly(f, m.len(), false).and_then(|x| x.primitive()) else {
+        return true;
+    };
+    let (fs, rest) = linear_factors(&q).unwrap_or_else(|_| (vec![], q.clone()));
+    let reach = |p: u128| -> bool {
+        fs.iter()
+            .chain(std::iter::once(&rest))
+            .filter(|x| x.terms.len() >= 2)
+            .any(|x| mpoly_bound(x, m).is_none_or(|b| b >= p))
+    };
+    [p1, p2]
+        .into_iter()
+        .filter(|&p| pm.checked_rem(p) == Some(0))
+        .all(reach)
+}
+
 /// The risk of ONE literal `f` at rule points with `|pt[v]| <= m[v]` (every `m[v]` below both primes). With
 /// `f = g q` (`g` the content), `f(pt)` is a nonzero multiple of both primes iff `q(pt) != 0` and `q(pt)` vanishes
 /// modulo `pm` = the product of the primes NOT dividing `g`. So: `pm = 1` (both divide `g`): anywhere; `q` one
 /// monomial: never (a monomial vanishes modulo a prime larger than every |pt| only where it is 0); `sum |c_q| prod
 /// m^e < pm`: never; `q = a x + b` in one variable: exactly at the residue `x = -b / a (mod pm)` inside the box;
 /// otherwise anywhere.
-fn literal_modular_risk(f: &Poly, m: &[u128]) -> Result<Vec<(usize, i128)>, String> {
+fn literal_modular_risk(f: &Poly, m: &[u128]) -> Result<LitRisk, String> {
     let p1 = u128::from(ENGINE_PRIMES[0]);
     let p2 = u128::from(ENGINE_PRIMES[1]);
     if f.terms()
@@ -593,7 +639,7 @@ fn literal_modular_risk(f: &Poly, m: &[u128]) -> Result<Vec<(usize, i128)>, Stri
     {
         // a literal with d is not a valid case literal: the domain does not validate and the normal form excludes /
         // weakens it (a caveat in dispatch mode, a refusal of the minting preconditions)
-        return Ok(vec![]);
+        return Ok(LitRisk::Points(vec![]));
     }
     let mut g: u128 = 0;
     for (_, c) in f.terms() {
@@ -607,7 +653,7 @@ fn literal_modular_risk(f: &Poly, m: &[u128]) -> Result<Vec<(usize, i128)>, Stri
         g = a;
     }
     if g == 0 {
-        return Ok(vec![]); // the zero polynomial: exactly zero everywhere
+        return Ok(LitRisk::Points(vec![])); // the zero polynomial: exactly zero everywhere
     }
     let mut pm: u128 = 1;
     for p in [p1, p2] {
@@ -628,46 +674,83 @@ fn literal_modular_risk(f: &Poly, m: &[u128]) -> Result<Vec<(usize, i128)>, Stri
         .collect::<Option<_>>()
         .ok_or_else(|| format!("literal {f}: content division"))?;
     if q.len() <= 1 {
-        return Ok(vec![]);
+        return Ok(LitRisk::Points(vec![]));
     }
+    // sum |c_q| prod m^e (saturating: an overflow only means "at least the modulus")
     let mut bound: u128 = 0;
     for (mo, c) in &q {
         let mut t = c.unsigned_abs();
         for &(v, e) in mo.iter() {
-            if v == D_VAR {
-                return Err(format!("literal {f}: contains d"));
-            }
             let mv = *m
                 .get(usize::from(v))
                 .ok_or_else(|| format!("literal {f}: variable beyond the arity"))?;
             t = mv
                 .checked_pow(e)
                 .and_then(|x| t.checked_mul(x))
-                .ok_or_else(|| format!("literal {f}: value bound overflows u128"))?;
+                .unwrap_or(u128::MAX);
         }
-        bound = bound
-            .checked_add(t)
-            .ok_or_else(|| format!("literal {f}: value bound overflows u128"))?;
+        bound = bound.saturating_add(t);
     }
     if bound < pm {
-        return Ok(vec![]);
+        return Ok(LitRisk::Points(vec![]));
     }
-    // one-variable linear primitive part a x + b
+    // FACTOR criterion (also necessary): with q = prod l_i * r (exact linear factors l_i, cofactor r), a prime p
+    // divides q(pt) iff it divides some l_i(pt) or r(pt); a factor whose value bound stays below p (or a one-monomial
+    // cofactor) is divisible by p only where it is 0, i.e. where q(pt) = 0. So each prime of pm must be reachable by a
+    // "large" factor; products of small linear factors (high-degree exception members of real tables) never are.
+    if !factor_can_vanish(f, m, pm, p1, p2) {
+        return Ok(LitRisk::Points(vec![]));
+    }
+    // one-variable linear primitive part a x + b: the residue is solved exactly; anything else: the far radius
     let mut var: Option<(usize, i128)> = None;
     let mut b: i128 = 0;
+    let mut linear = true;
     for (mo, c) in &q {
         match mo.as_slice() {
             [] => b = *c,
             [(v, 1)] if var.is_none() => var = Some((usize::from(*v), *c)),
-            _ => {
-                return Err(format!(
-                    "literal {f} can reach a nonzero multiple of the engine prime product"
-                ));
-            }
+            _ => linear = false,
         }
     }
+    if !linear {
+        // smallest r with sum |c_q| r^deg >= pm: below r in every variable |q(pt)| < pm (no nonzero multiple)
+        let at = |r: u128| -> u128 {
+            let mut acc: u128 = 0;
+            for (mo, c) in &q {
+                let deg: u32 = mo.iter().map(|&(_, e)| e).sum();
+                let t = r
+                    .checked_pow(deg)
+                    .and_then(|x| x.checked_mul(c.unsigned_abs()));
+                acc = match t.and_then(|t| acc.checked_add(t)) {
+                    Some(a) => a,
+                    None => return u128::MAX,
+                };
+            }
+            acc
+        };
+        let (mut lo, mut hi): (u128, u128) = (1, 1u128 << 62);
+        if at(hi) < pm {
+            return Ok(LitRisk::Points(vec![])); // out of every reachable range
+        }
+        while lo < hi {
+            let mid = lo.saturating_add(hi.saturating_sub(lo).checked_div(2).unwrap_or(0));
+            if at(mid) >= pm {
+                hi = mid;
+            } else {
+                lo = mid.saturating_add(1);
+            }
+        }
+        let r = i128::try_from(lo).map_err(|_| format!("literal {f}: radius"))?;
+        let mut vars: Vec<usize> = q
+            .iter()
+            .flat_map(|(mo, _)| mo.iter().map(|&(v, _)| usize::from(v)))
+            .collect();
+        vars.sort_unstable();
+        vars.dedup();
+        return Ok(LitRisk::Far(vars.into_iter().map(|v| (v, r)).collect()));
+    }
     let Some((v, a)) = var else {
-        return Ok(vec![]);
+        return Ok(LitRisk::Points(vec![]));
     };
     let pmi = i128::try_from(pm).map_err(|_| format!("literal {f}: modulus"))?;
     let am = a
@@ -675,7 +758,7 @@ fn literal_modular_risk(f: &Poly, m: &[u128]) -> Result<Vec<(usize, i128)>, Stri
         .ok_or_else(|| format!("literal {f}: residue"))?;
     let (gg, inv, _) = super::exact::ext_gcd(am, pmi).map_err(|e| format!("literal {f}: {e}"))?;
     if gg != 1 {
-        return Ok(vec![]); // a prime of pm divides a but not b (gcd(a, b) = 1): never a multiple
+        return Ok(LitRisk::Points(vec![])); // a prime of pm divides a but not b (gcd(a, b) = 1): never a multiple
     }
     let nb = b
         .checked_neg()
@@ -694,7 +777,7 @@ fn literal_modular_risk(f: &Poly, m: &[u128]) -> Result<Vec<(usize, i128)>, Stri
             out.push((v, x));
         }
     }
-    Ok(out)
+    Ok(LitRisk::Points(out))
 }
 
 /// Can the ENGINE's modular zero test (a value is zero iff it vanishes modulo both `ENGINE_PRIMES`) disagree with the
@@ -740,11 +823,31 @@ pub fn modular_risk(d: &CaseDomain) -> Option<ModularRisk> {
         }
     };
     let mut points: Vec<(usize, i128)> = vec![];
+    let mut far: Vec<(usize, i128)> = vec![];
     for f in d.equations.iter().chain(d.exceptions.iter().flatten()) {
         match literal_modular_risk(f, &m) {
-            Ok(p) => points.extend(p),
+            Ok(LitRisk::Points(p)) => points.extend(p),
+            Ok(LitRisk::Far(p)) => far.extend(p),
             Err(why) => return Some(ModularRisk::Anywhere(why)),
         }
+    }
+    if !far.is_empty() {
+        // one radius per variable (the smallest), points absorbed by the far pieces only if beyond the radius
+        far.sort_unstable();
+        far.dedup_by(|a, b| a.0 == b.0);
+        let pts: Vec<(usize, i128)> = points
+            .into_iter()
+            .filter(|(v, x)| {
+                !far.iter()
+                    .any(|(w, r)| w == v && x.unsigned_abs() >= r.unsigned_abs())
+            })
+            .collect();
+        if !pts.is_empty() {
+            return Some(ModularRisk::Anywhere(format!(
+                "exact residue points {pts:?} together with far radii {far:?}"
+            )));
+        }
+        return Some(ModularRisk::Far(far));
     }
     points.sort_unstable();
     points.dedup();
@@ -756,6 +859,9 @@ pub fn modular_zero_risk(d: &CaseDomain) -> Option<String> {
     modular_risk(d).map(|r| match r {
         ModularRisk::Points(p) => format!(
             "the engine's modular zero test may differ at the rule points {p:?} (variable, value)"
+        ),
+        ModularRisk::Far(p) => format!(
+            "the engine's modular zero test may differ only far out: some |pt[v]| >= r for (v, r) in {p:?}"
         ),
         ModularRisk::Anywhere(w) => w,
     })
@@ -940,6 +1046,41 @@ pub fn build(
                     rule: fc.clone(),
                     why: StopWhy::ModularZeroRisk(why),
                 });
+            }
+            Some(ModularRisk::Far(radii)) => {
+                note(
+                    &mut notes,
+                    NfNote::ModularZeroRisk(format!("far radii {radii:?}")),
+                );
+                for (v, r) in radii {
+                    let why = StopWhy::ModularZeroRisk(format!("|rule point n{v}| >= {r}"));
+                    for sign in [1i128, -1] {
+                        // sign * pt_v - r >= 0, in the key's variables
+                        let lit = MPoly::var(arity, v)
+                            .scale(sign)
+                            .and_then(|p| p.sub(&MPoly::constant(arity, r)))
+                            .and_then(|p| match &map {
+                                None => Ok(p),
+                                Some(mm) => p.compose(mm, arity),
+                            });
+                        match lit.map(|p| b.try_intern(&p, true)) {
+                            Ok(Ok(Ok(Norm::Lit(l)))) => {
+                                let mut piece = fc.clone();
+                                piece.ge.push(l);
+                                extra.push(StopPiece {
+                                    rule: piece,
+                                    why: why.clone(),
+                                });
+                            }
+                            Ok(Ok(Ok(Norm::NonZeroConst))) => {} // never that far
+                            Ok(Err(e)) => return Err(e),
+                            _ => extra.push(StopPiece {
+                                rule: fc.clone(),
+                                why: why.clone(),
+                            }),
+                        }
+                    }
+                }
             }
             Some(ModularRisk::Points(pts)) => {
                 note(
