@@ -636,7 +636,7 @@ fn t_domain_t162() {
 
 /// (a1) measured 2026-11-14 on the converted set 20261114c (int4): keys whose selected record carries no witness loci
 /// (blocked by the core) and keys where both select the same rule.
-const T162_WITNESS_NOT_CARRIED: (usize, usize) = (0, 0);
+const T162_WITNESS_NOT_CARRIED: (usize, usize) = (54_712, 2);
 
 /// (b) every T178 order-B piece as its own table, 10,000 box keys each; the raw table's domains equal the case
 /// export the core's T2 reads, record by record.
