@@ -13,9 +13,8 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::error::{ImportError, io_err};
-use super::lines::{
-    RawRecord, RawTable, parse_key_text, read_sha256sums, scan_table, scan_table_each, verify_file,
-};
+use super::index::{IndexOrigin, TableIndex, open_or_build};
+use super::lines::{RawRecord, RawTable, parse_key_text, read_sha256sums, scan_table, verify_file};
 use super::spec::{
     DomainMode, HandName, SourceKind, SourceSpec, StartFormat, TableSetSpec, resolve,
 };
@@ -91,6 +90,8 @@ pub struct SuppliedInfo {
     pub verification_sha256: Option<String>,
     /// `verify`: the re-derivation from the verified group at the key (None: not asked).
     pub check: Option<RelationCheck>,
+    /// From a `diagnostic` (keys-only) source: followed, never certified.
+    pub diagnostic: bool,
 }
 
 /// One relation-set entry of the dispatch (in spec order).
@@ -124,6 +125,19 @@ pub struct SourceReport {
     /// `supplied_relations.verify`: relations verified / not verified by re-derivation from the verified group.
     pub relations_verified: usize,
     pub relations_not_verified: Vec<(Vec<i32>, String)>,
+    /// Table sources: how each file's index was obtained (one pass over the table, or a reused index; NOT
+    /// identifying: a reused index carries the file sha256 recorded when it was built, see `import::index`). Never
+    /// serialized into the canonical statement (it holds timings); callers put it into their timing record.
+    #[serde(skip_serializing)]
+    pub indexes: Vec<IndexOrigin>,
+}
+
+/// Options of [`load_with`] (not part of the spec: they never change a result).
+#[derive(Clone, Debug, Default)]
+pub struct LoadOptions {
+    /// Directory of the persistent table indexes (`import::index`): an index is reused when the table's path, size,
+    /// mtime and sampled digest match; `None` = a private temporary index per table file (one pass all the same).
+    pub index_dir: Option<PathBuf>,
 }
 
 /// The load report.
@@ -248,9 +262,22 @@ struct FileUnit {
     expected_sha: Option<String>,
 }
 
-/// Load the spec. Relative paths resolve against `base`.
+/// Load the spec. Relative paths resolve against `base`. (= [`load_with`] with default options: temporary indexes.)
 pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError> {
+    load_with(spec, base, &LoadOptions::default())
+}
+
+/// Load the spec with [`LoadOptions`]. Every table file is read through its index (`import::index`): ONE streaming
+/// pass over a table that has no valid index (domains + sha256 digests + rhs keys), none over a table whose index is
+/// reused; the bodies are then read from the index.
+pub fn load_with(
+    spec: &TableSetSpec,
+    base: &Path,
+    lopts: &LoadOptions,
+) -> Result<ImportedSet, ImportError> {
     let spec_digest = spec.digest();
+    // open table indexes by file (kept for the body pass)
+    let mut indexes: BTreeMap<PathBuf, TableIndex> = BTreeMap::new();
     // ---- the frame: the first file of `frame_from`
     let fsrc = spec
         .sources
@@ -327,7 +354,16 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
                 let mut first_table_name: Option<String> = None;
                 for u in &units {
                     let want: Option<Vec<i64>> = src.records.clone();
-                    let raw = scan_table(&src.id, &u.path, false, &|_, _| true)?;
+                    let (idx, origin) =
+                        open_or_build(&src.id, &u.path, lopts.index_dir.as_deref())?;
+                    rep.indexes.push(origin);
+                    let mut recs = vec![];
+                    let mut raw = idx.scan_domains(&src.id, &|_, _| true, &mut |r| {
+                        recs.push(r);
+                        Ok(())
+                    })?;
+                    raw.records = recs;
+                    indexes.insert(u.path.clone(), idx);
                     let sha = format!("sha256:{}", raw.file_sha256);
                     if let Some(e) = &u.expected_sha {
                         let e = e.trim_start_matches("sha256:");
@@ -613,33 +649,29 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
             }
         }
         let src_id = &body_plan[ts[0]].1;
-        scan_table_each(
-            src_id,
-            path,
-            true,
-            &|o, _| want.contains_key(&o),
-            &mut |r| {
-                let (sha, places) = &want[&r.ordinal];
-                if *sha != r.sha256 {
-                    return Err(ImportError::Source {
-                        source: src_id.clone(),
-                        msg: format!(
-                            "{} changed between the passes (record {})",
-                            path.display(),
-                            r.ordinal
-                        ),
-                    });
-                }
-                let rhs = r.rec.rhs_keys.as_deref().unwrap_or(&[]);
-                for &(t, k) in places {
-                    bodies.set(&disp, t, k, rhs).map_err(|e| {
-                        ImportError::Core(format!("bodies of {}: {e:?}", disp.tables()[t].name))
-                    })?;
-                }
-                Ok(())
-            },
-        )?;
+        let idx = indexes.get(path).ok_or_else(|| {
+            ImportError::Core(format!("no index for {}", path.display()))
+        })?;
+        idx.scan_bodies(&|o| want.contains_key(&o), &mut |o, rsha, rhs| {
+            let (sha, places) = &want[&o];
+            if *sha != rsha {
+                return Err(ImportError::Source {
+                    source: src_id.clone(),
+                    msg: format!(
+                        "index of {}: body of record {o} has sha256 {rsha}, its domain entry {sha}",
+                        path.display()
+                    ),
+                });
+            }
+            for &(t, k) in places {
+                bodies.set(&disp, t, k, &rhs).map_err(|e| {
+                    ImportError::Core(format!("bodies of {}: {e:?}", disp.tables()[t].name))
+                })?;
+            }
+            Ok(())
+        })?;
     }
+    drop(indexes);
     for t in 0..disp.tables().len() {
         let with = bodies.count_with_body(t);
         if with != disp.tables()[t].len() {
@@ -1217,6 +1249,8 @@ fn load_supplied(
                 .relations_not_verified
                 .push((key.clone(), format!("{c:?}"))),
             None if ver.is_some() => bits |= VERDICT_EXACT,
+            // a DIAGNOSTIC keys-only relation is followed as if exact (never certified: see check)
+            None if src.diagnostic => bits |= VERDICT_EXACT,
             None => {}
         }
         b.push(&key, &rhs, digest, bits)
@@ -1237,6 +1271,7 @@ fn load_supplied(
                     .map(|h| hand_name(h, &src.id, None, r, label.unwrap_or(r.ordinal as i64))),
                 verification_sha256: ver.clone(),
                 check,
+                diagnostic: src.diagnostic,
             },
         );
     }

@@ -1560,3 +1560,94 @@ fn big_exception_literals_load_and_dispatch_exactly() {
     assert!(!p.is_zero_at(&[3, 1, 0]).unwrap());
     assert_eq!(p.to_string(), format!("-{}+{big}*n0", "246913578024691357802469135780246913578024690"));
 }
+
+/// Lane import3 (item 2): the table index. One pass builds it (domains + digests + rhs keys); the records read back
+/// from it equal a direct scan field by field (record_sha256 of the ORIGINAL line, offset, bytes, domain fields,
+/// rhs keys, file sha256); a second open REUSES it (size, mtime, sampled digest unchanged); a changed file is
+/// re-indexed; a load through a persistent index gives the same check as a load without one.
+#[test]
+fn table_index_one_pass_reuse_and_equality() {
+    use import::index::{INDEX_VERSION, open_or_build};
+    use import::lines::scan_table;
+    let d = scratch("index");
+    let mut spec = base(&d);
+    let a = d.join("A.table.jsonl");
+    // a second, larger record (with origin / domain_bounds fields) and a non-rule line between the records
+    let mut txt = std::fs::read_to_string(&a).unwrap();
+    let extra = rule(
+        7,
+        [None, None, Some(0)],
+        &["I(n0-1,n1,0)", "I(n0,n1-1,0)", "I(2,1,0)"],
+        None,
+        json!({"origin":"tb-x","origin_index":4,"domain_bounds":{"min":[2,null,null],"max":null}}),
+    );
+    txt = txt.replace(
+        r#"{"type":"end""#,
+        &format!("{{\"type\":\"residual\",\"key\":[1,1,0]}}\n\n{extra}\n{{\"type\":\"end\""),
+    );
+    std::fs::write(&a, &txt).unwrap();
+    spec["sources"][0]["sha256"] = json!(sha(&a));
+    let direct = scan_table("A", &a, true, &|_, _| true).unwrap();
+    let cache = d.join("idx");
+    let (ix, o1) = open_or_build("A", &a, Some(&cache)).unwrap();
+    assert_eq!(o1.how, "built");
+    assert_eq!(ix.meta.version, INDEX_VERSION);
+    assert_eq!(ix.meta.file_sha256, direct.file_sha256);
+    assert_eq!(ix.meta.rule_records, 2);
+    let mut recs = vec![];
+    let t = ix
+        .scan_domains("A", &|_, _| true, &mut |r| {
+            recs.push(r);
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(t.kinds, direct.kinds);
+    assert_eq!(t.file_sha256, direct.file_sha256);
+    assert_eq!(t.file_bytes, direct.file_bytes);
+    assert_eq!(recs.len(), direct.records.len());
+    for (x, y) in recs.iter().zip(&direct.records) {
+        assert_eq!(
+            (x.ordinal, x.line_no, x.offset, x.bytes, &x.sha256),
+            (y.ordinal, y.line_no, y.offset, y.bytes, &y.sha256)
+        );
+        assert_eq!((&x.origin, x.origin_index, &x.domain_bounds), (&y.origin, y.origin_index, &y.domain_bounds));
+        let mut yr = y.rec.clone();
+        yr.rhs_keys = None;
+        assert_eq!(x.rec, yr, "domain fields");
+    }
+    let mut bodies = vec![];
+    ix.scan_bodies(&|_| true, &mut |o, s, k| {
+        bodies.push((o, s.to_string(), k));
+        Ok(())
+    })
+    .unwrap();
+    for (b, y) in bodies.iter().zip(&direct.records) {
+        assert_eq!((b.0, &b.1, Some(&b.2)), (y.ordinal, &y.sha256, y.rec.rhs_keys.as_ref()));
+    }
+    drop(ix);
+    let (ix2, o2) = open_or_build("A", &a, Some(&cache)).unwrap();
+    assert_eq!(o2.how, "reused");
+    assert_eq!(ix2.meta.file_sha256, direct.file_sha256);
+    drop(ix2);
+    // the persistent-index load equals the temporary-index load
+    let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
+    let opts = import::LoadOptions {
+        index_dir: Some(cache.clone()),
+    };
+    let set1 = import::load_with(&s, &d, &opts).unwrap();
+    assert_eq!(set1.report.sources[0].indexes[0].how, "reused");
+    let set0 = load(&s, &d).unwrap();
+    assert_eq!(set0.report.sources[0].indexes[0].how, "built_temporary");
+    let ev = Evidence::from_spec(&set0, &d).unwrap();
+    let r0 = check(&set0, &ev, &CheckOptions::default()).unwrap();
+    let ev1 = Evidence::from_spec(&set1, &d).unwrap();
+    let r1 = check(&set1, &ev1, &CheckOptions::default()).unwrap();
+    assert_eq!(r0.key_set_digest, r1.key_set_digest);
+    assert_eq!(r0.counts(), r1.counts());
+    // a changed file (same size, other bytes and mtime) is indexed again
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(&a, txt.replace("\"origin_index\":4", "\"origin_index\":5")).unwrap();
+    let (ix3, o3) = open_or_build("A", &a, Some(&cache)).unwrap();
+    assert_eq!(o3.how, "built");
+    assert_ne!(ix3.meta.file_sha256, direct.file_sha256);
+}

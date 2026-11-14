@@ -54,6 +54,8 @@ pub struct RawRecord {
     pub rhs_sha256: Option<String>,
     /// Raw `kind` field of the record (e.g. "symmetry-one-term"), informational.
     pub record_kind: Option<String>,
+    /// Byte span of the `rhs` value inside the line as read (informational; the index replaces it).
+    pub rhs_span: Option<(usize, usize)>,
 }
 
 /// A scanned table file.
@@ -141,25 +143,18 @@ pub fn scan_table_each(
     let f = std::fs::File::open(path).map_err(|e| io_err(path, e))?;
     let mut rd = BufReader::with_capacity(1 << 20, f);
     let mut file_h = Sha256::new();
-    let opts = ReadOptions {
-        rhs: if want_rhs {
+    let mut sc = LineScanner::new(
+        source,
+        path,
+        if want_rhs {
             RhsMode::KeysOnly
         } else {
             RhsMode::Skip
         },
-    };
-    let lerr = |line: usize, msg: String| ImportError::Line {
-        source: source.to_string(),
-        path: path.display().to_string(),
-        line,
-        msg,
-    };
-    let mut header: Option<TableHeader> = None;
-    let mut charts = vec![];
-    let mut n_records = 0usize;
-    let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
+        true,
+    );
     let mut buf: Vec<u8> = Vec::with_capacity(1 << 16);
-    let (mut offset, mut line_no, mut ordinal) = (0u64, 0usize, 0usize);
+    let (mut offset, mut line_no) = (0u64, 0usize);
     loop {
         buf.clear();
         let n = rd
@@ -172,73 +167,161 @@ pub fn scan_table_each(
         line_no += 1;
         let start = offset;
         offset += n as u64;
-        let body: &[u8] = if buf.last() == Some(&b'\n') {
-            &buf[..buf.len() - 1]
-        } else {
-            &buf[..]
-        };
-        if body.iter().all(|c| c.is_ascii_whitespace()) {
-            continue;
+        let body = line_body(&buf);
+        if let Fed::Rule(r) = sc.feed(body, line_no, start, body.len() as u64, None, keep)? {
+            visit(*r)?;
         }
-        let parsed = RecordReader::new(Cursor::new(body), opts)
+    }
+    sc.finish(file_h.finish_hex(), offset)
+}
+
+/// The line without its trailing newline.
+pub fn line_body(buf: &[u8]) -> &[u8] {
+    if buf.last() == Some(&b'\n') {
+        &buf[..buf.len() - 1]
+    } else {
+        buf
+    }
+}
+
+/// What one fed line was.
+pub enum Fed {
+    Blank,
+    Header,
+    Chart,
+    /// A known non-rule kind (counted).
+    Other(String),
+    /// A rule record that `keep` accepted.
+    Rule(Box<RawRecord>),
+    /// A rule record that `keep` refused (counted in the ordinals, not returned).
+    RuleNotKept,
+}
+
+/// Per-line state of a table scan, shared by the direct file scan ([`scan_table_each`]) and the table index
+/// ([`super::index`]): the same parse, the same refusals, the same record fields whatever the line's origin.
+pub struct LineScanner<'a> {
+    source: &'a str,
+    path: &'a Path,
+    opts: ReadOptions,
+    rhs_digest: bool,
+    header: Option<TableHeader>,
+    charts: Vec<(String, Vec<String>)>,
+    kinds: BTreeMap<String, usize>,
+    n_records: usize,
+    ordinal: usize,
+}
+
+impl<'a> LineScanner<'a> {
+    /// `rhs_digest`: compute `rhs_sha256` (the raw rhs text digest, needed by supplied relations only).
+    pub fn new(source: &'a str, path: &'a Path, rhs: RhsMode, rhs_digest: bool) -> Self {
+        LineScanner {
+            source,
+            path,
+            opts: ReadOptions { rhs },
+            rhs_digest,
+            header: None,
+            charts: vec![],
+            kinds: BTreeMap::new(),
+            n_records: 0,
+            ordinal: 0,
+        }
+    }
+    fn lerr(&self, line: usize, msg: String) -> ImportError {
+        ImportError::Line {
+            source: self.source.to_string(),
+            path: self.path.display().to_string(),
+            line,
+            msg,
+        }
+    }
+    /// Count one known non-rule line kind without its text (index reader).
+    pub fn count_kind(&mut self, line_no: usize, kind: &str) -> Result<(), ImportError> {
+        if !KNOWN_KINDS.contains(&kind) {
+            return Err(self.lerr(line_no, format!("line kind {kind:?} is not a table line")));
+        }
+        *self.kinds.entry(kind.to_string()).or_default() += 1;
+        Ok(())
+    }
+    /// One line. `body`: the line without its newline (for an index entry: the stored payload); `bytes`: the
+    /// ORIGINAL line length without newline; `sha`: the original line's sha256 hex when already known, else it is
+    /// computed from `body`.
+    pub fn feed(
+        &mut self,
+        body: &[u8],
+        line_no: usize,
+        offset: u64,
+        bytes: u64,
+        sha: Option<String>,
+        keep: &dyn Fn(usize, Option<i64>) -> bool,
+    ) -> Result<Fed, ImportError> {
+        if body.iter().all(|c| c.is_ascii_whitespace()) {
+            return Ok(Fed::Blank);
+        }
+        let parsed = RecordReader::new(Cursor::new(body), self.opts)
             .next()
-            .ok_or_else(|| lerr(line_no, "empty line".into()))?
-            .map_err(|e| lerr(line_no, e.to_string()))?;
+            .ok_or_else(|| self.lerr(line_no, "empty line".into()))?
+            .map_err(|e| self.lerr(line_no, e.to_string()))?;
         match parsed {
             TableLine::Header(h) => {
-                if header.is_some() || n_records > 0 || ordinal > 0 || !charts.is_empty() {
-                    return Err(lerr(
+                if self.header.is_some()
+                    || self.n_records > 0
+                    || self.ordinal > 0
+                    || !self.charts.is_empty()
+                {
+                    return Err(self.lerr(
                         line_no,
                         "a second header or a header after records".into(),
                     ));
                 }
-                header = Some(*h);
+                self.header = Some(*h);
+                Ok(Fed::Header)
             }
             TableLine::Chart { chart, guards } => {
-                *kinds.entry("chart".into()).or_default() += 1;
-                charts.push((chart, guards));
+                *self.kinds.entry("chart".into()).or_default() += 1;
+                self.charts.push((chart, guards));
+                Ok(Fed::Chart)
             }
             TableLine::Other { kind } => {
-                if !KNOWN_KINDS.contains(&kind.as_str()) {
-                    return Err(lerr(
-                        line_no,
-                        format!("line kind {kind:?} is not a table line"),
-                    ));
-                }
-                *kinds.entry(kind).or_default() += 1;
+                self.count_kind(line_no, &kind)?;
+                Ok(Fed::Other(kind))
             }
             TableLine::Rule(r) => {
-                if header.is_none() {
-                    return Err(lerr(line_no, "rule record before the header".into()));
+                if self.header.is_none() {
+                    return Err(self.lerr(line_no, "rule record before the header".into()));
                 }
                 let mut rec = *r;
                 rec.line_no = line_no;
-                let this = ordinal;
-                ordinal += 1;
-                let mut h = Sha256::new();
-                h.update(body);
-                let sha = h.finish_hex();
+                let this = self.ordinal;
+                self.ordinal += 1;
                 if !keep(this, rec.index) {
-                    continue;
+                    return Ok(Fed::RuleNotKept);
                 }
+                let sha = match sha {
+                    Some(s) => s,
+                    None => {
+                        let mut h = Sha256::new();
+                        h.update(body);
+                        h.finish_hex()
+                    }
+                };
                 let spans = top_level_spans(
                     body,
                     &["domain_bounds", "origin", "origin_index", "rhs", "kind"],
                 )
-                .map_err(|m| lerr(line_no, m))?;
+                .map_err(|m| self.lerr(line_no, m))?;
                 let val = |k: &str| -> Result<Option<Value>, ImportError> {
                     match spans.get(k) {
                         None => Ok(None),
                         Some(&(a, b)) => serde_json::from_slice(&body[a..b])
                             .map(Some)
-                            .map_err(|e| lerr(line_no, format!("field {k}: {e}"))),
+                            .map_err(|e| self.lerr(line_no, format!("field {k}: {e}"))),
                     }
                 };
                 let domain_bounds = match val("domain_bounds")? {
                     None | Some(Value::Null) => None,
-                    Some(v) => {
-                        Some(parse_bounds(&v, rec.fixed.len()).map_err(|m| lerr(line_no, m))?)
-                    }
+                    Some(v) => Some(
+                        parse_bounds(&v, rec.fixed.len()).map_err(|m| self.lerr(line_no, m))?,
+                    ),
                 };
                 let origin = val("origin")?.and_then(|v| match v {
                     Value::String(s) => Some(s),
@@ -247,17 +330,18 @@ pub fn scan_table_each(
                 });
                 let origin_index = val("origin_index")?.and_then(|v| v.as_i64());
                 let record_kind = val("kind")?.and_then(|v| v.as_str().map(str::to_string));
-                let rhs_sha256 = spans.get("rhs").map(|&(a, b)| {
+                let rhs_span = spans.get("rhs").copied();
+                let rhs_sha256 = rhs_span.filter(|_| self.rhs_digest).map(|(a, b)| {
                     let mut h = Sha256::new();
                     h.update(&body[a..b]);
                     h.finish_hex()
                 });
-                n_records += 1;
-                visit(RawRecord {
+                self.n_records += 1;
+                Ok(Fed::Rule(Box::new(RawRecord {
                     ordinal: this,
                     line_no,
-                    offset: start,
-                    bytes: body.len() as u64,
+                    offset,
+                    bytes,
                     sha256: sha,
                     rec,
                     domain_bounds,
@@ -265,19 +349,30 @@ pub fn scan_table_each(
                     origin_index,
                     rhs_sha256,
                     record_kind,
-                })?;
+                    rhs_span,
+                })))
             }
         }
     }
-    let header = header.ok_or_else(|| lerr(0, "file without header".into()))?;
-    Ok(RawTable {
-        header,
-        charts,
-        records: vec![],
-        kinds,
-        file_sha256: file_h.finish_hex(),
-        file_bytes: offset,
-    })
+    /// The scanned table (without records): header required.
+    pub fn finish(self, file_sha256: String, file_bytes: u64) -> Result<RawTable, ImportError> {
+        let header = self
+            .header
+            .ok_or_else(|| ImportError::Line {
+                source: self.source.to_string(),
+                path: self.path.display().to_string(),
+                line: 0,
+                msg: "file without header".into(),
+            })?;
+        Ok(RawTable {
+            header,
+            charts: self.charts,
+            records: vec![],
+            kinds: self.kinds,
+            file_sha256,
+            file_bytes,
+        })
+    }
 }
 
 fn parse_bounds(v: &Value, n: usize) -> Result<DomainBounds, String> {

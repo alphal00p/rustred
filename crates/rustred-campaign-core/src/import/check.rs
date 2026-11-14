@@ -26,6 +26,9 @@ pub const BASIS_SYMMETRY_RELATION: &str = "symmetry_relation";
 /// Basis word of a key served through the per-key lift (elided / witness-absent record + bound per-key proof).
 pub const BASIS_PER_KEY_PROOF: &str = "per_key_proof";
 
+/// Basis word of a key served by a DIAGNOSTIC keys-only relation (an external checker's; never certified).
+pub const BASIS_KEYS_ONLY_DIAGNOSTIC: &str = "keys_only_relation_diagnostic";
+
 /// Options of a check (never part of a result's identity except `tier`).
 #[derive(Clone, Debug)]
 pub struct CheckOptions {
@@ -163,6 +166,8 @@ pub struct CheckResult {
     pub recipe_binary_unpinned: bool,
     /// The DIAGNOSTIC policy `witness_check: off_diagnostic` was used (nothing is certified).
     pub witness_unchecked: bool,
+    /// Some source is a DIAGNOSTIC keys-only relation set (its keys are followed, never certified).
+    pub keys_only_diagnostic: bool,
     pub seconds: f64,
     pub key_set_digest: String,
     pub required: Level,
@@ -536,14 +541,16 @@ fn check_inner(
             let name: String = w.map(|w| w.table).unwrap_or_default();
             let recipe = recipe_names.contains(&name);
             row.status = RowStatus::Served;
-            let verified_relation = set
-                .supplied_info
-                .get(&name)
-                .and_then(|m| m.get(&row.key))
+            let sinfo = set.supplied_info.get(&name).and_then(|m| m.get(&row.key));
+            let verified_relation = sinfo
                 .and_then(|i| i.check.as_ref())
                 .is_some_and(|c| c.verified());
+            let diagnostic = sinfo.is_some_and(|i| i.diagnostic);
             row.server = Some(Server::Relation { set: name, recipe });
-            if recipe {
+            if diagnostic {
+                row.evidence = None;
+                row.basis = Some(BASIS_KEYS_ONLY_DIAGNOSTIC);
+            } else if recipe {
                 row.evidence = Some(Level::PerKey);
                 row.basis = Some("recipe_certified");
             } else if verified_relation {
@@ -756,6 +763,11 @@ fn check_inner(
         solve_refusals,
         recipe_binary_unpinned: unpinned,
         witness_unchecked: set.spec.policies.witness_check != super::spec::WitnessCheck::On,
+        keys_only_diagnostic: set
+            .spec
+            .sources
+            .iter()
+            .any(|s| s.diagnostic),
         seconds: t0.elapsed().as_secs_f64(),
         key_set_digest,
         required,
@@ -816,6 +828,9 @@ impl CheckResult {
         }
         if self.witness_unchecked {
             b.push("witness_check_off_diagnostic".into());
+        }
+        if self.keys_only_diagnostic {
+            b.push("keys_only_relations_diagnostic".into());
         }
         b
     }

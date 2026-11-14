@@ -13,6 +13,7 @@ pub mod check;
 pub mod error;
 pub mod evidence;
 pub mod factpass;
+pub mod index;
 pub mod lines;
 pub mod load;
 pub mod recipe_steps;
@@ -23,7 +24,7 @@ pub mod symmetry;
 pub use check::{CheckOptions, CheckResult, KeyRow, RowStatus, Server, SolveRequest, check};
 pub use error::ImportError;
 pub use evidence::{Evidence, EvidenceCounts};
-pub use load::{ImportedSet, LoadReport, RuleInfo, WitnessKind, load};
+pub use load::{ImportedSet, LoadOptions, LoadReport, RuleInfo, WitnessKind, load, load_with};
 pub use spec::{HandFormat, Level, TableSetSpec};
 pub use statement::{
     Comparison, DiffKind, HandStatement, compare, read_hand_statement, write_statement,
