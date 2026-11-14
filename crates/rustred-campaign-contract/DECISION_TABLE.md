@@ -17,6 +17,9 @@ order of `ROWS`.
 | 6 | c=10, O, S, stop not_lower | crashed | nothing | attention |
 | 28 | c=10, O, S, kind solve-recipe, stop keys_unsolved, accepted relation records >= 1 | rule_found | solved_records | queue_failures |
 | 29 | c=10, O, S, kind solve-recipe, stop keys_unsolved, no accepted relation record | no_rule | nothing | queue_failures |
+| 30 | c=0, O, S, kind node-basis (diagnostic kind: sealed records sample / dim / end) | complete | diagnostic_records | item_done |
+| 31 | c=0, O, S, kind solve-recipe run with --probe-d (probe records only), every key answered (EXISTS_AT_D0 / EXISTS_ONLY_AT_D0 / NO_RELATION_AT_D0 / D0_SINGULAR_ROWS) | complete | diagnostic_records | item_done |
+| 32 | c=10, O, S, kind solve-recipe run with --probe-d, stop keys_unsolved, >= 1 unanswered key (UNRESOLVED_PRIMES: other primes, then attention; BUDGET_WALL; ERROR) | undecided | diagnostic_records | queue_failures |
 | 7 | c=11, O, checker kind | decided_negative | nothing | record_negative_verdict |
 | 7b | c=12, O, checker kind | undecided | nothing | other_tool_or_attention |
 | 8 | c=20, O, S (producing kind) | spill | committed_rules | next_rung_after_spill |
@@ -40,5 +43,5 @@ order of `ROWS`.
 | 21 | s=9, K=none, no OUTCOME | lost | nothing | resume_once_then_attention |
 | 21b | W unknown (supervisor restart), no OUTCOME, R valid | lost | nothing | resume_once_then_attention |
 | 21c | W unknown, no OUTCOME, R invalid | lost | nothing | restart_from_scratch |
-| 22 | contract violation: OUTCOME unreadable, inconsistent (`check`), of another attempt or spec (job_id, attempt, kind, spec_blake3), exit_code != c, a path not the layout path, family_blake3 not the spec's, elided loci under "forbidden"; or c in {0, 10, 20} with O and an output not sealed / not verified; or c outside the kind's set (checker 10 / 20, producing kind 11 / 12, solve-recipe 20 or an exit-10 stop other than keys_unsolved, keys_unsolved of another kind, proof-instantiate / proof-instance-span / coefficient-facts 10 / 20); or solve-recipe exit 0 with an unsolved record, keys_unsolved without one; or W unknown with an invalid OUTCOME | crashed | nothing | attention |
+| 22 | contract violation: OUTCOME unreadable, inconsistent (`check`), of another attempt or spec (job_id, attempt, kind, spec_blake3), exit_code != c, a path not the layout path, family_blake3 not the spec's, elided loci under "forbidden"; or c in {0, 10, 20} with O and an output not sealed / not verified; or c outside the kind's set (checker 10 / 20, producing kind 11 / 12, solve-recipe 20 or an exit-10 stop other than keys_unsolved, keys_unsolved of another kind, proof-instantiate / proof-instance-span / coefficient-facts / node-basis 10 / 20); or solve-recipe exit 0 with an unsolved record, keys_unsolved without one (probe job: an unanswered record); or W unknown with an invalid OUTCOME | crashed | nothing | attention |
 | 23 | any other c or s (an exit status 128+N is read as signal N) | crashed | nothing | resume_once_if_valid_else_attention |

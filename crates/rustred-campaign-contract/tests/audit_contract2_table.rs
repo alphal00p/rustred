@@ -12,11 +12,14 @@
 //! Extended by lane adapters (2026-11-14): kinds solve-recipe / proof-instantiate, stop keys_unsolved, rows 28 / 29
 //! (oracle written from interfaces/adapters.md 1.2 and the regenerated child-job.md 6.5), the solve-recipe verified
 //! states (results tally: accepted 0 / 1 x unsolved 0 / 1, or no tally) and the `solved_records` accept mode.
+//! Extended by lane contract-line7 (2026-11-14; child-job.md "Line 7"): kind node-basis (row 30, exit 0 only), the
+//! solve-recipe PROBE tallies (answered 0 / 1 x unanswered 0 / 1, and a lying tally with an accepted relation; rows
+//! 31 / 32) and the `diagnostic_records` accept mode, which the safety predicate allows only for those two.
 
 mod common;
 use common::*;
 use rustred_campaign_contract::ExitCode;
-use rustred_campaign_contract::classify::recipe::{FailureClass, RelationTally};
+use rustred_campaign_contract::classify::recipe::{FailureClass, ProbeVerdict, RelationTally};
 use rustred_campaign_contract::classify::{
     self, Accept, Evidence, KillReason, OutcomeState, ROWS, VerifiedOutputs, WaitStatus,
 };
@@ -101,6 +104,22 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                     let Some(t) = &v.relations else {
                         return (22, "");
                     };
+                    // line 7: a probe job (its tally says so): 31 / 32 / 22, never an accepted relation
+                    if t.probe {
+                        let open: u64 = t
+                            .probes
+                            .iter()
+                            .filter(|(v, _)| !v.is_answer())
+                            .map(|(_, n)| n)
+                            .sum();
+                        return match (c, stop) {
+                            (0, _) if open == 0 && t.accepted == 0 => (31, ""),
+                            (10, Some(StopCode::KeysUnsolved)) if open >= 1 && t.accepted == 0 => {
+                                (32, "")
+                            }
+                            _ => (22, ""),
+                        };
+                    }
                     let unsolved: u64 = t.unsolved.values().sum();
                     return match (c, stop) {
                         (0, _) if unsolved == 0 => (1, ""),
@@ -110,6 +129,10 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                         (10, Some(StopCode::KeysUnsolved)) if unsolved >= 1 => (29, ""),
                         _ => (22, ""),
                     };
+                }
+                // line 7: node-basis has exit 0 only (row 30)
+                if e.kind == JobKind::NodeBasis {
+                    return if c == 0 { (30, "") } else { (22, "") };
                 }
                 if e.kind.legacy_wrapped() && c != 0 {
                     return (22, "");
@@ -217,7 +240,7 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
 }
 
 /// The safety predicate, independent of any row: what MUST hold whenever something is accepted.
-fn may_accept(e: &Evidence) -> Result<(), String> {
+fn may_accept(e: &Evidence, accept: Accept) -> Result<(), String> {
     let OutcomeState::Valid(j) = &e.outcome else {
         return Err("accepted without a valid OUTCOME".into());
     };
@@ -251,6 +274,39 @@ fn may_accept(e: &Evidence) -> Result<(), String> {
     }
     if (e.kind == JobKind::SolveRecipe || e.kind.legacy_wrapped()) && c == 20 {
         return Err("a kind without work budgets accepted on 20".into());
+    }
+    // line 7: diagnostic records only from node-basis (exit 0) and solve-recipe probe jobs; never rules / relations
+    let probe = v.relations.as_ref().is_some_and(|t| t.probe);
+    let diagnostic_kind = e.kind == JobKind::NodeBasis || (e.kind == JobKind::SolveRecipe && probe);
+    if (accept == Accept::DiagnosticRecords) != diagnostic_kind {
+        return Err(format!(
+            "accept {accept:?} for kind {:?} (probe tally {probe})",
+            e.kind
+        ));
+    }
+    if e.kind == JobKind::NodeBasis {
+        return if c == 0 {
+            Ok(())
+        } else {
+            Err(format!("node-basis accepted on exit {c}"))
+        };
+    }
+    if e.kind == JobKind::SolveRecipe && probe {
+        let t = v.relations.as_ref().expect("probe tally");
+        let open: u64 = t
+            .probes
+            .iter()
+            .filter(|(v, _)| !v.is_answer())
+            .map(|(_, n)| n)
+            .sum();
+        return match c {
+            _ if t.accepted != 0 => Err("a probe job with an accepted relation".into()),
+            0 if open == 0 => Ok(()),
+            10 if j.stop.code == Some(StopCode::KeysUnsolved) && open >= 1 => Ok(()),
+            _ => Err(format!(
+                "probe job read on exit {c} with {open} unanswered keys"
+            )),
+        };
     }
     if e.kind == JobKind::SolveRecipe {
         let Some(t) = &v.relations else {
@@ -471,6 +527,34 @@ fn run(stride: u64) -> BTreeMap<String, u64> {
     };
     let mut with_tally = base.clone();
     with_tally.extend([tally(0, 0), tally(1, 0), tally(0, 1), tally(1, 1)]);
+    // line 7: probe tallies (answered x unanswered), and one that lies (an accepted relation in a probe job)
+    let probe_tally = |answered: u64, open: u64, accepted: u64| {
+        let mut t = RelationTally {
+            records: answered + open,
+            accepted,
+            probe: true,
+            ..Default::default()
+        };
+        if answered > 0 {
+            t.probes.insert(ProbeVerdict::NoRelationAtD0, answered);
+        }
+        if open > 0 {
+            t.probes.insert(ProbeVerdict::UnresolvedPrimes, open);
+        }
+        Some(VerifiedOutputs {
+            rules: 0,
+            elided_loci: 0,
+            streams: vec![],
+            relations: Some(t),
+        })
+    };
+    with_tally.extend([
+        probe_tally(0, 0, 0),
+        probe_tally(1, 0, 0),
+        probe_tally(0, 1, 0),
+        probe_tally(1, 1, 0),
+        probe_tally(1, 0, 1),
+    ]);
     let rref = ResumeRef {
         from: "/w/jobs/J.a1/RESUME.json".into(),
         blake3: D0.into(),
@@ -551,7 +635,7 @@ fn run(stride: u64) -> BTreeMap<String, u64> {
                                         ));
                                     }
                                     if c.accept != Accept::Nothing
-                                        && let Err(why) = may_accept(&e)
+                                        && let Err(why) = may_accept(&e, c.accept)
                                         && unsafe_accepts.len() < 20
                                     {
                                         unsafe_accepts

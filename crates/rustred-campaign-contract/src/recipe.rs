@@ -16,6 +16,16 @@ use std::collections::BTreeMap;
 pub const RELATION_TYPE: &str = "relation";
 /// `failure.schema` of an unsolved record.
 pub const FAILURE_SCHEMA: &str = "rustred.recipe-failure.v1";
+/// Line 7: `type` of a per-key record of a PROBE job (`--probe-d`): a NON-ACCEPTING record class (never a relation,
+/// never counts a key as solved, never evidence).
+pub const PROBE_TYPE: &str = "probe";
+/// Line 7: prefix of the `determinism_id` of probe records (coord-pole-engine.md 2).
+pub const PROBE_DETERMINISM_PREFIX: &str = "rustred.recipe-probe.v1/";
+/// Line 7: work counters a `BUDGET_WORK` record may name in `failure.detail.counter` (the trace-row limit and the m1
+/// work cap of one key).
+pub const BUDGET_WORK_COUNTERS: [&str; 2] = ["trace_rows", M1_WORK_ROWS];
+/// Line 7: the counter name of the `--max-m1-rows` cap.
+pub const M1_WORK_ROWS: &str = "m1_work_rows";
 
 /// Verdicts (closed list v1.1, coord-recipe-solve.md 7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -34,10 +44,14 @@ pub enum Verdict {
     Error,
     /// `--no-proof` diagnostics; never accepted, never in a job's sealed file.
     SolvedUnproved,
+    /// Line 7 (lift mode with the recipe's `elimination.discovery_d` set): the d0 trace holds no GENERIC target relation.
+    NotGenericAtD0,
+    /// Line 7 (discovery_d set): a seed row's coefficient denominator vanishes at d0 (typed, never a silent redraw).
+    D0SingularRows,
 }
 
 impl Verdict {
-    pub const ALL: [Verdict; 12] = [
+    pub const ALL: [Verdict; 14] = [
         Verdict::Solved,
         Verdict::NoRelationInSeeds,
         Verdict::NotInDomain,
@@ -50,6 +64,8 @@ impl Verdict {
         Verdict::Interrupted,
         Verdict::Error,
         Verdict::SolvedUnproved,
+        Verdict::NotGenericAtD0,
+        Verdict::D0SingularRows,
     ];
 
     /// The verdict's name as the verb writes it.
@@ -78,7 +94,14 @@ impl Verdict {
             Verdict::BudgetWall => FailureClass::BudgetWall,
             Verdict::Interrupted => FailureClass::Interrupted,
             Verdict::Error => FailureClass::Error,
+            Verdict::NotGenericAtD0 => FailureClass::NotGenericAtD0,
+            Verdict::D0SingularRows => FailureClass::D0SingularRows,
         })
+    }
+
+    /// Line 7: the verdict exists only when the recipe fixes the discovery point's d (`discovery_d`).
+    pub const fn needs_discovery_d(self) -> bool {
+        matches!(self, Verdict::NotGenericAtD0 | Verdict::D0SingularRows)
     }
 }
 
@@ -96,6 +119,10 @@ pub enum FailureClass {
     BudgetWall,
     Interrupted,
     Error,
+    /// Line 7: per-key, routed like `no_relation_in_seeds` (next escalation step); never a resource failure.
+    NotGenericAtD0,
+    /// Line 7: per-key, routed like `no_relation_in_seeds` (next escalation step); never a resource failure.
+    D0SingularRows,
 }
 
 impl FailureClass {
@@ -109,7 +136,10 @@ impl FailureClass {
     /// What the caller does with a key of this class (interfaces/adapters.md 1.4).
     pub const fn route(self) -> KeyRoute {
         match self {
-            FailureClass::NoRelationInSeeds | FailureClass::NotInDomain => KeyRoute::NextRecipeRung,
+            FailureClass::NoRelationInSeeds
+            | FailureClass::NotInDomain
+            | FailureClass::NotGenericAtD0
+            | FailureClass::D0SingularRows => KeyRoute::NextRecipeRung,
             FailureClass::BudgetWork => KeyRoute::NextWorkClass,
             FailureClass::BudgetWall => KeyRoute::LadderDecides,
             FailureClass::Irregular => KeyRoute::SubCase,
@@ -143,6 +173,96 @@ pub enum KeyRoute {
     Rerun,
     /// Never retried silently.
     Attention,
+    /// Line 7, probe verdict `UNRESOLVED_PRIMES` (the primes disagree): probe again with other primes, then attention.
+    /// Never evidence.
+    OtherPrimesThenAttention,
+}
+
+/// Line 7: verdicts of a `probe` record (closed list, coord-pole-engine.md 8). The first four ANSWER the key (exit 0
+/// when every key has one); the others leave it unanswered (exit 10, stop `keys_unsolved`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ProbeVerdict {
+    /// The target is a pivot at d0 and the trace carries a generic relation.
+    ExistsAtD0,
+    /// The target is a pivot at d0, no generic relation in its trace.
+    ExistsOnlyAtD0,
+    /// No pivot at d0: a LOWER bound ("not in these seeds at d0").
+    NoRelationAtD0,
+    /// A seed row is not evaluable at d0.
+    D0SingularRows,
+    /// The per-prime verdicts differ.
+    UnresolvedPrimes,
+    BudgetWall,
+    Error,
+    /// Never inside a sealed `end` file.
+    Interrupted,
+}
+
+impl ProbeVerdict {
+    pub const ALL: [ProbeVerdict; 8] = [
+        ProbeVerdict::ExistsAtD0,
+        ProbeVerdict::ExistsOnlyAtD0,
+        ProbeVerdict::NoRelationAtD0,
+        ProbeVerdict::D0SingularRows,
+        ProbeVerdict::UnresolvedPrimes,
+        ProbeVerdict::BudgetWall,
+        ProbeVerdict::Error,
+        ProbeVerdict::Interrupted,
+    ];
+
+    pub fn name(self) -> String {
+        serde_json::to_value(self)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_default()
+    }
+
+    pub fn from_name(s: &str) -> Option<ProbeVerdict> {
+        serde_json::from_value(Value::String(s.to_string())).ok()
+    }
+
+    /// One of the four answers (also the only verdicts a `per_prime` entry may carry).
+    pub const fn is_answer(self) -> bool {
+        matches!(
+            self,
+            ProbeVerdict::ExistsAtD0
+                | ProbeVerdict::ExistsOnlyAtD0
+                | ProbeVerdict::NoRelationAtD0
+                | ProbeVerdict::D0SingularRows
+        )
+    }
+
+    /// What the caller does with an UNANSWERED key; `None` for an answer (a diagnostic, never evidence).
+    pub const fn route(self) -> Option<KeyRoute> {
+        match self {
+            ProbeVerdict::UnresolvedPrimes => Some(KeyRoute::OtherPrimesThenAttention),
+            ProbeVerdict::BudgetWall => Some(KeyRoute::LadderDecides),
+            ProbeVerdict::Error => Some(KeyRoute::Attention),
+            ProbeVerdict::Interrupted => Some(KeyRoute::Rerun),
+            _ => None,
+        }
+    }
+
+    /// Decided by a clock (per-key wall budget).
+    pub const fn time_decided(self) -> bool {
+        matches!(self, ProbeVerdict::BudgetWall)
+    }
+}
+
+/// Line 7: the per-key outcome of one input line of a PROBE job. Never an accepted relation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProbeOutcome {
+    pub ordinal: u64,
+    pub key: Vec<i64>,
+    pub tag: Option<String>,
+    pub verdict: ProbeVerdict,
+    /// `None` for an answer; the route of an unanswered key otherwise.
+    pub route: Option<KeyRoute>,
+    pub recipe_digest: String,
+    pub determinism_id: String,
+    /// The verified canonical line of the record.
+    pub canonical: Vec<u8>,
 }
 
 /// One line of a `keys` input: `[ints]` or `{"key":[ints], "tag": "..", ...}` (other members ignored).
@@ -239,9 +359,24 @@ pub struct RelationTally {
     pub unsolved: BTreeMap<FailureClass, u64>,
     pub recipe_digest: Option<String>,
     pub determinism_id: Option<String>,
+    /// Line 7: the job ran in PROBE mode (`--probe-d`): `records` counts probe records, `accepted` is 0 and
+    /// `unsolved` empty; the probe records per verdict are in `probes`.
+    #[serde(default)]
+    pub probe: bool,
+    /// Line 7: probe records per verdict (probe mode only).
+    #[serde(default)]
+    pub probes: BTreeMap<ProbeVerdict, u64>,
 }
 
 impl RelationTally {
+    /// Line 7: probe records whose key is not answered (UNRESOLVED_PRIMES, BUDGET_WALL, ERROR, INTERRUPTED).
+    pub fn unanswered_probes(&self) -> u64 {
+        self.probes
+            .iter()
+            .filter(|(v, _)| !v.is_answer())
+            .map(|(_, n)| n)
+            .sum()
+    }
     pub fn unsolved_total(&self) -> u64 {
         self.unsolved.values().sum()
     }
@@ -251,7 +386,13 @@ impl RelationTally {
             .iter()
             .filter(|(c, _)| c.time_decided())
             .map(|(_, n)| n)
-            .sum()
+            .sum::<u64>()
+            + self
+                .probes
+                .iter()
+                .filter(|(v, _)| v.time_decided())
+                .map(|(_, n)| n)
+                .sum::<u64>()
     }
 }
 
@@ -291,6 +432,18 @@ pub fn key_outcomes(
     lines: &[Vec<u8>],
     keys: &[KeyLine],
 ) -> Result<(Vec<KeyOutcome>, RelationTally), String> {
+    key_outcomes_with(lines, keys, None)
+}
+
+/// [`key_outcomes`] of a solve job whose spec sets `--max-m1-rows` (line 7): a record whose `m1_work.rows` exceeds the
+/// cap must be `BUDGET_WORK` with `failure.detail {counter: "m1_work_rows", limit: cap, value > cap}`; that detail
+/// without the cap is refused. Line-7 members are checked when present ([`check_line7_relation`]); a `probe` record in a
+/// solve job is a contract violation.
+pub fn key_outcomes_with(
+    lines: &[Vec<u8>],
+    keys: &[KeyLine],
+    max_m1_rows: Option<u64>,
+) -> Result<(Vec<KeyOutcome>, RelationTally), String> {
     let (end_line, recs) = lines.split_last().ok_or("results file without records")?;
     let end: Value = serde_json::from_slice(end_line).map_err(|e| format!("end record: {e}"))?;
     let end_type = end["type"].as_str().unwrap_or("");
@@ -311,9 +464,14 @@ pub fn key_outcomes(
     let mut t = RelationTally::default();
     let mut counts: BTreeMap<String, u64> = BTreeMap::new();
     let mut out = Vec::with_capacity(recs.len());
+    // line 7: the recipe's discovery_d, echoed by every record (one recipe per file): None = not seen yet
+    let mut discovery_d: Option<Option<String>> = None;
     for (i, (line, want)) in recs.iter().zip(keys).enumerate() {
         let r: Value = serde_json::from_slice(line).map_err(|e| format!("record {i}: {e}"))?;
         let at = |m: &str| format!("record {i}: {m}");
+        if r["type"] == PROBE_TYPE {
+            return Err(at("a probe record in a solve job (no --probe-d)"));
+        }
         if r["type"] != RELATION_TYPE {
             return Err(at("not a relation record"));
         }
@@ -342,6 +500,7 @@ pub fn key_outcomes(
             "determinism_id",
         )
         .map_err(|e| at(&e))?;
+        check_line7_relation(&r, verdict, max_m1_rows, &mut discovery_d).map_err(|e| at(&e))?;
         t.records += 1;
         match verdict {
             Verdict::Solved => {
@@ -411,24 +570,333 @@ pub fn key_outcomes(
             }
         }
     }
-    if end["records"].as_u64() != Some(recs.len() as u64) {
+    check_end(
+        &end,
+        recs.len(),
+        &counts,
+        [
+            ("recipe_digest", &t.recipe_digest),
+            ("determinism_id", &t.determinism_id),
+        ],
+        IDS_REQUIRED,
+    )?;
+    Ok((out, t))
+}
+
+fn u64_member(o: &Value, m: &str, what: &str) -> Result<u64, String> {
+    o[m].as_u64()
+        .ok_or_else(|| format!("{what}.{m} is not an unsigned integer"))
+}
+
+fn string_list(v: &Value, what: &str) -> Result<Vec<String>, String> {
+    v.as_array()
+        .ok_or_else(|| format!("{what} is not a list"))?
+        .iter()
+        .map(|x| {
+            x.as_str()
+                .map(str::to_string)
+                .ok_or_else(|| format!("{what}: an entry is not a string"))
+        })
+        .collect()
+}
+
+/// Line 7 members of a `relation` record, checked when present (coord-pole-engine.md 8; child-job.md "Line 7"). They
+/// are deterministic by the engine's statement, so NON-volatile: part of the canonical record (`canon` lists no
+/// volatile key for them).
+/// - `discovery {rank, rows, columns}`: unsigned integers, rank <= rows and rank <= columns;
+/// - `hidden_d_poles`, `coef_d_poles`: lists of strings, both or neither, and then `d_poles` (kept for old readers) is
+///   exactly their union as a set;
+/// - `m1_work {sub_solves, rows, trace_rows}`: unsigned integers; with the cap `max_m1_rows` = N, `rows > N` only in a
+///   `BUDGET_WORK` record whose `failure.detail` is `{counter: "m1_work_rows", limit: N, value > N}`;
+/// - `discovery_d`: the canonical rational text, the same in every record of the file (one recipe); the verdicts
+///   `NOT_GENERIC_AT_D0` / `D0_SINGULAR_ROWS` only with it;
+/// - `failure.detail.rank` / `.columns`: unsigned integers when present; `failure.detail.counter`: in a `BUDGET_WORK`
+///   record one of [`BUDGET_WORK_COUNTERS`] when present, and `m1_work_rows` in no other verdict.
+pub fn check_line7_relation(
+    r: &Value,
+    verdict: Verdict,
+    max_m1_rows: Option<u64>,
+    discovery_seen: &mut Option<Option<String>>,
+) -> Result<(), String> {
+    if !r["discovery"].is_null() {
+        let d = &r["discovery"];
+        let rank = u64_member(d, "rank", "discovery")?;
+        let rows = u64_member(d, "rows", "discovery")?;
+        let columns = u64_member(d, "columns", "discovery")?;
+        if rank > rows || rank > columns {
+            return Err(format!(
+                "discovery rank {rank} exceeds rows {rows} or columns {columns}"
+            ));
+        }
+    }
+    match (r["hidden_d_poles"].is_null(), r["coef_d_poles"].is_null()) {
+        (true, true) => {}
+        (false, false) => {
+            let mut union = string_list(&r["hidden_d_poles"], "hidden_d_poles")?;
+            union.extend(string_list(&r["coef_d_poles"], "coef_d_poles")?);
+            union.sort();
+            union.dedup();
+            let mut all = string_list(
+                &r["d_poles"],
+                "d_poles (with hidden_d_poles / coef_d_poles)",
+            )?;
+            all.sort();
+            all.dedup();
+            if all != union {
+                return Err("d_poles is not the union of hidden_d_poles and coef_d_poles".into());
+            }
+        }
+        _ => return Err("hidden_d_poles and coef_d_poles come together".into()),
+    }
+    let detail = &r["failure"]["detail"];
+    let m1_detail = detail["counter"] == M1_WORK_ROWS;
+    if !r["m1_work"].is_null() {
+        let m = &r["m1_work"];
+        u64_member(m, "sub_solves", "m1_work")?;
+        u64_member(m, "trace_rows", "m1_work")?;
+        let rows = u64_member(m, "rows", "m1_work")?;
+        if let Some(cap) = max_m1_rows
+            && rows > cap
+            && !(verdict == Verdict::BudgetWork && m1_detail)
+        {
+            return Err(format!(
+                "m1_work.rows {rows} exceeds --max-m1-rows {cap} but the key is not BUDGET_WORK (m1_work_rows)"
+            ));
+        }
+    }
+    if !detail.is_null() {
+        for m in ["rank", "columns"] {
+            if !detail[m].is_null() && detail[m].as_u64().is_none() {
+                return Err(format!("failure.detail.{m} is not an unsigned integer"));
+            }
+        }
+        if verdict == Verdict::BudgetWork && !detail["counter"].is_null() {
+            let c = detail["counter"].as_str().unwrap_or("");
+            if !BUDGET_WORK_COUNTERS.contains(&c) {
+                return Err(format!(
+                    "BUDGET_WORK counter {:?} not in the closed list",
+                    detail["counter"]
+                ));
+            }
+        }
+        if m1_detail {
+            if verdict != Verdict::BudgetWork {
+                return Err(format!(
+                    "counter m1_work_rows in a {} record",
+                    verdict.name()
+                ));
+            }
+            let Some(cap) = max_m1_rows else {
+                return Err("BUDGET_WORK m1_work_rows without --max-m1-rows".into());
+            };
+            let limit = u64_member(detail, "limit", "failure.detail")?;
+            let value = u64_member(detail, "value", "failure.detail")?;
+            if limit != cap || value <= limit {
+                return Err(format!(
+                    "BUDGET_WORK m1_work_rows limit {limit} / value {value} for --max-m1-rows {cap}"
+                ));
+            }
+        }
+    }
+    let dd = match &r["discovery_d"] {
+        Value::Null => None,
+        Value::String(t) => {
+            crate::arith::Rational::parse_canonical(t).map_err(|e| format!("discovery_d: {e}"))?;
+            Some(t.clone())
+        }
+        _ => return Err("discovery_d is not a rational text".into()),
+    };
+    match discovery_seen {
+        None => *discovery_seen = Some(dd.clone()),
+        Some(prev) if *prev != dd => {
+            return Err("two different discovery_d values in one file (one recipe)".into());
+        }
+        _ => {}
+    }
+    if verdict.needs_discovery_d() && dd.is_none() {
+        return Err(format!("{} without discovery_d", verdict.name()));
+    }
+    Ok(())
+}
+
+const IDS_REQUIRED: bool = false;
+/// A probe end record (coord-pole-engine.md 8: `type: "end"` with `counts`) need not repeat the ids; when it does, they
+/// must be the records'.
+const IDS_WHEN_PRESENT: bool = true;
+
+fn check_end(
+    end: &Value,
+    n: usize,
+    counts: &BTreeMap<String, u64>,
+    ids: [(&str, &Option<String>); 2],
+    ids_optional: bool,
+) -> Result<(), String> {
+    if end["records"].as_u64() != Some(n as u64) {
         return Err("end record `records` differs from the records".into());
     }
     let end_counts: BTreeMap<String, u64> =
         serde_json::from_value(end["counts"].clone()).map_err(|e| format!("end counts: {e}"))?;
-    if end_counts != counts {
+    if end_counts != *counts {
         return Err("end record `counts` differ from the records".into());
     }
-    if !recs.is_empty() {
-        for (field, want) in [
-            ("recipe_digest", &t.recipe_digest),
-            ("determinism_id", &t.determinism_id),
-        ] {
+    if n > 0 {
+        for (field, want) in ids {
+            if ids_optional && end[field].is_null() {
+                continue;
+            }
             if end[field].as_str() != want.as_deref() {
                 return Err(format!("end record {field} differs from the records'"));
             }
         }
     }
+    Ok(())
+}
+
+/// Line 7: the per-key outcomes of a VERIFIED results file of a PROBE job (`--probe-d`, [`crate::spec::ProbeArgs`])
+/// against its keys input. `Err` = not a consistent probe results file of this job (S false: contract violation).
+/// Checks: one `probe` record per input line, in input order, ordinal and key equal (a `relation` record in a probe job
+/// is refused); verdict in the closed list [`ProbeVerdict`]; `d0` = the job's `--probe-d` (canonical text); one
+/// `recipe.digest` (64 hex) and one `determinism_id` (prefix [`PROBE_DETERMINISM_PREFIX`]) in the file; no relation
+/// members (`relation_digest`, `rhs` null or absent); `per_prime` a list of `{prime, verdict, ...}` whose primes are the
+/// job's primes in order (all of them for an answer and for UNRESOLVED_PRIMES, a prefix otherwise), per-prime verdicts
+/// answers only, `rank` / `rows` / `columns` / `trace_rows` unsigned integers or null; the combined verdict = the common
+/// per-prime verdict, UNRESOLVED_PRIMES iff they differ; no INTERRUPTED record in a sealed `end` file; the end record's
+/// `records` and `counts` equal the records (its `recipe_digest` / `determinism_id`, when present, the records').
+/// The tally has `probe = true`, `accepted = 0`: nothing in a probe file is ever accepted.
+pub fn probe_outcomes(
+    lines: &[Vec<u8>],
+    keys: &[KeyLine],
+    args: &crate::spec::ProbeArgs,
+) -> Result<(Vec<ProbeOutcome>, RelationTally), String> {
+    let (end_line, recs) = lines.split_last().ok_or("results file without records")?;
+    let end: Value = serde_json::from_slice(end_line).map_err(|e| format!("end record: {e}"))?;
+    let end_type = end["type"].as_str().unwrap_or("");
+    if !matches!(end_type, "end" | "partial") {
+        return Err(format!(
+            "last record of type {end_type:?} is not an end record"
+        ));
+    }
+    let sealed_end = end_type == "end";
+    if recs.len() != keys.len() {
+        return Err(format!(
+            "{} probe records for {} input keys",
+            recs.len(),
+            keys.len()
+        ));
+    }
+    let d0 = args.d0.to_string();
+    let mut t = RelationTally {
+        probe: true,
+        ..RelationTally::default()
+    };
+    let mut counts: BTreeMap<String, u64> = BTreeMap::new();
+    let mut out = Vec::with_capacity(recs.len());
+    for (i, (line, want)) in recs.iter().zip(keys).enumerate() {
+        let r: Value = serde_json::from_slice(line).map_err(|e| format!("record {i}: {e}"))?;
+        let at = |m: &str| format!("record {i}: {m}");
+        if r["type"] == RELATION_TYPE {
+            return Err(at("a relation record in a probe job (--probe-d)"));
+        }
+        if r["type"] != PROBE_TYPE {
+            return Err(at("not a probe record"));
+        }
+        if r["ordinal"].as_u64() != Some(i as u64) {
+            return Err(at("ordinal is not the input line number"));
+        }
+        let key: Vec<i64> =
+            serde_json::from_value(r["key"].clone()).map_err(|e| at(&format!("key: {e}")))?;
+        if key != want.key {
+            return Err(at("key is not the input line's key"));
+        }
+        let verdict = r["verdict"]
+            .as_str()
+            .and_then(ProbeVerdict::from_name)
+            .ok_or_else(|| at("probe verdict not in the closed list"))?;
+        if verdict == ProbeVerdict::Interrupted && sealed_end {
+            return Err(at("INTERRUPTED record in a sealed `end` file"));
+        }
+        if r["d0"].as_str() != Some(d0.as_str()) {
+            return Err(at(&format!("d0 is not the job's --probe-d {d0}")));
+        }
+        if !r["relation_digest"].is_null() || !r["rhs"].is_null() {
+            return Err(at(
+                "a probe record with relation members (never a relation)",
+            ));
+        }
+        let rd = r["recipe"]["digest"].as_str().filter(|d| is_hex64(d));
+        if rd.is_none() {
+            return Err(at("recipe.digest is not 64 hex"));
+        }
+        let recipe_digest =
+            same_or_set(&mut t.recipe_digest, rd, "recipe.digest").map_err(|e| at(&e))?;
+        let det = r["determinism_id"]
+            .as_str()
+            .filter(|d| d.starts_with(PROBE_DETERMINISM_PREFIX));
+        if det.is_none() {
+            return Err(at("determinism_id is not a probe determinism id"));
+        }
+        let determinism_id =
+            same_or_set(&mut t.determinism_id, det, "determinism_id").map_err(|e| at(&e))?;
+        let per = r["per_prime"]
+            .as_array()
+            .ok_or_else(|| at("per_prime is not a list"))?;
+        let full = verdict.is_answer() || verdict == ProbeVerdict::UnresolvedPrimes;
+        if per.len() > args.primes.len() || (full && per.len() != args.primes.len()) {
+            return Err(at("per_prime does not list the job's primes"));
+        }
+        let mut seen: Vec<ProbeVerdict> = Vec::with_capacity(per.len());
+        for (e, want_p) in per.iter().zip(&args.primes) {
+            if e["prime"].as_u64() != Some(*want_p) {
+                return Err(at("per_prime primes are not the job's primes in order"));
+            }
+            let pv = e["verdict"]
+                .as_str()
+                .and_then(ProbeVerdict::from_name)
+                .filter(|v| v.is_answer())
+                .ok_or_else(|| at("a per-prime verdict that is not an answer"))?;
+            for m in ["rank", "rows", "columns", "trace_rows"] {
+                if !e[m].is_null() && e[m].as_u64().is_none() {
+                    return Err(at(&format!("per_prime.{m} is not an unsigned integer")));
+                }
+            }
+            seen.push(pv);
+        }
+        if full {
+            let agree = seen.windows(2).all(|w| w[0] == w[1]);
+            let ok = match verdict {
+                ProbeVerdict::UnresolvedPrimes => !agree,
+                v => agree && seen.first() == Some(&v),
+            };
+            if !ok {
+                return Err(at(
+                    "the verdict is not the combination of the per-prime verdicts",
+                ));
+            }
+        }
+        *counts.entry(verdict.name()).or_default() += 1;
+        *t.probes.entry(verdict).or_default() += 1;
+        t.records += 1;
+        out.push(ProbeOutcome {
+            ordinal: i as u64,
+            key,
+            tag: want.tag.clone(),
+            verdict,
+            route: verdict.route(),
+            recipe_digest,
+            determinism_id,
+            canonical: line.clone(),
+        });
+    }
+    check_end(
+        &end,
+        recs.len(),
+        &counts,
+        [
+            ("recipe_digest", &t.recipe_digest),
+            ("determinism_id", &t.determinism_id),
+        ],
+        IDS_WHEN_PRESENT,
+    )?;
     Ok((out, t))
 }
 

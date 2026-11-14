@@ -44,7 +44,11 @@ use std::ops::Range;
 /// stream digests (lane contractfix2, audit ac2-m1 / m2 / m7, 2026-11-14).
 /// 4 = records of type `relation` (kind solve-recipe) have the volatile keys `seconds`, `vmhwm_kb` (lane adapters,
 /// 2026-11-14).
-pub const VOLATILE_KEYS_VERSION: u32 = 4;
+/// 5 = records of type `probe` (kind solve-recipe with `--probe-d`, line 7) have the volatile keys `seconds`,
+/// `vmhwm_kb` (lane contract-line7, 2026-11-14). Every canonical form of v4 is unchanged (a `probe` record did not
+/// exist before); the line-7 members of `relation` records and the node-basis records `sample` / `dim` have NO
+/// volatile key (deterministic by the engine's statement).
+pub const VOLATILE_KEYS_VERSION: u32 = 5;
 
 /// BLAKE3 key-derivation context of the per-record digest (one canonical line + "\n"; event
 /// `rule_committed.canon_blake3`, [`canonical_line_blake3`], `seal::RecordPos` / `seal::RecordInfo`).
@@ -63,7 +67,7 @@ pub fn record_digest_of_canonical(canonical: &[u8]) -> String {
 }
 
 /// Volatile top-level keys per record type of the table and cert streams.
-pub const VOLATILE_BY_TYPE: [(&str, &[&str]); 10] = [
+pub const VOLATILE_BY_TYPE: [(&str, &[&str]); 11] = [
     ("header", &["zero_seconds"]),
     ("rule", &["seconds_search", "lift_seconds"]),
     ("chart_end", &["seconds", "vmhwm_kb"]),
@@ -75,6 +79,8 @@ pub const VOLATILE_BY_TYPE: [(&str, &[&str]); 10] = [
     ("cert_partial", &["seconds", "vmhwm_kb"]),
     // kind solve-recipe (coord-recipe-solve.md 7; lane adapters, volatile list v4)
     ("relation", &["seconds", "vmhwm_kb"]),
+    // kind solve-recipe probe mode (line 7, volatile list v5)
+    ("probe", &["seconds", "vmhwm_kb"]),
 ];
 
 /// Record types that follow the VERDICT rule (a key is volatile iff it equals `seconds` or `utc` or ends in
