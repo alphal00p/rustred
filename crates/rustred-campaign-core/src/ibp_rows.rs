@@ -29,6 +29,7 @@ use crate::replay_base::primes::{self, SplitMix64};
 use crate::replay_base::record::{self, Pat};
 use crate::replay_base::rows::{self, Support};
 use crate::replay_base::span::{Elim, MEMORY_GUARD};
+use crate::replay_base::symrows::{self, Provenance, SymRowMode, VerifiedGroup};
 
 /// Version of the row convention and verdict semantics (bump on any change of either).
 pub const ROWS_VERSION: &str = "rustred.campaign.ibp_rows.v2";
@@ -365,8 +366,39 @@ impl TableBinding {
     }
 }
 
+/// Which rules get symmetry rows (interfaces/ibp-rows.md 10.4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Default)]
+pub enum SymUse {
+    /// exactly the rules that declare `sym_rows` (or `generated_with_symmetry_rows`): the engine's rule
+    #[default]
+    Declared,
+    /// never (the control "without symmetry rows", also for declaring rules)
+    Without,
+    /// every rule (diagnostic)
+    Always,
+}
+
+/// The symmetry rows used by a verdict (recorded so the evidence can name the group and the elements used).
+#[derive(Clone, Debug, Serialize)]
+pub struct SymmetryUse {
+    pub group_digest: String,
+    pub provenance: Provenance,
+    pub mode: SymRowMode,
+    pub elements: usize,
+    /// symmetry rows generated over all cells
+    pub rows_total: usize,
+    /// element indices whose rows carry nonzero weight in some cell's span solution (union over cells)
+    pub support: Vec<usize>,
+}
+
 #[derive(Clone, Debug)]
 pub struct RowsOptions {
+    /// a VERIFIED symmetry group of the rule's chart (`symrows::verify_group`); `None` = no symmetry rows possible
+    pub symmetry: Option<std::sync::Arc<VerifiedGroup>>,
+    pub sym_mode: SymRowMode,
+    pub sym_use: SymUse,
+    /// bound on the terms of one expanded (multi-term) symmetry row
+    pub sym_max_terms: usize,
     /// the rule's table header (family binding, guard version); `None` = no header known (recorded as such)
     pub table: Option<TableBinding>,
     pub seed: u64,
@@ -383,6 +415,10 @@ pub struct RowsOptions {
 impl Default for RowsOptions {
     fn default() -> Self {
         RowsOptions {
+            symmetry: None,
+            sym_mode: SymRowMode::Engine,
+            sym_use: SymUse::Declared,
+            sym_max_terms: 200_000,
             table: None,
             seed: 20_261_113,
             rule_id: None,
@@ -417,6 +453,8 @@ pub enum Unsupported {
     EmptyExceptionBranch { branch: usize },
     /// the rule's target lies in a zero (scaleless) sector at the point (the engine refuses it)
     TargetInZeroSector,
+    /// the symmetry group is for another chart / arity / family
+    SymGroupMismatch(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -512,6 +550,13 @@ pub struct CellReport {
     pub corners_in_span: Vec<String>,
     /// stored elimination entries (pivot rows + dependency lists)
     pub entries: usize,
+    /// symmetry rows generated in this cell, those with nonzero weight in the span solution, and their elements
+    pub sym_rows: usize,
+    pub sym_rows_weighted: usize,
+    pub sym_support: Vec<usize>,
+    /// owed control with symmetry rows (engine replay): the chart corner in the span of the rows projected onto the
+    /// chart's top-sector columns (`Some(false)` = control passed; `None` = not run: no symmetry rows)
+    pub corner_projected_in_span: Option<bool>,
     /// generic point only: columns dropped as scaleless under the generic convention that are NOT scaleless on a
     /// boundary face (a symbolic non-line slot at positive offset becomes active there; audit A C1 / audit B). A
     /// generic-point pass says nothing on those faces.
@@ -579,6 +624,8 @@ pub struct RowsVerdict {
     pub sz_bound_log10: f64,
     pub sz_bound_per_cell_max: f64,
     pub meets_a2_policy: bool,
+    /// the symmetry rows used (group digest, provenance, mode, support); `None` = IBP rows only
+    pub symmetry: Option<SymmetryUse>,
     pub cost: Cost,
 }
 
@@ -900,10 +947,40 @@ struct CellCtx<'a> {
     family: &'a Family,
     rule: &'a RowsRule,
     opts: &'a RowsOptions,
+    sym: Option<&'a VerifiedGroup>,
 }
 
 struct System {
     rows: Vec<BTreeMap<ColKey, u64>>,
+    /// per row: the symmetry group element that produced it (`None` = an IBP row)
+    labels: Vec<Option<usize>>,
+}
+
+/// The symmetry rows at one seed column key, modulo p, deduplicated across the cell (`seen`).
+fn add_sym_rows(
+    cx: &CellCtx,
+    seed: &ColKey,
+    p: u64,
+    out: &mut System,
+    seen: &mut BTreeSet<Vec<(ColKey, (i128, i128))>>,
+) -> Result<(), String> {
+    let Some(g) = cx.sym else { return Ok(()) };
+    for r in symrows::rows_at(g, seed, cx.opts.sym_mode, cx.opts.sym_max_terms)? {
+        let canon: Vec<(ColKey, (i128, i128))> = r.terms.iter().map(|(k, c)| (k.clone(), (c.n, c.d))).collect();
+        if !seen.insert(canon) {
+            continue;
+        }
+        let mut row: BTreeMap<ColKey, u64> = BTreeMap::new();
+        for (k, c) in r.terms {
+            let v = c.modp(p).ok_or("symmetry row coefficient denominator divisible by p")?;
+            if v != 0 {
+                row.insert(k, v);
+            }
+        }
+        out.rows.push(row);
+        out.labels.push(Some(r.element));
+    }
+    Ok(())
 }
 
 /// Rows at a generic point: seed pattern -> base residues and column offsets; family.rows_at_mod.
@@ -911,7 +988,11 @@ fn generic_rows(cx: &CellCtx, seeds: &[Pat], x: &[u64], d: u64, p: u64) -> Resul
     let n = cx.rule.arity;
     let rc = &cx.rule.recenter;
     let mut seen: BTreeSet<ColKey> = BTreeSet::new();
-    let mut out = System { rows: Vec::new() };
+    let mut seen_sym = BTreeSet::new();
+    let mut out = System {
+        rows: Vec::new(),
+        labels: Vec::new(),
+    };
     for s in seeds {
         let mut mask = 0u64;
         let mut offs = vec![0i64; n];
@@ -948,7 +1029,9 @@ fn generic_rows(cx: &CellCtx, seeds: &[Pat], x: &[u64], d: u64, p: u64) -> Resul
             }
             row.retain(|_, v| *v != 0);
             out.rows.push(row);
+            out.labels.push(None);
         }
+        add_sym_rows(cx, &(mask, offs), p, &mut out, &mut seen_sym)?;
     }
     Ok(out)
 }
@@ -963,13 +1046,30 @@ fn integer_rows(cx: &CellCtx, seeds: &[Pat], pt: &[i64], d: u64, p: u64) -> Resu
         d,
         cx.family,
     )?;
-    Ok(System {
+    let mut out = System {
+        labels: vec![None; built.rows.len()],
         rows: built
             .rows
             .into_iter()
             .map(|r| r.into_iter().map(|(k, v)| ((0u64, k), v)).collect())
             .collect(),
-    })
+    };
+    if cx.sym.is_some() {
+        // the same seed keys as rows_for_p (pattern at the point + recenter on symbolic slots), in order, once each
+        let mut seen_y: BTreeSet<Vec<i64>> = BTreeSet::new();
+        let mut seen_sym = BTreeSet::new();
+        for pat in seeds {
+            let y: Vec<i64> = pat
+                .iter()
+                .enumerate()
+                .map(|(i, (ax, off))| ax.map_or(*off, |a| pt[a] + off + cx.rule.recenter[i]))
+                .collect();
+            if seen_y.insert(y.clone()) {
+                add_sym_rows(cx, &(0, y), p, &mut out, &mut seen_sym)?;
+            }
+        }
+    }
+    Ok(out)
 }
 
 fn pattern_col(pat: &Pat, generic: bool, pt: &[i64], fixed: &[Option<i64>]) -> ColKey {
@@ -1009,6 +1109,10 @@ struct SolveOut {
     entries: usize,
     bytes: usize,
     boundary_columns: usize,
+    sym_rows: usize,
+    sym_rows_weighted: usize,
+    sym_support: Vec<usize>,
+    corner_projected_in_span: Option<bool>,
 }
 
 /// Columns, zero sectors, elimination, span test and controls of one cell.
@@ -1113,6 +1217,10 @@ fn solve_system(
         entries: 0,
         bytes: row_entries * 16 + bytes_cols,
         boundary_columns,
+        sym_rows: sys.labels.iter().filter(|l| l.is_some()).count(),
+        sym_rows_weighted: 0,
+        sym_support: Vec::new(),
+        corner_projected_in_span: None,
     };
     if target_zero {
         out.status = CellStatus::Refused(Unsupported::TargetInZeroSector);
@@ -1143,6 +1251,17 @@ fn solve_system(
         }
     };
     out.in_span = sp.in_span;
+    // the certificate's symmetry support: elements whose rows carry nonzero weight
+    let mut support: BTreeSet<usize> = BTreeSet::new();
+    for (i, w) in &sp.weights {
+        if *w != 0
+            && let Some(Some(e)) = sys.labels.get(*i)
+        {
+            out.sym_rows_weighted += 1;
+            support.insert(*e);
+        }
+    }
+    out.sym_support = support.into_iter().collect();
     if !sp.in_span {
         out.witness = sp.remainder.first().map(|&(c, _)| col_text(nonzero[c]));
         out.status = CellStatus::Fail;
@@ -1204,6 +1323,50 @@ fn solve_system(
             }
         }
     }
+    // owed control with symmetry rows (engine replay/mod.rs:1653-1686 at 385df34c): the chart corner must not be in
+    // the span, neither exactly nor with the rows projected onto the chart's top-sector columns
+    if out.sym_rows > 0 {
+        let corner: ColKey = (0, chart.iter().map(|&l| i64::from(l)).collect());
+        let mut in_proj = false;
+        if let Some(&cc) = ids.get(&corner) {
+            let exact = match elim.solve(&[(cc, 1)]) {
+                Ok(s) => s.in_span,
+                Err(e) => {
+                    out.status = CellStatus::Undecided { reason: e };
+                    return out;
+                }
+            };
+            let top = |k: &ColKey| {
+                (0..n).all(|i| !chart[i] || (k.0 >> i & 1 == 1) || k.1[i] >= 1)
+            };
+            let proj: Vec<Vec<(usize, u64)>> = enc_rows
+                .iter()
+                .map(|r| r.iter().copied().filter(|(c, _)| top(nonzero[*c])).collect())
+                .collect();
+            match Elim::new_guarded(&proj, nonzero.len(), p, cx.opts.max_entries)
+                .and_then(|e2| e2.solve(&[(cc, 1)]))
+            {
+                Ok(s) => in_proj = exact || s.in_span,
+                Err(e) if e.starts_with(MEMORY_GUARD) => {
+                    out.status = CellStatus::MemoryGuard {
+                        entries: cx.opts.max_entries,
+                    };
+                    return out;
+                }
+                Err(e) => {
+                    out.status = CellStatus::Undecided { reason: e };
+                    return out;
+                }
+            }
+        }
+        out.corner_projected_in_span = Some(in_proj);
+        if in_proj {
+            out.status = CellStatus::Undecided {
+                reason: "control failed: the chart corner is in the span of IBP + symmetry rows (exactly or modulo subsectors)".into(),
+            };
+            return out;
+        }
+    }
     out.status = if !rejected {
         CellStatus::Undecided {
             reason: "control failed: the +1 mutant is also in the span".into(),
@@ -1236,6 +1399,10 @@ fn empty_cell(p: u64, d: u64, status: CellStatus) -> CellReport {
         corners_tested: 0,
         corners_in_span: Vec::new(),
         entries: 0,
+        sym_rows: 0,
+        sym_rows_weighted: 0,
+        sym_support: Vec::new(),
+        corner_projected_in_span: None,
         boundary_columns: 0,
         sz_degree: 0,
         seconds: 0.0,
@@ -1256,6 +1423,10 @@ fn fill_cell(c: &mut CellReport, s: SolveOut) -> usize {
     c.corners_in_span = s.corners_in_span;
     c.entries = s.entries;
     c.boundary_columns = s.boundary_columns;
+    c.sym_rows = s.sym_rows;
+    c.sym_rows_weighted = s.sym_rows_weighted;
+    c.sym_support = s.sym_support;
+    c.corner_projected_in_span = s.corner_projected_in_span;
     s.bytes
 }
 
@@ -1521,6 +1692,7 @@ fn unsupported_verdict(
         sz_bound_log10: 0.0,
         sz_bound_per_cell_max: 1.0,
         meets_a2_policy: false,
+        symmetry: None,
         cost: Cost {
             coefficient_bytes: rule.coefficient_bytes(),
             ..Cost::default()
@@ -1569,12 +1741,38 @@ pub fn identity_test(
         let u = Unsupported::EmptyExceptionBranch { branch: b };
         return unsupported_verdict(family, rule, rule_id, opts, primes, u);
     }
-    if rule.sym_rows.is_some() || opts.generated_with_symmetry_rows {
-        let u = Unsupported::NeedsSymmetryRows {
-            declared: rule.sym_rows.clone(),
-        };
-        return unsupported_verdict(family, rule, rule_id, opts, primes, u);
-    }
+    // symmetry rows (section 10): only where the engine would add them (declared), or as the control / diagnostic
+    let declared = rule.sym_rows.is_some() || opts.generated_with_symmetry_rows;
+    let use_sym = match opts.sym_use {
+        SymUse::Declared => declared,
+        SymUse::Without => false,
+        SymUse::Always => true,
+    };
+    let sym: Option<&VerifiedGroup> = if use_sym {
+        match opts.symmetry.as_deref() {
+            None => {
+                let u = Unsupported::NeedsSymmetryRows {
+                    declared: rule.sym_rows.clone(),
+                };
+                return unsupported_verdict(family, rule, rule_id, opts, primes, u);
+            }
+            Some(g) => {
+                let why = if g.group.arity != rule.arity || g.group.chart != rule.chart {
+                    Some(format!("group chart {} vs rule chart {}", g.group.chart_text(), rule.chart_text))
+                } else if g.family_digest != family.source_digest {
+                    Some("group verified on another family".to_string())
+                } else {
+                    None
+                };
+                if let Some(w) = why {
+                    return unsupported_verdict(family, rule, rule_id, opts, primes, Unsupported::SymGroupMismatch(w));
+                }
+                Some(g)
+            }
+        }
+    } else {
+        None
+    };
     if let Some(e) = &rule.syntax_error {
         return unsupported_verdict(family, rule, rule_id, opts, primes, Unsupported::Syntax(e.clone()));
     }
@@ -1588,7 +1786,12 @@ pub fn identity_test(
     if let Err(e) = check_recenter_authority(rule) {
         return unsupported_verdict(family, rule, rule_id, opts, primes, Unsupported::Record(e));
     }
-    let cx = CellCtx { family, rule, opts };
+    let cx = CellCtx {
+        family,
+        rule,
+        opts,
+        sym,
+    };
     let mut cost = Cost {
         coefficient_bytes: rule.coefficient_bytes(),
         ..Cost::default()
@@ -1769,7 +1972,24 @@ pub fn identity_test(
         szmax = 1.0;
     }
     cost.seconds = t0.elapsed().as_secs_f64();
+    let symmetry = sym.map(|g| {
+        let mut support: BTreeSet<usize> = BTreeSet::new();
+        let mut rows_total = 0;
+        for c in reports.iter().flat_map(|r| r.cells.iter()) {
+            rows_total += c.sym_rows;
+            support.extend(c.sym_support.iter().copied());
+        }
+        SymmetryUse {
+            group_digest: g.digest.clone(),
+            provenance: g.provenance.clone(),
+            mode: opts.sym_mode,
+            elements: g.group.elements.len(),
+            rows_total,
+            support: support.into_iter().collect(),
+        }
+    });
     RowsVerdict {
+        symmetry,
         version: ROWS_VERSION,
         family_digest: family.source_digest.clone(),
         family_name: family.name.clone(),
@@ -1954,6 +2174,8 @@ pub struct ReplayRecord {
     pub pole_scan: PoleScan,
     pub loci: Vec<LocusReport>,
     pub guards: GuardStatus,
+    /// the symmetry group used (digest, provenance, mode, support) when the rule declares symmetry rows (section 10.5)
+    pub symmetry_group: Option<SymmetryUse>,
     pub witness_elided: bool,
     pub witness_present: bool,
     pub level: ReplayLevel,
@@ -2489,6 +2711,7 @@ pub fn replay_evidence(
         served_keys_source: policy.served_keys_source.clone(),
         served_keys_replayed,
         strata: "explicit: every served key replayed (strata not implemented; ibp-rows.md 9.4)",
+        symmetry_group: identity.symmetry.clone(),
         identity,
         pole_scan: ps,
         loci,
@@ -2628,6 +2851,7 @@ pub fn identity_test_batch<R: BufRead, W: Write>(
                     sz_bound_log10: 0.0,
                     sz_bound_per_cell_max: 1.0,
                     meets_a2_policy: false,
+                    symmetry: None,
                     cost: Cost::default(),
                 };
                 emit(&v, None, 0)?;

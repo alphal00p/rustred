@@ -231,6 +231,132 @@ impl SymGroup {
         })
     }
 
+    /// Read the coordinator fixtures' group file (schema `c-fix.symmetry-group.v1`, interfaces/coord-fixtures.md: the
+    /// M2 nodes' `SYMMETRY.json`): `slots` (names in slot order), `lines` (the chart), per element `line_perm`
+    /// (name -> name), `momentum_map` (`k_images`: loop name -> {loop name | "q": coefficient}, `q_image` "+-1*q"),
+    /// `numerator_images` (name -> {name | "1": rational}: `D_i(kT) = sum c_m D_m + c_1`; absent = Unknown). Slot
+    /// names must be the family's `D<k>` labels in order; loop names are the family's.
+    pub fn from_cfix_json(v: &Value, family: &Family) -> Result<SymGroup, String> {
+        let slots: Vec<String> = v
+            .get("slots")
+            .and_then(Value::as_array)
+            .ok_or("group file without slots")?
+            .iter()
+            .map(|x| x.as_str().map(str::to_string).ok_or("slot name"))
+            .collect::<Result<_, _>>()?;
+        let n = slots.len();
+        if n != family.n {
+            return Err(format!("group file has {n} slots, family {}", family.n));
+        }
+        for (i, s) in slots.iter().enumerate() {
+            if *s != format!("D{}", i + 1) {
+                return Err(format!("slot {i} is named {s}, expected D{}", i + 1));
+            }
+        }
+        let slot = |name: &str| -> Result<usize, String> {
+            slots
+                .iter()
+                .position(|s| s == name)
+                .ok_or_else(|| format!("unknown slot name {name}"))
+        };
+        let mut chart = vec![false; n];
+        for l in v.get("lines").and_then(Value::as_array).ok_or("group file without lines")? {
+            chart[slot(l.as_str().ok_or("line name")?)?] = true;
+        }
+        let l = family.loops;
+        let w = l + 1;
+        let var = |name: &str| -> Result<usize, String> {
+            if name == "q" {
+                return Ok(l);
+            }
+            family
+                .loop_names
+                .iter()
+                .position(|s| s == name)
+                .ok_or_else(|| format!("unknown loop momentum {name}"))
+        };
+        let mut elements = Vec::new();
+        for (k, e) in v
+            .get("elements")
+            .and_then(Value::as_array)
+            .ok_or("group file without elements")?
+            .iter()
+            .enumerate()
+        {
+            let mut action = vec![SlotImage::Unknown; n];
+            for (a, b) in e
+                .get("line_perm")
+                .and_then(Value::as_object)
+                .ok_or_else(|| format!("element {k}: no line_perm"))?
+            {
+                action[slot(a)?] = SlotImage::Exact {
+                    target: slot(b.as_str().ok_or("line_perm target")?)?,
+                    flip: false,
+                };
+            }
+            if let Some(ni) = e.get("numerator_images").and_then(Value::as_object) {
+                for (a, form) in ni {
+                    let i = slot(a)?;
+                    let mut terms: BTreeMap<usize, Q> = BTreeMap::new();
+                    let mut constant = Q::ZERO;
+                    for (m, c) in form.as_object().ok_or("numerator image is not an object")? {
+                        let c = q_from(c)?;
+                        if m == "1" {
+                            constant = constant.add(c)?;
+                        } else {
+                            let e2 = terms.entry(slot(m)?).or_insert(Q::ZERO);
+                            *e2 = e2.add(c)?;
+                        }
+                    }
+                    let terms: Vec<(usize, Q)> = terms.into_iter().filter(|(_, c)| !c.is_zero()).collect();
+                    action[i] = if constant.is_zero() && terms.len() == 1 && terms[0].1 == Q::ONE && !chart[terms[0].0]
+                    {
+                        SlotImage::Exact {
+                            target: terms[0].0,
+                            flip: false,
+                        }
+                    } else {
+                        SlotImage::Linear { terms, constant }
+                    };
+                }
+            }
+            let matrix = match e.get("momentum_map") {
+                Some(mm) if !mm.is_null() => {
+                    let mut t = vec![0i64; w * w];
+                    for (a, img) in mm
+                        .get("k_images")
+                        .and_then(Value::as_object)
+                        .ok_or_else(|| format!("element {k}: momentum_map without k_images"))?
+                    {
+                        let r = var(a)?;
+                        for (b, c) in img.as_object().ok_or("k image is not an object")? {
+                            t[r * w + var(b)?] = c.as_i64().ok_or("k image coefficient")?;
+                        }
+                    }
+                    let qi = mm.get("q_image").and_then(Value::as_str).ok_or("q_image")?;
+                    let compact: String = qi.chars().filter(|c| !c.is_whitespace()).collect();
+                    t[l * w + l] = match compact.as_str() {
+                        "q" | "1*q" | "+1*q" | "+q" => 1,
+                        "-q" | "-1*q" => -1,
+                        _ => return Err(format!("element {k}: q_image {qi} is not +-q")),
+                    };
+                    Some(t)
+                }
+                _ => None,
+            };
+            let el = SymElement { matrix, action };
+            if !el.is_identity() {
+                elements.push(el);
+            }
+        }
+        Ok(SymGroup {
+            arity: n,
+            loops: l,
+            chart,
+            elements,
+        })
+    }
+
     pub fn chart_text(&self) -> String {
         self.chart.iter().map(|&b| if b { '1' } else { '0' }).collect()
     }
@@ -777,6 +903,8 @@ pub struct ElementProof {
 #[derive(Clone, Debug)]
 pub struct VerifiedGroup {
     pub group: SymGroup,
+    /// sha256 of the family text the proofs were made on (the identity test refuses the group on another family)
+    pub family_digest: String,
     pub provenance: Provenance,
     pub digest: String,
     pub proofs: Vec<ElementProof>,
@@ -916,6 +1044,7 @@ pub fn verify_group(
     let digest = group.digest();
     Ok(VerifiedGroup {
         group,
+        family_digest: family.source_digest.clone(),
         provenance,
         digest,
         proofs,

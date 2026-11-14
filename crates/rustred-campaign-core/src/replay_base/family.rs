@@ -30,6 +30,8 @@ pub struct Family {
     pub squashed_digest: String,
     pub name: Option<String>,
     pub check: Result<(), Unknown>,
+    /// campaign copy, ADDED: the loop momentum names in `loops(..)` order (symmetry-group data refers to them)
+    pub loop_names: Vec<String>,
 }
 
 /// campaign copy, ADDED (audit C2): the engine replay's `family_check` (replay/mod.rs:1979-2014 at b9f06de7) without
@@ -389,6 +391,7 @@ impl Family {
             squashed_digest: super::sha256::sha256_hex(compact.as_bytes()),
             name,
             check,
+            loop_names: loops.clone(),
             n,
             loops: lcount,
             kshift,
