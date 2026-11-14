@@ -84,7 +84,7 @@ fn rule(d: CaseDomain, tag: &str, sym: bool) -> CandidateRule {
         bytes: None,
         rows: None,
         tie_break_only: None,
-        symmetry_rows: sym,
+        symmetry_rows: sym, witness: rustred_campaign_core::cover::WitnessStatus::Complete,
     }
 }
 

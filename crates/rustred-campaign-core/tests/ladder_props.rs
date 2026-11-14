@@ -89,7 +89,7 @@ impl CaseSolver for RandomSolver {
                     bytes: None,
                     rows: None,
                     tie_break_only: None,
-                    symmetry_rows: false,
+                    symmetry_rows: false, witness: rustred_campaign_core::cover::WitnessStatus::Complete,
                 }])
             }
         };

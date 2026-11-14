@@ -68,6 +68,11 @@ pub struct CandidateRule {
     /// The rule was generated with symmetry rows: a per-key exact proof (instance-span) is `Unsupported` for it; a
     /// node requiring per-key evidence can then not credit it (route to the replay level only where the spec allows).
     pub symmetry_rows: bool,
+    /// What the rule's SOURCE shows about its witness loci (core fix 2, campaign-core-domain.md section 8): only
+    /// `Complete` can be credited; `Elided` / `NotCarried` make the rule unusable wherever it would be selected (an
+    /// exclusion there). A candidate built from an export takes its status from `Table.meta`; new campaign jobs run
+    /// with no elision (normally `Complete`).
+    pub witness: crate::cover::WitnessStatus,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -273,7 +278,15 @@ pub fn judge_point(
 ) -> PointVerdict {
     let v = rule.domain.applies(key);
     match v {
-        Verdict::Applies => {}
+        Verdict::Applies => match rule.witness {
+            crate::cover::WitnessStatus::Complete => {}
+            crate::cover::WitnessStatus::Elided => return PointVerdict::Elided,
+            crate::cover::WitnessStatus::NotCarried => {
+                return PointVerdict::Blocked {
+                    why: "witness loci not carried by the source".into(),
+                };
+            }
+        },
         Verdict::OnException { branch } => return PointVerdict::OnException { branch },
         Verdict::OnPole { .. } => return PointVerdict::OnPole,
         Verdict::Elided => return PointVerdict::Elided,

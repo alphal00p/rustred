@@ -506,7 +506,7 @@ impl World {
             bytes: None,
             rows: None,
             tie_break_only: Some(hr.p_tie == 1000),
-            symmetry_rows: false,
+            symmetry_rows: false, witness: rustred_campaign_core::cover::WitnessStatus::Complete,
         }
     }
 
@@ -616,7 +616,7 @@ impl Solver<'_> {
             bytes: None,
             rows: None,
             tie_break_only: None,
-            symmetry_rows: r.chance(100),
+            symmetry_rows: r.chance(100), witness: rustred_campaign_core::cover::WitnessStatus::Complete,
         }
     }
 }

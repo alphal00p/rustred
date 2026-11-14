@@ -83,7 +83,7 @@ fn rule(d: CaseDomain, tag: &str, rhs: u64) -> CandidateRule {
         bytes: None,
         rows: None,
         tie_break_only: None,
-        symmetry_rows: false,
+        symmetry_rows: false, witness: rustred_campaign_core::cover::WitnessStatus::Complete,
     }
 }
 
@@ -1719,4 +1719,28 @@ fn minor_a7_affine_overflow_is_reported() {
     let n = AffineEq::new(vec![(3, -2), (1, -4)], 6).unwrap();
     assert_eq!((n.coeffs.clone(), n.constant), (vec![(1, 2), (3, 1)], -3));
     let _ = BTreeMap::<u8, u8>::new();
+}
+
+/// Core fix 2 (addendum 5): a candidate whose source carries no witness loci (or elided ones) is never credited.
+#[test]
+fn witness_status_not_complete_is_never_credited() {
+    use rustred_campaign_core::cover::WitnessStatus;
+    struct W(WitnessStatus);
+    impl CaseSolver for W {
+        fn solve(&mut self, req: &CaseRequest, _b: &AttemptBudget) -> SolveAnswer {
+            let p = p();
+            let mut r = rule(dom(&p, &req.case, &[]), "w", 3);
+            r.witness = self.0;
+            SolveAnswer { outcome: SolveOutcome::Rules(vec![r]), cpu_ms: 1, rows: None }
+        }
+    }
+    let p = p();
+    let cmp = cmp6();
+    for ws in [WitnessStatus::Elided, WitnessStatus::NotCarried] {
+        let inp = RepairInputs { params: &p, descent: &cmp, key: key(2, 2), extra_targets: vec![], tables: &NoTables };
+        let r = repair_key(&inp, &RepairBudget::default(), &mut W(ws), &mut Facts::default(), &mut ReplayProver, None);
+        assert!(r.is_err(), "{ws:?}: {r:?}");
+    }
+    let inp = RepairInputs { params: &p, descent: &cmp, key: key(2, 2), extra_targets: vec![], tables: &NoTables };
+    assert!(repair_key(&inp, &RepairBudget::default(), &mut W(WitnessStatus::Complete), &mut Facts::default(), &mut ReplayProver, None).is_ok());
 }
