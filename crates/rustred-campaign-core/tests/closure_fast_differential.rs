@@ -6,7 +6,7 @@
 //! winners). Default suite (the full large key sets: ignored release tests in closure_t178.rs / closure_t266.rs).
 
 use rustred_campaign_core::closure::FastDispatch;
-use rustred_campaign_core::cover::{Dispatch, Dispatcher, RuleRef, Table};
+use rustred_campaign_core::cover::{Assurance, Dispatch, Dispatcher, RuleRef, Table, WitnessStatus};
 use rustred_campaign_core::domain::{CaseDomain, Stage, TargetMap, TargetSlot};
 use rustred_campaign_core::poly::Poly;
 
@@ -40,12 +40,13 @@ fn reference(disp: &Dispatcher, key: &[i32], excluded: &[(usize, usize)]) -> Dis
             if excluded.contains(&(t, r)) {
                 continue;
             }
-            let v = tab.domains[r].applies(key);
-            let at = RuleRef {
-                table: t,
-                record: r,
-                label: tab.labels[r],
-            };
+            let mut v = tab.domains[r].applies(key);
+            if v.stage() == Stage::Applies
+                && let Some(b) = tab.meta[r].witness_block()
+            {
+                v = b;
+            }
+            let at = disp.rule_ref(t, r);
             match v.stage() {
                 Stage::Applies => return Dispatch::Covered(at),
                 Stage::NotSelected => {}
@@ -63,6 +64,7 @@ fn fast_equals_core_randomized() {
     let mut checked = 0u64;
     let mut kinds = [0u64; 5];
     let mut excl_changed = 0u64;
+    let mut wblocked = 0u64;
     for case in 0..240 {
         let n = 5 + rng.below(16) as usize; // 5..=20
         let nl = 2 + rng.below((n - 2) as u64) as usize;
@@ -109,6 +111,17 @@ fn fast_equals_core_randomized() {
                     );
                 }
                 tab.push((r as i64) * 7 + 3, d).unwrap();
+                // witness status of the record (core corefix2): NotCarried / Elided block where selected unless
+                // the check is off
+                match rng.below(8) {
+                    0 => tab.meta[r].witness = WitnessStatus::NotCarried,
+                    1 => tab.meta[r].witness = WitnessStatus::Elided,
+                    2 => {
+                        tab.meta[r].witness = WitnessStatus::NotCarried;
+                        tab.meta[r].witness_basis = Assurance::CheckDisabled;
+                    }
+                    _ => {}
+                }
             }
             tabs.push(tab);
         }
@@ -146,6 +159,15 @@ fn fast_equals_core_randomized() {
                 "case {case} key {key:?}"
             );
             assert_eq!(f, reference(&disp, &key, &[]), "case {case} key {key:?}");
+            if let Dispatch::Blocked { reason, .. } = &f
+                && matches!(
+                    reason,
+                    rustred_campaign_core::domain::Verdict::WitnessNotCarried
+                        | rustred_campaign_core::domain::Verdict::Elided
+                )
+            {
+                wblocked += 1;
+            }
             kinds[match f {
                 Dispatch::Covered(_) => 0,
                 Dispatch::Uncovered => 1,
@@ -168,13 +190,7 @@ fn fast_equals_core_randomized() {
             }
             let mut pos: Vec<u32> = excl
                 .iter()
-                .map(|&(t, r)| {
-                    fast.position(RuleRef {
-                        table: t,
-                        record: r,
-                        label: 0,
-                    })
-                })
+                .map(|&(t, r)| fast.position(RuleRef::bare(t, r, 0)))
                 .collect();
             pos.sort_unstable();
             pos.dedup();
@@ -197,7 +213,7 @@ fn fast_equals_core_randomized() {
     }
     println!(
         "fast == core == slow == reference on {checked} keys; covered/uncovered/blocked/undecided/outside = {kinds:?}; \
-         exclusions changed the verdict on {excl_changed}"
+         exclusions changed the verdict on {excl_changed}; witness-blocked {wblocked}"
     );
     assert!(kinds[0] > 0 && kinds[1] > 0 && kinds[2] > 0 && kinds[4] > 0);
 }

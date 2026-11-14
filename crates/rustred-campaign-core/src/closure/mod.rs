@@ -121,6 +121,19 @@ pub struct ClosureConfig {
     /// Relation sets (R48 recipe rules, closure.md section 12): dispatch entries beside the tables, each with its slot.
     /// A set MATCHES a key iff the key is in its domain and in its certified set; otherwise the dispatch falls through.
     pub relation_sets: Vec<Arc<RelationSet>>,
+    /// Records WITHOUT witness loci (core `Blocked(WitnessNotCarried)`): `lift_with_regular_fact` (default) lets Tier C
+    /// serve such a key iff the fact source holds the per-key exact lift fact (regular, in case, no exception branch)
+    /// for exactly (rule content, key); Tier K always reports `block`. `Elided` records are never lifted.
+    pub witness_absent: WitnessAbsent,
+}
+
+/// Policy for records without witness loci (coordinator ruling 2026-11-14).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WitnessAbsent {
+    Block,
+    #[default]
+    LiftWithRegularFact,
 }
 
 /// Checks a DIAGNOSTIC run may relax (never in a run whose verdict is used; audit loop-A C3).
@@ -280,6 +293,7 @@ impl Default for ClosureConfig {
             exclusions: vec![],
             diagnostic: DiagnosticRelaxations::default(),
             relation_sets: vec![],
+            witness_absent: WitnessAbsent::default(),
         }
     }
 }
@@ -326,8 +340,13 @@ impl From<BodyError> for ClosureError {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct RuleName {
     pub table: String,
+    /// Dispatch position in the table (the producer's `record`).
     pub record: usize,
     pub label: i64,
+    /// Position among the rule records of the source file (core `RecordMeta::source_index`; stable under skipped
+    /// records). Rules are identified by content digest + source index, never by dispatch position.
+    #[serde(default)]
+    pub source_index: usize,
 }
 
 /// Why a reached key is open.
@@ -515,6 +534,12 @@ pub struct ClosureSummary {
     pub exits_complete: bool,
     /// The configuration identity the fact source was requested by (provenance), if any.
     pub facts_requested_by: Option<String>,
+    /// Keys served through a witness-absent record lifted by its per-key exact fact, per table.
+    pub witness_lifted: BTreeMap<String, u64>,
+    /// Keys blocked by a witness-absent record (they require the per-key regularity fact; requested).
+    pub requires_regularity_fact: u64,
+    /// The effective witness-absent policy of this run (`block` in Tier K).
+    pub witness_absent: WitnessAbsent,
     /// Keys served by relation sets, and the number of sets used.
     pub recipe_served: u64,
     pub recipe_served_in_start: u64,
@@ -738,6 +763,9 @@ pub struct Closure {
     /// recipe-served key -> (relation set, record index)
     recipe_of: BTreeMap<u32, (u32, u32)>,
     rset_names: Vec<(String, String)>,
+    lifted: BTreeSet<u32>,
+    witness_absent_keys: BTreeSet<u32>,
+    witness_policy: WitnessAbsent,
     pub seconds: f64,
     pub memory_estimate_bytes: usize,
 }
@@ -910,7 +938,8 @@ fn rule_ids(
             hr.update(b"rustred.campaign.rule.v1\n");
             hr.update(src.as_bytes());
             hr.update(b"\n");
-            hr.update(&(r as u64).to_le_bytes());
+            let src_index = tab.meta.get(r).map(|m| m.source_index).unwrap_or(r);
+            hr.update(&(src_index as u64).to_le_bytes());
             hr.update(&tab.labels[r].to_le_bytes());
             hr.update(&(dom.len() as u64).to_le_bytes());
             hr.update(dom.as_bytes());
@@ -934,6 +963,7 @@ fn rule_ids(
             table: name_of(r.table),
             record: r.record,
             label: r.label,
+            source_index: r.source_index,
         });
         digests.push(rec_digest[r.table][r.record].clone());
     }
@@ -1040,6 +1070,7 @@ fn expand_recipe(
         table: set.name.clone(),
         record: ri as usize,
         label: -1,
+        source_index: ri as usize,
     };
     let cap = ctx.cfg.witness_cap;
     let mut code = [0u64; keyset::MAX_WORDS];
@@ -1355,6 +1386,10 @@ fn chunks(lo: usize, hi: usize, threads: usize) -> Vec<(usize, usize)> {
 /// Dispatch result of one key (internal).
 enum KeyRes {
     Terminal(TermInfo),
+    /// Served through a witness-absent record lifted by its exact per-key fact.
+    Lifted(u32),
+    /// Blocked by a witness-absent record: open, with a lift request.
+    WitnessAbsent(OpenInfo),
     Recipe(u32, u32),
     Pos(u32, Option<RegFact>),
     Credit(Box<Credit>, Option<RegFact>),
@@ -1490,6 +1525,15 @@ fn cache_view<'c>(
         old_to_new,
         reusable_table,
     })
+}
+
+/// The effective witness-absent policy (Tier K: always `block`).
+fn witness_policy(cfg: &ClosureConfig) -> WitnessAbsent {
+    if cfg.tier == Tier::K {
+        WitnessAbsent::Block
+    } else {
+        cfg.witness_absent
+    }
 }
 
 fn hand_downs_name(h: HandDowns) -> &'static str {
@@ -1638,11 +1682,7 @@ fn run(
                 e.table, e.record, e.label
             )));
         }
-        let p = fast.position(RuleRef {
-            table: ti,
-            record: e.record,
-            label: e.label,
-        });
+        let p = fast.position(RuleRef::bare(ti, e.record, e.label));
         exclusions.entry(e.key.clone()).or_default().push(p);
         excl_names
             .entry(e.key.clone())
@@ -1782,6 +1822,15 @@ fn run(
             },
         );
         c.insert("hand_downs".into(), hand_downs_name(cfg.hand_downs).into());
+        c.insert(
+            "witness_absent".into(),
+            format!("{:?}", witness_policy(cfg)),
+        );
+        // what the dispatcher's credits rest on (witness check on / off, attestations checked / unchecked, chart)
+        c.insert(
+            "dispatcher_summary".into(),
+            format!("{:?}", disp.summary()),
+        );
         c.insert("max_rounds".into(), format!("{:?}", cfg.max_rounds));
         c.insert(
             "diagnostic".into(),
@@ -1863,6 +1912,8 @@ fn run(
     let mut credits: BTreeMap<u32, Credit>;
     let mut terminals: BTreeMap<u32, TermInfo>;
     let mut recipe_of: BTreeMap<u32, (u32, u32)>;
+    let mut lifted: BTreeSet<u32>;
+    let mut witness_absent_keys: BTreeSet<u32>;
     let mut acc = ExpandOut::default();
     let mut hd_keys: BTreeMap<u64, Vec<u64>>;
     let mut start_mask: Vec<bool>;
@@ -1878,6 +1929,8 @@ fn run(
             credits = BTreeMap::new();
             terminals = BTreeMap::new();
             recipe_of = BTreeMap::new();
+            lifted = BTreeSet::new();
+            witness_absent_keys = BTreeSet::new();
             hd_keys = BTreeMap::new();
             start_mask = vec![];
         }
@@ -1889,6 +1942,8 @@ fn run(
             credits = p.credits.clone();
             terminals = p.terminals.clone();
             recipe_of = p.recipe_of.clone();
+            lifted = p.lifted.clone();
+            witness_absent_keys = p.witness_absent_keys.clone();
             hd_keys = p
                 .hand_down_keys
                 .iter()
@@ -1995,11 +2050,7 @@ fn run(
                                                 Some(j) => {
                                                     used_cache = true;
                                                     (
-                                                        ctx.fast.position(RuleRef {
-                                                            table: j,
-                                                            record: r as usize,
-                                                            label: 0,
-                                                        }),
+                                                        ctx.fast.position(RuleRef::bare(j, r as usize, 0)),
                                                         true,
                                                     )
                                                 }
@@ -2081,6 +2132,24 @@ fn run(
                     KeyRes::Terminal(t) => {
                         res[i] = TERMINAL;
                         terminals.insert(i as u32, t);
+                    }
+                    KeyRes::Lifted(p) => {
+                        res[i] = p;
+                        lifted.insert(i as u32);
+                    }
+                    KeyRes::WitnessAbsent(o) => {
+                        let p = o.rule.expect("blocking record");
+                        res[i] = OPEN;
+                        open.insert(i as u32, o);
+                        witness_absent_keys.insert(i as u32);
+                        acc.requests.push(ReqC {
+                            key: i as u32,
+                            pos: p,
+                            term: u32::MAX,
+                            reason: RequestReason::WitnessLift,
+                            image: false,
+                            rhs: Box::new([]),
+                        });
                     }
                     KeyRes::Recipe(si, ri) => {
                         res[i] = RECIPE;
@@ -2268,6 +2337,9 @@ fn run(
         excl_names,
         incremental: cache.map(|_| inc_use),
         recipe_of,
+        lifted,
+        witness_absent_keys,
+        witness_policy: witness_policy(cfg),
         rset_names: ctx
             .rsets
             .iter()
@@ -2424,6 +2496,21 @@ fn dispose(
                 rule: None,
                 detail: String::new(),
                 candidates: ctx.recipe_candidates(key),
+            })
+        }
+        Dispatch::Blocked { at, reason } if reason == crate::domain::Verdict::WitnessNotCarried => {
+            let p = ctx.fast.position(at);
+            if witness_policy(ctx.cfg) == WitnessAbsent::LiftWithRegularFact
+                && ctx.bodies.has(at.table, at.record)
+                && ctx.facts.witness_lift(&ctx.rid(p), key) == RegFact::Regular
+            {
+                return Ok(KeyRes::Lifted(p));
+            }
+            KeyRes::WitnessAbsent(OpenInfo {
+                status: OpenStatus::Blocked,
+                rule: Some(p),
+                detail: format!("{reason:?}: requires the per-key regularity fact"),
+                candidates: vec![],
             })
         }
         Dispatch::Blocked { at, reason } => KeyRes::Open(OpenInfo {
@@ -2619,6 +2706,7 @@ impl Closure {
                     table: self.rset_names[si as usize].0.clone(),
                     record: ri as usize,
                     label: -1,
+                    source_index: ri as usize,
                 })
             }
             CREDITED => Some(self.rule_names[self.credits[&(i as u32)].position as usize].clone()),
@@ -2757,7 +2845,7 @@ impl Closure {
                     record: rn.record,
                     label: rn.label,
                     key,
-                    kind: if r.reason == RequestReason::Regularity {
+                    kind: if matches!(r.reason, RequestReason::Regularity | RequestReason::WitnessLift) {
                         FactKind::Regularity
                     } else {
                         FactKind::Coefficient
@@ -3046,6 +3134,17 @@ impl Closure {
             config_digest: self.identity.digest(),
             exits_complete: self.exits_complete(),
             facts_requested_by: self.facts_requested_by.clone(),
+            witness_lifted: {
+                let mut m: BTreeMap<String, u64> = BTreeMap::new();
+                for &i in &self.lifted {
+                    let p = self.res[i as usize];
+                    *m.entry(self.table_names[self.entry_table[p as usize] as usize].clone())
+                        .or_default() += 1;
+                }
+                m
+            },
+            requires_regularity_fact: self.witness_absent_keys.len() as u64,
+            witness_absent: self.witness_policy,
             recipe_served: self.recipe_of.len() as u64,
             recipe_served_in_start: self
                 .recipe_of

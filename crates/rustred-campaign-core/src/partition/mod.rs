@@ -131,11 +131,7 @@ impl DomainSource for DispatcherSource<'_> {
     }
     fn rule_ref(&self, i: usize) -> RuleRef {
         let (t, r) = self.index[i];
-        RuleRef {
-            table: t,
-            record: r,
-            label: self.disp.tables()[t].labels[r],
-        }
+        self.disp.rule_ref(t, r)
     }
 }
 

@@ -60,14 +60,28 @@ impl CreditPolicy {
             pure_numerator_maps: BTreeSet::new(),
         }
     }
-    /// Check the policy against the node's line mask: every element's line block must be the line slots
-    /// `0..lines.len()` of the mask (audit loop-A m1), and certified indices must exist.
+    /// Check the policy against the node's line mask (audit loop-A m1, loop-B m2): an element's `lines` permutes the
+    /// LINE slots of the mask (in slot order, wherever they sit: the action is generic over the frame, L8) and its
+    /// `numerators` (if given) the remaining slots; both must be permutations of the right length. Certified indices
+    /// must exist.
     pub fn validate(&self, lines: &[bool]) -> Result<(), String> {
+        let nl = lines.iter().filter(|&&l| l).count();
+        let nn = lines.len() - nl;
+        let perm = |v: &[usize], n: usize| {
+            let mut seen = vec![false; n];
+            v.len() == n && v.iter().all(|&j| j < n && !std::mem::replace(&mut seen[j], true))
+        };
         for (i, g) in self.group.iter().enumerate() {
-            let nl = g.lines.len();
-            if nl > lines.len() || lines.iter().enumerate().any(|(s, &l)| l != (s < nl)) {
+            if !perm(&g.lines, nl) {
                 return Err(format!(
-                    "group element {i}: line block 0..{nl} is not the line mask of the node"
+                    "group element {i}: lines is not a permutation of the node's {nl} line slots"
+                ));
+            }
+            if let Some(m) = &g.numerators
+                && !perm(m, nn)
+            {
+                return Err(format!(
+                    "group element {i}: numerators is not a permutation of the node's {nn} other slots"
                 ));
             }
         }
@@ -138,21 +152,58 @@ pub enum Refusal {
     RegularityUnknown,
 }
 
-/// g^-1 applied to `key` (inverse of [`GroupElement::apply`]).
-fn apply_inverse(g: &GroupElement, key: &[i32]) -> Option<Vec<i32>> {
-    let nl = g.lines.len();
+/// The slot lists of a line mask: (line slots, other slots), in slot order.
+fn slot_lists(lines: &[bool]) -> (Vec<usize>, Vec<usize>) {
+    let l = (0..lines.len()).filter(|&s| lines[s]).collect();
+    let o = (0..lines.len()).filter(|&s| !lines[s]).collect();
+    (l, o)
+}
+
+/// `g k` in the node's frame: `(g k)[L[lines[i]]] = k[L[i]]` over the line slots L of the mask, likewise `numerators`
+/// over the other slots; `None` when the key has a non-zero numerator and no numerator map is given (or the element
+/// does not fit the mask). Equals the core's `GroupElement::apply` when the lines come first.
+pub fn apply_framed(g: &GroupElement, key: &[i32], lines: &[bool]) -> Option<Vec<i32>> {
+    let (ls, os) = slot_lists(lines);
+    if g.lines.len() != ls.len() || key.len() != lines.len() {
+        return None;
+    }
     let mut out = key.to_vec();
     for (i, &j) in g.lines.iter().enumerate() {
-        out[i] = *key.get(j)?;
+        out[*ls.get(j)?] = key[ls[i]];
+    }
+    match &g.numerators {
+        Some(m) => {
+            if m.len() != os.len() {
+                return None;
+            }
+            for (i, &j) in m.iter().enumerate() {
+                out[*os.get(j)?] = key[os[i]];
+            }
+        }
+        None => {
+            if os.iter().any(|&s| key[s] != 0) {
+                return None;
+            }
+        }
+    }
+    Some(out)
+}
+
+/// g^-1 applied to `key` in the node's frame (inverse of [`apply_framed`]).
+fn apply_inverse(g: &GroupElement, key: &[i32], lines: &[bool]) -> Option<Vec<i32>> {
+    let (ls, os) = slot_lists(lines);
+    let mut out = key.to_vec();
+    for (i, &j) in g.lines.iter().enumerate() {
+        out[ls[i]] = key[*ls.get(j)?];
     }
     match &g.numerators {
         Some(m) => {
             for (i, &j) in m.iter().enumerate() {
-                out[nl + i] = *key.get(nl + j)?;
+                out[os[i]] = key[*os.get(j)?];
             }
         }
         None => {
-            if key[nl..].iter().any(|&x| x != 0) {
+            if os.iter().any(|&s| key[s] != 0) {
                 return None;
             }
         }
@@ -170,18 +221,18 @@ fn try_element(
     frame: CreditFrame,
 ) -> Result<Result<Credit, Refusal>, ClosureError> {
     let g = &pol.group[ei];
-    if g.lines.len() > key.len() {
-        return Ok(Err(Refusal::NoImage));
+    let lines = &ctx.sectors().lines;
+    if g.lines.len() != lines.iter().filter(|&&l| l).count() {
+        return Ok(Err(Refusal::MalformedElement(
+            "line permutation does not fit the line mask".into(),
+        )));
     }
-    let image = match g.apply(key) {
-        Ok(Some(x)) => x,
-        Ok(None) => return Ok(Err(Refusal::NoImage)),
-        Err(e) => return Ok(Err(Refusal::MalformedElement(format!("{e:?}")))),
+    let Some(image) = apply_framed(g, key, lines) else {
+        return Ok(Err(Refusal::NoImage));
     };
     if image == key {
         return Ok(Err(Refusal::ImageEqualsKey));
     }
-    let lines = &ctx.sectors().lines;
     let has_numerator = key.iter().zip(lines).any(|(&v, &l)| !l && v != 0);
     if has_numerator && !pol.pure_numerator_maps.contains(&ei) {
         return Ok(Err(Refusal::NumeratorMapNotPure));
@@ -243,7 +294,7 @@ fn try_element(
             TermClass::Top => {
                 let cmpd = match frame {
                     CreditFrame::Direct => Some(t.to_vec()),
-                    CreditFrame::MappedBack => apply_inverse(g, t),
+                    CreditFrame::MappedBack => apply_inverse(g, t, lines),
                 };
                 let below = cmpd.is_some_and(|c| ctx.cmp().lower(&c, key));
                 if !below {

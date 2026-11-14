@@ -157,7 +157,8 @@ pub fn answer_facts(
             })
             .collect();
         out.push(
-            serde_json::json!({"schema":"rustred.proof-kernel.instantiate.v1","rule":label,"key":key,"rhs":rhs})
+            serde_json::json!({"schema":"rustred.proof-kernel.instantiate.v1","rule":label,"key":key,"rhs":rhs,
+                "in_case":true,"chart_ok":true,"branch":null,"error":null})
                 .to_string(),
         );
     }

@@ -66,6 +66,11 @@ pub trait FactSource: Sync {
     fn requested_by(&self) -> Option<String> {
         None
     }
+    /// The per-key EXACT fact that lifts a witness-absent block (coordinator ruling 2026-11-14): `Regular` only if the
+    /// producer reported, for exactly (rule content, key): in case, on no exception branch, and regular.
+    fn witness_lift(&self, _rule: &RuleId, _key: &[i32]) -> RegFact {
+        RegFact::Unknown
+    }
 }
 
 /// No facts (Tier K): `Unknown` everywhere.
@@ -102,6 +107,9 @@ pub enum RequestReason {
     NotLower,
     /// Regularity of the winning rule at the key.
     Regularity,
+    /// Regularity + in case + no exception branch at a key where the selected record carries no witness loci (the
+    /// fact that lifts the witness-absent block).
+    WitnessLift,
 }
 
 /// One fact request (one JSONL line of the request file).
@@ -230,6 +238,7 @@ pub struct FileFacts {
 }
 
 const REG_TERM: u32 = u32::MAX;
+const LIFT_TERM: u32 = u32::MAX - 1;
 
 /// (producer rule index, key) of an instantiate line.
 type InstKey = (i64, Vec<i32>);
@@ -322,6 +331,8 @@ impl FileFacts {
         let mut sha = super::sha256::Sha256::new();
         // (rule index, key) -> per-term keys (None: two instantiate lines disagree)
         let mut inst: HashMap<InstKey, Option<Vec<Vec<i32>>>> = HashMap::new();
+        // (rule index, key) -> in case, chart ok, on no exception branch (false if two lines disagree)
+        let mut inst_ok: HashMap<InstKey, bool> = HashMap::new();
         let mut lines: Vec<(usize, FactLine)> = vec![];
         for (ln, line) in r.lines().enumerate() {
             let line = line.map_err(FactError::Io)?;
@@ -350,7 +361,13 @@ impl FileFacts {
                             })
                             .collect()
                     });
+                    let ok = raw["in_case"] == true
+                        && raw["chart_ok"] == true
+                        && raw["branch"].is_null()
+                        && raw["error"].is_null();
                     if let (Some(rule), Some(key)) = (rule, key) {
+                        let o = inst_ok.entry((rule, key.clone())).or_insert(ok);
+                        *o = *o && ok;
                         let e = inst.entry((rule, key)).or_insert_with(|| terms.clone());
                         if *e != terms {
                             *e = None;
@@ -459,6 +476,21 @@ impl FileFacts {
                     Val::R(_) => Val::R(RegFact::Unknown),
                 }
             };
+            if val == Val::R(RegFact::Regular)
+                && inst_ok.get(&(f.label, f.key.clone())) == Some(&true)
+            {
+                let lk = FactKey {
+                    digest: digest.clone(),
+                    key: f.key.clone(),
+                    term: LIFT_TERM,
+                    term_key: vec![],
+                };
+                let h = fact_hash(&lk.digest, &lk.key, LIFT_TERM, &[]);
+                let b = ff.map.entry(h).or_default();
+                if !b.iter().any(|(kk, _)| *kk == lk) {
+                    b.push((lk, val));
+                }
+            }
             let k = FactKey {
                 digest: digest.clone(),
                 key: f.key,
@@ -518,6 +550,12 @@ impl FactSource for FileFacts {
     }
     fn requested_by(&self) -> Option<String> {
         self.requested_by.clone()
+    }
+    fn witness_lift(&self, rule: &RuleId, key: &[i32]) -> RegFact {
+        match self.get(rule.digest, key, LIFT_TERM, &[]) {
+            Some(Val::R(r)) => r,
+            _ => RegFact::Unknown,
+        }
     }
 }
 

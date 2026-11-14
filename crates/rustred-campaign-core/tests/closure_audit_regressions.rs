@@ -712,3 +712,71 @@ fn m4_duplicate_labels_refused_by_label_loads() {
     let line = r#"{"i": 7, "rhs": ["I(n0-1,n1,n2,n3)"]}"#;
     assert!(b.load_keys_jsonl(&d, 0, line.as_bytes(), 2).is_err());
 }
+
+// ------------------------------------------------------------------------------------------------ audit loop-B, corefix2
+
+/// B-m2 (L8): the group acts on the LINE slots of the mask wherever they sit (here slots 2, 3), not on the first slots.
+#[test]
+fn b_m2_group_action_generic_over_the_frame() {
+    let mask = vec![false, false, true, true];
+    let mut t = Table::new("A", 4);
+    let mut d0 = CaseDomain::free(4, Some(mask.clone()));
+    d0.fixed = vec![Some(0), Some(0), Some(3), Some(1)];
+    t.push(0, d0).unwrap();
+    let d = Dispatcher::new(vec![t], vec![0]).unwrap();
+    let mut b = RuleBodies::new(&d);
+    b.set(&d, 0, 0, &["I(0,0,3,0)"]).unwrap();
+    let cfg = ClosureConfig {
+        credits: Some(swap_policy()),
+        ..base(Tier::K)
+    };
+    let c = closure(&d, &b, &cmp(), &start(&[[0, 0, 1, 3]]), &cfg, &NoFacts).unwrap();
+    let cr = c.credits();
+    assert_eq!(cr.len(), 1);
+    assert_eq!(cr[0].image, vec![0, 0, 3, 1]);
+}
+
+/// Witness status (corefix2 + coordinator ruling): a record without witness loci blocks the key; Tier K reports
+/// "requires regularity fact" (and requests it); Tier C lifts it only with the exact per-key lift fact (regular, in
+/// case, no exception branch) for exactly (rule content, key); policy `block` never lifts; Elided is never lifted.
+#[test]
+fn witness_absent_block_and_lift() {
+    use rustred_campaign_core::closure::{RequestReason, WitnessAbsent};
+    use rustred_campaign_core::cover::WitnessStatus;
+    let mk = |status: WitnessStatus| {
+        let mut t = Table::new("A", 4);
+        t.push(0, dom([None; 4])).unwrap();
+        t.meta[0].witness = status;
+        let d = Dispatcher::new(vec![t], vec![0]).unwrap();
+        let mut b = RuleBodies::new(&d);
+        b.set(&d, 0, 0, &["I(0,n1,n2,n3)"]).unwrap();
+        (d, b)
+    };
+    let (d, b) = mk(WitnessStatus::NotCarried);
+    let st = start(&[[2, 1, 0, 0]]);
+    let k = closure(&d, &b, &cmp(), &st, &base(Tier::K), &NoFacts).unwrap();
+    let s = k.summary();
+    assert_eq!((s.verdict, s.requires_regularity_fact, s.witness_absent), (Verdict::Open, 1, WitnessAbsent::Block));
+    assert!(k.fact_requests().iter().any(|r| r.reason == RequestReason::WitnessLift));
+    let c0 = closure(&d, &b, &cmp(), &st, &base(Tier::C), &NoFacts).unwrap();
+    assert_eq!(c0.summary().verdict, Verdict::Open);
+    let reqs = c0.fact_requests();
+    let f = answer_facts(&reqs, &[(&[2, 1, 0, 0], None, "regular")], "exact", false);
+    let c1 = closure(&d, &b, &cmp(), &st, &base(Tier::C), &f).unwrap();
+    let s1 = c1.summary();
+    assert_eq!((s1.verdict, s1.witness_lifted.get("A").copied()), (Verdict::Closed, Some(1)));
+    // policy block: not lifted
+    let blk = ClosureConfig {
+        witness_absent: WitnessAbsent::Block,
+        ..base(Tier::C)
+    };
+    assert_eq!(closure(&d, &b, &cmp(), &st, &blk, &f).unwrap().summary().verdict, Verdict::Open);
+    assert_ne!(
+        closure(&d, &b, &cmp(), &st, &blk, &f).unwrap().summary().config_digest,
+        s1.config_digest
+    );
+    // elided: never lifted
+    let (de, be) = mk(WitnessStatus::Elided);
+    let reqs = closure(&de, &be, &cmp(), &st, &base(Tier::C), &NoFacts).unwrap().fact_requests();
+    assert!(reqs.iter().all(|r| r.reason != RequestReason::WitnessLift));
+}

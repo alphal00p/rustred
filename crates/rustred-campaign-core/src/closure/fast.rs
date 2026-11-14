@@ -5,7 +5,7 @@
 //! default suite; full key sets of the large fixtures: ignored release tests).
 
 use crate::cover::{Dispatch, Dispatcher, RuleRef};
-use crate::domain::Stage;
+use crate::domain::{Stage, Verdict};
 
 const NONE: u32 = u32::MAX;
 
@@ -23,6 +23,9 @@ pub struct FastDispatch<'a> {
     entries: Vec<(u32, u32)>,
     /// table -> position of its record 0
     offsets: Vec<u32>,
+    /// per position: the core's witness-status block of the record (`RecordMeta::witness_block`), applied when the
+    /// record is selected (the core dispatcher's enforced verdict, re-audit RA-MAJOR-1)
+    block: Vec<Option<Verdict>>,
     nodes: Vec<Node>,
 }
 
@@ -77,10 +80,20 @@ impl<'a> FastDispatch<'a> {
             }
             nodes[cur].leaf.push(e as u32);
         }
+        let block = entries
+            .iter()
+            .map(|&(t, r)| {
+                tables[t as usize]
+                    .meta
+                    .get(r as usize)
+                    .and_then(|m| m.witness_block())
+            })
+            .collect();
         FastDispatch {
             disp,
             entries,
             offsets,
+            block,
             nodes,
         }
     }
@@ -100,11 +113,7 @@ impl<'a> FastDispatch<'a> {
     #[inline]
     pub fn rule(&self, pos: u32) -> RuleRef {
         let (t, r) = self.entries[pos as usize];
-        RuleRef {
-            table: t as usize,
-            record: r as usize,
-            label: self.disp.tables()[t as usize].labels[r as usize],
-        }
+        self.disp.rule_ref(t as usize, r as usize)
     }
 
     /// Candidate positions (records whose fixed slots all match), ascending.
@@ -189,7 +198,12 @@ impl<'a> FastDispatch<'a> {
             }
             evaluated += 1;
             let (t, r) = self.entries[e as usize];
-            let v = self.disp.tables()[t as usize].domains[r as usize].applies(key);
+            let mut v = self.disp.tables()[t as usize].domains[r as usize].applies(key);
+            if v.stage() == Stage::Applies
+                && let Some(b) = &self.block[e as usize]
+            {
+                v = b.clone();
+            }
             match v.stage() {
                 Stage::Applies => return (Dispatch::Covered(self.rule(e)), evaluated),
                 Stage::NotSelected => {}

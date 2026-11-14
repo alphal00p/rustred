@@ -38,6 +38,8 @@ pub struct SideStats {
     pub degd: u32,
     /// max degree in the n variables of a monomial
     pub degn: u32,
+    /// max number of factors of a monomial (audit M1: a bare denominator must have exactly one)
+    pub factors: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
@@ -190,16 +192,18 @@ impl Lex<'_> {
         }
     }
 
-    /// One signed monomial added into `acc` (per context). Returns (total degree, d degree, n degree).
+    /// One signed monomial added into `acc` (per context). Returns (total degree, d degree, n degree, factors).
     fn monomial(
         &mut self,
         neg: bool,
         ctxs: &[Ctx],
         acc: &mut [u64],
-    ) -> Result<(u32, u32, u32), CoeffError> {
+    ) -> Result<(u32, u32, u32, u32), CoeffError> {
         let mut val: Vec<u64> = ctxs.iter().map(|c| 1 % c.p).collect();
         let (mut deg, mut degd) = (0u64, 0u64);
+        let mut factors = 0u32;
         loop {
+            factors = factors.saturating_add(1);
             match self.factor()? {
                 Factor::Num(a, b) => {
                     for (v, c) in val.iter_mut().zip(ctxs) {
@@ -237,7 +241,7 @@ impl Lex<'_> {
             };
         }
         let cap = |x: u64| u32::try_from(x).unwrap_or(u32::MAX);
-        Ok((cap(deg), cap(degd), cap(deg - degd)))
+        Ok((cap(deg), cap(degd), cap(deg - degd), factors))
     }
 
     /// A polynomial up to ')' / '/' / end (not consumed). `stats` accumulates.
@@ -267,8 +271,9 @@ impl Lex<'_> {
             if self.peek() == Some(b'(') {
                 return self.err("nested parentheses");
             }
-            let (deg, degd, degn) = self.monomial(neg, ctxs, acc)?;
+            let (deg, degd, degn, factors) = self.monomial(neg, ctxs, acc)?;
             st.terms += 1;
+            st.factors = st.factors.max(factors);
             st.deg = st.deg.max(deg);
             st.degd = st.degd.max(degd);
             st.degn = st.degn.max(degn);
@@ -355,10 +360,49 @@ pub fn eval_ratio(
     if !q_paren && st.den.terms != 1 {
         return lx.err("a bare denominator must be one monomial");
     }
+    if !q_paren && st.den.factors > 1 {
+        // audit M1: the engine's expr.rs reads `a/b*c` left-associatively as (a/b)*c; this grammar would read
+        // a/(b*c). Refused (never a silent second meaning).
+        return lx.err("a bare denominator must be ONE factor (`a/b*c` is ambiguous; write `a*c/b` or `a/(b*c)`)");
+    }
     if let Some(c) = lx.peek() {
         return lx.err(format!("trailing {:?} after the denominator", c as char));
     }
     Ok(st)
+}
+
+/// Largest coefficient text (bytes) that is also evaluated by the copied engine expression reader (audit M1).
+pub const CROSS_CHECK_BYTES: usize = 2_000_000;
+
+/// Audit M1: evaluate `text` with the copied engine reader (`expr.rs`) at `ctx` and compare with the streaming value
+/// `num / den` (`den != 0`). Ok(true) = equal, Ok(false) = skipped (text above [`CROSS_CHECK_BYTES`] or a pole of the
+/// engine reader at this context), Err = the two readers DISAGREE or the engine reader refuses the text: a typed
+/// refusal, never a silent choice.
+pub fn cross_check_engine(
+    text: &str,
+    arity: usize,
+    ctx: &Ctx,
+    num: u64,
+    den: u64,
+) -> Result<bool, String> {
+    if text.len() > CROSS_CHECK_BYTES || den == 0 {
+        return Ok(false);
+    }
+    let e = super::expr::Expr::parse(text, arity).map_err(|e| {
+        format!("engine expression reader refuses a coefficient the streaming reader accepts: {e}")
+    })?;
+    let p = ctx.p;
+    match e.at_mod(p, &ctx.vals[..arity], ctx.vals[arity]) {
+        Ok(v) => {
+            let mine = mulmod(num, super::arith::inv(p, den).unwrap_or(0), p);
+            if v == mine {
+                Ok(true)
+            } else {
+                Err("streaming coefficient reader and the engine expression reader disagree".into())
+            }
+        }
+        Err(_) => Ok(false),
+    }
 }
 
 #[cfg(test)]
@@ -468,7 +512,8 @@ mod tests {
                 terms: 2,
                 deg: 3,
                 degd: 2,
-                degn: 3
+                degn: 3,
+                factors: 2
             }
         );
         assert_eq!(
@@ -477,7 +522,8 @@ mod tests {
                 terms: 2,
                 deg: 1,
                 degd: 0,
-                degn: 1
+                degn: 1,
+                factors: 1
             }
         );
         assert!(st.has_den);
