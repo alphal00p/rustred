@@ -262,7 +262,8 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
         source: fsrc.id.clone(),
         msg: "no table file".into(),
     })?;
-    let fhead = scan_table(&fsrc.id, &first.path, false, &|_, _| false)?.header;
+    // the frame: the header line only (the file itself is verified when its source is loaded)
+    let fhead = super::lines::read_header(&fsrc.id, &first.path)?;
     let frame = NodeFrame::from_header(&fhead).map_err(|e| ImportError::Source {
         source: fsrc.id.clone(),
         msg: format!("frame: {e}"),
