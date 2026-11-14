@@ -509,7 +509,24 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
                 .ok()
                 .and_then(|s| s.lines().last().map(str::to_string))
                 .unwrap_or_else(|| "rr_proof exit 2".into());
-            j.error = Some(ErrorInfo::new(ErrorClass::Input, msg));
+            j.error = Some(ErrorInfo::new(ErrorClass::Input, msg.clone()));
+            // decision row 15b (lane int5): a refusal that names a HOST resource errno is not an input error: exit 51
+            // (io) with that message -> lost, retried after back-off, then attention; never evidence about the record
+            if rustred_campaign_contract::classify::resource_errno_of(&j).is_some() {
+                let mut io = JobOutcome::for_spec(
+                    spec,
+                    spec_blake3,
+                    j.program.clone(),
+                    ExitCode::Io,
+                    StopInfo {
+                        code: Some(StopCode::IoError),
+                        ..StopInfo::none()
+                    },
+                );
+                io.error = Some(ErrorInfo::new(ErrorClass::Io, msg));
+                write(io);
+                return WaitStatus::Exited(ExitCode::Io.code());
+            }
             write(j);
             mapped
         }
@@ -525,6 +542,101 @@ pub fn refusal(layout: &RunLayout) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A prepared proof-instance-span attempt in a fresh temp directory (no process: the child's ending is written by
+    /// hand): its layout, spec and spec digest.
+    fn attempt(tag: &str) -> (std::path::PathBuf, RunLayout, JobSpec, String) {
+        use crate::supervisor::worksource::JobRequest;
+        let root = std::env::temp_dir().join(format!("cl2-legacy-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let file = |name: &str, body: &str, role: &str| {
+            let p = root.join(name);
+            std::fs::write(&p, body).unwrap();
+            InputRef {
+                role: role.into(),
+                path: p.display().to_string(),
+                blake3: rustred_campaign_contract::blake3_hex(body.as_bytes()),
+                upto: None,
+            }
+        };
+        let req = format!(
+            "{}\n",
+            json!({"schema": SPAN_REQUEST_SCHEMA, "rule": 0, "offset": 0, "record_sha256": "aa", "rows": "engine"})
+        );
+        let r = JobRequest {
+            job: "n.p1.0-t0".into(),
+            item: "n.p1.0".into(),
+            rung: crate::state::Rung(0),
+            kind: JobKind::ProofInstanceSpan,
+            priority: 0,
+            cap_bytes: 1 << 28,
+            expected_peak_bytes: 1 << 26,
+            cores: 1,
+            heartbeat_s: 10,
+            stop_grace_s: 5,
+            program: "rr_proof".into(),
+            args: vec![],
+            inputs: vec![
+                file("request.json", &req, "request"),
+                file("t.jsonl", "{\"type\":\"rule\",\"index\":0}\n", "table"),
+                file("keys.txt", "n0=1,n1=1\n", "keys"),
+                file("fam.sym", "family\n", "family"),
+            ],
+            depends_on: vec![],
+            budgets: Default::default(),
+            sample_seed: 0,
+            fake: None,
+        };
+        let run = root.join("run");
+        let prog = root.join("rr_proof");
+        std::fs::write(&prog, "#!/bin/sh\n").unwrap();
+        let spec = super::super::job_spec(
+            super::super::AdapterKind::Contract,
+            &r,
+            &super::super::AdapterInput {
+                run_dir: &run,
+                attempt: 1,
+                program_name: "rr_proof",
+                program_path: &prog,
+                program_blake3: "00",
+                resume: None,
+            },
+        );
+        let (_, digest) = super::super::prepare_run(&spec, &prog).unwrap();
+        let layout = RunLayout::new(&spec.run_dir);
+        (root, layout, spec, digest)
+    }
+
+    /// Decision row 15b (lane int5): an rr_proof refusal (exit 2) whose ERROR names a HOST resource errno becomes an
+    /// io end (51) the contract classifies as a resource failure (row 15: lost, retried after back-off): never an
+    /// input refusal of the record (row 13). A plain refusal stays 41 / row 13.
+    #[test]
+    fn a_host_resource_refusal_is_row_15_never_an_input_refusal() {
+        use rustred_campaign_contract::classify::{KillReason, assess, classify};
+        let (root, layout, spec, digest) = attempt("res");
+        std::fs::write(
+            layout.stdout_log(),
+            "{\"verdict\":\"ERROR\",\"error\":\"open table: Too many open files (os error 24)\"}\n",
+        )
+        .unwrap();
+        let w = wrap(&layout, &spec, &digest, WaitStatus::Exited(2));
+        assert_eq!(w, WaitStatus::Exited(51));
+        let c = classify(&assess(&layout, &spec, &digest, w, KillReason::None, false));
+        assert_eq!((c.row, c.sub.as_str()), (15, "b"), "{}", c.why);
+        let _ = std::fs::remove_dir_all(&root);
+        let (root, layout, spec, digest) = attempt("inp");
+        std::fs::write(
+            layout.stdout_log(),
+            "{\"verdict\":\"MISSING_SEEDS\",\"error\":\"the record carries no seeds\"}\n",
+        )
+        .unwrap();
+        let w = wrap(&layout, &spec, &digest, WaitStatus::Exited(2));
+        assert_eq!(w, WaitStatus::Exited(41));
+        let c = classify(&assess(&layout, &spec, &digest, w, KillReason::None, false));
+        assert_eq!(c.row, 13, "{}", c.why);
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn named_keys_round_trip() {
