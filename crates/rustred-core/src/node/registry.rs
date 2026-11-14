@@ -1230,7 +1230,7 @@ fn join_impl<const N: usize>(
     for (k, o) in obls.iter().enumerate() {
         for ob in &o.open {
             seen += 1;
-            if seen % 250 == 0 {
+            if seen.is_multiple_of(250) {
                 eprintln!(
                     "[join] {seen}/{total} obligations, {} unresolved",
                     report.unresolved.len()

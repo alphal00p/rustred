@@ -77,23 +77,63 @@ static HELPERS: [AtomicI32; SLOTS] = [FREE; SLOTS];
 /// Largest `ru_maxrss` (KiB) of any helper reaped through [`kill_helpers`] or [`note_reaped`].
 static HELPERS_PEAK_KB: AtomicI32 = AtomicI32::new(0);
 
-/// Register a live helper (parent side, right after `fork`). A full registry still leaves the helper covered by
-/// PDEATHSIG and by the supervisor's group kill.
-pub fn register_helper(pid: i32) {
+/// Register a live helper (parent side, right after `fork`); false when the registry is full (the helper is then
+/// still covered by PDEATHSIG and by the supervisor's group kill, and its owner reaps it alone).
+pub fn register_helper(pid: i32) -> bool {
     if pid <= 0 {
-        return;
+        return false;
     }
-    for s in &HELPERS {
-        if s.compare_exchange(0, pid, Relaxed, Relaxed).is_ok() {
-            return;
-        }
+    HELPERS
+        .iter()
+        .any(|s| s.compare_exchange(0, pid, Relaxed, Relaxed).is_ok())
+}
+
+/// Forget a helper; true when this call removed it (false: not registered, or [`kill_helpers`] took it first).
+pub fn unregister_helper(pid: i32) -> bool {
+    HELPERS
+        .iter()
+        .any(|s| s.compare_exchange(pid, 0, Relaxed, Relaxed).is_ok())
+}
+
+/// Whether the helper `pid` has ended, WITHOUT reaping it (`waitid` with WNOWAIT): an ended helper stays a zombie,
+/// so its pid cannot be reused while it is still registered (audit-engjob m4). An error (e.g. the helper was reaped
+/// by [`kill_helpers`]) counts as ended.
+pub fn helper_ended(pid: i32) -> bool {
+    // SAFETY: waitid fills the zeroed siginfo of our own child; no reaping (WNOWAIT).
+    unsafe {
+        let mut info: libc::siginfo_t = std::mem::zeroed();
+        let r = libc::waitid(
+            libc::P_PID,
+            pid as libc::id_t,
+            &mut info,
+            libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+        );
+        r != 0 || info.si_pid() == pid
     }
 }
 
-/// Forget a helper the caller reaped itself.
-pub fn unregister_helper(pid: i32) {
-    for s in &HELPERS {
-        let _ = s.compare_exchange(pid, 0, Relaxed, Relaxed);
+/// Reap an ended helper (see [`helper_ended`]) in the race-free order: unregister FIRST, then reap, so the watchdog's
+/// [`kill_helpers`] can only signal a registered and therefore unreaped pid (audit-engjob m4). Returns the wait
+/// status; None when [`kill_helpers`] took the helper first (it reaps it) or the wait failed.
+pub fn reap_helper(pid: i32, registered: bool) -> Option<i32> {
+    if registered && !unregister_helper(pid) {
+        return None;
+    }
+    let mut status = 0;
+    // SAFETY: plain waitpid on our own child.
+    (unsafe { libc::waitpid(pid, &mut status, 0) } == pid).then_some(status)
+}
+
+/// SIGKILL and reap a live helper (a timeout), in the same race-free order as [`reap_helper`].
+pub fn kill_reap_helper(pid: i32, registered: bool) {
+    if registered && !unregister_helper(pid) {
+        return;
+    }
+    // SAFETY: our own child, still unreaped (we hold it exclusively now).
+    unsafe {
+        libc::kill(pid, libc::SIGKILL);
+        let mut status = 0;
+        libc::waitpid(pid, &mut status, 0);
     }
 }
 
