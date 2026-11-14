@@ -202,6 +202,15 @@ struct Rule {
 }
 
 fn rule_from(v: &Value) -> Result<Rule, Unknown> {
+    let mut rule = rule_from_record(v)?;
+    // engine line: optional `domain_bounds` (imported rules) = extra exception branches (node::bounds): sampling avoids
+    // them, a planted point on them is refused like any exception point
+    rule.exceptions
+        .extend(crate::node::bounds::bound_exclusions(v)?);
+    Ok(rule)
+}
+
+fn rule_from_record(v: &Value) -> Result<Rule, Unknown> {
     let s = |x: &Value| {
         x.as_str()
             .map(str::to_string)

@@ -24,6 +24,7 @@
 
 pub mod affine;
 pub mod auto;
+pub mod bounds;
 pub mod descent;
 pub mod domain;
 pub mod driver;
