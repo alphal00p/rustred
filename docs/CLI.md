@@ -261,6 +261,98 @@ The output carries `status = "uncertified-litered"`. See
 rustred litered-reduce --spec spec.json --output reduction.json
 ```
 
+## Reduce at fixed dimension with the sector-box engine (uncertified)
+
+`sector-box-reduce` reduces integrals of one family with the sector-box engine
+(`rustred::solver::sector_box`). All parameters but one are fixed to rationals,
+and every coefficient is reconstructed exactly in the one free parameter. It
+does not use a candidate bundle. The command:
+
+1. lowers the family from a `rustred.project.toml.v1` file and builds the
+   router (by default the sector-symmetry census of the top sector);
+2. runs the modular phase once (seeding, elimination, master selection at two
+   samples). With `derivative_slot = s` it repeats this phase until the demand
+   is closed under `I[a] -> I[a + e_s]` for every master with `a_s > 0`. The
+   result then also reduces the derivative of every master in the mass of line
+   `s`, so the caller can assemble the differential equation from
+   `d/dm I[a] = a_s I[a + e_s]` (up to the sign convention of the denominator);
+3. for every value of the dimension in `d_list`, reconstructs every
+   coefficient in the free parameter (multi-prime, verified at a fresh prime),
+   writes `solution-<d>.json` (`rustred-harness-solution.v1`; `/` becomes `_`
+   and `-` becomes `m`), and checks a probabilistic certificate at a prime that
+   is neither a reconstruction nor a verification prime of that solution. The
+   file carries the certificates that passed.
+
+```bash
+rustred sector-box-reduce --spec spec.json --output report.json
+```
+
+The report (schema `rustred.sector-box-reduce-report.v1`) is also written to
+`out_dir/report.json`, atomically after every phase. It carries
+`label = "uncertified-sector-box"`. The record of every solution lists its
+reconstruction, verification and certificate primes.
+
+Exit codes:
+- 0: `status` is `ok`, or `modular-only`;
+- 1: the engine's verdict is negative (`master-check-failed` under the strict
+  master check, or `certificate-failed`). The report and any solutions are
+  still written;
+- 4: invalid request;
+- 8: engine or execution failure;
+- 3 and 7: input and output I/O.
+
+Spec (schema `rustred.sector-box-reduce-spec.v1`; unknown fields are
+refused). `targets`, `preferred`, `seed`, `max_primes` and `workers` mean the
+same as in `litered-reduce`.
+
+| field | default | meaning |
+|---|---|---|
+| `family` | required | `rustred.project.toml.v1` file with a `[family]` table; the top-level `parameters` list fixes the parameter order |
+| `out_dir` | required | directory of the solutions and `report.json` |
+| `targets` | required | integrals to reduce, one index per denominator |
+| `preferred` | `[]` | preferred masters, at the easy end of the column order. One whose route onto its representative sector has several terms is dropped from this set and reported |
+| `expected` | `{}` | expected masters per class: Kira id of the representative sector (decimal string) -> count |
+| `derivative_slot` | none | close the demand under the derivative in the mass of that line |
+| `closure_rounds` | 8 | maximal closure rounds after the first modular phase; still unclosed after them is an error |
+| `d_list` | required unless `modular_only` | values `"p/q"` of the family dimension |
+| `fixed` | `{}` | further fixed parameters, name -> `"p/q"` |
+| `free` | the only unfixed parameter | checked when given |
+| `router` | `"census-top"` | or `"census"` (all slots) or `"identity"` |
+| `top_sector` | sector of the first target | Kira id `sum 2^i` |
+| `seeding` | `{"kind":"staircase","s_pad":0,"d_pad":0,"max_growth":3}` | or `{"kind":"demand","extra_r":..,"extra_s":..,"max_growth":..}` or `{"kind":"kira-box","r":..,"s":..,"d":..}` |
+| `truncate` | none | Kira 3 numerator truncation `l` |
+| `stability` | none | `[r, s, d]` enlargement of the +1 stability check |
+| `master_check` | `"report"` | or `"grow"`, `"strict"` |
+| `settle_on_expected` | false | stop growing once every class has its expected count |
+| `order` | `"lines-rank-dots"` | or `"lines-dots-rank"`, `"numeric"` |
+| `slot_priority` | `"top"` | or `"natural"` |
+| `tubes` | none | `{"min_rank":..,"halo":..,"subsector_halo":..}` (staircase seeding only) |
+| `lp_gate` | true | Lee-Pomeransky gate per sector |
+| `workers` | 1 | threads; results do not depend on them |
+| `seed` | engine default | seed of the modular sample |
+| `max_primes`, `ff_bunch`, `ff_seed` | engine defaults | finite-field lane |
+| `certificate_prime` | `2^63 - 25` | a prime outside the reconstruction primes (which descend from `2^62`); a reconstruction or verification prime of the solution fails the certificate |
+| `exact_certificate` | false | also certify exactly over Q(free parameter); can be expensive |
+| `checkpoint_dir` | none | save the modular phase (session codec, closed target list) and log finite-field probes; a rerun of the same request resumes. The checkpoint is bound to the family, the router and every field that determines the modular phase |
+| `limits` | no caps | opt-in `max_rows`, `max_columns`, `max_u_nnz`, `max_l_entries`, `max_selected`, `max_bytes` |
+| `modular_only` | false | stop after the modular phase |
+
+Memory: the engine has no memory cap by default. `limits.max_bytes` caps the
+engine's structural estimate of the modular system (stored rows and the U and
+L entries of the elimination), checked as rows are inserted; it is not a bound
+on allocated bytes, and a run also needs working memory for row generation and
+the finite-field lane. To bound real memory, run the command under an enforced
+limit (for example `systemd-run --user --scope -p MemoryMax=40G rustred
+sector-box-reduce ...`) or a watchdog that stops the process tree. A stopped run
+resumes from `checkpoint_dir`.
+
+The command dispatches the family arities 3, 6, 10 and 15. Another arity is
+an input error: the engine is compiled once per storage width, so each width
+costs build time.
+
+A family in the JSON layout of the campaign driver can be converted with
+`tools/sector_box/eta_family_to_toml.py`.
+
 ## Inspect saved candidate programs
 
 Read trusted native candidate bundles without another generation or coverage
@@ -754,7 +846,7 @@ internally by LiteRed's LI construction and emits only LI rows.
 
 ## Output schema
 
-Sector-box reductions (library API, no subcommand yet) are exchanged as
+Sector-box reductions (`rustred sector-box-reduce`, or the library API) are exchanged as
 `rustred-harness-solution.v1`; see `docs/interfaces.md`, "Sector-box solution
 exchange format".
 
