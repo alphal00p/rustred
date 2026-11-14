@@ -928,7 +928,9 @@ fn make_site_files(cfg: &SiteConfig, cpus: &[usize]) {
         std::fs::write(&cfg.ledger_file, b"").unwrap();
     }
     for c in cpus {
-        let p = cfg.lock_dir.join(cfg.lock_name.replace("{n}", &c.to_string()));
+        let p = cfg
+            .lock_dir
+            .join(cfg.lock_name.replace("{n}", &c.to_string()));
         if !p.exists() {
             std::fs::write(&p, b"").unwrap();
         }

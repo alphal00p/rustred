@@ -39,9 +39,8 @@ pub use fake::{
 pub(crate) use guard::reap_adopted;
 pub use guard::{
     DELIVERY_LOG_MAX, Delivery, PidfdProbe, ProcessTarget, Proof, Refusal, SigchldSetup, StartRule,
-    Verdict, take_deliveries,
-    ensure_sigchld_default, is_child_subreaper, kill_orphan, pidfd_probe, pidfd_supported,
-    set_child_subreaper, sigchld_autoreaps, signal_verified_process,
+    Verdict, ensure_sigchld_default, is_child_subreaper, kill_orphan, pidfd_probe, pidfd_supported,
+    set_child_subreaper, sigchld_autoreaps, signal_verified_process, take_deliveries,
 };
 pub use idlock::{IdLockError, default_lock_dir};
 pub use real::{

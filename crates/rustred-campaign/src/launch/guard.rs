@@ -180,9 +180,7 @@ thread_local! {
 
 /// Run `f` with a signalling context (who signals, which attempt) that every delivery made by `f` on THIS thread carries.
 pub(crate) fn with_context<R>(by: &str, label: Option<&str>, f: impl FnOnce() -> R) -> R {
-    let prev = CONTEXT.with(|c| {
-        c.replace(Some((by.to_string(), label.map(str::to_string))))
-    });
+    let prev = CONTEXT.with(|c| c.replace(Some((by.to_string(), label.map(str::to_string)))));
     let r = f();
     CONTEXT.with(|c| *c.borrow_mut() = prev);
     r

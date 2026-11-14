@@ -594,7 +594,11 @@ mod tests {
             "0::/user.slice/user-4242.slice/user@4242.service/../run-p77-i123.scope",
             "1:name=systemd:/run-p77-i123.scope",
         ] {
-            assert_eq!(ScopeRef::from_leader_cgroup(bad, 77, uid, None), None, "{bad}");
+            assert_eq!(
+                ScopeRef::from_leader_cgroup(bad, 77, uid, None),
+                None,
+                "{bad}"
+            );
         }
         // The name rule itself (directory check aside).
         let dir = Path::new(
@@ -607,26 +611,56 @@ mod tests {
     #[test]
     fn scope_unit_names_are_deterministic_unique_and_exact() {
         let a = scope_unit_name("camp.0123456789abcdef", "N0.i0001.L0-t0:a1");
-        assert_eq!(a, scope_unit_name("camp.0123456789abcdef", "N0.i0001.L0-t0:a1"));
-        assert!(a.starts_with("rr-camp.0123456789abcdef-N0.i0001.L0-t0_a1-"), "{a}");
-        assert!(a.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-')));
+        assert_eq!(
+            a,
+            scope_unit_name("camp.0123456789abcdef", "N0.i0001.L0-t0:a1")
+        );
+        assert!(
+            a.starts_with("rr-camp.0123456789abcdef-N0.i0001.L0-t0_a1-"),
+            "{a}"
+        );
+        assert!(
+            a.chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+        );
         // labels that sanitise alike still differ (the hash), another campaign id differs
-        assert_ne!(a, scope_unit_name("camp.0123456789abcdef", "N0.i0001.L0-t0_a1"));
-        assert_ne!(a, scope_unit_name("camp.fedcba9876543210", "N0.i0001.L0-t0:a1"));
+        assert_ne!(
+            a,
+            scope_unit_name("camp.0123456789abcdef", "N0.i0001.L0-t0_a1")
+        );
+        assert_ne!(
+            a,
+            scope_unit_name("camp.fedcba9876543210", "N0.i0001.L0-t0:a1")
+        );
         assert!(scope_unit_name("c", &"x".repeat(1000)).len() < 200);
         // the belt: only exactly <unit>.scope under our user manager (the directory check aside)
         let uid = 4242;
         let ok = format!("0::/user.slice/user-4242.slice/user@4242.service/app.slice/{a}.scope\n");
-        assert_eq!(ScopeRef::from_leader_cgroup(&ok, 77, uid, Some(&a)), None, "no such directory");
+        assert_eq!(
+            ScopeRef::from_leader_cgroup(&ok, 77, uid, Some(&a)),
+            None,
+            "no such directory"
+        );
         for bad in [
             format!("0::/user.slice/user-4242.slice/user@4242.service/app.slice/{a}x.scope"),
-            "0::/user.slice/user-4242.slice/user@4242.service/app.slice/run-p77-i1.scope".to_string(),
+            "0::/user.slice/user-4242.slice/user@4242.service/app.slice/run-p77-i1.scope"
+                .to_string(),
             format!("0::/user.slice/user-1.slice/user@1.service/app.slice/{a}.scope"),
         ] {
-            assert_eq!(ScopeRef::from_leader_cgroup(&bad, 77, uid, Some(&a)), None, "{bad}");
+            assert_eq!(
+                ScopeRef::from_leader_cgroup(&bad, 77, uid, Some(&a)),
+                None,
+                "{bad}"
+            );
         }
         // nothing recorded under a unit name that does not exist: no kill
-        assert!(matches!(kill_recorded_scope(&scope_unit_name("no-such-campaign.0000000000000000", "x:a1")), Ok(None)));
+        assert!(matches!(
+            kill_recorded_scope(&scope_unit_name(
+                "no-such-campaign.0000000000000000",
+                "x:a1"
+            )),
+            Ok(None)
+        ));
     }
 
     #[test]

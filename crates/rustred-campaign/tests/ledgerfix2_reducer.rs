@@ -302,7 +302,8 @@ fn unconfirmed_launch_late_confirmation_and_operator_retry() {
 fn strict_mode_refuses_the_legacy_recovery_of_an_unconfirmed_launch() {
     // lane int5: strict mode is ON by default (ENFORCE_UNCONFIRMED_ACROSS_SESSIONS, the supervisor adopted the hook):
     // the legacy lose of an earlier session's launch is refused even without the per-state switch
-    assert!(rustred_campaign::state::ENFORCE_UNCONFIRMED_ACROSS_SESSIONS);
+    const STRICT: bool = rustred_campaign::state::ENFORCE_UNCONFIRMED_ACROSS_SESSIONS;
+    const _: () = assert!(STRICT, "strict unconfirmed mode is on");
     let mut h = unconfirmed_setup();
     h.refused(
         job(

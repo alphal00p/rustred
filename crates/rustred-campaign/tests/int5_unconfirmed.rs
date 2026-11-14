@@ -4,6 +4,7 @@
 //!   restart's sweep kills it and the attempt is then settled as a running attempt killed at recovery (requeued);
 //! - a launch whose spawn sentinel is absent but whose run directory does NOT authenticate is never "did not run":
 //!   execution unknown, item in attention, exit 8, and only the operator's `resolve` reopens the work.
+//!
 //! Rule (binding): an unconfirmed launch is never "did not run" without proof and never retried automatically.
 
 #[path = "sup_common/mod.rs"]

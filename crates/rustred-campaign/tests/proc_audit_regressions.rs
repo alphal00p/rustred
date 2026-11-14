@@ -923,6 +923,10 @@ fn a_minor_m5_labels_sanitised_and_lines_atomic() {
     );
     let dir = TempDir::new("a-m5l");
     let p = dir.path().join("L");
+    // lane int5 (gate3 m3): the site ledger is never created: a missing one is refused and stays missing
+    assert!(rustred_campaign::cpu_policy::append_line(&p, "ok").is_err());
+    assert!(!p.exists());
+    fs::write(&p, b"").unwrap();
     assert!(rustred_campaign::cpu_policy::append_line(&p, &"x".repeat(5000)).is_err());
     assert!(rustred_campaign::cpu_policy::append_line(&p, "a\nb").is_err());
     rustred_campaign::cpu_policy::append_line(&p, "ok").unwrap();
@@ -1511,7 +1515,9 @@ fn make_site_files(cfg: &SiteConfig, cpus: &[usize]) {
         std::fs::write(&cfg.ledger_file, b"").unwrap();
     }
     for c in cpus {
-        let p = cfg.lock_dir.join(cfg.lock_name.replace("{n}", &c.to_string()));
+        let p = cfg
+            .lock_dir
+            .join(cfg.lock_name.replace("{n}", &c.to_string()));
         if !p.exists() {
             std::fs::write(&p, b"").unwrap();
         }

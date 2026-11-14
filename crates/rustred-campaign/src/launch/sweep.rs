@@ -420,7 +420,9 @@ fn sweep_inner(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
         && CampaignMarker::new(&spec.campaign_id, a).is_err()
     {
         return SweepReport {
-            reason: Some(format!("attempt label {a:?} is not a valid marker: nothing signalled")),
+            reason: Some(format!(
+                "attempt label {a:?} is not a valid marker: nothing signalled"
+            )),
             ..Default::default()
         };
     }

@@ -102,6 +102,29 @@ pub const CHILD_RESOURCE_FAILURE: &str = "child_resource_failure";
 /// Ends of one job in a row for lack of a host resource before its item goes to attention (gate3 M4).
 pub const MAX_CHILD_RESOURCE_ENDS: u32 = 5;
 
+// gate (d), lane int5: lives OUTSIDE the failpoint module (a release binary carries no symbol of that module).
+/// BLAKE3 of the variable's NAME (gate (d), lane int5): a release build recognises the variable, and REFUSES to run
+/// with it, without carrying its name (the `strings` check finds neither the name nor a site).
+#[cfg_attr(debug_assertions, allow(dead_code))]
+const TEST_HOOK_ENV_BLAKE3: &str =
+    "faf147e7d740c975e49c408a3e030816c176ef73bb706840b7b077de3b3a4d70";
+
+/// The name of the test-hook variable when it is set in a RELEASE build (which has no hooks: running on would let an
+/// operator believe a rehearsal hook is armed; the supervisor refuses, exit 1). Always `None` in a test build.
+pub fn release_refusal() -> Option<String> {
+    #[cfg(not(debug_assertions))]
+    {
+        std::env::vars_os()
+            .map(|(k, _)| k)
+            .find(|k| blake3::hash(k.as_encoded_bytes()).to_hex().as_str() == TEST_HOOK_ENV_BLAKE3)
+            .map(|k| k.to_string_lossy().into_owned())
+    }
+    #[cfg(debug_assertions)]
+    {
+        None
+    }
+}
+
 /// How a `run` ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RunExit {
@@ -545,7 +568,7 @@ pub fn run_with(opts: RunOptions, on_started: &mut dyn FnMut(&Started)) -> RunEx
 impl Supervisor {
     fn start(opts: RunOptions, log: &mut Log) -> Result<Supervisor, RunExit> {
         // gate (d), lane int5: a release build has no test hooks and refuses their variable (before anything is touched).
-        if let Some(name) = failpoint::release_refusal() {
+        if let Some(name) = release_refusal() {
             return Err(RunExit::Refused(format!(
                 "{name} is set, but this release build has no test hooks: unset it (hooked rehearsals need a test build)"
             )));
@@ -1635,11 +1658,7 @@ impl Supervisor {
                 "INFO",
                 &format!(
                     "signal {} delivered to {} {} (start {:?}, {}, by {by})",
-                    d.signal,
-                    d.target,
-                    d.pid,
-                    d.start_ticks,
-                    d.proof
+                    d.signal, d.target, d.pid, d.start_ticks, d.proof
                 ),
             );
             ev.push(Event::SignalSent {
@@ -2658,9 +2677,9 @@ impl Supervisor {
         let mut last = None;
         for _ in 0..3 {
             let mut r = orphans::sweep(&rules, None, Duration::from_secs(10));
-            if self.fp.armed("final_sweep_unproven") {
+            if self.fp.armed("final_sweep_fails") {
                 r.proven = false;
-                r.reason = Some("TEST BUILD failpoint final_sweep_unproven".into());
+                r.reason = Some("TEST BUILD hook final_sweep_fails".into());
             }
             for k in &r.killed {
                 self.orphan_killed(&k.attempt_id, k.pid, k.start_ticks, "final sweep");
@@ -2674,14 +2693,15 @@ impl Supervisor {
         let r = last.unwrap_or_default();
         self.note_survivors(&r, "final sweep");
         let pids: Vec<u32> = r.left.iter().map(|l| l.process.pid).collect();
-        let why = r.reason.clone().unwrap_or_else(|| "marked processes left".into());
+        let why = r
+            .reason
+            .clone()
+            .unwrap_or_else(|| "marked processes left".into());
         let msg = format!(
             "final marker sweep not proven ({why}); live marked process(es) not killed: {pids:?}; check each pid (its /proc/PID/environ carries this campaign's id) and kill exactly those, then run the same command"
         );
         self.commit(vec![Event::Note {
-            text: format!(
-                "final_sweep_unproven {{\"pids\":{pids:?},\"reason\":{why:?}}}"
-            ),
+            text: format!("final_sweep_unproven {{\"pids\":{pids:?},\"reason\":{why:?}}}"),
         }]);
         Err(msg)
     }
@@ -4410,6 +4430,18 @@ mod tests {
         s.classification.action = classify::Action::ItemDone;
         assert!(row3_routing(&mut Confirming, &st, &ctx, &mut s).is_none());
         assert_eq!(s.classification.action, classify::Action::ItemDone);
+    }
+
+    /// gate (d): the release build's refusal matches exactly the test-hook variable's name.
+    #[test]
+    fn release_refusal_digest_is_the_test_hook_variable_name() {
+        assert_eq!(
+            blake3::hash(failpoint::FAILPOINT_ENV.as_bytes())
+                .to_hex()
+                .as_str(),
+            TEST_HOOK_ENV_BLAKE3
+        );
+        assert_eq!(release_refusal(), None, "a test build never refuses");
     }
 
     #[test]

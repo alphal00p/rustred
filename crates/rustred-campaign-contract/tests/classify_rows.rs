@@ -518,12 +518,36 @@ fn row_15b_host_resource_failure_is_never_evidence() {
             "panicked at std/src/thread/functions.rs:131:29:\nfailed to spawn thread: Os { code: 11, kind: WouldBlock, message: \"Resource temporarily unavailable\" }",
             11,
         ),
-        (ExitCode::Internal, "fork: Resource temporarily unavailable (os error 11)", 11),
-        (ExitCode::Io, "open out/x: Too many open files (os error 24)", 24),
-        (ExitCode::Internal, "Too many open files in system (os error 23)", 23),
-        (ExitCode::Internal, "memory allocation failed: Os { code: 12, kind: OutOfMemory, .. }", 12),
-        (ExitCode::Io, "write: No space left on device (os error 28)", 28),
-        (ExitCode::Io, "write: Disk quota exceeded (os error 122)", 122),
+        (
+            ExitCode::Internal,
+            "fork: Resource temporarily unavailable (os error 11)",
+            11,
+        ),
+        (
+            ExitCode::Io,
+            "open out/x: Too many open files (os error 24)",
+            24,
+        ),
+        (
+            ExitCode::Internal,
+            "Too many open files in system (os error 23)",
+            23,
+        ),
+        (
+            ExitCode::Internal,
+            "memory allocation failed: Os { code: 12, kind: OutOfMemory, .. }",
+            12,
+        ),
+        (
+            ExitCode::Io,
+            "write: No space left on device (os error 28)",
+            28,
+        ),
+        (
+            ExitCode::Io,
+            "write: Disk quota exceeded (os error 122)",
+            122,
+        ),
     ] {
         let j = failing(code, msg);
         assert_eq!(resource_errno_of(&j), Some(errno), "{msg}");
@@ -549,7 +573,11 @@ fn row_15b_host_resource_failure_is_never_evidence() {
     ] {
         let j = failing(code, msg);
         assert_eq!(resource_errno_of(&j), None, "{msg}");
-        assert_eq!(x(ev(WaitStatus::Exited(code.code()), Some(j), false)).row, row, "{msg}");
+        assert_eq!(
+            x(ev(WaitStatus::Exited(code.code()), Some(j), false)).row,
+            row,
+            "{msg}"
+        );
     }
     // the row is in the table
     assert!(ROWS.iter().any(|r| r.row == 15 && r.sub == "b"));

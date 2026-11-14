@@ -914,9 +914,10 @@ impl ChildLauncher for RealLauncher {
         }) {
             crate::resources::Bounded::Done(Ok(i)) => i,
             other => {
-                let _ = guard::with_context("launch: identity unreadable", Some(&spec.label), || {
-                    signal_pinned_group(&leaders, pid, libc::SIGKILL)
-                });
+                let _ =
+                    guard::with_context("launch: identity unreadable", Some(&spec.label), || {
+                        signal_pinned_group(&leaders, pid, libc::SIGKILL)
+                    });
                 leaders.lock().remove(&pid);
                 reap_in_background(child);
                 if let Some(cg) = cgroup {
@@ -1447,14 +1448,13 @@ impl RealChild {
                     );
                 }
                 // the scope's cgroup: systemd-run's anonymous run-p<pid>-i<n>.scope, or our named unit (gate3 M5)
-                let named = self
-                    .scope_unit
-                    .as_deref()
-                    .map(|u| format!("/{u}.scope"));
+                let named = self.scope_unit.as_deref().map(|u| format!("/{u}.scope"));
                 if let Some(rel) = text.lines().find_map(|l| l.strip_prefix("0::"))
                     && rel.trim_end().ends_with(".scope")
                     && (rel.contains("/run-")
-                        || named.as_deref().is_some_and(|n| rel.trim_end().ends_with(n)))
+                        || named
+                            .as_deref()
+                            .is_some_and(|n| rel.trim_end().ends_with(n)))
                 {
                     let dir = Path::new("/sys/fs/cgroup").join(rel.trim().trim_start_matches('/'));
                     self.mechanism = MemoryMechanism::SystemdScope {

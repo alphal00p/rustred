@@ -406,11 +406,17 @@ fn marked_refork_chains_orphaned_by_a_crash_do_not_survive_the_restart() {
     }
     let opid = outside.id();
     assert!(
-        count(&d, |e| matches!(e, Event::OrphanKilled { pid, .. } if *pid == opid)) >= 1,
+        count(
+            &d,
+            |e| matches!(e, Event::OrphanKilled { pid, .. } if *pid == opid)
+        ) >= 1,
         "the cwd-/ kill is recorded"
     );
     assert!(
-        count(&d, |e| matches!(e, Event::SignalSent { pid, signal, .. } if *pid == opid && *signal == libc::SIGKILL)) >= 1,
+        count(
+            &d,
+            |e| matches!(e, Event::SignalSent { pid, signal, .. } if *pid == opid && *signal == libc::SIGKILL)
+        ) >= 1,
         "its SIGKILL is a signal_sent record"
     );
     assert!(

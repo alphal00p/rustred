@@ -45,7 +45,9 @@ fn current_boot_id() -> Option<String> {
 /// The cwd of `pid` relative to the campaign directories, for logs only ("inside" / "outside <cwd>" / "unreadable").
 pub fn cwd_note(pid: u32, roots: &[PathBuf]) -> String {
     match fs::read_link(format!("/proc/{pid}/cwd")) {
-        Ok(cwd) if roots.iter().any(|r| cwd.starts_with(r)) => "cwd inside the campaign directories".into(),
+        Ok(cwd) if roots.iter().any(|r| cwd.starts_with(r)) => {
+            "cwd inside the campaign directories".into()
+        }
         Ok(cwd) => format!("cwd {} outside the campaign directories", cwd.display()),
         Err(e) => format!("cwd unreadable ({e})"),
     }
