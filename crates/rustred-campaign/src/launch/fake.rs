@@ -500,6 +500,10 @@ impl ChildHandle for ScriptedChild {
         let report = FinalReport {
             label: p.label.clone(),
             identity: p.identity.clone(),
+            marker: crate::resources::CampaignMarker {
+                campaign_id: "fake".into(),
+                attempt_id: p.label.clone(),
+            },
             exit: Some(exit),
             kill_reason: p.kill_reason.clone(),
             sigterm_sent: p.sigterm_sent,
@@ -507,6 +511,7 @@ impl ChildHandle for ScriptedChild {
             leftovers_killed: Vec::new(),
             escaped: Vec::new(),
             session_verified_empty: true,
+            verification: super::Verification::Verified,
             peak_rss_bytes: p.peak_until(t),
             cpu_seconds: t.saturating_sub(p.launched_at).as_secs_f64(),
             wall_seconds: t.saturating_sub(p.launched_at).as_secs_f64(),

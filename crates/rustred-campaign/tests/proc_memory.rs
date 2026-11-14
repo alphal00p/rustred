@@ -37,6 +37,7 @@ fn memory_cap_by_sampling_kills_the_session() {
     let mut l = launcher();
     let mut spec = helper_spec(dir.path(), "memcap", "helper_entry", "alloc");
     spec.memory_cap_bytes = Some(80_000_000);
+    spec.cap_mechanism = rustred_campaign::launch::CapRequest::Sampling;
     let mut h = l.launch(&spec).unwrap();
     let sid = h.identity().pid;
     let r = drive(&mut h);
