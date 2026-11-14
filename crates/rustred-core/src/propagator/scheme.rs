@@ -157,16 +157,19 @@ struct IspRecord {
 /// A stored certificate as the scheme file writes it.
 type CertificateRecord = Vec<(String, serde_json::Value, Vec<i64>, PolyRecord)>;
 
+/// A parsed certificate: per generator its seed shift and coefficient.
+type Certificate = Vec<(Generator, Vec<i64>, Poly)>;
+
 /// How a scheme file's certificates are read: in full ([`CertificateRecord`])
 /// or only noted as present ([`serde::de::IgnoredAny`], the light registry
 /// parse of the embedded schemes, b7-schemeload: certificates are parsed only
 /// when they are verified).
 trait CertificateField {
-    fn parse(&self) -> Result<Option<Vec<(Generator, Vec<i64>, Poly)>>, String>;
+    fn parse(&self) -> Result<Option<Certificate>, String>;
 }
 
 impl CertificateField for CertificateRecord {
-    fn parse(&self) -> Result<Option<Vec<(Generator, Vec<i64>, Poly)>>, String> {
+    fn parse(&self) -> Result<Option<Certificate>, String> {
         let mut out = Vec::with_capacity(self.len());
         for (kind, reference, shift, poly) in self {
             let generator = match kind.as_str() {
@@ -186,7 +189,7 @@ impl CertificateField for CertificateRecord {
 }
 
 impl CertificateField for serde::de::IgnoredAny {
-    fn parse(&self) -> Result<Option<Vec<(Generator, Vec<i64>, Poly)>>, String> {
+    fn parse(&self) -> Result<Option<Certificate>, String> {
         Ok(None)
     }
 }
