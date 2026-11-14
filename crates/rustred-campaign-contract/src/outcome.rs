@@ -124,6 +124,39 @@ impl Effective {
     }
 }
 
+/// `effective.node_options` of kind solve-recipe (child-job.md 3.2.4: exactly `{recipe_digest, determinism_id,
+/// relation_rule, threads, max_trace_rows, key_budget_s, proof}`; coord-recipe-solve.md 14 M5), with the line-7 keys
+/// `probe_d`, `probe_primes`, `max_m1_rows`, `discovery_d` (coord-pole-engine.md 8). The seven v1.2 members are always
+/// written (an unset limit as `null`); every line-7 key is present ONLY WHEN SET, so the effective digest of a job that
+/// uses none of them is the digest it had before line 7 (test `effective_digest.rs`). `probe_d` / `discovery_d` are
+/// canonical rational texts, `probe_primes` the primes the probe runs, in order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SolveRecipeNodeOptions {
+    pub recipe_digest: String,
+    pub determinism_id: String,
+    pub relation_rule: Option<String>,
+    pub threads: u64,
+    pub max_trace_rows: Option<u64>,
+    pub key_budget_s: Option<u64>,
+    pub proof: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub probe_d: Option<crate::arith::Rational>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub probe_primes: Option<Vec<u64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_m1_rows: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discovery_d: Option<crate::arith::Rational>,
+}
+
+impl SolveRecipeNodeOptions {
+    /// The JSON value to put into [`Effective::node_options`].
+    pub fn to_value(&self) -> Value {
+        serde_json::to_value(self).expect("node options serialise")
+    }
+}
+
 /// Placeholder recorded for the licence variable (presence only, never the value).
 pub const LICENCE_PRESENT: &str = "<present>";
 
