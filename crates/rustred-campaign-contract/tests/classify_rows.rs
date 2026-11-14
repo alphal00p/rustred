@@ -539,8 +539,8 @@ fn row_22_elided_loci_when_forbidden() {
     e.elision_forbidden = false;
     let c = x(e);
     assert_eq!(
-        (c.row, c.kind, c.accept),
-        (25, OutcomeKind::SealedWithElided, Accept::Nothing)
+        (c.row, c.kind, c.accept, c.action),
+        (25, OutcomeKind::Crashed, Accept::Nothing, Action::RerunWithoutElision)
     );
 }
 

@@ -8,7 +8,7 @@ use common::*;
 use rustred_campaign_contract::classify::{Accept, KillReason, OutcomeKind, WaitStatus};
 use rustred_campaign_contract::events::Event;
 use rustred_campaign_contract::fake::*;
-use rustred_campaign_contract::seal::{SealVerdict, UnsealReason, verify_sealed};
+use rustred_campaign_contract::seal::{SealVerdict, UnsealReason, verify_table};
 use rustred_campaign_contract::stop::StopSource;
 use rustred_campaign_contract::{ExitCode, StopCode};
 use std::time::{Duration, Instant};
@@ -113,7 +113,7 @@ fn outcome_over_unsealed_table_is_a_contract_violation() {
     let t = r.outcome().job.outputs.table.unwrap();
     assert!(t.sealed);
     assert!(matches!(
-        verify_sealed(&r.layout.table(), &t),
+        verify_table(&r.layout, &t),
         SealVerdict::Unsealed(UnsealReason::NoEndRecord(_))
     ));
     let c = r.classify(w, KillReason::None);

@@ -118,10 +118,6 @@ pub enum OutcomeKind {
     Lost,
     DecidedNegative,
     Undecided,
-    /// Row 25: sealed, but the verifier found elided witness loci (spec allowed elision): never used (R-f).
-    SealedWithElided,
-    /// Row 26: a "success" of a kind without a sealing rule.
-    UnverifiableKind,
 }
 
 /// What may be accepted from the attempt.
@@ -179,8 +175,11 @@ pub enum Action {
     RestartFromScratch,
     /// Row 23: resume from R once if valid, else attention.
     ResumeOnceIfValidElseAttention,
-    /// Row 25: run the item again with elision forbidden.
+    /// Row 25 (`sealed_with_elided`): sealed, but the verifier found elided witness loci; never used (R-f): run the
+    /// item again with elision forbidden.
     RerunWithoutElision,
+    /// Row 26 (`unverifiable_kind`): a "success" of a kind without a sealing rule; nothing accepted, attention.
+    UnverifiableKind,
 }
 
 /// One row of the decision table (6.5): the single source of the classifier AND of the document's table
@@ -233,8 +232,8 @@ pub const ROWS: [RowSpec; 30] = {
         rs(7, "", "c=11, O, checker kind", DecidedNegative, Nothing, RecordNegativeVerdict),
         rs(7, "b", "c=12, O, checker kind", Undecided, Nothing, OtherToolOrAttention),
         rs(8, "", "c=20, O, S (producing kind)", Spill, CommittedRules, NextRungAfterSpill),
-        rs(25, "", "c in {0, 10, 20}, O, S, the spec allowed elision and the verifier found elided witness loci", SealedWithElided, Nothing, RerunWithoutElision),
-        rs(26, "", "c in {0, 10, 20}, O, the kind has no sealing rule (generate-auto)", UnverifiableKind, Nothing, Attention),
+        rs(25, "", "c in {0, 10, 20}, O, S, the spec allowed elision and the verifier found elided witness loci", Crashed, Nothing, RerunWithoutElision),
+        rs(26, "", "c in {0, 10, 20}, O, the kind has no sealing rule (generate-auto)", Crashed, Nothing, UnverifiableKind),
         rs(9, "", "c=21, O", KilledTime, Nothing, LadderDecides),
         rs(10, "", "c=22, O", KilledMemory, Nothing, NextMemoryClassOrRung),
         rs(11, "", "c=30, O", Interrupted, Nothing, ResumeOnCampaignResume),
@@ -281,7 +280,10 @@ fn row(n: u8, sub: &str, why: impl Into<String>) -> Classification {
         .expect("row in the decision table");
     let attention = matches!(
         r.action,
-        Action::Attention | Action::StopLaunchingKind | Action::ItemAttentionNoRetry
+        Action::Attention
+            | Action::StopLaunchingKind
+            | Action::ItemAttentionNoRetry
+            | Action::UnverifiableKind
     );
     Classification {
         row: n,

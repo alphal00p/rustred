@@ -8,6 +8,14 @@
 //! one watchdog thread emits heartbeats, watches signals, the STOP file, wall budgets, the soft memory limit and the
 //! stop grace, and performs the hard-safe stop (3.4.3). Canonical outputs depend only on the spec and the resume
 //! state; volatile keys may jitter (`volatile_jitter`).
+//!
+//! Independence (audit A M6): the fake child has its OWN minimal implementation of the table / queue writer with its
+//! running digests, the seal, the canonical record form (a serde_json `Value` serialiser, see [`own`]) and the
+//! OUTCOME writer (JSON built field by field, no-clobber write), and does NOT call the contract crate's
+//! `RecordWriter`, `canonical_*`, `TableSeal`, `Outcome::write_*` or `JobOutcome::check`. Every process test that
+//! classifies a fake run with the crate's verifier is therefore a DIFFERENTIAL test of the verifier. Still shared:
+//! spec parsing and preflight, the event sink, the RESUME type, the exit-code / stop / status serde types, the
+//! witness-locus policy and the rule record builder of `fake`.
 
 // Nested `if`s are kept on purpose where the inner condition has a side effect (`FINAL.swap`) or takes a lock.
 #![allow(clippy::collapsible_if)]
@@ -19,16 +27,16 @@ use rustred_campaign_contract::events::{Event, EventSink, Phase};
 use rustred_campaign_contract::fake::{
     FakeOp, FakeScript, FaultKind, HelperPlan, OnSigterm, fake_rule_record,
 };
-use rustred_campaign_contract::layout::{RESERVE_BYTES, RunLayout};
-use rustred_campaign_contract::outcome::*;
+use rustred_campaign_contract::layout::{QUEUE, RESERVE_BYTES, RunLayout, TABLE};
+use rustred_campaign_contract::outcome::{ErrorClass, PerCase, TimeDecision, TimeDecisionWhat};
 use rustred_campaign_contract::preflight::{ProgramSelf, Refusal, preflight};
 use rustred_campaign_contract::resume::{CaseSpec, Frame, ResumeState};
-use rustred_campaign_contract::seal::{CommitPoint, RecordWriter, WriteError};
 use rustred_campaign_contract::spec::{
     BudgetHit, Counters, JobKind, JobSpec, OnCaseBudget, Scope, WorkCounter,
 };
 use rustred_campaign_contract::stop::{CaseResult, StopCode, StopSource};
 use rustred_campaign_contract::{CONTRACT, ExitCode, RESUME_SCHEMA, VersionInfo};
+use serde_json::{Value, json};
 use std::io::{self, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering::*};
@@ -119,22 +127,374 @@ fn vmhwm_kb() -> u64 {
         .unwrap_or(0)
 }
 
-fn program_info() -> ProgramInfo {
-    ProgramInfo {
-        name: PROGRAM.into(),
-        version: env!("CARGO_PKG_VERSION").into(),
-        git_commit: rustred_campaign_contract::git_commit_from_build_env(option_env!(
-            "RUSTRED_BUILD_GIT_COMMIT"
-        )),
-        features: FEATURES.iter().map(|s| s.to_string()).collect(),
-        exe: None,
+fn git_commit() -> String {
+    rustred_campaign_contract::git_commit_from_build_env(option_env!("RUSTRED_BUILD_GIT_COMMIT"))
+}
+
+/// `job.program` of OUTCOME, built by hand.
+fn program_json() -> Value {
+    json!({"name": PROGRAM, "version": env!("CARGO_PKG_VERSION"), "git_commit": git_commit(),
+           "features": FEATURES, "exe": null})
+}
+
+/// The fake child's OWN writers (audit A M6): a second, deliberately simple implementation of the record stream with
+/// running digests, the seal, the canonical record form and the no-clobber OUTCOME write. It must not call the
+/// contract crate's sealing / canonical functions: the crate's verifier is then tested against it.
+mod own {
+    use serde_json::Value;
+    use std::fs::{File, OpenOptions};
+    use std::io::{self, Read, Write};
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::path::Path;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// Volatile top-level keys (contract 3.2.3 v2), written again here on purpose.
+    fn volatile(ty: Option<&str>, key: &str, family_digest: bool) -> bool {
+        match ty {
+            Some("header") => key == "zero_seconds" || (key == "family_file" && family_digest),
+            Some("rule") => key == "seconds_search" || key == "lift_seconds",
+            Some(
+                "chart_end" | "chart_partial" | "end" | "partial" | "chart_error" | "cert_end"
+                | "cert_partial",
+            ) => key == "seconds" || key == "vmhwm_kb",
+            Some("verdict") | None => key == "seconds" || key == "utc" || key.ends_with("_seconds"),
+            Some(_) => false,
+        }
+    }
+
+    fn write(v: &Value, out: &mut Vec<u8>) {
+        match v {
+            Value::Object(m) => {
+                let mut keys: Vec<&String> = m.keys().collect();
+                keys.sort();
+                out.push(b'{');
+                for (i, k) in keys.iter().enumerate() {
+                    if i > 0 {
+                        out.push(b',');
+                    }
+                    out.extend_from_slice(serde_json::to_string(k).unwrap().as_bytes());
+                    out.push(b':');
+                    write(&m[*k], out);
+                }
+                out.push(b'}');
+            }
+            Value::Array(a) => {
+                out.push(b'[');
+                for (i, x) in a.iter().enumerate() {
+                    if i > 0 {
+                        out.push(b',');
+                    }
+                    write(x, out);
+                }
+                out.push(b']');
+            }
+            Value::String(s) => out.extend_from_slice(serde_json::to_string(s).unwrap().as_bytes()),
+            other => out.extend_from_slice(other.to_string().as_bytes()),
+        }
+    }
+
+    /// The canonical form of one of the fake's own records (serde_json `Value`, keys sorted, volatile keys removed)
+    /// and its `type`.
+    pub fn canonical(line: &[u8]) -> Option<(Vec<u8>, Option<String>)> {
+        let v: Value = serde_json::from_slice(line).ok()?;
+        let mut m = v.as_object()?.clone();
+        let ty = m.get("type").and_then(Value::as_str).map(str::to_string);
+        let fam = ty.as_deref() == Some("header")
+            && m.get("family_blake3").and_then(Value::as_str).is_some_and(|d| {
+                d.len() == 64 && d.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            });
+        m.retain(|k, _| !volatile(ty.as_deref(), k, fam));
+        let mut out = Vec::new();
+        write(&Value::Object(m), &mut out);
+        Some((out, ty))
+    }
+
+    fn hex(h: &blake3::Hasher) -> String {
+        h.finalize().to_hex().to_string()
+    }
+
+    /// Figures of a stream (at a commit point or sealed).
+    #[derive(Debug, Clone)]
+    pub struct Figures {
+        pub bytes: u64,
+        pub blake3: String,
+        pub records: u64,
+        pub rules: u64,
+        pub canonical: String,
+    }
+
+    pub struct Writer {
+        file: File,
+        raw: blake3::Hasher,
+        canon: blake3::Hasher,
+        bytes: u64,
+        records: u64,
+        rules: u64,
+    }
+
+    fn create_new(path: &Path) -> io::Result<File> {
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)
+    }
+
+    fn fsync_parent(path: &Path) -> io::Result<()> {
+        File::open(path.parent().unwrap_or(Path::new(".")))?.sync_all()
+    }
+
+    impl Writer {
+        fn empty(file: File) -> Writer {
+            Writer {
+                file,
+                raw: blake3::Hasher::new(),
+                canon: blake3::Hasher::new(),
+                bytes: 0,
+                records: 0,
+                rules: 0,
+            }
+        }
+
+        /// A new stream (the file must not exist; never follows a symlink), its directory fsynced.
+        pub fn create(path: &Path) -> io::Result<Writer> {
+            let f = create_new(path)?;
+            fsync_parent(path)?;
+            Ok(Writer::empty(f))
+        }
+
+        fn push(&mut self, rec: &[u8]) -> io::Result<(u64, u64, String)> {
+            let (c, ty) = canonical(rec).ok_or_else(|| io::Error::other("invalid record"))?;
+            let mut line = rec.to_vec();
+            line.push(b'\n');
+            self.file.write_all(&line)?;
+            let off = self.bytes;
+            self.raw.update(&line);
+            self.canon.update(&c);
+            self.canon.update(b"\n");
+            self.bytes += line.len() as u64;
+            self.records += 1;
+            if ty.as_deref() == Some("rule") {
+                self.rules += 1;
+            }
+            let mut h = blake3::Hasher::new();
+            h.update(&c);
+            h.update(b"\n");
+            Ok((off, line.len() as u64, hex(&h)))
+        }
+
+        /// Append one record; returns (offset, line bytes, canonical digest of the record).
+        pub fn append(&mut self, rec: &[u8]) -> io::Result<(u64, u64, String)> {
+            self.push(rec)
+        }
+
+        pub fn figures(&self) -> Figures {
+            Figures {
+                bytes: self.bytes,
+                blake3: hex(&self.raw),
+                records: self.records,
+                rules: self.rules,
+                canonical: hex(&self.canon),
+            }
+        }
+
+        pub fn commit(&mut self) -> io::Result<Figures> {
+            self.file.sync_data()?;
+            Ok(self.figures())
+        }
+
+        pub fn seal(mut self, end: &[u8]) -> io::Result<Figures> {
+            self.push(end)?;
+            self.file.sync_all()?;
+            Ok(self.figures())
+        }
+
+        pub fn raw_file(&mut self) -> &mut File {
+            &mut self.file
+        }
+
+        /// Copy the committed prefix `want` of `src` into a new `dst`, checking every figure with this module's own
+        /// code (independent of the crate's preflight check that already ran).
+        pub fn copy_prefix(src: &Path, want: &Figures, dst: &Path) -> Result<Writer, String> {
+            let mut f = OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_NOFOLLOW)
+                .open(src)
+                .map_err(|e| format!("{}: {e}", src.display()))?;
+            let mut b = Vec::new();
+            Read::by_ref(&mut f)
+                .take(want.bytes)
+                .read_to_end(&mut b)
+                .map_err(|e| e.to_string())?;
+            if b.len() as u64 != want.bytes || (!b.is_empty() && b.last() != Some(&b'\n')) {
+                return Err("prefix shorter than committed or not at a line boundary".into());
+            }
+            let mut w = Writer::create(dst).map_err(|e| e.to_string())?;
+            let r = (|| {
+                for l in b.split(|&c| c == b'\n').filter(|l| !l.is_empty()) {
+                    let (_, ty) = canonical(l).ok_or("invalid record in prefix")?;
+                    if matches!(ty.as_deref(), Some("end" | "partial")) {
+                        return Err("end record in prefix".to_string());
+                    }
+                    w.push(l).map_err(|e| e.to_string())?;
+                }
+                let g = w.figures();
+                if g.bytes != want.bytes
+                    || g.blake3 != want.blake3
+                    || g.records != want.records
+                    || g.rules != want.rules
+                    || g.canonical != want.canonical
+                {
+                    return Err(format!("prefix figures differ: {g:?} vs {want:?}"));
+                }
+                w.file.sync_all().map_err(|e| e.to_string())
+            })();
+            if let Err(e) = r {
+                drop(w);
+                let _ = std::fs::remove_file(dst);
+                return Err(e);
+            }
+            Ok(w)
+        }
+    }
+
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+
+    /// No-clobber atomic write: complete temp file, hard link to `path` (fails if anything is there), unlink temp.
+    pub fn write_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
+        let tmp = path.with_file_name(format!(
+            "{}.fake-tmp.{}.{}",
+            path.file_name().and_then(|n| n.to_str()).unwrap_or("x"),
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        let mut f = create_new(&tmp)?;
+        let r = f.write_all(bytes).and_then(|_| f.sync_all());
+        drop(f);
+        let r = r.and_then(|_| std::fs::hard_link(&tmp, path));
+        let _ = std::fs::remove_file(&tmp);
+        r?;
+        fsync_parent(path)
     }
 }
 
-/// Mutable job state shared with the watchdog.
+use own::Figures;
+
+fn committed(path: &str, f: &Figures) -> rustred_campaign_contract::resume::CommittedFile {
+    rustred_campaign_contract::resume::CommittedFile {
+        path: path.to_string(),
+        bytes: f.bytes,
+        blake3: f.blake3.clone(),
+        records: f.records,
+        rules: f.rules,
+        canonical_blake3: f.canonical.clone(),
+    }
+}
+
+fn figures_of(c: &rustred_campaign_contract::resume::CommittedFile) -> Figures {
+    Figures {
+        bytes: c.bytes,
+        blake3: c.blake3.clone(),
+        records: c.records,
+        rules: c.rules,
+        canonical: c.canonical_blake3.clone(),
+    }
+}
+
+/// The fake's own map exit code -> `job.status` (contract 3.6), independent of `JobStatus::for_exit`.
+fn status_of(code: ExitCode) -> &'static str {
+    match code.code() {
+        0 => "complete",
+        10 => "incomplete",
+        11 => "decided_negative",
+        12 => "undecided",
+        20..=22 => "budget",
+        30 => "interrupted",
+        40 | 42 => "refused",
+        _ => "error",
+    }
+}
+
+fn error_class(c: ErrorClass) -> Value {
+    serde_json::to_value(c).unwrap()
+}
+
+/// The `job` object of OUTCOME for `spec`, built field by field (the fields every exit path shares).
+fn base_job(
+    spec: &JobSpec,
+    digest: &str,
+    code: ExitCode,
+    stop: Option<StopCode>,
+    source: Option<StopSource>,
+    graceful: bool,
+    detail: Value,
+    error: Option<(ErrorClass, String)>,
+) -> serde_json::Map<String, Value> {
+    let err = error.map(|(c, m)| {
+        let m: String = m.chars().take(4000).collect();
+        json!({"class": error_class(c), "message": m})
+    });
+    let j = json!({
+        "schema": rustred_campaign_contract::OUTCOME_SCHEMA,
+        "job_id": spec.job_id, "attempt": spec.attempt, "kind": "fake", "spec_blake3": digest,
+        "status": status_of(code), "exit_code": code.code(),
+        "stop": {"code": stop, "detail": detail, "source": source, "graceful": graceful},
+        "program": program_json(), "effective": null,
+        "seed": {"sample_seed": spec.seed.sample_seed, "point_source": "seed"},
+        "inputs": [], "counters": Counters::default(),
+        "budgets": {"work": spec.budgets.work, "wall": spec.budgets.wall,
+                    "mem_soft_bytes": spec.budgets.mem_soft_bytes, "hit": null},
+        "time_decisions": [], "time_decided": false, "per_case": [],
+        "outputs": {"extra": []}, "timing": {}, "memory": {}, "error": err, "resumed": false,
+    });
+    match j {
+        Value::Object(m) => m,
+        _ => unreachable!(),
+    }
+}
+
+/// The OUTCOME file bytes (pretty JSON + "\n") with the legacy keys.
+fn outcome_bytes(job: serde_json::Map<String, Value>, code: ExitCode, rules: u64) -> Vec<u8> {
+    let o = json!({"complete": code == ExitCode::Complete, "rules": rules, "job": Value::Object(job)});
+    let mut v = serde_json::to_vec_pretty(&o).unwrap();
+    v.push(b'\n');
+    v
+}
+
+/// `outputs.table`, built by hand: `sealed` = the figures of the sealed file and its end kind.
+fn table_json(
+    sealed: Option<(&Figures, &str)>,
+    commit: &Figures,
+    rules_committed: u64,
+    elided: u64,
+) -> Value {
+    json!({
+        "path": RunLayout::out_rel(TABLE),
+        "bytes": sealed.map(|s| s.0.bytes), "blake3": sealed.map(|s| s.0.blake3.clone()),
+        "records": sealed.map(|s| s.0.records), "rules": sealed.map(|s| s.0.rules),
+        "rules_committed": rules_committed,
+        "committed_bytes": commit.bytes, "prefix_blake3": commit.blake3,
+        "sealed": sealed.is_some(), "end": sealed.map(|s| s.1),
+        "canonical_blake3": sealed.map(|s| s.0.canonical.clone()),
+        "witness_loci_elided": elided,
+    })
+}
+
+fn empty_figures() -> Figures {
+    Figures {
+        bytes: 0,
+        blake3: blake3::hash(b"").to_hex().to_string(),
+        records: 0,
+        rules: 0,
+        canonical: blake3::hash(b"").to_hex().to_string(),
+    }
+}
+
+/// Mutable job state shared with the watchdog. Never held across I/O (audit A m11).
 struct State {
     counters: Counters,
-    commit: CommitPoint,
+    commit: Figures,
+    queue_commit: Figures,
     phase: Phase,
     case_ordinal: Option<u64>,
     case_started: Option<Instant>,
@@ -154,7 +514,7 @@ struct Ctx {
     spec_blake3: String,
     script: FakeScript,
     layout: RunLayout,
-    inputs: Vec<InputCheck>,
+    inputs: Vec<rustred_campaign_contract::outcome::InputCheck>,
     sink: EventSink,
     st: Mutex<State>,
     started: Instant,
@@ -171,6 +531,20 @@ struct Ctx {
 impl Ctx {
     fn st(&self) -> std::sync::MutexGuard<'_, State> {
         self.st.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// The state for the hard-safe stop: the lock is only ever held briefly (no I/O under it), so a bounded wait is
+    /// enough; after 1 s the stop goes on with an empty snapshot rather than hang (m11).
+    fn st_try(&self) -> Option<std::sync::MutexGuard<'_, State>> {
+        let end = Instant::now() + Duration::from_secs(1);
+        loop {
+            match self.st.try_lock() {
+                Ok(g) => return Some(g),
+                Err(std::sync::TryLockError::Poisoned(p)) => return Some(p.into_inner()),
+                Err(_) if Instant::now() > end => return None,
+                Err(_) => std::thread::sleep(Duration::from_millis(5)),
+            }
+        }
     }
 
     fn jitter(&self) -> Option<(f64, f64)> {
@@ -216,73 +590,76 @@ impl Ctx {
         peak
     }
 
-    /// The OUTCOME for the current state.
+    /// The OUTCOME bytes for the current state. `table` = `outputs.table` (None: built from the commit point).
+    #[allow(clippy::too_many_arguments)]
     fn outcome(
         &self,
+        st: Option<&State>,
         code: ExitCode,
-        stop: StopInfo,
-        table: TableOutput,
-        error: Option<ErrorInfo>,
+        stop: Option<StopCode>,
+        source: Option<StopSource>,
+        graceful: bool,
+        table: Option<Value>,
+        error: Option<(ErrorClass, String)>,
         helpers_peak: u64,
-    ) -> Outcome {
-        let st = self.st();
-        let mut j = JobOutcome::for_spec(&self.spec, &self.spec_blake3, program_info(), code, stop);
-        j.inputs = self.inputs.clone();
-        j.counters = st.counters;
-        j.counters.rules_committed = st.counters.rules_committed;
-        j.budgets.hit = st.hit.clone();
-        j.time_decisions = st.time_decisions.clone();
-        j.time_decided = !j.time_decisions.is_empty() || j.stop.code == Some(StopCode::BudgetWall);
-        j.per_case = st.per_case.clone();
-        let mut t = table;
-        t.witness_loci_elided = st.elided;
-        j.outputs.table = Some(t);
-        j.outputs.queue = Some(QueueOutput {
-            bytes: st.queue_bytes,
-        });
-        j.outputs.events = Some(EventsOutput {
-            last_seq: self.sink.next_seq(),
-        });
-        j.outputs.resume = Some(ResumeOutput {
-            path: rustred_campaign_contract::layout::RESUME.into(),
-            valid: st.resume_valid,
-        });
-        let wall = self.started.elapsed().as_secs_f64();
-        j.timing = Timing {
-            started_utc: Some(self.started_utc.clone()),
-            finished_utc: Some(rustred_campaign_contract::time::utc_now()),
-            wall_s: Some((wall * 1000.0).round() / 1000.0),
-            cpu_s: None,
-        };
-        j.memory = Memory {
-            vmhwm_kb: Some(vmhwm_kb()),
-            rss_kb_at_end: Some(rss_kb_of(0)),
-            helpers_peak_rss_kb: Some(helpers_peak),
-        };
-        j.error = error;
-        j.resumed = self.resumed;
-        let mut o = Outcome::new(j);
-        o.legacy.insert(
-            "complete".into(),
-            serde_json::Value::from(code == ExitCode::Complete),
+    ) -> Vec<u8> {
+        let detail = st
+            .and_then(|s| s.hit.clone())
+            .map_or(Value::Null, |h| serde_json::to_value(h).unwrap());
+        let mut j = base_job(
+            &self.spec,
+            &self.spec_blake3,
+            code,
+            stop,
+            source,
+            graceful,
+            detail,
+            error,
         );
-        o.legacy.insert(
-            "rules".into(),
-            serde_json::Value::from(st.counters.rules_committed),
-        );
-        o
-    }
-
-    fn unsealed_table(&self) -> TableOutput {
-        let st = self.st();
-        TableOutput {
-            path: RunLayout::out_rel(rustred_campaign_contract::layout::TABLE),
-            rules_committed: st.counters.rules_committed,
-            committed_bytes: st.commit.bytes,
-            prefix_blake3: Some(st.commit.prefix_blake3.clone()),
-            sealed: false,
-            ..Default::default()
+        let rules = st.map_or(0, |s| s.counters.rules_committed);
+        let tds = st.map(|s| s.time_decisions.clone()).unwrap_or_default();
+        let time_decided = !tds.is_empty() || stop == Some(StopCode::BudgetWall);
+        let ef = empty_figures();
+        let commit = st.map_or(&ef, |s| &s.commit);
+        let table =
+            table.unwrap_or_else(|| table_json(None, commit, rules, st.map_or(0, |s| s.elided)));
+        let ins: Vec<Value> = self
+            .inputs
+            .iter()
+            .map(|i| json!({"role": i.role, "path": i.path, "bytes": i.bytes, "blake3": i.blake3, "verified": i.verified}))
+            .collect();
+        j.insert("inputs".into(), Value::from(ins));
+        if let Some(s) = st {
+            j.insert("counters".into(), serde_json::to_value(s.counters).unwrap());
+            j.insert("per_case".into(), serde_json::to_value(&s.per_case).unwrap());
+            if let Some(b) = j.get_mut("budgets").and_then(Value::as_object_mut) {
+                b.insert("hit".into(), serde_json::to_value(&s.hit).unwrap());
+            }
         }
+        j.insert("time_decisions".into(), serde_json::to_value(&tds).unwrap());
+        j.insert("time_decided".into(), Value::from(time_decided));
+        j.insert(
+            "outputs".into(),
+            json!({
+                "table": table,
+                "queue": {"bytes": st.map_or(0, |s| s.queue_bytes)},
+                "events": {"last_seq": self.sink.next_seq()},
+                "resume": {"path": rustred_campaign_contract::layout::RESUME, "valid": st.is_some_and(|s| s.resume_valid)},
+                "extra": [],
+            }),
+        );
+        let wall = self.started.elapsed().as_secs_f64();
+        j.insert(
+            "timing".into(),
+            json!({"started_utc": self.started_utc, "finished_utc": rustred_campaign_contract::time::utc_now(),
+                   "wall_s": (wall * 1000.0).round() / 1000.0, "cpu_s": null}),
+        );
+        j.insert(
+            "memory".into(),
+            json!({"vmhwm_kb": vmhwm_kb(), "rss_kb_at_end": rss_kb_of(0), "helpers_peak_rss_kb": helpers_peak}),
+        );
+        j.insert("resumed".into(), Value::from(self.resumed));
+        outcome_bytes(j, code, rules)
     }
 
     /// The hard-safe stop (3.4.3): kill helpers, leave table/queue alone, OUTCOME from the job state, try the
@@ -292,27 +669,18 @@ impl Ctx {
             park_forever();
         }
         let peak = self.kill_helpers();
-        if let Some(td) = td {
-            self.st().time_decisions.push(td);
-        }
         let src = *self.stop_source.lock().unwrap_or_else(|p| p.into_inner());
-        let o = self.outcome(
-            code,
-            StopInfo {
-                code: Some(stop),
-                detail: serde_json::Value::Null,
-                source: src,
-                graceful: false,
-            },
-            self.unsealed_table(),
-            None,
-            peak,
-        );
-        let _ = o.write_atomic(&self.layout.outcome());
+        let mut g = self.st_try();
+        if let (Some(td), Some(g)) = (td, g.as_mut()) {
+            g.time_decisions.push(td);
+        }
+        let b = self.outcome(g.as_deref(), code, Some(stop), src, false, None, None, peak);
+        drop(g);
+        let _ = own::write_new(&self.layout.outcome(), &b);
         self.sink.try_emit_for(
             Event::JobFinished {
                 exit_code: code,
-                status: o.job.status,
+                status: rustred_campaign_contract::JobStatus::for_exit(code),
                 stop_code: Some(stop),
             },
             Duration::from_secs(1),
@@ -321,45 +689,51 @@ impl Ctx {
         unsafe { libc::_exit(code.code()) }
     }
 
+    /// RESUME at a commit point (at most every `resume_every_s`, or `force`): the state is copied under the lock and
+    /// written WITHOUT holding it (m11).
     fn write_resume(&self, force: bool) {
-        let mut st = self.st();
-        let every = self.spec.resume_every_s as u64;
-        let due = force
-            || every == 0
-            || st
-                .resume_written_at
-                .is_none_or(|t| t.elapsed() >= Duration::from_secs(every));
-        if !due {
-            return;
-        }
-        let r = ResumeState {
-            schema: RESUME_SCHEMA.into(),
-            job_id: self.spec.job_id.clone(),
-            attempt: self.spec.attempt,
-            chart: serde_json::Value::from("C"),
-            frame: Frame::Presented,
-            rules_committed: st.counters.rules_committed,
-            table_committed_bytes: st.commit.bytes,
-            table_prefix_blake3: st.commit.prefix_blake3.clone(),
-            current: st.current.clone(),
-            pending: st.pending.clone(),
-            numerical: vec![],
-            deferred: vec![],
-            refused_open: vec![],
-            counters_at_commit: st.counters,
-            symbolic_cases: st.counters.cases,
-            discarded: 0,
+        let r = {
+            let st = self.st();
+            let every = self.spec.resume_every_s as u64;
+            let due = force
+                || every == 0
+                || st
+                    .resume_written_at
+                    .is_none_or(|t| t.elapsed() >= Duration::from_secs(every));
+            if !due {
+                return;
+            }
+            ResumeState {
+                schema: RESUME_SCHEMA.into(),
+                job_id: self.spec.job_id.clone(),
+                attempt: self.spec.attempt,
+                spec_blake3: self.spec_blake3.clone(),
+                chart: Value::from("C"),
+                frame: Frame::Presented,
+                rules_committed: st.counters.rules_committed,
+                table: committed(&RunLayout::out_rel(TABLE), &st.commit),
+                queue: Some(committed(&RunLayout::out_rel(QUEUE), &st.queue_commit)),
+                current: st.current.clone(),
+                pending: st.pending.clone(),
+                numerical: vec![],
+                deferred: vec![],
+                refused_open: vec![],
+                counters_at_commit: st.counters,
+                symbolic_cases: st.counters.cases,
+                discarded: 0,
+            }
         };
         if rustred_campaign_contract::atomic::write_json_atomic(&self.layout.resume(), &r).is_ok() {
-            st.resume_written_at = Some(Instant::now());
-            st.resume_valid = true;
-            let ev = Event::ResumeWritten {
+            {
+                let mut st = self.st();
+                st.resume_written_at = Some(Instant::now());
+                st.resume_valid = true;
+            }
+            let _ = self.sink.emit(Event::ResumeWritten {
                 rules_committed: r.rules_committed,
                 pending: r.pending.len() as u64,
-                table_bytes: r.table_committed_bytes,
-            };
-            drop(st);
-            let _ = self.sink.emit(ev);
+                table_bytes: r.table.bytes,
+            });
         }
     }
 }
@@ -381,30 +755,65 @@ fn case_spec(ordinal: u64) -> CaseSpec {
 }
 
 /// Write an OUTCOME for a refused start (when allowed) and exit with its code.
+/// Report a refused start on stderr, write an error OUTCOME only when preflight allows it (the run directory is
+/// verified to be this attempt's), never over an existing one (no-clobber), and exit with its code.
 fn refuse_exit(r: Refusal) -> ! {
     eprintln!("rr_fake_child: {}", r.message);
     if r.write_outcome {
         if let Some((spec, digest)) = &r.spec {
-            let mut j = JobOutcome::for_spec(
+            let j = base_job(
                 spec,
                 digest,
-                program_info(),
                 r.code,
-                StopInfo {
-                    code: Some(r.stop),
-                    detail: serde_json::Value::Null,
-                    source: None,
-                    graceful: true,
-                },
+                Some(r.stop),
+                None,
+                true,
+                Value::Null,
+                Some((r.class, r.message.clone())),
             );
-            j.error = Some(ErrorInfo::new(r.class, r.message.clone()));
-            let _ = Outcome::new(j).write_atomic(&RunLayout::new(&spec.run_dir).outcome());
+            let _ = own::write_new(
+                &RunLayout::new(&spec.run_dir).outcome(),
+                &outcome_bytes(j, r.code, 0),
+            );
         }
     }
     std::process::exit(r.code.code())
 }
 
-/// What ends the main thread's script.
+/// The 3.10 path for an I/O error: free the reserve, OUTCOME (best effort), exit 50 / 51.
+fn io_exit_now(ctx: &Ctx, e: io::Error) -> ! {
+    let code = exit_for_io(&e);
+    let (stop, class) = if is_nospace(&e) {
+        (StopCode::Nospace, ErrorClass::Nospace)
+    } else {
+        (StopCode::IoError, ErrorClass::Io)
+    };
+    let _ = release_reserve(&ctx.layout.reserve());
+    if !FINAL.swap(true, SeqCst) {
+        let peak = ctx.kill_helpers();
+        let bytes = {
+            let st = ctx.st();
+            ctx.outcome(
+                Some(&st),
+                code,
+                Some(stop),
+                None,
+                true,
+                None,
+                Some((class, e.to_string())),
+                peak,
+            )
+        };
+        let _ = own::write_new(&ctx.layout.outcome(), &bytes);
+        let _ = ctx.sink.emit(Event::JobFinished {
+            exit_code: code,
+            status: rustred_campaign_contract::JobStatus::for_exit(code),
+            stop_code: Some(stop),
+        });
+    }
+    std::process::exit(code.code())
+}
+
 enum Finish {
     End {
         stop: Option<StopCode>,
@@ -423,8 +832,8 @@ enum Finish {
 
 struct Main {
     ctx: Arc<Ctx>,
-    table: Option<RecordWriter>,
-    queue: RecordWriter,
+    table: Option<own::Writer>,
+    queue: own::Writer,
 }
 
 impl Main {
@@ -469,6 +878,7 @@ impl Main {
             let mut st = self.ctx.st();
             st.commit = cp;
             st.queue_bytes = q.bytes;
+            st.queue_commit = q;
         }
         self.ctx.write_resume(false);
         Ok(())
@@ -613,12 +1023,12 @@ impl Main {
         if let (CaseResult::Rule, Some(r)) = (result, rule) {
             let index = ctx.st().counters.rules_committed;
             let (line, elided) = fake_rule_record(r, index, &ctx.spec.output, ctx.jitter());
-            let pos = self
+            let (off, len, canon) = self
                 .table
                 .as_mut()
                 .expect("table")
                 .append(&line)
-                .map_err(wfin)?;
+                .map_err(Finish::Io)?;
             {
                 let mut st = ctx.st();
                 st.elided += elided;
@@ -632,9 +1042,9 @@ impl Main {
             rule_index = Some(index);
             let _ = ctx.sink.emit(Event::RuleCommitted {
                 index,
-                line_offset: pos.offset,
-                line_bytes: pos.bytes,
-                canon_blake3: pos.canon_blake3,
+                line_offset: off,
+                line_bytes: len,
+                canon_blake3: canon,
                 rhs: r
                     .record
                     .get("rhs")
@@ -647,7 +1057,7 @@ impl Main {
         let qrec = serde_json::json!({"type":"case","ordinal":ordinal,"result":result,"rule":rule_index,"children":children});
         self.queue
             .append(&serde_json::to_vec(&qrec).unwrap())
-            .map_err(wfin)?;
+            .map_err(Finish::Io)?;
         {
             let mut st = ctx.st();
             st.counters.cases += 1;
@@ -697,13 +1107,27 @@ impl Main {
                 sigkill_self()
             }
             FaultKind::Enospc => {
+                // audit B F6: the fault path is only ever a CHARACTER DEVICE (e.g. /dev/full), never a regular file
                 let e = match &f.path {
-                    Some(p) => std::fs::OpenOptions::new()
-                        .write(true)
-                        .open(p)
-                        .and_then(|mut h| h.write_all(&[0u8; 65536]).and_then(|_| h.flush()))
-                        .err()
-                        .unwrap_or_else(|| io::Error::other("write to the fault path succeeded")),
+                    Some(p) => {
+                        use std::os::unix::fs::FileTypeExt;
+                        let dev = std::fs::symlink_metadata(p)
+                            .is_ok_and(|m| m.file_type().is_char_device());
+                        if dev {
+                            std::fs::OpenOptions::new()
+                                .write(true)
+                                .open(p)
+                                .and_then(|mut h| {
+                                    h.write_all(&[0u8; 65536]).and_then(|_| h.flush())
+                                })
+                                .err()
+                                .unwrap_or_else(|| {
+                                    io::Error::other("write to the fault path succeeded")
+                                })
+                        } else {
+                            io::Error::other("fault path is not a character device")
+                        }
+                    }
                     None => io::Error::from_raw_os_error(ENOSPC),
                 };
                 Some(Finish::Io(e))
@@ -852,9 +1276,9 @@ impl Main {
                     ExitCode::Io => (StopCode::IoError, ErrorClass::Io),
                     _ => (StopCode::InternalError, ErrorClass::Internal),
                 };
-                (code, Some(stop), None, Some(ErrorInfo::new(class, message)))
+                (code, Some(stop), None, Some((class, message)))
             }
-            Finish::Io(e) => io_exit(&ctx, e),
+            Finish::Io(e) => io_exit_now(&ctx, e),
         };
         let faults = &ctx.script.faults;
         let unsealed_claim = faults.iter().any(|f| f.kind == FaultKind::OutcomeUnsealed);
@@ -863,55 +1287,36 @@ impl Main {
             .any(|f| f.kind == FaultKind::KillBeforeOutcome);
         let end_kind = if stop.is_none() { "end" } else { "partial" };
         let (a, b) = ctx.jitter().unwrap_or((0.0, 0.0));
-        let rules = ctx.st().counters.rules_committed;
-        let end = serde_json::json!({"type": end_kind, "charts": 1, "rules": rules, "seconds": a, "vmhwm_kb": (b * 1000.0) as u64});
-        let end_line = serde_json::to_vec(&end).unwrap();
-        let mut table = TableOutput {
-            path: RunLayout::out_rel(rustred_campaign_contract::layout::TABLE),
-            rules_committed: rules,
-            ..Default::default()
+        let (rules, elided, commit) = {
+            let st = ctx.st();
+            (st.counters.rules_committed, st.elided, st.commit.clone())
         };
+        let end = json!({"type": end_kind, "charts": 1, "rules": rules, "seconds": a, "vmhwm_kb": (b * 1000.0) as u64});
+        let end_line = serde_json::to_vec(&end).unwrap();
         let mut writer = self.table.take().expect("table");
-        if unsealed_claim {
+        let table = if unsealed_claim {
             // contract violation on purpose: no end record, but OUTCOME claims a sealed table
-            let st = writer.commit().map_err(Finish::Io);
-            let Ok(st) = st else {
-                io_exit_now(&ctx, io::Error::other("commit"))
+            let f = match writer.commit() {
+                Ok(f) => f,
+                Err(e) => io_exit_now(&ctx, e),
             };
-            table.bytes = Some(st.bytes);
-            table.blake3 = Some(st.prefix_blake3.clone());
-            table.records = Some(st.records);
-            table.rules = Some(st.rules);
-            table.end = Some(if stop.is_none() {
-                EndKind::End
-            } else {
-                EndKind::Partial
-            });
-            table.sealed = true;
-            table.committed_bytes = st.bytes;
-            table.prefix_blake3 = Some(st.prefix_blake3);
+            table_json(Some((&f, end_kind)), &f, rules, elided)
         } else {
             match writer.seal(&end_line) {
-                Ok(seal) => {
-                    seal.apply(&mut table);
-                    table.committed_bytes = seal.bytes;
-                    table.prefix_blake3 = Some(seal.blake3.clone());
-                    // the job state keeps the last COMMIT point (before the end record): the final RESUME's
-                    // committed prefix never contains an end record, so a resume continues the records
-                }
-                Err(WriteError::Io(e)) => io_exit_now(&ctx, e),
-                Err(e) => io_exit_now(&ctx, io::Error::other(e.to_string())),
+                // the job state keeps the last COMMIT point (before the end record): the final RESUME's committed
+                // prefix never contains an end record, so a resume continues the records
+                Ok(f) => table_json(Some((&f, end_kind)), &commit, rules, elided),
+                Err(e) => io_exit_now(&ctx, e),
             }
-        }
-        let qend = serde_json::json!({"type": end_kind, "cases": ctx.st().counters.cases});
-        let qbytes = self
+        };
+        let qend = json!({"type": end_kind, "cases": ctx.st().counters.cases});
+        let q = self
             .queue
             .append(&serde_json::to_vec(&qend).unwrap())
-            .and_then(|_| self.queue.commit().map_err(WriteError::Io));
-        match qbytes {
+            .and_then(|_| self.queue.commit());
+        match q {
             Ok(q) => ctx.st().queue_bytes = q.bytes,
-            Err(WriteError::Io(e)) => io_exit_now(&ctx, e),
-            Err(e) => io_exit_now(&ctx, io::Error::other(e.to_string())),
+            Err(e) => io_exit_now(&ctx, e),
         }
         ctx.write_resume(true);
         if kill_before {
@@ -921,29 +1326,27 @@ impl Main {
             park_forever();
         }
         let peak = ctx.kill_helpers();
-        let detail = ctx.st().hit.clone().map_or(serde_json::Value::Null, |h| {
-            serde_json::to_value(h).unwrap()
-        });
-        let o = ctx.outcome(
-            code,
-            StopInfo {
-                code: stop,
-                detail,
-                source: graceful_src,
-                graceful: true,
-            },
-            table,
-            error,
-            peak,
-        );
-        if let Err(e) = o.write_atomic(&ctx.layout.outcome()) {
+        let bytes = {
+            let st = ctx.st();
+            ctx.outcome(
+                Some(&st),
+                code,
+                stop,
+                graceful_src,
+                true,
+                Some(table),
+                error,
+                peak,
+            )
+        };
+        if let Err(e) = own::write_new(&ctx.layout.outcome(), &bytes) {
             let _ = release_reserve(&ctx.layout.reserve());
             eprintln!("rr_fake_child: OUTCOME: {e}");
             std::process::exit(exit_for_io(&e).code());
         }
         let _ = ctx.sink.emit(Event::JobFinished {
             exit_code: code,
-            status: o.job.status,
+            status: rustred_campaign_contract::JobStatus::for_exit(code),
             stop_code: stop,
         });
         let _ = release_reserve(&ctx.layout.reserve());
@@ -951,52 +1354,6 @@ impl Main {
     }
 }
 
-fn wfin(e: WriteError) -> Finish {
-    match e {
-        WriteError::Io(e) => Finish::Io(e),
-        other => Finish::Fail {
-            code: ExitCode::Internal,
-            message: other.to_string(),
-        },
-    }
-}
-
-/// The 3.10 path for an I/O error: free the reserve, OUTCOME (best effort), exit 50 / 51.
-fn io_exit(ctx: &Ctx, e: io::Error) -> ! {
-    io_exit_now(ctx, e)
-}
-
-fn io_exit_now(ctx: &Ctx, e: io::Error) -> ! {
-    let code = exit_for_io(&e);
-    let (stop, class) = if is_nospace(&e) {
-        (StopCode::Nospace, ErrorClass::Nospace)
-    } else {
-        (StopCode::IoError, ErrorClass::Io)
-    };
-    let _ = release_reserve(&ctx.layout.reserve());
-    if !FINAL.swap(true, SeqCst) {
-        let peak = ctx.kill_helpers();
-        let o = ctx.outcome(
-            code,
-            StopInfo {
-                code: Some(stop),
-                detail: serde_json::Value::Null,
-                source: None,
-                graceful: true,
-            },
-            ctx.unsealed_table(),
-            Some(ErrorInfo::new(class, e.to_string())),
-            peak,
-        );
-        let _ = o.write_atomic(&ctx.layout.outcome());
-        let _ = ctx.sink.emit(Event::JobFinished {
-            exit_code: code,
-            status: o.job.status,
-            stop_code: Some(stop),
-        });
-    }
-    std::process::exit(code.code())
-}
 
 fn sigkill_self() -> ! {
     // SAFETY: signalling ourselves.
@@ -1205,6 +1562,7 @@ fn run_job(spec_path: &Path) -> ! {
         kinds: &[JobKind::Fake],
         blake3: None,
     };
+    // preflight verifies the run directory before anything is written and, with `resume`, the whole resume source
     let prep = match preflight(spec_path, &me, &|k| std::env::var(k).ok()) {
         Ok(p) => p,
         Err(r) => refuse_exit(r),
@@ -1215,6 +1573,16 @@ fn run_job(spec_path: &Path) -> ! {
         .clone()
         .expect("validated: kind fake has a script");
     let layout = prep.layout.clone();
+    let refuse_input = |msg: String| -> ! {
+        refuse_exit(Refusal {
+            code: ExitCode::Input,
+            stop: StopCode::InputError,
+            class: ErrorClass::Input,
+            message: msg,
+            spec: Some((Box::new(prep.spec.clone()), prep.spec_blake3.clone())),
+            write_outcome: true,
+        })
+    };
     // slow start: nothing written yet (a stop during it is honoured at the first safe point)
     if script.start_delay_ms > 0 {
         std::thread::sleep(Duration::from_secs_f64(
@@ -1227,6 +1595,37 @@ fn run_job(spec_path: &Path) -> ! {
             std::process::exit(exit_for_io(&e).code());
         }
     }
+    // tables first (resume: the committed prefixes, checked again by this program's own code), so that a refused
+    // resume leaves out/ empty and writes no reserve or event
+    let resume = prep.resume.clone();
+    let (table, queue) = match &resume {
+        Some(v) => {
+            let t = own::Writer::copy_prefix(
+                &v.prev.table(),
+                &figures_of(&v.state.table),
+                &layout.table(),
+            )
+            .unwrap_or_else(|e| refuse_input(format!("resume table prefix: {e}")));
+            let q = match &v.state.queue {
+                Some(q) => own::Writer::copy_prefix(&v.prev.queue(), &figures_of(q), &layout.queue())
+                    .unwrap_or_else(|e| refuse_input(format!("resume queue prefix: {e}"))),
+                None => own::Writer::create(&layout.queue())
+                    .unwrap_or_else(|e| refuse_input(format!("queue: {e}"))),
+            };
+            (t, q)
+        }
+        None => {
+            let t = own::Writer::create(&layout.table());
+            let q = own::Writer::create(&layout.queue());
+            match (t, q) {
+                (Ok(t), Ok(q)) => (t, q),
+                (Err(e), _) | (_, Err(e)) => {
+                    eprintln!("rr_fake_child: out/: {e}");
+                    std::process::exit(exit_for_io(&e).code());
+                }
+            }
+        }
+    };
     if let Err(e) = create_reserve(&layout.reserve(), RESERVE_BYTES) {
         eprintln!("rr_fake_child: reserve: {e}");
         let _ = release_reserve(&layout.reserve());
@@ -1243,23 +1642,8 @@ fn run_job(spec_path: &Path) -> ! {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos() as u64;
-    let resume = match &prep.spec.resume {
-        None => None,
-        Some(r) => match std::fs::read(&r.from)
-            .ok()
-            .and_then(|b| serde_json::from_slice::<ResumeState>(&b).ok())
-        {
-            Some(s) => Some((r.clone(), s)),
-            None => refuse_exit(Refusal {
-                code: ExitCode::Input,
-                stop: StopCode::InputError,
-                class: ErrorClass::Input,
-                message: "RESUME.json does not parse".into(),
-                spec: Some((Box::new(prep.spec.clone()), prep.spec_blake3.clone())),
-                write_outcome: true,
-            }),
-        },
-    };
+    let commit0 = table.figures();
+    let queue0 = queue.figures();
     let ctx = Arc::new(Ctx {
         spec: prep.spec.clone(),
         spec_blake3: prep.spec_blake3.clone(),
@@ -1270,21 +1654,18 @@ fn run_job(spec_path: &Path) -> ! {
         st: Mutex::new(State {
             counters: resume
                 .as_ref()
-                .map(|(_, s)| s.counters_at_commit)
+                .map(|v| v.state.counters_at_commit)
                 .unwrap_or_default(),
-            commit: CommitPoint {
-                bytes: 0,
-                prefix_blake3: rustred_campaign_contract::blake3_hex(b""),
-                records: 0,
-                rules: 0,
-            },
+            commit: commit0,
+            queue_bytes: queue0.bytes,
+            queue_commit: queue0,
             phase: Phase::Prepare,
             case_ordinal: None,
             case_started: None,
             current: None,
             pending: resume
                 .as_ref()
-                .map(|(_, s)| s.pending.clone())
+                .map(|v| v.state.pending.clone())
                 .unwrap_or_default(),
             per_case: vec![],
             time_decisions: vec![],
@@ -1292,7 +1673,6 @@ fn run_job(spec_path: &Path) -> ! {
             hit: None,
             resume_written_at: None,
             resume_valid: false,
-            queue_bytes: 0,
         }),
         started: Instant::now(),
         started_utc: rustred_campaign_contract::time::utc_now(),
@@ -1310,23 +1690,23 @@ fn run_job(spec_path: &Path) -> ! {
         if let Some(ctx) = CTX.get() {
             if !FINAL.swap(true, SeqCst) {
                 let peak = ctx.kill_helpers();
-                let o = ctx.outcome(
+                let g = ctx.st_try();
+                let b = ctx.outcome(
+                    g.as_deref(),
                     ExitCode::Internal,
-                    StopInfo {
-                        code: Some(StopCode::Panic),
-                        detail: serde_json::Value::Null,
-                        source: None,
-                        graceful: false,
-                    },
-                    ctx.unsealed_table(),
-                    Some(ErrorInfo::new(ErrorClass::Panic, info.to_string())),
+                    Some(StopCode::Panic),
+                    None,
+                    false,
+                    None,
+                    Some((ErrorClass::Panic, info.to_string())),
                     peak,
                 );
-                let _ = o.write_atomic(&ctx.layout.outcome());
+                drop(g);
+                let _ = own::write_new(&ctx.layout.outcome(), &b);
                 ctx.sink.try_emit_for(
                     Event::JobFinished {
                         exit_code: ExitCode::Internal,
-                        status: o.job.status,
+                        status: rustred_campaign_contract::JobStatus::Error,
                         stop_code: Some(StopCode::Panic),
                     },
                     Duration::from_secs(1),
@@ -1343,43 +1723,33 @@ fn run_job(spec_path: &Path) -> ! {
         pid: std::process::id(),
         program: PROGRAM.into(),
         version: env!("CARGO_PKG_VERSION").into(),
-        git_commit: program_info().git_commit,
-        resume_from: resume.as_ref().map(|(_, s)| s.attempt),
+        git_commit: git_commit(),
+        resume_from: resume.as_ref().map(|v| v.state.attempt),
     });
     let wd = ctx.clone();
     std::thread::spawn(move || watchdog(wd));
-    // table: fresh with a header, or the verified committed prefix of the previous attempt
-    let table = match &resume {
-        Some((r, _)) => RecordWriter::resume_from_prefix(Path::new(&r.table), r.committed_bytes, &r.prefix_blake3, &layout.table()),
-        None => RecordWriter::create(&layout.table()).map_err(WriteError::Io).and_then(|mut w| {
-            let (z, _) = ctx.jitter().unwrap_or((0.0, 0.0));
-            let h = serde_json::json!({"type":"header","schema":"rustred.fake.table.v1","source":PROGRAM,"contract":CONTRACT,"sample_seed":ctx.spec.seed.sample_seed,"zero_seconds":z});
-            w.append(&serde_json::to_vec(&h).unwrap()).map(|_| w)
-        }),
-    };
-    let mut table = match table {
-        Ok(t) => t,
-        Err(WriteError::Io(e)) => io_exit_now(&ctx, e),
-        Err(e) => refuse_exit(Refusal {
-            code: ExitCode::Input,
-            stop: StopCode::InputError,
-            class: ErrorClass::Input,
-            message: format!("resume prefix: {e}"),
-            spec: Some((Box::new(ctx.spec.clone()), ctx.spec_blake3.clone())),
-            write_outcome: true,
-        }),
-    };
-    let queue = match RecordWriter::create(&layout.queue()) {
-        Ok(q) => q,
-        Err(e) => io_exit_now(&ctx, e),
-    };
+    let mut table = table;
+    if resume.is_none() {
+        // a fresh table starts with its header; the family file (when the spec has one) is named by path AND content
+        // digest, which makes the path volatile in the canonical form (coordinator ruling on family_file)
+        let (z, _) = ctx.jitter().unwrap_or((0.0, 0.0));
+        let mut h = json!({"type":"header","schema":"rustred.fake.table.v1","source":PROGRAM,"contract":CONTRACT,
+                           "sample_seed":ctx.spec.seed.sample_seed,"zero_seconds":z});
+        if let Some(f) = ctx.spec.inputs.iter().find(|i| i.role == "family") {
+            h["family_file"] = Value::from(f.path.clone());
+            h["family_blake3"] = Value::from(f.blake3.clone());
+        }
+        if let Err(e) = table.append(&serde_json::to_vec(&h).unwrap()) {
+            io_exit_now(&ctx, e)
+        }
+    }
     match table.commit() {
         Ok(cp) => ctx.st().commit = cp,
         Err(e) => io_exit_now(&ctx, e),
     }
     let skip = resume
         .as_ref()
-        .map_or(0, |(_, s)| s.counters_at_commit.cases);
+        .map_or(0, |v| v.state.counters_at_commit.cases);
     let mut m = Main {
         ctx: ctx.clone(),
         table: Some(table),
@@ -1401,7 +1771,7 @@ fn main() {
             let v = VersionInfo {
                 program: PROGRAM.into(),
                 package_version: env!("CARGO_PKG_VERSION").into(),
-                git_commit: program_info().git_commit,
+                git_commit: git_commit(),
                 contract: vec![CONTRACT.into()],
                 features: FEATURES.iter().map(|s| s.to_string()).collect(),
                 job_kinds: vec![JobKind::Fake],
