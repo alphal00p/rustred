@@ -172,41 +172,9 @@ fn req_string(o: &Map<String, Value>, k: &str) -> Result<String, BoxError> {
     opt_string(o, k)?.ok_or_else(|| BoxError::Schema(format!("missing string field {k:?}")))
 }
 
-/// Canonical JSON: object keys sorted bytewise, no whitespace (the bytes the digest hashes).
+/// Canonical JSON of plan 3.3.0 (the crate's one rule, [`crate::schema::canon`]): the bytes the digest hashes.
 pub fn canonical_json(v: &Value) -> String {
-    let mut s = String::new();
-    write_canonical(v, &mut s);
-    s
-}
-
-fn write_canonical(v: &Value, out: &mut String) {
-    match v {
-        Value::Object(m) => {
-            let mut ks: Vec<&String> = m.keys().collect();
-            ks.sort();
-            out.push('{');
-            for (i, k) in ks.iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
-                }
-                out.push_str(&serde_json::to_string(k).expect("string"));
-                out.push(':');
-                write_canonical(&m[*k], out);
-            }
-            out.push('}');
-        }
-        Value::Array(a) => {
-            out.push('[');
-            for (i, x) in a.iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
-                }
-                write_canonical(x, out);
-            }
-            out.push(']');
-        }
-        other => out.push_str(&serde_json::to_string(other).expect("scalar")),
-    }
+    crate::schema::canon::canonical_json(v, false).expect("box documents hold integers only")
 }
 
 const FIELDS: [&str; 13] = [
