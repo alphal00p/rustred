@@ -639,8 +639,14 @@ fn m3_dispatch_mode_equals_first_match_random() {
     }
 }
 
+/// audit-part-A M3 (c). Since the int3 integration (ladder audit A M5 made `ContainmentProof`'s fields private) a
+/// proof cannot be written by hand outside the crate: the string-level checks moved to the unit test
+/// `economy::tests::m3_economy_requires_a_dispatch_proof`; here the PUBLIC route: `assemble::containment_proof`
+/// gives a proof only from a dispatch-mode report that proves no gap, and `Retirement::new` accepts it on a FULL
+/// node; a union-coverage report gives none.
 #[test]
 fn m3_economy_requires_a_dispatch_proof() {
+    use rustred_campaign_core::assemble::containment_proof;
     let m = |t: u64| RuleMeasure {
         cases: 1,
         rhs_terms: t,
@@ -651,44 +657,51 @@ fn m3_economy_requires_a_dispatch_proof() {
         bytes: 1,
     };
     let old = vec![("a".to_string(), m(100))];
-    let proof = |method: String| ContainmentProof {
-        old_tables_digest: "o".into(),
-        new_tables_digest: "n".into(),
-        method,
-        artefact_sha256: "x".into(),
-    };
-    let retire = |p: ContainmentProof| {
+    let retire = |p: Option<ContainmentProof>| {
         Retirement::new(
             "N",
             CoverageState::Full,
             &old,
             ("c", &m(50)),
             SupersedeReason::FaceRetiresPoints,
-            Some(p),
+            p,
         )
     };
-    // a union-coverage proof is refused on a FULL node
-    assert_eq!(
-        retire(proof("exact_partition".into())).unwrap_err(),
-        RetireError::FullNodeNeedsProof
-    );
-    assert_eq!(
-        retire(proof("dispatch_partition.v1".into())).unwrap_err(),
-        RetireError::FullNodeNeedsProof,
-        "no order statement"
-    );
+    assert_eq!(retire(None).unwrap_err(), RetireError::FullNodeNeedsProof);
+    let n = 2;
+    let f = NodeFrame::without_header_lines_first(n, 2);
+    // one record covering the whole chart: no gap under either notion
+    let l = list(vec![CaseDomain::free(n, Some(vec![true, true]))], n);
+    let u = gap_partition(&l, &f, &ordinary(), None).unwrap();
+    assert!(u.proves_no_gap(CoverageNotion::UnionCoverage).is_ok());
     assert!(
-        retire(proof(dispatch_proof_method(
-            &DispatchOrderStatement::SameOrder
-        )))
-        .is_ok()
+        containment_proof(&u, &DispatchOrderStatement::SameOrder, "o", "n").is_none(),
+        "a union-coverage report gives no FULL-node proof"
     );
-    let m2 = dispatch_proof_method(&DispatchOrderStatement::NewOrder("abc123".into()));
+    let o = PartitionOptions {
+        coverage: CoverageNotion::DispatchCoverage,
+        ..Default::default()
+    };
+    let d = gap_partition(&l, &f, &o, None).unwrap();
+    assert!(d.proves_no_gap(CoverageNotion::DispatchCoverage).is_ok());
+    let p = containment_proof(&d, &DispatchOrderStatement::SameOrder, "o", "n").unwrap();
+    assert_eq!(p.method(), dispatch_proof_method(&DispatchOrderStatement::SameOrder));
+    assert!(retire(Some(p)).is_ok());
+    let p2 = containment_proof(&d, &DispatchOrderStatement::NewOrder("abc123".into()), "o", "n")
+        .unwrap();
     assert_eq!(
-        parse_dispatch_proof_method(&m2),
+        parse_dispatch_proof_method(p2.method()),
         Some(DispatchOrderStatement::NewOrder("abc123".into()))
     );
-    assert!(retire(proof(m2)).is_ok());
+    assert!(retire(Some(p2)).is_ok());
+    assert!(
+        containment_proof(&d, &DispatchOrderStatement::NewOrder(String::new()), "o", "n")
+            .is_none()
+    );
+    // a dispatch-mode report WITH a gap (blocked pole key) gives none
+    let (a, b) = pole_tables();
+    let gap = gap_partition(&list(vec![a, b], n), &f, &o, None).unwrap();
+    assert!(containment_proof(&gap, &DispatchOrderStatement::SameOrder, "o", "n").is_none());
     assert!(parse_dispatch_proof_method("dispatch_partition.v1;order=new:").is_none());
 }
 
