@@ -874,10 +874,28 @@ fn scope_one_to_four_assembles_from_the_staged_owners() {
     // The staged package (`rustred p-package --max-loops 4 --recount-lp`;
     // STAGE 2: the final package with its layer), when named, is this program.
     if std::env::var_os("RUSTRED_P_LIBRARY_1_4").is_some() {
-        assert_eq!(
-            p_library_differences(library, &staged_package()).unwrap(),
-            Vec::<String>::new()
-        );
+        let staged = staged_package();
+        let mut differences = p_library_differences(library, &staged).unwrap();
+        // Batch 6: the shipped package may carry a content revision (assembled
+        // under RUSTRED_P_PACKAGE_REVISION); this in-process assembly has none.
+        // The identities then agree once the revision (and, as
+        // p_library_differences does, the ordering tag) is removed.
+        if let Some(name) = staged.revision() {
+            let bare = |l: &PLibrary| {
+                let mut identity = l.identity();
+                if let Some(tag) = l.ordering() {
+                    identity = identity.replacen(&format!(",P_ORDERING_VERSION={tag}"), "", 1);
+                }
+                if let Some(name) = l.revision() {
+                    identity = identity.replacen(&format!(",P_PACKAGE_REVISION={name}"), "", 1);
+                }
+                identity
+            };
+            println!("staged package revision {name}");
+            assert_eq!(bare(library), bare(&staged));
+            differences.retain(|difference| !difference.starts_with("identity: "));
+        }
+        assert_eq!(differences, Vec::<String>::new());
     }
     check_inventory(assembled);
 }

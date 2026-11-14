@@ -378,6 +378,45 @@ impl Table {
                         skip,
                     });
                 }
+                // sym-gen (engine-line port of f6ebb974): I(target) = s I(image), one term, no exceptions (the sign
+                // "key" is not supported here)
+                "sym" => {
+                    let n = t.n;
+                    let fixed = v["fixed"]
+                        .as_array()
+                        .ok_or("sym without fixed")?
+                        .iter()
+                        .map(Value::as_i64)
+                        .collect();
+                    let equations = v
+                        .get("equations")
+                        .and_then(Value::as_array)
+                        .map(|a| {
+                            a.iter()
+                                .map(|x| Expr::parse(x.as_str().unwrap_or(""), n))
+                                .collect::<Result<Vec<_>, _>>()
+                        })
+                        .transpose()?
+                        .unwrap_or_default();
+                    let sign = match v["sign"].as_str() {
+                        Some("+") => "1",
+                        Some("-") => "-1",
+                        other => return Err(format!("sym record sign {other:?} not supported")),
+                    };
+                    t.rules.push(Rule {
+                        fixed,
+                        equations,
+                        exceptions: vec![],
+                        target: parse_pat(v["target"].as_str().unwrap_or(""), n)?,
+                        rhs_pats: vec![parse_pat(v["image"].as_str().unwrap_or(""), n)?],
+                        rhs_text: vec![sign.to_string()],
+                        rhs_expr: None,
+                        skip: false,
+                    });
+                }
+                "sym_zero" => {
+                    return Err("sym_zero records are not supported by the table reducer".into());
+                }
                 "residual" => t
                     .masters
                     .push(at(&parse_pat(v["key"].as_str().unwrap_or(""), t.n)?, &[])),

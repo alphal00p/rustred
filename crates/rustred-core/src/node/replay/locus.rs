@@ -995,6 +995,8 @@ pub fn run(args: &LocusArgs) -> Result<(String, Value), String> {
         f: &f,
         cert: None,
         dims,
+        // sym-gen: the locus probe replays plain IBP rules only (no symmetry_group record is read here)
+        sym: Default::default(),
     };
     let mut lines = String::new();
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
