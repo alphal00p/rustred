@@ -863,8 +863,14 @@ impl Supervisor {
                 .any(|i| i.role == crate::closeloop::CONFIG_ROLE) =>
             {
                 Box::new(
-                    crate::closeloop::CloseFromMaterialSource::from_spec(&opts.spec, &cdir)
-                        .map_err(RunExit::Refused)?,
+                    // lane termmin (termmin.md 6): phase E wraps the closing loop (terminal minimisation)
+                    crate::closeloop::termmin::wrap(
+                        crate::closeloop::CloseFromMaterialSource::from_spec(&opts.spec, &cdir)
+                            .map_err(RunExit::Refused)?,
+                        &opts.spec,
+                        &cdir,
+                    )
+                    .map_err(RunExit::Refused)?,
                 )
             }
             None => return Err(RunExit::Refused("no work source for this spec".into())),

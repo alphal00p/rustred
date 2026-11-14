@@ -37,3 +37,5 @@ pub mod independent_algebra;
 pub mod schema;
 // lane import (interfaces/import.md; listed by lane closeloop as its one line in this file)
 pub mod import;
+// lane termmin (interfaces/termmin.md): REQUEST TO I-INT, one line
+pub mod termmin;
