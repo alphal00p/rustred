@@ -1382,7 +1382,9 @@ fn coordinator_bank_accept_lines_validate() {
             .into()
     });
     if !Path::new(&path).exists() {
-        println!("SKIPPED: {path} absent (the coordinator's bank conversion output is not on this host)");
+        println!(
+            "SKIPPED: {path} absent (the coordinator's bank conversion output is not on this host)"
+        );
         return;
     }
     let o = std::process::Command::new("python3")
@@ -1394,7 +1396,8 @@ fn coordinator_bank_accept_lines_validate() {
         .current_dir(schemas())
         .output()
         .expect("python3");
-    let text = String::from_utf8_lossy(&o.stdout).into_owned() + &String::from_utf8_lossy(&o.stderr);
+    let text =
+        String::from_utf8_lossy(&o.stdout).into_owned() + &String::from_utf8_lossy(&o.stderr);
     let errors: Vec<&str> = text.lines().filter(|l| l.starts_with("error:")).collect();
     let only_class = !errors.is_empty()
         && errors
@@ -1410,6 +1413,11 @@ fn coordinator_bank_accept_lines_validate() {
         } else {
             ""
         },
-        errors.iter().take(5).copied().collect::<Vec<_>>().join("\n")
+        errors
+            .iter()
+            .take(5)
+            .copied()
+            .collect::<Vec<_>>()
+            .join("\n")
     );
 }

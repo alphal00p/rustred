@@ -199,8 +199,8 @@ pub fn contract_accepts(class: FinishClass) -> &'static [ContractAccept] {
         Lost => &[A::Nothing],                      // rows 15, 21
         Crashed => &[A::Nothing],                   // rows 6, 16, 17, 22, 23
         SetupError => &[A::Nothing],
-        SealedWithElided => &[A::Nothing],          // row 25 (elided witness loci: never used, R-f)
-        UnverifiableKind => &[A::Nothing],          // row 26 (no sealing rule for the kind)
+        SealedWithElided => &[A::Nothing], // row 25 (elided witness loci: never used, R-f)
+        UnverifiableKind => &[A::Nothing], // row 26 (no sealing rule for the kind)
     }
 }
 

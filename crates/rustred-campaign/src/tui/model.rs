@@ -987,7 +987,9 @@ pub fn build(raw: &RawSnapshot, o: BuildOptions) -> ViewModel {
     }
     let hb_file = extra(raw, "heartbeat");
     let hb_present = !matches!(raw.extra.get("heartbeat"), None | Some(FileRead::Absent));
-    let sup = hb_file.and_then(|h| h.get("supervisor")).filter(|v| v.is_object());
+    let sup = hb_file
+        .and_then(|h| h.get("supervisor"))
+        .filter(|v| v.is_object());
     let phase = s(c, "/campaign/phase");
     let written = s(c, "/written_utc");
     let res_v = c.get("resources").unwrap_or(&null);
@@ -1355,8 +1357,7 @@ pub fn build(raw: &RawSnapshot, o: BuildOptions) -> ViewModel {
         .map(|a| a.iter().take(100).filter_map(|x| s(x, "/node")).collect())
         .unwrap_or_default();
     for n in &mut nodes {
-        n.attention =
-            vm.attention.iter().any(|a| a.id == n.id) || attention_nodes.contains(&n.id);
+        n.attention = vm.attention.iter().any(|a| a.id == n.id) || attention_nodes.contains(&n.id);
     }
     nodes.sort_by(|a, b| {
         node_rank(a)

@@ -8,9 +8,9 @@
 //! Waits are for markers on the pty with generous timeouts, never fixed sleeps.
 //! Run with `LIGHT_PIDNS=1` (lane rule L10): the tests spawn children and signal them.
 
-mod tui_support;
 #[path = "sup_common/mod.rs"]
 mod sup;
+mod tui_support;
 
 use std::io::Read;
 use std::os::fd::{FromRawFd, OwnedFd, RawFd};
@@ -526,10 +526,17 @@ fn e2e_run_dashboard_ctrl_c_drains_resume_finishes_watch_matches_campaign_json()
     let spec_p = sup::write_spec(
         &t,
         "spec.json",
-        &sup::spec(&t, syn, serde_json::json!({"max_jobs": 4, "grace_seconds": 5})),
+        &sup::spec(
+            &t,
+            syn,
+            serde_json::json!({"max_jobs": 4, "grace_seconds": 5}),
+        ),
     );
     let d = t.cdir("run");
-    let (sp, ds) = (spec_p.to_string_lossy().into_owned(), d.to_string_lossy().into_owned());
+    let (sp, ds) = (
+        spec_p.to_string_lossy().into_owned(),
+        d.to_string_lossy().into_owned(),
+    );
     let run = || rr_campaign(&["run", "--spec", &sp, "--dir", &ds, "--fake-child"]);
     // session 1: the dashboard with running jobs, then one Ctrl-C byte
     let p = Pty::open(120, 40);
@@ -550,7 +557,10 @@ fn e2e_run_dashboard_ctrl_c_drains_resume_finishes_watch_matches_campaign_json()
         if !list.is_empty() {
             break list;
         }
-        assert!(t0.elapsed() < Duration::from_secs(60), "no running job in jobs.json");
+        assert!(
+            t0.elapsed() < Duration::from_secs(60),
+            "no running job in jobs.json"
+        );
         std::thread::sleep(Duration::from_millis(100));
     };
     p.wait_for(0, "Running jobs", 30);
@@ -576,7 +586,12 @@ fn e2e_run_dashboard_ctrl_c_drains_resume_finishes_watch_matches_campaign_json()
         printable(&text[text.len().saturating_sub(2000)..])
     );
     let st1 = sup::state(&d);
-    assert!(st1.jobs.values().all(|j| j.state.is_settled() || j.state == rustred_campaign::state::AttemptState::Queued));
+    assert!(
+        st1.jobs
+            .values()
+            .all(|j| j.state.is_settled()
+                || j.state == rustred_campaign::state::AttemptState::Queued)
+    );
     drop(p);
     // session 2: the same command resumes and finishes
     let p = Pty::open(120, 40);
@@ -616,6 +631,10 @@ fn e2e_run_dashboard_ctrl_c_drains_resume_finishes_watch_matches_campaign_json()
     assert!(out.status.success());
     let once = String::from_utf8_lossy(&out.stdout).into_owned();
     for (k, v) in &want {
-        assert_eq!(rustred_campaign::tui::screen_numbers(&once).get(k), Some(v), "{k}\n{once}");
+        assert_eq!(
+            rustred_campaign::tui::screen_numbers(&once).get(k),
+            Some(v),
+            "{k}\n{once}"
+        );
     }
 }

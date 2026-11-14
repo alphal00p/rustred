@@ -45,13 +45,18 @@ fn pause_flag_blocks_launching() {
         let v: serde_json::Value =
             serde_json::from_slice(&std::fs::read(d.join("progress/heartbeat.json")).unwrap())
                 .unwrap();
-        v["supervisor"]["heartbeat_utc"].as_str().unwrap().to_string()
+        v["supervisor"]["heartbeat_utc"]
+            .as_str()
+            .unwrap()
+            .to_string()
     };
     let h0 = hb();
     let seq0 = state(&d).last_seq;
-    wait_until("heartbeat advances while idle", Duration::from_secs(10), || {
-        hb() != h0
-    });
+    wait_until(
+        "heartbeat advances while idle",
+        Duration::from_secs(10),
+        || hb() != h0,
+    );
     assert_eq!(state(&d).last_seq, seq0, "idle: no ledger record");
     assert!(
         log_tail(&d).contains("launching paused"),
@@ -125,7 +130,11 @@ fn control_requests_are_applied_and_logged() {
             "{v}: {applied:?}"
         );
     }
-    assert!(notes(&d, "control_").is_empty(), "{:?}", notes(&d, "control_"));
+    assert!(
+        notes(&d, "control_").is_empty(),
+        "{:?}",
+        notes(&d, "control_")
+    );
     assert!(std::fs::read_dir(d.join("control/done")).unwrap().count() >= 5);
     // Unknown campaign directory / usage errors.
     assert_eq!(

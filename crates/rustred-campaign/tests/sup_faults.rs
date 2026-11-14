@@ -135,7 +135,9 @@ fn helpers_that_escape_the_group_are_killed_by_marker() {
     let d = t.cdir("run");
     assert_eq!(run_to_end(&spec_p, &d, &[]), vec![0]);
     // Ledger kind `orphan_killed` (job recorded), and the log names the contract violation.
-    let killed = count(&d, |e| matches!(e, Event::OrphanKilled { job: Some(_), .. }));
+    let killed = count(&d, |e| {
+        matches!(e, Event::OrphanKilled { job: Some(_), .. })
+    });
     assert!(killed >= 1, "{}", log_tail(&d));
     assert!(notes(&d, "orphan_killed").is_empty());
     let log = std::fs::read_to_string(d.join("log/supervisor.log")).unwrap();

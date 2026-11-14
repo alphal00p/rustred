@@ -131,7 +131,8 @@ fn boxed_rows_are_blue_full_green_stale_yellow_and_colour_off_has_no_colour() {
         120,
         40,
     );
-    let (x, y) = find(&sbuf, " STALE since 08:15:04 UTC (no heartbeat for 10m06s").expect("stale banner");
+    let (x, y) =
+        find(&sbuf, " STALE since 08:15:04 UTC (no heartbeat for 10m06s").expect("stale banner");
     assert_eq!(sbuf[(x + 1, y)].fg, Color::Yellow);
 }
 

@@ -390,7 +390,11 @@ impl Supervisor {
                     "WARN",
                     &format!(
                         "ledger {} repaired: {} bytes after seq {} saved as {}",
-                        if r.forced { "tail (operator override)" } else { "torn tail" },
+                        if r.forced {
+                            "tail (operator override)"
+                        } else {
+                            "torn tail"
+                        },
                         r.truncated_bytes,
                         r.last_good_seq,
                         r.saved_as.as_deref().unwrap_or("-")
@@ -811,7 +815,11 @@ impl Supervisor {
                 continue;
             };
             let layout = RunLayout::new(&run_dir);
-            let launched = self.st().jobs.get(&job).and_then(|j| j.attempt_spec.clone());
+            let launched = self
+                .st()
+                .jobs
+                .get(&job)
+                .and_then(|j| j.attempt_spec.clone());
             match read_spec(&layout, launched.as_deref()) {
                 Some((spec, spec_digest)) => {
                     let kill = if was_killed { CKill::Stop } else { CKill::None };
@@ -1005,7 +1013,8 @@ impl Supervisor {
         let mut canon = None;
         // A sealed table is read for every attempt whose row may accept records (sealed successes, and the committed
         // rules of a sealed partial table: spill row 8, no_rule row 4).
-        let wants_table = target == AttemptTarget::SucceededSealed || c.accept != ContractAccept::Nothing;
+        let wants_table =
+            target == AttemptTarget::SucceededSealed || c.accept != ContractAccept::Nothing;
         if wants_table && spec.kind.produces_table() {
             let p = layout.table();
             table = file_ref(&p, self.rel_path(&p));
@@ -1373,7 +1382,10 @@ impl Supervisor {
                     &marker,
                     l.pid,
                     l.start_ticks,
-                    &format!("launcher ({}): contract violation, process outlived its job", l.comm),
+                    &format!(
+                        "launcher ({}): contract violation, process outlived its job",
+                        l.comm
+                    ),
                 );
             }
             // Anything still carrying the attempt's marker (e.g. a helper that escaped the group before any scan).
@@ -1599,8 +1611,9 @@ impl Supervisor {
             b.reasons.push("ledger unavailable".into());
         }
         if self.st().paused {
-            b.reasons
-                .push("campaign paused by an operator control (rr_campaign control CDIR resume)".into());
+            b.reasons.push(
+                "campaign paused by an operator control (rr_campaign control CDIR resume)".into(),
+            );
         }
         let joined = b.reasons.join("; ");
         if joined != self.last_block_log {
@@ -1822,9 +1835,11 @@ impl Supervisor {
                 heartbeat_utc: Some(now.to_iso()),
                 started_utc: Some(self.started_utc.clone()),
                 pid: Some(std::process::id()),
-                host: Some(self.lock.as_ref().map_or_else(String::new, |l| {
-                    l.owner.identity.host.clone()
-                })),
+                host: Some(
+                    self.lock
+                        .as_ref()
+                        .map_or_else(String::new, |l| l.owner.identity.host.clone()),
+                ),
                 grace_left_s: self
                     .drain_started
                     .map(|t| grace.saturating_sub(t.elapsed().as_secs())),

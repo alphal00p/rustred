@@ -154,8 +154,9 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
     };
     // The dashboard needs a terminal on stdout; otherwise (or with --plain) the supervisor's plain log lines.
     let quiet = Arc::new(AtomicBool::new(false));
-    let with_dashboard =
-        !f.plain && std::io::stdout().is_terminal() && std::env::var("TERM").ok().as_deref() != Some("dumb");
+    let with_dashboard = !f.plain
+        && std::io::stdout().is_terminal()
+        && std::env::var("TERM").ok().as_deref() != Some("dumb");
     let done = Arc::new(AtomicBool::new(false));
     let mut dash: Option<std::thread::JoinHandle<crate::tui::ExitReason>> = None;
     let opts = RunOptions {
@@ -212,7 +213,10 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
             eprintln!("rr_campaign: {m}")
         }
         supervisor::RunExit::Finished if with_dashboard => {
-            eprintln!("rr_campaign: FINISHED (exit 0); log: {}", cdir.join("log").join("supervisor.log").display())
+            eprintln!(
+                "rr_campaign: FINISHED (exit 0); log: {}",
+                cdir.join("log").join("supervisor.log").display()
+            )
         }
         supervisor::RunExit::Stopped { code } if with_dashboard => eprintln!(
             "rr_campaign: STOPPED (exit {code}); resume with the same command; log: {}",
@@ -718,10 +722,16 @@ fn cmd_status(rest: &[String]) -> i32 {
         return exit::USAGE;
     };
     let cdir = Path::new(cdir);
-    if !cdir.join(crate::progress::PROGRESS_DIR).join("campaign.json").exists() {
+    if !cdir
+        .join(crate::progress::PROGRESS_DIR)
+        .join("campaign.json")
+        .exists()
+    {
         eprintln!(
             "no progress file {}",
-            cdir.join(crate::progress::PROGRESS_DIR).join("campaign.json").display()
+            cdir.join(crate::progress::PROGRESS_DIR)
+                .join("campaign.json")
+                .display()
         );
         return exit::NOT_FOUND;
     }

@@ -529,7 +529,9 @@ fn a_m2_rotation_failure_never_fails_a_durable_append() {
     if fs::write(&probe, b"x").is_ok() {
         let _ = fs::remove_file(&probe);
         fs::set_permissions(&ldir, fs::Permissions::from_mode(0o755)).unwrap();
-        eprintln!("a_m2: directory permissions are not enforced here (uid 0 in a namespace): skipped");
+        eprintln!(
+            "a_m2: directory permissions are not enforced here (uid 0 in a namespace): skipped"
+        );
         return;
     }
     for k in 0..10 {
