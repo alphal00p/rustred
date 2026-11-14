@@ -13,6 +13,21 @@
 //!   `unknown` only when the term's denominator vanishes identically.
 //! No denominator is factored: every text is EVALUATED at the key (exact), so huge denominators cost one pass.
 //!
+//! ELIDED WITNESS LOCI (`--elided-loci refuse|facts`, default `refuse`). The engine writes a witness locus longer than
+//! 4000 characters as the marker `"elided"` (driver.rs write_rule); only `witness_loci` (and `witness_d_poles`) are
+//! ever elided, never an rhs coefficient, exception or case text. `refuse` (default, unchanged): the whole job fails
+//! closed (`UNSUPPORTED`). `facts`: such a record is instantiated like any other; every fact that does not read the
+//! witness loci (`in_case`, `chart_ok`, `branch`, per-term `coef`, `irregular`) is computed by exactly the same code
+//! and is exactly as decided as for a complete record. What is LOST is the kernel's own `hidden` test for the elided
+//! loci: `regular` is `irregular` (rhs denominator vanishes, decided), else `hidden` (a RECORDED locus vanishes,
+//! decided), else `unknown` (never `regular`). Extra fields on such lines only: `witness_loci_elided` (number of
+//! elided loci) and `elided_cover`: `guards_v2` when the table header says guard_version >= 2 and no exception branch
+//! holds at the key (by the engine's guard construction, ecbe5daf, every index-containing factor of every witness
+//! pole is an exception branch, and a polynomial in d vanishes identically iff one of its factors does, so no elided
+//! locus vanishes at such a key; this is the ENGINE's invariant, recorded here, not re-derived by the kernel),
+//! `excepted` when a branch holds, `none` otherwise. Records without elided loci give byte-identical lines in both
+//! modes. A `regularity` fact request (B) on an elided record answers `unknown`.
+//!
 //! Input (`--requests FILE`, JSONL; both forms may be mixed):
 //!  (A) `{"table": PATH, "offset": BYTES (optional), "rule": INDEX, "keys": [[k0..k19], ...]}`
 //!  (B) closure fact requests `{"schema":"rustred.campaign.fact-request.v1","table": PATH,"record":r,"label":INDEX,
@@ -28,6 +43,24 @@ use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
 
 use crate::core::*;
 use crate::span::{eval_text_d, pat_at};
+
+/// How `instantiate` treats records whose witness loci are elided (see the module doc).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ElidedLoci {
+    /// fail closed: the whole job is refused (`UNSUPPORTED`), as before
+    #[default]
+    Refuse,
+    /// instantiate the record; every loci-independent fact exact, `regular` never `regular` when a locus is elided
+    Facts,
+}
+
+impl ElidedLoci {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s { "refuse" => Some(Self::Refuse), "facts" => Some(Self::Facts), _ => None }
+    }
+}
+
+fn is_elided_text(s: &[u8]) -> bool { find(s, b"...") || find(s, b"elided") }
 
 struct Req {
     table: String,
@@ -72,8 +105,8 @@ fn read_at(path: &str, off: u64) -> Vec<u8> {
     line
 }
 
-/// facts of one rule record at a list of keys
-fn facts_for_rule(line: &[u8], keys: &[Vec<i64>]) -> Vec<String> {
+/// facts of one rule record at a list of keys (`guard_version`: the table header's, absent = 1)
+fn facts_for_rule(line: &[u8], keys: &[Vec<i64>], elided_mode: ElidedLoci, guard_version: i64) -> Vec<String> {
     let j = jparse(line);
     let idx = j.get(line, "index").unwrap().int(line);
     let chart = j.get(line, "chart").unwrap().s(line).to_vec();
@@ -84,9 +117,28 @@ fn facts_for_rule(line: &[u8], keys: &[Vec<i64>]) -> Vec<String> {
         // typed per-record refusal: never skipped silently, never evaluated (see the interface file, section 3)
         return keys.iter().map(|key| format!("{{\"schema\":\"rustred.proof-kernel.instantiate.v1\",\"rule\":{},\"key\":{:?},\"in_case\":null,\"chart_ok\":null,\"branch\":null,\"regular\":\"unknown\",\"rhs\":[],\"zero_test\":\"exact\",\"error\":\"EMPTY_EXCEPTION_BRANCH\"}}", idx, key)).collect();
     }
-    let wl: Vec<&[u8]> = match j.get(line, "witness_loci") { Some(J::Arr(a)) => a.iter().map(|x| x.s(line)).collect(), _ => vec![] };
-    if let Some(J::Num(..)) = j.get(line, "witness_loci_elided") { die("UNSUPPORTED: witness loci elided in the record (fail closed)"); }
-    for s in &wl { if find(s, b"...") || find(s, b"elided") { die("UNSUPPORTED: an elided witness locus in the record (fail closed)"); } }
+    let wl_all: Vec<&[u8]> = match j.get(line, "witness_loci") { Some(J::Arr(a)) => a.iter().map(|x| x.s(line)).collect(), _ => vec![] };
+    let mut n_elided = 0i64;
+    if let Some(x @ J::Num(..)) = j.get(line, "witness_loci_elided") {
+        if elided_mode == ElidedLoci::Refuse { die("UNSUPPORTED: witness loci elided in the record (fail closed)"); }
+        n_elided += x.int(line).max(1);
+    }
+    for s in &wl_all {
+        if is_elided_text(s) {
+            if elided_mode == ElidedLoci::Refuse { die("UNSUPPORTED: an elided witness locus in the record (fail closed)"); }
+            n_elided += 1;
+        }
+    }
+    // the recorded (complete) loci; elided markers are never evaluated
+    let wl: Vec<&[u8]> = wl_all.iter().copied().filter(|s| !is_elided_text(s)).collect();
+    if n_elided > 0 {
+        // elision is defined for witness loci only: a marker anywhere the facts are read is a refusal in every mode
+        let rhs_arr = j.get(line, "rhs").unwrap().arr();
+        let marked = rhs_arr.iter().any(|x| x.arr().iter().any(|t| is_elided_text(t.s(line))))
+            || exc.iter().flatten().any(|t| is_elided_text(t))
+            || j.get(line, "target").map_or(false, |t| is_elided_text(t.s(line)));
+        if marked { die("UNSUPPORTED: an elided rhs / exception / target text (fail closed)"); }
+    }
     let bounds = domain_bounds(&j, line, na);
     let target = parse_pat(j.get(line, "target").unwrap().s(line));
     let rhs: Vec<(Pat, &[u8], Option<&[u8]>)> = j.get(line, "rhs").unwrap().arr().iter().map(|x| { let a = x.arr(); let (n, d) = split_coef(a[1].s(line)); (parse_pat(a[0].s(line)), n, d) }).collect();
@@ -111,15 +163,35 @@ fn facts_for_rule(line: &[u8], keys: &[Vec<i64>]) -> Vec<String> {
             let coef = if den_zero { "unknown" } else if eval_text_d(n, &kp).is_empty() { "zero" } else { "nonzero" };
             terms.push(format!("{{\"term\":{},\"key\":{:?},\"coef\":\"{}\"}}", ti, pat_at(p, &kv), coef));
         }
-        let hidden: Vec<usize> = wl.iter().enumerate().filter(|(_, s)| eval_text_d(s, &kp).is_empty()).map(|(i, _)| i).collect();
-        let regular = if !irregular.is_empty() { "irregular" } else if !hidden.is_empty() { "hidden" } else { "regular" };
-        out.push(format!("{{\"schema\":\"rustred.proof-kernel.instantiate.v1\",\"rule\":{},\"key\":{:?},\"in_case\":{},\"chart_ok\":{},\"branch\":{},\"regular\":\"{}\",\"irregular_terms\":{:?},\"hidden_loci\":{:?},\"rhs\":[{}],\"zero_test\":\"exact\",\"error\":null}}",
-            idx, key, in_case, chart_ok, branch.map(|b| b.to_string()).unwrap_or("null".into()), regular, irregular, hidden, terms.join(",")));
+        // indices into the record's `witness_loci` array; elided markers are never evaluated
+        let hidden: Vec<usize> = wl_all.iter().enumerate().filter(|(_, s)| !is_elided_text(s) && eval_text_d(s, &kp).is_empty()).map(|(i, _)| i).collect();
+        let regular = if !irregular.is_empty() { "irregular" } else if !hidden.is_empty() { "hidden" } else if n_elided > 0 { "unknown" } else { "regular" };
+        let elided_fields = if n_elided > 0 {
+            let cover = if branch.is_some() { "excepted" } else if guard_version >= 2 { "guards_v2" } else { "none" };
+            format!(",\"witness_loci_elided\":{},\"elided_cover\":\"{}\"", n_elided, cover)
+        } else { String::new() };
+        out.push(format!("{{\"schema\":\"rustred.proof-kernel.instantiate.v1\",\"rule\":{},\"key\":{:?},\"in_case\":{},\"chart_ok\":{},\"branch\":{},\"regular\":\"{}\",\"irregular_terms\":{:?},\"hidden_loci\":{:?}{},\"rhs\":[{}],\"zero_test\":\"exact\",\"error\":null}}",
+            idx, key, in_case, chart_ok, branch.map(|b| b.to_string()).unwrap_or("null".into()), regular, irregular, hidden, elided_fields, terms.join(",")));
     }
     out
 }
 
-pub fn run_instantiate(requests: &str, out_path: &str) -> String {
+pub fn run_instantiate(requests: &str, out_path: &str) -> String { run_instantiate_with(requests, out_path, ElidedLoci::Refuse) }
+
+/// the table header's guard_version (absent or no header = 1)
+fn header_guard_version(table: &str) -> i64 {
+    let mut gv = 1;
+    read_lines_matching(table, |l| {
+        if l.starts_with(b"{\"type\":\"header\"") {
+            let j = jparse(l);
+            if let Some(x @ J::Num(..)) = j.get(l, "guard_version") { gv = x.int(l); }
+        }
+        false
+    });
+    gv
+}
+
+pub fn run_instantiate_with(requests: &str, out_path: &str, elided_mode: ElidedLoci) -> String {
     let t0 = std::time::Instant::now();
     let reqs = parse_requests(requests);
     // group: table -> rule index -> (offset, keys)
@@ -132,7 +204,9 @@ pub fn run_instantiate(requests: &str, out_path: &str) -> String {
     let mut lines_out: Vec<String> = vec![];
     let mut answers: BTreeMap<(String, i64, Vec<i64>), String> = BTreeMap::new(); // per (table, rule, key): the fact line
     let mut nrec = 0;
+    let mut nrec_elided = 0;
     for (table, rules) in &groups {
+        let gv = if elided_mode == ElidedLoci::Facts { header_guard_version(table) } else { 1 };
         let mut records: BTreeMap<i64, Vec<u8>> = BTreeMap::new();
         for (idx, (off, _)) in rules { if let Some(o) = off { records.insert(*idx, read_at(table, *o)); } }
         let missing: BTreeSet<i64> = rules.keys().filter(|i| !records.contains_key(i)).copied().collect();
@@ -156,7 +230,8 @@ pub fn run_instantiate(requests: &str, out_path: &str) -> String {
             if jj.get(line, "index").map(|x| x.int(line)) != Some(*idx) { die("record at offset has a different index"); }
             nrec += 1;
             let keys: Vec<Vec<i64>> = keys.iter().cloned().collect();
-            let f = facts_for_rule(line, &keys);
+            let f = facts_for_rule(line, &keys, elided_mode, gv);
+            if f.first().map_or(false, |l| l.contains("\"witness_loci_elided\":")) { nrec_elided += 1; }
             let rsha = record_sha256(line);
             for (k, l) in keys.iter().zip(f) {
                 // echo the record digest right after the schema field
@@ -197,8 +272,9 @@ pub fn run_instantiate(requests: &str, out_path: &str) -> String {
         f.sync_all().ok();
     }
     std::fs::rename(&part, out_path).unwrap_or_else(|e| die(&format!("rename: {}", e)));
-    format!("{{\"schema\":\"rustred.proof-kernel.instantiate-summary.v1\",\"verdict\":\"DONE\",\"requests\":{},\"rules\":{},\"lines\":{},\"out\":{},\"seconds\":{:.3},\"peak_rss_mb\":{:.1}}}",
-        reqs.len(), nrec, lines_out.len(), jstr(out_path), t0.elapsed().as_secs_f64(), peak_mb())
+    let elided_summary = if elided_mode == ElidedLoci::Facts { format!(",\"elided_loci\":\"facts\",\"rules_with_elided_loci\":{}", nrec_elided) } else { String::new() };
+    format!("{{\"schema\":\"rustred.proof-kernel.instantiate-summary.v1\",\"verdict\":\"DONE\",\"requests\":{},\"rules\":{}{},\"lines\":{},\"out\":{},\"seconds\":{:.3},\"peak_rss_mb\":{:.1}}}",
+        reqs.len(), nrec, elided_summary, lines_out.len(), jstr(out_path), t0.elapsed().as_secs_f64(), peak_mb())
 }
 
 #[cfg(test)]
@@ -211,12 +287,69 @@ mod tests {
     fn exceptions_branches_and_empty_and_list() {
         // ordinary record: branch hit, zero coefficient, irregular term
         let l = rule(r#"[["-1+n0"]]"#);
-        let f = facts_for_rule(&l, &[vec![1, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], vec![2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]);
+        let f = facts_for_rule(&l, &[vec![1, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], vec![2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]], ElidedLoci::Refuse, 2);
         assert!(f[0].contains("\"branch\":0") && f[0].contains("\"regular\":\"regular\""));
         assert!(f[1].contains("\"branch\":null") && f[1].contains("\"coef\":\"zero\"") && f[1].contains("\"error\":null"));
         // an EMPTY AND-list is never skipped: typed per-record error (the engine never writes one; replay refuses it)
         let l = rule(r#"[["-1+n0"],[]]"#);
-        let f = facts_for_rule(&l, &[vec![2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]);
+        let f = facts_for_rule(&l, &[vec![2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]], ElidedLoci::Refuse, 2);
         assert!(f[0].contains("\"error\":\"EMPTY_EXCEPTION_BRANCH\"") && f[0].contains("\"regular\":\"unknown\""));
+    }
+
+    fn rule_wl(wl: &str, rhs1: &str) -> Vec<u8> {
+        format!(r#"{{"type":"rule","chart":"11000000000000000000","index":7,"fixed":[null,null,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"equations":[],"target":"I(n0,n1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)","rhs":[["I(n0-1,n1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)","(n0-2)/(d-2*n1)"],["I(n0,n1-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)","{rhs1}"]],"exceptions":[["-1+n0"]],"witness_loci":{wl}}}"#).into_bytes()
+    }
+    fn k(n0: i64, n1: i64) -> Vec<i64> { let mut v = vec![0; 20]; v[0] = n0; v[1] = n1; v }
+    /// the facts of a line with the elided-mode extras removed and `regular` blanked (for comparisons)
+    fn strip(l: &str) -> String {
+        let mut s = l.to_string();
+        for (a, b) in [(",\"witness_loci_elided\":1,\"elided_cover\":\"guards_v2\"", ""), (",\"witness_loci_elided\":1,\"elided_cover\":\"excepted\"", ""),
+                       ("\"regular\":\"unknown\"", "\"regular\":_"), ("\"regular\":\"regular\"", "\"regular\":_")] { s = s.replace(a, b); }
+        s
+    }
+
+    #[test]
+    fn elided_loci_refused_by_default_and_instantiated_in_facts_mode() {
+        let keys = vec![k(1, 3), k(2, 3), k(3, 5), k(4, 1)];
+        let el = rule_wl(r#"["elided","-3+n0"]"#, "(n1)/(n0)");
+        let full = rule_wl(r#"["-5+n0","-3+n0"]"#, "(n1)/(n0)"); // the elided locus stands for -5+n0 (never 0 on these keys)
+        // default: the whole record is refused (fail closed), as before
+        let e = crate::guarded(|| facts_for_rule(&el, &keys, ElidedLoci::Refuse, 2)).unwrap_err();
+        assert!(e.starts_with("UNSUPPORTED: an elided witness locus"), "{e}");
+        let f = facts_for_rule(&el, &keys, ElidedLoci::Facts, 2);
+        let g = facts_for_rule(&full, &keys, ElidedLoci::Refuse, 2);
+        // n0 = 1: exception branch 0 holds -> cover "excepted"; regular unknown (never "regular")
+        assert!(f[0].contains("\"branch\":0") && f[0].contains("\"regular\":\"unknown\"") && f[0].contains("\"elided_cover\":\"excepted\""), "{}", f[0]);
+        // n0 = 2: zero coefficient (n0-2), regular unknown, covered by the v2 guards
+        assert!(f[1].contains("\"coef\":\"zero\"") && f[1].contains("\"regular\":\"unknown\"") && f[1].contains("\"elided_cover\":\"guards_v2\"") && f[1].contains("\"witness_loci_elided\":1"), "{}", f[1]);
+        // n0 = 3: the RECORDED locus -3+n0 vanishes -> hidden (decided), same as for the complete record
+        assert!(f[2].contains("\"regular\":\"hidden\"") && f[2].contains("\"hidden_loci\":[1]") && g[2].contains("\"regular\":\"hidden\""), "{} / {}", f[2], g[2]);
+        // every loci-independent fact equals the complete record's, key by key
+        for (a, b) in f.iter().zip(&g) { assert_eq!(strip(a), strip(b)); }
+        // regular is never claimed with an elided locus
+        assert!(f.iter().all(|l| !l.contains("\"regular\":\"regular\"")));
+        // guard_version 1 table: no cover claimed
+        let f1 = facts_for_rule(&el, &keys, ElidedLoci::Facts, 1);
+        assert!(f1[1].contains("\"elided_cover\":\"none\""), "{}", f1[1]);
+        // the numeric form `witness_loci_elided`
+        let mut num = rule_wl(r#"["-3+n0"]"#, "(n1)/(n0)");
+        num.truncate(num.len() - 1);
+        num.extend_from_slice(br#","witness_loci_elided":2}"#);
+        assert!(crate::guarded(|| facts_for_rule(&num, &keys, ElidedLoci::Refuse, 2)).is_err());
+        let fnum = facts_for_rule(&num, &keys, ElidedLoci::Facts, 2);
+        assert!(fnum[1].contains("\"witness_loci_elided\":2") && fnum[1].contains("\"regular\":\"unknown\""), "{}", fnum[1]);
+    }
+
+    #[test]
+    fn facts_mode_is_byte_identical_without_elided_loci_and_refuses_elided_rhs() {
+        let keys = vec![k(1, 3), k(2, 3), k(3, 5), k(4, 1), k(5, 0)];
+        for wl in [r#"[]"#, r#"["-3+n0"]"#, r#"["-4+n0+n1", "1+n1"]"#] {
+            let r = rule_wl(wl, "(n1)/(n0)");
+            assert_eq!(facts_for_rule(&r, &keys, ElidedLoci::Refuse, 2), facts_for_rule(&r, &keys, ElidedLoci::Facts, 2));
+        }
+        // an elision marker in a fact-carrying text is refused in every mode
+        let bad = rule_wl(r#"["elided"]"#, "elided");
+        let e = crate::guarded(|| facts_for_rule(&bad, &keys, ElidedLoci::Facts, 2)).unwrap_err();
+        assert!(e.starts_with("UNSUPPORTED: an elided rhs"), "{e}");
     }
 }

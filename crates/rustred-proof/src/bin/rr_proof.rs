@@ -1,5 +1,6 @@
 //! rr_proof: proof kernels for ONE stored IBP rule (see the crate doc of rustred_proof).
 //!
+//!   rr_proof instantiate --requests REQ.jsonl --out OUT.jsonl [--elided-loci refuse|facts]   (exact per-key facts)
 //!   rr_proof --mode streaming-eval --table F.table.jsonl --cert F.cert.jsonl --rule N [--chart C]
 //!            [--kmod 2] [--kexact 2] [--factors den_factors.jsonl] [--bd product|lcm|best] [--key n0=1,...]*
 //!   rr_proof --mode instance-exact  (same inputs, --key/--keys required, default no random points)
@@ -95,10 +96,15 @@ fn engine_rows(_table: &str, _family: Option<&str>) -> Result<EngineRows, String
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     if a.get(1).map(|x| x.as_str()) == Some("instantiate") {
-        // rr_proof instantiate --requests REQ.jsonl --out OUT.jsonl   (EC-2: exact per-key facts, no proof)
+        // rr_proof instantiate --requests REQ.jsonl --out OUT.jsonl [--elided-loci refuse|facts]  (EC-2: exact per-key facts, no proof)
         let get = |f: &str| a.iter().position(|x| x == f).and_then(|i| a.get(i + 1)).cloned();
-        let (req, out) = match (get("--requests"), get("--out")) { (Some(r), Some(o)) => (r, o), _ => { println!("{}", rustred_proof::error_record("usage: rr_proof instantiate --requests REQ.jsonl --out OUT.jsonl")); std::process::exit(2); } };
-        match rustred_proof::guarded(|| rustred_proof::instantiate::run_instantiate(&req, &out)) {
+        let usage = "usage: rr_proof instantiate --requests REQ.jsonl --out OUT.jsonl [--elided-loci refuse|facts]";
+        let (req, out) = match (get("--requests"), get("--out")) { (Some(r), Some(o)) => (r, o), _ => { println!("{}", rustred_proof::error_record(usage)); std::process::exit(2); } };
+        let elided = match get("--elided-loci") {
+            None => rustred_proof::instantiate::ElidedLoci::Refuse,
+            Some(v) => match rustred_proof::instantiate::ElidedLoci::parse(&v) { Some(m) => m, None => { println!("{}", rustred_proof::error_record(usage)); std::process::exit(2); } },
+        };
+        match rustred_proof::guarded(|| rustred_proof::instantiate::run_instantiate_with(&req, &out, elided)) {
             Ok(s) => { println!("{}", s); std::process::exit(0); }
             Err(e) => { println!("{}", rustred_proof::error_record(&e)); std::process::exit(2); }
         }
