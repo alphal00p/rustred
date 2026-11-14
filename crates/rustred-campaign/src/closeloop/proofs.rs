@@ -314,11 +314,13 @@ pub fn relation_record(
     if seeds.is_empty() {
         seeds.push(key_text(&k64(key)));
     }
-    let v = json!({"type": "rule", "index": index, "chart": chart, "fixed": key, "equations": [],
+    // rr_proof finds a record at its offset only if the line STARTS with `{"type":"rule"` (span.rs): type first
+    let v = json!({"index": index, "chart": chart, "fixed": key, "equations": [],
         "target": key_text(&k64(key)), "rhs": rhs, "exceptions": [], "seeds": seeds,
         "recenter": vec![0; key.len()], "witness_loci": [], "sym_rows": if sym { 1 } else { 0 },
         "relation_digest": rec["relation_digest"].clone(), "relation_rule": rec["relation_rule"].clone()});
-    Ok(v.to_string())
+    let body = v.to_string();
+    Ok(format!("{{\"type\":\"rule\",{}", &body[1..]))
 }
 
 /// One record of a relation table: (rule index, byte offset, record_sha256, key).
@@ -375,7 +377,9 @@ mod tests {
         let rec = json!({"rhs": [["I(1,0,1)", "d-4", "sub"]], "seeds_used": [[0,0,0],[1,0,0],[0,0,0]],
                          "relation_digest": "ab"});
         let l = relation_record(3, &[1, 1, 1], &rec, "111", false).unwrap();
+        assert!(l.starts_with("{\"type\":\"rule\","), "{l}");
         let v: Value = serde_json::from_str(&l).unwrap();
+        assert_eq!(v["type"], "rule");
         assert_eq!(v["seeds"], json!(["I(1,1,1)", "I(2,1,1)"]));
         assert_eq!(v["rhs"], json!([["I(1,0,1)", "d-4"]]));
         let text = format!("{}\n{l}\n", relation_header("n", "i", "j", "s"));
