@@ -225,6 +225,7 @@ fn tight_layer_caps_map_to_the_engine_flag() {
         schema: rustred_campaign_core::worklist::policy::SEED_POLICY_SCHEMA.into(),
         name: "tight".into(),
         source: "test".into(),
+        symmetry_dimension: true,
         classes: vec![PolicyClass {
             matcher: ClassMatch {
                 node_class: "*".into(),
@@ -264,37 +265,78 @@ impl ImageCredit for CreditExcept {
     }
 }
 
+const TOY2KITE: &str =
+    "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/fixtures/campaign-20261114/m2/TOY2kite";
+
+/// The fixture node TOY2kite (arity 5, all slots lines) with its group VERIFIED by the identity-test lane's exact
+/// momentum proof (the only accepted form for a one-term symmetry relation since lane ladderfix2, re-audit B M2).
+fn toy2kite_verified() -> Option<(
+    rustred_campaign_core::replay_base::family::Family,
+    rustred_campaign_core::replay_base::symrows::VerifiedGroup,
+)> {
+    use rustred_campaign_core::replay_base::family::Family;
+    use rustred_campaign_core::replay_base::symrows::{SymGroup, verify_group};
+    let fam = std::fs::read_to_string(format!("{TOY2KITE}/family.sym")).ok()?;
+    let sym = std::fs::read_to_string(format!("{TOY2KITE}/SYMMETRY.json")).ok()?;
+    let fam = Family::parse(&fam).unwrap();
+    let g = SymGroup::from_cfix_json(&serde_json::from_str(&sym).unwrap(), &fam).unwrap();
+    let vg = verify_group(&fam, g, "TOY2kite/SYMMETRY.json").unwrap();
+    Some((fam, vg))
+}
+
+fn kk(v: [i32; 5]) -> Key {
+    v.to_vec()
+}
+
 #[test]
 fn orbit_reduction_image_service_and_own_search_fallback() {
-    let p = params(true, ProverCapabilities::default());
-    let g = group(true);
-    let cmp = NodeComparator::legacy(6, None).unwrap();
-    let a = root_item(&p, Face::new(vec![0], vec![]), vec![k(2, 1), k(3, 1)]);
-    let b = root_item(
+    let Some((_fam, vg)) = toy2kite_verified() else {
+        eprintln!("SKIP: {TOY2KITE} absent");
+        return;
+    };
+    let lines = vec![true; 5];
+    let p = NodeParams::with_lines("TOY2kite", lines.clone());
+    let g = SymmetryGroup::from_verified(&vg, &lines).unwrap();
+    assert!(g.verified && g.nontrivial());
+    let cmp = NodeComparator::legacy(5, None).unwrap();
+    // faces {D2} and {D3} are swapped by the element D2<->D3, D4<->D5
+    let a = root_item(
         &p,
         Face::new(vec![1], vec![]),
-        vec![k(1, 2), k(1, 3), k(1, 4)],
+        vec![kk([1, 2, 1, 1, 1]), kk([1, 3, 1, 1, 1])],
     );
-    let c = root_item(&p, Face::new(vec![0, 1], vec![]), vec![k(2, 2)]);
-    let orbits = orbit_reduce(vec![a.clone(), b.clone(), c.clone()], &g, &p.lines, &cmp);
-    assert_eq!(orbits.len(), 2, "{{0}} and {{1}} form one orbit");
-    let o = orbits.iter().find(|o| !o.members.is_empty()).unwrap();
+    let b = root_item(
+        &p,
+        Face::new(vec![2], vec![]),
+        vec![
+            kk([1, 1, 2, 1, 1]),
+            kk([1, 1, 3, 1, 1]),
+            kk([1, 1, 4, 1, 1]),
+        ],
+    );
+    let c = root_item(&p, Face::new(vec![1, 2], vec![]), vec![kk([1, 2, 2, 1, 1])]);
+    let orbits = orbit_reduce(vec![a.clone(), b.clone(), c.clone()], &g, &lines, &cmp);
+    let o = orbits
+        .iter()
+        .find(|o| {
+            !o.members.is_empty()
+                && (o.representative.case == a.case || o.representative.case == b.case)
+        })
+        .expect("{D2} and {D3} form one orbit");
     let (rep, member) = (&o.representative, &o.members[0]);
-    assert!(rep.case == a.case || rep.case == b.case);
     assert_eq!(
-        g.image_case(member.element, &member.item.case, &p.lines)
+        g.image_case(member.element, &member.item.case, &lines)
             .as_ref(),
         Some(&rep.case)
     );
-    // the representative's own rule is credited at its keys (and at the image of (1,4) only if listed)
-    let rep_keys: BTreeSet<Key> = [k(2, 1), k(3, 1), k(1, 2), k(1, 3)].into_iter().collect();
+    let rep_keys: BTreeSet<Key> = rep.gap_points.iter().cloned().collect();
     let credited: BTreeMap<String, BTreeSet<Key>> =
         [("repRule".to_string(), rep_keys)].into_iter().collect();
     let failing = member.item.gap_points[0].clone();
     let out = serve_by_image(
         member,
-        &g,
-        &p.lines,
+        &vg,
+        &lines,
         &credited,
         &mut CreditExcept(failing.clone()),
     );
@@ -304,7 +346,7 @@ fn orbit_reduction_image_service_and_own_search_fallback() {
     assert!(own.gap_points.contains(&failing));
     for s in &out.served {
         assert_eq!(
-            g.image_key(s.element, &s.key, &p.lines).as_ref(),
+            g.image_key(s.element, &s.key, &lines).as_ref(),
             Some(&s.image)
         );
         assert!(credited["repRule"].contains(&s.image));
@@ -313,22 +355,121 @@ fn orbit_reduction_image_service_and_own_search_fallback() {
         out.served.len() + own.gap_points.len(),
         member.item.gap_points.len()
     );
+    assert!(
+        !out.served.is_empty(),
+        "a true element serves the credited images"
+    );
+    // an element index outside the verified group serves nothing (never a fall-back onto data)
+    let mut alien = member.clone();
+    alien.element = 99;
+    let none = serve_by_image(&alien, &vg, &lines, &credited, &mut CreditExcept(vec![]));
+    assert!(none.served.is_empty());
+    // a chart that is not the verified group's: nothing
+    let other_lines = vec![true, true, true, true, false];
+    let none = serve_by_image(
+        member,
+        &vg,
+        &other_lines,
+        &credited,
+        &mut CreditExcept(vec![]),
+    );
+    assert!(none.served.is_empty());
+}
+
+/// Re-audit B M2 regression: a FALSE element (D1 <-> D2 is no symmetry of the kite) never reaches serve-by-image or
+/// the terminal merge: the identity-test lane's verification refuses the whole group, and the relation functions
+/// accept nothing but a `VerifiedGroup` (a `SymmetryGroup` with `verified: true` is data, not accepted).
+#[test]
+fn reaudit_b_m2_false_element_is_refused_before_any_image_credit() {
+    use rustred_campaign_core::replay_base::family::Family;
+    use rustred_campaign_core::replay_base::symrows::{
+        SlotImage, SymElement, SymGroup, verify_group,
+    };
+    let Ok(fam) = std::fs::read_to_string(format!("{TOY2KITE}/family.sym")) else {
+        eprintln!("SKIP: {TOY2KITE} absent");
+        return;
+    };
+    let fam = Family::parse(&fam).unwrap();
+    let ex = |t: usize| SlotImage::Exact {
+        target: t,
+        flip: false,
+    };
+    let forged = SymGroup {
+        arity: 5,
+        loops: 0,
+        chart: vec![true; 5],
+        elements: vec![SymElement {
+            matrix: None,
+            action: vec![ex(1), ex(0), ex(2), ex(3), ex(4)],
+        }],
+    };
+    assert!(
+        verify_group(&fam, forged, "forged").is_err(),
+        "the false element is refused"
+    );
+    // the data form may CLAIM verification; the relation functions do not take it (type level), and the verified
+    // group of the node does not contain the false element
+    let Some((_f, vg)) = toy2kite_verified() else {
+        return;
+    };
+    let g = SymmetryGroup::from_verified(&vg, &[true; 5]).unwrap();
+    assert!(
+        !g.elements
+            .iter()
+            .any(|e| e.slot_image.first() == Some(&Some(1))),
+        "no verified element maps D1 onto D2"
+    );
 }
 
 #[test]
 fn terminal_merge_needs_a_verified_group() {
-    let cmp = NodeComparator::legacy(6, None).unwrap();
-    let lines = vec![true, true, true, false, false, false];
-    let terms = vec![k(2, 1), k(1, 2), k(1, 1)];
-    let (keep, rel) = merge_terminals_by_symmetry(&terms, &group(true), &lines, &cmp);
-    assert_eq!(keep.len(), 2);
+    let Some((_fam, vg)) = toy2kite_verified() else {
+        eprintln!("SKIP: {TOY2KITE} absent");
+        return;
+    };
+    let cmp = NodeComparator::legacy(5, None).unwrap();
+    let lines = vec![true; 5];
+    let terms = vec![
+        kk([1, 2, 1, 1, 1]),
+        kk([1, 1, 2, 1, 1]),
+        kk([1, 1, 1, 1, 1]),
+    ];
+    let (keep, rel) = merge_terminals_by_symmetry(&terms, &vg, &lines, &cmp);
+    assert_eq!(keep.len(), 2, "{keep:?}");
     assert_eq!(rel.len(), 1);
-    let (keep, rel) = merge_terminals_by_symmetry(&terms, &group(false), &lines, &cmp);
-    assert_eq!(
-        (keep.len(), rel.len()),
-        (3, 0),
-        "unverified group: no merge"
-    );
+    let g = SymmetryGroup::from_verified(&vg, &lines).unwrap();
+    for (t, k, el) in &rel {
+        assert_eq!(g.image_key(*el, t, &lines).as_ref(), Some(k));
+    }
+    // a chart that is not the verified group's: no merge
+    let (keep, rel) =
+        merge_terminals_by_symmetry(&terms, &vg, &[true, true, true, true, false], &cmp);
+    assert_eq!((keep.len(), rel.len()), (3, 0));
+}
+
+/// Re-audit A m6 regression: an INCONSISTENT `Descent` (the library promises arbitrary trait answers) never makes the
+/// terminal merge panic (no `sort_by` with the trait as comparator).
+#[test]
+fn reaudit_a_m6_inconsistent_descent_never_panics_in_terminal_merge() {
+    let Some((_fam, vg)) = toy2kite_verified() else {
+        return;
+    };
+    struct Liar;
+    impl rustred_campaign_core::repair::Descent for Liar {
+        fn lower(&self, a: &[i32], b: &[i32]) -> bool {
+            (a.iter().sum::<i32>() + b.iter().sum::<i32>()) % 3 != 0
+        }
+    }
+    let mut terms = Vec::new();
+    for a in 1..5 {
+        for b in 1..5 {
+            for c in 1..4 {
+                terms.push(kk([1, a, b, c, 1]));
+            }
+        }
+    }
+    let (keep, rel) = merge_terminals_by_symmetry(&terms, &vg, &[true; 5], &Liar);
+    assert_eq!(keep.len() + rel.len(), terms.len());
 }
 
 #[test]

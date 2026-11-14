@@ -217,6 +217,17 @@ mod own {
         h.finalize().to_hex().to_string()
     }
 
+    /// BLAKE3 key-derivation contexts of the per-record and canonical-stream digests, written down from
+    /// child-job.md 3.2.3 "DIGEST KINDS" (lane contractfix2, ac2-m7), not taken from the crate: a drift between this
+    /// file and the crate shows up as an unsealed fake run.
+    const RECORD_CONTEXT: &str = "rustred.child-job.v1 2026-11-14 record digest";
+    const STREAM_CONTEXT: &str = "rustred.child-job.v1 2026-11-14 canonical stream digest";
+
+    /// The canonical-stream digest's hasher (its own domain, child-job.md 3.2.3).
+    pub fn canon_hasher() -> blake3::Hasher {
+        blake3::Hasher::new_derive_key(STREAM_CONTEXT)
+    }
+
     /// Figures of a stream (at a commit point or sealed).
     #[derive(Debug, Clone)]
     pub struct Figures {
@@ -253,7 +264,7 @@ mod own {
             Writer {
                 file,
                 raw: blake3::Hasher::new(),
-                canon: blake3::Hasher::new(),
+                canon: canon_hasher(),
                 bytes: 0,
                 records: 0,
                 rules: 0,
@@ -281,7 +292,7 @@ mod own {
             if ty.as_deref() == Some("rule") {
                 self.rules += 1;
             }
-            let mut h = blake3::Hasher::new();
+            let mut h = blake3::Hasher::new_derive_key(RECORD_CONTEXT);
             h.update(&c);
             h.update(b"\n");
             Ok((off, line.len() as u64, hex(&h)))
@@ -492,7 +503,7 @@ fn empty_figures() -> Figures {
         blake3: blake3::hash(b"").to_hex().to_string(),
         records: 0,
         rules: 0,
-        canonical: blake3::hash(b"").to_hex().to_string(),
+        canonical: own::canon_hasher().finalize().to_hex().to_string(),
     }
 }
 

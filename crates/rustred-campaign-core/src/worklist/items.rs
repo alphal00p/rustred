@@ -189,6 +189,25 @@ impl CaseSpec {
         self.equations.iter().all(|e| e.holds(key))
     }
 
+    /// The case as a core [`crate::domain::CaseDomain`] (chart orthant on `lines`; slots outside the face and fixed
+    /// slots fixed; free face slots free; the equations), for the domain-level tests (shadowing, emptiness: R31
+    /// evidence 04:37Z). `None` if an equation cannot be written as a core polynomial.
+    pub fn case_domain(&self, lines: &[bool]) -> Option<crate::domain::CaseDomain> {
+        let n = lines.len();
+        let mut d = crate::domain::CaseDomain::free(n, Some(lines.to_vec()));
+        let free: BTreeSet<usize> = self.free().into_iter().collect();
+        for (i, &is_line) in lines.iter().enumerate() {
+            if !free.contains(&i) {
+                d.fixed[i] = Some(self.fixed.get(&i).copied().unwrap_or(floor_of(is_line)));
+            }
+        }
+        for e in &self.equations {
+            d.equations
+                .push(crate::poly::Poly::parse_d_free(&e.to_engine(), n).ok()?);
+        }
+        Some(d)
+    }
+
     /// Off-floor fixed slots (a child's fixed values that are not the floor).
     pub fn fixed_off_floor(&self, lines: &[bool]) -> Vec<usize> {
         self.fixed
@@ -471,8 +490,12 @@ pub struct Budgets {
     pub point_mem_mb: u64,
     pub oversized_seconds: u64,
     pub oversized_mem_mb: u64,
-    /// Superseded (kept for schema compatibility, not read): every wave is run to the end and the choice is a
-    /// function of the wave's results (audit B M3); the economy search budget is the wave.
+    /// U-13 ECONOMY EXTRA BUDGET (user-customisable, default 2): once the first setting IN POLICY ORDER of a wave
+    /// gives an acceptable one-case cover, the settings after it are run only while their cumulative WORK (the
+    /// estimated seed rows of each setting, a pure function of the setting: never wall clock, never reported CPU)
+    /// stays <= this factor x the work of that first setting; the choice is made among the settings up to that cap
+    /// (repair-library.md v1.3 section 4.4). A negative or NaN value is 0 (no extra search); infinity = the whole
+    /// wave.
     pub economy_extra_factor: f64,
     /// Superseded (kept for schema compatibility, not read): every budget stop is a NON-VERDICT outcome and follows
     /// `nonverdict_retries` (C3 of audit ladder-A).
@@ -490,6 +513,11 @@ pub struct Budgets {
     /// ATTENTION `StepBound` (C2; holds for arbitrary trait answers).
     #[serde(default = "default_max_item_steps")]
     pub max_item_steps: u64,
+    /// Work-counter factor of the OVERSIZED retry class (re-audit A M2): the retry after a non-verdict outcome runs
+    /// with `max_rows` x this factor, so a deterministic work-counter stop is not simply repeated. A work-counter
+    /// budget stop IN THE OVERSIZED CLASS counts as "searched within budget" (flagged in the exhaustion token).
+    #[serde(default = "default_oversized_work_factor")]
+    pub oversized_work_factor: u64,
     /// Seed count at which an attempt gets its base budget; above it the budget scales linearly (R34 (d)). `None`
     /// (default) = the estimated seed count of ONE centre at depth 3 for the node's own arity (on the five-loop
     /// reference this is the helper's single-dot depth-3 shell), so nothing depends on a particular loop order.
@@ -514,6 +542,7 @@ impl Default for Budgets {
             nonverdict_retries: default_nonverdict_retries(),
             max_operator_interrupts: default_max_operator_interrupts(),
             max_item_steps: default_max_item_steps(),
+            oversized_work_factor: default_oversized_work_factor(),
             scale_reference_seeds: None,
         }
     }
@@ -527,6 +556,9 @@ fn default_max_operator_interrupts() -> u32 {
 }
 fn default_max_item_steps() -> u64 {
     100_000
+}
+fn default_oversized_work_factor() -> u64 {
+    4
 }
 
 /// Acceptance / evidence levels A0-A4 (plan section 1, D-6).
@@ -602,18 +634,18 @@ impl Default for ProverCapabilities {
 }
 
 impl ProverCapabilities {
-    /// Can a rule of this class (with / without symmetry rows) reach `level`? Levels <= A1 (geometry) are computed
-    /// by the library itself.
+    /// Can a rule of this class (with / without symmetry rows) reach `level`? For PLAIN rules, levels <= A1
+    /// (geometry) are computed by the library itself. A rule WITH symmetry rows rests on the group's elements being
+    /// true symmetries, which geometry does not check: it needs a stated capability at EVERY level, A0 / A1 included
+    /// (re-audit B M1; v1.3).
     pub fn can(&self, symmetry_rows: bool, level: EvidenceLevel) -> bool {
+        if symmetry_rows {
+            return self.symmetry_rows.is_some_and(|l| l >= level);
+        }
         if level <= EvidenceLevel::A1 {
             return true;
         }
-        let l = if symmetry_rows {
-            self.symmetry_rows
-        } else {
-            self.plain
-        };
-        l.is_some_and(|l| l >= level)
+        self.plain.is_some_and(|l| l >= level)
     }
 }
 

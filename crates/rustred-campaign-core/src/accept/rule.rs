@@ -146,6 +146,26 @@ impl RuleText {
         !self.record.fixed.is_empty() && self.record.fixed.iter().all(Option::is_some)
     }
 
+    /// The guard version that applies to the record: its own `guard_version`, else the table header's (the identity
+    /// test's semantics, ibp_rows `RowsRule.guard_version`; int3 F2). `None` = pre-guard-fix (absent everywhere).
+    pub fn effective_guard(&self, table_guard: Option<i64>) -> Option<i64> {
+        self.guard_version.or(table_guard)
+    }
+
+    /// The witness status the acceptance chain credits on (check 0) and the tables in force use ([`super::InForce`]):
+    /// loci present AND guard version >= 2 (record, else table header) = complete; elided = elided; loci absent or a
+    /// pre-guard record = not carried (int3 F2: one rule for the chain and its tables in force).
+    pub fn credit_witness(&self, table_guard: Option<i64>) -> CreditWitness {
+        match (
+            self.witness_status(),
+            self.effective_guard(table_guard).unwrap_or(0) >= 2,
+        ) {
+            (WitnessStatus::Elided, _) => CreditWitness::Elided,
+            (WitnessStatus::Present { .. }, true) => CreditWitness::Complete,
+            _ => CreditWitness::NotCarried,
+        }
+    }
+
     /// Witness loci status of the record (A0, R24 (6)).
     pub fn witness_status(&self) -> WitnessStatus {
         match &self.record.witness_loci {
@@ -172,4 +192,39 @@ pub enum WitnessStatus {
     Absent,
     Elided,
     Present { count: usize },
+}
+
+/// The witness status a record is credited with (loci + guard version, [`RuleText::credit_witness`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CreditWitness {
+    Complete,
+    Elided,
+    NotCarried,
+}
+
+/// Witness status of a raw record of a table (int3 F2): the same rule as [`RuleText::credit_witness`] for a core
+/// [`RuleRecord`] and the record's own `guard_version` (the core reader does not keep it; [`record_guard_version`]).
+pub fn record_credit_witness(
+    r: &RuleRecord,
+    record_guard: Option<i64>,
+    table_guard: Option<i64>,
+) -> CreditWitness {
+    match &r.witness_loci {
+        Some(w) if w.iter().any(|s| s.trim() == "elided" || s.contains("...")) => {
+            CreditWitness::Elided
+        }
+        Some(_) if record_guard.or(table_guard).unwrap_or(0) >= 2 => CreditWitness::Complete,
+        _ => CreditWitness::NotCarried,
+    }
+}
+
+/// The top-level `guard_version` of a record line (a full scan of the line, nothing else kept).
+pub fn record_guard_version(line: &[u8]) -> Result<Option<i64>, String> {
+    #[derive(serde::Deserialize)]
+    struct G {
+        guard_version: Option<i64>,
+    }
+    serde_json::from_slice::<G>(line)
+        .map(|g| g.guard_version)
+        .map_err(|e| e.to_string())
 }

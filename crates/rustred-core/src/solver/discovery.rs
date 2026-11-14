@@ -46,6 +46,45 @@ pub use semi_numerical::{
 #[cfg(all(test, feature = "reconstruction"))]
 mod source_weight_pipeline_tests;
 
+// engine-line recipe solve: opt-in capture (per thread) of the exact source weights of the next witnessed lift, so
+// that the caller can multiply them out exactly (default off: nothing is captured, nothing changes).
+thread_local! {
+    static WEIGHT_CAPTURE_ON: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static CAPTURED_WEIGHTS: std::cell::RefCell<Option<Vec<(usize, crate::algebra::Coefficient)>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Whether [`with_weight_capture`] is active on this thread.
+pub(crate) fn weight_capture_on() -> bool {
+    WEIGHT_CAPTURE_ON.with(|c| c.get())
+}
+
+/// Record the exact source weights (input row index, weight; ORIGINAL coefficient map) of the current lift.
+pub(super) fn capture_weights(weights: Vec<(usize, crate::algebra::Coefficient)>) {
+    if weight_capture_on() {
+        CAPTURED_WEIGHTS.with(|c| *c.borrow_mut() = Some(weights));
+    }
+}
+
+/// Take the weights recorded by the last witnessed lift on this thread (None if none was recorded).
+pub(crate) fn take_captured_weights() -> Option<Vec<(usize, crate::algebra::Coefficient)>> {
+    CAPTURED_WEIGHTS.with(|c| c.borrow_mut().take())
+}
+
+/// Run `f` with weight capture on (restored on exit).
+pub(crate) fn with_weight_capture<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            WEIGHT_CAPTURE_ON.with(|c| c.set(self.0));
+            CAPTURED_WEIGHTS.with(|c| *c.borrow_mut() = None);
+        }
+    }
+    let previous = WEIGHT_CAPTURE_ON.with(|c| c.replace(true));
+    let _restore = Restore(previous);
+    f()
+}
+
 /// Witness poles of one exact lift (guard-fix, 2026-11-12).
 ///
 /// A lift returns `row = sum_j w_j(n) * rows[j]` for source weights `w_j`.

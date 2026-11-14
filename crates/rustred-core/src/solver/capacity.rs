@@ -491,6 +491,8 @@ fn resized<const N: usize, const K: usize>(
             rule_selection: solver.config.rule_selection.clone(),
             seed_schedule: solver.config.seed_schedule,
             witness_guards: solver.config.witness_guards,
+            // slot indices are unchanged by the padding resize
+            case_symmetry: solver.config.case_symmetry.clone(),
         };
         // Already materialized against the unchanged basis; do not rebuild or
         // interpret physical-axis priorities as storage-axis priorities.
