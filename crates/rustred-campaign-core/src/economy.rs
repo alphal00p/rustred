@@ -637,11 +637,11 @@ pub fn prove_coverage_preserved(
             meter.reason().unwrap_or_default()
         ));
     }
-    for k in &probes {
+    for (done, k) in probes.iter().enumerate() {
         if !meter.tick(1) {
             return Err(format!(
-                "cross-check: the work budget was exhausted after {} probe keys ({})",
-                meter.used(),
+                "cross-check: the work budget was exhausted after {done} of {} probe keys ({})",
+                probes.len(),
                 meter.reason().unwrap_or_default()
             ));
         }
