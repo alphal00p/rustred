@@ -636,15 +636,18 @@ impl<'a> InForceBuilder<'a> {
         else {
             return Err(AcceptError::InForce("recipe not certified".into()));
         };
-        if *recipe_digest != recipe.digest {
+        if recipe_digest != recipe.digest() {
             return Err(AcceptError::InForce(format!(
                 "certification of recipe {recipe_digest} given with recipe {}",
-                recipe.digest
+                recipe.digest()
             )));
         }
-        let mut t = Table::new(format!("recipe:{}", self.tables.len()), recipe.domain.arity);
+        let mut t = Table::new(
+            format!("recipe:{}", self.tables.len()),
+            recipe.domain().arity,
+        );
         for (i, k) in certified.iter().enumerate() {
-            let mut d = recipe.domain.clone();
+            let mut d = recipe.domain().clone();
             d.fixed = k.iter().map(|&x| Some(x)).collect();
             t.push(i as i64, d)
                 .map_err(|e| AcceptError::InForce(e.to_string()))?;
