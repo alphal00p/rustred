@@ -29,6 +29,8 @@ use crate::closure::{
 };
 use crate::cover::{Dispatch, Dispatcher, RuleRef};
 use crate::order::NodeComparator;
+use crate::replay_base::algebra::Q;
+use crate::replay_base::symrows::{SlotImage, VerifiedGroup};
 
 pub use crate::order::GroupElement;
 
@@ -43,22 +45,153 @@ pub enum CreditFrame {
     MappedBack,
 }
 
-/// The credit policy of a node: the group and which elements have a certified pure numerator map.
+/// What the group of a [`CreditPolicy`] rests on (directing session 2026-11-14; ladderfix2 finding 3 / B-M2 class).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GroupBasis {
+    /// The identity-test lane's unforgeable [`VerifiedGroup`] (every element proved exactly on the family): the only
+    /// basis on which a closure's credits can count toward a closure verdict.
+    Verified {
+        digest: String,
+        family_digest: String,
+        provenance: String,
+    },
+    /// Hand-built elements (toy nodes, the standalone diagnostic checker): a closure using such a policy is stamped
+    /// `diagnostic` (relaxed check `credits_group_unverified`), never `closed`.
+    Unverified { source: String },
+}
+
+/// The credit policy of a node: the group, which elements have a certified pure numerator map, and what the group rests
+/// on. Fields are PRIVATE (lane closurefix): a verified policy comes only out of [`CreditPolicy::from_verified`], and
+/// every other constructor gives an `Unverified` basis.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CreditPolicy {
-    pub group: Vec<GroupElement>,
+    group: Vec<GroupElement>,
     /// Indices of elements whose numerator map (`numerators: Some`) is CERTIFIED a one-term identity by the group
     /// data. A key with a non-zero numerator is never credited through any other element (plan 2.4.6 (iii)).
-    pub pure_numerator_maps: BTreeSet<usize>,
+    pure_numerator_maps: BTreeSet<usize>,
+    basis: GroupBasis,
 }
 
 impl CreditPolicy {
-    /// A policy with no certified numerator maps (numerator-free keys only, unless maps are certified later).
+    /// An UNVERIFIED policy (hand-built group) with no certified numerator maps: credits from it make a closure
+    /// `diagnostic`. Use [`CreditPolicy::from_verified`] for a closure verdict.
     pub fn new(group: Vec<GroupElement>) -> CreditPolicy {
+        CreditPolicy::unverified(group, BTreeSet::new(), "hand-built")
+    }
+    /// An UNVERIFIED policy with the given numerator maps declared pure (tests, diagnostics).
+    pub fn unverified(
+        group: Vec<GroupElement>,
+        pure_numerator_maps: BTreeSet<usize>,
+        source: &str,
+    ) -> CreditPolicy {
         CreditPolicy {
             group,
-            pure_numerator_maps: BTreeSet::new(),
+            pure_numerator_maps,
+            basis: GroupBasis::Unverified {
+                source: source.to_string(),
+            },
         }
+    }
+    /// The same elements with these numerator maps declared pure: always an UNVERIFIED policy (declaring maps pure is
+    /// not a proof; a verified policy derives them from the verified action).
+    pub fn with_pure_numerator_maps(self, pure: BTreeSet<usize>) -> CreditPolicy {
+        let source = match &self.basis {
+            GroupBasis::Verified { digest, .. } => {
+                format!("{digest} with caller-declared numerator maps")
+            }
+            GroupBasis::Unverified { source } => source.clone(),
+        };
+        CreditPolicy::unverified(self.group, pure, &source)
+    }
+    /// THE constructor for closure credits: the elements of the identity-test lane's [`VerifiedGroup`] (same element
+    /// indices; the identity is not an element), in the node's frame. Each element's action on the LINE slots must be
+    /// a permutation of the line slots (an exact image without sign, or a one-term linear image with coefficient 1
+    /// and no constant); otherwise `Err`. Its numerator map is given (and certified pure) iff every other slot has
+    /// such an image onto another non-line slot; else it has none (it then acts on numerator-free keys only).
+    /// Convention (as the rows' key action): `D_i(kT) = D_t(k)` gives `I(a) = I(b)` with `b[t] = a[i]`.
+    pub fn from_verified(g: &VerifiedGroup, lines: &[bool]) -> Result<CreditPolicy, String> {
+        let sg = g.group();
+        if sg.arity != lines.len() || sg.chart.as_slice() != lines {
+            return Err(format!(
+                "verified group chart {:?} (arity {}) is not the node's line mask {:?}",
+                sg.chart, sg.arity, lines
+            ));
+        }
+        let (ls, os) = slot_lists(lines);
+        let pos_l: Vec<Option<usize>> = (0..lines.len())
+            .map(|s| ls.iter().position(|&x| x == s))
+            .collect();
+        let pos_o: Vec<Option<usize>> = (0..lines.len())
+            .map(|s| os.iter().position(|&x| x == s))
+            .collect();
+        let exact = |a: Option<&SlotImage>| -> Option<usize> {
+            match a? {
+                SlotImage::Exact {
+                    target,
+                    flip: false,
+                } => Some(*target),
+                SlotImage::Linear { terms, constant }
+                    if constant.is_zero() && terms.len() == 1 && terms[0].1 == Q::ONE =>
+                {
+                    Some(terms[0].0)
+                }
+                _ => None,
+            }
+        };
+        let mut group = Vec::with_capacity(sg.elements.len());
+        let mut pure = BTreeSet::new();
+        for (ei, e) in sg.elements.iter().enumerate() {
+            let lperm: Vec<usize> = ls
+                .iter()
+                .map(|&s| {
+                    exact(e.action.get(s))
+                        .and_then(|t| pos_l.get(t).copied().flatten())
+                        .ok_or_else(|| {
+                            format!(
+                                "verified element {ei}: line slot {s} has no exact image on a line"
+                            )
+                        })
+                })
+                .collect::<Result<_, _>>()?;
+            let nperm: Option<Vec<usize>> = os
+                .iter()
+                .map(|&s| exact(e.action.get(s)).and_then(|t| pos_o.get(t).copied().flatten()))
+                .collect();
+            let nperm = nperm.filter(|p| {
+                let mut seen = vec![false; p.len()];
+                p.iter().all(|&j| !std::mem::replace(&mut seen[j], true))
+            });
+            if nperm.is_some() {
+                pure.insert(ei);
+            }
+            group.push(GroupElement {
+                lines: lperm,
+                numerators: nperm,
+            });
+        }
+        let pol = CreditPolicy {
+            group,
+            pure_numerator_maps: pure,
+            basis: GroupBasis::Verified {
+                digest: g.digest().to_string(),
+                family_digest: g.family_digest().to_string(),
+                provenance: format!("{:?}", g.provenance()),
+            },
+        };
+        pol.validate(lines)?;
+        Ok(pol)
+    }
+    pub fn group(&self) -> &[GroupElement] {
+        &self.group
+    }
+    pub fn pure_numerator_maps(&self) -> &BTreeSet<usize> {
+        &self.pure_numerator_maps
+    }
+    pub fn basis(&self) -> &GroupBasis {
+        &self.basis
+    }
+    pub fn is_verified(&self) -> bool {
+        matches!(self.basis, GroupBasis::Verified { .. })
     }
     /// Check the policy against the node's line mask (audit loop-A m1, loop-B m2): an element's `lines` permutes the
     /// LINE slots of the mask (in slot order, wherever they sit: the action is generic over the frame, L8) and its
@@ -130,7 +263,8 @@ pub enum Refusal {
     ImageIsTerminal,
     /// The dispatch at g k is not `Covered`.
     ImageNotCovered(Dispatch),
-    /// A relation set (recipe) serves g k: credits through recipe-served images are not implemented yet.
+    /// A relation set (recipe) serves g k: not handled by this element path (the closure credits through a certified
+    /// recipe-served image itself, closure::credit, R44 / re-audit F8).
     ImageServedByRecipe,
     NoBody,
     TermNotBelow {
@@ -152,6 +286,8 @@ pub enum Refusal {
     },
     /// Pending (Tier C): no regularity fact for R at g k.
     RegularityUnknown,
+    /// A relation set (recipe) matches g k but its record's verdict bits are not all set (lane closurefix, R44/F8).
+    ImageRecipeUnverified,
 }
 
 /// The slot lists of a line mask: (line slots, other slots), in slot order.
@@ -213,6 +349,51 @@ fn apply_inverse(g: &GroupElement, key: &[i32], lines: &[bool]) -> Option<Vec<i3
     Some(out)
 }
 
+/// The STRUCTURAL part of the adopted condition for one element (it never depends on facts; lane closurefix, re-audit
+/// F1): the element fits the line mask, the image exists and differs from the key, a key with a non-zero numerator
+/// needs a certified pure numerator map, the image is not a declared terminal. Returns the image and its dispatch (with
+/// the rule-level key exclusions). Shared by [`try_element`] and the closure's Tier K candidate enumeration.
+pub(crate) fn element_image(
+    key: &[i32],
+    ei: usize,
+    pol: &CreditPolicy,
+    ctx: &dyn CtxView,
+) -> Result<(Vec<i32>, Dispatch), Refusal> {
+    let g = &pol.group[ei];
+    let lines = &ctx.sectors().lines;
+    if g.lines.len() != lines.iter().filter(|&&l| l).count() {
+        return Err(Refusal::MalformedElement(
+            "line permutation does not fit the line mask".into(),
+        ));
+    }
+    let Some(image) = apply_framed(g, key, lines) else {
+        return Err(Refusal::NoImage);
+    };
+    if image == key {
+        return Err(Refusal::ImageEqualsKey);
+    }
+    let has_numerator = key.iter().zip(lines).any(|(&v, &l)| !l && v != 0);
+    if has_numerator && !pol.pure_numerator_maps.contains(&ei) {
+        return Err(Refusal::NumeratorMapNotPure);
+    }
+    if ctx.is_terminal(&image) {
+        return Err(Refusal::ImageIsTerminal);
+    }
+    let d = ctx.dispatch(&image);
+    Ok((image, d))
+}
+
+/// The adopted condition for ONE element in the direct frame (closure-internal entry, lane closurefix): as the
+/// element loop of [`serve_with`].
+pub(crate) fn try_one(
+    key: &[i32],
+    ei: usize,
+    pol: &CreditPolicy,
+    ctx: &dyn CtxView,
+) -> Result<Result<Credit, Refusal>, ClosureError> {
+    try_element(key, ei, pol, ctx, CreditFrame::Direct)
+}
+
 /// The adopted condition for one element (see the module documentation). `frame` is `Direct` except in the
 /// diagnostic.
 fn try_element(
@@ -222,30 +403,15 @@ fn try_element(
     ctx: &dyn CtxView,
     frame: CreditFrame,
 ) -> Result<Result<Credit, Refusal>, ClosureError> {
+    let (image, d) = match element_image(key, ei, pol, ctx) {
+        Ok(x) => x,
+        Err(r) => return Ok(Err(r)),
+    };
     let g = &pol.group[ei];
     let lines = &ctx.sectors().lines;
-    if g.lines.len() != lines.iter().filter(|&&l| l).count() {
-        return Ok(Err(Refusal::MalformedElement(
-            "line permutation does not fit the line mask".into(),
-        )));
-    }
-    let Some(image) = apply_framed(g, key, lines) else {
-        return Ok(Err(Refusal::NoImage));
-    };
-    if image == key {
-        return Ok(Err(Refusal::ImageEqualsKey));
-    }
-    let has_numerator = key.iter().zip(lines).any(|(&v, &l)| !l && v != 0);
-    if has_numerator && !pol.pure_numerator_maps.contains(&ei) {
-        return Ok(Err(Refusal::NumeratorMapNotPure));
-    }
-    if ctx.is_terminal(&image) {
-        return Ok(Err(Refusal::ImageIsTerminal));
-    }
-    let d = ctx.dispatch(&image);
     if ctx.recipe_serves(&image, &d) {
-        // the image is served by a relation set (R48), not by the table rule: credits through recipe-served images
-        // are not implemented yet (refused, fail closed)
+        // the image is served by a relation set (R48), not by the table rule: the closure serves such images itself
+        // (closure::credit, R44); this element path (and the standalone checker, which has no relation sets) refuses
         return Ok(Err(Refusal::ImageServedByRecipe));
     }
     let rule = match d {
