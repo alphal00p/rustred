@@ -35,6 +35,105 @@ enum Terms {
     },
 }
 
+/// A fact read from an attached evidence store (lane t266run, interfaces/evidence-store.md): term INDICES (record rhs
+/// order) whose coefficient is zero / unknown; every other index < n_terms is non-zero. The store checked the term list
+/// against our instantiation when it was built.
+fn store_coefficient(f: &super::store::StoreFact, term: usize) -> CoefFact {
+    if term >= f.n_terms as usize {
+        return CoefFact::Unknown;
+    }
+    let t = term as u32;
+    if f.unknown.binary_search(&t).is_ok() {
+        CoefFact::Unknown
+    } else if f.zero.binary_search(&t).is_ok() {
+        CoefFact::Zero
+    } else {
+        CoefFact::NonZero
+    }
+}
+
+/// The fact of (rule, key): from memory, from a store, or both (lane t266run).
+enum FactRef<'a> {
+    Mem(&'a FactRec),
+    Store(std::sync::Arc<super::store::StoreEntry>),
+    /// Both exist: every answer is the common one, else Unknown (fail closed).
+    Both(&'a FactRec, std::sync::Arc<super::store::StoreEntry>),
+}
+
+impl FactRef<'_> {
+    fn sf(e: &super::store::StoreEntry) -> &super::store::StoreFact {
+        e.fact.as_ref().expect("store fact present")
+    }
+    fn regular(&self) -> RegFact {
+        match self {
+            FactRef::Mem(f) => f.regular,
+            FactRef::Store(e) => {
+                let f = Self::sf(e);
+                if f.usable { f.regular } else { RegFact::Unknown }
+            }
+            FactRef::Both(m, e) => {
+                let f = Self::sf(e);
+                let s = if f.usable { f.regular } else { RegFact::Unknown };
+                if s == m.regular { s } else { RegFact::Unknown }
+            }
+        }
+    }
+    fn lift(&self) -> bool {
+        match self {
+            FactRef::Mem(f) => f.lift,
+            FactRef::Store(e) => {
+                let f = Self::sf(e);
+                f.usable && f.regular == RegFact::Regular
+            }
+            FactRef::Both(m, e) => {
+                let f = Self::sf(e);
+                m.lift && f.usable && f.regular == RegFact::Regular
+            }
+        }
+    }
+    fn coefficient(&self, term: usize, term_key: &[i32]) -> CoefFact {
+        match self {
+            FactRef::Mem(f) => f.coefficient(term, term_key),
+            FactRef::Store(e) => {
+                let f = Self::sf(e);
+                if f.usable { store_coefficient(f, term) } else { CoefFact::Unknown }
+            }
+            FactRef::Both(m, e) => {
+                let f = Self::sf(e);
+                let a = m.coefficient(term, term_key);
+                let b = if f.usable { store_coefficient(f, term) } else { CoefFact::Unknown };
+                if a == b { a } else { CoefFact::Unknown }
+            }
+        }
+    }
+}
+
+/// Options of [`Evidence::from_spec_with`].
+#[derive(Clone, Debug, Default)]
+pub struct EvidenceOptions {
+    /// Some: the spec's facts and proofs files go into ONE disk-backed store (interfaces/evidence-store.md).
+    pub store: Option<super::store::StoreOptions>,
+}
+
+/// An attached store: the store, store record id by our rule index, store status id -> our interned status.
+struct AttachedStore {
+    store: std::sync::Arc<super::store::EvidenceStore>,
+    rec_of_ri: Vec<Option<u32>>,
+    status_map: Vec<u32>,
+}
+
+/// Counts of the attached stores (statement).
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct StoreUse {
+    pub dir: String,
+    pub origin: String,
+    pub entries: u64,
+    pub data_sha256: String,
+    pub records_bound: usize,
+    pub counts: super::store::StoreCounts,
+    pub inputs: Vec<(String, String)>,
+}
+
 /// One usable fact: (rule, key) -> regularity, lift and per-term coefficient facts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct FactRec {
@@ -135,6 +234,9 @@ pub struct EvidenceCounts {
     pub files: Vec<(String, String)>,
     /// Up to [`FOREIGN_EXAMPLES`] foreign record digests (facts / proofs) for diagnosis.
     pub foreign_examples: Vec<String>,
+    /// Attached evidence stores (lane t266run).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub stores: Vec<StoreUse>,
 }
 
 /// The imported evidence of one set.
@@ -156,6 +258,10 @@ pub struct Evidence {
     pub counts: EvidenceCounts,
     label: String,
     fact_files: Vec<String>,
+    /// lane t266run: disk-backed evidence stores consulted when the maps above miss.
+    stores: Vec<AttachedStore>,
+    /// rule index -> record_sha256.
+    rule_sha: Vec<String>,
 }
 
 /// How many foreign record digests are kept as examples (diagnosis only).
@@ -287,11 +393,143 @@ impl Evidence {
                 ev.rule_index.insert((r.table_name.clone(), r.label), n);
                 ev.sha_index.insert(r.record_sha256.clone(), n);
                 ev.rule_record_index.push(r.index);
+                ev.rule_sha.push(r.record_sha256.clone());
                 n += 1;
             }
         }
         ev.label = "import:none".into();
         ev
+    }
+
+    /// Load everything the spec names; with `opts.store` the facts and proofs files go into ONE disk-backed store
+    /// (built or reused under the store directory) instead of memory (lane t266run).
+    pub fn from_spec_with(
+        set: &ImportedSet,
+        base: &Path,
+        opts: &EvidenceOptions,
+    ) -> Result<Evidence, ImportError> {
+        let Some(so) = &opts.store else {
+            return Self::from_spec(set, base);
+        };
+        let mut ev = Evidence::new(set);
+        let sp = set.spec.evidence.clone();
+        let inputs: Vec<(PathBuf, Option<String>)> = sp
+            .facts
+            .iter()
+            .chain(sp.proofs.iter())
+            .map(|r| (super::spec::resolve(base, &r.path), r.sha256.clone()))
+            .collect();
+        if !inputs.is_empty() {
+            let st = super::store::EvidenceStore::open_or_build(set, &inputs, so)?;
+            ev.attach_store(st);
+        }
+        for r in &sp.solved {
+            ev.load_solved(set, base, r)?;
+        }
+        Ok(ev)
+    }
+
+    /// Attach a disk-backed store: consulted for every (rule, key) the in-memory maps do not answer.
+    pub fn attach_store(&mut self, st: std::sync::Arc<super::store::EvidenceStore>) {
+        let m = st.meta();
+        let rec_of_ri: Vec<Option<u32>> = self.rule_sha.iter().map(|s| st.rec_id(s)).collect();
+        let status_map: Vec<u32> = m
+            .statuses
+            .iter()
+            .map(|(w, pk, f)| {
+                self.intern(ProofStatus {
+                    status: w.clone(),
+                    per_key: *pk,
+                    file: f.clone(),
+                })
+            })
+            .collect();
+        self.counts.stores.push(StoreUse {
+            dir: st.dir().display().to_string(),
+            origin: st.origin.clone(),
+            entries: m.entries,
+            data_sha256: m.data_sha256.clone(),
+            records_bound: rec_of_ri.iter().filter(|x| x.is_some()).count(),
+            counts: m.counts.clone(),
+            inputs: m
+                .inputs
+                .iter()
+                .map(|i| (i.path.clone(), format!("sha256:{}", i.sha256)))
+                .collect(),
+        });
+        if m.counts.facts_stored > 0 {
+            self.fact_files.push(format!("store:{}", m.data_sha256));
+            self.label = format!(
+                "import:facts:{}",
+                crate::closure::sha256::sha256_tag(self.fact_files.join(",").as_bytes())
+            );
+        }
+        self.counts.proofs_per_key += m.counts.proofs_per_key as usize;
+        self.stores.push(AttachedStore {
+            store: st,
+            rec_of_ri,
+            status_map,
+        });
+    }
+
+    /// The store entries of (rule index, key): the first store with a fact, the strongest proof over all stores.
+    fn store_fact(&self, ri: u32, key: &[i32]) -> Option<std::sync::Arc<super::store::StoreEntry>> {
+        for a in &self.stores {
+            if let Some(rec) = a.rec_of_ri.get(ri as usize).copied().flatten()
+                && let Some(e) = a.store.get_rec(rec, key)
+                && e.fact.is_some()
+            {
+                return Some(e);
+            }
+        }
+        None
+    }
+
+    /// Our interned status of the strongest store proof of (rule index, key).
+    fn store_proof(&self, ri: u32, key: &[i32]) -> Option<u32> {
+        let mut best: Option<u32> = None;
+        for a in &self.stores {
+            if let Some(rec) = a.rec_of_ri.get(ri as usize).copied().flatten()
+                && let Some(e) = a.store.get_rec(rec, key)
+                && let Some(s) = e.proof
+            {
+                let mine = a.status_map[s as usize];
+                best = Some(match best {
+                    Some(b) if self.statuses[b as usize].per_key || !self.statuses[mine as usize].per_key => b,
+                    _ => mine,
+                });
+            }
+        }
+        best
+    }
+
+    /// The fact of (rule index, key) from memory and / or the stores.
+    fn fact_ref(&self, ri: u32, key: &[i32]) -> Option<FactRef<'_>> {
+        let m = self.facts.get(&(ri, key.to_vec()));
+        let s = if self.stores.is_empty() {
+            None
+        } else {
+            self.store_fact(ri, key)
+        };
+        match (m, s) {
+            (Some(m), Some(s)) => Some(FactRef::Both(m, s)),
+            (Some(m), None) => Some(FactRef::Mem(m)),
+            (None, Some(s)) => Some(FactRef::Store(s)),
+            (None, None) => None,
+        }
+    }
+
+    /// The proof status index of (rule index, key): memory first (the strongest is kept there), else the stores; a
+    /// per-key status wins.
+    fn proof_index(&self, ri: u32, key: &[i32]) -> Option<u32> {
+        let m = self.proofs.get(&(ri, Box::<[i32]>::from(key))).copied();
+        if m.is_some_and(|i| self.statuses[i as usize].per_key) || self.stores.is_empty() {
+            return m;
+        }
+        match (m, self.store_proof(ri, key)) {
+            (Some(a), Some(b)) => Some(if self.statuses[b as usize].per_key { b } else { a }),
+            (a, b) => a.or(b),
+        }
     }
 
     /// Load everything the spec names.
@@ -643,7 +881,12 @@ impl Evidence {
             .proofs
             .values()
             .filter(|&&i| self.statuses[i as usize].per_key)
-            .count();
+            .count()
+            + self
+                .stores
+                .iter()
+                .map(|a| a.store.meta().counts.proofs_per_key as usize)
+                .sum::<usize>();
         Ok(())
     }
 
@@ -738,9 +981,7 @@ impl Evidence {
     ) -> Option<&ProofStatus> {
         let sha = &set.rules[table][record].record_sha256;
         let ri = *self.sha_index.get(sha)?;
-        self.proofs
-            .get(&(ri, Box::<[i32]>::from(key)))
-            .map(|&i| &self.statuses[i as usize])
+        self.proof_index(ri, key).map(|i| &self.statuses[i as usize])
     }
 
     /// Whether a usable regularity fact exists for (rule, key).
@@ -748,25 +989,35 @@ impl Evidence {
         let sha = &set.rules[table][record].record_sha256;
         self.sha_index
             .get(sha)
-            .and_then(|ri| self.facts.get(&(*ri, key.to_vec())))
-            .is_some_and(|f| f.lift)
+            .and_then(|ri| self.fact_ref(*ri, key))
+            .is_some_and(|f| f.lift())
+    }
+
+    /// Whether any usable fact (memory or store) exists for (rule, key) (lane t266run: the closing loop asks a fact
+    /// only for keys without one).
+    pub fn has_fact(&self, set: &ImportedSet, table: usize, record: usize, key: &[i32]) -> bool {
+        let sha = &set.rules[table][record].record_sha256;
+        self.sha_index
+            .get(sha)
+            .and_then(|ri| self.fact_ref(*ri, key))
+            .is_some()
     }
 
     pub fn has_facts(&self) -> bool {
         !self.fact_files.is_empty()
     }
 
-    fn rec(&self, rule: &RuleId, key: &[i32]) -> Option<&FactRec> {
+    fn rec(&self, rule: &RuleId, key: &[i32]) -> Option<FactRef<'_>> {
         let ri = self.rule_index.get(&(rule.table.to_string(), rule.label))?;
-        self.facts.get(&(*ri, key.to_vec()))
+        self.fact_ref(*ri, key)
     }
 
     /// Whether an exact per-key proof is bound to the record named by `rule` at `key`.
     fn per_key(&self, rule: &RuleId, key: &[i32]) -> bool {
         self.rule_index
             .get(&(rule.table.to_string(), rule.label))
-            .and_then(|ri| self.proofs.get(&(*ri, Box::<[i32]>::from(key))))
-            .is_some_and(|&i| self.statuses[i as usize].per_key)
+            .and_then(|ri| self.proof_index(*ri, key))
+            .is_some_and(|i| self.statuses[i as usize].per_key)
     }
 }
 
@@ -790,7 +1041,7 @@ impl FactSource for Evidence {
     fn regularity(&self, rule: &RuleId, key: &[i32]) -> RegFact {
         // a regularity fact first; else an exact per-key proof at the key implies the rule is regular there (the proof
         // evaluates the rule at the key; a pole is the different status IRREGULAR_KEY)
-        match self.rec(rule, key).map(|f| f.regular) {
+        match self.rec(rule, key).map(|f| f.regular()) {
             Some(RegFact::Unknown) | None if self.per_key(rule, key) => RegFact::Regular,
             Some(f) => f,
             None => RegFact::Unknown,
@@ -801,15 +1052,15 @@ impl FactSource for Evidence {
         self.per_key(rule, key)
             && self
                 .rec(rule, key)
-                .is_none_or(|f| f.regular != RegFact::Pole)
+                .is_none_or(|f| f.regular() != RegFact::Pole)
     }
     fn label(&self) -> String {
         self.label.clone()
     }
     fn witness_lift(&self, rule: &RuleId, key: &[i32]) -> RegFact {
         match self.rec(rule, key) {
-            Some(f) if f.lift => RegFact::Regular,
-            Some(f) if f.regular == RegFact::Pole => RegFact::Pole,
+            Some(f) if f.lift() => RegFact::Regular,
+            Some(f) if f.regular() == RegFact::Pole => RegFact::Pole,
             _ => RegFact::Unknown,
         }
     }
