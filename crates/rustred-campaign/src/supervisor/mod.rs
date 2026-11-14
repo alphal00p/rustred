@@ -433,6 +433,48 @@ pub struct Supervisor {
 /// Bound of consecutive supervisor resource failures at launch before the campaign stops (exit 71).
 pub const MAX_RESOURCE_FAILURES: u32 = 6;
 
+/// How a settle ended (gate (c), lane int5).
+enum SettleEnd {
+    /// Settled (or nothing to do / the ledger decided).
+    Done,
+    /// Not settled now: the supervisor's own resource failure (errno) while reading or writing the attempt's files.
+    Deferred { errno: i32, what: String },
+}
+
+/// A resource errno of THIS process named in an error text (the Display of an OS error: "... (os error N)", or its
+/// Debug "Os { code: N"): EAGAIN, ENOMEM, ENFILE, EMFILE (gate (c), lane int5).
+fn text_resource_errno(text: &str) -> Option<i32> {
+    for pat in ["(os error ", "Os { code: "] {
+        for (i, _) in text.match_indices(pat) {
+            let d: String = text[i + pat.len()..]
+                .chars()
+                .take_while(char::is_ascii_digit)
+                .collect();
+            if let Ok(n) = d.parse::<i32>()
+                && matches!(n, libc::EAGAIN | libc::ENOMEM | libc::ENFILE | libc::EMFILE)
+            {
+                return Some(n);
+            }
+        }
+    }
+    None
+}
+
+/// The supervisor's own resource failure in the evidence `assess` gathered (an OUTCOME or a sealed stream it could not
+/// open for lack of descriptors / memory): the errno and what failed.
+fn evidence_resource_failure(ev: &classify::Evidence) -> Option<(i32, String)> {
+    let texts: Vec<&str> = match &ev.outcome {
+        OutcomeState::Unreadable(t) | OutcomeState::Invalid(t) => vec![t.as_str()],
+        _ => vec![],
+    }
+    .into_iter()
+    .chain(ev.unsealed_why.as_deref())
+    .collect();
+    texts.into_iter().find_map(|t| {
+        text_resource_errno(t).map(|n| (n, format!("reading the attempt's files: {t}")))
+    })
+}
+
 /// The errno of a launch failure that is the SUPERVISOR's resource problem (gate-B M3), not the job's.
 fn resource_errno(e: &LaunchError) -> Option<i32> {
     let io = match e {
@@ -1237,16 +1279,14 @@ impl Supervisor {
             match read_spec(&layout, launched.as_deref()) {
                 Some((spec, spec_digest)) => {
                     let kill = if was_killed { CKill::Stop } else { CKill::None };
-                    self.settle(
+                    self.settle_at_recovery(
                         &job,
                         attempt,
                         &layout,
                         &spec,
                         &spec_digest,
-                        WaitStatus::Unknown,
                         kill,
                         was_killed,
-                        None,
                     );
                 }
                 None => {
@@ -1490,17 +1530,7 @@ impl Supervisor {
             false,
         );
         if matches!(ev.outcome, OutcomeState::Valid(_)) {
-            self.settle(
-                job,
-                attempt,
-                &layout,
-                &spec,
-                &digest,
-                WaitStatus::Unknown,
-                CKill::None,
-                false,
-                None,
-            );
+            self.settle_at_recovery(job, attempt, &layout, &spec, &digest, CKill::None, false);
             return;
         }
         let why = match &ev.outcome {
@@ -1526,6 +1556,49 @@ impl Supervisor {
                     .get(&j.item)
                     .is_some_and(|it| it.generation == j.generation)
         })
+    }
+
+    /// A settle at recovery: the supervisor's own resource failure while reading the attempt's files is retried a few
+    /// times (1 s apart); if it persists the campaign stops with exit 71 before deciding anything about the attempt
+    /// (gate (c), lane int5: never a verdict from the supervisor's lack of file descriptors / memory / threads).
+    #[allow(clippy::too_many_arguments)]
+    fn settle_at_recovery(
+        &mut self,
+        job: &str,
+        attempt: u32,
+        layout: &RunLayout,
+        spec: &JobSpec,
+        digest: &str,
+        kill: CKill,
+        killed: bool,
+    ) {
+        for k in 0..5 {
+            match self.settle(
+                job,
+                attempt,
+                layout,
+                spec,
+                digest,
+                WaitStatus::Unknown,
+                kill,
+                killed,
+                None,
+            ) {
+                SettleEnd::Done => return,
+                SettleEnd::Deferred { errno, what } => {
+                    self.log.line(
+                        "WARN",
+                        &format!("recovery: {what} ({}): retry {}", errno_name(errno), k + 1),
+                    );
+                    std::thread::sleep(Duration::from_secs(1));
+                }
+            }
+        }
+        let msg = format!(
+            "recovery cannot read the files of {job} a{attempt} for lack of a supervisor resource; free it (e.g. raise ulimit -n / -u) and run the same command"
+        );
+        self.log.line("ERROR", &msg);
+        self.ledger_dead = Some(RunExit::Resources(msg));
     }
 
     fn authenticate_run(
@@ -1782,10 +1855,16 @@ impl Supervisor {
         kill: CKill,
         killed_at_recovery: bool,
         report: Option<&FinalReport>,
-    ) {
+    ) -> SettleEnd {
         // The supervisor's own kill reason K is an input of the decision table: a child stopped for time, silence or
         // memory that still writes an `interrupted` OUTCOME is killed_time / killed_memory there (rows 11b / 11c).
         let ev = classify::assess(layout, spec, spec_digest, wait, kill, false);
+        // gate (c), lane int5: the SUPERVISOR's own resource failure while reading the attempt's files (EMFILE, ENFILE,
+        // ENOMEM, EAGAIN) is never a verdict about the attempt (never "contract violation", never "crashed"): settled
+        // later, after the supervisor's resource back-off.
+        if let Some((errno, what)) = evidence_resource_failure(&ev) {
+            return SettleEnd::Deferred { errno, what };
+        }
         let c = classify::classify(&ev);
         // The OUTCOME binding the ledger checks before any record may come from this attempt: (job, attempt, the
         // digest of the job.json this attempt was launched with), present when the contract found OUTCOME valid.
@@ -1796,10 +1875,10 @@ impl Supervisor {
         });
         let target = class_target(c.kind);
         let Some(jr) = self.st().jobs.get(job).cloned() else {
-            return;
+            return SettleEnd::Done;
         };
         if jr.attempt != attempt || jr.state.is_settled() {
-            return;
+            return SettleEnd::Done;
         }
         let (cpu_ms, wall_ms, peak) = report.map_or((0, 0, 0), |r| {
             (
@@ -1818,6 +1897,12 @@ impl Supervisor {
                     blake3,
                 }),
                 Err(why) => {
+                    if let Some(errno) = text_resource_errno(&why) {
+                        return SettleEnd::Deferred {
+                            errno,
+                            what: format!("re-reading OUTCOME of {job} a{attempt}: {why}"),
+                        };
+                    }
                     self.log.line(
                         "WARN",
                         &format!("{job} a{attempt}: OUTCOME changed since it was classified ({why}); not recorded"),
@@ -1835,7 +1920,7 @@ impl Supervisor {
                 attempt,
                 "its OUTCOME could not be bound to the launch at settle",
             );
-            return;
+            return SettleEnd::Done;
         }
         let mut events = Vec::new();
         let interrupted = killed_at_recovery && target != AttemptTarget::SucceededSealed;
@@ -1901,7 +1986,7 @@ impl Supervisor {
                         &format!("{job} a{attempt}: attention refused by the ledger: {why}"),
                     ),
                 }
-                return;
+                return SettleEnd::Done;
             }
             events.push(Event::Job {
                 job: job.into(),
@@ -1925,7 +2010,7 @@ impl Supervisor {
                 ),
             );
             self.commit(events);
-            return;
+            return SettleEnd::Done;
         }
         self.child_resource_ends.remove(job);
         let mut table = None;
@@ -1951,6 +2036,12 @@ impl Supervisor {
                 canon = Some(t.canonical);
             }
             Ok(None) => {}
+            Err(why) if text_resource_errno(&why).is_some() => {
+                return SettleEnd::Deferred {
+                    errno: text_resource_errno(&why).unwrap_or(libc::EMFILE),
+                    what: format!("reading the sealed output of {job} a{attempt}: {why}"),
+                };
+            }
             Err(why) => {
                 sealed_ok = false;
                 self.log.line(
@@ -2012,12 +2103,19 @@ impl Supervisor {
             if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
                 if e.is_no_space() {
                     self.ledger_dead = Some(RunExit::DiskFull);
+                    self.log.line(
+                        "ERROR",
+                        &format!("accepted record {}: {e}; not recorded", a.path),
+                    );
+                    return SettleEnd::Done;
                 }
-                self.log.line(
-                    "ERROR",
-                    &format!("accepted record {}: {e}; not recorded", a.path),
-                );
-                return;
+                // Not settled now (nothing committed): retried after the supervisor's back-off (an attempt is never
+                // left unsettled with no one to settle it).
+                let t = e.to_string();
+                return SettleEnd::Deferred {
+                    errno: text_resource_errno(&t).unwrap_or(libc::EIO),
+                    what: format!("writing accepted record {}: {t}", a.path),
+                };
             }
         }
         let class = if sealed_ok {
@@ -2069,6 +2167,7 @@ impl Supervisor {
         );
         self.commit(events);
         self.fp.hit("after_settle_commit");
+        SettleEnd::Done
     }
 
     // ------------------------------------------------------------------------------------------------ launch
@@ -2567,10 +2666,19 @@ impl Supervisor {
 
     fn settle_pending(&mut self, mut p: PendingSettle) {
         let label = p.label();
+        if let SettleEnd::Deferred { errno, what } = self.settle_pending_inner(&p) {
+            // gate (c), lane int5: the supervisor's own resource failure while settling: the attempt keeps its lease and
+            // waits (back-off; after MAX_RESOURCE_FAILURES in a row the campaign stops with exit 71).
+            self.resource_failure(errno, &what);
+            p.next_sweep = self
+                .resource_backoff_until
+                .unwrap_or_else(|| Instant::now() + Duration::from_secs(1));
+            self.pending.push(p);
+            return;
+        }
         if let Some(l) = p.lease.take() {
-            // Released after the settle below has been committed (or attempted).
+            // Released after the settle above has been committed.
             let lease_after = l;
-            self.settle_pending_inner(&p);
             let (r, held) = lease_after.release_checked();
             let mut notes: Vec<String> = Vec::new();
             if let Err(e) = r {
@@ -2585,14 +2693,12 @@ impl Supervisor {
             if !notes.is_empty() {
                 self.note(format!("lease {label}: {}", notes.join("; ")));
             }
-            return;
         }
-        self.settle_pending_inner(&p);
     }
 
-    fn settle_pending_inner(&mut self, p: &PendingSettle) {
+    fn settle_pending_inner(&mut self, p: &PendingSettle) -> SettleEnd {
         if self.ledger_dead.is_some() {
-            return;
+            return SettleEnd::Done;
         }
         self.settle(
             &p.job,
@@ -2604,7 +2710,7 @@ impl Supervisor {
             contract_kill_reason(p.report.kill_reason.as_ref()),
             false,
             Some(&p.report),
-        );
+        )
     }
 
     /// Every 30 s (gate-B M1): orphans of attempts that are NOT live (not running, not waiting to be settled), from the

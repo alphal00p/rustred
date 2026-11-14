@@ -513,3 +513,74 @@ fn site_files_are_never_created_and_bad_site_configs_are_refused() {
     let lease = p.acquire(1, "int5").unwrap().granted().expect("granted");
     drop(lease);
 }
+
+/// gate (c) on the int5 code (found by the gate run: at RLIMIT_NOFILE 14 the supervisor read OUTCOME at settle with
+/// EMFILE, committed an accepting finish without the OUTCOME file, and the ledger's refusal stopped it with exit 70):
+/// for every open-file limit 12..=20 the run ends with 0 or 71 (the supervisor's own resources), NEVER 70 and never a
+/// verdict from the supervisor's lack of descriptors; an exit 0 has the reference result; the resumed run equals it.
+#[test]
+fn open_file_limits_never_end_in_an_internal_error_or_another_result() {
+    let _g = serial();
+    let t = Tmp::new("g3-nofile");
+    let syn =
+        serde_json::json!({"items": 12, "nodes": 2, "rungs": 2, "case_ms": [300, 1500], "seed": 9});
+    let spec_p = write_spec(
+        &t,
+        "spec.json",
+        &spec(&t, syn, serde_json::json!({"max_jobs": 4})),
+    );
+    let r = t.cdir("reference");
+    assert_eq!(run_to_end(&spec_p, &r, &[]), vec![0]);
+    let reference = result(&r);
+    let mut summary = Vec::new();
+    for limit in 12u64..=20 {
+        let d = t.cdir(&format!("nofile{limit}"));
+        let log = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(d.with_extension("log"))
+            .unwrap();
+        let mut cmd = Command::new(SUP);
+        cmd.args(["run", "--plain", "--spec"])
+            .arg(&spec_p)
+            .arg("--dir")
+            .arg(&d)
+            .stdin(Stdio::null())
+            .stdout(log.try_clone().unwrap())
+            .stderr(log)
+            .env_remove("RR_CAMPAIGN_FAILPOINT");
+        // SAFETY: setrlimit is async-signal-safe; no allocation in the closure.
+        unsafe {
+            cmd.pre_exec(move || {
+                let lim = libc::rlimit {
+                    rlim_cur: limit,
+                    rlim_max: limit,
+                };
+                libc::setrlimit(libc::RLIMIT_NOFILE, &lim);
+                Ok(())
+            });
+        }
+        let mut c = cmd.spawn().unwrap();
+        let code = wait(&mut c, Duration::from_secs(300));
+        summary.push(format!("nofile {limit}: exit {code}"));
+        assert!(
+            code == 0 || code == 71,
+            "nofile {limit}: exit {code} (only 0 or 71): {}",
+            log_tail(&d)
+        );
+        if code == 0 {
+            assert_eq!(
+                result(&d),
+                reference,
+                "nofile {limit}: exit 0 with another result"
+            );
+        }
+        if d.join("ledger").join("MANIFEST.json").exists() {
+            let codes = run_to_end(&spec_p, &d, &[]);
+            assert_eq!(codes.last(), Some(&0), "nofile {limit} resume: {codes:?}");
+            assert_eq!(result(&d), reference, "nofile {limit}: resumed result");
+        }
+    }
+    eprintln!("{}", summary.join("\n"));
+    assert_no_marked(&t.campaign);
+}

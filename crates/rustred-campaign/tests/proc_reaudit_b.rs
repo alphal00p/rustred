@@ -194,10 +194,9 @@ fn run_scenario(scen: &str, extra_env: &[(&str, &str)], timeout: Duration) -> St
         1,
         "run inside a private pid namespace (LIGHT_PIDNS=1 light_build.sh ...)"
     );
-    for f in [
-        "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/ops/PAUSE",
-        "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/plan/auto-campaign/implementer_ops/PAUSE",
-    ] {
+    // SUBAGENT_RULES rule 2 since 2026-11-14T12:05Z: only the implementer account's flag binds (WS/ops/PAUSE reflects the
+    // coordinator's account alone)
+    for f in ["/shared/vhirschi/t3code/vakint_dev/p_integral_dev/plan/auto-campaign/implementer_ops/PAUSE"] {
         assert!(!Path::new(f).exists(), "PAUSE flag {f}");
     }
     // One scenario at a time (host load; churn timing).
