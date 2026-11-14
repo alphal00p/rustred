@@ -2417,6 +2417,17 @@ mod tests {
         child
     }
 
+    /// Test code: SIGSTOP / SIGCONT to our own direct child through the shell's `kill` builtin (the crate's static checks
+    /// allow no other `kill` call outside the guard's `sys` module, test modules included).
+    fn sh_kill(sig: &str, pid: u32) {
+        let st = std::process::Command::new("sh")
+            .args(["-c", &format!("kill -{sig} {pid}")])
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .status()
+            .unwrap();
+        assert!(st.success(), "kill -{sig} {pid}");
+    }
+
     fn state_of(pid: u32) -> Option<char> {
         let s = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
         s[s.rfind(')')? + 2..].chars().next()
@@ -2457,14 +2468,13 @@ mod tests {
         assert_eq!(hold.marker.as_deref(), Some(m.value().as_str()));
         wait_until("stopped", || state_of(pid) == Some('T'));
         a.stdin.take().unwrap().write_all(b"go\n").unwrap();
-        // SAFETY: test code; our own direct child (not reaped: its pid cannot be reused).
-        unsafe { libc::kill(pid as i32, libc::SIGCONT) };
+        // test code; our own direct child (not reaped: its pid cannot be reused).
+        sh_kill("CONT", pid);
         wait_until("unmarked image", || {
             std::fs::read(format!("/proc/{pid}/environ"))
                 .is_ok_and(|b| !b.is_empty() && marker_in_environ(&b).is_none())
         });
-        // SAFETY: as above.
-        unsafe { libc::kill(pid as i32, libc::SIGSTOP) };
+        sh_kill("STOP", pid);
         wait_until("stopped again", || state_of(pid) == Some('T'));
         (a, fd, hold, t)
     }

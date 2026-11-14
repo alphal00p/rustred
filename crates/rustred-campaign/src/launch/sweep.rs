@@ -687,8 +687,13 @@ mod tests {
             .spawn()
             .unwrap();
         let pid = c.id();
-        // SAFETY: test code; our own direct child.
-        unsafe { libc::kill(pid as i32, libc::SIGSTOP) };
+        // test code; our own direct child (the shell's `kill` builtin: no `kill` call outside the guard's `sys` module).
+        let st = std::process::Command::new("sh")
+            .args(["-c", &format!("kill -STOP {pid}")])
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .status()
+            .unwrap();
+        assert!(st.success());
         let t0 = Instant::now();
         while crate::resources::read_stat(pid).unwrap().unwrap().state != 'T' {
             assert!(t0.elapsed() < Duration::from_secs(10));

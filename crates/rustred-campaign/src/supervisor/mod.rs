@@ -403,6 +403,9 @@ pub struct Supervisor {
     ledger_dead: Option<RunExit>,
     control_stop: bool,
     disk_floor_hit: bool,
+    /// procfix6 (gate5 m4): a child died by SIGXFSZ under THIS supervisor's own finite file-size limit (inherited by its
+    /// children): drain and stop with exit 75.
+    fsize_stop: bool,
     last_disk_check: Option<Instant>,
     last_block_log: String,
     last_wait_log: String,
@@ -1019,6 +1022,7 @@ impl Supervisor {
             ledger_dead: None,
             control_stop: false,
             disk_floor_hit: false,
+            fsize_stop: false,
             last_disk_check: None,
             last_block_log: String::new(),
             last_wait_log: String::new(),
@@ -1100,6 +1104,16 @@ impl Supervisor {
         match self.ledger.append_all(events.clone()) {
             Ok(_) => Ok(true),
             Err(LedgerError::Refused(e)) => Err(e.to_string()),
+            // procfix6: a full disk is exit 75 here as in `commit` (retrying through `commit` met only the poisoned
+            // handle and stopped with 70: seen under `ulimit -f` once m4 routes SIGXFSZ ends to the attention path).
+            Err(e) if ledger_error_is_disk_full(&e) => {
+                self.log.line(
+                    "ERROR",
+                    &format!("disk full ({e}): no new job; running jobs get the grace; the ledger stays valid; free space (or raise the file-size limit) and run the same command"),
+                );
+                self.ledger_dead = Some(RunExit::DiskFull);
+                Ok(false)
+            }
             Err(_) => Ok(self.commit(events)),
         }
     }
@@ -2391,6 +2405,18 @@ impl Supervisor {
                     "WARN",
                     &format!("{job} a{attempt}: {why}: a resource end (row 15b), not a crash (was row {}{})", c.row, c.sub),
                 );
+                // The limit is this supervisor's own (`ulimit -f`, inherited by every child): retrying cannot help.
+                if why.starts_with(SIGXFSZ_WHY)
+                    && !self.fsize_stop
+                    && let Some(limit) = own_file_size_limit()
+                {
+                    self.fsize_stop = true;
+                    self.log.line(
+                        "ERROR",
+                        &format!("this supervisor runs under a file-size limit ({limit} bytes, `ulimit -f`) that its children inherit: draining, then exit 75 (DISK FULL); raise the limit (`ulimit -f unlimited`) and run the same command"),
+                    );
+                    self.signals.handle.request_stop();
+                }
                 resource_classification(&c, why)
             }
             None => c,
@@ -4379,6 +4405,9 @@ impl Supervisor {
                         reason: "drained".into(),
                     }]);
                     self.write_progress(true);
+                    if self.fsize_stop {
+                        return RunExit::DiskFull;
+                    }
                     if self.disk_floor_hit {
                         return RunExit::DiskFloor;
                     }
@@ -4897,6 +4926,20 @@ fn fake_program(p: &Path) -> bool {
         .is_some_and(|v| v.get("program").and_then(|x| x.as_str()) == Some("rr_fake_child"))
 }
 
+/// Start of the m4 reason of a SIGXFSZ death.
+const SIGXFSZ_WHY: &str = "killed by SIGXFSZ";
+
+/// This process's soft RLIMIT_FSIZE in bytes when it is finite (procfix6 m4).
+fn own_file_size_limit() -> Option<u64> {
+    // SAFETY: getrlimit fills a plain struct.
+    let mut r: libc::rlimit = unsafe { std::mem::zeroed() };
+    // SAFETY: valid out-pointer.
+    if unsafe { libc::getrlimit(libc::RLIMIT_FSIZE, &mut r) } != 0 {
+        return None;
+    }
+    (r.rlim_cur != libc::RLIM_INFINITY).then_some(r.rlim_cur as u64)
+}
+
 /// procfix6 (gate5 m4): free bytes below which a file system counts as FULL when a child ended without a usable OUTCOME.
 const DISK_FULL_BELOW_BYTES: u64 = 1 << 20;
 
@@ -4944,10 +4987,9 @@ fn disk_attributed_end(
         _ => None,
     };
     if sig == Some(libc::SIGXFSZ) {
-        return Some(
-            "killed by SIGXFSZ (a file-size limit: the host's `ulimit -f` or the file system)"
-                .into(),
-        );
+        return Some(format!(
+            "{SIGXFSZ_WHY} (a file-size limit: the host's `ulimit -f` or the file system)"
+        ));
     }
     match &ev.outcome {
         OutcomeState::Valid(o) => o
@@ -5004,6 +5046,8 @@ fn ledger_error_is_disk_full(e: &LedgerError) -> bool {
             w.contains("file too large")
                 || w.contains("no space left")
                 || w.contains("quota exceeded")
+                // procfix6: a handle poisoned by ENOSPC carries `LedgerError::NoSpace`'s text
+                || w.contains("disk full appending")
         }
         _ => false,
     }
