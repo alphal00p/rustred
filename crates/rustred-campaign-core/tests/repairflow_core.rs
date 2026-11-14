@@ -442,7 +442,10 @@ fn exception_faces_from_the_domain_code() {
         json!({"frame": "PRESENTED", "fixed": [null, 2, 1, 0, 0], "equations": []})
     );
     assert_eq!(x.free_dims, 1);
-    assert_eq!(faces[0].label, "x:T0#0@b0");
+    assert_eq!(faces[0].label, "x:{0,1}x{}:T0#0@b0");
+    assert!(x.constrained, "the branch fixes a face slot");
+    let lay = rustred_campaign_core::repairflow::faces::layers(&faces[0], &lines());
+    assert_eq!(lay.len(), 2, "{lay:?}");
     assert_eq!(attributed.len(), 2);
     assert_eq!(st.attributed, 2);
     assert!(!st.truncated);

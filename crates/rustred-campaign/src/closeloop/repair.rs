@@ -479,6 +479,10 @@ impl<S: WorkSource> RepairFlowSource<S> {
             &p1.outside,
             &self.nodes[i].policy,
         );
+        let mut d = d;
+        for (fd, fg) in d.faces.iter_mut().zip(&p1.faces) {
+            fd.layers = rf::faces::layers(fg, p1.frame.mask());
+        }
         let dbytes = json_bytes(&serde_json::to_value(&d).map_err(|e| e.to_string())?);
         if let Some(r) = st.inputs.get(&input_decisions(&n))
             && r.blake3 != blake3_hex(&dbytes)
@@ -955,6 +959,28 @@ impl<S: WorkSource> RepairFlowSource<S> {
             } else {
                 "symbolic"
             };
+            // route 1 failed for SIZE / budget while route 2 served every key: a typed candidate for a larger-budget
+            // symbolic attempt later (never "closed for all layers")
+            let size_stop = match &f.symbolic.class {
+                rf::Class::OverCap { .. }
+                | rf::Class::CostlierThanRecipe
+                | rf::Class::OverNodeBudget { .. } => true,
+                rf::Class::NoCandidate { why } => {
+                    why.contains("KilledTime") || why.contains("budget") || why.contains("refus")
+                }
+                _ => false,
+            };
+            let status = if f.kept.is_some() {
+                json!("closed_symbolic_all_layers")
+            } else if size_stop && pf.1 > 0 && pf.2 == 0 {
+                json!({"candidate_larger_budget_symbolic": f.symbolic.class})
+            } else if pf.1 > 0 && pf.2 == 0 {
+                json!("pointwise_certified_where_solved")
+            } else if pf.2 > 0 {
+                json!("open")
+            } else {
+                json!("served_by_tables")
+            };
             let note = if served == "pointwise" {
                 "served POINTWISE: certified keys + run-time recipe solves for the rest (a key of this face may cost a solve)"
             } else {
@@ -964,7 +990,9 @@ impl<S: WorkSource> RepairFlowSource<S> {
                 json!({"face": f.face, "sd": f.sd, "sn": f.sn, "escalation": esc,
                 "symbolic_kept": f.kept.is_some(), "exception": f.exception,
                 "domain_covered": f.domain_covered, "served": served,
-                "keys_by": {"tables": pf.0, "recipes": pf.1, "open": pf.2}, "note": note}),
+                "keys_by": {"tables": pf.0, "recipes": pf.1, "open": pf.2}, "note": note,
+                "status": status, "layers": f.layers,
+                "evidence": "certified where solved (certified/ files); deeper layers: NOT sampled in this version; outside: run-time solve with the same escalation"}),
             );
         }
         // the default sequence (the closing loop's default recipe) with its certified keys and cost

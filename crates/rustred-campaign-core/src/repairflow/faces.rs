@@ -347,6 +347,9 @@ pub struct ExceptionRef {
     pub case: Value,
     /// Free directions of the case (symbolic slots minus independent equations, as written).
     pub free_dims: u64,
+    /// The case is narrower than the bare support signature (extra fixed values / equations on face slots).
+    #[serde(default)]
+    pub constrained: bool,
 }
 
 /// Affine polynomial -> engine text (`2*n6+n11-1`); None if not affine in the indices (or depends on d).
@@ -391,55 +394,124 @@ pub fn affine_text(p: &crate::poly::Poly, arity: usize) -> Option<String> {
     Some(s)
 }
 
-/// The parametric case of (rule domain, branch): fixed slots of the rule, its equations and the branch literals
-/// (a unit single-slot literal becomes a fixed value). Err: not expressible (pattern target, nonlinear literal, empty).
-pub fn exception_case(d: &CaseDomain, branch: usize) -> Result<(Value, u64), String> {
+/// The parametric case of (support signature, rule domain, branch): the signature's case (face slots free, every other
+/// slot at its floor) intersected with the rule's fixed slots, its equations and the branch literals; literals implied by
+/// the fixed values are dropped, a unit single-slot literal fixes its slot. Returns (case line, free directions,
+/// constrained: the case is narrower than the signature). Err: not expressible (pattern target, nonlinear literal,
+/// inconsistent).
+pub fn exception_case_on(
+    face: &Face,
+    lines: &[bool],
+    d: &CaseDomain,
+    branch: usize,
+) -> Result<(Value, u64, bool), String> {
     if d.target != crate::domain::TargetMap::Canonical {
         return Err("rule with a non-canonical target pattern".into());
     }
     let n = d.arity;
     let br = d.exceptions.get(branch).ok_or("no such branch")?;
-    let mut fixed: Vec<Option<i32>> = d.fixed.clone();
+    let slots = face.slots();
+    let mut fixed: Vec<Option<i32>> = (0..n)
+        .map(|i| {
+            if slots.contains(&i) {
+                None
+            } else {
+                Some(if lines[i] { 1 } else { 0 })
+            }
+        })
+        .collect();
+    let mut constrained = false;
+    for (i, f) in d.fixed.iter().enumerate() {
+        if let Some(v) = f {
+            match fixed[i] {
+                Some(w) if w != *v => return Err("rule fixed slot outside the signature".into()),
+                Some(_) => {}
+                None => {
+                    fixed[i] = Some(*v);
+                    constrained = true;
+                }
+            }
+        }
+    }
     let mut eqs: Vec<String> = vec![];
+    let zero = vec![0i32; n];
     for p in d.equations.iter().chain(br.iter()) {
-        let t = affine_text(p, n).ok_or_else(|| format!("nonlinear literal {p}"))?;
-        // unit single-slot literal: c*n_i + k = 0 with |c| = 1 -> n_i = -k/c
-        let zero = vec![0i32; n];
+        if p.has_d() || p.degree() > 1 {
+            return Err(format!("nonlinear literal {p}"));
+        }
         let c0 = p.eval_checked_i128(&zero).map_err(|e| format!("{e:?}"))?;
-        let mut nz = vec![];
+        let mut cst = c0;
+        let mut nz: Vec<(usize, i128)> = vec![];
         for i in 0..n {
             let mut e = zero.clone();
             e[i] = 1;
             let c = p.eval_checked_i128(&e).map_err(|e| format!("{e:?}"))? - c0;
-            if c != 0 {
-                nz.push((i, c));
+            if c == 0 {
+                continue;
+            }
+            match fixed[i] {
+                Some(v) => cst += c * v as i128,
+                None => nz.push((i, c)),
             }
         }
         match nz.as_slice() {
-            [] if c0 == 0 => {}
-            [] => return Err("an inconsistent literal (non-zero constant)".into()),
+            [] if cst == 0 => {} // implied by the fixed values
+            [] => return Err("literal inconsistent with the signature".into()),
             [(i, c)] if c.abs() == 1 => {
-                let v = (-c0 * c) as i32;
-                if let Some(f) = fixed[*i]
-                    && f != v
-                {
-                    return Err("inconsistent fixed value".into());
-                }
-                fixed[*i] = Some(v);
+                fixed[*i] = Some((-cst * c) as i32);
+                constrained = true;
             }
-            _ => eqs.push(t),
+            _ => {
+                let mut t = String::new();
+                for (k, (i, c)) in nz.iter().enumerate() {
+                    let sign = if *c < 0 {
+                        "-"
+                    } else if k > 0 {
+                        "+"
+                    } else {
+                        ""
+                    };
+                    let a = c.abs();
+                    t.push_str(&if a == 1 {
+                        format!("{sign}n{i}")
+                    } else {
+                        format!("{sign}{a}*n{i}")
+                    });
+                }
+                if cst != 0 {
+                    t.push_str(&if cst < 0 {
+                        format!("{cst}")
+                    } else {
+                        format!("+{cst}")
+                    });
+                }
+                eqs.push(t);
+                constrained = true;
+            }
         }
     }
     let free = fixed.iter().filter(|x| x.is_none()).count() as u64;
-    let fdims = free.saturating_sub(eqs.len() as u64);
     let fv: Vec<Value> = fixed
         .iter()
         .map(|x| x.map(|v| json!(v)).unwrap_or(Value::Null))
         .collect();
     Ok((
         json!({"frame": "PRESENTED", "fixed": fv, "equations": eqs}),
-        fdims,
+        free.saturating_sub(eqs.len() as u64),
+        constrained,
     ))
+}
+
+/// The parametric case of (rule domain, branch) on the rule's own case (no signature): see [`exception_case_on`].
+pub fn exception_case(d: &CaseDomain, branch: usize) -> Result<(Value, u64), String> {
+    let n = d.arity;
+    // every slot "in the face": no signature constraint
+    let lines = d.chart.clone().unwrap_or_else(|| vec![true; n]);
+    let face = Face::new(
+        (0..n).filter(|&i| lines[i]).collect(),
+        (0..n).filter(|&i| !lines[i]).collect(),
+    );
+    exception_case_on(&face, &lines, d, branch).map(|(c, f, _)| (c, f))
 }
 
 /// The first dispatch entry (in order) that puts `key` on one of its exception branches: (entry, branch), within the
@@ -492,7 +564,7 @@ pub fn exception_faces(
         ..Default::default()
     };
     let mut left = budget;
-    let mut by: BTreeMap<(usize, usize), Vec<Key>> = BTreeMap::new();
+    let mut by: BTreeMap<(String, usize, usize), Vec<Key>> = BTreeMap::new();
     for k in keys {
         if left == 0 {
             st.truncated = true;
@@ -501,27 +573,27 @@ pub fn exception_faces(
         let before = left;
         let a = attribute_exception(src, k, &mut left);
         st.evaluations += before - left;
-        if let Some(e) = a {
-            by.entry(e).or_default().push(k.clone());
+        if let (Some((e, b)), Some(f)) = (a, Face::of_key(k, lines)) {
+            by.entry((f.label(), e, b)).or_default().push(k.clone());
         } else if left == 0 {
             st.truncated = true;
         }
     }
     let mut faces = vec![];
     let mut attributed = std::collections::BTreeSet::new();
-    for ((entry, branch), ks) in by {
+    for ((_sig, entry, branch), ks) in by {
         st.attributed += ks.len() as u64;
-        match exception_case(src.domain(entry), branch) {
-            Ok((case, free_dims)) => {
+        let f0 = Face::of_key(&ks[0], lines).unwrap_or_else(|| Face::new(vec![], vec![]));
+        match exception_case_on(&f0, lines, src.domain(entry), branch) {
+            Ok((case, free_dims, constrained)) => {
                 let (source, label, sha) = prov(entry);
-                let f0 = Face::of_key(&ks[0], lines).unwrap_or_else(|| Face::new(vec![], vec![]));
                 for k in &ks {
                     attributed.insert(k.clone());
                 }
                 let mut ks = ks;
                 ks.sort();
                 faces.push(FaceGroup {
-                    label: format!("x:{source}#{label}@b{branch}"),
+                    label: format!("x:{}:{source}#{label}@b{branch}", f0.label()),
                     sd: f0.sd.clone(),
                     sn: f0.sn.clone(),
                     open_keys: ks,
@@ -533,6 +605,7 @@ pub fn exception_faces(
                         branch,
                         case,
                         free_dims,
+                        constrained,
                     }),
                     unattributed: 0,
                 });
@@ -547,4 +620,60 @@ pub fn exception_faces(
             .then(a.label.cmp(&b.label))
     });
     (faces, attributed, st)
+}
+
+/// The layer of a key: (D = sum of line powers above 1, r = sum of numerator ranks).
+pub fn layer_of(key: &[i32], lines: &[bool]) -> (u64, u64) {
+    let mut d = 0u64;
+    let mut r = 0u64;
+    for (&v, &l) in key.iter().zip(lines) {
+        if l {
+            d += (v - 1).max(0) as u64;
+        } else {
+            r += (-v).max(0) as u64;
+        }
+    }
+    (d, r)
+}
+
+fn binom(n: u64, k: u64) -> f64 {
+    if k > n {
+        return 0.0;
+    }
+    let k = k.min(n - k);
+    let mut x = 1.0f64;
+    for i in 0..k {
+        x = x * (n - i) as f64 / (i + 1) as f64;
+    }
+    x.round()
+}
+
+/// Keys of a support signature (|sd| dotted lines >= 2, |sn| numerators <= -1, nothing else) in layer (D, r):
+/// C(D-1, |sd|-1) * C(r-1, |sn|-1) (compositions; 1 for an empty part at 0, 0 otherwise).
+pub fn layer_capacity(sd: usize, sn: usize, d: u64, r: u64) -> f64 {
+    let part = |k: usize, t: u64| -> f64 {
+        if k == 0 {
+            if t == 0 { 1.0 } else { 0.0 }
+        } else if t < k as u64 {
+            0.0
+        } else {
+            binom(t - 1, k as u64 - 1)
+        }
+    };
+    part(sd, d) * part(sn, r)
+}
+
+/// Observed keys per layer of a face with the signature capacity (exact only for an unconstrained signature face).
+pub fn layers(f: &FaceGroup, lines: &[bool]) -> Vec<Value> {
+    let mut m: BTreeMap<(u64, u64), u64> = BTreeMap::new();
+    for k in &f.open_keys {
+        *m.entry(layer_of(k, lines)).or_default() += 1;
+    }
+    let exact = f.exception.as_ref().is_none_or(|x| !x.constrained);
+    m.into_iter()
+        .map(|((d, r), c)| {
+            json!({"d": d, "r": r, "observed": c,
+                   "capacity": layer_capacity(f.sd.len(), f.sn.len(), d, r), "capacity_exact": exact})
+        })
+        .collect()
 }

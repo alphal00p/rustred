@@ -143,6 +143,9 @@ pub struct FaceDecision {
     /// The exception face (rule, branch, parametric case) when this is one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exception: Option<super::faces::ExceptionRef>,
+    /// Observed keys per layer (D, r) with the signature capacity.
+    #[serde(default)]
+    pub layers: Vec<Value>,
     /// The kept rule's domain as written (fixed, equations, exceptions): what it covers for every power.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain_covered: Option<Value>,
@@ -251,6 +254,7 @@ pub fn decide(
             recipe_steps: vec![],
             recipe_note: String::new(),
             exception: f.exception.clone(),
+            layers: vec![],
             domain_covered: None,
         });
     }
