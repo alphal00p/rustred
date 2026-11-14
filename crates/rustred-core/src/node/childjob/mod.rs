@@ -191,8 +191,9 @@ pub struct Resumed {
     /// The driver's running counters at the commit point: [rhs terms, branches, discarded, deferred regions,
     /// deferred branches].
     pub counters: [usize; 5],
-    /// Deferred regions (charts, PRESENTED slots).
-    pub deferred: Vec<CaseSpec>,
+    /// Deferred regions and failed branch admissions (charts, PRESENTED slots) with the driver's detail object
+    /// (kind, rule, branch, reason, ...; `null` when an older RESUME has none).
+    pub deferred: Vec<(CaseSpec, Value)>,
     /// A resume of an earlier attempt (the table and queue log continue a copied prefix); false for PRESENTED cases.
     pub prefix: bool,
 }
@@ -295,7 +296,7 @@ pub fn tick_reducer_row() {
 pub(crate) fn queue_lists<const N: usize>(
     pending: &[Case<N>],
     numerical: &[CoordinateCase<N>],
-    deferred: &[Case<N>],
+    deferred: &[(Case<N>, Value)],
     n: usize,
 ) -> OpenQueue {
     OpenQueue {
@@ -314,7 +315,9 @@ pub(crate) fn queue_lists<const N: usize>(
             .collect(),
         deferred: deferred
             .iter()
-            .map(|c| serde_json::json!({"chart": job_case(&super::driver::case_spec(c, n))}))
+            .map(|(c, d)| {
+                serde_json::json!({"chart": job_case(&super::driver::case_spec(c, n)), "detail": d})
+            })
             .collect(),
     }
 }
@@ -1536,8 +1539,10 @@ fn restore(j: &Job, v: &cc::preflight::VerifiedResume) {
         deferred: r
             .deferred
             .iter()
-            .filter_map(|d| serde_json::from_value::<JobCase>(d["chart"].clone()).ok())
-            .map(|c| spec_of(&c))
+            .filter_map(|d| {
+                let c = serde_json::from_value::<JobCase>(d["chart"].clone()).ok()?;
+                Some((spec_of(&c), d.get("detail").cloned().unwrap_or(Value::Null)))
+            })
             .collect(),
         prefix: true,
     });
@@ -1859,6 +1864,12 @@ fn finish(j: &Arc<Job>, res: GenResult) -> ! {
         Some(StopReason::BeforeNumeric { .. }) => (
             ExitCode::Incomplete,
             Some(StopCode::BeforeNumeric),
+            None,
+            None,
+        ),
+        Some(StopReason::OpenObligations { .. }) => (
+            ExitCode::Incomplete,
+            Some(StopCode::OpenObligations),
             None,
             None,
         ),
