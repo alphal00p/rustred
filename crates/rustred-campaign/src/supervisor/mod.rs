@@ -3382,6 +3382,7 @@ mod tests {
             rules: v.rules,
             elided_loci: 0,
             streams: vec![v],
+            relations: None,
         }
     }
 
