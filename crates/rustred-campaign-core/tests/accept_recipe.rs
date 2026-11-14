@@ -206,3 +206,99 @@ fn recipe_certification_and_assembly() {
         panic!()
     };
 }
+
+/// The ENGINE verb's results.jsonl shape (coord-recipe-solve.md v0 s.7; SYNTHETIC records, no verb exists yet).
+#[test]
+fn engine_results_shape_is_read() {
+    if !available("TOY2kite") {
+        return;
+    }
+    let node = load_node("TOY2kite");
+    let ko_path = ko_table(&node, "K2-single");
+    let (_, t) = load_table(&ko_path, "ko");
+    let ko = Dispatcher::new(vec![t], vec![0]).unwrap();
+    let (_, line) = witness_lines("TOY2kite", "K2-single")[0].clone();
+    let w = RuleText::parse(&line, &node.frame).unwrap();
+    let det = "rustred.recipe-solve.v1/elim=rustred.recipe-elim.v1/prime=2305843009213693951/seed=0/backend=sparse-target-only-factorized";
+    let recipe = Recipe::new(
+        &w.value,
+        "sha256:order",
+        &json!({"seeds": {"unit": "harder"}}),
+        det,
+        &node.frame,
+    )
+    .unwrap();
+    let gaps = gap_keys(&node, "K2-single");
+    let inst = Instantiator::new(&w).unwrap();
+    let mut text = String::new();
+    for (i, k) in gaps.iter().enumerate() {
+        let rhs: Vec<Value> = inst
+            .terms(k)
+            .unwrap()
+            .into_iter()
+            .map(|(t, _)| {
+                json!([
+                    format!(
+                        "I({})",
+                        t.iter()
+                            .map(|x| x.to_string())
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    ),
+                    "1"
+                ])
+            })
+            .collect();
+        let v = if i == 0 {
+            json!({"type": "relation", "ordinal": i, "key": k, "verdict": "NO_RELATION_IN_SEEDS", "determinism_id": det,
+                "recipe_digest": "abc", "rhs": null, "relation_digest": null,
+                "failure": {"schema": "rustred.recipe-failure.v1", "class": "no_relation_in_seeds", "message": "synthetic"}})
+        } else {
+            json!({"type": "relation", "ordinal": i, "key": k, "verdict": "SOLVED", "determinism_id": det, "recipe_digest": "abc",
+                "target": "I(..)", "rhs": rhs, "relation_digest": format!("{i:064x}"), "proof": {"kind": "exact-weights", "weights": 3, "ok": true},
+                "seconds": 0.5})
+        };
+        text.push_str(&format!("{v}\n"));
+    }
+    text.push_str("{\"type\":\"end\",\"records\":20}\n");
+    let mut ans = SolveAnswers::new(&recipe.digest);
+    assert_eq!(
+        ans.load_engine_results(&text, 1, "abc", "blake3:binary")
+            .unwrap(),
+        20
+    );
+    assert!(
+        ans.load_engine_results(&text, 1, "other", "blake3:binary")
+            .is_err()
+    );
+    let input = RecipeInput {
+        node: view(
+            &node,
+            NodeTarget::Boxed {
+                box_id: "fixture-box".into(),
+            },
+            RequiredEvidence::PerKey,
+        ),
+        before: Some(&ko),
+        after: None,
+        recipe: &recipe,
+        keys: &gaps,
+        determinism: Determinism::None,
+        expected_binary: Some("blake3:binary".into()),
+    };
+    let v = accept_recipe(&input, &ans).unwrap();
+    let RecipeVerdict::Certified {
+        certified,
+        open,
+        cost_ms,
+        ..
+    } = &v
+    else {
+        panic!("{v:?}")
+    };
+    assert_eq!(certified.len(), 19);
+    assert_eq!(*cost_ms, 19 * 500);
+    assert!(
+        matches!(&open[0].1, OpenReason::SolveFailed(m) if m.starts_with("NO_RELATION_IN_SEEDS"))
+    );
+}

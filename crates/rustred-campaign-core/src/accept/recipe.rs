@@ -151,6 +151,82 @@ impl SolveAnswers {
         }
         Ok(n)
     }
+    /// Read the ENGINE verb's sealed `results.jsonl` (interfaces/coord-recipe-solve.md v0, section 7) as run `run`
+    /// (two independent jobs = runs 1 and 2). `engine_recipe_digest` = the verb's recipe digest (BLAKE3 of its recipe
+    /// file; must equal every record's), `binary` = the binary identity from the job's OUTCOME. Mapping: verdict
+    /// SOLVED -> ok; `rhs` I(..) texts -> rhs keys (keys only; descent is re-checked by the chain); `relation_digest`
+    /// -> `blake3:<hex>`; IRREGULAR -> regular "pole"; `proof.ok` -> exact check pass / fail (null -> not_run);
+    /// `determinism_id` -> the determinism contract; `seconds` -> cost (volatile, cost only). Returns records read.
+    pub fn load_engine_results(
+        &mut self,
+        text: &str,
+        run: u32,
+        engine_recipe_digest: &str,
+        binary: &str,
+    ) -> Result<usize, String> {
+        let mut n = 0;
+        for (no, l) in text.lines().enumerate() {
+            if l.trim().is_empty() {
+                continue;
+            }
+            let v: Value = serde_json::from_str(l).map_err(|e| format!("line {}: {e}", no + 1))?;
+            if v["type"] != "relation" {
+                continue;
+            }
+            if v["recipe_digest"] != engine_recipe_digest {
+                return Err(format!(
+                    "line {}: record of recipe {} (expected {engine_recipe_digest})",
+                    no + 1,
+                    v["recipe_digest"]
+                ));
+            }
+            let key: Key = serde_json::from_value(v["key"].clone())
+                .map_err(|e| format!("line {}: key {e}", no + 1))?;
+            let verdict = v["verdict"].as_str().unwrap_or("ERROR");
+            let mut rhs = Vec::new();
+            for t in v["rhs"].as_array().into_iter().flatten() {
+                let k = t[0]
+                    .as_str()
+                    .and_then(crate::assemble::parse_key_text)
+                    .ok_or_else(|| format!("line {}: unreadable rhs key {t}", no + 1))?;
+                rhs.push(k);
+            }
+            let canon =
+                crate::schema::canon::canonical_json(&v, true).unwrap_or_else(|_| l.to_string());
+            let a = SolveAnswer {
+                key: key.clone(),
+                run,
+                ok: verdict == "SOLVED",
+                failure: (verdict != "SOLVED").then(|| {
+                    format!(
+                        "{verdict}: {}",
+                        v["failure"]["message"].as_str().unwrap_or("")
+                    )
+                }),
+                rhs_keys: rhs,
+                relation_digest: v["relation_digest"].as_str().map(|h| format!("blake3:{h}")),
+                regular: if verdict == "IRREGULAR" {
+                    "pole".into()
+                } else if verdict == "SOLVED" {
+                    "regular".into()
+                } else {
+                    "unknown".into()
+                },
+                exact_check: match v["proof"]["ok"].as_bool() {
+                    Some(true) => "pass".into(),
+                    Some(false) => "fail".into(),
+                    None => "not_run".into(),
+                },
+                cost_ms: (v["seconds"].as_f64().unwrap_or(0.0) * 1000.0) as u64,
+                binary_sha256: Some(binary.to_string()),
+                determinism_contract: v["determinism_id"].as_str().map(str::to_string),
+                line: canon,
+            };
+            self.map.insert((key, run), a);
+            n += 1;
+        }
+        Ok(n)
+    }
     pub fn get(&self, key: &[i32], run: u32) -> Option<&SolveAnswer> {
         self.map.get(&(key.to_vec(), run))
     }
