@@ -25,6 +25,7 @@ fn m(bytes: u64, rhs: u64, mono: u64, rows: u64) -> Measures {
         monomials: mono,
         trace_rows: rows,
         seconds: 0.0,
+        free_dims: 0,
     }
 }
 

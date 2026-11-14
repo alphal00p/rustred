@@ -19,6 +19,9 @@ pub struct Measures {
     pub trace_rows: u64,
     /// `seconds_search + lift_seconds` as recorded (information only, never a decision input).
     pub seconds: f64,
+    /// Free directions of the rule's case: symbolic slots (`fixed` null) minus its equations.
+    #[serde(default)]
+    pub free_dims: u64,
 }
 
 /// The measures of a rule line.
@@ -37,6 +40,16 @@ pub fn measures_of(line: &str) -> Result<Measures, String> {
         _ => return Err("candidate record: no rhs".into()),
     };
     let u = |k: &str| v.get(k).and_then(Value::as_u64).unwrap_or(0);
+    let free = v
+        .get("fixed")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter(|x| x.is_null()).count() as u64)
+        .unwrap_or(0);
+    let eqs = v
+        .get("equations")
+        .and_then(Value::as_array)
+        .map(|a| a.len() as u64)
+        .unwrap_or(0);
     let f = |k: &str| v.get(k).and_then(Value::as_f64).unwrap_or(0.0);
     Ok(Measures {
         bytes: line.len() as u64,
@@ -44,6 +57,7 @@ pub fn measures_of(line: &str) -> Result<Measures, String> {
         monomials: u("monomials"),
         trace_rows: u("trace_rows"),
         seconds: f("seconds_search") + f("lift_seconds"),
+        free_dims: free.saturating_sub(eqs),
     })
 }
 
@@ -108,7 +122,8 @@ pub struct Cost {
 /// C_table and C_recipe of a candidate serving `served` keys (interface section 3).
 pub fn cost(m: &Measures, served: u64, p: &RepairPolicy) -> Cost {
     let c = &p.cost;
-    let uses = served as f64 * c.uses_per_served_key;
+    let uses = served as f64 * c.uses_per_served_key
+        + m.free_dims as f64 * c.unbounded_direction_uses;
     let c_table = c.table_weight
         * (c.load_ns_per_byte * m.bytes as f64
             + uses * (c.apply_ns_base + c.apply_ns_per_monomial * m.monomials as f64));

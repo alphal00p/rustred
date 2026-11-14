@@ -22,7 +22,7 @@
 use super::config::{CONFIG_ROLE, CloseLoopConfig, NodeCfg};
 use super::ids::{input_final, input_import_spec, node_dir, safe};
 use crate::ledger::{AcceptSource, Event, ItemEvent};
-use crate::state::{AttemptState, CampaignState, EvidenceLevel, ItemPhase, NodePhase, Rung};
+use crate::state::{AttemptState, CampaignState, EvidenceLevel, ItemPhase, NodeEvent, NodePhase, Rung};
 use crate::supervisor::spec::CampaignSpec;
 use crate::supervisor::worksource::{
     AcceptedRecord, JobRequest, Routing, Settled, SourceContext, WorkSource,
@@ -72,6 +72,11 @@ pub fn input_extension(n: &str) -> String {
 pub fn input_report(n: &str) -> String {
     format!("repairflow:{n}:report")
 }
+pub fn input_withheld(n: &str) -> String {
+    format!("repairflow:{n}:withheld")
+}
+pub const ROLE_WITHHELD: &str = "repairflow_withheld";
+pub const MANIFEST_SCHEMA: &str = "rustred.campaign.recipe-export.v1";
 pub fn input_answer(item: &str, job: &str) -> String {
     format!("repairflow:{item}:answer:{job}")
 }
@@ -512,7 +517,7 @@ impl<S: WorkSource> RepairFlowSource<S> {
         for (k, s) in ext.into_iter().enumerate() {
             srcs.insert(at + k, s);
         }
-        v["repairflow"] = json!({"policy_digest": pd, "decisions": blake3_hex(&dbytes)});
+        // (the import spec refuses unknown fields: the policy / decisions digests live in the decisions and report)
         let composed = serde_json::to_string_pretty(&v).expect("json") + "\n";
         if st.inputs.get(&input_decisions(&n)).is_none() {
             let rec = record(format!("{dir}/decisions.json"), dbytes.clone());
@@ -529,9 +534,9 @@ impl<S: WorkSource> RepairFlowSource<S> {
             let fd = d.faces.iter().find(|f| f.face == label);
             let job = st.items.get(&item).and_then(|x| x.jobs.last().cloned()).unwrap_or_default();
             let ans_ref = st.inputs.get(&input_answer(&item, &job));
-            match (fd, ans_ref) {
-                (Some(f), Some(a)) if f.kept.is_some() => {
-                    let attempt = st.jobs.get(&job).map(|j| j.attempt).unwrap_or(1);
+            let produced_by = st.items.get(&item).and_then(|x| x.produced.clone());
+            match (fd, ans_ref, produced_by) {
+                (Some(f), Some(a), Some(pb)) if f.kept.is_some() => {
                     rt.events.push(Event::Item {
                         item: item.clone(),
                         ev: ItemEvent::Accept {
@@ -542,10 +547,11 @@ impl<S: WorkSource> RepairFlowSource<S> {
                                 bytes: a.bytes,
                                 blake3: a.blake3.clone(),
                             },
+                            // bound to the sealed table that produced the item (ledger rule)
                             source: AcceptSource::Job {
-                                job: job.clone(),
-                                attempt,
-                                table_blake3: a.blake3.clone(),
+                                job: pb.job.clone(),
+                                attempt: pb.attempt,
+                                table_blake3: pb.table.blake3.clone(),
                             },
                             elided: false,
                             evidence: None,
@@ -553,14 +559,14 @@ impl<S: WorkSource> RepairFlowSource<S> {
                         },
                     });
                 }
-                (Some(f), _) => rt.events.push(Event::Item {
+                (Some(f), _, _) => rt.events.push(Event::Item {
                     item: item.clone(),
                     ev: ItemEvent::Reject {
                         reason: format!("repairflow: {}", class_text(&f.symbolic.class)),
                         disproof: None,
                     },
                 }),
-                (None, _) => rt.events.push(Event::Item {
+                (None, _, _) => rt.events.push(Event::Item {
                     item: item.clone(),
                     ev: ItemEvent::Reject {
                         reason: "repairflow: face not in the decisions".into(),
@@ -574,110 +580,353 @@ impl<S: WorkSource> RepairFlowSource<S> {
         Ok(())
     }
 
-    /// P5: the report after the closing loop's final result.
+    /// WITHHOLD the closing loop's open declaration (AttemptEnded + DeclareOpen) of a flow node whose final verdict is
+    /// `open`: P5 decides whether the terminal proposals close it (else the events are released unchanged).
+    fn filter_inner(&mut self, mut rt: Routing) -> Routing {
+        for r in &self.nodes {
+            if !r.policy.proposals.enabled || !r.policy.proposals.declare_terminal {
+                continue;
+            }
+            let fin = input_final(&r.n);
+            let Some(fr) = rt.events.iter().find_map(|e| match e {
+                Event::InputRegistered { input, path, .. } if *input == fin => Some(path.clone()),
+                _ => None,
+            }) else {
+                continue;
+            };
+            let res: Value = rt
+                .accepts
+                .iter()
+                .find(|a| self.abs(&a.path).display().to_string() == fr || a.path == fr)
+                .and_then(|a| serde_json::from_slice(&a.bytes).ok())
+                .unwrap_or(Value::Null);
+            if res["verdict"] != "open" {
+                continue;
+            }
+            let node = r.cfg.node.clone();
+            let mut withheld = vec![];
+            rt.events.retain(|e| match e {
+                Event::Node { node: x, ev: NodeEvent::AttemptEnded { .. } | NodeEvent::DeclareOpen { .. } }
+                    if *x == node =>
+                {
+                    withheld.push(e.clone());
+                    false
+                }
+                _ => true,
+            });
+            let w = record(
+                format!("{}/withheld.json", rf_dir(&r.n)),
+                json_bytes(&json!({"schema": "rustred.campaign.repairflow-withheld.v1", "node": node,
+                    "events": withheld})),
+            );
+            let f = w.file_ref();
+            rt.events.push(Event::InputRegistered {
+                input: input_withheld(&r.n),
+                role: ROLE_WITHHELD.into(),
+                path: self.abs(&w.path).display().to_string(),
+                bytes: f.bytes,
+                blake3: f.blake3,
+            });
+            rt.accepts.push(w);
+        }
+        rt
+    }
+
+    fn closeout_check(&self, i: usize, fin: &Value, open: usize) -> (bool, String) {
+        closeout_check(&self.nodes[i].policy.proposals, fin, open)
+    }
+
+    /// Per recipe source: solve jobs, keys and the measured CPU seconds per key (from the closing loop's batches).
+    fn solve_costs(&self, st: &CampaignState, i: usize) -> BTreeMap<String, (u64, u64, Vec<f64>)> {
+        let node = &self.nodes[i].cfg.node;
+        let mut m: BTreeMap<String, (u64, u64, Vec<f64>)> = BTreeMap::new();
+        for (item, it) in st.items.iter().filter(|(_, it)| it.node == *node && it.kind == super::ids::KIND_SOLVE) {
+            let Ok(b) = read_input(st, &super::ids::input_batch(item)) else { continue };
+            let Ok(bf) = serde_json::from_slice::<super::accept::BatchFile>(&b) else { continue };
+            for j in &it.jobs {
+                let Some(rd) = st.jobs.get(j).and_then(|x| x.run_dir.clone()) else { continue };
+                let c = super::termmin::cost_of(Path::new(&rd), j);
+                let e = m.entry(bf.source.clone()).or_default();
+                e.0 += 1;
+                e.1 += bf.keys.len() as u64;
+                if let Some(cpu) = c.cpu_s {
+                    e.2.push(cpu / bf.keys.len().max(1) as f64);
+                }
+            }
+        }
+        m
+    }
+
+    /// P5: the report after the closing loop's final result: per face the decision, keys by class, terminal
+    /// proposals (and the close-out by them), the SELF-CONTAINED export (recipes in escalation order, certified key
+    /// sets with per-key evidence, the default sequence, measured per-key solve costs, run-time budgets, digests).
     fn report(&mut self, st: &CampaignState, i: usize, rt: &mut Routing) -> Result<(), String> {
         let n = self.nodes[i].n.clone();
+        let node = self.nodes[i].cfg.node.clone();
         let dir = rf_dir(&n);
         let d: NodeDecisions = serde_json::from_slice(&read_input(st, &input_decisions(&n))?)
             .map_err(|e| format!("decisions: {e}"))?;
         let fin: Value = serde_json::from_slice(&read_input(st, &input_final(&n))?).unwrap_or(Value::Null);
-        // the final statement rows: per key status + server source
+        // the final statement rows: per key status + server source + evidence
         let stmt = self.abs(&format!("{}/final/statement/statement.jsonl", node_dir(&n)));
-        let mut by_server: BTreeMap<String, u64> = BTreeMap::new();
+        let mut by_server: BTreeMap<String, Vec<Value>> = BTreeMap::new();
         let mut by_class: BTreeMap<String, u64> = BTreeMap::new();
         let mut open_keys: Vec<Value> = vec![];
+        let mut stmt_lines: Vec<String> = vec![];
         if let Ok(t) = std::fs::read_to_string(&stmt) {
             for l in t.lines().filter(|l| !l.trim().is_empty()) {
+                stmt_lines.push(l.to_string());
                 let Ok(r) = serde_json::from_str::<Value>(l) else { continue };
                 let status = r["status"].as_str().unwrap_or("");
-                let src = r["source"].as_str().or(r["server"]["source"].as_str()).unwrap_or("").to_string();
-                let class = r["class"].as_str().unwrap_or("").to_string();
+                let src = r["server"]["source"].as_str().unwrap_or("").to_string();
+                let class = r["server"]["class"].as_str().unwrap_or("").to_string();
                 if status == "open" {
                     open_keys.push(r["key"].clone());
                 }
                 if status == "served" {
                     *by_class.entry(class).or_default() += 1;
                     if src.starts_with("rf:") || src == "default-recipe" {
-                        *by_server.entry(src).or_default() += 1;
+                        by_server.entry(src).or_default().push(json!({"key": r["key"],
+                            "evidence": r["evidence"], "basis": r["basis"]}));
                     }
                 }
             }
         }
-        // terminal proposals: open keys with their face and the steps of that face
+        let lines: Vec<bool> = self.nodes[i].p1.as_ref().map(|p| p.frame.mask().to_vec()).unwrap_or_default();
+        // terminal proposals: open keys with their face and the steps of that face (the escalation's generic end)
         let mut proposals = vec![];
         if self.nodes[i].policy.proposals.enabled {
             for k in &open_keys {
                 let key: Vec<i32> = serde_json::from_value(k.clone()).unwrap_or_default();
-                let lines: Vec<bool> = self.nodes[i]
-                    .p1
-                    .as_ref()
-                    .map(|p| p.frame.mask().to_vec())
-                    .unwrap_or_default();
                 let face = Face::of_key(&key, &lines).map(|f| f.label());
                 let steps = face
                     .as_ref()
                     .and_then(|fl| d.faces.iter().find(|f| &f.face == fl))
                     .map(|f| f.recipe_steps.clone())
                     .unwrap_or_default();
-                proposals.push(json!({"key": key, "face": face, "tried_steps": steps,
-                    "default_recipe": true, "status": "terminal_proposal (not accepted)"}));
+                proposals.push(json!({"key": key, "face": face, "tried_steps": steps, "default_recipe": true,
+                    "status": "terminal_proposal"}));
             }
         }
-        // export: the symbolic table, the recipe files actually used, recipes.jsonl, SHA256SUMS
+        // the close-out by the proposals (withheld open declaration)
+        let withheld: Vec<Event> = match read_input(st, &input_withheld(&n)) {
+            Ok(b) => serde_json::from_slice::<Value>(&b)
+                .ok()
+                .and_then(|v| serde_json::from_value(v["events"].clone()).ok())
+                .unwrap_or_default(),
+            Err(_) => vec![],
+        };
+        let (closed, why) = if st.inputs.contains_key(&input_withheld(&n)) {
+            self.closeout_check(i, &fin, open_keys.len())
+        } else {
+            (false, "no withheld open declaration (closed by the closing loop, or close-out off)".into())
+        };
+        let exp = format!("{dir}/export");
+        if closed {
+            // the statement with the proposals declared terminal (beside the closing loop's)
+            let open_set: BTreeSet<String> = open_keys.iter().map(|k| k.to_string()).collect();
+            let mut t = String::new();
+            for l in &stmt_lines {
+                let mut r: Value = serde_json::from_str(l).map_err(|e| e.to_string())?;
+                if r["status"] == "open" && open_set.contains(&r["key"].to_string()) {
+                    r["status"] = json!("terminal");
+                    r["basis"] = json!("terminal_proposal_declared");
+                }
+                t.push_str(&r.to_string());
+                t.push('\n');
+            }
+            rt.accepts.push(record(format!("{dir}/statement-with-proposals/statement.jsonl"), t.into_bytes()));
+            rt.accepts.push(record(
+                format!("{dir}/statement-with-proposals/terminals_declared.json"),
+                json_bytes(&json!(open_keys)),
+            ));
+            let nr = st.nodes.get(&node).ok_or("node unknown")?;
+            if let (Some(c), Some(dd)) = (&nr.state.closure, &nr.state.dispatch_order) {
+                rt.events.push(Event::Node {
+                    node: node.clone(),
+                    ev: NodeEvent::ClosureResult {
+                        round: nr.state.closure_rounds + 1,
+                        defect_keys: 0,
+                        closure_keys: c.closure_keys,
+                        rules_used: None,
+                        rules_total: None,
+                        keyset: None,
+                        rule_set_digest: nr.rule_set.digest(),
+                        dispatch_order_digest: dd.clone(),
+                        envelope: crate::ledger::EnvelopeKind::Measured,
+                        envelope_tables: vec![],
+                    },
+                });
+            }
+            rt.events.push(Event::Note {
+                text: format!("repairflow {node}: closed with {} declared terminal proposal(s): {why}", open_keys.len()),
+            });
+            rt.events.push(Event::Node { node: node.clone(), ev: NodeEvent::DeclareClosed });
+        } else {
+            rt.events.extend(withheld);
+        }
+        // the export: symbolic table, recipes used (escalation order), certified keys per recipe, manifest, SHA256SUMS
         let mut sums = String::new();
         let mut recipes = vec![];
         let mut exported_recipe_bytes = 0u64;
         let mut exported_table_bytes = 0u64;
-        let exp = format!("{dir}/export");
-        let tabp = self.abs(&format!("{dir}/symbolic.table.jsonl"));
-        if let Ok(b) = std::fs::read(&tabp) {
+        if let Ok(b) = std::fs::read(self.abs(&format!("{dir}/symbolic.table.jsonl"))) {
             exported_table_bytes = b.len() as u64;
             sums.push_str(&format!("{}  symbolic.table.jsonl\n", sha256_hex(&b)));
             rt.accepts.push(record(format!("{exp}/symbolic.table.jsonl"), b));
         }
+        let costs = self.solve_costs(st, i);
+        let range = |v: &[f64]| -> Value {
+            if v.is_empty() {
+                return Value::Null;
+            }
+            let mut w = v.to_vec();
+            w.sort_by(|a, b| a.total_cmp(b));
+            json!({"min": w[0], "median": w[w.len() / 2], "max": w[w.len() - 1], "solves": w.len()})
+        };
+        let mut face_entries = vec![];
         for f in &d.faces {
             let face = Face::new(f.sd.clone(), f.sn.clone());
+            let mut esc = vec![];
             for s in &f.recipe_steps {
                 let id = format!("rf:{}:{s}", rf::face_tag(&face));
-                let used = by_server.get(&id).copied().unwrap_or(0);
                 let fname = format!("{}.{s}.json", rf::face_tag(&face));
-                let p = self.abs(&format!("{dir}/recipes/{fname}"));
-                if used == 0 {
+                let certified = by_server.get(&id).cloned().unwrap_or_default();
+                let Ok(b) = std::fs::read(self.abs(&format!("{dir}/recipes/{fname}"))) else { continue };
+                let sha = sha256_hex(&b);
+                let cost = costs.get(&id).map(|c| range(&c.2)).unwrap_or(Value::Null);
+                esc.push(json!({"source": id, "step": s, "file": format!("recipes/{fname}"), "sha256": sha,
+                    "certified_keys": certified.len(), "per_key_cpu_s": cost}));
+                if certified.is_empty() {
                     continue;
                 }
-                if let Ok(b) = std::fs::read(&p) {
-                    exported_recipe_bytes += b.len() as u64;
-                    sums.push_str(&format!("{}  recipes/{fname}\n", sha256_hex(&b)));
-                    recipes.push(json!({"source": id, "face": f.face, "step": s, "file": format!("recipes/{fname}"),
-                        "sha256": sha256_hex(&b), "certified_keys_served": used}));
-                    rt.accepts.push(record(format!("{exp}/recipes/{fname}"), b));
-                }
+                exported_recipe_bytes += b.len() as u64;
+                sums.push_str(&format!("{sha}  recipes/{fname}\n"));
+                let cf: String = certified.iter().map(|c| format!("{c}\n")).collect();
+                sums.push_str(&format!("{}  certified/{}.{s}.jsonl\n", sha256_hex(cf.as_bytes()), rf::face_tag(&face)));
+                rt.accepts.push(record(format!("{exp}/certified/{}.{s}.jsonl", rf::face_tag(&face)), cf.into_bytes()));
+                recipes.push(json!({"source": id, "face": f.face, "step": s, "file": format!("recipes/{fname}"),
+                    "sha256": sha, "certified_keys_served": certified.len(), "per_key_cpu_s": cost}));
+                rt.accepts.push(record(format!("{exp}/recipes/{fname}"), b));
             }
+            face_entries.push(json!({"face": f.face, "sd": f.sd, "sn": f.sn, "escalation": esc,
+                "symbolic_kept": f.kept.is_some()}));
         }
+        // the default sequence (the closing loop's default recipe) with its certified keys and cost
+        let dflt = self.nodes[i].cfg.default_recipe.clone();
+        let mut default_seq = vec![];
+        if let Some(pth) = &dflt
+            && let Ok(b) = std::fs::read(pth)
+        {
+            let certified = by_server.get("default-recipe").cloned().unwrap_or_default();
+            let cf: String = certified.iter().map(|c| format!("{c}\n")).collect();
+            sums.push_str(&format!("{}  recipes/default.recipe.json\n", sha256_hex(&b)));
+            sums.push_str(&format!("{}  certified/default.jsonl\n", sha256_hex(cf.as_bytes())));
+            default_seq.push(json!({"source": "default-recipe", "file": "recipes/default.recipe.json",
+                "sha256": sha256_hex(&b), "certified_keys": certified.len(),
+                "per_key_cpu_s": costs.get("default-recipe").map(|c| range(&c.2)).unwrap_or(Value::Null)}));
+            rt.accepts.push(record(format!("{exp}/recipes/default.recipe.json"), b));
+            rt.accepts.push(record(format!("{exp}/certified/default.jsonl"), cf.into_bytes()));
+        }
+        let policy = &self.nodes[i].policy;
+        let manifest = json!({
+            "schema": MANIFEST_SCHEMA, "node": node,
+            "node_order": self.nodes[i].cfg.solve.order,
+            "descent": "every relation used is accepted only if each right-hand-side key is a hand-down (some line <= 0) or STRICTLY LOWER than the key under the node order (the engine's solve-recipe all_lower check, re-checked by the importer, interfaces/import.md 5.3): a chain of run-time solves strictly descends in a well-founded order on the keys of the sector and cannot cycle; its LENGTH is not bounded by this (dots may climb while the order descends): the run-time budgets below bound it, with a typed resource error",
+            "relation_rule": "m1_first (recipe files are rustred.recipe.v1 in the v1.1 form without the field; the engine default)",
+            "dispatch": "tables first (symbolic.table.jsonl after the node's own tables), then per face the escalation in order (first step that certifies a key), then the default sequence; a key outside every certified set is solved at run time with the same order",
+            "faces": face_entries, "default_sequence": default_seq,
+            "runtime": policy.runtime,
+            "side_file_fields": {
+                "escalation_order": "no field in rustred.recipe.v1: proposed `escalation: {group, rank}` on each recipe",
+                "relation_rule": "v1.2 field exists in the engine; the campaign's recipe reader (core worklist::recipe::Recipe) refuses it today: REQUEST to read `relation_rule` and `domain.keys`",
+                "runtime_budgets": "no field: proposed node-level `recipe_runtime` record in the package manifest",
+                "descent_measure": "the node order is in each recipe's provenance (string); proposed explicit `node_order` field",
+                "per_key_cost": "no field: proposed `cost_hint_s {min, median, max}` per recipe"
+            },
+            "symbolic_table": if exported_table_bytes > 0 { json!("symbolic.table.jsonl") } else { Value::Null },
+            "policy_digest": d.policy_digest,
+        });
+        let mb = json_bytes(&manifest);
+        sums.push_str(&format!("{}  manifest.json\n", sha256_hex(&mb)));
+        rt.accepts.push(record(format!("{exp}/manifest.json"), mb));
         let rj: String = recipes.iter().map(|r| format!("{r}\n")).collect();
         sums.push_str(&format!("{}  recipes.jsonl\n", sha256_hex(rj.as_bytes())));
         rt.accepts.push(record(format!("{exp}/recipes.jsonl"), rj.into_bytes()));
         rt.accepts.push(record(format!("{exp}/SHA256SUMS"), sums.into_bytes()));
+        // the S jobs' cost
+        let (mut s_cpu, mut s_wall, mut s_jobs, mut s_peak) = (0.0f64, 0.0f64, 0u64, 0u64);
+        for (_, _, jobs) in self.s_items(st, i) {
+            for j in jobs {
+                if let Some(rd) = st.jobs.get(&j).and_then(|x| x.run_dir.clone()) {
+                    let c = super::termmin::cost_of(Path::new(&rd), &j);
+                    s_jobs += 1;
+                    s_cpu += c.cpu_s.unwrap_or(0.0);
+                    s_wall += c.wall_s.unwrap_or(0.0);
+                    s_peak = s_peak.max(c.vmhwm_kb.unwrap_or(0));
+                }
+            }
+        }
         let sym_keys = by_class.get("repair-symbolic").copied().unwrap_or(0);
         let face_keys = by_class.get("recipe-face").copied().unwrap_or(0);
-        let def_keys = by_server.get("default-recipe").copied().unwrap_or(0);
+        let def_keys = by_server.get("default-recipe").map(Vec::len).unwrap_or(0);
         let rep = json!({
-            "schema": REPORT_SCHEMA, "node": self.nodes[i].cfg.node,
-            "policy": self.nodes[i].policy, "policy_digest": d.policy_digest,
+            "schema": REPORT_SCHEMA, "node": node,
+            "policy": policy, "policy_digest": d.policy_digest,
             "faces": d.faces, "by_class_symbolic": d.by_class,
             "kept_rules": d.kept_rules, "kept_bytes": d.kept_bytes,
             "keys": {"by_rule_class": by_class, "symbolic": sym_keys, "face_recipe": face_keys,
                      "default_recipe": def_keys, "open": open_keys.len(),
                      "terminal_proposals": proposals.len()},
+            "default_sequence_while_closing": {"keys": def_keys,
+                "per_key_cpu_s": costs.get("default-recipe").map(|c| range(&c.2)).unwrap_or(Value::Null)},
             "recipes_used": recipes, "terminal_proposals": proposals,
+            "closeout": {"closed_by_declared_proposals": closed, "why": why},
             "exported_bytes": {"symbolic_table": exported_table_bytes, "recipes": exported_recipe_bytes},
-            "closeloop_final": {"verdict": fin["verdict"], "keys": fin["keys"], "economy": fin["economy"]},
+            "s_jobs": {"jobs": s_jobs, "cpu_s": s_cpu, "wall_s": s_wall, "peak_kb": s_peak},
+            "solve_costs_by_source": costs.iter().map(|(k, v)| (k.clone(), json!({"jobs": v.0, "keys": v.1, "per_key_cpu_s": range(&v.2)}))).collect::<BTreeMap<_, _>>(),
+            "closeloop_final": {"verdict": fin["verdict"], "keys": fin["keys"], "economy": fin["economy"], "blockers": fin["blockers"]},
             "outside_chart_open": d.outside_chart.len(),
         });
         let rec = record(format!("{dir}/report.json"), json_bytes(&rep));
         self.reg(rt, input_report(&n), ROLE_RESULT, rec);
         Ok(())
     }
+}
+
+/// The close-out by terminal proposals (user ruling 2026-11-14): closed iff the closing loop's ONLY blockers are its
+/// open keys (`open_keys:` / `import_open_keys:`), every closure key but those is certified, and their number is
+/// within `max_terminals`. Declaring an open key terminal stops its dispatch only (an open key has no expansion), so
+/// the closure is unchanged otherwise. Returns (closed, why).
+pub fn closeout_check(p: &rf::policy::ProposalPolicy, fin: &Value, open: usize) -> (bool, String) {
+    let blockers: Vec<String> = fin["blockers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|x| x.as_str().map(str::to_string))
+        .collect();
+    let others: Vec<&String> = blockers
+        .iter()
+        .filter(|b| !b.starts_with("import_open_keys:") && !b.starts_with("open_keys:"))
+        .collect();
+    let k = &fin["keys"];
+    let (closure, cert) = (k["closure"].as_u64().unwrap_or(0), k["certified"].as_u64().unwrap_or(0));
+    if !p.enabled || !p.declare_terminal {
+        return (false, "declaration of proposals off by policy".into());
+    }
+    if fin["verdict"] != "open" {
+        return (false, format!("verdict {}", fin["verdict"]));
+    }
+    if !others.is_empty() {
+        return (false, format!("other blockers: {others:?}"));
+    }
+    if open == 0 || open > p.max_terminals {
+        return (false, format!("{open} proposals (max {})", p.max_terminals));
+    }
+    if cert + open as u64 != closure {
+        return (false, format!("certified {cert} + proposals {open} != closure {closure}"));
+    }
+    (true, format!("{open} terminal proposals declared; every other closure key certified"))
 }
 
 /// `{"type":"rule","index":K, <the other fields sorted>}`: rr_proof reads a record at an offset only when its line
@@ -993,7 +1242,8 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
     }
 
     fn poll(&mut self, st: &CampaignState, ctx: &SourceContext) -> Result<Routing, String> {
-        let mut rt = self.inner.poll(st, ctx)?;
+        let inner = self.inner.poll(st, ctx)?;
+        let mut rt = self.filter_inner(inner);
         for i in 0..self.nodes.len() {
             let n = self.nodes[i].n.clone();
             let node = self.nodes[i].cfg.node.clone();

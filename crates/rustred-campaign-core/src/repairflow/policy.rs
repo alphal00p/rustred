@@ -24,6 +24,7 @@ pub struct RepairPolicy {
     pub cost: CostModel,
     pub recipes: RecipePolicy,
     pub proposals: ProposalPolicy,
+    pub runtime: RuntimePolicy,
 }
 
 impl Default for RepairPolicy {
@@ -37,6 +38,7 @@ impl Default for RepairPolicy {
             cost: CostModel::default(),
             recipes: RecipePolicy::default(),
             proposals: ProposalPolicy::default(),
+            runtime: RuntimePolicy::default(),
         }
     }
 }
@@ -184,6 +186,9 @@ pub struct CostModel {
     pub cached_ns_per_rhs_term: f64,
     pub cache_hit_fraction: f64,
     pub uses_per_served_key: f64,
+    /// Extra expected uses per FREE DIRECTION of a symbolic rule (a slot symbolic in its case: the rule holds for
+    /// every power along it, also outside the certified set where run-time inputs arrive). PROVISIONAL default.
+    pub unbounded_direction_uses: f64,
     pub table_weight: f64,
 }
 
@@ -199,6 +204,7 @@ impl Default for CostModel {
             cached_ns_per_rhs_term: 2_000.0,
             cache_hit_fraction: 0.9,
             uses_per_served_key: 1.0,
+            unbounded_direction_uses: 10.0,
             table_weight: 1.0,
         }
     }
@@ -219,6 +225,9 @@ pub struct RecipePolicy {
     pub numerator_priority: Option<Vec<usize>>,
     /// Cap of faces given per-face recipes (in `symbolic.face_order`); null = all.
     pub max_faces: Option<usize>,
+    /// RESERVED (not implemented: must stay false): among several admissible relations for one key prefer the one
+    /// regular at d = 4 (two seed sets gave relations for the same key with and without a 1/(d-4) pole).
+    pub prefer_regular_at_d4: bool,
 }
 
 impl Default for RecipePolicy {
@@ -229,12 +238,14 @@ impl Default for RecipePolicy {
             escalation: vec![
                 "d0_cnone_foff_ssym_mM1C".into(),
                 "d2_clast_fon_mM1C".into(),
+                "d2_cnum_foff_mM1C".into(),
                 "d2_cunion_fon_mM1C".into(),
                 "d3_clast_fon_mM1C".into(),
             ],
             line_priority: None,
             numerator_priority: None,
             max_faces: None,
+            prefer_regular_at_d4: false,
         }
     }
 }
@@ -243,11 +254,43 @@ impl Default for RecipePolicy {
 #[serde(deny_unknown_fields, default)]
 pub struct ProposalPolicy {
     pub enabled: bool,
+    /// A key no step of the escalation (nor the default recipe) serves ends as a TERMINAL PROPOSAL; with this flag the
+    /// proposals are DECLARED terminals in a re-check so the node closes when everything else is served (user ruling
+    /// 2026-11-14: a further terminal is acceptable); false = they stay open.
+    pub declare_terminal: bool,
+    /// At most this many proposals are declared (the terminal set must stay finite and small); above: none declared.
+    pub max_terminals: usize,
 }
 
 impl Default for ProposalPolicy {
     fn default() -> Self {
-        ProposalPolicy { enabled: true }
+        ProposalPolicy {
+            enabled: true,
+            declare_terminal: true,
+            max_terminals: 100,
+        }
+    }
+}
+
+/// Run-time budgets written into the export manifest (the consumer solving recipes at keys outside the certified set).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct RuntimePolicy {
+    /// Recipe solves per reduction input before a typed error (`resource limit`).
+    pub max_solves_per_input: u64,
+    /// Wall seconds of recipe solves per reduction input before a typed error.
+    pub max_seconds_per_input: u64,
+    /// Wall seconds of one solve at one key (the solve-recipe `--key-budget-s`).
+    pub max_seconds_per_key: u64,
+}
+
+impl Default for RuntimePolicy {
+    fn default() -> Self {
+        RuntimePolicy {
+            max_solves_per_input: 10_000,
+            max_seconds_per_input: 3600,
+            max_seconds_per_key: 600,
+        }
     }
 }
 
@@ -338,6 +381,7 @@ impl RepairPolicy {
             (self.cost.cached_ns_base, "cost.cached_ns_base"),
             (self.cost.cached_ns_per_rhs_term, "cost.cached_ns_per_rhs_term"),
             (self.cost.uses_per_served_key, "cost.uses_per_served_key"),
+            (self.cost.unbounded_direction_uses, "cost.unbounded_direction_uses"),
             (self.cost.table_weight, "cost.table_weight"),
         ] {
             if !x.is_finite() || x < 0.0 {
@@ -370,6 +414,9 @@ impl RepairPolicy {
                 "repair policy: node_budget.order {:?} unknown",
                 self.node_budget.order
             ));
+        }
+        if self.recipes.prefer_regular_at_d4 {
+            return Err("repair policy: recipes.prefer_regular_at_d4 is reserved (not implemented)".into());
         }
         if self.symbolic.wall_case_s == 0 {
             return Err("repair policy: symbolic.wall_case_s must be > 0".into());
