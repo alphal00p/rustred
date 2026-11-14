@@ -1137,9 +1137,10 @@ fn rows_for_p(
                     let mut rr = Row::new();
                     out.universe.insert(a.clone());
                     out.universe.insert(b.clone());
-                    addto(&mut rr, a.clone(), 1);
-                    addto(&mut rr, b.clone(), P - 1);
-                    out.rows.push(strip(&rr));
+                    // engine line: modulo THIS cell's prime (batch 6 replays every cell at P and P2)
+                    addto_p(p, &mut rr, a.clone(), 1);
+                    addto_p(p, &mut rr, b.clone(), p - 1);
+                    out.rows.push(strip_p(p, &rr));
                     out.labels.push(json!({"exact_symmetry_row": [a, b]}));
                 }
             }
