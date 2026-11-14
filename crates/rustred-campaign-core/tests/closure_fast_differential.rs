@@ -6,7 +6,9 @@
 //! winners). Default suite (the full large key sets: ignored release tests in closure_t178.rs / closure_t266.rs).
 
 use rustred_campaign_core::closure::FastDispatch;
-use rustred_campaign_core::cover::{Assurance, Dispatch, Dispatcher, RuleRef, Table, WitnessStatus};
+use rustred_campaign_core::cover::{
+    Assurance, Dispatch, Dispatcher, RuleRef, Table, WitnessStatus,
+};
 use rustred_campaign_core::domain::{CaseDomain, Stage, TargetMap, TargetSlot};
 use rustred_campaign_core::poly::Poly;
 

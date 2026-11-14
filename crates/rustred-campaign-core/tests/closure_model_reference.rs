@@ -9,6 +9,8 @@
 //! reference with TRUTHFUL facts is closed. Default suite: a small seeded run; the audit's 100,000-node run:
 //! `CLOSURE_MODEL_NODES=100000 light_build.sh <lane> test -p rustred-campaign-core --release --test closure_model_reference -- --ignored`.
 
+#![allow(clippy::type_complexity)]
+
 #[path = "closure_model/facts.rs"]
 mod facts;
 #[path = "closure_model/reference.rs"]
@@ -25,7 +27,13 @@ use rustred_campaign_core::symmetry::CreditPolicy;
 use spec::{GenOpts, NodeSpec, Rng, build, gen_node, group_elems, keyset};
 use std::collections::{BTreeMap, BTreeSet};
 
-fn ccfg(sp: &NodeSpec, tier: Tier, credits: bool, terminals: bool, threads: usize) -> ClosureConfig {
+fn ccfg(
+    sp: &NodeSpec,
+    tier: Tier,
+    credits: bool,
+    terminals: bool,
+    threads: usize,
+) -> ClosureConfig {
     ClosureConfig {
         tier,
         threads,
@@ -42,14 +50,26 @@ fn ccfg(sp: &NodeSpec, tier: Tier, credits: bool, terminals: bool, threads: usiz
             preferred: Some(keyset(sp.n, &sp.term_pref)),
             other: Some(keyset(sp.n, &sp.term_other)),
         }),
-        fact_tables: sp.tables.iter().map(|t| (t.name.clone(), t.name.clone())).collect(),
-        table_digests: sp.tables.iter().map(|t| (t.name.clone(), format!("test:{}", t.name))).collect(),
+        fact_tables: sp
+            .tables
+            .iter()
+            .map(|t| (t.name.clone(), t.name.clone()))
+            .collect(),
+        table_digests: sp
+            .tables
+            .iter()
+            .map(|t| (t.name.clone(), format!("test:{}", t.name)))
+            .collect(),
         ..Default::default()
     }
 }
 
 fn vstr<T: serde::Serialize>(v: &T) -> String {
-    serde_json::to_value(v).unwrap().as_str().map(|s| s.to_string()).unwrap_or_else(|| format!("{:?}", serde_json::to_value(v).unwrap()))
+    serde_json::to_value(v)
+        .unwrap()
+        .as_str()
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("{:?}", serde_json::to_value(v).unwrap()))
 }
 
 /// Compare a crate closure with the reference. Returns the list of disagreements ("category: detail").
@@ -60,7 +80,13 @@ fn compare(sp: &NodeSpec, c: &Closure, r: &RefOut, credits: bool) -> Vec<String>
     if ck != r.keys {
         let miss: Vec<_> = r.keys.difference(&ck).take(3).collect();
         let extra: Vec<_> = ck.difference(&r.keys).take(3).collect();
-        d.push(format!("keys: crate {} ref {} missing {:?} extra {:?}", ck.len(), r.keys.len(), miss, extra));
+        d.push(format!(
+            "keys: crate {} ref {} missing {:?} extra {:?}",
+            ck.len(),
+            r.keys.len(),
+            miss,
+            extra
+        ));
     }
     if s.rounds != r.rounds {
         d.push(format!("rounds: crate {} ref {}", s.rounds, r.rounds));
@@ -76,38 +102,91 @@ fn compare(sp: &NodeSpec, c: &Closure, r: &RefOut, credits: bool) -> Vec<String>
     if cw != r.nondesc {
         let miss: Vec<_> = r.nondesc.difference(&cw).take(2).collect();
         let extra: Vec<_> = cw.difference(&r.nondesc).take(2).collect();
-        d.push(format!("nondesc: crate {} ref {} missing {:?} extra {:?}", cw.len(), r.nondesc.len(), miss, extra));
+        d.push(format!(
+            "nondesc: crate {} ref {} missing {:?} extra {:?}",
+            cw.len(),
+            r.nondesc.len(),
+            miss,
+            extra
+        ));
     }
     if s.descent_violations != r.nondesc.len() as u64 {
-        d.push(format!("violations_count: crate {} ref {}", s.descent_violations, r.nondesc.len()));
+        d.push(format!(
+            "violations_count: crate {} ref {}",
+            s.descent_violations,
+            r.nondesc.len()
+        ));
     }
     let co: BTreeMap<Vec<i32>, (String, Option<(String, usize)>)> = c
         .open_keys()
         .into_iter()
-        .map(|o| (o.key, (vstr(&o.status), o.rule.map(|x| (x.table, x.record)))))
+        .map(|o| {
+            (
+                o.key,
+                (vstr(&o.status), o.rule.map(|x| (x.table, x.record))),
+            )
+        })
         .collect();
     if co != r.open {
-        let a: Vec<_> = r.open.iter().filter(|(k, v)| co.get(*k) != Some(v)).take(3).collect();
-        let b: Vec<_> = co.iter().filter(|(k, v)| r.open.get(*k) != Some(v)).take(3).collect();
-        d.push(format!("open: crate {} ref {} ref-only {:?} crate-only {:?}", co.len(), r.open.len(), a, b));
+        let a: Vec<_> = r
+            .open
+            .iter()
+            .filter(|(k, v)| co.get(*k) != Some(v))
+            .take(3)
+            .collect();
+        let b: Vec<_> = co
+            .iter()
+            .filter(|(k, v)| r.open.get(*k) != Some(v))
+            .take(3)
+            .collect();
+        d.push(format!(
+            "open: crate {} ref {} ref-only {:?} crate-only {:?}",
+            co.len(),
+            r.open.len(),
+            a,
+            b
+        ));
     }
-    let cu: BTreeMap<(String, usize), (u64, u64)> =
-        c.used_rules().into_iter().map(|u| ((u.rule.table, u.rule.record), (u.fires, u.fires_in_start))).collect();
+    let cu: BTreeMap<(String, usize), (u64, u64)> = c
+        .used_rules()
+        .into_iter()
+        .map(|u| ((u.rule.table, u.rule.record), (u.fires, u.fires_in_start)))
+        .collect();
     if cu != r.used {
-        let a: Vec<_> = r.used.iter().filter(|(k, v)| cu.get(*k) != Some(v)).take(3).collect();
-        let b: Vec<_> = cu.iter().filter(|(k, v)| r.used.get(*k) != Some(v)).take(3).collect();
+        let a: Vec<_> = r
+            .used
+            .iter()
+            .filter(|(k, v)| cu.get(*k) != Some(v))
+            .take(3)
+            .collect();
+        let b: Vec<_> = cu
+            .iter()
+            .filter(|(k, v)| r.used.get(*k) != Some(v))
+            .take(3)
+            .collect();
         d.push(format!("used: ref-only {:?} crate-only {:?}", a, b));
     }
-    let ch: BTreeMap<u64, BTreeSet<Vec<i32>>> =
-        c.hand_down_sets().iter().map(|(m, ks)| (*m, ks.iter().collect())).filter(|(_, s): &(u64, BTreeSet<_>)| !s.is_empty()).collect();
+    let ch: BTreeMap<u64, BTreeSet<Vec<i32>>> = c
+        .hand_down_sets()
+        .iter()
+        .map(|(m, ks)| (*m, ks.iter().collect()))
+        .filter(|(_, s): &(u64, BTreeSet<_>)| !s.is_empty())
+        .collect();
     if ch != r.hand {
         d.push(format!(
             "exits: crate masks {:?} ref masks {:?}",
             ch.iter().map(|(m, s)| (*m, s.len())).collect::<Vec<_>>(),
-            r.hand.iter().map(|(m, s)| (*m, s.len())).collect::<Vec<_>>()
+            r.hand
+                .iter()
+                .map(|(m, s)| (*m, s.len()))
+                .collect::<Vec<_>>()
         ));
     }
-    let ct: BTreeMap<Vec<i32>, String> = c.terminal_records().into_iter().map(|t| (t.key, vstr(&t.kind))).collect();
+    let ct: BTreeMap<Vec<i32>, String> = c
+        .terminal_records()
+        .into_iter()
+        .map(|t| (t.key, vstr(&t.kind)))
+        .collect();
     if ct != r.terminals {
         d.push(format!("terminals: crate {:?} ref {:?}", ct, r.terminals));
     }
@@ -131,14 +210,19 @@ fn compare(sp: &NodeSpec, c: &Closure, r: &RefOut, credits: bool) -> Vec<String>
                     }
                     match reference::dispatch(sp, &x.image) {
                         reference::RD::Covered { t, r: rr, .. } => {
-                            if (sp.tables[t].name.clone(), rr) != (x.rule.table.clone(), x.rule.record) {
+                            if (sp.tables[t].name.clone(), rr)
+                                != (x.rule.table.clone(), x.rule.record)
+                            {
                                 d.push(format!("credit_rule: {:?}", x));
                             }
                         }
                         _ => d.push(format!("credit_rule_uncovered_image: {:?}", x)),
                     }
                     if r.credits[&x.key].0 != x.element {
-                        d.push(format!("credit_element_not_first: {:?} ref first {}", x.key, r.credits[&x.key].0));
+                        d.push(format!(
+                            "credit_element_not_first: {:?} ref first {}",
+                            x.key, r.credits[&x.key].0
+                        ));
                     }
                 }
                 Some(_) => d.push(format!("credit_invalid_element: {:?}", x)),
@@ -160,23 +244,54 @@ fn compare(sp: &NodeSpec, c: &Closure, r: &RefOut, credits: bool) -> Vec<String>
         d.push(format!("longest: crate {} ref {}", ch.edges, l));
     }
     if s.unrepresentable != r.unrep {
-        d.push(format!("unrepresentable: crate {} ref {}", s.unrepresentable, r.unrep));
+        d.push(format!(
+            "unrepresentable: crate {} ref {}",
+            s.unrepresentable, r.unrep
+        ));
     }
     let v = vstr(&s.verdict);
     if v != r.verdict {
         d.push(format!("verdict: crate {} ref {}", v, r.verdict));
     }
     let t = &s.terms;
-    let mine = (r.top_terms, r.pn_top, r.pn_sub, r.sub_terms, r.requires_zero, r.dropped_zero, r.pos_nonzero);
-    let theirs = (t.top, t.positive_numerator_top, t.positive_numerator_sub, t.subsector, s.requires_coefficient_zero, t.dropped_zero, s.positive_numerator_nonzero);
+    let mine = (
+        r.top_terms,
+        r.pn_top,
+        r.pn_sub,
+        r.sub_terms,
+        r.requires_zero,
+        r.dropped_zero,
+        r.pos_nonzero,
+    );
+    let theirs = (
+        t.top,
+        t.positive_numerator_top,
+        t.positive_numerator_sub,
+        t.subsector,
+        s.requires_coefficient_zero,
+        t.dropped_zero,
+        s.positive_numerator_nonzero,
+    );
     if mine != theirs {
-        d.push(format!("terms: (top,pn_top,pn_sub,sub,req0,dropped,pos_nz) crate {:?} ref {:?}", theirs, mine));
+        d.push(format!(
+            "terms: (top,pn_top,pn_sub,sub,req0,dropped,pos_nz) crate {:?} ref {:?}",
+            theirs, mine
+        ));
     }
     let u = &s.undecided;
-    if (u.coef_unknown_positive_numerator, u.coef_unknown_not_lower, u.regularity_unknown) != (r.und_pn, r.und_nl, r.und_reg) {
+    if (
+        u.coef_unknown_positive_numerator,
+        u.coef_unknown_not_lower,
+        u.regularity_unknown,
+    ) != (r.und_pn, r.und_nl, r.und_reg)
+    {
         d.push(format!(
             "undecided: crate {:?} ref {:?}",
-            (u.coef_unknown_positive_numerator, u.coef_unknown_not_lower, u.regularity_unknown),
+            (
+                u.coef_unknown_positive_numerator,
+                u.coef_unknown_not_lower,
+                u.regularity_unknown
+            ),
             (r.und_pn, r.und_nl, r.und_reg)
         ));
     }
@@ -201,7 +316,15 @@ fn check_requests(c: &Closure, r: &RefOut) -> Vec<String> {
         ));
     }
     let missing: Vec<_> = r.needed.difference(&got).take(3).collect();
-    if missing.is_empty() { vec![] } else { vec![format!("requests_missing: {} e.g. {:?}", r.needed.difference(&got).count(), missing)] }
+    if missing.is_empty() {
+        vec![]
+    } else {
+        vec![format!(
+            "requests_missing: {} e.g. {:?}",
+            r.needed.difference(&got).count(),
+            missing
+        )]
+    }
 }
 
 /// One variant run: crate closure + reference; returns the disagreements.
@@ -212,21 +335,61 @@ fn variant(sp: &NodeSpec, var: &str) -> Result<Vec<String>, String> {
     let tier_c = var.starts_with('C');
     let tier = if tier_c { Tier::C } else { Tier::K };
     let cfg = ccfg(sp, tier, credits, terminals, 1);
-    let mode: u32 = var.split(':').nth(1).map(|x| x.parse().unwrap()).unwrap_or(0);
-    let adv = Adv { truth: Truth::new(sp), mode };
-    let c = match closure(&b.disp, &b.bodies, &b.cmp, &b.start, &cfg, if tier_c { &adv } else { &NoFacts }) {
+    let mode: u32 = var
+        .split(':')
+        .nth(1)
+        .map(|x| x.parse().unwrap())
+        .unwrap_or(0);
+    let adv = Adv {
+        truth: Truth::new(sp),
+        mode,
+    };
+    let c = match closure(
+        &b.disp,
+        &b.bodies,
+        &b.cmp,
+        &b.start,
+        &cfg,
+        if tier_c { &adv } else { &NoFacts },
+    ) {
         Ok(c) => c,
         Err(e) => return Ok(vec![format!("crate_error: {e:?}")]),
     };
-    let r = reference::run(sp, &b.cmp, &RefCfg { tier_c, credits, terminals, require_regularity: true, facts: Some(&adv) });
+    let r = reference::run(
+        sp,
+        &b.cmp,
+        &RefCfg {
+            tier_c,
+            credits,
+            terminals,
+            require_regularity: true,
+            facts: Some(&adv),
+        },
+    );
     let mut d = compare(sp, &c, &r, credits);
     if tier_c {
         d.extend(check_requests(&c, &r));
         if c.summary().verdict == rustred_campaign_core::closure::Verdict::Closed {
-            let t = Adv { truth: Truth::new(sp), mode: 0 };
-            let rt = reference::run(sp, &b.cmp, &RefCfg { tier_c, credits, terminals, require_regularity: true, facts: Some(&t) });
+            let t = Adv {
+                truth: Truth::new(sp),
+                mode: 0,
+            };
+            let rt = reference::run(
+                sp,
+                &b.cmp,
+                &RefCfg {
+                    tier_c,
+                    credits,
+                    terminals,
+                    require_regularity: true,
+                    facts: Some(&t),
+                },
+            );
             if rt.verdict != "closed" {
-                d.push(format!("closed_but_truth_says: {} (variant {var})", rt.verdict));
+                d.push(format!(
+                    "closed_but_truth_says: {} (variant {var})",
+                    rt.verdict
+                ));
             }
         }
     }
@@ -245,7 +408,12 @@ fn diff(seed: u64, count: u64) -> BTreeMap<String, (u64, u64)> {
                 while i < count {
                     let mut rng = Rng(seed.wrapping_mul(1_000_003).wrapping_add(i));
                     let asc = [0u64, 0, 2, 6][rng.below(4) as usize];
-                    let o = GenOpts { sparse: rng.chance(35), asc_rate: asc, group: rng.chance(40), terminals: rng.chance(15) };
+                    let o = GenOpts {
+                        sparse: rng.chance(35),
+                        asc_rate: asc,
+                        group: rng.chance(40),
+                        terminals: rng.chance(15),
+                    };
                     let sp = gen_node(&mut rng, &o);
                     let mut vars: Vec<String> = vec!["K".into()];
                     if !sp.group.is_empty() {
@@ -273,8 +441,12 @@ fn diff(seed: u64, count: u64) -> BTreeMap<String, (u64, u64)> {
                                 e.1 += 1;
                                 let mut f = fails.lock().unwrap();
                                 if f.len() < 5 {
-                                    f.push(format!("node {i} variant {v}: {:?}
-  spec {}", d, serde_json::to_string(&sp).unwrap()));
+                                    f.push(format!(
+                                        "node {i} variant {v}: {:?}
+  spec {}",
+                                        d,
+                                        serde_json::to_string(&sp).unwrap()
+                                    ));
                                 }
                             }
                             Ok(_) => {}
@@ -286,9 +458,15 @@ fn diff(seed: u64, count: u64) -> BTreeMap<String, (u64, u64)> {
         }
     });
     let f = fails.into_inner().unwrap();
-    assert!(f.is_empty(), "disagreements with the reference:
-{}", f.join("
-"));
+    assert!(
+        f.is_empty(),
+        "disagreements with the reference:
+{}",
+        f.join(
+            "
+"
+        )
+    );
     stats.into_inner().unwrap()
 }
 
@@ -301,7 +479,10 @@ fn model_reference_small() {
 #[test]
 #[ignore = "audit loop-B scale (100,000 nodes by default): run in release with --ignored"]
 fn model_reference_full() {
-    let n: u64 = std::env::var("CLOSURE_MODEL_NODES").ok().and_then(|x| x.parse().ok()).unwrap_or(100_000);
+    let n: u64 = std::env::var("CLOSURE_MODEL_NODES")
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(100_000);
     let st = diff(20261114, n);
     println!("closure vs naive reference ({n} nodes): {st:?}");
 }

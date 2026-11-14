@@ -29,14 +29,22 @@ impl Truth {
                 rec.insert((t.name.clone(), r.label), ri);
             }
         }
-        Truth { seed: sp.fact_seed, zp, rec }
+        Truth {
+            seed: sp.fact_seed,
+            zp,
+            rec,
+        }
     }
     /// truth by rule identity (name, label) -- record must match too
     pub fn c(&self, t: &str, rec: usize, label: i64, key: &[i32], term: usize) -> Cf {
         let k = (t.to_string(), label);
         match (self.zp.get(&k), self.rec.get(&k)) {
             (Some(z), Some(&r)) if r == rec && term < z.len() => {
-                if h(&(self.seed, t, label, key, term)) % 100 < z[term] as u64 { Cf::Zero } else { Cf::NonZero }
+                if h(&(self.seed, t, label, key, term)) % 100 < z[term] as u64 {
+                    Cf::Zero
+                } else {
+                    Cf::NonZero
+                }
             }
             _ => Cf::Unknown,
         }
@@ -45,7 +53,11 @@ impl Truth {
         let k = (t.to_string(), label);
         match self.rec.get(&k) {
             Some(&r) if r == rec => {
-                if h(&(self.seed, t, label, key, 999usize)) % 100 < 3 { Rf::Pole } else { Rf::Regular }
+                if h(&(self.seed, t, label, key, 999usize)) % 100 < 3 {
+                    Rf::Pole
+                } else {
+                    Rf::Regular
+                }
             }
             _ => Rf::Unknown,
         }
@@ -105,4 +117,3 @@ impl FactSource for Adv {
         format!("adv{}", self.mode)
     }
 }
-

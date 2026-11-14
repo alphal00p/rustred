@@ -11,10 +11,9 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use rustred_campaign_core::closure::{
-    DispatchSlot, RelationSet, RelationStoreBuilder, VERDICT_CERTIFIED,
-    Closure, ClosureConfig, CoefFact, ExclusionReason, FactSource, HandDowns, KeyCodec,
-    KeyExclusion, KeySet, RegFact, RuleBodies, RuleId, TerminalSets, Tier, closure,
-    closure_incremental, closure_recheck,
+    Closure, ClosureConfig, CoefFact, DispatchSlot, ExclusionReason, FactSource, HandDowns,
+    KeyCodec, KeyExclusion, KeySet, RegFact, RelationSet, RelationStoreBuilder, RuleBodies, RuleId,
+    TerminalSets, Tier, VERDICT_CERTIFIED, closure, closure_incremental, closure_recheck,
 };
 use rustred_campaign_core::cover::{Dispatcher, Table};
 use rustred_campaign_core::domain::CaseDomain;
@@ -226,7 +225,8 @@ fn config(st: &State) -> ClosureConfig {
                     lo[1] -= 1;
                     let mut sub = k.to_vec();
                     sub[2] = 0;
-                    b.push(k, &[lo, sub], [k[0] as u8; 32], VERDICT_CERTIFIED).unwrap();
+                    b.push(k, &[lo, sub], [k[0] as u8; 32], VERDICT_CERTIFIED)
+                        .unwrap();
                 }
                 Arc::new(RelationSet {
                     name: "recipe".into(),

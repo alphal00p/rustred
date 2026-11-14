@@ -756,27 +756,48 @@ fn witness_absent_block_and_lift() {
     let st = start(&[[2, 1, 0, 0]]);
     let k = closure(&d, &b, &cmp(), &st, &base(Tier::K), &NoFacts).unwrap();
     let s = k.summary();
-    assert_eq!((s.verdict, s.requires_regularity_fact, s.witness_absent), (Verdict::Open, 1, WitnessAbsent::Block));
-    assert!(k.fact_requests().iter().any(|r| r.reason == RequestReason::WitnessLift));
+    assert_eq!(
+        (s.verdict, s.requires_regularity_fact, s.witness_absent),
+        (Verdict::Open, 1, WitnessAbsent::Block)
+    );
+    assert!(
+        k.fact_requests()
+            .iter()
+            .any(|r| r.reason == RequestReason::WitnessLift)
+    );
     let c0 = closure(&d, &b, &cmp(), &st, &base(Tier::C), &NoFacts).unwrap();
     assert_eq!(c0.summary().verdict, Verdict::Open);
     let reqs = c0.fact_requests();
     let f = answer_facts(&reqs, &[(&[2, 1, 0, 0], None, "regular")], "exact", false);
     let c1 = closure(&d, &b, &cmp(), &st, &base(Tier::C), &f).unwrap();
     let s1 = c1.summary();
-    assert_eq!((s1.verdict, s1.witness_lifted.get("A").copied()), (Verdict::Closed, Some(1)));
+    assert_eq!(
+        (s1.verdict, s1.witness_lifted.get("A").copied()),
+        (Verdict::Closed, Some(1))
+    );
     // policy block: not lifted
     let blk = ClosureConfig {
         witness_absent: WitnessAbsent::Block,
         ..base(Tier::C)
     };
-    assert_eq!(closure(&d, &b, &cmp(), &st, &blk, &f).unwrap().summary().verdict, Verdict::Open);
+    assert_eq!(
+        closure(&d, &b, &cmp(), &st, &blk, &f)
+            .unwrap()
+            .summary()
+            .verdict,
+        Verdict::Open
+    );
     assert_ne!(
-        closure(&d, &b, &cmp(), &st, &blk, &f).unwrap().summary().config_digest,
+        closure(&d, &b, &cmp(), &st, &blk, &f)
+            .unwrap()
+            .summary()
+            .config_digest,
         s1.config_digest
     );
     // elided: never lifted
     let (de, be) = mk(WitnessStatus::Elided);
-    let reqs = closure(&de, &be, &cmp(), &st, &base(Tier::C), &NoFacts).unwrap().fact_requests();
+    let reqs = closure(&de, &be, &cmp(), &st, &base(Tier::C), &NoFacts)
+        .unwrap()
+        .fact_requests();
     assert!(reqs.iter().all(|r| r.reason != RequestReason::WitnessLift));
 }

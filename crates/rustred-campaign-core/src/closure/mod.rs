@@ -45,8 +45,8 @@ pub use facts::{
 pub use fast::FastDispatch;
 pub use keyset::{KeyCodec, KeySet, KeySetBuilder, KeySetError, KeyTable};
 pub use relations::{
-    DispatchSlot, RelationSet, RelationStore, RelationStoreBuilder, VERDICT_CERTIFIED,
-    VERDICT_DESCENDS, VERDICT_EXACT, VERDICT_REGULAR,
+    DispatchSlot, RelationSet, RelationStore, RelationStoreBuilder, SolveResultsStats,
+    VERDICT_CERTIFIED, VERDICT_DESCENDS, VERDICT_EXACT, VERDICT_REGULAR, read_solve_results,
 };
 
 pub const CLOSURE_SCHEMA: &str = "rustred.campaign.closure.v1";
@@ -1827,10 +1827,7 @@ fn run(
             format!("{:?}", witness_policy(cfg)),
         );
         // what the dispatcher's credits rest on (witness check on / off, attestations checked / unchecked, chart)
-        c.insert(
-            "dispatcher_summary".into(),
-            format!("{:?}", disp.summary()),
-        );
+        c.insert("dispatcher_summary".into(), format!("{:?}", disp.summary()));
         c.insert("max_rounds".into(), format!("{:?}", cfg.max_rounds));
         c.insert(
             "diagnostic".into(),
@@ -2050,7 +2047,9 @@ fn run(
                                                 Some(j) => {
                                                     used_cache = true;
                                                     (
-                                                        ctx.fast.position(RuleRef::bare(j, r as usize, 0)),
+                                                        ctx.fast.position(RuleRef::bare(
+                                                            j, r as usize, 0,
+                                                        )),
                                                         true,
                                                     )
                                                 }
@@ -2845,7 +2844,10 @@ impl Closure {
                     record: rn.record,
                     label: rn.label,
                     key,
-                    kind: if matches!(r.reason, RequestReason::Regularity | RequestReason::WitnessLift) {
+                    kind: if matches!(
+                        r.reason,
+                        RequestReason::Regularity | RequestReason::WitnessLift
+                    ) {
                         FactKind::Regularity
                     } else {
                         FactKind::Coefficient

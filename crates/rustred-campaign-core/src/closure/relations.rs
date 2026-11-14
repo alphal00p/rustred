@@ -279,6 +279,97 @@ impl RelationStore {
     }
 }
 
+/// Counts of [`read_solve_results`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SolveResultsStats {
+    pub records: usize,
+    pub solved: usize,
+    /// Non-SOLVED records by verdict (not certified: not in the store).
+    pub not_solved: std::collections::BTreeMap<String, usize>,
+    pub recipe_digest: Option<String>,
+    pub determinism_id: Option<String>,
+}
+
+fn parse_key_text(t: &str, arity: usize) -> Option<Vec<i32>> {
+    let inner = t.trim().strip_prefix("I(")?.strip_suffix(')')?;
+    let v: Option<Vec<i32>> = inner.split(',').map(|x| x.trim().parse().ok()).collect();
+    v.filter(|v| v.len() == arity)
+}
+
+/// Build a relation store from the engine's `rr_node solve-recipe` results (`DIR/results.jsonl`,
+/// coord-recipe-solve.md sections 7 and 10): every `SOLVED` relation record becomes a certified key with its right-hand
+/// side keys (from `rhs[*][0]`, `I(..)` texts), its `relation_digest` (64 hex = 32 bytes) and the verdict bits
+/// regular (SOLVED), descends (`all_lower`), exact (`proof.ok`); other records are counted, not stored. All records must
+/// carry one recipe digest and one determinism id (else an error).
+pub fn read_solve_results(
+    r: impl BufRead,
+    codec: KeyCodec,
+) -> Result<(RelationStore, SolveResultsStats), KeySetError> {
+    let mut b = RelationStoreBuilder::new(codec);
+    let mut st = SolveResultsStats::default();
+    let fmt = |m: String| KeySetError::Format(m);
+    for line in r.lines() {
+        let line = line.map_err(|e| fmt(e.to_string()))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let v: serde_json::Value = serde_json::from_str(&line).map_err(|e| fmt(e.to_string()))?;
+        if v["type"] != "relation" {
+            continue;
+        }
+        st.records += 1;
+        for (field, slot) in [
+            ("recipe_digest", &mut st.recipe_digest),
+            ("determinism_id", &mut st.determinism_id),
+        ] {
+            let x = v[field].as_str().map(|s| s.to_string());
+            match slot {
+                None => *slot = x,
+                Some(old) if Some(old.clone()) != x => {
+                    return Err(fmt(format!("records with different {field}")));
+                }
+                _ => {}
+            }
+        }
+        let verdict = v["verdict"].as_str().unwrap_or("").to_string();
+        if verdict != "SOLVED" {
+            *st.not_solved.entry(verdict).or_default() += 1;
+            continue;
+        }
+        let key: Vec<i32> =
+            serde_json::from_value(v["key"].clone()).map_err(|e| fmt(e.to_string()))?;
+        let mut rhs = vec![];
+        for t in v["rhs"]
+            .as_array()
+            .ok_or_else(|| fmt("SOLVED record without rhs".into()))?
+        {
+            let txt = t[0].as_str().ok_or_else(|| fmt("rhs entry".into()))?;
+            rhs.push(
+                parse_key_text(txt, codec.arity()).ok_or_else(|| fmt(format!("rhs key {txt}")))?,
+            );
+        }
+        let hex = v["relation_digest"].as_str().unwrap_or("");
+        if hex.len() != 64 {
+            return Err(fmt(format!("relation_digest {hex}")));
+        }
+        let mut d = [0u8; 32];
+        for (i, byte) in d.iter_mut().enumerate() {
+            *byte =
+                u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).map_err(|e| fmt(e.to_string()))?;
+        }
+        let mut verdict_bits = VERDICT_REGULAR;
+        if v["all_lower"] == true {
+            verdict_bits |= VERDICT_DESCENDS;
+        }
+        if v["proof"]["ok"] == true {
+            verdict_bits |= VERDICT_EXACT;
+        }
+        b.push(&key, &rhs, d, verdict_bits)?;
+        st.solved += 1;
+    }
+    Ok((b.finish()?, st))
+}
+
 /// Where a relation set sits in the dispatch order (explicit data, part of the configuration identity).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DispatchSlot {
@@ -333,5 +424,25 @@ mod tests {
         let l = bad.len();
         bad[l - 1] ^= 1;
         assert!(RelationStore::read(&bad[..]).is_err());
+    }
+    #[test]
+    fn from_solve_results() {
+        let d = "ab".repeat(32);
+        let txt = format!(
+            "{}\n{}\n{}\n",
+            serde_json::json!({"type":"relation","key":[2,1,0,0],"verdict":"SOLVED","recipe_digest":"r","determinism_id":"x",
+                "rhs":[["I(1,1,0,0)","d-4"],["I(0,1,0,0)","1"]],"relation_digest":d,"all_lower":true,"proof":{"ok":true}}),
+            serde_json::json!({"type":"relation","key":[3,1,0,0],"verdict":"NO_RELATION_IN_SEEDS","recipe_digest":"r","determinism_id":"x",
+                "rhs":null,"relation_digest":null}),
+            serde_json::json!({"type":"end","records":2})
+        );
+        let (s, st) = read_solve_results(txt.as_bytes(), KeyCodec::new(4, 6).unwrap()).unwrap();
+        assert_eq!((s.len(), st.solved, st.records), (1, 1, 2));
+        assert_eq!(st.not_solved.get("NO_RELATION_IN_SEEDS"), Some(&1));
+        let i = s.find(&[2, 1, 0, 0]).unwrap();
+        assert_eq!(
+            (s.n_rhs(i), s.verdict(i), s.relation_digest(i)[0]),
+            (2, VERDICT_CERTIFIED, 0xab)
+        );
     }
 }

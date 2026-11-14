@@ -17,7 +17,7 @@
 //!      flagged "requires coefficient zero", regularity not checked (Tier K is never closed).
 //! NOT "image lower than key", NOT "least orbit member", NOT "mapped back" (g^-1 of the RHS key: a test-only
 //! diagnostic, [`CreditChecker::serve_mapped_back_diagnostic`], never an acceptance path). The first group element
-//! (in the given order) that passes without unknowns gives the credit; else the first pending one; every credit names
+//! (in the given order) that is not refused gives the credit (clean, or pending on unknown Tier C facts); every credit names
 //! the group element, the image and the rule. ASSUMPTION ON THE CONSUMER (recorded in closure.md): the importer
 //! applies the credit I(k) = I(g k) and the image's rule R as ONE step (the step k -> RHS(R at g k) is what descends).
 
@@ -69,7 +69,9 @@ impl CreditPolicy {
         let nn = lines.len() - nl;
         let perm = |v: &[usize], n: usize| {
             let mut seen = vec![false; n];
-            v.len() == n && v.iter().all(|&j| j < n && !std::mem::replace(&mut seen[j], true))
+            v.len() == n
+                && v.iter()
+                    .all(|&j| j < n && !std::mem::replace(&mut seen[j], true))
         };
         for (i, g) in self.group.iter().enumerate() {
             if !perm(&g.lines, nl) {
@@ -327,8 +329,8 @@ fn try_element(
     }))
 }
 
-/// Internal entry used by the closure (dispatch through its index): the first element that passes without unknowns,
-/// else the first pending one, else every element's refusal.
+/// Internal entry used by the closure (dispatch through its index): the first element that is not refused (clean or
+/// pending), else every element's refusal.
 pub(crate) fn serve_with(
     key: &[i32],
     pol: &CreditPolicy,
@@ -344,22 +346,15 @@ fn serve_frame(
     frame: CreditFrame,
 ) -> Result<Result<Credit, Vec<(usize, Refusal)>>, ClosureError> {
     let mut refusals = vec![];
-    let mut pending: Option<Credit> = None;
     for ei in 0..pol.group.len() {
         match try_element(key, ei, pol, ctx, frame)? {
-            Ok(c) if c.undecided.is_empty() => return Ok(Ok(c)),
-            Ok(c) => {
-                if pending.is_none() {
-                    pending = Some(c);
-                }
-            }
+            // the first element not refused, clean or PENDING (its unknown facts are requested): the choice does not
+            // depend on which facts happen to be known, so it never flips when facts arrive
+            Ok(c) => return Ok(Ok(c)),
             Err(r) => refusals.push((ei, r)),
         }
     }
-    Ok(match pending {
-        Some(c) => Ok(c),
-        None => Err(refusals),
-    })
+    Ok(Err(refusals))
 }
 
 /// The adopted symmetry-credit condition at one key (standalone; the closure uses the same function through its

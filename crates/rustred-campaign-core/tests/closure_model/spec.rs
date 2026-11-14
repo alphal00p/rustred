@@ -1,7 +1,12 @@
 //! Node specifications (serialisable), random generation and construction of the crate objects.
 //! Ported from audit loop-B (implementer-scratch/audit-loop-B/.../examples/audit_b/spec.rs, bin_v16), unchanged except
 //! for this header.
-#![allow(dead_code)]
+#![allow(
+    dead_code,
+    clippy::type_complexity,
+    clippy::needless_range_loop,
+    clippy::collapsible_if
+)]
 use rustred_campaign_core::closure::{KeyCodec, KeySet, RuleBodies};
 use rustred_campaign_core::cover::{Dispatcher, Table};
 use rustred_campaign_core::domain::{CaseDomain, PoleKind, PoleLocus, TargetMap, parse_target};
@@ -109,7 +114,10 @@ pub fn slot_text(s: &Sl) -> String {
     }
 }
 pub fn pat_text(v: &[Sl]) -> String {
-    format!("I({})", v.iter().map(slot_text).collect::<Vec<_>>().join(","))
+    format!(
+        "I({})",
+        v.iter().map(slot_text).collect::<Vec<_>>().join(",")
+    )
 }
 
 pub fn build_domain(sp: &NodeSpec, r: &RuleSpec) -> CaseDomain {
@@ -121,7 +129,11 @@ pub fn build_domain(sp: &NodeSpec, r: &RuleSpec) -> CaseDomain {
     d.bounds = r.bounds.iter().map(p).collect();
     d.equations = r.eqs.iter().map(p).collect();
     d.exceptions = r.exc.iter().map(|b| b.iter().map(p).collect()).collect();
-    d.poles = r.poles.iter().map(|l| PoleLocus::new(PoleKind::Denominator, &p(l))).collect();
+    d.poles = r
+        .poles
+        .iter()
+        .map(|l| PoleLocus::new(PoleKind::Denominator, &p(l)))
+        .collect();
     d.witness_elided = r.elided;
     if let Some(t) = &r.target {
         d.target = TargetMap::Pattern(parse_target(&pat_text(t), n).unwrap());
@@ -141,7 +153,8 @@ pub fn build(sp: &NodeSpec) -> Result<Built, String> {
     for t in &sp.tables {
         let mut tab = Table::new(t.name.clone(), sp.n);
         for r in &t.rules {
-            tab.push(r.label, build_domain(sp, r)).map_err(|e| format!("push: {e:?}"))?;
+            tab.push(r.label, build_domain(sp, r))
+                .map_err(|e| format!("push: {e:?}"))?;
         }
         tabs.push(tab);
     }
@@ -151,21 +164,38 @@ pub fn build(sp: &NodeSpec) -> Result<Built, String> {
         for (ri, r) in t.rules.iter().enumerate() {
             if let Some(b) = &r.body {
                 let pats: Vec<String> = b.iter().map(|x| pat_text(x)).collect();
-                bodies.set(&disp, ti, ri, &pats).map_err(|e| format!("body: {e:?}"))?;
+                bodies
+                    .set(&disp, ti, ri, &pats)
+                    .map_err(|e| format!("body: {e:?}"))?;
             }
         }
     }
     let cmp = NodeComparator::legacy(sp.n, sp.ties.clone()).map_err(|e| format!("{e:?}"))?;
     let start = keyset(sp.n, &sp.start);
-    Ok(Built { disp, bodies, cmp, start })
+    Ok(Built {
+        disp,
+        bodies,
+        cmp,
+        start,
+    })
 }
 
 pub fn keyset(n: usize, keys: &[Vec<i32>]) -> KeySet {
-    KeySet::from_keys(KeyCodec::new(n, 6).unwrap(), keys.iter().map(|k| k.as_slice())).unwrap()
+    KeySet::from_keys(
+        KeyCodec::new(n, 6).unwrap(),
+        keys.iter().map(|k| k.as_slice()),
+    )
+    .unwrap()
 }
 
 pub fn group_elems(sp: &NodeSpec) -> Vec<GroupElement> {
-    sp.group.iter().map(|(l, m)| GroupElement { lines: l.clone(), numerators: m.clone() }).collect()
+    sp.group
+        .iter()
+        .map(|(l, m)| GroupElement {
+            lines: l.clone(),
+            numerators: m.clone(),
+        })
+        .collect()
 }
 
 // ------------------------------------------------------------------------------------------------- generation
@@ -189,7 +219,10 @@ fn gen_lin(rng: &mut Rng, n: usize, nvars: usize, crange: i64) -> Lin {
         let a = if rng.chance(50) { 1 } else { -1 };
         t.push((i, a));
     }
-    Lin { t, c: rng.range(-crange, crange) }
+    Lin {
+        t,
+        c: rng.range(-crange, crange),
+    }
 }
 
 pub fn gen_body(rng: &mut Rng, n: usize, nl: usize, asc: u64) -> (Vec<Vec<Sl>>, Vec<u8>) {
@@ -198,10 +231,18 @@ pub fn gen_body(rng: &mut Rng, n: usize, nl: usize, asc: u64) -> (Vec<Vec<Sl>>, 
     let mut zp = vec![];
     for _ in 0..nt {
         let mut t: Vec<Sl> = (0..n).map(|i| Sl::P(i, 0)).collect();
-        let roll = if asc == 0 { rng.below(75) } else { rng.below(100) };
+        let roll = if asc == 0 {
+            rng.below(75)
+        } else {
+            rng.below(100)
+        };
         let mut z = 10u8;
         let line = rng.below(nl as u64) as usize;
-        let num = if n > nl { Some(nl + rng.below((n - nl) as u64) as usize) } else { None };
+        let num = if n > nl {
+            Some(nl + rng.below((n - nl) as u64) as usize)
+        } else {
+            None
+        };
         if roll < asc {
             // ascend
             t[line] = Sl::P(line, 1);
@@ -217,7 +258,11 @@ pub fn gen_body(rng: &mut Rng, n: usize, nl: usize, asc: u64) -> (Vec<Vec<Sl>>, 
                 }
             }
         } else if roll < 60 {
-            t[line] = if rng.chance(50) { Sl::C(0) } else { Sl::P(line, -(rng.range(1, 3) as i32)) };
+            t[line] = if rng.chance(50) {
+                Sl::C(0)
+            } else {
+                Sl::P(line, -(rng.range(1, 3) as i32))
+            };
             if rng.chance(20) {
                 if let Some(m) = num {
                     t[m] = Sl::P(m, 1);
@@ -225,7 +270,11 @@ pub fn gen_body(rng: &mut Rng, n: usize, nl: usize, asc: u64) -> (Vec<Vec<Sl>>, 
             }
         } else if roll < 75 {
             if let Some(m) = num {
-                t[m] = if rng.chance(70) { Sl::P(m, 1) } else { Sl::C(rng.range(0, 1) as i32) };
+                t[m] = if rng.chance(70) {
+                    Sl::P(m, 1)
+                } else {
+                    Sl::C(rng.range(0, 1) as i32)
+                };
                 t[line] = Sl::P(line, -(rng.range(0, 1) as i32));
             } else {
                 t[line] = Sl::P(line, -1);
@@ -243,7 +292,11 @@ pub fn gen_body(rng: &mut Rng, n: usize, nl: usize, asc: u64) -> (Vec<Vec<Sl>>, 
                     *s = Sl::P(i, rng.range(-2, 2) as i32);
                 }
                 if rng.chance(4) {
-                    *s = Sl::C(if i < nl { rng.range(0, 3) } else { rng.range(-2, 1) } as i32);
+                    *s = Sl::C(if i < nl {
+                        rng.range(0, 3)
+                    } else {
+                        rng.range(-2, 1)
+                    } as i32);
                 }
             }
             z = 50;
@@ -263,19 +316,37 @@ pub fn gen_body(rng: &mut Rng, n: usize, nl: usize, asc: u64) -> (Vec<Vec<Sl>>, 
     (terms, zp)
 }
 
-pub fn gen_rule(rng: &mut Rng, n: usize, nl: usize, m: i32, asc: u64, label: i64, fixp: u64) -> RuleSpec {
+pub fn gen_rule(
+    rng: &mut Rng,
+    n: usize,
+    nl: usize,
+    m: i32,
+    asc: u64,
+    label: i64,
+    fixp: u64,
+) -> RuleSpec {
     let mut fixed = vec![None; n];
     for (i, f) in fixed.iter_mut().enumerate() {
         if rng.chance(fixp) {
-            *f = Some(if i < nl { rng.range(1, m as i64) as i32 } else { -(rng.range(0, m as i64) as i32) });
+            *f = Some(if i < nl {
+                rng.range(1, m as i64) as i32
+            } else {
+                -(rng.range(0, m as i64) as i32)
+            });
         }
     }
     let mut bounds = vec![];
     for i in 0..n {
         if i < nl {
-            bounds.push(Lin { t: vec![(i, -1)], c: m as i64 });
+            bounds.push(Lin {
+                t: vec![(i, -1)],
+                c: m as i64,
+            });
         } else {
-            bounds.push(Lin { t: vec![(i, 1)], c: m as i64 });
+            bounds.push(Lin {
+                t: vec![(i, 1)],
+                c: m as i64,
+            });
         }
     }
     let mut eqs = vec![];
@@ -289,8 +360,15 @@ pub fn gen_rule(rng: &mut Rng, n: usize, nl: usize, m: i32, asc: u64, label: i64
             let mut br = vec![];
             for _ in 0..1 + rng.below(2) {
                 let i = rng.below(n as u64) as usize;
-                let v = if i < nl { rng.range(1, m as i64) } else { -rng.range(0, 2) };
-                br.push(Lin { t: vec![(i, 1)], c: -v });
+                let v = if i < nl {
+                    rng.range(1, m as i64)
+                } else {
+                    -rng.range(0, 2)
+                };
+                br.push(Lin {
+                    t: vec![(i, 1)],
+                    c: -v,
+                });
             }
             exc.push(br);
         }
@@ -298,8 +376,15 @@ pub fn gen_rule(rng: &mut Rng, n: usize, nl: usize, m: i32, asc: u64, label: i64
     let mut poles = vec![];
     if rng.chance(5) {
         let i = rng.below(n as u64) as usize;
-        let v = if i < nl { rng.range(1, m as i64) } else { -rng.range(0, 1) };
-        poles.push(Lin { t: vec![(i, 1)], c: -v });
+        let v = if i < nl {
+            rng.range(1, m as i64)
+        } else {
+            -rng.range(0, 1)
+        };
+        poles.push(Lin {
+            t: vec![(i, 1)],
+            c: -v,
+        });
     }
     let elided = rng.chance(3);
     let target = if rng.chance(15) {
@@ -319,7 +404,11 @@ pub fn gen_rule(rng: &mut Rng, n: usize, nl: usize, m: i32, asc: u64, label: i64
         }
         if rng.chance(20) {
             let i = rng.below(n as u64) as usize;
-            t[i] = Sl::C(if i < nl { rng.range(1, 3) } else { -rng.range(0, 1) } as i32);
+            t[i] = Sl::C(if i < nl {
+                rng.range(1, 3)
+            } else {
+                -rng.range(0, 1)
+            } as i32);
         }
         Some(t)
     } else {
@@ -337,7 +426,18 @@ pub fn gen_rule(rng: &mut Rng, n: usize, nl: usize, m: i32, asc: u64, label: i64
         }
     }
     let body = if rng.chance(2) { None } else { Some(body) };
-    RuleSpec { label, fixed, bounds, eqs, exc, poles, elided, target, body, zp }
+    RuleSpec {
+        label,
+        fixed,
+        bounds,
+        eqs,
+        exc,
+        poles,
+        elided,
+        target,
+        body,
+        zp,
+    }
 }
 
 pub fn gen_node(rng: &mut Rng, o: &GenOpts) -> NodeSpec {
@@ -354,11 +454,23 @@ pub fn gen_node(rng: &mut Rng, o: &GenOpts) -> NodeSpec {
     let mut tables = vec![];
     let mut label = 0i64;
     for t in 0..nt {
-        let cnt = if t + 1 == nt { total - total / nt * (nt - 1) } else { total / nt };
+        let cnt = if t + 1 == nt {
+            total - total / nt * (nt - 1)
+        } else {
+            total / nt
+        };
         let mut rules = vec![];
         for _ in 0..cnt {
             label += 1 + rng.below(3) as i64;
-            rules.push(gen_rule(rng, n, nl, m, o.asc_rate, label, if o.sparse { 45 } else { 18 }));
+            rules.push(gen_rule(
+                rng,
+                n,
+                nl,
+                m,
+                o.asc_rate,
+                label,
+                if o.sparse { 45 } else { 18 },
+            ));
         }
         // a free catch-all at the end sometimes
         if !o.sparse && rng.chance(50) {
@@ -371,7 +483,10 @@ pub fn gen_node(rng: &mut Rng, o: &GenOpts) -> NodeSpec {
             r.poles.clear();
             rules.push(r);
         }
-        tables.push(TableSpec { name: format!("T{t}"), rules });
+        tables.push(TableSpec {
+            name: format!("T{t}"),
+            rules,
+        });
     }
     let mut priority: Vec<usize> = (0..nt).collect();
     rng.shuffle(&mut priority);
@@ -443,10 +558,32 @@ pub fn gen_node(rng: &mut Rng, o: &GenOpts) -> NodeSpec {
     let (mut term_pref, mut term_other) = (vec![], vec![]);
     if o.terminals {
         for _ in 0..rng.below(4) {
-            let k: Vec<i32> =
-                (0..n).map(|i| if i < nl { rng.range(1, m as i64) as i32 } else { -(rng.range(0, 1) as i32) }).collect();
-            if rng.chance(50) { term_pref.push(k) } else { term_other.push(k) }
+            let k: Vec<i32> = (0..n)
+                .map(|i| {
+                    if i < nl {
+                        rng.range(1, m as i64) as i32
+                    } else {
+                        -(rng.range(0, 1) as i32)
+                    }
+                })
+                .collect();
+            if rng.chance(50) {
+                term_pref.push(k)
+            } else {
+                term_other.push(k)
+            }
         }
     }
-    NodeSpec { n, nl, tables, priority, ties, start, group, term_pref, term_other, fact_seed: rng.next() }
+    NodeSpec {
+        n,
+        nl,
+        tables,
+        priority,
+        ties,
+        start,
+        group,
+        term_pref,
+        term_other,
+        fact_seed: rng.next(),
+    }
 }
