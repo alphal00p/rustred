@@ -52,14 +52,14 @@
           "rule": {"$ref": "#/$defs/u64n"}, "children_open": {"$ref": "common.schema.json#/$defs/u64"}}}},
         "outputs": {"type": "object", "properties": {
           "table": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["path"], "properties": {
-            "path": {"type": "string"}, "bytes": {"$ref": "#/$defs/u64n"}, "blake3": {"$ref": "#/$defs/hex_or_null"}, "records": {"$ref": "#/$defs/u64n"}, "rules": {"$ref": "#/$defs/u64n"},
+            "path": {"const": "out/F.table.jsonl"}, "bytes": {"$ref": "#/$defs/u64n"}, "blake3": {"$ref": "#/$defs/hex_or_null"}, "records": {"$ref": "#/$defs/u64n"}, "rules": {"$ref": "#/$defs/u64n"},
             "rules_committed": {"$ref": "common.schema.json#/$defs/u64"}, "committed_bytes": {"$ref": "common.schema.json#/$defs/u64"}, "prefix_blake3": {"$ref": "#/$defs/hex_or_null"},
             "sealed": {"type": "boolean"}, "end": {"enum": [null, "end", "partial"]}, "canonical_blake3": {"$ref": "#/$defs/hex_or_null"}, "witness_loci_elided": {"$ref": "common.schema.json#/$defs/u64"}}}]},
-          "cert": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["path"], "properties": {"path": {"type": "string"}, "bytes": {"$ref": "#/$defs/u64n"}, "blake3": {"$ref": "#/$defs/hex_or_null"}, "sealed": {"type": "boolean"}}}]},
+          "cert": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["path"], "properties": {"path": {"const": "out/F.cert.jsonl"}, "bytes": {"$ref": "#/$defs/u64n"}, "blake3": {"$ref": "#/$defs/hex_or_null"}, "sealed": {"type": "boolean"}}}]},
           "queue": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["bytes"], "properties": {"bytes": {"$ref": "common.schema.json#/$defs/u64"}}}]},
           "events": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["last_seq"], "properties": {"last_seq": {"$ref": "common.schema.json#/$defs/u64"}}}]},
-          "resume": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["path", "valid"], "properties": {"path": {"type": "string"}, "valid": {"type": "boolean"}}}]},
-          "extra": {"type": "array", "items": {"type": "object", "required": ["role", "path", "bytes", "blake3"], "properties": {"role": {"type": "string"}, "path": {"type": "string"}, "bytes": {"$ref": "common.schema.json#/$defs/u64"}, "blake3": {"$ref": "common.schema.json#/$defs/blake3"}}}}}},
+          "resume": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["path", "valid"], "properties": {"path": {"const": "RESUME.json"}, "valid": {"type": "boolean"}}}]},
+          "extra": {"type": "array", "items": {"type": "object", "required": ["role", "path", "bytes", "blake3"], "properties": {"role": {"type": "string"}, "path": {"type": "string", "pattern": "^out/[^/]+$"}, "bytes": {"$ref": "common.schema.json#/$defs/u64"}, "blake3": {"$ref": "common.schema.json#/$defs/blake3"}, "records": {"$ref": "#/$defs/u64n"}, "canonical_blake3": {"$ref": "#/$defs/hex_or_null"}, "end": {"enum": [null, "end", "partial"]}, "sealed": {"type": "boolean"}}}}}},
         "timing": {"type": "object", "properties": {"started_utc": {"type": ["string", "null"]}, "finished_utc": {"type": ["string", "null"]}, "wall_s": {"type": ["number", "null"], "minimum": 0}, "cpu_s": {"type": ["number", "null"], "minimum": 0}}},
         "memory": {"type": "object", "properties": {"vmhwm_kb": {"$ref": "#/$defs/u64n"}, "rss_kb_at_end": {"$ref": "#/$defs/u64n"}, "helpers_peak_rss_kb": {"$ref": "#/$defs/u64n"}}},
         "error": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["class", "message"], "properties": {"class": {"enum": ["usage", "input", "refused", "io", "nospace", "internal", "panic"]}, "message": {"type": "string", "maxLength": 4000}}}]},

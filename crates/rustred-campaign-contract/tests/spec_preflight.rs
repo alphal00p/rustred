@@ -333,16 +333,16 @@ fn events_sink_and_tail() {
 
 #[test]
 fn layout_paths() {
-    let l = RunLayout::new("/c/jobs/j/a2");
-    assert_eq!(
-        rustred_campaign_contract::layout::attempt_dir(std::path::Path::new("/c"), "j", 2),
-        l.root
-    );
+    use rustred_campaign_contract::layout::{attempt_dir, attempt_rel, job_id};
+    // plan 3.3.0: WDIR/jobs/<job content id>.<rung>.a<attempt>/
+    let j = job_id("0123456789abcdef", "L0");
+    assert_eq!(attempt_rel(&j, 2), "jobs/0123456789abcdef.L0.a2");
+    let l = RunLayout::new("/c/jobs/0123456789abcdef.L0.a2");
+    assert_eq!(attempt_dir(std::path::Path::new("/c"), &j, 2), l.root);
     assert_eq!(
         l.table(),
-        std::path::PathBuf::from("/c/jobs/j/a2/out/F.table.jsonl")
+        std::path::PathBuf::from("/c/jobs/0123456789abcdef.L0.a2/out/F.table.jsonl")
     );
-    assert_eq!(l.resolve("out/F.table.jsonl"), l.table());
-    assert_eq!(l.resolve("/abs/x"), std::path::PathBuf::from("/abs/x"));
+    assert_eq!(l.at("out/F.table.jsonl"), l.table());
     assert_eq!(RunLayout::out_rel("F.cert.jsonl"), "out/F.cert.jsonl");
 }
