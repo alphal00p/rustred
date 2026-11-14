@@ -271,8 +271,8 @@ impl SymGroup {
             .map(|x| x.as_str().map(str::to_string).ok_or("slot name"))
             .collect::<Result<_, _>>()?;
         let n = slots.len();
-        if n != family.n {
-            return Err(format!("group file has {n} slots, family {}", family.n));
+        if n != family.n() {
+            return Err(format!("group file has {n} slots, family {}", family.n()));
         }
         for (i, s) in slots.iter().enumerate() {
             if *s != format!("D{}", i + 1) {
@@ -293,14 +293,14 @@ impl SymGroup {
         {
             chart[slot(l.as_str().ok_or("line name")?)?] = true;
         }
-        let l = family.loops;
+        let l = family.loops();
         let w = l + 1;
         let var = |name: &str| -> Result<usize, String> {
             if name == "q" {
                 return Ok(l);
             }
             family
-                .loop_names
+                .loop_names()
                 .iter()
                 .position(|s| s == name)
                 .ok_or_else(|| format!("unknown loop momentum {name}"))
@@ -528,9 +528,9 @@ struct QuadBasis {
 
 impl QuadBasis {
     fn new(family: &Family) -> Result<QuadBasis, String> {
-        let l = family.loops;
+        let l = family.loops();
         let c = family.momenta();
-        let n = family.n;
+        let n = family.n();
         let pairs: Vec<(usize, usize)> = (0..=l)
             .flat_map(|a| (a..=l).map(move |b| (a, b)))
             .filter(|&(a, b)| !(a == l && b == l))
@@ -611,14 +611,14 @@ struct Geometry<'f> {
 
 impl<'f> Geometry<'f> {
     fn new(family: &'f Family, chart: &[bool]) -> Result<Geometry<'f>, GroupNotDerived> {
-        let n = family.n;
+        let n = family.n();
         if chart.len() != n {
             return Err(GroupNotDerived::Family(format!(
                 "chart of length {} for arity {n}",
                 chart.len()
             )));
         }
-        let l = family.loops;
+        let l = family.loops();
         let w = l + 1;
         let c = family.momenta();
         if c.iter().any(|v| v.len() != w) {
@@ -744,8 +744,8 @@ impl<'f> Geometry<'f> {
     /// The full slot action of T, or the reason it is not a chart automorphism.
     fn action_of(&self, t: &[i64]) -> Result<Vec<SlotImage>, String> {
         let c = self.family.momenta();
-        let ks = &self.family.kshift;
-        let n = self.family.n;
+        let ks = self.family.kshift();
+        let n = self.family.n();
         let mut out = Vec::with_capacity(n);
         let mut hit = vec![false; n];
         for i in 0..n {
@@ -863,7 +863,7 @@ pub fn derive_group(
     opts: &DeriveOptions,
 ) -> Result<(SymGroup, DeriveStats), GroupNotDerived> {
     let g = Geometry::new(family, chart)?;
-    let l = family.loops;
+    let l = family.loops();
     let nl = g.lines.len() as u128;
     let mut candidates: u128 = 1;
     for j in 0..l as u128 {
@@ -877,7 +877,7 @@ pub fn derive_group(
         });
     }
     let c = family.momenta();
-    let ks = &family.kshift;
+    let ks = family.kshift();
     let mut stats = DeriveStats {
         candidates,
         ..DeriveStats::default()
@@ -886,7 +886,7 @@ pub fn derive_group(
     let mut elements: Vec<SymElement> = Vec::new();
     // iterative DFS over (target, sign) of each basis line
     let mut chosen: Vec<(usize, i64)> = Vec::with_capacity(l);
-    let mut used = vec![false; family.n];
+    let mut used = vec![false; family.n()];
     let mut stack: Vec<usize> = vec![0]; // per depth: next option index (target position * 2 + sign)
     let opts_per_depth = g.lines.len() * 2;
     while let Some(top) = stack.last_mut() {
@@ -945,7 +945,7 @@ pub fn derive_group(
     }
     Ok((
         SymGroup {
-            arity: family.n,
+            arity: family.n(),
             loops: l,
             chart: chart.to_vec(),
             elements,
@@ -980,15 +980,36 @@ pub struct ElementProof {
 }
 
 /// A group every element of which passed the exact momentum proof. The only form [`rows_at`] and the identity test
-/// accept.
+/// accept. Re-audit A NEW-M3 / NEW-m2: every field is PRIVATE and there is no public constructor and no
+/// deserialisation: a `VerifiedGroup` can only come out of [`verify_group`], [`verify_derived`] or
+/// [`verify_cross_checked`], and its provenance label is COMPUTED by the function that produced it.
 #[derive(Clone, Debug)]
 pub struct VerifiedGroup {
-    pub group: SymGroup,
+    group: SymGroup,
     /// sha256 of the family text the proofs were made on (the identity test refuses the group on another family)
-    pub family_digest: String,
-    pub provenance: Provenance,
-    pub digest: String,
-    pub proofs: Vec<ElementProof>,
+    family_digest: String,
+    provenance: Provenance,
+    digest: String,
+    proofs: Vec<ElementProof>,
+}
+
+impl VerifiedGroup {
+    pub fn group(&self) -> &SymGroup {
+        &self.group
+    }
+    pub fn family_digest(&self) -> &str {
+        &self.family_digest
+    }
+    pub fn provenance(&self) -> &Provenance {
+        &self.provenance
+    }
+    pub fn digest(&self) -> &str {
+        &self.digest
+    }
+    /// one proof per element, in element order
+    pub fn proofs(&self) -> &[ElementProof] {
+        &self.proofs
+    }
 }
 
 /// A refused group: the first element that failed and why.
@@ -1050,35 +1071,90 @@ fn check_against(g: &Geometry, el: &SymElement, t: &[i64]) -> Result<ElementProo
     })
 }
 
-/// The exact momentum proof of every element of `group` on `family` (interfaces/ibp-rows.md 10.3): a T (given, or
+/// The exact momentum proof of every element of a SUPPLIED `group` on `family` (interfaces/ibp-rows.md 10.3); the
+/// provenance is `Supplied { source }` (`source` names the data: file, table record, checker map). A T (given, or
 /// reconstructed from the line action over all sign choices on a line basis) with q -> +-q, |det A| = 1, every chart
 /// line onto its stated chart line, every stated slot image equal to the geometric one, no flip. Any failure refuses
 /// the WHOLE group (a wrong element must never reach a span test).
 pub fn verify_group(
     family: &Family,
     group: SymGroup,
+    source: &str,
+) -> Result<VerifiedGroup, GroupRefused> {
+    verify_as(
+        family,
+        group,
+        Provenance::Supplied {
+            source: source.to_string(),
+        },
+    )
+}
+
+/// Derive the chart's group from the family text ([`derive_group`]) and verify it: provenance `Derived`.
+pub fn verify_derived(
+    family: &Family,
+    chart: &[bool],
+    opts: &DeriveOptions,
+) -> Result<VerifiedGroup, GroupRefused> {
+    let (g, _) = derive_group(family, chart, opts).map_err(|e| GroupRefused {
+        element: None,
+        reason: format!("not derived: {e:?}"),
+    })?;
+    verify_as(family, g, Provenance::Derived)
+}
+
+/// Derive the group of `supplied`'s chart, require it EQUAL to `supplied` on the key action ([`cross_check`]), and
+/// verify the derived group: provenance `CrossChecked { sources: [source] }` (computed, never passed in).
+pub fn verify_cross_checked(
+    family: &Family,
+    supplied: &SymGroup,
+    source: &str,
+    opts: &DeriveOptions,
+) -> Result<VerifiedGroup, GroupRefused> {
+    let (g, _) = derive_group(family, &supplied.chart, opts).map_err(|e| GroupRefused {
+        element: None,
+        reason: format!("not derived: {e:?}"),
+    })?;
+    match cross_check(&g, supplied) {
+        GroupCheck::Equal { .. } => verify_as(
+            family,
+            g,
+            Provenance::CrossChecked {
+                sources: vec![source.to_string()],
+            },
+        ),
+        m => Err(GroupRefused {
+            element: None,
+            reason: format!("derived group differs from {source}: {m:?}"),
+        }),
+    }
+}
+
+fn verify_as(
+    family: &Family,
+    group: SymGroup,
     provenance: Provenance,
 ) -> Result<VerifiedGroup, GroupRefused> {
     let refuse = |element: Option<usize>, reason: String| GroupRefused { element, reason };
-    if group.arity != family.n {
+    if group.arity != family.n() {
         return Err(refuse(
             None,
-            format!("group arity {} != family {}", group.arity, family.n),
+            format!("group arity {} != family {}", group.arity, family.n()),
         ));
     }
-    if group.loops != 0 && group.loops != family.loops {
+    if group.loops != 0 && group.loops != family.loops() {
         return Err(refuse(
             None,
-            format!("group loops {} != family {}", group.loops, family.loops),
+            format!("group loops {} != family {}", group.loops, family.loops()),
         ));
     }
     let g = Geometry::new(family, &group.chart).map_err(|e| refuse(None, format!("{e:?}")))?;
-    let l = family.loops;
+    let l = family.loops();
     let w = l + 1;
     let c = family.momenta();
     let mut proofs = Vec::with_capacity(group.elements.len());
     for (k, el) in group.elements.iter().enumerate() {
-        if el.action.len() != family.n {
+        if el.action.len() != family.n() {
             return Err(refuse(Some(k), "action length".into()));
         }
         let Some(perm) = el.line_perm(&group.chart) else {
@@ -1138,7 +1214,7 @@ pub fn verify_group(
     let digest = group.digest();
     Ok(VerifiedGroup {
         group,
-        family_digest: family.source_digest.clone(),
+        family_digest: family.source_digest().to_string(),
         provenance,
         digest,
         proofs,
@@ -1313,6 +1389,9 @@ pub fn rows_at(
     max_terms: usize,
 ) -> Result<Vec<SymRow>, String> {
     let g = &group.group;
+    if group.proofs.len() != g.elements.len() {
+        return Err("symmetry group without one proof per element".into());
+    }
     let (mask, vals) = seed;
     let n = g.arity;
     if vals.len() != n {
@@ -1449,8 +1528,8 @@ mod tests {
                 .iter()
                 .any(|s| matches!(s, SlotImage::Linear { .. }))
         }));
-        let v = verify_group(&f, g.clone(), Provenance::Derived).unwrap();
-        assert_eq!(v.proofs.len(), 5);
+        let v = verify_group(&f, g.clone(), "derived in test").unwrap();
+        assert_eq!(v.proofs().len(), 5);
         // round trip through JSON and through a matrix-free copy (reconstruction)
         let back = SymGroup::from_json(&g.to_json()).unwrap();
         assert_eq!(back, g);
@@ -1458,16 +1537,9 @@ mod tests {
         for e in &mut nomat.elements {
             e.matrix = None;
         }
-        let v2 = verify_group(
-            &f,
-            nomat,
-            Provenance::Supplied {
-                source: "test".into(),
-            },
-        )
-        .unwrap();
-        assert!(v2.proofs.iter().all(|p| p.reconstructed));
-        assert_eq!(v2.digest, v.digest);
+        let v2 = verify_group(&f, nomat, "test").unwrap();
+        assert!(v2.proofs().iter().all(|p| p.reconstructed));
+        assert_eq!(v2.digest(), v.digest());
         assert!(matches!(cross_check(&g, &back), GroupCheck::Equal { .. }));
     }
 
@@ -1506,13 +1578,7 @@ mod tests {
                 ],
             }],
         };
-        let r = verify_group(
-            &f,
-            bad,
-            Provenance::Supplied {
-                source: "planted".into(),
-            },
-        );
+        let r = verify_group(&f, bad, "planted");
         assert!(r.is_err(), "{r:?}");
         // a flip is refused
         let flip = SymGroup {
@@ -1545,7 +1611,7 @@ mod tests {
                 ],
             }],
         };
-        assert!(verify_group(&f, flip, Provenance::Derived).is_err());
+        assert!(verify_group(&f, flip, "planted flip").is_err());
     }
 
     #[test]
@@ -1553,7 +1619,7 @@ mod tests {
         let f = Family::parse(SUNSET).unwrap();
         let chart = [true, true, true, false, false];
         let (g, _) = derive_group(&f, &chart, &DeriveOptions::default()).unwrap();
-        let v = verify_group(&f, g, Provenance::Derived).unwrap();
+        let v = verify_as(&f, g, Provenance::Derived).unwrap();
         // numerator-free dotted key: every element exact, images distinct from the key except the stabiliser
         let r = rows_at(&v, &(0, vec![2, 1, 1, 0, 0]), SymRowMode::Engine, 1000).unwrap();
         assert!(!r.is_empty());
@@ -1582,7 +1648,7 @@ mod tests {
         // generic seed with a symbolic line: only elements fixing slot 0 pointwise
         let gs = (0b1, vec![0, 1, 1, 0, 0]);
         let rg = rows_at(&v, &gs, SymRowMode::Engine, 1000).unwrap();
-        assert!(rg.iter().all(|x| v.group.elements[x.element].action[0]
+        assert!(rg.iter().all(|x| v.group().elements[x.element].action[0]
             == SlotImage::Exact {
                 target: 0,
                 flip: false

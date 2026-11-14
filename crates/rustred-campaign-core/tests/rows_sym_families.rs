@@ -14,8 +14,8 @@ use rustred_campaign_core::ibp_rows::{
 };
 use rustred_campaign_core::replay_base::family::Family;
 use rustred_campaign_core::replay_base::symrows::{
-    DeriveOptions, GroupCheck, Provenance, SlotImage, SymElement, SymGroup, SymRowMode,
-    cross_check, derive_group, rows_at, verify_group,
+    DeriveOptions, GroupCheck, SlotImage, SymElement, SymGroup, SymRowMode, cross_check,
+    derive_group, rows_at, verify_group,
 };
 use serde_json::{Value, json};
 
@@ -65,7 +65,7 @@ fn rows_sym_m2_groups_supplied_verified_cross_checked() {
             .count();
         println!(
             "{name}: arity {} |G| = {} (supplied, incl. identity {}), derived {} ({} candidates, {dsecs:.2}s), {linear} linear numerator images; cross-check {c:?}",
-            fam.n,
+            fam.n(),
             supplied.elements.len() + 1,
             sym["order_full"],
             derived.elements.len() + 1,
@@ -85,20 +85,13 @@ fn rows_sym_m2_groups_supplied_verified_cross_checked() {
             ),
             "{name}: {c:?}"
         );
-        let v = verify_group(
-            &fam,
-            supplied.clone(),
-            Provenance::Supplied {
-                source: format!("{name}/SYMMETRY.json"),
-            },
-        )
-        .unwrap();
-        let vd = verify_group(&fam, derived, Provenance::Derived).unwrap();
-        assert_eq!(v.digest, vd.digest);
+        let v = verify_group(&fam, supplied.clone(), &format!("{name}/SYMMETRY.json")).unwrap();
+        let vd = verify_group(&fam, derived, "derived").unwrap();
+        assert_eq!(v.digest(), vd.digest());
         // planted: an element with two chart lines swapped on top of a true element's action
         let mut bad = supplied.clone();
-        let lines: Vec<usize> = (0..fam.n).filter(|&i| supplied.chart[i]).collect();
-        let mut action: Vec<SlotImage> = (0..fam.n)
+        let lines: Vec<usize> = (0..fam.n()).filter(|&i| supplied.chart[i]).collect();
+        let mut action: Vec<SlotImage> = (0..fam.n())
             .map(|i| SlotImage::Exact {
                 target: i,
                 flip: false,
@@ -125,17 +118,7 @@ fn rows_sym_m2_groups_supplied_verified_cross_checked() {
                 matrix: None,
                 action,
             });
-            assert!(
-                verify_group(
-                    &fam,
-                    bad,
-                    Provenance::Supplied {
-                        source: "planted".into()
-                    }
-                )
-                .is_err(),
-                "{name}"
-            );
+            assert!(verify_group(&fam, bad, "planted").is_err(), "{name}");
         }
         seen += 1;
     }
@@ -152,20 +135,11 @@ fn rows_sym_m2_one_term_rules_with_and_without() {
         };
         let g = SymGroup::from_cfix_json(&sym, &fam).unwrap();
         let chart = g.chart.clone();
-        let vg = Arc::new(
-            verify_group(
-                &fam,
-                g,
-                Provenance::Supplied {
-                    source: name.into(),
-                },
-            )
-            .unwrap(),
-        );
+        let vg = Arc::new(verify_group(&fam, g, &name).unwrap());
         let (mut pass, mut fail_without, mut n) = (0, 0, 0);
-        for (k, e) in vg.group.elements.iter().enumerate() {
+        for (k, e) in vg.group().elements.iter().enumerate() {
             // a dotted corner whose dot moves: target = corner + e_i, image = corner + e_{g(i)}
-            let Some(i) = (0..fam.n).find(|&i| {
+            let Some(i) = (0..fam.n()).find(|&i| {
                 chart[i]
                     && e.action[i]
                         != SlotImage::Exact {
@@ -182,8 +156,8 @@ fn rows_sym_m2_one_term_rules_with_and_without() {
             let mut b = a.clone();
             a[i] += 1;
             b[j] += 1;
-            let r =
-                RowsRule::from_value(point_rule(&chart, &a, vec![(b, "1".into())]), fam.n).unwrap();
+            let r = RowsRule::from_value(point_rule(&chart, &a, vec![(b, "1".into())]), fam.n())
+                .unwrap();
             let with = RowsOptions {
                 symmetry: Some(vg.clone()),
                 ..RowsOptions::default()
@@ -225,18 +199,9 @@ fn rows_sym_m2_multi_term_numerator_map_l3a() {
     };
     let g = SymGroup::from_cfix_json(&sym, &fam).unwrap();
     let chart = g.chart.clone();
-    let vg = Arc::new(
-        verify_group(
-            &fam,
-            g,
-            Provenance::Supplied {
-                source: "L3a".into(),
-            },
-        )
-        .unwrap(),
-    );
+    let vg = Arc::new(verify_group(&fam, g, "L3a").unwrap());
     let (k, _) = vg
-        .group
+        .group()
         .elements
         .iter()
         .enumerate()
@@ -275,7 +240,7 @@ fn rows_sym_m2_multi_term_numerator_map_l3a() {
             )
         })
         .collect();
-    let r = RowsRule::from_value(point_rule(&chart, &a, rhs), fam.n).unwrap();
+    let r = RowsRule::from_value(point_rule(&chart, &a, rhs), fam.n()).unwrap();
     let pts = [PointSpec::Key(a)];
     let eng = identity_test(
         &fam,

@@ -94,3 +94,16 @@ pub fn summary(id: &str, v: &RowsVerdict) -> String {
         cells.join(" | ")
     )
 }
+
+/// Options with the family identity BOUND (re-audit A NEW-M1: the `replay` level needs a binding): the spec-digest
+/// form of `TableBinding` on the family's own text.
+pub fn bound(fam: &Family) -> rustred_campaign_core::ibp_rows::RowsOptions {
+    rustred_campaign_core::ibp_rows::RowsOptions {
+        table: Some(
+            rustred_campaign_core::ibp_rows::TableBinding::from_family_digest(
+                fam.squashed_digest(),
+            ),
+        ),
+        ..rustred_campaign_core::ibp_rows::RowsOptions::default()
+    }
+}

@@ -346,13 +346,18 @@ pub enum PointSpec {
     Generic,
 }
 
-/// The table a rule comes from (audit C2): its header binds the family (engine `family_check`) and states the guard
-/// version. `from_header` recognises a `table_dump.v1` header (`"type":"header"`) and an export `cert_header`.
+/// The table a rule comes from (audit C2; re-audit A NEW-M1): its header binds the family (engine `family_check`) and
+/// states the guard version. `from_header` recognises a `table_dump.v1` header (`"type":"header"`) and an export
+/// `cert_header`; `from_family_digest` binds the family to the campaign spec's family identity instead (sha256 of the
+/// family text with all whitespace removed). The family counts as BOUND only when its TEXT was compared (header
+/// `family_source` or the spec digest): the `replay` level requires it (`ReplayLevel::Unbound` otherwise).
 #[derive(Clone, Debug)]
 pub struct TableBinding {
     pub header: Value,
     /// header `guard_version` (absent = 1 in the engine's semantics)
     pub guard_version: Option<u64>,
+    /// the spec's family identity: sha256 of the whitespace-free family text
+    pub family_digest: Option<String>,
 }
 
 impl TableBinding {
@@ -361,10 +366,47 @@ impl TableBinding {
             Some("header") | Some("cert_header") => Some(TableBinding {
                 header: v.clone(),
                 guard_version: v.get("guard_version").and_then(Value::as_u64),
+                family_digest: None,
             }),
             _ => None,
         }
     }
+
+    /// A binding to the campaign spec's family identity (sha256 hex of the whitespace-free family text).
+    pub fn from_family_digest(squashed_sha256: &str) -> TableBinding {
+        TableBinding {
+            header: Value::Null,
+            guard_version: None,
+            family_digest: Some(squashed_sha256.to_ascii_lowercase()),
+        }
+    }
+
+    /// Compare the family with this binding: `Ok(fields compared)`; the family text was compared iff the list holds
+    /// `family_source` or `spec_family_digest`.
+    pub fn bind(&self, family: &Family) -> Result<Vec<String>, String> {
+        let mut fields: Vec<String> = Vec::new();
+        if self.header.is_object() {
+            fields.extend(
+                family_header_check(&self.header, family)?
+                    .into_iter()
+                    .map(str::to_string),
+            );
+        }
+        if let Some(d) = &self.family_digest {
+            if d != family.squashed_digest() {
+                return Err("family differs from the spec's family digest".into());
+            }
+            fields.push("spec_family_digest".into());
+        }
+        Ok(fields)
+    }
+}
+
+/// The family text itself was compared by a binding (see [`TableBinding::bind`]).
+pub fn binds_family_text(fields: &[String]) -> bool {
+    fields
+        .iter()
+        .any(|f| f == "family_source" || f == "spec_family_digest")
 }
 
 /// Which rules get symmetry rows (interfaces/ibp-rows.md 10.4).
@@ -621,8 +663,11 @@ pub struct RowsVerdict {
     /// sha256 of the family text used and its name (audit C2 / M4)
     pub family_digest: String,
     pub family_name: Option<String>,
-    /// the table header was given and matched (`false` = no binding known)
+    /// the family TEXT was compared with the rule's table header (`family_source`) or the spec's family digest and
+    /// matched (re-audit A NEW-M1: `false` when no comparison happened, e.g. no header or a header without it)
     pub family_bound_to_table: bool,
+    /// the binding fields actually compared (header fields, `spec_family_digest`)
+    pub family_binding: Vec<String>,
     pub verdict: Verdict,
     pub rule_index: Option<i64>,
     pub target: String,
@@ -1705,9 +1750,10 @@ fn unsupported_verdict(
 ) -> RowsVerdict {
     RowsVerdict {
         version: ROWS_VERSION,
-        family_digest: family.source_digest.clone(),
-        family_name: family.name.clone(),
+        family_digest: family.source_digest().to_string(),
+        family_name: family.name().map(str::to_string),
         family_bound_to_table: false,
+        family_binding: Vec::new(),
         verdict: Verdict::Unsupported(u),
         rule_index: rule.index,
         target: rule.target_text.clone(),
@@ -1784,8 +1830,8 @@ fn points_digest(points: &[PointSpec]) -> String {
 fn rows_bytes_estimate(family: &Family, seeds: usize) -> usize {
     seeds
         .saturating_mul(family.n_ops())
-        .saturating_mul(2 * family.n + 2)
-        .saturating_mul(family.n * 8 + 64)
+        .saturating_mul(2 * family.n() + 2)
+        .saturating_mul(family.n() * 8 + 64)
 }
 
 /// THE A2 test of one rule at the given points (each at both primes). See the module doc and interfaces/ibp-rows.md.
@@ -1800,7 +1846,7 @@ pub fn identity_test(
         seed: stream_seed(
             opts.seed,
             rule,
-            &family.source_digest,
+            family.source_digest(),
             &points_digest(points),
             nonce,
         ),
@@ -1838,15 +1884,16 @@ fn identity_test_derived(
             Unsupported::BadPrime(e),
         );
     }
-    if family.n != rule.arity {
+    if family.n() != rule.arity {
         let u = Unsupported::Record(format!(
             "family has {} slots, rule {}",
-            family.n, rule.arity
+            family.n(),
+            rule.arity
         ));
         return unsupported_verdict(family, rule, rule_id, opts, primes, u);
     }
     // audit C2: the family must be inside what the replay models and match the rule's table header
-    if let Err(e) = &family.check {
+    if let Err(e) = family.check() {
         return unsupported_verdict(
             family,
             rule,
@@ -1856,11 +1903,20 @@ fn identity_test_derived(
             Unsupported::Family(e.clone()),
         );
     }
-    if let Some(t) = &opts.table
-        && let Err(e) = family_header_check(&t.header, family)
-    {
-        return unsupported_verdict(family, rule, rule_id, opts, primes, Unsupported::Family(e));
-    }
+    let family_binding: Vec<String> = match opts.table.as_ref().map(|t| t.bind(family)) {
+        None => Vec::new(),
+        Some(Ok(fields)) => fields,
+        Some(Err(e)) => {
+            return unsupported_verdict(
+                family,
+                rule,
+                rule_id,
+                opts,
+                primes,
+                Unsupported::Family(e),
+            );
+        }
+    };
     // audit m3: an empty exception branch (the engine refuses it)
     if let Some(b) = rule.exceptions.iter().position(Vec::is_empty) {
         let u = Unsupported::EmptyExceptionBranch { branch: b };
@@ -1882,13 +1938,13 @@ fn identity_test_derived(
                 return unsupported_verdict(family, rule, rule_id, opts, primes, u);
             }
             Some(g) => {
-                let why = if g.group.arity != rule.arity || g.group.chart != rule.chart {
+                let why = if g.group().arity != rule.arity || g.group().chart != rule.chart {
                     Some(format!(
                         "group chart {} vs rule chart {}",
-                        g.group.chart_text(),
+                        g.group().chart_text(),
                         rule.chart_text
                     ))
-                } else if g.family_digest != family.source_digest {
+                } else if g.family_digest() != family.source_digest() {
                     Some("group verified on another family".to_string())
                 } else {
                     None
@@ -2130,10 +2186,10 @@ fn identity_test_derived(
             support.extend(c.sym_support.iter().copied());
         }
         SymmetryUse {
-            group_digest: g.digest.clone(),
-            provenance: g.provenance.clone(),
+            group_digest: g.digest().to_string(),
+            provenance: g.provenance().clone(),
             mode: opts.sym_mode,
-            elements: g.group.elements.len(),
+            elements: g.group().elements.len(),
             rows_total,
             support: support.into_iter().collect(),
         }
@@ -2141,9 +2197,10 @@ fn identity_test_derived(
     RowsVerdict {
         symmetry,
         version: ROWS_VERSION,
-        family_digest: family.source_digest.clone(),
-        family_name: family.name.clone(),
-        family_bound_to_table: opts.table.is_some(),
+        family_digest: family.source_digest().to_string(),
+        family_name: family.name().map(str::to_string),
+        family_bound_to_table: binds_family_text(&family_binding),
+        family_binding,
         // a pass resting only on generic points with boundary-sensitive columns does not meet A2 (audit A C1 / B)
         meets_a2_policy: verdict == Verdict::Pass
             && points_passed >= 2
@@ -2297,6 +2354,12 @@ pub enum ReplayLevel {
     NotEstablished {
         reasons: Vec<String>,
     },
+    /// every other check passed but the family identity was NOT bound (re-audit A NEW-M1): no table header with
+    /// `family_source` and no spec family digest was given (`RowsOptions.table`), so the record cannot say WHICH
+    /// family its rows are identities of. Never accepted.
+    Unbound {
+        reason: String,
+    },
 }
 
 /// Witness-guard completeness of the record (audit M3).
@@ -2317,6 +2380,8 @@ pub struct ReplayRecord {
     pub family_digest: String,
     pub family_name: Option<String>,
     pub family_bound_to_table: bool,
+    /// the binding fields compared (see [`RowsVerdict::family_binding`])
+    pub family_binding: Vec<String>,
     /// sha256 of the rule's canonical content (see [`rule_digest`])
     pub rule_digest: String,
     pub rule_index: Option<i64>,
@@ -2642,7 +2707,7 @@ pub fn replay_evidence(
         seed: stream_seed(
             opts.seed,
             rule,
-            &family.source_digest,
+            family.source_digest(),
             &key_set_digest(&dedup0),
             nonce,
         ),
@@ -2878,8 +2943,21 @@ pub fn replay_evidence(
             _ => {}
         }
     }
+    // re-audit A NEW-M1: the family identity must be bound (header family_source or spec digest compared)
+    let unbound = (!identity.family_bound_to_table).then(|| {
+        match &opts.table {
+            None => "Unbound: no table header and no spec family digest given (RowsOptions.table)".to_string(),
+            Some(_) => format!(
+                "Unbound: the binding compared {:?} but not the family text (header family_source or spec digest)",
+                identity.family_binding
+            ),
+        }
+    });
     let level = if !reasons.is_empty() {
+        reasons.extend(unbound);
         ReplayLevel::NotEstablished { reasons }
+    } else if let Some(reason) = unbound {
+        ReplayLevel::Unbound { reason }
     } else if sampled {
         ReplayLevel::ReplaySampled {
             replayed: served_keys_replayed,
@@ -2891,9 +2969,10 @@ pub fn replay_evidence(
     ReplayRecord {
         schema: REPLAY_SCHEMA,
         tool_version: ROWS_VERSION,
-        family_digest: family.source_digest.clone(),
-        family_name: family.name.clone(),
-        family_bound_to_table: opts.table.is_some(),
+        family_digest: family.source_digest().to_string(),
+        family_name: family.name().map(str::to_string),
+        family_bound_to_table: identity.family_bound_to_table,
+        family_binding: identity.family_binding.clone(),
         rule_digest: rule_digest(rule),
         rule_index: rule.index,
         target: rule.target_text.clone(),
@@ -2988,7 +3067,7 @@ pub fn identity_test_batch<R: BufRead, W: Write>(
                     .get("cert")
                     .and_then(Value::as_array)
                     .and_then(|c| c.iter().find_map(TableBinding::from_header));
-                RowsRule::from_line_value(v, family.n)
+                RowsRule::from_line_value(v, family.n())
             });
         let lopts_owned;
         let lopts: &RowsOptions = match line_table.or_else(|| table.clone()) {
@@ -3030,9 +3109,10 @@ pub fn identity_test_batch<R: BufRead, W: Write>(
             Err(e) => {
                 let v = RowsVerdict {
                     version: ROWS_VERSION,
-                    family_digest: family.source_digest.clone(),
-                    family_name: family.name.clone(),
+                    family_digest: family.source_digest().to_string(),
+                    family_name: family.name().map(str::to_string),
                     family_bound_to_table: false,
+                    family_binding: Vec::new(),
                     verdict: Verdict::Unsupported(Unsupported::Record(e.to_string())),
                     rule_index: None,
                     target: String::new(),

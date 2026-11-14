@@ -19,10 +19,10 @@ use serde_json::Value;
 #[test]
 fn rows_t162_raw_identities_equal_the_checkers() {
     let fam = t162_family();
-    let n = fam.n;
+    let n = fam.n();
     let ck: Value = serde_json::from_str(&data("checker_T162_rows.json")).unwrap();
     let rows = ck["rows"].as_array().unwrap();
-    assert_eq!((n, fam.loops, fam.n_ops(), rows.len()), (20, 5, 30, 30));
+    assert_eq!((n, fam.loops(), fam.n_ops(), rows.len()), (20, 5, 30, 30));
     let mut entries = 0;
     for (op, r) in rows.iter().enumerate() {
         let ours = fam.exact_row(op).unwrap();
@@ -97,7 +97,7 @@ fn rows_t162_zero_sectors_equal_the_checkers() {
 #[test]
 fn rows_at_mod_equals_engine_rows_at_and_exact_rows() {
     let fam = t162_family();
-    let n = fam.n;
+    let n = fam.n();
     let [p, _] = verify_primes(11, &[]);
     let mut s = SplitMix64::new(5);
     for _ in 0..20 {

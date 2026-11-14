@@ -16,8 +16,8 @@ use rustred_campaign_core::ibp_rows::{
 };
 use rustred_campaign_core::replay_base::family::Family;
 use rustred_campaign_core::replay_base::symrows::{
-    DeriveOptions, GroupCheck, Provenance, SlotImage, SymElement, VerifiedGroup, cross_check,
-    derive_group, verify_group,
+    DeriveOptions, GroupCheck, SlotImage, SymElement, VerifiedGroup, cross_check, derive_group,
+    verify_group,
 };
 use serde_json::{Value, json};
 
@@ -57,18 +57,11 @@ fn rows_sym_t162_group_derived_verified_cross_checked() {
         m => panic!("{m:?}"),
     }
     // the checker's maps verify on their own (T reconstructed from the line action)
-    let vck = verify_group(
-        &fam,
-        ck,
-        Provenance::Supplied {
-            source: "checker".into(),
-        },
-    )
-    .unwrap();
-    assert!(vck.proofs.iter().all(|p| p.reconstructed));
-    let v = verify_group(&fam, g.clone(), Provenance::Derived).unwrap();
-    assert_eq!(v.digest, vck.digest);
-    println!("T162 group digest {}", v.digest);
+    let vck = verify_group(&fam, ck, "checker").unwrap();
+    assert!(vck.proofs().iter().all(|p| p.reconstructed));
+    let v = verify_group(&fam, g.clone(), "derived").unwrap();
+    assert_eq!(v.digest(), vck.digest());
+    println!("T162 group digest {}", v.digest());
     // batch-02 symmetry_map.json line permutations (12, presented frame) = ours
     let sm = std::fs::read_to_string(format!("{HO}/t162-faces/batch-02/symmetry_map.json"));
     if let Ok(sm) = sm {
@@ -122,13 +115,7 @@ fn rows_sym_t162_planted_wrong_element_refused() {
         matrix: None,
         action,
     });
-    let r = verify_group(
-        &fam,
-        bad,
-        Provenance::Supplied {
-            source: "planted".into(),
-        },
-    );
+    let r = verify_group(&fam, bad, "planted");
     println!("planted transposition: {:?}", r.as_ref().err());
     assert!(r.is_err());
     // (b) a true element with one numerator image changed (exact D10 -> D11 where the geometry says otherwise)
@@ -142,13 +129,7 @@ fn rows_sym_t162_planted_wrong_element_refused() {
         target: 10,
         flip: false,
     };
-    let r = verify_group(
-        &fam,
-        bad,
-        Provenance::Supplied {
-            source: "planted".into(),
-        },
-    );
+    let r = verify_group(&fam, bad, "planted");
     println!("planted numerator image: {:?}", r.as_ref().err());
     assert!(r.is_err());
     // (c) a true element with a wrong matrix
@@ -156,7 +137,7 @@ fn rows_sym_t162_planted_wrong_element_refused() {
     if let Some(m) = &mut bad.elements[0].matrix {
         m[0] += 1;
     }
-    assert!(verify_group(&fam, bad, Provenance::Derived).is_err());
+    assert!(verify_group(&fam, bad, "derived").is_err());
 }
 
 fn decide(
@@ -350,7 +331,7 @@ fn rows_sym_t162_point_rule_replay_level() {
     let key: Vec<i64> = rule.fixed.iter().map(|f| f.unwrap()).collect();
     let opts = RowsOptions {
         symmetry: Some(g.clone()),
-        ..RowsOptions::default()
+        ..bound(&fam)
     };
     let rec = replay_evidence(
         &fam,
@@ -366,14 +347,8 @@ fn rows_sym_t162_point_rule_replay_level() {
     assert_eq!(rec.level, ReplayLevel::Established);
     assert_eq!(rec.served_keys, 1);
     let sg = rec.symmetry_group.as_ref().unwrap();
-    assert_eq!(sg.group_digest, g.digest);
+    assert_eq!(sg.group_digest, g.digest());
     assert!(!sg.support.is_empty());
-    let rec = replay_evidence(
-        &fam,
-        &rule,
-        &[key],
-        &ReplayPolicy::default(),
-        &RowsOptions::default(),
-    );
+    let rec = replay_evidence(&fam, &rule, &[key], &ReplayPolicy::default(), &bound(&fam));
     assert!(matches!(rec.level, ReplayLevel::NotEstablished { .. }));
 }

@@ -14,53 +14,78 @@ use super::expr::Unknown;
 /// One IBP operator: `diag` (j == v) and per propagator `(t0, [(m, x)])`.
 type OpTable = (bool, Vec<(Q, Vec<(usize, Q)>)>);
 
+/// The family model. All fields are PRIVATE (re-audit A NEW-M3): a model can only come from [`Family::parse`] of a
+/// text, and its digests / check result cannot be edited after the fact.
 pub struct Family {
-    pub n: usize,
-    pub loops: usize,
-    pub kshift: Vec<i64>,
-    pub eps_axes: Vec<usize>,
+    n: usize,
+    loops: usize,
+    kshift: Vec<i64>,
+    eps_axes: Vec<usize>,
     /// Momentum coefficients `c[i][v]`, `v` over loops then `q`.
     c: Vec<Vec<i64>>,
     ops: Vec<OpTable>,
     zero_cache: Mutex<HashMap<Vec<bool>, bool>>,
     /// campaign copy, ADDED (audit C2): sha256 of the family text bytes, the `name(..)` and the result of the
     /// header-free part of the engine's `family_check` plus the whitelist of [`family_text_check`].
-    pub source_digest: String,
+    source_digest: String,
     /// sha256 of the text with all whitespace removed (the engine compares `family_source` up to whitespace)
-    pub squashed_digest: String,
-    pub name: Option<String>,
-    pub check: Result<(), Unknown>,
+    squashed_digest: String,
+    name: Option<String>,
+    check: Result<(), Unknown>,
     /// campaign copy, ADDED: the loop momentum names in `loops(..)` order (symmetry-group data refers to them)
-    pub loop_names: Vec<String>,
+    loop_names: Vec<String>,
+    /// campaign copy, ADDED (rows3): the text the model was parsed from (a second backend re-parses it)
+    source: String,
 }
 
-/// campaign copy, ADDED (audit C2): the engine replay's `family_check` (replay/mod.rs:1979-2014 at b9f06de7) without
-/// the table-header part (that is [`family_header_check`]), plus a whitelist: the module models exactly
-/// `name, loops, externals(q), dimension(d), prop(D<k>,(mom)^2,flag), gram(q,q,1), power_shift`; anything else is
-/// refused (never silently ignored).
-pub fn family_text_check(text: &str, n: usize) -> Result<(), Unknown> {
-    let c: String = text.chars().filter(|c| !c.is_whitespace()).collect();
-    if !c.contains("externals(q)") || !c.contains("gram(q,q,1)") {
-        return Err("only massless one-scale q^2=1 families supported".into());
+impl Family {
+    /// number of slots (propagators and numerators)
+    pub fn n(&self) -> usize {
+        self.n
     }
-    if c.matches("gram(").count() != 1 || c.matches("externals(").count() != 1 {
-        return Err("exactly one gram(q,q,1) and one externals(q) are supported".into());
+    pub fn loops(&self) -> usize {
+        self.loops
     }
-    if !c.contains("dimension(d)") || c.matches("dimension(").count() != 1 {
-        return Err("dimension must be d".into());
+    /// per slot: the integer k of the power shift k (4-d)/2 (0 = none)
+    pub fn kshift(&self) -> &[i64] {
+        &self.kshift
     }
-    if c.matches("prop(").count() != n {
-        return Err("unsupported propagator grammar/mass".into());
+    pub fn eps_axes(&self) -> &[usize] {
+        &self.eps_axes
     }
-    let inner = c
+    /// sha256 of the family text bytes
+    pub fn source_digest(&self) -> &str {
+        &self.source_digest
+    }
+    /// sha256 of the text without whitespace (what a table header's `family_source` is compared with)
+    pub fn squashed_digest(&self) -> &str {
+        &self.squashed_digest
+    }
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+    /// the header-free family check (text check + whitelist): `Err` = outside what the replay models
+    pub fn check(&self) -> &Result<(), Unknown> {
+        &self.check
+    }
+    pub fn loop_names(&self) -> &[String] {
+        &self.loop_names
+    }
+    /// the family text this model was parsed from
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+}
+
+/// Top-level calls of a whitespace-free family text `I(c1,c2,..)` as (head, argument text).
+fn top_level_calls(compact: &str) -> Result<Vec<(&str, &str)>, Unknown> {
+    let inner = compact
         .strip_prefix("I(")
         .and_then(|x| x.strip_suffix(')'))
         .ok_or("family text is not I(...)")?;
-    // top-level calls
     let (mut depth, mut start) = (0i32, 0usize);
-    let b = inner.as_bytes();
     let mut calls: Vec<&str> = Vec::new();
-    for (k, &ch) in b.iter().enumerate() {
+    for (k, &ch) in inner.as_bytes().iter().enumerate() {
         match ch {
             b'(' => depth += 1,
             b')' => depth -= 1,
@@ -74,61 +99,126 @@ pub fn family_text_check(text: &str, n: usize) -> Result<(), Unknown> {
             return Err("unbalanced parentheses".into());
         }
     }
+    if depth != 0 {
+        return Err("unbalanced parentheses".into());
+    }
     calls.push(&inner[start..]);
-    for call in calls {
-        let head = call.split('(').next().unwrap_or("");
-        if ![
-            "name",
-            "loops",
-            "externals",
-            "dimension",
-            "prop",
-            "gram",
-            "power_shift",
-        ]
-        .contains(&head)
-            || !call.ends_with(')')
-        {
-            return Err(format!(
-                "family element not modelled by the replay: {call:.60}"
-            ));
+    calls
+        .into_iter()
+        .map(|call| {
+            let open = call.find('(').filter(|_| call.ends_with(')'));
+            match open {
+                Some(o) => Ok((&call[..o], &call[o + 1..call.len() - 1])),
+                None => Err(format!("family element is not a call: {call:.60}")),
+            }
+        })
+        .collect()
+}
+
+/// campaign copy, ADDED (audit C2; re-audit A NEW-M2 2026-11-14): the engine replay's `family_check`
+/// (replay/mod.rs:1979-2014 at b9f06de7) without the table-header part (that is [`family_header_check`]), checked on
+/// the TOP-LEVEL calls (a substring test let `name(gram(q,q,1))` pass): exactly one `loops(..)`, `externals(q)`,
+/// `dimension(d)`, `gram(q,q,1)`, at most one `name(..)`, exactly `n` `prop(..)` with flag 0 or 1, `power_shift` only;
+/// any other construct of the engine's family grammar is refused BY NAME (never silently ignored).
+pub fn family_text_check(text: &str, n: usize) -> Result<(), Unknown> {
+    let c: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    let calls = top_level_calls(&c)?;
+    let count = |h: &str| calls.iter().filter(|(head, _)| *head == h).count();
+    let only = |h: &str, arg: &str, what: &str| -> Result<(), Unknown> {
+        if count(h) != 1 || !calls.iter().any(|(head, a)| *head == h && *a == arg) {
+            return Err(what.to_string());
+        }
+        Ok(())
+    };
+    only(
+        "externals",
+        "q",
+        "only massless one-scale q^2=1 families supported (exactly one externals(q))",
+    )?;
+    only(
+        "gram",
+        "q,q,1",
+        "only massless one-scale q^2=1 families supported (exactly one gram(q,q,1))",
+    )?;
+    only(
+        "dimension",
+        "d",
+        "dimension must be d (exactly one dimension(d))",
+    )?;
+    if count("loops") != 1 {
+        return Err("exactly one loops(..) is required".into());
+    }
+    if count("name") > 1 {
+        return Err("at most one name(..) is allowed".into());
+    }
+    if count("prop") != n {
+        return Err("unsupported propagator grammar/mass".into());
+    }
+    for (head, arg) in &calls {
+        match *head {
+            "name" | "loops" | "externals" | "dimension" | "gram" | "power_shift" => {}
+            "prop" => {
+                if !(arg.ends_with(",0") || arg.ends_with(",1")) {
+                    return Err(format!("propagator flag not 0/1: prop({arg:.60})"));
+                }
+            }
+            other => {
+                return Err(format!(
+                    "family element `{other}` not modelled by the replay: {other}({arg:.60})"
+                ));
+            }
         }
     }
     Ok(())
 }
 
-/// campaign copy, ADDED (audit C2): the table-header part of the engine's `family_check` (replay/mod.rs:1979-2014 at
-/// b9f06de7): `family_source` equal up to whitespace, `denominators` / `loops` equal, `parameters == ["d"]`, no
-/// `source_conditions`. Fields absent from `header` are not checked here (the caller records what was bound).
-pub fn family_header_check(header: &serde_json::Value, f: &Family) -> Result<(), Unknown> {
+/// campaign copy, ADDED (audit C2; re-audit A NEW-M1): the table-header part of the engine's `family_check`
+/// (replay/mod.rs:1979-2014 at b9f06de7): `family_source` equal up to whitespace, `family` name, `denominators` /
+/// `loops` equal, `parameters == ["d"]`, no `source_conditions`. Returns the header fields that were actually
+/// COMPARED (absent fields are not compared); the family is BOUND only when `family_source` is among them (the caller
+/// decides what an unbound family may obtain: never the `replay` level).
+pub fn family_header_check(
+    header: &serde_json::Value,
+    f: &Family,
+) -> Result<Vec<&'static str>, Unknown> {
+    let mut bound: Vec<&'static str> = Vec::new();
     let squash = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
-    if let Some(embedded) = header.get("family_source").and_then(|x| x.as_str())
-        && super::sha256::sha256_hex(squash(embedded).as_bytes()) != f.squashed_digest
-    {
-        return Err("family differs from table physical-slot source".into());
+    match header.get("family_source") {
+        None | Some(serde_json::Value::Null) => {}
+        Some(serde_json::Value::String(embedded)) => {
+            if super::sha256::sha256_hex(squash(embedded).as_bytes()) != f.squashed_digest {
+                return Err("family differs from table physical-slot source".into());
+            }
+            bound.push("family_source");
+        }
+        Some(_) => return Err("table header family_source is not a string".into()),
     }
-    if let Some(name) = header.get("family").and_then(|x| x.as_str())
-        && f.name.as_deref() != Some(name)
-    {
-        return Err(format!(
-            "table family {name:?} differs from the family's name {:?}",
-            f.name
-        ));
+    if let Some(x) = header.get("family") {
+        if x.as_str().is_none() || x.as_str() != f.name.as_deref() {
+            return Err(format!(
+                "table family {x} differs from the family's name {:?}",
+                f.name
+            ));
+        }
+        bound.push("family");
     }
-    if let Some(x) = header.get("denominators")
-        && x.as_u64() != Some(f.n as u64)
-    {
-        return Err("family dimension metadata mismatch".into());
+    if let Some(x) = header.get("denominators") {
+        if x.as_u64() != Some(f.n as u64) {
+            return Err("family dimension metadata mismatch".into());
+        }
+        bound.push("denominators");
     }
-    if let Some(x) = header.get("loops")
-        && x.as_u64() != Some(f.loops as u64)
-    {
-        return Err("family dimension metadata mismatch".into());
+    if let Some(x) = header.get("loops") {
+        if x.as_u64() != Some(f.loops as u64) {
+            return Err("family dimension metadata mismatch".into());
+        }
+        bound.push("loops");
     }
-    if let Some(x) = header.get("parameters")
-        && *x != serde_json::json!(["d"])
-    {
-        return Err("unsupported extra coefficient parameters".into());
+    if let Some(x) = header.get("parameters") {
+        if *x != serde_json::json!(["d"]) {
+            return Err("unsupported extra coefficient parameters".into());
+        }
+        bound.push("parameters");
     }
     if header
         .get("source_conditions")
@@ -139,10 +229,12 @@ pub fn family_header_check(header: &serde_json::Value, f: &Family) -> Result<(),
             "nonempty source conditions require an explicit independent implementation".into(),
         );
     }
-    Ok(())
+    Ok(bound)
 }
 
-fn lin(mom: &str) -> Result<BTreeMap<String, i64>, Unknown> {
+/// campaign copy, CHANGED (re-audit A NEW-M2): a momentum name outside `declared` (the loop momenta and `q`) is an
+/// ERROR (the engine copy dropped it silently, modelling another family than the text).
+fn lin(mom: &str, declared: &[String]) -> Result<BTreeMap<String, i64>, Unknown> {
     // ([+-]?)(\d*)\*?([kq]\d*)
     let s: Vec<char> = mom.chars().filter(|c| !c.is_whitespace()).collect();
     let mut out: BTreeMap<String, i64> = BTreeMap::new();
@@ -180,6 +272,9 @@ fn lin(mom: &str) -> Result<BTreeMap<String, i64>, Unknown> {
             i += 1;
         }
         let v: String = s[vstart..i].iter().collect();
+        if !declared.contains(&v) {
+            return Err(format!("undeclared momentum `{v}` in ({mom})"));
+        }
         *out.entry(v).or_insert(0) += sign * coef;
     }
     Ok(out)
@@ -263,63 +358,79 @@ impl Family {
     )]
     pub fn parse(src: &str) -> Result<Self, Unknown> {
         let compact: String = src.chars().filter(|c| !c.is_whitespace()).collect();
+        // campaign copy, CHANGED (re-audit A NEW-M2): the propagators, power shifts and loop momenta are read from the
+        // TOP-LEVEL calls; labels must be the canonical D1..Dn in order (power shifts address them by label), every
+        // momentum name must be declared, a malformed prop or power_shift is an error (the engine copy skipped it)
+        let calls = top_level_calls(&compact)?;
         let loops: Vec<String> = call_args(&compact, "loops")
             .ok_or("family without loops(...)")?
             .split(',')
             .map(str::to_string)
             .collect();
+        for (i, l) in loops.iter().enumerate() {
+            let ok =
+                l.len() > 1 && l.starts_with('k') && l[1..].bytes().all(|b| b.is_ascii_digit());
+            if !ok || loops[..i].contains(l) {
+                return Err(format!(
+                    "loop momentum name `{l}` not modelled (k<digits>, distinct)"
+                ));
+            }
+        }
         let mut props: Vec<(String, String)> = Vec::new();
-        let mut rest = compact.as_str();
-        // prop\(D\d+,\(([^)]*)\)\^2,(\d)\)
-        while let Some(at) = rest.find("prop(D") {
-            let s = &rest[at + 6..];
-            let digits = s.chars().take_while(char::is_ascii_digit).count();
-            let s2 = &s[digits..];
+        for (head, arg) in calls.iter().filter(|(h, _)| *h == "prop") {
             let parsed = (|| {
-                let s3 = s2.strip_prefix(",(")?;
+                let s = arg.strip_prefix('D')?;
+                let digits = s.chars().take_while(char::is_ascii_digit).count();
+                let label: usize = s[..digits].parse().ok()?;
+                let s3 = s[digits..].strip_prefix(",(")?;
                 let close = s3.find(')')?;
                 let mom = &s3[..close];
-                let s4 = s3[close..].strip_prefix(")^2,")?;
-                let flag = s4.chars().next().filter(char::is_ascii_digit)?;
-                s4[1..]
-                    .starts_with(')')
-                    .then(|| (mom.to_string(), flag.to_string()))
+                let flag = s3[close..].strip_prefix(")^2,")?;
+                (flag.len() == 1 && flag.bytes().all(|b| b.is_ascii_digit()))
+                    .then(|| (label, mom.to_string(), flag.to_string()))
             })();
-            if let (true, Some(p)) = (digits > 0, parsed) {
-                props.push(p);
+            match parsed {
+                Some((label, mom, flag)) if label == props.len() + 1 => props.push((mom, flag)),
+                Some((label, ..)) => {
+                    return Err(format!(
+                        "propagator label D{label} at position {}: labels must be D1..Dn in order",
+                        props.len() + 1
+                    ));
+                }
+                None => return Err(format!("malformed {head}({arg:.60})")),
             }
-            rest = &rest[at + 6..];
         }
         let n = props.len();
         let mut kshift = vec![0i64; n];
-        let mut r = compact.as_str();
-        while let Some(at) = r.find("power_shift(D") {
-            let s = &r[at + 13..];
-            let digits: String = s.chars().take_while(char::is_ascii_digit).collect();
-            let j: usize = digits.parse().map_err(|_| "power_shift label")?;
-            let expr = call_args(&r[at..], "power_shift").unwrap_or_default();
-            let value = expr
+        let mut shifted = vec![false; n];
+        for (_, arg) in calls.iter().filter(|(h, _)| *h == "power_shift") {
+            let (label, value) = arg
                 .split_once(',')
-                .map(|x| x.1.to_string())
-                .unwrap_or_default();
+                .ok_or_else(|| format!("malformed power_shift({arg:.60})"))?;
+            let j: usize = label
+                .strip_prefix('D')
+                .and_then(|x| x.parse().ok())
+                .ok_or_else(|| format!("power_shift label `{label}`"))?;
+            if j == 0 || j > n || shifted[j - 1] {
+                return Err(format!(
+                    "power_shift label D{j}: out of range D1..D{n} or repeated"
+                ));
+            }
+            shifted[j - 1] = true;
             // p5l-close: two-sided (eps) families. A power shift must be an integer multiple k of
             // eps = (4-d)/2; the line's exponent is then a_i + k eps (checked at d = 0, 2, 4).
-            let k = if value == "0" || value.is_empty() {
+            kshift[j - 1] = if value == "0" || value.is_empty() {
                 0
             } else {
-                eps_multiple(&value, n)?
+                eps_multiple(value, n)?
             };
-            if j >= 1 && j <= n {
-                kshift[j - 1] = k;
-            }
-            r = &r[at + 13..];
         }
         let lcount = loops.len();
         let vs: Vec<String> = loops.iter().cloned().chain(["q".to_string()]).collect();
         let c: Vec<Vec<i64>> = props
             .iter()
             .map(|(m, _)| {
-                lin(m).map(|l| vs.iter().map(|v| l.get(v).copied().unwrap_or(0)).collect())
+                lin(m, &vs).map(|l| vs.iter().map(|v| l.get(v).copied().unwrap_or(0)).collect())
             })
             .collect::<Result<_, _>>()?;
         let pairs: Vec<(usize, usize)> = (0..=lcount)
@@ -408,6 +519,7 @@ impl Family {
             name,
             check,
             loop_names: loops.clone(),
+            source: src.to_string(),
             n,
             loops: lcount,
             kshift,
