@@ -44,8 +44,10 @@ impl RationalFunction {
         self.denominator.len() == 1
     }
 
-    /// `(numerator degree, denominator degree)`.
+    /// `(numerator degree, denominator degree)`. Both coefficient vectors
+    /// must be nonempty (every constructor of this module ensures it).
     pub fn degrees(&self) -> (usize, usize) {
+        debug_assert!(!self.numerator.is_empty() && !self.denominator.is_empty());
         (self.numerator.len() - 1, self.denominator.len() - 1)
     }
 
@@ -162,10 +164,8 @@ pub fn wang_reconstruction(value: &Integer, modulus: &Integer) -> Option<Rationa
     let (mut old_r, mut r) = (modulus.clone(), v);
     let (mut old_t, mut t) = (Integer::zero(), Integer::one());
     // Run the extended Euclidean algorithm until 2 r^2 < m.
+    // The loop ends before `r` reaches zero: `2 r^2 >= m > 0` needs `r != 0`.
     while &(&two * &(&r * &r)) >= modulus {
-        if r.is_zero() {
-            return None;
-        }
         let (quotient, remainder) = old_r.quot_rem(&r);
         (old_r, r) = (r, remainder);
         let next_t = &old_t - &(&quotient * &t);
@@ -186,7 +186,9 @@ pub fn wang_reconstruction(value: &Integer, modulus: &Integer) -> Option<Rationa
 }
 
 /// Monagan's maximal-quotient rational reconstruction with Symbolica's
-/// default acceptance threshold.
+/// default acceptance threshold (`T = 2^11 ceil(log2 m)` in the pinned
+/// revision). Used here only in a race whose acceptance needs two consecutive
+/// equal guesses, so the threshold is not the acceptance criterion.
 pub fn mqrr_reconstruction(value: &Integer, modulus: &Integer) -> Option<Rational> {
     Rational::maximal_quotient_reconstruction(value, modulus, None).ok()
 }

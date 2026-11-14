@@ -28,6 +28,7 @@ pub struct Shape {
 impl Shape {
     /// Shape of a normalised, trimmed image.
     pub fn of(field: &Zp64, numerator: &[Zp], denominator: &[Zp]) -> Self {
+        debug_assert!(!numerator.is_empty() && !denominator.is_empty());
         Self {
             numerator: numerator.len() - 1,
             denominator: denominator.len() - 1,
@@ -47,6 +48,20 @@ impl Shape {
 
     pub fn is_polynomial(&self) -> bool {
         self.zero || self.denominator == 0
+    }
+
+    /// `self` strictly dominates `other`: it differs from it, and it is what
+    /// `other` can become under a lucky prime when `other` came from an
+    /// unlucky one (no degree smaller, normalisation index no larger, nonzero
+    /// whenever `other` is). An unlucky prime only lowers degrees, raises the
+    /// index or zeroes the image.
+    pub fn dominates(&self, other: &Shape) -> bool {
+        self != other
+            && (other.zero
+                || (!self.zero
+                    && self.numerator >= other.numerator
+                    && self.denominator >= other.denominator
+                    && self.low <= other.low))
     }
 }
 

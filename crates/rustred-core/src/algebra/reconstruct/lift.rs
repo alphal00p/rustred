@@ -7,7 +7,10 @@
 //! raced on the accumulated residues. A guess is accepted ("probably
 //! correct") once either method returns the same function for two
 //! consecutive moduli; the caller then checks it in a fresh prime (FireFly
-//! Alg. 3, done by the black-box driver).
+//! Alg. 3, done by the black-box driver). An unlucky prime can only lower
+//! degrees or raise the normalisation index, so an image of a strictly larger
+//! shape restarts the accumulation (an unlucky FIRST prime is recovered), and
+//! an image of a smaller shape is rejected.
 
 use symbolica::domains::finite_field::{FiniteFieldCore, Zp64};
 use symbolica::domains::integer::Integer;
@@ -22,9 +25,13 @@ use super::rational::{RationalFunction, mqrr_reconstruction, wang_reconstruction
 pub enum LiftStatus {
     /// This prime was already accumulated; nothing was changed.
     DuplicatePrime,
-    /// The image has another shape than the accumulated ones: this prime
-    /// (or every earlier one) is unlucky. Nothing was changed.
+    /// The image has a smaller or incomparable shape than the accumulated
+    /// ones: this prime is unlucky. Nothing was changed.
     ShapeMismatch,
+    /// The image's shape strictly dominates the accumulated one, so the
+    /// earlier primes were unlucky: the accumulation restarted from this
+    /// image (see [`Lift::accumulate`]).
+    Restarted,
     /// Accumulated; no guess has been stable yet.
     Pending,
     /// Wang or MQRR returned the same function at this and the previous
@@ -75,8 +82,39 @@ impl Lift {
     }
 
     /// Accumulate the normalised image `numerator / denominator` modulo
-    /// `field`'s prime and race the reconstructions.
+    /// `field`'s prime and race the reconstructions ([`Self::accumulate`]
+    /// followed by [`Self::race`]).
     pub fn add(&mut self, field: &Zp64, numerator: &[Zp], denominator: &[Zp]) -> LiftStatus {
+        match self.accumulate(field, numerator, denominator) {
+            LiftStatus::Pending => self.race(),
+            LiftStatus::Restarted => match self.race() {
+                // A single prime cannot be stable; keep the restart visible.
+                LiftStatus::Pending => LiftStatus::Restarted,
+                status => status,
+            },
+            status => status,
+        }
+    }
+
+    /// CRT step only: accumulate the image without reconstructing.
+    ///
+    /// - `DuplicatePrime`: this prime is already accumulated; nothing changes.
+    /// - `ShapeMismatch`: the image has a smaller (or incomparable) shape than
+    ///   the accumulated ones, so this prime is unlucky; nothing changes.
+    /// - `Restarted`: the image's shape strictly dominates the accumulated one
+    ///   ([`Shape::dominates`]): an unlucky prime can only lower degrees or
+    ///   raise the normalisation index, so the EARLIER primes were unlucky.
+    ///   The accumulation restarts from this image.
+    /// - `Pending`: accumulated.
+    ///
+    /// The previous guesses and any accepted result are cleared, so the next
+    /// [`Self::race`] decides stability afresh.
+    pub fn accumulate(&mut self, field: &Zp64, numerator: &[Zp], denominator: &[Zp]) -> LiftStatus {
+        debug_assert!(!numerator.is_empty() && !denominator.is_empty());
+        debug_assert!(
+            Integer::from(field.get_prime()).is_prime(0),
+            "Lift needs a prime field"
+        );
         let shape = Shape::of(field, numerator, denominator);
         let prime_u64 = field.get_prime();
         if self.primes.contains(&prime_u64) {
@@ -87,9 +125,12 @@ impl Lift {
             .iter()
             .chain(denominator)
             .map(|value| Integer::from(field.from_element(value)));
+        let mut status = LiftStatus::Pending;
         match (&self.shape, &self.modulus) {
-            (Some(old), _) if *old != shape => return LiftStatus::ShapeMismatch,
-            (Some(_), Some(modulus)) => {
+            (Some(old), _) if *old != shape && !shape.dominates(old) => {
+                return LiftStatus::ShapeMismatch;
+            }
+            (Some(old), Some(modulus)) if *old == shape => {
                 let modulus = modulus.clone();
                 self.residues = std::mem::take(&mut self.residues)
                     .into_iter()
@@ -100,14 +141,34 @@ impl Lift {
                     .collect();
                 self.modulus = Some(&modulus * &prime);
             }
-            _ => {
+            (old, _) => {
+                if old.is_some() {
+                    status = LiftStatus::Restarted;
+                    self.primes.clear();
+                    self.previous = [None, None];
+                }
                 self.shape = Some(shape);
                 self.residues = values.collect();
                 self.modulus = Some(prime);
             }
         }
         self.primes.push(prime_u64);
-        let modulus = self.modulus.clone().expect("set above");
+        self.stable = None;
+        status
+    }
+
+    /// Race Wang and MQRR on the accumulated residues: `Stable` when either
+    /// returns the same function as at the previous call (two consecutive
+    /// moduli), `Pending` otherwise.
+    ///
+    /// `Stable` is a probabilistic acceptance: a wrong guess survives one
+    /// more prime with probability of order `1/p` per wrong coefficient. A
+    /// result must be checked at a fresh prime before it is used (the
+    /// black-box driver does).
+    pub fn race(&mut self) -> LiftStatus {
+        let (Some(shape), Some(modulus)) = (self.shape, self.modulus.clone()) else {
+            return LiftStatus::Pending;
+        };
         let split = shape.numerator + 1;
         let attempt = |reconstruct: fn(&Integer, &Integer) -> Option<Rational>| {
             let values: Option<Vec<Rational>> = self
@@ -126,15 +187,16 @@ impl Lift {
         let guesses = [attempt(wang_reconstruction), attempt(mqrr_reconstruction)];
         let mut stable = None;
         for (index, guess) in guesses.into_iter().enumerate() {
-            if let Some(guess) = &guess {
-                if stable.is_none() && self.previous[index].as_ref() == Some(guess) {
-                    let method = if index == 0 {
-                        LiftMethod::Wang
-                    } else {
-                        LiftMethod::Mqrr
-                    };
-                    stable = Some((guess.clone(), method));
-                }
+            if let Some(guess) = &guess
+                && stable.is_none()
+                && self.previous[index].as_ref() == Some(guess)
+            {
+                let method = if index == 0 {
+                    LiftMethod::Wang
+                } else {
+                    LiftMethod::Mqrr
+                };
+                stable = Some((guess.clone(), method));
             }
             self.previous[index] = guess;
         }

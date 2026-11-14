@@ -52,4 +52,6 @@ pub use lift::{Lift, LiftMethod, LiftStatus};
 pub use rational::{RationalFunction, mqrr_reconstruction, rational_image, wang_reconstruction};
 
 #[cfg(test)]
+mod audit_primitive_tests;
+#[cfg(test)]
 mod primitive_tests;

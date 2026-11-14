@@ -18,7 +18,11 @@ use super::{Zp, known::Shape};
 /// Odd primes below `start`, descending.
 fn primes_below(start: u64, count: usize) -> Vec<u64> {
     let mut primes = Vec::with_capacity(count);
-    let mut candidate = if start % 2 == 0 { start - 1 } else { start - 2 };
+    let mut candidate = if start.is_multiple_of(2) {
+        start - 1
+    } else {
+        start - 2
+    };
     while primes.len() < count {
         if Integer::from(candidate).is_prime(0) {
             primes.push(candidate);
@@ -37,10 +41,12 @@ fn q(value: i64) -> Rational {
 fn random_function(rng: &mut StdRng, degrees: (usize, usize), bound: i64) -> RationalFunction {
     let mut draw = |len: usize, nonzero: &[usize]| -> Vec<Rational> {
         (0..len)
-            .map(|index| loop {
-                let value = rng.random_range(-bound..=bound);
-                if value != 0 || !nonzero.contains(&index) {
-                    break q(value);
+            .map(|index| {
+                loop {
+                    let value = rng.random_range(-bound..=bound);
+                    if value != 0 || !nonzero.contains(&index) {
+                        break q(value);
+                    }
                 }
             })
             .collect()
@@ -93,7 +99,11 @@ fn random_functions_are_interpolated_and_lifted_exactly() {
             // The image is the normalised image of the exact function.
             let (n, d) = f.image(&field).unwrap();
             let expected = normalise(&field, &n, &d).unwrap();
-            assert_eq!((&numerator, &denominator), (&expected.0, &expected.1), "case {case}");
+            assert_eq!(
+                (&numerator, &denominator),
+                (&expected.0, &expected.1),
+                "case {case}"
+            );
             status = lift.add(&field, &numerator, &denominator);
             if status == LiftStatus::Stable {
                 break;

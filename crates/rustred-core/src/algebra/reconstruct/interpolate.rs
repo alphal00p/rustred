@@ -12,8 +12,21 @@
 //!   first that terminates, so a polynomial costs `deg + 1 + eta` points
 //!   instead of Thiele's `2 deg + 1 + eta` (FireFly 2, arXiv:2004.01463
 //!   §2.1, races interpolation strategies on shared probes).
+//!
+//! Every point is used at most once: a point fed again (stored or used as a
+//! confirmation before) is ignored, so a repeated point never counts as a
+//! second confirmation.
+//!
+//! Termination is probabilistic: a wrong early termination needs the
+//! function and the current interpolant to agree at `confirmations` random
+//! points, which happens with probability about `((deg N + deg D + k) / p)`
+//! per confirmation for a function of degrees `(deg N, deg D)` after `k`
+//! stored points (Schwartz-Zippel). Results must be verified at a fresh prime
+//! before use (the driver does).
 
-use symbolica::domains::finite_field::Zp64;
+use std::collections::HashSet;
+
+use symbolica::domains::finite_field::{FiniteFieldCore, Zp64};
 use symbolica::domains::{Field, RingOps};
 use symbolica::prelude::Ring;
 
@@ -29,6 +42,8 @@ const MAX_SKIPS: u32 = 8;
 #[derive(Clone, Debug)]
 pub struct Newton {
     xs: Vec<Zp>,
+    /// Every point fed (stored or confirmation), as canonical residues.
+    seen: HashSet<u64>,
     coefficients: Vec<Zp>,
     confirmations: u32,
     needed: u32,
@@ -45,6 +60,7 @@ impl Newton {
     pub fn new(confirmations: u32) -> Self {
         Self {
             xs: Vec::new(),
+            seen: HashSet::new(),
             coefficients: Vec::new(),
             confirmations: 0,
             needed: confirmations.max(1),
@@ -61,9 +77,10 @@ impl Newton {
         self.xs.len()
     }
 
-    /// Feed one point with a value; points already used are ignored.
+    /// Feed one point with a value; points fed before (stored or used as a
+    /// confirmation) are ignored.
     pub fn feed(&mut self, field: &Zp64, x: &Zp, y: &Zp) {
-        if self.done || self.xs.contains(x) {
+        if self.done || !self.seen.insert(field.from_element(x)) {
             return;
         }
         let mut t = *y;
@@ -105,6 +122,9 @@ impl Newton {
 #[derive(Clone, Debug)]
 pub struct Thiele {
     xs: Vec<Zp>,
+    /// Every point fed (stored, confirmation or skipped), as canonical
+    /// residues.
+    seen: HashSet<u64>,
     coefficients: Vec<Zp>,
     confirmations: u32,
     needed: u32,
@@ -123,6 +143,7 @@ impl Thiele {
     pub fn new(confirmations: u32) -> Self {
         Self {
             xs: Vec::new(),
+            seen: HashSet::new(),
             coefficients: Vec::new(),
             confirmations: 0,
             needed: confirmations.max(1),
@@ -158,8 +179,9 @@ impl Thiele {
         Some(value)
     }
 
+    /// Feed one point with a value; points fed before are ignored.
     pub fn feed(&mut self, field: &Zp64, x: &Zp, y: &Zp) {
-        if self.done() || self.xs.contains(x) {
+        if self.done() || !self.seen.insert(field.from_element(x)) {
             return;
         }
         if self.predict(field, x).as_ref() == Some(y) {
@@ -231,11 +253,14 @@ impl Interpolator {
         }
     }
 
+    /// One of the two terminated successfully.
     pub fn done(&self) -> bool {
-        self.newton.done() || self.thiele.done()
+        self.newton.done() || (self.thiele.done() && !self.thiele.failed())
     }
 
-    /// Thiele failed and Newton has not terminated.
+    /// Thiele failed (too many accidental zeros) and Newton has not
+    /// terminated. Newton keeps being fed, so a polynomial can still finish;
+    /// a rational function cannot, and the caller's point budget ends it.
     pub fn failed(&self) -> bool {
         !self.newton.done() && self.thiele.failed()
     }

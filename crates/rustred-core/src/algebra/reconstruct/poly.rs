@@ -99,7 +99,9 @@ pub fn gcd(field: &Zp64, a: &[Zp], b: &[Zp]) -> Vec<Zp> {
     a.iter().map(|value| field.mul(value, &inverse)).collect()
 }
 
+/// Product of two nonempty coefficient vectors.
 pub fn mul(field: &Zp64, a: &[Zp], b: &[Zp]) -> Vec<Zp> {
+    debug_assert!(!a.is_empty() && !b.is_empty());
     let mut product = vec![field.zero(); a.len() + b.len() - 1];
     for (i, x) in a.iter().enumerate() {
         if field.is_zero(x) {
