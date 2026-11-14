@@ -1367,7 +1367,9 @@ fn load_recipe(
     };
     let polys = |v: Vec<String>| -> Result<Vec<Poly>, ImportError> {
         v.iter()
-            .map(|s| Poly::parse_d_free(s, n).map_err(|e| bad(format!("polynomial {s}: {e}"))))
+            .map(|s| {
+                Poly::parse_d_free_exact(s, n).map_err(|e| bad(format!("polynomial {s}: {e}")))
+            })
             .collect()
     };
     let equations = polys(strs(dom.get("equations"))?)?;

@@ -1517,3 +1517,46 @@ fn streaming_fact_pass_after_a_tier_k_check() {
         (2, 1, 1)
     );
 }
+
+/// Lane import3 (item 1): a DOMAIN literal whose coefficients exceed i128 (here 45 and 46 digits, as in four T266
+/// records) is read EXACTLY, never refused and never truncated: the record loads, its exception is evaluated exactly at
+/// the rule point and the dispatch falls through exactly on its zero set.
+#[test]
+fn big_exception_literals_load_and_dispatch_exactly() {
+    let d = scratch("biglit");
+    let big = "123456789012345678901234567890123456789012345";
+    let a = write_table(
+        &d,
+        "A.table.jsonl",
+        &[rule(
+            0,
+            [None, Some(1), Some(0)],
+            &["I(n0-1,1,0)", "I(n0,0,0)"],
+            Some(json!([])),
+            // branch 0 vanishes at n0 = 2 only (a big multiple of n0 - 2); branch 1 never vanishes on keys (a big
+            // constant offset); branch 2 is an AND whose second literal (big, nonzero at n0 = 4) keeps n0 = 4 selected
+            json!({"exceptions": [[format!("{big}*n0 - 2*{big}")], [format!("{big}0*n0^2 + 1")],
+                                  ["n0 - 4".to_string(), format!("{big}*n0 - 1")]]}),
+        )],
+    );
+    let st = write_keys(&d, &[[4, 1, 0], [3, 1, 0]]);
+    let spec = json!({"schema":"rustred.campaign.import-spec.v1","node":"toy","frame_from":"A","bits":6,
+        "start":{"path": st.display().to_string(),"format":"keys_jsonl"},
+        "sources":[{"id":"A","kind":"engine_table","class":"base","path":a.display().to_string(),
+                    "sha256": sha(&a)}]});
+    let (_set, _ev, r) = run(&spec, &d);
+    assert_eq!(row(&r, [4, 1, 0]).status, RowStatus::Served);
+    assert_eq!(row(&r, [3, 1, 0]).status, RowStatus::Served);
+    let k2 = row(&r, [2, 1, 0]);
+    assert_eq!(k2.status, RowStatus::Open, "on the big exception: the dispatch falls through");
+    assert_eq!(k2.open_status.as_deref(), Some("uncovered"));
+    // the core domain itself: exact literal, exact verdicts
+    use rustred_campaign_core::poly::{Poly, PolyError};
+    let lit = format!("{big}*n0 - 2*{big}");
+    assert_eq!(Poly::parse_d_free(&lit, 3), Err(PolyError::CoefficientOverflow));
+    let p = Poly::parse_d_free_exact(&lit, 3).unwrap();
+    assert!(p.is_big() && p.small_terms().is_none());
+    assert!(p.is_zero_at(&[2, 1, 0]).unwrap());
+    assert!(!p.is_zero_at(&[3, 1, 0]).unwrap());
+    assert_eq!(p.to_string(), format!("-{}+{big}*n0", "246913578024691357802469135780246913578024690"));
+}
