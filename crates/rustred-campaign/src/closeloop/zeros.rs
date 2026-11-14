@@ -91,7 +91,13 @@ pub fn term_keys(
     let (mut buf, mut cm) = (vec![], vec![]);
     let nt = set
         .bodies
-        .instantiate(&set.disp, set.disp.rule_ref(table, record), applied, &mut buf, &mut cm)
+        .instantiate(
+            &set.disp,
+            set.disp.rule_ref(table, record),
+            applied,
+            &mut buf,
+            &mut cm,
+        )
         .ok()??;
     let n = set.arity();
     Some((0..nt).map(|j| buf[j * n..(j + 1) * n].to_vec()).collect())
@@ -115,8 +121,8 @@ pub fn served_rule_rows(
                 if l.trim().is_empty() {
                     continue;
                 }
-                let v: Value =
-                    serde_json::from_str(&l).map_err(|e| format!("{} line {}: {e}", st.path, i + 1))?;
+                let v: Value = serde_json::from_str(&l)
+                    .map_err(|e| format!("{} line {}: {e}", st.path, i + 1))?;
                 if v["status"] != "served" || v["server"]["kind"] != "rule" {
                     continue;
                 }
@@ -126,15 +132,17 @@ pub fn served_rule_rows(
                 ) else {
                     return Err(format!("{} line {}: key / server record", st.path, i + 1));
                 };
-                let (t, r) = set
-                    .find_sha(sha)
-                    .ok_or_else(|| format!("{} line {}: record {sha} not in the set", st.path, i + 1))?;
+                let (t, r) = set.find_sha(sha).ok_or_else(|| {
+                    format!("{} line {}: record {sha} not in the set", st.path, i + 1)
+                })?;
                 out.push((key.clone(), key, t, r));
             }
         }
         None => {
             for r in &res.rows {
-                if let (RowStatus::Served, Some(Server::Rule { table, record })) = (r.status, &r.server) {
+                if let (RowStatus::Served, Some(Server::Rule { table, record })) =
+                    (r.status, &r.server)
+                {
                     out.push((r.key.clone(), r.key.clone(), *table, *record));
                 }
             }
@@ -222,7 +230,9 @@ pub fn scan(
                 })
             })
             .collect();
-        hs.into_iter().map(|h| h.join().unwrap_or_default()).collect()
+        hs.into_iter()
+            .map(|h| h.join().unwrap_or_default())
+            .collect()
     });
     let mut z = ZeroScan::default();
     for p in parts {

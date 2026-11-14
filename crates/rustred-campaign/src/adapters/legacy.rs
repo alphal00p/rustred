@@ -356,18 +356,21 @@ pub fn instantiate_answer_use(
     mode: rustred_campaign_contract::spec::ElidedLoci,
 ) -> Result<bool, String> {
     let elided = !v["elided_cover"].is_null() || !v["witness_loci_elided"].is_null();
-    let says_regular = v["regular"] == Value::Bool(true) || v["regular"].as_str() == Some("regular");
+    let says_regular =
+        v["regular"] == Value::Bool(true) || v["regular"].as_str() == Some("regular");
     if !elided {
         return Ok(says_regular && v["error"].is_null());
     }
     if mode == rustred_campaign_contract::spec::ElidedLoci::Refuse {
         return Err(
-            "an answer about a record with elided witness loci under --elided-loci refuse (R-f)".into(),
+            "an answer about a record with elided witness loci under --elided-loci refuse (R-f)"
+                .into(),
         );
     }
     if says_regular {
         return Err(
-            "an elided record's answer claims regular (facts mode answers coefficient facts only)".into(),
+            "an elided record's answer claims regular (facts mode answers coefficient facts only)"
+                .into(),
         );
     }
     match v["elided_cover"].as_str() {

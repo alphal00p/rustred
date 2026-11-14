@@ -56,7 +56,12 @@ pub fn proposals_record(node: &str, round: u32, keys: &[Vec<i32>], rows: &[KeyRo
 }
 
 /// The automatic decision of a round (`terminals.accept = auto`, at most `max_auto` proposals).
-pub fn auto_decision(node: &str, round: u32, keys: &[Vec<i32>], max_auto: usize) -> TerminalDecision {
+pub fn auto_decision(
+    node: &str,
+    round: u32,
+    keys: &[Vec<i32>],
+    max_auto: usize,
+) -> TerminalDecision {
     TerminalDecision {
         schema: DECISION_SCHEMA.into(),
         id: format!("auto-r{round}"),
@@ -125,7 +130,9 @@ pub fn effective_spec(base: &str, decisions: &[TerminalDecision]) -> Result<Stri
         .get_mut("sources")
         .and_then(Value::as_array_mut)
         .ok_or("import spec: no sources")?;
-    srcs.push(json!({"id": DECIDED_SOURCE, "kind": "terminals", "class": "terminal", "keys": keys}));
+    srcs.push(
+        json!({"id": DECIDED_SOURCE, "kind": "terminals", "class": "terminal", "keys": keys}),
+    );
     Ok(serde_json::to_string_pretty(&v).expect("json") + "\n")
 }
 
@@ -161,15 +168,16 @@ pub fn read_keys(text: &str) -> Result<Vec<Vec<i32>>, String> {
         if t.is_empty() || t.starts_with('#') {
             continue;
         }
-        let k: Vec<i32> = if let Some(inner) = t.strip_prefix("I(").and_then(|x| x.strip_suffix(')')) {
-            inner
-                .split(',')
-                .map(|x| x.trim().parse::<i32>())
-                .collect::<Result<_, _>>()
-                .map_err(|e| format!("line {}: {e}", i + 1))?
-        } else {
-            serde_json::from_str(t).map_err(|e| format!("line {}: {e}", i + 1))?
-        };
+        let k: Vec<i32> =
+            if let Some(inner) = t.strip_prefix("I(").and_then(|x| x.strip_suffix(')')) {
+                inner
+                    .split(',')
+                    .map(|x| x.trim().parse::<i32>())
+                    .collect::<Result<_, _>>()
+                    .map_err(|e| format!("line {}: {e}", i + 1))?
+            } else {
+                serde_json::from_str(t).map_err(|e| format!("line {}: {e}", i + 1))?
+            };
         out.push(k);
     }
     Ok(out)
@@ -195,6 +203,9 @@ mod tests {
         assert_eq!(e["sources"][1]["keys"], json!([[2, 1, 0]]));
         let a = auto_decision("n", 2, &p, 8);
         assert_eq!(a.accepted_by, "auto");
-        assert_eq!(read_keys("[1,2,0]\nI(3, 1,0)\n# c\n").unwrap(), vec![vec![1, 2, 0], vec![3, 1, 0]]);
+        assert_eq!(
+            read_keys("[1,2,0]\nI(3, 1,0)\n# c\n").unwrap(),
+            vec![vec![1, 2, 0], vec![3, 1, 0]]
+        );
     }
 }

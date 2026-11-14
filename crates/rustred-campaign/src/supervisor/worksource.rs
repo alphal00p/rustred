@@ -170,7 +170,10 @@ pub trait WorkSource {
         _st: &CampaignState,
         req: &super::ControlRequest,
     ) -> Result<Routing, String> {
-        Err(format!("verb {} not supported by this work source", req.verb))
+        Err(format!(
+            "verb {} not supported by this work source",
+            req.verb
+        ))
     }
 }
 

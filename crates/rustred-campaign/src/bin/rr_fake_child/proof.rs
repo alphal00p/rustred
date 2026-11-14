@@ -264,16 +264,22 @@ pub fn run(spec_path: &Path, kind: &str) -> ! {
                     "zero_test": "exact", "error": null});
                 if facts_mode {
                     let k32: Vec<i32> = k.iter().map(|&x| x as i32).collect();
-                    let (terms, elided, regular) = core_terms(Path::new(table), off, rule, &k32)
-                        .unwrap_or_else(|e| die(&e));
-                    a["rhs"] = json!(terms
-                        .iter()
-                        .enumerate()
-                        .map(|(j, (tk, c))| json!({"term": j, "key": tk, "coef": c}))
-                        .collect::<Vec<_>>());
+                    let (terms, elided, regular) =
+                        core_terms(Path::new(table), off, rule, &k32).unwrap_or_else(|e| die(&e));
+                    a["rhs"] = json!(
+                        terms
+                            .iter()
+                            .enumerate()
+                            .map(|(j, (tk, c))| json!({"term": j, "key": tk, "coef": c}))
+                            .collect::<Vec<_>>()
+                    );
                     a["regular"] = json!(regular);
                     if elided {
-                        a["regular"] = json!(if regular == "irregular" { "irregular" } else { "hidden" });
+                        a["regular"] = json!(if regular == "irregular" {
+                            "irregular"
+                        } else {
+                            "hidden"
+                        });
                         a["elided_cover"] = json!("guards_v2");
                     }
                 }

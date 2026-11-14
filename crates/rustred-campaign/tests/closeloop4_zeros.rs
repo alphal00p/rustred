@@ -26,14 +26,34 @@ type Rule = (i64, [i32; 3], Vec<([i32; 3], &'static str)>);
 fn rules() -> Vec<Rule> {
     vec![
         // the start key: a lower term, a hand-down, and a ZERO term to a key nothing else reaches (decisive: reach)
-        (0, [5, 1, 0], vec![([4, 1, 0], "nonzero"), ([5, 0, 0], "nonzero"), ([3, 2, 0], "zero")]),
+        (
+            0,
+            [5, 1, 0],
+            vec![
+                ([4, 1, 0], "nonzero"),
+                ([5, 0, 0], "nonzero"),
+                ([3, 2, 0], "zero"),
+            ],
+        ),
         // a ZERO term to a key the closure reaches anyway (NOT decisive)
-        (1, [4, 1, 0], vec![([3, 1, 0], "nonzero"), ([2, 1, 0], "zero")]),
+        (
+            1,
+            [4, 1, 0],
+            vec![([3, 1, 0], "nonzero"), ([2, 1, 0], "zero")],
+        ),
         // a ZERO term to a key that is not lower (decisive: an edge would be a descent violation; also outside C)
-        (2, [3, 1, 0], vec![([2, 1, 0], "nonzero"), ([9, 1, 0], "zero")]),
+        (
+            2,
+            [3, 1, 0],
+            vec![([2, 1, 0], "nonzero"), ([9, 1, 0], "zero")],
+        ),
         (3, [2, 1, 0], vec![([2, 0, 0], "nonzero")]),
         // a key OUTSIDE the closure: its zero term is never expanded (NOT decisive)
-        (4, [3, 2, 0], vec![([3, 0, 0], "nonzero"), ([2, 2, 0], "zero")]),
+        (
+            4,
+            [3, 2, 0],
+            vec![([3, 0, 0], "nonzero"), ([2, 2, 0], "zero")],
+        ),
     ]
 }
 
@@ -65,15 +85,18 @@ fn material(dir: &Path, flip: Option<(i64, usize)>) -> (TableSetSpec, Vec<String
     std::fs::write(&tp, &t).unwrap();
     let mut facts = String::new();
     for (r, l) in rs.iter().zip(&lines) {
-        let rhs: Vec<Value> = r
-            .2
-            .iter()
-            .enumerate()
-            .map(|(j, (k, w))| {
-                let w = if flip == Some((r.0, j)) { "nonzero" } else { *w };
-                json!({"term": j, "key": k, "coef": w})
-            })
-            .collect();
+        let rhs: Vec<Value> =
+            r.2.iter()
+                .enumerate()
+                .map(|(j, (k, w))| {
+                    let w = if flip == Some((r.0, j)) {
+                        "nonzero"
+                    } else {
+                        *w
+                    };
+                    json!({"term": j, "key": k, "coef": w})
+                })
+                .collect();
         facts.push_str(
             &json!({"schema":"rustred.proof-kernel.instantiate.v1","record_sha256": sha(l.as_bytes()),
                 "rule": r.0, "key": r.1, "in_case": true, "chart_ok": true, "branch": null, "regular": "regular",
@@ -117,7 +140,10 @@ fn checked(dir: &Path, flip: Option<(i64, usize)>) -> Checked {
     let keys = std::fs::read_to_string(dir.join("rows.jsonl"))
         .unwrap()
         .lines()
-        .map(|l| serde_json::from_value(serde_json::from_str::<Value>(l).unwrap()["key"].clone()).unwrap())
+        .map(|l| {
+            serde_json::from_value(serde_json::from_str::<Value>(l).unwrap()["key"].clone())
+                .unwrap()
+        })
         .collect();
     let scan = zeros::scan(&set, &ev, &res, 2).unwrap();
     Checked {
@@ -156,7 +182,8 @@ fn adding_back_non_decisive_zero_edges_leaves_the_closure_and_decisive_ones_chan
             let decisive = base.decisive.contains(&(r.1.to_vec(), tk.to_vec()));
             let same = c.keys == base.keys && c.descent == base.descent;
             assert_eq!(
-                same, !decisive,
+                same,
+                !decisive,
                 "rule {} term {j} -> {tk:?}: decisive {decisive}, closure unchanged {same} ({} vs {} keys, descent {})",
                 r.0,
                 c.keys.len(),

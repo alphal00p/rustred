@@ -363,7 +363,8 @@ pub fn identity_digest(bytes: &[u8]) -> Result<String, String> {
         }
     }
     let raw = serde_json::to_vec(&v).map_err(|e| e.to_string())?;
-    let canon = rustred_campaign_contract::canon::canonical_line(&raw).map_err(|e| e.to_string())?;
+    let canon =
+        rustred_campaign_contract::canon::canonical_line(&raw).map_err(|e| e.to_string())?;
     let mut h = blake3::Hasher::new();
     h.update(IDENTITY_DOMAIN);
     h.update(&canon);
@@ -546,7 +547,8 @@ mod tests {
         let a = br#"{"schema":"rustred.campaign.spec.v1","campaign":"t","resources":{"cpus":"0-3","max_cores":4}}"#;
         let b = br#"{"campaign":"t","resources":{"max_cores":4,"cpus":"8,9,10,11"},"schema":"rustred.campaign.spec.v1"}"#;
         let c = br#"{"schema":"rustred.campaign.spec.v1","campaign":"t","resources":{"cpus":"0-3","max_cores":5}}"#;
-        let d = br#"{"schema":"rustred.campaign.spec.v1","campaign":"t","resources":{"max_cores":4}}"#;
+        let d =
+            br#"{"schema":"rustred.campaign.spec.v1","campaign":"t","resources":{"max_cores":4}}"#;
         let (ia, ib, ic, id) = (
             identity_digest(a).unwrap(),
             identity_digest(b).unwrap(),

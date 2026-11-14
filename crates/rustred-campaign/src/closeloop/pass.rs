@@ -625,8 +625,14 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             .proof
             .as_ref()
             .is_some_and(|p| p.exact_keys_per_job.is_some());
-        let (mut confirmed, mut disagree, mut pending, mut unanswered, mut unavailable, mut no_first) =
-            (0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+        let (
+            mut confirmed,
+            mut disagree,
+            mut pending,
+            mut unanswered,
+            mut unavailable,
+            mut no_first,
+        ) = (0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
         let mut status_of: BTreeMap<(String, Vec<i32>), &'static str> = BTreeMap::new();
         for ((sha, key), (t, r, dec, _)) in &pairs {
             let st = if let Some(c) = second.compared.get(&(sha.clone(), key.clone())) {
@@ -687,7 +693,10 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                 status_of.get(&id).copied().unwrap_or("pending"),
             ));
         }
-        let dis_list: Vec<Value> = second.disagreements().map(zeros::PairCompare::json).collect();
+        let dis_list: Vec<Value> = second
+            .disagreements()
+            .map(zeros::PairCompare::json)
+            .collect();
         // the disputed pairs of earlier answers stay blocking even when no longer decisive (their terms are edges now)
         let disputed_all = second.disagreements().count() as u64;
         if disputed_all > 0 {
@@ -1084,9 +1093,17 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             blocking.push(format!("terminal_proposals_rejected:{n_rejected}"));
         }
         if only_uncovered && !proposals.is_empty() {
-            let rec = super::terminals::proposals_record(&inp.node, inp.round, &proposals, &res.rows);
+            let rec =
+                super::terminals::proposals_record(&inp.node, inp.round, &proposals, &res.rows);
+            // `max_auto` bounds ALL automatically accepted terminals of the node (earlier rounds included)
+            let auto_before: usize = inp
+                .terminal_decisions
+                .iter()
+                .filter(|d| d.accepted_by == "auto")
+                .map(|d| d.accept.len())
+                .sum();
             let auto_ok = inp.terminals.accept == TerminalAccept::Auto
-                && proposals.len() <= inp.terminals.max_auto;
+                && auto_before + proposals.len() <= inp.terminals.max_auto;
             if auto_ok {
                 terminal_decision = Some(super::terminals::auto_decision(
                     &inp.node,

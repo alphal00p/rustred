@@ -709,10 +709,12 @@ impl CloseFromMaterialSource {
         let decisions = self.terminal_decisions(st, i)?;
         let spec_text = super::terminals::effective_spec(&self.nodes[i].spec_text, &decisions)?;
         let spec_b3 = blake3_hex(spec_text.as_bytes());
-        let cached = self.nodes[i]
-            .set
-            .clone()
-            .filter(|_| self.nodes[i].set_spec_b3.as_deref().is_none_or(|b| b == spec_b3));
+        let cached = self.nodes[i].set.clone().filter(|_| {
+            self.nodes[i]
+                .set_spec_b3
+                .as_deref()
+                .is_none_or(|b| b == spec_b3)
+        });
         self.nodes[i].set_spec_b3 = Some(spec_b3);
         if round == 0 {
             let r = &self.nodes[i];
@@ -2383,7 +2385,11 @@ impl WorkSource for CloseFromMaterialSource {
                 &proposed,
                 acc.as_deref(),
                 &req.id,
-                if req.by.is_empty() { "operator" } else { &req.by },
+                if req.by.is_empty() {
+                    "operator"
+                } else {
+                    &req.by
+                },
                 req.reason.as_deref().unwrap_or(""),
             )?;
             let (ev, rec) = self.decision_record(i, &d)?;
