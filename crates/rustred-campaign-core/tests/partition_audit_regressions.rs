@@ -44,14 +44,7 @@ fn dom(n: usize, e: usize, eqs: &[&str], exc: &[&[&str]]) -> CaseDomain {
 fn list(ds: Vec<CaseDomain>, n: usize) -> DomainList {
     let mut l = DomainList::new(n);
     for (i, d) in ds.into_iter().enumerate() {
-        l.push(
-            RuleRef {
-                table: 0,
-                record: i,
-                label: i as i64,
-            },
-            d,
-        );
+        l.push(RuleRef::bare(0, i, i as i64), d);
     }
     l
 }
@@ -882,14 +875,7 @@ fn coupled_table(seed: u64, n: usize, e: usize, rules: usize) -> DomainList {
             };
             d.exceptions.push(vec![Poly::parse(&t, n, false).unwrap()]);
         }
-        l.push(
-            RuleRef {
-                table: 0,
-                record: r,
-                label: r as i64,
-            },
-            d,
-        );
+        l.push(RuleRef::bare(0, r, r as i64), d);
     }
     l
 }
@@ -928,10 +914,176 @@ fn memo_equals_reference_uncapped_small_tables() {
 }
 
 // ------------------------------------------------------------------------------------------------------------------
+// audit-part-B C1: completeness and soundness of the DESCRIPTION (faces, generic cells, locus pieces)
+// ------------------------------------------------------------------------------------------------------------------
+
+/// Exact integer parameters t with x0 + M t = key (Gauss-Jordan over the rationals, i128 fractions); `None` if
+/// there is none (the parametrisations are injective).
+fn solve_params(r: &rustred_campaign_core::loci::Region, key: &[i32]) -> Option<Vec<i128>> {
+    fn g(a: i128, b: i128) -> i128 {
+        let (mut a, mut b) = (a.abs(), b.abs());
+        while b != 0 {
+            let t = a % b;
+            a = b;
+            b = t;
+        }
+        a
+    }
+    let k = r.k;
+    let n = r.x.len();
+    // rows: M_i | key_i - c_i, as fractions with a common row denominator (integer rows, fraction-free)
+    let mut rows: Vec<Vec<i128>> = (0..n)
+        .map(|i| {
+            let mut v: Vec<i128> = r.x[i].coef.clone();
+            v.push(key[i] as i128 - r.x[i].c);
+            v
+        })
+        .collect();
+    let mut piv = vec![];
+    let mut row = 0;
+    for col in 0..k {
+        let Some(p) = (row..n).find(|&i| rows[i][col] != 0) else {
+            continue;
+        };
+        rows.swap(row, p);
+        for i in 0..n {
+            if i != row && rows[i][col] != 0 {
+                let (a, b) = (rows[row][col], rows[i][col]);
+                let pivot_row = rows[row].clone();
+                for (dst, src) in rows[i].iter_mut().zip(&pivot_row) {
+                    *dst = *dst * a - src * b;
+                }
+                let gg = rows[i].iter().fold(0, |acc, &x| g(acc, x));
+                if gg > 1 {
+                    for x in rows[i].iter_mut() {
+                        *x /= gg;
+                    }
+                }
+            }
+        }
+        piv.push(col);
+        row += 1;
+    }
+    if rows[row..].iter().any(|r| r[k] != 0) {
+        return None;
+    }
+    if piv.len() < k {
+        return None; // not injective (never for the crate's regions)
+    }
+    let mut t = vec![0i128; k];
+    for (i, &c) in piv.iter().enumerate() {
+        if rows[i][k] % rows[i][c] != 0 {
+            return None;
+        }
+        t[c] = rows[i][k] / rows[i][c];
+    }
+    (r.at(&t).ok()? == key.iter().map(|&v| v as i128).collect::<Vec<_>>()).then_some(t)
+}
+
+/// Is the uncovered key described: on a listed face AND in a listed generic cell (U class) or in a locus piece /
+/// unresolved region of its face (F class)?
+fn described(
+    rep: &rustred_campaign_core::partition::PartitionReport,
+    k: &[i32],
+) -> Result<(), String> {
+    use rustred_campaign_core::partition::ANY_OFF;
+    let fk = face_of(&rep.nf.lines, k);
+    let Some(face) = rep.faces.iter().find(|f| f.key() == fk) else {
+        return Err(format!("face {fk:?} not listed"));
+    };
+    let slots: Vec<usize> = face.sd.iter().chain(&face.sn).copied().collect();
+    let cell: Vec<u16> = slots
+        .iter()
+        .map(|&s| rep.state_index(s, k[s] as i64).unwrap())
+        .collect();
+    let in_cell = face.generic_cells.iter().any(|c| {
+        c.iter()
+            .zip(&cell)
+            .all(|(&cs, &st)| cs == st || (cs == ANY_OFF && st != 0))
+    });
+    if in_cell {
+        return Ok(());
+    }
+    if let Some(res) = &rep.resolution {
+        for l in res.loci.iter().filter(|l| l.face == fk) {
+            for p in &l.pieces {
+                if let Some(t) = solve_params(&p.region, k)
+                    && p.region.contains_t(&t).unwrap()
+                {
+                    return Ok(()); // on the region (the minus hyperplanes hold covered keys only)
+                }
+            }
+            for u in &l.unresolved_parts {
+                if let Some(t) = solve_params(&u.region, k)
+                    && u.region.contains_t(&t).unwrap()
+                {
+                    return Ok(());
+                }
+            }
+        }
+    }
+    if rep.class_of(k).unwrap() == ClassHit::Uncovered {
+        return Err(format!("U key not in a generic cell of face {fk:?}"));
+    }
+    Err(format!("F key on no locus piece of face {fk:?}"))
+}
+
+/// Completeness (every uncovered window key described) and soundness (every piece point found in the window off
+/// its minus hyperplanes, and every witness, is uncovered unless the piece is flagged).
+fn assert_description(
+    l: &DomainList,
+    rep: &rustred_campaign_core::partition::PartitionReport,
+    n: usize,
+    e: usize,
+    w: i32,
+    what: &str,
+) {
+    for k in window(n, e, w) {
+        let cov = l
+            .items
+            .iter()
+            .any(|(_, d)| d.applies(&k) == Verdict::Applies);
+        assert_eq!(rep.uncovered(&k).unwrap(), !cov, "{what}: oracle at {k:?}");
+        if !cov && let Err(why) = described(rep, &k) {
+            panic!("{what}: uncovered {k:?} not described: {why}");
+        }
+    }
+    if let Some(res) = &rep.resolution {
+        for loc in &res.loci {
+            for p in &loc.pieces {
+                for wk in &p.witness {
+                    assert!(rep.uncovered(wk).unwrap(), "{what}: witness {wk:?} covered");
+                }
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------------------------------------------
 // audit-part-B: its saved minimal cases (runs/*.json of the harness, embedded; the audit was still running)
 // ------------------------------------------------------------------------------------------------------------------
 
 const AUDIT_B_CASES: &[(&str, &str)] = &[
+    (
+        "k2",
+        r#"{"arity":4,"mask":"1100","rules":[{"fixed":[null,null,null,null],"eqs":["n3+1"],"bounds":[],"exc":[]},{"fixed":[null,null,null,null],"eqs":[],"bounds":[],"exc":[["n0-n1"]]},{"fixed":[null,null,null,null],"eqs":["n2+1"],"bounds":[],"exc":[]}]}"#,
+    ),
+    (
+        "g4",
+        r#"{"arity":4,"mask":"1100","rules":[{"fixed":[null,null,null,null],"eqs":["n3+1"],"bounds":[],"exc":[]},{"fixed":[null,null,null,null],"eqs":[],"bounds":[],"exc":[["n0*n1-6"]]},{"fixed":[null,null,null,null],"eqs":["n2+1"],"bounds":[],"exc":[]}]}"#,
+    ),
+    (
+        "min_iv_miss1",
+        r#"{"arity":3,"mask":"110","rules":[{"bounds":[],"elided":false,"eqs":[],"exc":[["-10+3*n1+n1^2+2*n0-n0*n1"]],"fixed":[null,3,null]},{"bounds":[],"elided":false,"eqs":["36*n2+96*n2^2+97*n2^3+47*n2^4+11*n2^5+n2^6"],"exc":[],"fixed":[null,null,null]},{"bounds":[],"elided":false,"eqs":["4-2*n2-2*n2^2-5*n0-n0*n2+n0^2"],"exc":[],"fixed":[null,null,null]}]}"#,
+    ),
+    (
+        "min_iv_miss2",
+        r#"{"arity":3,"mask":"110","rules":[{"bounds":[],"elided":false,"eqs":[],"exc":[["-35+7*n2+14*n1+12*n0-n0*n2-2*n0*n1-n0^2"]],"fixed":[null,null,null]},{"bounds":[],"elided":false,"eqs":["-7+7*n2+n1-n1*n2+7*n0-n0*n1"],"exc":[["4+n1+n0","15*n2+26*n2^2+13*n2^3+2*n2^4","-6+n1"]],"fixed":[null,null,null]},{"bounds":[],"elided":false,"eqs":[],"exc":[["112-24*n1-9*n1^2+2*n1^3"]],"fixed":[null,null,-2]},{"bounds":[],"elided":false,"eqs":["-2+n1"],"exc":[],"fixed":[null,null,null]}]}"#,
+    ),
+    (
+        "c1",
+        r#"{"arity":3,"mask":"110","rules":[{"bounds":[],"eqs":[],"exc":[],"fixed":[null,null,null]},{"bounds":[],"eqs":["n1^2-3*n1+2"],"exc":[],"fixed":[null,null,null]}]}"#,
+    ),
     (
         "c1",
         r#"{"arity":3,"mask":"110","rules":[{"bounds":[],"eqs":[],"exc":[],"fixed":[null,null,null]},{"bounds":[],"eqs":["n1^2-3*n1+2"],"exc":[],"fixed":[null,null,null]}]}"#,
@@ -1056,7 +1208,7 @@ fn audit_b_saved_cases_faces_complete_and_proofs_terminate() {
             rep.faces.len(),
             rep.outcome
         );
-        assert_faces_complete(&l, &rep, n, e, if n <= 3 { 9 } else { 6 });
+        assert_description(&l, &rep, n, e, if n <= 3 { 9 } else { 6 }, name);
         for i in 0..l.items.len() {
             let d = &l.items[i].1;
             match is_empty(d, &f) {
@@ -1083,4 +1235,106 @@ fn audit_b_saved_cases_faces_complete_and_proofs_terminate() {
             }
         }
     }
+}
+
+// ------------------------------------------------------------------------------------------------------------------
+// audit-part-B M2 / M3 / C2
+// ------------------------------------------------------------------------------------------------------------------
+
+/// B-M2: the levels checkpoint is rewritten atomically, and a torn last line (an old non-atomic append killed
+/// mid-write) is dropped on resume instead of failing.
+#[test]
+fn b_m2_torn_checkpoint_line_resumes() {
+    use rustred_campaign_core::partition::gap_partition_levels;
+    let l = coupled_table(77, 6, 3, 12);
+    let f = NodeFrame::without_header_lines_first(6, 3);
+    let cp = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("partfix_torn_{}.jsonl", std::process::id()));
+    let _ = std::fs::remove_file(&cp);
+    let a = gap_partition_levels(&l, &f, &ordinary(), 2, Some(&cp), None).unwrap();
+    assert_eq!(a.len(), 3);
+    let mut text = std::fs::read_to_string(&cp).unwrap();
+    text.push_str("{\"faces\":[[[],[4]],[[0],[");
+    std::fs::write(&cp, text).unwrap();
+    let b = gap_partition_levels(&l, &f, &ordinary(), 4, Some(&cp), None).unwrap();
+    assert_eq!(b.len(), 5);
+    let full = gap_partition_levels(&l, &f, &ordinary(), 4, None, None).unwrap();
+    for (x, y) in b.iter().zip(&full) {
+        assert_eq!(x.faces, y.faces, "level {}", x.level);
+    }
+    // the rewritten file parses line by line
+    for line in std::fs::read_to_string(&cp).unwrap().lines() {
+        serde_json::from_str::<serde_json::Value>(line).unwrap();
+    }
+    let _ = std::fs::remove_file(&cp);
+}
+
+/// B-M3: the off-floor cap bounds the face expansion (no face beyond the cap is listed) and the face budget stops
+/// the face list with an explicit Incomplete outcome.
+#[test]
+fn b_m3_cap_and_face_budget_bound_the_face_list() {
+    let n = 10;
+    let e = 5;
+    let f = NodeFrame::without_header_lines_first(n, e);
+    // sparse: one rule fixing n0 = 1 leaves a U class with 9 any slots (512 faces uncapped)
+    let mut d = CaseDomain::free(n, Some((0..n).map(|i| i < e).collect()));
+    d.fixed[0] = Some(1);
+    let l = list(vec![d], n);
+    let full = gap_partition(&l, &f, &ordinary(), None).unwrap();
+    assert_eq!(full.faces.len(), 512);
+    let o = PartitionOptions {
+        max_off_floor: Some(2),
+        ..ordinary()
+    };
+    let capped = gap_partition(&l, &f, &o, None).unwrap();
+    assert!(capped.faces.iter().all(|x| x.sd.len() + x.sn.len() <= 2));
+    assert_eq!(capped.faces.len(), 1 + 9); // {0} and {0, s}
+    let o = PartitionOptions {
+        budget: Budget {
+            max_faces: Some(100),
+            ..Default::default()
+        },
+        ..ordinary()
+    };
+    let b = gap_partition(&l, &f, &o, None).unwrap();
+    assert!(b.faces_truncated);
+    assert!(matches!(b.outcome, Outcome::Incomplete { .. }));
+}
+
+/// B-C2: every proof function takes a budget and answers Unknown beyond it (never a hang, never a verdict).
+#[test]
+fn b_c2_proof_budget_gives_unknown() {
+    use rustred_campaign_core::partition::{ProofBudget, contained_in_with};
+    let n = 3;
+    let f = NodeFrame::without_header_lines_first(n, 2);
+    let free = CaseDomain::free(n, Some(vec![true, true, false]));
+    let others: Vec<CaseDomain> = (0..6)
+        .map(|i| {
+            dom(
+                n,
+                2,
+                &[],
+                &[&[&format!("n0-n1-{i}")], &[&format!("n0+n2-{}", i + 2)]],
+            )
+        })
+        .collect();
+    let os: Vec<&CaseDomain> = others.iter().collect();
+    let tiny = ProofBudget {
+        max_nodes: 2,
+        ..Default::default()
+    };
+    assert!(matches!(
+        contained_in_with(&free, &os, &f, &tiny),
+        Containment::Unknown { .. }
+    ));
+    // the audit's hang: a free domain behind {n1^2 - 3 n1 + 2 = 0} decides at once (roots 1, 2)
+    let l = list(vec![dom(n, 2, &["n1^2-3*n1+2"], &[]), free.clone()], n);
+    assert!(matches!(
+        shadowed(&l, 1, &f),
+        Containment::NotContained { .. }
+    ));
+    assert!(matches!(
+        is_empty(&l.items[0].1, &f),
+        Emptiness::NonEmpty { .. }
+    ));
 }

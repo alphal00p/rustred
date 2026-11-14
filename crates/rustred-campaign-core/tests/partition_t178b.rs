@@ -474,3 +474,116 @@ fn t178b_dispatch_mode_equals_first_match() {
     assert!(cen.uncovered_in_c.is_empty());
     assert_eq!(mine, open);
 }
+
+/// corefix2 reference (witness status enforced by the dispatcher): T178 order B from ALL 38 RAW tables, witness
+/// check on. The DISPATCH-mode partition restricted to the box gives 409 uncovered + 39 blocked keys, the same keys
+/// as the dispatcher (`tests/data/t178b_raw38_blocked39.json`). Raw tables: `RUSTRED_T178B_RAW` or the default
+/// regeneration directory (read-only).
+#[test]
+#[ignore = "needs RUSTRED_CAMPAIGN_FIXTURES and the 38 raw T178B tables; release; run with --ignored"]
+fn t178b_raw38_dispatch_mode_409_uncovered_39_blocked() {
+    use rustred_campaign_core::cover::{Dispatcher, Table};
+    use rustred_campaign_core::domain::DomainOptions;
+    use rustred_campaign_core::partition::CoverageNotion;
+    use rustred_campaign_core::record::{ReadOptions, read_table_file};
+    let Some(fx) = fx() else { return };
+    let root = std::env::var_os("RUSTRED_T178B_RAW")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(
+                "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/SCRATCHPAD/t178/regenB",
+            )
+        });
+    if !root.is_dir() {
+        println!("SKIP: no raw T178B tables");
+        return;
+    }
+    let cfg: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(fx.join("T178B/cfg_t178_regenB.json")).unwrap(),
+    )
+    .unwrap();
+    let mut tables = vec![];
+    for t in cfg["tables"].as_array().unwrap() {
+        let name = t
+            .as_str()
+            .unwrap()
+            .trim_start_matches("cases/t178B/")
+            .trim_end_matches(".jsonl")
+            .to_string();
+        let rel = match name.split_once('_') {
+            None if name == "R0" => "R0/try1".to_string(),
+            Some((dir, sub)) => format!("{dir}/{sub}"),
+            None => panic!("unknown piece {name}"),
+        };
+        let path = root.join(rel).join("node/F.table.jsonl");
+        let raw = read_table_file(&path, ReadOptions::default()).unwrap();
+        tables.push(
+            Table::from_table_file(
+                name.clone(),
+                path.display().to_string(),
+                &raw,
+                DomainOptions::default(),
+            )
+            .unwrap(),
+        );
+    }
+    assert_eq!(tables.len(), 38);
+    let disp = Dispatcher::new(tables, (0..38).collect()).unwrap();
+    let keys = t178_box();
+    let br = disp.batch(&keys, 4).unwrap();
+    let open: BTreeSet<Key> = keys
+        .iter()
+        .zip(&br.results)
+        .filter(|(_, r)| r.is_open())
+        .map(|(k, _)| k.clone())
+        .collect();
+    let src = DispatcherSource::new(&disp);
+    let t = std::time::Instant::now();
+    let opts = PartitionOptions {
+        coverage: CoverageNotion::DispatchCoverage,
+        literal_tests: LiteralTests::ReferenceCompatible,
+        ..Default::default()
+    };
+    let rep = gap_partition(&src, &t178_frame(), &opts, None).unwrap();
+    let cen = rep.census(&keys).unwrap();
+    let mine: BTreeSet<Key> = cen.uncovered.iter().map(|x| x.0.clone()).collect();
+    // the dispatcher's split: Uncovered (no record selected) vs Blocked / Undecided (first selected record unusable)
+    let not_selected: BTreeSet<Key> = keys
+        .iter()
+        .zip(&br.results)
+        .filter(|(_, r)| matches!(r, rustred_campaign_core::cover::Dispatch::Uncovered))
+        .map(|(k, _)| k.clone())
+        .collect();
+    let want: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/data/t178b_raw38_blocked39.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let blocked_ref: BTreeSet<Key> = want["keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(as_key)
+        .collect();
+    let blocked_mine: BTreeSet<Key> = mine.difference(&not_selected).cloned().collect();
+    println!(
+        "T178B raw38 dispatch mode: {} blockers ({} witness-blocked), {} non-empty blocked regions, faces {}; box {} = {} not selected + {} blocked (dispatcher open {}); outcome {:?}; {} ms",
+        rep.nf.blockers.len(),
+        rep.nf.elided.len(),
+        rep.blocked.len(),
+        rep.faces.len(),
+        mine.len(),
+        not_selected.len(),
+        blocked_mine.len(),
+        open.len(),
+        rep.outcome,
+        t.elapsed().as_millis()
+    );
+    assert!(cen.uncovered_in_c.is_empty());
+    assert_eq!(mine, open);
+    assert_eq!((mine.len(), not_selected.len()), (448, 409));
+    assert_eq!(blocked_mine, blocked_ref);
+}

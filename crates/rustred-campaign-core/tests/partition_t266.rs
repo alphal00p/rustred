@@ -73,7 +73,10 @@ fn load(dir: &std::path::Path) -> (DomainList, NodeFrame) {
 }
 
 fn memo_cap() -> usize {
-    std::env::var("RUSTRED_T266_MEMO").ok().and_then(|s| s.parse().ok()).unwrap_or(25_000)
+    std::env::var("RUSTRED_T266_MEMO")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(25_000)
 }
 
 fn uncovered_keys(dir: &std::path::Path) -> Vec<Key> {
@@ -141,6 +144,7 @@ fn t266_exact_partition_timed_attempt() {
             max_nodes: None,
             wall: Some(Duration::from_secs(secs)),
             max_memo: Some(memo_cap()),
+            max_faces: None,
         },
         ..Default::default()
     };
@@ -174,11 +178,19 @@ fn t266_levels_timed_attempt() {
     use rustred_campaign_core::partition::gap_partition_levels;
     let Some(dir) = src_dir() else { return };
     let (l, frame) = load(&dir);
-    let secs: u64 = std::env::var("RUSTRED_T266_BUDGET_S").ok().and_then(|s| s.parse().ok()).unwrap_or(1500);
+    let secs: u64 = std::env::var("RUSTRED_T266_BUDGET_S")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1500);
     let opts = PartitionOptions {
         elided: ElidedPolicy::Ordinary,
         resolve_loci: false,
-        budget: Budget { max_nodes: None, wall: Some(Duration::from_secs(secs)), max_memo: Some(memo_cap()) },
+        budget: Budget {
+            max_nodes: None,
+            wall: Some(Duration::from_secs(secs)),
+            max_memo: Some(memo_cap()),
+            max_faces: None,
+        },
         ..Default::default()
     };
     let cp = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("t266_levels.checkpoint.jsonl");
@@ -186,14 +198,27 @@ fn t266_levels_timed_attempt() {
     let lv = gap_partition_levels(&l, &frame, &opts, 20, Some(&cp), None).unwrap();
     let keys = uncovered_keys(&dir);
     let fb: std::collections::BTreeSet<_> =
-        faces_from_uncovered_keys(&frame, &keys, KeyRange::Measured).iter().map(|f| f.key()).collect();
+        faces_from_uncovered_keys(&frame, &keys, KeyRange::Measured)
+            .iter()
+            .map(|f| f.key())
+            .collect();
     for r in &lv {
         let mine: std::collections::BTreeSet<_> = r.faces.iter().cloned().collect();
-        let fb_l: std::collections::BTreeSet<_> =
-            fb.iter().filter(|f| f.0.len() + f.1.len() <= r.level).cloned().collect();
+        let fb_l: std::collections::BTreeSet<_> = fb
+            .iter()
+            .filter(|f| f.0.len() + f.1.len() <= r.level)
+            .cloned()
+            .collect();
         println!(
             "T266 level {}: {} faces ({} generic) complete up to {} off-floor slots; {} nodes, {} ms; closure-gap faces at this level {} (all contained: {})",
-            r.level, r.faces.len(), r.generic.len(), r.level, r.nodes, r.millis, fb_l.len(), fb_l.is_subset(&mine)
+            r.level,
+            r.faces.len(),
+            r.generic.len(),
+            r.level,
+            r.nodes,
+            r.millis,
+            fb_l.len(),
+            fb_l.is_subset(&mine)
         );
         assert!(fb_l.is_subset(&mine));
     }
