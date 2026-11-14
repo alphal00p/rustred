@@ -1155,9 +1155,9 @@ pub const NODE_TABLE: &[(&str, &str, &str)] = &[
         "same phase, provisional cleared (passed) / running (failed)  [guard: provisional]",
     ),
     (
-        "closure_check|closed|certified|open|stale",
+        "running|closure_check|closed|certified|open|stale",
         "reopen",
-        "running, target full, attempt not ended",
+        "running, target full, attempt not ended (running on FULL: no-op)",
     ),
     ("<any>", "mark_stale", "stale"),
     (
@@ -1470,8 +1470,9 @@ pub fn apply_node(
         (_, NodeEvent::EnvelopeRecheck { .. }) => {
             return illegal("only a closed node is rechecked".into());
         }
+        (P::Running, NodeEvent::Reopen { .. }) if state.target == ClosureTarget::Full => {}
         (
-            P::ClosureCheck | P::Closed | P::Certified | P::Open | P::Stale,
+            P::Running | P::ClosureCheck | P::Closed | P::Certified | P::Open | P::Stale,
             NodeEvent::Reopen { reason },
         ) => {
             next.phase = P::Running;
@@ -1485,7 +1486,6 @@ pub fn apply_node(
             next.reopens += 1;
             next.reopen_cause = Some(reason.clone());
         }
-        (P::Running, NodeEvent::Reopen { .. }) => {}
         (P::Registered, NodeEvent::Reopen { .. }) => return illegal("node not started".into()),
     }
     Ok(next)
@@ -2179,6 +2179,8 @@ impl CampaignState {
                     if n.inputs != *inputs
                         || n.state.spec_box != *spec_box
                         || n.state.spec != NodeSpec::resolve(spec)
+                        || n.state.terminal_bound != terminal_bound.unwrap_or(self.terminal_bound)
+                        || n.reference != *reference
                     {
                         return Err(invalid(format!(
                             "node {node} re-registered with other inputs, box or spec values"
@@ -2487,6 +2489,8 @@ impl CampaignState {
         if let Some(e) = self.provenance.get(id) {
             if e.files != p.files
                 || e.producer != p.producer
+                || e.description != p.description
+                || e.source_campaign != p.source_campaign
                 || e.level_claimed != p.level_claimed
                 || e.kind != p.kind
                 || e.manifest != p.manifest
@@ -2738,6 +2742,16 @@ impl CampaignState {
             NodeEvent::MarkStale { reason } => n.stale_reason = Some(reason.clone()),
             NodeEvent::Reopen { .. } => n.stale_reason = None,
             _ => {}
+        }
+        // An explicit node mark_stale marks its items stale too (audit A m11).
+        if let NodeEvent::MarkStale { reason } = ev {
+            let ids: Vec<String> = self
+                .items
+                .iter()
+                .filter(|(_, it)| it.node == node && it.phase != ItemPhase::Stale)
+                .map(|(k, _)| k.clone())
+                .collect();
+            self.stale_items(rec, ids, &format!("node:{reason}"));
         }
         // Reopen to FULL from a box: box-only retirements are reinstated (coverage restored, audit A M5).
         if matches!(ev, NodeEvent::Reopen { .. })
@@ -3199,6 +3213,16 @@ impl CampaignState {
                     "reopen of {item}: node {node_id} is stale (reopen the node first)"
                 )));
             }
+            IE::Reopen { .. } if !repeat => {
+                // audit A m11: an item whose child carries its work (escalation) is not revived
+                if let Some((c, _)) = self.items.iter().find(|(_, c)| {
+                    c.parent.as_deref() == Some(item) && c.phase != ItemPhase::Stale
+                }) {
+                    return Err(invalid(format!(
+                        "reopen of {item}: its child {c} carries the work"
+                    )));
+                }
+            }
             _ => {}
         }
         if repeat {
@@ -3540,6 +3564,20 @@ impl CampaignState {
                 return Err(invalid(format!(
                     "job {job}: new attempt must be {}, got {attempt}",
                     j.attempt + 1
+                )));
+            }
+            // audit B exp1: a new attempt only from a settled attempt that allows it (never from queued)
+            let ok = match machine_ev {
+                AttemptEvent::Requeue => {
+                    matches!(j.state, AttemptState::Interrupted | AttemptState::Lost)
+                }
+                _ => matches!(j.state, AttemptState::Failed(_)),
+            };
+            if !ok {
+                return Err(invalid(format!(
+                    "job {job}: no new attempt from {} by {}",
+                    j.state.tag(),
+                    machine_ev.tag()
                 )));
             }
         } else if attempt != j.attempt {

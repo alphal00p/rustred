@@ -245,6 +245,8 @@ pub fn acquire(
         source: e,
     })?;
     if !got {
+        // the winner of a race may have written its record after we read ours (audit B exp5)
+        let previous = read_owner(dir)?.or(previous);
         return Err(match previous {
             Some(owner) if owner.identity.boot_id == me.boot_id => match liveness(&owner.identity) {
                 Liveness::Alive => LockError::HeldByLiveOwner { owner },

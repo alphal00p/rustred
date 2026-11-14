@@ -790,3 +790,138 @@ pub fn fixer_round(node: &str, round: u32) -> Event {
         },
     }
 }
+
+// ------------------------------------------------------------------------------------------------------------
+// File-operation fakes (fsync-policy and fault-injection tests)
+// ------------------------------------------------------------------------------------------------------------
+
+use rustred_campaign::ledger::{RealFile, SegmentFile};
+use std::io;
+use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
+
+/// Records every file operation (`op name`) and fails the Nth one (1-based, counted from `arm`) with `errno`.
+#[derive(Default)]
+pub struct Ops {
+    pub log: Mutex<Vec<String>>,
+    /// Remaining operations before the failure (<= 0: no failure armed).
+    pub fail_in: AtomicI64,
+    pub errno: AtomicI64,
+    /// Only operations whose description contains this text are counted / failed (empty: all).
+    pub filter: Mutex<String>,
+    pub count: AtomicUsize,
+}
+
+impl Ops {
+    pub fn new() -> Arc<Ops> {
+        Arc::new(Ops::default())
+    }
+    pub fn take_log(&self) -> Vec<String> {
+        std::mem::take(&mut *self.log.lock().unwrap())
+    }
+    /// Fail the `n`-th later operation matching `filter` with `errno`.
+    pub fn arm(&self, n: i64, errno: i32, filter: &str) {
+        *self.filter.lock().unwrap() = filter.to_string();
+        self.errno.store(errno as i64, Ordering::SeqCst);
+        self.fail_in.store(n, Ordering::SeqCst);
+    }
+    pub fn disarm(&self) {
+        self.fail_in.store(0, Ordering::SeqCst);
+    }
+    fn op(&self, what: String) -> io::Result<()> {
+        self.count.fetch_add(1, Ordering::SeqCst);
+        let f = self.filter.lock().unwrap().clone();
+        let hit = f.is_empty() || what.contains(&f);
+        self.log.lock().unwrap().push(what);
+        if hit && self.fail_in.load(Ordering::SeqCst) > 0 {
+            if self.fail_in.fetch_sub(1, Ordering::SeqCst) == 1 {
+                return Err(io::Error::from_raw_os_error(
+                    self.errno.load(Ordering::SeqCst) as i32,
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn base(p: &Path) -> String {
+    let n = p
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    // temporaries -> "tmp(<target>)"
+    if let Some(rest) = n.strip_prefix('.')
+        && let Some(i) = rest.find(".rr-tmp-")
+    {
+        return format!("tmp({})", base(Path::new(&rest[..i])));
+    }
+    if n.starts_with("snapshot-") {
+        return "snapshot".into();
+    }
+    if n.starts_with("torn-") {
+        return "torn".into();
+    }
+    n
+}
+
+pub struct OpsFile {
+    inner: Box<dyn SegmentFile>,
+    name: String,
+    ops: Arc<Ops>,
+}
+
+impl SegmentFile for OpsFile {
+    fn append(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.ops.op(format!("append {}", self.name))?;
+        self.inner.append(bytes)
+    }
+    fn sync(&mut self) -> io::Result<()> {
+        self.ops.op(format!("fsync {}", self.name))?;
+        self.inner.sync()
+    }
+    fn truncate(&mut self, len: u64) -> io::Result<()> {
+        self.ops.op(format!("truncate {}", self.name))?;
+        self.inner.truncate(len)
+    }
+    fn write_at(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
+        self.ops.op(format!("write_at {}", self.name))?;
+        self.inner.write_at(offset, bytes)
+    }
+}
+
+/// The FileOps wrapper around the real operations.
+pub struct RecordingOps(pub Arc<Ops>);
+
+impl FileOps for RecordingOps {
+    fn open_segment(&self, path: &Path) -> io::Result<Box<dyn SegmentFile>> {
+        let name = base(path);
+        self.0.op(format!("open {name}"))?;
+        Ok(Box::new(OpsFile {
+            inner: RealFile::open(path)?,
+            name,
+            ops: self.0.clone(),
+        }))
+    }
+    fn open_mark(&self, path: &Path) -> io::Result<Box<dyn SegmentFile>> {
+        Ok(Box::new(OpsFile {
+            inner: RealFile::open(path)?,
+            name: base(path),
+            ops: self.0.clone(),
+        }))
+    }
+    fn write_new_synced(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
+        self.0.op(format!("write+fsync {}", base(path)))?;
+        rustred_campaign::ledger::RealOps.write_new_synced(path, bytes)
+    }
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        self.0.op(format!("rename {} -> {}", base(from), base(to)))?;
+        std::fs::rename(from, to)
+    }
+    fn sync_dir(&self, dir: &Path) -> io::Result<()> {
+        self.0.op(format!("fsync-dir {}", base(dir)))?;
+        rustred_campaign::atomic::sync_dir(dir)
+    }
+    fn remove(&self, path: &Path) -> io::Result<()> {
+        self.0.op(format!("remove {}", base(path)))?;
+        std::fs::remove_file(path)
+    }
+}

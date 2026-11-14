@@ -1395,14 +1395,16 @@ fn load_base(
                     ));
                 }
             }
-            if let Some(last) = m.sealed.last() {
-                let p = dir.join(&last.file);
+            // every sealed segment's digest (audit B exp2: a flipped byte in any sealed segment refuses at open;
+            // BLAKE3 at ~1 GB/s: a week of 64 MiB segments costs well under a second)
+            for sealed in &m.sealed {
+                let p = dir.join(&sealed.file);
                 let (_, d) = atomic::blake3_file(&p).map_err(io_err(&p, "digest sealed segment"))?;
-                if d != last.blake3 {
+                if d != sealed.blake3 {
                     return Err(corrupt(
-                        &last.file,
+                        &sealed.file,
                         0,
-                        "last sealed segment digest differs from the manifest",
+                        "sealed segment digest differs from the manifest",
                     ));
                 }
             }
@@ -2354,8 +2356,9 @@ pub fn verify_chain(cdir: &Path) -> Result<ChainReport, LedgerError> {
 }
 
 /// All complete, valid records of the ledger in order with their chain values `h` (no reduction; for tools and
-/// tests). Stops at the first line that does not decode in the active segment (a torn tail); a bad line in a
-/// sealed segment is an error.
+/// tests). Checks framing, digest, canonical form, dense `seq` and the `prev` chain (audit B exp2: never a gapped
+/// or altered history). Stops at an incomplete or undecodable LAST part of the active segment (a torn tail); any
+/// other bad line is an error.
 pub fn read_records_with_hashes(cdir: &Path) -> Result<Vec<(Record, String)>, LedgerError> {
     let dir = ledger_dir(cdir);
     let m = read_manifest(&dir)?;
@@ -2375,8 +2378,24 @@ pub fn read_records_with_hashes(cdir: &Path) -> Result<Vec<(Record, String)>, Le
         while let Some(nl) = bytes[pos..].iter().position(|&b| b == b'\n') {
             line += 1;
             match decode_record(&bytes[pos..pos + nl]) {
-                Ok(x) => out.push(x),
-                Err(_) if i == n_sealed => break,
+                Ok((r, h)) => {
+                    let (seq, prev) = out
+                        .last()
+                        .map(|(r, h): &(Record, String)| (r.seq, h.clone()))
+                        .unwrap_or((0, GENESIS.to_string()));
+                    if r.seq != seq + 1 || r.prev != prev {
+                        return Err(corrupt(f, line, "sequence or hash chain broken"));
+                    }
+                    out.push((r, h));
+                }
+                Err(_)
+                    if i == n_sealed
+                        && !bytes[pos + nl + 1..]
+                            .split(|&b| b == b'\n')
+                            .any(|l| decode_record(l).is_ok()) =>
+                {
+                    break;
+                }
                 Err(why) => return Err(corrupt(f, line, why)),
             }
             pos += nl + 1;
