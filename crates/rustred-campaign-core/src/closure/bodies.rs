@@ -141,8 +141,21 @@ pub struct RuleBodies {
     /// per pattern: first entry; one extra sentinel at the end
     pat_start: Vec<u32>,
     ent: Vec<u16>,
-    /// per table: label -> record
+    /// per table: label -> record ([`AMBIGUOUS`] if two records carry the label: lookups by label fail closed)
     labels: Vec<HashMap<i64, usize>>,
+}
+
+/// Marker of a label carried by more than one record of a table (audit loop-A m4).
+const AMBIGUOUS: usize = usize::MAX;
+
+fn label_map(labels: &[i64]) -> HashMap<i64, usize> {
+    let mut m = HashMap::with_capacity(labels.len());
+    for (r, &l) in labels.iter().enumerate() {
+        m.entry(l)
+            .and_modify(|x| *x = AMBIGUOUS)
+            .or_insert(r);
+    }
+    m
 }
 
 /// Classification of an instantiated right-hand-side key (in this order).
@@ -276,10 +289,7 @@ impl RuleBodies {
             rule_count: t.iter().map(|x| vec![0; x.len()]).collect(),
             pat_start: vec![0],
             ent: vec![],
-            labels: t
-                .iter()
-                .map(|x| x.labels.iter().enumerate().map(|(r, &l)| (l, r)).collect())
-                .collect(),
+            labels: t.iter().map(|x| label_map(&x.labels)).collect(),
         }
     }
 
@@ -304,8 +314,7 @@ impl RuleBodies {
                 self.table_names.push(x.name.clone());
                 self.rule_first.push(vec![NONE; x.len()]);
                 self.rule_count.push(vec![0; x.len()]);
-                self.labels
-                    .push(x.labels.iter().enumerate().map(|(r, &l)| (l, r)).collect());
+                self.labels.push(label_map(&x.labels));
             }
         }
         Ok(())
@@ -465,6 +474,12 @@ impl RuleBodies {
                     table,
                     detail: format!("line {ln}: no record with label {label}"),
                 })?;
+            if record == AMBIGUOUS {
+                return Err(BodyError::NoRecord {
+                    table,
+                    detail: format!("line {ln}: label {label} carried by several records"),
+                });
+            }
             let dom = &tab.domains[record];
             if let Some(tg) = l.target {
                 self.check_target(dom, tg)
@@ -502,6 +517,12 @@ impl RuleBodies {
             let Some(&record) = self.labels.get(table).and_then(|m| m.get(&label)) else {
                 continue;
             };
+            if record == AMBIGUOUS {
+                return Err(BodyError::NoRecord {
+                    table,
+                    detail: format!("label {label} carried by several records"),
+                });
+            }
             let dom = &disp.tables()[table].domains[record];
             if let Some(tg) = &rec.target {
                 self.check_target(dom, tg)
@@ -622,6 +643,31 @@ impl RuleBodies {
             cmask.push(m);
         }
         Ok(Some(c))
+    }
+
+    /// Feed the body of (table, record) into `h`: the number of patterns, then every pattern's compact entries
+    /// (slot, kind, value: a faithful encoding given the record's domain); `none` without a body.
+    pub fn digest_record(&self, table: usize, record: usize, h: &mut super::sha256::Sha256) {
+        if !self.has(table, record) {
+            h.update(b"none;");
+            return;
+        }
+        let f = self.rule_first[table][record] as usize;
+        let c = self.rule_count[table][record] as usize;
+        let mut buf: Vec<u8> = Vec::with_capacity(256);
+        buf.extend_from_slice(&(c as u64).to_le_bytes());
+        for j in 0..c {
+            let p = self.pattern(f + j);
+            buf.extend_from_slice(&(p.len() as u32).to_le_bytes());
+            for &e in p {
+                buf.extend_from_slice(&e.to_le_bytes());
+            }
+            if buf.len() >= 4096 {
+                h.update(&buf);
+                buf.clear();
+            }
+        }
+        h.update(&buf);
     }
 
     pub fn memory_bytes(&self) -> usize {
