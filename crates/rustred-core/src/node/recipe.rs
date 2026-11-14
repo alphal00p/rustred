@@ -12,7 +12,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -492,7 +492,11 @@ impl BatchOptions {
 
     fn stop_requested(&self) -> Option<&'static str> {
         if SIGNALS.load(AtomicOrdering::SeqCst) > 0 {
-            Some("SIGTERM")
+            Some(match FIRST_SIGNAL.load(AtomicOrdering::SeqCst) {
+                libc::SIGINT => "SIGINT",
+                libc::SIGHUP => "SIGHUP",
+                _ => "SIGTERM",
+            })
         } else if self.stop.as_ref().is_some_and(|f| f()) {
             Some("supervisor")
         } else if self.stop_file.as_ref().is_some_and(|p| p.exists()) {
@@ -615,8 +619,14 @@ pub struct KeyInput {
 /// passes its own flag as `BatchOptions::stop`). The handler only increments it (async-signal-safe, as the
 /// child-job contract's handler); the batch's watchdog does the rest.
 static SIGNALS: AtomicUsize = AtomicUsize::new(0);
+/// The first signal received (its number; 0 = none), for `stop.source`.
+static FIRST_SIGNAL: AtomicI32 = AtomicI32::new(0);
+/// The source of the first stop request (contract closed list: SIGTERM SIGINT SIGHUP stopfile; "supervisor" for an
+/// embedding caller's flag), set by the batch watchdog.
+static STOP_SOURCE: Mutex<Option<&'static str>> = Mutex::new(None);
 
-extern "C" fn on_signal(_: i32) {
+extern "C" fn on_signal(sig: i32) {
+    let _ = FIRST_SIGNAL.compare_exchange(0, sig, AtomicOrdering::SeqCst, AtomicOrdering::SeqCst);
     SIGNALS.fetch_add(1, AtomicOrdering::SeqCst);
 }
 
@@ -1091,6 +1101,7 @@ fn run_prepared<const N: usize>(
             if let Some(source) = opts.stop_requested() {
                 if first_stop.is_none() {
                     first_stop = Some(Instant::now());
+                    *STOP_SOURCE.lock().unwrap() = Some(source);
                     events.emit(
                         "stop_requested",
                         json!({"source": source, "count": SIGNALS.load(AtomicOrdering::SeqCst).max(1)}),
@@ -1104,7 +1115,7 @@ fn run_prepared<const N: usize>(
             if hard && active.load(AtomicOrdering::SeqCst) > 0 {
                 let code =
                     write_outputs(ctx, keys, &uniq_of, &shared, out, prepare_s, &events, false);
-                std::process::exit(code.unwrap_or(70));
+                exit_sealed(opts, code);
             }
             if events.contract && last_beat.elapsed().as_secs_f64() >= opts.heartbeat_s {
                 last_beat = Instant::now();
@@ -1161,15 +1172,47 @@ fn run_prepared<const N: usize>(
             if exhausted && stuck_only {
                 let code =
                     write_outputs(ctx, keys, &uniq_of, &shared, out, prepare_s, &events, true);
-                std::process::exit(code.unwrap_or(70));
+                exit_sealed(opts, code);
             }
         }
     });
     outcome
 }
 
+/// End the process after the watchdog sealed the outputs itself: the batch's exit code, or (an I/O error while
+/// sealing) exit 51 with an error OUTCOME in job mode, 70 stand-alone.
+fn exit_sealed(opts: &BatchOptions, r: Result<i32, String>) -> ! {
+    match r {
+        Ok(code) => std::process::exit(code),
+        Err(e) => {
+            eprintln!("rr_node solve-recipe: {e}");
+            if let (Some(job), Some(base)) = (&opts.job, &opts.path_base) {
+                let _ = super::recipe_job::error_outcome_job(job, base, 51, &e);
+                std::process::exit(51)
+            }
+            std::process::exit(70)
+        }
+    }
+}
+
+/// [`write_outputs_inner`] with its errors marked as I/O errors ([`super::recipe_job::IO_ERROR_PREFIX`]).
 #[allow(clippy::too_many_arguments)]
 fn write_outputs<const N: usize>(
+    ctx: &Ctx<'_, N>,
+    keys: &[KeyInput],
+    uniq_of: &[usize],
+    shared: &Shared,
+    out: &Path,
+    prepare_s: f64,
+    events: &Events,
+    graceful: bool,
+) -> Result<i32, String> {
+    write_outputs_inner(ctx, keys, uniq_of, shared, out, prepare_s, events, graceful)
+        .map_err(|e| format!("{}{e}", super::recipe_job::IO_ERROR_PREFIX))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn write_outputs_inner<const N: usize>(
     ctx: &Ctx<'_, N>,
     keys: &[KeyInput],
     uniq_of: &[usize],
@@ -1183,10 +1226,21 @@ fn write_outputs<const N: usize>(
     let results = shared.results.lock().unwrap().clone();
     let interrupted = results.iter().any(Option::is_none);
     // results.jsonl in INPUT order, then the end record; written to a temporary name and renamed
-    let tmp = out.join("results.jsonl.part");
+    let tmp = match (&opts.job, &opts.path_base) {
+        // job mode: the temporary file lives in RUN/tmp (contract layout), renamed into out/ when complete
+        (Some(_), Some(base)) => {
+            let t = base.join("tmp");
+            std::fs::create_dir_all(&t).map_err(|e| format!("tmp: {e}"))?;
+            t.join("results.jsonl.part")
+        }
+        _ => out.join("results.jsonl.part"),
+    };
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
-    let mut f =
-        std::io::BufWriter::new(std::fs::File::create(&tmp).map_err(|e| format!("results: {e}"))?);
+    let mut lines: Vec<Value> = Vec::with_capacity(keys.len() + 1);
+    let mut f = std::io::BufWriter::new(
+        super::recipe_job::create_excl(&tmp)
+            .map_err(|e| format!("results {}: {e}", tmp.display()))?,
+    );
     for (ordinal, k) in keys.iter().enumerate() {
         let mut rec = match &results[uniq_of[ordinal]] {
             Some(r) => r.clone(),
@@ -1205,10 +1259,14 @@ fn write_outputs<const N: usize>(
             .entry(rec["verdict"].as_str().unwrap_or("?").to_string())
             .or_default() += 1;
         writeln!(f, "{rec}").map_err(|e| e.to_string())?;
+        lines.push(rec);
     }
     let end = json!({"type": if interrupted { "partial" } else { "end" }, "records": keys.len(),
         "counts": counts, "recipe_digest": ctx.recipe_digest, "determinism_id": DETERMINISM_ID});
     writeln!(f, "{end}").map_err(|e| e.to_string())?;
+    lines.push(end);
+    let canonical_blake3 = super::recipe_job::canonical_stream_blake3(&lines);
+    drop(lines);
     f.flush().map_err(|e| e.to_string())?;
     drop(f);
     let path = out.join("results.jsonl");
@@ -1233,6 +1291,7 @@ fn write_outputs<const N: usize>(
         "inputs": opts.inputs,
         "outputs": {"results": {"path": "results.jsonl", "bytes": bytes.len(),
             "blake3": blake3::hash(&bytes).to_hex().to_string(), "records": keys.len() + 1,
+            "canonical_blake3": canonical_blake3,
             "end": if interrupted { "partial" } else { "end" }, "sealed": true}},
         "counts": counts,
         "time_decided": counts.contains_key("BUDGET_WALL"),
@@ -1265,20 +1324,31 @@ fn write_outputs<const N: usize>(
         let mut j = job.clone();
         j["status"] = outcome["status"].clone();
         j["exit_code"] = json!(exit);
+        // stop.source: the contract's closed list (SIGTERM SIGINT SIGHUP stopfile budget memory); an embedding
+        // caller's own flag ("supervisor") has no contract value and is reported as null
+        let source = match *STOP_SOURCE.lock().unwrap() {
+            Some(s @ ("SIGTERM" | "SIGINT" | "SIGHUP" | "stopfile")) if exit == 30 => json!(s),
+            _ => Value::Null,
+        };
         j["stop"] = json!({"code": stop_code, "detail": if exit == 0 { Value::Null } else { json!({"counts": counts}) },
-            "source": if exit == 30 { json!("signal_or_stopfile") } else { Value::Null }, "graceful": graceful});
-        j["program"] = json!({"name": "rr_node", "version": env!("CARGO_PKG_VERSION"),
-            "git_commit": opts.binary["git_commit"], "features": ["solve_recipe"], "exe": exe_info()});
-        j["effective"] = json!({"subcommand": "solve-recipe", "args": job["args"], "node_options": Value::Null,
-            "order": serde_json::from_str::<Value>(&opts.order_text).unwrap_or(Value::Null), "env": {},
-            "recipe_digest": ctx.recipe_digest, "determinism_id": DETERMINISM_ID});
+            "source": source, "graceful": graceful});
+        j["program"] = super::recipe_job::program_info();
+        j["effective"] = super::recipe_job::effective(
+            &job["args"],
+            json!({"recipe_digest": ctx.recipe_digest, "determinism_id": DETERMINISM_ID,
+                "relation_rule": ctx.recipe.relation_rule, "threads": opts.threads.max(1),
+                "max_trace_rows": opts.max_trace_rows, "key_budget_s": opts.key_budget_s, "proof": opts.proof}),
+            serde_json::from_str::<Value>(&opts.order_text).unwrap_or(Value::Null),
+        );
         j["seed"] = json!({"sample_seed": SAMPLE_SEED, "point_source": "seed"});
         j["counters"] = counters(solved, keys.len());
-        j["budgets"] = json!({"wall": {"case_s": opts.key_budget_s}, "hit": Value::Null});
+        // budgets.wall.case_s: the contract's integer seconds (job mode accepts integer budgets only)
+        j["budgets"] = json!({"wall": {"case_s": opts.key_budget_s.map(|b| b.round() as u64)}, "hit": Value::Null});
         j["time_decided"] = json!(!time_decisions.is_empty());
         j["time_decisions"] = json!(time_decisions);
         j["outputs"] = json!({"extra": [{"role": "results", "path": "out/results.jsonl", "bytes": bytes.len(),
             "blake3": outcome["outputs"]["results"]["blake3"], "records": keys.len() + 1,
+            "canonical_blake3": outcome["outputs"]["results"]["canonical_blake3"],
             "end": outcome["outputs"]["results"]["end"], "sealed": true}]});
         j["timing"] = json!({"started_utc": job["started_utc"], "finished_utc": utc_now(),
             "wall_s": ctx.t0.elapsed().as_secs_f64(), "cpu_s": cpu_s()});
@@ -1304,13 +1374,16 @@ fn write_outputs<const N: usize>(
         .outcome_path
         .clone()
         .unwrap_or_else(|| out.join("OUTCOME.json"));
-    let otmp = target.with_extension("json.part");
-    std::fs::write(
-        &otmp,
-        serde_json::to_string_pretty(&outcome).unwrap() + "\n",
-    )
-    .map_err(|e| e.to_string())?;
-    std::fs::rename(&otmp, &target).map_err(|e| e.to_string())?;
+    let text = serde_json::to_string_pretty(&outcome).unwrap() + "\n";
+    if opts.job.is_some() {
+        // job mode: OUTCOME.json is never replaced (no-clobber write)
+        super::recipe_job::write_new(&target, text.as_bytes())
+            .map_err(|e| format!("OUTCOME {}: {e}", target.display()))?;
+    } else {
+        let otmp = target.with_extension("json.part");
+        std::fs::write(&otmp, text).map_err(|e| e.to_string())?;
+        std::fs::rename(&otmp, &target).map_err(|e| e.to_string())?;
+    }
     events.emit(
         "job_finished",
         json!({"exit_code": exit, "status": outcome["status"], "stop_code": stop_code}),
@@ -1345,15 +1418,6 @@ fn cpu_s() -> f64 {
             Some((f.get(11)?.parse::<f64>().ok()? + f.get(12)?.parse::<f64>().ok()?) / 100.0)
         })
         .unwrap_or(0.0)
-}
-
-fn exe_info() -> Value {
-    use std::os::unix::fs::MetadataExt;
-    let p = std::env::current_exe().ok();
-    let m = p.as_ref().and_then(|p| std::fs::metadata(p).ok());
-    json!({"path": p.map(|p| p.display().to_string()), "dev": m.as_ref().map(|m| m.dev()),
-        "ino": m.as_ref().map(|m| m.ino()), "size": m.as_ref().map(|m| m.size()),
-        "mtime": m.as_ref().map(|m| m.mtime())})
 }
 
 fn key_text(k: &[i64]) -> String {
@@ -1680,10 +1744,54 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
                 fixed: sv.iter().map(|&x| Some(x)).collect(),
                 equations: vec![],
             };
+            // Only a COMPLETED search without a pivot (or a key that is not an admissible point) means "no M1
+            // relation in these seeds" and allows the C fallback. Any other failure of the sub-solve (resource limit,
+            // exact-lift irregularity, internal error) is typed for the KEY: it never reads as "no relation exists".
             let sub = match build_case::<N>(&spec, &ctx.template, &ctx.idx, &ctx.sector, ctx.n) {
-                Ok(Some(c)) => raw_solve(ctx, &c, &seeds_arc).map_err(|e| e.text()),
+                Ok(Some(c)) => match raw_solve(ctx, &c, &seeds_arc) {
+                    Ok(rs) => Ok(rs),
+                    Err(e @ RawErr::Exhausted(_)) => Err(e.text()),
+                    Err(RawErr::Irregular(m)) => {
+                        return failure(
+                            ctx,
+                            key,
+                            "IRREGULAR",
+                            "irregular",
+                            &format!(
+                                "m1_first: exact lift at the same-layer key {}: {m}",
+                                key_text(&sv)
+                            ),
+                            json!({"pole": m, "m1_key": sv, "m1_steps": m1_steps}),
+                        );
+                    }
+                    Err(RawErr::Error(m)) => {
+                        return failure(
+                            ctx,
+                            key,
+                            "ERROR",
+                            "error",
+                            &format!(
+                                "m1_first: the solve at the same-layer key {} failed: {m}",
+                                key_text(&sv)
+                            ),
+                            json!({"message": m, "m1_key": sv, "m1_steps": m1_steps}),
+                        );
+                    }
+                },
                 Ok(None) => Err("not an admissible point".to_string()),
-                Err(e) => Err(e),
+                Err(e) => {
+                    return failure(
+                        ctx,
+                        key,
+                        "ERROR",
+                        "error",
+                        &format!(
+                            "m1_first: case of the same-layer key {}: {e}",
+                            key_text(&sv)
+                        ),
+                        json!({"message": e, "m1_key": sv, "m1_steps": m1_steps}),
+                    );
+                }
             };
             match sub {
                 Ok(rs) if rs.target == s => {
