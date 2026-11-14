@@ -1759,6 +1759,7 @@ fn solve_recipe_job_m1_first_matches_the_coordinator_reference() {
 #[test]
 #[ignore]
 fn solve_recipe_job_with_an_off_domain_key_is_row_28() {
+    // first_admissible: the exit paths, not the relation rule, are under test (m1_first costs ~2 min per key here)
     let r = root("recipe-28");
     let rid = "results_47_fix10m1_n10_M1_json";
     let mut keys = recipe_keys(rid);
@@ -1768,7 +1769,7 @@ fn solve_recipe_job_with_an_off_domain_key_is_row_28() {
     off["key"][10] = serde_json::json!(-2);
     off["tag"] = serde_json::json!("off-domain");
     keys.push(off);
-    let s = recipe_spec(&r, "sr28", rid, &keys, &[]);
+    let s = recipe_spec_rule(&r, "sr28", rid, &keys, &[], Some("first_admissible"));
     let (w, _) = run_to_end(&s);
     let c = classified(&s, w, KillReason::None);
     assert_eq!(w, WaitStatus::Exited(10), "{}", c.why);
@@ -1779,7 +1780,7 @@ fn solve_recipe_job_with_an_off_domain_key_is_row_28() {
     let rel = relations_of(&RunLayout::new(&s.run_dir).results());
     assert_eq!(rel[2].1, "NOT_IN_DOMAIN");
     // only the off-domain key: row 29 (no accepted relation)
-    let s = recipe_spec(&r, "sr29", rid, &keys[2..], &[]);
+    let s = recipe_spec_rule(&r, "sr29", rid, &keys[2..], &[], Some("first_admissible"));
     let (w, _) = run_to_end(&s);
     let c = classified(&s, w, KillReason::None);
     assert_eq!((w, c.row), (WaitStatus::Exited(10), 29), "{}", c.why);
@@ -1801,7 +1802,7 @@ fn solve_recipe_job_signals_graceful_then_hard() {
     let rid = "results_47_fix10m1_n10_M1_json";
     let keys = recipe_keys(rid);
     // first signal: running key finishes, the rest INTERRUPTED, sealed partial, exit 30 (row 11)
-    let s = recipe_spec(&r, "srsig", rid, &keys, &[]);
+    let s = recipe_spec_rule(&r, "srsig", rid, &keys, &[], Some("first_admissible"));
     let mut ch = spawn(&s);
     wait_recipe_keys(&s, 1, Duration::from_secs(600));
     signal(&ch, libc::SIGTERM);
@@ -1816,7 +1817,7 @@ fn solve_recipe_job_signals_graceful_then_hard() {
     assert!(rel.iter().any(|x| x.1 == "INTERRUPTED"), "{rel:?}");
     assert!(rel.iter().any(|x| x.1 == "SOLVED"), "{rel:?}");
     // two distinct signals: the hard-safe stop (no sealed output listed), exit 30
-    let s = recipe_spec(&r, "srhard", rid, &keys, &[]);
+    let s = recipe_spec_rule(&r, "srhard", rid, &keys, &[], Some("first_admissible"));
     let mut ch = spawn(&s);
     wait_recipe_keys(&s, 1, Duration::from_secs(600));
     signal(&ch, libc::SIGTERM);
