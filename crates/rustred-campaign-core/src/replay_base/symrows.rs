@@ -24,7 +24,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::algebra::{CheckAlgebra, Q, Stage};
+use super::algebra::{AlgebraOrigin, CheckAlgebra, Q, Stage};
+use super::certificate::CertAlg;
 use super::family::Family;
 use crate::independent_algebra::Independent;
 
@@ -445,13 +446,13 @@ fn canon(v: &[i64]) -> Vec<i64> {
     }
 }
 
-fn vec_times(v: &[i64], t: &[i64], w: usize) -> Option<Vec<i64>> {
-    (0..w)
-        .map(|col| {
-            (0..w).try_fold(0i64, |acc, row| {
-                acc.checked_add(v[row].checked_mul(t[row * w + col])?)
-            })
-        })
+/// `v T` (row vector times the w x w matrix T) through the algebra backend (rows4: no integer algebra in domain code).
+fn vec_times<A: CheckAlgebra>(alg: &A, v: &[i64], t: &[i64], w: usize) -> Option<Vec<i64>> {
+    let a: Vec<i128> = v.iter().map(|&x| i128::from(x)).collect();
+    let b: Vec<i128> = t.iter().map(|&x| i128::from(x)).collect();
+    alg.int_mat_mul(&a, &b, 1, w, w)?
+        .into_iter()
+        .map(|x| i64::try_from(x).ok())
         .collect()
 }
 
@@ -654,23 +655,18 @@ impl<'f, A: CheckAlgebra> Geometry<'f, A> {
         })
     }
 
-    /// T = adj(B) B_img / det(B) when integer.
+    /// T = adj(B) B_img / det(B) when integer (product and exact division through the algebra backend, rows4).
     fn solve_t(&self, img: &[Vec<i64>]) -> Option<Vec<i64>> {
         let w = self.w;
-        let mut t = vec![0i64; w * w];
-        for r in 0..w {
-            for s in 0..w {
-                let mut acc: i128 = 0;
-                for (k, row) in img.iter().enumerate() {
-                    acc = acc.checked_add(self.adj[r * w + k].checked_mul(row[s] as i128)?)?;
-                }
-                if acc % self.det_b != 0 {
-                    return None;
-                }
-                t[r * w + s] = i64::try_from(acc / self.det_b).ok()?;
-            }
+        let flat: Vec<i128> = img.iter().flatten().map(|&x| i128::from(x)).collect();
+        if flat.len() != w * w {
+            return None;
         }
-        Some(t)
+        self.alg
+            .int_mat_mul(&self.adj, &flat, w, w, w)?
+            .into_iter()
+            .map(|acc| i64::try_from(self.alg.int_div_exact(acc, self.det_b)?).ok())
+            .collect()
     }
 
     /// q -> +-q and |det A| = 1.
@@ -698,7 +694,7 @@ impl<'f, A: CheckAlgebra> Geometry<'f, A> {
         let mut out = Vec::with_capacity(n);
         let mut hit = vec![false; n];
         for i in 0..n {
-            let img = vec_times(&c[i], t, self.w).ok_or("momentum overflow")?;
+            let img = vec_times(self.alg, &c[i], t, self.w).ok_or("momentum overflow")?;
             let key = canon(&img);
             let exact = if self.chart[i] {
                 self.line_of.get(&key)
@@ -915,6 +911,9 @@ pub struct ElementProof {
 /// [`verify_cross_checked`], and its provenance label is COMPUTED by the function that produced it.
 #[derive(Clone, Debug)]
 pub struct VerifiedGroup {
+    /// rows4 (re-audit RA3-M1): which algebra made the proofs (certificate only through the concrete constructors on a
+    /// certificate-origin family; `verify_group_with` is always diagnostic)
+    origin: AlgebraOrigin,
     group: SymGroup,
     /// sha256 of the family text the proofs were made on (the identity test refuses the group on another family)
     family_digest: String,
@@ -924,6 +923,10 @@ pub struct VerifiedGroup {
 }
 
 impl VerifiedGroup {
+    /// which algebra made the proofs (a certificate run refuses a diagnostic origin)
+    pub fn origin(&self) -> AlgebraOrigin {
+        self.origin
+    }
     pub fn group(&self) -> &SymGroup {
         &self.group
     }
@@ -1015,11 +1018,28 @@ pub fn verify_group(
     group: SymGroup,
     source: &str,
 ) -> Result<VerifiedGroup, GroupRefused> {
-    verify_group_with(&Independent, family, group, source)
+    verify_as(
+        &CertAlg::new(None),
+        cert_origin(family),
+        family,
+        group,
+        Provenance::Supplied {
+            source: source.to_string(),
+        },
+    )
 }
 
-/// [`verify_group`] with the algebra of `alg` (a group verified by a diagnostic backend is diagnostic too: the
-/// identity test records the backend of every run).
+/// Certificate origin only for a certificate-origin family (rows4).
+fn cert_origin(family: &Family) -> AlgebraOrigin {
+    if family.origin().is_certificate() {
+        CertAlg::ORIGIN
+    } else {
+        family.origin()
+    }
+}
+
+/// [`verify_group`] with the algebra of `alg`: a group of DIAGNOSTIC origin, whatever `alg` is (a certificate run
+/// refuses it; rows4, re-audit RA3-M1).
 pub fn verify_group_with<A: CheckAlgebra>(
     alg: &A,
     family: &Family,
@@ -1028,6 +1048,7 @@ pub fn verify_group_with<A: CheckAlgebra>(
 ) -> Result<VerifiedGroup, GroupRefused> {
     verify_as(
         alg,
+        AlgebraOrigin::diagnostic(alg.name()),
         family,
         group,
         Provenance::Supplied {
@@ -1046,7 +1067,13 @@ pub fn verify_derived(
         element: None,
         reason: format!("not derived: {e:?}"),
     })?;
-    verify_as(&Independent, family, g, Provenance::Derived)
+    verify_as(
+        &CertAlg::new(None),
+        cert_origin(family),
+        family,
+        g,
+        Provenance::Derived,
+    )
 }
 
 /// Derive the group of `supplied`'s chart, require it EQUAL to `supplied` on the key action ([`cross_check`]), and
@@ -1063,7 +1090,8 @@ pub fn verify_cross_checked(
     })?;
     match cross_check(&g, supplied) {
         GroupCheck::Equal { .. } => verify_as(
-            &Independent,
+            &CertAlg::new(None),
+            cert_origin(family),
             family,
             g,
             Provenance::CrossChecked {
@@ -1079,6 +1107,7 @@ pub fn verify_cross_checked(
 
 fn verify_as<A: CheckAlgebra>(
     alg: &A,
+    origin: AlgebraOrigin,
     family: &Family,
     group: SymGroup,
     provenance: Provenance,
@@ -1167,6 +1196,7 @@ fn verify_as<A: CheckAlgebra>(
     }
     let digest = group.digest();
     Ok(VerifiedGroup {
+        origin,
         group,
         family_digest: family.source_digest().to_string(),
         provenance,
@@ -1584,7 +1614,7 @@ mod tests {
         let f = Family::parse(SUNSET).unwrap();
         let chart = [true, true, true, false, false];
         let (g, _) = derive_group(&f, &chart, &DeriveOptions::default()).unwrap();
-        let v = verify_as(&Independent, &f, g, Provenance::Derived).unwrap();
+        let v = verify_as(&Independent, CertAlg::ORIGIN, &f, g, Provenance::Derived).unwrap();
         // numerator-free dotted key: every element exact, images distinct from the key except the stabiliser
         let r = rows_at(&v, &(0, vec![2, 1, 1, 0, 0]), SymRowMode::Engine, 1000).unwrap();
         assert!(!r.is_empty());

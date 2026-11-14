@@ -97,7 +97,8 @@ pub fn summary(id: &str, v: &RowsVerdict) -> String {
 }
 
 /// Options with the family identity BOUND (re-audit A NEW-M1: the `replay` level needs a binding): the spec-digest
-/// form of `TableBinding` on the family's own text.
+/// form of `TableBinding` on the family's own text; rows4: and a campaign nonce beacon (the certificate nonce is derived
+/// from it; without one a `replay` record is `Unbound`).
 pub fn bound(fam: &Family) -> rustred_campaign_core::ibp_rows::RowsOptions {
     rustred_campaign_core::ibp_rows::RowsOptions {
         table: Some(
@@ -105,6 +106,17 @@ pub fn bound(fam: &Family) -> rustred_campaign_core::ibp_rows::RowsOptions {
                 fam.squashed_digest(),
             ),
         ),
+        beacon: Some(test_beacon(0)),
         ..rustred_campaign_core::ibp_rows::RowsOptions::default()
     }
+}
+
+/// A test beacon (rows4): 128 bits of hex derived from `i` (a campaign would use e.g. its ledger head digest).
+pub fn test_beacon(i: u64) -> rustred_campaign_core::ibp_rows::Beacon {
+    rustred_campaign_core::ibp_rows::Beacon::from_hex(&format!(
+        "{:016x}{:016x}",
+        0x5eed_0000_0000_0000u64 ^ i,
+        i
+    ))
+    .unwrap()
 }

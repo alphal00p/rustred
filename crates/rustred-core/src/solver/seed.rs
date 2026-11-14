@@ -233,7 +233,7 @@ pub struct Seeds<const N: usize> {
 
 /// seed-centre (2026-11-13, default off = every existing search unchanged): the seed recipe "floor" of the hard
 /// numerator-free T162 faces (helper H2, X1b/X1c/X4a): (1) the L1 seed shells are built around a CENTRE = case target
-/// + `centre_offset` (target, comparator and pivot test unchanged); (2) the shells themselves are the existing ones
+/// plus `centre_offset` (target, comparator and pivot test unchanged); (2) the shells themselves are the existing ones
 /// (with `--max-depth 2`: every shell 0..=2 around the centre, numeric ISP axes at 0 move to rank 1 and 2); (3) with
 /// `face_floor = Some(k)` every seed whose power on a FACE LINE (a sector line that is symbolic, or numeric at >= 2,
 /// in the case) lies below `target - k` is dropped (seeds stay on the face).
@@ -367,7 +367,7 @@ pub fn with_explicit_seeds<R>(seeds: std::sync::Arc<Vec<Vec<i16>>>, f: impl FnOn
             EXPLICIT_SEEDS.with(|a| *a.borrow_mut() = previous);
         }
     }
-    let previous = EXPLICIT_SEEDS.with(|a| std::mem::replace(&mut *a.borrow_mut(), Some(seeds)));
+    let previous = EXPLICIT_SEEDS.with(|a| a.borrow_mut().replace(seeds));
     let _restore = Restore(previous);
     f()
 }

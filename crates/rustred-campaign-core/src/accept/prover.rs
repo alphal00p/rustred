@@ -13,7 +13,7 @@ use super::RuleSource;
 use super::facts::{AnswerBinding, check_echo};
 use super::rule::{RuleText, WitnessStatus, sha256_tag};
 use crate::ibp_rows::{
-    PointSpec, PointStatus, ReplayLevel, ReplayPolicy, RowsOptions, RowsRule, TableBinding,
+    Beacon, PointSpec, PointStatus, ReplayLevel, ReplayPolicy, RowsOptions, RowsRule, TableBinding,
 };
 use crate::key::Key;
 use crate::poly::Poly;
@@ -339,26 +339,41 @@ pub mod replay_adapter {
 
 /// Level `replay` in process (the identity test of this crate). The family binding is MANDATORY (rows3 NEW-M1: a replay
 /// without it is `Unbound`, never the level): [`ReplayProver::new`] takes it, and a prover whose options lost it answers
-/// `Unavailable` (nothing is ever certified at `Unbound`).
+/// `Unavailable` (nothing is ever certified at `Unbound`). rows4 (re-audit RA3-M1 / RA3-m2): the prover builds its
+/// family ITSELF from the spec text with the certificate backend (`Family::parse`; a family object of another backend
+/// cannot be handed in) and takes the campaign's nonce beacon (the certificate nonce is derived from it).
 pub struct ReplayProver {
-    pub family: Family,
+    family: Family,
     pub policy: ReplayPolicy,
     opts: RowsOptions,
 }
 
 impl ReplayProver {
-    /// `binding` = the node table's header (`TableBinding::from_header`, family_source compared with the family text)
-    /// or the campaign spec's family identity (`TableBinding::from_family_digest`); it replaces `opts.table`.
-    pub fn new(family: Family, binding: TableBinding, mut opts: RowsOptions) -> Self {
+    /// `family_text` = the spec's family text (parsed here by the certificate backend); `binding` = the node table's
+    /// header (`TableBinding::from_header`, family_source compared with the family text) or the campaign spec's family
+    /// identity (`TableBinding::from_family_digest`), it replaces `opts.table`; `beacon` = the campaign's nonce beacon
+    /// (`ibp_rows::Beacon`), it replaces `opts.beacon`.
+    pub fn new(
+        family_text: &str,
+        binding: TableBinding,
+        beacon: Beacon,
+        mut opts: RowsOptions,
+    ) -> Result<Self, String> {
+        let family = Family::parse(family_text)?;
         opts.table = Some(binding);
-        ReplayProver {
+        opts.beacon = Some(beacon);
+        Ok(ReplayProver {
             family,
             policy: ReplayPolicy::default(),
             opts,
-        }
+        })
     }
     pub fn opts(&self) -> &RowsOptions {
         &self.opts
+    }
+    /// the family model (certificate origin, built by [`ReplayProver::new`])
+    pub fn family(&self) -> &Family {
+        &self.family
     }
 }
 

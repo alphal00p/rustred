@@ -13,7 +13,8 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex; // campaign copy: Mutex instead of RefCell (Family: Sync)
 
-use super::algebra::{CheckAlgebra, Q, Stage, Unknown, ZPoly};
+use super::algebra::{AlgebraOrigin, CheckAlgebra, Q, Recorder, Stage, Unknown, ZPoly};
+use super::certificate::CertAlg;
 use crate::independent_algebra::Independent;
 
 /// One IBP operator: `diag` (j == v) and per propagator `(t0, [(m, x)])`.
@@ -41,6 +42,11 @@ pub struct Family {
     loop_names: Vec<String>,
     /// campaign copy, ADDED (rows3): the text the model was parsed from (a second backend re-parses it)
     source: String,
+    /// rows4 (re-audit RA3-M1): which algebra built the operator table (certificate only through [`Family::parse`] /
+    /// [`Family::parse_traced`]; [`Family::parse_with`] is always diagnostic)
+    origin: AlgebraOrigin,
+    /// rows4: sha256 of the operator table and the inverse scalar-product matrix (what a re-parse must reproduce)
+    table_digest: String,
 }
 
 impl Family {
@@ -79,6 +85,14 @@ impl Family {
     /// the family text this model was parsed from
     pub fn source(&self) -> &str {
         &self.source
+    }
+    /// which algebra built this model (a certificate run refuses a diagnostic origin)
+    pub fn origin(&self) -> AlgebraOrigin {
+        self.origin
+    }
+    /// sha256 of the operator table (+ inverse scalar-product matrix) of this model
+    pub fn table_digest(&self) -> &str {
+        &self.table_digest
     }
 }
 
@@ -328,16 +342,31 @@ impl Family {
         clippy::needless_range_loop,
         reason = "index arithmetic over the contraction matrix"
     )]
+    /// THE CERTIFICATE PARSE: the model of `src` built by the certificate backend (origin certificate).
     pub fn parse(src: &str) -> Result<Self, Unknown> {
-        Self::parse_with(&Independent, src)
+        Self::parse_core(&CertAlg::new(None), src, CertAlg::ORIGIN)
     }
 
-    /// [`Family::parse`] with the algebra of `alg` (operator table, inverse of the scalar-product matrix).
+    /// [`Family::parse`] with its [`Stage::Family`] quantities recorded (the `Both` mode's certificate run).
+    pub fn parse_traced(src: &str, rec: &Recorder) -> Result<Self, Unknown> {
+        Self::parse_core(&CertAlg::new(Some(rec)), src, CertAlg::ORIGIN)
+    }
+
+    /// [`Family::parse`] with the algebra of `alg` (operator table, inverse of the scalar-product matrix): a model of
+    /// DIAGNOSTIC origin, whatever `alg` is (a certificate run refuses it; rows4, re-audit RA3-M1).
+    pub fn parse_with<A: CheckAlgebra>(alg: &A, src: &str) -> Result<Self, Unknown> {
+        Self::parse_core(alg, src, AlgebraOrigin::diagnostic(alg.name()))
+    }
+
     #[allow(
         clippy::needless_range_loop,
         reason = "index arithmetic over the contraction matrix"
     )]
-    pub fn parse_with<A: CheckAlgebra>(alg: &A, src: &str) -> Result<Self, Unknown> {
+    fn parse_core<A: CheckAlgebra>(
+        alg: &A,
+        src: &str,
+        origin: AlgebraOrigin,
+    ) -> Result<Self, Unknown> {
         let compact: String = src.chars().filter(|c| !c.is_whitespace()).collect();
         // campaign copy, CHANGED (re-audit A NEW-M2): the propagators, power shifts and loop momenta are read from the
         // TOP-LEVEL calls; labels must be the canonical D1..Dn in order (power shifts address them by label), every
@@ -494,8 +523,9 @@ impl Family {
                 ops.push((j == v, tab));
             }
         }
+        let table_digest = super::sha256::sha256_hex(format!("{mi:?}{ops:?}").as_bytes());
         alg.observe(Stage::Family, &|| "operator table".into(), &|| {
-            super::sha256::sha256_hex(format!("{mi:?}{ops:?}").as_bytes())
+            table_digest.clone()
         });
         let eps_axes = (0..n).filter(|&i| kshift[i] != 0).collect();
         let check = family_text_check(src, n);
@@ -507,6 +537,8 @@ impl Family {
             check,
             loop_names: loops.clone(),
             source: src.to_string(),
+            origin,
+            table_digest,
             n,
             loops: lcount,
             kshift,

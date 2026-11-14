@@ -157,15 +157,20 @@ struct State {
 }
 
 impl State {
-    /// Forget everything when the limits change or the memos are full.
-    fn admit(&mut self, limits: ExactAlgebraLimits) {
-        let full = self.insertion.entries.len() + self.route.entries.len() >= MEMO_ENTRIES;
-        if self.limits != Some(limits) || full {
+    /// Forget everything when the limits change; whether a new entry may be
+    /// added. A full memo keeps its entries and stops memoising (the caller
+    /// computes directly, as with the full shared memo) instead of resetting
+    /// itself: its coefficient indices must stay valid for the whole request,
+    /// since light-step handles cache handle -> coefficient per request
+    /// (ModularRecorder::scale_handle, the layered HANDLES; memo-audit class H).
+    fn admit(&mut self, limits: ExactAlgebraLimits) -> bool {
+        if self.limits != Some(limits) {
             self.insertion.entries = HashMap::new();
             self.route.entries = HashMap::new();
             self.coefficients = Coefficients::default();
             self.limits = Some(limits);
         }
+        self.insertion.entries.len() + self.route.entries.len() < MEMO_ENTRIES
     }
 }
 
@@ -412,12 +417,16 @@ pub(crate) fn insertion(
     STATE.with(|state| {
         {
             let mut state = state.borrow_mut();
-            state.admit(limits);
+            let room = state.admit(limits);
             if let Some(value) = state.insertion.entries.get(key).cloned() {
                 state.insertion.hits += 1;
                 return Ok(Some(Held::Local(value)));
             }
             state.insertion.misses += 1;
+            if !room {
+                // Full: compute directly (the caller's `None` path).
+                return Ok(None);
+            }
         }
         // Computed outside the borrow (a panic in it must not poison the cell).
         let (table, weights) = compute()?;
@@ -476,12 +485,16 @@ pub(crate) fn route(
     STATE.with(|state| {
         {
             let mut state = state.borrow_mut();
-            state.admit(limits);
+            let room = state.admit(limits);
             if let Some(value) = state.route.entries.get(key).cloned() {
                 state.route.hits += 1;
                 return Ok(Some(Held::Local(value)));
             }
             state.route.misses += 1;
+            if !room {
+                // Full: transport directly (the caller's `None` path).
+                return Ok(None);
+            }
         }
         let (arity, offsets, coefficients) = compute()?;
         let Ok(offsets) = offsets
@@ -966,5 +979,165 @@ mod tests {
         let again = take_powers();
         assert!(again.is_empty());
         assert_eq!(again.as_ptr(), address);
+    }
+
+    // memo-audit (2026-11-14): the shared memo seen from a thread OUTSIDE a
+    // counted request (class A of notes/memo-audit.md). These tests touch the
+    // process-wide memo statics: run them alone, one test thread:
+    //   cargo test -p rustred --lib propagator::step_memo::tests::memo_audit -- --test-threads 1
+    // (add --include-ignored for the slow class-H demonstration).
+
+    /// A counted request on another thread that stays open until told to end.
+    /// `others`: coefficients it interns first (into whatever memo is current).
+    fn memo_audit_request(
+        others: Vec<Coefficient>,
+    ) -> (std::sync::mpsc::Sender<()>, std::thread::JoinHandle<()>) {
+        let (started_tx, started_rx) = std::sync::mpsc::channel::<()>();
+        let (end_tx, end_rx) = std::sync::mpsc::channel::<()>();
+        let thread = std::thread::spawn(move || {
+            let counted = begin(2);
+            assert!(
+                counted,
+                "the memo-audit tests need the shared memo (default on)"
+            );
+            if !others.is_empty() {
+                let key = [next_uid() as i64, 8];
+                let n = others.len();
+                let held = route(&key, ExactAlgebraLimits::default(), || {
+                    Ok((1, vec![0; n], others))
+                })
+                .unwrap()
+                .unwrap();
+                assert!(matches!(held, Held::Shared(..)));
+            }
+            started_tx.send(()).unwrap();
+            end_rx.recv().unwrap();
+            end(counted);
+        });
+        started_rx.recv().unwrap();
+        (end_tx, thread)
+    }
+
+    /// This (test) thread is in no request: SINGLE is false, so while another
+    /// request runs it takes values of the shared memo.
+    fn memo_audit_uncounted_value(c1: &Coefficient) -> (Held<RouteExpansion>, u32) {
+        SINGLE.with(|single| single.set(false));
+        assert!(shared_enabled(), "SHARED_ACTIVE > 0 from the open request");
+        let key = [next_uid() as i64, 7];
+        let held = route(&key, ExactAlgebraLimits::default(), || {
+            Ok((1, vec![0], vec![c1.clone()]))
+        })
+        .unwrap()
+        .unwrap();
+        assert!(matches!(held, Held::Shared(..)));
+        let index = held.coefficients[0];
+        (held, index)
+    }
+
+    /// Class A, silent case: the value is resolved after its request ended
+    /// and a NEW memo was filled by a second request. 93126217..eb038781
+    /// resolve the index through the new memo: another coefficient, no
+    /// panic (this assertion fails). faf03f5a: through the value's own memo.
+    #[test]
+    fn memo_audit_held_shared_survives_a_memo_replacement_silent() {
+        if !shared_requested() {
+            return;
+        }
+        let (context, c1) = sample();
+        let (end1, r1) = memo_audit_request(Vec::new());
+        let (held, index) = memo_audit_uncounted_value(&c1);
+        end1.send(()).unwrap();
+        r1.join().unwrap();
+        // A second request interns index + 1 other coefficients first: in
+        // the new memo, `index` names one of them.
+        let others: Vec<Coefficient> = (0..=index)
+            .map(|k| context.integer(1000 + i64::from(k)))
+            .collect();
+        let (end2, r2) = memo_audit_request(others);
+        let got = coefficients_of(&held, |values| values(index));
+        end2.send(()).unwrap();
+        r2.join().unwrap();
+        assert_eq!(got, c1, "a shared memo value resolved through another memo");
+    }
+
+    /// Class A, panic case: resolved after its request ended, no other
+    /// request: 93126217..eb038781 create an empty memo and panic with "an
+    /// interned shared memo coefficient"; faf03f5a returns the value.
+    #[test]
+    fn memo_audit_held_shared_survives_a_memo_replacement_panic() {
+        if !shared_requested() {
+            return;
+        }
+        let (_, c1) = sample();
+        let (end1, r1) = memo_audit_request(Vec::new());
+        let (held, index) = memo_audit_uncounted_value(&c1);
+        end1.send(()).unwrap();
+        r1.join().unwrap();
+        let got = coefficients_of(&held, |values| values(index));
+        assert_eq!(got, c1);
+    }
+
+    /// Documents what faf03f5a does NOT change: light handles carry a bare
+    /// index and `shared_value` resolves it through the CURRENT memo, so a
+    /// handle taken in the situation above names another coefficient. Passes
+    /// on every version; it holds only while producer and resolver are
+    /// threads of ONE counted request (layered mode at one thread and the
+    /// cfg(test) thread override break that).
+    #[test]
+    fn memo_audit_light_handles_follow_the_current_memo() {
+        if !shared_requested() {
+            return;
+        }
+        let (context, c1) = sample();
+        let (end1, r1) = memo_audit_request(Vec::new());
+        let (held, index) = memo_audit_uncounted_value(&c1);
+        drop(held); // a light step keeps only the handle
+        end1.send(()).unwrap();
+        r1.join().unwrap();
+        let others: Vec<Coefficient> = (0..=index)
+            .map(|k| context.integer(1000 + i64::from(k)))
+            .collect();
+        let (end2, r2) = memo_audit_request(others);
+        let got = shared_value(index);
+        end2.send(()).unwrap();
+        r2.join().unwrap();
+        assert_eq!(got, Some(context.integer(1000 + i64::from(index))));
+        assert_ne!(got, Some(c1));
+    }
+
+    /// Class H (memo-audit), fixed: within ONE one-thread request a full
+    /// per-thread memo keeps its entries and stops memoising instead of
+    /// resetting itself, so a local index keeps naming the same coefficient
+    /// for the whole request (per-request handle caches rely on it), and new
+    /// keys are computed directly (`None`). Slow: 2^20 memo entries.
+    #[test]
+    #[ignore]
+    fn memo_audit_a_full_local_memo_keeps_its_indices_within_a_request() {
+        let (context, c1) = sample();
+        let limits = ExactAlgebraLimits::default();
+        clear();
+        let counted = begin(1);
+        let owner = next_uid() as i64;
+        let first = route(&[owner, -1], limits, || Ok((1, vec![0], vec![c1.clone()])))
+            .unwrap()
+            .unwrap();
+        assert!(matches!(first, Held::Local(..)));
+        let index = first.coefficients[0];
+        assert_eq!(local_value(index), Some(c1.clone()));
+        drop(first);
+        for k in 0..MEMO_ENTRIES as i64 {
+            route(&[owner, k], limits, || Ok((0, vec![], vec![]))).unwrap();
+        }
+        let c2 = context.integer(77);
+        let after = route(&[owner, -2], limits, || Ok((1, vec![0], vec![c2.clone()]))).unwrap();
+        // Full: no new entry, the caller computes directly.
+        assert!(after.is_none());
+        // The old index still names its coefficient, and old entries still hit.
+        assert_eq!(local_value(index), Some(c1.clone()));
+        let again = route(&[owner, -1], limits, || panic!("a hit, not a computation"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(again.coefficients[0], index);
+        end(counted);
     }
 }

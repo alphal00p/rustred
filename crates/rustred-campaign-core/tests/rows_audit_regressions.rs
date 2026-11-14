@@ -54,8 +54,9 @@ fn c1_false_rule_on_boundary_face_never_established() {
     assert_eq!(rg.served_keys_replayed, keys.len());
     let mut est = 0;
     for seed in 0..20u64 {
+        // rows4: a fresh campaign beacon per trial (a non-default master seed is an override)
         let o = RowsOptions {
-            seed,
+            beacon: Some(test_beacon(seed)),
             ..bound(&f.fam)
         };
         let r = replay_evidence(&f.fam, &bad, &keys, &ReplayPolicy::default(), &o);
@@ -500,15 +501,20 @@ fn bm1_stream_seed_bound_to_rule_digest() {
         &bound(&f.fam),
     );
     assert_eq!(r.primes, r.identity.primes);
-    // a run-time nonce: two runs differ in nonce and primes; re-running with the recorded nonce reproduces the record
+    // rows4: the nonce is DERIVED from the rule digest and the campaign beacon: another beacon gives another nonce and
+    // other primes; re-running with the recorded nonce reproduces the record
     let r2 = replay_evidence(
         &f.fam,
         &a,
         &served(&f)[..5],
         &ReplayPolicy::default(),
-        &bound(&f.fam),
+        &RowsOptions {
+            beacon: Some(test_beacon(1)),
+            ..bound(&f.fam)
+        },
     );
     assert_ne!(r.nonce, r2.nonce);
+    assert_ne!(r.primes, r2.primes);
     let o = RowsOptions {
         nonce: Some(r.nonce),
         ..RowsOptions::default()
@@ -562,6 +568,8 @@ fn ra_m1_family_binding_is_mandatory_for_replay() {
             &ReplayPolicy::default(),
             &RowsOptions {
                 table,
+                // rows4: the campaign beacon (the nonce is derived from it); the binding is the variable here
+                beacon: Some(test_beacon(0)),
                 ..RowsOptions::default()
             },
         )
@@ -758,9 +766,10 @@ fn ra_minor_overrides_are_marked_and_block_the_level() {
     let base = bound(&f.fam);
     let r = replay_evidence(&f.fam, &good, keys, &ReplayPolicy::default(), &base);
     assert_eq!(r.level, ReplayLevel::Established);
+    // rows4: the certificate nonce is derived from the beacon (was: an OS nonce)
     assert_eq!(
         r.nonce_source,
-        rustred_campaign_core::ibp_rows::NonceSource::Os
+        rustred_campaign_core::ibp_rows::NonceSource::Derived
     );
     assert!(r.overrides.is_empty());
     let pp = verify_primes(7, &[]);
