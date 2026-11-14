@@ -49,10 +49,12 @@ pub fn write(
     if let Some(t) = table {
         let text = std::fs::read(t).map_err(|e| e.to_string())?;
         eco.table_bytes = text.len() as u64;
-        for l in text
-            .split(|&b| b == b'\n')
-            .filter(|l| l.starts_with(br#"{"type":"rule""#))
-        {
+        for l in text.split(|&b| b == b'\n') {
+            if l.iter().all(u8::is_ascii_whitespace)
+                || super::line_kind(l)?.as_deref() != Some("rule")
+            {
+                continue;
+            }
             let v: serde_json::Value = match serde_json::from_slice(l) {
                 Ok(v) => v,
                 Err(e) => return Err(e.to_string()),
@@ -85,6 +87,13 @@ pub fn write(
         else {
             return Err(format!("recipe {} is not certified", r.recipe.digest));
         };
+        // audit-accept-A M6: the verdict must be the certification of THIS recipe
+        if *recipe_digest != r.recipe.digest {
+            return Err(format!(
+                "verdict of recipe {recipe_digest} shipped with recipe {}",
+                r.recipe.digest
+            ));
+        }
         let arity = r.recipe.domain.arity;
         let maxv = certified
             .iter()
@@ -104,7 +113,12 @@ pub fn write(
         let kf = out_dir.join(format!("{node}.recipe-{tag}.keys"));
         let mut buf = Vec::new();
         let d = ks.write(&mut buf).map_err(|e| e.to_string())?;
-        assert_eq!(&d, certified_digest, "key-set digest rule");
+        if &d != certified_digest {
+            // audit-accept-A m5: an error, never a panic
+            return Err(format!(
+                "key-set digest {d} differs from the certified digest {certified_digest}"
+            ));
+        }
         std::fs::write(&kf, &buf).map_err(|e| e.to_string())?;
         let rf = out_dir.join(format!("{node}.recipe-{tag}.relations.jsonl"));
         std::fs::write(&rf, relation_set).map_err(|e| e.to_string())?;

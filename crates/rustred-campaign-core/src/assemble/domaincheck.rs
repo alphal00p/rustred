@@ -3,7 +3,8 @@
 //! file and parses the engine's OUT.jsonl; running the binary is the caller's (a child job, or a test oracle).
 
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::io::BufRead;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use serde_json::Value;
@@ -18,6 +19,8 @@ use crate::record::{ReadOptions, RhsMode, read_table_file};
 pub struct CoreView {
     pub disp: Dispatcher,
     pub terminals: BTreeSet<Key>,
+    /// The file the view was loaded from (compared with the engine output's `table`).
+    pub path: PathBuf,
 }
 
 /// Load an assembled table the way the core does (records in file order; terminals from `residual` records).
@@ -38,13 +41,23 @@ pub fn core_view(path: &Path) -> Result<CoreView, String> {
     }
     let disp = Dispatcher::new(vec![t], vec![0]).map_err(|e| e.to_string())?;
     let mut terminals = BTreeSet::new();
-    let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    for line in text.lines() {
-        if !line.contains("\"residual\"") {
+    // streamed (audit-accept-A m5: the table is never read into memory as a whole)
+    let mut rd = std::io::BufReader::with_capacity(
+        1 << 20,
+        std::fs::File::open(path).map_err(|e| e.to_string())?,
+    );
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        if rd.read_until(b'\n', &mut buf).map_err(|e| e.to_string())? == 0 {
+            break;
+        }
+        let line = buf.strip_suffix(b"\n").unwrap_or(&buf);
+        if line.iter().all(u8::is_ascii_whitespace) {
             continue;
         }
-        let v: Value = serde_json::from_str(line).map_err(|e| e.to_string())?;
-        if v.get("type").and_then(Value::as_str) == Some("residual") {
+        if super::line_kind(line)?.as_deref() == Some("residual") {
+            let v: Value = serde_json::from_slice(line).map_err(|e| e.to_string())?;
             let k = v
                 .get("key")
                 .and_then(Value::as_str)
@@ -53,7 +66,11 @@ pub fn core_view(path: &Path) -> Result<CoreView, String> {
             terminals.insert(k);
         }
     }
-    Ok(CoreView { disp, terminals })
+    Ok(CoreView {
+        disp,
+        terminals,
+        path: path.to_path_buf(),
+    })
 }
 
 /// The key file of `rr_node domaincheck --keys FILE` (one `a,b,..` per line).
@@ -88,21 +105,54 @@ pub struct DispatchEqual {
 }
 
 impl DispatchEqual {
-    /// Equal with `core_blocked` allowed only when `allow_core_blocked`.
+    /// Equal with `core_blocked` allowed only when `allow_core_blocked`. NEVER vacuous (audit-accept-A m4, B M4): an
+    /// empty key set, or a key set on which no key is decided by a rule or a terminal (disjoint from the table), is not
+    /// equal.
     pub fn equal(&self, allow_core_blocked: bool) -> bool {
-        self.mismatches.is_empty()
+        self.keys > 0
+            && self.rule + self.terminal + self.core_blocked > 0
+            && self.mismatches.is_empty()
             && (allow_core_blocked || self.core_blocked == 0)
             && self.agree == self.keys
     }
 }
 
-/// Compare the core view with the engine's OUT.jsonl (keys in the same order as given to the engine).
+/// Compare the core view with the engine's OUT.jsonl (keys in the same order as given to the engine). An empty key list
+/// is an error; the engine header's `table` must be the core view's file (as given); a `summary` line must count the
+/// keys given; any other line type is an error.
 pub fn compare(core: &CoreView, keys: &[Key], engine_out: &str) -> Result<DispatchEqual, String> {
+    if keys.is_empty() {
+        return Err("dispatch_equal on an empty key list proves nothing".into());
+    }
     let mut lines = Vec::new();
     for l in engine_out.lines() {
+        if l.trim().is_empty() {
+            continue;
+        }
         let v: Value = serde_json::from_str(l).map_err(|e| e.to_string())?;
-        if v.get("type").and_then(Value::as_str) == Some("key") {
-            lines.push(v);
+        match v.get("type").and_then(Value::as_str) {
+            Some("key") => lines.push(v),
+            Some("header") => {
+                if let Some(t) = v.get("table").and_then(Value::as_str)
+                    && Path::new(t) != core.path.as_path()
+                {
+                    return Err(format!(
+                        "the engine ran on {t}, the core view is {}",
+                        core.path.display()
+                    ));
+                }
+            }
+            Some("summary") => {
+                if let Some(n) = v.get("keys").and_then(Value::as_u64)
+                    && n != keys.len() as u64
+                {
+                    return Err(format!(
+                        "engine summary counts {n} keys, {} given",
+                        keys.len()
+                    ));
+                }
+            }
+            other => return Err(format!("unexpected engine output line type {other:?}")),
         }
     }
     if lines.len() != keys.len() {

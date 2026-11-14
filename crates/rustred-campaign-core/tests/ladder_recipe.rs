@@ -8,13 +8,16 @@ use std::collections::BTreeMap;
 use ladder_common::root_item;
 use rustred_campaign_core::order::NodeComparator;
 use rustred_campaign_core::repair::{CaseRequest, CaseSolver};
+use rustred_campaign_core::repair::{TreeLimits, drive_tree};
 use rustred_campaign_core::worklist::items::{
     CaseSpec, EvidenceLevel, Face, FullAttemptEnded, FullAttemptEvidence, Key, NodeParams,
 };
-use rustred_campaign_core::worklist::ladder::{Disposition, SolveAnswer, SolveOutcome, Tri};
+use rustred_campaign_core::worklist::ladder::{
+    Disposition, ItemState, SolveAnswer, SolveOutcome, Tri,
+};
 use rustred_campaign_core::worklist::recipe::{
-    FormThresholds, KeyRelation, Recipe, RecipeFailure, RuleForm, accept_recipe, choose_form,
-    keys_to_materialise, recipe_disposition,
+    FormThresholds, KeyRelation, Recipe, RecipeFailure, RecipeRefusal, RuleForm, accept_recipe,
+    choose_form, keys_to_materialise, recipe_disposition,
 };
 use rustred_campaign_core::worklist::seed::{AttemptBudget, SeedSetting};
 
@@ -71,9 +74,28 @@ impl CaseSolver for Scripted {
                 Tri::Pass
             },
             proof_ok: (a, b) != (3, 3),
-            determinism_id: None,
+            determinism_id: Some("det-v1".into()),
             cost_ms: if (a, b) == (3, 2) { 120_000 } else { 10 },
+            recipe_digest: Some("blake3:engine".into()),
+            binary_digest: Some("blake3:bin".into()),
         })
+    }
+}
+
+/// Facts are never asked here (the scripted case solver finds no relation).
+struct NoFacts;
+impl rustred_campaign_core::repair::FactSource for NoFacts {
+    fn facts(
+        &mut self,
+        _r: &rustred_campaign_core::worklist::ladder::CandidateRule,
+        _k: &[i32],
+    ) -> rustred_campaign_core::worklist::ladder::PointFacts {
+        rustred_campaign_core::worklist::ladder::PointFacts {
+            regular: Tri::Unknown,
+            rhs_top: None,
+            exceptions_complete: Tri::Unknown,
+            note: None,
+        }
     }
 }
 
@@ -107,10 +129,12 @@ fn recipe_acceptance_per_key_and_fall_through() {
         vec![2, 2, 2, 0, 0, 0],
     ];
     let rule = accept_recipe(&recipe, &keys, &mut Scripted, &cmp, &p, &ended(&p));
-    assert_eq!(rule.certified, vec![k(2, 2), k(3, 2)]);
-    assert_eq!(rule.certified_count, 2);
+    assert_eq!(rule.certified(), vec![k(2, 2), k(3, 2)]);
+    assert_eq!(rule.certified_count(), 2);
+    assert_eq!(rule.determinism_id(), Some("det-v1"));
+    assert_eq!(rule.engine_recipe_digest(), Some("blake3:engine"));
     let class = |key: Key| {
-        rule.failed
+        rule.failed()
             .iter()
             .find(|(x, _)| *x == key)
             .map(|(_, f)| f.clone())
@@ -132,19 +156,42 @@ fn recipe_acceptance_per_key_and_fall_through() {
     // materialise the slow key as a point rule
     let t = FormThresholds::default();
     assert!(keys_to_materialise(&rule, &t).contains(&k(3, 2)));
-    // item outcome class
+    // item outcome class: only after the item's own cheap symbolic attempt ran (R48 addendum 3 (a))
     let item = root_item(&p, Face::new(vec![0, 1], vec![]), keys.clone());
-    match recipe_disposition(&item, &recipe, &mut Scripted, &cmp, &p, &ended(&p)) {
-        Some(Disposition::RecipeRule { rule, uncertified }) => {
-            assert_eq!(rule.certified_count, 2);
-            assert_eq!(uncertified.len(), item.gap_points.len() - 2);
+    let fresh = ItemState::new(item.clone());
+    assert_eq!(
+        recipe_disposition(&fresh, &recipe, &mut Scripted, &cmp, &p, &ended(&p)).unwrap_err(),
+        RecipeRefusal::SymbolicNotTried
+    );
+    let rep = drive_tree(
+        vec![item.clone()],
+        &p,
+        &cmp,
+        &mut Scripted,
+        &mut NoFacts,
+        &mut ladder_common::ReplayProver,
+        None,
+        None,
+        &TreeLimits::default(),
+    );
+    let state = rep.items[0].state.clone();
+    match recipe_disposition(&state, &recipe, &mut Scripted, &cmp, &p, &ended(&p)) {
+        Ok(Disposition::RecipeRule {
+            rule,
+            uncertified,
+            rest,
+        }) => {
+            assert_eq!(rule.certified_count(), 2);
+            assert_eq!(uncertified.len(), state.item.gap_points.len() - 2);
+            // every uncertified key goes on with ONE disposition: the rest item (re-audit A m5)
+            assert_eq!(rest.expect("rest item").gap_points, uncertified);
         }
         other => panic!("{other:?}"),
     }
     // a node requiring more than per-key evidence cannot accept recipes
     p.min_evidence = EvidenceLevel::A4;
     let rule = accept_recipe(&recipe, &keys, &mut Scripted, &cmp, &p, &ended(&p));
-    assert!(rule.certified.is_empty());
+    assert!(rule.certified().is_empty());
 }
 
 #[test]
@@ -171,9 +218,9 @@ fn default_solver_has_no_recipe_verb_and_form_choice() {
         &p,
         &ended(&p),
     );
-    assert!(rule.certified.is_empty());
+    assert!(rule.certified().is_empty());
     assert!(matches!(
-        rule.failed[0].1,
+        rule.failed()[0].1,
         RecipeFailure::Unsupported { .. }
     ));
     let t = FormThresholds::default();
