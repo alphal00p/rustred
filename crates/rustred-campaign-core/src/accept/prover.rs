@@ -10,8 +10,11 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::RuleSource;
+use super::facts::{AnswerBinding, check_echo};
 use super::rule::{RuleText, WitnessStatus, sha256_tag};
-use crate::ibp_rows::{PointSpec, PointStatus, ReplayLevel, ReplayPolicy, RowsOptions, RowsRule};
+use crate::ibp_rows::{
+    PointSpec, PointStatus, ReplayLevel, ReplayPolicy, RowsOptions, RowsRule, TableBinding,
+};
 use crate::key::Key;
 use crate::poly::Poly;
 use crate::replay_base::family::Family;
@@ -103,6 +106,9 @@ pub enum KeyStatus {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct EvidenceArtefact {
     pub schema: String,
+    /// `sha256:` of the RULE LINE this artefact is evidence for (audit-accept-B M1: an artefact names its rule; the
+    /// chain refuses an artefact of another rule).
+    pub rule_sha256: String,
     /// `sha256:` of the canonical JSON of `body` (timing fields removed), or of the answer text for file back-ends.
     pub digest: String,
     /// Digest of the key set the artefact covers (`closure::KeySet` canonical digest).
@@ -220,6 +226,7 @@ pub mod replay_adapter {
         let (body, digest) = artefact_digest(&value);
         let artefact = EvidenceArtefact {
             schema: rec.schema.to_string(),
+            rule_sha256: rule.line_sha256.clone(),
             digest,
             keys_digest: keys_digest(arity, served),
             tool: rec.tool_version.to_string(),
@@ -292,12 +299,13 @@ pub mod replay_adapter {
         }
         let established = rec.level == ReplayLevel::Established;
         let key_failures = status.iter().any(Option::is_some);
-        if !established
-            && !key_failures
-            && rule_level.is_empty()
-            && let ReplayLevel::NotEstablished { reasons } = &rec.level
-        {
-            rule_level.extend(reasons.iter().cloned());
+        if !established && !key_failures && rule_level.is_empty() {
+            match &rec.level {
+                ReplayLevel::NotEstablished { reasons } => rule_level.extend(reasons.iter().cloned()),
+                // rows3: a record without a family binding, of a diagnostic backend, with caller overrides or a
+                // sampled replay is never the level (named, so the chain says why)
+                other => rule_level.push(format!("replay level {other:?} is not Established")),
+            }
         }
         let keys = served
             .iter()
@@ -327,20 +335,28 @@ pub mod replay_adapter {
     }
 }
 
-/// Level `replay` in process (the identity test of this crate).
+/// Level `replay` in process (the identity test of this crate). The family binding is MANDATORY (rows3 NEW-M1: a replay
+/// without it is `Unbound`, never the level): [`ReplayProver::new`] takes it, and a prover whose options lost it answers
+/// `Unavailable` (nothing is ever certified at `Unbound`).
 pub struct ReplayProver {
     pub family: Family,
     pub policy: ReplayPolicy,
-    pub opts: RowsOptions,
+    opts: RowsOptions,
 }
 
 impl ReplayProver {
-    pub fn new(family: Family, opts: RowsOptions) -> Self {
+    /// `binding` = the node table's header (`TableBinding::from_header`, family_source compared with the family text)
+    /// or the campaign spec's family identity (`TableBinding::from_family_digest`); it replaces `opts.table`.
+    pub fn new(family: Family, binding: TableBinding, mut opts: RowsOptions) -> Self {
+        opts.table = Some(binding);
         ReplayProver {
             family,
             policy: ReplayPolicy::default(),
             opts,
         }
+    }
+    pub fn opts(&self) -> &RowsOptions {
+        &self.opts
     }
 }
 
@@ -349,6 +365,11 @@ impl EvidenceProver for ReplayProver {
         Evidence::Replay
     }
     fn prove(&mut self, rule: &RuleText, _source: &RuleSource, served: &[Key]) -> ProverAnswer {
+        if self.opts.table.is_none() {
+            return ProverAnswer::Unavailable(
+                "replay without a family binding (RowsOptions.table) would be Unbound".into(),
+            );
+        }
         replay_adapter::run(&self.family, rule, served, &self.policy, &self.opts)
     }
 }
@@ -363,6 +384,7 @@ struct SpanAnswer {
     per_key: BTreeMap<Vec<i32>, String>,
     refusal: Option<String>,
     digest: String,
+    binding: AnswerBinding,
 }
 
 /// Level `per-key` through the file-backed `rr_proof --mode instance-span` (one child job per rule).
@@ -372,6 +394,8 @@ pub struct FilePerKeyProver {
     pub arities: Vec<usize>,
     /// Certificate / ROWS file passed as `--cert` (rows `cert`), if any.
     pub cert: Option<String>,
+    /// How an answer file must name its rule (default [`AnswerBinding::DigestEcho`]).
+    pub binding: AnswerBinding,
     answers: HashMap<String, SpanAnswer>,
 }
 
@@ -417,6 +441,7 @@ impl FilePerKeyProver {
         FilePerKeyProver {
             arities,
             cert,
+            binding: AnswerBinding::DigestEcho,
             answers: HashMap::new(),
         }
     }
@@ -491,16 +516,20 @@ impl FilePerKeyProver {
         }
     }
 
-    /// Load rr_proof's answer text for ONE rule (one child job per rule). Returns the number of keys answered.
+    /// Load rr_proof's answer text for ONE rule (one child job per rule), BOUND to that rule (audit-accept-A M5, B C1):
+    /// every span line must echo the rule's index and, under [`AnswerBinding::DigestEcho`] (default), its
+    /// `rule_sha256`; every structural echo present (`record_bytes`, `arity`, `chart`, `rule_sizes`) must equal the
+    /// candidate's. A refusal line (`verdict` ERROR / UNSUPPORTED / MISSING_*) makes every key Unsupported; any other
+    /// line is an error (no silent drop). Returns the number of keys answered.
     pub fn load_answer(&mut self, rule: &RuleText, text: &str) -> Result<usize, String> {
         let mut per_key = BTreeMap::new();
         let mut refusal = None;
         for (no, line) in text.lines().enumerate() {
+            let no = no + 1;
             if line.trim().is_empty() {
                 continue;
             }
-            let v: Value =
-                serde_json::from_str(line).map_err(|e| format!("line {}: {e}", no + 1))?;
+            let v: Value = serde_json::from_str(line).map_err(|e| format!("line {no}: {e}"))?;
             let verdict = v.get("verdict").and_then(Value::as_str).unwrap_or("");
             if v.get("schema").and_then(Value::as_str) != Some(SPAN_ANSWER_SCHEMA) {
                 if matches!(verdict, "ERROR" | "UNSUPPORTED") || verdict.starts_with("MISSING_") {
@@ -508,17 +537,13 @@ impl FilePerKeyProver {
                         "{verdict}: {}",
                         v.get("error").and_then(Value::as_str).unwrap_or("")
                     ));
+                    continue;
                 }
-                continue;
-            }
-            if let (Some(r), Some(i)) = (v.get("rule").and_then(Value::as_i64), rule.index())
-                && r != i
-            {
                 return Err(format!(
-                    "line {}: answer for rule {r}, expected {i}",
-                    no + 1
+                    "line {no}: neither a {SPAN_ANSWER_SCHEMA} line nor a refusal"
                 ));
             }
+            check_echo(&v, rule, self.binding, no)?;
             for k in v
                 .get("keys")
                 .and_then(Value::as_array)
@@ -526,7 +551,10 @@ impl FilePerKeyProver {
                 .flatten()
             {
                 let key = answer_key(k.get("key").unwrap_or(&Value::Null), &rule.record.fixed)
-                    .ok_or_else(|| format!("line {}: unreadable key {k}", no + 1))?;
+                    .ok_or_else(|| format!("line {no}: unreadable key {k}"))?;
+                if key.len() != rule.record.fixed.len() {
+                    return Err(format!("line {no}: key {key:?} of the wrong length"));
+                }
                 let st = k
                     .get("status")
                     .and_then(Value::as_str)
@@ -535,7 +563,7 @@ impl FilePerKeyProver {
                 if let Some(old) = per_key.insert(key.clone(), st.clone())
                     && old != st
                 {
-                    return Err(format!("line {}: conflicting statuses at {key:?}", no + 1));
+                    return Err(format!("line {no}: conflicting statuses at {key:?}"));
                 }
             }
         }
@@ -546,6 +574,7 @@ impl FilePerKeyProver {
                 per_key,
                 refusal,
                 digest: sha256_tag(text.as_bytes()),
+                binding: self.binding,
             },
         );
         Ok(n)
@@ -617,9 +646,13 @@ impl EvidenceProver for FilePerKeyProver {
             keys,
             artefact: Some(EvidenceArtefact {
                 schema: SPAN_ANSWER_SCHEMA.into(),
+                rule_sha256: rule.line_sha256.clone(),
                 digest: ans.digest.clone(),
                 keys_digest: keys_digest(arity, served),
-                tool: "rr_proof --mode instance-span".into(),
+                tool: format!(
+                    "rr_proof --mode instance-span;binding={}",
+                    ans.binding.tag()
+                ),
                 body: None,
             }),
             rule_level: None,
@@ -657,13 +690,17 @@ impl ImportedEvidence {
             }
             let v: Value = serde_json::from_str(l).map_err(|x| format!("line {}: {x}", no + 1))?;
             if v["schema"] != crate::schema::ACCEPT_SCHEMA {
-                continue;
+                continue; // classified: another record kind of the import file
             }
             let Some(d) = v["bank"]["rule_line_sha256"]
                 .as_str()
                 .or(v["rule"]["rule_line_sha256"].as_str())
             else {
-                continue;
+                // no silent drop: an accept line that names no rule line can not be used and is an error
+                return Err(format!(
+                    "line {}: accept.v1 line without rule_line_sha256 (bank.* or rule.*)",
+                    no + 1
+                ));
             };
             let info = ImportedInfo {
                 rule_id: v["rule"]["id"].as_str().unwrap_or("").into(),
@@ -723,6 +760,7 @@ impl EvidenceProver for ImportedProver {
                 .collect(),
             artefact: Some(EvidenceArtefact {
                 schema: crate::schema::ACCEPT_SCHEMA.into(),
+                rule_sha256: rule.line_sha256.clone(),
                 digest: info.line_digest.clone(),
                 keys_digest: keys_digest(rule.record.fixed.len(), served),
                 tool: format!("imported:{}:{}", info.rule_id, info.label),
