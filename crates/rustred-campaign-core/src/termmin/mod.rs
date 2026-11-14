@@ -19,8 +19,9 @@ pub mod symrel;
 
 pub use extend::ImportExtension;
 pub use machine::{
-    Candidate, ClosingSolve, ClosureOracle, Cost, Decision, Economy, Extension, KeySetOracle, Report, SolveAnswer,
-    SolvePurpose, SolveRequest, StepRecord, SymStep, TerminalRecord, Termmin, attempt_order, d_r, is_hand_down,
+    Candidate, ClosingSolve, ClosureOracle, Cost, Decision, Economy, Extension, KeySetOracle,
+    Report, SolveAnswer, SolvePurpose, SolveRequest, StepRecord, SymStep, TerminalRecord, Termmin,
+    attempt_order, d_r, is_hand_down,
 };
 pub use spec::{Budget, Caps, StepKind, TermminSpec};
 pub use steps::{PointRecipe, key_text, point_recipe, priorities};

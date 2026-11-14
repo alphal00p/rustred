@@ -7,7 +7,9 @@
 
 use super::{AcceptBits, accept_point, answer_of, build_machine, cost_of, termmin_group};
 use crate::adapters::job::{InputFile, JobAdapter, Program, RunOptions, run_attempt};
-use crate::adapters::solve_recipe::{BatchPolicy, RecipeInput, SolveRecipeAdapter, SolveRecipeConfig, SolveRequest as AdReq};
+use crate::adapters::solve_recipe::{
+    BatchPolicy, RecipeInput, SolveRecipeAdapter, SolveRecipeConfig, SolveRequest as AdReq,
+};
 use crate::closeloop::accept::{BATCH_SCHEMA, BatchFile};
 use crate::launch::RealLauncher;
 use crate::resources::{Sampler, SamplerConfig};
@@ -79,13 +81,18 @@ pub fn run_direct(cfg: &DirectConfig) -> Result<Value, String> {
     };
     let isp = TableSetSpec::read(&cfg.import_spec).map_err(|e| format!("import spec: {e}"))?;
     say(format!("loading {}", cfg.import_spec.display()));
-    let set = rustred_campaign_core::import::load(&isp, &cfg.import_base).map_err(|e| format!("import load: {e}"))?;
-    let mut ev = Evidence::from_spec(&set, &cfg.import_base).map_err(|e| format!("evidence: {e}"))?;
+    let set = rustred_campaign_core::import::load(&isp, &cfg.import_base)
+        .map_err(|e| format!("import load: {e}"))?;
+    let mut ev =
+        Evidence::from_spec(&set, &cfg.import_base).map_err(|e| format!("evidence: {e}"))?;
     for f in &cfg.extra_solved {
         ev.load_solved(
             &set,
             Path::new("/"),
-            &rustred_campaign_core::import::spec::FileRef { path: f.display().to_string(), sha256: None },
+            &rustred_campaign_core::import::spec::FileRef {
+                path: f.display().to_string(),
+                sha256: None,
+            },
         )
         .map_err(|e| format!("solved {}: {e}", f.display()))?;
     }
@@ -93,12 +100,19 @@ pub fn run_direct(cfg: &DirectConfig) -> Result<Value, String> {
     let group = termmin_group(&cfg.spec, &isp, &cfg.import_base, &set)?;
     say(format!(
         "loaded in {load_s:.1} s; symmetry group: {}",
-        group.as_ref().map(|g| format!("{} non-identity elements", g.group().elements.len())).unwrap_or("none".into())
+        group
+            .as_ref()
+            .map(|g| format!("{} non-identity elements", g.group().elements.len()))
+            .unwrap_or("none".into())
     ));
     let mut ext = ImportExtension::new(
         set,
         ev,
-        CheckOptions { threads: cfg.check_threads.max(1), tier: None, max_rounds: None },
+        CheckOptions {
+            threads: cfg.check_threads.max(1),
+            tier: None,
+            max_rounds: None,
+        },
         group,
         cfg.spec.caps.symmetry_max_terms,
     )?;
@@ -107,12 +121,20 @@ pub fn run_direct(cfg: &DirectConfig) -> Result<Value, String> {
         "base check {base_s:.1} s: {} keys, {} terminals {:?}, {} open",
         ext.base().economy.closure_keys,
         ext.base().terminals.len(),
-        ext.base().terminals.iter().map(|k| key_text(k)).collect::<Vec<_>>(),
+        ext.base()
+            .terminals
+            .iter()
+            .map(|k| key_text(k))
+            .collect::<Vec<_>>(),
         ext.base().open.len()
     ));
     let mut m = build_machine(&cfg.spec, &ext, cfg.terminals.as_deref())?;
-    say(format!("attempt order: {:?}", m.order().iter().map(|k| key_text(k)).collect::<Vec<_>>()));
-    let prog_bytes = std::fs::read(&cfg.program.path).map_err(|e| format!("{}: {e}", cfg.program.path.display()))?;
+    say(format!(
+        "attempt order: {:?}",
+        m.order().iter().map(|k| key_text(k)).collect::<Vec<_>>()
+    ));
+    let prog_bytes = std::fs::read(&cfg.program.path)
+        .map_err(|e| format!("{}: {e}", cfg.program.path.display()))?;
     let bits = AcceptBits {
         boxed: true,
         determinism_id: None,
@@ -120,12 +142,17 @@ pub fn run_direct(cfg: &DirectConfig) -> Result<Value, String> {
         binary_sha256: sha256_hex(&prog_bytes),
         binary_path: cfg.program.path.display().to_string(),
         family_path: cfg.family.display().to_string(),
-        family_blake3: crate::atomic::blake3_file(&cfg.family).map_err(|e| e.to_string())?.1,
+        family_blake3: crate::atomic::blake3_file(&cfg.family)
+            .map_err(|e| e.to_string())?
+            .1,
         order: cfg.order.clone(),
     };
     let sampler = Arc::new(
-        Sampler::spawn(SamplerConfig { interval: Duration::from_millis(500), collect_foreign_pinning: false })
-            .map_err(|e| format!("sampler: {e}"))?,
+        Sampler::spawn(SamplerConfig {
+            interval: Duration::from_millis(500),
+            collect_foreign_pinning: false,
+        })
+        .map_err(|e| format!("sampler: {e}"))?,
     );
     let (tx, rx) = mpsc::channel::<Done>();
     let mut free: Vec<usize> = cfg.cpus.clone();
@@ -144,7 +171,12 @@ pub fn run_direct(cfg: &DirectConfig) -> Result<Value, String> {
             let Some(cpu) = free.pop() else { break };
             in_flight.insert(r.id.clone(), cpu);
             launch(cfg, &r, cpu, sampler.clone(), tx.clone())?;
-            say(format!("launched {} on CPU {cpu}: {} at {}", r.id, purpose_word(&r), key_text(&r.key)));
+            say(format!(
+                "launched {} on CPU {cpu}: {} at {}",
+                r.id,
+                purpose_word(&r),
+                key_text(&r.key)
+            ));
         }
         if in_flight.is_empty() {
             if m.done() {
@@ -196,7 +228,9 @@ pub fn run_direct(cfg: &DirectConfig) -> Result<Value, String> {
                         &run_dir,
                         None,
                     ) {
-                        Ok(dec) => answer_of(&dec, &d.key, &d.step, &d.recipe_id, &d.recipe_path, cost),
+                        Ok(dec) => {
+                            answer_of(&dec, &d.key, &d.step, &d.recipe_id, &d.recipe_path, cost)
+                        }
                         Err(e) => SolveAnswer::Failed {
                             class: "refused".into(),
                             verdict: None,
@@ -223,8 +257,11 @@ pub fn run_direct(cfg: &DirectConfig) -> Result<Value, String> {
                          "import_checks": ext.checks});
     v["base"] = json!({"keys": ext.base().economy.closure_keys, "open": ext.base().open.len(),
                        "terminals": ext.base().terminals.iter().map(|k| key_text(k)).collect::<Vec<_>>()});
-    std::fs::write(cfg.out_dir.join("report.json"), serde_json::to_vec_pretty(&v).map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())?;
+    std::fs::write(
+        cfg.out_dir.join("report.json"),
+        serde_json::to_vec_pretty(&v).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
     let mut al = String::new();
     for l in &log {
         al.push_str(&l.to_string());
@@ -235,13 +272,18 @@ pub fn run_direct(cfg: &DirectConfig) -> Result<Value, String> {
 }
 
 fn chrono_now() -> String {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     format!("t={t}")
 }
 
 fn purpose_word(r: &SolveRequest) -> String {
     match &r.purpose {
-        SolvePurpose::Step { recipe, .. } => format!("step {} ({} seeds)", recipe.step, recipe.seeds),
+        SolvePurpose::Step { recipe, .. } => {
+            format!("step {} ({} seeds)", recipe.step, recipe.seeds)
+        }
         SolvePurpose::Closing { solve, .. } => format!("closing try with {}", solve.source),
     }
 }
@@ -254,19 +296,43 @@ fn answer_word(a: &SolveAnswer) -> String {
             cost.cpu_s,
             cost.vmhwm_kb
         ),
-        SolveAnswer::Failed { class, verdict, cost, .. } => {
-            format!("{class} ({verdict:?}; cpu {:?} s, vmhwm {:?} kB)", cost.cpu_s, cost.vmhwm_kb)
+        SolveAnswer::Failed {
+            class,
+            verdict,
+            cost,
+            ..
+        } => {
+            format!(
+                "{class} ({verdict:?}; cpu {:?} s, vmhwm {:?} kB)",
+                cost.cpu_s, cost.vmhwm_kb
+            )
         }
     }
 }
 
 /// One solve in its own thread (own launcher on the shared sampler), pinned to `cpu`.
-fn launch(cfg: &DirectConfig, r: &SolveRequest, cpu: usize, sampler: Arc<Sampler>, tx: mpsc::Sender<Done>) -> Result<(), String> {
+fn launch(
+    cfg: &DirectConfig,
+    r: &SolveRequest,
+    cpu: usize,
+    sampler: Arc<Sampler>,
+    tx: mpsc::Sender<Done>,
+) -> Result<(), String> {
     let (source, rpath, rsha, step, rid, closing) = match &r.purpose {
         SolvePurpose::Step { recipe, .. } => {
-            let p = cfg.out_dir.join("recipes").join(format!("{}.json", crate::closeloop::ids::safe(&r.id)));
+            let p = cfg
+                .out_dir
+                .join("recipes")
+                .join(format!("{}.json", crate::closeloop::ids::safe(&r.id)));
             std::fs::write(&p, recipe.text.as_bytes()).map_err(|e| e.to_string())?;
-            (format!("termmin/{}", recipe.step), p, recipe.sha256.clone(), recipe.step.clone(), recipe.id.clone(), false)
+            (
+                format!("termmin/{}", recipe.step),
+                p,
+                recipe.sha256.clone(),
+                recipe.step.clone(),
+                recipe.id.clone(),
+                false,
+            )
         }
         SolvePurpose::Closing { solve, .. } => (
             solve.source.clone(),
@@ -278,10 +344,10 @@ fn launch(cfg: &DirectConfig, r: &SolveRequest, cpu: usize, sampler: Arc<Sampler
         ),
     };
     let rb = std::fs::read(&rpath).map_err(|e| format!("{}: {e}", rpath.display()))?;
-    let relation_rule = serde_json::from_slice::<Value>(&rb)
-        .ok()
-        .and_then(|v| v["relation_rule"].as_str().map(str::to_string))
-        .unwrap_or_else(|| "m1_first".into());
+    let relation_rule = match &r.purpose {
+        SolvePurpose::Step { recipe, .. } => recipe.relation_rule.clone(),
+        SolvePurpose::Closing { .. } => "m1_first".to_string(),
+    };
     let batch = BatchFile {
         schema: BATCH_SCHEMA.into(),
         node: cfg.node.clone(),
@@ -300,7 +366,11 @@ fn launch(cfg: &DirectConfig, r: &SolveRequest, cpu: usize, sampler: Arc<Sampler
         program: cfg.program.clone(),
         family: InputFile::from_file(&cfg.family).map_err(|e| format!("{e:?}"))?,
         order: cfg.order.clone(),
-        batch: BatchPolicy { max_keys_per_job: 1, max_threads: caps.threads.max(1), min_keys_per_thread: 1 },
+        batch: BatchPolicy {
+            max_keys_per_job: 1,
+            max_threads: caps.threads.max(1),
+            min_keys_per_thread: 1,
+        },
         max_trace_rows: caps.max_trace_rows,
         key_budget_s: caps.key_budget_s,
         expect: None,
@@ -344,14 +414,22 @@ fn launch(cfg: &DirectConfig, r: &SolveRequest, cpu: usize, sampler: Arc<Sampler
                 let plans = ad.plan(&reqs).map_err(|e| format!("{e:?}"))?;
                 let plan = plans.first().ok_or("no plan")?;
                 let mut l = RealLauncher::new(sampler);
-                let (out, rep) = run_attempt(&mut l, &ad, &reqs, plan, &work, 1, &opts).map_err(|e| format!("{e:?}"))?;
+                let (out, rep) = run_attempt(&mut l, &ad, &reqs, plan, &work, 1, &opts)
+                    .map_err(|e| format!("{e:?}"))?;
                 let run_dir = rep.prepared.spec.run_dir.clone();
                 let cost = cost_of(Path::new(&run_dir), &out.job_id);
                 let c = &out.classification;
                 let decided = matches!((c.row, c.sub.as_str()), (1, "") | (28, "") | (29, ""));
                 if !decided {
                     return Ok((
-                        format!("row {}{} ({:?}): {}; refusal {:?}", c.row, c.sub, c.kind, c.why, out.refusal.as_ref().map(|r| &r.why)),
+                        format!(
+                            "row {}{} ({:?}): {}; refusal {:?}",
+                            c.row,
+                            c.sub,
+                            c.kind,
+                            c.why,
+                            out.refusal.as_ref().map(|r| &r.why)
+                        ),
                         vec![],
                         String::new(),
                         run_dir.clone(),
@@ -359,8 +437,12 @@ fn launch(cfg: &DirectConfig, r: &SolveRequest, cpu: usize, sampler: Arc<Sampler
                     ));
                 }
                 let layout = RunLayout::new(&run_dir);
-                let (_, h) = verify_stream_handle(&layout.root, &RunLayout::out_rel("results.jsonl"), &["end"])
-                    .map_err(|e| format!("results stream: {e:?}"))?;
+                let (_, h) = verify_stream_handle(
+                    &layout.root,
+                    &RunLayout::out_rel("results.jsonl"),
+                    &["end"],
+                )
+                .map_err(|e| format!("results stream: {e:?}"))?;
                 let lines: Vec<String> = h
                     .canonical_lines()
                     .map_err(|e| format!("canonical lines: {e:?}"))?
@@ -368,10 +450,21 @@ fn launch(cfg: &DirectConfig, r: &SolveRequest, cpu: usize, sampler: Arc<Sampler
                     .map(|b| String::from_utf8_lossy(&b).into_owned())
                     .collect();
                 let p = layout.root.join(RunLayout::out_rel("results.jsonl"));
-                let b3 = crate::atomic::blake3_file(&p).map(|x| x.1).unwrap_or_default();
+                let b3 = crate::atomic::blake3_file(&p)
+                    .map(|x| x.1)
+                    .unwrap_or_default();
                 Ok((p.display().to_string(), lines, b3, run_dir.clone(), cost))
             })();
-            let _ = tx.send(Done { id, key, step, recipe_id: rid, recipe_path: rpath_s, batch, closing, result: res });
+            let _ = tx.send(Done {
+                id,
+                key,
+                step,
+                recipe_id: rid,
+                recipe_path: rpath_s,
+                batch,
+                closing,
+                result: res,
+            });
         })
         .map_err(|e| format!("worker thread: {e}"))?;
     Ok(())

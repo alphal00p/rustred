@@ -33,7 +33,9 @@ use rustred_campaign_core::import::check::CheckOptions;
 use rustred_campaign_core::import::symmetry::load_verified_group;
 use rustred_campaign_core::import::{Evidence, ImportedSet, TableSetSpec};
 use rustred_campaign_core::replay_base::symrows::VerifiedGroup;
-use rustred_campaign_core::termmin::machine::{Candidate, Cost, SolveAnswer, SolvePurpose, SolveRequest};
+use rustred_campaign_core::termmin::machine::{
+    Candidate, Cost, SolveAnswer, SolvePurpose, SolveRequest,
+};
 use rustred_campaign_core::termmin::{ImportExtension, Termmin, TermminSpec, key_text, priorities};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -145,18 +147,31 @@ pub fn accept_point(
         decide(&ctx, lines)
     });
     if let Some((p, k)) = removed {
-        set.terminals_other.insert(p.min(set.terminals_other.len()), k);
+        set.terminals_other
+            .insert(p.min(set.terminals_other.len()), k);
     }
     out
 }
 
 /// The machine's answer for the decided key `key` of one attempt (`step` / `recipe_id` name the candidate).
-pub fn answer_of(d: &Decided, key: &[i32], step: &str, recipe_id: &str, recipe_path: &str, cost: Cost) -> SolveAnswer {
+pub fn answer_of(
+    d: &Decided,
+    key: &[i32],
+    step: &str,
+    recipe_id: &str,
+    recipe_path: &str,
+    cost: Cost,
+) -> SolveAnswer {
     let line: Option<Value> = d
         .lines
         .iter()
         .filter_map(|l| serde_json::from_str::<Value>(l).ok())
-        .find(|v| serde_json::from_value::<Vec<i32>>(v["key"].clone()).ok().as_deref() == Some(key));
+        .find(|v| {
+            serde_json::from_value::<Vec<i32>>(v["key"].clone())
+                .ok()
+                .as_deref()
+                == Some(key)
+        });
     match line {
         Some(v) if v["verdict"] == "SOLVED" => {
             let rhs: Vec<Vec<i32>> = v["rhs"]
@@ -179,9 +194,15 @@ pub fn answer_of(d: &Decided, key: &[i32], step: &str, recipe_id: &str, recipe_p
             }
         }
         Some(v) => SolveAnswer::Failed {
-            class: v["failure"]["class"].as_str().unwrap_or("refused").to_string(),
+            class: v["failure"]["class"]
+                .as_str()
+                .unwrap_or("refused")
+                .to_string(),
             verdict: v["verdict"].as_str().map(str::to_string),
-            failure: v.get("failure_record").cloned().unwrap_or(v["failure"].clone()),
+            failure: v
+                .get("failure_record")
+                .cloned()
+                .unwrap_or(v["failure"].clone()),
             line: Some(v),
             cost,
         },
@@ -202,9 +223,15 @@ pub fn cost_of(run_dir: &Path, job: &str) -> Cost {
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or(Value::Null);
     Cost {
-        cpu_s: o["timing"]["cpu_s"].as_f64().or(o["job"]["timing"]["cpu_s"].as_f64()),
-        wall_s: o["timing"]["wall_s"].as_f64().or(o["job"]["timing"]["wall_s"].as_f64()),
-        vmhwm_kb: o["memory"]["vmhwm_kb"].as_u64().or(o["job"]["memory"]["vmhwm_kb"].as_u64()),
+        cpu_s: o["timing"]["cpu_s"]
+            .as_f64()
+            .or(o["job"]["timing"]["cpu_s"].as_f64()),
+        wall_s: o["timing"]["wall_s"]
+            .as_f64()
+            .or(o["job"]["timing"]["wall_s"].as_f64()),
+        vmhwm_kb: o["memory"]["vmhwm_kb"]
+            .as_u64()
+            .or(o["job"]["memory"]["vmhwm_kb"].as_u64()),
         job: Some(job.to_string()),
     }
 }
@@ -241,11 +268,24 @@ pub fn frame_header_family(import: &TableSetSpec, base: &Path) -> Option<String>
         .as_array()?
         .iter()
         .find(|s| s["id"].as_str() == Some(import.frame_from.as_str()))?;
-    if src["kind"] != "engine_table" {
-        return None;
-    }
-    let p = PathBuf::from(src["path"].as_str()?);
-    let p = if p.is_absolute() { p } else { base.join(p) };
+    let rel = |x: &str| -> PathBuf {
+        let p = PathBuf::from(x);
+        if p.is_absolute() { p } else { base.join(p) }
+    };
+    let p = match src["kind"].as_str()? {
+        "engine_table" => rel(src["path"].as_str()?),
+        // a table set (coord-bank-tables.md layout): the first table of the variant in the priority file
+        "table_set" => {
+            let pf: Value =
+                serde_json::from_slice(&std::fs::read(rel(src["priority_file"].as_str()?)).ok()?)
+                    .ok()?;
+            let first = pf[src["variant"].as_str()?].as_array()?.first()?["file"]
+                .as_str()?
+                .to_string();
+            rel(src["tables_dir"].as_str()?).join(first)
+        }
+        _ => return None,
+    };
     use std::io::BufRead;
     let f = std::fs::File::open(&p).ok()?;
     let mut first = String::new();
@@ -273,7 +313,16 @@ pub fn build_machine(
         None => ext.base().terminals.clone(),
     };
     let cmp = |a: &[i32], b: &[i32]| ext.set.cmp.cmp(a, b);
-    Termmin::new(spec, &terminals, &preferred, &lines, &lp, &np, ext.base().economy, &cmp)
+    Termmin::new(
+        spec,
+        &terminals,
+        &preferred,
+        &lines,
+        &lp,
+        &np,
+        ext.base().economy,
+        &cmp,
+    )
 }
 
 // ------------------------------------------------------------------ the extended import spec (second statement) ----------
@@ -290,13 +339,19 @@ pub fn extended_spec(
     dir: &Path,
     group_spec: Option<&Value>,
     order: &Value,
+    inner_solved: &[PathBuf],
 ) -> Result<PathBuf, String> {
     std::fs::create_dir_all(dir.join("recipes")).map_err(|e| e.to_string())?;
-    let mut v: Value = serde_json::from_str(import_text).map_err(|e| format!("import spec: {e}"))?;
+    let mut v: Value =
+        serde_json::from_str(import_text).map_err(|e| format!("import spec: {e}"))?;
     // relative paths of the original spec stay valid: resolve them against the original base
     let abs = |p: &str| -> String {
         let pb = PathBuf::from(p);
-        if pb.is_absolute() { p.to_string() } else { base.join(pb).display().to_string() }
+        if pb.is_absolute() {
+            p.to_string()
+        } else {
+            base.join(pb).display().to_string()
+        }
     };
     fn fix_paths(v: &mut Value, abs: &dyn Fn(&str) -> String) {
         match v {
@@ -324,14 +379,24 @@ pub fn extended_spec(
         .collect();
     let remaining: Vec<Vec<i32>> = rep.final_terminals.clone();
     // declared terminals: non-preferred terminal sources keep only the remaining keys
-    let sources = v["sources"].as_array_mut().ok_or("import spec without sources")?;
+    let sources = v["sources"]
+        .as_array_mut()
+        .ok_or("import spec without sources")?;
     let mut new_sources: Vec<Value> = vec![];
     for s in sources.iter() {
         if s["kind"] == "terminals" && s["preferred"] != true {
             let mut s2 = s.clone();
             if let Some(o) = s2.as_object_mut() {
                 o.remove("path");
-                o.insert("keys".into(), json!(remaining.iter().filter(|k| !eliminated.contains(*k)).collect::<Vec<_>>()));
+                o.insert(
+                    "keys".into(),
+                    json!(
+                        remaining
+                            .iter()
+                            .filter(|k| !eliminated.contains(*k))
+                            .collect::<Vec<_>>()
+                    ),
+                );
             }
             new_sources.push(s2);
         } else {
@@ -342,16 +407,26 @@ pub fn extended_spec(
     let mut sym_lines: Vec<String> = vec![];
     for t in rep.terminals.iter().filter(|t| t.outcome == "eliminated") {
         let by = t.eliminated_by.clone().unwrap_or(Value::Null);
-        let step_idx = t.steps.iter().find(|s| s.outcome == "eliminated").map(|s| s.index);
+        let step_idx = t
+            .steps
+            .iter()
+            .find(|s| s.outcome == "eliminated")
+            .map(|s| s.index);
         let Some(si) = step_idx else { continue };
         let req = format!("t{}.s{}", t.order, si);
         match by["kind"].as_str() {
             Some("recipe") => {
                 let Some(SolveAnswer::Relation { candidate, .. }) = answers.get(&req) else {
-                    return Err(format!("no answer {req} for the eliminated {}", key_text(&t.key)));
+                    return Err(format!(
+                        "no answer {req} for the eliminated {}",
+                        key_text(&t.key)
+                    ));
                 };
-                let src = rustred_campaign_core::termmin::extend::candidate_source(&t.key, candidate);
-                let rp = candidate.payload["recipe_path"].as_str().ok_or("recipe path")?;
+                let src =
+                    rustred_campaign_core::termmin::extend::candidate_source(&t.key, candidate);
+                let rp = candidate.payload["recipe_path"]
+                    .as_str()
+                    .ok_or("recipe path")?;
                 let text = std::fs::read(rp).map_err(|e| format!("{rp}: {e}"))?;
                 let local = dir.join("recipes").join(format!("{}.json", safe(&src)));
                 std::fs::write(&local, &text).map_err(|e| e.to_string())?;
@@ -397,9 +472,14 @@ pub fn extended_spec(
         if !id.contains(".c") {
             continue;
         }
-        let ti: Option<usize> = id.strip_prefix('t').and_then(|x| x.split('.').next()).and_then(|x| x.parse().ok());
+        let ti: Option<usize> = id
+            .strip_prefix('t')
+            .and_then(|x| x.split('.').next())
+            .and_then(|x| x.parse().ok());
         let Some(ti) = ti else { continue };
-        let Some(t) = rep.terminals.get(ti) else { continue };
+        let Some(t) = rep.terminals.get(ti) else {
+            continue;
+        };
         if t.outcome != "eliminated" {
             continue;
         }
@@ -428,6 +508,21 @@ pub fn extended_spec(
         new_sources.push(s);
     }
     v["sources"] = Value::Array(new_sources);
+    // the closing loop's own recipe answers (ledger inputs of the first statement's passes)
+    if !inner_solved.is_empty() {
+        if !v["evidence"].is_object() {
+            v["evidence"] = json!({});
+        }
+        let mut arr = v["evidence"]["solved"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        for f in inner_solved {
+            let b = std::fs::read(f).map_err(|e| format!("{}: {e}", f.display()))?;
+            arr.push(json!({"path": f.display().to_string(), "sha256": sha256_hex(&b)}));
+        }
+        v["evidence"]["solved"] = Value::Array(arr);
+    }
     if !solved_lines.is_empty() {
         let p = dir.join("termmin-answers.jsonl");
         let mut txt = solved_lines.join("\n");
@@ -437,7 +532,10 @@ pub fn extended_spec(
         if !ev {
             v["evidence"] = json!({});
         }
-        let arr = v["evidence"]["solved"].as_array().cloned().unwrap_or_default();
+        let arr = v["evidence"]["solved"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
         let mut arr = arr;
         arr.push(json!({"path": p.display().to_string(), "sha256": sha256_hex(txt.as_bytes())}));
         v["evidence"]["solved"] = Value::Array(arr);
@@ -486,7 +584,8 @@ pub fn wrap(
 ) -> Result<TermminSource, String> {
     let tspec = match spec.inputs.iter().find(|i| i.role == TERMMIN_ROLE) {
         Some(i) => TermminSpec::parse(
-            &std::fs::read_to_string(&i.path).map_err(|e| format!("termmin spec {}: {e}", i.path.display()))?,
+            &std::fs::read_to_string(&i.path)
+                .map_err(|e| format!("termmin spec {}: {e}", i.path.display()))?,
         )?,
         None => TermminSpec::default(),
     };
@@ -517,7 +616,11 @@ pub fn wrap(
             second: None,
         });
     }
-    let programs = spec.programs.iter().map(|(k, p)| (k.clone(), p.path.clone())).collect();
+    let programs = spec
+        .programs
+        .iter()
+        .map(|(k, p)| (k.clone(), p.path.clone()))
+        .collect();
     Ok(TermminSource {
         inner,
         cdir: cdir.to_path_buf(),
@@ -525,6 +628,9 @@ pub fn wrap(
         programs,
     })
 }
+
+/// Fake-child answers per (source, key) (tests only).
+type FakeOracle = BTreeMap<(String, Vec<i32>), (Verdict, Vec<Vec<i64>>)>;
 
 fn record(path: String, bytes: Vec<u8>) -> AcceptedRecord {
     AcceptedRecord { path, bytes }
@@ -544,10 +650,16 @@ impl TermminSource {
     }
 
     fn read_input(st: &CampaignState, id: &str) -> Result<Vec<u8>, String> {
-        let r = st.inputs.get(id).ok_or_else(|| format!("input {id} not registered"))?;
+        let r = st
+            .inputs
+            .get(id)
+            .ok_or_else(|| format!("input {id} not registered"))?;
         let b = std::fs::read(&r.path).map_err(|e| format!("input {id} ({}): {e}", r.path))?;
         if blake3_hex(&b) != r.blake3 {
-            return Err(format!("input {id} ({}) changed since it was recorded: refused", r.path));
+            return Err(format!(
+                "input {id} ({}) changed since it was recorded: refused",
+                r.path
+            ));
         }
         Ok(b)
     }
@@ -558,7 +670,9 @@ impl TermminSource {
         if st.inputs.contains_key(&input_tm_result(&p.n)) {
             return Some(true);
         }
-        st.inputs.contains_key(&input_withheld(&p.n)).then_some(false)
+        st.inputs
+            .contains_key(&input_withheld(&p.n))
+            .then_some(false)
     }
 
     fn bits(&self, p: &PhaseE) -> AcceptBits {
@@ -572,7 +686,9 @@ impl TermminSource {
             binary_sha256: sha256_hex(&bytes),
             binary_path: path.display().to_string(),
             family_path: p.cfg.solve.family.display().to_string(),
-            family_blake3: crate::atomic::blake3_file(&p.cfg.solve.family).map(|x| x.1).unwrap_or_default(),
+            family_blake3: crate::atomic::blake3_file(&p.cfg.solve.family)
+                .map(|x| x.1)
+                .unwrap_or_default(),
             order: p.cfg.solve.order_arg(),
         }
     }
@@ -616,8 +732,10 @@ impl TermminSource {
             let withheld: Vec<Event> = pos.map(|p| vec![rt.events.remove(p)]).unwrap_or_default();
             let w = record(
                 format!("{}/termmin/withheld.json", node_dir(&n)),
-                json_bytes(&json!({"schema": "rustred.campaign.termmin-withheld.v1", "node": node,
-                    "events": withheld, "terminals": terms})),
+                json_bytes(
+                    &json!({"schema": "rustred.campaign.termmin-withheld.v1", "node": node,
+                    "events": withheld, "terminals": terms}),
+                ),
             );
             let r = w.file_ref();
             rt.events.push(Event::InputRegistered {
@@ -665,27 +783,44 @@ impl TermminSource {
         let h = std::thread::Builder::new()
             .name(format!("termmin-load-{n}"))
             .spawn(move || -> Result<Loaded, String> {
-                let isp = TableSetSpec::from_json(&text).map_err(|e| format!("import spec: {e}"))?;
-                let set = rustred_campaign_core::import::load(&isp, &base).map_err(|e| format!("import load: {e}"))?;
-                let mut ev = Evidence::from_spec(&set, &base).map_err(|e| format!("evidence: {e}"))?;
+                let isp =
+                    TableSetSpec::from_json(&text).map_err(|e| format!("import spec: {e}"))?;
+                let set = rustred_campaign_core::import::load(&isp, &base)
+                    .map_err(|e| format!("import load: {e}"))?;
+                let mut ev =
+                    Evidence::from_spec(&set, &base).map_err(|e| format!("evidence: {e}"))?;
                 for (_, f, b3) in files {
-                    let (_, d) = crate::atomic::blake3_file(&f).map_err(|e| format!("{}: {e}", f.display()))?;
+                    let (_, d) = crate::atomic::blake3_file(&f)
+                        .map_err(|e| format!("{}: {e}", f.display()))?;
                     if d != b3 {
-                        return Err(format!("answers file {} changed since it was recorded", f.display()));
+                        return Err(format!(
+                            "answers file {} changed since it was recorded",
+                            f.display()
+                        ));
                     }
                     ev.load_solved(
                         &set,
                         Path::new("/"),
-                        &rustred_campaign_core::import::spec::FileRef { path: f.display().to_string(), sha256: None },
+                        &rustred_campaign_core::import::spec::FileRef {
+                            path: f.display().to_string(),
+                            sha256: None,
+                        },
                     )
                     .map_err(|e| format!("answers {}: {e}", f.display()))?;
                 }
                 let group = termmin_group(&spec, &isp, &base, &set)?;
-                let gs = spec.group.as_ref().map(|g| serde_json::to_value(g).unwrap_or(Value::Null));
+                let gs = spec
+                    .group
+                    .as_ref()
+                    .map(|g| serde_json::to_value(g).unwrap_or(Value::Null));
                 let ext = ImportExtension::new(
                     set,
                     ev,
-                    CheckOptions { threads: threads.max(1), tier: None, max_rounds: None },
+                    CheckOptions {
+                        threads: threads.max(1),
+                        tier: None,
+                        max_rounds: None,
+                    },
                     group,
                     spec.caps.symmetry_max_terms,
                 )?;
@@ -720,27 +855,43 @@ impl TermminSource {
             if self.nodes[i].fed.contains(&id) {
                 continue;
             }
-            let v: Value = serde_json::from_slice(&Self::read_input(st, &id)?).map_err(|e| format!("{id}: {e}"))?;
-            let req = v["request"].as_str().ok_or("answer without request")?.to_string();
-            let a: SolveAnswer = serde_json::from_value(v["answer"].clone()).map_err(|e| format!("{id}: {e}"))?;
+            let v: Value = serde_json::from_slice(&Self::read_input(st, &id)?)
+                .map_err(|e| format!("{id}: {e}"))?;
+            let req = v["request"]
+                .as_str()
+                .ok_or("answer without request")?
+                .to_string();
+            let a: SolveAnswer =
+                serde_json::from_value(v["answer"].clone()).map_err(|e| format!("{id}: {e}"))?;
             let p = &mut self.nodes[i];
-            p.machine.as_mut().ok_or("no machine")?.answer(&req, a.clone())?;
+            p.machine
+                .as_mut()
+                .ok_or("no machine")?
+                .answer(&req, a.clone())?;
             p.answers.insert(req, a);
             p.fed.insert(id);
         }
         {
             let p = &mut self.nodes[i];
-            let (m, ext) = (p.machine.as_mut().ok_or("no machine")?, p.ext.as_mut().ok_or("no ext")?);
+            let (m, ext) = (
+                p.machine.as_mut().ok_or("no machine")?,
+                p.ext.as_mut().ok_or("no ext")?,
+            );
             m.advance(ext)?;
         }
         // decisions: recorded ones must equal the recomputed ones; new ones are recorded
-        let decisions = self.nodes[i].machine.as_ref().map(|m| m.decisions().to_vec()).unwrap_or_default();
+        let decisions = self.nodes[i]
+            .machine
+            .as_ref()
+            .map(|m| m.decisions().to_vec())
+            .unwrap_or_default();
         for d in &decisions {
             let id = input_tm_decision(&n, d.seq);
             let v = serde_json::to_value(d).map_err(|e| e.to_string())?;
             match st.inputs.get(&id) {
                 Some(_) => {
-                    let old: Value = serde_json::from_slice(&Self::read_input(st, &id)?).map_err(|e| e.to_string())?;
+                    let old: Value = serde_json::from_slice(&Self::read_input(st, &id)?)
+                        .map_err(|e| e.to_string())?;
                     if old != v {
                         return Err(format!(
                             "termmin decision {} recomputed differently on resume (recorded {old}, now {v})",
@@ -749,7 +900,10 @@ impl TermminSource {
                     }
                 }
                 None => {
-                    let r = record(format!("{}/termmin/decisions/{:04}.json", node_dir(&n), d.seq), json_bytes(&v));
+                    let r = record(
+                        format!("{}/termmin/decisions/{:04}.json", node_dir(&n), d.seq),
+                        json_bytes(&v),
+                    );
                     let f = r.file_ref();
                     rt.events.push(Event::InputRegistered {
                         input: id,
@@ -763,7 +917,11 @@ impl TermminSource {
             }
         }
         // new solve items
-        let pending = self.nodes[i].machine.as_ref().map(|m| m.pending_solves()).unwrap_or_default();
+        let pending = self.nodes[i]
+            .machine
+            .as_ref()
+            .map(|m| m.pending_solves())
+            .unwrap_or_default();
         for r in pending {
             let item = tm_item(&n, &r.id);
             if st.items.contains_key(&item) || self.nodes[i].batches.contains_key(&item) {
@@ -774,7 +932,13 @@ impl TermminSource {
         Ok(())
     }
 
-    fn new_item(&mut self, i: usize, item: &str, r: &SolveRequest, rt: &mut Routing) -> Result<(), String> {
+    fn new_item(
+        &mut self,
+        i: usize,
+        item: &str,
+        r: &SolveRequest,
+        rt: &mut Routing,
+    ) -> Result<(), String> {
         let n = self.nodes[i].n.clone();
         let node = self.nodes[i].cfg.node.clone();
         let dir = format!("{}/termmin", node_dir(&n));
@@ -786,7 +950,8 @@ impl TermminSource {
                     std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
                 }
                 if std::fs::read(&p).ok().as_deref() != Some(recipe.text.as_bytes()) {
-                    crate::atomic::write_atomic(&p, recipe.text.as_bytes()).map_err(|e| e.to_string())?;
+                    crate::atomic::write_atomic(&p, recipe.text.as_bytes())
+                        .map_err(|e| e.to_string())?;
                 }
                 (
                     format!("termmin/{}", recipe.step),
@@ -815,13 +980,9 @@ impl TermminSource {
             recipe_sha256: sha,
             recipe_blake3: blake3_hex(&rb),
             engine_digest: None,
-            relation_rule: if step == "closing" {
-                self.nodes[i].cfg.solve.relation_rule.clone()
-            } else {
-                serde_json::from_slice::<Value>(&rb)
-                    .ok()
-                    .and_then(|v| v["relation_rule"].as_str().map(str::to_string))
-                    .unwrap_or_else(|| "first_admissible".into())
+            relation_rule: match &r.purpose {
+                SolvePurpose::Step { recipe, .. } => recipe.relation_rule.clone(),
+                SolvePurpose::Closing { .. } => self.nodes[i].cfg.solve.relation_rule.clone(),
             },
             keys: vec![r.key.clone()],
         };
@@ -855,29 +1016,54 @@ impl TermminSource {
     }
 
     fn meta(&self, st: &CampaignState, item: &str) -> Result<Value, String> {
-        serde_json::from_slice(&Self::read_input(st, &input_tm_batch(item))?).map_err(|e| e.to_string())
+        serde_json::from_slice(&Self::read_input(st, &input_tm_batch(item))?)
+            .map_err(|e| e.to_string())
     }
 
     fn fake_script(&self, i: usize, b: &BatchFile) -> Option<FakeScript> {
         let f = self.nodes[i].cfg.solve.fake.as_ref()?;
-        let mut oracle: BTreeMap<(String, Vec<i32>), (Verdict, Vec<Vec<i64>>)> = BTreeMap::new();
-        for l in std::fs::read_to_string(&f.oracle).ok()?.lines().filter(|l| !l.trim().is_empty()) {
+        let mut oracle: FakeOracle = BTreeMap::new();
+        for l in std::fs::read_to_string(&f.oracle)
+            .ok()?
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+        {
             let x: Value = serde_json::from_str(l).ok()?;
             let key: Vec<i32> = serde_json::from_value(x["key"].clone()).ok()?;
             let verdict: Verdict = serde_json::from_value(x["verdict"].clone()).ok()?;
-            let rhs: Vec<Vec<i64>> = serde_json::from_value(x.get("rhs").cloned().unwrap_or(json!([]))).ok()?;
-            oracle.insert((x["source"].as_str().unwrap_or("").to_string(), key), (verdict, rhs));
+            let rhs: Vec<Vec<i64>> =
+                serde_json::from_value(x.get("rhs").cloned().unwrap_or(json!([]))).ok()?;
+            oracle.insert(
+                (x["source"].as_str().unwrap_or("").to_string(), key),
+                (verdict, rhs),
+            );
         }
-        let mut ops: Vec<FakeOp> = f.quirks.iter().map(|q| FakeOp::RecipeQuirk { quirk: *q }).collect();
+        let mut ops: Vec<FakeOp> = f
+            .quirks
+            .iter()
+            .map(|q| FakeOp::RecipeQuirk { quirk: *q })
+            .collect();
+        for q in &self.nodes[i].spec.fake_quirks {
+            if let Ok(quirk) = serde_json::from_value(Value::String(q.clone())) {
+                ops.push(FakeOp::RecipeQuirk { quirk });
+            }
+        }
         ops.push(FakeOp::Prepare { ms: 10 });
         for k in &b.keys {
             let (verdict, rhs) = oracle
                 .get(&(b.source.clone(), k.clone()))
                 .cloned()
                 .unwrap_or((Verdict::NoRelationInSeeds, vec![]));
-            ops.push(FakeOp::Relation { ms: f.ms, verdict, rhs });
+            ops.push(FakeOp::Relation {
+                ms: f.ms,
+                verdict,
+                rhs,
+            });
         }
-        ops.push(FakeOp::End { stop: None, verdict: None });
+        ops.push(FakeOp::End {
+            stop: None,
+            verdict: None,
+        });
         Some(FakeScript {
             script: ops,
             on_sigterm: OnSigterm::Graceful,
@@ -891,20 +1077,31 @@ impl TermminSource {
         })
     }
 
-    fn request(&self, st: &CampaignState, i: usize, item: &str, job: String) -> Result<JobRequest, String> {
+    fn request(
+        &self,
+        st: &CampaignState,
+        i: usize,
+        item: &str,
+        job: String,
+    ) -> Result<JobRequest, String> {
         let p = &self.nodes[i];
-        let b = p
-            .batches
-            .get(item)
-            .cloned()
-            .map(Ok)
-            .unwrap_or_else(|| serde_json::from_value::<BatchFile>(self.meta(st, item)?["batch"].clone()).map_err(|e| e.to_string()))?;
+        let b = p.batches.get(item).cloned().map(Ok).unwrap_or_else(|| {
+            serde_json::from_value::<BatchFile>(self.meta(st, item)?["batch"].clone())
+                .map_err(|e| e.to_string())
+        })?;
         let dir = format!("{}/termmin", node_dir(&p.n));
         let keys_abs = self.abs(&format!("{dir}/batches/{item}.keys.jsonl"));
-        let keys_b3 = crate::atomic::blake3_file(&keys_abs).map_err(|e| e.to_string())?.1;
+        let keys_b3 = crate::atomic::blake3_file(&keys_abs)
+            .map_err(|e| e.to_string())?
+            .1;
         let sc = &p.cfg.solve;
         let caps = &p.spec.caps;
-        let mut args = vec!["--order".to_string(), sc.order_arg(), "--threads".into(), caps.threads.to_string()];
+        let mut args = vec![
+            "--order".to_string(),
+            sc.order_arg(),
+            "--threads".into(),
+            caps.threads.to_string(),
+        ];
         if let Some(x) = caps.max_trace_rows.or(sc.max_trace_rows) {
             args.extend(["--max-trace-rows".into(), x.to_string()]);
         }
@@ -928,11 +1125,23 @@ impl TermminSource {
                 InputRef {
                     role: "family".into(),
                     path: sc.family.display().to_string(),
-                    blake3: crate::atomic::blake3_file(&sc.family).map_err(|e| e.to_string())?.1,
+                    blake3: crate::atomic::blake3_file(&sc.family)
+                        .map_err(|e| e.to_string())?
+                        .1,
                     upto: None,
                 },
-                InputRef { role: "recipe".into(), path: b.recipe_path.clone(), blake3: b.recipe_blake3.clone(), upto: None },
-                InputRef { role: "keys".into(), path: keys_abs.display().to_string(), blake3: keys_b3, upto: None },
+                InputRef {
+                    role: "recipe".into(),
+                    path: b.recipe_path.clone(),
+                    blake3: b.recipe_blake3.clone(),
+                    upto: None,
+                },
+                InputRef {
+                    role: "keys".into(),
+                    path: keys_abs.display().to_string(),
+                    blake3: keys_b3,
+                    upto: None,
+                },
             ],
             depends_on: vec![input_tm_batch(item)],
             budgets: JobBudgets::default(),
@@ -942,21 +1151,47 @@ impl TermminSource {
     }
 
     /// The end of phase E: the extended spec, the second statement (in a thread), then the report and the release.
-    fn finish_node(&mut self, st: &CampaignState, i: usize, rt: &mut Routing) -> Result<(), String> {
+    fn finish_node(
+        &mut self,
+        st: &CampaignState,
+        i: usize,
+        rt: &mut Routing,
+    ) -> Result<(), String> {
         let n = self.nodes[i].n.clone();
         let node = self.nodes[i].cfg.node.clone();
         if self.nodes[i].second.is_none() {
             if self.nodes[i].loading.is_some() {
                 return Ok(());
             }
-            let rep = self.nodes[i].machine.as_ref().map(|m| m.report(&self.nodes[i].spec.digest()));
+            let rep = self.nodes[i]
+                .machine
+                .as_ref()
+                .map(|m| m.report(&self.nodes[i].spec.digest()));
             let Some(rep) = rep else { return Ok(()) };
             let any_elim = rep.terminals.iter().any(|t| t.outcome == "eliminated");
             if !any_elim {
-                self.nodes[i].second = Some(json!({"written": false, "why": "no terminal eliminated: the first statement stands alone"}));
+                self.nodes[i].second = Some(
+                    json!({"written": false, "why": "no terminal eliminated: the first statement stands alone"}),
+                );
             } else {
                 let dir = self.abs(&format!("{}/termmin", node_dir(&n)));
-                let order = serde_json::to_value(&self.nodes[i].cfg.solve.order).unwrap_or(Value::Null);
+                let order =
+                    serde_json::to_value(&self.nodes[i].cfg.solve.order).unwrap_or(Value::Null);
+                let mut inner: Vec<(u64, PathBuf)> = st
+                    .inputs
+                    .iter()
+                    .filter(|(id, r)| {
+                        r.role == super::ids::ROLE_ANSWERS
+                            && id
+                                .strip_prefix("closeloop:")
+                                .and_then(|x| x.split_once(":answers:"))
+                                .and_then(|(item, _)| st.items.get(item))
+                                .is_some_and(|it| it.node == node)
+                    })
+                    .map(|(_, r)| (r.registered_seq, PathBuf::from(&r.path)))
+                    .collect();
+                inner.sort();
+                let inner: Vec<PathBuf> = inner.into_iter().map(|x| x.1).collect();
                 let sp = extended_spec(
                     &self.nodes[i].spec_text,
                     &self.nodes[i].cfg.base(),
@@ -965,6 +1200,7 @@ impl TermminSource {
                     &dir,
                     self.nodes[i].group_spec.as_ref(),
                     &order,
+                    &inner,
                 )?;
                 let threads = self.nodes[i].cfg.check_threads;
                 let h = std::thread::Builder::new()
@@ -999,19 +1235,25 @@ impl TermminSource {
         let mut rep = self.nodes[i]
             .machine
             .as_ref()
-            .map(|m| serde_json::to_value(m.report(&self.nodes[i].spec.digest())).unwrap_or(Value::Null))
+            .map(|m| {
+                serde_json::to_value(m.report(&self.nodes[i].spec.digest())).unwrap_or(Value::Null)
+            })
             .unwrap_or(json!({"schema": rustred_campaign_core::termmin::spec::REPORT_SCHEMA}));
         rep["node"] = json!(node);
         rep["second_statement"] = second;
         rep["failed"] = json!(self.nodes[i].failed);
-        rep["proof_requests"] = json!("recipe relations of phase E: per-key level from the verb's exact-weight proof (import 5.3); rr_proof per-key proofs through lane closeloop2's proof jobs once merged");
-        let r = record(format!("{}/termmin/report.json", node_dir(&n)), json_bytes(&rep));
+        rep["proof_requests"] = json!(
+            "recipe relations of phase E: per-key level from the verb's exact-weight proof (import 5.3); rr_proof per-key proofs through lane closeloop2's proof jobs once merged"
+        );
+        let r = record(
+            format!("{}/termmin/report.json", node_dir(&n)),
+            json_bytes(&rep),
+        );
         let f = r.file_ref();
         // the release: a fresh closure result binding the node's current rule set when phase E accepted an item
-        let accepted = st
-            .items
-            .values()
-            .any(|it| it.node == node && it.kind == KIND_TERMMIN && matches!(it.phase, ItemPhase::Accepted(_)));
+        let accepted = st.items.values().any(|it| {
+            it.node == node && it.kind == KIND_TERMMIN && matches!(it.phase, ItemPhase::Accepted(_))
+        });
         let withheld: Vec<Event> = Self::read_input(st, &input_withheld(&n))
             .ok()
             .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
@@ -1101,13 +1343,17 @@ impl WorkSource for TermminSource {
                     .count() as u32;
                 let job = match ph {
                     ItemPhase::Open => Some(format!("{item}-t{}", jobs.len())),
-                    ItemPhase::InProgress => match jobs.last().and_then(|l| st.jobs.get(l)).map(|r| r.state) {
-                        Some(AttemptState::Queued) => jobs.last().cloned(),
-                        Some(AttemptState::Failed(_) | AttemptState::BudgetStopped(_)) if failed < max_att => {
-                            Some(format!("{item}-t{}", jobs.len()))
+                    ItemPhase::InProgress => {
+                        match jobs.last().and_then(|l| st.jobs.get(l)).map(|r| r.state) {
+                            Some(AttemptState::Queued) => jobs.last().cloned(),
+                            Some(AttemptState::Failed(_) | AttemptState::BudgetStopped(_))
+                                if failed < max_att =>
+                            {
+                                Some(format!("{item}-t{}", jobs.len()))
+                            }
+                            _ => None,
                         }
-                        _ => None,
-                    },
+                    }
                     _ => None,
                 };
                 if let Some(job) = job {
@@ -1123,23 +1369,40 @@ impl WorkSource for TermminSource {
         out
     }
 
-    fn route(&mut self, st: &CampaignState, ctx: &SourceContext, done: &Settled) -> Result<Routing, String> {
+    fn route(
+        &mut self,
+        st: &CampaignState,
+        ctx: &SourceContext,
+        done: &Settled,
+    ) -> Result<Routing, String> {
         let Some(i) = self.node_of_item(st, &done.item) else {
             return self.inner.route(st, ctx, done);
         };
         let it = st.items.get(&done.item).ok_or("unknown item")?;
         let meta = self.meta(st, &done.item)?;
-        let b: BatchFile = serde_json::from_value(meta["batch"].clone()).map_err(|e| e.to_string())?;
-        let req = meta["request"].as_str().ok_or("batch without request")?.to_string();
-        let terminal: Vec<i32> = serde_json::from_value(meta["terminal"].clone()).map_err(|e| e.to_string())?;
+        let b: BatchFile =
+            serde_json::from_value(meta["batch"].clone()).map_err(|e| e.to_string())?;
+        let req = meta["request"]
+            .as_str()
+            .ok_or("batch without request")?
+            .to_string();
+        let terminal: Vec<i32> =
+            serde_json::from_value(meta["terminal"].clone()).map_err(|e| e.to_string())?;
         let step = meta["step"].as_str().unwrap_or("").to_string();
         let rid = meta["recipe_id"].as_str().unwrap_or("").to_string();
         let c = &done.classification;
         let decided_row = matches!((c.row, c.sub.as_str()), (1, "") | (28, "") | (29, ""));
         let mut rt = Routing::default();
-        let run_dir = st.jobs.get(&done.job).and_then(|j| j.run_dir.clone()).unwrap_or_default();
+        let run_dir = st
+            .jobs
+            .get(&done.job)
+            .and_then(|j| j.run_dir.clone())
+            .unwrap_or_default();
         let cost = cost_of(Path::new(&run_dir), &done.job);
-        let answer: SolveAnswer = if !(decided_row && !done.canonical_lines.is_empty() && done.table.is_some()) {
+        let answer: SolveAnswer = if !(decided_row
+            && !done.canonical_lines.is_empty()
+            && done.table.is_some())
+        {
             let failed_before = it
                 .jobs
                 .iter()
@@ -1168,14 +1431,23 @@ impl WorkSource for TermminSource {
                 self.nodes[i]
                     .ext
                     .as_ref()
-                    .and_then(|e| e.set.recipes.iter().find(|r| r.id == b.source).map(|r| r.slot.clone()))
+                    .and_then(|e| {
+                        e.set
+                            .recipes
+                            .iter()
+                            .find(|r| r.id == b.source)
+                            .map(|r| r.slot.clone())
+                    })
                     .unwrap_or(DispatchSlot::Last)
             } else {
                 DispatchSlot::Last
             };
-            let ext = self.nodes[i].ext.as_mut().ok_or("termmin: settled before the set was loaded")?;
+            let ext = self.nodes[i]
+                .ext
+                .as_mut()
+                .ok_or("termmin: settled before the set was loaded")?;
             let undeclare = (step != "closing").then_some(terminal.as_slice());
-            let d = accept_point(
+            let d = match accept_point(
                 &mut ext.set,
                 undeclare,
                 &b,
@@ -1185,16 +1457,35 @@ impl WorkSource for TermminSource {
                 (&table.path, &table.blake3),
                 &run_dir,
                 None,
-            )?;
+            ) {
+                Ok(d) => d,
+                // a chain that cannot judge the attempt is a REFUSAL recorded as the answer (never a hang)
+                Err(e) => Decided {
+                    refused: Some(e),
+                    ..Decided::default()
+                },
+            };
             if !d.certified.is_empty() {
                 let canon = done.canonical_blake3.clone().unwrap_or_default();
                 let keys = record(
-                    format!("{}/termmin/answers/{}.{}.keys.json", node_dir(&self.nodes[i].n), done.item, done.job),
-                    json_bytes(&json!({"schema": "rustred.campaign.closeloop-keys.v1", "keys": d.certified})),
+                    format!(
+                        "{}/termmin/answers/{}.{}.keys.json",
+                        node_dir(&self.nodes[i].n),
+                        done.item,
+                        done.job
+                    ),
+                    json_bytes(
+                        &json!({"schema": "rustred.campaign.closeloop-keys.v1", "keys": d.certified}),
+                    ),
                 );
                 let kref = keys.file_ref();
                 let lines_rec = record(
-                    format!("{}/termmin/answers/{}.{}.jsonl", node_dir(&self.nodes[i].n), done.item, done.job),
+                    format!(
+                        "{}/termmin/answers/{}.{}.jsonl",
+                        node_dir(&self.nodes[i].n),
+                        done.item,
+                        done.job
+                    ),
                     {
                         let mut x = d.lines.join("\n").into_bytes();
                         x.push(b'\n');
@@ -1204,7 +1495,11 @@ impl WorkSource for TermminSource {
                 let lref = lines_rec.file_ref();
                 rt.events.push(Event::Item {
                     item: done.item.clone(),
-                    ev: ItemEvent::Produce { job: done.job.clone(), attempt: done.attempt, table: table.clone() },
+                    ev: ItemEvent::Produce {
+                        job: done.job.clone(),
+                        attempt: done.attempt,
+                        table: table.clone(),
+                    },
                 });
                 rt.events.push(Event::Item {
                     item: done.item.clone(),
@@ -1218,7 +1513,10 @@ impl WorkSource for TermminSource {
                             table_blake3: table.blake3.clone(),
                         },
                         elided: false,
-                        evidence: Some(LevelEvidence::IdentityProved { proofs: lref, keys: kref }),
+                        evidence: Some(LevelEvidence::IdentityProved {
+                            proofs: lref,
+                            keys: kref,
+                        }),
                         round: Some(0),
                     },
                 });
@@ -1230,11 +1528,19 @@ impl WorkSource for TermminSource {
         if !matches!(answer, SolveAnswer::Relation { .. }) {
             rt.events.push(Event::Item {
                 item: done.item.clone(),
-                ev: ItemEvent::Escalate { to: Rung(1), reason: "termmin: no certified relation at the key".into() },
+                ev: ItemEvent::Escalate {
+                    to: Rung(1),
+                    reason: "termmin: no certified relation at the key".into(),
+                },
             });
         }
         let a = record(
-            format!("{}/termmin/answers/{}.{}.answer.json", node_dir(&self.nodes[i].n), done.item, done.job),
+            format!(
+                "{}/termmin/answers/{}.{}.answer.json",
+                node_dir(&self.nodes[i].n),
+                done.item,
+                done.job
+            ),
             json_bytes(&json!({"schema": TM_ANSWER_SCHEMA, "request": req, "answer": answer})),
         );
         let f = a.file_ref();
@@ -1249,7 +1555,12 @@ impl WorkSource for TermminSource {
         Ok(rt)
     }
 
-    fn control(&mut self, st: &CampaignState, verb: &str, target: &str) -> Result<Vec<Event>, String> {
+    fn control(
+        &mut self,
+        st: &CampaignState,
+        verb: &str,
+        target: &str,
+    ) -> Result<Vec<Event>, String> {
         if self.node_of_item(st, target).is_some() {
             return match verb {
                 "retry" | "skip" => Ok(vec![]),
@@ -1268,9 +1579,16 @@ impl WorkSource for TermminSource {
                 continue;
             }
             // a finished thread
-            if self.nodes[i].loading.as_ref().is_some_and(|h| h.is_finished()) {
+            if self.nodes[i]
+                .loading
+                .as_ref()
+                .is_some_and(|h| h.is_finished())
+            {
                 let h = self.nodes[i].loading.take().expect("loading");
-                match h.join().unwrap_or_else(|_| Err("termmin thread panicked".into())) {
+                match h
+                    .join()
+                    .unwrap_or_else(|_| Err("termmin thread panicked".into()))
+                {
                     Ok(Loaded::Ext(ext, m, gs)) => {
                         self.nodes[i].ext = Some(*ext);
                         self.nodes[i].machine = Some(*m);
@@ -1299,13 +1617,22 @@ impl WorkSource for TermminSource {
             let busy = st.items.values().any(|it| {
                 it.node == node
                     && it.kind == KIND_TERMMIN
-                    && matches!(it.phase, ItemPhase::Open | ItemPhase::InProgress | ItemPhase::Produced)
+                    && matches!(
+                        it.phase,
+                        ItemPhase::Open | ItemPhase::InProgress | ItemPhase::Produced
+                    )
             });
-            let new_items = rt.events.iter().any(|e| matches!(e, Event::ItemCreated { node: x, .. } if *x == node));
-            let done = self.nodes[i].failed.is_some() || self.nodes[i].machine.as_ref().is_some_and(|m| m.done());
+            let new_items = rt
+                .events
+                .iter()
+                .any(|e| matches!(e, Event::ItemCreated { node: x, .. } if *x == node));
+            let done = self.nodes[i].failed.is_some()
+                || self.nodes[i].machine.as_ref().is_some_and(|m| m.done());
             if done && !busy && !new_items {
                 if let Some(f) = &self.nodes[i].failed {
-                    rt.events.push(Event::Note { text: format!("closeloop {node}: phase E stopped: {f}") });
+                    rt.events.push(Event::Note {
+                        text: format!("closeloop {node}: phase E stopped: {f}"),
+                    });
                     self.nodes[i].second = Some(json!({"written": false, "why": f}));
                 }
                 self.finish_node(st, i, &mut rt)?;
@@ -1316,14 +1643,19 @@ impl WorkSource for TermminSource {
 
     fn finished(&self, st: &CampaignState) -> bool {
         self.inner.finished(st)
-            && (0..self.nodes.len()).all(|i| self.phase(st, i) != Some(false) && self.nodes[i].loading.is_none())
+            && (0..self.nodes.len())
+                .all(|i| self.phase(st, i) != Some(false) && self.nodes[i].loading.is_none())
             && self.nodes.iter().all(|p| {
                 // a node entering phase E in this very tick has its withheld input registered by now
-                !st.inputs.contains_key(&input_withheld(&p.n)) || st.inputs.contains_key(&input_tm_result(&p.n))
+                !st.inputs.contains_key(&input_withheld(&p.n))
+                    || st.inputs.contains_key(&input_tm_result(&p.n))
             })
     }
 
     fn describe(&self) -> String {
-        format!("{} + terminal minimisation (phase E)", self.inner.describe())
+        format!(
+            "{} + terminal minimisation (phase E)",
+            self.inner.describe()
+        )
     }
 }

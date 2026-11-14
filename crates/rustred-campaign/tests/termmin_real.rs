@@ -14,7 +14,10 @@ use std::path::PathBuf;
 #[test]
 #[ignore = "real children: TERMMIN_REAL_CONFIG, private pid namespace"]
 fn real_terminal_minimisation() {
-    assert!(rustred_campaign::launch::in_private_namespace(), "run inside a private pid namespace (L10)");
+    assert!(
+        rustred_campaign::launch::in_private_namespace(),
+        "run inside a private pid namespace (L10)"
+    );
     let p = std::env::var("TERMMIN_REAL_CONFIG").expect("TERMMIN_REAL_CONFIG");
     let c: Value = serde_json::from_slice(&std::fs::read(&p).unwrap()).unwrap();
     let s = |k: &str| c[k].as_str().unwrap_or_else(|| panic!("{k}")).to_string();
@@ -27,7 +30,9 @@ fn real_terminal_minimisation() {
             .collect(),
     };
     let invocation = if c["invocation"] == "verb" {
-        Invocation::VerbJobFlag { verb: "solve-recipe".into() }
+        Invocation::VerbJobFlag {
+            verb: "solve-recipe".into(),
+        }
     } else {
         Invocation::Contract
     };
@@ -79,7 +84,10 @@ fn real_terminal_minimisation() {
                 st["verdict"].as_str().unwrap_or("-"),
                 st["cost"]["cpu_s"],
                 st["cost"]["vmhwm_kb"],
-                st["skipped"].as_str().or(st["extension"]["class"].as_str()).unwrap_or("")
+                st["skipped"]
+                    .as_str()
+                    .or(st["extension"]["class"].as_str())
+                    .unwrap_or("")
             );
         }
     }

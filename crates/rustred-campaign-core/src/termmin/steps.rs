@@ -63,11 +63,7 @@ pub fn enumerate_seeds(
     let n = key.len();
     let mut out = BTreeSet::new();
     let up = |s: &mut Vec<i32>, i: usize| {
-        if lines[i] {
-            s[i] += 1
-        } else {
-            s[i] -= 1
-        }
+        if lines[i] { s[i] += 1 } else { s[i] -= 1 }
     };
     for c in centres {
         let centre: Vec<i32> = key.iter().zip(c).map(|(k, o)| k + o).collect();
@@ -110,20 +106,47 @@ pub fn point_recipe(
     )
     .map_err(|e| format!("recipe step {}: {e}", step.name))?;
     let [one] = g.as_slice() else {
-        return Err(format!("recipe step {}: {} recipes for one key", step.name, g.len()));
+        return Err(format!(
+            "recipe step {}: {} recipes for one key",
+            step.name,
+            g.len()
+        ));
     };
-    let (centres, floor, shells, sym) = explicit_seeds(step, key, lines, line_priority, num_priority);
+    let (centres, floor, shells, sym) =
+        explicit_seeds(step, key, lines, line_priority, num_priority);
     let seeds = enumerate_seeds(key, &centres, &floor, step.depth, lines);
+    // the form every reader accepts today (the acceptance chain's `worklist::recipe::Recipe` is the v1.1 file: no
+    // `relation_rule`, no `domain.keys`): the point domain as `domain.fixed`, the relation rule left to the engine
+    // (v1.2's default is m1_first) and recorded in the provenance; depth > 3 as an up-only L1 ball (the verb's named
+    // shells stop at S3; `ball {radius k, down []}` = the up-shells S0..Sk)
+    let relation_rule = one.recipe["relation_rule"]
+        .as_str()
+        .unwrap_or("first_admissible")
+        .to_string();
+    let mut doc = one.recipe.clone();
+    if let Some(o) = doc.as_object_mut() {
+        o.remove("relation_rule");
+        o.insert(
+            "domain".into(),
+            serde_json::json!({"fixed": key, "equations": [], "exceptions": []}),
+        );
+        if step.depth > 3 {
+            o["seeds"]["generator"] =
+                serde_json::json!({"ball": {"radius": step.depth, "down": []}});
+        }
+        o["provenance"]["relation_rule"] = Value::String(relation_rule.clone());
+        o["provenance"]["termmin_key"] = serde_json::json!(key);
+    }
     let mut sd = String::new();
     for s in &seeds {
         sd.push_str(&format!("{s:?}\n"));
     }
-    let mut text = crate::schema::canon::canonical_json(&one.recipe, false)?;
+    let mut text = crate::schema::canon::canonical_json(&doc, false)?;
     text.push('\n');
     Ok(PointRecipe {
         id: one.id.clone(),
         step: step.name.clone(),
-        recipe: one.recipe.clone(),
+        recipe: doc,
         sha256: sha256_hex(text.as_bytes()),
         text,
         seeds: seeds.len() as u64,
@@ -132,21 +155,22 @@ pub fn point_recipe(
         floor,
         shells,
         symmetry_rows: sym,
-        relation_rule: one.recipe["relation_rule"]
-            .as_str()
-            .unwrap_or("first_admissible")
-            .to_string(),
+        relation_rule,
     })
 }
 
 /// Default priorities: lines (resp. numerators) in the order of `coordinate_priority` when given, else slot order.
-pub fn priorities(lines: &[bool], coordinate_priority: Option<&[usize]>) -> (Vec<usize>, Vec<usize>) {
+pub fn priorities(
+    lines: &[bool],
+    coordinate_priority: Option<&[usize]>,
+) -> (Vec<usize>, Vec<usize>) {
     let n = lines.len();
     let order: Vec<usize> = match coordinate_priority {
-        Some(p) if p.len() == n && {
-            let s: BTreeSet<usize> = p.iter().copied().collect();
-            s.len() == n && s.iter().all(|&x| x < n)
-        } =>
+        Some(p)
+            if p.len() == n && {
+                let s: BTreeSet<usize> = p.iter().copied().collect();
+                s.len() == n && s.iter().all(|&x| x < n)
+            } =>
         {
             p.to_vec()
         }
@@ -182,15 +206,36 @@ mod tests {
         let lines = [true, true, false];
         let st = parse_step("d2_clast_fon_mM1C").unwrap();
         let r = point_recipe(&st, &[2, 1, 0], &lines, &[0, 1], &[2]).unwrap();
-        assert_eq!(r.recipe["domain"]["keys"], serde_json::json!([[2, 1, 0]]));
+        assert_eq!(r.recipe["domain"]["fixed"], serde_json::json!([2, 1, 0]));
+        assert!(r.recipe.get("relation_rule").is_none());
+        crate::worklist::recipe::Recipe::parse(&r.text).expect("the acceptance chain reads it");
         assert_eq!(r.relation_rule, "m1_first");
         assert_eq!(r.centres, vec![vec![-1, 0, 0]]);
         assert_eq!(r.floor, vec![0]);
         // centre [1,1,0], up-shells to depth 2 over 3 slots: 1 + 3 + 6
         assert_eq!(r.seeds, 10);
-        let u = point_recipe(&parse_step("d2_cunion_fon_mM1C").unwrap(), &[2, 1, 0], &lines, &[0, 1], &[2])
-            .unwrap();
+        let u = point_recipe(
+            &parse_step("d2_cunion_fon_mM1C").unwrap(),
+            &[2, 1, 0],
+            &lines,
+            &[0, 1],
+            &[2],
+        )
+        .unwrap();
         assert_eq!(u.seed_set_digest, r.seed_set_digest);
         assert_ne!(u.sha256, r.sha256);
+        let d4 = point_recipe(
+            &parse_step("d4_cfirst_foff").unwrap(),
+            &[2, 1, 0],
+            &lines,
+            &[0, 1],
+            &[2],
+        )
+        .unwrap();
+        assert_eq!(
+            d4.recipe["seeds"]["generator"],
+            serde_json::json!({"ball": {"radius": 4, "down": []}})
+        );
+        crate::worklist::recipe::Recipe::parse(&d4.text).expect("ball form");
     }
 }

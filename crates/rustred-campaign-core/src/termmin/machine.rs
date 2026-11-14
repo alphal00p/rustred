@@ -78,7 +78,10 @@ pub struct ClosingSolve {
 #[derive(Clone, Debug, Serialize)]
 pub enum SolvePurpose {
     /// A recipe step of the escalation at the terminal itself.
-    Step { index: usize, recipe: Box<PointRecipe> },
+    Step {
+        index: usize,
+        recipe: Box<PointRecipe>,
+    },
     /// A closing-try solve (a node recipe at a key brought by the candidate of step `step`).
     Closing { step: usize, solve: ClosingSolve },
 }
@@ -141,7 +144,12 @@ pub trait ClosureOracle {
     /// The extension check (no state change). `extras` = solved-relation lines of a closing try.
     fn extend(&mut self, t: &[i32], cand: &Candidate, extras: &[Value]) -> Extension;
     /// Solves of the node's recipes for the keys `ext.new_open` (the closing try); empty = none possible.
-    fn closing_requests(&mut self, t: &[i32], cand: &Candidate, ext: &Extension) -> Vec<ClosingSolve>;
+    fn closing_requests(
+        &mut self,
+        t: &[i32],
+        cand: &Candidate,
+        ext: &Extension,
+    ) -> Vec<ClosingSolve>;
     /// The candidate is kept: the state now includes it (t no longer terminal).
     fn commit(&mut self, t: &[i32], cand: &Candidate, extras: &[Value]) -> Result<(), String>;
 }
@@ -244,7 +252,11 @@ pub fn d_r(key: &[i32], lines: &[bool]) -> (i64, i64) {
 }
 
 /// The attempt order: D+r descending, ties higher under the comparator first (`cmp(a, b) == Less`: a lower).
-pub fn attempt_order(keys: &[Key], lines: &[bool], cmp: &dyn Fn(&[i32], &[i32]) -> Ordering) -> Vec<Key> {
+pub fn attempt_order(
+    keys: &[Key],
+    lines: &[bool],
+    cmp: &dyn Fn(&[i32], &[i32]) -> Ordering,
+) -> Vec<Key> {
     let mut v = keys.to_vec();
     v.sort_by(|a, b| {
         let (da, ra) = d_r(a, lines);
@@ -323,7 +335,12 @@ fn rec_base(i: usize, st: &StepState) -> StepRecord {
         relation_rule: r.map(|r| r.relation_rule.clone()),
         recipe_id: r.map(|r| r.id.clone()),
         recipe_sha256: r.map(|r| r.sha256.clone()),
-        outcome: if st.skip.is_some() { "skipped" } else { "pending" }.into(),
+        outcome: if st.skip.is_some() {
+            "skipped"
+        } else {
+            "pending"
+        }
+        .into(),
         verdict: None,
         failure: Value::Null,
         rhs_keys: None,
@@ -357,7 +374,11 @@ impl Termmin {
         let mut ts = vec![];
         for key in &order {
             if key.len() != lines.len() {
-                return Err(format!("terminal {key:?} of arity {} for a chart of {}", key.len(), lines.len()));
+                return Err(format!(
+                    "terminal {key:?} of arity {} for a chart of {}",
+                    key.len(),
+                    lines.len()
+                ));
             }
             let (d, r) = d_r(key, lines);
             let pref = preferred.contains(key);
@@ -376,8 +397,12 @@ impl Termmin {
                 let mut skip = None;
                 if let Some(r) = &recipe {
                     if r.seeds > spec.caps.max_seeds {
-                        skip = Some(format!("over_seed_cap ({} > {})", r.seeds, spec.caps.max_seeds));
-                    } else if let Some((n, _)) = seen.iter().find(|(_, d)| *d == r.seed_set_digest) {
+                        skip = Some(format!(
+                            "over_seed_cap ({} > {})",
+                            r.seeds, spec.caps.max_seeds
+                        ));
+                    } else if let Some((n, _)) = seen.iter().find(|(_, d)| *d == r.seed_set_digest)
+                    {
                         skip = Some(format!("same_seed_set_as:{n}"));
                     }
                 }
@@ -518,7 +543,10 @@ impl Termmin {
                 .and_then(|x| x.split_once(".s"))
                 .and_then(|(i, s)| Some((i.parse::<usize>().ok()?, s.parse::<usize>().ok()?)))
                 .is_some_and(|(i, s)| {
-                    self.ts.get(i).and_then(|t| t.steps.get(s)).is_some_and(|st| st.recipe.is_some())
+                    self.ts
+                        .get(i)
+                        .and_then(|t| t.steps.get(s))
+                        .is_some_and(|st| st.recipe.is_some())
                 });
         if !known {
             return Err(format!("termmin: answer for unknown request {id}"));
@@ -555,7 +583,14 @@ impl Termmin {
         self.current
     }
 
-    fn decide(&mut self, i: usize, outcome: &str, class: &str, step: Option<String>, digest: Option<String>) {
+    fn decide(
+        &mut self,
+        i: usize,
+        outcome: &str,
+        class: &str,
+        step: Option<String>,
+        digest: Option<String>,
+    ) {
         self.ts[i].decided = Some((outcome.into(), class.into()));
         let seq = self.decisions.len();
         self.decisions.push(Decision {
@@ -664,12 +699,18 @@ impl Termmin {
                     return Ok(true);
                 }
                 Eval::Failed(er) => {
-                    let dispatch_miss = cand.kind == "dispatch" && er.class == "relation_refused_by_import";
+                    let dispatch_miss =
+                        cand.kind == "dispatch" && er.class == "relation_refused_by_import";
                     if !dispatch_miss {
                         self.ts[i].last_relation_class = Some(er.class.clone());
                     }
                     self.set_record(i, s, |r| {
-                        r.outcome = if dispatch_miss { "no_relation" } else { "relation" }.into();
+                        r.outcome = if dispatch_miss {
+                            "no_relation"
+                        } else {
+                            "relation"
+                        }
+                        .into();
                         r.rhs_keys = Some(cand.rhs.len());
                         r.extension = Some(er);
                     });
@@ -682,7 +723,11 @@ impl Termmin {
             .steps
             .iter()
             .any(|s| s.skip.as_deref().is_some_and(|w| w.starts_with("budget")));
-        let class = match (&self.ts[i].last_relation_class, self.ts[i].refused, any_budget) {
+        let class = match (
+            &self.ts[i].last_relation_class,
+            self.ts[i].refused,
+            any_budget,
+        ) {
             (Some(c), _, _) => c.clone(),
             (None, true, _) => "refused".into(),
             (None, false, true) => "budget".into(),
@@ -692,10 +737,20 @@ impl Termmin {
         Ok(true)
     }
 
-    fn evaluate(&mut self, i: usize, s: usize, cand: &Candidate, oracle: &mut dyn ClosureOracle) -> Result<Eval, String> {
+    fn evaluate(
+        &mut self,
+        i: usize,
+        s: usize,
+        cand: &Candidate,
+        oracle: &mut dyn ClosureOracle,
+    ) -> Result<Eval, String> {
         let t = self.ts[i].key.clone();
         let before = self.current;
-        let fail = |class: &str, reason: Option<String>, new_open: Vec<Key>, after: Economy, closing: bool| {
+        let fail = |class: &str,
+                    reason: Option<String>,
+                    new_open: Vec<Key>,
+                    after: Economy,
+                    closing: bool| {
             Eval::Failed(ExtRecord {
                 class: class.into(),
                 reason,
@@ -803,10 +858,20 @@ impl Termmin {
     }
 
     fn eliminations(&self) -> usize {
-        self.decisions.iter().filter(|d| d.outcome == "eliminated").count()
+        self.decisions
+            .iter()
+            .filter(|d| d.outcome == "eliminated")
+            .count()
     }
 
-    fn eliminate(&mut self, i: usize, s: usize, cand: &Candidate, ext: Extension, reevaluated: bool) {
+    fn eliminate(
+        &mut self,
+        i: usize,
+        s: usize,
+        cand: &Candidate,
+        ext: Extension,
+        reevaluated: bool,
+    ) {
         let before = self.current;
         self.current = ext.economy;
         self.current_terminals = ext.terminals_after.iter().cloned().collect();
@@ -814,7 +879,12 @@ impl Termmin {
             r.outcome = "eliminated".into();
             r.rhs_keys = Some(cand.rhs.len());
             r.extension = Some(ExtRecord {
-                class: if reevaluated { "eliminated_on_reevaluation" } else { "eliminated" }.into(),
+                class: if reevaluated {
+                    "eliminated_on_reevaluation"
+                } else {
+                    "eliminated"
+                }
+                .into(),
                 reason: None,
                 new_open: vec![],
                 before,
@@ -832,7 +902,11 @@ impl Termmin {
         self.decide(
             i,
             "eliminated",
-            if reevaluated { "eliminated_on_reevaluation" } else { "eliminated" },
+            if reevaluated {
+                "eliminated_on_reevaluation"
+            } else {
+                "eliminated"
+            },
             Some(cand.step.clone()),
             cand.relation_digest.clone(),
         );
@@ -939,6 +1013,9 @@ impl Termmin {
     }
 }
 
+/// A boxed key comparator (`Less` = the first key is lower).
+pub type KeyCmp = Box<dyn Fn(&[i32], &[i32]) -> Ordering>;
+
 /// A [`ClosureOracle`] on a plain closed KEY SET (tests, and keys-level checks): `served` = closure keys served,
 /// `terminals` = declared terminals reached; a candidate keeps the closure closed iff every right-hand-side key is served,
 /// a remaining terminal or a hand-down; otherwise the other keys are NEW OPEN keys, which `closing` (key -> right-hand
@@ -949,7 +1026,7 @@ pub struct KeySetOracle {
     pub terminals: BTreeSet<Key>,
     pub used_rules: u64,
     /// `cmp(a, b) == Less` iff a lower.
-    pub cmp: Box<dyn Fn(&[i32], &[i32]) -> Ordering>,
+    pub cmp: KeyCmp,
     /// Symmetry answers by key (tests).
     pub symmetry: BTreeMap<Key, Candidate>,
     /// Closing-try solves per new key (tests): the source to ask.
@@ -958,7 +1035,12 @@ pub struct KeySetOracle {
 }
 
 impl KeySetOracle {
-    fn extended(&self, t: &[i32], cand: &Candidate, extras: &[Value]) -> (Extension, BTreeSet<Key>) {
+    fn extended(
+        &self,
+        t: &[i32],
+        cand: &Candidate,
+        extras: &[Value],
+    ) -> (Extension, BTreeSet<Key>) {
         let mut served = self.served.clone();
         let mut terms = self.terminals.clone();
         terms.remove(t);
@@ -1044,7 +1126,12 @@ impl ClosureOracle for KeySetOracle {
     fn extend(&mut self, t: &[i32], cand: &Candidate, extras: &[Value]) -> Extension {
         self.extended(t, cand, extras).0
     }
-    fn closing_requests(&mut self, _t: &[i32], _cand: &Candidate, ext: &Extension) -> Vec<ClosingSolve> {
+    fn closing_requests(
+        &mut self,
+        _t: &[i32],
+        _cand: &Candidate,
+        ext: &Extension,
+    ) -> Vec<ClosingSolve> {
         match &self.closing_source {
             None => vec![],
             Some(src) => ext

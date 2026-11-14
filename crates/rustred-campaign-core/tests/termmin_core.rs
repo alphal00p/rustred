@@ -10,9 +10,12 @@ use std::path::{Path, PathBuf};
 use rustred_campaign_core::import::{CheckOptions, Evidence, TableSetSpec, load};
 use rustred_campaign_core::replay_base::family::Family;
 use rustred_campaign_core::replay_base::symrows::{DeriveOptions, verify_derived};
-use rustred_campaign_core::termmin::machine::{Candidate, Cost, SolveAnswer, SolvePurpose, SolveRequest};
+use rustred_campaign_core::termmin::machine::{
+    Candidate, Cost, SolveAnswer, SolvePurpose, SolveRequest,
+};
 use rustred_campaign_core::termmin::{
-    ClosureOracle, Economy, ImportExtension, KeySetOracle, Termmin, TermminSpec, symmetry_relation_at_key,
+    ClosureOracle, Economy, ImportExtension, KeySetOracle, Termmin, TermminSpec,
+    symmetry_relation_at_key,
 };
 use serde_json::{Value, json};
 
@@ -24,7 +27,10 @@ const N: [i32; 3] = [1, 3, 0]; // only by a relation that brings a new key
 const X: [i32; 3] = [1, 1, -1]; // the new key
 
 fn dr(k: &[i32]) -> i32 {
-    k.iter().zip(LINES).map(|(x, l)| if l { (*x).max(0) } else { (-*x).max(0) }).sum()
+    k.iter()
+        .zip(LINES)
+        .map(|(x, l)| if l { (*x).max(0) } else { (-*x).max(0) })
+        .sum()
 }
 fn cmp(a: &[i32], b: &[i32]) -> Ordering {
     (dr(a), a).cmp(&(dr(b), b))
@@ -186,14 +192,21 @@ fn outcome(m: &Termmin) -> (Vec<Key>, Vec<(Key, String, String)>) {
     let rep = m.report("x");
     (
         rep.final_terminals.clone(),
-        rep.decisions.iter().map(|d| (d.key.clone(), d.outcome.clone(), d.class.clone())).collect(),
+        rep.decisions
+            .iter()
+            .map(|d| (d.key.clone(), d.outcome.clone(), d.class.clone()))
+            .collect(),
     )
 }
 
 #[test]
 fn toy_three_terminals_final_set_is_the_true_master_only() {
     let mut m = machine(&[]);
-    assert_eq!(m.order(), vec![N.to_vec(), E.to_vec(), M.to_vec()], "D+r descending");
+    assert_eq!(
+        m.order(),
+        vec![N.to_vec(), E.to_vec(), M.to_vec()],
+        "D+r descending"
+    );
     let mut o = keyset_oracle(true);
     let mut log = vec![];
     drive(&mut m, &mut o, &solver(true, false), 0, false, &mut log);
@@ -213,14 +226,28 @@ fn toy_three_terminals_final_set_is_the_true_master_only() {
     // E: dispatch (no rule), symmetry (no group), d1 no relation, d2 eliminated; d3 never attempted
     let e = &rep.terminals[1];
     let outs: Vec<&str> = e.steps.iter().map(|s| s.outcome.as_str()).collect();
-    assert_eq!(outs, vec!["no_relation", "skipped", "no_relation", "eliminated", "pending"]);
+    assert_eq!(
+        outs,
+        vec![
+            "no_relation",
+            "skipped",
+            "no_relation",
+            "eliminated",
+            "pending"
+        ]
+    );
     // N went through a closing try: its eliminating extension grew the closure by X
     let n = &rep.terminals[0];
     assert!(n.eliminated_by.is_some());
     assert_eq!(n.steps[3].outcome, "eliminated");
     assert!(rep.economy_after.closure_keys > rep.economy_before.closure_keys - 2);
     // M: every step recorded, kept
-    assert!(rep.terminals[2].steps.iter().all(|s| s.outcome != "pending"));
+    assert!(
+        rep.terminals[2]
+            .steps
+            .iter()
+            .all(|s| s.outcome != "pending")
+    );
     assert_eq!(o.commits, vec![N.to_vec(), E.to_vec()]);
 }
 
@@ -232,8 +259,14 @@ fn a_relation_bringing_an_unservable_key_is_discarded() {
     drive(&mut m, &mut o, &solver(false, false), 0, false, &mut log);
     let (fin, dec) = outcome(&m);
     assert_eq!(fin, vec![M.to_vec(), N.to_vec()]);
-    assert_eq!(dec[0], (N.to_vec(), "kept".into(), "brings_unserved_keys".into()));
-    assert_eq!(dec[1], (E.to_vec(), "eliminated".into(), "eliminated".into()));
+    assert_eq!(
+        dec[0],
+        (N.to_vec(), "kept".into(), "brings_unserved_keys".into())
+    );
+    assert_eq!(
+        dec[1],
+        (E.to_vec(), "eliminated".into(), "eliminated".into())
+    );
     let rep = m.report("x");
     let ext = rep.terminals[0].steps[3].extension.clone().unwrap();
     assert_eq!(ext.new_open, vec![X.to_vec()]);
@@ -245,7 +278,10 @@ fn a_preferred_terminal_is_never_attempted() {
     let mut o = keyset_oracle(true);
     let mut log = vec![];
     drive(&mut m, &mut o, &solver(true, false), 0, false, &mut log);
-    assert!(log.iter().all(|(id, _)| !id.starts_with("t1.")), "no request for the preferred terminal: {log:?}");
+    assert!(
+        log.iter().all(|(id, _)| !id.starts_with("t1.")),
+        "no request for the preferred terminal: {log:?}"
+    );
     let rep = m.report("x");
     assert_eq!(rep.terminals[1].outcome, "preferred");
     assert!(rep.final_terminals.contains(&E.to_vec()));
@@ -260,7 +296,11 @@ fn a_lying_relation_is_refused_and_the_next_step_tried() {
     let rep = m.report("x");
     let e = &rep.terminals[1];
     let d2 = &e.steps[3];
-    assert_eq!(d2.extension.as_ref().unwrap().class, "relation_does_not_descend", "{d2:?}");
+    assert_eq!(
+        d2.extension.as_ref().unwrap().class,
+        "relation_does_not_descend",
+        "{d2:?}"
+    );
     assert_eq!(e.steps[4].outcome, "eliminated");
     assert_eq!(rep.final_terminals, vec![M.to_vec()]);
 }
@@ -294,8 +334,19 @@ fn decisions_do_not_depend_on_the_answer_order_and_resume_replays_them() {
                     m2.answer(id, a.clone()).unwrap();
                 }
                 let mut log2 = vec![];
-                drive(&mut m2, &mut o2, &solver(true, false), perm + 1, !one, &mut log2);
-                assert_eq!(outcome(&m2), reference.as_ref().unwrap().0, "resume after {cut} answers");
+                drive(
+                    &mut m2,
+                    &mut o2,
+                    &solver(true, false),
+                    perm + 1,
+                    !one,
+                    &mut log2,
+                );
+                assert_eq!(
+                    outcome(&m2),
+                    reference.as_ref().unwrap().0,
+                    "resume after {cut} answers"
+                );
             }
         }
     }
@@ -324,16 +375,31 @@ fn symmetry_relation_at_the_key_is_exact_and_descends() {
     let lines = chart;
     let c = |a: &[i32], b: &[i32]| -> Ordering {
         let d = |k: &[i32]| -> i32 {
-            k.iter().zip(lines).map(|(x, l)| if l { (*x).max(0) } else { (-*x).max(0) }).sum()
+            k.iter()
+                .zip(lines)
+                .map(|(x, l)| if l { (*x).max(0) } else { (-*x).max(0) })
+                .sum()
         };
         (d(a), a).cmp(&(d(b), b))
     };
     // the corner: every element fixes it up to a permutation of equal powers -> no relation
     let r = symmetry_relation_at_key(&Independent, &g, &[1, 1, 1, 0, 0], &c, 1 << 16);
-    assert!(matches!(r, rustred_campaign_core::termmin::SymRelation::NoRelation { .. }), "{r:?}");
+    assert!(
+        matches!(
+            r,
+            rustred_campaign_core::termmin::SymRelation::NoRelation { .. }
+        ),
+        "{r:?}"
+    );
     // a dotted key: its image with the dot on a lower line is a one-term relation
     let mut found = 0;
-    for key in [[1, 2, 1, 0, 0], [2, 1, 1, 0, 0], [1, 1, 2, 0, 0], [1, 1, 1, -1, 0], [1, 1, 1, 0, -1]] {
+    for key in [
+        [1, 2, 1, 0, 0],
+        [2, 1, 1, 0, 0],
+        [1, 1, 2, 0, 0],
+        [1, 1, 1, -1, 0],
+        [1, 1, 1, 0, -1],
+    ] {
         match symmetry_relation_at_key(&Independent, &g, &key, &c, 1 << 16) {
             rustred_campaign_core::termmin::SymRelation::Relation { rhs, .. } => {
                 found += 1;
@@ -344,19 +410,24 @@ fn symmetry_relation_at_the_key_is_exact_and_descends() {
                     .iter()
                     .map(|(k, q)| (k.clone(), rustred_campaign_core::termmin::symrel::q_text(q)))
                     .collect();
-                let v = verify_relation_with(&Independent, &g, &key, &txt, &[key.to_vec()], 1 << 16);
+                let v =
+                    verify_relation_with(&Independent, &g, &key, &txt, &[key.to_vec()], 1 << 16);
                 assert!(v.verified(), "{key:?}: {v:?}");
             }
             rustred_campaign_core::termmin::SymRelation::NoRelation { .. } => {}
             rustred_campaign_core::termmin::SymRelation::Unknown(w) => panic!("{key:?}: {w}"),
         }
     }
-    assert!(found >= 2, "dotted keys of a symmetric family have lower images ({found})");
+    assert!(
+        found >= 2,
+        "dotted keys of a symmetric family have lower images ({found})"
+    );
 }
 
 // ------------------------------------------------------------------ the import-based oracle ----------------------------
 
-const HEADER: &str = r#"{"type":"header","schema":"table_dump.v1","family":"TOY","denominators":3,"mask":"110"}"#;
+const HEADER: &str =
+    r#"{"type":"header","schema":"table_dump.v1","family":"TOY","denominators":3,"mask":"110"}"#;
 
 fn sha256(b: &[u8]) -> String {
     let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
@@ -413,7 +484,9 @@ fn import_oracle(dir: &Path) -> ImportExtension {
 }
 
 fn tmp(tag: &str) -> PathBuf {
-    let base = std::env::var_os("TMPDIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    let base = std::env::var_os("TMPDIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
     let d = base.join(format!("termmin-core-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     d
@@ -429,16 +502,20 @@ fn import_extension_decides_through_the_import_check() {
     let x = o.extend(&E, &Candidate::dispatch(), &[]);
     assert!(!x.served, "{x:?}");
     // E by a relation onto the remaining terminal M and a hand-down: closed, one terminal less
-    let SolveAnswer::Relation { candidate: ce, .. } = relation("d2_clast_fon_mM1C", &E, &[&M, &[2, 0, 0]], "aa") else {
+    let SolveAnswer::Relation { candidate: ce, .. } =
+        relation("d2_clast_fon_mM1C", &E, &[&M, &[2, 0, 0]], "aa")
+    else {
         unreachable!()
     };
     let x = o.extend(&E, &ce, &[]);
     assert!(x.served && x.new_open.is_empty(), "{x:?}");
     assert_eq!(x.economy.terminals, 2);
     // the base is untouched by a check
-    assert_eq!(o.extend(&E, &Candidate::dispatch(), &[]).served, false);
+    assert!(!o.extend(&E, &Candidate::dispatch(), &[]).served);
     // N onto the new key X: X is new and open; the closing try asks the node's default recipe for it
-    let SolveAnswer::Relation { candidate: cn, .. } = relation("d2_clast_fon_mM1C", &N, &[&X, &[1, 0, 0]], "aa") else {
+    let SolveAnswer::Relation { candidate: cn, .. } =
+        relation("d2_clast_fon_mM1C", &N, &[&X, &[1, 0, 0]], "aa")
+    else {
         unreachable!()
     };
     let x = o.extend(&N, &cn, &[]);
@@ -446,7 +523,10 @@ fn import_extension_decides_through_the_import_check() {
     assert_eq!(x.new_open, vec![X.to_vec()]);
     let reqs = o.closing_requests(&N, &cn, &x);
     assert_eq!(reqs.len(), 1);
-    assert_eq!((reqs[0].source.as_str(), reqs[0].key.clone()), ("default-recipe", X.to_vec()));
+    assert_eq!(
+        (reqs[0].source.as_str(), reqs[0].key.clone()),
+        ("default-recipe", X.to_vec())
+    );
     // with the closing answer (the default recipe's sha256 must be the file's) X is served
     let mut line = solved_line("default-recipe", &X, &[&M, &[0, 1, -1]]);
     line["recipe_sha256"] = json!(reqs[0].recipe_sha256);
@@ -459,7 +539,10 @@ fn import_extension_decides_through_the_import_check() {
     o.commit(&N, &cn, &[line]).unwrap();
     assert_eq!(o.current().terminals, vec![M.to_vec()]);
     // a recipe relation whose sha256 is not its recipe's is refused by the import (served = false)
-    let SolveAnswer::Relation { candidate: mut bad, .. } = relation("d3", &M, &[&[1, 0, 0]], "aa") else {
+    let SolveAnswer::Relation {
+        candidate: mut bad, ..
+    } = relation("d3", &M, &[&[1, 0, 0]], "aa")
+    else {
         unreachable!()
     };
     bad.recipe_sha256 = Some("bb".into());
@@ -477,7 +560,9 @@ fn machine_with_the_import_oracle_reaches_the_same_final_set() {
     let base = solver(true, false);
     let s = move |r: &SolveRequest| -> SolveAnswer {
         let mut a = base(r);
-        if let (SolvePurpose::Closing { .. }, SolveAnswer::Relation { candidate, .. }) = (&r.purpose, &mut a) {
+        if let (SolvePurpose::Closing { .. }, SolveAnswer::Relation { candidate, .. }) =
+            (&r.purpose, &mut a)
+        {
             candidate.payload["solved"]["recipe_sha256"] = json!(dflt_sha);
         }
         a
@@ -488,6 +573,9 @@ fn machine_with_the_import_oracle_reaches_the_same_final_set() {
     assert_eq!(fin, vec![M.to_vec()], "{dec:?}");
     let rep = m.report("x");
     assert_eq!(rep.economy_after.terminals, 1);
-    assert!(rep.economy_after.closure_keys > rep.economy_before.closure_keys, "X joined the closure");
+    assert!(
+        rep.economy_after.closure_keys > rep.economy_before.closure_keys,
+        "X joined the closure"
+    );
     let _ = std::fs::remove_dir_all(&d);
 }

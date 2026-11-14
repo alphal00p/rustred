@@ -124,6 +124,10 @@ pub struct TermminSpec {
     /// Per-node overrides (any field above, objects `caps` / `budget` merged field by field).
     #[serde(default)]
     pub nodes: BTreeMap<String, Value>,
+    /// TESTS ONLY: contract `RecipeQuirk` names applied to the FAKE child of phase E's solves (used only when the node's
+    /// solve configuration runs the fake child; a real engine never sees them).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fake_quirks: Vec<String>,
 }
 
 impl Default for TermminSpec {
@@ -140,6 +144,7 @@ impl Default for TermminSpec {
             numerator_priority: None,
             group: None,
             nodes: BTreeMap::new(),
+            fake_quirks: vec![],
         }
     }
 }
@@ -179,7 +184,9 @@ impl TermminSpec {
         if let Some(s) = &self.schema
             && s != TERMMIN_SCHEMA
         {
-            return Err(format!("termmin spec: schema {s:?}, expected {TERMMIN_SCHEMA}"));
+            return Err(format!(
+                "termmin spec: schema {s:?}, expected {TERMMIN_SCHEMA}"
+            ));
         }
         if self.objective != OBJECTIVE {
             return Err(format!(
@@ -242,10 +249,13 @@ impl TermminSpec {
                 }
             }
         }
-        let s: TermminSpec = serde_json::from_value(base)
-            .map_err(|e| format!("termmin spec (node {node}): {e}"))?;
+        let s: TermminSpec =
+            serde_json::from_value(base).map_err(|e| format!("termmin spec (node {node}): {e}"))?;
         if s.objective != OBJECTIVE {
-            return Err(format!("termmin spec (node {node}): objective {:?}", s.objective));
+            return Err(format!(
+                "termmin spec (node {node}): objective {:?}",
+                s.objective
+            ));
         }
         s.steps()?;
         Ok(s)

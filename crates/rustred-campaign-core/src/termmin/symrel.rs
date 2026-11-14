@@ -64,7 +64,10 @@ pub fn symmetry_relation_at_key<A: CheckAlgebra>(
             if *mask != 0 {
                 return SymRelation::Unknown("a symbolic term at an integer seed".into());
             }
-            let Ok(k32) = k.iter().map(|&x| i32::try_from(x)).collect::<Result<Vec<i32>, _>>()
+            let Ok(k32) = k
+                .iter()
+                .map(|&x| i32::try_from(x))
+                .collect::<Result<Vec<i32>, _>>()
             else {
                 return SymRelation::Unknown("a row key outside i32".into());
             };

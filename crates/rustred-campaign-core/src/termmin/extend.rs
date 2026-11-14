@@ -14,7 +14,9 @@ use serde_json::{Value, json};
 
 use super::machine::{Candidate, ClosingSolve, ClosureOracle, Economy, Extension, Key, SymStep};
 use super::symrel::{SymRelation, q_text, symmetry_relation_at_key};
-use crate::closure::relations::{DispatchSlot, RelationSet, RelationStoreBuilder, VERDICT_CERTIFIED};
+use crate::closure::relations::{
+    DispatchSlot, RelationSet, RelationStoreBuilder, VERDICT_CERTIFIED,
+};
 use crate::domain::{CaseDomain, TargetMap};
 use crate::import::check::{CheckOptions, CheckResult, RowStatus, Server, check};
 use crate::import::evidence::{Evidence, SolvedRelation};
@@ -52,14 +54,21 @@ pub fn view(set: &ImportedSet, res: &CheckResult) -> CheckView {
                     format!(
                         "{}{}",
                         r.open_status.clone().unwrap_or_else(|| "open".into()),
-                        r.open_reason.as_ref().map(|x| format!(": {x}")).unwrap_or_default()
+                        r.open_reason
+                            .as_ref()
+                            .map(|x| format!(": {x}"))
+                            .unwrap_or_default()
                     ),
                 );
             }
             RowStatus::Served => {
                 let name = match &r.server {
-                    Some(Server::Rule { table, record }) | Some(Server::Credit { table, record }) => {
-                        format!("rule:{}#{}", set.rules[*table][*record].source, set.rules[*table][*record].label)
+                    Some(Server::Rule { table, record })
+                    | Some(Server::Credit { table, record }) => {
+                        format!(
+                            "rule:{}#{}",
+                            set.rules[*table][*record].source, set.rules[*table][*record].label
+                        )
                     }
                     Some(Server::Relation { set: s, recipe }) => {
                         if *recipe {
@@ -89,7 +98,8 @@ pub fn view(set: &ImportedSet, res: &CheckResult) -> CheckView {
         });
     }
     for r in &res.solve_refusals {
-        v.refusals.insert(r.key.clone(), format!("{}: {}", r.source, r.reason));
+        v.refusals
+            .insert(r.key.clone(), format!("{}: {}", r.source, r.reason));
     }
     v
 }
@@ -110,11 +120,18 @@ fn point_domain(set: &ImportedSet, t: &[i32]) -> CaseDomain {
 }
 
 fn json_key(v: &Value, n: usize) -> Option<Key> {
-    serde_json::from_value::<Key>(v.clone()).ok().filter(|k| k.len() == n)
+    serde_json::from_value::<Key>(v.clone())
+        .ok()
+        .filter(|k| k.len() == n)
 }
 
 /// A solved-relation v1 line (import 6.2) as the import's evidence record, under `source`.
-pub fn solved_from_line(line: &Value, source: &str, n: usize, file: &str) -> Result<SolvedRelation, String> {
+pub fn solved_from_line(
+    line: &Value,
+    source: &str,
+    n: usize,
+    file: &str,
+) -> Result<SolvedRelation, String> {
     let key = json_key(&line["key"], n).ok_or("solved line: key")?;
     let mut rhs = vec![];
     for t in line["rhs"].as_array().into_iter().flatten() {
@@ -212,16 +229,27 @@ impl ImportExtension {
     fn apply(&mut self, t: &[i32], cand: &Candidate, extras: &[Value]) -> Result<Undo, String> {
         let mut u = Undo::default();
         let n = self.set.arity();
-        if let Some(p) = self.set.terminals_other.iter().position(|k| k.as_slice() == t) {
+        if let Some(p) = self
+            .set
+            .terminals_other
+            .iter()
+            .position(|k| k.as_slice() == t)
+        {
             u.terminal = Some((self.set.terminals_other.remove(p), p));
         } else {
-            return Err(format!("{} is not a declared (non-preferred) terminal of the set", super::steps::key_text(t)));
+            return Err(format!(
+                "{} is not a declared (non-preferred) terminal of the set",
+                super::steps::key_text(t)
+            ));
         }
         let src = candidate_source(t, cand);
         match cand.kind.as_str() {
             "dispatch" => {}
             "recipe" => {
-                let line = cand.payload.get("solved").ok_or("recipe candidate without its solved line")?;
+                let line = cand
+                    .payload
+                    .get("solved")
+                    .ok_or("recipe candidate without its solved line")?;
                 let mut rel = solved_from_line(line, &src, n, "<termmin>")?;
                 rel.source = src.clone();
                 if rel.key.as_slice() != t {
@@ -232,7 +260,10 @@ impl ImportExtension {
                 self.set.recipes.push(RecipeSource {
                     id: src.clone(),
                     class: SOURCE_PREFIX.into(),
-                    path: cand.payload["recipe_path"].as_str().unwrap_or("<termmin>").to_string(),
+                    path: cand.payload["recipe_path"]
+                        .as_str()
+                        .unwrap_or("<termmin>")
+                        .to_string(),
                     recipe_sha256: cand.recipe_sha256.clone().unwrap_or_default(),
                     engine_digest: None,
                     recipe_id: cand.recipe_id.clone(),
@@ -240,10 +271,17 @@ impl ImportExtension {
                     slot: DispatchSlot::Last,
                     assigned: Some(assigned),
                 });
-                self.set.rel_order.push(RelEntry::Recipe(self.set.recipes.len() - 1));
+                self.set
+                    .rel_order
+                    .push(RelEntry::Recipe(self.set.recipes.len() - 1));
                 self.set.classes.insert(src.clone(), SOURCE_PREFIX.into());
                 u.recipe = true;
-                let old = self.ev.solved.entry(src.clone()).or_default().insert(t.to_vec(), rel);
+                let old = self
+                    .ev
+                    .solved
+                    .entry(src.clone())
+                    .or_default()
+                    .insert(t.to_vec(), rel);
                 u.solved.push((src.clone(), t.to_vec(), old));
             }
             "symmetry" => {
@@ -251,10 +289,14 @@ impl ImportExtension {
                 let mut d = [0u8; 32];
                 if let Some(h) = &cand.relation_digest {
                     for (i, byte) in d.iter_mut().enumerate() {
-                        *byte = h.get(2 * i..2 * i + 2).and_then(|x| u8::from_str_radix(x, 16).ok()).unwrap_or(0);
+                        *byte = h
+                            .get(2 * i..2 * i + 2)
+                            .and_then(|x| u8::from_str_radix(x, 16).ok())
+                            .unwrap_or(0);
                     }
                 }
-                b.push(t, &cand.rhs, d, VERDICT_CERTIFIED).map_err(|e| format!("{e:?}"))?;
+                b.push(t, &cand.rhs, d, VERDICT_CERTIFIED)
+                    .map_err(|e| format!("{e:?}"))?;
                 let relations = b.finish().map_err(|e| format!("{e:?}"))?;
                 let check_v = self.group.as_ref().map(|g| {
                     let rhs: Vec<(Vec<i32>, String)> = cand.payload["coefficients"]
@@ -263,43 +305,68 @@ impl ImportExtension {
                         .flatten()
                         .filter_map(|x| Some((json_key(&x[0], n)?, x[1].as_str()?.to_string())))
                         .collect();
-                    verify_relation_with(&Independent, g, t, &rhs, &[t.to_vec()], self.symmetry_max_terms)
+                    verify_relation_with(
+                        &Independent,
+                        g,
+                        t,
+                        &rhs,
+                        &[t.to_vec()],
+                        self.symmetry_max_terms,
+                    )
                 });
                 self.set.supplied.push(Arc::new(RelationSet {
                     name: src.clone(),
-                    recipe_digest: format!("symmetry:{}", cand.relation_digest.clone().unwrap_or_default()),
+                    recipe_digest: format!(
+                        "symmetry:{}",
+                        cand.relation_digest.clone().unwrap_or_default()
+                    ),
                     domain: point_domain(&self.set, t),
                     relations,
                     slot: DispatchSlot::Last,
                 }));
-                self.set.rel_order.push(RelEntry::Supplied(self.set.supplied.len() - 1));
-                self.set.classes.insert(src.clone(), format!("{SOURCE_PREFIX}_symmetry"));
-                self.set.supplied_info.entry(src.clone()).or_default().insert(
-                    t.to_vec(),
-                    SuppliedInfo {
-                        source: src.clone(),
-                        class: format!("{SOURCE_PREFIX}_symmetry"),
-                        path: "<termmin>".into(),
-                        label: None,
-                        ordinal: 0,
-                        record_sha256: cand.relation_digest.clone().unwrap_or_default(),
-                        hand_name: None,
-                        verification_sha256: None,
-                        check: check_v,
-                    },
-                );
+                self.set
+                    .rel_order
+                    .push(RelEntry::Supplied(self.set.supplied.len() - 1));
+                self.set
+                    .classes
+                    .insert(src.clone(), format!("{SOURCE_PREFIX}_symmetry"));
+                self.set
+                    .supplied_info
+                    .entry(src.clone())
+                    .or_default()
+                    .insert(
+                        t.to_vec(),
+                        SuppliedInfo {
+                            source: src.clone(),
+                            class: format!("{SOURCE_PREFIX}_symmetry"),
+                            path: "<termmin>".into(),
+                            label: None,
+                            ordinal: 0,
+                            record_sha256: cand.relation_digest.clone().unwrap_or_default(),
+                            hand_name: None,
+                            verification_sha256: None,
+                            check: check_v,
+                        },
+                    );
                 u.supplied = Some(src.clone());
             }
             k => return Err(format!("unknown candidate kind {k}")),
         }
         for l in extras {
-            let Some(s) = l.get("source").and_then(Value::as_str) else { continue };
+            let Some(s) = l.get("source").and_then(Value::as_str) else {
+                continue;
+            };
             if !self.set.recipes.iter().any(|r| r.id == s) {
                 continue;
             }
             let rel = solved_from_line(l, s, n, "<termmin closing try>")?;
             let k = rel.key.clone();
-            let old = self.ev.solved.entry(s.to_string()).or_default().insert(k.clone(), rel);
+            let old = self
+                .ev
+                .solved
+                .entry(s.to_string())
+                .or_default()
+                .insert(k.clone(), rel);
             u.solved.push((s.to_string(), k, old));
         }
         Ok(u)
@@ -334,7 +401,9 @@ impl ImportExtension {
             }
         }
         if let Some((k, p)) = u.terminal {
-            self.set.terminals_other.insert(p.min(self.set.terminals_other.len()), k);
+            self.set
+                .terminals_other
+                .insert(p.min(self.set.terminals_other.len()), k);
         }
     }
 
@@ -388,8 +457,12 @@ impl ImportExtension {
                                     .unwrap_or_else(|| "not served".into()),
                             )
                         };
-                        let new_open: Vec<Key> =
-                            v.open.iter().filter(|k| !self.cur.open.contains(*k) && k.as_slice() != t).cloned().collect();
+                        let new_open: Vec<Key> = v
+                            .open
+                            .iter()
+                            .filter(|k| !self.cur.open.contains(*k) && k.as_slice() != t)
+                            .cloned()
+                            .collect();
                         (
                             Extension {
                                 served,
@@ -433,10 +506,15 @@ impl ClosureOracle for ImportExtension {
                 columns,
                 elements,
             } => {
-                let coefficients: Vec<Value> = rhs.iter().map(|(k, q)| json!([k, q_text(q)])).collect();
+                let coefficients: Vec<Value> =
+                    rhs.iter().map(|(k, q)| json!([k, q_text(q)])).collect();
                 let canon = json!({"target": t, "rhs": coefficients});
                 let mut h = crate::closure::sha256::Sha256::new();
-                h.update(crate::schema::canon::canonical_json(&canon, false).unwrap_or_default().as_bytes());
+                h.update(
+                    crate::schema::canon::canonical_json(&canon, false)
+                        .unwrap_or_default()
+                        .as_bytes(),
+                );
                 SymStep::Relation(Candidate {
                     kind: "symmetry".into(),
                     step: "symmetry_relation".into(),
@@ -448,10 +526,16 @@ impl ClosureOracle for ImportExtension {
                                     "columns": columns, "group_digest": g.digest()}),
                 })
             }
-            SymRelation::NoRelation { rows, rank, columns } => SymStep::NoRelation(format!(
+            SymRelation::NoRelation {
+                rows,
+                rank,
+                columns,
+            } => SymStep::NoRelation(format!(
                 "no relation from the symmetry rows at the key ({rows} rows, rank {rank}, {columns} columns)"
             )),
-            SymRelation::Unknown(w) => SymStep::NoRelation(format!("symmetry rows not decided: {w}")),
+            SymRelation::Unknown(w) => {
+                SymStep::NoRelation(format!("symmetry rows not decided: {w}"))
+            }
         }
     }
 
@@ -459,7 +543,12 @@ impl ClosureOracle for ImportExtension {
         self.run(t, cand, extras).0
     }
 
-    fn closing_requests(&mut self, t: &[i32], cand: &Candidate, ext: &Extension) -> Vec<ClosingSolve> {
+    fn closing_requests(
+        &mut self,
+        t: &[i32],
+        cand: &Candidate,
+        ext: &Extension,
+    ) -> Vec<ClosingSolve> {
         let (_, v) = self.run(t, cand, &[]);
         let want: BTreeSet<&Key> = ext.new_open.iter().collect();
         let mut out: Vec<ClosingSolve> = v
