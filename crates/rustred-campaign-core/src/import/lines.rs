@@ -86,6 +86,49 @@ pub fn scan_table(
     Ok(t)
 }
 
+/// The header of a table file, read from its first non-blank line only (a file whose first line is not a header is
+/// refused). Used for the frame: never a whole-file scan (tables can be tens of GB).
+pub fn read_header(source: &str, path: &Path) -> Result<TableHeader, ImportError> {
+    let f = std::fs::File::open(path).map_err(|e| io_err(path, e))?;
+    let mut rd = BufReader::with_capacity(1 << 16, f);
+    let mut buf: Vec<u8> = Vec::new();
+    let mut line_no = 0usize;
+    loop {
+        buf.clear();
+        let n = rd
+            .read_until(b'\n', &mut buf)
+            .map_err(|e| io_err(path, e))?;
+        if n == 0 {
+            break;
+        }
+        line_no += 1;
+        if buf.iter().all(|c| c.is_ascii_whitespace()) {
+            continue;
+        }
+        let body = buf.strip_suffix(b"\n").unwrap_or(&buf);
+        let lerr = |msg: String| ImportError::Line {
+            source: source.to_string(),
+            path: path.display().to_string(),
+            line: line_no,
+            msg,
+        };
+        let parsed = RecordReader::new(Cursor::new(body), ReadOptions { rhs: RhsMode::Skip })
+            .next()
+            .ok_or_else(|| lerr("empty line".into()))?
+            .map_err(|e| lerr(e.to_string()))?;
+        return match parsed {
+            TableLine::Header(h) => Ok(*h),
+            _ => Err(lerr("the first line is not a header".into())),
+        };
+    }
+    Err(ImportError::Line {
+        source: source.to_string(),
+        path: path.display().to_string(),
+        line: 0,
+        msg: "file without header".into(),
+    })
+}
+
 /// [`scan_table`] that hands every kept record to `visit` as soon as it is read (bounded memory: one record at a
 /// time); the returned table has no records.
 pub fn scan_table_each(

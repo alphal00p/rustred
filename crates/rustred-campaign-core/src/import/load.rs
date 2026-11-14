@@ -262,7 +262,8 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
         source: fsrc.id.clone(),
         msg: "no table file".into(),
     })?;
-    let fhead = scan_table(&fsrc.id, &first.path, false, &|_, _| false)?.header;
+    // the frame: the header line only (the file itself is verified when its source is loaded)
+    let fhead = super::lines::read_header(&fsrc.id, &first.path)?;
     let frame = NodeFrame::from_header(&fhead).map_err(|e| ImportError::Source {
         source: fsrc.id.clone(),
         msg: format!("frame: {e}"),
@@ -418,8 +419,10 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
                         None => src.id.clone(),
                     };
                     if !order.is_empty() {
-                        let (t, tf, infos) =
-                            build_table(src, &class, &name, u, &raw, &order, &frame, &mut rep)?;
+                        let witness = spec.policies.witness_check == super::spec::WitnessCheck::On;
+                        let (t, tf, infos) = build_table(
+                            src, &class, &name, u, &raw, &order, &frame, witness, &mut rep,
+                        )?;
                         if !t.is_empty() {
                             if first_table_name.is_none() {
                                 first_table_name = Some(name.clone());
@@ -912,6 +915,7 @@ fn build_table(
     raw: &RawTable,
     seg: &[usize],
     frame: &NodeFrame,
+    witness_check: bool,
     rep: &mut SourceReport,
 ) -> Result<(Table, TableFile, Vec<RuleInfo>), ImportError> {
     let tf = TableFile {
@@ -921,7 +925,7 @@ fn build_table(
         others: vec![],
     };
     let opts = DomainOptions {
-        witness: true,
+        witness: witness_check,
         ..Default::default()
     };
     let mut t =
@@ -1118,7 +1122,7 @@ fn load_supplied(
         }
         None => None,
     };
-    let coefs: HashMap<usize, Vec<(Vec<i32>, String)>> = if vgroup.is_some() {
+    let coefs: SuppliedCoefficients = if vgroup.is_some() {
         supplied_coefficients(&src.id, &path, n)?
     } else {
         HashMap::new()
@@ -1257,11 +1261,14 @@ fn load_supplied(
 
 /// The coefficient texts of every rule record of a supplied file (ordinal -> [(rhs key, coefficient text)]), from
 /// the raw `rhs` arrays `[[key, coefficient], ..]` (small files only: the file is read whole).
+/// Ordinal -> [(rhs key, coefficient text)] of a supplied file.
+type SuppliedCoefficients = HashMap<usize, Vec<(Vec<i32>, String)>>;
+
 fn supplied_coefficients(
     source: &str,
     path: &Path,
     n: usize,
-) -> Result<HashMap<usize, Vec<(Vec<i32>, String)>>, ImportError> {
+) -> Result<SuppliedCoefficients, ImportError> {
     let txt = std::fs::read_to_string(path).map_err(|e| io_err(path, e))?;
     let mut out = HashMap::new();
     let mut ordinal = 0usize;

@@ -437,7 +437,7 @@ fn t162_only_ours_key_predecessor_coefficients_exact() {
             v["witness_loci"],
             coef.len(),
             vals(&num),
-            den.as_ref().map(|q| vals(q)),
+            den.as_ref().map(&vals),
         );
         assert!(
             num_zero,
