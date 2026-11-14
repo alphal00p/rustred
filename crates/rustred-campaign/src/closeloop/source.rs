@@ -14,7 +14,7 @@ use crate::state::{
 };
 use crate::supervisor::spec::CampaignSpec;
 use crate::supervisor::worksource::{
-    AcceptedRecord, JobRequest, Routing, Settled, SourceContext, WorkSource,
+    AcceptedRecord, CampaignOutcome, JobRequest, Routing, Settled, SourceContext, WorkSource,
 };
 use rustred_campaign_contract::classify::recipe::Verdict;
 use rustred_campaign_contract::fake::{FakeOp, FakeScript, OnSigterm, RssPlan};
@@ -454,6 +454,16 @@ impl CloseFromMaterialSource {
 
     fn abs(&self, rel: &str) -> PathBuf {
         self.cdir.join(rel)
+    }
+
+    /// A recorded input path: absolute as recorded, else relative to the campaign directory.
+    fn abs_or(&self, p: &str) -> PathBuf {
+        let pb = PathBuf::from(p);
+        if pb.is_absolute() {
+            pb
+        } else {
+            self.cdir.join(pb)
+        }
     }
 
     fn node_of(&self, node: &str) -> Option<usize> {
@@ -2149,6 +2159,50 @@ impl WorkSource for CloseFromMaterialSource {
         self.nodes
             .iter()
             .all(|r| r.running.is_none() && st.inputs.contains_key(&input_final(&r.n)))
+    }
+
+    /// lane closeloop3 (procfix5, supervisor.md 19.4): the outcome from every node's FINAL verdict (the recorded
+    /// `final/result.json`): `closed` -> Closed; `error` (or an unreadable result) -> Error; anything else (`open`,
+    /// `budget`, no result) -> Open. Error wins over Open.
+    fn outcome(&self, st: &CampaignState) -> CampaignOutcome {
+        let (mut open, mut error) = (vec![], vec![]);
+        for r in &self.nodes {
+            let node = &r.cfg.node;
+            let Some(inp) = st.inputs.get(&input_final(&r.n)) else {
+                open.push(format!("{node}: no final verdict"));
+                continue;
+            };
+            let v: Option<Value> = std::fs::read(self.abs_or(&inp.path))
+                .ok()
+                .and_then(|b| serde_json::from_slice(&b).ok());
+            match v.as_ref().and_then(|v| v["verdict"].as_str()) {
+                Some("closed") => {}
+                Some("error") => error.push(format!(
+                    "{node}: error ({})",
+                    v.as_ref().and_then(|v| v["error"].as_str()).unwrap_or("")
+                )),
+                Some(w) => open.push(format!(
+                    "{node}: {w} ({})",
+                    v.as_ref()
+                        .and_then(|v| v["blockers"].as_array())
+                        .map(|b| b
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .take(5)
+                            .collect::<Vec<_>>()
+                            .join("; "))
+                        .unwrap_or_default()
+                )),
+                None => error.push(format!("{node}: final result unreadable ({})", inp.path)),
+            }
+        }
+        if !error.is_empty() {
+            CampaignOutcome::Error(error.join(" | "))
+        } else if !open.is_empty() {
+            CampaignOutcome::Open(open.join(" | "))
+        } else {
+            CampaignOutcome::Closed
+        }
     }
 
     fn describe(&self) -> String {

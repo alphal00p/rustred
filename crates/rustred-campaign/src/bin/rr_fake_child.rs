@@ -1405,9 +1405,18 @@ impl Main {
 }
 
 fn sigkill_self() -> ! {
-    // SAFETY: signalling ourselves.
+    die_by_signal(libc::SIGKILL)
+}
+
+/// End killed by `sig` (default disposition restored first; SIGKILL cannot be caught anyway): the one self-signal form
+/// of the fake child (`kill(getpid(), ..)`; lane closeloop3: also the legacy rr_proof emulation's end on a signal).
+pub(crate) fn die_by_signal(sig: libc::c_int) -> ! {
+    // SAFETY: restoring the default disposition and signalling ourselves.
     unsafe {
-        libc::kill(libc::getpid(), libc::SIGKILL);
+        if sig != libc::SIGKILL {
+            libc::signal(sig, libc::SIG_DFL);
+        }
+        libc::kill(libc::getpid(), sig);
     }
     park_forever()
 }

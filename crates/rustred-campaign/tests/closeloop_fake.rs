@@ -359,7 +359,7 @@ fn a_recipe_failure_is_a_structured_error_and_the_node_ends_open() {
     };
     let (_t, files, sp, cdir) = setup("clfail", &cfg);
     std::fs::write(&files.hand, "").unwrap();
-    assert_eq!(run_to_end(&sp, &cdir, &["--plain"]).last(), Some(&0));
+    assert_eq!(run_to_end(&sp, &cdir, &["--plain"]).last(), Some(&10));
     let st = state(&cdir);
     assert_eq!(
         st.nodes["toy"].state.phase,

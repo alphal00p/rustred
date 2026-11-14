@@ -172,7 +172,7 @@ fn without_exact_eval_the_elided_record_keeps_its_key_uncertified() {
     let (_t, sp, cdir) = setup("cl3none", false, &[]);
     assert_eq!(
         run_to_end(&sp, &cdir, &["--plain"]).last(),
-        Some(&0),
+        Some(&10),
         "{}",
         log_tail(&cdir)
     );
@@ -209,7 +209,7 @@ fn an_exact_eval_answer_for_another_record_or_without_its_producer_is_refused() 
         let (_t, sp, cdir) = setup(tag, true, std::slice::from_ref(&lie));
         assert_eq!(
             run_to_end(&sp, &cdir, &["--plain"]).last(),
-            Some(&0),
+            Some(&10),
             "{}",
             log_tail(&cdir)
         );
@@ -383,7 +383,7 @@ fn a_key_typed_error_or_irregular_is_retried_then_in_attention_never_moved_to_th
         let sp = write_spec(&t, "spec.json", &spec);
         let cdir = t.cdir("cdir");
         let codes = run_to_end(&sp, &cdir, &["--plain"]);
-        assert_eq!(codes.last(), Some(&0), "{tag}: {}", log_tail(&cdir));
+        assert_eq!(codes.last(), Some(&10), "{tag}: {}", log_tail(&cdir));
         let r = result_json(&cdir);
         assert_eq!(r["verdict"], "open", "{tag}: {r:#}");
         let b = blockers(&r);
@@ -435,4 +435,32 @@ fn a_key_typed_error_or_irregular_is_retried_then_in_attention_never_moved_to_th
         assert_eq!(o["engine_failure"][0]["verdict"], verdict, "{tag}: {o}");
         assert_eq!(verify(&cdir), 0);
     }
+}
+
+#[test]
+fn the_run_exit_code_follows_the_closing_loops_verdicts_closed_open_error() {
+    let _g = serial();
+    // procfix5 (supervisor.md 19.4) + lane closeloop3: CloseFromMaterialSource::outcome from the nodes' final verdicts:
+    // closed -> 0 (the other tests), open -> 10 (the other tests), ERROR -> 11: a hand statement that cannot be read
+    // makes phase D fail (verdict error, gate4 m3 / E6: it exited 0 before)
+    let t = Tmp::new("cl3exit");
+    let files = toy(&t.path.join("material"), &Toy::default(), FAKE);
+    let _ = std::fs::remove_file(&files.hand); // never written: the hand statement is missing
+    let spec = campaign_spec(&t.campaign, &files, FAKE, &cpus());
+    let sp = write_spec(&t, "spec.json", &spec);
+    let cdir = t.cdir("cdir");
+    let codes = run_to_end(&sp, &cdir, &["--plain"]);
+    assert_eq!(codes.last(), Some(&11), "{codes:?} {}", log_tail(&cdir));
+    let r = result_json(&cdir);
+    assert_eq!(r["verdict"], "error", "{r:#}");
+    assert_eq!(verify(&cdir), 0);
+    // the same material with the hand statement present closes: exit 0
+    let t2 = Tmp::new("cl3exit0");
+    let files2 = toy(&t2.path.join("material"), &Toy::default(), FAKE);
+    std::fs::write(&files2.hand, "").unwrap();
+    let spec2 = campaign_spec(&t2.campaign, &files2, FAKE, &cpus());
+    let sp2 = write_spec(&t2, "spec.json", &spec2);
+    let cdir2 = t2.cdir("cdir");
+    assert_eq!(run_to_end(&sp2, &cdir2, &["--plain"]).last(), Some(&0));
+    assert_eq!(result_json(&cdir2)["verdict"], "closed");
 }

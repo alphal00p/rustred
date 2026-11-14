@@ -70,12 +70,8 @@ fn check_signal() {
     if SIGNALS.load(SeqCst) > 0 {
         let s = super::LAST_SIG.load(SeqCst);
         let s = if s > 0 { s } else { libc::SIGTERM };
-        // SAFETY: restoring the default disposition and signalling ourselves.
-        unsafe {
-            libc::signal(s, libc::SIG_DFL);
-            libc::raise(s);
-        }
-        std::process::exit(128 + s);
+        // the fake child's one self-signal helper (procfix3's tripwire: no raw raise)
+        super::die_by_signal(s);
     }
 }
 

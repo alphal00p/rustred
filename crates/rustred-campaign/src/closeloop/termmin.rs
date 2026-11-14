@@ -1685,6 +1685,11 @@ impl WorkSource for TermminSource {
         Ok(rt)
     }
 
+    /// lane closeloop3 (procfix5): the closing loop's outcome (phase E never changes a node's verdict).
+    fn outcome(&self, st: &CampaignState) -> crate::supervisor::worksource::CampaignOutcome {
+        self.inner.outcome(st)
+    }
+
     fn finished(&self, st: &CampaignState) -> bool {
         self.inner.finished(st)
             && (0..self.nodes.len())
