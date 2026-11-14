@@ -76,6 +76,45 @@ fn substitute(system: &mut Vec<ZpPoly>, var: usize, value: &FiniteFieldElement<u
     system.retain(|p| !p.is_zero());
 }
 
+
+// gb-mre instrumentation: dump every GroebnerBasis::new input (RR_GB_DUMP_DIR), so the last dump before a panic is
+// the failing input. Format: header line, then per polynomial `poly <nterms>` and one `coef e_0 .. e_{n-1}` per term.
+static GB_DUMP_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+fn gb_dump<O: symbolica::poly::MonomialOrder>(
+    order: &str,
+    polys: &[MultivariatePolynomial<Zp64, u16, O>],
+    field: &Zp64,
+) -> Option<(usize, std::time::Instant)> {
+    use std::io::Write;
+    let dir = std::env::var("RR_GB_DUMP_DIR").ok()?;
+    let n = GB_DUMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let nvars = polys.first().map(|p| p.nvars()).unwrap_or(0);
+    let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{dir}/gb_{n:05}_{order}.txt")).ok()?);
+    let maxdeg = polys.iter().map(|p| (0..p.nterms()).map(|i| p.exponents(i).iter().map(|&e| e as u64).sum::<u64>()).max().unwrap_or(0)).max().unwrap_or(0);
+    let nterms: usize = polys.iter().map(|p| p.nterms()).sum();
+    writeln!(f, "# order={order} prime={} nvars={nvars} npolys={} total_terms={nterms} max_total_degree={maxdeg}", field.get_prime(), polys.len()).ok()?;
+    for p in polys {
+        writeln!(f, "poly {}", p.nterms()).ok()?;
+        for i in 0..p.nterms() {
+            let c = field.from_element(&p.coefficients[i]);
+            let e: Vec<String> = p.exponents(i).iter().map(|x| x.to_string()).collect();
+            writeln!(f, "{c} {}", e.join(" ")).ok()?;
+        }
+    }
+    f.flush().ok()?;
+    f.get_ref().sync_all().ok()?;
+    eprintln!("[gb-mre] dump {n} order={order} npolys={} nvars={nvars} terms={nterms} maxdeg={maxdeg}", polys.len());
+    Some((n, std::time::Instant::now()))
+}
+fn gb_done<O: symbolica::poly::MonomialOrder>(tag: Option<(usize, std::time::Instant)>, out: &[MultivariatePolynomial<Zp64, u16, O>]) {
+    if let Some((n, t)) = tag {
+        let maxdeg = out.iter().map(|p| (0..p.nterms()).map(|i| p.exponents(i).iter().map(|&e| e as u64).sum::<u64>()).max().unwrap_or(0)).max().unwrap_or(0);
+        let maxexp = out.iter().map(|p| (0..p.nterms()).map(|i| p.exponents(i).iter().copied().max().unwrap_or(0)).max().unwrap_or(0)).max().unwrap_or(0);
+        let nterms: usize = out.iter().map(|p| p.nterms()).sum();
+        eprintln!("[gb-mre] done {n} in {:.2}s: basis {} polys, {nterms} terms, max total degree {maxdeg}, max exponent {maxexp}", t.elapsed().as_secs_f64(), out.len());
+    }
+}
+
 /// One attempt: returns the values of the variables that the system constrains (others untouched).
 fn attempt(
     mut system: Vec<ZpPoly>,
@@ -102,11 +141,13 @@ fn attempt(
         // still occurring), so the cheaper order is taken and converted back.
         let grevlex: Vec<MultivariatePolynomial<Zp64, u16, GrevLexOrder>> =
             system.iter().map(|p| p.reorder::<GrevLexOrder>()).collect();
+        let tag = gb_dump("grevlex", &grevlex, field);
         let gbasis: Vec<_> = GroebnerBasis::new(&grevlex, false)
             .system
             .into_iter()
             .filter(|p| !p.is_zero())
             .collect();
+        gb_done(tag, &gbasis);
         // zero-dimensional (every occurring variable has a pure power among the leading monomials): no free choice is
         // left, so a univariate element is needed; the lex basis of a zero-dimensional ideal has one and is cheap
         let occ: Vec<usize> = {
@@ -137,11 +178,14 @@ fn attempt(
         });
         let basis: Vec<ZpPoly> = if zero_dim && !has_uni {
             let lex: Vec<ZpPoly> = gbasis.iter().map(|p| p.reorder::<LexOrder>()).collect();
-            GroebnerBasis::new(&lex, false)
+            let tag = gb_dump("lex", &lex, field);
+            let out: Vec<ZpPoly> = GroebnerBasis::new(&lex, false)
                 .system
                 .into_iter()
                 .filter(|p| !p.is_zero())
-                .collect()
+                .collect();
+            gb_done(tag, &out);
+            out
         } else {
             gbasis
                 .into_iter()
@@ -189,6 +233,11 @@ pub fn region_point(
     seed: u64,
 ) -> Option<Vec<FiniteFieldElement<u64>>> {
     let zp: Vec<ZpPoly> = system.iter().map(|p| to_zp(p, field)).collect();
+    if let Ok(dir) = std::env::var("RR_GB_DUMP_DIR") {
+        let vars: Vec<String> = system.first().map(|p| p.variables().iter().map(|v| v.to_string()).collect()).unwrap_or_default();
+        let _ = std::fs::write(format!("{dir}/region_point_{:05}.vars", GB_DUMP_COUNTER.load(std::sync::atomic::Ordering::SeqCst)),
+            format!("prime={} seed={seed}\nvars={}\n{}\n", field.get_prime(), vars.join(","), system.iter().map(|p| p.to_string()).collect::<Vec<_>>().join("\n")));
+    }
     let mut rng = StdRng::seed_from_u64(seed ^ 0x7266_5e61_6f6e_5072);
     for _ in 0..REGION_POINT_ATTEMPTS {
         let mut point = base.to_vec();
