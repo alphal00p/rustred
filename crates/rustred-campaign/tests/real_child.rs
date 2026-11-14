@@ -1508,11 +1508,30 @@ fn recipe_spec(
     keys: &[serde_json::Value],
     extra: &[&str],
 ) -> JobSpec {
+    recipe_spec_rule(root, job, rid, keys, extra, None)
+}
+
+/// [`recipe_spec`] with the recipe's v1.2 `relation_rule` set to `rule` (a copy written to RUN/in/recipe.json).
+fn recipe_spec_rule(
+    root: &Path,
+    job: &str,
+    rid: &str,
+    keys: &[serde_json::Value],
+    extra: &[&str],
+    rule: Option<&str>,
+) -> JobSpec {
     let run = rustred_campaign_contract::layout::attempt_dir(root, job, 1);
     std::fs::create_dir_all(run.join("in")).unwrap();
     let fx = recipe_fixtures();
     let fam = fx.join("T178.sym");
-    let rec = fx.join("recipes").join(format!("{rid}.json"));
+    let mut rec = fx.join("recipes").join(format!("{rid}.json"));
+    if let Some(rule) = rule {
+        let mut r: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&rec).unwrap()).unwrap();
+        r["relation_rule"] = serde_json::json!(rule);
+        rec = run.join("in/recipe.json");
+        std::fs::write(&rec, serde_json::to_string(&r).unwrap()).unwrap();
+    }
     let kp = run.join("in/keys.jsonl");
     let text: String = keys.iter().map(|k| format!("{k}\n")).collect();
     std::fs::write(&kp, text).unwrap();
@@ -1573,6 +1592,34 @@ fn relations_of(p: &Path) -> Vec<(serde_json::Value, String, Option<String>)> {
         .collect()
 }
 
+/// (key, verdict, rhs) of every relation record (relations compared across digest versions).
+fn rhs_of(p: &Path) -> Vec<(serde_json::Value, String, serde_json::Value)> {
+    std::fs::read_to_string(p)
+        .unwrap()
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|v| v["type"] == "relation")
+        .map(|v| {
+            (
+                v["key"].clone(),
+                v["verdict"].as_str().unwrap_or("").to_string(),
+                v["rhs"].clone(),
+            )
+        })
+        .collect()
+}
+
+/// A member of every relation record.
+fn member_of(p: &Path, m: &str) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(p)
+        .unwrap()
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|v| v["type"] == "relation")
+        .map(|v| v[m].clone())
+        .collect()
+}
+
 fn results_canonical(spec: &JobSpec) -> String {
     outcome(spec).job.outputs.extra[0]
         .canonical_blake3
@@ -1580,9 +1627,12 @@ fn results_canonical(spec: &JobSpec) -> String {
         .unwrap()
 }
 
+/// v1.2: `relation_rule: first_admissible` gives the v1 relation: the pass a1 hand reference (v1 digests are not
+/// comparable with v2, so the relations are compared by their right-hand sides), recorded in the records and OUTCOME;
+/// the alias `solve-recipe --job` is the same dispatcher (canonically identical results).
 #[test]
 #[ignore]
-fn solve_recipe_job_and_alias_match_the_hand_reference() {
+fn solve_recipe_job_first_admissible_matches_the_v1_reference_and_alias() {
     let r = root("recipe-ref");
     let fx = recipe_fixtures();
     let mut canon_job = None;
@@ -1591,7 +1641,14 @@ fn solve_recipe_job_and_alias_match_the_hand_reference() {
         .enumerate()
     {
         let keys = recipe_keys(rid);
-        let s = recipe_spec(&r, &format!("sr{n}"), rid, &keys, &[]);
+        let s = recipe_spec_rule(
+            &r,
+            &format!("sr{n}"),
+            rid,
+            &keys,
+            &[],
+            Some("first_admissible"),
+        );
         let (w, t) = run_to_end(&s);
         let c = classified(&s, w, KillReason::None);
         assert_eq!(w, WaitStatus::Exited(0), "{rid}: {}", c.why);
@@ -1605,12 +1662,24 @@ fn solve_recipe_job_and_alias_match_the_hand_reference() {
             o.legacy["result"]["schema"],
             "rustred.solve-recipe.outcome.v0"
         );
-        let mine = relations_of(&RunLayout::new(&s.run_dir).results());
-        let reference = relations_of(&fx.join("reference").join(format!("{rid}.results.jsonl")));
+        assert_eq!(o.legacy["relation_rule"], "first_admissible");
         assert_eq!(
-            mine, reference,
-            "{rid}: verdicts / relation digests differ from the hand reference"
+            o.job.effective.as_ref().unwrap().node_options["relation_rule"],
+            "first_admissible"
         );
+        let res = RunLayout::new(&s.run_dir).results();
+        let reference = fx.join("reference").join(format!("{rid}.results.jsonl"));
+        assert_eq!(
+            rhs_of(&res),
+            rhs_of(&reference),
+            "{rid}: relations differ from the v1 hand reference"
+        );
+        for m in ["relation_rule", "relation_rule_taken"] {
+            assert!(
+                member_of(&res, m).iter().all(|v| v == "first_admissible"),
+                "{rid}: {m}"
+            );
+        }
         let ev = events_of(&s);
         assert_eq!(
             count_kind(&ev, "engine", |_| true),
@@ -1619,7 +1688,7 @@ fn solve_recipe_job_and_alias_match_the_hand_reference() {
         );
         assert_eq!(ev.last().unwrap()["kind"], "job_finished");
         eprintln!(
-            "{rid}: {} keys SOLVED, digests = reference, {t:?}",
+            "{rid}: {} keys SOLVED first_admissible, rhs = v1 reference, {t:?}",
             keys.len()
         );
         if n == 0 {
@@ -1628,7 +1697,14 @@ fn solve_recipe_job_and_alias_match_the_hand_reference() {
     }
     // the engine line's spelling `solve-recipe --job` is the same dispatcher: same classification and results
     let rid = "results_47_fix10m1_n10_M1_json";
-    let s = recipe_spec(&r, "sr-alias", rid, &recipe_keys(rid), &[]);
+    let s = recipe_spec_rule(
+        &r,
+        "sr-alias",
+        rid,
+        &recipe_keys(rid),
+        &[],
+        Some("first_admissible"),
+    );
     let mut ch = spawn_with(&s, &["solve-recipe", "--job"]);
     let w = wait(&mut ch);
     assert_eq!(classified(&s, w, KillReason::None).row, 1);
@@ -1637,6 +1713,47 @@ fn solve_recipe_job_and_alias_match_the_hand_reference() {
         canon_job,
         "alias run canonically identical to the job run"
     );
+}
+
+/// v1.2 default `relation_rule: m1_first` against the coordinator's M1-first reference (frozen engine-line4, same keys):
+/// verdicts, relation digests, taken rule and m1 steps equal; the rule recorded in OUTCOME. g026 has symmetry rows (the
+/// trace-row identity fix ef617e98).
+#[test]
+#[ignore]
+fn solve_recipe_job_m1_first_matches_the_coordinator_reference() {
+    let r = root("recipe-m1");
+    let fx = recipe_fixtures();
+    for (n, rid) in ["g026_d2_ccomb_fon_sfirst", "g038_d2_cL1_fon_sfirst"]
+        .iter()
+        .enumerate()
+    {
+        let keys = recipe_keys(rid);
+        let s = recipe_spec(&r, &format!("m1-{n}"), rid, &keys, &[]);
+        let (w, t) = run_to_end(&s);
+        let c = classified(&s, w, KillReason::None);
+        assert_eq!((w, c.row), (WaitStatus::Exited(0), 1), "{rid}: {}", c.why);
+        let o = outcome(&s);
+        assert_eq!(o.legacy["relation_rule"], "m1_first");
+        assert_eq!(
+            o.job.effective.as_ref().unwrap().node_options["relation_rule"],
+            "m1_first"
+        );
+        let res = RunLayout::new(&s.run_dir).results();
+        let reference = fx.join("reference").join(format!("{rid}.results.jsonl"));
+        assert_eq!(
+            relations_of(&res),
+            relations_of(&reference),
+            "{rid}: digests differ from the M1-first reference"
+        );
+        for m in ["relation_rule", "relation_rule_taken", "m1_steps"] {
+            assert_eq!(member_of(&res, m), member_of(&reference, m), "{rid}: {m}");
+        }
+        eprintln!(
+            "{rid}: {} keys, digests = M1-first reference, taken {:?}, {t:?}",
+            keys.len(),
+            member_of(&res, "relation_rule_taken")
+        );
+    }
 }
 
 #[test]
