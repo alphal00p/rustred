@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use ledger_support::*;
 use rustred_campaign::ledger::{self, Event, LEDGER_SCHEMA, Record};
-use rustred_campaign::state::{CampaignState, EvidenceLevel, reduce};
+use rustred_campaign::state::{CampaignState, EvidenceLevel};
 
 /// Builds `n_items` item lives (10 records each) as serialised, hash-chained lines.
 fn build_lines(n_items: usize) -> Vec<u8> {
@@ -83,18 +83,30 @@ fn reducer_speed_one_million() {
     let (st, n) = parse_and_reduce(&bytes);
     let full = t.elapsed();
     assert!(n >= 1_000_000);
-    // reduction alone over pre-parsed records
+    // reduction alone over pre-parsed records (chunks of 100,000 records: bounded memory)
     let mb = bytes.len() >> 20;
-    let recs: Vec<Record> = bytes
+    let mut st2 = CampaignState::default();
+    let mut pure = std::time::Duration::ZERO;
+    let mut chunk: Vec<Record> = Vec::with_capacity(100_000);
+    let mut lines = bytes
         .split(|&b| b == b'\n')
         .filter(|l| !l.is_empty())
-        .map(|l| serde_json::from_slice(l).unwrap())
-        .collect();
+        .peekable();
+    while lines.peek().is_some() {
+        chunk.clear();
+        for l in lines.by_ref().take(100_000) {
+            chunk.push(ledger::decode_record(l).unwrap().0);
+        }
+        let t = Instant::now();
+        for r in &chunk {
+            st2.apply_record(r).unwrap();
+        }
+        pure += t.elapsed();
+    }
+    drop(chunk);
     drop(bytes);
-    let t = Instant::now();
-    let st2 = reduce(&recs).unwrap();
-    let pure = t.elapsed();
-    assert_eq!(st, st2);
+    assert_eq!(st.digest(), st2.digest());
+    drop(st2);
     // snapshot size and (de)serialisation cost of that state
     let t = Instant::now();
     let snap = serde_json::to_vec(&st).unwrap();
