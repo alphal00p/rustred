@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc a999b23c085ea83430e8ac6ef98d0a555487e4a5fb3054b85c9b2f6c609a57de # shrinks to b = BoxDef { id: "prop", name: "prop", chart: [false, false, true, false, false], layers: [[1, 0]], sectors: [], cap: None, slot_caps: [None, None, None, None, None], keys: [[0, 0, 1, 0, 0]], origin: None, derived_from: None }
