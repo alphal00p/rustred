@@ -13,6 +13,7 @@ use rustred_campaign_core::closure::{
     ClosureConfig, HandDowns, KeyCodec, KeySet, RuleBodies, Tier, Verdict, closure,
 };
 use rustred_campaign_core::cover::{Dispatch, Dispatcher};
+use rustred_campaign_core::glue::{ClosureRule, closure_exclusions_from_accept};
 
 fn kos(node: &str) -> Vec<String> {
     let d = slice(node).join("ko");
@@ -110,19 +111,41 @@ fn check_node(name: &str) {
                     rustred_campaign_core::accept::rule::sha256_tag(
                         &rules
                             .iter()
-                            .flat_map(|r| r.line.iter().copied().chain([b'\n']))
+                            .flat_map(|r| r.line.iter().copied().chain(*b"\n"))
                             .collect::<Vec<u8>>(),
                     ),
                 ),
             ]
             .into_iter()
             .collect(),
+            // acceptance.md (exclusions to the closure once it accepts them; int3 glue): every accepted rule's
+            // effective-domain exclusions, at its record of the campaign table
+            exclusions: run
+                .accepted
+                .iter()
+                .enumerate()
+                .flat_map(|(i, (_, _, _, v))| {
+                    let AcceptVerdict::Accepted { effective, .. } = v else {
+                        unreachable!()
+                    };
+                    closure_exclusions_from_accept(
+                        ClosureRule {
+                            table: "campaign",
+                            record: i,
+                            label: i as i64,
+                        },
+                        &effective.exclusions,
+                    )
+                    .expect("acceptance exclusions are per key")
+                })
+                .collect(),
             ..Default::default()
         };
+        let n_excl = cfg.exclusions.len();
         let c = closure(&disp, &bodies, &node.cmp, &start, &cfg, &facts).unwrap();
         let s = c.summary();
         println!(
-            "{name} {ko}: witnesses {} accepted {} rejected {:?}; gap keys {}; working range {}; served {}; closure {:?} keys {} open {} terminals {} (expected {})",
+            "{name} {ko}: witnesses {} accepted {} rejected {:?}; gap keys {}; working range {}; served {}; exclusions {n_excl}; closure {:?} keys {} open {} terminals {} (expected {})",
             run.accepted.len() + run.rejected.len(),
             run.accepted.len(),
             rej,
