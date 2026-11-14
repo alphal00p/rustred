@@ -1833,12 +1833,12 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
     })
 }
 
-/// Identity of one trace row across the solves of a key (basis row, seed, leading term, length).
+/// Identity of one trace row across the solves of a key: basis row (or the symmetry-row marker), seed, and EVERY
+/// integral of the row (two symmetry rows at one seed differ only in their image keys).
 type RowKey<const N: usize> = (
     usize,
     crate::solver::Integral<N>,
-    crate::solver::Integral<N>,
-    usize,
+    Vec<crate::solver::Integral<N>>,
 );
 
 /// A relation in row form `P = I(target) - sum rhs`, normalised to target coefficient 1, with its exact weights on the
@@ -1872,13 +1872,13 @@ impl<const N: usize> LinRel<N> {
             match self.w.get_mut(k) {
                 Some(e) => *e = &*e - &d,
                 None => {
-                    self.w.insert(*k, -d);
+                    self.w.insert(k.clone(), -d);
                 }
             }
         }
         self.w.retain(|_, v| !v.is_zero());
         for (k, r) in &other.rows {
-            self.rows.entry(*k).or_insert_with(|| r.clone());
+            self.rows.entry(k.clone()).or_insert_with(|| r.clone());
         }
         self.hidden.extend(other.hidden.iter().cloned());
         self.trace_rows += other.trace_rows;
@@ -1951,17 +1951,16 @@ fn raw_solve<const N: usize>(
         let rk: RowKey<N> = (
             src.basis_row,
             src.seed.integral,
-            row.first().map(|t| t.integral).unwrap_or(src.seed.integral),
-            row.len(),
+            row.iter().map(|t| t.integral).collect(),
         );
         let v = wt / &lead;
+        rows.entry(rk.clone()).or_insert_with(|| row.clone());
         match w.get_mut(&rk) {
             Some(e) => *e = &*e + &v,
             None => {
                 w.insert(rk, v);
             }
         }
-        rows.entry(rk).or_insert_with(|| row.clone());
     }
     Ok(LinRel {
         target: c.target,
