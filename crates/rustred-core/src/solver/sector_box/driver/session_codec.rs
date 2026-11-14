@@ -22,10 +22,10 @@ use crate::sector::CutConstraint;
 
 use super::{BoxLaportaSession, integral, powers};
 use crate::solver::SolverError;
-use crate::solver::sector_box::BoxOptions;
 use crate::solver::sector_box::router::SectorRouter;
 use crate::solver::sector_box::seeds::{SeedBox, SeedRegion};
 use crate::solver::sector_box::system::SelectionState;
+use crate::solver::sector_box::{BoxOptions, ColumnOrder, SlotPriority};
 
 const MAGIC: &[u8; 16] = b"RUSTRED-SBSESS\0\0";
 const VERSION: u32 = 1;
@@ -38,8 +38,39 @@ fn corrupt(message: impl Into<String>) -> SolverError {
 fn options_digest(options: &BoxOptions) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"rustred-sector-box-session-options-v1\0");
-    hasher.update(format!("{:?}", options.order).as_bytes());
-    hasher.update(format!("{:?}", options.slot_priority).as_bytes());
+    // Explicit bytes, not `Debug` renderings: the digest is a file key and
+    // must not change with a formatting detail.
+    match &options.order {
+        ColumnOrder::Numeric => {
+            hasher.update(&[0]);
+        }
+        ColumnOrder::LinesDotsRank => {
+            hasher.update(&[1]);
+        }
+        ColumnOrder::LinesRankDots => {
+            hasher.update(&[2]);
+        }
+        ColumnOrder::Compiled(order) => {
+            let canonical = order.canonical_bytes();
+            hasher.update(&[3]);
+            hasher.update(&(canonical.len() as u64).to_le_bytes());
+            hasher.update(canonical);
+        }
+    }
+    match &options.slot_priority {
+        SlotPriority::Natural => {
+            hasher.update(&[0]);
+        }
+        SlotPriority::TopSectorFirst(top) => {
+            hasher.update(&[1]);
+            hasher.update(&top.to_le_bytes());
+        }
+        SlotPriority::Permutation(slots) => {
+            hasher.update(&[2]);
+            hasher.update(&(slots.len() as u64).to_le_bytes());
+            hasher.update(slots);
+        }
+    }
     hasher.update(&options.sample.prime.to_le_bytes());
     hasher.update(&options.sample.seed.to_le_bytes());
     *hasher.finalize().as_bytes()

@@ -37,6 +37,14 @@ impl CensusRouter {
     /// Wrap an existing census. Sectors the census does not declare are
     /// treated as their own representatives (no route, no automorphisms),
     /// unless they are in its zero set.
+    ///
+    /// The fingerprint (format v1) hashes the `Debug` renderings of the
+    /// census options, members, line permutations and zero sectors. It is
+    /// kept because every solution file of the campaign engine carries it
+    /// (`router_fingerprint`), and the strict reader compares it. A change
+    /// of any of those renderings changes the fingerprint: the reader then
+    /// refuses such files and checkpoints loudly, never silently, and the
+    /// test `router_fingerprint_matches_the_campaign_files` fails.
     pub fn new(census: Arc<SectorSymmetryCensus>) -> Self {
         let family = census.family().clone();
         let mut hasher = blake3::Hasher::new();
