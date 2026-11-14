@@ -84,11 +84,26 @@ pub enum TierChoice {
     C,
 }
 
+/// Witness check of the dispatcher (interfaces/import.md 13.7).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WitnessCheck {
+    /// Strict (default): witness loci evaluated, elided / absent loci block unless lifted by evidence.
+    #[default]
+    On,
+    /// DIAGNOSTIC: every table built with the witness check OFF (the independent checker's assumption for pre-guard
+    /// tables); the closure is then `diagnostic` (`dispatch_not_strict`) and NOTHING is certified. Only for key-set
+    /// comparisons with a delivery while the per-key facts do not exist.
+    OffDiagnostic,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Policies {
     #[serde(default)]
     pub elided: ElidedPolicy,
+    #[serde(default)]
+    pub witness_check: WitnessCheck,
     #[serde(default)]
     pub witness_absent: WitnessAbsentPolicy,
     #[serde(default)]

@@ -17,6 +17,9 @@ use crate::closure::{
     Tier, WitnessAbsent, closure,
 };
 
+/// Basis word of a key served by a witness-absent record under the DIAGNOSTIC `witness_check: off_diagnostic`.
+pub const BASIS_WITNESS_UNCHECKED: &str = "witness_unchecked_diagnostic";
+
 /// Basis word of a key served by a supplied symmetry relation VERIFIED by re-derivation from the verified group.
 pub const BASIS_SYMMETRY_RELATION: &str = "symmetry_relation";
 
@@ -158,6 +161,8 @@ pub struct CheckResult {
     pub proof_requests: Vec<RecordRequest>,
     pub solve_refusals: Vec<SolveRefusal>,
     pub recipe_binary_unpinned: bool,
+    /// The DIAGNOSTIC policy `witness_check: off_diagnostic` was used (nothing is certified).
+    pub witness_unchecked: bool,
     pub seconds: f64,
     pub key_set_digest: String,
     pub required: Level,
@@ -577,11 +582,13 @@ fn check_inner(
                 } else {
                     Level::Imported
                 });
+                let unchecked = set.spec.policies.witness_check != super::spec::WitnessCheck::On;
                 row.basis = Some(match (info.witness, lifted) {
                     (WitnessKind::Elided, _) | (WitnessKind::NotCarried, true) => {
                         BASIS_PER_KEY_PROOF
                     }
                     (WitnessKind::Complete, _) => "witness_loci",
+                    (WitnessKind::NotCarried, false) if unchecked => BASIS_WITNESS_UNCHECKED,
                     (WitnessKind::NotCarried, false) => "regularity_fact",
                 });
                 if tier == Tier::C {
@@ -748,6 +755,7 @@ fn check_inner(
         proof_requests,
         solve_refusals,
         recipe_binary_unpinned: unpinned,
+        witness_unchecked: set.spec.policies.witness_check != super::spec::WitnessCheck::On,
         seconds: t0.elapsed().as_secs_f64(),
         key_set_digest,
         required,
@@ -805,6 +813,9 @@ impl CheckResult {
         }
         if self.recipe_binary_unpinned {
             b.push("recipe_binary_unpinned".into());
+        }
+        if self.witness_unchecked {
+            b.push("witness_check_off_diagnostic".into());
         }
         b
     }

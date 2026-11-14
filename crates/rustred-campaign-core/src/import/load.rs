@@ -419,8 +419,10 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
                         None => src.id.clone(),
                     };
                     if !order.is_empty() {
-                        let (t, tf, infos) =
-                            build_table(src, &class, &name, u, &raw, &order, &frame, &mut rep)?;
+                        let witness = spec.policies.witness_check == super::spec::WitnessCheck::On;
+                        let (t, tf, infos) = build_table(
+                            src, &class, &name, u, &raw, &order, &frame, witness, &mut rep,
+                        )?;
                         if !t.is_empty() {
                             if first_table_name.is_none() {
                                 first_table_name = Some(name.clone());
@@ -913,6 +915,7 @@ fn build_table(
     raw: &RawTable,
     seg: &[usize],
     frame: &NodeFrame,
+    witness_check: bool,
     rep: &mut SourceReport,
 ) -> Result<(Table, TableFile, Vec<RuleInfo>), ImportError> {
     let tf = TableFile {
@@ -922,7 +925,7 @@ fn build_table(
         others: vec![],
     };
     let opts = DomainOptions {
-        witness: true,
+        witness: witness_check,
         ..Default::default()
     };
     let mut t =

@@ -221,3 +221,144 @@ fn t266_recipe_steps_map_onto_explicit_recipes() {
     }
     std::fs::write(out.join("assignment.jsonl"), assignment_lines(&v12)).unwrap();
 }
+
+/// What the checker's delivery allows WITHOUT facts (DIAGNOSTIC, nothing certified): the full-depth Tier K walk of box B
+/// over jointest9 with the witness check OFF (the checker's assumption for this pre-guard table; strict mode needs a
+/// per-key fact or proof at every key), the verified symmetry group derived from the header's family_source, the 3
+/// terminals, and the 52 recipes generated from the delivery's per-key steps (+ their assignment side file) as recipe
+/// sources: the run lists the SOLVE REQUESTS the adapters lane would answer. Compared with the delivery's totals
+/// (closure.json) and, key by key, with its partial statement solves.jsonl (recipe-served keys and terminals).
+#[test]
+#[ignore = "big data: the 85 GB T266 table, full-depth walk; run with --ignored in release (about 1 h)"]
+fn t266_jointest9_diagnostic_walk_vs_delivery() {
+    use import::recipe_steps::{RecipeForm, assignment_lines, recipes_for_steps};
+    let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/import");
+    let deliver = Path::new("/common/ben/sym-investigation/k7/runs/jointest9-full/deliver");
+    let mut sv: Value = serde_json::from_str(
+        &std::fs::read_to_string(data.join("t266-jointest9.spec.json")).unwrap(),
+    )
+    .unwrap();
+    let table = sv["sources"][0]["path"].as_str().unwrap().to_string();
+    if !Path::new(&table).is_file() || !deliver.join("solves.jsonl").is_file() {
+        println!("SKIP: T266 material missing");
+        return;
+    }
+    let out = std::env::var_os("RUSTRED_IMPORT_SCRATCH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(format!(
+                "/common/build-cache/{}/p_integral_dev/implementer-scratch/import2",
+                std::env::var("USER").unwrap_or_else(|_| "vhirschi".into())
+            ))
+        })
+        .join("t266-diagnostic");
+    std::fs::create_dir_all(out.join("recipes")).unwrap();
+    // recipes from the delivery's serving steps (v1.2 form) + the assignment side file
+    let mut asg: Vec<(String, Vec<i32>)> = vec![];
+    for l in std::fs::read_to_string(deliver.join("solves.jsonl"))
+        .unwrap()
+        .lines()
+    {
+        let v: Value = serde_json::from_str(l).unwrap();
+        if let (Some("served"), Some(r)) = (v["result"].as_str(), v["recipe"].as_str()) {
+            asg.push((
+                r.to_string(),
+                import::lines::parse_key_text(v["key"].as_str().unwrap(), 20).unwrap(),
+            ));
+        }
+    }
+    let lines: Vec<bool> = (0..20).map(|i| i < 14).collect();
+    let lp: Vec<usize> = (0..14).collect();
+    let np: Vec<usize> = (14..20).collect();
+    let recipes =
+        recipes_for_steps(&asg, &lines, &lp, &np, RecipeForm::V1_2, "T266/jointest9/").unwrap();
+    let side = out.join("assignment.jsonl");
+    std::fs::write(&side, assignment_lines(&recipes)).unwrap();
+    let srcs = sv["sources"].as_array_mut().unwrap();
+    let tail = srcs.split_off(1); // credits, terminals after the recipes
+    for (i, g) in recipes.iter().enumerate() {
+        let p = out.join("recipes").join(format!("r{i:05}.json"));
+        std::fs::write(&p, serde_json::to_string_pretty(&g.recipe).unwrap()).unwrap();
+        srcs.push(json!({"id": format!("recipe:{i:05}"), "kind":"recipe", "class": format!("recipe:{}", g.step),
+            "path": p.display().to_string(), "assignment": {"path": side.display().to_string()}}));
+    }
+    srcs.extend(tail);
+    sv["policies"]["witness_check"] = json!("off_diagnostic");
+    sv["sources"][0]["removed"] = json!([29474, 30764, 31751, 33573].iter().map(|l| json!({"label": l,
+        "reason": "exception literal with a coefficient beyond i128 (core Poly::parse): removed in this DIAGNOSTIC run"}))
+        .collect::<Vec<_>>());
+    std::fs::write(
+        out.join("spec.json"),
+        serde_json::to_string_pretty(&sv).unwrap(),
+    )
+    .unwrap();
+    let t0 = std::time::Instant::now();
+    let spec = TableSetSpec::from_json(&sv.to_string()).unwrap();
+    let set = load(&spec, &data).unwrap();
+    let t_load = t0.elapsed().as_secs_f64();
+    println!(
+        "T266D load {t_load:.1}s VmHWM {} MB: tables {} records {} start {} recipes {}; group {:?}",
+        vm_hwm_kb() / 1024,
+        set.report.tables,
+        set.report.records,
+        set.report.start_keys,
+        set.recipes.len(),
+        set.report.sources.iter().find_map(|s| s.group.clone())
+    );
+    let ev = Evidence::from_spec(&set, &data).unwrap();
+    let t1 = std::time::Instant::now();
+    let res =
+        import::check::check_streamed(&set, &ev, &CheckOptions::default(), &out.join("rows.jsonl"))
+            .unwrap();
+    let t_check = t1.elapsed().as_secs_f64();
+    let dir = out.join("statement");
+    write_statement(
+        &set,
+        &ev,
+        &res,
+        &dir,
+        Some(json!({"load_s": t_load, "check_s": t_check,
+        "vm_hwm_kb": vm_hwm_kb()})),
+    )
+    .unwrap();
+    let fmt: import::HandFormat =
+        serde_json::from_value(json!({"key":"key","label":"result","rule":"recipe",
+        "terminal_label":"none","partial":true}))
+        .unwrap();
+    let hand = import::read_hand_statement(&deliver.join("solves.jsonl"), &fmt, 20).unwrap();
+    let cmp = import::compare(&set, &res, &hand);
+    cmp.write(&dir).unwrap();
+    let delivery: Value =
+        serde_json::from_str(&std::fs::read_to_string(deliver.join("closure.json")).unwrap())
+            .unwrap();
+    println!(
+        "T266D check {t_check:.1}s VmHWM {} MB: keys {} (delivery: 14,249,517 keys, box 5,250,168, 59 rounds, 13,144 \
+         relation-served = 8,876 image credits + 2,151 symmetry rows at the key + 2,117 recipe solves, 3 terminals); \
+         counts {:?}; by class {:?}; closure verdict {:?} rounds {} edges {} open {} credited {} open_by_status {:?}; \
+         solve requests {} (recipes {}); blocking {:?}; delivery summary head {:?}",
+        vm_hwm_kb() / 1024,
+        res.summary.keys_total,
+        res.counts(),
+        res.evidence_by_class(&set),
+        res.summary.verdict,
+        res.summary.rounds,
+        res.summary.edges,
+        res.summary.open_total,
+        res.summary.credited,
+        res.summary.open_by_status,
+        res.solve_requests.len(),
+        res.solve_requests
+            .iter()
+            .map(|r| r.source.as_str())
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        res.blocking(),
+        delivery["closure_summary"]
+            .as_str()
+            .map(|s| s.chars().take(160).collect::<String>())
+    );
+    println!(
+        "T266D comparison with solves.jsonl (partial): differences {:?}; label matrix {:?}; terminals equal {} ({:?} vs {:?})",
+        cmp.counts, cmp.label_matrix, cmp.terminals_equal, cmp.terminals_hand, cmp.terminals_ours
+    );
+}
