@@ -276,18 +276,30 @@ pub struct TableFile {
 }
 
 /// Read a table file (either JSONL format).
+///
+/// The header must come before every rule and chart line (re-audit RB m2: the engine's `Table::load` reads the
+/// arity from the header, so a rule line before it is parsed with arity 0 and the load fails); a header after a rule
+/// or chart line, and a second header, are format errors.
 pub fn read_table_file(
     path: impl AsRef<std::path::Path>,
     opts: ReadOptions,
 ) -> Result<TableFile, RecordError> {
     let mut t = TableFile::default();
-    for l in RecordReader::open(path, opts)? {
+    let mut rd = RecordReader::open(path, opts)?;
+    while let Some(l) = rd.next() {
         match l? {
             TableLine::Header(h) => {
                 if t.header.is_some() {
                     return Err(RecordError::Format {
-                        line: 0,
+                        line: rd.line_no,
                         msg: "second header line".into(),
+                    });
+                }
+                if !t.rules.is_empty() || !t.charts.is_empty() {
+                    return Err(RecordError::Format {
+                        line: rd.line_no,
+                        msg: "header after rule or chart lines (the engine reads the arity from the header first)"
+                            .into(),
                     });
                 }
                 t.header = Some(*h)
@@ -628,9 +640,22 @@ where
     T::deserialize(d)
 }
 
-/// One rule of `RULE-PREDICATES2440.json`. Every domain field must be PRESENT (audit B M3: a predicate without
-/// `domain_atoms` used to load with no chart/recenter bounds); `null` reads as an empty list. (schema `t162-exact-written-domain-complement.v1`; fields as listed in the
-/// helper's TOOLS-INVENTORY "partition / Inputs"). Unused fields are ignored.
+/// A field that must be present AND a list (`null` is an error; re-audit RB m3). Kept as `Option` (always `Some`)
+/// so that the field types stay as they were.
+fn required_list<'de, D, T>(d: D) -> Result<Option<Vec<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Vec::<T>::deserialize(d).map(Some)
+}
+
+/// One rule of `RULE-PREDICATES2440.json` (schema `t162-exact-written-domain-complement.v1`; fields as listed in the
+/// helper's TOOLS-INVENTORY "partition / Inputs"). Every domain field must be PRESENT (audit B M3: a predicate without
+/// `domain_atoms` used to load with no chart/recenter bounds) and a LIST: `null` is an error everywhere except in
+/// `cached_domain_exception_or_pole_AND_loci`, the one field where the real bank writes `null` (2,415 of 2,440
+/// records) and where it reads as an empty list (re-audit RB m3: a `null` exception list used to read as "no
+/// exception", i.e. fail open). Unused fields are ignored.
 #[derive(Clone, Debug, Deserialize)]
 pub struct BankPredicate {
     pub global_ordinal0: i64,
@@ -638,15 +663,16 @@ pub struct BankPredicate {
     pub source_id: Option<String>,
     /// 20 values or null.
     pub raw_fixed20: Vec<Option<i64>>,
-    #[serde(deserialize_with = "required", rename = "all_raw_Case_equations")]
+    #[serde(deserialize_with = "required_list", rename = "all_raw_Case_equations")]
     pub case_equations: Option<Vec<String>>,
-    /// `[rel, text]` with rel `EQ` (= 0) or `GE` (>= 0): the chart/recenter bounds and fixed slots. REQUIRED.
+    /// `[rel, text]` with rel `EQ` (= 0) or `GE` (>= 0): the chart/recenter bounds and fixed slots. REQUIRED, not null.
     pub domain_atoms: Vec<(String, String)>,
     #[serde(
-        deserialize_with = "required",
+        deserialize_with = "required_list",
         rename = "raw_written_exceptions_OR_of_AND"
     )]
     pub exceptions: Option<Vec<Vec<String>>>,
+    /// The only field where `null` is accepted (= empty list), as the real bank writes it.
     #[serde(
         deserialize_with = "required",
         rename = "cached_domain_exception_or_pole_AND_loci"
@@ -654,17 +680,17 @@ pub struct BankPredicate {
     pub cached_loci: Option<Vec<Vec<String>>>,
     /// d-polynomials; forbidden where all d-coefficients vanish.
     #[serde(
-        deserialize_with = "required",
+        deserialize_with = "required_list",
         rename = "literal_written_denominators_generic_d_nonzero"
     )]
     pub denominators: Option<Vec<String>>,
     #[serde(
-        deserialize_with = "required",
+        deserialize_with = "required_list",
         rename = "raw_header_source_conditions_generic_d_nonzero"
     )]
     pub source_conditions: Option<Vec<String>>,
     #[serde(
-        deserialize_with = "required",
+        deserialize_with = "required_list",
         rename = "raw_rule_witness_loci_generic_d_nonzero"
     )]
     pub witness_loci: Option<Vec<String>>,
