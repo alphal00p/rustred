@@ -22,9 +22,11 @@ pub mod exits;
 pub mod facts;
 pub mod fast;
 pub mod keyset;
+pub mod relations;
 pub mod sha256;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::Arc;
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
@@ -42,6 +44,10 @@ pub use facts::{
 };
 pub use fast::FastDispatch;
 pub use keyset::{KeyCodec, KeySet, KeySetBuilder, KeySetError, KeyTable};
+pub use relations::{
+    DispatchSlot, RelationSet, RelationStore, RelationStoreBuilder, VERDICT_CERTIFIED,
+    VERDICT_DESCENDS, VERDICT_EXACT, VERDICT_REGULAR,
+};
 
 pub const CLOSURE_SCHEMA: &str = "rustred.campaign.closure.v1";
 /// Version of the closure semantics recorded in every configuration identity (bump on any change of a result).
@@ -112,6 +118,9 @@ pub struct ClosureConfig {
     /// Diagnostic relaxations: any set relaxation stamps the run `diagnostic` (verdict [`Verdict::Diagnostic`], never
     /// `Closed`), with the relaxed checks listed.
     pub diagnostic: DiagnosticRelaxations,
+    /// Relation sets (R48 recipe rules, closure.md section 12): dispatch entries beside the tables, each with its slot.
+    /// A set MATCHES a key iff the key is in its domain and in its certified set; otherwise the dispatch falls through.
+    pub relation_sets: Vec<Arc<RelationSet>>,
 }
 
 /// Checks a DIAGNOSTIC run may relax (never in a run whose verdict is used; audit loop-A C3).
@@ -231,6 +240,8 @@ pub enum TerminalDispatch {
     Covered,
     Blocked,
     Undecided,
+    /// A relation set (recipe) serves the key.
+    Recipe,
 }
 
 /// A declared terminal reached by the closure.
@@ -268,6 +279,7 @@ impl Default for ClosureConfig {
             zero_sector_source: None,
             exclusions: vec![],
             diagnostic: DiagnosticRelaxations::default(),
+            relation_sets: vec![],
         }
     }
 }
@@ -329,6 +341,8 @@ pub enum OpenStatus {
     NoBody,
     Irregular,
     Truncated,
+    /// A relation set serves the key but its record's verdict bits are not all set.
+    RecipeUnverified,
 }
 
 /// One open key of the closure.
@@ -339,6 +353,9 @@ pub struct OpenKey {
     pub status: OpenStatus,
     pub rule: Option<RuleName>,
     pub detail: String,
+    /// Relation sets whose DOMAIN contains the key (uncovered keys; information for the work list).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recipe_candidates: Vec<String>,
 }
 
 /// A witness of a failure (descent violation, non-zero positive-numerator term, unrepresentable key).
@@ -498,6 +515,19 @@ pub struct ClosureSummary {
     pub exits_complete: bool,
     /// The configuration identity the fact source was requested by (provenance), if any.
     pub facts_requested_by: Option<String>,
+    /// Keys served by relation sets, and the number of sets used.
+    pub recipe_served: u64,
+    pub recipe_served_in_start: u64,
+    pub used_relation_sets: u64,
+}
+
+/// Use of one relation set (R48): keys it serves.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelationUse {
+    pub set: String,
+    pub recipe_digest: String,
+    pub keys: u64,
+    pub keys_in_start: u64,
 }
 
 /// Identifying fields supplied by the caller for the report artefact.
@@ -535,6 +565,8 @@ pub struct ClosureReport {
     pub terminals: Vec<TerminalRecord>,
     pub hand_down_digests: BTreeMap<u64, String>,
     pub used_rules: Vec<RuleUse>,
+    /// Relation sets used (keys served), as (recipe digest, key) uses per set.
+    pub used_relations: Vec<RelationUse>,
     pub timing: Option<BTreeMap<String, f64>>,
 }
 
@@ -544,6 +576,7 @@ const PENDING: u32 = u32::MAX - 2;
 const CREDITED: u32 = u32::MAX - 1;
 const OPEN: u32 = u32::MAX;
 const TERMINAL: u32 = u32::MAX - 3;
+const RECIPE: u32 = u32::MAX - 4;
 /// Stop sentinels (per-key dispatch memo): not evaluated (truncated, outside the chart) / evaluated, no record stops.
 const STOP_NONE: u32 = u32::MAX - 1;
 const STOP_UNCOVERED: u32 = u32::MAX;
@@ -565,6 +598,7 @@ struct OpenInfo {
     status: OpenStatus,
     rule: Option<u32>,
     detail: String,
+    candidates: Vec<u32>,
 }
 
 /// Per-key DISPATCH memo for the incremental closure (audit loop-A C1, M2): only the dispatch verdict (with the key
@@ -640,7 +674,10 @@ impl TermInfo {
     fn in_rule_domain(&self) -> bool {
         matches!(
             self.dispatch,
-            TerminalDispatch::Covered | TerminalDispatch::Blocked | TerminalDispatch::Undecided
+            TerminalDispatch::Covered
+                | TerminalDispatch::Blocked
+                | TerminalDispatch::Undecided
+                | TerminalDispatch::Recipe
         )
     }
 }
@@ -698,6 +735,9 @@ pub struct Closure {
     disp_priority: Vec<usize>,
     excl_names: HashMap<Vec<i32>, Vec<(String, usize)>>,
     incremental: Option<IncrementalUse>,
+    /// recipe-served key -> (relation set, record index)
+    recipe_of: BTreeMap<u32, (u32, u32)>,
+    rset_names: Vec<(String, String)>,
     pub seconds: f64,
     pub memory_estimate_bytes: usize,
 }
@@ -759,6 +799,12 @@ struct Ctx<'a> {
     term_pref: Option<KeySet>,
     term_other: Option<KeySet>,
     relax_regularity: bool,
+    /// relation sets in dispatch order with their rank (= priority rank of the table they precede; tables count)
+    rsets: Vec<(u32, Arc<RelationSet>)>,
+    /// table index -> priority rank
+    table_rank: Vec<u32>,
+    /// key -> excluded relation sets (indices into `rsets`)
+    excl_sets: HashMap<Vec<i32>, Vec<usize>>,
 }
 
 impl Ctx<'_> {
@@ -776,6 +822,41 @@ impl Ctx<'_> {
             return &[];
         }
         self.exclusions.get(key).map(|v| v.as_slice()).unwrap_or(&[])
+    }
+    /// The relation set serving `key` given the table dispatch `d` (the first matching set ranked before d's stop).
+    fn recipe_match(&self, key: &[i32], d: &Dispatch) -> Option<(u32, u32)> {
+        if self.rsets.is_empty() {
+            return None;
+        }
+        let rd = match d {
+            Dispatch::Covered(r) => self.table_rank[r.table],
+            Dispatch::Blocked { at, .. } | Dispatch::Undecided { at, .. } => self.table_rank[at.table],
+            Dispatch::Uncovered => u32::MAX,
+            Dispatch::OutsideChart { .. } => return None,
+        };
+        let ex = self.excl_sets.get(key);
+        for (si, (rank, set)) in self.rsets.iter().enumerate() {
+            if *rank > rd {
+                break;
+            }
+            if ex.is_some_and(|v| v.contains(&si)) {
+                continue;
+            }
+            if let Some(i) = set.relations.find(key)
+                && set.in_domain(key)
+            {
+                return Some((si as u32, i as u32));
+            }
+        }
+        None
+    }
+    fn recipe_candidates(&self, key: &[i32]) -> Vec<u32> {
+        self.rsets
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, s))| s.in_domain(key))
+            .map(|(i, _)| i as u32)
+            .collect()
     }
     fn terminal_kind(&self, key: &[i32]) -> Option<TerminalKind> {
         if self.term_pref.as_ref().is_some_and(|t| t.contains(key)) {
@@ -930,6 +1011,115 @@ enum Sink<'s> {
         table: &'s KeyTable,
         succ: &'s mut Vec<u32>,
     },
+}
+
+/// Expand a key served by a relation set: its RECORDED right-hand-side keys (exact at the key: no facts needed).
+/// Top keys are edges (descent checked); a removed line is a hand-down; a positive numerator key is a failure (the
+/// recorded right-hand side omits vanishing terms, so such a term is present with a non-zero coefficient).
+fn expand_recipe(
+    ctx: &Ctx,
+    si: u32,
+    ri: u32,
+    key: &[i32],
+    buf: &mut Vec<i32>,
+    codes: &mut Vec<u64>,
+    sink: &mut Sink,
+) {
+    let set = &ctx.rsets[si as usize].1;
+    let st = &set.relations;
+    let w = ctx.codec.words();
+    let sw = st.codec().words();
+    codes.clear();
+    buf.resize(ctx.arity, 0);
+    let rname = || RuleName {
+        table: set.name.clone(),
+        record: ri as usize,
+        label: -1,
+    };
+    let cap = ctx.cfg.witness_cap;
+    let mut code = [0u64; keyset::MAX_WORDS];
+    for (j, c) in st.rhs_codes(ri as usize).chunks_exact(sw).enumerate() {
+        st.codec().decode(c, buf);
+        let t: &[i32] = buf;
+        let class = ctx.sectors.classify_masked(t, 0);
+        let enc = ctx.codec.encode(t, &mut code);
+        match sink {
+            Sink::Bfs { out, key_idx, .. } => {
+                out.terms.total += 1;
+                let wit = |reason: &str| Witness {
+                    key: key.to_vec(),
+                    rule: rname(),
+                    term: j,
+                    rhs: t.to_vec(),
+                    reason: reason.into(),
+                };
+                match class {
+                    TermClass::PositiveNumerator { subsector, .. } => {
+                        if subsector {
+                            out.terms.positive_numerator_sub += 1;
+                        } else {
+                            out.terms.positive_numerator_top += 1;
+                        }
+                        out.pos_nonzero += 1;
+                        push_capped(&mut out.failure_w, (*key_idx, j as u32, wit("recipe_positive_numerator")), cap);
+                    }
+                    TermClass::ZeroSector { .. } => out.terms.zero_sector += 1,
+                    TermClass::Subsector { dropped } => {
+                        out.terms.subsector += 1;
+                        match ctx.cfg.hand_downs {
+                            HandDowns::Off => {}
+                            HandDowns::Counts => *out.hd_terms.entry(dropped).or_default() += 1,
+                            HandDowns::Keys => {
+                                *out.hd_terms.entry(dropped).or_default() += 1;
+                                if enc {
+                                    out.hd_codes.entry(dropped).or_default().extend_from_slice(&code[..w]);
+                                } else {
+                                    out.unrepresentable += 1;
+                                    push_capped(&mut out.failure_w, (*key_idx, j as u32, wit("unrepresentable_hand_down")), cap);
+                                }
+                            }
+                        }
+                    }
+                    TermClass::Top => {
+                        out.terms.top += 1;
+                        if !ctx.cmp.lower(t, key) {
+                            out.violations += 1;
+                            push_capped(&mut out.descent_w, (*key_idx, j as u32, wit("descent_violation")), cap);
+                        }
+                        if enc {
+                            codes.extend_from_slice(&code[..w]);
+                        } else {
+                            out.unrepresentable += 1;
+                            push_capped(&mut out.failure_w, (*key_idx, j as u32, wit("unrepresentable_key")), cap);
+                        }
+                    }
+                }
+            }
+            Sink::Succ { .. } => {
+                if class == TermClass::Top && enc {
+                    codes.extend_from_slice(&code[..w]);
+                }
+            }
+        }
+    }
+    keyset::sort_dedup(w, codes);
+    match sink {
+        Sink::Bfs { out, table, .. } => {
+            out.edges += (codes.len() / w) as u64;
+            for c in codes.chunks_exact(w) {
+                if table.get(c).is_none() {
+                    out.new_codes.extend_from_slice(c);
+                }
+            }
+        }
+        Sink::Succ { table, succ } => {
+            for c in codes.chunks_exact(w) {
+                if let Some(i) = table.get(c) {
+                    succ.push(i);
+                }
+            }
+        }
+    }
 }
 
 /// Expand one key: `applied` = the key the rule is instantiated at (the image for a credit), `key` = the key itself.
@@ -1141,6 +1331,7 @@ fn chunks(lo: usize, hi: usize, threads: usize) -> Vec<(usize, usize)> {
 /// Dispatch result of one key (internal).
 enum KeyRes {
     Terminal(TermInfo),
+    Recipe(u32, u32),
     Pos(u32, Option<RegFact>),
     Credit(Box<Credit>, Option<RegFact>),
     Open(OpenInfo),
@@ -1344,12 +1535,61 @@ fn run(
     // ---- exclusions
     let mut exclusions: HashMap<Vec<i32>, Vec<u32>> = HashMap::new();
     let mut excl_names: HashMap<Vec<i32>, Vec<(String, usize)>> = HashMap::new();
+    // relation sets: rank and order
+    let table_rank: Vec<u32> = {
+        let mut r = vec![0u32; disp.tables().len()];
+        for (k, &t) in disp.priority().iter().enumerate() {
+            r[t] = k as u32;
+        }
+        r
+    };
+    let mut rsets: Vec<(u32, Arc<RelationSet>)> = vec![];
+    for rs in &cfg.relation_sets {
+        if rs.relations.codec().arity() != arity || rs.domain.arity != arity {
+            return Err(ClosureError::KeyArity {
+                expected: arity,
+                got: rs.relations.codec().arity(),
+            });
+        }
+        let rank = match &rs.slot {
+            DispatchSlot::Last => disp.tables().len() as u32,
+            DispatchSlot::BeforeTable(n) => {
+                let t = disp
+                    .tables()
+                    .iter()
+                    .position(|t| t.name == *n)
+                    .ok_or_else(|| ClosureError::Config(format!("relation set {}: no table {n}", rs.name)))?;
+                table_rank[t]
+            }
+        };
+        if rsets.iter().any(|(_, x)| x.name == rs.name)
+            || disp.tables().iter().any(|t| t.name == rs.name)
+        {
+            return Err(ClosureError::Config(format!(
+                "relation set name {} is not unique",
+                rs.name
+            )));
+        }
+        rsets.push((rank, rs.clone()));
+    }
+    rsets.sort_by_key(|x| x.0); // stable: caller order within a rank
+    let mut excl_sets: HashMap<Vec<i32>, Vec<usize>> = HashMap::new();
     for e in &cfg.exclusions {
         if e.key.len() != arity {
             return Err(ClosureError::KeyArity {
                 expected: arity,
                 got: e.key.len(),
             });
+        }
+        if let Some(si) = rsets.iter().position(|(_, x)| x.name == e.table) {
+            if e.record != 0 || e.label != 0 {
+                return Err(ClosureError::Config(format!(
+                    "exclusion of relation set {}: record and label must be 0",
+                    e.table
+                )));
+            }
+            excl_sets.entry(e.key.clone()).or_default().push(si);
+            continue;
         }
         let mut found = disp
             .tables()
@@ -1490,6 +1730,27 @@ fn run(
                 ),
             },
         );
+        let rparts: Vec<String> = rsets
+            .iter()
+            .map(|(rank, x)| {
+                format!(
+                    "{rank}:{}:{:?}:{}:{}:{}",
+                    x.name,
+                    x.slot,
+                    x.recipe_digest,
+                    sha_hex(&[&format!("{:?}", x.domain)]),
+                    x.relations.digest()
+                )
+            })
+            .collect();
+        c.insert(
+            "relations".into(),
+            if rparts.is_empty() {
+                "none".into()
+            } else {
+                refs(&rparts)
+            },
+        );
         c.insert("hand_downs".into(), hand_downs_name(cfg.hand_downs).into());
         c.insert("max_rounds".into(), format!("{:?}", cfg.max_rounds));
         c.insert(
@@ -1546,6 +1807,9 @@ fn run(
         term_pref,
         term_other,
         relax_regularity: !relaxed.is_empty(),
+        rsets,
+        table_rank,
+        excl_sets,
     };
     // start keys (canonical order)
     let start = if *start.codec() == codec {
@@ -1568,6 +1832,7 @@ fn run(
     let mut open: BTreeMap<u32, OpenInfo>;
     let mut credits: BTreeMap<u32, Credit>;
     let mut terminals: BTreeMap<u32, TermInfo>;
+    let mut recipe_of: BTreeMap<u32, (u32, u32)>;
     let mut acc = ExpandOut::default();
     let mut hd_keys: BTreeMap<u64, Vec<u64>>;
     let mut start_mask: Vec<bool>;
@@ -1582,6 +1847,7 @@ fn run(
             open = BTreeMap::new();
             credits = BTreeMap::new();
             terminals = BTreeMap::new();
+            recipe_of = BTreeMap::new();
             hd_keys = BTreeMap::new();
             start_mask = vec![];
         }
@@ -1592,6 +1858,7 @@ fn run(
             open = p.open.clone();
             credits = p.credits.clone();
             terminals = p.terminals.clone();
+            recipe_of = p.recipe_of.clone();
             hd_keys = p
                 .hand_down_keys
                 .iter()
@@ -1652,7 +1919,8 @@ fn run(
                         status: OpenStatus::Truncated,
                         rule: None,
                         detail: "round limit".into(),
-                    },
+ candidates: vec![],
+},
                 );
             }
             break;
@@ -1716,7 +1984,8 @@ fn run(
                                 )
                                 .0;
                             let stp = stop_of(ctx, &d);
-                            v.push((dispose(ctx, &key, d)?, stp, used_cache));
+                            let rec = ctx.recipe_match(&key, &d);
+                            v.push((dispose(ctx, &key, d, rec)?, stp, used_cache));
                         }
                         Ok(v)
                     })
@@ -1775,6 +2044,10 @@ fn run(
                         res[i] = TERMINAL;
                         terminals.insert(i as u32, t);
                     }
+                    KeyRes::Recipe(si, ri) => {
+                        res[i] = RECIPE;
+                        recipe_of.insert(i as u32, (si, ri));
+                    }
                 }
                 i += 1;
             }
@@ -1784,13 +2057,24 @@ fn run(
             let hs: Vec<_> = parts
                 .iter()
                 .map(|&(a, b)| {
-                    let (ctx, table, res, credits) = (&ctx, &table, &res, &credits);
+                    let (ctx, table, res, credits, recipe_of) = (&ctx, &table, &res, &credits, &recipe_of);
                     s.spawn(move || -> Result<ExpandOut, ClosureError> {
                         let mut out = ExpandOut::default();
                         let (mut buf, mut cm, mut codes) = (vec![], vec![], vec![]);
                         let mut key = vec![0i32; arity];
                         for i in a..b {
                             let r = res[i];
+                            if r == RECIPE {
+                                codec.decode(table.code(i), &mut key);
+                                let (si, ri) = recipe_of[&(i as u32)];
+                                let mut sink = Sink::Bfs {
+                                    out: &mut out,
+                                    table,
+                                    key_idx: i as u32,
+                                };
+                                expand_recipe(ctx, si, ri, &key, &mut buf, &mut codes, &mut sink);
+                                continue;
+                            }
                             let (pos, image) = match r {
                                 OPEN | PENDING | TERMINAL => continue,
                                 CREDITED => (credits[&(i as u32)].position, true),
@@ -1944,6 +2228,12 @@ fn run(
         disp_priority: disp.priority().to_vec(),
         excl_names,
         incremental: cache.map(|_| inc_use),
+        recipe_of,
+        rset_names: ctx
+            .rsets
+            .iter()
+            .map(|(_, x)| (x.name.clone(), x.recipe_digest.clone()))
+            .collect(),
         seconds: 0.0,
         memory_estimate_bytes: 0,
         table,
@@ -1997,9 +2287,15 @@ fn stop_of(ctx: &Ctx, d: &Dispatch) -> u32 {
 
 /// The DISPOSITION of a dispatched key: declared terminal (checked first; the dispatch verdict is kept to detect a
 /// terminal inside a rule's domain), covered (with Tier C regularity), credited, or open.
-fn dispose(ctx: &Ctx, key: &[i32], d: Dispatch) -> Result<KeyRes, ClosureError> {
+fn dispose(
+    ctx: &Ctx,
+    key: &[i32],
+    d: Dispatch,
+    rec: Option<(u32, u32)>,
+) -> Result<KeyRes, ClosureError> {
     if let Some(kind) = ctx.terminal_kind(key) {
         let (would, dispatch) = match &d {
+            _ if rec.is_some() => (None, TerminalDispatch::Recipe),
             Dispatch::Covered(r) => (Some(ctx.fast.position(*r)), TerminalDispatch::Covered),
             Dispatch::Blocked { at, .. } => (Some(ctx.fast.position(*at)), TerminalDispatch::Blocked),
             Dispatch::Undecided { at, .. } => {
@@ -2014,6 +2310,22 @@ fn dispose(ctx: &Ctx, key: &[i32], d: Dispatch) -> Result<KeyRes, ClosureError> 
             dispatch,
         }));
     }
+    if let Some((si, ri)) = rec {
+        let set = &ctx.rsets[si as usize].1;
+        if set.relations.verdict(ri as usize) & VERDICT_CERTIFIED != VERDICT_CERTIFIED {
+            return Ok(KeyRes::Open(OpenInfo {
+                status: OpenStatus::RecipeUnverified,
+                rule: None,
+                detail: format!(
+                    "relation set {}: verdict bits {}",
+                    set.name,
+                    set.relations.verdict(ri as usize)
+                ),
+                candidates: vec![si],
+            }));
+        }
+        return Ok(KeyRes::Recipe(si, ri));
+    }
     let tier_c = ctx.cfg.tier == Tier::C;
     Ok(match d {
         Dispatch::Covered(r) => {
@@ -2023,7 +2335,8 @@ fn dispose(ctx: &Ctx, key: &[i32], d: Dispatch) -> Result<KeyRes, ClosureError> 
                     status: OpenStatus::NoBody,
                     rule: Some(p),
                     detail: String::new(),
-                }));
+ candidates: vec![],
+}));
             }
             if tier_c {
                 match ctx.facts.regularity(&ctx.rid(p), key) {
@@ -2032,7 +2345,8 @@ fn dispose(ctx: &Ctx, key: &[i32], d: Dispatch) -> Result<KeyRes, ClosureError> 
                             status: OpenStatus::Irregular,
                             rule: Some(p),
                             detail: "pole".into(),
-                        }));
+ candidates: vec![],
+}));
                     }
                     RegFact::Unknown if ctx.relax_regularity => KeyRes::Pos(p, Some(RegFact::Regular)),
                     f => KeyRes::Pos(p, Some(f)),
@@ -2057,7 +2371,8 @@ fn dispose(ctx: &Ctx, key: &[i32], d: Dispatch) -> Result<KeyRes, ClosureError> 
                             status: OpenStatus::Uncovered,
                             rule: None,
                             detail,
-                        }));
+                            candidates: ctx.recipe_candidates(key),
+}));
                     }
                 }
             }
@@ -2065,22 +2380,26 @@ fn dispose(ctx: &Ctx, key: &[i32], d: Dispatch) -> Result<KeyRes, ClosureError> 
                 status: OpenStatus::Uncovered,
                 rule: None,
                 detail: String::new(),
+                candidates: ctx.recipe_candidates(key),
             })
         }
         Dispatch::Blocked { at, reason } => KeyRes::Open(OpenInfo {
             status: OpenStatus::Blocked,
             rule: Some(ctx.fast.position(at)),
             detail: format!("{reason:?}"),
+            candidates: vec![],
         }),
         Dispatch::Undecided { at, verdict } => KeyRes::Open(OpenInfo {
             status: OpenStatus::Undecided,
             rule: Some(ctx.fast.position(at)),
             detail: format!("{verdict:?}"),
+            candidates: vec![],
         }),
         Dispatch::OutsideChart { slot } => KeyRes::Open(OpenInfo {
             status: OpenStatus::OutsideChart,
             rule: None,
             detail: format!("slot {slot}"),
+            candidates: vec![],
         }),
     })
 }
@@ -2105,6 +2424,16 @@ fn chain_pass(ctx: &Ctx, cl: &mut Closure) -> Result<(), ClosureError> {
      -> Result<Vec<u32>, ClosureError> {
         let mut succ = vec![];
         let r = cl.res[i as usize];
+        if r == RECIPE {
+            ctx.codec.decode(cl.table.code(i as usize), key);
+            let (si, ri) = cl.recipe_of[&i];
+            let mut sink = Sink::Succ {
+                table: &cl.table,
+                succ: &mut succ,
+            };
+            expand_recipe(ctx, si, ri, key, buf, codes, &mut sink);
+            return Ok(succ);
+        }
         let (pos, image) = match r {
             OPEN | PENDING | TERMINAL => return Ok(succ),
             CREDITED => (cl.credits[&i].position, true),
@@ -2241,6 +2570,14 @@ impl Closure {
     pub fn winner(&self, i: usize) -> Option<RuleName> {
         match self.res[i] {
             OPEN | PENDING | TERMINAL => None,
+            RECIPE => {
+                let (si, ri) = self.recipe_of[&(i as u32)];
+                Some(RuleName {
+                    table: self.rset_names[si as usize].0.clone(),
+                    record: ri as usize,
+                    label: -1,
+                })
+            }
             CREDITED => Some(self.rule_names[self.credits[&(i as u32)].position as usize].clone()),
             p => Some(self.rule_names[p as usize].clone()),
         }
@@ -2261,8 +2598,36 @@ impl Closure {
                 status: o.status,
                 rule: o.rule.map(|p| self.rule_names[p as usize].clone()),
                 detail: o.detail.clone(),
+                recipe_candidates: o
+                    .candidates
+                    .iter()
+                    .map(|&c| self.rset_names[c as usize].0.clone())
+                    .collect(),
             })
             .collect()
+    }
+    /// Relation sets used (keys served per set, set order).
+    pub fn used_relations(&self) -> Vec<RelationUse> {
+        let mut v: Vec<(u64, u64)> = vec![(0, 0); self.rset_names.len()];
+        for (&i, &(si, _)) in &self.recipe_of {
+            v[si as usize].0 += 1;
+            if self.start_mask[i as usize] {
+                v[si as usize].1 += 1;
+            }
+        }
+        v.into_iter()
+            .enumerate()
+            .filter(|(_, x)| x.0 > 0)
+            .map(|(si, x)| RelationUse {
+                set: self.rset_names[si].0.clone(),
+                recipe_digest: self.rset_names[si].1.clone(),
+                keys: x.0,
+                keys_in_start: x.1,
+            })
+            .collect()
+    }
+    pub fn is_recipe_served(&self, i: usize) -> bool {
+        self.res[i] == RECIPE
     }
     /// Open keys as a key set.
     pub fn open_keyset(&self) -> KeySet {
@@ -2371,7 +2736,7 @@ impl Closure {
         let mut f = vec![(0u64, 0u64); self.rule_names.len()];
         for (i, &r) in self.res.iter().enumerate() {
             let p = match r {
-                OPEN | PENDING | TERMINAL => continue,
+                OPEN | PENDING | TERMINAL | RECIPE => continue,
                 CREDITED => self.credits[&(i as u32)].position,
                 p => p,
             };
@@ -2638,6 +3003,13 @@ impl Closure {
             config_digest: self.identity.digest(),
             exits_complete: self.exits_complete(),
             facts_requested_by: self.facts_requested_by.clone(),
+            recipe_served: self.recipe_of.len() as u64,
+            recipe_served_in_start: self
+                .recipe_of
+                .keys()
+                .filter(|&&i| self.start_mask[i as usize])
+                .count() as u64,
+            used_relation_sets: self.used_relations().len() as u64,
         }
     }
 
@@ -2674,6 +3046,7 @@ impl Closure {
                 .map(|(&m, k)| (m, k.digest()))
                 .collect(),
             used_rules: self.used_rules(),
+            used_relations: self.used_relations(),
             timing: None,
         }
     }
@@ -2703,6 +3076,8 @@ pub(crate) mod internal {
         /// Diagnostic relaxation: an Unknown regularity is not counted.
         fn relax_regularity(&self) -> bool;
         fn is_terminal(&self, key: &[i32]) -> bool;
+        /// Whether a relation set serves `key` given its table dispatch `d` (then the table rule does not fire there).
+        fn recipe_serves(&self, key: &[i32], d: &Dispatch) -> bool;
     }
     impl CtxView for Ctx<'_> {
         fn dispatch(&self, key: &[i32]) -> Dispatch {
@@ -2748,6 +3123,9 @@ pub(crate) mod internal {
         }
         fn is_terminal(&self, key: &[i32]) -> bool {
             self.terminal_kind(key).is_some()
+        }
+        fn recipe_serves(&self, key: &[i32], d: &Dispatch) -> bool {
+            self.recipe_match(key, d).is_some()
         }
     }
 
@@ -2810,6 +3188,9 @@ pub(crate) mod internal {
             false
         }
         fn is_terminal(&self, _: &[i32]) -> bool {
+            false
+        }
+        fn recipe_serves(&self, _: &[i32], _: &Dispatch) -> bool {
             false
         }
     }

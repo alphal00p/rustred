@@ -109,6 +109,8 @@ pub enum Refusal {
     ImageIsTerminal,
     /// The dispatch at g k is not `Covered`.
     ImageNotCovered(Dispatch),
+    /// A relation set (recipe) serves g k: credits through recipe-served images are not implemented yet.
+    ImageServedByRecipe,
     NoBody,
     TermNotBelow {
         term: usize,
@@ -185,7 +187,13 @@ fn try_element(
     if ctx.is_terminal(&image) {
         return Ok(Err(Refusal::ImageIsTerminal));
     }
-    let rule = match ctx.dispatch(&image) {
+    let d = ctx.dispatch(&image);
+    if ctx.recipe_serves(&image, &d) {
+        // the image is served by a relation set (R48), not by the table rule: credits through recipe-served images
+        // are not implemented yet (refused, fail closed)
+        return Ok(Err(Refusal::ImageServedByRecipe));
+    }
+    let rule = match d {
         Dispatch::Covered(r) => r,
         d => return Ok(Err(Refusal::ImageNotCovered(d))),
     };

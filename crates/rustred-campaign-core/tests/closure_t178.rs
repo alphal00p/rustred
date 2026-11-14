@@ -337,7 +337,8 @@ fn t178_incremental_equals_from_scratch() {
             inc.seconds
         );
     }
-    // the cache refuses a dispatcher whose old tables changed order
+    // a dispatcher whose unchanged tables changed relative order: the cache is not used (full dispatch, recorded),
+    // the result equals the from-scratch closure (since loopfix: fall back instead of refusing)
     let (old, _) = sub_dispatcher(&t, &(0..37).collect::<Vec<_>>(), &[]);
     let ob = closure_common::t178_bodies(&old);
     let c_old = closure(
@@ -354,16 +355,10 @@ fn t178_incremental_equals_from_scratch() {
     .unwrap();
     let rev = t.disp.with_priority((0..38).rev().collect()).unwrap();
     let rb = closure_common::t178_bodies(&rev);
-    assert!(
-        closure_incremental(
-            &c_old.dispatch_cache(),
-            &rev,
-            &rb,
-            &t.cmp,
-            &t.box_keys,
-            &cfg(4),
-            &NoFacts
-        )
-        .is_err()
-    );
+    let inc = closure_incremental(&c_old.dispatch_cache(), &rev, &rb, &t.cmp, &t.box_keys, &cfg(4), &NoFacts)
+        .unwrap();
+    assert!(inc.incremental_use().unwrap().fallback.is_some());
+    let scratch = closure(&rev, &rb, &t.cmp, &t.box_keys, &cfg(4), &NoFacts).unwrap();
+    assert_eq!(inc.summary(), scratch.summary());
+    assert_eq!(scratch.summary().keys_total, 334_602);
 }
