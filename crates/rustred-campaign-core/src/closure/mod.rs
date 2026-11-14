@@ -58,7 +58,7 @@ pub use store::{ExitFile, SpillConfig};
 
 pub const CLOSURE_SCHEMA: &str = "rustred.campaign.closure.v1";
 /// Version of the closure semantics recorded in every configuration identity (bump on any change of a result).
-pub const CLOSURE_SEMANTICS: &str = "closure-semantics.v3";
+pub const CLOSURE_SEMANTICS: &str = "closure-semantics.v4";
 
 /// Closure tier (plan 2.4.8, Decision D-7).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -3880,6 +3880,15 @@ pub(crate) mod internal {
         fn is_terminal(&self, key: &[i32]) -> bool;
         /// Whether a relation set serves `key` given its table dispatch `d` (then the table rule does not fire there).
         fn recipe_serves(&self, key: &[i32], d: &Dispatch) -> bool;
+        /// IMAGE LIFT (lane import3, closure.md 17): whether the record `at` that the strict dispatch reports blocked at
+        /// the credit IMAGE for `reason` (elided / witness loci not carried) may serve the image, by the same evidence
+        /// that lifts it at a key: an exact per-key proof bound to (record, image) under `PerKeyLift::Proof`, or (witness
+        /// loci not carried, Tier C, `WitnessAbsent::LiftWithRegularFact`) a regularity fact `Regular` at the image.
+        /// Returns `Some(true)` when lifted by a per-key proof (the proof implies regularity), `Some(false)` when lifted
+        /// by the regularity fact, `None` when not lifted. Default: never (the standalone checker).
+        fn image_lift(&self, _at: RuleRef, _reason: crate::domain::Verdict, _image: &[i32]) -> Option<bool> {
+            None
+        }
     }
     impl CtxView for Ctx<'_> {
         fn dispatch(&self, key: &[i32]) -> Dispatch {
@@ -3928,6 +3937,23 @@ pub(crate) mod internal {
         }
         fn recipe_serves(&self, key: &[i32], d: &Dispatch) -> bool {
             self.recipe_match(key, d).is_some()
+        }
+        fn image_lift(&self, at: RuleRef, reason: crate::domain::Verdict, image: &[i32]) -> Option<bool> {
+            use crate::domain::Verdict;
+            if !matches!(reason, Verdict::WitnessNotCarried | Verdict::Elided)
+                || !self.bodies.has(at.table, at.record)
+            {
+                return None;
+            }
+            let rid = self.rid(self.fast.position(at));
+            if self.cfg.per_key_lift == PerKeyLift::Proof && self.facts.per_key_proof(&rid, image) {
+                return Some(true);
+            }
+            (reason == Verdict::WitnessNotCarried
+                && self.cfg.tier == Tier::C
+                && self.cfg.witness_absent == WitnessAbsent::LiftWithRegularFact
+                && self.facts.regularity(&rid, image) == RegFact::Regular)
+                .then_some(false)
         }
     }
 

@@ -187,6 +187,10 @@ pub struct ImportedSet {
     /// Source id -> class.
     pub classes: BTreeMap<String, String>,
     pub report: LoadReport,
+    /// Under the DIAGNOSTIC `witness_check: off_diagnostic` only: the STRICT domain (witness loci checked) of every
+    /// record whose witness loci are complete, by (table, record): what a strict run would decide at a key the
+    /// diagnostic dispatch serves (a key on a witness pole is blocked there). Empty otherwise.
+    pub strict_domains: HashMap<(usize, usize), CaseDomain>,
 }
 
 impl std::fmt::Debug for ImportedSet {
@@ -317,6 +321,7 @@ pub fn load_with(
     // per dispatcher table: (file, source id, [(ordinal, record sha256)]) for the second (body) pass
     let mut body_plan: Vec<BodyPlan> = vec![];
     let mut rules: Vec<Vec<RuleInfo>> = vec![];
+    let mut strict_domains: HashMap<(usize, usize), CaseDomain> = HashMap::new();
     let mut fact_tables = BTreeMap::new();
     let mut table_digests = BTreeMap::new();
     let mut supplied: Vec<Arc<RelationSet>> = vec![];
@@ -459,6 +464,29 @@ pub fn load_with(
                         let (t, tf, infos) = build_table(
                             src, &class, &name, u, &raw, &order, &frame, witness, &mut rep,
                         )?;
+                        if !witness {
+                            // the strict domains of the records with complete witness loci (diagnostic runs)
+                            for (k, info) in infos.iter().enumerate() {
+                                if info.witness != WitnessKind::Complete {
+                                    continue;
+                                }
+                                let rec = &raw.records[order[t.meta[k].source_index]].rec;
+                                let mut d = CaseDomain::from_rule_record(
+                                    rec,
+                                    &frame,
+                                    DomainOptions {
+                                        witness: true,
+                                        ..Default::default()
+                                    },
+                                )
+                                .map_err(|e| ImportError::Source {
+                                    source: src.id.clone(),
+                                    msg: format!("strict domain of label {}: {e}", info.label),
+                                })?;
+                                d.bounds = t.domains[k].bounds.clone();
+                                strict_domains.insert((tables.len(), k), d);
+                            }
+                        }
                         if !t.is_empty() {
                             if first_table_name.is_none() {
                                 first_table_name = Some(name.clone());
@@ -735,6 +763,7 @@ pub fn load_with(
         by_sha,
         classes,
         report,
+        strict_domains,
     })
 }
 

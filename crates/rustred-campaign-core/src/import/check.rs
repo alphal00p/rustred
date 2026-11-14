@@ -29,6 +29,21 @@ pub const BASIS_PER_KEY_PROOF: &str = "per_key_proof";
 /// Basis word of a key served by a DIAGNOSTIC keys-only relation (an external checker's; never certified).
 pub const BASIS_KEYS_ONLY_DIAGNOSTIC: &str = "keys_only_relation_diagnostic";
 
+/// Basis word (diagnostic dispatch only) of a key served by a record with complete witness loci whose STRICT domain
+/// does not apply at the key (on a witness pole): a strict run blocks it there.
+pub const BASIS_WITNESS_POLE_DIAGNOSTIC: &str = "witness_pole_diagnostic";
+
+/// Basis word (diagnostic dispatch only) of a key served by an ELIDED record without a per-key proof.
+pub const BASIS_ELIDED_UNCHECKED: &str = "elided_unchecked_diagnostic";
+
+/// Basis word of a key credited through a symmetry element whose IMAGE is served by a relation set (closure.md 15.6;
+/// server = that set): level none for a diagnostic set, else per-key (verified group) / imported.
+pub const BASIS_CREDIT_VIA_RELATION: &str = "symmetry_credit_via_relation";
+
+/// Basis word of a key credited through a VERIFIED symmetry group (I(key) = I(image) re-derived from the family,
+/// closure.md 15.7): its evidence level is the image's (per-key iff a per-key proof is bound to (image record, image)).
+pub const BASIS_SYMMETRY_CREDIT_VERIFIED: &str = "symmetry_credit_verified";
+
 /// Options of a check (never part of a result's identity except `tier`).
 #[derive(Clone, Debug)]
 pub struct CheckOptions {
@@ -476,6 +491,13 @@ fn check_inner(
                 .map(move |(r, i)| ((i.path.clone(), i.label), (t, r)))
         })
         .collect();
+    // credited keys -> image (the credit's level is the image's: closure.md 17 / interfaces/import.md 15)
+    let credit_images: HashMap<Vec<i32>, Vec<i32>> = c
+        .credits()
+        .into_iter()
+        .map(|cr| (cr.key, cr.image))
+        .collect();
+    let verified_credits = set.credits.as_ref().is_some_and(|p| p.is_verified());
     let mut rows = Vec::with_capacity(if sink.is_some() { 0 } else { c.len() });
     let mut agg = Aggregates::default();
     let required = set.spec.required_evidence;
@@ -561,6 +583,27 @@ fn check_inner(
                 row.evidence = Some(Level::Imported);
                 row.basis = Some("supplied");
             }
+        } else if let Some(w) = c
+            .winner(i)
+            .filter(|w| c.is_credited(i) && !tindex.contains_key(w.table.as_str()))
+        {
+            // a credit whose image is served by a relation set (closure.md 15.6)
+            let name = w.table.clone();
+            let recipe = recipe_names.contains(&name);
+            let diagnostic = credit_images
+                .get(&row.key)
+                .and_then(|im| set.supplied_info.get(&name).and_then(|m| m.get(im)))
+                .is_some_and(|x| x.diagnostic);
+            row.status = RowStatus::Served;
+            row.server = Some(Server::Relation { set: name, recipe });
+            row.evidence = if diagnostic {
+                None
+            } else if verified_credits {
+                Some(Level::PerKey)
+            } else {
+                Some(Level::Imported)
+            };
+            row.basis = Some(BASIS_CREDIT_VIA_RELATION);
         } else if let Some(w) = c.winner(i) {
             let Some((t, r)) = rule_of(&w) else {
                 return Err(ImportError::Core(format!(
@@ -574,8 +617,21 @@ fn check_inner(
                     table: t,
                     record: r,
                 });
-                row.evidence = Some(Level::Imported);
-                row.basis = Some("symmetry_credit");
+                let image_proof = credit_images
+                    .get(&row.key)
+                    .is_some_and(|im| ev.proof(set, t, r, im).is_some_and(|p| p.per_key));
+                if verified_credits {
+                    // exact identity I(key) = I(image) (verified group) + the image's own evidence
+                    row.evidence = Some(if image_proof {
+                        Level::PerKey
+                    } else {
+                        Level::Imported
+                    });
+                    row.basis = Some(BASIS_SYMMETRY_CREDIT_VERIFIED);
+                } else {
+                    row.evidence = Some(Level::Imported);
+                    row.basis = Some("symmetry_credit");
+                }
             } else {
                 row.server = Some(Server::Rule {
                     table: t,
@@ -590,10 +646,18 @@ fn check_inner(
                     Level::Imported
                 });
                 let unchecked = set.spec.policies.witness_check != super::spec::WitnessCheck::On;
+                let strict_blocks = unchecked
+                    && info.witness == WitnessKind::Complete
+                    && set
+                        .strict_domains
+                        .get(&(t, r))
+                        .is_some_and(|d| !d.applies(&row.key).applies());
                 row.basis = Some(match (info.witness, lifted) {
+                    (WitnessKind::Elided, false) if unchecked && !proof => BASIS_ELIDED_UNCHECKED,
                     (WitnessKind::Elided, _) | (WitnessKind::NotCarried, true) => {
                         BASIS_PER_KEY_PROOF
                     }
+                    (WitnessKind::Complete, _) if strict_blocks => BASIS_WITNESS_POLE_DIAGNOSTIC,
                     (WitnessKind::Complete, _) => "witness_loci",
                     (WitnessKind::NotCarried, false) if unchecked => BASIS_WITNESS_UNCHECKED,
                     (WitnessKind::NotCarried, false) => "regularity_fact",

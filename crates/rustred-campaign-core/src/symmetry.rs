@@ -414,9 +414,15 @@ fn try_element(
         // (closure::credit, R44); this element path (and the standalone checker, which has no relation sets) refuses
         return Ok(Err(Refusal::ImageServedByRecipe));
     }
-    let rule = match d {
-        Dispatch::Covered(r) => r,
-        d => return Ok(Err(Refusal::ImageNotCovered(d))),
+    // the image's record: covered, or blocked only for missing per-key evidence that IS bound at the image (image lift,
+    // closure.md 17; a per-key proof implies regularity at the image)
+    let (rule, proof_lifted) = match &d {
+        Dispatch::Covered(r) => (*r, false),
+        Dispatch::Blocked { at, reason } => match ctx.image_lift(*at, reason.clone(), &image) {
+            Some(by_proof) => (*at, by_proof),
+            None => return Ok(Err(Refusal::ImageNotCovered(d))),
+        },
+        _ => return Ok(Err(Refusal::ImageNotCovered(d))),
     };
     let pos = ctx.position(rule);
     let (mut buf, mut cm) = (vec![], vec![]);
@@ -425,7 +431,7 @@ fn try_element(
     };
     let tier_c = ctx.tier() == Tier::C;
     let mut undecided = vec![];
-    if tier_c {
+    if tier_c && !proof_lifted {
         match ctx.facts().regularity(&ctx.rule_id(pos), &image) {
             RegFact::Regular => {}
             RegFact::Pole => return Ok(Err(Refusal::Irregular)),

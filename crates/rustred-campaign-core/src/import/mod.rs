@@ -12,6 +12,7 @@
 pub mod check;
 pub mod error;
 pub mod evidence;
+pub mod exact_facts;
 pub mod factpass;
 pub mod index;
 pub mod lines;
