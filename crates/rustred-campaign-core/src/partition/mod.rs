@@ -1040,7 +1040,7 @@ fn partition_nf(
     };
     rep.cap_truncated = rep.count_cap_truncated();
     // prove mode: an uncovered class already refutes the proof (no locus resolution, no face list)
-    let mut refuted = mode == RunMode::Prove && rep.n_u() > 0;
+    let refuted = mode == RunMode::Prove && rep.n_u() > 0;
     if !rep.stats.aborted && !meter.exhausted() && opts.resolve_loci && !refuted {
         // the call's budget reaches the locus resolution (audit-part-B M3, re-audit RA2-M5): regions left when it is
         // exhausted are OPEN (a bounded summary per class, never one region per pending call)
