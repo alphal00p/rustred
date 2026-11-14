@@ -122,8 +122,17 @@ pub struct SolveCfg {
     /// The determinism id the answers must carry (answers of another id are refused); None = the answers' own.
     #[serde(default)]
     pub determinism_id: Option<String>,
+    /// The relation rule in force (coordinator's ruling: `m1_first` wanted): `m1_first` requires every answer to
+    /// carry `relation_rule: m1_first` (engine v1.2); `first_admissible` (default) = the comparator's first hit
+    /// (engine v1.1 has no field: then labelled so). Recorded in every batch file, answers line and result.
+    #[serde(default = "d_relation_rule")]
+    pub relation_rule: String,
     #[serde(default)]
     pub fake: Option<FakeSolve>,
+}
+
+fn d_relation_rule() -> String {
+    "first_admissible".into()
 }
 
 fn d_keys_per_job() -> usize {
@@ -237,6 +246,12 @@ impl CloseLoopConfig {
             }
             if n.budgets.max_job_attempts == 0 {
                 return Err(format!("node {}: max_job_attempts must be >= 1", n.node));
+            }
+            if !matches!(n.solve.relation_rule.as_str(), "m1_first" | "first_admissible") {
+                return Err(format!(
+                    "node {}: relation_rule {:?} (m1_first | first_admissible)",
+                    n.node, n.solve.relation_rule
+                ));
             }
             if let Some(r) = &n.required_evidence
                 && !matches!(r.as_str(), "imported" | "replay" | "per-key")

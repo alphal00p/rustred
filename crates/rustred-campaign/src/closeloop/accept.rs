@@ -35,6 +35,9 @@ pub struct BatchFile {
     pub recipe_sha256: String,
     pub recipe_blake3: String,
     pub engine_digest: Option<String>,
+    /// The relation rule in force for this batch (config `solve.relation_rule`).
+    #[serde(default)]
+    pub relation_rule: String,
     pub keys: Vec<Vec<i32>>,
 }
 
@@ -267,16 +270,34 @@ pub fn decide(c: &AcceptCtx<'_>, canonical_lines: &[String]) -> Result<Decided, 
         match o {
             KeyOutcome::Accepted(a) => {
                 let k32: Vec<i32> = a.key.iter().map(|&x| x as i32).collect();
+                let rec: Value = serde_json::from_slice(&a.canonical).unwrap_or(Value::Null);
+                let taken = rec["relation_rule"].as_str().map(str::to_string);
                 let decision = match &refused {
                     Some(w) => Err(w.clone()),
+                    None if c.batch.relation_rule == "m1_first"
+                        && taken.as_deref() != Some("m1_first") =>
+                    {
+                        Err(format!(
+                            "relation rule m1_first required, the answer says {taken:?} (engine without the field)"
+                        ))
+                    }
                     None => verdicts
                         .get(&k32)
                         .cloned()
                         .unwrap_or_else(|| Err("not judged by the acceptance chain".into())),
                 };
+                let rule_label = match &taken {
+                    Some(t) => format!(
+                        "{t} (taken: {})",
+                        rec["relation_rule_taken"].as_str().unwrap_or("-")
+                    ),
+                    None => format!(
+                        "{} (engine answer without a relation_rule field: the comparator's first hit)",
+                        c.batch.relation_rule
+                    ),
+                };
                 match decision {
                     Ok(()) => {
-                        let rec: Value = serde_json::from_slice(&a.canonical).unwrap_or(Value::Null);
                         let rhs: Vec<Value> = rec["rhs"]
                             .as_array()
                             .into_iter()
@@ -297,7 +318,7 @@ pub fn decide(c: &AcceptCtx<'_>, canonical_lines: &[String]) -> Result<Decided, 
                             "key": k32, "verdict": "SOLVED", "relation_digest": a.relation_digest, "rhs": rhs,
                             "proof": rec["proof"].clone(), "regular": true,
                             "results": {"path": c.results_path, "blake3": c.results_blake3, "ordinal": a.ordinal},
-                            "failure": null});
+                            "relation_rule": rule_label, "failure": null});
                         out.lines.push(line(&v));
                         out.certified.push(k32);
                     }
@@ -321,6 +342,7 @@ pub fn decide(c: &AcceptCtx<'_>, canonical_lines: &[String]) -> Result<Decided, 
                             "key": k32, "verdict": "REFUSED", "relation_digest": null, "rhs": [],
                             "proof": null, "regular": false,
                             "results": {"path": c.results_path, "blake3": c.results_blake3, "ordinal": a.ordinal},
+                            "relation_rule": rule_label,
                             "failure": {"class": "refused", "message": why}, "failure_record": f});
                         out.lines.push(line(&v));
                         out.failed.push((k32, "refused".into()));
@@ -348,6 +370,7 @@ pub fn decide(c: &AcceptCtx<'_>, canonical_lines: &[String]) -> Result<Decided, 
                     "key": k32, "verdict": u.verdict.name(), "relation_digest": null, "rhs": [],
                     "proof": null, "regular": false,
                     "results": {"path": c.results_path, "blake3": c.results_blake3, "ordinal": u.ordinal},
+                    "relation_rule": c.batch.relation_rule,
                     "failure": {"class": u.class.name(), "route": u.route, "message": u.failure["message"].clone()},
                     "failure_record": f});
                 out.lines.push(line(&v));

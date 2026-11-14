@@ -45,6 +45,8 @@ pub struct PassIn {
     pub final_dir: PathBuf,
     /// Solve items in attention (their keys stay open).
     pub attention_items: u64,
+    /// The relation rule in force for the solves (label, closeloop.md 5).
+    pub relation_rule: String,
 }
 
 /// One new solve batch (one recipe, <= K keys).
@@ -235,6 +237,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         }
     }
     let keys = res.rows.len() as u64;
+    let evidence_by_class = by_class(&set, &res, required, tier_c && strict && !diagnostic);
     let mut blocking = res.blocking();
     if required != res.required {
         // the import counted against its own level: recount against the override
@@ -354,6 +357,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                     "descent_violations": res.summary.descent_violations, "blocking": res.summary.blocking,
                     "diagnostic": diagnostic, "relaxed_checks": res.summary.relaxed_checks},
         "strict": strict, "strict_why": strict_why, "blocking": blocking, "counts": counts,
+        "evidence_by_class": evidence_by_class, "relation_rule": inp.relation_rule,
         "requests": {"solve": res.solve_requests.len(), "solve_new": new_reqs.len(),
                      "solve_by_source": solve_by_source, "fact_records": res.fact_requests.len(),
                      "fact_keys": fact_keys, "proof_records": res.proof_requests.len(), "proof_keys": proof_keys},
@@ -414,6 +418,62 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         import_manifest,
         seconds: t0.elapsed().as_secs_f64(),
     })
+}
+
+/// The rule class of a row's server (the import spec's `class` of its source; supplied / recipe sets by their id).
+fn class_of(set: &ImportedSet, r: &rustred_campaign_core::import::KeyRow) -> String {
+    match &r.server {
+        Some(Server::Rule { table, record }) | Some(Server::Credit { table, record }) => {
+            set.rules[*table][*record].class.clone()
+        }
+        Some(Server::Relation { set: name, .. }) => set
+            .classes
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| name.clone()),
+        None => match r.open_rule {
+            Some((t, k)) => set.rules[t][k].class.clone(),
+            None => "-".into(),
+        },
+    }
+}
+
+/// Evidence per rule class (the directing session's ruling: the level must be VISIBLE per class with counts):
+/// class -> {"served:<level>:<basis>", "open:<status>", "terminal", "certified"} -> keys.
+fn by_class(
+    set: &ImportedSet,
+    res: &CheckResult,
+    required: Level,
+    basis_ok: bool,
+) -> BTreeMap<String, BTreeMap<String, u64>> {
+    let mut m: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
+    for r in &res.rows {
+        let e = m.entry(class_of(set, r)).or_default();
+        let k = match r.status {
+            RowStatus::Served => format!(
+                "served:{}:{}",
+                r.evidence.map(|x| x.word()).unwrap_or("none"),
+                r.basis.unwrap_or("-")
+            ),
+            RowStatus::Terminal => "terminal".into(),
+            RowStatus::Open => format!("open:{}", r.open_status.as_deref().unwrap_or("open")),
+        };
+        *e.entry(k).or_default() += 1;
+        let cert = match r.status {
+            RowStatus::Terminal => true,
+            RowStatus::Served => {
+                basis_ok
+                    && r.evidence.is_some_and(|x| x >= required)
+                    && !r.regularity_unknown
+                    && !r.coefficient_unknown
+            }
+            RowStatus::Open => false,
+        };
+        if cert {
+            *e.entry("certified".into()).or_default() += 1;
+        }
+    }
+    m
 }
 
 struct FinalCtx<'a> {
@@ -499,6 +559,8 @@ fn write_final(
                     "recipes_used": served_by_recipe.len(), "keys_by_recipe": served_by_recipe,
                     "supplied_sets_used": served_by_supplied, "solved_keys": solved_keys, "failed_keys": failed_keys,
                     "answers_by_recipe": answered},
+        "evidence_by_class": f.check["evidence_by_class"].clone(),
+        "relation_rule": inp.relation_rule,
         "requests_left": {"solve": res.solve_requests.len(), "fact_records": res.fact_requests.len(),
                           "proof_records": res.proof_requests.len()},
         "writes": "CDIR/closeloop only (never P5L_STATUS.json / P5L_TERMINALS.json)",

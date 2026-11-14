@@ -79,6 +79,8 @@ pub struct Toy {
     /// Pin an engine digest in the import spec for R1 (a wrong one makes every answer of R1 a lie).
     pub r1_engine_digest: Option<String>,
     pub max_keys_per_job: usize,
+    /// Give the table rule its fact + per-key proof (else the node cannot close: Tier C, per-key required).
+    pub table_evidence: bool,
 }
 
 impl Default for Toy {
@@ -93,6 +95,7 @@ impl Default for Toy {
             ms: 20,
             r1_engine_digest: None,
             max_keys_per_job: 2,
+            table_evidence: true,
         }
     }
 }
@@ -110,18 +113,42 @@ pub fn toy(dir: &Path, t: &Toy, fake: &str) -> ToyFiles {
     std::fs::create_dir_all(dir).unwrap();
     // table A: the start key [top+1, 1, 0] -> [top, 1, 0] (+ a hand-down); nothing else is covered by tables
     let start_top = t.top + 1;
-    let a = write_table(
-        dir,
-        "A.table.jsonl",
-        &[rule(
-            0,
-            [Some(start_top as i64), Some(1), Some(0)],
-            &[
-                &format!("I({},1,0)", t.top),
-                &format!("I({},0,0)", start_top),
-            ],
-        )],
+    let a_rule = rule(
+        0,
+        [Some(start_top as i64), Some(1), Some(0)],
+        &[
+            &format!("I({},1,0)", t.top),
+            &format!("I({},0,0)", start_top),
+        ],
     );
+    let a = write_table(dir, "A.table.jsonl", std::slice::from_ref(&a_rule));
+    // the table rule's own evidence at the start key, bound to (record_sha256, key): a regularity fact and an exact
+    // per-key proof (what the hand campaign produced with rr_proof)
+    let a_sha = {
+        let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
+        h.update(a_rule.as_bytes());
+        h.finish_hex()
+    };
+    let facts = dir.join("facts.jsonl");
+    std::fs::write(
+        &facts,
+        json!({"schema":"rustred.proof-kernel.instantiate.v1","record_sha256":a_sha,"rule":0,
+            "key":[start_top,1,0],"in_case":true,"chart_ok":true,"branch":null,"regular":"regular",
+            "irregular_terms":[],"hidden_loci":[],
+            "rhs":[{"term":0,"key":[t.top,1,0],"coef":"nonzero"},{"term":1,"key":[start_top,0,0],"coef":"nonzero"}],
+            "zero_test":"exact","error":null})
+        .to_string()
+            + "\n",
+    )
+    .unwrap();
+    let proofs = dir.join("proofs.json");
+    std::fs::write(
+        &proofs,
+        json!({"schema":"rustred.proof-kernel.span.v1","keys":[
+            {"record_sha256": a_sha, "key": [start_top,1,0], "status":"EXACT_IN_SPAN_AT_KEY"}]})
+        .to_string(),
+    )
+    .unwrap();
     let r1 = recipe(dir, "R1.recipe.json", [None, Some(1), Some(0)]);
     let r2 = recipe(dir, "R2.recipe.json", [None, Some(2), Some(0)]);
     let dflt = recipe(dir, "default.recipe.json", [None, None, None]);
@@ -146,7 +173,10 @@ pub fn toy(dir: &Path, t: &Toy, fake: &str) -> ToyFiles {
         "sources":[{"id":"A","kind":"engine_table","class":"base","path": a.display().to_string(),
                     "sha256": sha256_file(&a), "hand_name":{"template":"{source}#{label}"}},
                    r1src,
-                   {"id":"R2","kind":"recipe","class":"recipe","path": r2.display().to_string()}]});
+                   {"id":"R2","kind":"recipe","class":"recipe","path": r2.display().to_string()}],
+        "evidence": if t.table_evidence {
+            json!({"facts":[{"path": facts.display().to_string()}],"proofs":[{"path": proofs.display().to_string()}]})
+        } else { json!({}) }});
     let import_spec = dir.join("import-spec.json");
     std::fs::write(&import_spec, serde_json::to_vec_pretty(&spec).unwrap()).unwrap();
     // oracle: face R1 at [k,1,0] -> [k-1,1,0] + hand-down; face R2 at [k,2,0] -> [k-1,2,0] + [k,1,0];

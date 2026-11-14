@@ -383,6 +383,7 @@ impl CloseFromMaterialSource {
             hand: r.cfg.hand.clone(),
             final_dir: self.abs(&format!("{}/final", node_dir(&r.n))),
             attention_items: att,
+            relation_rule: r.cfg.solve.relation_rule.clone(),
         };
         let h = std::thread::Builder::new()
             .name(format!("closeloop-pass-{}", r.n))
@@ -753,6 +754,7 @@ impl CloseFromMaterialSource {
             recipe_sha256: b.recipe_sha256.clone(),
             recipe_blake3: file_blake3(&rp)?,
             engine_digest: b.engine_digest.clone(),
+            relation_rule: self.nodes[i].cfg.solve.relation_rule.clone(),
             keys: b.keys.clone(),
         };
         let mut kb = Vec::new();
@@ -823,7 +825,7 @@ impl CloseFromMaterialSource {
     }
 
     /// The derived progress file (closeloop.md 10).
-    fn progress(&mut self, st: &CampaignState) {
+    fn progress(&mut self, st: &CampaignState, finalized: &BTreeMap<usize, String>) {
         let mut nodes = vec![];
         for (i, r) in self.nodes.iter().enumerate() {
             let node = &r.cfg.node;
@@ -855,6 +857,9 @@ impl CloseFromMaterialSource {
             };
             let eta_s = per_key_s.map(|c| c * pending as f64 / running.max(1) as f64);
             let phase = match (&r.running, done, st.nodes.get(node).map(|x| x.state.phase)) {
+                // committed in the same tick as this write (the last poll before the campaign finishes)
+                _ if finalized.get(&i).is_some_and(|v| v == "closed") => "closed",
+                _ if finalized.contains_key(&i) => "final",
                 (_, true, Some(NodePhase::Closed | NodePhase::Certified)) => "closed",
                 (_, true, _) => "final",
                 (Some(p), _, _) if p.round <= 1 => "import",
@@ -873,13 +878,14 @@ impl CloseFromMaterialSource {
                 "per_key_cpu_s": per_key_s, "eta_s": eta_s,
                 "pass_running_s": r.pass_started.filter(|_| r.running.is_some()).map(|t| t.elapsed().as_secs()),
                 "last_check": {"defect": lc["defect"], "blocking": lc["blocking"], "closed": lc["closed"]},
+                "evidence_by_class": lc["evidence_by_class"], "relation_rule": r.cfg.solve.relation_rule,
             }));
         }
         let v = json!({"schema": PROGRESS_SCHEMA, "ledger_seq": st.last_seq, "nodes": nodes});
         let text = serde_json::to_string_pretty(&v).expect("json");
         let due = match &self.last_progress {
             None => true,
-            Some((t, old)) => *old != text && t.elapsed().as_millis() >= 1000,
+            Some((t, old)) => *old != text && (t.elapsed().as_millis() >= 1000 || !finalized.is_empty()),
         };
         if due {
             let p = self.cdir.join("progress").join("closeloop.json");
@@ -1233,6 +1239,7 @@ impl WorkSource for CloseFromMaterialSource {
 
     fn poll(&mut self, st: &CampaignState, _ctx: &SourceContext) -> Result<Routing, String> {
         let mut rt = Routing::default();
+        let mut finalized: BTreeMap<usize, String> = BTreeMap::new();
         for i in 0..self.nodes.len() {
             let fin = self.nodes[i]
                 .running
@@ -1250,12 +1257,16 @@ impl WorkSource for CloseFromMaterialSource {
                     Ok(PassResult::Checked(o)) => {
                         // the pass ran on the state of its start: still the node's next round?
                         if self.needs_pass(st, i) == Some(o.round) {
+                            if let Some(f) = &o.final_ {
+                                finalized.insert(i, f.verdict.clone());
+                            }
                             match self.commit_pass(st, i, *o) {
                                 Ok(r) => {
                                     rt.events.extend(r.events);
                                     rt.accepts.extend(r.accepts);
                                 }
                                 Err(e) => {
+                                    finalized.insert(i, "error".into());
                                     let r = self.error_final(st, i, round, &e);
                                     rt.events.extend(r.events);
                                     rt.accepts.extend(r.accepts);
@@ -1281,8 +1292,7 @@ impl WorkSource for CloseFromMaterialSource {
                 rt.accepts.extend(r.accepts);
             }
         }
-        // attention for solve items whose attempts are exhausted without a route (e.g. setup errors)
-        self.progress(st);
+        self.progress(st, &finalized);
         Ok(rt)
     }
 
