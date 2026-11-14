@@ -32,8 +32,11 @@ pub fn final_result(st: &CampaignState) -> FinalResult {
             r.accepted
                 .insert(id.clone(), (a.rule.clone(), a.record.blake3.clone()));
         }
-        if !matches!(it.phase, ItemPhase::Escalated(_)) {
-            r.dispositions.insert(id.clone(), it.phase.tag().to_string());
+        let superseded = matches!(it.phase, ItemPhase::Escalated(_))
+            || (it.phase == ItemPhase::Stale && it.stale_from.as_deref() == Some("escalated"));
+        if !superseded {
+            r.dispositions
+                .insert(id.clone(), it.phase.tag().to_string());
         }
         if it.phase == ItemPhase::Terminal {
             r.terminals.push((it.node.clone(), id.clone()));

@@ -18,7 +18,10 @@ fn small() -> serde_json::Value {
     serde_json::json!({"items": 16, "case_ms": [80, 200], "seed": 5})
 }
 
-fn reference(t: &Tmp, spec_p: &std::path::Path) -> rustred_campaign::supervisor::result::FinalResult {
+fn reference(
+    t: &Tmp,
+    spec_p: &std::path::Path,
+) -> rustred_campaign::supervisor::result::FinalResult {
     let d = t.cdir("reference");
     assert_eq!(run_to_end(spec_p, &d, &[]), vec![0]);
     result(&d)
@@ -53,10 +56,19 @@ fn failpoints_and_full_disk_resume_to_the_reference() {
         assert_no_marked(&t.campaign);
         if fp.starts_with("before_settle") {
             // The sealed success of the killed session was accepted after the restart (idempotent acceptance).
-            assert!(count(&d, |e| matches!(e, Event::Item { ev: rustred_campaign::ledger::ItemEvent::Accept { .. }, .. })) > 0);
+            assert!(
+                count(&d, |e| matches!(
+                    e,
+                    Event::Item {
+                        ev: rustred_campaign::ledger::ItemEvent::Accept { .. },
+                        ..
+                    }
+                )) > 0
+            );
         }
         if fp.starts_with("ledger_enospc") {
-            assert!(log_tail(&d).contains("disk full"), "{}", log_tail(&d));
+            let full = std::fs::read_to_string(d.with_extension("log")).unwrap();
+            assert!(full.contains("disk full"), "{}", log_tail(&d));
         }
     }
 }
@@ -65,13 +77,28 @@ fn failpoints_and_full_disk_resume_to_the_reference() {
 fn children_ignoring_sigterm_are_killed_after_the_grace() {
     let _g = serial();
     let t = Tmp::new("ign");
-    let syn = serde_json::json!({"items": 16, "case_ms": [1500, 3000], "seed": 5, "on_sigterm": "ignore"});
-    let spec_p = write_spec(&t, "spec.json", &spec(&t, syn, serde_json::json!({"grace_seconds": 1})));
+    // Cases far longer than grace + 5 s, so that the drain must end in the group kill.
+    let syn = serde_json::json!({"items": 8, "case_ms": [9000, 12000], "seed": 5, "on_sigterm": "ignore",
+        "p_mem": 0.0, "p_crash": 0.0});
+    let spec_p = write_spec(
+        &t,
+        "spec.json",
+        &spec(&t, syn, serde_json::json!({"grace_seconds": 1})),
+    );
     let reference = reference(&t, &spec_p);
     let d = t.cdir("run");
     let mut c = start(&spec_p, &d, &[], &[]);
     wait_until("a running job", Duration::from_secs(120), || {
-        d.join("ledger").exists() && count(&d, |e| matches!(e, Event::Job { ev: JobEvent::Started { .. }, .. })) >= 2
+        d.join("ledger").exists()
+            && count(&d, |e| {
+                matches!(
+                    e,
+                    Event::Job {
+                        ev: JobEvent::Started { .. },
+                        ..
+                    }
+                )
+            }) >= 2
     });
     let t0 = std::time::Instant::now();
     signal(&c, libc::SIGINT);
@@ -79,7 +106,17 @@ fn children_ignoring_sigterm_are_killed_after_the_grace() {
     // grace 1 s + 5 s, then the group kill and the empty-session check.
     assert!(t0.elapsed() < Duration::from_secs(60), "{:?}", t0.elapsed());
     let killed = count(&d, |e| {
-        matches!(e, Event::Job { ev: JobEvent::Finished { class: FinishClass::Interrupted, signal: Some(9), .. }, .. })
+        matches!(
+            e,
+            Event::Job {
+                ev: JobEvent::Finished {
+                    class: FinishClass::Interrupted,
+                    signal: Some(9),
+                    ..
+                },
+                ..
+            }
+        )
     });
     assert!(killed >= 1, "{}", log_tail(&d));
     assert_no_marked(&t.campaign);
@@ -92,7 +129,8 @@ fn children_ignoring_sigterm_are_killed_after_the_grace() {
 fn helpers_that_escape_the_group_are_killed_by_marker() {
     let _g = serial();
     let t = Tmp::new("esc");
-    let syn = serde_json::json!({"items": 6, "case_ms": [80, 200], "seed": 5, "escape_helpers": true});
+    let syn =
+        serde_json::json!({"items": 6, "case_ms": [80, 200], "seed": 5, "escape_helpers": true});
     let spec_p = write_spec(&t, "spec.json", &spec(&t, syn, serde_json::json!({})));
     let d = t.cdir("run");
     assert_eq!(run_to_end(&spec_p, &d, &[]), vec![0]);
@@ -113,7 +151,16 @@ fn second_supervisor_refused_stale_lock_taken_over_decoys_survive() {
     let d = t.cdir("run");
     let mut a = start(&spec_p, &d, &[], &[]);
     wait_until("first launches", Duration::from_secs(120), || {
-        d.join("ledger").exists() && count(&d, |e| matches!(e, Event::Job { ev: JobEvent::Started { .. }, .. })) >= 2
+        d.join("ledger").exists()
+            && count(&d, |e| {
+                matches!(
+                    e,
+                    Event::Job {
+                        ev: JobEvent::Started { .. },
+                        ..
+                    }
+                )
+            }) >= 2
     });
     // A second supervisor on the same directory is refused while the first runs.
     let mut b = start(&spec_p, &d, &[], &[]);
@@ -125,16 +172,29 @@ fn second_supervisor_refused_stale_lock_taken_over_decoys_survive() {
     // Decoys: no marker but its identity recorded as an attempt's (pid, start ticks, boot id, session number = pid),
     // cwd inside the campaign directory; and a process carrying ANOTHER campaign key's marker (same campaign id).
     let d1 = decoy(&d, None);
-    let other = format!("RR_CAMPAIGN_JOB={}@ffffffffffff:N0.i0000.L0-t0:a1", t.campaign);
+    let other = format!(
+        "RR_CAMPAIGN_JOB={}@ffffffffffff:N0.i0000.L0-t0:a1",
+        t.campaign
+    );
     let (ok, ov) = other.split_once('=').unwrap();
     let d2 = decoy(&d, Some((ok, ov)));
     std::thread::sleep(Duration::from_millis(200));
     {
-        let (mut l, _) = Ledger::open(&d, Arc::new(rustred_campaign::clock::SystemClock::new()), LedgerConfig::default()).unwrap();
+        let (mut l, _) = Ledger::open(
+            &d,
+            Arc::new(rustred_campaign::clock::SystemClock::new()),
+            LedgerConfig::default(),
+        )
+        .unwrap();
         let run_dir = t.path.join("decoy-run");
         std::fs::create_dir_all(&run_dir).unwrap();
         l.append_all(vec![
-            Event::NodeRegistered { node: "DECOY".into(), inputs: vec![], terminal_bound: None, spec_box: None },
+            Event::NodeRegistered {
+                node: "DECOY".into(),
+                inputs: vec![],
+                terminal_bound: None,
+                spec_box: None,
+            },
             Event::ItemCreated {
                 item: "DECOY.i0".into(),
                 node: "DECOY".into(),
@@ -157,7 +217,11 @@ fn second_supervisor_refused_stale_lock_taken_over_decoys_survive() {
             Event::Job {
                 job: "DECOY.i0-t0".into(),
                 attempt: 1,
-                ev: JobEvent::Launch { run_dir: run_dir.to_string_lossy().into(), cpus: vec![], reserved_bytes: 1 },
+                ev: JobEvent::Launch {
+                    run_dir: run_dir.to_string_lossy().into(),
+                    cpus: vec![],
+                    reserved_bytes: 1,
+                },
             },
             Event::Job {
                 job: "DECOY.i0-t0".into(),
@@ -176,8 +240,14 @@ fn second_supervisor_refused_stale_lock_taken_over_decoys_survive() {
     assert!(count(&d, |e| matches!(e, Event::LockTakeover { .. })) >= 1);
     let mut d1 = d1;
     let mut d2 = d2;
-    assert!(d1.try_wait().unwrap().is_none(), "decoy without marker was signalled");
-    assert!(d2.try_wait().unwrap().is_none(), "decoy of another campaign key was signalled");
+    assert!(
+        d1.try_wait().unwrap().is_none(),
+        "decoy without marker was signalled"
+    );
+    assert!(
+        d2.try_wait().unwrap().is_none(),
+        "decoy of another campaign key was signalled"
+    );
     let r = result(&d);
     assert_eq!(r.accepted, reference.accepted);
     assert_eq!(r.terminals, reference.terminals);
@@ -203,20 +273,41 @@ fn changed_binary_is_refused_then_marks_rows_stale() {
     let mut c = start(&spec_p, &d, &[], &[]);
     wait_until("some accepted rules", Duration::from_secs(120), || {
         d.join("ledger").exists()
-            && count(&d, |e| matches!(e, Event::Item { ev: rustred_campaign::ledger::ItemEvent::Accept { .. }, .. })) >= 2
+            && count(&d, |e| {
+                matches!(
+                    e,
+                    Event::Item {
+                        ev: rustred_campaign::ledger::ItemEvent::Accept { .. },
+                        ..
+                    }
+                )
+            }) >= 2
     });
     signal(&c, libc::SIGINT);
     assert_eq!(wait(&mut c, Duration::from_secs(120)), 130);
     // Change the binary (an appended byte keeps the ELF runnable; the digest differs).
     use std::io::Write;
-    std::fs::OpenOptions::new().append(true).open(&copy).unwrap().write_all(b"\0").unwrap();
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(&copy)
+        .unwrap()
+        .write_all(b"\0")
+        .unwrap();
     let mut c = start(&spec_p, &d, &[], &[]);
     assert_eq!(wait(&mut c, Duration::from_secs(60)), 6);
     assert!(log_tail(&d).contains("binary changed"), "{}", log_tail(&d));
     run_to_end(&spec_p, &d, &["--accept-binary-change"]);
     let st = state(&d);
     assert_eq!(st.inputs["bin:rr_fake_child"].versions, 2);
-    assert!(count(&d, |e| matches!(e, Event::Item { ev: rustred_campaign::ledger::ItemEvent::Reopen { .. }, .. })) >= 2);
+    assert!(
+        count(&d, |e| matches!(
+            e,
+            Event::Item {
+                ev: rustred_campaign::ledger::ItemEvent::Reopen { .. },
+                ..
+            }
+        )) >= 2
+    );
     let r = result(&d);
     assert_eq!(r, reference);
     assert_eq!(verify(&d), 0);

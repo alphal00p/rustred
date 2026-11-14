@@ -252,7 +252,14 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rr-sup-orph-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let spawn = |marker: Option<&str>| {
-            let mut c = Command::new("/bin/sleep");
+            let sleep = std::env::var_os("PATH")
+                .and_then(|p| {
+                    std::env::split_paths(&p)
+                        .map(|d| d.join("sleep"))
+                        .find(|f| f.is_file())
+                })
+                .unwrap_or_else(|| PathBuf::from("/bin/sleep"));
+            let mut c = Command::new(sleep);
             c.arg("60").current_dir(&dir).env_clear();
             if let Some(m) = marker {
                 c.env(MARKER_ENV, m);
@@ -291,7 +298,10 @@ mod tests {
         let st = ours.wait().unwrap();
         assert!(st.code().is_none());
         assert!(decoy.try_wait().unwrap().is_none(), "decoy must survive");
-        assert!(other.try_wait().unwrap().is_none(), "other campaign must survive");
+        assert!(
+            other.try_wait().unwrap().is_none(),
+            "other campaign must survive"
+        );
         let _ = decoy.kill();
         let _ = other.kill();
         let _ = decoy.wait();

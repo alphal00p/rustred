@@ -94,7 +94,11 @@ impl SpecInput {
                 self.path.display(),
                 self.blake3
             )),
-            Err(e) => Err(format!("input {} missing: {} ({e})", self.id, self.path.display())),
+            Err(e) => Err(format!(
+                "input {} missing: {} ({e})",
+                self.id,
+                self.path.display()
+            )),
         }
     }
 }
@@ -303,10 +307,9 @@ impl<'de> Deserialize<'de> for ByteSize {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let v = serde_json::Value::deserialize(d)?;
         match v {
-            serde_json::Value::Number(n) => n
-                .as_u64()
-                .map(ByteSize)
-                .ok_or_else(|| serde::de::Error::custom("byte size must be a non-negative integer")),
+            serde_json::Value::Number(n) => n.as_u64().map(ByteSize).ok_or_else(|| {
+                serde::de::Error::custom("byte size must be a non-negative integer")
+            }),
             serde_json::Value::String(s) => ByteSize::parse(&s).map_err(serde::de::Error::custom),
             _ => Err(serde::de::Error::custom("byte size: number or string")),
         }
@@ -385,7 +388,10 @@ impl CampaignSpec {
         for i in &self.inputs {
             if i.id.is_empty()
                 || i.id.starts_with("bin:")
-                || !i.id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'))
+                || !i
+                    .id
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'))
             {
                 return Err(format!("input id {:?}: [A-Za-z0-9._:-], not bin:*", i.id));
             }
@@ -457,6 +463,9 @@ mod tests {
         .unwrap();
         s.validate().unwrap();
         assert_eq!(s.resources.mem_total.0, 4_000_000_000);
-        assert!(serde_json::from_str::<CampaignSpec>(r#"{"schema":"x","campaign":"t","bogus":1}"#).is_err());
+        assert!(
+            serde_json::from_str::<CampaignSpec>(r#"{"schema":"x","campaign":"t","bogus":1}"#)
+                .is_err()
+        );
     }
 }

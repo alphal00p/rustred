@@ -751,8 +751,9 @@ impl SitePolicy {
     /// line while holding the flock, then drop it. Claims whose flock is held (a live job of ours or a sibling
     /// supervisor with the same tag) are left alone. Returns the CPUs released. Additive (lane I-SUP, 2026-11-14).
     pub fn reconcile_own_claims(&mut self) -> Result<Vec<usize>, PolicyError> {
-        let lines = tail_lines(&self.config.ledger_file, self.config.ledger_scan_lines)
-            .map_err(io_err(format!("read {}", self.config.ledger_file.display())))?;
+        let lines = tail_lines(&self.config.ledger_file, self.config.ledger_scan_lines).map_err(
+            io_err(format!("read {}", self.config.ledger_file.display())),
+        )?;
         let claims = ledger_claims(lines.iter().map(String::as_str));
         let Some(own) = claims.get(&self.config.tag) else {
             return Ok(Vec::new());
@@ -778,8 +779,15 @@ impl SitePolicy {
         let cpus: Vec<usize> = held.iter().map(|x| x.0).collect();
         if !cpus.is_empty() {
             self.ledger
-                .append(&self.ledger.release_line(&cpus, "stale claims of a dead supervisor"))
-                .map_err(io_err(format!("append to {}", self.config.ledger_file.display())))?;
+                .append(
+                    &self
+                        .ledger
+                        .release_line(&cpus, "stale claims of a dead supervisor"),
+                )
+                .map_err(io_err(format!(
+                    "append to {}",
+                    self.config.ledger_file.display()
+                )))?;
         }
         drop(held);
         Ok(cpus)
@@ -1093,18 +1101,27 @@ mod tests {
             "2026-11-14T00:00:00Z (rr-campaign): + CPUs 0,1 (flock) -> old job. Released at its end.\n",
         )
         .unwrap();
-        let live = OpenOptions::new().read(true).write(true).create(true).truncate(false)
-            .open(root.join("locks/cpu.1")).unwrap();
+        let live = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(root.join("locks/cpu.1"))
+            .unwrap();
         live.try_lock().unwrap();
         let aff: BTreeSet<usize> = (0..4).collect();
         let mut p = SitePolicy::with_affinity(c.clone(), &aff).unwrap();
         assert_eq!(p.reconcile_own_claims().unwrap(), vec![0]);
         let text = fs::read_to_string(&c.ledger_file).unwrap();
-        assert_eq!(ledger_claims(text.lines())["rr-campaign"], BTreeSet::from([1]));
+        assert_eq!(
+            ledger_claims(text.lines())["rr-campaign"],
+            BTreeSet::from([1])
+        );
         assert!(p.reconcile_own_claims().unwrap().is_empty());
         drop(live);
         // Sibling rule: 2 and 3 are siblings; 3 busy -> 2 not eligible, 0 (sibling 1 idle) eligible.
-        p.idle_tracker_mut().set_idle([(0, 0.9), (1, 0.9), (2, 0.9), (3, 0.1)].into());
+        p.idle_tracker_mut()
+            .set_idle([(0, 0.9), (1, 0.9), (2, 0.9), (3, 0.1)].into());
         p.set_sibling_quiet([(0, vec![1]), (1, vec![0]), (2, vec![3]), (3, vec![2])].into());
         let a = p.acquire(2, "x").unwrap().granted().unwrap();
         let mut got = a.cpus().to_vec();

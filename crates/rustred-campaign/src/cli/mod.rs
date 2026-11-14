@@ -58,7 +58,11 @@ fn parse(rest: &[String]) -> Result<Flags, String> {
     let mut f = Flags::default();
     let mut it = rest.iter();
     while let Some(a) = it.next() {
-        let mut val = |name: &str| it.next().cloned().ok_or_else(|| format!("{name} needs a value"));
+        let mut val = |name: &str| {
+            it.next()
+                .cloned()
+                .ok_or_else(|| format!("{name} needs a value"))
+        };
         match a.as_str() {
             "--spec" => f.spec = Some(val("--spec")?.into()),
             "--dir" => f.dir = Some(val("--dir")?.into()),
@@ -78,17 +82,26 @@ fn parse(rest: &[String]) -> Result<Flags, String> {
 }
 
 fn load_spec(f: &Flags) -> Result<(CampaignSpec, String, PathBuf), (i32, String)> {
-    let path = f.spec.as_ref().ok_or((exit::USAGE, "--spec is required".to_string()))?;
-    let (spec, digest) = CampaignSpec::read(path).map_err(|e| (exit::PF_SPEC, format!("spec: {e}")))?;
+    let path = f
+        .spec
+        .as_ref()
+        .ok_or((exit::USAGE, "--spec is required".to_string()))?;
+    let (spec, digest) =
+        CampaignSpec::read(path).map_err(|e| (exit::PF_SPEC, format!("spec: {e}")))?;
     let cdir = f
         .dir
         .clone()
         .or_else(|| spec.dirs.campaign_dir.clone())
-        .ok_or((exit::USAGE, "no campaign directory: --dir or dirs.campaign_dir".to_string()))?;
+        .ok_or((
+            exit::USAGE,
+            "no campaign directory: --dir or dirs.campaign_dir".to_string(),
+        ))?;
     let cdir = if cdir.is_absolute() {
         cdir
     } else {
-        std::env::current_dir().map(|d| d.join(&cdir)).unwrap_or(cdir)
+        std::env::current_dir()
+            .map(|d| d.join(&cdir))
+            .unwrap_or(cdir)
     };
     Ok((spec, digest, cdir))
 }
@@ -123,7 +136,9 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
         tick: Duration::from_millis(200),
     });
     match &r {
-        supervisor::RunExit::Refused(m) | supervisor::RunExit::BinaryChanged(m) | supervisor::RunExit::Internal(m) => {
+        supervisor::RunExit::Refused(m)
+        | supervisor::RunExit::BinaryChanged(m)
+        | supervisor::RunExit::Internal(m) => {
             eprintln!("rr_campaign: {m}")
         }
         _ => {}
@@ -163,7 +178,16 @@ pub fn preflight(spec: &CampaignSpec, digest: &str, cdir: &Path, out: &mut impl 
             *code = c;
         }
     };
-    pf(out, "ok", &format!("spec {} (blake3 {}), campaign {}", spec.schema, &digest[..16], spec.campaign));
+    pf(
+        out,
+        "ok",
+        &format!(
+            "spec {} (blake3 {}), campaign {}",
+            spec.schema,
+            &digest[..16],
+            spec.campaign
+        ),
+    );
     if let Err(e) = spec.check_dirs(cdir) {
         pf(out, "REFUSE", &e);
         refuse(exit::PF_SPEC, &mut code);
@@ -199,7 +223,14 @@ pub fn preflight(spec: &CampaignSpec, digest: &str, cdir: &Path, out: &mut impl 
                 if let Some(want) = &p.blake3
                     && *want != d
                 {
-                    pf(out, "REFUSE", &format!("binary blake3 mismatch: {name} ({} has {d})", p.path.display()));
+                    pf(
+                        out,
+                        "REFUSE",
+                        &format!(
+                            "binary blake3 mismatch: {name} ({} has {d})",
+                            p.path.display()
+                        ),
+                    );
                     refuse(exit::PF_PROGRAM, &mut code);
                     continue;
                 }
@@ -208,28 +239,57 @@ pub fn preflight(spec: &CampaignSpec, digest: &str, cdir: &Path, out: &mut impl 
                     Ok(v) if v.contains("rustred.child-job.v1") => pf(
                         out,
                         "ok",
-                        &format!("program {name}: {} ({bytes} bytes, blake3 {d}); {}", p.path.display(), v.trim()),
+                        &format!(
+                            "program {name}: {} ({bytes} bytes, blake3 {d}); {}",
+                            p.path.display(),
+                            v.trim()
+                        ),
                     ),
                     Ok(v) => {
-                        pf(out, "REFUSE", &format!("program {name}: no contract rustred.child-job.v1 in {v:?}"));
+                        pf(
+                            out,
+                            "REFUSE",
+                            &format!("program {name}: no contract rustred.child-job.v1 in {v:?}"),
+                        );
                         refuse(exit::PF_PROGRAM, &mut code);
                     }
                     Err(e) => {
-                        pf(out, "REFUSE", &format!("program {name}: version --json failed: {e}"));
+                        pf(
+                            out,
+                            "REFUSE",
+                            &format!("program {name}: version --json failed: {e}"),
+                        );
                         refuse(exit::PF_PROGRAM, &mut code);
                     }
                 }
             }
-            Err(e) if p.optional => pf(out, "WARN", &format!("optional program {name} unavailable: {e}")),
+            Err(e) if p.optional => pf(
+                out,
+                "WARN",
+                &format!("optional program {name} unavailable: {e}"),
+            ),
             Err(e) => {
-                pf(out, "REFUSE", &format!("program {name} missing: {} ({e})", p.path.display()));
+                pf(
+                    out,
+                    "REFUSE",
+                    &format!("program {name} missing: {} ({e})", p.path.display()),
+                );
                 refuse(exit::PF_PROGRAM, &mut code);
             }
         }
     }
     for i in &spec.inputs {
         match i.check() {
-            Ok(b) => pf(out, "ok", &format!("input {} ({}): {} ({b} bytes, blake3 verified)", i.id, i.role, i.path.display())),
+            Ok(b) => pf(
+                out,
+                "ok",
+                &format!(
+                    "input {} ({}): {} ({b} bytes, blake3 verified)",
+                    i.id,
+                    i.role,
+                    i.path.display()
+                ),
+            ),
             Err(e) => {
                 pf(out, "REFUSE", &e);
                 refuse(exit::PF_INPUT, &mut code);
@@ -237,9 +297,11 @@ pub fn preflight(spec: &CampaignSpec, digest: &str, cdir: &Path, out: &mut impl 
         }
     }
     match &spec.licence.env {
-        Some(name) if std::env::var_os(name).is_some() => {
-            pf(out, "ok", &format!("licence variable {name}: present (value not shown)"))
-        }
+        Some(name) if std::env::var_os(name).is_some() => pf(
+            out,
+            "ok",
+            &format!("licence variable {name}: present (value not shown)"),
+        ),
         Some(name) => {
             pf(out, "REFUSE", &format!("licence missing: {name} not set"));
             refuse(exit::PF_LICENCE, &mut code);
@@ -251,14 +313,32 @@ pub fn preflight(spec: &CampaignSpec, digest: &str, cdir: &Path, out: &mut impl 
             let avail = m.effective_available();
             let first_cap = spec.synthetic.as_ref().map_or(0, |s| s.mem_cap_mb << 20);
             if avail < r.host_floor.0 + first_cap {
-                pf(out, "REFUSE", &format!("memory below floor (MemAvailable {avail} < {} + one job cap {first_cap})", r.host_floor.0));
+                pf(
+                    out,
+                    "REFUSE",
+                    &format!(
+                        "memory below floor (MemAvailable {avail} < {} + one job cap {first_cap})",
+                        r.host_floor.0
+                    ),
+                );
                 refuse(exit::PF_MEMORY, &mut code);
             } else {
-                pf(out, "ok", &format!("memory: MemAvailable {avail} bytes >= floor {} + one job cap", r.host_floor.0));
+                pf(
+                    out,
+                    "ok",
+                    &format!(
+                        "memory: MemAvailable {avail} bytes >= floor {} + one job cap",
+                        r.host_floor.0
+                    ),
+                );
             }
         }
         Err(e) => {
-            pf(out, "REFUSE", &format!("memory: /proc/meminfo unreadable: {e}"));
+            pf(
+                out,
+                "REFUSE",
+                &format!("memory: /proc/meminfo unreadable: {e}"),
+            );
             refuse(exit::PF_MEMORY, &mut code);
         }
     }
@@ -269,13 +349,29 @@ pub fn preflight(spec: &CampaignSpec, digest: &str, cdir: &Path, out: &mut impl 
     }
     for d in disks {
         match statvfs_avail(&d) {
-            Some(a) if a >= r.disk_floor.0 => pf(out, "ok", &format!("disk: {} has {a} bytes free >= floor", d.display())),
+            Some(a) if a >= r.disk_floor.0 => pf(
+                out,
+                "ok",
+                &format!("disk: {} has {a} bytes free >= floor", d.display()),
+            ),
             Some(a) => {
-                pf(out, "REFUSE", &format!("disk below floor: {} has {a} bytes free < {}", d.display(), r.disk_floor.0));
+                pf(
+                    out,
+                    "REFUSE",
+                    &format!(
+                        "disk below floor: {} has {a} bytes free < {}",
+                        d.display(),
+                        r.disk_floor.0
+                    ),
+                );
                 refuse(exit::PF_DISK, &mut code);
             }
             None => {
-                pf(out, "REFUSE", &format!("disk: statvfs {} failed", d.display()));
+                pf(
+                    out,
+                    "REFUSE",
+                    &format!("disk: statvfs {} failed", d.display()),
+                );
                 refuse(exit::PF_DISK, &mut code);
             }
         }
@@ -286,11 +382,21 @@ pub fn preflight(spec: &CampaignSpec, digest: &str, cdir: &Path, out: &mut impl 
                 pf(
                     out,
                     "REFUSE",
-                    &format!("run active since {}, pid {} on {}", o.started_utc, o.identity.pid, o.identity.host),
+                    &format!(
+                        "run active since {}, pid {} on {}",
+                        o.started_utc, o.identity.pid, o.identity.host
+                    ),
                 );
                 refuse(exit::PF_LOCK, &mut code);
             }
-            _ => pf(out, "ok", &format!("lock: stale record of pid {} (will be taken over)", o.identity.pid)),
+            _ => pf(
+                out,
+                "ok",
+                &format!(
+                    "lock: stale record of pid {} (will be taken over)",
+                    o.identity.pid
+                ),
+            ),
         },
         Ok(None) => pf(out, "ok", "lock: free"),
         Err(e) => {
@@ -298,13 +404,38 @@ pub fn preflight(spec: &CampaignSpec, digest: &str, cdir: &Path, out: &mut impl 
             refuse(exit::PF_LOCK, &mut code);
         }
     }
-    if cdir.join("ledger").join(crate::ledger::MANIFEST_FILE).exists() {
-        pf(out, "ok", &format!("campaign directory {} exists: run resumes it", cdir.display()));
+    if cdir
+        .join("ledger")
+        .join(crate::ledger::MANIFEST_FILE)
+        .exists()
+    {
+        pf(
+            out,
+            "ok",
+            &format!(
+                "campaign directory {} exists: run resumes it",
+                cdir.display()
+            ),
+        );
     } else {
-        pf(out, "ok", &format!("campaign directory {} is new: run creates it", cdir.display()));
+        pf(
+            out,
+            "ok",
+            &format!(
+                "campaign directory {} is new: run creates it",
+                cdir.display()
+            ),
+        );
     }
     if code == exit::OK {
-        pf(out, "ready", &format!("start with: rr_campaign run --spec <SPEC> --dir {}", cdir.display()));
+        pf(
+            out,
+            "ready",
+            &format!(
+                "start with: rr_campaign run --spec <SPEC> --dir {}",
+                cdir.display()
+            ),
+        );
     }
     code
 }
@@ -391,15 +522,28 @@ fn cmd_control(rest: &[String]) -> i32 {
 }
 
 /// Writes a control request file atomically (applied by the supervisor at its next tick).
-pub fn write_control(cdir: &Path, verb: &str, target: Option<&str>) -> Result<PathBuf, (i32, String)> {
-    if !cdir.join("ledger").join(crate::ledger::MANIFEST_FILE).exists() {
-        return Err((exit::NOT_FOUND, format!("no campaign in {}", cdir.display())));
+pub fn write_control(
+    cdir: &Path,
+    verb: &str,
+    target: Option<&str>,
+) -> Result<PathBuf, (i32, String)> {
+    if !cdir
+        .join("ledger")
+        .join(crate::ledger::MANIFEST_FILE)
+        .exists()
+    {
+        return Err((
+            exit::NOT_FOUND,
+            format!("no campaign in {}", cdir.display()),
+        ));
     }
     let dir = cdir.join("control");
     std::fs::create_dir_all(&dir).map_err(|e| (exit::INTERNAL, e.to_string()))?;
     let utc = crate::cpu_policy::utc_now();
-    let nonce = blake3::hash(format!("{utc}{}{:?}", std::process::id(), std::time::Instant::now()).as_bytes())
-        .to_hex()[..8]
+    let nonce = blake3::hash(
+        format!("{utc}{}{:?}", std::process::id(), std::time::Instant::now()).as_bytes(),
+    )
+    .to_hex()[..8]
         .to_string();
     let compact: String = utc.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
     let id = format!("c-{compact}-{nonce}");
@@ -422,7 +566,11 @@ fn cmd_verify(rest: &[String]) -> i32 {
         return exit::USAGE;
     };
     let cdir = Path::new(cdir);
-    if !cdir.join("ledger").join(crate::ledger::MANIFEST_FILE).exists() {
+    if !cdir
+        .join("ledger")
+        .join(crate::ledger::MANIFEST_FILE)
+        .exists()
+    {
         eprintln!("no campaign in {}", cdir.display());
         return exit::NOT_FOUND;
     }
@@ -436,9 +584,16 @@ fn cmd_verify(rest: &[String]) -> i32 {
                 r.differences.len()
             );
             for d in &r.differences {
-                println!("  {} {}: expected {} found {}", d.file, d.path, d.expected, d.found);
+                println!(
+                    "  {} {}: expected {} found {}",
+                    d.file, d.path, d.expected, d.found
+                );
             }
-            if r.clean() { exit::OK } else { exit::VERIFY_DIFFERS }
+            if r.clean() {
+                exit::OK
+            } else {
+                exit::VERIFY_DIFFERS
+            }
         }
         Err(e) => {
             println!("verify: ledger refused: {e}");
@@ -471,10 +626,27 @@ fn cmd_status(rest: &[String]) -> i32 {
         }
         x.to_string()
     };
-    println!("campaign {}  phase {}  ledger seq {}  written {}", g(&["campaign_id"]), g(&["campaign", "phase"]), g(&["ledger", "seq"]), g(&["written_utc"]));
-    println!("jobs: {}  live {}  cpus {} / {}", g(&["jobs", "total"]), g(&["resources", "live_jobs"]), g(&["resources", "cpus_in_use"]), g(&["resources", "cpus_allowed"]));
+    println!(
+        "campaign {}  phase {}  ledger seq {}  written {}",
+        g(&["campaign_id"]),
+        g(&["campaign", "phase"]),
+        g(&["ledger", "seq"]),
+        g(&["written_utc"])
+    );
+    println!(
+        "jobs: {}  live {}  cpus {} / {}",
+        g(&["jobs", "total"]),
+        g(&["resources", "live_jobs"]),
+        g(&["resources", "cpus_in_use"]),
+        g(&["resources", "cpus_allowed"])
+    );
     println!("items by phase: {}", g(&["items", "by_phase"]));
-    println!("rules accepted {}  terminals {}  eta {}", g(&["rules", "accepted"]), g(&["terminals", "declared"]), g(&["eta"]));
+    println!(
+        "rules accepted {}  terminals {}  eta {}",
+        g(&["rules", "accepted"]),
+        g(&["terminals", "declared"]),
+        g(&["eta"])
+    );
     exit::OK
 }
 

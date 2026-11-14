@@ -56,7 +56,9 @@ impl Tmp {
 impl Drop for Tmp {
     fn drop(&mut self) {
         kill_marked(&self.campaign);
-        let _ = std::fs::remove_dir_all(&self.path);
+        if std::env::var_os("RR_SUP_KEEP").is_none() {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
     }
 }
 
@@ -64,7 +66,11 @@ impl Drop for Tmp {
 /// whose headroom IS the effective available memory the admission sees (process-layer `MemInfo::effective_available`);
 /// the 50 GB host rule itself is untouched (the whole scope stays far below it).
 /// for this test; `synthetic` / `resources` entries can be overridden by the caller.
-pub fn spec(t: &Tmp, synthetic: serde_json::Value, resources: serde_json::Value) -> serde_json::Value {
+pub fn spec(
+    t: &Tmp,
+    synthetic: serde_json::Value,
+    resources: serde_json::Value,
+) -> serde_json::Value {
     let mut res = serde_json::json!({
         "policy": "plain", "cpus": cpus(), "max_jobs": 8, "mem_total": "4G", "disk_floor": "1G",
         "grace_seconds": 5, "sampler_ms": 300, "host_floor": "100M", "heartbeat_timeout_s": 60, "start_timeout_s": 120
@@ -147,7 +153,10 @@ pub fn run_to_end(spec: &Path, cdir: &Path, extra: &[&str]) -> Vec<i32> {
             return codes;
         }
     }
-    panic!("campaign did not finish: exit codes {codes:?}; log {}", log_tail(cdir));
+    panic!(
+        "campaign did not finish: exit codes {codes:?}; log {}",
+        log_tail(cdir)
+    );
 }
 
 pub fn log_tail(cdir: &Path) -> String {
@@ -202,7 +211,10 @@ pub fn assert_no_marked(campaign: &str) {
 pub fn assert_no_marked_except(campaign: &str, decoys: &[u32]) {
     let t0 = Instant::now();
     loop {
-        let m: Vec<u32> = marked(campaign).into_iter().filter(|p| !decoys.contains(p)).collect();
+        let m: Vec<u32> = marked(campaign)
+            .into_iter()
+            .filter(|p| !decoys.contains(p))
+            .collect();
         if m.is_empty() {
             return;
         }
@@ -217,7 +229,9 @@ pub fn assert_no_marked_except(campaign: &str, decoys: &[u32]) {
 /// Clean-up only (Drop): SIGKILL processes that carry THIS test's unique campaign marker.
 pub fn kill_marked(campaign: &str) {
     for p in marked(campaign) {
-        if !std::fs::read_link(format!("/proc/{p}/cwd")).is_ok_and(|c| c.starts_with(std::env::temp_dir())) {
+        if !std::fs::read_link(format!("/proc/{p}/cwd"))
+            .is_ok_and(|c| c.starts_with(std::env::temp_dir()))
+        {
             continue;
         }
         // SAFETY: the pid carries a marker unique to this test run (campaign id includes the test's pid and counter).
@@ -339,15 +353,25 @@ pub fn wait_until(what: &str, limit: Duration, mut f: impl FnMut() -> bool) {
 
 /// `rr_campaign <args>` exit code (stdout captured and returned).
 pub fn cli(args: &[&str]) -> (i32, String) {
-    let o = Command::new(SUP).args(args).stderr(Stdio::inherit()).output().unwrap();
-    (o.status.code().unwrap_or(-1), String::from_utf8_lossy(&o.stdout).into_owned())
+    let o = Command::new(SUP)
+        .args(args)
+        .stderr(Stdio::inherit())
+        .output()
+        .unwrap();
+    (
+        o.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&o.stdout).into_owned(),
+    )
 }
 
 /// A long-lived decoy process of the test (own session, cwd `cwd`, optional environment pair).
 pub fn decoy(cwd: &Path, env: Option<(&str, &str)>) -> Child {
     use std::os::unix::process::CommandExt;
-    let mut c = Command::new("/bin/sleep");
-    c.arg("600").current_dir(cwd).env_clear().stdin(Stdio::null());
+    let mut c = Command::new(sleep_bin());
+    c.arg("600")
+        .current_dir(cwd)
+        .env_clear()
+        .stdin(Stdio::null());
     if let Some((k, v)) = env {
         c.env(k, v);
     }
@@ -363,5 +387,21 @@ pub fn decoy(cwd: &Path, env: Option<(&str, &str)>) -> Child {
 
 pub fn start_ticks(pid: u32) -> u64 {
     let s = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
-    s[s.rfind(')').unwrap() + 2..].split_whitespace().nth(19).unwrap().parse().unwrap()
+    s[s.rfind(')').unwrap() + 2..]
+        .split_whitespace()
+        .nth(19)
+        .unwrap()
+        .parse()
+        .unwrap()
+}
+
+/// Absolute path of `sleep` from PATH (no /bin/sleep on every host).
+pub fn sleep_bin() -> PathBuf {
+    std::env::var_os("PATH")
+        .and_then(|p| {
+            std::env::split_paths(&p)
+                .map(|d| d.join("sleep"))
+                .find(|f| f.is_file())
+        })
+        .unwrap_or_else(|| PathBuf::from("/bin/sleep"))
 }

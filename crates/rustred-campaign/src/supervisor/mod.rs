@@ -15,7 +15,9 @@ pub mod worksource;
 use crate::adapters::{self, AdapterInput, AdapterKind};
 use crate::admission::{self, AdmissionPolicy, Candidate, Decision, HostView, RunningJob};
 use crate::clock::{Clock, SystemClock};
-use crate::cpu_policy::{Acquire, CpuLease, CpuPolicy, CpuSpec, PlainPolicy, SiteConfig, SitePolicy};
+use crate::cpu_policy::{
+    Acquire, CpuLease, CpuPolicy, CpuSpec, PlainPolicy, SiteConfig, SitePolicy,
+};
 use crate::launch::{
     ChildHandle, ChildLauncher, ChildProgress, ExitState, FinalReport, KillReason, LaunchError,
     RealChild, RealLauncher,
@@ -25,7 +27,10 @@ use crate::lock::{self, CampaignLock, LockOutcome};
 use crate::progress::{ProgressWriter, Resources as ProgressResources};
 use crate::resources::{Sampler, SamplerConfig, host_memory};
 use crate::signals::{StopHandle, StopLevel, StopSignals};
-use crate::state::{AttemptState, AttemptTarget, CampaignPhase, CampaignState, FinishClass, class_target, class_word};
+use crate::state::{
+    AttemptState, AttemptTarget, CampaignPhase, CampaignState, FinishClass, class_target,
+    class_word,
+};
 use failpoint::Failpoints;
 use orphans::{MARKER_ENV, ScanRules, marker_value};
 use rustred_campaign_contract::canon::{CanonicalDigest, canonical_line};
@@ -218,6 +223,7 @@ pub struct Supervisor {
     disk_floor_hit: bool,
     last_disk_check: Option<Instant>,
     last_block_log: String,
+    last_wait_log: String,
     boot_id: String,
     started_at: Instant,
 }
@@ -249,9 +255,12 @@ pub fn campaign_key(st: &CampaignState) -> String {
 fn map_kill(k: Option<&KillReason>) -> CKill {
     match k {
         None => CKill::None,
-        Some(KillReason::Stop | KillReason::ForceStop | KillReason::Reattach | KillReason::HostEmergency) => {
-            CKill::Stop
-        }
+        Some(
+            KillReason::Stop
+            | KillReason::ForceStop
+            | KillReason::Reattach
+            | KillReason::HostEmergency,
+        ) => CKill::Stop,
         Some(KillReason::MemoryCap { .. }) => CKill::Memory,
         Some(KillReason::Timeout) => CKill::Time,
         Some(KillReason::Unresponsive) => CKill::Unresponsive,
@@ -288,7 +297,8 @@ impl Supervisor {
     fn start(opts: RunOptions, log: &mut Log) -> Result<Supervisor, RunExit> {
         let cdir = opts.cdir.clone();
         opts.spec.check_dirs(&cdir).map_err(RunExit::Refused)?;
-        std::fs::create_dir_all(&cdir).map_err(|e| RunExit::Refused(format!("create {}: {e}", cdir.display())))?;
+        std::fs::create_dir_all(&cdir)
+            .map_err(|e| RunExit::Refused(format!("create {}: {e}", cdir.display())))?;
         let work_root = opts
             .spec
             .dirs
@@ -313,7 +323,10 @@ impl Supervisor {
             if let Some(r) = rep.recovery {
                 log.line(
                     "WARN",
-                    &format!("ledger torn tail repaired: {} bytes after seq {}", r.truncated_bytes, r.last_good_seq),
+                    &format!(
+                        "ledger torn tail repaired: {} bytes after seq {}",
+                        r.truncated_bytes, r.last_good_seq
+                    ),
                 );
             }
             l
@@ -399,7 +412,8 @@ impl Supervisor {
         let policy: Box<dyn CpuPolicy> = match opts.spec.resources.policy.as_str() {
             "site" => {
                 let path = opts.spec.resources.site_policy.clone().unwrap_or_default();
-                let mut cfg = SiteConfig::read(&path).map_err(|e| RunExit::Refused(e.to_string()))?;
+                let mut cfg =
+                    SiteConfig::read(&path).map_err(|e| RunExit::Refused(e.to_string()))?;
                 if let Some(c) = opts.cores.or(opts.spec.resources.max_cores) {
                     cfg.max_cores = c;
                 }
@@ -430,7 +444,8 @@ impl Supervisor {
         };
         let mut admission = AdmissionPolicy::new(policy.budget());
         admission.floor_bytes = opts.spec.resources.host_floor.0;
-        admission.campaign_mem_cap_bytes = Some(opts.mem_total.unwrap_or(opts.spec.resources.mem_total.0));
+        admission.campaign_mem_cap_bytes =
+            Some(opts.mem_total.unwrap_or(opts.spec.resources.mem_total.0));
         let mut programs = BTreeMap::new();
         for (name, p) in &opts.spec.programs {
             match file_digest(&p.path) {
@@ -453,7 +468,10 @@ impl Supervisor {
             None => return Err(RunExit::Refused("no work source for this spec".into())),
         };
         let ctx = SourceContext {
-            binaries: programs.keys().map(|n| (n.clone(), format!("bin:{n}"))).collect(),
+            binaries: programs
+                .keys()
+                .map(|n| (n.clone(), format!("bin:{n}")))
+                .collect(),
             campaign_key: key,
         };
         let boot_id = crate::resources::boot_id().unwrap_or_default();
@@ -483,6 +501,7 @@ impl Supervisor {
             disk_floor_hit: false,
             last_disk_check: None,
             last_block_log: String::new(),
+            last_wait_log: String::new(),
             boot_id,
             started_at: Instant::now(),
             opts,
@@ -538,7 +557,10 @@ impl Supervisor {
     }
 
     fn scan_rules(&self) -> ScanRules {
-        let mut roots = vec![orphans::canonical_root(&self.cdir), orphans::canonical_root(&self.work_root)];
+        let mut roots = vec![
+            orphans::canonical_root(&self.cdir),
+            orphans::canonical_root(&self.work_root),
+        ];
         roots.dedup();
         ScanRules {
             campaign_key: self.ctx.campaign_key.clone(),
@@ -557,24 +579,32 @@ impl Supervisor {
             .st()
             .unsettled_jobs()
             .into_iter()
-            .map(|(id, j)| (id.clone(), j.attempt, j.pid, j.start_ticks, j.boot_id.clone()))
+            .map(|(id, j)| {
+                (
+                    id.clone(),
+                    j.attempt,
+                    j.pid,
+                    j.start_ticks,
+                    j.boot_id.clone(),
+                )
+            })
             .collect();
         // The boot and start bounds of the previous sessions, from the ledger itself.
         let mut rules = self.scan_rules();
         let mut min_ticks: Option<u64> = None;
-        let mut last_boot: Option<String> = None;
         if let Ok(recs) = crate::ledger::read_records(&self.cdir) {
             for r in &recs {
                 if let Event::SupervisorStarted { identity, .. } = &r.event {
-                    last_boot = Some(identity.boot_id.clone());
                     if identity.boot_id == self.boot_id {
-                        min_ticks = Some(min_ticks.map_or(identity.start_ticks, |m| m.min(identity.start_ticks)));
+                        min_ticks = Some(
+                            min_ticks.map_or(identity.start_ticks, |m| m.min(identity.start_ticks)),
+                        );
                     }
                 }
             }
         }
-        // The previous session (the one before ours) ran on another boot: everything it started is gone.
-        let _ = last_boot;
+        // Sessions of another boot contribute no bound: everything they started is gone (min_ticks stays None
+        // when no session of this boot launched anything, and then nothing is signalled).
         rules.min_start_ticks = min_ticks.unwrap_or(u64::MAX);
         for (_, _, pid, st, boot) in &unsettled {
             if let (Some(p), Some(t), Some(b)) = (pid, st, boot)
@@ -594,11 +624,18 @@ impl Supervisor {
                 k.job_attempt, k.pid, k.start_ticks
             ));
         }
-        let left = if min_ticks.is_some() { rules.scan(None) } else { Vec::new() };
+        let left = if min_ticks.is_some() {
+            rules.scan(None)
+        } else {
+            Vec::new()
+        };
         if !left.is_empty() {
             self.log.line(
                 "ERROR",
-                &format!("{} marked process(es) survive SIGKILL (D state?): {left:?}", left.len()),
+                &format!(
+                    "{} marked process(es) survive SIGKILL (D state?): {left:?}",
+                    left.len()
+                ),
             );
         }
         for (job, attempt, _, _, _) in unsettled {
@@ -611,7 +648,16 @@ impl Supervisor {
             match read_spec(&layout) {
                 Some(spec) => {
                     let kill = if was_killed { CKill::Stop } else { CKill::None };
-                    self.settle(&job, attempt, &layout, &spec, WaitStatus::Unknown, kill, was_killed, None);
+                    self.settle(
+                        &job,
+                        attempt,
+                        &layout,
+                        &spec,
+                        WaitStatus::Unknown,
+                        kill,
+                        was_killed,
+                        None,
+                    );
                 }
                 None => {
                     let ev = vec![
@@ -659,7 +705,12 @@ impl Supervisor {
         }
         for i in &self.opts.spec.inputs {
             let bytes = i.check().map_err(RunExit::Refused)?;
-            if self.st().inputs.get(&i.id).is_some_and(|x| x.blake3 == i.blake3) {
+            if self
+                .st()
+                .inputs
+                .get(&i.id)
+                .is_some_and(|x| x.blake3 == i.blake3)
+            {
                 continue;
             }
             ev.push(Event::InputRegistered {
@@ -679,7 +730,10 @@ impl Supervisor {
         if !changed.is_empty() {
             self.log.line(
                 "WARN",
-                &format!("binary changed: {}; dependent rows are marked stale and redone", changed.join(", ")),
+                &format!(
+                    "binary changed: {}; dependent rows are marked stale and redone",
+                    changed.join(", ")
+                ),
             );
         }
         if !self.commit(ev) {
@@ -705,7 +759,24 @@ impl Supervisor {
         report: Option<&FinalReport>,
     ) {
         let ev = classify::assess(layout, spec, wait, kill, false);
-        let c = classify::classify(&ev);
+        let mut c = classify::classify(&ev);
+        // A child the SUPERVISOR stopped for time / silence / memory may still write a valid "interrupted" OUTCOME on
+        // its way out (row 11 precedes rows 18-19): the supervisor's own kill reason decides then, otherwise such a job
+        // would be requeued at the same rung forever. Only a campaign stop (K = stop) means "interrupted".
+        if c.kind == FinishClass::Interrupted {
+            match kill {
+                CKill::Time | CKill::Unresponsive => {
+                    c.kind = FinishClass::KilledTime;
+                    c.time_decided = true;
+                    c.why = format!("{} (supervisor kill: {kill:?})", c.why);
+                }
+                CKill::Memory => {
+                    c.kind = FinishClass::KilledMemory;
+                    c.why = format!("{} (supervisor kill: memory cap)", c.why);
+                }
+                _ => {}
+            }
+        }
         let target = class_target(c.kind);
         let Some(jr) = self.st().jobs.get(job).cloned() else {
             return;
@@ -714,7 +785,11 @@ impl Supervisor {
             return;
         }
         let (cpu_ms, wall_ms, peak) = report.map_or((0, 0, 0), |r| {
-            ((r.cpu_seconds * 1000.0) as u64, (r.wall_seconds * 1000.0) as u64, r.peak_rss_bytes)
+            (
+                (r.cpu_seconds * 1000.0) as u64,
+                (r.wall_seconds * 1000.0) as u64,
+                r.peak_rss_bytes,
+            )
         });
         let outcome_ref = file_ref(&layout.outcome(), self.rel_path(&layout.outcome()));
         let mut events = Vec::new();
@@ -730,7 +805,18 @@ impl Supervisor {
                     },
                 });
             } else {
-                events.push(finished_event(job, attempt, c.kind, &ev, None, outcome_ref, cpu_ms, wall_ms, peak, c.time_decided));
+                events.push(finished_event(
+                    job,
+                    attempt,
+                    c.kind,
+                    &ev,
+                    None,
+                    outcome_ref,
+                    cpu_ms,
+                    wall_ms,
+                    peak,
+                    c.time_decided,
+                ));
             }
             events.push(Event::Job {
                 job: job.into(),
@@ -741,7 +827,11 @@ impl Supervisor {
             });
             self.log.line(
                 "INFO",
-                &format!("{job} a{attempt}: {} (row {}): requeued", class_word(c.kind), c.row),
+                &format!(
+                    "{job} a{attempt}: {} (row {}): requeued",
+                    class_word(c.kind),
+                    c.row
+                ),
             );
             self.commit(events);
             return;
@@ -764,10 +854,15 @@ impl Supervisor {
             }
             if table.is_none() {
                 // A sealed table that cannot be read now (deleted?): fail closed.
-                self.log.line("ERROR", &format!("{job} a{attempt}: sealed table unreadable; nothing accepted"));
+                self.log.line(
+                    "ERROR",
+                    &format!("{job} a{attempt}: sealed table unreadable; nothing accepted"),
+                );
             }
         }
-        let sealed_ok = target != AttemptTarget::SucceededSealed || !spec.kind.produces_table() || table.is_some();
+        let sealed_ok = target != AttemptTarget::SucceededSealed
+            || !spec.kind.produces_table()
+            || table.is_some();
         let settled = Settled {
             job: job.into(),
             attempt,
@@ -786,7 +881,8 @@ impl Supervisor {
         let routing = match routing {
             Ok(r) => r,
             Err(e) => {
-                self.log.line("ERROR", &format!("{job} a{attempt}: routing refused: {e}"));
+                self.log
+                    .line("ERROR", &format!("{job} a{attempt}: routing refused: {e}"));
                 worksource::Routing::default()
             }
         };
@@ -799,17 +895,28 @@ impl Supervisor {
                 if e.is_no_space() {
                     self.ledger_dead = Some(RunExit::DiskFull);
                 }
-                self.log.line("ERROR", &format!("accepted record {}: {e}; not recorded", a.path));
+                self.log.line(
+                    "ERROR",
+                    &format!("accepted record {}: {e}; not recorded", a.path),
+                );
                 return;
             }
         }
-        let class = if sealed_ok { c.kind } else { FinishClass::Crashed };
+        let class = if sealed_ok {
+            c.kind
+        } else {
+            FinishClass::Crashed
+        };
         events.push(finished_event(
             job,
             attempt,
             class,
             &ev,
-            if class_target(class) == AttemptTarget::SucceededSealed { table } else { None },
+            if class_target(class) == AttemptTarget::SucceededSealed {
+                table
+            } else {
+                None
+            },
             outcome_ref,
             cpu_ms,
             wall_ms,
@@ -820,7 +927,16 @@ impl Supervisor {
         self.fp.hit("before_settle_commit");
         self.log.line(
             "INFO",
-            &format!("{job} a{attempt}: {} (row {}){}", class_word(class), c.row, if routing.accepts.is_empty() { "" } else { ", accepted" }),
+            &format!(
+                "{job} a{attempt}: {} (row {}){}",
+                class_word(class),
+                c.row,
+                if routing.accepts.is_empty() {
+                    ""
+                } else {
+                    ", accepted"
+                }
+            ),
         );
         self.commit(events);
         self.fp.hit("after_settle_commit");
@@ -843,8 +959,10 @@ impl Supervisor {
         let run_dir = attempt_dir(&self.work_root.clone(), &req.job, attempt);
         if run_dir.exists() {
             // Left by a crash between job.json and the launch record: never recorded, move it aside.
-            let aside = run_dir.with_file_name(format!("a{attempt}.unrecorded-{}", self.clock.now_utc().0));
-            std::fs::rename(&run_dir, &aside).map_err(|e| format!("move aside {}: {e}", run_dir.display()))?;
+            let aside =
+                run_dir.with_file_name(format!("a{attempt}.unrecorded-{}", self.clock.now_utc().0));
+            std::fs::rename(&run_dir, &aside)
+                .map_err(|e| format!("move aside {}: {e}", run_dir.display()))?;
         }
         let resume = if attempt > 1 {
             resume_from(&attempt_dir(&self.work_root.clone(), &req.job, attempt - 1))
@@ -868,7 +986,8 @@ impl Supervisor {
                 resume,
             },
         );
-        let mut ls = adapters::prepare_run(&spec, &prog_path).map_err(|e| format!("run dir: {e}"))?;
+        let mut ls =
+            adapters::prepare_run(&spec, &prog_path).map_err(|e| format!("run dir: {e}"))?;
         ls.env.push((
             MARKER_ENV.into(),
             marker_value(&self.ctx.campaign_key, &req.job, attempt).into(),
@@ -938,7 +1057,10 @@ impl Supervisor {
                 }];
                 self.commit(ev);
                 if fatal {
-                    self.log.line("ERROR", &format!("launch of {} failed: {e}; draining", req.job));
+                    self.log.line(
+                        "ERROR",
+                        &format!("launch of {} failed: {e}; draining", req.job),
+                    );
                     self.signals.handle.request_stop();
                 }
                 return Err(format!("launch: {e}"));
@@ -1050,7 +1172,11 @@ impl Supervisor {
             if !report.session_verified_empty {
                 self.log.line(
                     "WARN",
-                    &format!("{}: session not verified empty ({} escaped)", ch.job, report.escaped.len()),
+                    &format!(
+                        "{}: session not verified empty ({} escaped)",
+                        ch.job,
+                        report.escaped.len()
+                    ),
                 );
             }
             if let Some(l) = ch.lease {
@@ -1081,14 +1207,23 @@ impl Supervisor {
             let name = p.file_name().unwrap().to_owned();
             let done = dir.join("done");
             let _ = std::fs::create_dir_all(&done);
-            let req: Option<ControlRequest> = std::fs::read(&p).ok().and_then(|b| serde_json::from_slice(&b).ok());
+            let req: Option<ControlRequest> = std::fs::read(&p)
+                .ok()
+                .and_then(|b| serde_json::from_slice(&b).ok());
             let text = match req {
-                None => format!("control_refused {{\"file\":{:?},\"reason\":\"unparsable\"}}", name),
+                None => format!(
+                    "control_refused {{\"file\":{:?},\"reason\":\"unparsable\"}}",
+                    name
+                ),
                 Some(r) => {
                     let res: Result<(), String> = match r.verb.as_str() {
-                        "pause" => std::fs::write(dir.join("PAUSED"), &r.id).map_err(|e| e.to_string()),
+                        "pause" => {
+                            std::fs::write(dir.join("PAUSED"), &r.id).map_err(|e| e.to_string())
+                        }
                         "resume" => match std::fs::remove_file(dir.join("PAUSED")) {
-                            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+                            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                                Err(e.to_string())
+                            }
                             _ => Ok(()),
                         },
                         "stop" => {
@@ -1102,7 +1237,11 @@ impl Supervisor {
                             let target = r.target.clone().unwrap_or_default();
                             match self.source.control(self.ledger.state(), &r.verb, &target) {
                                 Ok(ev) => {
-                                    if self.commit(ev) { Ok(()) } else { Err("ledger refused".into()) }
+                                    if self.commit(ev) {
+                                        Ok(())
+                                    } else {
+                                        Err("ledger refused".into())
+                                    }
                                 }
                                 Err(e) => Err(e),
                             }
@@ -1114,7 +1253,10 @@ impl Supervisor {
                             "control_applied {{\"id\":{:?},\"verb\":{:?},\"target\":{:?},\"by\":{:?}}}",
                             r.id, r.verb, r.target, r.by
                         ),
-                        Err(e) => format!("control_refused {{\"id\":{:?},\"verb\":{:?},\"reason\":{:?}}}", r.id, r.verb, e),
+                        Err(e) => format!(
+                            "control_refused {{\"id\":{:?},\"verb\":{:?},\"reason\":{:?}}}",
+                            r.id, r.verb, e
+                        ),
                     }
                 }
             };
@@ -1124,7 +1266,10 @@ impl Supervisor {
     }
 
     fn check_disk(&mut self) {
-        if self.last_disk_check.is_some_and(|t| t.elapsed() < Duration::from_secs(5)) {
+        if self
+            .last_disk_check
+            .is_some_and(|t| t.elapsed() < Duration::from_secs(5))
+        {
             return;
         }
         self.last_disk_check = Some(Instant::now());
@@ -1151,7 +1296,8 @@ impl Supervisor {
         let mut b = Blockers::default();
         b.reasons.extend(self.policy.launch_blockers());
         if !self.sampler_fresh() {
-            b.reasons.push("process sampler stale (> 30 s): no launch".into());
+            b.reasons
+                .push("process sampler stale (> 30 s): no launch".into());
         }
         if self.ledger_dead.is_some() {
             b.reasons.push("ledger unavailable".into());
@@ -1159,7 +1305,8 @@ impl Supervisor {
         let joined = b.reasons.join("; ");
         if joined != self.last_block_log {
             if !joined.is_empty() {
-                self.log.line("INFO", &format!("launching paused: {joined}"));
+                self.log
+                    .line("INFO", &format!("launching paused: {joined}"));
             } else if !self.last_block_log.is_empty() {
                 self.log.line("INFO", "launching resumed");
             }
@@ -1192,7 +1339,11 @@ impl Supervisor {
                 id: u64::MAX - c.seq,
                 cap_bytes: c.cap,
                 expected_peak_bytes: c.peak.min(c.cap),
-                rss_bytes: if fresh { c.handle.usage().map_or(0, |u| u.rss_bytes) } else { 0 },
+                rss_bytes: if fresh {
+                    c.handle.usage().map_or(0, |u| u.rss_bytes)
+                } else {
+                    0
+                },
                 cores: c.cores,
                 started_seq: c.seq,
                 cpu_seconds: 0.0,
@@ -1214,7 +1365,10 @@ impl Supervisor {
         };
         let out = admission::decide_batch(&self.admission, host, &running, &cands);
         for b in &out.bypassed {
-            *self.bypassed.entry(reqs[*b as usize].job.clone()).or_default() += 1;
+            *self
+                .bypassed
+                .entry(reqs[*b as usize].job.clone())
+                .or_default() += 1;
         }
         let mut first_wait = None;
         for (id, d) in &out.decisions {
@@ -1224,7 +1378,10 @@ impl Supervisor {
                     if self.children.len() >= max_jobs || self.ledger_dead.is_some() {
                         break;
                     }
-                    match self.policy.acquire(r.cores, &format!("{} {}", self.ctx.campaign_key, r.job)) {
+                    match self
+                        .policy
+                        .acquire(r.cores, &format!("{} {}", self.ctx.campaign_key, r.job))
+                    {
                         Ok(Acquire::Granted(lease)) => {
                             self.bypassed.remove(&r.job);
                             if let Err(e) = self.launch(r, lease) {
@@ -1246,13 +1403,15 @@ impl Supervisor {
                 }
             }
         }
-        if let Some(w) = first_wait {
-            if w != self.last_block_log {
+        // Log memory / policy waits once per change (the core budget being full is the normal state).
+        let w = first_wait
+            .filter(|w| !w.starts_with("CoreBudget") && !w.contains("core budget"))
+            .unwrap_or_default();
+        if w != self.last_wait_log {
+            if !w.is_empty() {
                 self.log.line("INFO", &format!("admission waits: {w}"));
-                self.last_block_log = w;
             }
-        } else if self.last_block_log.starts_with("HostFloor") || self.last_block_log.starts_with("CampaignMemCap") {
-            self.last_block_log.clear();
+            self.last_wait_log = w;
         }
     }
 
@@ -1261,7 +1420,10 @@ impl Supervisor {
         let due = match self.last_progress {
             None => true,
             Some((t, s)) => {
-                force || (s != seq && t.elapsed() >= Duration::from_secs(self.opts.spec.progress.cadence_seconds))
+                force
+                    || (s != seq
+                        && t.elapsed()
+                            >= Duration::from_secs(self.opts.spec.progress.cadence_seconds))
             }
         };
         if !due {
@@ -1273,14 +1435,24 @@ impl Supervisor {
             cpus_allowed: self.policy.budget() as u32,
             live_jobs: self.children.len() as u32,
             reserved_bytes: self.children.iter().map(|c| c.cap).sum(),
-            measured_rss_bytes: self.children.iter().map(|c| c.handle.usage().map_or(0, |u| u.rss_bytes)).sum(),
+            measured_rss_bytes: self
+                .children
+                .iter()
+                .map(|c| c.handle.usage().map_or(0, |u| u.rss_bytes))
+                .sum(),
             mem_cap_bytes: self.admission.campaign_mem_cap_bytes.unwrap_or(0),
             host_mem_available_bytes: mem.map_or(0, |m| m.effective_available()),
             host_floor_bytes: self.admission.floor_bytes,
             sampled_utc: Some(self.clock.now_utc().to_iso()),
         };
         self.fp.hit("progress_write");
-        match self.progress.write(&self.cdir, self.ledger.state(), self.ledger.head(), &res, self.clock.as_ref()) {
+        match self.progress.write(
+            &self.cdir,
+            self.ledger.state(),
+            self.ledger.head(),
+            &res,
+            self.clock.as_ref(),
+        ) {
             Ok(_) => self.last_progress = Some((Instant::now(), seq)),
             Err(e) => self.log.line("WARN", &format!("progress files: {e}")),
         }
@@ -1353,7 +1525,8 @@ impl Supervisor {
                     }
                 }
                 if now_level == StopLevel::Force {
-                    self.log.line("INFO", "second stop request: killing every job's group now");
+                    self.log
+                        .line("INFO", "second stop request: killing every job's group now");
                     for c in &mut self.children {
                         c.stopping = true;
                         c.handle.kill_now(KillReason::ForceStop);
@@ -1365,8 +1538,13 @@ impl Supervisor {
                 for c in &mut self.children {
                     c.handle.kill_now(KillReason::ForceStop);
                 }
-                self.log.line("INFO", "third stop request: exiting now (children killed; resume handles the rest)");
-                return RunExit::Stopped { code: self.stop_code() };
+                self.log.line(
+                    "INFO",
+                    "third stop request: exiting now (children killed; resume handles the rest)",
+                );
+                return RunExit::Stopped {
+                    code: self.stop_code(),
+                };
             }
             // 2. controls, disk
             if self.ledger_dead.is_none() {
@@ -1411,7 +1589,9 @@ impl Supervisor {
                     if self.disk_floor_hit {
                         return RunExit::DiskFloor;
                     }
-                    return RunExit::Stopped { code: self.stop_code() };
+                    return RunExit::Stopped {
+                        code: self.stop_code(),
+                    };
                 }
                 if self.source.finished(self.ledger.state()) {
                     if self.st().phase == Some(CampaignPhase::Running) {
@@ -1436,7 +1616,9 @@ impl Supervisor {
                 self.st().rules.accepted,
                 self.st().terminals_total
             ),
-            RunExit::Stopped { code } => format!("STOPPED (exit {code}); resume with the same command"),
+            RunExit::Stopped { code } => {
+                format!("STOPPED (exit {code}); resume with the same command")
+            }
             other => format!("{other:?}"),
         };
         self.log.line("INFO", &msg);
@@ -1482,7 +1664,11 @@ fn resume_from(prev: &Path) -> Option<ResumeRef> {
 
 fn file_ref(p: &Path, rel: String) -> Option<FileRef> {
     let (bytes, blake3) = crate::atomic::blake3_file(p).ok()?;
-    Some(FileRef { path: rel, bytes, blake3 })
+    Some(FileRef {
+        path: rel,
+        bytes,
+        blake3,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]

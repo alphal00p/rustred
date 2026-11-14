@@ -114,7 +114,12 @@ pub fn job_spec(kind: AdapterKind, req: &JobRequest, a: &AdapterInput<'_>) -> Jo
 /// supervisor adds those).
 pub fn prepare_run(spec: &JobSpec, program_path: &Path) -> std::io::Result<LaunchSpec> {
     let layout = RunLayout::new(&spec.run_dir);
-    for d in [layout.in_dir(), layout.out_dir(), layout.tmp_dir(), layout.sup_dir()] {
+    for d in [
+        layout.in_dir(),
+        layout.out_dir(),
+        layout.tmp_dir(),
+        layout.sup_dir(),
+    ] {
         std::fs::create_dir_all(d)?;
     }
     let p = layout.job_spec();

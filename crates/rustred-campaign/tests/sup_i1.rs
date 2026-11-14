@@ -33,7 +33,10 @@ fn i1_random_interrupts_give_the_reference_result() {
     let reference = result(&reference_dir);
     let rf = ledger_facts(&reference_dir);
     assert_eq!(rf.interrupted, 0);
-    assert!(!reference.accepted.is_empty() && !reference.terminals.is_empty(), "{reference:?}");
+    assert!(
+        !reference.accepted.is_empty() && !reference.terminals.is_empty(),
+        "{reference:?}"
+    );
     assert_eq!(verify(&reference_dir), 0);
     let mut per_kind = [(0u32, 0u32); 4];
     let mut sessions_total = 0;
@@ -85,17 +88,31 @@ fn i1_random_interrupts_give_the_reference_result() {
             per_kind[kind].0 += 1;
         } else {
             per_kind[kind].1 += 1;
-            eprintln!("run {run} ({}) DIFFERS: codes {codes:?}\n{}", KINDS[kind], log_tail(&dir));
+            eprintln!(
+                "run {run} ({}) DIFFERS: codes {codes:?}\n{}",
+                KINDS[kind],
+                log_tail(&dir)
+            );
             for (k, v) in &reference.accepted {
                 if got.accepted.get(k) != Some(v) {
-                    eprintln!("  accepted {k}: reference {v:?} got {:?}", got.accepted.get(k));
+                    eprintln!(
+                        "  accepted {k}: reference {v:?} got {:?}",
+                        got.accepted.get(k)
+                    );
                 }
             }
         }
         let f = ledger_facts(&dir);
-        assert_eq!(f.requeues, f.interrupted, "run {run}: re-runs must equal interrupted attempts");
+        assert_eq!(
+            f.requeues, f.interrupted,
+            "run {run}: re-runs must equal interrupted attempts"
+        );
         assert!(f.max_cores <= 8, "run {run}: {} cores", f.max_cores);
-        assert!(f.max_reserved <= 300_000_000, "run {run}: reserved {}", f.max_reserved);
+        assert!(
+            f.max_reserved <= 300_000_000,
+            "run {run}: reserved {}",
+            f.max_reserved
+        );
         assert_eq!(verify(&dir), 0, "run {run}: verify");
         assert_no_marked(&t.campaign);
         let _ = std::fs::remove_dir_all(&dir); // keep the temp dir small
@@ -109,5 +126,8 @@ fn i1_random_interrupts_give_the_reference_result() {
             .collect::<Vec<_>>()
             .join(", ")
     );
-    assert!(per_kind.iter().all(|(_, b)| *b == 0), "some runs differ from the reference");
+    assert!(
+        per_kind.iter().all(|(_, b)| *b == 0),
+        "some runs differ from the reference"
+    );
 }

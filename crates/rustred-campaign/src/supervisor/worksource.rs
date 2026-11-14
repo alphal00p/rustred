@@ -7,10 +7,14 @@
 
 use super::spec::Synthetic;
 use crate::ledger::{AcceptSource, Event, FileRef, ItemEvent};
-use crate::state::{AttemptState, CampaignState, EvidenceLevel, ItemPhase, NodeEvent, NodePhase, Rung};
+use crate::state::{
+    AttemptState, CampaignState, EvidenceLevel, ItemPhase, NodeEvent, NodePhase, Rung,
+};
 use rustred_campaign_contract::classify::{Accept, Classification, OutcomeKind};
 use rustred_campaign_contract::exit::ExitCode;
-use rustred_campaign_contract::fake::{Fault, FaultKind, FakeOp, FakeRule, FakeScript, HelperPlan, RssPlan};
+use rustred_campaign_contract::fake::{
+    FakeOp, FakeRule, FakeScript, Fault, FaultKind, HelperPlan, RssPlan,
+};
 use rustred_campaign_contract::spec::{Budgets, InputRef, JobKind, WorkCounter};
 use rustred_campaign_contract::stop::{CaseResult, StopCode};
 use serde::Serialize;
@@ -56,7 +60,9 @@ impl JobRequest {
             "args": self.args, "inputs": self.inputs, "budgets": self.budgets, "seed": self.sample_seed,
             "cap": self.cap_bytes, "fake": self.fake,
         });
-        blake3::hash(&serde_json::to_vec(&v).expect("json")).to_hex().to_string()
+        blake3::hash(&serde_json::to_vec(&v).expect("json"))
+            .to_hex()
+            .to_string()
     }
 }
 
@@ -113,7 +119,12 @@ pub trait WorkSource {
         done: &Settled,
     ) -> Result<Routing, String>;
     /// Operator verbs `retry` / `skip`.
-    fn control(&mut self, st: &CampaignState, verb: &str, target: &str) -> Result<Vec<Event>, String>;
+    fn control(
+        &mut self,
+        st: &CampaignState,
+        verb: &str,
+        target: &str,
+    ) -> Result<Vec<Event>, String>;
     /// All work final.
     fn finished(&self, st: &CampaignState) -> bool;
     /// Number of work units (for logs).
@@ -133,7 +144,12 @@ struct AcceptedFile<'a> {
 pub const ACCEPTED_SCHEMA: &str = "rustred.campaign.accepted.v1";
 
 /// Rule id and record file of an accepted sealed table (shared by sources).
-pub fn accepted_record(node: &str, item: &str, canon: &str, lines: &[String]) -> (String, AcceptedRecord) {
+pub fn accepted_record(
+    node: &str,
+    item: &str,
+    canon: &str,
+    lines: &[String],
+) -> (String, AcceptedRecord) {
     let rule = format!("{item}:{}", &canon[..16.min(canon.len())]);
     let bytes = serde_json::to_vec(&AcceptedFile {
         schema: ACCEPTED_SCHEMA,
@@ -145,7 +161,13 @@ pub fn accepted_record(node: &str, item: &str, canon: &str, lines: &[String]) ->
     .expect("json");
     let safe: String = item
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let path = PathBuf::from("accepted")
         .join(node)
@@ -244,7 +266,11 @@ impl ScriptedWorkSource {
     }
 
     /// Current (highest created) rung item of logical item i.
-    fn current<'a>(&self, st: &'a CampaignState, i: u32) -> Option<(u8, &'a crate::state::ItemRec, String)> {
+    fn current<'a>(
+        &self,
+        st: &'a CampaignState,
+        i: u32,
+    ) -> Option<(u8, &'a crate::state::ItemRec, String)> {
         (0..self.cfg.rungs).rev().find_map(|r| {
             let id = self.item_id(i, r);
             st.items.get(&id).map(|it| (r, it, id))
@@ -254,7 +280,12 @@ impl ScriptedWorkSource {
     fn chain_final(&self, st: &CampaignState, i: u32) -> bool {
         matches!(
             self.current(st, i).map(|(_, it, _)| &it.phase),
-            Some(ItemPhase::Accepted(_) | ItemPhase::Terminal | ItemPhase::Retired | ItemPhase::TerminalCandidate)
+            Some(
+                ItemPhase::Accepted(_)
+                    | ItemPhase::Terminal
+                    | ItemPhase::Retired
+                    | ItemPhase::TerminalCandidate
+            )
         )
     }
 
@@ -265,9 +296,12 @@ impl ScriptedWorkSource {
         let rule_case = |ms: u64| FakeOp::Case {
             ordinal: 0,
             ms,
-            work: [(WorkCounter::Seeds, 100 + i as u64), (WorkCounter::Rows, 1000)]
-                .into_iter()
-                .collect(),
+            work: [
+                (WorkCounter::Seeds, 100 + i as u64),
+                (WorkCounter::Rows, 1000),
+            ]
+            .into_iter()
+            .collect(),
             result: CaseResult::Rule,
             rule: Some(FakeRule {
                 record: serde_json::json!({"chart": self.node_of(i), "item": id, "rung": r,
@@ -467,7 +501,8 @@ impl WorkSource for ScriptedWorkSource {
         }
         // Stale items: reopen (after their node, in the same batch).
         for (id, it) in &st.items {
-            if it.phase == ItemPhase::Stale {
+            // An escalated item stays superseded by its next-rung item: only the chain's live item is redone.
+            if it.phase == ItemPhase::Stale && it.stale_from.as_deref() != Some("escalated") {
                 ev.push(Event::Item {
                     item: id.clone(),
                     ev: ItemEvent::Reopen {
@@ -537,7 +572,8 @@ impl WorkSource for ScriptedWorkSource {
                     .canonical_blake3
                     .clone()
                     .ok_or("sealed table without canonical digest")?;
-                let (rule, rec) = accepted_record(&self.node_of(i), &done.item, &canon, &done.canonical_lines);
+                let (rule, rec) =
+                    accepted_record(&self.node_of(i), &done.item, &canon, &done.canonical_lines);
                 out.events.push(Event::Item {
                     item: done.item.clone(),
                     ev: ItemEvent::Produce {
@@ -571,7 +607,12 @@ impl WorkSource for ScriptedWorkSource {
                     .jobs
                     .iter()
                     .filter(|j| *j != &done.job)
-                    .filter(|j| matches!(st.jobs.get(*j).map(|x| x.state), Some(AttemptState::Failed(_))))
+                    .filter(|j| {
+                        matches!(
+                            st.jobs.get(*j).map(|x| x.state),
+                            Some(AttemptState::Failed(_))
+                        )
+                    })
                     .count();
                 if failed_before + 1 >= 2 {
                     out.events = self.escalate_or_terminal(&done.item, i, r, "crashed twice");
@@ -585,7 +626,12 @@ impl WorkSource for ScriptedWorkSource {
         Ok(out)
     }
 
-    fn control(&mut self, st: &CampaignState, verb: &str, target: &str) -> Result<Vec<Event>, String> {
+    fn control(
+        &mut self,
+        st: &CampaignState,
+        verb: &str,
+        target: &str,
+    ) -> Result<Vec<Event>, String> {
         let it = st
             .items
             .get(target)
