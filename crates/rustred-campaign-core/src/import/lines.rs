@@ -77,6 +77,24 @@ pub fn scan_table(
     want_rhs: bool,
     keep: &dyn Fn(usize, Option<i64>) -> bool,
 ) -> Result<RawTable, ImportError> {
+    let mut records = vec![];
+    let mut t = scan_table_each(source, path, want_rhs, keep, &mut |r| {
+        records.push(r);
+        Ok(())
+    })?;
+    t.records = records;
+    Ok(t)
+}
+
+/// [`scan_table`] that hands every kept record to `visit` as soon as it is read (bounded memory: one record at a
+/// time); the returned table has no records.
+pub fn scan_table_each(
+    source: &str,
+    path: &Path,
+    want_rhs: bool,
+    keep: &dyn Fn(usize, Option<i64>) -> bool,
+    visit: &mut dyn FnMut(RawRecord) -> Result<(), ImportError>,
+) -> Result<RawTable, ImportError> {
     let f = std::fs::File::open(path).map_err(|e| io_err(path, e))?;
     let mut rd = BufReader::with_capacity(1 << 20, f);
     let mut file_h = Sha256::new();
@@ -95,7 +113,7 @@ pub fn scan_table(
     };
     let mut header: Option<TableHeader> = None;
     let mut charts = vec![];
-    let mut records = vec![];
+    let mut n_records = 0usize;
     let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
     let mut buf: Vec<u8> = Vec::with_capacity(1 << 16);
     let (mut offset, mut line_no, mut ordinal) = (0u64, 0usize, 0usize);
@@ -125,7 +143,7 @@ pub fn scan_table(
             .map_err(|e| lerr(line_no, e.to_string()))?;
         match parsed {
             TableLine::Header(h) => {
-                if header.is_some() || !records.is_empty() || !charts.is_empty() {
+                if header.is_some() || n_records > 0 || ordinal > 0 || !charts.is_empty() {
                     return Err(lerr(
                         line_no,
                         "a second header or a header after records".into(),
@@ -191,7 +209,8 @@ pub fn scan_table(
                     h.update(&body[a..b]);
                     h.finish_hex()
                 });
-                records.push(RawRecord {
+                n_records += 1;
+                visit(RawRecord {
                     ordinal: this,
                     line_no,
                     offset: start,
@@ -203,7 +222,7 @@ pub fn scan_table(
                     origin_index,
                     rhs_sha256,
                     record_kind,
-                });
+                })?;
             }
         }
     }
@@ -211,7 +230,7 @@ pub fn scan_table(
     Ok(RawTable {
         header,
         charts,
-        records,
+        records: vec![],
         kinds,
         file_sha256: file_h.finish_hex(),
         file_bytes: offset,

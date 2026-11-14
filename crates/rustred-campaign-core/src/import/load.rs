@@ -13,7 +13,9 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::error::{ImportError, io_err};
-use super::lines::{RawRecord, RawTable, parse_key_text, read_sha256sums, scan_table, verify_file};
+use super::lines::{
+    RawRecord, RawTable, parse_key_text, read_sha256sums, scan_table, scan_table_each, verify_file,
+};
 use super::spec::{
     DomainMode, ElidedPolicy, HandName, SourceKind, SourceSpec, StartFormat, TableSetSpec, resolve,
 };
@@ -583,41 +585,43 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
         by_file.entry(p.clone()).or_default().push(t);
     }
     for (path, ts) in &by_file {
-        let want: BTreeMap<usize, &str> = ts
-            .iter()
-            .flat_map(|&t| body_plan[t].2.iter().map(|(o, s)| (*o, s.as_str())))
-            .collect();
-        let src_id = &body_plan[ts[0]].1;
-        let raw = scan_table(src_id, path, true, &|o, _| want.contains_key(&o))?;
-        let mut by_ord: HashMap<usize, RawRecord> = HashMap::new();
-        for r in raw.records {
-            if want.get(&r.ordinal) != Some(&r.sha256.as_str()) {
-                return Err(ImportError::Source {
-                    source: src_id.clone(),
-                    msg: format!(
-                        "{} changed between the passes (record {})",
-                        path.display(),
-                        r.ordinal
-                    ),
-                });
-            }
-            by_ord.insert(r.ordinal, r);
-        }
+        // ordinal -> (expected sha256, [(table, record position)])
+        let mut want: HashMap<usize, (&str, Vec<(usize, usize)>)> = HashMap::new();
         for &t in ts {
-            let tf = TableFile {
-                header: Some(raw.header.clone()),
-                rules: body_plan[t]
-                    .2
-                    .iter()
-                    .filter_map(|(o, _)| by_ord.get(o).map(|r| r.rec.clone()))
-                    .collect(),
-                charts: raw.charts.clone(),
-                others: vec![],
-            };
-            bodies.load_table_records(&disp, t, &tf).map_err(|e| {
-                ImportError::Core(format!("bodies of {}: {e:?}", disp.tables()[t].name))
-            })?;
+            for (k, (o, sha)) in body_plan[t].2.iter().enumerate() {
+                want.entry(*o)
+                    .or_insert((sha.as_str(), vec![]))
+                    .1
+                    .push((t, k));
+            }
         }
+        let src_id = &body_plan[ts[0]].1;
+        scan_table_each(
+            src_id,
+            path,
+            true,
+            &|o, _| want.contains_key(&o),
+            &mut |r| {
+                let (sha, places) = &want[&r.ordinal];
+                if *sha != r.sha256 {
+                    return Err(ImportError::Source {
+                        source: src_id.clone(),
+                        msg: format!(
+                            "{} changed between the passes (record {})",
+                            path.display(),
+                            r.ordinal
+                        ),
+                    });
+                }
+                let rhs = r.rec.rhs_keys.as_deref().unwrap_or(&[]);
+                for &(t, k) in places {
+                    bodies.set(&disp, t, k, rhs).map_err(|e| {
+                        ImportError::Core(format!("bodies of {}: {e:?}", disp.tables()[t].name))
+                    })?;
+                }
+                Ok(())
+            },
+        )?;
     }
     for t in 0..disp.tables().len() {
         let with = bodies.count_with_body(t);
@@ -1428,7 +1432,7 @@ fn read_start(spec: &TableSetSpec, base: &Path, codec: KeyCodec) -> Result<KeySe
             let h = super::statement::read_hand_statement(&path, fmt, arity)?;
             h.rows
                 .iter()
-                .filter(|r| r.in_box)
+                .filter(|r| r.in_box == Some(true))
                 .map(|r| r.key.clone())
                 .collect()
         }
