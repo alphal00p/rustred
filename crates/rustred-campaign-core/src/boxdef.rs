@@ -13,8 +13,7 @@ use serde_json::{Map, Value, json};
 
 use crate::key::{Key, NodeFrame};
 
-#[path = "winner.rs"]
-pub mod winner;
+pub use crate::winner;
 
 /// Schema of a box document.
 pub const BOX_SCHEMA: &str = "rustred.campaign.box.v1";
