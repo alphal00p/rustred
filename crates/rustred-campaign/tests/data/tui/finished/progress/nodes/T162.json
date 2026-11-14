@@ -1,0 +1,109 @@
+{
+ "schema": "rustred.campaign.progress.v1",
+ "file": "node",
+ "fixture_origin": "hand",
+ "campaign_id": "p5l-boxed-final",
+ "written_utc": "2026-11-27T11:00:00.000Z",
+ "source_of_truth": "ledger",
+ "ledger": {
+  "seq": 91233,
+  "head": "77aa000000000000000000000000000000000000000000000000000000000000",
+  "last_utc": "2026-11-27T10:59:59.000Z"
+ },
+ "node": "T162",
+ "phase": "certified",
+ "closure_kind": "boxed",
+ "certified": true,
+ "target": {
+  "target": "boxed",
+  "box_id": "T162.rstar"
+ },
+ "spec_box": "T162.rstar",
+ "attempt_ended": false,
+ "blockers": {
+  "full": {
+   "faces": 9,
+   "loci": 3,
+   "keys": 1820,
+   "list": null
+  },
+  "box": null
+ },
+ "closure": {
+  "rounds": 6,
+  "defect_keys": 0,
+  "keyset": null,
+  "closure_keys": 61210,
+  "rules_used": 1308,
+  "rules_total": 3079,
+  "used_share": 0.425
+ },
+ "economy": {
+  "rules_before": 1340,
+  "rules_after": 1308,
+  "superseded": 32,
+  "unmeasured": 0,
+  "before": {
+   "bytes": 300000000,
+   "cases": 1340,
+   "coefficient_degree": 18,
+   "monomials": 2000000,
+   "rhs_terms": 802113,
+   "rules": 1340
+  },
+  "after": {
+   "bytes": 290000000,
+   "cases": 1308,
+   "coefficient_degree": 18,
+   "monomials": 1900000,
+   "rhs_terms": 765004,
+   "rules": 1308
+  }
+ },
+ "terminals": {
+  "declared": 2,
+  "bound": 100,
+  "candidates": 0
+ },
+ "items": {
+  "open": 0,
+  "by_phase": {
+   "open": 0,
+   "in_progress": 0,
+   "produced": 0,
+   "accepted": 420,
+   "rejected": 7,
+   "escalated": 60,
+   "terminal_candidate": 0,
+   "terminal": 0,
+   "stale": 0,
+   "retired": 30
+  },
+  "by_level": {
+   "L0": {
+    "open": 0,
+    "in_progress": 0,
+    "produced": 0,
+    "accepted": 420,
+    "rejected": 7,
+    "escalated": 60,
+    "terminal_candidate": 0,
+    "terminal": 0,
+    "stale": 0,
+    "retired": 30
+   }
+  }
+ },
+ "accepted_by_evidence": {
+  "geometry_accepted": 10,
+  "identity_tested": 22,
+  "identity_proved": 569
+ },
+ "inputs": [
+  "T162.family",
+  "T162.bank",
+  "T162.rstar"
+ ],
+ "stale_reason": null,
+ "cpu_seconds": 137520.0
+}

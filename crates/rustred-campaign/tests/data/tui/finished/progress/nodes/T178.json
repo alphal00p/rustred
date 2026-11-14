@@ -1,0 +1,140 @@
+{
+ "schema": "rustred.campaign.progress.v1",
+ "file": "node",
+ "fixture_origin": "hand",
+ "campaign_id": "p5l-boxed-final",
+ "written_utc": "2026-11-27T11:00:00.000Z",
+ "source_of_truth": "ledger",
+ "ledger": {
+  "seq": 91233,
+  "head": "77aa000000000000000000000000000000000000000000000000000000000000",
+  "last_utc": "2026-11-27T10:59:59.000Z"
+ },
+ "node": "T178",
+ "phase": "certified",
+ "closure_kind": "boxed",
+ "certified": true,
+ "target": {
+  "target": "boxed",
+  "box_id": "T178.rstar"
+ },
+ "spec_box": "T178.rstar",
+ "attempt_ended": false,
+ "blockers": {
+  "full": null,
+  "box": null
+ },
+ "closure": {
+  "rounds": 3,
+  "defect_keys": 0,
+  "keyset": null,
+  "closure_keys": 88410,
+  "rules_used": 1381,
+  "rules_total": 5938,
+  "used_share": 0.233
+ },
+ "economy": {
+  "rules_before": 1490,
+  "rules_after": 1381,
+  "superseded": 109,
+  "unmeasured": 4,
+  "before": {
+   "bytes": 500000000,
+   "cases": 1490,
+   "coefficient_degree": 20,
+   "monomials": 5000000,
+   "rhs_terms": 1101000,
+   "rules": 1490
+  },
+  "after": {
+   "bytes": 420000000,
+   "cases": 1381,
+   "coefficient_degree": 20,
+   "monomials": 4300000,
+   "rhs_terms": 990321,
+   "rules": 1381
+  }
+ },
+ "terminals": {
+  "declared": 1,
+  "bound": 100,
+  "candidates": 0
+ },
+ "items": {
+  "open": 0,
+  "by_phase": {
+   "open": 0,
+   "in_progress": 0,
+   "produced": 0,
+   "accepted": 516,
+   "rejected": 13,
+   "escalated": 92,
+   "terminal_candidate": 0,
+   "terminal": 0,
+   "stale": 0,
+   "retired": 20
+  },
+  "by_level": {
+   "L0": {
+    "open": 0,
+    "in_progress": 0,
+    "produced": 0,
+    "accepted": 330,
+    "rejected": 4,
+    "escalated": 50,
+    "terminal_candidate": 0,
+    "terminal": 0,
+    "stale": 0,
+    "retired": 9
+   },
+   "L1": {
+    "open": 0,
+    "in_progress": 0,
+    "produced": 0,
+    "accepted": 134,
+    "rejected": 5,
+    "escalated": 30,
+    "terminal_candidate": 0,
+    "terminal": 0,
+    "stale": 0,
+    "retired": 8
+   },
+   "L2": {
+    "open": 0,
+    "in_progress": 0,
+    "produced": 0,
+    "accepted": 49,
+    "rejected": 3,
+    "escalated": 12,
+    "terminal_candidate": 0,
+    "terminal": 0,
+    "stale": 0,
+    "retired": 3
+   },
+   "L4": {
+    "open": 0,
+    "in_progress": 0,
+    "produced": 0,
+    "accepted": 3,
+    "rejected": 1,
+    "escalated": 0,
+    "terminal_candidate": 0,
+    "terminal": 0,
+    "stale": 0,
+    "retired": 0
+   }
+  }
+ },
+ "accepted_by_evidence": {
+  "geometry_accepted": 40,
+  "identity_tested": 60,
+  "identity_proved": 301
+ },
+ "inputs": [
+  "T178.family",
+  "T178.bank",
+  "T178.rstar"
+ ],
+ "stale_reason": null,
+ "cpu_seconds": 83520.0
+}
