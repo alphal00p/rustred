@@ -158,3 +158,24 @@ fn validator_rejects_mutations() {
     println!("{out}");
     assert_eq!(code, 0, "mutation tests of validate.py failed:\n{out}");
 }
+
+/// The document rule of this crate equals validate.py's on the shared vectors (rows serde_json cannot hold exactly,
+/// integers above 2^64 and `-0`, are skipped: they are refused or normalised by serde_json itself).
+#[test]
+fn document_canonical_form_on_shared_vectors() {
+    let v: Value = serde_json::from_slice(&std::fs::read(schemas().join("canon-vectors.json")).unwrap()).unwrap();
+    let mut n = 0;
+    for x in v["vectors"].as_array().unwrap() {
+        if matches!(x["name"].as_str(), Some("integer_above_2_64" | "minus_zero")) {
+            continue;
+        }
+        let got = rustred_campaign_core::schema::canon::canonical_bytes(
+            x["input"].as_str().unwrap().as_bytes(),
+            x["floats"].as_bool().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(got, x["document_rule"].as_str().unwrap(), "vector {}", x["name"]);
+        n += 1;
+    }
+    println!("document-rule vectors equal in Rust and Python: {n}");
+}
