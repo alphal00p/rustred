@@ -151,7 +151,8 @@ impl<const N: usize> ZpRowFactory<N> {
 
     /// Compile the templates at explicit parameter values (in coefficient
     /// variable order: the family parameters), for independent checks at a
-    /// chosen point.
+    /// chosen point. As in [`Self::new`], every family condition and every
+    /// `extra_conditions` polynomial must be nonzero at the point.
     pub(crate) fn at_parameters(
         sources: &SourceSystem<N>,
         arity: usize,
@@ -159,6 +160,7 @@ impl<const N: usize> ZpRowFactory<N> {
         router: Arc<dyn SectorRouter<N>>,
         prime: u64,
         parameters: &[Zp],
+        extra_conditions: &[CoefficientPolynomial],
     ) -> Result<Self, SolverError> {
         Self::build(
             sources,
@@ -168,7 +170,7 @@ impl<const N: usize> ZpRowFactory<N> {
             prime,
             0,
             Some(parameters),
-            &[],
+            extra_conditions,
         )
     }
 
@@ -845,6 +847,211 @@ mod tests {
                 actual.sort_unstable();
                 assert_eq!(actual, expected, "seed {seed:?}, source {source}");
             }
+        }
+    }
+
+    /// Review finding (PR 4): `at_parameters` honours the caller's extra
+    /// conditions like `new`: an explicit point where one vanishes is an
+    /// unlucky sample, a point where none vanishes is accepted.
+    #[test]
+    fn explicit_points_check_the_extra_conditions() {
+        let family = p14_rim();
+        let router = IdentityRouter::shared(&family).unwrap();
+        let sources = SourceSystem::<N>::from_family_with_capacity(&family, false).unwrap();
+        let order = Arc::new(BoxOrder::new(&super::super::ColumnOrder::Numeric, N, &[]).unwrap());
+        let context = family.coefficient_context();
+        let d_minus_4 = context
+            .try_sub(
+                &context.parameter("d").unwrap(),
+                &context.integer(4),
+                ExactAlgebraLimits::default(),
+            )
+            .unwrap()
+            .numerator;
+        let field = symbolica::domains::finite_field::Zp64::new(super::super::DEFAULT_PRIME);
+        let at = |d: u64| {
+            ZpRowFactory::at_parameters(
+                &sources,
+                N,
+                order.clone(),
+                router.clone(),
+                super::super::DEFAULT_PRIME,
+                &[field.to_element(d), field.to_element(3)],
+                std::slice::from_ref(&d_minus_4),
+            )
+        };
+        assert!(matches!(
+            at(4),
+            Err(SolverError::UnluckyBoxSample {
+                phase: BoxPhase::Conditions
+            })
+        ));
+        assert!(at(5).is_ok());
+    }
+
+    /// Review finding (PR 4): the routed path. A three-loop banana with four
+    /// unit-mass lines and two massless ISPs, `(k1+k2)^2` and `(k2+k3)^2`,
+    /// under the census router: its line permutations need numerator
+    /// substitutions, i.e. multi-term routes. Every factory row equals RustRed's
+    /// exact instantiation with each term composed with the router's exact
+    /// route, evaluated at the factory's sample point.
+    mod routed {
+        use std::collections::BTreeMap;
+        use std::sync::Arc;
+
+        use symbolica::domains::RingOps;
+        use symbolica::domains::finite_field::FiniteFieldCore;
+
+        use super::super::*;
+        use crate::algebra::CoefficientContext;
+        use crate::family::{AffineDenominator, IntegralFamily};
+        use crate::solver::sector_box::CensusRouter;
+        use crate::solver::sector_box::order::BoxOrder;
+        use crate::solver::{IntegralOrder, Seed};
+
+        const N: usize = 6;
+
+        /// Coordinates `k1.k1, k1.k2, k1.k3, k2.k2, k2.k3, k3.k3`.
+        fn banana() -> Arc<IntegralFamily> {
+            const ROWS: [[i64; 6]; 6] = [
+                [1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 1, 0, 0],
+                [0, 0, 0, 0, 0, 1],
+                [1, 2, 2, 1, 2, 1],
+                [1, 2, 0, 1, 0, 0],
+                [0, 0, 0, 1, 2, 1],
+            ];
+            let context = CoefficientContext::try_new(["d"]).unwrap();
+            let denominators = ROWS
+                .iter()
+                .enumerate()
+                .map(|(slot, row)| {
+                    AffineDenominator::new(
+                        context.integer(if slot < 4 { -1 } else { 0 }),
+                        row.map(|value| context.integer(value)).to_vec(),
+                    )
+                })
+                .collect();
+            Arc::new(
+                IntegralFamily::new(
+                    "banana3",
+                    ["k1", "k2", "k3"].map(String::from).to_vec(),
+                    vec![],
+                    context.clone(),
+                    context.parameter("d").unwrap(),
+                    denominators,
+                    vec![],
+                    vec![context.zero(); N],
+                )
+                .unwrap(),
+            )
+        }
+
+        #[test]
+        fn routed_rows_equal_exact_instantiation_composed_with_routes() {
+            let family = banana();
+            let router: Arc<dyn SectorRouter<N>> = Arc::new(
+                CensusRouter::discover(family.clone(), &[true, true, true, true, false, false])
+                    .unwrap(),
+            );
+            let sources = SourceSystem::<N>::from_family_with_capacity(&family, false).unwrap();
+            let order = Arc::new(
+                BoxOrder::new(&super::super::super::ColumnOrder::Numeric, N, &[]).unwrap(),
+            );
+            let factory = ZpRowFactory::new(
+                &sources,
+                N,
+                order,
+                router.clone(),
+                super::super::super::DEFAULT_PRIME,
+                11,
+                &[],
+            )
+            .unwrap();
+            let field = factory.field().clone();
+            let zero: Vec<[bool; N]> = (0u64..64)
+                .filter(|&bits| factory.is_zero_sector(bits))
+                .map(|bits| std::array::from_fn(|slot| bits >> slot & 1 == 1))
+                .collect();
+            // Top, dotted and numerator seeds of the banana and of routed
+            // three-line subsectors.
+            let seeds: [[i16; N]; 8] = [
+                [1, 1, 1, 1, 0, 0],
+                [2, 1, 1, 1, 0, -1],
+                [1, 1, 1, 1, -1, -1],
+                [1, 1, 1, 0, -1, 0],
+                [1, 1, 0, 1, 0, -2],
+                [0, 1, 1, 1, -1, 0],
+                [1, 0, 1, 1, -1, -1],
+                [2, 1, 0, 1, -1, 0],
+            ];
+            let mut multi_term_routes = 0usize;
+            let mut compared = 0usize;
+            for seed in seeds {
+                let sector: [bool; N] = std::array::from_fn(|slot| seed[slot] > 0);
+                let exact_order = IntegralOrder::new(sector, [false; N]);
+                let start = Seed {
+                    integral: Integral::numeric(seed).unwrap(),
+                    shifts: [0; N],
+                };
+                for (source, template) in sources.rows().iter().enumerate() {
+                    let exact = super::super::super::super::instantiate::instantiate(
+                        template,
+                        &start,
+                        sources.index_variables(),
+                        sources.fixed(),
+                        &exact_order,
+                        &zero,
+                        None,
+                    )
+                    .unwrap();
+                    // Compose every exact term with its exact route.
+                    let mut expected: BTreeMap<[i16; N], Zp> = BTreeMap::new();
+                    for term in &exact {
+                        let powers: [i16; N] =
+                            std::array::from_fn(|axis| term.integral[axis].value());
+                        let value = factory.evaluate(&term.coefficient).unwrap();
+                        let route = router.route(&powers).unwrap();
+                        if route.len() > 1 {
+                            multi_term_routes += 1;
+                        }
+                        for (target, weight) in route {
+                            let weight = factory.evaluate(&weight).unwrap();
+                            let entry = expected.entry(target).or_insert_with(|| field.zero());
+                            field.add_assign(entry, &field.mul(&value, &weight));
+                        }
+                    }
+                    let expected: Vec<([i16; N], u64)> = expected
+                        .into_iter()
+                        .filter(|(_, value)| !field.is_zero(value))
+                        .map(|(target, value)| (target, field.from_element(&value)))
+                        .collect();
+                    let mut actual: Vec<([i16; N], u64)> = factory
+                        .row(&seed, source as u16)
+                        .unwrap()
+                        .iter()
+                        .map(|term| {
+                            (
+                                std::array::from_fn(|axis| term.integral[axis].value()),
+                                field.from_element(&term.coefficient),
+                            )
+                        })
+                        .collect();
+                    actual.sort_unstable();
+                    assert_eq!(actual, expected, "seed {seed:?}, source {source}");
+                    compared += 1;
+                    // Every term lies in a representative sector.
+                    for (target, _) in &actual {
+                        let sector: [bool; N] = std::array::from_fn(|slot| target[slot] > 0);
+                        assert_eq!(router.representative(&sector), Some(sector));
+                    }
+                }
+            }
+            assert!(compared > 0);
+            assert!(
+                multi_term_routes > 0,
+                "the test must exercise multi-term routes"
+            );
         }
     }
 }

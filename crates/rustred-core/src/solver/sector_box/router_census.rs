@@ -132,7 +132,12 @@ impl CensusRouter {
 
 impl<const N: usize> SectorRouter<N> for CensusRouter {
     fn representative(&self, sector: &[bool; N]) -> Option<[bool; N]> {
-        let mask = self.mask(sector.iter().copied()).ok()?;
+        // A failure to build the mask is not a zero proof: keep the sector as
+        // its own representative (as the identity router does on analyzer
+        // errors), never drop its integrals.
+        let Ok(mask) = self.mask(sector.iter().copied()) else {
+            return Some(*sector);
+        };
         if self.census.is_zero_sector(&mask) {
             return None;
         }
