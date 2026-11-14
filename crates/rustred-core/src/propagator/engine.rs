@@ -820,6 +820,7 @@ impl PEngine {
             None => PCensusMode::OFF,
         };
         let shared_memo = super::step_memo::begin(scheduler.threads);
+        let counted = shared_memo;
         // The same process-wide snapshot appends the pruning marker to the
         // library's step identity, so persistent pruned/unpruned records cannot
         // be attached or reopened across modes.
@@ -854,6 +855,7 @@ impl PEngine {
                 prefer_high: library.orbit_prefer_high(),
                 zero_pruning: zero_pruning.as_ref(),
                 warm: &warm,
+                counted,
             },
             inspector,
         };
@@ -1486,6 +1488,12 @@ pub(crate) struct PStepper<'l> {
     zero_pruning: Option<&'l ZeroPruningCounters>,
     /// fwd-opt: the request's setup tasks ([`OrderedStepper::warm`]).
     warm: &'l [WarmTask],
+    /// The request counts for the shared step memo (`step_memo::begin`): the
+    /// memo cannot be replaced while it runs, so shared light handles stay
+    /// valid. An uncounted request (one thread, or the layered mode / a test
+    /// thread override on worker threads) takes light steps only on its
+    /// one-thread calling thread (local handles; memo-audit class A-light).
+    counted: bool,
 }
 
 /// Whether the request runs the opt-in path census (M5 R0 WP0).
@@ -2772,7 +2780,10 @@ impl OrderedStepper for PStepper<'_> {
     fn set_light(&self, on: bool) {
         // Light children only without the census (its step records count
         // the terms of the step).
-        light::set(on && !self.census.on);
+        // Never on a thread whose shared memo could change under the request
+        // (memo-audit class A-light): only counted requests, or the calling
+        // thread of a one-thread request (its own memo, local handles).
+        light::set(on && !self.census.on && (self.counted || super::step_memo::single_thread()));
     }
 
     fn take_light(&self) -> Vec<(PKey, u64)> {
@@ -2788,6 +2799,10 @@ impl OrderedStepper for PStepper<'_> {
         let value = if light::is_local(handle) {
             super::step_memo::local_value(index)
         } else {
+            debug_assert!(
+                self.counted,
+                "a shared light handle outside a counted request (its memo may be replaced)"
+            );
             super::step_memo::shared_value(index)
         };
         value.map(|value| if negative { -value } else { value })
@@ -3277,6 +3292,7 @@ mod tests {
             prefer_high: false,
             zero_pruning: None,
             warm: &[],
+            counted: false,
         };
         assert_eq!(
             stepper.recorded_key(NodeStage::ClassRoute(1), view.clone()),
@@ -3352,6 +3368,7 @@ mod tests {
             prefer_high: false,
             zero_pruning: None,
             warm: &[],
+            counted: false,
         };
         let inside = engine.view(&[1, 1], &GammaTag::one()).unwrap();
         assert!(matches!(
@@ -3380,6 +3397,7 @@ mod tests {
             prefer_high: false,
             zero_pruning: None,
             warm: &[],
+            counted: false,
         };
         let on = PStepper {
             zero_pruning: Some(&counters),
@@ -3451,6 +3469,7 @@ mod tests {
             prefer_high: false,
             zero_pruning: Some(&counters),
             warm: &[],
+            counted: false,
         };
         let tag = GammaTag::one();
         let one = library.coefficient_context().one();
