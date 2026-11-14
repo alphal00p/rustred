@@ -122,6 +122,9 @@ pub enum Stage {
     Family,
     /// the two verification primes
     Primes,
+    /// the POINTS of the test (rows4): applicability of every key (rule point or the reason it is not applicable),
+    /// the solved case equations and the generic values of every cell, the witness-locus classification
+    Points,
     /// a coefficient value at one evaluation context (num / den mod p)
     Coefficient,
     /// the rows of one cell (one entry per row: a digest of its entries mod p)
@@ -136,6 +139,77 @@ pub enum Stage {
     Symmetry,
     /// the final verdict of the domain logic
     Verdict,
+}
+
+/// WHICH ALGEBRA computed an object of the identity test (rows4, re-audit RA3-M1): a [`super::family::Family`], a
+/// `VerifiedGroup`, a verdict. Its field is PRIVATE and it is constructed only inside this crate, by code paths that
+/// know their backend STATICALLY: the certificate value only by the concrete entry points that run
+/// `crate::independent_algebra::Independent` themselves (`Family::parse`, `verify_group`, `replay_evidence`, ...);
+/// every generic `*_with(alg, ..)` path yields a diagnostic value, whatever `CheckAlgebra::name` answers. A certificate
+/// run refuses an object of diagnostic origin, so neither a family nor a group computed by another backend can reach
+/// the `replay` level.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize)]
+pub struct AlgebraOrigin {
+    certificate: bool,
+    backend: &'static str,
+}
+
+impl AlgebraOrigin {
+    /// the certificate backend (crate-internal: only concrete `Independent` paths construct it)
+    pub(crate) const CERTIFICATE: AlgebraOrigin = AlgebraOrigin {
+        certificate: true,
+        backend: "independent",
+    };
+    /// a diagnostic backend (any generic path), labelled with the backend's self-declared name (display only)
+    pub(crate) fn diagnostic(backend: &'static str) -> AlgebraOrigin {
+        AlgebraOrigin {
+            certificate: false,
+            backend,
+        }
+    }
+    /// computed by the certificate backend through a concrete certificate path
+    pub fn is_certificate(&self) -> bool {
+        self.certificate
+    }
+    /// the backend label (for a diagnostic origin: `CheckAlgebra::name` of the backend, a display string only)
+    pub fn backend(&self) -> &'static str {
+        self.backend
+    }
+}
+
+/// One trace entry of a recorded run (the triage compares two traces entry by entry).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct Event {
+    pub stage: Stage,
+    pub at: String,
+    pub value: String,
+}
+
+/// Collects the [`Stage`] quantities of a run (the `Both` mode's trace). The certificate entry points accept one
+/// (`*_traced`): recording does not change the run or its level.
+#[derive(Debug, Default)]
+pub struct Recorder {
+    events: std::sync::Mutex<Vec<Event>>,
+}
+
+impl Recorder {
+    pub fn new() -> Recorder {
+        Recorder::default()
+    }
+    pub fn record(&self, stage: Stage, at: &dyn Fn() -> String, value: &dyn Fn() -> String) {
+        self.events
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(Event {
+                stage,
+                at: at(),
+                value: value(),
+            });
+    }
+    /// the events recorded so far (the recorder is emptied)
+    pub fn take(&self) -> Vec<Event> {
+        std::mem::take(&mut *self.events.lock().unwrap_or_else(|e| e.into_inner()))
+    }
 }
 
 /// The algebra the identity test needs (DEV-17 REVISED). Residues are canonical `u64` in `[0, p)`; rationals are
@@ -195,6 +269,18 @@ pub trait CheckAlgebra: Sync {
     fn q_unit_in_row_space(&self, rows: &[Vec<Q>], col: usize) -> Result<bool, Unknown>;
     /// gcd of two integers (non-negative; gcd(0, 0) = 0)
     fn gcd_i128(&self, a: i128, b: i128) -> i128;
+    /// the integer matrix product `a b` (row-major; `a` is `r x k`, `b` is `k x c`); `None` on overflow (rows4: the
+    /// symmetry proof's momentum images and solved maps)
+    fn int_mat_mul(
+        &self,
+        a: &[i128],
+        b: &[i128],
+        r: usize,
+        k: usize,
+        c: usize,
+    ) -> Option<Vec<i128>>;
+    /// the exact integer quotient `a / b`; `None` if `b` is 0 or does not divide `a`
+    fn int_div_exact(&self, a: i128, b: i128) -> Option<i128>;
     /// determinant of the leading `dim x dim` block of a matrix of integer polynomials in `t` variables
     fn zpoly_det(&self, m: &[Vec<ZPoly>], dim: usize, t: usize) -> ZPoly;
 

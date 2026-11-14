@@ -144,6 +144,7 @@ fn job_events_of_older_attempts_are_refused() {
                 cpus: vec![],
                 reserved_bytes: 0,
                 spec_blake3: digest("r"),
+                scope_unit: None,
             }
         })
         .is_err()

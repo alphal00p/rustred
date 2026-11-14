@@ -19,6 +19,7 @@
 //! the DEVIATION note in the lane notes), canonicalisation.
 
 pub mod proc;
+pub mod recipe_job;
 
 use std::fs::File;
 use std::io::{self, Write};
@@ -48,7 +49,7 @@ use crate::solver::{Case, CoordinateCase};
 /// Program name in job mode.
 pub const PROGRAM: &str = "rr_node";
 /// Features this build reports in `version --json` (3.2.1) and accepts in `program.features_required`.
-pub const FEATURES: [&str; 18] = [
+pub const FEATURES: [&str; 19] = [
     "job",
     "initial_presented",
     "descend_open",
@@ -68,6 +69,8 @@ pub const FEATURES: [&str; 18] = [
     "case_seed_rung",
     "slim_rules",
     "open_on_refusal",
+    // lane engbase2: job kind solve-recipe (node::recipe through this module's contract checks, recipe_job.rs)
+    "solve_recipe",
 ];
 
 static JOB: OnceLock<Arc<Job>> = OnceLock::new();
@@ -209,6 +212,13 @@ pub struct Resumed {
     pub refused_open: Vec<(CaseSpec, Value)>,
     /// A resume of an earlier attempt (the table and queue log continue a copied prefix); false for PRESENTED cases.
     pub prefix: bool,
+    /// Right-hand-side keys of committed rules that are not strictly lower (RESUME `engine.not_lower`, audit-engjob
+    /// M1): the resumed attempt reports them again, so its end maps to stop `not_lower`.
+    pub not_lower: Vec<String>,
+    /// The numeric stage was interrupted (RESUME `engine.numeric_stage`, audit-engjob C1): (endpoints of the whole
+    /// stage, endpoints already exhausted by the per-point search, in order). `numerical` then holds the endpoints
+    /// not yet searched.
+    pub numeric_stage: Option<(usize, Vec<Vec<i64>>)>,
 }
 
 static RESUMED: OnceLock<Resumed> = OnceLock::new();
@@ -274,6 +284,69 @@ pub fn exact_started(trace_rows: usize) {
     }
 }
 
+/// RHS keys of a rule that is not strictly lower (the driver's `outcome.not_lower`): kept for every later RESUME
+/// (`engine.not_lower`), so that a resumed attempt still ends with stop `not_lower` (audit-engjob M1). No-op in
+/// legacy mode.
+pub fn note_not_lower(keys: &[String]) {
+    if let Some(j) = job() {
+        if !keys.is_empty() {
+            j.st().not_lower.extend(keys.iter().cloned());
+        }
+    }
+}
+
+/// A rule record was written to the table (`rhs` terms; the lift's trace rows and coefficient monomials): job
+/// counters `rhs_terms` / `lift_monomials` and the fields of its `rule_committed` event (audit-engjob m6). No-op in
+/// legacy mode.
+pub fn rule_written(rhs: usize, trace_rows: usize, monomials: usize) {
+    if let Some(j) = job() {
+        j.counter(WorkCounter::RhsTerms)
+            .fetch_add(rhs as u64, Relaxed);
+        j.counter(WorkCounter::LiftMonomials)
+            .fetch_add(monomials as u64, Relaxed);
+        j.st()
+            .rule_meta
+            .push_back((rhs as u64, trace_rows as u64, monomials as u64));
+    }
+}
+
+/// What a clock (or an environment failure) decided, for [`time_decision`].
+pub use cc::outcome::TimeDecisionWhat as TimeWhat;
+
+/// A decision taken by a clock, or by a helper process that could not run, in job mode (determinism `recorded`,
+/// child-job.md 3.3.4; audit-engjob M5): one `time_decision` event and one `job.time_decisions` entry, so OUTCOME's
+/// `time_decided` is true. `rule`: the rule index concerned, when there is one; `limit_s` / `measured_s` in seconds;
+/// `taken`: what the engine did. No-op in legacy mode.
+pub fn time_decision(
+    what: TimeWhat,
+    rule: Option<usize>,
+    limit_s: f64,
+    measured_s: f64,
+    taken: &str,
+) {
+    let Some(j) = job() else { return };
+    let td = TimeDecision {
+        what,
+        case_ordinal: u64::try_from(j.case_ordinal.load(Relaxed)).ok(),
+        rule: rule.map(|r| r as u64),
+        limit_s,
+        // finite JSON numbers only (an infinite estimate is written as the largest f64)
+        measured_s: {
+            let r = (measured_s * 1000.0).round() / 1000.0;
+            if r.is_finite() {
+                r
+            } else if measured_s.is_nan() {
+                0.0
+            } else {
+                measured_s.clamp(-f64::MAX, f64::MAX)
+            }
+        },
+        taken: taken.to_string(),
+    };
+    j.st().time_decisions.push(td.clone());
+    let _ = j.sink.emit(Event::TimeDecision(td));
+}
+
 /// Count work (one relaxed add; no-op in legacy mode).
 pub fn tick(c: WorkCounter, by: u64) {
     if let Some(j) = job() {
@@ -306,27 +379,32 @@ pub fn tick_reducer_row() {
 }
 
 /// The open queue at a safe point in the job's RESUME form: pending cases (PRESENTED slots) and numeric points.
+/// `stage` = (numeric endpoints of the whole numeric stage, endpoints the per-point search exhausted so far, waiting
+/// for the shared solve) once the numeric stage started (audit-engjob C1); None before it.
 pub(crate) fn queue_lists<const N: usize>(
     pending: &[Case<N>],
     numerical: &[CoordinateCase<N>],
     deferred: &[(Case<N>, Value)],
     refused: &[(Case<N>, Value)],
+    stage: Option<(usize, &[CoordinateCase<N>])>,
     n: usize,
 ) -> OpenQueue {
+    let point = |p: &CoordinateCase<N>| -> Vec<i64> {
+        p.fixed()[..n]
+            .iter()
+            .map(|v| v.map_or(0, i64::from))
+            .collect()
+    };
     OpenQueue {
+        numeric_stage: stage.map(|(total, exhausted)| NumericStage {
+            numerical_cases: total,
+            exhausted: exhausted.iter().map(point).collect(),
+        }),
         pending: pending
             .iter()
             .map(|c| job_case(&super::driver::case_spec(c, n)))
             .collect(),
-        numerical: numerical
-            .iter()
-            .map(|p| {
-                p.fixed()[..n]
-                    .iter()
-                    .map(|v| v.map_or(0, i64::from))
-                    .collect()
-            })
-            .collect(),
+        numerical: numerical.iter().map(point).collect(),
         deferred: deferred
             .iter()
             .map(|(c, d)| {
@@ -349,6 +427,46 @@ pub struct OpenQueue {
     pub deferred: Vec<Value>,
     /// `--open-on-refusal`: `{"case": .., "detail": ..}` per refused case (RESUME `refused_open`).
     pub refused: Vec<Value>,
+    /// The numeric stage's own state once it started (RESUME `engine.numeric_stage`).
+    pub numeric_stage: Option<NumericStage>,
+}
+
+/// State of the numeric stage at a safe point inside it (audit-engjob C1): the endpoints the per-point search
+/// exhausted (they wait for the shared solve after the loop, in this order) and the endpoint count of the whole stage
+/// (the table's `chart_end.numerical_cases`, canonical). With RESUME `numerical` = the endpoints not yet searched
+/// (the interrupted one first) this is everything a resumed attempt needs to end with the same table.
+pub struct NumericStage {
+    pub numerical_cases: usize,
+    pub exhausted: Vec<Vec<i64>>,
+}
+
+impl NumericStage {
+    fn to_json(&self) -> Value {
+        serde_json::json!({"numerical_cases": self.numerical_cases, "exhausted": self.exhausted})
+    }
+
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let total = v["numerical_cases"]
+            .as_u64()
+            .ok_or("numeric_stage.numerical_cases is not an integer")?;
+        let exhausted: Vec<Vec<i64>> = serde_json::from_value(v["exhausted"].clone())
+            .map_err(|e| format!("numeric_stage.exhausted: {e}"))?;
+        Ok(Self {
+            numerical_cases: total as usize,
+            exhausted,
+        })
+    }
+}
+
+/// A numeric endpoint as a fully fixed PRESENTED case (F.subcases kind `numeric`).
+fn numeric_case(f: &[i64]) -> JobCase {
+    JobCase {
+        frame: Frame::Presented,
+        fixed: f.iter().map(|&v| Some(v)).collect(),
+        equations: vec![],
+        seed_centre_offset: None,
+        extra: Default::default(),
+    }
 }
 
 fn job_case(c: &CaseSpec) -> JobCase {
@@ -369,6 +487,9 @@ fn job_case(c: &CaseSpec) -> JobCase {
 /// work on it. Closes the previous case (per-case result, `case_finished` / `rule_committed` events), makes the
 /// COMMIT POINT (table and queue log flushed, their committed prefix recorded; RESUME rewritten when due), then
 /// honours a stop request (returns the stop for the driver's normal stop path) or starts `current`.
+/// `numerical`: `current` is a numeric endpoint (safe point (b)): at a stop or in a periodic RESUME it goes back to
+/// the FRONT of RESUME `numerical` (never into the symbolic queue, audit-engjob C1), with the numeric stage's state
+/// (`engine.numeric_stage`) taken from `open`.
 #[allow(clippy::too_many_arguments)]
 pub fn case_boundary(
     out: &mut impl Write,
@@ -385,23 +506,10 @@ pub fn case_boundary(
     j.commit_point(out, qlog, symbolic_cases)?;
     lock(&j.st).engine = counters;
     let current = job_case(&current);
-    if j.stop.load(SeqCst) {
-        let q = open();
-        let pending = q.pending.len();
-        j.remember_open(Some(&current), &q);
-        j.write_resume(Some(current), q, true);
-        let source = lock(&j.stop_source).unwrap_or(StopSource::Sigterm);
-        return Ok(Boundary::Stop(StopReason::Interrupted {
-            source: serde_json::to_value(source)
-                .ok()
-                .and_then(|v| v.as_str().map(str::to_string))
-                .unwrap_or_default(),
-            pending: pending + 1,
-        }));
-    }
-    // `--descend open`: only the job's own cases are solved; every other case is returned (F.subcases.jsonl)
-    if DESCEND_OPEN.load(Relaxed) {
-        let key = serde_json::to_string(&current).unwrap_or_default();
+    let key = serde_json::to_string(&current).unwrap_or_default();
+    // `--descend open`: the job's own cases are the queue at its FIRST safe point (restored from RESUME on a resume,
+    // audit-engjob C2); fixed before anything else so that every RESUME of the job names them
+    if DESCEND_OPEN.load(Relaxed) && !numerical {
         let mut own = lock(&OWN_CASES);
         if own.is_none() {
             let q = open();
@@ -413,6 +521,21 @@ pub fn case_boundary(
             set.insert(key.clone());
             *own = Some(set);
         }
+    }
+    // the case (or endpoint) still to do, in RESUME form: a numeric endpoint first in `numerical`, a case `current`
+    let resume_form = |current: JobCase, q: &mut OpenQueue| -> Option<JobCase> {
+        if numerical {
+            q.numerical.insert(0, numeric_point(&current));
+            None
+        } else {
+            Some(current)
+        }
+    };
+    // `--descend open`: only the job's own cases are solved; every other case is returned (F.subcases.jsonl). A
+    // returned case needs no work, so it is returned even when a stop is pending: the stop is honoured at the next
+    // own case or at the queue end, with every case returned so far in RESUME `engine.descend_open.returned`
+    if DESCEND_OPEN.load(Relaxed) {
+        let own = lock(&OWN_CASES);
         if numerical || !own.as_ref().is_some_and(|s| s.contains(&key)) {
             drop(own);
             lock(&j.st)
@@ -421,12 +544,43 @@ pub fn case_boundary(
             return Ok(Boundary::Skip);
         }
     }
+    if j.stop.load(SeqCst) {
+        let mut q = open();
+        let cur = resume_form(current, &mut q);
+        let pending = if numerical {
+            q.numerical.len()
+        } else {
+            q.pending.len() + 1
+        };
+        j.remember_open(cur.as_ref(), &q);
+        j.write_resume(cur, q, true);
+        j.st().stopped_at_boundary = true;
+        return Ok(Boundary::Stop(interrupted(j, pending)));
+    }
     if j.resume_due() {
-        let q = open();
-        j.write_resume(Some(current.clone()), q, false);
+        let mut q = open();
+        let cur = resume_form(current.clone(), &mut q);
+        j.write_resume(cur, q, false);
     }
     j.start_case(current, numerical);
     Ok(Boundary::Go)
+}
+
+/// The fixed values of a numeric endpoint given as a case.
+fn numeric_point(c: &JobCase) -> Vec<i64> {
+    c.fixed.iter().map(|v| v.unwrap_or(0)).collect()
+}
+
+/// The driver's stop for a stop request honoured at a safe point.
+fn interrupted(j: &Job, pending: usize) -> StopReason {
+    let source = lock(&j.stop_source).unwrap_or(StopSource::Sigterm);
+    StopReason::Interrupted {
+        source: serde_json::to_value(source)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_default(),
+        pending,
+    }
 }
 
 /// What the driver does after a safe point.
@@ -440,7 +594,7 @@ pub enum Boundary {
 }
 
 static DESCEND_OPEN: AtomicBool = AtomicBool::new(false);
-/// The job's own cases (`--descend open`): the queue at the first safe point.
+/// The job's own cases (`--descend open`): the queue at the first safe point (serialised PRESENTED cases).
 static OWN_CASES: Mutex<Option<std::collections::BTreeSet<String>>> = Mutex::new(None);
 
 /// `--descend open` (job mode): solve the job's own cases only and return every sub-case, numeric endpoint and
@@ -450,7 +604,10 @@ pub fn set_descend_open() {
 }
 
 /// Safe point (c): the symbolic queue ended (empty, `max_cases`, or a stop). Closes the last case and makes the
-/// commit point; RESUME names the open queue (`current` null).
+/// commit point; RESUME names the open queue (`current` null). A stop that was honoured at a case boundary keeps
+/// that boundary's RESUME. A stop requested AFTER the last boundary (during the last case: audit-engjob C3) is
+/// honoured HERE: RESUME of the open queue, stop `Interrupted` (the driver then skips the numeric stage and the
+/// deferred check; exit 30), never taken as handled.
 pub fn queue_done(
     out: &mut impl Write,
     qlog: &mut impl Write,
@@ -461,27 +618,75 @@ pub fn queue_done(
     let Some(j) = job() else { return Ok(None) };
     j.commit_point(out, qlog, symbolic_cases)?;
     lock(&j.st).engine = counters;
-    let interrupted = j.stop.load(SeqCst) && lock(&j.st).resume_current.is_some();
-    let mut stop = None;
-    if !interrupted {
-        let q = open();
-        j.remember_open(None, &q);
-        if DESCEND_OPEN.load(Relaxed) {
-            let mut st = j.st();
-            let n = st.returned.len()
-                + q.pending.len()
-                + q.numerical.len()
-                + q.deferred.len()
-                + q.refused.len();
-            if n > 0 {
-                stop = Some(StopReason::Descended { returned: n });
-            }
-            st.open_on_end = true;
-        }
-        j.write_resume(None, q, true);
-    }
     j.phase.store(Phase::Numeric as u8, Relaxed);
+    if j.st().stopped_at_boundary {
+        return Ok(None);
+    }
+    let q = open();
+    j.remember_open(None, &q);
+    if j.stop.load(SeqCst) {
+        let pending = q.pending.len();
+        j.write_resume(None, q, true);
+        j.st().stopped_at_boundary = true;
+        return Ok(Some(interrupted(j, pending)));
+    }
+    let mut stop = None;
+    if DESCEND_OPEN.load(Relaxed) {
+        let mut st = j.st();
+        let n = st.returned.len()
+            + q.pending.len()
+            + q.numerical.len()
+            + q.deferred.len()
+            + q.refused.len();
+        if n > 0 {
+            stop = Some(StopReason::Descended { returned: n });
+        }
+        st.open_on_end = true;
+    }
+    j.write_resume(None, q, true);
     Ok(stop)
+}
+
+/// Safe point (d) (audit-engjob C1): the numeric loop ended (every endpoint searched; the exhausted ones wait for
+/// the shared solve, RESUME `engine.numeric_stage.exhausted`). Closes the last endpoint and makes the commit point;
+/// a stop request is honoured here (RESUME with no endpoint left to search; a resumed attempt runs only the shared
+/// solve), otherwise RESUME when due. `bulk`: the shared solve follows; the case wall budget then bounds it as one
+/// more case (audit-engjob m5).
+#[allow(clippy::too_many_arguments)]
+pub fn numeric_done(
+    out: &mut impl Write,
+    qlog: &mut impl Write,
+    symbolic_cases: usize,
+    counters: EngineCounters,
+    bulk: bool,
+    open: &mut dyn FnMut() -> OpenQueue,
+) -> Result<Option<StopReason>, String> {
+    let Some(j) = job() else { return Ok(None) };
+    j.commit_point(out, qlog, symbolic_cases)?;
+    lock(&j.st).engine = counters;
+    if j.stop.load(SeqCst) {
+        let q = open();
+        let pending = q.numeric_stage.as_ref().map_or(0, |s| s.exhausted.len());
+        j.remember_open(None, &q);
+        j.write_resume(None, q, true);
+        j.st().stopped_at_boundary = true;
+        return Ok(Some(interrupted(j, pending)));
+    }
+    if j.resume_due() {
+        let q = open();
+        j.write_resume(None, q, false);
+    }
+    if bulk {
+        j.start_stage(Phase::SharedNumeric);
+    }
+    Ok(None)
+}
+
+/// The deferred-region check starts (phase `deferred_check`; the case wall budget bounds it, audit-engjob m5).
+pub fn deferred_check_started() {
+    if let Some(j) = job() {
+        j.start_stage(Phase::DeferredCheck);
+    }
 }
 
 // -------------------------------------------------------------------------------------------------------------
@@ -520,8 +725,9 @@ struct State {
     time_decisions: Vec<TimeDecision>,
     resume_written_at: Option<Instant>,
     resume_valid: bool,
-    /// `current` of the last RESUME written (an interrupted case).
-    resume_current: Option<JobCase>,
+    /// A stop request was honoured at a safe point (its RESUME is final; audit-engjob C3: no other flag, e.g. a
+    /// periodic RESUME naming a `current`, stands for "handled").
+    stopped_at_boundary: bool,
     /// The driver's running counters at the last commit point.
     engine: EngineCounters,
     /// Cases returned by `--descend open` (kind, case).
@@ -530,6 +736,13 @@ struct State {
     open_list: Vec<(&'static str, JobCase)>,
     /// `--descend open` decided at the queue end: the open list goes into F.subcases.jsonl even without a stop.
     open_on_end: bool,
+    /// RHS keys of rules that are not strictly lower (driver `outcome.not_lower`), carried in RESUME (M1).
+    not_lower: Vec<String>,
+    /// (rhs terms, trace rows, monomials) of each rule written since the last close, in write order (m6).
+    rule_meta: std::collections::VecDeque<(u64, u64, u64)>,
+    /// Rules whose `rule_committed` event was emitted (indices continue from here; a resumed attempt starts at its
+    /// RESUME's `rules_committed`).
+    rules_closed: u64,
 }
 
 /// Inputs to start a job (from the bin's `rr_node job`).
@@ -544,6 +757,15 @@ pub struct JobStart {
 }
 
 /// The job context (one per process).
+///
+/// LOCK ORDER (audit-engjob M4; the argument replaces a model check): the locks are `st` (state), the stream slots
+/// `table` / `queue` / `cert` and the digest behind each slot, `effective`, `stop_source`, `stop_at`, and the
+/// module statics `OWN_CASES`, `PANIC_MESSAGE`. The ONLY nested acquisitions are `st` -> table slot -> table digest
+/// (`outcome()` under `st`: hard-safe stop, `fail_now`, panic path; `finish`'s table seal takes `st` first too);
+/// `st` -> `stop_source` never happens (read before); `OWN_CASES` is read before `st` (`write_resume`). No code
+/// path takes `st` while holding a slot or digest lock (`ChildFile::write` holds only its digest, `commit_point`
+/// releases slot and digest before `st`), so no cycle exists and the watchdog's hard-safe stop (which waits at most
+/// 1 s for `st`) can never deadlock with the main thread.
 pub struct Job {
     spec: JobSpec,
     spec_blake3: String,
@@ -676,10 +898,24 @@ impl Job {
     ) -> Result<(), String> {
         out.flush().map_err(|e| format!("table: {e}"))?;
         qlog.flush().map_err(|e| format!("queue log: {e}"))?;
+        self.close_records(Some(symbolic_cases))
+    }
+
+    /// Close the case in flight from the records written since the last commit point (per-case result,
+    /// `rule_committed` / `case_finished` events). With `symbolic_cases` (a commit point) the committed prefixes are
+    /// recorded; without (the end of the run, audit-engjob m6: rules of the shared solve after the last safe point)
+    /// only the case and the events are closed.
+    fn close_records(&self, symbolic_cases: Option<usize>) -> Result<(), String> {
         let rel_t = RunLayout::out_rel(TABLE);
         let rel_q = RunLayout::out_rel(QUEUE);
-        let t = self.digest_commit(&self.table, &rel_t)?;
-        let q = self.digest_commit(&self.queue, &rel_q)?;
+        let (t, q) = if symbolic_cases.is_some() {
+            (
+                self.digest_commit(&self.table, &rel_t)?,
+                self.digest_commit(&self.queue, &rel_q)?,
+            )
+        } else {
+            (None, None)
+        };
         let table_records = lock(&self.table)
             .clone()
             .map(|d| lock(d.as_ref()).take_records())
@@ -691,12 +927,28 @@ impl Job {
         let mut events = Vec::new();
         {
             let mut st = self.st();
-            st.symbolic_cases = symbolic_cases as u64;
+            if let Some(c) = symbolic_cases {
+                st.symbolic_cases = c as u64;
+            }
+            let rules: Vec<_> = table_records
+                .iter()
+                .filter(|r| r.record_type.as_deref() == Some("rule"))
+                .collect();
+            let first_index = st.rules_closed;
+            for (k, r) in rules.iter().enumerate() {
+                let (rhs, trace_rows, monomials) = st.rule_meta.pop_front().unwrap_or_default();
+                events.push(Event::RuleCommitted {
+                    index: first_index + k as u64,
+                    line_offset: r.offset,
+                    line_bytes: r.bytes,
+                    canon_blake3: r.canon_blake3.clone(),
+                    rhs,
+                    trace_rows,
+                    monomials,
+                });
+            }
+            st.rules_closed += rules.len() as u64;
             if let Some(f) = st.in_flight.take() {
-                let rules: Vec<_> = table_records
-                    .iter()
-                    .filter(|r| r.record_type.as_deref() == Some("rule"))
-                    .collect();
                 let types: Vec<&str> = queue_records
                     .iter()
                     .filter_map(|r| r.record_type.as_deref())
@@ -711,17 +963,6 @@ impl Job {
                     .filter(|t| matches!(**t, "enqueue" | "enqueue_numerical" | "child"))
                     .count() as u64;
                 let rule = (!rules.is_empty()).then_some(f.rules_before);
-                for (k, r) in rules.iter().enumerate() {
-                    events.push(Event::RuleCommitted {
-                        index: f.rules_before + k as u64,
-                        line_offset: r.offset,
-                        line_bytes: r.bytes,
-                        canon_blake3: r.canon_blake3.clone(),
-                        rhs: 0,
-                        trace_rows: 0,
-                        monomials: 0,
-                    });
-                }
                 st.per_case.push(PerCase {
                     ordinal: f.ordinal,
                     case: f.case,
@@ -729,7 +970,7 @@ impl Job {
                     rule,
                     children_open: children,
                 });
-                let rc = t.as_ref().map_or(st.rules_committed, |c| c.rules);
+                let rc = t.as_ref().map_or(st.rules_closed, |c| c.rules);
                 events.push(Event::CaseFinished {
                     ordinal: f.ordinal,
                     result,
@@ -788,6 +1029,15 @@ impl Job {
         });
     }
 
+    /// A stage after the case queue (shared numeric solve, deferred check): phase mark, and the case wall budget's
+    /// clock restarts so that `wall.case_s` bounds the stage like one more case (audit-engjob m5).
+    fn start_stage(&self, p: Phase) {
+        self.case_ordinal.store(-1, Relaxed);
+        self.case_started_ms
+            .store(self.started.elapsed().as_millis() as i64, Relaxed);
+        self.set_phase(p);
+    }
+
     /// Remember the open list (F.subcases.jsonl of a stopped job).
     fn remember_open(&self, current: Option<&JobCase>, q: &OpenQueue) {
         let mut l: Vec<(&'static str, JobCase)> = Vec::new();
@@ -795,18 +1045,11 @@ impl Job {
             l.push(("case", c.clone()));
         }
         l.extend(q.pending.iter().map(|c| ("case", c.clone())));
-        l.extend(q.numerical.iter().map(|f| {
-            (
-                "numeric",
-                JobCase {
-                    frame: Frame::Presented,
-                    fixed: f.iter().map(|&v| Some(v)).collect(),
-                    equations: vec![],
-                    seed_centre_offset: None,
-                    extra: Default::default(),
-                },
-            )
-        }));
+        l.extend(q.numerical.iter().map(|f| ("numeric", numeric_case(f))));
+        // endpoints the per-point search exhausted: still open (they wait for the shared solve), audit-engjob C1
+        if let Some(s) = &q.numeric_stage {
+            l.extend(s.exhausted.iter().map(|f| ("numeric", numeric_case(f))));
+        }
         l.extend(
             q.deferred
                 .iter()
@@ -838,10 +1081,21 @@ impl Job {
             numerical,
             deferred,
             refused,
+            numeric_stage,
         } = q;
         if !force && !self.resume_due() {
             return;
         }
+        // `--descend open` (audit-engjob C2): the job's own cases, read before the state lock (never nested)
+        let own: Option<Vec<Value>> = if DESCEND_OPEN.load(Relaxed) {
+            lock(&OWN_CASES).as_ref().map(|set| {
+                set.iter()
+                    .filter_map(|k| serde_json::from_str::<Value>(k).ok())
+                    .collect()
+            })
+        } else {
+            None
+        };
         // the prefixes must be durable before a RESUME names them
         for p in [self.layout.table(), self.layout.queue()] {
             if let Ok(f) = File::open(&p) {
@@ -851,7 +1105,6 @@ impl Job {
         let r = {
             let mut st = self.st();
             st.pending = pending.len() as u64;
-            st.resume_current = current.clone();
             ResumeState {
                 schema: RESUME_SCHEMA.into(),
                 job_id: self.spec.job_id.clone(),
@@ -870,11 +1123,31 @@ impl Job {
                 counters_at_commit: self.counters(Some(&st)),
                 symbolic_cases: st.symbolic_cases,
                 discarded: st.engine[2] as u64,
-                engine: ENGINE_KEYS
-                    .iter()
-                    .zip(st.engine)
-                    .map(|(k, v)| (k.to_string(), Value::from(v)))
-                    .collect(),
+                engine: {
+                    let mut m: serde_json::Map<String, Value> = ENGINE_KEYS
+                        .iter()
+                        .zip(st.engine)
+                        .map(|(k, v)| (k.to_string(), Value::from(v)))
+                        .collect();
+                    if !st.not_lower.is_empty() {
+                        m.insert("not_lower".into(), Value::from(st.not_lower.clone()));
+                    }
+                    if let Some(s) = &numeric_stage {
+                        m.insert("numeric_stage".into(), s.to_json());
+                    }
+                    if let Some(own) = &own {
+                        let returned: Vec<Value> = st
+                            .returned
+                            .iter()
+                            .map(|(k, c)| serde_json::json!({"kind": k, "case": c}))
+                            .collect();
+                        m.insert(
+                            "descend_open".into(),
+                            serde_json::json!({"own": own, "returned": returned}),
+                        );
+                    }
+                    m
+                },
             }
         };
         if r.check().is_err() {
@@ -1078,6 +1351,7 @@ fn watchdog(j: Arc<Job>) {
     let mut seen = 0u32;
     let mut last_hb = Instant::now();
     let mut last_stopfile = Instant::now() - Duration::from_secs(2);
+    let mut last_mem = Instant::now() - Duration::from_secs(2);
     let hb = Duration::from_secs(j.spec.heartbeat_s as u64);
     let grace = Duration::from_secs(j.spec.stop_grace_s as u64);
     loop {
@@ -1090,11 +1364,12 @@ fn watchdog(j: Arc<Job>) {
                 libc::SIGHUP => StopSource::Sighup,
                 _ => StopSource::Sigterm,
             };
-            if n >= 2 && j.stop.load(SeqCst) {
+            j.request_stop(src);
+            // a SECOND signal is the hard-safe stop, also when both arrived within one poll (audit-engjob m3)
+            if n >= 2 {
                 let (code, stop) = stop_codes(&j);
                 j.hard_stop(code, stop, None);
             }
-            j.request_stop(src);
         }
         if last_stopfile.elapsed() >= Duration::from_secs(1) {
             last_stopfile = Instant::now();
@@ -1134,7 +1409,14 @@ fn watchdog(j: Arc<Job>) {
                 }
             }
         }
-        if let Some(lim) = j.spec.budgets.mem_soft_bytes {
+        // the soft memory limit is sampled once a second (audit-engjob m10: /proc reads every 20 ms were wasted)
+        if let Some(lim) = j
+            .spec
+            .budgets
+            .mem_soft_bytes
+            .filter(|_| last_mem.elapsed() >= Duration::from_secs(1))
+        {
+            last_mem = Instant::now();
             let kb = proc::rss_kb(0)
                 + proc::live_helpers()
                     .iter()
@@ -1205,7 +1487,11 @@ pub fn refuse_exit(r: cc::preflight::Refusal, program: &ProgramInfo) -> ! {
 /// A usage / setup failure once the job context exists (e.g. the legacy flag parser's `die`): error OUTCOME with
 /// the code and exit. No-op (returns) in legacy mode.
 pub fn fail_now(code: ExitCode, message: &str) {
-    let Some(j) = job() else { return };
+    let Some(j) = job() else {
+        // a `solve-recipe` job (lane engbase2) has its own context; no-op in legacy mode
+        recipe_job::fail_now(code, message);
+        return;
+    };
     let (stop, class) = match code {
         ExitCode::Usage => (StopCode::Refused, ErrorClass::Usage),
         ExitCode::Input => (StopCode::InputError, ErrorClass::Input),
@@ -1215,7 +1501,12 @@ pub fn fail_now(code: ExitCode, message: &str) {
         _ => (StopCode::InternalError, ErrorClass::Internal),
     };
     eprintln!("rr_node job: {message}");
-    if !FINAL.swap(true, SeqCst) {
+    // audit-engjob m2: the watchdog's hard-safe stop already writes the OUTCOME and exits with ITS code; exiting
+    // here with another code would contradict that OUTCOME (row 22 / 23)
+    if FINAL.swap(true, SeqCst) {
+        park_forever();
+    }
+    {
         let peak = proc::kill_helpers();
         let info = StopInfo {
             code: Some(stop),
@@ -1244,6 +1535,11 @@ pub fn fail_now(code: ExitCode, message: &str) {
         let _ = cc::atomic::release_reserve(&j.layout.reserve());
     }
     std::process::exit(code.code())
+}
+
+/// An input problem found by the driver in job mode (a RESUME value it cannot use): error OUTCOME 41, exit.
+pub fn fail_input(message: &str) -> ! {
+    fail(ExitCode::Input, message)
 }
 
 /// [`fail_now`] in job mode, never returning.
@@ -1378,11 +1674,14 @@ pub fn run_generate(start: JobStart, resolve: &dyn Fn(&JobSpec) -> Resolved) -> 
             time_decisions: vec![],
             resume_written_at: None,
             resume_valid: false,
-            resume_current: None,
+            stopped_at_boundary: false,
             engine: [0; 5],
             returned: vec![],
             open_list: vec![],
             open_on_end: false,
+            not_lower: vec![],
+            rule_meta: Default::default(),
+            rules_closed: 0,
         }),
         stop: AtomicBool::new(false),
         stop_source: Mutex::new(None),
@@ -1470,7 +1769,7 @@ static PANIC_MESSAGE: Mutex<Option<String>> = Mutex::new(None);
 fn write_subcases(
     j: &Job,
     outcome: &super::driver::NodeOutcome,
-) -> Option<cc::outcome::ExtraOutput> {
+) -> Result<cc::outcome::ExtraOutput, cc::seal::WriteError> {
     let mut list: Vec<(&'static str, JobCase)> = Vec::new();
     {
         let st = j.st();
@@ -1494,14 +1793,16 @@ fn write_subcases(
         _ => {}
     }
     let rel = RunLayout::out_rel(cc::layout::SUBCASES);
-    let mut w = cc::seal::RecordWriter::create(&j.layout.subcases()).ok()?;
+    let json =
+        |v: &Value| serde_json::to_vec(v).map_err(|e| cc::seal::WriteError::Shape(e.to_string()));
+    let mut w = cc::seal::RecordWriter::create(&j.layout.subcases()).inspect_err(note_io_error)?;
     for (kind, c) in &list {
         let line = serde_json::json!({"type": "subcase", "kind": kind, "case": c});
-        w.append(&serde_json::to_vec(&line).ok()?).ok()?;
+        w.append(&json(&line)?)?;
     }
     let end = serde_json::json!({"type": "end", "subcases": list.len()});
-    let seal = w.seal(&serde_json::to_vec(&end).ok()?).ok()?;
-    Some(cc::outcome::ExtraOutput {
+    let seal = w.seal(&json(&end)?)?;
+    Ok(cc::outcome::ExtraOutput {
         role: "subcases".into(),
         path: rel,
         bytes: seal.bytes,
@@ -1516,6 +1817,45 @@ fn write_subcases(
 /// A resumed attempt: the commit state, the counters and the queue of the previous attempt's RESUME.
 fn restore(j: &Job, v: &cc::preflight::VerifiedResume) {
     let r = &v.state;
+    let not_lower: Vec<String> = match r.engine.get("not_lower") {
+        None => vec![],
+        Some(x) => serde_json::from_value(x.clone())
+            .unwrap_or_else(|e| fail(ExitCode::Input, &format!("resume: engine.not_lower: {e}"))),
+    };
+    let numeric_stage = r.engine.get("numeric_stage").map(|v| {
+        NumericStage::from_json(v)
+            .map(|s| (s.numerical_cases, s.exhausted))
+            .unwrap_or_else(|e| fail(ExitCode::Input, &format!("resume: engine.{e}")))
+    });
+    // `--descend open` (audit-engjob C2): own cases and the cases returned before the stop
+    let mut returned: Vec<(&'static str, JobCase)> = Vec::new();
+    if let Some(d) = r.engine.get("descend_open") {
+        let bad = |m: String| -> ! {
+            fail(
+                ExitCode::Input,
+                &format!("resume: engine.descend_open: {m}"),
+            )
+        };
+        let own: Vec<JobCase> =
+            serde_json::from_value(d["own"].clone()).unwrap_or_else(|e| bad(e.to_string()));
+        *lock(&OWN_CASES) = Some(
+            own.iter()
+                .map(|c| serde_json::to_string(c).unwrap_or_default())
+                .collect(),
+        );
+        for x in d["returned"].as_array().cloned().unwrap_or_default() {
+            let kind = match x["kind"].as_str() {
+                Some("case") => "case",
+                Some("numeric") => "numeric",
+                Some("region") => "region",
+                Some("refused") => "refused",
+                other => bad(format!("returned kind {other:?}")),
+            };
+            let c: JobCase =
+                serde_json::from_value(x["case"].clone()).unwrap_or_else(|e| bad(e.to_string()));
+            returned.push((kind, c));
+        }
+    }
     {
         let mut st = j.st();
         st.table_commit = r.table.clone();
@@ -1525,6 +1865,9 @@ fn restore(j: &Job, v: &cc::preflight::VerifiedResume) {
         st.rules_committed = r.rules_committed;
         st.symbolic_cases = r.symbolic_cases;
         st.pending = r.pending.len() as u64;
+        st.not_lower = not_lower.clone();
+        st.returned = returned;
+        st.rules_closed = r.rules_committed;
     }
     for (i, w) in WorkCounter::ALL.iter().enumerate() {
         let c = &r.counters_at_commit;
@@ -1586,6 +1929,8 @@ fn restore(j: &Job, v: &cc::preflight::VerifiedResume) {
             })
             .collect(),
         prefix: true,
+        not_lower,
+        numeric_stage,
     });
     SUPPRESS.store(true, SeqCst);
 }
@@ -1745,6 +2090,8 @@ pub fn initial_cases(spec: &JobSpec) -> (Vec<CaseSpec>, Vec<super::driver::CaseS
                 deferred: vec![],
                 refused_open: vec![],
                 prefix: false,
+                not_lower: vec![],
+                numeric_stage: None,
             });
         }
     }
@@ -1831,9 +2178,11 @@ type GenResult = std::thread::Result<Result<super::driver::NodeOutcome, String>>
 /// Normal end, graceful stop, engine error or caught panic: seals, final RESUME, OUTCOME, exit.
 fn finish(j: &Arc<Job>, res: GenResult) -> ! {
     j.set_phase(Phase::Finishing);
+    // no case wall clock while finishing (audit-engjob m5: the stages set it)
+    j.case_started_ms.store(-1, Relaxed);
     let table_d = lock(&j.table).clone();
-    let errno = IO_ERRNO.load(Relaxed);
     let io_class = |m: &str| -> Option<(ExitCode, String)> {
+        let errno = IO_ERRNO.load(Relaxed);
         (errno != 0).then(|| {
             let e = if errno > 0 {
                 io::Error::from_raw_os_error(errno)
@@ -1843,14 +2192,17 @@ fn finish(j: &Arc<Job>, res: GenResult) -> ! {
             (cc::atomic::exit_for_io(&e), format!("{m} ({e})"))
         })
     };
+    let io_fail = |code: ExitCode, m: &str| -> ! {
+        if code == ExitCode::NoSpace {
+            let _ = cc::atomic::release_reserve(&j.layout.reserve());
+        }
+        fail(code, m)
+    };
     let outcome = match res {
         Ok(Ok(o)) => o,
         Ok(Err(e)) => {
             if let Some((code, m)) = io_class(&e) {
-                if code == ExitCode::NoSpace {
-                    let _ = cc::atomic::release_reserve(&j.layout.reserve());
-                }
-                fail(code, &m);
+                io_fail(code, &m);
             }
             // an error before the table exists is an input problem (family, chart, order, two-sided family)
             let code = if table_d.is_none() {
@@ -1864,6 +2216,11 @@ fn finish(j: &Arc<Job>, res: GenResult) -> ! {
             let m = lock(&PANIC_MESSAGE)
                 .clone()
                 .unwrap_or_else(|| "panic".into());
+            // audit-engjob M3: a panic that follows a failed output write (e.g. `write_rule`'s `expect` when a rule
+            // line overflows the buffer on a full disk) IS that I/O failure: 50 (reserve freed) / 51, never 70
+            if let Some((code, m)) = io_class(&format!("output write failed; then {m}")) {
+                io_fail(code, &m);
+            }
             if FINAL.swap(true, SeqCst) {
                 park_forever();
             }
@@ -1896,16 +2253,32 @@ fn finish(j: &Arc<Job>, res: GenResult) -> ! {
         }
     };
     if let Some((code, m)) = io_class("output write failed") {
-        if code == ExitCode::NoSpace {
-            let _ = cc::atomic::release_reserve(&j.layout.reserve());
-        }
-        fail(code, &m);
+        io_fail(code, &m);
     }
     // exit code and stop from the engine's outcome
     let src = *lock(&j.stop_source);
+    // audit-engjob M1: a rule that is not strictly lower (found by the symbolic search, written by the numeric
+    // stage or the shared solve, also by an earlier attempt of this job: RESUME `engine.not_lower`) ends the job with
+    // stop `not_lower` (exit 10, decision row 6: attention, nothing accepted) BEFORE any other stop. Otherwise a later
+    // `numeric_search_refused` / `open_regions` / `open_obligations` stop (rows 4 / 5 accept records) or an
+    // interrupted stop (its resume would end complete, row 1) could carry the not-lower record into an accepting row.
+    let not_lower = !outcome.not_lower.is_empty();
     let (code, stop, error, source) = match &outcome.stop {
+        _ if not_lower => (ExitCode::Incomplete, Some(StopCode::NotLower), None, None),
         None if outcome.complete => (ExitCode::Complete, None, None, None),
-        None => (ExitCode::Incomplete, Some(StopCode::NotLower), None, None),
+        // not complete without a stop and without a not-lower rule: no known engine path; fail closed (70)
+        None => (
+            ExitCode::Internal,
+            Some(StopCode::InternalError),
+            Some(ErrorInfo::new(
+                ErrorClass::Internal,
+                format!(
+                    "engine ended in state {:?} without a stop and without a not-lower rule",
+                    outcome.state
+                ),
+            )),
+            None,
+        ),
         Some(StopReason::MaxCases { .. }) => {
             (ExitCode::Incomplete, Some(StopCode::MaxCases), None, None)
         }
@@ -1959,10 +2332,16 @@ fn finish(j: &Arc<Job>, res: GenResult) -> ! {
             (c, Some(s), None, src)
         }
     };
-    // seals of the table and the cert
+    // rules written after the last safe point (shared solve) get their `rule_committed` events; the case in flight,
+    // if any, is closed from its records (audit-engjob m6)
+    if let Err(m) = j.close_records(None) {
+        fail(ExitCode::Internal, &m);
+    }
+    // seals of the table and the cert. LOCK ORDER (audit-engjob M4): `st` before any stream digest, everywhere
+    // (see `Job`); the hard-safe stop holds `st` while it reads the table digest.
     let table = table_d.as_ref().map(|d| {
-        let d = lock(d.as_ref());
         let st = j.st();
+        let d = lock(d.as_ref());
         let seal = d.seal();
         TableOutput {
             path: RunLayout::out_rel(TABLE),
@@ -1989,23 +2368,8 @@ fn finish(j: &Arc<Job>, res: GenResult) -> ! {
             sealed: seal.is_some(),
         }
     });
-    // the per-case of the last case if the queue ended without a later safe point
     {
         let mut st = j.st();
-        if let Some(f) = st.in_flight.take() {
-            let rules = st.rules_committed;
-            st.per_case.push(PerCase {
-                ordinal: f.ordinal,
-                case: f.case,
-                result: if rules > f.rules_before {
-                    CaseResult::Rule
-                } else {
-                    CaseResult::Error
-                },
-                rule: (rules > f.rules_before).then_some(f.rules_before),
-                children_open: 0,
-            });
-        }
         if let Some(t) = &table {
             st.rules_committed = st.rules_committed.max(t.rules.unwrap_or(0));
         }
@@ -2026,13 +2390,40 @@ fn finish(j: &Arc<Job>, res: GenResult) -> ! {
                     numerical: vec![],
                     deferred: vec![],
                     refused: vec![],
+                    numeric_stage: None,
                 },
                 true,
             );
         }
     }
-    // the open list, sealed (F.subcases.jsonl): returned sub-cases, and for a stopped job its open cases
-    let subcases = write_subcases(j, &outcome);
+    // the open list, sealed (F.subcases.jsonl): returned sub-cases, and for a stopped job its open cases. A failure
+    // to write it is an output failure (audit-engjob M6: for `--descend open` it is THE result): 50 / 51, or 70 for
+    // a record the contract refuses
+    let subcases = match write_subcases(j, &outcome) {
+        Ok(x) => x,
+        Err(cc::seal::WriteError::Io(e)) => {
+            note_io_error(&e);
+            io_fail(
+                cc::atomic::exit_for_io(&e),
+                &format!("out/F.subcases.jsonl: {e}"),
+            )
+        }
+        Err(e) => fail(ExitCode::Internal, &format!("out/F.subcases.jsonl: {e}")),
+    };
+    // audit-engjob m1: every sealed stream is durable before the OUTCOME that names it (the subcases file was
+    // fsynced by its seal)
+    for p in [j.layout.table(), j.layout.cert(), j.layout.queue()] {
+        if let Err(e) = File::open(&p).and_then(|f| f.sync_all()) {
+            if p.exists() {
+                note_io_error(&e);
+                io_fail(
+                    cc::atomic::exit_for_io(&e),
+                    &format!("{}: fsync: {e}", p.display()),
+                );
+            }
+        }
+    }
+    let _ = cc::atomic::fsync_dir(&j.layout.out_dir());
     let legacy = match serde_json::to_value(&outcome) {
         Ok(Value::Object(m)) => m,
         _ => serde_json::Map::new(),
@@ -2056,9 +2447,7 @@ fn finish(j: &Arc<Job>, res: GenResult) -> ! {
         let sealed = table.map(|t| (t, cert));
         j.outcome(Some(&st), code, info, sealed, error, legacy, peak)
     };
-    if let Some(x) = subcases {
-        o.job.outputs.extra.push(x);
-    }
+    o.job.outputs.extra.push(subcases);
     if let Err(e) = j.write_outcome(&o) {
         let _ = cc::atomic::release_reserve(&j.layout.reserve());
         eprintln!("rr_node job: OUTCOME: {e}");

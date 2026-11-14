@@ -151,14 +151,27 @@ pub fn unit_in_row_space(rows: &[Vec<Q>], col: usize) -> Result<bool, Unknown> {
         let Some(c) = (0..r.len()).find(|&j| !r[j].is_zero()) else {
             continue;
         };
-        if c == col {
-            return Ok(true);
-        }
         let f = r[c];
         r = r.iter().map(|a| a.div(f)).collect::<Result<_, _>>()?;
         piv.push((c, r));
     }
-    Ok(false)
+    // rows4 (found by the referee's differential test): reduce e_col by the echelon basis (every basis row is zero at the
+    // pivot columns of the rows before it, so one pass in insertion order clears every pivot column); the old early
+    // return "a reduced row leads at col" was correct only for col = the last column (Lee's test, its one caller)
+    let mut v: Vec<Q> = (0..rows.first().map_or(0, Vec::len))
+        .map(|j| if j == col { Q::ONE } else { Q::ZERO })
+        .collect();
+    for (c, pr) in &piv {
+        if !v[*c].is_zero() {
+            let f = v[*c];
+            v = v
+                .iter()
+                .zip(pr)
+                .map(|(a, b)| a.sub(f.mul(*b)?))
+                .collect::<Result<_, _>>()?;
+        }
+    }
+    Ok(col < v.len() && v.iter().all(Q::is_zero))
 }
 
 /// Determinant of the leading `dim x dim` block of a matrix of integer polynomials (memoised Laplace expansion along
@@ -214,6 +227,28 @@ pub fn zpoly_det(m: &[Vec<ZPoly>], dim: usize, t: usize) -> ZPoly {
     }
     let idx: Vec<usize> = (0..dim).collect();
     det(m, &idx, &idx, &mut HashMap::new(), t)
+}
+
+/// The integer matrix product `a b` (row-major, `a` r x k, `b` k x c), checked (rows4: the symmetry proof's products).
+pub fn int_mat_mul(a: &[i128], b: &[i128], r: usize, k: usize, c: usize) -> Option<Vec<i128>> {
+    if a.len() != r * k || b.len() != k * c {
+        return None;
+    }
+    let mut out = vec![0i128; r * c];
+    for i in 0..r {
+        for j in 0..c {
+            for m in 0..k {
+                out[i * c + j] =
+                    out[i * c + j].checked_add(a[i * k + m].checked_mul(b[m * c + j])?)?;
+            }
+        }
+    }
+    Some(out)
+}
+
+/// Exact integer quotient (`None` if `b` is 0 or does not divide `a`).
+pub fn int_div_exact(a: i128, b: i128) -> Option<i128> {
+    (b != 0 && a.checked_rem(b)? == 0).then(|| a / b)
 }
 
 /// gcd of two i128 (non-negative result; gcd(0, 0) = 0).

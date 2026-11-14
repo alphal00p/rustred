@@ -514,6 +514,153 @@ fn short(s: &str) -> String {
     s.chars().take(120).collect()
 }
 
+/// rows4 (re-audit RA3-m5): a CASE LITERAL of the independent backend (was the shared `crate::poly`): the exact
+/// expansion of a d-free expression into monomials (exponents over n0..n{N-1}) with checked i128 rational coefficients.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Literal {
+    terms: std::collections::BTreeMap<Vec<u32>, Q>,
+}
+
+/// Bound on the terms of an expanded literal (a case literal is small; beyond it the literal is refused).
+const LITERAL_MAX_TERMS: usize = 10_000;
+
+impl Literal {
+    pub fn parse(text: &str, n: usize) -> Result<Literal, Unknown> {
+        let e = Expr::parse(text, n)?;
+        if e.has_d() {
+            return Err(format!("case literal contains d: {}", short(text)));
+        }
+        Literal::of(&e.root, n)
+    }
+    fn constant(c: Q, n: usize) -> Literal {
+        let mut terms = std::collections::BTreeMap::new();
+        if !c.is_zero() {
+            terms.insert(vec![0; n], c);
+        }
+        Literal { terms }
+    }
+    fn of(node: &Node, n: usize) -> Result<Literal, Unknown> {
+        Ok(match node {
+            Node::Num(s) => Literal::constant(
+                Q::int(s.parse::<i128>().map_err(|_| "literal overflow")?),
+                n,
+            ),
+            Node::Var(k) => {
+                let mut e = vec![0; n];
+                e[*k] = 1;
+                Literal {
+                    terms: [(e, Q::ONE)].into(),
+                }
+            }
+            Node::Neg(a) => Literal::of(a, n)?.scale(Q::int(-1))?,
+            Node::Bin(_, a, b) => {
+                let (base, z) = (Literal::of(a, n)?, const_int(b)?);
+                match (z.d, z.n) {
+                    (1, k) if (0..=64).contains(&k) => {
+                        (0..k).try_fold(Literal::constant(Q::ONE, n), |acc, _| acc.mul(&base, n))?
+                    }
+                    (1, k) if k < 0 && base.terms.keys().all(|e| e.iter().all(|&x| x == 0)) => {
+                        let c = base
+                            .terms
+                            .values()
+                            .next()
+                            .copied()
+                            .ok_or("division by zero")?;
+                        (0..-k).try_fold(Literal::constant(Q::ONE, n), |acc, _| {
+                            acc.scale(Q::ONE.div(c)?)
+                        })?
+                    }
+                    _ => return Err("unsupported exponent in a case literal".into()),
+                }
+            }
+            Node::Sum(ts) => {
+                ts.iter()
+                    .try_fold(Literal::constant(Q::ZERO, n), |acc, (neg, t)| {
+                        let v = Literal::of(t, n)?;
+                        acc.add(&if *neg { v.scale(Q::int(-1))? } else { v })
+                    })?
+            }
+            Node::Prod(fs) => {
+                fs.iter()
+                    .try_fold(Literal::constant(Q::ONE, n), |acc, (op, f)| {
+                        let v = Literal::of(f, n)?;
+                        if *op == '*' {
+                            return acc.mul(&v, n);
+                        }
+                        match (v.terms.len(), v.terms.iter().next()) {
+                            (1, Some((e, c))) if e.iter().all(|&x| x == 0) => {
+                                acc.scale(Q::ONE.div(*c)?)
+                            }
+                            _ => Err("division by a non-constant in a case literal".into()),
+                        }
+                    })?
+            }
+        })
+    }
+    fn scale(mut self, c: Q) -> Result<Literal, Unknown> {
+        for v in self.terms.values_mut() {
+            *v = v.mul(c)?;
+        }
+        self.terms.retain(|_, v| !v.is_zero());
+        Ok(self)
+    }
+    fn add(mut self, o: &Literal) -> Result<Literal, Unknown> {
+        for (e, c) in &o.terms {
+            let v = self.terms.get(e).copied().unwrap_or(Q::ZERO).add(*c)?;
+            self.terms.insert(e.clone(), v);
+        }
+        self.terms.retain(|_, v| !v.is_zero());
+        Ok(self)
+    }
+    fn mul(&self, o: &Literal, n: usize) -> Result<Literal, Unknown> {
+        let mut out = Literal::constant(Q::ZERO, n);
+        for (e1, c1) in &self.terms {
+            for (e2, c2) in &o.terms {
+                let e: Vec<u32> = e1.iter().zip(e2).map(|(a, b)| a + b).collect();
+                let v = out
+                    .terms
+                    .get(&e)
+                    .copied()
+                    .unwrap_or(Q::ZERO)
+                    .add(c1.mul(*c2)?)?;
+                out.terms.insert(e, v);
+            }
+        }
+        out.terms.retain(|_, v| !v.is_zero());
+        if out.terms.len() > LITERAL_MAX_TERMS {
+            return Err("case literal too large".into());
+        }
+        Ok(out)
+    }
+    /// exact zero test at an integer point (checked; overflow = Err)
+    pub fn is_zero_at(&self, point: &[i32]) -> Result<bool, Unknown> {
+        let mut acc = Q::ZERO;
+        for (e, c) in &self.terms {
+            let mut t = *c;
+            for (&x, &k) in point.iter().zip(e) {
+                for _ in 0..k {
+                    t = t.mul(Q::int(i128::from(x)))?;
+                }
+            }
+            acc = acc.add(t)?;
+        }
+        Ok(acc.is_zero())
+    }
+    /// equal up to a nonzero constant factor (both zero counts as equal)
+    pub fn same_up_to_constant(&self, o: &Literal) -> bool {
+        let (Some(a), Some(b)) = (
+            self.terms.values().next_back(),
+            o.terms.values().next_back(),
+        ) else {
+            return self.terms.is_empty() && o.terms.is_empty();
+        };
+        self.terms.len() == o.terms.len()
+            && self.terms.iter().zip(&o.terms).all(|((e1, c1), (e2, c2))| {
+                e1 == e2 && matches!((c1.mul(*b), c2.mul(*a)), (Ok(x), Ok(y)) if x == y)
+            })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::arith::P;

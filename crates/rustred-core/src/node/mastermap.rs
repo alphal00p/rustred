@@ -35,6 +35,11 @@ pub type Key = Vec<i64>;
 /// Symbolic fits: per seed, terminal key -> N(d)/D(d); plus the keys whose fit failed (key, reason).
 pub type FitPart = (Vec<BTreeMap<Key, RatFun>>, Vec<(Key, String)>);
 
+/// The two generic values of `d` at which an exception polynomial must vanish for a key to be exceptional
+/// (`find_rule` and the vanishing census below); `domaincheck` reports and uses the SAME values (audit-engjob m9:
+/// one source, no copy).
+pub(crate) const EXCEPTION_D: [Q; 2] = [Q { n: 37, d: 7 }, Q { n: -11, d: 5 }];
+
 /// Ten 61-bit primes (the first two are the replay's `P` and `P2`).
 pub const PRIMES: [u64; 10] = [
     2_305_843_009_213_693_951,
@@ -231,6 +236,8 @@ pub(crate) struct Rule {
     rhs_text: Vec<String>,
     rhs_expr: Option<Vec<Expr>>,
     pub(crate) skip: bool,
+    /// the record's `index` (a set label for converted banks), for `rr_node first-match`
+    label: Option<u64>,
 }
 
 /// A node table loaded for reduction.
@@ -357,6 +364,15 @@ impl Table {
                                 .collect::<Result<Vec<_>, _>>()
                         })
                         .collect::<Result<Vec<_>, String>>()?;
+                    // optional domain_bounds (imported rules): extra exception branches (node::bounds)
+                    let mut exceptions = exceptions;
+                    for b in super::bounds::bound_exclusions(&v)? {
+                        exceptions.push(
+                            b.iter()
+                                .map(|x| Expr::parse(x, n))
+                                .collect::<Result<Vec<_>, _>>()?,
+                        );
+                    }
                     let mut rhs_pats = vec![];
                     let mut rhs_text = vec![];
                     for term in v["rhs"].as_array().ok_or("rule without rhs")? {
@@ -376,6 +392,7 @@ impl Table {
                         rhs_text,
                         rhs_expr: None,
                         skip,
+                        label: v["index"].as_u64(),
                     });
                 }
                 // sym-gen (engine-line port of f6ebb974): I(target) = s I(image), one term, no exceptions (the sign
@@ -412,6 +429,7 @@ impl Table {
                         rhs_text: vec![sign.to_string()],
                         rhs_expr: None,
                         skip: false,
+                        label: v["index"].as_u64(),
                     });
                 }
                 "sym_zero" => {
@@ -456,9 +474,14 @@ impl Table {
         Ok((0..self.n).all(|i| !self.mask[i] || k[i] >= 1))
     }
 
+    /// The first applicable rule of key `k` (table order): its position and its record `index` (label).
+    pub fn first_match(&self, k: &[i64]) -> Option<(usize, Option<u64>)> {
+        self.find_rule(k).map(|(ri, _)| (ri, self.rules[ri].label))
+    }
+
     /// First applicable rule (table order) and the rule point of key `k`.
     pub(crate) fn find_rule(&self, k: &[i64]) -> Option<(usize, Vec<i64>)> {
-        let gen_d = [Q { n: 37, d: 7 }, Q { n: -11, d: 5 }];
+        let gen_d = EXCEPTION_D;
         let n = self.n;
         'r: for (ri, r) in self.rules.iter().enumerate() {
             if r.skip {
@@ -580,7 +603,7 @@ impl Table {
         }
         let mut uncovered: Vec<Key> = vec![];
         let mut vanishing = 0usize;
-        let gen_d = [Q { n: 37, d: 7 }, Q { n: -11, d: 5 }];
+        let gen_d = EXCEPTION_D;
         for &r in &roots {
             let mut stack: Vec<(u32, usize)> = vec![(r, 0)];
             while let Some((u, ci)) = stack.pop() {

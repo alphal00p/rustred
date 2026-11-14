@@ -39,13 +39,36 @@ pub struct Tmp {
     pub campaign: String,
 }
 
+/// A token unique to THIS test process on the host (procfix3 item 0). `std::process::id()` alone is NOT: inside the
+/// private pid namespaces the suites run in (`unshare -Urpf`, rule L10) every test binary is pid 1, and the host's
+/// /tmp is shared, so two concurrent runs of one test binary (two lanes) used the SAME directory and the second one's
+/// `remove_dir_all` deleted the first one's campaign directory and log while its supervisor ran.
+pub fn process_token() -> String {
+    static T: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    T.get_or_init(|| {
+        let ns = std::fs::read_link("/proc/self/ns/pid")
+            .map(|l| l.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let h = blake3::hash(format!("{ns}|{}|{stat}|{t}", std::process::id()).as_bytes());
+        h.to_hex()[..8].to_string()
+    })
+    .clone()
+}
+
 impl Tmp {
     pub fn new(tag: &str) -> Tmp {
         let n = N.fetch_add(1, Ordering::Relaxed);
-        let campaign = format!("sup-{tag}-{}-{n}", std::process::id());
+        let campaign = format!("sup-{tag}-{}-{n}", process_token());
         let path = std::env::temp_dir().join(format!("rr-{campaign}"));
-        let _ = std::fs::remove_dir_all(&path);
-        std::fs::create_dir_all(&path).unwrap();
+        // Never delete a directory we did not create: create_dir (not _all) fails if it exists.
+        std::fs::create_dir_all(std::env::temp_dir()).unwrap();
+        std::fs::create_dir(&path)
+            .unwrap_or_else(|e| panic!("{}: {e} (not unique?)", path.display()));
         Tmp { path, campaign }
     }
     pub fn cdir(&self, name: &str) -> PathBuf {
@@ -142,7 +165,50 @@ pub fn signal(c: &Child, sig: i32) {
     unsafe { libc::kill(c.id() as i32, sig) };
 }
 
-/// Run to the end (resuming as often as needed); returns the exit codes of the sessions.
+/// Exit code of a supervisor that stopped for an operator decision (execution-unknown attempts, procfix3 item 6).
+pub const ATTENTION: i32 = 8;
+
+/// Act as the operator for every attempt of UNKNOWN execution (an `unconfirmed` launch whose run directory holds no
+/// valid OUTCOME; lane int5: the ledger state, not `launching`) and every item in attention for repeated host-resource
+/// ends: `rr_campaign control CDIR resolve JOB`. Returns the jobs resolved.
+pub fn resolve_unknown(cdir: &Path) -> Vec<String> {
+    let st = state(cdir);
+    let mut jobs: Vec<String> = st
+        .jobs
+        .iter()
+        .filter(|(_, j)| j.state == rustred_campaign::state::AttemptState::Unconfirmed)
+        .map(|(id, _)| id.clone())
+        .collect();
+    // lane int5 (gate3 M4): items in attention for repeated host-resource ends (or an unknown execution whose attempt
+    // was settled meanwhile) are resolved through their last job as well
+    for it in st.items.values() {
+        if let rustred_campaign::state::ItemPhase::Attention(c) = &it.phase
+            && (c == "child_resource_failure" || c == "execution_unknown")
+            && let Some(j) = it.jobs.last()
+            && !jobs.contains(j)
+        {
+            jobs.push(j.clone());
+        }
+    }
+    for j in &jobs {
+        let o = Command::new(SUP)
+            .args([
+                "control",
+                cdir.to_str().unwrap(),
+                "resolve",
+                j,
+                "--reason",
+                "test operator",
+            ])
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "resolve {j}: {o:?}");
+    }
+    jobs
+}
+
+/// Run to the end (resuming as often as needed; an exit 8 "operator decision needed" is answered with
+/// [`resolve_unknown`], as the user would); returns the exit codes of the sessions.
 pub fn run_to_end(spec: &Path, cdir: &Path, extra: &[&str]) -> Vec<i32> {
     let mut codes = Vec::new();
     for _ in 0..6 {
@@ -151,6 +217,12 @@ pub fn run_to_end(spec: &Path, cdir: &Path, extra: &[&str]) -> Vec<i32> {
         codes.push(code);
         if code == 0 {
             return codes;
+        }
+        if code == ATTENTION {
+            assert!(
+                !resolve_unknown(cdir).is_empty(),
+                "exit 8 without an unknown attempt"
+            );
         }
     }
     panic!(
@@ -171,6 +243,15 @@ pub fn records(cdir: &Path) -> Vec<Record> {
 
 /// The reduced state through the READ-ONLY open (no lock: a live or dead supervisor's directory is never altered).
 pub fn state(cdir: &Path) -> CampaignState {
+    // Cross-check the two readers; a LIVE supervisor may append between the two reads (retry then).
+    for _ in 0..20 {
+        let v = rustred_campaign::ledger::open_read_only(cdir).unwrap();
+        let r = reduce(records(cdir).iter()).unwrap();
+        if r == v.state {
+            return v.state;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
     let v = rustred_campaign::ledger::open_read_only(cdir).unwrap();
     debug_assert_eq!(reduce(records(cdir).iter()).unwrap(), v.state);
     v.state
@@ -311,8 +392,15 @@ pub fn ledger_facts(cdir: &Path) -> LedgerFacts {
                         }
                         running.remove(&key);
                     }
-                    JobEvent::Interrupt { .. } | JobEvent::Lose { .. } => {
+                    // lane int5: `not_spawned` (the proven "never spawned" of an unconfirmed launch) ends an attempt
+                    // like `lose` (a requeue follows); `cancel` (operator resolve) ends it without one.
+                    JobEvent::Interrupt { .. }
+                    | JobEvent::Lose { .. }
+                    | JobEvent::NotSpawned { .. } => {
                         interrupted += 1;
+                        running.remove(&key);
+                    }
+                    JobEvent::Cancel { .. } => {
                         running.remove(&key);
                     }
                     JobEvent::Requeue { .. } => requeues += 1,

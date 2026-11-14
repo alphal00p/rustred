@@ -127,16 +127,90 @@ pub trait Input {
     fn poll(&mut self, timeout: Duration) -> io::Result<Option<Event>>;
 }
 
-/// Keys of the real terminal (crossterm).
-pub struct TerminalInput;
+/// Keys of the real terminal (crossterm), with a LOST-TERMINAL check of our own (procfix3, gate-B M2).
+///
+/// Why: when the terminal disappears (pty master closed: ssh drop, terminal window closed without a SIGHUP to us), the
+/// descriptor reports readiness for ever (POLLHUP, reads of 0 bytes / EIO) and crossterm's `event::read` loops inside
+/// without returning: the dashboard thread spun at 100 % of a CPU and the process never exited. Before any crossterm
+/// call this input polls the SAME descriptor crossterm reads (stdin when it is a terminal, else `/dev/tty`) and turns
+/// POLLHUP / POLLERR / POLLNVAL into an error: the loop ends (`ExitReason::Hangup`), the terminal is restored as far as
+/// possible, and the supervisor continues in plain mode (its lines go to its log file).
+pub struct TerminalInput {
+    fd: Option<std::os::fd::OwnedFd>,
+}
+
+impl Default for TerminalInput {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TerminalInput {
+    pub fn new() -> Self {
+        use std::os::fd::{FromRawFd, OwnedFd};
+        // SAFETY: isatty on a constant descriptor number.
+        if unsafe { libc::isatty(libc::STDIN_FILENO) } == 1 {
+            return TerminalInput { fd: None };
+        }
+        // SAFETY: open of a constant C string; the result is a fresh descriptor or -1.
+        let fd = unsafe {
+            libc::open(
+                c"/dev/tty".as_ptr(),
+                libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NONBLOCK | libc::O_NOCTTY,
+            )
+        };
+        TerminalInput {
+            // SAFETY: fd is a fresh descriptor owned by nobody else.
+            fd: (fd >= 0).then(|| unsafe { OwnedFd::from_raw_fd(fd) }),
+        }
+    }
+
+    fn raw(&self) -> i32 {
+        use std::os::fd::AsRawFd;
+        self.fd
+            .as_ref()
+            .map_or(libc::STDIN_FILENO, |f| f.as_raw_fd())
+    }
+
+    /// Ready to read (Ok(true)), nothing within `timeout` (Ok(false)), or the terminal is gone (Err).
+    fn wait_readable(&self, timeout: Duration) -> io::Result<bool> {
+        let mut p = libc::pollfd {
+            fd: self.raw(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let ms = timeout.as_millis().min(i32::MAX as u128) as i32;
+        // SAFETY: one valid pollfd for the duration of the call.
+        let r = unsafe { libc::poll(&mut p, 1, ms) };
+        if r < 0 {
+            let e = io::Error::last_os_error();
+            return if e.kind() == io::ErrorKind::Interrupted {
+                Ok(false)
+            } else {
+                Err(e)
+            };
+        }
+        if p.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "the terminal hung up (POLLHUP / POLLERR)",
+            ));
+        }
+        Ok(r > 0 && p.revents & libc::POLLIN != 0)
+    }
+}
 
 impl Input for TerminalInput {
     fn poll(&mut self, timeout: Duration) -> io::Result<Option<Event>> {
-        if event::poll(timeout)? {
-            event::read().map(Some)
-        } else {
-            Ok(None)
+        // A hung-up terminal first (crossterm would spin on it), then anything crossterm already buffered.
+        self.wait_readable(Duration::ZERO)?;
+        if event::poll(Duration::ZERO)? {
+            return event::read().map(Some);
         }
+        if self.wait_readable(timeout)? && event::poll(Duration::ZERO)? {
+            return event::read().map(Some);
+        }
+        Ok(None)
     }
 }
 
@@ -292,7 +366,7 @@ pub fn run_tui(
     let size = || terminal_area().ok();
     let r = tui_loop(
         &mut term,
-        &mut TerminalInput,
+        &mut TerminalInput::new(),
         &size,
         &reader,
         controls,

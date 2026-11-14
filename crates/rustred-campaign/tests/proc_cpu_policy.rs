@@ -23,7 +23,7 @@ fn cpus16() -> Vec<usize> {
         .collect()
 }
 
-fn site(root: &Path, cpus: &[usize]) -> SiteConfig {
+fn site_raw(root: &Path, cpus: &[usize]) -> SiteConfig {
     let list = cpus
         .iter()
         .map(|c| c.to_string())
@@ -268,4 +268,27 @@ fn two_processes_compete_for_the_same_cpus() {
         "every claim released"
     );
     assert_session_gone(sid);
+}
+
+/// gate3 m3 (lane int5): the campaign never creates the site's files: a test site has its ledger and one lock file per
+/// CPU (0..=1023 would be too many: the candidate CPUs and the excluded ones) before `SitePolicy::new`.
+fn make_site_files(cfg: &SiteConfig, cpus: &[usize]) {
+    std::fs::create_dir_all(&cfg.lock_dir).unwrap();
+    if !cfg.ledger_file.exists() {
+        std::fs::write(&cfg.ledger_file, b"").unwrap();
+    }
+    for c in cpus {
+        let p = cfg
+            .lock_dir
+            .join(cfg.lock_name.replace("{n}", &c.to_string()));
+        if !p.exists() {
+            std::fs::write(&p, b"").unwrap();
+        }
+    }
+}
+
+fn site(root: &Path, cpus: &[usize]) -> SiteConfig {
+    let c = site_raw(root, cpus);
+    make_site_files(&c, cpus);
+    c
 }
