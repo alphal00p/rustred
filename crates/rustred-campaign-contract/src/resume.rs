@@ -55,7 +55,8 @@ impl CommittedFile {
             blake3: crate::blake3_hex(b""),
             records: 0,
             rules: 0,
-            canonical_blake3: crate::blake3_hex(b""),
+            // the canonical digest of NO record (its own domain, lane contractfix2, ac2-m7)
+            canonical_blake3: crate::canon::CanonicalDigest::new().hex(),
         }
     }
 
@@ -212,6 +213,7 @@ pub enum CasesLine {
 
 /// Parse one line of the cases input: a line with `"type":"spill"` is a spill line, anything else a case.
 pub fn parse_cases_line(line: &str) -> Result<CasesLine, String> {
+    crate::canon::check_document(line.as_bytes()).map_err(|e| e.to_string())?;
     let v: Value = serde_json::from_str(line).map_err(|e| e.to_string())?;
     if v.get("type").and_then(Value::as_str) == Some("spill") {
         serde_json::from_value(v)

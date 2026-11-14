@@ -639,14 +639,14 @@ fn m3_dispatch_mode_equals_first_match_random() {
     }
 }
 
-/// audit-part-A M3 (c). Since the int3 integration (ladder audit A M5 made `ContainmentProof`'s fields private) a
-/// proof cannot be written by hand outside the crate: the string-level checks moved to the unit test
-/// `economy::tests::m3_economy_requires_a_dispatch_proof`; here the PUBLIC route: `assemble::containment_proof`
-/// gives a proof only from a dispatch-mode report that proves no gap, and `Retirement::new` accepts it on a FULL
-/// node; a union-coverage report gives none.
+/// audit-part-A M3 (c), with re-audit ladder-A M3 (lane ladderfix2): a FULL-node proof is minted ONLY by
+/// `economy::prove_coverage_preserved`, which runs the DISPATCH-mode partition of the new table set itself (whatever
+/// coverage the options name) and binds both table-set digests; `Retirement::new` accepts it on a FULL node; a new
+/// table set with a gap (a blocked pole key) or an empty new-order digest gives none. (The former public
+/// `assemble::containment_proof(report, ..)` minted a proof from a caller-supplied report and is gone.)
 #[test]
 fn m3_economy_requires_a_dispatch_proof() {
-    use rustred_campaign_core::assemble::containment_proof;
+    use rustred_campaign_core::economy::{prove_coverage_preserved, table_set_digest};
     let m = |t: u64| RuleMeasure {
         cases: 1,
         rhs_terms: t,
@@ -674,27 +674,22 @@ fn m3_economy_requires_a_dispatch_proof() {
     let l = list(vec![CaseDomain::free(n, Some(vec![true, true]))], n);
     let u = gap_partition(&l, &f, &ordinary(), None).unwrap();
     assert!(u.proves_no_gap(CoverageNotion::UnionCoverage).is_ok());
-    assert!(
-        containment_proof(&u, &DispatchOrderStatement::SameOrder, "o", "n").is_none(),
-        "a union-coverage report gives no FULL-node proof"
-    );
-    let o = PartitionOptions {
-        coverage: CoverageNotion::DispatchCoverage,
-        ..Default::default()
-    };
-    let d = gap_partition(&l, &f, &o, None).unwrap();
-    assert!(d.proves_no_gap(CoverageNotion::DispatchCoverage).is_ok());
-    let p = containment_proof(&d, &DispatchOrderStatement::SameOrder, "o", "n").unwrap();
+    // the checking function runs the DISPATCH-mode partition even when the options name union coverage
+    let p = prove_coverage_preserved(&l, &l, &f, &ordinary(), &DispatchOrderStatement::SameOrder)
+        .unwrap();
     assert_eq!(
         p.method(),
         dispatch_proof_method(&DispatchOrderStatement::SameOrder)
     );
-    assert!(retire(Some(p)).is_ok());
-    let p2 = containment_proof(
-        &d,
+    assert_eq!(p.new_tables_digest(), table_set_digest(&l));
+    let r = retire(Some(p)).unwrap();
+    assert!(r.check_tables(&l, &l).is_ok());
+    let p2 = prove_coverage_preserved(
+        &l,
+        &l,
+        &f,
+        &PartitionOptions::default(),
         &DispatchOrderStatement::NewOrder("abc123".into()),
-        "o",
-        "n",
     )
     .unwrap();
     assert_eq!(
@@ -703,18 +698,32 @@ fn m3_economy_requires_a_dispatch_proof() {
     );
     assert!(retire(Some(p2)).is_ok());
     assert!(
-        containment_proof(
-            &d,
-            &DispatchOrderStatement::NewOrder(String::new()),
-            "o",
-            "n"
+        prove_coverage_preserved(
+            &l,
+            &l,
+            &f,
+            &PartitionOptions::default(),
+            &DispatchOrderStatement::NewOrder(String::new())
         )
-        .is_none()
+        .is_err()
     );
-    // a dispatch-mode report WITH a gap (blocked pole key) gives none
+    // a new table set WITH a gap (blocked pole key) gives none; a retirement bound to other tables is refused
     let (a, b) = pole_tables();
-    let gap = gap_partition(&list(vec![a, b], n), &f, &o, None).unwrap();
-    assert!(containment_proof(&gap, &DispatchOrderStatement::SameOrder, "o", "n").is_none());
+    let gap = list(vec![a, b], n);
+    assert!(
+        prove_coverage_preserved(
+            &l,
+            &gap,
+            &f,
+            &PartitionOptions::default(),
+            &DispatchOrderStatement::SameOrder
+        )
+        .is_err()
+    );
+    assert_eq!(
+        r.check_tables(&l, &gap).unwrap_err(),
+        RetireError::ProofMismatch
+    );
     assert!(parse_dispatch_proof_method("dispatch_partition.v1;order=new:").is_none());
 }
 

@@ -191,6 +191,12 @@ pub fn explain(state: &ItemState, params: &NodeParams) -> Explanation {
             None,
             "wave 0 (supplied candidates) not asked yet".into(),
         ),
+        Next::NeedShadowing => (
+            "open".into(),
+            "shadowing / emptiness test of the case".into(),
+            None,
+            "the case has not been tested against the earlier dispatch entries yet".into(),
+        ),
         Next::NeedContainment(r) => (
             "open".into(),
             format!("containment verdict for {} candidate(s)", r.len()),
@@ -232,11 +238,38 @@ pub fn explain(state: &ItemState, params: &NodeParams) -> Explanation {
                 "terminal proposal (declared at S9 only)".into(),
                 None,
                 format!(
-                    "{} key(s) without an accepted relation after {} attempts (depth 3 tried: {}, depth 3 unfloored tried: {})",
+                    "{} key(s) without an accepted relation after {} attempts (depth 3 tried: {}, depth 3 unfloored tried: {}){}{}",
                     keys.len(),
                     exhausted.attempts(),
                     exhausted.depth3_tried(),
-                    exhausted.depth3_unfloored_tried()
+                    exhausted.depth3_unfloored_tried(),
+                    if exhausted.within_budget() {
+                        format!(
+                            "; TERMINAL WITHIN BUDGET: {} setting(s) searched only to the work counter ({})",
+                            exhausted.budget_limited().len(),
+                            exhausted
+                                .budget_limited()
+                                .iter()
+                                .map(|(l, r)| format!("{l} @ {r} rows"))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    } else {
+                        String::new()
+                    },
+                    if exhausted.awaiting_certificate_route() {
+                        format!(
+                            "; RELATION FOUND, AWAITING A CERTIFICATE ROUTE: {}",
+                            exhausted
+                                .uncertified_relations()
+                                .iter()
+                                .map(|(l, d)| format!("{d} ({l})"))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    } else {
+                        String::new()
+                    }
                 ),
             ),
             Disposition::Attention { why, .. } => (
@@ -246,15 +279,30 @@ pub fn explain(state: &ItemState, params: &NodeParams) -> Explanation {
                 why,
             ),
             Disposition::OptimiseKept { why } => ("optimise_kept".into(), "none".into(), None, why),
-            Disposition::RecipeRule { rule, uncertified } => (
+            Disposition::RecipeRule {
+                rule, uncertified, ..
+            } => (
                 "recipe_rule".into(),
-                "none".into(),
+                if uncertified.is_empty() {
+                    "none".into()
+                } else {
+                    format!("{} uncertified key(s) go on as `rest`", uncertified.len())
+                },
                 None,
                 format!(
                     "recipe {} certified at {} key(s), {} not certified",
-                    rule.recipe_digest,
-                    rule.certified_count,
+                    rule.recipe_digest(),
+                    rule.certified_count(),
                     uncertified.len()
+                ),
+            ),
+            Disposition::Dropped { reason, keys } => (
+                "dropped".into(),
+                "none".into(),
+                Some(format!("{reason:?}")),
+                format!(
+                    "case dropped before search ({} gap point(s)): {reason:?}",
+                    keys.len()
                 ),
             ),
         },

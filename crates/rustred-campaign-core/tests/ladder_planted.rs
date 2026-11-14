@@ -300,7 +300,11 @@ fn terminal_bound_flagged_master_count_is_information_only_u9() {
         2,
         &NoTables,
         &Default::default(),
-        &lines,
+        &rustred_campaign_core::terminals::TerminalContext {
+            lines: &lines,
+            honoured: &std::collections::BTreeSet::new(),
+            explicit: &[key(2, 1), key(1, 2), key(1, 1)].into_iter().collect(),
+        },
     );
     assert!(flags.contains(&TerminalFlag::OverBound { count: 3, bound: 2 }));
     // a reference master count different from the campaign's is a note, never a flag (U-9)

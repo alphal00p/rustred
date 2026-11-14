@@ -460,7 +460,7 @@ fn symmetry_dimension(
     let Some(g) = &params.symmetry else {
         return waves;
     };
-    if !g.nontrivial() {
+    if !g.nontrivial() || !params.policy.symmetry_dimension {
         return waves;
     }
     let capable = params.capabilities.can(true, params.min_evidence);
@@ -521,6 +521,20 @@ pub fn estimated_seeds(s: &SeedSetting, arity: usize) -> u64 {
     (raises + 2 * n) * (s.offsets.len().max(1) as u64)
 }
 
+/// The deterministic WORK of a setting for the economy extra budget (U-13, repair-library.md v1.3 4.4): its
+/// estimated seed count times the family's IBP rows per seed (1 when unknown). A pure function of the setting and the
+/// node: never wall clock, never a reported CPU time.
+pub fn setting_work(s: &SeedSetting, params: &NodeParams) -> u64 {
+    estimated_seeds(s, params.arity).saturating_mul((params.ibp_rows_per_seed as u64).max(1))
+}
+
+/// An INFORMATION setting: generated with symmetry rows while the caller's provers cannot bring a rule with
+/// symmetry rows to the node's required level. Its candidates are never accepted and its outcome never gates the
+/// terminal rung (re-audit A M1); a relation it finds marks the terminal proposal "awaiting a certificate route".
+pub fn is_information(s: &SeedSetting, params: &NodeParams) -> bool {
+    s.symmetry_rows && !params.capabilities.can(true, params.min_evidence)
+}
+
 /// Attempt budget: seconds = base(depth) x max(1, estimated seeds / `scale_reference_seeds`), capped (R34 (d));
 /// memory by depth (depth >= 3 uses the deep figures); the point and oversized classes have their own figures. The
 /// policy class of the case may override the base figures (`PolicyClass.budgets`).
@@ -545,10 +559,12 @@ pub fn attempt_budget(
     let est = estimated_seeds(s, params.arity);
     let max_rows = est.saturating_mul(params.ibp_rows_per_seed as u64);
     if oversized {
+        // the retry class is LARGER in the work counter too (re-audit A M2): a deterministic work-counter stop is
+        // not simply repeated
         return AttemptBudget {
             seconds: b.oversized_seconds,
             mem_mb: b.oversized_mem_mb,
-            max_rows,
+            max_rows: max_rows.saturating_mul(b.oversized_work_factor.max(1)),
             class: BudgetClass::Oversized,
         };
     }
