@@ -3882,10 +3882,10 @@ pub(crate) mod internal {
         fn recipe_serves(&self, key: &[i32], d: &Dispatch) -> bool;
         /// IMAGE LIFT (lane import3, closure.md 17): whether the record `at` that the strict dispatch reports blocked at
         /// the credit IMAGE for `reason` (elided / witness loci not carried) may serve the image, by the same evidence
-        /// that lifts it at a key: an exact per-key proof bound to (record, image) under `PerKeyLift::Proof`, or (witness
-        /// loci not carried, Tier C, `WitnessAbsent::LiftWithRegularFact`) a regularity fact `Regular` at the image.
-        /// Returns `Some(true)` when lifted by a per-key proof (the proof implies regularity), `Some(false)` when lifted
-        /// by the regularity fact, `None` when not lifted. Default: never (the standalone checker).
+        /// that lifts it at a key under the per-key lift: an exact per-key proof bound to (record, image) under
+        /// `PerKeyLift::Proof` (a regularity fact alone never lifts an image: the re-audit's decision is kept). Returns
+        /// `Some(true)` when lifted by a per-key proof (the proof implies regularity; `Some(false)` is reserved), `None`
+        /// when not lifted. Default: never (the standalone checker).
         fn image_lift(
             &self,
             _at: RuleRef,
@@ -3955,15 +3955,11 @@ pub(crate) mod internal {
             {
                 return None;
             }
+            // only an exact per-key PROOF lifts an image (a regularity fact never does: re-audit decision, test
+            // audit_closure2_findings ok_credit_direct_comparison_and_no_chaining (iv))
             let rid = self.rid(self.fast.position(at));
-            if self.cfg.per_key_lift == PerKeyLift::Proof && self.facts.per_key_proof(&rid, image) {
-                return Some(true);
-            }
-            (reason == Verdict::WitnessNotCarried
-                && self.cfg.tier == Tier::C
-                && self.cfg.witness_absent == WitnessAbsent::LiftWithRegularFact
-                && self.facts.regularity(&rid, image) == RegFact::Regular)
-                .then_some(false)
+            (self.cfg.per_key_lift == PerKeyLift::Proof && self.facts.per_key_proof(&rid, image))
+                .then_some(true)
         }
     }
 
