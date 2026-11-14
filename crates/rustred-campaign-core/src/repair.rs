@@ -175,8 +175,17 @@ impl TreeReport {
     /// the order they were processed (a parent before its children), members in cover order inside an item. The
     /// rank is the position in this list.
     pub fn accepted_rules(&self) -> Vec<(ItemId, CoverMember)> {
+        self.accepted_members()
+            .into_iter()
+            .map(|(i, m)| (self.items[i].state.item.id.clone(), m))
+            .collect()
+    }
+
+    /// [`Self::accepted_rules`] with the INDEX of the item report (item ids are content addresses: two items of one
+    /// run can share an id, the index cannot).
+    pub fn accepted_members(&self) -> Vec<(usize, CoverMember)> {
         let mut out = Vec::new();
-        for r in &self.items {
+        for (i, r) in self.items.iter().enumerate() {
             let cover = match &r.disposition {
                 Some(Disposition::Covered { cover }) | Some(Disposition::Split { cover, .. }) => {
                     cover
@@ -185,18 +194,17 @@ impl TreeReport {
             };
             for m in &cover.members {
                 if !m.served.is_empty() {
-                    out.push((r.state.item.id.clone(), m.clone()));
+                    out.push((i, m.clone()));
                 }
             }
         }
         out
     }
 
-    /// The candidate rule (with its domain) of an accepted member.
-    pub fn rule_of(&self, item: &ItemId, m: &CoverMember) -> Option<&CandidateRule> {
+    /// The candidate rule (with its domain) of an accepted member of item report `index`.
+    pub fn rule_of(&self, index: usize, m: &CoverMember) -> Option<&CandidateRule> {
         self.items
-            .iter()
-            .find(|r| &r.state.item.id == item)
+            .get(index)
             .and_then(|r| r.state.records.get(&m.attempt_key))
             .and_then(|rec| rec.candidates().get(m.index))
     }
@@ -734,11 +742,12 @@ pub fn repair_key(
         source,
         &limits,
     );
-    let members = rep.accepted_rules();
+    let members = rep.accepted_members();
     let mut rules: Vec<AcceptedRule> = Vec::new();
     let mut cands: Vec<(&CandidateRule, &[Exclusion])> = Vec::new();
-    for (rank, (item, m)) in members.iter().enumerate() {
-        let Some(c) = rep.rule_of(item, m) else {
+    for (rank, (idx, m)) in members.iter().enumerate() {
+        let item = &rep.items[*idx].state.item.id;
+        let Some(c) = rep.rule_of(*idx, m) else {
             return Err(RepairFailure::NotAccepted {
                 why: format!("internal: no candidate for member {}", m.digest),
                 attempts: rep.attempts.clone(),
