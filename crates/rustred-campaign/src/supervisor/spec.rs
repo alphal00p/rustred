@@ -76,6 +76,10 @@ pub struct Program {
     pub blake3: Option<String>,
     #[serde(default)]
     pub optional: bool,
+    /// Lane closeloop (closeloop.md 6.3): launch as `<path> <job_verb> --job RUN/job.json` (an engine verb's job
+    /// mode) instead of `<path> job RUN/job.json`. A launch difference only.
+    #[serde(default)]
+    pub job_verb: Option<String>,
 }
 
 /// One input of the spec (generic: the work source gives the role its meaning).
@@ -390,9 +394,10 @@ impl CampaignSpec {
             if !self.programs.contains_key("rr_fake_child") {
                 return Err("a synthetic campaign needs programs.rr_fake_child".into());
             }
-        } else {
+        } else if !self.inputs.iter().any(|i| i.role == "closeloop") {
+            // lane closeloop (closeloop.md 6.2): a close-from-material campaign names its config as an input
             return Err(
-                "only synthetic campaigns are supported by this version (real adapters come with the integration lane)"
+                "only synthetic and close-from-material (an input of role closeloop) campaigns are supported by this version"
                     .into(),
             );
         }
