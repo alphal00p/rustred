@@ -31,17 +31,67 @@ pub struct CaseSpec {
     pub extra: serde_json::Map<String, Value>,
 }
 
-/// `RESUME.json`.
+/// The committed state of one output stream at a commit point (RESUME, audit A C1): the byte length of its committed
+/// prefix, the BLAKE3 of those bytes, the number of records (lines) and rule records in it, and the running
+/// canonical digest of those records. The prefix never contains an end record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommittedFile {
+    /// Layout path relative to the run directory (`out/F.table.jsonl`, `out/F.queue.jsonl`).
+    pub path: String,
+    pub bytes: u64,
+    pub blake3: String,
+    pub records: u64,
+    #[serde(default)]
+    pub rules: u64,
+    pub canonical_blake3: String,
+}
+
+impl CommittedFile {
+    /// The state of an empty stream at `path`.
+    pub fn empty(path: &str) -> CommittedFile {
+        CommittedFile {
+            path: path.to_string(),
+            bytes: 0,
+            blake3: crate::blake3_hex(b""),
+            records: 0,
+            rules: 0,
+            canonical_blake3: crate::blake3_hex(b""),
+        }
+    }
+
+    fn check(&self, path: &str) -> Result<(), String> {
+        if self.path != path {
+            return Err(format!("committed file path {:?} is not {path:?}", self.path));
+        }
+        if !is_blake3_hex(&self.blake3) || !is_blake3_hex(&self.canonical_blake3) {
+            return Err(format!("{path}: digests must be BLAKE3 hex"));
+        }
+        if (self.bytes == 0) != (self.records == 0) || self.rules > self.records {
+            return Err(format!("{path}: bytes / records / rules inconsistent"));
+        }
+        Ok(())
+    }
+}
+
+/// `RESUME.json` (`rustred.child-job.resume.v1`, revised by audit A C1 / M7): ONE consistent resume point, written
+/// atomically at a commit point: the committed prefix of every output stream (`table`, `queue`) with its byte length,
+/// digest, record count and running canonical digest, plus the queue state. Bound to the job spec that wrote it by
+/// `spec_blake3` (the BLAKE3 of that attempt's `job.json`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResumeState {
     pub schema: String,
     pub job_id: String,
     pub attempt: u32,
+    /// BLAKE3 of the `job.json` of the attempt that wrote this RESUME (M7).
+    pub spec_blake3: String,
     pub chart: Value,
     pub frame: Frame,
     pub rules_committed: u64,
-    pub table_committed_bytes: u64,
-    pub table_prefix_blake3: String,
+    /// Committed prefix of `out/F.table.jsonl`.
+    pub table: CommittedFile,
+    /// Committed prefix of `out/F.queue.jsonl` (L2 generate; null when the kind has no queue log).
+    #[serde(default)]
+    pub queue: Option<CommittedFile>,
     pub current: Option<CaseSpec>,
     #[serde(default)]
     pub pending: Vec<CaseSpec>,
@@ -59,44 +109,77 @@ pub struct ResumeState {
 }
 
 impl ResumeState {
-    /// Schema, digest form and frame (the frame of RESUME is always PRESENTED).
+    /// Schema, digest forms, frame (always PRESENTED), layout paths, and the internal consistency of the resume
+    /// point: `rules_committed` = `table.rules` = `counters_at_commit.rules_committed`.
     pub fn check(&self) -> Result<(), String> {
         if self.schema != RESUME_SCHEMA {
             return Err(format!("schema {:?} is not {RESUME_SCHEMA:?}", self.schema));
         }
-        if !is_blake3_hex(&self.table_prefix_blake3) {
-            return Err("table_prefix_blake3 is not a BLAKE3 hex digest".into());
+        if !is_blake3_hex(&self.spec_blake3) {
+            return Err("spec_blake3 is not a BLAKE3 hex digest".into());
         }
         if self.frame != Frame::Presented {
             return Err("RESUME frame must be PRESENTED".into());
+        }
+        self.table
+            .check(&crate::layout::RunLayout::out_rel(crate::layout::TABLE))?;
+        if let Some(q) = &self.queue {
+            q.check(&crate::layout::RunLayout::out_rel(crate::layout::QUEUE))?;
+        }
+        if self.rules_committed != self.table.rules
+            || self.counters_at_commit.rules_committed != self.rules_committed
+        {
+            return Err(
+                "rules_committed, table.rules and counters_at_commit.rules_committed differ".into(),
+            );
         }
         Ok(())
     }
 }
 
-/// `spec.resume`: where the previous attempt's state is, with the digests the child verifies before it starts.
+/// `spec.resume` (revised by audit A C1): the RESUME record to continue from, by path and digest, and NOTHING else.
+/// Every byte count and digest of the committed prefix comes from that record (one consistent object); the
+/// previous run directory is the directory of `from`, and its files are found by the layout constants. A supervisor
+/// builds it from the last RESUME of the stopped attempt, never from OUTCOME's `committed_bytes` (which may be AHEAD
+/// of RESUME when `resume_every_s` > 0): [`crate::classify::resume_ref_for`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResumeRef {
-    /// `<prev RUN>/RESUME.json`.
+    /// `<prev RUN>/RESUME.json` (absolute).
     pub from: String,
     /// BLAKE3 of that RESUME.json file.
     pub blake3: String,
-    /// `<prev RUN>/out/F.table.jsonl`.
-    pub table: String,
-    pub committed_bytes: u64,
-    pub prefix_blake3: String,
 }
 
 impl ResumeRef {
     pub fn validate(&self) -> Result<(), String> {
-        if self.from.is_empty() || self.table.is_empty() {
-            return Err("from / table must be paths".into());
+        let p = std::path::Path::new(&self.from);
+        if !p.is_absolute()
+            || p.file_name().and_then(|n| n.to_str()) != Some(crate::layout::RESUME)
+            || p.components().any(|c| {
+                !matches!(
+                    c,
+                    std::path::Component::RootDir | std::path::Component::Normal(_)
+                )
+            })
+        {
+            return Err(format!(
+                "from must be an absolute <prev RUN>/{} path without . or ..",
+                crate::layout::RESUME
+            ));
         }
-        if !is_blake3_hex(&self.blake3) || !is_blake3_hex(&self.prefix_blake3) {
-            return Err("blake3 / prefix_blake3 must be BLAKE3 hex digests".into());
+        if !is_blake3_hex(&self.blake3) {
+            return Err("blake3 must be a BLAKE3 hex digest".into());
         }
         Ok(())
+    }
+
+    /// The previous attempt's run directory (the directory of `from`).
+    pub fn prev_run(&self) -> std::path::PathBuf {
+        std::path::Path::new(&self.from)
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_default()
     }
 }
 

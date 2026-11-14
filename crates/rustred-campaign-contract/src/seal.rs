@@ -1,21 +1,52 @@
-//! Append-only record streams with running digests, table sealing and the sealed-table verifier
-//! (child-job.md 3.4.4, 3.9; ruling R-b: records are accepted ONLY from a sealed table).
+//! Append-only record streams with running digests, sealing, and the sealed-stream VERIFIER (child-job.md 3.4.4,
+//! 3.9; ruling R-b: records are accepted ONLY from a sealed, verified table of THIS attempt).
 //!
-//! A table is SEALED iff OUTCOME says `sealed: true` with `bytes` and `blake3`, the file has exactly `bytes` bytes
-//! with that BLAKE3, it ends with "\n", and its last line is an end record (`type` `end` or `partial`, matching
-//! OUTCOME's `end`); when OUTCOME gives `records` the line count must match too. The verifier streams the file in
-//! fixed chunks and keeps at most [`END_RECORD_MAX`] bytes of the last line: constant memory whatever the line
-//! lengths.
+//! Revised by audits A/B (C1, C2, M2, M3, M4, m6, m7, F4, F7, F10). A stream is SEALED iff
+//! - its path is the LAYOUT path inside the run directory (never a path read from OUTCOME), reached without any
+//!   symlink, opened with O_NOFOLLOW, a regular file whose (dev, inode) equals the directory entry's;
+//! - every line is a record with a canonical form ([`crate::canon`]), the file ends with "\n", exactly one end
+//!   record exists and it is the LAST line (no interior end record, no byte after it);
+//! - rule records (`type` = `rule`) have unique (`chart`, `index`) and unique (`chart`, `target`), `index` an integer;
+//! - every figure OUTCOME reports about it (size, BLAKE3, records, rules, end kind, canonical digest, elided witness
+//!   loci) equals the figure recomputed here.
+//! The verifier also counts elided witness loci itself ([`crate::fake::ELIDED`] inside a top-level `witness_loci`
+//! array of any record); the child's own count is never trusted. Memory: a small multiple of the longest line.
 
 use crate::canon::{self, CanonError, CanonicalDigest};
+use crate::layout::RunLayout;
 use crate::outcome::{EndKind, TableOutput};
+use crate::resume::CommittedFile;
+use std::collections::HashSet;
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::path::Path;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::path::{Component, Path, PathBuf};
 
-/// An end record longer than this cannot be one (the verifier's bound on the last line it keeps).
+/// Kept for callers: an end record longer than this is suspicious (no longer a verifier limit).
 pub const END_RECORD_MAX: usize = 1 << 20;
+
+/// `O_NOFOLLOW` of the Linux targets (the crate has no libc, ruling R-a); 0 elsewhere, where the lstat + (dev, ino)
+/// comparison alone guards against a swapped symlink.
+#[cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "x86")))]
+pub const O_NOFOLLOW: i32 = 0o400000;
+#[cfg(all(target_os = "linux", any(target_arch = "aarch64", target_arch = "arm")))]
+pub const O_NOFOLLOW: i32 = 0o100000;
+#[cfg(not(all(
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "x86",
+        target_arch = "aarch64",
+        target_arch = "arm"
+    )
+)))]
+pub const O_NOFOLLOW: i32 = 0;
+
+/// End record types of the table (and of the other JSONL result streams).
+pub const TABLE_END_TYPES: [&str; 2] = ["end", "partial"];
+/// End record types of the cert stream.
+pub const CERT_END_TYPES: [&str; 2] = ["cert_end", "cert_partial"];
 
 /// The seal of a finished table (what goes into `OUTCOME.job.outputs.table`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,6 +79,22 @@ pub struct CommitPoint {
     pub prefix_blake3: String,
     pub records: u64,
     pub rules: u64,
+    /// Running canonical digest of the committed records.
+    pub canonical_blake3: String,
+}
+
+impl CommitPoint {
+    /// The RESUME form of this commit point for the stream at layout path `path`.
+    pub fn committed(&self, path: &str) -> CommittedFile {
+        CommittedFile {
+            path: path.to_string(),
+            bytes: self.bytes,
+            blake3: self.prefix_blake3.clone(),
+            records: self.records,
+            rules: self.rules,
+            canonical_blake3: self.canonical_blake3.clone(),
+        }
+    }
 }
 
 /// Position of one appended record.
@@ -65,7 +112,7 @@ pub enum WriteError {
     Io(io::Error),
     /// The record has no canonical form (invalid JSON, duplicate keys...).
     Record(CanonError),
-    /// A record contains a raw newline, or an end record is not of type end / partial.
+    /// A record contains a raw newline, an end record is not of type end / partial, or a resume prefix is invalid.
     Shape(String),
 }
 
@@ -85,6 +132,456 @@ impl From<io::Error> for WriteError {
     }
 }
 
+/// Why a stream is not sealed (or a prefix not valid).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnsealReason {
+    /// OUTCOME says `sealed: false` (e.g. a hard-safe stop).
+    OutcomeNotSealed,
+    /// OUTCOME says sealed but lacks a figure (bytes, blake3, records, rules, end, canonical digest).
+    OutcomeIncomplete,
+    /// OUTCOME does not list an output the kind's sealing rule requires.
+    MissingOutput(String),
+    /// The path recorded in OUTCOME is not the layout path (a contract violation, C2).
+    PathNotLayout(String),
+    /// A component of the path is a symlink or not a directory, or the file is not a regular file.
+    NotRegularFile(String),
+    /// The opened file is not the one the directory entry names.
+    InodeChanged,
+    /// The file cannot be opened / read.
+    FileUnreadable(String),
+    SizeMismatch {
+        expected: u64,
+        actual: u64,
+    },
+    DigestMismatch,
+    Empty,
+    /// The file does not end with "\n".
+    TornLastLine,
+    /// A line without a canonical form (not JSON, duplicate key, non-canonical number...).
+    BadRecord {
+        line: u64,
+        why: String,
+    },
+    /// An end record before the last line.
+    InteriorEndRecord {
+        line: u64,
+    },
+    /// The last line is not an end record (its type, if any).
+    NoEndRecord(Option<String>),
+    /// The end record is of another kind than OUTCOME says.
+    EndMismatch {
+        outcome: String,
+        file: String,
+    },
+    RecordCountMismatch {
+        expected: u64,
+        actual: u64,
+    },
+    RuleCountMismatch {
+        expected: u64,
+        actual: u64,
+    },
+    CanonicalDigestMismatch,
+    ElidedCountMismatch {
+        outcome: u64,
+        file: u64,
+    },
+    /// A rule record without an integer `index`.
+    BadRuleIndex {
+        line: u64,
+    },
+    /// Two rule records with the same (`chart`, `index`).
+    DuplicateRuleIndex {
+        line: u64,
+    },
+    /// Two rule records with the same (`chart`, `target`).
+    DuplicateRuleTarget {
+        line: u64,
+    },
+    /// A resume prefix contains an end record.
+    EndRecordInPrefix {
+        line: u64,
+    },
+    /// A resume prefix does not end at a line boundary.
+    PrefixNotAtLineBoundary,
+}
+
+impl fmt::Display for UnsealReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+/// What the verifier recomputed for one stream.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedStream {
+    /// The layout path relative to the run directory.
+    pub rel: String,
+    pub dev: u64,
+    pub ino: u64,
+    pub bytes: u64,
+    pub blake3: String,
+    pub records: u64,
+    pub rules: u64,
+    /// Type of the end record.
+    pub end: String,
+    pub canonical_blake3: String,
+    /// Elided witness loci found by the verifier (R-f, M2).
+    pub elided_loci: u64,
+    /// Records with at least one elided locus.
+    pub elided_records: u64,
+    /// `family_blake3` of a header record on the first line, if any (decoded).
+    pub family_blake3: Option<String>,
+}
+
+/// Verdict of [`verify_table`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SealVerdict {
+    Sealed(Box<VerifiedStream>),
+    Unsealed(UnsealReason),
+}
+
+impl SealVerdict {
+    pub fn is_sealed(&self) -> bool {
+        matches!(self, SealVerdict::Sealed(_))
+    }
+}
+
+/// Line-by-line accumulator shared by the writer (resume copy), the verifier and the prefix check.
+struct Scan<'a> {
+    end_types: &'a [&'a str],
+    raw: blake3::Hasher,
+    canon: CanonicalDigest,
+    bytes: u64,
+    records: u64,
+    rules: u64,
+    ids: HashSet<(Vec<u8>, Vec<u8>)>,
+    targets: HashSet<(Vec<u8>, Vec<u8>)>,
+    elided_loci: u64,
+    elided_records: u64,
+    end: Option<String>,
+    family: Option<String>,
+}
+
+impl<'a> Scan<'a> {
+    fn new(end_types: &'a [&'a str]) -> Scan<'a> {
+        Scan {
+            end_types,
+            raw: blake3::Hasher::new(),
+            canon: CanonicalDigest::new(),
+            bytes: 0,
+            records: 0,
+            rules: 0,
+            ids: HashSet::new(),
+            targets: HashSet::new(),
+            elided_loci: 0,
+            elided_records: 0,
+            end: None,
+            family: None,
+        }
+    }
+
+    /// One complete line including its "\n". Returns the canonical record.
+    fn push(&mut self, line_nl: &[u8]) -> Result<canon::CanonRecord, UnsealReason> {
+        let line_no = self.records + 1;
+        if self.end.is_some() {
+            return Err(UnsealReason::InteriorEndRecord {
+                line: self.records,
+            });
+        }
+        let body = &line_nl[..line_nl.len() - 1];
+        let c = canon::canonical_record(body).map_err(|e| UnsealReason::BadRecord {
+            line: line_no,
+            why: e.to_string(),
+        })?;
+        let ty = c.record_type.as_deref();
+        if ty.is_some_and(|t| self.end_types.contains(&t)) {
+            self.end = ty.map(str::to_string);
+        }
+        if ty == Some("rule") {
+            let chart = c.member("chart").unwrap_or(b"null").to_vec();
+            let index = c.member("index").unwrap_or(b"");
+            if index.is_empty() || !index.iter().all(|b| b.is_ascii_digit() || *b == b'-') {
+                return Err(UnsealReason::BadRuleIndex { line: line_no });
+            }
+            if !self.ids.insert((chart.clone(), index.to_vec())) {
+                return Err(UnsealReason::DuplicateRuleIndex { line: line_no });
+            }
+            if let Some(t) = c.member("target")
+                && !self.targets.insert((chart, t.to_vec()))
+            {
+                return Err(UnsealReason::DuplicateRuleTarget { line: line_no });
+            }
+            self.rules += 1;
+        }
+        if let Some(l) = c.member("witness_loci") {
+            let n = canon::count_string_elements(l, crate::fake::ELIDED).unwrap_or(0);
+            self.elided_loci += n;
+            self.elided_records += u64::from(n > 0);
+        }
+        if self.records == 0 && ty == Some("header") {
+            self.family = c
+                .member(canon::FAMILY_DIGEST_KEY)
+                .and_then(canon::decode_canonical_string);
+        }
+        self.raw.update(line_nl);
+        self.canon.push_canonical(&c.bytes);
+        self.bytes += line_nl.len() as u64;
+        self.records += 1;
+        Ok(c)
+    }
+
+    /// Feed a whole reader line by line; `Err(TornLastLine)` for bytes after the last "\n".
+    fn feed<Rd: BufRead>(
+        &mut self,
+        mut r: Rd,
+        mut each: impl FnMut(&[u8]) -> io::Result<()>,
+    ) -> Result<(), UnsealReason> {
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            let n = r
+                .read_until(b'\n', &mut line)
+                .map_err(|e| UnsealReason::FileUnreadable(e.to_string()))?;
+            if n == 0 {
+                return Ok(());
+            }
+            if line.last() != Some(&b'\n') {
+                return Err(UnsealReason::TornLastLine);
+            }
+            self.push(&line)?;
+            each(&line).map_err(|e| UnsealReason::FileUnreadable(e.to_string()))?;
+        }
+    }
+
+    fn committed(&self, path: &str) -> CommittedFile {
+        CommittedFile {
+            path: path.to_string(),
+            bytes: self.bytes,
+            blake3: self.raw.finalize().to_hex().to_string(),
+            records: self.records,
+            rules: self.rules,
+            canonical_blake3: self.canon.hex(),
+        }
+    }
+
+    /// Compare with the figures of a committed prefix (no end record allowed in it).
+    fn check_prefix(&self, want: &CommittedFile) -> Result<(), UnsealReason> {
+        if self.end.is_some() {
+            return Err(UnsealReason::EndRecordInPrefix { line: self.records });
+        }
+        let got = self.committed(&want.path);
+        if got.bytes != want.bytes {
+            return Err(UnsealReason::SizeMismatch {
+                expected: want.bytes,
+                actual: got.bytes,
+            });
+        }
+        if got.blake3 != want.blake3 {
+            return Err(UnsealReason::DigestMismatch);
+        }
+        if got.records != want.records {
+            return Err(UnsealReason::RecordCountMismatch {
+                expected: want.records,
+                actual: got.records,
+            });
+        }
+        if got.rules != want.rules {
+            return Err(UnsealReason::RuleCountMismatch {
+                expected: want.rules,
+                actual: got.rules,
+            });
+        }
+        if got.canonical_blake3 != want.canonical_blake3 {
+            return Err(UnsealReason::CanonicalDigestMismatch);
+        }
+        Ok(())
+    }
+}
+
+/// Validate a layout path relative to the run directory: only normal components (no root, `.`, `..`).
+fn rel_ok(rel: &str) -> bool {
+    let p = Path::new(rel);
+    !rel.is_empty() && p.components().all(|c| matches!(c, Component::Normal(_)))
+}
+
+/// Open `root/rel` safely (C2, F7): every component below `root` is a real directory (no symlink), the file is a
+/// regular file, it is opened with O_NOFOLLOW, and its (dev, inode) equals the directory entry's.
+pub fn open_in_run(root: &Path, rel: &str) -> Result<(File, u64, u64), UnsealReason> {
+    if !rel_ok(rel) {
+        return Err(UnsealReason::PathNotLayout(rel.to_string()));
+    }
+    let mut cur = root.to_path_buf();
+    let comps: Vec<_> = Path::new(rel).components().collect();
+    for (k, c) in comps.iter().enumerate() {
+        cur.push(c.as_os_str());
+        let md = std::fs::symlink_metadata(&cur)
+            .map_err(|e| UnsealReason::FileUnreadable(format!("{}: {e}", cur.display())))?;
+        let last = k + 1 == comps.len();
+        let ok = if last {
+            md.file_type().is_file()
+        } else {
+            md.file_type().is_dir()
+        };
+        if !ok {
+            return Err(UnsealReason::NotRegularFile(cur.display().to_string()));
+        }
+    }
+    let entry = std::fs::symlink_metadata(&cur)
+        .map_err(|e| UnsealReason::FileUnreadable(e.to_string()))?;
+    let f = OpenOptions::new()
+        .read(true)
+        .custom_flags(O_NOFOLLOW)
+        .open(&cur)
+        .map_err(|e| UnsealReason::FileUnreadable(format!("{}: {e}", cur.display())))?;
+    let md = f
+        .metadata()
+        .map_err(|e| UnsealReason::FileUnreadable(e.to_string()))?;
+    if !md.file_type().is_file() || md.dev() != entry.dev() || md.ino() != entry.ino() {
+        return Err(UnsealReason::InodeChanged);
+    }
+    Ok((f, md.dev(), md.ino()))
+}
+
+/// Verify the JSONL stream at layout path `rel` of the run directory `root` (structure only; compare the figures
+/// with OUTCOME's claims with [`compare_table`] / [`compare_figures`]).
+pub fn verify_stream(
+    root: &Path,
+    rel: &str,
+    end_types: &[&str],
+) -> Result<VerifiedStream, UnsealReason> {
+    let (f, dev, ino) = open_in_run(root, rel)?;
+    let mut s = Scan::new(end_types);
+    s.feed(BufReader::with_capacity(1 << 20, f), |_| Ok(()))?;
+    if s.records == 0 {
+        return Err(UnsealReason::Empty);
+    }
+    let Some(end) = s.end.clone() else {
+        return Err(UnsealReason::NoEndRecord(None));
+    };
+    Ok(VerifiedStream {
+        rel: rel.to_string(),
+        dev,
+        ino,
+        bytes: s.bytes,
+        blake3: s.raw.finalize().to_hex().to_string(),
+        records: s.records,
+        rules: s.rules,
+        end,
+        canonical_blake3: s.canon.hex(),
+        elided_loci: s.elided_loci,
+        elided_records: s.elided_records,
+        family_blake3: s.family,
+    })
+}
+
+/// Compare generic OUTCOME figures with a verified stream; `None` figures are missing claims (incomplete).
+pub fn compare_figures(
+    v: &VerifiedStream,
+    bytes: Option<u64>,
+    blake3: Option<&str>,
+    records: Option<u64>,
+    canonical_blake3: Option<&str>,
+) -> Result<(), UnsealReason> {
+    let (Some(bytes), Some(blake3), Some(records), Some(canonical)) =
+        (bytes, blake3, records, canonical_blake3)
+    else {
+        return Err(UnsealReason::OutcomeIncomplete);
+    };
+    if bytes != v.bytes {
+        return Err(UnsealReason::SizeMismatch {
+            expected: bytes,
+            actual: v.bytes,
+        });
+    }
+    if blake3 != v.blake3 {
+        return Err(UnsealReason::DigestMismatch);
+    }
+    if records != v.records {
+        return Err(UnsealReason::RecordCountMismatch {
+            expected: records,
+            actual: v.records,
+        });
+    }
+    if canonical != v.canonical_blake3 {
+        return Err(UnsealReason::CanonicalDigestMismatch);
+    }
+    Ok(())
+}
+
+/// Every figure of OUTCOME's table entry against the verified table: size, BLAKE3, records, rules (= rules_committed),
+/// end kind, canonical digest, elided loci.
+pub fn compare_table(t: &TableOutput, v: &VerifiedStream) -> Result<(), UnsealReason> {
+    if !t.sealed {
+        return Err(UnsealReason::OutcomeNotSealed);
+    }
+    compare_figures(
+        v,
+        t.bytes,
+        t.blake3.as_deref(),
+        t.records,
+        t.canonical_blake3.as_deref(),
+    )?;
+    let (Some(rules), Some(end)) = (t.rules, t.end) else {
+        return Err(UnsealReason::OutcomeIncomplete);
+    };
+    if rules != v.rules || t.rules_committed != v.rules {
+        return Err(UnsealReason::RuleCountMismatch {
+            expected: rules,
+            actual: v.rules,
+        });
+    }
+    if end.as_str() != v.end {
+        return Err(UnsealReason::EndMismatch {
+            outcome: end.as_str().into(),
+            file: v.end.clone(),
+        });
+    }
+    if t.witness_loci_elided != v.elided_loci {
+        return Err(UnsealReason::ElidedCountMismatch {
+            outcome: t.witness_loci_elided,
+            file: v.elided_loci,
+        });
+    }
+    Ok(())
+}
+
+/// The table of a run: the file at the LAYOUT path (`out/F.table.jsonl`), never the path OUTCOME names (which must
+/// equal it), verified and compared with every OUTCOME figure.
+pub fn verify_table(layout: &RunLayout, t: &TableOutput) -> SealVerdict {
+    let rel = RunLayout::out_rel(crate::layout::TABLE);
+    if t.path != rel {
+        return SealVerdict::Unsealed(UnsealReason::PathNotLayout(t.path.clone()));
+    }
+    if !t.sealed {
+        return SealVerdict::Unsealed(UnsealReason::OutcomeNotSealed);
+    }
+    match verify_stream(&layout.root, &rel, &TABLE_END_TYPES)
+        .and_then(|v| compare_table(t, &v).map(|_| v))
+    {
+        Ok(v) => SealVerdict::Sealed(Box::new(v)),
+        Err(r) => SealVerdict::Unsealed(r),
+    }
+}
+
+/// Check that the first `want.bytes` bytes of the stream at `root/want.path` are exactly the committed prefix
+/// `want` (bytes, digest, records, rules, canonical digest, line boundary, no end record, unique rule identities).
+pub fn verify_prefix(
+    root: &Path,
+    want: &CommittedFile,
+    end_types: &[&str],
+) -> Result<(), UnsealReason> {
+    let (f, _, _) = open_in_run(root, &want.path)?;
+    let mut s = Scan::new(end_types);
+    match s.feed(BufReader::with_capacity(1 << 20, f.take(want.bytes)), |_| {
+        Ok(())
+    }) {
+        Err(UnsealReason::TornLastLine) => return Err(UnsealReason::PrefixNotAtLineBoundary),
+        r => r?,
+    }
+    s.check_prefix(want)
+}
+
 /// Append-only JSONL writer: every record is written as one `write_all` of the line + "\n" (no user-space buffer, so
 /// a crash leaves at most one torn last line), and the raw BLAKE3, the canonical digest, the byte, record and rule
 /// counts are kept running, so a commit point needs no re-read.
@@ -98,13 +595,16 @@ pub struct RecordWriter {
 }
 
 impl RecordWriter {
-    /// Create (truncate) `path`.
+    /// Create `path` (it must not exist: O_EXCL, which also refuses a planted symlink) and fsync its directory (m6).
     pub fn create(path: &Path) -> io::Result<RecordWriter> {
         let file = OpenOptions::new()
             .write(true)
-            .create(true)
-            .truncate(true)
+            .create_new(true)
+            .custom_flags(O_NOFOLLOW)
             .open(path)?;
+        if let Some(d) = path.parent() {
+            crate::atomic::fsync_dir(d)?;
+        }
         Ok(RecordWriter {
             file,
             raw: blake3::Hasher::new(),
@@ -115,58 +615,83 @@ impl RecordWriter {
         })
     }
 
-    /// Resume: create `dst` holding exactly the first `committed_bytes` bytes of `src`, verify that their BLAKE3 is
-    /// `prefix_blake3`, and continue with the running state of that prefix (3.8.2). The prefix must end at a line
-    /// boundary.
-    pub fn resume_from_prefix(
-        src: &Path,
-        committed_bytes: u64,
-        prefix_blake3: &str,
+    /// Resume (3.8.2, C1, m7): create `dst` holding exactly the committed prefix `want` of the previous attempt's
+    /// stream in run directory `src_root` (layout path `want.path`), verifying every figure WHILE copying, and
+    /// continue with its running state. The copy goes to a temporary name that is renamed only after the whole
+    /// prefix verified, so on any mismatch nothing is left at `dst`. The source must not be `dst` itself.
+    pub fn resume_from(
+        src_root: &Path,
+        want: &CommittedFile,
+        end_types: &[&str],
         dst: &Path,
     ) -> Result<RecordWriter, WriteError> {
-        let mut w = RecordWriter::create(dst)?;
-        let mut r = BufReader::with_capacity(1 << 20, File::open(src)?.take(committed_bytes));
-        let mut line = Vec::new();
-        loop {
-            line.clear();
-            let n = r.read_until(b'\n', &mut line)?;
-            if n == 0 {
-                break;
+        let (src, dev, ino) =
+            open_in_run(src_root, &want.path).map_err(|r| WriteError::Shape(r.to_string()))?;
+        if let Ok(m) = std::fs::symlink_metadata(dst)
+            && m.dev() == dev
+            && m.ino() == ino
+        {
+            return Err(WriteError::Shape(
+                "resume source and destination are the same file".into(),
+            ));
+        }
+        let tmp = crate::atomic::temp_path(dst);
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .custom_flags(O_NOFOLLOW)
+            .open(&tmp)?;
+        let mut s = Scan::new(end_types);
+        let r = (|| {
+            let res = s.feed(
+                BufReader::with_capacity(1 << 20, src.take(want.bytes)),
+                |l| file.write_all(l),
+            );
+            match res {
+                Err(UnsealReason::TornLastLine) => {
+                    return Err(WriteError::Shape(
+                        UnsealReason::PrefixNotAtLineBoundary.to_string(),
+                    ));
+                }
+                Err(e) => return Err(WriteError::Shape(e.to_string())),
+                Ok(()) => {}
             }
-            if line.last() != Some(&b'\n') {
-                return Err(WriteError::Shape(
-                    "committed prefix does not end at a line boundary".into(),
-                ));
+            s.check_prefix(want)
+                .map_err(|e| WriteError::Shape(e.to_string()))?;
+            file.sync_all()?;
+            std::fs::rename(&tmp, dst)?;
+            if let Some(d) = dst.parent() {
+                crate::atomic::fsync_dir(d)?;
             }
-            w.push_raw_line(&line)?;
+            Ok(())
+        })();
+        if let Err(e) = r {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e);
         }
-        if w.bytes != committed_bytes {
-            return Err(WriteError::Shape(format!(
-                "source has {} bytes, prefix needs {committed_bytes}",
-                w.bytes
-            )));
-        }
-        if w.raw.finalize().to_hex().as_str() != prefix_blake3 {
-            return Err(WriteError::Shape("committed prefix digest mismatch".into()));
-        }
-        w.file.sync_data()?;
-        Ok(w)
+        Ok(RecordWriter {
+            file,
+            raw: s.raw,
+            canon: s.canon,
+            bytes: s.bytes,
+            records: s.records,
+            rules: s.rules,
+        })
     }
 
     fn push_raw_line(&mut self, line_nl: &[u8]) -> Result<RecordPos, WriteError> {
         let body = &line_nl[..line_nl.len() - 1];
-        let canon = canon::canonical_line(body).map_err(WriteError::Record)?;
-        let ty = canon::line_type(body).map_err(WriteError::Record)?;
+        let c = canon::canonical_record(body).map_err(WriteError::Record)?;
         let offset = self.bytes;
         self.file.write_all(line_nl)?;
         self.raw.update(line_nl);
         let mut h = blake3::Hasher::new();
-        h.update(&canon);
+        h.update(&c.bytes);
         h.update(b"\n");
-        self.canon.push_line(body).map_err(WriteError::Record)?;
+        self.canon.push_canonical(&c.bytes);
         self.bytes += line_nl.len() as u64;
         self.records += 1;
-        if ty.as_deref() == Some("rule") {
+        if c.record_type.as_deref() == Some("rule") {
             self.rules += 1;
         }
         Ok(RecordPos {
@@ -201,6 +726,7 @@ impl RecordWriter {
             prefix_blake3: self.raw.finalize().to_hex().to_string(),
             records: self.records,
             rules: self.rules,
+            canonical_blake3: self.canon.hex(),
         }
     }
 
@@ -221,58 +747,34 @@ impl RecordWriter {
             records: s.records,
             rules: s.rules,
             end,
-            canonical_blake3: self.canon.hex(),
+            canonical_blake3: s.canonical_blake3,
         })
     }
 
-    /// The underlying file, for fault injection in tests and the fake child only (writing through it desynchronises
-    /// the running digests on purpose).
+    /// The underlying file, for fault injection in tests only (writing through it desynchronises the running digests
+    /// on purpose).
     pub fn raw_file(&mut self) -> &mut File {
         &mut self.file
     }
 }
 
-/// Compute the seal of an existing table file (memory bounded by the longest line). Fails when the file is torn or
-/// its last record is not an end record.
+/// Compute the seal of an existing table file with the verifier's rules (any path; for tests and tools).
 pub fn seal_file(path: &Path) -> Result<TableSeal, WriteError> {
-    let mut r = BufReader::with_capacity(1 << 20, File::open(path)?);
-    let mut raw = blake3::Hasher::new();
-    let mut canon = CanonicalDigest::new();
-    let (mut bytes, mut records, mut rules) = (0u64, 0u64, 0u64);
-    let mut last_type = None;
-    let mut line = Vec::new();
-    loop {
-        line.clear();
-        let n = r.read_until(b'\n', &mut line)?;
-        if n == 0 {
-            break;
-        }
-        if line.last() != Some(&b'\n') {
-            return Err(WriteError::Record(CanonError::TornLine {
-                line: records + 1,
-            }));
-        }
-        raw.update(&line);
-        canon.push_line(&line).map_err(WriteError::Record)?;
-        last_type = canon::line_type(&line).map_err(WriteError::Record)?;
-        if last_type.as_deref() == Some("rule") {
-            rules += 1;
-        }
-        bytes += n as u64;
-        records += 1;
-    }
-    let Some(end) = last_type.as_deref().and_then(EndKind::from_type) else {
-        return Err(WriteError::Shape(format!(
-            "last record type {last_type:?} is not end / partial"
-        )));
+    let f = File::open(path)?;
+    let mut s = Scan::new(&TABLE_END_TYPES);
+    s.feed(BufReader::with_capacity(1 << 20, f), |_| Ok(()))
+        .map_err(|e| WriteError::Shape(e.to_string()))?;
+    let Some(end) = s.end.as_deref().and_then(EndKind::from_type) else {
+        return Err(WriteError::Shape("no end record".into()));
     };
+    let c = s.committed("");
     Ok(TableSeal {
-        bytes,
-        blake3: raw.finalize().to_hex().to_string(),
-        records,
-        rules,
+        bytes: c.bytes,
+        blake3: c.blake3,
+        records: c.records,
+        rules: c.rules,
         end,
-        canonical_blake3: canon.hex(),
+        canonical_blake3: c.canonical_blake3,
     })
 }
 
@@ -311,155 +813,7 @@ pub fn file_blake3(path: &Path) -> io::Result<(u64, String)> {
     Ok((n, h.finalize().to_hex().to_string()))
 }
 
-/// Why a table is not sealed.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UnsealReason {
-    /// OUTCOME says `sealed: false` (e.g. a hard-safe stop).
-    OutcomeNotSealed,
-    /// OUTCOME says sealed but lacks `bytes` or `blake3`.
-    OutcomeIncomplete,
-    /// The table file cannot be opened / read.
-    FileUnreadable(String),
-    SizeMismatch {
-        expected: u64,
-        actual: u64,
-    },
-    DigestMismatch,
-    Empty,
-    /// The file does not end with "\n".
-    TornLastLine,
-    /// The last line is longer than [`END_RECORD_MAX`].
-    LastLineTooLong,
-    /// The last line is not an end record (its type, if any).
-    NoEndRecord(Option<String>),
-    /// The last line is an end record of the other kind than OUTCOME says.
-    EndMismatch {
-        outcome: EndKind,
-        file: EndKind,
-    },
-    RecordCountMismatch {
-        expected: u64,
-        actual: u64,
-    },
-}
-
-impl fmt::Display for UnsealReason {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{self:?}")
-    }
-}
-
-/// Verdict of [`verify_sealed`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SealVerdict {
-    Sealed,
-    Unsealed(UnsealReason),
-}
-
-impl SealVerdict {
-    pub fn is_sealed(&self) -> bool {
-        matches!(self, SealVerdict::Sealed)
-    }
-}
-
-/// Verify a table file against its OUTCOME entry. Streaming, constant memory (1 MiB read buffer + at most
-/// [`END_RECORD_MAX`] bytes of the last line), robust to lines of any length.
-pub fn verify_sealed(table: &Path, out: &TableOutput) -> SealVerdict {
-    use SealVerdict::Unsealed;
-    if !out.sealed {
-        return Unsealed(UnsealReason::OutcomeNotSealed);
-    }
-    let (Some(bytes), Some(digest)) = (out.bytes, out.blake3.as_deref()) else {
-        return Unsealed(UnsealReason::OutcomeIncomplete);
-    };
-    let mut f = match File::open(table) {
-        Ok(f) => f,
-        Err(e) => return Unsealed(UnsealReason::FileUnreadable(e.to_string())),
-    };
-    let mut h = blake3::Hasher::new();
-    let mut buf = vec![0u8; 1 << 20];
-    let mut size = 0u64;
-    let mut lines = 0u64;
-    // `cur`: the line being read (bounded capture); `prev`: the last completed line (bounded capture)
-    let (mut cur, mut cur_long) = (Vec::new(), false);
-    let (mut prev, mut prev_long) = (Vec::new(), false);
-    let mut last_byte = None;
-    fn take(dst: &mut Vec<u8>, long: &mut bool, piece: &[u8]) {
-        if *long {
-            return;
-        }
-        if dst.len() + piece.len() > END_RECORD_MAX {
-            *long = true;
-            *dst = Vec::new();
-        } else {
-            dst.extend_from_slice(piece);
-        }
-    }
-    loop {
-        let k = match f.read(&mut buf) {
-            Ok(0) => break,
-            Ok(k) => k,
-            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-            Err(e) => return Unsealed(UnsealReason::FileUnreadable(e.to_string())),
-        };
-        let chunk = &buf[..k];
-        h.update(chunk);
-        size += k as u64;
-        last_byte = chunk.last().copied();
-        let mut s = 0;
-        for (i, &b) in chunk.iter().enumerate() {
-            if b == b'\n' {
-                take(&mut cur, &mut cur_long, &chunk[s..i]);
-                std::mem::swap(&mut prev, &mut cur);
-                prev_long = cur_long;
-                cur.clear();
-                cur_long = false;
-                lines += 1;
-                s = i + 1;
-            }
-        }
-        take(&mut cur, &mut cur_long, &chunk[s..]);
-    }
-    if size != bytes {
-        return Unsealed(UnsealReason::SizeMismatch {
-            expected: bytes,
-            actual: size,
-        });
-    }
-    if h.finalize().to_hex().as_str() != digest {
-        return Unsealed(UnsealReason::DigestMismatch);
-    }
-    if size == 0 {
-        return Unsealed(UnsealReason::Empty);
-    }
-    if last_byte != Some(b'\n') {
-        return Unsealed(UnsealReason::TornLastLine);
-    }
-    if prev_long {
-        return Unsealed(UnsealReason::LastLineTooLong);
-    }
-    let ty = match canon::line_type(&prev) {
-        Ok(t) => t,
-        Err(_) => return Unsealed(UnsealReason::NoEndRecord(None)),
-    };
-    let Some(end) = ty.as_deref().and_then(EndKind::from_type) else {
-        return Unsealed(UnsealReason::NoEndRecord(ty));
-    };
-    if let Some(o) = out.end
-        && o != end
-    {
-        return Unsealed(UnsealReason::EndMismatch {
-            outcome: o,
-            file: end,
-        });
-    }
-    if let Some(r) = out.records
-        && r != lines
-    {
-        return Unsealed(UnsealReason::RecordCountMismatch {
-            expected: r,
-            actual: lines,
-        });
-    }
-    SealVerdict::Sealed
+/// The path of a layout file of a run (helper for callers that print it).
+pub fn layout_path(root: &Path, rel: &str) -> PathBuf {
+    root.join(rel)
 }

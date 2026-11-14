@@ -124,18 +124,6 @@ impl ExitCode {
     pub const fn outcome_required(self) -> bool {
         !matches!(self, ExitCode::Usage | ExitCode::NoSpace | ExitCode::Io)
     }
-
-    /// Whether the table of a job ending with this code is sealed (complete or partial end record). BUDGET_WALL is
-    /// the hard-safe stop (unsealed); INTERRUPTED may be either (`stop.graceful`), so it answers `false` here.
-    pub const fn table_sealed(self) -> bool {
-        matches!(
-            self,
-            ExitCode::Complete
-                | ExitCode::Incomplete
-                | ExitCode::BudgetWork
-                | ExitCode::BudgetMemory
-        )
-    }
 }
 
 impl From<ExitCode> for i32 {

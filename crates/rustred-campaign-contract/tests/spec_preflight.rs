@@ -101,6 +101,8 @@ fn spec_validation_typed_errors() {
     ));
     let mut s = ok.clone();
     s.kind = JobKind::Fake;
+    assert!(matches!(err(&s), SpecError::ArgNotAllowed(_)));
+    s.args.clear();
     assert!(matches!(err(&s), SpecError::FakeMismatch(_)));
 }
 

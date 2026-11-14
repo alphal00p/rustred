@@ -18,8 +18,11 @@
 use crate::exit::ExitCode;
 use crate::layout::RunLayout;
 use crate::outcome::{JobOutcome, Outcome};
-use crate::resume::ResumeState;
-use crate::seal::{SealVerdict, UnsealReason, prefix_blake3, verify_sealed};
+use crate::resume::{ResumeRef, ResumeState};
+use crate::seal::{
+    CERT_END_TYPES, SealVerdict, TABLE_END_TYPES, UnsealReason, VerifiedStream, compare_figures, open_in_run,
+    verify_prefix, verify_stream, verify_table,
+};
 use crate::spec::{JobKind, JobSpec};
 use crate::stop::StopCode;
 use serde::{Deserialize, Serialize};
@@ -63,16 +66,33 @@ pub enum OutcomeState {
     Valid(Box<JobOutcome>),
 }
 
+/// What the verifier established about the outputs of an attempt (S), from the files at their LAYOUT paths.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedOutputs {
+    /// Rule records of the verified table (0 for kinds without a table).
+    pub rules: u64,
+    /// Elided witness loci found by the verifier in every verified stream (R-f, M2).
+    pub elided_loci: u64,
+    /// Every verified stream (table first), with (dev, inode), size and digests: the importer re-checks them.
+    pub streams: Vec<VerifiedStream>,
+}
+
 /// Everything the table looks at.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Evidence {
     pub kind: JobKind,
     pub wait: WaitStatus,
     pub outcome: OutcomeState,
-    /// S. For kinds without a table, pass `true` ([`assess`] does).
-    pub sealed: bool,
+    /// S: `Some` iff every output of the kind's sealing rule is sealed, verified at its layout path and agrees with
+    /// every figure of OUTCOME ([`assess`]); `None` otherwise (never "vacuously true").
+    pub verified: Option<VerifiedOutputs>,
+    /// Why S is false (diagnostics only).
+    pub unsealed_why: Option<String>,
     /// R.
     pub resume_valid: bool,
+    /// The resume source a next attempt must use when R is valid: the LAST RESUME record (path + digest), never
+    /// OUTCOME's `committed_bytes` (3.8.2; audit A C1, B F1).
+    pub resume_ref: Option<ResumeRef>,
     pub kill: KillReason,
     /// The cgroup's `oom_kill` count increased during the attempt.
     pub oom_kill_observed: bool,
@@ -98,6 +118,10 @@ pub enum OutcomeKind {
     Lost,
     DecidedNegative,
     Undecided,
+    /// Row 25: sealed, but the verifier found elided witness loci (spec allowed elision): never used (R-f).
+    SealedWithElided,
+    /// Row 26: a "success" of a kind without a sealing rule.
+    UnverifiableKind,
 }
 
 /// What may be accepted from the attempt.
@@ -155,60 +179,161 @@ pub enum Action {
     RestartFromScratch,
     /// Row 23: resume from R once if valid, else attention.
     ResumeOnceIfValidElseAttention,
+    /// Row 25: run the item again with elision forbidden.
+    RerunWithoutElision,
 }
+
+/// One row of the decision table (6.5): the single source of the classifier AND of the document's table
+/// ([`decision_table_markdown`], asserted equal to child-job.md by a test).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RowSpec {
+    pub row: u8,
+    /// Variant letter of a row with two outcomes ("" or "b" / "c").
+    pub sub: &'static str,
+    pub condition: &'static str,
+    pub kind: OutcomeKind,
+    pub accept: Accept,
+    pub action: Action,
+}
+
+const fn rs(
+    row: u8,
+    sub: &'static str,
+    condition: &'static str,
+    kind: OutcomeKind,
+    accept: Accept,
+    action: Action,
+) -> RowSpec {
+    RowSpec {
+        row,
+        sub,
+        condition,
+        kind,
+        accept,
+        action,
+    }
+}
+
+/// The decision table. Evaluation order (first match wins): O normalisation (row 22 reasons), W unknown (21b, 21c,
+/// 22), then the c rows in this order: 26, the kind's exit-code set (22), S (22), 25, 1-8 with 24 and 27 after their
+/// siblings, 9-17; then the signal rows 18-21; then 22; then 23.
+pub const ROWS: [RowSpec; 30] = {
+    use Accept::*;
+    use Action::*;
+    use OutcomeKind::*;
+    [
+        rs(1, "", "c=0, O, S", Complete, Canonical, ItemDone),
+        rs(2, "", "c=10, O, S, stop max_cases, verified rules >= 1", RuleFound, Canonical, QueueChildren),
+        rs(3, "", "c=10, O, S, stop max_cases, no verified rule, every case result covered / empty / finite / declared_terminal", Complete, Nothing, ItemDoneNoRule),
+        rs(24, "", "c=10, O, S, stop max_cases, no verified rule, another case result or no per-case list", NoRule, Nothing, NextRung),
+        rs(4, "", "c=10, O, S, stop lift_refused / guard_timeout / numeric_search_refused / before_numeric", NoRule, CommittedRules, NextRung),
+        rs(5, "", "c=10, O, S, stop open_regions / open_obligations, verified rules >= 1", RuleFound, Canonical, QueueOpenList),
+        rs(27, "", "c=10, O, S, stop open_regions / open_obligations, no verified rule", NoRule, Nothing, QueueOpenList),
+        rs(6, "", "c=10, O, S, stop not_lower", Crashed, Nothing, Attention),
+        rs(7, "", "c=11, O, checker kind", DecidedNegative, Nothing, RecordNegativeVerdict),
+        rs(7, "b", "c=12, O, checker kind", Undecided, Nothing, OtherToolOrAttention),
+        rs(8, "", "c=20, O, S (producing kind)", Spill, CommittedRules, NextRungAfterSpill),
+        rs(25, "", "c in {0, 10, 20}, O, S, the spec allowed elision and the verifier found elided witness loci", SealedWithElided, Nothing, RerunWithoutElision),
+        rs(26, "", "c in {0, 10, 20}, O, the kind has no sealing rule (generate-auto)", UnverifiableKind, Nothing, Attention),
+        rs(9, "", "c=21, O", KilledTime, Nothing, LadderDecides),
+        rs(10, "", "c=22, O", KilledMemory, Nothing, NextMemoryClassOrRung),
+        rs(11, "", "c=30, O", Interrupted, Nothing, ResumeOnCampaignResume),
+        rs(12, "", "c=40", UsageError, Nothing, StopLaunchingKind),
+        rs(13, "", "c=41", Refused, Nothing, ItemAttentionNoRetry),
+        rs(14, "", "c=42", Refused, Nothing, Attention),
+        rs(15, "", "c=50", Lost, Nothing, PauseAllLaunches),
+        rs(16, "", "c=51", Crashed, Nothing, RetryOnceThenAttention),
+        rs(17, "", "c=70, O", Crashed, Nothing, RetrySameSpecOnceThenAttention),
+        rs(18, "", "s=9, K=memory (or cgroup oom_kill count increased)", KilledMemory, Nothing, NextMemoryClassOrRung),
+        rs(19, "", "s in {9, 15, 2, 1}, K=time or unresponsive", KilledTime, Nothing, LadderDecides),
+        rs(20, "", "s in {9, 15, 2, 1}, K=stop", Interrupted, Nothing, ResumeOnCampaignResume),
+        rs(21, "", "s=9, K=none, no OUTCOME", Lost, Nothing, ResumeOnceThenAttention),
+        rs(21, "b", "W unknown (supervisor restart), no OUTCOME, R valid", Lost, Nothing, ResumeOnceThenAttention),
+        rs(21, "c", "W unknown, no OUTCOME, R invalid", Lost, Nothing, RestartFromScratch),
+        rs(22, "", "contract violation: OUTCOME unreadable, inconsistent (`check`), of another attempt or spec (job_id, attempt, kind, spec_blake3), exit_code != c, a path not the layout path, family_blake3 not the spec's, elided loci under \"forbidden\"; or c in {0, 10, 20} with O and an output not sealed / not verified; or c outside the kind's set (checker 10 / 20, producing kind 11 / 12); or W unknown with an invalid OUTCOME", Crashed, Nothing, Attention),
+        rs(23, "", "any other c or s (an exit status 128+N is read as signal N)", Crashed, Nothing, ResumeOnceIfValidElseAttention),
+    ]
+};
 
 /// The classification of one attempt.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Classification {
-    /// Row of the decision table (1-23 as in the document; 24 = added by package contract).
+    /// Row of the decision table ([`ROWS`]).
     pub row: u8,
+    /// Variant of the row ("" or "b" / "c").
+    pub sub: String,
     pub kind: OutcomeKind,
     pub accept: Accept,
     pub action: Action,
     /// A next attempt may start from RESUME (R valid and the row allows it).
     pub resume_from_r: bool,
+    /// The resume reference to put into the next attempt's spec (set iff `resume_from_r`): the last RESUME record.
+    pub resume_from: Option<ResumeRef>,
     pub time_decided: bool,
     pub attention: bool,
     pub why: String,
 }
 
-fn row(
-    n: u8,
-    kind: OutcomeKind,
-    accept: Accept,
-    action: Action,
-    why: impl Into<String>,
-) -> Classification {
+fn row(n: u8, sub: &str, why: impl Into<String>) -> Classification {
+    let r = ROWS
+        .iter()
+        .find(|r| r.row == n && r.sub == sub)
+        .expect("row in the decision table");
     let attention = matches!(
-        action,
+        r.action,
         Action::Attention | Action::StopLaunchingKind | Action::ItemAttentionNoRetry
     );
     Classification {
         row: n,
-        kind,
-        accept,
-        action,
+        sub: sub.to_string(),
+        kind: r.kind,
+        accept: r.accept,
+        action: r.action,
         resume_from_r: false,
+        resume_from: None,
         time_decided: false,
         attention,
         why: why.into(),
     }
 }
 
+/// The decision table as the markdown block of child-job.md 6.5 (generated from [`ROWS`]).
+pub fn decision_table_markdown() -> String {
+    let mut s = String::from("| # | condition | kind | accept | ledger action |\n|---|---|---|---|---|\n");
+    for r in ROWS.iter() {
+        let name = |v: String| v.trim_matches('"').to_string();
+        s.push_str(&format!(
+            "| {}{} | {} | {} | {} | {} |\n",
+            r.row,
+            r.sub,
+            r.condition,
+            name(serde_json::to_string(&r.kind).unwrap()),
+            name(serde_json::to_string(&r.accept).unwrap()),
+            name(serde_json::to_string(&r.action).unwrap()),
+        ));
+    }
+    s
+}
+
 fn is_stop_signal(s: i32) -> bool {
     matches!(s, SIGKILL | SIGTERM | SIGINT | SIGHUP)
 }
 
+/// An exit status 128+N (a shell or `timeout` wrapper reporting death by signal N) is read as signal N (audit A m3).
+pub fn normalise_wait(w: WaitStatus) -> WaitStatus {
+    match w {
+        WaitStatus::Exited(c) if (129..=192).contains(&c) => WaitStatus::Signaled(c - 128),
+        w => w,
+    }
+}
+
 /// Apply the decision table.
 pub fn classify(e: &Evidence) -> Classification {
-    use Accept::*;
     use Action::*;
-    use OutcomeKind::*;
-
-    // normalise O
+    let wait = normalise_wait(e.wait);
     let mut o_state = e.outcome.clone();
     if let OutcomeState::Valid(o) = &o_state
-        && let WaitStatus::Exited(c) = e.wait
+        && let WaitStatus::Exited(c) = wait
         && c != o.exit_code.code()
     {
         o_state = OutcomeState::Invalid(format!(
@@ -216,44 +341,34 @@ pub fn classify(e: &Evidence) -> Classification {
             o.exit_code.code()
         ));
     }
-    if let OutcomeState::Valid(o) = &o_state {
-        let elided = o
-            .outputs
-            .table
-            .as_ref()
-            .map_or(0, |t| t.witness_loci_elided);
-        if e.elision_forbidden && elided > 0 {
-            o_state = OutcomeState::Invalid(format!(
-                "{elided} witness loci elided although the spec forbids elision"
-            ));
-        }
+    let elided = e.verified.as_ref().map_or(0, |v| v.elided_loci);
+    if let OutcomeState::Valid(_) = &o_state
+        && e.elision_forbidden
+        && elided > 0
+    {
+        o_state = OutcomeState::Invalid(format!(
+            "{elided} elided witness loci found by the verifier although the spec forbids elision"
+        ));
     }
-    let sealed = e.sealed || !e.kind.produces_table();
     let r = e.resume_valid;
-
-    // 6.6: wait status unknown
-    let wait = match (e.wait, &o_state) {
+    let wait = match (wait, &o_state) {
         (WaitStatus::Unknown, OutcomeState::Valid(o)) => WaitStatus::Exited(o.exit_code.code()),
-        (WaitStatus::Unknown, _) => {
+        (WaitStatus::Unknown, OutcomeState::Absent) => {
             let mut c = if r {
-                row(
-                    21,
-                    Lost,
-                    Nothing,
-                    ResumeOnceThenAttention,
-                    "supervisor restart: no valid OUTCOME, RESUME valid",
-                )
+                row(21, "b", "supervisor restart: no OUTCOME, RESUME valid")
             } else {
-                row(
-                    21,
-                    Lost,
-                    Nothing,
-                    RestartFromScratch,
-                    "supervisor restart: no valid OUTCOME, no valid RESUME",
-                )
+                row(21, "c", "supervisor restart: no OUTCOME, no valid RESUME")
             };
             c.resume_from_r = r;
+            c.resume_from = if r { e.resume_ref.clone() } else { None };
             return c;
+        }
+        (WaitStatus::Unknown, OutcomeState::Invalid(w) | OutcomeState::Unreadable(w)) => {
+            return row(
+                22,
+                "",
+                format!("contract violation (supervisor restart): OUTCOME {w}"),
+            );
         }
         (w, _) => w,
     };
@@ -262,7 +377,7 @@ pub fn classify(e: &Evidence) -> Classification {
         _ => None,
     };
     let o_time = o.is_some_and(|o| o.time_decided);
-    let mut out = decide(wait, o, &o_state, sealed, e.kill, e.oom_kill_observed);
+    let mut out = decide(e, wait, o, &o_state);
     if matches!(
         out.action,
         LadderDecides
@@ -274,6 +389,7 @@ pub fn classify(e: &Evidence) -> Classification {
             | ResumeOnceIfValidElseAttention
     ) {
         out.resume_from_r = r;
+        out.resume_from = if r { e.resume_ref.clone() } else { None };
     }
     if out.action == ResumeOnceIfValidElseAttention && !r {
         out.attention = true;
@@ -283,277 +399,191 @@ pub fn classify(e: &Evidence) -> Classification {
 }
 
 fn decide(
+    e: &Evidence,
     wait: WaitStatus,
     o: Option<&JobOutcome>,
     o_state: &OutcomeState,
-    s: bool,
-    k: KillReason,
-    oom: bool,
 ) -> Classification {
-    use Accept::*;
-    use Action::*;
-    use OutcomeKind::*;
+    let (k, oom) = (e.kill, e.oom_kill_observed);
     if let WaitStatus::Exited(c) = wait {
         if let Some(o) = o {
             let stop = o.stop.code;
-            let rules = o
-                .counters
-                .rules_committed
-                .max(o.outputs.table.as_ref().map_or(0, |t| t.rules_committed));
-            match c {
-                0 if s => return row(1, Complete, Canonical, ItemDone, "exit 0, OUTCOME, sealed"),
-                10 if s && stop == Some(StopCode::MaxCases) => {
-                    if rules >= 1 {
-                        return row(
-                            2,
-                            RuleFound,
-                            Canonical,
-                            QueueChildren,
-                            "max_cases with committed rules",
-                        );
-                    }
-                    if !o.per_case.is_empty() && o.per_case.iter().all(|p| p.result.needs_no_rule())
-                    {
-                        return row(
-                            3,
-                            Complete,
-                            Nothing,
-                            ItemDoneNoRule,
-                            "max_cases, no rule, nothing needed",
-                        );
-                    }
+            if matches!(c, 0 | 10 | 20) {
+                if e.kind.sealed_outputs().is_none() {
+                    return row(26, "", "success of a kind without a sealing rule");
+                }
+                if e.kind.is_checker() && c != 0 {
                     return row(
-                        24,
-                        NoRule,
-                        Nothing,
-                        NextRung,
-                        "max_cases, no rule, a case result needs a rule",
+                        22,
+                        "",
+                        format!("contract violation: exit {c} is not an exit code of a checker kind"),
                     );
                 }
-                10 if s
-                    && matches!(
-                        stop,
+                let Some(v) = &e.verified else {
+                    return row(
+                        22,
+                        "",
+                        format!(
+                            "contract violation: OUTCOME but the outputs are not sealed: {}",
+                            e.unsealed_why.as_deref().unwrap_or("not verified")
+                        ),
+                    );
+                };
+                if v.elided_loci > 0 {
+                    return row(
+                        25,
+                        "",
+                        format!("{} elided witness loci (elision allowed)", v.elided_loci),
+                    );
+                }
+                let rules = v.rules;
+                match (c, stop) {
+                    (0, _) => return row(1, "", "exit 0, OUTCOME, sealed"),
+                    (10, Some(StopCode::MaxCases)) => {
+                        if rules >= 1 {
+                            return row(2, "", "max_cases with verified rules");
+                        }
+                        if !o.per_case.is_empty()
+                            && o.per_case.iter().all(|p| p.result.needs_no_rule())
+                        {
+                            return row(3, "", "max_cases, no rule, nothing needed");
+                        }
+                        return row(24, "", "max_cases, no rule, a case result needs a rule");
+                    }
+                    (
+                        10,
                         Some(
                             StopCode::LiftRefused
-                                | StopCode::GuardTimeout
-                                | StopCode::NumericSearchRefused
-                                | StopCode::BeforeNumeric
-                        )
-                    ) =>
-                {
-                    return row(4, NoRule, CommittedRules, NextRung, "refused stop");
+                            | StopCode::GuardTimeout
+                            | StopCode::NumericSearchRefused
+                            | StopCode::BeforeNumeric,
+                        ),
+                    ) => return row(4, "", "refused stop"),
+                    (10, Some(StopCode::OpenRegions | StopCode::OpenObligations)) => {
+                        return if rules >= 1 {
+                            row(5, "", "open regions / obligations")
+                        } else {
+                            row(27, "", "open regions / obligations, no rule")
+                        };
+                    }
+                    (10, Some(StopCode::NotLower)) => {
+                        return row(6, "", "engine invariant: not_lower");
+                    }
+                    (20, _) => return row(8, "", "work budget (deterministic)"),
+                    _ => {
+                        return row(22, "", format!("contract violation: exit {c} with stop {stop:?}"));
+                    }
                 }
-                10 if s
-                    && matches!(
-                        stop,
-                        Some(StopCode::OpenRegions | StopCode::OpenObligations)
-                    ) =>
-                {
+            }
+            match c {
+                11 | 12 if !e.kind.is_checker() => {
                     return row(
-                        5,
-                        RuleFound,
-                        Canonical,
-                        QueueOpenList,
-                        "open regions / obligations",
+                        22,
+                        "",
+                        format!("contract violation: exit {c} is a checker verdict of a producing kind"),
                     );
                 }
-                10 if s && stop == Some(StopCode::NotLower) => {
-                    return row(
-                        6,
-                        Crashed,
-                        Nothing,
-                        Attention,
-                        "engine invariant: not_lower",
-                    );
-                }
-                11 => {
-                    return row(
-                        7,
-                        DecidedNegative,
-                        Nothing,
-                        RecordNegativeVerdict,
-                        "checker decided FAIL",
-                    );
-                }
-                12 => {
-                    return row(
-                        7,
-                        Undecided,
-                        Nothing,
-                        OtherToolOrAttention,
-                        "checker undecided",
-                    );
-                }
-                20 if s => {
-                    return row(
-                        8,
-                        Spill,
-                        CommittedRules,
-                        NextRungAfterSpill,
-                        "work budget (deterministic)",
-                    );
-                }
+                11 => return row(7, "", "checker decided FAIL"),
+                12 => return row(7, "b", "checker undecided"),
                 21 => {
-                    let mut x = row(9, KilledTime, Nothing, LadderDecides, "wall budget");
+                    let mut x = row(9, "", "wall budget");
                     x.time_decided = true;
                     return x;
                 }
-                22 => {
-                    return row(
-                        10,
-                        KilledMemory,
-                        Nothing,
-                        NextMemoryClassOrRung,
-                        "soft memory limit",
-                    );
-                }
-                30 => {
-                    return row(
-                        11,
-                        Interrupted,
-                        Nothing,
-                        ResumeOnCampaignResume,
-                        "interrupted",
-                    );
-                }
+                22 => return row(10, "", "soft memory limit"),
+                30 => return row(11, "", "interrupted"),
                 _ => {}
             }
         }
         match c {
-            40 => {
-                return row(
-                    12,
-                    UsageError,
-                    Nothing,
-                    StopLaunchingKind,
-                    "usage error (supervisor bug)",
-                );
-            }
-            41 => return row(13, Refused, Nothing, ItemAttentionNoRetry, "input refused"),
-            42 => return row(14, Refused, Nothing, Attention, "contract refusal"),
-            50 => return row(15, Lost, Nothing, PauseAllLaunches, "no space"),
-            51 => {
-                return row(
-                    16,
-                    Crashed,
-                    Nothing,
-                    RetryOnceThenAttention,
-                    "output I/O error",
-                );
-            }
-            70 if o.is_some() => {
-                return row(
-                    17,
-                    Crashed,
-                    Nothing,
-                    RetrySameSpecOnceThenAttention,
-                    "internal error",
-                );
-            }
+            40 => return row(12, "", "usage error (supervisor bug)"),
+            41 => return row(13, "", "input refused"),
+            42 => return row(14, "", "contract refusal"),
+            50 => return row(15, "", "no space"),
+            51 => return row(16, "", "output I/O error"),
+            70 if o.is_some() => return row(17, "", "internal error"),
             _ => {}
         }
     }
     if let WaitStatus::Signaled(sig) = wait {
         if sig == SIGKILL && (k == KillReason::Memory || oom) {
-            return row(
-                18,
-                KilledMemory,
-                Nothing,
-                NextMemoryClassOrRung,
-                "SIGKILL for memory",
-            );
+            return row(18, "", "SIGKILL for memory");
         }
         if is_stop_signal(sig) && matches!(k, KillReason::Time | KillReason::Unresponsive) {
-            let mut x = row(
-                19,
-                KilledTime,
-                Nothing,
-                LadderDecides,
-                "killed for time / unresponsive",
-            );
+            let mut x = row(19, "", "killed for time / unresponsive");
             x.time_decided = true;
             return x;
         }
         if is_stop_signal(sig) && k == KillReason::Stop {
-            return row(
-                20,
-                Interrupted,
-                Nothing,
-                ResumeOnCampaignResume,
-                "killed on a stop request",
-            );
+            return row(20, "", "killed on a stop request");
         }
         if sig == SIGKILL && k == KillReason::None && matches!(o_state, OutcomeState::Absent) {
-            return row(
-                21,
-                Lost,
-                Nothing,
-                ResumeOnceThenAttention,
-                "SIGKILL from outside, no OUTCOME",
-            );
+            return row(21, "", "SIGKILL from outside, no OUTCOME");
         }
     }
     match o_state {
-        OutcomeState::Invalid(why) => {
-            return row(
-                22,
-                Crashed,
-                Nothing,
-                Attention,
-                format!("contract violation: {why}"),
-            );
-        }
-        OutcomeState::Unreadable(why) => {
-            return row(
-                22,
-                Crashed,
-                Nothing,
-                Attention,
-                format!("contract violation: OUTCOME unreadable: {why}"),
-            );
-        }
-        OutcomeState::Valid(_) if matches!(wait, WaitStatus::Exited(0 | 10 | 20)) && !s => {
-            return row(
-                22,
-                Crashed,
-                Nothing,
-                Attention,
-                "contract violation: OUTCOME but the table is not sealed",
-            );
-        }
-        _ => {}
+        OutcomeState::Invalid(why) => row(22, "", format!("contract violation: {why}")),
+        OutcomeState::Unreadable(why) => row(
+            22,
+            "",
+            format!("contract violation: OUTCOME unreadable: {why}"),
+        ),
+        _ => row(23, "", "crashed"),
     }
-    row(
-        23,
-        Crashed,
-        Nothing,
-        ResumeOnceIfValidElseAttention,
-        "crashed",
-    )
 }
 
-/// Validity of `RESUME.json` for `spec` (3.4.4 item 3): parses, schema, job_id / attempt match, and the BLAKE3 of
-/// the first `table_committed_bytes` bytes of `out/F.table.jsonl` is `table_prefix_blake3`.
-pub fn resume_state(layout: &RunLayout, spec: &JobSpec) -> Result<ResumeState, String> {
-    let b = std::fs::read(layout.resume()).map_err(|e| e.to_string())?;
+fn read_layout_file(layout: &RunLayout, rel: &str) -> Result<Option<Vec<u8>>, String> {
+    use std::io::Read;
+    if std::fs::symlink_metadata(layout.root.join(rel)).is_err() {
+        return Ok(None);
+    }
+    let (mut f, _, _) = open_in_run(&layout.root, rel).map_err(|e| e.to_string())?;
+    let mut b = Vec::new();
+    f.read_to_end(&mut b).map_err(|e| e.to_string())?;
+    Ok(Some(b))
+}
+
+/// Validity of THIS attempt's `RESUME.json` (3.4.4 item 3, revised by audit A C1 / M7): it parses, passes
+/// `check()`, its job_id / attempt / spec_blake3 are this attempt's, and every committed prefix it names is exactly
+/// there in this run's files. Returns the record and the reference a next attempt must use.
+pub fn resume_state(
+    layout: &RunLayout,
+    spec: &JobSpec,
+    spec_blake3: &str,
+) -> Result<(ResumeState, ResumeRef), String> {
+    let b = read_layout_file(layout, crate::layout::RESUME)?.ok_or("no RESUME.json")?;
     let r: ResumeState = serde_json::from_slice(&b).map_err(|e| e.to_string())?;
     r.check()?;
-    if r.job_id != spec.job_id || r.attempt != spec.attempt {
-        return Err("RESUME job_id / attempt do not match the spec".into());
+    if r.job_id != spec.job_id || r.attempt != spec.attempt || r.spec_blake3 != spec_blake3 {
+        return Err("RESUME job_id / attempt / spec_blake3 are not this attempt's".into());
     }
-    match prefix_blake3(&layout.table(), r.table_committed_bytes) {
-        Ok(Some(d)) if d == r.table_prefix_blake3 => Ok(r),
-        Ok(_) => Err("committed prefix digest mismatch".into()),
-        Err(e) => Err(format!("table: {e}")),
+    verify_prefix(&layout.root, &r.table, &TABLE_END_TYPES).map_err(|e| format!("table: {e}"))?;
+    if let Some(q) = &r.queue {
+        verify_prefix(&layout.root, q, &TABLE_END_TYPES).map_err(|e| format!("queue: {e}"))?;
+    }
+    let rref = resume_ref_for(layout, &b);
+    Ok((r, rref))
+}
+
+/// The `spec.resume` of a next attempt: the run's RESUME.json by absolute path and the digest of its bytes `b`.
+/// This is the ONLY resume source; OUTCOME's `committed_bytes` / `prefix_blake3` are informational (they may be
+/// ahead of RESUME after a hard-safe stop) and never used.
+pub fn resume_ref_for(layout: &RunLayout, b: &[u8]) -> ResumeRef {
+    let root = std::fs::canonicalize(&layout.root).unwrap_or_else(|_| layout.root.clone());
+    ResumeRef {
+        from: root.join(crate::layout::RESUME).display().to_string(),
+        blake3: crate::blake3_hex(b),
     }
 }
 
-/// The OUTCOME state of a run for `spec`.
-pub fn outcome_state(layout: &RunLayout, spec: &JobSpec) -> OutcomeState {
-    let b = match std::fs::read(layout.outcome()) {
-        Ok(b) => b,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return OutcomeState::Absent,
-        Err(e) => return OutcomeState::Unreadable(e.to_string()),
+/// The OUTCOME state of a run for THIS attempt: OUTCOME parses (read without following symlinks), passes `check()`,
+/// matches job_id / attempt / kind / spec_blake3 (M1), and the run's `job.json` is still the spec the supervisor
+/// wrote (its digest is `spec_blake3`).
+pub fn outcome_state(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str) -> OutcomeState {
+    let b = match read_layout_file(layout, crate::layout::OUTCOME) {
+        Ok(Some(b)) => b,
+        Ok(None) => return OutcomeState::Absent,
+        Err(e) => return OutcomeState::Unreadable(e),
     };
     let o = match Outcome::from_slice(&b) {
         Ok(o) => o,
@@ -562,45 +592,157 @@ pub fn outcome_state(layout: &RunLayout, spec: &JobSpec) -> OutcomeState {
     if let Err(m) = o.job.check() {
         return OutcomeState::Invalid(m);
     }
-    if !o.job.matches(spec) {
-        return OutcomeState::Invalid("job_id / attempt / kind do not match the spec".into());
+    if !o.job.matches(spec, spec_blake3) {
+        return OutcomeState::Invalid(
+            "job_id / attempt / kind / spec_blake3 are not this attempt's".into(),
+        );
+    }
+    match read_layout_file(layout, crate::layout::JOB_SPEC) {
+        Ok(Some(j)) if crate::spec::spec_blake3(&j) == spec_blake3 => {}
+        _ => {
+            return OutcomeState::Invalid(
+                "RUN/job.json is not the spec the supervisor wrote".into(),
+            );
+        }
     }
     OutcomeState::Valid(Box::new(o.job))
 }
 
-/// The seal verdict of a run's table (`None` for kinds without a table or without a valid OUTCOME).
-pub fn table_verdict(layout: &RunLayout, kind: JobKind, o: &OutcomeState) -> Option<SealVerdict> {
-    if !kind.produces_table() {
-        return None;
-    }
-    let OutcomeState::Valid(o) = o else {
-        return None;
+/// Verify every output of the kind's sealing rule at its layout path against OUTCOME (S). `Err(reason)`: not sealed;
+/// a [`UnsealReason::PathNotLayout`] is a contract violation (the caller marks OUTCOME invalid).
+pub fn verify_outputs(
+    layout: &RunLayout,
+    kind: JobKind,
+    o: &JobOutcome,
+) -> Result<VerifiedOutputs, UnsealReason> {
+    let Some(rules) = kind.sealed_outputs() else {
+        return Err(UnsealReason::MissingOutput("no sealing rule for this kind".into()));
     };
-    Some(match &o.outputs.table {
-        None => SealVerdict::Unsealed(UnsealReason::OutcomeIncomplete),
-        Some(t) => verify_sealed(&layout.resolve(&t.path), t),
-    })
+    for x in &o.outputs.extra {
+        if !rules.iter().any(|r| r.role == x.role && r.role != "table") {
+            return Err(UnsealReason::MissingOutput(format!(
+                "outputs.extra role {:?} is not in the kind's sealing rule",
+                x.role
+            )));
+        }
+    }
+    let mut v = VerifiedOutputs {
+        rules: 0,
+        elided_loci: 0,
+        streams: Vec::new(),
+    };
+    for r in rules {
+        let rel = RunLayout::out_rel(r.file);
+        let s = if r.role == "table" {
+            let Some(t) = &o.outputs.table else {
+                return Err(UnsealReason::MissingOutput("table".into()));
+            };
+            match verify_table(layout, t) {
+                SealVerdict::Sealed(s) => {
+                    if o.counters.rules_committed != s.rules {
+                        return Err(UnsealReason::RuleCountMismatch {
+                            expected: o.counters.rules_committed,
+                            actual: s.rules,
+                        });
+                    }
+                    v.rules = s.rules;
+                    *s
+                }
+                SealVerdict::Unsealed(u) => return Err(u),
+            }
+        } else {
+            let Some(x) = o.outputs.extra.iter().find(|x| x.role == r.role) else {
+                return Err(UnsealReason::MissingOutput(r.role.into()));
+            };
+            if x.path != rel {
+                return Err(UnsealReason::PathNotLayout(x.path.clone()));
+            }
+            if !x.sealed {
+                return Err(UnsealReason::OutcomeNotSealed);
+            }
+            let s = verify_stream(&layout.root, &rel, r.end_types)?;
+            compare_figures(
+                &s,
+                Some(x.bytes),
+                Some(&x.blake3),
+                x.records,
+                x.canonical_blake3.as_deref(),
+            )?;
+            match x.end {
+                Some(e) if e.as_str() == s.end => {}
+                _ => {
+                    return Err(UnsealReason::EndMismatch {
+                        outcome: format!("{:?}", x.end),
+                        file: s.end.clone(),
+                    });
+                }
+            }
+            s
+        };
+        v.elided_loci += s.elided_loci;
+        v.streams.push(s);
+    }
+    if let Some(c) = &o.outputs.cert {
+        let rel = RunLayout::out_rel(crate::layout::CERT);
+        if !c.sealed {
+            return Err(UnsealReason::OutcomeNotSealed);
+        }
+        let s = verify_stream(&layout.root, &rel, &CERT_END_TYPES)?;
+        if c.bytes != Some(s.bytes) || c.blake3.as_deref() != Some(s.blake3.as_str()) {
+            return Err(UnsealReason::DigestMismatch);
+        }
+        v.streams.push(s);
+    }
+    Ok(v)
 }
 
-/// Gather the evidence of a finished attempt from its run directory.
+/// Gather the evidence of a finished attempt from its run directory. `spec_blake3` is the supervisor's own digest of
+/// the `job.json` it wrote (never re-read from the run directory). Paths come from the layout only.
 pub fn assess(
     layout: &RunLayout,
     spec: &JobSpec,
+    spec_blake3: &str,
     wait: WaitStatus,
     kill: KillReason,
     oom_kill_observed: bool,
 ) -> Evidence {
-    let outcome = outcome_state(layout, spec);
-    let sealed = match table_verdict(layout, spec.kind, &outcome) {
-        None => !spec.kind.produces_table(),
-        Some(v) => v.is_sealed(),
-    };
+    let mut outcome = outcome_state(layout, spec, spec_blake3);
+    let mut verified = None;
+    let mut unsealed_why = None;
+    if let OutcomeState::Valid(o) = &outcome {
+        match verify_outputs(layout, spec.kind, o) {
+            Ok(v) => {
+                let fam = v.streams.first().and_then(|s| s.family_blake3.clone());
+                if let Some(f) = fam {
+                    let want = spec.inputs.iter().find(|i| i.role == "family");
+                    if want.is_none_or(|i| i.blake3 != f) {
+                        outcome = OutcomeState::Invalid(
+                            "table header family_blake3 is not the spec's family input digest".into(),
+                        );
+                    }
+                }
+                verified = Some(v);
+            }
+            Err(UnsealReason::PathNotLayout(p)) => {
+                outcome = OutcomeState::Invalid(format!(
+                    "OUTCOME names {p:?} instead of the layout path"
+                ));
+            }
+            Err(u) => unsealed_why = Some(u.to_string()),
+        }
+    }
+    if !matches!(outcome, OutcomeState::Valid(_)) {
+        verified = None;
+    }
+    let resume = resume_state(layout, spec, spec_blake3).ok();
     Evidence {
         kind: spec.kind,
         wait,
         outcome,
-        sealed,
-        resume_valid: resume_state(layout, spec).is_ok(),
+        verified,
+        unsealed_why,
+        resume_valid: resume.is_some(),
+        resume_ref: resume.map(|(_, r)| r),
         kill,
         oom_kill_observed,
         elision_forbidden: spec.elision_forbidden(),

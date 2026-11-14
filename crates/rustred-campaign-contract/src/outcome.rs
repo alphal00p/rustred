@@ -258,13 +258,22 @@ pub struct ResumeOutput {
     pub valid: bool,
 }
 
-/// One of `job.outputs.extra`.
+/// One of `job.outputs.extra`: a sealed JSONL result file of the kind's sealing rule (audit A M4; role and layout
+/// path from [`crate::spec::JobKind::sealed_outputs`]). Every figure is recomputed by the verifier.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtraOutput {
     pub role: String,
     pub path: String,
     pub bytes: u64,
     pub blake3: String,
+    #[serde(default)]
+    pub records: Option<u64>,
+    #[serde(default)]
+    pub canonical_blake3: Option<String>,
+    #[serde(default)]
+    pub end: Option<EndKind>,
+    #[serde(default)]
+    pub sealed: bool,
 }
 
 /// `job.outputs`.
@@ -430,7 +439,9 @@ impl JobOutcome {
     /// Internal consistency (fails closed; the supervisor treats a failure as a contract violation):
     /// schema; status = status of the exit code; the stop code is consistent with the exit code; `time_decided`
     /// iff `time_decisions` is non-empty, or the stop is a wall budget; a sealed table names bytes, digest and end
-    /// kind, and its end is `end` iff the stop is null; digests are hex; error message length.
+    /// kind, and its end is `end` iff the stop is null; digests are hex; error message length. Revised by audit A
+    /// (C2, M3, m2): layout paths only; a sealed table names every figure the verifier re-checks; `error` is null
+    /// for exit 0 / 10 / 11 / 12 / 20; `stop.graceful = false` only with 21 / 22 / 30 / 70.
     pub fn check(&self) -> Result<(), String> {
         if self.schema != OUTCOME_SCHEMA {
             return Err(format!(
@@ -467,25 +478,71 @@ impl JobOutcome {
             return Err("time_decided must be true iff time_decisions is non-empty or the stop is budget_wall".into());
         }
         if let Some(t) = &self.outputs.table {
+            let rel = crate::layout::RunLayout::out_rel(crate::layout::TABLE);
+            if t.path != rel {
+                return Err(format!("outputs.table.path {:?} is not the layout path {rel:?}", t.path));
+            }
             if t.sealed {
-                let (Some(_), Some(d), Some(e)) = (t.bytes, &t.blake3, t.end) else {
-                    return Err("a sealed table needs bytes, blake3 and end".into());
+                let (Some(_), Some(d), Some(e), Some(_), Some(_), Some(c)) =
+                    (t.bytes, &t.blake3, t.end, t.records, t.rules, &t.canonical_blake3)
+                else {
+                    return Err(
+                        "a sealed table needs bytes, blake3, end, records, rules and canonical_blake3".into(),
+                    );
                 };
-                if !is_blake3_hex(d) {
-                    return Err("outputs.table.blake3 is not a BLAKE3 hex digest".into());
+                if !is_blake3_hex(d) || !is_blake3_hex(c) {
+                    return Err("outputs.table digests must be BLAKE3 hex".into());
                 }
                 if (e == EndKind::End) != self.stop.code.is_none() {
                     return Err("table end kind must be `end` iff there is no stop".into());
                 }
             }
-            for d in [&t.canonical_blake3, &t.prefix_blake3]
-                .into_iter()
-                .flatten()
+            if let Some(d) = &t.prefix_blake3
+                && !is_blake3_hex(d)
             {
-                if !is_blake3_hex(d) {
-                    return Err("outputs.table digests must be BLAKE3 hex".into());
-                }
+                return Err("outputs.table.prefix_blake3 must be BLAKE3 hex".into());
             }
+        }
+        if let Some(c) = &self.outputs.cert {
+            let rel = crate::layout::RunLayout::out_rel(crate::layout::CERT);
+            if c.path != rel {
+                return Err(format!("outputs.cert.path {:?} is not the layout path {rel:?}", c.path));
+            }
+        }
+        if let Some(r) = &self.outputs.resume
+            && r.path != crate::layout::RESUME
+        {
+            return Err(format!("outputs.resume.path {:?} is not {:?}", r.path, crate::layout::RESUME));
+        }
+        for x in &self.outputs.extra {
+            let ok = x.path.strip_prefix("out/").is_some_and(|n| {
+                !n.is_empty() && !n.contains('/') && n != "." && n != ".."
+            });
+            if !ok {
+                return Err(format!("outputs.extra path {:?} is not a file of out/", x.path));
+            }
+        }
+        let success = matches!(
+            self.exit_code,
+            ExitCode::Complete
+                | ExitCode::Incomplete
+                | ExitCode::DecidedNegative
+                | ExitCode::Undecided
+                | ExitCode::BudgetWork
+        );
+        if success && self.error.is_some() {
+            return Err(format!("exit code {} with a non-null error", self.exit_code));
+        }
+        if !self.stop.graceful
+            && !matches!(
+                self.exit_code,
+                ExitCode::BudgetWall | ExitCode::BudgetMemory | ExitCode::Interrupted | ExitCode::Internal
+            )
+        {
+            return Err(format!("stop.graceful false with exit code {}", self.exit_code));
+        }
+        if !is_blake3_hex(&self.spec_blake3) {
+            return Err("spec_blake3 is not a BLAKE3 hex digest".into());
         }
         if let Some(e) = &self.error
             && e.message.chars().count() > ERROR_MESSAGE_MAX
@@ -495,9 +552,14 @@ impl JobOutcome {
         Ok(())
     }
 
-    /// Whether this outcome belongs to `spec` (3.4.4: `job_id` / `attempt`; also the kind).
-    pub fn matches(&self, spec: &JobSpec) -> bool {
-        self.job_id == spec.job_id && self.attempt == spec.attempt && self.kind == spec.kind
+    /// Whether this outcome belongs to THIS attempt of THIS spec (audit A M1, B F5): `job_id`, `attempt`, `kind` and
+    /// `spec_blake3` all equal the supervisor's own values (`spec_blake3` = the digest of the `job.json` it wrote,
+    /// which also binds `run_dir`).
+    pub fn matches(&self, spec: &JobSpec, spec_blake3: &str) -> bool {
+        self.job_id == spec.job_id
+            && self.attempt == spec.attempt
+            && self.kind == spec.kind
+            && self.spec_blake3 == spec_blake3
     }
 }
 
@@ -524,8 +586,14 @@ impl Outcome {
         Ok(Outcome::from_slice(&std::fs::read(path)?))
     }
 
-    /// Atomic write (temp + fsync + rename + directory fsync).
+    /// Atomic write that REPLACES an existing file (temp + fsync + rename + directory fsync): tests and tools only.
     pub fn write_atomic(&self, path: &Path) -> std::io::Result<()> {
         crate::atomic::write_atomic(path, &self.to_bytes())
+    }
+
+    /// The child's OUTCOME write (audit A C4): atomic and NO-CLOBBER ([`crate::atomic::write_atomic_new`]); fails
+    /// with `AlreadyExists` when an OUTCOME is already there.
+    pub fn write_new(&self, path: &Path) -> std::io::Result<()> {
+        crate::atomic::write_atomic_new(path, &self.to_bytes())
     }
 }
