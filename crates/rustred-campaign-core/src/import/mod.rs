@@ -12,6 +12,7 @@
 pub mod check;
 pub mod error;
 pub mod evidence;
+pub mod factpass;
 pub mod lines;
 pub mod load;
 pub mod recipe_steps;

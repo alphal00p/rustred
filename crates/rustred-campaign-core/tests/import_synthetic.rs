@@ -1428,3 +1428,92 @@ fn recipe_step_grammar_and_explicit_seeds() {
     assert_eq!(g.len(), 3);
     assert_eq!(g[0].recipe["domain"]["fixed"], json!([2, 1, 0]));
 }
+
+/// The STREAMING fact pass (interfaces/import.md 13.8) after a Tier K check: per compact fact line, regularity at the
+/// winning record, required-zero terms, non-zero edges; keys reached only through zero terms are reported unreached.
+#[test]
+fn streaming_fact_pass_after_a_tier_k_check() {
+    use import::factpass::fact_pass;
+    use import::lines::term_key_digest;
+    let d = scratch("factpass");
+    // witness-absent rule (pre-guard): I(n0,1,0) -> I(n0-1,1,0) + I(n0,0,0) + I(n0,1,1) (positive numerator), n0 >= 2
+    let a = write_table(
+        &d,
+        "A.table.jsonl",
+        &[rule(
+            0,
+            [None, Some(1), Some(0)],
+            &["I(n0-1,1,0)", "I(n0,0,0)", "I(n0,1,1)"],
+            None,
+            json!({"exceptions":[["n0-1"]]}),
+        )],
+    );
+    let st = write_keys(&d, &[[3, 1, 0]]);
+    let spec = json!({"schema":"rustred.campaign.import-spec.v1","frame_from":"A","policies":{"tier":"K"},
+        "start":{"path": st.display().to_string(),"format":"keys_jsonl"},
+        "sources":[{"id":"A","kind":"engine_table","path":a.display().to_string()}]});
+    let (set, ev, _r) = run(&spec, &d);
+    let sha = set.rules[0][0].record_sha256.clone();
+    // Tier K superset: I(3,1,0) -> I(2,1,0) -> I(1,1,0) (the last uncovered: exception n0 = 1)
+    let res =
+        import::check::check_streamed(&set, &ev, &CheckOptions::default(), &d.join("rows.jsonl"))
+            .unwrap();
+    assert_eq!(res.summary.keys_total, 3);
+    let hex = |k: [i32; 3]| format!("{:016x}", term_key_digest(&k));
+    let line = |k: [i32; 3], nz: Vec<String>| {
+        json!({"schema":"rustred.campaign.fact-verdict.v1","index":0,"record_sha256":sha,"key":k,
+            "verdict":"regular","n_terms":3,"nonzero":nz})
+        .to_string()
+    };
+    // (1) I(3,1,0): the top term non-zero (edge), I(2,1,0): the top term ZERO -> I(1,1,0) unreached (the open key goes)
+    let f1 = d.join("facts1.jsonl");
+    std::fs::write(
+        &f1,
+        format!(
+            "{}\n{}\n",
+            line([3, 1, 0], vec![hex([2, 1, 0]), hex([3, 0, 0])]),
+            line([2, 1, 0], vec![hex([2, 0, 0])])
+        ),
+    )
+    .unwrap();
+    let rep = fact_pass(&set, &res, &[f1.as_path()]).unwrap();
+    assert_eq!(
+        (
+            rep.regular,
+            rep.served_without_regularity,
+            rep.blocked_lifted
+        ),
+        (2, 0, 2)
+    );
+    assert_eq!((rep.failures_total, rep.edges_nonzero), (0, 1));
+    assert_eq!(
+        (rep.unreached_total, rep.open_unreached, rep.open_total),
+        (1, 1, 1)
+    );
+    assert_eq!(rep.unreached, vec![vec![1, 1, 0]]);
+    // (2) the positive-numerator term listed non-zero at I(3,1,0): a failure; I(2,1,0) without a line: no regularity
+    let f2 = d.join("facts2.jsonl");
+    std::fs::write(
+        &f2,
+        format!(
+            "{}\n",
+            line([3, 1, 0], vec![hex([2, 1, 0]), hex([3, 1, 1])])
+        ),
+    )
+    .unwrap();
+    let rep = fact_pass(&set, &res, &[f2.as_path()]).unwrap();
+    assert_eq!(rep.failures_total, 1);
+    assert_eq!(rep.failures[0].2, vec![3, 1, 1]);
+    assert_eq!(rep.served_without_regularity, 1);
+    // the in-memory check result gives the same report
+    let mem = check(&set, &ev, &CheckOptions::default()).unwrap();
+    let rep_mem = fact_pass(&set, &mem, &[f1.as_path()]).unwrap();
+    assert_eq!(
+        (
+            rep_mem.regular,
+            rep_mem.unreached_total,
+            rep_mem.edges_nonzero
+        ),
+        (2, 1, 1)
+    );
+}
