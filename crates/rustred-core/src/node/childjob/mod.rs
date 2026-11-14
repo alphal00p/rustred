@@ -27,19 +27,19 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU8, AtomicU64, O
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
-use rustred_campaign_contract as cc;
 use cc::events::{Event, EventSink, Phase};
 use cc::layout::{CERT, QUEUE, RESUME, RunLayout, TABLE};
 use cc::outcome::{
-    Effective, ErrorClass, ErrorInfo, EventsOutput, ExeInfo, InputCheck, JobOutcome,
-    Memory, Outcome, Outputs, PerCase, ProgramInfo, QueueOutput, ResumeOutput, StopInfo,
-    StreamOutput, TableOutput, TimeDecision, TimeDecisionWhat, Timing,
+    Effective, ErrorClass, ErrorInfo, EventsOutput, ExeInfo, InputCheck, JobOutcome, Memory,
+    Outcome, Outputs, PerCase, ProgramInfo, QueueOutput, ResumeOutput, StopInfo, StreamOutput,
+    TableOutput, TimeDecision, TimeDecisionWhat, Timing,
 };
 use cc::resume::{CaseSpec as JobCase, CommittedFile, Frame, ResumeState};
 use cc::seal::{CERT_END_TYPES, StreamDigest, TABLE_END_TYPES};
 use cc::spec::{Counters, JobSpec, WorkCounter};
 use cc::stop::{CaseResult, JobStatus, StopCode, StopSource};
 use cc::{ExitCode, RESUME_SCHEMA};
+use rustred_campaign_contract as cc;
 use serde_json::Value;
 
 use super::driver::{CaseSpec, StopReason};
@@ -305,7 +305,12 @@ pub(crate) fn queue_lists<const N: usize>(
             .collect(),
         numerical: numerical
             .iter()
-            .map(|p| p.fixed()[..n].iter().map(|v| v.map_or(0, i64::from)).collect())
+            .map(|p| {
+                p.fixed()[..n]
+                    .iter()
+                    .map(|v| v.map_or(0, i64::from))
+                    .collect()
+            })
             .collect(),
         deferred: deferred
             .iter()
@@ -325,7 +330,11 @@ fn job_case(c: &CaseSpec) -> JobCase {
     JobCase {
         frame: Frame::Presented,
         fixed: c.fixed.clone(),
-        equations: c.equations.iter().map(|e| Value::from(e.as_str())).collect(),
+        equations: c
+            .equations
+            .iter()
+            .map(|e| Value::from(e.as_str()))
+            .collect(),
         seed_centre_offset: None,
         extra: Default::default(),
     }
@@ -345,7 +354,9 @@ pub fn case_boundary(
     numerical: bool,
     open: &mut dyn FnMut() -> OpenQueue,
 ) -> Result<Boundary, String> {
-    let Some(j) = job() else { return Ok(Boundary::Go) };
+    let Some(j) = job() else {
+        return Ok(Boundary::Go);
+    };
     j.commit_point(out, qlog, symbolic_cases)?;
     lock(&j.st).engine = counters;
     let current = job_case(&current);
@@ -379,7 +390,9 @@ pub fn case_boundary(
         }
         if numerical || !own.as_ref().is_some_and(|s| s.contains(&key)) {
             drop(own);
-            lock(&j.st).returned.push((if numerical { "numeric" } else { "case" }, current));
+            lock(&j.st)
+                .returned
+                .push((if numerical { "numeric" } else { "case" }, current));
             return Ok(Boundary::Skip);
         }
     }
@@ -610,7 +623,11 @@ impl Job {
         }
     }
 
-    fn digest_commit(&self, slot: &Mutex<Option<Arc<Mutex<StreamDigest>>>>, rel: &str) -> Result<Option<CommittedFile>, String> {
+    fn digest_commit(
+        &self,
+        slot: &Mutex<Option<Arc<Mutex<StreamDigest>>>>,
+        rel: &str,
+    ) -> Result<Option<CommittedFile>, String> {
         let Some(d) = lock(slot).clone() else {
             return Ok(None);
         };
@@ -726,7 +743,8 @@ impl Job {
         self.case_started_ms
             .store(self.started.elapsed().as_millis() as i64, Relaxed);
         if numerical {
-            self.counter(WorkCounter::NumericPoints).fetch_add(1, Relaxed);
+            self.counter(WorkCounter::NumericPoints)
+                .fetch_add(1, Relaxed);
         }
         self.set_phase(if numerical {
             Phase::Numeric
@@ -866,8 +884,7 @@ impl Job {
             j.per_case = s.per_case.clone();
             j.time_decisions = s.time_decisions.clone();
         }
-        j.time_decided =
-            !j.time_decisions.is_empty() || j.stop.code == Some(StopCode::BudgetWall);
+        j.time_decided = !j.time_decisions.is_empty() || j.stop.code == Some(StopCode::BudgetWall);
         let (rules, commit) = st.map_or((0, empty_commit(&RunLayout::out_rel(TABLE))), |s| {
             (s.rules_committed, s.table_commit.clone())
         });
@@ -992,7 +1009,12 @@ fn case_result(types: &[&str]) -> CaseResult {
         CaseResult::Finite
     } else if has(&["declared_terminal"]) {
         CaseResult::DeclaredTerminal
-    } else if has(&["covered", "union_covered", "numerical_covered", "subsumed_by_pending"]) {
+    } else if has(&[
+        "covered",
+        "union_covered",
+        "numerical_covered",
+        "subsumed_by_pending",
+    ]) {
         CaseResult::Covered
     } else if has(&[
         "lift_refused",
@@ -1077,7 +1099,11 @@ fn watchdog(j: Arc<Job>) {
             }
         }
         if let Some(lim) = j.spec.budgets.mem_soft_bytes {
-            let kb = proc::rss_kb(0) + proc::live_helpers().iter().map(|&p| proc::rss_kb(p)).sum::<u64>();
+            let kb = proc::rss_kb(0)
+                + proc::live_helpers()
+                    .iter()
+                    .map(|&p| proc::rss_kb(p))
+                    .sum::<u64>();
             if kb * 1024 > lim {
                 j.request_stop(StopSource::Memory);
             }
@@ -1392,17 +1418,11 @@ pub fn run_generate(start: JobStart, resolve: &dyn Fn(&JobSpec) -> Resolved) -> 
     let out_dir = j.layout.out_dir();
     let jj = j.clone();
     let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        super::driver::generate(
-            &r.family_text,
-            &r.family_path,
-            &out_dir,
-            &opts,
-            &mut |e| {
-                if let Ok(v) = serde_json::to_value(e) {
-                    let _ = jj.sink.emit(Event::Engine { event: v });
-                }
-            },
-        )
+        super::driver::generate(&r.family_text, &r.family_path, &out_dir, &opts, &mut |e| {
+            if let Ok(v) = serde_json::to_value(e) {
+                let _ = jj.sink.emit(Event::Engine { event: v });
+            }
+        })
     }));
     finish(&j, res)
 }
@@ -1411,7 +1431,10 @@ static PANIC_MESSAGE: Mutex<Option<String>> = Mutex::new(None);
 
 /// Write `out/F.subcases.jsonl` (records `{"type":"subcase","kind":"case|numeric|region|refused","case":{..}}` in
 /// PRESENTED slots, then `{"type":"end","subcases":N}`) and return its OUTCOME entry (role `subcases`).
-fn write_subcases(j: &Job, outcome: &super::driver::NodeOutcome) -> Option<cc::outcome::ExtraOutput> {
+fn write_subcases(
+    j: &Job,
+    outcome: &super::driver::NodeOutcome,
+) -> Option<cc::outcome::ExtraOutput> {
     let mut list: Vec<(&'static str, JobCase)> = Vec::new();
     {
         let st = j.st();
@@ -1421,7 +1444,8 @@ fn write_subcases(j: &Job, outcome: &super::driver::NodeOutcome) -> Option<cc::o
         }
     }
     match &outcome.stop {
-        Some(StopReason::LiftRefused { case, .. }) | Some(StopReason::GuardTimeout { case, .. }) => {
+        Some(StopReason::LiftRefused { case, .. })
+        | Some(StopReason::GuardTimeout { case, .. }) => {
             list.push(("refused", job_case(case)));
         }
         Some(StopReason::NumericSearchRefused { cases }) => {
@@ -1484,12 +1508,21 @@ fn restore(j: &Job, v: &cc::preflight::VerifiedResume) {
         equations: c
             .equations
             .iter()
-            .map(|e| e.as_str().map(str::to_string).unwrap_or_else(|| e.to_string()))
+            .map(|e| {
+                e.as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| e.to_string())
+            })
             .collect(),
     };
     let engine = |k: &str| r.engine.get(k).and_then(Value::as_u64).unwrap_or(0) as usize;
     let _ = RESUMED.set(Resumed {
-        cases: r.current.iter().chain(r.pending.iter()).map(spec_of).collect(),
+        cases: r
+            .current
+            .iter()
+            .chain(r.pending.iter())
+            .map(spec_of)
+            .collect(),
         numerical: r.numerical.clone(),
         rules,
         symbolic_cases: r.symbolic_cases as usize,
@@ -1514,8 +1547,13 @@ fn restore(j: &Job, v: &cc::preflight::VerifiedResume) {
 /// Copy the committed table and queue prefixes of the previous attempt into this run directory
 /// (`seal::RecordWriter::resume_from`: every figure verified while copying).
 fn copy_resume(v: &cc::preflight::VerifiedResume, layout: &RunLayout) -> Result<(), String> {
-    cc::seal::RecordWriter::resume_from(&v.prev.root, &v.state.table, &TABLE_END_TYPES, &layout.table())
-        .map_err(|e| format!("table prefix: {e}"))?;
+    cc::seal::RecordWriter::resume_from(
+        &v.prev.root,
+        &v.state.table,
+        &TABLE_END_TYPES,
+        &layout.table(),
+    )
+    .map_err(|e| format!("table prefix: {e}"))?;
     match &v.state.queue {
         Some(q) => {
             cc::seal::RecordWriter::resume_from(&v.prev.root, q, &TABLE_END_TYPES, &layout.queue())
@@ -1568,11 +1606,17 @@ fn unsupported_or_exit(spec: &JobSpec) {
     }
     let fam = spec.inputs.iter().filter(|i| i.role == "family").count();
     if fam != 1 {
-        fail(ExitCode::Usage, "a generate job needs exactly one input of role family");
+        fail(
+            ExitCode::Usage,
+            "a generate job needs exactly one input of role family",
+        );
     }
     for i in &spec.inputs {
         if !matches!(i.role.as_str(), "family" | "cases" | "cover") {
-            fail(ExitCode::Usage, &format!("input role {:?} is not known to generate", i.role));
+            fail(
+                ExitCode::Usage,
+                &format!("input role {:?} is not known to generate", i.role),
+            );
         }
         if i.role == "cover" && i.upto.is_none() {
             fail(ExitCode::Usage, "a cover input needs upto");
@@ -1589,13 +1633,21 @@ pub fn initial_cases(spec: &JobSpec) -> Vec<CaseSpec> {
         let p = spec.input_path(i);
         let text = std::fs::read_to_string(&p)
             .unwrap_or_else(|e| fail(ExitCode::Input, &format!("cases {}: {e}", p.display())));
-        for (k, line) in text.lines().enumerate().filter(|(_, l)| !l.trim().is_empty()) {
+        for (k, line) in text
+            .lines()
+            .enumerate()
+            .filter(|(_, l)| !l.trim().is_empty())
+        {
             match cc::resume::parse_cases_line(line) {
                 Ok(cc::resume::CasesLine::Case(c)) if c.frame == Frame::Original => {
                     let eqs: Vec<String> = c
                         .equations
                         .iter()
-                        .map(|e| e.as_str().map(str::to_string).unwrap_or_else(|| e.to_string()))
+                        .map(|e| {
+                            e.as_str()
+                                .map(str::to_string)
+                                .unwrap_or_else(|| e.to_string())
+                        })
                         .collect();
                     if c.seed_centre_offset.is_some() {
                         fail(
@@ -1615,10 +1667,7 @@ pub fn initial_cases(spec: &JobSpec) -> Vec<CaseSpec> {
                     presented.cases.extend(sp.pending);
                     presented.numerical.extend(sp.numerical);
                 }
-                Err(e) => fail(
-                    ExitCode::Input,
-                    &format!("cases line {}: {e}", k + 1),
-                ),
+                Err(e) => fail(ExitCode::Input, &format!("cases line {}: {e}", k + 1)),
             }
         }
     }
@@ -1629,7 +1678,11 @@ pub fn initial_cases(spec: &JobSpec) -> Vec<CaseSpec> {
                 "ORIGINAL and PRESENTED cases cannot be mixed in one job",
             );
         }
-        if presented.cases.iter().any(|c| c.seed_centre_offset.is_some()) {
+        if presented
+            .cases
+            .iter()
+            .any(|c| c.seed_centre_offset.is_some())
+        {
             fail(
                 ExitCode::Refused,
                 "seed_centre_offset needs the seed_centre engine feature",
@@ -1665,7 +1718,11 @@ fn driver_case(c: &JobCase) -> CaseSpec {
         equations: c
             .equations
             .iter()
-            .map(|e| e.as_str().map(str::to_string).unwrap_or_else(|| e.to_string()))
+            .map(|e| {
+                e.as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| e.to_string())
+            })
             .collect(),
     }
 }
@@ -1778,21 +1835,48 @@ fn finish(j: &Arc<Job>, res: GenResult) -> ! {
     let (code, stop, error, source) = match &outcome.stop {
         None if outcome.complete => (ExitCode::Complete, None, None, None),
         None => (ExitCode::Incomplete, Some(StopCode::NotLower), None, None),
-        Some(StopReason::MaxCases { .. }) => (ExitCode::Incomplete, Some(StopCode::MaxCases), None, None),
-        Some(StopReason::LiftRefused { .. }) => (ExitCode::Incomplete, Some(StopCode::LiftRefused), None, None),
-        Some(StopReason::GuardTimeout { .. }) => (ExitCode::Incomplete, Some(StopCode::GuardTimeout), None, None),
-        Some(StopReason::OpenRegions { .. }) => (ExitCode::Incomplete, Some(StopCode::OpenRegions), None, None),
-        Some(StopReason::BeforeNumeric { .. }) => (ExitCode::Incomplete, Some(StopCode::BeforeNumeric), None, None),
-        Some(StopReason::NumericSearchRefused { .. }) => {
-            (ExitCode::Incomplete, Some(StopCode::NumericSearchRefused), None, None)
+        Some(StopReason::MaxCases { .. }) => {
+            (ExitCode::Incomplete, Some(StopCode::MaxCases), None, None)
         }
+        Some(StopReason::LiftRefused { .. }) => (
+            ExitCode::Incomplete,
+            Some(StopCode::LiftRefused),
+            None,
+            None,
+        ),
+        Some(StopReason::GuardTimeout { .. }) => (
+            ExitCode::Incomplete,
+            Some(StopCode::GuardTimeout),
+            None,
+            None,
+        ),
+        Some(StopReason::OpenRegions { .. }) => (
+            ExitCode::Incomplete,
+            Some(StopCode::OpenRegions),
+            None,
+            None,
+        ),
+        Some(StopReason::BeforeNumeric { .. }) => (
+            ExitCode::Incomplete,
+            Some(StopCode::BeforeNumeric),
+            None,
+            None,
+        ),
+        Some(StopReason::NumericSearchRefused { .. }) => (
+            ExitCode::Incomplete,
+            Some(StopCode::NumericSearchRefused),
+            None,
+            None,
+        ),
         Some(StopReason::Error(m)) => (
             ExitCode::Internal,
             Some(StopCode::InternalError),
             Some(ErrorInfo::new(ErrorClass::Internal, m.clone())),
             None,
         ),
-        Some(StopReason::Descended { .. }) => (ExitCode::Incomplete, Some(StopCode::MaxCases), None, None),
+        Some(StopReason::Descended { .. }) => {
+            (ExitCode::Incomplete, Some(StopCode::MaxCases), None, None)
+        }
         Some(StopReason::Interrupted { .. }) => {
             let (c, s) = stop_codes(j);
             (c, Some(s), None, src)

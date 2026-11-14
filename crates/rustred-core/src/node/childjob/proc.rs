@@ -117,7 +117,10 @@ pub fn kill_helpers() -> u64 {
                 let mut status = 0;
                 let mut ru: libc::rusage = std::mem::zeroed();
                 if libc::wait4(pid, &mut status, 0, &mut ru) == pid {
-                    HELPERS_PEAK_KB.fetch_max(ru.ru_maxrss.clamp(0, i32::MAX as libc::c_long) as i32, Relaxed);
+                    HELPERS_PEAK_KB.fetch_max(
+                        ru.ru_maxrss.clamp(0, i32::MAX as libc::c_long) as i32,
+                        Relaxed,
+                    );
                 }
             }
         }
@@ -142,7 +145,11 @@ pub fn rss_kb(pid: i32) -> u64 {
     let page_kb = if page > 0 { page as u64 / 1024 } else { 4 };
     std::fs::read_to_string(p)
         .ok()
-        .and_then(|s| s.split_whitespace().nth(1).and_then(|x| x.parse::<u64>().ok()))
+        .and_then(|s| {
+            s.split_whitespace()
+                .nth(1)
+                .and_then(|x| x.parse::<u64>().ok())
+        })
         .map_or(0, |pages| pages * page_kb)
 }
 

@@ -1039,7 +1039,10 @@ mod stream_digest_tests {
             assert_eq!(d.seal().as_ref(), Some(&want), "step {step}");
             assert_eq!(d.elided_loci(), 1);
             assert_eq!(d.rules(), 2);
-            assert!(d.committed("out/F.table.jsonl").is_none(), "end record seen");
+            assert!(
+                d.committed("out/F.table.jsonl").is_none(),
+                "end record seen"
+            );
             assert_eq!(d.sealed_figures("x").map(|c| c.bytes), Some(want.bytes));
         }
         std::fs::remove_dir_all(&dir).unwrap();

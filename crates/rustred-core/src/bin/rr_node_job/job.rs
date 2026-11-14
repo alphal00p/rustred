@@ -4,11 +4,11 @@
 
 use std::path::Path;
 
-use rustred::node::childjob::{self, FEATURES, JobStart, PROGRAM, Resolved};
-use rustred_campaign_contract as cc;
 use cc::outcome::ProgramInfo;
 use cc::preflight::{ProgramSelf, preflight};
 use cc::spec::{JobKind, JobSpec};
+use rustred::node::childjob::{self, FEATURES, JobStart, PROGRAM, Resolved};
+use rustred_campaign_contract as cc;
 
 use super::{Args, node_options, order_arg};
 
@@ -106,9 +106,9 @@ fn resolve(spec: &JobSpec) -> Resolved {
         }
         childjob::set_descend_open();
     }
-    let order = a
-        .take("--order")
-        .unwrap_or_else(|| super::die("a generate job needs --order (an explicit order; auto is not a job kind)"));
+    let order = a.take("--order").unwrap_or_else(|| {
+        super::die("a generate job needs --order (an explicit order; auto is not a job kind)")
+    });
     if order == "auto" {
         super::die("--order auto is the generate-auto ladder, not a generate job");
     }
