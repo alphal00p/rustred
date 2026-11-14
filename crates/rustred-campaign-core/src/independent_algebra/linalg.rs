@@ -151,14 +151,27 @@ pub fn unit_in_row_space(rows: &[Vec<Q>], col: usize) -> Result<bool, Unknown> {
         let Some(c) = (0..r.len()).find(|&j| !r[j].is_zero()) else {
             continue;
         };
-        if c == col {
-            return Ok(true);
-        }
         let f = r[c];
         r = r.iter().map(|a| a.div(f)).collect::<Result<_, _>>()?;
         piv.push((c, r));
     }
-    Ok(false)
+    // rows4 (found by the referee's differential test): reduce e_col by the echelon basis (every basis row is zero at the
+    // pivot columns of the rows before it, so one pass in insertion order clears every pivot column); the old early
+    // return "a reduced row leads at col" was correct only for col = the last column (Lee's test, its one caller)
+    let mut v: Vec<Q> = (0..rows.first().map_or(0, Vec::len))
+        .map(|j| if j == col { Q::ONE } else { Q::ZERO })
+        .collect();
+    for (c, pr) in &piv {
+        if !v[*c].is_zero() {
+            let f = v[*c];
+            v = v
+                .iter()
+                .zip(pr)
+                .map(|(a, b)| a.sub(f.mul(*b)?))
+                .collect::<Result<_, _>>()?;
+        }
+    }
+    Ok(col < v.len() && v.iter().all(Q::is_zero))
 }
 
 /// Determinant of the leading `dim x dim` block of a matrix of integer polynomials (memoised Laplace expansion along

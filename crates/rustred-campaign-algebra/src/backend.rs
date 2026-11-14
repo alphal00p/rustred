@@ -567,10 +567,49 @@ impl CheckAlgebra for SymbolicaAlgebra {
     fn gcd_i128(&self, a: i128, b: i128) -> i128 {
         i128::try_from(Integer::from(a).gcd(&Integer::from(b))).unwrap_or(0)
     }
+    fn int_mat_mul(
+        &self,
+        a: &[i128],
+        b: &[i128],
+        r: usize,
+        k: usize,
+        c: usize,
+    ) -> Option<Vec<i128>> {
+        // numerica `Matrix<Z>` product (`num/tensors/matrix.rs:1580`), converted back to i128 (None on overflow)
+        if a.len() != r * k || b.len() != k * c || r == 0 || k == 0 || c == 0 {
+            return None;
+        }
+        let mat = |x: &[i128], rows: usize, cols: usize| {
+            Matrix::from_nested_vec(
+                (0..rows)
+                    .map(|i| (0..cols).map(|j| Integer::from(x[i * cols + j])).collect())
+                    .collect(),
+                Z,
+            )
+            .ok()
+        };
+        let prod = &mat(a, r, k)? * &mat(b, k, c)?;
+        (0..r * c)
+            .map(|x| i128::try_from(prod[((x / c) as u32, (x % c) as u32)].clone()).ok())
+            .collect()
+    }
+    fn int_div_exact(&self, a: i128, b: i128) -> Option<i128> {
+        if b == 0 {
+            return None;
+        }
+        let (q, rem) = Integer::from(a).quot_rem(&Integer::from(b));
+        if rem != 0 {
+            return None;
+        }
+        i128::try_from(q).ok()
+    }
     fn zpoly_det(&self, m: &[Vec<ZPoly>], dim: usize, t: usize) -> ZPoly {
-        // Laplace expansion along the first row with Symbolica polynomial arithmetic (MultivariatePolynomial<Z, u8>
-        // add / mul). Matrix<PolynomialRing>::det is NOT used: its ring's zero() has no variables and
-        // `exponents_iter` panics on it (`chunks(0)`, src/poly/polynomial.rs:1222): SYMBOLICA PR CANDIDATE (rows3).
+        // rows4 (re-audit RA3-m5): Symbolica's OWN determinant, `Matrix<PolynomialRing<Z>>::det` (Bareiss with exact
+        // polynomial division, num/tensors/matrix.rs:1256). Every entry is built WITH the variable map of the t Feynman
+        // parameters. The only workaround left (SYMBOLICA PR CANDIDATE PR-B, rows3): `PolynomialRing::zero()` / `one()`
+        // carry NO variables and `exponents_iter()` on such a polynomial panics (`chunks(0)`, src/poly/polynomial.rs:1222);
+        // `det` returns `zero()` for a singular matrix (and `one()` for 0 x 0), so a result without variables is read
+        // through `is_zero()` / the constant term instead of `exponents_iter()`.
         type P = MultivariatePolynomial<symbolica::domains::integer::IntegerRing, u8>;
         let Ok((vars, _)) = variables(t, false) else {
             return ZPoly::new();
@@ -582,44 +621,27 @@ impl CheckAlgebra for SymbolicaAlgebra {
             }
             p
         };
-        let mm: Vec<Vec<P>> = (0..dim)
+        let ring = symbolica::poly::polynomial::PolynomialRing::<_, u8>::new(Z);
+        let data: Vec<Vec<P>> = (0..dim)
             .map(|i| (0..dim).map(|j| to_poly(&m[i][j])).collect())
             .collect();
-        fn det(
-            mm: &[Vec<P>],
-            rows: &[usize],
-            cols: &[usize],
-            one: &P,
-            memo: &mut std::collections::HashMap<(Vec<usize>, Vec<usize>), P>,
-        ) -> P {
-            if rows.is_empty() {
-                return one.clone();
-            }
-            let key = (rows.to_vec(), cols.to_vec());
-            if let Some(r) = memo.get(&key) {
-                return r.clone();
-            }
-            let mut out = one.zero();
-            for (j, &c) in cols.iter().enumerate() {
-                if mm[rows[0]][c].is_zero() {
-                    continue;
-                }
-                let sub_cols: Vec<usize> = cols.iter().copied().filter(|&x| x != c).collect();
-                let sub = det(mm, &rows[1..], &sub_cols, one, memo);
-                let term = &mm[rows[0]][c] * &sub;
-                out = if j % 2 == 0 {
-                    &out + &term
-                } else {
-                    &out - &term
-                };
-            }
-            memo.insert(key, out.clone());
-            out
-        }
-        let one = to_poly(&std::iter::once((vec![0u8; t], 1i128)).collect());
-        let idx: Vec<usize> = (0..dim).collect();
-        let d = det(&mm, &idx, &idx, &one, &mut std::collections::HashMap::new());
+        let Ok(mat) = Matrix::from_nested_vec(data, ring) else {
+            return ZPoly::new();
+        };
+        let Ok(d) = mat.det() else {
+            return ZPoly::new();
+        };
         let mut out = ZPoly::new();
+        if d.is_zero() {
+            return out;
+        }
+        if d.get_vars_ref().is_empty() {
+            // the variable-less `one()` (PR-B): its constant term
+            if let Ok(v) = i128::try_from(d.get_constant()) {
+                out.insert(vec![0u8; t], v);
+            }
+            return out;
+        }
         for (c, e) in d.coefficients.iter().zip(d.exponents_iter()) {
             if let Ok(v) = i128::try_from(c.clone()) {
                 out.insert(e.to_vec(), v);

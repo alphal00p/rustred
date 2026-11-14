@@ -15,7 +15,7 @@ use rustred_campaign_algebra::{
     Outlier, SymbolicaAlgebra, Triage, replay_evidence_triage, triage_identity,
 };
 use rustred_campaign_core::ibp_rows::{
-    NonceSource, PointSpec, ReplayLevel, ReplayPolicy, RowsOptions, RowsRule, TableBinding,
+    PointSpec, ReplayLevel, ReplayPolicy, RowsOptions, RowsRule, TableBinding,
 };
 use rustred_campaign_core::independent_algebra::Independent;
 use rustred_campaign_core::replay_base::algebra::{
@@ -352,6 +352,19 @@ impl<A: CheckAlgebra> CheckAlgebra for Bent<A> {
     fn gcd_i128(&self, a: i128, b: i128) -> i128 {
         self.inner.gcd_i128(a, b)
     }
+    fn int_mat_mul(
+        &self,
+        a: &[i128],
+        b: &[i128],
+        r: usize,
+        k: usize,
+        c: usize,
+    ) -> Option<Vec<i128>> {
+        self.inner.int_mat_mul(a, b, r, k, c)
+    }
+    fn int_div_exact(&self, a: i128, b: i128) -> Option<i128> {
+        self.inner.int_div_exact(a, b)
+    }
     fn zpoly_det(&self, m: &[Vec<ZPoly>], dim: usize, t: usize) -> ZPoly {
         self.inner.zpoly_det(m, dim, t)
     }
@@ -454,6 +467,8 @@ fn class(t: &Triage) -> (String, String, String) {
             format!("{:?}", d.stage),
             format!("{:?}", d.outlier),
         ),
+        Triage::RecordInconsistent { .. } => ("RecordInconsistent".into(), "-".into(), "-".into()),
+        Triage::SharedLogicDiffers(d) => ("SharedLogicDiffers".into(), d.what.clone(), "-".into()),
         Triage::SymbolicaUnsupported { reason } => (
             format!(
                 "SymbolicaUnsupported({})",
@@ -708,7 +723,6 @@ fn audit_rows3_both_blocks_independent_false_pass() {
         &keys,
         &ReplayPolicy::default(),
         &opts,
-        (12345, NonceSource::Os),
     )
     .unwrap();
     let ri = m.independent.unwrap();
