@@ -66,6 +66,8 @@ struct Req {
     table: String,
     offset: Option<u64>,
     rule: i64,
+    /// optional chart mask: rule indices restart per chart in multi-chart (eps) tables
+    chart: Option<String>,
     key: Vec<i64>,
     fact: Option<(String, Option<i64>, Vec<u8>)>, // (kind, term, raw request line for the echo fields)
 }
@@ -78,16 +80,17 @@ fn parse_requests(path: &str) -> Vec<Req> {
         let s = |k: &str| j.get(l, k).map(|x| String::from_utf8_lossy(x.s(l)).to_string());
         let table = s("table").unwrap_or_else(|| die("request without table"));
         let offset = j.get(l, "offset").map(|x| x.int(l) as u64);
+        let chart = s("chart");
         let ints = |x: &J| -> Vec<i64> { x.arr().iter().map(|v| v.int(l)).collect() };
         if j.get(l, "schema").map(|x| x.s(l)) == Some(b"rustred.campaign.fact-request.v1") {
             let rule = j.get(l, "label").unwrap_or_else(|| die("fact request without label")).int(l);
             let kind = s("kind").unwrap_or_else(|| die("fact request without kind"));
             let term = j.get(l, "term").map(|x| x.int(l));
-            out.push(Req { table, offset, rule, key: ints(j.get(l, "key").unwrap()), fact: Some((kind, term, l.to_vec())) });
+            out.push(Req { table, offset, rule, chart, key: ints(j.get(l, "key").unwrap()), fact: Some((kind, term, l.to_vec())) });
         } else {
             let rule = j.get(l, "rule").unwrap_or_else(|| die("request without rule")).int(l);
             for k in j.get(l, "keys").unwrap_or_else(|| die("request without keys")).arr() {
-                out.push(Req { table: table.clone(), offset, rule, key: ints(k), fact: None });
+                out.push(Req { table: table.clone(), offset, rule, chart: chart.clone(), key: ints(k), fact: None });
             }
         }
         true
@@ -194,40 +197,57 @@ fn header_guard_version(table: &str) -> i64 {
 pub fn run_instantiate_with(requests: &str, out_path: &str, elided_mode: ElidedLoci) -> String {
     let t0 = std::time::Instant::now();
     let reqs = parse_requests(requests);
-    // group: table -> rule index -> (offset, keys)
-    let mut groups: BTreeMap<String, BTreeMap<i64, (Option<u64>, BTreeSet<Vec<i64>>)>> = BTreeMap::new();
+    // group: table -> (rule index, chart or none) -> (offset, keys)
+    type RuleId = (i64, Option<String>);
+    let mut groups: BTreeMap<String, BTreeMap<RuleId, (Option<u64>, BTreeSet<Vec<i64>>)>> = BTreeMap::new();
     for r in &reqs {
-        let g = groups.entry(r.table.clone()).or_default().entry(r.rule).or_insert((r.offset, BTreeSet::new()));
+        let g = groups.entry(r.table.clone()).or_default().entry((r.rule, r.chart.clone())).or_insert((r.offset, BTreeSet::new()));
         if g.0.is_none() { g.0 = r.offset; }
         g.1.insert(r.key.clone());
     }
     let mut lines_out: Vec<String> = vec![];
-    let mut answers: BTreeMap<(String, i64, Vec<i64>), String> = BTreeMap::new(); // per (table, rule, key): the fact line
+    let mut answers: BTreeMap<(String, RuleId, Vec<i64>), String> = BTreeMap::new(); // per (table, rule, key): the fact line
     let mut nrec = 0;
     let mut nrec_elided = 0;
     for (table, rules) in &groups {
         let gv = if elided_mode == ElidedLoci::Facts { header_guard_version(table) } else { 1 };
-        let mut records: BTreeMap<i64, Vec<u8>> = BTreeMap::new();
-        for (idx, (off, _)) in rules { if let Some(o) = off { records.insert(*idx, read_at(table, *o)); } }
-        let missing: BTreeSet<i64> = rules.keys().filter(|i| !records.contains_key(i)).copied().collect();
+        let mut records: BTreeMap<RuleId, Vec<u8>> = BTreeMap::new();
+        for (id, (off, _)) in rules { if let Some(o) = off { records.insert(id.clone(), read_at(table, *o)); } }
+        let missing: BTreeSet<RuleId> = rules.keys().filter(|i| !records.contains_key(*i)).cloned().collect();
         if !missing.is_empty() {
+            // a request without a chart must match ONE record: the whole table is scanned to see every chart
+            let unchartered = missing.iter().any(|(_, c)| c.is_none());
             let mut ln = 0usize;
             read_lines_matching(table, |l| {
                 ln += 1;
                 if record_kind(l, table, ln, TABLE_KINDS) == Some(b"rule") {
-                    match top_int(l, "index") {
-                        Some(i) => { if missing.contains(&i) { records.insert(i, l.to_vec()); } }
-                        None => die(&format!("UNREADABLE_RECORD: {} line {}: rule record without an integer index", table, ln)),
+                    let i = top_int(l, "index").unwrap_or_else(|| die(&format!("UNREADABLE_RECORD: {} line {}: rule record without an integer index", table, ln)));
+                    let ch = top_field(l, "chart").map(|c| String::from_utf8_lossy(c).to_string());
+                    if let Some(c) = &ch {
+                        let id = (i, Some(c.clone()));
+                        if missing.contains(&id) { records.insert(id, l.to_vec()); }
+                    }
+                    let id0 = (i, None);
+                    if missing.contains(&id0) {
+                        if let Some(prev) = records.get(&id0) {
+                            let pc = top_field(prev, "chart").map(|c| String::from_utf8_lossy(c).to_string());
+                            die(&format!("AMBIGUOUS_RULE_INDEX: {} rule {} exists in charts {:?} and {:?}: give \"chart\" (or \"offset\") in the request", table, i, pc, ch));
+                        }
+                        records.insert(id0, l.to_vec());
                     }
                 }
-                records.len() < rules.len()
+                unchartered || records.len() < rules.len()
             });
         }
-        for (idx, (_, keys)) in rules {
-            let line = records.get(idx).unwrap_or_else(|| die(&format!("rule {} not found in {}", idx, table)));
+        for (id, (_, keys)) in rules {
+            let idx = &id.0;
+            let line = records.get(id).unwrap_or_else(|| die(&format!("rule {} not found in {}", idx, table)));
             if record_kind(line, table, 0, TABLE_KINDS) != Some(b"rule") { die("offset does not point at a rule record"); }
             let jj = jparse(&line[..line.len()]);
             if jj.get(line, "index").map(|x| x.int(line)) != Some(*idx) { die("record at offset has a different index"); }
+            if let Some(c) = &id.1 {
+                if top_field(line, "chart") != Some(c.as_bytes()) { die("record at offset has a different chart"); }
+            }
             nrec += 1;
             let keys: Vec<Vec<i64>> = keys.iter().cloned().collect();
             let f = facts_for_rule(line, &keys, elided_mode, gv);
@@ -236,14 +256,14 @@ pub fn run_instantiate_with(requests: &str, out_path: &str, elided_mode: ElidedL
             for (k, l) in keys.iter().zip(f) {
                 // echo the record digest right after the schema field
                 let l = l.replacen("\"rustred.proof-kernel.instantiate.v1\",", &format!("\"rustred.proof-kernel.instantiate.v1\",\"record_sha256\":\"{}\",", rsha), 1);
-                answers.insert((table.clone(), *idx, k.clone()), l.clone()); lines_out.push(l);
+                answers.insert((table.clone(), id.clone(), k.clone()), l.clone()); lines_out.push(l);
             }
         }
     }
     // closure fact answers for (B) requests
     for r in &reqs {
         if let Some((kind, term, raw)) = &r.fact {
-            let fl = &answers[&(r.table.clone(), r.rule, r.key.clone())];
+            let fl = &answers[&(r.table.clone(), (r.rule, r.chart.clone()), r.key.clone())];
             let b = fl.as_bytes();
             let fj = jparse(b);
             let rj = jparse(raw);
@@ -393,5 +413,28 @@ mod tests {
         assert!(top_members(br#"{"a":1} trailing"#, |_, _| true).is_err());
         assert!(top_members(br#"{"a":[1,2}"#, |_, _| true).is_err());
         assert!(top_members(br#"  {}  "#, |_, _| true).is_ok());
+    }
+
+    /// Multi-chart (eps) tables restart rule indices per chart: a request without a chart that matches two records is
+    /// refused (AMBIGUOUS_RULE_INDEX); with "chart" each request gets its own record.
+    #[test]
+    fn rule_index_is_per_chart() {
+        let dir = std::env::temp_dir().join(format!("rr_proof_charts_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mk = |chart: &str, rhs1: &str| format!(r#"{{"type":"rule","chart":"{chart}","index":0,"fixed":[null,null,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"equations":[],"target":"I(n0,n1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)","rhs":[["I(n0-1,n1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)","{rhs1}"]],"exceptions":[]}}"#);
+        let table = dir.join("t.jsonl");
+        std::fs::write(&table, format!("{{\"type\":\"header\"}}\n{}\n{}\n", mk("11000000000000000000", "n0-3"), mk("01000000000000000000", "n0-4"))).unwrap();
+        let req = dir.join("r.jsonl");
+        let out = dir.join("o.jsonl");
+        let key = "[3,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]";
+        std::fs::write(&req, format!("{{\"table\":\"{}\",\"rule\":0,\"keys\":[{key}]}}\n", table.display())).unwrap();
+        let e = crate::guarded(|| run_instantiate(req.to_str().unwrap(), out.to_str().unwrap())).unwrap_err();
+        assert!(e.starts_with("AMBIGUOUS_RULE_INDEX"), "{e}");
+        std::fs::write(&req, format!("{{\"table\":\"{t}\",\"rule\":0,\"chart\":\"11000000000000000000\",\"keys\":[{key}]}}\n{{\"table\":\"{t}\",\"rule\":0,\"chart\":\"01000000000000000000\",\"keys\":[{key}]}}\n", t = table.display())).unwrap();
+        crate::guarded(|| run_instantiate(req.to_str().unwrap(), out.to_str().unwrap())).unwrap();
+        let o = std::fs::read_to_string(&out).unwrap();
+        // n0 = 3: chart 11.. has coefficient n0-3 = 0, chart 01.. has n0-4 != 0
+        assert!(o.contains("\"coef\":\"zero\"") && o.contains("\"coef\":\"nonzero\""), "{o}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
