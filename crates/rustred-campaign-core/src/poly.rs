@@ -515,6 +515,7 @@ impl Poly {
             pos: 0,
             arity,
             allow_d: opts.allow_d,
+            depth: 0,
         };
         let lhs = p.expr()?;
         p.ws();
@@ -679,11 +680,15 @@ impl fmt::Display for Poly {
     }
 }
 
+/// Deepest nesting of parentheses / unary signs the parser accepts (audit B m3: 30,000 levels overflowed the stack).
+pub const MAX_NESTING: usize = 256;
+
 struct Parser<'a> {
     s: &'a [u8],
     pos: usize,
     arity: usize,
     allow_d: bool,
+    depth: usize,
 }
 
 impl Parser<'_> {
@@ -732,6 +737,15 @@ impl Parser<'_> {
         }
     }
     fn unary(&mut self) -> Result<Poly, PolyError> {
+        self.depth += 1;
+        if self.depth > MAX_NESTING {
+            return Err(self.err("nesting too deep"));
+        }
+        let r = self.unary_inner();
+        self.depth -= 1;
+        r
+    }
+    fn unary_inner(&mut self) -> Result<Poly, PolyError> {
         match self.peek() {
             Some(b'-') => {
                 self.pos += 1;

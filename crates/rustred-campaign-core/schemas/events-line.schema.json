@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "events-line.schema.json",
+  "title": "One line of RUN/EVENTS.jsonl (child progress stream, v1)",
+  "description": "AS BUILT: rustred_campaign_contract::events::EventLine (child-job.md 3.5). Envelope {v:1, seq, t, utc?, kind, ...}; `utc` only on job_started / heartbeat / job_finished. No `schema` field (detected by form). Readers ignore a torn last line and unknown fields.",
+  "x-rr-names": [],
+  "x-rr-owner": "I-ENG / package contract",
+  "x-rr-struct": "rustred_campaign_contract::events::EventLine",
+  "x-rr-freeze": "M0",
+  "type": "object",
+  "required": ["v", "seq", "t", "kind"],
+  "properties": {
+    "v": {"const": 1},
+    "seq": {"$ref": "common.schema.json#/$defs/u64"},
+    "t": {"type": "number", "minimum": 0},
+    "utc": {"$ref": "common.schema.json#/$defs/utc"},
+    "kind": {"enum": ["job_started", "phase", "case_started", "case_finished", "rule_committed", "engine", "time_decision", "heartbeat", "budget_hit", "stop_requested", "resume_written", "job_finished"]}
+  },
+  "allOf": [
+    {"if": {"properties": {"kind": {"enum": ["job_started", "heartbeat", "job_finished"]}}}, "then": {"required": ["utc"]}, "else": {"not": {"required": ["utc"]}}},
+    {"if": {"properties": {"kind": {"const": "job_started"}}}, "then": {"required": ["job_id", "attempt", "spec_blake3", "pid", "program", "version", "git_commit", "resume_from"], "properties": {"spec_blake3": {"$ref": "common.schema.json#/$defs/blake3"}, "resume_from": {"type": ["integer", "null"]}}}},
+    {"if": {"properties": {"kind": {"const": "phase"}}}, "then": {"required": ["phase"], "properties": {"phase": {"$ref": "#/$defs/phase"}}}},
+    {"if": {"properties": {"kind": {"const": "case_started"}}}, "then": {"required": ["ordinal", "case", "pending", "numerical"], "properties": {"pending": {"type": "integer", "minimum": 0}, "numerical": {"type": "integer", "minimum": 0}}}},
+    {"if": {"properties": {"kind": {"const": "case_finished"}}}, "then": {"required": ["ordinal", "result", "rule", "children", "rules_committed"], "properties": {"result": {"$ref": "fake-script.schema.json#/$defs/case_result"}}}},
+    {"if": {"properties": {"kind": {"const": "rule_committed"}}}, "then": {"required": ["index", "line_offset", "line_bytes", "canon_blake3", "rhs", "trace_rows", "monomials"], "properties": {"canon_blake3": {"$ref": "common.schema.json#/$defs/blake3"}}}},
+    {"if": {"properties": {"kind": {"const": "engine"}}}, "then": {"required": ["event"]}},
+    {"if": {"properties": {"kind": {"const": "time_decision"}}}, "then": {"$ref": "outcome.schema.json#/$defs/time_decision"}},
+    {"if": {"properties": {"kind": {"const": "heartbeat"}}}, "then": {"required": ["phase", "case_ordinal", "pending", "rules_committed", "counters", "rss_kb", "vmhwm_kb", "helpers", "stop_requested"], "properties": {"phase": {"$ref": "#/$defs/phase"}, "counters": {"$ref": "common.schema.json#/$defs/counters"}}}},
+    {"if": {"properties": {"kind": {"const": "budget_hit"}}}, "then": {"required": ["counter", "scope", "limit", "value"], "properties": {"counter": {"$ref": "fake-script.schema.json#/$defs/work_counter"}, "scope": {"enum": ["case", "job"]}}}},
+    {"if": {"properties": {"kind": {"const": "stop_requested"}}}, "then": {"required": ["source", "count"], "properties": {"source": {"enum": ["SIGTERM", "SIGINT", "SIGHUP", "stopfile", "budget", "memory"]}}}},
+    {"if": {"properties": {"kind": {"const": "resume_written"}}}, "then": {"required": ["rules_committed", "pending", "table_bytes"]}},
+    {"if": {"properties": {"kind": {"const": "job_finished"}}}, "then": {"required": ["exit_code", "status", "stop_code"], "properties": {"exit_code": {"$ref": "fake-script.schema.json#/$defs/exit_code"}, "stop_code": {"anyOf": [{"type": "null"}, {"$ref": "fake-script.schema.json#/$defs/stop_code"}]}}}}
+  ],
+  "$defs": {
+    "phase": {"enum": ["prepare", "zero_census", "cover_load", "case_search", "exact_lift", "guards", "admission", "numeric", "shared_numeric", "deferred_check", "finishing"]}
+  }
+}

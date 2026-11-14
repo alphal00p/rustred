@@ -1,0 +1,18 @@
+{
+  "schema": "rustred.campaign.progress.v1", "file": "events", "fixture_origin": "hand",
+  "campaign_id": "p5l-boxed-final", "written_utc": "2026-11-20T08:15:04.000Z", "source_of_truth": "ledger",
+  "ledger": {"seq": 18402, "head": "5d1fe2aa00000000000000000000000000000000000000000000000000000000", "last_utc": "2026-11-20T08:15:03.250Z"},
+  "cap": 64,
+  "events": [
+    {"seq": 18120, "utc": "2026-11-20T07:50:11.000Z", "kind": "node", "text": "T162: fall back to box T162.rstar (full attempt ended: 9 faces, 3 loci, 1820 keys)"},
+    {"seq": 18190, "utc": "2026-11-20T07:58:40.000Z", "kind": "node", "text": "T162: closed (boxed), defect 0 of 61210 keys"},
+    {"seq": 18241, "utc": "2026-11-20T08:02:12.500Z", "kind": "input", "text": "input T266.joined changed (version 2): 4 items stale"},
+    {"seq": 18301, "utc": "2026-11-20T08:09:30.000Z", "kind": "item_escalated", "text": "T178 F019: escalated to L1 (refused_spill, 300 s)"},
+    {"seq": 18350, "utc": "2026-11-20T08:12:01.000Z", "kind": "terminal_proposed", "text": "T178 F033 a0=2: terminal candidate (terminal_after_ladder)"},
+    {"seq": 18377, "utc": "2026-11-20T08:13:02.000Z", "kind": "job_finished", "text": "T178 F033 L4: job J000903 (killed_memory) at 5.0 GB"},
+    {"seq": 18385, "utc": "2026-11-20T08:14:10.000Z", "kind": "item_rejected", "text": "T178 F044: rejected (irregular_point)"},
+    {"seq": 18398, "utc": "2026-11-20T08:14:31.000Z", "kind": "item_escalated", "text": "T178 F019: escalated to L2 (rule_covers_none)"},
+    {"seq": 18399, "utc": "2026-11-20T08:14:55.000Z", "kind": "item_accepted", "text": "T178 F087: rule T178:R:campaign:640 accepted (identity_proved), diag n2=n6 covers 11/11 points"},
+    {"seq": 18401, "utc": "2026-11-20T08:15:02.000Z", "kind": "item_upgraded", "text": "T178 F012: evidence -> identity_proved"}
+  ]
+}
