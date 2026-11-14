@@ -58,7 +58,7 @@ pub use store::{ExitFile, SpillConfig};
 
 pub const CLOSURE_SCHEMA: &str = "rustred.campaign.closure.v1";
 /// Version of the closure semantics recorded in every configuration identity (bump on any change of a result).
-pub const CLOSURE_SEMANTICS: &str = "closure-semantics.v3";
+pub const CLOSURE_SEMANTICS: &str = "closure-semantics.v4";
 
 /// Closure tier (plan 2.4.8, Decision D-7).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -3880,6 +3880,20 @@ pub(crate) mod internal {
         fn is_terminal(&self, key: &[i32]) -> bool;
         /// Whether a relation set serves `key` given its table dispatch `d` (then the table rule does not fire there).
         fn recipe_serves(&self, key: &[i32], d: &Dispatch) -> bool;
+        /// IMAGE LIFT (lane import3, closure.md 17): whether the record `at` that the strict dispatch reports blocked at
+        /// the credit IMAGE for `reason` (elided / witness loci not carried) may serve the image, by the same evidence
+        /// that lifts it at a key under the per-key lift: an exact per-key proof bound to (record, image) under
+        /// `PerKeyLift::Proof` (a regularity fact alone never lifts an image: the re-audit's decision is kept). Returns
+        /// `Some(true)` when lifted by a per-key proof (the proof implies regularity; `Some(false)` is reserved), `None`
+        /// when not lifted. Default: never (the standalone checker).
+        fn image_lift(
+            &self,
+            _at: RuleRef,
+            _reason: crate::domain::Verdict,
+            _image: &[i32],
+        ) -> Option<bool> {
+            None
+        }
     }
     impl CtxView for Ctx<'_> {
         fn dispatch(&self, key: &[i32]) -> Dispatch {
@@ -3928,6 +3942,24 @@ pub(crate) mod internal {
         }
         fn recipe_serves(&self, key: &[i32], d: &Dispatch) -> bool {
             self.recipe_match(key, d).is_some()
+        }
+        fn image_lift(
+            &self,
+            at: RuleRef,
+            reason: crate::domain::Verdict,
+            image: &[i32],
+        ) -> Option<bool> {
+            use crate::domain::Verdict;
+            if !matches!(reason, Verdict::WitnessNotCarried | Verdict::Elided)
+                || !self.bodies.has(at.table, at.record)
+            {
+                return None;
+            }
+            // only an exact per-key PROOF lifts an image (a regularity fact never does: re-audit decision, test
+            // audit_closure2_findings ok_credit_direct_comparison_and_no_chaining (iv))
+            let rid = self.rid(self.fast.position(at));
+            (self.cfg.per_key_lift == PerKeyLift::Proof && self.facts.per_key_proof(&rid, image))
+                .then_some(true)
         }
     }
 

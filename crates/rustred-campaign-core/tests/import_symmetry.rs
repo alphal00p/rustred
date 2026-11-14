@@ -31,12 +31,12 @@ fn key(t: &str, n: usize) -> Vec<i32> {
 }
 
 #[test]
-fn presented_family_text_reorders_props_only() {
+fn presented_family_text_reorders_props_and_relabels() {
     let src = "I(\n  name(X),\n  prop(D1,(k1)^2,1),\n  prop(D2,(k2)^2,1),\n  prop(D3,(k1-k2)^2,0),\n  gram(q,q,1)\n)";
     let t = presented_family_text(src, &[1, 0, 2]).unwrap();
     assert_eq!(
         t,
-        "I(\n  name(X),\n  prop(D2,(k2)^2,1),\n  prop(D1,(k1)^2,1),\n  prop(D3,(k1-k2)^2,0),\n  gram(q,q,1)\n)"
+        "I(\n  name(X),\n  prop(D1,(k2)^2,1),\n  prop(D2,(k1)^2,1),\n  prop(D3,(k1-k2)^2,0),\n  gram(q,q,1)\n)"
     );
     assert!(presented_family_text(src, &[0, 0, 2]).is_err());
     assert!(presented_family_text(src, &[0, 1]).is_err());
@@ -201,4 +201,68 @@ fn t178_supplied_symmetry_relations_verified_by_rederivation() {
     );
     println!("planted relation: {:?} {:?}", r.open_status, r.open_reason);
     let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// Lane import3: PER-SLOT numerator purity of a verified credit element. The T266 group is derived from the jointest9
+/// table header's presented family (header line only). The independent checker credits I(1,1,1,2,1^10,-8,0^5) by the
+/// element mapping it to I(2,1^13,-8,0^5) (its group element 7: numerator slot 14 pure, the others not). Our policy
+/// refused it (element-level purity); with per-slot purity the same image is produced exactly while the element stays
+/// out of `pure_numerator_maps`, and a key with a numerator on a non-pure slot is still refused.
+#[test]
+fn t266_per_slot_numerator_purity_reproduces_the_checkers_image() {
+    use import::symmetry::{GroupFormat, GroupSpec, load_verified_group};
+    use rustred_campaign_core::order::NodeComparator;
+    use rustred_campaign_core::symmetry::CreditPolicy;
+    let table = ws().join("SCRATCHPAD/t266/jointest9/F.table.jsonl");
+    if !table.is_file() {
+        println!("SKIP: {} missing", table.display());
+        return;
+    }
+    let h = import::lines::read_header("jointest9", &table).unwrap();
+    let frame = rustred_campaign_core::key::NodeFrame::from_header(&h).unwrap();
+    let cmp = NodeComparator::from_header(&h.raw).unwrap();
+    let gs = GroupSpec {
+        family: None,
+        group: None,
+        group_format: GroupFormat::Derive,
+        max_candidates: None,
+        max_terms: None,
+    };
+    let (vg, rep) = load_verified_group(
+        &gs,
+        Path::new("/"),
+        frame.mask(),
+        cmp.presentation().new_to_old(),
+        h.raw.get("family_source").and_then(Value::as_str),
+    )
+    .unwrap();
+    let pol = CreditPolicy::from_verified(&vg, frame.mask()).unwrap();
+    let k = key("I(1,1,1,2,1,1,1,1,1,1,1,1,1,1,-8,0,0,0,0,0)", 20);
+    let want = key("I(2,1,1,1,1,1,1,1,1,1,1,1,1,1,-8,0,0,0,0,0)", 20);
+    let hits: Vec<usize> = (0..pol.group().len())
+        .filter(|&e| pol.partial_image(e, &k, frame.mask()).as_deref() == Some(&want[..]))
+        .collect();
+    println!(
+        "T266 group {} elements ({:?}); fully pure numerator maps {:?}; elements imaging the key onto the checker's image {hits:?}",
+        pol.group().len(),
+        rep.provenance,
+        pol.pure_numerator_maps()
+    );
+    assert!(
+        !hits.is_empty(),
+        "per-slot purity gives the checker's image"
+    );
+    assert!(hits.iter().all(|e| !pol.pure_numerator_maps().contains(e)));
+    // a numerator on a slot that element does not map purely is still refused
+    let e = hits[0];
+    let bad: Vec<usize> = (14..20)
+        .filter(|&s| {
+            let mut kk = k.clone();
+            kk[14] = 0;
+            kk[s] = -1;
+            pol.partial_image(e, &kk, frame.mask()).is_none()
+        })
+        .collect();
+    println!("element {e}: numerator slots without a one-term image: {bad:?}");
+    assert!(!bad.is_empty());
 }
