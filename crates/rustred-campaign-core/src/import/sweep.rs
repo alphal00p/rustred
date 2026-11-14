@@ -93,7 +93,11 @@ pub fn classify_table(path: &Path, opts: &ClassifyOptions) -> TableClass {
     out
 }
 
-fn classify_inner(path: &Path, opts: &ClassifyOptions, out: &mut TableClass) -> Result<(), ImportError> {
+fn classify_inner(
+    path: &Path,
+    opts: &ClassifyOptions,
+    out: &mut TableClass,
+) -> Result<(), ImportError> {
     let scratch = opts
         .scratch
         .clone()
@@ -107,7 +111,8 @@ fn classify_inner(path: &Path, opts: &ClassifyOptions, out: &mut TableClass) -> 
     let start = scratch.join("start.jsonl");
     let res = (|| {
         std::fs::write(&start, b"").map_err(|e| super::error::io_err(&start, e))?;
-        let mut src = json!({"id": "table", "kind": "engine_table", "path": path.display().to_string()});
+        let mut src =
+            json!({"id": "table", "kind": "engine_table", "path": path.display().to_string()});
         if let Some(r) = &opts.accept_fewer_rules {
             src["marker_rules"] = json!({ "accept_fewer": r });
         }

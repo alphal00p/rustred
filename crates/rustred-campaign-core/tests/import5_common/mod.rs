@@ -4,9 +4,9 @@
 
 use std::path::{Path, PathBuf};
 
+use import::{CheckOptions, Evidence, TableSetSpec, check, load};
 use rustred_campaign_core::closure::Tier;
 use rustred_campaign_core::import;
-use import::{CheckOptions, Evidence, TableSetSpec, check, load};
 use serde_json::{Value, json};
 
 pub const N: usize = 5;
@@ -114,7 +114,13 @@ pub fn write_keys(dir: &Path, keys: &[&[i32]]) -> PathBuf {
 }
 
 /// A one-table spec (plus extra sources).
-pub fn spec(dir: &Path, table: &Path, start: &[&[i32]], extra_src: Value, extra: &[Value]) -> Value {
+pub fn spec(
+    dir: &Path,
+    table: &Path,
+    start: &[&[i32]],
+    extra_src: Value,
+    extra: &[Value],
+) -> Value {
     let st = write_keys(dir, start);
     let mut src = json!({"id":"A","kind":"engine_table","path":table.display().to_string()});
     if let Some(o) = extra_src.as_object() {

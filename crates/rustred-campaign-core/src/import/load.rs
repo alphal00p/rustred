@@ -26,9 +26,6 @@ use super::symmetry::{
     DEFAULT_MAX_TERMS, GroupFormat, GroupReport, GroupSpec, RelationCheck, load_verified_group,
     load_verified_group_family, verify_relation_with, verify_sym_record,
 };
-use crate::domain::{PoleKind, PoleLocus};
-use crate::replay_base::family::Family;
-use crate::replay_base::symrows::VerifiedGroup;
 use crate::closure::relations::{
     DispatchSlot, RelationSet, RelationStoreBuilder, VERDICT_DESCENDS, VERDICT_EXACT,
     VERDICT_REGULAR,
@@ -36,10 +33,13 @@ use crate::closure::relations::{
 use crate::closure::{KeyCodec, KeySet, KeySetBuilder, RuleBodies};
 use crate::cover::{Dispatcher, Table, WitnessStatus};
 use crate::domain::{CaseDomain, DomainOptions, TargetMap};
+use crate::domain::{PoleKind, PoleLocus};
 use crate::key::NodeFrame;
 use crate::order::{GroupElement, NodeComparator};
 use crate::poly::Poly;
 use crate::record::{TableFile, TableHeader};
+use crate::replay_base::family::Family;
+use crate::replay_base::symrows::VerifiedGroup;
 use crate::symmetry::CreditPolicy;
 
 /// Witness status of an imported record as the dispatch sees it.
@@ -311,8 +311,8 @@ impl ImportedSet {
     }
     /// The `symface` slice records grouped by face (lane import5, interfaces/import.md 18.5): (the member `face` as
     /// canonical JSON, `element.index`) -> [(table, record)] in dispatch order. Nothing is interpreted.
-    pub fn symface_groups(&self) -> BTreeMap<(String, Option<i64>), Vec<(usize, usize)>> {
-        let mut m: BTreeMap<(String, Option<i64>), Vec<(usize, usize)>> = BTreeMap::new();
+    pub fn symface_groups(&self) -> BTreeMap<SymfaceGroup, Vec<(usize, usize)>> {
+        let mut m: BTreeMap<SymfaceGroup, Vec<(usize, usize)>> = BTreeMap::new();
         for (t, v) in self.rules.iter().enumerate() {
             for (r, i) in v.iter().enumerate() {
                 if let Some(sf) = &i.symface {
@@ -325,6 +325,9 @@ impl ImportedSet {
         m
     }
 }
+
+/// Key of [`ImportedSet::symface_groups`]: (the member `face` as canonical JSON, `element.index`).
+pub type SymfaceGroup = (String, Option<i64>);
 
 /// The verified group and presented family the `sym` records of a source are checked against.
 struct SymCtx {
@@ -509,7 +512,10 @@ pub(crate) fn load_inner(
                     check_header(&src.id, &raw.header, &frame, &frame_desc, &fhead)?;
                     // lane import5 (interfaces/import.md 18.2 / 18.3): the table's own statements about itself
                     let policy = MarkerPolicy {
-                        accept_fewer_rules: src.marker_rules.as_ref().map(|m| m.accept_fewer.clone()),
+                        accept_fewer_rules: src
+                            .marker_rules
+                            .as_ref()
+                            .map(|m| m.accept_fewer.clone()),
                     };
                     let ms = check_markers(&src.id, &u.path, &raw, arity, &policy)?;
                     rep.marker_overrides.extend(ms.overrides.iter().cloned());

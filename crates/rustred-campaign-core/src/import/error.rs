@@ -52,7 +52,7 @@ pub enum ImportError {
         source: String,
         path: String,
         line: usize,
-        reason: TableRefusal,
+        reason: Box<TableRefusal>,
     },
 }
 
@@ -86,7 +86,9 @@ impl TableRefusal {
             TableRefusal::SymZero => "sym_zero".into(),
             TableRefusal::Sym { .. } => "sym_malformed".into(),
             TableRefusal::Ledger { .. } => "ledger_malformed".into(),
-            TableRefusal::Completion { marker, field, .. } => format!("completion:{marker}:{field}"),
+            TableRefusal::Completion { marker, field, .. } => {
+                format!("completion:{marker}:{field}")
+            }
             TableRefusal::OrderMismatch { .. } => "order_mismatch".into(),
         }
     }
@@ -148,7 +150,10 @@ impl fmt::Display for ImportError {
                 path,
                 line,
                 reason,
-            } => write!(f, "source {source}: {path} line {line}: table refused: {reason}"),
+            } => write!(
+                f,
+                "source {source}: {path} line {line}: table refused: {reason}"
+            ),
         }
     }
 }

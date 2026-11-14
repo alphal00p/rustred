@@ -296,7 +296,7 @@ impl<'a> LineScanner<'a> {
             source: self.source.to_string(),
             path: self.path.display().to_string(),
             line,
-            reason,
+            reason: Box::new(reason),
         }
     }
     fn lerr(&self, line: usize, msg: String) -> ImportError {
@@ -366,14 +366,8 @@ impl<'a> LineScanner<'a> {
                 if self.header.is_none() {
                     return Err(self.lerr(line_no, "sym record before the header".into()));
                 }
-                let sym = parse_sym_line(body, line_no).map_err(|e| {
-                    self.refused(
-                        line_no,
-                        TableRefusal::Sym {
-                            msg: e.to_string(),
-                        },
-                    )
-                })?;
+                let sym = parse_sym_line(body, line_no)
+                    .map_err(|e| self.refused(line_no, TableRefusal::Sym { msg: e.to_string() }))?;
                 if sym.sign == "key" {
                     return Err(self.refused(
                         line_no,
@@ -605,7 +599,7 @@ pub fn check_markers(
         source: source.to_string(),
         path: path.display().to_string(),
         line,
-        reason,
+        reason: Box::new(reason),
     };
     let m = &raw.markers;
     let mut out = MarkerSummary {

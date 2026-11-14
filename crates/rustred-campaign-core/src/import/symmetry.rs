@@ -275,6 +275,7 @@ pub fn load_verified_group_family(
 /// 5. hence the integrand of I(a) maps factor by factor onto that of I(g a) (unit Jacobian): I(a) = I(g a), sign `+`;
 /// 6. the `image` pattern is the target moved along the action (power of i goes to t; other slots 0), and the
 ///    `target` pattern is the case's (fixed values, `n<i>` on free slots);
+///
 /// plus: the action on the slots non-zero on the case equals that of an element of `group` (our derived group).
 /// Step 7 (descent) is checked at every key the record serves (the closure's descent check; import.md 18.4).
 /// `Ok(element index in group)` or the first failed step.
@@ -287,11 +288,17 @@ pub fn verify_sym_record(
     use crate::replay_base::symrows::{SlotImage, SymElement};
     let n = chart.len();
     if rec.fixed.len() != n || rec.action.len() != n {
-        return Err(format!("step 1: record of {} slots for arity {n}", rec.fixed.len()));
+        return Err(format!(
+            "step 1: record of {} slots for arity {n}",
+            rec.fixed.len()
+        ));
     }
     let chart_text: String = chart.iter().map(|&b| if b { '1' } else { '0' }).collect();
     if rec.chart != chart_text {
-        return Err(format!("chart {} is not the frame's {chart_text}", rec.chart));
+        return Err(format!(
+            "chart {} is not the frame's {chart_text}",
+            rec.chart
+        ));
     }
     if rec.sign != "+" {
         return Err(format!(
@@ -320,7 +327,9 @@ pub fn verify_sym_record(
                     ));
                 }
                 if chart[i] != chart[t] {
-                    return Err(format!("step 3: slot {i} -> {t} mixes a line and a numerator"));
+                    return Err(format!(
+                        "step 3: slot {i} -> {t} mixes a line and a numerator"
+                    ));
                 }
                 if std::mem::replace(&mut hit[t], true) {
                     return Err(format!("step 3: target slot {t} hit twice"));
@@ -380,22 +389,21 @@ pub fn verify_sym_record(
     };
     let target = pat(&rec.target)?;
     let image = pat(&rec.image)?;
-    for i in 0..n {
-        let want = match rec.fixed[i] {
+    for (i, (got, f)) in target.iter().zip(&rec.fixed).enumerate() {
+        let want = match f {
             Some(v) => v.to_string(),
             None => format!("n{i}"),
         };
-        if target[i] != want {
+        if *got != want {
             return Err(format!(
-                "step 6: target slot {i} is {:?}, the case says {want:?}",
-                target[i]
+                "step 6: target slot {i} is {got:?}, the case says {want:?}"
             ));
         }
     }
     let mut want_image = vec!["0".to_string(); n];
-    for i in 0..n {
-        if let Some((t, _)) = rec.action[i] {
-            want_image[t] = target[i].clone();
+    for (a, t_i) in rec.action.iter().zip(&target) {
+        if let Some((t, _)) = a {
+            want_image[*t] = t_i.clone();
         }
     }
     if image != want_image {

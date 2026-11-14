@@ -6,8 +6,8 @@
 mod import5_common;
 use import5_common::*;
 
-use rustred_campaign_core::import;
 use import::{RowStatus, Server};
+use rustred_campaign_core::import;
 use serde_json::{Value, json};
 
 const LOW: [i32; 5] = [1, 1, 1, 0, 0];
@@ -39,7 +39,8 @@ fn slice_records_load_bound_by_fixed_with_provenance() {
     let mut hdr = header_value();
     hdr["symface_tables"] = json!({"slice_max": 2, "faces": [{"face": {"dotted": [], "numerators": [3]},
         "element": 1, "slices": 2, "rules": 2, "rhs_terms": 2}]});
-    let tail = vec![json!({"type":"end","rules":3,"symface":{"faces":1,"slice_max":2}}).to_string()];
+    let tail =
+        vec![json!({"type":"end","rules":3,"symface":{"faces":1,"slice_max":2}}).to_string()];
     let a = write_table_with(&d, "a.jsonl", &hdr, &lines, Some(&tail));
     // a second table WITHOUT symface_tables: header identity still agrees (provenance member)
     let b = write_table(&d, "b.jsonl", &[point_rule(0, &[1, 1, 1, -5, 0], &[&LOW])]);
@@ -60,10 +61,23 @@ fn slice_records_load_bound_by_fixed_with_provenance() {
     for (k, rec) in [(k1, 0usize), (k2, 1)] {
         let x = row(&r, &k);
         assert_eq!(x.status, RowStatus::Served);
-        assert_eq!(x.server, Some(Server::Rule { table: 0, record: rec }), "{k:?}");
+        assert_eq!(
+            x.server,
+            Some(Server::Rule {
+                table: 0,
+                record: rec
+            }),
+            "{k:?}"
+        );
     }
     // beyond the slices: falls through to the general record
-    assert_eq!(row(&r, &k3).server, Some(Server::Rule { table: 0, record: 2 }));
+    assert_eq!(
+        row(&r, &k3).server,
+        Some(Server::Rule {
+            table: 0,
+            record: 2
+        })
+    );
     // provenance in the record's identity
     let text = std::fs::read_to_string(&a).unwrap();
     let line = text.lines().nth(2).unwrap();

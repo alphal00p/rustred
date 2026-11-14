@@ -501,7 +501,10 @@ fn scan_input(t: &InputTable, keep_skipped: bool) -> Result<Scanned, AssembleErr
                     .ok_or_else(|| bad(line_no, "composite_terminal_ledger without keys".into()))?;
                 for k in keys {
                     let k = k.as_str().and_then(parse_key_text).ok_or_else(|| {
-                        bad(line_no, format!("composite_terminal_ledger key {k} unreadable"))
+                        bad(
+                            line_no,
+                            format!("composite_terminal_ledger key {k} unreadable"),
+                        )
                     })?;
                     out.residual_keys.push(k);
                 }
@@ -515,7 +518,9 @@ fn scan_input(t: &InputTable, keep_skipped: bool) -> Result<Scanned, AssembleErr
             "sym" | "sym_zero" => {
                 return Err(bad(
                     line_no,
-                    format!("a {kind} record (symmetry records are not assembled; sym_zero is never valid)"),
+                    format!(
+                        "a {kind} record (symmetry records are not assembled; sym_zero is never valid)"
+                    ),
                 ));
             }
             k if END_LIKE.contains(&k) => ends += 1,

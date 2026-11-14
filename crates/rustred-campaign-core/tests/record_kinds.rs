@@ -18,12 +18,17 @@ use serde_json::json;
 fn one_closed_list_of_line_kinds() {
     let all: BTreeSet<&str> = TABLE_LINE_KINDS.iter().copied().collect();
     assert_eq!(all.len(), TABLE_LINE_KINDS.len());
-    let mut handled: BTreeSet<&str> = ["header", "rule", "sym", "chart_error"].into_iter().collect();
+    let mut handled: BTreeSet<&str> = ["header", "rule", "sym", "chart_error"]
+        .into_iter()
+        .collect();
     handled.extend(COPIED_ONCE);
     handled.extend(NOT_COPIED);
     handled.extend(END_LIKE);
     assert_eq!(handled, all, "assembly handles exactly the closed list");
-    assert_eq!(rustred_campaign_core::import::lines::KNOWN_KINDS, TABLE_LINE_KINDS);
+    assert_eq!(
+        rustred_campaign_core::import::lines::KNOWN_KINDS,
+        TABLE_LINE_KINDS
+    );
     assert!(!all.contains("sym_zero"));
 }
 
@@ -47,7 +52,10 @@ fn sym_parser_is_strict() {
         for (k, x) in m.as_object().unwrap() {
             v[k] = x.clone();
         }
-        assert!(parse_sym_line(v.to_string().as_bytes(), 1).is_err(), "{tag}");
+        assert!(
+            parse_sym_line(v.to_string().as_bytes(), 1).is_err(),
+            "{tag}"
+        );
     }
 }
 

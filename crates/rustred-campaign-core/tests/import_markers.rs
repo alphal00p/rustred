@@ -7,8 +7,8 @@
 mod import5_common;
 use import5_common::*;
 
-use rustred_campaign_core::import;
 use import::{ImportError, RowStatus};
+use rustred_campaign_core::import;
 use serde_json::{Value, json};
 
 const TOP: [i32; 5] = [2, 2, 1, 0, 0];
@@ -23,7 +23,10 @@ fn ledger(keys: &[&[i32]], count: Option<usize>) -> String {
         v["count"] = json!(c);
     }
     // the real Astra tables write WITH SPACES (Python json.dumps): so does this test
-    serde_json::to_string(&v).unwrap().replace("\":", "\": ").replace(",\"", ", \"")
+    serde_json::to_string(&v)
+        .unwrap()
+        .replace("\":", "\": ")
+        .replace(",\"", ", \"")
 }
 
 fn complete(rules: usize, residuals: usize, complete: bool) -> String {
@@ -33,7 +36,10 @@ fn complete(rules: usize, residuals: usize, complete: bool) -> String {
 }
 
 fn rules_two() -> Vec<String> {
-    vec![point_rule(0, &TOP, &[&T1, &T2]), point_rule(1, &[1, 2, 1, 0, 0], &[&T1])]
+    vec![
+        point_rule(0, &TOP, &[&T1, &T2]),
+        point_rule(1, &[1, 2, 1, 0, 0], &[&T1]),
+    ]
 }
 
 /// T270 shape: two rule records, a ledger of 2 keys, a completion marker, NO residual records and NO end record. The
@@ -54,11 +60,13 @@ fn ledger_keys_are_declared_terminals_t270_shape() {
     assert_eq!(row(&r, &T2).status, RowStatus::Terminal);
     assert_eq!(row(&r, &TOP).status, RowStatus::Served);
     assert!(
-        !r.blocking().iter().any(|b| b.starts_with("descent") || b.contains("open")),
+        !r.blocking()
+            .iter()
+            .any(|b| b.starts_with("descent") || b.contains("open")),
         "{:?}",
         r.blocking()
     );
-    let d1 = set.terminal_provenance.get(&T1.to_vec()).unwrap();
+    let d1 = set.terminal_provenance.get(T1.as_slice()).unwrap();
     assert_eq!(d1.provenance, "composite_terminal_ledger");
     assert_eq!(d1.line, 5);
     // statement: the terminal row carries its provenance; terminals.json lists the table-declared terminals
@@ -71,11 +79,15 @@ fn ledger_keys_are_declared_terminals_t270_shape() {
         .collect();
     let t1 = rows.iter().find(|v| v["key"] == json!(T1)).unwrap();
     assert_eq!(t1["status"], json!("terminal"));
-    assert_eq!(t1["terminal"]["provenance"], json!("composite_terminal_ledger"));
+    assert_eq!(
+        t1["terminal"]["provenance"],
+        json!("composite_terminal_ledger")
+    );
     let top = rows.iter().find(|v| v["key"] == json!(TOP)).unwrap();
     assert!(top.get("terminal").is_none());
     let tj: Value =
-        serde_json::from_str(&std::fs::read_to_string(out.join("terminals.json")).unwrap()).unwrap();
+        serde_json::from_str(&std::fs::read_to_string(out.join("terminals.json")).unwrap())
+            .unwrap();
     assert_eq!(tj["declared_by_tables"].as_array().unwrap().len(), 2);
     // comparison: a hand statement naming the same terminals agrees
     let hand = d.join("hand.jsonl");
@@ -91,10 +103,14 @@ fn ledger_keys_are_declared_terminals_t270_shape() {
         .collect::<String>(),
     )
     .unwrap();
-    let hs = import::read_hand_statement(&hand, &import::HandFormat::positional(0, 1, 2, 3), N)
-        .unwrap();
+    let hs =
+        import::read_hand_statement(&hand, &import::HandFormat::positional(0, 1, 2, 3), N).unwrap();
     let cmp = import::compare(&set, &r, &hs);
-    assert!(cmp.terminals_equal, "{:?} vs {:?}", cmp.terminals_hand, cmp.terminals_ours);
+    assert!(
+        cmp.terminals_equal,
+        "{:?} vs {:?}",
+        cmp.terminals_hand, cmp.terminals_ours
+    );
 }
 
 /// `table_terminals`: `none` declares nothing from the table (the ledger keys are then uncovered); a key declared by
@@ -117,7 +133,13 @@ fn table_terminals_policy() {
     assert_eq!(row(&r, &T1).status, RowStatus::Terminal);
     assert_eq!(row(&r, &T2).status, RowStatus::Open);
     // ledger_and_residuals: both
-    let sp = spec(&d, &t, &[&TOP], json!({"table_terminals":"ledger_and_residuals"}), &[]);
+    let sp = spec(
+        &d,
+        &t,
+        &[&TOP],
+        json!({"table_terminals":"ledger_and_residuals"}),
+        &[],
+    );
     let (set, _ev, r) = run(&sp, &d);
     assert_eq!(row(&r, &T2).status, RowStatus::Terminal);
     assert_eq!(set.terminal_provenance[&T2.to_vec()].provenance, "residual");
@@ -129,7 +151,7 @@ fn table_terminals_policy() {
                    {"id":"A","kind":"engine_table","path":t.display().to_string()}]});
     let (set, _ev, r) = run(&sp, &d);
     assert_eq!(row(&r, &T1).status, RowStatus::Terminal);
-    assert!(!set.terminal_provenance.contains_key(&T1.to_vec()));
+    assert!(!set.terminal_provenance.contains_key(T1.as_slice()));
     assert_eq!(set.report.terminals_other, 1);
 }
 
@@ -148,19 +170,68 @@ fn refusal(sp: &Value, d: &std::path::Path) -> (String, String) {
 fn completeness_markers_are_checked_against_the_file() {
     let d = scratch("markers");
     let cases: Vec<(&str, Vec<String>, Option<&str>)> = vec![
-        ("ok", vec![ledger(&[&T1, &T2], Some(2)), complete(2, 2, true)], None),
-        ("incomplete", vec![ledger(&[&T1, &T2], None), complete(2, 2, false)], Some("completion:composite_assembly_complete:complete")),
-        ("rules", vec![ledger(&[&T1, &T2], None), complete(3, 2, true)], Some("completion:composite_assembly_complete:rules")),
-        ("fewer", vec![ledger(&[&T1, &T2], None), complete(1, 2, true)], Some("completion:composite_assembly_complete:rules")),
-        ("residuals", vec![ledger(&[&T1], None), complete(2, 2, true)], Some("completion:composite_assembly_complete:residuals")),
-        ("ledger-count", vec![ledger(&[&T1, &T2], Some(3)), complete(2, 2, true)], Some("ledger_malformed")),
-        ("ledger-key", vec![r#"{"type":"composite_terminal_ledger","keys":["I(1,1)"],"count":1}"#.to_string(), complete(2, 1, true)], Some("ledger_malformed")),
-        ("assembly-end-ok", vec![json!({"type":"assembly_end","rules":2,"rhs_terms":3}).to_string()], None),
-        ("assembly-end-bad", vec![json!({"type":"assembly_end","rules":5,"rhs_terms":3}).to_string()], Some("completion:assembly_end:rules")),
-        ("no-complete", vec![json!({"type":"composite_assembly_complete","rules":2}).to_string()], Some("completion:composite_assembly_complete:complete")),
+        (
+            "ok",
+            vec![ledger(&[&T1, &T2], Some(2)), complete(2, 2, true)],
+            None,
+        ),
+        (
+            "incomplete",
+            vec![ledger(&[&T1, &T2], None), complete(2, 2, false)],
+            Some("completion:composite_assembly_complete:complete"),
+        ),
+        (
+            "rules",
+            vec![ledger(&[&T1, &T2], None), complete(3, 2, true)],
+            Some("completion:composite_assembly_complete:rules"),
+        ),
+        (
+            "fewer",
+            vec![ledger(&[&T1, &T2], None), complete(1, 2, true)],
+            Some("completion:composite_assembly_complete:rules"),
+        ),
+        (
+            "residuals",
+            vec![ledger(&[&T1], None), complete(2, 2, true)],
+            Some("completion:composite_assembly_complete:residuals"),
+        ),
+        (
+            "ledger-count",
+            vec![ledger(&[&T1, &T2], Some(3)), complete(2, 2, true)],
+            Some("ledger_malformed"),
+        ),
+        (
+            "ledger-key",
+            vec![
+                r#"{"type":"composite_terminal_ledger","keys":["I(1,1)"],"count":1}"#.to_string(),
+                complete(2, 1, true),
+            ],
+            Some("ledger_malformed"),
+        ),
+        (
+            "assembly-end-ok",
+            vec![json!({"type":"assembly_end","rules":2,"rhs_terms":3}).to_string()],
+            None,
+        ),
+        (
+            "assembly-end-bad",
+            vec![json!({"type":"assembly_end","rules":5,"rhs_terms":3}).to_string()],
+            Some("completion:assembly_end:rules"),
+        ),
+        (
+            "no-complete",
+            vec![json!({"type":"composite_assembly_complete","rules":2}).to_string()],
+            Some("completion:composite_assembly_complete:complete"),
+        ),
     ];
     for (tag, tail, want) in cases {
-        let t = write_table_with(&d, &format!("{tag}.jsonl"), &header_value(), &rules_two(), Some(&tail));
+        let t = write_table_with(
+            &d,
+            &format!("{tag}.jsonl"),
+            &header_value(),
+            &rules_two(),
+            Some(&tail),
+        );
         let sp = spec(&d, &t, &[&TOP], json!({}), &[]);
         match want {
             None => {
@@ -180,22 +251,52 @@ fn completeness_markers_are_checked_against_the_file() {
 fn accept_fewer_override_is_explicit_and_bounded() {
     let d = scratch("markers-override");
     let why = "minimised table: the minimiser kept the original assembly's marker";
-    let t = write_table_with(&d, "more.jsonl", &header_value(), &rules_two(), Some(&[ledger(&[&T1, &T2], None), complete(2895, 2, true)]));
-    let sp = spec(&d, &t, &[&TOP], json!({"marker_rules":{"accept_fewer": why}}), &[]);
+    let t = write_table_with(
+        &d,
+        "more.jsonl",
+        &header_value(),
+        &rules_two(),
+        Some(&[ledger(&[&T1, &T2], None), complete(2895, 2, true)]),
+    );
+    let sp = spec(
+        &d,
+        &t,
+        &[&TOP],
+        json!({"marker_rules":{"accept_fewer": why}}),
+        &[],
+    );
     let set = try_load(&sp, &d).unwrap();
     let ov = &set.report.sources[0].marker_overrides;
     assert_eq!(ov.len(), 1);
     assert!(ov[0].contains("2895") && ov[0].contains(why), "{ov:?}");
     // strict without the override
     let sp = spec(&d, &t, &[&TOP], json!({}), &[]);
-    assert_eq!(refusal(&sp, &d).0, "completion:composite_assembly_complete:rules");
+    assert_eq!(
+        refusal(&sp, &d).0,
+        "completion:composite_assembly_complete:rules"
+    );
     // the override does not cover fewer stated rules nor a terminal mismatch
     for (tag, tail) in [
-        ("less", vec![ledger(&[&T1, &T2], None), complete(1, 2, true)]),
+        (
+            "less",
+            vec![ledger(&[&T1, &T2], None), complete(1, 2, true)],
+        ),
         ("terms", vec![ledger(&[&T1], None), complete(2895, 2, true)]),
     ] {
-        let t = write_table_with(&d, &format!("{tag}.jsonl"), &header_value(), &rules_two(), Some(&tail));
-        let sp = spec(&d, &t, &[&TOP], json!({"marker_rules":{"accept_fewer": why}}), &[]);
+        let t = write_table_with(
+            &d,
+            &format!("{tag}.jsonl"),
+            &header_value(),
+            &rules_two(),
+            Some(&tail),
+        );
+        let sp = spec(
+            &d,
+            &t,
+            &[&TOP],
+            json!({"marker_rules":{"accept_fewer": why}}),
+            &[],
+        );
         assert!(refusal(&sp, &d).0.starts_with("completion:"), "{tag}");
     }
 }
@@ -219,12 +320,20 @@ fn assembly_provenance_order_must_agree_with_the_header() {
             s.push_str(&l);
             s.push('\n');
         }
-        s.push_str(&format!("{}\n{}\n{}\n", res(&T1), res(&T2), complete(2, 2, true)));
+        s.push_str(&format!(
+            "{}\n{}\n{}\n",
+            res(&T1),
+            res(&T2),
+            complete(2, 2, true)
+        ));
         std::fs::write(&p, s).unwrap();
         let sp = spec(&d, &p, &[&TOP], json!({}), &[]);
         if ok {
             let set = try_load(&sp, &d).unwrap();
-            assert_eq!(set.report.sources[0].markers.get("assembly_provenance"), Some(&1));
+            assert_eq!(
+                set.report.sources[0].markers.get("assembly_provenance"),
+                Some(&1)
+            );
         } else {
             let (w, text) = refusal(&sp, &d);
             assert_eq!(w, "order_mismatch", "{text}");
@@ -250,8 +359,20 @@ fn assembly_provenance_order_must_agree_with_the_header() {
 #[test]
 fn classify_only_load_reports_kinds_and_refusals() {
     let d = scratch("classify");
-    let ok = write_table_with(&d, "ok.jsonl", &header_value(), &rules_two(), Some(&[ledger(&[&T1, &T2], Some(2)), complete(2, 2, true)]));
-    let bad = write_table_with(&d, "bad.jsonl", &header_value(), &rules_two(), Some(&[ledger(&[&T1, &T2], Some(2)), complete(9, 2, true)]));
+    let ok = write_table_with(
+        &d,
+        "ok.jsonl",
+        &header_value(),
+        &rules_two(),
+        Some(&[ledger(&[&T1, &T2], Some(2)), complete(2, 2, true)]),
+    );
+    let bad = write_table_with(
+        &d,
+        "bad.jsonl",
+        &header_value(),
+        &rules_two(),
+        Some(&[ledger(&[&T1, &T2], Some(2)), complete(9, 2, true)]),
+    );
     let o = import::sweep::ClassifyOptions {
         scratch: Some(d.clone()),
         ..Default::default()
@@ -263,7 +384,10 @@ fn classify_only_load_reports_kinds_and_refusals() {
     assert!(c.assembly);
     let c = import::sweep::classify_table(&bad, &o);
     assert_eq!(c.outcome, "refused");
-    assert_eq!(c.reason.as_deref(), Some("completion:composite_assembly_complete:rules"));
+    assert_eq!(
+        c.reason.as_deref(),
+        Some("completion:composite_assembly_complete:rules")
+    );
     let c = import::sweep::classify_table(
         &bad,
         &import::sweep::ClassifyOptions {

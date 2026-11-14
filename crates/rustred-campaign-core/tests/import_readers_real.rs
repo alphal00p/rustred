@@ -19,9 +19,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use import::lines::{RawRecord, scan_table_each};
 use rustred_campaign_core::import;
 use rustred_campaign_core::record::{ReadOptions, RecordReader, RhsMode, TableLine};
-use import::lines::{RawRecord, scan_table_each};
 use serde_json::{Value, json};
 
 const MIN: &str = "/common/build-cache/vhirschi/p_integral_dev/simplify-tables/min";
@@ -64,11 +64,16 @@ fn spaced_and_reordered_rule_lines_read_identically() {
     let compact = br#"{"type":"rule","chart":"110","index":3,"fixed":[null,1,null],"equations":["n0=n2"],"target":"I(n0,1,n2)","rhs":[["I(n0-1,1,n2)","n0/(n2-1)"],["I(n0,1,n2-1)","1"]],"exceptions":[["-1+n0"]],"dispatch":"Partition","witness_loci":[]}"#;
     let spaced = br#"{"type": "rule", "chart": "110", "index": 3, "fixed": [null, 1, null], "equations": ["n0=n2"], "target": "I(n0,1,n2)", "rhs": [["I(n0-1,1,n2)", "n0/(n2-1)"], ["I(n0,1,n2-1)", "1"]], "exceptions": [["-1+n0"]], "dispatch": "Partition", "witness_loci": []}"#;
     let reordered = br#"{ "index" : 3 , "rhs":[ ["I(n0-1,1,n2)","n0/(n2-1)"] , ["I(n0,1,n2-1)","1"] ],"chart":"110","fixed":[null,1,null],"witness_loci":[],"equations":["n0=n2"],"exceptions":[["-1+n0"]],"target":"I(n0,1,n2)","dispatch":"Partition","type" : "rule" }"#;
-    let read = |l: &[u8]| {
-        match RecordReader::new(l, ReadOptions { rhs: RhsMode::KeysOnly }).next() {
-            Some(Ok(TableLine::Rule(r))) => *r,
-            other => panic!("not a rule: {other:?}"),
-        }
+    let read = |l: &[u8]| match RecordReader::new(
+        l,
+        ReadOptions {
+            rhs: RhsMode::KeysOnly,
+        },
+    )
+    .next()
+    {
+        Some(Ok(TableLine::Rule(r))) => *r,
+        other => panic!("not a rule: {other:?}"),
     };
     let a = read(compact);
     assert_eq!(read(spaced), a);
@@ -127,7 +132,8 @@ fn compact_copy(src: &Path, dst: &Path) -> PathBuf {
             continue;
         }
         let v: Value = serde_json::from_slice(&l).unwrap();
-        w.write_all(serde_json::to_string(&v).unwrap().as_bytes()).unwrap();
+        w.write_all(serde_json::to_string(&v).unwrap().as_bytes())
+            .unwrap();
         w.write_all(b"\n").unwrap();
     }
     w.flush().unwrap();
@@ -154,7 +160,10 @@ fn compare_tables(a: &Path, b: &Path, arity: usize) -> (usize, usize) {
         assert_eq!(x.origin, y.origin);
         assert_eq!(x.origin_index, y.origin_index);
         if x.bytes != y.bytes {
-            assert_ne!(x.sha256, y.sha256, "different bytes, different record_sha256");
+            assert_ne!(
+                x.sha256, y.sha256,
+                "different bytes, different record_sha256"
+            );
             differ += 1;
         }
     }
@@ -218,7 +227,11 @@ fn t211_min_has_943_rule_records() {
 #[ignore = "real tables (read-only; compact copies in the scratch dir): RUSTRED_SPACED_TABLES"]
 fn spaced_real_tables_equal_their_compact_reencoding() {
     let list: Vec<PathBuf> = match std::env::var("RUSTRED_SPACED_TABLES") {
-        Ok(s) => s.split(',').filter(|x| !x.is_empty()).map(PathBuf::from).collect(),
+        Ok(s) => s
+            .split(',')
+            .filter(|x| !x.is_empty())
+            .map(PathBuf::from)
+            .collect(),
         Err(_) => vec![
             PathBuf::from(format!("{MIN}/T065/F.table.jsonl")),
             PathBuf::from(format!("{MIN}/T062/F.table.jsonl")),
@@ -241,7 +254,10 @@ fn spaced_real_tables_equal_their_compact_reencoding() {
         let c = compact_copy(p, &d.join("compact.jsonl"));
         let arity = scan_all(p).0.header.denominators.unwrap();
         let (rules, residuals) = compare_tables(p, &c, arity);
-        println!("{}: {spaced} spaced lines; {rules} rules; {residuals} residuals", p.display());
+        println!(
+            "{}: {spaced} spaced lines; {rules} rules; {residuals} residuals",
+            p.display()
+        );
         assert!(rules > 0);
         std::fs::remove_file(&c).unwrap();
     }
@@ -271,9 +287,15 @@ fn load_sweep_of_the_ledger_tables() {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(2);
-    let paths: Vec<PathBuf> = text.lines().filter(|l| !l.trim().is_empty()).map(PathBuf::from).collect();
+    let paths: Vec<PathBuf> = text
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(PathBuf::from)
+        .collect();
     let d = scratch("sweep");
-    let out = Mutex::new(std::io::BufWriter::new(std::fs::File::create(d.join("sweep.jsonl")).unwrap()));
+    let out = Mutex::new(std::io::BufWriter::new(
+        std::fs::File::create(d.join("sweep.jsonl")).unwrap(),
+    ));
     let results: Mutex<Vec<Value>> = Mutex::new(vec![]);
     // small files in parallel, the big ones (> 1 GB) one at a time afterwards (memory)
     let (small, big): (Vec<&PathBuf>, Vec<&PathBuf>) = paths
@@ -300,7 +322,8 @@ fn load_sweep_of_the_ledger_tables() {
                         ..opts.clone()
                     },
                 );
-                v["with_accept_fewer"] = json!({"outcome": c2.outcome, "reason": c2.reason, "detail": c2.detail});
+                v["with_accept_fewer"] =
+                    json!({"outcome": c2.outcome, "reason": c2.reason, "detail": c2.detail});
             }
             let _ = std::fs::remove_dir_all(&tmp);
             v
@@ -347,7 +370,11 @@ fn load_sweep_of_the_ledger_tables() {
         }
     }
     let summary = json!({"tables": res.len(), "by_outcome": by, "line_kinds_of_loaded": kinds, "not_loaded": refused});
-    std::fs::write(d.join("sweep-summary.json"), serde_json::to_string_pretty(&summary).unwrap()).unwrap();
+    std::fs::write(
+        d.join("sweep-summary.json"),
+        serde_json::to_string_pretty(&summary).unwrap(),
+    )
+    .unwrap();
     println!("SWEEP {} tables: {by:?}", res.len());
     println!("SWEEP report: {}", d.display());
     assert_eq!(res.len(), paths.len());
