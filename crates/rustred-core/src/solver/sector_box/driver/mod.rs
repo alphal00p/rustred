@@ -29,6 +29,7 @@ use super::{
 mod growth;
 mod lanes;
 mod seeding;
+mod session_codec;
 mod stability;
 #[cfg(test)]
 mod tests;
@@ -93,6 +94,8 @@ pub struct BoxLaportaSession<const N: usize> {
     selection: Option<SelectionState<N>>,
     /// The selected system over Q(params), keyed by the selection hash.
     exact_system: Option<(String, Arc<super::system::ExactSystem<N>>)>,
+    /// Decoded from a checkpoint (session codec): materialise-only.
+    restored: bool,
 }
 
 /// Second-sample seed: an independent stream derived from the first.
@@ -336,6 +339,7 @@ impl<const N: usize> BoxLaportaSession<N> {
             progress: None,
             selection: None,
             exact_system: None,
+            restored: false,
         })
     }
 
@@ -439,6 +443,11 @@ impl<const N: usize> BoxLaportaSession<N> {
         preferred: &[[i16; N]],
     ) -> Result<ModularReport<N>, SolverError> {
         let started = Instant::now();
+        if self.restored {
+            return Err(SolverError::InvalidInput(
+                "a session decoded from a checkpoint is materialise-only; extend needs the modular row space".into(),
+            ));
+        }
         for values in targets.iter().chain(preferred) {
             self.check_powers(values)?;
         }
