@@ -251,7 +251,7 @@ impl SourceKind {
                 "removed",
                 "domain",
             ],
-            SourceKind::Recipe => &["path", "sha256", "engine_digest"],
+            SourceKind::Recipe => &["path", "sha256", "engine_digest", "assignment"],
             SourceKind::SuppliedRelations => &["path", "sha256", "verification", "verify"],
             SourceKind::SymmetryCredit => &["group", "family", "group_format", "max_candidates"],
             SourceKind::Terminals => &["keys", "path", "sha256", "preferred"],
@@ -307,6 +307,11 @@ pub struct SourceSpec {
     pub group_format: Option<super::symmetry::GroupFormat>,
     #[serde(default)]
     pub max_candidates: Option<u64>,
+    /// `recipe`: PER-KEY ASSIGNMENT side file (until recipe v1.2 `domain.keys` is frozen; interfaces/import.md 14): JSONL
+    /// lines `{"recipe": "<recipe id>", "keys": [[..], ..]}` (or `"key": [..]`); lines naming another recipe id are
+    /// ignored, so one file can serve every recipe. The recipe then serves (and is asked for) ONLY those keys.
+    #[serde(default)]
+    pub assignment: Option<FileRef>,
     /// `supplied_relations`: re-derive every relation from the verified group at its key (interfaces/import.md 13.2).
     #[serde(default)]
     pub verify: Option<super::symmetry::GroupSpec>,

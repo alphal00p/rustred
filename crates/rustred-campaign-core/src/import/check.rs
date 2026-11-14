@@ -236,6 +236,9 @@ fn recipe_sets(set: &ImportedSet, ev: &Evidence) -> Result<RecipeSets, ImportErr
             if r.rhs.is_empty() && r.verdict == "SOLVED" {
                 fail("empty right-hand side".into());
             }
+            if rc.assigned.as_ref().is_some_and(|a| !a.contains(key)) {
+                fail("key not assigned to the recipe (domain.keys / assignment side file)".into());
+            }
             for k in &r.rhs {
                 if k.iter().zip(&lines).any(|(&x, &l)| !l && x > 0) {
                     fail(format!("rhs key {k:?} has a positive numerator"));
@@ -505,7 +508,11 @@ fn check_inner(
                 let cands: Vec<&str> = o
                     .recipe_candidates
                     .iter()
-                    .filter(|c| recipe_names.contains(*c))
+                    .filter(|c| {
+                        set.recipes.iter().any(|r| {
+                            &r.id == *c && r.assigned.as_ref().is_none_or(|a| a.contains(&o.key))
+                        })
+                    })
                     .map(String::as_str)
                     .collect();
                 row.open_reason = Some(if cands.is_empty() {
@@ -622,6 +629,9 @@ fn check_inner(
         // key yet; a candidate whose answer did not certify is skipped (the next one is asked); none left -> no request
         for cand in &o.recipe_candidates {
             if let Some(rc) = set.recipes.iter().find(|r| &r.id == cand) {
+                if rc.assigned.as_ref().is_some_and(|a| !a.contains(&o.key)) {
+                    continue; // not assigned to this recipe: never asked
+                }
                 let prev = ev.solved.get(&rc.id).and_then(|m| m.get(&o.key));
                 if prev.is_some() {
                     continue;

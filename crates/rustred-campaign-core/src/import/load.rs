@@ -73,6 +73,9 @@ pub struct RecipeSource {
     pub recipe_id: Option<String>,
     pub domain: CaseDomain,
     pub slot: DispatchSlot,
+    /// Per-key assignment (recipe v1.2 `domain.keys` and / or the spec's side file): the ONLY keys this recipe may
+    /// serve and be asked for; `None` = its whole domain.
+    pub assigned: Option<std::collections::HashSet<Vec<i32>>>,
 }
 
 /// A supplied point relation (provenance for statements).
@@ -1387,6 +1390,79 @@ fn load_recipe(
             }
         }
     }
+    // v1.2 per-key assignment `domain.keys` (an explicit certified key set)
+    let mut assigned: Option<std::collections::HashSet<Vec<i32>>> = match dom.get("keys") {
+        None | Some(Value::Null) => None,
+        Some(Value::Array(a)) => Some(
+            a.iter()
+                .map(|k| {
+                    serde_json::from_value::<Vec<i32>>(k.clone())
+                        .ok()
+                        .filter(|k| k.len() == n)
+                        .ok_or_else(|| bad(format!("domain.keys entry {k}")))
+                })
+                .collect::<Result<_, _>>()?,
+        ),
+        Some(o) => return Err(bad(format!("domain.keys {o}"))),
+    };
+    for k in dom.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()).unwrap_or_default() {
+        if !["fixed", "equations", "exceptions", "bounds", "keys"].contains(&k.as_str()) {
+            return Err(bad(format!("unknown recipe domain field {k:?} (refused, never ignored)")));
+        }
+    }
+    let recipe_id = v.get("id").and_then(Value::as_str).map(str::to_string);
+    if let Some(side) = &src.assignment {
+        let p = resolve(base, &side.path);
+        verify_file(&p, side.sha256.as_deref())?;
+        let txt = std::fs::read_to_string(&p).map_err(|e| io_err(&p, e))?;
+        let mut mine: std::collections::HashSet<Vec<i32>> = std::collections::HashSet::new();
+        let mut named = false;
+        for (i, l) in txt.lines().enumerate() {
+            if l.trim().is_empty() {
+                continue;
+            }
+            let e: Value = serde_json::from_str(l).map_err(|er| ImportError::Line {
+                source: src.id.clone(),
+                path: p.display().to_string(),
+                line: i + 1,
+                msg: er.to_string(),
+            })?;
+            let rid = e.get("recipe").and_then(Value::as_str);
+            if rid.is_none() || rid != recipe_id.as_deref() {
+                continue;
+            }
+            named = true;
+            let mut keys: Vec<&Value> = e.get("keys").and_then(Value::as_array).map(|a| a.iter().collect()).unwrap_or_default();
+            if let Some(k) = e.get("key") {
+                keys.push(k);
+            }
+            for k in keys {
+                let key = match k {
+                    Value::String(t) => parse_key_text(t, n),
+                    _ => serde_json::from_value::<Vec<i32>>(k.clone()).ok().filter(|k| k.len() == n),
+                }
+                .ok_or_else(|| ImportError::Line {
+                    source: src.id.clone(),
+                    path: p.display().to_string(),
+                    line: i + 1,
+                    msg: format!("assignment key {k}"),
+                })?;
+                mine.insert(key);
+            }
+        }
+        if !named {
+            return Err(bad(format!(
+                "the assignment file {} names no key for recipe id {:?}",
+                p.display(),
+                recipe_id
+            )));
+        }
+        // both given: the intersection (a key must be assigned by both)
+        assigned = Some(match assigned {
+            Some(a) => a.intersection(&mine).cloned().collect(),
+            None => mine,
+        });
+    }
     let domain = CaseDomain {
         arity: n,
         chart: Some(frame.mask().to_vec()),
@@ -1408,9 +1484,10 @@ fn load_recipe(
         path: path.display().to_string(),
         recipe_sha256: d,
         engine_digest: src.engine_digest.clone(),
-        recipe_id: v.get("id").and_then(Value::as_str).map(str::to_string),
+        recipe_id,
         domain,
         slot: DispatchSlot::Last,
+        assigned,
     })
 }
 

@@ -1263,3 +1263,83 @@ fn streamed_check_equals_the_in_memory_check() {
     let sm: Value = serde_json::from_str(&std::fs::read_to_string(dir_s.join("summary.json")).unwrap()).unwrap();
     assert_eq!(sm["keys"], 5);
 }
+
+/// Per-key recipe assignment (recipe v1.2 `domain.keys`, or the spec's side file until v1.2 is frozen): a recipe is
+/// asked for, and serves, ONLY its assigned keys; the next candidate recipe is asked for the others; a solved relation
+/// for an unassigned key is refused.
+#[test]
+fn per_key_recipe_assignment_side_file_and_domain_keys() {
+    let d = scratch("assign");
+    let a = write_table(
+        &d,
+        "A.table.jsonl",
+        &[rule(
+            0,
+            [Some(3), Some(1), Some(0)],
+            &["I(2,1,0)"],
+            Some(json!([])),
+            json!({}),
+        )],
+    );
+    let r1 = recipe_file(&d, [None, Some(1), Some(0)]);
+    let rid: String = serde_json::from_str::<Value>(&std::fs::read_to_string(&r1).unwrap()).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    // R2: the same domain, v1.2 domain.keys = [I(2,1,0)]
+    let r2 = d.join("recipe2.json");
+    let mut v: Value = serde_json::from_str(&std::fs::read_to_string(&r1).unwrap()).unwrap();
+    v["id"] = json!("toy/r2");
+    v["domain"]["keys"] = json!([[2, 1, 0]]);
+    std::fs::write(&r2, v.to_string()).unwrap();
+    // side file: R1 is assigned I(5,1,0) only (another recipe's line is ignored)
+    let side = d.join("assign.jsonl");
+    std::fs::write(
+        &side,
+        format!(
+            "{}\n{}\n",
+            json!({"recipe": rid, "keys": [[5,1,0]]}),
+            json!({"recipe": "someone/else", "keys": [[2,1,0]]})
+        ),
+    )
+    .unwrap();
+    let st = write_keys(&d, &[[3, 1, 0]]);
+    let mut spec = json!({"schema":"rustred.campaign.import-spec.v1","frame_from":"A",
+        "start":{"path": st.display().to_string(),"format":"keys_jsonl"},
+        "sources":[{"id":"A","kind":"engine_table","path":a.display().to_string()},
+                   {"id":"R1","kind":"recipe","path":r1.display().to_string(),
+                    "assignment":{"path": side.display().to_string()}},
+                   {"id":"R2","kind":"recipe","path":r2.display().to_string()}]});
+    let (set, _ev, r) = run(&spec, &d);
+    assert_eq!(set.recipes[0].assigned.as_ref().map(|a| a.len()), Some(1));
+    assert_eq!(set.recipes[1].assigned.as_ref().map(|a| a.len()), Some(1));
+    let reqs: Vec<(&str, Vec<i32>)> = r
+        .solve_requests
+        .iter()
+        .map(|q| (q.source.as_str(), q.key.clone()))
+        .collect();
+    assert_eq!(reqs, vec![("R2", vec![2, 1, 0])], "R1 is not assigned I(2,1,0)");
+    // a SOLVED answer of R1 at the unassigned key is refused
+    let f = d.join("solved.jsonl");
+    std::fs::write(
+        &f,
+        solved("R1", &sha(&r1), [2, 1, 0], &[[1, 1, 0], [2, 0, 0]], "SOLVED", true),
+    )
+    .unwrap();
+    spec["evidence"] = json!({"solved":[{"path": f.display().to_string()}],
+        "expected_recipe_binary": "bb".repeat(32)});
+    let (_set, _ev, r) = run(&spec, &d);
+    assert!(
+        r.solve_refusals.iter().any(|x| x.source == "R1" && x.reason.contains("not assigned")),
+        "{:?}",
+        r.solve_refusals
+    );
+    // an unknown recipe domain field is refused, never ignored
+    let r3 = d.join("recipe3.json");
+    let mut v: Value = serde_json::from_str(&std::fs::read_to_string(&r1).unwrap()).unwrap();
+    v["domain"]["centre_rule"] = json!("first_dotted_line");
+    std::fs::write(&r3, v.to_string()).unwrap();
+    spec["sources"][2]["path"] = json!(r3.display().to_string());
+    let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
+    assert!(load(&s, &d).is_err());
+}
