@@ -1424,7 +1424,10 @@ fn judge_and_send_batch_held(
             for &k in &pass {
                 out[k] = Some(Verdict::Unverified(e.clone()));
             }
-            return finish_verdicts(out).into_iter().map(|v| (v, None)).collect();
+            return finish_verdicts(out)
+                .into_iter()
+                .map(|v| (v, None))
+                .collect();
         }
     };
     if !pass.is_empty() {
@@ -1652,7 +1655,11 @@ pub(crate) fn signal_held(items: &[(&OwnedFd, &StopHold)], sig: i32) -> Vec<Verd
     if sig != libc::SIGKILL && sig != libc::SIGCONT {
         return items
             .iter()
-            .map(|_| Verdict::Unverified(format!("signal {sig}: a stop hold allows SIGKILL / SIGCONT only")))
+            .map(|_| {
+                Verdict::Unverified(format!(
+                    "signal {sig}: a stop hold allows SIGKILL / SIGCONT only"
+                ))
+            })
             .collect();
     }
     let mut out: Vec<Option<Verdict>> = vec![None; items.len()];
@@ -1743,11 +1750,13 @@ pub(crate) fn signal_held(items: &[(&OwnedFd, &StopHold)], sig: i32) -> Vec<Verd
     }
     let sent: Vec<Sent> = pass
         .iter()
-        .map(|&k| match sys::pidfd_send_signal(fd_borrow(items[k].0), sig) {
-            Ok(()) => Sent::Ok,
-            Err(e) if e.raw_os_error() == Some(libc::ESRCH) => Sent::Gone,
-            Err(e) => Sent::Failed(format!("send: {e}")),
-        })
+        .map(
+            |&k| match sys::pidfd_send_signal(fd_borrow(items[k].0), sig) {
+                Ok(()) => Sent::Ok,
+                Err(e) if e.raw_os_error() == Some(libc::ESRCH) => Sent::Gone,
+                Err(e) => Sent::Failed(format!("send: {e}")),
+            },
+        )
         .collect();
     if !pass.is_empty() {
         site!("signal_after_send");
@@ -2399,7 +2408,10 @@ mod tests {
             .map(|b| marker_in_environ(&b).is_none())
             .unwrap_or(true)
         {
-            assert!(t0.elapsed() < Duration::from_secs(10), "child never started");
+            assert!(
+                t0.elapsed() < Duration::from_secs(10),
+                "child never started"
+            );
             std::thread::sleep(Duration::from_millis(5));
         }
         child
@@ -2426,7 +2438,7 @@ mod tests {
         log: &Path,
     ) -> (std::process::Child, OwnedFd, StopHold, ProcessTarget) {
         use std::io::Write;
-        let m = CampaignMarker::new(&format!("c1-{tag}"), "j1:a1").unwrap();
+        let m = CampaignMarker::new(format!("c1-{tag}"), "j1:a1").unwrap();
         let mut a = dropping_child(&m.value());
         let pid = a.id();
         let st = crate::resources::read_stat(pid).unwrap().unwrap();
@@ -2465,7 +2477,9 @@ mod tests {
     #[test]
     fn m1_stop_hold_kills_a_stopped_member_that_dropped_its_marker() {
         if !crate::launch::in_private_namespace() {
-            eprintln!("SKIPPED: spawns and signals processes: only inside a private pid namespace (rule L10)");
+            eprintln!(
+                "SKIPPED: spawns and signals processes: only inside a private pid namespace (rule L10)"
+            );
             return;
         }
         let log = tmpdir("hold-kill");
@@ -2488,7 +2502,10 @@ mod tests {
         let v = with_intent_log(&log, "t-hold", || kill_held(&[(&fdb, &hold)]))
             .pop()
             .unwrap();
-        assert!(matches!(&v, Verdict::Unverified(e) if e.contains("names pid")), "{v:?}");
+        assert!(
+            matches!(&v, Verdict::Unverified(e) if e.contains("names pid")),
+            "{v:?}"
+        );
         let other_boot = StopHold {
             pid: hold.pid,
             start_ticks: hold.start_ticks,
@@ -2510,10 +2527,17 @@ mod tests {
         let v = with_intent_log(&log, "t-hold", || kill_held(&[(&fd, &wrong_start)]))
             .pop()
             .unwrap();
-        assert!(matches!(v, Verdict::NotOurs(Refusal::StartMismatch { .. })), "{v:?}");
+        assert!(
+            matches!(v, Verdict::NotOurs(Refusal::StartMismatch { .. })),
+            "{v:?}"
+        );
         std::thread::sleep(Duration::from_millis(50));
         assert!(b.try_wait().unwrap().is_none(), "the decoy lives");
-        assert_eq!(state_of(pid), Some('T'), "nothing was sent to the member yet");
+        assert_eq!(
+            state_of(pid),
+            Some('T'),
+            "nothing was sent to the member yet"
+        );
         // 3. the held SIGKILL
         let v = with_intent_log(&log, "t-hold", || {
             with_context("unit test", Some("j1:a1"), || kill_held(&[(&fd, &hold)]))
@@ -2535,7 +2559,10 @@ mod tests {
             .pop()
             .unwrap();
         assert_eq!(v, Verdict::Gone);
-        assert_eq!(read_intent_log(&log.join(INTENT_LOG_FILE)).unwrap().0.len(), n);
+        assert_eq!(
+            read_intent_log(&log.join(INTENT_LOG_FILE)).unwrap().0.len(),
+            n
+        );
         let _ = b.kill();
         let _ = b.wait();
         let _ = std::fs::remove_dir_all(&log);
@@ -2546,7 +2573,9 @@ mod tests {
     #[test]
     fn m1_stop_hold_continue_and_no_send_without_intent() {
         if !crate::launch::in_private_namespace() {
-            eprintln!("SKIPPED: spawns and signals processes: only inside a private pid namespace (rule L10)");
+            eprintln!(
+                "SKIPPED: spawns and signals processes: only inside a private pid namespace (rule L10)"
+            );
             return;
         }
         let log = tmpdir("hold-cont");
@@ -2558,7 +2587,10 @@ mod tests {
             with_intent_log(&full, "t-full", || kill_held(&[(&fd, &hold)])),
             with_intent_log(&full, "t-full", || continue_held(&[(&fd, &hold)])),
         ] {
-            assert!(matches!(&v[0], Verdict::Unverified(e) if e.contains("not durable")), "{v:?}");
+            assert!(
+                matches!(&v[0], Verdict::Unverified(e) if e.contains("not durable")),
+                "{v:?}"
+            );
         }
         std::thread::sleep(Duration::from_millis(50));
         assert_eq!(state_of(pid), Some('T'), "nothing sent without an intent");

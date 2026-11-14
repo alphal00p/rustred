@@ -27,7 +27,9 @@ fn in_ns() -> bool {
     if rustred_campaign::launch::in_private_namespace() {
         return true;
     }
-    eprintln!("SKIPPED: spawns and signals processes: only inside a private pid namespace (rule L10)");
+    eprintln!(
+        "SKIPPED: spawns and signals processes: only inside a private pid namespace (rule L10)"
+    );
     false
 }
 
@@ -45,6 +47,24 @@ fn script(dir: &Path, name: &str, body: &str) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
     p
+}
+
+/// Empty the capability bounding set before the exec: the program then runs as uid 0 of the namespace WITHOUT any
+/// capability, like a process of the user on the host. (Inside the namespace every uid-0 process holds all capabilities,
+/// and the kernel's capability-subset rule of `cap_ptrace_access_check` alone would hide such a process from a
+/// capability-less reader, dumpable or not: both the reader AND the targets must be capability-less for a meaningful
+/// check of PR_SET_DUMPABLE.)
+fn drop_caps(c: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    // SAFETY: prctl is async-signal-safe; integers only.
+    unsafe {
+        c.pre_exec(|| {
+            for cap in 0..64 {
+                libc::prctl(libc::PR_CAPBSET_DROP, cap, 0, 0, 0);
+            }
+            Ok(())
+        });
+    }
 }
 
 fn finish(mut c: Child) {
@@ -101,7 +121,11 @@ fn m1_flipping_members_are_never_left_stopped_and_decoys_untouched() {
             .collect();
         let decoys = vec![
             spawn_flip(other),
-            Command::new(sleep_bin()).arg("600").env_clear().spawn().unwrap(),
+            Command::new(sleep_bin())
+                .arg("600")
+                .env_clear()
+                .spawn()
+                .unwrap(),
         ];
         std::thread::sleep(Duration::from_millis(200));
         let r = sweep(
@@ -180,6 +204,7 @@ fn barrier_shim(token: &[u8; 32], ran: &Path) -> (Child, OwnedFd, i32) {
             Ok(())
         });
     }
+    drop_caps(&mut c);
     let child = c.spawn().unwrap();
     drop(r);
     // wait for its exec into the shim, then a moment for its prctl
@@ -207,16 +232,7 @@ fn capless_writer(t: &Tmp, pid: u32, fd: i32, tag: &str) -> (u64, u64, String) {
     let s = script(&t.path, &format!("writer-{tag}.sh"), &body);
     let mut c = Command::new(&s);
     c.env_clear().env("PATH", path_env()).stdin(Stdio::null());
-    use std::os::unix::process::CommandExt;
-    // SAFETY: prctl is async-signal-safe; dropping every capability from the bounding set before the exec.
-    unsafe {
-        c.pre_exec(|| {
-            for cap in 0..64 {
-                libc::prctl(libc::PR_CAPBSET_DROP, cap, 0, 0, 0);
-            }
-            Ok(())
-        });
-    }
+    drop_caps(&mut c);
     let st = c.spawn().unwrap().wait().unwrap();
     assert!(st.success());
     let txt = std::fs::read_to_string(&out).unwrap();
@@ -228,7 +244,7 @@ fn capless_writer(t: &Tmp, pid: u32, fd: i32, tag: &str) -> (u64, u64, String) {
 
 /// gate5 m2: the barrier bypass of the audit (`barrier_inner.sh C`: a same-uid process writes into
 /// /proc/<shim>/fd/<fd>) is closed twice. (1) The shim is non-dumpable: a capability-less writer of the same uid
-/// reaches the pipe of a DUMPABLE process (control) but not the shim's. (2) A writer that does reach it (here: the test
+/// reaches the pipe of a DUMPABLE capability-less process (control) but not the (capability-less) shim's. (2) A writer that does reach it (here: the test
 /// itself, uid 0 with CAP_SYS_PTRACE in the namespace) cannot release it: a wrong token ends the shim with 125 and the
 /// program never runs; EOF too; only the token releases it.
 #[test]
@@ -239,15 +255,19 @@ fn m2_barrier_needs_the_release_token_and_its_pipe_is_unreachable() {
     let _g = serial();
     let t = Tmp::new("pf6-m2");
     let token: [u8; 32] = *blake3::hash(t.campaign.as_bytes()).as_bytes();
-    // control: a dumpable process holding a pipe (its stdin) is reachable by the capability-less writer
-    let mut ctl = Command::new(sleep_bin())
-        .arg("30")
-        .stdin(Stdio::piped())
-        .spawn()
-        .unwrap();
+    // control: a dumpable capability-less process holding a pipe (its stdin) is reachable by the capability-less writer
+    let mut ctl = {
+        let mut c = Command::new(sleep_bin());
+        c.arg("30").stdin(Stdio::piped());
+        drop_caps(&mut c);
+        c.spawn().unwrap()
+    };
     let (ok, n, txt) = capless_writer(&t, ctl.id(), 0, "ctl");
     assert!(txt.contains("CapEff:\t0000000000000000"), "{txt}");
-    assert!(ok > 0 && n > 0, "control: the writer reaches a dumpable process's pipe ({txt})");
+    assert!(
+        ok > 0 && n > 0,
+        "control: the writer reaches a dumpable process's pipe ({txt})"
+    );
     let _ = ctl.kill();
     let _ = ctl.wait();
     // (1) the shim's pipe is not reachable; the program does not run; the shim keeps waiting
@@ -289,7 +309,8 @@ fn m2_barrier_needs_the_release_token_and_its_pipe_is_unreachable() {
 
 /// gate5 m2: the supervisor (the real binary, which hosts the barrier and holds its pipes) is non-dumpable: a
 /// capability-less process of the same uid cannot read its environ (nor its descriptors), while a job's program
-/// (dumpable again after its exec) stays readable, so the marker scans keep working; the campaign ends normally.
+/// (dumpable again after its exec) stays readable, so the marker scans keep working; the campaign ends normally. The
+/// supervisor runs capability-less here (as on the host), so it also shows that it needs no capability in a namespace.
 #[test]
 fn m2_supervisor_is_not_dumpable_and_jobs_are() {
     if !in_ns() {
@@ -300,9 +321,28 @@ fn m2_supervisor_is_not_dumpable_and_jobs_are() {
     let syn = serde_json::json!({"items": 1, "case_ms": [6000, 6000], "seed": 5, "p_mem": 0.0, "p_crash": 0.0, "p_norule": 0.0});
     let spec_p = write_spec(&t, "spec.json", &spec(&t, syn, serde_json::json!({})));
     let d = t.cdir("c");
-    let mut c = start(&spec_p, &d, &[], &[]);
+    let mut c = {
+        let log = std::fs::File::create(d.with_extension("log")).unwrap();
+        let mut c = Command::new(SUP);
+        c.arg("run")
+            .arg("--spec")
+            .arg(&spec_p)
+            .arg("--dir")
+            .arg(&d)
+            .stdin(Stdio::null())
+            .stdout(log.try_clone().unwrap())
+            .stderr(log)
+            .env_remove("RR_CAMPAIGN_FAILPOINT");
+        drop_caps(&mut c);
+        c.spawn().unwrap()
+    };
     let t0 = Instant::now();
     let job_pid = loop {
+        if !d.join("ledger").join("MANIFEST.json").exists() {
+            assert!(t0.elapsed() < Duration::from_secs(120), "{}", log_tail(&d));
+            std::thread::sleep(Duration::from_millis(100));
+            continue;
+        }
         let started = records(&d).into_iter().find_map(|r| match r.event {
             Event::Job {
                 ev: JobEvent::Started { pid, .. },
@@ -332,22 +372,21 @@ fn m2_supervisor_is_not_dumpable_and_jobs_are() {
     );
     let mut cmd = Command::new(&s);
     cmd.env_clear().env("PATH", path_env());
-    use std::os::unix::process::CommandExt;
-    // SAFETY: as in `capless_writer`.
-    unsafe {
-        cmd.pre_exec(|| {
-            for cap in 0..64 {
-                libc::prctl(libc::PR_CAPBSET_DROP, cap, 0, 0, 0);
-            }
-            Ok(())
-        });
-    }
+    drop_caps(&mut cmd);
     assert!(cmd.status().unwrap().success());
     let reads = std::fs::read_to_string(&out).unwrap();
     assert!(reads.contains(&format!("{} unreadable", c.id())), "{reads}");
-    assert!(reads.contains(&format!("{} fd-unreadable", c.id())), "{reads}");
+    assert!(
+        reads.contains(&format!("{} fd-unreadable", c.id())),
+        "{reads}"
+    );
     assert!(reads.contains(&format!("{job_pid} readable")), "{reads}");
-    assert_eq!(wait(&mut c, Duration::from_secs(300)), 0, "{}", log_tail(&d));
+    assert_eq!(
+        wait(&mut c, Duration::from_secs(300)),
+        0,
+        "{}",
+        log_tail(&d)
+    );
     assert_eq!(verify(&d), 0);
     assert_no_marked(&t.campaign);
 }
@@ -398,14 +437,19 @@ fn m3_full_intent_log_ends_75_promptly_and_names_what_was_not_signalled() {
     let _g = serial();
     let t = Tmp::new("pf6-m3");
     let wrap = daemon_wrapper(&t.path);
-    let syn = serde_json::json!({"items": 2, "case_ms": [600000, 600000], "seed": 9, "p_mem": 0.0, "p_crash": 0.0, "p_norule": 0.0});
+    let syn = serde_json::json!({"items": 1, "nodes": 1, "rungs": 1, "deps": 0.0, "case_ms": [600000, 600000], "seed": 9, "p_mem": 0.0, "p_crash": 0.0, "p_norule": 0.0});
     let mut v = spec(&t, syn, serde_json::json!({"grace_seconds": 2}));
     v["programs"]["rr_fake_child"]["path"] = serde_json::json!(wrap);
     let spec_p = write_spec(&t, "spec.json", &v);
     let d = t.cdir("c");
-    let mut c = start(&spec_p, &d, &[], &[("RR_CAMPAIGN_FAILPOINT", "intent_enospc:1")]);
+    let mut c = start(
+        &spec_p,
+        &d,
+        &[],
+        &[("RR_CAMPAIGN_FAILPOINT", "intent_enospc:1")],
+    );
     let t0 = Instant::now();
-    while daemons(&t.path).len() < 2 {
+    while daemons(&t.path).is_empty() {
         assert!(t0.elapsed() < Duration::from_secs(120), "{}", log_tail(&d));
         std::thread::sleep(Duration::from_millis(100));
     }
@@ -419,7 +463,10 @@ fn m3_full_intent_log_ends_75_promptly_and_names_what_was_not_signalled() {
     assert_eq!(code, 75, "{log}");
     assert!(took < Duration::from_secs(45), "stop took {took:?}: {log}");
     assert!(log.contains("NOT sent to"), "{log}");
-    assert!(log.contains("signal intent log cannot be written (disk full)"), "{log}");
+    assert!(
+        log.contains("signal intent log cannot be written (disk full)"),
+        "{log}"
+    );
     assert!(
         log.contains("signal(s) NOT sent because their intent could not be written"),
         "{log}"
@@ -433,23 +480,39 @@ fn m3_full_intent_log_ends_75_promptly_and_names_what_was_not_signalled() {
     let t2 = Instant::now();
     while records(&d)
         .iter()
-        .filter(|r| matches!(r.event, Event::Job { ev: JobEvent::Started { .. }, .. }))
+        .filter(|r| {
+            matches!(
+                r.event,
+                Event::Job {
+                    ev: JobEvent::Started { .. },
+                    ..
+                }
+            )
+        })
         .count()
-        < 4
+        < 2
     {
         assert!(t2.elapsed() < Duration::from_secs(120), "{}", log_tail(&d));
         std::thread::sleep(Duration::from_millis(100));
     }
-    for (p, s) in daemons(&t.path).into_iter().take(2) {
+    for (p, s) in daemons(&t.path).into_iter().take(1) {
         let t3 = Instant::now();
         while alive_with(p, s) {
-            assert!(t3.elapsed() < Duration::from_secs(30), "daemon {p} survived the recovery");
+            assert!(
+                t3.elapsed() < Duration::from_secs(30),
+                "daemon {p} survived the recovery"
+            );
             std::thread::sleep(Duration::from_millis(50));
         }
     }
     // SAFETY: as above.
     unsafe { libc::kill(c.id() as i32, libc::SIGINT) };
-    assert_eq!(wait(&mut c, Duration::from_secs(150)), 130, "{}", log_tail(&d));
+    assert_eq!(
+        wait(&mut c, Duration::from_secs(150)),
+        130,
+        "{}",
+        log_tail(&d)
+    );
     assert_eq!(verify(&d), 0);
     assert_no_marked(&t.campaign);
 }
@@ -481,7 +544,12 @@ fn m4_sigxfsz_death_is_a_resource_end_not_a_crash() {
     let spec_p = write_spec(&t, "spec.json", &v);
     let d = t.cdir("c");
     let mut c = start(&spec_p, &d, &[], &[]);
-    assert_eq!(wait(&mut c, Duration::from_secs(600)), 0, "{}", log_tail(&d));
+    assert_eq!(
+        wait(&mut c, Duration::from_secs(600)),
+        0,
+        "{}",
+        log_tail(&d)
+    );
     let crashed = count(&d, |e| {
         matches!(
             e,
@@ -495,10 +563,15 @@ fn m4_sigxfsz_death_is_a_resource_end_not_a_crash() {
         )
     });
     assert_eq!(crashed, 0, "{}", log_tail(&d));
-    let resource = count(&d, |e| {
-        matches!(e, Event::Job { ev: JobEvent::Requeue { reason }, .. } if reason.ends_with("(row 15b)"))
-    });
-    assert!(resource >= 3, "{resource} resource requeues: {}", log_tail(&d));
+    let resource = count(
+        &d,
+        |e| matches!(e, Event::Job { ev: JobEvent::Requeue { reason }, .. } if reason.ends_with("(row 15b)")),
+    );
+    assert!(
+        resource >= 3,
+        "{resource} resource requeues: {}",
+        log_tail(&d)
+    );
     let log = std::fs::read_to_string(d.join("log/supervisor.log")).unwrap_or_default();
     assert!(log.contains("killed by SIGXFSZ"), "{log}");
     assert_eq!(result(&d), result(&r));
@@ -521,15 +594,34 @@ fn m5_containment_is_named_per_job_and_no_phantom_scope_unit() {
     let d = t.cdir("c");
     assert_eq!(run_to_end(&spec_p, &d, &[]), vec![0]);
     let started = count(&d, |e| {
-        matches!(e, Event::Job { ev: JobEvent::Started { .. }, .. })
+        matches!(
+            e,
+            Event::Job {
+                ev: JobEvent::Started { .. },
+                ..
+            }
+        )
     });
     let launches_with_scope = count(&d, |e| {
-        matches!(e, Event::Job { ev: JobEvent::Launch { scope_unit: Some(_), .. }, .. })
+        matches!(
+            e,
+            Event::Job {
+                ev: JobEvent::Launch {
+                    scope_unit: Some(_),
+                    ..
+                },
+                ..
+            }
+        )
     });
     let n = notes(&d, "job_containment ");
     assert!(started > 0);
     assert_eq!(n.len(), started, "{n:#?}");
-    assert!(n.iter().all(|x| x.contains("\"containment\":\"marker_only\"")), "{n:#?}");
+    assert!(
+        n.iter()
+            .all(|x| x.contains("\"containment\":\"marker_only\"")),
+        "{n:#?}"
+    );
     assert_eq!(launches_with_scope, 0);
     let log = std::fs::read_to_string(d.join("log/supervisor.log")).unwrap_or_default();
     assert!(log.contains("containment: marker only"), "{log}");

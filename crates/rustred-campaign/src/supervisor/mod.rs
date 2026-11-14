@@ -2131,7 +2131,10 @@ impl Supervisor {
     ) {
         use crate::launch::Containment;
         let (word, why) = match c {
-            Containment::Scope(_) => (c.word(), "verified: the job leader's cgroup is this scope".to_string()),
+            Containment::Scope(_) => (
+                c.word(),
+                "verified: the job leader's cgroup is this scope".to_string(),
+            ),
             Containment::Cgroup(_) => (c.word(), "the job's delegated cgroup".to_string()),
             Containment::MarkerOnly(w) => ("marker_only".to_string(), w.clone()),
             Containment::Pending => (
@@ -2142,8 +2145,15 @@ impl Supervisor {
                 ),
             ),
         };
-        let level = if matches!(c, Containment::Pending) { "WARN" } else { "INFO" };
-        self.log.line(level, &format!("{job} a{attempt}: containment {word} ({why})"));
+        let level = if matches!(c, Containment::Pending) {
+            "WARN"
+        } else {
+            "INFO"
+        };
+        self.log.line(
+            level,
+            &format!("{job} a{attempt}: containment {word} ({why})"),
+        );
         self.commit(vec![Event::Note {
             text: format!(
                 "job_containment {{\"job\":{job:?},\"attempt\":{attempt},\"containment\":{word:?},\"why\":{why:?}}}"
@@ -2159,9 +2169,9 @@ impl Supervisor {
         let mut fresh = Vec::new();
         for n in v {
             let k = (n.target, n.pid, n.start_ticks, n.signal);
-            if !self.not_signalled.contains_key(&k) {
+            if let std::collections::btree_map::Entry::Vacant(e) = self.not_signalled.entry(k) {
                 fresh.push(n.clone());
-                self.not_signalled.insert(k, n);
+                e.insert(n);
             }
         }
         for n in &fresh {
@@ -2185,7 +2195,9 @@ impl Supervisor {
         if dropped > 0 {
             self.log.line(
                 "ERROR",
-                &format!("{dropped} further signal(s) NOT sent (intent not durable) and not listed"),
+                &format!(
+                    "{dropped} further signal(s) NOT sent (intent not durable) and not listed"
+                ),
             );
         }
         if crate::launch::intent_disk_full() && self.ledger_dead.is_none() {
@@ -2818,9 +2830,10 @@ impl Supervisor {
         // launch record below, so that a restart after a crash can stop exactly this scope. procfix6 (gate5 m5): named
         // (and recorded) ONLY when the launcher will really ask systemd for a scope (never in a private namespace or
         // with the marker only); its existence is verified after the start (note `job_containment`).
-        ls.scope_unit = self.launcher.scope_requested(&ls).then(|| {
-            crate::launch::scope_unit_name(&self.ctx.campaign_key, &ls.label)
-        });
+        ls.scope_unit = self
+            .launcher
+            .scope_requested(&ls)
+            .then(|| crate::launch::scope_unit_name(&self.ctx.campaign_key, &ls.label));
         let mut events = Vec::new();
         if existing.is_none() {
             // Input identity (ledger 5.5): beyond its binary and the item's / node's inputs (the reducer adds those),
@@ -4932,7 +4945,8 @@ fn disk_attributed_end(
     };
     if sig == Some(libc::SIGXFSZ) {
         return Some(
-            "killed by SIGXFSZ (a file-size limit: the host's `ulimit -f` or the file system)".into(),
+            "killed by SIGXFSZ (a file-size limit: the host's `ulimit -f` or the file system)"
+                .into(),
         );
     }
     match &ev.outcome {
@@ -5440,7 +5454,10 @@ mod tests {
     #[test]
     fn m4_disk_attributed_child_ends_are_resource_ends() {
         let roomy = std::env::temp_dir();
-        for w in [WaitStatus::Signaled(libc::SIGXFSZ), WaitStatus::Exited(128 + libc::SIGXFSZ)] {
+        for w in [
+            WaitStatus::Signaled(libc::SIGXFSZ),
+            WaitStatus::Exited(128 + libc::SIGXFSZ),
+        ] {
             let ev = evidence(w);
             let c = classify::classify(&ev);
             assert_eq!(c.kind, classify::OutcomeKind::Crashed, "{c:?}");
@@ -5462,8 +5479,14 @@ mod tests {
         assert_eq!(c.row, 21);
         assert_eq!(disk_attributed_end(&ev, &c, &[roomy.as_path()]), None);
         // errno renderings
-        assert!(names_errno("write OUTCOME: File too large (os error 27)", libc::EFBIG));
-        assert!(names_errno("Os { code: 27, kind: FileTooLarge }", libc::EFBIG));
+        assert!(names_errno(
+            "write OUTCOME: File too large (os error 27)",
+            libc::EFBIG
+        ));
+        assert!(names_errno(
+            "Os { code: 27, kind: FileTooLarge }",
+            libc::EFBIG
+        ));
         assert!(!names_errno("Permission denied (os error 13)", libc::EFBIG));
         assert!(!names_errno("os error 270", libc::EFBIG));
         // the same missing OUTCOME on a FULL file system: a resource end
@@ -5478,7 +5501,9 @@ mod tests {
                 unsafe { libc::umount2(cs.as_ptr(), libc::MNT_DETACH) };
                 let _ = std::fs::remove_dir_all(&full);
             }
-            None => eprintln!("full-fs part SKIPPED: needs the private namespace of the crate's test run"),
+            None => eprintln!(
+                "full-fs part SKIPPED: needs the private namespace of the crate's test run"
+            ),
         }
     }
 }

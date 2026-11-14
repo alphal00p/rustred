@@ -1285,7 +1285,9 @@ impl RealChild {
         } else if r < 0 {
             Err(last_err())
         } else {
-            Err(io::Error::other(format!("short write of the release token ({r} bytes)")))
+            Err(io::Error::other(format!(
+                "short write of the release token ({r} bytes)"
+            )))
         }
     }
 

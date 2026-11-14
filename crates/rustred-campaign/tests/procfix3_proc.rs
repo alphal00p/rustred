@@ -155,7 +155,10 @@ fn m5_extended_tripwire_reap_stop_spawn_forms_only_where_allowed() {
         // stop / continue: only through the guard, from the hunt, the sweep and the launcher's terminate.
         // procfix6 (gate5 m1): the guard itself names SIGSTOP (it makes the stop hold of a delivered stop) and SIGCONT
         // (the stop hold allows SIGKILL / SIGCONT only); the sweep and the hunt continue through `guard::continue_held`.
-        ("SIGSTOP", &["launch/hunt.rs", "launch/sweep.rs", "launch/guard.rs"]),
+        (
+            "SIGSTOP",
+            &["launch/hunt.rs", "launch/sweep.rs", "launch/guard.rs"],
+        ),
         ("SIGCONT", &["launch/real.rs", "launch/guard.rs"]),
         ("cgroup.freeze", &["launch/cgroup.rs"]),
         ("cgroup.kill", &["launch/cgroup.rs"]),

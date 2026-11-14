@@ -39,17 +39,17 @@ pub use fake::{
 pub(crate) use guard::reap_adopted;
 pub use guard::{
     DELIVERY_LOG_MAX, Delivery, INTENT_LOG_FILE, INTENT_RESERVE_FILE, INTENT_SCHEMA, IntentLine,
-    LoggedIntent, PidfdProbe, ProcessTarget, Proof, Refusal, SigchldSetup, StartRule, Verdict,
-    ensure_sigchld_default, ignore_sigxfsz, install_intent_log, intent_id_in, intent_log_installed,
-    is_child_subreaper, kill_orphan, pidfd_probe, pidfd_supported, read_intent_log,
-    set_child_subreaper, sigchld_autoreaps, signal_verified_process, take_deliveries,
-    uninstall_intent_log, NotSignalled, delivered_total, intent_disk_full, take_not_signalled,
+    LoggedIntent, NotSignalled, PidfdProbe, ProcessTarget, Proof, Refusal, SigchldSetup, StartRule,
+    Verdict, delivered_total, ensure_sigchld_default, ignore_sigxfsz, install_intent_log,
+    intent_disk_full, intent_id_in, intent_log_installed, is_child_subreaper, kill_orphan,
+    pidfd_probe, pidfd_supported, read_intent_log, set_child_subreaper, sigchld_autoreaps,
+    signal_verified_process, take_deliveries, take_not_signalled, uninstall_intent_log,
 };
 pub use idlock::{IdLockError, default_lock_dir};
 pub use real::{
-    CapPreference, LauncherError, LauncherSetup, RealChild, RealConfig, RealLauncher, RetireEvent,
-    TrackingPreference, adhoc_campaign_id, audit_inheritable_fds, barrier_shim,
-    in_private_namespace, peek_exit, set_not_dumpable, Containment,
+    CapPreference, Containment, LauncherError, LauncherSetup, RealChild, RealConfig, RealLauncher,
+    RetireEvent, TrackingPreference, adhoc_campaign_id, audit_inheritable_fds, barrier_shim,
+    in_private_namespace, peek_exit, set_not_dumpable,
 };
 pub use sweep::{LeftMarked, Narrowing, SweepReport, SweepSpec};
 

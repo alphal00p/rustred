@@ -395,9 +395,11 @@ impl Sweep<'_> {
                 }
                 Verdict::Gone => {}
                 // procfix6 (gate5 m1): never dropped silently: a member this sweep STOPPED goes through its stop hold.
-                Verdict::NotOurs(r) if m.hold.is_some() => {
-                    refused.push((k, m, format!("marker check refused at the kill round: {r:?}")))
-                }
+                Verdict::NotOurs(r) if m.hold.is_some() => refused.push((
+                    k,
+                    m,
+                    format!("marker check refused at the kill round: {r:?}"),
+                )),
                 Verdict::Unverified(e) if m.hold.is_some() => {
                     refused.push((k, m, format!("SIGKILL not verified: {e}")))
                 }
@@ -450,7 +452,9 @@ impl Sweep<'_> {
                 Verdict::Gone => {
                     self.left.remove(&k);
                 }
-                Verdict::NotOurs(r) => cont.push((k, m, format!("{why}; held SIGKILL refused: {r:?}"))),
+                Verdict::NotOurs(r) => {
+                    cont.push((k, m, format!("{why}; held SIGKILL refused: {r:?}")))
+                }
                 Verdict::Unverified(e) => {
                     cont.push((k, m, format!("{why}; held SIGKILL not sent: {e}")))
                 }
@@ -498,9 +502,9 @@ impl Sweep<'_> {
     fn retry_stranded(&mut self) {
         let old: Vec<Member> = {
             let mut g = STRANDED.lock().unwrap_or_else(|p| p.into_inner());
-            let (mine, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut *g).into_iter().partition(
-                |(c, m)| *c == self.s.campaign_id && self.wanted(&m.process.attempt_id),
-            );
+            let (mine, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut *g)
+                .into_iter()
+                .partition(|(c, m)| *c == self.s.campaign_id && self.wanted(&m.process.attempt_id));
             *g = rest;
             mine.into_iter().map(|(_, m)| m).collect()
         };
@@ -672,7 +676,9 @@ mod tests {
     #[test]
     fn m1_stranded_members_are_reported_kept_and_retried() {
         if !crate::launch::in_private_namespace() {
-            eprintln!("SKIPPED: spawns and signals processes: only inside a private pid namespace (rule L10)");
+            eprintln!(
+                "SKIPPED: spawns and signals processes: only inside a private pid namespace (rule L10)"
+            );
             return;
         }
         let mut c = std::process::Command::new("sleep")
@@ -730,10 +736,7 @@ mod tests {
         assert!(w.killed.is_empty() && w.continued.is_empty());
         let (m, why) = w.stranded.remove(&k).expect("stranded");
         assert!(why.starts_with(STRANDED_WHY), "{why}");
-        STRANDED
-            .lock()
-            .unwrap()
-            .push((id.to_string(), m));
+        STRANDED.lock().unwrap().push((id.to_string(), m));
         // Another campaign's sweep never takes it.
         let other = SweepSpec {
             campaign_id: "pf6other.0123456789abcdef".into(),
