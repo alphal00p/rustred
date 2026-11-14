@@ -568,13 +568,26 @@ fn check_inner(
                 .and_then(|i| i.check.as_ref())
                 .is_some_and(|c| c.verified());
             let diagnostic = sinfo.is_some_and(|i| i.diagnostic);
-            row.server = Some(Server::Relation { set: name, recipe });
+            row.server = Some(Server::Relation {
+                set: name.clone(),
+                recipe,
+            });
             if diagnostic {
                 row.evidence = None;
                 row.basis = Some(BASIS_KEYS_ONLY_DIAGNOSTIC);
             } else if recipe {
-                row.evidence = Some(Level::PerKey);
-                row.basis = Some("recipe_certified");
+                // lane closeloop2 (closeloop.md 13.6): our own relations need their bound per-key proof when asked to
+                let proved = ev
+                    .recipe_proofs
+                    .as_ref()
+                    .is_none_or(|s| s.contains(&(name.clone(), row.key.clone())));
+                if proved {
+                    row.evidence = Some(Level::PerKey);
+                    row.basis = Some("recipe_certified");
+                } else {
+                    row.evidence = Some(Level::Imported);
+                    row.basis = Some("recipe_relation_unproved");
+                }
             } else if verified_relation {
                 // re-derived from the verified group at the key: exact, at the key (interfaces/import.md 13.2)
                 row.evidence = Some(Level::PerKey);

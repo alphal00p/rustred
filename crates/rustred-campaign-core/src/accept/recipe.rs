@@ -389,6 +389,9 @@ pub enum RecipeVerdict {
     },
     Rejected {
         what: String,
+        /// The per-key open reasons when the rejection is "no key certified" (lane closeloop2; empty for a
+        /// whole-recipe rejection such as a determinism mismatch).
+        open: Vec<(Key, OpenReason)>,
     },
     Undecided {
         what: String,
@@ -530,6 +533,7 @@ pub fn accept_recipe(
                     "determinism: two solves at {k:?} give {:?} and {:?}",
                     a.relation_digest, b.relation_digest
                 ),
+                open: vec![],
             });
         }
     }
@@ -598,6 +602,7 @@ pub fn accept_recipe(
     if certified.is_empty() {
         return Ok(RecipeVerdict::Rejected {
             what: format!("no key certified ({} open)", open.len()),
+            open,
         });
     }
     let determinism_checked = det_keys.iter().filter(|k| certified.contains(k)).count();

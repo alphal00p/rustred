@@ -8,6 +8,8 @@
 pub mod conformance;
 pub mod generate;
 pub mod job;
+// lane closeloop2: the rr_proof kinds as legacy children under the supervisor (argv from the spec, sealing wrapper)
+pub mod legacy;
 pub mod proof;
 pub mod solve_recipe;
 
