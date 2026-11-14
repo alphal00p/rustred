@@ -257,7 +257,21 @@ pub struct EscalationCfg {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TerminalRule {
-    pub max_terminals: usize,
+    /// Terminal proposals ACCEPTED without an operator (pre-approved keys, e.g. a list the operator decided earlier).
+    #[serde(default)]
+    pub approved: Vec<Vec<i32>>,
+    /// More proposals than this means the escalation is not working: the node stops with a typed reason instead of
+    /// piling up terminals.
+    #[serde(default = "d_max_proposals")]
+    pub max_proposals: usize,
+    /// Accept up to this many proposals WITHOUT an operator decision (tests / unattended toy runs); None = every proposal
+    /// not in `approved` waits for the operator (the run ends `open: awaiting operator decision`, exit 8).
+    #[serde(default)]
+    pub max_terminals: Option<usize>,
+}
+
+fn d_max_proposals() -> usize {
+    8
 }
 
 fn d_sym_terms() -> usize {

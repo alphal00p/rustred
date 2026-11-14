@@ -3806,6 +3806,17 @@ impl Supervisor {
                         self.write_progress(true);
                         return RunExit::Attention(msg);
                     }
+                    // lane t266run: the work is final but an operator must decide (e.g. terminal proposals)
+                    if let Some(msg) = self.source.operator_decision(self.ledger.state()) {
+                        let msg = format!("operator decision needed: {msg}");
+                        self.log.line("WARN", &msg);
+                        self.commit(vec![Event::Campaign {
+                            ev: crate::state::CampaignEvent::Stop,
+                            reason: msg.clone(),
+                        }]);
+                        self.write_progress(true);
+                        return RunExit::Attention(msg);
+                    }
                     if self.st().phase == Some(CampaignPhase::Running) {
                         self.commit(vec![Event::Campaign {
                             ev: crate::state::CampaignEvent::Finish,

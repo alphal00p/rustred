@@ -44,8 +44,9 @@ pub struct DerivedState {
     pub symrel_tried: BTreeSet<Vec<i32>>,
     /// key -> rhs (key, coefficient text) of the relations found.
     pub relations: BTreeMap<Vec<i32>, Vec<(Vec<i32>, String)>>,
-    /// Keys whose step recipes were generated.
+    /// Keys whose step recipes were generated (the first keys of each face) and the faces escalated.
     pub escalated: BTreeSet<Vec<i32>>,
+    pub faces: BTreeSet<String>,
     /// (source id, recipe path, sha256) in generation order.
     pub recipe_sources: Vec<(String, String, String)>,
     /// Accepted terminal proposals.
@@ -83,8 +84,15 @@ impl DerivedState {
         }
         for p in recipes {
             for v in read_lines(p)? {
-                let k = key_of(&v["key"])?;
-                s.escalated.insert(k);
+                if let Some(f) = v["face"].as_str() {
+                    s.faces.insert(f.to_string());
+                }
+                for k in v["keys"].as_array().into_iter().flatten() {
+                    s.escalated.insert(key_of(k)?);
+                }
+                if v.get("key").is_some() {
+                    s.escalated.insert(key_of(&v["key"])?);
+                }
                 for r in v["recipes"].as_array().into_iter().flatten() {
                     s.recipe_sources.push((
                         r["id"].as_str().unwrap_or("").to_string(),
@@ -208,8 +216,10 @@ pub struct EscOut {
     pub hold: BTreeSet<Vec<i32>>,
     /// Accepted terminal proposals of this pass (with their attempt records).
     pub terminals: Option<Value>,
-    /// Exhausted keys over the terminal rule's bound (the node ends open naming the rule).
+    /// Exhausted keys the run does not accept (awaiting the operator / over the cap): the node ends open naming it.
     pub over_rule: Option<String>,
+    /// The proposals document when they are NOT accepted (written to final/terminal_proposals.json).
+    pub proposals: Option<Value>,
 }
 
 impl EscOut {
@@ -225,9 +235,48 @@ fn hex16(s: &str) -> String {
     h.finish_hex()[..16].to_string()
 }
 
-/// The recipe source id of step `step` at `key` (charset `[A-Za-z0-9._]`: first 16 hex of sha256 of the key text).
-pub fn recipe_source_id(key: &[i32], step: &str) -> String {
-    format!("esc.{}.{step}", hex16(&key_text(key)))
+/// The FACE of a key (coordinator 2026-11-14: the uncovered keys are a box slice through faces): its support signature =
+/// the dotted line slots (power > 1) and the non-zero numerator slots, e.g. `L0.10|N14` (the cutting rule / exception
+/// branch of a table rule is NOT part of this id: not computed here).
+pub fn face_id(key: &[i32], lines: &[bool]) -> String {
+    let l: Vec<String> = (0..key.len()).filter(|&i| lines[i] && key[i] > 1).map(|i| i.to_string()).collect();
+    let n: Vec<String> = (0..key.len()).filter(|&i| !lines[i] && key[i] != 0).map(|i| i.to_string()).collect();
+    format!("L{}|N{}", l.join("."), n.join("."))
+}
+
+/// The step of an escalation recipe source id (`esc.<hex>.<step>`).
+pub fn step_of_source(id: &str) -> Option<&str> {
+    let rest = id.strip_prefix("esc.")?;
+    rest.split_once('.').map(|(_, st)| st)
+}
+
+/// Per face: step -> keys it SOLVED (from the answers so far), the order in which later keys of the face try the steps.
+pub fn face_successes(
+    solved: &BTreeMap<String, BTreeMap<Vec<i32>, rustred_campaign_core::import::evidence::SolvedRelation>>,
+    lines: &[bool],
+) -> BTreeMap<String, BTreeMap<String, u64>> {
+    let mut m: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
+    for (src, ans) in solved {
+        let Some(step) = step_of_source(src) else {
+            continue;
+        };
+        for (k, r) in ans {
+            if r.verdict == "SOLVED" {
+                *m.entry(face_id(k, lines)).or_default().entry(step.to_string()).or_default() += 1;
+            }
+        }
+    }
+    m
+}
+
+/// The recipe source id of step `step` on the face of `key` (charset `[A-Za-z0-9._]`).
+pub fn recipe_source_id(key: &[i32], step: &str, lines: &[bool]) -> String {
+    face_source_id(&face_id(key, lines), step)
+}
+
+/// The recipe source id of step `step` on face `face`: first 16 hex of sha256 of the face id.
+pub fn face_source_id(face: &str, step: &str) -> String {
+    format!("esc.{}.{step}", hex16(face))
 }
 
 /// Steps 1-2 for the uncovered keys of a pass (`dir_rel` = the round's recipe directory, absolute).
@@ -238,18 +287,21 @@ pub fn escalate(
     uncovered: &[Vec<i32>],
     group: Option<&VerifiedGroup>,
     recipe_dir: &Path,
+    face_success: &BTreeMap<String, BTreeMap<String, u64>>,
 ) -> Result<EscOut, String> {
     let mut out = EscOut::default();
     let lines: Vec<bool> = set.frame.mask().to_vec();
     let (lp, np) = priorities(&lines, esc.coordinate_priority.as_deref());
     let cmp = |a: &[i32], b: &[i32]| set.cmp.cmp(a, b);
+    let mut new_faces: BTreeMap<String, Vec<Vec<i32>>> = BTreeMap::new();
     for k in uncovered {
         if ds.terminals.contains(k) || ds.relations.contains_key(k) {
             continue;
         }
         let mut try_recipes = !esc.symmetry_at_key || ds.symrel_tried.contains(k);
+        let face = face_id(k, &lines);
         if esc.symmetry_at_key && !ds.symrel_tried.contains(k) {
-            let line = match group {
+            let mut line = match group {
                 None => json!({"key": k, "verdict": "unavailable", "why": "no verified group"}),
                 Some(g) => match symmetry_relation_at_key(&Independent, g, k, &cmp, esc.symmetry_max_terms) {
                     SymRelation::Relation { rhs, rows, columns, elements } => {
@@ -265,19 +317,43 @@ pub fn escalate(
                     SymRelation::Unknown(w) => json!({"key": k, "verdict": "unknown", "why": w}),
                 },
             };
+            line["face"] = json!(face);
             let found = line["verdict"] == "relation";
             out.symrel_lines.push(line.to_string());
             // no relation at the key: its recipes are generated in the same pass (no extra round)
             try_recipes = !found;
         }
-        if !try_recipes || ds.escalated.contains(k) {
+        if !try_recipes || ds.faces.contains(&face) || ds.escalated.contains(k) {
             continue;
         }
+        // one recipe per (FACE, step): the explicit seed set of a step depends on the key only through its support
+        // signature, so one recipe file with the face's domain (floor slots fixed, dotted lines >= 2, non-zero numerators
+        // <= -1) serves every key of the face, in one job (coordinator 2026-11-14: faces, not keys)
+        new_faces.entry(face).or_default().push(k.clone());
+    }
+    for (face, keys) in &new_faces {
+        let k = &keys[0];
         let kt = key_text(k);
         let mut recipes = vec![];
         let mut skipped = vec![];
         let mut seen_sets: BTreeSet<String> = BTreeSet::new();
-        for name in &esc.steps {
+        // a step that already solved keys of this face goes first (most successes first, then the configured order)
+        let mut order: Vec<&String> = esc.steps.iter().collect();
+        if let Some(fs) = face_success.get(face) {
+            order.sort_by_key(|st| std::cmp::Reverse(fs.get(st.as_str()).copied().unwrap_or(0)));
+        }
+        let mut fixed: Vec<Value> = vec![];
+        let mut bmin: Vec<Value> = vec![];
+        let mut bmax: Vec<Value> = vec![];
+        for (i, &x) in k.iter().enumerate() {
+            let floor = if lines[i] { x == 1 } else { x == 0 };
+            fixed.push(if floor { json!(x) } else { Value::Null });
+            bmin.push(if lines[i] && !floor { json!(2) } else { Value::Null });
+            bmax.push(if !lines[i] && !floor { json!(-1) } else { Value::Null });
+        }
+        let domain = json!({"fixed": fixed, "equations": [], "exceptions": [],
+            "bounds": {"min": bmin, "max": bmax}});
+        for name in order {
             let st = rustred_campaign_core::import::recipe_steps::parse_step(name)
                 .map_err(|e| format!("escalation step {name}: {e}"))?;
             let pr = point_recipe(&st, k, &lines, &lp, &np)?;
@@ -295,9 +371,15 @@ pub fn escalate(
                 skipped.push(json!({"step": name, "why": "same_seed_set_as_an_earlier_step", "seeds": pr.seeds}));
                 continue;
             }
-            let id = recipe_source_id(k, name);
+            let id = face_source_id(face, name);
             let mut doc = pr.recipe.clone();
             doc["id"] = json!(id);
+            doc["domain"] = domain.clone();
+            if let Some(p) = doc.get_mut("provenance").and_then(Value::as_object_mut) {
+                p.remove("termmin_key");
+                p.insert("face".into(), json!(face));
+                p.insert("first_key".into(), json!(kt));
+            }
             let mut text = rustred_campaign_core::schema::canon::canonical_json(&doc, false)?;
             text.push('\n');
             let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
@@ -309,8 +391,71 @@ pub fn escalate(
                 "seeds": pr.seeds, "relation_rule": pr.relation_rule, "symmetry_rows": pr.symmetry_rows}));
             out.recipe_files.push((file, text));
         }
-        out.recipe_manifest
-            .push(json!({"key": k, "key_text": kt, "recipes": recipes, "skipped": skipped}).to_string());
+        out.recipe_manifest.push(
+            json!({"face": face, "keys": keys, "first_key_text": kt, "recipes": recipes, "skipped": skipped})
+                .to_string(),
+        );
     }
     Ok(out)
+}
+
+/// The face table of the escalated keys (final pass): per face the keys, how they were served (symmetry at the key,
+/// which recipe steps), the keys still open and the terminals.
+pub fn face_table(
+    set: &ImportedSet,
+    ds: &DerivedState,
+    solved: &BTreeMap<String, BTreeMap<Vec<i32>, rustred_campaign_core::import::evidence::SolvedRelation>>,
+    open: &BTreeSet<Vec<i32>>,
+) -> Value {
+    let lines: Vec<bool> = set.frame.mask().to_vec();
+    let mut keys: BTreeSet<Vec<i32>> = ds.symrel_tried.clone();
+    keys.extend(ds.escalated.iter().cloned());
+    let mut by_face: BTreeMap<String, Vec<Vec<i32>>> = BTreeMap::new();
+    for k in keys {
+        by_face.entry(face_id(&k, &lines)).or_default().push(k);
+    }
+    let mut solved_by: BTreeMap<Vec<i32>, String> = BTreeMap::new();
+    let mut tried: BTreeMap<Vec<i32>, u64> = BTreeMap::new();
+    for (src, ans) in solved {
+        let Some(step) = step_of_source(src) else {
+            continue;
+        };
+        for (k, r) in ans {
+            *tried.entry(k.clone()).or_default() += 1;
+            if r.verdict == "SOLVED" {
+                solved_by.entry(k.clone()).or_insert_with(|| step.to_string());
+            }
+        }
+    }
+    let mut rows = vec![];
+    let (mut one_recipe, mut several, mut faces_open) = (0u64, 0u64, 0u64);
+    for (f, ks) in &by_face {
+        let mut steps: BTreeMap<String, u64> = BTreeMap::new();
+        let (mut sym, mut term, mut op) = (0u64, 0u64, 0u64);
+        let mut answers = 0u64;
+        for k in ks {
+            answers += tried.get(k).copied().unwrap_or(0);
+            if ds.relations.contains_key(k) {
+                sym += 1;
+            } else if let Some(st) = solved_by.get(k) {
+                *steps.entry(st.clone()).or_default() += 1;
+            } else if ds.terminals.contains(k) {
+                term += 1;
+            } else if open.contains(k) {
+                op += 1;
+            }
+        }
+        if term + op > 0 {
+            faces_open += 1;
+        } else if steps.len() <= 1 {
+            one_recipe += 1;
+        } else {
+            several += 1;
+        }
+        rows.push(json!({"face": f, "keys": ks.len(), "symmetry_at_key": sym, "served_by_step": steps,
+            "terminal": term, "open": op, "recipe_answers": answers}));
+    }
+    json!({"faces": by_face.len(), "closed_by_one_recipe_or_symmetry": one_recipe, "needed_several_recipes": several,
+        "with_open_or_terminal_keys": faces_open, "face_id": "support signature L<dotted line slots>|N<non-zero numerator slots>",
+        "table": rows})
 }

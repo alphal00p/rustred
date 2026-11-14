@@ -28,6 +28,18 @@ fn setup(tag: &str, top: i32, max_terminals: Option<usize>, scale: bool, ms: u64
     setup_with(tag, top, max_terminals, scale, ms, false)
 }
 
+/// The terminal rule: auto-accept up to `m` (None: every proposal waits for the operator), the proposal cap.
+fn rule(m: Option<usize>, cap: Option<usize>) -> Value {
+    let mut r = json!({});
+    if let Some(m) = m {
+        r["max_terminals"] = json!(m);
+    }
+    if let Some(c) = cap {
+        r["max_proposals"] = json!(c);
+    }
+    r
+}
+
 /// `clauses`: the start set is the union of clause "box" = {[top+1,1,0]} and clause "layer" = {[top+2,1,0]} (a key
 /// outside the first clause's closure, uncovered: escalated and solved onto [top+1,1,0]).
 fn setup_with(
@@ -70,7 +82,7 @@ fn setup_with(
         }
         o.push_str(&format!(
             "{}\n",
-            json!({"source": recipe_source_id(&[k, 1, 0], STEPS[0]), "key": [k, 1, 0], "verdict": "SOLVED",
+            json!({"source": recipe_source_id(&[k, 1, 0], STEPS[0], &[true, true, false]), "key": [k, 1, 0], "verdict": "SOLVED",
                    "rhs": [[k - 1, 1, 0], [k, 0, 0]]})
         ));
     }
@@ -79,7 +91,12 @@ fn setup_with(
     let node = &mut c["nodes"][0];
     node["hand"] = Value::Null;
     node["escalation"] = json!({"symmetry_at_key": true, "steps": STEPS,
-        "terminals": max_terminals.map(|m| json!({"max_terminals": m}))});
+        "terminals": match max_terminals {
+            // usize::MAX: no auto-acceptance (operator decision); 1000 + c: cap c, no auto-acceptance
+            Some(usize::MAX) => rule(None, None),
+            Some(m) if m >= 1000 => rule(None, Some(m - 1000)),
+            m => rule(m, None),
+        }});
     if scale {
         // the clause test also runs the exact tier at once (no keys-only pass first)
         node["scale"] = json!({"store_budget_mib": 1, "store_chunk_files": 2, "keys_only_first": !clauses});
@@ -187,12 +204,23 @@ fn escalation_and_a_terminal_proposal_close_the_node_boxed_per_key() {
                 .collect::<Vec<_>>()
         })
         .collect();
-    assert_eq!(rec.len(), 3);
+    // one recipe set per FACE: [3,1,0] and [2,1,0] share the face L0|N (one manifest, made when [3,1,0] was first
+    // met), [1,1,0] is the face L|N
+    assert_eq!(rec.len(), 2, "{rec:?}");
     for v in &rec {
         let ids: Vec<&str> = v["recipes"].as_array().unwrap().iter().map(|x| x["id"].as_str().unwrap()).collect();
-        let k: Vec<i32> = serde_json::from_value(v["key"].clone()).unwrap();
-        assert_eq!(ids, STEPS.iter().map(|s| recipe_source_id(&k, s)).collect::<Vec<_>>());
+        let k: Vec<i32> = serde_json::from_value(v["keys"][0].clone()).unwrap();
+        assert_eq!(ids, STEPS.iter().map(|s| recipe_source_id(&k, s, &[true, true, false])).collect::<Vec<_>>());
     }
+    let faces: Value =
+        serde_json::from_slice(&std::fs::read(cdir.join("closeloop/toy/final/faces.json")).unwrap()).unwrap();
+    assert_eq!(faces["faces"], 2, "{faces:#}");
+    let row = |f: &str| faces["table"].as_array().unwrap().iter().find(|x| x["face"] == f).unwrap().clone();
+    assert_eq!(row("L0|N")["keys"], 2, "{faces:#}");
+    assert_eq!(row("L0|N")["served_by_step"][STEPS[0]], 2, "{faces:#}");
+    assert_eq!(row("L|N")["terminal"], 1, "{faces:#}");
+    assert_eq!(faces["closed_by_one_recipe_or_symmetry"], 1);
+    assert_eq!(r["faces"]["with_open_or_terminal_keys"], 1);
     let ebc = &r["by_rule_class_level"];
     assert_eq!(ebc["escalation"]["per-key"], 2, "{ebc:#}");
     // big-node mode: the spec's evidence is absent (no table evidence), the node's own fact / proof answers were read
@@ -211,26 +239,37 @@ fn escalation_and_a_terminal_proposal_close_the_node_boxed_per_key() {
     assert_eq!(verify(&cdir), 0);
 }
 
+/// Run once (no resume): the exit code.
+fn run_once(sp: &Path, cdir: &Path, extra: &[&str]) -> i32 {
+    let mut c = start(sp, cdir, extra, &[]);
+    wait(&mut c, Duration::from_secs(900))
+}
+
+fn blockers(r: &Value) -> Vec<String> {
+    r["blockers"].as_array().unwrap().iter().map(|x| x.as_str().unwrap().to_string()).collect()
+}
+
 #[test]
-fn exhausted_keys_over_the_terminal_rule_end_the_node_open() {
+fn terminal_proposals_wait_for_the_operator_and_a_cap_stops_a_failing_escalation() {
     let _g = serial();
-    let (_t, sp, cdir) = setup("t2over", 3, Some(0), false, 20);
-    let codes = run_to_end(&sp, &cdir, &["--plain"]);
-    assert_eq!(codes.last(), Some(&0), "{}", log_tail(&cdir));
+    // no auto-acceptance, nothing pre-approved: the run ends open, exit 8, the proposal reported
+    let (_t, sp, cdir) = setup("t2op", 3, Some(usize::MAX), false, 20);
+    let code = run_once(&sp, &cdir, &["--plain"]);
+    assert_eq!(code, ATTENTION, "{}", log_tail(&cdir));
     let r = result_json(&cdir);
     assert_eq!(r["verdict"], "open", "{r:#}");
-    let b: Vec<String> = r["blockers"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|x| x.as_str().unwrap().to_string())
-        .collect();
-    assert!(
-        b.iter().any(|x| x.starts_with("terminal_proposals_over_rule: 1 ")),
-        "{b:?}"
-    );
+    assert!(blockers(&r).iter().any(|x| x.starts_with("awaiting_operator_decision: 1 terminal proposals")), "{r:#}");
+    assert_eq!(r["terminal_proposals"]["keys"], json!([[1, 1, 0]]));
+    assert!(r["awaiting_operator"].as_str().unwrap().starts_with("open: awaiting operator decision on 1 terminal"));
     assert!(role_inputs(&cdir, "closeloop_terminals").is_empty());
     assert_eq!(state(&cdir).nodes["toy"].state.phase, NodePhase::Open);
+    // cap 0: one exhausted key is already over the cap: typed stop, nothing accepted
+    let (_t2, sp2, cdir2) = setup("t2cap", 3, Some(1000), false, 20);
+    let code = run_once(&sp2, &cdir2, &["--plain"]);
+    assert_eq!(code, 0, "{}", log_tail(&cdir2));
+    let r = result_json(&cdir2);
+    assert!(blockers(&r).iter().any(|x| x.starts_with("terminal_proposals_over_cap: 1 ")), "{r:#}");
+    assert!(role_inputs(&cdir2, "closeloop_terminals").is_empty());
 }
 
 #[test]
@@ -245,8 +284,16 @@ fn interrupt_and_resume_through_the_escalation_gives_the_same_decisions() {
         let (_tb, spb, cb) = setup(&format!("t2int{seed}"), 4, Some(3), true, 120);
         let mut x = seed;
         let mut codes = vec![];
+        // resumes run on ANOTHER CPU list (a launch-time resource, not part of the campaign identity)
+        let all: Vec<String> = cpus().split(',').map(str::to_string).collect();
+        let other = all.iter().rev().take(3).cloned().collect::<Vec<_>>().join(",");
         for round in 0..14 {
-            let mut c = start(&spb, &cb, &["--plain"], &[]);
+            let args: Vec<&str> = if round == 0 {
+                vec!["--plain"]
+            } else {
+                vec!["--plain", "--cpus", other.as_str(), "--max-jobs", "2"]
+            };
+            let mut c = start(&spb, &cb, &args, &[]);
             if round < 5 {
                 x = mix(x);
                 std::thread::sleep(Duration::from_millis(300 + x % 2200));

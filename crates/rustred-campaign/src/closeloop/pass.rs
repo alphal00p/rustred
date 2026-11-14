@@ -628,6 +628,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         } else {
             None
         };
+        let fs = super::derived::face_successes(&ev.solved, set.frame.mask());
         esc_out = Some(super::derived::escalate(
             &set,
             esc,
@@ -635,6 +636,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             &uncovered,
             group.as_ref(),
             &inp.recipe_dir,
+            &fs,
         )?);
     }
     let hold: BTreeSet<Vec<i32>> = esc_out.as_ref().map(|e| e.hold.clone()).unwrap_or_default();
@@ -859,48 +861,67 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         && !esc_out.as_ref().is_some_and(EscOut::progress)
     {
         let eo = esc_out.get_or_insert_with(EscOut::default);
-        match &esc.terminals {
-            Some(rule) if uncovered.len() <= rule.max_terminals => {
-                let attempts: Vec<Value> = uncovered
+        let lines_m: Vec<bool> = set.frame.mask().to_vec();
+        let attempts: Vec<Value> = uncovered
+            .iter()
+            .map(|k| {
+                let recipes: Vec<Value> = ev
+                    .solved
                     .iter()
-                    .map(|k| {
-                        let recipes: Vec<Value> = ev
-                            .solved
-                            .iter()
-                            .filter_map(|(src, m)| {
-                                m.get(k).map(|r| json!({"recipe": src, "verdict": r.verdict}))
-                            })
-                            .collect();
-                        let pending: Vec<&str> = res
-                            .solve_requests
-                            .iter()
-                            .filter(|r| &r.key == k)
-                            .map(|r| r.source.as_str())
-                            .collect();
-                        json!({"key": k, "symmetry_at_key_tried": inp.derived.symrel_tried.contains(k),
-                               "escalated": inp.derived.escalated.contains(k), "recipe_answers": recipes,
-                               "unanswered_candidates": pending,
-                               "refusals": res.solve_refusals.iter().filter(|r| &r.key == k)
-                                   .map(|r| json!({"recipe": r.source, "reason": r.reason})).collect::<Vec<_>>()})
-                    })
+                    .filter_map(|(src, m)| m.get(k).map(|r| json!({"recipe": src, "verdict": r.verdict})))
                     .collect();
-                eo.terminals = Some(json!({"schema": "rustred.campaign.closeloop-terminals.v1",
-                    "node": inp.node, "round": inp.round, "rule": {"max_terminals": rule.max_terminals},
-                    "terminals": uncovered, "attempts": attempts}));
-            }
-            Some(rule) => {
-                let w = format!(
-                    "terminal_proposals_over_rule: {} uncovered keys exhausted, the finite-terminal rule allows {}",
-                    uncovered.len(),
-                    rule.max_terminals
-                );
-                eo.over_rule = Some(w.clone());
-                blocking.push(w);
-            }
+                let pending: Vec<&str> = res
+                    .solve_requests
+                    .iter()
+                    .filter(|r| &r.key == k)
+                    .map(|r| r.source.as_str())
+                    .collect();
+                let face = super::derived::face_id(k, &lines_m);
+                json!({"key": k, "face": face, "symmetry_at_key_tried": inp.derived.symrel_tried.contains(k),
+                       "face_escalated": inp.derived.faces.contains(&face), "recipe_answers": recipes,
+                       "unanswered_candidates": pending,
+                       "refusals": res.solve_refusals.iter().filter(|r| &r.key == k)
+                           .map(|r| json!({"recipe": r.source, "reason": r.reason})).collect::<Vec<_>>()})
+            })
+            .collect();
+        let doc = |status: &str| {
+            json!({"schema": "rustred.campaign.closeloop-terminals.v1", "node": inp.node, "round": inp.round,
+                "status": status, "terminals": uncovered, "attempts": attempts})
+        };
+        match &esc.terminals {
             None => blocking.push(format!(
-                "terminal_proposals_without_rule: {} uncovered keys exhausted (no finite-terminal rule configured)",
+                "terminal_proposals_without_rule: {} uncovered keys exhausted (no terminal rule configured)",
                 uncovered.len()
             )),
+            Some(rule) if uncovered.len() > rule.max_proposals => {
+                // more proposals than the cap: the escalation is not working; stop with a typed reason
+                let w = format!(
+                    "terminal_proposals_over_cap: {} uncovered keys exhausted, the cap is {} (the escalation is not working)",
+                    uncovered.len(),
+                    rule.max_proposals
+                );
+                eo.over_rule = Some(w.clone());
+                eo.proposals = Some(doc("over_cap"));
+                blocking.push(w);
+            }
+            Some(rule) => {
+                let approved: BTreeSet<&Vec<i32>> = rule.approved.iter().collect();
+                let all_approved = uncovered.iter().all(|k| approved.contains(k));
+                let auto = rule.max_terminals.is_some_and(|m| uncovered.len() <= m);
+                if all_approved || auto {
+                    eo.terminals = Some(doc(if all_approved { "accepted_pre_approved" } else { "accepted_auto" }));
+                } else {
+                    // OPERATOR DECISION (coordinator 2026-11-14): the proposals are reported, never accepted here
+                    let w = format!(
+                        "awaiting_operator_decision: {} terminal proposals ({} pre-approved)",
+                        uncovered.len(),
+                        uncovered.iter().filter(|k| approved.contains(k)).count()
+                    );
+                    eo.over_rule = Some(w.clone());
+                    eo.proposals = Some(doc("awaiting_operator_decision"));
+                    blocking.push(w);
+                }
+            }
         }
     }
     let progress = esc_out.as_ref().is_some_and(EscOut::progress);
@@ -972,7 +993,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     let import_manifest = json!({
         "schema": IMPORT_SCHEMA, "node": inp.node, "report": serde_json::to_value(set.report()).unwrap_or(Value::Null),
     });
-    let final_ = if closed || (batches.is_empty() && proof_batches.is_empty() && !progress) {
+    let mut final_ = if closed || (batches.is_empty() && proof_batches.is_empty() && !progress) {
         let verdict = if closed {
             "closed"
         } else if budget_stop {
@@ -1003,6 +1024,33 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     } else {
         None
     };
+    // lane t266run: terminal proposals that were not accepted (operator decision / over the cap)
+    if let (Some(f), Some(p)) = (final_.as_mut(), esc_out.as_ref().and_then(|e| e.proposals.as_ref())) {
+        let path = inp.final_dir.join("terminal_proposals.json");
+        std::fs::write(&path, serde_json::to_string_pretty(p).unwrap_or_default())
+            .map_err(|e| format!("terminal proposals: {e}"))?;
+        let n = p["terminals"].as_array().map(Vec::len).unwrap_or(0);
+        f.result["terminal_proposals"] = json!({"file": path.display().to_string(), "count": n,
+            "status": p["status"], "keys": p["terminals"]});
+        if p["status"] == "awaiting_operator_decision" {
+            f.result["awaiting_operator"] = json!(format!(
+                "open: awaiting operator decision on {n} terminal proposals ({})",
+                path.display()
+            ));
+        }
+    }
+    // lane t266run: the face table of the escalated keys (final pass)
+    if let (Some(f), Some(_)) = (final_.as_mut(), inp.escalation.as_ref()) {
+        let open: BTreeSet<Vec<i32>> = uncovered.iter().cloned().collect();
+        let ft = super::derived::face_table(&set, &inp.derived, &ev.solved, &open);
+        let p = inp.final_dir.join("faces.json");
+        std::fs::write(&p, serde_json::to_string_pretty(&ft).unwrap_or_default())
+            .map_err(|e| format!("faces: {e}"))?;
+        f.result["faces"] = json!({"file": p.display().to_string(), "faces": ft["faces"],
+            "closed_by_one_recipe_or_symmetry": ft["closed_by_one_recipe_or_symmetry"],
+            "needed_several_recipes": ft["needed_several_recipes"],
+            "with_open_or_terminal_keys": ft["with_open_or_terminal_keys"]});
+    }
     let rules_used = res.summary.used_rules;
     let res_tier = res.tier;
     // the union's rows: write_statement ADOPTS the streamed rows file as the statement's statement.jsonl
@@ -1012,7 +1060,6 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     });
     // lane t266run (closeloop.md 17.4): per-clause verdicts and attribution at the final pass, one closure at a time
     // (the union's results are dropped first)
-    let mut final_ = final_;
     if let (Some(f), Some(cl)) = (final_.as_mut(), inp.clauses.as_ref()) {
         drop(streamed_res);
         drop(res_k);

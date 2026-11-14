@@ -109,6 +109,28 @@ fn file_blake3(p: &Path) -> Result<String, String> {
         .map_err(|e| format!("{}: {e}", p.display()))
 }
 
+/// lane t266run: BLAKE3 of a (possibly huge) input file, computed once per (path, size, mtime) in this process (a proof
+/// item names its table by digest; an 85 GB table hashed per item stalled the supervisor for minutes per item).
+fn file_blake3_cached(p: &Path) -> Result<String, String> {
+    use std::sync::Mutex;
+    static CACHE: Mutex<Option<BTreeMap<(PathBuf, u64, u128), String>>> = Mutex::new(None);
+    let md = std::fs::metadata(p).map_err(|e| format!("{}: {e}", p.display()))?;
+    let mtime = md
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos());
+    let k = (p.to_path_buf(), md.len(), mtime);
+    if let Some(d) = CACHE.lock().ok().and_then(|g| g.as_ref().and_then(|m| m.get(&k).cloned())) {
+        return Ok(d);
+    }
+    let d = file_blake3(p)?;
+    if let Ok(mut g) = CACHE.lock() {
+        g.get_or_insert_with(BTreeMap::new).insert(k, d.clone());
+    }
+    Ok(d)
+}
+
 fn resolve(base: &Path, p: &str) -> PathBuf {
     let pb = PathBuf::from(p);
     if pb.is_absolute() { pb } else { base.join(pb) }
@@ -1128,7 +1150,7 @@ impl CloseFromMaterialSource {
             kind: b.kind.clone(),
             reason: b.reason.clone(),
             table: tp.display().to_string(),
-            table_blake3: file_blake3(&tp)?,
+            table_blake3: file_blake3_cached(&tp)?,
             records: b.records.clone(),
             relation_source: b.relation_source.clone(),
             rows: pc.rows.clone(),
@@ -2013,6 +2035,25 @@ impl WorkSource for CloseFromMaterialSource {
         }
         self.progress(st, &finalized);
         Ok(rt)
+    }
+
+    fn operator_decision(&self, st: &CampaignState) -> Option<String> {
+        // lane t266run: a node whose final result awaits an operator decision (terminal proposals, closeloop.md 17.3)
+        let mut v = vec![];
+        for r in &self.nodes {
+            let Some(inp) = st.inputs.get(&input_final(&r.n)) else {
+                continue;
+            };
+            let Ok(t) = std::fs::read_to_string(&inp.path) else {
+                continue;
+            };
+            if let Ok(x) = serde_json::from_str::<Value>(&t)
+                && let Some(m) = x["awaiting_operator"].as_str()
+            {
+                v.push(format!("node {}: {m}", r.cfg.node));
+            }
+        }
+        (!v.is_empty()).then(|| v.join("; "))
     }
 
     fn finished(&self, st: &CampaignState) -> bool {

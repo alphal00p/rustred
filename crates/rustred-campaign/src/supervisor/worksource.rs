@@ -149,6 +149,11 @@ pub trait WorkSource {
     }
     /// All work final.
     fn finished(&self, st: &CampaignState) -> bool;
+    /// lane t266run: when the source is finished but an OPERATOR must decide before the work is complete (e.g. terminal
+    /// proposals of a closing loop), the message; the supervisor then ends with the attention exit (8). Default: none.
+    fn operator_decision(&self, _st: &CampaignState) -> Option<String> {
+        None
+    }
     /// Number of work units (for logs).
     fn describe(&self) -> String;
 }

@@ -1641,6 +1641,11 @@ impl WorkSource for TermminSource {
         Ok(rt)
     }
 
+    fn operator_decision(&self, st: &CampaignState) -> Option<String> {
+        // lane t266run: forwarded (closeloop.md 17.3)
+        self.inner.operator_decision(st)
+    }
+
     fn finished(&self, st: &CampaignState) -> bool {
         self.inner.finished(st)
             && (0..self.nodes.len())

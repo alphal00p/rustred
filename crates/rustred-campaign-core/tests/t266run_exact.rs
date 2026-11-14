@@ -97,8 +97,15 @@ fn t266_exact_tier_with_exported_evidence() {
         .ok()
         .and_then(|x| x.parse().ok())
         .unwrap_or(4);
+    // `T266RUN_SPEC`: a complete import spec (absolute paths; its evidence and terminals are used as they are)
+    let given = std::env::var_os("T266RUN_SPEC").map(PathBuf::from);
     let mut sv: Value = serde_json::from_str(
-        &std::fs::read_to_string(data_dir().join("t266-jointest9.spec.json")).unwrap(),
+        &std::fs::read_to_string(
+            given
+                .clone()
+                .unwrap_or_else(|| data_dir().join("t266-jointest9.spec.json")),
+        )
+        .unwrap(),
     )
     .unwrap();
     // no terminals as input; per-key required; the exact tier
@@ -113,13 +120,15 @@ fn t266_exact_tier_with_exported_evidence() {
     );
     sv["required_evidence"] = json!("per-key");
     sv["policies"]["tier"] = json!("C");
-    let (facts, proofs) = export_inputs(&export);
-    println!(
-        "T266RUN inputs: {} fact files, {} proof files",
-        facts.len(),
-        proofs.len()
-    );
-    sv["evidence"] = json!({"facts": facts, "proofs": proofs, "solved": []});
+    if given.is_none() {
+        let (facts, proofs) = export_inputs(&export);
+        println!(
+            "T266RUN inputs: {} fact files, {} proof files",
+            facts.len(),
+            proofs.len()
+        );
+        sv["evidence"] = json!({"facts": facts, "proofs": proofs, "solved": []});
+    }
     let spec = TableSetSpec::from_json(&sv.to_string()).unwrap();
     let t0 = std::time::Instant::now();
     let set = load_with(
@@ -138,7 +147,7 @@ fn t266_exact_tier_with_exported_evidence() {
         &data_dir(),
         &EvidenceOptions {
             store: Some(StoreOptions {
-                dir: s.join("store"),
+                dir: std::env::var_os("T266RUN_STORE").map(PathBuf::from).unwrap_or_else(|| s.join("store")),
                 budget_bytes: 192 << 20,
                 threads,
             }),
