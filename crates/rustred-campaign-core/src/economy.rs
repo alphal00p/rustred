@@ -17,6 +17,8 @@ pub struct SelectionScore {
     pub size_class: u32,
     /// `u64::MAX - preferred hits`.
     pub preferred_misses: u64,
+    /// The rule's size under the node's economy weights ([`EconomyWeights::rule_size`], R46 (5)).
+    pub weighted: i64,
     pub rhs_terms: u64,
     pub monomials: u64,
     pub degree: u32,
@@ -183,9 +185,13 @@ impl NodeMeasure {
 /// What "small" means (R46 (5), spec value): weights of the economy SCORE of a node or a cover,
 /// `score = cases * case + rhs_terms * rhs_term + monomials * monomial + closure_spread * spread` (smaller = better).
 /// Default (seed-policy.md section 5): one case is worth 2,000 right-hand-side terms (the size of a typical point rule
-/// that a symbolic case replaces on T162), a monomial 1/100 of a term, one key of closure spread 10 terms. The ladder's
-/// selection keeps R31 (b) first (a ONE-case cover always beats a multi-case cover); the weights decide among covers
-/// of the same case count and in node-level comparisons ([`NodeMeasure::weighted_score`]).
+/// that a symbolic case replaces on a reference node), a monomial 1/100 of a term, one key of closure spread 10
+/// terms. WHERE THE LIBRARY READS THEM (v1.3, re-audit A M5 (b)): the ladder's selection keeps R31 (b) first (a
+/// ONE-case cover always beats a multi-case cover, and an exact cover has the fewest members); among one-case covers
+/// the rule size class and the order are taken on [`Self::rule_size`]; among exact covers of the same member count the
+/// smallest summed [`Self::rule_size`] wins; optimise items need a strictly smaller `cases x case + size`
+/// ([`Self::cases_cost`]); node-level comparisons use [`NodeMeasure::weighted_score`]. With unknown monomials (the
+/// usual case) and the default weights the size is the RHS term count.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EconomyWeights {
     pub case: f64,
@@ -202,6 +208,20 @@ impl Default for EconomyWeights {
             monomial: 0.01,
             spread: 10.0,
         }
+    }
+}
+
+impl EconomyWeights {
+    /// The weighted SIZE of one rule: `rhs_terms x rhs_term + monomials x monomial` (unknown monomials count 0),
+    /// rounded, saturating (NaN weights count 0).
+    pub fn rule_size(&self, rhs_terms: u64, monomials: Option<u64>) -> i64 {
+        let v = rhs_terms as f64 * self.rhs_term + monomials.unwrap_or(0) as f64 * self.monomial;
+        if v.is_nan() { 0 } else { v.round() as i64 }
+    }
+    /// The weighted cost of `cases` cases (`cases x case`), rounded, saturating.
+    pub fn cases_cost(&self, cases: u64) -> i64 {
+        let v = cases as f64 * self.case;
+        if v.is_nan() { 0 } else { v.round() as i64 }
     }
 }
 
@@ -223,11 +243,11 @@ pub enum CoverageState {
     Open,
 }
 
-/// Proof that the covered domain did not shrink (R33): produced by the exact partition (lane I-PART), which states
-/// that the partition of the new table set reports no gap where the old one reported none. FIELDS ARE PRIVATE and
-/// there is no `Deserialize` (audit A M5): outside this crate it cannot be built; inside, only the containment
-/// checker (`crate::contain`, owned by the partition lane, still a placeholder) may call [`Self::checked`]. Its
-/// serialised form is [`ContainmentProofRecord`], which is NOT a proof.
+/// Proof that the covered domain did not shrink (R33): the exact partition of the NEW table set in DISPATCH mode
+/// proves no gap. FIELDS ARE PRIVATE, there is no `Deserialize` and NO constructor that takes a verdict (re-audit A
+/// M3, v1.3): the ONLY way to obtain one is [`prove_coverage_preserved`], which runs the partition itself and
+/// computes both table-set digests from the domains it was given ([`table_set_digest`]). Its serialised form is
+/// [`ContainmentProofRecord`], which is NOT a proof.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ContainmentProof {
     old_tables_digest: String,
@@ -237,10 +257,58 @@ pub struct ContainmentProof {
     artefact_sha256: String,
 }
 
+/// The digest of a table set as the containment proof sees it: SHA-256 over the canonical text of every domain in
+/// dispatch order (a version-1 text, not a fingerprint of the files).
+pub fn table_set_digest(src: &dyn crate::partition::DomainSource) -> String {
+    let mut h = crate::replay_base::sha256::Sha256::new();
+    h.update(
+        format!(
+            "containment-tables.v1;arity={};n={}\n",
+            src.arity(),
+            src.len()
+        )
+        .as_bytes(),
+    );
+    for i in 0..src.len() {
+        h.update(format!("{:?}\n", src.domain(i)).as_bytes());
+    }
+    format!("sha256:{}", h.hex())
+}
+
+/// THE CHECKING FUNCTION of R33 (re-audit A M3): the only constructor of a [`ContainmentProof`]. It runs the exact
+/// partition of `new_tables` (dispatch order) in DISPATCH-coverage mode (whatever `opts.coverage` says), requires
+/// `proves_no_gap(DispatchCoverage)`, and binds the proof to the digests of `old_tables` and `new_tables` computed
+/// here ([`table_set_digest`]) and to the dispatch order statement (an empty new-order digest is refused).
+pub fn prove_coverage_preserved(
+    old_tables: &dyn crate::partition::DomainSource,
+    new_tables: &dyn crate::partition::DomainSource,
+    frame: &crate::key::NodeFrame,
+    opts: &crate::partition::PartitionOptions,
+    order: &crate::partition::DispatchOrderStatement,
+) -> Result<ContainmentProof, String> {
+    use crate::partition::{CoverageNotion, DispatchOrderStatement, dispatch_proof_method};
+    if let DispatchOrderStatement::NewOrder(d) = order
+        && d.trim().is_empty()
+    {
+        return Err("a new dispatch order needs its digest".into());
+    }
+    let mut o = opts.clone();
+    o.coverage = CoverageNotion::DispatchCoverage;
+    let rep = crate::partition::gap_partition(new_tables, frame, &o, None)
+        .map_err(|e| format!("{e:?}"))?;
+    let certificate = rep.proves_no_gap(CoverageNotion::DispatchCoverage)?;
+    Ok(ContainmentProof {
+        old_tables_digest: table_set_digest(old_tables),
+        new_tables_digest: table_set_digest(new_tables),
+        method: dispatch_proof_method(order),
+        artefact_sha256: crate::replay_base::sha256::sha256_hex(certificate.as_bytes()),
+    })
+}
+
 impl ContainmentProof {
-    /// For the containment checker only (crate-internal).
-    #[allow(dead_code)]
-    pub(crate) fn checked(old: &str, new: &str, method: &str, artefact_sha256: &str) -> Self {
+    /// Unit tests of this module only (never in a build of the library).
+    #[cfg(test)]
+    pub(crate) fn for_tests(old: &str, new: &str, method: &str, artefact_sha256: &str) -> Self {
         ContainmentProof {
             old_tables_digest: old.into(),
             new_tables_digest: new.into(),
@@ -416,6 +484,30 @@ impl Retirement {
     pub fn state(&self) -> CoverageState {
         self.state
     }
+    /// The (old, new) table-set digests a FULL node's retirement is bound to (those of its proof).
+    pub fn tables(&self) -> Option<(&str, &str)> {
+        self.proof
+            .as_ref()
+            .map(|p| (p.old_tables_digest.as_str(), p.new_tables_digest.as_str()))
+    }
+    /// Check that the retirement is applied to the table sets its proof checked (re-audit A M3: "any checked proof
+    /// fits any retirement" no more): on a FULL node both digests must equal [`table_set_digest`] of the given sets.
+    pub fn check_tables(
+        &self,
+        old_tables: &dyn crate::partition::DomainSource,
+        new_tables: &dyn crate::partition::DomainSource,
+    ) -> Result<(), RetireError> {
+        match self.tables() {
+            None if self.state == CoverageState::Full => Err(RetireError::FullNodeNeedsProof),
+            None => Ok(()),
+            Some((o, n))
+                if o == table_set_digest(old_tables) && n == table_set_digest(new_tables) =>
+            {
+                Ok(())
+            }
+            Some(_) => Err(RetireError::ProofMismatch),
+        }
+    }
     pub fn to_record(&self) -> RetirementRecord {
         RetirementRecord {
             node: self.node.clone(),
@@ -487,7 +579,7 @@ mod tests {
         let same = crate::partition::dispatch_proof_method(
             &crate::partition::DispatchOrderStatement::SameOrder,
         );
-        let proof = ContainmentProof::checked("o", "n", &same, "x");
+        let proof = ContainmentProof::for_tests("o", "n", &same, "x");
         let r = Retirement::new(
             "N",
             CoverageState::Full,
@@ -504,7 +596,7 @@ mod tests {
             RetireError::FullNodeNeedsProof
         );
         assert_eq!(rec.verify(Some(proof)).unwrap(), r);
-        let other = ContainmentProof::checked("o", "n2", &same, "x");
+        let other = ContainmentProof::for_tests("o", "n2", &same, "x");
         assert_eq!(
             rec.verify(Some(other)).unwrap_err(),
             RetireError::ProofMismatch
@@ -523,7 +615,7 @@ mod tests {
     fn m3_economy_requires_a_dispatch_proof() {
         use crate::partition::{DispatchOrderStatement, dispatch_proof_method};
         let old = vec![("a".to_string(), m(100))];
-        let proof = |method: &str| ContainmentProof::checked("o", "n", method, "x");
+        let proof = |method: &str| ContainmentProof::for_tests("o", "n", method, "x");
         let retire = |p: ContainmentProof| {
             Retirement::new(
                 "N",

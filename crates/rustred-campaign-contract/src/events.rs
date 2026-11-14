@@ -147,6 +147,7 @@ impl EventLine {
     }
 
     pub fn parse(line: &[u8]) -> Result<EventLine, String> {
+        crate::canon::check_document(line).map_err(|e| e.to_string())?;
         let e: EventLine = serde_json::from_slice(line).map_err(|e| e.to_string())?;
         if e.v != EVENTS_VERSION {
             return Err(format!(

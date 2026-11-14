@@ -450,6 +450,12 @@ fn drive_item(
                 }
             }
             Next::NeedOffers => st.record_offers("none", vec![]),
+
+            Next::NeedShadowing => st.record_shadowing(
+                rustred_campaign_core::worklist::ladder::ShadowVerdict::Unknown {
+                    why: "no shadowing test in this driver".into(),
+                },
+            ),
             Next::NeedContainment(r) => {
                 for q in r {
                     st.record_containment(&q.attempt_key, q.index, Tri::Unknown);
@@ -1174,6 +1180,7 @@ fn c3_nonverdict_retry_in_larger_class_and_operator_interrupts_do_not_count() {
     let item = root_item(&p, Face::new(vec![0], vec![]), vec![key(2, 1)]);
     let mut st = ItemState::new(item);
     st.record_offers("none", vec![]);
+    st.record_shadowing(rustred_campaign_core::worklist::ladder::ShadowVerdict::NotShadowed);
     let Next::Run(list) = next_steps(&st, &p) else {
         panic!()
     };
@@ -1344,9 +1351,19 @@ fn m3_a6_preferred_top_sector_is_ignored_and_preferences_are_bounded() {
         Option<rustred_campaign_core::worklist::ladder::LadderExhausted>,
     )> = keys.iter().map(|k| (k.clone(), None)).collect();
     assert!(
-        check_terminals(&terms, 1, &NoTables, &p.preferred, &p.lines)
-            .iter()
-            .any(|f| matches!(f, TerminalFlag::OverBound { .. }))
+        check_terminals(
+            &terms,
+            1,
+            &NoTables,
+            &p.preferred,
+            &rustred_campaign_core::terminals::TerminalContext {
+                lines: &p.lines,
+                honoured: &std::collections::BTreeSet::new(),
+                explicit: &keys.iter().cloned().collect(),
+            }
+        )
+        .iter()
+        .any(|f| matches!(f, TerminalFlag::OverBound { .. }))
     );
     // explicit keys: at most max_preferred honoured, the surplus "not applied" (stays a gap point)
     p.preferred = PreferredTerminals {
@@ -1383,7 +1400,11 @@ fn m4_a9_undecided_terminal_is_flagged() {
         10,
         &Und,
         &PreferredTerminals::default(),
-        &p.lines,
+        &rustred_campaign_core::terminals::TerminalContext {
+            lines: &p.lines,
+            honoured: &std::collections::BTreeSet::new(),
+            explicit: &[key(2, 2)].into_iter().collect(),
+        },
     );
     assert!(
         matches!(flags.as_slice(), [TerminalFlag::UndecidedTerminal { .. }]),
@@ -1519,6 +1540,7 @@ fn m7_a8_policy_replaces_the_builtin_space() {
         schema: rustred_campaign_core::worklist::policy::SEED_POLICY_SCHEMA.into(),
         name: "only-target".into(),
         source: "test".into(),
+        symmetry_dimension: true,
         classes: vec![class(true, &[2])],
         evidence: vec![],
     };

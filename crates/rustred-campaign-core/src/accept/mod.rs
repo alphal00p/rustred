@@ -16,24 +16,31 @@ pub mod record;
 pub mod rule;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::BufRead;
+use std::path::Path;
 
 use serde::Serialize;
 
 use crate::closure::bodies::Sectors;
-use crate::cover::{Dispatch, Dispatcher, RuleRef};
-use crate::domain::Stage;
+use crate::cover::{Assurance, Dispatch, Dispatcher, RuleRef, Table};
+use crate::domain::{DomainOptions, Stage, TargetMap};
 use crate::key::{Key, NodeFrame};
 use crate::order::NodeComparator;
 use crate::partition::{Containment, DomainList, DomainSource, shadowed};
+use crate::poly::Poly;
+use crate::record::{ReadOptions, RhsMode, read_table_file};
 
-use descent::{DescentAt, DescentFailure, Instantiator, descent_at, symbolic_not_proved};
+use descent::{
+    DescentAt, DescentFailure, Instantiator, descent_at, symbolic_not_proved,
+    symbolic_regularity_not_proved,
+};
 use facts::{CoefficientFacts, RegVerdict, Regularity};
 pub use prover::RequiredEvidence;
 use prover::{
     EvidenceArtefact, EvidenceProver, ExternalRequest, KeyFailure, KeyStatus, ProverAnswer,
 };
 use record::AcceptanceRecord;
-use rule::{RuleText, WitnessStatus};
+use rule::{CreditWitness, RuleText, record_credit_witness, sha256_tag};
 
 /// FULL (complete coverage of the sector, R33) or BOXED (user box, R35) node.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -84,6 +91,9 @@ pub struct RuleSource {
     pub ordinal: u64,
     pub byte_offset: Option<u64>,
     pub producer: Option<Producer>,
+    /// The source table header's `guard_version` (int3 F2: a record without its own `guard_version` takes the
+    /// table's, as the identity test does); `None` = the table has none (or no header).
+    pub table_guard_version: Option<i64>,
 }
 
 /// Priority classes of the dispatch order (plan 2.4.7 D1), in order.
@@ -207,16 +217,81 @@ pub struct Missing {
     pub what: String,
 }
 
+/// An ACCEPTED candidate: the only proof of acceptance assembly and the tables in force take (audit-accept-A M1,
+/// B M2). Fields are private and there is no public constructor and no `Deserialize`: it is built ONLY by
+/// [`accept_candidate`] at the end of the chain. It binds the rule (line digest, source), the node it was judged
+/// in (name, target, frame + comparator identity), the evidence artefact, the effective domain (exclusions), the
+/// scope, the served set (digest) and the SET of records in force when it was judged (so assembly can check that the
+/// shipped dispatch order is the one judged, audit-accept-B C7).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Accepted {
+    position: Position,
+    effective: EffectiveDomain,
+    record: AcceptanceRecord,
+    artefact: EvidenceArtefact,
+    source: RuleSource,
+    node: String,
+    target: NodeTarget,
+    node_identity: String,
+    scope: Scope,
+    in_force_digest: String,
+    in_force_count: u64,
+    served_digest: String,
+    served_count: u64,
+}
+
+impl Accepted {
+    pub fn position(&self) -> &Position {
+        &self.position
+    }
+    /// The effective domain: the rule's case minus its exclusions (from the chain, never caller data).
+    pub fn effective(&self) -> &EffectiveDomain {
+        &self.effective
+    }
+    pub fn exclusions(&self) -> &[Exclusion] {
+        &self.effective.exclusions
+    }
+    pub fn record(&self) -> &AcceptanceRecord {
+        &self.record
+    }
+    /// The evidence artefact (the caller writes `body` / cites the answer file).
+    pub fn artefact(&self) -> &EvidenceArtefact {
+        &self.artefact
+    }
+    pub fn source(&self) -> &RuleSource {
+        &self.source
+    }
+    /// `sha256:` of the rule line.
+    pub fn rule_sha256(&self) -> &str {
+        &self.effective.rule_sha256
+    }
+    pub fn node(&self) -> &str {
+        &self.node
+    }
+    pub fn target(&self) -> &NodeTarget {
+        &self.target
+    }
+    /// [`node_identity`] of the frame and comparator the chain judged in.
+    pub fn node_identity(&self) -> &str {
+        &self.node_identity
+    }
+    pub fn scope(&self) -> &Scope {
+        &self.scope
+    }
+    /// [`record_set_digest`] of the records in force before the candidate when it was judged, and their count.
+    pub fn in_force(&self) -> (&str, u64) {
+        (&self.in_force_digest, self.in_force_count)
+    }
+    /// Digest (`keys_digest`) and size of the final served set.
+    pub fn served(&self) -> (&str, u64) {
+        (&self.served_digest, self.served_count)
+    }
+}
+
 /// The verdict of the chain.
 #[derive(Clone, Debug, PartialEq)]
 pub enum AcceptVerdict {
-    Accepted {
-        position: Position,
-        effective: EffectiveDomain,
-        record: Box<AcceptanceRecord>,
-        /// The evidence artefact (the caller writes `body` / cites the answer file).
-        artefact: Option<EvidenceArtefact>,
-    },
+    Accepted(Box<Accepted>),
     Rejected {
         check: Check,
         witness: Witness,
@@ -233,12 +308,19 @@ pub enum AcceptVerdict {
 
 impl AcceptVerdict {
     pub fn is_accepted(&self) -> bool {
-        matches!(self, AcceptVerdict::Accepted { .. })
+        matches!(self, AcceptVerdict::Accepted(_))
+    }
+    /// The acceptance token, if accepted.
+    pub fn accepted(&self) -> Option<&Accepted> {
+        match self {
+            AcceptVerdict::Accepted(a) => Some(a),
+            _ => None,
+        }
     }
     /// The check that decided a non-acceptance.
     pub fn check(&self) -> Option<Check> {
         match self {
-            AcceptVerdict::Accepted { .. } => None,
+            AcceptVerdict::Accepted(_) => None,
             AcceptVerdict::Rejected { check, .. }
             | AcceptVerdict::Undecided { check, .. }
             | AcceptVerdict::NeedsExternal { check, .. } => Some(*check),
@@ -249,9 +331,14 @@ impl AcceptVerdict {
 /// Caller mistakes (every mathematical outcome is a verdict).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AcceptError {
-    Arity { expected: usize, got: usize },
+    Arity {
+        expected: usize,
+        got: usize,
+    },
     Cover(String),
     Position(String),
+    /// Building the tables in force (unreadable table, a token for another rule, an exclusion that can not be honoured).
+    InForce(String),
 }
 
 impl std::fmt::Display for AcceptError {
@@ -260,6 +347,7 @@ impl std::fmt::Display for AcceptError {
             AcceptError::Arity { expected, got } => write!(f, "arity {got}, node arity {expected}"),
             AcceptError::Cover(e) => write!(f, "dispatch: {e}"),
             AcceptError::Position(e) => write!(f, "position: {e}"),
+            AcceptError::InForce(e) => write!(f, "tables in force: {e}"),
         }
     }
 }
@@ -281,6 +369,9 @@ impl<R: Regularity, C> Regularity for FactPair<R, C> {
     fn engine_fact_digest(&self) -> Option<String> {
         self.regularity.engine_fact_digest()
     }
+    fn fact_digest_for(&self, rule: &RuleText) -> Option<String> {
+        self.regularity.fact_digest_for(rule)
+    }
 }
 impl<R, C: CoefficientFacts> CoefficientFacts for FactPair<R, C> {
     fn coefficient(
@@ -293,13 +384,352 @@ impl<R, C: CoefficientFacts> CoefficientFacts for FactPair<R, C> {
     }
 }
 
+/// One record of the tables in force (in dispatch order): the table it comes from and the sha256 of its line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InForceRecord {
+    pub table: String,
+    pub line_sha256: String,
+}
+
+/// THE TABLES IN FORCE of a chain run, built only by [`InForceBuilder`] from table FILES and [`Accepted`] tokens, so
+/// that the chain knows the identity (line digest) of every record it judged against (audit-accept-B C7) and the
+/// tables follow the acceptance chain's own rules: a record whose witness loci are present but whose guard version
+/// (record, else table header) is < 2 is NOT CARRIED, as in check 0 (int3 F2); an accepted rule's EXCLUSIONS ARE
+/// HONOURED (the record is not selected at an excluded key: an exception branch vanishing exactly at the key's rule
+/// point; a locus exclusion = an exception branch of its equations, canonical targets only), so a later rule (a point
+/// rule that makes the exclusion safe) can be judged there.
+pub struct InForce {
+    disp: Option<Dispatcher>,
+    records: Vec<InForceRecord>,
+    set_digest: String,
+}
+
+impl InForce {
+    /// The dispatcher (None when nothing is in force).
+    pub fn dispatcher(&self) -> Option<&Dispatcher> {
+        self.disp.as_ref()
+    }
+    pub fn records(&self) -> &[InForceRecord] {
+        &self.records
+    }
+    /// [`record_set_digest`] of the records' line digests.
+    pub fn set_digest(&self) -> &str {
+        &self.set_digest
+    }
+    pub fn len(&self) -> usize {
+        self.records.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
+}
+
+/// Order-independent digest of a MULTISET of line digests (`sha256:<hex>` each): the sum of the 256-bit SHA-256 values
+/// of the digest texts modulo 2^256, as `adsum256:<hex>`. Used to compare the set of records in force when a rule was
+/// judged with the set placed before it in the assembled table (the served set depends on that SET only, not on the
+/// order among the earlier records).
+pub fn record_set_digest<'a>(ids: impl IntoIterator<Item = &'a str>) -> String {
+    let mut d = SetDigest::default();
+    for id in ids {
+        d.add(id);
+    }
+    d.digest()
+}
+
+/// Incremental [`record_set_digest`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SetDigest {
+    acc: [u64; 4],
+    count: u64,
+}
+
+impl SetDigest {
+    pub fn add(&mut self, id: &str) {
+        let h = sha256_tag(id.as_bytes());
+        let hex = h.trim_start_matches("sha256:");
+        let mut carry = 0u128;
+        for (i, a) in self.acc.iter_mut().enumerate() {
+            let chunk = &hex[(3 - i) * 16..(4 - i) * 16];
+            let v = u64::from_str_radix(chunk, 16).unwrap_or(0);
+            let s = *a as u128 + v as u128 + carry;
+            *a = s as u64;
+            carry = s >> 64;
+        }
+        self.count += 1;
+    }
+    pub fn count(&self) -> u64 {
+        self.count
+    }
+    pub fn digest(&self) -> String {
+        let a = &self.acc;
+        format!(
+            "adsum256:{:016x}{:016x}{:016x}{:016x}",
+            a[3], a[2], a[1], a[0]
+        )
+    }
+}
+
+/// Identity of the frame and comparator a rule is judged in (and an assembled table dispatches in): mask, power
+/// shifts, two-sided slots, the comparator's presentation (slot permutation) and its equivalent order descriptor.
+pub fn node_identity(frame: &NodeFrame, cmp: &NodeComparator) -> String {
+    sha256_tag(
+        format!(
+            "mask={};power_shifts={:?};two_sided={:?};presentation={:?};order={:?}",
+            frame.mask_string(),
+            frame.power_shifts(),
+            frame.two_sided(),
+            cmp.presentation(),
+            cmp.equivalent_descriptor()
+        )
+        .as_bytes(),
+    )
+}
+
+/// Builder of [`InForce`]: tables and accepted rules in DISPATCH ORDER (call order).
+pub struct InForceBuilder<'a> {
+    frame: &'a NodeFrame,
+    opts: DomainOptions,
+    tables: Vec<Table>,
+    records: Vec<InForceRecord>,
+    /// the last table is a campaign table that takes further accepted rules
+    campaign_open: bool,
+}
+
+impl<'a> InForceBuilder<'a> {
+    pub fn new(frame: &'a NodeFrame) -> Self {
+        InForceBuilder {
+            frame,
+            opts: DomainOptions::default(),
+            tables: Vec::new(),
+            records: Vec::new(),
+            campaign_open: false,
+        }
+    }
+    /// Domain options of the table files (default: the core's).
+    pub fn options(mut self, opts: DomainOptions) -> Self {
+        self.opts = opts;
+        self
+    }
+
+    /// An input table file (`table_dump.v1`): loaded with the core loader, the acceptance guard rule applied to its
+    /// records (int3 F2), every dispatched record identified by the sha256 of its line.
+    pub fn table_file(&mut self, id: &str, path: &Path) -> Result<&mut Self, AcceptError> {
+        let err = |e: String| AcceptError::InForce(format!("{}: {e}", path.display()));
+        let tf = read_table_file(path, ReadOptions { rhs: RhsMode::Skip })
+            .map_err(|e| err(e.to_string()))?;
+        let mut t = Table::from_table_file(id, path.display().to_string(), &tf, self.opts)
+            .map_err(|e| err(e.to_string()))?;
+        let header_guard = tf
+            .header
+            .as_ref()
+            .and_then(|h| h.raw.get("guard_version"))
+            .and_then(serde_json::Value::as_i64);
+        // line digests and own guard versions of the dispatched records (by line number, one streaming pass)
+        let want: BTreeMap<usize, usize> = t
+            .meta
+            .iter()
+            .enumerate()
+            .map(|(ri, m)| (m.line_no, ri))
+            .collect();
+        if want.len() != t.len() || want.contains_key(&0) {
+            return Err(err("records without distinct line numbers".into()));
+        }
+        let mut digests = vec![String::new(); t.len()];
+        let mut guards: Vec<Option<i64>> = vec![None; t.len()];
+        let mut rd = std::io::BufReader::with_capacity(
+            1 << 20,
+            std::fs::File::open(path).map_err(|e| err(e.to_string()))?,
+        );
+        let mut buf = Vec::new();
+        let mut line_no = 0usize;
+        loop {
+            buf.clear();
+            if rd
+                .read_until(b'\n', &mut buf)
+                .map_err(|e| err(e.to_string()))?
+                == 0
+            {
+                break;
+            }
+            line_no += 1;
+            if let Some(&ri) = want.get(&line_no) {
+                let line = buf.strip_suffix(b"\n").unwrap_or(&buf);
+                digests[ri] = sha256_tag(line);
+                guards[ri] = rule::record_guard_version(line)
+                    .map_err(|e| err(format!("line {line_no}: {e}")))?;
+            }
+        }
+        if digests.iter().any(String::is_empty) {
+            return Err(err("a record line was not found again".into()));
+        }
+        // int3 F2: the acceptance chain's witness rule (loci AND guard version >= 2) on the records in force
+        for (ri, m) in t.meta.iter_mut().enumerate() {
+            let r = tf
+                .rules
+                .get(m.source_index)
+                .ok_or_else(|| err("record meta out of range".into()))?;
+            if m.witness == crate::cover::WitnessStatus::Complete
+                && m.witness_basis == Assurance::Record
+                && record_credit_witness(r, guards[ri], header_guard) == CreditWitness::NotCarried
+            {
+                m.witness = crate::cover::WitnessStatus::NotCarried;
+            }
+        }
+        for d in digests {
+            self.records.push(InForceRecord {
+                table: id.to_string(),
+                line_sha256: d,
+            });
+        }
+        self.tables.push(t);
+        self.campaign_open = false;
+        Ok(self)
+    }
+
+    /// An ACCEPTED campaign rule (its token and its record text, which must be the token's rule), with the token's
+    /// exclusions honoured.
+    pub fn accepted(&mut self, acc: &Accepted, rule: &RuleText) -> Result<&mut Self, AcceptError> {
+        if acc.rule_sha256() != rule.line_sha256 {
+            return Err(AcceptError::InForce(format!(
+                "token of rule {} given with the record {}",
+                acc.rule_sha256(),
+                rule.line_sha256
+            )));
+        }
+        let mut dom = rule
+            .domain
+            .clone()
+            .ok_or_else(|| AcceptError::InForce("accepted rule without a domain".into()))?;
+        honour_exclusions(&mut dom, acc.exclusions())?;
+        if !self.campaign_open {
+            self.tables.push(Table::new(
+                format!("campaign:{}", self.tables.len()),
+                dom.arity,
+            ));
+            self.campaign_open = true;
+        }
+        let t = self.tables.last_mut().expect("just pushed");
+        let label = t.len() as i64;
+        t.push(label, dom)
+            .map_err(|e| AcceptError::InForce(e.to_string()))?;
+        self.records.push(InForceRecord {
+            table: t.name.clone(),
+            line_sha256: rule.line_sha256.clone(),
+        });
+        Ok(self)
+    }
+
+    /// A CERTIFIED recipe in force (audit-accept-B M5): as one point domain per CERTIFIED key, so that an uncertified
+    /// key of its domain falls through to the later rules exactly as at run time (R48 addendum 2) and a later rule is
+    /// judged there. Identity of each entry: `<recipe digest>#<key>` (recipes are not table records: a token judged
+    /// with recipes in force is not assemblable into a table until the engine's recipe form exists, EC-recipe).
+    pub fn recipe(
+        &mut self,
+        recipe: &recipe::Recipe,
+        verdict: &recipe::RecipeVerdict,
+    ) -> Result<&mut Self, AcceptError> {
+        let recipe::RecipeVerdict::Certified {
+            recipe_digest,
+            certified,
+            ..
+        } = verdict
+        else {
+            return Err(AcceptError::InForce("recipe not certified".into()));
+        };
+        if *recipe_digest != recipe.digest {
+            return Err(AcceptError::InForce(format!(
+                "certification of recipe {recipe_digest} given with recipe {}",
+                recipe.digest
+            )));
+        }
+        let mut t = Table::new(format!("recipe:{}", self.tables.len()), recipe.domain.arity);
+        for (i, k) in certified.iter().enumerate() {
+            let mut d = recipe.domain.clone();
+            d.fixed = k.iter().map(|&x| Some(x)).collect();
+            t.push(i as i64, d)
+                .map_err(|e| AcceptError::InForce(e.to_string()))?;
+            self.records.push(InForceRecord {
+                table: t.name.clone(),
+                line_sha256: format!("{recipe_digest}#{k:?}"),
+            });
+        }
+        self.tables.push(t);
+        self.campaign_open = false;
+        Ok(self)
+    }
+
+    pub fn build(self) -> Result<InForce, AcceptError> {
+        let _ = self.frame;
+        let set_digest = record_set_digest(self.records.iter().map(|r| r.line_sha256.as_str()));
+        let disp = if self.tables.is_empty() {
+            None
+        } else {
+            let n = self.tables.len();
+            Some(
+                Dispatcher::new(self.tables, (0..n).collect())
+                    .map_err(|e| AcceptError::InForce(e.to_string()))?,
+            )
+        };
+        Ok(InForce {
+            disp,
+            records: self.records,
+            set_digest,
+        })
+    }
+}
+
+/// Honour exclusions in a domain (see [`InForce`]).
+fn honour_exclusions(
+    dom: &mut crate::domain::CaseDomain,
+    exclusions: &[Exclusion],
+) -> Result<(), AcceptError> {
+    let n = dom.arity;
+    for e in exclusions {
+        match &e.target {
+            ExclusionTarget::Key(k) => {
+                if k.len() != n {
+                    return Err(AcceptError::Arity {
+                        expected: n,
+                        got: k.len(),
+                    });
+                }
+                let mut pt = Vec::new();
+                if crate::closure::bodies::rule_point(dom, k, &mut pt) {
+                    dom.exceptions.push(
+                        (0..n)
+                            .map(|i| Poly::slot_minus(i, i128::from(pt[i])))
+                            .collect(),
+                    );
+                }
+            }
+            ExclusionTarget::Locus { equations } => {
+                if dom.target != TargetMap::Canonical {
+                    return Err(AcceptError::InForce(
+                        "a locus exclusion on a rule with a non-canonical target can not be honoured".into(),
+                    ));
+                }
+                let branch = equations
+                    .iter()
+                    .map(|q| Poly::parse_d_free(q, n))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| AcceptError::InForce(format!("locus exclusion: {e:?}")))?;
+                if branch.is_empty() {
+                    return Err(AcceptError::InForce("empty locus exclusion".into()));
+                }
+                dom.exceptions.push(branch);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Inputs of one chain run.
 pub struct AcceptInput<'a> {
     pub node: NodeView<'a>,
     /// Tables in force placed BEFORE the candidate (None = nothing before it).
-    pub before: Option<&'a Dispatcher>,
+    pub before: Option<&'a InForce>,
     /// Rules placed AFTER the candidate (winner diff of a non-final position); None = the candidate is last.
-    pub after: Option<&'a Dispatcher>,
+    pub after: Option<&'a InForce>,
     pub candidate: Candidate<'a>,
     pub gap_points: &'a [Key],
     /// The working key range (box + envelope for boxed nodes; the checked range for FULL nodes).
@@ -547,16 +977,18 @@ pub fn accept_candidate(
     }
     // witness loci (R24 (6)) and guard version: a record without its loci (or pre-guard-fix) may credit a key ONLY
     // with per-key exact engine facts (coordinator ruling, addendum 3); elided loci are never liftable
-    let fact_digest = facts.engine_fact_digest();
-    let credit_basis = match (rule.witness_status(), rule.guard_version.unwrap_or(0) >= 2) {
-        (WitnessStatus::Elided, _) => {
+    // the facts must be bound to THIS rule (audit-accept-A M4, B C2): `fact_digest_for(rule)`, never a rule-free digest
+    let table_guard = input.candidate.source.table_guard_version;
+    let fact_digest = facts.fact_digest_for(rule);
+    let credit_basis = match rule.credit_witness(table_guard) {
+        CreditWitness::Elided => {
             return rejected(
                 Check::Record,
                 Witness::Structural("witness loci elided (R24 (6))".into()),
             );
         }
-        (WitnessStatus::Present { .. }, true) => "witness_loci".to_string(),
-        (status, _) => match &fact_digest {
+        CreditWitness::Complete => "witness_loci".to_string(),
+        CreditWitness::NotCarried => match &fact_digest {
             Some(d) => format!("regularity_fact:{d}"),
             None => {
                 return Ok(AcceptVerdict::Undecided {
@@ -564,8 +996,10 @@ pub fn accept_candidate(
                     missing: vec![Missing {
                         key: None,
                         what: format!(
-                            "witness {status:?}, guard version {:?}: credit needs per-key exact engine facts (instantiate)",
-                            rule.guard_version
+                            "witness {:?}, guard version {:?}: credit needs per-key exact engine facts (rr_proof \
+                             instantiate) loaded for this rule",
+                            rule.witness_status(),
+                            rule.effective_guard(table_guard)
                         ),
                     }],
                 });
@@ -575,10 +1009,12 @@ pub fn accept_candidate(
     checks.push(outcome(Check::Record, "pass", &[]));
 
     // ---- 1 Served (winner diff over the working range)
-    let sets = served_sets(node, input.before, rule, input.after, input.working)?;
+    let before = input.before.and_then(InForce::dispatcher);
+    let after = input.after.and_then(InForce::dispatcher);
+    let sets = served_sets(node, before, rule, after, input.working)?;
     let mut shadow = None;
     if node.target == NodeTarget::Full
-        && let (Some(b), Some(dom)) = (input.before, &rule.domain)
+        && let (Some(b), Some(dom)) = (before, &rule.domain)
     {
         // audit-part-A M3 / m5 (partfix): "shadowed by the tables in force" is a FIRST-MATCH statement: an earlier
         // record counts where it is SELECTED (served or blocked), not only where it applies (`contained_in` is
@@ -641,7 +1077,7 @@ pub fn accept_candidate(
         if served_set.contains(g) {
             credited.push(g.clone());
         } else {
-            let s = composed_stop(node, input.before, rule, input.after, g)?;
+            let s = composed_stop(node, before, rule, after, g)?;
             not_credited.push((g.clone(), describe_stop(&s)));
         }
     }
@@ -920,6 +1356,16 @@ pub fn accept_candidate(
             });
         }
     };
+    // the artefact must be evidence for THIS rule (audit-accept-B M1); a replay record is checked by content
+    if let Err(why) = artefact_binds(&art, rule, &final_served) {
+        return Ok(AcceptVerdict::Undecided {
+            check: Check::Evidence,
+            missing: vec![Missing {
+                key: None,
+                what: format!("evidence artefact not bound to the candidate: {why}"),
+            }],
+        });
+    }
     let exclusions: Vec<Exclusion> = led
         .failed
         .iter()
@@ -938,6 +1384,7 @@ pub fn accept_candidate(
     // ---- 7 Scope
     let working_digest = prover::keys_digest(n, input.working);
     let not_proved = symbolic_not_proved(rule, node.cmp, &node.lines());
+    let regularity_not_proved = symbolic_regularity_not_proved(rule);
     let scope = match node.target {
         NodeTarget::Boxed { .. } => Scope::KeyRange {
             digest: working_digest.clone(),
@@ -956,6 +1403,15 @@ pub fn accept_candidate(
                 missing.push(format!(
                     "symbolic descent not proved for terms {not_proved:?}"
                 ));
+            }
+            // audit-accept-B C3: regularity on the whole effective domain (denominators, witness loci)
+            missing.extend(
+                regularity_not_proved
+                    .iter()
+                    .map(|w| format!("symbolic regularity: {w}")),
+            );
+            if credit_basis != "witness_loci" {
+                missing.push("witness loci not carried (credited by per-key facts only)".into());
             }
             match &shadow {
                 Some(Containment::NotContained { .. }) => {}
@@ -988,6 +1444,11 @@ pub fn accept_candidate(
         rule_sha256: rule.line_sha256.clone(),
         exclusions: exclusions.clone(),
     };
+    let identity = node_identity(node.frame, node.cmp);
+    let (in_force_digest, in_force_count) = match input.before {
+        Some(b) => (b.set_digest().to_string(), b.len() as u64),
+        None => (record_set_digest(std::iter::empty()), 0),
+    };
     let record = AcceptanceRecord::build(record::RecordParts {
         node,
         candidate: &input.candidate,
@@ -1007,14 +1468,74 @@ pub fn accept_candidate(
         scope: &scope,
         shadowed: shadow.as_ref().map(|c| format!("{c:?}")),
         pattern_not_proved: not_proved.iter().copied().collect(),
+        regularity_not_proved: &regularity_not_proved,
         credit_basis,
+        node_identity: &identity,
+        in_force: (&in_force_digest, in_force_count),
     });
-    Ok(AcceptVerdict::Accepted {
+    Ok(AcceptVerdict::Accepted(Box::new(Accepted {
         position: input.candidate.position.clone(),
         effective,
-        record: Box::new(record),
-        artefact: Some(art),
-    })
+        record,
+        artefact: art,
+        source: input.candidate.source.clone(),
+        node: node.node.clone(),
+        target: node.target.clone(),
+        node_identity: identity,
+        scope,
+        in_force_digest,
+        in_force_count,
+        served_digest: prover::keys_digest(n, &final_served),
+        served_count: final_served.len() as u64,
+    })))
+}
+
+/// The artefact names the candidate's rule; a replay record (in-process body) is checked BY CONTENT: its rule digest
+/// is the candidate's (`ibp_rows::rule_digest`), its served-key digest is the final served set's, its level is
+/// `Established` and its family was bound (rows3 NEW-M1).
+fn artefact_binds(art: &EvidenceArtefact, rule: &RuleText, served: &[Key]) -> Result<(), String> {
+    if art.rule_sha256 != rule.line_sha256 {
+        return Err(format!(
+            "artefact names rule {}, the candidate is {}",
+            art.rule_sha256, rule.line_sha256
+        ));
+    }
+    if art.schema != crate::ibp_rows::REPLAY_SCHEMA {
+        return Ok(());
+    }
+    let body = art
+        .body
+        .as_ref()
+        .ok_or("replay artefact without its record")?;
+    let rr = crate::ibp_rows::RowsRule::from_value(rule.value.clone(), rule.record.fixed.len())
+        .map_err(|e| format!("identity test refuses the record: {e}"))?;
+    if body.get("rule_digest").and_then(serde_json::Value::as_str)
+        != Some(crate::ibp_rows::rule_digest(&rr).as_str())
+    {
+        return Err("replay record of another rule (rule_digest)".into());
+    }
+    let mut keys: Vec<Vec<i64>> = served
+        .iter()
+        .map(|k| k.iter().map(|&x| i64::from(x)).collect())
+        .collect();
+    keys.sort();
+    keys.dedup();
+    if body
+        .get("served_keys_digest")
+        .and_then(serde_json::Value::as_str)
+        != Some(crate::ibp_rows::key_set_digest(&keys).as_str())
+    {
+        return Err("replay record of another served set (served_keys_digest)".into());
+    }
+    let established = serde_json::to_value(crate::ibp_rows::ReplayLevel::Established)
+        .map_err(|e| e.to_string())?;
+    if body.get("level") != Some(&established) {
+        return Err(format!("replay record level {:?}", body.get("level")));
+    }
+    if body.get("family_bound_to_table") != Some(&serde_json::Value::Bool(true)) {
+        return Err("replay record without a family binding".into());
+    }
+    Ok(())
 }
 
 fn reject_or_undecide(led: &KeyLedger, policy: &AcceptPolicy) -> Option<AcceptVerdict> {

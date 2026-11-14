@@ -9,8 +9,8 @@ use rustred_campaign_core::accept::facts::{ClosureFacts, ExactRecordFacts};
 use rustred_campaign_core::accept::prover::{EvidenceProver, ReplayProver};
 use rustred_campaign_core::accept::rule::{RuleText, sha256_tag};
 use rustred_campaign_core::accept::{
-    AcceptInput, AcceptPolicy, AcceptVerdict, Candidate, NodeTarget, NodeView, Position,
-    PriorityClass, RequiredEvidence, RuleSource, accept_candidate,
+    AcceptInput, AcceptPolicy, AcceptVerdict, Candidate, InForce, InForceBuilder, NodeTarget,
+    NodeView, Position, PriorityClass, RequiredEvidence, RuleSource, accept_candidate,
 };
 use rustred_campaign_core::closure::{
     ClosureConfig, HandDowns, KeyCodec, KeySet, NoFacts, RuleBodies, Tier, closure,
@@ -28,8 +28,11 @@ use serde_json::Value;
 
 pub const WS: &str = "/shared/vhirschi/t3code/vakint_dev/p_integral_dev";
 
+/// Root of the coordinator's frozen campaign fixture TREE (small/m2-slice, small/k3). int3 F1: read from
+/// `RUSTRED_CAMPAIGN_TREE`, NOT `RUSTRED_CAMPAIGN_FIXTURES` (every other suite reads that one as the root of the
+/// converted large references; with it set, these suites used to skip silently).
 pub fn fixture_root() -> PathBuf {
-    std::env::var("RUSTRED_CAMPAIGN_FIXTURES")
+    std::env::var("RUSTRED_CAMPAIGN_TREE")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from(WS).join("fixtures/campaign-20261114"))
 }
@@ -75,8 +78,18 @@ pub struct Node {
     pub expected: Value,
 }
 
+/// The node's fixture is present. A tree named explicitly by `RUSTRED_CAMPAIGN_TREE` that lacks the node is an error
+/// (never a silent skip, int3 F1); without the variable, a host without the frozen tree skips.
 pub fn available(node: &str) -> bool {
-    slice(node).join("table.jsonl").is_file()
+    let here = slice(node).join("table.jsonl").is_file();
+    if !here && std::env::var("RUSTRED_CAMPAIGN_TREE").is_ok() {
+        panic!(
+            "RUSTRED_CAMPAIGN_TREE={} has no {}",
+            fixture_root().display(),
+            slice(node).display()
+        );
+    }
+    here
 }
 
 pub fn load_node(name: &str) -> Node {
@@ -252,12 +265,26 @@ pub fn replay_prover(node: &Node) -> ReplayProver {
     ReplayProver::new(
         Family::parse(&node.family_text).unwrap(),
         // rows3 (re-audit A NEW-M1): the `replay` level requires a family binding: the node table's header
-        // (family_source compared with the family text)
-        RowsOptions {
-            table: rustred_campaign_core::ibp_rows::TableBinding::from_header(&node.header.raw),
-            ..RowsOptions::default()
-        },
+        // (family_source compared with the family text); the constructor makes it mandatory (acceptfix)
+        rustred_campaign_core::ibp_rows::TableBinding::from_header(&node.header.raw).unwrap(),
+        RowsOptions::default(),
     )
+}
+
+/// Tables in force = the given table file (input) followed by accepted rules (token, record) in dispatch order.
+pub fn in_force(
+    node: &Node,
+    table: Option<&Path>,
+    accepted: &[(&AcceptVerdict, &RuleText)],
+) -> InForce {
+    let mut b = InForceBuilder::new(&node.frame);
+    if let Some(t) = table {
+        b.table_file("ko", t).unwrap();
+    }
+    for (v, r) in accepted {
+        b.accepted(v.accepted().expect("accepted"), r).unwrap();
+    }
+    b.build().unwrap()
 }
 
 pub fn position(rule: &RuleText, ko: &str, i: usize) -> Position {
@@ -282,6 +309,7 @@ pub fn source(node: &str, ko: &str, off: u64, i: usize) -> RuleSource {
         ordinal: i as u64,
         byte_offset: Some(off),
         producer: None,
+        table_guard_version: None,
     }
 }
 
@@ -320,8 +348,10 @@ pub fn accepted_table(arity: usize, rules: &[&RuleText]) -> Table {
     t
 }
 
-/// The acceptance pipeline of a KO set: the witnesses are offered in file order, each judged by the chain against
-/// the KO table plus the witnesses accepted before it.
+/// The acceptance pipeline of a KO set: the witnesses are offered in their FINAL DISPATCH ORDER (Position: face /
+/// locus rules before point rules, then file order), each judged by the chain against the KO table plus the witnesses
+/// accepted before it, i.e. against exactly the records that precede it in the assembled table (audit-accept-B C7:
+/// "placed" mode; assembly checks it).
 pub fn run_ko(
     node: &Node,
     ko: &str,
@@ -355,13 +385,13 @@ pub fn run_ko(
     let mut facts = ExactRecordFacts::new();
     let mut accepted: Vec<(usize, u64, RuleText, AcceptVerdict)> = Vec::new();
     let mut rejected = Vec::new();
-    for (i, ((off, _), r)) in lines.iter().zip(&rules).enumerate() {
-        let acc: Vec<&RuleText> = accepted.iter().map(|(_, _, r, _)| r).collect();
-        let before = Dispatcher::new(
-            vec![ko_t.clone(), accepted_table(node.frame.arity(), &acc)],
-            vec![0, 1],
-        )
-        .unwrap();
+    let mut order: Vec<usize> = (0..rules.len()).collect();
+    order.sort_by_key(|&i| position(&rules[i], ko, i));
+    for i in order {
+        let ((off, _), r) = (&lines[i], &rules[i]);
+        let acc: Vec<(&AcceptVerdict, &RuleText)> =
+            accepted.iter().map(|(_, _, r, v)| (v, r)).collect();
+        let before = in_force(node, Some(&ko_path), &acc);
         let input = AcceptInput {
             node: view(
                 node,
