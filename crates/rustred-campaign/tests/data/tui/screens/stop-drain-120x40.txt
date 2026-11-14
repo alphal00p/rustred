@@ -1,0 +1,40 @@
+rr_campaign  p5l-boxed-final  STOPPING 1:47  age 1d04h  hb 2s  seq 18,402  sessions 2
+ STOPPING 1:47  draining: 21 job(s) running, grace 120 s; nothing half-accepted. Press Ctrl-C again to force.
+CPU 21/32   RAM 9.8 used, 22.0 res / 30.0G cap   host 60.0G (floor 50.0)   jobs 21
+NODES 4  FULL 1  BOXED 1  OPEN 2  certified 1  attention 2  (certified=1, closed=1, running=2)
+ITEMS 1,640  open 226  run 21  acc 1,144  esc 210  rej 31  term 3  ret 57  stale 4
+RULES accepted 1,201  rejected 31  CERT 86.3% (987/1,144 proved)  upgrades 640  retired 282
+TERMINALS 3 (cand 2, bound 100/node)  DEFECT 449 keys (2 of 3 nodes with defect)  ECONOMY rules 3,402->3,120
+cpu-h 61.4  ETA ~ 54m-2.6h wall (18.0h-2.3d CPU left; 186 items; 21 jobs)
+-[ Nodes (4) ]---------------------------------------------------------------------------------- Enter: node detail ----
+node     coverage            phase           open by rung               term   defect  cert%   rules  used%       RHS
+T074     FULL                certified          0 -                    0/100        0 100.0%     431 100.0%   337,993
+T162     [BOXED T162.rstar]  closed             0 -                    2/100        0  94.7%   1,308  42.5%   765,004
+T178     OPEN                running          121 L0 74 L1 39 L2 11~   1/100      412  75.1%   1,381  23.3%   990,321
+!T266    OPEN                running           72 L0 40 L1 9 L2 11 ~   0/100       37      -       0  37.6%         0
+-[ Work list by ladder level ]------------------------------------  -[ Rules and certificates ]-------------------------
+rung   open  run prod    acc  rej  esc tcand term  jobs  med s      accepted 1,201  rejected 31  upgrades 640
+L0      125    9    3    740   12  120     -    - 1,001   41.0      rejected by reason: cert_failed 2, exception_unknow~
+L1       53    6    -    210    9   61     -    -   288   96.0      evidence: geometry 61  tested 96  proved 987
+L2       27    4    -    151    6   22     -    -   184   38.0      certified share 86.3% (accepted items at identity_p~
+L3        3    -    -     24    1    6     -    -    31  140.0      economy: rules 3,402 -> 3,120, RHS terms 2,310,455 ~
+L4       18    2    -     19    3    1     2    -    25  210.0      closure defect keys: T074 0, T162 0, T178 412, T266~
+L5        0    -    -      -    -    -     -    3     -      -      jobs 1,904 settled: complete 311, crashed 3, killed~
+-[ Running jobs 21 ]----------------------------------------------------------------------------------- j: all jobs ----
+job                node     item               rung  cpu       RSS / cap elapsed / budget    hb phase
+J000917            T178     F041 n9=-1         L1      1       0.5 / 2.0    1m42s / 5m00s    3s lift
+J000921            T178     F112               L0      1       0.3 / 2.0      12s / 5m00s    2s seeds
+J000922            T266     F009 a8=2          L4      1       1.8 / 2.0  26m50s / 30m00s    8s solve
+-[ Recent events ]----------------------------------------------------------------------------------- e: all events ----
+08:15:02 ok   item_upgraded     T178 F012: evidence -> identity_proved
+08:14:55 ok   item_accepted     T178 F087: rule T178:R:campaign:640 accepted (identity_proved), diag n2=n6 covers 11/11~
+08:14:31 esc  item_escalated    T178 F019: escalated to L2 (rule_covers_none)
+08:14:10 FAIL item_rejected     T178 F044: rejected (irregular_point)
+08:13:02 FAIL job_finished      T178 F033 L4: job J000903 (killed_memory) at 5.0 GB
+08:12:01 esc  terminal_proposed T178 F033 a0=2: terminal candidate (terminal_after_ladder)
+08:09:30 esc  item_escalated    T178 F019: escalated to L1 (refused_spill, 300 s)
+08:02:12 .    input             input T266.joined changed (version 2): 4 items stale
+07:58:40 box  node              T162: closed (boxed), defect 0 of 61210 keys
+07:50:11 box  node              T162: fall back to box T162.rstar (full attempt ended: 9 faces, 3 loci, 1820 keys)
+
+n/N select node  Enter node detail  j jobs  e events  a attention(2)  ?help  Ctrl-C stop safely (twice: now)

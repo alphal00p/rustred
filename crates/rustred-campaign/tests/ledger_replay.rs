@@ -280,6 +280,7 @@ fn node_verdicts_need_their_evidence() {
         defect_keys: 4,
         closure_keys: 900,
         rules_used: Some(3),
+        rules_total: Some(2_440),
         keyset: None,
     }))
     .unwrap();
@@ -289,6 +290,7 @@ fn node_verdicts_need_their_evidence() {
         defect_keys: 0,
         closure_keys: 880,
         rules_used: Some(3),
+        rules_total: Some(2_440),
         keyset: None,
     }))
     .unwrap();

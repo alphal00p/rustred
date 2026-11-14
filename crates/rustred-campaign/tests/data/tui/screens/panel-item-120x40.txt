@@ -1,0 +1,40 @@
+rr_campaign  test-campaign  RUNNING  age 10m03s  hb 2s  seq 84  sessions 1  dir memory
+-[ Item T162-item-00004 (why) ]---------------------------------------------------------------------------- q: back ----
+why escalated to L1
+node T162  label F004 n9=-1  kind locus  rung L0  phase escalated L1
+parent -  weight 5  created seq 52  updated seq 62  cpu 2500 ms  terminal keys 0
+accepted -
+retired -
+economy -
+stale from -  input -
+jobs:
+  T162-job-00004-L0 attempt 2  succeeded_sealed no_rule  cpu 2.5 s  run dir large:jobs/j4.a2
+children ["T162-item-00005"]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+arrows/PgUp/PgDn scroll  q back  q/Ctrl-C close viewer (campaign unaffected)

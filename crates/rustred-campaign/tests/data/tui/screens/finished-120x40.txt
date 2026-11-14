@@ -1,0 +1,40 @@
+rr_campaign  p5l-boxed-final  FINISHED  age 8d06h  hb 2s  seq 91,233  sessions 4  recoveries 1
+CPU 0/32   RAM 0.0 used, 0.0 res / 30.0G cap   host 412.0G (floor 50.0)   jobs 0
+NODES 3  FULL 0  BOXED 3  OPEN 0  certified 2  attention 0  (certified=2, closed=1)
+ITEMS 1,634  open 0  run 0  acc 1,333  esc 241  rej 0  term 3  ret 57  stale 0
+RULES accepted 1,201  rejected 31  CERT 99.1% (987/1,144 proved)  upgrades 640  retired 282
+TERMINALS 5 (cand 0, bound 100/node)  DEFECT 0 keys (0 of 3 nodes with defect)  ECONOMY rules 3,402->3,120
+cpu-h 417.0  ETA: nothing left
+-[ Nodes (3) ]---------------------------------------------------------------------------------- Enter: node detail ----
+node     coverage            phase           open by rung               term   defect  cert%   rules  used%       RHS
+T162     [BOXED T162.rstar]  certified          0 -                    2/100        0  94.7%   1,308  42.5%   765,004
+T178     [BOXED T178.rstar]  certified          0 -                    1/100        0  75.1%   1,381  23.3%   990,321
+T266     [BOXED T266.rstar]  closed             0 -                    2/100        0      -       0  37.6%         0
+-[ Work list by ladder level ]------------------------------------  -[ Rules and certificates ]-------------------------
+rung   open  run prod    acc  rej  esc tcand term  jobs  med s      accepted 1,201  rejected 31  upgrades 640
+L0        0    -    -    849    -  132     -    - 1,001   41.0      rejected by reason: cert_failed 2, exception_unknow~
+L1        0    -    -    254    -   70     -    -   288   96.0      evidence: geometry 61  tested 96  proved 987
+L2        0    -    -    172    -   28     -    -   184   38.0      certified share 99.1% (accepted items at identity_p~
+L3        0    -    -     26    -    7     -    -    31  140.0      economy: rules 3,402 -> 3,120, RHS terms 2,310,455 ~
+L4        0    -    -     32    -    4     -    -    25  210.0      closure defect keys: T162 0, T178 0, T266 0
+L5        0    -    -      -    -    -     -    3     -      -      jobs 1,904 settled: complete 311, crashed 3, killed~
+-[ Running jobs 0 ]------------------------------------------------------------------------------------ j: all jobs ----
+job                node     item               rung  cpu       RSS / cap elapsed / budget    hb phase
+(no job running)
+-[ Recent events ]----------------------------------------------------------------------------------- e: all events ----
+10:59:59 .    campaign          campaign finished
+10:59:58 box  node              T178: certified (boxed)
+10:40:00 box  node              T266: closed (boxed), defect 0 of 13951428 keys
+08:15:02 ok   item_upgraded     T178 F012: evidence -> identity_proved
+08:14:55 ok   item_accepted     T178 F087: rule T178:R:campaign:640 accepted (identity_proved), diag n2=n6 covers 11/11~
+08:14:31 esc  item_escalated    T178 F019: escalated to L2 (rule_covers_none)
+08:14:10 FAIL item_rejected     T178 F044: rejected (irregular_point)
+
+
+
+
+
+
+
+
+n/N select node  Enter node detail  j jobs  e events  a attention(0)  ?help  q/Ctrl-C close viewer (campaign unaffected)

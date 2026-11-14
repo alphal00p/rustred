@@ -12,8 +12,28 @@
 //!   a claim line is appended to the ledger before the lease is handed out and a RELEASED line when it ends, in the
 //!   existing format with the campaign's tag. The exclusions and held lists are DATA of the site-policy file
 //!   (`SiteConfig`), not constants here.
+//!
+//! Crash safety and I/O (audit A M5, M6, m4-m6; audit B m6), since the procfix lane:
+//! - children INHERIT the lease's flock fds (`LaunchSpec::with_lease`, the default way to use a lease): a CPU stays
+//!   locked while any process of the job lives, also after a supervisor crash, so a surviving orphan and a new lease
+//!   can never share a CPU;
+//! - at restart [`SitePolicy::reconcile_own_claims`] appends RELEASED lines (marked "reconciled") for this tag's claims
+//!   that have no RELEASED line and whose flock is free (holder gone); held ones are reported, not touched;
+//! - every ledger line is ONE `write(2)` of the whole line on an O_APPEND descriptor, at most PIPE_BUF (4096) bytes,
+//!   a short write is an error; labels are sanitised (whitelist, no "RELEASED", no '+', one line, <= 120 chars);
+//! - a line that mentions "+ CPU" but does not parse under pick_free's rules is read leniently and its CPUs count as
+//!   CLAIMED (fail closed), with a count of such lines for the dashboard;
+//! - the ledger window is the true last `ledger_scan_lines` lines (read backwards; more than 64 MiB for the window
+//!   refuses grants: fail closed);
+//! - the site-file I/O of an acquire runs on a helper thread bounded by `io_timeout` (default 10 s; /shared can stall
+//!   for seconds): on timeout the acquire returns NotNow and, if the helper later wrote a claim, it appends the matching
+//!   RELEASED line and drops the flocks itself; a release writes RELEASED and drops the flocks on a helper thread, in
+//!   that order, without blocking the caller beyond the bound.
 
-use crate::resources::{IdleTracker, allowed_cpus, format_cpu_list, parse_cpu_list};
+use crate::resources::{
+    Bounded, IdleTracker, allowed_cpus, format_cpu_list, parse_cpu_list, run_bounded,
+    run_bounded_with,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -23,6 +43,17 @@ use std::os::fd::{AsRawFd, RawFd};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+/// Result of the bounded site I/O of an acquire: Err = I/O failure; Ok(Err) = not now (reason); Ok(Ok) = the CPUs
+/// with their held flock files (claim line written).
+type AcquireIo = Result<Result<(Vec<usize>, Vec<File>), String>, PolicyError>;
+
+/// Default bound of the site-file I/O of one acquire / release.
+pub const DEFAULT_IO_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Longest ledger line we write (PIPE_BUF: a single write of at most this size on an O_APPEND descriptor is not
+/// interleaved with other writers' lines on local file systems).
+pub const MAX_LEDGER_LINE: usize = 4096;
 
 #[derive(Debug)]
 pub enum PolicyError {
@@ -94,12 +125,7 @@ struct LedgerWriter {
 
 impl LedgerWriter {
     fn append(&self, line: &str) -> io::Result<()> {
-        // One write of one line on an O_APPEND descriptor: concurrent writers do not interleave within it.
-        let mut f = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.path)?;
-        f.write_all(format!("{line}\n").as_bytes())
+        append_line(&self.path, line)
     }
     fn claim_line(&self, cpus: &[usize], label: &str) -> String {
         let (word, list) = cpu_word(cpus);
@@ -130,18 +156,46 @@ fn cpu_word(cpus: &[usize]) -> (&'static str, String) {
     (if cpus.len() == 1 { "CPU" } else { "CPUs" }, list)
 }
 
-/// Labels go into a prose ledger read by regexes: keep them on one line, without parentheses or semicolons.
-fn sanitize(label: &str) -> String {
-    label
+/// One line, ONE write(2) on an O_APPEND descriptor, at most [`MAX_LEDGER_LINE`] bytes; a short write is an error.
+pub fn append_line(path: &Path, line: &str) -> io::Result<()> {
+    let buf = format!("{line}\n");
+    if buf.len() > MAX_LEDGER_LINE || line.contains('\n') {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "ledger line of {} bytes (max {MAX_LEDGER_LINE}, one line)",
+                buf.len()
+            ),
+        ));
+    }
+    let mut f = OpenOptions::new().create(true).append(true).open(path)?;
+    let n = f.write(buf.as_bytes())?;
+    if n != buf.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::WriteZero,
+            format!("short ledger write: {n} of {} bytes", buf.len()),
+        ));
+    }
+    Ok(())
+}
+
+/// Labels go into a prose ledger read by regexes (audit A m5): whitelist `[A-Za-z0-9 ._:/@=-]` (anything else -> '_',
+/// so no '+', parentheses, semicolons or newlines), the word "RELEASED" defused, at most 120 characters.
+pub fn sanitize(label: &str) -> String {
+    let s: String = label
         .chars()
+        .take(120)
         .map(|c| {
-            if matches!(c, '(' | ')' | ';' | '\n' | '\r') {
-                '_'
-            } else {
+            if c.is_ascii_alphanumeric()
+                || matches!(c, ' ' | '.' | '_' | ':' | '/' | '@' | '=' | '-')
+            {
                 c
+            } else {
+                '_'
             }
         })
-        .collect()
+        .collect();
+    s.replace("RELEASED", "released")
 }
 
 /// A lease of CPUs. Released on drop (errors ignored) or by [`CpuLease::release`] (errors reported).
@@ -174,33 +228,66 @@ impl CpuLease {
         self.locks.iter().map(AsRawFd::as_raw_fd).collect()
     }
 
+    /// Release now: RELEASED line, then the flocks, on a helper thread; waits at most [`DEFAULT_IO_TIMEOUT`] for the
+    /// result (Err(TimedOut) = still in progress in the background, in the right order).
     pub fn release(mut self) -> io::Result<()> {
-        self.do_release()
+        match self.do_release(Some(DEFAULT_IO_TIMEOUT)) {
+            Some(r) => r,
+            None => Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "ledger write still in progress (background)",
+            )),
+        }
     }
 
-    fn do_release(&mut self) -> io::Result<()> {
+    fn do_release(&mut self, wait: Option<Duration>) -> Option<io::Result<()>> {
         if self.released {
-            return Ok(());
+            return Some(Ok(()));
         }
         self.released = true;
+        // In-process book first (a new local acquire then simply finds the flock still held until the helper drops it).
+        {
+            let mut b = lock(&self.book);
+            for c in &self.cpus {
+                b.in_use.remove(c);
+            }
+        }
         // RELEASED first, while the flocks are still held: a picker that sees the line and tries the flock finds it
         // either still held (skips) or free (takes it); it can never take a CPU whose claim it still believes live.
-        let r = match &self.ledger {
-            Some(w) => w.append(&w.release_line(&self.cpus, &self.label)),
-            None => Ok(()),
+        let locks = std::mem::take(&mut self.locks);
+        let line = self
+            .ledger
+            .as_ref()
+            .map(|w| (w.path.clone(), w.release_line(&self.cpus, &self.label)));
+        let work = move || {
+            let r = match &line {
+                Some((path, l)) => append_line(path, l),
+                None => Ok(()),
+            };
+            drop(locks); // closing the descriptors drops the flocks (children that inherited them keep theirs)
+            r
         };
-        self.locks.clear(); // closing the descriptors drops the flocks
-        let mut b = lock(&self.book);
-        for c in &self.cpus {
-            b.in_use.remove(c);
+        match wait {
+            Some(t) => run_bounded(t, work).done(),
+            None => {
+                if std::thread::Builder::new()
+                    .name("rr-lease-release".into())
+                    .spawn(work)
+                    .is_err()
+                {
+                    // Cannot spawn: nothing else to do; the flocks drop with this process at the latest.
+                }
+                None
+            }
         }
-        r
     }
 }
 
 impl Drop for CpuLease {
+    /// Waits at most 2 s for the RELEASED line (so a process that exits right after dropping its leases still leaves a
+    /// clean ledger), then lets the helper finish in the background.
     fn drop(&mut self) {
-        let _ = self.do_release();
+        let _ = self.do_release(Some(Duration::from_secs(2)));
     }
 }
 
@@ -639,7 +726,88 @@ pub fn ledger_claims<'a>(
     held
 }
 
-/// Last `n` lines of a file, reading only its tail (the ledger grows without bound).
+/// Claims per owner plus the count of lines that mention a claim but do not parse under pick_free's rules.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LedgerView {
+    pub claims: BTreeMap<String, BTreeSet<usize>>,
+    /// Lines with "+ CPU" that pick_free's regex does not read (their CPUs, read leniently, count as claimed).
+    pub unparsable_lines: usize,
+}
+
+/// Owner placeholder for claim lines whose owner cannot be parsed (never released: fail closed within the window).
+pub const UNKNOWN_OWNER: &str = "?unparsable-owner";
+
+/// FAIL-CLOSED reading of ledger lines (audit A m4): as [`ledger_claims`], but a line that mentions "+ CPU" without a
+/// pick_free-parsable claim (or without a parsable owner) still claims whatever CPU numbers follow "+ CPU", read
+/// leniently, and is counted.
+pub fn ledger_claims_strict<'a>(lines: impl IntoIterator<Item = &'a str>) -> LedgerView {
+    let mut v = LedgerView::default();
+    for line in lines {
+        let owner = owner_of(line);
+        let strict: BTreeSet<usize> = claims_in(line)
+            .iter()
+            .flat_map(|c| parse_lenient(c))
+            .collect();
+        let mentions = line.contains("+ CPU");
+        if mentions && (strict.is_empty() || owner.is_none()) {
+            v.unparsable_lines += 1;
+            let lenient = lenient_claims(line);
+            let who = owner.clone().unwrap_or_else(|| UNKNOWN_OWNER.to_string());
+            v.claims.entry(who).or_default().extend(lenient);
+        }
+        let Some(who) = owner else { continue };
+        if !strict.is_empty() {
+            v.claims.entry(who.clone()).or_default().extend(strict);
+        }
+        for r in releases_in(line) {
+            let set = v.claims.entry(who.clone()).or_default();
+            for c in parse_lenient(&r) {
+                set.remove(&c);
+            }
+        }
+    }
+    v
+}
+
+fn owner_of(line: &str) -> Option<String> {
+    let sp = line.find(' ')?;
+    if sp == 0 || !line[sp + 1..].starts_with('(') {
+        return None;
+    }
+    let after = &line[sp + 2..];
+    let close = after.find(')')?;
+    if close == 0 {
+        return None;
+    }
+    Some(
+        after[..close]
+            .split(',')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+    )
+}
+
+/// After every "+ CPU" / "+ CPUs": the longest run of digits, ',', '-', ' ', read leniently.
+fn lenient_claims(line: &str) -> BTreeSet<usize> {
+    let mut out = BTreeSet::new();
+    let mut rest = line;
+    while let Some(i) = rest.find("+ CPU") {
+        let mut t = &rest[i + 5..];
+        t = t.strip_prefix('s').unwrap_or(t);
+        let end = t.find(|c: char| !is_cls(c)).unwrap_or(t.len());
+        out.extend(parse_lenient(&t[..end]));
+        rest = &rest[i + 5..];
+    }
+    out
+}
+
+/// Bytes the window of the last `n` lines may span before grants are refused.
+const TAIL_LIMIT: u64 = 64 << 20;
+
+/// The true last `n` lines of a file (read backwards in chunks; audit A m6, audit B m6). More than [`TAIL_LIMIT`] bytes
+/// for the window is an error (the caller fails closed).
 fn tail_lines(path: &Path, n: usize) -> io::Result<Vec<String>> {
     let mut f = match File::open(path) {
         Ok(f) => f,
@@ -647,11 +815,33 @@ fn tail_lines(path: &Path, n: usize) -> io::Result<Vec<String>> {
         Err(e) => return Err(e),
     };
     let len = f.metadata()?.len();
-    let want = (n as u64).saturating_mul(512).max(64 * 1024);
-    let start = len.saturating_sub(want);
-    f.seek(SeekFrom::Start(start))?;
-    let mut buf = Vec::new();
-    f.read_to_end(&mut buf)?;
+    let mut start = len;
+    let mut buf: Vec<u8> = Vec::new();
+    const CHUNK: u64 = 256 * 1024;
+    loop {
+        // Newlines strictly inside the buffer (a trailing newline at EOF does not start a line).
+        let body = if buf.last() == Some(&b'\n') && start + (buf.len() as u64) == len {
+            &buf[..buf.len() - 1]
+        } else {
+            &buf[..]
+        };
+        let newlines = body.iter().filter(|&&b| b == b'\n').count();
+        if start == 0 || newlines >= n {
+            break;
+        }
+        if len - start >= TAIL_LIMIT {
+            return Err(io::Error::other(format!(
+                "the last {n} lines span more than {TAIL_LIMIT} bytes"
+            )));
+        }
+        let step = CHUNK.min(start);
+        start -= step;
+        f.seek(SeekFrom::Start(start))?;
+        let mut chunk = vec![0u8; step as usize];
+        f.read_exact(&mut chunk)?;
+        chunk.extend_from_slice(&buf);
+        buf = chunk;
+    }
     let text = String::from_utf8_lossy(&buf);
     let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
     if start > 0 && !lines.is_empty() {
@@ -670,6 +860,7 @@ pub struct SitePolicy {
     foreign_pinned: Option<BTreeSet<usize>>,
     extra_pause: Vec<PathBuf>,
     ledger: LedgerWriter,
+    io_timeout: Duration,
 }
 
 impl SitePolicy {
@@ -715,6 +906,7 @@ impl SitePolicy {
             foreign_pinned: None,
             extra_pause: Vec::new(),
             ledger,
+            io_timeout: DEFAULT_IO_TIMEOUT,
         })
     }
 
@@ -742,10 +934,89 @@ impl SitePolicy {
             .join(self.config.lock_name.replace("{n}", &cpu.to_string()))
     }
 
-    /// Everything that excludes a CPU now, or Err(reason) when a source cannot be trusted (fail closed).
-    fn exclusions(&self) -> Result<BTreeSet<usize>, String> {
-        let mut ex = self.exclude.clone();
-        for h in &self.config.held_files {
+    /// Bound of the site-file I/O of acquire / release (default 10 s).
+    pub fn set_io_timeout(&mut self, t: Duration) {
+        self.io_timeout = t;
+    }
+
+    /// RESTART-TIME reconciliation (audit A M6): this tag's claims in the ledger window that have no RELEASED line and
+    /// whose flock is FREE (the holder is gone; a surviving orphan job still holds its inherited flock) get one RELEASED
+    /// line marked "reconciled at restart: holder gone". Blocking (site files); call before the control loop starts.
+    pub fn reconcile_own_claims(&mut self) -> Result<Reconciled, PolicyError> {
+        let lines = tail_lines(&self.config.ledger_file, self.config.ledger_scan_lines).map_err(
+            io_err(format!("read {}", self.config.ledger_file.display())),
+        )?;
+        let view = ledger_claims_strict(lines.iter().map(String::as_str));
+        let own = view
+            .claims
+            .get(&self.config.tag)
+            .cloned()
+            .unwrap_or_default();
+        let in_use = lock(&self.book).in_use.clone();
+        let mut out = Reconciled::default();
+        let mut probes: Vec<File> = Vec::new();
+        for c in own {
+            if in_use.contains(&c) {
+                out.held.push(c); // a lease of this very process
+                continue;
+            }
+            let path = self.lock_path(c);
+            let f = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&path)
+                .map_err(io_err(format!("open {}", path.display())))?;
+            match f.try_lock() {
+                Ok(()) => {
+                    out.released.push(c);
+                    probes.push(f);
+                }
+                Err(std::fs::TryLockError::WouldBlock) => out.held.push(c),
+                Err(std::fs::TryLockError::Error(e)) => {
+                    return Err(PolicyError::Io {
+                        what: format!("flock {}", path.display()),
+                        error: e,
+                    });
+                }
+            }
+        }
+        if !out.released.is_empty() {
+            let (_, list) = cpu_word(&out.released);
+            let line = format!(
+                "{} ({}): RELEASED {list} (reconciled at restart: holder gone)",
+                utc_now(),
+                self.config.tag
+            );
+            self.ledger.append(&line).map_err(io_err(format!(
+                "append to {}",
+                self.config.ledger_file.display()
+            )))?;
+        }
+        drop(probes); // RELEASED is on record before the probe flocks drop
+        Ok(out)
+    }
+}
+
+/// Result of [`SitePolicy::reconcile_own_claims`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Reconciled {
+    /// CPUs whose stale own claim got a RELEASED line.
+    pub released: Vec<usize>,
+    /// CPUs of own claims whose flock is held (a surviving job of ours, or another instance): left alone.
+    pub held: Vec<usize>,
+}
+
+/// Everything that excludes a CPU now (fail closed), with the count of unparsable claim lines.
+fn exclusions_of(
+    config: &SiteConfig,
+    exclude: &BTreeSet<usize>,
+    foreign_pinned: Option<&BTreeSet<usize>>,
+) -> Result<(BTreeSet<usize>, usize), String> {
+    {
+        let mut ex = exclude.clone();
+        for h in &config.held_files {
             match fs::read_to_string(&h.path) {
                 Ok(text) => {
                     let v: serde_json::Value = serde_json::from_str(&text)
@@ -758,20 +1029,21 @@ impl SitePolicy {
                 Err(e) => return Err(format!("held file {}: {e}", h.path.display())),
             }
         }
-        let lines = tail_lines(&self.config.ledger_file, self.config.ledger_scan_lines)
-            .map_err(|e| format!("ledger {}: {e}", self.config.ledger_file.display()))?;
-        for (who, set) in ledger_claims(lines.iter().map(String::as_str)) {
-            if !(self.config.ignore_own_tag_claims && who == self.config.tag) {
+        let lines = tail_lines(&config.ledger_file, config.ledger_scan_lines)
+            .map_err(|e| format!("ledger {}: {e}", config.ledger_file.display()))?;
+        let view = ledger_claims_strict(lines.iter().map(String::as_str));
+        for (who, set) in view.claims {
+            if !(config.ignore_own_tag_claims && who == config.tag) {
                 ex.extend(set);
             }
         }
-        if self.config.respect_foreign_pinning {
-            match &self.foreign_pinned {
+        if config.respect_foreign_pinning {
+            match foreign_pinned {
                 Some(p) => ex.extend(p.iter().copied()),
                 None => return Err("foreign CPU pinning not scanned yet".into()),
             }
         }
-        Ok(ex)
+        Ok((ex, view.unparsable_lines))
     }
 }
 
@@ -792,69 +1064,104 @@ impl CpuPolicy for SitePolicy {
                 in_use.len()
             )));
         }
-        let ex = match self.exclusions() {
-            Ok(e) => e,
-            Err(reason) => return Ok(Acquire::NotNow(reason)),
-        };
-        let mut eligible: Vec<usize> = self
-            .candidates
+        // Site-file I/O (held files, ledger, lock files, claim line) on a helper thread, bounded (audit A M5).
+        let config = self.config.clone();
+        let exclude = self.exclude.clone();
+        let foreign = self.foreign_pinned.clone();
+        let candidates = self.candidates.clone();
+        let idle: BTreeMap<usize, f64> = candidates
             .iter()
-            .copied()
-            .filter(|c| !ex.contains(c) && !in_use.contains(c))
-            .filter(|c| match self.idle.idle(*c) {
-                Some(i) => i >= self.config.idle_min,
-                None => self.config.idle_min <= 0.0,
-            })
+            .filter_map(|&c| self.idle.idle(c).map(|i| (c, i)))
             .collect();
-        eligible.sort_by(|a, b| {
-            let ia = self.idle.idle(*a).unwrap_or(0.0);
-            let ib = self.idle.idle(*b).unwrap_or(0.0);
-            ib.total_cmp(&ia).then(a.cmp(b))
-        });
-        let mut got: Vec<(usize, File)> = Vec::new();
-        for c in eligible {
-            if got.len() == n {
-                break;
-            }
-            let path = self.lock_path(c);
-            let f = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .truncate(false)
-                .open(&path)
-                .map_err(io_err(format!("open {}", path.display())))?;
-            match f.try_lock() {
-                Ok(()) => got.push((c, f)),
-                Err(std::fs::TryLockError::WouldBlock) => {}
-                Err(std::fs::TryLockError::Error(e)) => {
-                    return Err(PolicyError::Io {
-                        what: format!("flock {}", path.display()),
-                        error: e,
-                    });
+        let ledger = self.ledger.clone();
+        let label_owned = label.to_string();
+        let work = move || -> AcquireIo {
+            let ex = match exclusions_of(&config, &exclude, foreign.as_ref()) {
+                Ok((e, _)) => e,
+                Err(reason) => return Ok(Err(reason)),
+            };
+            let mut eligible: Vec<usize> = candidates
+                .iter()
+                .copied()
+                .filter(|c| !ex.contains(c) && !in_use.contains(c))
+                .filter(|c| match idle.get(c) {
+                    Some(&i) => i >= config.idle_min,
+                    None => config.idle_min <= 0.0,
+                })
+                .collect();
+            eligible.sort_by(|a, b| {
+                let ia = idle.get(a).copied().unwrap_or(0.0);
+                let ib = idle.get(b).copied().unwrap_or(0.0);
+                ib.total_cmp(&ia).then(a.cmp(b))
+            });
+            let mut got: Vec<(usize, File)> = Vec::new();
+            for c in eligible {
+                if got.len() == n {
+                    break;
+                }
+                let path = config
+                    .lock_dir
+                    .join(config.lock_name.replace("{n}", &c.to_string()));
+                let f = OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .truncate(false)
+                    .open(&path)
+                    .map_err(io_err(format!("open {}", path.display())))?;
+                match f.try_lock() {
+                    Ok(()) => got.push((c, f)),
+                    Err(std::fs::TryLockError::WouldBlock) => {}
+                    Err(std::fs::TryLockError::Error(e)) => {
+                        return Err(PolicyError::Io {
+                            what: format!("flock {}", path.display()),
+                            error: e,
+                        });
+                    }
                 }
             }
-        }
-        if got.len() < n {
-            return Ok(Acquire::NotNow(format!(
-                "only {} of {n} CPUs free under the site rules",
-                got.len()
-            )));
-        }
-        let cpus: Vec<usize> = got.iter().map(|x| x.0).collect();
-        // The claim is on record before the lease exists; no record, no lease (the flocks drop with `got`).
-        self.ledger
-            .append(&self.ledger.claim_line(&cpus, label))
-            .map_err(io_err(format!(
-                "append to {}",
-                self.config.ledger_file.display()
-            )))?;
+            if got.len() < n {
+                return Ok(Err(format!(
+                    "only {} of {n} CPUs free under the site rules",
+                    got.len()
+                )));
+            }
+            let cpus: Vec<usize> = got.iter().map(|x| x.0).collect();
+            // The claim is on record before the lease exists; no record, no lease (the flocks drop with `got`).
+            ledger
+                .append(&ledger.claim_line(&cpus, &label_owned))
+                .map_err(io_err(format!(
+                    "append to {}",
+                    config.ledger_file.display()
+                )))?;
+            Ok(Ok((cpus, got.into_iter().map(|x| x.1).collect())))
+        };
+        let undo_ledger = self.ledger.clone();
+        let undo_label = label.to_string();
+        let on_abandon = move |r: AcquireIo| {
+            // The caller gave up: a claim written late is released again, then its flocks drop.
+            if let Ok(Ok((cpus, files))) = r {
+                let _ = undo_ledger.append(&undo_ledger.release_line(&cpus, &undo_label));
+                drop(files);
+            }
+        };
+        let (cpus, locks) = match run_bounded_with(self.io_timeout, work, on_abandon) {
+            Bounded::TimedOut => {
+                return Ok(Acquire::NotNow(format!(
+                    "site files did not answer within {:?}",
+                    self.io_timeout
+                )));
+            }
+            Bounded::Done(Err(e)) => return Err(e),
+            Bounded::Done(Ok(Err(reason))) => return Ok(Acquire::NotNow(reason)),
+            Bounded::Done(Ok(Ok(x))) => x,
+        };
         lock(&self.book).in_use.extend(cpus.iter().copied());
         Ok(Acquire::Granted(CpuLease {
             cpus,
             label: label.to_string(),
             book: Arc::clone(&self.book),
-            locks: got.into_iter().map(|x| x.1).collect(),
+            locks,
             ledger: Some(self.ledger.clone()),
             released: false,
         }))
@@ -912,8 +1219,12 @@ pub fn utc_string(secs: u64) -> String {
 
 /// For the pre-flight: a readable summary of what a site policy would exclude now.
 pub fn describe_exclusions(p: &SitePolicy) -> String {
-    match p.exclusions() {
-        Ok(ex) => format!("{} CPUs excluded: {}", ex.len(), format_cpu_list(&ex)),
+    match exclusions_of(&p.config, &p.exclude, p.foreign_pinned.as_ref()) {
+        Ok((ex, bad)) => format!(
+            "{} CPUs excluded: {}; {bad} claim line(s) unparsable under pick_free's rules (counted as claims)",
+            ex.len(),
+            format_cpu_list(&ex)
+        ),
         Err(e) => format!("exclusions unknown: {e}"),
     }
 }

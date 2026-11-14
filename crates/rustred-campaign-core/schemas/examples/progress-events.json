@@ -1,0 +1,147 @@
+{
+  "campaign_id": "test-campaign",
+  "cap": 64,
+  "events": [
+    {
+      "kind": "campaign",
+      "seq": 8,
+      "text": "campaign starting (test)",
+      "utc": "2026-11-13T23:00:01.750Z"
+    },
+    {
+      "kind": "campaign",
+      "seq": 9,
+      "text": "campaign running (preflight ok)",
+      "utc": "2026-11-13T23:00:02.000Z"
+    },
+    {
+      "kind": "node",
+      "seq": 10,
+      "text": "T162: running (open)",
+      "utc": "2026-11-13T23:00:02.250Z"
+    },
+    {
+      "kind": "evidence",
+      "seq": 11,
+      "text": "imported evidence astra-bank-20261113 by Astra (Codex session), hand closure of T162 (2 files)",
+      "utc": "2026-11-13T23:00:02.500Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 17,
+      "text": "T162 F000 L0: job T162-job (rule_found)",
+      "utc": "2026-11-13T23:00:04.000Z"
+    },
+    {
+      "kind": "item_accepted",
+      "seq": 21,
+      "text": "T162 F000: rule T162:R:campaign:0 accepted (identity_proved)",
+      "utc": "2026-11-13T23:00:05.000Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 27,
+      "text": "T162 F001 L0: job T162-job (rule_found)",
+      "utc": "2026-11-13T23:00:06.500Z"
+    },
+    {
+      "kind": "item_accepted",
+      "seq": 31,
+      "text": "T162 F001: rule T162:R:campaign:1 accepted (geometry_accepted)",
+      "utc": "2026-11-13T23:00:07.500Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 37,
+      "text": "T162 F002 L0: job T162-job (rule_found)",
+      "utc": "2026-11-13T23:00:09.000Z"
+    },
+    {
+      "kind": "item_accepted",
+      "seq": 41,
+      "text": "T162 F002: rule T162:R:campaign:2 accepted (identity_proved)",
+      "utc": "2026-11-13T23:00:10.000Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 47,
+      "text": "T162 F003 L0: job T162-job (rule_found)",
+      "utc": "2026-11-13T23:00:11.500Z"
+    },
+    {
+      "kind": "item_accepted",
+      "seq": 51,
+      "text": "T162 F003: rule T162:R:campaign:3 accepted (geometry_accepted)",
+      "utc": "2026-11-13T23:00:12.500Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 59,
+      "text": "T162 F004 n9=-1 L0: job T162-job (no_rule)",
+      "utc": "2026-11-13T23:00:14.500Z"
+    },
+    {
+      "kind": "item_rejected",
+      "seq": 61,
+      "text": "T162 F004 n9=-1: rejected (rule_covers_none)",
+      "utc": "2026-11-13T23:00:15.000Z"
+    },
+    {
+      "kind": "item_escalated",
+      "seq": 62,
+      "text": "T162 F004 n9=-1: escalated to L1 (rule_covers_none)",
+      "utc": "2026-11-13T23:00:15.250Z"
+    },
+    {
+      "kind": "terminal_proposed",
+      "seq": 64,
+      "text": "T162 F004 n9=-1: terminal candidate (terminal_after_ladder)",
+      "utc": "2026-11-13T23:00:15.750Z"
+    },
+    {
+      "kind": "terminal_declared",
+      "seq": 65,
+      "text": "T162 F004 n9=-1: 2 terminal key(s) declared",
+      "utc": "2026-11-13T23:00:16.000Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 70,
+      "text": "T162 F006 L0: job T162-job (complete)",
+      "utc": "2026-11-13T23:00:17.250Z"
+    },
+    {
+      "kind": "item_accepted",
+      "seq": 72,
+      "text": "T162 F006: rule T162:R:bank:1043 accepted (geometry_accepted)",
+      "utc": "2026-11-13T23:00:17.750Z"
+    },
+    {
+      "kind": "item_upgraded",
+      "seq": 73,
+      "text": "T162 F006: evidence -> identity_tested",
+      "utc": "2026-11-13T23:00:18.000Z"
+    },
+    {
+      "kind": "node",
+      "seq": 74,
+      "text": "T162: closure round 1, defect 37 of 154783 keys",
+      "utc": "2026-11-13T23:00:18.250Z"
+    },
+    {
+      "kind": "rule_retired",
+      "seq": 79,
+      "text": "T162 F003: rule T162:R:campaign:3 superseded by T162-item-00002 (replaced_by)",
+      "utc": "2026-11-13T23:00:19.500Z"
+    }
+  ],
+  "file": "events",
+  "ledger": {
+    "head": "9f353ba6be78e3e88f548544074b80abac5514597296c1a54692810426ece4bb",
+    "last_utc": "2026-11-13T23:00:20.750Z",
+    "seq": 84
+  },
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "written_utc": "2026-11-13T23:10:01.000Z"
+}

@@ -15,6 +15,7 @@ pub mod order;
 pub mod poly;
 pub mod record;
 pub mod boxdef;
+pub mod winner;
 pub mod contain;
 pub mod ibp_rows;
 pub mod partition;

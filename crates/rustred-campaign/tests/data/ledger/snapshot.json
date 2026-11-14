@@ -1,5 +1,5 @@
 {
-  "head": "1a72f4d92433a0aaf2a8a2927eb6fc535f76cc9c33b59a24628b2a5b4e5c8dac",
+  "head": "960ac4b0d7bd1c20b1c1a9e4a6bcfede58526efb52ffd9b109a2d5d5349f49e7",
   "schema": "rustred.campaign.snapshot.v1",
   "seq": 81,
   "state": {
@@ -575,6 +575,7 @@
           "full_blockers": null,
           "last_defect": 37,
           "phase": "closure_check",
+          "rules_total": 2440,
           "rules_used": 5,
           "spec_box": "T162.box",
           "target": {

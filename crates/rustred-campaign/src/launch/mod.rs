@@ -8,14 +8,19 @@
 //! 2. At the grace deadline: SIGKILL to every group of the session (and `cgroup.kill` when the job has a cgroup).
 //! 3. The leader's exit is observed with `waitid(WNOWAIT)`: its zombie stays unreaped, which pins the session number
 //!    and the leader's group number, so no signal can reach a recycled number.
-//! 4. A scan that BEGAN after the exit (and after the last SIGKILL) must show the session empty; leftovers are killed
-//!    (SIGKILL by group and by pid, each checked with `getsid`) and recorded; escapees (left by setsid) are reported as
-//!    `escaped` and never chased.
-//! 5. Only then is the leader reaped and the session untracked. If the session does not empty within
-//!    `verify_timeout`, the report says `session_verified_empty: false` and lists what is left.
+//! 4. A scan that BEGAN after the exit (and after the last SIGKILL) must show the job empty: no session member and no
+//!    live process carrying this attempt's campaign marker (escapees and double-forked daemons, which the supervisor as
+//!    child subreaper also inherits); leftovers are killed one by one through the identity checklist (`guard`) and
+//!    recorded.
+//! 5. Only then is the leader reaped and the session untracked. If the job does not empty within `verify_timeout`,
+//!    the report says `Verification::Unverified { leftovers, reason }`, the zombie stays unreaped and the session
+//!    tracked, and later `poll()` calls keep working on it.
+//!
+//! Every signal of this crate goes through `guard` (see its module documentation for the identity checklist).
 
 mod cgroup;
 mod fake;
+pub mod guard;
 mod real;
 
 pub use cgroup::{CgroupRoot, JobCgroup};
@@ -23,11 +28,18 @@ pub use fake::{
     FakeEvent, FakeEventKind, ManualTime, MonotonicTime, OnTerm, Script, ScriptedChild,
     ScriptedLauncher, TimeSource,
 };
+pub(crate) use guard::reap_exact;
+pub use guard::{
+    ProcessTarget, Proof, Refusal, SigchldSetup, StartRule, Verdict, ensure_sigchld_default,
+    is_child_subreaper, kill_orphan, pidfd_supported, set_child_subreaper, sigchld_autoreaps,
+    signal_verified_process,
+};
 pub use real::{
-    RealChild, RealConfig, RealLauncher, audit_inheritable_fds, peek_exit, signal_group_by_identity,
+    CapPreference, LauncherSetup, RealChild, RealConfig, RealLauncher, adhoc_campaign_id,
+    audit_inheritable_fds, in_private_namespace, peek_exit,
 };
 
-use crate::resources::{EscapeeRecord, ProcessIdentity, SessionUsage};
+use crate::resources::{CampaignMarker, EscapeeRecord, MARKER_VAR, ProcessIdentity, SessionUsage};
 use serde::Serialize;
 use std::ffi::OsString;
 use std::fmt;
@@ -111,15 +123,31 @@ pub struct LeftoverRecord {
     pub comm: String,
 }
 
-/// Which mechanism enforced the job's memory cap.
+/// Which mechanism enforced the job's memory cap (audit A M7: chosen per job, recorded in the report).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum MemoryMechanism {
     /// cgroup-v2 `memory.max` (kernel-enforced, whole tree incl. escapees), path of the job cgroup.
     Cgroup(PathBuf),
+    /// A transient `systemd-run --user --scope` with MemoryMax = cap, MemorySwapMax = 0, OOMPolicy = kill
+    /// (kernel-enforced); the scope's cgroup directory once seen.
+    SystemdScope { cgroup: Option<PathBuf> },
     /// The supervisor samples the session's RSS and kills the session above the cap.
     Sampling,
     /// No cap requested.
     None,
+}
+
+/// How far the end of a job was verified (audit A M2: a verification never gives up silently).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub enum Verification {
+    /// A scan begun after the exit and the last SIGKILL showed no session member and no marked process of the attempt.
+    Verified,
+    /// Not shown empty in time: what is left (as far as known) and why. Keep the job's CPU lease and memory
+    /// reservation, and keep polling the handle: it keeps killing verified leftovers and may still upgrade to Verified.
+    Unverified {
+        leftovers: Vec<LeftoverRecord>,
+        reason: String,
+    },
 }
 
 /// Everything known about a finished child. Written to the ledger by the scheduler.
@@ -127,6 +155,8 @@ pub enum MemoryMechanism {
 pub struct FinalReport {
     pub label: String,
     pub identity: ProcessIdentity,
+    /// The campaign marker the job's processes carried.
+    pub marker: CampaignMarker,
     /// None only if the leader never exited (gave up) — then `session_verified_empty` is false.
     pub exit: Option<ExitState>,
     pub kill_reason: Option<KillReason>,
@@ -134,7 +164,9 @@ pub struct FinalReport {
     pub sigkill_sent: bool,
     pub leftovers_killed: Vec<LeftoverRecord>,
     pub escaped: Vec<EscapeeRecord>,
+    /// `verification == Verified` (kept for readers of the first interface).
     pub session_verified_empty: bool,
+    pub verification: Verification,
     pub peak_rss_bytes: u64,
     pub cpu_seconds: f64,
     pub wall_seconds: f64,
@@ -162,7 +194,7 @@ pub enum ChildProgress {
 /// Result of a signal request.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SignalOutcome {
-    /// Sent to this many process groups.
+    /// Delivered this many times (pinned leader group + individually verified processes).
     Delivered { groups: usize },
     /// Refused: the recorded identity does not match the process now holding the pid.
     NotOurs(crate::resources::Liveness),
@@ -185,8 +217,10 @@ pub enum LostReason {
     OtherBoot,
     /// No process with that pid and no member of its session.
     Gone,
-    /// The pid belongs to another process now (and its session number is not ours).
+    /// The pid belongs to another process now (and nothing carries the attempt's marker).
     Recycled,
+    /// The recorded process lives but does not carry this attempt's marker (or another proof failed).
+    NotOurs { why: String },
 }
 
 pub enum Reattached<H> {
@@ -216,9 +250,12 @@ pub struct LaunchSpec {
     pub memory_cap_bytes: Option<u64>,
     /// Optional per-process RLIMIT_AS backstop (off by default: address-space limits break mmap-heavy allocators).
     pub rlimit_as_bytes: Option<u64>,
-    /// Delegated cgroup-v2 root (probed with [`CgroupRoot::probe`]); None = sampling only.
+    /// Delegated cgroup-v2 root (probed with [`CgroupRoot::probe`]); None = systemd scope or sampling.
     pub cgroup: Option<CgroupRoot>,
-    /// Supervisor fds the child must inherit (e.g. CPU lease flocks). Every other fd >= 3 is closed on exec.
+    /// Cap mechanism wanted (default Auto: delegated cgroup > systemd scope > sampling; see [`CapRequest`]).
+    pub cap_mechanism: CapRequest,
+    /// Supervisor fds the child must inherit (CPU lease flocks: [`LaunchSpec::with_lease`] adds them; the one deliberate
+    /// exception to close-on-exec). Every other fd >= 3 is closed on exec.
     pub inherit_fds: Vec<RawFd>,
     /// PR_SET_PDEATHSIG(SIGKILL) with the parent check (default true).
     pub pdeathsig: bool,
@@ -241,9 +278,22 @@ impl LaunchSpec {
             memory_cap_bytes: None,
             rlimit_as_bytes: None,
             cgroup: None,
+            cap_mechanism: CapRequest::Auto,
             inherit_fds: Vec::new(),
             pdeathsig: true,
         }
+    }
+
+    /// Pin to the lease's CPUs AND let the child inherit the lease's flock descriptors (the DEFAULT way to use a lease;
+    /// audit A M6): the CPUs stay locked while any process of the job lives, even if the supervisor dies.
+    pub fn with_lease(mut self, lease: &crate::cpu_policy::CpuLease) -> Self {
+        self.cpus = lease.cpus().to_vec();
+        for fd in lease.lock_fds() {
+            if !self.inherit_fds.contains(&fd) {
+                self.inherit_fds.push(fd);
+            }
+        }
+        self
     }
 
     pub fn arg(mut self, a: impl Into<OsString>) -> Self {
@@ -276,15 +326,41 @@ impl LaunchSpec {
         if self.label.is_empty() {
             return Err(LaunchError::InvalidSpec("empty label".into()));
         }
-        for name in &self.env_passthrough {
-            if name.is_empty() || name.contains('=') {
+        if self.label.contains('\0') || self.label.len() > 256 {
+            return Err(LaunchError::InvalidSpec(
+                "label must be 1-256 bytes without NUL (it is the marker's attempt id)".into(),
+            ));
+        }
+        for (i, name) in self.env_passthrough.iter().enumerate() {
+            // Audit B m8: a name is validated as a NAME and never echoed (a misuse like "NAME=value" would leak).
+            if !is_env_name(name) {
                 return Err(LaunchError::InvalidSpec(format!(
-                    "bad passthrough variable name {name:?}"
+                    "passthrough entry #{i} is not a variable name ([A-Za-z_][A-Za-z0-9_]*)"
+                )));
+            }
+            if name == MARKER_VAR {
+                return Err(LaunchError::InvalidSpec(format!(
+                    "{MARKER_VAR} is set by the launcher"
                 )));
             }
             if self.env.iter().any(|(k, _)| k == name.as_str()) {
                 return Err(LaunchError::InvalidSpec(format!(
                     "variable {name} given both by value and by name"
+                )));
+            }
+        }
+        for (i, (k, _)) in self.env.iter().enumerate() {
+            let ok = k
+                .to_str()
+                .is_some_and(|k| !k.is_empty() && !k.contains('=') && !k.contains('\0'));
+            if !ok {
+                return Err(LaunchError::InvalidSpec(format!(
+                    "env entry #{i} has an invalid name"
+                )));
+            }
+            if k == MARKER_VAR {
+                return Err(LaunchError::InvalidSpec(format!(
+                    "{MARKER_VAR} is set by the launcher"
                 )));
             }
         }
@@ -300,6 +376,46 @@ impl LaunchSpec {
     }
 }
 
+/// `[A-Za-z_][A-Za-z0-9_]*`.
+pub fn is_env_name(s: &str) -> bool {
+    let mut b = s.bytes();
+    matches!(b.next(), Some(c) if c.is_ascii_alphabetic() || c == b'_')
+        && b.all(|c| c.is_ascii_alphanumeric() || c == b'_')
+}
+
+/// Which memory-cap mechanism a spec asks for (only meaningful with `memory_cap_bytes`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum CapRequest {
+    /// Delegated cgroup (spec.cgroup) > systemd scope (if the launcher's probe worked) > sampling.
+    #[default]
+    Auto,
+    /// The sampled cap only (residual risk: overshoot between samples, see process-layer.md section 6).
+    Sampling,
+    /// A systemd scope (or the delegated cgroup if given); the launch fails if neither is available.
+    SystemdScope,
+}
+
+/// The latest usage with its freshness (audit A M2).
+#[derive(Clone, Debug)]
+pub enum UsageReading {
+    Fresh {
+        usage: SessionUsage,
+        age: std::time::Duration,
+    },
+    /// The sampler has not reported for longer than the threshold: "cannot verify memory". Admission must charge the
+    /// job its full cap; a sampled cap cannot be enforced meanwhile (kernel caps still are).
+    Stale {
+        last: Option<SessionUsage>,
+        age: Option<std::time::Duration>,
+    },
+}
+
+impl UsageReading {
+    pub fn is_fresh(&self) -> bool {
+        matches!(self, UsageReading::Fresh { .. })
+    }
+}
+
 /// Debug never prints environment values of passthrough variables (they are not stored) and prints `env` keys only.
 impl fmt::Debug for LaunchSpec {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -312,11 +428,25 @@ impl fmt::Debug for LaunchSpec {
                 "env_keys",
                 &self.env.iter().map(|(k, _)| k).collect::<Vec<_>>(),
             )
-            .field("env_passthrough_names", &self.env_passthrough)
+            .field(
+                "env_passthrough_names",
+                &self
+                    .env_passthrough
+                    .iter()
+                    .map(|n| {
+                        if is_env_name(n) {
+                            n.as_str()
+                        } else {
+                            "<not a name: hidden>"
+                        }
+                    })
+                    .collect::<Vec<_>>(),
+            )
             .field("cpus", &self.cpus)
             .field("memory_cap_bytes", &self.memory_cap_bytes)
             .field("rlimit_as_bytes", &self.rlimit_as_bytes)
             .field("cgroup", &self.cgroup)
+            .field("cap_mechanism", &self.cap_mechanism)
             .field("inherit_fds", &self.inherit_fds)
             .field("pdeathsig", &self.pdeathsig)
             .finish()
@@ -364,6 +494,19 @@ pub trait ChildHandle {
     fn poll_exit(&mut self) -> io::Result<Option<ExitState>>;
     /// Latest sampled usage of the session (None before the first scan that saw it).
     fn usage(&self) -> Option<SessionUsage>;
+    /// The latest usage with its freshness (default: `usage()` as fresh, for handles without a sampler).
+    fn usage_reading(&self) -> UsageReading {
+        match self.usage() {
+            Some(u) => UsageReading::Fresh {
+                usage: u,
+                age: Duration::ZERO,
+            },
+            None => UsageReading::Stale {
+                last: None,
+                age: None,
+            },
+        }
+    }
     /// Signal every process group of the session, after the identity rule.
     fn signal_group(&mut self, signal: i32) -> io::Result<SignalOutcome>;
     /// Start the escalation: SIGTERM now, SIGKILL after `grace` (a second call can only shorten the grace).
@@ -403,9 +546,19 @@ mod tests {
         let dbg = format!("{ok:?}");
         assert!(!dbg.contains("secret-value-123"));
         assert!(dbg.contains("SYMBOLICA_LICENSE"));
-        let mut fd = s;
+        let mut fd = s.clone();
         fd.inherit_fds.push(2);
         assert!(fd.validate().is_err());
+        // Audit B m8: a misused passthrough entry is refused WITHOUT echoing it, also not in Debug.
+        let mut leak = s.clone();
+        leak.env_passthrough
+            .push("SYMBOLICA_LICENSE=dummy-secret-77".into());
+        let e = leak.validate().unwrap_err().to_string();
+        assert!(!e.contains("dummy-secret-77"), "{e}");
+        assert!(!format!("{leak:?}").contains("dummy-secret-77"));
+        let mut m = s;
+        m.env.push((MARKER_VAR.into(), "x:y".into()));
+        assert!(m.validate().is_err());
     }
 
     #[test]
