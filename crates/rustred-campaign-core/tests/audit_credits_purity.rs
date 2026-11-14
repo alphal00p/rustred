@@ -137,10 +137,7 @@ fn geometric_image(fam: &Family, t: &[i64], key: &[i32]) -> Result<Vec<i32>, Str
             .collect();
         let ci = canon(&img);
         let Some(tg) = (0..n).find(|&s| cans[s] == ci) else {
-            return Err(format!(
-                "slot {i} (power {}) maps to a combination",
-                key[i]
-            ));
+            return Err(format!("slot {i} (power {}) maps to a combination", key[i]));
         };
         if ks[tg] != ks[i] {
             return Err(format!("slot {i} -> {tg} changes the eps shift"));
@@ -156,7 +153,12 @@ fn geometric_image(fam: &Family, t: &[i64], key: &[i32]) -> Result<Vec<i32>, Str
 }
 
 /// Route (b): the expanded row of element `ei` at `key` is exactly {key: 1, image: -1}.
-fn row_is_one_term(vg: &VerifiedGroup, ei: usize, key: &[i32], image: &[i32]) -> Result<(), String> {
+fn row_is_one_term(
+    vg: &VerifiedGroup,
+    ei: usize,
+    key: &[i32],
+    image: &[i32],
+) -> Result<(), String> {
     let seed = (0u64, key.iter().map(|&x| x as i64).collect::<Vec<i64>>());
     let rows = rows_at(vg, &seed, SymRowMode::Expanded, 1 << 14)
         .map_err(|e| format!("UNAVAILABLE: {e}"))?;
@@ -176,7 +178,11 @@ fn row_is_one_term(vg: &VerifiedGroup, ei: usize, key: &[i32], image: &[i32]) ->
         })
         .collect();
     if got != want {
-        return Err(format!("row has {} terms: {:?}", got.len(), got.iter().take(4).collect::<Vec<_>>()));
+        return Err(format!(
+            "row has {} terms: {:?}",
+            got.len(),
+            got.iter().take(4).collect::<Vec<_>>()
+        ));
     }
     Ok(())
 }
@@ -241,7 +247,9 @@ fn keys_for(lines: &[bool], sample: usize, seed: u64) -> Vec<Vec<i32>> {
     }
     if n <= 9 {
         // full box: lines 0..=2, numerators -2..=0
-        let ranges: Vec<(i32, i32)> = (0..n).map(|s| if lines[s] { (0, 2) } else { (-2, 0) }).collect();
+        let ranges: Vec<(i32, i32)> = (0..n)
+            .map(|s| if lines[s] { (0, 2) } else { (-2, 0) })
+            .collect();
         let mut k: Vec<i32> = ranges.iter().map(|r| r.0).collect();
         loop {
             out.push(k.clone());
@@ -267,14 +275,22 @@ fn keys_for(lines: &[bool], sample: usize, seed: u64) -> Vec<Vec<i32>> {
 fn catch_all(lines: &[bool]) -> (Dispatcher, RuleBodies) {
     let n = lines.len();
     let mut t = Table::new("ALL".to_string(), n);
-    t.push(1, CaseDomain::free(n, Some(lines.to_vec()))).unwrap();
+    t.push(1, CaseDomain::free(n, Some(lines.to_vec())))
+        .unwrap();
     let d = Dispatcher::new(vec![t], vec![0]).unwrap();
     let mut b = RuleBodies::new(&d);
     let l0 = lines.iter().position(|&l| l).unwrap();
     let term: Vec<String> = (0..n)
-        .map(|s| if s == l0 { "0".to_string() } else { format!("n{s}") })
+        .map(|s| {
+            if s == l0 {
+                "0".to_string()
+            } else {
+                format!("n{s}")
+            }
+        })
         .collect();
-    b.set(&d, 0, 0, &[format!("I({})", term.join(","))]).unwrap();
+    b.set(&d, 0, 0, &[format!("I({})", term.join(","))])
+        .unwrap();
     (d, b)
 }
 
@@ -297,11 +313,22 @@ fn audit_family(name: &str, text: &str, chart: &[bool], sample: usize, t: &mut T
     let ne = pol.group().len();
     t.families += 1;
     t.elements += ne;
-    let keys = keys_for(chart, sample, fam.source_digest().len() as u64 * 7919 + name.len() as u64);
+    let keys = keys_for(
+        chart,
+        sample,
+        fam.source_digest().len() as u64 * 7919 + name.len() as u64,
+    );
     t.keys += keys.len();
     let (d, b) = catch_all(chart);
     let cmp = NodeComparator::legacy(chart.len(), None).unwrap();
-    let checker = CreditChecker::new(&d, &b, &cmp, Sectors::new(chart.to_vec()), &NoFacts, Tier::K);
+    let checker = CreditChecker::new(
+        &d,
+        &b,
+        &cmp,
+        Sectors::new(chart.to_vec()),
+        &NoFacts,
+        Tier::K,
+    );
     let (mut g0, mut p0) = (t.granted, t.granted_partial_only);
     for k in &keys {
         let has_num = k.iter().zip(chart).any(|(&v, &l)| !l && v != 0);
@@ -342,7 +369,9 @@ fn audit_family(name: &str, text: &str, chart: &[bool], sample: usize, t: &mut T
             }
         }
         // end to end: the credit the public checker gives (first admissible element) is exact
-        if k.iter().zip(chart).all(|(&v, &l)| if l { v >= 1 } else { v <= 0 })
+        if k.iter()
+            .zip(chart)
+            .all(|(&v, &l)| if l { v >= 1 } else { v <= 0 })
             && let Ok(Ok(c)) = checker.serve(k, &pol)
         {
             t.end_to_end_credits += 1;
@@ -384,8 +413,15 @@ fn audit_credits_per_slot_purity_small_families() {
     let mut t = Tally::default();
     audit_family("SUNSET", SUNSET, &flags(SUNSET), 2000, &mut t);
     // eps families: a power shift on a NUMERATOR (its D^(k eps) factor is present at power 0) and on a LINE
-    for (name, shift) in [("SUNSET-eps-D4", "D4"), ("SUNSET-eps-D5", "D5"), ("SUNSET-eps-D1", "D1")] {
-        let text = SUNSET.replace("gram(q,q,1))", &format!("gram(q,q,1),power_shift({shift},(4-d)/2))"));
+    for (name, shift) in [
+        ("SUNSET-eps-D4", "D4"),
+        ("SUNSET-eps-D5", "D5"),
+        ("SUNSET-eps-D1", "D1"),
+    ] {
+        let text = SUNSET.replace(
+            "gram(q,q,1))",
+            &format!("gram(q,q,1),power_shift({shift},(4-d)/2))"),
+        );
         let before = t.families;
         audit_family(name, &text, &flags(&text), 2000, &mut t);
         assert_eq!(t.families, before + 1, "{name}: eps family not audited");
@@ -403,7 +439,10 @@ fn audit_credits_per_slot_purity_small_families() {
     }
     let ho = ws().join("handoff/sym-investigation-for-ben");
     for (name, p) in [
-        ("T162-presented-P3", ho.join("t162-bank/family/T162-presented-P3.sym")),
+        (
+            "T162-presented-P3",
+            ho.join("t162-bank/family/T162-presented-P3.sym"),
+        ),
         ("T178", ho.join("families/T178.sym")),
         ("T266", ho.join("families/T266.sym")),
     ] {
@@ -416,7 +455,11 @@ fn audit_credits_per_slot_purity_small_families() {
     }
     println!("TALLY {t:#?}");
     assert!(t.families >= 1);
-    assert!(t.refuted.is_empty(), "REFUTED credits: {:#?}", &t.refuted[..t.refuted.len().min(20)]);
+    assert!(
+        t.refuted.is_empty(),
+        "REFUTED credits: {:#?}",
+        &t.refuted[..t.refuted.len().min(20)]
+    );
 }
 
 /// T266 in the PRESENTED frame of the jointest9 tables (the frame the import and the walk use): the header's
@@ -447,7 +490,10 @@ fn audit_credits_t266_presented_frame() {
     );
     let fh = Family::parse(header_src).unwrap();
     let ff = Family::parse(&fam_text).unwrap();
-    println!("T266 presentation new_to_old {n2o:?}; mask {:?}", frame.mask());
+    println!(
+        "T266 presentation new_to_old {n2o:?}; mask {:?}",
+        frame.mask()
+    );
     for (j, &o) in n2o.iter().enumerate() {
         assert_eq!(
             canon(&fh.momenta()[j]),
@@ -456,11 +502,19 @@ fn audit_credits_t266_presented_frame() {
         );
         assert_eq!(fh.kshift()[j], ff.kshift()[o]);
     }
-    assert_eq!(flags(header_src), frame.mask().to_vec(), "header flags differ from the frame mask");
+    assert_eq!(
+        flags(header_src),
+        frame.mask().to_vec(),
+        "header flags differ from the frame mask"
+    );
     let mut t = Tally::default();
     audit_family("T266-presented", header_src, frame.mask(), 20000, &mut t);
     println!("TALLY {t:#?}");
-    assert!(t.refuted.is_empty(), "REFUTED credits: {:#?}", &t.refuted[..t.refuted.len().min(20)]);
+    assert!(
+        t.refuted.is_empty(),
+        "REFUTED credits: {:#?}",
+        &t.refuted[..t.refuted.len().min(20)]
+    );
 }
 
 /// The 283-family set (charts from the family flags; eps families included: power shifts exercise the "power 0 is
@@ -499,7 +553,11 @@ fn audit_credits_per_slot_purity_283_families() {
     }
     println!("eps families seen: {eps}");
     println!("TALLY {t:#?}");
-    assert!(t.refuted.is_empty(), "REFUTED credits: {:#?}", &t.refuted[..t.refuted.len().min(20)]);
+    assert!(
+        t.refuted.is_empty(),
+        "REFUTED credits: {:#?}",
+        &t.refuted[..t.refuted.len().min(20)]
+    );
 }
 
 #[allow(dead_code)]

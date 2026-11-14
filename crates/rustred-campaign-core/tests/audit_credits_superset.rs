@@ -42,7 +42,9 @@ impl Rng {
 }
 
 fn h(seed: u64, a: i64, k: &[i32], t: usize) -> u64 {
-    let mut x = seed ^ (a as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (t as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
+    let mut x = seed
+        ^ (a as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        ^ (t as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
     for &v in k {
         x = (x ^ (v as u64).wrapping_add(0x165667B1)).wrapping_mul(0x100_0000_01B3);
         x ^= x >> 29;
@@ -105,7 +107,13 @@ fn random_node(rng: &mut Rng, cmp: &NodeComparator, descending: bool) -> Node {
     while keys.len() < nrec {
         keys.insert(
             (0..N)
-                .map(|s| if LINES[s] { rng.range(1, 3) } else { rng.range(-2, 0) })
+                .map(|s| {
+                    if LINES[s] {
+                        rng.range(1, 3)
+                    } else {
+                        rng.range(-2, 0)
+                    }
+                })
                 .collect(),
         );
     }
@@ -122,7 +130,13 @@ fn random_node(rng: &mut Rng, cmp: &NodeComparator, descending: bool) -> Node {
                 pool[rng.next() as usize % pool.len()].clone()
             } else {
                 (0..N)
-                    .map(|s| if LINES[s] { rng.range(0, 3) } else { rng.range(-2, 1) })
+                    .map(|s| {
+                        if LINES[s] {
+                            rng.range(0, 3)
+                        } else {
+                            rng.range(-2, 1)
+                        }
+                    })
                     .collect()
             };
             let pos_num = (0..N).any(|s| !LINES[s] && t[s] > 0);
@@ -200,7 +214,11 @@ fn one_term(vg: &VerifiedGroup, ei: usize, key: &[i32], image: &[i32]) -> bool {
     let Some(r) = rows.iter().find(|r| r.element == ei) else {
         return false;
     };
-    let got: BTreeSet<(Vec<i64>, i128, i128)> = r.terms.iter().map(|((_, k), q)| (k.clone(), q.n, q.d)).collect();
+    let got: BTreeSet<(Vec<i64>, i128, i128)> = r
+        .terms
+        .iter()
+        .map(|((_, k), q)| (k.clone(), q.n, q.d))
+        .collect();
     let want: BTreeSet<(Vec<i64>, i128, i128)> = [
         (seed.1.clone(), 1, 1),
         (image.iter().map(|&x| x as i64).collect(), -1, 1),
@@ -249,13 +267,22 @@ fn check_credits(
             st.credits_with_numerator += 1;
         }
         if !one_term(vg, c.element, &c.key, &c.image) {
-            st.credit_refuted.push(format!("{tag}: {:?} -> {:?} (element {})", c.key, c.image, c.element));
+            st.credit_refuted.push(format!(
+                "{tag}: {:?} -> {:?} (element {})",
+                c.key, c.image, c.element
+            ));
         }
         if credited.contains(&c.image) {
-            st.chained.push(format!("{tag}: {:?} -> credited image {:?}", c.key, c.image));
+            st.chained.push(format!(
+                "{tag}: {:?} -> credited image {:?}",
+                c.key, c.image
+            ));
         }
         let Some((body, w, label)) = node.recs.get(&c.image) else {
-            st.credit_refuted.push(format!("{tag}: {:?} -> {:?}: image has no record", c.key, c.image));
+            st.credit_refuted.push(format!(
+                "{tag}: {:?} -> {:?}: image has no record",
+                c.key, c.image
+            ));
             continue;
         };
         // the image's record must serve the image: complete witness, or lifted by a per-key PROOF at (record, image)
@@ -336,7 +363,10 @@ fn audit_credits_tier_k_superset_and_well_founded_v4() {
             &cmp,
             &start,
             &kc,
-            &RandFacts { seed: it, decided: false },
+            &RandFacts {
+                seed: it,
+                decided: false,
+            },
         )
         .unwrap();
         let kset: BTreeSet<Vec<i32>> = (0..tk.len()).map(|i| tk.key(i)).collect();
@@ -349,7 +379,15 @@ fn audit_credits_tier_k_superset_and_well_founded_v4() {
                 kset2.len()
             ));
         }
-        check_credits(&format!("node {it} K"), &tk, &node, &vg, &cmp, None, &mut st);
+        check_credits(
+            &format!("node {it} K"),
+            &tk,
+            &node,
+            &vg,
+            &cmp,
+            None,
+            &mut st,
+        );
         for fs in 0..4u64 {
             let decided = fs % 2 == 0;
             let facts = RandFacts {
@@ -370,7 +408,15 @@ fn audit_credits_tier_k_superset_and_well_founded_v4() {
                     ));
                 }
             }
-            check_credits(&format!("node {it} C{fs}"), &tc, &node, &vg, &cmp, Some(&facts), &mut st);
+            check_credits(
+                &format!("node {it} C{fs}"),
+                &tc,
+                &node,
+                &vg,
+                &cmp,
+                Some(&facts),
+                &mut st,
+            );
             let s = tc.summary();
             if descending && decided {
                 if s.cycles.unwrap_or(0) == 0 && s.descent_violations == 0 {
@@ -394,11 +440,34 @@ fn audit_credits_tier_k_superset_and_well_founded_v4() {
         st.credits_with_numerator,
         st.acyclic_runs
     );
-    println!("credits through a lifted image (proof bound): {}", st.credits_lifted_image);
-    assert!(st.not_below.is_empty(), "{:#?}", &st.not_below[..st.not_below.len().min(10)]);
-    assert!(st.superset_violations.is_empty(), "{:#?}", &st.superset_violations[..st.superset_violations.len().min(10)]);
-    assert!(st.credit_refuted.is_empty(), "{:#?}", &st.credit_refuted[..st.credit_refuted.len().min(10)]);
-    assert!(st.chained.is_empty(), "{:#?}", &st.chained[..st.chained.len().min(10)]);
-    assert!(st.cyclic.is_empty(), "{:#?}", &st.cyclic[..st.cyclic.len().min(10)]);
+    println!(
+        "credits through a lifted image (proof bound): {}",
+        st.credits_lifted_image
+    );
+    assert!(
+        st.not_below.is_empty(),
+        "{:#?}",
+        &st.not_below[..st.not_below.len().min(10)]
+    );
+    assert!(
+        st.superset_violations.is_empty(),
+        "{:#?}",
+        &st.superset_violations[..st.superset_violations.len().min(10)]
+    );
+    assert!(
+        st.credit_refuted.is_empty(),
+        "{:#?}",
+        &st.credit_refuted[..st.credit_refuted.len().min(10)]
+    );
+    assert!(
+        st.chained.is_empty(),
+        "{:#?}",
+        &st.chained[..st.chained.len().min(10)]
+    );
+    assert!(
+        st.cyclic.is_empty(),
+        "{:#?}",
+        &st.cyclic[..st.cyclic.len().min(10)]
+    );
     assert!(st.credits_checked > 0 && st.credits_with_numerator > 0);
 }

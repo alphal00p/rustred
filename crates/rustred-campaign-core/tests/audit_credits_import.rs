@@ -76,7 +76,11 @@ fn write_keys(dir: &Path, keys: &[&[i32]]) -> PathBuf {
     p
 }
 
-fn run(spec: &Value, dir: &Path, tier: Tier) -> (import::ImportedSet, Evidence, import::CheckResult) {
+fn run(
+    spec: &Value,
+    dir: &Path,
+    tier: Tier,
+) -> (import::ImportedSet, Evidence, import::CheckResult) {
     let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
     let set = load(&s, dir).unwrap();
     let ev = Evidence::from_spec(&set, dir).unwrap();
@@ -172,7 +176,11 @@ fn ok_image_lift_only_by_the_first_match_proof_at_the_image() {
         let p = proof_file(
             &d,
             "p2.json",
-            &imgs.iter().zip(&sha_first).map(|(im, s)| (s.clone(), *im)).collect::<Vec<_>>(),
+            &imgs
+                .iter()
+                .zip(&sha_first)
+                .map(|(im, s)| (s.clone(), *im))
+                .collect::<Vec<_>>(),
         );
         let mut s2 = spec.clone();
         s2["evidence"] = json!({"proofs":[{"path": p.display().to_string()}]});
@@ -202,7 +210,11 @@ fn ok_image_lift_only_by_the_first_match_proof_at_the_image() {
         let p = proof_file(
             &d,
             "p4.json",
-            &imgs.iter().zip(&sha_second).map(|(im, s)| (s.clone(), *im)).collect::<Vec<_>>(),
+            &imgs
+                .iter()
+                .zip(&sha_second)
+                .map(|(im, s)| (s.clone(), *im))
+                .collect::<Vec<_>>(),
         );
         let mut s4 = spec.clone();
         s4["evidence"] = json!({"proofs":[{"path": p.display().to_string()}]});
@@ -268,13 +280,20 @@ fn ok_credit_level_equals_the_image_level_for_table_images() {
     let p = proof_file(
         &d,
         "p.json",
-        &imgs.iter().zip(&shas).map(|(im, s)| (s.clone(), *im)).collect::<Vec<_>>(),
+        &imgs
+            .iter()
+            .zip(&shas)
+            .map(|(im, s)| (s.clone(), *im))
+            .collect::<Vec<_>>(),
     );
     let mut s2 = spec.clone();
     s2["evidence"] = json!({"proofs":[{"path": p.display().to_string()}]});
     let (_set, _ev, r) = run(&s2, &d, Tier::K);
     let x = row(&r, &K);
-    assert_eq!((x.status, x.evidence), (RowStatus::Served, Some(Level::PerKey)));
+    assert_eq!(
+        (x.status, x.evidence),
+        (RowStatus::Served, Some(Level::PerKey))
+    );
     for im in &imgs {
         assert_eq!(row(&r, im).evidence, Some(Level::PerKey), "image {im:?}");
     }
@@ -304,7 +323,8 @@ fn credit_via_unverified_supplied_relation_is_not_above_its_image() {
         .iter()
         .enumerate()
         .map(|(i, im)| {
-            let mut v: Value = serde_json::from_str(&point_rule(i as i64, im, &[&LOW], json!([]))).unwrap();
+            let mut v: Value =
+                serde_json::from_str(&point_rule(i as i64, im, &[&LOW], json!([]))).unwrap();
             v["dispatch"] = json!("Point");
             v["kind"] = json!("symmetry-one-term");
             v.to_string()
@@ -417,20 +437,36 @@ fn ok_regularity_fact_lifts_the_image_key_but_never_a_credit_through_it() {
     let (_set, _ev, r) = run(&s2, &d, Tier::C);
     for im in &imgs {
         let y = row(&r, im);
-        assert_eq!(y.status, RowStatus::Served, "image {im:?} lifted by its fact: {y:?}");
+        assert_eq!(
+            y.status,
+            RowStatus::Served,
+            "image {im:?} lifted by its fact: {y:?}"
+        );
     }
     let x = row(&r, &K);
-    assert_eq!(x.status, RowStatus::Open, "credited through a fact-lifted image: {x:?}");
+    assert_eq!(
+        x.status,
+        RowStatus::Open,
+        "credited through a fact-lifted image: {x:?}"
+    );
     // with per-key proofs at the images: credited, level per-key
     let p = proof_file(
         &d,
         "p.json",
-        &imgs.iter().zip(&shas).map(|(im, s)| (s.clone(), *im)).collect::<Vec<_>>(),
+        &imgs
+            .iter()
+            .zip(&shas)
+            .map(|(im, s)| (s.clone(), *im))
+            .collect::<Vec<_>>(),
     );
     let mut s3 = s2.clone();
     s3["evidence"]["proofs"] = json!([{"path": p.display().to_string()}]);
     let (_set, _ev, r) = run(&s3, &d, Tier::C);
     let x = row(&r, &K);
-    assert_eq!((x.status, x.evidence), (RowStatus::Served, Some(Level::PerKey)), "{x:?}");
+    assert_eq!(
+        (x.status, x.evidence),
+        (RowStatus::Served, Some(Level::PerKey)),
+        "{x:?}"
+    );
     let _ = std::fs::remove_dir_all(&d);
 }

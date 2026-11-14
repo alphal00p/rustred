@@ -59,7 +59,10 @@ fn ok_bigint_literal_boundaries_exact() {
     let min1 = pow2(127).add(&BigInt::from_i128(1)).neg().to_decimal(); // i128::MIN - 1
     let p200 = pow2(200).to_decimal();
     assert_eq!(max1, "170141183460469231731687303715884105728");
-    assert_eq!(p200, "1606938044258990275541962092341162602522202993782792835301376");
+    assert_eq!(
+        p200,
+        "1606938044258990275541962092341162602522202993782792835301376"
+    );
     // canonical form: small iff the value fits i128 (also for i128::MIN, whose magnitude does not)
     for (lit, is_big) in [
         (max.clone(), false),
@@ -73,7 +76,11 @@ fn ok_bigint_literal_boundaries_exact() {
         assert_eq!(p.is_big(), is_big, "{lit}");
         // exact value and text round trip
         assert_eq!(p.eval_big(&[0]).unwrap(), big(&lit), "{lit}");
-        assert_eq!(Poly::parse_exact(&p.to_string(), 1, false).unwrap(), p, "{lit}");
+        assert_eq!(
+            Poly::parse_exact(&p.to_string(), 1, false).unwrap(),
+            p,
+            "{lit}"
+        );
         // the strict parser refuses what it cannot hold (typed), never truncates
         match Poly::parse(&lit, 1, false) {
             Ok(q) => assert_eq!(q, p, "{lit}"),
@@ -196,12 +203,27 @@ fn ok_big_exception_equation_bound_decide_exactly_one_key() {
         &d,
         "A.table.jsonl",
         &[
-            rule(0, [None, None, Some(0)], &body, json!({"exceptions": [[e.clone()]]})),
-            rule(1, [None, None, Some(0)], &body, json!({"equations": [eq.clone()]})),
+            rule(
+                0,
+                [None, None, Some(0)],
+                &body,
+                json!({"exceptions": [[e.clone()]]}),
+            ),
+            rule(
+                1,
+                [None, None, Some(0)],
+                &body,
+                json!({"equations": [eq.clone()]}),
+            ),
             // bounds are a domain field of the record (`domain_bounds` is i64 by format); a big bound literal enters
             // as a GE atom only through bank formats, so here: an exception AND-list that keeps the record selected
             // only where the big bound literal is nonzero AND n0 <= 3 cannot be written; use a second exception
-            rule(2, [None, None, Some(0)], &body, json!({"exceptions": [[bound.clone()]]})),
+            rule(
+                2,
+                [None, None, Some(0)],
+                &body,
+                json!({"exceptions": [[bound.clone()]]}),
+            ),
             rule(3, [None, None, Some(0)], &body, json!({})),
         ],
     );
@@ -209,7 +231,9 @@ fn ok_big_exception_equation_bound_decide_exactly_one_key() {
     let st = d.join("start.jsonl");
     std::fs::write(
         &st,
-        keys.iter().map(|k| format!("{}\n", json!(k))).collect::<String>(),
+        keys.iter()
+            .map(|k| format!("{}\n", json!(k)))
+            .collect::<String>(),
     )
     .unwrap();
     let spec = json!({"schema":"rustred.campaign.import-spec.v1","node":"toy","frame_from":"A","bits":8,
@@ -237,7 +261,9 @@ fn ok_big_exception_equation_bound_decide_exactly_one_key() {
         assert_eq!(label_of(k), Some(want), "key {}", key_text(k));
         decided += 1;
     }
-    println!("decided {decided} keys exactly; the single on-exception key I(3,2,0) falls through to rule 1");
+    println!(
+        "decided {decided} keys exactly; the single on-exception key I(3,2,0) falls through to rule 1"
+    );
     // the core domain: the literals are big and exact
     let pe = Poly::parse_d_free_exact(&e, 3).unwrap();
     assert!(pe.is_big());
@@ -262,7 +288,12 @@ fn ok_engine_prime_divisible_literal_leaves_the_key_undecided() {
         &d,
         "A.table.jsonl",
         &[
-            rule(0, [None, None, Some(0)], &["I(0,n1,0)"], json!({"exceptions": [[f.clone()]]})),
+            rule(
+                0,
+                [None, None, Some(0)],
+                &["I(0,n1,0)"],
+                json!({"exceptions": [[f.clone()]]}),
+            ),
             rule(1, [None, None, Some(0)], &["I(0,n1,0)"], json!({})),
         ],
     );
@@ -276,10 +307,15 @@ fn ok_engine_prime_divisible_literal_leaves_the_key_undecided() {
     // (3,1): F = 0 exactly -> on the exception -> rule 1
     let x = row([3, 1, 0]);
     assert_eq!(x.status, RowStatus::Served);
-    assert!(matches!(&x.server, Some(import::Server::Rule { record, .. }) if set.rules[0][*record].label == 1));
+    assert!(
+        matches!(&x.server, Some(import::Server::Rule { record, .. }) if set.rules[0][*record].label == 1)
+    );
     // (4,1): F = pp*2^20 != 0 but zero mod both engine primes: undecided, open, NOT served by rule 1
     let y = row([4, 1, 0]);
-    println!("I(4,1,0): {:?} {:?} {:?}", y.status, y.open_status, y.open_reason);
+    println!(
+        "I(4,1,0): {:?} {:?} {:?}",
+        y.status, y.open_status, y.open_reason
+    );
     assert_eq!(y.status, RowStatus::Open, "{y:?}");
     let _ = std::fs::remove_dir_all(&d);
 }
@@ -294,7 +330,12 @@ fn recipe_domain_bound_beyond_i64_is_not_dropped() {
     let a = write_table(
         &d,
         "A.table.jsonl",
-        &[rule(0, [Some(3), Some(1), Some(0)], &["I(2,1,0)"], json!({}))],
+        &[rule(
+            0,
+            [Some(3), Some(1), Some(0)],
+            &["I(2,1,0)"],
+            json!({}),
+        )],
     );
     let rp = d.join("recipe.json");
     // the bound text is a JSON number beyond i64 (serde_json keeps it as f64 / arbitrary): n0 >= 10^30

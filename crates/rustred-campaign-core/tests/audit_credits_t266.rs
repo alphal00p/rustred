@@ -28,7 +28,9 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 fn env_or(k: &str, d: &str) -> PathBuf {
-    std::env::var_os(k).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(d))
+    std::env::var_os(k)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(d))
 }
 
 fn parse_key(t: &str) -> Vec<i32> {
@@ -82,8 +84,11 @@ fn row_one_term(vg: &VerifiedGroup, ei: usize, key: &[i32], image: &[i32]) -> Op
     let seed = (0u64, key.iter().map(|&x| x as i64).collect::<Vec<i64>>());
     let rows = rows_at(vg, &seed, SymRowMode::Expanded, 1 << 14).ok()?;
     let r = rows.iter().find(|r| r.element == ei)?;
-    let got: BTreeSet<(Vec<i64>, i128, i128)> =
-        r.terms.iter().map(|((_, k), q)| (k.clone(), q.n, q.d)).collect();
+    let got: BTreeSet<(Vec<i64>, i128, i128)> = r
+        .terms
+        .iter()
+        .map(|((_, k), q)| (k.clone(), q.n, q.d))
+        .collect();
     let want: BTreeSet<(Vec<i64>, i128, i128)> = [
         (seed.1.clone(), 1, 1),
         (image.iter().map(|&x| x as i64).collect(), -1, 1),
@@ -102,7 +107,10 @@ struct CheckerCredit {
 #[test]
 #[ignore = "heavy: T266 jointest9 (85 GB table via the index copy); run with --ignored in an own scope"]
 fn audit_credits_t266_samples_vs_checker() {
-    let ws = env_or("RUSTRED_IMPORT_WS", "/shared/vhirschi/t3code/vakint_dev/p_integral_dev");
+    let ws = env_or(
+        "RUSTRED_IMPORT_WS",
+        "/shared/vhirschi/t3code/vakint_dev/p_integral_dev",
+    );
     let table = ws.join("SCRATCHPAD/t266/jointest9/F.table.jsonl");
     let run = env_or(
         "AUDIT_T266_CHECKER_RUN",
@@ -125,7 +133,9 @@ fn audit_credits_t266_samples_vs_checker() {
     let mut chk: BTreeMap<Vec<i32>, CheckerCredit> = BTreeMap::new();
     for s in 0..8 {
         let p = run.join(format!("svc{s}/service.jsonl"));
-        let Ok(f) = std::fs::File::open(&p) else { continue };
+        let Ok(f) = std::fs::File::open(&p) else {
+            continue;
+        };
         for l in std::io::BufReader::new(f).lines() {
             let l = l.unwrap();
             if !l.contains("\"served\": true") {
@@ -167,7 +177,9 @@ fn audit_credits_t266_samples_vs_checker() {
         "checker credits {}, our credited keys {} ({} via table rules); read in {:.1}s",
         chk.len(),
         ours.len(),
-        ours.values().filter(|v| v.0 == "symmetry_credit_verified").count(),
+        ours.values()
+            .filter(|v| v.0 == "symmetry_credit_verified")
+            .count(),
         t0.elapsed().as_secs_f64()
     );
     // the import (diagnostic witness policy as the walk) through the private index copy
@@ -178,11 +190,24 @@ fn audit_credits_t266_samples_vs_checker() {
     // samples
     let chk_keys: Vec<&Vec<i32>> = chk.keys().collect();
     let stride = (chk_keys.len() / 220).max(1);
-    let s1: Vec<Vec<i32>> = chk_keys.iter().step_by(stride).map(|k| (*k).clone()).collect();
-    let s2: Vec<Vec<i32>> = chk_keys.iter().filter(|k| numerator(k)).map(|k| (*k).clone()).collect();
+    let s1: Vec<Vec<i32>> = chk_keys
+        .iter()
+        .step_by(stride)
+        .map(|k| (*k).clone())
+        .collect();
+    let s2: Vec<Vec<i32>> = chk_keys
+        .iter()
+        .filter(|k| numerator(k))
+        .map(|k| (*k).clone())
+        .collect();
     let only_ours: Vec<&Vec<i32>> = ours.keys().filter(|k| !chk.contains_key(*k)).collect();
     let stride3 = (only_ours.len() / 100).max(1);
-    let s3: Vec<Vec<i32>> = only_ours.iter().step_by(stride3).take(100).map(|k| (*k).clone()).collect();
+    let s3: Vec<Vec<i32>> = only_ours
+        .iter()
+        .step_by(stride3)
+        .take(100)
+        .map(|k| (*k).clone())
+        .collect();
     println!(
         "samples: checker stride {} -> {}, checker numerator keys {}, ours-only {} of {}",
         stride,
@@ -195,7 +220,14 @@ fn audit_credits_t266_samples_vs_checker() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let st = dir.join("start.jsonl");
-    std::fs::write(&st, s1.iter().take(1).map(|k| format!("{}\n", json!(k))).collect::<String>()).unwrap();
+    std::fs::write(
+        &st,
+        s1.iter()
+            .take(1)
+            .map(|k| format!("{}\n", json!(k)))
+            .collect::<String>(),
+    )
+    .unwrap();
     let spec = json!({"schema":"rustred.campaign.import-spec.v1","node":"T266","frame_from":"jointest9","bits":6,
         "policies":{"elided":"lift_with_per_key_proof","witness_absent":"lift_with_regular_fact","witness_check":"off_diagnostic"},
         "start":{"path": st.display().to_string(),"format":"keys_jsonl"},
@@ -214,7 +246,11 @@ fn audit_credits_t266_samples_vs_checker() {
     println!(
         "loaded in {:.1}s; index {:?}",
         t0.elapsed().as_secs_f64(),
-        set.report.sources[0].indexes.iter().map(|i| i.how).collect::<Vec<_>>()
+        set.report.sources[0]
+            .indexes
+            .iter()
+            .map(|i| i.how)
+            .collect::<Vec<_>>()
     );
     let pol = set.credits.clone().unwrap();
     assert!(pol.is_verified());
@@ -243,7 +279,8 @@ fn audit_credits_t266_samples_vs_checker() {
         &NoFacts,
         Tier::K,
     );
-    let label_of = |pos: rustred_campaign_core::cover::RuleRef| set.rules[pos.table][pos.record].label;
+    let label_of =
+        |pos: rustred_campaign_core::cover::RuleRef| set.rules[pos.table][pos.record].label;
     #[derive(Default, Debug)]
     struct Cnt {
         keys: usize,
@@ -260,7 +297,11 @@ fn audit_credits_t266_samples_vs_checker() {
         notes: Vec<String>,
     }
     let mut res: BTreeMap<&str, Cnt> = BTreeMap::new();
-    for (tag, sample) in [("checker-stride", &s1), ("checker-numerator", &s2), ("ours-only", &s3)] {
+    for (tag, sample) in [
+        ("checker-stride", &s1),
+        ("checker-numerator", &s2),
+        ("ours-only", &s3),
+    ] {
         let c = res.entry(tag).or_default();
         for k in sample.iter() {
             c.keys += 1;
@@ -281,17 +322,24 @@ fn audit_credits_t266_samples_vs_checker() {
                     if geometric_image(&fam, mat, k).as_deref() == Some(&cr.image[..]) {
                         c.ours_exact_geometry += 1;
                     } else {
-                        c.refuted.push(format!("OURS {k:?} -> {:?} (element {}): not exact by geometry", cr.image, cr.element));
+                        c.refuted.push(format!(
+                            "OURS {k:?} -> {:?} (element {}): not exact by geometry",
+                            cr.image, cr.element
+                        ));
                     }
                     match row_one_term(&vg, cr.element, k, &cr.image) {
                         Some(true) => c.ours_exact_row += 1,
-                        Some(false) => c.refuted.push(format!("OURS {k:?} -> {:?}: expanded row not one-term", cr.image)),
+                        Some(false) => c.refuted.push(format!(
+                            "OURS {k:?} -> {:?}: expanded row not one-term",
+                            cr.image
+                        )),
                         None => {}
                     }
                     if cr.top_terms.iter().all(|t| set.cmp.lower(t, k)) {
                         c.ours_terms_below += 1;
                     } else {
-                        c.refuted.push(format!("OURS {k:?}: a top term not below the key"));
+                        c.refuted
+                            .push(format!("OURS {k:?}: a top term not below the key"));
                     }
                     if let Some(cc) = chk.get(k)
                         && cc.image == cr.image
@@ -302,25 +350,42 @@ fn audit_credits_t266_samples_vs_checker() {
                 Err(refusals) => c.notes.push(format!(
                     "{k:?}: not credited by the standalone checker (statement {:?}); refusals {:?}",
                     ours.get(k),
-                    refusals.iter().map(|(e, r)| format!("{e}:{r:?}")).collect::<Vec<_>>()
+                    refusals
+                        .iter()
+                        .map(|(e, r)| format!("{e}:{r:?}"))
+                        .collect::<Vec<_>>()
                 )),
             }
             // the checker's credit, verified independently
             if let Some(cc) = chk.get(k) {
                 let exact_el: Vec<usize> = (0..pol.group().len())
-                    .filter(|&e| geometric_image(&fam, &vg.proofs()[e].matrix, k).as_deref() == Some(&cc.image[..]))
+                    .filter(|&e| {
+                        geometric_image(&fam, &vg.proofs()[e].matrix, k).as_deref()
+                            == Some(&cc.image[..])
+                    })
                     .collect();
                 if exact_el.is_empty() {
-                    c.refuted.push(format!("CHECKER {k:?} -> {:?} (g {}): no exact element", cc.image, cc.g));
+                    c.refuted.push(format!(
+                        "CHECKER {k:?} -> {:?} (g {}): no exact element",
+                        cc.image, cc.g
+                    ));
                 } else {
                     c.checker_exact_geometry += 1;
-                    if exact_el.iter().any(|&e| row_one_term(&vg, e, k, &cc.image) == Some(true)) {
+                    if exact_el
+                        .iter()
+                        .any(|&e| row_one_term(&vg, e, k, &cc.image) == Some(true))
+                    {
                         c.checker_exact_row += 1;
                     }
                 }
                 match checker.dispatch(&cc.image) {
-                    Dispatch::Covered(r) if label_of(r) == cc.case => c.checker_case_dispatch_equal += 1,
-                    d => c.notes.push(format!("{k:?}: checker image {:?} case {} vs our dispatch {d:?}", cc.image, cc.case)),
+                    Dispatch::Covered(r) if label_of(r) == cc.case => {
+                        c.checker_case_dispatch_equal += 1
+                    }
+                    d => c.notes.push(format!(
+                        "{k:?}: checker image {:?} case {} vs our dispatch {d:?}",
+                        cc.image, cc.case
+                    )),
                 }
             }
         }
