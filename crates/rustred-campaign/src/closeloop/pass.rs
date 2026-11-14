@@ -68,6 +68,10 @@ pub struct PassIn {
     pub final_dir: PathBuf,
     /// Solve items in attention (their keys stay open).
     pub attention_items: u64,
+    /// lane closeloop3 (closeloop.md 16.6): (recipe, key) pairs whose solves all ended ERROR / IRREGULAR, asked again
+    /// this round, and those whose attempts are used up (attention entries: source, key, verdict, attempts).
+    pub engine_retried: u64,
+    pub engine_attention: Vec<Value>,
     /// The relation rule in force for the solves (label, closeloop.md 5).
     pub relation_rule: String,
     // ---- lane closeloop2 ----
@@ -112,6 +116,8 @@ impl PassIn {
             rows_path: final_dir.join("rows.jsonl"),
             final_dir,
             attention_items: 0,
+            engine_retried: 0,
+            engine_attention: vec![],
             relation_rule: "m1_first".into(),
             proof_files: vec![],
             fact_files: vec![],
@@ -518,6 +524,12 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     if inp.attention_items > 0 {
         blocking.push(format!("solve_items_in_attention:{}", inp.attention_items));
     }
+    if !inp.engine_attention.is_empty() {
+        blocking.push(format!(
+            "solve_keys_engine_failure_attention:{}",
+            inp.engine_attention.len()
+        ));
+    }
     if inp.proof_attention > 0 {
         blocking.push(format!("proof_items_in_attention:{}", inp.proof_attention));
     }
@@ -804,6 +816,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         "fact_basis": fact_basis_counts(&counts),
         "budget": budget_why, "budget_stop": budget_stop,
         "cap_hits": {"wall_time_decided": cap_wall, "work": cap_work},
+        "engine_failures": {"retried_this_round": inp.engine_retried, "attention": inp.engine_attention},
     });
     let dispatch_order = json!({
         "schema": DISPATCH_SCHEMA, "node": inp.node, "spec_digest": set.report.spec_digest,
@@ -973,7 +986,9 @@ fn write_final(
             "evidence": r.evidence.map(|e| e.word()), "basis": r.basis,
             "open_status": r.open_status, "open_reason": r.open_reason,
             "recipe_refusals": refusals.get(&r.key).cloned().unwrap_or_default(),
-            "regularity_unknown": r.regularity_unknown, "coefficient_unknown": r.coefficient_unknown});
+            "regularity_unknown": r.regularity_unknown, "coefficient_unknown": r.coefficient_unknown,
+            // lane closeloop3: the key's solves failed in the engine (ERROR / IRREGULAR) until attention
+            "engine_failure": inp.engine_attention.iter().filter(|e| e["key"] == json!(r.key)).cloned().collect::<Vec<_>>()});
         open_lines.push_str(&v.to_string());
         open_lines.push('\n');
     }

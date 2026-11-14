@@ -104,6 +104,9 @@ pub struct AcceptBits {
     pub family_path: String,
     pub family_blake3: String,
     pub order: String,
+    /// lane closeloop3: the per-key caps of the solves (recorded on the answer line of a key that hit one).
+    pub max_trace_rows: Option<u64>,
+    pub key_budget_s: Option<u64>,
 }
 
 /// Run the closeloop's accept chain on one settled point solve: `undeclare` = the terminal the solve is FOR (removed
@@ -143,6 +146,8 @@ pub fn accept_point(
             results_path: results.0.to_string(),
             results_blake3: results.1.to_string(),
             run_dir: run_dir.to_string(),
+            max_trace_rows: bits.max_trace_rows,
+            key_budget_s: bits.key_budget_s,
         };
         decide(&ctx, lines)
     });
@@ -690,6 +695,8 @@ impl TermminSource {
                 .map(|x| x.1)
                 .unwrap_or_default(),
             order: p.cfg.solve.order_arg(),
+            max_trace_rows: p.spec.caps.max_trace_rows.or(p.cfg.solve.max_trace_rows),
+            key_budget_s: p.spec.caps.key_budget_s.or(p.cfg.solve.key_budget_s),
         }
     }
 

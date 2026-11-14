@@ -32,8 +32,9 @@ pub const PROGRESS_SCHEMA: &str = "rustred.campaign.closeloop-progress.v1";
 
 /// Fake-child answers per (recipe source, key): verdict and right-hand-side keys (tests only).
 type Oracle = BTreeMap<(String, Vec<i32>), (Verdict, Vec<Vec<i64>>)>;
-/// Issued (recipe source, key) pairs, keys issued, jobs issued, items in attention.
-type Issued = (BTreeSet<(String, Vec<i32>)>, u64, u64, u64);
+/// Issued (recipe source, key) pairs, keys issued, jobs issued, items in attention, and (lane closeloop3) the
+/// ERROR / IRREGULAR keys: pairs re-asked now (retry), pairs in attention (attempts used up).
+type Issued = (BTreeSet<(String, Vec<i32>)>, u64, u64, u64, u64, Vec<Value>);
 
 /// lane closeloop2: (record, key) pairs given to proof (span) items and to fact items, proof jobs issued, proof items
 /// in attention.
@@ -386,18 +387,49 @@ impl CloseFromMaterialSource {
             .map(|(k, it)| (k.clone(), it.phase.clone()))
             .collect();
         let mut pairs = BTreeSet::new();
+        let mut given: BTreeMap<(String, Vec<i32>), u32> = BTreeMap::new();
         let (mut keys, mut att) = (0u64, 0u64);
         for (item, ph) in &items {
             let b = self.batch(st, i, item)?;
             keys += b.keys.len() as u64;
             for k in b.keys {
+                *given.entry((b.source.clone(), k.clone())).or_default() += 1;
                 pairs.insert((b.source.clone(), k));
             }
             if matches!(ph, ItemPhase::Attention(_)) {
                 att += 1;
             }
         }
-        Ok((pairs, keys, items.len() as u64, att))
+        // lane closeloop3 (closeloop.md 16.6): a pair whose EVERY solve so far ended ERROR / IRREGULAR is asked again
+        // (a later round: the back-off) until max_job_attempts, then it is in attention (never "no relation")
+        let mut failed: BTreeMap<(String, Vec<i32>), (u32, String)> = BTreeMap::new();
+        for (_, p, _) in self.inputs_of_role(st, i, ROLE_RETRY) {
+            let t = std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+            for l in t.lines().filter(|l| !l.trim().is_empty()) {
+                let v: Value = serde_json::from_str(l).map_err(|e| format!("{}: {e}", p.display()))?;
+                let key: Vec<i32> =
+                    serde_json::from_value(v["key"].clone()).map_err(|e| e.to_string())?;
+                let e = failed
+                    .entry((v["source"].as_str().unwrap_or("").to_string(), key))
+                    .or_default();
+                e.0 += 1;
+                e.1 = v["verdict"].as_str().unwrap_or("").to_string();
+            }
+        }
+        let max = self.nodes[i].cfg.budgets.max_job_attempts;
+        let (mut retried, mut attention) = (0u64, vec![]);
+        for (pair, (n, verdict)) in failed {
+            if given.get(&pair).copied().unwrap_or(0) != n {
+                continue; // a later solve of the pair is pending or decided it
+            }
+            if n < max {
+                pairs.remove(&pair);
+                retried += 1;
+            } else {
+                attention.push(json!({"source": pair.0, "key": pair.1, "verdict": verdict, "attempts": n}));
+            }
+        }
+        Ok((pairs, keys, items.len() as u64, att, retried, attention))
     }
 
     fn pbatch(
@@ -502,7 +534,8 @@ impl CloseFromMaterialSource {
             self.nodes[i].pass_started = Some(Instant::now());
             return Ok(());
         }
-        let (issued, keys_issued, jobs_issued, att) = self.issued(st, i)?;
+        let (issued, keys_issued, jobs_issued, att, engine_retried, engine_attention) =
+            self.issued(st, i)?;
         let answers = self
             .answers(st, i)
             .into_iter()
@@ -537,6 +570,8 @@ impl CloseFromMaterialSource {
             hand: r.cfg.hand.clone(),
             final_dir: self.abs(&format!("{}/final", node_dir(&r.n))),
             attention_items: att,
+            engine_retried,
+            engine_attention,
             relation_rule: r.cfg.solve.relation_rule.clone(),
             proof_files,
             fact_files,
@@ -1753,6 +1788,27 @@ impl WorkSource for CloseFromMaterialSource {
         }
         let n = self.nodes[i].n.clone();
         let dir = format!("{}/answers", node_dir(&n));
+        // lane closeloop3: ERROR / IRREGULAR keys are recorded apart (retried, then attention), never as answers
+        if !d.retry.is_empty() {
+            let mut rb = d
+                .retry
+                .iter()
+                .map(|(_, l)| l.as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
+                .into_bytes();
+            rb.push(b'\n');
+            let rr = record(format!("{dir}/{}.{}.retry.jsonl", done.item, done.job), rb);
+            let rref = rr.file_ref();
+            rt.events.push(Event::InputRegistered {
+                input: input_retry(&done.item, &done.job),
+                role: ROLE_RETRY.into(),
+                path: self.abs(&rr.path).display().to_string(),
+                bytes: rref.bytes,
+                blake3: rref.blake3,
+            });
+            rt.accepts.push(rr);
+        }
         let mut ab = d.lines.join("\n").into_bytes();
         ab.push(b'\n');
         let ans = record(format!("{dir}/{}.{}.jsonl", done.item, done.job), ab);
@@ -1825,6 +1881,11 @@ impl WorkSource for CloseFromMaterialSource {
                     to: Rung(1),
                     reason: match &d.refused {
                         Some(w) => format!("attempt refused: {w}; the keys go to the next recipe candidate"),
+                        None if !d.retry.is_empty() => format!(
+                            "no key certified ({} failures; {} keys typed ERROR / IRREGULAR are retried, then attention); the other keys go to the next recipe candidate",
+                            d.failed.len(),
+                            d.retry.len()
+                        ),
                         None => format!(
                             "no key certified ({} failures); the keys go to the next recipe candidate",
                             d.failed.len()

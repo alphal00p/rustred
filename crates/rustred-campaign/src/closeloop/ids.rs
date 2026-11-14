@@ -64,6 +64,10 @@ pub fn input_proofs(item: &str, job: &str) -> String {
 pub fn input_facts(item: &str, job: &str) -> String {
     format!("closeloop:{item}:facts:{job}")
 }
+/// lane closeloop3: the ERROR / IRREGULAR keys of a solve job (R48-3b records; retried, then attention).
+pub fn input_retry(item: &str, job: &str) -> String {
+    format!("closeloop:{item}:retry:{job}")
+}
 pub fn input_relations(item: &str, job: &str) -> String {
     format!("closeloop:{item}:relations:{job}")
 }
@@ -103,6 +107,7 @@ pub const ROLE_PBATCH: &str = "closeloop_proof_batch";
 pub const ROLE_PROOFS: &str = "closeloop_proofs";
 pub const ROLE_FACTS: &str = "closeloop_facts";
 pub const ROLE_RELATIONS: &str = "closeloop_relations";
+pub const ROLE_RETRY: &str = "closeloop_retry";
 
 pub const KIND_IMPORT: &str = "import";
 pub const KIND_SOLVE: &str = "recipe-solve";

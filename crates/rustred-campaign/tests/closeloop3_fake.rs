@@ -242,7 +242,7 @@ fn answer_lines(cdir: &Path) -> Vec<Value> {
     let mut v = vec![];
     for e in std::fs::read_dir(cdir.join("closeloop/toy/answers")).unwrap() {
         let p = e.unwrap().path();
-        if p.to_string_lossy().ends_with(".keys.json") {
+        if p.to_string_lossy().ends_with(".keys.json") || p.to_string_lossy().ends_with(".retry.jsonl") {
             continue;
         }
         for l in std::fs::read_to_string(&p).unwrap().lines() {
@@ -336,6 +336,73 @@ fn a_key_over_a_per_key_cap_goes_to_the_next_recipe_step() {
             solve_jobs += 1;
         }
         assert!(solve_jobs >= 3, "{tag}: {solve_jobs}");
+        assert_eq!(verify(&cdir), 0);
+    }
+}
+
+#[test]
+fn a_key_typed_error_or_irregular_is_retried_then_in_attention_never_moved_to_the_next_recipe() {
+    let _g = serial();
+    // engfix4's engine types a key whose sub-solve FAILED (resource limit, irregular lift, internal error) ERROR /
+    // IRREGULAR: a per-key failure, retried in a later round, then attention; never "no relation" (the default recipe,
+    // the key's next candidate, must never be asked for it)
+    for (tag, verdict) in [("cl3err", "ERROR"), ("cl3irr", "IRREGULAR")] {
+        let t = Tmp::new(tag);
+        let cfg = Toy {
+            overrides: vec![("R1".into(), [3, 1, 0], verdict.into(), vec![])],
+            ..Toy::default()
+        };
+        let files = toy(&t.path.join("material"), &cfg, FAKE);
+        std::fs::write(&files.hand, "").unwrap();
+        let spec = campaign_spec(&t.campaign, &files, FAKE, &cpus());
+        let sp = write_spec(&t, "spec.json", &spec);
+        let cdir = t.cdir("cdir");
+        let codes = run_to_end(&sp, &cdir, &["--plain"]);
+        assert_eq!(codes.last(), Some(&0), "{tag}: {}", log_tail(&cdir));
+        let r = result_json(&cdir);
+        assert_eq!(r["verdict"], "open", "{tag}: {r:#}");
+        let b = blockers(&r);
+        assert!(
+            b.iter().any(|x| x == "solve_keys_engine_failure_attention:1"),
+            "{tag}: {b:?}"
+        );
+        let att = &r["check"]["engine_failures"]["attention"];
+        assert_eq!(
+            att,
+            &json!([{"source": "R1", "key": [3, 1, 0], "verdict": verdict, "attempts": 2}]),
+            "{tag}"
+        );
+        // no answer line for the key at all (an answer would have moved it on), never asked of the default recipe
+        let ans = answer_lines(&cdir);
+        assert!(
+            !ans.iter().any(|v| v["key"] == json!([3, 1, 0])),
+            "{tag}: {ans:?}"
+        );
+        // R1 was asked twice for the key (the retry), each failure recorded with its R48-3b record
+        let mut retries = vec![];
+        for e in std::fs::read_dir(cdir.join("closeloop/toy/answers")).unwrap() {
+            let p = e.unwrap().path();
+            if p.to_string_lossy().ends_with(".retry.jsonl") {
+                for l in std::fs::read_to_string(&p).unwrap().lines() {
+                    retries.push(serde_json::from_str::<Value>(l).unwrap());
+                }
+            }
+        }
+        assert_eq!(retries.len(), 2, "{tag}: {retries:?}");
+        for v in &retries {
+            assert_eq!(v["verdict"], verdict);
+            assert_eq!(v["source"], "R1");
+            assert_eq!(v["retry"]["route"], "retry_then_attention");
+            assert!(v["failure_record"].is_object());
+        }
+        // the open list names the engine failure
+        let open: Vec<Value> = std::fs::read_to_string(cdir.join("closeloop/toy/final/open_keys.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        let o = open.iter().find(|v| v["key"] == json!([3, 1, 0])).expect("open");
+        assert_eq!(o["engine_failure"][0]["verdict"], verdict, "{tag}: {o}");
         assert_eq!(verify(&cdir), 0);
     }
 }
