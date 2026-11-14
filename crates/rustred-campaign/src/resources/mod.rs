@@ -31,6 +31,7 @@ pub(crate) use children::{
     read_proc_facts, start_reaper, strict_listing_counted,
 };
 pub use children::{ReaperStats, reaper_stats, request_reap};
+pub(crate) use marked::{read_marker_inline, scan_marked_inline};
 pub use marked::{
     CampaignMarker, CampaignScan, ENVIRON_READ_TIMEOUT, InvalidMarker, MARKER_VAR, MarkedProcess,
     MarkerRead, marker_in_environ, our_uid, owner_uid_at, read_marker_at, scan_campaign,

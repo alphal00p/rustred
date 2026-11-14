@@ -24,6 +24,7 @@ pub mod guard;
 mod hunt;
 mod idlock;
 mod real;
+pub mod sweep;
 
 pub use cgroup::{CgroupRoot, JobCgroup};
 pub use fake::{
@@ -37,6 +38,7 @@ pub use guard::{
     set_child_subreaper, sigchld_autoreaps, signal_verified_process,
 };
 pub use idlock::{IdLockError, default_lock_dir};
+pub use sweep::{LeftMarked, Narrowing, SweepReport, SweepSpec};
 pub use real::{
     CapPreference, LauncherError, LauncherSetup, RealChild, RealConfig, RealLauncher, RetireEvent,
     TrackingPreference, adhoc_campaign_id, audit_inheritable_fds, in_private_namespace, peek_exit,
