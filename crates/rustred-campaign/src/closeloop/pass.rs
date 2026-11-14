@@ -19,7 +19,7 @@ use rustred_campaign_core::import::load::RelEntry;
 use rustred_campaign_core::import::spec::FileRef as ImportFileRef;
 use rustred_campaign_core::import::{
     CheckOptions, CheckResult, Evidence, HandFormat, ImportedSet, KeyRow, Level, RowStatus,
-    Server, TableSetSpec, check, compare, load, read_hand_statement, write_statement,
+    Server, TableSetSpec, WitnessKind, check, compare, load, read_hand_statement, write_statement,
 };
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -370,10 +370,17 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     .map_err(|e| format!("check: {e}"))?;
     // the facts the exact tier needs: every served rule key's (record, key) not asked yet
     let mut missing_facts: BTreeMap<(usize, usize), BTreeSet<Vec<i32>>> = BTreeMap::new();
+    // records with ELIDED witness loci: rr_proof instantiate refuses them as a whole (fail closed, R-f): their keys
+    // get no fact job; the exact tier judges them from their bound per-key proofs and lists what stays unknown
+    let mut elided_no_facts = 0u64;
     if inp.exact_tier {
         for r in &res_k.rows {
             if let (RowStatus::Served, Some(Server::Rule { table, record })) = (r.status, &r.server)
             {
+                if set.rules[*table][*record].witness == WitnessKind::Elided {
+                    elided_no_facts += 1;
+                    continue;
+                }
                 let sha = &set.rules[*table][*record].record_sha256;
                 // a usable fact already bound (imported evidence or an earlier fact job) is never asked again
                 if !ev.has_lift(&set, *table, *record, &r.key)
@@ -579,7 +586,9 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             for fr in &res.fact_requests {
                 if let Some((t, r)) = set.rules.iter().enumerate().find_map(|(t, v)| {
                     v.iter()
-                        .position(|x| x.record_sha256 == fr.record_sha256)
+                        .position(|x| {
+                            x.record_sha256 == fr.record_sha256 && x.witness != WitnessKind::Elided
+                        })
                         .map(|r| (t, r))
                 }) {
                     for k in &fr.keys {
@@ -713,7 +722,8 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         "schema": CHECK_SCHEMA, "node": inp.node, "round": inp.round, "target": inp.target,
         "spec_digest": res.spec_digest, "key_set_digest": res.key_set_digest,
         "tier": format!("{:?}", res.tier), "exact_tier": {"wanted": inp.exact_tier, "reached": tier_c_now,
-            "facts_missing_keys": n_missing, "keys_only_closure": res_k.rows.len()},
+            "facts_missing_keys": n_missing, "keys_only_closure": res_k.rows.len(),
+            "facts_unavailable_elided_keys": elided_no_facts},
         "required_evidence": level_word,
         "keys": keys, "in_start": res.summary.keys_in_start, "served": served, "terminal": terminal, "open": open,
         "certified": certified, "defect": defect, "closed": closed,
