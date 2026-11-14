@@ -140,7 +140,10 @@ fn collide_like_two_i1_runs() {
         (codes, result(&reference_dir))
     }) {
         Ok((codes, r)) => {
-            eprintln!("ITEM0 reference codes {codes:?}, {} accepted", r.accepted.len());
+            eprintln!(
+                "ITEM0 reference codes {codes:?}, {} accepted",
+                r.accepted.len()
+            );
             r
         }
         Err(_) => {
@@ -149,8 +152,14 @@ fn collide_like_two_i1_runs() {
             return;
         }
     };
-    let first: u64 = std::env::var("RR_SUP_I1_FIRST").ok().and_then(|s| s.parse().ok()).unwrap_or(40);
-    let runs: u64 = std::env::var("RR_SUP_I1_RUNS").ok().and_then(|s| s.parse().ok()).unwrap_or(52);
+    let first: u64 = std::env::var("RR_SUP_I1_FIRST")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(40);
+    let runs: u64 = std::env::var("RR_SUP_I1_RUNS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(52);
     const KINDS: [&str; 4] = ["sigint", "sigint2", "sigterm", "sigkill"];
     for run in first..runs {
         let kind = (run % 4) as usize;
@@ -196,7 +205,11 @@ fn collide_like_two_i1_runs() {
             KINDS[kind],
             outcome.is_err(),
             got.as_ref()
-                .map(|g| reference.accepted.keys().filter(|k| !g.accepted.contains_key(*k)).count())
+                .map(|g| reference
+                    .accepted
+                    .keys()
+                    .filter(|k| !g.accepted.contains_key(*k))
+                    .count())
                 .unwrap_or(usize::MAX),
         );
         let _ = std::fs::remove_dir_all(&dir);

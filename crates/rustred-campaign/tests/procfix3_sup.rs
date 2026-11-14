@@ -40,8 +40,18 @@ fn unconfirmed_launch_with_a_valid_outcome_is_consumed_and_unspawned_is_requeued
     let reference = result(&r);
 
     let d = t.cdir("spawned");
-    let mut c = start(&spec_p, &d, &[], &[("RR_CAMPAIGN_FAILPOINT", "after_spawn:2")]);
-    assert_eq!(wait(&mut c, Duration::from_secs(300)), 134, "{}", log_tail(&d));
+    let mut c = start(
+        &spec_p,
+        &d,
+        &[],
+        &[("RR_CAMPAIGN_FAILPOINT", "after_spawn:2")],
+    );
+    assert_eq!(
+        wait(&mut c, Duration::from_secs(300)),
+        134,
+        "{}",
+        log_tail(&d)
+    );
     let unconfirmed = launching(&d);
     assert_eq!(unconfirmed.len(), 1, "{unconfirmed:?}");
     let run = std::path::PathBuf::from(
@@ -98,13 +108,15 @@ fn unconfirmed_launch_with_a_valid_outcome_is_consumed_and_unspawned_is_requeued
     assert_eq!(run_to_end(&spec_p, &d, &[]), vec![0], "{}", log_tail(&d));
     assert_eq!(result(&d), reference);
     assert!(notes(&d, "execution_unknown").is_empty());
-    assert!(count(&d, |e| matches!(
-        e,
-        Event::Job {
-            ev: JobEvent::Lose { reason },
-            ..
-        } if reason.contains("never attempted")
-    )) >= 1);
+    assert!(
+        count(&d, |e| matches!(
+            e,
+            Event::Job {
+                ev: JobEvent::Lose { reason },
+                ..
+            } if reason.contains("never attempted")
+        )) >= 1
+    );
     let f = ledger_facts(&d);
     assert_eq!(f.requeues, f.interrupted);
     assert_no_marked(&t.campaign);
@@ -124,12 +136,27 @@ fn unconfirmed_launch_without_outcome_waits_for_the_operator() {
     assert_eq!(run_to_end(&spec_p, &r, &[]), vec![0]);
     let reference = result(&r);
     let d = t.cdir("spawned");
-    let mut c = start(&spec_p, &d, &[], &[("RR_CAMPAIGN_FAILPOINT", "after_spawn:2")]);
-    assert_eq!(wait(&mut c, Duration::from_secs(300)), 134, "{}", log_tail(&d));
+    let mut c = start(
+        &spec_p,
+        &d,
+        &[],
+        &[("RR_CAMPAIGN_FAILPOINT", "after_spawn:2")],
+    );
+    assert_eq!(
+        wait(&mut c, Duration::from_secs(300)),
+        134,
+        "{}",
+        log_tail(&d)
+    );
     let unknown = launching(&d);
     assert_eq!(unknown.len(), 1, "{unknown:?}");
     let mut c = start(&spec_p, &d, &[], &[]);
-    assert_eq!(wait(&mut c, Duration::from_secs(600)), 8, "{}", log_tail(&d));
+    assert_eq!(
+        wait(&mut c, Duration::from_secs(600)),
+        8,
+        "{}",
+        log_tail(&d)
+    );
     assert_eq!(launching(&d), unknown, "never requeued automatically");
     assert!(
         notes(&d, "execution_unknown")
@@ -141,7 +168,10 @@ fn unconfirmed_launch_without_outcome_waits_for_the_operator() {
     let mut c = start(&spec_p, &d, &[], &[]);
     assert_eq!(wait(&mut c, Duration::from_secs(600)), 8);
     assert_eq!(launching(&d), unknown);
-    assert_eq!(cli(&["control", d.to_str().unwrap(), "resolve", "N9.nothing-t0"]).0, 0);
+    assert_eq!(
+        cli(&["control", d.to_str().unwrap(), "resolve", "N9.nothing-t0"]).0,
+        0
+    );
     let (code, _) = cli(&[
         "control",
         d.to_str().unwrap(),
@@ -246,7 +276,10 @@ fn marked_refork_chains_orphaned_by_a_crash_do_not_survive_the_restart() {
         .as_secs()
         + 600;
     let mut starters = Vec::new();
-    for (k, mode) in ["setsid", "setsid", "setsid", "setsid", "plain", "plain"].iter().enumerate() {
+    for (k, mode) in ["setsid", "setsid", "setsid", "setsid", "plain", "plain"]
+        .iter()
+        .enumerate()
+    {
         starters.push(
             std::process::Command::new(&relay)
                 .args([*mode, &deadline.to_string()])
@@ -267,19 +300,34 @@ fn marked_refork_chains_orphaned_by_a_crash_do_not_survive_the_restart() {
         .spawn()
         .unwrap();
     std::thread::sleep(Duration::from_secs(2));
-    assert!(marked(&t.campaign).len() >= 7, "chains running: {:?}", marked(&t.campaign));
+    assert!(
+        marked(&t.campaign).len() >= 7,
+        "chains running: {:?}",
+        marked(&t.campaign)
+    );
     signal(&c, libc::SIGKILL);
     assert_eq!(wait(&mut c, Duration::from_secs(60)), 137);
     std::thread::sleep(Duration::from_secs(1));
-    assert!(marked(&t.campaign).len() >= 7, "chains survive the crash: {:?}", marked(&t.campaign));
+    assert!(
+        marked(&t.campaign).len() >= 7,
+        "chains survive the crash: {:?}",
+        marked(&t.campaign)
+    );
     let codes = run_to_end(&spec_p, &d, &[]);
     assert_eq!(codes.last(), Some(&0), "{}", log_tail(&d));
     let left: Vec<u32> = marked(&t.campaign)
         .into_iter()
         .filter(|&p| p != outside.id())
         .collect();
-    assert!(left.is_empty(), "marked chain members alive after FINISHED: {left:?}\n{}", log_tail(&d));
-    assert!(outside.try_wait().unwrap().is_none(), "the cwd-outside process is never signalled");
+    assert!(
+        left.is_empty(),
+        "marked chain members alive after FINISHED: {left:?}\n{}",
+        log_tail(&d)
+    );
+    assert!(
+        outside.try_wait().unwrap().is_none(),
+        "the cwd-outside process is never signalled"
+    );
     assert!(
         notes(&d, "marked_survivor")
             .iter()

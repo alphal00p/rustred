@@ -22,12 +22,12 @@
 //!
 //! Every signal goes through `guard` (identity checklist, pidfd delivery, leader-registry group fast path).
 
+use super::cgroup::ScopeRef;
 use super::guard::{
     self, DEFAULT_VERIFY_TIMEOUT, ProcessTarget, Proof, StartRule, signal_pinned_group,
 };
 use super::hunt::{self, HuntResult, HuntSpec};
 use super::idlock::{self, IdLock, IdLockError};
-use super::cgroup::ScopeRef;
 use super::{
     CapRequest, CgroupRoot, ChildHandle, ChildLauncher, ChildProgress, Enumeration, ExitState,
     FinalReport, JobCgroup, KillReason, LaunchError, LaunchSpec, LeftoverRecord, LostReason,

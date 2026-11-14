@@ -19,7 +19,11 @@ use std::path::Path;
 use std::time::Duration;
 
 fn require_namespace() {
-    assert_eq!(std::process::id(), 1, "run as pid 1 of a private pid namespace");
+    assert_eq!(
+        std::process::id(),
+        1,
+        "run as pid 1 of a private pid namespace"
+    );
 }
 
 fn launcher_ns() -> RealLauncher {
@@ -46,14 +50,14 @@ fn marker_of(pid: u32) -> Option<String> {
     let b = fs::read(format!("/proc/{pid}/environ")).ok()?;
     b.split(|&c| c == 0)
         .filter_map(|e| std::str::from_utf8(e).ok())
-        .find_map(|e| e.strip_prefix(&format!("{MARKER_VAR}=")).map(str::to_string))
+        .find_map(|e| {
+            e.strip_prefix(&format!("{MARKER_VAR}="))
+                .map(str::to_string)
+        })
 }
 
 fn live(pid: u32) -> bool {
-    read_stat(pid)
-        .ok()
-        .flatten()
-        .is_some_and(|s| !s.is_dead())
+    read_stat(pid).ok().flatten().is_some_and(|s| !s.is_dead())
 }
 
 fn kill_own(pid: u32) {
@@ -100,13 +104,19 @@ fn run_variant(name: &str, exec_env: &str, cd: &str) {
         "{name}: {:?}",
         r.verification
     );
-    assert!(!b_alive, "{name}: the MARKED process {b} survived a Verified end");
+    assert!(
+        !b_alive,
+        "{name}: the MARKED process {b} survived a Verified end"
+    );
     assert!(
         r.leftovers_killed.iter().any(|k| k.pid == b),
         "{name}: B {b} must be reported killed: {:?}",
         r.leftovers_killed
     );
-    assert!(a_alive, "{name}: the marker-less process {a} is never signalled");
+    assert!(
+        a_alive,
+        "{name}: the marker-less process {a} is never signalled"
+    );
     assert!(
         r.unattributed_children.iter().any(|u| u.pid == a),
         "{name}: A {a} reported unattributed"
@@ -148,7 +158,10 @@ fn m5_extended_tripwire_reap_stop_spawn_forms_only_where_allowed() {
         ("cgroup.freeze", &["launch/cgroup.rs"]),
         ("cgroup.kill", &["launch/cgroup.rs"]),
         ("raise(", &[]),
-        ("PR_SET_PDEATHSIG", &["launch/real.rs", "bin/rr_fake_child.rs"]),
+        (
+            "PR_SET_PDEATHSIG",
+            &["launch/real.rs", "bin/rr_fake_child.rs"],
+        ),
         ("Command::new(", &["launch/real.rs", "cli/mod.rs"]),
         ("rustix::", &[]),
         ("SIG_IGN", &["launch/guard.rs", "bin/rr_fake_child.rs"]),
@@ -188,15 +201,23 @@ fn m5_extended_tripwire_reap_stop_spawn_forms_only_where_allowed() {
             }
             // `nix::` as a path start (not `unix::`).
             if code.match_indices("nix::").any(|(k, _)| {
-                k == 0 || !code[..k].chars().last().is_some_and(|c| c.is_alphanumeric() || c == '_')
+                k == 0
+                    || !code[..k]
+                        .chars()
+                        .last()
+                        .is_some_and(|c| c.is_alphanumeric() || c == '_')
             }) {
                 hits.push(format!("{rel}:{}: [nix::] {}", i + 1, line.trim()));
             }
         }
     }
-    assert!(hits.is_empty(), "forms outside their allowed files: {hits:#?}");
+    assert!(
+        hits.is_empty(),
+        "forms outside their allowed files: {hits:#?}"
+    );
     // Self-test: a planted snippet is caught.
-    let planted = "fn f() { let _ = std::process::Command::new(p).status(); unsafe { libc::raise(9) }; }";
+    let planted =
+        "fn f() { let _ = std::process::Command::new(p).status(); unsafe { libc::raise(9) }; }";
     assert!(allowed.iter().filter(|(p, _)| planted.contains(p)).count() >= 3);
 }
 
@@ -227,26 +248,42 @@ fn sweep_kills_only_marked_members_and_never_a_decoy() {
     // An OLD process with the exact marker (started before the bound below).
     let mut old = spawn(&[(MARKER_VAR, format!("{id}:job-t0:a1"))], "exec sleep 600");
     std::thread::sleep(Duration::from_millis(50));
-    let bound = read_stat(std::process::id()).unwrap().unwrap().start_ticks.max(
-        read_stat(old.id()).unwrap().unwrap().start_ticks + 1,
-    );
+    let bound = read_stat(std::process::id())
+        .unwrap()
+        .unwrap()
+        .start_ticks
+        .max(read_stat(old.id()).unwrap().unwrap().start_ticks + 1);
     std::thread::sleep(Duration::from_millis(30));
     let mut decoys = vec![
         spawn(&[], "exec sleep 600"),
-        spawn(&[(MARKER_VAR, "other.0123456789abcdef:job-t0:a1".into())], "exec sleep 600"),
-        spawn(&[(MARKER_VAR, format!("{id}0:job-t0:a1"))], "exec sleep 600"),
-        spawn(&[(MARKER_VAR, format!("x{id}:job-t0:a1"))], "exec sleep 600"),
-        spawn(&[(MARKER_VAR, id.to_uppercase() + ":job-t0:a1")], "exec sleep 600"),
-        spawn(&[("FOO", format!("{MARKER_VAR}={id}:job-t0:a1"))], "exec sleep 600"),
-        spawn(&[(&format!("X{MARKER_VAR}"), format!("{id}:job-t0:a1"))], "exec sleep 600"),
+        spawn(
+            &[(MARKER_VAR, "other.0123456789abcdef:job-t0:a1".into())],
+            "exec sleep 600",
+        ),
+        spawn(
+            &[(MARKER_VAR, format!("{id}0:job-t0:a1"))],
+            "exec sleep 600",
+        ),
+        spawn(
+            &[(MARKER_VAR, format!("x{id}:job-t0:a1"))],
+            "exec sleep 600",
+        ),
+        spawn(
+            &[(MARKER_VAR, id.to_uppercase() + ":job-t0:a1")],
+            "exec sleep 600",
+        ),
+        spawn(
+            &[("FOO", format!("{MARKER_VAR}={id}:job-t0:a1"))],
+            "exec sleep 600",
+        ),
+        spawn(
+            &[(&format!("X{MARKER_VAR}"), format!("{id}:job-t0:a1"))],
+            "exec sleep 600",
+        ),
     ];
     // True members: plain sleepers, a setsid'd one, and a marked re-fork chain (new session per hop).
     let relay = d.path().join("relay.sh");
-    fs::write(
-        &relay,
-        "#!/bin/sh\nsleep 0.1\nsetsid \"$0\" &\nexit 0\n",
-    )
-    .unwrap();
+    fs::write(&relay, "#!/bin/sh\nsleep 0.1\nsetsid \"$0\" &\nexit 0\n").unwrap();
     {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&relay, fs::Permissions::from_mode(0o755)).unwrap();
@@ -255,7 +292,10 @@ fn sweep_kills_only_marked_members_and_never_a_decoy() {
     let mut members = vec![
         spawn(&m("job-t0:a1"), "exec sleep 600"),
         spawn(&m("job-t1:a2"), "setsid sleep 600 & exec sleep 600"),
-        spawn(&m("job-t2:a1"), &format!("{} & exec sleep 600", relay.display())),
+        spawn(
+            &m("job-t2:a1"),
+            &format!("{} & exec sleep 600", relay.display()),
+        ),
     ];
     // A member the narrowing refuses (cwd /).
     let mut refused = {
@@ -287,9 +327,19 @@ fn sweep_kills_only_marked_members_and_never_a_decoy() {
         },
         &AtomicBool::new(false),
     );
-    println!("PF3 sweep: proven={} reason={:?} killed={} left={:?}", r.proven, r.reason, r.killed.len(), r.left);
+    println!(
+        "PF3 sweep: proven={} reason={:?} killed={} left={:?}",
+        r.proven,
+        r.reason,
+        r.killed.len(),
+        r.left
+    );
     assert!(r.proven, "{r:?}");
-    assert!(r.killed.len() >= 5, "members, the setsid'd sleeper, chain hops: {}", r.killed.len());
+    assert!(
+        r.killed.len() >= 5,
+        "members, the setsid'd sleeper, chain hops: {}",
+        r.killed.len()
+    );
     assert_eq!(r.left.len(), 1, "{:?}", r.left);
     assert_eq!(r.left[0].process.pid, refused.id());
     // No live process of ours carries a marker of the campaign any more, except the refused one and the old one.
@@ -303,12 +353,25 @@ fn sweep_kills_only_marked_members_and_never_a_decoy() {
     expect.sort_unstable();
     let mut got = marked_now.clone();
     got.sort_unstable();
-    assert_eq!(got, expect, "only the refused and the too-old marked processes are left");
+    assert_eq!(
+        got, expect,
+        "only the refused and the too-old marked processes are left"
+    );
     for dcy in &mut decoys {
-        assert!(dcy.try_wait().unwrap().is_none(), "decoy {} was signalled", dcy.id());
+        assert!(
+            dcy.try_wait().unwrap().is_none(),
+            "decoy {} was signalled",
+            dcy.id()
+        );
     }
-    assert!(old.try_wait().unwrap().is_none(), "the process older than the bound was signalled");
-    assert!(refused.try_wait().unwrap().is_none(), "the refused process was signalled");
+    assert!(
+        old.try_wait().unwrap().is_none(),
+        "the process older than the bound was signalled"
+    );
+    assert!(
+        refused.try_wait().unwrap().is_none(),
+        "the refused process was signalled"
+    );
     for c in decoys.iter_mut().chain(members.iter_mut()) {
         kill_own(c.id());
         let _ = c.wait();

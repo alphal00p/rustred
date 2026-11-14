@@ -75,10 +75,16 @@ fn emfile_at_launch_backs_off_and_stops_with_the_resource_code() {
         "a bounded number of launch attempts, not a live-lock: {launches}"
     );
     let st = state(&d);
-    assert!(st.jobs.len() <= 2, "no new job id per failure: {:?}", st.jobs.keys());
+    assert!(
+        st.jobs.len() <= 2,
+        "no new job id per failure: {:?}",
+        st.jobs.keys()
+    );
     assert_eq!(notes(&d, "supervisor_resource_error").len(), 1, "one note");
     assert!(
-        st.recent.iter().any(|r| r.text.contains("launch failures in a row")),
+        st.recent
+            .iter()
+            .any(|r| r.text.contains("launch failures in a row")),
         "the reason is in the ledger's events (dashboard): {:?}",
         st.recent
     );
@@ -105,7 +111,8 @@ impl Pty {
             ws_ypixel: 0,
         };
         // SAFETY: valid out-pointers and winsize; name and termios may be null.
-        let r = unsafe { libc::openpty(&mut m, &mut s, std::ptr::null_mut(), std::ptr::null(), &ws) };
+        let r =
+            unsafe { libc::openpty(&mut m, &mut s, std::ptr::null_mut(), std::ptr::null(), &ws) };
         assert_eq!(r, 0);
         // Close-on-exec: the child must NOT inherit the master (else the terminal never hangs up when we close ours).
         for fd in [m, s] {
@@ -169,7 +176,11 @@ fn lost_terminal_does_not_spin_and_the_campaign_ends_cleanly() {
     let _g = serial();
     let t = Tmp::new("pty");
     let syn = serde_json::json!({"items": 8, "case_ms": [600, 1200], "seed": 3});
-    let spec_p = write_spec(&t, "spec.json", &spec(&t, syn, serde_json::json!({"max_jobs": 4})));
+    let spec_p = write_spec(
+        &t,
+        "spec.json",
+        &spec(&t, syn, serde_json::json!({"max_jobs": 4})),
+    );
     let d = t.cdir("run");
     let pty = Pty::open();
     let s = Pty::raw(&pty.slave);
@@ -210,7 +221,12 @@ fn lost_terminal_does_not_spin_and_the_campaign_ends_cleanly() {
         "the supervisor spins after the terminal vanished: {} ticks in 3 s",
         after - before
     );
-    assert_eq!(code, 0, "{}", std::fs::read_to_string(d.join("log/supervisor.log")).unwrap_or_default());
+    assert_eq!(
+        code,
+        0,
+        "{}",
+        std::fs::read_to_string(d.join("log/supervisor.log")).unwrap_or_default()
+    );
     assert_eq!(verify(&d), 0);
     assert_no_marked(&t.campaign);
 }

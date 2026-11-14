@@ -808,7 +808,9 @@ impl Hunt<'_> {
             if visited.len() > 65_536 {
                 return Err("more than 65,536 processes below marker-less job processes".into());
             }
-            let Some(kids) = children_of(n)? else { continue };
+            let Some(kids) = children_of(n)? else {
+                continue;
+            };
             for c in kids {
                 match self.classify(c, Some(n)).0 {
                     Class::Ours(_, f) => survivors.push(record(&f)),

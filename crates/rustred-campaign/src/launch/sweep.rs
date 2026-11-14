@@ -25,8 +25,7 @@
 use super::guard::{self, ProcessTarget, Proof, StartRule, Verdict};
 use crate::resources::{
     CampaignMarker, FactRead, MarkedProcess, MarkerRead, boot_id, children_of, our_uid,
-    owner_uid_at, read_marker_inline, read_proc_facts, read_stat, request_reap,
-    scan_marked_inline,
+    owner_uid_at, read_marker_inline, read_proc_facts, read_stat, request_reap, scan_marked_inline,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;

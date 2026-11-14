@@ -464,7 +464,10 @@ fn settle_reread(layout: &RunLayout) -> (Vec<String>, Option<String>) {
 /// line; any mismatch = FinishClass::Crashed, nothing accepted); run the attempt's marker sweep before `settle`.
 /// The supervisor's settle read since procfix3 (supervisor/mod.rs `read_verified_table`): exactly these two calls on
 /// the stream `assess` verified. Some(lines, canonical digest) only for the verified bytes; None = nothing accepted.
-fn settle_read_bound(layout: &RunLayout, v: &seal::VerifiedStream) -> Option<(Vec<String>, String)> {
+fn settle_read_bound(
+    layout: &RunLayout,
+    v: &seal::VerifiedStream,
+) -> Option<(Vec<String>, String)> {
     let h = seal::VerifiedHandle::reopen(&layout.root, v).ok()?;
     let lines = h.canonical_lines().ok()?;
     let mut d = CanonicalDigest::new();
@@ -504,13 +507,20 @@ fn ac2_toctou_settle_reread_is_not_bound_to_the_verified_stream() {
         "(b) appended garbage: old re-read digest == verified: {}",
         canon_b.as_deref() == Some(verified.canonical_blake3.as_str())
     );
-    assert_eq!(settle_read_bound(&run.layout, &verified), None, "(b) appended bytes accepted");
+    assert_eq!(
+        settle_read_bound(&run.layout, &verified),
+        None,
+        "(b) appended bytes accepted"
+    );
     // (a) the table replaced (atomic rename) by another sealed table with different rules
     let other = new_run("toctou-other", 1);
     let _ = write_table(&other, 2, "end");
     std::fs::rename(other.layout.table(), run.layout.table()).unwrap();
     let (lines_a, _) = settle_reread(&run.layout);
-    eprintln!("(a) replaced table: old re-read accepted {} lines", lines_a.len());
+    eprintln!(
+        "(a) replaced table: old re-read accepted {} lines",
+        lines_a.len()
+    );
     match settle_read_bound(&run.layout, &verified) {
         None => {}
         Some((_, d)) => assert_eq!(
@@ -518,7 +528,11 @@ fn ac2_toctou_settle_reread_is_not_bound_to_the_verified_stream() {
             "the supervisor accepts records from bytes it never verified"
         ),
     }
-    assert_eq!(settle_read_bound(&run.layout, &verified), None, "(a) replaced table accepted");
+    assert_eq!(
+        settle_read_bound(&run.layout, &verified),
+        None,
+        "(a) replaced table accepted"
+    );
 }
 
 // ------------------------------------------------------------------------------------------------ RESUME

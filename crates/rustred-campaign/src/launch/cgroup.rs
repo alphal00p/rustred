@@ -413,7 +413,10 @@ impl ScopeRef {
     pub(crate) fn from_leader_cgroup(text: &str, sid: u32, uid: u32) -> Option<ScopeRef> {
         let rel = text.lines().find_map(|l| l.strip_prefix("0::"))?.trim();
         let rel = rel.strip_prefix('/')?;
-        if rel.split('/').any(|c| c.is_empty() || c == "." || c == "..") {
+        if rel
+            .split('/')
+            .any(|c| c.is_empty() || c == "." || c == "..")
+        {
             return None;
         }
         let dir = Path::new("/sys/fs/cgroup").join(rel);
@@ -499,7 +502,9 @@ mod tests {
             assert_eq!(ScopeRef::from_leader_cgroup(bad, 77, uid), None, "{bad}");
         }
         // The name rule itself (directory check aside).
-        let dir = Path::new("/sys/fs/cgroup/user.slice/user-4242.slice/user@4242.service/app.slice/run-p77-i9.scope");
+        let dir = Path::new(
+            "/sys/fs/cgroup/user.slice/user-4242.slice/user@4242.service/app.slice/run-p77-i9.scope",
+        );
         assert!(dir.starts_with(user_manager_root(uid)));
     }
 

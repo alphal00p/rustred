@@ -235,7 +235,11 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
         let mut log = crate::supervisor::Log::open(&cdir);
         log.line_file_only(
             "WARN",
-            &format!("terminal lost or blocked: final summary only here ({:?}, exit {})", r, r.code()),
+            &format!(
+                "terminal lost or blocked: final summary only here ({:?}, exit {})",
+                r,
+                r.code()
+            ),
         );
         return r.code();
     }
@@ -731,7 +735,10 @@ fn cmd_verify(rest: &[String]) -> i32 {
             for d in &r.differences {
                 outln!(
                     "  {} {}: expected {} found {}",
-                    d.file, d.path, d.expected, d.found
+                    d.file,
+                    d.path,
+                    d.expected,
+                    d.found
                 );
             }
             // gate-B m2: every reason of a non-zero exit is printed (not only differences).
@@ -739,7 +746,10 @@ fn cmd_verify(rest: &[String]) -> i32 {
                 outln!("  missing progress file: {m}");
             }
             for (f, seq) in &r.stale {
-                outln!("  stale progress file: {f} states seq {seq}, the ledger is at {}", r.records);
+                outln!(
+                    "  stale progress file: {f} states seq {seq}, the ledger is at {}",
+                    r.records
+                );
             }
             if r.snapshot_matches == Some(false) {
                 outln!("  the latest snapshot does not match the replayed ledger");

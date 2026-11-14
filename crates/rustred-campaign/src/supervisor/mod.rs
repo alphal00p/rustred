@@ -972,8 +972,11 @@ impl Supervisor {
                 "recovery_sweep_unproven {{\"reason\":{r:?}}} (attempts are settled from their files; the periodic sweep continues)"
             ));
         }
-        let survivors: BTreeSet<String> =
-            report.left.iter().map(|l| l.process.attempt_id.clone()).collect();
+        let survivors: BTreeSet<String> = report
+            .left
+            .iter()
+            .map(|l| l.process.attempt_id.clone())
+            .collect();
         for (job, attempt, launching) in unsettled {
             if self.moved {
                 // Copied / moved directory: the recorded attempt's process (if any) belongs to the ORIGINAL directory.
@@ -1021,7 +1024,14 @@ impl Supervisor {
                 .get(&job)
                 .and_then(|j| j.attempt_spec.clone());
             if launching {
-                self.recover_unconfirmed(&job, attempt, &run_dir, &layout, launched.as_deref(), was_killed);
+                self.recover_unconfirmed(
+                    &job,
+                    attempt,
+                    &run_dir,
+                    &layout,
+                    launched.as_deref(),
+                    was_killed,
+                );
                 continue;
             }
             match read_spec(&layout, launched.as_deref()) {
@@ -1111,7 +1121,11 @@ impl Supervisor {
         let (spec, digest) = match self.authenticate_run(job, attempt, run_dir, layout, launched) {
             Ok(x) => x,
             Err(why) => {
-                self.execution_unknown(job, attempt, &format!("run directory not authenticated: {why}"));
+                self.execution_unknown(
+                    job,
+                    attempt,
+                    &format!("run directory not authenticated: {why}"),
+                );
                 return;
             }
         };
@@ -1142,7 +1156,11 @@ impl Supervisor {
             attempt,
             &format!(
                 "spawned (RUN/sup/SPAWN present){}, {why}",
-                if was_killed { ", a live process of it was killed by the recovery sweep" } else { "" }
+                if was_killed {
+                    ", a live process of it was killed by the recovery sweep"
+                } else {
+                    ""
+                }
             ),
         );
     }
@@ -1157,12 +1175,17 @@ impl Supervisor {
     ) -> Result<(JobSpec, String), String> {
         let expected = attempt_dir(&self.work_root, job, attempt);
         if Path::new(run_dir) != expected {
-            return Err(format!("launch record names {run_dir}, the layout path is {}", expected.display()));
+            return Err(format!(
+                "launch record names {run_dir}, the layout path is {}",
+                expected.display()
+            ));
         }
         let id = std::fs::read_to_string(layout.sup_dir().join(CAMPAIGN_ID_FILE))
             .map_err(|e| format!("RUN/sup/{CAMPAIGN_ID_FILE}: {e}"))?;
         if id.trim() != self.ctx.campaign_key {
-            return Err(format!("RUN/sup/{CAMPAIGN_ID_FILE} names another campaign id"));
+            return Err(format!(
+                "RUN/sup/{CAMPAIGN_ID_FILE} names another campaign id"
+            ));
         }
         let (spec, digest) = read_spec(layout, launched)
             .ok_or("job.json does not have the digest of its launch record")?;
@@ -1397,7 +1420,9 @@ impl Supervisor {
                 }
                 Err(why) => self.log.line(
                     "ERROR",
-                    &format!("{job} a{attempt}: sealed table not accepted: {why}; nothing accepted"),
+                    &format!(
+                        "{job} a{attempt}: sealed table not accepted: {why}; nothing accepted"
+                    ),
                 ),
             }
         }
@@ -1415,10 +1440,17 @@ impl Supervisor {
         let mut settled = settled;
         let routing = if !sealed_ok {
             Err("sealed table unreadable".into())
-        } else if let Some(r) = row3_routing(self.source.as_mut(), self.ledger.state(), &self.ctx, &mut settled) {
+        } else if let Some(r) = row3_routing(
+            self.source.as_mut(),
+            self.ledger.state(),
+            &self.ctx,
+            &mut settled,
+        ) {
             self.log.line(
                 "INFO",
-                &format!("{job} a{attempt}: row 3 claims confirmed by the work source's coverage check"),
+                &format!(
+                    "{job} a{attempt}: row 3 claims confirmed by the work source's coverage check"
+                ),
             );
             Ok(r)
         } else {
@@ -1664,7 +1696,11 @@ impl Supervisor {
         self.fp.hit("after_launch_record");
         // The spawn sentinel (requirement 05:23Z): durable BEFORE the spawn, so that its absence proves "never spawned".
         if let Err(e) = write_spawn_sentinel(&RunLayout::new(&run_dir)) {
-            self.commit(not_an_attempt(&req.job, attempt, &format!("spawn sentinel not written: {e}")));
+            self.commit(not_an_attempt(
+                &req.job,
+                attempt,
+                &format!("spawn sentinel not written: {e}"),
+            ));
             if let Some(c) = io_resource_errno(&e) {
                 self.resource_failure(c, &format!("writing RUN/sup/{SPAWN_SENTINEL}: {e}"));
             }
@@ -1679,7 +1715,10 @@ impl Supervisor {
                 self.commit(not_an_attempt(
                     &req.job,
                     attempt,
-                    &format!("supervisor resource error at launch ({}): {e}", errno_name(c)),
+                    &format!(
+                        "supervisor resource error at launch ({}): {e}",
+                        errno_name(c)
+                    ),
                 ));
                 self.resource_failure(c, &format!("launch of {}: {e}", req.job));
                 return Err(format!("launch: {e}"));
@@ -2015,7 +2054,12 @@ impl Supervisor {
                     self.periodic = None;
                     if let Ok(r) = r {
                         for k in &r.killed {
-                            self.orphan_killed(&k.attempt_id, k.pid, k.start_ticks, "periodic sweep");
+                            self.orphan_killed(
+                                &k.attempt_id,
+                                k.pid,
+                                k.start_ticks,
+                                "periodic sweep",
+                            );
                         }
                         self.note_survivors(&r, "periodic sweep");
                     }
@@ -2026,7 +2070,10 @@ impl Supervisor {
             return;
         }
         self.last_periodic = Instant::now();
-        let Some(min) = self.campaign_min_ticks.or_else(|| Some(orphans::own_start_ticks())) else {
+        let Some(min) = self
+            .campaign_min_ticks
+            .or_else(|| Some(orphans::own_start_ticks()))
+        else {
             return;
         };
         let Some(snap) = self.sampler.latest() else {
@@ -2068,7 +2115,8 @@ impl Supervisor {
         }
         self.note_survivors(&r, "final sweep");
         if let Some(why) = &r.reason {
-            self.log.line("WARN", &format!("final marker sweep not proven: {why}"));
+            self.log
+                .line("WARN", &format!("final marker sweep not proven: {why}"));
         }
     }
 
@@ -2130,7 +2178,10 @@ impl Supervisor {
             .collect();
         // gate-B m1: in the order of the CLI's sequence number (then the name); files without one first, by name.
         files.sort_by_key(|p| {
-            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
             (control_seq_of(&name), name)
         });
         for p in files {
@@ -2198,8 +2249,10 @@ impl Supervisor {
         ));
         if self.commit(ev) {
             self.unknown.remove(&target);
-            self.log
-                .line("INFO", &format!("control {}: {target} a{attempt} resolved: requeued", r.id));
+            self.log.line(
+                "INFO",
+                &format!("control {}: {target} a{attempt} resolved: requeued", r.id),
+            );
         }
     }
 
@@ -2384,7 +2437,9 @@ impl Supervisor {
             ));
         }
         if disk != live {
-            return Err("the ledger on disk reduces to another final result than the live state".into());
+            return Err(
+                "the ledger on disk reduces to another final result than the live state".into(),
+            );
         }
         for (item, it) in &view.state.items {
             if let Some(a) = &it.accepted
@@ -2394,8 +2449,15 @@ impl Supervisor {
                 let p = self.cdir.join(&a.record.path);
                 match crate::atomic::blake3_file(&p) {
                     Ok((bytes, d)) if bytes == a.record.bytes && d == a.record.blake3 => {}
-                    Ok(_) => return Err(format!("accepted record of {item} ({}) changed", p.display())),
-                    Err(e) => return Err(format!("accepted record of {item} ({}): {e}", p.display())),
+                    Ok(_) => {
+                        return Err(format!(
+                            "accepted record of {item} ({}) changed",
+                            p.display()
+                        ));
+                    }
+                    Err(e) => {
+                        return Err(format!("accepted record of {item} ({}): {e}", p.display()));
+                    }
                 }
             }
         }
@@ -2443,9 +2505,8 @@ impl Supervisor {
             && Instant::now() < t
         {
             b.reasons.push(format!(
-                "supervisor resource back-off after {} failure(s) ({} s left)",
-                self.resource_failures,
-                t.saturating_duration_since(Instant::now()).as_secs() + 1
+                "supervisor resource back-off after {} failure(s)",
+                self.resource_failures
             ));
         }
         if self.st().paused {
@@ -2853,9 +2914,8 @@ impl Supervisor {
             // 7. exit conditions
             if self.children.is_empty() && level > StopLevel::Running {
                 // Draining: attempts still waiting for a proof stay unsettled (the restart's recovery settles them).
-                self.pending.retain(|p| {
-                    !p.awaiting_proof || p.sweep.is_some()
-                });
+                self.pending
+                    .retain(|p| !p.awaiting_proof || p.sweep.is_some());
             }
             if self.children.is_empty() && self.pending.is_empty() {
                 if level > StopLevel::Running {
@@ -2893,7 +2953,9 @@ impl Supervisor {
                 if level == StopLevel::Running
                     && !self.unknown.is_empty()
                     && self.last_ready == 0
-                    && self.resource_backoff_until.is_none_or(|t| Instant::now() >= t)
+                    && self
+                        .resource_backoff_until
+                        .is_none_or(|t| Instant::now() >= t)
                 {
                     let jobs: Vec<String> = self
                         .unknown
@@ -2989,38 +3051,31 @@ pub fn control_seq_of(name: &str) -> u64 {
         .unwrap_or(0)
 }
 
-/// The next control request sequence number of `CDIR/control` (gate-B m1): a counter file `control/SEQ` read and
-/// rewritten under an exclusive flock of `control/SEQ.lock`, so two `rr_campaign control` processes in the same second
-/// get distinct, ordered numbers. Never touches the campaign lock or the ledger.
+/// The next control request sequence number of `CDIR/control` (gate-B m1), WITHOUT any lock (a control command takes
+/// no flock: gate-B's read-only rule): the number is claimed by creating `control/seq/<n>` with O_EXCL, starting after the
+/// largest claimed number; two concurrent writers get distinct numbers in the order of their claims.
 pub fn next_control_seq(control_dir: &Path) -> Result<u64, String> {
-    use std::io::{Read, Seek};
-    use std::os::fd::AsRawFd;
-    let lock = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(control_dir.join("SEQ.lock"))
-        .map_err(|e| format!("control/SEQ.lock: {e}"))?;
-    // SAFETY: flock on our own open descriptor; released when `lock` is closed.
-    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } != 0 {
-        return Err(format!("flock control/SEQ.lock: {}", std::io::Error::last_os_error()));
+    let dir = control_dir.join("seq");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("control/seq: {e}"))?;
+    let mut n = std::fs::read_dir(&dir)
+        .map_err(|e| format!("control/seq: {e}"))?
+        .flatten()
+        .filter_map(|e| e.file_name().to_str().and_then(|s| s.parse::<u64>().ok()))
+        .max()
+        .unwrap_or(0);
+    for _ in 0..10_000 {
+        n += 1;
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(dir.join(n.to_string()))
+        {
+            Ok(_) => return Ok(n),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("control/seq/{n}: {e}")),
+        }
     }
-    let mut f = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(control_dir.join("SEQ"))
-        .map_err(|e| format!("control/SEQ: {e}"))?;
-    let mut text = String::new();
-    f.read_to_string(&mut text).map_err(|e| format!("control/SEQ: {e}"))?;
-    let next = text.trim().parse::<u64>().unwrap_or(0) + 1;
-    f.set_len(0).map_err(|e| format!("control/SEQ: {e}"))?;
-    f.rewind().map_err(|e| format!("control/SEQ: {e}"))?;
-    f.write_all(format!("{next}\n").as_bytes())
-        .map_err(|e| format!("control/SEQ: {e}"))?;
-    f.sync_all().map_err(|e| format!("control/SEQ: {e}"))?;
-    Ok(next)
+    Err("control/seq: no free number after 10,000 tries".into())
 }
 
 /// The attempt's spec and the digest its LAUNCH RECORD names (`job.launch.spec_blake3`, fsynced before the spawn):
@@ -3170,7 +3225,8 @@ fn read_bound_outcome(
     let (mut f, _, _) = rustred_campaign_contract::seal::open_in_run(&layout.root, rel)
         .map_err(|e| format!("open {rel}: {e:?}"))?;
     let mut b = Vec::new();
-    f.read_to_end(&mut b).map_err(|e| format!("read {rel}: {e}"))?;
+    f.read_to_end(&mut b)
+        .map_err(|e| format!("read {rel}: {e}"))?;
     let o = rustred_campaign_contract::outcome::Outcome::from_slice(&b)?;
     if o.job != *verified {
         return Err("its content is not the classified OUTCOME".into());
@@ -3230,7 +3286,8 @@ mod tests {
 
     fn sealed_table(l: &RunLayout, n: u64) {
         let mut w = RecordWriter::create(&l.table()).unwrap();
-        w.append(br#"{"type":"header","zero_seconds":0.25}"#).unwrap();
+        w.append(br#"{"type":"header","zero_seconds":0.25}"#)
+            .unwrap();
         for i in 0..n {
             w.append(
                 format!(r#"{{"type":"rule","chart":"11","index":{i},"case":"c{i}","target":"I({i})","rhs":[["I(0)","-1/2"]]}}"#)
@@ -3268,12 +3325,19 @@ mod tests {
         let t = read_verified_table(&l, Some(&v)).unwrap();
         assert_eq!(t.lines.len(), 5);
         assert_eq!(t.canonical, v.streams[0].canonical_blake3);
-        assert_eq!((t.bytes, t.blake3.as_str()), (v.streams[0].bytes, v.streams[0].blake3.as_str()));
+        assert_eq!(
+            (t.bytes, t.blake3.as_str()),
+            (v.streams[0].bytes, v.streams[0].blake3.as_str())
+        );
         // (b) garbage appended after the classification
         {
             use std::io::Write;
-            let mut f = std::fs::OpenOptions::new().append(true).open(l.table()).unwrap();
-            f.write_all(b"{\"type\":\"rule\",\"index\":99} trailing garbage\n").unwrap();
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(l.table())
+                .unwrap();
+            f.write_all(b"{\"type\":\"rule\",\"index\":99} trailing garbage\n")
+                .unwrap();
         }
         assert!(read_verified_table(&l, Some(&v)).is_err());
         // (a) replaced by another sealed table (rename: another inode)
@@ -3290,13 +3354,22 @@ mod tests {
 
     struct Confirming;
     impl WorkSource for Confirming {
-        fn bootstrap(&mut self, _: &CampaignState, _: &SourceContext) -> Result<Vec<Event>, String> {
+        fn bootstrap(
+            &mut self,
+            _: &CampaignState,
+            _: &SourceContext,
+        ) -> Result<Vec<Event>, String> {
             Ok(vec![])
         }
         fn ready(&mut self, _: &CampaignState, _: &SourceContext, _: usize) -> Vec<JobRequest> {
             vec![]
         }
-        fn route(&mut self, _: &CampaignState, _: &SourceContext, _: &Settled) -> Result<worksource::Routing, String> {
+        fn route(
+            &mut self,
+            _: &CampaignState,
+            _: &SourceContext,
+            _: &Settled,
+        ) -> Result<worksource::Routing, String> {
             Err("route must not be called for a confirmed row 3".into())
         }
         fn control(&mut self, _: &CampaignState, _: &str, _: &str) -> Result<Vec<Event>, String> {
@@ -3358,7 +3431,10 @@ mod tests {
         let mut s = row3_settled();
         let r = row3_routing(&mut Confirming, &st, &ctx, &mut s).expect("confirmed");
         assert_eq!(r.events.len(), 1);
-        assert_eq!(s.classification.action, classify::Action::ConfirmCoverageElseNextRung);
+        assert_eq!(
+            s.classification.action,
+            classify::Action::ConfirmCoverageElseNextRung
+        );
         let mut synthetic = ScriptedWorkSource::new(
             serde_json::from_value(serde_json::json!({"items": 4, "seed": 1})).unwrap(),
         );
@@ -3379,7 +3455,10 @@ mod tests {
         let a = next_control_seq(&d).unwrap();
         let b = next_control_seq(&d).unwrap();
         assert_eq!(b, a + 1);
-        assert_eq!(control_seq_of(&format!("c-{b:012}-20261114T000000Z-ab.json")), b);
+        assert_eq!(
+            control_seq_of(&format!("c-{b:012}-20261114T000000Z-ab.json")),
+            b
+        );
         assert_eq!(control_seq_of("c-20261114T000000Z-ab.json"), 0);
         let mut names = vec![
             format!("c-{b:012}-20261114T000000Z-00.json"),
@@ -3402,7 +3481,9 @@ fn ledger_error_is_disk_full(e: &LedgerError) -> bool {
         ),
         LedgerError::Poisoned { why } => {
             let w = why.to_ascii_lowercase();
-            w.contains("file too large") || w.contains("no space left") || w.contains("quota exceeded")
+            w.contains("file too large")
+                || w.contains("no space left")
+                || w.contains("quota exceeded")
         }
         _ => false,
     }

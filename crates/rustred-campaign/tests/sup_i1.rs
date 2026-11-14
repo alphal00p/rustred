@@ -73,10 +73,17 @@ fn i1_random_interrupts_give_the_reference_result() {
             }
             interrupts_total += 1;
             let code = wait(&mut c, Duration::from_secs(120));
+            // ATTENTION (8): the session ended by itself for an operator decision (an attempt of unknown execution
+            // left by an earlier SIGKILL between spawn and `job.started`, procfix3 item 6); run_to_end resolves it.
             match KINDS[kind] {
-                "sigint" | "sigint2" => assert!(code == 130 || code == 0, "exit {code}"),
-                "sigterm" => assert!(code == 143 || code == 0, "exit {code}"),
-                _ => assert_eq!(code, 128 + libc::SIGKILL),
+                "sigint" | "sigint2" => {
+                    assert!(code == 130 || code == 0 || code == ATTENTION, "exit {code}")
+                }
+                "sigterm" => assert!(code == 143 || code == 0 || code == ATTENTION, "exit {code}"),
+                _ => assert!(
+                    code == 128 + libc::SIGKILL || code == ATTENTION,
+                    "exit {code}"
+                ),
             }
             codes.push(code);
             if code == 0 {
