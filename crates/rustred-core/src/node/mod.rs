@@ -24,6 +24,7 @@
 
 pub mod affine;
 pub mod auto;
+pub mod bounds;
 pub mod descent;
 pub mod domain;
 pub mod driver;
@@ -31,6 +32,7 @@ pub mod mastermap;
 pub mod order;
 pub mod predict;
 pub mod recipe;
+pub mod recipe_job;
 pub mod registry;
 pub mod replay;
 pub mod screen;

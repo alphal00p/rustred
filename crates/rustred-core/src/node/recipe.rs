@@ -12,7 +12,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -39,7 +39,32 @@ pub const ELIMINATION_CONVENTION: &str = "rustred.recipe-elim.v1";
 pub const PRIME: u64 = (1u64 << 61) - 1;
 pub const SAMPLE_SEED: u64 = 0;
 /// Identity of the whole convention: a cached relation is valid only for an equal id (and binary, recipe, key).
-pub const DETERMINISM_ID: &str = "rustred.recipe-solve.v1/elim=rustred.recipe-elim.v1/prime=2305843009213693951/seed=0/backend=sparse-target-only-factorized/proof=exact-weights";
+pub const DETERMINISM_ID: &str = "rustred.recipe-solve.v2/elim=rustred.recipe-elim.v1/prime=2305843009213693951/seed=0/backend=sparse-target-only-factorized/proof=exact-weights/relation-rule=recorded";
+/// Upper limit of same-layer eliminations of the m1_first rule per key (then the first admissible relation is kept).
+pub const M1_MAX_STEPS: usize = 256;
+
+/// Which relation a solve takes (recipe field `relation_rule`, recorded in every solved record and in the relation
+/// digest). `m1_first` (default): a relation whose top-sector right-hand-side keys are all strictly lower in D+r
+/// (dots + rank) than the target, obtained from the first admissible (comparator) relation by eliminating its
+/// same-layer top-sector keys highest first, each with its own solve from the SAME seed rows; if one of them has no
+/// relation in these seeds, the first admissible relation is kept (`relation_rule_taken: "c_fallback"`).
+/// `first_admissible`: the engine's first hit under the node comparator (v1 behaviour).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelationRule {
+    #[default]
+    M1First,
+    FirstAdmissible,
+}
+
+impl RelationRule {
+    fn name(self) -> &'static str {
+        match self {
+            Self::M1First => "m1_first",
+            Self::FirstAdmissible => "first_admissible",
+        }
+    }
+}
 /// Schema of a failure object (R48 addendum 3).
 pub const FAILURE_SCHEMA: &str = "rustred.recipe-failure.v1";
 
@@ -66,6 +91,9 @@ pub struct Domain {
     pub exceptions: Vec<Vec<String>>,
     #[serde(default)]
     pub bounds: Option<Bounds>,
+    /// v1.2: an explicit key set (per-KEY recipe assignment): when present the key must be one of these
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keys: Option<Vec<Vec<i64>>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -152,6 +180,9 @@ pub struct Recipe {
     pub seeds: SeedSpec,
     #[serde(default)]
     pub symmetry_rows: bool,
+    /// v1.2: which relation the solve takes (default m1_first)
+    #[serde(default)]
+    pub relation_rule: RelationRule,
     #[serde(default)]
     pub elimination: Elimination,
     /// informational: provenance of the recipe (free JSON, part of the digest)
@@ -461,7 +492,11 @@ impl BatchOptions {
 
     fn stop_requested(&self) -> Option<&'static str> {
         if SIGNALS.load(AtomicOrdering::SeqCst) > 0 {
-            Some("SIGTERM")
+            Some(match FIRST_SIGNAL.load(AtomicOrdering::SeqCst) {
+                libc::SIGINT => "SIGINT",
+                libc::SIGHUP => "SIGHUP",
+                _ => "SIGTERM",
+            })
         } else if self.stop.as_ref().is_some_and(|f| f()) {
             Some("supervisor")
         } else if self.stop_file.as_ref().is_some_and(|p| p.exists()) {
@@ -584,8 +619,14 @@ pub struct KeyInput {
 /// passes its own flag as `BatchOptions::stop`). The handler only increments it (async-signal-safe, as the
 /// child-job contract's handler); the batch's watchdog does the rest.
 static SIGNALS: AtomicUsize = AtomicUsize::new(0);
+/// The first signal received (its number; 0 = none), for `stop.source`.
+static FIRST_SIGNAL: AtomicI32 = AtomicI32::new(0);
+/// The source of the first stop request (contract closed list: SIGTERM SIGINT SIGHUP stopfile; "supervisor" for an
+/// embedding caller's flag), set by the batch watchdog.
+static STOP_SOURCE: Mutex<Option<&'static str>> = Mutex::new(None);
 
-extern "C" fn on_signal(_: i32) {
+extern "C" fn on_signal(sig: i32) {
+    let _ = FIRST_SIGNAL.compare_exchange(0, sig, AtomicOrdering::SeqCst, AtomicOrdering::SeqCst);
     SIGNALS.fetch_add(1, AtomicOrdering::SeqCst);
 }
 
@@ -1060,6 +1101,7 @@ fn run_prepared<const N: usize>(
             if let Some(source) = opts.stop_requested() {
                 if first_stop.is_none() {
                     first_stop = Some(Instant::now());
+                    *STOP_SOURCE.lock().unwrap() = Some(source);
                     events.emit(
                         "stop_requested",
                         json!({"source": source, "count": SIGNALS.load(AtomicOrdering::SeqCst).max(1)}),
@@ -1073,7 +1115,7 @@ fn run_prepared<const N: usize>(
             if hard && active.load(AtomicOrdering::SeqCst) > 0 {
                 let code =
                     write_outputs(ctx, keys, &uniq_of, &shared, out, prepare_s, &events, false);
-                std::process::exit(code.unwrap_or(70));
+                exit_sealed(opts, code);
             }
             if events.contract && last_beat.elapsed().as_secs_f64() >= opts.heartbeat_s {
                 last_beat = Instant::now();
@@ -1130,15 +1172,47 @@ fn run_prepared<const N: usize>(
             if exhausted && stuck_only {
                 let code =
                     write_outputs(ctx, keys, &uniq_of, &shared, out, prepare_s, &events, true);
-                std::process::exit(code.unwrap_or(70));
+                exit_sealed(opts, code);
             }
         }
     });
     outcome
 }
 
+/// End the process after the watchdog sealed the outputs itself: the batch's exit code, or (an I/O error while
+/// sealing) exit 51 with an error OUTCOME in job mode, 70 stand-alone.
+fn exit_sealed(opts: &BatchOptions, r: Result<i32, String>) -> ! {
+    match r {
+        Ok(code) => std::process::exit(code),
+        Err(e) => {
+            eprintln!("rr_node solve-recipe: {e}");
+            if let (Some(job), Some(base)) = (&opts.job, &opts.path_base) {
+                let _ = super::recipe_job::error_outcome_job(job, base, 51, &e);
+                std::process::exit(51)
+            }
+            std::process::exit(70)
+        }
+    }
+}
+
+/// [`write_outputs_inner`] with its errors marked as I/O errors ([`super::recipe_job::IO_ERROR_PREFIX`]).
 #[allow(clippy::too_many_arguments)]
 fn write_outputs<const N: usize>(
+    ctx: &Ctx<'_, N>,
+    keys: &[KeyInput],
+    uniq_of: &[usize],
+    shared: &Shared,
+    out: &Path,
+    prepare_s: f64,
+    events: &Events,
+    graceful: bool,
+) -> Result<i32, String> {
+    write_outputs_inner(ctx, keys, uniq_of, shared, out, prepare_s, events, graceful)
+        .map_err(|e| format!("{}{e}", super::recipe_job::IO_ERROR_PREFIX))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn write_outputs_inner<const N: usize>(
     ctx: &Ctx<'_, N>,
     keys: &[KeyInput],
     uniq_of: &[usize],
@@ -1152,10 +1226,21 @@ fn write_outputs<const N: usize>(
     let results = shared.results.lock().unwrap().clone();
     let interrupted = results.iter().any(Option::is_none);
     // results.jsonl in INPUT order, then the end record; written to a temporary name and renamed
-    let tmp = out.join("results.jsonl.part");
+    let tmp = match (&opts.job, &opts.path_base) {
+        // job mode: the temporary file lives in RUN/tmp (contract layout), renamed into out/ when complete
+        (Some(_), Some(base)) => {
+            let t = base.join("tmp");
+            std::fs::create_dir_all(&t).map_err(|e| format!("tmp: {e}"))?;
+            t.join("results.jsonl.part")
+        }
+        _ => out.join("results.jsonl.part"),
+    };
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
-    let mut f =
-        std::io::BufWriter::new(std::fs::File::create(&tmp).map_err(|e| format!("results: {e}"))?);
+    let mut lines: Vec<Value> = Vec::with_capacity(keys.len() + 1);
+    let mut f = std::io::BufWriter::new(
+        super::recipe_job::create_excl(&tmp)
+            .map_err(|e| format!("results {}: {e}", tmp.display()))?,
+    );
     for (ordinal, k) in keys.iter().enumerate() {
         let mut rec = match &results[uniq_of[ordinal]] {
             Some(r) => r.clone(),
@@ -1174,10 +1259,14 @@ fn write_outputs<const N: usize>(
             .entry(rec["verdict"].as_str().unwrap_or("?").to_string())
             .or_default() += 1;
         writeln!(f, "{rec}").map_err(|e| e.to_string())?;
+        lines.push(rec);
     }
     let end = json!({"type": if interrupted { "partial" } else { "end" }, "records": keys.len(),
         "counts": counts, "recipe_digest": ctx.recipe_digest, "determinism_id": DETERMINISM_ID});
     writeln!(f, "{end}").map_err(|e| e.to_string())?;
+    lines.push(end);
+    let canonical_blake3 = super::recipe_job::canonical_stream_blake3(&lines);
+    drop(lines);
     f.flush().map_err(|e| e.to_string())?;
     drop(f);
     let path = out.join("results.jsonl");
@@ -1202,6 +1291,7 @@ fn write_outputs<const N: usize>(
         "inputs": opts.inputs,
         "outputs": {"results": {"path": "results.jsonl", "bytes": bytes.len(),
             "blake3": blake3::hash(&bytes).to_hex().to_string(), "records": keys.len() + 1,
+            "canonical_blake3": canonical_blake3,
             "end": if interrupted { "partial" } else { "end" }, "sealed": true}},
         "counts": counts,
         "time_decided": counts.contains_key("BUDGET_WALL"),
@@ -1234,20 +1324,31 @@ fn write_outputs<const N: usize>(
         let mut j = job.clone();
         j["status"] = outcome["status"].clone();
         j["exit_code"] = json!(exit);
+        // stop.source: the contract's closed list (SIGTERM SIGINT SIGHUP stopfile budget memory); an embedding
+        // caller's own flag ("supervisor") has no contract value and is reported as null
+        let source = match *STOP_SOURCE.lock().unwrap() {
+            Some(s @ ("SIGTERM" | "SIGINT" | "SIGHUP" | "stopfile")) if exit == 30 => json!(s),
+            _ => Value::Null,
+        };
         j["stop"] = json!({"code": stop_code, "detail": if exit == 0 { Value::Null } else { json!({"counts": counts}) },
-            "source": if exit == 30 { json!("signal_or_stopfile") } else { Value::Null }, "graceful": graceful});
-        j["program"] = json!({"name": "rr_node", "version": env!("CARGO_PKG_VERSION"),
-            "git_commit": opts.binary["git_commit"], "features": ["solve_recipe"], "exe": exe_info()});
-        j["effective"] = json!({"subcommand": "solve-recipe", "args": job["args"], "node_options": Value::Null,
-            "order": serde_json::from_str::<Value>(&opts.order_text).unwrap_or(Value::Null), "env": {},
-            "recipe_digest": ctx.recipe_digest, "determinism_id": DETERMINISM_ID});
+            "source": source, "graceful": graceful});
+        j["program"] = super::recipe_job::program_info();
+        j["effective"] = super::recipe_job::effective(
+            &job["args"],
+            json!({"recipe_digest": ctx.recipe_digest, "determinism_id": DETERMINISM_ID,
+                "relation_rule": ctx.recipe.relation_rule, "threads": opts.threads.max(1),
+                "max_trace_rows": opts.max_trace_rows, "key_budget_s": opts.key_budget_s, "proof": opts.proof}),
+            serde_json::from_str::<Value>(&opts.order_text).unwrap_or(Value::Null),
+        );
         j["seed"] = json!({"sample_seed": SAMPLE_SEED, "point_source": "seed"});
         j["counters"] = counters(solved, keys.len());
-        j["budgets"] = json!({"wall": {"case_s": opts.key_budget_s}, "hit": Value::Null});
+        // budgets.wall.case_s: the contract's integer seconds (job mode accepts integer budgets only)
+        j["budgets"] = json!({"wall": {"case_s": opts.key_budget_s.map(|b| b.round() as u64)}, "hit": Value::Null});
         j["time_decided"] = json!(!time_decisions.is_empty());
         j["time_decisions"] = json!(time_decisions);
         j["outputs"] = json!({"extra": [{"role": "results", "path": "out/results.jsonl", "bytes": bytes.len(),
             "blake3": outcome["outputs"]["results"]["blake3"], "records": keys.len() + 1,
+            "canonical_blake3": outcome["outputs"]["results"]["canonical_blake3"],
             "end": outcome["outputs"]["results"]["end"], "sealed": true}]});
         j["timing"] = json!({"started_utc": job["started_utc"], "finished_utc": utc_now(),
             "wall_s": ctx.t0.elapsed().as_secs_f64(), "cpu_s": cpu_s()});
@@ -1273,13 +1374,16 @@ fn write_outputs<const N: usize>(
         .outcome_path
         .clone()
         .unwrap_or_else(|| out.join("OUTCOME.json"));
-    let otmp = target.with_extension("json.part");
-    std::fs::write(
-        &otmp,
-        serde_json::to_string_pretty(&outcome).unwrap() + "\n",
-    )
-    .map_err(|e| e.to_string())?;
-    std::fs::rename(&otmp, &target).map_err(|e| e.to_string())?;
+    let text = serde_json::to_string_pretty(&outcome).unwrap() + "\n";
+    if opts.job.is_some() {
+        // job mode: OUTCOME.json is never replaced (no-clobber write)
+        super::recipe_job::write_new(&target, text.as_bytes())
+            .map_err(|e| format!("OUTCOME {}: {e}", target.display()))?;
+    } else {
+        let otmp = target.with_extension("json.part");
+        std::fs::write(&otmp, text).map_err(|e| e.to_string())?;
+        std::fs::rename(&otmp, &target).map_err(|e| e.to_string())?;
+    }
     events.emit(
         "job_finished",
         json!({"exit_code": exit, "status": outcome["status"], "stop_code": stop_code}),
@@ -1314,15 +1418,6 @@ fn cpu_s() -> f64 {
             Some((f.get(11)?.parse::<f64>().ok()? + f.get(12)?.parse::<f64>().ok()?) / 100.0)
         })
         .unwrap_or(0.0)
-}
-
-fn exe_info() -> Value {
-    use std::os::unix::fs::MetadataExt;
-    let p = std::env::current_exe().ok();
-    let m = p.as_ref().and_then(|p| std::fs::metadata(p).ok());
-    json!({"path": p.map(|p| p.display().to_string()), "dev": m.as_ref().map(|m| m.dev()),
-        "ino": m.as_ref().map(|m| m.ino()), "size": m.as_ref().map(|m| m.size()),
-        "mtime": m.as_ref().map(|m| m.mtime())})
 }
 
 fn key_text(k: &[i64]) -> String {
@@ -1465,6 +1560,14 @@ fn domain_check<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Result<Case<N>
             }
         }
     }
+    if let Some(set) = &ctx.recipe.domain.keys {
+        if !set.iter().any(|k| k.as_slice() == key) {
+            return out(
+                json!({"reason":"key_set","keys":set.len()}),
+                "the key is not in the recipe's explicit key set".into(),
+            );
+        }
+    }
     let spec = CaseSpec {
         fixed: key.iter().map(|&x| Some(x)).collect(),
         equations: vec![],
@@ -1543,19 +1646,10 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
         s16.push(v);
     }
     let n_seeds = seeds.len();
-    let options = SearchOptions {
-        max_depth: None,
-        prime: PRIME,
-        sample_seed: SAMPLE_SEED,
-    };
-    let (res, cap) = with_proof_capture::<N, _>(|| {
-        with_explicit_seeds(Arc::new(s16), || {
-            ctx.solver.solve_case(point.clone(), options)
-        })
-    });
-    let candidate = match res {
-        Ok(c) => c,
-        Err(SolverError::SearchExhausted { rows, .. }) => {
+    let seeds_arc = Arc::new(s16);
+    let main = match raw_solve(ctx, &point, &seeds_arc) {
+        Ok(x) => x,
+        Err(RawErr::Exhausted(rows)) => {
             return failure(
                 ctx,
                 key,
@@ -1569,7 +1663,7 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
                 json!({"seeds": n_seeds, "rows": rows}),
             );
         }
-        Err(SolverError::ExactReplay(m)) => {
+        Err(RawErr::Irregular(m)) => {
             return failure(
                 ctx,
                 key,
@@ -1579,19 +1673,13 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
                 json!({"pole": m}),
             );
         }
-        Err(e) => {
-            return failure(
-                ctx,
-                key,
-                "ERROR",
-                "error",
-                &format!("{e:?}"),
-                json!({"message": format!("{e:?}")}),
-            );
+        Err(RawErr::Error(m)) => {
+            return failure(ctx, key, "ERROR", "error", &m, json!({"message": m}));
         }
     };
+    let target_int = main.target;
     let target: Vec<i64> = (0..ctx.n)
-        .map(|i| i64::from(candidate.target[i].value()))
+        .map(|i| i64::from(target_int[i].value()))
         .collect();
     if target != key {
         return failure(
@@ -1604,58 +1692,168 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
         );
     }
     if let Some(limit) = ctx.opts.max_trace_rows {
-        if candidate.sources.len() > limit {
+        if main.trace_rows > limit {
             return failure(
                 ctx,
                 key,
                 "BUDGET_WORK",
                 "budget_work",
                 "trace rows above --max-trace-rows",
-                json!({"counter":"trace_rows","limit":limit,"value":candidate.sources.len()}),
+                json!({"counter":"trace_rows","limit":limit,"value":main.trace_rows}),
             );
         }
     }
     let order = ctx.solver.ordering();
     let lines = ctx.recipe.lines();
+    let to_vec = |k: &crate::solver::Integral<N>| -> Vec<i64> {
+        (0..ctx.n).map(|i| i64::from(k[i].value())).collect()
+    };
+    let in_top = |k: &[i64]| (0..ctx.n).all(|j| !lines[j] || k[j] >= 1);
+    let layer = |k: &[i64]| -> i64 {
+        (0..ctx.n)
+            .map(|j| if lines[j] { k[j] - 1 } else { -k[j] })
+            .sum()
+    };
+    // relation rule: m1_first eliminates the same-layer top-sector keys of the first admissible relation
+    let rule = ctx.recipe.relation_rule;
+    let mut rel = main.clone();
+    let mut taken = "first_admissible";
+    let mut m1_steps = 0usize;
+    let mut fallback_reason: Option<String> = None;
+    if rule == RelationRule::M1First {
+        taken = "m1";
+        let lt = layer(key);
+        loop {
+            let bad = rel
+                .p
+                .keys()
+                .filter(|k| **k != target_int)
+                .filter(|k| {
+                    let v = to_vec(k);
+                    in_top(&v) && layer(&v) >= lt
+                })
+                .min_by(|a, b| order.compare(a, b))
+                .copied();
+            let Some(s) = bad else { break };
+            if m1_steps >= M1_MAX_STEPS {
+                fallback_reason = Some(format!("more than {M1_MAX_STEPS} same-layer eliminations"));
+                break;
+            }
+            let sv = to_vec(&s);
+            let spec = CaseSpec {
+                fixed: sv.iter().map(|&x| Some(x)).collect(),
+                equations: vec![],
+            };
+            // Only a COMPLETED search without a pivot (or a key that is not an admissible point) means "no M1
+            // relation in these seeds" and allows the C fallback. Any other failure of the sub-solve (resource limit,
+            // exact-lift irregularity, internal error) is typed for the KEY: it never reads as "no relation exists".
+            let sub = match build_case::<N>(&spec, &ctx.template, &ctx.idx, &ctx.sector, ctx.n) {
+                Ok(Some(c)) => match raw_solve(ctx, &c, &seeds_arc) {
+                    Ok(rs) => Ok(rs),
+                    Err(e @ RawErr::Exhausted(_)) => Err(e.text()),
+                    Err(RawErr::Irregular(m)) => {
+                        return failure(
+                            ctx,
+                            key,
+                            "IRREGULAR",
+                            "irregular",
+                            &format!(
+                                "m1_first: exact lift at the same-layer key {}: {m}",
+                                key_text(&sv)
+                            ),
+                            json!({"pole": m, "m1_key": sv, "m1_steps": m1_steps}),
+                        );
+                    }
+                    Err(RawErr::Error(m)) => {
+                        return failure(
+                            ctx,
+                            key,
+                            "ERROR",
+                            "error",
+                            &format!(
+                                "m1_first: the solve at the same-layer key {} failed: {m}",
+                                key_text(&sv)
+                            ),
+                            json!({"message": m, "m1_key": sv, "m1_steps": m1_steps}),
+                        );
+                    }
+                },
+                Ok(None) => Err("not an admissible point".to_string()),
+                Err(e) => {
+                    return failure(
+                        ctx,
+                        key,
+                        "ERROR",
+                        "error",
+                        &format!(
+                            "m1_first: case of the same-layer key {}: {e}",
+                            key_text(&sv)
+                        ),
+                        json!({"message": e, "m1_key": sv, "m1_steps": m1_steps}),
+                    );
+                }
+            };
+            match sub {
+                Ok(rs) if rs.target == s => {
+                    let a = rel.p.get(&s).cloned().expect("bad key is a term");
+                    rel.subtract(&a, &rs);
+                    m1_steps += 1;
+                }
+                Ok(_) => {
+                    fallback_reason = Some(format!(
+                        "the solve at {} returned another target",
+                        key_text(&sv)
+                    ));
+                    break;
+                }
+                Err(m) => {
+                    fallback_reason = Some(format!(
+                        "no relation for the same-layer key {} in these seeds ({m})",
+                        key_text(&sv)
+                    ));
+                    break;
+                }
+            }
+        }
+        if fallback_reason.is_some() {
+            rel = main.clone();
+            taken = "c_fallback";
+        }
+    }
+    // the relation's terms (target excluded), comparator order (highest first), rhs coefficient = -P_k
+    let mut terms: Vec<(&crate::solver::Integral<N>, &Coefficient)> =
+        rel.p.iter().filter(|(k, _)| **k != target_int).collect();
+    terms.sort_by(|a, b| order.compare(a.0, b.0));
     let mut rhs = Vec::new();
     let mut rhs_canon = Vec::new();
     let mut top = Vec::new();
     let mut n_sub = 0usize;
     let mut all_lower = true;
     let mut first_not_lower: Option<Vec<i64>> = None;
-    let mut poles: BTreeSet<String> = BTreeSet::new();
-    for t in &candidate.rhs {
-        let k: Vec<i64> = (0..ctx.n)
-            .map(|i| i64::from(t.integral[i].value()))
-            .collect();
-        let lower = order.compare(&candidate.target, &t.integral) == std::cmp::Ordering::Less;
+    let mut poles: BTreeSet<String> = rel.hidden.iter().cloned().collect();
+    for (ki, pc) in &terms {
+        let k = to_vec(ki);
+        let coef = -(*pc).clone();
+        let lower = order.compare(&target_int, ki) == std::cmp::Ordering::Less;
         if !lower {
             all_lower = false;
             first_not_lower.get_or_insert(k.clone());
         }
-        let in_top = (0..ctx.n).all(|j| !lines[j] || k[j] >= 1);
-        if in_top {
-            top.push(json!({"key": k, "lower": lower}));
+        let it = in_top(&k);
+        if it {
+            top.push(json!({"key": k, "lower": lower, "layer_lower": layer(&k) < layer(key)}));
         } else {
             n_sub += 1;
         }
-        if !t.coefficient.denominator.is_constant() {
-            poles.insert(t.coefficient.denominator.to_string());
+        if !coef.denominator.is_constant() {
+            poles.insert(coef.denominator.to_string());
         }
-        let c = t.coefficient.to_string();
-        // every RHS term: key text, exact coefficient, and whether the key is in the chart's top sector or a proper
-        // subsector (proved-zero sectors never appear: their integrals vanish and are dropped by the engine)
-        rhs.push(json!([
-            t.integral.to_string(),
-            c,
-            if in_top { "top" } else { "sub" }
-        ]));
+        let c = coef.to_string();
+        // every RHS term: key text, exact coefficient, top sector or a proper subsector (proved-zero sectors never appear)
+        rhs.push(json!([ki.to_string(), c, if it { "top" } else { "sub" }]));
         rhs_canon.push(json!([k, c]));
     }
-    for p in &candidate.hidden_poles {
-        poles.insert(p.to_string());
-    }
-    let canon = json!({"rhs": rhs_canon, "target": key});
+    let canon = json!({"relation_rule": rule.name(), "rhs": rhs_canon, "target": key});
     let relation_digest = blake3::hash(format!("{canon}\n").as_bytes())
         .to_hex()
         .to_string();
@@ -1671,51 +1869,21 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
         r["relation_digest"] = json!(relation_digest);
         return r;
     }
-    // exact proof with the lift's own weights
+    // exact proof: sum_r W_r * row_r == P on every column (the combined weights of all solves of the rule)
     let mut seeds_used: Vec<Vec<i64>> = Vec::new();
     let proof = if !ctx.opts.proof {
         Value::Null
     } else {
-        let Some(cap) = cap else {
-            return failure(
-                ctx,
-                key,
-                "PROOF_FAILED",
-                "proof_failed",
-                "the lift recorded no proof capture",
-                json!({}),
-            );
-        };
-        let Some(weights) = cap.weights.as_ref() else {
-            return failure(
-                ctx,
-                key,
-                "PROOF_FAILED",
-                "proof_failed",
-                "the lift recorded no source weights",
-                json!({}),
-            );
-        };
-        if cap.rows.len() != candidate.sources.len() {
-            return failure(
-                ctx,
-                key,
-                "PROOF_FAILED",
-                "proof_failed",
-                "trace rows and sources differ in length",
-                json!({}),
-            );
-        }
         let mut acc: BTreeMap<crate::solver::Integral<N>, Coefficient> = BTreeMap::new();
-        for (j, w) in weights {
-            let Some(row) = cap.rows.get(*j) else {
+        for (rk, w) in &rel.w {
+            let Some(row) = rel.rows.get(rk) else {
                 return failure(
                     ctx,
                     key,
                     "PROOF_FAILED",
                     "proof_failed",
                     "a weight names a missing row",
-                    json!({"row": j}),
+                    json!({}),
                 );
             };
             for term in row {
@@ -1728,11 +1896,11 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
                 }
             }
         }
-        for term in &cap.exact {
-            match acc.get_mut(&term.integral) {
-                Some(e) => *e = &*e - &term.coefficient,
+        for (k, c) in &rel.p {
+            match acc.get_mut(k) {
+                Some(e) => *e = &*e - c,
                 None => {
-                    acc.insert(term.integral, -term.coefficient.clone());
+                    acc.insert(*k, -c.clone());
                 }
             }
         }
@@ -1742,33 +1910,174 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
                 key,
                 "PROOF_FAILED",
                 "proof_failed",
-                "sum_j w_j row_j differs from the lifted row",
+                "sum_j w_j row_j differs from the relation",
                 json!({"column": col.to_string()}),
             );
         }
         let mut used: BTreeSet<Vec<i64>> = BTreeSet::new();
-        for (j, w) in weights {
+        for (rk, w) in &rel.w {
             if !w.is_zero() {
-                let s = &candidate.sources[*j].seed.integral;
                 used.insert(
                     (0..ctx.n)
-                        .map(|i| i64::from(s[i].value()) - key[i])
+                        .map(|i| i64::from(rk.1[i].value()) - key[i])
                         .collect(),
                 );
             }
         }
         seeds_used = used.into_iter().collect();
-        json!({"kind": "exact-weights", "weights": weights.len(), "ok": true,
+        json!({"kind": "exact-weights", "weights": rel.w.len(), "ok": true,
             "modulo": "proved-zero sectors (their integrals vanish)"})
     };
     json!({
         "type": "relation", "key": key, "verdict": if ctx.opts.proof { "SOLVED" } else { "SOLVED_UNPROVED" },
         "determinism_id": DETERMINISM_ID, "recipe_digest": ctx.recipe_digest,
-        "target": candidate.target.to_string(), "rhs": rhs, "relation_digest": relation_digest,
-        "rhs_count": candidate.rhs.len(), "rhs_sub_count": n_sub, "top_rhs": top, "all_lower": all_lower,
-        "seeds_total": n_seeds, "rows": candidate.stats.rows, "trace_rows": candidate.sources.len(),
+        "relation_rule": rule.name(), "relation_rule_taken": taken, "m1_steps": m1_steps,
+        "m1_fallback_reason": fallback_reason,
+        "target": target_int.to_string(), "rhs": rhs, "relation_digest": relation_digest,
+        "rhs_count": terms.len(), "rhs_sub_count": n_sub, "top_rhs": top, "all_lower": all_lower,
+        "seeds_total": n_seeds, "rows": main.stats_rows, "trace_rows": main.trace_rows,
         "seeds_used": seeds_used, "proof": proof, "d_poles": poles.into_iter().collect::<Vec<_>>(),
         "failure": Value::Null,
+    })
+}
+
+/// Identity of one trace row across the solves of a key: basis row (or the symmetry-row marker), seed, and EVERY
+/// integral of the row (two symmetry rows at one seed differ only in their image keys).
+type RowKey<const N: usize> = (
+    usize,
+    crate::solver::Integral<N>,
+    Vec<crate::solver::Integral<N>>,
+);
+
+/// A relation in row form `P = I(target) - sum rhs`, normalised to target coefficient 1, with its exact weights on the
+/// trace rows (`sum W_r row_r == P`).
+#[derive(Clone)]
+struct LinRel<const N: usize> {
+    target: crate::solver::Integral<N>,
+    p: BTreeMap<crate::solver::Integral<N>, Coefficient>,
+    w: BTreeMap<RowKey<N>, Coefficient>,
+    rows: BTreeMap<RowKey<N>, crate::solver::ExactRow<N>>,
+    hidden: Vec<String>,
+    stats_rows: usize,
+    trace_rows: usize,
+}
+
+impl<const N: usize> LinRel<N> {
+    /// self -= a * other (exact)
+    fn subtract(&mut self, a: &Coefficient, other: &LinRel<N>) {
+        for (k, c) in &other.p {
+            let d = a * c;
+            match self.p.get_mut(k) {
+                Some(e) => *e = &*e - &d,
+                None => {
+                    self.p.insert(*k, -d);
+                }
+            }
+        }
+        self.p.retain(|_, v| !v.is_zero());
+        for (k, c) in &other.w {
+            let d = a * c;
+            match self.w.get_mut(k) {
+                Some(e) => *e = &*e - &d,
+                None => {
+                    self.w.insert(k.clone(), -d);
+                }
+            }
+        }
+        self.w.retain(|_, v| !v.is_zero());
+        for (k, r) in &other.rows {
+            self.rows.entry(k.clone()).or_insert_with(|| r.clone());
+        }
+        self.hidden.extend(other.hidden.iter().cloned());
+        self.trace_rows += other.trace_rows;
+    }
+}
+
+enum RawErr {
+    Exhausted(usize),
+    Irregular(String),
+    Error(String),
+}
+
+impl RawErr {
+    fn text(&self) -> String {
+        match self {
+            Self::Exhausted(rows) => format!("search exhausted, {rows} rows"),
+            Self::Irregular(m) | Self::Error(m) => m.clone(),
+        }
+    }
+}
+
+/// One engine solve of a fully fixed case with the explicit seed list: the first admissible relation in row form with
+/// its exact weights.
+fn raw_solve<const N: usize>(
+    ctx: &Ctx<'_, N>,
+    point: &Case<N>,
+    seeds: &Arc<Vec<Vec<i16>>>,
+) -> Result<LinRel<N>, RawErr> {
+    let options = SearchOptions {
+        max_depth: None,
+        prime: PRIME,
+        sample_seed: SAMPLE_SEED,
+    };
+    let (res, cap) = with_proof_capture::<N, _>(|| {
+        with_explicit_seeds(seeds.clone(), || {
+            ctx.solver.solve_case(point.clone(), options)
+        })
+    });
+    let c = match res {
+        Ok(c) => c,
+        Err(SolverError::SearchExhausted { rows, .. }) => return Err(RawErr::Exhausted(rows)),
+        Err(SolverError::ExactReplay(m)) => return Err(RawErr::Irregular(m)),
+        Err(e) => return Err(RawErr::Error(format!("{e:?}"))),
+    };
+    let cap = cap.ok_or_else(|| RawErr::Error("the lift recorded no proof capture".into()))?;
+    let weights = cap
+        .weights
+        .as_ref()
+        .ok_or_else(|| RawErr::Error("the lift recorded no source weights".into()))?;
+    if cap.rows.len() != c.sources.len() {
+        return Err(RawErr::Error(
+            "trace rows and sources differ in length".into(),
+        ));
+    }
+    let lead = cap
+        .exact
+        .iter()
+        .find(|t| t.integral == c.target)
+        .map(|t| t.coefficient.clone())
+        .ok_or_else(|| RawErr::Error("the lifted row lacks its target".into()))?;
+    let mut p = BTreeMap::new();
+    for t in &cap.exact {
+        p.insert(t.integral, &t.coefficient / &lead);
+    }
+    let mut w = BTreeMap::new();
+    let mut rows = BTreeMap::new();
+    for (j, wt) in weights {
+        let row = &cap.rows[*j];
+        let src = &c.sources[*j];
+        let rk: RowKey<N> = (
+            src.basis_row,
+            src.seed.integral,
+            row.iter().map(|t| t.integral).collect(),
+        );
+        let v = wt / &lead;
+        rows.entry(rk.clone()).or_insert_with(|| row.clone());
+        match w.get_mut(&rk) {
+            Some(e) => *e = &*e + &v,
+            None => {
+                w.insert(rk, v);
+            }
+        }
+    }
+    Ok(LinRel {
+        target: c.target,
+        p,
+        w,
+        rows,
+        hidden: c.hidden_poles.iter().map(|p| p.to_string()).collect(),
+        stats_rows: c.stats.rows,
+        trace_rows: c.sources.len(),
     })
 }
 
