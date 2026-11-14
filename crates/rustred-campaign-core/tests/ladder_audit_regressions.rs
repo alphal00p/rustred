@@ -1206,7 +1206,7 @@ fn m7_a8_policy_replaces_the_builtin_space() {
         matcher: ClassMatch { node_class: "*".into(), face_type: "*".into() },
         waves: depths
             .iter()
-            .map(|&d| Wave { depth: d, settings: vec![SettingSpec { centre: CentreSpec::Target, floor: None, tight: None }] })
+            .map(|&d| Wave { depth: d, settings: vec![SettingSpec { centre: CentreSpec::Target, floor: None, tight: None, layer_caps: None }] })
             .collect(),
         tight: false,
         budgets: None,

@@ -835,6 +835,8 @@ impl ItemState {
                 floor: false,
                 depth: 0,
                 tight: false,
+                layer_cap: None,
+                symmetry_rows: false,
             },
             0,
         );
@@ -1012,6 +1014,13 @@ pub(crate) fn accepted_candidates(
                 });
                 continue;
             };
+            // a rule found WITH symmetry rows whose class cannot reach the node's required level is never accepted:
+            // "found, awaiting a certificate route" (kept in the records, shown by explain; addendum 3 of R46)
+            if (setting.symmetry_rows || cand.symmetry_rows)
+                && !params.capabilities.can(true, params.min_evidence)
+            {
+                continue;
+            }
             if v.len() != gp.len() || v.iter().any(|x| matches!(x, PointVerdict::HiddenPole)) {
                 continue; // incomplete exceptions (or malformed answer): rejected for this item
             }

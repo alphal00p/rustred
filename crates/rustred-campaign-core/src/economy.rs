@@ -180,6 +180,41 @@ impl NodeMeasure {
     }
 }
 
+/// What "small" means (R46 (5), spec value): weights of the economy SCORE of a node or a cover,
+/// `score = cases * case + rhs_terms * rhs_term + monomials * monomial + closure_spread * spread` (smaller = better).
+/// Default (seed-policy.md section 5): one case is worth 2,000 right-hand-side terms (the size of a typical point rule
+/// that a symbolic case replaces on T162), a monomial 1/100 of a term, one key of closure spread 10 terms. The ladder's
+/// selection keeps R31 (b) first (a ONE-case cover always beats a multi-case cover); the weights decide among covers
+/// of the same case count and in node-level comparisons ([`NodeMeasure::weighted_score`]).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EconomyWeights {
+    pub case: f64,
+    pub rhs_term: f64,
+    pub monomial: f64,
+    pub spread: f64,
+}
+
+impl Default for EconomyWeights {
+    fn default() -> Self {
+        EconomyWeights {
+            case: 2000.0,
+            rhs_term: 1.0,
+            monomial: 0.01,
+            spread: 10.0,
+        }
+    }
+}
+
+impl NodeMeasure {
+    /// The weighted economy score (R46 (5)); closure spread = keys reached outside the input range.
+    pub fn weighted_score(&self, w: &EconomyWeights) -> f64 {
+        self.cases as f64 * w.case
+            + self.rhs_terms as f64 * w.rhs_term
+            + self.monomials as f64 * w.monomial
+            + self.closure_outside.unwrap_or(0) as f64 * w.spread
+    }
+}
+
 /// Coverage state of a node (2.4.15).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CoverageState {

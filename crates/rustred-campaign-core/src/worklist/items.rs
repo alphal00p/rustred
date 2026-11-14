@@ -554,6 +554,52 @@ pub struct NodeParams {
     /// Budget of the full-closure attempt before the box fallback (U-6, spec).
     #[serde(default)]
     pub full_attempt: FullAttemptBudget,
+    /// What the available provers can establish (CALLER-SUPPLIED capability data; addendum 3 of R46).
+    #[serde(default)]
+    pub capabilities: ProverCapabilities,
+    /// The node's symmetry group (input data, `orbits::SymmetryGroup::from_symmetry_json`); `None` = trivial.
+    #[serde(default)]
+    pub symmetry: Option<super::orbits::SymmetryGroup>,
+    /// What "small" means (R46 (5)): weights of the economy score (spec; default seed-policy.md section 5).
+    #[serde(default)]
+    pub economy: crate::economy::EconomyWeights,
+}
+
+/// The highest identity-evidence level the caller's provers can establish for a rule, for rules generated WITHOUT
+/// and WITH symmetry rows (for this node's arity). A rule whose class cannot reach the node's `min_evidence` is never
+/// accepted ("found, awaiting a certificate route"); the seed space orders the symmetry-rows settings first only when
+/// they can (addendum 3 of R46).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProverCapabilities {
+    pub plain: Option<EvidenceLevel>,
+    pub symmetry_rows: Option<EvidenceLevel>,
+}
+
+impl Default for ProverCapabilities {
+    /// Today's state (2026-11-14): rules without symmetry rows up to the exact per-key proof; rules with symmetry rows
+    /// have NO certificate route yet (neither replay nor per-key).
+    fn default() -> Self {
+        ProverCapabilities {
+            plain: Some(EvidenceLevel::A4),
+            symmetry_rows: None,
+        }
+    }
+}
+
+impl ProverCapabilities {
+    /// Can a rule of this class (with / without symmetry rows) reach `level`? Levels <= A1 (geometry) are computed
+    /// by the library itself.
+    pub fn can(&self, symmetry_rows: bool, level: EvidenceLevel) -> bool {
+        if level <= EvidenceLevel::A1 {
+            return true;
+        }
+        let l = if symmetry_rows {
+            self.symmetry_rows
+        } else {
+            self.plain
+        };
+        l.is_some_and(|l| l >= level)
+    }
 }
 
 /// One entry of the spec's preferred-terminal list (P-4): one key, or a whole sector (the set of lines at index >= 1;
@@ -740,6 +786,9 @@ impl NodeParams {
             preferred: PreferredTerminals::default(),
             target_range: RangeLabel::Unspecified,
             full_attempt: FullAttemptBudget::default(),
+            capabilities: ProverCapabilities::default(),
+            symmetry: None,
+            economy: crate::economy::EconomyWeights::default(),
         }
     }
 }

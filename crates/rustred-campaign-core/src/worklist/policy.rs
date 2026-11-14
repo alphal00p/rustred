@@ -36,6 +36,16 @@ pub struct SettingSpec {
     pub floor: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tight: Option<bool>,
+    /// Layer caps `[D, R]` or `[D, R, B]` of a tight entry, in relaxation order (engine `--seed-layer-cap D,R[,B]`);
+    /// default [`builtin_layer_caps`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer_caps: Option<Vec<Vec<u32>>>,
+}
+
+/// Built-in DEFAULT DATA of the tight-seed relaxation (addendum 3 of R46; coordinator's `solver::SeedLayerCap`):
+/// the tight cap 0,0,1, then a slightly relaxed cap, then one more dot, then one more rank. Replaceable per entry.
+pub fn builtin_layer_caps() -> Vec<Vec<u32>> {
+    vec![vec![0, 0, 1], vec![0, 0, 2], vec![1, 0, 1], vec![0, 1, 1]]
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -138,6 +148,7 @@ fn s(centre: CentreSpec, floor: Option<bool>) -> SettingSpec {
         centre,
         floor,
         tight: None,
+        layer_caps: None,
     }
 }
 

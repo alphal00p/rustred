@@ -8,12 +8,14 @@
 //! - [`seed`]: the seed-search space (centres, floor, depth), budgets, the ONE mapping to engine argv.
 //! - [`policy`]: the seed-policy file `rustred.campaign.seed-policy.v1` and its evidence records (R37).
 //! - [`ladder`]: acceptance at the gap points, selection, the state machine [`ladder::next_steps`].
+//! - [`orbits`]: the node's symmetry group (input data), orbit representatives, serve by image (R46, R44).
 //! - [`children`]: sub-cases from the accepted rules' exception sets, standard planes, fits, point items.
 
 pub mod affine;
 pub mod children;
 pub mod items;
 pub mod ladder;
+pub mod orbits;
 pub mod policy;
 pub mod seed;
 pub mod supplied;

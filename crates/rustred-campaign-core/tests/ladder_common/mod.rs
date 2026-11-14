@@ -142,6 +142,8 @@ pub fn setting_of(r: &Rec, case: &CaseSpec, lines: &[bool]) -> SeedSetting {
         offsets,
         depth: r.depth,
         tight: false,
+        layer_cap: None,
+        symmetry_rows: false,
     }
 }
 
