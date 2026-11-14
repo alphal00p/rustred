@@ -39,6 +39,20 @@ fn pause_flag_blocks_launching() {
     });
     std::thread::sleep(Duration::from_secs(3));
     assert_eq!(launches(&d), 0, "launched while the pause flag exists");
+    // An IDLE live supervisor (nothing launches, the ledger does not move) still rewrites heartbeat.json at least
+    // every 10 s, so no reader ever sees it STALE.
+    let hb = || {
+        let v: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(d.join("progress/heartbeat.json")).unwrap())
+                .unwrap();
+        v["supervisor"]["heartbeat_utc"].as_str().unwrap().to_string()
+    };
+    let h0 = hb();
+    let seq0 = state(&d).last_seq;
+    wait_until("heartbeat advances while idle", Duration::from_secs(10), || {
+        hb() != h0
+    });
+    assert_eq!(state(&d).last_seq, seq0, "idle: no ledger record");
     assert!(
         log_tail(&d).contains("launching paused"),
         "{}",

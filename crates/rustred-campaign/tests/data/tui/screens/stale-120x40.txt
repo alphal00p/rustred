@@ -1,5 +1,5 @@
 rr_campaign  p5l-boxed-final  STALE  hb 10m06s  age 1d04h  seq 18,402  sessions 2  dir tests/data/tui/stale
- STALE since 08:15:04 UTC (10m06s, > 60 s) [no heartbeat field: staleness inferred from file times]: supervisor not run~
+ STALE since 08:15:04 UTC (no heartbeat for 10m06s, > 60 s): supervisor not running? Resume with the same command.
 NODES 1  FULL 0  BOXED 1  OPEN 0  items done #################... 86% (1,414 of 1,640)  last event 10m07s ago
 ETA ? (supervisor not running; last estimate 54m-2.6h, 10m06s old)  cpu-h 61.4 used
 NEXT  campaign: 1 pending operation(s), 0 unsettled job(s): resume with the same command

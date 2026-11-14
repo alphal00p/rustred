@@ -56,8 +56,7 @@
    "killed_time": 18,
    "killed_memory": 3,
    "crashed": 3
-  },
-  "list": []
+  }
  },
  "nodes": {
   "total": 3,
@@ -277,7 +276,7 @@
   "pooled_levels": [],
   "reason": "nothing left"
  },
- "files": {
+ "files": {"jobs": "jobs.json", "heartbeat": "heartbeat.json", 
   "events": "events.json",
   "nodes": {
    "T162": "nodes/T162.json",

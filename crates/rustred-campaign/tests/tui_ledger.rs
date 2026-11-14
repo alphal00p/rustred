@@ -74,7 +74,10 @@ fn real_ledger_and_progress_files_summary_and_drill_down() {
     assert_eq!(src.running_jobs(), Some(vec![]));
     // keyboard path: Enter on the node, select item 4, w
     let vm = tui::view_model(&src, &o);
-    assert_eq!(vm.jobs.list_origin, tui::model::JobsOrigin::LedgerPartial);
+    // the real progress set has jobs.json: the job list comes from it, never from the ledger fallback; the
+    // heartbeat from heartbeat.json
+    assert_eq!(vm.jobs.list_origin, tui::model::JobsOrigin::Progress);
+    assert_eq!(vm.heartbeat_source, tui::model::HeartbeatSource::Field);
     let w = WatchControls::new();
     let mut app = App::new(false, 120);
     let k = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);

@@ -56,60 +56,7 @@
    "killed_time": 18,
    "killed_memory": 3,
    "crashed": 3
-  },
-  "list": [
-   {
-    "job": "J000917",
-    "node": "T178",
-    "item": "F041 n9=-1",
-    "rung": "L1",
-    "cpus": 1,
-    "rss_bytes": 493921239,
-    "budget_mem_bytes": 2147483648,
-    "seconds": 102,
-    "budget_seconds": 300,
-    "heartbeat_utc": "2026-11-20T08:15:03.000Z",
-    "progress": {
-     "phase": "lift"
-    },
-    "pgid": 2718301,
-    "run_dir": "large:jobs/9f3c1a07.L1.a1"
-   },
-   {
-    "job": "J000921",
-    "node": "T178",
-    "item": "F112",
-    "rung": "L0",
-    "cpus": 1,
-    "rss_bytes": 332922880,
-    "budget_mem_bytes": 2147483648,
-    "seconds": 12,
-    "budget_seconds": 300,
-    "heartbeat_utc": "2026-11-20T08:15:04.000Z",
-    "progress": {
-     "phase": "seeds"
-    },
-    "pgid": 2718355,
-    "run_dir": "large:jobs/1c2d3e4f.L0.a1"
-   },
-   {
-    "job": "J000922",
-    "node": "T266",
-    "item": "F009 a8=2",
-    "rung": "L4",
-    "cpus": 1,
-    "rss_bytes": 1932735283,
-    "budget_mem_bytes": 2147483648,
-    "seconds": 1610,
-    "budget_seconds": 1800,
-    "heartbeat_utc": "2026-11-20T08:14:58.000Z",
-    "progress": {
-     "phase": "solve"
-    },
-    "pgid": 2718360,
-    "run_dir": "large:jobs/41d0aa11.L4.a2"
-   }
-  ]
+  }
  },
  "nodes": {
   "total": 1,
@@ -330,7 +277,7 @@
   "pooled_levels": [],
   "reason": null
  },
- "files": {
+ "files": {"jobs": "jobs.json", "heartbeat": "heartbeat.json", 
   "events": "events.json",
   "nodes": {
    "T162": "nodes/T162.json"
