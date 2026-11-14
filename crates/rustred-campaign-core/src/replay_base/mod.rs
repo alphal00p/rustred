@@ -6,6 +6,7 @@
 //! - [`record`], [`span`], [`rows`]: the listed items of `replay/mod.rs` at b9f06de7 (`span` takes the prime).
 //! - [`coeff`]: NEW streaming evaluator of rule coefficients "(P)/(Q)" modulo several primes at once (no tree).
 //! - [`primes`]: NEW verify-range primes (deterministic Miller-Rabin) and SplitMix64 streams.
+//! - [`sha256`]: NEW plain SHA-256 for the rule identity digest of the `replay` evidence record.
 
 pub mod arith;
 pub mod coeff;
@@ -14,4 +15,5 @@ pub mod family;
 pub mod primes;
 pub mod record;
 pub mod rows;
+pub mod sha256;
 pub mod span;

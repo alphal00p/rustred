@@ -72,6 +72,14 @@ pub struct RowsRule {
     pub sym_rows: Option<String>,
     /// a key / seed pattern outside the engine's `parse_integral` grammar (the rule is then Unsupported)
     pub syntax_error: Option<String>,
+    /// witness loci (polynomials in n, d), without the literal "elided"
+    pub witness_loci: Vec<String>,
+    /// the record's witness loci contain the literal "elided" (R24 ruling (6): UNUSABLE for `replay`)
+    pub witness_elided: bool,
+    /// `None` = field absent (incomplete record); `Some` = present (possibly empty)
+    pub witness_present: bool,
+    /// the engine node driver's raw pivot (Power bytes), when recorded: authority for the recenter
+    pub raw_pivot: Option<Vec<i64>>,
 }
 
 fn take_str(v: &mut Value, key: &str) -> Result<String, RowsError> {
@@ -162,6 +170,25 @@ impl RowsRule {
                 .collect::<Result<_, _>>()?,
             Some(_) => return Err(RowsError::Record(format!("`recenter` must be an array of length {arity}"))),
         };
+        let (witness_present, mut witness_elided, mut witness_loci) = (v.get("witness_loci").is_some_and(|x| !x.is_null()), false, Vec::new());
+        if let Some(Value::Array(a)) = v.get("witness_loci") {
+            for x in a {
+                match x.as_str() {
+                    Some(t) if t.trim() == "elided" => witness_elided = true,
+                    Some(t) => witness_loci.push(t.to_string()),
+                    None => return Err(RowsError::Record("witness locus is not a string".into())),
+                }
+            }
+        }
+        let raw_pivot = match v.get("raw_pivot_encoded") {
+            None | Some(Value::Null) => None,
+            Some(Value::Array(a)) if a.len() == arity => Some(
+                a.iter()
+                    .map(|x| x.as_i64().ok_or_else(|| RowsError::Record("raw pivot entry".into())))
+                    .collect::<Result<_, _>>()?,
+            ),
+            Some(_) => return Err(RowsError::Record(format!("`raw_pivot_encoded` must have length {arity}"))),
+        };
         let sym_rows = match v.get("sym_rows") {
             None | Some(Value::Null) | Some(Value::Bool(false)) => None,
             Some(x) if x.as_i64() == Some(0) || x.as_u64() == Some(0) => None,
@@ -196,6 +223,10 @@ impl RowsRule {
             recenter,
             sym_rows,
             syntax_error,
+            witness_loci,
+            witness_elided,
+            witness_present,
+            raw_pivot,
         })
     }
 
@@ -439,7 +470,9 @@ pub struct RowsVerdict {
     pub points: Vec<PointReport>,
     pub points_passed: usize,
     /// product over the passed cells of deg / (p - 2) (false-PASS probability bound); 1.0 when nothing passed
+    /// (may underflow to 0.0: `sz_bound_log10` is the same bound as a base-10 logarithm)
     pub sz_bound: f64,
+    pub sz_bound_log10: f64,
     pub sz_bound_per_cell_max: f64,
     pub meets_a2_policy: bool,
     pub cost: Cost,
@@ -1232,6 +1265,7 @@ fn unsupported_verdict(rule: &RowsRule, rule_id: u64, opts: &RowsOptions, primes
         points: Vec::new(),
         points_passed: 0,
         sz_bound: 1.0,
+        sz_bound_log10: 0.0,
         sz_bound_per_cell_max: 1.0,
         meets_a2_policy: false,
         cost: Cost {
@@ -1271,6 +1305,13 @@ pub fn identity_test(family: &Family, rule: &RowsRule, points: &[PointSpec], opt
     }
     if rule.seeds.is_empty() {
         return unsupported_verdict(rule, rule_id, opts, primes, Unsupported::NoSeeds);
+    }
+    if rule.arity > 64 {
+        let u = Unsupported::Record(format!("arity {} > 64 (column masks are u64)", rule.arity));
+        return unsupported_verdict(rule, rule_id, opts, primes, u);
+    }
+    if let Err(e) = check_recenter_authority(rule) {
+        return unsupported_verdict(rule, rule_id, opts, primes, Unsupported::Record(e));
     }
     let cx = CellCtx { family, rule, opts };
     let mut cost = Cost {
@@ -1411,11 +1452,12 @@ pub fn identity_test(family: &Family, rule: &RowsRule, points: &[PointSpec], opt
         }
     };
     let points_passed = reports.iter().filter(|r| r.status == PointStatus::Pass).count();
-    let (mut sz, mut szmax) = (1.0f64, 0.0f64);
+    let (mut sz, mut szlog, mut szmax) = (1.0f64, 0.0f64, 0.0f64);
     if verdict == Verdict::Pass {
         for c in reports.iter().filter(|r| r.status == PointStatus::Pass).flat_map(|r| &r.cells) {
             let b = c.sz_degree as f64 / (c.prime - 2) as f64;
             sz *= b;
+            szlog += b.log10();
             szmax = szmax.max(b);
         }
     } else {
@@ -1434,8 +1476,420 @@ pub fn identity_test(family: &Family, rule: &RowsRule, points: &[PointSpec], opt
         points: reports,
         points_passed,
         sz_bound: sz,
+        sz_bound_log10: szlog,
         sz_bound_per_cell_max: szmax,
         cost,
+    }
+}
+
+/// The engine replay's recenter authority (`recenter_for`, raw-pivot branch): when the record carries the node
+/// driver's raw pivot, the recenter it implies (target offset minus raw offset on symbolic slots) must equal the
+/// record's `recenter`; a disagreement refuses the rule (the seeds would be placed differently).
+pub fn check_recenter_authority(rule: &RowsRule) -> Result<(), String> {
+    let Some(raw) = &rule.raw_pivot else { return Ok(()) };
+    for (j, (&b, &(ax, toff))) in raw.iter().zip(&rule.target).enumerate() {
+        let (sym, off) = record::power_decode(b)?;
+        if sym != ax.is_some() {
+            return Err(format!("raw pivot symbolic pattern disagrees with target at slot {j}"));
+        }
+        let derived = if sym {
+            toff - off
+        } else if off != toff {
+            return Err(format!("raw pivot numeric coordinate disagrees with target at slot {j}"));
+        } else {
+            0
+        };
+        if derived != rule.recenter[j] {
+            return Err(format!("raw pivot and recenter disagree at slot {j}"));
+        }
+    }
+    Ok(())
+}
+
+// ------------------------------------------------------------------ evidence level `replay` -----------------------
+
+/// Schema of the [`ReplayRecord`] (the artefact the ledger cites for evidence level `replay`).
+pub const REPLAY_SCHEMA: &str = "rustred.campaign.replay_evidence.v1";
+
+/// Which points establish `replay` (interfaces/ibp-rows.md section 9).
+#[derive(Clone, Debug, Serialize)]
+pub struct ReplayPolicy {
+    /// random points on the symbolic slots (skipped for a rule without symbolic slots)
+    pub generic_points: usize,
+    /// served keys at which the identity is replayed (deterministic sample; 0 = every served key)
+    pub max_identity_keys: usize,
+    /// window of the search for an integer point on a witness locus (excess 0..=w per free slot)
+    pub loci_window: i64,
+    /// cap of that search (beyond it: a deterministic random sample of this many candidates)
+    pub loci_max_candidates: usize,
+}
+
+impl Default for ReplayPolicy {
+    fn default() -> Self {
+        ReplayPolicy {
+            generic_points: 2,
+            max_identity_keys: 8,
+            loci_window: 4,
+            loci_max_candidates: 200_000,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct PoleHit {
+    pub key: Vec<i64>,
+    pub coefficient: usize,
+}
+
+/// Pole check WITHOUT factoring (R38): every RHS denominator evaluated at every served key, modulo both primes, at a
+/// random d; a zero is re-evaluated at deg_d + 1 further d values: identically zero in d at both primes = a pole.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct PoleScan {
+    pub keys_given: usize,
+    pub keys_applicable: usize,
+    pub keys_not_applicable: usize,
+    pub poles: Vec<PoleHit>,
+    /// identically zero at one prime only, or unreadable
+    pub undecided: Vec<(Vec<i64>, String)>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub enum LocusStatus {
+    /// the locus is one of the rule's single-literal exception branches (guarded by construction)
+    Guarded,
+    /// the locus contains d: its index part is carried by the exceptions (not sampled, as the engine replay)
+    Parameter,
+    /// no applicable integer point on the locus in the search window
+    NoPoint { candidates: usize },
+    /// replayed at an integer point on the locus (index into the identity points)
+    Tested { key: Vec<i64>, point: usize, status: PointStatus },
+    Unreadable(String),
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct LocusReport {
+    pub locus: String,
+    pub status: LocusStatus,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub enum ReplayLevel {
+    Established,
+    NotEstablished { reasons: Vec<String> },
+}
+
+/// The artefact of evidence level `replay` for one rule.
+#[derive(Clone, Debug, Serialize)]
+pub struct ReplayRecord {
+    pub schema: &'static str,
+    pub tool_version: &'static str,
+    /// sha256 of the rule's canonical content (see [`rule_digest`])
+    pub rule_digest: String,
+    pub rule_index: Option<i64>,
+    pub target: String,
+    pub seed: u64,
+    pub primes: [u64; 2],
+    pub policy: ReplayPolicy,
+    pub served_keys: usize,
+    /// identity replay at the generic points, the sampled served keys and the loci points, both primes
+    pub identity: RowsVerdict,
+    pub pole_scan: PoleScan,
+    pub loci: Vec<LocusReport>,
+    pub witness_elided: bool,
+    pub witness_present: bool,
+    pub level: ReplayLevel,
+    /// checks of the level that live in other modules and are recorded beside this record
+    pub checked_elsewhere: &'static str,
+}
+
+fn pat_text(p: &Pat) -> String {
+    let parts: Vec<String> = p
+        .iter()
+        .enumerate()
+        .map(|(i, &(ax, off))| match (ax, off) {
+            (Some(_), 0) => format!("n{i}"),
+            (Some(_), o) if o > 0 => format!("n{i}+{o}"),
+            (Some(_), o) => format!("n{i}{o}"),
+            (None, c) => c.to_string(),
+        })
+        .collect();
+    format!("I({})", parts.join(","))
+}
+
+/// sha256 over the rule's canonical content: chart, fixed, equations, exceptions, target, rhs (key pattern text,
+/// coefficient text verbatim), seeds, recenter, witness loci, sym_rows; fields separated by NUL / SOH bytes.
+pub fn rule_digest(rule: &RowsRule) -> String {
+    let mut h = crate::replay_base::sha256::Sha256::new();
+    let mut put = |tag: &str, v: &str| {
+        h.update(tag.as_bytes());
+        h.update(b"\x01");
+        h.update(v.as_bytes());
+        h.update(b"\x00");
+    };
+    put("version", ROWS_VERSION);
+    put("chart", &rule.chart_text);
+    put("fixed", &format!("{:?}", rule.fixed));
+    put("equations", &format!("{:?}", rule.equations));
+    put("exceptions", &format!("{:?}", rule.exceptions));
+    put("target", &pat_text(&rule.target));
+    for (k, c) in &rule.rhs {
+        put("rhs_key", &pat_text(k));
+        put("rhs_coef", c);
+    }
+    for sd in &rule.seeds {
+        put("seed", &pat_text(sd));
+    }
+    put("recenter", &format!("{:?}", rule.recenter));
+    put("witness", &format!("{:?}/{}", rule.witness_loci, rule.witness_elided));
+    put("sym_rows", &format!("{:?}", rule.sym_rows));
+    h.hex()
+}
+
+/// Identically zero in d at the rule point `pt` modulo `p` (deg_d + 1 distinct values).
+fn den_identically_zero(rule: &RowsRule, k: usize, pt: &[i64], p: u64, s: &mut SplitMix64) -> Result<bool, String> {
+    let degd = den_degd(rule, k, p)?;
+    let base: Vec<u64> = pt.iter().map(|&x| arith::from_i128(p, x as i128)).collect();
+    let mut ds: BTreeSet<u64> = BTreeSet::new();
+    while ds.len() < degd as usize + 1 {
+        ds.insert(draw_d(s, p));
+    }
+    let ctxs: Vec<Ctx> = ds
+        .iter()
+        .map(|&d| {
+            let mut v = base.clone();
+            v.push(d);
+            Ctx { p, vals: v }
+        })
+        .collect();
+    let (mut nn, mut dn) = (vec![0; ctxs.len()], vec![0; ctxs.len()]);
+    coeff::eval_ratio(&rule.rhs[k].1, rule.arity, &ctxs, &mut nn, &mut dn).map_err(|e| e.to_string())?;
+    Ok(dn.iter().all(|&x| x == 0))
+}
+
+/// The pole check at one rule point: Ok(None) = no pole, Ok(Some(k)) = coefficient k has a pole at both primes,
+/// Err = undecided (one prime only / unreadable).
+fn pole_at(rule: &RowsRule, pt: &[i64], primes: [u64; 2], seed: u64, stream: &[u64]) -> Result<Option<usize>, String> {
+    let mut s = SplitMix64::derive(seed, stream);
+    let ctxs: Vec<Ctx> = primes
+        .iter()
+        .map(|&p| {
+            let mut v: Vec<u64> = pt.iter().map(|&x| arith::from_i128(p, x as i128)).collect();
+            v.push(draw_d(&mut s, p));
+            Ctx { p, vals: v }
+        })
+        .collect();
+    let (mut num, mut den) = ([0u64; 2], [0u64; 2]);
+    for (k, (_, text)) in rule.rhs.iter().enumerate() {
+        coeff::eval_ratio(text, rule.arity, &ctxs, &mut num, &mut den).map_err(|e| format!("rhs[{k}]: {e}"))?;
+        if den.iter().any(|&x| x == 0) {
+            let z0 = den_identically_zero(rule, k, pt, primes[0], &mut s)?;
+            let z1 = den_identically_zero(rule, k, pt, primes[1], &mut s)?;
+            match (z0, z1) {
+                (true, true) => return Ok(Some(k)),
+                (false, false) => {}
+                _ => return Err(format!("rhs[{k}]: denominator identically zero in d at one prime only")),
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// Equal up to a nonzero constant factor (exact: primitive normal forms of the d-free polynomials).
+fn same_poly(a: &str, b: &str, n: usize) -> bool {
+    match (Poly::parse(a, n, false), Poly::parse(b, n, false)) {
+        (Ok(x), Ok(y)) => x.primitive_normal() == y.primitive_normal(),
+        _ => false,
+    }
+}
+
+/// An applicable integer key on the locus `poly = 0` in the window (deterministic), and the number of candidates seen.
+fn locus_point(rule: &RowsRule, poly: &Poly, policy: &ReplayPolicy, seed: u64) -> (Option<Vec<i64>>, usize) {
+    let free: Vec<usize> = (0..rule.arity).filter(|&i| rule.fixed[i].is_none()).collect();
+    let w = policy.loci_window.max(0);
+    let span = (w + 1) as u128;
+    let total = span.checked_pow(free.len() as u32).unwrap_or(u128::MAX);
+    let sample = total > policy.loci_max_candidates as u128;
+    let count = if sample { policy.loci_max_candidates as u128 } else { total };
+    let mut s = SplitMix64::derive(seed, &[0x4c4f4349]); // "LOCI"
+    let mut seen = 0usize;
+    for idx in 0..count {
+        let mut pt: Vec<i64> = rule.fixed.iter().map(|f| f.unwrap_or(0)).collect();
+        let mut r = idx;
+        for &i in &free {
+            let e = if sample {
+                s.range(0, span as u64) as i64
+            } else {
+                let e = (r % span) as i64;
+                r /= span;
+                e
+            };
+            pt[i] = if rule.chart[i] { 1 + e } else { -e };
+        }
+        seen += 1;
+        let Ok(p32) = pt.iter().map(|&x| i32::try_from(x)).collect::<Result<Vec<_>, _>>() else { continue };
+        if !matches!(poly.is_zero_at(&p32), Ok(true)) {
+            continue;
+        }
+        let key = record::key_at(&rule.target, &pt);
+        if let Ok(Ok(_)) = rule_point(rule, &key) {
+            return (Some(key), seen);
+        }
+    }
+    (None, seen)
+}
+
+/// EVIDENCE LEVEL `replay` of one rule (R40 U-12 / R41 P-3: the acceptance of complete nodes, "the same process as the
+/// hand campaign"): identity replay at two verify-range primes (never a lift prime) at the policy's points, the pole
+/// check at EVERY served key, one replay point on each unguarded witness locus. Descent under the node comparator
+/// and the guard (domain / exception) checks are recorded beside it by the accept module (`checked_elsewhere`).
+pub fn replay_evidence(
+    family: &Family,
+    rule: &RowsRule,
+    served_keys: &[Vec<i64>],
+    policy: &ReplayPolicy,
+    opts: &RowsOptions,
+) -> ReplayRecord {
+    let rule_id = opts.rule_id.unwrap_or_else(|| rule.default_id());
+    let primes = opts
+        .primes
+        .unwrap_or_else(|| primes::verify_primes(opts.seed, &opts.lift_primes));
+    let mut reasons: Vec<String> = Vec::new();
+    // pole scan at every served key
+    let mut ps = PoleScan {
+        keys_given: served_keys.len(),
+        ..PoleScan::default()
+    };
+    let mut applicable: Vec<&Vec<i64>> = Vec::new();
+    for (i, k) in served_keys.iter().enumerate() {
+        match rule_point(rule, k) {
+            Ok(Ok(pt)) => {
+                ps.keys_applicable += 1;
+                applicable.push(k);
+                if rule.syntax_error.is_none() {
+                    match pole_at(rule, &pt, primes, opts.seed, &[rule_id, i as u64, PURPOSE_POLE, 0x504f4c45]) {
+                        Ok(None) => {}
+                        Ok(Some(c)) => ps.poles.push(PoleHit {
+                            key: k.clone(),
+                            coefficient: c,
+                        }),
+                        Err(e) => ps.undecided.push((k.clone(), e)),
+                    }
+                }
+            }
+            Ok(Err(_)) => ps.keys_not_applicable += 1,
+            Err(u) => ps.undecided.push((k.clone(), format!("{u:?}"))),
+        }
+    }
+    // points: generic, sampled served keys, loci
+    let mut points: Vec<PointSpec> = Vec::new();
+    if rule.fixed.iter().any(Option::is_none) {
+        points.extend(std::iter::repeat_n(PointSpec::Generic, policy.generic_points));
+    }
+    let take: Vec<&Vec<i64>> = if policy.max_identity_keys == 0 || applicable.len() <= policy.max_identity_keys {
+        applicable.clone()
+    } else {
+        let mut s = SplitMix64::derive(opts.seed, &[rule_id, 0x4b455953]); // "KEYS"
+        let mut idx: BTreeSet<usize> = BTreeSet::new();
+        while idx.len() < policy.max_identity_keys {
+            idx.insert(s.range(0, applicable.len() as u64) as usize);
+        }
+        idx.into_iter().map(|i| applicable[i]).collect()
+    };
+    points.extend(take.iter().map(|k| PointSpec::Key((*k).clone())));
+    if points.is_empty() && rule.fixed.iter().all(Option::is_some) {
+        // a point rule with no served key given: its own key
+        let pt: Vec<i64> = rule.fixed.iter().map(|f| f.unwrap_or(0)).collect();
+        points.push(PointSpec::Key(record::key_at(&rule.target, &pt)));
+    }
+    let mut loci: Vec<LocusReport> = Vec::new();
+    let mut tested: Vec<(usize, usize)> = Vec::new(); // (loci index, point index)
+    for text in &rule.witness_loci {
+        let status = match Expr::parse(text, rule.arity) {
+            Err(e) => LocusStatus::Unreadable(e),
+            Ok(e) if e.has_d() => LocusStatus::Parameter,
+            Ok(_) if rule.exceptions.iter().any(|b| b.len() == 1 && same_poly(&b[0], text, rule.arity)) => {
+                LocusStatus::Guarded
+            }
+            Ok(_) => match Poly::parse(text, rule.arity, false) {
+                Err(e) => LocusStatus::Unreadable(e.to_string()),
+                Ok(poly) => match locus_point(rule, &poly, policy, opts.seed ^ rule_id) {
+                    (Some(key), _) => {
+                        tested.push((loci.len(), points.len()));
+                        points.push(PointSpec::Key(key.clone()));
+                        LocusStatus::Tested {
+                            key,
+                            point: points.len() - 1,
+                            status: PointStatus::Pass,
+                        }
+                    }
+                    (None, n) => LocusStatus::NoPoint { candidates: n },
+                },
+            },
+        };
+        loci.push(LocusReport {
+            locus: text.clone(),
+            status,
+        });
+    }
+    let identity = identity_test(family, rule, &points, opts);
+    for (li, pi) in tested {
+        let name = loci[li].locus.clone();
+        if let LocusStatus::Tested { status, .. } = &mut loci[li].status {
+            *status = identity
+                .points
+                .get(pi)
+                .map(|p| p.status.clone())
+                .unwrap_or(PointStatus::Undecided {
+                    reason: "not run".into(),
+                });
+            if *status != PointStatus::Pass {
+                reasons.push(format!("witness locus {name}: {status:?}"));
+            }
+        }
+    }
+    if identity.verdict != Verdict::Pass {
+        reasons.push(format!("identity: {}", identity.verdict.kind()));
+    } else if identity.points_passed < 2 {
+        reasons.push(format!("identity passed at {} point(s), 2 required", identity.points_passed));
+    }
+    if !ps.poles.is_empty() {
+        reasons.push(format!("{} served key(s) on a coefficient pole", ps.poles.len()));
+    }
+    if !ps.undecided.is_empty() {
+        reasons.push(format!("{} served key(s) with an undecided pole check", ps.undecided.len()));
+    }
+    if rule.witness_elided {
+        reasons.push("witness loci elided (unusable record)".into());
+    }
+    if !rule.witness_present {
+        reasons.push("witness loci absent (incomplete record)".into());
+    }
+    for l in &loci {
+        if let LocusStatus::Unreadable(e) = &l.status {
+            reasons.push(format!("witness locus {} unreadable: {e}", l.locus));
+        }
+    }
+    ReplayRecord {
+        schema: REPLAY_SCHEMA,
+        tool_version: ROWS_VERSION,
+        rule_digest: rule_digest(rule),
+        rule_index: rule.index,
+        target: rule.target_text.clone(),
+        seed: opts.seed,
+        primes,
+        policy: policy.clone(),
+        served_keys: served_keys.len(),
+        identity,
+        pole_scan: ps,
+        loci,
+        witness_elided: rule.witness_elided,
+        witness_present: rule.witness_present,
+        level: if reasons.is_empty() {
+            ReplayLevel::Established
+        } else {
+            ReplayLevel::NotEstablished { reasons }
+        },
+        checked_elsewhere: "descent under the node comparator (order/accept), domain and exception guards at the served keys (domain/accept)",
     }
 }
 
@@ -1526,6 +1980,7 @@ pub fn identity_test_batch<R: BufRead, W: Write>(
                     points: Vec::new(),
                     points_passed: 0,
                     sz_bound: 1.0,
+                    sz_bound_log10: 0.0,
                     sz_bound_per_cell_max: 1.0,
                     meets_a2_policy: false,
                     cost: Cost::default(),

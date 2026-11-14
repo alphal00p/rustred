@@ -10,6 +10,7 @@ use rustred_campaign_core::ibp_rows::{RowsRule, RowsVerdict};
 use rustred_campaign_core::replay_base::family::Family;
 use serde_json::Value;
 
+#[allow(unused_imports)]
 pub use k3_common::{HO, Oracle, oracle, sha256_hex};
 
 /// sha256 of HO/t162-bank/family/T162-presented-P3.sym (k3 README: 91403065...56118).
@@ -78,10 +79,10 @@ pub fn summary(id: &str, v: &RowsVerdict) -> String {
         })
         .collect();
     format!(
-        "{id}: {} points_passed={} sz={:.1e} rows={} t={:.2}s :: {}",
+        "{id}: {} points_passed={} sz=1e{:.0} rows={} t={:.2}s :: {}",
         v.verdict.kind(),
         v.points_passed,
-        v.sz_bound,
+        v.sz_bound_log10,
         v.cost.rows,
         v.cost.seconds,
         cells.join(" | ")
