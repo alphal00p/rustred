@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "campaign-job.schema.json",
+  "title": "Job record CDIR/jobs/<job>.json (written at job end)",
+  "description": "NO AS-BUILT WRITER: plan 3.3.4 re-expressed with the as-built ledger's names (job_queued + job.finished: class = contract OutcomeKind incl. decided_negative / undecided, cpu_ms / wall_ms, sealed_output and OUTCOME as FileRefs, BLAKE3). The child's own spec is RUN/job.json (child-job-spec.schema.json).",
+  "x-rr-names": ["rustred.campaign.job.v1"],
+  "x-rr-owner": "I-SUP",
+  "x-rr-struct": "rustred_campaign_core::schema::job::CampaignJob",
+  "x-rr-freeze": "M0",
+  "type": "object",
+  "required": ["schema", "job", "item", "node", "rung", "attempt", "kind", "program", "spec_blake3", "run_dir", "cpus", "reserved_bytes", "class", "exit_code", "signal", "sealed_output", "outcome", "cpu_ms", "wall_ms", "peak_rss_bytes", "time_decided"],
+  "properties": {
+    "schema": {"const": "rustred.campaign.job.v1"},
+    "job": {"type": "string", "minLength": 1},
+    "display": {"type": ["string", "null"], "pattern": "^J[0-9]{6,}$"},
+    "item": {"type": "string"},
+    "node": {"type": "string"},
+    "rung": {"$ref": "common.schema.json#/$defs/rung"},
+    "attempt": {"type": "integer", "minimum": 1},
+    "kind": {"$ref": "child-job-spec.schema.json#/$defs/job_kind"},
+    "program": {"type": "object", "required": ["name", "blake3"], "properties": {"name": {"type": "string"}, "blake3": {"$ref": "common.schema.json#/$defs/blake3"}}},
+    "spec_blake3": {"$ref": "common.schema.json#/$defs/blake3"},
+    "run_dir": {"type": "string"},
+    "cpus": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/u32"}},
+    "reserved_bytes": {"$ref": "common.schema.json#/$defs/u64"},
+    "started_utc": {"anyOf": [{"type": "null"}, {"$ref": "common.schema.json#/$defs/utc"}]},
+    "finished_utc": {"anyOf": [{"type": "null"}, {"$ref": "common.schema.json#/$defs/utc"}]},
+    "class": {"$ref": "common.schema.json#/$defs/finish_class"},
+    "exit_code": {"type": ["integer", "null"]},
+    "signal": {"type": ["integer", "null"]},
+    "sealed_output": {"$ref": "common.schema.json#/$defs/fileref_or_null"},
+    "outcome": {"$ref": "common.schema.json#/$defs/fileref_or_null"},
+    "cpu_ms": {"$ref": "common.schema.json#/$defs/u64"},
+    "wall_ms": {"$ref": "common.schema.json#/$defs/u64"},
+    "peak_rss_bytes": {"$ref": "common.schema.json#/$defs/u64"},
+    "time_decided": {"type": "boolean"},
+    "fixture_origin": {"enum": ["hand", "derived"]}
+  },
+  "allOf": [
+    {"if": {"properties": {"class": {"enum": ["rule_found", "complete", "no_rule", "spill"]}}}, "then": {"properties": {"sealed_output": {"type": "object"}}}}
+  ]
+}

@@ -1,0 +1,24 @@
+rr_campaign  p5l-boxed-final  STARTING  age 4s  hb 2s  seq 4  sessions 1
+CPU 0/32   RAM 0.0 used, 0.0 res / 30.0G cap   host 412.0G (floor 50.0)   jobs 0
+NODES 0  FULL 0  BOXED 0  OPEN 0  certified 0  attention 0
+ITEMS 0  open 0  run 0  acc 0  esc 0  rej 0  term 0  ret 0  stale 0
+RULES accepted 0  rejected 0  CERT - (0/0 proved)  upgrades 0  retired 0
+TERMINALS 0 (cand 0, bound 100/node)  DEFECT not checked yet  ECONOMY rules 0->0
+cpu-h 0.0  ETA: nothing left
+-[ Work list by ladder level ]----------------------------- Tab: next table ----
+rung   open  run prod    acc  rej  esc tcand term stale  ret  jobs  med s
+(no items yet)
+-[ Recent events ]-------------------------------------------------- e: all ----
+04:03:11 .    campaign          campaign starting (session 1)
+
+
+
+
+
+
+
+
+
+
+
+Tab table  n/N node  Enter detail  a attention(0)  ?help  q/Ctrl-C close viewer~

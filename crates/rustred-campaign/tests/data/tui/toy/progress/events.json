@@ -1,0 +1,7 @@
+{"schema": "rustred.campaign.progress.v1", "file": "events", "fixture_origin": "hand", "campaign_id": "toy-2loop-optimise",
+ "written_utc": "2027-01-05T10:00:01.000Z", "source_of_truth": "ledger",
+ "ledger": {"seq": 311, "head": "abcd000000000000000000000000000000000000000000000000000000000000", "last_utc": "2027-01-05T10:00:00.500Z"},
+ "cap": 64, "events": [
+  {"seq": 290, "utc": "2027-01-05T09:58:00.000Z", "kind": "rule_retired", "text": "sunset F002: rule sunset:R:3 superseded by sunset-item-00011 (replaced_by)"},
+  {"seq": 300, "utc": "2027-01-05T09:59:10.000Z", "kind": "node", "text": "sunset: certified (full, provisional: hand-down ranges measured)"},
+  {"seq": 310, "utc": "2027-01-05T10:00:00.500Z", "kind": "item_accepted", "text": "kite F001: rule kite:R:5 accepted (identity_tested)"}]}

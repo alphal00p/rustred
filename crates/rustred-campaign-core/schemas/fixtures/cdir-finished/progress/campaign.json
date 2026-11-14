@@ -1,0 +1,206 @@
+{
+  "campaign": {
+    "crash_recoveries": 0,
+    "created_utc": "2026-11-14T06:00:00.000Z",
+    "lock_takeovers": 0,
+    "pending_operations": 0,
+    "phase": "finished",
+    "segments_opened": 0,
+    "sessions": 1,
+    "spec_blake3": "bb65ecd38fe77b1444cb9c0d133b5b9dbe7c691ed000a887e1b52a4f25fd0290",
+    "torn_tail_recoveries": 0,
+    "unsettled_jobs": 0
+  },
+  "campaign_id": "fixture-finished",
+  "certified": {
+    "accepted": 3,
+    "basis": "accepted items at identity_proved / all accepted items",
+    "identity_proved": 2,
+    "share": 0.667
+  },
+  "closure": {
+    "defect_keys": 0,
+    "nodes_checked": 2,
+    "nodes_with_defect": 0
+  },
+  "cost": {
+    "by_level": {
+      "L0": {
+        "cpu_seconds": 9.0,
+        "jobs": 5,
+        "p25_s": 1.0,
+        "p50_s": 2.0,
+        "p75_s": 2.5
+      },
+      "L1": {
+        "cpu_seconds": 4.0,
+        "jobs": 1,
+        "p25_s": 4.0,
+        "p50_s": 4.0,
+        "p75_s": 4.0
+      }
+    },
+    "cpu_seconds": 13.0
+  },
+  "economy": {
+    "after": {
+      "bytes": 120000,
+      "cases": 3,
+      "coefficient_degree": 12,
+      "monomials": 7000,
+      "rhs_terms": 1000,
+      "rules": 3
+    },
+    "before": {
+      "bytes": 370800,
+      "cases": 5,
+      "coefficient_degree": 12,
+      "monomials": 21630,
+      "rhs_terms": 3090,
+      "rules": 5
+    },
+    "retired": 2,
+    "rules_after": 3,
+    "rules_before": 5
+  },
+  "eta": {
+    "cpu_seconds": {
+      "high": 0.0,
+      "low": 0.0,
+      "mid": 0.0
+    },
+    "estimator": "sum over levels of remaining items (open + in_progress) x CPU-seconds quantile (p25 / p50 / p75) of finished jobs at that level, divided by live parallelism",
+    "parallelism": 0,
+    "pooled_levels": [],
+    "reason": "nothing left",
+    "remaining_items": 0,
+    "wall_seconds": {
+      "high": 0.0,
+      "low": 0.0,
+      "mid": 0.0
+    }
+  },
+  "file": "campaign",
+  "files": {
+    "events": "events.json",
+    "nodes": {
+      "kite.b9": "nodes/kite.b9.json",
+      "tri-a": "nodes/tri-a.json"
+    }
+  },
+  "items": {
+    "by_level": {
+      "L0": {
+        "accepted": 2,
+        "escalated": 1,
+        "in_progress": 0,
+        "open": 0,
+        "produced": 0,
+        "rejected": 0,
+        "retired": 2,
+        "stale": 0,
+        "terminal": 0,
+        "terminal_candidate": 0
+      },
+      "L1": {
+        "accepted": 1,
+        "escalated": 0,
+        "in_progress": 0,
+        "open": 0,
+        "produced": 0,
+        "rejected": 0,
+        "retired": 0,
+        "stale": 0,
+        "terminal": 1,
+        "terminal_candidate": 0
+      }
+    },
+    "by_phase": {
+      "accepted": 3,
+      "escalated": 1,
+      "in_progress": 0,
+      "open": 0,
+      "produced": 0,
+      "rejected": 0,
+      "retired": 2,
+      "stale": 0,
+      "terminal": 1,
+      "terminal_candidate": 0
+    },
+    "total": 7
+  },
+  "jobs": {
+    "by_state": {
+      "budget_stopped": 0,
+      "cancelled": 0,
+      "failed": 0,
+      "interrupted": 0,
+      "launching": 0,
+      "lost": 0,
+      "queued": 0,
+      "running": 0,
+      "succeeded_sealed": 6
+    },
+    "reserved_bytes_running": 0,
+    "settled_by_class": {
+      "no_rule": 1,
+      "rule_found": 5
+    },
+    "total": 6
+  },
+  "ledger": {
+    "head": "dde3cb5cab3a2c952502cf68277619dbec1295eee11d7e23cbc30f6bb36e514b",
+    "last_utc": "2026-11-14T06:00:23.000Z",
+    "seq": 93
+  },
+  "nodes": {
+    "by_closure": {
+      "boxed": 1,
+      "full": 1,
+      "open": 0
+    },
+    "by_phase": {
+      "certified": 1,
+      "closed": 1,
+      "closure_check": 0,
+      "open": 0,
+      "registered": 0,
+      "running": 0,
+      "stale": 0
+    },
+    "certified": 1,
+    "total": 2
+  },
+  "resources": {
+    "cpus_allowed": 70,
+    "cpus_in_use": 0,
+    "host_floor_bytes": 50000000000,
+    "host_mem_available_bytes": 287762808832,
+    "live_jobs": 0,
+    "measured_rss_bytes": 0,
+    "mem_cap_bytes": 200000000000,
+    "reserved_bytes": 0,
+    "sampled_utc": "2026-11-14T06:00:23.250Z"
+  },
+  "rules": {
+    "accepted": 5,
+    "accepted_items_by_evidence": {
+      "geometry_accepted": 0,
+      "identity_proved": 2,
+      "identity_tested": 1
+    },
+    "rejected": 1,
+    "rejected_by_reason": {
+      "rule_covers_none": 1
+    },
+    "upgrades": 0
+  },
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "terminals": {
+    "bound_per_node_default": 100,
+    "candidates": 0,
+    "declared": 2
+  },
+  "written_utc": "2026-11-14T06:00:23.250Z"
+}

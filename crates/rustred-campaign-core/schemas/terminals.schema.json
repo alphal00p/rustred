@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "terminals.schema.json",
+  "title": "Terminal list (CDIR/terminals/<node>.json and CDIR/progress/terminals.json)",
+  "description": "NO AS-BUILT WRITER yet: plan 3.3.7 / 3.P.4, node records shaped as a superset of p5l-terminals.v1 so the existing checker can read the projection; per U-11 the campaign never writes WS/P5L_TERMINALS.json. Per-node `reference` = read-only comparison column (U-10).",
+  "x-rr-names": ["rustred.campaign.terminals.v1"],
+  "x-rr-owner": "I-LOOP (terminals.rs) / co-signer C-DASH",
+  "x-rr-struct": "rustred_campaign_core::schema::terminals::TerminalsDoc",
+  "x-rr-freeze": "M0",
+  "type": "object",
+  "required": ["schema", "campaign_id", "written_utc", "seq", "source_of_truth", "nodes"],
+  "properties": {
+    "schema": {"const": "rustred.campaign.terminals.v1"},
+    "campaign_id": {"type": "string"},
+    "written_utc": {"$ref": "common.schema.json#/$defs/utc"},
+    "seq": {"$ref": "common.schema.json#/$defs/u64"},
+    "source_of_truth": {"const": "ledger"},
+    "compatible_with": {"const": "p5l-terminals.v1"},
+    "fixture_origin": {"enum": ["hand", "derived"]},
+    "nodes": {"type": "array", "items": {"$ref": "#/$defs/node"}}
+  },
+  "$defs": {
+    "node": {
+      "type": "object", "required": ["id", "provisional", "closure_kind", "certification", "keys_in_box", "terminals"],
+      "properties": {
+        "id": {"type": "string"},
+        "provisional": {"type": "boolean"},
+        "closure_kind": {"$ref": "common.schema.json#/$defs/closure_kind"},
+        "box_id": {"type": ["string", "null"]},
+        "source": {"type": "string"},
+        "lane": {"type": "string"},
+        "graph": {"type": ["object", "null"]},
+        "box": {"type": ["object", "null"]},
+        "keys_in_box": {"type": ["integer", "null"], "minimum": 0},
+        "keys_covered": {"type": ["integer", "null"], "minimum": 0},
+        "bound": {"type": "integer", "minimum": 0},
+        "table": {"anyOf": [{"type": "null"}, {"$ref": "common.schema.json#/$defs/fileref"}]},
+        "certification": {"enum": ["pending", "certified", "replay", "per-key"]},
+        "reference": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["comparison_only"], "properties": {"comparison_only": {"const": true}, "terminals": {"type": ["integer", "null"]}, "name": {"type": "string"}}}]},
+        "terminals": {"type": "array", "items": {"$ref": "#/$defs/terminal"}}
+      }
+    },
+    "terminal": {
+      "type": "object", "required": ["id", "key", "frame", "label", "origin", "evaluation_status", "item", "reason", "drawing"],
+      "properties": {
+        "id": {"type": "string"},
+        "key": {"$ref": "common.schema.json#/$defs/key"},
+        "frame": {"type": "string"},
+        "presented_key": {"type": ["object", "null"], "properties": {"frame": {"type": "string"}, "key": {"$ref": "common.schema.json#/$defs/key"}}},
+        "label": {"type": "string"},
+        "origin": {"enum": ["unreduced_point", "ladder_exhausted", "declared", "phase1_residual"]},
+        "evaluation_status": {"type": "string"},
+        "item": {"type": ["string", "null"]},
+        "reason": {"$ref": "common.schema.json#/$defs/reason_code"},
+        "drawing": {"type": "object", "required": ["present_lines", "pinched_lines", "dots", "numerators"], "properties": {
+          "present_lines": {"type": "array", "items": {"type": "integer", "minimum": 0}},
+          "pinched_lines": {"type": "array", "items": {"type": "integer", "minimum": 0}},
+          "dots": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 1}},
+          "numerators": {"type": "array"}}}
+      }
+    }
+  }
+}

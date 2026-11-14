@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "progress-item-detail.schema.json",
+  "title": "Per-item detail (the value of `progress::item_detail(state, item)`; not a file, no `schema` field)",
+  "description": "AS BUILT: rustred_campaign::progress::item_detail; `record` = state::ItemRec. Plan 3.P.1 has nodes/<T>.items.json (`rustred.campaign.items.v1`) instead (DISAGREEMENTS).",
+  "x-rr-names": [],
+  "x-rr-owner": "I-LEDGER",
+  "x-rr-struct": "rustred_campaign_core::schema::progress::ItemDetail",
+  "x-rr-freeze": "M0",
+  "type": "object",
+  "required": ["item", "record", "jobs", "children", "why"],
+  "properties": {
+    "item": {"type": "string"},
+    "record": {
+      "type": "object",
+      "required": ["node", "kind", "rung", "parent", "inputs", "label", "weight", "phase", "jobs", "accepted", "economy", "retired", "stale_from", "stale_input", "terminal_keys", "cpu_ms", "created_seq", "updated_seq"],
+      "properties": {
+        "node": {"type": "string"}, "kind": {"type": "string"}, "rung": {"$ref": "common.schema.json#/$defs/rung"},
+        "parent": {"type": ["string", "null"]}, "inputs": {"type": "array", "items": {"type": "string"}}, "label": {"type": "string"},
+        "weight": {"$ref": "common.schema.json#/$defs/u64"},
+        "phase": {"type": "object", "required": ["phase"], "properties": {"phase": {"$ref": "common.schema.json#/$defs/item_phase"}, "detail": true}},
+        "jobs": {"type": "array", "items": {"type": "string"}},
+        "accepted": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["rule", "level", "record", "source", "seq"], "properties": {"level": {"$ref": "common.schema.json#/$defs/evidence_level"}, "record": {"$ref": "common.schema.json#/$defs/fileref"}}}]},
+        "economy": {"anyOf": [{"type": "null"}, {"$ref": "common.schema.json#/$defs/economy"}]},
+        "retired": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["proof", "superseded_by", "seq"]}]},
+        "stale_from": {"type": ["string", "null"]}, "stale_input": {"type": ["string", "null"]},
+        "terminal_keys": {"$ref": "common.schema.json#/$defs/u32"}, "cpu_ms": {"$ref": "common.schema.json#/$defs/u64"},
+        "created_seq": {"$ref": "common.schema.json#/$defs/u64"}, "updated_seq": {"$ref": "common.schema.json#/$defs/u64"}
+      }
+    },
+    "jobs": {"type": "array", "items": {
+      "type": "object", "required": ["job", "attempt", "state", "cpu_seconds", "run_dir"],
+      "properties": {
+        "job": {"type": "string"}, "attempt": {"type": "integer", "minimum": 1},
+        "state": {"type": "object", "required": ["state"], "properties": {"state": {"$ref": "common.schema.json#/$defs/attempt_state_tag"}, "class": {"$ref": "common.schema.json#/$defs/finish_class"}}},
+        "cpu_seconds": {"type": "number", "minimum": 0}, "run_dir": {"type": ["string", "null"]}
+      }}},
+    "children": {"type": "array", "items": {"type": "string"}},
+    "why": {"type": "string"}
+  }
+}

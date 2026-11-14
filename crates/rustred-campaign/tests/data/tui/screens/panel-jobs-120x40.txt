@@ -1,0 +1,40 @@
+rr_campaign  test-campaign  RUNNING  age 10m03s  hb 2s  seq 84  sessions 1  dir memory
+-[ Running jobs 0 ]---------------------------------------------------------------------------------------- q: back ----
+running 0 (job list not in the progress files and not available from the ledger)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+arrows/PgUp/PgDn scroll  q back  q/Ctrl-C close viewer (campaign unaffected)
