@@ -455,6 +455,39 @@ pub fn key_text(k: &[i32]) -> String {
     format!("I({})", v.join(","))
 }
 
+/// `n0=a,n1=b,..` text (rr_proof's key form) -> key; slots not named are `i32::MIN` (the caller completes them from
+/// the record's fixed slots or refuses). `None` on a malformed text, a slot >= arity or a slot named twice.
+pub fn parse_named_key_text(t: &str, arity: usize) -> Option<Vec<i32>> {
+    let mut k = vec![i32::MIN; arity];
+    for part in t.split(',') {
+        let (name, v) = part.trim().split_once('=')?;
+        let i: usize = name.trim().strip_prefix('n')?.parse().ok()?;
+        if i >= arity || k[i] != i32::MIN {
+            return None;
+        }
+        k[i] = v.trim().parse().ok()?;
+    }
+    Some(k)
+}
+
+/// The TERM-KEY DIGEST of a key (interfaces/import.md 5.5): the first 8 bytes (16 lowercase hex characters) of the
+/// sha256 of its `I(a,b,..)` text (no spaces). Fact verdict lines list the digests of the NON-ZERO terms only; a term
+/// whose digest is not listed has a coefficient identically zero in d at the key and is NOT an edge. A collision can
+/// only make a zero term look non-zero (followed: conservative), never the converse.
+pub fn term_key_digest(k: &[i32]) -> u64 {
+    let mut h = Sha256::new();
+    h.update(key_text(k).as_bytes());
+    let hex = h.finish_hex();
+    u64::from_str_radix(&hex[..16], 16).unwrap_or(0)
+}
+
+/// Parse a 16-hex term-key digest.
+pub fn parse_term_key_digest(s: &str) -> Option<u64> {
+    (s.len() == 16)
+        .then(|| u64::from_str_radix(s, 16).ok())
+        .flatten()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

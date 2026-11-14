@@ -239,7 +239,7 @@ pub fn row_json(set: &ImportedSet, row: &KeyRow) -> Value {
         "key": row.key,
         "in_start": row.in_start,
         "status": status,
-        "server": if row.status == RowStatus::Served || row.open_reason.as_deref() == Some("elided_witness_loci_no_per_key_proof") { server_json(set, row) } else { Value::Null },
+        "server": if row.status == RowStatus::Served { server_json(set, row) } else { Value::Null },
         "evidence": if row.status == RowStatus::Served { row.evidence.map(|e| e.word()) } else { None },
         "basis": row.basis,
         "facts": json!({"regularity_unknown": row.regularity_unknown, "coefficient_unknown": row.coefficient_unknown}),
@@ -284,15 +284,30 @@ pub fn write_statement(
     let f = std::fs::File::create(&p).map_err(|e| io_err(&p, e))?;
     let mut w = std::io::BufWriter::with_capacity(1 << 20, f);
     let mut h = Sha256::new();
-    for row in &res.rows {
-        let t = canonical_json(&row_json(set, row), false).map_err(ImportError::Core)?;
-        w.write_all(t.as_bytes()).map_err(|e| io_err(&p, e))?;
-        w.write_all(b"\n").map_err(|e| io_err(&p, e))?;
-        h.update(t.as_bytes());
-        h.update(b"\n");
+    match &res.streamed {
+        // check_streamed wrote every row already (closure order): record that file
+        Some(st) => {
+            drop(w);
+            let _ = std::fs::remove_file(&p);
+            if Path::new(&st.path) != p.as_path() {
+                std::fs::rename(&st.path, &p)
+                    .or_else(|_| std::fs::copy(&st.path, &p).map(|_| ()))
+                    .map_err(|e| io_err(&p, e))?;
+            }
+            sums.insert("statement.jsonl".to_string(), st.sha256.clone());
+        }
+        None => {
+            for row in &res.rows {
+                let t = canonical_json(&row_json(set, row), false).map_err(ImportError::Core)?;
+                w.write_all(t.as_bytes()).map_err(|e| io_err(&p, e))?;
+                w.write_all(b"\n").map_err(|e| io_err(&p, e))?;
+                h.update(t.as_bytes());
+                h.update(b"\n");
+            }
+            w.flush().map_err(|e| io_err(&p, e))?;
+            sums.insert("statement.jsonl".to_string(), h.finish_hex());
+        }
     }
-    w.flush().map_err(|e| io_err(&p, e))?;
-    sums.insert("statement.jsonl".to_string(), h.finish_hex());
     // summary
     let counts = res.counts();
     let summary = json!({
@@ -301,9 +316,11 @@ pub fn write_statement(
         "node": set.spec.node,
         "start": {"keys": set.start.len(), "digest": set.start.digest()},
         "key_set_digest": res.key_set_digest,
-        "keys": res.rows.len(),
-        "in_start": res.rows.iter().filter(|r| r.in_start).count(),
+        "keys": res.summary.keys_total,
+        "in_start": res.summary.keys_in_start,
+        "rows_streamed": res.streamed,
         "counts": counts,
+        "evidence_by_class": res.evidence_by_class(set),
         "required_evidence": res.required.word(),
         "tier": format!("{:?}", res.tier),
         "closure": serde_json::to_value(&res.summary).unwrap_or(Value::Null),
@@ -547,6 +564,13 @@ pub fn compare(set: &ImportedSet, res: &CheckResult, hand: &HandStatement) -> Co
             *unmapped.entry(r.clone()).or_default() += 1;
         }
         let Some(o) = ours.get(h.key.as_slice()) else {
+            if res.streamed.is_some() && !res.rows_complete_for(&h.key) {
+                // a streamed check keeps only the exceptional rows: a key served by a plain rule is in the file
+                *matrix
+                    .entry(format!("{} -> (streamed rule row)", h.label))
+                    .or_default() += 1;
+                continue;
+            }
             diffs.push(d(
                 DiffKind::OnlyHand,
                 None,
@@ -632,7 +656,7 @@ pub fn compare(set: &ImportedSet, res: &CheckResult, hand: &HandStatement) -> Co
         hand_path: hand.path.clone(),
         hand_sha256: hand.sha256.clone(),
         keys_hand: hand.rows.len(),
-        keys_ours: res.rows.len(),
+        keys_ours: res.summary.keys_total as usize,
         key_sets_equal,
         same_server: same,
         terminals_equal: th == to,

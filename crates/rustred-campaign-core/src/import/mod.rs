@@ -14,8 +14,10 @@ pub mod error;
 pub mod evidence;
 pub mod lines;
 pub mod load;
+pub mod recipe_steps;
 pub mod spec;
 pub mod statement;
+pub mod symmetry;
 
 pub use check::{CheckOptions, CheckResult, KeyRow, RowStatus, Server, SolveRequest, check};
 pub use error::ImportError;

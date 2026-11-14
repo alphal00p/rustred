@@ -48,15 +48,19 @@ impl Level {
     }
 }
 
-/// Elided witness loci policy (interfaces/import.md section 3).
+/// Per-key lift policy of records whose witness loci are ELIDED or ABSENT (interfaces/import.md section 3; the
+/// coordinator's / user's ruling 2026-11-14: a first-class evidence level).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ElidedPolicy {
-    /// Strict: an elided record blocks every key where it is selected.
-    #[default]
+    /// An elided record blocks every key where it is selected; a witness-absent record serves only through its
+    /// regularity fact (`witness_absent`).
     Block,
-    /// The record serves at its position; a served key is CERTIFIED only with an exact per-key proof for exactly
-    /// (record_sha256, key), otherwise it is reported blocked.
+    /// DEFAULT. Such a record serves a key iff an exact per-key proof (`EXACT_IN_SPAN_AT_KEY` /
+    /// `EXACT_PROVED_AT_KEY`) is bound to exactly (record_sha256, key): the closure's strict dispatcher consults the
+    /// evidence oracle (closure `PerKeyLift::Proof`); the key's level is `per-key`; without the proof the key is open
+    /// (`blocked`). The dispatcher stays strict everywhere (no witness check is turned off).
+    #[default]
     LiftWithPerKeyProof,
 }
 
@@ -153,6 +157,8 @@ pub enum StartFormat {
     KeysetV1,
     /// A hand statement: the keys flagged in-box (needs `hand_format`).
     HandStatement,
+    /// A box document (`rustred.campaign.box.v1`, interfaces/campaign-core-domain.md section 7): its keys.
+    Box,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -245,9 +251,9 @@ impl SourceKind {
                 "removed",
                 "domain",
             ],
-            SourceKind::Recipe => &["path", "sha256", "engine_digest"],
-            SourceKind::SuppliedRelations => &["path", "sha256", "verification"],
-            SourceKind::SymmetryCredit => &["group"],
+            SourceKind::Recipe => &["path", "sha256", "engine_digest", "assignment"],
+            SourceKind::SuppliedRelations => &["path", "sha256", "verification", "verify"],
+            SourceKind::SymmetryCredit => &["group", "family", "group_format", "max_candidates"],
             SourceKind::Terminals => &["keys", "path", "sha256", "preferred"],
         }
     }
@@ -293,6 +299,22 @@ pub struct SourceSpec {
     pub verification: Option<FileRef>,
     #[serde(default)]
     pub group: Option<FileRef>,
+    /// `symmetry_credit`: the family file of the VERIFIED group (interfaces/import.md 13); absent = the legacy
+    /// hand-written `rustred.campaign.credit-group.v1` file in `group` (unverified: the closure is `diagnostic`).
+    #[serde(default)]
+    pub family: Option<FileRef>,
+    #[serde(default)]
+    pub group_format: Option<super::symmetry::GroupFormat>,
+    #[serde(default)]
+    pub max_candidates: Option<u64>,
+    /// `recipe`: PER-KEY ASSIGNMENT side file (until recipe v1.2 `domain.keys` is frozen; interfaces/import.md 14): JSONL
+    /// lines `{"recipe": "<recipe id>", "keys": [[..], ..]}` (or `"key": [..]`); lines naming another recipe id are
+    /// ignored, so one file can serve every recipe. The recipe then serves (and is asked for) ONLY those keys.
+    #[serde(default)]
+    pub assignment: Option<FileRef>,
+    /// `supplied_relations`: re-derive every relation from the verified group at its key (interfaces/import.md 13.2).
+    #[serde(default)]
+    pub verify: Option<super::symmetry::GroupSpec>,
     #[serde(default)]
     pub keys: Option<Vec<Vec<i32>>>,
     #[serde(default)]
@@ -450,7 +472,10 @@ impl TableSetSpec {
                 }
                 SourceKind::Recipe => need(s.path.is_some(), "path")?,
                 SourceKind::SuppliedRelations => need(s.path.is_some(), "path")?,
-                SourceKind::SymmetryCredit => need(s.group.is_some(), "group")?,
+                SourceKind::SymmetryCredit => need(
+                    s.group.is_some() || s.family.is_some() || s.group_format.is_some(),
+                    "group, family or group_format",
+                )?,
                 SourceKind::Terminals => need(
                     s.keys.is_some() != s.path.is_some(),
                     "exactly one of keys / path",
