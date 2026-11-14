@@ -17,6 +17,7 @@ compile_error!(
 );
 
 mod bounded;
+mod children;
 mod marked;
 mod pid;
 mod scan;
@@ -31,6 +32,11 @@ pub use marked::{
     validate_campaign_id,
 };
 pub use pid::{InvalidPid, PID_MAX_LIMIT, ValidPid, pid_max};
+pub(crate) use children::{
+    FactRead, MarkerFact, ProcFacts, children_of, own_children, own_children_by_scan, read_proc_facts,
+    start_reaper, strict_listing_counted,
+};
+pub use children::{ReaperStats, reaper_stats, request_reap};
 pub(crate) use scan::Leaders;
 pub use scan::{
     EscapeeRecord, MemKind, Sampler, SamplerConfig, SamplerHealth, SessionUsage, Snapshot,

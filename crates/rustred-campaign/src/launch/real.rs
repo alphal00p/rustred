@@ -24,18 +24,23 @@
 
 use super::guard::{
     self, DEFAULT_VERIFY_TIMEOUT, ProcessTarget, Proof, StartRule, signal_pinned_group,
-    signal_verified,
 };
+use super::hunt::{self, HuntResult, HuntSpec};
+use super::idlock::{self, IdLock, IdLockError};
 use super::{
-    CapRequest, ChildHandle, ChildLauncher, ChildProgress, ExitState, FinalReport, JobCgroup,
-    KillReason, LaunchError, LaunchSpec, LeftoverRecord, LostReason, MemoryMechanism,
-    ReattachChoice, Reattached, SignalOutcome, UsageReading, Verification,
+    CapRequest, CgroupRoot, ChildHandle, ChildLauncher, ChildProgress, Enumeration, ExitState,
+    FinalReport, JobCgroup, KillReason, LaunchError, LaunchSpec, LeftoverRecord, LostReason,
+    MemoryMechanism, ReattachChoice, Reattached, SignalOutcome, UnattributedChild, UsageReading,
+    Verification, VerifiedBy,
 };
+use crate::cpu_policy::CpuLease;
 use crate::resources::{
-    CampaignMarker, InvalidPid, Leaders, MARKER_VAR, MarkedProcess, MemKind, ProcStat,
-    ProcessIdentity, Sampler, SessionUsage, Snapshot, ValidPid, boot_id, read_bounded, run_bounded,
-    scan_campaign, ticks_per_second,
+    CampaignMarker, InvalidMarker, InvalidPid, Leaders, MARKER_VAR, MarkedProcess, MemKind,
+    ProcStat, ProcessIdentity, Sampler, SessionUsage, Snapshot, ValidPid, boot_id, read_bounded,
+    request_reap, run_bounded, scan_campaign, ticks_per_second,
 };
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::collections::BTreeSet;
 use std::fs::{self, OpenOptions};
 use std::io;
@@ -70,6 +75,24 @@ pub struct RealConfig {
     /// Bound of the /proc reads of one verified signal (default 2 s).
     pub signal_verify_timeout: Duration,
     pub cap_preference: CapPreference,
+    /// Directory of the host-wide campaign-id lock (None: `launch::default_lock_dir()`).
+    pub id_lock_dir: Option<PathBuf>,
+    /// Per-job tracking cgroup in a delegated subtree when available (Auto), or never (ProcOnly: the /proc proof only,
+    /// as in the user's zellij run; tests of the fallback).
+    pub tracking: TrackingPreference,
+    /// Time budget of one end-of-job hunt invocation (helper thread).
+    pub hunt_budget: Duration,
+    /// Interval between hunts of a job whose end is Unverified (handle or quarantine).
+    pub rehunt_every: Duration,
+    /// Interval between the two proof passes.
+    pub pass_gap: Duration,
+}
+
+/// Whether a job gets its own tracking cgroup (see [`CgroupRoot::probe_tracking`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrackingPreference {
+    Auto,
+    ProcOnly,
 }
 
 impl Default for RealConfig {
@@ -81,19 +104,53 @@ impl Default for RealConfig {
             stale_after: Duration::from_secs(30),
             signal_verify_timeout: DEFAULT_VERIFY_TIMEOUT,
             cap_preference: CapPreference::Auto,
+            id_lock_dir: None,
+            tracking: TrackingPreference::Auto,
+            hunt_budget: Duration::from_secs(5),
+            rehunt_every: Duration::from_secs(5),
+            pass_gap: Duration::from_millis(20),
         }
     }
 }
 
-/// "adhoc-<pid>-<start ticks>" of this process (unique per supervisor instance within a boot).
+/// "adhoc-<pid ns>-<pid>-<start ticks>" of this process: unique per supervisor process on the host (the pid namespace
+/// inode separates processes that are pid 1 of different namespaces), the same for every launcher of the process.
 pub fn adhoc_campaign_id() -> String {
     let me = std::process::id();
     let start = crate::resources::read_stat(me)
         .ok()
         .flatten()
         .map_or(0, |s| s.start_ticks);
-    format!("adhoc-{me}-{start}")
+    let ns = fs::read_link("/proc/self/ns/pid")
+        .ok()
+        .and_then(|l| {
+            l.to_str()
+                .and_then(|s| s.strip_prefix("pid:["))
+                .and_then(|s| s.strip_suffix(']'))
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "0".into());
+    format!("adhoc-{ns}-{me}-{start}")
 }
+
+/// Why [`RealLauncher::try_with_config`] refused.
+#[derive(Debug)]
+pub enum LauncherError {
+    InvalidId(InvalidMarker),
+    /// Another live process holds this campaign id (gate re-audit B RB-M2), or the lock is unusable.
+    IdLock(IdLockError),
+}
+
+impl std::fmt::Display for LauncherError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LauncherError::InvalidId(e) => write!(f, "{e}"),
+            LauncherError::IdLock(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for LauncherError {}
 
 /// What the launcher found at construction (for the supervisor's log).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -105,12 +162,52 @@ pub struct LauncherSetup {
     pub systemd_run: Option<PathBuf>,
     /// Why the systemd scope mechanism is not used (None when it is available).
     pub systemd_unavailable: Option<String>,
+    /// Delegated cgroup under which each job gets its own tracking leaf (verification `Cgroup`), if any.
+    pub tracking_root: Option<PathBuf>,
+    /// Why there is no tracking root (then the proof is `ProcTwoPass`).
+    pub tracking_unavailable: Option<String>,
+    /// How launched jobs are enumerated for the proof.
+    pub enumeration: Enumeration,
+    /// The host-wide id lock held for this campaign id.
+    pub id_lock: Option<PathBuf>,
+    /// Set when the configured campaign id was NOT used (invalid, or held by another live process): `with_config` then
+    /// runs on an ad-hoc id that recognises nothing of the configured campaign. `try_with_config` refuses instead.
+    pub campaign_id_replaced: Option<String>,
+}
+
+/// A finished job whose end is not proven: kept with its CPU lease until a later hunt proves it gone.
+struct Retired {
+    handle: RealChild,
+    lease: Option<CpuLease>,
+    since: Instant,
+    last_reason: String,
+}
+
+/// What the quarantine of [`RealLauncher`] did.
+#[derive(Clone, Debug)]
+pub enum RetireEvent {
+    /// The job is proven gone now; its lease was released (`lease_note`: e.g. a CPU still held by an unmarked survivor).
+    Cleared {
+        label: String,
+        report: FinalReport,
+        lease_note: Option<String>,
+        after: Duration,
+    },
+    /// Still not proven (kept, lease kept, hunting continues).
+    StillUnverified {
+        label: String,
+        reason: String,
+        left: usize,
+    },
 }
 
 pub struct RealLauncher {
     sampler: Arc<Sampler>,
     config: RealConfig,
     setup: LauncherSetup,
+    id_lock: Option<Arc<IdLock>>,
+    tracking: Option<CgroupRoot>,
+    quarantine: Vec<Retired>,
 }
 
 /// Find an executable on the supervisor's PATH.
@@ -207,26 +304,60 @@ impl RealLauncher {
     /// As [`Self::with_config`], but an invalid `campaign_id` is a hard ERROR instead of a silent ad-hoc id (gate
     /// re-audit C-1 (a): the campaign id is the only proof of ownership; a swapped id would make a restarted supervisor
     /// recognise nothing). The supervisor uses this. Additive (lane I-SUP, 2026-11-14).
-    pub fn try_with_config(
-        sampler: Arc<Sampler>,
-        config: RealConfig,
-    ) -> Result<Self, crate::resources::InvalidMarker> {
-        crate::resources::validate_campaign_id(&config.campaign_id)?;
-        Ok(Self::with_config(sampler, config))
+    ///
+    /// Second fix package: also refuses (`LauncherError::IdLock`) when another LIVE process holds the host-wide lock of
+    /// this campaign id (gate re-audit B RB-M2); nothing is signalled then.
+    pub fn try_with_config(sampler: Arc<Sampler>, config: RealConfig) -> Result<Self, LauncherError> {
+        crate::resources::validate_campaign_id(&config.campaign_id)
+            .map_err(LauncherError::InvalidId)?;
+        let lock = idlock::acquire(&config.campaign_id, config.id_lock_dir.as_deref())
+            .map_err(LauncherError::IdLock)?;
+        Ok(Self::build(sampler, config, Some(lock), None))
     }
 
     /// Process-wide effects (documented): SIGCHLD reset to SIG_DFL if inherited as ignored (audit A M4); child
-    /// subreaper if configured; the sampler's campaign is set to `config.campaign_id`.
+    /// subreaper if configured; the sampler's campaign is set to `config.campaign_id`; the adopted-children reaper thread
+    /// is started (once per process).
+    ///
+    /// An invalid id, or an id whose host-wide lock another live process holds, is REPLACED by an ad-hoc id (recorded in
+    /// `setup().campaign_id_replaced`); the supervisor uses [`Self::try_with_config`], which refuses instead.
     pub fn with_config(sampler: Arc<Sampler>, config: RealConfig) -> Self {
+        let replaced = match crate::resources::validate_campaign_id(&config.campaign_id) {
+            Err(e) => Some(e.to_string()),
+            Ok(()) => match idlock::acquire(&config.campaign_id, config.id_lock_dir.as_deref()) {
+                Ok(lock) => return Self::build(sampler, config, Some(lock), None),
+                Err(e) => Some(e.to_string()),
+            },
+        };
+        let mut c = config;
+        c.campaign_id = adhoc_campaign_id();
+        let lock = idlock::acquire(&c.campaign_id, c.id_lock_dir.as_deref()).ok();
+        Self::build(sampler, c, lock, replaced)
+    }
+
+    fn build(
+        sampler: Arc<Sampler>,
+        config: RealConfig,
+        id_lock: Option<Arc<IdLock>>,
+        replaced: Option<String>,
+    ) -> Self {
         let sigchld =
             guard::ensure_sigchld_default().unwrap_or(guard::SigchldSetup::AlreadyDefault);
         let child_subreaper = config.child_subreaper && guard::set_child_subreaper(true).is_ok();
-        if crate::resources::validate_campaign_id(&config.campaign_id).is_err() {
-            // An invalid id would make every marker invalid: fall back to an ad-hoc one (recognises nothing old).
-            let mut c = config.clone();
-            c.campaign_id = adhoc_campaign_id();
-            return Self::with_config(sampler, c);
-        }
+        // SAFETY: getpid cannot fail.
+        let init = unsafe { libc::getpid() } == 1;
+        crate::resources::start_reaper(
+            Arc::clone(sampler.leaders()),
+            Duration::from_millis(100),
+            1024,
+        );
+        let (tracking, tracking_unavailable) = match config.tracking {
+            TrackingPreference::ProcOnly => (None, Some("disabled by configuration".to_string())),
+            TrackingPreference::Auto => match CgroupRoot::probe_tracking() {
+                Ok(r) => (Some(r), None),
+                Err(e) => (None, Some(e)),
+            },
+        };
         sampler.set_campaign(&config.campaign_id, 0);
         let (systemd_run, systemd_unavailable) = match config.cap_preference {
             CapPreference::NoSystemd => (None, Some("disabled by configuration".into())),
@@ -241,11 +372,23 @@ impl RealLauncher {
             pidfd: guard::pidfd_supported(),
             systemd_run,
             systemd_unavailable,
+            tracking_root: tracking.as_ref().map(|t| t.path().to_path_buf()),
+            tracking_unavailable,
+            enumeration: if child_subreaper || init {
+                Enumeration::SubreaperTree
+            } else {
+                Enumeration::FullProc
+            },
+            id_lock: id_lock.as_ref().map(|l| l.path().to_path_buf()),
+            campaign_id_replaced: replaced,
         };
         Self {
             sampler,
             config,
             setup,
+            id_lock,
+            tracking,
+            quarantine: Vec::new(),
         }
     }
 
@@ -266,6 +409,124 @@ impl RealLauncher {
     pub fn kill_all_pinned(&self) -> usize {
         guard::kill_all_pinned(self.sampler.leaders())
     }
+
+    /// The host-wide id lock file held by this launcher (None only if even the ad-hoc lock failed).
+    pub fn id_lock_path(&self) -> Option<&Path> {
+        self.id_lock.as_deref().map(IdLock::path)
+    }
+
+    /// Hand over a FINISHED handle together with its CPU lease (gate re-audit B RB-C1 d). A `Verified` job's lease is
+    /// released at once (`Some(Cleared)`, with a note when a CPU's flock is still held by another process). An
+    /// `Unverified` job is kept in the QUARANTINE with its lease and its unreaped leader (the session stays pinned):
+    /// [`Self::tick`] keeps hunting it and releases the lease only once a later hunt proves the job gone. A handle that is
+    /// not finished yet is kept as well (it is polled by `tick`).
+    pub fn retire(&mut self, handle: RealChild, lease: Option<CpuLease>) -> Option<RetireEvent> {
+        match &handle.finished {
+            Some(r) if r.verification.is_verified() => {
+                let report = r.clone();
+                let lease_note = lease.and_then(release_lease);
+                Some(RetireEvent::Cleared {
+                    label: handle.label.clone(),
+                    report,
+                    lease_note,
+                    after: Duration::ZERO,
+                })
+            }
+            _ => {
+                self.quarantine.push(Retired {
+                    handle,
+                    lease,
+                    since: Instant::now(),
+                    last_reason: String::new(),
+                });
+                None
+            }
+        }
+    }
+
+    /// Drive the quarantine (non-blocking: hunts run on helper threads). Returns what changed.
+    pub fn tick(&mut self) -> Vec<RetireEvent> {
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < self.quarantine.len() {
+            let q = &mut self.quarantine[i];
+            match q.handle.poll() {
+                Ok(ChildProgress::Finished(r)) if r.verification.is_verified() => {
+                    let q = self.quarantine.swap_remove(i);
+                    let lease_note = q.lease.and_then(release_lease);
+                    out.push(RetireEvent::Cleared {
+                        label: q.handle.label.clone(),
+                        report: r,
+                        lease_note,
+                        after: q.since.elapsed(),
+                    });
+                    continue;
+                }
+                Ok(ChildProgress::Finished(r)) => {
+                    if let Verification::Unverified { leftovers, reason } = &r.verification
+                        && *reason != q.last_reason
+                    {
+                        q.last_reason = reason.clone();
+                        out.push(RetireEvent::StillUnverified {
+                            label: q.handle.label.clone(),
+                            reason: reason.clone(),
+                            left: leftovers.len(),
+                        });
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        out
+    }
+
+    /// Labels in the quarantine with the time since they were retired and the latest reason.
+    pub fn quarantined(&self) -> Vec<(String, Duration, String)> {
+        self.quarantine
+            .iter()
+            .map(|q| (q.handle.label.clone(), q.since.elapsed(), q.last_reason.clone()))
+            .collect()
+    }
+
+    /// Blocking (bounded): drive the quarantine until it is empty or `timeout` passes (supervisor exit). What is left
+    /// stays unproven: its handles are dropped with the launcher (the pinned groups get SIGKILL) and the restart's orphan
+    /// scan looks for the markers.
+    pub fn shutdown(&mut self, timeout: Duration) -> Vec<RetireEvent> {
+        let t0 = Instant::now();
+        let mut out = Vec::new();
+        while !self.quarantine.is_empty() && t0.elapsed() < timeout {
+            out.extend(self.tick());
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        out
+    }
+}
+
+/// Release a lease and report CPUs whose flock is STILL held afterwards (an unmarked survivor that inherited the lock
+/// descriptor: gate re-audit B m2). The holder is listed for a human, never signalled.
+fn release_lease(lease: CpuLease) -> Option<String> {
+    let (r, held) = lease.release_checked();
+    let mut notes = Vec::new();
+    if let Err(e) = r {
+        notes.push(format!("release: {e}"));
+    }
+    for h in held {
+        notes.push(format!(
+            "CPU {} still held after release by {} (unmarked survivor? not signalled)",
+            h.cpu,
+            if h.holders.is_empty() {
+                "an unknown process".to_string()
+            } else {
+                h.holders
+                    .iter()
+                    .map(|p| format!("pid {p}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            }
+        ));
+    }
+    (!notes.is_empty()).then(|| notes.join("; "))
 }
 
 fn last_err() -> io::Error {
@@ -443,16 +704,33 @@ pub fn audit_inheritable_fds() -> io::Result<Vec<(RawFd, String)>> {
     Ok(out)
 }
 
-/// Hand a `Child` that may not have exited yet to a helper thread that reaps it (never block the caller; audit A M5).
+/// Hand a `Child` that may not have exited yet to the adopted-children reaper (never block the caller; audit A M5).
+/// The caller removed it from the leader registry first: the reaper then reaps its zombie by exact pid (no thread blocked
+/// per child any more: gate re-audit A m-4).
 fn reap_in_background(mut c: Child) {
     if let Ok(Some(_)) = c.try_wait() {
         return;
     }
-    let _ = std::thread::Builder::new()
-        .name("rr-reaper".into())
-        .spawn(move || {
-            let _ = c.wait();
-        });
+    drop(c);
+    request_reap();
+}
+
+/// Unattributed children already reported in some job's report (each is reported once).
+fn first_report_of(list: Vec<UnattributedChild>) -> Vec<UnattributedChild> {
+    static SEEN: std::sync::OnceLock<std::sync::Mutex<BTreeSet<(u32, u64)>>> =
+        std::sync::OnceLock::new();
+    let mut seen = SEEN
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    list.into_iter()
+        .filter(|u| seen.insert((u.pid, u.start_ticks)))
+        .collect()
+}
+
+/// A running end-of-job hunt (helper thread).
+struct HuntTask {
+    rx: mpsc::Receiver<HuntResult>,
 }
 
 impl ChildLauncher for RealLauncher {
@@ -528,8 +806,22 @@ impl ChildLauncher for RealLauncher {
             .stdout(open(&spec.stdout)?)
             .stderr(open(&spec.stderr)?);
 
+        // The memory mechanism is decided before a tracking-only leaf is added.
+        let mechanism_kind = match &mechanism_choice {
+            Chosen::Cgroup(c) => MemoryMechanism::Cgroup(c.path().to_path_buf()),
+            Chosen::Scope(..) => MemoryMechanism::SystemdScope { cgroup: None },
+            Chosen::Sampling => MemoryMechanism::Sampling,
+            Chosen::None => MemoryMechanism::None,
+        };
+        let in_scope = matches!(mechanism_choice, Chosen::Scope(..));
         let cgroup: Option<JobCgroup> = match mechanism_choice {
             Chosen::Cgroup(c) => Some(c),
+            // A tracking-only leaf in a delegated subtree (verification `Cgroup`). Not for a job that systemd-run moves
+            // into its own scope: the leaf would be left at once and prove nothing.
+            _ if !in_scope => self
+                .tracking
+                .as_ref()
+                .and_then(|t| t.create_tracking_leaf(&spec.label).ok()),
             _ => None,
         };
         let procs_fd = cgroup.as_ref().map(|c| c.procs_fd());
@@ -610,19 +902,8 @@ impl ChildLauncher for RealLauncher {
             }
         };
         self.sampler.track(pid);
-        let mechanism = match (
-            &cgroup,
-            &mechanism_choice_kind(
-                &spec.memory_cap_bytes,
-                &cgroup,
-                &self.setup,
-                spec.cap_mechanism,
-            ),
-        ) {
-            (Some(c), _) => MemoryMechanism::Cgroup(c.path().to_path_buf()),
-            (None, k) => k.clone(),
-        };
-        Ok(RealChild::new(
+        let mechanism = mechanism_kind;
+        let mut h = RealChild::new(
             spec.label.clone(),
             marker,
             identity,
@@ -633,7 +914,9 @@ impl ChildLauncher for RealLauncher {
             spec.rlimit_as_bytes,
             cgroup,
             mechanism,
-        ))
+        );
+        h.enumeration = self.setup.enumeration;
+        Ok(h)
     }
 
     /// RESTART-TIME call (it performs one blocking /proc scan; never call it from the running control loop).
@@ -695,6 +978,7 @@ impl ChildLauncher for RealLauncher {
             None,
             MemoryMechanism::None,
         );
+        h.enumeration = Enumeration::FullProc;
         h.adopted_members = members.iter().map(|p| (p.pid, p.start_ticks)).collect();
         if !leader_alive {
             h.exit = Some(ExitState::Unknown);
@@ -714,22 +998,6 @@ enum Chosen {
     Sampling,
     Cgroup(JobCgroup),
     Scope(PathBuf, u64),
-}
-
-fn mechanism_choice_kind(
-    cap: &Option<u64>,
-    cgroup: &Option<JobCgroup>,
-    setup: &LauncherSetup,
-    req: CapRequest,
-) -> MemoryMechanism {
-    match (cap, cgroup) {
-        (None, _) => MemoryMechanism::None,
-        (Some(_), Some(c)) => MemoryMechanism::Cgroup(c.path().to_path_buf()),
-        (Some(_), None) => match (req, &setup.systemd_run) {
-            (CapRequest::Sampling, _) | (_, None) => MemoryMechanism::Sampling,
-            (_, Some(_)) => MemoryMechanism::SystemdScope { cgroup: None },
-        },
-    }
 }
 
 /// A child of [`RealLauncher`] (or an adopted job of a previous supervisor).
@@ -772,6 +1040,14 @@ pub struct RealChild {
     cpu_ticks: u64,
     finished: Option<FinalReport>,
     reaped: bool,
+    /// How this job's processes are enumerated for the end-of-job proof.
+    enumeration: Enumeration,
+    hunt: Option<HuntTask>,
+    hunt_cancel: Arc<AtomicBool>,
+    next_hunt_at: Option<Instant>,
+    last_hunt_reason: String,
+    last_hunt_left: Vec<LeftoverRecord>,
+    unattributed: Vec<UnattributedChild>,
 }
 
 impl RealChild {
@@ -824,6 +1100,13 @@ impl RealChild {
             cpu_ticks: 0,
             finished: None,
             reaped: false,
+            enumeration: Enumeration::SubreaperTree,
+            hunt: None,
+            hunt_cancel: Arc::new(AtomicBool::new(false)),
+            next_hunt_at: None,
+            last_hunt_reason: String::new(),
+            last_hunt_left: Vec::new(),
+            unattributed: Vec::new(),
         }
     }
 
@@ -925,16 +1208,19 @@ impl RealChild {
             n += 1;
         }
         let snap = self.sampler.latest();
-        for (t, key) in self.individual_targets(snap.as_deref()) {
-            if only_new && self.term_signalled.contains(&key) {
-                continue;
-            }
-            let v = signal_verified(
-                &t,
-                sig,
-                Some(&self.leaders),
-                self.config.signal_verify_timeout,
-            );
+        let (targets, keys): (Vec<ProcessTarget>, Vec<(u32, u64)>) = self
+            .individual_targets(snap.as_deref())
+            .into_iter()
+            .filter(|(_, key)| !(only_new && self.term_signalled.contains(key)))
+            .unzip();
+        // One helper thread for the whole batch, one bound (gate re-audit A m-3).
+        let verdicts = guard::signal_verified_batch(
+            targets,
+            sig,
+            Some(Arc::clone(&self.leaders)),
+            self.config.signal_verify_timeout,
+        );
+        for (v, key) in verdicts.iter().zip(keys) {
             if v.delivered() {
                 n += 1;
                 if sig == libc::SIGTERM {
@@ -954,88 +1240,75 @@ impl RealChild {
         self.sampler.request_now();
     }
 
-    /// What is left of the job in a fresh snapshot: session members other than the (zombie) leader, plus marked
-    /// processes of this attempt (escapees, double-forked daemons; audit B C4).
-    fn survivors(&self, snap: &Snapshot) -> Vec<(ProcStat, bool)> {
-        let launch = self.launch_ticks();
-        let mut out: Vec<(ProcStat, bool)> = Vec::new();
-        let mut seen: BTreeSet<(u32, u64)> = BTreeSet::new();
-        if self.pinned()
-            && let Some(u) = snap.session(self.sid)
-        {
-            for m in &u.members {
-                // A zombie leader with live threads is reported as a live member by the scan (audit B M1): keep it.
-                if m.pid == self.identity.pid && self.exit.is_some() && m.is_dead() {
-                    continue;
-                }
-                if m.pid == self.identity.pid && !self.leader_has_live_threads(m) {
-                    continue;
-                }
-                if m.start_ticks >= launch {
-                    seen.insert((m.pid, m.start_ticks));
-                    out.push((m.clone(), false));
-                }
-            }
+    /// The spec of an end-of-job hunt for this job.
+    fn hunt_spec(&self) -> HuntSpec {
+        let pinned = self.pinned();
+        HuntSpec {
+            sid: self.sid,
+            launch_ticks: self.launch_ticks(),
+            marker: self.marker.clone(),
+            boot_id: self.identity.boot_id.clone(),
+            pinned,
+            kill: self.kill_requested,
+            enumeration: if pinned {
+                self.enumeration
+            } else {
+                Enumeration::FullProc
+            },
+            cgroup: self.cgroup.as_ref().map(|c| c.path().to_path_buf()),
+            leaders: Arc::clone(&self.leaders),
+            budget: self.config.hunt_budget,
+            max_rounds: 1_000_000,
+            pass_gap: self.config.pass_gap,
+            stop_wait: Duration::from_millis(500),
         }
-        for p in snap.marked_attempt(&self.marker, launch) {
-            if seen.contains(&(p.pid, p.start_ticks)) {
-                continue;
-            }
-            if self.pinned() && p.pid == self.identity.pid {
-                continue; // our zombie leader is handled by the reap
-            }
-            out.push((marked_to_stat(p), true));
-        }
-        out
     }
 
-    /// For our own leader: the scan lists it as a live member only while some thread lives (a zombie leader with a
-    /// live thread still runs). For a pinned leader whose exit was observed by waitid, the thread group is dead.
-    fn leader_has_live_threads(&self, m: &ProcStat) -> bool {
-        self.exit.is_none() && !m.is_dead()
+    fn start_hunt(&mut self) {
+        let spec = self.hunt_spec();
+        let cancel = Arc::clone(&self.hunt_cancel);
+        let (tx, rx) = mpsc::channel();
+        let spawned = std::thread::Builder::new()
+            .name("rr-hunt".into())
+            .spawn(move || {
+                let r = hunt::run(&spec, &cancel);
+                let _ = tx.send(r);
+            });
+        if spawned.is_ok() {
+            self.hunt = Some(HuntTask { rx });
+        }
     }
 
-    fn kill_leftovers(&mut self, survivors: &[(ProcStat, bool)]) {
-        let launch = self.launch_ticks();
-        if self.pinned() {
-            let _ = signal_pinned_group(&self.leaders, self.sid, libc::SIGKILL);
+    /// The result of the running hunt, if it finished.
+    fn poll_hunt(&mut self) -> Option<HuntResult> {
+        let t = self.hunt.as_ref()?;
+        match t.rx.try_recv() {
+            Ok(r) => {
+                self.hunt = None;
+                Some(r)
+            }
+            Err(mpsc::TryRecvError::Empty) => None,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.hunt = None;
+                None
+            }
         }
-        for (m, marked) in survivors {
-            let proof = if !marked && self.pinned() {
-                Proof::PinnedSession(self.sid)
-            } else {
-                Proof::Marker(self.marker.clone())
-            };
-            let start = if m.pid == self.identity.pid {
-                StartRule::Exact(self.identity.start_ticks)
-            } else {
-                StartRule::NotBefore(launch)
-            };
-            let t = self.target(m.pid, start, proof);
-            let _ = signal_verified(
-                &t,
-                libc::SIGKILL,
-                Some(&self.leaders),
-                self.config.signal_verify_timeout,
-            );
+    }
+
+    fn merge_killed(&mut self, killed: Vec<LeftoverRecord>) {
+        for k in killed {
             if !self
                 .leftovers
                 .iter()
-                .any(|l| l.pid == m.pid && l.start_ticks == m.start_ticks)
+                .any(|l| l.pid == k.pid && l.start_ticks == k.start_ticks)
             {
-                self.leftovers.push(LeftoverRecord {
-                    pid: m.pid,
-                    start_ticks: m.start_ticks,
-                    pgrp: m.pgrp,
-                    comm: m.comm.clone(),
-                });
+                self.leftovers.push(k);
             }
         }
-        if let Some(cg) = &self.cgroup {
-            cg.kill_all();
-        }
-        self.sigkill_at = Some(Instant::now());
-        self.sampler.request_now();
+    }
+
+    fn merge_unattributed(&mut self, u: Vec<UnattributedChild>) {
+        self.unattributed.extend(first_report_of(u));
     }
 
     /// Reap the leader (under the registry lock) and untrack, after a verified-empty job.
@@ -1071,7 +1344,8 @@ impl RealChild {
                 .as_ref()
                 .map(|u| u.escapees.clone())
                 .unwrap_or_default(),
-            session_verified_empty: verification == Verification::Verified,
+            unattributed_children: self.unattributed.clone(),
+            session_verified_empty: verification.is_verified(),
             verification,
             peak_rss_bytes: self.peak_rss,
             cpu_seconds: self.cpu_ticks as f64 / ticks_per_second(),
@@ -1081,9 +1355,9 @@ impl RealChild {
         }
     }
 
-    fn finish_verified(&mut self) -> FinalReport {
+    fn finish_verified(&mut self, by: VerifiedBy) -> FinalReport {
         self.reap_and_untrack();
-        let r = self.report(Verification::Verified);
+        let r = self.report(Verification::Verified { by });
         self.finished = Some(r.clone());
         r
     }
@@ -1291,31 +1565,59 @@ impl ChildHandle for RealChild {
 
     fn poll(&mut self) -> io::Result<ChildProgress> {
         if let Some(r) = &self.finished {
-            if r.verification == Verification::Verified {
+            if r.verification.is_verified() {
                 return Ok(ChildProgress::Finished(r.clone()));
             }
-            // Unverified: keep working on it (kills of verified leftovers; upgrade when empty).
-            let snap = self.sampler.latest();
-            let since = self.sigkill_at.unwrap_or(self.launched_at);
-            if let Some(s) = snap.as_deref().filter(|s| s.started_at > since) {
-                let surv = self.survivors(s);
-                let leader_exited = self.exit.is_some() || self.child.is_none();
-                if leader_exited && self.child.is_some() {
-                    // leader still unreaped zombie: fine
-                }
-                if surv.is_empty() && self.exit.is_some() {
-                    return Ok(ChildProgress::Finished(self.finish_verified()));
-                }
-                if !surv.is_empty() {
-                    self.kill_leftovers(&surv);
-                }
-            }
+            // Unverified: keep hunting (helper thread) every `rehunt_every`; upgrade to Verified once proven.
+            let now = Instant::now();
             let _ = self.poll_exit();
-            self.sampler.request_now();
+            match self.poll_hunt() {
+                Some(HuntResult::Proven {
+                    by,
+                    killed,
+                    unattributed,
+                }) => {
+                    self.merge_killed(killed);
+                    self.merge_unattributed(unattributed);
+                    return Ok(ChildProgress::Finished(self.finish_verified(by)));
+                }
+                Some(HuntResult::NotProven {
+                    reason,
+                    left,
+                    killed,
+                    unattributed,
+                }) => {
+                    self.merge_killed(killed);
+                    self.merge_unattributed(unattributed);
+                    self.next_hunt_at = Some(now + self.config.rehunt_every);
+                    self.finished = Some(self.report(Verification::Unverified {
+                        leftovers: left,
+                        reason,
+                    }));
+                }
+                Some(HuntResult::Survivors { left }) => {
+                    self.next_hunt_at = Some(now + self.config.rehunt_every);
+                    self.finished = Some(self.report(Verification::Unverified {
+                        leftovers: left,
+                        reason: "the job still has live processes (monitored, not killed)".into(),
+                    }));
+                }
+                None => {}
+            }
+            if self.hunt.is_none()
+                && self.exit.is_some()
+                && self.next_hunt_at.is_none_or(|t| now >= t)
+            {
+                self.next_hunt_at = Some(now + self.config.rehunt_every);
+                self.start_hunt();
+            }
             return Ok(ChildProgress::Finished(
                 self.finished
                     .clone()
-                    .unwrap_or_else(|| self.report(Verification::Verified)),
+                    .unwrap_or_else(|| self.report(Verification::Unverified {
+                        leftovers: Vec::new(),
+                        reason: "unknown".into(),
+                    })),
             ));
         }
         let now = Instant::now();
@@ -1419,50 +1721,70 @@ impl ChildHandle for RealChild {
                 ChildProgress::Running
             });
         }
-        // The leader exited: verify the job empty with a FRESH scan begun after the exit and after the last SIGKILL.
+        // The leader exited. A requested grace is honoured before anything is frozen or killed.
         let started = *self.verify_started.get_or_insert(now);
-        let since = match (self.exit_seen_at, self.sigkill_at) {
-            (Some(a), Some(b)) => a.max(b),
-            (Some(a), None) => a,
-            (None, Some(b)) => b,
-            (None, None) => now,
-        };
-        let fresh = snap.as_deref().filter(|s| s.started_at > since);
-        match fresh.map(|s| self.survivors(s)) {
-            Some(survivors) if survivors.is_empty() => {
-                return Ok(ChildProgress::Finished(self.finish_verified()));
+        if let Some(d) = self.grace_deadline
+            && self.sigkill_at.is_none()
+            && now < d
+        {
+            return Ok(ChildProgress::Stopping);
+        }
+        // The end-of-job hunt proves the job gone (helper thread; the leader stays unreaped meanwhile).
+        match self.poll_hunt() {
+            Some(HuntResult::Proven {
+                by,
+                killed,
+                unattributed,
+            }) => {
+                self.merge_killed(killed);
+                self.merge_unattributed(unattributed);
+                return Ok(ChildProgress::Finished(self.finish_verified(by)));
             }
-            Some(survivors) => {
-                if !self.kill_requested && !self.pinned() {
-                    // Adopt never kills: the job is still running without its leader.
-                    return Ok(ChildProgress::Running);
-                }
+            Some(HuntResult::Survivors { .. }) => {
+                // Adopt never kills: the job is still running without its leader.
+                self.next_hunt_at = Some(now + self.config.rehunt_every);
+                return Ok(ChildProgress::Running);
+            }
+            Some(HuntResult::NotProven {
+                reason,
+                left,
+                killed,
+                unattributed,
+            }) => {
+                self.merge_killed(killed);
+                self.merge_unattributed(unattributed);
+                self.last_hunt_reason = reason;
+                self.last_hunt_left = left;
                 if now.duration_since(started) > self.config.verify_timeout {
-                    let left = survivors
-                        .iter()
-                        .map(|(m, _)| LeftoverRecord {
-                            pid: m.pid,
-                            start_ticks: m.start_ticks,
-                            pgrp: m.pgrp,
-                            comm: m.comm.clone(),
-                        })
-                        .collect();
-                    return Ok(ChildProgress::Finished(self.finish_unverified(
-                        left,
-                        "job not empty at verify timeout".into(),
-                    )));
+                    let (left, reason) = (
+                        std::mem::take(&mut self.last_hunt_left),
+                        self.last_hunt_reason.clone(),
+                    );
+                    return Ok(ChildProgress::Finished(self.finish_unverified(left, reason)));
                 }
-                self.kill_leftovers(&survivors);
             }
             None => {
-                if now.duration_since(started) > self.config.verify_timeout {
-                    return Ok(ChildProgress::Finished(self.finish_unverified(
-                        Vec::new(),
-                        "no fresh scan since the exit (sampler stale)".into(),
-                    )));
+                if self.hunt.is_some() && now.duration_since(started) > self.config.verify_timeout {
+                    // The hunt itself is stuck (a /proc read blocked in the kernel): report, keep the zombie pinned.
+                    let reason = format!(
+                        "end-of-job hunt did not finish within {:?} (last: {})",
+                        self.config.verify_timeout, self.last_hunt_reason
+                    );
+                    let left = self.last_hunt_left.clone();
+                    return Ok(ChildProgress::Finished(self.finish_unverified(left, reason)));
                 }
-                self.sampler.request_now();
             }
+        }
+        if self.hunt.is_none() {
+            if self.next_hunt_at.is_some_and(|t| now < t) {
+                return Ok(if self.kill_requested {
+                    ChildProgress::Stopping
+                } else {
+                    ChildProgress::Running
+                });
+            }
+            self.next_hunt_at = None;
+            self.start_hunt();
         }
         Ok(ChildProgress::Stopping)
     }
@@ -1470,14 +1792,16 @@ impl ChildHandle for RealChild {
 
 impl Drop for RealChild {
     /// A handle dropped while its child runs: SIGKILL the pinned group (never leave an unsupervised child behind) and
-    /// hand the reap to a helper thread (never block in Drop, also not during unwinding: audit A M5).
+    /// hand the reap to the adopted-children reaper (never block in Drop, also not during unwinding: audit A M5). A hunt
+    /// still running is cancelled.
     fn drop(&mut self) {
+        self.hunt_cancel.store(true, Ordering::SeqCst);
         if let Some(c) = self.child.take() {
             if !self.reaped {
                 let finished_verified = self
                     .finished
                     .as_ref()
-                    .is_some_and(|r| r.verification == Verification::Verified);
+                    .is_some_and(|r| r.verification.is_verified());
                 if !finished_verified {
                     let _ = signal_pinned_group(&self.leaders, self.sid, libc::SIGKILL);
                     if let Some(cg) = &self.cgroup {

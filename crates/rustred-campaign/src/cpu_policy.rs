@@ -204,8 +204,50 @@ pub struct CpuLease {
     label: String,
     book: Arc<Mutex<Book>>,
     locks: Vec<File>,
+    /// Paths of the lock files (site policy), parallel to `cpus`.
+    lock_paths: Vec<PathBuf>,
     ledger: Option<LedgerWriter>,
     released: bool,
+}
+
+/// A CPU whose flock is still held by another process right after its lease was released (e.g. an unmarked survivor of
+/// a job that inherited the lock descriptor; gate re-audit B m2). Reported, never signalled.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HeldAfterRelease {
+    pub cpu: usize,
+    /// Processes of our uid with the lock file open (found through /proc/<pid>/fd), possibly empty.
+    pub holders: Vec<u32>,
+}
+
+/// Processes of our uid that have `path` open (a scan of /proc/<pid>/fd; unreadable entries are skipped). Diagnostics
+/// only (a human decides; nothing is signalled).
+pub fn lock_holders(path: &Path) -> Vec<u32> {
+    let Ok(target) = fs::canonicalize(path) else {
+        return Vec::new();
+    };
+    let me = std::process::id();
+    let mut out = Vec::new();
+    let Ok(rd) = fs::read_dir("/proc") else {
+        return out;
+    };
+    for e in rd.flatten() {
+        let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else {
+            continue;
+        };
+        if pid == me {
+            continue;
+        }
+        let Ok(fds) = fs::read_dir(format!("/proc/{pid}/fd")) else {
+            continue;
+        };
+        if fds
+            .flatten()
+            .any(|f| fs::read_link(f.path()).is_ok_and(|l| l == target))
+        {
+            out.push(pid);
+        }
+    }
+    out
 }
 
 impl fmt::Debug for CpuLease {
@@ -226,6 +268,33 @@ impl CpuLease {
     /// as the job's processes live, even if the supervisor dies (the job.sh / flock(1) behaviour).
     pub fn lock_fds(&self) -> Vec<RawFd> {
         self.locks.iter().map(AsRawFd::as_raw_fd).collect()
+    }
+
+    /// [`Self::release`], then a probe of every lock file: a CPU whose flock is still held by another process is
+    /// returned with the holders found (never signalled).
+    pub fn release_checked(self) -> (io::Result<()>, Vec<HeldAfterRelease>) {
+        let pairs: Vec<(usize, PathBuf)> = self
+            .cpus
+            .iter()
+            .copied()
+            .zip(self.lock_paths.iter().cloned())
+            .collect();
+        let r = self.release();
+        let mut held = Vec::new();
+        if r.is_ok() {
+            for (cpu, path) in pairs {
+                let Ok(f) = OpenOptions::new().read(true).write(true).open(&path) else {
+                    continue;
+                };
+                if let Err(std::fs::TryLockError::WouldBlock) = f.try_lock() {
+                    held.push(HeldAfterRelease {
+                        cpu,
+                        holders: lock_holders(&path),
+                    });
+                }
+            }
+        }
+        (r, held)
     }
 
     /// Release now: RELEASED line, then the flocks, on a helper thread; waits at most [`DEFAULT_IO_TIMEOUT`] for the
@@ -434,6 +503,7 @@ impl CpuPolicy for PlainPolicy {
             label: label.to_string(),
             book: Arc::clone(&self.book),
             locks: Vec::new(),
+            lock_paths: Vec::new(),
             ledger: None,
             released: false,
         }))
@@ -983,7 +1053,10 @@ impl SitePolicy {
                     out.released.push(c);
                     probes.push(f);
                 }
-                Err(std::fs::TryLockError::WouldBlock) => out.held.push(c),
+                Err(std::fs::TryLockError::WouldBlock) => {
+                    out.held.push(c);
+                    out.held_by.push((c, lock_holders(&path)));
+                }
                 Err(std::fs::TryLockError::Error(e)) => {
                     return Err(PolicyError::Io {
                         what: format!("flock {}", path.display()),
@@ -1016,6 +1089,9 @@ pub struct Reconciled {
     pub released: Vec<usize>,
     /// CPUs of own claims whose flock is held (a surviving job of ours, or another instance): left alone.
     pub held: Vec<usize>,
+    /// For each held CPU of `held` probed here: the processes of our uid that have its lock file open (for a human,
+    /// e.g. "held by unmarked survivor pid N"; never signalled). CPUs leased by this very process are not listed.
+    pub held_by: Vec<(usize, Vec<u32>)>,
 }
 
 /// Everything that excludes a CPU now (fail closed), with the count of unparsable claim lines.
@@ -1186,11 +1262,13 @@ impl CpuPolicy for SitePolicy {
             Bounded::Done(Ok(Ok(x))) => x,
         };
         lock(&self.book).in_use.extend(cpus.iter().copied());
+        let lock_paths = cpus.iter().map(|&c| self.lock_path(c)).collect();
         Ok(Acquire::Granted(CpuLease {
             cpus,
             label: label.to_string(),
             book: Arc::clone(&self.book),
             locks,
+            lock_paths,
             ledger: Some(self.ledger.clone()),
             released: false,
         }))

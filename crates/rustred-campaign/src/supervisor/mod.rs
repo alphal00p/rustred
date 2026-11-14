@@ -435,7 +435,10 @@ impl Supervisor {
                 moved = true;
             }
         }
-        if !crate::launch::pidfd_supported() && !opts.spec.resources.allow_no_pidfd {
+        // A transient probe failure (EMFILE ...) is not "unsupported" (gate re-audit m-2/m-3): only a permanent answer refuses.
+        if crate::launch::pidfd_probe() == crate::launch::PidfdProbe::Unsupported
+            && !opts.spec.resources.allow_no_pidfd
+        {
             return Err(RunExit::Refused(
                 "this kernel offers no pidfd (verified signals impossible); refused unless resources.allow_no_pidfd".into(),
             ));
@@ -1250,20 +1253,55 @@ impl Supervisor {
                     k.pid, k.start_ticks
                 ));
             }
-            if !report.session_verified_empty {
-                self.log.line(
-                    "WARN",
-                    &format!(
-                        "{}: session not verified empty ({} escaped)",
-                        ch.job,
-                        report.escaped.len()
-                    ),
-                );
+            if let crate::launch::Verification::Unverified { leftovers, reason } = &report.verification {
+                // Process layer (procfix2, RB-C1 d): an unproven end is a ledger record; the job and its CPU lease stay
+                // in the launcher's quarantine (below) until a later hunt proves it gone.
+                self.note(format!(
+                    "unverified_end {{\"marker\":\"{marker}\",\"left\":{},\"reason\":{:?}}} (lease kept, hunting continues)",
+                    leftovers.len(),
+                    reason
+                ));
             }
-            if let Some(l) = ch.lease {
-                let _ = l.release();
+            for u in &report.unattributed_children {
+                self.note(format!(
+                    "unattributed_child {{\"pid\":{},\"start_ticks\":{},\"session\":{},\"comm\":{:?}}} (re-parented to the supervisor, no marker: not signalled)",
+                    u.pid, u.start_ticks, u.session, u.comm
+                ));
+            }
+            if let Some(crate::launch::RetireEvent::Cleared {
+                lease_note: Some(n),
+                ..
+            }) = self.launcher.retire(ch.handle, ch.lease)
+            {
+                self.note(format!("lease {marker}: {n}"));
             }
             let _ = &ch.item;
+        }
+    }
+
+    /// The launcher's quarantine (procfix2): ledger notes for jobs proven gone later (their leases are released then).
+    fn tick_quarantine(&mut self) {
+        for ev in self.launcher.tick() {
+            match ev {
+                crate::launch::RetireEvent::Cleared {
+                    label,
+                    lease_note,
+                    after,
+                    ..
+                } => self.note(format!(
+                    "unverified_end_cleared {{\"marker\":\"{label}\",\"after_s\":{}}}{}",
+                    after.as_secs(),
+                    lease_note.map(|n| format!(" ({n})")).unwrap_or_default()
+                )),
+                crate::launch::RetireEvent::StillUnverified {
+                    label,
+                    reason,
+                    left,
+                } => self.log.line(
+                    "WARN",
+                    &format!("{label}: end still unproven ({left} left): {reason}"),
+                ),
+            }
         }
     }
 
@@ -1642,8 +1680,9 @@ impl Supervisor {
                 self.apply_controls();
                 self.check_disk();
             }
-            // 3. children
+            // 3. children (and the launcher's quarantine of unproven job ends)
             self.poll_children();
+            self.tick_quarantine();
             // ledger dead: no launches; children get the grace, then are killed (their attempts stay unsettled).
             if let Some(e) = self.ledger_dead.clone() {
                 let d = *dead_deadline.get_or_insert_with(|| {
@@ -1700,6 +1739,21 @@ impl Supervisor {
     }
 
     fn finish_run(&mut self, r: &RunExit) {
+        for ev in self.launcher.shutdown(Duration::from_secs(10)) {
+            if let crate::launch::RetireEvent::Cleared { label, .. } = ev {
+                self.log
+                    .line("INFO", &format!("{label}: end proven at shutdown"));
+            }
+        }
+        for (label, since, reason) in self.launcher.quarantined() {
+            self.log.line(
+                "WARN",
+                &format!(
+                    "{label}: end still unproven after {}s at exit ({reason}); the restart's orphan scan looks for its marker",
+                    since.as_secs()
+                ),
+            );
+        }
         let _ = self.ledger.sync();
         let msg = match r {
             RunExit::Finished => format!(

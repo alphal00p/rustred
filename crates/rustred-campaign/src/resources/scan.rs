@@ -20,10 +20,8 @@
 //! - when a campaign id is set ([`Sampler::set_campaign`]), lists every live process of our uid carrying a marker of
 //!   that campaign (`Snapshot::marked`, the orphan scan of plan 2.7.1), with environ reads bounded and cached per
 //!   (pid, start time);
-//! - reaps STRAY zombie children (orphans re-parented to the supervisor as child subreaper) that are provably ours
-//!   (marked by this campaign while alive, or members of a tracked session) and are not tracked leaders; reaping goes
-//!   through a pidfd after a start-time check, under the leader registry lock, so a tracked leader's status is never
-//!   taken;
+//! - (since the second fix package the sampler no longer reaps: the process-wide adopted-children reaper of
+//!   `resources::children` reaps every zombie child that is not a registered leader and not in our own session);
 //! - publishes its health: [`Sampler::health`] says when the latest scan is older than a threshold (audit A M2).
 
 use super::marked::{
@@ -156,7 +154,8 @@ pub struct Snapshot {
     pub marked: Vec<MarkedProcess>,
     /// Candidates whose environ could not be read in this scan (unknown: never signalled, retried).
     pub marked_unreadable: usize,
-    /// Stray zombie children reaped by this scan (pid, start ticks).
+    /// Always empty since the second fix package: reaping is done by the process-wide adopted-children reaper
+    /// (`resources::reaper_stats`). Kept for readers of the first interface.
     pub reaped_strays: Vec<(u32, u64)>,
 }
 
@@ -407,10 +406,8 @@ fn run(shared: Arc<Shared>) {
             }
             out
         };
-        let reaped_strays = match &campaign {
-            Some(c) => reap_strays(&raw, &cache, c, &sids, &shared.leaders),
-            None => Vec::new(),
-        };
+        // Reaping moved to the process-wide adopted-children reaper (resources::children; gate re-audit B RB-M1).
+        let reaped_strays = Vec::new();
         let snap = Arc::new(Snapshot {
             seq,
             started_at,
@@ -698,39 +695,6 @@ fn pss_of_members(raw: &RawScan, sids: &BTreeSet<u32>) -> BTreeMap<u32, Option<u
             _ => None,
         };
     }
-    out
-}
-
-/// Reap zombie children of this process that are provably ours and not tracked leaders (subreaper strays).
-/// Ours = a member of a tracked session (job descendants keep their session unless they call setsid), or a process
-/// whose environ carried this campaign's marker while it was alive (the cache entry survives while the zombie is
-/// listed). Anything else (e.g. a helper the supervisor spawned with std::process::Command) is left to its owner.
-fn reap_strays(
-    raw: &RawScan,
-    cache: &HashMap<(u32, u64), CachedMarker>,
-    c: &CampaignCfg,
-    sids: &BTreeSet<u32>,
-    leaders: &Leaders,
-) -> Vec<(u32, u64)> {
-    let me = std::process::id();
-    let mut out = Vec::new();
-    let guard = leaders.lock();
-    for p in raw.all.iter().filter(|p| p.ppid == me && p.is_dead()) {
-        if guard.contains(&p.pid) {
-            continue;
-        }
-        let marked = matches!(
-            cache.get(&(p.pid, p.start_ticks)),
-            Some(CachedMarker::Value(v)) if CampaignMarker::parse(v).is_some_and(|m| m.campaign_id == c.id)
-        );
-        if !sids.contains(&p.session) && !marked {
-            continue;
-        }
-        if crate::launch::reap_exact(p.pid, p.start_ticks) {
-            out.push((p.pid, p.start_ticks));
-        }
-    }
-    drop(guard);
     out
 }
 
