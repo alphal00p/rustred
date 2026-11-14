@@ -142,6 +142,8 @@ pub fn setting_of(r: &Rec, case: &CaseSpec, lines: &[bool]) -> SeedSetting {
         offsets,
         depth: r.depth,
         tight: false,
+        layer_cap: None,
+        symmetry_rows: false,
     }
 }
 
@@ -255,6 +257,7 @@ impl Scripted {
             rows: r.rows,
             tie_break_only: r.tie_break,
             symmetry_rows: false,
+            witness: rustred_campaign_core::cover::WitnessStatus::Complete,
         }
     }
 }
@@ -439,7 +442,7 @@ pub fn outcome(rep: &TreeReport) -> Outcome {
         .items
         .iter()
         .filter_map(|r| match &r.disposition {
-            Some(Disposition::Attention { why }) => Some(why.clone()),
+            Some(Disposition::Attention { why, .. }) => Some(why.clone()),
             _ => None,
         })
         .collect();

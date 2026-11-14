@@ -1,6 +1,8 @@
 //! The seed-policy file `rustred.campaign.seed-policy.v1` (R37; interface `interfaces/seed-policy.md`): per node class
 //! and face type the ordered settings of the seed-search rung, plus the evidence table. The rung takes the policy as
-//! INPUT DATA; a policy REORDERS the search space, it never removes a setting (completeness rule).
+//! INPUT DATA. By default a policy REORDERS the built-in search space and never removes a setting (completeness rule);
+//! a class with `replace_builtin: true` REPLACES it entirely (centres, floors, depths, order, budgets): nothing beyond
+//! the built-in default DATA is hard-coded (audit A M7, rule L8).
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -34,6 +36,16 @@ pub struct SettingSpec {
     pub floor: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tight: Option<bool>,
+    /// Layer caps `[D, R]` or `[D, R, B]` of a tight entry, in relaxation order (engine `--seed-layer-cap D,R[,B]`);
+    /// default [`builtin_layer_caps`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer_caps: Option<Vec<Vec<u32>>>,
+}
+
+/// Built-in DEFAULT DATA of the tight-seed relaxation (addendum 3 of R46; coordinator's `solver::SeedLayerCap`):
+/// the tight cap 0,0,1, then a slightly relaxed cap, then one more dot, then one more rank. Replaceable per entry.
+pub fn builtin_layer_caps() -> Vec<Vec<u32>> {
+    vec![vec![0, 0, 1], vec![0, 0, 2], vec![1, 0, 1], vec![0, 1, 1]]
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -70,6 +82,9 @@ pub struct PolicyClass {
     pub tight: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budgets: Option<PolicyBudgets>,
+    /// The class's waves ARE the search space (no built-in settings or depths appended). Default false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub replace_builtin: bool,
 }
 
 /// Setting part of an evidence record.
@@ -112,6 +127,9 @@ pub struct SeedEvidence {
     pub gap_points: u64,
     pub landing_spread: Option<u64>,
     pub closure_size: Option<u64>,
+    /// Per-key solve cost of the setting as a RECIPE (R48 (e)), milliseconds per key; null when not measured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per_key_cost_ms: Option<u64>,
     /// "closed_one_case" | "member_of_cover" | "no_relation" | "rejected"
     pub outcome: String,
     pub provenance: Provenance,
@@ -133,6 +151,7 @@ fn s(centre: CentreSpec, floor: Option<bool>) -> SettingSpec {
         centre,
         floor,
         tight: None,
+        layer_caps: None,
     }
 }
 
@@ -170,7 +189,8 @@ impl SeedPolicy {
         SeedPolicy {
             schema: SEED_POLICY_SCHEMA.into(),
             name: "builtin-20261113".into(),
-            source: "I-LADDER built-in: R15, R21, R25-R27, R29, R37 (T266 tight-seed pilot recorded, tight off)".into(),
+            source: "I-LADDER built-in default data (seed-policy.md section 4; tight seeds off)"
+                .into(),
             classes: vec![PolicyClass {
                 matcher: ClassMatch {
                     node_class: "*".into(),
@@ -179,6 +199,7 @@ impl SeedPolicy {
                 waves: vec![builtin_wave(2), builtin_wave(3)],
                 tight: false,
                 budgets: None,
+                replace_builtin: false,
             }],
             evidence: vec![],
         }
@@ -197,8 +218,8 @@ impl SeedPolicy {
         let mut notes = Vec::new();
         for c in &p.classes {
             for w in &c.waves {
-                if w.depth != 2 && w.depth != 3 {
-                    return Err(format!("wave depth {} (2 or 3)", w.depth));
+                if w.depth == 0 {
+                    return Err("wave depth 0 (shell depth must be >= 1)".to_string());
                 }
             }
         }

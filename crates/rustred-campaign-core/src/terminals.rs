@@ -20,7 +20,8 @@ pub enum TerminalError {
     OverBound { bound: usize },
     /// The token names another key.
     TokenMismatch,
-    /// The ladder did not try a depth-3 unfloored setting for this key (2.4.4 (7): never given up before depth 3).
+    /// The ladder did not try a depth-3 unfloored setting for this key although its space has one (2.4.4 (7)).
+    /// (A minted token always has every setting of its space with a VERDICT outcome, C3.)
     NotDeepTried,
 }
 
@@ -66,7 +67,7 @@ impl FallbackSet {
         if token.key() != key {
             return Err(TerminalError::TokenMismatch);
         }
-        if !token.depth3_unfloored_tried() {
+        if !token.deep_condition_met() {
             return Err(TerminalError::NotDeepTried);
         }
         if self.keys.contains(key) {
@@ -126,8 +127,9 @@ impl FallbackSet {
     }
 }
 
-/// Flags of a terminal set. Only `OverBound` and `CoveredTerminal` block acceptance (U-9); `NotDeepTried` blocks
-/// the declaration of that key.
+/// Flags of a terminal set. `OverBound`, `CoveredTerminal` and `UndecidedTerminal` block acceptance (U-9; D0: a
+/// key is a terminal only when no rule's domain contains it, and "undecided" is not "uncovered", audit A M4);
+/// `NotDeepTried` blocks the declaration of that key.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TerminalFlag {
     OverBound {
@@ -142,12 +144,18 @@ pub enum TerminalFlag {
     NotDeepTried {
         key: Key,
     },
+    /// The tables' verdict at the declared terminal is Undecided / blocked: not accepted silently.
+    UndecidedTerminal {
+        key: Key,
+        why: String,
+    },
 }
 
-/// Checks of a declared terminal set: the bound, no terminal inside a rule's domain, every key's ladder exhausted
-/// down to depth 3 unfloored. Preferred terminals (P-4) are exempt from the ladder condition, are kept inside a
-/// rule's domain by a key exclusion (see [`preferred_exclusions`]) and count against the bound only when the spec says
-/// so.
+/// Checks of a declared terminal set: the bound, no terminal inside a rule's domain, no terminal where the tables
+/// are undecided, every key's ladder exhausted. HONOURED preferred terminals (P-4; at most
+/// `preferred.bound(bound)` of them, in key order: audit A M3) are exempt from the ladder condition, are kept inside a
+/// rule's domain by a key exclusion (see [`preferred_exclusions`]) and count against the bound only when the spec
+/// says so; preferred keys beyond that bound are ordinary terminals.
 pub fn check_terminals(
     terminals: &[(Key, Option<LadderExhausted>)],
     bound: usize,
@@ -156,9 +164,11 @@ pub fn check_terminals(
     lines: &[bool],
 ) -> Vec<TerminalFlag> {
     let mut flags = Vec::new();
+    let keys: Vec<Key> = terminals.iter().map(|(k, _)| k.clone()).collect();
+    let honoured = preferred.honoured(&keys, lines, bound);
     let counted = terminals
         .iter()
-        .filter(|(k, _)| preferred.count_against_bound || !preferred.matches(k, lines))
+        .filter(|(k, _)| preferred.count_against_bound || !honoured.contains(k))
         .count();
     if counted > bound {
         flags.push(TerminalFlag::OverBound {
@@ -167,17 +177,22 @@ pub fn check_terminals(
         });
     }
     for (k, tok) in terminals {
-        if preferred.matches(k, lines) {
+        if honoured.contains(k) {
             continue;
         }
-        if let CoverageVerdict::Covered { rule } = tables.verdict(k) {
-            flags.push(TerminalFlag::CoveredTerminal {
+        match tables.verdict(k) {
+            CoverageVerdict::Covered { rule } => flags.push(TerminalFlag::CoveredTerminal {
                 key: k.clone(),
                 rule,
-            });
+            }),
+            CoverageVerdict::Undecided { why } => flags.push(TerminalFlag::UndecidedTerminal {
+                key: k.clone(),
+                why,
+            }),
+            CoverageVerdict::Uncovered => {}
         }
         if let Some(t) = tok
-            && !t.depth3_unfloored_tried()
+            && (t.key() != k.as_slice() || !t.deep_condition_met())
         {
             flags.push(TerminalFlag::NotDeepTried { key: k.clone() });
         }
@@ -343,6 +358,7 @@ mod tests {
         let pref = PreferredTerminals {
             entries: vec![crate::worklist::items::PreferredEntry::Key(vec![2, 1])],
             count_against_bound: false,
+            max_preferred: None,
         };
         let flags = check_terminals(
             &[(vec![1, 2], None), (vec![2, 1], None)],

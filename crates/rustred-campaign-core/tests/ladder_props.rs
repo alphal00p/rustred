@@ -90,6 +90,7 @@ impl CaseSolver for RandomSolver {
                     rows: None,
                     tie_break_only: None,
                     symmetry_rows: false,
+                    witness: rustred_campaign_core::cover::WitnessStatus::Complete,
                 }])
             }
         };
@@ -193,8 +194,9 @@ fn summary(d: &Disposition) -> String {
             children.iter().map(|c| &c.id).collect::<Vec<_>>()
         ),
         Disposition::TerminalCandidates { keys, .. } => format!("terminal {keys:?}"),
-        Disposition::Attention { why } => format!("attention {why}"),
+        Disposition::Attention { why, .. } => format!("attention {why}"),
         Disposition::OptimiseKept { why } => format!("kept {why}"),
+        Disposition::RecipeRule { rule, .. } => format!("recipe {}", rule.recipe_digest),
     }
 }
 

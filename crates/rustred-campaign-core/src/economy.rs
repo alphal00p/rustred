@@ -180,6 +180,41 @@ impl NodeMeasure {
     }
 }
 
+/// What "small" means (R46 (5), spec value): weights of the economy SCORE of a node or a cover,
+/// `score = cases * case + rhs_terms * rhs_term + monomials * monomial + closure_spread * spread` (smaller = better).
+/// Default (seed-policy.md section 5): one case is worth 2,000 right-hand-side terms (the size of a typical point rule
+/// that a symbolic case replaces on T162), a monomial 1/100 of a term, one key of closure spread 10 terms. The ladder's
+/// selection keeps R31 (b) first (a ONE-case cover always beats a multi-case cover); the weights decide among covers
+/// of the same case count and in node-level comparisons ([`NodeMeasure::weighted_score`]).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EconomyWeights {
+    pub case: f64,
+    pub rhs_term: f64,
+    pub monomial: f64,
+    pub spread: f64,
+}
+
+impl Default for EconomyWeights {
+    fn default() -> Self {
+        EconomyWeights {
+            case: 2000.0,
+            rhs_term: 1.0,
+            monomial: 0.01,
+            spread: 10.0,
+        }
+    }
+}
+
+impl NodeMeasure {
+    /// The weighted economy score (R46 (5)); closure spread = keys reached outside the input range.
+    pub fn weighted_score(&self, w: &EconomyWeights) -> f64 {
+        self.cases as f64 * w.case
+            + self.rhs_terms as f64 * w.rhs_term
+            + self.monomials as f64 * w.monomial
+            + self.closure_outside.unwrap_or(0) as f64 * w.spread
+    }
+}
+
 /// Coverage state of a node (2.4.15).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CoverageState {
@@ -189,13 +224,57 @@ pub enum CoverageState {
 }
 
 /// Proof that the covered domain did not shrink (R33): produced by the exact partition (lane I-PART), which states
-/// that the partition of the new table set reports no gap where the old one reported none. Only that lane should
-/// construct it; this crate treats it as opaque evidence.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// that the partition of the new table set reports no gap where the old one reported none. FIELDS ARE PRIVATE and
+/// there is no `Deserialize` (audit A M5): outside this crate it cannot be built; inside, only the containment
+/// checker (`crate::contain`, owned by the partition lane, still a placeholder) may call [`Self::checked`]. Its
+/// serialised form is [`ContainmentProofRecord`], which is NOT a proof.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ContainmentProof {
+    old_tables_digest: String,
+    new_tables_digest: String,
+    /// "exact_partition"
+    method: String,
+    artefact_sha256: String,
+}
+
+impl ContainmentProof {
+    /// For the containment checker only (crate-internal).
+    #[allow(dead_code)]
+    pub(crate) fn checked(old: &str, new: &str, method: &str, artefact_sha256: &str) -> Self {
+        ContainmentProof {
+            old_tables_digest: old.into(),
+            new_tables_digest: new.into(),
+            method: method.into(),
+            artefact_sha256: artefact_sha256.into(),
+        }
+    }
+    pub fn old_tables_digest(&self) -> &str {
+        &self.old_tables_digest
+    }
+    pub fn new_tables_digest(&self) -> &str {
+        &self.new_tables_digest
+    }
+    pub fn method(&self) -> &str {
+        &self.method
+    }
+    pub fn artefact_sha256(&self) -> &str {
+        &self.artefact_sha256
+    }
+    pub fn to_record(&self) -> ContainmentProofRecord {
+        ContainmentProofRecord {
+            old_tables_digest: self.old_tables_digest.clone(),
+            new_tables_digest: self.new_tables_digest.clone(),
+            method: self.method.clone(),
+            artefact_sha256: self.artefact_sha256.clone(),
+        }
+    }
+}
+
+/// UNVERIFIED serialised form of a [`ContainmentProof`] (what a ledger reads back): never accepted as a proof.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContainmentProofRecord {
     pub old_tables_digest: String,
     pub new_tables_digest: String,
-    /// "exact_partition"
     pub method: String,
     pub artefact_sha256: String,
 }
@@ -209,9 +288,10 @@ pub enum SupersedeReason {
     CheaperSameOrLargerDomain,
 }
 
-/// A retirement record `rule_retired {node, rule, by}`. Fields are private: a FULL node's retirement can only be
-/// built with a [`ContainmentProof`].
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// A retirement record `rule_retired {node, rule, by}`. Fields are private and there is no `Deserialize`: a
+/// retirement is built only by [`Retirement::new`] (a FULL node's needs a [`ContainmentProof`]) or by
+/// [`RetirementRecord::verify`], which re-runs the same checks.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Retirement {
     node: String,
     retired: Vec<String>,
@@ -219,6 +299,50 @@ pub struct Retirement {
     reason: SupersedeReason,
     state: CoverageState,
     proof: Option<ContainmentProof>,
+    old_measures: Vec<RuleMeasure>,
+    new_measure: RuleMeasure,
+}
+
+/// UNVERIFIED serialised form of a [`Retirement`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetirementRecord {
+    pub node: String,
+    pub retired: Vec<String>,
+    pub by: String,
+    pub reason: SupersedeReason,
+    pub state: CoverageState,
+    pub proof: Option<ContainmentProofRecord>,
+    pub old_measures: Vec<RuleMeasure>,
+    pub new_measure: RuleMeasure,
+}
+
+impl RetirementRecord {
+    /// Re-verify: the same checks as [`Retirement::new`]; a FULL node's record needs the CHECKED proof (`proof`),
+    /// which must match the record's.
+    pub fn verify(&self, proof: Option<ContainmentProof>) -> Result<Retirement, RetireError> {
+        if let (Some(p), Some(r)) = (&proof, &self.proof)
+            && p.to_record() != *r
+        {
+            return Err(RetireError::ProofMismatch);
+        }
+        if self.old_measures.len() != self.retired.len() {
+            return Err(RetireError::Empty);
+        }
+        let old: Vec<(String, RuleMeasure)> = self
+            .retired
+            .iter()
+            .cloned()
+            .zip(self.old_measures.iter().cloned())
+            .collect();
+        Retirement::new(
+            &self.node,
+            self.state,
+            &old,
+            (&self.by, &self.new_measure),
+            self.reason.clone(),
+            proof,
+        )
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -227,8 +351,10 @@ pub enum RetireError {
     FullNodeNeedsProof,
     /// The new rule is not more economical than the retired ones.
     NotCheaper,
-    /// Nothing to retire.
+    /// Nothing to retire (or a malformed record).
     Empty,
+    /// The checked proof is not the one the record names.
+    ProofMismatch,
 }
 
 impl Retirement {
@@ -261,6 +387,8 @@ impl Retirement {
             reason,
             state,
             proof,
+            old_measures: old.iter().map(|(_, m)| m.clone()).collect(),
+            new_measure: new.1.clone(),
         })
     }
     pub fn retired(&self) -> &[String] {
@@ -280,6 +408,18 @@ impl Retirement {
     }
     pub fn state(&self) -> CoverageState {
         self.state
+    }
+    pub fn to_record(&self) -> RetirementRecord {
+        RetirementRecord {
+            node: self.node.clone(),
+            retired: self.retired.clone(),
+            by: self.by.clone(),
+            reason: self.reason.clone(),
+            state: self.state,
+            proof: self.proof.as_ref().map(|p| p.to_record()),
+            old_measures: self.old_measures.clone(),
+            new_measure: self.new_measure.clone(),
+        }
     }
 }
 
@@ -308,5 +448,59 @@ mod tests {
         let line = r#"{"type":"rule","rhs":[["I(n0)","1+n0"],["I(n1)","-2*d+(3-n1)"]]}"#;
         let m = RuleMeasure::from_record_json(line).unwrap();
         assert_eq!((m.monomials, m.monomials_estimated), (4, true));
+    }
+
+    fn m(t: u64) -> RuleMeasure {
+        RuleMeasure {
+            cases: 1,
+            rhs_terms: t,
+            monomials: t,
+            monomials_estimated: false,
+            max_degree: None,
+            served_keys: None,
+            bytes: 1,
+        }
+    }
+
+    /// R33 / audit A M5: a FULL node's retirement needs a CHECKED proof; the serialised form is not a proof.
+    #[test]
+    fn full_node_retirement_needs_a_checked_proof_and_records_reverify() {
+        let old = vec![("a".to_string(), m(100)), ("b".to_string(), m(100))];
+        let e = Retirement::new(
+            "N",
+            CoverageState::Full,
+            &old,
+            ("c", &m(50)),
+            SupersedeReason::FaceRetiresPoints,
+            None,
+        );
+        assert_eq!(e.unwrap_err(), RetireError::FullNodeNeedsProof);
+        let proof = ContainmentProof::checked("o", "n", "exact_partition", "x");
+        let r = Retirement::new(
+            "N",
+            CoverageState::Full,
+            &old,
+            ("c", &m(50)),
+            SupersedeReason::FaceRetiresPoints,
+            Some(proof.clone()),
+        )
+        .unwrap();
+        let text = serde_json::to_string(&r).unwrap();
+        let rec: RetirementRecord = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            rec.verify(None).unwrap_err(),
+            RetireError::FullNodeNeedsProof
+        );
+        assert_eq!(rec.verify(Some(proof)).unwrap(), r);
+        let other = ContainmentProof::checked("o", "n2", "exact_partition", "x");
+        assert_eq!(
+            rec.verify(Some(other)).unwrap_err(),
+            RetireError::ProofMismatch
+        );
+        let forged: RetirementRecord = serde_json::from_str(
+            r#"{"node":"N","retired":["a","b"],"by":"c","reason":"CheaperSameOrLargerDomain","state":"Full","proof":null,"old_measures":[],"new_measure":{"cases":1,"rhs_terms":1,"monomials":1,"monomials_estimated":false,"max_degree":null,"served_keys":null,"bytes":1}}"#,
+        )
+        .unwrap();
+        assert!(forged.verify(None).is_err());
     }
 }
