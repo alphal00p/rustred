@@ -1,29 +1,35 @@
-//! Volatile keys and the CANONICAL RECORD FORM (child-job.md 3.2.3, ruling R-c).
+//! Volatile keys and the CANONICAL RECORD FORM (child-job.md 3.2.3, ruling R-c), version 2 (audit A C3, m8, m12;
+//! coordinator ruling on `family_file`).
 //!
 //! Canonical form of one JSONL record (a JSON object):
-//! 1. the top-level keys that are volatile for the record's `type` are removed ([`is_volatile`]);
-//! 2. every object (at any depth) has its members sorted bytewise by the key as written; duplicate keys are an error;
-//! 3. all insignificant whitespace is removed;
-//! 4. every other token is copied VERBATIM: strings keep their escapes as written, numbers keep their text.
+//! 1. every string (keys and values) is DECODED to its Unicode value (escapes resolved, lone surrogates rejected) and
+//!    re-encoded with ONE fixed escaping rule: `"` and `\` escaped, U+0008 / U+000C / U+000A / U+000D / U+0009 as
+//!    `\b \f \n \r \t`, every other character below U+0020 as `\u00xx` (lower-case hex), everything else as raw
+//!    UTF-8 (this is exactly serde_json's output, so serde-written strings are already canonical);
+//! 2. every object (at any depth) has its members sorted bytewise by the DECODED key (its UTF-8 bytes); two members
+//!    with the same decoded key are an error ([`CanonError::DuplicateKey`]);
+//! 3. the top-level keys that are volatile for the record's `type` are removed ([`is_volatile_with`]);
+//! 4. all insignificant whitespace is removed;
+//! 5. numbers are copied verbatim, and in every NON-volatile position a number must have the canonical spelling
+//!    `-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?` other than `-0` (no exponent, no trailing zero in the fraction, no `.0`,
+//!    no negative zero): every terminating decimal value has exactly one such spelling, so two spellings of one
+//!    value can never give two digests of one record, nor one spelling two values. A non-canonical number in a
+//!    kept position is [`CanonError::NonCanonicalNumber`] (a contract violation); writers produce the spelling of
+//!    an `f64` with [`decimal_f64`]. Numbers inside volatile members only have to be valid JSON.
 //!
-//! Point 4 refines the document's "parse and re-serialise" (changed by package contract, 2026-11-13): a generic JSON
-//! value model would round integers above 2^64 through f64 and normalise string escapes in a library-version
-//! dependent way; copying tokens verbatim makes the form exact and stable, and still identical for records written by
-//! the same binary. The canonical digest of a stream is the BLAKE3 over the canonical lines, each followed by "\n",
-//! in file order.
-//!
-//! The parser is a small validating scanner over the line's bytes: memory is the line itself plus one member list
-//! per open object level (no value tree), so 100+ MB lines are fine.
+//! The canonical digest of a stream is the BLAKE3 over the canonical lines, each followed by "\n", in file order.
+//! The scanner works over the line's bytes in one pass: memory is a small multiple of the line (each object level
+//! assembles its sorted members in a buffer), no value tree; 100+ MB lines are fine.
 
 use std::fmt;
 use std::io::{self, BufRead, Write};
+use std::ops::Range;
 
-/// Version of the volatile-key list (bumped with the contract).
-pub const VOLATILE_KEYS_VERSION: u32 = 1;
+/// Version of the volatile-key list and of the canonical form (bumped with the contract). 2 = decoded strings and
+/// keys, canonical numbers, verdict rule limited to verdict records, `family_file` rule (audit A, 2026-11-14).
+pub const VOLATILE_KEYS_VERSION: u32 = 2;
 
-/// Volatile top-level keys per record type of the table and cert streams. Every record type NOT listed here (verdict
-/// records of descent / replay / proof / laporta, and any other record) follows the verdict rule: a key is volatile
-/// iff it equals `seconds` or `utc` or ends in `_seconds`.
+/// Volatile top-level keys per record type of the table and cert streams.
 pub const VOLATILE_BY_TYPE: [(&str, &[&str]); 9] = [
     ("header", &["zero_seconds"]),
     ("rule", &["seconds_search", "lift_seconds"]),
@@ -36,13 +42,46 @@ pub const VOLATILE_BY_TYPE: [(&str, &[&str]); 9] = [
     ("cert_partial", &["seconds", "vmhwm_kb"]),
 ];
 
-/// Whether top-level `key` of a record of type `record_type` is volatile. Keys are compared as written (a key
-/// spelled with escapes is never volatile: fail closed, it then counts in the digest).
+/// Record types that follow the VERDICT rule (a key is volatile iff it equals `seconds` or `utc` or ends in
+/// `_seconds`); records WITHOUT a `type` follow it too (checker result lines). Every other typed record that is not
+/// in [`VOLATILE_BY_TYPE`] has NO volatile key (audit A m12: fail safe, a timing never hides a meaningful key).
+pub const VERDICT_TYPES: [&str; 1] = ["verdict"];
+
+/// The header key that names the family file (a path): volatile ONLY when the same header carries
+/// [`FAMILY_DIGEST_KEY`] with a BLAKE3 hex value (the family CONTENT is then the identity, not the path).
+pub const FAMILY_FILE_KEY: &str = "family_file";
+/// The header key carrying the BLAKE3 of the family content (non-volatile; compared with the spec's
+/// `inputs[role=family].blake3` by the classifier).
+pub const FAMILY_DIGEST_KEY: &str = "family_blake3";
+
+/// Whether top-level `key` (decoded) of a record of type `record_type` is volatile, for a record WITHOUT a family
+/// content digest (see [`is_volatile_with`]).
 pub fn is_volatile(record_type: Option<&str>, key: &str) -> bool {
-    match record_type.and_then(|t| VOLATILE_BY_TYPE.iter().find(|(n, _)| *n == t)) {
-        Some((_, keys)) => keys.contains(&key),
-        None => key == "seconds" || key == "utc" || key.ends_with("_seconds"),
+    is_volatile_with(record_type, key, false)
+}
+
+/// Whether top-level `key` (decoded) is volatile; `header_has_family_digest` = the record is a header carrying
+/// `family_blake3` as a BLAKE3 hex string, which makes its `family_file` volatile.
+pub fn is_volatile_with(
+    record_type: Option<&str>,
+    key: &str,
+    header_has_family_digest: bool,
+) -> bool {
+    if record_type == Some("header") && key == FAMILY_FILE_KEY {
+        return header_has_family_digest;
     }
+    match record_type {
+        Some(t) => match VOLATILE_BY_TYPE.iter().find(|(n, _)| *n == t) {
+            Some((_, keys)) => keys.contains(&key),
+            None if VERDICT_TYPES.contains(&t) => verdict_volatile(key),
+            None => false,
+        },
+        None => verdict_volatile(key),
+    }
+}
+
+fn verdict_volatile(key: &str) -> bool {
+    key == "seconds" || key == "utc" || key.ends_with("_seconds")
 }
 
 /// Why a line has no canonical form.
@@ -57,10 +96,23 @@ pub enum CanonError {
     },
     /// The line is valid JSON but not an object.
     NotObject,
+    /// Two members of one object have the same DECODED key.
     DuplicateKey(String),
     TooDeep,
     /// The top-level `type` member is not a string.
     TypeNotString,
+    /// A `\uD800`-`\uDFFF` escape that is not part of a surrogate pair.
+    LoneSurrogate {
+        offset: usize,
+    },
+    /// A number whose value is outside the f64 range (readers reject it), in any position.
+    NumberOutOfRange {
+        offset: usize,
+    },
+    /// A number outside the canonical spelling in a non-volatile position.
+    NonCanonicalNumber {
+        offset: usize,
+    },
     /// A stream ends with bytes after its last "\n".
     TornLine {
         line: u64,
@@ -76,9 +128,19 @@ impl fmt::Display for CanonError {
                 write!(f, "JSON syntax at byte {offset}: {what}")
             }
             CanonError::NotObject => write!(f, "record is not a JSON object"),
-            CanonError::DuplicateKey(k) => write!(f, "duplicate key {k}"),
+            CanonError::DuplicateKey(k) => write!(f, "duplicate key {k:?}"),
             CanonError::TooDeep => write!(f, "nesting deeper than {MAX_DEPTH}"),
             CanonError::TypeNotString => write!(f, "top-level `type` is not a string"),
+            CanonError::LoneSurrogate { offset } => {
+                write!(f, "lone surrogate escape at byte {offset}")
+            }
+            CanonError::NumberOutOfRange { offset } => {
+                write!(f, "number at byte {offset} is outside the f64 range")
+            }
+            CanonError::NonCanonicalNumber { offset } => write!(
+                f,
+                "number at byte {offset} is not in canonical spelling (non-volatile position)"
+            ),
             CanonError::TornLine { line } => {
                 write!(f, "torn last line (line {line} has no newline)")
             }
@@ -99,18 +161,168 @@ pub const MAX_DEPTH: usize = 128;
 
 type R<T> = Result<T, CanonError>;
 
-struct Scan<'a> {
+/// The canonical spelling of a finite `f64` (`None` for NaN / infinities): the shortest round-trip decimal without
+/// exponent, `1.0` -> `1`, `-0.0` -> `0`. This is what a conforming writer puts in a non-volatile position.
+pub fn decimal_f64(x: f64) -> Option<String> {
+    if !x.is_finite() {
+        return None;
+    }
+    let s = format!("{x}");
+    Some(if s == "-0" { "0".to_string() } else { s })
+}
+
+/// Whether a JSON number token has the canonical spelling (see the module docs).
+pub fn is_canonical_number(tok: &str) -> bool {
+    let b = tok.as_bytes();
+    let mut i = 0;
+    let neg = b.first() == Some(&b'-');
+    if neg {
+        i = 1;
+    }
+    let int_start = i;
+    match b.get(i) {
+        Some(b'0') => i += 1,
+        Some(b'1'..=b'9') => {
+            while b.get(i).is_some_and(u8::is_ascii_digit) {
+                i += 1;
+            }
+        }
+        _ => return false,
+    }
+    let int_zero = &b[int_start..i] == b"0";
+    if i == b.len() {
+        return !(neg && int_zero);
+    }
+    if b[i] != b'.' {
+        return false;
+    }
+    i += 1;
+    let fs = i;
+    while b.get(i).is_some_and(u8::is_ascii_digit) {
+        i += 1;
+    }
+    i == b.len() && i > fs && b[i - 1] != b'0'
+}
+
+const NONE: usize = usize::MAX;
+
+/// A piece of canonical output: bytes of the line, an owned re-encoded string, or punctuation.
+#[derive(Clone, Copy)]
+enum Piece {
+    Line(usize, usize),
+    Own(usize),
+    Lit(&'static [u8]),
+}
+
+/// Canonical output as linked lists of pieces in one arena, so that moving a member's value up one object level and
+/// reordering members is O(1) per member, never a copy of its bytes: the whole canonicalisation is linear in the
+/// line size (audit B F11), whatever the nesting depth.
+#[derive(Default)]
+struct Arena {
+    nodes: Vec<(Piece, usize)>,
+    owned: Vec<Vec<u8>>,
+}
+
+#[derive(Clone, Copy)]
+struct List {
+    head: usize,
+    tail: usize,
+}
+
+impl List {
+    const EMPTY: List = List {
+        head: NONE,
+        tail: NONE,
+    };
+}
+
+impl Arena {
+    fn push(&mut self, l: &mut List, p: Piece) {
+        let i = self.nodes.len();
+        self.nodes.push((p, NONE));
+        if l.head == NONE {
+            l.head = i;
+        } else {
+            self.nodes[l.tail].1 = i;
+        }
+        l.tail = i;
+    }
+    fn cat(&mut self, l: &mut List, m: List) {
+        if m.head == NONE {
+            return;
+        }
+        if l.head == NONE {
+            *l = m;
+        } else {
+            self.nodes[l.tail].1 = m.head;
+            l.tail = m.tail;
+        }
+    }
+    fn emit(&self, l: List, line: &[u8], out: &mut Vec<u8>) {
+        let mut i = l.head;
+        while i != NONE {
+            let (p, next) = self.nodes[i];
+            match p {
+                Piece::Line(s, e) => out.extend_from_slice(&line[s..e]),
+                Piece::Own(k) => out.extend_from_slice(&self.owned[k]),
+                Piece::Lit(b) => out.extend_from_slice(b),
+            }
+            if i == l.tail {
+                break;
+            }
+            i = next;
+        }
+    }
+}
+
+struct P<'a> {
     b: &'a [u8],
     i: usize,
+    ar: Arena,
 }
 
-/// A member of an object: raw key bytes (between the quotes), key span with quotes, value span.
+/// A member of an object: decoded key, its encoded key, its canonical value.
 struct Member {
-    key: (usize, usize),
-    val: (usize, usize),
+    key: Vec<u8>,
+    key_enc: List,
+    val: List,
+    /// Offset (in the line) of the first non-canonical number inside the value.
+    noncanon: Option<usize>,
+    /// Decoded value when it is a string and the caller asked for it.
+    str_val: Option<String>,
 }
 
-impl<'a> Scan<'a> {
+fn encode_char(c: char, out: &mut Vec<u8>) {
+    match c {
+        '"' => out.extend_from_slice(b"\\\""),
+        '\\' => out.extend_from_slice(b"\\\\"),
+        '\u{8}' => out.extend_from_slice(b"\\b"),
+        '\u{c}' => out.extend_from_slice(b"\\f"),
+        '\n' => out.extend_from_slice(b"\\n"),
+        '\r' => out.extend_from_slice(b"\\r"),
+        '\t' => out.extend_from_slice(b"\\t"),
+        c if (c as u32) < 0x20 => {
+            const H: &[u8; 16] = b"0123456789abcdef";
+            let v = c as u32;
+            out.extend_from_slice(b"\\u00");
+            out.push(H[(v >> 4) as usize]);
+            out.push(H[(v & 15) as usize]);
+        }
+        c => {
+            let mut buf = [0u8; 4];
+            out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+        }
+    }
+}
+
+impl<'a> P<'a> {
+    fn new(b: &'a [u8]) -> P<'a> {
+        P {
+            b,
+            i: 0,
+            ar: Arena::default(),
+        }
+    }
     fn err(&self, what: &'static str) -> CanonError {
         CanonError::Syntax {
             offset: self.i,
@@ -134,50 +346,122 @@ impl<'a> Scan<'a> {
         }
     }
 
-    /// A string; returns its span including the quotes.
-    fn string(&mut self) -> R<(usize, usize)> {
-        let s = self.i;
+    fn hex4(&mut self) -> R<u32> {
+        let mut v = 0u32;
+        for _ in 0..4 {
+            let d = match self.peek() {
+                Some(h @ b'0'..=b'9') => h - b'0',
+                Some(h @ b'a'..=b'f') => h - b'a' + 10,
+                Some(h @ b'A'..=b'F') => h - b'A' + 10,
+                _ => return Err(self.err("bad \\u escape")),
+            };
+            v = v * 16 + d as u32;
+            self.i += 1;
+        }
+        Ok(v)
+    }
+
+    /// A string: decoded (pushed to `dec` when given) and re-encoded with the one escaping rule. A string without
+    /// any backslash is already canonical (raw control characters are rejected) and stays a slice of the line.
+    fn string(&mut self, out: &mut List, mut dec: Option<&mut Vec<u8>>) -> R<()> {
+        let start = self.i;
         self.expect(b'"', "expected a string")?;
+        let mut owned: Option<Vec<u8>> = None;
         loop {
+            let s = self.i;
+            while self.i < self.b.len() {
+                let c = self.b[self.i];
+                if c == b'"' || c == b'\\' || c < 0x20 {
+                    break;
+                }
+                self.i += 1;
+            }
+            if self.i > s {
+                if let Some(o) = owned.as_mut() {
+                    o.extend_from_slice(&self.b[s..self.i]);
+                }
+                if let Some(d) = dec.as_deref_mut() {
+                    d.extend_from_slice(&self.b[s..self.i]);
+                }
+            }
             let Some(c) = self.peek() else {
                 return Err(self.err("unterminated string"));
             };
             match c {
                 b'"' => {
                     self.i += 1;
-                    return Ok((s, self.i));
+                    match owned {
+                        None => self.ar.push(out, Piece::Line(start, self.i)),
+                        Some(mut o) => {
+                            o.push(b'"');
+                            let k = self.ar.owned.len();
+                            self.ar.owned.push(o);
+                            self.ar.push(out, Piece::Own(k));
+                        }
+                    }
+                    return Ok(());
                 }
                 b'\\' => {
+                    if owned.is_none() {
+                        owned = Some(self.b[start..self.i].to_vec());
+                    }
+                    let esc_at = self.i;
                     self.i += 1;
-                    match self.peek() {
-                        Some(b'"' | b'\\' | b'/' | b'b' | b'f' | b'n' | b'r' | b't') => self.i += 1,
+                    let ch = match self.peek() {
+                        Some(b'"') => '"',
+                        Some(b'\\') => '\\',
+                        Some(b'/') => '/',
+                        Some(b'b') => '\u{8}',
+                        Some(b'f') => '\u{c}',
+                        Some(b'n') => '\n',
+                        Some(b'r') => '\r',
+                        Some(b't') => '\t',
                         Some(b'u') => {
                             self.i += 1;
-                            for _ in 0..4 {
-                                match self.peek() {
-                                    Some(h) if h.is_ascii_hexdigit() => self.i += 1,
-                                    _ => return Err(self.err("bad \\u escape")),
+                            let u = self.hex4()?;
+                            let lone = CanonError::LoneSurrogate { offset: esc_at };
+                            let cp = if (0xD800..0xDC00).contains(&u) {
+                                if !self.b[self.i..].starts_with(b"\\u") {
+                                    return Err(lone);
                                 }
-                            }
+                                self.i += 2;
+                                let lo = self.hex4()?;
+                                if !(0xDC00..0xE000).contains(&lo) {
+                                    return Err(lone);
+                                }
+                                0x10000 + ((u - 0xD800) << 10) + (lo - 0xDC00)
+                            } else if (0xDC00..0xE000).contains(&u) {
+                                return Err(lone);
+                            } else {
+                                u
+                            };
+                            self.i -= 1; // the common `self.i += 1` below
+                            char::from_u32(cp).ok_or(lone)?
                         }
                         _ => return Err(self.err("bad escape")),
+                    };
+                    self.i += 1;
+                    encode_char(ch, owned.as_mut().expect("owned"));
+                    if let Some(d) = dec.as_deref_mut() {
+                        let mut buf = [0u8; 4];
+                        d.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
                     }
                 }
-                0..=0x1f => return Err(self.err("control character in string")),
-                _ => self.i += 1,
+                _ => return Err(self.err("control character in string")),
             }
         }
     }
 
-    /// A number; returns (span, is_integer).
-    fn number(&mut self) -> R<((usize, usize), bool)> {
+    /// A number, copied verbatim; returns whether its spelling is canonical. A number whose value is outside the
+    /// f64 range (e.g. `1e999999`) is refused anywhere: readers (serde_json) reject it (audit B F9).
+    fn number(&mut self, out: &mut List) -> R<bool> {
         let s = self.i;
-        let digits = |sc: &mut Scan| {
-            let st = sc.i;
-            while sc.peek().is_some_and(|c| c.is_ascii_digit()) {
-                sc.i += 1;
+        let digits = |p: &mut P| {
+            let st = p.i;
+            while p.peek().is_some_and(|c| c.is_ascii_digit()) {
+                p.i += 1;
             }
-            sc.i > st
+            p.i > st
         };
         if self.peek() == Some(b'-') {
             self.i += 1;
@@ -189,17 +473,16 @@ impl<'a> Scan<'a> {
             }
             _ => return Err(self.err("bad number")),
         }
-        let mut integer = true;
+        let mut plain = true;
         if self.peek() == Some(b'.') {
             self.i += 1;
-            integer = false;
             if !digits(self) {
                 return Err(self.err("bad fraction"));
             }
         }
         if matches!(self.peek(), Some(b'e' | b'E')) {
+            plain = false;
             self.i += 1;
-            integer = false;
             if matches!(self.peek(), Some(b'+' | b'-')) {
                 self.i += 1;
             }
@@ -207,88 +490,90 @@ impl<'a> Scan<'a> {
                 return Err(self.err("bad exponent"));
             }
         }
-        Ok(((s, self.i), integer))
+        // the token is ASCII by construction
+        let tok = std::str::from_utf8(&self.b[s..self.i]).unwrap_or("");
+        if !plain && tok.parse::<f64>().map_or(true, |x| x.is_infinite()) {
+            return Err(CanonError::NumberOutOfRange { offset: s });
+        }
+        if plain && tok.len() > 309 && tok.parse::<f64>().map_or(true, |x| x.is_infinite()) {
+            return Err(CanonError::NumberOutOfRange { offset: s });
+        }
+        self.ar.push(out, Piece::Line(s, self.i));
+        Ok(is_canonical_number(tok))
     }
 
-    fn literal(&mut self, lit: &'static [u8]) -> R<(usize, usize)> {
-        let s = self.i;
+    fn literal(&mut self, lit: &'static [u8], out: &mut List) -> R<()> {
         if self.b[self.i..].starts_with(lit) {
+            self.ar.push(out, Piece::Line(self.i, self.i + lit.len()));
             self.i += lit.len();
-            Ok((s, self.i))
+            Ok(())
         } else {
             Err(self.err("bad literal"))
         }
     }
 
-    /// Validate one value and return its span.
-    fn skip_value(&mut self, depth: usize) -> R<(usize, usize)> {
+    /// One value, canonicalised into `out`; returns the offset of its first non-canonical number.
+    fn value(&mut self, out: &mut List, depth: usize) -> R<Option<usize>> {
         if depth > MAX_DEPTH {
             return Err(CanonError::TooDeep);
         }
-        let s = self.i;
         match self.peek() {
             Some(b'{') => {
-                self.i += 1;
-                self.ws();
-                if self.peek() == Some(b'}') {
-                    self.i += 1;
-                    return Ok((s, self.i));
-                }
-                loop {
-                    self.ws();
-                    self.string()?;
-                    self.ws();
-                    self.expect(b':', "expected ':'")?;
-                    self.ws();
-                    self.skip_value(depth + 1)?;
-                    self.ws();
-                    match self.peek() {
-                        Some(b',') => self.i += 1,
-                        Some(b'}') => {
-                            self.i += 1;
-                            return Ok((s, self.i));
-                        }
-                        _ => return Err(self.err("expected ',' or '}'")),
-                    }
-                }
+                let m = self.members(depth, &[])?;
+                Ok(self.join_members(out, m))
             }
             Some(b'[') => {
                 self.i += 1;
+                self.ar.push(out, Piece::Lit(b"["));
                 self.ws();
                 if self.peek() == Some(b']') {
                     self.i += 1;
-                    return Ok((s, self.i));
+                    self.ar.push(out, Piece::Lit(b"]"));
+                    return Ok(None);
                 }
+                let mut nc = None;
+                let mut first = true;
                 loop {
                     self.ws();
-                    self.skip_value(depth + 1)?;
+                    if !first {
+                        self.ar.push(out, Piece::Lit(b","));
+                    }
+                    first = false;
+                    let v = self.value(out, depth + 1)?;
+                    nc = nc.or(v);
                     self.ws();
                     match self.peek() {
                         Some(b',') => self.i += 1,
                         Some(b']') => {
                             self.i += 1;
-                            return Ok((s, self.i));
+                            self.ar.push(out, Piece::Lit(b"]"));
+                            return Ok(nc);
                         }
                         _ => return Err(self.err("expected ',' or ']'")),
                     }
                 }
             }
-            Some(b'"') => self.string(),
-            Some(b't') => self.literal(b"true"),
-            Some(b'f') => self.literal(b"false"),
-            Some(b'n') => self.literal(b"null"),
-            Some(b'-' | b'0'..=b'9') => self.number().map(|(sp, _)| sp),
+            Some(b'"') => self.string(out, None).map(|_| None),
+            Some(b't') => self.literal(b"true", out).map(|_| None),
+            Some(b'f') => self.literal(b"false", out).map(|_| None),
+            Some(b'n') => self.literal(b"null", out).map(|_| None),
+            Some(b'-' | b'0'..=b'9') => {
+                let at = self.i;
+                let canon = self.number(out)?;
+                Ok((!canon).then_some(at))
+            }
             _ => Err(self.err("expected a value")),
         }
     }
 
-    /// Members of the object starting at `self.i` (validated), sorted by raw key, duplicates rejected.
-    fn members(&mut self, depth: usize) -> R<Vec<Member>> {
+    /// The members of the object at `self.i`, canonicalised, sorted by decoded key, duplicates rejected. For keys in
+    /// `want_str`, a string value is also returned decoded.
+    fn members(&mut self, depth: usize, want_str: &[&str]) -> R<Vec<Member>> {
         if depth > MAX_DEPTH {
             return Err(CanonError::TooDeep);
         }
         self.expect(b'{', "expected '{'")?;
-        let mut m = Vec::new();
+        let mut m: Vec<Member> = Vec::new();
         self.ws();
         if self.peek() == Some(b'}') {
             self.i += 1;
@@ -296,12 +581,31 @@ impl<'a> Scan<'a> {
         }
         loop {
             self.ws();
-            let key = self.string()?;
+            let mut key = Vec::new();
+            let mut key_enc = List::EMPTY;
+            self.string(&mut key_enc, Some(&mut key))?;
             self.ws();
             self.expect(b':', "expected ':'")?;
             self.ws();
-            let val = self.skip_value(depth + 1)?;
-            m.push(Member { key, val });
+            let mut val = List::EMPTY;
+            let mut str_val = None;
+            let noncanon = if self.peek() == Some(b'"')
+                && want_str.iter().any(|w| w.as_bytes() == key.as_slice())
+            {
+                let mut d = Vec::new();
+                self.string(&mut val, Some(&mut d))?;
+                str_val = Some(String::from_utf8(d).expect("decoded from UTF-8"));
+                None
+            } else {
+                self.value(&mut val, depth + 1)?
+            };
+            m.push(Member {
+                key,
+                key_enc,
+                val,
+                noncanon,
+                str_val,
+            });
             self.ws();
             match self.peek() {
                 Some(b',') => self.i += 1,
@@ -312,82 +616,32 @@ impl<'a> Scan<'a> {
                 _ => return Err(self.err("expected ',' or '}'")),
             }
         }
-        let b = self.b;
-        let raw = |mm: &Member| &b[mm.key.0 + 1..mm.key.1 - 1];
-        m.sort_by(|x, y| raw(x).cmp(raw(y)));
+        m.sort_by(|x, y| x.key.cmp(&y.key));
         for w in m.windows(2) {
-            if raw(&w[0]) == raw(&w[1]) {
+            if w[0].key == w[1].key {
                 return Err(CanonError::DuplicateKey(
-                    String::from_utf8_lossy(raw(&w[0])).into_owned(),
+                    String::from_utf8_lossy(&w[0].key).into_owned(),
                 ));
             }
         }
         Ok(m)
     }
 
-    /// Write the canonical form of the (already validated) value at `self.i`.
-    fn write_value<W: Write + ?Sized>(&mut self, out: &mut W, depth: usize) -> R<()> {
-        match self.peek() {
-            Some(b'{') => {
-                let m = self.members(depth)?;
-                self.write_members(out, &m, depth)
-            }
-            Some(b'[') => {
-                self.i += 1;
-                out.write_all(b"[")?;
-                self.ws();
-                if self.peek() == Some(b']') {
-                    self.i += 1;
-                    out.write_all(b"]")?;
-                    return Ok(());
-                }
-                let mut first = true;
-                loop {
-                    self.ws();
-                    if !first {
-                        out.write_all(b",")?;
-                    }
-                    first = false;
-                    if depth + 1 > MAX_DEPTH {
-                        return Err(CanonError::TooDeep);
-                    }
-                    self.write_value(out, depth + 1)?;
-                    self.ws();
-                    match self.peek() {
-                        Some(b',') => self.i += 1,
-                        Some(b']') => {
-                            self.i += 1;
-                            out.write_all(b"]")?;
-                            return Ok(());
-                        }
-                        _ => return Err(self.err("expected ',' or ']'")),
-                    }
-                }
-            }
-            _ => {
-                let (s, e) = self.skip_value(depth)?;
-                out.write_all(&self.b[s..e])?;
-                Ok(())
-            }
-        }
-    }
-
-    fn write_members<W: Write + ?Sized>(&self, out: &mut W, m: &[Member], depth: usize) -> R<()> {
-        out.write_all(b"{")?;
-        for (k, mm) in m.iter().enumerate() {
+    /// `{` members `}` (already sorted) appended to `out`; returns the first non-canonical number offset.
+    fn join_members(&mut self, out: &mut List, m: Vec<Member>) -> Option<usize> {
+        self.ar.push(out, Piece::Lit(b"{"));
+        let mut nc = None;
+        for (k, mm) in m.into_iter().enumerate() {
             if k > 0 {
-                out.write_all(b",")?;
+                self.ar.push(out, Piece::Lit(b","));
             }
-            out.write_all(&self.b[mm.key.0..mm.key.1])?;
-            out.write_all(b":")?;
-            let mut sub = Scan {
-                b: self.b,
-                i: mm.val.0,
-            };
-            sub.write_value(out, depth + 1)?;
+            self.ar.cat(out, mm.key_enc);
+            self.ar.push(out, Piece::Lit(b":"));
+            self.ar.cat(out, mm.val);
+            nc = nc.or(mm.noncanon);
         }
-        out.write_all(b"}")?;
-        Ok(())
+        self.ar.push(out, Piece::Lit(b"}"));
+        nc
     }
 }
 
@@ -396,96 +650,178 @@ fn strip_eol(line: &[u8]) -> &[u8] {
     l.strip_suffix(b"\r").unwrap_or(l)
 }
 
-/// Parse a record line into its sorted top-level members and its `type` (raw string content).
-fn top<'a>(line: &'a [u8]) -> R<(Scan<'a>, Vec<Member>, Option<&'a str>)> {
+/// The canonical form of one record with what the verifier needs to read from it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CanonRecord {
+    /// The canonical line (no trailing newline).
+    pub bytes: Vec<u8>,
+    /// The decoded top-level `type`.
+    pub record_type: Option<String>,
+    /// Kept top-level members: decoded key and the span of its canonical value inside `bytes`.
+    pub members: Vec<(String, Range<usize>)>,
+}
+
+impl CanonRecord {
+    /// The canonical value bytes of a kept top-level member.
+    pub fn member(&self, key: &str) -> Option<&[u8]> {
+        self.members
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, r)| &self.bytes[r.clone()])
+    }
+}
+
+/// Canonicalise one record line (a trailing "\n" or "\r\n" is ignored).
+pub fn canonical_record(line: &[u8]) -> Result<CanonRecord, CanonError> {
     let line = strip_eol(line);
     if let Err(e) = std::str::from_utf8(line) {
         return Err(CanonError::Utf8 {
             offset: e.valid_up_to(),
         });
     }
-    let mut sc = Scan { b: line, i: 0 };
-    sc.ws();
-    if sc.peek() != Some(b'{') {
-        sc.skip_value(0)?;
-        sc.ws();
-        if sc.i != line.len() {
-            return Err(sc.err("trailing characters"));
+    let mut p = P::new(line);
+    p.ws();
+    if p.peek() != Some(b'{') {
+        let mut sink = List::EMPTY;
+        p.value(&mut sink, 0)?;
+        p.ws();
+        if p.i != line.len() {
+            return Err(p.err("trailing characters"));
         }
         return Err(CanonError::NotObject);
     }
-    let m = sc.members(0)?;
-    sc.ws();
-    if sc.i != line.len() {
-        return Err(sc.err("trailing characters"));
+    let m = p.members(0, &["type", FAMILY_DIGEST_KEY])?;
+    p.ws();
+    if p.i != line.len() {
+        return Err(p.err("trailing characters"));
     }
     let mut ty = None;
+    let mut family_digest = false;
     for mm in &m {
-        if &line[mm.key.0 + 1..mm.key.1 - 1] == b"type" {
-            let v = &line[mm.val.0..mm.val.1];
-            if v.first() != Some(&b'"') {
-                return Err(CanonError::TypeNotString);
+        if mm.key == b"type" {
+            match &mm.str_val {
+                Some(s) => ty = Some(s.clone()),
+                None => return Err(CanonError::TypeNotString),
             }
-            // valid UTF-8 checked above
-            ty = Some(std::str::from_utf8(&v[1..v.len() - 1]).expect("utf8"));
+        }
+        if mm.key == FAMILY_DIGEST_KEY.as_bytes()
+            && mm.str_val.as_deref().is_some_and(crate::is_blake3_hex)
+        {
+            family_digest = true;
         }
     }
-    Ok((sc, m, ty))
-}
-
-fn key_str<'a>(b: &'a [u8], m: &Member) -> &'a str {
-    std::str::from_utf8(&b[m.key.0 + 1..m.key.1 - 1]).expect("utf8")
+    let family_digest = family_digest && ty.as_deref() == Some("header");
+    let mut bytes = Vec::with_capacity(line.len());
+    let mut members = Vec::new();
+    bytes.push(b'{');
+    let mut first = true;
+    for mm in m {
+        let key = String::from_utf8(mm.key).expect("decoded from UTF-8");
+        if is_volatile_with(ty.as_deref(), &key, family_digest) {
+            continue;
+        }
+        if let Some(offset) = mm.noncanon {
+            return Err(CanonError::NonCanonicalNumber { offset });
+        }
+        if !first {
+            bytes.push(b',');
+        }
+        first = false;
+        p.ar.emit(mm.key_enc, line, &mut bytes);
+        bytes.push(b':');
+        let start = bytes.len();
+        p.ar.emit(mm.val, line, &mut bytes);
+        members.push((key, start..bytes.len()));
+    }
+    bytes.push(b'}');
+    Ok(CanonRecord {
+        bytes,
+        record_type: ty,
+        members,
+    })
 }
 
 /// Write the canonical form of one record line (without a trailing newline) into `out`.
 pub fn write_canonical<W: Write + ?Sized>(line: &[u8], out: &mut W) -> Result<(), CanonError> {
-    let (sc, m, ty) = top(line)?;
-    let kept: Vec<Member> = m
-        .into_iter()
-        .filter(|mm| !is_volatile(ty, key_str(sc.b, mm)))
-        .collect();
-    sc.write_members(out, &kept, 0)
+    let c = canonical_record(line)?;
+    out.write_all(&c.bytes)?;
+    Ok(())
 }
 
 /// The canonical bytes of one record line (no trailing newline; a trailing "\n" or "\r\n" of the input is ignored).
 pub fn canonical_line(line: &[u8]) -> Result<Vec<u8>, CanonError> {
-    let mut v = Vec::with_capacity(line.len());
-    write_canonical(line, &mut v)?;
-    Ok(v)
+    canonical_record(line).map(|c| c.bytes)
 }
 
 /// BLAKE3 hex of the canonical line followed by "\n" (the per-record digest, event `rule_committed.canon_blake3`).
 pub fn canonical_line_blake3(line: &[u8]) -> Result<String, CanonError> {
     let mut h = blake3::Hasher::new();
-    write_canonical(line, &mut h)?;
+    h.update(&canonical_line(line)?);
     h.update(b"\n");
     Ok(h.finalize().to_hex().to_string())
 }
 
-/// The top-level `type` of a record line (`None` when absent).
+/// The decoded top-level `type` of a record line (`None` when absent).
 pub fn line_type(line: &[u8]) -> Result<Option<String>, CanonError> {
-    let (_, _, ty) = top(line)?;
-    Ok(ty.map(str::to_string))
+    canonical_record(line).map(|c| c.record_type)
 }
 
-/// Contract lint C-3 (restricted by package contract to TOP-LEVEL keys, because the table header nests the resolved
-/// `NodeOptions`, which has f64 fields): the non-volatile top-level keys whose value is a non-integer number.
-pub fn top_level_float_keys(line: &[u8]) -> Result<Vec<String>, CanonError> {
-    let (sc, m, ty) = top(line)?;
-    let mut out = Vec::new();
-    for mm in &m {
-        let k = key_str(sc.b, mm);
-        if is_volatile(ty, k) {
-            continue;
+/// Decode a canonical JSON string token (with quotes) as written by this module.
+pub fn decode_canonical_string(tok: &[u8]) -> Option<String> {
+    let mut p = P::new(tok);
+    let mut sink = List::EMPTY;
+    let mut d = Vec::new();
+    p.string(&mut sink, Some(&mut d)).ok()?;
+    (p.i == tok.len()).then(|| String::from_utf8(d).ok())?
+}
+
+/// For a canonical JSON array (e.g. a record's `witness_loci`), the number of its elements that are strings equal to
+/// `needle`; `None` when the bytes are not a JSON array.
+pub fn count_string_elements(array: &[u8], needle: &str) -> Option<u64> {
+    let mut p = P::new(array);
+    p.expect(b'[', "expected '['").ok()?;
+    let mut n = 0;
+    p.ws();
+    if p.peek() == Some(b']') {
+        p.i += 1;
+        return (p.i == array.len()).then_some(0);
+    }
+    loop {
+        p.ws();
+        let mut sink = List::EMPTY;
+        if p.peek() == Some(b'"') {
+            let mut d = Vec::new();
+            p.string(&mut sink, Some(&mut d)).ok()?;
+            if d == needle.as_bytes() {
+                n += 1;
+            }
+        } else {
+            p.value(&mut sink, 1).ok()?;
         }
-        let v = &sc.b[mm.val.0..mm.val.1];
-        if matches!(v.first(), Some(b'-' | b'0'..=b'9'))
-            && v.iter().any(|c| matches!(c, b'.' | b'e' | b'E'))
-        {
-            out.push(k.to_string());
+        p.ws();
+        match p.peek() {
+            Some(b',') => p.i += 1,
+            Some(b']') => {
+                p.i += 1;
+                return (p.i == array.len()).then_some(n);
+            }
+            _ => return None,
         }
     }
-    Ok(out)
+}
+
+/// Contract lint C-3 (TOP-LEVEL keys only, because the table header nests the resolved `NodeOptions`, which has
+/// f64 fields): the kept top-level keys whose value is a non-integer number.
+pub fn top_level_float_keys(line: &[u8]) -> Result<Vec<String>, CanonError> {
+    let c = canonical_record(line)?;
+    Ok(c.members
+        .iter()
+        .filter(|(_, r)| {
+            let v = &c.bytes[r.clone()];
+            matches!(v.first(), Some(b'-' | b'0'..=b'9')) && v.contains(&b'.')
+        })
+        .map(|(k, _)| k.clone())
+        .collect())
 }
 
 /// Running canonical digest of a stream of records.
@@ -499,14 +835,17 @@ impl CanonicalDigest {
     pub fn new() -> Self {
         Self::default()
     }
-    /// Add one record line (with or without its "\n").
+    /// Add one record line (with or without its "\n"). An invalid line leaves the digest untouched.
     pub fn push_line(&mut self, line: &[u8]) -> Result<(), CanonError> {
-        // canonicalise into a scratch buffer first so that an invalid line leaves the digest untouched
         let c = canonical_line(line)?;
-        self.h.update(&c);
+        self.push_canonical(&c);
+        Ok(())
+    }
+    /// Add one already canonical line (without "\n").
+    pub fn push_canonical(&mut self, canonical: &[u8]) {
+        self.h.update(canonical);
         self.h.update(b"\n");
         self.lines += 1;
-        Ok(())
     }
     pub fn lines(&self) -> u64 {
         self.lines
@@ -564,15 +903,21 @@ mod tests {
             c(r#"{ "type" : "header", "zero_seconds": 1.5, "x": {"seconds": 2} }"#),
             r#"{"type":"header","x":{"seconds":2}}"#
         );
-        // verbatim tokens: big integers and escapes survive
+        // big integers survive verbatim; escapes are decoded and re-encoded with the one rule
         assert_eq!(
-            c(r#"{"n":123456789012345678901234567890,"s":"é\/"}"#),
-            r#"{"n":123456789012345678901234567890,"s":"é\/"}"#
+            c(r#"{"n":123456789012345678901234567890,"s":"é\/\u0001"}"#),
+            "{\"n\":123456789012345678901234567890,\"s\":\"\u{e9}/\\u0001\"}"
         );
-        // verdict rule for other types
+        // verdict rule for verdict records and typeless records only
         assert_eq!(
             c(r#"{"type":"verdict","seconds":1,"exact_seconds":2.5,"utc":"x","ok":true}"#),
             r#"{"ok":true,"type":"verdict"}"#
+        );
+        assert_eq!(c(r#"{"seconds":1,"ok":true}"#), r#"{"ok":true}"#);
+        // m12: another typed record keeps its *_seconds
+        assert_eq!(
+            c(r#"{"type":"residual","limit_seconds":5}"#),
+            r#"{"limit_seconds":5,"type":"residual"}"#
         );
         assert_eq!(
             c("{\"type\":\"end\",\"seconds\":1.25,\"vmhwm_kb\":77,\"rules\":2}\r\n"),
@@ -585,11 +930,19 @@ mod tests {
         for bad in [
             r#"[1]"#,
             r#"{"a":1,"a":2}"#,
+            r#"{"a":1,"a":2}"#,
             r#"{"a":01}"#,
             r#"{"a":1} x"#,
             r#"{"a":"x"#,
             r#"{"type":3}"#,
             r#"{"a":1.}"#,
+            r#"{"a":"\ud800"}"#,
+            r#"{"a":"\udc00x"}"#,
+            r#"{"a":1.0}"#,
+            r#"{"a":1e0}"#,
+            r#"{"a":-0}"#,
+            r#"{"a":0.50}"#,
+            r#"{"type":"rule","seconds_search":1e999999}"#,
             "{\"a\":\"\t\"}",
         ] {
             assert!(canonical_line(bad.as_bytes()).is_err(), "{bad}");
@@ -600,16 +953,55 @@ mod tests {
             canonical_line(b"{\"a\":\"\xff\"}"),
             Err(CanonError::Utf8 { .. })
         ));
+        // a pair is fine
+        assert_eq!(c(r#"{"a":"😀"}"#), "{\"a\":\"\u{1f600}\"}");
+        // non-canonical numbers are fine inside volatile members only
+        assert_eq!(
+            c(r#"{"type":"rule","seconds_search":1.0e3,"x":0.5}"#),
+            r#"{"type":"rule","x":0.5}"#
+        );
     }
 
     #[test]
-    fn floats_lint() {
+    fn numbers() {
+        for ok in ["0", "-1", "10", "0.5", "-0.25", "123.456"] {
+            assert!(is_canonical_number(ok), "{ok}");
+        }
+        for bad in ["-0", "1.0", "1e0", "0.50", "01", "1.", "-0.0", "1E2"] {
+            assert!(!is_canonical_number(bad), "{bad}");
+        }
+        assert_eq!(decimal_f64(1.0).unwrap(), "1");
+        assert_eq!(decimal_f64(-0.0).unwrap(), "0");
+        assert_eq!(decimal_f64(1e-7).unwrap(), "0.0000001");
+        assert_eq!(decimal_f64(0.1).unwrap(), "0.1");
+        assert!(decimal_f64(f64::NAN).is_none());
+        for x in [1.0, 0.5, 1e-7, 1e20, -3.25, 123456.789] {
+            assert!(is_canonical_number(&decimal_f64(x).unwrap()));
+        }
+    }
+
+    #[test]
+    fn family_file_rule() {
+        let d = "a".repeat(64);
+        // without a family digest the path counts
         assert_eq!(
-            top_level_float_keys(
-                br#"{"type":"rule","seconds_search":0.5,"w":1e3,"n":2,"o":{"f":0.5}}"#
-            )
-            .unwrap(),
-            vec!["w"]
+            c(r#"{"type":"header","family_file":"/x/T.sym"}"#),
+            r#"{"family_file":"/x/T.sym","type":"header"}"#
+        );
+        // with it the path is volatile and the digest stays
+        assert_eq!(
+            c(&format!(
+                r#"{{"type":"header","family_file":"/x/T.sym","family_blake3":"{d}"}}"#
+            )),
+            format!(r#"{{"family_blake3":"{d}","type":"header"}}"#)
+        );
+        // a malformed digest does not make the path volatile; neither does another record type
+        assert!(c(r#"{"type":"header","family_file":"/x","family_blake3":"zz"}"#).contains("/x"));
+        assert!(
+            c(&format!(
+                r#"{{"type":"rule","family_file":"/x","family_blake3":"{d}"}}"#
+            ))
+            .contains("/x")
         );
     }
 
@@ -620,5 +1012,17 @@ mod tests {
         let (d, n) = canonical_digest_reader(&b"{\"a\":1}\n{\"b\":2, \"a\":1}\n"[..]).unwrap();
         assert_eq!(n, 2);
         assert_eq!(d, crate::blake3_hex(b"{\"a\":1}\n{\"a\":1,\"b\":2}\n"));
+    }
+
+    #[test]
+    fn members_and_decode() {
+        let r = canonical_record(br#"{"type":"rule","index":3,"target":"I(1)"}"#).unwrap();
+        assert_eq!(r.member("index"), Some(&b"3"[..]));
+        assert_eq!(r.member("target"), Some(&b"\"I(1)\""[..]));
+        assert_eq!(
+            decode_canonical_string(r.member("target").unwrap()).as_deref(),
+            Some("I(1)")
+        );
+        assert_eq!(r.record_type.as_deref(), Some("rule"));
     }
 }
