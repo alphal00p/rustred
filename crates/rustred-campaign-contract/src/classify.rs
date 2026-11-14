@@ -143,8 +143,11 @@ pub enum Action {
     ItemDone,
     /// Row 2: RESUME.pending -> new child items.
     QueueChildren,
-    /// Row 3: no rule needed; finite points -> point items.
-    ItemDoneNoRule,
+    /// Row 3 (lane contractfix2, audit ac2-m9; was `item_done_no_rule`): the child CLAIMS (OUTCOME `per_case`) that
+    /// no case needs a rule; the claims are bound to no sealed record, so they never close the item by themselves:
+    /// the consumer closes it only when its OWN coverage check (forward closure / partition of the item's keys)
+    /// confirms every key, else it treats the attempt as row 24 (next rung).
+    ConfirmCoverageElseNextRung,
     /// Rows 4, 24: next rung for the open cases.
     NextRung,
     /// Row 5: open list -> items.
@@ -238,10 +241,10 @@ pub const ROWS: [RowSpec; 32] = {
         rs(
             3,
             "",
-            "c=10, O, S, stop max_cases, no verified rule, every case result covered / empty / finite / declared_terminal",
-            Complete,
+            "c=10, O, S, stop max_cases, no verified rule, every case result CLAIMED covered / empty / finite / declared_terminal (OUTCOME per_case, unverified: never closes the item by itself)",
+            NoRule,
             Nothing,
-            ItemDoneNoRule,
+            ConfirmCoverageElseNextRung,
         ),
         rs(
             24,
@@ -633,7 +636,11 @@ fn decide(
                         if !o.per_case.is_empty()
                             && o.per_case.iter().all(|p| p.result.needs_no_rule())
                         {
-                            return row(3, "", "max_cases, no rule, nothing needed");
+                            return row(
+                                3,
+                                "",
+                                "max_cases, no rule; the child claims no case needs one (unverified: confirm by coverage)",
+                            );
                         }
                         return row(24, "", "max_cases, no rule, a case result needs a rule");
                     }
@@ -765,6 +772,7 @@ pub fn resume_state(
     spec_blake3: &str,
 ) -> Result<(ResumeState, ResumeRef), String> {
     let b = read_layout_file(layout, crate::layout::RESUME)?.ok_or("no RESUME.json")?;
+    crate::canon::check_document(&b).map_err(|e| format!("RESUME.json: {e}"))?;
     let r: ResumeState = serde_json::from_slice(&b).map_err(|e| e.to_string())?;
     r.check()?;
     if r.job_id != spec.job_id || r.attempt != spec.attempt || r.spec_blake3 != spec_blake3 {
@@ -833,7 +841,14 @@ pub fn verify_outputs(
             "no sealing rule for this kind".into(),
         ));
     };
-    for x in &o.outputs.extra {
+    for (k, x) in o.outputs.extra.iter().enumerate() {
+        // one entry per role (ac2-m5): the role's entry below is the only one verified, so a second one is refused
+        if o.outputs.extra[..k].iter().any(|y| y.role == x.role) {
+            return Err(UnsealReason::MissingOutput(format!(
+                "outputs.extra role {:?} listed twice",
+                x.role
+            )));
+        }
         if !rules.iter().any(|r| r.role == x.role && r.role != "table") {
             return Err(UnsealReason::MissingOutput(format!(
                 "outputs.extra role {:?} is not in the kind's sealing rule",
@@ -930,9 +945,10 @@ pub fn assess(
     if let OutcomeState::Valid(o) = &outcome {
         match verify_outputs(layout, spec.kind, o) {
             Ok(v) => {
-                let fam = v.streams.first().and_then(|s| s.family_blake3.clone());
-                if let Some(f) = fam {
-                    let want = spec.inputs.iter().find(|i| i.role == "family");
+                // every verified stream's header (at most one per stream, on line 1: the verifier refuses any other,
+                // ac2-m6) is bound to the spec's family input
+                let want = spec.inputs.iter().find(|i| i.role == "family");
+                for f in v.streams.iter().filter_map(|s| s.family_blake3.as_deref()) {
                     if want.is_none_or(|i| i.blake3 != f) {
                         outcome = OutcomeState::Invalid(
                             "table header family_blake3 is not the spec's family input digest"

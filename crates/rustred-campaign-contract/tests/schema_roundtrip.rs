@@ -64,6 +64,18 @@ fn record_canonical_form_on_shared_vectors() {
     let mut n = 0;
     for x in v["vectors"].as_array().unwrap() {
         let input = x["input"].as_str().unwrap();
+        // lane contractfix2 (ac2-m1): the record rule REFUSES the integer token `-0` (serde_json reads it as the
+        // float -0.0). Until the integration lane regenerates canon-vectors.json (record_rule: null for such
+        // vectors, and the document rule aligned), the vector `minus_zero` is expected refused here.
+        if x["record_rule"].is_null() || x["name"] == "minus_zero" {
+            assert!(
+                canonical_line(input.as_bytes()).is_err(),
+                "vector {} must be refused by the record rule",
+                x["name"]
+            );
+            n += 1;
+            continue;
+        }
         let got = String::from_utf8(canonical_line(input.as_bytes()).unwrap()).unwrap();
         assert_eq!(
             got,

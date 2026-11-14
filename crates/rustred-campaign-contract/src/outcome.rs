@@ -529,7 +529,12 @@ impl JobOutcome {
                 crate::layout::RESUME
             ));
         }
-        for x in &self.outputs.extra {
+        for (k, x) in self.outputs.extra.iter().enumerate() {
+            // one entry per role (lane contractfix2, audit ac2-m5): the verifier checks the entry of each role of the
+            // kind's sealing rule, so a second entry of a role would never be looked at
+            if self.outputs.extra[..k].iter().any(|y| y.role == x.role) {
+                return Err(format!("outputs.extra role {:?} listed twice", x.role));
+            }
             let ok = x
                 .path
                 .strip_prefix("out/")
@@ -606,7 +611,12 @@ impl Outcome {
         v
     }
 
+    /// Parse an OUTCOME document. The bytes must first have a canonical form ([`crate::canon::canonical_record`]):
+    /// duplicate keys at ANY depth (legacy keys, `Value` fields such as `stop.detail`) are refused (plan 3.3, lane
+    /// contractfix2, audit ac2-m4), as are the numbers no reader agrees on (`-0`, out of f64 range) and nesting beyond
+    /// serde_json's limit; serde derive alone refuses only duplicated struct fields.
     pub fn from_slice(b: &[u8]) -> Result<Outcome, String> {
+        crate::canon::canonical_record(b).map_err(|e| format!("OUTCOME: {e}"))?;
         serde_json::from_slice(b).map_err(|e| e.to_string())
     }
 

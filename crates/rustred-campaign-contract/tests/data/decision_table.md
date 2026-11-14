@@ -2,7 +2,7 @@
 |---|---|---|---|---|
 | 1 | c=0, O, S | complete | canonical | item_done |
 | 2 | c=10, O, S, stop max_cases, verified rules >= 1 | rule_found | canonical | queue_children |
-| 3 | c=10, O, S, stop max_cases, no verified rule, every case result covered / empty / finite / declared_terminal | complete | nothing | item_done_no_rule |
+| 3 | c=10, O, S, stop max_cases, no verified rule, every case result CLAIMED covered / empty / finite / declared_terminal (OUTCOME per_case, unverified: never closes the item by itself) | no_rule | nothing | confirm_coverage_else_next_rung |
 | 24 | c=10, O, S, stop max_cases, no verified rule, another case result or no per-case list | no_rule | nothing | next_rung |
 | 4 | c=10, O, S, stop lift_refused / guard_timeout / numeric_search_refused / before_numeric | no_rule | committed_rules | next_rung |
 | 5 | c=10, O, S, stop open_regions / open_obligations, verified rules >= 1 | rule_found | canonical | queue_open_list |

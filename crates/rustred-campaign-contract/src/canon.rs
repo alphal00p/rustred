@@ -11,15 +11,26 @@
 //! 3. the top-level keys that are volatile for the record's `type` are removed ([`is_volatile_with`]);
 //! 4. all insignificant whitespace is removed;
 //! 5. numbers are DECODED to their value and re-encoded (plan 3.3.0, coordinator addendum 2): an integer token (no
-//!    fraction, no exponent) is kept exactly whatever its size, `-0` becomes `0`; a token with a fraction or an
-//!    exponent is its IEEE f64 value written as serde_json (ryu) writes it (`1e2` -> `100.0`, `1.0` -> `1.0`); a value
-//!    outside the f64 range is [`CanonError::NumberOutOfRange`] (readers reject it). Two spellings of one value give
-//!    one form; distinct forms are distinct values for every reader.
+//!    fraction, no exponent) is kept exactly whatever its size; a token with a fraction or an exponent is its IEEE f64
+//!    value written as serde_json (ryu) writes it (`1e2` -> `100.0`, `1.0` -> `1.0`); a value outside the f64 range
+//!    (an integer token included) is [`CanonError::NumberOutOfRange`] (readers reject it). The integer token `-0` is
+//!    [`CanonError::NegativeZeroInteger`] (lane contractfix2, audit ac2-m1: serde_json reads it as the FLOAT -0.0, so
+//!    neither `0` nor `-0.0` would be a form every reader agrees with). Two spellings of one value give one form;
+//!    distinct forms are distinct values for every reader;
+//! 6. at most [`MAX_DEPTH`] (127) nested containers, the record object included: exactly serde_json's recursion
+//!    limit (audit ac2-m2), so every line with a canonical form is a line serde_json reads back.
+//!
+//! The canonical form is what serde_json reads: a line that has one parses with serde_json (built with
+//! `float_roundtrip`, audit ac2-m8, so the f64 a reader holds is the value the canonical form names).
 //!
 //! This is ONE canonical-JSON rule for the whole campaign: the plan's 3.3.0 rule (`validate.py`, `schema::canon` of
 //! rustred-campaign-core, floats allowed); the RECORD digest is that form with the volatile top-level keys removed.
 //!
-//! The canonical digest of a stream is the BLAKE3 over the canonical lines, each followed by "\n", in file order.
+//! The canonical digest of a stream is the BLAKE3 over the canonical lines, each followed by "\n", in file order, in
+//! the key-derivation mode with the context [`CONTEXT_CANONICAL_STREAM`]; the per-record digest is the BLAKE3 of one
+//! canonical line + "\n" with the context [`CONTEXT_RECORD`] (domain separation by digest kind, lane contractfix2,
+//! audit ac2-m7: a per-record digest, a canonical-stream digest, a raw file digest and a spec digest of one preimage
+//! are four different values).
 //! The scanner works over the line's bytes in one pass: memory is a small multiple of the line (each object level
 //! assembles its sorted members in a buffer), no value tree; 100+ MB lines are fine.
 
@@ -29,7 +40,25 @@ use std::ops::Range;
 
 /// Version of the volatile-key list and of the canonical form (bumped with the contract). 2 = decoded strings and
 /// keys, canonical numbers, verdict rule limited to verdict records, `family_file` rule (audit A, 2026-11-14).
-pub const VOLATILE_KEYS_VERSION: u32 = 2;
+/// 3 = `-0` refused, integers outside the f64 range refused, depth limit = serde_json's, domain-separated record and
+/// stream digests (lane contractfix2, audit ac2-m1 / m2 / m7, 2026-11-14).
+pub const VOLATILE_KEYS_VERSION: u32 = 3;
+
+/// BLAKE3 key-derivation context of the per-record digest (one canonical line + "\n"; event
+/// `rule_committed.canon_blake3`, [`canonical_line_blake3`], `seal::RecordPos` / `seal::RecordInfo`).
+pub const CONTEXT_RECORD: &str = "rustred.child-job.v1 2026-11-14 record digest";
+/// BLAKE3 key-derivation context of the canonical digest of a stream ([`CanonicalDigest`], every `canonical_blake3`).
+pub const CONTEXT_CANONICAL_STREAM: &str =
+    "rustred.child-job.v1 2026-11-14 canonical stream digest";
+
+/// The per-record digest of an ALREADY canonical line (without its "\n"): BLAKE3 of `canonical` + "\n" in the
+/// [`CONTEXT_RECORD`] domain.
+pub fn record_digest_of_canonical(canonical: &[u8]) -> String {
+    let mut h = blake3::Hasher::new_derive_key(CONTEXT_RECORD);
+    h.update(canonical);
+    h.update(b"\n");
+    h.finalize().to_hex().to_string()
+}
 
 /// Volatile top-level keys per record type of the table and cert streams.
 pub const VOLATILE_BY_TYPE: [(&str, &[&str]); 9] = [
@@ -107,8 +136,12 @@ pub enum CanonError {
     LoneSurrogate {
         offset: usize,
     },
-    /// A number whose value is outside the f64 range (readers reject it), in any position.
+    /// A number whose value is outside the f64 range (readers reject it), in any position; integer tokens included.
     NumberOutOfRange {
+        offset: usize,
+    },
+    /// The integer token `-0` (serde_json reads it as the float -0.0; no canonical form agrees with every reader).
+    NegativeZeroInteger {
         offset: usize,
     },
     /// A stream ends with bytes after its last "\n".
@@ -127,13 +160,16 @@ impl fmt::Display for CanonError {
             }
             CanonError::NotObject => write!(f, "record is not a JSON object"),
             CanonError::DuplicateKey(k) => write!(f, "duplicate key {k:?}"),
-            CanonError::TooDeep => write!(f, "nesting deeper than {MAX_DEPTH}"),
+            CanonError::TooDeep => write!(f, "more than {MAX_DEPTH} nested containers"),
             CanonError::TypeNotString => write!(f, "top-level `type` is not a string"),
             CanonError::LoneSurrogate { offset } => {
                 write!(f, "lone surrogate escape at byte {offset}")
             }
             CanonError::NumberOutOfRange { offset } => {
                 write!(f, "number at byte {offset} is outside the f64 range")
+            }
+            CanonError::NegativeZeroInteger { offset } => {
+                write!(f, "integer token -0 at byte {offset} (write 0 or -0.0)")
             }
             CanonError::TornLine { line } => {
                 write!(f, "torn last line (line {line} has no newline)")
@@ -150,8 +186,9 @@ impl From<io::Error> for CanonError {
     }
 }
 
-/// Maximum nesting depth accepted.
-pub const MAX_DEPTH: usize = 128;
+/// Maximum number of nested containers (objects and arrays, the record object included): serde_json's recursion
+/// limit (it refuses the 128th level), so the canonicaliser never accepts a line its readers refuse (audit ac2-m2).
+pub const MAX_DEPTH: usize = 127;
 
 type R<T> = Result<T, CanonError>;
 
@@ -442,14 +479,22 @@ impl<'a> P<'a> {
         // the token is ASCII by construction
         let tok = std::str::from_utf8(&self.b[s..self.i]).unwrap_or("");
         if plain && !tok.contains('.') {
-            // an integer: exact, any size; `-0` is `0`
+            // an integer: exact, any size inside the f64 range (serde_json reads a token beyond u64 / i64 as an f64
+            // and refuses one beyond the f64 range); `-0` is refused (serde_json reads the float -0.0)
             if tok == "-0" {
-                let k = self.ar.owned.len();
-                self.ar.owned.push(b"0".to_vec());
-                self.ar.push(out, Piece::Own(k));
-            } else {
-                self.ar.push(out, Piece::Line(s, self.i));
+                return Err(CanonError::NegativeZeroInteger { offset: s });
             }
+            // |value| < 10^308 always fits; longer tokens are checked through their f64 value
+            let digits_len = tok.len() - usize::from(tok.starts_with('-'));
+            if digits_len > 308 {
+                let x: f64 = tok
+                    .parse()
+                    .map_err(|_| CanonError::NumberOutOfRange { offset: s })?;
+                if !x.is_finite() {
+                    return Err(CanonError::NumberOutOfRange { offset: s });
+                }
+            }
+            self.ar.push(out, Piece::Line(s, self.i));
             return Ok(());
         }
         // a fraction or an exponent: its f64 value, written as serde_json (ryu) writes it
@@ -478,10 +523,8 @@ impl<'a> P<'a> {
     }
 
     /// One value, canonicalised into `out`.
+    /// `depth` = number of containers enclosing this value.
     fn value(&mut self, out: &mut List, depth: usize) -> R<()> {
-        if depth > MAX_DEPTH {
-            return Err(CanonError::TooDeep);
-        }
         match self.peek() {
             Some(b'{') => {
                 let m = self.members(depth, &[])?;
@@ -489,6 +532,9 @@ impl<'a> P<'a> {
                 Ok(())
             }
             Some(b'[') => {
+                if depth >= MAX_DEPTH {
+                    return Err(CanonError::TooDeep);
+                }
                 self.i += 1;
                 self.ar.push(out, Piece::Lit(b"["));
                 self.ws();
@@ -529,7 +575,7 @@ impl<'a> P<'a> {
     /// The members of the object at `self.i`, canonicalised, sorted by decoded key, duplicates rejected. For keys in
     /// `want_str`, a string value is also returned decoded.
     fn members(&mut self, depth: usize, want_str: &[&str]) -> R<Vec<Member>> {
-        if depth > MAX_DEPTH {
+        if depth >= MAX_DEPTH {
             return Err(CanonError::TooDeep);
         }
         self.expect(b'{', "expected '{'")?;
@@ -692,6 +738,13 @@ pub fn canonical_record(line: &[u8]) -> Result<CanonRecord, CanonError> {
     })
 }
 
+/// Plan 3.3 strictness for a whole contract DOCUMENT (OUTCOME, RESUME, job spec, an EVENTS or cases line, possibly
+/// pretty-printed): it must have a canonical form, i.e. no duplicate key at any depth, no number the readers disagree
+/// on, no nesting beyond serde_json's limit. Readers call this before their serde parse (lane contractfix2, ac2-m4).
+pub fn check_document(bytes: &[u8]) -> Result<(), CanonError> {
+    canonical_record(bytes).map(|_| ())
+}
+
 /// Write the canonical form of one record line (without a trailing newline) into `out`.
 pub fn write_canonical<W: Write + ?Sized>(line: &[u8], out: &mut W) -> Result<(), CanonError> {
     let c = canonical_record(line)?;
@@ -704,12 +757,10 @@ pub fn canonical_line(line: &[u8]) -> Result<Vec<u8>, CanonError> {
     canonical_record(line).map(|c| c.bytes)
 }
 
-/// BLAKE3 hex of the canonical line followed by "\n" (the per-record digest, event `rule_committed.canon_blake3`).
+/// The per-record digest (event `rule_committed.canon_blake3`): BLAKE3 of the canonical line followed by "\n", in
+/// the [`CONTEXT_RECORD`] domain.
 pub fn canonical_line_blake3(line: &[u8]) -> Result<String, CanonError> {
-    let mut h = blake3::Hasher::new();
-    h.update(&canonical_line(line)?);
-    h.update(b"\n");
-    Ok(h.finalize().to_hex().to_string())
+    Ok(record_digest_of_canonical(&canonical_line(line)?))
 }
 
 /// The decoded top-level `type` of a record line (`None` when absent).
@@ -776,11 +827,20 @@ pub fn top_level_float_keys(line: &[u8]) -> Result<Vec<String>, CanonError> {
         .collect())
 }
 
-/// Running canonical digest of a stream of records.
-#[derive(Default, Clone)]
+/// Running canonical digest of a stream of records (BLAKE3 in the [`CONTEXT_CANONICAL_STREAM`] domain).
+#[derive(Clone)]
 pub struct CanonicalDigest {
     h: blake3::Hasher,
     lines: u64,
+}
+
+impl Default for CanonicalDigest {
+    fn default() -> Self {
+        CanonicalDigest {
+            h: blake3::Hasher::new_derive_key(CONTEXT_CANONICAL_STREAM),
+            lines: 0,
+        }
+    }
 }
 
 impl CanonicalDigest {
@@ -897,6 +957,18 @@ mod tests {
         }
         let deep = format!("{{\"a\":{}{}}}", "[".repeat(200), "]".repeat(200));
         assert_eq!(canonical_line(deep.as_bytes()), Err(CanonError::TooDeep));
+        // exactly serde_json's limit: 127 nested containers pass, 128 do not
+        for (levels, ok) in [(127usize, true), (128, false)] {
+            let l = format!(
+                "{{\"a\":{}{}}}",
+                "[".repeat(levels - 1),
+                "]".repeat(levels - 1)
+            );
+            assert_eq!(canonical_line(l.as_bytes()).is_ok(), ok, "{levels}");
+            assert_eq!(serde_json::from_str::<serde_json::Value>(&l).is_ok(), ok);
+        }
+        let objs = format!("{}1{}", "{\"a\":".repeat(128), "}".repeat(128));
+        assert_eq!(canonical_line(objs.as_bytes()), Err(CanonError::TooDeep));
         assert!(matches!(
             canonical_line(b"{\"a\":\"\xff\"}"),
             Err(CanonError::Utf8 { .. })
@@ -907,11 +979,25 @@ mod tests {
 
     #[test]
     fn numbers() {
-        // plan 3.3.0: integers exact, -0 -> 0, fractions / exponents as serde_json writes the f64
+        // plan 3.3.0: integers exact, fractions / exponents as serde_json writes the f64; `-0` refused (ac2-m1)
         assert_eq!(
-            c(r#"{"a":-0,"b":18446744073709551616}"#),
+            c(r#"{"a":0,"b":18446744073709551616}"#),
             r#"{"a":0,"b":18446744073709551616}"#
         );
+        assert!(matches!(
+            canonical_line(br#"{"a":-0}"#),
+            Err(CanonError::NegativeZeroInteger { .. })
+        ));
+        assert_eq!(c(r#"{"a":-0.0}"#), r#"{"a":-0.0}"#);
+        // integers beyond the f64 range are refused like any other out-of-range number (ac2-m2)
+        let big = format!(r#"{{"a":{}}}"#, "9".repeat(309));
+        assert!(matches!(
+            canonical_line(big.as_bytes()),
+            Err(CanonError::NumberOutOfRange { .. })
+        ));
+        let ok = format!(r#"{{"a":-{}}}"#, "9".repeat(308));
+        assert!(canonical_line(ok.as_bytes()).is_ok());
+        assert!(serde_json::from_str::<serde_json::Value>(&ok).is_ok());
         assert_eq!(
             c(r#"{"x":1e2,"y":1.0,"z":0.50,"w":1E-7}"#),
             r#"{"w":1e-7,"x":100.0,"y":1.0,"z":0.5}"#
@@ -954,7 +1040,10 @@ mod tests {
         assert_eq!(r, Err(CanonError::TornLine { line: 2 }));
         let (d, n) = canonical_digest_reader(&b"{\"a\":1}\n{\"b\":2, \"a\":1}\n"[..]).unwrap();
         assert_eq!(n, 2);
-        assert_eq!(d, crate::blake3_hex(b"{\"a\":1}\n{\"a\":1,\"b\":2}\n"));
+        let mut h = blake3::Hasher::new_derive_key(CONTEXT_CANONICAL_STREAM);
+        h.update(b"{\"a\":1}\n{\"a\":1,\"b\":2}\n");
+        assert_eq!(d, h.finalize().to_hex().to_string());
+        assert_ne!(d, crate::blake3_hex(b"{\"a\":1}\n{\"a\":1,\"b\":2}\n"));
     }
 
     #[test]
