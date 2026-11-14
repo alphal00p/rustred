@@ -3231,6 +3231,88 @@ pub fn replay_evidence_drawn<A: CheckAlgebra>(
     }
 }
 
+/// THIRD-PARTY VERIFICATION of a [`ReplayRecord`] (re-audit B: the module offered no record verifier): on the
+/// certificate backend, recompute the family / rule / served-key digests, the stream seed from the recorded master
+/// seed and nonce, the primes from the stream seed (refused when the record says the caller chose them), and RE-RUN
+/// the evidence with the recorded nonce and its source; `Ok(())` iff every recomputed quantity equals the record's and
+/// the re-run reproduces the identity verdict, the primes and the level. `opts` are the options of the original run
+/// (table binding, group, lift primes); its `seed` and `nonce` are taken from the record.
+pub fn verify_replay_record(
+    family: &Family,
+    rule: &RowsRule,
+    served_keys: &[Vec<i64>],
+    policy: &ReplayPolicy,
+    opts: &RowsOptions,
+    record: &ReplayRecord,
+) -> Result<(), String> {
+    let mut bad: Vec<String> = Vec::new();
+    let mut eq = |what: &str, ok: bool| {
+        if !ok {
+            bad.push(what.to_string());
+        }
+    };
+    eq(
+        "algebra is the certificate backend",
+        record.algebra == CERTIFICATE_BACKEND,
+    );
+    eq("schema", record.schema == REPLAY_SCHEMA);
+    eq(
+        "family digest",
+        record.family_digest == family.source_digest(),
+    );
+    eq("rule digest", record.rule_digest == rule_digest(rule));
+    let mut dedup: Vec<Vec<i64>> = served_keys.to_vec();
+    dedup.sort();
+    dedup.dedup();
+    let seed = stream_seed(
+        record.master_seed,
+        rule,
+        family.source_digest(),
+        &key_set_digest(&dedup),
+        record.nonce,
+    );
+    eq(
+        "stream seed (master seed, digests, nonce)",
+        record.seed == seed,
+    );
+    let caller_primes = record.overrides.iter().any(|o| o.starts_with("primes"));
+    eq(
+        "primes derived from the stream seed",
+        caller_primes || record.primes == primes::verify_primes(seed, &opts.lift_primes),
+    );
+    let rerun_opts = RowsOptions {
+        seed: record.master_seed,
+        nonce: None,
+        primes: caller_primes.then_some(record.primes),
+        ..opts.clone()
+    };
+    let again = replay_evidence_drawn(
+        &Independent,
+        family,
+        rule,
+        served_keys,
+        policy,
+        &rerun_opts,
+        (record.nonce, record.nonce_source),
+    );
+    eq(
+        "re-run served-key digest",
+        again.served_keys_digest == record.served_keys_digest,
+    );
+    eq("re-run seed", again.seed == record.seed);
+    eq("re-run primes", again.primes == record.primes);
+    eq(
+        "re-run identity verdict",
+        again.identity.verdict == record.identity.verdict,
+    );
+    eq("re-run level", again.level == record.level);
+    if bad.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("record does not verify: {}", bad.join(", ")))
+    }
+}
+
 // ------------------------------------------------------------------ batch --------------------------------------------
 
 /// Counts and cost of a batch run.

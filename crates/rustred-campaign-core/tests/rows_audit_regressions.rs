@@ -835,3 +835,37 @@ fn ra_minor_overrides_are_marked_and_block_the_level() {
         r.identity.verdict
     );
 }
+
+/// re-audit B (1c record): the module offers a THIRD-PARTY record verifier: a genuine record verifies; every tamper
+/// (primes, nonce, seed, level, rule, family) is rejected.
+#[test]
+fn rb_record_verifier_rejects_tampering() {
+    use rustred_campaign_core::ibp_rows::verify_replay_record;
+    let f = face();
+    let n = f.fam.n();
+    let good = RowsRule::from_value(f.good.clone(), n).unwrap();
+    let keys = &served(&f)[..5];
+    let opts = bound(&f.fam);
+    let pol = ReplayPolicy::default();
+    let rec = replay_evidence(&f.fam, &good, keys, &pol, &opts);
+    assert_eq!(rec.level, ReplayLevel::Established);
+    verify_replay_record(&f.fam, &good, keys, &pol, &opts, &rec).unwrap();
+    let mut t = rec.clone();
+    t.primes = verify_primes(99, &[]);
+    assert!(verify_replay_record(&f.fam, &good, keys, &pol, &opts, &t).is_err());
+    let mut t = rec.clone();
+    t.nonce ^= 1;
+    assert!(verify_replay_record(&f.fam, &good, keys, &pol, &opts, &t).is_err());
+    let mut t = rec.clone();
+    t.seed ^= 1;
+    assert!(verify_replay_record(&f.fam, &good, keys, &pol, &opts, &t).is_err());
+    let bad = RowsRule::from_value(f.bad.clone(), n).unwrap();
+    assert!(verify_replay_record(&f.fam, &bad, keys, &pol, &opts, &rec).is_err());
+    let other = Family::parse(&t162_src()).unwrap();
+    assert!(verify_replay_record(&other, &good, keys, &pol, &opts, &rec).is_err());
+    let rb = replay_evidence(&f.fam, &bad, &served(&f), &pol, &opts);
+    let mut t = rb.clone();
+    t.level = ReplayLevel::Established;
+    assert!(verify_replay_record(&f.fam, &bad, &served(&f), &pol, &opts, &t).is_err());
+    verify_replay_record(&f.fam, &bad, &served(&f), &pol, &opts, &rb).unwrap();
+}
