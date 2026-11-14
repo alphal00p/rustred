@@ -212,6 +212,7 @@ pub fn run_stored(args: &StoredArgs, engine: Option<&EngineRows>) -> String {
 
     // ---------------------------------------------------------------- case (coordinate or affine)
     let (na, fixed) = fixed_slots(&tj, &tline);
+    let bounds = domain_bounds(&tj, &tline, na);
     let eq_texts: Vec<&[u8]> = tj.get(&tline, "equations").map(|x| x.arr().iter().map(|e| e.s(&tline)).collect()).unwrap_or_default();
     let eq_aff: Vec<Aff> = eq_texts.iter().map(|s| parse_affine(s).unwrap_or_else(|e| die(&format!("case equation not affine: {}", e)))).collect();
     let dependents = solve_case(&eq_aff, &fixed).unwrap_or_else(|e| die(&e));
@@ -539,7 +540,8 @@ pub fn run_stored(args: &StoredArgs, engine: Option<&EngineRows>) -> String {
         if (0..20).any(|i| kv[i].is_none()) { die("key does not assign every free index"); }
         let keystr = key.iter().map(|(i, x)| format!("\"n{}\":{}", i, x)).collect::<Vec<_>>().join(",");
         // affine case: equations must hold at the key
-        let in_case = eq_aff.iter().all(|e| e.lin.iter().fold(e.c0, |s, &(v, c)| s + c * kv[v as usize].unwrap_or(0)) == 0);
+        let in_case = eq_aff.iter().all(|e| e.lin.iter().fold(e.c0, |s, &(v, c)| s + c * kv[v as usize].unwrap_or(0)) == 0)
+            && in_bounds(&bounds, |i| kv[i].unwrap_or(0));
         if !in_case { inst_other += 1; inst_json.push(format!("{{\"key\":{{{}}},\"status\":\"NOT_IN_CASE\"}}", keystr)); continue; }
         {
             // chart guards on the target at the key (the rule is used only inside its chart)

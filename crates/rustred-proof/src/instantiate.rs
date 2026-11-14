@@ -87,6 +87,7 @@ fn facts_for_rule(line: &[u8], keys: &[Vec<i64>]) -> Vec<String> {
     let wl: Vec<&[u8]> = match j.get(line, "witness_loci") { Some(J::Arr(a)) => a.iter().map(|x| x.s(line)).collect(), _ => vec![] };
     if let Some(J::Num(..)) = j.get(line, "witness_loci_elided") { die("UNSUPPORTED: witness loci elided in the record (fail closed)"); }
     for s in &wl { if find(s, b"...") || find(s, b"elided") { die("UNSUPPORTED: an elided witness locus in the record (fail closed)"); } }
+    let bounds = domain_bounds(&j, line, na);
     let target = parse_pat(j.get(line, "target").unwrap().s(line));
     let rhs: Vec<(Pat, &[u8], Option<&[u8]>)> = j.get(line, "rhs").unwrap().arr().iter().map(|x| { let a = x.arr(); let (n, d) = split_coef(a[1].s(line)); (parse_pat(a[0].s(line)), n, d) }).collect();
     let mut maxe = 1u32;
@@ -96,7 +97,8 @@ fn facts_for_rule(line: &[u8], keys: &[Vec<i64>]) -> Vec<String> {
     for key in keys {
         if key.len() != na { die(&format!("key arity {} != rule arity {}", key.len(), na)); }
         let kv: [i64; 20] = std::array::from_fn(|i| if i < na { key[i] } else { 0 });
-        let in_case = (0..na).all(|i| fixed[i].map_or(true, |f| f == kv[i])) && eqs.iter().all(|e| e.lin.iter().fold(e.c0, |s, &(v, c)| s + c * kv[v as usize]) == 0);
+        let in_case = (0..na).all(|i| fixed[i].map_or(true, |f| f == kv[i])) && eqs.iter().all(|e| e.lin.iter().fold(e.c0, |s, &(v, c)| s + c * kv[v as usize]) == 0)
+            && in_bounds(&bounds, |i| kv[i]);
         let tv = pat_at(&target, &kv);
         let chart_ok = (0..na).all(|i| if chart[i] == b'1' { tv[i] >= 1 } else { tv[i] <= 0 });
         let kp: Vec<Vec<Big>> = (0..20).map(|v| { let mut t = vec![Big::one()]; for e in 1..=maxe as usize { let y = t[e - 1].mul_i64(kv[v]); t.push(y); } t }).collect();

@@ -514,6 +514,7 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
 
     // ---------------------------------------------------------------- rule fields
     let (na, fixed) = fixed_slots(&tj, &tline);
+    let bounds = domain_bounds(&tj, &tline, na);
     put!("arity", format!("{}", na));
     let eq_aff: Vec<Aff> = tj.get(&tline, "equations").map(|x| x.arr().iter().map(|e| parse_affine(e.s(&tline)).unwrap_or_else(|er| die(&format!("case equation: {}", er)))).collect()).unwrap_or_default();
     let exc: Vec<Vec<&[u8]>> = tj.get(&tline, "exceptions").map(|e| e.arr().iter().map(|b| b.arr().iter().map(|x| x.s(&tline)).collect()).collect()).unwrap_or_default();
@@ -562,6 +563,7 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
         let kv: [i64; 20] = std::array::from_fn(|i| kv[i].unwrap());
         let keystr = key.iter().map(|(i, x)| format!("\"n{}\":{}", i, x)).collect::<Vec<_>>().join(",");
         if bad.is_none() && !eq_aff.iter().all(|e| e.lin.iter().fold(e.c0, |s, &(v, c)| s + c * kv[v as usize]) == 0) { bad = Some("NOT_IN_CASE (case equations fail at the key)".into()); }
+        if bad.is_none() && !in_bounds(&bounds, |i| kv[i]) { bad = Some("NOT_IN_CASE (outside the record's domain_bounds)".into()); }
         if bad.is_none() {
             let tv = pat_at(&target, &kv);
             let cb = chart.as_bytes();
