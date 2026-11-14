@@ -322,6 +322,7 @@ fn nf_of(ds: &[&CaseDomain], frame: &NodeFrame) -> Result<NfRules, String> {
             dedup: false,
             subset: None,
             factor_exceptions: true,
+            complement_of: None,
         },
     )
     .map_err(|e| format!("{e}"))

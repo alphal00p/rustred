@@ -181,17 +181,18 @@ fn t178b_fail_closed_new_reference() {
     for f in &fc.faces {
         println!("FC face {} {:?} thresholds {:?}", face_str(&f.key()), f.kind, f.thresholds);
     }
-    // union semantics: the dispatcher with the elided record removed gives the same uncovered set
-    let (disp, el) = t178_dispatcher(&fx, true);
-    let el = el.unwrap();
-    let mut tables = disp.tables().to_vec();
-    tables[el.0].domains.remove(el.1);
-    tables[el.0].labels.remove(el.1);
-    let d2 = rustred_campaign_core::cover::Dispatcher::new(tables, (0..38).collect()).unwrap();
-    let rep = d2.batch(&keys, 4).unwrap();
-    let unc: BTreeSet<Key> =
-        keys.iter().zip(&rep.results).filter(|(_, r)| r.winner().is_none()).map(|(k, _)| k.clone()).collect();
-    assert_eq!(unc, sf, "fail-closed census = dispatch without the elided record");
+    // fail closed = the core dispatcher's first match on the raw-substituted tables (elided record BLOCKS)
+    let (disp, _) = t178_dispatcher(&fx, true);
+    let rep = disp.batch(&keys, 4).unwrap();
+    let open: BTreeSet<Key> =
+        keys.iter().zip(&rep.results).filter(|(_, r)| r.is_open()).map(|(k, _)| k.clone()).collect();
+    assert_eq!(open, sf, "fail-closed census = first-match open keys (409 uncovered + 21 blocked)");
     assert!(cf.uncovered_in_c.is_empty());
+    // Absent (skipped as if absent): the elided domain also occurs in another piece, so nothing changes
+    let Some(ab) = run(true, ElidedPolicy::Absent, LiteralTests::ReferenceCompatible) else { return };
+    let ca = ab.census(&keys).unwrap();
+    assert_eq!(ca.uncovered.len(), 409);
+    assert_eq!(face_set(&ab, None), face_set(&ord, None));
     assert_eq!(extra.len(), 21, "the plan's 409 + 21");
 }
+

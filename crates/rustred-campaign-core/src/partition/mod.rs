@@ -136,8 +136,14 @@ impl DomainSource for DispatcherSource<'_> {
 pub enum ElidedPolicy {
     /// As an ordinary domain (the checker's h11b reading; regression reference).
     Ordinary,
-    /// Removed: unusable, credits no key (ruling F1, R24 (6); the campaign's verdict).
+    /// FAIL CLOSED as the core's first-match dispatcher (ruling F1, R24 (6); the campaign's verdict): the record
+    /// credits no key AND blocks every later record on its domain (the engine's search stops at a selected but
+    /// unusable record). In union terms: the record is removed and its domain is subtracted from every domain
+    /// after it in dispatch order. T178 order B: 409 + 21 open box keys.
     FailClosed,
+    /// Removed (skipped as if absent; later records still cover its keys). T178 order B: identical to `Ordinary`,
+    /// because the elided record's domain also occurs in another piece.
+    Absent,
 }
 
 /// Which status tests multi-slot linear literals get.
@@ -290,6 +296,9 @@ pub struct PartitionReport {
     pub literal_tests: LiteralTests,
     pub millis: u64,
     pub state_unknown: u64,
+    /// FailClosed: per elided source index, the partition of its BLOCKED region (domain minus the domains before
+    /// it); its U / F classes are gaps of the node in addition to the main classes.
+    pub blocked: Vec<(usize, PartitionReport)>,
 }
 
 /// Where a key falls.
@@ -356,9 +365,41 @@ pub fn gap_partition(
             dedup: opts.dedup,
             subset: opts.rule_subset.clone(),
             factor_exceptions: opts.factor_exceptions,
+            complement_of: None,
         },
     )?;
-    partition_nf(nf, opts, progress, t0)
+    let elided = nf.elided.clone();
+    let mut rep = partition_nf(nf, opts, progress, t0)?;
+    // FailClosed: each elided record blocks its domain minus the domains before it (first match stops there).
+    // Its BLOCKED region = the uncovered set of {domains before it} u {complement of its domain}: a separate exact
+    // partition whose classes are gaps of the node.
+    let order: Vec<usize> = opts.rule_subset.clone().unwrap_or_else(|| (0..src.len()).collect());
+    for e in elided {
+        let pos = order.iter().position(|&x| x == e).expect("elided source in the order");
+        let mut subset: Vec<usize> = order[..pos].to_vec();
+        subset.push(e);
+        let sub = nf::build(
+            src,
+            frame,
+            &nf::NfOptions {
+                elided: ElidedPolicy::FailClosed,
+                dedup: opts.dedup,
+                subset: Some(subset),
+                factor_exceptions: opts.factor_exceptions,
+                complement_of: Some(e),
+            },
+        )?;
+        let b = partition_nf(sub, opts, None, Instant::now())?;
+        if b.outcome == Outcome::BudgetExceeded {
+            rep.outcome = Outcome::BudgetExceeded;
+        }
+        rep.blocked.push((e, b));
+    }
+    if !rep.blocked.is_empty() {
+        rep.merge_blocked_faces();
+    }
+    rep.millis = t0.elapsed().as_millis() as u64;
+    Ok(rep)
 }
 
 /// The partition of an already built normal form.
@@ -397,6 +438,7 @@ pub fn partition_nf(
         literal_tests: opts.literal_tests,
         millis: 0,
         state_unknown,
+        blocked: vec![],
     };
     if outcome == Outcome::Complete && opts.resolve_loci {
         rep.resolution = Some(crate::loci::resolve_fragile_classes(&rep, &opts.loci)?);
@@ -466,7 +508,15 @@ impl PartitionReport {
     /// POINT ORACLE: is the chart key uncovered (union coverage of the normal-form rules, exact)?
     pub fn uncovered(&self, key: &[i32]) -> Result<bool, PartitionError> {
         self.check_chart(key)?;
-        Ok(!self.nf.covered(key)?)
+        if !self.nf.covered(key)? {
+            return Ok(true);
+        }
+        for (_, b) in &self.blocked {
+            if !b.nf.covered(key)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// The class of a chart key.
@@ -477,11 +527,52 @@ impl PartitionReport {
             .enumerate()
             .map(|(i, &x)| self.state_index(i, x as i64).expect("states cover the chart"))
             .collect();
-        Ok(match classes::lookup(&self.root, &idx) {
+        let main = match classes::lookup(&self.root, &idx) {
             None => ClassHit::Covered,
             Some(Node::Leaf(Label::Uncovered)) => ClassHit::Uncovered,
             Some(_) => ClassHit::Fragile,
-        })
+        };
+        if main == ClassHit::Uncovered {
+            return Ok(main);
+        }
+        let mut best = main;
+        for (_, b) in &self.blocked {
+            match b.class_of(key)? {
+                ClassHit::Uncovered => return Ok(ClassHit::Uncovered),
+                ClassHit::Fragile => best = ClassHit::Fragile,
+                ClassHit::Covered => {}
+            }
+        }
+        Ok(best)
+    }
+
+    /// Add the faces of the blocked regions (FailClosed) to the face list.
+    fn merge_blocked_faces(&mut self) {
+        let mut faces = std::mem::take(&mut self.faces);
+        for (_, b) in &self.blocked {
+            for f in &b.faces {
+                match faces.iter_mut().find(|g| g.key() == f.key()) {
+                    Some(g) => {
+                        if f.kind == FaceKind::Generic && g.kind == FaceKind::LocusOnly {
+                            g.kind = FaceKind::Generic;
+                            g.proof = Proof::ExactPartition;
+                        }
+                        g.n_u_classes += f.n_u_classes;
+                        g.generic_cells.extend(f.generic_cells.iter().cloned());
+                        g.generic_cells.sort();
+                        g.generic_cells.dedup();
+                        g.unbounded_in_dots |= f.unbounded_in_dots;
+                        g.unbounded_in_rank |= f.unbounded_in_rank;
+                        if g.witness.is_none() {
+                            g.witness = f.witness.clone();
+                        }
+                    }
+                    None => faces.push(f.clone()),
+                }
+            }
+        }
+        faces.sort_by_key(|f| (f.sd.len() + f.sn.len(), f.sd.clone(), f.sn.clone()));
+        self.faces = faces;
     }
 
     /// Exact census of a finite key set (box, envelope, closure keys): every key evaluated by the oracle and placed.
@@ -791,7 +882,7 @@ impl PartitionReport {
             "schema": "rustred.campaign.partition.v1",
             "node": ids.node, "seq": ids.seq,
             "coverage": "union",
-            "elided_policy": match self.elided { ElidedPolicy::Ordinary => "ordinary", ElidedPolicy::FailClosed => "fail_closed" },
+            "elided_policy": match self.elided { ElidedPolicy::Ordinary => "ordinary", ElidedPolicy::FailClosed => "fail_closed", ElidedPolicy::Absent => "absent" },
             "table_set_digest": ids.table_set_digest,
             "dispatch_order_digest": ids.dispatch_order_digest,
             "tool_versions": {"partition": concat!(env!("CARGO_PKG_VERSION"), "+part.1"),
@@ -806,6 +897,8 @@ impl PartitionReport {
             "faces": faces,
             "loci": loci,
             "unresolved": unresolved,
+            "blocked": self.blocked.iter().map(|(e, b)| json!({"source": e, "U": b.n_u(), "F": b.n_f(),
+                "nodes": b.stats.nodes, "faces": b.faces.len()})).collect::<Vec<_>>(),
         })
     }
 }

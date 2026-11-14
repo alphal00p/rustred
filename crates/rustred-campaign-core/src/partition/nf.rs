@@ -45,6 +45,8 @@ pub struct NfStats {
     pub pole_branches: usize,
     pub pole_linear_factors: usize,
     pub literals: usize,
+    /// FailClosed sub-problem: number of rules making up the complement of the elided domain.
+    pub blocked_variants: usize,
 }
 
 /// The rules of a partition run.
@@ -60,6 +62,8 @@ pub struct NfRules {
     pub stats: NfStats,
     /// Per rule the fixed slots read from its one-slot unit EQ literals `n_s - v` (fast pre-check of the oracle).
     pub quick: Vec<Vec<(usize, i64)>>,
+    /// FailClosed: source indices of the elided records (removed here; their blocked regions are separate).
+    pub elided: Vec<usize>,
 }
 
 /// Options of the normal form.
@@ -70,6 +74,8 @@ pub struct NfOptions {
     pub subset: Option<Vec<usize>>,
     /// Split product members of exception branches by their exact linear factors (default false = the checker's form).
     pub factor_exceptions: bool,
+    /// FailClosed sub-problem: this (elided) source index enters as the COMPLEMENT of its domain.
+    pub complement_of: Option<usize>,
 }
 
 struct Builder {
@@ -245,6 +251,7 @@ pub fn build(src: &dyn DomainSource, frame: &NodeFrame, opts: &NfOptions) -> Res
     let mut rules: Vec<NfRule> = vec![];
     let mut sources: Vec<Vec<usize>> = vec![];
     let mut seen: HashMap<NfRule, usize> = HashMap::new();
+    let mut elided: Vec<usize> = vec![];
     let idx: Vec<usize> = match &opts.subset {
         Some(s) => s.clone(),
         None => (0..src.len()).collect(),
@@ -267,8 +274,11 @@ pub fn build(src: &dyn DomainSource, frame: &NodeFrame, opts: &NfOptions) -> Res
             stats.excluded_unsupported_target += 1;
             continue;
         }
-        if d.witness_elided && opts.elided == ElidedPolicy::FailClosed {
+        let elided_here = d.witness_elided && opts.elided != ElidedPolicy::Ordinary;
+        if elided_here {
             stats.dropped_elided += 1;
+        }
+        if elided_here && opts.elided == ElidedPolicy::Absent {
             continue;
         }
         let mut r = NfRule {
@@ -340,15 +350,35 @@ pub fn build(src: &dyn DomainSource, frame: &NodeFrame, opts: &NfOptions) -> Res
         r.ge.dedup();
         r.bad.sort();
         r.bad.dedup();
-        if opts.dedup {
-            if let Some(&k) = seen.get(&r) {
-                sources[k].push(i);
+        let variants = if elided_here {
+            if opts.complement_of != Some(i) {
+                // FailClosed: the record credits nothing; its BLOCKED region is computed by a separate partition
+                // (see `partition::gap_partition`)
+                elided.push(i);
                 continue;
             }
-            seen.insert(r.clone(), rules.len());
+            let universal = NfRule {
+                eq: vec![],
+                ge: vec![],
+                bad: vec![],
+            };
+            let v = subtract(&mut b, &universal, &r)?;
+            stats.blocked_variants += v.len();
+            v
+        } else {
+            vec![r]
+        };
+        for r in variants {
+            if opts.dedup {
+                if let Some(&k) = seen.get(&r) {
+                    sources[k].push(i);
+                    continue;
+                }
+                seen.insert(r.clone(), rules.len());
+            }
+            rules.push(r);
+            sources.push(vec![i]);
         }
-        rules.push(r);
-        sources.push(vec![i]);
     }
     stats.distinct = rules.len();
     stats.literals = b.lits.len();
@@ -368,7 +398,56 @@ pub fn build(src: &dyn DomainSource, frame: &NodeFrame, opts: &NfOptions) -> Res
         sources,
         stats,
         quick,
+        elided,
     })
+}
+
+/// `v \ h` as a union of normal-form rules: v with `l != 0` for each equation l of h (a BAD branch [l]), with
+/// `g <= -1` for each bound g of h, and with every member of each exception branch of h as equations. Disjoint
+/// fixed slots: v unchanged.
+fn subtract(b: &mut Builder, v: &NfRule, h: &NfRule) -> Result<Vec<NfRule>, PartitionError> {
+    let fv: Vec<(usize, i64)> = v.eq.iter().filter_map(|&l| unit_fixed(&b.lits[l as usize])).collect();
+    for &l in &h.eq {
+        if let Some((s, x)) = unit_fixed(&b.lits[l as usize])
+            && fv.iter().any(|&(t, y)| t == s && y != x)
+        {
+            return Ok(vec![v.clone()]);
+        }
+    }
+    let mut out = vec![];
+    for &l in &h.eq {
+        if v.eq.contains(&l) {
+            continue; // l = 0 on all of v: this variant is empty
+        }
+        let mut w = v.clone();
+        w.bad.push(vec![l]);
+        w.bad.sort();
+        w.bad.dedup();
+        out.push(w);
+    }
+    for &g in &h.ge {
+        let neg = b.lits[g as usize].poly.scale(-1).and_then(|p| p.sub(&MPoly::constant(p.nvars, 1)));
+        let neg = neg.map_err(PartitionError::Exact)?;
+        match b.intern(&neg, true)? {
+            Norm::Zero => out.push(v.clone()),
+            Norm::NonZeroConst => {}
+            Norm::Lit(n) => {
+                let mut w = v.clone();
+                w.ge.push(n);
+                w.ge.sort_unstable();
+                w.ge.dedup();
+                out.push(w);
+            }
+        }
+    }
+    for br in &h.bad {
+        let mut w = v.clone();
+        w.eq.extend(br.iter().copied());
+        w.eq.sort_unstable();
+        w.eq.dedup();
+        out.push(w);
+    }
+    Ok(out)
 }
 
 /// `n_s - v` (or `v - n_s`) -> (s, v).
