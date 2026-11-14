@@ -1,6 +1,7 @@
 use std::fmt;
 
 use super::PowerError;
+use super::sector_box::BoxPhase;
 
 #[derive(Debug)]
 pub enum SolverError {
@@ -15,6 +16,10 @@ pub enum SolverError {
     ExactReplay(String),
     /// A solution failed an independent certificate check.
     Certification(String),
+    /// A sector-box modular sample was unlucky in `phase`; resample.
+    UnluckyBoxSample {
+        phase: BoxPhase,
+    },
 }
 
 impl fmt::Display for SolverError {
@@ -32,6 +37,9 @@ impl fmt::Display for SolverError {
             Self::UnluckySample => write!(f, "the modular sample lies on a coefficient pole"),
             Self::ExactReplay(message) => write!(f, "exact pivot replay failed: {message}"),
             Self::Certification(message) => write!(f, "certification failed: {message}"),
+            Self::UnluckyBoxSample { phase } => {
+                write!(f, "unlucky sector-box modular sample in {phase}")
+            }
         }
     }
 }
