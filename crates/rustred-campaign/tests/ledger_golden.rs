@@ -9,8 +9,8 @@ use std::path::PathBuf;
 use ledger_support::*;
 use rustred_campaign::clock::Clock;
 use rustred_campaign::ledger::{
-    self, CampaignMode, ControlEvent, Event, ExportEvent, Genesis,
-    ItemEvent, Ledger, LedgerConfig, NodeSpecValues, RuleEconomy,
+    self, CampaignMode, ControlEvent, Event, ExportEvent, Genesis, ItemEvent, Ledger, LedgerConfig,
+    NodeSpecValues, RuleEconomy,
 };
 use rustred_campaign::lock;
 use rustred_campaign::state::{CampaignEvent, CertLevel, EvidenceLevel, NodeEvent, Rung};
@@ -243,7 +243,10 @@ fn invented_campaign_golden() {
         &fs::read(ld.join(&l.manifest().active.file)).unwrap(),
     );
     let set = rustred_campaign::progress::derive(l.state(), l.head(), &Default::default(), T0);
-    check_json("invented-progress-node.json", &set["nodes/toy-sunset-3.json"]);
+    check_json(
+        "invented-progress-node.json",
+        &set["nodes/toy-sunset-3.json"],
+    );
     assert_eq!(set["campaign.json"]["campaign"]["mode"], "optimise");
 }
 

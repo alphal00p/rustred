@@ -32,7 +32,8 @@ fn order_of_operations_per_durability_class() {
         lazy_max_ms: u64::MAX,
         ..LedgerConfig::default()
     };
-    let mut l = new_ledger_with(&d, as_dyn(&clk), cfg, Arc::new(RecordingOps(ops.clone()))).unwrap();
+    let mut l =
+        new_ledger_with(&d, as_dyn(&clk), cfg, Arc::new(RecordingOps(ops.clone()))).unwrap();
     // create: segment + record 1 fsynced + mark, directory fsync, THEN the manifest (the commit point)
     // (the fsync of the campaign directory after creating `ledger/` is filtered: its name is the scratch dir)
     let log: Vec<String> = ops
@@ -238,14 +239,21 @@ fn faults_at_every_operation_of_a_rotation() {
             names[k],
             log.get(4 + k)
         );
-        assert!(r.is_ok(), "op {k} ({}): the record was durable: {r:?}", names[k]);
+        assert!(
+            r.is_ok(),
+            "op {k} ({}): the record was durable: {r:?}",
+            names[k]
+        );
         let after_rename = k >= 10;
         let mark_only = k == 1 || k == 2;
         if after_rename {
             assert!(l.is_poisoned(), "op {k}: after the manifest rename");
         } else if !mark_only && k != 0 {
             assert!(!l.is_poisoned(), "op {k}");
-            assert!(l.manifest().sealed.is_empty(), "op {k}: no rotation happened");
+            assert!(
+                l.manifest().sealed.is_empty(),
+                "op {k}: no rotation happened"
+            );
         }
         assert!(!l.warnings().is_empty(), "op {k}");
         let seq = l.seq();
@@ -253,9 +261,6 @@ fn faults_at_every_operation_of_a_rotation() {
         let (l2, _) = open_ledger(&d, as_dyn(&clk), cfg.clone())
             .unwrap_or_else(|e| panic!("op {k} ({}): reopen: {e}", names[k]));
         assert!(l2.seq() >= seq, "op {k}: no acknowledged record lost");
-        assert!(
-            rustred_campaign::ledger::verify_chain(&d).is_ok(),
-            "op {k}"
-        );
+        assert!(rustred_campaign::ledger::verify_chain(&d).is_ok(), "op {k}");
     }
 }

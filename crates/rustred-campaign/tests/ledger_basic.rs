@@ -202,7 +202,14 @@ fn acceptance_only_from_a_sealed_success_and_never_elided() {
         l.append(Event::Job {
             job: "j2".into(),
             attempt: 1,
-            ev: finished_with("j2", 1, FinishClass::RuleFound, ContractAccept::Canonical, None, 5)
+            ev: finished_with(
+                "j2",
+                1,
+                FinishClass::RuleFound,
+                ContractAccept::Canonical,
+                None,
+                5
+            )
         }),
         Err(LedgerError::Refused(ReduceError::Illegal { .. }))
     ));

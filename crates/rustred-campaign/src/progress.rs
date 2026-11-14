@@ -216,7 +216,12 @@ fn ledger_block(state: &CampaignState, head: &str) -> Value {
     json!({"seq": state.last_seq, "head": head, "last_utc": state.last_utc})
 }
 
-fn envelope(file: &str, state: &CampaignState, head: &str, written_utc: &str) -> serde_json::Map<String, Value> {
+fn envelope(
+    file: &str,
+    state: &CampaignState,
+    head: &str,
+    written_utc: &str,
+) -> serde_json::Map<String, Value> {
     let mut m = serde_json::Map::new();
     m.insert("schema".into(), json!(PROGRESS_SCHEMA));
     m.insert("file".into(), json!(file));
@@ -250,7 +255,9 @@ fn reference_value(r: &Option<BTreeMap<String, String>>) -> Value {
                 .map(|(k, v)| {
                     (
                         k.clone(),
-                        v.parse::<u64>().map(|x| json!(x)).unwrap_or_else(|_| json!(v)),
+                        v.parse::<u64>()
+                            .map(|x| json!(x))
+                            .unwrap_or_else(|_| json!(v)),
                     )
                 })
                 .collect(),
@@ -398,9 +405,10 @@ pub fn derive(
     let node_files: BTreeMap<&String, String> =
         state.nodes.keys().map(|k| (k, node_file(k))).collect();
     let attention = attention_rows(state);
-    let supervisor_static = res.supervisor.as_ref().map(|s| {
-        json!({"started_utc": s.started_utc, "pid": s.pid, "host": s.host})
-    });
+    let supervisor_static = res
+        .supervisor
+        .as_ref()
+        .map(|s| json!({"started_utc": s.started_utc, "pid": s.pid, "host": s.host}));
     let mut static_res = res.clone();
     static_res.jobs = Vec::new();
     static_res.supervisor = None;
@@ -541,10 +549,7 @@ pub fn derive(
                        "counted": it.terminal_counted, "ladder_exhausted": it.ladder_exhausted})
             })
             .collect();
-        terminal_nodes.insert(
-            id.clone(),
-            json!({"report": tr, "terminals": list}),
-        );
+        terminal_nodes.insert(id.clone(), json!({"report": tr, "terminals": list}));
     }
     let mut ev = envelope("events", state, head, written_utc);
     ev.insert("cap".into(), json!(crate::state::RECENT_CAP));
@@ -594,9 +599,13 @@ pub fn item_detail(state: &CampaignState, item: &str) -> Option<Value> {
     let jobs: Vec<Value> = it
         .jobs
         .iter()
-        .filter_map(|j| state.jobs.get(j).map(|r| json!({"job": j, "attempt": r.attempt, "state": r.state,
+        .filter_map(|j| {
+            state.jobs.get(j).map(|r| {
+                json!({"job": j, "attempt": r.attempt, "state": r.state,
             "generation": r.generation, "stale": r.stale, "failures": r.failures,
-            "cpu_seconds": r.cpu_ms as f64 / 1000.0, "run_dir": r.run_dir})))
+            "cpu_seconds": r.cpu_ms as f64 / 1000.0, "run_dir": r.run_dir})
+            })
+        })
         .collect();
     let children: Vec<&String> = state
         .items
@@ -810,7 +819,10 @@ pub fn verify_against(cdir: &Path, target: Option<u64>) -> Result<VerifyReport, 
     let mut stale = Vec::new();
     // ONE streaming pass over the ledger (audit B M4): the state at campaign.json's seq is captured on the way
     let cseq = files.get("campaign.json").and_then(seq_of).unwrap_or(0);
-    let mut cap = ledger::Capture { at: cseq, got: None };
+    let mut cap = ledger::Capture {
+        at: cseq,
+        got: None,
+    };
     let mut chain = ledger::verify_chain_capture(cdir, Some(&mut cap))?;
     let target = target.unwrap_or(chain.records);
     let Some(campaign) = files.get("campaign.json") else {
@@ -831,7 +843,9 @@ pub fn verify_against(cdir: &Path, target: Option<u64>) -> Result<VerifyReport, 
             file: "campaign.json".into(),
             path: "/ledger/seq".into(),
             expected: format!("<= {} (ledger end)", chain.records),
-            found: format!("{cseq} (progress ahead of the ledger: records lost or ledger truncated)"),
+            found: format!(
+                "{cseq} (progress ahead of the ledger: records lost or ledger truncated)"
+            ),
         });
     }
     if cseq < target {
@@ -852,7 +866,10 @@ pub fn verify_against(cdir: &Path, target: Option<u64>) -> Result<VerifyReport, 
     let mut res = res;
     if let Some(s) = campaign.get("supervisor").filter(|s| !s.is_null()) {
         res.supervisor = Some(SupervisorInfo {
-            started_utc: s.get("started_utc").and_then(Value::as_str).map(String::from),
+            started_utc: s
+                .get("started_utc")
+                .and_then(Value::as_str)
+                .map(String::from),
             pid: s.get("pid").and_then(Value::as_u64).map(|p| p as u32),
             host: s.get("host").and_then(Value::as_str).map(String::from),
             ..Default::default()

@@ -159,7 +159,7 @@ fn register(spec: &CampaignSpec, spec_ref: &FileRef) -> Vec<Event> {
                 blake3: b.blake3.clone(),
             });
         }
-        let cert = match serde_json::to_value(&n.certification).unwrap().as_str() {
+        let cert = match serde_json::to_value(n.certification).unwrap().as_str() {
             Some("replay") => CertLevel::Replay,
             _ => CertLevel::PerKey,
         };

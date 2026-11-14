@@ -149,7 +149,11 @@ fn run(full: bool) {
         }
     };
     let man = ledger::read_manifest(&ledger::ledger_dir(&base)).unwrap();
-    assert!(man.sealed.len() >= 2, "sealed segments: {}", man.sealed.len());
+    assert!(
+        man.sealed.len() >= 2,
+        "sealed segments: {}",
+        man.sealed.len()
+    );
     let reps = if full { 40 } else { 8 };
     // M1 truncate at every byte of the last 3 active lines (acknowledged): always refused
     {
@@ -161,7 +165,11 @@ fn run(full: bool) {
             copy_dir(&base, &work);
             fs::write(active(&work), &b[..cut]).unwrap();
             let c = classify(&work, &digest, seq, &format!("M1 cut {cut}"));
-            assert_eq!(c, Class::Refused, "M1 cut {cut}: acknowledged bytes missing must refuse");
+            assert_eq!(
+                c,
+                Class::Refused,
+                "M1 cut {cut}: acknowledged bytes missing must refuse"
+            );
             tally("M1 truncate acknowledged tail", c);
         }
     }
@@ -198,7 +206,11 @@ fn run(full: bool) {
         b[i] ^= 1 << r.below(8);
         fs::write(&p, &b).unwrap();
         let c = classify(&work, &digest, seq, &format!("M3 active flip {k} at {i}"));
-        assert_eq!(c, Class::Refused, "M3: a flipped acknowledged byte must refuse");
+        assert_eq!(
+            c,
+            Class::Refused,
+            "M3: a flipped acknowledged byte must refuse"
+        );
         tally("M3a/b active flip", c);
     }
     // M3d manifest flip, M3e snapshot flip: refused or exactly the pristine history
@@ -224,11 +236,35 @@ fn run(full: bool) {
         let n = lines.len();
         let variants: Vec<(String, Vec<usize>)> = vec![
             ("delete first".into(), (1..n).collect()),
-            ("delete middle".into(), (0..n).filter(|i| *i != n / 2).collect()),
+            (
+                "delete middle".into(),
+                (0..n).filter(|i| *i != n / 2).collect(),
+            ),
             ("delete last".into(), (0..n - 1).collect()),
-            ("duplicate middle".into(), (0..n).flat_map(|i| if i == n / 2 { vec![i, i] } else { vec![i] }).collect()),
-            ("duplicate last".into(), (0..n).chain(std::iter::once(n - 1)).collect()),
-            ("swap".into(), (0..n).map(|i| if i == n / 2 { n / 2 + 1 } else if i == n / 2 + 1 { n / 2 } else { i }).collect()),
+            (
+                "duplicate middle".into(),
+                (0..n)
+                    .flat_map(|i| if i == n / 2 { vec![i, i] } else { vec![i] })
+                    .collect(),
+            ),
+            (
+                "duplicate last".into(),
+                (0..n).chain(std::iter::once(n - 1)).collect(),
+            ),
+            (
+                "swap".into(),
+                (0..n)
+                    .map(|i| {
+                        if i == n / 2 {
+                            n / 2 + 1
+                        } else if i == n / 2 + 1 {
+                            n / 2
+                        } else {
+                            i
+                        }
+                    })
+                    .collect(),
+            ),
         ];
         for (name, idx) in variants {
             copy_dir(&base, &work);
@@ -246,26 +282,56 @@ fn run(full: bool) {
     // M5 delete a sealed segment / the active segment; M7 empty files; M8 whitespace overwrite
     {
         let ld = |w: &Path| ledger::ledger_dir(w);
-        let cases: Vec<(&str, Box<dyn Fn(&Path)>)> = vec![
-            ("delete first sealed", Box::new(|w: &Path| fs::remove_file(ld(w).join(&man.sealed[0].file)).unwrap())),
-            ("delete last sealed", Box::new(|w: &Path| fs::remove_file(ld(w).join(&man.sealed.last().unwrap().file)).unwrap())),
-            ("delete active", Box::new(|w: &Path| fs::remove_file(active(w)).unwrap())),
-            ("empty active", Box::new(|w: &Path| fs::write(active(w), b"").unwrap())),
-            ("empty sealed", Box::new(|w: &Path| fs::write(ld(w).join(&man.sealed[0].file), b"").unwrap())),
-            ("empty manifest", Box::new(|w: &Path| fs::write(ld(w).join("MANIFEST.json"), b"").unwrap())),
-            ("empty commit mark", Box::new(|w: &Path| fs::write(ld(w).join(ledger::COMMIT_FILE), b"").unwrap())),
-            ("delete commit mark", Box::new(|w: &Path| fs::remove_file(ld(w).join(ledger::COMMIT_FILE)).unwrap())),
-            ("whitespace over active", Box::new(|w: &Path| {
-                let p = active(w);
-                let mut b = fs::read(&p).unwrap();
-                let n = b.len();
-                for x in &mut b[n / 3..n / 3 + 200] {
-                    if *x != b'\n' {
-                        *x = b' ';
+        type Case<'a> = (&'a str, Box<dyn Fn(&Path) + 'a>);
+        let cases: Vec<Case> = vec![
+            (
+                "delete first sealed",
+                Box::new(|w: &Path| fs::remove_file(ld(w).join(&man.sealed[0].file)).unwrap()),
+            ),
+            (
+                "delete last sealed",
+                Box::new(|w: &Path| {
+                    fs::remove_file(ld(w).join(&man.sealed.last().unwrap().file)).unwrap()
+                }),
+            ),
+            (
+                "delete active",
+                Box::new(|w: &Path| fs::remove_file(active(w)).unwrap()),
+            ),
+            (
+                "empty active",
+                Box::new(|w: &Path| fs::write(active(w), b"").unwrap()),
+            ),
+            (
+                "empty sealed",
+                Box::new(|w: &Path| fs::write(ld(w).join(&man.sealed[0].file), b"").unwrap()),
+            ),
+            (
+                "empty manifest",
+                Box::new(|w: &Path| fs::write(ld(w).join("MANIFEST.json"), b"").unwrap()),
+            ),
+            (
+                "empty commit mark",
+                Box::new(|w: &Path| fs::write(ld(w).join(ledger::COMMIT_FILE), b"").unwrap()),
+            ),
+            (
+                "delete commit mark",
+                Box::new(|w: &Path| fs::remove_file(ld(w).join(ledger::COMMIT_FILE)).unwrap()),
+            ),
+            (
+                "whitespace over active",
+                Box::new(|w: &Path| {
+                    let p = active(w);
+                    let mut b = fs::read(&p).unwrap();
+                    let n = b.len();
+                    for x in &mut b[n / 3..n / 3 + 200] {
+                        if *x != b'\n' {
+                            *x = b' ';
+                        }
                     }
-                }
-                fs::write(&p, &b).unwrap();
-            })),
+                    fs::write(&p, &b).unwrap();
+                }),
+            ),
         ];
         for (name, f) in cases {
             copy_dir(&base, &work);
@@ -277,9 +343,17 @@ fn run(full: bool) {
     }
     // M9 torn garbage BEYOND the commit mark: incomplete -> recovered; complete garbage line -> refused
     for (name, bytes, want) in [
-        ("incomplete line", b"{\"schema\":\"rustred.campaign".to_vec(), Class::TornRecovered),
+        (
+            "incomplete line",
+            b"{\"schema\":\"rustred.campaign".to_vec(),
+            Class::TornRecovered,
+        ),
         ("NUL block", vec![0u8; 512], Class::TornRecovered),
-        ("complete garbage line", b"garbage that is not a record\n".to_vec(), Class::Refused),
+        (
+            "complete garbage line",
+            b"garbage that is not a record\n".to_vec(),
+            Class::Refused,
+        ),
     ] {
         copy_dir(&base, &work);
         let p = active(&work);

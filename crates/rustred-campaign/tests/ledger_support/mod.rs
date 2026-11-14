@@ -7,8 +7,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use rustred_campaign::clock::{Clock, ManualClock, SystemClock};
 use rustred_campaign::ledger::{
-    self, AcceptSource, CampaignMode, ControlEvent, ControlTarget, ControlVerb, EnvelopeKind, Event,
-    FileOps, FileRef, Genesis, ItemEvent, JobEvent, Ledger, LedgerConfig, LedgerError,
+    self, AcceptSource, CampaignMode, ControlEvent, ControlTarget, ControlVerb, EnvelopeKind,
+    Event, FileOps, FileRef, Genesis, ItemEvent, JobEvent, Ledger, LedgerConfig, LedgerError,
     LevelEvidence, NodeSpecValues, OpenOptions, OpenReport, OutcomeBinding, RetirementProof,
     RuleEconomy,
 };
@@ -832,12 +832,13 @@ impl Ops {
         let f = self.filter.lock().unwrap().clone();
         let hit = f.is_empty() || what.contains(&f);
         self.log.lock().unwrap().push(what);
-        if hit && self.fail_in.load(Ordering::SeqCst) > 0 {
-            if self.fail_in.fetch_sub(1, Ordering::SeqCst) == 1 {
-                return Err(io::Error::from_raw_os_error(
-                    self.errno.load(Ordering::SeqCst) as i32,
-                ));
-            }
+        if hit
+            && self.fail_in.load(Ordering::SeqCst) > 0
+            && self.fail_in.fetch_sub(1, Ordering::SeqCst) == 1
+        {
+            return Err(io::Error::from_raw_os_error(
+                self.errno.load(Ordering::SeqCst) as i32,
+            ));
         }
         Ok(())
     }
@@ -913,7 +914,8 @@ impl FileOps for RecordingOps {
         rustred_campaign::ledger::RealOps.write_new_synced(path, bytes)
     }
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
-        self.0.op(format!("rename {} -> {}", base(from), base(to)))?;
+        self.0
+            .op(format!("rename {} -> {}", base(from), base(to)))?;
         std::fs::rename(from, to)
     }
     fn sync_dir(&self, dir: &Path) -> io::Result<()> {

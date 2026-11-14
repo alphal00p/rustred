@@ -130,14 +130,20 @@ fn progress_schema_goldens() {
     assert_eq!(c["cost"]["cpu_seconds"], 12.9);
     assert_eq!(c["campaign"]["mode"], "close");
     assert_eq!(c["attention"]["count"], 2);
-    assert!(c["resources"]["large_free_bytes"].is_null(), "unknown = null (m10)");
+    assert!(
+        c["resources"]["large_free_bytes"].is_null(),
+        "unknown = null (m10)"
+    );
     assert!(c["eta"]["wall_seconds"].is_object(), "{}", c["eta"]);
     let n = &set["nodes/T162.json"];
     assert_eq!(n["certification"]["asked"], "replay");
     assert_eq!(n["provisional"], false);
     assert_eq!(n["reference"]["terminals"], 7);
     let j = &set["jobs.json"]["list"][0];
-    assert_eq!((j["cpus"].as_u64(), j["rss_bytes"].as_u64()), (Some(2), Some(431_000_000)));
+    assert_eq!(
+        (j["cpus"].as_u64(), j["rss_bytes"].as_u64()),
+        (Some(2), Some(431_000_000))
+    );
 }
 
 #[test]
@@ -205,7 +211,13 @@ fn verify_recomputes_every_number_and_reports_differences() {
     w.write(&d, l.state(), l.head(), &resources(), c).unwrap();
     let written_at = l.seq();
     let rep = progress::verify(&d).unwrap();
-    assert!(rep.clean(), "{:?} {:?} {:?}", rep.differences, rep.missing, rep.stale);
+    assert!(
+        rep.clean(),
+        "{:?} {:?} {:?}",
+        rep.differences,
+        rep.missing,
+        rep.stale
+    );
     assert_eq!(rep.files_checked, 7);
     assert_eq!(rep.snapshot_matches, Some(true));
     // the ledger moves on: verified against its END the files are older (M7) and verify says which; verified

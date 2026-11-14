@@ -232,14 +232,9 @@ fn crashed_supervisor_with_live_child_is_taken_over_and_recorded() {
     );
     // the takeover goes into the ledger
     let ck: Arc<dyn Clock> = clock();
-    let mut l = rustred_campaign::ledger::Ledger::create(
-        &d,
-        &lk,
-        ck,
-        LedgerConfig::default(),
-        genesis(),
-    )
-    .unwrap();
+    let mut l =
+        rustred_campaign::ledger::Ledger::create(&d, &lk, ck, LedgerConfig::default(), genesis())
+            .unwrap();
     l.append(Event::LockTakeover {
         previous,
         reason,

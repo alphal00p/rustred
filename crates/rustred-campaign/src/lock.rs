@@ -69,8 +69,12 @@ pub struct OwnerRecord {
 #[serde(rename_all = "snake_case")]
 pub enum DeadReason {
     PidAbsent,
-    StartTimeDiffers { now: u64 },
-    BootIdDiffers { now: String },
+    StartTimeDiffers {
+        now: u64,
+    },
+    BootIdDiffers {
+        now: String,
+    },
     /// The record names this very process (left by an earlier lock of the same process).
     OwnRecord,
 }
@@ -258,13 +262,15 @@ pub fn acquire(
         // the winner of a race may have written its record after we read ours (audit B exp5)
         let previous = read_owner(dir)?.or(previous);
         return Err(match previous {
-            Some(owner) if owner.identity.boot_id == me.boot_id => match liveness(&owner.identity) {
-                Liveness::Alive => LockError::HeldByLiveOwner { owner },
-                _ => {
-                    let holders = holders_of(&lock_path);
-                    LockError::HeldByForeignDescriptor { owner, holders }
+            Some(owner) if owner.identity.boot_id == me.boot_id => {
+                match liveness(&owner.identity) {
+                    Liveness::Alive => LockError::HeldByLiveOwner { owner },
+                    _ => {
+                        let holders = holders_of(&lock_path);
+                        LockError::HeldByForeignDescriptor { owner, holders }
+                    }
                 }
-            },
+            }
             other => LockError::Busy { owner: other },
         });
     }

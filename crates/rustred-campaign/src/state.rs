@@ -150,10 +150,10 @@ impl std::error::Error for IllegalTransition {}
 // (i) JOB ATTEMPT
 // ------------------------------------------------------------------------------------------------------------
 
-/// Outcome kinds of a finished attempt: the contract crate's classification (child-job.md 6.5), used directly.
-pub use rustred_campaign_contract::classify::OutcomeKind as FinishClass;
 /// The contract's "what may be accepted" column of the decision table.
 pub use rustred_campaign_contract::classify::Accept as ContractAccept;
+/// Outcome kinds of a finished attempt: the contract crate's classification (child-job.md 6.5), used directly.
+pub use rustred_campaign_contract::classify::OutcomeKind as FinishClass;
 
 /// Every outcome kind (for exhaustive tests).
 pub const FINISH_CLASSES: [FinishClass; 14] = [
@@ -662,7 +662,11 @@ pub const ITEM_TABLE: &[(&str, &str, &str)] = &[
         "skipped",
     ),
     ("<any but stale>", "mark_stale", "stale"),
-    ("stale", "reopen", "open  (generation + 1; node must not be stale)"),
+    (
+        "stale",
+        "reopen",
+        "open  (generation + 1; node must not be stale)",
+    ),
 ];
 
 pub fn apply_item(
@@ -1358,9 +1362,7 @@ pub fn apply_node(
                 return illegal("already boxed with another box".into());
             }
             if state.full_closed_ever {
-                return illegal(
-                    "the node was closed FULL once: it is never boxed (R33)".into(),
-                );
+                return illegal("the node was closed FULL once: it is never boxed (R33)".into());
             }
             match &state.spec_box {
                 None => {
@@ -1467,9 +1469,8 @@ pub fn apply_node(
             } else {
                 next.phase = P::Running;
                 next.reopens += 1;
-                next.reopen_cause = Some(
-                    "keys-only recheck against proved hand-down ranges failed".into(),
-                );
+                next.reopen_cause =
+                    Some("keys-only recheck against proved hand-down ranges failed".into());
             }
         }
         (_, NodeEvent::EnvelopeRecheck { .. }) => {
@@ -1545,7 +1546,12 @@ pub struct RuleSetAcc {
 }
 
 /// The element of one live rule: (item, rule id, accepted record digest, key exclusions digests in order).
-pub fn rule_element(item: &str, rule: &str, record_blake3: &str, exclusions: &[String]) -> [u64; 4] {
+pub fn rule_element(
+    item: &str,
+    rule: &str,
+    record_blake3: &str,
+    exclusions: &[String],
+) -> [u64; 4] {
     let mut h = blake3::Hasher::new();
     for part in [item, rule, record_blake3] {
         h.update(part.as_bytes());
@@ -2265,9 +2271,7 @@ impl CampaignState {
                                 return Err(invalid(format!("item {item}: unknown parent {p}")));
                             }
                             Some(pi) if pi.phase == ItemPhase::Stale => {
-                                return Err(invalid(format!(
-                                    "item {item}: parent {p} is stale"
-                                )));
+                                return Err(invalid(format!("item {item}: parent {p} is stale")));
                             }
                             Some(_) => {}
                         }
@@ -2433,7 +2437,10 @@ impl CampaignState {
                 self.push_recent(
                     rec,
                     "orphan_killed",
-                    format!("orphan pid {pid} killed (job {})", job.as_deref().unwrap_or("?")),
+                    format!(
+                        "orphan pid {pid} killed (job {})",
+                        job.as_deref().unwrap_or("?")
+                    ),
                 );
             }
             Event::VerifyCheckpoint { seq: at, clean, .. } => {
@@ -2452,10 +2459,7 @@ impl CampaignState {
                 }
                 let mut hit: Vec<String> = items.clone();
                 for (id, it) in &self.items {
-                    if it
-                        .accepted
-                        .as_ref()
-                        .is_some_and(|a| a.record.path == *path)
+                    if it.accepted.as_ref().is_some_and(|a| a.record.path == *path)
                         && !hit.contains(id)
                     {
                         hit.push(id.clone());
@@ -2602,12 +2606,14 @@ impl CampaignState {
                     | ItemPhase::Attention(_)
             );
             let via_job = holds_result
-                && (it.jobs.iter().any(|j| {
-                    stale_jobs.contains(j) && self.jobs[j].generation == it.generation
-                }) || it
-                    .produced
-                    .as_ref()
-                    .is_some_and(|p| stale_jobs.contains(&p.job))
+                && (it
+                    .jobs
+                    .iter()
+                    .any(|j| stale_jobs.contains(j) && self.jobs[j].generation == it.generation)
+                    || it
+                        .produced
+                        .as_ref()
+                        .is_some_and(|p| stale_jobs.contains(&p.job))
                     || matches!(&it.accepted, Some(AcceptedRec { source: AcceptedFrom::Job { job, .. }, .. }) if stale_jobs.contains(job)));
             if nodes_hit.contains(&it.node) || it.inputs.iter().any(|i| i == input) || via_job {
                 hit.push(id.clone());
@@ -2680,8 +2686,10 @@ impl CampaignState {
             nr.state.terminals = nr.state.terminals.saturating_sub(it.terminal_keys);
         }
         if it.terminal_preferred {
-            nr.state.preferred_terminals =
-                nr.state.preferred_terminals.saturating_sub(it.terminal_keys);
+            nr.state.preferred_terminals = nr
+                .state
+                .preferred_terminals
+                .saturating_sub(it.terminal_keys);
         }
         *total = total.saturating_sub(it.terminal_keys as u64);
         it.terminal_keys = 0;
@@ -2701,10 +2709,11 @@ impl CampaignState {
                 let binding_ok = n.state.closure.as_ref().is_some_and(|c| {
                     c.defect_keys == 0
                         && c.rule_set_digest == ctx.rule_set_digest
-                        && n.state.dispatch_order.as_deref() == Some(c.dispatch_order_digest.as_str())
+                        && n.state.dispatch_order.as_deref()
+                            == Some(c.dispatch_order_digest.as_str())
                 });
-                let cert_ok = n.state.phase == NodePhase::Closed
-                    || ctx.below(n.state.required_cert()) == 0;
+                let cert_ok =
+                    n.state.phase == NodePhase::Closed || ctx.below(n.state.required_cert()) == 0;
                 !(binding_ok && ctx.items_open == 0 && cert_ok)
             }
             NodePhase::Open => activity,
@@ -2793,13 +2802,15 @@ impl CampaignState {
                     "{node}: attempt ended ({reason}): {} faces, {} loci, {} keys block closure",
                     blockers.faces, blockers.loci, blockers.keys
                 ),
-                NodeEvent::FallBackToBox { box_id } => format!(
-                    "{node}: full closure not reached; falling back to spec box {box_id}"
-                ),
+                NodeEvent::FallBackToBox { box_id } => {
+                    format!("{node}: full closure not reached; falling back to spec box {box_id}")
+                }
                 NodeEvent::FixerRoundBegin { round, .. } => {
                     format!("{node}: fixer round {round} begins")
                 }
-                NodeEvent::Assembled { round, .. } => format!("{node}: table set assembled (round {round})"),
+                NodeEvent::Assembled { round, .. } => {
+                    format!("{node}: table set assembled (round {round})")
+                }
                 _ => {
                     let s = &self.nodes[node].state;
                     format!("{node}: {} ({})", s.phase.tag(), s.closure_kind())
@@ -2829,7 +2840,11 @@ impl CampaignState {
         nr.accepted_by_level[level as usize] += 1;
         nr.rule_set.add(e);
         let node = it.node.clone();
-        self.push_recent(rec, "rule_reinstated", format!("{node} {id}: rule reinstated"));
+        self.push_recent(
+            rec,
+            "rule_reinstated",
+            format!("{node} {id}: rule reinstated"),
+        );
     }
 
     /// Checks a job may feed a result of `item` (audit A C1, C3).
@@ -2852,7 +2867,9 @@ impl CampaignState {
             ));
         }
         if let Some(i) = &j.stale {
-            return Err(format!("job {job} is stale: input {i} changed after it was queued"));
+            return Err(format!(
+                "job {job} is stale: input {i} changed after it was queued"
+            ));
         }
         for (i, d) in &j.inputs {
             if self.inputs.get(i).map(|r| &r.blake3) != Some(d) {
@@ -2913,7 +2930,11 @@ impl CampaignState {
                 let nr = self.nodes.get_mut(&node_id).unwrap();
                 nr.rule_set.sub(old);
                 nr.rule_set.add(new);
-                self.push_recent(rec, "key_excluded", format!("{node_id} {item}: keys excluded"));
+                self.push_recent(
+                    rec,
+                    "key_excluded",
+                    format!("{node_id} {item}: keys excluded"),
+                );
                 self.recheck_node(rec, &node_id, &format!("keys excluded from {item}"), false);
                 return Ok(());
             }
@@ -3015,7 +3036,9 @@ impl CampaignState {
                     return Ok(());
                 }
                 let p = it.produced.as_ref().ok_or_else(|| {
-                    invalid(format!("accept of {rule}: item {item} has no produced result"))
+                    invalid(format!(
+                        "accept of {rule}: item {item} has no produced result"
+                    ))
                 })?;
                 self.job_feeds(item, &p.job, p.attempt)
                     .map_err(|w| invalid(format!("accept of {rule}: {w}")))?;
@@ -3141,9 +3164,7 @@ impl CampaignState {
                     return Ok(());
                 }
                 if *count == 0 {
-                    return Err(invalid(format!(
-                        "terminal of {item}: count must be >= 1"
-                    )));
+                    return Err(invalid(format!("terminal of {item}: count must be >= 1")));
                 }
                 if *preferred != it.terminal_preferred {
                     return Err(invalid(format!(
@@ -3152,8 +3173,11 @@ impl CampaignState {
                 }
                 let counted = !*preferred || node.state.spec.preferred_count_against_bound;
                 if counted {
-                    apply_node_internal(&node.state, NodeInternal::TerminalDeclared { count: *count })
-                        .map_err(illegal)?;
+                    apply_node_internal(
+                        &node.state,
+                        NodeInternal::TerminalDeclared { count: *count },
+                    )
+                    .map_err(illegal)?;
                 }
             }
             IE::Retire {
@@ -3220,9 +3244,11 @@ impl CampaignState {
             }
             IE::Reopen { .. } if !repeat => {
                 // audit A m11: an item whose child carries its work (escalation) is not revived
-                if let Some((c, _)) = self.items.iter().find(|(_, c)| {
-                    c.parent.as_deref() == Some(item) && c.phase != ItemPhase::Stale
-                }) {
+                if let Some((c, _)) = self
+                    .items
+                    .iter()
+                    .find(|(_, c)| c.parent.as_deref() == Some(item) && c.phase != ItemPhase::Stale)
+                {
                     return Err(invalid(format!(
                         "reopen of {item}: its child {c} carries the work"
                     )));
@@ -3274,7 +3300,10 @@ impl CampaignState {
             IE::Accept { rule, level, .. } => {
                 self.rules.accepted += 1;
                 it.accepted = accepted;
-                Some(format!("{node_id} {label}: rule {rule} accepted ({})", level.word()))
+                Some(format!(
+                    "{node_id} {label}: rule {rule} accepted ({})",
+                    level.word()
+                ))
             }
             IE::Import {
                 rule,
@@ -3384,7 +3413,9 @@ impl CampaignState {
             }
             IE::Attention { code, text } => {
                 it.attention = Some(text.clone());
-                Some(format!("{node_id} {label}: needs attention ({code}): {text}"))
+                Some(format!(
+                    "{node_id} {label}: needs attention ({code}): {text}"
+                ))
             }
             _ => None,
         };
@@ -3458,7 +3489,9 @@ impl CampaignState {
         let mut seen = BTreeSet::new();
         for r in replaces {
             if !seen.insert(r) || r == item {
-                return Err(invalid(format!("replace: {r} named twice or is the replacer")));
+                return Err(invalid(format!(
+                    "replace: {r} named twice or is the replacer"
+                )));
             }
             let x = self
                 .items
@@ -3513,7 +3546,10 @@ impl CampaignState {
         self.push_recent(
             rec,
             "rule_replaced",
-            format!("{node_id} {item}: replaces {} rules (economy better)", replaces.len()),
+            format!(
+                "{node_id} {item}: replaces {} rules (economy better)",
+                replaces.len()
+            ),
         );
         self.recheck_node(rec, &node_id, &format!("{item} replaced rules"), false);
         Ok(())
@@ -3617,7 +3653,8 @@ impl CampaignState {
             && accept_permits_records(*accept)
         {
             match binding {
-                Some(b) if b.job == job && b.attempt == attempt && b.spec_blake3 == j.spec_blake3 => {}
+                Some(b)
+                    if b.job == job && b.attempt == attempt && b.spec_blake3 == j.spec_blake3 => {}
                 _ => {
                     return Err(invalid(format!(
                         "job {job} attempt {attempt}: accepting records needs the OUTCOME binding (job, attempt, spec digest {})",
@@ -3709,7 +3746,12 @@ impl CampaignState {
         Ok(())
     }
 
-    fn apply_control(&mut self, rec: &Record, id: &str, ev: &ControlEvent) -> Result<(), ReduceError> {
+    fn apply_control(
+        &mut self,
+        rec: &Record,
+        id: &str,
+        ev: &ControlEvent,
+    ) -> Result<(), ReduceError> {
         let seq = rec.seq;
         let invalid = |why: String| ReduceError::Invalid { seq, why };
         match ev {
@@ -3721,7 +3763,9 @@ impl CampaignState {
             } => {
                 if let Some(c) = self.controls.get(id) {
                     if c.verb != *verb || c.target != *target || c.by != *by {
-                        return Err(invalid(format!("control {id} re-requested with other content")));
+                        return Err(invalid(format!(
+                            "control {id} re-requested with other content"
+                        )));
                     }
                     return Ok(());
                 }
@@ -3735,10 +3779,15 @@ impl CampaignState {
                     (verb, target),
                     (ControlVerb::Pause | ControlVerb::Resume, _)
                         | (ControlVerb::Stop, ControlTarget::Campaign)
-                        | (ControlVerb::Retry | ControlVerb::Skip, ControlTarget::Item { .. })
+                        | (
+                            ControlVerb::Retry | ControlVerb::Skip,
+                            ControlTarget::Item { .. }
+                        )
                 );
                 if !ok {
-                    return Err(invalid(format!("control {id}: {verb:?} does not apply to {target:?}")));
+                    return Err(invalid(format!(
+                        "control {id}: {verb:?} does not apply to {target:?}"
+                    )));
                 }
                 self.controls.insert(
                     id.to_string(),
@@ -3755,7 +3804,11 @@ impl CampaignState {
                         done_utc: None,
                     },
                 );
-                self.push_recent(rec, "control", format!("{by} requests {verb:?} of {target:?} ({reason})"));
+                self.push_recent(
+                    rec,
+                    "control",
+                    format!("{by} requests {verb:?} of {target:?} ({reason})"),
+                );
             }
             ControlEvent::Refused { why } => {
                 let c = self
@@ -3790,8 +3843,12 @@ impl CampaignState {
                         let v = c.verb == ControlVerb::Pause;
                         match t {
                             ControlTarget::Campaign => self.paused = v,
-                            ControlTarget::Node { node } => self.nodes.get_mut(node).unwrap().paused = v,
-                            ControlTarget::Item { item } => self.items.get_mut(item).unwrap().paused = v,
+                            ControlTarget::Node { node } => {
+                                self.nodes.get_mut(node).unwrap().paused = v
+                            }
+                            ControlTarget::Item { item } => {
+                                self.items.get_mut(item).unwrap().paused = v
+                            }
                         }
                     }
                     (ControlVerb::Stop, _) => {}
@@ -3928,7 +3985,9 @@ impl CampaignState {
                 r.other += it.terminal_keys as u64;
             }
         }
-        r.preferred_not_needed = r.preferred_listed.map(|l| l.saturating_sub(r.preferred_used));
+        r.preferred_not_needed = r
+            .preferred_listed
+            .map(|l| l.saturating_sub(r.preferred_used));
         r
     }
 
@@ -4091,7 +4150,11 @@ mod tests {
         }
         let records: Vec<FinishClass> = FINISH_CLASSES
             .into_iter()
-            .filter(|c| contract_accepts(*c).iter().any(|a| accept_permits_records(*a)))
+            .filter(|c| {
+                contract_accepts(*c)
+                    .iter()
+                    .any(|a| accept_permits_records(*a))
+            })
             .collect();
         assert_eq!(
             records,
@@ -4321,11 +4384,21 @@ mod tests {
     #[test]
     fn node_verdict_is_bound_to_the_rule_set() {
         let ctx = ctx_with("rs1");
-        let s = apply_node(&NodeState::new(None, 2, NodeSpec::default()), &NodeEvent::Start, &ctx)
-            .unwrap();
-        assert!(apply_node(&s, &cr(1, 0, "rs1"), &ctx).is_err(), "no dispatch order");
+        let s = apply_node(
+            &NodeState::new(None, 2, NodeSpec::default()),
+            &NodeEvent::Start,
+            &ctx,
+        )
+        .unwrap();
+        assert!(
+            apply_node(&s, &cr(1, 0, "rs1"), &ctx).is_err(),
+            "no dispatch order"
+        );
         let s = apply_node(&s, &assembled(), &ctx).unwrap();
-        assert!(apply_node(&s, &cr(1, 0, "rs0"), &ctx).is_err(), "older rule set");
+        assert!(
+            apply_node(&s, &cr(1, 0, "rs0"), &ctx).is_err(),
+            "older rule set"
+        );
         let s = apply_node(&s, &cr(1, 0, "rs1"), &ctx).unwrap();
         assert!(
             apply_node(&s, &NodeEvent::DeclareClosed, &ctx_with("rs2")).is_err(),
@@ -4351,7 +4424,11 @@ mod tests {
             below_proved: 3,
             ..ctx.clone()
         };
-        assert!(apply_node(&c, &NodeEvent::DeclareCertified, &ok).unwrap().certified());
+        assert!(
+            apply_node(&c, &NodeEvent::DeclareCertified, &ok)
+                .unwrap()
+                .certified()
+        );
         // internal events
         let t = apply_node_internal(&c, NodeInternal::TerminalDeclared { count: 2 }).unwrap();
         assert!(apply_node_internal(&t, NodeInternal::TerminalDeclared { count: 1 }).is_err());
@@ -4401,12 +4478,18 @@ mod tests {
         };
         let fb = |id: &str| NodeEvent::FallBackToBox { box_id: id.into() };
         let s = run(NodeState::new(None, 100, spec.clone()));
-        assert!(apply_node(&s, &fb("box"), &ctx).is_err(), "BOXED without a spec box");
+        assert!(
+            apply_node(&s, &fb("box"), &ctx).is_err(),
+            "BOXED without a spec box"
+        );
         let s = ended(&s).unwrap();
         let o = apply_node(&s, &NodeEvent::DeclareOpen { reason: "x".into() }, &ctx).unwrap();
         assert_eq!((o.phase, o.closure_kind()), (NodePhase::Open, "open"));
         let s = run(NodeState::new(Some("box".into()), 100, spec.clone()));
-        assert!(apply_node(&s, &fb("box"), &ctx).is_err(), "full attempt first");
+        assert!(
+            apply_node(&s, &fb("box"), &ctx).is_err(),
+            "full attempt first"
+        );
         let s = ended(&s).unwrap();
         assert!(apply_node(&s, &fb("wider"), &ctx).is_err());
         let b = apply_node(&s, &fb("box"), &ctx).unwrap();
@@ -4484,7 +4567,10 @@ mod tests {
             rule_set_digest_of([("i2", "r2", "b2", &ex[..]), ("i1", "r1", "b1", &ex[..])])
         );
         acc.sub(a);
-        assert_eq!(acc.digest(), rule_set_digest_of([("i2", "r2", "b2", &ex[..])]));
+        assert_eq!(
+            acc.digest(),
+            rule_set_digest_of([("i2", "r2", "b2", &ex[..])])
+        );
         acc.sub(b);
         assert_eq!(acc, RuleSetAcc::default());
     }

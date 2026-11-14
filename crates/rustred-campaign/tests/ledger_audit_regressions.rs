@@ -28,10 +28,7 @@ fn cfg() -> LedgerConfig {
 }
 
 fn node(ev: NodeEvent) -> Event {
-    Event::Node {
-        node: N.into(),
-        ev,
-    }
+    Event::Node { node: N.into(), ev }
 }
 
 fn item(k: usize, ev: ItemEvent) -> Event {
@@ -160,8 +157,14 @@ fn a_c1_stale_results_are_never_reaccepted_and_jobs_carry_input_identity() {
     // the auditor's sequence: reopen, start, replay the OLD produce + accept -> refused, nothing written
     reopen_and_start(&mut l, 0);
     let len = fs::metadata(seg_path(&_d)).unwrap().len();
-    assert!(refused(l.append(life[6].clone())), "produce from the old job");
-    assert!(refused(l.append(life[9].clone())), "accept from the old job");
+    assert!(
+        refused(l.append(life[6].clone())),
+        "produce from the old job"
+    );
+    assert!(
+        refused(l.append(life[9].clone())),
+        "accept from the old job"
+    );
     assert_eq!(fs::metadata(seg_path(&_d)).unwrap().len(), len);
     // only a new attempt under the new inputs can be accepted
     let t = new_job(&mut l, 0, "j-new");
@@ -421,7 +424,11 @@ fn a_c4_acknowledged_last_record_is_protected() {
     assert_eq!(fs::read(&seg).unwrap(), b, "nothing truncated");
     // (a2) an edit inside a string keeps the JSON valid but breaks the line digest
     let txt = String::from_utf8(orig.clone()).unwrap();
-    fs::write(&seg, txt.replacen("T162:R:campaign:0", "T162:R:campaign:9", 1)).unwrap();
+    fs::write(
+        &seg,
+        txt.replacen("T162:R:campaign:0", "T162:R:campaign:9", 1),
+    )
+    .unwrap();
     assert!(matches!(
         open_ledger(&d, as_dyn(&clk), cfg()),
         Err(LedgerError::Corrupt { .. })
@@ -468,7 +475,8 @@ fn a_m1_failed_fsync_poisons_and_nothing_is_acknowledged_after_it() {
     let _c = Cleanup(d.clone());
     let clk = clock();
     let ops = Ops::new();
-    let mut l = new_ledger_with(&d, as_dyn(&clk), cfg(), Arc::new(RecordingOps(ops.clone()))).unwrap();
+    let mut l =
+        new_ledger_with(&d, as_dyn(&clk), cfg(), Arc::new(RecordingOps(ops.clone()))).unwrap();
     l.append_all(setup_events(N)).unwrap();
     let before = l.state().clone();
     let seq = l.seq();
@@ -570,9 +578,7 @@ fn a_m3_evidence_levels_need_their_artefacts() {
         1,
         ItemEvent::Upgrade {
             level: EvidenceLevel::IdentityProved,
-            evidence: LevelEvidence::IdentityTested {
-                verdict: fref("v")
-            },
+            evidence: LevelEvidence::IdentityTested { verdict: fref("v") },
         }
     ))));
 }
@@ -660,13 +666,22 @@ fn a_m5_boxed_only_after_a_real_full_attempt_and_never_after_full_closure() {
             cause,
         })
     };
-    assert!(refused(l.append(ended(AttemptEndCause::FixerRounds))), "never ran");
+    assert!(
+        refused(l.append(ended(AttemptEndCause::FixerRounds))),
+        "never ran"
+    );
     let st = l.state().clone();
     l.append(assembled(N, 1)).unwrap();
     l.append(closure_event(&st, N, 1, 9, EnvelopeKind::Proved))
         .unwrap();
-    assert!(refused(l.append(ended(AttemptEndCause::FixerRounds))), "0 of 2 rounds");
-    assert!(refused(l.append(ended(AttemptEndCause::CpuBudget))), "CPU budget left");
+    assert!(
+        refused(l.append(ended(AttemptEndCause::FixerRounds))),
+        "0 of 2 rounds"
+    );
+    assert!(
+        refused(l.append(ended(AttemptEndCause::CpuBudget))),
+        "CPU budget left"
+    );
     assert!(refused(l.append(node(NodeEvent::AttemptEnded {
         blockers: Blockers::default(),
         reason: "x".into(),
@@ -814,7 +829,8 @@ fn a_m3_minor_state_is_never_ahead_of_disk_after_a_write_error() {
     let _c = Cleanup(d.clone());
     let clk = clock();
     let ops = Ops::new();
-    let mut l = new_ledger_with(&d, as_dyn(&clk), cfg(), Arc::new(RecordingOps(ops.clone()))).unwrap();
+    let mut l =
+        new_ledger_with(&d, as_dyn(&clk), cfg(), Arc::new(RecordingOps(ops.clone()))).unwrap();
     l.append_all(setup_events(N)).unwrap();
     let before = l.state().clone();
     ops.arm(1, libc::ENOSPC, "append segment");
@@ -942,7 +958,11 @@ fn a_m8_minor_non_canonical_lines_are_refused() {
     let h = ledger::line_hash(&body);
     let mut line = body[..body.len() - 1].to_vec();
     line.extend_from_slice(format!(",\"h\":\"{h}\"}}").as_bytes());
-    assert!(ledger::decode_record(&line).unwrap_err().contains("canonical"));
+    assert!(
+        ledger::decode_record(&line)
+            .unwrap_err()
+            .contains("canonical")
+    );
 }
 
 #[test]
@@ -1001,20 +1021,10 @@ fn a_m11_minor_node_stale_marks_items_and_escalated_items_are_not_revived() {
     );
     l.append(node(NodeEvent::Reopen { reason: "r".into() }))
         .unwrap();
-    l.append(item(
-        2,
-        ItemEvent::Reopen {
-            reason: "r".into(),
-        },
-    ))
-    .unwrap();
+    l.append(item(2, ItemEvent::Reopen { reason: "r".into() }))
+        .unwrap();
     assert!(
-        refused(l.append(item(
-            1,
-            ItemEvent::Reopen {
-                reason: "r".into()
-            }
-        ))),
+        refused(l.append(item(1, ItemEvent::Reopen { reason: "r".into() }))),
         "its child carries the work"
     );
 }
@@ -1031,8 +1041,18 @@ fn a_m12_minor_failed_attempts_are_counted_apart_from_interrupts() {
         ev,
     };
     l.append_all(vec![
-        ev(1, JobEvent::Interrupt { reason: "operator stop".into() }),
-        ev(2, JobEvent::Requeue { reason: "resume".into() }),
+        ev(
+            1,
+            JobEvent::Interrupt {
+                reason: "operator stop".into(),
+            },
+        ),
+        ev(
+            2,
+            JobEvent::Requeue {
+                reason: "resume".into(),
+            },
+        ),
         ev(
             2,
             JobEvent::Launch {
@@ -1043,9 +1063,21 @@ fn a_m12_minor_failed_attempts_are_counted_apart_from_interrupts() {
         ),
         ev(
             2,
-            finished_with(&j, 2, FinishClass::Crashed, ContractAccept::Nothing, None, 5),
+            finished_with(
+                &j,
+                2,
+                FinishClass::Crashed,
+                ContractAccept::Nothing,
+                None,
+                5,
+            ),
         ),
-        ev(3, JobEvent::Retry { reason: "retry once".into() }),
+        ev(
+            3,
+            JobEvent::Retry {
+                reason: "retry once".into(),
+            },
+        ),
     ])
     .unwrap();
     let st = l.state();
@@ -1062,10 +1094,17 @@ fn a_m12_minor_failed_attempts_are_counted_apart_from_interrupts() {
 fn b_exp1_internal_node_events_cannot_be_records() {
     // the reducer-internal transitions are no longer variants of the record enum: such a line does not decode
     let body = br#"{"node":"T162","ev":{"ev":"terminal_declared","count":3}}"#;
-    assert!(serde_json::from_slice::<Event>(
-        &[br#"{"kind":"node","body":"#.as_slice(), body.as_slice(), b"}"].concat()
-    )
-    .is_err());
+    assert!(
+        serde_json::from_slice::<Event>(
+            &[
+                br#"{"kind":"node","body":"#.as_slice(),
+                body.as_slice(),
+                b"}"
+            ]
+            .concat()
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -1177,7 +1216,15 @@ fn u9_and_genericity_no_master_counts_or_node_names_in_the_code() {
             .collect::<Vec<_>>()
             .join("\n");
         let code = code.split("#[cfg(test)]").next().unwrap();
-        for w in ["master_count", "knock_out", "knockout", "lp.tsv", "T162", "T178", "T266"] {
+        for w in [
+            "master_count",
+            "knock_out",
+            "knockout",
+            "lp.tsv",
+            "T162",
+            "T178",
+            "T266",
+        ] {
             assert!(!code.contains(w), "{name} contains {w:?}");
         }
     }
@@ -1247,7 +1294,10 @@ fn u13_optimise_mode_replacements_need_economy_and_containment() {
                 },
             )
         };
-        assert!(refused(l.append(imp(EvidenceLevel::IdentityProved))), "capped by the import claim");
+        assert!(
+            refused(l.append(imp(EvidenceLevel::IdentityProved))),
+            "capped by the import claim"
+        );
         l.append(imp(EvidenceLevel::IdentityTested)).unwrap();
         l.append(Event::RuleEconomy {
             item: item_id(N, k),
@@ -1270,15 +1320,21 @@ fn u13_optimise_mode_replacements_need_economy_and_containment() {
             containment: fref("large:proofs/containment.json"),
         },
     );
-    assert!(refused(l.append(replace.clone())), "1200 > 1000 rhs terms: not better");
-    assert!(refused(l.append(item(
-        0,
-        ItemEvent::Retire {
-            rule: rule_id(N, 0),
-            proof: RetirementProof::ReplacedBy { proof: fref("p") },
-            superseded_by: Some(item_id(N, 2)),
-        }
-    ))), "optimise mode: only through replace");
+    assert!(
+        refused(l.append(replace.clone())),
+        "1200 > 1000 rhs terms: not better"
+    );
+    assert!(
+        refused(l.append(item(
+            0,
+            ItemEvent::Retire {
+                rule: rule_id(N, 0),
+                proof: RetirementProof::ReplacedBy { proof: fref("p") },
+                superseded_by: Some(item_id(N, 2)),
+            }
+        ))),
+        "optimise mode: only through replace"
+    );
     l.append(Event::RuleEconomy {
         item: item_id(N, 2),
         economy: econ(700),
@@ -1332,7 +1388,10 @@ fn operator_controls_and_attention() {
         },
     ))
     .unwrap();
-    assert!(refused(l.append(item(0, ItemEvent::Start { job: None }))), "needs a person");
+    assert!(
+        refused(l.append(item(0, ItemEvent::Start { job: None }))),
+        "needs a person"
+    );
     let ctl = |id: &str, ev| Event::Control { id: id.into(), ev };
     let req = |verb, target| ControlEvent::Requested {
         verb,
@@ -1342,14 +1401,24 @@ fn operator_controls_and_attention() {
     };
     l.append(ctl(
         "c1",
-        req(ControlVerb::Retry, ControlTarget::Item { item: item_id(N, 0) }),
+        req(
+            ControlVerb::Retry,
+            ControlTarget::Item {
+                item: item_id(N, 0),
+            },
+        ),
     ))
     .unwrap();
-    let applied = || ControlEvent::Applied { effect: "done".into() };
+    let applied = || ControlEvent::Applied {
+        effect: "done".into(),
+    };
     l.append(ctl("c1", applied())).unwrap();
     let it = &l.state().items[&item_id(N, 0)];
     assert_eq!(it.phase, ItemPhase::Open);
-    assert_eq!((it.operator_retries, it.failed_attempts, it.generation), (1, 0, 1));
+    assert_eq!(
+        (it.operator_retries, it.failed_attempts, it.generation),
+        (1, 0, 1)
+    );
     // a refused control cannot be applied afterwards
     l.append(ctl("c2", req(ControlVerb::Pause, ControlTarget::Campaign)))
         .unwrap();
@@ -1360,7 +1429,12 @@ fn operator_controls_and_attention() {
     // pause an item: its jobs are not launched
     l.append(ctl(
         "c3",
-        req(ControlVerb::Pause, ControlTarget::Item { item: item_id(N, 0) }),
+        req(
+            ControlVerb::Pause,
+            ControlTarget::Item {
+                item: item_id(N, 0),
+            },
+        ),
     ))
     .unwrap();
     l.append(ctl("c3", applied())).unwrap();
@@ -1378,10 +1452,19 @@ fn operator_controls_and_attention() {
     // skip
     l.append(ctl(
         "c4",
-        req(ControlVerb::Skip, ControlTarget::Item { item: item_id(N, 0) }),
+        req(
+            ControlVerb::Skip,
+            ControlTarget::Item {
+                item: item_id(N, 0),
+            },
+        ),
     ))
     .unwrap();
     l.append(ctl("c4", applied())).unwrap();
     assert_eq!(l.state().items[&item_id(N, 0)].phase, ItemPhase::Skipped);
-    assert_eq!(l.state().nodes[N].context().items_open, 1, "skipped work stays open");
+    assert_eq!(
+        l.state().nodes[N].context().items_open,
+        1,
+        "skipped work stays open"
+    );
 }

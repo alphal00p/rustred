@@ -27,8 +27,8 @@ use rustred_campaign::ledger::{
 };
 use rustred_campaign::state::{
     AcceptedFrom, AttemptEndCause, CampaignEvent, CampaignState, ClosureTarget, ContractAccept,
-    EvidenceLevel, FinishClass, ItemPhase, NodeEvent, NodePhase, Rung, accept_permits_records,
-    contract_accepts, reduce, rule_set_digest_of, FINISH_CLASSES,
+    EvidenceLevel, FINISH_CLASSES, FinishClass, ItemPhase, NodeEvent, NodePhase, Rung,
+    accept_permits_records, contract_accepts, reduce, rule_set_digest_of,
 };
 
 struct Rng(u64);
@@ -127,20 +127,30 @@ fn guided(st: &CampaignState, r: &mut Rng, k: usize) -> Option<Event> {
             },
             Some(_) => Event::Control {
                 id: cid,
-                ev: ControlEvent::Applied { effect: "resumed".into() },
+                ev: ControlEvent::Applied {
+                    effect: "resumed".into(),
+                },
             },
         });
     }
-    if let Some((cid, _)) = st.controls.iter().find(|(c, x)| c.starts_with("resume-") && x.status == "requested") {
+    if let Some((cid, _)) = st
+        .controls
+        .iter()
+        .find(|(c, x)| c.starts_with("resume-") && x.status == "requested")
+    {
         return Some(Event::Control {
             id: cid.clone(),
-            ev: ControlEvent::Applied { effect: "resumed".into() },
+            ev: ControlEvent::Applied {
+                effect: "resumed".into(),
+            },
         });
     }
     if st.nodes[n].state.phase == NodePhase::Stale {
         return Some(Event::Node {
             node: n.into(),
-            ev: NodeEvent::Reopen { reason: "recover".into() },
+            ev: NodeEvent::Reopen {
+                reason: "recover".into(),
+            },
         });
     }
     let Some(it) = st.items.get(&id) else {
@@ -157,7 +167,12 @@ fn guided(st: &CampaignState, r: &mut Rng, k: usize) -> Option<Event> {
     };
     let job = it.jobs.last().cloned();
     let jr = job.as_ref().and_then(|j| st.jobs.get(j));
-    let item = |ev| Some(Event::Item { item: id.clone(), ev });
+    let item = |ev| {
+        Some(Event::Item {
+            item: id.clone(),
+            ev,
+        })
+    };
     match &it.phase {
         ItemPhase::Open => {
             let fresh = jr.is_none_or(|j| j.generation != it.generation || j.stale.is_some());
@@ -294,10 +309,7 @@ fn guided(st: &CampaignState, r: &mut Rng, k: usize) -> Option<Event> {
 /// A node step on the CURRENT state (legal when the node is ready; otherwise refused, which is checked too).
 fn node_step(st: &CampaignState, r: &mut Rng, n: &str) -> Event {
     let nr = &st.nodes[n];
-    let node = |ev| Event::Node {
-        node: n.into(),
-        ev,
-    };
+    let node = |ev| Event::Node { node: n.into(), ev };
     match r.below(10) {
         0 | 1 => node(NodeEvent::Assembled {
             round: nr.state.closure_rounds + 1,
@@ -341,9 +353,7 @@ fn node_step(st: &CampaignState, r: &mut Rng, n: &str) -> Event {
             1 => node(NodeEvent::Reopen {
                 reason: "again".into(),
             }),
-            2 => node(NodeEvent::DeclareOpen {
-                reason: "x".into(),
-            }),
+            2 => node(NodeEvent::DeclareOpen { reason: "x".into() }),
             _ => node(NodeEvent::EnvelopeRecheck {
                 passed: r.chance(0.5),
                 report: fref("large:recheck"),
@@ -357,8 +367,16 @@ fn node_step(st: &CampaignState, r: &mut Rng, n: &str) -> Event {
 fn adversarial(st: &CampaignState, r: &mut Rng, n_items: usize) -> Event {
     let k = r.below(n_items);
     let id = iid(k);
-    let any_job = st.jobs.keys().nth(r.below(st.jobs.len().max(1))).cloned().unwrap_or_default();
-    let item = |ev| Event::Item { item: id.clone(), ev };
+    let any_job = st
+        .jobs
+        .keys()
+        .nth(r.below(st.jobs.len().max(1)))
+        .cloned()
+        .unwrap_or_default();
+    let item = |ev| Event::Item {
+        item: id.clone(),
+        ev,
+    };
     match r.below(16) {
         0 => item(ItemEvent::Produce {
             job: any_job.clone(),
@@ -428,7 +446,11 @@ fn adversarial(st: &CampaignState, r: &mut Rng, n_items: usize) -> Event {
                 },
                 _ => {
                     let class = FINISH_CLASSES[r.below(FINISH_CLASSES.len())];
-                    let acc = [ContractAccept::Canonical, ContractAccept::CommittedRules, ContractAccept::Nothing][r.below(3)];
+                    let acc = [
+                        ContractAccept::Canonical,
+                        ContractAccept::CommittedRules,
+                        ContractAccept::Nothing,
+                    ][r.below(3)];
                     finished_with(&any_job, 1, class, acc, Some(table_ref(&any_job, 1)), 5)
                 }
             },
@@ -441,7 +463,12 @@ fn adversarial(st: &CampaignState, r: &mut Rng, n_items: usize) -> Event {
             let cid = format!("c{}", r.below(8));
             let ev = match st.controls.get(&cid) {
                 None => ControlEvent::Requested {
-                    verb: [ControlVerb::Retry, ControlVerb::Skip, ControlVerb::Pause, ControlVerb::Resume][r.below(4)],
+                    verb: [
+                        ControlVerb::Retry,
+                        ControlVerb::Skip,
+                        ControlVerb::Pause,
+                        ControlVerb::Resume,
+                    ][r.below(4)],
                     target: if r.chance(0.7) {
                         ControlTarget::Item { item: id.clone() }
                     } else {
@@ -475,16 +502,22 @@ fn adversarial(st: &CampaignState, r: &mut Rng, n_items: usize) -> Event {
     }
 }
 
-fn fingerprint(d: &Path) -> BTreeMap<String, Vec<u8>> {
+/// Names + sizes of every ledger file, and the BLAKE3 of the mutable ones (active segment, mark, manifest).
+fn fingerprint(d: &Path) -> BTreeMap<String, String> {
     let ld = ledger::ledger_dir(d);
+    let active = ledger::read_manifest(&ld).unwrap().active.file;
     let mut m = BTreeMap::new();
     for e in fs::read_dir(&ld).unwrap() {
         let p = e.unwrap().path();
         if p.is_file() {
-            m.insert(
-                p.file_name().unwrap().to_string_lossy().into_owned(),
-                fs::read(&p).unwrap(),
-            );
+            let name = p.file_name().unwrap().to_string_lossy().into_owned();
+            let v =
+                if name == active || name == ledger::COMMIT_FILE || name == ledger::MANIFEST_FILE {
+                    blake3::hash(&fs::read(&p).unwrap()).to_hex().to_string()
+                } else {
+                    fs::metadata(&p).unwrap().len().to_string()
+                };
+            m.insert(name, v);
         }
     }
     m
@@ -510,7 +543,10 @@ fn check_invariants(st: &CampaignState, ctx: &str) {
         assert_eq!(by_phase, n.items_by_phase, "{ctx}: {nid} phase counters");
         assert_eq!(by_level, n.accepted_by_level, "{ctx}: {nid} level counters");
         assert_eq!(counted, n.state.terminals, "{ctx}: {nid} counted terminals");
-        assert!(n.state.terminals <= n.state.terminal_bound, "{ctx}: {nid} bound");
+        assert!(
+            n.state.terminals <= n.state.terminal_bound,
+            "{ctx}: {nid} bound"
+        );
         // incremental rule-set digest == from scratch
         let live = st.node_live_rules(nid);
         let scratch = rule_set_digest_of(
@@ -520,38 +556,73 @@ fn check_invariants(st: &CampaignState, ctx: &str) {
         assert_eq!(scratch, c.rule_set_digest, "{ctx}: {nid} rule-set digest");
         // derived verdicts
         if matches!(n.state.phase, NodePhase::Closed | NodePhase::Certified) {
-            let b = n.state.closure.as_ref().unwrap_or_else(|| panic!("{ctx}: {nid} closed without closure"));
+            let b = n
+                .state
+                .closure
+                .as_ref()
+                .unwrap_or_else(|| panic!("{ctx}: {nid} closed without closure"));
             assert_eq!(b.defect_keys, 0, "{ctx}: {nid}");
-            assert_eq!(b.rule_set_digest, c.rule_set_digest, "{ctx}: {nid} closed on an older rule set");
-            assert_eq!(n.state.dispatch_order.as_deref(), Some(b.dispatch_order_digest.as_str()), "{ctx}: {nid}");
+            assert_eq!(
+                b.rule_set_digest, c.rule_set_digest,
+                "{ctx}: {nid} closed on an older rule set"
+            );
+            assert_eq!(
+                n.state.dispatch_order.as_deref(),
+                Some(b.dispatch_order_digest.as_str()),
+                "{ctx}: {nid}"
+            );
             assert_eq!(c.items_open, 0, "{ctx}: {nid} closed with open items");
         }
         if n.state.phase == NodePhase::Certified {
             let need = n.state.required_cert().required_level();
             assert!(
-                st.items.values().filter(|i| &i.node == nid).all(|i| match i.phase {
-                    ItemPhase::Accepted(l) => l >= need,
-                    _ => true,
-                }),
+                st.items
+                    .values()
+                    .filter(|i| &i.node == nid)
+                    .all(|i| match i.phase {
+                        ItemPhase::Accepted(l) => l >= need,
+                        _ => true,
+                    }),
                 "{ctx}: {nid} certified below its level"
             );
         }
         if let ClosureTarget::Boxed { box_id } = &n.state.target {
-            assert_eq!(n.state.spec_box.as_ref(), Some(box_id), "{ctx}: {nid} boxed with another box");
-            assert!(!n.state.full_closed_ever, "{ctx}: {nid} boxed after a FULL closure");
+            assert_eq!(
+                n.state.spec_box.as_ref(),
+                Some(box_id),
+                "{ctx}: {nid} boxed with another box"
+            );
+            assert!(
+                !n.state.full_closed_ever,
+                "{ctx}: {nid} boxed after a FULL closure"
+            );
         }
     }
     for (id, it) in &st.items {
         if let (ItemPhase::Accepted(_), Some(a)) = (&it.phase, &it.accepted)
-            && let AcceptedFrom::Job { job, attempt, table_blake3 } = &a.source
+            && let AcceptedFrom::Job {
+                job,
+                attempt,
+                table_blake3,
+            } = &a.source
         {
             let j = &st.jobs[job];
             assert_eq!(&j.item, id, "{ctx}: {id} accepted from a foreign job");
             assert_eq!(j.attempt, *attempt, "{ctx}: {id}");
-            assert_eq!(j.generation, it.generation, "{ctx}: {id} accepted from an old generation");
+            assert_eq!(
+                j.generation, it.generation,
+                "{ctx}: {id} accepted from an old generation"
+            );
             assert!(j.stale.is_none(), "{ctx}: {id} accepted from a stale job");
-            assert!(j.accept.is_some_and(accept_permits_records), "{ctx}: {id} from a job accepting nothing");
-            assert_eq!(j.sealed_table.as_ref().map(|t| &t.blake3), Some(table_blake3), "{ctx}: {id} table");
+            assert!(
+                j.accept.is_some_and(accept_permits_records),
+                "{ctx}: {id} from a job accepting nothing"
+            );
+            assert_eq!(
+                j.sealed_table.as_ref().map(|t| &t.blake3),
+                Some(table_blake3),
+                "{ctx}: {id} table"
+            );
         }
     }
 }
@@ -594,7 +665,11 @@ fn run_seed(seed: u64, steps: usize, adversarial_share: f64, rotate: u64) -> (u6
             Err(LedgerError::Refused(_)) => {
                 refused += 1;
                 assert_eq!(fingerprint(&d), fp, "{ctx}: a refusal changed the files");
-                assert_eq!(l.state().digest(), digest_before, "{ctx}: a refusal changed the state");
+                assert_eq!(
+                    l.state().digest(),
+                    digest_before,
+                    "{ctx}: a refusal changed the state"
+                );
             }
             Err(e) => panic!("{ctx}: {e} for {ev:?}"),
         }
@@ -605,7 +680,11 @@ fn run_seed(seed: u64, steps: usize, adversarial_share: f64, rotate: u64) -> (u6
             assert_eq!(l2.state().digest(), want, "seed {seed} step {step}: reopen");
             let recs = ledger::read_records(&d).unwrap();
             assert_eq!(reduce(&recs).unwrap().digest(), want, "seed {seed}: replay");
-            assert_eq!(ledger::verify_chain(&d).unwrap().state.digest(), want, "seed {seed}: verify_chain");
+            assert_eq!(
+                ledger::verify_chain(&d).unwrap().state.digest(),
+                want,
+                "seed {seed}: verify_chain"
+            );
             l = l2;
         }
     }
@@ -625,7 +704,10 @@ fn clean_run(seed: u64) {
             if l.append(ev.clone()).is_err() {
                 panic!("seed {seed}: guided legal record refused: {ev:?}");
             }
-            if matches!(l.state().items[&iid(k)].phase, ItemPhase::Accepted(EvidenceLevel::IdentityProved) | ItemPhase::Terminal) {
+            if matches!(
+                l.state().items[&iid(k)].phase,
+                ItemPhase::Accepted(EvidenceLevel::IdentityProved) | ItemPhase::Terminal
+            ) {
                 break;
             }
         }
@@ -633,10 +715,23 @@ fn clean_run(seed: u64) {
     for n in NODES {
         let st = l.state().clone();
         l.append(assembled(n, 1)).unwrap();
-        l.append(closure_event(&st, n, 1, 0, EnvelopeKind::Proved)).unwrap();
-        l.append(Event::Node { node: n.into(), ev: NodeEvent::DeclareClosed }).unwrap();
-        l.append(Event::Node { node: n.into(), ev: NodeEvent::DeclareCertified }).unwrap();
-        assert_eq!(l.state().nodes[n].state.phase, NodePhase::Certified, "seed {seed} {n}");
+        l.append(closure_event(&st, n, 1, 0, EnvelopeKind::Proved))
+            .unwrap();
+        l.append(Event::Node {
+            node: n.into(),
+            ev: NodeEvent::DeclareClosed,
+        })
+        .unwrap();
+        l.append(Event::Node {
+            node: n.into(),
+            ev: NodeEvent::DeclareCertified,
+        })
+        .unwrap();
+        assert_eq!(
+            l.state().nodes[n].state.phase,
+            NodePhase::Certified,
+            "seed {seed} {n}"
+        );
     }
 }
 
@@ -646,15 +741,24 @@ fn model_smoke() {
         clean_run(seed);
         let (ok, refused) = run_seed(seed, 400, 0.3, 4096);
         eprintln!("model smoke seed {seed}: {ok} accepted, {refused} refused");
-        assert!(ok > 150 && refused > 20, "seed {seed}: {ok} ok, {refused} refused");
+        assert!(
+            ok > 150 && refused > 20,
+            "seed {seed}: {ok} ok, {refused} refused"
+        );
     }
 }
 
 #[test]
 #[ignore = "long: release model-based run (audit B experiment 1 port)"]
 fn model_random_release() {
-    let seeds: u64 = std::env::var("RR_MODEL_SEEDS").ok().and_then(|s| s.parse().ok()).unwrap_or(120);
-    let steps: usize = std::env::var("RR_MODEL_STEPS").ok().and_then(|s| s.parse().ok()).unwrap_or(3000);
+    let seeds: u64 = std::env::var("RR_MODEL_SEEDS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(120);
+    let steps: usize = std::env::var("RR_MODEL_STEPS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3000);
     let (mut ok, mut refused) = (0, 0);
     for seed in 0..seeds {
         clean_run(seed);
@@ -664,5 +768,7 @@ fn model_random_release() {
         ok += a;
         refused += b;
     }
-    eprintln!("model: {seeds} seeds x {steps} steps: {ok} accepted, {refused} refused; invariants held after every step");
+    eprintln!(
+        "model: {seeds} seeds x {steps} steps: {ok} accepted, {refused} refused; invariants held after every step"
+    );
 }

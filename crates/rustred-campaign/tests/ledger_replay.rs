@@ -3,7 +3,9 @@
 mod ledger_support;
 
 use ledger_support::*;
-use rustred_campaign::ledger::{self, EnvelopeKind, Event, ItemEvent, JobEvent, LedgerConfig, Record};
+use rustred_campaign::ledger::{
+    self, EnvelopeKind, Event, ItemEvent, JobEvent, LedgerConfig, Record,
+};
 use rustred_campaign::state::{
     CampaignState, EvidenceLevel, ItemPhase, NodeEvent, NodePhase, reduce,
 };
@@ -180,7 +182,11 @@ fn changed_input_marks_dependents_stale_never_deletes() {
             .map(|k| item_id("T162", *k))
             .collect::<Vec<_>>()
     );
-    assert!(st.jobs.values().all(|j| j.stale.as_deref() == Some("rr_node")));
+    assert!(
+        st.jobs
+            .values()
+            .all(|j| j.stale.as_deref() == Some("rr_node"))
+    );
     assert_eq!(
         st.items[&item_id("T162", 0)].stale_from.as_deref(),
         Some("accepted")

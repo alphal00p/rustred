@@ -71,7 +71,8 @@ fn zz_crash_writer_process() {
     let cdir = std::path::PathBuf::from(dir);
     let clk: std::sync::Arc<dyn Clock> = std::sync::Arc::new(SystemClock::new());
     // the writer process takes the campaign lock itself (a killed predecessor is taken over)
-    let (lk, _) = lock::acquire(&cdir, &SystemClock::new(), &["writer".into()]).expect("writer locks");
+    let (lk, _) =
+        lock::acquire(&cdir, &SystemClock::new(), &["writer".into()]).expect("writer locks");
     let (mut l, _) = Ledger::open(&cdir, &lk, clk, cfg()).expect("writer opens");
     let out = std::io::stdout();
     let start = l.state().items.len();

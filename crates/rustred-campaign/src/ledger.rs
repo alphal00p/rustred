@@ -1252,10 +1252,7 @@ fn scan_active_cap(
         let (rec, h) = match decode_record(line) {
             Ok(x) => x,
             Err(why) => {
-                fail = Some((
-                    format!("line {line_no}: {why}"),
-                    is_torn_shape(false, line),
-                ));
+                fail = Some((format!("line {line_no}: {why}"), is_torn_shape(false, line)));
                 break;
             }
         };
@@ -1268,7 +1265,9 @@ fn scan_active_cap(
         }
         if rec.prev != head {
             fail = Some((
-                format!("line {line_no}: hash chain broken (prev does not match the previous record)"),
+                format!(
+                    "line {line_no}: hash chain broken (prev does not match the previous record)"
+                ),
                 false,
             ));
             break;
@@ -1355,7 +1354,11 @@ fn read_snapshot_checked(dir: &Path, s: &SnapshotRef) -> Result<Snapshot, Ledger
     let p = dir.join(&s.file);
     let bytes = atomic::read_capped(&p, 16 << 30)?;
     if blake3::hash(&bytes).to_hex().as_str() != s.blake3 {
-        return Err(corrupt(&s.file, 0, "snapshot digest differs from the manifest"));
+        return Err(corrupt(
+            &s.file,
+            0,
+            "snapshot digest differs from the manifest",
+        ));
     }
     let snap: Snapshot =
         serde_json::from_slice(&bytes).map_err(|e| corrupt(&s.file, 0, e.to_string()))?;
@@ -1428,10 +1431,7 @@ fn load_base(
     dir: &Path,
     m: &Manifest,
 ) -> Result<(CampaignState, u64, String, Option<u64>, u64), LedgerError> {
-    let snapshot = m
-        .snapshot
-        .as_ref()
-        .filter(|s| dir.join(&s.file).exists());
+    let snapshot = m.snapshot.as_ref().filter(|s| dir.join(&s.file).exists());
     let (state, seq, head, from_snapshot, replayed) = match snapshot {
         Some(s) => {
             for sealed in &m.sealed {
@@ -1454,7 +1454,8 @@ fn load_base(
             // BLAKE3 at ~1 GB/s: a week of 64 MiB segments costs well under a second)
             for sealed in &m.sealed {
                 let p = dir.join(&sealed.file);
-                let (_, d) = atomic::blake3_file(&p).map_err(io_err(&p, "digest sealed segment"))?;
+                let (_, d) =
+                    atomic::blake3_file(&p).map_err(io_err(&p, "digest sealed segment"))?;
                 if d != sealed.blake3 {
                     return Err(corrupt(
                         &sealed.file,
@@ -1566,9 +1567,7 @@ pub fn open_read_only(cdir: &Path) -> Result<LedgerView, LedgerError> {
         state,
         seq: scan.seq,
         head: scan.head,
-        unverified_tail: scan
-            .torn
-            .map(|why| ((bytes.len() - scan.pos) as u64, why)),
+        unverified_tail: scan.torn.map(|why| ((bytes.len() - scan.pos) as u64, why)),
         manifest,
         mark,
     })
@@ -1684,7 +1683,8 @@ impl Ledger {
                 || (name.starts_with("segment-") && name.ends_with(".jsonl"))
                 || (name.starts_with("snapshot-") && name.ends_with(".json"))
             {
-                ops.remove(&e.path()).map_err(io_err(&dir, "remove leftover"))?;
+                ops.remove(&e.path())
+                    .map_err(io_err(&dir, "remove leftover"))?;
             }
         }
         let _ = atomic::remove_stale_temporaries(&dir);
@@ -1742,9 +1742,7 @@ impl Ledger {
         if let Some(w) = l.warnings.first() {
             return Err(LedgerError::Poisoned { why: w.clone() });
         }
-        l.ops
-            .sync_dir(&dir)
-            .map_err(io_err(&dir, "sync dir"))?;
+        l.ops.sync_dir(&dir).map_err(io_err(&dir, "sync dir"))?;
         let mbytes = manifest_bytes(&l.manifest);
         install(l.ops.as_ref(), &dir.join(MANIFEST_FILE), &mbytes)
             .map_err(|f| install_err(&dir.join(MANIFEST_FILE), f))?;
@@ -1795,8 +1793,7 @@ impl Ledger {
             ),
             Err(_) => None,
         };
-        let (mut state, base_seq, base_head, from_snapshot, replayed) =
-            load_base(&dir, &manifest)?;
+        let (mut state, base_seq, base_head, from_snapshot, replayed) = load_base(&dir, &manifest)?;
         report.from_snapshot = from_snapshot;
         report.replayed = replayed;
         let am = mark_for_active(&manifest, mark.as_ref())?.cloned();
@@ -1897,7 +1894,11 @@ impl Ledger {
             let saved = match &pending {
                 Some(p) if p.truncate_to == truncate_to => p.info.saved_as.clone(),
                 _ => {
-                    let name = format!("torn-{:012}-{}.bin", info.last_good_seq, l.clock.now_utc().0);
+                    let name = format!(
+                        "torn-{:012}-{}.bin",
+                        info.last_good_seq,
+                        l.clock.now_utc().0
+                    );
                     let p = dir.join(&name);
                     l.ops
                         .write_new_synced(&p, dropped)
@@ -1920,7 +1921,11 @@ impl Ledger {
             report.recovery = Some(info);
         } else if let Some(p) = pending {
             // The truncation happened before a crash; its record may be missing.
-            if !l.state.recoveries.contains(&p.info.saved_as.clone().unwrap_or_default()) {
+            if !l
+                .state
+                .recoveries
+                .contains(&p.info.saved_as.clone().unwrap_or_default())
+            {
                 l.finish_recovery(&p.info)?;
             } else {
                 let _ = l.ops.remove(&dir.join(RECOVERY_PENDING_FILE));
@@ -1939,9 +1944,7 @@ impl Ledger {
             l.file
                 .write_at(mark_off, tail)
                 .map_err(io_err(&seg_path, "fsync gate rewrite"))?;
-            l.file
-                .sync()
-                .map_err(io_err(&seg_path, "fsync gate"))?;
+            l.file.sync().map_err(io_err(&seg_path, "fsync gate"))?;
             report.regated_bytes = tail.len() as u64;
             l.write_mark();
         }
@@ -2064,12 +2067,12 @@ impl Ledger {
         let now = self.clock.monotonic();
         let due = self.unsynced + n >= self.cfg.lazy_max_records
             || now.saturating_sub(self.last_sync) >= Duration::from_millis(self.cfg.lazy_max_ms);
-        if need_sync || due {
-            if let Err(e) = self.file.sync() {
-                let err = io_err(&path, "fsync")(e);
-                self.fail_write(start_len, saved_state, &err);
-                return Err(err);
-            }
+        if (need_sync || due)
+            && let Err(e) = self.file.sync()
+        {
+            let err = io_err(&path, "fsync")(e);
+            self.fail_write(start_len, saved_state, &err);
+            return Err(err);
         }
         self.active_len += buf.len() as u64;
         self.active_hasher.update(&buf);
@@ -2088,8 +2091,9 @@ impl Ledger {
             });
             if retry_ok && let Err(e) = self.rotate() {
                 self.rotation_failed_at = Some(now);
-                self.warnings
-                    .push(format!("rotation failed after record {seq} (retried later): {e}"));
+                self.warnings.push(format!(
+                    "rotation failed after record {seq} (retried later): {e}"
+                ));
             }
         }
         Ok(seqs)
@@ -2150,7 +2154,7 @@ impl Ledger {
             offset: self.active_len,
             head: self.head.clone(),
         };
-        let slot = (self.mark_counter % 2) as u64 * MARK_SLOT_BYTES as u64;
+        let slot = (self.mark_counter % 2) * MARK_SLOT_BYTES as u64;
         let r = self
             .mark_file
             .write_at(slot, &m.encode())
@@ -2399,7 +2403,11 @@ pub fn verify_chain_capture(
         }
     }
     if seq + 1 != m.active.first_seq || head != m.active.prev {
-        return Err(corrupt(MANIFEST_FILE, 0, "active segment does not continue the chain"));
+        return Err(corrupt(
+            MANIFEST_FILE,
+            0,
+            "active segment does not continue the chain",
+        ));
     }
     let am = mark_for_active(&m, mark.as_ref())?;
     let p = dir.join(&m.active.file);

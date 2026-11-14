@@ -13,8 +13,8 @@ use rustred_campaign::atomic::{self, AtomicError, Mode, Staging, StagingWrite};
 use rustred_campaign::ledger::{
     self, Event, FileOps, LedgerConfig, LedgerError, OpenOptions, SegmentFile,
 };
-use std::os::unix::fs::FileExt;
 use rustred_campaign::state::EvidenceLevel;
+use std::os::unix::fs::FileExt;
 
 /// A writer that accepts `budget` bytes, then fails like a full disk (ENOSPC) or a quota (EDQUOT).
 struct Quota {
