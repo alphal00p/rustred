@@ -459,6 +459,7 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
     for (i, x) in tj.get(&tline, "fixed").unwrap().arr().iter().enumerate() { if let J::Num(..) = x { fixed[i] = Some(x.int(&tline)); } }
     let eq_aff: Vec<Aff> = tj.get(&tline, "equations").map(|x| x.arr().iter().map(|e| parse_affine(e.s(&tline)).unwrap_or_else(|er| die(&format!("case equation: {}", er)))).collect()).unwrap_or_default();
     let exc: Vec<Vec<&[u8]>> = tj.get(&tline, "exceptions").map(|e| e.arr().iter().map(|b| b.arr().iter().map(|x| x.s(&tline)).collect()).collect()).unwrap_or_default();
+    if exc.iter().any(|b| b.is_empty()) { die("UNSUPPORTED: EMPTY_EXCEPTION_BRANCH (an exception AND-list is empty; the engine never writes one (solver/exception.rs) and refuses it in replay (node/replay/mod.rs:823); read logically it excludes the rule everywhere, as rr_node reduce (node/mastermap.rs:456) and cover (node/driver.rs:1527) treat it)"); }
     let seeds: Vec<Pat> = tj.get(&tline, "seeds").unwrap_or_else(|| die("MISSING_SEEDS: the rule record has no seeds; instance-span needs the seed set")).arr().iter().map(|x| parse_pat(x.s(&tline))).collect();
     // recenter: the rule record's own (new tables), else the certificate's cert_rule (older rr_node dumps keep it
     // there only), else none

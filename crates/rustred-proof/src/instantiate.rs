@@ -81,6 +81,10 @@ fn facts_for_rule(line: &[u8], keys: &[Vec<i64>]) -> Vec<String> {
     for (i, x) in j.get(line, "fixed").unwrap().arr().iter().enumerate() { if let J::Num(..) = x { fixed[i] = Some(x.int(line)); } }
     let eqs: Vec<Aff> = j.get(line, "equations").map(|x| x.arr().iter().map(|e| parse_affine(e.s(line)).unwrap_or_else(|er| die(&format!("case equation: {}", er)))).collect()).unwrap_or_default();
     let exc: Vec<Vec<&[u8]>> = j.get(line, "exceptions").map(|e| e.arr().iter().map(|b| b.arr().iter().map(|x| x.s(line)).collect()).collect()).unwrap_or_default();
+    if exc.iter().any(|b| b.is_empty()) {
+        // typed per-record refusal: never skipped silently, never evaluated (see the interface file, section 3)
+        return keys.iter().map(|key| format!("{{\"schema\":\"rustred.proof-kernel.instantiate.v1\",\"rule\":{},\"key\":{:?},\"in_case\":null,\"chart_ok\":null,\"branch\":null,\"regular\":\"unknown\",\"rhs\":[],\"zero_test\":\"exact\",\"error\":\"EMPTY_EXCEPTION_BRANCH\"}}", idx, key)).collect();
+    }
     let wl: Vec<&[u8]> = match j.get(line, "witness_loci") { Some(J::Arr(a)) => a.iter().map(|x| x.s(line)).collect(), _ => vec![] };
     if let Some(J::Num(..)) = j.get(line, "witness_loci_elided") { die("UNSUPPORTED: witness loci elided in the record (fail closed)"); }
     for s in &wl { if find(s, b"...") || find(s, b"elided") { die("UNSUPPORTED: an elided witness locus in the record (fail closed)"); } }
@@ -169,8 +173,11 @@ pub fn run_instantiate(requests: &str, out_path: &str) -> String {
             } else {
                 let t = term.unwrap_or_else(|| die("coefficient request without term")) as usize;
                 let rhs = fj.get(b, "rhs").unwrap().arr();
-                if t >= rhs.len() { die("term index out of range"); }
-                (String::from_utf8_lossy(rhs[t].get(b, "coef").unwrap().s(b)).to_string(), "{}".to_string())
+                if let Some(J::Str(..)) = fj.get(b, "error") { ("unknown".to_string(), format!("{{\"error\":{}}}", jstr(&String::from_utf8_lossy(fj.get(b, "error").unwrap().s(b))))) }
+                else {
+                    if t >= rhs.len() { die("term index out of range"); }
+                    (String::from_utf8_lossy(rhs[t].get(b, "coef").unwrap().s(b)).to_string(), "{}".to_string())
+                }
             };
             lines_out.push(format!("{{\"schema\":\"rustred.campaign.fact.v1\",\"table\":{},\"record\":{},\"label\":{},\"key\":{:?},\"kind\":{},{}\"value\":{},\"method\":\"exact\",\"evidence\":{}}}",
                 echo("table"), echo("record"), echo("label"), r.key, jstr(kind), term.map(|t| format!("\"term\":{},", t)).unwrap_or_default(), jstr(&value), evidence));
@@ -185,4 +192,24 @@ pub fn run_instantiate(requests: &str, out_path: &str) -> String {
     std::fs::rename(&part, out_path).unwrap_or_else(|e| die(&format!("rename: {}", e)));
     format!("{{\"schema\":\"rustred.proof-kernel.instantiate-summary.v1\",\"verdict\":\"DONE\",\"requests\":{},\"rules\":{},\"lines\":{},\"out\":{},\"seconds\":{:.3},\"peak_rss_mb\":{:.1}}}",
         reqs.len(), nrec, lines_out.len(), jstr(out_path), t0.elapsed().as_secs_f64(), peak_mb())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn rule(exc: &str) -> Vec<u8> {
+        format!(r#"{{"type":"rule","chart":"11000000000000000000","index":7,"fixed":[null,null,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"equations":[],"target":"I(n0,n1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)","rhs":[["I(n0-1,n1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)","(n0-2)/(d-2*n1)"],["I(n0,n1-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)","(n1)/(n0)"]],"exceptions":{exc}}}"#).into_bytes()
+    }
+    #[test]
+    fn exceptions_branches_and_empty_and_list() {
+        // ordinary record: branch hit, zero coefficient, irregular term
+        let l = rule(r#"[["-1+n0"]]"#);
+        let f = facts_for_rule(&l, &[vec![1, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], vec![2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]);
+        assert!(f[0].contains("\"branch\":0") && f[0].contains("\"regular\":\"regular\""));
+        assert!(f[1].contains("\"branch\":null") && f[1].contains("\"coef\":\"zero\"") && f[1].contains("\"error\":null"));
+        // an EMPTY AND-list is never skipped: typed per-record error (the engine never writes one; replay refuses it)
+        let l = rule(r#"[["-1+n0"],[]]"#);
+        let f = facts_for_rule(&l, &[vec![2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]);
+        assert!(f[0].contains("\"error\":\"EMPTY_EXCEPTION_BRANCH\"") && f[0].contains("\"regular\":\"unknown\""));
+    }
 }

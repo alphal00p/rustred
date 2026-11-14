@@ -528,6 +528,7 @@ pub fn run_stored(args: &StoredArgs, engine: Option<&EngineRows>) -> String {
     // ---------------------------------------------------------------- K5: per-instance exact proof in d
     let bd = bsel[DV];
     let exc: Vec<Vec<&[u8]>> = tj.get(&tline, "exceptions").map(|e| e.arr().iter().map(|b| b.arr().iter().map(|x| x.s(&tline)).collect()).collect()).unwrap_or_default();
+    if exc.iter().any(|b| b.is_empty()) { die("UNSUPPORTED: EMPTY_EXCEPTION_BRANCH (an exception AND-list is empty; the engine never writes one (solver/exception.rs) and refuses it in replay (node/replay/mod.rs:823); read logically it excludes the rule everywhere, as rr_node reduce (node/mastermap.rs:456) and cover (node/driver.rs:1527) treat it)"); }
     let weight_den: Vec<bool> = (0..dens.len()).map(|k| wden.contains(&k)).collect();
     let mut inst_json = vec![]; let mut inst_fail = 0; let mut inst_proved = 0; let mut inst_other = 0;
     for key in &args.keys {
