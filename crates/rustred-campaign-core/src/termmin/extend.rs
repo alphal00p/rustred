@@ -346,6 +346,8 @@ impl ImportExtension {
                             hand_name: None,
                             verification_sha256: None,
                             check: check_v,
+                            // a terminal-minimisation relation is a candidate with its own check, not a keys-only source
+                            diagnostic: false,
                         },
                     );
                 u.supplied = Some(src.clone());

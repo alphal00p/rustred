@@ -173,13 +173,14 @@ impl ExactRecordFacts {
                             Ok(x) => x,
                             Err(e) => return Parsed::Bad(e),
                         };
-                        let num = match Poly::parse(n.trim(), arity, true) {
+                        // exact coefficients (any size: import3 item 1)
+                        let num = match Poly::parse_exact(n.trim(), arity, true) {
                             Ok(p) => PoleLocus::new(PoleKind::Denominator, &p),
                             Err(e) => return Parsed::Bad(format!("numerator: {e:?}")),
                         };
                         let den = match d {
                             None => None,
-                            Some(d) => match Poly::parse(d.trim(), arity, true) {
+                            Some(d) => match Poly::parse_exact(d.trim(), arity, true) {
                                 Ok(p) => Some(PoleLocus::new(PoleKind::Denominator, &p)),
                                 Err(e) => return Parsed::Bad(format!("denominator: {e:?}")),
                             },
