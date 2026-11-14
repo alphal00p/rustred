@@ -153,6 +153,36 @@ pub enum FakeOp {
     },
     /// Finish with an error OUTCOME (`code` in 40 / 41 / 42 / 51 / 70) and exit with it.
     Fail { code: ExitCode, message: String },
+    /// Kind solve-recipe (lane adapters): the record of the NEXT line of the `keys` input after `ms`.
+    Relation {
+        #[serde(default)]
+        ms: u64,
+        verdict: crate::classify::recipe::Verdict,
+        /// Right-hand-side keys of a SOLVED record (each of the input key's length).
+        #[serde(default)]
+        rhs: Vec<Vec<i64>>,
+    },
+    /// Kind solve-recipe (lane adapters): emulate one deviation of a real child from the contract, so that the
+    /// supervisor's refusal and conformance-diagnosis paths are testable.
+    RecipeQuirk { quirk: RecipeQuirk },
+}
+
+/// Deviations the fake child can emulate in kind solve-recipe (lane adapters; interfaces/adapters.md 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RecipeQuirk {
+    /// OUTCOME `spec_blake3` = the PLAIN BLAKE3 of job.json (the engine line's verb before contractfix2's domains).
+    PlainSpecDigest,
+    /// `outputs.extra[results]` without `canonical_blake3`.
+    NoCanonicalDigest,
+    /// `job.effective` without its `blake3` (OUTCOME unparsable by the contract).
+    EffectiveWithoutDigest,
+    /// The first SOLVED record says `proof.ok: false`.
+    UnprovedSolved,
+    /// The first record's key differs from its input line's key.
+    WrongKey,
+    /// A BUDGET_WALL record without a time decision (`time_decided` false).
+    NoTimeDecision,
 }
 
 /// A helper process to fork.

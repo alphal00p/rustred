@@ -21,6 +21,9 @@
   "record": {
     "accepted": null,
     "attention": null,
+    "children": [
+      "T162-item-00005"
+    ],
     "cpu_ms": 2500,
     "created_seq": 53,
     "economy": null,

@@ -42,7 +42,9 @@ use std::ops::Range;
 /// keys, canonical numbers, verdict rule limited to verdict records, `family_file` rule (audit A, 2026-11-14).
 /// 3 = `-0` refused, integers outside the f64 range refused, depth limit = serde_json's, domain-separated record and
 /// stream digests (lane contractfix2, audit ac2-m1 / m2 / m7, 2026-11-14).
-pub const VOLATILE_KEYS_VERSION: u32 = 3;
+/// 4 = records of type `relation` (kind solve-recipe) have the volatile keys `seconds`, `vmhwm_kb` (lane adapters,
+/// 2026-11-14).
+pub const VOLATILE_KEYS_VERSION: u32 = 4;
 
 /// BLAKE3 key-derivation context of the per-record digest (one canonical line + "\n"; event
 /// `rule_committed.canon_blake3`, [`canonical_line_blake3`], `seal::RecordPos` / `seal::RecordInfo`).
@@ -61,7 +63,7 @@ pub fn record_digest_of_canonical(canonical: &[u8]) -> String {
 }
 
 /// Volatile top-level keys per record type of the table and cert streams.
-pub const VOLATILE_BY_TYPE: [(&str, &[&str]); 9] = [
+pub const VOLATILE_BY_TYPE: [(&str, &[&str]); 10] = [
     ("header", &["zero_seconds"]),
     ("rule", &["seconds_search", "lift_seconds"]),
     ("chart_end", &["seconds", "vmhwm_kb"]),
@@ -71,6 +73,8 @@ pub const VOLATILE_BY_TYPE: [(&str, &[&str]); 9] = [
     ("chart_error", &["seconds", "vmhwm_kb"]),
     ("cert_end", &["seconds", "vmhwm_kb"]),
     ("cert_partial", &["seconds", "vmhwm_kb"]),
+    // kind solve-recipe (coord-recipe-solve.md 7; lane adapters, volatile list v4)
+    ("relation", &["seconds", "vmhwm_kb"]),
 ];
 
 /// Record types that follow the VERDICT rule (a key is volatile iff it equals `seconds` or `utc` or ends in

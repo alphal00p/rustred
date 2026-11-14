@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "ledger-snapshot.schema.json",
   "title": "Ledger snapshot (CDIR/ledger/snapshot-<seq>.json): the reduced state after record `seq`",
-  "description": "AS BUILT: rustred_campaign::ledger::Snapshot { state: state::CampaignState }. The state is an internal serialisation of the reducer (checked against the manifest digest and by `verify`); only its envelope and top-level members are fixed here.",
+  "description": "AS BUILT: rustred_campaign::ledger::Snapshot { state: state::CampaignState }. v2 (ledgerfix2): items carry `children` (parent -> children index), jobs `launch_session`, attempt state `unconfirmed`; a v1 snapshot is ignored by readers (full replay). The state is an internal serialisation of the reducer (checked against the manifest digest and by `verify`); only its envelope and top-level members are fixed here.",
   "x-rr-names": [
-    "rustred.campaign.snapshot.v1"
+    "rustred.campaign.snapshot.v2"
   ],
   "x-rr-owner": "I-LEDGER",
   "x-rr-struct": "rustred_campaign::ledger::Snapshot",
@@ -19,7 +19,7 @@
   "additionalProperties": false,
   "properties": {
     "schema": {
-      "const": "rustred.campaign.snapshot.v1"
+      "const": "rustred.campaign.snapshot.v2"
     },
     "seq": {
       "type": "integer",

@@ -125,11 +125,13 @@ impl ExitRouting {
 
     /// The child record for a dropped-line mask, if any.
     pub fn child(&self, dropped: u64) -> Option<&ExitChild> {
+        // a slot beyond the 64-bit mask can never match a closure child (the closure refuses arity > 64: re-audit F4)
         self.children.iter().find(|c| {
-            c.dropped_table_slots
-                .iter()
-                .fold(0u64, |a, &s| a | (1 << s))
-                == dropped
+            c.dropped_table_slots.iter().all(|&s| s < 64)
+                && c.dropped_table_slots
+                    .iter()
+                    .fold(0u64, |a, &s| a | (1u64 << s))
+                    == dropped
         })
     }
 }
@@ -139,7 +141,7 @@ pub fn check_exits(cl: &super::Closure, routing: Option<&ExitRouting>) -> Vec<Ex
     let s = cl.summary();
     let ex = cl.exit_sets();
     let mut out = vec![];
-    let sets = cl.hand_down_sets();
+    let sets = cl.exit_counts();
     let mut masks: BTreeMap<u64, u64> = s.hand_downs.iter().map(|(&m, v)| (m, v[0])).collect();
     for &m in sets.keys() {
         masks.entry(m).or_default();
@@ -164,8 +166,8 @@ pub fn check_exits(cl: &super::Closure, routing: Option<&ExitRouting>) -> Vec<Ex
         out.push(ExitStatus {
             dropped: m,
             terms,
-            distinct_keys: ks.map(|k| k.len() as u64).unwrap_or(0),
-            key_set_digest: ks.map(|k| k.digest()),
+            distinct_keys: ks.map(|k| k.0).unwrap_or(0),
+            key_set_digest: ks.map(|k| k.1.clone()),
             status,
             class,
             lane,
