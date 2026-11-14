@@ -254,6 +254,9 @@ fn solver_error(error: &SolverError) -> Value {
         SolverError::Resources(error) => {
             json!({"kind":"resources","message":bounded_message(&error.to_string())})
         }
+        // Variants of other solvers (the sector-box engine's unlucky samples,
+        // limits, seeding invariants and master checks): by their message.
+        other => json!({"kind":"other","message":bounded_message(&other.to_string())}),
     }
 }
 
