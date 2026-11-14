@@ -123,7 +123,8 @@ fn audit_a_n4_variable_cannot_collide_with_d() {
 // ============================================================================ frame, records, domains, dispatch
 
 use rustred_campaign_core::cover::{
-    CoverError, Dispatch, Dispatcher, LoadError, SourceFormat, Table, WitnessProvenance,
+    Assurance, CoverError, CreditBasis, Dispatch, Dispatcher, LoadError, SourceFormat, Table,
+    UnionResult, WitnessProvenance,
 };
 use rustred_campaign_core::domain::{
     CaseDomain, DomainError, DomainOptions, NotInCase, PoleKind, TargetMap, TargetSlot,
@@ -351,8 +352,9 @@ fn audit_a_m2_non_partition_records_are_never_candidates() {
     // mixed table: record 0 (Numerical, applies everywhere), record 1 (Partition, n0 = 1), record 2 (no dispatch
     // field = Partition for the engine, applies everywhere)
     let r0 = numerical.replace(r#""index":0"#, r#""index":10"#);
-    let r1 = r#"{"type":"rule","chart":"110","index":11,"fixed":[1,null,null],"equations":[],"target":"I(1,n1,n2)","rhs":[],"exceptions":[],"dispatch":"Partition"}"#;
-    let r2 = r#"{"type":"rule","chart":"110","index":12,"fixed":[null,null,null],"equations":[],"target":"I(n0,n1,n2)","rhs":[],"exceptions":[]}"#;
+    // (witness loci present: since re-audit RA-MAJOR-1 a record without them blocks where selected)
+    let r1 = r#"{"type":"rule","chart":"110","index":11,"fixed":[1,null,null],"equations":[],"target":"I(1,n1,n2)","rhs":[],"exceptions":[],"dispatch":"Partition","witness_loci":[]}"#;
+    let r2 = r#"{"type":"rule","chart":"110","index":12,"fixed":[null,null,null],"equations":[],"target":"I(n0,n1,n2)","rhs":[],"exceptions":[],"witness_loci":[]}"#;
     let r3 = rule3("")
         .replace(
             r#""dispatch":"Partition""#,
@@ -406,18 +408,18 @@ fn audit_a_m3_selected_but_unusable_rule_blocks_the_key() {
     let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
     let k = [2, 1, 0];
     let d = disp.first_match(&k).unwrap();
+    let Dispatch::Blocked { at, reason } = &d else {
+        panic!("{d:?}")
+    };
     assert_eq!(
-        d,
-        Dispatch::Blocked {
-            at: rustred_campaign_core::cover::RuleRef {
-                table: 0,
-                record: 0,
-                label: 1
-            },
-            reason: Verdict::OnPole {
-                kind: PoleKind::Witness,
-                index: 0
-            }
+        (at.table, at.record, at.source_index, at.label),
+        (0, 0, 0, 1)
+    );
+    assert_eq!(
+        *reason,
+        Verdict::OnPole {
+            kind: PoleKind::Witness,
+            index: 0
         }
     );
     assert!(d.is_open() && !d.is_covered() && d.winner().is_none());
@@ -431,7 +433,9 @@ fn audit_a_m3_selected_but_unusable_rule_blocks_the_key() {
         Some(1)
     );
     // union mode lists R1 as blocked, R2 as applying
-    let (yes, open) = disp.union_cover(&k).unwrap();
+    let UnionResult::Rules { applies: yes, open } = disp.union(&k).unwrap() else {
+        panic!()
+    };
     assert_eq!(yes.iter().map(|w| w.label).collect::<Vec<_>>(), vec![2]);
     assert_eq!(open.len(), 1);
     // batch counts it as blocked, not uncovered and not covered
@@ -764,7 +768,7 @@ fn audit_a_m6_caller_mistakes_are_errors_not_uncovered() {
         })
     );
     assert!(disp.first_match_slow(&[1]).is_err());
-    assert!(disp.union_cover(&[1]).is_err());
+    assert!(disp.union(&[1]).is_err());
     assert!(disp.batch(&[vec![1, 1, 0], vec![1]], 2).is_err());
     assert!(matches!(
         Dispatcher::new(vec![], vec![]),
@@ -913,7 +917,13 @@ fn naive(tables: &[Table], prio: &[usize], mask: Option<&[bool]>, key: &[i32]) -
             let at = RuleRef {
                 table: t,
                 record: r,
+                source_index: r,
                 label: tables[t].labels[r],
+                basis: CreditBasis {
+                    witness: Assurance::Caller,
+                    target: Assurance::Caller,
+                    chart_checked: mask.is_some(),
+                },
             };
             let v = d.applies(key);
             match v.stage() {
@@ -978,14 +988,21 @@ fn audit_a_m4_fast_index_equals_reference_scan_random() {
                     naive(&tables, &prio, disp.chart(), k),
                     "n={n} key {k:?}"
                 );
-                let (yes, open) = disp.union_cover(k).unwrap();
-                match &fast {
-                    Dispatch::Covered(w) => assert!(yes.contains(w)),
-                    Dispatch::Blocked { at, .. } | Dispatch::Undecided { at, .. } => {
-                        assert!(open.iter().any(|(r, _)| r == at))
+                match (&fast, disp.union(k).unwrap()) {
+                    (Dispatch::Covered(w), UnionResult::Rules { applies, .. }) => {
+                        assert!(applies.contains(w))
                     }
-                    Dispatch::Uncovered => assert!(yes.is_empty() && open.is_empty()),
-                    Dispatch::OutsideChart { .. } => assert!(yes.is_empty() && open.is_empty()),
+                    (
+                        Dispatch::Blocked { at, .. } | Dispatch::Undecided { at, .. },
+                        UnionResult::Rules { open, .. },
+                    ) => assert!(open.iter().any(|(r, _)| r == at)),
+                    (Dispatch::Uncovered, UnionResult::Rules { applies, open }) => {
+                        assert!(applies.is_empty() && open.is_empty())
+                    }
+                    (Dispatch::OutsideChart { slot }, UnionResult::OutsideChart { slot: s }) => {
+                        assert_eq!(*slot, s)
+                    }
+                    (f, u) => panic!("first match {f:?} vs union {u:?}"),
                 }
                 tally[match fast {
                     Dispatch::Covered(_) => 0,
@@ -1152,8 +1169,9 @@ fn audit_b_m3_bank_predicate_fields_are_required() {
             "missing {field} must be refused"
         );
     }
+    // null = empty list only in the cached loci (re-audit RB m3, see `reaudit_b_m3_bank_null_only_where_the_bank_uses_it`)
     let mut v: serde_json::Value = serde_json::from_str(&full).unwrap();
-    v["raw_written_exceptions_OR_of_AND"] = serde_json::Value::Null;
+    v["cached_domain_exception_or_pole_AND_loci"] = serde_json::Value::Null;
     assert!(serde_json::from_value::<BankPredicate>(v).is_ok());
 }
 
@@ -1183,7 +1201,10 @@ fn audit_b_m4_exports_without_witness_loci_are_flagged() {
     )
     .unwrap();
     assert_eq!(t.provenance.witness, WitnessProvenance::Checked);
-    let mixed = table_file(&format!("{H3}\n{raw}\n{}", rule3("")));
+    let mixed = table_file(&format!(
+        "{H3}\n{raw}\n{}",
+        rule3("").replace(r#""index":0"#, r#""index":1"#)
+    ));
     let t = Table::from_table_file("m", "m", &mixed, DomainOptions::default()).unwrap();
     assert_eq!(
         t.provenance.witness,
@@ -1235,4 +1256,518 @@ fn audit_b_m3_deep_nesting_is_a_typed_error() {
         ")".repeat(MAX_NESTING - 2)
     );
     assert_eq!(Poly::parse_d_free(&ok, 3).unwrap(), Poly::var(0));
+}
+
+// ======================================================= re-audits (WS/notes/implementer.reaudit-core-{A,B}.md)
+
+use rustred_campaign_core::cover::{
+    Attestation, AttestedRecords, RecordMeta, UnionCover, WitnessStatus,
+};
+
+/// An export line (no target, no witness loci) of arity 3 with the given index and extra fields.
+fn export3(index: i64, extra: &str) -> String {
+    format!(
+        r#"{{"i":{index},"index":{index},"chart":"110","fixed":[null,null,null],"equations":[],"exceptions":[],"dispatch":"Partition"{extra}}}"#
+    )
+}
+
+/// A raw rule line of arity 3 with the given index, target and extra fields.
+fn raw3(index: i64, target: &str, extra: &str) -> String {
+    format!(
+        r#"{{"type":"rule","chart":"110","index":{index},"fixed":[null,null,null],"equations":[],"target":"{target}","rhs":[],"exceptions":[],"dispatch":"Partition"{extra}}}"#
+    )
+}
+
+fn att(witness: AttestedRecords, targets: AttestedRecords) -> Attestation {
+    Attestation {
+        witness_complete: witness,
+        targets_canonical: targets,
+        source_digest: Some("sha256:unit-test".into()),
+        provenance: "unit test".into(),
+    }
+}
+
+fn export_opts() -> DomainOptions {
+    DomainOptions {
+        targets: EXPORT,
+        ..Default::default()
+    }
+}
+
+/// RA-MAJOR-1: an elided (or simply unknown) witness status was informational only: a case-export table
+/// (`WitnessProvenance::NotCarried`) credited every key its records applied to (39 T178B box keys rest on elided
+/// records). Now the witness status is per record and ENFORCED by dispatch: a selected record whose status is not
+/// `Complete` blocks the key, unless (a) the caller turned the check off (visible in every credit and in the batch
+/// tally) or (b) an attestation covers the record (checked against the raw table when given, else marked unchecked in
+/// the provenance and in every credit).
+#[test]
+fn reaudit_ra_major_1_witness_status_is_enforced_by_dispatch() {
+    let export = table_file(&format!("{H3}\n{}", export3(0, "")));
+    // (0) strict default: Blocked(WitnessNotCarried), never a credit
+    let t = Table::from_table_file("e", "e", &export, export_opts()).unwrap();
+    assert_eq!(t.meta[0].witness, WitnessStatus::NotCarried);
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    let d = disp.first_match(&[1, 1, 0]).unwrap();
+    assert!(
+        matches!(&d, Dispatch::Blocked { reason: Verdict::WitnessNotCarried, at } if at.label == 0),
+        "{d:?}"
+    );
+    assert_eq!(d, disp.first_match_slow(&[1, 1, 0]).unwrap());
+    let rep = disp.batch(&[vec![1, 1, 0]], 1).unwrap();
+    assert_eq!(
+        (rep.covered, rep.blocked, rep.tally.blocked_witness),
+        (0, 1, 1)
+    );
+    assert!(!disp.summary().is_strict() || disp.summary().tables[0].witness_not_complete == 1);
+    // (a) the witness check off: a credit, but it says so
+    let off = DomainOptions {
+        witness: false,
+        ..export_opts()
+    };
+    let disp = Dispatcher::new(
+        vec![Table::from_table_file("e", "e", &export, off).unwrap()],
+        vec![0],
+    )
+    .unwrap();
+    let w = disp.first_match(&[1, 1, 0]).unwrap().winner().unwrap();
+    assert_eq!(w.basis.witness, Assurance::CheckDisabled);
+    assert_eq!(w.basis.target, Assurance::AttestedUnchecked);
+    let rep = disp.batch(&[vec![1, 1, 0]], 1).unwrap();
+    assert_eq!(
+        (rep.covered, rep.tally.witness_check_off, rep.tally.strict),
+        (1, 1, 0)
+    );
+    assert!(!disp.summary().is_strict());
+    // (b1) attestation without the raw table: a credit resting on an UNCHECKED attestation
+    let a = att(AttestedRecords::All, AttestedRecords::None);
+    let t = Table::from_table_file_attested("e", "e", &export, export_opts(), &a, None).unwrap();
+    let ar = t.provenance.attestation.clone().unwrap();
+    assert_eq!(
+        (ar.checked, ar.witness_records, ar.target_records),
+        (false, 1, 0)
+    );
+    assert_eq!(ar.source_digest.as_deref(), Some("sha256:unit-test"));
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    let w = disp.first_match(&[1, 1, 0]).unwrap().winner().unwrap();
+    assert_eq!(w.basis.witness, Assurance::AttestedUnchecked);
+    assert!(w.basis.rests_on_unchecked_attestation());
+    assert_eq!(
+        disp.batch(&[vec![1, 1, 0]], 1)
+            .unwrap()
+            .tally
+            .attested_unchecked,
+        1
+    );
+    // (b2) attestation CHECKED against the raw table: the raw witness poles are carried into the domain
+    let raw = table_file(&format!(
+        "{H3}\n{}",
+        raw3(0, "I(n0,n1,n2)", r#","witness_loci":["n0-2"]"#)
+    ));
+    let t =
+        Table::from_table_file_attested("e", "e", &export, export_opts(), &a, Some(&raw)).unwrap();
+    assert!(t.provenance.attestation.as_ref().unwrap().checked);
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    let w = disp.first_match(&[1, 1, 0]).unwrap().winner().unwrap();
+    assert_eq!(w.basis.witness, Assurance::AttestedChecked);
+    assert!(matches!(
+        disp.first_match(&[2, 1, 0]).unwrap(),
+        Dispatch::Blocked {
+            reason: Verdict::OnPole {
+                kind: PoleKind::Witness,
+                ..
+            },
+            ..
+        }
+    ));
+    // a claim the raw table contradicts is a load error: elided raw loci, missing loci, missing record, other domain
+    for raw_line in [
+        raw3(0, "I(n0,n1,n2)", r#","witness_loci":["elided"]"#),
+        raw3(0, "I(n0,n1,n2)", ""),
+        raw3(7, "I(n0,n1,n2)", r#","witness_loci":[]"#),
+        raw3(0, "I(n0,n1,n2)", r#","witness_loci":[]"#)
+            .replace(r#""exceptions":[]"#, r#""exceptions":[["n0-3"]]"#),
+    ] {
+        let raw = table_file(&format!("{H3}\n{raw_line}"));
+        assert!(
+            matches!(
+                Table::from_table_file_attested("e", "e", &export, export_opts(), &a, Some(&raw)),
+                Err(LoadError::Attestation { .. })
+            ),
+            "{raw_line}"
+        );
+    }
+    // the attestation a raw table supports leaves the elided record out: it stays NotCarried and blocks
+    let export2 = table_file(&format!(
+        "{H3}\n{}\n{}",
+        export3(0, ""),
+        export3(1, "").replace(r#""fixed":[null,null,null]"#, r#""fixed":[2,null,null]"#)
+    ));
+    let raw2 = table_file(&format!(
+        "{H3}\n{}\n{}",
+        raw3(0, "I(n0,n1,n2)", r#","witness_loci":["elided"]"#),
+        raw3(1, "I(2,n1,n2)", r#","witness_loci":[]"#)
+            .replace(r#""fixed":[null,null,null]"#, r#""fixed":[2,null,null]"#)
+    ));
+    let a2 = Attestation::from_raw_table(&raw2, None, "from raw2").unwrap();
+    assert_eq!(a2.witness_complete, AttestedRecords::Indices([1].into()));
+    assert_eq!(
+        a2.targets_canonical,
+        AttestedRecords::Indices([0, 1].into())
+    );
+    let t = Table::from_table_file_attested("e", "e", &export2, export_opts(), &a2, Some(&raw2))
+        .unwrap();
+    assert_eq!(
+        t.meta.iter().map(|m| m.witness).collect::<Vec<_>>(),
+        vec![WitnessStatus::NotCarried, WitnessStatus::Complete]
+    );
+    assert_eq!(t.meta[1].target_basis, Assurance::AttestedChecked);
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    assert!(matches!(
+        disp.first_match(&[2, 1, 0]).unwrap(),
+        Dispatch::Blocked {
+            reason: Verdict::WitnessNotCarried,
+            ..
+        }
+    ));
+    // a raw record without witness_loci is NotCarried as well (strict), with them Complete from the record itself
+    let raw_t = |extra: &str| {
+        Table::from_table_file(
+            "r",
+            "r",
+            &table_file(&format!("{H3}\n{}", raw3(0, "I(n0,n1,n2)", extra))),
+            DomainOptions::default(),
+        )
+        .unwrap()
+    };
+    assert_eq!(raw_t("").meta[0].witness, WitnessStatus::NotCarried);
+    let m: RecordMeta = raw_t(r#","witness_loci":[]"#).meta[0];
+    assert_eq!(
+        (m.witness, m.witness_basis, m.target_basis),
+        (
+            WitnessStatus::Complete,
+            Assurance::Record,
+            Assurance::Record
+        )
+    );
+    // the bank carries its witness loci: Complete from the data, target on the caller's unchecked statement
+    let bank: rustred_campaign_core::record::BankPredicate =
+        serde_json::from_str(&bank_json("[]")).unwrap();
+    let t = Table::from_bank("b", "b", &[bank], 3, EXPORT).unwrap();
+    assert_eq!(
+        (
+            t.meta[0].witness,
+            t.meta[0].witness_basis,
+            t.meta[0].target_basis
+        ),
+        (
+            WitnessStatus::Complete,
+            Assurance::Record,
+            Assurance::AttestedUnchecked
+        )
+    );
+}
+
+/// RA-MAJOR-2: "targets are canonical" for target-less sources was the caller's free text, never checked: an export of
+/// a table with offset targets (`I(n0+1,n1,n2)`, equation `n0-2`) would be evaluated at the key instead of the rule
+/// point (Applies at [2,1,0], where the engine requires k0 = 3). Now a target attestation is CHECKED against the raw
+/// table when one is given (a non-canonical raw target is a load error), else it is recorded as unchecked in the
+/// provenance and in every credit; the legacy text is likewise marked `AttestedUnchecked` in every credit.
+#[test]
+fn reaudit_ra_major_2_target_attestation_is_checked_or_marked_unchecked() {
+    let export = table_file(&format!(
+        "{H3}\n{}",
+        export3(0, "").replace(r#""equations":[]"#, r#""equations":["n0-2"]"#)
+    ));
+    let raw_offset = table_file(&format!(
+        "{H3}\n{}",
+        raw3(0, "I(n0+1,n1,n2)", r#","witness_loci":[]"#)
+            .replace(r#""equations":[]"#, r#""equations":["n0-2"]"#)
+    ));
+    let plain = DomainOptions {
+        witness: false,
+        ..Default::default()
+    };
+    let a = att(AttestedRecords::None, AttestedRecords::All);
+    // checked: the raw target is not canonical -> refused
+    assert!(matches!(
+        Table::from_table_file_attested("e", "e", &export, plain, &a, Some(&raw_offset)),
+        Err(LoadError::Attestation { .. })
+    ));
+    // the raw table itself evaluates at the rule point (engine semantics): Applies at [3,1,0], not at [2,1,0]
+    let rt = Table::from_table_file("r", "r", &raw_offset, plain).unwrap();
+    assert_eq!(rt.domains[0].applies(&[3, 1, 0]), Verdict::Applies);
+    assert!(!rt.domains[0].applies(&[2, 1, 0]).applies());
+    // unchecked: loads, but provenance and every credit say so
+    let t = Table::from_table_file_attested("e", "e", &export, plain, &a, None).unwrap();
+    assert_eq!(t.meta[0].target_basis, Assurance::AttestedUnchecked);
+    assert!(!t.provenance.attestation.as_ref().unwrap().checked);
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    let w = disp.first_match(&[2, 1, 0]).unwrap().winner().unwrap();
+    assert_eq!(w.basis.target, Assurance::AttestedUnchecked);
+    assert!(w.basis.rests_on_unchecked_attestation() && !w.basis.is_strict());
+    // checked against a raw table with the canonical target: AttestedChecked
+    let raw_ok = table_file(&format!(
+        "{H3}\n{}",
+        raw3(0, "I(n0,n1,n2)", r#","witness_loci":[]"#)
+            .replace(r#""equations":[]"#, r#""equations":["n0-2"]"#)
+    ));
+    let t = Table::from_table_file_attested("e", "e", &export, plain, &a, Some(&raw_ok)).unwrap();
+    assert_eq!(t.meta[0].target_basis, Assurance::AttestedChecked);
+    // no attestation and no statement: still MissingTarget
+    assert!(matches!(
+        Table::from_table_file("e", "e", &export, plain),
+        Err(LoadError::Record {
+            err: DomainError::MissingTarget,
+            ..
+        })
+    ));
+}
+
+/// RA minor N-m1: with recenter bounds requested, a record whose `recenter` is `null` or absent loaded with NO bounds
+/// (Applies at [1,1,0], while `recenter:[-1,0,0]` gives RecenterBound). Now it is `DomainError::MissingRecenter`.
+#[test]
+fn reaudit_ra_minor_recenter_null_with_bounds_requested_is_an_error() {
+    let o = DomainOptions {
+        recenter_bounds: true,
+        ..Default::default()
+    };
+    for extra in [r#","recenter":null"#, ""] {
+        assert_eq!(
+            CaseDomain::from_rule_record(&one_rule(&rule3(extra)), &frame3(), o),
+            Err(DomainError::MissingRecenter),
+            "{extra:?}"
+        );
+    }
+    let d =
+        CaseDomain::from_rule_record(&one_rule(&rule3(r#","recenter":[-1,0,0]"#)), &frame3(), o)
+            .unwrap();
+    assert_eq!(d.applies(&[1, 1, 0]), Verdict::RecenterBound(0));
+    // without recenter bounds a null recenter is fine (the engine's matcher does not test them)
+    assert!(
+        CaseDomain::from_rule_record(
+            &one_rule(&rule3(r#","recenter":null"#)),
+            &frame3(),
+            DomainOptions::default()
+        )
+        .is_ok()
+    );
+}
+
+/// RA minor N-m2: `RuleRef.record` was the position among the LOADED domains; after a skipped (non-Partition) record
+/// it no longer named the file position, and a consumer indexing the file's rules took the wrong rule. Credits now
+/// carry `source_index` (position among the file's rule records) next to the dispatch position; labels are unique.
+#[test]
+fn reaudit_ra_minor_record_number_is_the_source_position() {
+    let numerical = raw3(10, "I(n0,n1,n2)", r#","witness_loci":[]"#)
+        .replace(r#""dispatch":"Partition""#, r#""dispatch":"Numerical""#);
+    let partition = raw3(11, "I(n0,n1,n2)", r#","witness_loci":[]"#);
+    let tf = table_file(&format!("{H3}\n{numerical}\n{partition}"));
+    let t = Table::from_table_file("t", "t", &tf, DomainOptions::default()).unwrap();
+    assert_eq!(
+        (t.len(), t.meta[0].source_index, t.meta[0].line_no),
+        (1, 1, 3)
+    );
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    let w = disp.first_match(&[1, 1, 0]).unwrap().winner().unwrap();
+    assert_eq!((w.record, w.source_index, w.label), (0, 1, 11));
+    assert_eq!(tf.rules[w.source_index].index, Some(11));
+    // duplicate labels in one source are refused
+    let dup = table_file(&format!("{H3}\n{partition}\n{partition}"));
+    assert!(matches!(
+        Table::from_table_file("t", "t", &dup, DomainOptions::default()),
+        Err(LoadError::DuplicateLabel { label: 11, .. })
+    ));
+}
+
+/// RA minor N-m3: `union_cover` returned `([], [])` outside the chart, the same as "no rule applies". `union` now
+/// says `OutsideChart`; the deprecated tuple form refuses such a key with `CoverError::OutsideChart`.
+#[test]
+#[allow(deprecated)]
+fn reaudit_ra_minor_union_tells_outside_chart_from_uncovered() {
+    let mut t = Table::new("t", 3);
+    let mut d = CaseDomain::free(3, Some(vec![true, true, false]));
+    d.fixed[0] = Some(5);
+    t.push(0, d).unwrap();
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    assert_eq!(
+        disp.union(&[1, 1, 3]).unwrap(),
+        UnionResult::OutsideChart { slot: 2 }
+    );
+    assert_eq!(
+        disp.union(&[1, 1, 0]).unwrap(),
+        UnionResult::Rules {
+            applies: vec![],
+            open: vec![]
+        }
+    );
+    assert_eq!(
+        disp.union_cover(&[1, 1, 3]),
+        Err(CoverError::OutsideChart { slot: 2 })
+    );
+    let u: UnionCover = disp.union_cover(&[1, 1, 0]).unwrap();
+    assert_eq!(u, (vec![], vec![]));
+}
+
+/// RA minor N-m4: with the chart test off (or a bank-only dispatcher) a key the engine never dispatches (positive
+/// numerator) was `Covered` without any sign. Every credit now says `chart_checked`; `with_chart` restores the test.
+#[test]
+fn reaudit_ra_minor_chart_not_checked_is_visible_in_the_credit() {
+    let mut t = Table::new("t", 3);
+    t.push(0, CaseDomain::free(3, None)).unwrap();
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    let w = disp.first_match(&[1, 1, 5]).unwrap().winner().unwrap();
+    assert!(!w.basis.chart_checked);
+    let rep = disp.batch(&[vec![1, 1, 5]], 1).unwrap();
+    assert_eq!(rep.tally.chart_unchecked, 1);
+    assert!(!disp.summary().chart_checked);
+    let disp = disp.with_chart(vec![true, true, false]).unwrap();
+    assert_eq!(
+        disp.first_match(&[1, 1, 5]).unwrap(),
+        Dispatch::OutsideChart { slot: 2 }
+    );
+    assert!(
+        disp.first_match(&[1, 1, 0])
+            .unwrap()
+            .winner()
+            .unwrap()
+            .basis
+            .chart_checked
+    );
+    // a chart of the wrong length, or one that contradicts the domains' chart, is refused
+    let mut t = Table::new("t", 3);
+    t.push(0, CaseDomain::free(3, Some(vec![true, true, false])))
+        .unwrap();
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    assert!(disp.with_chart(vec![true, false, false]).is_err());
+}
+
+/// RB m1: a rule point beyond the i32 range was `Undecided` even when a LATER target constant deselects the rule (the
+/// engine, in i64, skips it). Constants are now tested first; an overflowing rule point of a rule the constants do not
+/// deselect stays `Error(Overflow)` (fail closed).
+#[test]
+fn reaudit_b_m1_target_constants_deselect_before_the_overflow() {
+    let r = one_rule(&rule3("").replace("I(n0,n1,n2)", "I(n0-1,n1,5)"));
+    let d = CaseDomain::from_rule_record(&r, &frame3(), DomainOptions::default()).unwrap();
+    assert!(matches!(
+        d.applies_in_chart(&[i32::MAX, 1, 0]),
+        Verdict::NotInCase(NotInCase::TargetConstant { slot: 2, .. })
+    ));
+    assert_eq!(
+        d.applies_in_chart(&[i32::MAX, 1, 5]),
+        Verdict::Error(EvalError::Overflow)
+    );
+    assert_eq!(d.applies_in_chart(&[1, 1, 5]), Verdict::Applies);
+}
+
+/// RB m2: a table whose header line comes AFTER its rule lines was accepted (the engine fails: the rule is parsed with
+/// arity 0). `read_table_file` now refuses it, and reports the line of a second header.
+#[test]
+fn reaudit_b_m2_header_after_rule_lines_is_refused() {
+    let dir = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    let write = |name: &str, text: String| {
+        let p = dir.join(name);
+        std::fs::write(&p, text).unwrap();
+        p
+    };
+    let rule = raw3(0, "I(n0,n1,n2)", r#","witness_loci":[]"#);
+    let late = write("corefix2_late_header.jsonl", format!("{rule}\n{H3}\n"));
+    assert!(matches!(
+        rustred_campaign_core::record::read_table_file(&late, ReadOptions::default()),
+        Err(RecordError::Format { line: 2, .. })
+    ));
+    let twice = write(
+        "corefix2_two_headers.jsonl",
+        format!("{H3}\n{H3}\n{rule}\n"),
+    );
+    assert!(matches!(
+        rustred_campaign_core::record::read_table_file(&twice, ReadOptions::default()),
+        Err(RecordError::Format { line: 2, .. })
+    ));
+    let ok = write("corefix2_header_first.jsonl", format!("{H3}\n{rule}\n"));
+    assert_eq!(
+        rustred_campaign_core::record::read_table_file(&ok, ReadOptions::default())
+            .unwrap()
+            .rules
+            .len(),
+        1
+    );
+}
+
+/// RB m3: the bank reader accepted `null` as an empty list in every list field; a `null` exception list gave
+/// `Applies` (fail open). `null` is now accepted ONLY in `cached_domain_exception_or_pole_AND_loci`, where the real
+/// bank writes it.
+#[test]
+fn reaudit_b_m3_bank_null_only_where_the_bank_uses_it() {
+    use rustred_campaign_core::record::BankPredicate;
+    let full = bank_json("[]");
+    for field in [
+        "domain_atoms",
+        "all_raw_Case_equations",
+        "raw_written_exceptions_OR_of_AND",
+        "literal_written_denominators_generic_d_nonzero",
+        "raw_header_source_conditions_generic_d_nonzero",
+        "raw_rule_witness_loci_generic_d_nonzero",
+        "raw_fixed20",
+    ] {
+        let mut v: serde_json::Value = serde_json::from_str(&full).unwrap();
+        v[field] = serde_json::Value::Null;
+        assert!(
+            serde_json::from_value::<BankPredicate>(v).is_err(),
+            "null {field} must be refused"
+        );
+    }
+    let mut v: serde_json::Value = serde_json::from_str(&full).unwrap();
+    v["cached_domain_exception_or_pole_AND_loci"] = serde_json::Value::Null;
+    let p: BankPredicate = serde_json::from_value(v).unwrap();
+    assert_eq!(p.cached_loci, None);
+}
+
+/// RB m4: `PoleLocus::vanishes_at` returned `Ok(false)` on a key too short for the locus when an earlier coefficient
+/// was already nonzero (pole `n19*d+n1`, key of length 19). Now a typed `KeyTooShort` error.
+#[test]
+fn reaudit_b_m4_pole_locus_on_a_short_key_is_an_error() {
+    use rustred_campaign_core::domain::PoleLocus;
+    let p = Poly::parse("n19*d+n1", 20, true).unwrap();
+    let l = PoleLocus::new(PoleKind::Witness, &p);
+    assert_eq!(
+        l.vanishes_at(&[1; 19]),
+        Err(EvalError::KeyTooShort {
+            needed: 20,
+            len: 19
+        })
+    );
+    assert_eq!(l.vanishes_at(&[0; 20]), Ok(true));
+    assert_eq!(l.vanishes_at(&[1; 20]), Ok(false));
+}
+
+/// RB m5: wrong-length keys panicked in `sector`, `sector_slots`, `lower`, `rank`, `cmp_original`, `present`,
+/// `original`; `lower` had no checked twin. Checked variants now return typed errors, and the crate's campaign-facing
+/// `Descent` impl uses them (a wrong-length key is "not lower", never a panic).
+#[test]
+fn reaudit_b_m5_checked_variants_return_typed_errors() {
+    use rustred_campaign_core::order::{NodeComparator, OrderError, Presentation};
+    use rustred_campaign_core::repair::Descent;
+    let f = frame3();
+    assert!(matches!(
+        f.try_sector(&[1, 1]),
+        Err(FrameError::Arity { .. })
+    ));
+    assert_eq!(f.try_sector(&[1, 0, 0]), Ok(0b001));
+    assert!(matches!(
+        f.try_sector_slots(&[1]),
+        Err(FrameError::Arity { .. })
+    ));
+    let c = NodeComparator::legacy(3, None).unwrap();
+    assert!(matches!(
+        c.try_lower(&[1, 1], &[1, 1, 0]),
+        Err(OrderError::Arity { .. })
+    ));
+    assert_eq!(c.try_lower(&[1, 1, 0], &[2, 1, 0]), Ok(true));
+    assert!(c.try_rank(&[1]).is_err());
+    assert!(c.try_cmp_original(&[1, 1, 0], &[1]).is_err());
+    assert!(!Descent::lower(&c, &[1, 1], &[2, 1, 0]));
+    assert!(Descent::lower(&c, &[1, 1, 0], &[2, 1, 0]));
+    let p = Presentation::identity(3);
+    assert!(p.try_present(&[1]).is_err() && p.try_original(&[1, 2, 3, 4]).is_err());
+    assert_eq!(p.try_present(&[1, 2, 3]).unwrap(), vec![1, 2, 3]);
 }

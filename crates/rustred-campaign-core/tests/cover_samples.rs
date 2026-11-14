@@ -11,7 +11,7 @@
 
 use std::path::PathBuf;
 
-use rustred_campaign_core::cover::{Dispatcher, Table};
+use rustred_campaign_core::cover::{Assurance, Dispatcher, Table, UnionResult};
 use rustred_campaign_core::domain::{DomainOptions, TargetSource};
 use rustred_campaign_core::key::Key;
 use rustred_campaign_core::record::{ReadOptions, read_bank_predicates, read_table_file};
@@ -90,10 +90,13 @@ fn t178_sample_first_match() {
             p.clone(),
             p.clone(),
             &tf,
+            // the exports carry no witness loci: the legacy reference numbers need the witness check OFF (re-audit
+            // RA-MAJOR-1; every credit then says `Assurance::CheckDisabled`)
             DomainOptions {
                 targets: TargetSource::CanonicalByConstruction {
                     attestation: "T178B case exports of engine table_dump.v1 tables",
                 },
+                witness: false,
                 ..Default::default()
             },
         )
@@ -110,8 +113,19 @@ fn t178_sample_first_match() {
     for r in &rows {
         let k = as_key(&r[0]);
         let (wp, wi) = (r[1].as_i64().unwrap(), r[2].as_i64().unwrap());
-        let (all, und) = disp.union_cover(&k).unwrap();
+        let UnionResult::Rules {
+            applies: all,
+            open: und,
+        } = disp.union(&k).unwrap()
+        else {
+            panic!("box key {k:?} outside the chart")
+        };
         assert!(und.is_empty());
+        assert!(
+            all.iter()
+                .all(|w| w.basis.witness == Assurance::CheckDisabled
+                    && w.basis.target == Assurance::AttestedUnchecked)
+        );
         let first = all.first().map(|w| (pos[w.table], w.label));
         if wp < 0 {
             assert_eq!(

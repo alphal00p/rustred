@@ -67,14 +67,7 @@ fn load(dir: &std::path::Path) -> (DomainList, NodeFrame) {
         d.equations = eq;
         d.exceptions = bad;
         let k = r["k"].as_u64().unwrap() as usize;
-        l.push(
-            RuleRef {
-                table: 0,
-                record: k,
-                label: k as i64,
-            },
-            d,
-        );
+        l.push(RuleRef::bare(0, k, k as i64), d);
     }
     (l, frame)
 }

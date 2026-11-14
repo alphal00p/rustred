@@ -235,6 +235,8 @@ fn load_t178() -> T178 {
                 targets: TargetSource::CanonicalByConstruction {
                     attestation: "T178B case exports of engine table_dump.v1 tables",
                 },
+                // legacy reference numbers: exports carry no witness loci (re-audit RA-MAJOR-1, lane corefix2)
+                witness: false,
                 ..Default::default()
             },
         )

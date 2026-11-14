@@ -74,14 +74,7 @@ fn random_table(seed: u64, n: usize, e: usize, rules: usize) -> DomainList {
             }
             d.exceptions.push(br);
         }
-        l.push(
-            RuleRef {
-                table: 0,
-                record: r,
-                label: r as i64,
-            },
-            d,
-        );
+        l.push(RuleRef::bare(0, r, r as i64), d);
     }
     l
 }
@@ -363,14 +356,7 @@ fn containment_planted() {
     // shadowed under the dispatch order
     let mut l = DomainList::new(5);
     for (i, x) in [g.clone(), h.clone(), all.clone()].into_iter().enumerate() {
-        l.push(
-            RuleRef {
-                table: 0,
-                record: i,
-                label: i as i64,
-            },
-            x,
-        );
+        l.push(RuleRef::bare(0, i, i as i64), x);
     }
     assert!(matches!(shadowed(&l, 2, &f), Containment::Proved { .. }));
     assert!(!matches!(shadowed(&l, 1, &f), Containment::Proved { .. }));
@@ -397,11 +383,7 @@ fn locus_with_non_unit_affine_equation_is_resolved_exactly() {
     let f = NodeFrame::without_header_lines_first(n, 2);
     let mut l = DomainList::new(n);
     l.push(
-        RuleRef {
-            table: 0,
-            record: 0,
-            label: 0,
-        },
+        RuleRef::bare(0, 0, 0),
         dom(n, 2, &[], &[], &[&["n0+2*n3-1"]]),
     );
     let rep = gap_partition(
@@ -447,11 +429,7 @@ fn nonlinear_locus_is_unresolved_with_window() {
     let mut l = DomainList::new(n);
     // a conic exception in two free off-floor slots
     l.push(
-        RuleRef {
-            table: 0,
-            record: 0,
-            label: 0,
-        },
+        RuleRef::bare(0, 0, 0),
         dom(n, 2, &[], &[], &[&["n0^2-2*n1^2-1"]]),
     );
     let rep = gap_partition(

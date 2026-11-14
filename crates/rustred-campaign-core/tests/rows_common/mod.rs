@@ -5,6 +5,7 @@
 
 #[path = "../k3_common/mod.rs"]
 pub mod k3_common;
+pub mod sym_t162;
 
 use rustred_campaign_core::ibp_rows::{RowsRule, RowsVerdict};
 use rustred_campaign_core::replay_base::family::Family;
