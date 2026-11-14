@@ -114,6 +114,14 @@ pub struct PassIn {
     /// closeloop.md 19: the terminal policy and the recorded decisions (ledger order).
     pub terminals: TerminalsCfg,
     pub terminal_decisions: Vec<TerminalDecision>,
+    /// lane closeloop4 (audit-closeloop M1): the digests of every file an earlier pass of the node read (tables, start
+    /// set, terminals, spec evidence, hand statement, prior results), as recorded in the ledger (`closeloop:<n>:pins`):
+    /// path -> sha256. A file whose digest differs refuses the pass; None = first pass.
+    pub pins_recorded: Option<BTreeMap<String, String>>,
+    /// lane closeloop4 (audit-closeloop M3): `block` (default) | `report`: a closed node's unexplained reference keys.
+    pub reference_mismatch: String,
+    /// The prior clauses' expected sha256 (config), by id.
+    pub prior_sha256: BTreeMap<String, String>,
     /// lane t266run: big-node mode (evidence store, streamed keys-only pass); None = as before.
     pub scale: Option<ScaleCfg>,
     /// lane t266run: the node's own escalation of uncovered keys (closeloop.md 17); None = as before.
@@ -167,6 +175,9 @@ impl PassIn {
             second_route: SecondRouteCfg::default(),
             terminals: TerminalsCfg::default(),
             terminal_decisions: vec![],
+            pins_recorded: None,
+            reference_mismatch: "block".into(),
+            prior_sha256: BTreeMap::new(),
             scale: None,
             escalation: None,
             derived: DerivedState::default(),
@@ -215,6 +226,9 @@ pub struct PassOut {
     pub terminal_proposals: Option<Value>,
     /// lane closeloop4: proposals accepted automatically now (`terminals.accept = auto`, at most `max_auto`).
     pub terminal_decision: Option<TerminalDecision>,
+    /// lane closeloop4 (audit-closeloop M1): every file this pass read with its sha256 (recorded + new); registered as
+    /// the node's `pins` input when it differs from the recorded set.
+    pub pins: BTreeMap<String, String>,
     /// lane t266run: the escalation output of the pass (closeloop.md 17).
     pub escalation: Option<EscOut>,
 }
@@ -318,6 +332,8 @@ fn fref(p: &Path) -> ImportFileRef {
     ImportFileRef {
         path: p.display().to_string(),
         sha256: None,
+        manifest: None,
+        family: None,
     }
 }
 
@@ -334,7 +350,7 @@ struct RelRec {
 
 /// Whether a row is CERTIFIED (closeloop.md 8 / 13.2): a declared terminal, or served at >= the required level with
 /// the facts decided at the key, on a basis that allows it (Tier C, strict, not diagnostic).
-pub(super) fn row_certified(r: &KeyRow, required: Level, basis_ok: bool) -> bool {
+pub(crate) fn row_certified(r: &KeyRow, required: Level, basis_ok: bool) -> bool {
     match r.status {
         RowStatus::Terminal => true,
         RowStatus::Served => {
@@ -400,6 +416,80 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         },
     )
     .map_err(|e| format!("evidence: {e}"))?;
+    // lane closeloop4 (audit-closeloop M1): the spec's evidence was read PINNED; the node's own answer / proof / fact
+    // files below are verified against the BLAKE3 the ledger recorded, right before each is read
+    ev.accept_ledger_verified_files();
+    // every file the load / spec evidence read, with its sha256: checked against the ledger's record of the first use
+    let mut pins: BTreeMap<String, String> = BTreeMap::new();
+    let strip = |d: &str| d.trim_start_matches("sha256:").to_string();
+    for (p, d) in set
+        .report
+        .sources
+        .iter()
+        .flat_map(|s| s.files.iter())
+        .chain(ev.counts.files.iter())
+    {
+        pins.insert(p.clone(), strip(d));
+    }
+    // the start set's file (its digest of KEYS is in the report; the file itself is pinned here)
+    {
+        let p = rustred_campaign_core::import::spec::resolve(&inp.base, &set.spec.start.path);
+        if p.is_file() {
+            let d = rustred_campaign_core::import::lines::file_sha256(&p)
+                .map_err(|e| format!("start {}: {e}", p.display()))?;
+            pins.insert(p.display().to_string(), d);
+        }
+    }
+    for su in &ev.counts.stores {
+        for (p, d) in &su.inputs {
+            pins.insert(p.clone(), strip(d));
+        }
+    }
+    // the reference and the earlier clauses' results (read at phase D)
+    let mut pin_file = |p: &Path, want: Option<&str>, what: &str| -> Result<(), String> {
+        if !p.is_file() {
+            return Ok(()); // a missing file is phase D's error
+        }
+        let d = rustred_campaign_core::import::lines::file_sha256(p)
+            .map_err(|e| format!("{what} {}: {e}", p.display()))?;
+        if let Some(w) = want
+            && !w.trim_start_matches("sha256:").eq_ignore_ascii_case(&d)
+        {
+            return Err(format!(
+                "{what} {}: sha256 {d} differs from the configured {w}: refused",
+                p.display()
+            ));
+        }
+        pins.insert(p.display().to_string(), d);
+        Ok(())
+    };
+    if let Some(h) = &inp.hand {
+        pin_file(&h.path, h.sha256.as_deref(), "hand statement")?;
+    }
+    for (id, p) in &inp.prior_clauses {
+        pin_file(
+            p,
+            inp.prior_sha256.get(id).map(String::as_str),
+            "prior clause result",
+        )?;
+    }
+    if let Some(rec) = &inp.pins_recorded {
+        let changed: Vec<String> = pins
+            .iter()
+            .filter(|(p, d)| rec.get(*p).is_some_and(|r| r != *d))
+            .map(|(p, d)| format!("{p} (now {d}, recorded {})", rec[p]))
+            .collect();
+        if !changed.is_empty() {
+            return Err(format!(
+                "{} input file(s) changed since their first use recorded in the ledger (refused): {}",
+                changed.len(),
+                changed.join("; ")
+            ));
+        }
+        for (p, d) in rec {
+            pins.entry(p.clone()).or_insert_with(|| d.clone());
+        }
+    }
     for (p, b3) in &inp.answers {
         verify_b3(p, b3)?;
         ev.load_solved(&set, Path::new("/"), &fref(p))
@@ -435,6 +525,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     // disagreement DISPUTES it (every term of the pair is unknown: an edge, the key uncertified) and blocks the node
     let t_sr = std::time::Instant::now();
     let mut ev2 = Evidence::new(&set);
+    ev2.accept_ledger_verified_files();
     let mut answered2: BTreeSet<(String, Vec<i32>)> = BTreeSet::new();
     for (p, b3) in &inp.fact2_files {
         verify_b3(p, b3)?;
@@ -709,12 +800,46 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         BTreeMap::new();
     let mut second_v = Value::Null;
     let mut decisive_lines: Vec<Value> = vec![];
+    // lane closeloop4 (closeloop.md 21): ONE scan of the decided exact tier's edges: the decisive zeros AND the
+    // standing DESCENT gate (every followed edge strictly lower under the node's FULL comparator; the closure's own
+    // Tarjan pass for cycles): `closed` needs non_descending_edges == 0 and cycles == 0
+    let scan_all = if tier_c_now {
+        Some(zeros::scan(&set, &ev, res, threads)?)
+    } else {
+        None
+    };
+    let mut descent_v = Value::Null;
+    if let Some(sc) = &scan_all {
+        let (rel_edges, rel_bad) = zeros::relation_descent(&set, &ev, res);
+        let mut bad: Vec<Value> = sc
+            .non_descending
+            .iter()
+            .chain(rel_bad.iter())
+            .map(|(k, srv, t)| json!({"key": k, "server": srv, "term": t}))
+            .collect();
+        bad.sort_by_key(|v| v.to_string());
+        let n_bad = bad.len() as u64;
+        let core_violations = res.summary.descent_violations;
+        let cycles = res.summary.cycles;
+        if n_bad > 0 || core_violations > 0 {
+            blocking.push(format!("non_descending:{}", n_bad.max(core_violations)));
+        }
+        match cycles {
+            Some(0) => {}
+            Some(c) => blocking.push(format!("cycles:{c}")),
+            None => blocking.push("cycles_not_checked".into()),
+        }
+        descent_v = json!({"comparator": "the node's full NodeComparator (every tie-break)",
+            "followed_edges": sc.followed_top + rel_edges, "non_descending_edges": n_bad,
+            "core_descent_violations": core_violations, "cycles": cycles,
+            "dropped_zero_edges_non_descending": sc.dropped_non_descending,
+            "non_descending_list": bad.into_iter().take(1000).collect::<Vec<_>>()});
+    }
     if tier_c_now && (inp.second_route.decisive_zeros || inp.second_route.elided) {
-        let scan = if inp.second_route.decisive_zeros {
-            zeros::scan(&set, &ev, res, threads)?
-        } else {
-            zeros::ZeroScan::default()
-        };
+        let mut scan = scan_all.clone().unwrap_or_default();
+        if !inp.second_route.decisive_zeros {
+            scan.decisive.clear();
+        }
         // the pairs to confirm: every decisive zero's (record, applied key); with `elided`, every served pair of a
         // record with elided loci (its first route is the exact evaluation)
         let mut pairs: BTreeMap<(String, Vec<i32>), (usize, usize, bool, bool)> = BTreeMap::new();
@@ -1298,6 +1423,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         "cap_hits": {"wall_time_decided": cap_wall, "work": cap_work},
         "engine_failures": {"retried_this_round": inp.engine_retried, "attention": inp.engine_attention},
         "second_route": second_v,
+        "descent": descent_v,
     });
     let mut check_v = check_v;
     check_v["escalation"] = esc_summary(esc_out.as_ref(), uncovered.len());
@@ -1517,6 +1643,12 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             }
         }
     }
+    // lane closeloop4: phase D may still open a node (the reference rule): the node machine needs a defect then
+    let defect = if final_.as_ref().is_some_and(|f| f.verdict != "closed") {
+        defect.max(1)
+    } else {
+        defect
+    };
     // lane closeloop4: the digests of the tables the new proof batches name, computed HERE (pass thread) once per
     // (path, size, mtime): the supervisor's main thread then finds them in the cache when it creates the items
     let tables: BTreeSet<&str> = proof_batches.iter().map(|b| b.table.as_str()).collect();
@@ -1540,6 +1672,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         set,
         terminal_proposals,
         terminal_decision,
+        pins,
         escalation: esc_out,
     })
 }
@@ -1675,10 +1808,99 @@ fn write_final(
     std::fs::write(inp.final_dir.join("open_keys.jsonl"), &open_lines)
         .map_err(|e| format!("open_keys: {e}"))?;
     let sdir = inp.final_dir.join("statement");
-    let header = json!({"check_pass_s": f.elapsed, "closeloop": {"target": inp.target,
+    let mut header = json!({"check_pass_s": f.elapsed, "closeloop": {"target": inp.target,
         "relation_rule": inp.relation_rule, "required_evidence": f.required.word(),
         "tier": format!("{:?}", res.tier), "verdict": f.verdict, "box_clause": inp.box_clause,
-        "fact_basis": f.check["fact_basis"].clone()}});
+        "fact_basis": f.check["fact_basis"].clone(),
+        "descent": {"non_descending_edges": f.check["descent"]["non_descending_edges"].clone(),
+                    "cycles": f.check["descent"]["cycles"].clone()}}});
+    let compare_into = |r: &CheckResult, dir: &str| -> Result<(Value, Vec<Vec<i32>>), String> {
+        let Some(h) = &inp.hand else {
+            return Ok((Value::Null, vec![]));
+        };
+        let fmt: HandFormat =
+            serde_json::from_value(h.format.clone()).map_err(|e| format!("hand format: {e}"))?;
+        let hand = read_hand_statement(&h.path, &fmt, set.arity())
+            .map_err(|e| format!("hand statement: {e}"))?;
+        let c = compare(set, r, &hand);
+        c.write(&inp.final_dir.join(dir))
+            .map_err(|e| format!("comparison: {e}"))?;
+        let mut v = serde_json::to_value(&c).map_err(|e| e.to_string())?;
+        if let Some(o) = v.as_object_mut() {
+            o.remove("differences");
+            o.insert("differences_listed".into(), json!(c.differences.len()));
+        }
+        let only_hand: Vec<Vec<i32>> = c
+            .differences
+            .iter()
+            .filter(|d| d.kind == rustred_campaign_core::import::DiffKind::OnlyHand)
+            .map(|d| d.key.clone())
+            .collect();
+        Ok((v, only_hand))
+    };
+    let (mut comparison, only_hand) = compare_into(res, "comparison")?;
+    // the keys-only superset check keeps every row: its comparison lists the server of EVERY key
+    let comparison_k = match keys_only {
+        Some(k) => compare_into(k, "comparison-keys-only")?.0,
+        None => Value::Null,
+    };
+    // lane closeloop4 (audit-closeloop M3): a CLOSED node whose reference (hand statement) has keys ours lacks must
+    // explain each: it is in the keys-only closure (reached there only through zero edges, i.e. through DECISIVE zeros,
+    // every one confirmed by two routes: else the node is not closed anyway); an unexplained key, or an incomplete
+    // comparison, makes the node open under `reference.mismatch = block` (default)
+    let mut ref_block: Vec<String> = vec![];
+    if f.verdict == "closed" && inp.hand.is_some() {
+        let complete = comparison["complete"] != false;
+        let in_k = |k: &Vec<i32>| match keys_only {
+            Some(kr) => match &kr.key_set {
+                Some(ks) => ks.contains(k),
+                None => kr.rows.iter().any(|r| &r.key == k),
+            },
+            None => false,
+        };
+        let unexplained: Vec<&Vec<i32>> = only_hand.iter().filter(|k| !in_k(k)).collect();
+        comparison["reference_check"] = json!({"policy": inp.reference_mismatch, "only_hand": only_hand.len(),
+            "explained_by_decisive_zeros": only_hand.len() - unexplained.len(), "unexplained": unexplained,
+            "complete": complete});
+        if inp.reference_mismatch == "block" {
+            if !unexplained.is_empty() {
+                ref_block.push(format!(
+                    "reference_mismatch_unexplained:{}",
+                    unexplained.len()
+                ));
+            }
+            if !complete {
+                ref_block.push("reference_comparison_incomplete".into());
+            }
+        }
+    }
+    let mut blocking_now: Vec<String> = f.blocking.to_vec();
+    let mut verdict_now: &str = f.verdict;
+    if !ref_block.is_empty() {
+        blocking_now.extend(ref_block);
+        verdict_now = "open";
+        header["closeloop"]["verdict"] = json!("open");
+    }
+    // lane closeloop4 (audit-closeloop m7): an earlier box clause that is not closed keeps the node open (decided
+    // before the statement header is written)
+    let prior_open: Vec<String> = inp
+        .prior_clauses
+        .iter()
+        .filter(|(_, p)| {
+            std::fs::read(p)
+                .ok()
+                .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+                .is_none_or(|v| v["verdict"] != "closed")
+        })
+        .map(|(id, _)| id.clone())
+        .collect();
+    if verdict_now == "closed" && !prior_open.is_empty() {
+        verdict_now = "open";
+        blocking_now.push(format!("prior_clause_not_closed:{}", prior_open.join(",")));
+        header["closeloop"]["verdict"] = json!("open");
+    }
+    // lane closeloop4 (audit-closeloop M2): the statement writer ADOPTS the streamed rows file: it is written after the
+    // comparisons, which read every row of it
     let dig = write_statement(set, ev, res, &sdir, Some(header))
         .map_err(|e| format!("statement: {e}"))?;
     // lane closeloop4 (closeloop.md 18.4): the decisive zeros with BOTH sources, in the statement's evidence
@@ -1701,30 +1923,6 @@ fn write_final(
             .map(|t| t.approved.as_slice())
             .unwrap_or(&[]),
     );
-    let compare_into = |r: &CheckResult, dir: &str| -> Result<Value, String> {
-        let Some(h) = &inp.hand else {
-            return Ok(Value::Null);
-        };
-        let fmt: HandFormat =
-            serde_json::from_value(h.format.clone()).map_err(|e| format!("hand format: {e}"))?;
-        let hand = read_hand_statement(&h.path, &fmt, set.arity())
-            .map_err(|e| format!("hand statement: {e}"))?;
-        let c = compare(set, r, &hand);
-        c.write(&inp.final_dir.join(dir))
-            .map_err(|e| format!("comparison: {e}"))?;
-        let mut v = serde_json::to_value(&c).map_err(|e| e.to_string())?;
-        if let Some(o) = v.as_object_mut() {
-            o.remove("differences");
-            o.insert("differences_listed".into(), json!(c.differences.len()));
-        }
-        Ok(v)
-    };
-    let comparison = compare_into(res, "comparison")?;
-    // the keys-only superset check keeps every row: its comparison lists the server of EVERY key
-    let comparison_k = match keys_only {
-        Some(k) => compare_into(k, "comparison-keys-only")?,
-        None => Value::Null,
-    };
     // economy (R48 addendum 4): closure size, used rules, recipes used and their solved keys
     let mut served_by_recipe: BTreeMap<String, u64> = BTreeMap::new();
     let mut served_by_supplied: BTreeMap<String, u64> = BTreeMap::new();
@@ -1850,10 +2048,10 @@ fn write_final(
         let n = pv["open_keys"]["count"].as_u64().unwrap_or(0);
         clauses.insert(id.clone(), json!(clause_word(w, n)));
     }
-    let this_verdict = if f.verdict == "closed" && clause_open == 0 {
+    let this_verdict = if verdict_now == "closed" && clause_open == 0 {
         "closed"
     } else if clause_open == 0 {
-        f.verdict
+        verdict_now
     } else {
         "open"
     };
@@ -1868,15 +2066,15 @@ fn write_final(
     }
     std::fs::write(inp.final_dir.join("clause_keys.jsonl"), ck)
         .map_err(|e| format!("clause_keys: {e}"))?;
-    let label = if f.verdict == "closed" {
+    let label = if verdict_now == "closed" {
         format!("closed, {}, {}", inp.target, f.required.word())
     } else {
-        f.verdict.to_string()
+        verdict_now.to_string()
     };
     let result = json!({
-        "schema": RESULT_SCHEMA, "node": inp.node, "verdict": f.verdict, "label": label,
+        "schema": RESULT_SCHEMA, "node": inp.node, "verdict": verdict_now, "label": label,
         "target": inp.target, "level": f.required.word(), "rounds": inp.round,
-        "blockers": f.blocking, "budget_stop": f.budget_why,
+        "blockers": &blocking_now, "budget_stop": f.budget_why,
         "open_keys": {"file": "open_keys.jsonl", "count": open_n},
         "check": f.check,
         "statement": {"dir": sdir.display().to_string(), "files": dig.files},
@@ -1900,12 +2098,40 @@ fn write_final(
                         "by_rule_class_level": clause_by_class},
         // lane closeloop4 (closeloop.md 18 / 19): the second route of the zero test and who accepted each terminal
         "second_route": f.check["second_route"].clone(),
+        "descent": f.check["descent"].clone(),
         "decisive_zeros": {"file": "statement/decisive_zeros.jsonl", "count": f.decisive.len()},
         "terminals_accepted": terminals_accepted,
         "terminal_policy": {"accept": inp.terminals.accept, "max_auto": inp.terminals.max_auto},
     });
+    // lane closeloop4 (audit-closeloop m8): every file of the phase-D outputs, with its BLAKE3 (computed here, in the
+    // pass thread): registered as ledger records by the source; resume and `rr_campaign verify` re-check them
+    let mut result = result;
+    let mut files: BTreeMap<String, String> = BTreeMap::new();
+    let mut stack = vec![inp.final_dir.clone()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d)
+            .map_err(|e| format!("{}: {e}", d.display()))?
+            .flatten()
+        {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.file_name().is_some_and(|n| n != "result.json")
+                && !p.to_string_lossy().contains("terminal_proposals")
+            {
+                let (_, b) =
+                    crate::atomic::blake3_file(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+                let rel = p
+                    .strip_prefix(&inp.final_dir)
+                    .map(|r| r.display().to_string())
+                    .unwrap_or_else(|_| p.display().to_string());
+                files.insert(rel, b);
+            }
+        }
+    }
+    result["final_files_blake3"] = json!(files);
     Ok(FinalOut {
-        verdict: f.verdict.to_string(),
+        verdict: verdict_now.to_string(),
         result,
     })
 }

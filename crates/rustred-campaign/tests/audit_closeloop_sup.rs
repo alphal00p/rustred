@@ -41,13 +41,12 @@ fn statement_keys(cdir: &Path) -> BTreeSet<Vec<i32>> {
         .collect()
 }
 
-/// FINDING F-EVPIN (major): the closing loop pins the import spec TEXT (ledger input `import_spec`, BLAKE3) but not
-/// the content of the evidence it names; a spec entry may name a DIRECTORY, which cannot carry a sha256 at all. Two
-/// passes of the SAME spec text (same pinned digest) over a changed evidence file give different verdicts: here an
-/// honest fact makes round 1 need solves (not final), a fact line flipped to "zero" makes the SAME round-1 pass
-/// `closed` on a smaller key set. Nothing refuses; a resumed campaign would re-read the changed content.
+/// FINDING F-EVPIN (major), FIXED by lane closeloop4 (closeloop.md 22, audit M1): spec evidence is read only PINNED. A
+/// directory without a manifest, a directory with a bare sha256, an unpinned file are refused at load; with a pinned
+/// manifest the honest pass runs, and a fact line flipped in the directory afterwards REFUSES the pass (digest
+/// mismatch against the manifest) instead of changing its verdict.
 #[test]
-fn f_evpin_same_pinned_spec_other_evidence_content_changes_the_verdict() {
+fn f_evpin_unpinned_evidence_is_refused_and_a_changed_pinned_file_refuses_the_pass() {
     let t = Tmp::new("acevpin");
     let cfg = Toy {
         second_face: None,
@@ -55,20 +54,41 @@ fn f_evpin_same_pinned_spec_other_evidence_content_changes_the_verdict() {
     };
     let files = toy(&t.path.join("m"), &cfg, FAKE);
     std::fs::write(&files.hand, "").unwrap();
-    // move the facts into a DIRECTORY named by the spec (as the T162 / T178 specs name theirs)
     let dir = files.dir.join("facts.d");
     std::fs::create_dir_all(&dir).unwrap();
     let honest = std::fs::read_to_string(files.dir.join("facts.jsonl")).unwrap();
     std::fs::write(dir.join("f.jsonl"), &honest).unwrap();
     let mut spec: Value =
         serde_json::from_slice(&std::fs::read(&files.import_spec).unwrap()).unwrap();
-    spec["evidence"]["facts"] = json!([{"path": dir.display().to_string()}]);
-    // a directory cannot be pinned: the spec refuses a sha256 on it at load
-    let mut pinned = spec.clone();
-    pinned["evidence"]["facts"] = json!([{"path": dir.display().to_string(), "sha256": "00"}]);
-    let ps = rustred_campaign_core::import::TableSetSpec::from_json(&pinned.to_string()).unwrap();
-    let set = rustred_campaign_core::import::load(&ps, &files.dir).unwrap();
-    assert!(rustred_campaign_core::import::Evidence::from_spec(&set, &files.dir).is_err());
+    let refused = |facts: Value| {
+        let mut sp = spec.clone();
+        sp["evidence"]["facts"] = facts;
+        let ps = rustred_campaign_core::import::TableSetSpec::from_json(&sp.to_string()).unwrap();
+        let set = rustred_campaign_core::import::load(&ps, &files.dir).unwrap();
+        rustred_campaign_core::import::Evidence::from_spec(&set, &files.dir).is_err()
+    };
+    let d = dir.display().to_string();
+    assert!(
+        refused(json!([{"path": d, "family": "TOY"}])),
+        "a directory without a manifest"
+    );
+    assert!(
+        refused(json!([{"path": d, "sha256": "00", "family": "TOY"}])),
+        "a directory with a sha256"
+    );
+    assert!(
+        refused(json!([{"path": dir.join("f.jsonl").display().to_string(), "family": "TOY"}])),
+        "an unpinned file"
+    );
+    // the manifest (SHA256SUMS), pinned in the spec
+    let man = files.dir.join("facts.SHA256SUMS");
+    std::fs::write(
+        &man,
+        format!("{}  f.jsonl\n", sha256_file(&dir.join("f.jsonl"))),
+    )
+    .unwrap();
+    spec["evidence"]["facts"] = json!([{"path": d, "family": "TOY",
+        "manifest": {"path": man.display().to_string(), "sha256": sha256_file(&man)}}]);
     let spec_text = serde_json::to_string_pretty(&spec).unwrap();
     let pass = |tag: &str| {
         run_pass(
@@ -87,48 +107,27 @@ fn f_evpin_same_pinned_spec_other_evidence_content_changes_the_verdict() {
             },
             None,
         )
-        .unwrap()
     };
-    let a = pass("honest");
+    let a = pass("honest").expect("the pinned honest pass runs");
     assert!(
         a.final_.is_none(),
         "honest round 1 needs solves: {}",
         a.check
     );
-    assert!(!a.batches.is_empty());
-    // flip ONE term of the fact line to zero (the lower key [4,1,0]): same spec text, same pinned digest
-    let lie = honest.replacen(
-        r#"{"coef":"nonzero","key":[4,1,0],"term":0}"#,
-        r#"{"coef":"zero","key":[4,1,0],"term":0}"#,
-        1,
-    );
-    let lie = if lie == honest {
-        // canonical field order of the support file differs: edit through JSON
-        let mut v: Value = serde_json::from_str(honest.trim()).unwrap();
-        v["rhs"][0]["coef"] = json!("zero");
-        format!("{v}\n")
-    } else {
-        lie
-    };
-    assert_ne!(lie, honest);
-    std::fs::write(dir.join("f.jsonl"), &lie).unwrap();
-    let b = pass("lie");
-    let fb = b.final_.as_ref().expect("the lie makes round 1 final");
-    eprintln!(
-        "honest: keys {} certified {} closed {}; lie: keys {} certified {} verdict {}",
-        a.check["keys"],
-        a.check["certified"],
-        a.check["closed"],
-        b.check["keys"],
-        b.check["certified"],
-        fb.verdict
-    );
-    assert_eq!(fb.verdict, "closed", "{}", b.check);
-    assert!(b.check["keys"].as_u64() < a.check["keys"].as_u64());
-    // the only trace: the evidence file digest the check record REPORTS
-    assert_ne!(
-        a.check["evidence_import"]["files"],
-        b.check["evidence_import"]["files"]
+    // an unlisted file in the directory is refused
+    std::fs::write(dir.join("extra.jsonl"), &honest).unwrap();
+    assert!(pass("extra").is_err(), "an unlisted evidence file was read");
+    std::fs::remove_file(dir.join("extra.jsonl")).unwrap();
+    // flip ONE term to zero in the pinned file: the pass is refused
+    let mut v: Value = serde_json::from_str(honest.trim()).unwrap();
+    v["rhs"][0]["coef"] = json!("zero");
+    std::fs::write(dir.join("f.jsonl"), format!("{v}\n")).unwrap();
+    let e = pass("lie")
+        .map(|_| ())
+        .expect_err("a changed pinned evidence file was read");
+    assert!(
+        e.contains("evidence") || e.contains("sha256") || e.contains("digest"),
+        "{e}"
     );
 }
 
@@ -155,47 +154,30 @@ fn tamper_to_closed(cdir: &Path) {
     std::fs::write(&p, serde_json::to_vec(&v).unwrap()).unwrap();
 }
 
-/// FINDING F-OUT (minor) as the current behaviour: an OPEN node's recorded final/result.json overwritten on disk with
-/// `"verdict":"closed"` -> the resumed run exits 0 (the outcome reads the file, not the ledger's recorded digest).
-#[test]
-fn f_out_a_tampered_result_file_currently_turns_exit_10_into_0() {
-    let _g = serial();
-    let (_t, sp, cdir) = open_toy("acout");
-    assert_eq!(
-        run_to_end(&sp, &cdir, &["--plain"]).last(),
-        Some(&10),
-        "{}",
-        log_tail(&cdir)
-    );
-    tamper_to_closed(&cdir);
-    let codes = run_to_end(&sp, &cdir, &["--plain"]);
-    eprintln!(
-        "after tamper: exit codes {codes:?}; verify {}",
-        verify(&cdir)
-    );
-    assert_eq!(
-        codes.last(),
-        Some(&0),
-        "defect F-OUT reproduced if 0: {codes:?}"
-    );
-}
-
 /// F-OUT, the correct behaviour: a result file that no longer matches its recorded BLAKE3 is an error (11), never 0.
 #[test]
-#[ignore = "F-OUT: fails on 0ceb9e79 (outcome reads final/result.json without its recorded digest)"]
 fn f_out_a_tampered_result_file_must_not_exit_0() {
     let _g = serial();
     let (_t, sp, cdir) = open_toy("acout2");
+    // lane closeloop4: the uncovered key is a terminal proposal (exit 8): the operator rejects it -> open, exit 10
+    let mut c = start(&sp, &cdir, &["--plain"], &[]);
+    assert_eq!(
+        wait(&mut c, Duration::from_secs(600)),
+        ATTENTION,
+        "{}",
+        log_tail(&cdir)
+    );
+    assert_eq!(resolve_terminals(&cdir, Some("toy"), None), 0);
     assert_eq!(run_to_end(&sp, &cdir, &["--plain"]).last(), Some(&10));
     tamper_to_closed(&cdir);
     let codes = run_to_end(&sp, &cdir, &["--plain"]);
     assert_ne!(codes.last(), Some(&0), "{codes:?}");
 }
 
-/// The statement is NOT a ledger record: after a closed run its statement.jsonl truncated on disk is not detected by
-/// `rr_campaign verify` nor by a resumed run (exit 0); only the digests listed in result.json (and SHA256SUMS) show it.
+/// FIXED by lane closeloop4 (audit m8): the statement files are ledger records: after a closed run its statement.jsonl
+/// truncated on disk is detected by `rr_campaign verify` and by a resumed run (verdict error, exit 11).
 #[test]
-fn a_truncated_statement_after_the_run_is_only_visible_through_the_listed_digests() {
+fn a_truncated_statement_after_the_run_is_detected_by_verify_and_resume() {
     let _g = serial();
     let t = Tmp::new("acstmt");
     let files = toy(&t.path.join("material"), &Toy::default(), FAKE);
@@ -207,8 +189,13 @@ fn a_truncated_statement_after_the_run_is_only_visible_through_the_listed_digest
     let sp_stmt = cdir.join("closeloop/toy/final/statement/statement.jsonl");
     let full = std::fs::read(&sp_stmt).unwrap();
     std::fs::write(&sp_stmt, &full[..full.len() / 2]).unwrap();
-    assert_eq!(verify(&cdir), 0, "verify does not look at the statement");
-    assert_eq!(run_to_end(&sp, &cdir, &["--plain"]).last(), Some(&0));
+    assert_ne!(verify(&cdir), 0, "verify must see the truncated statement");
+    assert_eq!(
+        run_to_end(&sp, &cdir, &["--plain"]).last(),
+        Some(&11),
+        "{}",
+        log_tail(&cdir)
+    );
     let listed = result_json(&cdir)["statement"]["files"]["statement.jsonl"]
         .as_str()
         .unwrap()
@@ -239,7 +226,7 @@ fn elided_setup(tag: &str, lies: &[Value]) -> (Tmp, PathBuf, PathBuf) {
     let mut spec: Value =
         serde_json::from_slice(&std::fs::read(&files.import_spec).unwrap()).unwrap();
     spec["sources"][0]["sha256"] = json!(sha256_file(&a));
-    spec["evidence"] = json!({"proofs":[{"path": dir.join("proofs.json").display().to_string()}]});
+    spec["evidence"] = json!({"proofs":[pin(&dir.join("proofs.json"))]});
     std::fs::write(
         &files.import_spec,
         serde_json::to_vec_pretty(&spec).unwrap(),
@@ -263,11 +250,11 @@ fn elided_setup(tag: &str, lies: &[Value]) -> (Tmp, PathBuf, PathBuf) {
     (t, sp, cdir)
 }
 
-/// THE TRUST BOUNDARY of the zero-term rule: a coefficient-facts answer that is correctly BOUND (record, key, rule
-/// echo, producer) but claims every term zero is accepted by the wrapper (it checks binding, not content) and the
-/// node closes on a SMALLER key set; nothing in the loop cross-checks a producer's zeros (one route per record).
+/// THE TRUST BOUNDARY of the zero-term rule, FIXED by lane closeloop4 (audit M3, closeloop.md 18): a coefficient-facts
+/// answer that is correctly BOUND but claims every term zero is now contradicted by the SECOND route (rr_proof
+/// `--elided-loci facts`): the pair is disputed, its terms stay edges, the node is blocked (never closed on fewer keys).
 #[test]
-fn a_well_bound_lying_exact_eval_answer_closes_the_node_on_fewer_keys() {
+fn a_well_bound_lying_exact_eval_answer_is_blocked_by_the_second_route() {
     let _g = serial();
     let (_ta, spa, ca) = elided_setup("acexh", &[]);
     assert_eq!(
@@ -282,7 +269,7 @@ fn a_well_bound_lying_exact_eval_answer_closes_the_node_on_fewer_keys() {
     let (_tb, spb, cb) = elided_setup("acexl", &[lie]);
     assert_eq!(
         run_to_end(&spb, &cb, &["--plain"]).last(),
-        Some(&0),
+        Some(&10),
         "{}",
         log_tail(&cb)
     );
@@ -295,10 +282,19 @@ fn a_well_bound_lying_exact_eval_answer_closes_the_node_on_fewer_keys() {
         honest.difference(&lied).collect::<Vec<_>>(),
         r["verdict"]
     );
-    assert_eq!(r["verdict"], "closed", "{r:#}");
-    assert!(lied.len() < honest.len());
-    assert!(!lied.contains(&vec![4, 1, 0]));
-    assert_eq!(verify(&cb), 0);
+    assert_eq!(r["verdict"], "open", "{r:#}");
+    assert!(
+        r["blockers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b.as_str().unwrap().starts_with("second_route_disagreement")),
+        "{r:#}"
+    );
+    assert!(
+        lied.contains(&vec![4, 1, 0]),
+        "the disputed edge must stay in the closure"
+    );
 }
 
 /// SIGKILL (a crash, no graceful stop) at seeded random points through the exact-evaluation toy, then resume, then a

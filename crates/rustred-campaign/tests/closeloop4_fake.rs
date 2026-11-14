@@ -72,10 +72,10 @@ fn setup(
         .to_string(),
     )
     .unwrap();
-    let mut ev = json!({"proofs":[{"path": dir.join("proofs.json").display().to_string()}]});
+    let mut ev = json!({"proofs":[pin(&dir.join("proofs.json"))]});
     if let Some(f) = first_fact {
         std::fs::write(dir.join("facts.jsonl"), format!("{f}\n")).unwrap();
-        ev["facts"] = json!([{"path": dir.join("facts.jsonl").display().to_string()}]);
+        ev["facts"] = json!([pin(&dir.join("facts.jsonl"))]);
     }
     let mut spec: Value =
         serde_json::from_slice(&std::fs::read(&files.import_spec).unwrap()).unwrap();

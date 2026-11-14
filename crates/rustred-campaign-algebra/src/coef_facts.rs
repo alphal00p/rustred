@@ -51,10 +51,53 @@ pub const PRODUCER: &str = "exact_eval";
 /// `backend` of every line written here.
 pub const BACKEND: &str = "symbolica";
 /// The one-line description of the evaluation (`method` of every line).
-pub const METHOD: &str = "numerator / denominator texts evaluated exactly at the rule point (Symbolica \
-     try_to_rational_polynomial + replace_multiple), zero test in d; no reduction, no factoring";
+pub const METHOD: &str = "numerator / denominator texts each read as a POLYNOMIAL (Symbolica try_to_polynomial, \
+     no division, literal exponents <= 4096) and evaluated exactly at the rule point (replace_multiple), zero test in \
+     d; no reduction, no factoring";
 
 type ZPoly = MultivariatePolynomial<IntegerRing, u16>;
+
+/// lane closeloop4 (audit-closeloop m3): the largest exponent literal a coefficient side may carry (a work budget of
+/// the expansion; a larger one is a typed refusal of the term).
+pub const MAX_EXPONENT: u64 = 4096;
+
+/// lane closeloop4 (audit-closeloop m3): the side's text may hold no division and only literal, non-negative exponents
+/// up to [`MAX_EXPONENT`].
+fn side_budget(t: &str) -> Result<(), String> {
+    if t.contains('/') {
+        return Err("a division inside one side of the ratio (refused: no side is reduced)".into());
+    }
+    let b = t.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'^' {
+            let mut j = i + 1;
+            while j < b.len() && (b[j] == b' ' || b[j] == b'(') {
+                j += 1;
+            }
+            if j < b.len() && b[j] == b'-' {
+                return Err("a negative power inside one side (refused)".into());
+            }
+            let s = j;
+            while j < b.len() && b[j].is_ascii_digit() {
+                j += 1;
+            }
+            if s == j {
+                return Err("a non-literal exponent (refused)".into());
+            }
+            let e: u64 = t[s..j].parse().unwrap_or(u64::MAX);
+            if e > MAX_EXPONENT {
+                return Err(format!(
+                    "exponent {e} above the budget {MAX_EXPONENT} (refused)"
+                ));
+            }
+            i = j;
+        } else {
+            i += 1;
+        }
+    }
+    Ok(())
+}
 
 /// One side of a coefficient ratio (its own text read as a rational function: numerator, denominator; a polynomial
 /// side has denominator 1).
@@ -165,11 +208,21 @@ impl SymbolicaRecordFacts {
         self.cache.remove(&rule.line_sha256);
     }
 
+    /// lane closeloop4 (audit-closeloop m3): a side is read as a POLYNOMIAL, unreduced: a division or a negative power
+    /// inside it, a non-literal exponent or one above [`MAX_EXPONENT`], or a parser panic, make the coefficient
+    /// `unknown` (a typed refusal of that term, never a zero and never a crash of the job).
     fn parse_side(&self, text: &str, arity: usize) -> Result<Side, String> {
-        let (num, den) = self.alg.parse_ratio(text.trim(), arity)?;
-        if num.nvars() != arity + 1 || den.nvars() != arity + 1 {
+        let t = text.trim();
+        side_budget(t)?;
+        let alg = &self.alg;
+        let num = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            alg.parse_side_polynomial(t, arity)
+        }))
+        .map_err(|_| "the polynomial parser failed on this side (refused)".to_string())??;
+        if num.nvars() != arity + 1 {
             return Err("variable map is not n0..n{N-1}, d".into());
         }
+        let den = num.one();
         Ok(Side { num, den })
     }
 

@@ -796,6 +796,8 @@ impl TermminSource {
                     .map_err(|e| format!("import load: {e}"))?;
                 let mut ev =
                     Evidence::from_spec(&set, &base).map_err(|e| format!("evidence: {e}"))?;
+                // lane closeloop4: answers files are verified against their ledger BLAKE3 just below
+                ev.accept_ledger_verified_files();
                 for (_, f, b3) in files {
                     let (_, d) = crate::atomic::blake3_file(&f)
                         .map_err(|e| format!("{}: {e}", f.display()))?;
@@ -811,6 +813,8 @@ impl TermminSource {
                         &rustred_campaign_core::import::spec::FileRef {
                             path: f.display().to_string(),
                             sha256: None,
+                            manifest: None,
+                            family: None,
                         },
                     )
                     .map_err(|e| format!("answers {}: {e}", f.display()))?;
@@ -1230,9 +1234,20 @@ impl TermminSource {
                         let dig = rustred_campaign_core::import::write_statement(&set, &ev, &res, &sdir, None)
                             .map_err(|e| format!("second statement: {e}"))?;
                         let v = rustred_campaign_core::termmin::extend::view(&set, &res);
+                        // lane closeloop4 (audit-closeloop m6): `closed` only under the closing loop's own criteria
+                        // (Tier C, strict dispatch, not diagnostic, every row certified at the required level with its
+                        // facts decided), never from the blocking list alone
+                        let (strict, _) = super::pass::strictness(&set);
+                        let diagnostic = res.summary.diagnostic
+                            || res.summary.verdict == rustred_campaign_core::closure::Verdict::Diagnostic;
+                        let basis_ok = res.tier == rustred_campaign_core::closure::Tier::C && strict && !diagnostic;
+                        let all_cert = res.streamed.is_none()
+                            && res.rows.iter().all(|r| super::pass::row_certified(r, res.required, basis_ok));
+                        let closed2 = res.blocking().is_empty() && v.open.is_empty() && basis_ok && all_cert;
                         Ok(Loaded::Second(Box::new(json!({"written": true, "spec": sp.display().to_string(),
                             "dir": sdir.display().to_string(), "files": dig.files,
-                            "blocking": res.blocking(), "closed": res.blocking().is_empty() && v.open.is_empty(),
+                            "blocking": res.blocking(), "closed": closed2, "tier": format!("{:?}", res.tier),
+                            "strict": strict,
                             "open": v.open.len(), "economy": v.economy,
                             "terminals": v.terminals.iter().map(|k| key_text(k)).collect::<Vec<_>>()}))))
                     })

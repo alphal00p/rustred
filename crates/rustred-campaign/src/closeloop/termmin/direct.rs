@@ -85,6 +85,8 @@ pub fn run_direct(cfg: &DirectConfig) -> Result<Value, String> {
         .map_err(|e| format!("import load: {e}"))?;
     let mut ev =
         Evidence::from_spec(&set, &cfg.import_base).map_err(|e| format!("evidence: {e}"))?;
+    // the measurement tool's extra solved files are named by its own (hand-written) config
+    ev.accept_ledger_verified_files();
     for f in &cfg.extra_solved {
         ev.load_solved(
             &set,
@@ -92,6 +94,8 @@ pub fn run_direct(cfg: &DirectConfig) -> Result<Value, String> {
             &rustred_campaign_core::import::spec::FileRef {
                 path: f.display().to_string(),
                 sha256: None,
+                manifest: None,
+                family: None,
             },
         )
         .map_err(|e| format!("solved {}: {e}", f.display()))?;

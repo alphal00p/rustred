@@ -929,6 +929,30 @@ pub fn verify_against(cdir: &Path, target: Option<u64>) -> Result<VerifyReport, 
             found: "file present".into(),
         });
     }
+    // lane closeloop4 (audit-closeloop m8): every RECORD the campaign wrote into its directory and registered as a
+    // ledger input (statements, results, answers, checks, pins ...) is re-hashed: a changed or truncated file is a
+    // difference (resume re-checks them through the work source as well)
+    let croot = std::fs::canonicalize(cdir).unwrap_or_else(|_| cdir.to_path_buf());
+    for (id, inp) in &st.inputs {
+        let p = std::path::PathBuf::from(&inp.path);
+        let p = if p.is_absolute() { p } else { cdir.join(p) };
+        let inside = std::fs::canonicalize(p.parent().unwrap_or(&p))
+            .map(|d| d.starts_with(&croot))
+            .unwrap_or(false);
+        if !inside || !inp.blake3.chars().all(|c| c.is_ascii_hexdigit()) {
+            continue;
+        }
+        match crate::atomic::blake3_file(&p) {
+            Ok((_, d)) if d == inp.blake3 => {}
+            Ok((_, d)) => differences.push(Difference {
+                file: id.clone(),
+                path: "/blake3".into(),
+                expected: inp.blake3.clone(),
+                found: format!("{d} ({})", p.display()),
+            }),
+            Err(_) => missing.push(format!("{id} ({})", p.display())),
+        }
+    }
     Ok(VerifyReport {
         records: chain.records,
         segments: chain.segments,

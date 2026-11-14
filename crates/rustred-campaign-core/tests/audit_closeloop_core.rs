@@ -76,7 +76,27 @@ fn write_lines(p: &Path, lines: &[Value]) -> PathBuf {
     p.to_path_buf()
 }
 
+/// lane closeloop4 (audit-closeloop M1 / m4): spec evidence is read only PINNED and names its family: every file entry
+/// of `evidence` gets its sha256 and the family `fam` (default TOY).
+fn pin_evidence(evidence: &mut Value, fam: &str) {
+    for k in ["facts", "proofs", "solved"] {
+        if let Some(a) = evidence.get_mut(k).and_then(Value::as_array_mut) {
+            for e in a {
+                let p = PathBuf::from(e["path"].as_str().unwrap());
+                if p.is_file() && e.get("sha256").is_none() {
+                    e["sha256"] = json!(file_sha(&p));
+                }
+                if e.get("family").is_none() {
+                    e["family"] = json!(fam);
+                }
+            }
+        }
+    }
+}
+
 fn spec_of(dir: &Path, table: &Path, start: &[[i32; 3]], evidence: Value, required: &str) -> Value {
+    let mut evidence = evidence;
+    pin_evidence(&mut evidence, "TOY");
     let st = write_lines(
         &dir.join("start.jsonl"),
         &start.iter().map(|k| json!(k)).collect::<Vec<_>>(),
@@ -189,7 +209,6 @@ fn in_memory_comparison_reports_a_missing_key_and_a_changed_server() {
 /// is never reported `only_ours` and `key_sets_equal` stays TRUE, and (b) a hand row naming ANOTHER server for a plain
 /// key is counted "(streamed rule row)" and never compared: two different statements compare equal.
 #[test]
-#[ignore = "F-CMP: fails on 0ceb9e79 (streamed compare skips plain rows)"]
 fn f_cmp_streamed_comparison_must_report_a_missing_key_and_a_changed_server() {
     let d = scratch("cmp-stream");
     let (a, _sha, ev) = descent_toy(&d);
@@ -221,33 +240,10 @@ fn f_cmp_streamed_comparison_must_report_a_missing_key_and_a_changed_server() {
     );
 }
 
-/// The same streamed comparison, demonstrated as a PASSING test of the current behaviour (so the defect is visible in
-/// a normal test run): key sets reported equal although 3 != 2 keys, and no server difference.
-#[test]
-fn f_cmp_streamed_comparison_currently_reports_equal_sets() {
-    let d = scratch("cmp-stream-now");
-    let (a, _sha, ev) = descent_toy(&d);
-    let spec = spec_of(&d, &a, &[[3, 1, 0]], ev, "per-key");
-    let (set, ev) = load_ev(&spec, &d);
-    let r = import::check::check_streamed(&set, &ev, &tier_c(), &d.join("rows.jsonl")).unwrap();
-    let (hp, f) = hand_file(
-        &d,
-        &[
-            (vec![3, 1, 0], true, "base", "A#0"),
-            (vec![2, 1, 0], false, "base", "A#7"),
-        ],
-    );
-    let c = compare(&set, &r, &read_hand_statement(&hp, &f, 3).unwrap());
-    assert!(c.key_sets_equal, "defect F-CMP reproduced: {:?}", c.counts);
-    assert_eq!(c.count(DiffKind::ServerDiffers), 0);
-    assert_eq!((c.keys_ours, c.keys_hand), (3, 2));
-}
-
 /// FINDING F-PRF (minor-major, import/evidence.rs `put_proof`): two answers for the SAME (record, key) that contradict
 /// each other (EXACT_IN_SPAN_AT_KEY and IRREGULAR_KEY, a pole at the key) are not a conflict: the per-key one wins in
 /// either order and the key is certified per-key AND regular (facts conflicts are an error; proofs are not).
 #[test]
-#[ignore = "F-PRF: fails on 0ceb9e79 (contradicting proof verdicts resolved to the positive one)"]
 fn f_prf_contradicting_proof_verdicts_for_one_record_key_must_fail_closed() {
     for order in [
         ["EXACT_IN_SPAN_AT_KEY", "IRREGULAR_KEY"],
@@ -280,33 +276,11 @@ fn f_prf_contradicting_proof_verdicts_for_one_record_key_must_fail_closed() {
     }
 }
 
-/// F-PRF as a passing test of the current behaviour.
-#[test]
-fn f_prf_contradicting_proof_verdicts_currently_certify() {
-    let d = scratch("prf-now");
-    let (a, sha, _) = descent_toy(&d);
-    let pp = write_lines(
-        &d.join("p2.jsonl"),
-        &[
-            proof(&sha, [3, 1, 0], "IRREGULAR_KEY"),
-            proof(&sha, [3, 1, 0], "EXACT_IN_SPAN_AT_KEY"),
-        ],
-    );
-    let ev = json!({"proofs":[{"path": pp.display().to_string()}]});
-    let spec = spec_of(&d, &a, &[[3, 1, 0]], ev, "per-key");
-    let (set, ev) = load_ev(&spec, &d);
-    let r = check(&set, &ev, &tier_c()).unwrap();
-    let row = r.rows.iter().find(|x| x.key == [3, 1, 0]).unwrap();
-    assert_eq!(row.evidence, Some(Level::PerKey));
-    assert!(!row.regularity_unknown, "regular through the per-key proof");
-}
-
 /// FINDING F-BIND (minor; genericity): evidence binds to (record_sha256, key) where record_sha256 is the sha of the
 /// RECORD LINE ONLY, not of the table header (family, guard version): a per-key proof produced for a record of family
 /// TOY certifies the byte-identical record of another family TOY2. A spec pointing at another table set's evidence
 /// is not refused: foreign lines are ignored (sound), byte-identical lines bind (not sound in general).
 #[test]
-#[ignore = "F-BIND: fails on 0ceb9e79 (a proof of family TOY binds to the identical record of family TOY2)"]
 fn f_bind_a_proof_for_another_family_must_not_certify_an_identical_record() {
     let d = scratch("bind");
     let (_a, sha, _) = descent_toy(&d); // family TOY: its proofs.jsonl
@@ -321,18 +295,22 @@ fn f_bind_a_proof_for_another_family_must_not_certify_an_identical_record() {
     let ev = json!({"proofs":[{"path": d.join("proofs.jsonl").display().to_string()}],
                     "facts":[{"path": d.join("facts.jsonl").display().to_string()}]});
     let spec = spec_of(&d, &b, &[[3, 1, 0]], ev, "per-key");
-    let (set, ev) = load_ev(&spec, &d);
-    assert_eq!(
-        ev.counts.proofs_foreign, 0,
-        "every TOY proof line bound to TOY2"
-    );
-    let r = check(&set, &ev, &tier_c()).unwrap();
-    let row = r.rows.iter().find(|x| x.key == [3, 1, 0]).unwrap();
-    assert_ne!(
-        row.evidence,
-        Some(Level::PerKey),
-        "a proof of family TOY certified family TOY2's record"
-    );
+    // lane closeloop4 (audit m4): the evidence names the family it was produced for (TOY): the set of family TOY2
+    // refuses it (fail closed); were it loaded, the key must not be per-key
+    let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
+    let set = load(&s, &d).unwrap();
+    match Evidence::from_spec(&set, &d) {
+        Err(_) => {}
+        Ok(ev) => {
+            let r = check(&set, &ev, &tier_c()).unwrap();
+            let row = r.rows.iter().find(|x| x.key == [3, 1, 0]).unwrap();
+            assert_ne!(
+                row.evidence,
+                Some(Level::PerKey),
+                "a proof of family TOY certified family TOY2's record"
+            );
+        }
+    }
 }
 
 /// Evidence of a DIFFERENT table set (other record bytes) is never used: counted foreign, the key stays below
@@ -448,7 +426,6 @@ fn a_zero_coefficient_at_one_key_does_not_drop_the_edge_at_another_key_of_the_ru
 /// FINDING F-SOLV (minor, import/evidence.rs `load_solved`): two DIFFERENT solved relations for the same (source,
 /// key) whose `relation_digest` is equal (here: both absent) are no conflict: the first one silently wins.
 #[test]
-#[ignore = "F-SOLV: fails on 0ceb9e79 (different rhs, both without relation_digest: first wins)"]
 fn f_solv_two_different_solved_relations_without_digest_must_conflict() {
     let d = scratch("solv");
     let (a, _sha, _) = descent_toy(&d);
@@ -555,6 +532,8 @@ fn edges_into_target_keys_from_a_written_statement() {
                     let fr = import::spec::FileRef {
                         path: p.display().to_string(),
                         sha256: None,
+                        manifest: None,
+                        family: None,
                     };
                     if facts {
                         ev.load_facts(&set, Path::new("/"), &fr).unwrap();

@@ -194,6 +194,9 @@ pub struct ImportedSet {
     /// record whose witness loci are complete, by (table, record): what a strict run would decide at a key the
     /// diagnostic dispatch serves (a key on a witness pole is blocked there). Empty otherwise.
     pub strict_domains: HashMap<(usize, usize), CaseDomain>,
+    /// lane closeloop4 (audit-closeloop m4): the family of the set's tables (every table header agrees, `check_header`):
+    /// spec evidence declared for another family is refused.
+    pub family: Option<String>,
 }
 
 impl std::fmt::Debug for ImportedSet {
@@ -572,7 +575,15 @@ pub fn load_with(
                     (Some(k), None) => k.clone(),
                     (None, Some(p)) => {
                         let path = resolve(base, p);
-                        let d = verify_file(&path, src.sha256.as_deref())?;
+                        // lane closeloop4 (audit-closeloop M1 / m7): a terminals FILE is pinned (it decides keys)
+                        let Some(want) = src.sha256.as_deref() else {
+                            return Err(ImportError::Spec(format!(
+                                "source {}: the terminals file {} is not pinned: give its sha256",
+                                src.id,
+                                path.display()
+                            )));
+                        };
+                        let d = verify_file(&path, Some(want))?;
                         rep.files
                             .push((path.display().to_string(), format!("sha256:{d}")));
                         read_key_list(&path, arity)?
@@ -769,6 +780,7 @@ pub fn load_with(
         classes,
         report,
         strict_domains,
+        family: fhead.family.clone(),
     })
 }
 

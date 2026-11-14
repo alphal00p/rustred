@@ -53,6 +53,11 @@ pub struct DecisiveZero {
 #[derive(Clone, Debug, Default)]
 pub struct ZeroScan {
     pub decisive: Vec<DecisiveZero>,
+    /// lane closeloop4 (closeloop.md 21): FOLLOWED top-sector edges of rule-served keys and those NOT strictly lower
+    /// under the node's full comparator (key, server, term key); zero edges that are dropped and not lower (info).
+    pub followed_top: u64,
+    pub non_descending: Vec<(Vec<i32>, String, Vec<i32>)>,
+    pub dropped_non_descending: u64,
     pub keys_scanned: u64,
     pub zero_top: u64,
     pub zero_positive_numerator: u64,
@@ -197,7 +202,22 @@ pub fn scan(
                         let rid = rule_id(set, *t, *r);
                         for (j, tk) in terms.iter().enumerate() {
                             if facts.coefficient(&rid, applied, j, tk) != CoefFact::Zero {
+                                // a FOLLOWED edge: strictly lower than the key under the full comparator?
+                                if is_top(lines, tk) {
+                                    z.followed_top += 1;
+                                    if !set.cmp.lower(tk, key) {
+                                        let i = &set.rules[*t][*r];
+                                        z.non_descending.push((
+                                            key.clone(),
+                                            format!("{}#{}", i.source, i.label),
+                                            tk.clone(),
+                                        ));
+                                    }
+                                }
                                 continue;
+                            }
+                            if is_top(lines, tk) && !set.cmp.lower(tk, key) {
+                                z.dropped_non_descending += 1;
                             }
                             if is_top(lines, tk) {
                                 z.zero_top += 1;
@@ -241,11 +261,71 @@ pub fn scan(
         z.zero_top += p.zero_top;
         z.zero_positive_numerator += p.zero_positive_numerator;
         z.zero_other += p.zero_other;
+        z.followed_top += p.followed_top;
+        z.non_descending.extend(p.non_descending);
+        z.dropped_non_descending += p.dropped_non_descending;
     }
+    z.non_descending.sort();
     z.decisive.sort();
     z.decisive.dedup();
     z.seconds = t0.elapsed().as_secs_f64();
     Ok(z)
+}
+
+/// lane closeloop4 (closeloop.md 21): the edges of RELATION-served keys (supplied point relations, imported or
+/// derived symmetry relations, our recipe relations; a credit through a relation is compared with the ORIGINAL key):
+/// (followed top edges, non-descending ones as (key, server, term key)).
+#[allow(clippy::type_complexity)]
+pub fn relation_descent(
+    set: &ImportedSet,
+    ev: &Evidence,
+    res: &CheckResult,
+) -> (u64, Vec<(Vec<i32>, String, Vec<i32>)>) {
+    let lines = set.frame.mask().to_vec();
+    let (mut n, mut bad) = (0u64, vec![]);
+    for r in &res.rows {
+        let (RowStatus::Served, Some(Server::Relation { set: name, recipe })) =
+            (r.status, &r.server)
+        else {
+            continue;
+        };
+        let at = r.image.clone().unwrap_or_else(|| r.key.clone());
+        let rhs: Vec<Vec<i32>> = if *recipe {
+            ev.solved
+                .get(name)
+                .and_then(|m| m.get(&at))
+                .map(|s| s.rhs.clone())
+                .unwrap_or_default()
+        } else {
+            match set.supplied.iter().find(|x| &x.name == name) {
+                Some(rs) => match rs.relations.find(&at) {
+                    Some(i) => {
+                        let st = &rs.relations;
+                        let w = st.codec().words();
+                        let mut buf = vec![0i32; set.arity()];
+                        st.rhs_codes(i)
+                            .chunks_exact(w)
+                            .map(|c| {
+                                st.codec().decode(c, &mut buf);
+                                buf.clone()
+                            })
+                            .collect()
+                    }
+                    None => vec![],
+                },
+                None => vec![],
+            }
+        };
+        for t in rhs {
+            if is_top(&lines, &t) {
+                n += 1;
+                if !set.cmp.lower(&t, &r.key) {
+                    bad.push((r.key.clone(), name.clone(), t));
+                }
+            }
+        }
+    }
+    (n, bad)
 }
 
 /// The second route of a first-route producer: `exact_eval` for rr_proof and unnamed compact facts, `rr_proof`

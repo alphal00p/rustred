@@ -108,6 +108,10 @@ pub fn input_tproposals(n: &str, k: u32) -> String {
 pub fn input_tdecision_prefix(n: &str) -> String {
     format!("closeloop:{n}:tdecision:")
 }
+/// lane closeloop4 (audit-closeloop M1): the digests of every file the node's passes read (first use).
+pub fn input_pins(n: &str) -> String {
+    format!("closeloop:{n}:pins")
+}
 pub fn input_tdecision(n: &str, id: &str) -> String {
     format!("{}{}", input_tdecision_prefix(n), safe(id))
 }
@@ -126,6 +130,8 @@ pub const ROLE_RETRY: &str = "closeloop_retry";
 pub const ROLE_FACTS2: &str = "closeloop_facts2";
 pub const ROLE_TPROPOSALS: &str = "closeloop_terminal_proposals";
 pub const ROLE_TDECISION: &str = "closeloop_terminal_decision";
+pub const ROLE_PINS: &str = "closeloop_input_pins";
+pub const ROLE_FINAL_FILE: &str = "closeloop_final_file";
 
 pub const KIND_IMPORT: &str = "import";
 pub const KIND_SOLVE: &str = "recipe-solve";

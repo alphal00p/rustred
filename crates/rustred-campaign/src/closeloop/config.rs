@@ -34,6 +34,10 @@ pub struct HandCfg {
     pub path: PathBuf,
     /// An `import::HandFormat` (column map of the hand statement).
     pub format: serde_json::Value,
+    /// lane closeloop4 (audit-closeloop M1 / m7): the reference's sha256 (verified when given); in any case its digest
+    /// is recorded in the ledger at first use (input `closeloop:<n>:pins`) and every later read is checked against it.
+    #[serde(default)]
+    pub sha256: Option<String>,
 }
 
 /// Work-counter budgets of one node (never a clock).
@@ -219,6 +223,9 @@ pub struct NodeCfg {
     /// lane closeloop4 (closeloop.md 19): which terminals are terminals (default: only the declared ones).
     #[serde(default)]
     pub terminals: TerminalsCfg,
+    /// lane closeloop4 (audit-closeloop M3): what a reference (hand statement) mismatch does to a closed node.
+    #[serde(default)]
+    pub reference: ReferenceCfg,
     /// lane t266run (interfaces/evidence-store.md, closeloop.md 17): big-node mode (persistent table index, disk-backed
     /// evidence store, streamed keys-only pass); None = as before.
     #[serde(default)]
@@ -410,6 +417,27 @@ impl Default for TerminalsCfg {
     }
 }
 
+/// lane closeloop4 (audit-closeloop M3): `mismatch`: `block` (default: a key of the reference that ours lacks and that
+/// the recorded decisive zeros do not explain keeps the node open) | `report` (listed only).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReferenceCfg {
+    #[serde(default = "d_block")]
+    pub mismatch: String,
+}
+
+impl Default for ReferenceCfg {
+    fn default() -> Self {
+        ReferenceCfg {
+            mismatch: d_block(),
+        }
+    }
+}
+
+fn d_block() -> String {
+    "block".into()
+}
+
 fn d_max_auto() -> usize {
     8
 }
@@ -420,6 +448,10 @@ fn d_max_auto() -> usize {
 pub struct PriorClause {
     pub id: String,
     pub result: PathBuf,
+    /// lane closeloop4 (audit-closeloop m7): the prior result's sha256 (verified when given); recorded in the ledger at
+    /// first use either way (pins).
+    #[serde(default)]
+    pub sha256: Option<String>,
 }
 
 fn d_yes() -> bool {
@@ -624,6 +656,12 @@ impl CloseLoopConfig {
                 return Err(format!(
                     "node {}: max_keys_per_job, threads and check_threads must be >= 1",
                     n.node
+                ));
+            }
+            if !matches!(n.reference.mismatch.as_str(), "block" | "report") {
+                return Err(format!(
+                    "node {}: reference.mismatch {:?} (block | report)",
+                    n.node, n.reference.mismatch
                 ));
             }
             if n.budgets.max_job_attempts == 0 {

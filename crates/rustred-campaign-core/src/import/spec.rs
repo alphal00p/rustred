@@ -21,6 +21,18 @@ pub struct FileRef {
     pub path: String,
     #[serde(default)]
     pub sha256: Option<String>,
+    /// lane closeloop4 (audit-closeloop M1): an EVIDENCE DIRECTORY is named with its MANIFEST (a file pinned by its
+    /// own sha256): a `SHA256SUMS` text (`<sha256>  <name>` lines) or a JSON manifest
+    /// `{"schema": "rustred.campaign.evidence-manifest.v1", "files": [{"path", "bytes", "sha256"}]}`; every `*.json`
+    /// / `*.jsonl` file of the directory must be listed and is verified before use (an unlisted or changed file
+    /// refuses the load). Evidence FILES carry `sha256`. Nothing unpinned is ever read as evidence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manifest: Option<Box<FileRef>>,
+    /// lane closeloop4 (audit-closeloop m4): the FAMILY the evidence was produced for (spec evidence: required; its
+    /// lines bind only to records of a set of that family: a byte-identical record of another family is never
+    /// certified by it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub family: Option<String>,
 }
 
 /// Required evidence level of a served key (R40 U-9..U-12 words).

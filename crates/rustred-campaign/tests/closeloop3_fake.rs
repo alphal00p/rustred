@@ -57,7 +57,7 @@ fn setup(tag: &str, exact: bool, lies: &[Value]) -> (Tmp, PathBuf, PathBuf) {
     let mut spec: Value =
         serde_json::from_slice(&std::fs::read(&files.import_spec).unwrap()).unwrap();
     spec["sources"][0]["sha256"] = json!(sha256_file(&a));
-    spec["evidence"] = json!({"proofs":[{"path": dir.join("proofs.json").display().to_string()}]});
+    spec["evidence"] = json!({"proofs":[pin(&dir.join("proofs.json"))]});
     std::fs::write(
         &files.import_spec,
         serde_json::to_vec_pretty(&spec).unwrap(),

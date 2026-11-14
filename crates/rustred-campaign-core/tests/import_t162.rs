@@ -832,6 +832,8 @@ fn t162_leftovers_verified_credits_and_exact_facts() {
         &import::spec::FileRef {
             path: fpath.display().to_string(),
             sha256: Some(import::lines::file_sha256(&fpath).unwrap()),
+            manifest: None,
+            family: None,
         },
     )
     .unwrap();

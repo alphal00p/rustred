@@ -22,6 +22,11 @@ pub fn blake3_file(p: &Path) -> String {
         .to_string()
 }
 
+/// lane closeloop4 (audit-closeloop M1 / m4): a PINNED spec evidence entry of the toy family (sha256 of the file).
+pub fn pin(p: &Path) -> Value {
+    json!({"path": p.display().to_string(), "sha256": sha256_file(p), "family": "TOY"})
+}
+
 /// A rule line over the toy node.
 pub fn rule(index: i64, fixed: [Option<i64>; 3], rhs: &[&str]) -> String {
     let t: Vec<String> = (0..3)
@@ -189,7 +194,8 @@ pub fn toy(dir: &Path, t: &Toy, fake: &str) -> ToyFiles {
                    r1src,
                    {"id":"R2","kind":"recipe","class":"recipe","path": r2.display().to_string()}],
         "evidence": if t.table_evidence {
-            json!({"facts":[{"path": facts.display().to_string()}],"proofs":[{"path": proofs.display().to_string()}]})
+            // lane closeloop4 (audit-closeloop M1 / m4): spec evidence is pinned and names its family
+            json!({"facts":[pin(&facts)],"proofs":[pin(&proofs)]})
         } else { json!({}) }});
     let import_spec = dir.join("import-spec.json");
     std::fs::write(&import_spec, serde_json::to_vec_pretty(&spec).unwrap()).unwrap();

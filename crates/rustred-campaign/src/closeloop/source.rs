@@ -835,6 +835,16 @@ impl CloseFromMaterialSource {
         } else {
             None
         };
+        // lane closeloop4 (audit-closeloop M1): the files' digests recorded at their first use (ledger)
+        let pins_recorded: Option<BTreeMap<String, String>> =
+            if st.inputs.contains_key(&input_pins(&self.nodes[i].n)) {
+                Some(
+                    serde_json::from_slice(&self.input_file(st, &input_pins(&self.nodes[i].n))?)
+                        .map_err(|e| format!("pins: {e}"))?,
+                )
+            } else {
+                None
+            };
         let recipe_dir = self.abs(&format!(
             "{}/escalation/r{round}",
             node_dir(&self.nodes[i].n)
@@ -893,6 +903,14 @@ impl CloseFromMaterialSource {
             second_route: r.cfg.second_route,
             terminals: r.cfg.terminals,
             terminal_decisions: decisions,
+            pins_recorded,
+            reference_mismatch: r.cfg.reference.mismatch.clone(),
+            prior_sha256: r
+                .cfg
+                .prior_clauses
+                .iter()
+                .filter_map(|c| c.sha256.clone().map(|d| (c.id.clone(), d)))
+                .collect(),
             scale: r.cfg.scale.clone(),
             escalation: r.cfg.escalation.clone(),
             derived,
@@ -1212,6 +1230,27 @@ impl CloseFromMaterialSource {
         for (j, b) in out.proof_batches.iter().enumerate() {
             self.new_proof_item(&mut rt, i, k, j, b)?;
         }
+        // lane closeloop4 (audit-closeloop M1): the digests of every file the passes read, registered at first use and
+        // whenever a pass read a file not recorded before (an existing entry never changes: the pass refuses that)
+        {
+            let body = json_bytes(&serde_json::to_value(&out.pins).expect("json"));
+            let rec = record(format!("{}/pins.json", node_dir(&n)), body);
+            let fr = rec.file_ref();
+            if st
+                .inputs
+                .get(&input_pins(&n))
+                .is_none_or(|r| r.blake3 != fr.blake3)
+            {
+                rt.events.push(Event::InputRegistered {
+                    input: input_pins(&n),
+                    role: ROLE_PINS.into(),
+                    path: self.abs(&rec.path).display().to_string(),
+                    bytes: fr.bytes,
+                    blake3: fr.blake3,
+                });
+                rt.accepts.push(rec);
+            }
+        }
         // lane closeloop4 (closeloop.md 19): terminal proposals waiting for a decision / an automatic decision
         if let Some(p) = &out.terminal_proposals {
             let rec = record(
@@ -1303,6 +1342,20 @@ impl CloseFromMaterialSource {
                 blake3: fref.blake3.clone(),
             });
             rt.accepts.push(fr);
+            // lane closeloop4 (audit-closeloop m8): the statement and every other phase-D file are ledger records
+            if let Some(m) = f.result["final_files_blake3"].as_object() {
+                for (rel, b3) in m {
+                    let p = self.abs(&format!("{}/final/{rel}", node_dir(&n)));
+                    let bytes = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+                    rt.events.push(Event::InputRegistered {
+                        input: format!("{}:{}", input_final(&n), rel),
+                        role: ROLE_FINAL_FILE.into(),
+                        path: p.display().to_string(),
+                        bytes,
+                        blake3: b3.as_str().unwrap_or("").to_string(),
+                    });
+                }
+            }
             if f.verdict == "closed" {
                 if on_full_closed {
                     rt.events.push(Event::Note {
@@ -2608,6 +2661,22 @@ impl WorkSource for CloseFromMaterialSource {
                 open.push(format!("{node}: no final verdict"));
                 continue;
             };
+            // lane closeloop4 (audit-closeloop m8): a changed / truncated statement or phase-D file is an error
+            let pre = format!("{}:", input_final(&r.n));
+            let bad: Vec<String> = st
+                .inputs
+                .keys()
+                .filter(|id| id.starts_with(&pre))
+                .filter(|id| self.input_file(st, id).is_err())
+                .cloned()
+                .collect();
+            if !bad.is_empty() {
+                error.push(format!(
+                    "{node}: phase-D file(s) changed since they were recorded: {}",
+                    bad.join(", ")
+                ));
+                continue;
+            }
             // lane closeloop4 (audit-closeloop F-OUT): the result is read through its RECORDED digest (input_file
             // refuses a changed file: then the verdict is unreadable -> error), never the bare file
             let v: Option<Value> = self
