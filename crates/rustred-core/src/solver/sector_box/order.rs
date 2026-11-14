@@ -175,6 +175,7 @@ impl<const N: usize> BoxOrder<N> {
     }
 
     /// Canonical bytes binding the preset and the preferred set.
+    #[allow(dead_code)] // used by the materialising lanes (a later step)
     pub(crate) fn fingerprint(&self) -> &[u8] {
         &self.fingerprint
     }

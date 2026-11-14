@@ -338,7 +338,6 @@ impl<const N: usize, O: ColumnComparator<N>> Discovery<N, O> {
         }
     }
 
-    #[allow(dead_code)] // used by solver::sector_box (next PRs of the series)
     pub(crate) fn order(&self) -> &O {
         &self.order
     }
@@ -360,7 +359,6 @@ impl<const N: usize, O: ColumnComparator<N>> Discovery<N, O> {
     /// Row order, pivots, L patterns and accepted ordinals are exactly those
     /// of calling [`Self::add_row`] on each row in turn; only the column
     /// registration is batched, so one U remap serves the whole batch.
-    #[allow(dead_code)] // used by solver::sector_box (next PRs of the series)
     pub(crate) fn add_rows<R: AsRef<[Term<N, NumericalCoefficient>]>>(
         &mut self,
         rows: &[R],
@@ -435,7 +433,6 @@ impl<const N: usize, O: ColumnComparator<N>> Discovery<N, O> {
 
     /// Registered integral columns, hardest first. Positions are live column
     /// indices; they shift when later batches register harder columns.
-    #[allow(dead_code)] // used by solver::sector_box (next PRs of the series)
     pub(crate) fn columns(&self) -> &[Integral<N>] {
         &self.columns
     }
@@ -448,7 +445,6 @@ impl<const N: usize, O: ColumnComparator<N>> Discovery<N, O> {
     }
 
     /// `(live column, basis ordinal)` of every pivot, in column order.
-    #[allow(dead_code)] // used by solver::sector_box (next PRs of the series)
     pub(crate) fn pivot_columns(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
         self.reducer.pivots()[..self.columns.len()]
             .iter()
@@ -457,44 +453,37 @@ impl<const N: usize, O: ColumnComparator<N>> Discovery<N, O> {
     }
 
     /// Basis ordinal (U row) whose pivot is the live column `column`.
-    #[allow(dead_code)] // used by solver::sector_box (next PRs of the series)
     pub(crate) fn pivot_row(&self, column: usize) -> Option<usize> {
         self.reducer.pivots()[column].map(|row| row as usize)
     }
 
     /// Live column indices of one U row, pivot first, harder first.
-    #[allow(dead_code)] // used by solver::sector_box (next PRs of the series)
     pub(crate) fn u_row_columns(&self, basis_row: usize) -> &[u32] {
         let u = self.reducer.u();
         &u.col_idcs()[u.row_ptrs()[basis_row]..u.row_ptrs()[basis_row + 1]]
     }
 
     /// Normalized values of one U row, aligned with [`Self::u_row_columns`].
-    #[allow(dead_code)] // used by solver::sector_box (next PRs of the series)
     pub(crate) fn u_row_values(&self, basis_row: usize) -> &[NumericalCoefficient] {
         let u = self.reducer.u();
         &u.values()[u.row_ptrs()[basis_row]..u.row_ptrs()[basis_row + 1]]
     }
 
     /// Stored U entries, including pivot diagonals.
-    #[allow(dead_code)] // used by solver::sector_box (next PRs of the series)
     pub(crate) fn u_nnz(&self) -> usize {
         self.reducer.u().values().len()
     }
 
     /// Retained native L pattern entries.
-    #[allow(dead_code)] // used by solver::sector_box (next PRs of the series)
     pub(crate) fn l_entries(&self) -> usize {
         self.reducer.l().col_idcs().len()
     }
 
     /// Native `add_cols` calls so far.
-    #[allow(dead_code)] // used by solver::sector_box (next PRs of the series)
     pub(crate) fn column_batches(&self) -> usize {
         self.column_batches
     }
 
-    #[allow(dead_code)] // used by solver::sector_box (next PRs of the series)
     pub(crate) fn field(&self) -> &Zp64 {
         self.reducer.u().field()
     }
@@ -525,7 +514,6 @@ impl<const N: usize, O: ColumnComparator<N>> Discovery<N, O> {
     /// `trace_many` never removes a row. One shared visited set therefore
     /// gives the identical result in `O(rows + dependency edges)`, instead of
     /// one walk per root. Debug builds assert the ancestor property.
-    #[allow(dead_code)] // used by solver::sector_box (next PRs of the series)
     pub(crate) fn trace_union(&self, roots: &[usize]) -> Vec<usize> {
         assert!(roots.iter().all(|&root| root < self.basis_len()));
         let u = self.reducer.u();
@@ -629,7 +617,6 @@ impl<const N: usize, O: ColumnComparator<N>> Discovery<N, O> {
 
     /// Register integrals as columns without adding rows (for example
     /// demanded integrals that no row has reached yet), with one `add_cols`.
-    #[allow(dead_code)] // used by solver::sector_box (next PRs of the series)
     pub(crate) fn register(&mut self, mut integrals: Vec<Integral<N>>) {
         integrals.retain(|integral| self.column_index(integral).is_none());
         integrals.sort_unstable_by(|left, right| self.order.compare(left, right));

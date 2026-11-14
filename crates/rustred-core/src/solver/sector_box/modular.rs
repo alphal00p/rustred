@@ -91,6 +91,7 @@ impl<const N: usize> GlobalDiscovery<N> {
         Ok(outcome)
     }
 
+    #[allow(dead_code)] // used by demand seeding (a later step)
     pub(crate) fn rank(&self) -> usize {
         self.discovery.basis_len()
     }

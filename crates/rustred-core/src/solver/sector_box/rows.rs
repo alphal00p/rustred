@@ -153,6 +153,7 @@ impl<const N: usize> ZpRowFactory<N> {
     /// variable order: the family parameters), for independent checks at a
     /// chosen point. As in [`Self::new`], every family condition and every
     /// `extra_conditions` polynomial must be nonzero at the point.
+    #[allow(dead_code)] // used by the materialising lanes (a later step)
     pub(crate) fn at_parameters(
         sources: &SourceSystem<N>,
         arity: usize,
@@ -335,6 +336,7 @@ impl<const N: usize> ZpRowFactory<N> {
 
     /// Upper bound on the router's automorphism rows per seed of sector
     /// `bits` (cost model; 0 for identity routing).
+    #[allow(dead_code)] // used by seeding growth (a later step)
     pub(crate) fn automorphism_row_bound(&self, bits: u64) -> usize {
         if !self.automorphisms {
             return 0;
@@ -585,6 +587,7 @@ impl<const N: usize> ZpRowFactory<N> {
     /// Zp image of one integral after zero pruning and routing: itself for
     /// a representative sector, its route for a routed one, nothing for a
     /// zero sector.
+    #[allow(dead_code)] // used by the materialising lanes (a later step)
     pub(crate) fn route_image(
         &self,
         powers: &[i16; N],
