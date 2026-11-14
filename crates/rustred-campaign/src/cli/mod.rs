@@ -35,8 +35,45 @@ macro_rules! errln {
     }};
 }
 
+/// procfix5 (gate4 m1): set when this process's `main` dispatches the spawn-barrier verb (`main_with` does), so that a
+/// supervisor running in it may start its children behind the barrier (`LaunchSpec::spawn_barrier`).
+static BARRIER_HOSTED: AtomicBool = AtomicBool::new(false);
+
+/// Does this process's binary run the spawn-barrier shim (see [`main_with`])?
+pub fn barrier_hosted() -> bool {
+    BARRIER_HOSTED.load(Ordering::SeqCst)
+}
+
+/// procfix5 (gate4 M2): the refusal of every verb started from an environment that carries the campaign marker
+/// (`RR_CAMPAIGN_JOB`): such a process (and everything it starts) is "ours" by the ownership rule of the campaign the
+/// marker names, so a supervisor started there would kill the operator's own processes (gate4 E11). `None` = may run.
+pub fn marked_environment_refusal(marker: Option<&std::ffi::OsStr>) -> Option<String> {
+    let v = marker?;
+    Some(format!(
+        "refused: this environment carries {}={} (a campaign job's marker; copied from a job's environment?). \
+         Every process carrying it counts as that campaign's job and is killed by its supervisor, together with what it \
+         started. Start rr_campaign from a clean shell (`env | grep {}` must print nothing), e.g. `env -u {} rr_campaign ...`",
+        crate::resources::MARKER_VAR,
+        v.to_string_lossy(),
+        crate::resources::MARKER_VAR,
+        crate::resources::MARKER_VAR
+    ))
+}
+
 /// Dispatch `argv` (without the program name).
 pub fn main_with(args: &[String]) -> i32 {
+    BARRIER_HOSTED.store(true, Ordering::SeqCst);
+    // The spawn-barrier shim runs INSIDE a job (it carries the job's marker by design) and only execs the job's
+    // program after the supervisor released it: dispatched before the marked-environment refusal, nothing else allowed.
+    if args.first().map(String::as_str) == Some(crate::launch::BARRIER_VERB) {
+        return crate::launch::barrier_shim(&args[1..]);
+    }
+    if let Some(m) =
+        marked_environment_refusal(std::env::var_os(crate::resources::MARKER_VAR).as_deref())
+    {
+        errln!("rr_campaign: {m}");
+        return exit::REFUSED;
+    }
     let Some(cmd) = args.first() else {
         errln!("{USAGE}");
         return exit::USAGE;
@@ -253,6 +290,11 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
         | supervisor::RunExit::Internal(m) => {
             errln!("rr_campaign: {m}")
         }
+        supervisor::RunExit::FinishedOpen(m) | supervisor::RunExit::FinishedError(m) => errln!(
+            "rr_campaign: FINISHED, NOT ALL CLOSED (exit {}): {m}; log: {}",
+            r.code(),
+            cdir.join("log").join("supervisor.log").display()
+        ),
         supervisor::RunExit::Finished if with_dashboard => {
             errln!(
                 "rr_campaign: FINISHED (exit 0); log: {}",
@@ -588,7 +630,7 @@ fn statvfs_avail(p: &Path) -> Option<u64> {
 }
 
 /// `<program> version --json` with a 30 s bound (clean environment).
-fn version_line(p: &Path) -> Result<String, String> {
+pub(crate) fn version_line(p: &Path) -> Result<String, String> {
     let mut child = std::process::Command::new(p)
         .args(["version", "--json"])
         .env_clear()

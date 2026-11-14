@@ -93,7 +93,9 @@ fn healthy_run_passes_the_final_invariant() {
     let t = Tmp::new("ok0");
     let spec_p = sup_spec(&t);
     let d = t.cdir("ref");
-    assert_eq!(run_to_end(&spec_p, &d, &[]), vec![0], "{}", log_tail(&d));
+    // procfix5 (gate4 m3/m4): the exit code follows the items (a synthetic item that crashed twice is in attention: 10)
+    let codes = run_to_end(&spec_p, &d, &[]);
+    assert_eq!(codes, vec![finish_code_by_items(&d)], "{}", log_tail(&d));
     assert_eq!(verify(&d), 0);
     assert!(!result(&d).accepted.is_empty());
 }
@@ -188,11 +190,11 @@ fn collide_like_two_i1_runs() {
                 }
                 let code = wait(&mut c, Duration::from_secs(120));
                 codes.push(code);
-                if code == 0 {
+                if finished(code) {
                     break;
                 }
             }
-            if codes.last() != Some(&0) {
+            if !codes.last().is_some_and(|c| finished(*c)) {
                 codes.extend(run_to_end(&spec_p, &dir, &[]));
             }
         }));

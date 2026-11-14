@@ -196,50 +196,62 @@ impl Sweep<'_> {
         }
     }
 
-    /// Stop one candidate through the guard. Ok(true): a new member; Ok(false): gone / not ours any more; Err: could
-    /// not decide (inconclusive).
-    fn stop_candidate(&mut self, p: MarkedProcess) -> Result<bool, String> {
-        let k = key(&p);
-        if self.members.contains_key(&k) {
-            return Ok(false);
-        }
-        self.seen.insert(k, ());
-        if let Some(n) = &self.s.narrowing
-            && let Err(why) = n(&p)
-        {
-            self.left.insert(k, LeftMarked { process: p, why });
-            return Ok(false);
-        }
-        let fd = match guard::open_pidfd(p.pid) {
-            Ok(fd) => fd,
-            Err(Verdict::Gone) => return Ok(false),
-            Err(Verdict::NotOurs(_)) => return Ok(false),
-            Err(Verdict::Unverified(e)) => return Err(e),
-            Err(Verdict::Delivered) => return Err("impossible verdict".into()),
-        };
-        let t = self.target(&p);
-        match guard::signal_with_pidfd(&fd, &t, libc::SIGSTOP, None) {
-            Verdict::Delivered => {
-                // Kept as a member whatever the wait says (gate-A m-2): it will get the SIGKILL.
-                let w = self.wait_stopped(p.pid, &fd);
-                self.left.remove(&k);
-                self.members.insert(k, Member { fd, process: p });
-                w.map(|()| true)
+    /// Stop the candidates of one round through the guard (each: Ok(true) a new member; Ok(false) gone, not ours any
+    /// more or already a member; Err could not decide): narrowing and pidfds per candidate, then ONE guarded SIGSTOP
+    /// batch.
+    fn stop_candidates(&mut self, queue: Vec<MarkedProcess>) -> Vec<Result<bool, String>> {
+        let mut out = Vec::with_capacity(queue.len());
+        let mut cands: Vec<(OwnedFd, MarkedProcess)> = Vec::new();
+        let mut seen_now: std::collections::BTreeSet<Key> = Default::default();
+        for p in queue {
+            let k = key(&p);
+            if self.members.contains_key(&k) || !seen_now.insert(k) {
+                out.push(Ok(false));
+                continue;
             }
-            Verdict::Gone => Ok(false),
-            // The pid was recycled, the environment changed (exec without the marker), another uid: not ours now.
-            Verdict::NotOurs(_) => Ok(false),
-            Verdict::Unverified(e) => {
-                self.left.insert(
-                    k,
-                    LeftMarked {
-                        process: p,
-                        why: format!("not verified: {e}"),
-                    },
-                );
-                Err(e)
+            self.seen.insert(k, ());
+            if let Some(n) = &self.s.narrowing
+                && let Err(why) = n(&p)
+            {
+                self.left.insert(k, LeftMarked { process: p, why });
+                out.push(Ok(false));
+                continue;
+            }
+            match guard::open_pidfd(p.pid) {
+                Ok(fd) => cands.push((fd, p)),
+                Err(Verdict::Gone) | Err(Verdict::NotOurs(_)) => out.push(Ok(false)),
+                Err(Verdict::Unverified(e)) => out.push(Err(e)),
+                Err(Verdict::Delivered) => out.push(Err("impossible verdict".into())),
             }
         }
+        let items: Vec<(&OwnedFd, ProcessTarget)> =
+            cands.iter().map(|(fd, p)| (fd, self.target(p))).collect();
+        let verdicts = guard::signal_with_pidfds(&items, libc::SIGSTOP, None);
+        drop(items);
+        for ((fd, p), v) in cands.into_iter().zip(verdicts) {
+            let k = key(&p);
+            out.push(match v {
+                Verdict::Delivered => {
+                    // Kept as a member whatever the wait says (gate-A m-2): it will get the SIGKILL.
+                    let w = self.wait_stopped(p.pid, &fd);
+                    self.left.remove(&k);
+                    self.members.insert(k, Member { fd, process: p });
+                    w.map(|()| true)
+                }
+                Verdict::Gone | Verdict::NotOurs(_) => Ok(false),
+                Verdict::Unverified(e) => {
+                    self.left.insert(
+                        k,
+                        LeftMarked {
+                            process: p,
+                            why: format!("not verified: {e}"),
+                        },
+                    );
+                    Err(e)
+                }
+            });
+        }
+        out
     }
 
     /// Step 1. Ok at the fixed point; Err(reason) at the bound.
@@ -281,8 +293,9 @@ impl Sweep<'_> {
             }
             // Newest first (a re-forking chain's current hop).
             queue.sort_by_key(|p| std::cmp::Reverse((p.start_ticks, p.pid)));
-            for p in queue {
-                match self.stop_candidate(p) {
+            // procfix5 M1: the SIGSTOPs of one round go out as ONE batch (one intent sync).
+            for r in self.stop_candidates(queue) {
+                match r {
                     Ok(true) => new = true,
                     Ok(false) => {}
                     Err(e) => inconclusive = Some(e),
@@ -327,9 +340,15 @@ impl Sweep<'_> {
     fn kill_members(&mut self) {
         let members = std::mem::take(&mut self.members);
         let mut pending = Vec::new();
-        for (k, m) in members {
-            let t = self.target(&m.process);
-            match guard::signal_with_pidfd(&m.fd, &t, libc::SIGKILL, None) {
+        // procfix5 M1: one batch (one intent sync) for the whole kill round.
+        let items: Vec<(&OwnedFd, ProcessTarget)> = members
+            .values()
+            .map(|m| (&m.fd, self.target(&m.process)))
+            .collect();
+        let verdicts = guard::signal_with_pidfds(&items, libc::SIGKILL, None);
+        drop(items);
+        for ((k, m), v) in members.into_iter().zip(verdicts) {
+            match v {
                 Verdict::Delivered => {
                     self.killed.insert(k, m.process.clone());
                     pending.push(m);

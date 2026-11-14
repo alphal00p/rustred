@@ -113,7 +113,8 @@ fn a_proof_answer_for_another_record_or_key_is_refused() {
     };
     let (_t, _f, sp, cdir) = setup("cl2lie", &cfg);
     let codes = run_to_end(&sp, &cdir, &["--plain"]);
-    assert_eq!(codes.last(), Some(&0), "{}", log_tail(&cdir));
+    // procfix5 (gate4 m3): the node ends OPEN with items in attention: finished, not all closed = exit 10
+    assert_eq!(codes.last(), Some(&FINISHED_OPEN), "{}", log_tail(&cdir));
     let r = result_json(&cdir);
     assert_eq!(r["verdict"], "open", "{r:#}");
     let b = blockers(&r);

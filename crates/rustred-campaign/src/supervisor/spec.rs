@@ -162,6 +162,13 @@ pub struct Resources {
     /// Allow running on a kernel without pidfd (signals then use the documented weaker path). Default false: refused.
     #[serde(default)]
     pub allow_no_pidfd: bool,
+    /// procfix5 (gate4 letter (a)): how descendants that DROP the marker are contained. `"scope"` (default): REAL
+    /// children run only when the systemd scope mechanism is available (each job in its recorded scope, stopped by name
+    /// and leader after a crash); without it the run is refused. `"marker_only"`: explicitly accept the marker as the
+    /// only containment (a marker-dropping escapee survives a crash). Fake children (`rr_fake_child`, synthetic specs,
+    /// `--fake-child`) are never refused.
+    #[serde(default)]
+    pub containment: Option<String>,
 }
 
 fn d_policy() -> String {

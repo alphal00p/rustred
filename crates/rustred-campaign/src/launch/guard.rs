@@ -145,7 +145,8 @@ pub struct ProcessTarget {
 // ------------------------------------------------------------------------------------------------ delivery log
 
 /// One signal this process DELIVERED through the guard (gate3 M2, lane int5: every signal sent becomes a ledger record;
-/// the supervisor drains [`take_deliveries`] into `signal_sent` records). Recorded only after a successful send.
+/// the supervisor drains [`take_deliveries`] into `signal_sent` records). Recorded only after a successful send; since
+/// procfix5 (gate4 M1) every send is preceded by a durable intent line, so a crash before the drain loses nothing.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Delivery {
     /// The process (target "process"), the process group = the pinned leader's session (target "group"), or 0 for a
@@ -167,6 +168,8 @@ pub struct Delivery {
     pub label: Option<String>,
     /// Extra detail (cgroup path).
     pub detail: Option<String>,
+    /// procfix5 M1: the id of the durable intent written before the send (None without an installed intent log).
+    pub intent: Option<String>,
 }
 
 /// Deliveries kept for the drain at most (a supervisor drains every tick; beyond this they are counted, not kept).
@@ -190,7 +193,8 @@ fn current_context() -> Option<(String, Option<String>)> {
     CONTEXT.with(|c| c.borrow().clone())
 }
 
-pub(crate) fn log_delivery(
+#[allow(clippy::too_many_arguments)]
+fn log_delivery(
     pid: u32,
     start_ticks: Option<u64>,
     signal: i32,
@@ -198,6 +202,7 @@ pub(crate) fn log_delivery(
     marker: Option<String>,
     proof: &'static str,
     detail: Option<String>,
+    intent: Option<String>,
 ) {
     let (by, label) = current_context().unwrap_or_else(|| ("unspecified".into(), None));
     let d = Delivery {
@@ -210,6 +215,7 @@ pub(crate) fn log_delivery(
         by,
         label,
         detail,
+        intent,
     };
     let mut g = DELIVERIES.lock().unwrap_or_else(|p| p.into_inner());
     if g.0.len() < DELIVERY_LOG_MAX {
@@ -225,6 +231,376 @@ pub fn take_deliveries() -> (Vec<Delivery>, u64) {
     let v = std::mem::take(&mut g.0);
     let dropped = std::mem::replace(&mut g.1, 0);
     (v, dropped)
+}
+
+// ------------------------------------------------------------------------------------------------ write-ahead intents
+
+// procfix5 (gate4 M1): a delivered signal must never be missing from the record after a crash. The delivery log above
+// is drained into the ledger once per tick, so a crash lost the last tick's deliveries (E3: 10 SIGKILLs in 5 of 8
+// crashes). Every signal of the guard (process, group, cgroup kill) is therefore preceded by a DURABLE INTENT line
+// (appended and fdatasync'ed) in `CDIR/log/signal-intents.jsonl` naming pid, start time, marker, signal, proof, who
+// and why (context) and the attempt; after the send a completion line (`done`, not synced) names the result. A batch
+// of sends (one sweep round, one job's signal, the fast exit) writes all its intents with ONE fdatasync before the
+// first send; nothing is ever sent before its intent is durable. When the intent cannot be made durable the signal is
+// NOT sent (`Unverified`). At recovery the supervisor records every intent that is in no `signal_sent` record: with a
+// `done delivered` line as delivered, without a completion line as POSSIBLY SENT (`reconcile_intents`); nothing is
+// ever re-sent from an intent (the recovery sweep re-runs the identity checklist on whatever lives).
+// The log is a process-wide sink installed by the supervisor ([`install_intent_log`]); without it (library users,
+// unit tests) the guard behaves as before.
+
+/// File name of the intent log under the campaign's `log/` directory.
+pub const INTENT_LOG_FILE: &str = "signal-intents.jsonl";
+/// A small reserve next to the intent log, deleted to make room when an intent write meets a full disk.
+pub const INTENT_RESERVE_FILE: &str = "signal-intents.reserve";
+const INTENT_RESERVE_BYTES: usize = 64 << 10;
+/// Schema word of every intent-log line.
+pub const INTENT_SCHEMA: &str = "rustred.campaign.signal-intent.v1";
+
+struct IntentLog {
+    file: std::fs::File,
+    reserve: PathBuf,
+    session: String,
+    next: u64,
+}
+
+static INTENTS: std::sync::Mutex<Option<IntentLog>> = std::sync::Mutex::new(None);
+
+#[cfg(test)]
+thread_local! {
+    /// Unit tests: a sink of THIS thread only (other tests signalling concurrently never see it).
+    static TEST_SINK: std::cell::RefCell<Option<IntentLog>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Run `f` with the intent log of THIS thread (unit tests only).
+#[cfg(test)]
+fn with_intent_log<R>(log_dir: &Path, session: &str, f: impl FnOnce() -> R) -> R {
+    std::fs::create_dir_all(log_dir).unwrap();
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_dir.join(INTENT_LOG_FILE))
+        .unwrap();
+    TEST_SINK.with(|t| {
+        *t.borrow_mut() = Some(IntentLog {
+            file,
+            reserve: log_dir.join(INTENT_RESERVE_FILE),
+            session: session.into(),
+            next: 0,
+        })
+    });
+    let r = f();
+    TEST_SINK.with(|t| *t.borrow_mut() = None);
+    r
+}
+
+/// The sink to use: the thread's test sink, else the process-wide one.
+fn with_sink<R>(f: impl FnOnce(Option<&mut IntentLog>) -> R) -> R {
+    #[cfg(test)]
+    {
+        let mut f = Some(f);
+        let r = TEST_SINK.with(|t| {
+            let mut b = t.borrow_mut();
+            b.as_mut().map(|log| (f.take().unwrap())(Some(log)))
+        });
+        if let Some(r) = r {
+            return r;
+        }
+        let mut g = INTENTS.lock().unwrap_or_else(|p| p.into_inner());
+        (f.take().unwrap())(g.as_mut())
+    }
+    #[cfg(not(test))]
+    {
+        let mut g = INTENTS.lock().unwrap_or_else(|p| p.into_inner());
+        f(g.as_mut())
+    }
+}
+
+/// One signal about to be sent (the context of the calling thread supplies who / why / attempt).
+#[derive(Clone, Debug)]
+struct Intent {
+    pid: u32,
+    start_ticks: Option<u64>,
+    signal: i32,
+    target: &'static str,
+    marker: Option<String>,
+    proof: &'static str,
+    detail: Option<String>,
+}
+
+/// One line of the intent log (both kinds; fields of the other kind are absent).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub struct IntentLine {
+    pub schema: String,
+    /// "intent" | "done".
+    pub kind: String,
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub utc: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pid: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_ticks: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signal: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marker: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proof: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    /// For `done`: "delivered" | "gone" | "failed: <error>".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>,
+}
+
+/// Install the intent log of THIS process (the supervisor, before it can signal anything): `log_dir/signal-intents.jsonl`
+/// opened for appending (created and its directory synced if new) plus the reserve file. `session` makes the intent ids
+/// unique (boot, pid, start time of the supervisor). Replaces a previous installation.
+pub fn install_intent_log(log_dir: &Path, session: &str) -> io::Result<()> {
+    std::fs::create_dir_all(log_dir)?;
+    let path = log_dir.join(INTENT_LOG_FILE);
+    let new = !path.exists();
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)?;
+    let reserve = log_dir.join(INTENT_RESERVE_FILE);
+    if std::fs::symlink_metadata(&reserve).is_err() {
+        // Best effort: the reserve only helps a later write on a full disk.
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&reserve)
+        {
+            use std::io::Write;
+            let _ = f.write_all(&vec![0u8; INTENT_RESERVE_BYTES]);
+            let _ = f.sync_all();
+        }
+    }
+    if new {
+        file.sync_all()?;
+        std::fs::File::open(log_dir)?.sync_all()?;
+    }
+    let mut g = INTENTS.lock().unwrap_or_else(|p| p.into_inner());
+    *g = Some(IntentLog {
+        file,
+        reserve,
+        session: session.to_string(),
+        next: 0,
+    });
+    Ok(())
+}
+
+/// Remove the installation (tests; a supervisor keeps it until it exits).
+pub fn uninstall_intent_log() {
+    *INTENTS.lock().unwrap_or_else(|p| p.into_inner()) = None;
+}
+
+/// Is an intent log installed in this process?
+pub fn intent_log_installed() -> bool {
+    INTENTS.lock().unwrap_or_else(|p| p.into_inner()).is_some()
+}
+
+fn is_disk_full(e: &io::Error) -> bool {
+    matches!(
+        e.raw_os_error(),
+        Some(libc::ENOSPC) | Some(libc::EDQUOT) | Some(libc::EFBIG)
+    )
+}
+
+/// Write the intents of one batch and make them durable with ONE fdatasync. `Ok(ids)` (all `None` when no log is
+/// installed); `Err`: nothing may be sent.
+fn write_intents(items: &[Intent]) -> Result<Vec<Option<String>>, String> {
+    if items.is_empty() {
+        return Ok(Vec::new());
+    }
+    let (by, label) = current_context().unwrap_or_else(|| ("unspecified".into(), None));
+    with_sink(|log| write_intents_to(log, items, by, label))
+}
+
+fn write_intents_to(
+    log: Option<&mut IntentLog>,
+    items: &[Intent],
+    by: String,
+    label: Option<String>,
+) -> Result<Vec<Option<String>>, String> {
+    use std::io::Write;
+    let Some(log) = log else {
+        return Ok(vec![None; items.len()]);
+    };
+    let utc = crate::cpu_policy::utc_now();
+    let mut buf = Vec::with_capacity(items.len() * 320);
+    let mut ids = Vec::with_capacity(items.len());
+    for it in items {
+        log.next += 1;
+        let id = format!("{}-{}", log.session, log.next);
+        let line = IntentLine {
+            schema: INTENT_SCHEMA.into(),
+            kind: "intent".into(),
+            id: id.clone(),
+            utc: Some(utc.clone()),
+            pid: Some(it.pid),
+            start_ticks: it.start_ticks,
+            signal: Some(it.signal),
+            target: Some(it.target.into()),
+            marker: it.marker.clone(),
+            proof: Some(it.proof.into()),
+            by: Some(by.clone()),
+            label: label.clone(),
+            detail: it.detail.clone(),
+            result: None,
+        };
+        serde_json::to_writer(&mut buf, &line).map_err(|e| e.to_string())?;
+        buf.push(b'\n');
+        ids.push(Some(id));
+    }
+    let attempt = |log: &mut IntentLog, lead: bool| -> io::Result<()> {
+        if lead {
+            // A torn line of the failed attempt ends here (the reader skips it).
+            log.file.write_all(b"\n")?;
+        }
+        log.file.write_all(&buf)?;
+        log.file.sync_data()
+    };
+    match attempt(log, false) {
+        Ok(()) => Ok(ids),
+        Err(e) if is_disk_full(&e) && std::fs::remove_file(&log.reserve).is_ok() => {
+            attempt(log, true).map(|()| ids).map_err(|e2| {
+                format!("signal intent not durable: {e2} (after freeing the reserve; first: {e})")
+            })
+        }
+        Err(e) => Err(format!("signal intent not durable: {e}")),
+    }
+}
+
+/// Completion lines (not synced: a lost completion line only makes a delivered signal "possibly sent").
+fn write_done(done: &[(Option<String>, String)]) {
+    with_sink(|log| {
+        if let Some(log) = log {
+            write_done_to(log, done)
+        }
+    })
+}
+
+fn write_done_to(log: &mut IntentLog, done: &[(Option<String>, String)]) {
+    use std::io::Write;
+    let mut buf = Vec::new();
+    for (id, result) in done {
+        let Some(id) = id else { continue };
+        let line = IntentLine {
+            schema: INTENT_SCHEMA.into(),
+            kind: "done".into(),
+            id: id.clone(),
+            utc: None,
+            pid: None,
+            start_ticks: None,
+            signal: None,
+            target: None,
+            marker: None,
+            proof: None,
+            by: None,
+            label: None,
+            detail: None,
+            result: Some(result.clone()),
+        };
+        if serde_json::to_writer(&mut buf, &line).is_ok() {
+            buf.push(b'\n');
+        }
+    }
+    if !buf.is_empty() {
+        let _ = log.file.write_all(&buf);
+    }
+}
+
+/// An intent of an earlier session with what its log says about it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LoggedIntent {
+    pub line: IntentLine,
+    /// The completion result, if a `done` line exists.
+    pub result: Option<String>,
+}
+
+/// Read an intent log: every intent with its completion (lines that do not parse, e.g. a torn tail, are counted).
+pub fn read_intent_log(path: &Path) -> io::Result<(Vec<LoggedIntent>, usize)> {
+    let text = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((Vec::new(), 0)),
+        Err(e) => return Err(e),
+    };
+    let mut order: Vec<String> = Vec::new();
+    let mut intents: std::collections::BTreeMap<String, LoggedIntent> = Default::default();
+    let mut bad = 0;
+    for raw in text.split(|&b| b == b'\n') {
+        if raw.iter().all(u8::is_ascii_whitespace) {
+            continue;
+        }
+        let Ok(l) = serde_json::from_slice::<IntentLine>(raw) else {
+            bad += 1;
+            continue;
+        };
+        if l.schema != INTENT_SCHEMA {
+            bad += 1;
+            continue;
+        }
+        match l.kind.as_str() {
+            "intent" => {
+                if !intents.contains_key(&l.id) {
+                    order.push(l.id.clone());
+                }
+                intents.insert(
+                    l.id.clone(),
+                    LoggedIntent {
+                        line: l,
+                        result: None,
+                    },
+                );
+            }
+            "done" => {
+                if let Some(i) = intents.get_mut(&l.id) {
+                    i.result = l.result.clone();
+                }
+            }
+            _ => bad += 1,
+        }
+    }
+    Ok((
+        order
+            .into_iter()
+            .filter_map(|id| intents.remove(&id))
+            .collect(),
+        bad,
+    ))
+}
+
+/// The intent id a `signal_sent` record's `by` names (`... [intent <id>]` / `... [intent <id>; ...]`).
+pub fn intent_id_in(by: &str) -> Option<&str> {
+    let i = by.rfind("[intent ")?;
+    let rest = &by[i + "[intent ".len()..];
+    let end = rest.find([']', ';'])?;
+    Some(&rest[..end])
+}
+
+/// Test builds only: the abort sites around a send (`RR_CAMPAIGN_FAILPOINT=signal_after_intent:<n>` /
+/// `signal_after_send:<n>`). A release build has neither the sites nor their names.
+#[cfg(debug_assertions)]
+fn test_site(site: &str) {
+    static FP: std::sync::OnceLock<crate::supervisor::failpoint::Failpoints> =
+        std::sync::OnceLock::new();
+    FP.get_or_init(crate::supervisor::failpoint::Failpoints::from_env)
+        .hit(site);
+}
+
+macro_rules! site {
+    ($s:literal) => {
+        #[cfg(debug_assertions)]
+        test_site($s);
+    };
 }
 
 fn proof_word(p: &Proof) -> &'static str {
@@ -638,28 +1014,7 @@ pub(crate) fn signal_verified_at(
             None => return Verdict::Unverified(format!("/proc reads of pid {p} timed out")),
         }
     };
-    judge_and_send(t, read, pidfd.as_ref(), pid, sig, leaders)
-}
-
-/// The whole checklist INLINE on the calling thread (no helper thread): for callers that already run off the control
-/// loop (the end-of-job hunt, the batch signaller). The pidfd is opened BEFORE the reads, exactly as in
-/// [`signal_verified_at`].
-pub(crate) fn signal_verified_inline(
-    t: &ProcessTarget,
-    sig: i32,
-    leaders: Option<&Leaders>,
-) -> Verdict {
-    let pid = match precheck(t, sig, leaders) {
-        Ok(p) => p,
-        Err(v) => return v,
-    };
-    let pidfd = match open_pidfd_checked(pid) {
-        Ok(fd) => fd,
-        Err(v) => return v,
-    };
-    let want_marker = matches!(t.proof, Proof::Marker(_) | Proof::Campaign(_));
-    let read = read_facts(Path::new("/proc"), t.pid, want_marker);
-    judge_and_send(t, read, pidfd.as_ref(), pid, sig, leaders)
+    judge_one(t, read, pidfd.as_ref(), pid, sig, leaders)
 }
 
 /// The checklist on a pidfd the CALLER opened earlier (with [`open_pidfd`]) and still holds: the hunt opens a pidfd on
@@ -677,7 +1032,62 @@ pub(crate) fn signal_with_pidfd(
     };
     let want_marker = matches!(t.proof, Proof::Marker(_) | Proof::Campaign(_));
     let read = read_facts(Path::new("/proc"), t.pid, want_marker);
-    judge_and_send(t, read, Some(fd), pid, sig, leaders)
+    judge_one(t, read, Some(fd), pid, sig, leaders)
+}
+
+/// [`signal_with_pidfd`] for a BATCH of candidates whose pidfds the caller holds (a sweep round): the reads first, then
+/// the judgements, the intents of all that passed with ONE fdatasync, then the sends (procfix5 M1: the hot path of a
+/// freeze / kill round pays one sync, never a send before its intent).
+pub(crate) fn signal_with_pidfds(
+    items: &[(&OwnedFd, ProcessTarget)],
+    sig: i32,
+    leaders: Option<&Leaders>,
+) -> Vec<Verdict> {
+    let mut out: Vec<Option<Verdict>> = vec![None; items.len()];
+    let mut ready = Vec::new();
+    for (k, (fd, t)) in items.iter().enumerate() {
+        let pid = match precheck(t, sig, leaders) {
+            Ok(p) => p,
+            Err(v) => {
+                out[k] = Some(v);
+                continue;
+            }
+        };
+        let want_marker = matches!(t.proof, Proof::Marker(_) | Proof::Campaign(_));
+        match read_facts(Path::new("/proc"), t.pid, want_marker) {
+            Read::Gone => out[k] = Some(Verdict::Gone),
+            Read::Failed(e) => out[k] = Some(Verdict::Unverified(e)),
+            Read::Facts(facts) => ready.push((
+                k,
+                Ready {
+                    t,
+                    pid,
+                    fd: Some(*fd),
+                    facts,
+                },
+            )),
+        }
+    }
+    merge(out, ready, sig, leaders)
+}
+
+/// Fill the verdicts of the `ready` part of a batch through [`judge_and_send_batch`].
+fn merge(
+    mut out: Vec<Option<Verdict>>,
+    ready: Vec<(usize, Ready<'_>)>,
+    sig: i32,
+    leaders: Option<&Leaders>,
+) -> Vec<Verdict> {
+    let (idx, items): (Vec<usize>, Vec<Ready<'_>>) = ready.into_iter().unzip();
+    for (k, v) in idx
+        .into_iter()
+        .zip(judge_and_send_batch(items, sig, leaders))
+    {
+        out[k] = Some(v);
+    }
+    out.into_iter()
+        .map(|v| v.unwrap_or_else(|| Verdict::Unverified("internal: no verdict".into())))
+        .collect()
 }
 
 /// Open a pidfd on `pid` for a caller that classifies the process before deciding to signal it (the hunt). Refuses
@@ -700,8 +1110,16 @@ pub(crate) fn pidfd_exited(fd: &OwnedFd) -> Option<bool> {
     sys::pidfd_exited(fd_borrow(fd))
 }
 
-/// Steps 7 (judgement, under the registry lock for a pinned-session proof) and 8 (the send).
-fn judge_and_send(
+/// A target whose facts were read, ready for steps 7-8.
+struct Ready<'a> {
+    t: &'a ProcessTarget,
+    pid: ValidPid,
+    fd: Option<&'a OwnedFd>,
+    facts: Facts,
+}
+
+/// Steps 7-8 for ONE target.
+fn judge_one(
     t: &ProcessTarget,
     read: Read,
     pidfd: Option<&OwnedFd>,
@@ -714,48 +1132,142 @@ fn judge_and_send(
         Read::Failed(e) => return Verdict::Unverified(e),
         Read::Facts(f) => f,
     };
-    // Pinned-session proof: the registry lock is held from the judgement through the send.
+    judge_and_send_batch(
+        vec![Ready {
+            t,
+            pid,
+            fd: pidfd,
+            facts,
+        }],
+        sig,
+        leaders,
+    )
+    .pop()
+    .unwrap_or_else(|| Verdict::Unverified("internal: no verdict".into()))
+}
+
+/// How one send went.
+enum Sent {
+    Ok,
+    Gone,
+    Failed(String),
+}
+
+/// Steps 7 (judgement; the registry lock, when a registry is given, is held from the judgements through the sends) and
+/// 8 (the sends) for a batch. procfix5 M1: between them the INTENTS of every target that passed are written with ONE
+/// fdatasync; if that fails nothing is sent (`Unverified`). After the sends: completion lines and the delivery log.
+fn judge_and_send_batch(
+    items: Vec<Ready<'_>>,
+    sig: i32,
+    leaders: Option<&Leaders>,
+) -> Vec<Verdict> {
+    let mut out: Vec<Option<Verdict>> = (0..items.len()).map(|_| None).collect();
     let guard = leaders.map(Leaders::lock);
     let pinned = |sid: u32| {
         guard
             .as_ref()
             .is_some_and(|g| g.contains(&sid) && leader_unreaped(sid))
     };
-    if let Err(v) = judge(t, &facts, our_uid(), &pinned) {
-        return v;
-    }
-    // 8.
-    let r = match pidfd {
-        Some(fd) => sys::pidfd_send_signal(fd_borrow(fd), sig),
-        None => {
-            // No pidfd: re-read the start time right before kill (residual race of microseconds, documented).
-            match crate::resources::read_stat(t.pid) {
-                Ok(Some(st)) if st.start_ticks == facts.start_ticks => sys::kill_pid(pid, sig),
-                Ok(_) => return Verdict::Gone,
-                Err(e) => return Verdict::Unverified(format!("re-check: {e}")),
+    let uid = our_uid();
+    let mut pass = Vec::new();
+    let mut intents = Vec::new();
+    for (k, r) in items.iter().enumerate() {
+        match judge(r.t, &r.facts, uid, &pinned) {
+            Err(v) => out[k] = Some(v),
+            Ok(()) => {
+                pass.push(k);
+                intents.push(Intent {
+                    pid: r.t.pid,
+                    start_ticks: Some(r.facts.start_ticks),
+                    signal: sig,
+                    target: "process",
+                    marker: marker_read(&r.facts),
+                    proof: proof_word(&r.t.proof),
+                    detail: None,
+                });
             }
         }
-    };
-    drop(guard);
-    match r {
-        Ok(()) => {
-            let marker = match &facts.marker {
-                Some(Ok(Some(v))) => Some(v.clone()),
-                _ => None,
-            };
-            log_delivery(
-                t.pid,
-                Some(facts.start_ticks),
-                sig,
-                "process",
-                marker,
-                proof_word(&t.proof),
-                None,
-            );
-            Verdict::Delivered
+    }
+    let ids = match write_intents(&intents) {
+        Ok(ids) => ids,
+        Err(e) => {
+            drop(guard);
+            for &k in &pass {
+                out[k] = Some(Verdict::Unverified(e.clone()));
+            }
+            return finish_verdicts(out);
         }
-        Err(e) if e.raw_os_error() == Some(libc::ESRCH) => Verdict::Gone,
-        Err(e) => Verdict::Unverified(format!("send: {e}")),
+    };
+    if !pass.is_empty() {
+        site!("signal_after_intent");
+    }
+    // 8.
+    let mut sent = Vec::with_capacity(pass.len());
+    for &k in &pass {
+        let r = &items[k];
+        let res = match r.fd {
+            Some(fd) => match sys::pidfd_send_signal(fd_borrow(fd), sig) {
+                Ok(()) => Sent::Ok,
+                Err(e) if e.raw_os_error() == Some(libc::ESRCH) => Sent::Gone,
+                Err(e) => Sent::Failed(format!("send: {e}")),
+            },
+            // No pidfd: re-read the start time right before kill (residual race of microseconds, documented).
+            None => match crate::resources::read_stat(r.t.pid) {
+                Ok(Some(st)) if st.start_ticks == r.facts.start_ticks => {
+                    match sys::kill_pid(r.pid, sig) {
+                        Ok(()) => Sent::Ok,
+                        Err(e) if e.raw_os_error() == Some(libc::ESRCH) => Sent::Gone,
+                        Err(e) => Sent::Failed(format!("send: {e}")),
+                    }
+                }
+                Ok(_) => Sent::Gone,
+                Err(e) => Sent::Failed(format!("re-check: {e}")),
+            },
+        };
+        sent.push(res);
+    }
+    drop(guard);
+    if !pass.is_empty() {
+        site!("signal_after_send");
+    }
+    let mut done = Vec::with_capacity(pass.len());
+    for ((&k, res), id) in pass.iter().zip(sent).zip(ids) {
+        let r = &items[k];
+        let (v, word) = match res {
+            Sent::Ok => {
+                log_delivery(
+                    r.t.pid,
+                    Some(r.facts.start_ticks),
+                    sig,
+                    "process",
+                    marker_read(&r.facts),
+                    proof_word(&r.t.proof),
+                    None,
+                    id.clone(),
+                );
+                (Verdict::Delivered, "delivered".to_string())
+            }
+            Sent::Gone => (Verdict::Gone, "gone".to_string()),
+            Sent::Failed(e) => (Verdict::Unverified(e.clone()), format!("failed: {e}")),
+        };
+        out[k] = Some(v);
+        done.push((id, word));
+    }
+    write_done(&done);
+    finish_verdicts(out)
+}
+
+fn finish_verdicts(out: Vec<Option<Verdict>>) -> Vec<Verdict> {
+    out.into_iter()
+        .map(|v| v.unwrap_or_else(|| Verdict::Unverified("internal: no verdict".into())))
+        .collect()
+}
+
+/// The marker value the checklist read (None for a pinned-session proof).
+fn marker_read(f: &Facts) -> Option<String> {
+    match &f.marker {
+        Some(Ok(Some(v))) => Some(v.clone()),
+        _ => None,
     }
 }
 
@@ -772,36 +1284,148 @@ fn leader_unreaped(pid: u32) -> bool {
 /// The group fast path: SIGNAL the process group `sid` of a launched child whose leader is in `leaders` (see the module
 /// documentation for why this is safe here and only here).
 pub(crate) fn signal_pinned_group(leaders: &Leaders, sid: u32, sig: i32) -> Verdict {
+    signal_pinned_groups(leaders, &[sid], sig)
+        .pop()
+        .unwrap_or_else(|| Verdict::Unverified("internal: no verdict".into()))
+}
+
+/// [`signal_pinned_group`] for several groups under ONE hold of the registry lock: the pins are checked, the intents
+/// of all pinned groups written with one fdatasync (procfix5 M1), then each group is signalled.
+pub(crate) fn signal_pinned_groups(leaders: &Leaders, sids: &[u32], sig: i32) -> Vec<Verdict> {
     if !valid_signal(sig) {
-        return Verdict::Unverified(format!("signal number {sig} out of range"));
+        return sids
+            .iter()
+            .map(|_| Verdict::Unverified(format!("signal number {sig} out of range")))
+            .collect();
     }
-    let pgid = match ValidPid::for_signal(i64::from(sid)) {
-        Ok(p) => p,
-        Err(e) => return Verdict::NotOurs(Refusal::InvalidPid(e)),
-    };
+    let mut out: Vec<Option<Verdict>> = vec![None; sids.len()];
     let guard = leaders.lock();
-    if !guard.contains(&sid) || !leader_unreaped(sid) {
-        return Verdict::NotOurs(Refusal::SessionNotPinned { sid });
-    }
-    let r = sys::killpg_pinned(pgid, sig);
-    drop(guard);
-    match r {
-        Ok(()) => {
-            log_delivery(sid, None, sig, "group", None, "pinned group", None);
-            Verdict::Delivered
+    let mut pass = Vec::new();
+    for (k, &sid) in sids.iter().enumerate() {
+        let pgid = match ValidPid::for_signal(i64::from(sid)) {
+            Ok(p) => p,
+            Err(e) => {
+                out[k] = Some(Verdict::NotOurs(Refusal::InvalidPid(e)));
+                continue;
+            }
+        };
+        if !guard.contains(&sid) || !leader_unreaped(sid) {
+            out[k] = Some(Verdict::NotOurs(Refusal::SessionNotPinned { sid }));
+            continue;
         }
-        Err(e) if e.raw_os_error() == Some(libc::ESRCH) => Verdict::Gone,
-        Err(e) => Verdict::Unverified(format!("killpg: {e}")),
+        pass.push((k, sid, pgid));
     }
+    let intents: Vec<Intent> = pass
+        .iter()
+        .map(|&(_, sid, _)| Intent {
+            pid: sid,
+            start_ticks: None,
+            signal: sig,
+            target: "group",
+            marker: None,
+            proof: "pinned group",
+            detail: None,
+        })
+        .collect();
+    let ids = match write_intents(&intents) {
+        Ok(ids) => ids,
+        Err(e) => {
+            drop(guard);
+            for &(k, _, _) in &pass {
+                out[k] = Some(Verdict::Unverified(e.clone()));
+            }
+            return finish_verdicts(out);
+        }
+    };
+    if !pass.is_empty() {
+        site!("signal_after_intent");
+    }
+    let results: Vec<io::Result<()>> = pass
+        .iter()
+        .map(|&(_, _, pgid)| sys::killpg_pinned(pgid, sig))
+        .collect();
+    drop(guard);
+    if !pass.is_empty() {
+        site!("signal_after_send");
+    }
+    let mut done = Vec::with_capacity(pass.len());
+    for ((&(k, sid, _), r), id) in pass.iter().zip(results).zip(ids) {
+        let (v, word) = match r {
+            Ok(()) => {
+                log_delivery(
+                    sid,
+                    None,
+                    sig,
+                    "group",
+                    None,
+                    "pinned group",
+                    None,
+                    id.clone(),
+                );
+                (Verdict::Delivered, "delivered".to_string())
+            }
+            Err(e) if e.raw_os_error() == Some(libc::ESRCH) => (Verdict::Gone, "gone".into()),
+            Err(e) => (
+                Verdict::Unverified(format!("killpg: {e}")),
+                format!("failed: killpg: {e}"),
+            ),
+        };
+        out[k] = Some(v);
+        done.push((id, word));
+    }
+    write_done(&done);
+    finish_verdicts(out)
 }
 
 /// SIGKILL to every pinned leader group at once (fast exit, audit A M6: "before any fast exit, killpg every unreaped
-/// leader group"). Returns how many groups were signalled.
+/// leader group"): one batch, one intent sync. Returns how many groups were signalled.
 pub(crate) fn kill_all_pinned(leaders: &Leaders) -> usize {
     let sids: Vec<u32> = leaders.lock().iter().copied().collect();
-    sids.into_iter()
-        .filter(|&s| signal_pinned_group(leaders, s, libc::SIGKILL).delivered())
+    signal_pinned_groups(leaders, &sids, libc::SIGKILL)
+        .iter()
+        .filter(|v| v.delivered())
         .count()
+}
+
+/// A cgroup-wide kill (`cgroup.kill` of a job cgroup / job scope WE own, written by `write`): its intent is made durable
+/// first, the completion and the delivery are logged after (procfix5 M1). Without a durable intent nothing is written.
+pub(crate) fn cgroup_kill_logged(
+    dir: &Path,
+    proof: &'static str,
+    write: impl FnOnce() -> io::Result<()>,
+) -> io::Result<()> {
+    let detail = Some(dir.display().to_string());
+    let ids = write_intents(&[Intent {
+        pid: 0,
+        start_ticks: None,
+        signal: libc::SIGKILL,
+        target: "cgroup",
+        marker: None,
+        proof,
+        detail: detail.clone(),
+    }])
+    .map_err(io::Error::other)?;
+    let id = ids.into_iter().next().flatten();
+    site!("signal_after_intent");
+    let r = write();
+    site!("signal_after_send");
+    match &r {
+        Ok(()) => {
+            log_delivery(
+                0,
+                None,
+                libc::SIGKILL,
+                "cgroup",
+                None,
+                proof,
+                detail,
+                id.clone(),
+            );
+            write_done(&[(id, "delivered".into())]);
+        }
+        Err(e) => write_done(&[(id, format!("failed: {e}"))]),
+    }
+    r
 }
 
 /// Reap exactly (pid, start) if it is a ZOMBIE CHILD of ours outside our own session: pidfd first (it pins the process),
@@ -834,6 +1458,49 @@ pub(crate) fn reap_adopted(pid: u32, start_ticks: u64, own_session: u32) -> bool
     }
 }
 
+/// The checklist for several targets inline: per target the pre-check, the pidfd and the reads, then ONE judgement /
+/// intent / send batch (procfix5 M1: one intent sync per batch).
+fn signal_batch_inline(
+    targets: &[ProcessTarget],
+    sig: i32,
+    leaders: Option<&Leaders>,
+) -> Vec<Verdict> {
+    let mut out: Vec<Option<Verdict>> = vec![None; targets.len()];
+    let mut fds: Vec<(usize, ValidPid, Option<OwnedFd>)> = Vec::new();
+    for (k, t) in targets.iter().enumerate() {
+        let pid = match precheck(t, sig, leaders) {
+            Ok(p) => p,
+            Err(v) => {
+                out[k] = Some(v);
+                continue;
+            }
+        };
+        match open_pidfd_checked(pid) {
+            Ok(fd) => fds.push((k, pid, fd)),
+            Err(v) => out[k] = Some(v),
+        }
+    }
+    let mut ready = Vec::new();
+    for (k, pid, fd) in &fds {
+        let t = &targets[*k];
+        let want_marker = matches!(t.proof, Proof::Marker(_) | Proof::Campaign(_));
+        match read_facts(Path::new("/proc"), t.pid, want_marker) {
+            Read::Gone => out[*k] = Some(Verdict::Gone),
+            Read::Failed(e) => out[*k] = Some(Verdict::Unverified(e)),
+            Read::Facts(facts) => ready.push((
+                *k,
+                Ready {
+                    t,
+                    pid: *pid,
+                    fd: fd.as_ref(),
+                    facts,
+                },
+            )),
+        }
+    }
+    merge(out, ready, sig, leaders)
+}
+
 /// Signal several processes through the checklist on ONE helper thread, waiting at most `timeout` for the whole batch
 /// (gate re-audit A m-3: N stalled /proc reads no longer block the control loop N x 2 s). Targets not finished within the
 /// bound are still handled (each verified at its own send time) in the background; their verdicts are reported as
@@ -850,12 +1517,7 @@ pub(crate) fn signal_verified_batch(
     let n = targets.len();
     let ctx = current_context();
     let work = move || {
-        let run = || {
-            targets
-                .iter()
-                .map(|t| signal_verified_inline(t, sig, leaders.as_deref()))
-                .collect::<Vec<_>>()
-        };
+        let run = || signal_batch_inline(&targets, sig, leaders.as_deref());
         match &ctx {
             Some((by, label)) => with_context(by, label.as_deref(), run),
             None => run(),
@@ -949,6 +1611,20 @@ pub fn ensure_sigchld_default() -> io::Result<SigchldSetup> {
         return Err(io::Error::last_os_error());
     }
     Ok(SigchldSetup::ResetFromIgnored)
+}
+
+/// procfix5 (gate4 m2): a supervisor that exceeds `ulimit -f` must not die by SIGXFSZ (gate4: rc 153, a dumped core):
+/// with the signal ignored the write fails with EFBIG, which the ledger and the atomic writes report as "disk full"
+/// (exit 75). Children get SIG_DFL back before their exec (`real::child_setup`): their own behaviour is unchanged.
+pub fn ignore_sigxfsz() -> io::Result<()> {
+    // SAFETY: a zeroed sigaction with SIG_IGN and no flags.
+    let mut new: libc::sigaction = unsafe { std::mem::zeroed() };
+    new.sa_sigaction = libc::SIG_IGN;
+    // SAFETY: valid sigaction pointer; the old action is not needed.
+    if unsafe { libc::sigaction(libc::SIGXFSZ, &new, std::ptr::null_mut()) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 /// PR_SET_CHILD_SUBREAPER: orphaned descendants are re-parented to this process (so they can be found, verified by
@@ -1091,6 +1767,165 @@ mod tests {
             signal_verified(&t, 0, None, Duration::from_millis(500)),
             Verdict::NotOurs(Refusal::SessionNotPinned { sid: 4242 })
         );
+    }
+
+    /// A `sleep 30` child of this test carrying `marker`, after its exec (its environ shows the marker).
+    fn marked_sleep(marker: &str) -> std::process::Child {
+        let child = std::process::Command::new("sleep")
+            .arg("30")
+            .env_clear()
+            .env(MARKER_VAR, marker)
+            .spawn()
+            .unwrap();
+        let t0 = std::time::Instant::now();
+        while std::fs::read(format!("/proc/{}/environ", child.id()))
+            .map(|b| marker_in_environ(&b).is_none())
+            .unwrap_or(true)
+        {
+            assert!(t0.elapsed() < Duration::from_secs(10), "child never exec'd");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        child
+    }
+
+    fn tmpdir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "rr-guard-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// procfix5 (gate4 M1): no durable intent, no signal; with one, the intent precedes the send, the completion
+    /// follows, and the delivery names the intent. Runs inside the pid namespace of the crate's test run (rule L10).
+    #[test]
+    fn m1_a_signal_is_sent_only_after_its_durable_intent() {
+        let m = CampaignMarker::new("c1-intent", "j1:a1").unwrap();
+        let mut child = marked_sleep(&m.value());
+        let pid = child.id();
+        let st = crate::resources::read_stat(pid).unwrap().unwrap();
+        let t = ProcessTarget {
+            pid,
+            boot_id: boot_id().unwrap(),
+            start: StartRule::Exact(st.start_ticks),
+            require_session_leader: false,
+            proof: Proof::Marker(m.clone()),
+        };
+        // 1. the intent cannot be made durable (the log is /dev/full): NOT sent
+        let full = tmpdir("full");
+        std::os::unix::fs::symlink("/dev/full", full.join(INTENT_LOG_FILE)).unwrap();
+        let fd = open_pidfd(pid).unwrap();
+        let v = with_intent_log(&full, "t-full", || {
+            signal_with_pidfd(&fd, &t, libc::SIGKILL, None)
+        });
+        assert!(
+            matches!(&v, Verdict::Unverified(e) if e.contains("not durable")),
+            "{v:?}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "nothing may have been sent"
+        );
+        // 2. a working log: intent, send, completion; the delivery carries the intent id
+        let ok = tmpdir("ok");
+        let v = with_intent_log(&ok, "t-ok", || {
+            with_context("unit test", Some("j1:a1"), || {
+                signal_with_pidfd(&fd, &t, libc::SIGKILL, None)
+            })
+        });
+        assert_eq!(v, Verdict::Delivered);
+        child.wait().unwrap();
+        let (intents, bad) = read_intent_log(&ok.join(INTENT_LOG_FILE)).unwrap();
+        assert_eq!(bad, 0);
+        assert_eq!(intents.len(), 1);
+        let i = &intents[0];
+        assert_eq!(i.line.pid, Some(pid));
+        assert_eq!(i.line.start_ticks, Some(st.start_ticks));
+        assert_eq!(i.line.signal, Some(libc::SIGKILL));
+        assert_eq!(i.line.marker.as_deref(), Some(m.value().as_str()));
+        assert_eq!(i.line.by.as_deref(), Some("unit test"));
+        assert_eq!(i.result.as_deref(), Some("delivered"));
+        let (ds, _) = take_deliveries();
+        assert!(
+            ds.iter()
+                .any(|d| d.pid == pid && d.intent.as_deref() == Some(i.line.id.as_str())),
+            "the delivery names its intent"
+        );
+        let _ = std::fs::remove_dir_all(&full);
+        let _ = std::fs::remove_dir_all(&ok);
+    }
+
+    /// procfix5 M1: the intent log reader skips a torn tail, pairs completions, and `intent_id_in` reads the id back
+    /// from a `signal_sent.by` text.
+    #[test]
+    fn m1_intent_log_reader_and_id_parse() {
+        let d = tmpdir("read");
+        let p = d.join(INTENT_LOG_FILE);
+        let a = r#"{"schema":"rustred.campaign.signal-intent.v1","kind":"intent","id":"s-1","pid":5,"signal":19,"target":"process","proof":"campaign marker","by":"campaign sweep"}"#;
+        let b = r#"{"schema":"rustred.campaign.signal-intent.v1","kind":"intent","id":"s-2","pid":5,"signal":9,"target":"process","proof":"campaign marker","by":"campaign sweep"}"#;
+        let c = r#"{"schema":"rustred.campaign.signal-intent.v1","kind":"done","id":"s-1","result":"delivered"}"#;
+        std::fs::write(&p, format!("{a}\n{b}\n{c}\n{{\"schema\":\"rustred.camp")).unwrap();
+        let (v, bad) = read_intent_log(&p).unwrap();
+        assert_eq!(bad, 1);
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0].result.as_deref(), Some("delivered"));
+        assert_eq!(v[1].result, None);
+        assert_eq!(intent_id_in("campaign sweep [intent s-2]"), Some("s-2"));
+        assert_eq!(
+            intent_id_in("x (cg) [intent b.1.2-7; recovered at restart: POSSIBLY SENT]"),
+            Some("b.1.2-7")
+        );
+        assert_eq!(intent_id_in("campaign sweep"), None);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// procfix5 M1: the cost of the durable intent on the hot path (printed; run with --nocapture): N single intents
+    /// (one fdatasync each) against one batch of N (one fdatasync), in TMPDIR and, if set, in RR_INTENT_BENCH_DIR.
+    #[test]
+    fn m1_intent_cost() {
+        let mut dirs = vec![tmpdir("cost")];
+        if let Some(x) = std::env::var_os("RR_INTENT_BENCH_DIR") {
+            let d = PathBuf::from(x).join(format!("rr-intent-bench-{}", std::process::id()));
+            std::fs::create_dir_all(&d).unwrap();
+            dirs.push(d);
+        }
+        const N: usize = 200;
+        let it = Intent {
+            pid: 4242,
+            start_ticks: Some(1),
+            signal: libc::SIGKILL,
+            target: "process",
+            marker: Some("c:j:a1".into()),
+            proof: "attempt marker",
+            detail: None,
+        };
+        for d in &dirs {
+            let (single, batch) = with_intent_log(d, "bench", || {
+                let t0 = std::time::Instant::now();
+                for _ in 0..N {
+                    write_intents(std::slice::from_ref(&it)).unwrap();
+                }
+                let single = t0.elapsed();
+                let many = vec![it.clone(); N];
+                let t1 = std::time::Instant::now();
+                write_intents(&many).unwrap();
+                (single, t1.elapsed())
+            });
+            eprintln!(
+                "INTENT COST {}: {N} single intents {:?} ({:?} each); one batch of {N}: {:?}",
+                d.display(),
+                single,
+                single / N as u32,
+                batch
+            );
+            let _ = std::fs::remove_dir_all(d);
+        }
     }
 
     /// Audit A M5 seam: a /proc root whose `environ` is a FIFO without writer blocks a read forever; the verification

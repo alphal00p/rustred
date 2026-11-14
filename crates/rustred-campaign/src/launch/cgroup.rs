@@ -359,17 +359,10 @@ pub(super) fn procs_of(dir: &Path) -> io::Result<Vec<u32>> {
 /// `cgroup.kill` of a job cgroup WE created (the only caller passes `JobCgroup` paths). A successful write is a
 /// delivered SIGKILL to every process in it: logged like every guarded delivery (gate3 M2).
 pub(super) fn kill_path(dir: &Path) -> io::Result<()> {
-    write_file(&dir.join("cgroup.kill"), "1")?;
-    super::guard::log_delivery(
-        0,
-        None,
-        libc::SIGKILL,
-        "cgroup",
-        None,
-        "job cgroup",
-        Some(dir.display().to_string()),
-    );
-    Ok(())
+    // procfix5 M1: durable intent first, then the write (the guard logs the completion and the delivery).
+    super::guard::cgroup_kill_logged(dir, "job cgroup", || {
+        write_file(&dir.join("cgroup.kill"), "1")
+    })
 }
 
 /// Freeze (`cgroup.freeze` = 1), wait up to `wait` for `frozen 1`, then `cgroup.kill`. Errors: a write failed.
@@ -560,16 +553,9 @@ pub fn kill_recorded_scope(unit: &str) -> io::Result<Option<usize>> {
         if procs.is_empty() {
             return Ok(Some(0));
         }
-        write_file(&dir.join("cgroup.kill"), "1")?;
-        super::guard::log_delivery(
-            0,
-            None,
-            libc::SIGKILL,
-            "cgroup",
-            None,
-            "job scope",
-            Some(dir.display().to_string()),
-        );
+        super::guard::cgroup_kill_logged(&dir, "job scope", || {
+            write_file(&dir.join("cgroup.kill"), "1")
+        })?;
         return Ok(Some(procs.len()));
     }
     Ok(None)

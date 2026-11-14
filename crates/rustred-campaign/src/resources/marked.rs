@@ -221,6 +221,87 @@ pub fn owner_uid_at(root: &Path, pid: u32) -> Option<u32> {
         .map(|m| m.uid())
 }
 
+/// procfix5 (gate4 m5): processes that DESCEND from `ancestor` by the parent chain (the `PPid:` of
+/// `/proc/<pid>/status`, which stays readable), whose REAL uid (first field of `Uid:`) is `uid`, but whose /proc entry
+/// is not owned by `uid` (`owner(pid)`: root for a non-dumpable process, PR_SET_DUMPABLE 0, or a setuid program). Their
+/// environ cannot be read, so no marker scan can say whether they carry a marker: they are LISTED (pid, name) for the
+/// report, never judged ours and never signalled. Inside a user namespace such processes are owned by our mapped uid
+/// and are found (and killed) by the ordinary marker scans instead. `root` is "/proc" in production (a test seam).
+pub fn hidden_descendants_at(
+    root: &Path,
+    ancestor: u32,
+    uid: u32,
+    owner: &dyn Fn(u32) -> Option<u32>,
+) -> std::io::Result<Vec<(u32, String)>> {
+    use std::collections::BTreeMap;
+    // pid -> (ppid, real uid, name), read once per pid
+    let mut facts: BTreeMap<u32, Option<(u32, u32, String)>> = BTreeMap::new();
+    let mut read = |pid: u32| -> Option<(u32, u32, String)> {
+        facts
+            .entry(pid)
+            .or_insert_with(|| {
+                let t = fs::read_to_string(root.join(format!("{pid}/status"))).ok()?;
+                let field = |k: &str| {
+                    t.lines()
+                        .find_map(|l| l.strip_prefix(k))
+                        .map(|v| v.trim().to_string())
+                };
+                let ppid = field("PPid:")?.parse().ok()?;
+                let ruid = field("Uid:")?.split_whitespace().next()?.parse().ok()?;
+                let name = field("Name:").unwrap_or_default();
+                Some((ppid, ruid, name))
+            })
+            .clone()
+    };
+    let mut out = Vec::new();
+    for entry in fs::read_dir(root)? {
+        let Ok(entry) = entry else { continue };
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|s| s.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        if pid == ancestor || owner(pid).is_none_or(|o| o == uid) {
+            continue;
+        }
+        let Some((mut ppid, ruid, name)) = read(pid) else {
+            continue;
+        };
+        if ruid != uid {
+            continue;
+        }
+        let mut hops = 0;
+        let descends = loop {
+            if ppid == ancestor {
+                break true;
+            }
+            if ppid <= 1 || hops > 4096 {
+                break false;
+            }
+            hops += 1;
+            match read(ppid) {
+                Some((pp, _, _)) => ppid = pp,
+                None => break false,
+            }
+        };
+        if descends {
+            out.push((pid, name));
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
+/// [`hidden_descendants_at`] of THIS process on the real /proc (our effective uid, owners from the /proc entries).
+pub fn hidden_descendants() -> std::io::Result<Vec<(u32, String)>> {
+    let root = Path::new("/proc");
+    hidden_descendants_at(root, std::process::id(), our_uid(), &|p| {
+        owner_uid_at(root, p)
+    })
+}
+
 /// A live process of our uid carrying a marker of the scanned campaign.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct MarkedProcess {
@@ -341,6 +422,39 @@ pub(crate) fn scan_campaign_at(
 
 #[cfg(test)]
 mod tests {
+    /// procfix5 (gate4 m5): a fake /proc tree: a root-owned entry (owner closure) whose real uid is ours and whose
+    /// parent chain reaches the ancestor is listed; one of another real uid, one outside the chain, and one owned by
+    /// us (readable: the marker scans see it) are not.
+    #[test]
+    fn m5_hidden_descendants_are_listed_never_judged() {
+        let root = std::env::temp_dir().join(format!(
+            "rr-hidden-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let put = |pid: u32, ppid: u32, ruid: u32, name: &str| {
+            let d = root.join(pid.to_string());
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(
+                d.join("status"),
+                format!("Name:\t{name}\nPPid:\t{ppid}\nUid:\t{ruid}\t0\t0\t0\n"),
+            )
+            .unwrap();
+        };
+        put(100, 1, 7, "sup"); // the ancestor
+        put(101, 100, 7, "job"); // our readable child
+        put(102, 101, 7, "agent"); // non-dumpable grandchild, ours by real uid -> listed
+        put(103, 100, 9, "foreign"); // root-owned, another real uid -> not listed
+        put(104, 1, 7, "elsewhere"); // root-owned, ours, not a descendant -> not listed
+        let owner = |p: u32| Some(if matches!(p, 102..=104) { 0 } else { 7 });
+        let v = hidden_descendants_at(&root, 100, 7, &owner).unwrap();
+        assert_eq!(v, vec![(102, "agent".to_string())]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     use super::*;
 
     #[test]

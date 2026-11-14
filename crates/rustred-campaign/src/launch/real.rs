@@ -577,6 +577,10 @@ fn child_setup(
     if unsafe { libc::setsid() } < 0 {
         return Err(last_err());
     }
+    // procfix5 (gate4 m2): the supervisor ignores SIGXFSZ (EFBIG -> exit 75); the child gets the default back
+    // (signal() is async-signal-safe).
+    // SAFETY: plain integers; SIG_DFL.
+    unsafe { libc::signal(libc::SIGXFSZ, libc::SIG_DFL) };
     if let Some(fd) = procs_fd {
         // SAFETY: fd is an open descriptor of cgroup.procs owned by the parent's JobCgroup; the buffer is a static
         // one-byte slice. Writing "0" migrates the writing process (this child) into the job cgroup.
@@ -790,15 +794,55 @@ impl ChildLauncher for RealLauncher {
                 },
             },
         };
-        let mut cmd = match &mechanism_choice {
-            Chosen::Scope(exe, cap) => {
-                let mut c = Command::new(exe);
-                c.args(systemd_args(*cap, spec.scope_unit.as_deref()))
-                    .arg(&spec.program);
+        // The program and its leading arguments (systemd-run wraps the program when the scope mechanism is chosen).
+        let (prog, mut lead): (std::ffi::OsString, Vec<std::ffi::OsString>) =
+            match &mechanism_choice {
+                Chosen::Scope(exe, cap) => {
+                    let mut a: Vec<std::ffi::OsString> =
+                        systemd_args(*cap, spec.scope_unit.as_deref())
+                            .into_iter()
+                            .map(Into::into)
+                            .collect();
+                    a.push(spec.program.clone().into_os_string());
+                    (exe.clone().into_os_string(), a)
+                }
+                _ => (spec.program.clone().into_os_string(), Vec::new()),
+            };
+        // procfix5 (gate4 m1): the spawn barrier. The read end is inherited by the child (kept across its exec into the
+        // shim); the write end stays here (close-on-exec) until `release_barrier`. A dead caller = EOF = no program.
+        let barrier = if spec.spawn_barrier {
+            let mut fds = [0 as libc::c_int; 2];
+            // SAFETY: pipe2 writes two descriptors into the array.
+            if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) } != 0 {
+                return Err(LaunchError::Io {
+                    what: "spawn barrier pipe".into(),
+                    error: last_err(),
+                });
+            }
+            // SAFETY: two fresh descriptors owned by nobody else.
+            let (r, w) = unsafe {
+                use std::os::fd::FromRawFd;
+                (
+                    std::os::fd::OwnedFd::from_raw_fd(fds[0]),
+                    std::os::fd::OwnedFd::from_raw_fd(fds[1]),
+                )
+            };
+            Some((r, w))
+        } else {
+            None
+        };
+        let mut cmd = match &barrier {
+            Some((r, _)) => {
+                let mut c = Command::new("/proc/self/exe");
+                c.arg(super::BARRIER_VERB)
+                    .arg(r.as_raw_fd().to_string())
+                    .arg("--")
+                    .arg(&prog);
                 c
             }
-            _ => Command::new(&spec.program),
+            None => Command::new(&prog),
         };
+        cmd.args(lead.drain(..));
         cmd.args(&spec.args).current_dir(&spec.cwd).env_clear();
         for (k, v) in &spec.env {
             cmd.env(k, v);
@@ -867,7 +911,10 @@ impl ChildLauncher for RealLauncher {
             Some(set)
         };
         let rlimit_as = spec.rlimit_as_bytes;
-        let keep = spec.inherit_fds.clone();
+        let mut keep = spec.inherit_fds.clone();
+        if let Some((r, _)) = &barrier {
+            keep.push(r.as_raw_fd());
+        }
         let fd_limit = nofile_limit();
         let pdeathsig = spec.pdeathsig;
         // SAFETY: the closure only calls child_setup, which uses async-signal-safe syscalls and does not allocate;
@@ -908,6 +955,11 @@ impl ChildLauncher for RealLauncher {
             }
         };
         let pid = child.id();
+        // The child has its copy of the barrier's read end (or is gone): ours is closed now.
+        let barrier_w = barrier.map(|(r, w)| {
+            drop(r);
+            w
+        });
         // Our unreaped child cannot be recycled, so reading its identity now is race-free (bounded: audit A M5).
         let identity = match run_bounded(Duration::from_secs(5), move || {
             ProcessIdentity::capture(pid)
@@ -947,6 +999,7 @@ impl ChildLauncher for RealLauncher {
         );
         h.enumeration = self.setup.enumeration;
         h.scope_unit = spec.scope_unit.clone();
+        h.barrier = barrier_w;
         Ok(h)
     }
 
@@ -1033,6 +1086,8 @@ enum Chosen {
 
 /// A child of [`RealLauncher`] (or an adopted job of a previous supervisor).
 pub struct RealChild {
+    /// procfix5 m1: the write end of the spawn barrier while the child waits behind it (see `LaunchSpec::spawn_barrier`).
+    barrier: Option<std::os::fd::OwnedFd>,
     label: String,
     marker: CampaignMarker,
     identity: ProcessIdentity,
@@ -1102,6 +1157,7 @@ impl RealChild {
         let leaders = Arc::clone(sampler.leaders());
         let launched = child.is_some();
         Self {
+            barrier: None,
             label,
             marker,
             sid: identity.pid,
@@ -1145,6 +1201,28 @@ impl RealChild {
             last_hunt_left: Vec::new(),
             unattributed: Vec::new(),
         }
+    }
+
+    /// Is the child still waiting behind its spawn barrier (procfix5 m1)?
+    pub fn behind_barrier(&self) -> bool {
+        self.barrier.is_some()
+    }
+
+    /// Let the child run its program: one byte on the barrier pipe, then close it (procfix5 m1). Call it only after the
+    /// spawn is recorded durably. No barrier: Ok (nothing to do). An error (the shim is gone, EPIPE) is reported; the
+    /// child's end is then classified as usual.
+    pub fn release_barrier(&mut self) -> io::Result<()> {
+        let Some(w) = self.barrier.take() else {
+            return Ok(());
+        };
+        // SAFETY: one byte from a static buffer to our own pipe descriptor.
+        let r = unsafe { libc::write(w.as_raw_fd(), b"G".as_ptr().cast(), 1) };
+        if r == 1 { Ok(()) } else { Err(last_err()) }
+    }
+
+    /// Never release the barrier: close it, so the shim exits (`BARRIER_NOT_RELEASED`) without executing the program.
+    pub fn cancel_barrier(&mut self) {
+        self.barrier = None;
     }
 
     /// The session id (= the leader's pid).
@@ -1900,4 +1978,54 @@ impl Drop for RealChild {
 /// Used by `CgroupRoot` users: fd of an open file.
 pub(super) fn raw(f: &fs::File) -> RawFd {
     f.as_raw_fd()
+}
+
+/// The barrier shim (procfix5 m1), run by the hidden verb [`super::BARRIER_VERB`] of a binary that hosts the supervisor:
+/// `args` = `<fd> -- <program> <args...>`. Waits for one byte on `fd` (the supervisor writes it after recording the
+/// spawn durably), closes it and execs the program in place with the current environment. EOF or anything else: exit
+/// [`super::BARRIER_NOT_RELEASED`] without executing anything. Returns only on failure (the exit code to use).
+pub fn barrier_shim(args: &[String]) -> i32 {
+    use std::io::Write;
+    use std::os::unix::process::CommandExt;
+    let (Some(fd), Some("--"), Some(prog)) = (
+        args.first().and_then(|s| s.parse::<RawFd>().ok()),
+        args.get(1).map(String::as_str),
+        args.get(2),
+    ) else {
+        let _ = writeln!(
+            std::io::stderr(),
+            "{}: usage <fd> -- <program> [args]",
+            super::BARRIER_VERB
+        );
+        return 2;
+    };
+    if fd < 3 {
+        return 2;
+    }
+    let mut b = [0u8; 1];
+    let n = loop {
+        // SAFETY: a one-byte read into a stack buffer from an inherited descriptor.
+        let r = unsafe { libc::read(fd, b.as_mut_ptr().cast(), 1) };
+        if r < 0 && io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+            continue;
+        }
+        break r;
+    };
+    // SAFETY: closing the inherited barrier descriptor (the program must not inherit it).
+    unsafe { libc::close(fd) };
+    if n != 1 || b[0] != b'G' {
+        let _ = writeln!(
+            std::io::stderr(),
+            "{}: the supervisor ended before it recorded this spawn: the program was not started",
+            super::BARRIER_VERB
+        );
+        return super::BARRIER_NOT_RELEASED;
+    }
+    let e = std::process::Command::new(prog).args(&args[3..]).exec();
+    let _ = writeln!(
+        std::io::stderr(),
+        "{}: exec {prog}: {e}",
+        super::BARRIER_VERB
+    );
+    127
 }

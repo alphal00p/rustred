@@ -151,6 +151,51 @@ pub trait WorkSource {
     fn finished(&self, st: &CampaignState) -> bool;
     /// Number of work units (for logs).
     fn describe(&self) -> String;
+    /// procfix5 (gate4 m3): how the work ENDED once `finished` holds: every node closed, some open, or an error. The
+    /// exit code of `rr_campaign run` follows it (0 / 10 / 11; interfaces/supervisor.md 19). Default: from the items of
+    /// the ledger ([`default_outcome`]); a source with its own verdicts (closeloop: final result.json) overrides it.
+    fn outcome(&self, st: &CampaignState) -> CampaignOutcome {
+        default_outcome(st)
+    }
+}
+
+/// How a FINISHED campaign's work ended (procfix5, gate4 m3).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CampaignOutcome {
+    /// Every node closed (every chain accepted or terminal).
+    Closed,
+    /// The work is done as far as the campaign can go without the operator, but not everything is closed (items in
+    /// attention, skipped, rejected, open behind them, stale): the text names them.
+    Open(String),
+    /// A node ended in error (the source's verdict).
+    Error(String),
+}
+
+/// The default outcome from the ledger state: CLOSED when every item that is not superseded (escalated) is accepted,
+/// terminal or retired; otherwise OPEN, naming up to ten such items with their phase.
+pub fn default_outcome(st: &CampaignState) -> CampaignOutcome {
+    let mut open: Vec<String> = Vec::new();
+    for (id, it) in &st.items {
+        let closed = match &it.phase {
+            ItemPhase::Accepted(_) | ItemPhase::Terminal | ItemPhase::Retired => true,
+            ItemPhase::Escalated(_) => true,
+            ItemPhase::Stale => it.stale_from.as_deref() == Some("escalated"),
+            _ => false,
+        };
+        if !closed {
+            open.push(format!("{id} ({})", it.phase.tag()));
+        }
+    }
+    if open.is_empty() {
+        return CampaignOutcome::Closed;
+    }
+    let n = open.len();
+    open.truncate(10);
+    CampaignOutcome::Open(format!(
+        "{n} item(s) not closed: {}{}",
+        open.join(", "),
+        if n > 10 { ", ..." } else { "" }
+    ))
 }
 
 /// The accepted record written for a rule (deterministic content: no time, no attempt).
@@ -537,6 +582,9 @@ impl ScriptedWorkSource {
     }
 }
 
+/// The `item.attention` code of a synthetic item whose job crashed twice (decision rows 22 / 23; procfix5 m4).
+pub const CRASHED_TWICE: &str = "crashed_twice";
+
 impl WorkSource for ScriptedWorkSource {
     fn bootstrap(&mut self, st: &CampaignState, ctx: &SourceContext) -> Result<Vec<Event>, String> {
         let bin = ctx
@@ -701,8 +749,19 @@ impl WorkSource for ScriptedWorkSource {
                         )
                     })
                     .count();
+                // procfix5 (gate4 m4): decision rows 22 / 23 rerun ONCE, then attention. A crash is never evidence about
+                // the work: never a terminal (the former "crashed twice" escalation ended in terminal dispositions).
                 if failed_before + 1 >= 2 {
-                    out = self.escalate_or_terminal(&done.item, i, r, "crashed twice");
+                    out.events.push(Event::Item {
+                        item: done.item.clone(),
+                        ev: ItemEvent::Attention {
+                            code: CRASHED_TWICE.into(),
+                            text: format!(
+                                "{} crashed twice (row {}{}: {}): never evidence about the work; check, then `rr_campaign control CDIR retry {}`",
+                                done.item, c.row, c.sub, c.why, done.item
+                            ),
+                        },
+                    });
                 }
             }
             k => {
@@ -729,8 +788,22 @@ impl WorkSource for ScriptedWorkSource {
         }
     }
 
+    /// procfix5 (gate4 m4): finished when every chain is final, or waits for the operator (an item in attention), or
+    /// can never start because a chain it depends on waits for the operator.
     fn finished(&self, st: &CampaignState) -> bool {
-        (0..self.cfg.items).all(|i| self.chain_final(st, i))
+        let n = self.cfg.items as usize;
+        let mut blocked = vec![false; n];
+        for i in 0..self.cfg.items {
+            let cur = self.current(st, i).map(|(_, it, _)| it.phase.clone());
+            let attention = matches!(cur, Some(ItemPhase::Attention(_)));
+            let behind = matches!(cur, Some(ItemPhase::Open))
+                && self.deps(i).iter().any(|&d| blocked[d as usize]);
+            blocked[i as usize] = attention || behind;
+            if !(self.chain_final(st, i) || blocked[i as usize]) {
+                return false;
+            }
+        }
+        true
     }
 
     fn describe(&self) -> String {
