@@ -50,9 +50,10 @@ pub fn final_result(st: &CampaignState) -> FinalResult {
     r
 }
 
-/// Read-only: reduce the ledger of `cdir` (no lock) and derive the result.
+/// Read-only: reduce the ledger of `cdir` (no lock) and derive the result. A full STREAMING replay verified like
+/// `Ledger::open` (commit mark included: a cut or altered acknowledged record is an error, never a shorter
+/// history; memory = one reduced state; ledgerfix2 M3 / m10).
 pub fn read_final_result(cdir: &std::path::Path) -> Result<(FinalResult, CampaignState), String> {
-    let recs = crate::ledger::read_records(cdir).map_err(|e| e.to_string())?;
-    let st = crate::state::reduce(recs.iter()).map_err(|e| e.to_string())?;
+    let (st, _) = crate::ledger::replay_state(cdir).map_err(|e| e.to_string())?;
     Ok((final_result(&st), st))
 }

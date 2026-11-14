@@ -1697,7 +1697,8 @@
             "lose",
             "requeue",
             "retry",
-            "cancel"
+            "cancel",
+            "unconfirmed"
           ]
         }
       },
@@ -1960,6 +1961,28 @@
             "properties": {
               "ev": {
                 "const": "cancel"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "unconfirmed"
               }
             }
           },

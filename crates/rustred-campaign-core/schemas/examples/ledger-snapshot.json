@@ -1,6 +1,6 @@
 {
   "head": "90696a084ac0d573f612ee3ee6d6384dd7b53780502524b27d0529a17b5f1b8d",
-  "schema": "rustred.campaign.snapshot.v1",
+  "schema": "rustred.campaign.snapshot.v2",
   "seq": 103,
   "state": {
     "campaign_id": "test-campaign",
@@ -183,7 +183,8 @@
         "terminal_keyset": null,
         "terminal_preferred": false,
         "updated_seq": 97,
-        "weight": 3
+        "weight": 3,
+        "children": []
       },
       "T162-item-00001": {
         "accepted": {
@@ -250,7 +251,8 @@
         "terminal_keyset": null,
         "terminal_preferred": false,
         "updated_seq": 102,
-        "weight": 3
+        "weight": 3,
+        "children": []
       },
       "T162-item-00002": {
         "accepted": {
@@ -318,7 +320,8 @@
         "terminal_keyset": null,
         "terminal_preferred": false,
         "updated_seq": 42,
-        "weight": 3
+        "weight": 3,
+        "children": []
       },
       "T162-item-00003": {
         "accepted": {
@@ -386,7 +389,8 @@
         "terminal_keyset": null,
         "terminal_preferred": false,
         "updated_seq": 98,
-        "weight": 3
+        "weight": 3,
+        "children": []
       },
       "T162-item-00004": {
         "accepted": null,
@@ -431,7 +435,10 @@
         "terminal_keyset": null,
         "terminal_preferred": false,
         "updated_seq": 63,
-        "weight": 3
+        "weight": 3,
+        "children": [
+          "T162-item-00005"
+        ]
       },
       "T162-item-00005": {
         "accepted": null,
@@ -472,7 +479,8 @@
         },
         "terminal_preferred": false,
         "updated_seq": 66,
-        "weight": 3
+        "weight": 3,
+        "children": []
       },
       "T162-item-00006": {
         "accepted": {
@@ -531,7 +539,8 @@
         "terminal_keyset": null,
         "terminal_preferred": false,
         "updated_seq": 74,
-        "weight": 3
+        "weight": 3,
+        "children": []
       },
       "T162-item-00007": {
         "accepted": null,
@@ -568,7 +577,8 @@
         },
         "terminal_preferred": true,
         "updated_seq": 77,
-        "weight": 3
+        "weight": 3,
+        "children": []
       },
       "T162-item-00008": {
         "accepted": {
@@ -616,7 +626,8 @@
         "terminal_keyset": null,
         "terminal_preferred": false,
         "updated_seq": 79,
-        "weight": 3
+        "weight": 3,
+        "children": []
       },
       "T162-item-00009": {
         "accepted": null,
@@ -650,7 +661,8 @@
         "terminal_keyset": null,
         "terminal_preferred": false,
         "updated_seq": 89,
-        "weight": 3
+        "weight": 3,
+        "children": []
       }
     },
     "jobs": {
@@ -696,7 +708,8 @@
           "class": "rule_found",
           "state": "succeeded_sealed"
         },
-        "time_decided": false
+        "time_decided": false,
+        "launch_session": 1
       },
       "T162-job-00001-L0": {
         "accept": "canonical",
@@ -740,7 +753,8 @@
           "class": "rule_found",
           "state": "succeeded_sealed"
         },
-        "time_decided": false
+        "time_decided": false,
+        "launch_session": 1
       },
       "T162-job-00002-L0": {
         "accept": "canonical",
@@ -784,7 +798,8 @@
           "class": "rule_found",
           "state": "succeeded_sealed"
         },
-        "time_decided": false
+        "time_decided": false,
+        "launch_session": 1
       },
       "T162-job-00003-L0": {
         "accept": "canonical",
@@ -828,7 +843,8 @@
           "class": "rule_found",
           "state": "succeeded_sealed"
         },
-        "time_decided": false
+        "time_decided": false,
+        "launch_session": 1
       },
       "T162-job-00004-L0": {
         "accept": "committed_rules",
@@ -872,7 +888,8 @@
           "class": "no_rule",
           "state": "succeeded_sealed"
         },
-        "time_decided": false
+        "time_decided": false,
+        "launch_session": 1
       },
       "T162-job-00006-L0": {
         "accept": "canonical",
@@ -916,7 +933,8 @@
           "class": "complete",
           "state": "succeeded_sealed"
         },
-        "time_decided": false
+        "time_decided": false,
+        "launch_session": 1
       }
     },
     "last_seq": 103,

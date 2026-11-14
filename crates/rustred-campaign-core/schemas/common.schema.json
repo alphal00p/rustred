@@ -229,7 +229,8 @@
         "budget_stopped",
         "interrupted",
         "lost",
-        "cancelled"
+        "cancelled",
+        "unconfirmed"
       ]
     },
     "work_budgets": {

@@ -119,16 +119,18 @@ fn order_of_operations_per_durability_class() {
 }
 
 /// Fail each operation of a SYNC append in turn: segment write / fsync -> typed error, poisoned, nothing
-/// acknowledged, the reopened ledger does not hold the record; commit-mark write / fsync -> the record IS durable,
-/// `Ok` with a warning (and the reopened ledger holds it).
+/// acknowledged, the reopened ledger does not hold the record; commit-mark write / fsync (audit-ledger2 m7) ->
+/// typed error, poisoned, NOT acknowledged although the record is durable: the reopened ledger holds it (the
+/// ledger is the truth), and no acknowledged record ever lies beyond the on-disk mark.
 #[test]
 fn faults_at_every_operation_of_a_sync_append() {
-    for (n, errno, expect_ok) in [
+    for (n, errno, durable) in [
         (1, libc::EIO, false),    // append segment
         (1, libc::ENOSPC, false), // append segment, disk full
         (2, libc::EIO, false),    // fsync segment (M1)
         (3, libc::EIO, true),     // write_at COMMIT
         (4, libc::EIO, true),     // fsync COMMIT
+        (4, libc::ENOSPC, true),  // fsync COMMIT, disk full: typed NoSpace (audit-ledger2 m1)
     ] {
         let d = scratch("fsync-fault");
         let _c = Cleanup(d.clone());
@@ -147,20 +149,14 @@ fn faults_at_every_operation_of_a_sync_append() {
         ops.arm(n, errno, "");
         let r = l.append(drain());
         ops.disarm();
-        if expect_ok {
-            assert_eq!(r.unwrap(), seq + 1, "op {n}: the record is durable");
-            assert!(!l.is_poisoned());
-            assert!(l.warnings().iter().any(|w| w.contains("commit mark")));
-        } else {
-            match (&r, errno) {
-                (Err(LedgerError::NoSpace { .. }), libc::ENOSPC) => {}
-                (Err(LedgerError::Io { .. }), libc::EIO) => {}
-                other => panic!("op {n}: {other:?}"),
-            }
-            assert!(l.is_poisoned(), "op {n}");
-            assert_eq!(l.seq(), seq);
-            assert!(matches!(l.sync(), Err(LedgerError::Poisoned { .. })));
+        match (&r, errno) {
+            (Err(LedgerError::NoSpace { .. }), libc::ENOSPC) => {}
+            (Err(LedgerError::Io { .. }), libc::EIO) => {}
+            other => panic!("op {n}: {other:?}"),
         }
+        assert!(l.is_poisoned(), "op {n}");
+        assert_eq!(l.seq(), if durable { seq + 1 } else { seq }, "op {n}");
+        assert!(matches!(l.sync(), Err(LedgerError::Poisoned { .. })));
         drop(l);
         let (l2, rep) = open_ledger_with(
             &d,
@@ -172,7 +168,7 @@ fn faults_at_every_operation_of_a_sync_append() {
         .unwrap_or_else(|e| panic!("op {n}: reopen: {e}"));
         assert_eq!(
             l2.seq(),
-            if expect_ok { seq + 1 } else { seq },
+            if durable { seq + 1 } else { seq },
             "op {n}: {rep:?}"
         );
         if n == 3 {
