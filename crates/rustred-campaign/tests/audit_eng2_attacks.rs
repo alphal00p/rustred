@@ -1062,6 +1062,20 @@ fn audit_eng2_full_disk_solve_recipe() {
                 cl.row
             ));
         }
+        // lane engfix4 (re-audit MJ-2 closed): contract 3.10 strictly: exit 50, an OUTCOME with stop nospace, row 15
+        let typed = w == WaitStatus::Exited(50)
+            && cl.row == 15
+            && o.as_ref().is_some_and(|o| {
+                o.job.exit_code.code() == 50
+                    && o.job.stop.code == Some(rustred_campaign_contract::stop::StopCode::Nospace)
+            });
+        if !typed {
+            problems.push(format!(
+                "ENOSPC solve-recipe must end 50 with an OUTCOME stop nospace (row 15): {w:?}, row {}, OUTCOME {}",
+                cl.row,
+                o.is_some()
+            ));
+        }
         let _ = std::fs::remove_dir_all(&s.run_dir);
     }
     assert!(problems.is_empty(), "{problems:?}");
