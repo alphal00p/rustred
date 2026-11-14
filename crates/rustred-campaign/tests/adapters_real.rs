@@ -248,7 +248,11 @@ fn real_solve_recipe_through_the_contract_job_subcommand() {
     );
     assert_eq!(c.row, 1, "a contract job of kind solve-recipe: {}", c.why);
     assert!(out.refusal.is_none(), "{:?}", out.refusal);
-    assert_eq!(out.relations.len(), 1, "the requested key's relation is accepted");
+    assert_eq!(
+        out.relations.len(),
+        1,
+        "the requested key's relation is accepted"
+    );
     assert_eq!(out.relations[0].key, reqs[0].key);
 }
 
