@@ -9,6 +9,7 @@ pub mod faces;
 pub mod judge;
 pub mod policy;
 pub mod recipes;
+pub mod symrel;
 
 pub use decide::{
     CandidateAnswer, FaceAnswer, FaceDecision, NodeDecisions, decide, extension_sources, s_plan,

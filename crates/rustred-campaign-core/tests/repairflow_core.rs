@@ -715,3 +715,92 @@ fn measure_route0b_symmetry_relations() {
             "first": out.iter().take(3).collect::<Vec<_>>()})
     );
 }
+
+/// MEASUREMENT (ignored): route 0b with the SMALLEST element per key (`repairflow::symrel`), checked against a size
+/// law 1 + (b+1)(c+1) + b + c right-hand-side terms with b, c = |key| at the slots `RF_LAW_SLOTS` (e.g. "13,14").
+#[test]
+#[ignore]
+fn measure_route0b_smallest_element() {
+    use rustred_campaign_core::independent_algebra::Independent;
+    use rustred_campaign_core::repairflow::symrel::smallest_symmetry_relation;
+    let spec = std::env::var("RF_SPEC").expect("RF_SPEC");
+    let keys = std::env::var("RF_KEYS_JSONL").expect("RF_KEYS_JSONL");
+    let want = std::env::var("RF_FACE").ok();
+    let law: Vec<usize> = std::env::var("RF_LAW_SLOTS")
+        .map(|s| s.split(',').map(|x| x.parse().unwrap()).collect())
+        .unwrap_or_default();
+    let ts = rustred_campaign_core::import::TableSetSpec::from_json(
+        &std::fs::read_to_string(&spec).unwrap(),
+    )
+    .unwrap();
+    let base = std::path::Path::new("/");
+    let set = rustred_campaign_core::import::load(&ts, base).unwrap();
+    let lines = set.frame.mask().to_vec();
+    let fsrc = ts.sources.iter().find(|s| s.id == ts.frame_from).unwrap();
+    let h: serde_json::Value = serde_json::from_str(
+        std::fs::read_to_string(fsrc.path.as_ref().unwrap())
+            .unwrap()
+            .lines()
+            .next()
+            .unwrap(),
+    )
+    .unwrap();
+    let fam = h["family_source"].as_str().map(str::to_string);
+    let gs: rustred_campaign_core::import::symmetry::GroupSpec =
+        serde_json::from_value(json!({})).unwrap();
+    let (g, _) = rustred_campaign_core::import::symmetry::load_verified_group(
+        &gs,
+        base,
+        &lines,
+        set.cmp.presentation().new_to_old(),
+        fam.as_deref(),
+    )
+    .unwrap();
+    let cmp = |a: &[i32], b: &[i32]| set.cmp.cmp(a, b);
+    let (mut tested, mut served, mut lawok, mut rhs_ok) = (0, 0, 0, 0);
+    let mut best_el = std::collections::BTreeMap::new();
+    let mut sizes_all = vec![];
+    for l in std::fs::read_to_string(&keys).unwrap().lines() {
+        let k: Vec<i32> = serde_json::from_str(l).unwrap();
+        let f = rustred_campaign_core::worklist::items::Face::of_key(&k, &lines).map(|f| f.label());
+        if want.is_some() && f != want {
+            continue;
+        }
+        tested += 1;
+        let r = smallest_symmetry_relation(&Independent, &g, &k, &cmp, 65_536).unwrap();
+        if let Some(b) = &r.best {
+            served += 1;
+            *best_el.entry(b.element).or_insert(0u64) += 1;
+            if law.len() == 2 {
+                let (x, y) = ((-k[law[0]]).max(0) as usize, (-k[law[1]]).max(0) as usize);
+                if b.rhs.len() == 1 + (x + 1) * (y + 1) + x + y {
+                    lawok += 1;
+                }
+            }
+            if b.rhs.iter().all(|(r, _)| {
+                r.iter().zip(&lines).any(|(&v, &l)| l && v <= 0)
+                    || set
+                        .disp
+                        .first_match(r)
+                        .map(|d| d.is_covered())
+                        .unwrap_or(false)
+            }) {
+                rhs_ok += 1;
+            }
+        }
+        sizes_all.push(json!({"key": k, "best": r.best.as_ref().map(|b| (b.element, b.rhs.len())), "sizes": r.sizes,
+            "rhs_keys": r.best.as_ref().map(|b| b.rhs.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>())}));
+    }
+    let actions: Vec<serde_json::Value> = g
+        .group()
+        .elements
+        .iter()
+        .enumerate()
+        .map(|(i, e)| json!({"element": i, "lines": e.line_perm(&lines)}))
+        .collect();
+    println!(
+        "{}",
+        json!({"tested": tested, "served": served, "law_match": lawok, "rhs_all_served": rhs_ok,
+            "best_element_counts": best_el, "elements": actions, "first": sizes_all.iter().collect::<Vec<_>>()})
+    );
+}
