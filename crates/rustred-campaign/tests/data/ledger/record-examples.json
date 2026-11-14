@@ -8,7 +8,7 @@
       },
       "kind": "artefact_lost"
     },
-    "prev": "845a45fd09a8e646de990aa618f9c132566320f3c3095d695a751a4f84c673d2",
+    "prev": "799be63101745653662459f8d529933a4af1403139a226e154e0ca989b1de5a0",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 102,
     "utc": "2026-11-13T23:00:25.250Z"
@@ -57,7 +57,7 @@
       },
       "kind": "control"
     },
-    "prev": "244e9f4d9e1d75a801bad5437c5c905e45f76c1e3c4b30e10ac95c46a49a1ae7",
+    "prev": "99724f761ce339295a2ee37d843bd1c57fb0842b6ebcc0cc441be8b17bc725c1",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 90,
     "utc": "2026-11-13T23:00:22.250Z"
@@ -74,7 +74,7 @@
       },
       "kind": "done"
     },
-    "prev": "694c52aaefbd82f714069133de6528c0c5115819d6a324604c4c9d4f7a2b1146",
+    "prev": "4d9b7fd5a2aeb98bb5447ee12ce2e4eabd50f91efab3f9d335a628befdf23ae5",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 21,
     "utc": "2026-11-13T23:00:05.000Z"
@@ -97,7 +97,9 @@
           }
         ],
         "level_claimed": "identity_tested",
-        "producer": "hand closure (reference)"
+        "producer": "hand closure (reference)",
+        "producer_blake3": "6c86b84d94110ffc34b921fc5d74402100e8342ee6676af764d212203357a3f7",
+        "provenance_class": null
       },
       "kind": "evidence_imported"
     },
@@ -121,7 +123,7 @@
       },
       "kind": "export"
     },
-    "prev": "e0bccca1b69c29e56c33a815db615a45368916fc1ed3325b101a6d29e15d304e",
+    "prev": "cbb606a23e0b3ed5606fc453553bd634812e2c4d5223f56e5e992cc8d36dee80",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 103,
     "utc": "2026-11-13T23:00:25.500Z"
@@ -151,7 +153,7 @@
       },
       "kind": "intent"
     },
-    "prev": "024cd5e6c04150691d6b23348162f8223628e71f92b52682652eb058dcce58f1",
+    "prev": "bb12357dd2966ff3c9f51fa104b4b3253226b2e9dc3c9495f7689aef6a5d8c02",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 20,
     "utc": "2026-11-13T23:00:04.750Z"
@@ -194,7 +196,7 @@
       },
       "kind": "item"
     },
-    "prev": "b4ca179a653c1161f0081119c48afbedb6e0d20e0c6c308be553f46d0f7069b7",
+    "prev": "624e10b77b4292b138503c6f984fd2fb064be75cf891893c77b4cbd447c756e2",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 22,
     "utc": "2026-11-13T23:00:05.250Z"
@@ -211,7 +213,7 @@
       },
       "kind": "item"
     },
-    "prev": "b36b0eb8659a7928e3e265c14440a2d7d1fa9b0408ea331f8e214df88e52d89c",
+    "prev": "fc5935532c7a983ab774797ad4d14e462ee7965501de4129b13dd284f3e79ae0",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 89,
     "utc": "2026-11-13T23:00:22.000Z"
@@ -234,7 +236,7 @@
       },
       "kind": "item"
     },
-    "prev": "7986d22635e6075b3a20e67ec27edcbd4248016292ff2b79672ff855439f61f0",
+    "prev": "5f8c889263448e4c0b5403c34b89fb59f9c28e45da2619b64f0dd3a40ed5f8e9",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 66,
     "utc": "2026-11-13T23:00:16.250Z"
@@ -251,7 +253,7 @@
       },
       "kind": "item"
     },
-    "prev": "7a6c72481a8d718c49818710f84bfc2ba3ed7e053e1a63973227e1fb80674255",
+    "prev": "e2de2d985d7384a2943621f101feeb83220b233655c842d6347c70efa316e8b5",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 63,
     "utc": "2026-11-13T23:00:15.500Z"
@@ -277,7 +279,7 @@
       },
       "kind": "item"
     },
-    "prev": "9946cfb2e9aeb204125ff001c0158fa1f09c3c1dbfe5d65e082ffc33b2530f71",
+    "prev": "a6afeb0b6382bd651eb42e18aed6820cafd4bd9cf1eca4bed118b7b74b7c5979",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 97,
     "utc": "2026-11-13T23:00:24.000Z"
@@ -300,7 +302,7 @@
       },
       "kind": "item"
     },
-    "prev": "ea8293c809ccec05ad2662e83a80e043f95ed85d49b96651b60bc3d9f43cb4f6",
+    "prev": "39975a674f6453474da4df57cd5367f0e8d13d5fcb56ae9ce9ab5b375d139fbe",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 79,
     "utc": "2026-11-13T23:00:19.500Z"
@@ -322,7 +324,7 @@
       },
       "kind": "item"
     },
-    "prev": "9908c55c3b4efccea2bbbcfb012e4439c50d4ce6167e89c1c4f2eac2a91c162c",
+    "prev": "676b43800ddf5be8cbc9dec420e0934fff301907c7c8105b30c79d096ccd1c14",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 19,
     "utc": "2026-11-13T23:00:04.500Z"
@@ -344,7 +346,7 @@
       },
       "kind": "item"
     },
-    "prev": "f551c3e81d0f4fa566c0fb8867a7b2c860dfc1e9ddb1df86d3f6007a28075d95",
+    "prev": "1407278f03f60166c8e5e83061e767243ed0650f8978c2ca5fa2067aafabdca8",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 65,
     "utc": "2026-11-13T23:00:16.000Z"
@@ -360,7 +362,7 @@
       },
       "kind": "item"
     },
-    "prev": "44cbbe52a40e45ce18fe74c545331a0bce279f5aaf4a83674804421013be6317",
+    "prev": "e78d8a8b2d7f893bf38c20ee86743e3339890abf0be0c888a05f858fe4648ccc",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 98,
     "utc": "2026-11-13T23:00:24.250Z"
@@ -377,7 +379,7 @@
       },
       "kind": "item"
     },
-    "prev": "97bfbb899c37cd29fe180f626db10cb63e781b71b152d00f3a947a6875d8a5f4",
+    "prev": "c623b7077b8e7d8e4660fcf164cb9956c2a81ee7bba4aad1cc401ac18f3440fc",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 62,
     "utc": "2026-11-13T23:00:15.250Z"
@@ -402,7 +404,7 @@
       },
       "kind": "item"
     },
-    "prev": "df63adfecdb10c1397590b73b7041f636c2449158f1550a5d1d94f5542dff685",
+    "prev": "6ff1fae3d10384cb1fc659e5a14bb3ff30197ce079b4ebc5b5e9053300aa0e7f",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 87,
     "utc": "2026-11-13T23:00:21.500Z"
@@ -418,7 +420,7 @@
       },
       "kind": "item"
     },
-    "prev": "8c948bbab26abfdd1dbdefbe9d2afca7a22e71a4f64710dd9a25fa01f80613da",
+    "prev": "6d73dac28efca18a98172944d0908bb72cd037e8b4231f21b1305658b41da5ed",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 15,
     "utc": "2026-11-13T23:00:03.500Z"
@@ -442,7 +444,7 @@
       },
       "kind": "item"
     },
-    "prev": "1232893e9b73ea18c5fbd880b6b60302ff5313a9734c1d5518e3d0ae2242a1bb",
+    "prev": "bb5e8158bd8c298a48a4a19108175192172fdedfaf113a32d8c8a550eb6941a2",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 74,
     "utc": "2026-11-13T23:00:18.250Z"
@@ -461,7 +463,7 @@
       },
       "kind": "item_created"
     },
-    "prev": "1a2b16edffbceeadd9f65d9fac8ae08bf3802ffd873bd49d7bd1da55d0dc4b3c",
+    "prev": "6a1716688b9b7ecfc298ac836ca733b3f4a271ee9ff124f611fcd5684d73954f",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 13,
     "utc": "2026-11-13T23:00:03.000Z"
@@ -500,7 +502,7 @@
       },
       "kind": "job"
     },
-    "prev": "49d7b9d0fecadaf0592a4c82f178eeae3b45b0664d5227e62f8ae43d3c2f360e",
+    "prev": "c59dfcd23b5cceca91de6ee4dd388095bf1961e0a1b02622fbf0193fd4f3c50e",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 18,
     "utc": "2026-11-13T23:00:04.250Z"
@@ -517,7 +519,7 @@
       },
       "kind": "job"
     },
-    "prev": "82b72bd7bce97d1bd56cac3c8ef360c55ed60f2628d745bd71b1000492faf1d7",
+    "prev": "e45fdc1578df1d82ae6aa613a78846b775f2e6e8ba2c52ec81787e1e6112830c",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 57,
     "utc": "2026-11-13T23:00:14.000Z"
@@ -539,7 +541,7 @@
       },
       "kind": "job"
     },
-    "prev": "2c44833170dd5be2aff46b13eb631ba876d648748ef5d152ac4e9cb0f2702363",
+    "prev": "4879cfe8d994220213e8f46c918283800b4c8b74d7f65d1c95842d59e5f8a691",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 16,
     "utc": "2026-11-13T23:00:03.750Z"
@@ -556,7 +558,7 @@
       },
       "kind": "job"
     },
-    "prev": "5f9b844cbe36a1b8adb70c1b4adae5527600e204d39c1da9b91d3b0aad79ffdb",
+    "prev": "2001b28f4ee41f2a3eb25f536b648b31db6e9abf0a2dbc62278638292fc54ab2",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 58,
     "utc": "2026-11-13T23:00:14.250Z"
@@ -575,7 +577,7 @@
       },
       "kind": "job"
     },
-    "prev": "20c60f93401016a9b8d2bfdf6da3a9b1da793f5fbac8c798cb76c815e0c3746c",
+    "prev": "def552aba68e29e6616a335bae28f86edc0b561c64d47b9a22f4a016619dcf7e",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 17,
     "utc": "2026-11-13T23:00:04.000Z"
@@ -594,7 +596,7 @@
       },
       "kind": "job_queued"
     },
-    "prev": "4f7bf7f56e5a1407a7914e5fd360a44c61852e187c7387dd3f127c75a53440fb",
+    "prev": "ce6af19d4497cd0d294dad60d4cbb8255379a6ce44001ecba53b3473e3edf46a",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 14,
     "utc": "2026-11-13T23:00:03.250Z"
@@ -620,7 +622,7 @@
       },
       "kind": "node"
     },
-    "prev": "883faef15cbf65f8e9845e4404413f92136706708a3574e9d5ef6844bb57e0e2",
+    "prev": "ef79b349baa740bef34a8fb213549564b050afe5e415327413007b99d43d21ea",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 81,
     "utc": "2026-11-13T23:00:20.000Z"
@@ -655,7 +657,7 @@
       },
       "kind": "node"
     },
-    "prev": "d18176ba60651afc4ca22ad9ceface151662a6439d9eae92473bff84c2414980",
+    "prev": "f2765eed743c887ff1bdb49c226c3d4533268b4b86792d9f744edb6b49c24a2b",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 82,
     "utc": "2026-11-13T23:00:20.250Z"
@@ -676,7 +678,7 @@
       },
       "kind": "node"
     },
-    "prev": "cb9f662336099cafa73d56071fb9f2104e576c1a7ea7403abf51ee0d0676d6e7",
+    "prev": "cde72593ceaef30e4899b7632f4a8582dea95e6a115d9fd1fc7d64f0bbb822cd",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 80,
     "utc": "2026-11-13T23:00:19.750Z"
@@ -713,7 +715,7 @@
       },
       "kind": "node"
     },
-    "prev": "001965bd20ed8108a88598754f800028ba41b746cd13d2f3bc6bd03d7a13ddc0",
+    "prev": "d186524b7eed62c29199b9136cd0eb4c447ecc925be6cfc171b1737b14dbe7d3",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 96,
     "utc": "2026-11-13T23:00:23.750Z"
@@ -761,7 +763,7 @@
       },
       "kind": "note"
     },
-    "prev": "77f1ec35840151cbc5ff913da0ef7e64cfa49ab02323e9e06948433abf8b8e95",
+    "prev": "4b7816a94181e95405cc0ca22a52181b0fbd32b58fe558f28e7b05b50c45974e",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 95,
     "utc": "2026-11-13T23:00:23.500Z"
@@ -775,7 +777,7 @@
       },
       "kind": "orphan_killed"
     },
-    "prev": "38e3dd775a7da5fb847a3b6475a2f7552664522bd06434767b19c916f2e89506",
+    "prev": "581c75cfd508d17f833e528625609206d2eb8239f3c72973868c701c6f49a53e",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 100,
     "utc": "2026-11-13T23:00:24.750Z"
@@ -795,7 +797,7 @@
       },
       "kind": "rule_economy"
     },
-    "prev": "a15daf31630ea1e87b162cf6dc4e3c98ad46228db9512623709b5e7553eb7234",
+    "prev": "469924171923a7d237734951032a0b71687fb7d928a389deb5e126ac9874938d",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 83,
     "utc": "2026-11-13T23:00:20.500Z"
@@ -804,12 +806,12 @@
     "event": {
       "body": {
         "index": 2,
-        "previous_blake3": "c3e99d6f6853fe9ba9b769a032915dd553615cd1c4352f834d01c2204ff32e00",
+        "previous_blake3": "a469aa6e5084941f751abef665bf48c9c35a865340238a1c2e87218054fce7b9",
         "snapshot_seq": 103
       },
       "kind": "segment_opened"
     },
-    "prev": "118327841d0b7ea6c525c159e8b9f38298feeeb378a0f209137b1e8e6dc3d3cb",
+    "prev": "90696a084ac0d573f612ee3ee6d6384dd7b53780502524b27d0529a17b5f1b8d",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 104,
     "utc": "2026-11-13T23:00:25.750Z"
@@ -836,7 +838,7 @@
       },
       "kind": "tables_imported"
     },
-    "prev": "9d58951285abc9506430db2127bbf305aa1301a1bba1993f5c14efb0a3572d87",
+    "prev": "d3edfa13320fbe56914fd927c240ecf65e85b2c4f126599f8f735409e405f558",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 12,
     "utc": "2026-11-13T23:00:02.750Z"
@@ -854,7 +856,7 @@
       },
       "kind": "verify_checkpoint"
     },
-    "prev": "c31e9f247c7642a7bcebfe5e15b10188d96e942ee2007d6abc79ff19d06227d0",
+    "prev": "73f18107887dc7efd7567aa1be6a0801ba6e80dd5d91dc16093177155500f233",
     "schema": "rustred.campaign.ledger.v1",
     "seq": 101,
     "utc": "2026-11-13T23:00:25.000Z"

@@ -257,7 +257,7 @@
   ],
   "file": "events",
   "ledger": {
-    "head": "79566b6f6472faa4781c03b5666ce38c17e34988357848c7cbd179bd4ebaee70",
+    "head": "6272e6de22dde8d111877c7b881a660cd4ae676f11ca8f828ee98bae85139a50",
     "last_utc": "2026-11-14T11:58:34.000Z",
     "seq": 136
   },

@@ -1715,11 +1715,16 @@
               "ev",
               "run_dir",
               "cpus",
-              "reserved_bytes"
+              "reserved_bytes",
+              "spec_blake3"
             ],
             "additionalProperties": false,
             "properties": {
               "ev": true,
+              "spec_blake3": {
+                "$ref": "common.schema.json#/$defs/blake3",
+                "description": "BLAKE3 of the attempt's job.json as written (the job.finished binding must name it)"
+              },
               "run_dir": {
                 "type": "string"
               },

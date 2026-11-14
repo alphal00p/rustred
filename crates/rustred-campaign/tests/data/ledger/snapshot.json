@@ -1,5 +1,5 @@
 {
-  "head": "118327841d0b7ea6c525c159e8b9f38298feeeb378a0f209137b1e8e6dc3d3cb",
+  "head": "90696a084ac0d573f612ee3ee6d6384dd7b53780502524b27d0529a17b5f1b8d",
   "schema": "rustred.campaign.snapshot.v1",
   "seq": 103,
   "state": {
@@ -1057,6 +1057,8 @@
         "level_claimed": "identity_tested",
         "manifest": null,
         "producer": "hand closure (reference)",
+        "producer_known": true,
+        "provenance_class": null,
         "seq": 11,
         "source_campaign": null
       },
@@ -1077,6 +1079,8 @@
           "path": "large:imports/c-20261101/MANIFEST.json"
         },
         "producer": "campaign c-20261101",
+        "producer_known": true,
+        "provenance_class": null,
         "seq": 12,
         "source_campaign": "c-20261101"
       }
