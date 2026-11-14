@@ -5,13 +5,15 @@
 
 mod common;
 
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use common::*;
 use rustred_campaign_algebra::modes::Traced;
 use rustred_campaign_algebra::wrap::{Event, recording};
-use rustred_campaign_algebra::{Outlier, SymbolicaAlgebra, Triage, replay_evidence_triage, triage_identity};
+use rustred_campaign_algebra::{
+    Outlier, SymbolicaAlgebra, Triage, replay_evidence_triage, triage_identity,
+};
 use rustred_campaign_core::ibp_rows::{
     NonceSource, PointSpec, ReplayLevel, ReplayPolicy, RowsOptions, RowsRule, TableBinding,
 };
@@ -40,7 +42,11 @@ fn form_text(form: &[Q], m: i128, n: usize) -> String {
             j if j == n + 1 => "d".into(),
             j => format!("n{}", j - 1),
         };
-        terms.push(if var.is_empty() { format!("{c}") } else { format!("{c}*{var}") });
+        terms.push(if var.is_empty() {
+            format!("{c}")
+        } else {
+            format!("{c}*{var}")
+        });
     }
     let s = terms.join("+").replace("+-", "-");
     if s.is_empty() { "0".into() } else { s }
@@ -133,7 +139,14 @@ fn face() -> Face {
     rhs.push(json!([format!("I({})", zparts.join(",")), "1"]));
     let mut bad = good.clone();
     bad["rhs"] = json!(rhs);
-    Face { text, good, bad, j, tshift, den }
+    Face {
+        text,
+        good,
+        bad,
+        j,
+        tshift,
+        den,
+    }
 }
 
 fn key_off_face(f: &Face) -> Vec<i64> {
@@ -188,7 +201,13 @@ struct Bent<A: CheckAlgebra> {
 }
 
 fn bent<A: CheckAlgebra>(inner: A, defect: Defect) -> Bent<A> {
-    Bent { inner, defect, calls: AtomicUsize::new(0), effects: Arc::new(AtomicUsize::new(0)), events: Mutex::new(Vec::new()) }
+    Bent {
+        inner,
+        defect,
+        calls: AtomicUsize::new(0),
+        effects: Arc::new(AtomicUsize::new(0)),
+        events: Mutex::new(Vec::new()),
+    }
 }
 
 impl<A: CheckAlgebra> Bent<A> {
@@ -221,7 +240,10 @@ impl<E: Eliminator> Eliminator for BentElim<E> {
     fn solve(&self, desired: &[(usize, u64)]) -> Result<Span, Unknown> {
         let k = self.solves.fetch_add(1, Ordering::SeqCst);
         let mut s = self.inner.solve(desired)?;
-        let lie = matches!((self.defect, k), (Defect::RuleInSpan, 0) | (Defect::MutantInSpan, 1));
+        let lie = matches!(
+            (self.defect, k),
+            (Defect::RuleInSpan, 0) | (Defect::MutantInSpan, 1)
+        );
         if lie {
             if !s.in_span {
                 self.effects.fetch_add(1, Ordering::SeqCst);
@@ -358,7 +380,8 @@ impl<A: CheckAlgebra> CheckAlgebra for Bent<A> {
         num: u64,
         den: u64,
     ) -> Result<(), Unknown> {
-        self.inner.cross_check_coefficient(text, arity, ctx, num, den)
+        self.inner
+            .cross_check_coefficient(text, arity, ctx, num, den)
     }
     fn expr_linear(&self, text: &str, n: usize) -> Result<Vec<Q>, Unknown> {
         self.inner.expr_linear(text, n)
@@ -404,7 +427,11 @@ impl<A: CheckAlgebra> CheckAlgebra for Bent<A> {
         })
     }
     fn observe(&self, stage: Stage, at: &dyn Fn() -> String, value: &dyn Fn() -> String) {
-        self.events.lock().unwrap().push(Event { stage, at: at(), value: value() });
+        self.events.lock().unwrap().push(Event {
+            stage,
+            at: at(),
+            value: value(),
+        });
     }
 }
 
@@ -415,14 +442,26 @@ fn class(t: &Triage) -> (String, String, String) {
         Triage::AgreePass => ("AgreePass".into(), "-".into(), "-".into()),
         Triage::AgreeFail { .. } => ("AgreeFail".into(), "-".into(), "-".into()),
         Triage::AgreeOther { verdict } => (
-            format!("AgreeOther({})", verdict.split([' ', '(', '{']).next().unwrap_or("")),
+            format!(
+                "AgreeOther({})",
+                verdict.split([' ', '(', '{']).next().unwrap_or("")
+            ),
             "-".into(),
             "-".into(),
         ),
-        Triage::Differ(d) => ("Differ".into(), format!("{:?}", d.stage), format!("{:?}", d.outlier)),
-        Triage::SymbolicaUnsupported { reason } => {
-            (format!("SymbolicaUnsupported({})", reason.chars().take(40).collect::<String>()), "-".into(), "-".into())
-        }
+        Triage::Differ(d) => (
+            "Differ".into(),
+            format!("{:?}", d.stage),
+            format!("{:?}", d.outlier),
+        ),
+        Triage::SymbolicaUnsupported { reason } => (
+            format!(
+                "SymbolicaUnsupported({})",
+                reason.chars().take(40).collect::<String>()
+            ),
+            "-".into(),
+            "-".into(),
+        ),
     }
 }
 
@@ -476,7 +515,12 @@ fn audit_rows3_triage_table() {
     let f = face();
     let off = key_off_face(&f);
     let on = key_on_face(&f);
-    let pts = vec![PointSpec::Generic, PointSpec::Generic, PointSpec::Key(off.clone()), PointSpec::Key(on.clone())];
+    let pts = vec![
+        PointSpec::Generic,
+        PointSpec::Generic,
+        PointSpec::Key(off.clone()),
+        PointSpec::Key(on.clone()),
+    ];
     let corner = "I(1,1,1,1,1,1,1,0,0)";
     let mut rows: Vec<Row> = Vec::new();
     // (A) rules, no defect
@@ -500,16 +544,31 @@ fn audit_rows3_triage_table() {
         // c = (N)/(D)  ->  (N*(n1-n1))/(D*(n1-n1)) is not expanded; use the off-face key value instead:
         // (N)/(D) with an extra additive term 0/(n0 - v0) whose denominator vanishes at the off-face key only
         r[0] = json!([k, c]);
-        r.push(json!([pat(&zk), format!("(0)/(1*n0-{})", off[0] - f.tshift[0])]));
+        r.push(json!([
+            pat(&zk),
+            format!("(0)/(1*n0-{})", off[0] - f.tshift[0])
+        ]));
     });
     let grammar = with_rhs(&f.good, |r| r.push(json!([pat(&zk), "1/2*n1-1/2*n1"])));
     let cases: Vec<(&str, &'static str, Value)> = vec![
         ("true rule", "AgreePass", f.good.clone()),
-        ("false: + 1*corner", "AgreeFail", with_rhs(&f.good, |r| r.push(json!([corner, "1"])))),
+        (
+            "false: + 1*corner",
+            "AgreeFail",
+            with_rhs(&f.good, |r| r.push(json!([corner, "1"]))),
+        ),
         ("false on the face key only", "AgreeFail", f.bad.clone()),
         ("false: coefficient 0 doubled", "AgreeFail", doubled),
-        ("TRUE rule, wrong recorded seed", "AgreeFail (rule is true!)", wrong_seed),
-        ("true + 0/(n0-v0): removable 0/0 at a key", "pole one side", removable),
+        (
+            "TRUE rule, wrong recorded seed",
+            "AgreeFail (rule is true!)",
+            wrong_seed,
+        ),
+        (
+            "true + 0/(n0-v0): removable 0/0 at a key",
+            "pole one side",
+            removable,
+        ),
         ("true + `1/2*n1-1/2*n1` (grammar-refused)", "?", grammar),
     ];
     for (name, exp, rule) in &cases {
@@ -537,17 +596,39 @@ fn audit_rows3_triage_table() {
     let mut with_exc = f.good.clone();
     with_exc["exceptions"] = json!([["n0-100"]]);
     for side in ["independent", "symbolica"] {
-        rows.push(run("true rule + exception n0-100 | Applicability: literal #2", side, "Differ", Defect::Literal(2), &f.text, &with_exc, &pts));
+        rows.push(run(
+            "true rule + exception n0-100 | Applicability: literal #2",
+            side,
+            "Differ",
+            Defect::Literal(2),
+            &f.text,
+            &with_exc,
+            &pts,
+        ));
     }
     for (rule_name, rule) in [("true", &f.good), ("false", &false_rule)] {
         for (dname, d) in &defects {
             for side in ["independent", "symbolica"] {
-                let exp = if side == "independent" { "Differ, outlier Independent" } else { "Differ, outlier Symbolica" };
-                rows.push(run(&format!("{rule_name} rule | {dname}"), side, exp, *d, &f.text, rule, &pts));
+                let exp = if side == "independent" {
+                    "Differ, outlier Independent"
+                } else {
+                    "Differ, outlier Symbolica"
+                };
+                rows.push(run(
+                    &format!("{rule_name} rule | {dname}"),
+                    side,
+                    exp,
+                    *d,
+                    &f.text,
+                    rule,
+                    &pts,
+                ));
             }
         }
     }
-    println!("\n| case | defect side | expected | triage | stage | outlier | ind verdict | sym verdict | defect effects |");
+    println!(
+        "\n| case | defect side | expected | triage | stage | outlier | ind verdict | sym verdict | defect effects |"
+    );
     println!("|---|---|---|---|---|---|---|---|---|");
     for r in &rows {
         println!(
@@ -556,8 +637,14 @@ fn audit_rows3_triage_table() {
         );
     }
     let all_planted = rows.iter().filter(|r| r.side != "-").count();
-    let planted: Vec<&Row> = rows.iter().filter(|r| r.side != "-" && r.fired > 0).collect();
-    println!("planted runs {all_planted}, of which the defect changed a value in {}", planted.len());
+    let planted: Vec<&Row> = rows
+        .iter()
+        .filter(|r| r.side != "-" && r.fired > 0)
+        .collect();
+    println!(
+        "planted runs {all_planted}, of which the defect changed a value in {}",
+        planted.len()
+    );
     let right = planted
         .iter()
         .filter(|r| {
@@ -566,7 +653,10 @@ fn audit_rows3_triage_table() {
                     || (r.side == "symbolica" && r.got.2 == "Symbolica"))
         })
         .count();
-    let unresolved = planted.iter().filter(|r| r.got.0 == "Differ" && r.got.2 == "Unresolved").count();
+    let unresolved = planted
+        .iter()
+        .filter(|r| r.got.0 == "Differ" && r.got.2 == "Unresolved")
+        .count();
     let wrong = planted
         .iter()
         .filter(|r| {
@@ -583,7 +673,10 @@ fn audit_rows3_triage_table() {
     // no planted defect may be reported as an agreement on a rule verdict that differs from the clean run
     for r in &planted {
         if r.got.0 != "Differ" {
-            println!("  not seen: {} [{}] -> {} (ind {}, sym {})", r.case, r.side, r.got.0, r.ind, r.sym);
+            println!(
+                "  not seen: {} [{}] -> {} (ind {}, sym {})",
+                r.case, r.side, r.got.0, r.ind, r.sym
+            );
         }
     }
     assert_eq!(wrong, 0, "a planted defect blamed on the wrong side");
@@ -599,7 +692,8 @@ fn audit_rows3_both_blocks_independent_false_pass() {
     let f = face();
     let fam = Family::parse(&f.text).unwrap();
     let corner = "I(1,1,1,1,1,1,1,0,0)";
-    let false_rule = RowsRule::from_value(with_rhs(&f.good, |r| r.push(json!([corner, "1"]))), 9).unwrap();
+    let false_rule =
+        RowsRule::from_value(with_rhs(&f.good, |r| r.push(json!([corner, "1"]))), 9).unwrap();
     let keys = vec![key_off_face(&f)];
     let opts = RowsOptions {
         table: Some(TableBinding::from_family_digest(fam.squashed_digest())),
@@ -619,7 +713,11 @@ fn audit_rows3_both_blocks_independent_false_pass() {
     .unwrap();
     let ri = m.independent.unwrap();
     let t = m.triage.unwrap();
-    println!("Both replay, independent side lies: triage {:?}; independent level {:?}", class(&t.triage), ri.level);
+    println!(
+        "Both replay, independent side lies: triage {:?}; independent level {:?}",
+        class(&t.triage),
+        ri.level
+    );
     assert!(matches!(ri.level, ReplayLevel::NotEstablished { .. }));
     assert!(matches!(t.triage, Triage::Differ(ref d) if d.outlier == Outlier::Independent));
     let _ = f.den;

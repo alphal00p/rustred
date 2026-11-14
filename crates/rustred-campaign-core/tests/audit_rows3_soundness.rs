@@ -85,14 +85,23 @@ fn keys_grid(rule: &Value, tshift: &[i64], count: usize) -> Vec<Vec<i64>> {
             key[7] = num;
             key[8] = -1;
             // skip the rule's own poles (denominator zero at two d values)
-            let pt: Vec<u64> = key.iter().zip(tshift).map(|(a, b)| Independent.from_i128(p, (a - b) as i128)).collect();
+            let pt: Vec<u64> = key
+                .iter()
+                .zip(tshift)
+                .map(|(a, b)| Independent.from_i128(p, (a - b) as i128))
+                .collect();
             let ctxs: Vec<Ctx> = [3u64, 5]
                 .iter()
-                .map(|&d| Ctx { p, vals: pt.iter().copied().chain([d]).collect() })
+                .map(|&d| Ctx {
+                    p,
+                    vals: pt.iter().copied().chain([d]).collect(),
+                })
                 .collect();
             let pole = dens.iter().any(|t| {
                 let (mut nn, mut dd) = ([0u64; 2], [0u64; 2]);
-                Independent.eval_ratio(t, 9, &ctxs, &mut nn, &mut dd).unwrap();
+                Independent
+                    .eval_ratio(t, 9, &ctxs, &mut nn, &mut dd)
+                    .unwrap();
                 dd == [0, 0]
             });
             if pole {
@@ -322,7 +331,11 @@ fn audit_rows3_single_bad_key_never_established() {
         &[PointSpec::Generic, PointSpec::Generic],
         &RowsOptions::default(),
     );
-    assert_eq!(g.verdict, Verdict::Pass, "generic points cannot see the face");
+    assert_eq!(
+        g.verdict,
+        Verdict::Pass,
+        "generic points cannot see the face"
+    );
     let mut est = 0;
     for seed in 0..20u64 {
         let r = replay_evidence(
@@ -425,7 +438,9 @@ fn audit_rows3_unbound_never_certifies() {
         &keys,
         &pol,
         &RowsOptions {
-            table: TableBinding::from_header(&json!({"type": "header", "loops": 3, "denominators": 9})),
+            table: TableBinding::from_header(
+                &json!({"type": "header", "loops": 3, "denominators": 9}),
+            ),
             ..RowsOptions::default()
         },
     );
@@ -449,7 +464,12 @@ fn audit_rows3_unbound_never_certifies() {
             ..RowsOptions::default()
         },
     );
-    for (what, r) in [("none", &none), ("header", &hdr), ("other", &other), ("nonce+none", &both)] {
+    for (what, r) in [
+        ("none", &none),
+        ("header", &hdr),
+        ("other", &other),
+        ("nonce+none", &both),
+    ] {
         println!("unbound {what}: {}", level_kind(&r.level));
         assert_ne!(r.level, ReplayLevel::Established, "{what}");
     }
@@ -465,17 +485,33 @@ fn audit_rows3_unbound_never_certifies() {
 fn audit_rows3_dimension_and_degree_perturbations() {
     let f = face();
     let n = f.fam.n();
-    let keys: Vec<Vec<i64>> = served(&f).into_iter().filter(|k| k[f.j] != 0).take(60).collect();
+    let keys: Vec<Vec<i64>> = served(&f)
+        .into_iter()
+        .filter(|k| k[f.j] != 0)
+        .take(60)
+        .collect();
     let cases = [
-        ("vanishes at d=37/7 and d=-11/5 (the engine's sample dimensions)", "35*d^2-108*d-407"),
+        (
+            "vanishes at d=37/7 and d=-11/5 (the engine's sample dimensions)",
+            "35*d^2-108*d-407",
+        ),
         ("vanishes at d=4", "1*d-4"),
         ("degree 20000 in d", "1*d^10000*d^10000"),
         ("d^10000 - d^9999", "1*d^10000-1*d^9999"),
-        ("huge integer coefficient times (d-4)", "123456789012345678901234567890123456789*d-493827156049382715604938271560493827156"),
+        (
+            "huge integer coefficient times (d-4)",
+            "123456789012345678901234567890123456789*d-493827156049382715604938271560493827156",
+        ),
     ];
     for (what, c) in cases {
         let bad = RowsRule::from_value(with_term(&f.good, CORNER, c), n).unwrap();
-        let r = replay_evidence(&f.fam, &bad, &keys, &ReplayPolicy::default(), &bound(&f.fam));
+        let r = replay_evidence(
+            &f.fam,
+            &bad,
+            &keys,
+            &ReplayPolicy::default(),
+            &bound(&f.fam),
+        );
         let failed_keys = r
             .identity
             .points
@@ -497,12 +533,24 @@ fn audit_rows3_dimension_and_degree_perturbations() {
             r.identity.verdict.kind(),
             keys.len()
         );
-        assert!(matches!(r.level, ReplayLevel::NotEstablished { .. }), "{what}");
-        assert_eq!(failed_keys, keys.len(), "{what}: every served key must fail");
+        assert!(
+            matches!(r.level, ReplayLevel::NotEstablished { .. }),
+            "{what}"
+        );
+        assert_eq!(
+            failed_keys,
+            keys.len(),
+            "{what}: every served key must fail"
+        );
     }
     // the exponent limit: 10001 is refused, never truncated
     let over = RowsRule::from_value(with_term(&f.good, CORNER, "1*d^10001"), n).unwrap();
-    let r = identity_test(&f.fam, &over, &[PointSpec::Generic], &RowsOptions::default());
+    let r = identity_test(
+        &f.fam,
+        &over,
+        &[PointSpec::Generic],
+        &RowsOptions::default(),
+    );
     println!("exponent 10001: {:?}", r.verdict);
     assert!(matches!(r.verdict, Verdict::Unsupported(_)));
 }
@@ -521,8 +569,20 @@ fn audit_rows3_family_parsed_by_foreign_backend_hole() {
     let (rule_v, tshift) = row_rule(&forged, 0);
     let rule = RowsRule::from_value(rule_v.clone(), n).unwrap();
     let keys: Vec<Vec<i64>> = keys_grid(&rule_v, &tshift, 300);
-    let on_forged = replay_evidence(&forged, &rule, &keys, &ReplayPolicy::default(), &bound(&forged));
-    let on_honest = replay_evidence(&honest, &rule, &keys, &ReplayPolicy::default(), &bound(&honest));
+    let on_forged = replay_evidence(
+        &forged,
+        &rule,
+        &keys,
+        &ReplayPolicy::default(),
+        &bound(&forged),
+    );
+    let on_honest = replay_evidence(
+        &honest,
+        &rule,
+        &keys,
+        &ReplayPolicy::default(),
+        &bound(&honest),
+    );
     let v_forged = verify_record(&on_forged, &rule, &forged, &keys);
     let v_honest = verify_record(&on_forged, &rule, &honest, &keys);
     println!(
@@ -533,7 +593,9 @@ fn audit_rows3_family_parsed_by_foreign_backend_hole() {
         level_kind(&on_honest.level),
         on_honest.identity.verdict.kind(),
         v_forged,
-        v_honest.as_ref().map_or_else(|e| e.chars().take(80).collect::<String>(), |_| "Ok".into())
+        v_honest
+            .as_ref()
+            .map_or_else(|e| e.chars().take(80).collect::<String>(), |_| "Ok".into())
     );
     assert_eq!(on_forged.level, ReplayLevel::Established);
     assert_eq!(on_forged.family_digest, on_honest.family_digest);
@@ -550,9 +612,14 @@ fn audit_rows3_backend_name_gate_hole() {
     let f = face();
     let n = f.fam.n();
     let keys = served(&f);
-    let false_rule =
-        RowsRule::from_value(with_term(&f.good, CORNER, "1"), n).unwrap();
-    let honest = replay_evidence(&f.fam, &false_rule, &keys, &ReplayPolicy::default(), &bound(&f.fam));
+    let false_rule = RowsRule::from_value(with_term(&f.good, CORNER, "1"), n).unwrap();
+    let honest = replay_evidence(
+        &f.fam,
+        &false_rule,
+        &keys,
+        &ReplayPolicy::default(),
+        &bound(&f.fam),
+    );
     let lying = replay_evidence_with(
         &Liar(Lie::FirstSolveInSpan),
         &f.fam,
@@ -604,7 +671,11 @@ fn audit_rows3_forged_records() {
     // (2) the bad rule on the keys off the face: legitimately Established there; presented for all keys
     let off: Vec<Vec<i64>> = keys.iter().filter(|k| k[f.j] != 0).cloned().collect();
     let r2 = replay_evidence(&f.fam, &bad, &off, &pol, &bound(&f.fam));
-    assert_eq!(r2.level, ReplayLevel::Established, "the bad rule is right off the face");
+    assert_eq!(
+        r2.level,
+        ReplayLevel::Established,
+        "the bad rule is right off the face"
+    );
     let v2 = verify_record(&r2, &bad, &f.fam, &keys);
     // (3)
     let mut r3 = replay_evidence(

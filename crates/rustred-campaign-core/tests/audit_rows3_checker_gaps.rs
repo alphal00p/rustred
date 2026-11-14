@@ -31,7 +31,10 @@ fn audit_rows3_mixed_primes_are_never_a_pass() {
     let n = f.fam.n();
     let [p1, p2] = verify_primes(99, &[]);
     let mut r = f.good.clone();
-    r["rhs"].as_array_mut().unwrap().push(json!([CORNER, p1.to_string()]));
+    r["rhs"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!([CORNER, p1.to_string()]));
     let rule = RowsRule::from_value(r, n).unwrap();
     let v = identity_test(
         &f.fam,
@@ -43,7 +46,11 @@ fn audit_rows3_mixed_primes_are_never_a_pass() {
         },
     );
     println!("mixed primes: {:?}", v.verdict);
-    assert!(matches!(v.verdict, Verdict::Undecided { .. }), "{:?}", v.verdict);
+    assert!(
+        matches!(v.verdict, Verdict::Undecided { .. }),
+        "{:?}",
+        v.verdict
+    );
 }
 
 /// Kills M09: ONE non-applicable served key among applicable ones blocks the level.
@@ -56,7 +63,13 @@ fn audit_rows3_one_non_applicable_served_key_blocks() {
     let mut outside = keys[0].clone();
     outside[0] = 0; // a chart line at 0: outside the chart orthant
     keys.push(outside);
-    let r = replay_evidence(&f.fam, &good, &keys, &ReplayPolicy::default(), &bound(&f.fam));
+    let r = replay_evidence(
+        &f.fam,
+        &good,
+        &keys,
+        &ReplayPolicy::default(),
+        &bound(&f.fam),
+    );
     println!("one non-applicable key: {:?}", r.level);
     assert!(matches!(r.level, ReplayLevel::NotEstablished { .. }));
 }
@@ -76,9 +89,18 @@ fn audit_rows3_case_equation_checked_at_keys() {
             pt[0] != pt[1] && k[f.j] != 0
         })
         .unwrap();
-    let v = identity_test(&f.fam, &rule, &[PointSpec::Key(key)], &RowsOptions::default());
+    let v = identity_test(
+        &f.fam,
+        &rule,
+        &[PointSpec::Key(key)],
+        &RowsOptions::default(),
+    );
     println!("key off the equation: {:?}", v.verdict);
-    assert!(matches!(v.verdict, Verdict::NotApplicable { .. }), "{:?}", v.verdict);
+    assert!(
+        matches!(v.verdict, Verdict::NotApplicable { .. }),
+        "{:?}",
+        v.verdict
+    );
 }
 
 /// Kills M21, M34: caller primes outside the verify range (not in the FORBIDDEN list) are refused.
@@ -102,7 +124,10 @@ fn audit_rows3_out_of_range_caller_primes_refused() {
         },
     );
     println!("out-of-range primes: {:?}", v.verdict);
-    assert!(matches!(v.verdict, Verdict::Unsupported(Unsupported::BadPrime(_))));
+    assert!(matches!(
+        v.verdict,
+        Verdict::Unsupported(Unsupported::BadPrime(_))
+    ));
 }
 
 /// Kills M23: a group verified on ANOTHER family text (same arity and chart) is refused.
@@ -126,7 +151,10 @@ fn audit_rows3_group_of_another_family_refused() {
         },
     );
     println!("group of another family: {:?}", v.verdict);
-    assert!(matches!(v.verdict, Verdict::Unsupported(Unsupported::SymGroupMismatch(_))));
+    assert!(matches!(
+        v.verdict,
+        Verdict::Unsupported(Unsupported::SymGroupMismatch(_))
+    ));
 }
 
 /// Kills M27: the generic point values are random (differ between the two generic points and between seeds).
@@ -134,7 +162,12 @@ fn audit_rows3_group_of_another_family_refused() {
 fn audit_rows3_generic_values_are_drawn() {
     let f = face();
     let good = RowsRule::from_value(f.good.clone(), 9).unwrap();
-    let v = identity_test(&f.fam, &good, &[PointSpec::Generic, PointSpec::Generic], &RowsOptions::default());
+    let v = identity_test(
+        &f.fam,
+        &good,
+        &[PointSpec::Generic, PointSpec::Generic],
+        &RowsOptions::default(),
+    );
     let g0 = v.points[0].cells[0].generic_values.clone().unwrap();
     let g1 = v.points[1].cells[0].generic_values.clone().unwrap();
     println!("generic values differ: {}", g0 != g1);
@@ -252,27 +285,68 @@ fn audit_rows3_failed_controls_are_never_a_pass() {
     // an integer key off the face: its rows reach numerator-free (corner) columns, so the corner control runs
     // (numerators at -1, so the rows raise them to 0; the A-m7 note: the corner control is vacuous elsewhere)
     let mut found = None;
-    'search: for (a, b, c7, c8) in (1..=4i64).flat_map(|a| (1..=4i64).flat_map(move |b| [(0i64, 0i64), (0, -1), (-1, 0), (-1, -1)].map(|(x, y)| (a, b, x, y)))) {
+    'search: for (a, b, c7, c8) in (1..=4i64).flat_map(|a| {
+        (1..=4i64).flat_map(move |b| {
+            [(0i64, 0i64), (0, -1), (-1, 0), (-1, -1)].map(|(x, y)| (a, b, x, y))
+        })
+    }) {
         {
             // rule point: lines 1..=4, numerators 0 / -1 (the seed sits at the rule point; rows raise a numerator to 0)
-            let pt: Vec<i64> = (0..9).map(|i| match i { 7 => c7, 8 => c8, _ => 1 + (a * i as i64 + b) % 4 }).collect();
+            let pt: Vec<i64> = (0..9)
+                .map(|i| match i {
+                    7 => c7,
+                    8 => c8,
+                    _ => 1 + (a * i as i64 + b) % 4,
+                })
+                .collect();
             let key: Vec<i64> = pt.iter().zip(&f.tshift).map(|(x, t)| x + t).collect();
             if (0..9).any(|i| (i < 7 && key[i] < 1) || (i >= 7 && key[i] > 0)) {
                 continue;
             }
-            let clean = identity_test(fam, &good, &[PointSpec::Key(key.clone())], &RowsOptions::default());
-            let corners = clean.points[0].cells.first().map_or(0, |c| c.corners_tested);
+            let clean = identity_test(
+                fam,
+                &good,
+                &[PointSpec::Key(key.clone())],
+                &RowsOptions::default(),
+            );
+            let corners = clean.points[0]
+                .cells
+                .first()
+                .map_or(0, |c| c.corners_tested);
             if clean.verdict == Verdict::Pass && corners >= 1 {
                 found = Some((key, corners));
                 break 'search;
             }
         }
     }
-    let (key, corners) = found.unwrap_or_else(|| panic!("no key whose rows reach a corner column (tshift {:?})", f.tshift));
+    let (key, corners) = found.unwrap_or_else(|| {
+        panic!(
+            "no key whose rows reach a corner column (tshift {:?})",
+            f.tshift
+        )
+    });
     for (what, nth) in [("+1 mutant in span", 1usize), ("first corner in span", 2)] {
-        let v = identity_test_with(&ControlLie(nth), fam, &good, &[PointSpec::Key(key.clone())], &RowsOptions::default());
-        let st: Vec<&CellStatus> = v.points.iter().flat_map(|p| &p.cells).map(|c| &c.status).collect();
-        println!("{what} ({corners} corners probed): {:?} {:?}", v.verdict, st);
-        assert!(matches!(v.verdict, Verdict::Undecided { .. }), "{what}: {:?}", v.verdict);
+        let v = identity_test_with(
+            &ControlLie(nth),
+            fam,
+            &good,
+            &[PointSpec::Key(key.clone())],
+            &RowsOptions::default(),
+        );
+        let st: Vec<&CellStatus> = v
+            .points
+            .iter()
+            .flat_map(|p| &p.cells)
+            .map(|c| &c.status)
+            .collect();
+        println!(
+            "{what} ({corners} corners probed): {:?} {:?}",
+            v.verdict, st
+        );
+        assert!(
+            matches!(v.verdict, Verdict::Undecided { .. }),
+            "{what}: {:?}",
+            v.verdict
+        );
     }
 }
