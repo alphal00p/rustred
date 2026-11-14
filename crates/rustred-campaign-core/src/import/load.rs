@@ -1345,16 +1345,19 @@ fn read_credit_group(path: &Path, lines: &[bool]) -> Result<CreditPolicy, Import
             numerators: nums,
         });
     }
-    let mut pol = CreditPolicy::new(group);
+    let mut pure = BTreeSet::new();
     if let Some(p) = v.get("pure_numerator_maps").and_then(Value::as_array) {
         for x in p {
-            pol.pure_numerator_maps.insert(
+            pure.insert(
                 x.as_u64()
                     .ok_or_else(|| ImportError::Spec("pure_numerator_maps entry".into()))?
                     as usize,
             );
         }
     }
+    // a hand-written group file is UNVERIFIED (closurefix): credits from it make the closure `diagnostic`; a verified
+    // group (`CreditPolicy::from_verified`) is not an import input in v1
+    let pol = CreditPolicy::unverified(group, pure, &format!("import:{}", path.display()));
     pol.validate(lines).map_err(ImportError::Spec)?;
     Ok(pol)
 }
