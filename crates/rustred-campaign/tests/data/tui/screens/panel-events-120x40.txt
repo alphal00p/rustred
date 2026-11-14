@@ -1,39 +1,39 @@
-rr_campaign  test-campaign  RUNNING  age 10m03s  hb 2s  seq 84  sessions 1  dir memory
--[ Recent events (22) ]------------------------------------------------------------------------------------ q: back ----
-23:00:19 .    rule_retired      T162 F003: rule T162:R:campaign:3 superseded by T162-item-00002 (replaced_by)
-23:00:18 .    node              T162: closure round 1, defect 37 of 154783 keys
+rr_campaign  test-campaign  RUNNING  up 10m03s  hb 2s  seq 102  sessions 1  mode close  dir memory
+-[ Recent events (34) ]------------------------------------------------------------------------------------ q: back ----
+23:00:23 .    control           operator (tty) requests Retry of Item { item: "T162-item-00009" } (BIGMEM authorised)
+23:00:23 .    control           control c-0003 applied: launches resumed
+23:00:22 .    control           operator (tty) requests Resume of Campaign (maintenance done)
+23:00:22 .    control           control c-0001 applied: launches paused
+23:00:22 .    control           operator (tty) requests Pause of Campaign (maintenance)
+23:00:22 .    attention         T162 F009: needs attention (needs_bigmem): the L2 run needs more memory than the policy~
+23:00:21 .    rule_retired      T162 F003: rule T162:R:campaign:3 superseded by T162-item-00002 (replaced_by)
+23:00:20 .    node              T162: closure round 1, defect 37 of 154783 keys (Proved envelope)
+23:00:20 .    node              T162: table set assembled (round 1)
+23:00:19 .    node              T162: fixer round 1 begins
+23:00:19 .    item_imported     T162 F008: rule T162:R:imported:8 imported from earlier-campaign (identity_tested)
+23:00:19 T    terminal_declared T162 F007: 1 terminal key(s) declared (preferred)
+23:00:18 esc  terminal_proposed T162 F007: terminal candidate (preferred terminal of the spec)
 23:00:18 ok   item_upgraded     T162 F006: evidence -> identity_tested
-23:00:17 ok   item_accepted     T162 F006: rule T162:R:bank:1043 accepted (geometry_accepted)
-23:00:17 .    job_finished      T162 F006 L0: job T162-job (complete)
-23:00:16 T    terminal_declared T162 F004 n9=-1: 2 terminal key(s) declared
-23:00:15 esc  terminal_proposed T162 F004 n9=-1: terminal candidate (terminal_after_ladder)
-23:00:15 esc  item_escalated    T162 F004 n9=-1: escalated to L1 (rule_covers_none)
-23:00:15 FAIL item_rejected     T162 F004 n9=-1: rejected (rule_covers_none)
-23:00:14 .    job_finished      T162 F004 n9=-1 L0: job T162-job (no_rule)
+23:00:18 ok   item_accepted     T162 F006: rule T162:R:bank:1043 accepted (geometry_accepted)
+23:00:17 .    job_finished      T162 F006 L0: job T162-job (complete, accept canonical)
+23:00:16 T    terminal_declared T162 F005: 2 terminal key(s) declared
+23:00:16 esc  terminal_proposed T162 F005: terminal candidate (terminal_after_ladder)
+23:00:15 esc  item_escalated    T162 F004: escalated to L1 (rule_covers_none)
+23:00:15 FAIL item_rejected     T162 F004: rejected (rule_covers_none)
+23:00:14 .    job_finished      T162 F004 L0: job T162-job (no_rule, accept committed_rules)
 23:00:12 ok   item_accepted     T162 F003: rule T162:R:campaign:3 accepted (geometry_accepted)
-23:00:11 .    job_finished      T162 F003 L0: job T162-job (rule_found)
+23:00:11 .    job_finished      T162 F003 L0: job T162-job (rule_found, accept canonical)
 23:00:10 ok   item_accepted     T162 F002: rule T162:R:campaign:2 accepted (identity_proved)
-23:00:09 .    job_finished      T162 F002 L0: job T162-job (rule_found)
+23:00:09 .    job_finished      T162 F002 L0: job T162-job (rule_found, accept canonical)
 23:00:07 ok   item_accepted     T162 F001: rule T162:R:campaign:1 accepted (geometry_accepted)
-23:00:06 .    job_finished      T162 F001 L0: job T162-job (rule_found)
+23:00:06 .    job_finished      T162 F001 L0: job T162-job (rule_found, accept canonical)
 23:00:05 ok   item_accepted     T162 F000: rule T162:R:campaign:0 accepted (identity_proved)
-23:00:04 .    job_finished      T162 F000 L0: job T162-job (rule_found)
-23:00:02 .    evidence          imported evidence astra-bank-20261113 by Astra (Codex session), hand closure of T162 (2~
+23:00:04 .    job_finished      T162 F000 L0: job T162-job (rule_found, accept canonical)
+23:00:02 .    provenance        tables_imported earlier-campaign by campaign c-20261101 (1 files, level claimed identit~
+23:00:02 .    provenance        evidence_imported astra-bank-20261113 by hand closure (reference) (2 files, level claim~
 23:00:02 .    node              T162: running (open)
 23:00:02 .    campaign          campaign running (preflight ok)
 23:00:01 .    campaign          campaign starting (test)
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

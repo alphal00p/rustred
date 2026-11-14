@@ -385,7 +385,7 @@ pub fn closure_event(
             round,
             defect_keys: defect,
             closure_keys: 154_783,
-            rules_used: Some(5),
+            rules_used: Some((st.node_live_rules(node).len() as u64).min(5)),
             rules_total: Some(st.node_live_rules(node).len() as u64),
             keyset: Some(fref(&format!("large:keysets/{node}-closure-{round}.keys"))),
             rule_set_digest: st.node_rule_set_digest(node).unwrap(),

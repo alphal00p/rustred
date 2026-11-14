@@ -1,4 +1,4 @@
-rr_campaign  p5l-boxed-final  RUNNING  age 1d04h  hb 2s  seq 18,402  sessions 2  dir /shared/vhirschi/t3code/vakint_dev/p_integral_dev/wt/ac-tui/crates/rustred-campaign/tests/data/tui/midrun
+rr_campaign  p5l-boxed-final  RUNNING  age 1d04h  hb 2s  seq 18,402  sessions 2  dir /shared/vhirschi/t3code/vakint_dev/p_integral_dev/wt/ac-ledgerfix/crates/rustred-campaign/tests/data/tui/midrun
 CPU 21/32   RAM 9.8 used, 22.0 res / 30.0G cap   host 60.0G (floor 50.0)   jobs 21
 NODES 4  FULL 1  BOXED 1  OPEN 2  certified 1  attention 2  (certified=1, closed=1, running=2)
 ITEMS 1,640  open 226  run 21  acc 1,144  esc 210  rej 31  term 3  ret 57  stale 4

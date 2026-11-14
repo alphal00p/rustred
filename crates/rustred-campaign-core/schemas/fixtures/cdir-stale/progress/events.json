@@ -6,40 +6,40 @@
       "kind": "campaign",
       "seq": 9,
       "text": "campaign starting (rr_campaign run)",
-      "utc": "2026-11-14T10:00:02.000Z"
+      "utc": "2026-11-14T10:00:02.250Z"
     },
     {
       "kind": "campaign",
       "seq": 10,
       "text": "campaign running (preflight ok)",
-      "utc": "2026-11-14T10:00:02.250Z"
+      "utc": "2026-11-14T10:00:02.500Z"
     },
     {
       "kind": "node",
       "seq": 11,
       "text": "T162: running (open)",
-      "utc": "2026-11-14T10:00:02.500Z"
+      "utc": "2026-11-14T10:00:02.750Z"
     },
     {
       "kind": "job_finished",
       "seq": 17,
-      "text": "T162 F000 L0: job T162-J00 (rule_found)",
-      "utc": "2026-11-14T10:00:04.000Z"
+      "text": "T162 F000 L0: job T162-J00 (rule_found, accept canonical)",
+      "utc": "2026-11-14T10:00:04.250Z"
     },
     {
       "kind": "item_accepted",
       "seq": 21,
       "text": "T162 F000: rule T162:R:campaign:0 accepted (identity_tested)",
-      "utc": "2026-11-14T10:00:05.000Z"
+      "utc": "2026-11-14T10:00:05.250Z"
     }
   ],
   "file": "events",
   "ledger": {
-    "head": "5d3e16796b842ec188a54d64b41aa3984d7193bc07b05c945405f91c436697b5",
-    "last_utc": "2026-11-14T10:00:06.500Z",
+    "head": "07a1e5c52745db2a0ad4dd8ca78ba981a33b1bffa24eeba95fe11bc8e7b1b653",
+    "last_utc": "2026-11-14T10:00:06.750Z",
     "seq": 27
   },
   "schema": "rustred.campaign.progress.v1",
   "source_of_truth": "ledger",
-  "written_utc": "2026-11-14T10:00:06.750Z"
+  "written_utc": "2026-11-14T10:00:07.000Z"
 }

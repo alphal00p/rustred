@@ -58,6 +58,7 @@
     "superseded": 0,
     "unmeasured": 0
   },
+  "envelope": null,
   "faces_summary": null,
   "file": "node",
   "inputs": [
@@ -130,14 +131,14 @@
   "terminals": {
     "bound": 4,
     "candidates": 0,
-    "counted": 0,
     "declared": 0,
     "other": 0,
     "preferred": {
       "not_needed": null,
       "total": null,
       "used": 0
-    }
+    },
+    "preferred_declared": 0
   },
   "written_utc": "2026-11-13T23:00:00Z"
 }

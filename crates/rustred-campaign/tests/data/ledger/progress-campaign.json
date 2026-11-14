@@ -55,6 +55,12 @@
     "identity_tested": 2,
     "nodes_certified": 0
   },
+  "certified": {
+    "accepted": 5,
+    "basis": "accepted items at identity_proved / all accepted items (per-key share; see certification)",
+    "identity_proved": 2,
+    "share": 0.4
+  },
   "closure": {
     "defect_keys": 37,
     "nodes_checked": 1,

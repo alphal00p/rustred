@@ -182,6 +182,16 @@ impl CampaignLock {
     pub fn dir(&self) -> &Path {
         &self.dir
     }
+    /// True while `CDIR/LOCK` is still the file this guard holds (same device + inode; audit B m6: a deleted or
+    /// replaced lock file would let a successor take a fresh lock; the ledger also flocks its own directory).
+    pub fn is_intact(&self) -> bool {
+        use std::os::unix::fs::MetadataExt;
+        let Some(f) = &self.file else { return false };
+        match (f.metadata(), fs::metadata(self.dir.join(LOCK_FILE))) {
+            (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+            _ => false,
+        }
+    }
     /// Releases explicitly (also done on drop): removes LOCK.json first, then unlocks.
     pub fn release(mut self) -> io::Result<()> {
         self.release_inner()

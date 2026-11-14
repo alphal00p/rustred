@@ -11,7 +11,7 @@ use super::format::clean;
 use super::source::{FileRead, JobRow, RawSnapshot};
 
 /// Item phases in display order (as-built `ItemPhase::TAGS`).
-pub const PHASES: [&str; 10] = [
+pub const PHASES: [&str; 12] = [
     "open",
     "in_progress",
     "produced",
@@ -22,6 +22,8 @@ pub const PHASES: [&str; 10] = [
     "terminal",
     "stale",
     "retired",
+    "attention",
+    "skipped",
 ];
 
 /// Phases counted as open work (`ItemPhase::is_open`).
@@ -97,7 +99,7 @@ pub struct ResourcesView {
 pub struct LadderRow {
     pub rung: String,
     /// Counts per item phase, indexed like [`PHASES`].
-    pub counts: [u64; 10],
+    pub counts: [u64; 12],
     pub jobs: Option<u64>,
     pub median_s: Option<f64>,
 }
@@ -139,7 +141,7 @@ pub struct NodeRow {
     pub items_open: Option<u64>,
     /// Open items per rung (non-zero only).
     pub open_by_rung: Vec<(String, u64)>,
-    pub items_by_phase: [u64; 10],
+    pub items_by_phase: [u64; 12],
     pub terminals: Option<u64>,
     pub terminal_bound: Option<u64>,
     pub terminal_candidates: Option<u64>,
@@ -313,7 +315,7 @@ pub struct ViewModel {
     pub nodes_certified: Option<u64>,
     pub nodes_by_phase: BTreeMap<String, u64>,
     pub items_total: Option<u64>,
-    pub items_by_phase: [Option<u64>; 10],
+    pub items_by_phase: [Option<u64>; 12],
     pub items_open: Option<u64>,
     pub ladder: Vec<LadderRow>,
     pub rules: RulesView,
@@ -379,8 +381,8 @@ fn counts_map(v: Option<&Value>) -> BTreeMap<String, u64> {
     m
 }
 
-fn phase_array(v: Option<&Value>) -> [u64; 10] {
-    let mut a = [0u64; 10];
+fn phase_array(v: Option<&Value>) -> [u64; 12] {
+    let mut a = [0u64; 12];
     if let Some(o) = v.and_then(Value::as_object) {
         for (i, p) in PHASES.iter().enumerate() {
             a[i] = o.get(*p).and_then(Value::as_u64).unwrap_or(0);
@@ -492,7 +494,7 @@ fn node_row(id: &str, r: &FileRead) -> NodeRow {
         faces_total: None,
         items_open: None,
         open_by_rung: Vec::new(),
-        items_by_phase: [0; 10],
+        items_by_phase: [0; 12],
         terminals: None,
         terminal_bound: None,
         terminal_candidates: None,
@@ -729,7 +731,7 @@ pub fn build(raw: &RawSnapshot, o: BuildOptions) -> ViewModel {
             if !ladder.iter().any(|l| &l.rung == r) {
                 ladder.push(LadderRow {
                     rung: clean(r),
-                    counts: [0; 10],
+                    counts: [0; 12],
                     jobs: u(c, &format!("/cost/by_level/{r}/jobs")),
                     median_s: f(c, &format!("/cost/by_level/{r}/p50_s")),
                 });
@@ -738,7 +740,7 @@ pub fn build(raw: &RawSnapshot, o: BuildOptions) -> ViewModel {
     }
     ladder.sort_by_key(|l| rung_key(&l.rung));
     let ibp = c.pointer("/items/by_phase");
-    let mut items_by_phase = [None; 10];
+    let mut items_by_phase = [None; 12];
     if ibp.is_some_and(Value::is_object) {
         for (i, p) in PHASES.iter().enumerate() {
             items_by_phase[i] = ibp.and_then(|o| o.get(*p)).and_then(Value::as_u64);

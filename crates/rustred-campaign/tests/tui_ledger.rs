@@ -16,15 +16,16 @@ use rustred_campaign::tui::{self, App, DirSource, ProgressSource, WatchControls}
 
 fn resources() -> Resources {
     Resources {
-        cpus_in_use: 21,
-        cpus_allowed: 48,
-        live_jobs: 3,
-        reserved_bytes: 3 << 30,
-        measured_rss_bytes: 1_234_567_890,
-        mem_cap_bytes: 30 << 30,
-        host_mem_available_bytes: 268 << 30,
-        host_floor_bytes: 50 << 30,
+        cpus_in_use: Some(21),
+        cpus_allowed: Some(48),
+        live_jobs: Some(3),
+        reserved_bytes: Some(3 << 30),
+        measured_rss_bytes: Some(1_234_567_890),
+        mem_cap_bytes: Some(30 << 30),
+        host_mem_available_bytes: Some(268 << 30),
+        host_floor_bytes: Some(50 << 30),
         sampled_utc: Some("2026-11-13T23:10:00.000Z".into()),
+        ..Default::default()
     }
 }
 

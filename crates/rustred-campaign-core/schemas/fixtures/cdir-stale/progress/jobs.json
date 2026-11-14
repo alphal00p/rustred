@@ -1,0 +1,37 @@
+{
+  "campaign_id": "fixture-stale",
+  "file": "jobs",
+  "ledger": {
+    "head": "07a1e5c52745db2a0ad4dd8ca78ba981a33b1bffa24eeba95fe11bc8e7b1b653",
+    "last_utc": "2026-11-14T10:00:06.750Z",
+    "seq": 27
+  },
+  "list": [
+    {
+      "attempt": 1,
+      "budget_mem_bytes": null,
+      "budget_seconds": null,
+      "cpu_set": null,
+      "cpus": null,
+      "heartbeat_utc": null,
+      "item": "F001",
+      "item_id": "T162:I0001",
+      "job": "T162-J0001-L0",
+      "kind": "generate",
+      "node": "T162",
+      "pgid": null,
+      "phase": null,
+      "pid": 20007,
+      "reserved_bytes": 2147483648,
+      "rss_bytes": null,
+      "run_dir": "large:jobs/T162-J0001-L0/a1",
+      "rung": "L0",
+      "seconds": null,
+      "state": "running"
+    }
+  ],
+  "sampled_utc": "2026-11-14T10:00:07.000Z",
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "written_utc": "2026-11-14T10:00:07.000Z"
+}

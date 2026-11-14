@@ -1,8 +1,17 @@
 {
+  "attention": {
+    "count": 0,
+    "top": []
+  },
   "campaign": {
     "crash_recoveries": 0,
-    "created_utc": "2026-11-14T08:00:00.000Z",
+    "created_utc": "2026-11-14T08:00:00.250Z",
+    "forced_recoveries": 0,
+    "last_verify": null,
     "lock_takeovers": 0,
+    "mode": "close",
+    "orphans_killed": 0,
+    "paused": false,
     "pending_operations": 0,
     "phase": null,
     "segments_opened": 0,
@@ -12,9 +21,19 @@
     "unsettled_jobs": 0
   },
   "campaign_id": "fixture-empty",
+  "certification": {
+    "accepted": 0,
+    "asked": {
+      "per-key": 1
+    },
+    "basis": "certified = every live rule at the level its node's spec asks (FULL: replay, BOXED: per-key by default)",
+    "identity_proved": 0,
+    "identity_tested": 0,
+    "nodes_certified": 0
+  },
   "certified": {
     "accepted": 0,
-    "basis": "accepted items at identity_proved / all accepted items",
+    "basis": "accepted items at identity_proved / all accepted items (per-key share; see certification)",
     "identity_proved": 0,
     "share": null
   },
@@ -24,6 +43,7 @@
     "nodes_with_defect": 0
   },
   "cost": {
+    "budget_cpu_hours": null,
     "by_level": {},
     "cpu_seconds": 0.0
   },
@@ -44,6 +64,7 @@
       "rhs_terms": 0,
       "rules": 0
     },
+    "replaced": 0,
     "retired": 0,
     "rules_after": 0,
     "rules_before": 0
@@ -67,21 +88,27 @@
   },
   "file": "campaign",
   "files": {
+    "attention": "attention.json",
     "events": "events.json",
+    "heartbeat": "heartbeat.json",
+    "jobs": "jobs.json",
     "nodes": {
       "T162": "nodes/T162.json"
-    }
+    },
+    "terminals": "terminals.json"
   },
   "items": {
     "by_level": {},
     "by_phase": {
       "accepted": 0,
+      "attention": 0,
       "escalated": 0,
       "in_progress": 0,
       "open": 0,
       "produced": 0,
       "rejected": 0,
       "retired": 0,
+      "skipped": 0,
       "stale": 0,
       "terminal": 0,
       "terminal_candidate": 0
@@ -100,13 +127,14 @@
       "running": 0,
       "succeeded_sealed": 0
     },
+    "failed_attempts": 0,
     "reserved_bytes_running": 0,
     "settled_by_class": {},
     "total": 0
   },
   "ledger": {
-    "head": "c3b65588898f58153cb2a0d6299ac279967c9c5698a317ea8d51971c47d2c8a4",
-    "last_utc": "2026-11-14T08:00:01.750Z",
+    "head": "80bdcd6cc5edbaa9faf54b0c3ff9b0414e2188ff10743aafc0eb7caed200de02",
+    "last_utc": "2026-11-14T08:00:02.000Z",
     "seq": 8
   },
   "nodes": {
@@ -125,18 +153,24 @@
       "stale": 0
     },
     "certified": 0,
+    "provisional": 0,
     "total": 1
   },
   "resources": {
-    "cpus_allowed": 0,
-    "cpus_in_use": 0,
-    "host_floor_bytes": 0,
-    "host_mem_available_bytes": 0,
-    "live_jobs": 0,
-    "measured_rss_bytes": 0,
-    "mem_cap_bytes": 0,
-    "reserved_bytes": 0,
-    "sampled_utc": null
+    "budget_cpu_hours": null,
+    "cpus_allowed": null,
+    "cpus_in_use": null,
+    "disk_free_bytes": null,
+    "host_floor_bytes": null,
+    "host_mem_available_bytes": null,
+    "jobs": [],
+    "large_free_bytes": null,
+    "live_jobs": null,
+    "measured_rss_bytes": null,
+    "mem_cap_bytes": null,
+    "reserved_bytes": null,
+    "sampled_utc": null,
+    "supervisor": null
   },
   "rules": {
     "accepted": 0,
@@ -145,16 +179,24 @@
       "identity_proved": 0,
       "identity_tested": 0
     },
+    "imported": 0,
     "rejected": 0,
     "rejected_by_reason": {},
     "upgrades": 0
   },
   "schema": "rustred.campaign.progress.v1",
   "source_of_truth": "ledger",
+  "supervisor": null,
   "terminals": {
     "bound_per_node_default": 100,
     "candidates": 0,
-    "declared": 0
+    "declared": 0,
+    "other": 0,
+    "preferred": {
+      "not_needed": null,
+      "total": null,
+      "used": 0
+    }
   },
-  "written_utc": "2026-11-14T08:00:02.000Z"
+  "written_utc": "2026-11-14T08:00:02.250Z"
 }

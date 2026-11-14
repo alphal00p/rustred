@@ -76,6 +76,7 @@
     "superseded": 1,
     "unmeasured": 2
   },
+  "envelope": "proved",
   "faces_summary": {
     "closed": 6,
     "total": 10
@@ -181,14 +182,14 @@
   "terminals": {
     "bound": 100,
     "candidates": 0,
-    "counted": 2,
-    "declared": 3,
+    "declared": 2,
     "other": 2,
     "preferred": {
       "not_needed": 2,
       "total": 3,
       "used": 1
-    }
+    },
+    "preferred_declared": 1
   },
   "written_utc": "2026-11-13T23:10:01.000Z"
 }

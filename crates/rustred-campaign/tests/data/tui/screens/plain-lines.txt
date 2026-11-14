@@ -1,10 +1,10 @@
-2026-11-13T23:00:17.250Z event job_finished T162 F006 L0: job T162-job (complete)
-2026-11-13T23:00:17.750Z event item_accepted T162 F006: rule T162:R:bank:1043 accepted (geometry_accepted)
-2026-11-13T23:00:18.000Z event item_upgraded T162 F006: evidence -> identity_tested
-2026-11-13T23:00:18.250Z event node T162: closure round 1, defect 37 of 154783 keys
-2026-11-13T23:00:19.500Z event rule_retired T162 F003: rule T162:R:campaign:3 superseded by T162-item-00002 (replaced_by)
-2026-11-13T23:10:03Z RUNNING seq 84 cpu 21/48 ram 1.1/30.0G host 268.0G nodes 1 (full 0 boxed 0 open 1) items-open 3 rules 5/1 cert 50.0% defect 37 term 2 cpu-h 0.0 eta ~1s-3s
-2026-11-13T23:10:03Z RUNNING seq 84 cpu 21/48 ram 1.1/30.0G host 268.0G nodes 1 (full 0 boxed 0 open 1) items-open 3 rules 5/1 cert 50.0% defect 37 term 2 cpu-h 0.0 eta ~1s-3s
-2026-11-13T23:10:03Z STOPPING seq 84 cpu 21/48 ram 1.1/30.0G host 268.0G nodes 1 (full 0 boxed 0 open 1) items-open 3 rules 5/1 cert 50.0% defect 37 term 2 cpu-h 0.0 eta ~1s-3s
+2026-11-13T23:00:22.250Z event control operator (tty) requests Pause of Campaign (maintenance)
+2026-11-13T23:00:22.500Z event control control c-0001 applied: launches paused
+2026-11-13T23:00:22.750Z event control operator (tty) requests Resume of Campaign (maintenance done)
+2026-11-13T23:00:23.000Z event control control c-0003 applied: launches resumed
+2026-11-13T23:00:23.250Z event control operator (tty) requests Retry of Item { item: "T162-item-00009" } (BIGMEM authorised)
+2026-11-13T23:10:03Z RUNNING seq 102 cpu 21/48 ram 1.1/30.0G host 268.0G nodes 1 (full 0 boxed 0 open 1) items-open 4 rules 5/1 cert 40.0% defect 37 term 3 cpu-h 0.0 eta ~1s-3s attention 2
+2026-11-13T23:10:03Z RUNNING seq 102 cpu 21/48 ram 1.1/30.0G host 268.0G nodes 1 (full 0 boxed 0 open 1) items-open 4 rules 5/1 cert 40.0% defect 37 term 3 cpu-h 0.0 eta ~1s-3s attention 2
+2026-11-13T23:10:03Z STOPPING seq 102 cpu 21/48 ram 1.1/30.0G host 268.0G nodes 1 (full 0 boxed 0 open 1) items-open 4 rules 5/1 cert 40.0% defect 37 term 3 cpu-h 0.0 eta ~1s-3s attention 2
 2026-11-20T08:15:06Z RUNNING seq 18,402 cpu 21/32 ram 9.8/30.0G host 60.0G nodes 4 (full 1 boxed 1 open 2) items-open 226 rules 1,201/31 cert 86.3% defect 449 term 3 cpu-h 61.4 eta ~54m-2.6h attention 2
 2026-11-20T08:25:10Z STALE seq 18,402 cpu 21/32 ram 9.8/30.0G host 60.0G nodes 1 (full 0 boxed 1 open 0) items-open 226 rules 1,201/31 cert 86.3% defect 449 term 3 cpu-h 61.4 eta ~54m-2.6h hb-age 10m06s attention 1

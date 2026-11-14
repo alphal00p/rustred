@@ -1258,6 +1258,11 @@ pub fn apply_node(
                     state.closure_rounds
                 ));
             }
+            if let (Some(u), Some(t)) = (rules_used, rules_total)
+                && u > t
+            {
+                return illegal(format!("rules used {u} > rules total {t}"));
+            }
             if *rule_set_digest != ctx.rule_set_digest {
                 return illegal(format!(
                     "closure computed on rule set {} but the node's current rule set is {}",

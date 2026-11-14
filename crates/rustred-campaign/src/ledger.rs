@@ -1160,6 +1160,22 @@ pub fn ledger_dir(cdir: &Path) -> PathBuf {
     cdir.join(LEDGER_DIR)
 }
 
+/// Captures the state and head right after record `at` during a scan (streaming `verify`, audit B M4).
+pub struct Capture {
+    pub at: u64,
+    pub got: Option<(CampaignState, String)>,
+}
+
+impl Capture {
+    fn see(cap: &mut Option<&mut Capture>, st: &CampaignState, seq: u64, head: &str) {
+        if let Some(c) = cap.as_deref_mut()
+            && c.at == seq
+        {
+            c.got = Some((st.clone(), head.to_string()));
+        }
+    }
+}
+
 /// Result of scanning the active segment.
 struct Scan {
     replayed: u64,
@@ -1184,10 +1200,24 @@ fn scan_active(
     file: &str,
     bytes: &[u8],
     state: &mut CampaignState,
+    seq: u64,
+    head: String,
+    mark: Option<&CommitMark>,
+    stop_after: Option<u64>,
+) -> Result<Scan, LedgerError> {
+    scan_active_cap(file, bytes, state, seq, head, mark, stop_after, None)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn scan_active_cap(
+    file: &str,
+    bytes: &[u8],
+    state: &mut CampaignState,
     mut seq: u64,
     mut head: String,
     mark: Option<&CommitMark>,
     stop_after: Option<u64>,
+    mut cap: Option<&mut Capture>,
 ) -> Result<Scan, LedgerError> {
     let mut pos = 0usize;
     let mut line_no = 0u64;
@@ -1238,6 +1268,7 @@ fn scan_active(
         state.apply_record(&rec).map_err(LedgerError::Replay)?;
         seq = rec.seq;
         head = h;
+        Capture::see(&mut cap, state, seq, &head);
         hasher.update(&bytes[pos..pos + nl + 1]);
         replayed += 1;
         pos += nl + 1;
@@ -1331,8 +1362,19 @@ fn replay_sealed(
     dir: &Path,
     s: &SealedSegment,
     st: &mut CampaignState,
+    seq: u64,
+    head: &str,
+) -> Result<(u64, String), LedgerError> {
+    replay_sealed_cap(dir, s, st, seq, head, None)
+}
+
+fn replay_sealed_cap(
+    dir: &Path,
+    s: &SealedSegment,
+    st: &mut CampaignState,
     mut seq: u64,
     head: &str,
+    mut cap: Option<&mut Capture>,
 ) -> Result<(u64, String), LedgerError> {
     let p = dir.join(&s.file);
     let bytes = fs::read(&p).map_err(io_err(&p, "read sealed segment"))?;
@@ -1358,6 +1400,7 @@ fn replay_sealed(
         st.apply_record(&rec).map_err(LedgerError::Replay)?;
         seq = rec.seq;
         head = h;
+        Capture::see(&mut cap, st, seq, &head);
         n += 1;
         pos += nl + 1;
     }
@@ -1377,7 +1420,11 @@ fn load_base(
     dir: &Path,
     m: &Manifest,
 ) -> Result<(CampaignState, u64, String, Option<u64>, u64), LedgerError> {
-    let (state, seq, head, from_snapshot, replayed) = match &m.snapshot {
+    let snapshot = m
+        .snapshot
+        .as_ref()
+        .filter(|s| dir.join(&s.file).exists());
+    let (state, seq, head, from_snapshot, replayed) = match snapshot {
         Some(s) => {
             for sealed in &m.sealed {
                 let p = dir.join(&sealed.file);
@@ -1557,7 +1604,7 @@ impl std::fmt::Debug for Ledger {
 
 fn check_lock(cdir: &Path, lock: &CampaignLock) -> Result<(), LedgerError> {
     let canon = |p: &Path| fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    if canon(lock.dir()) != canon(cdir) {
+    if canon(lock.dir()) != canon(cdir) || !lock.is_intact() {
         return Err(LedgerError::WrongLock {
             lock_dir: lock.dir().to_path_buf(),
             cdir: cdir.to_path_buf(),
@@ -2314,6 +2361,15 @@ pub struct ChainReport {
 /// sequence, the hash chain across segments and the commit mark, reducing as it goes; compares the snapshot.
 /// Read-only: never repairs.
 pub fn verify_chain(cdir: &Path) -> Result<ChainReport, LedgerError> {
+    verify_chain_capture(cdir, None)
+}
+
+/// [`verify_chain`] that also captures the state and head right after record `cap.at` (one streaming pass,
+/// memory = one segment + the state, + one clone of the state at `at`).
+pub fn verify_chain_capture(
+    cdir: &Path,
+    mut cap: Option<&mut Capture>,
+) -> Result<ChainReport, LedgerError> {
     let dir = ledger_dir(cdir);
     let mark = read_commit_mark(&dir)?;
     let m = read_manifest(&dir)?;
@@ -2322,7 +2378,7 @@ pub fn verify_chain(cdir: &Path) -> Result<ChainReport, LedgerError> {
     let mut n = 0;
     let mut snapshot_matches = None;
     for s in &m.sealed {
-        let (k, h) = replay_sealed(&dir, s, &mut st, seq, &head)?;
+        let (k, h) = replay_sealed_cap(&dir, s, &mut st, seq, &head, cap.as_deref_mut())?;
         n += k;
         seq = s.last_seq;
         head = h;
@@ -2340,7 +2396,7 @@ pub fn verify_chain(cdir: &Path) -> Result<ChainReport, LedgerError> {
     let am = mark_for_active(&m, mark.as_ref())?;
     let p = dir.join(&m.active.file);
     let bytes = fs::read(&p).map_err(io_err(&p, "read"))?;
-    let scan = scan_active(&m.active.file, &bytes, &mut st, seq, head, am, None)?;
+    let scan = scan_active_cap(&m.active.file, &bytes, &mut st, seq, head, am, None, cap)?;
     if let Some((line, why)) = scan.corrupt {
         return Err(corrupt(&m.active.file, line, why));
     }

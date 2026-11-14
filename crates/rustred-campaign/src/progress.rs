@@ -440,6 +440,9 @@ pub fn derive(
                       "preferred": {"used": pref_used, "total": if pref_listed_known { json!(pref_listed) } else { Value::Null },
                                     "not_needed": if pref_listed_known { json!(pref_listed.saturating_sub(pref_used)) } else { Value::Null }},
                       "other": other_terms},
+        "certified": {"share": if accepted_total == 0 { Value::Null } else { json!(round3(accepted_by_level[2] as f64 / accepted_total as f64)) },
+                      "identity_proved": accepted_by_level[2], "accepted": accepted_total,
+                      "basis": "accepted items at identity_proved / all accepted items (per-key share; see certification)"},
         "certification": {"asked": asked, "nodes_certified": nodes_certified,
                           "identity_proved": accepted_by_level[2], "identity_tested": accepted_by_level[1],
                           "accepted": accepted_total,
@@ -487,6 +490,7 @@ pub fn derive(
             "closure_kind": s.closure_kind(),
             "certified": s.certified(),
             "provisional": s.provisional(),
+            "envelope": s.closure.as_ref().map(|c| c.envelope),
             "certification": {"asked": s.required_cert().word(), "reached": reached(n),
                               "full": s.spec.certify_full.word(), "boxed": s.spec.certify_boxed.word()},
             "target": s.target,
@@ -510,7 +514,7 @@ pub fn derive(
             "reopen_cause": s.reopen_cause,
             "paused": n.paused,
             "economy": e,
-            "terminals": {"declared": s.terminals + s.preferred_terminals, "counted": s.terminals, "bound": s.terminal_bound,
+            "terminals": {"declared": s.terminals, "preferred_declared": s.preferred_terminals, "bound": s.terminal_bound,
                           "candidates": n.items_by_phase[ItemPhase::TerminalCandidate.index()],
                           "preferred": {"used": tr.preferred_used, "total": tr.preferred_listed, "not_needed": tr.preferred_not_needed},
                           "other": tr.other},
@@ -796,8 +800,6 @@ pub fn verify(cdir: &Path) -> Result<VerifyReport, LedgerError> {
 ///   `ledger.seq` must not be after campaign.json's); files for unknown nodes; sum inconsistencies; a file
 ///   stating a seq beyond the ledger end. Volatile files (jobs, heartbeat) are checked for presence and schema.
 pub fn verify_against(cdir: &Path, target: Option<u64>) -> Result<VerifyReport, LedgerError> {
-    let chain = ledger::verify_chain(cdir)?;
-    let records = ledger::read_records_with_hashes(cdir)?;
     let dir = cdir.join(PROGRESS_DIR);
     let mut files: BTreeMap<String, Value> = BTreeMap::new();
     let mut list = Vec::new();
@@ -806,6 +808,10 @@ pub fn verify_against(cdir: &Path, target: Option<u64>) -> Result<VerifyReport, 
     let mut differences = Vec::new();
     let mut missing = Vec::new();
     let mut stale = Vec::new();
+    // ONE streaming pass over the ledger (audit B M4): the state at campaign.json's seq is captured on the way
+    let cseq = files.get("campaign.json").and_then(seq_of).unwrap_or(0);
+    let mut cap = ledger::Capture { at: cseq, got: None };
+    let mut chain = ledger::verify_chain_capture(cdir, Some(&mut cap))?;
     let target = target.unwrap_or(chain.records);
     let Some(campaign) = files.get("campaign.json") else {
         missing.push("campaign.json".into());
@@ -820,7 +826,6 @@ pub fn verify_against(cdir: &Path, target: Option<u64>) -> Result<VerifyReport, 
             differences,
         });
     };
-    let cseq = seq_of(campaign).unwrap_or(0);
     if cseq > chain.records {
         differences.push(Difference {
             file: "campaign.json".into(),
@@ -832,12 +837,13 @@ pub fn verify_against(cdir: &Path, target: Option<u64>) -> Result<VerifyReport, 
     if cseq < target {
         stale.push(("campaign.json".into(), cseq));
     }
-    let mut st = CampaignState::default();
-    let mut head = ledger::GENESIS.to_string();
-    for (r, h) in records.iter().take_while(|(r, _)| r.seq <= cseq) {
-        st.apply_record(r).map_err(LedgerError::Replay)?;
-        head = h.clone();
-    }
+    let (st, head) = if cseq == chain.records {
+        (std::mem::take(&mut chain.state), chain.head.clone())
+    } else {
+        cap.got
+            .take()
+            .unwrap_or_else(|| (CampaignState::default(), ledger::GENESIS.to_string()))
+    };
     let res: Resources = campaign
         .get("resources")
         .cloned()
