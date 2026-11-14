@@ -1163,8 +1163,16 @@ fn write_outputs<const N: usize>(
     // results.jsonl in INPUT order, then the end record; written to a temporary name and renamed
     let tmp = out.join("results.jsonl.part");
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
-    let mut f =
-        std::io::BufWriter::new(std::fs::File::create(&tmp).map_err(|e| format!("results: {e}"))?);
+    // lane engbase2 (child-job 3.9): created exclusively, never through a symlink (`--out` is verified empty first)
+    let file = {
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&tmp)
+    };
+    let mut f = std::io::BufWriter::new(file.map_err(|e| format!("results: {e}"))?);
     for (ordinal, k) in keys.iter().enumerate() {
         let mut rec = match &results[uniq_of[ordinal]] {
             Some(r) => r.clone(),
