@@ -166,7 +166,8 @@ fn iroot_ceil(q: u128, k: u32) -> u128 {
     if q <= 1 || k == 1 {
         return q;
     }
-    let (mut lo, mut hi) = (1u128, 1u128 << (128 / k).min(64));
+    // hi^k >= 2^128 > q: ceil(128 / k) bits (audit-part-A m1: floor(128 / k) is not always an upper bound)
+    let (mut lo, mut hi) = (1u128, 1u128 << 128u32.div_ceil(k).min(127));
     while lo < hi {
         let mid = lo + (hi - lo) / 2;
         let mut p: u128 = 1;
@@ -201,7 +202,7 @@ fn fujiwara_bound(c: &[i128]) -> u128 {
             continue;
         }
         let q = if i == n {
-            a.div_ceil(2 * lead)
+            a.div_ceil(lead).div_ceil(2) // = ceil(a / (2 lead)) without overflowing 2 lead
         } else {
             a.div_ceil(lead)
         };
@@ -210,7 +211,10 @@ fn fujiwara_bound(c: &[i128]) -> u128 {
     m.saturating_mul(2).saturating_add(1)
 }
 
-/// All integer roots of a nonzero univariate polynomial with |x| <= i32::MAX, ascending, exact.
+/// ALL integer roots of a nonzero univariate polynomial, ascending, exact (no range cap: loci work in parameter
+/// space, where roots can exceed `i32`; audit-part-A m2). Roots are bounded by min(Cauchy, Fujiwara); when that bound
+/// exceeds 10^6 the candidates are the divisors of the constant term (trial division up to 10^14), else
+/// `ExactError::TooLarge` (the caller is conservative).
 pub fn int_roots(c: &[i128]) -> XResult<Vec<i64>> {
     let c = trim(c);
     if c.len() <= 1 {
@@ -228,7 +232,7 @@ pub fn int_roots(c: &[i128]) -> XResult<Vec<i64>> {
     if c.len() <= 1 {
         return Ok(roots);
     }
-    let bound = cauchy_bound(c).min(fujiwara_bound(c)).min(i32::MAX as u128);
+    let bound = cauchy_bound(c).min(fujiwara_bound(c));
     let c0 = c[0].unsigned_abs();
     let cands: Vec<u128> = if bound <= 1_000_000 {
         (1..=bound).filter(|x| c0.is_multiple_of(*x)).collect()
