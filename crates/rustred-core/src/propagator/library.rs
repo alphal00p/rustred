@@ -123,7 +123,25 @@ impl POwner {
     /// The owner's program: the seeded one, or built once through [`lane_program`].
     pub fn program(&self, library: &PLibrary) -> Result<&OwnerProgram, PError> {
         self.program
-            .get_or_init(|| lane_program(library, &self.spec))
+            .get_or_init(|| {
+                // b7-schemeload: RUSTRED_P_PROGRAM_TIMING=1 prints every
+                // program build (lane, owner, seconds) on stderr.
+                static TIMING: OnceLock<bool> = OnceLock::new();
+                if !*TIMING.get_or_init(|| {
+                    std::env::var("RUSTRED_P_PROGRAM_TIMING").is_ok_and(|v| v == "1")
+                }) {
+                    return lane_program(library, &self.spec);
+                }
+                let started = std::time::Instant::now();
+                let program = lane_program(library, &self.spec);
+                eprintln!(
+                    "p program {:?} owner {:016x}: {:.3} s",
+                    self.spec.lane,
+                    self.spec.class.0,
+                    started.elapsed().as_secs_f64()
+                );
+                program
+            })
             .as_ref()
             .map_err(Clone::clone)
     }
