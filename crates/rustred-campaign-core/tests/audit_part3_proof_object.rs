@@ -474,3 +474,66 @@ fn p3_m3_verified_witness_walk_ignores_the_proof_budget_defect() {
     // DEFECT: the walk runs far beyond the 10 ms wall budget (grows as D(k, 12): a hang at arity 20)
     assert!(ms >= 150, "{ms} ms");
 }
+
+/// Mutation survivor 36 (region::combine with swapped multipliers, correct only for equal pivot coefficients) is
+/// killed by NEITHER the crate's permanent suite NOR the fuzzers: Fourier-Motzkin with NON-UNIT pivots is not checked
+/// against brute force anywhere by default. This test does it: random systems in 2-3 variables, coefficients in
+/// [-5, 5], inside the box [-6, 6]^k (box constraints included); `fm_feasible == Ok(false)` must mean no integer point.
+#[test]
+fn p3_fm_infeasible_with_non_unit_pivots_matches_brute_force() {
+    use rustred_campaign_core::loci::region::fm_feasible;
+    use rustred_campaign_core::partition::exact::Affine;
+    let mut s: u64 = 0x00F0_0D5E_ED00;
+    let mut next = |m: i64| -> i64 {
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        ((s >> 33) as i64).rem_euclid(2 * m + 1) - m
+    };
+    let (mut refuted, mut checked) = (0u64, 0u64);
+    for _ in 0..20_000 {
+        let k = 2 + (next(1).unsigned_abs() as usize % 2);
+        let mut cons: Vec<Affine> = vec![];
+        for j in 0..k {
+            cons.push(Affine::unit(k, j, 1, 6)); // t_j >= -6
+            cons.push(Affine::unit(k, j, -1, 6)); // t_j <= 6
+        }
+        for _ in 0..(2 + next(2).unsigned_abs() as usize) {
+            let coef: Vec<i128> = (0..k).map(|_| i128::from(next(5))).collect();
+            cons.push(Affine {
+                coef,
+                c: i128::from(next(12)),
+            });
+        }
+        checked += 1;
+        if fm_feasible(&cons, k) != Ok(false) {
+            continue;
+        }
+        refuted += 1;
+        // brute force over the box
+        let mut t = vec![-6i128; k];
+        loop {
+            let ok = cons
+                .iter()
+                .all(|c| c.c + c.coef.iter().zip(&t).map(|(a, x)| a * x).sum::<i128>() >= 0);
+            assert!(
+                !ok,
+                "fm_feasible refuted a system with the integer point {t:?}: {cons:?}"
+            );
+            let mut j = 0;
+            while j < k {
+                t[j] += 1;
+                if t[j] <= 6 {
+                    break;
+                }
+                t[j] = -6;
+                j += 1;
+            }
+            if j == k {
+                break;
+            }
+        }
+    }
+    eprintln!("fm brute force: {checked} systems, {refuted} refuted, all integer-empty");
+    assert!(refuted > 1_000);
+}

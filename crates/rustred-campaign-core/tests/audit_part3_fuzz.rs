@@ -323,10 +323,10 @@ fn gen_set(r: &mut Rng) -> Set {
             if g.r.chance(750) {
                 let mut cov = g.base();
                 cov.equations = b.clone();
-                if g.r.chance(300) {
-                    if let Some(p) = g.zlit() {
-                        cov.exceptions.push(vec![p]);
-                    }
+                if g.r.chance(300)
+                    && let Some(p) = g.zlit()
+                {
+                    cov.exceptions.push(vec![p]);
                 }
                 if g.r.chance(150)
                     && let Some(p) = g.lin()
