@@ -6,7 +6,7 @@
 //! certified relations and typed failures carrying the R48 addendum 3b record with a one-line reproduction command.
 
 use crate::adapters::job::shell_quote;
-use crate::adapters::solve_recipe::{BinaryRef, NodeRef, RECIPE_FAILURE_SCHEMA, RecipeFailure, RecipeRef};
+use crate::adapters::solve_recipe::RECIPE_FAILURE_SCHEMA;
 use rustred_campaign_contract::classify::recipe::{
     FailureClass, KeyLine, KeyOutcome, KeyRoute, key_outcomes,
 };
@@ -110,51 +110,41 @@ fn reproduce(c: &AcceptCtx<'_>, key: &[i64]) -> String {
     )
 }
 
+/// The R48 addendum 3b record of one key that is not certified (field names as the adapters lane's
+/// `RecipeFailure`, schema `rustred.campaign.recipe-failure.v1`; built here as data so the two stay decoupled).
 #[allow(clippy::too_many_arguments)]
 fn failure_record(
     c: &AcceptCtx<'_>,
     key: &[i64],
+    ordinal: u64,
+    verdict: &str,
     class: Option<FailureClass>,
     route: Option<KeyRoute>,
     message: String,
     detail: Value,
-    child_reproduce: Option<String>,
+    child_failure: Value,
     digest: &str,
     det: &str,
 ) -> Value {
-    let f = RecipeFailure {
-        schema: RECIPE_FAILURE_SCHEMA.into(),
-        node: NodeRef {
-            family: c.family_path.clone(),
-            family_blake3: c.family_blake3.clone(),
-            order: c.order.clone(),
-        },
-        package: None,
-        recipe: RecipeRef {
-            id: c.batch.source.clone(),
-            digest: digest.to_string(),
-            path: c.batch.recipe_path.clone(),
-            blake3: c.batch.recipe_blake3.clone(),
-        },
-        key: key.to_vec(),
-        request_key: None,
-        rule_chain: vec![],
-        class: class.unwrap_or(FailureClass::Error),
-        route: route.unwrap_or(KeyRoute::Attention),
-        message,
-        detail,
-        determinism_id: det.to_string(),
-        binary: BinaryRef {
-            path: c.binary_path.clone(),
-            blake3: c.binary_blake3.clone(),
-        },
-        live_repair: false,
-        reproduce: reproduce(c, key),
-        child_reproduce,
-        run_dir: c.run_dir.clone(),
-        requests: vec![],
-    };
-    serde_json::to_value(&f).unwrap_or(Value::Null)
+    json!({
+        "schema": RECIPE_FAILURE_SCHEMA,
+        "node": {"family": c.family_path, "family_blake3": c.family_blake3, "order": c.order},
+        "package": null,
+        "recipe": {"id": c.batch.source, "digest": digest, "path": c.batch.recipe_path,
+                   "blake3": c.batch.recipe_blake3, "sha256": c.batch.recipe_sha256},
+        "key": key, "ordinal": ordinal, "request_key": null, "rule_chain": [],
+        "verdict": verdict,
+        "class": class.map(|x| x.name()).unwrap_or_else(|| "refused".into()),
+        "route": route.unwrap_or(KeyRoute::Attention),
+        "message": message, "detail": detail, "determinism_id": det,
+        "binary": {"path": c.binary_path, "blake3": c.binary_blake3},
+        "live_repair": false,
+        "reproduce": reproduce(c, key),
+        "child_reproduce": child_failure["reproduce"].clone(),
+        "run_dir": c.run_dir,
+        "child_failure": child_failure,
+        "results": {"path": c.results_path, "blake3": c.results_blake3, "ordinal": ordinal},
+    })
 }
 
 fn line(v: &Value) -> String {
@@ -315,11 +305,13 @@ pub fn decide(c: &AcceptCtx<'_>, canonical_lines: &[String]) -> Result<Decided, 
                         let f = failure_record(
                             c,
                             &a.key,
+                            a.ordinal,
+                            "REFUSED",
                             None,
                             Some(KeyRoute::Attention),
                             format!("SOLVED record not certified: {why}"),
                             json!({"reason": why}),
-                            None,
+                            Value::Null,
                             &a.recipe_digest,
                             &a.determinism_id,
                         );
@@ -340,11 +332,13 @@ pub fn decide(c: &AcceptCtx<'_>, canonical_lines: &[String]) -> Result<Decided, 
                 let f = failure_record(
                     c,
                     &u.key,
+                    u.ordinal,
+                    &u.verdict.name(),
                     Some(u.class),
                     Some(u.route),
                     u.failure["message"].as_str().unwrap_or("").to_string(),
                     u.failure["detail"].clone(),
-                    u.failure["reproduce"].as_str().map(str::to_string),
+                    u.failure.clone(),
                     &u.recipe_digest,
                     &u.determinism_id,
                 );

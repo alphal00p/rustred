@@ -230,7 +230,7 @@ impl CloseFromMaterialSource {
         st.items
             .iter()
             .filter(move |(_, it)| it.node == node && it.kind == kind)
-            .map(|(k, v)| (k, &**v))
+            .map(|(k, v)| (k, v))
     }
 
     fn item_final(p: &ItemPhase) -> bool {
