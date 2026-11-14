@@ -313,27 +313,44 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             }
         }
     }
-    let new_keys: u64 = batches.iter().map(|b| b.keys.len() as u64).sum();
+    // work-counter budgets: issue batches up to what is left (a batch may be cut); a budget stop is recorded when
+    // requests remain and nothing more may be issued
     let mut budget_why: Option<String> = None;
+    let wanted: u64 = batches.iter().map(|b| b.keys.len() as u64).sum();
     if !batches.is_empty() {
-        if inp.round >= inp.budgets.max_rounds {
+        let keys_left = inp.budgets.max_solve_keys.saturating_sub(inp.keys_issued);
+        let jobs_left = inp.budgets.max_solve_jobs.saturating_sub(inp.jobs_issued);
+        if inp.round > inp.budgets.max_rounds {
             budget_why = Some(format!("max_rounds {} reached", inp.budgets.max_rounds));
-        } else if inp.keys_issued + new_keys > inp.budgets.max_solve_keys {
-            budget_why = Some(format!(
-                "max_solve_keys {}: {} issued + {new_keys} new",
-                inp.budgets.max_solve_keys, inp.keys_issued
-            ));
-        } else if inp.jobs_issued + batches.len() as u64 > inp.budgets.max_solve_jobs {
-            budget_why = Some(format!(
-                "max_solve_jobs {}: {} issued + {} new",
-                inp.budgets.max_solve_jobs,
-                inp.jobs_issued,
-                batches.len()
-            ));
+            batches.clear();
+        } else {
+            let mut kept = vec![];
+            let mut k = 0u64;
+            for mut b in std::mem::take(&mut batches) {
+                if kept.len() as u64 >= jobs_left || k >= keys_left {
+                    break;
+                }
+                let room = (keys_left - k) as usize;
+                b.keys.truncate(room);
+                k += b.keys.len() as u64;
+                kept.push(b);
+            }
+            if k < wanted {
+                budget_why = Some(format!(
+                    "budget: {k} of {wanted} wanted keys issued (max_solve_keys {}, {} issued before; max_solve_jobs {}, {} issued before)",
+                    inp.budgets.max_solve_keys,
+                    inp.keys_issued,
+                    inp.budgets.max_solve_jobs,
+                    inp.jobs_issued
+                ));
+            }
+            batches = kept;
         }
     }
-    if budget_why.is_some() {
-        batches.clear();
+    // the budget stops the loop only when nothing could be issued
+    let budget_stop = batches.is_empty() && budget_why.is_some();
+    if budget_stop {
+        blocking.push(format!("budget_stop: {}", budget_why.as_deref().unwrap_or("")));
     }
     // the check record
     let ds = set.disp.summary();
@@ -363,7 +380,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                      "fact_keys": fact_keys, "proof_records": res.proof_requests.len(), "proof_keys": proof_keys},
         "solve_refusals": res.solve_refusals.len(),
         "batches": batches.iter().map(|b| json!({"source": b.source, "keys": b.keys.len()})).collect::<Vec<_>>(),
-        "budget_stop": budget_why,
+        "budget": budget_why, "budget_stop": budget_stop,
     });
     let dispatch_order = json!({
         "schema": DISPATCH_SCHEMA, "node": inp.node, "spec_digest": set.report.spec_digest,
@@ -379,10 +396,10 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     let import_manifest = json!({
         "schema": IMPORT_SCHEMA, "node": inp.node, "report": serde_json::to_value(set.report()).unwrap_or(Value::Null),
     });
-    let final_ = if closed || budget_why.is_some() || batches.is_empty() {
+    let final_ = if closed || batches.is_empty() {
         let verdict = if closed {
             "closed"
-        } else if budget_why.is_some() {
+        } else if budget_stop {
             "budget"
         } else {
             "open"
@@ -395,7 +412,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             FinalCtx {
                 verdict,
                 blocking: &blocking,
-                budget_why: budget_why.as_deref(),
+                budget_why: if budget_stop { budget_why.as_deref() } else { None },
                 check: &check_v,
                 elapsed: t0.elapsed().as_secs_f64(),
             },

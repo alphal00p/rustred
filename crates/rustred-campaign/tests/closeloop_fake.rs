@@ -114,6 +114,36 @@ fn pass_round_one_lists_the_first_batches_in_process() {
     );
     assert!(src.is_ok(), "{:?}", src.err());
     let spec_text = std::fs::read_to_string(&files.import_spec).unwrap();
+    let mk = |budgets: rustred_campaign::closeloop::config::Budgets, keys_issued: u64| PassIn {
+        node: "toy".into(),
+        round: 1,
+        spec_text: spec_text.clone(),
+        base: files.dir.clone(),
+        answers: vec![],
+        threads: 2,
+        required: None,
+        issued: BTreeSet::new(),
+        keys_issued,
+        jobs_issued: 0,
+        budgets,
+        max_keys_per_job: 2,
+        hand: None,
+        final_dir: t.path.join("final"),
+        attention_items: 0,
+        relation_rule: "first_admissible".into(),
+    };
+    // a key budget of 1: the batch list is cut (not final); with that key already spent: a budget stop (final)
+    let small = rustred_campaign::closeloop::config::Budgets {
+        max_solve_keys: 1,
+        ..Default::default()
+    };
+    let cut = run_pass(&mk(small, 0), None).unwrap();
+    assert_eq!(cut.batches.len(), 1);
+    assert!(cut.final_.is_none());
+    assert!(cut.check["budget"].as_str().unwrap().contains("1 of 2"), "{}", cut.check);
+    let stop = run_pass(&mk(small, 1), Some(cut.set.clone())).unwrap();
+    assert!(stop.batches.is_empty());
+    assert_eq!(stop.final_.as_ref().map(|f| f.verdict.as_str()), Some("budget"));
     let out = run_pass(
         &PassIn {
             node: "toy".into(),
