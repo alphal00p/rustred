@@ -154,16 +154,54 @@ struct IspRecord {
     right: Vec<i64>,
 }
 
+/// A stored certificate as the scheme file writes it.
+type CertificateRecord = Vec<(String, serde_json::Value, Vec<i64>, PolyRecord)>;
+
+/// How a scheme file's certificates are read: in full ([`CertificateRecord`])
+/// or only noted as present ([`serde::de::IgnoredAny`], the light registry
+/// parse of the embedded schemes, b7-schemeload: certificates are parsed only
+/// when they are verified).
+trait CertificateField {
+    fn parse(&self) -> Result<Option<Vec<(Generator, Vec<i64>, Poly)>>, String>;
+}
+
+impl CertificateField for CertificateRecord {
+    fn parse(&self) -> Result<Option<Vec<(Generator, Vec<i64>, Poly)>>, String> {
+        let mut out = Vec::with_capacity(self.len());
+        for (kind, reference, shift, poly) in self {
+            let generator = match kind.as_str() {
+                "row" => {
+                    let pair = reference.as_array().ok_or("row reference")?;
+                    let i = pair.first().and_then(|v| v.as_u64()).ok_or("row i")? as usize;
+                    let j = pair.get(1).and_then(|v| v.as_u64()).ok_or("row j")? as usize;
+                    Generator::Row(i, j)
+                }
+                "rule" => Generator::Rule(reference.as_str().ok_or("rule reference")?.to_owned()),
+                other => return Err(format!("generator kind {other}")),
+            };
+            out.push((generator, shift.clone(), Poly::parse(poly)?));
+        }
+        Ok(Some(out))
+    }
+}
+
+impl CertificateField for serde::de::IgnoredAny {
+    fn parse(&self) -> Result<Option<Vec<(Generator, Vec<i64>, Poly)>>, String> {
+        Ok(None)
+    }
+}
+
 #[derive(Deserialize)]
+#[serde(bound(deserialize = "C: Deserialize<'de>"))]
 #[allow(clippy::type_complexity)]
-struct RuleRecord {
+struct RuleRecord<C> {
     name: String,
     pattern: Vec<serde_json::Value>,
     master: bool,
     #[serde(default)]
     relation: Option<Vec<(Vec<i64>, PolyRecord)>>,
     #[serde(default)]
-    certificate: Option<Vec<(String, serde_json::Value, Vec<i64>, PolyRecord)>>,
+    certificate: Option<C>,
     /// Forcer's own terms `Z(n) = Sum c_j Z(n + s_j)`, `c_j = num / Prod den^e`.
     #[serde(default)]
     terms: Option<Vec<(Vec<i64>, PolyRecord, Vec<(PolyRecord, u32)>)>>,
@@ -233,7 +271,8 @@ enum Regime {
 }
 
 #[derive(Deserialize)]
-struct SchemeFile {
+#[serde(bound(deserialize = "C: Deserialize<'de>"))]
+struct SchemeFile<C> {
     schema: String,
     scheme: String,
     loops: u8,
@@ -247,7 +286,7 @@ struct SchemeFile {
     #[serde(default)]
     default: bool,
     verify_order: Vec<String>,
-    rules: Vec<RuleRecord>,
+    rules: Vec<RuleRecord<C>>,
     /// 1-based Forcer slots: after the `order` rows, the rank, the line sum
     /// and `|n_a|` in this order decide between symmetric representatives
     /// (a scheme with permutation rules needs it).
@@ -352,6 +391,9 @@ struct ParsedRule {
     master: bool,
     relation: Vec<(Vec<i64>, Poly)>,
     certificate: Option<Vec<(Generator, Vec<i64>, Poly)>>,
+    /// The file stores a certificate (parsed in `certificate` unless the
+    /// scheme was read light).
+    has_certificate: bool,
     raw: Vec<(Vec<i64>, Poly, Vec<(Poly, u32)>)>,
     replay: Option<ReplayRecord>,
     meta: serde_json::Value,
@@ -381,10 +423,28 @@ struct Scheme {
     /// One of [`EMBEDDED_SCHEMES`] (not replaced by `RUSTRED_P_SCHEME_DIR`):
     /// only these may be trusted ([`certificate_check`]).
     embedded: bool,
+    /// Read light (certificates noted, not parsed): verification re-reads
+    /// `source` in full.
+    light: bool,
+    source: &'static str,
 }
 
 fn parse_scheme(json: &str) -> Result<Scheme, String> {
-    let file: SchemeFile = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    let file: SchemeFile<CertificateRecord> =
+        serde_json::from_str(json).map_err(|e| e.to_string())?;
+    scheme_of_file(file, false)
+}
+
+/// An embedded scheme read light: its certificates are noted, not parsed.
+fn parse_scheme_light(json: &'static str) -> Result<Scheme, String> {
+    let file: SchemeFile<serde::de::IgnoredAny> =
+        serde_json::from_str(json).map_err(|e| e.to_string())?;
+    let mut scheme = scheme_of_file(file, true)?;
+    scheme.source = json;
+    Ok(scheme)
+}
+
+fn scheme_of_file<C: CertificateField>(file: SchemeFile<C>, light: bool) -> Result<Scheme, String> {
     if file.schema != "rustred.p-scheme.v2" {
         return Err(format!("schema {}", file.schema));
     }
@@ -496,25 +556,7 @@ fn parse_scheme(json: &str) -> Result<Scheme, String> {
         }
         let certificate = match &record.certificate {
             None => None,
-            Some(items) => {
-                let mut out = Vec::with_capacity(items.len());
-                for (kind, reference, shift, poly) in items {
-                    let generator = match kind.as_str() {
-                        "row" => {
-                            let pair = reference.as_array().ok_or("row reference")?;
-                            let i = pair.first().and_then(|v| v.as_u64()).ok_or("row i")? as usize;
-                            let j = pair.get(1).and_then(|v| v.as_u64()).ok_or("row j")? as usize;
-                            Generator::Row(i, j)
-                        }
-                        "rule" => {
-                            Generator::Rule(reference.as_str().ok_or("rule reference")?.to_owned())
-                        }
-                        other => return Err(format!("generator kind {other}")),
-                    };
-                    out.push((generator, shift.clone(), Poly::parse(poly)?));
-                }
-                Some(out)
-            }
+            Some(field) => field.parse()?,
         };
         let mut raw = Vec::new();
         for (shift, num, dens) in record.terms.iter().flatten() {
@@ -551,6 +593,7 @@ fn parse_scheme(json: &str) -> Result<Scheme, String> {
             master: record.master,
             relation,
             certificate,
+            has_certificate: record.certificate.is_some(),
             raw,
             replay: record.replay.clone(),
             meta: record.meta.clone(),
@@ -585,6 +628,8 @@ fn parse_scheme(json: &str) -> Result<Scheme, String> {
         tiebreak,
         fallback,
         embedded: false,
+        light,
+        source: "",
     })
 }
 
@@ -597,7 +642,7 @@ fn registry() -> Result<&'static [Scheme], PError> {
             let mut schemes: Vec<Scheme> = Vec::new();
             for (name, json) in EMBEDDED_SCHEMES {
                 let mut scheme =
-                    parse_scheme(json).map_err(|e| format!("embedded scheme {name}: {e}"))?;
+                    parse_scheme_light(json).map_err(|e| format!("embedded scheme {name}: {e}"))?;
                 scheme.embedded = true;
                 if scheme.name != *name {
                     return Err(format!("embedded scheme {name} is named {}", scheme.name));
@@ -688,6 +733,36 @@ pub fn scheme_fallback(node: &NodeInfo) -> Result<bool, PError> {
 /// Whether the scheme of `node` ends in a master (the corner terminal).
 pub fn scheme_has_corner(node: &NodeInfo) -> Result<bool, PError> {
     Ok(scheme_at(node)?.rules.iter().any(|rule| rule.master))
+}
+
+/// The scheme of `node` with its certificates parsed (the registry reads the
+/// embedded files light), for the certificate tools.
+#[cfg_attr(not(feature = "reconstruction"), allow(dead_code))]
+enum FullScheme {
+    Registry(&'static Scheme),
+    Parsed(Box<Scheme>),
+}
+
+impl std::ops::Deref for FullScheme {
+    type Target = Scheme;
+    fn deref(&self) -> &Scheme {
+        match self {
+            Self::Registry(scheme) => scheme,
+            Self::Parsed(scheme) => scheme,
+        }
+    }
+}
+
+#[cfg_attr(not(feature = "reconstruction"), allow(dead_code))]
+fn full_scheme_at(node: &NodeInfo) -> Result<FullScheme, PError> {
+    let scheme = scheme_at(node)?;
+    if !scheme.light {
+        return Ok(FullScheme::Registry(scheme));
+    }
+    let mut full = parse_scheme(scheme.source)
+        .map_err(|e| PError::MalformedLibrary(format!("scheme {}: {e}", scheme.name)))?;
+    full.embedded = scheme.embedded;
+    Ok(FullScheme::Parsed(Box::new(full)))
 }
 
 fn scheme_at(node: &NodeInfo) -> Result<&'static Scheme, PError> {
@@ -1037,6 +1112,13 @@ impl SchemeTemplate {
         check: CertificateCheck,
     ) -> Result<Self, SchemeError> {
         let verify = check == CertificateCheck::Verify;
+        if verify && scheme.light {
+            // The registry read the embedded file light: verify from the
+            // full file (same rules, certificates parsed).
+            let mut full = parse_scheme(scheme.source).map_err(SchemeError::Mismatch)?;
+            full.embedded = scheme.embedded;
+            return Self::extract_scheme(&full, p, node, check);
+        }
         let layout =
             layout(scheme, &node.topo).map_err(|e| SchemeError::Mismatch(e.to_string()))?;
         if layout.slots != p.slots {
@@ -1104,15 +1186,20 @@ impl SchemeTemplate {
             let rule = (scheme.rules.iter())
                 .find(|rule| &rule.name == name)
                 .ok_or_else(|| PError::MalformedLibrary(format!("scheme rule {name}")))?;
-            let Some(certificate) = &rule.certificate else {
+            if !rule.has_certificate {
                 continue;
-            };
+            }
             if !verify {
                 // Trusted: verified once at the gate (scheme_check, the
                 // embedded-scheme test), for this P_SCHEME_TEMPLATE_VERSION.
                 verified.insert(name.clone(), true);
                 continue;
             }
+            let Some(certificate) = &rule.certificate else {
+                return Err(SchemeError::Mismatch(format!(
+                    "rule {name}: a certificate that was not read"
+                )));
+            };
             let fixed: Vec<(usize, i64)> = (rule.pattern.iter().enumerate())
                 .filter_map(|(a, cond)| cond.fixed().map(|v| (layout.perm[a], v)))
                 .collect();
