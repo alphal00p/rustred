@@ -20,11 +20,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 
 use crate::closure::bodies::Sectors;
-use crate::cover::{Dispatch, Dispatcher};
+use crate::cover::{Dispatch, Dispatcher, RuleRef};
 use crate::domain::Stage;
 use crate::key::{Key, NodeFrame};
 use crate::order::NodeComparator;
-use crate::partition::{Containment, contained_in};
+use crate::partition::{Containment, DomainList, DomainSource, shadowed};
 
 use descent::{DescentAt, DescentFailure, Instantiator, descent_at, symbolic_not_proved};
 use facts::{CoefficientFacts, RegVerdict, Regularity};
@@ -580,11 +580,20 @@ pub fn accept_candidate(
     if node.target == NodeTarget::Full
         && let (Some(b), Some(dom)) = (input.before, &rule.domain)
     {
-        let mut others = Vec::new();
+        // audit-part-A M3 / m5 (partfix): "shadowed by the tables in force" is a FIRST-MATCH statement: an earlier
+        // record counts where it is SELECTED (served or blocked), not only where it applies (`contained_in` is
+        // union coverage since partfix, and its `NotContained` witness may be a key where an earlier record blocks,
+        // so it would not show that the candidate wins). `partition::shadowed` with the candidate placed after the
+        // tables in force, as acceptance.md check 1 states (int3 integration).
+        let mut src = DomainList::new(dom.arity);
         for &t in b.priority() {
-            others.extend(b.tables()[t].domains.iter());
+            let tab = &b.tables()[t];
+            for (r, d) in tab.domains.iter().enumerate() {
+                src.push(RuleRef::bare(t, r, tab.labels[r]), d.clone());
+            }
         }
-        let c = contained_in(dom, &others, node.frame);
+        src.push(RuleRef::bare(b.tables().len(), 0, 0), dom.clone());
+        let c = shadowed(&src, src.len() - 1, node.frame);
         if let Containment::Proved { certificate } = &c {
             return rejected(
                 Check::Served,
