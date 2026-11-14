@@ -66,7 +66,7 @@ fn emfile_at_launch_backs_off_and_stops_with_the_resource_code() {
         let took = t0.elapsed();
         eprintln!("RLIMIT_NOFILE {limit}: exit {code} in {took:?}");
         assert!(took < Duration::from_secs(120), "bounded: {took:?}");
-        if code == 0 {
+        if finished(code) {
             break;
         }
         assert_eq!(code, 71, "exit 71 = supervisor resources\n{}", log_tail(&d));
@@ -112,7 +112,12 @@ fn emfile_at_launch_backs_off_and_stops_with_the_resource_code() {
     );
     // the limit lifted: the same directory finishes
     let d = last_dir.unwrap();
-    assert_eq!(run_to_end(&spec_p, &d, &[]), vec![0], "{}", log_tail(&d));
+    assert_eq!(
+        run_to_end(&spec_p, &d, &[]),
+        vec![finish_code_by_items(&d)],
+        "{}",
+        log_tail(&d)
+    );
     assert_eq!(verify(&d), 0);
     assert_no_marked(&t.campaign);
 }
@@ -244,7 +249,7 @@ fn lost_terminal_does_not_spin_and_the_campaign_ends_cleanly() {
     );
     assert_eq!(
         code,
-        0,
+        finish_code_by_items(&d),
         "{}",
         std::fs::read_to_string(d.join("log/supervisor.log")).unwrap_or_default()
     );
@@ -282,6 +287,7 @@ fn plain_mode_with_a_vanished_terminal_never_panics() {
     drop(pty.master.take());
     drop(pty.slave.take());
     let code = wait(&mut c, Duration::from_secs(600));
-    assert_eq!(code, 0, "never 101 on a dead terminal");
+    // procfix5 (gate4 m3): 10 = finished, a synthetic item that crashed twice is in attention
+    assert!(finished(code), "never 101 on a dead terminal: {code}");
     assert_eq!(verify(&d), 0);
 }

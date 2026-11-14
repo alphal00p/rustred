@@ -33,8 +33,8 @@ pub(crate) use children::{
 pub use children::{ReaperStats, reaper_stats, request_reap};
 pub use marked::{
     CampaignMarker, CampaignScan, ENVIRON_READ_TIMEOUT, InvalidMarker, MARKER_VAR, MarkedProcess,
-    MarkerRead, marker_in_environ, our_uid, owner_uid_at, read_marker_at, scan_campaign,
-    validate_campaign_id,
+    MarkerRead, hidden_descendants, hidden_descendants_at, marker_in_environ, our_uid,
+    owner_uid_at, read_marker_at, scan_campaign, validate_campaign_id,
 };
 pub(crate) use marked::{STRICT_ENVIRON_TIMEOUT, scan_marked_inline};
 pub use pid::{InvalidPid, PID_MAX_LIMIT, ValidPid, pid_max};

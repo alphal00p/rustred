@@ -157,7 +157,8 @@ fn m5_extended_tripwire_reap_stop_spawn_forms_only_where_allowed() {
         ("SIGCONT", &["launch/real.rs"]),
         ("cgroup.freeze", &["launch/cgroup.rs"]),
         ("cgroup.kill", &["launch/cgroup.rs"]),
-        ("raise(", &[]),
+        // the fake child's legacy rr_proof emulation (a TEST program, lane closeloop2) raises a signal on itself
+        ("raise(", &["bin/rr_fake_child/proof.rs"]),
         (
             "PR_SET_PDEATHSIG",
             &["launch/real.rs", "bin/rr_fake_child.rs"],

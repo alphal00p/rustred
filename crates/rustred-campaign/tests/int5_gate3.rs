@@ -332,7 +332,13 @@ fn low_process_limits_are_bounded_and_never_change_the_result() {
     let syn = serde_json::json!({"items": 10, "case_ms": [300, 700], "seed": 9, "p_mem": 0.0});
     let spec_p = write_spec(&t, "spec.json", &spec(&t, syn, serde_json::json!({})));
     let r = t.cdir("reference");
-    assert_eq!(run_to_end(&spec_p, &r, &[]), vec![0]);
+    // procfix5 (gate4 m3/m4): the reference may finish with 10 (a synthetic item that crashed twice is in attention)
+    let ref_codes = run_to_end(&spec_p, &r, &[]);
+    assert!(
+        ref_codes.len() == 1 && finished(ref_codes[0]),
+        "{ref_codes:?}"
+    );
+    let ref_code = ref_codes[0];
     let reference = result(&r);
     let jobs_ref = count(&r, |e| matches!(e, Event::JobQueued { .. }));
     let mut summary = Vec::new();
@@ -389,7 +395,7 @@ fn low_process_limits_are_bounded_and_never_change_the_result() {
             "nproc {u}: exit {code}, {minted} job ids (reference {jobs_ref})"
         ));
         assert!(
-            matches!(code, 0 | 8 | 71 | 75 | 1),
+            matches!(code, 0 | 8 | 10 | 71 | 75 | 1),
             "nproc {u}: untyped exit {code}: {}",
             log_tail(&d)
         );
@@ -398,16 +404,17 @@ fn low_process_limits_are_bounded_and_never_change_the_result() {
             "nproc {u}: job-id runaway ({minted} vs {jobs_ref}): {}",
             log_tail(&d)
         );
-        if code == 0 {
+        if finished(code) {
+            assert_eq!(code, ref_code, "nproc {u}: finished with another code");
             assert_eq!(
                 result(&d),
                 reference,
-                "nproc {u}: exit 0 with another result"
+                "nproc {u}: exit {code} with another result"
             );
         }
         if d.join("ledger").join("MANIFEST.json").exists() {
             let codes = run_to_end(&spec_p, &d, &[]);
-            assert_eq!(codes.last(), Some(&0), "nproc {u} resume: {codes:?}");
+            assert_eq!(codes.last(), Some(&ref_code), "nproc {u} resume: {codes:?}");
             assert_eq!(result(&d), reference, "nproc {u}: resumed result");
             assert_eq!(verify(&d), 0);
         }
@@ -530,7 +537,13 @@ fn open_file_limits_never_end_in_an_internal_error_or_another_result() {
         &spec(&t, syn, serde_json::json!({"max_jobs": 4})),
     );
     let r = t.cdir("reference");
-    assert_eq!(run_to_end(&spec_p, &r, &[]), vec![0]);
+    // procfix5 (gate4 m3/m4): a synthetic item that crashed twice ends in attention: the reference may finish with 10
+    let ref_codes = run_to_end(&spec_p, &r, &[]);
+    assert!(
+        ref_codes.len() == 1 && finished(ref_codes[0]),
+        "{ref_codes:?}"
+    );
+    let ref_code = ref_codes[0];
     let reference = result(&r);
     let mut summary = Vec::new();
     for limit in 12u64..=20 {
@@ -564,20 +577,24 @@ fn open_file_limits_never_end_in_an_internal_error_or_another_result() {
         let code = wait(&mut c, Duration::from_secs(300));
         summary.push(format!("nofile {limit}: exit {code}"));
         assert!(
-            code == 0 || code == 71,
-            "nofile {limit}: exit {code} (only 0 or 71): {}",
+            code == ref_code || code == 71,
+            "nofile {limit}: exit {code} (only {ref_code} or 71): {}",
             log_tail(&d)
         );
-        if code == 0 {
+        if code == ref_code {
             assert_eq!(
                 result(&d),
                 reference,
-                "nofile {limit}: exit 0 with another result"
+                "nofile {limit}: exit {code} with another result"
             );
         }
         if d.join("ledger").join("MANIFEST.json").exists() {
             let codes = run_to_end(&spec_p, &d, &[]);
-            assert_eq!(codes.last(), Some(&0), "nofile {limit} resume: {codes:?}");
+            assert_eq!(
+                codes.last(),
+                Some(&ref_code),
+                "nofile {limit} resume: {codes:?}"
+            );
             assert_eq!(result(&d), reference, "nofile {limit}: resumed result");
         }
     }
