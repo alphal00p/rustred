@@ -302,6 +302,66 @@ pub fn instantiate_request(table: &str, offset: Option<u64>, index: i64, keys: &
     v.to_string()
 }
 
+/// The closure's fact source (Tier C, closure.md s.2) over the exact record facts: rules are looked up by (FACT
+/// IDENTITY of the table, record position): the closure's `RuleId.table` is `ClosureConfig.fact_tables[name]`, else
+/// the table's `provenance.source` (the path for loaded tables, the name for manual ones).
+pub struct ClosureFacts {
+    rules: HashMap<(String, usize), RuleText>,
+    inner: std::sync::Mutex<ExactRecordFacts>,
+}
+
+impl ClosureFacts {
+    pub fn new() -> Self {
+        ClosureFacts {
+            rules: HashMap::new(),
+            inner: std::sync::Mutex::new(ExactRecordFacts::new()),
+        }
+    }
+    /// Register the record at (table name, record position of the dispatcher's table).
+    pub fn insert(&mut self, table: &str, record: usize, rule: RuleText) {
+        self.rules.insert((table.to_string(), record), rule);
+    }
+    pub fn len(&self) -> usize {
+        self.rules.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.rules.is_empty()
+    }
+}
+
+impl Default for ClosureFacts {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl crate::closure::facts::FactSource for ClosureFacts {
+    fn coefficient(&self, rule: &crate::closure::facts::RuleId, key: &[i32], term: usize) -> CoefFact {
+        match self.rules.get(&(rule.table.to_string(), rule.record)) {
+            Some(r) => self
+                .inner
+                .lock()
+                .map(|mut f| f.coefficient(r, key, term))
+                .unwrap_or(CoefFact::Unknown),
+            None => CoefFact::Unknown,
+        }
+    }
+    fn regularity(&self, rule: &crate::closure::facts::RuleId, key: &[i32]) -> crate::closure::facts::RegFact {
+        use crate::closure::facts::RegFact;
+        let Some(r) = self.rules.get(&(rule.table.to_string(), rule.record)) else {
+            return RegFact::Unknown;
+        };
+        match self.inner.lock().map(|mut f| f.regular(r, key)) {
+            Ok(RegVerdict::Regular) => RegFact::Regular,
+            Ok(RegVerdict::Pole { .. }) => RegFact::Pole,
+            _ => RegFact::Unknown,
+        }
+    }
+    fn label(&self) -> String {
+        "accept:exact-record".into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::split_ratio;
