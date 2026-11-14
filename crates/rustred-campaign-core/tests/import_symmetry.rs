@@ -31,12 +31,12 @@ fn key(t: &str, n: usize) -> Vec<i32> {
 }
 
 #[test]
-fn presented_family_text_reorders_props_only() {
+fn presented_family_text_reorders_props_and_relabels() {
     let src = "I(\n  name(X),\n  prop(D1,(k1)^2,1),\n  prop(D2,(k2)^2,1),\n  prop(D3,(k1-k2)^2,0),\n  gram(q,q,1)\n)";
     let t = presented_family_text(src, &[1, 0, 2]).unwrap();
     assert_eq!(
         t,
-        "I(\n  name(X),\n  prop(D2,(k2)^2,1),\n  prop(D1,(k1)^2,1),\n  prop(D3,(k1-k2)^2,0),\n  gram(q,q,1)\n)"
+        "I(\n  name(X),\n  prop(D1,(k2)^2,1),\n  prop(D2,(k1)^2,1),\n  prop(D3,(k1-k2)^2,0),\n  gram(q,q,1)\n)"
     );
     assert!(presented_family_text(src, &[0, 0, 2]).is_err());
     assert!(presented_family_text(src, &[0, 1]).is_err());
