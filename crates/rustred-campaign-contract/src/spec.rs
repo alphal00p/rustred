@@ -28,6 +28,11 @@ pub enum JobKind {
     ProofStream,
     TableDump,
     Fake,
+    /// `rr_node solve-recipe` (coord-recipe-solve.md v1.1; lane adapters): ONE recipe at MANY keys, L1.
+    SolveRecipe,
+    /// `rr_proof instantiate` (coord-ec2-instantiate.md 3) run as a LEGACY child: no job mode in the child; the
+    /// supervisor-side wrapper (interfaces/adapters.md 2.3) seals its output and writes OUTCOME (lane adapters).
+    ProofInstantiate,
 }
 
 /// Compliance level (1.1).
@@ -43,7 +48,7 @@ pub enum Level {
 }
 
 impl JobKind {
-    pub const ALL: [JobKind; 11] = [
+    pub const ALL: [JobKind; 13] = [
         JobKind::Generate,
         JobKind::GenerateAuto,
         JobKind::Descent,
@@ -55,12 +60,14 @@ impl JobKind {
         JobKind::ProofStream,
         JobKind::TableDump,
         JobKind::Fake,
+        JobKind::SolveRecipe,
+        JobKind::ProofInstantiate,
     ];
 
     pub const fn level(self) -> Level {
         match self {
             JobKind::Generate | JobKind::Witness | JobKind::Fake => Level::L2,
-            JobKind::TableDump => Level::Legacy,
+            JobKind::TableDump | JobKind::ProofInstantiate => Level::Legacy,
             _ => Level::L1,
         }
     }
@@ -73,8 +80,12 @@ impl JobKind {
             | JobKind::Descent
             | JobKind::Replay
             | JobKind::Witness
-            | JobKind::Laporta => "rr_node",
-            JobKind::ProofSpan | JobKind::ProofExact | JobKind::ProofStream => "rr_proof",
+            | JobKind::Laporta
+            | JobKind::SolveRecipe => "rr_node",
+            JobKind::ProofSpan
+            | JobKind::ProofExact
+            | JobKind::ProofStream
+            | JobKind::ProofInstantiate => "rr_proof",
             JobKind::TableDump => "table_dump",
             JobKind::Fake => "rr_fake_child",
         }
@@ -103,7 +114,9 @@ impl JobKind {
             | JobKind::Laporta
             | JobKind::ProofSpan
             | JobKind::ProofExact
-            | JobKind::ProofStream => Some(&RESULT_OUTPUTS),
+            | JobKind::ProofStream
+            | JobKind::SolveRecipe
+            | JobKind::ProofInstantiate => Some(&RESULT_OUTPUTS),
             JobKind::GenerateAuto => None,
         }
     }
@@ -119,7 +132,32 @@ impl JobKind {
             JobKind::ProofSpan | JobKind::ProofExact | JobKind::ProofStream => &PROOF_ARGS,
             JobKind::TableDump => &TABLE_DUMP_ARGS,
             JobKind::Fake => &[],
+            JobKind::SolveRecipe => &SOLVE_RECIPE_ARGS,
+            // the wrapper builds the legacy argv itself (`instantiate --requests in/requests.jsonl --out ...`)
+            JobKind::ProofInstantiate => &[],
         }
+    }
+
+    /// The input roles of the kind (lane adapters): `None` = no role rule for this kind (every role is passed on);
+    /// `Some` = every role must be listed, each `required` role exactly once, each `optional` role at most once.
+    pub const fn input_roles(self) -> Option<InputRoles> {
+        match self {
+            JobKind::SolveRecipe => Some(InputRoles {
+                required: &["family", "recipe", "keys"],
+                optional: &["expect"],
+            }),
+            // one job per rule table: the table's digest is part of the attempt's identity
+            JobKind::ProofInstantiate => Some(InputRoles {
+                required: &["requests", "table"],
+                optional: &[],
+            }),
+            _ => None,
+        }
+    }
+
+    /// Kinds the fake child `rr_fake_child` can emulate under their own kind name (lane adapters).
+    pub const fn fake_emulated(self) -> bool {
+        matches!(self, JobKind::SolveRecipe)
     }
 
     /// Checker kinds (exit 11 / 12 possible).
@@ -134,6 +172,13 @@ impl JobKind {
                 | JobKind::ProofStream
         )
     }
+}
+
+/// The input roles a kind accepts ([`JobKind::input_roles`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InputRoles {
+    pub required: &'static [&'static str],
+    pub optional: &'static [&'static str],
 }
 
 /// One sealed output stream of a kind: its role (`table`, or `outputs.extra[].role`), its file in `out/`, and the
@@ -287,7 +332,7 @@ pub const ON_HEAVY: ArgRule = ArgRule {
     strict_values: Some(&["refuse", "proceed"]),
 };
 
-const GENERATE_ARGS: [ArgRule; 38] = [
+const GENERATE_ARGS: [ArgRule; 39] = [
     a("--order", ArgShape::JsonOrName),
     // lane eng2: return the sub-cases instead of descending into them (node-loop.md 5.2)
     a("--descend", ArgShape::Choice(&["open"])),
@@ -318,6 +363,8 @@ const GENERATE_ARGS: [ArgRule; 38] = [
     a("--min-target-block", ArgShape::UInt),
     a("--union-cover-depth", ArgShape::UInt),
     a("--seed-face-floor", ArgShape::UInt),
+    // lane adapters (EC-1 v2 section 9 request): the lift pre-screen `MIN_ROWS,MAX_POINTS,MAX_DEG,MAX_RHS`
+    a("--screen", ArgShape::Spec),
     a("--seed-pose-min-rows", ArgShape::UInt),
     a("--sampled-from-rows", ArgShape::UInt),
     a("--seed-pose-keep", ArgShape::Decimal),
@@ -330,6 +377,15 @@ const GENERATE_ARGS: [ArgRule; 38] = [
     a("--backend", ArgShape::Name),
 ];
 const DESCENT_ARGS: [ArgRule; 1] = [a("--order", ArgShape::JsonOrName)];
+/// `solve-recipe` (lane adapters; coord-recipe-solve.md v1.1 job mode): the node order (required), worker threads
+/// (results do not depend on them), the deterministic per-key trace-row limit (verdict BUDGET_WORK) and the per-key
+/// wall budget in seconds (verdict BUDGET_WALL, time-decided). Files (family, recipe, keys, expect) are inputs.
+pub const SOLVE_RECIPE_ARGS: [ArgRule; 4] = [
+    a("--order", ArgShape::JsonOrName),
+    a("--threads", ArgShape::UInt),
+    a("--max-trace-rows", ArgShape::UInt),
+    a("--key-budget-s", ArgShape::UInt),
+];
 const REPLAY_ARGS: [ArgRule; 9] = [
     a("--chart", ArgShape::Mask),
     a("--dimensions", ArgShape::Spec),
@@ -698,6 +754,10 @@ pub struct JobSpec {
     pub fake: Option<FakeScript>,
 }
 
+/// The fake child's program name: a spec of an emulated kind ([`JobKind::fake_emulated`]) may carry a fake script only
+/// with this program name (lane adapters).
+pub const FAKE_PROGRAM: &str = "rr_fake_child";
+
 /// Flags carried by typed fields; present in `args` => exit 40 (3.1.2).
 pub const TYPED_FIELD_FLAGS: [&str; 8] = [
     "--family",
@@ -873,6 +933,8 @@ impl JobSpec {
             }
         }
         self.check_args()?;
+        self.check_input_roles()?;
+        self.check_kind_constraints()?;
         let w = &self.budgets.work;
         if w.limits().iter().any(|&(_, _, l)| l == 0) {
             return Err(bad(
@@ -915,12 +977,95 @@ impl JobSpec {
                 }
                 f.validate().map_err(SpecError::FakeMismatch)?;
             }
+            // lane adapters: the fake child emulates a kind (today solve-recipe) when the spec names it as the program;
+            // a real engine refuses that program name at preflight step 6 (42), so a fake script never reaches it
+            (k, Some(f)) if k.fake_emulated() && self.program.name == FAKE_PROGRAM => {
+                f.validate().map_err(SpecError::FakeMismatch)?;
+            }
             (_, Some(_)) => {
                 return Err(SpecError::FakeMismatch(
                     "a fake script on a non-fake kind".into(),
                 ));
             }
             _ => {}
+        }
+        Ok(())
+    }
+
+    /// The kind's input-role rule ([`JobKind::input_roles`], lane adapters; exit 40).
+    pub fn check_input_roles(&self) -> Result<(), SpecError> {
+        let Some(r) = self.kind.input_roles() else {
+            return Ok(());
+        };
+        for i in &self.inputs {
+            if !r.required.contains(&i.role.as_str()) && !r.optional.contains(&i.role.as_str()) {
+                return Err(bad(
+                    "inputs",
+                    format!("role {:?} is not an input of kind {:?}", i.role, self.kind),
+                ));
+            }
+        }
+        for role in r.required.iter().chain(r.optional) {
+            let n = self.inputs.iter().filter(|i| i.role == *role).count();
+            if n > 1 {
+                return Err(bad("inputs", format!("role {role:?} listed {n} times")));
+            }
+            if n == 0 && r.required.contains(role) {
+                return Err(bad("inputs", format!("role {role:?} is required")));
+            }
+        }
+        Ok(())
+    }
+
+    /// Constraints of the L1 / legacy kinds added by lane adapters (exit 40; interfaces/adapters.md 1.1).
+    pub fn check_kind_constraints(&self) -> Result<(), SpecError> {
+        if !matches!(self.kind, JobKind::SolveRecipe | JobKind::ProofInstantiate) {
+            return Ok(());
+        }
+        let k = self.kind;
+        if self.resume.is_some() {
+            return Err(bad("resume", format!("kind {k:?} has no resume (rerun from scratch)")));
+        }
+        if !self.budgets.work.limits().is_empty() {
+            return Err(bad(
+                "budgets.work",
+                format!("kind {k:?} has no work counters (solve-recipe: --max-trace-rows)"),
+            ));
+        }
+        if self.budgets.mem_soft_bytes.is_some() {
+            return Err(bad("budgets.mem_soft_bytes", format!("not implemented by kind {k:?}")));
+        }
+        if self.budgets.wall.job_s.is_some() {
+            return Err(bad(
+                "budgets.wall.job_s",
+                format!("kind {k:?} is bounded by the supervisor's wall cap"),
+            ));
+        }
+        if self.seed.sample_seed != 0 {
+            return Err(bad("seed.sample_seed", format!("kind {k:?} fixes the sample seed 0")));
+        }
+        if self.on_case_budget != OnCaseBudget::Stop {
+            return Err(bad("on_case_budget", format!("kind {k:?}: stop only")));
+        }
+        let key_budget = self.args.iter().any(|a| a == "--key-budget-s");
+        if k == JobKind::ProofInstantiate && self.budgets.wall.case_s.is_some() {
+            return Err(bad("budgets.wall.case_s", "kind ProofInstantiate has no per-case budget"));
+        }
+        if key_budget && self.budgets.wall.case_s.is_some() {
+            return Err(bad(
+                "budgets.wall.case_s",
+                "the per-key wall budget is given twice (--key-budget-s and budgets.wall.case_s)",
+            ));
+        }
+        if self.determinism == Determinism::Strict && (key_budget || self.budgets.wall.case_s.is_some())
+        {
+            return Err(bad(
+                "determinism",
+                "strict: a per-key wall budget is a clock decision",
+            ));
+        }
+        if k == JobKind::SolveRecipe && !self.args.iter().any(|a| a == "--order") {
+            return Err(bad("args", "kind SolveRecipe needs --order"));
         }
         Ok(())
     }

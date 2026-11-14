@@ -4,6 +4,13 @@
 //! spec for `rr_fake_child` carrying the request's script; the CONTRACT adapter produces the spec of any contract
 //! program (rr_node / rr_proof once the engine side exists). Real rr_node argv tables (plan 2.3) come later.
 
+// lane adapters (interfaces/adapters.md): the trait-based adapter set, one per job kind
+pub mod conformance;
+pub mod generate;
+pub mod job;
+pub mod proof;
+pub mod solve_recipe;
+
 use crate::launch::LaunchSpec;
 use crate::supervisor::worksource::JobRequest;
 use rustred_campaign_contract::fake::FakeScript;
