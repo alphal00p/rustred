@@ -235,8 +235,8 @@ fn rejection_lookahead_checks_original_zero_denominators_but_does_not_bypass_unk
     first.equalities.push(diagonal(&c));
     first.rhs.push(PreparedTerm {
         shift: [0; 3],
-        coefficient: c.zero(),
-        denominator: poly(&c, c.index(2).unwrap()),
+        coefficient: c.zero().into(),
+        denominator: poly(&c, c.index(2).unwrap()).into(),
     });
     install(&mut p, first);
     let pieces = collect(&p, &[0; 3], &[None, None, Some(0)], Some(11));
@@ -250,8 +250,8 @@ fn rejection_lookahead_checks_original_zero_denominators_but_does_not_bypass_unk
         0,
         PreparedTerm {
             shift: [0; 3],
-            coefficient: c.zero(),
-            denominator: diagonal(&c),
+            coefficient: c.zero().into(),
+            denominator: diagonal(&c).into(),
         },
     );
     let (stats, pieces) = refined(
@@ -306,6 +306,7 @@ fn rejection_lookahead_uses_current_cut_and_preserves_batch_terminal_priority() 
         rules: vec![],
         terminals: [IntegralKey::try_new([2, 2, 0]).unwrap()].into(),
         deferred_points: None,
+        point_index: Default::default(),
         coalescing_bound: 0,
         overlay: None,
     }));
@@ -397,13 +398,13 @@ fn rejection_lookahead_optional_preflight_is_inconclusive_but_mandatory_error_st
                 first.rhs = vec![
                     PreparedTerm {
                         shift: [0; 3],
-                        coefficient: c.zero(),
-                        denominator: quadratic(&c),
+                        coefficient: c.zero().into(),
+                        denominator: quadratic(&c).into(),
                     },
                     PreparedTerm {
                         shift: [0; 3],
-                        coefficient: c.zero(),
-                        denominator: poly(&c, c.zero()),
+                        coefficient: c.zero().into(),
+                        denominator: poly(&c, c.zero()).into(),
                     },
                 ];
                 OwnerDomainPredicate::OriginalDenominator {

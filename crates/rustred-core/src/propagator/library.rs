@@ -192,6 +192,17 @@ pub enum PBasis {
     Residual(PTerminalId),
 }
 
+/// [`PLibrary::residual_terminal`]: a residual terminal as a consumer names it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PResidualTerminal {
+    /// The boxed node (`T162`) or the owner presentation's family name.
+    pub node: String,
+    /// The key in the owner presentation's slots.
+    pub key: IntegralKey,
+    /// A terminal of a BOXED node: an unknown integral, never evaluated.
+    pub boxed: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PTerm {
     pub basis: PBasis,
@@ -473,6 +484,43 @@ impl PLibrary {
 
     pub fn basis_map(&self) -> Option<&Arc<dyn PBasisMap>> {
         self.basis_map.as_ref()
+    }
+
+    /// t162-export: what a consumer prints for the residual terminal `id`
+    /// (`None` for `Unit` or an unknown id): the node (the box record's node
+    /// of a BOXED owner, else the family name of the owner's presentation),
+    /// the key in that presentation's slots, and whether the owner is boxed
+    /// (its terminal is an "unknown integral", not a master). Reads only the
+    /// provenance prefix of a Custom owner's payload.
+    pub fn residual_terminal(&self, id: PTerminalId) -> Result<Option<PResidualTerminal>, PError> {
+        let Some(PTerminal::Residual { owner, key }) = self.terminals.get(id.0 as usize) else {
+            return Ok(None);
+        };
+        let owner_record = self
+            .owners
+            .get(owner)
+            .ok_or_else(|| malformed(format!("residual {} of an unknown owner", id.0)))?;
+        let spec = &owner_record.spec;
+        // A built program knows its box; else read the payload's prefix (a
+        // lazy payload is read once more: name terminals after a reduction).
+        let boxed = match (owner_record.program.get(), &spec.payload) {
+            (Some(Ok(OwnerProgram::Lane(step))), _) => step.boxed_node().map(str::to_owned),
+            (_, Some(payload)) if spec.lane == OwnerLane::Custom => {
+                super::custom::custom_payload_boxed_node(&payload.bytes()?)?
+                    .map(|record| record.node)
+            }
+            _ => None,
+        };
+        Ok(Some(PResidualTerminal {
+            node: boxed.clone().unwrap_or_else(|| {
+                self.presentation(spec.presentation)
+                    .family
+                    .name()
+                    .to_owned()
+            }),
+            key: key.clone(),
+            boxed: boxed.is_some(),
+        }))
     }
 
     /// Reduce one weighted sum of inputs of one loop count onto the terminals

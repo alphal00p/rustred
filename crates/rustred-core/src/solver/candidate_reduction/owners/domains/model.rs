@@ -122,7 +122,7 @@ impl<'a, const N: usize> OwnerSuccessorRegion<'a, N> {
         &self.rule.exceptions
     }
     pub fn original_denominators(&self) -> impl Iterator<Item = &'a IndexedPolynomial> {
-        self.rule.rhs.iter().map(|term| &term.denominator)
+        self.rule.rhs.iter().map(|term| &*term.denominator)
     }
     pub fn source_conditions(&self) -> &'a [IndexedPolynomial] {
         self.source_conditions
@@ -130,8 +130,8 @@ impl<'a, const N: usize> OwnerSuccessorRegion<'a, N> {
     pub fn coefficient(&self) -> &'a IndexedCoefficient {
         &self.term.coefficient
     }
-    pub fn shift(&self) -> &'a [i64; N] {
-        &self.term.shift
+    pub fn shift(&self) -> [i64; N] {
+        self.term.shift()
     }
     pub fn transition(&self) -> OwnerSuccessorTransition {
         self.transition

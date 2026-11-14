@@ -234,7 +234,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                 .iter()
                 .chain(rule.exceptions.iter().flatten())
                 .chain(domain.source_conditions.iter())
-                .chain(rule.rhs.iter().map(|t| &t.denominator))
+                .chain(rule.rhs.iter().map(|t| &*t.denominator))
             {
                 cancelled(cancellation)?;
                 let mut predicates = stats.predicates;

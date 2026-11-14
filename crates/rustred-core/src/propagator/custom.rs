@@ -43,8 +43,8 @@ use std::sync::Arc;
 use crate::algebra::Coefficient;
 use crate::family::{IntegralFamilyLimits, IntegralKey};
 use crate::persistence::{
-    BinaryIoLimits, CoefficientId, DecodedCoefficientTable, NativeFamilyRecord, ProgramEnvelope,
-    SectionTag,
+    BinaryIoLimits, CoefficientId, LazyDecodedCoefficientTable, NativeFamilyRecord,
+    ProgramEnvelope, SectionTag,
 };
 use crate::reduction::{ReductionError, ReductionLimits, ReductionRequest, ReductionStatistics};
 use crate::sector::{Mask, OrderingPolicy, zero};
@@ -59,13 +59,14 @@ use super::bundle_wire::{
     BundleWireError, CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_BUNDLE_STATUS,
     DISPATCH_CANDIDATE_BUNDLE_SCHEMA, IntegralRecord, ProgramRecord, Restore, RuleRecord,
     StoredProgram, candidate_sections, decode_family_record, decode_program_record,
-    import_coefficients, storage_variables, validate_dispatch, validate_sectors,
+    storage_variables, validate_dispatch, validate_rule_ids, validate_sectors,
 };
 use super::error::PError;
 use super::lane::OwnerLane;
 use super::library::{CustomOwnerMeta, PTerminal};
 use super::presentation::{Presentation, PresentationKind};
 use super::step::{PChild, PKeyView, PLaneStep, POrderKey, PStage, PStepContext, PStepOut};
+use super::table_import::BoxedNodeRecord;
 use super::{OwnerClassId, PTerminalId, PresentationId};
 
 /// Bundle schemas a payload may carry: the generated candidate bundle without
@@ -100,8 +101,9 @@ pub fn bundle_guard_version(policy: &str) -> (u32, &str) {
         None => (1, policy),
     }
 }
-/// Structural allocation allowance of one payload's records.
-const MAX_RECORD_BYTES: usize = 1 << 30;
+/// Structural allocation allowance of one payload's records (t162-export:
+/// 8 GiB; the program record of a full boxed 5L node exceeds 1 GiB).
+const MAX_RECORD_BYTES: usize = 1 << 33;
 
 fn payload_error(detail: impl fmt::Display) -> PError {
     PError::MalformedLibrary(format!("custom payload: {detail}"))
@@ -305,6 +307,27 @@ pub fn inspect_custom_payload(payload: &[u8]) -> Result<CustomPayloadSummary, PE
     })
 }
 
+/// boxed-node: the box record of a payload imported from a boxed table, or
+/// `None`. Read from the program record's leading provenance strings only
+/// (no rule, no coefficient is decoded: cheap on a multi-GB payload).
+pub fn custom_payload_boxed_node(payload: &[u8]) -> Result<Option<BoxedNodeRecord>, PError> {
+    /// The leading fields every program record schema shares.
+    #[derive(bincode::Decode)]
+    struct ProvenancePrefix {
+        _schema: String,
+        _status: String,
+        _solver_policy: String,
+        family_source: String,
+    }
+    let envelope = candidate_sections(payload, BinaryIoLimits::default()).map_err(wire_error)?;
+    let program = envelope
+        .section(SectionTag::PROGRAM)
+        .ok_or_else(|| payload_error("no program section"))?;
+    let (prefix, _): (ProvenancePrefix, usize) =
+        super::bundle_wire::decode_record(program, MAX_RECORD_BYTES).map_err(wire_error)?;
+    super::table_import::boxed_node_of_source(&prefix.family_source)
+}
+
 /// The owner support of a Custom presentation: the sector of an induced
 /// presentation, every line otherwise.
 pub fn custom_owner_support(presentation: &Presentation) -> u64 {
@@ -390,10 +413,13 @@ pub fn check_custom_owner(
 // ----- the decoded program -----
 
 /// A payload bound to its presentation's family, with its coefficients.
+/// t162-export: the coefficient table stays ENCODED (a non-retaining lazy
+/// table): each read decodes its frame, nothing is cached, so the loaded form
+/// holds only the prepared (interned) coefficients, never the decoded table.
 struct Decoded {
     program: ProgramRecord,
     ordering: OrderingPolicy,
-    table: DecodedCoefficientTable,
+    table: LazyDecodedCoefficientTable,
 }
 
 impl fmt::Debug for Decoded {
@@ -426,11 +452,25 @@ fn decode(presentation: Option<&Presentation>, payload: &[u8]) -> Result<Decoded
             )));
         }
     }
-    let table =
-        import_coefficients(&envelope, &program, BinaryIoLimits::default()).map_err(wire_error)?;
+    let section = |tag| {
+        envelope
+            .section(tag)
+            .map(Arc::<[u8]>::from)
+            .ok_or_else(|| payload_error("expected a generated candidate binary program"))
+    };
+    let table = LazyDecodedCoefficientTable::new(
+        section(SectionTag::SYMBOLICA_STATE)?,
+        section(SectionTag::COEFFICIENTS)?,
+        BinaryIoLimits::default(),
+    )
+    .map_err(payload_error)?
+    .without_retention();
+    for rule in program.sectors.iter().flat_map(|sector| &sector.rules) {
+        validate_rule_ids(rule, table.len()).map_err(wire_error)?;
+    }
     let rebuilt = family
-        .to_family(
-            &table,
+        .to_family_with(
+            |id| table.coefficient(id).map(|value| value.as_ref().clone()),
             IntegralFamilyLimits::default(),
             BinaryIoLimits::default(),
         )
@@ -469,12 +509,13 @@ fn restore_error(error: BundleWireError) -> CandidateReductionError {
 }
 
 impl Decoded {
-    /// The saved solution of `chart`, in `context`'s variables.
-    fn input<const N: usize>(
+    /// The prepared programs of `chart`, in `context`'s variables; the rules
+    /// are restored and prepared one at a time (t162-export).
+    fn programs<const N: usize>(
         &self,
         chart: [bool; N],
-        context: &CandidateOwnerContext<N>,
-    ) -> Result<CandidateOwnerInput<N>, CandidateReductionError> {
+        context: Arc<CandidateOwnerContext<N>>,
+    ) -> Result<CandidateOwnerPrograms<N>, CandidateReductionError> {
         let program = &self.program;
         let ordinal = (program.sectors.iter())
             .position(|sector| crate::storage_array(&sector.sector, false) == Some(chart))
@@ -483,13 +524,14 @@ impl Decoded {
             crate::storage_array(&program.root_sector, false).ok_or_else(|| invalid("arity"))?;
         let coefficients = context.coefficient_context();
         let variables = storage_variables::<N>(coefficients);
+        let indices = *context.index_variables();
         let restore = Restore {
             table: &self.table,
             variables: &variables,
-            indices: context.index_variables(),
+            indices: &indices,
         };
-        let (_, solution) = restore
-            .sector(
+        let (_, solution, rules) = restore
+            .sector_streamed(
                 program,
                 ordinal,
                 &self.ordering,
@@ -498,12 +540,17 @@ impl Decoded {
                 FiniteCasePolicy::SearchFinite,
             )
             .map_err(restore_error)?;
-        Ok(CandidateOwnerInput {
+        let input = CandidateOwnerInput {
             sector: chart,
             saved_root: root,
             ordering: self.ordering.clone(),
             solution,
-        })
+        };
+        CandidateOwnerPrograms::try_new_streamed(
+            context,
+            input,
+            rules.map(|rule| rule.map_err(restore_error)),
+        )
     }
 }
 
@@ -646,6 +693,7 @@ pub fn custom_payload_coefficient_table(payload: &[u8]) -> Result<CustomCoeffici
                 .table
                 .coefficient(id)
                 .map_err(payload_error)?
+                .as_ref()
                 .clone(),
         );
     }
@@ -725,10 +773,26 @@ pub fn custom_payload_dump(payload: &[u8]) -> Result<String, PError> {
     Ok(dump)
 }
 
-/// Prepares one chart of a payload on first use.
+/// Prepares one chart of a payload on first use. t162-export: the decoded
+/// payload (rule records + coefficient table) is released once every chart
+/// is prepared; the deferred programs cache each chart's prepared owner (a
+/// success is never prepared again), so nothing reads it afterwards.
 #[derive(Debug)]
 struct PayloadLoader {
-    decoded: Arc<Decoded>,
+    decoded: std::sync::Mutex<Option<Arc<Decoded>>>,
+    unprepared: std::sync::Mutex<BTreeSet<Vec<bool>>>,
+}
+
+impl PayloadLoader {
+    fn new(decoded: Decoded) -> Self {
+        let unprepared = (decoded.program.sectors.iter())
+            .map(|sector| sector.sector.clone())
+            .collect();
+        Self {
+            decoded: std::sync::Mutex::new(Some(Arc::new(decoded))),
+            unprepared: std::sync::Mutex::new(unprepared),
+        }
+    }
 }
 
 impl<const N: usize> DeferredCandidateOwnerLoader<N> for PayloadLoader {
@@ -737,8 +801,21 @@ impl<const N: usize> DeferredCandidateOwnerLoader<N> for PayloadLoader {
         sector: [bool; N],
         context: Arc<CandidateOwnerContext<N>>,
     ) -> Result<CandidateOwnerPrograms<N>, CandidateReductionError> {
-        let input = self.decoded.input(sector, &context)?;
-        CandidateOwnerPrograms::try_new(context, [input])
+        let decoded = (self.decoded.lock())
+            .map_err(|_| invalid("payload loader lock poisoned"))?
+            .clone()
+            .ok_or_else(|| invalid("payload released after every chart was prepared"))?;
+        let programs = decoded.programs(sector, context)?;
+        drop(decoded);
+        let mut unprepared =
+            (self.unprepared.lock()).map_err(|_| invalid("payload loader lock poisoned"))?;
+        unprepared.retain(|chart| crate::storage_array(chart, false) != Some(sector));
+        if unprepared.is_empty()
+            && let Ok(mut decoded) = self.decoded.lock()
+        {
+            decoded.take();
+        }
+        Ok(programs)
     }
 }
 
@@ -755,6 +832,8 @@ pub struct CustomStep<const N: usize> {
     charts: Vec<u64>,
     residuals: BTreeSet<IntegralKey>,
     programs: DeferredCandidateOwnerPrograms<N>,
+    /// boxed-node: the box of a boxed table's payload.
+    boxed: Option<Arc<BoxedNodeRecord>>,
 }
 
 impl<const N: usize> fmt::Debug for CustomStep<N> {
@@ -766,6 +845,10 @@ impl<const N: usize> fmt::Debug for CustomStep<N> {
             .field("support", &format_args!("{:#x}", self.support))
             .field("charts", &self.charts)
             .field("residuals", &self.residuals)
+            .field(
+                "boxed",
+                &self.boxed.as_ref().map(|record| record.describe()),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -788,6 +871,26 @@ impl<const N: usize> CustomStep<N> {
 
     fn chart(&self, powers: &[i64]) -> [bool; N] {
         std::array::from_fn(|slot| powers.get(slot).copied().unwrap_or(0) > 0)
+    }
+
+    /// The box record of a boxed owner.
+    pub fn boxed(&self) -> Option<&BoxedNodeRecord> {
+        self.boxed.as_deref()
+    }
+
+    /// The typed refusal of a key no rule covers: [`PError::OutsideBox`] for a
+    /// key outside a boxed owner's box, [`PError::Uncovered`] otherwise (inside
+    /// the box it is a defect of a partial table).
+    fn uncovered(&self, class: OwnerClassId, key: IntegralKey) -> PError {
+        match &self.boxed {
+            Some(record) if !record.contains(key.powers()) => PError::OutsideBox {
+                class,
+                key,
+                node: record.node.clone(),
+                definition: record.describe(),
+            },
+            _ => PError::Uncovered { class, key },
+        }
     }
 
     fn support_of(&self, powers: &[i64]) -> u64 {
@@ -899,6 +1002,17 @@ fn step_error(class: OwnerClassId, error: CandidateReductionError) -> PError {
     }
 }
 
+impl<const N: usize> CustomStep<N> {
+    /// [`step_error`], with a boxed owner's uncovered key outside its box as
+    /// [`PError::OutsideBox`].
+    fn step_error(&self, class: OwnerClassId, error: CandidateReductionError) -> PError {
+        match error {
+            CandidateReductionError::Uncovered { target } => self.uncovered(class, target),
+            other => step_error(class, other),
+        }
+    }
+}
+
 impl<const N: usize> PLaneStep for CustomStep<N> {
     fn lane(&self) -> OwnerLane {
         OwnerLane::Custom
@@ -927,7 +1041,7 @@ impl<const N: usize> PLaneStep for CustomStep<N> {
             &mut work,
             cx.limits,
         )
-        .map_err(|error| step_error(class, error))?;
+        .map_err(|error| self.step_error(class, error))?;
         let mut out = PStepOut {
             conditions,
             ..PStepOut::default()
@@ -939,10 +1053,7 @@ impl<const N: usize> PLaneStep for CustomStep<N> {
                 out.terminals.push((terminal, key.tag.clone(), one));
             }
             AppliedOwnerStep::Uncovered => {
-                return Err(PError::Uncovered {
-                    class,
-                    key: integral,
-                });
+                return Err(self.uncovered(class, integral));
             }
             AppliedOwnerStep::Applied(terms, position) => {
                 record_rule_hit(mask(&chart), position);
@@ -983,6 +1094,14 @@ impl<const N: usize> PLaneStep for CustomStep<N> {
             .complexity_key(powers)
             .map_err(|error| PError::Contract(format!("custom owner order: {error}")))?;
         Ok(POrderKey::Complexity(key))
+    }
+
+    fn boxed_node(&self) -> Option<&str> {
+        self.boxed.as_deref().map(|record| record.node.as_str())
+    }
+
+    fn box_contains(&self, powers: &[i64]) -> Option<bool> {
+        self.boxed.as_ref().map(|record| record.contains(powers))
     }
 }
 
@@ -1163,6 +1282,17 @@ fn build<const N: usize>(
         )));
     }
     check_residual_positions(forced, &residuals)?;
+    let boxed = super::table_import::boxed_node_of_source(&program.family_source)?;
+    if let Some(record) = &boxed {
+        let held: BTreeSet<Vec<i64>> = residuals.iter().map(|key| key.powers().to_vec()).collect();
+        let declared: BTreeSet<Vec<i64>> = record.terminals.iter().cloned().collect();
+        if held != declared || record.chart.len() != arity || program.sectors.len() != 1 {
+            return Err(payload_error(format!(
+                "boxed node {}: the record's terminals or chart do not describe the payload",
+                record.node
+            )));
+        }
+    }
     let proofs = zero_certificates(presentation, support)?;
     let scope = CandidateOwnerScope {
         max_numerator_rank: None,
@@ -1211,9 +1341,7 @@ fn build<const N: usize>(
     let programs = DeferredCandidateOwnerPrograms::try_new(
         context,
         descriptors,
-        Arc::new(PayloadLoader {
-            decoded: Arc::new(decoded),
-        }),
+        Arc::new(PayloadLoader::new(decoded)),
     )
     .map_err(candidate)?;
     let step = CustomStep::<N> {
@@ -1224,6 +1352,7 @@ fn build<const N: usize>(
         charts,
         residuals: residuals.into_iter().collect(),
         programs,
+        boxed: boxed.map(Arc::new),
     };
     if prepare {
         step.prepare_charts()?;
@@ -1360,13 +1489,10 @@ impl<const N: usize> PCustomFallback for CustomStep<N> {
             &mut ReductionStatistics::default(),
             limits,
         )
-        .map_err(|error| step_error(class, error))?;
+        .map_err(|error| self.step_error(class, error))?;
         match applied {
             AppliedOwnerStep::Terminal => Ok(PFallbackApplied::Residual),
-            AppliedOwnerStep::Uncovered => Err(PError::Uncovered {
-                class,
-                key: integral,
-            }),
+            AppliedOwnerStep::Uncovered => Err(self.uncovered(class, integral)),
             AppliedOwnerStep::Applied(terms, _) => {
                 let mut children = Vec::with_capacity(terms.len());
                 for (child, coefficient) in terms {
@@ -1447,6 +1573,11 @@ trait CustomOwnerOps {
     fn is_residual(&self, powers: &[i64]) -> bool;
     fn apply_powers(&self, powers: &[i64]) -> Result<Applied, PError>;
     fn order_of(&self, powers: &[i64]) -> Result<crate::sector::ComplexityKey, PError>;
+    fn box_contains(&self, powers: &[i64]) -> Option<bool>;
+    /// A boxed owner whose box is not closed (a partial table).
+    fn box_partial(&self) -> bool;
+    /// The box record of a boxed owner.
+    fn box_record(&self) -> Option<&BoxedNodeRecord>;
 }
 
 impl<const N: usize> CustomOwnerOps for CustomStep<N> {
@@ -1487,13 +1618,10 @@ impl<const N: usize> CustomOwnerOps for CustomStep<N> {
             &mut ReductionStatistics::default(),
             &ReductionLimits::default(),
         )
-        .map_err(|error| step_error(OwnerClassId(0), error))?;
+        .map_err(|error| self.step_error(OwnerClassId(0), error))?;
         match applied {
             AppliedOwnerStep::Terminal => Ok(Applied::Terminal),
-            AppliedOwnerStep::Uncovered => Err(PError::Uncovered {
-                class: OwnerClassId(0),
-                key: integral,
-            }),
+            AppliedOwnerStep::Uncovered => Err(self.uncovered(OwnerClassId(0), integral)),
             AppliedOwnerStep::Applied(terms, _) => Ok(Applied::Children(
                 terms
                     .into_iter()
@@ -1510,6 +1638,18 @@ impl<const N: usize> CustomOwnerOps for CustomStep<N> {
         ordering
             .complexity_key(powers)
             .map_err(|error| PError::Contract(format!("custom owner order: {error}")))
+    }
+
+    fn box_contains(&self, powers: &[i64]) -> Option<bool> {
+        self.boxed.as_ref().map(|record| record.contains(powers))
+    }
+
+    fn box_partial(&self) -> bool {
+        self.boxed.as_ref().is_some_and(|record| !record.complete)
+    }
+
+    fn box_record(&self) -> Option<&BoxedNodeRecord> {
+        self.boxed.as_deref()
     }
 }
 
@@ -1555,6 +1695,11 @@ pub struct CustomPayloadCheck {
     pub subsector_children: usize,
     /// Witness keys that are residuals of the owner.
     pub terminals: usize,
+    /// boxed-node: witness keys inside a partial box without rule (skipped).
+    pub open_box_keys: usize,
+    /// boxed-node, mixed box (point rules + parametric rules): box keys
+    /// stepped by the closure check (every non-terminal key of the box).
+    pub box_keys_stepped: usize,
 }
 
 /// The load-time checks of a Custom owner (`descent::check` items 1, 2 and 7)
@@ -1608,8 +1753,20 @@ pub fn verify_custom_payload(
             .fold(forced, |mask, (slot, _)| mask | 1 << slot)
     };
     for key in super::descent::custom_witness_keys(arity, support, forced) {
+        // boxed-node: a boxed owner is checked inside its box only.
+        if ops.box_contains(&key) == Some(false) {
+            continue;
+        }
         let order = ops.order_of(&key)?;
-        match ops.apply_powers(&key)? {
+        let applied = match ops.apply_powers(&key) {
+            // A partial box (pilot table) has box keys without rule yet.
+            Err(PError::Uncovered { .. }) if ops.box_partial() => {
+                check.open_box_keys += 1;
+                continue;
+            }
+            other => other?,
+        };
+        match applied {
             Applied::Terminal => {
                 if !ops.is_residual(&key) {
                     return Err(fail(format!("the terminal {key:?} is no residual")));
@@ -1637,6 +1794,42 @@ pub fn verify_custom_payload(
             }
         }
         check.witness_keys += 1;
+    }
+    // boxed-node, mixed box: the importer cannot evaluate parametric rules, so
+    // the closure of the box is checked here by stepping every box key: a
+    // rule (point or parametric, first match) applies and every child on the
+    // chart lies in the box.
+    if let Some(record) = ops
+        .box_record()
+        .filter(|record| record.parametric_rules > 0 && record.complete)
+    {
+        let keys = record
+            .definition
+            .keys(&record.chart, super::table_import::MAX_BOX_KEYS)
+            .map_err(|detail| fail(format!("boxed node {}: {detail}", record.node)))?;
+        for key in keys {
+            if ops.is_residual(&key) {
+                continue;
+            }
+            let applied = ops.apply_powers(&key).map_err(|error| {
+                fail(format!(
+                    "boxed node {}: the box key {key:?} has no rule ({error})",
+                    record.node
+                ))
+            })?;
+            if let Applied::Children(children) = applied {
+                for (child, _) in children {
+                    if support_of(&child) == support && !record.contains(&child) {
+                        return Err(fail(format!(
+                            "boxed node {}: the box is not closed: the rule of {key:?} gives {child:?} outside {}",
+                            record.node,
+                            record.describe()
+                        )));
+                    }
+                }
+            }
+            check.box_keys_stepped += 1;
+        }
     }
     Ok(check)
 }

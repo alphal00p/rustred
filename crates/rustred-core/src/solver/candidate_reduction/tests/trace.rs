@@ -181,8 +181,8 @@ fn original_denominator_zero_skips_zero_coefficient_and_can_fall_through() {
         .get_mut(&[true])
         .unwrap()[0]
         .rhs[0];
-    first.denominator = denominator;
-    first.coefficient = context.zero();
+    first.denominator = denominator.into();
+    first.coefficient = context.zero().into();
     let report = owner.trace_targets([key([4])], Default::default()).unwrap();
     assert_eq!(report.uncovered(), &BTreeSet::from([key([2])]));
     assert_eq!(report.rule_applications(), 1);
@@ -222,12 +222,12 @@ fn dimension_stays_symbolic_even_with_a_pole_at_four() {
         .get_mut(&[true])
         .unwrap()[0]
         .rhs[0];
-    term.coefficient = coefficient.clone();
-    term.denominator = denominator;
+    term.coefficient = coefficient.clone().into();
+    term.denominator = denominator.into();
     let report = owner.trace_targets([key([4])], Default::default()).unwrap();
     assert_eq!(report.uncovered(), &BTreeSet::from([key([3])]));
     assert_eq!(
-        std::sync::Arc::get_mut(&mut owner.program).unwrap().rules[&[true]][0].rhs[0].coefficient,
+        *std::sync::Arc::get_mut(&mut owner.program).unwrap().rules[&[true]][0].rhs[0].coefficient,
         coefficient
     );
 }
@@ -252,18 +252,10 @@ fn non_descent_to_an_already_scheduled_key_and_overflow_abort() {
         owner.trace_targets([key([3]), key([2])], Default::default()),
         Err(CandidateReductionError::NonDescending { .. })
     ));
-    let mut owner = partial(&[(2, &[(1, 1)])]);
-    std::sync::Arc::get_mut(&mut owner.program)
-        .unwrap()
-        .rules
-        .get_mut(&[true])
-        .unwrap()[0]
-        .rhs[0]
-        .shift = [i64::MAX];
-    assert!(matches!(
-        owner.trace_targets([key([2])], Default::default()),
-        Err(CandidateReductionError::IndexOverflow { .. })
-    ));
+    // t162-export: prepared shifts are stored as i8 (powers lie in
+    // [-64, 63], so every RHS shift fits); the former i64::MAX shift
+    // injection is unrepresentable. IndexOverflow stays reachable through
+    // keys of a symbolic slot near i64::MAX, not through this fixed fixture.
 }
 
 #[test]
@@ -745,4 +737,28 @@ fn retained_terminal_still_checks_source_conditions_before_a_warm_cache_hit() {
         owner.trace_targets([key([1])], Default::default()),
         Err(CandidateReductionError::SourceConditionVanished { .. })
     ));
+}
+
+/// t162-export: preparation interns equal coefficients and denominators of a
+/// batch (one shared value each) and stores shifts as i8; values unchanged.
+#[test]
+fn prepared_terms_share_equal_coefficients_and_denominators() {
+    let owner = partial(&[(6, &[(4, 1), (3, 1)]), (5, &[(4, 1), (2, 2)])]);
+    let rules = &owner.program.rules[&[true]];
+    let (a, b, c, d) = (
+        &rules[0].rhs[0],
+        &rules[0].rhs[1],
+        &rules[1].rhs[0],
+        &rules[1].rhs[1],
+    );
+    assert!(std::sync::Arc::ptr_eq(&a.coefficient, &b.coefficient));
+    assert!(std::sync::Arc::ptr_eq(&a.coefficient, &c.coefficient));
+    assert!(!std::sync::Arc::ptr_eq(&a.coefficient, &d.coefficient));
+    assert_ne!(*a.coefficient, *d.coefficient);
+    assert!(std::sync::Arc::ptr_eq(&a.denominator, &d.denominator));
+    assert_eq!(
+        (a.shift, b.shift, c.shift, d.shift),
+        ([-2], [-3], [-1], [-3])
+    );
+    assert_eq!(b.shift(), [-3_i64]);
 }

@@ -129,9 +129,15 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
     /// [`Self::apply_with_conditions`], also returning the applied rule's
     /// position in the evaluator's rule list (its batch), for the p path
     /// census's per-rule hit counts (M5 artefact v2, spec item 8).
-    pub(super) fn apply_with_conditions_rule(
+    ///
+    /// boxed-node: its first-match dispatch tries only `candidates`
+    /// (ascending rule positions; `None` = every rule). The p library's
+    /// owner step passes every rule that can apply to `target`
+    /// (`PointRuleIndex::candidates`), so the selection is the same.
+    pub(super) fn apply_with_conditions_rule_among(
         &self,
         target: &IntegralKey,
+        candidates: Option<&[usize]>,
         request: &mut ReductionRequest,
         statistics: &mut ReductionStatistics,
     ) -> Result<
@@ -139,8 +145,14 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
         CandidateReductionError,
     > {
         let mut position = 0;
-        let (terms, conditions) =
-            self.apply_with_selection_at(target, None, request, statistics, &mut position)?;
+        let (terms, conditions) = self.apply_with_selection_at(
+            target,
+            None,
+            candidates,
+            request,
+            statistics,
+            &mut position,
+        )?;
         Ok((terms, conditions, position))
     }
 
@@ -153,13 +165,14 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
     ) -> Result<(BTreeMap<IntegralKey, Coefficient>, Vec<Coefficient>), CandidateReductionError>
     {
         let mut position = 0;
-        self.apply_with_selection_at(target, selected, request, statistics, &mut position)
+        self.apply_with_selection_at(target, selected, None, request, statistics, &mut position)
     }
 
     fn apply_with_selection_at(
         &self,
         target: &IntegralKey,
         selected: Option<(&PreparedRule<N>, &PreparedRule<N>)>,
+        candidates: Option<&[usize]>,
         request: &mut ReductionRequest,
         statistics: &mut ReductionStatistics,
         position: &mut usize,
@@ -188,7 +201,7 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
             None => {
                 crate::prof_wrap!(
                     CustomDispatch,
-                    self.selected_rule_with_conditions(target, &mut nonzero)
+                    self.selected_rule_with_conditions(target, candidates, &mut nonzero)
                 )?
                 .1
             }
@@ -208,7 +221,7 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
         &self,
         target: &IntegralKey,
     ) -> Result<(&'a PreparedRule<N>, &'a PreparedRule<N>), CandidateReductionError> {
-        self.dispatch(target, |rule| self.applicable(rule, target))
+        self.dispatch(target, None, |rule| self.applicable(rule, target))
     }
 
     /// The same dispatch as `selected_rule`, reporting the guards of the
@@ -219,10 +232,11 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
     fn selected_rule_with_conditions(
         &self,
         target: &IntegralKey,
+        candidates: Option<&[usize]>,
         nonzero: &mut impl FnMut(&CoefficientPolynomial),
     ) -> Result<(&'a PreparedRule<N>, &'a PreparedRule<N>), CandidateReductionError> {
         let mut candidate_guards = Vec::new();
-        self.dispatch(target, |rule| {
+        self.dispatch(target, candidates, |rule| {
             candidate_guards.clear();
             let applicable = self.applicable_with_conditions(rule, target, &mut |condition| {
                 candidate_guards.push(condition.clone())
@@ -236,13 +250,23 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
 
     /// The first applicable partition rule, optionally replaced by the first
     /// applicable whole-piece alternative.
+    /// With `candidates` (ascending positions in `self.rules`), only those
+    /// rules are tried, in the same order.
     fn dispatch(
         &self,
         target: &IntegralKey,
+        candidates: Option<&[usize]>,
         mut applicable: impl FnMut(&'a PreparedRule<N>) -> Result<bool, CandidateReductionError>,
     ) -> Result<(&'a PreparedRule<N>, &'a PreparedRule<N>), CandidateReductionError> {
         let mut baseline = None;
-        for rule in self.rules {
+        let rules: &'a [PreparedRule<N>] = self.rules;
+        let mut all = rules.iter();
+        let mut some = candidates.map(|positions| positions.iter().map(|&at| &rules[at]));
+        let mut next = || match some.as_mut() {
+            Some(iter) => iter.next(),
+            None => all.next(),
+        };
+        while let Some(rule) = next() {
             if rule.dispatch_policy == crate::solver::RuleDispatchPolicy::Partition
                 && applicable(rule)?
             {
@@ -457,13 +481,13 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
             .zip(&term.shift)
             .enumerate()
         {
-            *out = n
-                .checked_add(shift)
-                .ok_or_else(|| CandidateReductionError::IndexOverflow {
+            *out = n.checked_add(i64::from(shift)).ok_or_else(|| {
+                CandidateReductionError::IndexOverflow {
                     target: target.clone(),
                     axis,
                     rule: rule.ordinal,
-                })?;
+                }
+            })?;
         }
         let child = IntegralKey::try_new(child[..self.context.index_count()].iter().copied())
             .map_err(ReductionError::IntegralKey)?;

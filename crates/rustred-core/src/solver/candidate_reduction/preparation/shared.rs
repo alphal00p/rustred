@@ -2,14 +2,15 @@
 use super::super::model::{
     CandidateFamilyAdmission, CandidateReductionError, PreparedRule, PreparedTerm,
 };
-use crate::algebra::{IndexedCoefficientContext, IndexedPolynomial};
+use crate::algebra::{IndexedCoefficient, IndexedCoefficientContext, IndexedPolynomial};
 use crate::family::{IntegralFamily, IntegralKey};
 use crate::foundry::artifact::SourcePortAudit;
 use crate::identity::ParametricIbpGenerator;
 use crate::reduction::ReductionLimits;
 use crate::sector::{OrderingPolicy, zero};
 use crate::solver::{Integral, IntegralOrder, SectorRule, SectorSolution, SourceSystem};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::hash::Hash;
 use std::sync::Arc;
 
 fn invalid_input(error: impl std::error::Error + 'static) -> CandidateReductionError {
@@ -323,6 +324,24 @@ pub(in crate::solver::candidate_reduction) fn prepare_records<const N: usize>(
     Ok(PreparedRecords { rules, terminals })
 }
 
+/// t162-export: equal coefficients and denominators of one prepared batch are
+/// stored once (`Arc`), so the loaded form of a table grows with its distinct
+/// values, not with its RHS terms. Interning only shares equal values.
+#[derive(Default)]
+struct TermInterner {
+    coefficients: HashSet<Arc<IndexedCoefficient>>,
+    denominators: HashSet<Arc<IndexedPolynomial>>,
+}
+
+fn intern<T: Hash + Eq>(set: &mut HashSet<Arc<T>>, value: T) -> Arc<T> {
+    if let Some(found) = set.get(&value) {
+        return Arc::clone(found);
+    }
+    let value = Arc::new(value);
+    set.insert(Arc::clone(&value));
+    value
+}
+
 /// Shared native conversion for complete records and source-bound partial jobs.
 /// This helper confers no completeness or source authority on its caller.
 pub(in crate::solver::candidate_reduction) fn prepare_batch<const N: usize>(
@@ -333,7 +352,29 @@ pub(in crate::solver::candidate_reduction) fn prepare_batch<const N: usize>(
     limits: ReductionLimits,
     ordinal: &mut usize,
 ) -> Result<(Vec<PreparedRule<N>>, BTreeSet<IntegralKey>), CandidateReductionError> {
+    prepare_batch_from(
+        shared,
+        sector,
+        source_rules.into_iter().map(Ok),
+        residuals,
+        limits,
+        ordinal,
+    )
+}
+
+/// [`prepare_batch`] over rules restored one at a time (t162-export): each
+/// source rule is dropped once prepared, so the restored form of the whole
+/// batch is never held next to the prepared one.
+pub(in crate::solver::candidate_reduction) fn prepare_batch_from<const N: usize>(
+    shared: &PreparedFamily<N>,
+    sector: [bool; N],
+    source_rules: impl IntoIterator<Item = Result<SectorRule<N>, CandidateReductionError>>,
+    residuals: Vec<Integral<N>>,
+    limits: ReductionLimits,
+    ordinal: &mut usize,
+) -> Result<(Vec<PreparedRule<N>>, BTreeSet<IntegralKey>), CandidateReductionError> {
     let context = &shared.context;
+    let mut interner = TermInterner::default();
     let mut terminals = BTreeSet::new();
     if shared.zero_sectors.contains(&sector) {
         return Err(CandidateReductionError::InvalidInput(
@@ -368,6 +409,7 @@ pub(in crate::solver::candidate_reduction) fn prepare_batch<const N: usize>(
     }
     let mut prepared = Vec::new();
     for rule in source_rules {
+        let rule = rule?;
         let candidate = rule.candidate;
         if !candidate.case.is_in_sector(&sector) || candidate.target != candidate.case.integral() {
             return Err(CandidateReductionError::InvalidInput(
@@ -423,15 +465,24 @@ pub(in crate::solver::candidate_reduction) fn prepare_batch<const N: usize>(
             )?;
             let coefficient =
                 context.admit_storage_result_with_limits(term.coefficient, limits.exact_algebra)?;
-            let shift = std::array::from_fn(|i| {
-                i64::from(term.integral[i].value()) - i64::from(candidate.target[i].value())
-            });
+            let mut shift = [0_i8; N];
+            for (i, out) in shift.iter_mut().enumerate() {
+                *out = i8::try_from(
+                    i64::from(term.integral[i].value()) - i64::from(candidate.target[i].value()),
+                )
+                .map_err(|_| {
+                    CandidateReductionError::InvalidInput(
+                        "candidate RHS shift exceeds the i8 storage of a prepared term".into(),
+                    )
+                })?;
+            }
             rhs.push(PreparedTerm {
                 shift,
-                coefficient,
-                denominator,
+                coefficient: intern(&mut interner.coefficients, coefficient),
+                denominator: intern(&mut interner.denominators, denominator),
             });
         }
+        rhs.shrink_to_fit();
         prepared.push(PreparedRule {
             ordinal: *ordinal,
             dispatch_policy: rule.dispatch_policy,

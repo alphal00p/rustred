@@ -21,6 +21,15 @@ pub enum PError {
         class: OwnerClassId,
         key: IntegralKey,
     },
+    /// boxed-node: a key of a boxed node's chart outside its box: the node's
+    /// table covers only the box, so the key has no rule there (never a
+    /// value). `node` and `definition` describe the box.
+    OutsideBox {
+        class: OwnerClassId,
+        key: IntegralKey,
+        node: String,
+        definition: String,
+    },
     /// One request mixes loop counts.
     MixedDimension,
     /// A Gamma tag outside `|m| <= P_GAMMA_TAG_MAX_M`, `|e| <= 127`.
@@ -61,6 +70,17 @@ impl fmt::Display for PError {
             Self::Uncovered { class, key } => write!(
                 formatter,
                 "owner class {:016x} does not cover {:?}",
+                class.0,
+                key.powers()
+            ),
+            Self::OutsideBox {
+                class,
+                key,
+                node,
+                definition,
+            } => write!(
+                formatter,
+                "owner class {:016x} (boxed node {node}) does not cover {:?}: the key lies outside its {definition}",
                 class.0,
                 key.powers()
             ),

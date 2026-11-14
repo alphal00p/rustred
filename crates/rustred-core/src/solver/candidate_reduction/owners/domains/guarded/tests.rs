@@ -80,7 +80,7 @@ fn rule(
     p: &CandidateOwnerPrograms<3>,
     multiplier: i64,
     coefficient: IndexedCoefficient,
-    shift: [i64; 3],
+    shift: [i8; 3],
 ) -> PreparedRule<3> {
     let c = p.context.coefficient_context();
     let equality = diagonal(c, multiplier);
@@ -102,8 +102,8 @@ fn rule(
         exceptions: vec![],
         rhs: vec![PreparedTerm {
             shift,
-            denominator: poly(c, &c.integer(1)),
-            coefficient,
+            denominator: poly(c, &c.integer(1)).into(),
+            coefficient: coefficient.into(),
         }],
     }
 }
@@ -286,8 +286,8 @@ fn guarded_whole_exclusion_and_original_poles_survive_zero_rhs() {
     assert_eq!(out.admitted, 0);
     let r = &mut batch(&mut p).rules[0];
     r.exceptions.clear();
-    r.rhs[0].coefficient = c.zero();
-    r.rhs[0].denominator = diagonal(&c, 1);
+    r.rhs[0].coefficient = c.zero().into();
+    r.rhs[0].denominator = diagonal(&c, 1).into();
     let (out, result) = collect(
         &p,
         [1, 1, 0],
@@ -313,7 +313,7 @@ fn guarded_original_child_source_validity_precedes_native_cancellation() {
     let mut r = rule(&p, 1, c.integer(1), [-1, 0, 0]);
     let opposite = PreparedTerm {
         shift: r.rhs[0].shift,
-        coefficient: c.integer(-1),
+        coefficient: c.integer(-1).into(),
         denominator: r.rhs[0].denominator.clone(),
     };
     r.rhs.push(opposite);
@@ -430,7 +430,7 @@ fn guarded_reuses_strict_descent_and_equal_shift_coalescence() {
     let mut r = rule(&p, 1, c.index(0).unwrap(), [-1, 0, 0]);
     let opposite = PreparedTerm {
         shift: r.rhs[0].shift,
-        coefficient: c.sub(&c.zero(), &r.rhs[0].coefficient).unwrap(),
+        coefficient: c.sub(&c.zero(), &r.rhs[0].coefficient).unwrap().into(),
         denominator: r.rhs[0].denominator.clone(),
     };
     r.rhs.push(opposite);

@@ -556,6 +556,11 @@ fn check_custom_witnesses(
         presentation.forced_axes(),
     );
     for key in &keys {
+        // boxed-node: a boxed owner covers its box only; witness keys outside
+        // it are refused at run time (PError::OutsideBox), not stepped here.
+        if step.box_contains(key) == Some(false) {
+            continue;
+        }
         let order = step.order_key(&cx, key)?;
         let view = PKeyView {
             presentation: spec.presentation,
@@ -901,7 +906,7 @@ struct Refusal(TraceFailureKind, String);
 impl From<PError> for Refusal {
     fn from(error: PError) -> Self {
         let kind = match error {
-            PError::Uncovered { .. } => TraceFailureKind::Uncovered,
+            PError::Uncovered { .. } | PError::OutsideBox { .. } => TraceFailureKind::Uncovered,
             PError::MissingOwner { .. } => TraceFailureKind::MissingOwner,
             _ => TraceFailureKind::Other,
         };

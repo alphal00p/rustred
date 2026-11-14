@@ -48,7 +48,7 @@ pub(super) fn guarded_fixture(shared_and_cancelled: bool) -> CandidateReducer<1>
         .iter_mut()
         .enumerate()
     {
-        rule.rhs[0].denominator = polynomial(ordinal + 2);
+        rule.rhs[0].denominator = (polynomial(ordinal + 2)).into();
         rule.exceptions = vec![vec![polynomial(ordinal + 50), polynomial(ordinal + 150)]];
     }
     source
