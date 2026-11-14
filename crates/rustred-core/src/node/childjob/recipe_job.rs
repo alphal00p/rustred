@@ -65,6 +65,8 @@ struct RJob {
     started: Instant,
     started_utc: String,
     effective: Mutex<Option<Effective>>,
+    /// the recipe's `relation_rule` (v1.2, default m1_first) as the verb parses it; recorded in OUTCOME
+    relation_rule: Mutex<Value>,
     keys: Mutex<Vec<KeyLine>>,
     key_budget_s: Mutex<Option<f64>>,
     stop: AtomicBool,
@@ -524,6 +526,7 @@ fn finish(j: &RJob, verb: &Value, exit: i32, graceful: bool) -> i32 {
     let mut legacy = serde_json::Map::new();
     legacy.insert("complete".into(), Value::Bool(code == ExitCode::Complete));
     legacy.insert("rules".into(), Value::from(tally.accepted));
+    legacy.insert("relation_rule".into(), lock(&j.relation_rule).clone());
     legacy.insert("result".into(), verb.clone());
     let o = j.outcome(
         code,
@@ -582,6 +585,7 @@ pub fn run(start: JobStart, resolve: &dyn Fn(&JobSpec, &str) -> RecipeArgs) -> !
         started: Instant::now(),
         started_utc: cc::time::utc_now(),
         effective: Mutex::new(None),
+        relation_rule: Mutex::new(Value::Null),
         keys: Mutex::new(vec![]),
         key_budget_s: Mutex::new(None),
         stop: AtomicBool::new(false),
@@ -624,6 +628,12 @@ pub fn run(start: JobStart, resolve: &dyn Fn(&JobSpec, &str) -> RecipeArgs) -> !
     let (recipe_path, recipe_bytes) = read_input(spec, "recipe")
         .unwrap_or_else(|| fail(ExitCode::Usage, "input role recipe missing"));
     let recipe_text = text("recipe", recipe_bytes);
+    // the recipe as the verb parses it: an unparsable recipe is an input error (41) before any work; its relation rule
+    // (v1.2: m1_first default | first_admissible) is recorded in OUTCOME (effective.node_options and `relation_rule`)
+    let parsed = recipe::Recipe::parse(&recipe_text)
+        .unwrap_or_else(|e| fail(ExitCode::Input, &format!("recipe: {e}")));
+    let relation_rule = serde_json::to_value(parsed.relation_rule).unwrap_or(Value::Null);
+    *lock(&j.relation_rule) = relation_rule.clone();
     let (_, keys_bytes) = read_input(spec, "keys")
         .unwrap_or_else(|| fail(ExitCode::Usage, "input role keys missing"));
     let key_lines = parse_keys_input(&keys_bytes).unwrap_or_else(|e| fail(ExitCode::Input, &e));
@@ -653,7 +663,8 @@ pub fn run(start: JobStart, resolve: &dyn Fn(&JobSpec, &str) -> RecipeArgs) -> !
             args: spec.args.clone(),
             node_options: json!({"threads": a.threads.max(1), "max_trace_rows": a.max_trace_rows,
                 "key_budget_s": a.key_budget_s, "proof": true, "expect_keys": expect.len(),
-                "determinism_id": recipe::DETERMINISM_ID}),
+                "determinism_id": recipe::DETERMINISM_ID, "relation_rule": relation_rule,
+                "recipe_id": parsed.id.clone(), "recipe_digest": parsed.digest()}),
             order: order_json,
             env: effective_env(),
             blake3: String::new(),
