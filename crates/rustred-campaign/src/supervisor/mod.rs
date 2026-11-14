@@ -1082,7 +1082,12 @@ impl Supervisor {
             {
                 // A live marked process: an unconfirmed launch DID start (late confirmation, `started`).
                 if unconfirmed {
-                    self.confirm_late(&job, attempt, &alive, "alive and not signalled by the recovery sweep");
+                    self.confirm_late(
+                        &job,
+                        attempt,
+                        &alive,
+                        "alive and not signalled by the recovery sweep",
+                    );
                 }
                 // gate-A M-1: never settle while a marked process of the attempt lives.
                 self.log.line(
@@ -1291,7 +1296,11 @@ impl Supervisor {
             return;
         }
         if in_attention {
-            self.execution_unknown(job, attempt, "still waiting for the operator (item in attention)");
+            self.execution_unknown(
+                job,
+                attempt,
+                "still waiting for the operator (item in attention)",
+            );
             return;
         }
         let Some(run_dir) = jr.run_dir.clone() else {
@@ -1299,18 +1308,23 @@ impl Supervisor {
             return;
         };
         let layout = RunLayout::new(&run_dir);
-        let (spec, digest) =
-            match self.authenticate_run(job, attempt, &run_dir, &layout, jr.attempt_spec.as_deref()) {
-                Ok(x) => x,
-                Err(why) => {
-                    self.execution_unknown(
-                        job,
-                        attempt,
-                        &format!("run directory not authenticated: {why}"),
-                    );
-                    return;
-                }
-            };
+        let (spec, digest) = match self.authenticate_run(
+            job,
+            attempt,
+            &run_dir,
+            &layout,
+            jr.attempt_spec.as_deref(),
+        ) {
+            Ok(x) => x,
+            Err(why) => {
+                self.execution_unknown(
+                    job,
+                    attempt,
+                    &format!("run directory not authenticated: {why}"),
+                );
+                return;
+            }
+        };
         let sentinel = layout.sup_dir().join(SPAWN_SENTINEL);
         match std::fs::symlink_metadata(&sentinel) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -1350,7 +1364,14 @@ impl Supervisor {
             }
             Ok(_) => {}
         }
-        let ev = classify::assess(&layout, &spec, &digest, WaitStatus::Unknown, CKill::None, false);
+        let ev = classify::assess(
+            &layout,
+            &spec,
+            &digest,
+            WaitStatus::Unknown,
+            CKill::None,
+            false,
+        );
         if matches!(ev.outcome, OutcomeState::Valid(_)) {
             self.settle(
                 job,
@@ -1482,7 +1503,10 @@ impl Supervisor {
             Err(e) => {
                 self.log.line(
                     "WARN",
-                    &format!("{job} a{attempt}: item {} not put in attention: {e}", jr.item),
+                    &format!(
+                        "{job} a{attempt}: item {} not put in attention: {e}",
+                        jr.item
+                    ),
                 );
                 self.commit(vec![note]);
             }
@@ -1696,35 +1720,28 @@ impl Supervisor {
         // accepts NOTHING (class crashed). The FileRef recorded is the verified figures, never a re-read of the path.
         let wants_table =
             target == AttemptTarget::SucceededSealed || c.accept != ContractAccept::Nothing;
-        let stream = if wants_table {
-            settle_stream(spec.kind, ev.verified.as_ref())
-        } else {
-            None
-        };
-        let must_read = wants_table && (spec.kind.produces_table() || stream.is_some());
-        if must_read {
-            match stream
-                .ok_or_else(|| "no verified stream for the sealed output".to_string())
-                .and_then(|st| read_verified_stream(layout, st))
-            {
-                Ok(t) => {
-                    table = Some(FileRef {
-                        path: self.rel_path(&layout.root.join(&t.rel)),
-                        bytes: t.bytes,
-                        blake3: t.blake3,
-                    });
-                    lines = t.lines;
-                    canon = Some(t.canonical);
-                }
-                Err(why) => self.log.line(
+        let mut sealed_ok = true;
+        match settle_output(layout, spec.kind, ev.verified.as_ref(), wants_table) {
+            Ok(Some(t)) => {
+                table = Some(FileRef {
+                    path: self.rel_path(&layout.root.join(&t.rel)),
+                    bytes: t.bytes,
+                    blake3: t.blake3,
+                });
+                lines = t.lines;
+                canon = Some(t.canonical);
+            }
+            Ok(None) => {}
+            Err(why) => {
+                sealed_ok = false;
+                self.log.line(
                     "ERROR",
                     &format!(
                         "{job} a{attempt}: sealed output not accepted: {why}; nothing accepted"
                     ),
-                ),
+                );
             }
         }
-        let sealed_ok = !must_read || table.is_some();
         let settled = Settled {
             job: job.into(),
             attempt,
@@ -2556,7 +2573,10 @@ impl Supervisor {
             return;
         };
         if !unconfirmed && !attention {
-            refuse(self, "not an attempt of unknown execution (unconfirmed launch)");
+            refuse(
+                self,
+                "not an attempt of unknown execution (unconfirmed launch)",
+            );
             return;
         }
         if r.id.is_empty() || r.id.len() > 128 {
@@ -2636,8 +2656,10 @@ impl Supervisor {
             }
             Ok(false) => {}
             Err(why) => {
-                self.log
-                    .line("INFO", &format!("control {} (resolve) refused: {why}", r.id));
+                self.log.line(
+                    "INFO",
+                    &format!("control {} (resolve) refused: {why}", r.id),
+                );
                 self.commit(vec![Event::Control {
                     id: r.id.clone(),
                     ev: ControlEvent::Refused { why },
@@ -3632,6 +3654,27 @@ fn settle_stream(
     }
 }
 
+/// The settle's sealed-output decision (lane int5: ONE function for the table AND closeloop's results stream).
+/// `wants_records`: the row may accept records. `Ok(None)`: nothing to read (no such row, or a table-less kind whose
+/// classification verified no results stream); `Ok(Some(t))`: the lines, read once through the verified handle;
+/// `Err(why)`: a stream had to be read and could not be (swapped, changed, removed or unreadable since it was
+/// verified; a table kind without its verified table): the attempt accepts NOTHING (the settle records class crashed).
+fn settle_output(
+    layout: &RunLayout,
+    kind: rustred_campaign_contract::spec::JobKind,
+    verified: Option<&classify::VerifiedOutputs>,
+    wants_records: bool,
+) -> Result<Option<BoundTable>, String> {
+    if !wants_records {
+        return Ok(None);
+    }
+    match settle_stream(kind, verified) {
+        Some(st) => read_verified_stream(layout, st).map(Some),
+        None if kind.produces_table() => Err("no verified stream for the sealed table".into()),
+        None => Ok(None),
+    }
+}
+
 /// ac2-M1 (procfix3 item 5; lane int5: the ONE reader of accepted lines, for the table AND for closeloop's results
 /// stream): the stream that `assess` verified, re-opened through the contract's verified-stream handle
 /// (`seal::VerifiedHandle::reopen`: run-relative no-follow open, the verified (dev, inode) or refused) and read ONCE:
@@ -3802,7 +3845,10 @@ mod tests {
     }
 
     /// The settle's selection + read for a table kind.
-    fn read_table(l: &RunLayout, v: Option<&classify::VerifiedOutputs>) -> Result<BoundTable, String> {
+    fn read_table(
+        l: &RunLayout,
+        v: Option<&classify::VerifiedOutputs>,
+    ) -> Result<BoundTable, String> {
         settle_stream(rustred_campaign_contract::spec::JobKind::Fake, v)
             .ok_or_else(|| "no verified stream".to_string())
             .and_then(|st| read_verified_stream(l, st))
@@ -3840,7 +3886,10 @@ mod tests {
         assert_eq!(st.rel, rel);
         let t = read_verified_stream(&l, st).unwrap();
         assert_eq!(t.lines.len(), 4);
-        assert_eq!((t.bytes, t.canonical.as_str()), (rs.bytes, rs.canonical_blake3.as_str()));
+        assert_eq!(
+            (t.bytes, t.canonical.as_str()),
+            (rs.bytes, rs.canonical_blake3.as_str())
+        );
         // no results stream verified: nothing selected (the settle then reads nothing and accepts nothing)
         let none = classify::VerifiedOutputs {
             streams: vec![v.streams[0].clone()],
@@ -3854,10 +3903,88 @@ mod tests {
                 .append(true)
                 .open(l.root.join(&rel))
                 .unwrap();
-            f.write_all(b"{\"type\":\"relation\",\"key\":\"I(9)\"}\n").unwrap();
+            f.write_all(b"{\"type\":\"relation\",\"key\":\"I(9)\"}\n")
+                .unwrap();
         }
         assert!(read_verified_stream(&l, st).is_err());
         let _ = std::fs::remove_dir_all(&l.root);
+    }
+
+    /// Lane int5 regression (the merge's settle defect: closeloop's results branch re-read the file by PATH and a failed
+    /// read still counted as sealed): for a table-less kind whose results stream was verified, a results file SWAPPED
+    /// (another sealed file renamed over it, even byte-identical: another inode), REMOVED, or rewritten in place after
+    /// the verification yields `Err` = nothing accepted, never `Ok(None)` (which would settle as sealed with no lines).
+    #[test]
+    fn results_stream_swapped_or_unreadable_after_verification_accepts_nothing() {
+        use rustred_campaign_contract::spec::{JobKind, RESULT_END_TYPES};
+        let rel = RunLayout::out_rel(rustred_campaign_contract::layout::RESULTS);
+        let write = |l: &RunLayout, n: u64| {
+            let mut w = RecordWriter::create(&l.root.join(&rel)).unwrap();
+            for i in 0..n {
+                w.append(format!(r#"{{"type":"relation","key":"I({i})","index":{i}}}"#).as_bytes())
+                    .unwrap();
+            }
+            w.seal(format!(r#"{{"type":"end","records":{n}}}"#).as_bytes())
+                .unwrap();
+        };
+        let fresh = |tag: &str| {
+            let l = run_dir(tag);
+            write(&l, 3);
+            let (st, _) = seal::verify_stream_handle(&l.root, &rel, &RESULT_END_TYPES).unwrap();
+            let v = classify::VerifiedOutputs {
+                rules: 0,
+                elided_loci: 0,
+                streams: vec![st],
+                relations: None,
+            };
+            (l, v)
+        };
+        let k = JobKind::SolveRecipe;
+        // honest: the lines
+        let (l, v) = fresh("res-honest");
+        let t = settle_output(&l, k, Some(&v), true).unwrap().expect("read");
+        assert_eq!(t.lines.len(), 4);
+        // a row that accepts no records reads nothing, whatever the files
+        assert!(settle_output(&l, k, Some(&v), false).unwrap().is_none());
+        // swapped by another sealed results file (different content), then by a byte-identical copy (new inode)
+        let other = run_dir("res-other");
+        write(&other, 5);
+        std::fs::rename(other.root.join(&rel), l.root.join(&rel)).unwrap();
+        let e = settle_output(&l, k, Some(&v), true).unwrap_err();
+        assert!(e.contains("InodeChanged") || e.contains("changed"), "{e}");
+        let (l2, v2) = fresh("res-copy");
+        let copy = l2.root.join("out/copy.jsonl");
+        std::fs::copy(l2.root.join(&rel), &copy).unwrap();
+        std::fs::rename(&copy, l2.root.join(&rel)).unwrap();
+        assert!(
+            settle_output(&l2, k, Some(&v2), true).is_err(),
+            "identical bytes, other inode"
+        );
+        // removed after the verification
+        let (l3, v3) = fresh("res-removed");
+        std::fs::remove_file(l3.root.join(&rel)).unwrap();
+        assert!(settle_output(&l3, k, Some(&v3), true).is_err());
+        // rewritten in place (same inode, truncated)
+        let (l4, v4) = fresh("res-truncated");
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(l4.root.join(&rel))
+            .unwrap()
+            .set_len(10)
+            .unwrap();
+        assert!(settle_output(&l4, k, Some(&v4), true).is_err());
+        // a table-less kind with no verified results stream: nothing to read (checker kinds); a table kind without
+        // its verified table: refused
+        let none = classify::VerifiedOutputs {
+            streams: vec![],
+            ..v.clone()
+        };
+        assert!(settle_output(&l, k, Some(&none), true).unwrap().is_none());
+        assert!(settle_output(&l, JobKind::Fake, Some(&none), true).is_err());
+        assert!(settle_output(&l, JobKind::Fake, None, true).is_err());
+        for d in [&l, &other, &l2, &l3, &l4] {
+            let _ = std::fs::remove_dir_all(&d.root);
+        }
     }
 
     /// procfix3 item 5 (ac2-M1): the settle reads exactly the verified bytes, or nothing. Honest: the lines and the

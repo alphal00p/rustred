@@ -17,7 +17,8 @@ pub const FAILPOINT_ENV: &str = "RR_CAMPAIGN_FAILPOINT";
 /// BLAKE3 of the variable's NAME (gate (d), lane int5): a release build recognises the variable, and REFUSES to run
 /// with it, without carrying its name (the `strings` check finds neither the name nor a site).
 #[cfg_attr(debug_assertions, allow(dead_code))]
-const FAILPOINT_ENV_BLAKE3: &str = "faf147e7d740c975e49c408a3e030816c176ef73bb706840b7b077de3b3a4d70";
+const FAILPOINT_ENV_BLAKE3: &str =
+    "faf147e7d740c975e49c408a3e030816c176ef73bb706840b7b077de3b3a4d70";
 
 /// The name of the test-hook variable when it is set in a RELEASE build (which has no hooks: running on would let an
 /// operator believe a rehearsal hook is armed; the supervisor refuses, exit 1). Always `None` in a test build.
@@ -180,7 +181,9 @@ mod tests {
     #[test]
     fn release_refusal_digest_is_the_variable_name() {
         assert_eq!(
-            blake3::hash(super::FAILPOINT_ENV.as_bytes()).to_hex().as_str(),
+            blake3::hash(super::FAILPOINT_ENV.as_bytes())
+                .to_hex()
+                .as_str(),
             super::FAILPOINT_ENV_BLAKE3
         );
         assert_eq!(super::release_refusal(), None, "a test build never refuses");

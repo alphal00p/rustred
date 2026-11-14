@@ -32,7 +32,10 @@ fn unconfirmed(d: &std::path::Path) -> Vec<String> {
 
 /// Ledger records `job {job, ev}` matching `f`.
 fn job_events(d: &std::path::Path, job: &str, f: impl Fn(&JobEvent) -> bool) -> usize {
-    count(d, |e| matches!(e, Event::Job { job: j, ev, .. } if j == job && f(ev)))
+    count(
+        d,
+        |e| matches!(e, Event::Job { job: j, ev, .. } if j == job && f(ev)),
+    )
 }
 
 /// Item 6 (requirement 05:23Z), part 1, Astra's hazard: a launch journalled but never confirmed (crash between the
@@ -108,7 +111,10 @@ fn unconfirmed_launch_with_a_valid_outcome_is_consumed_and_unspawned_is_requeued
     assert!(j.state.is_settled());
     // lane int5: marked `unconfirmed` by the recovery hook, then settled by a `finished` BOUND to exactly this launch.
     assert_eq!(
-        job_events(&d, &unconfirmed[0], |e| matches!(e, JobEvent::Unconfirmed { .. })),
+        job_events(&d, &unconfirmed[0], |e| matches!(
+            e,
+            JobEvent::Unconfirmed { .. }
+        )),
         1
     );
     let launched = j.attempt_spec.clone().unwrap();
@@ -143,7 +149,15 @@ fn unconfirmed_launch_with_a_valid_outcome_is_consumed_and_unspawned_is_requeued
             } if reason.contains("SPAWN")
         )) >= 1
     );
-    assert!(count(&d, |e| matches!(e, Event::Job { ev: JobEvent::Unconfirmed { .. }, .. })) >= 1);
+    assert!(
+        count(&d, |e| matches!(
+            e,
+            Event::Job {
+                ev: JobEvent::Unconfirmed { .. },
+                ..
+            }
+        )) >= 1
+    );
     let f = ledger_facts(&d);
     assert_eq!(f.requeues, f.interrupted);
     assert_no_marked(&t.campaign);
@@ -199,7 +213,10 @@ fn unconfirmed_launch_without_outcome_waits_for_the_operator() {
     assert_eq!(
         job_events(&d, &unknown[0], |e| matches!(
             e,
-            JobEvent::Lose { .. } | JobEvent::Interrupt { .. } | JobEvent::Requeue { .. } | JobEvent::NotSpawned { .. }
+            JobEvent::Lose { .. }
+                | JobEvent::Interrupt { .. }
+                | JobEvent::Requeue { .. }
+                | JobEvent::NotSpawned { .. }
         )),
         0,
         "an unconfirmed launch is never 'did not run'"
@@ -242,7 +259,10 @@ fn unconfirmed_launch_without_outcome_waits_for_the_operator() {
         1
     );
     assert_eq!(
-        job_events(&d, &unknown[0], |e| matches!(e, JobEvent::Lose { .. } | JobEvent::Requeue { .. })),
+        job_events(&d, &unknown[0], |e| matches!(
+            e,
+            JobEvent::Lose { .. } | JobEvent::Requeue { .. }
+        )),
         0
     );
     assert_eq!(verify(&d), 0);

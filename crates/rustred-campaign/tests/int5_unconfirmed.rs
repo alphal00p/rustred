@@ -15,7 +15,10 @@ use rustred_campaign::state::{AttemptState, ItemPhase};
 use std::time::Duration;
 
 fn job_events(d: &std::path::Path, job: &str, f: impl Fn(&JobEvent) -> bool) -> usize {
-    count(d, |e| matches!(e, Event::Job { job: j, ev, .. } if j == job && f(ev)))
+    count(
+        d,
+        |e| matches!(e, Event::Job { job: j, ev, .. } if j == job && f(ev)),
+    )
 }
 
 fn in_state(d: &std::path::Path, want: AttemptState) -> Vec<String> {
@@ -43,8 +46,18 @@ fn live_marked_process_of_an_unconfirmed_launch_is_a_late_confirmation() {
     let reference = result(&r);
 
     let d = t.cdir("live");
-    let mut c = start(&spec_p, &d, &[], &[("RR_CAMPAIGN_FAILPOINT", "after_spawn:2")]);
-    assert_eq!(wait(&mut c, Duration::from_secs(300)), 134, "{}", log_tail(&d));
+    let mut c = start(
+        &spec_p,
+        &d,
+        &[],
+        &[("RR_CAMPAIGN_FAILPOINT", "after_spawn:2")],
+    );
+    assert_eq!(
+        wait(&mut c, Duration::from_secs(300)),
+        134,
+        "{}",
+        log_tail(&d)
+    );
     let launching = in_state(&d, AttemptState::Launching);
     assert_eq!(launching.len(), 1, "{launching:?}");
     let job = launching[0].clone();
@@ -62,9 +75,11 @@ fn live_marked_process_of_an_unconfirmed_launch_is_a_late_confirmation() {
         .env("RR_CAMPAIGN_JOB", format!("{id}:{job}:a{}", jr.attempt))
         .spawn()
         .unwrap();
-    wait_until("the planted process marked", Duration::from_secs(30), || {
-        marked(&t.campaign).contains(&planted.id())
-    });
+    wait_until(
+        "the planted process marked",
+        Duration::from_secs(30),
+        || marked(&t.campaign).contains(&planted.id()),
+    );
     let codes = run_to_end(&spec_p, &d, &[]);
     assert_eq!(codes, vec![0], "no operator decision: {}", log_tail(&d));
     assert_eq!(result(&d), reference);
@@ -74,14 +89,29 @@ fn live_marked_process_of_an_unconfirmed_launch_is_a_late_confirmation() {
         use std::os::unix::process::ExitStatusExt;
         assert_eq!(status.signal(), Some(libc::SIGKILL), "{status:?}");
     }
-    assert!(count(&d, |e| matches!(e, Event::OrphanKilled { pid, .. } if *pid == planted.id())) >= 1);
+    assert!(
+        count(
+            &d,
+            |e| matches!(e, Event::OrphanKilled { pid, .. } if *pid == planted.id())
+        ) >= 1
+    );
     // unconfirmed -> started (late, the planted pid) -> interrupted / lost -> requeue
-    assert_eq!(job_events(&d, &job, |e| matches!(e, JobEvent::Unconfirmed { .. })), 1);
     assert_eq!(
-        job_events(&d, &job, |e| matches!(e, JobEvent::Started { pid, .. } if *pid == planted.id())),
+        job_events(&d, &job, |e| matches!(e, JobEvent::Unconfirmed { .. })),
         1
     );
-    assert_eq!(job_events(&d, &job, |e| matches!(e, JobEvent::NotSpawned { .. })), 0);
+    assert_eq!(
+        job_events(
+            &d,
+            &job,
+            |e| matches!(e, JobEvent::Started { pid, .. } if *pid == planted.id())
+        ),
+        1
+    );
+    assert_eq!(
+        job_events(&d, &job, |e| matches!(e, JobEvent::NotSpawned { .. })),
+        0
+    );
     assert!(job_events(&d, &job, |e| matches!(e, JobEvent::Requeue { .. })) >= 1);
     assert!(notes(&d, "execution_unknown").is_empty());
     assert_eq!(verify(&d), 0);
@@ -106,17 +136,35 @@ fn unspawned_launch_without_an_authenticated_run_directory_is_execution_unknown(
     let reference = result(&r);
 
     let d = t.cdir("unauth");
-    let mut c = start(&spec_p, &d, &[], &[("RR_CAMPAIGN_FAILPOINT", "after_launch_record:2")]);
-    assert_eq!(wait(&mut c, Duration::from_secs(300)), 134, "{}", log_tail(&d));
+    let mut c = start(
+        &spec_p,
+        &d,
+        &[],
+        &[("RR_CAMPAIGN_FAILPOINT", "after_launch_record:2")],
+    );
+    assert_eq!(
+        wait(&mut c, Duration::from_secs(300)),
+        134,
+        "{}",
+        log_tail(&d)
+    );
     let launching = in_state(&d, AttemptState::Launching);
     assert_eq!(launching.len(), 1, "{launching:?}");
     let job = launching[0].clone();
     let run = std::path::PathBuf::from(state(&d).jobs[&job].run_dir.clone().unwrap());
-    assert!(!run.join("sup").join("SPAWN").exists(), "crash before the sentinel");
+    assert!(
+        !run.join("sup").join("SPAWN").exists(),
+        "crash before the sentinel"
+    );
     std::fs::remove_file(run.join("sup").join("CAMPAIGN")).unwrap();
 
     let mut c = start(&spec_p, &d, &[], &[]);
-    assert_eq!(wait(&mut c, Duration::from_secs(600)), ATTENTION, "{}", log_tail(&d));
+    assert_eq!(
+        wait(&mut c, Duration::from_secs(600)),
+        ATTENTION,
+        "{}",
+        log_tail(&d)
+    );
     assert_eq!(in_state(&d, AttemptState::Unconfirmed), vec![job.clone()]);
     {
         let st = state(&d);
@@ -130,7 +178,10 @@ fn unspawned_launch_without_an_authenticated_run_directory_is_execution_unknown(
     assert_eq!(
         job_events(&d, &job, |e| matches!(
             e,
-            JobEvent::NotSpawned { .. } | JobEvent::Lose { .. } | JobEvent::Requeue { .. } | JobEvent::Interrupt { .. }
+            JobEvent::NotSpawned { .. }
+                | JobEvent::Lose { .. }
+                | JobEvent::Requeue { .. }
+                | JobEvent::Interrupt { .. }
         )),
         0,
         "never 'did not run' without proof"

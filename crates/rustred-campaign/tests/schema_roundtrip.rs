@@ -1261,6 +1261,84 @@ fn ledger_record_examples_cover_every_kind() {
     drop(lk);
     recs.extend(ledger::read_records(&d).unwrap());
     let _ = fs::remove_dir_all(&d);
+    // lane int5: the unconfirmed-launch records (a launch journalled in session 1, never confirmed; session 2 marks it
+    // `unconfirmed`, then the proven `not_spawned` and the requeue), in a second small ledger.
+    let d2 = scratch("catalogue-unconfirmed");
+    let _ = fs::remove_dir_all(&d2);
+    fs::create_dir_all(&d2).unwrap();
+    let clk2 = Arc::new(ManualClock::at("2026-11-14T06:00:00Z").with_tick(250));
+    let c2: Arc<dyn Clock> = clk2.clone();
+    let (lk2, _) = lock::acquire(&d2, clk2.as_ref(), &["catalogue".into()]).unwrap();
+    let mut l2 = Ledger::create(
+        &d2,
+        &lk2,
+        c2,
+        LedgerConfig::default(),
+        Genesis::new("catalogue", &h('1'), 100),
+    )
+    .unwrap();
+    l2.append_all(register(&spec, &sref)).unwrap();
+    l2.append_all(vec![
+        camp(CampaignEvent::Start, "supervisor session"),
+        camp(CampaignEvent::Run, "scheduling"),
+        node("T162", NodeEvent::Start),
+        created("T162", "T162:I0000", "face", 0, None, "F000"),
+        Event::JobQueued {
+            job: "j1".into(),
+            item: "T162:I0000".into(),
+            rung: Rung(0),
+            kind: "generate".into(),
+            spec_blake3: h('3'),
+            binary: "program:rr_node".into(),
+            reserved_bytes: 1 << 30,
+            inputs: vec![],
+        },
+        item(
+            "T162:I0000",
+            ItemEvent::Start {
+                job: Some("j1".into()),
+            },
+        ),
+        job(
+            "j1",
+            1,
+            JobEvent::Launch {
+                run_dir: "large:jobs/j1/a1".into(),
+                cpus: vec![3],
+                reserved_bytes: 1 << 30,
+                spec_blake3: h('4'),
+            },
+        ),
+        camp(CampaignEvent::Start, "supervisor session"),
+        job(
+            "j1",
+            1,
+            JobEvent::Unconfirmed {
+                reason: "launch journalled in session 1, never confirmed by job.started before that supervisor ended"
+                    .into(),
+            },
+        ),
+        job(
+            "j1",
+            1,
+            JobEvent::NotSpawned {
+                reason: "authenticated run directory large:jobs/j1/a1 has no RUN/sup/SPAWN; no marked process of j1:a1"
+                    .into(),
+            },
+        ),
+        job(
+            "j1",
+            2,
+            JobEvent::Requeue {
+                reason: "spawn provably never happened".into(),
+            },
+        ),
+    ])
+    .unwrap();
+    drop(l2);
+    drop(lk2);
+    recs.extend(ledger::read_records(&d2).unwrap());
+    let _ = fs::remove_dir_all(&d2);
     let mut seen: BTreeMap<String, String> = BTreeMap::new();
     for r in &recs {
         let v = serde_json::to_value(r).unwrap();

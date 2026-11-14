@@ -68,7 +68,10 @@ fn rebuild_manifest_verb_refuses_under_a_held_lock_and_rebuilds_the_verified_cha
     // free: rebuilt from the verified chain; the ledger reads back unchanged
     let (code, out, err) = cli(&["rebuild-manifest", ds]);
     assert_eq!(code, 0, "{out}{err}");
-    assert!(out.contains("rebuilt") && out.contains(&format!("{seq} record(s)")), "{out}");
+    assert!(
+        out.contains("rebuilt") && out.contains(&format!("{seq} record(s)")),
+        "{out}"
+    );
     assert!(manifest.exists());
     assert_eq!(ledger::read_records(&d).unwrap(), before);
     let v = ledger::open_read_only(&d).unwrap();

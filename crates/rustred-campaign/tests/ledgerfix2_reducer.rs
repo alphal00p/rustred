@@ -507,7 +507,10 @@ fn not_spawned_is_the_only_proven_did_not_run_of_an_unconfirmed_launch() {
     let mut h = unconfirmed_setup();
     h.refused(job("J", 1, ns()), "not_spawned from launching");
     h.ok(job("J", 1, unconfirmed()));
-    h.refused(job("J", 1, JobEvent::Lose { reason: "x".into() }), "lose from unconfirmed");
+    h.refused(
+        job("J", 1, JobEvent::Lose { reason: "x".into() }),
+        "lose from unconfirmed",
+    );
     h.refused(job("J", 2, rq()), "requeue from unconfirmed");
     h.ok(job("J", 1, ns()));
     assert_eq!(h.st.jobs["J"].state, AttemptState::Lost);

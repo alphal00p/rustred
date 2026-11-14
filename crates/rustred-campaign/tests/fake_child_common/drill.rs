@@ -23,7 +23,10 @@ pub fn scratch() -> PathBuf {
     static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     std::env::var_os("RR_DRILL_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| ROOT.get_or_init(|| super::unique_temp_dir("rr-drill")).clone())
+        .unwrap_or_else(|| {
+            ROOT.get_or_init(|| super::unique_temp_dir("rr-drill"))
+                .clone()
+        })
 }
 pub fn bin() -> PathBuf {
     PathBuf::from(super::BIN)
