@@ -136,11 +136,14 @@ pub fn effective_spec(base: &str, decisions: &[TerminalDecision]) -> Result<Stri
     Ok(serde_json::to_string_pretty(&v).expect("json") + "\n")
 }
 
-/// Who accepted each terminal row of a check: `operator` / `auto` (a decision; the latest wins) else `spec`.
+/// Who accepted each terminal row of a check: `operator` / `auto` (a decision; the latest wins), `auto` for the keys an
+/// escalation accepted under its rule (`escalated`), `spec` for pre-approved keys and every other declared terminal.
 pub fn accepted_terminals(
     _set: &ImportedSet,
     res: &CheckResult,
     decisions: &[TerminalDecision],
+    escalated: &std::collections::BTreeSet<Vec<i32>>,
+    approved: &[Vec<i32>],
 ) -> Vec<Value> {
     let mut by: BTreeMap<&Vec<i32>, &TerminalDecision> = BTreeMap::new();
     for d in decisions {
@@ -154,6 +157,10 @@ pub fn accepted_terminals(
         .map(|r| match by.get(&r.key) {
             Some(d) => json!({"key": r.key, "accepted_by": d.accepted_by, "by": d.by, "decision": d.id,
                               "round": d.round, "pole_diagnostics": null}),
+            None if approved.contains(&r.key) => json!({"key": r.key, "accepted_by": "spec",
+                "by": "escalation.terminals.approved (pre-approved)", "decision": null, "pole_diagnostics": null}),
+            None if escalated.contains(&r.key) => json!({"key": r.key, "accepted_by": "auto",
+                "by": "escalation terminal rule (terminals.max_auto)", "decision": null, "pole_diagnostics": null}),
             None => json!({"key": r.key, "accepted_by": "spec", "by": "import spec (declared terminals)",
                            "decision": null, "pole_diagnostics": null}),
         })

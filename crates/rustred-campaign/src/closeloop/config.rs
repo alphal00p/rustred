@@ -219,6 +219,141 @@ pub struct NodeCfg {
     /// lane closeloop4 (closeloop.md 19): which terminals are terminals (default: only the declared ones).
     #[serde(default)]
     pub terminals: TerminalsCfg,
+    /// lane t266run (interfaces/evidence-store.md, closeloop.md 17): big-node mode (persistent table index, disk-backed
+    /// evidence store, streamed keys-only pass); None = as before.
+    #[serde(default)]
+    pub scale: Option<ScaleCfg>,
+    /// lane t266run (closeloop.md 17): the campaign's OWN escalation for keys nothing serves (symmetry relation at the
+    /// key in-process, then per-key point recipes of a step sequence), and the finite-terminal rule that turns the keys
+    /// the escalation cannot serve into terminal proposals; None = as before (only the spec's recipe sources).
+    #[serde(default)]
+    pub escalation: Option<EscalationCfg>,
+    /// lane t266run (closeloop.md 17.4): the box as CLAUSES (data), e.g. a proved box and an added layer; the import
+    /// spec's start must be their union; the result gives a verdict per clause and attributes every key to the first
+    /// clause whose own closure contains it. None = one box.
+    #[serde(default)]
+    pub clauses: Option<Vec<ClauseCfg>>,
+}
+
+/// One clause of the box: an id and an import start spec (`{"path", "format", ..}`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClauseCfg {
+    pub id: String,
+    pub start: serde_json::Value,
+}
+
+/// The escalation of uncovered keys (DATA; lane t266run). Step names are the import's recipe-step grammar
+/// (interfaces/import.md 14: `d<k>_c<centre>_f<on|off>[_s..][_m..]`), evaluated at each key.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EscalationCfg {
+    /// The exact symmetry relation at the key (verified group, expanded rows; termmin.md 2) before any recipe.
+    #[serde(default = "d_yes")]
+    pub symmetry_at_key: bool,
+    /// The verified group (an import GroupSpec); None = derived from the frame table header's family.
+    #[serde(default)]
+    pub group: Option<serde_json::Value>,
+    /// Bound of one expanded symmetry row.
+    #[serde(default = "d_sym_terms")]
+    pub symmetry_max_terms: usize,
+    /// Recipe steps in escalation order (default [`d_steps`]).
+    #[serde(default = "d_steps")]
+    pub steps: Vec<String>,
+    /// Slot priority of the step centres (`first` / `last` / `num`): lines and numerators in this order; None = slot
+    /// order.
+    #[serde(default)]
+    pub coordinate_priority: Option<Vec<usize>>,
+    /// A step whose explicit seed set at the key is larger is skipped (recorded).
+    #[serde(default)]
+    pub max_seeds: Option<u64>,
+    /// The spec's finite-terminal rule: keys the escalation cannot serve become terminal PROPOSALS; they are accepted
+    /// (declared terminals of the node) when there are at most `max_terminals` of them, else the node ends open.
+    #[serde(default)]
+    pub terminals: Option<TerminalRule>,
+}
+
+/// The user's "any finite terminal set" rule as data.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TerminalRule {
+    /// Terminal proposals ACCEPTED without an operator (pre-approved keys, e.g. a list the operator decided earlier).
+    #[serde(default)]
+    pub approved: Vec<Vec<i32>>,
+    /// More proposals than this means the escalation is not working: the node stops with a typed reason instead of
+    /// piling up terminals.
+    #[serde(default = "d_max_proposals")]
+    pub max_proposals: usize,
+    /// Accept up to this many proposals WITHOUT an operator decision (tests / unattended toy runs); None = every proposal
+    /// not in `approved` waits for the operator (the run ends `open: awaiting operator decision`, exit 8).
+    #[serde(default)]
+    pub max_terminals: Option<usize>,
+}
+
+fn d_max_proposals() -> usize {
+    8
+}
+
+fn d_sym_terms() -> usize {
+    4096
+}
+/// The default escalation (after the exact symmetry relation at the key, in-process): depth-2 shells of the checker's
+/// shell family (`_wdown`: S0, S1, Sm1, S1m1, S2) centred one step toward the floor on the last off-floor line, on a
+/// NUMERATOR slot, on the first line and on every off-floor slot (coord-ec1-seed-centre.md v2), then without the
+/// floor, depth 3 last (each solve under the per-key budget). Cheapest first (measured prior on a neighbouring node:
+/// 78 % of unserved keys need only symmetry, 22 % a depth-2 recipe, depth 3 rare). All M1-first. Data overrides it.
+fn d_steps() -> Vec<String> {
+    [
+        "d2_clast_fon_wdown_mM1C",
+        "d2_cnum_fon_wdown_mM1C",
+        "d2_cfirst_fon_wdown_mM1C",
+        "d2_cunion_fon_wdown_mM1C",
+        "d2_cnum_foff_wdown_mM1C",
+        "d2_cfirst_foff_wdown_mM1C",
+        "d3_cfirst_foff_wdown_mM1C",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+/// Big-node settings (DATA; lane t266run). Results never depend on them, only memory and time do.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScaleCfg {
+    /// Persistent table-index cache directory (import::index; a rerun of an unchanged table does not re-read it);
+    /// None = CDIR/closeloop/<node>/index.
+    #[serde(default)]
+    pub index_dir: Option<PathBuf>,
+    /// Evidence-store cache directory; None = CDIR/closeloop/<node>/store.
+    #[serde(default)]
+    pub store_dir: Option<PathBuf>,
+    /// Sort budget of a store build (MiB).
+    #[serde(default = "d_store_budget")]
+    pub store_budget_mib: u64,
+    /// Parse threads of a store build.
+    #[serde(default = "d_store_threads")]
+    pub store_threads: usize,
+    /// The node's own fact / proof answer files go into stores of this many files each (full chunks are reused).
+    #[serde(default = "d_store_chunk")]
+    pub store_chunk_files: usize,
+    /// Write the keys-only pass's rows to a file (only exceptional rows in memory) instead of keeping every row.
+    #[serde(default = "d_yes")]
+    pub stream_keys_only: bool,
+    /// Run the keys-only pass before the exact tier (it lists every served rule key without a fact); false = the exact
+    /// tier at once, its own fact / proof requests drive the jobs (when the imported evidence covers most keys).
+    #[serde(default = "d_yes")]
+    pub keys_only_first: bool,
+}
+
+fn d_store_budget() -> u64 {
+    192
+}
+fn d_store_threads() -> usize {
+    4
+}
+fn d_store_chunk() -> usize {
+    64
 }
 
 /// lane closeloop4 (closeloop.md 18): every zero-coefficient fact that changes the exact closure (a DECISIVE zero) is
@@ -316,6 +451,10 @@ pub struct ProofCfg {
     /// Keys of one facts job (records of one table).
     #[serde(default = "d_fact_keys")]
     pub max_fact_keys_per_job: usize,
+    /// lane t266run: instantiated TERMS of one facts job (keys x the record's term count; rr_proof instantiate holds
+    /// its whole output in memory and writes every term): None = no term cap.
+    #[serde(default)]
+    pub max_fact_terms_per_job: Option<u64>,
     #[serde(default = "d_one")]
     pub threads: u32,
     #[serde(default = "d_cap")]
@@ -524,6 +663,20 @@ impl CloseLoopConfig {
                     }
                     "engine" | "cert" => {}
                     r => return Err(format!("node {}: proof.rows {r:?} (engine | cert)", n.node)),
+                }
+            }
+            if let Some(sc) = &n.scale
+                && (sc.store_chunk_files == 0 || sc.store_threads == 0 || sc.store_budget_mib == 0)
+            {
+                return Err(format!(
+                    "node {}: scale.store_chunk_files, store_threads and store_budget_mib must be >= 1",
+                    n.node
+                ));
+            }
+            if let Some(e) = &n.escalation {
+                for st in &e.steps {
+                    rustred_campaign_core::import::recipe_steps::parse_step(st)
+                        .map_err(|x| format!("node {}: escalation: {x}", n.node))?;
                 }
             }
             if let Some(r) = &n.required_evidence

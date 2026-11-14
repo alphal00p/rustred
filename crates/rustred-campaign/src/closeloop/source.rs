@@ -56,6 +56,8 @@ enum PassResult {
 struct Running {
     round: u32,
     handle: JoinHandle<Result<PassResult, String>>,
+    /// lane t266run: BLAKE3 of the effective import spec text the pass loads / checks.
+    digest: Option<String>,
 }
 
 struct NodeRt {
@@ -79,9 +81,9 @@ struct NodeRt {
     exact_oracle: ProofOracle,
     /// BLAKE3 of the proof config's family / cert / symmetry group files.
     proof_inputs: BTreeMap<String, (PathBuf, String)>,
-    /// lane closeloop4: BLAKE3 of the import spec text `set` was loaded from (the effective spec grows with decided
-    /// terminals: a cached set of another text is never reused).
-    set_spec_b3: Option<String>,
+    /// lane t266run: BLAKE3 of the effective import spec text the cached set was loaded from, and the chart text.
+    set_digest: Option<String>,
+    chart: Option<String>,
 }
 
 /// The close-from-material work source.
@@ -279,6 +281,8 @@ fn file_blake3(p: &Path) -> Result<String, String> {
         .map_err(|e| format!("{}: {e}", p.display()))
 }
 
+use super::proofs::file_blake3_cached;
+
 fn resolve(base: &Path, p: &str) -> PathBuf {
     let pb = PathBuf::from(p);
     if pb.is_absolute() { pb } else { base.join(pb) }
@@ -444,7 +448,8 @@ impl CloseFromMaterialSource {
                 proof_oracle,
                 exact_oracle,
                 proof_inputs,
-                set_spec_b3: None,
+                set_digest: None,
+                chart: None,
             });
         }
         Ok(s)
@@ -559,6 +564,48 @@ impl CloseFromMaterialSource {
             .collect();
         v.sort();
         v.into_iter().map(|(_, id, p, b)| (id, p, b)).collect()
+    }
+
+    /// lane t266run: NODE-level inputs `closeloop:<n>:<what>` of role `role`, in ledger order.
+    fn node_inputs_of_role(&self, st: &CampaignState, i: usize, role: &str) -> Vec<PathBuf> {
+        let pre = format!("closeloop:{}:", self.nodes[i].n);
+        let mut v: Vec<_> = st
+            .inputs
+            .iter()
+            .filter(|(id, r)| r.role == role && id.starts_with(&pre))
+            .map(|(_, r)| (r.registered_seq, PathBuf::from(&r.path), r.blake3.clone()))
+            .collect();
+        v.sort();
+        v.into_iter().map(|(_, p, _)| p).collect()
+    }
+
+    /// lane t266run: the escalation recorded for node `i` (closeloop.md 17); every file is checked against its
+    /// recorded BLAKE3 before it is read.
+    fn derived_state(
+        &self,
+        st: &CampaignState,
+        i: usize,
+    ) -> Result<super::derived::DerivedState, String> {
+        use super::derived::{ROLE_RECIPES, ROLE_SYMREL, ROLE_TERMINALS};
+        let pre = format!("closeloop:{}:", self.nodes[i].n);
+        for (id, r) in &st.inputs {
+            if id.starts_with(&pre)
+                && [ROLE_SYMREL, ROLE_RECIPES, ROLE_TERMINALS].contains(&r.role.as_str())
+            {
+                let got = file_blake3(Path::new(&r.path))?;
+                if got != r.blake3 {
+                    return Err(format!(
+                        "{}: BLAKE3 {got} differs from the recorded {}",
+                        r.path, r.blake3
+                    ));
+                }
+            }
+        }
+        super::derived::DerivedState::read(
+            &self.node_inputs_of_role(st, i, ROLE_SYMREL),
+            &self.node_inputs_of_role(st, i, ROLE_RECIPES),
+            &self.node_inputs_of_role(st, i, ROLE_TERMINALS),
+        )
     }
 
     /// (recipe source, key) pairs of every solve item of the node, keys issued, jobs issued, items in attention.
@@ -705,32 +752,39 @@ impl CloseFromMaterialSource {
     }
 
     fn start_pass(&mut self, st: &CampaignState, i: usize, round: u32) -> Result<(), String> {
-        // lane closeloop4 (closeloop.md 19): the effective import spec = the node's spec + the decided terminals
+        let cached = self.nodes[i].set.clone();
+        // lane closeloop4 (closeloop.md 19): the node's spec + the decided terminals (then t266run's derived part)
         let decisions = self.terminal_decisions(st, i)?;
         let spec_text = super::terminals::effective_spec(&self.nodes[i].spec_text, &decisions)?;
-        let spec_b3 = blake3_hex(spec_text.as_bytes());
-        let cached = self.nodes[i].set.clone().filter(|_| {
-            self.nodes[i]
-                .set_spec_b3
-                .as_deref()
-                .is_none_or(|b| b == spec_b3)
-        });
-        self.nodes[i].set_spec_b3 = Some(spec_b3);
         if round == 0 {
             let r = &self.nodes[i];
-            let text = spec_text.clone();
+            let text = r.spec_text.clone();
             let base = r.cfg.base();
+            // lane t266run: a persistent table index in big-node mode (an unchanged table is not re-read)
+            let index_dir = r.cfg.scale.as_ref().map(|sc| {
+                sc.index_dir
+                    .clone()
+                    .unwrap_or_else(|| self.abs(&format!("{}/index", node_dir(&r.n))))
+            });
             let h = std::thread::Builder::new()
                 .name(format!("closeloop-load-{}", r.n))
                 .spawn(move || {
                     let spec = rustred_campaign_core::import::TableSetSpec::from_json(&text)
                         .map_err(|e| format!("import spec: {e}"))?;
-                    let set = rustred_campaign_core::import::load(&spec, &base)
-                        .map_err(|e| format!("import load: {e}"))?;
+                    let set = rustred_campaign_core::import::load_with(
+                        &spec,
+                        &base,
+                        &rustred_campaign_core::import::LoadOptions { index_dir },
+                    )
+                    .map_err(|e| format!("import load: {e}"))?;
                     Ok(PassResult::Loaded(Arc::new(set)))
                 })
                 .map_err(|e| format!("pass thread: {e}"))?;
-            self.nodes[i].running = Some(Running { round, handle: h });
+            self.nodes[i].running = Some(Running {
+                round,
+                handle: h,
+                digest: Some(blake3_hex(self.nodes[i].spec_text.as_bytes())),
+            });
             self.nodes[i].pass_started = Some(Instant::now());
             return Ok(());
         }
@@ -758,11 +812,38 @@ impl CloseFromMaterialSource {
             .map(|(_, p, b)| (p, b))
             .collect();
         let relation_tables = self.relation_tables(st, i);
+        // lane t266run (closeloop.md 17): the escalation recorded so far and the effective spec it implies; a set
+        // loaded from another effective spec is dropped (the pass reloads it; the table index makes that cheap)
+        let derived = self.derived_state(st, i)?;
+        let eff = {
+            let r = &self.nodes[i];
+            let chart = r.chart.clone().unwrap_or_default();
+            super::derived::effective_spec(
+                &spec_text,
+                &derived,
+                r.cfg.escalation.as_ref(),
+                &self.abs(&format!("{}/derived", node_dir(&r.n))),
+                &chart,
+            )?
+        };
+        let eff_digest = blake3_hex(eff.as_bytes());
+        // lane closeloop4: the set of ANOTHER effective spec is not given to the pass (it reloads), but it is KEPT for the
+        // acceptance of settled solves (their recipes are in the set that issued them): a settle never loads tables on
+        // the supervisor's main thread
+        let cached = if self.nodes[i].set_digest.as_deref() == Some(eff_digest.as_str()) {
+            cached
+        } else {
+            None
+        };
+        let recipe_dir = self.abs(&format!(
+            "{}/escalation/r{round}",
+            node_dir(&self.nodes[i].n)
+        ));
         let r = &self.nodes[i];
         let inp = PassIn {
             node: r.cfg.node.clone(),
             round,
-            spec_text,
+            spec_text: eff,
             base: r.cfg.base(),
             answers,
             threads: r.cfg.check_threads,
@@ -792,6 +873,7 @@ impl CloseFromMaterialSource {
                 max_keys_per_job: p.max_keys_per_job,
                 max_fact_keys_per_job: p.max_fact_keys_per_job,
                 exact_keys_per_job: p.exact_eval.as_ref().map(|x| x.max_keys_per_job),
+                max_fact_terms_per_job: p.max_fact_terms_per_job,
             }),
             exact_tier: r.cfg.exact_tier,
             rows_path: self.abs(&format!("{}/checks/r{round}.rows.jsonl", node_dir(&r.n))),
@@ -811,12 +893,21 @@ impl CloseFromMaterialSource {
             second_route: r.cfg.second_route,
             terminals: r.cfg.terminals,
             terminal_decisions: decisions,
+            scale: r.cfg.scale.clone(),
+            escalation: r.cfg.escalation.clone(),
+            derived,
+            recipe_dir,
+            clauses: r.cfg.clauses.clone(),
         };
         let h = std::thread::Builder::new()
             .name(format!("closeloop-pass-{}", r.n))
             .spawn(move || run_pass(&inp, cached).map(|o| PassResult::Checked(Box::new(o))))
             .map_err(|e| format!("pass thread: {e}"))?;
-        self.nodes[i].running = Some(Running { round, handle: h });
+        self.nodes[i].running = Some(Running {
+            round,
+            handle: h,
+            digest: Some(eff_digest),
+        });
         self.nodes[i].pass_started = Some(Instant::now());
         Ok(())
     }
@@ -933,13 +1024,22 @@ impl CloseFromMaterialSource {
         let r = &self.nodes[i];
         let spec = rustred_campaign_core::import::TableSetSpec::from_json(&r.spec_text)
             .map_err(|e| format!("import spec: {e}"))?;
+        // lane t266run: the persistent table index in big-node mode (the tables are what this set is used for here)
+        let index_dir = r.cfg.scale.as_ref().map(|sc| {
+            sc.index_dir
+                .clone()
+                .unwrap_or_else(|| self.abs(&format!("{}/index", node_dir(&r.n))))
+        });
         let set = Arc::new(
-            rustred_campaign_core::import::load(&spec, &r.cfg.base())
-                .map_err(|e| format!("import load: {e}"))?,
+            rustred_campaign_core::import::load_with(
+                &spec,
+                &r.cfg.base(),
+                &rustred_campaign_core::import::LoadOptions { index_dir },
+            )
+            .map_err(|e| format!("import load: {e}"))?,
         );
-        let b3 = blake3_hex(self.nodes[i].spec_text.as_bytes());
+        self.nodes[i].set_digest = Some(blake3_hex(r.spec_text.as_bytes()));
         self.nodes[i].set = Some(set.clone());
-        self.nodes[i].set_spec_b3 = Some(b3);
         Ok(set)
     }
 
@@ -1139,6 +1239,55 @@ impl CloseFromMaterialSource {
             rt.events.push(ev);
             rt.accepts.push(rec);
         }
+        // lane t266run (closeloop.md 17): the escalation's records (symmetry attempts, step recipes, accepted terminals)
+        if let Some(e) = &out.escalation {
+            use super::derived::{ROLE_RECIPES, ROLE_SYMREL, ROLE_TERMINALS};
+            let reg = |rt: &mut Routing, what: &str, role: &str, rel: String, body: Vec<u8>| {
+                let rec = record(rel, body);
+                let fref = rec.file_ref();
+                rt.events.push(Event::InputRegistered {
+                    input: format!("closeloop:{n}:{what}:r{k}"),
+                    role: role.into(),
+                    path: self.abs(&rec.path).display().to_string(),
+                    bytes: fref.bytes,
+                    blake3: fref.blake3.clone(),
+                });
+                rt.accepts.push(rec);
+            };
+            if !e.symrel_lines.is_empty() {
+                reg(
+                    &mut rt,
+                    "symrel",
+                    ROLE_SYMREL,
+                    format!("{}/escalation/symrel.r{k}.jsonl", node_dir(&n)),
+                    (e.symrel_lines.join("\n") + "\n").into_bytes(),
+                );
+            }
+            if !e.recipe_manifest.is_empty() {
+                for (file, text) in &e.recipe_files {
+                    rt.accepts.push(record(
+                        format!("{}/escalation/r{k}/{file}", node_dir(&n)),
+                        text.clone().into_bytes(),
+                    ));
+                }
+                reg(
+                    &mut rt,
+                    "recipes",
+                    ROLE_RECIPES,
+                    format!("{}/escalation/recipes.r{k}.jsonl", node_dir(&n)),
+                    (e.recipe_manifest.join("\n") + "\n").into_bytes(),
+                );
+            }
+            if let Some(t) = &e.terminals {
+                reg(
+                    &mut rt,
+                    "terminals",
+                    ROLE_TERMINALS,
+                    format!("{}/escalation/terminals.r{k}.json", node_dir(&n)),
+                    json_bytes(t),
+                );
+            }
+        }
         // phase D
         if let Some(f) = &out.final_ {
             let fr = record(
@@ -1281,7 +1430,7 @@ impl CloseFromMaterialSource {
             kind: b.kind.clone(),
             reason: b.reason.clone(),
             table: tp.display().to_string(),
-            table_blake3: file_blake3(&tp)?,
+            table_blake3: file_blake3_cached(&tp)?,
             records: b.records.clone(),
             relation_source: b.relation_source.clone(),
             rows: pc.rows.clone(),
@@ -1535,9 +1684,13 @@ impl CloseFromMaterialSource {
                 _ if finalized.contains_key(&i) => "final",
                 (_, true, Some(NodePhase::Closed | NodePhase::Certified)) => "closed",
                 (_, true, _) => "final",
-                (Some(p), _, _) if p.round <= 1 => "import",
+                // lane closeloop4: the phase the loop is REALLY in (round 0 = loading the tables; every other running
+                // pass is a check; after a commit: the jobs it issued, or the operator)
+                (Some(p), _, _) if p.round == 0 => "loading",
                 (Some(_), _, _) => "checking",
+                _ if self.awaiting(st, i).is_some() => "awaiting operator",
                 _ if pending > 0 => "solving",
+                _ if self.proofs_pending(st, node) => "proving",
                 _ => "waiting",
             };
             let lc = r.last_check.clone().unwrap_or(Value::Null);
@@ -1564,6 +1717,7 @@ impl CloseFromMaterialSource {
             }
             nodes.push(json!({
                 "node": node, "phase": phase, "round": Self::rounds_done(st, &r.n),
+                "pass_round": r.running.as_ref().map(|p| p.round),
                 "keys": {"closure": lc["keys"], "certified": lc["certified"], "open": lc["open"],
                          "requested": requested, "pending": pending},
                 "solve_items_by_phase": by_phase, "answers_files": answers,
@@ -1989,7 +2143,13 @@ impl WorkSource for CloseFromMaterialSource {
                     )
                 })
                 .collect();
+            // lane closeloop4: no solve job before the node's set is loaded (its settle accepts against that set: never
+            // a synchronous table load on the supervisor's main thread)
+            let set_loaded = self.nodes[i].set.is_some();
             for (item, ikind, ph, jobs) in items {
+                if ikind == KIND_SOLVE && !set_loaded {
+                    continue;
+                }
                 let (k, j) = parse_solve_item(&self.nodes[i].n, &item)
                     .or_else(|| parse_proof_item(&self.nodes[i].n, &item))
                     .unwrap_or((0, 0));
@@ -2261,8 +2421,27 @@ impl WorkSource for CloseFromMaterialSource {
                     .join()
                     .unwrap_or_else(|_| Err("pass thread panicked".into()));
                 match res {
-                    Ok(PassResult::Loaded(s)) => self.nodes[i].set = Some(s),
+                    Ok(PassResult::Loaded(s)) => {
+                        self.nodes[i].chart = Some(
+                            s.frame
+                                .mask()
+                                .iter()
+                                .map(|&l| if l { '1' } else { '0' })
+                                .collect(),
+                        );
+                        self.nodes[i].set_digest = run.digest.clone();
+                        self.nodes[i].set = Some(s)
+                    }
                     Ok(PassResult::Checked(o)) => {
+                        self.nodes[i].chart = Some(
+                            o.set
+                                .frame
+                                .mask()
+                                .iter()
+                                .map(|&l| if l { '1' } else { '0' })
+                                .collect(),
+                        );
+                        self.nodes[i].set_digest = run.digest.clone();
                         // the pass ran on the state of its start: still the node's next round?
                         if self.needs_pass(st, i) == Some(o.round) {
                             if let Some(f) = &o.final_ {
@@ -2310,9 +2489,10 @@ impl WorkSource for CloseFromMaterialSource {
             .all(|r| r.running.is_none() && st.inputs.contains_key(&input_final(&r.n)))
     }
 
-    /// lane closeloop4 (closeloop.md 19): nodes whose terminal proposals wait for the operator (exit 8).
-    fn awaiting_operator(&self, st: &CampaignState) -> Option<String> {
-        let v: Vec<String> = (0..self.nodes.len())
+    /// lane closeloop4 (closeloop.md 19): nodes whose terminal proposals wait for the operator (exit 8); lane t266run:
+    /// also a FINAL result that says `awaiting_operator` (a campaign directory written by that lane's build).
+    fn operator_decision(&self, st: &CampaignState) -> Option<String> {
+        let mut v: Vec<String> = (0..self.nodes.len())
             .filter(|&i| self.nodes[i].running.is_none())
             .filter_map(|i| {
                 self.awaiting(st, i).map(|(k, n)| {
@@ -2323,11 +2503,19 @@ impl WorkSource for CloseFromMaterialSource {
                 })
             })
             .collect();
+        for r in &self.nodes {
+            if let Ok(b) = self.input_file(st, &input_final(&r.n))
+                && let Ok(x) = serde_json::from_slice::<Value>(&b)
+                && let Some(m) = x["awaiting_operator"].as_str()
+            {
+                v.push(format!("node {}: {m}", r.cfg.node));
+            }
+        }
         (!v.is_empty()).then(|| v.join(" | "))
     }
 
     /// lane closeloop4 (closeloop.md 19): the operator's `resolve-terminals` request.
-    fn operator_decision(
+    fn resolve_operator_decision(
         &mut self,
         st: &CampaignState,
         req: &crate::supervisor::ControlRequest,

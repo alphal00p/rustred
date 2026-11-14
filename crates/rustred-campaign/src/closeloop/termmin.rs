@@ -1690,17 +1690,17 @@ impl WorkSource for TermminSource {
         self.inner.outcome(st)
     }
 
-    /// lane closeloop4 (closeloop.md 19): the closing loop's operator decisions pass through phase E unchanged.
-    fn awaiting_operator(&self, st: &CampaignState) -> Option<String> {
-        self.inner.awaiting_operator(st)
+    /// lane t266run / closeloop4 (closeloop.md 17.3, 19): the closing loop's operator decisions pass through phase E.
+    fn operator_decision(&self, st: &CampaignState) -> Option<String> {
+        self.inner.operator_decision(st)
     }
 
-    fn operator_decision(
+    fn resolve_operator_decision(
         &mut self,
         st: &CampaignState,
         req: &crate::supervisor::ControlRequest,
     ) -> Result<crate::supervisor::worksource::Routing, String> {
-        self.inner.operator_decision(st, req)
+        self.inner.resolve_operator_decision(st, req)
     }
 
     fn finished(&self, st: &CampaignState) -> bool {

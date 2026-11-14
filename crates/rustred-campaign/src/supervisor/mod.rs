@@ -3358,7 +3358,10 @@ impl Supervisor {
     /// lane closeloop4 (closeloop.md 19): `resolve-terminals` = the work source's operator decision: its records are
     /// written and its events committed like a poll routing (the decision is a ledger input); a refusal is a note.
     fn apply_source_decision(&mut self, r: &ControlRequest) {
-        let routing = match self.source.operator_decision(self.ledger.state(), r) {
+        let routing = match self
+            .source
+            .resolve_operator_decision(self.ledger.state(), r)
+        {
             Ok(x) => x,
             Err(why) => {
                 self.log.line(
@@ -4281,13 +4284,24 @@ impl Supervisor {
                 // items in attention for repeated resource ends, live marked survivors) does NOT finish: the exit-8 rule
                 // below decides (a source may count an item in attention as settled for its own purposes).
                 // lane closeloop4: a source waiting for an operator decision (terminal proposals) does not finish
-                let source_awaits = self.source.awaiting_operator(self.ledger.state());
+                let source_awaits = self.source.operator_decision(self.ledger.state());
                 let decisions_pending = !self.unknown.is_empty()
                     || !self.attention.is_empty()
                     || !self.survivors.is_empty()
                     || source_awaits.is_some();
                 if !decisions_pending && self.source.finished(self.ledger.state()) {
                     if let Err(msg) = self.final_sweep() {
+                        self.log.line("WARN", &msg);
+                        self.commit(vec![Event::Campaign {
+                            ev: crate::state::CampaignEvent::Stop,
+                            reason: msg.clone(),
+                        }]);
+                        self.write_progress(true);
+                        return RunExit::Attention(msg);
+                    }
+                    // lane t266run: the work is final but an operator must decide (e.g. terminal proposals)
+                    if let Some(msg) = self.source.operator_decision(self.ledger.state()) {
+                        let msg = format!("operator decision needed: {msg}");
                         self.log.line("WARN", &msg);
                         self.commit(vec![Event::Campaign {
                             ev: crate::state::CampaignEvent::Stop,

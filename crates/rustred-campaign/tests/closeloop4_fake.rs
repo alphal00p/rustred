@@ -497,3 +497,115 @@ fn a_stopped_campaign_resumes_on_other_cpus_with_the_same_decisions_and_statemen
     }
     assert!(seen_b, "no job ran on the resumed session's CPUs");
 }
+
+fn progress_node(cdir: &Path) -> Option<Value> {
+    let v: Value =
+        serde_json::from_slice(&std::fs::read(cdir.join("progress/closeloop.json")).ok()?).ok()?;
+    Some(v["nodes"][0].clone())
+}
+
+fn toy_setup(tag: &str) -> (Tmp, PathBuf, PathBuf) {
+    let t = Tmp::new(tag);
+    let files = toy(&t.path.join("material"), &Toy::default(), FAKE);
+    std::fs::write(&files.hand, "").unwrap();
+    let spec = campaign_spec(&t.campaign, &files, FAKE, &cpus());
+    let sp = write_spec(&t, "spec.json", &spec);
+    let cdir = t.cdir("cdir");
+    (t, sp, cdir)
+}
+
+#[test]
+fn a_slow_pass_never_delays_the_reaction_to_sigterm() {
+    let _g = serial();
+    let (_t, sp, cdir) = toy_setup("cl4slow");
+    // every check pass takes 60 s (in the pass thread); the supervisor's main thread must stay responsive
+    let mut c = start(
+        &sp,
+        &cdir,
+        &["--plain"],
+        &[("RR_CLOSELOOP_TEST_PASS_DELAY_MS", "60000")],
+    );
+    let t0 = std::time::Instant::now();
+    loop {
+        if progress_node(&cdir).is_some_and(|n| n["phase"] == "checking") {
+            break;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(120),
+            "no check pass started: {}",
+            log_tail(&cdir)
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    std::thread::sleep(Duration::from_millis(500));
+    let ts = std::time::Instant::now();
+    signal(&c, libc::SIGTERM);
+    let code = wait(&mut c, Duration::from_secs(120));
+    let took = ts.elapsed();
+    // the toy spec's grace is 5 s: the stop is honoured well within it although the pass still sleeps
+    assert!(
+        took < Duration::from_secs(5),
+        "SIGTERM took {took:?} (pass still running)"
+    );
+    assert_eq!(code, 143, "{}", log_tail(&cdir));
+    // the interrupted pass is recomputed at the resume (a pass is a pure function of the ledger)
+    assert_eq!(
+        run_to_end(&sp, &cdir, &["--plain"]).last(),
+        Some(&0),
+        "{}",
+        log_tail(&cdir)
+    );
+}
+
+#[test]
+fn the_progress_phase_follows_the_pass_that_really_runs() {
+    let _g = serial();
+    let (_t, sp, cdir) = toy_setup("cl4phase");
+    let mut c = start(
+        &sp,
+        &cdir,
+        &["--plain"],
+        &[("RR_CLOSELOOP_TEST_PASS_DELAY_MS", "1500")],
+    );
+    let mut seen: Vec<(String, u64, Option<u64>)> = vec![];
+    let code = loop {
+        if let Some(n) = progress_node(&cdir) {
+            let s = (
+                n["phase"].as_str().unwrap_or("").to_string(),
+                n["round"].as_u64().unwrap_or(0),
+                n["pass_round"].as_u64(),
+            );
+            if seen.last() != Some(&s) {
+                seen.push(s);
+            }
+        }
+        if let Some(st) = c.try_wait().unwrap() {
+            break st.code().unwrap_or(-1);
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(code, 0, "{}", log_tail(&cdir));
+    // never the stale label of the old rule ("import" for the whole first check pass)
+    assert!(!seen.iter().any(|s| s.0 == "import"), "{seen:?}");
+    // the first check pass is labelled as such while it runs ...
+    let i1 = seen
+        .iter()
+        .position(|s| s.0 == "checking" && s.2 == Some(1))
+        .unwrap_or_else(|| panic!("{seen:?}"));
+    // ... and once it COMMITS (round 1 recorded) the label moves on: the jobs it issued or the next pass
+    assert!(
+        seen[i1 + 1..].iter().any(|s| s.1 >= 1 && s.2 != Some(1)),
+        "{seen:?}"
+    );
+    assert!(
+        seen[i1 + 1..]
+            .iter()
+            .any(|s| matches!(s.0.as_str(), "solving" | "proving")),
+        "{seen:?}"
+    );
+    assert_eq!(
+        seen.last().map(|s| s.0.as_str()),
+        Some("closed"),
+        "{seen:?}"
+    );
+}

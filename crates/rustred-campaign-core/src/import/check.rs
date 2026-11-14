@@ -348,7 +348,7 @@ pub fn check(
     ev: &Evidence,
     opts: &CheckOptions,
 ) -> Result<CheckResult, ImportError> {
-    check_inner(set, ev, opts, None)
+    check_inner(set, ev, opts, None, &set.start)
 }
 
 /// A row sink of [`check_streamed`].
@@ -363,6 +363,18 @@ pub fn check_streamed(
     ev: &Evidence,
     opts: &CheckOptions,
     rows_path: &std::path::Path,
+) -> Result<CheckResult, ImportError> {
+    check_streamed_from(set, ev, opts, rows_path, &set.start)
+}
+
+/// [`check_streamed`] from another START set (lane t266run: one clause of a box made of several clauses; everything
+/// else, tables, relations, evidence, terminals, is the set's).
+pub fn check_streamed_from(
+    set: &ImportedSet,
+    ev: &Evidence,
+    opts: &CheckOptions,
+    rows_path: &std::path::Path,
+    start: &crate::closure::KeySet,
 ) -> Result<CheckResult, ImportError> {
     use std::io::Write;
     if let Some(d) = rows_path.parent() {
@@ -385,7 +397,7 @@ pub fn check_streamed(
             n += 1;
             Ok(())
         };
-        check_inner(set, ev, opts, Some(&mut sink))?
+        check_inner(set, ev, opts, Some(&mut sink), start)?
     };
     w.flush().map_err(|e| super::error::io_err(rows_path, e))?;
     res.streamed = Some(StreamedRows {
@@ -438,6 +450,7 @@ fn check_inner(
     ev: &Evidence,
     opts: &CheckOptions,
     mut sink: Option<&mut RowSink<'_>>,
+    start: &crate::closure::KeySet,
 ) -> Result<CheckResult, ImportError> {
     let t0 = std::time::Instant::now();
     let tier = opts.tier.unwrap_or(match set.spec.policies.tier {
@@ -499,7 +512,7 @@ fn check_inner(
         per_key_lift: per_key_lift(set),
         ..Default::default()
     };
-    let c = closure(&set.disp, &set.bodies, &set.cmp, &set.start, &cfg, ev)
+    let c = closure(&set.disp, &set.bodies, &set.cmp, start, &cfg, ev)
         .map_err(|e| ImportError::Core(format!("closure: {e}")))?;
     let summary = c.summary();
     // name -> table index; open info by key

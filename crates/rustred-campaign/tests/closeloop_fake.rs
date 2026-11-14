@@ -71,6 +71,27 @@ fn decisions(cdir: &Path) -> Decisions {
     (items, cert)
 }
 
+/// lane closeloop4 (closeloop.md 19): run to the end; an exit 8 for terminal proposals (keys nothing could serve, e.g.
+/// after refused answers) is answered by the operator REJECTING them, so the node ends open as before.
+fn run_rejecting_proposals(sp: &Path, cdir: &Path) -> Vec<i32> {
+    let mut codes = vec![];
+    for _ in 0..4 {
+        let mut c = start(sp, cdir, &["--plain"], &[]);
+        let code = wait(&mut c, Duration::from_secs(900));
+        codes.push(code);
+        if code != ATTENTION {
+            return codes;
+        }
+        assert!(
+            latest_proposals(cdir, "toy").is_some(),
+            "exit 8 without proposals: {}",
+            log_tail(cdir)
+        );
+        assert_eq!(resolve_terminals(cdir, Some("toy"), None), 0);
+    }
+    codes
+}
+
 fn node_events(cdir: &Path) -> Vec<String> {
     records(cdir)
         .iter()
@@ -480,7 +501,7 @@ fn lying_children_are_refused_and_never_close_the_node() {
     );
     std::fs::write(&files2.hand, "").unwrap();
     // procfix5 (gate4 m3): the exit code follows the items at the end (default outcome: 0 closed, 10 not)
-    let c2 = run_to_end(&sp2, &cdir2, &["--plain"]);
+    let c2 = run_rejecting_proposals(&sp2, &cdir2);
     // lane closeloop3: the exit code follows the closing loop's verdict (outcome(): open -> 10, closed -> 0)
     let want = if result_json(&cdir2)["verdict"] == "closed" {
         0
@@ -506,7 +527,7 @@ fn lying_children_are_refused_and_never_close_the_node() {
         },
     );
     std::fs::write(&files3.hand, "").unwrap();
-    let c3 = run_to_end(&sp3, &cdir3, &["--plain"]);
+    let c3 = run_rejecting_proposals(&sp3, &cdir3);
     // lane closeloop3: the exit code follows the closing loop's verdict (outcome(): open -> 10, closed -> 0)
     let want = if result_json(&cdir3)["verdict"] == "closed" {
         0

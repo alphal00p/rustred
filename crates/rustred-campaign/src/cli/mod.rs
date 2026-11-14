@@ -11,9 +11,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub const USAGE: &str = "usage:
-  rr_campaign run --spec SPEC.json [--dir CDIR] [--plain] [--fake-child] [--accept-binary-change] [--adopt-moved-campaign] [--cores N] [--cpus LIST] [--mem-total 30G] [--accept-truncation-to SEQ]
+  rr_campaign run --spec SPEC.json [--dir CDIR] [--plain] [--fake-child] [--accept-binary-change] [--adopt-moved-campaign] [--cores N] [--mem-total 30G] [--cpus LIST] [--max-jobs N] [--accept-truncation-to SEQ]
       (the live dashboard when stdout is a terminal and --plain is not given; Ctrl-C = drain, twice = force;
-       --cpus: this SESSION's CPU list (launch-time; not part of the campaign's identity: a resume may use other CPUs))
+       --cpus / --max-jobs: this SESSION's resources (launch-time; not part of the campaign's identity: a resume may use other CPUs))
   rr_campaign preflight --spec SPEC.json [--dir CDIR]
   rr_campaign watch CDIR [--plain]          (alias: dashboard; read-only viewer: q / Ctrl-C close it, the campaign is unaffected)
   rr_campaign status CDIR [--once] [--width N] [--height M] [--json]
@@ -118,12 +118,15 @@ struct Flags {
     accept_truncation_to: Option<u64>,
     cores: Option<usize>,
     mem_total: Option<u64>,
+    /// lane t266run: launch-time CPU list / job count of THIS session (not part of the campaign identity: a campaign
+    /// resumes on other CPUs; the session's argv, recorded by `SupervisorStarted`, names them).
+    cpus: Option<String>,
+    max_jobs: Option<usize>,
     positional: Vec<String>,
     // lane closeloop4
     node: Option<String>,
     accept: Option<PathBuf>,
     reject: bool,
-    cpus: Option<String>,
 }
 
 fn parse(rest: &[String]) -> Result<Flags, String> {
@@ -152,7 +155,6 @@ fn parse(rest: &[String]) -> Result<Flags, String> {
             "--node" => f.node = Some(val("--node")?),
             "--accept" => f.accept = Some(val("--accept")?.into()),
             "--reject" => f.reject = true,
-            "--cpus" => f.cpus = Some(val("--cpus")?),
             "--accept-truncation-to" => {
                 f.accept_truncation_to = Some(
                     val("--accept-truncation-to")?
@@ -161,6 +163,14 @@ fn parse(rest: &[String]) -> Result<Flags, String> {
                 )
             }
             "--cores" => f.cores = Some(val("--cores")?.parse().map_err(|_| "--cores: a number")?),
+            "--cpus" => f.cpus = Some(val("--cpus")?),
+            "--max-jobs" => {
+                f.max_jobs = Some(
+                    val("--max-jobs")?
+                        .parse()
+                        .map_err(|_| "--max-jobs: a number")?,
+                )
+            }
             "--mem-total" => {
                 f.mem_total = Some(supervisor::spec::ByteSize::parse(&val("--mem-total")?)?.0)
             }
@@ -209,13 +219,24 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
         .as_ref()
         .and_then(|p| std::fs::read(p).ok())
         .map(|b| blake3::hash(&b).to_hex().to_string());
-    let (spec, digest, cdir) = match load_spec(&f) {
+    let (mut spec, digest, cdir) = match load_spec(&f) {
         Ok(x) => x,
         Err((c, m)) => {
             errln!("{m}");
             return c;
         }
     };
+    // lane t266run: launch-time resources override the spec's for this session only (the digest is the spec FILE's)
+    if let Some(c) = &f.cpus {
+        if let Err(e) = crate::cpu_policy::CpuSpec::parse(c) {
+            errln!("--cpus: {e}");
+            return exit::USAGE;
+        }
+        spec.resources.cpus = Some(c.clone());
+    }
+    if let Some(m) = f.max_jobs {
+        spec.resources.max_jobs = m.max(1);
+    }
     let mut full = vec!["rr_campaign".to_string()];
     full.extend(argv.iter().cloned());
     let dash_opts = crate::tui::DashboardOptions {

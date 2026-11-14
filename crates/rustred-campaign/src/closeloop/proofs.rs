@@ -463,3 +463,34 @@ mod tests {
         assert!(evidence_lines(&b, &[wrong_echo.to_string()]).is_err());
     }
 }
+
+/// lane t266run (moved here by lane closeloop4): BLAKE3 of a (possibly huge) input file, computed once per (path, size,
+/// mtime) in this process. A proof item names its table by digest; an 85 GB table hashed per item stalled the
+/// supervisor for minutes per item. The closing loop's PASS THREAD warms this cache for every table its batches name,
+/// so the supervisor's main thread (which creates the items) never hashes a table itself.
+pub fn file_blake3_cached(p: &std::path::Path) -> Result<String, String> {
+    use std::sync::Mutex;
+    static CACHE: Mutex<Option<BTreeMap<(std::path::PathBuf, u64, u128), String>>> =
+        Mutex::new(None);
+    let md = std::fs::metadata(p).map_err(|e| format!("{}: {e}", p.display()))?;
+    let mtime = md
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos());
+    let k = (p.to_path_buf(), md.len(), mtime);
+    if let Some(d) = CACHE
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().and_then(|m| m.get(&k).cloned()))
+    {
+        return Ok(d);
+    }
+    let d = crate::atomic::blake3_file(p)
+        .map(|(_, d)| d)
+        .map_err(|e| format!("{}: {e}", p.display()))?;
+    if let Ok(mut g) = CACHE.lock() {
+        g.get_or_insert_with(BTreeMap::new).insert(k, d.clone());
+    }
+    Ok(d)
+}
