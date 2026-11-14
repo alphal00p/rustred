@@ -24,6 +24,7 @@ pub mod guard;
 mod hunt;
 mod idlock;
 mod real;
+pub mod sweep;
 
 pub use cgroup::{CgroupRoot, JobCgroup};
 pub use fake::{
@@ -41,6 +42,7 @@ pub use real::{
     CapPreference, LauncherError, LauncherSetup, RealChild, RealConfig, RealLauncher, RetireEvent,
     TrackingPreference, adhoc_campaign_id, audit_inheritable_fds, in_private_namespace, peek_exit,
 };
+pub use sweep::{LeftMarked, Narrowing, SweepReport, SweepSpec};
 
 use crate::resources::{CampaignMarker, EscapeeRecord, MARKER_VAR, ProcessIdentity, SessionUsage};
 use serde::Serialize;

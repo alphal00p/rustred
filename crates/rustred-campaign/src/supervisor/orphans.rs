@@ -4,13 +4,20 @@
 //! killed one by one with `launch::kill_orphan` (pidfd + exact start time + marker re-checked + boot id). This module
 //! only NARROWS that set, never widens it: a ledger from another boot signals nothing, and the process's cwd must lie
 //! under the campaign or work directory (coord-site-policy rule 5).
+//!
+//! procfix3 (gate-B M1, gate-A M-1): the sweep is the process layer's FREEZING campaign sweep (`launch::sweep`: strict
+//! scans with the exec-window re-read, SIGSTOP of every member through the guard until a fixed point, then SIGKILL, then
+//! two conclusive empty scans). A marked process whose cwd lies outside the campaign directories is REPORTED (`left`,
+//! ledger note `marked_survivor`), never signalled, and keeps its attempt from being settled.
 
-use crate::launch::kill_orphan;
+use crate::launch::{Narrowing, SweepReport, SweepSpec};
 use crate::resources::{MarkedProcess, scan_campaign};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
 /// What the scan may touch.
 #[derive(Clone, Debug)]
@@ -48,6 +55,14 @@ impl ScanRules {
 
     /// Marked processes of this campaign (optionally of one attempt id `<job>:a<k>`), narrowed by the cwd rule.
     pub fn scan(&self, only: Option<&str>) -> Vec<MarkedProcess> {
+        self.scan_all(only)
+            .into_iter()
+            .filter(|p| cwd_under(p.pid, &self.roots))
+            .collect()
+    }
+
+    /// Every live marked process of this campaign (optionally one attempt), WITHOUT the cwd narrowing: for reports.
+    pub fn scan_all(&self, only: Option<&str>) -> Vec<MarkedProcess> {
         if self.other_boot() {
             return Vec::new();
         }
@@ -57,45 +72,48 @@ impl ScanRules {
         s.processes
             .into_iter()
             .filter(|p| only.is_none_or(|o| o == p.attempt_id))
-            .filter(|p| cwd_under(p.pid, &self.roots))
             .collect()
+    }
+
+    /// The process layer's sweep spec with this module's narrowing (cwd rule). `None` for another boot: nothing may be
+    /// signalled then.
+    pub fn sweep_spec(&self, only: Option<&str>, budget: Duration) -> Option<SweepSpec> {
+        if self.other_boot() {
+            return None;
+        }
+        let roots = self.roots.clone();
+        let narrowing: Narrowing = Arc::new(move |p: &MarkedProcess| {
+            if cwd_under(p.pid, &roots) {
+                Ok(())
+            } else {
+                Err(format!(
+                    "cwd {} is outside the campaign directories (site rule 5): not signalled",
+                    fs::read_link(format!("/proc/{}/cwd", p.pid))
+                        .map(|c| c.display().to_string())
+                        .unwrap_or_else(|e| format!("unreadable ({e})"))
+                ))
+            }
+        });
+        Some(SweepSpec {
+            campaign_id: self.campaign_id.clone(),
+            only_attempt: only.map(str::to_string),
+            not_before_ticks: self.min_start_ticks,
+            budget,
+            pass_gap: Duration::from_millis(20),
+            narrowing: Some(narrowing),
+        })
     }
 }
 
-/// SIGKILL every marked process (optionally of one attempt) through the verified path until none is left or `timeout`
-/// passes. Returns the processes the signal was delivered to (each once). `progress(round, found)` is called per round.
-pub fn sweep(
-    rules: &ScanRules,
-    only: Option<&str>,
-    timeout: Duration,
-    mut progress: impl FnMut(usize, usize),
-) -> Vec<MarkedProcess> {
-    let t0 = Instant::now();
-    let mut killed: Vec<MarkedProcess> = Vec::new();
-    let Some(boot) = current_boot_id() else {
-        return killed;
-    };
-    let mut round = 0;
-    loop {
-        let found = rules.scan(only);
-        if found.is_empty() {
-            return killed;
-        }
-        round += 1;
-        progress(round, found.len());
-        for m in &found {
-            if kill_orphan(&rules.campaign_id, &boot, m, libc::SIGKILL).delivered()
-                && !killed
-                    .iter()
-                    .any(|k| k.pid == m.pid && k.start_ticks == m.start_ticks)
-            {
-                killed.push(m.clone());
-            }
-        }
-        if t0.elapsed() > timeout {
-            return killed;
-        }
-        std::thread::sleep(Duration::from_millis(50));
+/// The freezing sweep of every marked process of this campaign (optionally one attempt), BLOCKING (restart time).
+pub fn sweep(rules: &ScanRules, only: Option<&str>, budget: Duration) -> SweepReport {
+    match rules.sweep_spec(only, budget) {
+        Some(spec) => crate::launch::sweep::sweep(&spec, &AtomicBool::new(false)),
+        None => SweepReport {
+            proven: true,
+            reason: None,
+            ..Default::default()
+        },
     }
 }
 

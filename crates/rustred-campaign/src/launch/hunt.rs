@@ -31,14 +31,27 @@
 //!    a survivor sends the hunt back to step 2 while the budget lasts.
 //!
 //! Observe mode (an adopted job the caller only monitors): no signal at all; two passes; survivors are reported.
+//!
+//! Third fix package (procfix3, gate-A M-1): a live process of the job that DROPPED the marker (exec with `env -i` or
+//! without the variable) in another session is not ours and is never signalled, but it no longer shields its
+//! descendants: in tree mode the walk DESCENDS through such marker-less processes (it reads their children lists without
+//! signalling them; a marker-less process cannot hand the marker to new children unless it re-sets it, which is out of
+//! scope) and every descendant is classified as usual. Each proof pass also carries two BELTS that can only add
+//! survivors, never make a pass empty: a strict full /proc scan for the job's EXACT marker (any live process of our uid
+//! carrying it is a survivor, wherever it is in the process tree), and, for a job in a systemd scope, the scope's
+//! kernel-maintained `cgroup.procs` (a live process in it other than the pinned leader is a survivor; after the guarded
+//! kill the scope gets `cgroup.kill`). A process whose STOP was delivered but whose stop could not be confirmed stays a
+//! member and gets the SIGKILL (gate-A m-2).
 
+use super::cgroup::ScopeRef;
 use super::guard::{self, ProcessTarget, Proof, StartRule, Verdict};
 use super::{Enumeration, LeftoverRecord, UnattributedChild, VerifiedBy};
 use crate::resources::{
     CampaignMarker, FactRead, Leaders, MarkerFact, ProcFacts, children_of, our_uid, own_children,
-    own_children_by_scan, read_proc_facts, request_reap, strict_listing_counted,
+    own_children_by_scan, read_proc_facts, request_reap, scan_marked_inline,
+    strict_listing_counted,
 };
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::os::fd::OwnedFd;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -61,6 +74,8 @@ pub(crate) struct HuntSpec {
     pub enumeration: Enumeration,
     /// The job's own cgroup (created by us in a delegated subtree), if any.
     pub cgroup: Option<PathBuf>,
+    /// The job's systemd scope (an additional belt, procfix3), if recorded.
+    pub scope: Option<ScopeRef>,
     pub leaders: Arc<Leaders>,
     /// Time budget of this invocation.
     pub budget: Duration,
@@ -90,6 +105,9 @@ enum Class {
     Ours(Proof, ProcFacts),
     NotOurs {
         unattributed: bool,
+        /// A live process of our uid, started after the launch, outside our own session, WITHOUT a marker (it dropped
+        /// it): never signalled, but the walk descends through it (procfix3, gate-A M-1).
+        descend: bool,
         facts: Option<ProcFacts>,
     },
     Dead,
@@ -105,6 +123,8 @@ struct Member {
 enum Stop {
     Stopped,
     Exited,
+    /// The STOP was delivered but the stop could not be confirmed (D state, a read failed): still a member (gate-A m-2).
+    DeliveredUnconfirmed(String),
     Failed(String),
 }
 
@@ -140,7 +160,8 @@ struct Hunt<'a> {
     deadline: Instant,
     own_session: u32,
     uid: u32,
-    not_ours: HashSet<(u32, u64)>,
+    /// Conclusive "not ours" verdicts, with whether the walk descends through the process.
+    not_ours: HashMap<(u32, u64), bool>,
     unattributed: BTreeMap<(u32, u64), UnattributedChild>,
     killed: Vec<LeftoverRecord>,
     cgroup_ok: bool,
@@ -165,37 +186,22 @@ impl Hunt<'_> {
     /// opened FIRST; the facts are valid only if the pidfd still reports the process alive after the reads.
     fn classify(&mut self, pid: u32, parent: Option<u32>) -> (Class, Option<OwnedFd>) {
         let me = me();
+        let not_ours = |descend: bool, facts: Option<ProcFacts>| Class::NotOurs {
+            unattributed: false,
+            descend,
+            facts,
+        };
         if pid <= 1 || pid == me {
-            return (
-                Class::NotOurs {
-                    unattributed: false,
-                    facts: None,
-                },
-                None,
-            );
+            return (not_ours(false, None), None);
         }
         if self.registered(pid) {
             // Another job's live leader, or J's own zombie leader: never J's survivor.
-            return (
-                Class::NotOurs {
-                    unattributed: false,
-                    facts: None,
-                },
-                None,
-            );
+            return (not_ours(false, None), None);
         }
         let fd = match guard::open_pidfd(pid) {
             Ok(fd) => fd,
             Err(Verdict::Gone) => return (Class::Dead, None),
-            Err(Verdict::NotOurs(_)) => {
-                return (
-                    Class::NotOurs {
-                        unattributed: false,
-                        facts: None,
-                    },
-                    None,
-                );
-            }
+            Err(Verdict::NotOurs(_)) => return (not_ours(false, None), None),
             Err(Verdict::Unverified(e)) => return (Class::Inconclusive(e), None),
             Err(Verdict::Delivered) => return (Class::Inconclusive("impossible".into()), None),
         };
@@ -225,25 +231,13 @@ impl Hunt<'_> {
             return (Class::Dead, None);
         }
         let key = (pid, facts.stat.start_ticks);
-        if self.not_ours.contains(&key) {
-            return (
-                Class::NotOurs {
-                    unattributed: false,
-                    facts: None,
-                },
-                None,
-            );
+        if let Some(&descend) = self.not_ours.get(&key) {
+            return (not_ours(descend, None), None);
         }
         let direct_child = facts.stat.ppid == me;
         if facts.stat.start_ticks < self.s.launch_ticks {
-            self.not_ours.insert(key);
-            return (
-                Class::NotOurs {
-                    unattributed: false,
-                    facts: Some(facts),
-                },
-                None,
-            );
+            self.not_ours.insert(key, false);
+            return (not_ours(false, Some(facts)), None);
         }
         if self.s.pinned && facts.stat.session == self.s.sid {
             return (
@@ -252,34 +246,25 @@ impl Hunt<'_> {
             );
         }
         if facts.stat.session == self.own_session {
-            self.not_ours.insert(key);
-            return (
-                Class::NotOurs {
-                    unattributed: false,
-                    facts: Some(facts),
-                },
-                None,
-            );
+            self.not_ours.insert(key, false);
+            return (not_ours(false, Some(facts)), None);
         }
+        // Marker-less processes of our uid, started after the launch, outside our session: walked through.
+        let descend = facts.real_uid == self.uid;
         match &facts.marker {
             MarkerFact::Value(v) => match CampaignMarker::parse(v) {
                 Some(m) if m == self.s.marker => (Class::Ours(Proof::Marker(m), facts), Some(fd)),
                 _ => {
-                    self.not_ours.insert(key);
-                    (
-                        Class::NotOurs {
-                            unattributed: false,
-                            facts: Some(facts),
-                        },
-                        None,
-                    )
+                    self.not_ours.insert(key, false);
+                    (not_ours(false, Some(facts)), None)
                 }
             },
             MarkerFact::Absent => {
-                self.not_ours.insert(key);
+                self.not_ours.insert(key, descend);
                 (
                     Class::NotOurs {
                         unattributed: direct_child,
+                        descend,
                         facts: Some(facts),
                     },
                     None,
@@ -289,20 +274,15 @@ impl Hunt<'_> {
             MarkerFact::EmptyEnviron => (
                 Class::NotOurs {
                     unattributed: direct_child,
+                    descend,
                     facts: Some(facts),
                 },
                 None,
             ),
             MarkerFact::Unreadable(e) => {
                 if facts.real_uid != self.uid {
-                    self.not_ours.insert(key);
-                    (
-                        Class::NotOurs {
-                            unattributed: false,
-                            facts: Some(facts),
-                        },
-                        None,
-                    )
+                    self.not_ours.insert(key, false);
+                    (not_ours(false, Some(facts)), None)
                 } else {
                     (
                         Class::Inconclusive(format!("pid {pid}: environ unreadable ({e})")),
@@ -347,7 +327,10 @@ impl Hunt<'_> {
     fn stop(&self, fd: &OwnedFd, f: &ProcFacts, proof: &Proof) -> Stop {
         let t = self.target(f, proof.clone());
         match guard::signal_with_pidfd(fd, &t, libc::SIGSTOP, Some(&self.s.leaders)) {
-            Verdict::Delivered => self.wait_stopped(f.stat.pid, fd),
+            Verdict::Delivered => match self.wait_stopped(f.stat.pid, fd) {
+                Stop::Failed(e) => Stop::DeliveredUnconfirmed(e),
+                other => other,
+            },
             Verdict::Gone => Stop::Exited,
             Verdict::NotOurs(r) => Stop::Failed(format!("pid {}: refused: {r:?}", f.stat.pid)),
             Verdict::Unverified(e) => Stop::Failed(e),
@@ -388,9 +371,10 @@ impl Hunt<'_> {
                     Class::Ours(p, f) => format!("OURS {p:?} state {}", f.stat.state),
                     Class::NotOurs {
                         unattributed,
+                        descend,
                         facts,
                     } => format!(
-                        "not ours (unattributed {unattributed}) {:?}",
+                        "not ours (unattributed {unattributed}, descend {descend}) {:?}",
                         facts.as_ref().map(|f| (f.stat.session, f.marker.clone()))
                     ),
                     Class::Dead => "dead".into(),
@@ -449,6 +433,17 @@ impl Hunt<'_> {
                     Err(e) => inconclusive = Some(format!("/proc listing: {e}")),
                 },
             }
+            // The belt (procfix3): every live process of our uid carrying J's exact marker, wherever it is.
+            if round == 0 {
+                match scan_marked_inline(
+                    &self.s.marker.campaign_id,
+                    self.s.launch_ticks,
+                    Some(&self.s.marker.attempt_id),
+                ) {
+                    Ok(scan) => queue.extend(scan.processes.into_iter().map(|p| (p.pid, None))),
+                    Err(e) => inconclusive = Some(format!("marker scan: {e}")),
+                }
+            }
             // Children of every stopped member (their lists are stable: a stopped process cannot fork).
             let member_pids: Vec<u32> = known.keys().copied().collect();
             for m in member_pids {
@@ -498,15 +493,34 @@ impl Hunt<'_> {
                                 }
                                 known.insert(pid, Member { fd, facts, proof });
                             }
+                            Stop::DeliveredUnconfirmed(e) => {
+                                // gate-A m-2: the STOP was delivered; keep it so that it gets the SIGKILL.
+                                changed = true;
+                                known.insert(pid, Member { fd, facts, proof });
+                                inconclusive = Some(e);
+                            }
                             Stop::Exited => changed = true,
                             Stop::Failed(e) => inconclusive = Some(e),
                         }
                     }
                     Class::NotOurs {
-                        unattributed: true,
-                        facts: Some(f),
-                    } => self.note_unattributed(&f),
-                    Class::NotOurs { .. } | Class::Dead => {}
+                        unattributed,
+                        descend,
+                        facts,
+                    } => {
+                        if unattributed && let Some(f) = &facts {
+                            self.note_unattributed(f);
+                        }
+                        // gate-A M-1: a marker-less process of the job does not shield its descendants.
+                        if descend && self.s.enumeration == Enumeration::SubreaperTree {
+                            match children_of(pid) {
+                                Ok(Some(k)) => queue.extend(k.into_iter().map(|c| (c, Some(pid)))),
+                                Ok(None) => {}
+                                Err(e) => inconclusive = Some(e),
+                            }
+                        }
+                    }
+                    Class::Dead => {}
                     Class::Inconclusive(e) => {
                         // Examine it again next round.
                         if parent == Some(me) {
@@ -530,7 +544,9 @@ impl Hunt<'_> {
                     FactRead::Facts(_) => {
                         changed = true;
                         let (fd, facts, proof) = (&m.fd, m.facts.clone(), m.proof.clone());
-                        if let Stop::Failed(e) = self.stop(fd, &facts, &proof) {
+                        if let Stop::Failed(e) | Stop::DeliveredUnconfirmed(e) =
+                            self.stop(fd, &facts, &proof)
+                        {
                             inconclusive = Some(e);
                         }
                     }
@@ -612,6 +628,26 @@ impl Hunt<'_> {
                 std::thread::sleep(Duration::from_micros(500));
             }
         }
+        // The scope belt (procfix3): AFTER the guarded kills, whatever the job's own systemd scope still holds (e.g. a
+        // descendant that cleared the marker and left the session) is killed by the kernel through `cgroup.kill` of
+        // that scope (recorded from the pinned leader; checked again: same directory, our uid, our user manager).
+        if let Some(scope) = &self.s.scope
+            && let Ok(live) = scope.live_members()
+            && !live.is_empty()
+        {
+            for pid in &live {
+                if let Ok(Some(st)) = crate::resources::read_stat(*pid) {
+                    self.killed.push(LeftoverRecord {
+                        pid: *pid,
+                        start_ticks: st.start_ticks,
+                        pgrp: st.pgrp,
+                        comm: format!("{} <killed through the job's systemd scope>", st.comm),
+                    });
+                }
+            }
+            let r = scope.kill_members();
+            trace(|| format!("sid {} scope kill: {r:?}", self.s.sid));
+        }
         request_reap();
         left
     }
@@ -639,18 +675,29 @@ impl Hunt<'_> {
                 }
                 let mut tops: Vec<u32> = t0.keys().copied().collect();
                 tops.sort_unstable_by(|a, b| b.cmp(a));
+                // Marker-less processes of the job whose subtrees are walked (gate-A M-1).
+                let mut through: Vec<u32> = Vec::new();
                 for pid in tops {
                     let (class, _) = self.classify(pid, Some(me));
                     match class {
                         Class::Ours(_, f) => survivors.push(record(&f)),
                         Class::Inconclusive(e) => return Err(e),
                         Class::NotOurs {
-                            unattributed: true,
-                            facts: Some(f),
-                        } => self.note_unattributed(&f),
-                        _ => {}
+                            unattributed,
+                            descend,
+                            facts,
+                        } => {
+                            if unattributed && let Some(f) = &facts {
+                                self.note_unattributed(f);
+                            }
+                            if descend {
+                                through.push(pid);
+                            }
+                        }
+                        Class::Dead => {}
                     }
                 }
+                self.walk_through(through, &mut survivors)?;
                 let t1 = self.snapshot_tops()?;
                 for (pid, start) in t1 {
                     if t0.get(&pid) == Some(&start) {
@@ -660,6 +707,9 @@ impl Hunt<'_> {
                         Class::Ours(_, f) => survivors.push(record(&f)),
                         Class::Inconclusive(e) => {
                             return Err(format!("child appeared during the pass: {e}"));
+                        }
+                        Class::NotOurs { descend: true, .. } => {
+                            self.walk_through(vec![pid], &mut survivors)?
                         }
                         _ => {}
                     }
@@ -680,6 +730,39 @@ impl Hunt<'_> {
                         (Class::Inconclusive(e), _) => return Err(e),
                         _ => {}
                     }
+                }
+            }
+        }
+        // Belt 1 (procfix3): any live process of our uid with J's EXACT marker is a survivor, wherever it is. Only adds
+        // survivors (an unreadable environ elsewhere on the host does not make the pass inconclusive: the strict tree
+        // enumeration above is the proof; this belt catches what a tree walk cannot see).
+        let scan = scan_marked_inline(
+            &self.s.marker.campaign_id,
+            self.s.launch_ticks,
+            Some(&self.s.marker.attempt_id),
+        )
+        .map_err(|e| format!("marker scan: {e}"))?;
+        for p in scan.processes {
+            if p.pid == self.s.sid || survivors.iter().any(|s| s.pid == p.pid) {
+                continue;
+            }
+            survivors.push(LeftoverRecord {
+                pid: p.pid,
+                start_ticks: p.start_ticks,
+                pgrp: p.pgrp,
+                comm: format!("{} <marked, found by the full scan>", p.comm),
+            });
+        }
+        // Belt 2 (procfix3): the job's systemd scope (kernel-maintained membership).
+        if let Some(scope) = &self.s.scope {
+            for pid in scope.live_members()? {
+                if !survivors.iter().any(|s| s.pid == pid) {
+                    survivors.push(LeftoverRecord {
+                        pid,
+                        start_ticks: 0,
+                        pgrp: 0,
+                        comm: "<in the job's systemd scope>".into(),
+                    });
                 }
             }
         }
@@ -706,6 +789,38 @@ impl Hunt<'_> {
             return Err("the leader is no longer held unreaped".into());
         }
         Ok(survivors)
+    }
+
+    /// Classify the descendants of marker-less processes of the job (not stopped, never signalled: their children lists
+    /// are read as they are; anything handed off meanwhile is re-parented to us and seen by the bracketing snapshots, or
+    /// carries the marker and is seen by the full-scan belt). Bounded.
+    fn walk_through(
+        &mut self,
+        start: Vec<u32>,
+        survivors: &mut Vec<LeftoverRecord>,
+    ) -> Result<(), String> {
+        let mut stack: Vec<u32> = start;
+        let mut visited: BTreeSet<u32> = BTreeSet::new();
+        while let Some(n) = stack.pop() {
+            if !visited.insert(n) {
+                continue;
+            }
+            if visited.len() > 65_536 {
+                return Err("more than 65,536 processes below marker-less job processes".into());
+            }
+            let Some(kids) = children_of(n)? else {
+                continue;
+            };
+            for c in kids {
+                match self.classify(c, Some(n)).0 {
+                    Class::Ours(_, f) => survivors.push(record(&f)),
+                    Class::Inconclusive(e) => return Err(e),
+                    Class::NotOurs { descend: true, .. } => stack.push(c),
+                    _ => {}
+                }
+            }
+        }
+        Ok(())
     }
 
     fn leader_pinned(&self) -> bool {
@@ -742,7 +857,7 @@ pub(crate) fn run(spec: &HuntSpec, cancel: &AtomicBool) -> HuntResult {
         deadline: Instant::now() + spec.budget,
         own_session: own_session(),
         uid: our_uid(),
-        not_ours: HashSet::new(),
+        not_ours: HashMap::new(),
         unattributed: BTreeMap::new(),
         killed: Vec::new(),
         cgroup_ok: spec.cgroup.is_some(),

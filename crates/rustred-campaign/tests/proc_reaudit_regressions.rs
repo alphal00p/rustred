@@ -723,6 +723,9 @@ fn rb_minor_m5_future_and_newer_than_host_measurements_are_stale() {
 /// list missed every one of them), then run on the real sources.
 #[test]
 fn ra_m5_tripwire_covers_every_signal_form_and_directory() {
+    // procfix3: serialised with the descriptor-exhaustion tests of this binary (it reads every source file; under the
+    // default parallel test threads it hit EMFILE while rb_c1 held the table full).
+    let _g = serial();
     let planted = [
         ("supervisor/x.rs", "use libc::kill as k; k(pid, 9);"),
         ("cli/x.rs", "child.kill().unwrap();"),

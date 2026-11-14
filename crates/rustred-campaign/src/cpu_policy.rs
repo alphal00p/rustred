@@ -299,9 +299,11 @@ impl CpuLease {
                 free = cpus.clone();
             }
             for (&cpu, path) in cpus.iter().zip(paths.iter()) {
+                // An existing lock file, never created, never truncated (shared host locks: SUBAGENT_RULES L13).
                 let busy = OpenOptions::new()
                     .read(true)
                     .write(true)
+                    .truncate(false)
                     .open(path)
                     .is_ok_and(|f| matches!(f.try_lock(), Err(std::fs::TryLockError::WouldBlock)));
                 if busy {

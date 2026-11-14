@@ -22,6 +22,7 @@
 //!
 //! Every signal goes through `guard` (identity checklist, pidfd delivery, leader-registry group fast path).
 
+use super::cgroup::ScopeRef;
 use super::guard::{
     self, DEFAULT_VERIFY_TIMEOUT, ProcessTarget, Proof, StartRule, signal_pinned_group,
 };
@@ -498,6 +499,15 @@ impl RealLauncher {
             .collect()
     }
 
+    /// Drop every quarantined handle NOW (each Drop SIGKILLs its pinned leader group through the guard and hands the
+    /// zombie to the reaper): the supervisor calls it before it releases its campaign locks (gate-A m-7). Returns how
+    /// many were dropped.
+    pub fn abandon_quarantine(&mut self) -> usize {
+        let n = self.quarantine.len();
+        self.quarantine.clear();
+        n
+    }
+
     /// Blocking (bounded): drive the quarantine until it is empty or `timeout` passes (supervisor exit). What is left
     /// stays unproven: its handles are dropped with the launcher (the pinned groups get SIGKILL) and the restart's orphan
     /// scan looks for the markers.
@@ -714,12 +724,10 @@ pub fn audit_inheritable_fds() -> io::Result<Vec<(RawFd, String)>> {
 }
 
 /// Hand a `Child` that may not have exited yet to the adopted-children reaper (never block the caller; audit A M5).
-/// The caller removed it from the leader registry first: the reaper then reaps its zombie by exact pid (no thread blocked
-/// per child any more: gate re-audit A m-4).
-fn reap_in_background(mut c: Child) {
-    if let Ok(Some(_)) = c.try_wait() {
-        return;
-    }
+/// The caller removed it from the leader registry first: the reaper then reaps its zombie by exact pid, through a pidfd,
+/// under the registry lock (no thread blocked per child: gate re-audit A m-4). No wait by NUMBER here any more (gate-A
+/// m-1: a `try_wait` after the registry lock was released could, after a full pid wrap, have waited for a new leader).
+fn reap_in_background(c: Child) {
     drop(c);
     request_reap();
 }
@@ -1045,6 +1053,8 @@ pub struct RealChild {
     adopted_members: BTreeSet<(u32, u64)>,
     over_cap_seq: Option<u64>,
     scope_dir: Option<PathBuf>,
+    /// The job's systemd scope, recorded from the pinned leader (procfix3 belt; see `ScopeRef`).
+    scope: Option<ScopeRef>,
     peak_rss: u64,
     cpu_ticks: u64,
     finished: Option<FinalReport>,
@@ -1105,6 +1115,7 @@ impl RealChild {
             adopted_members: BTreeSet::new(),
             over_cap_seq: None,
             scope_dir: None,
+            scope: None,
             peak_rss: 0,
             cpu_ticks: 0,
             finished: None,
@@ -1265,6 +1276,7 @@ impl RealChild {
                 Enumeration::FullProc
             },
             cgroup: self.cgroup.as_ref().map(|c| c.path().to_path_buf()),
+            scope: if pinned { self.scope.clone() } else { None },
             leaders: Arc::clone(&self.leaders),
             budget: self.config.hunt_budget,
             max_rounds: 1_000_000,
@@ -1394,6 +1406,11 @@ impl RealChild {
                 read_bounded(&path, Duration::from_millis(200))
             {
                 let text = String::from_utf8_lossy(&b);
+                // The belt needs the strict form (this leader's own transient scope, our user manager, dev/inode).
+                if self.scope.is_none() {
+                    self.scope =
+                        ScopeRef::from_leader_cgroup(&text, self.sid, crate::resources::our_uid());
+                }
                 if let Some(rel) = text.lines().find_map(|l| l.strip_prefix("0::"))
                     && rel.trim_end().ends_with(".scope")
                     && rel.contains("/run-")
