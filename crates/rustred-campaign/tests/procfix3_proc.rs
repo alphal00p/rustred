@@ -153,8 +153,10 @@ fn m5_extended_tripwire_reap_stop_spawn_forms_only_where_allowed() {
         (".status()", &["launch/real.rs"]),
         (".output()", &[]),
         // stop / continue: only through the guard, from the hunt, the sweep and the launcher's terminate.
-        ("SIGSTOP", &["launch/hunt.rs", "launch/sweep.rs"]),
-        ("SIGCONT", &["launch/real.rs"]),
+        // procfix6 (gate5 m1): the guard itself names SIGSTOP (it makes the stop hold of a delivered stop) and SIGCONT
+        // (the stop hold allows SIGKILL / SIGCONT only); the sweep and the hunt continue through `guard::continue_held`.
+        ("SIGSTOP", &["launch/hunt.rs", "launch/sweep.rs", "launch/guard.rs"]),
+        ("SIGCONT", &["launch/real.rs", "launch/guard.rs"]),
         ("cgroup.freeze", &["launch/cgroup.rs"]),
         ("cgroup.kill", &["launch/cgroup.rs"]),
         // the fake child's legacy rr_proof emulation (a TEST program, lane closeloop2) raises a signal on itself

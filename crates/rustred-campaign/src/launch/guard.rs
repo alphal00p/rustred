@@ -142,6 +142,40 @@ pub struct ProcessTarget {
     pub proof: Proof,
 }
 
+/// procfix6 (gate5 m1): THE IDENTITY HELD AT A STOP. Made only here, only when this guard DELIVERED a SIGSTOP through
+/// a pidfd the caller opened BEFORE the identity checklist ran (marker / pinned-session proof, exact start time, our uid,
+/// this boot). It names that process (pid, start time, boot) and what the checklist read (the marker); it can be used
+/// only together with the same pidfd ([`signal_held`] checks that the descriptor names this pid), for SIGKILL or
+/// SIGCONT only. Why it is needed: a batch reads N environs, writes the intents, then sends; a process that execs into an
+/// unmarked image between its read and its SIGSTOP is stopped without the marker, and the kill round's marker check
+/// then refuses it: without the hold it stayed STOPPED forever. Fields are private: no other module can make one.
+#[derive(Debug)]
+pub(crate) struct StopHold {
+    pid: u32,
+    start_ticks: u64,
+    boot_id: String,
+    marker: Option<String>,
+    proof: &'static str,
+}
+
+impl StopHold {
+    pub(crate) fn pid(&self) -> u32 {
+        self.pid
+    }
+
+    /// Unit tests of other modules: a hold with chosen facts (e.g. another boot, so that it can never be used).
+    #[cfg(test)]
+    pub(crate) fn for_test(pid: u32, start_ticks: u64, boot_id: &str) -> StopHold {
+        StopHold {
+            pid,
+            start_ticks,
+            boot_id: boot_id.into(),
+            marker: None,
+            proof: "campaign marker",
+        }
+    }
+}
+
 // ------------------------------------------------------------------------------------------------ delivery log
 
 /// One signal this process DELIVERED through the guard (gate3 M2, lane int5: every signal sent becomes a ledger record;
@@ -204,6 +238,7 @@ fn log_delivery(
     detail: Option<String>,
     intent: Option<String>,
 ) {
+    DELIVERED_TOTAL.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let (by, label) = current_context().unwrap_or_else(|| ("unspecified".into(), None));
     let d = Delivery {
         pid,
@@ -261,6 +296,8 @@ struct IntentLog {
     reserve: PathBuf,
     session: String,
     next: u64,
+    /// procfix6 (gate5 m3): an intent write of this log failed for lack of space.
+    disk_full: bool,
 }
 
 static INTENTS: std::sync::Mutex<Option<IntentLog>> = std::sync::Mutex::new(None);
@@ -286,6 +323,7 @@ fn with_intent_log<R>(log_dir: &Path, session: &str, f: impl FnOnce() -> R) -> R
             reserve: log_dir.join(INTENT_RESERVE_FILE),
             session: session.into(),
             next: 0,
+            disk_full: false,
         })
     });
     let r = f();
@@ -383,6 +421,7 @@ pub fn install_intent_log(log_dir: &Path, session: &str) -> io::Result<()> {
             let _ = f.sync_all();
         }
     }
+    prealloc_tail(&file);
     if new {
         file.sync_all()?;
         std::fs::File::open(log_dir)?.sync_all()?;
@@ -393,6 +432,7 @@ pub fn install_intent_log(log_dir: &Path, session: &str) -> io::Result<()> {
         reserve,
         session: session.to_string(),
         next: 0,
+        disk_full: false,
     });
     Ok(())
 }
@@ -421,7 +461,115 @@ fn write_intents(items: &[Intent]) -> Result<Vec<Option<String>>, String> {
         return Ok(Vec::new());
     }
     let (by, label) = current_context().unwrap_or_else(|| ("unspecified".into(), None));
-    with_sink(|log| write_intents_to(log, items, by, label))
+    let r = with_sink(|log| write_intents_to(log, items, by.clone(), label.clone()));
+    if let Err(e) = &r {
+        note_not_signalled(items, &by, label.as_deref(), e);
+    }
+    r
+}
+
+/// procfix6 (gate5 m3): a signal the guard did NOT send because its intent could not be made durable.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct NotSignalled {
+    /// The process, the group (= the pinned leader's session), or 0 for a cgroup.
+    pub pid: u32,
+    pub start_ticks: Option<u64>,
+    pub signal: i32,
+    /// "process" | "group" | "cgroup".
+    pub target: &'static str,
+    pub marker: Option<String>,
+    pub by: String,
+    pub label: Option<String>,
+    pub detail: Option<String>,
+    /// The intent write failed for lack of space (ENOSPC / EDQUOT / EFBIG, after the reserve).
+    pub disk_full: bool,
+    pub error: String,
+}
+
+/// Refusals kept at most (beyond: counted in [`NOT_SIGNALLED_DROPPED`]).
+const NOT_SIGNALLED_MAX: usize = 4096;
+static NOT_SIGNALLED: std::sync::Mutex<Vec<NotSignalled>> = std::sync::Mutex::new(Vec::new());
+static NOT_SIGNALLED_DROPPED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Signals delivered by this process (every successful send; procfix6 m3: truthful counts in exit lines).
+static DELIVERED_TOTAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn note_not_signalled(items: &[Intent], by: &str, label: Option<&str>, error: &str) {
+    let disk_full = error.contains(DISK_FULL_WORD);
+    let mut g = NOT_SIGNALLED.lock().unwrap_or_else(|p| p.into_inner());
+    for it in items {
+        if g.len() >= NOT_SIGNALLED_MAX {
+            NOT_SIGNALLED_DROPPED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            continue;
+        }
+        g.push(NotSignalled {
+            pid: it.pid,
+            start_ticks: it.start_ticks,
+            signal: it.signal,
+            target: it.target,
+            marker: it.marker.clone(),
+            by: by.to_string(),
+            label: label.map(str::to_string),
+            detail: it.detail.clone(),
+            disk_full,
+            error: error.to_string(),
+        });
+    }
+}
+
+/// Take every refusal recorded since the last call (procfix6 m3) and how many could not be kept.
+pub fn take_not_signalled() -> (Vec<NotSignalled>, u64) {
+    let v = std::mem::take(&mut *NOT_SIGNALLED.lock().unwrap_or_else(|p| p.into_inner()));
+    (
+        v,
+        NOT_SIGNALLED_DROPPED.swap(0, std::sync::atomic::Ordering::SeqCst),
+    )
+}
+
+/// Has an intent write of the INSTALLED (process-wide) intent log failed for lack of space (procfix6 m3)? The supervisor
+/// then ends with exit 75 promptly.
+pub fn intent_disk_full() -> bool {
+    INTENTS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .as_ref()
+        .is_some_and(|l| l.disk_full)
+}
+
+/// Signals delivered by this process so far (every successful send of the guard).
+pub fn delivered_total() -> u64 {
+    DELIVERED_TOTAL.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// The word every disk-full intent error carries (see `write_intents_to`).
+const DISK_FULL_WORD: &str = "[disk full]";
+/// procfix6 (gate5 m3): bytes PRE-ALLOCATED past the end of the intent log (`fallocate` KEEP_SIZE, best effort; refreshed
+/// when less than half is left): appends land in blocks the file already owns, so intents of a stop can still be made
+/// durable on a full disk where the file system supports it (ext4, xfs, tmpfs; not ZFS: the reserve file then helps).
+const INTENT_PREALLOC_BYTES: i64 = 256 << 10;
+
+/// Best effort: make sure about [`INTENT_PREALLOC_BYTES`] are allocated past the end of `file`.
+fn prealloc_tail(file: &std::fs::File) {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::MetadataExt;
+    #[cfg(debug_assertions)]
+    if test_reached("no_intent_prealloc") {
+        return;
+    }
+    let Ok(m) = file.metadata() else { return };
+    let len = m.len() as i64;
+    let allocated = (m.blocks() as i64).saturating_mul(512);
+    if allocated - len >= INTENT_PREALLOC_BYTES / 2 {
+        return;
+    }
+    // SAFETY: fallocate on our own open descriptor with integer arguments; KEEP_SIZE leaves the file size unchanged.
+    let _ = unsafe {
+        libc::fallocate(
+            file.as_raw_fd(),
+            libc::FALLOC_FL_KEEP_SIZE,
+            len,
+            INTENT_PREALLOC_BYTES,
+        )
+    };
 }
 
 fn write_intents_to(
@@ -468,15 +616,32 @@ fn write_intents_to(
         log.file.write_all(&buf)?;
         log.file.sync_data()
     };
-    match attempt(log, false) {
+    #[cfg(debug_assertions)]
+    if test_reached("intent_enospc") {
+        log.disk_full = true;
+        return Err(format!(
+            "signal intent not durable: TEST BUILD intent_enospc {DISK_FULL_WORD}"
+        ));
+    }
+    let word = |e: &io::Error| if is_disk_full(e) { DISK_FULL_WORD } else { "" };
+    let r = match attempt(log, false) {
         Ok(()) => Ok(ids),
         Err(e) if is_disk_full(&e) && std::fs::remove_file(&log.reserve).is_ok() => {
             attempt(log, true).map(|()| ids).map_err(|e2| {
-                format!("signal intent not durable: {e2} (after freeing the reserve; first: {e})")
+                format!(
+                    "signal intent not durable: {e2} (after freeing the reserve; first: {e}) {}",
+                    word(&e2)
+                )
             })
         }
-        Err(e) => Err(format!("signal intent not durable: {e}")),
+        Err(e) => Err(format!("signal intent not durable: {e} {}", word(&e))),
+    };
+    match &r {
+        Ok(_) => prealloc_tail(&log.file),
+        Err(e) if e.contains(DISK_FULL_WORD) => log.disk_full = true,
+        Err(_) => {}
     }
+    r
 }
 
 /// Completion lines (not synced: a lost completion line only makes a delivered signal "possibly sent").
@@ -594,6 +759,15 @@ fn test_site(site: &str) {
         std::sync::OnceLock::new();
     FP.get_or_init(crate::supervisor::failpoint::Failpoints::from_env)
         .hit(site);
+}
+
+/// Test builds only: a counted, non-aborting site (`RR_CAMPAIGN_FAILPOINT=intent_enospc:<n>`, procfix6 m3).
+#[cfg(debug_assertions)]
+fn test_reached(site: &str) -> bool {
+    static FP: std::sync::OnceLock<crate::supervisor::failpoint::Failpoints> =
+        std::sync::OnceLock::new();
+    FP.get_or_init(crate::supervisor::failpoint::Failpoints::from_env)
+        .reached(site)
 }
 
 macro_rules! site {
@@ -1043,20 +1217,52 @@ pub(crate) fn signal_with_pidfds(
     sig: i32,
     leaders: Option<&Leaders>,
 ) -> Vec<Verdict> {
-    let mut out: Vec<Option<Verdict>> = vec![None; items.len()];
+    with_pidfds_held(items, sig, leaders)
+        .into_iter()
+        .map(|(v, _)| v)
+        .collect()
+}
+
+/// procfix6 (gate5 m1): [`signal_with_pidfds`] with SIGSTOP, returning for every DELIVERED stop the [`StopHold`] of that
+/// process (to be killed, or continued, by the identity held at the stop: [`signal_held`]).
+pub(crate) fn stop_with_pidfds(
+    items: &[(&OwnedFd, ProcessTarget)],
+    leaders: Option<&Leaders>,
+) -> Vec<(Verdict, Option<StopHold>)> {
+    with_pidfds_held(items, libc::SIGSTOP, leaders)
+}
+
+/// procfix6 (gate5 m1): [`signal_with_pidfd`] with SIGSTOP, returning the [`StopHold`] when the stop was delivered.
+pub(crate) fn stop_with_pidfd(
+    fd: &OwnedFd,
+    t: &ProcessTarget,
+    leaders: Option<&Leaders>,
+) -> (Verdict, Option<StopHold>) {
+    with_pidfds_held(&[(fd, t.clone())], libc::SIGSTOP, leaders)
+        .pop()
+        .unwrap_or_else(|| (Verdict::Unverified("internal: no verdict".into()), None))
+}
+
+fn with_pidfds_held(
+    items: &[(&OwnedFd, ProcessTarget)],
+    sig: i32,
+    leaders: Option<&Leaders>,
+) -> Vec<(Verdict, Option<StopHold>)> {
+    let mut out: Vec<Option<(Verdict, Option<StopHold>)>> =
+        (0..items.len()).map(|_| None).collect();
     let mut ready = Vec::new();
     for (k, (fd, t)) in items.iter().enumerate() {
         let pid = match precheck(t, sig, leaders) {
             Ok(p) => p,
             Err(v) => {
-                out[k] = Some(v);
+                out[k] = Some((v, None));
                 continue;
             }
         };
         let want_marker = matches!(t.proof, Proof::Marker(_) | Proof::Campaign(_));
         match read_facts(Path::new("/proc"), t.pid, want_marker) {
-            Read::Gone => out[k] = Some(Verdict::Gone),
-            Read::Failed(e) => out[k] = Some(Verdict::Unverified(e)),
+            Read::Gone => out[k] = Some((Verdict::Gone, None)),
+            Read::Failed(e) => out[k] = Some((Verdict::Unverified(e), None)),
             Read::Facts(facts) => ready.push((
                 k,
                 Ready {
@@ -1068,7 +1274,16 @@ pub(crate) fn signal_with_pidfds(
             )),
         }
     }
-    merge(out, ready, sig, leaders)
+    let (idx, items): (Vec<usize>, Vec<Ready<'_>>) = ready.into_iter().unzip();
+    for (k, v) in idx
+        .into_iter()
+        .zip(judge_and_send_batch_held(items, sig, leaders))
+    {
+        out[k] = Some(v);
+    }
+    out.into_iter()
+        .map(|v| v.unwrap_or_else(|| (Verdict::Unverified("internal: no verdict".into()), None)))
+        .collect()
 }
 
 /// Fill the verdicts of the `ready` part of a batch through [`judge_and_send_batch`].
@@ -1161,6 +1376,20 @@ fn judge_and_send_batch(
     sig: i32,
     leaders: Option<&Leaders>,
 ) -> Vec<Verdict> {
+    judge_and_send_batch_held(items, sig, leaders)
+        .into_iter()
+        .map(|(v, _)| v)
+        .collect()
+}
+
+/// [`judge_and_send_batch`] that also returns, for every SIGSTOP delivered through a caller's pidfd, the [`StopHold`]
+/// of the process (procfix6, gate5 m1).
+fn judge_and_send_batch_held(
+    items: Vec<Ready<'_>>,
+    sig: i32,
+    leaders: Option<&Leaders>,
+) -> Vec<(Verdict, Option<StopHold>)> {
+    let mut holds: Vec<Option<StopHold>> = (0..items.len()).map(|_| None).collect();
     let mut out: Vec<Option<Verdict>> = (0..items.len()).map(|_| None).collect();
     let guard = leaders.map(Leaders::lock);
     let pinned = |sid: u32| {
@@ -1195,7 +1424,7 @@ fn judge_and_send_batch(
             for &k in &pass {
                 out[k] = Some(Verdict::Unverified(e.clone()));
             }
-            return finish_verdicts(out);
+            return finish_verdicts(out).into_iter().map(|v| (v, None)).collect();
         }
     };
     if !pass.is_empty() {
@@ -1245,6 +1474,15 @@ fn judge_and_send_batch(
                     None,
                     id.clone(),
                 );
+                if sig == libc::SIGSTOP && r.fd.is_some() {
+                    holds[k] = Some(StopHold {
+                        pid: r.t.pid,
+                        start_ticks: r.facts.start_ticks,
+                        boot_id: r.t.boot_id.clone(),
+                        marker: marker_read(&r.facts),
+                        proof: proof_word(&r.t.proof),
+                    });
+                }
                 (Verdict::Delivered, "delivered".to_string())
             }
             Sent::Gone => (Verdict::Gone, "gone".to_string()),
@@ -1254,7 +1492,7 @@ fn judge_and_send_batch(
         done.push((id, word));
     }
     write_done(&done);
-    finish_verdicts(out)
+    finish_verdicts(out).into_iter().zip(holds).collect()
 }
 
 fn finish_verdicts(out: Vec<Option<Verdict>>) -> Vec<Verdict> {
@@ -1385,6 +1623,170 @@ pub(crate) fn kill_all_pinned(leaders: &Leaders) -> usize {
         .iter()
         .filter(|v| v.delivered())
         .count()
+}
+
+/// The pid a pidfd names (`Pid:` of `/proc/self/fdinfo/<fd>`, in our pid namespace): Ok(None) when its process has
+/// exited (-1 / 0); Err when the line cannot be read.
+fn pidfd_pid(fd: &OwnedFd) -> Result<Option<u32>, String> {
+    use std::os::fd::AsRawFd;
+    let t = std::fs::read_to_string(format!("/proc/self/fdinfo/{}", fd.as_raw_fd()))
+        .map_err(|e| format!("fdinfo of the pidfd: {e}"))?;
+    let v = t
+        .lines()
+        .find_map(|l| l.strip_prefix("Pid:"))
+        .ok_or_else(|| "fdinfo of the pidfd has no Pid line".to_string())?
+        .trim()
+        .parse::<i64>()
+        .map_err(|e| format!("fdinfo Pid: {e}"))?;
+    Ok(u32::try_from(v).ok().filter(|&p| p > 0))
+}
+
+/// procfix6 (gate5 m1): SIGKILL or SIGCONT to processes this guard STOPPED, by the identity held at the stop: the SAME
+/// pidfd the stop went through (its fdinfo must name the held pid), the boot, the exact start time read again now, and
+/// for SIGKILL our uid as owner of `/proc/<pid>`. NO marker is required: the marker was proven by the checklist that
+/// preceded the stop on this very pidfd (the process cannot have been replaced: the pidfd pins it, a recycled number
+/// makes the send fail with ESRCH); it may have dropped the marker by an exec between that read and the stop. SIGCONT
+/// does not require the uid (it only undoes our own stop). Every send is behind a durable intent (proof "stop hold",
+/// the marker read at the stop). Any other signal is refused.
+pub(crate) fn signal_held(items: &[(&OwnedFd, &StopHold)], sig: i32) -> Vec<Verdict> {
+    if sig != libc::SIGKILL && sig != libc::SIGCONT {
+        return items
+            .iter()
+            .map(|_| Verdict::Unverified(format!("signal {sig}: a stop hold allows SIGKILL / SIGCONT only")))
+            .collect();
+    }
+    let mut out: Vec<Option<Verdict>> = vec![None; items.len()];
+    let uid = our_uid();
+    let boot = boot_id();
+    let mut pass = Vec::new();
+    for (k, (fd, h)) in items.iter().enumerate() {
+        let check = || -> Result<(), Verdict> {
+            ValidPid::for_signal(i64::from(h.pid))
+                .map_err(|e| Verdict::NotOurs(Refusal::InvalidPid(e)))?;
+            match &boot {
+                Ok(b) if *b == h.boot_id => {}
+                Ok(_) => return Err(Verdict::NotOurs(Refusal::OtherBoot)),
+                Err(e) => return Err(Verdict::Unverified(format!("boot id unreadable: {e}"))),
+            }
+            match pidfd_pid(fd) {
+                Ok(Some(p)) if p == h.pid => {}
+                Ok(None) => return Err(Verdict::Gone),
+                Ok(Some(p)) => {
+                    return Err(Verdict::Unverified(format!(
+                        "the pidfd names pid {p}, not the held pid {}",
+                        h.pid
+                    )));
+                }
+                Err(e) => return Err(Verdict::Unverified(e)),
+            }
+            let f = match read_facts(Path::new("/proc"), h.pid, false) {
+                Read::Gone => return Err(Verdict::Gone),
+                Read::Failed(e) => return Err(Verdict::Unverified(e)),
+                Read::Facts(f) => f,
+            };
+            if f.zombie_without_threads {
+                return Err(Verdict::Gone);
+            }
+            if f.start_ticks != h.start_ticks {
+                return Err(Verdict::NotOurs(Refusal::StartMismatch {
+                    recorded: h.start_ticks,
+                    current: f.start_ticks,
+                }));
+            }
+            if sig == libc::SIGKILL {
+                match f.uid {
+                    Some(u) if u == uid => {}
+                    Some(u) => return Err(Verdict::NotOurs(Refusal::OtherUid { uid: u })),
+                    None => return Err(Verdict::Gone),
+                }
+            }
+            // The reads above described the pidfd's process only if it had not exited by now.
+            if pidfd_exited(fd) == Some(true) {
+                return Err(Verdict::Gone);
+            }
+            Ok(())
+        };
+        match check() {
+            Ok(()) => pass.push(k),
+            Err(v) => out[k] = Some(v),
+        }
+    }
+    let intents: Vec<Intent> = pass
+        .iter()
+        .map(|&k| {
+            let h = items[k].1;
+            Intent {
+                pid: h.pid,
+                start_ticks: Some(h.start_ticks),
+                signal: sig,
+                target: "process",
+                marker: h.marker.clone(),
+                proof: "stop hold",
+                detail: Some(format!(
+                    "SIGSTOPped by this process through the same pidfd after the {} check; marker read then",
+                    h.proof
+                )),
+            }
+        })
+        .collect();
+    let ids = match write_intents(&intents) {
+        Ok(ids) => ids,
+        Err(e) => {
+            for &k in &pass {
+                out[k] = Some(Verdict::Unverified(e.clone()));
+            }
+            return finish_verdicts(out);
+        }
+    };
+    if !pass.is_empty() {
+        site!("signal_after_intent");
+    }
+    let sent: Vec<Sent> = pass
+        .iter()
+        .map(|&k| match sys::pidfd_send_signal(fd_borrow(items[k].0), sig) {
+            Ok(()) => Sent::Ok,
+            Err(e) if e.raw_os_error() == Some(libc::ESRCH) => Sent::Gone,
+            Err(e) => Sent::Failed(format!("send: {e}")),
+        })
+        .collect();
+    if !pass.is_empty() {
+        site!("signal_after_send");
+    }
+    let mut done = Vec::with_capacity(pass.len());
+    for ((&k, res), id) in pass.iter().zip(sent).zip(ids) {
+        let h = items[k].1;
+        let (v, word) = match res {
+            Sent::Ok => {
+                log_delivery(
+                    h.pid,
+                    Some(h.start_ticks),
+                    sig,
+                    "process",
+                    h.marker.clone(),
+                    "stop hold",
+                    None,
+                    id.clone(),
+                );
+                (Verdict::Delivered, "delivered".to_string())
+            }
+            Sent::Gone => (Verdict::Gone, "gone".to_string()),
+            Sent::Failed(e) => (Verdict::Unverified(e.clone()), format!("failed: {e}")),
+        };
+        out[k] = Some(v);
+        done.push((id, word));
+    }
+    write_done(&done);
+    finish_verdicts(out)
+}
+
+/// [`signal_held`] with SIGKILL (procfix6 m1).
+pub(crate) fn kill_held(items: &[(&OwnedFd, &StopHold)]) -> Vec<Verdict> {
+    signal_held(items, libc::SIGKILL)
+}
+
+/// [`signal_held`] with SIGCONT (procfix6 m1): undo our own stop.
+pub(crate) fn continue_held(items: &[(&OwnedFd, &StopHold)]) -> Vec<Verdict> {
+    signal_held(items, libc::SIGCONT)
 }
 
 /// A cgroup-wide kill (`cgroup.kill` of a job cgroup / job scope WE own, written by `write`): its intent is made durable
@@ -1978,5 +2380,194 @@ mod tests {
         child.kill().unwrap();
         child.wait().unwrap();
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ------------------------------------------------------------------------------------- procfix6 (gate5 m1)
+
+    /// A `sh` child carrying `marker` that execs into an UNMARKED `sleep 30` once it reads a line on stdin.
+    fn dropping_child(marker: &str) -> std::process::Child {
+        let child = std::process::Command::new("sh")
+            .args(["-c", "read x; exec env -u RR_CAMPAIGN_JOB sleep 30"])
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env(MARKER_VAR, marker)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let t0 = std::time::Instant::now();
+        while std::fs::read(format!("/proc/{}/environ", child.id()))
+            .map(|b| marker_in_environ(&b).is_none())
+            .unwrap_or(true)
+        {
+            assert!(t0.elapsed() < Duration::from_secs(10), "child never started");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        child
+    }
+
+    fn state_of(pid: u32) -> Option<char> {
+        let s = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        s[s.rfind(')')? + 2..].chars().next()
+    }
+
+    fn wait_until(what: &str, f: impl Fn() -> bool) {
+        let t0 = std::time::Instant::now();
+        while !f() {
+            assert!(t0.elapsed() < Duration::from_secs(10), "timed out: {what}");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// The gate5 m1 situation made deterministic: the guard STOPS a marked child (and returns its hold); the child
+    /// then drops the marker (here: continued by its parent, it execs into an unmarked image, and is stopped again by
+    /// the parent). Returns (child, pidfd, hold, target).
+    fn stopped_without_marker(
+        tag: &str,
+        log: &Path,
+    ) -> (std::process::Child, OwnedFd, StopHold, ProcessTarget) {
+        use std::io::Write;
+        let m = CampaignMarker::new(&format!("c1-{tag}"), "j1:a1").unwrap();
+        let mut a = dropping_child(&m.value());
+        let pid = a.id();
+        let st = crate::resources::read_stat(pid).unwrap().unwrap();
+        let t = ProcessTarget {
+            pid,
+            boot_id: boot_id().unwrap(),
+            start: StartRule::Exact(st.start_ticks),
+            require_session_leader: false,
+            proof: Proof::Marker(m.clone()),
+        };
+        let fd = open_pidfd(pid).unwrap();
+        let (v, hold) = with_intent_log(log, "t-hold", || stop_with_pidfd(&fd, &t, None));
+        assert_eq!(v, Verdict::Delivered);
+        let hold = hold.expect("a delivered stop gives a hold");
+        assert_eq!(hold.pid(), pid);
+        assert_eq!(hold.marker.as_deref(), Some(m.value().as_str()));
+        wait_until("stopped", || state_of(pid) == Some('T'));
+        a.stdin.take().unwrap().write_all(b"go\n").unwrap();
+        // SAFETY: test code; our own direct child (not reaped: its pid cannot be reused).
+        unsafe { libc::kill(pid as i32, libc::SIGCONT) };
+        wait_until("unmarked image", || {
+            std::fs::read(format!("/proc/{pid}/environ"))
+                .is_ok_and(|b| !b.is_empty() && marker_in_environ(&b).is_none())
+        });
+        // SAFETY: as above.
+        unsafe { libc::kill(pid as i32, libc::SIGSTOP) };
+        wait_until("stopped again", || state_of(pid) == Some('T'));
+        (a, fd, hold, t)
+    }
+
+    /// procfix6 (gate5 m1): a member the guard stopped and that dropped its marker is refused by the marker path (the
+    /// pre-fix sweep then left it STOPPED) and killed by the identity held at its stop: same pidfd, exact start, our
+    /// uid, behind a durable intent with proof "stop hold" and the marker read at the stop. DECOYS: a signal other than
+    /// SIGKILL / SIGCONT is refused; the hold with ANOTHER process's pidfd is refused (that process lives); a hold of
+    /// another boot is refused; after the exit the hold reports Gone and sends nothing.
+    #[test]
+    fn m1_stop_hold_kills_a_stopped_member_that_dropped_its_marker() {
+        if !crate::launch::in_private_namespace() {
+            eprintln!("SKIPPED: spawns and signals processes: only inside a private pid namespace (rule L10)");
+            return;
+        }
+        let log = tmpdir("hold-kill");
+        let (mut a, fd, hold, t) = stopped_without_marker("hk", &log);
+        let pid = a.id();
+        // 1. the marker path refuses it now
+        let v = with_intent_log(&log, "t-hold", || {
+            signal_with_pidfds(&[(&fd, t.clone())], libc::SIGKILL, None)
+        })
+        .pop()
+        .unwrap();
+        assert_eq!(v, Verdict::NotOurs(Refusal::NoMarker));
+        // 2. decoys
+        assert!(matches!(
+            signal_held(&[(&fd, &hold)], libc::SIGTERM).pop().unwrap(),
+            Verdict::Unverified(e) if e.contains("SIGKILL / SIGCONT only")
+        ));
+        let mut b = marked_sleep(&CampaignMarker::new("c1-hk", "j9:a1").unwrap().value());
+        let fdb = open_pidfd(b.id()).unwrap();
+        let v = with_intent_log(&log, "t-hold", || kill_held(&[(&fdb, &hold)]))
+            .pop()
+            .unwrap();
+        assert!(matches!(&v, Verdict::Unverified(e) if e.contains("names pid")), "{v:?}");
+        let other_boot = StopHold {
+            pid: hold.pid,
+            start_ticks: hold.start_ticks,
+            boot_id: "00000000-0000-0000-0000-000000000000".into(),
+            marker: hold.marker.clone(),
+            proof: hold.proof,
+        };
+        let v = with_intent_log(&log, "t-hold", || kill_held(&[(&fd, &other_boot)]))
+            .pop()
+            .unwrap();
+        assert_eq!(v, Verdict::NotOurs(Refusal::OtherBoot));
+        let wrong_start = StopHold {
+            pid: hold.pid,
+            start_ticks: hold.start_ticks + 1,
+            boot_id: hold.boot_id.clone(),
+            marker: None,
+            proof: hold.proof,
+        };
+        let v = with_intent_log(&log, "t-hold", || kill_held(&[(&fd, &wrong_start)]))
+            .pop()
+            .unwrap();
+        assert!(matches!(v, Verdict::NotOurs(Refusal::StartMismatch { .. })), "{v:?}");
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(b.try_wait().unwrap().is_none(), "the decoy lives");
+        assert_eq!(state_of(pid), Some('T'), "nothing was sent to the member yet");
+        // 3. the held SIGKILL
+        let v = with_intent_log(&log, "t-hold", || {
+            with_context("unit test", Some("j1:a1"), || kill_held(&[(&fd, &hold)]))
+        })
+        .pop()
+        .unwrap();
+        assert_eq!(v, Verdict::Delivered);
+        a.wait().unwrap();
+        let (intents, _) = read_intent_log(&log.join(INTENT_LOG_FILE)).unwrap();
+        let last = intents.last().unwrap();
+        assert_eq!(last.line.pid, Some(pid));
+        assert_eq!(last.line.signal, Some(libc::SIGKILL));
+        assert_eq!(last.line.proof.as_deref(), Some("stop hold"));
+        assert_eq!(last.line.marker, hold.marker);
+        assert_eq!(last.result.as_deref(), Some("delivered"));
+        // 4. reaped: Gone, nothing sent
+        let n = intents.len();
+        let v = with_intent_log(&log, "t-hold", || kill_held(&[(&fd, &hold)]))
+            .pop()
+            .unwrap();
+        assert_eq!(v, Verdict::Gone);
+        assert_eq!(read_intent_log(&log.join(INTENT_LOG_FILE)).unwrap().0.len(), n);
+        let _ = b.kill();
+        let _ = b.wait();
+        let _ = std::fs::remove_dir_all(&log);
+    }
+
+    /// procfix6 (gate5 m1): the held SIGCONT undoes our stop (the process runs again, not stopped); without a durable
+    /// intent neither the held SIGKILL nor the held SIGCONT is sent (the caller then reports it stranded).
+    #[test]
+    fn m1_stop_hold_continue_and_no_send_without_intent() {
+        if !crate::launch::in_private_namespace() {
+            eprintln!("SKIPPED: spawns and signals processes: only inside a private pid namespace (rule L10)");
+            return;
+        }
+        let log = tmpdir("hold-cont");
+        let (mut a, fd, hold, _) = stopped_without_marker("hc", &log);
+        let pid = a.id();
+        let full = tmpdir("hold-full");
+        std::os::unix::fs::symlink("/dev/full", full.join(INTENT_LOG_FILE)).unwrap();
+        for v in [
+            with_intent_log(&full, "t-full", || kill_held(&[(&fd, &hold)])),
+            with_intent_log(&full, "t-full", || continue_held(&[(&fd, &hold)])),
+        ] {
+            assert!(matches!(&v[0], Verdict::Unverified(e) if e.contains("not durable")), "{v:?}");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(state_of(pid), Some('T'), "nothing sent without an intent");
+        let v = with_intent_log(&log, "t-hold", || continue_held(&[(&fd, &hold)]));
+        assert_eq!(v, vec![Verdict::Delivered]);
+        wait_until("continued", || state_of(pid) != Some('T'));
+        let _ = a.kill();
+        let _ = a.wait();
+        let _ = std::fs::remove_dir_all(&log);
+        let _ = std::fs::remove_dir_all(&full);
     }
 }
