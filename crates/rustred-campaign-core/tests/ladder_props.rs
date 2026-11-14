@@ -174,6 +174,8 @@ fn batch_one(item: Item, p: &NodeParams, solver: &mut RandomSolver) -> (ItemStat
             }
             Next::NeedContainment(_) => unreachable!(),
             Next::NeedOffers => st.record_offers("none", vec![]),
+
+            Next::NeedShadowing => st.record_shadowing(rustred_campaign_core::worklist::ladder::ShadowVerdict::Unknown { why: "no shadowing test in this driver".into() }),
             Next::Done(d) => return (st, d),
         }
     }
@@ -196,7 +198,8 @@ fn summary(d: &Disposition) -> String {
         Disposition::TerminalCandidates { keys, .. } => format!("terminal {keys:?}"),
         Disposition::Attention { why, .. } => format!("attention {why}"),
         Disposition::OptimiseKept { why } => format!("kept {why}"),
-        Disposition::RecipeRule { rule, .. } => format!("recipe {}", rule.recipe_digest),
+        Disposition::RecipeRule { rule, .. } => format!("recipe {}", rule.recipe_digest()),
+        Disposition::Dropped { reason, .. } => format!("dropped {reason:?}"),
     }
 }
 

@@ -44,9 +44,9 @@ use rustred_campaign_core::worklist::items::{
     WorklistError, box_restricted_item, items_from_closure_keys,
 };
 use rustred_campaign_core::worklist::ladder::{
-    CandidateRule, Disposition, Interruption, ItemState, KeyEvidence, Next, PointFacts,
-    PointVerdict, ProofFailure, SolveAnswer, SolveOutcome, Tri, judge_points_with_hits, next_steps,
-    sub_counter,
+    CandidateRule, Disposition, Exclusion, ExclusionTarget, Interruption, ItemState, KeyEvidence,
+    Next, PointFacts, PointVerdict, ProofFailure, SolveAnswer, SolveOutcome, Tri,
+    judge_points_with_hits, next_steps, sub_counter,
 };
 use rustred_campaign_core::worklist::policy::CentreSpec;
 use rustred_campaign_core::worklist::seed::{AttemptBudget, SeedSetting, seed_space};
@@ -1258,6 +1258,8 @@ pub fn batch_tree(
                     }
                 }
                 Next::NeedOffers => st.record_offers("none", vec![]),
+
+                Next::NeedShadowing => st.record_shadowing(rustred_campaign_core::worklist::ladder::ShadowVerdict::Unknown { why: "no shadowing test in this driver".into() }),
                 Next::NeedContainment(reqs) => {
                     for r in reqs {
                         st.record_containment(&r.attempt_key, r.index, Tri::Unknown);
@@ -1312,7 +1314,7 @@ pub fn batch_tree(
             keys.retain(|k| !served.contains(k));
         }
     }
-    rustred_campaign_core::repair::seal_tree(&mut items, params);
+    rustred_campaign_core::repair::seal_tree(&mut items, &[], params);
     Ok(items
         .into_iter()
         .map(|r| (r.state.item.id.0.clone(), format!("{:?}", r.disposition)))
@@ -1762,7 +1764,15 @@ pub fn check_tree(
         params.terminals_max,
         &rustred_campaign_core::repair::NoTables,
         &params.preferred,
-        &params.lines,
+        &rustred_campaign_core::terminals::TerminalContext {
+            lines: &params.lines,
+            honoured: &params.preferred.honoured(
+                &terminals.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>(),
+                &params.lines,
+                params.terminals_max,
+            ),
+            explicit: &std::collections::BTreeSet::new(),
+        },
     );
     let term_keys: Vec<Key> = terminals.iter().map(|(k, _)| k.clone()).collect();
     let hon_t = params
@@ -1988,6 +1998,7 @@ pub fn disp_short(d: &Disposition) -> String {
         Disposition::Attention { why, .. } => format!("Attention({why})"),
         Disposition::OptimiseKept { .. } => "OptimiseKept".into(),
         Disposition::RecipeRule { .. } => "RecipeRule".into(),
+        Disposition::Dropped { .. } => "Dropped".into(),
     }
 }
 
@@ -2626,7 +2637,10 @@ fn part3_repair_key() {
                 format!("seed={seed}: {calls_made} > {}", budget.max_attempts),
             );
         }
-        let is_pref = key.len() == w.n && params.preferred.matches(&key, &params.lines);
+        // re-audit A m3 (lane ladderfix2): only an HONOURED preferred key (within `max_preferred` / the terminal
+        // bound) is a preferred terminal of repair_key; a surplus one is an ordinary key
+        let is_pref =
+            key.len() == w.n && rustred_campaign_core::repair::honoured_preferred(&params, &key);
         match &out {
             Ok(o) if o.already_covered => {
                 t.count("P3 Ok(already covered)", 1);
@@ -3319,6 +3333,7 @@ fn part6_full_coverage_first() {
     let roots = roots_of(&w, &params);
     let mut st = ItemState::new(roots[0].clone());
     st.record_offers("none", vec![]);
+    st.record_shadowing(rustred_campaign_core::worklist::ladder::ShadowVerdict::NotShadowed);
     let mut same = 0;
     for _ in 0..1000 {
         match next_steps(&st, &params) {
@@ -3538,6 +3553,8 @@ fn debug_part2_seed() {
                     }
                 }
                 Next::NeedOffers => st.record_offers("none", vec![]),
+
+                Next::NeedShadowing => st.record_shadowing(rustred_campaign_core::worklist::ladder::ShadowVerdict::Unknown { why: "no shadowing test in this driver".into() }),
                 Next::NeedContainment(_) => unreachable!(),
                 Next::Done(d) => {
                     if let Disposition::Covered { cover } | Disposition::Split { cover, .. } = &d {
@@ -3937,4 +3954,116 @@ fn debug_i4_seed() {
             }
         }
     }
+}
+
+// =====================================================================================================================
+// RE-AUDIT ladder-B C1 regression (lane ladderfix2): the auditor's reproduction `repro_stopped_run_unsealed`
+// (notes/implementer.reaudit-ladder-B.md s.5 C1), ported with its helpers, now asserting ZERO: a run STOPPED by a limit
+// (max_items = 1) leaves no returned rule selectable at a gap point of a root it never processed (seal_tree excludes
+// the rules there, `NotProcessed`), and the unprocessed roots are listed for a retry.
+
+fn c1_excluded(e: &Exclusion, k: &[i32]) -> bool {
+    match &e.target {
+        ExclusionTarget::Key(x) => x.as_slice() == k,
+        ExclusionTarget::Locus { equations } => equations.iter().all(|q| {
+            let v: i128 = q
+                .coeffs
+                .iter()
+                .map(|&(s, c)| c as i128 * k[s] as i128)
+                .sum::<i128>()
+                + q.constant as i128;
+            v == 0
+        }),
+    }
+}
+
+/// Naive first match over the returned rules (rank order) at `k`: Some(rule index) if a rule is selected and applies.
+fn c1_first(rules: &[(CandidateRule, Vec<Exclusion>)], k: &[i32]) -> Option<usize> {
+    for (i, (c, ex)) in rules.iter().enumerate() {
+        if ex.iter().any(|e| c1_excluded(e, k)) {
+            continue;
+        }
+        match c.domain.applies(k).stage() {
+            rustred_campaign_core::domain::Stage::Applies => return Some(i),
+            rustred_campaign_core::domain::Stage::NotSelected => continue,
+            _ => return None,
+        }
+    }
+    None
+}
+
+#[test]
+fn reaudit_b_c1_stopped_run_is_sealed_at_unprocessed_roots() {
+    let n = std::env::var("RA_REPRO_N")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2_000u64);
+    let (mut worlds, mut found, mut listed) = (0u64, 0u64, 0u64);
+    for seed in 0..n {
+        let w = World::generate(seed);
+        let mut r = Rng::new(seed ^ 0xABCD);
+        let params = w.params(&mut r);
+        let roots = roots_of(&w, &params);
+        if roots.len() < 2 {
+            continue;
+        }
+        let lim = TreeLimits {
+            max_items: 1,
+            ..TreeLimits::default()
+        };
+        let Ok((rep, _granted, _)) = run_drive(
+            &w,
+            &params,
+            roots.clone(),
+            SolverMode::Truthful,
+            FactMode::Truthful,
+            ProverMode::Truthful,
+            0,
+            0,
+            &lim,
+            2_000_000,
+        ) else {
+            continue;
+        };
+        worlds += 1;
+        let rules: Vec<(CandidateRule, Vec<Exclusion>)> = rep
+            .accepted_members()
+            .into_iter()
+            .filter_map(|(i, m)| rep.rule_of(i, &m).map(|c| (c.clone(), m.exclusions.clone())))
+            .collect();
+        let credited: Vec<BTreeSet<Key>> = rep
+            .accepted_members()
+            .into_iter()
+            .map(|(_, m)| m.credited.into_iter().collect())
+            .collect();
+        let processed: BTreeSet<Key> = rep
+            .items
+            .iter()
+            .flat_map(|x| x.state.item.gap_points.iter().cloned())
+            .collect();
+        for k in roots.iter().skip(1).flat_map(|x| x.gap_points.iter()) {
+            if processed.contains(k) {
+                continue;
+            }
+            if let Some(i) = c1_first(&rules, k)
+                && !credited[i].contains(k)
+            {
+                found += 1;
+                if found <= 3 {
+                    eprintln!(
+                        "C1 seed={seed}: rule {} selected uncredited at unprocessed gap point {k:?}",
+                        rules[i].0.digest
+                    );
+                }
+            }
+        }
+        if rep.stopped.is_some() && !rep.unprocessed.is_empty() {
+            listed += 1;
+        }
+    }
+    eprintln!(
+        "C1 regression: {worlds} stopped worlds, {found} uncredited selections at unprocessed gap points, {listed} reports list their unprocessed roots"
+    );
+    assert_eq!(found, 0);
+    assert!(listed > 0);
 }

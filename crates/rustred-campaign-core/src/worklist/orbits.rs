@@ -17,6 +17,7 @@ use super::affine::AffineEq;
 use super::items::{CaseSpec, Face, Item, ItemKind, Key};
 use super::ladder::Tri;
 use crate::repair::Descent;
+use crate::replay_base::symrows::{SlotImage, VerifiedGroup};
 
 /// One group element: for each slot, the slot its propagator maps to when the map is pure (`None` = mixed image).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,9 +34,11 @@ impl GroupElement {
     }
 }
 
-/// The node's symmetry group (input data). `verified` = the source states the group is closed, every map was found
-/// and every element agrees with the engine (the condition for using it in a one-term symmetry RELATION, terminal
-/// merge, R46 (6)).
+/// The node's symmetry group as INPUT DATA (a scheduling hint: orbit reduction, the symmetry-rows seed dimension).
+/// `verified` is the SOURCE'S CLAIM (closed, every map found, every element agrees with the engine) and is never
+/// trusted by a decision: every one-term symmetry RELATION (serve by image, terminal merge) takes the unforgeable
+/// [`VerifiedGroup`] of the identity-test lane (exact momentum proof of every element; re-audit B M2, v1.3), whose
+/// element list [`SymmetryGroup::from_verified`] exposes with the SAME indices.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SymmetryGroup {
     pub arity: usize,
@@ -55,6 +58,21 @@ impl SymmetryGroup {
             verified: true,
             source: "trivial".into(),
         }
+    }
+
+    /// The action of a [`VerifiedGroup`] on keys, as plain data with the SAME element indices the relation functions
+    /// use ([`serve_by_image`], [`merge_terminals_by_symmetry`]): index 0 = the identity, index i = the verified
+    /// group's element i-1. A slot's image is pure where the verified action maps it exactly onto one slot without a
+    /// sign flip (or as a one-term linear image with coefficient 1 and no constant); elsewhere `None` (the element
+    /// acts only on keys at the floor there). `Err` if the group's chart is not the node's line mask.
+    pub fn from_verified(group: &VerifiedGroup, lines: &[bool]) -> Result<Self, String> {
+        let elements = verified_elements(group, lines)?;
+        Ok(SymmetryGroup {
+            arity: lines.len(),
+            elements,
+            verified: true,
+            source: format!("verified:{}", group.digest()),
+        })
     }
 
     /// More than the identity.
@@ -222,6 +240,41 @@ impl SymmetryGroup {
     }
 }
 
+/// The pure slot images of a verified group (identity first), see [`SymmetryGroup::from_verified`].
+fn verified_elements(group: &VerifiedGroup, lines: &[bool]) -> Result<Vec<GroupElement>, String> {
+    let g = group.group();
+    if g.arity != lines.len() || g.chart.as_slice() != lines {
+        return Err(format!(
+            "verified group chart {:?} (arity {}) is not the node's line mask {:?}",
+            g.chart, g.arity, lines
+        ));
+    }
+    let mut out = vec![GroupElement {
+        slot_image: (0..lines.len()).map(Some).collect(),
+    }];
+    for e in &g.elements {
+        let slot_image = (0..lines.len())
+            .map(|i| match e.action.get(i) {
+                Some(SlotImage::Exact {
+                    target,
+                    flip: false,
+                }) if *target < lines.len() => Some(*target),
+                Some(SlotImage::Linear { terms, constant })
+                    if constant.is_zero()
+                        && terms.len() == 1
+                        && terms[0].1 == crate::replay_base::algebra::Q::ONE
+                        && terms[0].0 < lines.len() =>
+                {
+                    Some(terms[0].0)
+                }
+                _ => None,
+            })
+            .collect();
+        out.push(GroupElement { slot_image });
+    }
+    Ok(out)
+}
+
 /// The corner key of a case (dotted lines at 2, numerators at -1, fixed values as fixed, other slots at the floor):
 /// the key by which representatives are compared.
 fn corner(case: &CaseSpec, lines: &[bool]) -> Key {
@@ -356,23 +409,30 @@ pub struct ServeByImage {
     pub own_search: Option<Item>,
 }
 
-/// SERVE BY IMAGE (R46 (2), R44): each gap key of the member is mapped by the member's element onto the
-/// representative's case; it is served iff a rule of the CAMPAIGN'S OWN accepted rules is credited at the image
+/// SERVE BY IMAGE (R46 (2), R44): each gap key of the member is mapped by the member's element of the node's
+/// VERIFIED group (index as in [`SymmetryGroup::from_verified`]; an index outside the group serves nothing) onto
+/// the representative's case; it is served iff a rule of the CAMPAIGN'S OWN accepted rules is credited at the image
 /// (`credited`: rule digest -> keys it is credited at; image credits are never targets: no image to image) and the
-/// credit check passes (`Tri::Pass` only; Unknown / Fail are not a justification). The other keys stay for the
-/// member's own search.
+/// credit check passes (`Tri::Pass` only; Unknown / Fail are not a justification). The relation I(k) = I(g k) rests
+/// on g being a TRUE symmetry, which only the verified group guarantees (re-audit B M2): the unforgeable
+/// [`VerifiedGroup`] is the only accepted form. The other keys stay for the member's own search.
 pub fn serve_by_image(
     member: &OrbitMember,
-    group: &SymmetryGroup,
+    group: &VerifiedGroup,
     lines: &[bool],
     credited: &BTreeMap<String, BTreeSet<Key>>,
     check: &mut dyn ImageCredit,
 ) -> ServeByImage {
+    let action = SymmetryGroup::from_verified(group, lines).ok();
     let mut served = Vec::new();
     let mut rest = Vec::new();
     for k in &member.item.gap_points {
         let mut done = false;
-        if let Some(img) = group.image_key(member.element, k, lines) {
+        if let Some(img) = action
+            .as_ref()
+            .and_then(|a| a.image_key(member.element, k, lines))
+            .filter(|img| img != k || member.element == 0)
+        {
             for (rule, keys) in credited {
                 if keys.contains(&img) && check.credit(k, &img, member.element, rule) == Tri::Pass {
                     served.push(ImageServed {
@@ -401,42 +461,85 @@ pub fn serve_by_image(
     ServeByImage { served, own_search }
 }
 
-/// Terminal candidates related by the group become ONE terminal (R46 (6)): the comparator-least key of each class
-/// is kept; the others are listed with the element relating them. This is a one-term symmetry RELATION: it is used
-/// only with a VERIFIED group (`SymmetryGroup::verified`), never on the strength of a rule certificate; with an
-/// unverified group nothing is merged.
+/// The comparator-least key of a list by a linear scan (ties and inconsistent answers: the earlier key in key
+/// order). Never sorts with the trait as a comparator: the library promises arbitrary `Descent` answers, and an
+/// inconsistent comparator can make `sort_by` panic (re-audit A m6).
+fn least_by_descent(keys: &[Key], descent: &dyn Descent) -> Option<usize> {
+    let mut best: Option<usize> = None;
+    for (i, k) in keys.iter().enumerate() {
+        best = match best {
+            None => Some(i),
+            Some(b) if descent.lower(k, &keys[b]) && !descent.lower(&keys[b], k) => Some(i),
+            other => other,
+        };
+    }
+    best
+}
+
+/// Terminal candidates related by the node's VERIFIED group become ONE terminal (R46 (6)): in each class the
+/// comparator-least key is kept; the others are listed with the element (index as in
+/// [`SymmetryGroup::from_verified`]) mapping them onto it. A one-term symmetry RELATION: only the unforgeable
+/// [`VerifiedGroup`] is accepted (never a data flag, never a rule certificate); a chart mismatch merges nothing.
 pub fn merge_terminals_by_symmetry(
     terminals: &[Key],
-    group: &SymmetryGroup,
+    group: &VerifiedGroup,
     lines: &[bool],
     descent: &dyn Descent,
 ) -> (Vec<Key>, Vec<(Key, Key, usize)>) {
-    if !group.verified || !group.nontrivial() {
-        return (terminals.to_vec(), vec![]);
+    let mut keys: Vec<Key> = terminals.to_vec();
+    keys.sort();
+    keys.dedup();
+    let Ok(action) = SymmetryGroup::from_verified(group, lines) else {
+        return (keys, vec![]);
+    };
+    if !action.nontrivial() {
+        return (keys, vec![]);
     }
-    let mut keep: Vec<Key> = Vec::new();
+    // classes: connected components of "one key is the image of the other under an element" (key order)
+    let n = keys.len();
+    let mut class: Vec<usize> = (0..n).collect();
+    fn root(c: &mut [usize], mut i: usize) -> usize {
+        while c[i] != i {
+            c[i] = c[c[i]];
+            i = c[i];
+        }
+        i
+    }
+    for i in 0..n {
+        for g in 0..action.elements.len() {
+            if let Some(img) = action.image_key(g, &keys[i], lines)
+                && let Ok(j) = keys.binary_search(&img)
+            {
+                let (a, b) = (root(&mut class, i), root(&mut class, j));
+                if a != b {
+                    class[a.max(b)] = a.min(b);
+                }
+            }
+        }
+    }
+    let mut groups: BTreeMap<usize, Vec<Key>> = BTreeMap::new();
+    for i in 0..n {
+        let r = root(&mut class, i);
+        groups.entry(r).or_default().push(keys[i].clone());
+    }
+    let mut keep = Vec::new();
     let mut related = Vec::new();
-    let mut sorted: Vec<Key> = terminals.to_vec();
-    sorted.sort_by(|a, b| {
-        if descent.lower(a, b) && !descent.lower(b, a) {
-            std::cmp::Ordering::Less
-        } else if descent.lower(b, a) && !descent.lower(a, b) {
-            std::cmp::Ordering::Greater
-        } else {
-            a.cmp(b)
+    for members in groups.into_values() {
+        let rep = members[least_by_descent(&members, descent).unwrap_or(0)].clone();
+        for t in members {
+            if t == rep {
+                continue;
+            }
+            match (0..action.elements.len())
+                .find(|&g| action.image_key(g, &t, lines).as_ref() == Some(&rep))
+            {
+                Some(g) => related.push((t, rep.clone(), g)),
+                // no single element relates them (an unclosed element list): kept as its own terminal
+                None => keep.push(t),
+            }
         }
-    });
-    sorted.dedup();
-    for t in sorted {
-        let hit = keep.iter().find_map(|k| {
-            (0..group.elements.len()).find_map(|g| {
-                (group.image_key(g, &t, lines).as_ref() == Some(k)).then(|| (k.clone(), g))
-            })
-        });
-        match hit {
-            Some((k, g)) => related.push((t, k, g)),
-            None => keep.push(t),
-        }
+        keep.push(rep);
     }
+    keep.sort();
     (keep, related)
 }

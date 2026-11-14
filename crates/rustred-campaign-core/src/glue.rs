@@ -29,7 +29,6 @@ use crate::closure::{
 use crate::cover;
 use crate::domain::CaseDomain;
 use crate::key::Key;
-use crate::poly::Poly;
 use crate::terminals;
 use crate::worklist::affine::AffineEq;
 use crate::worklist::ladder;
@@ -280,41 +279,12 @@ pub fn relation_set_from_accepted_recipe(
     })
 }
 
-/// LADDER recipe domain ([`ladder_recipe::Recipe`]: chart, fixed slots, affine equations, exception branches) ->
-/// core [`CaseDomain`] (chart test on, equations and exception literals as polynomials). Agreement with
-/// `Recipe::in_domain` holds on every key INSIDE the chart; outside the chart the ladder exempts FIXED slots from the
-/// chart test and the core does not (the closure never dispatches outside the chart, so dispatch is unaffected).
-/// Empty exception branches are dropped (the ladder ignores them; as a core AND-list an empty branch would hold
-/// everywhere).
+/// LADDER recipe domain ([`ladder_recipe::Recipe`], the engine's `rustred.recipe.v1` file) -> core [`CaseDomain`]:
+/// since lane ladderfix2 (re-audit A M6) the recipe builds its own core domain ([`ladder_recipe::Recipe::case_domain`],
+/// THE dispatcher semantics: chart test, fixed slots, equations, exception branches, bounds); this is that call with
+/// the glue error type.
 pub fn case_domain_of_ladder_recipe(r: &ladder_recipe::Recipe) -> Result<CaseDomain, GlueError> {
-    let n = r.arity;
-    if r.chart.len() != n || r.domain.fixed.len() != n {
-        return Err(GlueError::Domain(format!(
-            "arity {n}, chart {}, fixed {}",
-            r.chart.len(),
-            r.domain.fixed.len()
-        )));
-    }
-    let poly = |e: &AffineEq| {
-        Poly::parse_d_free(&e.to_engine(), n)
-            .map_err(|err| GlueError::Domain(format!("{e}: {err:?}")))
-    };
-    let mut d = CaseDomain::free(n, Some(r.chart.clone()));
-    d.fixed = r.domain.fixed.clone();
-    d.equations = r
-        .domain
-        .equations
-        .iter()
-        .map(poly)
-        .collect::<Result<_, _>>()?;
-    d.exceptions = r
-        .domain
-        .exceptions
-        .iter()
-        .filter(|b| !b.is_empty())
-        .map(|b| b.iter().map(poly).collect::<Result<Vec<_>, _>>())
-        .collect::<Result<_, _>>()?;
-    Ok(d)
+    r.case_domain().map_err(GlueError::Domain)
 }
 
 /// LADDER accepted recipe rule ([`ladder_recipe::RecipeRule`]: recipe, certified keys, per-key certificates) ->
@@ -327,9 +297,10 @@ pub fn relation_set_from_ladder_recipe(
     codec: KeyCodec,
     slot: DispatchSlot,
 ) -> Result<RelationSet, GlueError> {
-    let mut rec_keys: Vec<&Key> = rule.records.iter().map(|c| &c.key).collect();
+    let mut rec_keys: Vec<&Key> = rule.records().iter().map(|c| &c.key).collect();
     rec_keys.sort();
-    let mut cert: Vec<&Key> = rule.certified.iter().collect();
+    let certified = rule.certified();
+    let mut cert: Vec<&Key> = certified.iter().collect();
     cert.sort();
     if rec_keys != cert {
         return Err(GlueError::RecordsMismatch(format!(
@@ -339,7 +310,7 @@ pub fn relation_set_from_ladder_recipe(
         )));
     }
     let mut b = RelationStoreBuilder::new(codec);
-    for c in &rule.records {
+    for c in rule.records() {
         b.push(
             &c.key,
             &c.rhs_keys,
@@ -350,8 +321,8 @@ pub fn relation_set_from_ladder_recipe(
     }
     Ok(RelationSet {
         name: name.to_string(),
-        recipe_digest: rule.recipe_digest.clone(),
-        domain: case_domain_of_ladder_recipe(&rule.recipe)?,
+        recipe_digest: rule.recipe_digest().to_string(),
+        domain: case_domain_of_ladder_recipe(rule.recipe())?,
         relations: b
             .finish()
             .map_err(|e| GlueError::KeySet(format!("{e:?}")))?,
@@ -543,59 +514,106 @@ mod tests {
         ));
     }
 
+    /// A certified ladder recipe rule built the only way there is (lane ladderfix2: private fields): through
+    /// `accept_recipe` with a scripted per-key solver that solves exactly `certified`.
     fn ladder_rule(certified: &[Key]) -> ladder_recipe::RecipeRule {
+        use crate::worklist::items::{FullAttemptEnded, FullAttemptEvidence, NodeParams};
         let recipe = ladder_recipe::Recipe {
             schema: ladder_recipe::RECIPE_SCHEMA.into(),
             id: "r".into(),
             arity: 4,
-            chart: CHART.to_vec(),
+            chart: "1100".into(),
             domain: ladder_recipe::RecipeDomain {
                 fixed: vec![None, None, Some(0), None],
-                equations: vec![eq(&[(0, 1), (1, -1)], -1)],
-                exceptions: vec![vec![eq(&[(0, 1)], -3)], vec![]],
+                equations: vec![eq(&[(0, 1), (1, -1)], -1).to_engine()],
+                exceptions: vec![vec![eq(&[(0, 1)], -3).to_engine()]],
+                bounds: None,
             },
             seeds: ladder_recipe::RecipeSeeds {
+                unit: ladder_recipe::RECIPE_UNIT.into(),
                 centres: vec![],
-                radius: 1,
-                down: vec![0, 1],
+                generator: ladder_recipe::RecipeGenerator::Ball(ladder_recipe::RecipeBall {
+                    radius: 1,
+                    down: vec![0, 1],
+                }),
                 min_offset: BTreeMap::new(),
+                max_offset: BTreeMap::new(),
                 layer_cap: None,
                 sector_filter: false,
+                sector_slots: None,
             },
             symmetry_rows: false,
-            group_digest: None,
-            node_order: "legacy".into(),
-            elimination: ladder_recipe::RECIPE_ELIMINATION.into(),
-            determinism_id: None,
-            engine_digest: None,
+            elimination: ladder_recipe::RecipeElimination {
+                convention: ladder_recipe::RECIPE_ELIMINATION.into(),
+            },
+            provenance: None,
         };
-        let mut certified = certified.to_vec();
-        certified.sort();
-        ladder_recipe::RecipeRule {
-            recipe,
-            recipe_digest: "sha256:ladder-recipe".into(),
-            certified_count: certified.len(),
-            certified_digest: "x".into(),
-            records: certified
-                .iter()
-                .map(|k| ladder_recipe::KeyCertificate {
-                    key: k.clone(),
-                    relation_digest: format!("blake3:{}", "ab".repeat(32)),
+        struct Scripted(Vec<Key>);
+        impl crate::repair::CaseSolver for Scripted {
+            fn solve(
+                &mut self,
+                _r: &crate::repair::CaseRequest,
+                _b: &crate::worklist::seed::AttemptBudget,
+            ) -> crate::worklist::ladder::SolveAnswer {
+                unreachable!()
+            }
+            fn solve_recipe_at_key(
+                &mut self,
+                _r: &ladder_recipe::Recipe,
+                k: &[i32],
+            ) -> Result<ladder_recipe::KeyRelation, ladder_recipe::RecipeFailure> {
+                if !self.0.iter().any(|c| c.as_slice() == k) {
+                    return Err(ladder_recipe::RecipeFailure::NoRelation);
+                }
+                Ok(ladder_recipe::KeyRelation {
+                    key: k.to_vec(),
                     rhs_keys: vec![vec![0, k[1], 0, 0]],
+                    relation_digest: format!("blake3:{}", "ab".repeat(32)),
+                    regular: crate::worklist::ladder::Tri::Pass,
+                    proof_ok: true,
+                    determinism_id: Some("det".into()),
                     cost_ms: 1,
+                    recipe_digest: Some("eng".into()),
+                    binary_digest: None,
                 })
-                .collect(),
-            certified,
-            failed: vec![],
+            }
         }
+        struct Any;
+        impl crate::repair::Descent for Any {
+            fn lower(&self, _a: &[i32], _b: &[i32]) -> bool {
+                true
+            }
+        }
+        let params = NodeParams::with_lines("N", CHART.to_vec());
+        let ended = FullAttemptEnded::from_evidence(
+            &params,
+            FullAttemptEvidence {
+                node: "N".into(),
+                cpu_ms: u64::MAX / 2,
+                fixer_rounds: 99,
+                open: vec!["x".into()],
+            },
+        )
+        .unwrap();
+        let rule = ladder_recipe::accept_recipe(
+            &recipe,
+            certified,
+            &mut Scripted(certified.to_vec()),
+            &Any,
+            &params,
+            &ended,
+        );
+        assert_eq!(rule.certified_count(), certified.len());
+        rule
     }
 
     /// The ladder's `RecipeRule::matches` and the converted relation set's closure match (in domain AND certified)
     /// agree on every chart key of a window (domain with a fixed slot, an equation, an exception and an empty branch).
     #[test]
     fn ladder_recipe_matches_equals_relation_set_match() {
-        // n0 = n1 + 1, n2 = 0, not n0 = 3: (2,1), (4,3) in domain; (3,2) excepted
-        let certified = vec![vec![2, 1, 0, 0], vec![3, 2, 0, 0]];
+        // n0 = n1 + 1, n2 = 0, not n0 = 3: (2,1), (4,3) in domain; (3,2) excepted (only (2,1) can be certified:
+        // acceptance refuses a key outside the domain)
+        let certified = vec![vec![2, 1, 0, 0]];
         let rule = ladder_rule(&certified);
         let set = relation_set_from_ladder_recipe(
             "rec",
@@ -615,21 +633,13 @@ mod tests {
             }
             let closure_match = set.in_domain(&k) && set.relations.find(&k).is_some();
             assert_eq!(rule.matches(&k), closure_match, "{k:?}");
-            assert_eq!(rule.recipe.in_domain(&k), set.in_domain(&k), "domain {k:?}");
+            assert_eq!(rule.recipe().in_domain(&k), set.in_domain(&k), "domain {k:?}");
             n_match += closure_match as usize;
         }
         assert_eq!(n_match, 1, "only (2,1): (3,2) is on the exception branch");
-        let mut bad = rule.clone();
-        bad.records.pop();
-        assert!(matches!(
-            relation_set_from_ladder_recipe(
-                "rec",
-                &bad,
-                KeyCodec::new(4, 6).unwrap(),
-                DispatchSlot::Last
-            ),
-            Err(GlueError::RecordsMismatch(_))
-        ));
+        // records and the certified set agree by construction now (private fields, built only by accept_recipe)
+        let off = ladder_rule(&[]);
+        assert_eq!(off.certified_count(), 0);
     }
 
     #[test]
