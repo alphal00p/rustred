@@ -39,7 +39,9 @@ type SubtubeCache<const N: usize> = HashMap<(u64, i16, i16, [u8; 32]), Arc<BTree
 /// A sink for one human-readable progress line per phase.
 type Progress = Box<dyn FnMut(&str) + Send>;
 
-pub use lanes::{ExplicitSample, ExplicitTable};
+pub use lanes::{
+    DEFAULT_CERTIFICATE_PRIME, ExplicitSample, ExplicitTable, Lane, ParameterAssignment,
+};
 
 /// One family, one row space, one column order, persisted across `extend`.
 pub struct BoxLaportaSession<const N: usize> {

@@ -1,18 +1,80 @@
 //! Materialisation entry points of a session that has a modular selection:
 //! the request (exact selected system, routed targets, parameter split),
-//! the explicit-sample probe and the finite-field lane.
+//! the explicit-sample probe, the finite-field and exact lanes, and the
+//! certificates.
 
 use std::sync::Arc;
 
-use symbolica::prelude::Rational;
+use rand::{Rng, SeedableRng};
+use symbolica::domains::finite_field::Zp64;
+use symbolica::prelude::{Integer, Rational};
 
+use crate::algebra::reconstruct::rational_image;
+use crate::algebra::{Coefficient, CoefficientPolynomial};
+
+use super::super::super::bridge::DynamicSolution;
 use super::super::super::{Integral, SolverError};
+use super::super::BoxPhase;
+use super::super::exact::{self, BoxCertificate};
 use super::super::ff::{self, FfOptions};
-use super::super::output::{BoxProvenance, BoxSolution};
+use super::super::output::{BoxProvenance, BoxSolution, ExactSolution, coefficient_of};
 use super::super::probe::{self, LaneRequest};
 use super::super::router::integral_bits;
+use super::super::rows::ZpRowFactory;
 use super::super::system::ExactRowBuilder;
 use super::BoxLaportaSession;
+
+/// The default prime of probabilistic certificates: the largest prime
+/// below `2^63`. Every reconstruction prime of the finite-field lane lies
+/// below `2^62`, so this prime is independent of every reconstruction.
+pub const DEFAULT_CERTIFICATE_PRIME: u64 = 9_223_372_036_854_775_783;
+
+/// Parameter values fixed before materialisation, as constant exact
+/// coefficients (the bridge's representation).
+#[derive(Clone, Debug, Default)]
+pub struct ParameterAssignment {
+    pub values: Vec<(String, Coefficient)>,
+}
+
+/// Materialisation lane of [`BoxLaportaSession::materialize`].
+#[derive(Clone, Debug)]
+pub enum Lane {
+    /// Replay of the selected rows over Q(free parameters): any number of
+    /// free parameters.
+    Exact,
+    /// Univariate reconstruction in the one parameter left free.
+    FiniteField(FfOptions),
+}
+
+/// A parameter value given as a constant exact coefficient.
+fn constant_rational(name: &str, coefficient: &Coefficient) -> Result<Rational, SolverError> {
+    let constant = |polynomial: &CoefficientPolynomial| {
+        if !polynomial.is_constant() {
+            return None;
+        }
+        Some(
+            polynomial
+                .into_iter()
+                .next()
+                .map_or_else(Integer::zero, |term| term.coefficient.clone()),
+        )
+    };
+    match (
+        constant(&coefficient.numerator),
+        constant(&coefficient.denominator),
+    ) {
+        (Some(numerator), Some(denominator)) if !denominator.is_zero() => {
+            Ok(Rational::from((numerator, denominator)))
+        }
+        _ => Err(SolverError::InvalidInput(format!(
+            "fixed value of {name} is not a rational constant"
+        ))),
+    }
+}
+
+fn is_odd_prime_below_2_63(prime: u64) -> bool {
+    (3..1 << 63).contains(&prime) && Integer::from(prime).is_prime(0)
+}
 
 /// An explicit point (every family parameter fixed) and a prime, for
 /// reproducible comparisons with an oracle evaluated at the same point
@@ -72,6 +134,203 @@ impl<const N: usize> BoxLaportaSession<N> {
             values: split_rows(values, targets.len(), masters.len()),
             masters,
         })
+    }
+
+    /// Materialise `targets` (each must have been demanded by
+    /// [`Self::extend`]) in `lane`, as RustRed rules: one numeric rule per
+    /// target that is not a master, with the coefficient denominators as
+    /// nonzero conditions.
+    pub fn materialize(
+        &mut self,
+        targets: &[[i16; N]],
+        fixed: &ParameterAssignment,
+        lane: &Lane,
+    ) -> Result<DynamicSolution, SolverError> {
+        let mut values = Vec::with_capacity(fixed.values.len());
+        for (name, coefficient) in &fixed.values {
+            values.push((name.clone(), constant_rational(name, coefficient)?));
+        }
+        match lane {
+            Lane::FiniteField(options) => self
+                .materialize_ff(targets, &values, options)?
+                .to_dynamic_solution(self.family.coefficient_context()),
+            Lane::Exact => self
+                .materialize_exact(targets, &values)?
+                .to_dynamic_solution(),
+        }
+    }
+
+    /// The exact lane: replay the selected rows over Q(free parameters)
+    /// with `fixed` substituted, require every modular pivot, and
+    /// back-substitute on the closure of the targets. Any number of free
+    /// parameters; the authority the finite-field lane is compared with.
+    ///
+    /// Errors: as [`Self::probe_explicit`] for a bad request;
+    /// [`SolverError::ExactReplay`] when the fixed values are special (a
+    /// pole of a row coefficient or a vanishing modular pivot).
+    pub fn materialize_exact(
+        &mut self,
+        targets: &[[i16; N]],
+        fixed: &[(String, Rational)],
+    ) -> Result<ExactSolution<N>, SolverError> {
+        let (request, masters) = self.lane_request(targets, fixed)?;
+        let result = exact::solve_exact(&request)?;
+        let names = self.family.coefficient_context().parameter_names().to_vec();
+        let mut fixed = Vec::new();
+        let mut free = Vec::new();
+        for (value, name) in request.fixed.iter().zip(&names) {
+            match value {
+                Some(value) => fixed.push((name.clone(), value.clone())),
+                None => free.push(name.clone()),
+            }
+        }
+        Ok(ExactSolution {
+            parameters: names,
+            fixed,
+            free,
+            targets: targets.to_vec(),
+            coefficients: split_rows(result.coefficients, targets.len(), masters.len()),
+            masters,
+            rows: result.rows,
+            seconds: result.seconds,
+            arity: self.arity,
+        })
+    }
+
+    /// Certify a finite-field solution against the recorded rows of this
+    /// session: that `route(target) - sum_m c_m master_m` lies in the span
+    /// of the selected rows, for every target.
+    ///
+    /// - `prime = None`: exactly over Q(free parameter), with the exact rows.
+    /// - `prime = Some(p)`: modulo `p` at a random value of the free
+    ///   parameter drawn from `seed`, with the rows produced by the modular
+    ///   pass's template compiler at that point (independent of the exact
+    ///   instantiation, the probe kernel and the reconstruction). `p` must
+    ///   be an odd prime below `2^63` that the solution's reconstruction
+    ///   neither lifted over nor was verified at; [`DEFAULT_CERTIFICATE_PRIME`]
+    ///   always is.
+    ///
+    /// This verifies the reduction; it does not prove that the masters are
+    /// independent.
+    ///
+    /// Errors: [`SolverError::InvalidInput`] for a solution that does not
+    /// belong to this session (parameters, arity, targets not demanded,
+    /// masters, shape) or a refused prime; [`SolverError::UnluckyBoxSample`]
+    /// for a special certificate point; [`SolverError::Certification`] when
+    /// a reduction is not in the span.
+    pub fn certify(
+        &mut self,
+        solution: &BoxSolution<N>,
+        prime: Option<u64>,
+        seed: u64,
+    ) -> Result<BoxCertificate, SolverError> {
+        solution.check_shape()?;
+        let context = self.family.coefficient_context().clone();
+        if solution.parameters != context.parameter_names() || solution.arity != self.arity {
+            return Err(SolverError::InvalidInput(
+                "the solution's parameters or arity are not the session family's".into(),
+            ));
+        }
+        if let Some(prime) = prime {
+            if !is_odd_prime_below_2_63(prime) {
+                return Err(SolverError::InvalidInput(format!(
+                    "certificate prime {prime} is not an odd prime below 2^63"
+                )));
+            }
+            if solution.reconstruction_primes().contains(&prime)
+                || solution.verification_primes().contains(&prime)
+            {
+                return Err(SolverError::InvalidInput(format!(
+                    "certificate prime {prime} was used by the solution's reconstruction; a certificate needs an independent prime (e.g. DEFAULT_CERTIFICATE_PRIME)"
+                )));
+            }
+        }
+        let (request, masters) = self.lane_request(&solution.targets, &solution.fixed)?;
+        if masters != solution.masters {
+            return Err(SolverError::InvalidInput(
+                "the solution's masters are not the session's".into(),
+            ));
+        }
+        let variable = context
+            .parameter_names()
+            .iter()
+            .position(|name| *name == solution.free)
+            .ok_or_else(|| {
+                SolverError::InvalidInput(format!("unknown free parameter {}", solution.free))
+            })?;
+        if request.free() != [variable] {
+            return Err(SolverError::InvalidInput(
+                "a finite-field solution fixes every parameter but its free one".into(),
+            ));
+        }
+        let Some(prime) = prime else {
+            let coefficients: Vec<Vec<Coefficient>> = solution
+                .coefficients
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .map(|function| coefficient_of(function, &context, variable))
+                        .collect()
+                })
+                .collect();
+            return exact::certify_exact(&request, &coefficients);
+        };
+        let field = Zp64::new(prime);
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed ^ prime);
+        let x = Rational::from(Integer::from(rng.random_range(1..prime)));
+        let unlucky = || SolverError::UnluckyBoxSample {
+            phase: BoxPhase::Conditions,
+        };
+        let mut parameters = Vec::with_capacity(request.fixed.len());
+        for (index, value) in request.fixed.iter().enumerate() {
+            // `request.free() == [variable]`: every other value is fixed.
+            let value = value.as_ref().unwrap_or(&x);
+            debug_assert!(index == variable || request.fixed[index].is_some());
+            parameters.push(rational_image(value, &field).ok_or_else(unlucky)?);
+        }
+        let factory = ZpRowFactory::at_parameters(
+            &self.sources,
+            self.arity,
+            self.order.clone(),
+            self.router.clone(),
+            prime,
+            &parameters,
+            // The same (no) extra conditions as the session's factories.
+            &[],
+        )?;
+        let selection = self
+            .selection
+            .as_ref()
+            .expect("lane_request checked the selection");
+        let system = &request.system;
+        let column = |integral: &Integral<N>| -> Result<u32, SolverError> {
+            system
+                .column_index(integral)
+                .map(|index| index as u32)
+                .ok_or_else(|| {
+                    SolverError::Certification(format!(
+                        "integral {:?} of the certificate rows is not a system column",
+                        powers(integral)
+                    ))
+                })
+        };
+        let mut rows = Vec::with_capacity(selection.rows.len());
+        for (seed_powers, source) in &selection.rows {
+            let mut row = Vec::new();
+            for term in factory.row(seed_powers, *source)? {
+                row.push((column(&term.integral)?, term.coefficient));
+            }
+            rows.push(row);
+        }
+        let mut routes = Vec::with_capacity(solution.targets.len());
+        for target in &solution.targets {
+            let mut route = Vec::new();
+            for (image, value) in factory.route_image(target)? {
+                route.push((column(&Integral::numeric(image)?)?, value));
+            }
+            routes.push(route);
+        }
+        exact::certify_probabilistic(&request, &field, &rows, &routes, &solution.coefficients, &x)
     }
 
     /// The finite-field lane: replay the selected rows at points of the
