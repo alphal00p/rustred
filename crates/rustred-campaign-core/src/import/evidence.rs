@@ -150,6 +150,9 @@ pub struct Evidence {
     /// rule -> its `index` field (checked against an answer's `index` / `rule` echo).
     rule_record_index: Vec<Option<i64>>,
     pub solved: BTreeMap<String, BTreeMap<Vec<i32>, SolvedRelation>>,
+    /// lane closeloop2 (closeloop.md 13.6): Some = a recipe-served key is `per-key` only when its (recipe source, key)
+    /// is listed (an exact per-key proof is bound to the relation's point record), else `imported`; None = as before.
+    pub recipe_proofs: Option<std::collections::HashSet<(String, Vec<i32>)>>,
     pub counts: EvidenceCounts,
     label: String,
     fact_files: Vec<String>,

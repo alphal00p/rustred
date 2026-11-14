@@ -80,6 +80,9 @@ fn t178_full_material_exact_tier_pass() {
         final_dir: out.join("final"),
         attention_items: 0,
         relation_rule: "m1_first".into(),
+        exact_tier: tier == "C",
+        rows_path: out.join("rows.jsonl"),
+        ..PassIn::first("T178", String::new(), PathBuf::new(), PathBuf::new())
     };
     let t0 = std::time::Instant::now();
     let o = run_pass(&inp, None).unwrap();

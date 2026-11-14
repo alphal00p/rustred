@@ -535,10 +535,19 @@ fn check_inner(
                 .and_then(|m| m.get(&row.key))
                 .and_then(|i| i.check.as_ref())
                 .is_some_and(|c| c.verified());
+            // lane closeloop2 (closeloop.md 13.6): our own relations need their bound per-key proof when asked to
+            let proved = !recipe
+                || ev
+                    .recipe_proofs
+                    .as_ref()
+                    .is_none_or(|s| s.contains(&(name.clone(), row.key.clone())));
             row.server = Some(Server::Relation { set: name, recipe });
-            if recipe {
+            if recipe && proved {
                 row.evidence = Some(Level::PerKey);
                 row.basis = Some("recipe_certified");
+            } else if recipe {
+                row.evidence = Some(Level::Imported);
+                row.basis = Some("recipe_relation_unproved");
             } else if verified_relation {
                 // re-derived from the verified group at the key: exact, at the key (interfaces/import.md 13.2)
                 row.evidence = Some(Level::PerKey);

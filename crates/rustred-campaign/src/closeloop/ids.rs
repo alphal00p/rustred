@@ -34,6 +34,33 @@ pub fn parse_solve_item(n: &str, item: &str) -> Option<(u32, usize)> {
     Some((k.parse().ok()?, j.parse().ok()?))
 }
 
+/// lane closeloop2: proof (span) and fact items of round `k`.
+pub fn proof_item(n: &str, k: u32, j: usize, kind: &str) -> String {
+    let tag = if kind == "facts" { "f" } else { "p" };
+    format!("{n}.{tag}{k}.{j}")
+}
+
+/// (round, batch index) of a proof / fact item of node `n`.
+pub fn parse_proof_item(n: &str, item: &str) -> Option<(u32, usize)> {
+    let rest = item.strip_prefix(n)?.strip_prefix('.')?;
+    let rest = rest.strip_prefix('p').or_else(|| rest.strip_prefix('f'))?;
+    let (k, j) = rest.split_once('.')?;
+    Some((k.parse().ok()?, j.parse().ok()?))
+}
+
+pub fn input_pbatch(item: &str) -> String {
+    format!("closeloop:{item}:pbatch")
+}
+pub fn input_proofs(item: &str, job: &str) -> String {
+    format!("closeloop:{item}:proofs:{job}")
+}
+pub fn input_facts(item: &str, job: &str) -> String {
+    format!("closeloop:{item}:facts:{job}")
+}
+pub fn input_relations(item: &str, job: &str) -> String {
+    format!("closeloop:{item}:relations:{job}")
+}
+
 pub fn input_import_spec(n: &str) -> String {
     format!("closeloop:{n}:import_spec")
 }
@@ -65,9 +92,15 @@ pub const ROLE_CHECK: &str = "closeloop_check";
 pub const ROLE_BATCH: &str = "closeloop_batch";
 pub const ROLE_ANSWERS: &str = "closeloop_answers";
 pub const ROLE_RESULT: &str = "closeloop_result";
+pub const ROLE_PBATCH: &str = "closeloop_proof_batch";
+pub const ROLE_PROOFS: &str = "closeloop_proofs";
+pub const ROLE_FACTS: &str = "closeloop_facts";
+pub const ROLE_RELATIONS: &str = "closeloop_relations";
 
 pub const KIND_IMPORT: &str = "import";
 pub const KIND_SOLVE: &str = "recipe-solve";
+pub const KIND_PROOF: &str = "proof-span";
+pub const KIND_FACTS: &str = "proof-facts";
 
 /// CDIR-relative directory of a node's files.
 pub fn node_dir(n: &str) -> String {
@@ -85,5 +118,8 @@ mod tests {
         assert_eq!(parse_solve_item("N0", &it), Some((3, 12)));
         assert_eq!(parse_solve_item("N0", "N0.import"), None);
         assert_eq!(parse_solve_item("N", "N0.s1.2"), None);
+        assert_eq!(parse_proof_item("N0", &proof_item("N0", 2, 5, "span")), Some((2, 5)));
+        assert_eq!(parse_proof_item("N0", &proof_item("N0", 2, 5, "facts")), Some((2, 5)));
+        assert_eq!(parse_proof_item("N0", "N0.s2.5"), None);
     }
 }
