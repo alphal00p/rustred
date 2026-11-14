@@ -505,3 +505,92 @@ fn sampled_strict_refuses_actual_dense_box_without_exact_fallback() {
             .any(|event| matches!(event, MaterializationEvent::TargetBlockStarted { .. }))
     );
 }
+
+/// Deterministic pseudo-random rows over a small symbolic column space.
+fn random_rows(field: &Zp64, rows: usize, seed: u64) -> Vec<Vec<Term<1, NumericalCoefficient>>> {
+    let mut state = seed;
+    let mut next = move || {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        state >> 33
+    };
+    (0..rows)
+        .map(|_| {
+            let mut shifts: Vec<i16> = (0..1 + next() % 5).map(|_| (next() % 24) as i16).collect();
+            shifts.sort_unstable_by(|a, b| b.cmp(a));
+            shifts.dedup();
+            numerical(
+                field,
+                &shifts
+                    .iter()
+                    .map(|&shift| (shift, 1 + next() % 100))
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn batched_rows_reproduce_row_by_row_insertion() {
+    let field = Zp64::new(101);
+    for seed in 0..8 {
+        let rows = random_rows(&field, 40, seed);
+        let mut single = Discovery::new(order(), field.clone());
+        let pivots: Vec<_> = rows.iter().map(|row| single.add_row(row)).collect();
+        let mut batched = Discovery::new(order(), field.clone());
+        let (first, second) = rows.split_at(17);
+        let mut batch_pivots = batched.add_rows(first);
+        batch_pivots.extend(batched.add_rows(second));
+        assert_eq!(pivots, batch_pivots);
+        assert_eq!(single.columns(), batched.columns());
+        assert_eq!(single.stats(), batched.stats());
+        // One native column registration per batch with new columns.
+        assert!(batched.column_batches() <= 2);
+        assert!(batched.column_batches() < single.column_batches());
+        assert_eq!(
+            single.pivot_columns().collect::<Vec<_>>(),
+            batched.pivot_columns().collect::<Vec<_>>()
+        );
+        for row in 0..batched.basis_len() {
+            assert_eq!(single.u_row_columns(row), batched.u_row_columns(row));
+            assert_eq!(single.u_row_values(row), batched.u_row_values(row));
+        }
+        assert_eq!(single.u_nnz(), batched.u_nnz());
+        assert_eq!(single.l_entries(), batched.l_entries());
+    }
+}
+
+#[test]
+fn single_walk_trace_union_equals_trace_many() {
+    let field = Zp64::new(101);
+    for seed in 0..8 {
+        let mut discovery = Discovery::new(order(), field.clone());
+        discovery.add_rows(&random_rows(&field, 60, 100 + seed));
+        let basis = discovery.basis_len();
+        let all: Vec<usize> = (0..basis).collect();
+        assert_eq!(discovery.trace_union(&all), discovery.trace_many(&all));
+        let some: Vec<usize> = (0..basis).filter(|row| row % 3 == 1).collect();
+        assert_eq!(discovery.trace_union(&some), discovery.trace_many(&some));
+        for root in 0..basis {
+            assert_eq!(discovery.trace_union(&[root]), discovery.trace(root));
+        }
+    }
+}
+
+#[test]
+fn registered_columns_have_no_pivot_until_a_row_reaches_them() {
+    let field = Zp64::new(101);
+    let mut discovery = Discovery::new(order(), field.clone());
+    discovery.register(vec![integral(4), integral(2), integral(4)]);
+    assert_eq!(discovery.columns(), [integral(4), integral(2)]);
+    assert_eq!(discovery.pivot_row(0), None);
+    assert_eq!(
+        discovery.add_row(&numerical(&field, &[(4, 3), (3, 1)])),
+        Some(integral(4))
+    );
+    assert_eq!(discovery.columns(), [integral(4), integral(3), integral(2)]);
+    assert_eq!(discovery.pivot_row(0), Some(0));
+    assert_eq!(discovery.pivot_row(2), None);
+    assert_eq!(discovery.u_row_columns(0), [0, 1]);
+}

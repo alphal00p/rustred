@@ -20,6 +20,11 @@ native = ["symbolica/integer-gmp", "symbolica/float-mpfr"]
 # does not implement another numerical or computer-algebra backend.
 wasm = ["symbolica/wasm"]
 reconstruction = []
+# Drop the native L rows of dependent inputs in `solver::Discovery`. Needs a
+# Symbolica/numerica with `SparseRowReducer::set_retain_dependent_l` (proposed
+# upstream; not in the pinned revision), so it is off and must stay off until
+# that revision is pinned.
+numerica-drop-dependent-l = []
 # Optional shared inline storage for smaller physical families.
 capacity-dispatch = []
 # Private dependent-libtest measurement surface; never part of default builds.
