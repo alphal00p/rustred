@@ -87,6 +87,8 @@ pub enum Class {
     SymbolicOff,
     /// Beyond `symbolic.max_faces`.
     FaceCap,
+    /// A plain face whose keys are all explained by parametric exception faces (or plain faces off by policy).
+    PlainFaceExplained,
     /// The shadowing test proved the face matched by earlier records / empty.
     Shadowed,
     EmptyDomain,

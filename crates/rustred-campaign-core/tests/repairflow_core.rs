@@ -176,7 +176,9 @@ fn face(label_sd: &[usize], sn: &[usize], keys: Vec<Vec<i32>>) -> FaceGroup {
         label: f.label(),
         sd: f.sd.clone(),
         sn: f.sn.clone(),
-        open_keys: keys,
+        open_keys: keys.clone(),
+        exception: None,
+        unattributed: keys.len() as u64,
     }
 }
 
@@ -403,5 +405,126 @@ fn extension_sources_order() {
             "rf:d0_n:d2_clast_fon_mM1C",
             "rf:d0_n:d3_clast_fon_mM1C"
         ]
+    );
+}
+
+#[test]
+fn exception_faces_from_the_domain_code() {
+    use rustred_campaign_core::domain::CaseDomain;
+    use rustred_campaign_core::partition::DomainList;
+    use rustred_campaign_core::poly::Poly;
+    let n = 5;
+    let p = |t: &str| Poly::parse_d_free(t, n).unwrap();
+    // rule 0: case n2 = 1, n3 = 0, n4 = 0 (n0, n1 free); exception branches: n1 = 2 (affine) | n0^2 - 5 = 0 (nonlinear)
+    let mut d0 = CaseDomain::free(n, Some(lines()));
+    d0.fixed = vec![None, None, Some(1), Some(0), Some(0)];
+    d0.exceptions = vec![vec![p("n1-2")], vec![p("n0^2-5")]];
+    // rule 1: the corner face {}x{} only, no exception
+    let mut d1 = CaseDomain::free(n, Some(lines()));
+    d1.fixed = vec![Some(1), Some(1), Some(1), Some(0), Some(0)];
+    let mut list = DomainList::new(n);
+    list.push(rustred_campaign_core::cover::RuleRef::bare(0, 0, 10), d0);
+    list.push(rustred_campaign_core::cover::RuleRef::bare(0, 1, 11), d1);
+    let keys = vec![
+        vec![3, 2, 1, 0, 0],
+        vec![4, 2, 1, 0, 0],
+        vec![2, 3, 1, 0, 0],
+        vec![1, 1, 2, 0, 0],
+    ];
+    let prov = |e: usize| (format!("T{e}"), e as i64, format!("sha{e}"));
+    let (faces, attributed, st) = exception_faces(&keys, &list, &lines(), 1_000, &prov);
+    // [3,2,..] and [4,2,..] are cut out by branch 0 of rule 0: ONE parametric face, n1 fixed at 2, n0 free (1 direction)
+    assert_eq!(faces.len(), 1, "{faces:#?}");
+    let x = faces[0].exception.as_ref().unwrap();
+    assert_eq!((x.entry, x.branch), (0, 0));
+    assert_eq!(
+        x.case,
+        json!({"frame": "PRESENTED", "fixed": [null, 2, 1, 0, 0], "equations": []})
+    );
+    assert_eq!(x.free_dims, 1);
+    assert_eq!(faces[0].label, "x:T0#0@b0");
+    assert_eq!(attributed.len(), 2);
+    assert_eq!(st.attributed, 2);
+    assert!(!st.truncated);
+    // the evaluation budget bounds the attribution
+    let (_, _, st2) = exception_faces(&keys, &list, &lines(), 1, &prov);
+    assert!(st2.truncated);
+    // affine literal text and a non-linear branch refused as a case
+    assert_eq!(
+        rustred_campaign_core::repairflow::faces::affine_text(&p("2*n3+n1-1"), n).unwrap(),
+        "n1+2*n3-1"
+    );
+    let mut d2 = CaseDomain::free(n, Some(lines()));
+    d2.exceptions = vec![vec![p("n0^2-5")]];
+    assert!(rustred_campaign_core::repairflow::faces::exception_case(&d2, 0).is_err());
+    // a plain face whose keys are all explained by exception faces gets no symbolic attempt of its own
+    let mut fp = face(&[0], &[], vec![vec![3, 2, 1, 0, 0]]);
+    fp.unattributed = 0;
+    let plan = s_plan(
+        &[faces[0].clone(), fp],
+        &[ShadowClass::Skipped, ShadowClass::Skipped],
+        &RepairPolicy::default(),
+    );
+    assert_eq!(plan, vec![None, Some(Class::PlainFaceExplained)]);
+}
+
+/// MEASUREMENT (ignored; reads real material, no child process, one thread): exception-face attribution of the open
+/// keys of a node's import spec (`RF_SPEC` = import spec path, `RF_BASE` = its base directory).
+#[test]
+#[ignore]
+fn measure_exception_faces_of_a_real_node() {
+    use rustred_campaign_core::import::check::{CheckOptions, RowStatus};
+    let spec = std::env::var("RF_SPEC").expect("RF_SPEC");
+    let base = std::env::var("RF_BASE").unwrap_or_else(|_| "/".into());
+    let text = std::fs::read_to_string(&spec).unwrap();
+    let ts = rustred_campaign_core::import::TableSetSpec::from_json(&text).unwrap();
+    let t0 = std::time::Instant::now();
+    let set = rustred_campaign_core::import::load(&ts, std::path::Path::new(&base)).unwrap();
+    let ev = rustred_campaign_core::import::Evidence::from_spec(&set, std::path::Path::new(&base))
+        .unwrap();
+    let res = rustred_campaign_core::import::check::check(
+        &set,
+        &ev,
+        &CheckOptions {
+            threads: 1,
+            tier: None,
+            max_rounds: None,
+        },
+    )
+    .unwrap();
+    let open: Vec<Vec<i32>> = res
+        .rows
+        .iter()
+        .filter(|r| r.status == RowStatus::Open && r.open_status.as_deref() == Some("uncovered"))
+        .map(|r| r.key.clone())
+        .collect();
+    let t1 = t0.elapsed().as_secs_f64();
+    let src = rustred_campaign_core::partition::DispatcherSource::new(&set.disp);
+    let prov = |e: usize| {
+        use rustred_campaign_core::partition::DomainSource;
+        let r = src.rule_ref(e);
+        let i = &set.rules[r.table][r.record];
+        (i.source.clone(), i.label, i.record_sha256.clone())
+    };
+    let t2 = std::time::Instant::now();
+    let (faces, attributed, st) =
+        exception_faces(&open, &src, set.frame.mask(), 2_000_000_000, &prov);
+    let (plain, _) = group_open_keys(&open, set.frame.mask(), "open_keys_desc");
+    let unexplained_plain = plain
+        .iter()
+        .filter(|f| f.open_keys.iter().any(|k| !attributed.contains(k)))
+        .count();
+    let sizes: Vec<usize> = faces.iter().map(|f| f.open_keys.len()).collect();
+    let dims: Vec<u64> = faces
+        .iter()
+        .map(|f| f.exception.as_ref().unwrap().free_dims)
+        .collect();
+    println!(
+        "{}",
+        json!({"closure_keys": res.summary.keys_total, "open_uncovered": open.len(), "load_check_s": t1,
+            "attribution_s": t2.elapsed().as_secs_f64(), "stats": st, "exception_faces": faces.len(),
+            "keys_per_exception_face": sizes, "free_dims": dims, "plain_faces": plain.len(),
+            "plain_faces_with_unattributed_keys": unexplained_plain,
+            "largest": faces.iter().take(5).map(|f| json!({"face": f.label, "keys": f.open_keys.len(), "case": f.exception.as_ref().unwrap().case})).collect::<Vec<_>>()})
     );
 }

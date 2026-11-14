@@ -20,7 +20,7 @@ pub fn s_plan(faces: &[FaceGroup], shadow: &[ShadowClass], p: &RepairPolicy) -> 
     faces
         .iter()
         .zip(shadow)
-        .map(|(_, sh)| {
+        .map(|(f, sh)| {
             if !p.enabled || !p.symbolic.enabled {
                 return Some(Class::SymbolicOff);
             }
@@ -28,6 +28,16 @@ pub fn s_plan(faces: &[FaceGroup], shadow: &[ShadowClass], p: &RepairPolicy) -> 
                 ShadowClass::Shadowed { .. } => return Some(Class::Shadowed),
                 ShadowClass::EmptyDomain { .. } => return Some(Class::EmptyDomain),
                 _ => {}
+            }
+            let plain = f.exception.is_none();
+            if plain
+                && (p.faces.plain_faces == "none"
+                    || (p.faces.plain_faces == "unattributed" && f.unattributed == 0))
+            {
+                return Some(Class::PlainFaceExplained);
+            }
+            if !plain && !p.faces.exception_faces {
+                return Some(Class::SymbolicOff);
             }
             if p.symbolic.max_faces.is_some_and(|m| n >= m) {
                 return Some(Class::FaceCap);
@@ -130,6 +140,12 @@ pub struct FaceDecision {
     /// The recipe escalation given to the face (empty: none; the default recipe still applies).
     pub recipe_steps: Vec<String>,
     pub recipe_note: String,
+    /// The exception face (rule, branch, parametric case) when this is one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exception: Option<super::faces::ExceptionRef>,
+    /// The kept rule's domain as written (fixed, equations, exceptions): what it covers for every power.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain_covered: Option<Value>,
 }
 
 /// The node's decisions.
@@ -234,6 +250,8 @@ pub fn decide(
             served_keys: vec![],
             recipe_steps: vec![],
             recipe_note: String::new(),
+            exception: f.exception.clone(),
+            domain_covered: None,
         });
     }
     // NODE BUDGET (barrier): deterministic order over the keep candidates
@@ -262,6 +280,10 @@ pub fn decide(
             run_r += 1;
             out[i].kept = Some(c.record_sha256.clone());
             out[i].served_keys = c.served.clone();
+            out[i].domain_covered = serde_json::from_str::<Value>(&c.line).ok().map(|v| {
+                json!({"fixed": v["fixed"], "equations": v["equations"], "exceptions": v["exceptions"],
+                       "target": v["target"], "free_dims": c.measures.free_dims})
+            });
         } else {
             out[i].symbolic.class = Class::OverNodeBudget {
                 running_bytes: run_b,
@@ -281,6 +303,12 @@ pub fn decide(
         }
         if !p.recipes.per_face {
             d.recipe_note = "per-face recipes off: default recipe only".into();
+            continue;
+        }
+        if d.exception.is_some() {
+            d.recipe_note =
+                "exception face: its keys fall to their plain faces' recipes (pointwise fallback)"
+                    .into();
             continue;
         }
         if p.recipes.max_faces.is_some_and(|m| given >= m) {

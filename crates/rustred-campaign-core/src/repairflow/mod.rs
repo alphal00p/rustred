@@ -13,7 +13,10 @@ pub mod recipes;
 pub use decide::{
     CandidateAnswer, FaceAnswer, FaceDecision, NodeDecisions, decide, extension_sources, s_plan,
 };
-pub use faces::{FaceGroup, ShadowClass, case_line, group_open_keys, s_args, shadow_face};
+pub use faces::{
+    AttributionStats, ExceptionRef, FaceGroup, ShadowClass, case_line, exception_faces,
+    group_open_keys, s_args, shadow_face,
+};
 pub use judge::{Class, Judgement, Measures, cost, judge, measures_of, served_keys};
 pub use policy::{POLICY_SCHEMA, PolicyFile, RepairPolicy};
 pub use recipes::{RecipeContext, face_recipe, face_tag};

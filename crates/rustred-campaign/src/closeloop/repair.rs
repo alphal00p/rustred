@@ -39,6 +39,7 @@ use rustred_campaign_contract::stop::{CaseResult, StopCode};
 use rustred_campaign_core::import::check::{CheckOptions, RowStatus};
 use rustred_campaign_core::import::{Evidence, ImportedSet, TableSetSpec};
 use rustred_campaign_core::key::NodeFrame;
+use rustred_campaign_core::partition::DomainSource;
 use rustred_campaign_core::repairflow::{
     self as rf, CandidateAnswer, FaceAnswer, FaceGroup, NodeDecisions, PolicyFile, RepairPolicy,
     ShadowClass,
@@ -345,7 +346,10 @@ impl<S: WorkSource> RepairFlowSource<S> {
         let sp = &r.policy.symbolic;
         let cases_rel = format!("{}/cases/{item}.jsonl", rf_dir(&r.n));
         let cases_abs = self.abs(&cases_rel);
-        let line = rf::case_line(&face.face(), p1.frame.mask()).to_string() + "\n";
+        let line = match &face.exception {
+            Some(x) => x.case.to_string(),
+            None => rf::case_line(&face.face(), p1.frame.mask()).to_string(),
+        } + "\n";
         if std::fs::read(&cases_abs).ok().as_deref() != Some(line.as_bytes()) {
             if let Some(d) = cases_abs.parent() {
                 std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
@@ -747,6 +751,13 @@ impl<S: WorkSource> RepairFlowSource<S> {
         let mut by_class: BTreeMap<String, u64> = BTreeMap::new();
         let mut open_keys: Vec<Value> = vec![];
         let mut stmt_lines: Vec<String> = vec![];
+        // per plain face of the key: (served by tables, served by recipes, open)
+        let mask: Vec<bool> = self.nodes[i]
+            .p1
+            .as_ref()
+            .map(|p| p.frame.mask().to_vec())
+            .unwrap_or_default();
+        let mut per_face: BTreeMap<String, (u64, u64, u64)> = BTreeMap::new();
         if let Ok(t) = std::fs::read_to_string(&stmt) {
             for l in t.lines().filter(|l| !l.trim().is_empty()) {
                 stmt_lines.push(l.to_string());
@@ -756,6 +767,19 @@ impl<S: WorkSource> RepairFlowSource<S> {
                 let status = r["status"].as_str().unwrap_or("");
                 let src = r["server"]["source"].as_str().unwrap_or("").to_string();
                 let class = r["server"]["class"].as_str().unwrap_or("").to_string();
+                let fl = serde_json::from_value::<Vec<i32>>(r["key"].clone())
+                    .ok()
+                    .and_then(|k| Face::of_key(&k, &mask))
+                    .map(|f| f.label());
+                if let Some(fl) = fl {
+                    let e = per_face.entry(fl).or_default();
+                    match status {
+                        "open" => e.2 += 1,
+                        "served" if class.starts_with("recipe") => e.1 += 1,
+                        "served" => e.0 += 1,
+                        _ => {}
+                    }
+                }
                 if status == "open" {
                     open_keys.push(r["key"].clone());
                 }
@@ -917,9 +941,30 @@ impl<S: WorkSource> RepairFlowSource<S> {
                     "sha256": sha, "certified_keys_served": certified.len(), "per_key_cpu_s": cost}));
                 rt.accepts.push(record(format!("{exp}/recipes/{fname}"), b));
             }
+            let pf = per_face.get(&f.face).copied().unwrap_or_default();
+            let served = if f.exception.is_some() {
+                if f.kept.is_some() {
+                    "symbolic"
+                } else {
+                    "pointwise_via_plain_faces"
+                }
+            } else if pf.2 > 0 {
+                "open"
+            } else if pf.1 > 0 {
+                "pointwise"
+            } else {
+                "symbolic"
+            };
+            let note = if served == "pointwise" {
+                "served POINTWISE: certified keys + run-time recipe solves for the rest (a key of this face may cost a solve)"
+            } else {
+                ""
+            };
             face_entries.push(
                 json!({"face": f.face, "sd": f.sd, "sn": f.sn, "escalation": esc,
-                "symbolic_kept": f.kept.is_some()}),
+                "symbolic_kept": f.kept.is_some(), "exception": f.exception,
+                "domain_covered": f.domain_covered, "served": served,
+                "keys_by": {"tables": pf.0, "recipes": pf.1, "open": pf.2}, "note": note}),
             );
         }
         // the default sequence (the closing loop's default recipe) with its certified keys and cost
@@ -1179,7 +1224,33 @@ fn p1_pass(
         }
     }
     let lines = set.frame.mask().to_vec();
-    let (faces, outside) = rf::group_open_keys(&uncovered, &lines, &policy.symbolic.face_order);
+    let (mut plain, outside) = rf::group_open_keys(&uncovered, &lines, &policy.symbolic.face_order);
+    // EXCEPTION FACES first (the primary object): (rule, branch) from the domain code, observed keys = evidence
+    let src = rustred_campaign_core::partition::DispatcherSource::new(&set.disp);
+    let (xfaces, attributed, astats) = if policy.faces.exception_faces {
+        let prov = |entry: usize| {
+            let r = src.rule_ref(entry);
+            let info = &set.rules[r.table][r.record];
+            (info.source.clone(), info.label, info.record_sha256.clone())
+        };
+        rf::exception_faces(
+            &uncovered,
+            &src,
+            &lines,
+            policy.faces.max_attribution_evaluations,
+            &prov,
+        )
+    } else {
+        (vec![], BTreeSet::new(), rf::AttributionStats::default())
+    };
+    for f in &mut plain {
+        f.unattributed = f
+            .open_keys
+            .iter()
+            .filter(|k| !attributed.contains(*k))
+            .count() as u64;
+    }
+    let faces: Vec<FaceGroup> = xfaces.into_iter().chain(plain).collect();
     // frame header (raw first line of the frame_from source) and the node order's coordinate priority
     let fsrc = spec
         .sources
@@ -1220,13 +1291,13 @@ fn p1_pass(
     if let Some(nn) = &policy.recipes.numerator_priority {
         np = nn.clone();
     }
-    // shadowing test per face (against the in-force tables, dispatch order)
-    let src = rustred_campaign_core::partition::DispatcherSource::new(&set.disp);
+    // shadowing test per PLAIN face (against the in-force tables, dispatch order); an exception face is cut out of a
+    // rule by construction (its keys are open: not matched first by an earlier entry)
     let budget = rustred_campaign_core::loci::contain::ProofBudget::default();
     let shadow: Vec<ShadowClass> = faces
         .iter()
         .map(|f| {
-            if policy.shadow_test {
+            if policy.shadow_test && f.exception.is_none() {
                 rf::shadow_face(&f.face(), &src, &set.frame, &budget)
             } else {
                 ShadowClass::Skipped
@@ -1240,6 +1311,7 @@ fn p1_pass(
         "faces": faces.iter().zip(&shadow).map(|(f, s)| json!({"face": f.label, "sd": f.sd, "sn": f.sn,
             "open_keys": f.open_keys, "shadow": s})).collect::<Vec<_>>(),
         "outside_chart": outside, "line_priority": lp, "numerator_priority": np,
+        "attribution": astats,
         "frame_header_sha256": sha256_hex(header_line.as_bytes()),
     });
     Ok(P1 {

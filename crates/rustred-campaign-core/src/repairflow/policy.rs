@@ -18,6 +18,7 @@ pub struct RepairPolicy {
     pub enabled: bool,
     /// Shadowing test before any symbolic search (R31 evidence 04:37Z).
     pub shadow_test: bool,
+    pub faces: FacesPolicy,
     pub symbolic: SymbolicPolicy,
     pub keep: KeepPolicy,
     pub node_budget: NodeBudget,
@@ -32,6 +33,7 @@ impl Default for RepairPolicy {
         RepairPolicy {
             enabled: true,
             shadow_test: true,
+            faces: FacesPolicy::default(),
             symbolic: SymbolicPolicy::default(),
             keep: KeepPolicy::default(),
             node_budget: NodeBudget::default(),
@@ -39,6 +41,30 @@ impl Default for RepairPolicy {
             recipes: RecipePolicy::default(),
             proposals: ProposalPolicy::default(),
             runtime: RuntimePolicy::default(),
+        }
+    }
+}
+
+/// How faces are formed (coordinator ruling 2026-11-14: EXCEPTION FACES of the existing parametric rules are the primary
+/// object; plain faces (dotted lines x numerators) take the keys no exception face explains).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct FacesPolicy {
+    /// Attribute every open key to the first rule whose exception branch cuts it out and search (rule, branch).
+    pub exception_faces: bool,
+    /// Symbolic attempts on plain faces: `unattributed` (only for keys no parametric exception face explains) | `all`
+    /// | `none`. Plain faces always carry the recipe escalation (the pointwise fallback).
+    pub plain_faces: String,
+    /// Budget of the attribution (domain evaluations over all keys); beyond it the remaining keys are unattributed.
+    pub max_attribution_evaluations: u64,
+}
+
+impl Default for FacesPolicy {
+    fn default() -> Self {
+        FacesPolicy {
+            exception_faces: true,
+            plain_faces: "unattributed".into(),
+            max_attribution_evaluations: 2_000_000_000,
         }
     }
 }
@@ -206,7 +232,9 @@ pub struct CostModel {
     pub cache_hit_fraction: f64,
     pub uses_per_served_key: f64,
     /// Extra expected uses per FREE DIRECTION of a symbolic rule (a slot symbolic in its case: the rule holds for
-    /// every power along it, also outside the certified set where run-time inputs arrive). PROVISIONAL default.
+    /// every power along it, also outside the certified set where run-time inputs arrive). Default 1e6: a rule valid
+    /// on the whole face (within the caps) is preferred to ANY number of point relations on it (coordinator ruling
+    /// 2026-11-14; helper growth data: arrival sets do not saturate, 28 -> 924 inputs = x34 demand at T178).
     pub unbounded_direction_uses: f64,
     pub table_weight: f64,
 }
@@ -223,7 +251,7 @@ impl Default for CostModel {
             cached_ns_per_rhs_term: 2_000.0,
             cache_hit_fraction: 0.9,
             uses_per_served_key: 1.0,
-            unbounded_direction_uses: 10.0,
+            unbounded_direction_uses: 1_000_000.0,
             table_weight: 1.0,
         }
     }
@@ -455,6 +483,15 @@ impl RepairPolicy {
                     "repair policy: keep.choice_order: unknown criterion {c:?}"
                 ));
             }
+        }
+        if !matches!(
+            self.faces.plain_faces.as_str(),
+            "unattributed" | "all" | "none"
+        ) {
+            return Err(format!(
+                "repair policy: faces.plain_faces {:?} unknown",
+                self.faces.plain_faces
+            ));
         }
         if self.symbolic.wall_case_s == 0 {
             return Err("repair policy: symbolic.wall_case_s must be > 0".into());
