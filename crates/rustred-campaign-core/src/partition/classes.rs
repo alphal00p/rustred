@@ -976,7 +976,11 @@ pub fn collect_classes(root: &Option<Rc<Node>>, arity: usize) -> Vec<Class> {
 /// [`collect_classes`] charged to `meter`, one unit per visited tree node (audit-part3 M2: the memo makes the tree a
 /// DAG whose PATHS can be exponentially many). When the meter is exhausted the listing stops; the caller's run is
 /// then aborted (the meter is sticky and every outcome reads it), so a truncated list never supports a verdict.
-pub fn collect_classes_with(root: &Option<Rc<Node>>, arity: usize, meter: &WorkMeter) -> Vec<Class> {
+pub fn collect_classes_with(
+    root: &Option<Rc<Node>>,
+    arity: usize,
+    meter: &WorkMeter,
+) -> Vec<Class> {
     let mut out = vec![];
     let mut prefix: Vec<Option<u16>> = vec![None; arity];
     fn walk(n: &Node, prefix: &mut Vec<Option<u16>>, out: &mut Vec<Class>, meter: &WorkMeter) {

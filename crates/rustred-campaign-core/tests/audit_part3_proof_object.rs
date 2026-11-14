@@ -173,9 +173,14 @@ fn p3_m2_source_answers_are_snapshotted() {
         &ProofWork::default(),
         &DispatchOrderStatement::SameOrder,
     );
-    if let Ok(p) = p {
+    // the snapshot read the fake (free) domain once: a proof about THAT table set
+    let p = p.expect("the partition saw a free domain: no gap");
+    {
         // the proof is about what the partition saw (the fake free domain), never about the real set
-        assert_eq!(p.new_tables_digest(), table_set_digest(&list(&[fake], n), &f));
+        assert_eq!(
+            p.new_tables_digest(),
+            table_set_digest(&list(&[fake], n), &f)
+        );
         assert_ne!(p.new_tables_digest(), table_set_digest(&real, &f));
         let r = Retirement::new(
             "N",
@@ -390,7 +395,10 @@ fn p3_m2_face_expansion_is_charged_to_the_work_budget() {
         ..dispatch_opts()
     };
     let rep = gap_partition(&l, &f, &o, None).unwrap();
-    assert!(rep.budget_exhausted().is_some(), "the expansion exhausts the budget");
+    assert!(
+        rep.budget_exhausted().is_some(),
+        "the expansion exhausts the budget"
+    );
     assert!(rep.faces().len() < 1 << 15);
     assert!(rep.outcome().is_aborted(), "{:?}", rep.outcome());
     assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
@@ -421,7 +429,11 @@ fn p3_m2_class_paths_are_charged_to_the_budget() {
     let rep = gap_partition(&l, &f, &o, None).unwrap();
     assert!(rep.budget_exhausted().is_some());
     assert!(rep.outcome().is_aborted());
-    assert!(rep.classes().len() < 1 << 8, "{} classes", rep.classes().len());
+    assert!(
+        rep.classes().len() < 1 << 8,
+        "{} classes",
+        rep.classes().len()
+    );
     assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
 }
 
@@ -471,11 +483,17 @@ fn p3_m2_arity_20_shapes_stop_at_the_budget() {
             rep.outcome().tag(),
             rep.classes().len(),
             rep.faces().len(),
-            minted.as_ref().map(|_| ()).map_err(|e| e.chars().take(120).collect::<String>())
+            minted
+                .as_ref()
+                .map(|_| ())
+                .map_err(|e| e.chars().take(120).collect::<String>())
         );
         assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
         assert!(minted.is_err(), "{name}: the set has a gap");
-        assert!(ms_rep < 60_000 && ms_mint < 60_000, "{name}: {ms_rep} / {ms_mint} ms");
+        assert!(
+            ms_rep < 60_000 && ms_mint < 60_000,
+            "{name}: {ms_rep} / {ms_mint} ms"
+        );
     }
 }
 

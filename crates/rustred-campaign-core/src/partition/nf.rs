@@ -93,10 +93,10 @@ pub enum NfNote {
     /// a proof: the engine never serves an elided record).
     ElidedCredited,
     /// The engine's MODULAR zero test may disagree with the exact one somewhere on the record's reachable rule points
-    /// (an equation, exception member or pole coefficient can take a nonzero value divisible by both engine primes:
-    /// [`modular_zero_risk`]; audit-part3 C2). Dispatch mode: the record STOPS dispatch (Undecided) on its whole
-    /// fixed-slot / target-constant set, a stop piece that over-approximates the true one (sound for a no-gap
-    /// proof). Union mode: a caveat (union coverage cannot model an undecided record).
+    /// (an equation or exception member can take a nonzero value divisible by both engine primes: [`modular_risk`];
+    /// audit-part3 C2). Dispatch mode: the record STOPS dispatch (Undecided) at the exact rule points of
+    /// one-variable linear literals, else on its whole fixed-slot / target-constant set (a stop piece that
+    /// over-approximates the true one: sound for a no-gap proof). Union mode: a caveat.
     ModularZeroRisk(String),
 }
 
@@ -553,33 +553,159 @@ pub fn engine_prime_product() -> u128 {
     u128::from(ENGINE_PRIMES[0]).saturating_mul(u128::from(ENGINE_PRIMES[1]))
 }
 
-/// Largest `|f(pt)|` over rule points with `|pt[v]| <= m[v]`: `sum |c| prod m[v]^e`, checked (`None` on overflow).
-fn max_abs_value(f: &Poly, m: &[u128]) -> Option<u128> {
-    let mut acc: u128 = 0;
-    for (mono, c) in f.terms() {
-        let mut t = c.unsigned_abs();
-        for &(v, e) in mono {
-            if v == D_VAR {
-                return None; // d-free literals only (pole coefficients are d-free)
-            }
-            let mv = *m.get(usize::from(v))?;
-            t = t.checked_mul(mv.checked_pow(e)?)?;
+/// Where the engine's modular zero test can disagree with the exact one on a record's literals ([`modular_risk`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModularRisk {
+    /// Only at rule points whose variable `.0` equals one of the values `.1` (one-variable linear literals: the
+    /// residue class is solved exactly); the record stops dispatch there (an exact superset of its undecided keys).
+    Points(Vec<(usize, i128)>),
+    /// Possibly anywhere on the record's fixed-slot / target-constant set (an over-approximation), with the reason.
+    Anywhere(String),
+}
+
+/// `a * b mod m` for `a, b < m < 2^126` (double-and-add, every step checked; `None` never happens for such inputs).
+fn mulmod(a: u128, b: u128, m: u128) -> Option<u128> {
+    let mut a = a.checked_rem(m)?;
+    let mut b = b;
+    let mut r: u128 = 0;
+    while b > 0 {
+        if b & 1 == 1 {
+            r = r.checked_add(a)?.checked_rem(m)?;
         }
-        acc = acc.checked_add(t)?;
+        a = a.checked_add(a)?.checked_rem(m)?;
+        b = b.checked_shr(1).unwrap_or(0);
     }
-    Some(acc)
+    Some(r)
+}
+
+/// The risk of ONE literal `f` at rule points with `|pt[v]| <= m[v]` (every `m[v]` below both primes). With
+/// `f = g q` (`g` the content), `f(pt)` is a nonzero multiple of both primes iff `q(pt) != 0` and `q(pt)` vanishes
+/// modulo `pm` = the product of the primes NOT dividing `g`. So: `pm = 1` (both divide `g`): anywhere; `q` one
+/// monomial: never (a monomial vanishes modulo a prime larger than every |pt| only where it is 0); `sum |c_q| prod
+/// m^e < pm`: never; `q = a x + b` in one variable: exactly at the residue `x = -b / a (mod pm)` inside the box;
+/// otherwise anywhere.
+fn literal_modular_risk(f: &Poly, m: &[u128]) -> Result<Vec<(usize, i128)>, String> {
+    let p1 = u128::from(ENGINE_PRIMES[0]);
+    let p2 = u128::from(ENGINE_PRIMES[1]);
+    if f.terms()
+        .iter()
+        .any(|(mo, _)| mo.iter().any(|&(v, _)| v == D_VAR))
+    {
+        // a literal with d is not a valid case literal: the domain does not validate and the normal form excludes /
+        // weakens it (a caveat in dispatch mode, a refusal of the minting preconditions)
+        return Ok(vec![]);
+    }
+    let mut g: u128 = 0;
+    for (_, c) in f.terms() {
+        let mut a = c.unsigned_abs();
+        let mut b = g;
+        while b != 0 {
+            let r = a.checked_rem(b).unwrap_or(0);
+            a = b;
+            b = r;
+        }
+        g = a;
+    }
+    if g == 0 {
+        return Ok(vec![]); // the zero polynomial: exactly zero everywhere
+    }
+    let mut pm: u128 = 1;
+    for p in [p1, p2] {
+        if g.checked_rem(p) != Some(0) {
+            pm = pm.saturating_mul(p);
+        }
+    }
+    if pm == 1 {
+        return Err(format!(
+            "literal {f}: its content is divisible by both engine primes"
+        ));
+    }
+    let gi = i128::try_from(g).map_err(|_| format!("literal {f}: content 2^127"))?;
+    let q: Vec<(&crate::poly::Mono, i128)> = f
+        .terms()
+        .iter()
+        .map(|(mo, c)| c.checked_div(gi).map(|x| (mo, x)))
+        .collect::<Option<_>>()
+        .ok_or_else(|| format!("literal {f}: content division"))?;
+    if q.len() <= 1 {
+        return Ok(vec![]);
+    }
+    let mut bound: u128 = 0;
+    for (mo, c) in &q {
+        let mut t = c.unsigned_abs();
+        for &(v, e) in mo.iter() {
+            if v == D_VAR {
+                return Err(format!("literal {f}: contains d"));
+            }
+            let mv = *m
+                .get(usize::from(v))
+                .ok_or_else(|| format!("literal {f}: variable beyond the arity"))?;
+            t = mv
+                .checked_pow(e)
+                .and_then(|x| t.checked_mul(x))
+                .ok_or_else(|| format!("literal {f}: value bound overflows u128"))?;
+        }
+        bound = bound
+            .checked_add(t)
+            .ok_or_else(|| format!("literal {f}: value bound overflows u128"))?;
+    }
+    if bound < pm {
+        return Ok(vec![]);
+    }
+    // one-variable linear primitive part a x + b
+    let mut var: Option<(usize, i128)> = None;
+    let mut b: i128 = 0;
+    for (mo, c) in &q {
+        match mo.as_slice() {
+            [] => b = *c,
+            [(v, 1)] if var.is_none() => var = Some((usize::from(*v), *c)),
+            _ => {
+                return Err(format!(
+                    "literal {f} can reach a nonzero multiple of the engine prime product"
+                ));
+            }
+        }
+    }
+    let Some((v, a)) = var else {
+        return Ok(vec![]);
+    };
+    let pmi = i128::try_from(pm).map_err(|_| format!("literal {f}: modulus"))?;
+    let am = a
+        .checked_rem_euclid(pmi)
+        .ok_or_else(|| format!("literal {f}: residue"))?;
+    let (gg, inv, _) = super::exact::ext_gcd(am, pmi).map_err(|e| format!("literal {f}: {e}"))?;
+    if gg != 1 {
+        return Ok(vec![]); // a prime of pm divides a but not b (gcd(a, b) = 1): never a multiple
+    }
+    let nb = b
+        .checked_neg()
+        .and_then(|x| x.checked_rem_euclid(pmi))
+        .ok_or_else(|| format!("literal {f}: residue"))?;
+    let invm = inv
+        .checked_rem_euclid(pmi)
+        .ok_or_else(|| format!("literal {f}: residue"))?;
+    let r = mulmod(nb.unsigned_abs(), invm.unsigned_abs(), pm)
+        .and_then(|x| i128::try_from(x).ok())
+        .ok_or_else(|| format!("literal {f}: residue"))?;
+    let mv = m.get(v).copied().unwrap_or(0);
+    let mut out = vec![];
+    for x in [Some(r), r.checked_sub(pmi)].into_iter().flatten() {
+        if x.unsigned_abs() <= mv && a.checked_mul(x).and_then(|y| y.checked_add(b)) != Some(0) {
+            out.push((v, x));
+        }
+    }
+    Ok(out)
 }
 
 /// Can the ENGINE's modular zero test (a value is zero iff it vanishes modulo both `ENGINE_PRIMES`) disagree with the
-/// exact one on a literal of this record at a rule point that the dispatcher or the engine evaluates (audit-part3 C2)?
-/// The dispatcher stops there (`Verdict::Error(EngineZeroTest)`, Undecided) for equations and exception members; the
-/// engine may read a pole coefficient as zero. Checked literals: equations, exception members, pole coefficients
-/// (bounds and recenter bounds are sign tests). Rule points: a canonical target evaluates at the key (`|n| <= 2^31`
-/// on the chart); a target pattern at `pt[a] = n_j - o` (the dispatcher only inside `i32`, the engine in `i64`:
-/// `|pt[a]| <= 2^31 + |o|`; an offset with `|o| >= 2^62` may leave `i64`: risk), unmapped parameters at their fixed
-/// value or 0. A literal whose bound `sum |c| prod |pt|^e` stays below the prime product can only be read as zero when
-/// it IS zero. `Some(reason)` = the disagreement cannot be excluded (a dispatch stop is then modelled; never a guess).
-pub fn modular_zero_risk(d: &CaseDomain) -> Option<String> {
+/// exact one on a literal the dispatcher evaluates with it (equations, exception members: `Verdict::Error(
+/// EngineZeroTest)`, Undecided; audit-part3 C2)? Rule points: a canonical target evaluates at the key (`|n| <= 2^31`
+/// on the chart); a target pattern at `pt[a] = n_j - o` (`|pt[a]| <= 2^31 + |o|`; an offset with `|o| >= 2^60`
+/// could reach the primes: risk anywhere), unmapped parameters at their fixed value or 0. Per literal see
+/// [`literal_modular_risk`]. `None` = no disagreement possible. (Pole coefficients are tested exactly by the
+/// dispatcher and are not part of the engine's first match; the engine's modular REDUCTION at huge keys is a separate
+/// matter, interfaces/partition.md 14.)
+pub fn modular_risk(d: &CaseDomain) -> Option<ModularRisk> {
     let n = d.arity;
     let base: u128 = 1u128 << 31;
     let m: Vec<u128> = match &d.target {
@@ -600,10 +726,10 @@ pub fn modular_zero_risk(d: &CaseDomain) -> Option<String> {
             for s in t {
                 if let TargetSlot::Param { param, offset } = *s {
                     let o = u128::from(offset.unsigned_abs());
-                    if o >= 1u128 << 62 {
-                        return Some(format!(
-                            "target offset {offset}: the engine's i64 rule point may overflow"
-                        ));
+                    if o >= 1u128 << 60 {
+                        return Some(ModularRisk::Anywhere(format!(
+                            "target offset {offset}: rule points may reach the engine primes"
+                        )));
                     }
                     if let Some(x) = m.get_mut(param) {
                         *x = base.saturating_add(o);
@@ -613,35 +739,26 @@ pub fn modular_zero_risk(d: &CaseDomain) -> Option<String> {
             m
         }
     };
-    let p = engine_prime_product();
-    let lits = d
-        .equations
-        .iter()
-        .map(|f| ("equation", f))
-        .chain(
-            d.exceptions
-                .iter()
-                .flatten()
-                .map(|f| ("exception member", f)),
-        )
-        .chain(
-            d.poles
-                .iter()
-                .flat_map(|pl| pl.coeffs.iter())
-                .map(|f| ("pole coefficient", f)),
-        );
-    for (what, f) in lits {
-        match max_abs_value(f, &m) {
-            Some(b) if b < p => {}
-            Some(_) => {
-                return Some(format!(
-                    "{what} {f} can reach a nonzero multiple of the engine prime product"
-                ));
-            }
-            None => return Some(format!("{what} {f}: value bound overflows u128")),
+    let mut points: Vec<(usize, i128)> = vec![];
+    for f in d.equations.iter().chain(d.exceptions.iter().flatten()) {
+        match literal_modular_risk(f, &m) {
+            Ok(p) => points.extend(p),
+            Err(why) => return Some(ModularRisk::Anywhere(why)),
         }
     }
-    None
+    points.sort_unstable();
+    points.dedup();
+    (!points.is_empty()).then_some(ModularRisk::Points(points))
+}
+
+/// [`modular_risk`] as a reason (`Some` for any risk, points or anywhere).
+pub fn modular_zero_risk(d: &CaseDomain) -> Option<String> {
+    modular_risk(d).map(|r| match r {
+        ModularRisk::Points(p) => format!(
+            "the engine's modular zero test may differ at the rule points {p:?} (variable, value)"
+        ),
+        ModularRisk::Anywhere(w) => w,
+    })
 }
 
 /// Build the normal form of the selected domains of `src`.
@@ -784,10 +901,11 @@ pub fn build(
         let mut extra: Vec<StopPiece> = vec![];
         for (j, ok) in &range {
             // violated: -ok - 1 >= 0 (n_j - o outside i32)
-            let viol = ok
-                .scale(-1)
-                .and_then(|p| p.sub(&MPoly::constant(arity, 1)));
-            match viol.map_err(|e| format!("{e}")).map(|v| b.try_intern(&v, true)) {
+            let viol = ok.scale(-1).and_then(|p| p.sub(&MPoly::constant(arity, 1)));
+            match viol
+                .map_err(|e| format!("{e}"))
+                .map(|v| b.try_intern(&v, true))
+            {
                 Ok(Ok(Ok(Norm::Lit(l)))) => {
                     let mut r = fc.clone();
                     r.ge.push(l);
@@ -814,12 +932,47 @@ pub fn build(
                 }
             }
         }
-        if let Some(why) = modular_zero_risk(d) {
-            note(&mut notes, NfNote::ModularZeroRisk(why.clone()));
-            extra.push(StopPiece {
-                rule: fc.clone(),
-                why: StopWhy::ModularZeroRisk(why),
-            });
+        match modular_risk(d) {
+            None => {}
+            Some(ModularRisk::Anywhere(why)) => {
+                note(&mut notes, NfNote::ModularZeroRisk(why.clone()));
+                extra.push(StopPiece {
+                    rule: fc.clone(),
+                    why: StopWhy::ModularZeroRisk(why),
+                });
+            }
+            Some(ModularRisk::Points(pts)) => {
+                note(
+                    &mut notes,
+                    NfNote::ModularZeroRisk(format!("exact rule points {pts:?}")),
+                );
+                for (v, x) in pts {
+                    // the rule point's variable v equals x, in the key's variables (composed with the target map)
+                    let lit = MPoly::var(arity, v)
+                        .sub(&MPoly::constant(arity, x))
+                        .and_then(|p| match &map {
+                            None => Ok(p),
+                            Some(mm) => p.compose(mm, arity),
+                        });
+                    let why = StopWhy::ModularZeroRisk(format!("rule point n{v} = {x}"));
+                    match lit.map(|p| b.try_intern(&p, false)) {
+                        Ok(Ok(Ok(Norm::Lit(l)))) => {
+                            let mut r = fc.clone();
+                            r.eq.push(l);
+                            r.eq.sort_unstable();
+                            r.eq.dedup();
+                            extra.push(StopPiece { rule: r, why });
+                        }
+                        Ok(Ok(Ok(Norm::NonZeroConst))) => {} // the point is never a rule point here
+                        Ok(Err(e)) => return Err(e),
+                        // always the point, or not representable: the whole set (over-approximation)
+                        _ => extra.push(StopPiece {
+                            rule: fc.clone(),
+                            why,
+                        }),
+                    }
+                }
+            }
         }
         let pre_blocker = !extra.is_empty();
         if pre_blocker {

@@ -28,8 +28,7 @@ use rustred_campaign_core::key::{Key, NodeFrame};
 use rustred_campaign_core::loci::contain::ProofBudget;
 use rustred_campaign_core::partition::{
     Budget, Containment, CoverageNotion, DispatchOrderStatement, DispatcherSource, DomainList,
-    Emptiness, PartitionOptions, contained_in_with, gap_partition, is_empty_with,
-    shadowed_with,
+    Emptiness, PartitionOptions, contained_in_with, gap_partition, is_empty_with, shadowed_with,
 };
 use rustred_campaign_core::poly::{EvalError, Poly};
 
@@ -675,17 +674,30 @@ fn run_one(seed: u64, t: &mut Tally, heavy: bool) {
     stage("minted proofs");
     // ---- minted proofs (partfix3, audit-part3 C1: the minting function takes a WORK BUDGET only and builds its own
     // options; the former option variants are gone): the default budget and, for heavy sets, a small one
+    // the minting budget follows the harness's own partition caps (arity >= 20: 60,000 units; P3-M2)
+    let units = opts(s.n, CoverageNotion::DispatchCoverage)
+        .budget
+        .max_nodes
+        .unwrap_or(3_000_000);
     let variants: Vec<ProofWork> = if heavy {
         vec![
-            ProofWork::default(),
             ProofWork {
-                max_units: 200_000,
+                max_units: units,
+                wall: None,
+                max_memo: None,
+            },
+            ProofWork {
+                max_units: units.min(200_000),
                 wall: None,
                 max_memo: Some(10_000),
             },
         ]
     } else {
-        vec![ProofWork::default()]
+        vec![ProofWork {
+            max_units: units,
+            wall: None,
+            max_memo: None,
+        }]
     };
     for (vi, o) in variants.iter().enumerate() {
         if let Ok(p) =

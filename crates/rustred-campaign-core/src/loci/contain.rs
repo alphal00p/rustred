@@ -643,21 +643,22 @@ fn containment_linear(
     let mut subject = d.clone();
     subject.witness_elided = false;
     let mut all: Vec<CaseDomain> = vec![subject];
-    let mut kept: Vec<&CaseDomain> = vec![];
     // an OTHER whose literals may meet the engine's modular zero test (audit-part3 C2) is dropped: where the engine
     // reads one of its exception members as zero it passes the record while the normal form says it matches /
     // applies; dropping an other only shrinks the union (sound)
     let mut risky = 0usize;
+    // every other that counts, risky ones included: a WITNESS (NotContained) is verified against all of them
+    let mut verify: Vec<&CaseDomain> = vec![];
     for o in others {
         if mode == OthersAre::Applying && o.witness_elided {
             continue;
         }
+        verify.push(o);
         if nf::modular_zero_risk(o).is_some() {
             risky = risky.saturating_add(1);
             continue;
         }
         all.push((*o).clone());
-        kept.push(o);
     }
     // FailClosed so that every other's SELECTED set is available (`selected`), its APPLIES set as its rule
     let nfr = match nf_of(&all, frame, ElidedPolicy::FailClosed) {
@@ -774,11 +775,11 @@ fn containment_linear(
             let key: Option<Key> = x.iter().map(|&v| i32::try_from(v).ok()).collect();
             if let Some(key) = key
                 && subject_applies(d, &key)
-                && !kept.iter().any(|o| other_counts(o, &key, mode))
+                && !verify.iter().any(|o| other_counts(o, &key, mode))
             {
                 return Containment::NotContained { witness: key };
             }
-            match verified_witness(&reg, d, &kept, mode, &mut sp) {
+            match verified_witness(&reg, d, &verify, mode, &mut sp) {
                 Some(k) => Containment::NotContained { witness: k },
                 None => Containment::Unknown {
                     reason: "a nonempty leaf was found but no verified integer witness (within the proof budget)"

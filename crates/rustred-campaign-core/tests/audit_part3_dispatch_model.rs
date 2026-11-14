@@ -137,7 +137,10 @@ fn p3_c2_engine_zero_test_is_a_stop_and_never_proved() {
     assert!(open(&d, &[3, -1]));
     let rep = gap_partition(&DispatcherSource::new(&d), &f, &dispatch_opts(), None).unwrap();
     assert!(rep.uncovered(&[3, -1]).unwrap());
-    assert!(mint(&d, &f).is_err(), "no proof while every key is undecided");
+    assert!(
+        mint(&d, &f).is_err(),
+        "no proof while every key is undecided"
+    );
     // (c) an equation that IS the constant p1*p2: the normal form drops the record as never applying, but the
     // dispatcher stops at it on every key (the stop piece is registered before any drop)
     let mut c = CaseDomain::free(n, chart(n, 1));
@@ -200,7 +203,10 @@ fn p3_m1_rule_point_overflow_before_the_equations_is_modelled() {
     let src = DispatcherSource::new(&d);
     let rep = gap_partition(&src, &f, &dispatch_opts(), None).unwrap();
     assert!(rep.uncovered(&[648, 0]).unwrap());
-    assert!(!rep.uncovered(&[647, 0]).unwrap(), "the stop piece is exact");
+    assert!(
+        !rep.uncovered(&[647, 0]).unwrap(),
+        "the stop piece is exact"
+    );
     assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
     assert!(mint(&d, &f).is_err());
     assert!(probes_hit_open(&d, &f));
@@ -298,14 +304,87 @@ fn p3_dispatch_chart_other_than_the_frame_is_never_proved() {
     let n = 2;
     let f = NodeFrame::without_header_lines_first(n, 1);
     let ds = vec![CaseDomain::free(n, None)];
-    let d = disp(&ds, n)
-        .with_chart(vec![true, true])
-        .unwrap();
+    let d = disp(&ds, n).with_chart(vec![true, true]).unwrap();
     assert!(matches!(
         d.first_match(&[1, 0]).unwrap(),
         Dispatch::OutsideChart { .. }
     ));
     let rep = gap_partition(&DispatcherSource::new(&d), &f, &dispatch_opts(), None).unwrap();
     assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
+    assert!(mint(&d, &f).is_err());
+}
+
+/// partfix3: the modular zero test of a ONE-VARIABLE linear literal is solved EXACTLY: `n0 - (p1*p2 + 5)` is a nonzero
+/// multiple of p1*p2 only at n0 = 5 (an exception member evaluated first in its branch), so the record stops dispatch
+/// (Undecided) exactly on the hyperplane n0 = 5: the
+/// oracle is exact there (open at n0 = 5, covered elsewhere); an earlier record serving n0 = 5 makes the set provable.
+#[test]
+fn p3_c2_one_variable_residue_is_an_exact_stop() {
+    let n = 2;
+    let f = NodeFrame::without_header_lines_first(n, 1);
+    let pp = i128::from(ENGINE_PRIMES[0]) * i128::from(ENGINE_PRIMES[1]);
+    let member = Poly::parse(&format!("n0-{}", pp + 5), n, false).unwrap();
+    let mut r = CaseDomain::free(n, chart(n, 1));
+    // the second member (n1 = 1) never vanishes on the chart, so the branch never fires exactly; the dispatcher still
+    // evaluates the first member first (and stops at n0 = 5)
+    r.exceptions = vec![vec![member, Poly::parse("n1-1", n, false).unwrap()]];
+    let d = disp(std::slice::from_ref(&r), n);
+    assert!(matches!(
+        d.first_match(&[5, -3]).unwrap(),
+        Dispatch::Undecided { .. }
+    ));
+    assert!(!open(&d, &[4, -3]) && !open(&d, &[6, 0]));
+    let rep = gap_partition(&DispatcherSource::new(&d), &f, &dispatch_opts(), None).unwrap();
+    for k in [[5, -3], [5, 0], [4, -3], [6, 0], [1, -100]] {
+        assert_eq!(rep.uncovered(&k).unwrap(), open(&d, &k), "{k:?}");
+    }
+    assert!(mint(&d, &f).is_err());
+    let mut first = CaseDomain::free(n, chart(n, 1));
+    first.fixed[0] = Some(5);
+    let d2 = disp(&[first, r], n);
+    assert!(!open(&d2, &[5, -3]));
+    mint(&d2, &f).expect("n0 = 5 is served first: provable");
+}
+
+/// partfix3 preconditions of the minting function: a record whose witness check is DISABLED (its witness block is
+/// hidden from the dispatcher) is refused (strict dispatch), and so is a bound the engine cannot read as
+/// `domain_bounds`; a one-slot line lower bound is engine-readable.
+#[test]
+fn p3_minting_preconditions_strict_basis_and_engine_readable_bounds() {
+    use rustred_campaign_core::cover::{Assurance, RecordMeta, WitnessStatus};
+    let n = 2;
+    let f = NodeFrame::without_header_lines_first(n, 1);
+    // witness check disabled on an elided record: the dispatcher credits it, the strict dispatcher would not
+    let mut t = Table::new("t", n);
+    t.push_with_meta(
+        0,
+        CaseDomain::free(n, chart(n, 1)),
+        RecordMeta {
+            source_index: 0,
+            line_no: 0,
+            witness: WitnessStatus::Elided,
+            witness_basis: Assurance::CheckDisabled,
+            target_basis: Assurance::Record,
+        },
+    )
+    .unwrap();
+    let d = Dispatcher::new(vec![t], vec![0]).unwrap();
+    let e = mint(&d, &f).expect_err("check disabled");
+    assert!(e.contains("witness check is disabled"), "{e}");
+    // engine-readable bound: n0 >= 3 on a line slot, the rest served by a later record
+    let mut b = CaseDomain::free(n, chart(n, 1));
+    b.bounds = vec![Poly::parse("n0-3", n, false).unwrap()];
+    let d = disp(&[b, CaseDomain::free(n, chart(n, 1))], n);
+    mint(&d, &f).expect("a one-slot line lower bound is the engine's domain_bounds");
+    // a two-slot bound has no engine counterpart
+    let mut c = CaseDomain::free(n, chart(n, 1));
+    c.bounds = vec![Poly::parse("n0+n1-3", n, false).unwrap()];
+    let d = disp(&[c, CaseDomain::free(n, chart(n, 1))], n);
+    let e = mint(&d, &f).expect_err("not engine-readable");
+    assert!(e.contains("engine-readable"), "{e}");
+    // an upper bound on a line slot is refused too
+    let mut u = CaseDomain::free(n, chart(n, 1));
+    u.bounds = vec![Poly::parse("7-n0", n, false).unwrap()];
+    let d = disp(&[u, CaseDomain::free(n, chart(n, 1))], n);
     assert!(mint(&d, &f).is_err());
 }

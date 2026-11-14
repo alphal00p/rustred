@@ -370,7 +370,10 @@ impl ProofPreconditions {
         if let Some(c) = src.dispatch_chart()
             && c != mask
         {
-            return Err("precondition chart: the source's dispatch chart differs from the frame mask".into());
+            return Err(
+                "precondition chart: the source's dispatch chart differs from the frame mask"
+                    .into(),
+            );
         }
         let mut pre = ProofPreconditions {
             records: src.len(),
@@ -383,7 +386,10 @@ impl ProofPreconditions {
         for i in 0..src.len() {
             let d = src.domain(i);
             if d.arity != n {
-                return Err(format!("precondition arity: record {i} has arity {}", d.arity));
+                return Err(format!(
+                    "precondition arity: record {i} has arity {}",
+                    d.arity
+                ));
             }
             d.validate()
                 .map_err(|e| format!("precondition validate: record {i}: {e}"))?;
@@ -469,14 +475,19 @@ pub fn engine_readable_bound(
     // the chart values the bound excludes: lines n >= 1 with a n + b < 0; numerators n <= 0 with a n + b < 0
     let excluded: i128 = if frame.is_line(i) {
         if a <= 0 {
-            return Err("an upper bound on a line slot (the engine refuses it: infinite exclusion)".into());
+            return Err(
+                "an upper bound on a line slot (the engine refuses it: infinite exclusion)".into(),
+            );
         }
         // smallest admitted n = ceil(-b / a); excluded = n in [1, ceil(-b/a) - 1]
         let lo = crate::partition::exact::ceil_neg_div(b, a).map_err(|e| format!("{e}"))?;
         lo.saturating_sub(1).max(0)
     } else {
         if a >= 0 {
-            return Err("a lower bound on a numerator slot (the engine refuses it: infinite exclusion)".into());
+            return Err(
+                "a lower bound on a numerator slot (the engine refuses it: infinite exclusion)"
+                    .into(),
+            );
         }
         // largest admitted n = floor(-b / a) (a < 0); excluded = n in [floor(-b/a) + 1, 0]
         let hi = crate::partition::exact::floor_neg_div(b, a).map_err(|e| format!("{e}"))?;
@@ -495,7 +506,11 @@ pub fn engine_readable_bound(
 /// partition never saw.
 struct Snapshot {
     arity: usize,
-    items: Vec<(crate::cover::RuleRef, crate::domain::CaseDomain, Option<crate::domain::Verdict>)>,
+    items: Vec<(
+        crate::cover::RuleRef,
+        crate::domain::CaseDomain,
+        Option<crate::domain::Verdict>,
+    )>,
     chart: Option<Vec<bool>>,
 }
 
@@ -586,7 +601,9 @@ pub fn prove_coverage_preserved(
     work: &ProofWork,
     order: &crate::partition::DispatchOrderStatement,
 ) -> Result<ContainmentProof, String> {
-    use crate::partition::{CoverageNotion, DispatchOrderStatement, WorkMeter, dispatch_proof_method};
+    use crate::partition::{
+        CoverageNotion, DispatchOrderStatement, WorkMeter, dispatch_proof_method,
+    };
     if let DispatchOrderStatement::NewOrder(d) = order
         && d.trim().is_empty()
     {

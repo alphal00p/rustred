@@ -809,11 +809,10 @@ pub(crate) fn gap_partition_with(
         let pe = pos.get(&e).copied().ok_or_else(|| {
             PartitionError::Unsupported(format!("blocker {e} has no dispatch position"))
         })?;
-        let pieces: Vec<StopRef> = if dispatch {
-            rep.nf.stop_refs(e)
-        } else {
-            vec![StopRef::Selected] // FailClosed union mode: the elided records' blocked sets only
-        };
+        // dispatch mode: every stop piece of every blocker; FailClosed union mode: the ELIDED records' stop pieces
+        // (selected minus applies, and their rule-point overflow / modular-risk pieces: an elided record stops
+        // dispatch wherever its verdict is not NotSelected, audit-part3 M1)
+        let pieces: Vec<StopRef> = rep.nf.stop_refs(e);
         let mut skipped = false;
         for which in pieces {
             if refuted {
@@ -961,6 +960,10 @@ pub(crate) fn prove_dispatch_no_gap(
     let cert = rep.proves_no_gap(CoverageNotion::DispatchCoverage)?;
     Ok((rep, cert))
 }
+
+/// Fragile cells probed at most per class / in all by [`PartitionReport::dispatch_probes`].
+const PROBE_CELLS_PER_CLASS: usize = 32;
+const PROBE_CELLS_TOTAL: usize = 4_096;
 
 /// An integer point of a region near the anchor (the exact search of `loci::region::find_point`, capped).
 fn region_point_near(r: &crate::loci::Region, anchor: &[i128]) -> Option<Vec<i128>> {
@@ -1229,16 +1232,23 @@ impl PartitionReport {
             ));
         }
         if self.literal_tests != LiteralTests::Exact {
-            return Err("the run used the reference-compatible literal tests (a regression mode)".into());
+            return Err(
+                "the run used the reference-compatible literal tests (a regression mode)".into(),
+            );
         }
-        if self.stats.aborted || self.budget_exhausted.is_some() || !self.blocked_skipped.is_empty() {
+        if self.stats.aborted || self.budget_exhausted.is_some() || !self.blocked_skipped.is_empty()
+        {
             return Err(format!(
                 "the work budget was exhausted: {}",
-                self.budget_exhausted.as_deref().unwrap_or("blocked regions not partitioned")
+                self.budget_exhausted
+                    .as_deref()
+                    .unwrap_or("blocked regions not partitioned")
             ));
         }
         if self.faces_truncated || !self.families.is_empty() || self.cap_truncated > 0 {
-            return Err("the face description was truncated (max_faces / max_any_slots / cap)".into());
+            return Err(
+                "the face description was truncated (max_faces / max_any_slots / cap)".into(),
+            );
         }
         if self.elided == ElidedPolicy::Ordinary
             && self
@@ -2115,13 +2125,16 @@ impl PartitionReport {
     ///    both sides of every critical value; the tail state's first values; far values up to `i32::MAX`);
     /// 2. diagonals (every slot at its j-th representative at once);
     /// 3. for every pair of slots coupled by a literal, the product of their first representatives;
-    /// 4. for every LINEAR multi-slot literal, a chart point on its zero set (a bound: on `g = 0` and `g = -1`) and
-    ///    its neighbours +-1 in each slot of the literal (exception loci +-1, both sides of every bound);
-    /// 5. a point and a corner of every cell of every fragile class (main report and blocked sub-reports);
+    /// 4. for every LINEAR multi-slot literal, a chart point on its zero set (a bound: on `g = 0` and `g = -1`), found
+    ///    directly (one slot solved, the others at offsets 0..3 from the floor), and its neighbours +-1 in each slot of
+    ///    the literal (exception loci +-1, both sides of every bound);
+    /// 5. a point and a corner of the first cells of every fragile class (main report and blocked sub-reports; at
+    ///    most `PROBE_CELLS_PER_CLASS` per class and `PROBE_CELLS_TOTAL` in all: a class with k `any` slots has 2^k
+    ///    cells);
     /// 6. 256 far probes from a fixed generator (floor, near, medium and huge values per slot).
     ///
-    /// One work unit per key, plus the Fourier-Motzkin / point-search work of items 4 and 5; when `meter` is
-    /// exhausted the list stops (the caller then refuses).
+    /// One work unit per key and per solving attempt of item 4, plus the point-search work of item 5; when `meter`
+    /// is exhausted the list stops (the caller then refuses).
     pub fn dispatch_probes(&self, meter: &WorkMeter) -> Vec<Key> {
         let n = self.nf.arity;
         let lines = self.nf.lines.clone();
@@ -2237,22 +2250,9 @@ impl PartitionReport {
                 }
             }
         }
-        // 4. points on / next to every linear multi-slot literal's zero set
-        let chart = crate::loci::Region {
-            k: n,
-            x: (0..n).map(|j| exact::Affine::var(n, j)).collect(),
-            cons: (0..n)
-                .map(|j| {
-                    // line: t_j - 1 >= 0; numerator: -t_j >= 0
-                    if lines[j] {
-                        exact::Affine::unit(n, j, 1, -1)
-                    } else {
-                        exact::Affine::unit(n, j, -1, 0)
-                    }
-                })
-                .collect(),
-            names: (0..n).map(|j| format!("n{j}")).collect(),
-        };
+        // 4. points on / next to every linear multi-slot literal's zero set, found DIRECTLY (no Fourier-Motzkin: the
+        //    probe list must stay cheap on large tables): solve for one slot of the support with the other support
+        //    slots at offsets 0..3 from the floor (every other slot at the floor); a bound gets g = 0 and g = -1
         for l in &self.nf.lits {
             if l.support.len() < 2 {
                 continue; // one-slot literals: their critical values are state boundaries (item 1)
@@ -2265,25 +2265,53 @@ impl PartitionReport {
                 let Some(cc) = c.checked_add(sh) else {
                     continue;
                 };
-                let pt = match chart.cut(&coef, cc) {
-                    Ok(Some(z)) => {
-                        let a: Vec<i128> = vec![0; z.k];
-                        match region_point_near(&z, &a) {
-                            Some(t) => z.at(&t).ok(),
-                            None => None,
+                let mut found: Option<Vec<i64>> = None;
+                'solve: for &s in &l.support {
+                    let a = coef[s];
+                    if a == 0 {
+                        continue;
+                    }
+                    for off in 0..4i64 {
+                        if !meter.tick(1) {
+                            return out.into_iter().collect();
+                        }
+                        let mut k = floor.clone();
+                        let mut rest = Some(cc);
+                        for &t in &l.support {
+                            if t == s {
+                                continue;
+                            }
+                            k[t] = if lines[t] {
+                                floor[t].saturating_add(off)
+                            } else {
+                                floor[t].saturating_sub(off)
+                            };
+                            rest = rest.and_then(|r| {
+                                coef[t]
+                                    .checked_mul(i128::from(k[t]))
+                                    .and_then(|x| r.checked_add(x))
+                            });
+                        }
+                        // a x_s + rest = 0
+                        let Some(rest) = rest else { continue };
+                        if rest.checked_rem(a) != Some(0) {
+                            continue;
+                        }
+                        let Some(xs) = rest
+                            .checked_div(a)
+                            .and_then(|q| q.checked_neg())
+                            .and_then(|q| i64::try_from(q).ok())
+                        else {
+                            continue;
+                        };
+                        if in_chart(s, xs) && i32::try_from(xs).is_ok() {
+                            k[s] = xs;
+                            found = Some(k);
+                            break 'solve;
                         }
                     }
-                    _ => None,
-                };
-                if !meter.tick(1u64.saturating_add(crate::loci::region::take_work())) {
-                    return out.into_iter().collect();
                 }
-                let Some(pt) = pt else { continue };
-                let Some(p64): Option<Vec<i64>> =
-                    pt.iter().map(|&x| i64::try_from(x).ok()).collect()
-                else {
-                    continue;
-                };
+                let Some(p64) = found else { continue };
                 if !add(&p64, &mut out) {
                     return out.into_iter().collect();
                 }
@@ -2305,22 +2333,26 @@ impl PartitionReport {
         let reports: Vec<&PartitionReport> = std::iter::once(self)
             .chain(self.blocked.iter().map(|(_, b)| b))
             .collect();
+        let mut cells_left: usize = PROBE_CELLS_TOTAL;
         for r in reports {
             for c in r.classes.iter().filter(|c| c.label == Label::Fragile) {
+                if cells_left == 0 {
+                    break;
+                }
+                // the cells of one class: its own corner cell first (floor in every `any` slot), then the others
                 let Some(cells) = r.expand_with(c, meter) else {
                     continue;
                 };
-                for (_, cell) in cells {
+                for (_, cell) in cells
+                    .into_iter()
+                    .take(PROBE_CELLS_PER_CLASS.min(cells_left))
+                {
+                    cells_left = cells_left.saturating_sub(1);
                     let reg = crate::loci::cell_region(r, &cell);
                     let a: Vec<i128> = vec![0; reg.k];
                     let pt = region_point_near(&reg, &a).and_then(|t| reg.at(&t).ok());
                     let corner: Vec<i64> = (0..n)
-                        .map(|s| {
-                            r.reps(s, cell[s])
-                                .first()
-                                .copied()
-                                .unwrap_or(floor[s])
-                        })
+                        .map(|s| r.reps(s, cell[s]).first().copied().unwrap_or(floor[s]))
                         .collect();
                     if !add(&corner, &mut out) {
                         return out.into_iter().collect();

@@ -40,9 +40,7 @@ use rustred_campaign_core::economy::{
 };
 use rustred_campaign_core::ibp_rows::TableBinding;
 use rustred_campaign_core::key::Key;
-use rustred_campaign_core::partition::{
-    DispatchOrderStatement, DispatcherSource, DomainSource,
-};
+use rustred_campaign_core::partition::{DispatchOrderStatement, DispatcherSource, DomainSource};
 use rustred_campaign_core::record::{ReadOptions, RhsMode, read_table_file};
 use serde_json::{Value, json};
 
