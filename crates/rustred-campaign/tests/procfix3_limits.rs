@@ -23,10 +23,12 @@ fn run_cmd(spec: &std::path::Path, cdir: &std::path::Path, extra: &[&str]) -> Co
     c
 }
 
-/// gate-B M3: with RLIMIT_NOFILE = 12 every launch fails with EMFILE. A launch failure that is the SUPERVISOR's
-/// resource problem is not a job attempt: the same job is requeued (no new job id), launching backs off, one ledger
-/// note, and after a bounded number of failures in a row the campaign stops cleanly with exit 71 (bounded time, bounded
-/// ledger). With the limit lifted the same command finishes the campaign.
+/// gate-B M3: under a low RLIMIT_NOFILE the supervisor runs out of descriptors either at START (it refuses with exit 71
+/// before anything is launched) or at LAUNCH (a launch failure that is the supervisor's resource problem is not a job
+/// attempt: the same job is requeued, no new job id, launching backs off, one ledger note, and after a bounded number
+/// of failures in a row the campaign stops cleanly with exit 71). The limit is raised from 12 until the campaign
+/// finishes: every run ends in bounded time, the launch regime is reached at least once, and with the limit lifted the
+/// same directory finishes.
 #[test]
 fn emfile_at_launch_backs_off_and_stops_with_the_resource_code() {
     let _g = serial();
@@ -36,61 +38,80 @@ fn emfile_at_launch_backs_off_and_stops_with_the_resource_code() {
         "spec.json",
         &spec(&t, serde_json::json!({"items": 12}), serde_json::json!({})),
     );
-    let d = t.cdir("run");
-    let log = std::fs::File::create(d.with_extension("log")).unwrap();
-    let mut cmd = run_cmd(&spec_p, &d, &["--plain"]);
-    cmd.stdin(Stdio::null())
-        .stdout(log.try_clone().unwrap())
-        .stderr(log);
-    // SAFETY: setrlimit in the forked child before exec (async-signal-safe).
-    unsafe {
-        cmd.pre_exec(|| {
-            let r = libc::rlimit {
-                rlim_cur: 12,
-                rlim_max: 12,
-            };
-            if libc::setrlimit(libc::RLIMIT_NOFILE, &r) != 0 {
-                return Err(std::io::Error::last_os_error());
+    let mut launch_regime = false;
+    let mut last_dir = None;
+    for limit in 12u64..=24 {
+        let d = t.cdir(&format!("run{limit}"));
+        let log = std::fs::File::create(d.with_extension("log")).unwrap();
+        let mut cmd = run_cmd(&spec_p, &d, &["--plain"]);
+        cmd.stdin(Stdio::null())
+            .stdout(log.try_clone().unwrap())
+            .stderr(log);
+        // SAFETY: setrlimit in the forked child before exec (async-signal-safe).
+        unsafe {
+            cmd.pre_exec(move || {
+                let r = libc::rlimit {
+                    rlim_cur: limit,
+                    rlim_max: limit,
+                };
+                if libc::setrlimit(libc::RLIMIT_NOFILE, &r) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let t0 = Instant::now();
+        let mut c = cmd.spawn().unwrap();
+        let code = wait(&mut c, Duration::from_secs(300));
+        let took = t0.elapsed();
+        eprintln!("RLIMIT_NOFILE {limit}: exit {code} in {took:?}");
+        assert!(took < Duration::from_secs(120), "bounded: {took:?}");
+        if code == 0 {
+            break;
+        }
+        assert_eq!(code, 71, "exit 71 = supervisor resources\n{}", log_tail(&d));
+        if d.join("ledger").join("MANIFEST.json").exists() {
+            let launches = count(&d, |e| {
+                matches!(
+                    e,
+                    Event::Job {
+                        ev: JobEvent::Launch { .. },
+                        ..
+                    }
+                )
+            });
+            assert!(
+                launches <= 8,
+                "a bounded number of launch attempts: {launches}"
+            );
+            let st = state(&d);
+            assert!(
+                st.jobs.len() <= 2,
+                "no new job id per failure: {:?}",
+                st.jobs.keys()
+            );
+            if launches >= 1 {
+                launch_regime = true;
+                assert_eq!(notes(&d, "supervisor_resource_error").len(), 1, "one note");
+                assert!(
+                    st.recent
+                        .iter()
+                        .any(|r| r.text.contains("launch failures in a row")),
+                    "the reason is in the ledger's events (dashboard): {:?}",
+                    st.recent
+                );
+                let f = ledger_facts(&d);
+                assert_eq!(f.requeues, f.interrupted);
+                last_dir = Some(d.clone());
             }
-            Ok(())
-        });
+        }
     }
-    let t0 = Instant::now();
-    let mut c = cmd.spawn().unwrap();
-    let code = wait(&mut c, Duration::from_secs(300));
-    let took = t0.elapsed();
-    assert_eq!(code, 71, "exit 71 = supervisor resources\n{}", log_tail(&d));
-    assert!(took < Duration::from_secs(120), "bounded: {took:?}");
-    let launches = count(&d, |e| {
-        matches!(
-            e,
-            Event::Job {
-                ev: JobEvent::Launch { .. },
-                ..
-            }
-        )
-    });
     assert!(
-        (1..=8).contains(&launches),
-        "a bounded number of launch attempts, not a live-lock: {launches}"
+        launch_regime,
+        "no limit between 12 and 24 reached the launch-failure regime"
     );
-    let st = state(&d);
-    assert!(
-        st.jobs.len() <= 2,
-        "no new job id per failure: {:?}",
-        st.jobs.keys()
-    );
-    assert_eq!(notes(&d, "supervisor_resource_error").len(), 1, "one note");
-    assert!(
-        st.recent
-            .iter()
-            .any(|r| r.text.contains("launch failures in a row")),
-        "the reason is in the ledger's events (dashboard): {:?}",
-        st.recent
-    );
-    let f = ledger_facts(&d);
-    assert_eq!(f.requeues, f.interrupted);
-    // the limit lifted: the same command finishes
+    // the limit lifted: the same directory finishes
+    let d = last_dir.unwrap();
     assert_eq!(run_to_end(&spec_p, &d, &[]), vec![0], "{}", log_tail(&d));
     assert_eq!(verify(&d), 0);
     assert_no_marked(&t.campaign);

@@ -498,6 +498,25 @@ pub fn run_with(opts: RunOptions, on_started: &mut dyn FnMut(&Started)) -> RunEx
             r
         }
         Err(e) => {
+            // gate-B M3 at START: the supervisor's own resources (open files, file table, memory, processes) are not a
+            // refusal of the campaign: exit 71 like a launch-time resource stop (nothing was launched).
+            let e = match e {
+                RunExit::Refused(m) | RunExit::Internal(m)
+                    if [
+                        "(os error 24)",
+                        "(os error 23)",
+                        "(os error 12)",
+                        "(os error 11)",
+                    ]
+                    .iter()
+                    .any(|c| m.contains(c)) =>
+                {
+                    RunExit::Resources(format!(
+                        "supervisor resource error at start: {m}; free it (e.g. raise `ulimit -n`) and run the same command"
+                    ))
+                }
+                other => other,
+            };
             log.line("ERROR", &format!("{e:?}"));
             e
         }
