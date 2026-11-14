@@ -19,9 +19,25 @@
 //! is a superset, flagged `covered_part_unresolved`). Witnesses are only attached to reported pieces.
 //!
 //! Every cap (nodes, depth), exact-arithmetic overflow or failed cut yields an explicit UNRESOLVED region with its
-//! reason (audit-part-A M1): reported as an open gap region, making the partition outcome `Incomplete`.
+//! reason (audit-part-A M1): reported as an open gap region, making the partition outcome `Incomplete`. A capped
+//! cell is reported as ONE open region (the whole cell, with the number of pending regions), never as one region per
+//! pending call (re-audit RA2-M5: memory bounded by the number of cells); at most `LociOptions::max_open_regions`
+//! open regions are kept per cell, beyond which the whole cell is reported open.
+//!
+//! Overflow (re-audit RA2-C1): every complement and every coefficient operation is checked; a rule whose condition
+//! cannot be decided exactly (overflow, nonlinear bound in several parameters) is treated as NOT covering the region
+//! and every piece emitted below is flagged `covered_part_unresolved` (a superset of the uncovered set; the partition
+//! outcome is then `Incomplete`). A piece is emitted only with a point (exact search, else the exhaustive search of
+//! a bounded region): a PROVED integer-empty piece is dropped, an undecided one is flagged (re-audit RA2-M3).
 //!
 //! No floating point anywhere.
+
+#![deny(
+    clippy::arithmetic_side_effects,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)]
 
 pub mod contain;
 pub mod region;
@@ -32,9 +48,11 @@ use serde_json::{Value as Json, json};
 
 use crate::key::Key;
 use crate::partition::classes::{Label, Status};
-use crate::partition::exact::{Affine, MPoly, int_roots, linear_factors};
+use crate::partition::exact::{Affine, ExactError, MPoly, int_roots, linear_factors, neg};
 use crate::partition::nf::NfRules;
-use crate::partition::{ANY_OFF, CellState, PartitionError, PartitionReport, Proof};
+use crate::partition::{
+    ANY_OFF, CellState, FaceKey, PartitionError, PartitionReport, Proof, WorkMeter,
+};
 pub use region::Region;
 
 /// Options of the locus resolution.
@@ -56,6 +74,11 @@ pub struct LociOptions {
     /// Wall-clock deadline (set from the partition's `Budget::wall`): regions reached after it are reported as
     /// OPEN unresolved regions (audit-part-B M3).
     pub deadline: Option<std::time::Instant>,
+    /// Open regions kept per cell (beyond: the whole cell is reported as one open region; re-audit RA2-M5).
+    pub max_open_regions: usize,
+    /// Values tried by the exhaustive integer search that decides whether a piece without a found point is empty
+    /// (re-audit RA2-M3; beyond: the piece is flagged).
+    pub max_enumeration: u64,
 }
 
 impl Default for LociOptions {
@@ -68,6 +91,8 @@ impl Default for LociOptions {
             tries: 8,
             witnesses: 3,
             deadline: None,
+            max_open_regions: 16,
+            max_enumeration: 100_000,
         }
     }
 }
@@ -141,6 +166,11 @@ pub struct LociReport {
     pub classes_with_gaps: usize,
     pub classes_capped: usize,
     pub exact_errors: u64,
+    /// Cells not resolved because the call's work budget was exhausted (re-audit RA2-M5); the first
+    /// `LociOptions::max_open_regions` are listed as open regions (whole cells), the outcome is aborted.
+    pub cells_unresolved_budget: usize,
+    /// Pieces dropped because their region was PROVED integer-empty (re-audit RA2-M3).
+    pub pieces_proved_empty: usize,
 }
 
 impl LociReport {
@@ -158,6 +188,18 @@ impl LociReport {
         r.sort();
         r.dedup();
         r
+    }
+    /// Pieces flagged `covered_part_unresolved` (supersets of their uncovered set).
+    pub fn n_flagged_pieces(&self) -> usize {
+        self.loci
+            .iter()
+            .map(|l| {
+                l.pieces
+                    .iter()
+                    .filter(|p| p.covered_part_unresolved)
+                    .count()
+            })
+            .sum()
     }
     pub fn n_linear(&self) -> usize {
         self.loci.iter().filter(|l| !l.unresolved).count()
@@ -200,7 +242,9 @@ pub fn cell_region(rep: &PartitionReport, cell: &[CellState]) -> Region {
     let mut cons = vec![];
     let mut names = vec![];
     let free: Vec<usize> = (0..n)
-        .filter(|&s| cell[s] == ANY_OFF || rep.states()[s][cell[s] as usize].singleton().is_none())
+        .filter(|&s| {
+            cell[s] == ANY_OFF || rep.states()[s][usize::from(cell[s])].singleton().is_none()
+        })
         .collect();
     let k = free.len();
     for (s, &cs) in cell.iter().enumerate().take(n) {
@@ -214,23 +258,19 @@ pub fn cell_region(rep: &PartitionReport, cell: &[CellState]) -> Region {
                     (None, Some(-1))
                 }
             } else {
-                let r = rep.states()[s][cs as usize];
+                let r = rep.states()[s][usize::from(cs)];
                 (r.lo, r.hi)
             };
+            // i64 -> i128 and the negation of an i64 never overflow in i128
             if let Some(l) = lo {
-                let mut a = Affine::var(k, j);
-                a.c = -(l as i128);
-                cons.push(a);
+                cons.push(Affine::unit(k, j, 1, i128::from(l).saturating_neg()));
             }
             if let Some(h) = hi {
-                let mut a = Affine::var(k, j);
-                a.coef[j] = -1;
-                a.c = h as i128;
-                cons.push(a);
+                cons.push(Affine::unit(k, j, -1, i128::from(h)));
             }
         } else {
-            let v = rep.states()[s][cs as usize].singleton().expect("singleton");
-            x.push(Affine::constant(k, v as i128));
+            let v = rep.states()[s][usize::from(cs)].singleton().unwrap_or(0);
+            x.push(Affine::constant(k, i128::from(v)));
         }
     }
     Region { k, x, cons, names }
@@ -246,15 +286,16 @@ pub fn lit_status(r: &Region, q: &MPoly) -> (Status, bool) {
         return (Status::NZ, false);
     }
     let vars = q.support();
-    if vars.len() == 1 {
-        let j = vars[0];
-        let u = q.univariate(j).expect("univariate");
+    if let [j] = *vars.as_slice() {
+        let Some(u) = q.univariate(j) else {
+            return (Status::V, true);
+        };
         let roots = match int_roots(&u) {
             Ok(v) => v,
             Err(_) => return (Status::V, true),
         };
         for x in roots {
-            match r.fix(j, x as i128).and_then(|s| s.feasible()) {
+            match r.fix(j, x).and_then(|s| s.feasible()) {
                 Ok(true) => return (Status::V, false),
                 Ok(false) => {}
                 Err(_) => return (Status::V, true),
@@ -282,11 +323,21 @@ type LiveBranches = Vec<Vec<(u32, MPoly)>>;
 pub(crate) struct Resolver<'a> {
     pub nf: &'a NfRules,
     pub opts: &'a LociOptions,
+    /// The call's ONE work budget (re-audit RA2-M5): one unit per resolve call and per emptiness split node.
+    meter: &'a WorkMeter,
     pub nodes: u64,
     pub errors: u64,
     pub pieces: Vec<Piece>,
     pub unresolved: Vec<Unresolved>,
     pub capped: bool,
+    /// Why the cell was capped (first reason).
+    cap_reason: Option<String>,
+    /// Regions not resolved after the cap (counted, never materialised).
+    pending: u64,
+    /// Open regions beyond `max_open_regions` (counted; the whole cell is then reported open).
+    dropped_open: u64,
+    /// Pieces dropped as PROVED integer-empty.
+    proved_empty: usize,
     /// Case-equation hyperplanes the current region lies on (stack).
     refs: Vec<String>,
 }
@@ -295,6 +346,9 @@ enum GeV {
     True,
     False,
     Varies,
+    /// The sign cannot be decided exactly (overflow, nonlinear in several parameters): the rule is treated as NOT
+    /// covering here and the pieces below are flagged as supersets.
+    Undecided,
 }
 
 /// Exact emptiness of `region minus the hyperplanes`.
@@ -318,15 +372,20 @@ fn on_hyper(h: &Hyper, t: &[i128]) -> Option<bool> {
 }
 
 impl<'a> Resolver<'a> {
-    pub fn new(nf: &'a NfRules, opts: &'a LociOptions) -> Self {
+    pub fn new(nf: &'a NfRules, opts: &'a LociOptions, meter: &'a WorkMeter) -> Self {
         Resolver {
             nf,
             opts,
+            meter,
             nodes: 0,
             errors: 0,
             pieces: vec![],
             unresolved: vec![],
             capped: false,
+            cap_reason: None,
+            pending: 0,
+            dropped_open: 0,
+            proved_empty: 0,
             refs: vec![],
         }
     }
@@ -334,7 +393,7 @@ impl<'a> Resolver<'a> {
     fn status(&mut self, r: &Region, q: &MPoly) -> Status {
         let (st, err) = lit_status(r, q);
         if err {
-            self.errors += 1;
+            self.errors = self.errors.saturating_add(1);
         }
         st
     }
@@ -344,28 +403,60 @@ impl<'a> Resolver<'a> {
             return if c >= 0 { GeV::True } else { GeV::False };
         }
         if let Some((coef, c)) = q.linear_form() {
-            let neg = Affine {
-                coef: coef.iter().map(|a| -a).collect(),
-                c: -c - 1,
-            }; // q <= -1
             let pos = Affine { coef, c };
-            let can_neg = r.with(neg).feasible().unwrap_or(true);
+            // q <= -1, checked (re-audit RA2-C1: an unchecked negation of a -2^127 coefficient kept the wrong sign)
+            let Ok(negs) = pos.complement() else {
+                self.errors = self.errors.saturating_add(1);
+                return GeV::Undecided;
+            };
+            let can_neg = r.with(negs).feasible().unwrap_or(true);
             let can_pos = r.with(pos).feasible().unwrap_or(true);
             return match (can_pos, can_neg) {
                 (true, false) => GeV::True,
                 (false, true) => GeV::False,
-                _ => GeV::Varies,
+                (false, false) => GeV::False, // the region is empty (both halves refuted): nothing to cover
+                (true, true) => GeV::Varies,
             };
         }
-        GeV::Varies
+        let vars = q.support();
+        if let [j] = *vars.as_slice()
+            && let Some(u) = q.univariate(j)
+        {
+            // one parameter, nonlinear: decided exactly on the projected range of t_j when its sign is constant
+            if let Ok((lo, hi)) = r.range_of(j) {
+                if let (Some(l), Some(h)) = (lo, hi)
+                    && l > h
+                {
+                    return GeV::False; // empty region: nothing to cover
+                }
+                if let Some(ge) = crate::partition::exact::univ_ge_on(&u, lo, hi, 400_000) {
+                    return if ge { GeV::True } else { GeV::False };
+                }
+            }
+        }
+        GeV::Undecided
     }
 
-    /// An OPEN region the recursion cannot resolve (cap, overflow): reported, never dropped (audit-part-A M1).
+    /// Stop resolving this cell (cap / budget): the region is counted as pending, never materialised.
+    fn cap(&mut self, why: String) {
+        self.capped = true;
+        self.pending = self.pending.saturating_add(1);
+        if self.cap_reason.is_none() {
+            self.cap_reason = Some(why);
+        }
+    }
+
+    /// An OPEN region the recursion cannot resolve (overflow, failed cut): reported, never dropped (audit-part-A M1);
+    /// at most `max_open_regions` are kept, beyond which the whole cell is reported open (re-audit RA2-M5).
     fn open_region(&mut self, region: Region, trail: Vec<String>, reason: String) {
         if region.feasible() == Ok(false) {
             return; // proved integer-empty
         }
-        self.errors += 1;
+        self.errors = self.errors.saturating_add(1);
+        if self.unresolved.len() >= self.opts.max_open_regions {
+            self.dropped_open = self.dropped_open.saturating_add(1);
+            return;
+        }
         self.unresolved.push(Unresolved {
             region,
             equation: reason.clone(),
@@ -377,15 +468,34 @@ impl<'a> Resolver<'a> {
         });
     }
 
-    /// Resolve the uncovered set of `region` w.r.t. the rules `among` (indices into nf.rules).
-    pub fn resolve(&mut self, region: Region, among: &[usize], trail: Vec<String>, depth: usize) {
-        self.nodes += 1;
+    /// Resolve the uncovered set of `region` w.r.t. the rules `among` (indices into nf.rules). `superset`: a rule was
+    /// treated as not covering without proof on the way here (the pieces below are flagged).
+    pub fn resolve(
+        &mut self,
+        region: Region,
+        among: &[usize],
+        trail: Vec<String>,
+        depth: usize,
+        superset: bool,
+    ) {
+        self.nodes = self.nodes.saturating_add(1);
+        if self.capped {
+            self.pending = self.pending.saturating_add(1);
+            return;
+        }
+        if !self.meter.tick(1) {
+            let why = self
+                .meter
+                .reason()
+                .unwrap_or_else(|| "work budget exhausted".into());
+            self.cap(why);
+            return;
+        }
         let late = self
             .opts
             .deadline
             .is_some_and(|d| std::time::Instant::now() > d);
         if self.nodes > self.opts.max_nodes || depth > self.opts.max_depth || late {
-            self.capped = true;
             let why = if late {
                 "wall budget reached before this region was resolved".to_string()
             } else if depth > self.opts.max_depth {
@@ -393,9 +503,11 @@ impl<'a> Resolver<'a> {
             } else {
                 format!("locus recursion node cap {} reached", self.opts.max_nodes)
             };
-            self.open_region(region, trail, why);
+            self.cap(why);
             return;
         }
+        let d1 = depth.saturating_add(1);
+        let mut superset = superset;
         let mut qcache: BTreeMap<u32, MPoly> = BTreeMap::new();
         let mut scache: BTreeMap<u32, Status> = BTreeMap::new();
         let mut alive: Vec<(usize, LiveBranches)> = vec![];
@@ -413,8 +525,9 @@ impl<'a> Resolver<'a> {
                             q
                         }
                         Err(_) => {
-                            // the rule is treated as NOT covering here (conservative)
-                            self.errors += 1;
+                            // the rule is treated as NOT covering here (conservative: pieces below are supersets)
+                            self.errors = self.errors.saturating_add(1);
+                            superset = true;
                             dead = true;
                             break;
                         }
@@ -449,7 +562,8 @@ impl<'a> Resolver<'a> {
                 let q = match region.lit(&self.nf.lits[l as usize].poly) {
                     Ok(q) => q,
                     Err(_) => {
-                        self.errors += 1;
+                        self.errors = self.errors.saturating_add(1);
+                        superset = true;
                         dead = true;
                         break;
                     }
@@ -460,26 +574,37 @@ impl<'a> Resolver<'a> {
                         dead = true;
                         break;
                     }
+                    GeV::Undecided => {
+                        // cannot be decided exactly: treated as not covering (the pieces below are supersets)
+                        superset = true;
+                        dead = true;
+                        break;
+                    }
                     GeV::Varies => {
-                        // split the region exactly on the bound: q >= 0 and q <= -1
+                        // split the region exactly on the bound: q >= 0 and q <= -1 (checked complement)
                         if let Some((coef, c)) = q.linear_form() {
-                            let pos = Affine {
-                                coef: coef.clone(),
-                                c,
-                            };
-                            let neg = Affine {
-                                coef: coef.iter().map(|a| -a).collect(),
-                                c: -c - 1,
-                            };
-                            let mut t = trail.clone();
-                            t.push(format!("{}>=0", self.nf.lits[l as usize].text));
-                            self.resolve(region.with(pos), among, t, depth + 1);
-                            let mut t = trail.clone();
-                            t.push(format!("{}<=-1", self.nf.lits[l as usize].text));
-                            self.resolve(region.with(neg), among, t, depth + 1);
-                            return;
+                            let pos = Affine { coef, c };
+                            match pos.complement() {
+                                Ok(negs) => {
+                                    let txt = &self.nf.lits[l as usize].text;
+                                    let mut t = trail.clone();
+                                    t.push(format!("{txt}>=0"));
+                                    let mut t2 = trail.clone();
+                                    t2.push(format!("{txt}<=-1"));
+                                    self.resolve(region.with(pos), among, t, d1, superset);
+                                    self.resolve(region.with(negs), among, t2, d1, superset);
+                                    return;
+                                }
+                                Err(_) => {
+                                    self.errors = self.errors.saturating_add(1);
+                                    superset = true;
+                                    dead = true;
+                                    break;
+                                }
+                            }
                         }
-                        // a nonlinear bound that varies: the rule is treated as not covering (conservative)
+                        // unreachable (Varies is only returned for linear bounds): conservative
+                        superset = true;
                         dead = true;
                         break;
                     }
@@ -506,7 +631,7 @@ impl<'a> Resolver<'a> {
                             Err(_) => {
                                 // a member that cannot be computed may vanish anywhere: the rule is treated as
                                 // NOT covering on this region (audit-part-A M1: never a live branch without member)
-                                self.errors += 1;
+                                self.errors = self.errors.saturating_add(1);
                                 failed = true;
                                 break;
                             }
@@ -533,6 +658,9 @@ impl<'a> Resolver<'a> {
                         }
                     }
                 }
+                if failed {
+                    superset = true;
+                }
                 if failed || all_z {
                     dead = true;
                     break;
@@ -551,7 +679,7 @@ impl<'a> Resolver<'a> {
             alive.push((ri, live));
         }
         if alive.is_empty() {
-            self.subtract_and_emit(region, &next_among, &eq_loci, trail, depth);
+            self.subtract_and_emit(region, &next_among, &eq_loci, trail, depth, superset);
             return;
         }
         // fragile rule with the fewest live branches, preferring branches with a linear member
@@ -613,7 +741,7 @@ impl<'a> Resolver<'a> {
                             _ => {
                                 let mut t = trail.clone();
                                 t.push(label);
-                                self.resolve(sub, &next_among, t, depth + 1);
+                                self.resolve(sub, &next_among, t, d1, superset);
                             }
                         },
                         Ok(None) => {}
@@ -623,18 +751,20 @@ impl<'a> Resolver<'a> {
                             format!("lattice cut on {label}: {e}"),
                         ),
                     }
-                } else if f.support().len() == 1 {
-                    let j = f.support()[0];
-                    let u = f.univariate(j).expect("univariate");
-                    match int_roots(&u) {
+                } else if let [j] = *f.support().as_slice() {
+                    let roots = f
+                        .univariate(j)
+                        .ok_or(ExactError::TooLarge("not univariate"))
+                        .and_then(|u| int_roots(&u));
+                    match roots {
                         Ok(rs) => {
                             for x in rs {
-                                match region.fix(j, x as i128) {
+                                match region.fix(j, x) {
                                     Ok(sub) => {
                                         if sub.feasible().unwrap_or(true) {
                                             let mut t = trail.clone();
                                             t.push(label.clone());
-                                            self.resolve(sub, &next_among, t, depth + 1);
+                                            self.resolve(sub, &next_among, t, d1, superset);
                                         }
                                     }
                                     Err(e) => self.open_region(
@@ -646,7 +776,7 @@ impl<'a> Resolver<'a> {
                             }
                         }
                         Err(_) => {
-                            self.errors += 1;
+                            self.errors = self.errors.saturating_add(1);
                             self.unresolve(
                                 region.clone(),
                                 f,
@@ -677,6 +807,10 @@ impl<'a> Resolver<'a> {
         trail: Vec<String>,
         reason: String,
     ) {
+        if self.unresolved.len() >= self.opts.max_open_regions {
+            self.dropped_open = self.dropped_open.saturating_add(1);
+            return;
+        }
         // exact window: L1 ball around an anchor point of the region, f = 0 and uncovered
         let k = region.k;
         let radius = self.opts.window_radius[k.min(5)];
@@ -701,7 +835,7 @@ impl<'a> Resolver<'a> {
             pts: &mut Vec<Key>,
         ) {
             if j == t.len() {
-                *n += 1;
+                *n = n.saturating_add(1);
                 if !region.contains_t(t).unwrap_or(false)
                     || f.eval(t).map(|v| v != 0).unwrap_or(true)
                 {
@@ -718,9 +852,16 @@ impl<'a> Resolver<'a> {
                 }
                 return;
             }
-            for d in -budget..=budget {
-                t[j] = anchor[j] + d as i128;
-                rec(j + 1, budget - d.abs(), t, anchor, f, region, nf, n, pts);
+            let Some(nb) = budget.checked_neg() else {
+                return;
+            };
+            for d in nb..=budget {
+                let Some(tj) = anchor[j].checked_add(i128::from(d)) else {
+                    continue;
+                };
+                t[j] = tj;
+                let left = budget.saturating_sub(d.saturating_abs());
+                rec(j.saturating_add(1), left, t, anchor, f, region, nf, n, pts);
             }
         }
         rec(
@@ -747,10 +888,12 @@ impl<'a> Resolver<'a> {
         eq_loci: &[(usize, MPoly)],
         trail: Vec<String>,
         depth: usize,
+        superset: bool,
     ) {
         if region.feasible() == Ok(false) {
             return;
         }
+        let d1 = depth.saturating_add(1);
         // distinct linear forms (primitive, canonical sign) and the nonlinear equations
         let mut forms: Vec<Hyper> = vec![];
         let mut seen: Vec<MPoly> = vec![];
@@ -763,21 +906,38 @@ impl<'a> Resolver<'a> {
             }
             seen.push(p.clone());
             if p.total_degree() == 1 {
-                let (coef, c) = p.linear_form().expect("linear");
+                let Some((coef, c)) = p.linear_form() else {
+                    unsubtracted.push(p.render(&region.names));
+                    continue;
+                };
                 forms.push((coef, c, p.render(&region.names)));
-            } else if p.support().len() == 1 {
+            } else if let [j] = *p.support().as_slice() {
                 // one parameter: the zero set is the finite set of integer roots, each a hyperplane t_j = x
-                let j = p.support()[0];
-                match int_roots(&p.univariate(j).expect("univariate")) {
-                    Ok(rs) => {
-                        for x in rs {
-                            let mut coef = vec![0i128; region.k];
-                            coef[j] = 1;
-                            forms.push((coef, -(x as i128), format!("{}={x}", region.names[j])));
+                let roots = p
+                    .univariate(j)
+                    .ok_or(ExactError::TooLarge("not univariate"))
+                    .and_then(|u| int_roots(&u));
+                let mut ok = true;
+                if let Ok(rs) = &roots {
+                    for &x in rs {
+                        match neg(x) {
+                            Ok(nx) => forms.push((
+                                Affine::unit(region.k, j, 1, 0).coef,
+                                nx,
+                                format!("{}={x}", region.names[j]),
+                            )),
+                            Err(_) => ok = false,
                         }
                     }
+                }
+                match roots {
+                    Ok(_) if ok => {}
+                    Ok(_) => {
+                        self.errors = self.errors.saturating_add(1);
+                        unsubtracted.push(format!("{} (root overflow)", p.render(&region.names)));
+                    }
                     Err(e) => {
-                        self.errors += 1;
+                        self.errors = self.errors.saturating_add(1);
                         unsubtracted.push(format!("{} (roots: {e})", p.render(&region.names)));
                     }
                 }
@@ -795,11 +955,13 @@ impl<'a> Resolver<'a> {
                     }
                     let (np, nu) = (self.pieces.len(), self.unresolved.len());
                     self.refs.push(format!("{txt}=0"));
-                    self.resolve(sub, among, trail.clone(), depth + 1);
+                    self.resolve(sub, among, trail.clone(), d1, superset);
                     self.refs.pop();
                     covered_on.push(CoveredSubLocus {
                         equation: txt.clone(),
-                        fully_covered: self.pieces.len() == np && self.unresolved.len() == nu,
+                        fully_covered: self.pieces.len() == np
+                            && self.unresolved.len() == nu
+                            && !self.capped,
                     });
                     minus.push((coef, c, txt));
                 }
@@ -821,16 +983,34 @@ impl<'a> Resolver<'a> {
                 fully_covered: false,
             });
         }
-        // the part OFF every hyperplane: dropped only if PROVED empty
-        let mut flagged = !unsubtracted.is_empty();
-        let mut first: Option<Vec<i128>> = None;
-        if !minus.is_empty() {
-            match self.minus_point(&region, &minus) {
-                Minus::Empty => return,
-                Minus::Point(t) => first = Some(t),
-                Minus::Unknown => flagged = true,
+        // the part OFF every hyperplane: dropped only if PROVED empty; emitted only with a point or flagged
+        // (re-audit RA2-M3: Fourier-Motzkin with rounding is not an integer-emptiness decision)
+        let mut flagged = superset || !unsubtracted.is_empty();
+        let first: Option<Vec<i128>> = if minus.is_empty() {
+            match region.decide_point(self.opts.tries, self.opts.max_enumeration) {
+                Ok(Some(Some(t))) => Some(t),
+                Ok(Some(None)) => {
+                    self.proved_empty = self.proved_empty.saturating_add(1);
+                    return; // PROVED integer-empty
+                }
+                Ok(None) | Err(_) => {
+                    flagged = true; // integer emptiness undecided: a superset
+                    None
+                }
             }
-        }
+        } else {
+            match self.minus_point(&region, &minus) {
+                Minus::Empty => {
+                    self.proved_empty = self.proved_empty.saturating_add(1);
+                    return;
+                }
+                Minus::Point(t) => Some(t),
+                Minus::Unknown => {
+                    flagged = true;
+                    None
+                }
+            }
+        };
         let witness = self.witnesses(&region, &minus, first);
         let unbounded = region.unbounded().ok();
         self.pieces.push(Piece {
@@ -846,15 +1026,22 @@ impl<'a> Resolver<'a> {
     }
 
     /// An integer point of `region` off every hyperplane, or a proof that there is none (exact sign split
-    /// {f >= 1} / {f <= -1}, node-capped).
+    /// {f >= 1} / {f <= -1}, node-capped; a leaf without a found point is decided by the exhaustive search).
     fn minus_point(&mut self, region: &Region, minus: &[Hyper]) -> Minus {
         // cheap first: points of the region near its anchor (a found point is checked exactly)
         if let Some(t) = self.search_off(region, minus, 2) {
             return Minus::Point(t);
         }
-        fn split(r: &Region, hs: &[Hyper], nodes: &mut u64, cap: u64, tries: usize) -> Minus {
-            *nodes += 1;
-            if *nodes > cap {
+        struct Split<'m> {
+            nodes: u64,
+            cap: u64,
+            tries: usize,
+            enumeration: u64,
+            meter: &'m WorkMeter,
+        }
+        fn split(r: &Region, hs: &[Hyper], sp: &mut Split<'_>) -> Minus {
+            sp.nodes = sp.nodes.saturating_add(1);
+            if sp.nodes > sp.cap || !sp.meter.tick(1) {
                 return Minus::Unknown;
             }
             match r.feasible() {
@@ -863,22 +1050,18 @@ impl<'a> Resolver<'a> {
                 Err(_) => return Minus::Unknown,
             }
             let Some(((coef, c, _), rest)) = hs.split_first() else {
-                return match r.point(tries) {
-                    Ok(Some(t)) => Minus::Point(t),
+                return match r.decide_point(sp.tries, sp.enumeration) {
+                    Ok(Some(Some(t))) => Minus::Point(t),
+                    Ok(Some(None)) => Minus::Empty,
                     _ => Minus::Unknown,
                 };
             };
-            let pos = Affine {
-                coef: coef.clone(),
-                c: c - 1,
-            };
-            let neg = Affine {
-                coef: coef.iter().map(|a| -a).collect(),
-                c: -c - 1,
+            let Ok((pos, negs)) = region::off_sides(coef, *c) else {
+                return Minus::Unknown;
             };
             let mut unknown = false;
-            for part in [r.with(pos), r.with(neg)] {
-                match split(&part, rest, nodes, cap, tries) {
+            for part in [r.with(pos), r.with(negs)] {
+                match split(&part, rest, sp) {
                     Minus::Point(t) => return Minus::Point(t),
                     Minus::Unknown => unknown = true,
                     Minus::Empty => {}
@@ -890,14 +1073,14 @@ impl<'a> Resolver<'a> {
                 Minus::Empty
             }
         }
-        let mut nodes = 0u64;
-        split(
-            region,
-            minus,
-            &mut nodes,
-            self.opts.max_split_nodes,
-            self.opts.tries,
-        )
+        let mut sp = Split {
+            nodes: 0,
+            cap: self.opts.max_split_nodes,
+            tries: self.opts.tries,
+            enumeration: self.opts.max_enumeration,
+            meter: self.meter,
+        };
+        split(region, minus, &mut sp)
     }
 
     /// Exact search near the region's anchor point for a parameter point off every hyperplane (L1 walk).
@@ -917,10 +1100,18 @@ impl<'a> Resolver<'a> {
                     }
                     continue;
                 }
-                for dlt in -left..=left {
+                let nl = left.checked_neg()?;
+                for dlt in nl..=left {
                     let mut t2 = t.clone();
-                    t2[j] += dlt;
-                    stack.push((j + 1, left - dlt.abs(), t2));
+                    let Some(v) = t2[j].checked_add(dlt) else {
+                        continue;
+                    };
+                    t2[j] = v;
+                    stack.push((
+                        j.saturating_add(1),
+                        left.saturating_sub(dlt.saturating_abs()),
+                        t2,
+                    ));
                 }
             }
         }
@@ -965,31 +1156,91 @@ impl<'a> Resolver<'a> {
     }
 }
 
+/// The whole cell as ONE open region (a capped / budget-stopped cell; re-audit RA2-M5).
+fn open_cell(region: Region, reason: String) -> Unresolved {
+    Unresolved {
+        region,
+        equation: reason.clone(),
+        reason,
+        trail: vec![],
+        bound: "none (the whole cell is open)".into(),
+        points: vec![],
+        n_window: 0,
+    }
+}
+
 /// Resolve every F class of a partition (each `any` slot expanded into floor / off-floor first, so every piece lies
 /// on one face) and group the pieces into loci (face, cut equations). Every piece and every unresolved region is
-/// kept (audit-part-A C1: no locus is dropped because sampled points were covered).
+/// kept (audit-part-A C1: no locus is dropped because sampled points were covered). Unlimited work budget (the
+/// per-cell caps of `opts` apply).
 pub fn resolve_fragile_classes(
     rep: &PartitionReport,
     opts: &LociOptions,
+) -> Result<LociReport, PartitionError> {
+    let meter = WorkMeter::new(None, opts.deadline);
+    resolve_fragile_classes_with(rep, opts, &meter)
+}
+
+/// [`resolve_fragile_classes`] charged to the call's ONE work budget `meter` (re-audit RA2-M5): once it is exhausted
+/// no further cell is resolved (counted in `cells_unresolved_budget`, the first `max_open_regions` listed as open
+/// whole-cell regions); a capped cell is ONE open region.
+pub fn resolve_fragile_classes_with(
+    rep: &PartitionReport,
+    opts: &LociOptions,
+    meter: &WorkMeter,
 ) -> Result<LociReport, PartitionError> {
     let mut out = LociReport::default();
     type Gk = ((Vec<usize>, Vec<usize>), Vec<String>, bool);
     let mut groups: BTreeMap<Gk, Locus> = BTreeMap::new();
     let all: Vec<usize> = (0..rep.nf().rules.len()).collect();
+    let mut budget_cells: Vec<(FaceKey, Unresolved)> = vec![];
     for c in rep.classes().iter().filter(|c| c.label == Label::Fragile) {
         // a class above `max_any_slots` is listed as a face family (outcome Incomplete), not expanded
         let Some(cells) = rep.expand(c) else { continue };
         for (face, cell) in cells {
             let region = cell_region(rep, &cell);
-            let mut r = Resolver::new(rep.nf(), opts);
-            r.resolve(region, &all, vec![], 0);
-            out.classes_resolved += 1;
-            out.exact_errors += r.errors;
-            if r.capped {
-                out.classes_capped += 1;
+            if meter.exhausted() {
+                out.cells_unresolved_budget = out.cells_unresolved_budget.saturating_add(1);
+                if budget_cells.len() < opts.max_open_regions {
+                    let why = format!(
+                        "not resolved: {}",
+                        meter
+                            .reason()
+                            .unwrap_or_else(|| "work budget exhausted".into())
+                    );
+                    budget_cells.push((face, open_cell(region, why)));
+                }
+                continue;
+            }
+            let mut r = Resolver::new(rep.nf(), opts, meter);
+            r.resolve(region.clone(), &all, vec![], 0, false);
+            out.classes_resolved = out.classes_resolved.saturating_add(1);
+            out.exact_errors = out.exact_errors.saturating_add(r.errors);
+            out.pieces_proved_empty = out.pieces_proved_empty.saturating_add(r.proved_empty);
+            if r.capped || r.dropped_open > 0 {
+                // ONE open region for the whole cell, with the summary (re-audit RA2-M5)
+                let mut why = vec![];
+                if r.capped {
+                    out.classes_capped = out.classes_capped.saturating_add(1);
+                    why.push(format!(
+                        "{}: {} region(s) pending",
+                        r.cap_reason.clone().unwrap_or_default(),
+                        r.pending
+                    ));
+                }
+                if r.dropped_open > 0 {
+                    why.push(format!(
+                        "{} open region(s) beyond max_open_regions = {}",
+                        r.dropped_open, opts.max_open_regions
+                    ));
+                }
+                r.unresolved.push(open_cell(
+                    region,
+                    format!("cell resolution capped ({})", why.join("; ")),
+                ));
             }
             let has = !r.pieces.is_empty() || !r.unresolved.is_empty();
-            out.classes_with_gaps += usize::from(has);
+            out.classes_with_gaps = out.classes_with_gaps.saturating_add(usize::from(has));
             for p in r.pieces {
                 let key = (face.clone(), p.trail.clone(), false);
                 let e = groups.entry(key).or_insert_with(|| Locus {
@@ -1006,7 +1257,7 @@ pub fn resolve_fragile_classes(
                     unbounded_in_dots: false,
                     dim: 0,
                 });
-                e.n_classes += 1;
+                e.n_classes = e.n_classes.saturating_add(1);
                 e.dim = e.dim.max(p.region.k);
                 for w in &p.witness {
                     if e.witness.len() < 6 && !e.witness.contains(w) {
@@ -1027,46 +1278,59 @@ pub fn resolve_fragile_classes(
                 e.pieces.push(p);
             }
             for u in r.unresolved {
-                let mut eqs = u.trail.clone();
-                eqs.push(u.equation.clone());
-                let key = (face.clone(), eqs.clone(), true);
-                let capped = u.n_window == 0;
-                let e = groups.entry(key).or_insert_with(|| Locus {
-                    id: String::new(),
-                    face: face.clone(),
-                    equations: eqs.clone(),
-                    linear: false,
-                    unresolved: true,
-                    pieces: vec![],
-                    unresolved_parts: vec![],
-                    n_classes: 0,
-                    witness: vec![],
-                    proof: if capped {
-                        Proof::Unresolved {
-                            reason: u.reason.clone(),
-                        }
-                    } else {
-                        Proof::Tested {
-                            bound: u.bound.clone(),
-                        }
-                    },
-                    unbounded_in_dots: false,
-                    dim: u.region.k,
-                });
-                e.n_classes += 1;
-                for w in &u.points {
-                    if e.witness.len() < 6 && !e.witness.contains(w) {
-                        e.witness.push(w.clone());
-                    }
-                }
-                e.unresolved_parts.push(u);
+                push_unresolved(&mut groups, face.clone(), u);
             }
         }
     }
+    for (face, u) in budget_cells {
+        push_unresolved(&mut groups, face, u);
+    }
     let mut loci: Vec<Locus> = groups.into_values().collect();
     for (i, l) in loci.iter_mut().enumerate() {
-        l.id = format!("L{}", i + 1);
+        l.id = format!("L{}", i.saturating_add(1));
     }
     out.loci = loci;
     Ok(out)
+}
+
+type GroupKey = ((Vec<usize>, Vec<usize>), Vec<String>, bool);
+
+fn push_unresolved(
+    groups: &mut BTreeMap<GroupKey, Locus>,
+    face: (Vec<usize>, Vec<usize>),
+    u: Unresolved,
+) {
+    let mut eqs = u.trail.clone();
+    eqs.push(u.equation.clone());
+    let key = (face.clone(), eqs.clone(), true);
+    let capped = u.n_window == 0;
+    let e = groups.entry(key).or_insert_with(|| Locus {
+        id: String::new(),
+        face,
+        equations: eqs.clone(),
+        linear: false,
+        unresolved: true,
+        pieces: vec![],
+        unresolved_parts: vec![],
+        n_classes: 0,
+        witness: vec![],
+        proof: if capped {
+            Proof::Unresolved {
+                reason: u.reason.clone(),
+            }
+        } else {
+            Proof::Tested {
+                bound: u.bound.clone(),
+            }
+        },
+        unbounded_in_dots: false,
+        dim: u.region.k,
+    });
+    e.n_classes = e.n_classes.saturating_add(1);
+    for w in &u.points {
+        if e.witness.len() < 6 && !e.witness.contains(w) {
+            e.witness.push(w.clone());
+        }
+    }
+    e.unresolved_parts.push(u);
 }

@@ -839,15 +839,11 @@ fn m2_int_roots_beyond_i32() {
     // refusal (constant term above the trial-division cap), never a root set that misses one
     let r: i128 = (1 << 42) + 1;
     match int_roots(&[0, -(r * r * r), 0, 0, 1]) {
-        Ok(roots) => assert!(roots.contains(&(r as i64)), "{roots:?}"),
+        Ok(roots) => assert!(roots.contains(&r), "{roots:?}"),
         Err(e) => println!("refused (conservative): {e}"),
     }
     let r: i128 = 99_991; // prime, r^3 < 10^15: the divisor path
-    assert!(
-        int_roots(&[-(r * r * r), 0, 0, 1])
-            .unwrap()
-            .contains(&(r as i64))
-    );
+    assert!(int_roots(&[-(r * r * r), 0, 0, 1]).unwrap().contains(&r));
 }
 
 /// m3: the reference-compatible linear test used unchecked i128 arithmetic.

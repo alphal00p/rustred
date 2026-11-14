@@ -424,6 +424,17 @@ pub fn run(spec_path: &Path) -> ! {
             }
         }
     }
+    // a script without any `relation` op answers every key SOLVED (rhs: none); the default script of an emulated kind
+    let no_relation_ops = !script
+        .script
+        .iter()
+        .any(|op| matches!(op, FakeOp::Relation { .. }));
+    if !interrupted && no_relation_ops {
+        while records.len() < r.keys.len() {
+            records.push(r.record(records.len(), Verdict::Solved, &[], false));
+        }
+        next = records.len();
+    }
     if !interrupted && !end_seen && next < r.keys.len() {
         eprintln!("rr_fake_child: the script ended before every input key had a record");
         std::process::exit(ExitCode::Internal.code());

@@ -20,13 +20,23 @@
 //!   fires. This is the meaning of [`shadowed`]; it is the only proof offered for [`removal_preserves_dispatch`].
 //! - A domain the normal form had to exclude or weaken (an unrepresentable literal) is never the subject of a proof
 //!   (`Unknown`); excluded / weakened OTHERS only shrink (stated in the certificate).
+//!
+//! Overflow (re-audit RA2-C1 / M1): every split side is built with checked arithmetic; an overflow anywhere makes the
+//! verdict `Unknown`, never `Proved` / `ProvedEmpty`, never a panic.
 
-use super::region::Region;
+#![deny(
+    clippy::arithmetic_side_effects,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)]
+
+use super::region::{Region, off_sides};
 use super::{Status, lit_status};
 use crate::cover::RuleRef;
 use crate::domain::{CaseDomain, Stage, Verdict};
 use crate::key::{Key, NodeFrame};
-use crate::partition::exact::{Affine, MPoly, int_roots};
+use crate::partition::exact::{Affine, MPoly, int_roots, pred, succ};
 use crate::partition::nf::{self, NfNote, NfOptions, NfRule, NfRules};
 use crate::partition::{DomainList, DomainSource, ElidedPolicy};
 
@@ -110,11 +120,9 @@ fn ge_val(r: &Region, q: &MPoly) -> Option<bool> {
         return Some(c >= 0);
     }
     let (coef, c) = q.linear_form()?;
-    let neg = Affine {
-        coef: coef.iter().map(|a| -a).collect(),
-        c: -c - 1,
-    };
     let pos = Affine { coef, c };
+    // checked complement (re-audit RA2-C1): undecided on an overflow
+    let neg = pos.complement().ok()?;
     match (
         r.with(pos).feasible().unwrap_or(true),
         r.with(neg).feasible().unwrap_or(true),
@@ -127,14 +135,16 @@ fn ge_val(r: &Region, q: &MPoly) -> Option<bool> {
 
 impl Splitter {
     fn solve(&mut self, r: Region, mut holes: Vec<Vec<MPoly>>, mut others: Vec<Other>) -> Sub {
-        self.nodes += 1;
+        self.nodes = self.nodes.saturating_add(1);
         if self.nodes > self.max_nodes {
             return Sub::Unknown(format!("sign-split node cap {} reached", self.max_nodes));
         }
         if self.depth > self.max_depth {
             return Sub::Unknown(format!("sign-split depth cap {} reached", self.max_depth));
         }
-        self.work += 1 + holes.len() as u64 + others.len() as u64;
+        let units = u64::try_from(holes.len().saturating_add(others.len()).saturating_add(1))
+            .unwrap_or(u64::MAX);
+        self.work = self.work.saturating_add(units);
         if self.work > self.max_work {
             return Sub::Unknown(format!("proof work budget {} exhausted", self.max_work));
         }
@@ -143,7 +153,7 @@ impl Splitter {
         }
         match r.feasible() {
             Ok(false) => {
-                self.leaves += 1;
+                self.leaves = self.leaves.saturating_add(1);
                 return Sub::Empty;
             }
             Ok(true) => {}
@@ -173,7 +183,7 @@ impl Splitter {
                 continue;
             }
             if left.is_empty() {
-                self.leaves += 1;
+                self.leaves = self.leaves.saturating_add(1);
                 return Sub::Empty; // the whole region lies on an exception branch of d
             }
             nh.push(left);
@@ -240,7 +250,7 @@ impl Splitter {
                 continue;
             }
             if keep.eq.is_empty() && keep.ge.is_empty() && keep.bad.is_empty() {
-                self.leaves += 1;
+                self.leaves = self.leaves.saturating_add(1);
                 return Sub::Empty; // the region lies inside this other domain
             }
             no.push(keep);
@@ -256,7 +266,7 @@ impl Splitter {
                     match super::region::exhaustive_point(&r.cons, r.k, &mut budget) {
                         Ok(Some(Some(t))) => key_of(&r, &t),
                         Ok(Some(None)) => {
-                            self.leaves += 1;
+                            self.leaves = self.leaves.saturating_add(1);
                             Sub::Empty
                         }
                         _ => Sub::Unknown(
@@ -290,15 +300,14 @@ impl Splitter {
             }
         }
         if let Some(f) = lin {
-            let (coef, c) = f.linear_form().expect("linear");
-            let pos = Affine {
-                coef: coef.clone(),
-                c: c - 1,
-            }; // f >= 1
-            let neg = Affine {
-                coef: coef.iter().map(|a| -a).collect(),
-                c: -c - 1,
-            }; // f <= -1
+            let Some((coef, c)) = f.linear_form() else {
+                return Sub::Unknown("a linear literal without linear form".into());
+            };
+            // f >= 1, f <= -1 (checked: re-audit RA2-C1)
+            let (pos, neg) = match off_sides(&coef, c) {
+                Ok(x) => x,
+                Err(e) => return Sub::Unknown(format!("splitting on a literal: {e}")),
+            };
             let mut parts = vec![r.with(pos), r.with(neg)];
             match r.cut(&coef, c) {
                 Ok(Some(z)) => parts.push(z),
@@ -319,36 +328,46 @@ impl Splitter {
             }
         }
         if let Some(g) = ge_lin {
-            let (coef, c) = g.linear_form().expect("linear");
-            let pos = Affine {
-                coef: coef.clone(),
-                c,
+            let Some((coef, c)) = g.linear_form() else {
+                return Sub::Unknown("a linear bound without linear form".into());
             };
-            let neg = Affine {
-                coef: coef.iter().map(|a| -a).collect(),
-                c: -c - 1,
+            let pos = Affine { coef, c };
+            let neg = match pos.complement() {
+                Ok(x) => x,
+                Err(e) => return Sub::Unknown(format!("splitting on a bound: {e}")),
             };
             return self.combine(vec![r.with(pos), r.with(neg)], &holes, &others, &r);
         }
         if let Some(u) = uni {
-            let j = u.support()[0];
-            let roots = match int_roots(&u.univariate(j).expect("univariate")) {
+            let Some(&j) = u.support().first() else {
+                return Sub::Unknown("univariate literal without variable".into());
+            };
+            let roots = match u
+                .univariate(j)
+                .ok_or(crate::partition::exact::ExactError::TooLarge(
+                    "not univariate",
+                ))
+                .and_then(|c| int_roots(&c))
+            {
                 Ok(v) => v,
                 Err(e) => return Sub::Unknown(format!("{e}")),
             };
-            // t_j = root for each root, and the open intervals between them
+            // t_j = root for each root, and the open intervals between them (checked bounds)
             let mut parts = vec![];
             let mut prev: Option<i128> = None;
             for &x in &roots {
-                let x = x as i128;
                 let mut iv = r.clone();
-                let mut hi = Affine::constant(r.k, x - 1);
-                hi.coef[j] = -1;
-                iv = iv.with(hi);
+                // t_j <= x - 1  <->  -t_j + (x - 1) >= 0
+                let Ok(xm1) = pred(x) else {
+                    return Sub::Unknown("root at the i128 boundary".into());
+                };
+                iv = iv.with(Affine::unit(r.k, j, -1, xm1));
                 if let Some(p) = prev {
-                    let mut lo = Affine::constant(r.k, -(p + 1));
-                    lo.coef[j] = 1;
-                    iv = iv.with(lo);
+                    // t_j >= p + 1  <->  t_j - (p + 1) >= 0
+                    let Ok(lo) = succ(p).and_then(crate::partition::exact::neg) else {
+                        return Sub::Unknown("root at the i128 boundary".into());
+                    };
+                    iv = iv.with(Affine::unit(r.k, j, 1, lo));
                 }
                 parts.push(iv);
                 match r.fix(j, x) {
@@ -361,9 +380,10 @@ impl Splitter {
             }
             let mut last = r.clone();
             if let Some(p) = prev {
-                let mut lo = Affine::constant(r.k, -(p + 1));
-                lo.coef[j] = 1;
-                last = last.with(lo);
+                let Ok(lo) = succ(p).and_then(crate::partition::exact::neg) else {
+                    return Sub::Unknown("root at the i128 boundary".into());
+                };
+                last = last.with(Affine::unit(r.k, j, 1, lo));
             }
             parts.push(last);
             if roots.is_empty() {
@@ -391,9 +411,9 @@ impl Splitter {
         let mut unknown: Option<String> = None;
         for p in parts {
             let _ = parent;
-            self.depth += 1;
+            self.depth = self.depth.saturating_add(1);
             let sub = self.solve(p, holes.to_vec(), others.to_vec());
-            self.depth -= 1;
+            self.depth = self.depth.saturating_sub(1);
             match sub {
                 Sub::Empty => {}
                 Sub::Witness(t) => return Sub::Witness(t),
@@ -410,7 +430,10 @@ impl Splitter {
 fn nf_of(ds: &[CaseDomain], frame: &NodeFrame, elided: ElidedPolicy) -> Result<NfRules, String> {
     let mut l = DomainList::new(frame.arity());
     for (i, d) in ds.iter().enumerate() {
-        l.push(RuleRef::bare(0, i, i as i64), d.clone());
+        l.push(
+            RuleRef::bare(0, i, i64::try_from(i).unwrap_or(i64::MAX)),
+            d.clone(),
+        );
     }
     nf::build(
         &l,
@@ -530,7 +553,13 @@ fn containment(
                 continue;
             }
             let s = sup[0];
-            let roots = match int_roots(&m.univariate(s).expect("univariate")) {
+            let roots = match m
+                .univariate(s)
+                .ok_or(crate::partition::exact::ExactError::TooLarge(
+                    "not univariate",
+                ))
+                .and_then(|c| int_roots(&c))
+            {
                 Ok(r) => r,
                 Err(err) => {
                     return Containment::Unknown {
@@ -545,7 +574,7 @@ fn containment(
                 if (line && x < 1) || (!line && x > 0) {
                     continue;
                 }
-                if d.fixed[s].is_some_and(|v| v as i64 != x) {
+                if d.fixed[s].is_some_and(|v| i128::from(v) != x) {
                     continue;
                 }
                 let Ok(xv) = i32::try_from(x) else {
@@ -556,7 +585,7 @@ fn containment(
                 let mut part = d.clone();
                 part.fixed[s] = Some(xv);
                 part.equations.remove(ei);
-                parts += 1;
+                parts = parts.saturating_add(1);
                 match containment(&part, others, frame, mode, budget) {
                     Containment::Proved { .. } => {}
                     Containment::NotContained { witness } => {
@@ -648,7 +677,7 @@ fn containment_linear(
     let mut shrunk = 0usize;
     for s in 1..all.len() {
         if nfr.notes_of(s).any(NfNote::forbids_proof_about_domain) {
-            shrunk += 1; // excluded / weakened: represented by a subset (only shrinks the union)
+            shrunk = shrunk.saturating_add(1); // excluded / weakened: represented by a subset (only shrinks)
         }
         let rule = match (mode, nfr.selected.get(&s)) {
             (OthersAre::Matching, Some(sel)) => Some(sel.clone()),
@@ -675,7 +704,9 @@ fn containment_linear(
         work: 0,
         max_work: budget.max_work,
         max_enumeration: budget.max_enumeration,
-        deadline: budget.wall.map(|w| std::time::Instant::now() + w),
+        deadline: budget
+            .wall
+            .and_then(|w| std::time::Instant::now().checked_add(w)),
     };
     match sp.solve(reg.clone(), holes, os) {
         Sub::Empty => Containment::Proved {
@@ -769,10 +800,17 @@ fn verified_witness(
                 }
                 continue;
             }
-            for dlt in -left..=left {
+            for dlt in left.saturating_neg()..=left {
                 let mut t2 = t.clone();
-                t2[j] += dlt;
-                stack.push((j + 1, left - dlt.abs(), t2));
+                let Some(v) = t2[j].checked_add(dlt) else {
+                    continue;
+                };
+                t2[j] = v;
+                stack.push((
+                    j.saturating_add(1),
+                    left.saturating_sub(dlt.saturating_abs()),
+                    t2,
+                ));
             }
         }
     }

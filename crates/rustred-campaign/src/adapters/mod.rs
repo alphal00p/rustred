@@ -74,13 +74,39 @@ pub fn default_fake_script(req: &JobRequest) -> FakeScript {
     }
 }
 
+/// The default script of an emulated kind (lane adapters): prepare, end (the fake child answers every key SOLVED).
+pub fn default_emulation_script() -> FakeScript {
+    use rustred_campaign_contract::fake::{FakeOp, OnSigterm, RssPlan};
+    FakeScript {
+        script: vec![
+            FakeOp::Prepare { ms: 20 },
+            FakeOp::End {
+                stop: None,
+                verdict: None,
+            },
+        ],
+        on_sigterm: OnSigterm::Graceful,
+        slow_ms: 0,
+        start_delay_ms: 0,
+        rss: RssPlan::default(),
+        helpers: vec![],
+        faults: vec![],
+        time_scale: 1.0,
+        volatile_jitter: false,
+    }
+}
+
 /// The job spec of one attempt.
 pub fn job_spec(kind: AdapterKind, req: &JobRequest, a: &AdapterInput<'_>) -> JobSpec {
+    // lane adapters (closeloop.md 6.5): a kind the fake child emulates (solve-recipe) keeps its kind and args; its
+    // default script answers every input key (fake child: no `relation` op = every key SOLVED)
+    let emulated = kind == AdapterKind::Fake && req.kind.fake_emulated();
     let (job_kind, fake, features) = match kind {
-        // lane closeloop (closeloop.md 6.5): a fake script on a non-fake kind = rr_fake_child emulating that kind
-        AdapterKind::Fake if req.kind != JobKind::Fake && req.fake.is_some() => {
-            (req.kind, req.fake.clone(), vec!["fake".to_string()])
-        }
+        AdapterKind::Fake if emulated => (
+            req.kind,
+            Some(req.fake.clone().unwrap_or_else(default_emulation_script)),
+            vec!["fake".to_string()],
+        ),
         AdapterKind::Fake => (
             JobKind::Fake,
             Some(req.fake.clone().unwrap_or_else(|| default_fake_script(req))),
@@ -100,7 +126,7 @@ pub fn job_spec(kind: AdapterKind, req: &JobRequest, a: &AdapterInput<'_>) -> Jo
             features_required: features,
         },
         inputs: req.inputs.clone(),
-        args: if job_kind == JobKind::Fake {
+        args: if kind == AdapterKind::Fake && !emulated {
             vec![]
         } else {
             req.args.clone()
