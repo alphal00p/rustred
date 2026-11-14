@@ -71,6 +71,14 @@ pub trait FactSource: Sync {
     fn witness_lift(&self, _rule: &RuleId, _key: &[i32]) -> RegFact {
         RegFact::Unknown
     }
+    /// The evidence oracle of the per-key lift (`ClosureConfig::per_key_lift`, closure.md section 16): `true` only if
+    /// an EXACT per-key proof of the rule's instantiated relation at the key (rr_proof `EXACT_IN_SPAN_AT_KEY` /
+    /// `EXACT_PROVED_AT_KEY`) is bound to exactly (this record, key). Consulted ONLY for records whose witness loci are
+    /// elided or absent, and only under `PerKeyLift::Proof`. The proof evaluates the rule at the key (a pole there is
+    /// the different status `IRREGULAR_KEY`), so a key served this way needs no separate regularity fact.
+    fn per_key_proof(&self, _rule: &RuleId, _key: &[i32]) -> bool {
+        false
+    }
 }
 
 /// No facts (Tier K): `Unknown` everywhere.

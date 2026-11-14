@@ -48,15 +48,19 @@ impl Level {
     }
 }
 
-/// Elided witness loci policy (interfaces/import.md section 3).
+/// Per-key lift policy of records whose witness loci are ELIDED or ABSENT (interfaces/import.md section 3; the
+/// coordinator's / user's ruling 2026-11-14: a first-class evidence level).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ElidedPolicy {
-    /// Strict: an elided record blocks every key where it is selected.
-    #[default]
+    /// An elided record blocks every key where it is selected; a witness-absent record serves only through its
+    /// regularity fact (`witness_absent`).
     Block,
-    /// The record serves at its position; a served key is CERTIFIED only with an exact per-key proof for exactly
-    /// (record_sha256, key), otherwise it is reported blocked.
+    /// DEFAULT. Such a record serves a key iff an exact per-key proof (`EXACT_IN_SPAN_AT_KEY` /
+    /// `EXACT_PROVED_AT_KEY`) is bound to exactly (record_sha256, key): the closure's strict dispatcher consults the
+    /// evidence oracle (closure `PerKeyLift::Proof`); the key's level is `per-key`; without the proof the key is open
+    /// (`blocked`). The dispatcher stays strict everywhere (no witness check is turned off).
+    #[default]
     LiftWithPerKeyProof,
 }
 

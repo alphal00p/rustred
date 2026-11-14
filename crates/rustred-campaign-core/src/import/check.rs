@@ -10,12 +10,15 @@ use serde::Serialize;
 use super::error::ImportError;
 use super::evidence::Evidence;
 use super::load::{ImportedSet, WitnessKind};
-use super::spec::{Level, TierChoice};
+use super::spec::{ElidedPolicy, Level, TierChoice};
 use crate::closure::relations::{RelationSet, RelationStoreBuilder, VERDICT_CERTIFIED};
 use crate::closure::{
-    ClosureConfig, ClosureSummary, HandDowns, KeySetBuilder, OpenStatus, TerminalSets, Tier,
-    WitnessAbsent, closure,
+    ClosureConfig, ClosureSummary, HandDowns, KeySetBuilder, OpenStatus, PerKeyLift, TerminalSets,
+    Tier, WitnessAbsent, closure,
 };
+
+/// Basis word of a key served through the per-key lift (elided / witness-absent record + bound per-key proof).
+pub const BASIS_PER_KEY_PROOF: &str = "per_key_proof";
 
 /// Options of a check (never part of a result's identity except `tier`).
 #[derive(Clone, Debug)]
@@ -253,6 +256,33 @@ fn recipe_sets(set: &ImportedSet, ev: &Evidence) -> Result<RecipeSets, ImportErr
     Ok((out, refusals, unpinned))
 }
 
+/// The closure's per-key lift for this set (policy `elided`).
+pub(crate) fn per_key_lift(set: &ImportedSet) -> PerKeyLift {
+    match set.spec.policies.elided {
+        ElidedPolicy::LiftWithPerKeyProof => PerKeyLift::Proof,
+        ElidedPolicy::Block => PerKeyLift::Off,
+    }
+}
+
+/// The open reason of a key blocked by an elided / witness-absent record (statement word).
+pub(crate) fn blocked_reason(set: &ImportedSet, w: WitnessKind, core_detail: &str) -> String {
+    let lift = per_key_lift(set) == PerKeyLift::Proof;
+    match (w, lift) {
+        (WitnessKind::Elided, true) => REASON_NO_PER_KEY_PROOF.to_string(),
+        (WitnessKind::Elided, false) => "elided witness loci (policy block)".to_string(),
+        (WitnessKind::NotCarried, true) => {
+            "witness loci not carried: no per-key proof and no per-key regularity fact".to_string()
+        }
+        (WitnessKind::NotCarried, false) => {
+            "witness loci not carried: no per-key regularity fact (ruling Q2)".to_string()
+        }
+        _ => core_detail.to_string(),
+    }
+}
+
+/// Open reason of a key whose elided record has no per-key proof bound to (record_sha256, key).
+pub const REASON_NO_PER_KEY_PROOF: &str = "elided_witness_loci_no_per_key_proof";
+
 /// Run the check.
 pub fn check(
     set: &ImportedSet,
@@ -316,6 +346,7 @@ pub fn check(
             }
             super::spec::WitnessAbsentPolicy::Block => WitnessAbsent::Block,
         },
+        per_key_lift: per_key_lift(set),
         ..Default::default()
     };
     let c = closure(&set.disp, &set.bodies, &set.cmp, &set.start, &cfg, ev)
@@ -387,16 +418,7 @@ pub fn check(
             if let (Some(o), Some((t, r))) = (o, row.open_rule)
                 && o.status == OpenStatus::Blocked
             {
-                let w = set.rules[t][r].witness;
-                let why = match w {
-                    WitnessKind::Elided => "elided witness loci (policy block)".to_string(),
-                    WitnessKind::NotCarried => {
-                        "witness loci not carried: no per-key regularity fact (ruling Q2)"
-                            .to_string()
-                    }
-                    _ => o.detail.clone(),
-                };
-                row.open_reason = Some(why);
+                row.open_reason = Some(blocked_reason(set, set.rules[t][r].witness, &o.detail));
             }
             if let Some(o) = o
                 && o.status == OpenStatus::Uncovered
@@ -451,24 +473,18 @@ pub fn check(
                     record: r,
                 });
                 let info = &set.rules[t][r];
-                let proof = ev.proof(set, t, r, &row.key).is_some_and(|p| p.per_key);
+                let lifted = c.is_per_key_lifted(i);
+                let proof = lifted || ev.proof(set, t, r, &row.key).is_some_and(|p| p.per_key);
                 row.evidence = Some(if proof {
                     Level::PerKey
                 } else {
                     Level::Imported
                 });
-                row.basis = Some(match info.witness {
-                    WitnessKind::Complete => "witness_loci",
-                    WitnessKind::NotCarried => "regularity_fact",
-                    WitnessKind::ElidedLifted => "elided_per_key_proof",
-                    WitnessKind::Elided => "elided",
+                row.basis = Some(match (info.witness, lifted) {
+                    (WitnessKind::Elided, _) | (WitnessKind::NotCarried, true) => BASIS_PER_KEY_PROOF,
+                    (WitnessKind::Complete, _) => "witness_loci",
+                    (WitnessKind::NotCarried, false) => "regularity_fact",
                 });
-                if info.witness == WitnessKind::ElidedLifted && !proof {
-                    row.status = RowStatus::Open;
-                    row.open_status = Some("blocked".into());
-                    row.open_reason = Some("elided_witness_loci_no_per_key_proof".into());
-                    row.open_rule = Some((t, r));
-                }
                 if tier == Tier::C {
                     use crate::closure::{FactSource, RegFact, RuleId};
                     let digest = String::new();
@@ -558,20 +574,29 @@ pub fn check(
     if required == Level::PerKey {
         for row in &rows {
             let below = row.evidence.is_none_or(|e| e < Level::PerKey);
-            let rule = match (&row.server, row.status, row.open_rule) {
-                (Some(Server::Rule { table, record }), RowStatus::Served, _) if below => {
+            let rule = match (&row.server, row.status) {
+                (Some(Server::Rule { table, record }), RowStatus::Served) if below => {
                     Some((*table, *record))
-                }
-                (_, RowStatus::Open, Some(tr))
-                    if row.open_reason.as_deref()
-                        == Some("elided_witness_loci_no_per_key_proof") =>
-                {
-                    Some(tr)
                 }
                 _ => None,
             };
             if let Some(tr) = rule {
                 pr.entry(tr).or_default().insert(row.key.clone());
+            }
+        }
+    }
+    // under the per-key lift every key blocked by an elided / witness-absent record needs its per-key proof, whatever
+    // the required level (it is the only evidence that lets the record serve there)
+    if per_key_lift(set) == PerKeyLift::Proof {
+        for row in &rows {
+            if let (RowStatus::Open, Some((t, r)), Some("blocked")) =
+                (row.status, row.open_rule, row.open_status.as_deref())
+                && matches!(
+                    set.rules[t][r].witness,
+                    WitnessKind::Elided | WitnessKind::NotCarried
+                )
+            {
+                pr.entry((t, r)).or_default().insert(row.key.clone());
             }
         }
     }

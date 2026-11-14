@@ -310,24 +310,31 @@ fn elided_lift_needs_a_per_key_proof_bound_by_sha() {
         "sources":[{"id":"A","kind":"engine_table","path":a.display().to_string()}]});
     let (set, _ev, r) = run(&spec, &d);
     let sha = set.rules[0][0].record_sha256.clone();
+    // the dispatcher stays strict: no witness-off table, never diagnostic
+    assert!(r.summary.dispatch_not_strict.is_empty());
+    assert!(!r.summary.diagnostic);
+    assert_eq!(set.disp.tables().len(), 1);
     for k in [[2, 1, 0], [1, 1, 0]] {
         let x = row(&r, k);
         assert_eq!(x.status, RowStatus::Open);
         assert_eq!(
             x.open_reason.as_deref(),
-            Some("elided_witness_loci_no_per_key_proof")
+            Some(import::check::REASON_NO_PER_KEY_PROOF)
         );
     }
+    // Tier K follows the elided body (superset): I(1,1,0) is reached, blocked as well
+    assert_eq!(r.summary.requires_per_key_proof, 2);
     assert_eq!(r.proof_requests.len(), 1);
     assert_eq!(r.proof_requests[0].keys.len(), 2);
     assert_eq!(r.proof_requests[0].record_sha256, sha);
-    // proofs: one for (sha, I(2,1,0)); one for a FOREIGN digest at I(1,1,0)
+    // proofs: one for (sha, I(2,1,0)); one for a FOREIGN digest at I(1,1,0); one non-exact status for (sha, I(1,1,0))
     let p = d.join("proof.json");
     std::fs::write(
         &p,
         json!({"schema":"rustred.proof-kernel.span.v1","keys":[
             {"record_sha256": sha, "key": {"n0":2}, "status":"EXACT_IN_SPAN_AT_KEY"},
-            {"record_sha256": "ab".repeat(32), "key": {"n0":1,"n1":1,"n2":0}, "status":"EXACT_IN_SPAN_AT_KEY"}]})
+            {"record_sha256": "ab".repeat(32), "key": {"n0":1,"n1":1,"n2":0}, "status":"EXACT_IN_SPAN_AT_KEY"},
+            {"record_sha256": sha, "key": {"n0":1}, "status":"UNDECIDED (modular only)"}]})
         .to_string(),
     )
     .unwrap();
@@ -341,14 +348,151 @@ fn elided_lift_needs_a_per_key_proof_bound_by_sha() {
         (
             RowStatus::Served,
             Some(Level::PerKey),
-            Some("elided_per_key_proof")
+            Some(import::check::BASIS_PER_KEY_PROOF)
         )
     );
+    assert_eq!(r.summary.per_key_lifted.get("A"), Some(&1));
     assert_eq!(row(&r, [1, 1, 0]).status, RowStatus::Open);
     assert!(
         r.blocking().iter().any(|b| b == "import_open_keys:1"),
         "{:?}",
         r.blocking()
+    );
+    assert!(r.summary.dispatch_not_strict.is_empty() && !r.summary.diagnostic);
+    // policy block: never served, whatever proofs exist
+    spec["policies"]["elided"] = json!("block");
+    let (_set, _ev, r) = run(&spec, &d);
+    assert_eq!(row(&r, [2, 1, 0]).status, RowStatus::Open);
+    assert_eq!(
+        row(&r, [2, 1, 0]).open_reason.as_deref(),
+        Some("elided witness loci (policy block)")
+    );
+    assert!(r.summary.per_key_lifted.is_empty());
+}
+
+/// The per-key lift is a first-class evidence level: with bound proofs at EVERY key of the elided record (and the
+/// other facts a Tier C close needs) the verdict is `closed`, with the level `per-key` recorded per key; a proof for
+/// another key or another record never serves; a witness-absent record is lifted by its proof in Tier K too.
+#[test]
+fn per_key_lift_closes_tier_c_and_serves_exactly_the_proved_keys() {
+    let d = scratch("liftc");
+    let a = write_table(
+        &d,
+        "A.table.jsonl",
+        &[
+            // elided face rule: I(n0,1,0) -> I(n0-1,1,0) + I(n0,0,0) for n0 >= 2
+            rule(
+                0,
+                [None, Some(1), Some(0)],
+                &["I(n0-1,1,0)", "I(n0,0,0)"],
+                Some(json!(["elided"])),
+                json!({"equations":["n0-2"]}),
+            ),
+            // complete point rule at I(1,1,0) -> subsector
+            rule(
+                1,
+                [Some(1), Some(1), Some(0)],
+                &["I(1,0,0)"],
+                Some(json!([])),
+                json!({}),
+            ),
+        ],
+    );
+    let st = write_keys(&d, &[[2, 1, 0]]);
+    let sha0;
+    let sha1;
+    {
+        let spec = json!({"schema":"rustred.campaign.import-spec.v1","frame_from":"A",
+            "start":{"path": st.display().to_string(),"format":"keys_jsonl"},
+            "sources":[{"id":"A","kind":"engine_table","path":a.display().to_string()}]});
+        let (set, _ev, _r) = run(&spec, &d);
+        sha0 = set.rules[0][0].record_sha256.clone();
+        sha1 = set.rules[0][1].record_sha256.clone();
+    }
+    // facts: regularity of the point rule at I(1,1,0) (its witness loci are complete); no fact for the elided record
+    let facts = d.join("facts.jsonl");
+    std::fs::write(
+        &facts,
+        // (the answer's `rule` echo must be the record's index: 1)
+        format!(
+            "{}\n",
+            fact_line(&sha1, [1, 1, 0], "regular", &[([1, 0, 0], "nonzero")])
+                .replace("\"rule\":0", "\"rule\":1")
+        ),
+    )
+    .unwrap();
+    let write_proofs = |entries: Value| -> PathBuf {
+        let p = d.join("proofs.json");
+        std::fs::write(
+            &p,
+            json!({"schema":"rustred.proof-kernel.span.v1","keys": entries}).to_string(),
+        )
+        .unwrap();
+        p
+    };
+    let spec_with = |proofs: &Path| {
+        json!({"schema":"rustred.campaign.import-spec.v1","frame_from":"A","required_evidence":"imported",
+            "start":{"path": st.display().to_string(),"format":"keys_jsonl"},
+            "sources":[{"id":"A","kind":"engine_table","path":a.display().to_string()}],
+            "evidence":{"facts":[{"path": facts.display().to_string()}],"proofs":[{"path": proofs.display().to_string()}]}})
+    };
+    // (1) the proof bound to (sha0, I(2,1,0)): Tier C closed, the key served at `per-key`
+    let p = write_proofs(json!([{"record_sha256": sha0, "key": [2,1,0], "status":"EXACT_IN_SPAN_AT_KEY"}]));
+    let (_set, _ev, r) = run(&spec_with(&p), &d);
+    assert_eq!(r.tier, closure::Tier::C);
+    assert_eq!(
+        r.summary.verdict,
+        closure::Verdict::Closed,
+        "{:?}",
+        r.summary.blocking
+    );
+    assert!(r.blocking().is_empty(), "{:?}", r.blocking());
+    let x = row(&r, [2, 1, 0]);
+    assert_eq!((x.evidence, x.basis), (Some(Level::PerKey), Some("per_key_proof")));
+    assert!(!x.regularity_unknown);
+    assert_eq!(r.summary.per_key_lifted.get("A"), Some(&1));
+    assert_eq!(row(&r, [1, 1, 0]).basis, Some("witness_loci"));
+    // (2) a proof for another record at the same key, or for this record at another key: never served; Tier C does
+    // not follow the blocked body
+    for e in [
+        json!([{"record_sha256": sha1, "key": [2,1,0], "status":"EXACT_IN_SPAN_AT_KEY"}]),
+        json!([{"record_sha256": sha0, "key": [3,1,0], "status":"EXACT_IN_SPAN_AT_KEY"}]),
+        json!([{"record_sha256": sha0, "key": [2,1,0], "status":"EXACT_NOT_IN_SPAN_AT_KEY (u ...)"}]),
+    ] {
+        let p = write_proofs(e);
+        let (_set, _ev, r) = run(&spec_with(&p), &d);
+        assert_eq!(r.rows.len(), 1, "Tier C: the blocked body is not followed");
+        assert_eq!(row(&r, [2, 1, 0]).status, RowStatus::Open);
+        assert_eq!(r.summary.verdict, closure::Verdict::Open);
+        assert!(r.summary.per_key_lifted.is_empty());
+    }
+    // (3) a witness-ABSENT record (no witness_loci field) is lifted by its proof in Tier K as well
+    let b = write_table(
+        &d,
+        "B.table.jsonl",
+        &[rule(
+            0,
+            [None, Some(1), Some(0)],
+            &["I(n0,0,0)"],
+            None,
+            json!({}),
+        )],
+    );
+    let spec_b = json!({"schema":"rustred.campaign.import-spec.v1","frame_from":"B",
+        "start":{"path": st.display().to_string(),"format":"keys_jsonl"},
+        "sources":[{"id":"B","kind":"engine_table","path":b.display().to_string()}]});
+    let (set, _ev, r) = run(&spec_b, &d);
+    let shab = set.rules[0][0].record_sha256.clone();
+    assert_eq!(row(&r, [2, 1, 0]).status, RowStatus::Open);
+    let p = write_proofs(json!([{"record_sha256": shab, "key": [2,1,0], "status":"EXACT_PROVED_AT_KEY"}]));
+    let mut spec_b2 = spec_b.clone();
+    spec_b2["evidence"] = json!({"proofs":[{"path": p.display().to_string()}]});
+    let (_set, _ev, r) = run(&spec_b2, &d);
+    assert_eq!(r.tier, closure::Tier::K);
+    let x = row(&r, [2, 1, 0]);
+    assert_eq!(
+        (x.status, x.evidence, x.basis),
+        (RowStatus::Served, Some(Level::PerKey), Some("per_key_proof"))
     );
 }
 
@@ -954,4 +1098,103 @@ fn partial_object_line_hand_statement_third_shape() {
         "unlisted keys are not differences"
     );
     assert_eq!((c.same_server, c.count(DiffKind::ServerDiffers)), (1, 1));
+}
+
+/// Compact evidence lines (interfaces/import.md 5.5): a FACT VERDICT line lists the term-key digests of the NON-ZERO
+/// terms only, so an unlisted term has a coefficient identically zero at the key and is NOT an edge (Tier C); a listed
+/// positive-numerator term fails the closure; the `index` echo must name the record; a compact PROOF verdict line with
+/// rr_proof's `n0=..` key text binds by (record_sha256, key) like a span record.
+#[test]
+fn compact_fact_and_proof_verdict_lines() {
+    use import::lines::term_key_digest;
+    let d = scratch("compact");
+    let a = write_table(
+        &d,
+        "A.table.jsonl",
+        &[rule(
+            0,
+            [None, Some(1), Some(0)],
+            &["I(n0-1,1,0)", "I(n0,0,0)", "I(n0,1,1)"],
+            Some(json!([])),
+            json!({"equations":["n0-2"]}),
+        )],
+    );
+    let st = write_keys(&d, &[[2, 1, 0]]);
+    let spec0 = json!({"schema":"rustred.campaign.import-spec.v1","frame_from":"A",
+        "start":{"path": st.display().to_string(),"format":"keys_jsonl"},
+        "sources":[{"id":"A","kind":"engine_table","path":a.display().to_string()}]});
+    let (set, _ev, r) = run(&spec0, &d);
+    let sha = set.rules[0][0].record_sha256.clone();
+    // Tier K: every top term followed (I(1,1,0) reached, open: no rule), the positive-numerator term flagged
+    assert_eq!(r.rows.len(), 2);
+    let hex = |k: [i32; 3]| format!("{:016x}", term_key_digest(&k));
+    let write = |lines: &[Value]| -> PathBuf {
+        let p = d.join("facts.jsonl");
+        let s: String = lines.iter().map(|l| format!("{l}\n")).collect();
+        std::fs::write(&p, s).unwrap();
+        p
+    };
+    let with_facts = |p: &Path| {
+        let mut s = spec0.clone();
+        s["evidence"] = json!({"facts":[{"path": p.display().to_string()}]});
+        s
+    };
+    // (1) I(1,1,0) and I(2,1,1) unlisted (zero), I(2,0,0) non-zero: only the hand-down remains; closed
+    let p = write(&[json!({"schema":"rustred.campaign.fact-verdict.v1","index":0,"record_sha256":sha,
+        "key":[2,1,0],"verdict":"regular","n_terms":3,"nonzero":[hex([2,0,0])]})]);
+    let (_s, ev, r) = run(&with_facts(&p), &d);
+    assert_eq!(ev.counts.fact_verdict_lines, 1);
+    assert_eq!(r.tier, closure::Tier::C);
+    assert_eq!(r.rows.len(), 1, "a zero-coefficient term is not an edge");
+    assert_eq!(
+        r.summary.verdict,
+        closure::Verdict::Closed,
+        "{:?}",
+        r.summary.blocking
+    );
+    // (2) the top term non-zero: followed (I(1,1,0) open); the positive-numerator term listed: the closure FAILS
+    let p = write(&[json!({"schema":"rustred.campaign.fact-verdict.v1","index":0,"record_sha256":sha,
+        "key":[2,1,0],"verdict":"regular","n_terms":3,"nonzero":[hex([1,1,0]),hex([2,0,0]),hex([2,1,1])]})]);
+    let (_s, _ev, r) = run(&with_facts(&p), &d);
+    assert_eq!(r.rows.len(), 2);
+    assert_eq!(r.summary.verdict, closure::Verdict::Failed);
+    // (3) a wrong index echo is refused; a malformed digest is refused
+    for bad in [
+        json!({"schema":"rustred.campaign.fact-verdict.v1","index":7,"record_sha256":sha,"key":[2,1,0],
+               "verdict":"regular","nonzero":[]}),
+        json!({"schema":"rustred.campaign.fact-verdict.v1","index":0,"record_sha256":sha,"key":[2,1,0],
+               "verdict":"regular","nonzero":["xyz"]}),
+    ] {
+        let p = write(&[bad]);
+        let s = TableSetSpec::from_json(&with_facts(&p).to_string()).unwrap();
+        let set = load(&s, &d).unwrap();
+        assert!(matches!(
+            Evidence::from_spec(&set, &d),
+            Err(ImportError::Evidence { .. })
+        ));
+    }
+    // (4) compact PROOF verdict lines: `n0=..` key text (free slots only; the rest from the record), sha_ok honoured
+    let pp = d.join("proofs.jsonl");
+    std::fs::write(
+        &pp,
+        format!(
+            "{}\n{}\n",
+            json!({"name":"A#0","index":0,"record_sha256":sha,"key":"n0=2","verdict":"EXACT_IN_SPAN_AT_KEY","sha_ok":true}),
+            json!({"name":"A#0","index":0,"record_sha256":"cd".repeat(32),"key":"n0=2,n1=1,n2=0","verdict":"EXACT_IN_SPAN_AT_KEY"})
+        ),
+    )
+    .unwrap();
+    let mut s = spec0.clone();
+    s["evidence"] = json!({"proofs":[{"path": pp.display().to_string()}]});
+    s["required_evidence"] = json!("per-key");
+    let (_s, ev, r) = run(&s, &d);
+    assert_eq!(
+        (
+            ev.counts.proof_verdict_lines,
+            ev.counts.proofs_per_key,
+            ev.counts.proofs_foreign
+        ),
+        (2, 1, 1)
+    );
+    assert_eq!(row(&r, [2, 1, 0]).evidence, Some(Level::PerKey));
 }

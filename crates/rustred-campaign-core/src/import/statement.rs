@@ -239,7 +239,7 @@ pub fn row_json(set: &ImportedSet, row: &KeyRow) -> Value {
         "key": row.key,
         "in_start": row.in_start,
         "status": status,
-        "server": if row.status == RowStatus::Served || row.open_reason.as_deref() == Some("elided_witness_loci_no_per_key_proof") { server_json(set, row) } else { Value::Null },
+        "server": if row.status == RowStatus::Served { server_json(set, row) } else { Value::Null },
         "evidence": if row.status == RowStatus::Served { row.evidence.map(|e| e.word()) } else { None },
         "basis": row.basis,
         "facts": json!({"regularity_unknown": row.regularity_unknown, "coefficient_unknown": row.coefficient_unknown}),

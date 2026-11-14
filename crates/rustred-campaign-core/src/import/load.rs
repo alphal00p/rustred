@@ -17,7 +17,7 @@ use super::lines::{
     RawRecord, RawTable, parse_key_text, read_sha256sums, scan_table, scan_table_each, verify_file,
 };
 use super::spec::{
-    DomainMode, ElidedPolicy, HandName, SourceKind, SourceSpec, StartFormat, TableSetSpec, resolve,
+    DomainMode, HandName, SourceKind, SourceSpec, StartFormat, TableSetSpec, resolve,
 };
 use crate::closure::relations::{
     DispatchSlot, RelationSet, RelationStoreBuilder, VERDICT_DESCENDS, VERDICT_EXACT,
@@ -39,8 +39,6 @@ pub enum WitnessKind {
     Complete,
     NotCarried,
     Elided,
-    /// Elided, loaded with the witness check off under `elided: lift_with_per_key_proof`.
-    ElidedLifted,
 }
 
 /// Provenance of one dispatched record.
@@ -312,7 +310,7 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
                 let mut seen_removed = BTreeSet::new();
                 let mut seen_src_labels: BTreeSet<i64> = BTreeSet::new();
                 let mut first_table_name: Option<String> = None;
-                for (ui, u) in units.iter().enumerate() {
+                for u in &units {
                     let want: Option<Vec<i64>> = src.records.clone();
                     let raw = scan_table(&src.id, &u.path, false, &|_, _| true)?;
                     let sha = format!("sha256:{}", raw.file_sha256);
@@ -399,71 +397,36 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
                             true
                         }
                     });
-                    // segments: split around elided records when they are lifted
-                    let lift = spec.policies.elided == ElidedPolicy::LiftWithPerKeyProof;
-                    let mut segments: Vec<(Vec<usize>, bool)> = vec![];
-                    let mut cur: Vec<usize> = vec![];
-                    for &i in &order {
-                        let el = raw.records[i]
-                            .rec
-                            .witness_loci
-                            .as_ref()
-                            .is_some_and(|w| w.iter().any(|s| s.trim() == "elided"));
-                        if lift && el {
-                            if !cur.is_empty() {
-                                segments.push((std::mem::take(&mut cur), false));
-                            }
-                            segments.push((vec![i], true));
-                        } else {
-                            cur.push(i);
-                        }
-                    }
-                    if !cur.is_empty() || segments.is_empty() {
-                        segments.push((cur, false));
-                    }
-                    let base_name = match &u.table_label {
+                    // one strict table per file (witness check ON for every record; elided / witness-absent records
+                    // serve only through the closure's per-key lift, closure.md section 16)
+                    let name = match &u.table_label {
                         Some(t) => format!("{}/{}", src.id, t),
                         None => src.id.clone(),
                     };
-                    let nseg = segments.len();
-                    for (si, (seg, lifted)) in segments.into_iter().enumerate() {
-                        let name = if nseg == 1 {
-                            base_name.clone()
-                        } else if lifted {
-                            let l = raw.records[seg[0]].rec.index.unwrap_or(-1);
-                            format!("{base_name}~lift{l}")
-                        } else {
-                            format!("{base_name}~{si}")
-                        };
-                        if seg.is_empty() {
-                            continue;
+                    if !order.is_empty() {
+                        let (t, tf, infos) =
+                            build_table(src, &class, &name, u, &raw, &order, &frame, &mut rep)?;
+                        if !t.is_empty() {
+                            if first_table_name.is_none() {
+                                first_table_name = Some(name.clone());
+                            }
+                            fact_tables.insert(name.clone(), u.path.display().to_string());
+                            table_digests.insert(name.clone(), sha.clone());
+                            rep.tables.push(name.clone());
+                            rep.records_dispatched += t.len();
+                            body_plan.push((
+                                u.path.clone(),
+                                src.id.clone(),
+                                infos
+                                    .iter()
+                                    .map(|i| (i.ordinal, i.record_sha256.clone()))
+                                    .collect(),
+                            ));
+                            drop(tf);
+                            tables.push(t);
+                            rules.push(infos);
                         }
-                        let (t, tf, infos) = build_table(
-                            src, &class, &name, u, &raw, &seg, lifted, &frame, &mut rep,
-                        )?;
-                        if t.is_empty() {
-                            continue;
-                        }
-                        if first_table_name.is_none() {
-                            first_table_name = Some(name.clone());
-                        }
-                        fact_tables.insert(name.clone(), u.path.display().to_string());
-                        table_digests.insert(name.clone(), sha.clone());
-                        rep.tables.push(name.clone());
-                        rep.records_dispatched += t.len();
-                        body_plan.push((
-                            u.path.clone(),
-                            src.id.clone(),
-                            infos
-                                .iter()
-                                .map(|i| (i.ordinal, i.record_sha256.clone()))
-                                .collect(),
-                        ));
-                        drop(tf);
-                        tables.push(t);
-                        rules.push(infos);
                     }
-                    let _ = ui;
                 }
                 if let Some(sel) = &src.records
                     && units.len() > 1
@@ -898,7 +861,6 @@ fn build_table(
     u: &FileUnit,
     raw: &RawTable,
     seg: &[usize],
-    lifted: bool,
     frame: &NodeFrame,
     rep: &mut SourceReport,
 ) -> Result<(Table, TableFile, Vec<RuleInfo>), ImportError> {
@@ -909,7 +871,7 @@ fn build_table(
         others: vec![],
     };
     let opts = DomainOptions {
-        witness: !lifted,
+        witness: true,
         ..Default::default()
     };
     let mut t =
@@ -1010,11 +972,10 @@ fn build_table(
                 msg: format!("domain with bounds: {e}"),
             })?;
         }
-        let witness = match (t.meta[k].witness, lifted) {
-            (_, true) => WitnessKind::ElidedLifted,
-            (WitnessStatus::Complete, _) => WitnessKind::Complete,
-            (WitnessStatus::Elided, _) => WitnessKind::Elided,
-            (WitnessStatus::NotCarried, _) => WitnessKind::NotCarried,
+        let witness = match t.meta[k].witness {
+            WitnessStatus::Complete => WitnessKind::Complete,
+            WitnessStatus::Elided => WitnessKind::Elided,
+            WitnessStatus::NotCarried => WitnessKind::NotCarried,
         };
         *rep.witness.entry(format!("{witness:?}")).or_default() += 1;
         infos.push(RuleInfo {
