@@ -143,7 +143,8 @@ pub use sector::{
     RuleTrialOutcome, RuleTrialStats, RuleTrialSummary,
 };
 pub use seed::{
-    CaseSeedSchedule, ScheduledSeeds, Seed, SeedLayerCap, SeedSchedule, Seeds, ShellSeedSource,
+    CaseSeedSchedule, ScheduledSeeds, Seed, SeedLayerCap, SeedRecipe, SeedSchedule, Seeds,
+    ShellSeedSource, seed_recipe_override, with_seed_recipe,
 };
 pub use source::SourceSystem;
 pub use table_export::{BasisDerivation, FrameEntry, OriginalEntry, RuleFrame};

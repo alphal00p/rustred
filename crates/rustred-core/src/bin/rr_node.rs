@@ -21,6 +21,9 @@
 //!                  [--no-witness-guards]   (A/B only: drop the source-weight-pole guards, table guard_version 1)
 //!                  [--known-terminals FILE]   (Astra: declared masters, never searched; with --registry: refused)
 //!                  [--symmetry] [--symmetry-rows] [--symmetry-symbolic]
+//!                  [--seed-centre-offset 'SLOT:DELTA[,..][;SLOT:DELTA[,..]]..'] [--seed-face-floor K]   (seed-centre: shells
+//!                  around target + offset, ';' = several centres, seed set = union; per case "seed_centre_offset":[..] or
+//!                  [[..],..] in --initial-presented; drop seeds below target - K on a face line; default off)
 //! rr_node symmetry --family F.sym [--chart MASK]   (authenticated automorphism group of the chart, JSON)
 //! rr_node probe    --family F.sym --case 'SPEC [EQS]' --out DIR [--variants all|NAME,..] [--cap S] [--depth K] [--parallel P] [--portfolio K]
 //! rr_node variants --family F.sym --case 'SPEC [EQS]'
@@ -205,6 +208,7 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
         if !cap.install() {
             die("--seed-layer-cap given twice with different values");
         }
+        o.seed_layer_cap = Some([cap.dots_above, cap.rank_above, cap.dot_free_bonus]);
         if o.max_depth.is_none() {
             die("--seed-layer-cap needs a finite --max-depth");
         }
@@ -405,8 +409,45 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
         o.open_on_refusal = true;
     }
     if let Some(f) = a.take("--initial-presented") {
-        o.initial_presented = serde_json::from_str(&read(&f))
+        let text = read(&f);
+        o.initial_presented = serde_json::from_str(&text)
             .unwrap_or_else(|e| die(&format!("--initial-presented {f}: {e}")));
+        // seed-centre: optional per-case field "seed_centre_offset" ([ints], PRESENTED slots)
+        let raw: Vec<serde_json::Value> = serde_json::from_str(&text)
+            .unwrap_or_else(|e| die(&format!("--initial-presented {f}: {e}")));
+        for (spec, v) in o.initial_presented.iter().zip(&raw) {
+            if let Some(off) = v.get("seed_centre_offset").filter(|x| !x.is_null()) {
+                // one centre [ints] or several [[ints], ..] (union of their shells)
+                let mut offs: Vec<Vec<i64>> = match serde_json::from_value::<Vec<i64>>(off.clone()) {
+                    Ok(one) => vec![one],
+                    Err(_) => serde_json::from_value(off.clone()).unwrap_or_else(|e| {
+                        die(&format!("--initial-presented {f}: seed_centre_offset: {e}"))
+                    }),
+                };
+                if offs.is_empty() {
+                    die(&format!("--initial-presented {f}: empty seed_centre_offset"));
+                }
+                let first = offs.remove(0);
+                o.case_seed_centres.push(rustred::node::driver::CaseSeedCentre {
+                    case: spec.clone(),
+                    seed_centre_offset: first,
+                    extra: offs,
+                });
+            }
+        }
+    }
+    // seed-centre: global shell centre offset and face floor (default off)
+    if let Some(v) = a.take("--seed-centre-offset") {
+        let mut all = rustred::node::driver::parse_seed_centre_offsets(
+            &v,
+            rustred::node::order::family_props(family).len(),
+        )
+        .unwrap_or_else(|e| die(&format!("--seed-centre-offset: {e}")));
+        o.seed_centre_offset = Some(all.remove(0));
+        o.seed_centre_extra = all;
+    }
+    if let Some(v) = a.take("--seed-face-floor") {
+        o.seed_face_floor = Some(v.parse().unwrap_or_else(|_| die("--seed-face-floor <k>")));
     }
     // t266-regions: a region-restricted run on ONE deferred region {chart (PRESENTED), conjunction}; the chart is
     // added to the initial cases and the run owns that region only

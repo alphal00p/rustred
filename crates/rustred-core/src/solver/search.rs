@@ -618,17 +618,58 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         let mut original_rows = Vec::new();
         let mut original_sources = Vec::new();
         let initial = case.integral();
+        // seed-centre (default None = unchanged): shells around target + offset, optional face-floor filter. The
+        // target (`initial`), comparator and pivot test below are unchanged.
+        let recipe = super::seed::seed_recipe_override();
+        let (centre, stream) = match &recipe {
+            None => (
+                initial,
+                super::seed::CentredSeeds::Single(
+                    CaseSeedStream::new(
+                        initial,
+                        *self.order.sector(),
+                        self.seed_frozen(),
+                        self.order.two_sided_axes(),
+                        seed_schedule,
+                    )?
+                    .with_search_max_depth(options.max_depth),
+                ),
+            ),
+            Some(r) => {
+                let mut streams = Vec::new();
+                let mut first = None;
+                for offset in r.offsets() {
+                    let (centre, centre_shift) = super::SeedRecipe::centre_of(
+                        offset,
+                        &initial,
+                        &self.seed_frozen(),
+                        &self.order.two_sided_axes(),
+                    )
+                    .map_err(|e| SolverError::InvalidInput(format!("seed centre: {e:?}")))?;
+                    first.get_or_insert(centre);
+                    streams.push(
+                        CaseSeedStream::new_centred(
+                            centre,
+                            centre_shift,
+                            *self.order.sector(),
+                            self.seed_frozen(),
+                            self.order.two_sided_axes(),
+                            seed_schedule,
+                        )?
+                        .with_search_max_depth(options.max_depth)
+                        .with_face_floor(r, initial, self.order.sector()),
+                    );
+                }
+                (
+                    first.unwrap_or(initial),
+                    super::seed::CentredSeeds::Multi(super::seed::MultiCentreStream::new(streams)),
+                )
+            }
+        };
         // Astra's shifted-shell stream (CaseSeedSchedule) under the opt-in in-shell SeedSchedule (SymbolicFirst).
         let mut seeds = super::ScheduledSeeds::over(
-            CaseSeedStream::new(
-                initial,
-                *self.order.sector(),
-                self.seed_frozen(),
-                self.order.two_sided_axes(),
-                seed_schedule,
-            )?
-            .with_search_max_depth(options.max_depth),
-            initial,
+            stream,
+            centre,
             crate::node::screen::seed_schedule_override().unwrap_or(self.config.seed_schedule),
         );
         // A coupled affine chart can determine the sign of a symbolic power

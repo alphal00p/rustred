@@ -656,6 +656,119 @@ pub struct NodeOptions {
     /// are those of `symmetry_rows` (the CLI flag `--symmetry-symbolic` turns both on).
     #[serde(default, skip_serializing_if = "is_false")]
     pub symmetry_symbolic: bool,
+    /// seed-centre (2026-11-13, default None = unchanged): build the seed shells of EVERY case around the case target
+    /// plus this offset (PRESENTED slots, length = family arity); target, comparator and pivot test unchanged
+    /// ([`crate::solver::SeedRecipe`]). CLI `--seed-centre-offset <slot>:<delta>[,...]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed_centre_offset: Option<Vec<i64>>,
+    /// seed-centre: further global centres (the seed set is the union of the shells around every centre; CLI
+    /// `--seed-centre-offset 'A;B;..'`, centres separated by ';').
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub seed_centre_extra: Vec<Vec<i64>>,
+    /// seed-centre: per-case centre offsets from `--initial-presented` (field `seed_centre_offset` of a case); a case
+    /// contained in such an initial case (its exceptional branches included) uses that offset instead of the global one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub case_seed_centres: Vec<CaseSeedCentre>,
+    /// seed-centre: drop every seed whose power on a face line (a sector line symbolic, or numeric at >= 2, in the
+    /// case) is below target - k. CLI `--seed-face-floor <k>`; default None = no filter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed_face_floor: Option<u16>,
+    /// t266-tight seed layer cap `[D, R, B]` as given by `--seed-layer-cap` (engine line: recorded here so that the
+    /// table header's node_options, the queue's seed_recipe record, OUTCOME and every case-search rule's
+    /// `seed_setting` carry it; the filter itself is the process-global `solver::SeedLayerCap`). Default None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed_layer_cap: Option<[i32; 3]>,
+}
+
+/// seed-centre: an initial case (PRESENTED slots) with its own seed-centre offset.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaseSeedCentre {
+    pub case: CaseSpec,
+    pub seed_centre_offset: Vec<i64>,
+    /// Further centres of this case (union of shells).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extra: Vec<Vec<i64>>,
+}
+
+/// seed-centre: parse `A;B;..` (each `<slot>:<delta>[,...]`) into one offset vector per centre.
+pub fn parse_seed_centre_offsets(text: &str, arity: usize) -> Result<Vec<Vec<i64>>, String> {
+    let out: Vec<Vec<i64>> = text
+        .split(';')
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+        .map(|c| parse_seed_centre_offset(c, arity))
+        .collect::<Result<_, _>>()?;
+    if out.is_empty() {
+        return Err("no centre".into());
+    }
+    Ok(out)
+}
+
+/// seed-centre: parse `<slot>:<delta>[,...]` into an offset vector of length `arity`.
+pub fn parse_seed_centre_offset(text: &str, arity: usize) -> Result<Vec<i64>, String> {
+    let mut out = vec![0i64; arity];
+    for part in text.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        let (axis, delta) = part
+            .split_once(':')
+            .ok_or_else(|| format!("'{part}': expected <slot>:<delta>"))?;
+        let axis: usize = axis.trim().parse().map_err(|e| format!("slot '{axis}': {e}"))?;
+        let delta: i64 = delta.trim().parse().map_err(|e| format!("delta '{delta}': {e}"))?;
+        if axis >= arity {
+            return Err(format!("slot {axis} >= arity {arity}"));
+        }
+        if !(-8..=8).contains(&delta) {
+            return Err(format!("delta {delta} outside -8..=8"));
+        }
+        out[axis] += delta;
+    }
+    Ok(out)
+}
+
+/// seed-centre: the recipe of one case (None = unchanged search): the offset of the first per-case entry whose case
+/// contains `case`, else the global offset; the floor is global.
+fn seed_recipe_for<const N: usize>(
+    opts: &NodeOptions,
+    centres: &[(Case<N>, Vec<Vec<i64>>)],
+    case: &Case<N>,
+) -> Option<crate::solver::SeedRecipe> {
+    let offsets: Vec<Vec<i64>> = centres
+        .iter()
+        .find(|(c, _)| c.contains(case).unwrap_or(false))
+        .map(|(_, o)| o.clone())
+        .or_else(|| {
+            opts.seed_centre_offset.as_ref().map(|first| {
+                std::iter::once(first.clone())
+                    .chain(opts.seed_centre_extra.iter().cloned())
+                    .collect()
+            })
+        })
+        .unwrap_or_default();
+    let conv = |o: &Vec<i64>| -> Vec<i16> { o.iter().map(|&d| i16::try_from(d).unwrap_or(0)).collect() };
+    let recipe = crate::solver::SeedRecipe {
+        centre_offset: offsets.first().map(conv).unwrap_or_default(),
+        extra_centres: offsets.iter().skip(1).map(conv).collect(),
+        face_floor: opts.seed_face_floor,
+    };
+    (!recipe.is_default()).then_some(recipe)
+}
+
+/// seed-centre: the per-rule record of the seed setting of `case` (None = default seeds).
+fn seed_setting_json<const N: usize>(
+    opts: &NodeOptions,
+    centres: &[(Case<N>, Vec<Vec<i64>>)],
+    case: &Case<N>,
+) -> Option<String> {
+    let r = seed_recipe_for(opts, centres, case);
+    if r.is_none() && opts.seed_layer_cap.is_none() {
+        return None;
+    }
+    let all: Vec<&[i16]> = r.as_ref().map(|r| r.offsets()).unwrap_or_default();
+    let mut v = serde_json::json!({"centres": all, "face_floor": r.as_ref().and_then(|r| r.face_floor), "max_depth": opts.max_depth});
+    // engine line: the layer cap only when set (the seed-centre form is unchanged without it)
+    if let Some(cap) = opts.seed_layer_cap {
+        v["layer_cap"] = serde_json::json!(cap);
+    }
+    Some(v.to_string())
 }
 
 fn lease_wait() -> u64 {
@@ -788,6 +901,11 @@ impl Default for NodeOptions {
             symmetry: false,
             symmetry_rows: false,
             symmetry_symbolic: false,
+            seed_centre_offset: None,
+            seed_centre_extra: Vec::new(),
+            case_seed_centres: Vec::new(),
+            seed_face_floor: None,
+            seed_layer_cap: None,
         }
     }
 }
@@ -870,6 +988,9 @@ pub enum StopReason {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct NodeOutcome {
     pub complete: bool,
+    /// seed-centre: the run's seed options (global centres, per-case centres, floor, max depth); absent by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed_recipe: Option<serde_json::Value>,
     #[serde(default)]
     pub state: String,
     #[serde(default)]
@@ -1300,7 +1421,7 @@ pub fn generate(
 }
 
 /// The node order's [`SectorConfig`] pieces: legacy order, or the compiled tie-priority program.
-fn order_program(
+pub(super) fn order_program(
     order: &NodeOrder,
     n: usize,
 ) -> Result<Option<rustred_order::CompiledOrder>, String> {
@@ -1477,6 +1598,8 @@ struct RuleExtras {
     oversized_fallback: bool,
     /// guard-fix D1: guard semantics of this rule (2 = witness guards, 1 = RHS denominators only)
     guard_version: u32,
+    /// seed-centre: the seed setting this rule's case search used (None = default seeds: field absent).
+    seed_setting: Option<String>,
 }
 
 fn write_rule<const N: usize>(
@@ -1573,11 +1696,14 @@ fn write_rule<const N: usize>(
         .iter()
         .filter(|s| s.basis_row == crate::solver::SYMMETRY_ROW)
         .count();
-    let sym_field = if sym_rows > 0 {
+    let mut sym_field = if sym_rows > 0 {
         format!(",\"sym_rows\":{sym_rows}")
     } else {
         String::new()
     };
+    if let Some(setting) = &x.seed_setting {
+        sym_field.push_str(&format!(",\"seed_setting\":{setting}"));
+    }
     let raw = x
         .raw_pivot
         .as_ref()
@@ -3326,6 +3452,53 @@ fn run<const N: usize>(
     } else {
         presented_initial.clone()
     };
+    // seed-centre: per-case centre offsets (cases in PRESENTED slots) and the global offset, checked once
+    let mut seed_centres: Vec<(Case<N>, Vec<Vec<i64>>)> = Vec::new();
+    for o in opts.seed_centre_offset.iter().chain(&opts.seed_centre_extra) {
+        if o.len() != n {
+            return Err(format!("seed_centre_offset arity {} != {n}", o.len()));
+        }
+    }
+    for entry in &opts.case_seed_centres {
+        let all: Vec<Vec<i64>> = std::iter::once(entry.seed_centre_offset.clone())
+            .chain(entry.extra.iter().cloned())
+            .collect();
+        if let Some(o) = all.iter().find(|o| o.len() != n) {
+            return Err(format!("case seed_centre_offset arity {} != {n}", o.len()));
+        }
+        if let Some(c) = build_case::<N>(&entry.case, &template, &idx, &sector, n)? {
+            seed_centres.push((c, all));
+        }
+    }
+    if opts.seed_centre_offset.is_some()
+        || !seed_centres.is_empty()
+        || opts.seed_face_floor.is_some()
+        || opts.seed_layer_cap.is_some()
+    {
+        let mut rec = serde_json::json!({
+            "seed_centre_offset": opts.seed_centre_offset,
+            "seed_centre_extra": opts.seed_centre_extra,
+            "case_seed_centres": opts.case_seed_centres,
+            "seed_face_floor": opts.seed_face_floor,
+            "max_depth": opts.max_depth,
+        });
+        if let Some(cap) = opts.seed_layer_cap {
+            rec["seed_layer_cap"] = serde_json::json!(cap);
+        }
+        outcome.seed_recipe = Some(rec);
+        let cap_field = opts
+            .seed_layer_cap
+            .map_or(String::new(), |c| format!(",\"seed_layer_cap\":{}", serde_json::json!(c)));
+        writeln!(
+            qlog,
+            "{{\"type\":\"seed_recipe\",\"seed_centre_offset\":{},\"seed_centre_extra\":{},\"case_seed_centres\":{},\"seed_face_floor\":{}{cap_field}}}",
+            serde_json::to_string(&opts.seed_centre_offset).unwrap(),
+            serde_json::to_string(&opts.seed_centre_extra).unwrap(),
+            serde_json::to_string(&opts.case_seed_centres).unwrap(),
+            serde_json::to_string(&opts.seed_face_floor).unwrap()
+        )
+        .map_err(|e| e.to_string())?;
+    }
     for spec in &presented_initial {
         match build_case::<N>(spec, &template, &idx, &sector, n)? {
             Some(c) => {
@@ -3387,6 +3560,23 @@ fn run<const N: usize>(
     let mut provenance = provenance;
     if opts.guard_version() != GUARD_VERSION {
         provenance["guard_version"] = serde_json::json!(opts.guard_version());
+    }
+    // seed-centre: in the registry identity only when set (default identities unchanged)
+    if let Some(o) = &opts.seed_centre_offset {
+        provenance["seed_centre_offset"] = serde_json::json!(o);
+    }
+    if !opts.seed_centre_extra.is_empty() {
+        provenance["seed_centre_extra"] = serde_json::json!(opts.seed_centre_extra);
+    }
+    if !opts.case_seed_centres.is_empty() {
+        provenance["case_seed_centres"] = serde_json::json!(opts.case_seed_centres);
+    }
+    if let Some(k) = opts.seed_face_floor {
+        provenance["seed_face_floor"] = serde_json::json!(k);
+    }
+    // engine line: the t266-tight layer cap, only when set
+    if let Some(cap) = opts.seed_layer_cap {
+        provenance["seed_layer_cap"] = serde_json::json!(cap);
     }
     let identity =
         super::registry::hash_parts(&[math_key.as_bytes(), provenance.to_string().as_bytes()]);
@@ -3701,7 +3891,8 @@ fn run<const N: usize>(
             let mut raw: Option<Integral<N>> = None;
             let mut started: Option<Instant> = None;
             let mut lift = 0.0f64;
-            let result = super::screen::with_seed_schedule(seeds, || {
+            let recipe = seed_recipe_for(opts, &seed_centres, case);
+            let result = crate::solver::with_seed_recipe(recipe, || super::screen::with_seed_schedule(seeds, || {
                 super::screen::with_screen(screen, || {
                     let observe = |event: SearchEvent<N>| match event {
                         SearchEvent::ExactStarted {
@@ -3782,7 +3973,7 @@ fn run<const N: usize>(
                         }
                     }
                 })
-            });
+            }));
             let reports = super::screen::take_reports();
             (
                 result.map(|candidate| Searched {
@@ -4624,6 +4815,7 @@ fn run<const N: usize>(
                                     source_order.clone(),
                                     false,
                                 );
+                                extras.seed_setting = seed_setting_json(opts, &seed_centres, &rule.candidate.case);
                                 extras.oversized_fallback = true;
                                 let mut buf: Vec<u8> = Vec::new();
                                 write_rule(&mut buf, &label, bank_index, &rule, &extras, n);
@@ -4884,6 +5076,7 @@ fn run<const N: usize>(
             searched.source_order.clone(),
             false,
         );
+        extras.seed_setting = seed_setting_json(opts, &seed_centres, &rule.candidate.case);
         outcome.max_rule_monomials = outcome.max_rule_monomials.max(extras.monomials);
         if let Some(mut flag) = oversized_flag.take() {
             extras.oversized_fallback = true;
@@ -5320,7 +5513,7 @@ fn run<const N: usize>(
                         dispatch_policy: Default::default(),
                     };
                     let index = rules.len() + adopted_rules;
-                    let extras = rule_extras(
+                    let mut extras = rule_extras(
                         &solver,
                         &rule,
                         searched.raw_pivot,
@@ -5328,6 +5521,7 @@ fn run<const N: usize>(
                         searched.source_order,
                         true,
                     );
+                    extras.seed_setting = seed_setting_json(opts, &seed_centres, &rule.candidate.case);
                     if let Some(ledger) = &terminal_ledger {
                         if let Err(e) = ledger.check_rule(
                             &rule.candidate.target,
@@ -5901,6 +6095,7 @@ fn rule_extras<const N: usize>(
         } else {
             1
         },
+        seed_setting: None,
     }
 }
 
@@ -7797,6 +7992,48 @@ mod tests {
             serde_json::to_string(&p).unwrap(),
             "\"affine-coupled-first\""
         );
+    }
+
+    #[test]
+    fn seed_centre_options_default_off_and_parse() {
+        // defaults serialize exactly as before (no new keys in the options record / registry identity)
+        let v = serde_json::to_value(NodeOptions::default()).unwrap();
+        for key in ["seed_centre_offset", "seed_centre_extra", "case_seed_centres", "seed_face_floor"] {
+            assert!(v.get(key).is_none(), "{key}");
+        }
+        let restored: NodeOptions = serde_json::from_value(v).unwrap();
+        assert!(restored.seed_centre_offset.is_none() && restored.case_seed_centres.is_empty());
+        assert_eq!(parse_seed_centre_offset("0:-1", 3).unwrap(), vec![-1, 0, 0]);
+        assert_eq!(parse_seed_centre_offset("0:-1, 2:1", 3).unwrap(), vec![-1, 0, 1]);
+        for bad in ["3:-1", "0", "x:1", "0:99"] {
+            assert!(parse_seed_centre_offset(bad, 3).is_err(), "{bad}");
+        }
+        // a CaseSpec with the per-case field still parses (the field is read separately by the CLI)
+        let spec: CaseSpec =
+            serde_json::from_str(r#"{"fixed":[null,1,0],"equations":[],"seed_centre_offset":[-1,0,0]}"#).unwrap();
+        assert_eq!(spec.fixed, vec![None, Some(1), Some(0)]);
+        // per-case offset wins for contained cases, else the global one; no recipe without both and a floor
+        let face = Case::<3>::from(CoordinateCase::new([None, Some(1), Some(0)]).unwrap());
+        let point = Case::<3>::from(CoordinateCase::new([Some(3), Some(1), Some(0)]).unwrap());
+        let other = Case::<3>::from(CoordinateCase::new([None, Some(2), Some(0)]).unwrap());
+        let mut opts = NodeOptions::default();
+        assert!(seed_recipe_for(&opts, &[], &face).is_none());
+        opts.seed_centre_offset = Some(vec![0, 0, 0]);
+        assert!(seed_recipe_for(&opts, &[], &face).is_none());
+        opts.seed_centre_offset = Some(vec![0, 1, 0]);
+        let centres = vec![(face.clone(), vec![vec![-1, 0, 0], vec![0, 0, 0]])];
+        let r = seed_recipe_for(&opts, &centres, &point).unwrap();
+        assert_eq!((r.centre_offset.clone(), r.extra_centres.clone()), (vec![-1, 0, 0], vec![vec![0, 0, 0]]));
+        assert_eq!(
+            parse_seed_centre_offsets("0:-1;2:-1", 3).unwrap(),
+            vec![vec![-1, 0, 0], vec![0, 0, -1]]
+        );
+        assert!(parse_seed_centre_offsets(";", 3).is_err());
+        assert_eq!(seed_recipe_for(&opts, &centres, &other).unwrap().centre_offset, vec![0, 1, 0]);
+        opts.seed_centre_offset = None;
+        opts.seed_face_floor = Some(1);
+        let r = seed_recipe_for(&opts, &[], &other).unwrap();
+        assert_eq!((r.centre_offset.iter().all(|&d| d == 0), r.face_floor), (true, Some(1)));
     }
 
     #[test]
