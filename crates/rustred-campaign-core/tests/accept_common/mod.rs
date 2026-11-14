@@ -23,7 +23,6 @@ use rustred_campaign_core::order::NodeComparator;
 use rustred_campaign_core::record::{
     ReadOptions, RhsMode, TableFile, TableHeader, read_table_file,
 };
-use rustred_campaign_core::replay_base::family::Family;
 use serde_json::Value;
 
 pub const WS: &str = "/shared/vhirschi/t3code/vakint_dev/p_integral_dev";

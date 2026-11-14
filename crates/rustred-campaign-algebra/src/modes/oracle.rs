@@ -29,6 +29,9 @@ use rustred_campaign_core::replay_base::algebra::{Ctx, Eliminator, Q};
 
 use crate::referee::{self as r, RefElim};
 
+/// One IBP operator of the oracle: (diagonal (j == v), per slot i: (t0, [(m, t_m)])).
+type OracleOp = (bool, Vec<(Q, Vec<(usize, Q)>)>);
+
 /// The family as the oracle reads it.
 pub struct OracleFamily {
     loops: usize,
@@ -36,7 +39,7 @@ pub struct OracleFamily {
     c: Vec<Vec<i64>>,
     kshift: Vec<i64>,
     /// per operator (j, v): per slot i: (t0, [(m, t_m)])
-    ops: Vec<(bool, Vec<(Q, Vec<(usize, Q)>)>)>,
+    ops: Vec<OracleOp>,
     zero: std::cell::RefCell<HashMap<Vec<bool>, bool>>,
 }
 
@@ -46,7 +49,7 @@ fn args<'a>(compact: &'a str, head: &str) -> Vec<&'a str> {
         .and_then(|x| x.strip_suffix(')'))
         .unwrap_or("");
     let (mut depth, mut start, mut out) = (0i32, 0usize, Vec::new());
-    for (k, b) in inner.bytes().chain([b',']).enumerate() {
+    for (k, b) in inner.bytes().chain(*b",").enumerate() {
         match b {
             b'(' => depth += 1,
             b')' => depth -= 1,

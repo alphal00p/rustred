@@ -801,7 +801,7 @@ fn rows4_triage_table() {
         (gr.class.as_str(), gr.unresolved.as_str()),
         ("Differ", "GrammarRefusal")
     );
-    let _ = (UnresolvedClass::TextPole, Stage::Points);
+    let _ = (UnresolvedClass::TextPole, Stage::Points, &f.den);
 }
 
 /// RA3-M3: the oracle re-decides the shared logic at the integer keys: clean verdicts agree; verdicts a shared-logic

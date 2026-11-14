@@ -94,7 +94,7 @@ fn jacobi(mut a: i128, mut n: i128) -> i32 {
 /// proven correct below 2^64 by exhaustive search, Feitsma / Gilchrist).
 pub fn is_prime(n: u64) -> bool {
     for q in [2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47] {
-        if n % q == 0 {
+        if n.is_multiple_of(q) {
             return n == q;
         }
     }
@@ -959,9 +959,9 @@ impl CheckAlgebra for Referee {
                 .zip(&y.0)
                 .all(|((e1, c1), (e2, c2))| e1 == e2 && qmul(*c1, *cb).ok() == qmul(*c2, *ca).ok())
     }
-    fn eliminate<'r>(
+    fn eliminate(
         &self,
-        rows: &'r [Vec<(usize, u64)>],
+        rows: &[Vec<(usize, u64)>],
         _ncols: usize,
         p: u64,
         max_entries: usize,

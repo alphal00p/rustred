@@ -16,8 +16,9 @@
 //!      rule is NOT derived from its recorded seeds, and the one-step probe does not derive it either: not certified by
 //!      its seeds); [`Triage::RecordInconsistent`] (the same failure at the recorded seeds, but the probe seeds derive
 //!      the identity: the rule holds, its RECORD is inconsistent); [`Triage::AgreeOther`] (same other verdict).
-//!   In `Both`, anything but an agreement BLOCKS the level of the certificate record and a `Differ` raises a typed
-//!   [`TriageFinding`].
+//!
+//! In `Both`, anything but an agreement BLOCKS the level of the certificate record and a `Differ` raises a typed
+//! [`TriageFinding`].
 
 pub mod oracle;
 
