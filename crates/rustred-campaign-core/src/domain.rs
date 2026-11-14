@@ -70,6 +70,10 @@ pub enum DomainError {
         chart: String,
         frame: String,
     },
+    /// Recenter bounds were requested ([`DomainOptions::recenter_bounds`]) but the record's `recenter` is `null` or
+    /// absent (the engine writes `null` for a rule without a raw pivot): its bounds are unknown, so the record is
+    /// refused instead of being loaded without bounds (re-audit RA minor N-m1).
+    MissingRecenter,
     /// Inconsistent public fields (from [`CaseDomain::validate`]).
     Invalid(String),
 }
@@ -94,6 +98,10 @@ impl fmt::Display for DomainError {
                     "record chart {chart} differs from the frame mask {frame}"
                 )
             }
+            DomainError::MissingRecenter => write!(
+                f,
+                "recenter bounds requested but the record's recenter is null or absent"
+            ),
             DomainError::Invalid(s) => write!(f, "invalid domain: {s}"),
         }
     }
@@ -135,8 +143,17 @@ impl PoleLocus {
             coeffs: p.d_coefficients().into_iter().map(|(_, c)| c).collect(),
         }
     }
-    /// True iff the polynomial vanishes identically in d at the key.
+    /// True iff the polynomial vanishes identically in d at the key. A key shorter than a variable index used by ANY
+    /// coefficient is an error, whatever the coefficients' values (audit RB m4: an early nonzero coefficient used to
+    /// hide a too-short key).
     pub fn vanishes_at(&self, key: &[i32]) -> Result<bool, EvalError> {
+        let needed = self.coeffs.iter().map(Poly::min_arity).max().unwrap_or(0);
+        if key.len() < needed {
+            return Err(EvalError::KeyTooShort {
+                needed,
+                len: key.len(),
+            });
+        }
         for c in &self.coeffs {
             if !c.is_zero_at(key)? {
                 return Ok(false);
@@ -187,6 +204,10 @@ pub enum Verdict {
     },
     /// The rule is selected at the key, but its witness loci are elided: unusable (ruling F1), fail closed.
     Elided,
+    /// The rule is selected at the key, but its source carries no witness loci (case-domain export) and no witness
+    /// attestation covers it: unusable, fail closed (re-audit RA-MAJOR-1). Produced by the dispatcher
+    /// ([`crate::cover::Dispatcher`]), never by [`CaseDomain::applies`], which does not know the source.
+    WitnessNotCarried,
     /// Evaluation failed (rule point out of the `i32` range, or a value the engine's modular zero test would read
     /// differently); the selection itself is unknown.
     Error(EvalError),
@@ -219,6 +240,7 @@ impl Verdict {
             Verdict::RecenterBound(_)
             | Verdict::OnPole { .. }
             | Verdict::Elided
+            | Verdict::WitnessNotCarried
             | Verdict::ChartMismatch { .. } => Stage::Blocked,
         }
     }
@@ -314,13 +336,30 @@ pub fn parse_target(text: &str, arity: usize) -> Result<Vec<TargetSlot>, String>
     Ok(out)
 }
 
+/// True iff a parsed target is the canonical pattern of its case (`n<j>` on every free slot, the fixed value or
+/// `n<j>` on fixed slots): the rule point is then the key itself.
+pub fn is_canonical_target(slots: &[TargetSlot], fixed: &[Option<i32>]) -> bool {
+    slots.len() == fixed.len()
+        && slots.iter().enumerate().all(|(j, t)| match (t, fixed[j]) {
+            (TargetSlot::Param { param, offset: 0 }, _) if *param == j => true,
+            (TargetSlot::Const(c), Some(v)) => *c == v as i64,
+            _ => false,
+        })
+}
+
+/// The fixed slots of a record as `i32`, checked against the arity.
+pub(crate) fn record_fixed(r: &RuleRecord, n: usize) -> Result<Vec<Option<i32>>, DomainError> {
+    if r.fixed.len() != n {
+        return Err(DomainError::Malformed(format!(
+            "fixed of length {} for arity {n}",
+            r.fixed.len()
+        )));
+    }
+    fixed_i32(&r.fixed)
+}
+
 fn target_map(slots: Vec<TargetSlot>, fixed: &[Option<i32>]) -> TargetMap {
-    let canonical = slots.iter().enumerate().all(|(j, t)| match (t, fixed[j]) {
-        (TargetSlot::Param { param, offset: 0 }, _) if *param == j => true,
-        (TargetSlot::Const(c), Some(v)) => *c == v as i64,
-        _ => false,
-    });
-    if canonical {
+    if is_canonical_target(&slots, fixed) {
         TargetMap::Canonical
     } else {
         TargetMap::Pattern(slots)
@@ -339,7 +378,8 @@ pub struct DomainOptions {
     pub witness: bool,
     /// Add the recenter bounds (line slot n_i >= max(1, 1 - recenter_i), numerator n_j <= min(0, -recenter_j)) as
     /// post-selection bounds ([`Verdict::RecenterBound`], [`Stage::Blocked`]; default false: the engine's matcher
-    /// does not test them). The record's `recenter` must have one entry per slot.
+    /// does not test them). The record's `recenter` must have one entry per slot; a `null` or absent `recenter` is
+    /// [`DomainError::MissingRecenter`].
     pub recenter_bounds: bool,
 }
 
@@ -496,8 +536,9 @@ impl CaseDomain {
     ///
     /// Refused (typed errors, never a silent reading): a non-zero power shift of the frame, `dispatch` other than
     /// absent/`Partition` ([`DomainError::NotDispatched`]), a record chart other than the frame mask, a missing
-    /// target unless `opts.targets` states canonical-by-construction, an unreadable target, a `recenter` of the wrong
-    /// length (when used), a non-canonical target together with recenter bounds.
+    /// target unless `opts.targets` states canonical-by-construction, an unreadable target, a `recenter` that is
+    /// missing, `null` or of the wrong length (when recenter bounds are requested), a non-canonical target together
+    /// with recenter bounds.
     pub fn from_rule_record(
         r: &RuleRecord,
         frame: &NodeFrame,
@@ -557,9 +598,8 @@ impl CaseDomain {
             d.witness_elided = !elided.is_empty();
             parse_poles(&listed, n, PoleKind::Witness, &mut d.poles)?;
         }
-        if opts.recenter_bounds
-            && let Some(rc) = &r.recenter
-        {
+        if opts.recenter_bounds {
+            let rc = r.recenter.as_ref().ok_or(DomainError::MissingRecenter)?;
             if rc.len() != n {
                 return Err(DomainError::Malformed(format!(
                     "recenter of length {} for arity {n}",
@@ -730,6 +770,12 @@ impl CaseDomain {
 
     /// The engine's rule point (`find_rule`): `pt[a] = k[j] - o` for `n<a>+o` at slot j, a constant must equal the
     /// key; parameters no slot maps get the fixed value of their slot, else 0.
+    ///
+    /// Order (re-audit RB m1): every target CONSTANT is tested first (a cheap deselecting condition: the engine's
+    /// i64 arithmetic skips the rule there whatever the other slots hold); only then are the parameter slots
+    /// computed, and a rule point outside the `i32` range is `Error(Overflow)` (Undecided, fail closed: the engine
+    /// would evaluate the conditions in i64 at such a point, this crate does not). Equations and exceptions, the
+    /// other deselecting conditions, need the rule point and therefore come after it.
     fn rule_point(&self, t: &[TargetSlot], key: &[i32]) -> Result<Vec<i32>, Verdict> {
         if t.len() != self.arity {
             return Err(Verdict::NotInCase(NotInCase::Arity {
@@ -737,18 +783,21 @@ impl CaseDomain {
                 got: t.len(),
             }));
         }
+        for (j, s) in t.iter().enumerate() {
+            if let TargetSlot::Const(c) = *s
+                && key[j] as i64 != c
+            {
+                return Err(Verdict::NotInCase(NotInCase::TargetConstant {
+                    slot: j,
+                    constant: c,
+                    got: key[j],
+                }));
+            }
+        }
         let mut pt: Vec<Option<i32>> = vec![None; self.arity];
         for (j, s) in t.iter().enumerate() {
             match *s {
-                TargetSlot::Const(c) => {
-                    if key[j] as i64 != c {
-                        return Err(Verdict::NotInCase(NotInCase::TargetConstant {
-                            slot: j,
-                            constant: c,
-                            got: key[j],
-                        }));
-                    }
-                }
+                TargetSlot::Const(_) => {}
                 TargetSlot::Param { param, offset } => {
                     let v = (key[j] as i64)
                         .checked_sub(offset)
