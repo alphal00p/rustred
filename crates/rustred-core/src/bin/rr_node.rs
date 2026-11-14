@@ -1365,6 +1365,9 @@ fn cmd_solve_recipe(mut a: Args) -> i32 {
         job,
         outcome_path,
     );
+    // job mode: the stop file RUN/STOP, the grace and heartbeat periods of the spec, paths relative to RUN
+    let (mut stop_file, mut stop_grace_s, mut heartbeat_s, mut path_base, mut events_path) =
+        (None, 20.0f64, 10.0f64, None, None);
     if let Some(jp) = job_path {
         a.done();
         let spec_text =
@@ -1477,11 +1480,22 @@ fn cmd_solve_recipe(mut a: Args) -> i32 {
         expect_path = roles.get("expect").cloned();
         out = run_dir.join("out").display().to_string();
         outcome_path = Some(run_dir.join("OUTCOME.json"));
+        for i in echo.iter_mut() {
+            // inputs echoed relative to the run directory (no absolute paths in the job's records)
+            let p = i["path"].as_str().unwrap_or("").to_string();
+            i["path"] = serde_json::json!(relative_to(&run_dir, &p));
+        }
         job = Some(
             serde_json::json!({"schema": "rustred.child-job.outcome.v1", "job_id": spec["job_id"],
             "attempt": spec["attempt"], "kind": "solve-recipe",
-            "spec_blake3": blake3::hash(spec_text.as_bytes()).to_hex().to_string(), "inputs": echo}),
+            "spec_blake3": blake3::hash(spec_text.as_bytes()).to_hex().to_string(), "inputs": echo,
+            "args": spec["args"], "started_utc": recipe::utc_now()}),
         );
+        stop_file = Some(run_dir.join("STOP"));
+        stop_grace_s = spec["stop_grace_s"].as_f64().unwrap_or(20.0);
+        heartbeat_s = spec["heartbeat_s"].as_f64().unwrap_or(10.0);
+        path_base = Some(run_dir.clone());
+        events_path = Some(run_dir.join("EVENTS.jsonl"));
     } else {
         family_path = a
             .take("--family")
@@ -1589,6 +1603,12 @@ fn cmd_solve_recipe(mut a: Args) -> i32 {
         inputs: serde_json::json!(inputs),
         job,
         outcome_path: outcome_path.clone(),
+        stop: None,
+        stop_file: stop_file.clone(),
+        stop_grace_s,
+        path_base: path_base.clone(),
+        events_path: events_path.clone(),
+        heartbeat_s,
     };
     let single = keys.len() == 1;
     match recipe::run_batch(&family, &order, &recipe_text, &keys, outp, &opts) {
@@ -1623,6 +1643,23 @@ fn cmd_solve_recipe(mut a: Args) -> i32 {
             }
         }
     }
+}
+
+/// `p` relative to `base` (`..` where needed; both made absolute).
+fn relative_to(base: &std::path::Path, p: &str) -> String {
+    let abs = |x: &std::path::Path| std::fs::canonicalize(x).unwrap_or_else(|_| x.to_path_buf());
+    let (b, t) = (abs(base), abs(std::path::Path::new(p)));
+    let bc: Vec<_> = b.components().collect();
+    let tc: Vec<_> = t.components().collect();
+    let common = bc.iter().zip(&tc).take_while(|(x, y)| x == y).count();
+    let mut out = std::path::PathBuf::new();
+    for _ in common..bc.len() {
+        out.push("..");
+    }
+    for c in &tc[common..] {
+        out.push(c.as_os_str());
+    }
+    out.display().to_string()
 }
 
 fn dims_arg(a: &mut Args) -> Vec<rustred::node::replay::arith::Q> {

@@ -12,7 +12,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
+use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -397,8 +397,11 @@ pub fn build_seeds(recipe: &Recipe, key: &[i64]) -> Vec<Vec<i64>> {
     out
 }
 
+/// An external stop request (an embedding supervisor's flag, e.g. the child-job contract's signal counter).
+pub type StopFn = Arc<dyn Fn() -> bool + Send + Sync>;
+
 /// Options of one batch (command line of `rr_node solve-recipe`).
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct BatchOptions {
     pub threads: usize,
     pub max_trace_rows: Option<usize>,
@@ -417,6 +420,157 @@ pub struct BatchOptions {
     /// job mode: the child-job `job` block (job_id, attempt, kind, spec_blake3, ...) and the OUTCOME path
     pub job: Option<Value>,
     pub outcome_path: Option<PathBuf>,
+    /// external stop request (polled with this process's own signal counter and the stop file)
+    pub stop: Option<StopFn>,
+    /// a stop file (child-job 3.4.5: `RUN/STOP`): its existence is a stop request
+    pub stop_file: Option<PathBuf>,
+    /// seconds the workers get to finish their current keys after a stop request before the hard stop (default 20)
+    pub stop_grace_s: f64,
+    /// job mode: paths in failure records are written relative to this directory (the job's run directory)
+    pub path_base: Option<PathBuf>,
+    /// EVENTS.jsonl location (default `out/EVENTS.jsonl`); job mode: `RUN/EVENTS.jsonl` in the contract's envelope
+    pub events_path: Option<PathBuf>,
+    /// heartbeat period of the contract events (job mode), seconds
+    pub heartbeat_s: f64,
+}
+
+impl BatchOptions {
+    /// Defaults for an embedding caller (no paths known, one thread, proof on).
+    pub fn new(binary: Value) -> Self {
+        Self {
+            threads: 1,
+            max_trace_rows: None,
+            proof: true,
+            family_path: String::new(),
+            recipe_path: String::new(),
+            order_text: String::new(),
+            binary,
+            key_budget_s: None,
+            expect: BTreeMap::new(),
+            inputs: json!([]),
+            job: None,
+            outcome_path: None,
+            stop: None,
+            stop_file: None,
+            stop_grace_s: 20.0,
+            path_base: None,
+            events_path: None,
+            heartbeat_s: 10.0,
+        }
+    }
+
+    fn stop_requested(&self) -> Option<&'static str> {
+        if SIGNALS.load(AtomicOrdering::SeqCst) > 0 {
+            Some("SIGTERM")
+        } else if self.stop.as_ref().is_some_and(|f| f()) {
+            Some("supervisor")
+        } else if self.stop_file.as_ref().is_some_and(|p| p.exists()) {
+            Some("stopfile")
+        } else {
+            None
+        }
+    }
+
+    /// `p` relative to `path_base` (job mode), else unchanged.
+    fn rel(&self, p: &str) -> String {
+        match &self.path_base {
+            Some(base) if !p.is_empty() => relative_path(base, Path::new(p)),
+            _ => p.to_string(),
+        }
+    }
+}
+
+/// `target` relative to `base` (both made absolute; `..` where needed).
+fn relative_path(base: &Path, target: &Path) -> String {
+    let abs = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let (b, t) = (abs(base), abs(target));
+    let bc: Vec<_> = b.components().collect();
+    let tc: Vec<_> = t.components().collect();
+    let common = bc.iter().zip(&tc).take_while(|(x, y)| x == y).count();
+    let mut out = PathBuf::new();
+    for _ in common..bc.len() {
+        out.push("..");
+    }
+    for c in &tc[common..] {
+        out.push(c.as_os_str());
+    }
+    if out.as_os_str().is_empty() {
+        ".".into()
+    } else {
+        out.display().to_string()
+    }
+}
+
+/// UTC time stamp `YYYY-MM-DDTHH:MM:SS.mmmZ` (child-job events).
+pub fn utc_now() -> String {
+    let d = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = d.as_secs() as i64;
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // civil from days (H. Hinnant)
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if month <= 2 { y + 1 } else { y };
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60,
+        d.subsec_millis()
+    )
+}
+
+/// EVENTS.jsonl writer: plain lines, or (job mode) the child-job envelope `{"v":1,"seq","t","kind",..}` with `utc`
+/// on job_started / heartbeat / job_finished only (child-job.md 3.5).
+struct Events {
+    file: Mutex<std::fs::File>,
+    seq: AtomicUsize,
+    t0: Instant,
+    contract: bool,
+}
+
+impl Events {
+    fn emit(&self, kind: &str, fields: Value) {
+        let mut v = if self.contract {
+            let t = (self.t0.elapsed().as_secs_f64() * 1000.0).round() / 1000.0;
+            let mut v = json!({"v": 1, "seq": self.seq.fetch_add(1, AtomicOrdering::SeqCst), "t": t, "kind": kind});
+            if matches!(kind, "job_started" | "heartbeat" | "job_finished") {
+                v["utc"] = json!(utc_now());
+            }
+            v
+        } else {
+            json!({"kind": kind})
+        };
+        if let (Some(o), Some(f)) = (v.as_object_mut(), fields.as_object()) {
+            for (k, x) in f {
+                o.insert(k.clone(), x.clone());
+            }
+        }
+        if let Ok(mut f) = self.file.lock() {
+            let _ = writeln!(f, "{v}");
+        }
+    }
+
+    /// One key's result: plain `key_finished`; in job mode an `engine` event (the contract's slot for engine-specific
+    /// progress).
+    fn key(&self, unique: usize, verdict: &Value, seconds: &Value) {
+        if self.contract {
+            self.emit("engine", json!({"event": {"RecipeKey": {"unique": unique, "verdict": verdict, "seconds": seconds}}}));
+        } else {
+            self.emit(
+                "key_finished",
+                json!({"unique": unique, "verdict": verdict, "seconds": seconds}),
+            );
+        }
+    }
 }
 
 /// One input key.
@@ -426,23 +580,21 @@ pub struct KeyInput {
     pub tag: Option<String>,
 }
 
-/// Set by SIGTERM / SIGINT (see [`install_stop_handler`]); workers stop taking keys.
-pub static STOP: AtomicBool = AtomicBool::new(false);
+/// Signals received by this process (only when the CLI installed [`install_stop_handler`]; an embedding caller
+/// passes its own flag as `BatchOptions::stop`). The handler only increments it (async-signal-safe, as the
+/// child-job contract's handler); the batch's watchdog does the rest.
 static SIGNALS: AtomicUsize = AtomicUsize::new(0);
 
 extern "C" fn on_signal(_: i32) {
-    if SIGNALS.fetch_add(1, AtomicOrdering::SeqCst) >= 1 {
-        // second signal: leave at once (nothing sealed; OUTCOME absent)
-        unsafe { libc::_exit(30) };
-    }
-    STOP.store(true, AtomicOrdering::SeqCst);
+    SIGNALS.fetch_add(1, AtomicOrdering::SeqCst);
 }
 
-/// SIGTERM / SIGINT / SIGHUP: first = graceful stop (current keys finish, the rest INTERRUPTED, sealed partial),
-/// second = immediate exit 30.
+/// SIGTERM / SIGINT / SIGHUP (stand-alone CLI only, never by the library): first = graceful stop (current keys finish
+/// within `stop_grace_s`, the rest INTERRUPTED, sealed partial, exit 30); a second signal or the grace running out =
+/// hard stop (the keys still running are INTERRUPTED too, outputs sealed, exit 30).
 pub fn install_stop_handler() {
     for s in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
-        // SAFETY: the handler only touches atomics and calls _exit (async-signal-safe).
+        // SAFETY: the handler only increments an atomic (async-signal-safe).
         unsafe {
             libc::signal(s, on_signal as *const () as libc::sighandler_t);
         }
@@ -823,18 +975,31 @@ fn run_prepared<const N: usize>(
     let opts = ctx.opts;
     let prepare_s = ctx.t0.elapsed().as_secs_f64();
     std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
-    let events = Mutex::new(
-        std::fs::File::create(out.join("EVENTS.jsonl")).map_err(|e| format!("events: {e}"))?,
-    );
-    let event = |v: Value| {
-        if let Ok(mut f) = events.lock() {
-            let _ = writeln!(f, "{v}");
-        }
+    let events_path = opts
+        .events_path
+        .clone()
+        .unwrap_or_else(|| out.join("EVENTS.jsonl"));
+    let events = Events {
+        file: Mutex::new(std::fs::File::create(&events_path).map_err(|e| format!("events: {e}"))?),
+        seq: AtomicUsize::new(0),
+        t0: ctx.t0,
+        contract: opts.job.is_some(),
     };
-    event(
-        json!({"kind":"job_started","recipe_digest":ctx.recipe_digest,"keys":keys.len(),
-        "threads":opts.threads,"prepare_s":prepare_s,"determinism_id":DETERMINISM_ID}),
-    );
+    if let Some(job) = &opts.job {
+        events.emit(
+            "job_started",
+            json!({"job_id": job["job_id"], "attempt": job["attempt"], "spec_blake3": job["spec_blake3"],
+                "pid": std::process::id(), "program": "rr_node", "version": env!("CARGO_PKG_VERSION"),
+                "git_commit": opts.binary["git_commit"], "resume_from": Value::Null}),
+        );
+        events.emit("phase", json!({"phase": "case_search"}));
+    } else {
+        events.emit(
+            "job_started",
+            json!({"recipe_digest":ctx.recipe_digest,"keys":keys.len(),
+            "threads":opts.threads,"prepare_s":prepare_s,"determinism_id":DETERMINISM_ID}),
+        );
+    }
 
     // unique keys, solved once each, reported per occurrence
     let mut uniq: Vec<Vec<i64>> = Vec::new();
@@ -862,7 +1027,7 @@ fn run_prepared<const N: usize>(
             active.fetch_add(1, AtomicOrdering::SeqCst);
             s.spawn(|| {
                 loop {
-                    if STOP.load(AtomicOrdering::SeqCst) {
+                    if opts.stop_requested().is_some() {
                         break;
                     }
                     let i = next.fetch_add(1, AtomicOrdering::SeqCst);
@@ -877,10 +1042,7 @@ fn run_prepared<const N: usize>(
                     shared.running.lock().unwrap().remove(&i);
                     // a key whose wall budget expired keeps its BUDGET_WALL record
                     if !shared.expired.lock().unwrap().contains(&i) {
-                        event(
-                            json!({"kind":"key_finished","unique":i,"verdict":rec["verdict"],
-                            "seconds":rec["seconds"]}),
-                        );
+                        events.key(i, &rec["verdict"], &rec["seconds"]);
                         shared.results.lock().unwrap()[i] = Some(rec);
                     }
                 }
@@ -890,8 +1052,46 @@ fn run_prepared<const N: usize>(
         // watchdog: per-key wall budget (time-decided: BUDGET_WALL), and the end of the batch. When the only work
         // left is keys whose budget expired (their lifts cannot be interrupted in-thread), the outputs are sealed
         // here and the process exits (the stuck threads end with it).
+        let mut first_stop: Option<Instant> = None;
+        let mut last_beat = Instant::now();
         loop {
             std::thread::sleep(std::time::Duration::from_millis(100));
+            // stop request: graceful first (no new key), hard after a second signal or the grace period
+            if let Some(source) = opts.stop_requested() {
+                if first_stop.is_none() {
+                    first_stop = Some(Instant::now());
+                    events.emit(
+                        "stop_requested",
+                        json!({"source": source, "count": SIGNALS.load(AtomicOrdering::SeqCst).max(1)}),
+                    );
+                }
+            }
+            let hard = first_stop.is_some_and(|t| {
+                SIGNALS.load(AtomicOrdering::SeqCst) >= 2
+                    || t.elapsed().as_secs_f64() > opts.stop_grace_s
+            });
+            if hard && active.load(AtomicOrdering::SeqCst) > 0 {
+                let code =
+                    write_outputs(ctx, keys, &uniq_of, &shared, out, prepare_s, &events, false);
+                std::process::exit(code.unwrap_or(70));
+            }
+            if events.contract && last_beat.elapsed().as_secs_f64() >= opts.heartbeat_s {
+                last_beat = Instant::now();
+                let done = shared
+                    .results
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|r| r.is_some())
+                    .count();
+                events.emit(
+                    "heartbeat",
+                    json!({"phase": "case_search", "case_ordinal": Value::Null,
+                        "pending": uniq.len().saturating_sub(done), "rules_committed": done,
+                        "counters": counters(done, 0), "rss_kb": rss_kb(), "vmhwm_kb": vmhwm_kb(), "helpers": 0,
+                        "stop_requested": first_stop.is_some()}),
+                );
+            }
             if let Some(budget) = opts.key_budget_s {
                 let now: Vec<(usize, f64)> = shared
                     .running
@@ -913,25 +1113,23 @@ fn run_prepared<const N: usize>(
                             json!({"counter":"wall_seconds","limit":budget,"value":el}),
                         );
                         rec["seconds"] = json!(el);
-                        event(
-                            json!({"kind":"key_finished","unique":i,"verdict":"BUDGET_WALL","seconds":el}),
-                        );
+                        events.key(i, &json!("BUDGET_WALL"), &json!(el));
                         shared.results.lock().unwrap()[i] = Some(rec);
                     }
                 }
             }
             if active.load(AtomicOrdering::SeqCst) == 0 {
-                break write_outputs(ctx, keys, &uniq_of, &shared, out, prepare_s, &event);
+                break write_outputs(ctx, keys, &uniq_of, &shared, out, prepare_s, &events, true);
             }
-            let exhausted = next.load(AtomicOrdering::SeqCst) >= uniq.len()
-                || STOP.load(AtomicOrdering::SeqCst);
+            let exhausted = next.load(AtomicOrdering::SeqCst) >= uniq.len() || first_stop.is_some();
             let stuck_only = {
                 let running = shared.running.lock().unwrap();
                 let expired = shared.expired.lock().unwrap();
                 !running.is_empty() && running.keys().all(|i| expired.contains(i))
             };
             if exhausted && stuck_only {
-                let code = write_outputs(ctx, keys, &uniq_of, &shared, out, prepare_s, &event);
+                let code =
+                    write_outputs(ctx, keys, &uniq_of, &shared, out, prepare_s, &events, true);
                 std::process::exit(code.unwrap_or(70));
             }
         }
@@ -947,7 +1145,8 @@ fn write_outputs<const N: usize>(
     shared: &Shared,
     out: &Path,
     prepare_s: f64,
-    event: &dyn Fn(Value),
+    events: &Events,
+    graceful: bool,
 ) -> Result<i32, String> {
     let opts = ctx.opts;
     let results = shared.results.lock().unwrap().clone();
@@ -965,7 +1164,7 @@ fn write_outputs<const N: usize>(
                 &k.key,
                 "INTERRUPTED",
                 "interrupted",
-                "the batch was stopped by a signal before this key was solved",
+                "the batch was stopped (signal, stop file or supervisor) before this key was solved",
                 json!({}),
             ),
         };
@@ -1010,16 +1209,65 @@ fn write_outputs<const N: usize>(
         "memory": {"vmhwm_kb": vmhwm_kb()},
         "threads": opts.threads.max(1),
     });
+    // stop code (child-job 3.7 closed list; `keys_unsolved` is PROPOSED for this kind: some keys typed non-SOLVED)
+    let stop_code: Value = match exit {
+        0 => Value::Null,
+        30 => json!("interrupted"),
+        _ => json!("keys_unsolved"),
+    };
     if let Some(job) = &opts.job {
-        // child-job contract (subset): the job block, paths relative to the run directory
+        // child-job contract job block (rustred.child-job.outcome.v1 field set; paths relative to the run directory)
+        let solved = counts.get("SOLVED").copied().unwrap_or(0);
+        let time_decisions: Vec<Value> = results
+            .iter()
+            .enumerate()
+            .filter_map(|(u, r)| {
+                r.as_ref()
+                    .filter(|r| r["verdict"] == "BUDGET_WALL")
+                    .map(|r| (u, r))
+            })
+            .map(|(u, r)| {
+                json!({"what": "case_wall", "case_ordinal": u, "rule": Value::Null,
+                "limit_s": opts.key_budget_s, "measured_s": r["seconds"], "taken": "budget_wall"})
+            })
+            .collect();
         let mut j = job.clone();
         j["status"] = outcome["status"].clone();
         j["exit_code"] = json!(exit);
+        j["stop"] = json!({"code": stop_code, "detail": if exit == 0 { Value::Null } else { json!({"counts": counts}) },
+            "source": if exit == 30 { json!("signal_or_stopfile") } else { Value::Null }, "graceful": graceful});
+        j["program"] = json!({"name": "rr_node", "version": env!("CARGO_PKG_VERSION"),
+            "git_commit": opts.binary["git_commit"], "features": ["solve_recipe"], "exe": exe_info()});
+        j["effective"] = json!({"subcommand": "solve-recipe", "args": job["args"], "node_options": Value::Null,
+            "order": serde_json::from_str::<Value>(&opts.order_text).unwrap_or(Value::Null), "env": {},
+            "recipe_digest": ctx.recipe_digest, "determinism_id": DETERMINISM_ID});
+        j["seed"] = json!({"sample_seed": SAMPLE_SEED, "point_source": "seed"});
+        j["counters"] = counters(solved, keys.len());
+        j["budgets"] = json!({"wall": {"case_s": opts.key_budget_s}, "hit": Value::Null});
+        j["time_decided"] = json!(!time_decisions.is_empty());
+        j["time_decisions"] = json!(time_decisions);
         j["outputs"] = json!({"extra": [{"role": "results", "path": "out/results.jsonl", "bytes": bytes.len(),
             "blake3": outcome["outputs"]["results"]["blake3"], "records": keys.len() + 1,
             "end": outcome["outputs"]["results"]["end"], "sealed": true}]});
-        j["time_decided"] = outcome["time_decided"].clone();
+        j["timing"] = json!({"started_utc": job["started_utc"], "finished_utc": utc_now(),
+            "wall_s": ctx.t0.elapsed().as_secs_f64(), "cpu_s": cpu_s()});
+        j["memory"] =
+            json!({"vmhwm_kb": vmhwm_kb(), "rss_kb_at_end": rss_kb(), "helpers_peak_rss_kb": 0});
+        j["error"] = Value::Null;
+        if let Some(o) = j.as_object_mut() {
+            o.remove("args");
+            o.remove("started_utc");
+        }
         outcome["job"] = j;
+        // paths in the verb's own block relative to the run directory too
+        outcome["recipe"]["path"] = json!(opts.rel(&opts.recipe_path));
+        outcome["binary"]["path"] = json!(opts.rel(opts.binary["path"].as_str().unwrap_or("")));
+        if let Some(a) = outcome["inputs"].as_array_mut() {
+            for i in a {
+                let p = i["path"].as_str().unwrap_or("").to_string();
+                i["path"] = json!(opts.rel(&p));
+            }
+        }
     }
     let target = opts
         .outcome_path
@@ -1032,8 +1280,49 @@ fn write_outputs<const N: usize>(
     )
     .map_err(|e| e.to_string())?;
     std::fs::rename(&otmp, &target).map_err(|e| e.to_string())?;
-    event(json!({"kind":"job_finished","exit_code":exit}));
+    events.emit(
+        "job_finished",
+        json!({"exit_code": exit, "status": outcome["status"], "stop_code": stop_code}),
+    );
     Ok(exit)
+}
+
+/// The contract's work counters (child-job 3.3.1); this kind counts keys as cases and solved keys as commits.
+fn counters(solved: usize, cases: usize) -> Value {
+    json!({"cases": cases, "seeds": 0, "rows": 0, "probe_evals": 0, "reducer_rows": 0, "trace_rows_max": 0,
+        "lift_monomials": 0, "rhs_terms": 0, "numeric_points": 0, "rules_committed": solved})
+}
+
+fn rss_kb() -> u64 {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|s| {
+            s.lines()
+                .find(|l| l.starts_with("VmRSS"))
+                .and_then(|l| l.split_whitespace().nth(1)?.parse().ok())
+        })
+        .unwrap_or(0)
+}
+
+fn cpu_s() -> f64 {
+    // utime + stime of this process in clock ticks (fields 14, 15 of /proc/self/stat), 100 ticks per second
+    std::fs::read_to_string("/proc/self/stat")
+        .ok()
+        .and_then(|s| {
+            let rest = s.rsplit_once(')')?.1;
+            let f: Vec<&str> = rest.split_whitespace().collect();
+            Some((f.get(11)?.parse::<f64>().ok()? + f.get(12)?.parse::<f64>().ok()?) / 100.0)
+        })
+        .unwrap_or(0.0)
+}
+
+fn exe_info() -> Value {
+    use std::os::unix::fs::MetadataExt;
+    let p = std::env::current_exe().ok();
+    let m = p.as_ref().and_then(|p| std::fs::metadata(p).ok());
+    json!({"path": p.map(|p| p.display().to_string()), "dev": m.as_ref().map(|m| m.dev()),
+        "ino": m.as_ref().map(|m| m.ino()), "size": m.as_ref().map(|m| m.size()),
+        "mtime": m.as_ref().map(|m| m.mtime())})
 }
 
 fn key_text(k: &[i64]) -> String {
@@ -1063,20 +1352,34 @@ fn failure<const N: usize>(
         .map(|x| x.to_string())
         .collect::<Vec<_>>()
         .join(",");
-    let exe = o.binary["path"].as_str().unwrap_or("rr_node").to_string();
-    let reproduce = format!(
-        "{} solve-recipe --family {} --order {} --recipe {} --key {} --out {}",
-        q(&exe),
-        q(&o.family_path),
-        q(&o.order_text),
-        q(&o.recipe_path),
-        keyarg,
-        q(&format!(
+    let exe = o.rel(o.binary["path"].as_str().unwrap_or("rr_node"));
+    // job mode: every path relative to the job's run directory (run the line there), else absolute paths
+    let out_dir = if o.path_base.is_some() {
+        format!(
+            "repro-{}-{}",
+            &ctx.recipe_digest[..12],
+            keyarg.replace([',', '-'], "_")
+        )
+    } else {
+        format!(
             "/tmp/recipe-repro-{}-{}",
             &ctx.recipe_digest[..12],
             keyarg.replace([',', '-'], "_")
-        ))
+        )
+    };
+    let reproduce = format!(
+        "{} solve-recipe --family {} --order {} --recipe {} --key {} --out {}",
+        q(&exe),
+        q(&o.rel(&o.family_path)),
+        q(&o.order_text),
+        q(&o.rel(&o.recipe_path)),
+        keyarg,
+        q(&out_dir)
     );
+    let mut binary = o.binary.clone();
+    if o.path_base.is_some() {
+        binary["path"] = json!(exe);
+    }
     json!({
         "type": "relation", "key": key, "verdict": verdict, "target": key_text(key),
         "rhs": Value::Null, "relation_digest": Value::Null,
@@ -1084,8 +1387,9 @@ fn failure<const N: usize>(
         "failure": {
             "schema": FAILURE_SCHEMA, "class": class, "message": message, "detail": detail,
             "node": ctx.node,
-            "recipe": {"id": ctx.recipe.id, "digest": ctx.recipe_digest, "path": o.recipe_path},
-            "key": key, "determinism_id": DETERMINISM_ID, "binary": o.binary,
+            "recipe": {"id": ctx.recipe.id, "digest": ctx.recipe_digest, "path": o.rel(&o.recipe_path)},
+            "key": key, "determinism_id": DETERMINISM_ID, "binary": binary,
+            "cwd": if o.path_base.is_some() { json!("job run directory") } else { Value::Null },
             "reproduce": reproduce,
             "context": {"request_key": Value::Null, "rule_chain": []},
         }
@@ -1523,20 +1827,13 @@ mod tests {
     }
 
     fn opts(threads: usize) -> BatchOptions {
-        BatchOptions {
-            threads,
-            max_trace_rows: None,
-            proof: true,
-            family_path: "kite.sym".into(),
-            recipe_path: "kite.recipe.json".into(),
-            order_text: NodeOrder::identity().to_json(),
-            binary: json!({"path": "test", "blake3": null, "git_commit": "test"}),
-            key_budget_s: None,
-            expect: BTreeMap::new(),
-            inputs: json!([]),
-            job: None,
-            outcome_path: None,
-        }
+        let mut o =
+            BatchOptions::new(json!({"path": "test", "blake3": null, "git_commit": "test"}));
+        o.threads = threads;
+        o.family_path = "kite.sym".into();
+        o.recipe_path = "kite.recipe.json".into();
+        o.order_text = NodeOrder::identity().to_json();
+        o
     }
 
     fn records(dir: &Path) -> Vec<Value> {
