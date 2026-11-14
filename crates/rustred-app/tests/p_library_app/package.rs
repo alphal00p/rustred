@@ -559,12 +559,13 @@ fn another_version_is_refused_with_the_regenerate_hint() {
         "rustred.p-owner-library.v2",
     );
     let format = symbolica_save_format().unwrap();
+    // Any format other than the linked one (the pin moves 6 -> 11).
+    let other = format + 1;
     version_mismatch(
-        edit("save-format", &|v| v["symbolica_save_format"] = 11.into()),
+        edit("save-format", &|v| v["symbolica_save_format"] = other.into()),
         &format!("SYMBOLICA_SAVE_FORMAT ({LIBRARY_FILE})"),
-        "11",
+        &other.to_string(),
     );
-    assert_ne!(format, 11);
     // The same refusal for the payload reader of --reuse-custom.
     let (_scratch, directory) = written(scope_two(), "reuse-version");
     let mut value = manifest_of(&directory);
