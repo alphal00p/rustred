@@ -1,5 +1,6 @@
 //! AUDIT-CLOSURE2 copy of tests/closure_t266.rs with HandDowns::Keys (exit key sets: the mode `exits_complete` needs),
-//! to measure memory at 14 M keys. Otherwise unchanged. Original header:
+//! to measure memory at 14 M keys (re-audit F9), and (lane closurefix) a Tier C run without facts measuring the fact
+//! request store (re-audit F5). Both spill under `T266_SPILL_MB`. Original header:
 //! T266 jointest9: keys-only (Tier K, superset) forward closure of box B under first match in rule order
 //! (COORDINATOR_REQUIREMENTS R19, R20; the checker's k2 `k2eng close`): 59 rounds, 13,951,428 keys, 201,470,598 edges,
 //! 12,501 uncovered = 1,102 + 11,399, used rules 12,658 (2,759 on the box), longest chain 814.
@@ -18,7 +19,8 @@ use std::time::Instant;
 
 use closure_common::{k3_common, peak_rss};
 use rustred_campaign_core::closure::{
-    ClosureConfig, HandDowns, KeyCodec, KeySetBuilder, NoFacts, RuleBodies, Tier, closure,
+    ClosureConfig, CoefFact, FactSource, HandDowns, KeyCodec, KeySetBuilder, NoFacts, RegFact,
+    RuleBodies, RuleId, SpillConfig, Tier, closure,
 };
 use rustred_campaign_core::cover::{Dispatcher, Table};
 use rustred_campaign_core::domain::{DomainOptions, TargetSource};
@@ -167,14 +169,13 @@ fn zero_points(text: &str) -> Option<(Vec<usize>, Vec<Vec<i64>>)> {
     Some((vars, pts))
 }
 
-#[test]
-#[ignore = "T266 scale run (minutes, ~2 GB): run explicitly with --ignored in release"]
-fn audit_closure2_t266_hand_down_keys() {
+/// The T266 dispatcher, bodies and comparator (None: inputs missing).
+fn load_t266() -> Option<(Dispatcher, RuleBodies, NodeComparator, Instant)> {
     let dir = PathBuf::from(k3_common::HO).join("t266-jointest9");
     let (cases, keys) = (dir.join("cases.jsonl"), dir.join("F.keys.jsonl.gz"));
     if !cases.is_file() || !keys.is_file() {
         println!("SKIP: T266 inputs not found under {}", dir.display());
-        return;
+        return None;
     }
     let t0 = Instant::now();
     let mut tf = read_table_file(&cases, ReadOptions::default()).unwrap();
@@ -264,6 +265,41 @@ fn audit_closure2_t266_hand_down_keys() {
     );
     assert_eq!(st.rules, 33_660);
     assert_eq!(st.patterns, 37_504_039);
+    Some((disp, bodies, cmp, t0))
+}
+
+/// Spill configuration of the T266 runs: budget `T266_SPILL_MB` (default 128) MB per store, under the build cache.
+fn t266_spill(tag: &str) -> SpillConfig {
+    let mb: u64 = std::env::var("T266_SPILL_MB")
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(128);
+    SpillConfig {
+        dir: PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("t266-{tag}")),
+        budget_bytes: mb << 20,
+    }
+}
+
+fn dir_bytes(d: &std::path::Path) -> u64 {
+    std::fs::read_dir(d)
+        .map(|it| {
+            it.filter_map(|e| e.ok())
+                .filter_map(|e| e.metadata().ok())
+                .map(|m| m.len())
+                .sum()
+        })
+        .unwrap_or(0)
+}
+
+/// Re-audit F9 FIXED (lane closurefix): the T266 Tier K closure with EXIT KEY SETS (`HandDowns::Keys`, the mode with
+/// `exits_complete`) within the memory rule, exit keys de-duplicated incrementally and spilled to key-set files under
+/// the budget; the reference numbers are reproduced. (Was: OOM at 2 GB.)
+#[test]
+#[ignore = "T266 scale run (minutes): run explicitly with --ignored in release"]
+fn audit_closure2_t266_hand_down_keys() {
+    let Some((disp, bodies, cmp, t0)) = load_t266() else {
+        return;
+    };
     let codec = KeyCodec::new(20, 6).unwrap();
     let bx = box_b(codec);
     assert_eq!(bx.len(), 5_250_168);
@@ -272,17 +308,22 @@ fn audit_closure2_t266_hand_down_keys() {
         threads: 4,
         hand_downs: HandDowns::Keys,
         longest_chain: std::env::var("T266_NO_CHAIN").is_err(),
+        spill: Some(t266_spill("keys")),
         ..Default::default()
     };
     let cl = closure(&disp, &bodies, &cmp, &bx, &cfg, &NoFacts).unwrap();
+    let ec = cl.exit_counts();
     println!(
-        "AUDIT T266 hand-down keys: exits complete {}, sets {:?}, total distinct exit keys {}, key-set bytes {} MB, peak rss {:?} MB",
+        "T266 exit key sets: complete {}, spilled {} ({} files, {} MB on disk in {:?}), children {}, distinct exit keys {} \
+         (largest child {:?}), in-memory sets {} MB, peak rss {:?} MB",
         cl.exit_sets().complete,
-        cl.hand_down_sets()
-            .iter()
-            .map(|(m, k)| (*m, k.len()))
-            .collect::<Vec<_>>(),
-        cl.hand_down_sets().values().map(|k| k.len()).sum::<usize>(),
+        !cl.exit_files().is_empty(),
+        cl.exit_files().len(),
+        cl.spill_dir().map(dir_bytes).unwrap_or(0) >> 20,
+        cl.spill_dir(),
+        ec.len(),
+        ec.values().map(|x| x.0).sum::<u64>(),
+        ec.values().map(|x| x.0).max(),
         cl.hand_down_sets()
             .values()
             .map(|k| k.memory_bytes())
@@ -338,6 +379,13 @@ fn audit_closure2_t266_hand_down_keys() {
     assert_eq!(nf_out, 10_169);
     assert_eq!(s.used_rules, 12_658);
     assert_eq!(s.used_rules_in_start, 2_759);
+    // exit key sets: complete for this configuration, every hand-down term accounted per child
+    assert!(cl.exit_sets().complete && s.exits_complete);
+    assert_eq!(
+        s.hand_downs.values().map(|v| v[0]).sum::<u64>(),
+        s.terms.subsector
+    );
+    assert!(s.hand_downs.values().all(|v| v[1] > 0 && v[1] <= v[0]));
     if cfg.longest_chain {
         assert_eq!(s.cycles, Some(0));
         assert_eq!(s.longest_chain.as_ref().unwrap().edges, 814);
@@ -379,5 +427,102 @@ fn audit_closure2_t266_hand_down_keys() {
             peak_rss().map(|b| b >> 20)
         );
         assert_eq!(mismatches, 0);
+    }
+}
+
+/// Every fact Unknown: the first Tier C run of the batch protocol (closure.md 7), the worst case for the request store.
+struct UnknownFacts;
+impl FactSource for UnknownFacts {
+    fn coefficient(&self, _: &RuleId, _: &[i32], _: usize, _: &[i32]) -> CoefFact {
+        CoefFact::Unknown
+    }
+    fn regularity(&self, _: &RuleId, _: &[i32]) -> RegFact {
+        RegFact::Unknown
+    }
+    fn label(&self) -> String {
+        "t266-unknown".into()
+    }
+}
+
+/// Counting sink for the streamed request file.
+struct Count(u64, u64);
+impl std::io::Write for Count {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        self.0 += b.len() as u64;
+        self.1 += b.iter().filter(|&&c| c == b'\n').count() as u64;
+        Ok(b.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Re-audit F5 FIXED (lane closurefix): a T266-size Tier C run with NO facts (every positive-numerator term and every
+/// covered key's regularity requested) within the memory rule: requests as 12-byte records + packed term keys, counted
+/// without materialising, spilled to `fact-requests.bin` under the budget; measured bytes per request. With
+/// `T266_STREAM=1` the JSONL request file is streamed into a counting sink (one line per distinct request).
+#[test]
+#[ignore = "T266 scale run (minutes): run explicitly with --ignored in release"]
+fn closurefix_t266_tier_c_fact_requests() {
+    let Some((disp, bodies, cmp, t0)) = load_t266() else {
+        return;
+    };
+    let codec = KeyCodec::new(20, 6).unwrap();
+    let bx = box_b(codec);
+    let cfg = ClosureConfig {
+        tier: Tier::C,
+        threads: 4,
+        hand_downs: HandDowns::Counts,
+        longest_chain: false,
+        spill: Some(t266_spill("requests")),
+        ..Default::default()
+    };
+    let rss0 = peak_rss();
+    let cl = closure(&disp, &bodies, &cmp, &bx, &cfg, &UnknownFacts).unwrap();
+    let s = cl.summary();
+    let file = cl
+        .spill_dir()
+        .map(|d| d.join("fact-requests.bin"))
+        .unwrap();
+    let fbytes = std::fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
+    let coef = s.undecided.coef_unknown_positive_numerator + s.undecided.coef_unknown_not_lower;
+    let reg = s.undecided.regularity_unknown;
+    println!(
+        "T266 Tier C (no facts): keys {} requests {} (coefficient {coef}, regularity {reg}), spilled {}, spill file {} MB \
+         ({:.1} B per request of the total); memory estimate {} MB; peak rss before {:?} MB, after {:?} MB; closure {:.1} s \
+         ({:.1} s total)",
+        s.keys_total,
+        s.fact_requests,
+        s.fact_requests_spilled,
+        fbytes >> 20,
+        fbytes as f64 / s.fact_requests.max(1) as f64,
+        cl.memory_estimate_bytes >> 20,
+        rss0.map(|b| b >> 20),
+        peak_rss().map(|b| b >> 20),
+        cl.seconds,
+        t0.elapsed().as_secs_f64()
+    );
+    assert_eq!(s.keys_total, 13_951_428, "Tier C reach equals Tier K's with no fact known");
+    assert!(s.fact_requests_spilled);
+    assert_eq!(s.fact_requests, coef + reg, "no image requests without credits: all distinct");
+    // the spilled part on disk; the tail below the budget stays in memory (12 B + 16 B per coefficient request)
+    assert!(fbytes > 0 && fbytes <= 12 * s.fact_requests + 16 * coef);
+    println!(
+        "T266 request store: {:.1} B per request ({} records x 12 B + {coef} packed term keys x 16 B)",
+        (12 * s.fact_requests + 16 * coef) as f64 / s.fact_requests.max(1) as f64,
+        s.fact_requests
+    );
+    assert_eq!(s.verdict_if_not_diagnostic, Some(rustred_campaign_core::closure::Verdict::Open));
+    if std::env::var("T266_STREAM").is_ok() {
+        let t1 = Instant::now();
+        let mut c = Count(0, 0);
+        let n = cl.write_fact_requests_jsonl(&mut c).unwrap();
+        println!(
+            "T266 request stream: {n} lines, {} MB of JSONL, {:.1} s, peak rss {:?} MB",
+            c.0 >> 20,
+            t1.elapsed().as_secs_f64(),
+            peak_rss().map(|b| b >> 20)
+        );
+        assert_eq!((n, c.1), (s.fact_requests, s.fact_requests));
     }
 }
