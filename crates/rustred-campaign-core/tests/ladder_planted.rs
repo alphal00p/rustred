@@ -56,6 +56,7 @@ impl LabelSolver {
             bytes: None,
             rows: None,
             tie_break_only: None,
+            symmetry_rows: false,
         }
     }
 }
@@ -96,7 +97,7 @@ fn run(solver: &mut LabelSolver, p: &NodeParams) -> (rustred_campaign_core::repa
     let cmp = rustred_campaign_core::order::NodeComparator::legacy(p.arity, None).unwrap();
     let mut facts = ScriptedFacts { cmp: &cmp, n_lines: 3, line_priority: (0..3).collect() };
     let root = root_item(p, Face::new(vec![0, 1], vec![]), grid());
-    let rep = drive_tree(vec![root], p, &cmp, solver, &mut facts, &mut ReplayProver, None, &TreeLimits::default());
+    let rep = drive_tree(vec![root], p, &cmp, solver, &mut facts, &mut ReplayProver, None, None, &TreeLimits::default());
     let o = outcome(&rep);
     (rep, o)
 }
@@ -201,7 +202,8 @@ fn box_restricted_item_needs_a_user_box_r35() {
 
 #[test]
 fn terminal_bound_flagged_master_count_is_information_only_u9() {
-    let flags = check_terminals(&[(key(2, 1), None), (key(1, 2), None), (key(1, 1), None)], 2, &NoTables);
+    let lines = vec![true, true, true, false, false, false];
+    let flags = check_terminals(&[(key(2, 1), None), (key(1, 2), None), (key(1, 1), None)], 2, &NoTables, &Default::default(), &lines);
     assert!(flags.contains(&TerminalFlag::OverBound { count: 3, bound: 2 }));
     // a reference master count different from the campaign's is a note, never a flag (U-9)
     let r = compare_with_reference(3, &MasterCounts { ibp: Some(7), with_symmetry: Some(3), source: "ref".into() }, "reference");
@@ -252,14 +254,14 @@ fn optimise_item_replaces_only_with_containment_and_a_strictly_better_measure_u1
     let cmp = rustred_campaign_core::order::NodeComparator::legacy(p.arity, None).unwrap();
     let mut facts = ScriptedFacts { cmp: &cmp, n_lines: 3, line_priority: (0..3).collect() };
     let mut c = Contain("line:0");
-    let rep = drive_tree(vec![it.clone()], &p, &cmp, &mut s, &mut facts, &mut ReplayProver, Some(&mut c), &TreeLimits::default());
+    let rep = drive_tree(vec![it.clone()], &p, &cmp, &mut s, &mut facts, &mut ReplayProver, Some(&mut c), None, &TreeLimits::default());
     match rep.items[0].disposition.as_ref().unwrap() {
         Disposition::Covered { cover } => assert_eq!(cover.members[0].digest, "line:0/fl/d2"),
         d => panic!("{d:?}"),
     }
     // nothing contains the old domain: the old rule stays
     let mut c = Contain("none");
-    let rep = drive_tree(vec![it], &p, &cmp, &mut s, &mut facts, &mut ReplayProver, Some(&mut c), &TreeLimits::default());
+    let rep = drive_tree(vec![it], &p, &cmp, &mut s, &mut facts, &mut ReplayProver, Some(&mut c), None, &TreeLimits::default());
     assert!(matches!(rep.items[0].disposition, Some(Disposition::OptimiseKept { .. })));
 }
 
@@ -277,25 +279,69 @@ fn repair_key_typed_outcomes() {
     }
     let mut s = LabelSolver { params: p.clone(), answers: BTreeMap::new(), calls: vec![] };
     let inp = RepairInputs { params: &p, descent: &cmp, key: key(3, 2), extra_targets: vec![], tables: &All };
-    let o = repair_key(&inp, &RepairBudget::default(), &mut s, &mut facts, &mut ReplayProver).unwrap();
+    let o = repair_key(&inp, &RepairBudget::default(), &mut s, &mut facts, &mut ReplayProver, None).unwrap();
     assert!(o.already_covered && s.calls.is_empty());
     // uncovered: the face case of the key is solved
     let mut s = LabelSolver { params: p.clone(), answers: BTreeMap::from([("line:1/fl/d2".to_string(), (vec![], 10))]), calls: vec![] };
     let inp = RepairInputs { params: &p, descent: &cmp, key: key(3, 2), extra_targets: vec![], tables: &NoTables };
-    let o = repair_key(&inp, &RepairBudget::default(), &mut s, &mut facts, &mut ReplayProver).unwrap();
+    let o = repair_key(&inp, &RepairBudget::default(), &mut s, &mut facts, &mut ReplayProver, None).unwrap();
     assert!(o.rules.iter().any(|r| r.serves_key && r.setting == "line:1/fl/d2"));
     // nothing anywhere: a terminal proposal with an exhausted ladder (depth 3 unfloored tried)
     let mut s = LabelSolver { params: p.clone(), answers: BTreeMap::new(), calls: vec![] };
-    match repair_key(&inp, &RepairBudget::default(), &mut s, &mut facts, &mut ReplayProver) {
+    match repair_key(&inp, &RepairBudget::default(), &mut s, &mut facts, &mut ReplayProver, None) {
         Err(RepairFailure::Terminal { exhausted, .. }) => assert!(exhausted.depth3_unfloored_tried()),
         other => panic!("{other:?}"),
     }
     // budget
     let mut s = LabelSolver { params: p.clone(), answers: BTreeMap::new(), calls: vec![] };
     let b = RepairBudget { max_attempts: 2, ..RepairBudget::default() };
-    assert!(matches!(repair_key(&inp, &b, &mut s, &mut facts, &mut ReplayProver), Err(RepairFailure::BudgetExhausted { .. })));
+    assert!(matches!(repair_key(&inp, &b, &mut s, &mut facts, &mut ReplayProver, None), Err(RepairFailure::BudgetExhausted { .. })));
     // a key outside the top-sector chart
     let bad = RepairInputs { params: &p, descent: &cmp, key: vec![0, 1, 1, 0, 0, 0], extra_targets: vec![], tables: &NoTables };
-    assert!(matches!(repair_key(&bad, &RepairBudget::default(), &mut s, &mut facts, &mut ReplayProver), Err(RepairFailure::InvalidKey { .. })));
+    assert!(matches!(repair_key(&bad, &RepairBudget::default(), &mut s, &mut facts, &mut ReplayProver, None), Err(RepairFailure::InvalidKey { .. })));
     let _ = ItemState::new(rustred_campaign_core::worklist::items::repair_item(&key(2, 2), &[], &p).unwrap());
+}
+
+#[test]
+fn wave0_offers_are_judged_like_searched_candidates_r43() {
+    use rustred_campaign_core::worklist::items::NodeParams as NP;
+    use rustred_campaign_core::worklist::supplied::{CandidateSource, SuppliedCandidate};
+    struct Offer {
+        good: bool,
+    }
+    impl CandidateSource for Offer {
+        fn name(&self) -> &str {
+            "scripted"
+        }
+        fn offer(&mut self, item: &Item, params: &NP) -> Vec<SuppliedCandidate> {
+            let s = LabelSolver { params: params.clone(), answers: BTreeMap::new(), calls: vec![] };
+            // a good offer covers everything; a bad one excepts every gap point (covers none): dropped
+            let exc = if self.good { vec![] } else { item.gap_points.clone() };
+            vec![SuppliedCandidate {
+                candidate: s.rule(&item.case, &exc, 4, "supplied:x"),
+                record: serde_json::json!({}),
+                source_rule: "x".into(),
+                instance: "0".into(),
+            }]
+        }
+    }
+    let p = p2();
+    let cmp = rustred_campaign_core::order::NodeComparator::legacy(p.arity, None).unwrap();
+    let mut facts = ScriptedFacts { cmp: &cmp, n_lines: 3, line_priority: (0..3).collect() };
+    let root = root_item(&p, Face::new(vec![0, 1], vec![]), grid());
+    let mut s = LabelSolver { params: p.clone(), answers: BTreeMap::from([("line:0/fl/d2".to_string(), (vec![], 900))]), calls: vec![] };
+    let mut good = Offer { good: true };
+    let rep = drive_tree(vec![root.clone()], &p, &cmp, &mut s, &mut facts, &mut ReplayProver, None, Some(&mut good), &TreeLimits::default());
+    match rep.items[0].disposition.as_ref().unwrap() {
+        Disposition::Covered { cover } => assert_eq!(cover.members[0].digest, "supplied:x"),
+        d => panic!("{d:?}"),
+    }
+    assert!(s.calls.is_empty(), "no search after a covering offer: {:?}", s.calls);
+    let mut bad = Offer { good: false };
+    let mut s = LabelSolver { params: p.clone(), answers: BTreeMap::from([("line:0/fl/d2".to_string(), (vec![], 900))]), calls: vec![] };
+    let rep = drive_tree(vec![root], &p, &cmp, &mut s, &mut facts, &mut ReplayProver, None, Some(&mut bad), &TreeLimits::default());
+    match rep.items[0].disposition.as_ref().unwrap() {
+        Disposition::Covered { cover } => assert_eq!(cover.members[0].digest, "line:0/fl/d2"),
+        d => panic!("{d:?}"),
+    }
 }

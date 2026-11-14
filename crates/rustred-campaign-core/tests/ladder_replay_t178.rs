@@ -129,6 +129,9 @@ fn t178_reference_table_r27_r29() {
     assert!(has(41, "eq=n6+2*n11-1"), "{{D7}}x{{D12}}: affine child read from the rule (R32)");
     assert!(has(41, "fixed=6:2"), "{{D7}}x{{D12}}: child D7=2");
     assert!(has(39, "fixed=5:3"), "{{D6,D7}}: child at line value 3 (R39)");
+    // R39 / k1/w2/STAGES.txt:133: {D10}x{D12} children at D10 = 2, D10 = 3 AND D12 = -2, read from the rule
+    assert!(has(48, "fixed=9:3") && has(48, "fixed=11:-2"), "{:?}", run.out[&48].rules);
+    assert!(run.out[&48].terminals.is_empty());
 }
 
 #[test]

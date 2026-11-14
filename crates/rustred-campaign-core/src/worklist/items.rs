@@ -402,9 +402,10 @@ pub struct Budgets {
     /// Re-runs of a time-decided outcome (default 0: move on, marked time_decided).
     pub time_retries: u32,
     pub infra_retries: u32,
-    /// Seed count at which an attempt gets its base budget; above it the budget scales linearly (R34 (d); default
-    /// learned on the reference: the depth-3 shell of a single-dot face, 1,771 seeds).
-    pub scale_reference_seeds: u64,
+    /// Seed count at which an attempt gets its base budget; above it the budget scales linearly (R34 (d)). `None`
+    /// (default) = the estimated seed count of ONE centre at depth 3 for the node's own arity (on the five-loop
+    /// reference this is the helper's single-dot depth-3 shell), so nothing depends on a particular loop order.
+    pub scale_reference_seeds: Option<u64>,
 }
 
 impl Default for Budgets {
@@ -422,7 +423,7 @@ impl Default for Budgets {
             economy_extra_factor: 2.0,
             time_retries: 0,
             infra_retries: 10,
-            scale_reference_seeds: 1771,
+            scale_reference_seeds: None,
         }
     }
 }
@@ -460,9 +461,91 @@ pub struct NodeParams {
     pub ibp_rows_per_seed: u32,
     pub standard_values: StandardValues,
     /// PREFERRED terminals of the spec (P-4; interfaces/preferred-terminals.md): a preference, never a restriction.
-    pub preferred_terminals: Vec<Key>,
+    pub preferred: PreferredTerminals,
     /// Whether the key sets this node closes against are a MEASURED or a PROVED range (P-2); carried into items.
     pub target_range: RangeLabel,
+}
+
+/// One entry of the spec's preferred-terminal list (P-4): one key, or a whole sector (the set of lines at index >= 1;
+/// every key of that support).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PreferredEntry {
+    Key(Key),
+    Sector { lines: Vec<usize> },
+}
+
+/// The spec's preferred terminals (interfaces/preferred-terminals.md). A PREFERENCE: preferred keys are allowed
+/// terminals from the start (never gap points, no ladder effort), kept by key exclusion where a rule's domain
+/// contains them, preferred as RHS landing points in selection (tie-break after the economy size class), reported;
+/// never a restriction, never a reason to fail.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreferredTerminals {
+    pub entries: Vec<PreferredEntry>,
+    /// Count preferred terminals against `terminals_max` (default false: reported separately).
+    #[serde(default)]
+    pub count_against_bound: bool,
+}
+
+impl PreferredTerminals {
+    /// Whether a key is preferred (exact key, or its line support equals a sector entry).
+    pub fn matches(&self, key: &[i32], lines: &[bool]) -> bool {
+        self.entries.iter().any(|e| match e {
+            PreferredEntry::Key(k) => k.as_slice() == key,
+            PreferredEntry::Sector { lines: ls } => {
+                key.len() == lines.len() && {
+                    let support: Vec<usize> = (0..key.len()).filter(|&i| lines[i] && key[i] >= 1).collect();
+                    let mut l = ls.clone();
+                    l.sort_unstable();
+                    l.dedup();
+                    support == l
+                }
+            }
+        })
+    }
+
+    /// Entries that cannot apply to this node (wrong arity, a positive numerator, a line slot that is not a line):
+    /// WARNINGS, never errors (P-4 (e)).
+    pub fn warnings(&self, lines: &[bool]) -> Vec<String> {
+        let mut w = Vec::new();
+        for e in &self.entries {
+            match e {
+                PreferredEntry::Key(k) if k.len() != lines.len() => {
+                    w.push(format!("preferred key {k:?}: arity {} (node {})", k.len(), lines.len()))
+                }
+                PreferredEntry::Key(k) => {
+                    if k.iter().enumerate().any(|(i, &v)| !lines[i] && v > 0) {
+                        w.push(format!("preferred key {k:?}: positive numerator (not a chart key of this node)"));
+                    }
+                }
+                PreferredEntry::Sector { lines: ls } => {
+                    if ls.iter().any(|&i| i >= lines.len() || !lines[i]) {
+                        w.push(format!("preferred sector {ls:?}: names a slot that is not a line of this node"));
+                    }
+                }
+            }
+        }
+        w
+    }
+
+    /// Remove preferred keys from the gap points of items (they are allowed terminals: no ladder effort); returns
+    /// the removed keys (reported as `kept_preferred`).
+    pub fn strip(&self, items: &mut [Item], lines: &[bool]) -> Vec<Key> {
+        let mut out = Vec::new();
+        if self.entries.is_empty() {
+            return out;
+        }
+        for it in items.iter_mut() {
+            let (keep, pref): (Vec<Key>, Vec<Key>) =
+                it.gap_points.drain(..).partition(|k| !self.matches(k, lines));
+            it.gap_points = keep;
+            it.weight = it.gap_points.len() as u64;
+            out.extend(pref);
+        }
+        out.sort();
+        out.dedup();
+        out
+    }
 }
 
 /// Provenance of a target key set (R41 P-2): closure against a MEASURED hand-down range is provisional (the caller
@@ -498,7 +581,7 @@ impl NodeParams {
             max_item_attempts: 12,
             ibp_rows_per_seed: 0,
             standard_values: StandardValues::default(),
-            preferred_terminals: Vec::new(),
+            preferred: PreferredTerminals::default(),
             target_range: RangeLabel::Unspecified,
         }
     }
@@ -606,6 +689,7 @@ pub fn items_from_partition(
             items.push(it);
         }
     }
+    params.preferred.strip(&mut items, &params.lines);
     order_items(&mut items);
     Ok((items, out_of_box))
 }
@@ -639,6 +723,7 @@ pub fn items_from_closure_keys(keys: &[Key], params: &NodeParams) -> Result<Vec<
             it
         })
         .collect();
+    params.preferred.strip(&mut items, &params.lines);
     order_items(&mut items);
     Ok(items)
 }
@@ -668,7 +753,12 @@ pub fn repair_item(key: &[i32], extra: &[Key], params: &NodeParams) -> Result<It
     let f = Face::of_key(key, &params.lines).ok_or_else(|| WorklistError::NotTopChart(key.to_vec()))?;
     let case = CaseSpec::face_case(f);
     let mut pts = vec![key.to_vec()];
-    pts.extend(extra.iter().filter(|k| case.contains(k, &params.lines)).cloned());
+    pts.extend(
+        extra
+            .iter()
+            .filter(|k| case.contains(k, &params.lines) && !params.preferred.matches(k, &params.lines))
+            .cloned(),
+    );
     let dim = case.dim();
     let kind = if dim == 0 { ItemKind::Point } else { ItemKind::GenericFace };
     Ok(Item::new(&params.node, kind, case, pts, None, 0, dim, ChildOrigin::Root(RootSource::Repair), None))

@@ -217,6 +217,7 @@ impl Scripted {
             bytes: None,
             rows: r.rows,
             tie_break_only: r.tie_break,
+            symmetry_rows: false,
         }
     }
 }
@@ -384,7 +385,7 @@ pub fn run_item(
     census: Vec<Key>,
 ) -> (TreeReport, Outcome) {
     let root = root_item(params, face, census);
-    let rep = drive_tree(vec![root], params, descent, solver, facts, &mut ReplayProver, None, &TreeLimits::default());
+    let rep = drive_tree(vec![root], params, descent, solver, facts, &mut ReplayProver, None, None, &TreeLimits::default());
     let o = outcome(&rep);
     (rep, o)
 }

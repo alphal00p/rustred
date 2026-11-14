@@ -57,6 +57,9 @@ pub struct CandidateRule {
     pub rows: Option<u64>,
     /// Informative only (the comparator decides descent).
     pub tie_break_only: Option<bool>,
+    /// The rule was generated with symmetry rows: a per-key exact proof (instance-span) is `Unsupported` for it; a
+    /// node requiring per-key evidence can then not credit it (route to the replay level only where the spec allows).
+    pub symmetry_rows: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -228,13 +231,54 @@ pub fn judge_points(
         .collect()
 }
 
+/// [`judge_points`], plus the number of (credited key, top RHS key) pairs whose RHS key is a PREFERRED terminal
+/// (selection tie-break, P-4; computed from the same facts).
+pub fn judge_points_with_hits(
+    rule: &CandidateRule,
+    keys: &[Key],
+    facts: &mut dyn FactSource,
+    descent: &dyn Descent,
+    preferred: &super::items::PreferredTerminals,
+    lines: &[bool],
+) -> (Vec<PointVerdict>, u64) {
+    let mut hits = 0u64;
+    let mut out = Vec::with_capacity(keys.len());
+    for k in keys {
+        match rule.domain.applies(k) {
+            Verdict::Applies => {
+                let f = facts.facts(rule, k);
+                let v = judge_point(rule, k, &f, descent);
+                if v.covered()
+                    && let Some(rhs) = &f.rhs_top
+                {
+                    hits += rhs.iter().filter(|r| preferred.matches(r, lines)).count() as u64;
+                }
+                out.push(v);
+            }
+            _ => out.extend(judge_points(rule, std::slice::from_ref(k), facts, descent)),
+        }
+    }
+    (out, hits)
+}
+
 /// Proof failures of the key prover (A s.2: kept apart, never PASS).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProofFailure {
+    /// EXACT_NOT_IN_SPAN_AT_KEY (exact certificate) / FAIL_AT_KEY.
     NonMembership,
     Fail,
+    /// HIDDEN_KEY: a witness-locus pole at the key.
     Hidden,
+    /// IRREGULAR_KEY.
     Irregular,
+    /// NOT_IN_SPAN_MODULAR: residual non-zero at two points, no exact certificate.
+    NotInSpanModular,
+    /// UNDECIDED (reason).
+    Undecided(String),
+    /// The tool cannot decide this rule / key at all (typed, never an assumption): e.g. "symmetry rows" (rules
+    /// generated with symmetry rows cannot go to instance-span), "arity" (compiled arity), "affine case without a
+    /// +-1 coefficient", "witness loci elided".
+    Unsupported(String),
     Unknown(String),
 }
 
@@ -347,6 +391,9 @@ pub enum Next {
     NeedEvidence(Vec<EvidenceRequest>),
     /// Optimise items only: containment of the old rules' domains in the candidate's.
     NeedContainment(Vec<ContainmentRequest>),
+    /// WAVE 0 (R43): ask the candidate source(s) for offers on this item; record them with
+    /// [`ItemState::record_offers`] (an empty list is a valid answer).
+    NeedOffers,
     Done(Disposition),
 }
 
@@ -358,6 +405,10 @@ pub struct ItemState {
     pub verdicts: BTreeMap<(String, usize), Vec<PointVerdict>>,
     pub evidence: BTreeMap<(String, usize), Vec<KeyEvidence>>,
     pub containment: BTreeMap<(String, usize), Tri>,
+    /// Preferred-terminal RHS hits per candidate (P-4 selection tie-break); absent = 0.
+    pub preferred_hits: BTreeMap<(String, usize), u64>,
+    /// Wave 0 answered (offers recorded, possibly none).
+    pub offers_recorded: bool,
 }
 
 impl ItemState {
@@ -368,6 +419,44 @@ impl ItemState {
             verdicts: BTreeMap::new(),
             evidence: BTreeMap::new(),
             containment: BTreeMap::new(),
+            preferred_hits: BTreeMap::new(),
+            offers_recorded: false,
+        }
+    }
+
+    /// Record the wave-0 offers (R43) as one pseudo-attempt "<item>|offer|<source>" with zero solver CPU.
+    pub fn record_offers(&mut self, source: &str, offers: Vec<CandidateRule>) {
+        self.offers_recorded = true;
+        if offers.is_empty() {
+            return;
+        }
+        let key = offer_key(&self.item.id, source);
+        self.records.insert(
+            key,
+            AttemptRecord {
+                setting: SeedSetting {
+                    centre: super::seed::CentreKind::Explicit,
+                    offsets: vec![],
+                    floor: false,
+                    depth: 0,
+                    tight: false,
+                },
+                wave: 0,
+                answer: Some(SolveAnswer {
+                    outcome: SolveOutcome::Rules(offers),
+                    cpu_ms: 0,
+                    rows: None,
+                }),
+                operator_interrupts: 0,
+                infra_interrupts: 0,
+                cpu_ms_total: 0,
+            },
+        );
+    }
+
+    pub fn record_preferred_hits(&mut self, attempt_key: &str, index: usize, hits: u64) {
+        if hits > 0 {
+            self.preferred_hits.insert((attempt_key.to_string(), index), hits);
         }
     }
 
@@ -414,6 +503,11 @@ impl ItemState {
     }
 }
 
+/// Attempt key of the wave-0 offers of a source.
+pub fn offer_key(item: &ItemId, source: &str) -> String {
+    format!("{}|offer|{source}", item.0)
+}
+
 /// Attempt key of an item and setting.
 pub fn attempt_key(item: &ItemId, s: &SeedSetting) -> String {
     format!("{}|{}", item.0, s.canonical_key())
@@ -434,6 +528,7 @@ pub(crate) struct Accepted {
     pub credited: BTreeSet<usize>,
     /// Gap point indices still lacking evidence at the required level.
     pub lacking: BTreeSet<usize>,
+    pub preferred_hits: u64,
 }
 
 /// The total seed-search space of an item (the sub-counter, D-43).
@@ -504,6 +599,7 @@ pub(crate) fn accepted_candidates(
                 rule: cand.clone(),
                 credited,
                 lacking,
+                preferred_hits: state.preferred_hits.get(&(key.clone(), idx)).copied().unwrap_or(0),
             });
         }
     }
@@ -514,6 +610,8 @@ fn score(a: &Accepted, n_points: usize) -> SelectionScore {
     SelectionScore {
         failed: (n_points - a.credited.len()) as u64,
         cases: 1,
+        size_class: SelectionScore::size_class_of(a.rule.rhs_terms),
+        preferred_misses: u64::MAX - a.preferred_hits,
         rhs_terms: a.rule.rhs_terms,
         monomials: a.rule.monomials.unwrap_or(u64::MAX),
         degree: a.rule.max_degree.unwrap_or(u32::MAX),
@@ -648,10 +746,19 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
             why: format!("child dimension {} above the root's {}", item.case.dim(), item.root_dim),
         });
     }
+    if !state.offers_recorded {
+        return Next::NeedOffers;
+    }
     let point = item.kind == ItemKind::Point || item.case.is_point();
     let optimise = item.kind == ItemKind::Optimise;
     let waves = seed_space(&item.case, params);
-    let mut done_settings: Vec<(usize, SeedSetting, String)> = Vec::new();
+    // wave 0: offered candidates (order 0), judged and selected like searched ones
+    let mut done_settings: Vec<(usize, SeedSetting, String)> = state
+        .records
+        .iter()
+        .filter(|(k, _)| k.starts_with(&format!("{}|offer|", item.id.0)))
+        .map(|(k, r)| (0usize, r.setting.clone(), k.clone()))
+        .collect();
     let mut order = 0usize;
     for (w, wave) in waves.iter().enumerate() {
         let entries: Vec<(usize, SeedSetting, String)> = wave
@@ -710,7 +817,8 @@ pub fn next_steps(state: &ItemState, params: &NodeParams) -> Next {
                 let cpu = |e: &(usize, SeedSetting, String)| state.records.get(&e.2).map_or(0, |r| r.cpu_ms_total);
                 let c0 = entries.iter().find(|e| e.0 == first_ok).map_or(0, cpu);
                 let spent: u64 = entries.iter().filter(|e| e.0 > first_ok).map(cpu).sum();
-                (spent as f64) <= params.budgets.economy_extra_factor * (c0.max(1) as f64)
+                // a wave-0 offer (no solver CPU) that covers everything ends the search (extra-rules.md 5.2)
+                c0 > 0 && (spent as f64) <= params.budgets.economy_extra_factor * (c0 as f64)
             }
         };
         if offer {
@@ -905,9 +1013,12 @@ fn one_case_with_evidence(
 /// FULL nodes) and whose measure is STRICTLY better than the old rules' together; ask for missing containment.
 fn optimise_filter(state: &ItemState, acc: &mut Vec<Accepted>) -> Result<(), Vec<ContainmentRequest>> {
     let old = &state.item.replaces;
+    let old_rhs: u64 = old.iter().map(|o| o.rhs_terms).sum();
     let old_score = SelectionScore {
         failed: 0,
         cases: old.len() as u64,
+        size_class: SelectionScore::size_class_of(old_rhs),
+        preferred_misses: u64::MAX,
         rhs_terms: old.iter().map(|o| o.rhs_terms).sum(),
         monomials: old.iter().map(|o| o.monomials.unwrap_or(u64::MAX / 4)).fold(0u64, |a, b| a.saturating_add(b)),
         degree: old.iter().map(|o| o.max_degree.unwrap_or(u32::MAX)).max().unwrap_or(u32::MAX),

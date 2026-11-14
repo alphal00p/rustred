@@ -72,6 +72,7 @@ impl CaseSolver for RandomSolver {
                     bytes: None,
                     rows: None,
                     tie_break_only: None,
+            symmetry_rows: false,
                 }])
             }
         };
@@ -139,6 +140,7 @@ fn batch_one(item: Item, p: &NodeParams, solver: &mut RandomSolver) -> (ItemStat
                 }
             }
             Next::NeedContainment(_) => unreachable!(),
+            Next::NeedOffers => st.record_offers("none", vec![]),
             Next::Done(d) => return (st, d),
         }
     }
@@ -171,7 +173,7 @@ proptest! {
         let mut solver = RandomSolver { seed, params: p.clone(), calls: BTreeMap::new() };
         let cmp = rustred_campaign_core::order::NodeComparator::legacy(p.arity, None).unwrap();
         let mut facts = ScriptedFacts { cmp: &cmp, n_lines: 4, line_priority: (0..4).collect() };
-        let rep = drive_tree(vec![root.clone()], &p, &cmp, &mut solver, &mut facts, &mut ReplayProver, None, &TreeLimits::default());
+        let rep = drive_tree(vec![root.clone()], &p, &cmp, &mut solver, &mut facts, &mut ReplayProver, None, None, &TreeLimits::default());
         prop_assert!(rep.stopped.is_none());
         for r in &rep.items {
             // seed-search sub-counter: every setting answered at most once (interrupts excluded)
@@ -201,7 +203,7 @@ proptest! {
         let mut facts = ScriptedFacts { cmp: &cmp, n_lines: 4, line_priority: (0..4).collect() };
         let mut s3 = RandomSolver { seed, params: p.clone(), calls: BTreeMap::new() };
         let lim = TreeLimits { max_items: 1, ..TreeLimits::default() };
-        let rep = drive_tree(vec![root], &p, &cmp, &mut s3, &mut facts, &mut ReplayProver, None, &lim);
+        let rep = drive_tree(vec![root], &p, &cmp, &mut s3, &mut facts, &mut ReplayProver, None, None, &lim);
         let d3 = rep.items[0].disposition.clone().unwrap();
         // the sequential driver appends RESERVE members to a split's cover after the children's subtrees (none
         // processed here); the primary decision must be identical

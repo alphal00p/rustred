@@ -16,6 +16,7 @@ pub mod items;
 pub mod ladder;
 pub mod policy;
 pub mod seed;
+pub mod supplied;
 
 pub use affine::AffineEq;
 pub use items::{CaseSpec, Face, Item, ItemId, ItemKind, NodeParams};

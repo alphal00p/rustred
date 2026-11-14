@@ -304,8 +304,8 @@ fn binom(n: u64, k: u64) -> u64 {
     r
 }
 
-/// Estimated seed count of a setting: per centre, all raising shells up to the depth (sum_k C(N+k-1, k): 1,771 at
-/// N = 20, depth 3, the helper's count) plus the lowering shells (~2N); times the number of centres of a union.
+/// Estimated seed count of a setting: per centre, all raising shells up to the depth (sum_k C(N+k-1, k) for arity N)
+/// plus the lowering shells (~2N); times the number of centres of a union.
 pub fn estimated_seeds(s: &SeedSetting, arity: usize) -> u64 {
     let n = arity as u64;
     let raises: u64 = (0..=s.depth as u64).map(|k| binom(n + k - 1, k)).sum();
@@ -333,7 +333,16 @@ pub fn attempt_budget(s: &SeedSetting, params: &NodeParams, point: bool, oversiz
     } else {
         (b.base_seconds_d2, b.mem_mb_d2, BudgetClass::Standard)
     };
-    let r = b.scale_reference_seeds.max(1);
+    let r = b
+        .scale_reference_seeds
+        .unwrap_or_else(|| {
+            let one = SeedSetting {
+                offsets: vec![BTreeMap::from([(0usize, -1i32)])],
+                ..SeedSetting::target(3)
+            };
+            estimated_seeds(&one, params.arity)
+        })
+        .max(1);
     let scaled = if est > r { base.saturating_mul(est) / r } else { base };
     AttemptBudget {
         seconds: scaled.min(b.cap_seconds),

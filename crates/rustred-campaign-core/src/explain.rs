@@ -149,6 +149,12 @@ pub fn explain(state: &ItemState, params: &NodeParams) -> Explanation {
             Some(format!("identity evidence at level {:?} missing", params.min_evidence)),
             "waiting for identity evidence".into(),
         ),
+        Next::NeedOffers => (
+            "open".into(),
+            "ask the candidate source(s) for wave-0 offers".into(),
+            None,
+            "wave 0 (supplied candidates) not asked yet".into(),
+        ),
         Next::NeedContainment(r) => (
             "open".into(),
             format!("containment verdict for {} candidate(s)", r.len()),

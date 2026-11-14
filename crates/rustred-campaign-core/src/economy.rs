@@ -6,15 +6,28 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
 /// Selection score among candidate covers of one item (lexicographic, smaller = better): gap points failed, cases,
-/// RHS terms, monomials, coefficient degree, then enumeration order (determinism).
+/// RHS SIZE CLASS (bit length of the RHS term count: a factor-2 band), then PREFERRED-terminal misses (P-4: more RHS
+/// keys on preferred terminals is better; only among candidates of the same class, so a preference never buys a
+/// rule twice as large, and never acceptance: only accepted candidates are scored), then exact RHS terms,
+/// monomials, coefficient degree, enumeration order (determinism).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SelectionScore {
     pub failed: u64,
     pub cases: u64,
+    pub size_class: u32,
+    /// `u64::MAX - preferred hits`.
+    pub preferred_misses: u64,
     pub rhs_terms: u64,
     pub monomials: u64,
     pub degree: u32,
     pub order: u64,
+}
+
+impl SelectionScore {
+    /// Factor-2 size band of an RHS term count (0 for 0 terms).
+    pub fn size_class_of(rhs_terms: u64) -> u32 {
+        64 - rhs_terms.leading_zeros()
+    }
 }
 
 /// Measure of one rule record (rr_node `table_dump.v1` rule line).

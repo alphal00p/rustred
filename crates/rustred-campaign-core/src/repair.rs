@@ -11,9 +11,10 @@ use crate::order::NodeComparator;
 use crate::worklist::items::{CaseSpec, EvidenceLevel, Item, ItemId, Key, NodeParams, repair_item};
 use crate::worklist::ladder::{
     Attempt, CandidateRule, Disposition, ItemState, KeyEvidence, LadderExhausted, Next, PointFacts, SolveAnswer,
-    SolveOutcome, Tri, judge_points, next_steps,
+    SolveOutcome, Tri, judge_points_with_hits, next_steps,
 };
 use crate::worklist::seed::{AttemptBudget, SeedSetting};
+use crate::worklist::supplied::CandidateSource;
 
 /// One engine call for ONE case under ONE seed setting (C-LIVE: the node driver in process, serialised).
 pub trait CaseSolver {
@@ -198,9 +199,11 @@ pub fn drive_tree(
     facts: &mut dyn FactSource,
     prover: &mut dyn KeyProver,
     containment: Option<&mut dyn ContainmentCheck>,
+    source: Option<&mut dyn CandidateSource>,
     limits: &TreeLimits,
 ) -> TreeReport {
     let mut d = Driver {
+        source,
         params,
         descent,
         solver,
@@ -229,20 +232,21 @@ pub fn drive_tree(
     report
 }
 
-struct Driver<'a, 'b, 's, 'f, 'p, 'c> {
+struct Driver<'a, 'b, 's, 'f, 'p, 'c, 'q> {
     params: &'a NodeParams,
     descent: &'a dyn Descent,
     solver: &'b mut (dyn CaseSolver + 's),
     facts: &'b mut (dyn FactSource + 'f),
     prover: &'b mut (dyn KeyProver + 'p),
     containment: Option<&'b mut (dyn ContainmentCheck + 'c)>,
+    source: Option<&'b mut (dyn CandidateSource + 'q)>,
     limits: &'a TreeLimits,
     report: TreeReport,
     served: BTreeSet<Key>,
     attempts: u32,
 }
 
-impl Driver<'_, '_, '_, '_, '_, '_> {
+impl Driver<'_, '_, '_, '_, '_, '_, '_> {
     fn process(&mut self, mut item: Item) {
         if self.report.stopped.is_some() {
             return;
@@ -292,8 +296,10 @@ impl Driver<'_, '_, '_, '_, '_, '_> {
                 Next::NeedVerdicts(reqs) => {
                     for r in reqs {
                         let cand = st.records[&r.attempt_key].candidates()[r.index].clone();
-                        let v = judge_points(&cand, &r.keys, self.facts, self.descent);
+                        let (v, hits) =
+                            judge_points_with_hits(&cand, &r.keys, self.facts, self.descent, &self.params.preferred, &self.params.lines);
                         st.record_verdicts(&r.attempt_key, r.index, v);
+                        st.record_preferred_hits(&r.attempt_key, r.index, hits);
                     }
                 }
                 Next::NeedEvidence(reqs) => {
@@ -314,6 +320,16 @@ impl Driver<'_, '_, '_, '_, '_, '_> {
                         }
                         st.record_evidence(&r.attempt_key, r.index, ev);
                     }
+                }
+                Next::NeedOffers => {
+                    let (name, offers) = match self.source.as_deref_mut() {
+                        Some(src) => {
+                            let o = src.offer(&st.item, self.params);
+                            (src.name().to_string(), o.into_iter().map(|c| c.candidate).collect())
+                        }
+                        None => ("none".to_string(), Vec::new()),
+                    };
+                    st.record_offers(&name, offers);
                 }
                 Next::NeedContainment(reqs) => {
                     for r in reqs {
@@ -423,6 +439,8 @@ pub enum RepairFailure {
     NoRelation { attempts: Vec<AttemptSummary> },
     NotAccepted { why: String, attempts: Vec<AttemptSummary> },
     Terminal { key: Key, exhausted: LadderExhausted, attempts: Vec<AttemptSummary> },
+    /// The key is a PREFERRED terminal of the spec (P-4): kept unevaluated, no ladder effort spent.
+    PreferredTerminal { key: Key },
 }
 
 /// Repair ONE key (plan 3.9): if the tables in force cover it, nothing to do; else the whole face of the key is
@@ -433,12 +451,16 @@ pub fn repair_key(
     solver: &mut dyn CaseSolver,
     facts: &mut dyn FactSource,
     prover: &mut dyn KeyProver,
+    source: Option<&mut dyn CandidateSource>,
 ) -> Result<RepairOutcome, RepairFailure> {
     let p = inputs.params;
     if inputs.key.len() != p.arity {
         return Err(RepairFailure::InvalidKey {
             why: format!("arity {} (node {})", inputs.key.len(), p.arity),
         });
+    }
+    if p.preferred.matches(&inputs.key, &p.lines) {
+        return Err(RepairFailure::PreferredTerminal { key: inputs.key.clone() });
     }
     match inputs.tables.verdict(&inputs.key) {
         CoverageVerdict::Covered { .. } => {
@@ -464,7 +486,7 @@ pub fn repair_key(
         max_cpu_ms: budget.max_cpu_ms,
         max_items: budget.max_items,
     };
-    let rep = drive_tree(vec![item], p, inputs.descent, solver, facts, prover, None, &limits);
+    let rep = drive_tree(vec![item], p, inputs.descent, solver, facts, prover, None, source, &limits);
     let rules: Vec<AcceptedRule> = rep
         .accepted_rules()
         .into_iter()

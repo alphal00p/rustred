@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 use crate::repair::{Coverage, CoverageVerdict};
-use crate::worklist::items::{Key, MasterCounts};
+use crate::worklist::items::{Key, MasterCounts, PreferredTerminals};
 use crate::worklist::ladder::LadderExhausted;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -128,20 +128,28 @@ pub enum TerminalFlag {
 }
 
 /// Checks of a declared terminal set: the bound, no terminal inside a rule's domain, every key's ladder exhausted
-/// down to depth 3 unfloored.
+/// down to depth 3 unfloored. Preferred terminals (P-4) are exempt from the ladder condition, are kept inside a
+/// rule's domain by a key exclusion (see [`preferred_exclusions`]) and count against the bound only when the spec says
+/// so.
 pub fn check_terminals(
     terminals: &[(Key, Option<LadderExhausted>)],
     bound: usize,
     tables: &dyn Coverage,
+    preferred: &PreferredTerminals,
+    lines: &[bool],
 ) -> Vec<TerminalFlag> {
     let mut flags = Vec::new();
-    if terminals.len() > bound {
-        flags.push(TerminalFlag::OverBound {
-            count: terminals.len(),
-            bound,
-        });
+    let counted = terminals
+        .iter()
+        .filter(|(k, _)| preferred.count_against_bound || !preferred.matches(k, lines))
+        .count();
+    if counted > bound {
+        flags.push(TerminalFlag::OverBound { count: counted, bound });
     }
     for (k, tok) in terminals {
+        if preferred.matches(k, lines) {
+            continue;
+        }
         if let CoverageVerdict::Covered { rule } = tables.verdict(k) {
             flags.push(TerminalFlag::CoveredTerminal { key: k.clone(), rule });
         }
@@ -152,6 +160,91 @@ pub fn check_terminals(
         }
     }
     flags
+}
+
+/// A key-exclusion record `key_excluded {node, rule, key, reason: keeps_terminal}` (plan 2.4.7 D7 / 2.4.13): the
+/// rule is not applied at a preferred terminal, so the terminal is kept (honoured by the export and the importer).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeyExclusion {
+    pub key: Key,
+    pub rule: String,
+    pub reason: String,
+}
+
+/// Exclusions needed to keep the REACHED preferred keys terminal where a rule's domain contains them.
+pub fn preferred_exclusions(
+    reached_preferred: &[Key],
+    tables: &dyn Coverage,
+) -> Vec<KeyExclusion> {
+    reached_preferred
+        .iter()
+        .filter_map(|k| match tables.verdict(k) {
+            CoverageVerdict::Covered { rule } => Some(KeyExclusion {
+                key: k.clone(),
+                rule,
+                reason: "keeps_terminal".into(),
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The preferred-terminal report of a node (P-4 (d), (e)).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreferredReport {
+    /// Preferred keys the closure reached and that stay terminals (possibly by exclusion).
+    pub used: Vec<Key>,
+    /// Preferred keys of the closure kept by a key exclusion (subset of `used`).
+    pub kept_by_exclusion: Vec<KeyExclusion>,
+    /// Key entries the closure never reached (not needed).
+    pub not_needed: Vec<Key>,
+    /// Preferred keys that could not be kept, with the reason (e.g. the exclusion was refused by a later check).
+    pub not_kept: Vec<(Key, String)>,
+    /// Terminals that are NOT preferred, with why they are terminals.
+    pub other_terminals: Vec<(Key, String)>,
+    /// Malformed or inapplicable entries: warnings, never errors.
+    pub warnings: Vec<String>,
+}
+
+/// Build the report from the declared terminals (with their ladder tokens), the keys the closure reached, the
+/// exclusions written and the ones refused.
+pub fn preferred_report(
+    preferred: &PreferredTerminals,
+    lines: &[bool],
+    terminals: &[(Key, Option<LadderExhausted>)],
+    reached: &BTreeSet<Key>,
+    exclusions: &[KeyExclusion],
+    refused: &[(Key, String)],
+) -> PreferredReport {
+    let mut r = PreferredReport {
+        warnings: preferred.warnings(lines),
+        ..Default::default()
+    };
+    for (k, tok) in terminals {
+        if preferred.matches(k, lines) {
+            r.used.push(k.clone());
+        } else {
+            let why = match tok {
+                Some(t) => format!(
+                    "ladder exhausted ({} attempts, depth 3 unfloored tried: {})",
+                    t.attempts(),
+                    t.depth3_unfloored_tried()
+                ),
+                None => "declared without a ladder token (spec fallback set)".into(),
+            };
+            r.other_terminals.push((k.clone(), why));
+        }
+    }
+    r.kept_by_exclusion = exclusions.iter().filter(|e| preferred.matches(&e.key, lines)).cloned().collect();
+    r.not_kept = refused.to_vec();
+    for e in &preferred.entries {
+        if let crate::worklist::items::PreferredEntry::Key(k) = e
+            && !reached.contains(k)
+        {
+            r.not_needed.push(k.clone());
+        }
+    }
+    r
 }
 
 /// Optional comparison column (U-9): never a failure, never a trigger.
@@ -199,7 +292,16 @@ mod tests {
         let shallow = LadderExhausted::for_tests(vec![3, 3], false);
         let mut g = FallbackSet::new(5);
         assert_eq!(g.add_by_rule(&[3, 3], &shallow), Err(TerminalError::NotDeepTried));
-        let flags = check_terminals(&[(vec![1, 2], None), (vec![2, 1], None)], 1, &NoTables);
+        let lines = vec![true, true];
+        let none = PreferredTerminals::default();
+        let flags = check_terminals(&[(vec![1, 2], None), (vec![2, 1], None)], 1, &NoTables, &none, &lines);
         assert_eq!(flags, vec![TerminalFlag::OverBound { count: 2, bound: 1 }]);
+        // a preferred terminal does not count against the bound by default
+        let pref = PreferredTerminals {
+            entries: vec![crate::worklist::items::PreferredEntry::Key(vec![2, 1])],
+            count_against_bound: false,
+        };
+        let flags = check_terminals(&[(vec![1, 2], None), (vec![2, 1], None)], 1, &NoTables, &pref, &lines);
+        assert!(flags.is_empty());
     }
 }
