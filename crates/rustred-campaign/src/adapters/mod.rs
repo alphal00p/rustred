@@ -97,7 +97,7 @@ pub fn job_spec(kind: AdapterKind, req: &JobRequest, a: &AdapterInput<'_>) -> Jo
         seed: SeedSpec {
             sample_seed: req.sample_seed,
         },
-        budgets: req.budgets.clone(),
+        budgets: req.budgets,
         on_case_budget: OnCaseBudget::Stop,
         determinism: Determinism::Recorded,
         output: OutputOptions::default(),

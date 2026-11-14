@@ -249,7 +249,7 @@ impl ScriptedWorkSource {
         let a = (self.h(i as u64, 1, 3) % i as u64) as u32;
         let b = (self.h(i as u64, 2, 3) % i as u64) as u32;
         let mut v = vec![a];
-        if b != a && self.h(i as u64, 3, 3) % 2 == 0 {
+        if b != a && self.h(i as u64, 3, 3).is_multiple_of(2) {
             v.push(b);
         }
         v.sort_unstable();

@@ -625,31 +625,23 @@ impl Supervisor {
 
     /// Recovery at start (interface section 4): orphan scan by marker, then every unsettled attempt is settled.
     fn recover(&mut self) {
-        let unsettled: Vec<(String, u32, Option<u32>, Option<u64>, Option<String>)> = self
+        let unsettled: Vec<(String, u32)> = self
             .st()
             .unsettled_jobs()
             .into_iter()
-            .map(|(id, j)| {
-                (
-                    id.clone(),
-                    j.attempt,
-                    j.pid,
-                    j.start_ticks,
-                    j.boot_id.clone(),
-                )
-            })
+            .map(|(id, j)| (id.clone(), j.attempt))
             .collect();
         // The boot and start bounds of the previous sessions, from the ledger itself.
         let mut rules = self.scan_rules();
         let mut min_ticks: Option<u64> = None;
         if let Ok(recs) = crate::ledger::read_records(&self.cdir) {
             for r in &recs {
-                if let Event::SupervisorStarted { identity, .. } = &r.event {
-                    if identity.boot_id == self.boot_id {
-                        min_ticks = Some(
-                            min_ticks.map_or(identity.start_ticks, |m| m.min(identity.start_ticks)),
-                        );
-                    }
+                if let Event::SupervisorStarted { identity, .. } = &r.event
+                    && identity.boot_id == self.boot_id
+                {
+                    min_ticks = Some(
+                        min_ticks.map_or(identity.start_ticks, |m| m.min(identity.start_ticks)),
+                    );
                 }
             }
         }
@@ -691,7 +683,7 @@ impl Supervisor {
                 ),
             );
         }
-        for (job, attempt, _, _, _) in unsettled {
+        for (job, attempt) in unsettled {
             if self.moved {
                 // Copied / moved directory: the recorded attempt's process (if any) belongs to the ORIGINAL directory.
                 let ev = vec![
