@@ -33,7 +33,8 @@ use crate::cover::{Dispatcher, RuleRef};
 use crate::domain::CaseDomain;
 use crate::key::{Key, NodeFrame};
 pub use crate::loci::contain::{
-    Containment, Emptiness, contained_in, is_empty, removal_preserves_dispatch, shadowed,
+    Containment, Emptiness, ProofBudget, contained_in, contained_in_with, is_empty, is_empty_with,
+    removal_preserves_dispatch, shadowed, shadowed_with,
 };
 pub use classes::{Class, EnumStats, Label, Node};
 pub use exact::{ExactError, Range};
@@ -74,6 +75,12 @@ pub trait DomainSource {
     }
     fn domain(&self, i: usize) -> &CaseDomain;
     fn rule_ref(&self, i: usize) -> RuleRef;
+    /// The verdict that blocks record `i` wherever it is selected because of its WITNESS STATUS (Elided /
+    /// NotCarried without attestation), as the core dispatcher enforces it (`RecordMeta::witness_block`); `None` =
+    /// Complete (or the check is off). A plain [`DomainList`] has no witness metadata: only `witness_elided` counts.
+    fn witness_block(&self, _i: usize) -> Option<crate::domain::Verdict> {
+        None
+    }
 }
 
 /// A plain list of domains with their provenance.
@@ -142,6 +149,13 @@ impl DomainSource for DispatcherSource<'_> {
     fn rule_ref(&self, i: usize) -> RuleRef {
         let (t, r) = self.index[i];
         self.disp.rule_ref(t, r)
+    }
+    fn witness_block(&self, i: usize) -> Option<crate::domain::Verdict> {
+        let (t, r) = self.index[i];
+        self.disp.tables()[t]
+            .meta
+            .get(r)
+            .and_then(|m| m.witness_block())
     }
 }
 
@@ -237,6 +251,8 @@ pub struct Budget {
     pub wall: Option<Duration>,
     /// Memo entries kept at most (memory bound; exactness unaffected).
     pub max_memo: Option<usize>,
+    /// Face cells expanded at most (beyond: the face list stops, outcome `Incomplete`; audit-part-B M3).
+    pub max_faces: Option<usize>,
 }
 
 /// Progress report (no floating point: milliseconds).
@@ -477,6 +493,10 @@ pub struct PartitionReport {
     /// Classes with more `any` slots than `max_any_slots` (not expanded into faces / loci).
     pub families: Vec<FaceFamily>,
     pub max_any_slots: usize,
+    /// The off-floor cap of the run (faces beyond it are not listed).
+    pub max_off_floor: Option<usize>,
+    /// The face budget (`Budget::max_faces`) stopped the face list: outcome `Incomplete`.
+    pub faces_truncated: bool,
     pub elided: ElidedPolicy,
     pub literal_tests: LiteralTests,
     pub millis: u64,
@@ -696,6 +716,8 @@ pub fn partition_nf(
         caveats,
         families: vec![],
         max_any_slots: opts.max_any_slots,
+        max_off_floor: opts.max_off_floor,
+        faces_truncated: false,
         elided: opts.elided,
         literal_tests: opts.literal_tests,
         millis: 0,
@@ -707,9 +729,16 @@ pub fn partition_nf(
         compacted: false,
     };
     if !rep.stats.aborted && opts.resolve_loci {
-        rep.resolution = Some(crate::loci::resolve_fragile_classes(&rep, &opts.loci)?);
+        // the wall budget reaches the locus resolution (audit-part-B M3): regions left at the deadline are OPEN
+        let mut lo = opts.loci.clone();
+        if lo.deadline.is_none() {
+            lo.deadline = opts.budget.wall.map(|w| t0 + w);
+        }
+        rep.resolution = Some(crate::loci::resolve_fragile_classes(&rep, &lo)?);
     }
-    rep.faces = rep.build_faces();
+    let (faces, truncated) = rep.build_faces(opts.budget.max_faces);
+    rep.faces = faces;
+    rep.faces_truncated = truncated;
     rep.families = rep
         .classes
         .iter()
@@ -936,8 +965,16 @@ impl PartitionReport {
     pub fn family_of(&self, c: &Class) -> Option<FaceFamily> {
         let n = self.nf.arity;
         let free: Vec<usize> = (0..n).filter(|&i| c.states[i].is_none()).collect();
-        if free.len() <= self.max_any_slots {
-            return None;
+        let fixed_off0 = c
+            .states
+            .iter()
+            .filter(|s| s.is_some_and(|v| v != 0))
+            .count();
+        let capped = self
+            .max_off_floor
+            .is_some_and(|l| l.saturating_sub(fixed_off0) < free.len());
+        if capped || free.len() <= self.max_any_slots {
+            return None; // expanded by `expand`
         }
         let fixed_off = |i: usize| c.states[i].is_some_and(|v| v != 0);
         Some(FaceFamily {
@@ -958,36 +995,56 @@ impl PartitionReport {
     pub fn expand(&self, c: &Class) -> Option<Vec<(FaceKey, Vec<CellState>)>> {
         let n = self.nf.arity;
         let stars: Vec<usize> = (0..n).filter(|&i| c.states[i].is_none()).collect();
-        if stars.len() > self.max_any_slots {
+        // under an off-floor cap L only the faces with <= L off-floor slots are listed (the run claims nothing
+        // beyond; audit-part-B M3: the cap bounds the expansion)
+        let fixed_off = c
+            .states
+            .iter()
+            .filter(|s| s.is_some_and(|v| v != 0))
+            .count();
+        let r = match self.max_off_floor {
+            Some(l) => l.saturating_sub(fixed_off).min(stars.len()),
+            None => stars.len(),
+        };
+        if r == stars.len() && stars.len() > self.max_any_slots {
             return None;
         }
+        if self.max_off_floor.is_some_and(|l| fixed_off > l) {
+            return Some(vec![]);
+        }
         let mut out = vec![];
-        // odometer over the subsets of `stars` (no fixed word width)
-        let mut pick = vec![false; stars.len()];
-        loop {
+        // every subset of `stars` with at most r elements (no fixed word width)
+        fn rec(
+            rep: &PartitionReport,
+            c: &Class,
+            stars: &[usize],
+            from: usize,
+            left: usize,
+            pick: &mut Vec<usize>,
+            out: &mut Vec<(FaceKey, Vec<CellState>)>,
+        ) {
+            let n = rep.nf.arity;
             let mut cell: Vec<CellState> = c.states.iter().map(|s| s.unwrap_or(0)).collect();
-            for (j, &s) in stars.iter().enumerate() {
-                if pick[j] {
-                    cell[s] = ANY_OFF;
-                }
+            for &s in pick.iter() {
+                cell[s] = ANY_OFF;
             }
             let sd: Vec<usize> = (0..n)
-                .filter(|&i| self.nf.lines[i] && cell[i] != 0)
+                .filter(|&i| rep.nf.lines[i] && cell[i] != 0)
                 .collect();
             let sn: Vec<usize> = (0..n)
-                .filter(|&i| !self.nf.lines[i] && cell[i] != 0)
+                .filter(|&i| !rep.nf.lines[i] && cell[i] != 0)
                 .collect();
             out.push(((sd, sn), cell));
-            let mut j = 0;
-            while j < pick.len() && pick[j] {
-                pick[j] = false;
-                j += 1;
+            if left == 0 {
+                return;
             }
-            if j == pick.len() {
-                break;
+            for j in from..stars.len() {
+                pick.push(stars[j]);
+                rec(rep, c, stars, j + 1, left - 1, pick, out);
+                pick.pop();
             }
-            pick[j] = true;
         }
+        rec(self, c, &stars, 0, r, &mut vec![], &mut out);
         Some(out)
     }
 
@@ -1005,6 +1062,12 @@ impl PartitionReport {
             && let Some(c) = opts.max_off_floor
         {
             explored = Some(Explored::OffFloorUpTo(c));
+        }
+        if self.faces_truncated {
+            reasons.push(format!(
+                "face budget max_faces = {:?} reached: the face list is truncated",
+                opts.budget.max_faces
+            ));
         }
         if !self.families.is_empty() {
             reasons.push(format!(
@@ -1109,7 +1172,9 @@ impl PartitionReport {
         ))
     }
 
-    fn build_faces(&self) -> Vec<GapFace> {
+    fn build_faces(&self, max_faces: Option<usize>) -> (Vec<GapFace>, bool) {
+        let mut n_cells = 0usize;
+        let mut truncated = false;
         type FKey = (Vec<usize>, Vec<usize>);
         #[derive(Default)]
         struct Acc {
@@ -1129,6 +1194,11 @@ impl PartitionReport {
             let Some(cells) = self.expand(c) else {
                 continue; // listed in `families` (see `partition_nf`)
             };
+            n_cells += cells.len();
+            if max_faces.is_some_and(|m| n_cells > m) {
+                truncated = true;
+                break;
+            }
             for (f, cell) in cells {
                 let a = by.entry(f.clone()).or_default();
                 let fc: Vec<CellState> = f.0.iter().chain(&f.1).map(|&s| cell[s]).collect();
@@ -1218,7 +1288,7 @@ impl PartitionReport {
             out.push(face);
         }
         out.sort_by_key(|f| (f.sd.len() + f.sn.len(), f.sd.clone(), f.sn.clone()));
-        out
+        (out, truncated)
     }
 
     /// Smallest state from which the generic verdict is constant, per face slot.
@@ -1493,9 +1563,20 @@ pub fn gap_partition_levels(
     if let Some(cp) = checkpoint
         && let Ok(text) = std::fs::read_to_string(cp)
     {
-        for line in text.lines().filter(|l| !l.trim().is_empty()) {
-            let v: Json =
-                serde_json::from_str(line).map_err(|e| PartitionError::Io(format!("{e}")))?;
+        let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+        for (li, line) in lines.iter().enumerate() {
+            let v: Json = match serde_json::from_str(line) {
+                Ok(v) => v,
+                // a torn LAST line (a kill during an old non-atomic append): that level is not done (audit-part-B
+                // M2); a bad line before the last is an error
+                Err(_) if li + 1 == lines.len() => break,
+                Err(e) => {
+                    return Err(PartitionError::Io(format!(
+                        "checkpoint line {}: {e}",
+                        li + 1
+                    )));
+                }
+            };
             let fk = |x: &Json| -> Vec<FaceKey> {
                 x.as_array()
                     .map(|a| {
@@ -1575,20 +1656,23 @@ pub fn gap_partition_levels(
             proved: incomplete.is_empty(),
             incomplete,
         };
-        if let Some(cp) = checkpoint {
-            use std::io::Write;
-            let line = json!({"level": lr.level, "faces": lr.faces, "generic": lr.generic, "nodes": lr.nodes, "millis": lr.millis,
-                              "proved": lr.proved, "incomplete": lr.incomplete});
-            let mut f = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(cp)
-                .map_err(|e| PartitionError::Io(format!("{e}")))?;
-            writeln!(f, "{line}").map_err(|e| PartitionError::Io(format!("{e}")))?;
-            f.sync_all()
-                .map_err(|e| PartitionError::Io(format!("{e}")))?;
-        }
         done.push(lr);
+        if let Some(cp) = checkpoint {
+            // ATOMIC rewrite (audit-part-B M2): every finished level to a temporary file, fsync, rename
+            use std::io::Write;
+            let io = |e: std::io::Error| PartitionError::Io(format!("{e}"));
+            let mut text = String::new();
+            for d in &done {
+                text.push_str(&json!({"level": d.level, "faces": d.faces, "generic": d.generic, "nodes": d.nodes,
+                    "millis": d.millis, "proved": d.proved, "incomplete": d.incomplete}).to_string());
+                text.push('\n');
+            }
+            let tmp = cp.with_extension("tmp");
+            let mut f = std::fs::File::create(&tmp).map_err(io)?;
+            f.write_all(text.as_bytes()).map_err(io)?;
+            f.sync_all().map_err(io)?;
+            std::fs::rename(&tmp, cp).map_err(io)?;
+        }
     }
     Ok(done)
 }

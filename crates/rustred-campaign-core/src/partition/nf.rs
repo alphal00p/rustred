@@ -72,9 +72,10 @@ pub enum NfNote {
     /// and is treated as vanishing everywhere ("may vanish anywhere"); coverage can only shrink; no emptiness or
     /// containment statement about this domain is a proof.
     Weakened(String),
-    /// Elided witness loci, removed from the credited rules (FailClosed / Absent / dispatch mode).
+    /// Witness status not Complete (elided witness loci, or the record-level status Elided / NotCarried without
+    /// attestation), removed from the credited rules (FailClosed / Absent / dispatch mode: it BLOCKS where selected).
     ElidedRemoved,
-    /// Elided witness loci CREDITED as an ordinary domain (`ElidedPolicy::Ordinary`: a regression reference, never
+    /// Witness status not Complete, CREDITED as an ordinary domain (`ElidedPolicy::Ordinary`: a regression reference, never
     /// a proof: the engine never serves an elided record).
     ElidedCredited,
 }
@@ -477,8 +478,11 @@ pub fn build(
         }
         let note =
             |notes: &mut Vec<SourceNote>, n: NfNote| notes.push(SourceNote { source: i, note: n });
-        let elided_here = d.witness_elided && opts.elided != ElidedPolicy::Ordinary;
-        if d.witness_elided {
+        // witness status not Complete: elided loci in the domain, or the dispatcher's record-level status (Elided /
+        // NotCarried without attestation; corefix2): selected but never usable
+        let witness_blocked = d.witness_elided || src.witness_block(i).is_some();
+        let elided_here = witness_blocked && opts.elided != ElidedPolicy::Ordinary;
+        if witness_blocked {
             if elided_here {
                 stats.dropped_elided += 1;
                 note(&mut notes, NfNote::ElidedRemoved);
@@ -695,8 +699,11 @@ pub fn build(
                 }
             }
         }
-        if d.witness_elided && opts.elided != ElidedPolicy::Ordinary {
-            never_applies = Some("elided witness loci".into());
+        if elided_here {
+            never_applies = Some(match src.witness_block(i) {
+                Some(v) => format!("witness status not Complete ({v:?})"),
+                None => "elided witness loci".into(),
+            });
         }
         if !weakened.is_empty() {
             stats.weakened += 1;
@@ -728,7 +735,7 @@ pub fn build(
         if has_blocker {
             selected.insert(i, sel.clone());
         }
-        if d.witness_elided && opts.elided != ElidedPolicy::Ordinary {
+        if elided_here {
             // FailClosed: the record credits nothing; its BLOCKED region is a separate partition
             elided.push(i);
             continue;
