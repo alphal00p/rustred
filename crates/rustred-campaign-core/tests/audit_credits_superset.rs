@@ -80,7 +80,7 @@ impl FactSource for RandFacts {
         }
     }
     fn per_key_proof(&self, r: &RuleId, key: &[i32]) -> bool {
-        h(self.seed ^ 0x55, r.label, key, 0) % 2 == 0
+        h(self.seed ^ 0x55, r.label, key, 0).is_multiple_of(2)
     }
     fn label(&self) -> String {
         format!("audit-credits-rand-{}", self.seed)
@@ -94,11 +94,13 @@ fn kt(k: &[i32]) -> String {
     )
 }
 
+/// record key -> (body keys, witness, label)
+type Records = BTreeMap<Vec<i32>, (Vec<Vec<i32>>, WitnessStatus, i64)>;
+
 struct Node {
     disp: Dispatcher,
     bodies: RuleBodies,
-    /// record key -> (body keys, witness, label)
-    recs: BTreeMap<Vec<i32>, (Vec<Vec<i32>>, WitnessStatus, i64)>,
+    recs: Records,
 }
 
 fn random_node(rng: &mut Rng, cmp: &NodeComparator, descending: bool) -> Node {
@@ -126,7 +128,7 @@ fn random_node(rng: &mut Rng, cmp: &NodeComparator, descending: bool) -> Node {
         while body.len() < nt as usize && tries < 200 {
             tries += 1;
             // half the terms from the other records' keys (deep closures), half random (gaps, numerators > 0)
-            let t: Vec<i32> = if rng.next() % 2 == 0 {
+            let t: Vec<i32> = if rng.next().is_multiple_of(2) {
                 pool[rng.next() as usize % pool.len()].clone()
             } else {
                 (0..N)
@@ -344,7 +346,7 @@ fn audit_credits_tier_k_superset_and_well_founded_v4() {
             let mut k: Vec<i32> = (0..N)
                 .map(|s| if LINES[s] { rng.range(1, 3) } else { 0 })
                 .collect();
-            if rng.next() % 2 == 0 {
+            if rng.next().is_multiple_of(2) {
                 k[3 + (rng.next() % 2) as usize] = rng.range(-2, -1);
             }
             start.insert(k);

@@ -238,7 +238,7 @@ fn keys_for(lines: &[bool], sample: usize, seed: u64) -> Vec<Vec<i32>> {
                 let s = os[rng.next() as usize % os.len()];
                 k[s] = rng.range(-3, -1);
             }
-            if rng.next() % 16 == 0 {
+            if rng.next().is_multiple_of(16) {
                 let s = os[rng.next() as usize % os.len()];
                 k[s] = 1;
             }
