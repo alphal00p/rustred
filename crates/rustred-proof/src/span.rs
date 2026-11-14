@@ -436,14 +436,15 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
     let mut nl = 0;
     read_lines_matching(&args.table, |l| {
         nl += 1;
-        if l.starts_with(b"{\"type\":\"header\"") { hline = l.to_vec(); }
-        if l.starts_with(b"{\"type\":\"zero_sectors\"") {
+        let kind = match record_kind(l, &args.table, nl, TABLE_KINDS) { Some(k) => k, None => return nl < 64 };
+        if kind == b"header" { hline = l.to_vec(); }
+        if kind == b"zero_sectors" {
             let j = jparse(l);
             zero_scope = String::from_utf8_lossy(j.get(l, "scope").map(|x| x.s(l)).unwrap_or(b"?")).to_string();
             for m in j.get(l, "masks").unwrap().arr() { zero_masks.insert(m.s(l).to_vec()); }
         }
-        if l.starts_with(b"{\"type\":\"symmetry_group\"") { groups.push(parse_group(l)); }
-        nl < 64 && !l.starts_with(b"{\"type\":\"rule\"")
+        if kind == b"symmetry_group" { groups.push(parse_group(l)); }
+        nl < 64 && kind != b"rule"
     });
     let mut tline: Vec<u8> = vec![];
     if let Some(off) = args.offset {
@@ -454,9 +455,10 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
         r.read_until(b'\n', &mut tline).unwrap();
         while tline.last() == Some(&b'\n') { tline.pop(); }
     } else {
-        let pat_idx = format!("\"index\":{},", args.rule);
+        let mut ln = 0usize;
         read_lines_matching(&args.table, |l| {
-            if l.starts_with(b"{\"type\":\"rule\"") && find(&l[..l.len().min(400)], pat_idx.as_bytes()) {
+            ln += 1;
+            if record_kind(l, &args.table, ln, TABLE_KINDS) == Some(b"rule") && top_int(l, "index") == Some(args.rule) {
                 let j = jparse(&l[..l.len()]);
                 let ok = j.get(l, "index").map(|x| x.int(l)) == Some(args.rule) && args.chart.as_ref().map_or(true, |c| j.get(l, "chart").unwrap().s(l) == c.as_bytes());
                 if ok { tline = l.to_vec(); return false; }
@@ -464,7 +466,8 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
             true
         });
     }
-    if tline.is_empty() || !tline.starts_with(b"{\"type\":\"rule\"") { die("rule record not found in table"); }
+    if tline.is_empty() { die("rule record not found in table"); }
+    if record_kind(&tline, &args.table, 0, TABLE_KINDS) != Some(b"rule") { die("the record is not a rule record"); }
     let tj = jparse(&tline);
     if tj.get(&tline, "index").map(|x| x.int(&tline)) != Some(args.rule) && args.rule >= 0 { die("record at offset is not the requested rule index"); }
     let chart = String::from_utf8(tj.get(&tline, "chart").unwrap().s(&tline).to_vec()).unwrap();
@@ -490,7 +493,7 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
     // ---------------------------------------------------------------- rows (engine or cert)
     let mut nonaffine = 0; let mut row_terms = 0;
     let mut cert_lines: Vec<Vec<u8>> = vec![];
-    if let Some(c) = &args.cert { read_lines_matching(c, |l| { if l.starts_with(b"{\"type\":\"source_row\"") { cert_lines.push(l.to_vec()); } true }); }
+    if let Some(c) = &args.cert { let mut ln = 0usize; read_lines_matching(c, |l| { ln += 1; if record_kind(l, c, ln, CERT_KINDS) == Some(b"source_row") { cert_lines.push(l.to_vec()); } true }); }
     let cert_rows = load_rows(&cert_lines, &mut nonaffine, &mut row_terms);
     let rows: Rows = if let Some(er) = engine {
         let (mut na, mut rt) = (0, 0);
@@ -529,9 +532,10 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
             let mut rc: Option<Vec<i64>> = None;
             if let Some(c) = &args.cert {
                 let rule_idx = tj.get(&tline, "index").unwrap().int(&tline);
-                let pat_rule = format!("\"rule\":{},", rule_idx);
+                let mut ln = 0usize;
                 read_lines_matching(c, |l| {
-                    if l.starts_with(b"{\"type\":\"cert_rule\"") && find(&l[..l.len().min(400)], pat_rule.as_bytes()) {
+                    ln += 1;
+                    if record_kind(l, c, ln, CERT_KINDS) == Some(b"cert_rule") && top_int(l, "rule") == Some(rule_idx) {
                         let j = jparse(l);
                         if j.get(l, "chart").map(|x| x.s(l)) == Some(chart.as_bytes()) && j.get(l, "rule").map(|x| x.int(l)) == Some(rule_idx) {
                             if let Some(J::Arr(a)) = j.get(l, "recenter") { rc = Some(a.iter().map(|x| x.int(l)).collect()); }

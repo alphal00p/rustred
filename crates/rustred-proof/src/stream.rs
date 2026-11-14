@@ -169,10 +169,11 @@ pub fn run_stored(args: &StoredArgs, engine: Option<&EngineRows>) -> String {
 
     // ---------------------------------------------------------------- load records
     let t0 = Instant::now();
-    let pat_idx = format!("\"index\":{},", args.rule);
     let mut tline: Vec<u8> = vec![];
+    let mut ln = 0usize;
     read_lines_matching(&args.table, |l| {
-        if l.starts_with(b"{\"type\":\"rule\"") && find(&l[..l.len().min(400)], pat_idx.as_bytes()) {
+        ln += 1;
+        if record_kind(l, &args.table, ln, TABLE_KINDS) == Some(b"rule") && top_int(l, "index") == Some(args.rule) {
             let j = jparse(l);
             let ok = j.get(l, "index").map(|x| x.int(l)) == Some(args.rule) && args.chart.as_ref().map_or(true, |c| j.get(l, "chart").unwrap().s(l) == c.as_bytes());
             if ok { tline = l.to_vec(); return false; }
@@ -182,19 +183,21 @@ pub fn run_stored(args: &StoredArgs, engine: Option<&EngineRows>) -> String {
     if tline.is_empty() { die("rule record not found in table"); }
     let tj = jparse(&tline);
     let chart = String::from_utf8(tj.get(&tline, "chart").unwrap().s(&tline).to_vec()).unwrap();
-    let pat_rule = format!("\"rule\":{},", args.rule);
     let mut cline: Vec<u8> = vec![];
     let mut src_lines: Vec<Vec<u8>> = vec![];
     let mut basis: HashMap<i64, Vec<(i64, i64)>> = HashMap::new();
+    let mut ln = 0usize;
     read_lines_matching(&args.cert, |l| {
-        if l.starts_with(b"{\"type\":\"source_row\"") { src_lines.push(l.to_vec()); }
-        else if l.starts_with(b"{\"type\":\"basis_row\"") {
+        ln += 1;
+        let kind = record_kind(l, &args.cert, ln, CERT_KINDS);
+        if kind == Some(b"source_row") { src_lines.push(l.to_vec()); }
+        else if kind == Some(b"basis_row") {
             let j = jparse(l);
             if j.get(l, "chart").unwrap().s(l) == chart.as_bytes() {
                 let k = j.get(l, "k").unwrap().int(l);
                 basis.insert(k, j.get(l, "sources").unwrap().arr().iter().map(|x| { let a = x.arr(); (a[0].int(l), a[1].int(l)) }).collect());
             }
-        } else if cline.is_empty() && l.starts_with(b"{\"type\":\"cert_rule\"") && find(&l[..l.len().min(400)], pat_rule.as_bytes()) {
+        } else if cline.is_empty() && kind == Some(b"cert_rule") && top_int(l, "rule") == Some(args.rule) {
             let j = jparse(l);
             if j.get(l, "chart").unwrap().s(l) == chart.as_bytes() && j.get(l, "rule").unwrap().int(l) == args.rule { cline = l.to_vec(); }
         }

@@ -3439,6 +3439,7 @@ fn run<const N: usize>(
                 ));
             }
             let mut checked = 0usize;
+            let mut checked_lines = 1usize;
             loop {
                 line.clear();
                 if rd
@@ -3448,7 +3449,15 @@ fn run<const N: usize>(
                 {
                     break;
                 }
-                if !line.starts_with("{\"type\":\"rule\"") {
+                checked_lines += 1;
+                // the record kind is the parsed `type` (any key order); unknown kinds / unreadable lines are errors
+                if super::records::record_kind(
+                    line.trim_end(),
+                    path,
+                    checked_lines,
+                    super::records::TABLE_KINDS,
+                )? != Some("rule")
+                {
                     continue;
                 }
                 let v: serde_json::Value = serde_json::from_str(line.trim_end())
@@ -3634,7 +3643,7 @@ fn run<const N: usize>(
         presented,
         &label,
         &descriptor_json(&opts.order, n),
-        &super::registry::cert_hash(&cert_text),
+        &super::registry::cert_hash(&cert_text)?,
     );
     drop(cert_text);
     outcome.math_key = math_key.clone();

@@ -42,7 +42,7 @@ fn parse_key(s: &str) -> Vec<(usize, i64)> {
 fn header_family(table: &str) -> Option<String> {
     let mut fam = None;
     read_lines_matching(table, |l| {
-        if l.starts_with(b"{\"type\":\"header\"") {
+        if rustred_proof::core::record_kind(l, table, 1, rustred_proof::core::TABLE_KINDS) == Some(b"header") {
             let v: serde_like::Val = serde_like::field_string(l, "family_source");
             fam = v;
         }

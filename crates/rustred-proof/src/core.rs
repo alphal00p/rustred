@@ -430,6 +430,105 @@ pub fn find(h: &[u8], n: &[u8]) -> bool {
     h.windows(n.len()).any(|w| w == n)
 }
 
+// ===================================================================== record kinds (engine-line7 reader fix)
+// A record's kind is its PARSED top-level `type` member, never a line prefix or a key order: an externally
+// reconstructed record may have its keys in any order (T211 rule 2894: `{"case":...,"type":"rule"}`).
+
+/// Record kinds of a rule table (`F.table.jsonl`, table_dump.v1 / rustred.node.v1).
+pub const TABLE_KINDS: &[&str] = &["header", "zero_sectors", "chart", "symmetry_group", "rule", "residual", "chart_end", "chart_error", "end", "assembly_provenance"];
+/// Record kinds of a certificate (`F.cert.jsonl`).
+pub const CERT_KINDS: &[&str] = &["cert_header", "source_row", "basis_row", "cert_rule", "cert_end"];
+
+fn skip_ws(l: &[u8], mut i: usize) -> usize { while i < l.len() && (l[i] as char).is_ascii_whitespace() { i += 1; } i }
+fn end_of_string(l: &[u8], mut i: usize) -> Option<usize> {
+    // l[i] == '"'; returns the index of the closing quote
+    i += 1;
+    while i < l.len() { match l[i] { b'\\' => i += 2, b'"' => return Some(i), _ => i += 1 } }
+    None
+}
+fn end_of_value(l: &[u8], i: usize) -> Option<usize> {
+    // exclusive end of the JSON value starting at l[i]
+    match *l.get(i)? {
+        b'"' => end_of_string(l, i).map(|e| e + 1),
+        b'{' | b'[' => {
+            let mut depth = 0i64; let mut j = i;
+            while j < l.len() {
+                match l[j] {
+                    b'"' => { j = end_of_string(l, j)?; }
+                    b'{' | b'[' => depth += 1,
+                    b'}' | b']' => { depth -= 1; if depth == 0 { return Some(j + 1); } }
+                    _ => {}
+                }
+                j += 1;
+            }
+            None
+        }
+        _ => { let mut j = i; while j < l.len() && !matches!(l[j], b',' | b'}' | b']') && !(l[j] as char).is_ascii_whitespace() { j += 1; } if j == i { None } else { Some(j) } }
+    }
+}
+
+/// Visit the top-level members of a JSON object line: `f(key, raw value)` (a string value without its quotes);
+/// `f` returns false to stop. Err for a line that is not a well-formed object up to the point visited.
+pub fn top_members<'a>(l: &'a [u8], mut f: impl FnMut(&'a [u8], &'a [u8]) -> bool) -> Result<(), &'static str> {
+    top_members_raw(l, |k, v| f(k, if v.first() == Some(&b'"') { &v[1..v.len() - 1] } else { v }))
+}
+
+/// As [`top_members`], with the raw value text (a string keeps its quotes).
+pub fn top_members_raw<'a>(l: &'a [u8], mut f: impl FnMut(&'a [u8], &'a [u8]) -> bool) -> Result<(), &'static str> {
+    let mut i = skip_ws(l, 0);
+    if l.get(i) != Some(&b'{') { return Err("not a JSON object"); }
+    i = skip_ws(l, i + 1);
+    if l.get(i) == Some(&b'}') { return if skip_ws(l, i + 1) == l.len() { Ok(()) } else { Err("text after the object") }; }
+    loop {
+        if l.get(i) != Some(&b'"') { return Err("member name expected"); }
+        let ke = end_of_string(l, i).ok_or("unterminated member name")?;
+        let key = &l[i + 1..ke];
+        i = skip_ws(l, ke + 1);
+        if l.get(i) != Some(&b':') { return Err("':' expected"); }
+        i = skip_ws(l, i + 1);
+        let ve = end_of_value(l, i).ok_or("unterminated value")?;
+        let val = &l[i..ve];
+        if !f(key, val) { return Ok(()); }
+        i = skip_ws(l, ve);
+        match l.get(i) {
+            Some(b',') => i = skip_ws(l, i + 1),
+            Some(b'}') => return if skip_ws(l, i + 1) == l.len() { Ok(()) } else { Err("text after the object") },
+            _ => return Err("',' or '}' expected"),
+        }
+    }
+}
+
+/// The raw value of the top-level member `key` (string without quotes), None if absent.
+pub fn top_field<'a>(l: &'a [u8], key: &str) -> Option<&'a [u8]> {
+    let mut out = None;
+    top_members(l, |k, v| { if k == key.as_bytes() { out = Some(v); false } else { true } }).ok()?;
+    out
+}
+
+/// The kind of one record line: None for a blank line; a typed refusal (die) for an unreadable line, a record
+/// without a string `type`, or a kind outside `allowed` -- never a silent skip.
+pub fn record_kind<'a>(l: &'a [u8], file: &str, line_no: usize, allowed: &[&str]) -> Option<&'a [u8]> {
+    if l.iter().all(|c| (*c as char).is_ascii_whitespace()) { return None; }
+    let mut kind: Option<&[u8]> = None;
+    if let Err(e) = top_members_raw(l, |k, v| { if k == b"type" { kind = Some(v); false } else { true } }) {
+        die(&format!("UNREADABLE_RECORD: {} line {}: {}", file, line_no, e));
+    }
+    // a plain string kind (quoted, no escapes)
+    let k = match kind {
+        Some(v) if v.len() >= 3 && v[0] == b'"' && v[v.len() - 1] == b'"' && v[1..v.len() - 1].iter().all(|c| c.is_ascii_alphanumeric() || *c == b'_') => &v[1..v.len() - 1],
+        _ => die(&format!("UNREADABLE_RECORD: {} line {}: no string member \"type\"", file, line_no)),
+    };
+    if !allowed.iter().any(|a| a.as_bytes() == k) {
+        die(&format!("UNKNOWN_RECORD_KIND: {} line {}: type {:?}", file, line_no, String::from_utf8_lossy(k)));
+    }
+    Some(k)
+}
+
+/// The top-level integer member `key`, None if absent or not an integer.
+pub fn top_int(l: &[u8], key: &str) -> Option<i64> {
+    top_field(l, key).and_then(|v| std::str::from_utf8(v).ok()).and_then(|s| s.parse().ok())
+}
+
 // ===================================================================== points and streaming evaluation (kernel K2/K3)
 #[derive(Clone)]
 pub enum PKind { Mod(Mont), Ex }

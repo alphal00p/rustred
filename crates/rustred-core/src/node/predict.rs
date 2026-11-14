@@ -947,6 +947,7 @@ pub fn table_cases(path: &str) -> Result<(serde_json::Value, Vec<WeightedCase>),
     let mut r = BufReader::with_capacity(1 << 24, f);
     let mut header = serde_json::Value::Null;
     let mut out = Vec::new();
+    let mut line_no = 0usize;
     loop {
         // read up to 64 KB of the line, then skip to its end counting bytes
         let mut head = Vec::new();
@@ -976,13 +977,28 @@ pub fn table_cases(path: &str) -> Result<(serde_json::Value, Vec<WeightedCase>),
             break;
         }
         let text = String::from_utf8_lossy(&head);
-        if text.starts_with("{\"type\":\"header\"") {
+        line_no += 1;
+        // the record kind: this reader keeps a 64 KB prefix per line, so it can classify a record only when `type`
+        // is its FIRST member (the engine's layout); any other layout is a typed refusal, never a skip
+        let kind_at_start = text
+            .strip_prefix("{\"type\":\"")
+            .and_then(|r| r.split('"').next())
+            .filter(|k| super::records::TABLE_KINDS.contains(k));
+        let Some(kind) = kind_at_start else {
+            if text.trim().is_empty() {
+                continue;
+            }
+            return Err(format!(
+                "{path} line {line_no}: record kind not readable from the line start (type not the first member, or an unknown kind); predict reads 64 KB per line"
+            ));
+        };
+        if kind == "header" {
             if size as usize == head.len() {
                 header = serde_json::from_str(&text).map_err(|e| format!("{path} header: {e}"))?;
             }
             continue;
         }
-        if !text.starts_with("{\"type\":\"rule\"") {
+        if kind != "rule" {
             continue;
         }
         let fixed = json_field(&text, "fixed");

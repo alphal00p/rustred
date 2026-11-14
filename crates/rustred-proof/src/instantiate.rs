@@ -182,7 +182,7 @@ pub fn run_instantiate(requests: &str, out_path: &str) -> String { run_instantia
 fn header_guard_version(table: &str) -> i64 {
     let mut gv = 1;
     read_lines_matching(table, |l| {
-        if l.starts_with(b"{\"type\":\"header\"") {
+        if record_kind(l, table, 1, TABLE_KINDS) == Some(b"header") {
             let j = jparse(l);
             if let Some(x @ J::Num(..)) = j.get(l, "guard_version") { gv = x.int(l); }
         }
@@ -211,13 +211,13 @@ pub fn run_instantiate_with(requests: &str, out_path: &str, elided_mode: ElidedL
         for (idx, (off, _)) in rules { if let Some(o) = off { records.insert(*idx, read_at(table, *o)); } }
         let missing: BTreeSet<i64> = rules.keys().filter(|i| !records.contains_key(i)).copied().collect();
         if !missing.is_empty() {
+            let mut ln = 0usize;
             read_lines_matching(table, |l| {
-                if l.starts_with(b"{\"type\":\"rule\"") {
-                    let head = &l[..l.len().min(400)];
-                    if let Some(p) = head.windows(8).position(|w| w == b"\"index\":") {
-                        let digits: Vec<u8> = head[p + 8..].iter().take_while(|c| c.is_ascii_digit()).copied().collect();
-                        let i: i64 = std::str::from_utf8(&digits).unwrap().parse().unwrap_or(-1);
-                        if missing.contains(&i) { records.insert(i, l.to_vec()); }
+                ln += 1;
+                if record_kind(l, table, ln, TABLE_KINDS) == Some(b"rule") {
+                    match top_int(l, "index") {
+                        Some(i) => { if missing.contains(&i) { records.insert(i, l.to_vec()); } }
+                        None => die(&format!("UNREADABLE_RECORD: {} line {}: rule record without an integer index", table, ln)),
                     }
                 }
                 records.len() < rules.len()
@@ -225,7 +225,7 @@ pub fn run_instantiate_with(requests: &str, out_path: &str, elided_mode: ElidedL
         }
         for (idx, (_, keys)) in rules {
             let line = records.get(idx).unwrap_or_else(|| die(&format!("rule {} not found in {}", idx, table)));
-            if !line.starts_with(b"{\"type\":\"rule\"") { die("offset does not point at a rule record"); }
+            if record_kind(line, table, 0, TABLE_KINDS) != Some(b"rule") { die("offset does not point at a rule record"); }
             let jj = jparse(&line[..line.len()]);
             if jj.get(line, "index").map(|x| x.int(line)) != Some(*idx) { die("record at offset has a different index"); }
             nrec += 1;
@@ -351,5 +351,47 @@ mod tests {
         let bad = rule_wl(r#"["elided"]"#, "elided");
         let e = crate::guarded(|| facts_for_rule(&bad, &keys, ElidedLoci::Facts, 2)).unwrap_err();
         assert!(e.starts_with("UNSUPPORTED: an elided rhs"), "{e}");
+    }
+
+    /// engine-line7 reader fix: a rule record with its keys in another order (T211 rule 2894 starts `{"case"...`)
+    /// is found by its parsed `type` and `index`; unknown kinds and unreadable lines are typed refusals.
+    #[test]
+    fn key_reordered_rule_record_is_found_and_bad_lines_are_refused() {
+        let dir = std::env::temp_dir().join(format!("rr_proof_keyorder_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let rule_sorted = |idx: i64| format!(r#"{{"case":"x","chart":"11000000000000000000","equations":[],"exceptions":[],"fixed":[null,null,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"index":{idx},"rhs":[["I(n0-1,n1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)","(n0-2)/(d-2*n1)"]],"target":"I(n0,n1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)","type":"rule"}}"#);
+        let table = dir.join("t.jsonl");
+        let body = format!("{{\"guard_version\":2,\"type\":\"header\"}}\n{}\n{}\n{{\"chart\":\"11000000000000000000\",\"key\":\"I(1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)\",\"type\":\"residual\"}}\n{{\"rules\":2,\"type\":\"end\"}}\n",
+            String::from_utf8(rule(r#"[]"#)).unwrap(), rule_sorted(2894));
+        std::fs::write(&table, &body).unwrap();
+        let req = dir.join("req.jsonl");
+        std::fs::write(&req, format!("{{\"table\":\"{}\",\"rule\":2894,\"keys\":[[3,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]}}\n", table.display())).unwrap();
+        let out = dir.join("out.jsonl");
+        let summary = crate::guarded(|| run_instantiate(req.to_str().unwrap(), out.to_str().unwrap())).unwrap();
+        assert!(summary.contains("\"rules\":1"), "{summary}");
+        let o = std::fs::read_to_string(&out).unwrap();
+        assert!(o.contains("\"rule\":2894") && o.contains("\"in_case\":true"), "{o}");
+        assert_eq!(header_guard_version(table.to_str().unwrap()), 2);
+        // an unknown record kind and an unreadable line are refused, never skipped
+        for (bad, want) in [("{\"type\":\"mystery\"}", "UNKNOWN_RECORD_KIND"), ("{\"type\":\"rule\",\"index\":", "UNREADABLE_RECORD"),
+                            ("{\"index\":5}", "UNREADABLE_RECORD"), ("{\"type\":7}", "UNREADABLE_RECORD"), ("not json", "UNREADABLE_RECORD")] {
+            std::fs::write(&table, format!("{}{}\n", body, bad)).unwrap();
+            std::fs::write(&req, format!("{{\"table\":\"{}\",\"rule\":99,\"keys\":[[3,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]}}\n", table.display())).unwrap();
+            let e = crate::guarded(|| run_instantiate(req.to_str().unwrap(), out.to_str().unwrap())).unwrap_err();
+            assert!(e.starts_with(want), "{bad}: {e}");
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn top_member_scanner() {
+        use crate::core::{top_field, top_int, top_members};
+        let l = br#"{"a":{"type":"inner","x":[1,"]",{"y":"}"}]},"s":"q\"x","type":"rule","index":12}"#;
+        assert_eq!(top_field(l, "type"), Some(&b"rule"[..]));
+        assert_eq!(top_int(l, "index"), Some(12));
+        assert_eq!(top_field(l, "x"), None); // nested members are not top-level
+        assert!(top_members(br#"{"a":1} trailing"#, |_, _| true).is_err());
+        assert!(top_members(br#"{"a":[1,2}"#, |_, _| true).is_err());
+        assert!(top_members(br#"  {}  "#, |_, _| true).is_ok());
     }
 }
