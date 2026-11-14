@@ -119,6 +119,15 @@ fn an_elided_record_gets_exact_eval_facts_and_the_node_closes_boxed_per_key() {
     assert_eq!(r["check"]["tier"], "C");
     // the fact of the elided record came from the exact evaluation, nothing else needed a fact line
     assert_eq!(r["fact_basis"], json!({"exact_eval": 1}), "{r:#}");
+    // box clause view (closeloop.md 16.9): every start key listed with its clause; one verdict per clause
+    assert_eq!(r["box_clause"], "box");
+    assert_eq!(r["clauses"], json!({"box": "closed"}), "{r:#}");
+    let start_keys = 2; // the toy's start set: [5,1,0] and [3,2,0]
+    assert_eq!(r["clause_keys"]["count"], start_keys, "{r:#}");
+    assert_eq!(r["clause_keys"]["not_certified"], 0);
+    let ck = std::fs::read_to_string(cdir.join("closeloop/toy/final/clause_keys.jsonl")).unwrap();
+    assert_eq!(ck.lines().count(), start_keys);
+    assert!(ck.lines().all(|l| l.contains("\"clause\":\"box\"")), "{ck}");
     assert_eq!(r["check"]["exact_tier"]["exact_eval_missing_keys"], 0);
     assert_eq!(r["check"]["exact_tier"]["facts_unavailable_elided_keys"], 0);
     // the key reads per-key (its bound proof) with the fact basis exact_eval; the zero positive-numerator term is no

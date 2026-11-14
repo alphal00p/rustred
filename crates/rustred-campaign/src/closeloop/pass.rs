@@ -93,6 +93,9 @@ pub struct PassIn {
     pub rows_path: PathBuf,
     /// `boxed` | `full` (closeloop.md 13.3: boxed from the first record).
     pub target: String,
+    /// lane closeloop3 (closeloop.md 16.9): this run's box clause id and the earlier clauses (id, result.json).
+    pub box_clause: String,
+    pub prior_clauses: Vec<(String, PathBuf)>,
 }
 
 impl PassIn {
@@ -129,6 +132,8 @@ impl PassIn {
             proof: None,
             exact_tier: false,
             target: "boxed".into(),
+            box_clause: "box".into(),
+            prior_clauses: vec![],
         }
     }
 }
@@ -997,7 +1002,7 @@ fn write_final(
     let sdir = inp.final_dir.join("statement");
     let header = json!({"check_pass_s": f.elapsed, "closeloop": {"target": inp.target,
         "relation_rule": inp.relation_rule, "required_evidence": f.required.word(),
-        "tier": format!("{:?}", res.tier), "verdict": f.verdict,
+        "tier": format!("{:?}", res.tier), "verdict": f.verdict, "box_clause": inp.box_clause,
         "fact_basis": f.check["fact_basis"].clone()}});
     let dig = write_statement(set, ev, res, &sdir, Some(header))
         .map_err(|e| format!("statement: {e}"))?;
@@ -1062,6 +1067,112 @@ fn write_final(
                 .sum::<u64>()
         })
         .sum();
+    // lane closeloop3 (closeloop.md 16.9): the CLAUSE view: every start key of this run is a key of its box clause;
+    // per key what serves it (from the spilled rows = the statement), class x level of the clause's keys, and a verdict
+    // per clause (the earlier clauses' from their recorded results)
+    let mut clause_keys: Vec<Value> = vec![];
+    let mut clause_by_class: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
+    let mut clause_open = 0u64;
+    // the statement just written holds every row (the spilled rows file is adopted by the statement writer)
+    let stmt_rows = sdir.join("statement.jsonl");
+    let rows_src = if stmt_rows.is_file() {
+        std::fs::read_to_string(&stmt_rows).unwrap_or_default()
+    } else if inp.rows_path.is_file() {
+        std::fs::read_to_string(&inp.rows_path).unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let mut from_rows = false;
+    for l in rows_src.lines() {
+        let Ok(v) = serde_json::from_str::<Value>(l) else {
+            continue;
+        };
+        if v["in_start"] != true {
+            continue;
+        }
+        from_rows = true;
+        let class = v["server"]["class"]
+            .as_str()
+            .unwrap_or(if v["status"] == "terminal" {
+                "terminal"
+            } else {
+                "-"
+            })
+            .to_string();
+        let level = match v["status"].as_str() {
+            Some("served") => v["evidence"].as_str().unwrap_or("none").to_string(),
+            Some("terminal") => "terminal".into(),
+            _ => "open".into(),
+        };
+        if level == "open" || (level != "terminal" && level != f.required.word()) {
+            clause_open += 1;
+        }
+        *clause_by_class
+            .entry(class.clone())
+            .or_default()
+            .entry(level.clone())
+            .or_default() += 1;
+        clause_keys.push(json!({"key": v["key"], "clause": inp.box_clause, "status": v["status"], "class": class,
+            "level": level, "basis": v["basis"], "fact_basis": v["facts"]["basis"], "server": v["server"]["hand_name"],
+            "open": v["open"]}));
+    }
+    if !from_rows {
+        for r in res.rows.iter().filter(|r| r.in_start) {
+            let class = class_of(set, r);
+            let level = match r.status {
+                RowStatus::Served => r.evidence.map(|e| e.word()).unwrap_or("none").to_string(),
+                RowStatus::Terminal => "terminal".into(),
+                RowStatus::Open => "open".into(),
+            };
+            if level == "open" || (level != "terminal" && level != f.required.word()) {
+                clause_open += 1;
+            }
+            *clause_by_class
+                .entry(class.clone())
+                .or_default()
+                .entry(level.clone())
+                .or_default() += 1;
+            clause_keys.push(
+                json!({"key": r.key, "clause": inp.box_clause, "status": r.status, "class": class,
+                "level": level, "basis": r.basis, "fact_basis": r.fact_basis}),
+            );
+        }
+    }
+    let clause_word = |verdict: &str, open: u64| -> String {
+        if verdict == "closed" {
+            "closed".into()
+        } else {
+            format!("{verdict} ({open})")
+        }
+    };
+    let mut clauses = serde_json::Map::new();
+    for (id, p) in &inp.prior_clauses {
+        let pv: Value = std::fs::read(p)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or(Value::Null);
+        let w = pv["verdict"].as_str().unwrap_or("unknown");
+        let n = pv["open_keys"]["count"].as_u64().unwrap_or(0);
+        clauses.insert(id.clone(), json!(clause_word(w, n)));
+    }
+    let this_verdict = if f.verdict == "closed" && clause_open == 0 {
+        "closed"
+    } else if clause_open == 0 {
+        f.verdict
+    } else {
+        "open"
+    };
+    clauses.insert(
+        inp.box_clause.clone(),
+        json!(clause_word(this_verdict, clause_open)),
+    );
+    let mut ck = String::new();
+    for v in &clause_keys {
+        ck.push_str(&v.to_string());
+        ck.push('\n');
+    }
+    std::fs::write(inp.final_dir.join("clause_keys.jsonl"), ck)
+        .map_err(|e| format!("clause_keys: {e}"))?;
     let label = if f.verdict == "closed" {
         format!("closed, {}, {}", inp.target, f.required.word())
     } else {
@@ -1088,6 +1199,10 @@ fn write_final(
         "requests_left": {"solve": res.solve_requests.len(), "fact_records": res.fact_requests.len(),
                           "proof_records": res.proof_requests.len()},
         "writes": "CDIR/closeloop only (never P5L_STATUS.json / P5L_TERMINALS.json)",
+        // lane closeloop3 (closeloop.md 16.9): a verdict per box clause; this clause's keys by class x level
+        "box_clause": inp.box_clause, "clauses": clauses,
+        "clause_keys": {"file": "clause_keys.jsonl", "count": clause_keys.len(), "not_certified": clause_open,
+                        "by_rule_class_level": clause_by_class},
     });
     Ok(FinalOut {
         verdict: f.verdict.to_string(),

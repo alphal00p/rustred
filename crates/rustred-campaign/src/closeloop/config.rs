@@ -206,6 +206,21 @@ pub struct NodeCfg {
     /// (then our relations stay below per-key and the exact tier cannot get its facts: reported, never assumed).
     #[serde(default)]
     pub proof: Option<ProofCfg>,
+    /// lane closeloop3 (closeloop.md 16.9): the id of the BOX CLAUSE this run's start set stands for (data; None =
+    /// `box`). An added clause of a node is run as an incremental extension: its own start set, the earlier runs'
+    /// facts / proofs as evidence (nothing done is redone), the earlier clauses' verdicts in `prior_clauses`.
+    #[serde(default)]
+    pub box_clause: Option<String>,
+    #[serde(default)]
+    pub prior_clauses: Vec<PriorClause>,
+}
+
+/// An earlier box clause of the node, decided by another run (its final result record).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PriorClause {
+    pub id: String,
+    pub result: PathBuf,
 }
 
 fn d_yes() -> bool {

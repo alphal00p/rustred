@@ -772,6 +772,13 @@ impl CloseFromMaterialSource {
                 Target::Boxed => "boxed".into(),
                 Target::Full => "full".into(),
             },
+            box_clause: r.cfg.box_clause.clone().unwrap_or_else(|| "box".into()),
+            prior_clauses: r
+                .cfg
+                .prior_clauses
+                .iter()
+                .map(|c| (c.id.clone(), c.result.clone()))
+                .collect(),
         };
         let h = std::thread::Builder::new()
             .name(format!("closeloop-pass-{}", r.n))

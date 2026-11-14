@@ -467,7 +467,13 @@ fn lying_children_are_refused_and_never_close_the_node() {
     std::fs::write(&files2.hand, "").unwrap();
     // procfix5 (gate4 m3): the exit code follows the items at the end (default outcome: 0 closed, 10 not)
     let c2 = run_to_end(&sp2, &cdir2, &["--plain"]);
-    assert_eq!(c2.last(), Some(&finish_code_by_items(&cdir2)), "{c2:?}");
+    // lane closeloop3: the exit code follows the closing loop's verdict (outcome(): open -> 10, closed -> 0)
+    let want = if result_json(&cdir2)["verdict"] == "closed" {
+        0
+    } else {
+        10
+    };
+    assert_eq!(c2.last(), Some(&want), "{c2:?}");
     assert_eq!(accepts(&cdir2), 0);
     let ans = answers_lines(&cdir2);
     assert!(
@@ -487,7 +493,13 @@ fn lying_children_are_refused_and_never_close_the_node() {
     );
     std::fs::write(&files3.hand, "").unwrap();
     let c3 = run_to_end(&sp3, &cdir3, &["--plain"]);
-    assert_eq!(c3.last(), Some(&finish_code_by_items(&cdir3)), "{c3:?}");
+    // lane closeloop3: the exit code follows the closing loop's verdict (outcome(): open -> 10, closed -> 0)
+    let want = if result_json(&cdir3)["verdict"] == "closed" {
+        0
+    } else {
+        10
+    };
+    assert_eq!(c3.last(), Some(&want), "{c3:?}");
     let ans = answers_lines(&cdir3);
     let x = ans
         .iter()
