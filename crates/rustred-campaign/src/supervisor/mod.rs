@@ -37,7 +37,7 @@ use crate::state::{
 };
 use failpoint::Failpoints;
 use orphans::ScanRules;
-use rustred_campaign_contract::canon::{CanonicalDigest, canonical_line};
+
 use rustred_campaign_contract::classify::{self, KillReason as CKill, OutcomeState, WaitStatus};
 use rustred_campaign_contract::events::{Event as ChildEvent, EventsTail, TailItem};
 use rustred_campaign_contract::layout::{RunLayout, attempt_dir};
@@ -1388,10 +1388,23 @@ impl Supervisor {
             canonical_lines: lines,
             canonical_blake3: canon,
         };
-        let routing = if sealed_ok {
-            self.source.route(self.ledger.state(), &self.ctx, &settled)
-        } else {
+        let mut settled = settled;
+        let routing = if !sealed_ok {
             Err("sealed table unreadable".into())
+        } else if let Some(r) = row3_routing(self.source.as_mut(), self.ledger.state(), &self.ctx, &mut settled) {
+            self.log.line(
+                "INFO",
+                &format!("{job} a{attempt}: row 3 claims confirmed by the work source's coverage check"),
+            );
+            Ok(r)
+        } else {
+            if settled.classification.row == 3 {
+                self.log.line(
+                    "INFO",
+                    &format!("{job} a{attempt}: row 3 (no_rule, per-case claims only) not confirmed by coverage: next rung"),
+                );
+            }
+            self.source.route(self.ledger.state(), &self.ctx, &settled)
         };
         let routing = match routing {
             Ok(r) => r,
@@ -3000,6 +3013,7 @@ fn finished_event(
 }
 
 /// The sealed table as read ONCE by [`read_verified_table`].
+#[derive(Debug)]
 struct BoundTable {
     rel: String,
     bytes: u64,
@@ -3008,64 +3022,56 @@ struct BoundTable {
     lines: Vec<String>,
 }
 
-/// ac2-M1: read the table that `assess` verified ONCE, through `seal::open_in_run` (run-relative, last component
-/// O_NOFOLLOW, no symlinked directories), hashing while reading, and require (dev, inode, byte count, BLAKE3,
-/// canonical digest) equal to the verified stream. Every line must have its canonical form (no silent drop).
+/// ac2-M1: the table that `assess` verified, re-opened through the contract's verified-stream handle
+/// (`seal::VerifiedHandle::reopen`: run-relative no-follow open, the verified (dev, inode) or refused) and read ONCE:
+/// `canonical_lines()` returns the lines only if the bytes, raw BLAKE3, record count and canonical digest equal the
+/// verified stream, every line with its canonical form (no silent drop): all or nothing.
 fn read_verified_table(
     layout: &RunLayout,
     verified: Option<&classify::VerifiedOutputs>,
 ) -> Result<BoundTable, String> {
-    use std::io::BufRead;
     let st = verified
         .and_then(|v| v.streams.first())
         .ok_or("no verified stream for the table")?;
-    let (f, dev, ino) = rustred_campaign_contract::seal::open_in_run(&layout.root, &st.rel)
-        .map_err(|e| format!("open {}: {e:?}", st.rel))?;
-    if (dev, ino) != (st.dev, st.ino) {
-        return Err(format!("{} is not the file that was verified (device / inode)", st.rel));
-    }
-    let mut r = std::io::BufReader::with_capacity(1 << 20, f);
-    let mut raw = blake3::Hasher::new();
-    let mut canon = CanonicalDigest::new();
-    let mut lines = Vec::new();
-    let mut bytes = 0u64;
-    let mut line = Vec::new();
-    loop {
-        line.clear();
-        let n = r
-            .read_until(b'\n', &mut line)
-            .map_err(|e| format!("read {}: {e}", st.rel))?;
-        if n == 0 {
-            break;
-        }
-        bytes += n as u64;
-        if bytes > st.bytes {
-            return Err(format!("{} grew after it was verified", st.rel));
-        }
-        if line.last() != Some(&b'\n') {
-            return Err(format!("{}: torn last line", st.rel));
-        }
-        let c = canonical_line(&line[..line.len() - 1])
-            .map_err(|e| format!("{} line {}: no canonical form ({e})", st.rel, lines.len() + 1))?;
-        raw.update(&line);
-        canon.push_canonical(&c);
-        lines.push(String::from_utf8(c).map_err(|_| format!("{}: canonical line not UTF-8", st.rel))?);
-    }
-    let blake3 = raw.finalize().to_hex().to_string();
-    if bytes != st.bytes || blake3 != st.blake3 {
-        return Err(format!("{} changed after it was verified (size / BLAKE3)", st.rel));
-    }
-    let canonical = canon.hex();
-    if canonical != st.canonical_blake3 {
-        return Err(format!("{}: canonical digest differs from the verified one", st.rel));
-    }
+    let h = rustred_campaign_contract::seal::VerifiedHandle::reopen(&layout.root, st)
+        .map_err(|e| format!("{}: {e:?}", st.rel))?;
+    let lines = h
+        .canonical_lines()
+        .map_err(|e| format!("{} changed after it was verified: {e:?}", st.rel))?
+        .into_iter()
+        .map(|c| String::from_utf8(c).map_err(|_| format!("{}: canonical line not UTF-8", st.rel)))
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(BoundTable {
         rel: st.rel.clone(),
-        bytes,
-        blake3,
-        canonical,
+        bytes: st.bytes,
+        blake3: st.blake3.clone(),
+        canonical: st.canonical_blake3.clone(),
         lines,
     })
+}
+
+/// Decision row 3 (action `confirm_coverage_else_next_rung`): `Some(routing)` when the work source's own coverage
+/// check confirms the child's per-case claims; otherwise the classification's action becomes `next_rung` (row 24
+/// semantics) and the caller routes as usual. Other rows: `None`, unchanged.
+fn row3_routing(
+    source: &mut dyn WorkSource,
+    st: &CampaignState,
+    ctx: &SourceContext,
+    settled: &mut Settled,
+) -> Option<worksource::Routing> {
+    if settled.classification.action != classify::Action::ConfirmCoverageElseNextRung {
+        return None;
+    }
+    match source.confirm_coverage(st, ctx, settled) {
+        Ok(Some(events)) => Some(worksource::Routing {
+            events,
+            accepts: Vec::new(),
+        }),
+        Ok(None) | Err(_) => {
+            settled.classification.action = classify::Action::NextRung;
+            None
+        }
+    }
 }
 
 /// OUTCOME read ONCE through the run-relative no-follow open; its parse must equal the OUTCOME the classification used.
@@ -3115,4 +3121,186 @@ fn not_an_attempt(job: &str, attempt: u32, why: &str) -> Vec<Event> {
             },
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rustred_campaign_contract::seal::{self, RecordWriter, TABLE_END_TYPES};
+
+    fn run_dir(tag: &str) -> RunLayout {
+        let d = std::env::temp_dir().join(format!(
+            "rr-procfix3-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let l = RunLayout::new(&d);
+        std::fs::create_dir_all(l.out_dir()).unwrap();
+        l
+    }
+
+    fn sealed_table(l: &RunLayout, n: u64) {
+        let mut w = RecordWriter::create(&l.table()).unwrap();
+        w.append(br#"{"type":"header","zero_seconds":0.25}"#).unwrap();
+        for i in 0..n {
+            w.append(
+                format!(r#"{{"type":"rule","chart":"11","index":{i},"case":"c{i}","target":"I({i})","rhs":[["I(0)","-1/2"]]}}"#)
+                    .as_bytes(),
+            )
+            .unwrap();
+        }
+        w.seal(format!(r#"{{"type":"end","rules":{n},"seconds":1.5}}"#).as_bytes())
+            .unwrap();
+    }
+
+    fn verified_of(l: &RunLayout) -> classify::VerifiedOutputs {
+        let rel = l
+            .table()
+            .strip_prefix(&l.root)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        let (v, _) = seal::verify_stream_handle(&l.root, &rel, &TABLE_END_TYPES).unwrap();
+        classify::VerifiedOutputs {
+            rules: v.rules,
+            elided_loci: 0,
+            streams: vec![v],
+        }
+    }
+
+    /// procfix3 item 5 (ac2-M1): the settle reads exactly the verified bytes, or nothing. Honest: the lines and the
+    /// verified canonical digest. Appended garbage, an appended valid line, or a table replaced by another sealed table
+    /// (atomic rename: another inode) after the classification: refused, nothing accepted.
+    #[test]
+    fn settle_read_is_bound_to_the_verified_stream() {
+        let l = run_dir("bound");
+        sealed_table(&l, 3);
+        let v = verified_of(&l);
+        let t = read_verified_table(&l, Some(&v)).unwrap();
+        assert_eq!(t.lines.len(), 5);
+        assert_eq!(t.canonical, v.streams[0].canonical_blake3);
+        assert_eq!((t.bytes, t.blake3.as_str()), (v.streams[0].bytes, v.streams[0].blake3.as_str()));
+        // (b) garbage appended after the classification
+        {
+            use std::io::Write;
+            let mut f = std::fs::OpenOptions::new().append(true).open(l.table()).unwrap();
+            f.write_all(b"{\"type\":\"rule\",\"index\":99} trailing garbage\n").unwrap();
+        }
+        assert!(read_verified_table(&l, Some(&v)).is_err());
+        // (a) replaced by another sealed table (rename: another inode)
+        let other = run_dir("bound-other");
+        sealed_table(&other, 4);
+        std::fs::rename(other.table(), l.table()).unwrap();
+        let e = read_verified_table(&l, Some(&v)).unwrap_err();
+        assert!(e.contains("InodeChanged") || e.contains("changed"), "{e}");
+        // no verified stream at all: nothing
+        assert!(read_verified_table(&l, None).is_err());
+        let _ = std::fs::remove_dir_all(&l.root);
+        let _ = std::fs::remove_dir_all(&other.root);
+    }
+
+    struct Confirming;
+    impl WorkSource for Confirming {
+        fn bootstrap(&mut self, _: &CampaignState, _: &SourceContext) -> Result<Vec<Event>, String> {
+            Ok(vec![])
+        }
+        fn ready(&mut self, _: &CampaignState, _: &SourceContext, _: usize) -> Vec<JobRequest> {
+            vec![]
+        }
+        fn route(&mut self, _: &CampaignState, _: &SourceContext, _: &Settled) -> Result<worksource::Routing, String> {
+            Err("route must not be called for a confirmed row 3".into())
+        }
+        fn control(&mut self, _: &CampaignState, _: &str, _: &str) -> Result<Vec<Event>, String> {
+            Ok(vec![])
+        }
+        fn confirm_coverage(
+            &mut self,
+            _: &CampaignState,
+            _: &SourceContext,
+            done: &Settled,
+        ) -> Result<Option<Vec<Event>>, String> {
+            Ok(Some(vec![Event::Note {
+                text: format!("coverage confirmed for {}", done.item),
+            }]))
+        }
+        fn finished(&self, _: &CampaignState) -> bool {
+            true
+        }
+        fn describe(&self) -> String {
+            "confirming".into()
+        }
+    }
+
+    fn row3_settled() -> Settled {
+        let c = classify::Classification {
+            row: 3,
+            sub: String::new(),
+            kind: classify::OutcomeKind::NoRule,
+            accept: classify::Accept::Nothing,
+            action: classify::Action::ConfirmCoverageElseNextRung,
+            resume_from_r: false,
+            resume_from: None,
+            time_decided: false,
+            attention: false,
+            why: "row 3".into(),
+        };
+        Settled {
+            job: "N0.i0000.L0-t0".into(),
+            attempt: 1,
+            item: "N0.i0000.L0".into(),
+            rung: crate::state::Rung::default(),
+            classification: c,
+            table: None,
+            canonical_lines: vec![],
+            canonical_blake3: None,
+        }
+    }
+
+    /// procfix3 / contractfix2 row 3: the per-case claims close nothing by themselves. A source whose coverage check
+    /// confirms them closes the item with ITS events; the synthetic source (no coverage check) gets the attempt as
+    /// row 24 (action next_rung) and escalates.
+    #[test]
+    fn row3_needs_the_sources_coverage_confirmation_else_next_rung() {
+        let st = CampaignState::default();
+        let ctx = SourceContext {
+            binaries: BTreeMap::new(),
+            campaign_key: "c".into(),
+        };
+        let mut s = row3_settled();
+        let r = row3_routing(&mut Confirming, &st, &ctx, &mut s).expect("confirmed");
+        assert_eq!(r.events.len(), 1);
+        assert_eq!(s.classification.action, classify::Action::ConfirmCoverageElseNextRung);
+        let mut synthetic = ScriptedWorkSource::new(
+            serde_json::from_value(serde_json::json!({"items": 4, "seed": 1})).unwrap(),
+        );
+        let mut s = row3_settled();
+        assert!(row3_routing(&mut synthetic, &st, &ctx, &mut s).is_none());
+        assert_eq!(s.classification.action, classify::Action::NextRung);
+        // any other row is untouched
+        let mut s = row3_settled();
+        s.classification.action = classify::Action::ItemDone;
+        assert!(row3_routing(&mut Confirming, &st, &ctx, &mut s).is_none());
+        assert_eq!(s.classification.action, classify::Action::ItemDone);
+    }
+
+    #[test]
+    fn control_sequence_numbers_order_requests_of_one_second() {
+        let d = run_dir("seq").root;
+        std::fs::create_dir_all(&d).unwrap();
+        let a = next_control_seq(&d).unwrap();
+        let b = next_control_seq(&d).unwrap();
+        assert_eq!(b, a + 1);
+        assert_eq!(control_seq_of(&format!("c-{b:012}-20261114T000000Z-ab.json")), b);
+        assert_eq!(control_seq_of("c-20261114T000000Z-ab.json"), 0);
+        let mut names = vec![
+            format!("c-{b:012}-20261114T000000Z-00.json"),
+            format!("c-{a:012}-20261114T000000Z-ff.json"),
+        ];
+        names.sort_by_key(|n| (control_seq_of(n), n.clone()));
+        assert!(names[0].contains(&format!("{a:012}")));
+        let _ = std::fs::remove_dir_all(&d);
+    }
 }

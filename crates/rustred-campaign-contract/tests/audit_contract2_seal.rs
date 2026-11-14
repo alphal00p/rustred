@@ -462,14 +462,34 @@ fn settle_reread(layout: &RunLayout) -> (Vec<String>, Option<String>) {
 /// Smallest fix: `verify_stream` returns the verified canonical lines (or `settle` re-opens with `open_in_run`,
 /// hashes while reading, and compares bytes + blake3 + (dev, ino) with `ev.verified.streams[0]` BEFORE using a
 /// line; any mismatch = FinishClass::Crashed, nothing accepted); run the attempt's marker sweep before `settle`.
+/// The supervisor's settle read since procfix3 (supervisor/mod.rs `read_verified_table`): exactly these two calls on
+/// the stream `assess` verified. Some(lines, canonical digest) only for the verified bytes; None = nothing accepted.
+fn settle_read_bound(layout: &RunLayout, v: &seal::VerifiedStream) -> Option<(Vec<String>, String)> {
+    let h = seal::VerifiedHandle::reopen(&layout.root, v).ok()?;
+    let lines = h.canonical_lines().ok()?;
+    let mut d = CanonicalDigest::new();
+    for l in &lines {
+        d.push_canonical(l);
+    }
+    Some((
+        lines
+            .into_iter()
+            .map(|l| String::from_utf8_lossy(&l).into_owned())
+            .collect(),
+        d.hex(),
+    ))
+}
+
 #[test]
-#[ignore = "FINDING ac2-M1: fails until the supervisor binds the accepted bytes to the verified stream"]
 fn ac2_toctou_settle_reread_is_not_bound_to_the_verified_stream() {
     let (run, _) = honest("toctou");
     let (ev, c) = judge(&run, WaitStatus::Exited(0));
     assert_eq!((c.row, c.accept), (1, Accept::Canonical));
     let verified = ev.verified.as_ref().unwrap().streams[0].clone();
-    // (b) garbage appended after classification: invisible to the re-read digest
+    // honest: the bound read gives the verified canonical digest
+    let (_, d0) = settle_read_bound(&run.layout, &verified).expect("honest table accepted");
+    assert_eq!(d0, verified.canonical_blake3);
+    // (b) garbage appended after classification: the OLD re-read hid it; the bound read refuses
     {
         use std::io::Write;
         let mut f = std::fs::OpenOptions::new()
@@ -480,27 +500,25 @@ fn ac2_toctou_settle_reread_is_not_bound_to_the_verified_stream() {
             .unwrap();
     }
     let (_, canon_b) = settle_reread(&run.layout);
-    let raw_b = blake3_hex(&std::fs::read(run.layout.table()).unwrap());
     eprintln!(
-        "(b) appended garbage: settle canonical digest == verified: {}; raw digest == verified: {}",
-        canon_b.as_deref() == Some(verified.canonical_blake3.as_str()),
-        raw_b == verified.blake3
+        "(b) appended garbage: old re-read digest == verified: {}",
+        canon_b.as_deref() == Some(verified.canonical_blake3.as_str())
     );
+    assert_eq!(settle_read_bound(&run.layout, &verified), None, "(b) appended bytes accepted");
     // (a) the table replaced (atomic rename) by another sealed table with different rules
     let other = new_run("toctou-other", 1);
     let _ = write_table(&other, 2, "end");
     std::fs::rename(other.layout.table(), run.layout.table()).unwrap();
-    let (lines_a, canon_a) = settle_reread(&run.layout);
-    eprintln!(
-        "(a) replaced table: settle accepts {} canonical lines, canonical digest == verified: {}",
-        lines_a.len(),
-        canon_a.as_deref() == Some(verified.canonical_blake3.as_str())
-    );
-    assert_eq!(
-        canon_a.as_deref(),
-        Some(verified.canonical_blake3.as_str()),
-        "the supervisor accepts records from bytes it never verified"
-    );
+    let (lines_a, _) = settle_reread(&run.layout);
+    eprintln!("(a) replaced table: old re-read accepted {} lines", lines_a.len());
+    match settle_read_bound(&run.layout, &verified) {
+        None => {}
+        Some((_, d)) => assert_eq!(
+            d, verified.canonical_blake3,
+            "the supervisor accepts records from bytes it never verified"
+        ),
+    }
+    assert_eq!(settle_read_bound(&run.layout, &verified), None, "(a) replaced table accepted");
 }
 
 // ------------------------------------------------------------------------------------------------ RESUME

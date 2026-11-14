@@ -129,6 +129,19 @@ pub trait WorkSource {
         verb: &str,
         target: &str,
     ) -> Result<Vec<Event>, String>;
+    /// Decision row 3 (`no_rule`, action `confirm_coverage_else_next_rung`; contract lane contractfix2, audit ac2-m9):
+    /// the child only CLAIMS (OUTCOME `per_case`) that no case of the item needs a rule. The source's OWN coverage check
+    /// (forward closure / partition of the item's keys) may confirm it: `Ok(Some(events))` closes the item with those
+    /// events (committed with `job.finished`); `Ok(None)` (the default: no coverage check) means NOT confirmed, and the
+    /// supervisor routes the attempt as row 24 (next rung). The claims never close an item by themselves.
+    fn confirm_coverage(
+        &mut self,
+        _st: &CampaignState,
+        _ctx: &SourceContext,
+        _done: &Settled,
+    ) -> Result<Option<Vec<Event>>, String> {
+        Ok(None)
+    }
     /// All work final.
     fn finished(&self, st: &CampaignState) -> bool;
     /// Number of work units (for logs).
