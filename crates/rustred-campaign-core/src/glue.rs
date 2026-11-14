@@ -239,10 +239,11 @@ pub fn relation_set_from_accepted_recipe(
     else {
         return Err(GlueError::NotCertified(format!("{verdict:?}")));
     };
-    if *recipe_digest != recipe.digest || answers.recipe_digest != recipe.digest {
+    if *recipe_digest != recipe.digest() || answers.recipe_digest != recipe.digest() {
         return Err(GlueError::NotCertified(format!(
             "recipe {} / verdict {recipe_digest} / answers {}",
-            recipe.digest, answers.recipe_digest
+            recipe.digest(),
+            answers.recipe_digest
         )));
     }
     let mut b = RelationStoreBuilder::new(codec);
@@ -270,8 +271,8 @@ pub fn relation_set_from_accepted_recipe(
     }
     Ok(RelationSet {
         name: name.to_string(),
-        recipe_digest: recipe.digest.clone(),
-        domain: recipe.domain.clone(),
+        recipe_digest: recipe.digest().to_string(),
+        domain: recipe.domain().clone(),
         relations: b
             .finish()
             .map_err(|e| GlueError::KeySet(format!("{e:?}")))?,

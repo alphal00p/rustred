@@ -87,7 +87,7 @@ fn assert_faces_complete(
     e: usize,
     w: i32,
 ) {
-    let faces: BTreeSet<_> = rep.faces.iter().map(|f| f.key()).collect();
+    let faces: BTreeSet<_> = rep.faces().iter().map(|f| f.key()).collect();
     for k in window(n, e, w) {
         let cov = l
             .items
@@ -97,7 +97,7 @@ fn assert_faces_complete(
         if !cov {
             assert_ne!(rep.class_of(&k).unwrap(), ClassHit::Covered, "{k:?}");
             assert!(
-                faces.contains(&face_of(&rep.nf.lines, &k)),
+                faces.contains(&face_of(&rep.nf().lines, &k)),
                 "face of the uncovered key {k:?} is not listed"
             );
         }
@@ -128,10 +128,10 @@ fn c1_locus_not_dropped_by_witness_sampling() {
     assert!(rep.uncovered(&[4, 4, 1]).unwrap());
     assert_eq!(rep.class_of(&[4, 4, 1]).unwrap(), ClassHit::Fragile);
     assert!(
-        rep.faces.iter().any(|x| x.key() == (vec![0, 1], vec![])),
+        rep.faces().iter().any(|x| x.key() == (vec![0, 1], vec![])),
         "face ({{0,1}},{{}}) must be listed"
     );
-    let res = rep.resolution.as_ref().unwrap();
+    let res = rep.resolution().unwrap();
     let on_face: Vec<_> = res
         .loci
         .iter()
@@ -145,7 +145,7 @@ fn c1_locus_not_dropped_by_witness_sampling() {
         }
         assert!(l.pieces.iter().any(|p| !p.minus.is_empty()));
     }
-    assert!(rep.outcome.is_complete(), "{:?}", rep.outcome);
+    assert!(rep.outcome().is_complete(), "{:?}", rep.outcome());
     assert_faces_complete(&l, &rep, n, 3, 12);
 }
 
@@ -216,7 +216,7 @@ fn c2_pattern_target_domain_is_modelled_not_proved_empty() {
     assert!(!matches!(shadowed(&l, 0, &f), Containment::Proved { .. }));
     // and the partition covers what it applies to
     let rep = gap_partition(&l, &f, &ordinary(), None).unwrap();
-    assert_eq!(rep.nf.stats.pattern_targets, 1);
+    assert_eq!(rep.nf().stats.pattern_targets, 1);
     assert!(!rep.uncovered(&[2, 1]).unwrap());
 }
 
@@ -335,11 +335,11 @@ fn c2_exclusions_are_visible_and_never_prove() {
     let l = list(vec![ex.clone(), weak.clone()], n);
     let rep = gap_partition(&l, &f, &ordinary(), None).unwrap();
     assert!(matches!(
-        rep.nf.notes_of(0).next(),
+        rep.nf().notes_of(0).next(),
         Some(NfNote::Excluded(_))
     ));
     assert!(matches!(
-        rep.nf.notes_of(1).next(),
+        rep.nf().notes_of(1).next(),
         Some(NfNote::Weakened(_))
     ));
     // weakened: the branch [n0-2] now "vanishes" on all of n0 = 2: those keys are reported uncovered (conservative)
@@ -387,7 +387,7 @@ fn m1_capped_locus_resolution_is_reported_open() {
     let f = NodeFrame::without_header_lines_first(n, 3);
     let l = list(vec![dom(n, 3, &[], &[&["n0-n1"]])], n);
     let base = gap_partition(&l, &f, &ordinary(), None).unwrap();
-    assert!(base.outcome.is_complete());
+    assert!(base.outcome().is_complete());
     let o = PartitionOptions {
         loci: LociOptions {
             max_nodes: 0,
@@ -397,20 +397,20 @@ fn m1_capped_locus_resolution_is_reported_open() {
     };
     let rep = gap_partition(&l, &f, &o, None).unwrap();
     assert!(rep.uncovered(&[4, 4, 1]).unwrap());
-    let fb: BTreeSet<_> = base.faces.iter().map(|x| x.key()).collect();
-    let fr: BTreeSet<_> = rep.faces.iter().map(|x| x.key()).collect();
+    let fb: BTreeSet<_> = base.faces().iter().map(|x| x.key()).collect();
+    let fr: BTreeSet<_> = rep.faces().iter().map(|x| x.key()).collect();
     assert!(
         fb.is_subset(&fr),
         "a capped resolution must keep every face as an open region"
     );
     assert!(
-        matches!(rep.outcome, Outcome::Incomplete { .. }),
+        matches!(rep.outcome(), Outcome::Incomplete { .. }),
         "{:?}",
-        rep.outcome
+        rep.outcome()
     );
     let js = rep.to_json(&Default::default(), &f);
     assert_ne!(js["outcome"], "complete");
-    assert!(rep.resolution.as_ref().unwrap().n_unresolved_parts() > 0);
+    assert!(rep.resolution().unwrap().n_unresolved_parts() > 0);
     assert!(rep.proves_no_gap(CoverageNotion::UnionCoverage).is_err());
     // the depth cap too
     let o = PartitionOptions {
@@ -421,7 +421,7 @@ fn m1_capped_locus_resolution_is_reported_open() {
         ..ordinary()
     };
     let rep = gap_partition(&l, &f, &o, None).unwrap();
-    assert!(matches!(rep.outcome, Outcome::Incomplete { .. }));
+    assert!(matches!(rep.outcome(), Outcome::Incomplete { .. }));
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -441,7 +441,7 @@ fn m2_capped_partition_is_partial_and_unexplored() {
     assert!(rep.uncovered(&[2, 2, 2]).unwrap());
     assert_eq!(rep.class_of(&[2, 2, 2]).unwrap(), ClassHit::Unexplored);
     assert_eq!(
-        rep.outcome,
+        *rep.outcome(),
         Outcome::Partial {
             explored: Explored::OffFloorUpTo(0),
             reasons: vec![]
@@ -483,8 +483,8 @@ fn m2_budget_abort_is_partial_aborted() {
         ..ordinary()
     };
     let rep = gap_partition(&l, &f, &o, None).unwrap();
-    if rep.stats.aborted {
-        assert!(rep.outcome.is_aborted(), "{:?}", rep.outcome);
+    if rep.stats().aborted {
+        assert!(rep.outcome().is_aborted(), "{:?}", rep.outcome());
         assert_eq!(
             rep.to_json(&Default::default(), &f)["outcome"],
             "budget_exceeded"
@@ -542,7 +542,7 @@ fn m3_pole_blocking_modelled_in_dispatch_mode() {
     // union mode: covered (that is what union coverage says) and it says so
     let u = gap_partition(&l, &f, &ordinary(), None).unwrap();
     assert!(!u.uncovered(&[2, 1]).unwrap());
-    assert_eq!(u.coverage, CoverageNotion::UnionCoverage);
+    assert_eq!(u.coverage(), CoverageNotion::UnionCoverage);
     assert!(u.proves_no_gap(CoverageNotion::UnionCoverage).is_ok());
     assert!(u.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
     // dispatch mode: the key is open, key by key equal to the dispatcher
@@ -557,7 +557,9 @@ fn m3_pole_blocking_modelled_in_dispatch_mode() {
         if open {
             assert_ne!(d.class_of(&k).unwrap(), ClassHit::Covered, "{k:?}");
             assert!(
-                d.faces.iter().any(|x| x.key() == face_of(&d.nf.lines, &k)),
+                d.faces()
+                    .iter()
+                    .any(|x| x.key() == face_of(&d.nf().lines, &k)),
                 "{k:?}"
             );
         }
@@ -620,7 +622,7 @@ fn m3_dispatch_mode_equals_first_match_random() {
             ..Default::default()
         };
         let rep = gap_partition(&l, &f, &o, None).unwrap();
-        let faces: BTreeSet<_> = rep.faces.iter().map(|x| x.key()).collect();
+        let faces: BTreeSet<_> = rep.faces().iter().map(|x| x.key()).collect();
         for k in window(n, e, 6) {
             let open = disp.first_match(&k).unwrap().is_open();
             assert_eq!(rep.uncovered(&k).unwrap(), open, "seed {seed} key {k:?}");
@@ -631,7 +633,7 @@ fn m3_dispatch_mode_equals_first_match_random() {
                     "seed {seed} {k:?}"
                 );
                 assert!(
-                    faces.contains(&face_of(&rep.nf.lines, &k)),
+                    faces.contains(&face_of(&rep.nf().lines, &k)),
                     "seed {seed} {k:?}"
                 );
             }
@@ -765,13 +767,13 @@ fn m4_arity_27_more_than_24_free_slots_is_a_family() {
     d.fixed[0] = Some(1);
     let l = list(vec![d], n);
     let rep = gap_partition(&l, &f, &ordinary(), None).unwrap();
-    assert_eq!(rep.families.len(), 1);
-    assert_eq!(rep.families[0].free.len(), 26);
-    assert_eq!(rep.families[0].base_sd, vec![0]);
+    assert_eq!(rep.families().len(), 1);
+    assert_eq!(rep.families()[0].free.len(), 26);
+    assert_eq!(rep.families()[0].base_sd, vec![0]);
     assert!(
-        matches!(rep.outcome, Outcome::Incomplete { .. }),
+        matches!(rep.outcome(), Outcome::Incomplete { .. }),
         "{:?}",
-        rep.outcome
+        rep.outcome()
     );
     let mut k: Key = (0..n).map(|i| if i < e { 1 } else { 0 }).collect();
     k[0] = 2;
@@ -803,23 +805,23 @@ fn m4_arity_27_expansion_uses_high_slots() {
         .collect();
     let l = list(ds, n);
     let rep = gap_partition(&l, &f, &ordinary(), None).unwrap();
-    assert!(rep.families.is_empty());
-    assert_eq!(rep.faces.len(), 32);
+    assert!(rep.families().is_empty());
+    assert_eq!(rep.faces().len(), 32);
     assert!(
-        rep.faces
+        rep.faces()
             .iter()
             .any(|x| x.sd.contains(&26) || x.sn.contains(&26))
     );
-    assert!(rep.outcome.is_complete());
+    assert!(rep.outcome().is_complete());
     // with the parameter below 5 the same class is a family (explicit, not truncated)
     let o = PartitionOptions {
         max_any_slots: 4,
         ..ordinary()
     };
     let rep = gap_partition(&l, &f, &o, None).unwrap();
-    assert_eq!(rep.families.len(), 1);
-    assert!(rep.faces.is_empty());
-    assert!(matches!(rep.outcome, Outcome::Incomplete { .. }));
+    assert_eq!(rep.families().len(), 1);
+    assert!(rep.faces().is_empty());
+    assert!(matches!(rep.outcome(), Outcome::Incomplete { .. }));
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -936,14 +938,14 @@ fn memo_equals_reference_uncapped_small_tables() {
                 None,
             )
             .unwrap();
-            assert!(a.outcome.is_complete() || matches!(a.outcome, Outcome::Incomplete { .. }));
-            let ca: BTreeSet<_> = a.classes.iter().cloned().collect();
-            let cb: BTreeSet<_> = b.classes.iter().cloned().collect();
+            assert!(a.outcome().is_complete() || matches!(a.outcome(), Outcome::Incomplete { .. }));
+            let ca: BTreeSet<_> = a.classes().iter().cloned().collect();
+            let cb: BTreeSet<_> = b.classes().iter().cloned().collect();
             assert_eq!(ca, cb, "seed {seed} arity {n}");
-            let fa: BTreeSet<_> = a.faces.iter().map(|f| (f.key(), f.kind)).collect();
-            let fb: BTreeSet<_> = b.faces.iter().map(|f| (f.key(), f.kind)).collect();
+            let fa: BTreeSet<_> = a.faces().iter().map(|f| (f.key(), f.kind)).collect();
+            let fb: BTreeSet<_> = b.faces().iter().map(|f| (f.key(), f.kind)).collect();
             assert_eq!(fa, fb, "seed {seed} arity {n}");
-            assert_eq!(a.outcome, b.outcome);
+            assert_eq!(a.outcome(), b.outcome());
         }
     }
 }
@@ -1022,8 +1024,8 @@ fn described(
     k: &[i32],
 ) -> Result<(), String> {
     use rustred_campaign_core::partition::ANY_OFF;
-    let fk = face_of(&rep.nf.lines, k);
-    let Some(face) = rep.faces.iter().find(|f| f.key() == fk) else {
+    let fk = face_of(&rep.nf().lines, k);
+    let Some(face) = rep.faces().iter().find(|f| f.key() == fk) else {
         return Err(format!("face {fk:?} not listed"));
     };
     let slots: Vec<usize> = face.sd.iter().chain(&face.sn).copied().collect();
@@ -1039,7 +1041,7 @@ fn described(
     if in_cell {
         return Ok(());
     }
-    if let Some(res) = &rep.resolution {
+    if let Some(res) = &rep.resolution() {
         for l in res.loci.iter().filter(|l| l.face == fk) {
             for p in &l.pieces {
                 if let Some(t) = solve_params(&p.region, k)
@@ -1083,7 +1085,7 @@ fn assert_description(
             panic!("{what}: uncovered {k:?} not described: {why}");
         }
     }
-    if let Some(res) = &rep.resolution {
+    if let Some(res) = &rep.resolution() {
         for loc in &res.loci {
             for p in &loc.pieces {
                 for wk in &p.witness {
@@ -1240,8 +1242,8 @@ fn audit_b_saved_cases_faces_complete_and_proofs_terminate() {
         let rep = gap_partition(&l, &f, &ordinary(), None).unwrap();
         println!(
             "{name}: faces {} outcome {:?}",
-            rep.faces.len(),
-            rep.outcome
+            rep.faces().len(),
+            rep.outcome()
         );
         assert_description(&l, &rep, n, e, if n <= 3 { 9 } else { 6 }, name);
         for i in 0..l.items.len() {
@@ -1316,14 +1318,14 @@ fn b_m3_cap_and_face_budget_bound_the_face_list() {
     d.fixed[0] = Some(1);
     let l = list(vec![d], n);
     let full = gap_partition(&l, &f, &ordinary(), None).unwrap();
-    assert_eq!(full.faces.len(), 512);
+    assert_eq!(full.faces().len(), 512);
     let o = PartitionOptions {
         max_off_floor: Some(2),
         ..ordinary()
     };
     let capped = gap_partition(&l, &f, &o, None).unwrap();
-    assert!(capped.faces.iter().all(|x| x.sd.len() + x.sn.len() <= 2));
-    assert_eq!(capped.faces.len(), 1 + 9); // {0} and {0, s}
+    assert!(capped.faces().iter().all(|x| x.sd.len() + x.sn.len() <= 2));
+    assert_eq!(capped.faces().len(), 1 + 9); // {0} and {0, s}
     let o = PartitionOptions {
         budget: Budget {
             max_faces: Some(100),
@@ -1332,8 +1334,8 @@ fn b_m3_cap_and_face_budget_bound_the_face_list() {
         ..ordinary()
     };
     let b = gap_partition(&l, &f, &o, None).unwrap();
-    assert!(b.faces_truncated);
-    assert!(matches!(b.outcome, Outcome::Incomplete { .. }));
+    assert!(b.faces_truncated());
+    assert!(matches!(b.outcome(), Outcome::Incomplete { .. }));
 }
 
 /// B-C2: every proof function takes a budget and answers Unknown beyond it (never a hang, never a verdict).

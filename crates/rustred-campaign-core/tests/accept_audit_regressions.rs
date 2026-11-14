@@ -28,17 +28,20 @@ use rustred_campaign_core::accept::{
 use rustred_campaign_core::assemble::domaincheck::{DispatchEqual, compare, core_view};
 use rustred_campaign_core::assemble::recipes::{RecipeToShip, write as write_recipes};
 use rustred_campaign_core::assemble::{
-    AssembleError, AssemblyInput, FullRetirements, InputTable, Splice, assemble, containment_proof,
-    splice_index_head, table_set_digest, verify_assembled,
+    AssembleError, AssemblyInput, FullRetirements, InputTable, Splice, assemble, splice_index_head,
+    tables_in_force, verify_assembled,
 };
 use rustred_campaign_core::closure::facts::CoefFact;
 use rustred_campaign_core::cover::{Dispatch, Dispatcher, Table};
-use rustred_campaign_core::domain::{CaseDomain, DomainOptions};
-use rustred_campaign_core::economy::{CoverageState, Retirement, RuleMeasure, SupersedeReason};
+use rustred_campaign_core::domain::DomainOptions;
+use rustred_campaign_core::economy::{
+    CoverageState, Retirement, RuleMeasure, SupersedeReason, prove_coverage_preserved,
+    table_set_digest,
+};
 use rustred_campaign_core::ibp_rows::TableBinding;
-use rustred_campaign_core::key::{Key, NodeFrame};
+use rustred_campaign_core::key::Key;
 use rustred_campaign_core::partition::{
-    CoverageNotion, DispatchOrderStatement, DomainList, PartitionOptions, gap_partition,
+    DispatchOrderStatement, DispatcherSource, DomainSource, PartitionOptions,
 };
 use rustred_campaign_core::record::{ReadOptions, RhsMode, read_table_file};
 use rustred_campaign_core::replay_base::family::Family;
@@ -1063,34 +1066,76 @@ fn dispatch_equal_not_vacuous_and_file_verified() {
 // 9. FULL-node retirements and removals
 // =================================================================================================================
 
-/// audit-accept-A M2 / B M3: a FULL retirement is refused by default, and with `BoundProof` only when the proof binds
-/// this assembly's table sets.
+/// audit-accept-A M2 / B M3 + integration int4: a FULL retirement is refused by default; with `BoundProof` it is
+/// accepted only when its containment proof was made by `economy::prove_coverage_preserved` (the ONLY constructor:
+/// it runs the dispatch-mode partition and computes both digests itself) on THIS assembly's tables in force before
+/// and after the retirement (`assemble::tables_in_force`, the one digest `economy::table_set_digest`), with the
+/// same-order statement. Refused: a proof for other tables, for another order statement, a proof of another
+/// retirement; and a retirement whose new table set has a gap gets no proof at all (Retirement::new needs one).
 #[test]
 fn full_retirement_refused_unless_bound() {
     let Some(t) = toy() else { return };
-    let digests: Vec<String> = std::fs::read(&t.ko_path)
-        .unwrap()
-        .split(|&b| b == b'\n')
-        .filter(|l| l.starts_with(br#"{"type":"rule""#))
-        .map(sha256_tag)
-        .collect();
-    assert!(digests.len() >= 2);
-    let (victim, by) = (digests[0].clone(), digests[1].clone());
-    let before = table_set_digest(digests.iter().map(String::as_str));
-    let after = table_set_digest(digests.iter().skip(1).map(String::as_str));
-    // a dispatch-mode no-gap report (the partition module's public route)
-    let n = 2;
-    let f = NodeFrame::without_header_lines_first(n, 2);
-    let mut l = DomainList::new(n);
-    l.push(
-        rustred_campaign_core::cover::RuleRef::bare(0, 0, 0),
-        CaseDomain::free(n, Some(vec![true, true])),
-    );
-    let o = PartitionOptions {
-        coverage: CoverageNotion::DispatchCoverage,
-        ..Default::default()
+    let rule_lines = |p: &Path| -> Vec<(i64, String)> {
+        std::fs::read(p)
+            .unwrap()
+            .split(|&b| b == b'\n')
+            .filter(|l| !l.is_empty())
+            .filter_map(|l| {
+                // an edited line is re-serialised with sorted keys: classify by the parsed kind, not a prefix
+                let v: Value = serde_json::from_slice(l).unwrap();
+                (v["type"] == "rule").then(|| (v["index"].as_i64().unwrap(), sha256_tag(l)))
+            })
+            .collect()
     };
-    let rep = gap_partition(&l, &f, &o, None).unwrap();
+    // inputs: the node's whole table (priority 0) and a table holding a COPY of one of its records (the K2-single
+    // record) under another index (priority 1): the copy is selected exactly where its original is, AFTER it, so it
+    // never serves and retiring it preserves dispatch coverage (TEST DATA: TOY2kite, record 2).
+    let whole = InputTable {
+        id: "whole".into(),
+        path: t.node.dir.join("table.jsonl"),
+        priority: 0,
+        sha256: None,
+    };
+    let copy_path = removed_part(&t, "copy-of-k2", |kind, v| {
+        if kind == "rule" {
+            v["index"] = json!(1000);
+        }
+        kind == "rule"
+    });
+    let copied: i64 = ko_entry(&t.node, KO)["removed_record_indices"][0]
+        .as_i64()
+        .unwrap();
+    let originals = rule_lines(&whole.path);
+    let victim = rule_lines(&copy_path)[0].1.clone();
+    let by = originals
+        .iter()
+        .find(|(i, _)| *i == copied)
+        .unwrap()
+        .1
+        .clone();
+    let copy = InputTable {
+        id: "copy".into(),
+        path: copy_path,
+        priority: 1,
+        sha256: None,
+    };
+    let mut inp = assembly(&t, vec![whole.clone(), copy], vec![], NodeTarget::Full);
+    let o = PartitionOptions::default();
+    let same = DispatchOrderStatement::SameOrder;
+    let before = tables_in_force(&inp, &[]).unwrap();
+    let after = tables_in_force(&inp, std::slice::from_ref(&victim)).unwrap();
+    let (bs, asrc) = (
+        DispatcherSource::new(&before),
+        DispatcherSource::new(&after),
+    );
+    assert_eq!(
+        (bs.len(), asrc.len()),
+        (originals.len() + 1, originals.len())
+    );
+    let proof = prove_coverage_preserved(&bs, &asrc, &t.node.frame, &o, &same)
+        .expect("the copy never serves: dispatch coverage preserved");
+    assert_eq!(proof.old_tables_digest(), table_set_digest(&bs));
+    assert_eq!(proof.new_tables_digest(), table_set_digest(&asrc));
     let m = |terms: u64| RuleMeasure {
         cases: 1,
         rhs_terms: terms,
@@ -1100,19 +1145,17 @@ fn full_retirement_refused_unless_bound() {
         served_keys: None,
         bytes: 0,
     };
-    let retire = |old: &str, new: &str| {
+    let retire = |old: &str, new: &str, p| {
         Retirement::new(
             &t.node.name,
             CoverageState::Full,
-            &[(victim.clone(), m(10))],
-            (by.as_str(), &m(2)),
+            &[(old.to_string(), m(10))],
+            (new, &m(2)),
             SupersedeReason::CheaperSameOrLargerDomain,
-            containment_proof(&rep, &DispatchOrderStatement::SameOrder, old, new),
+            p,
         )
-        .unwrap()
     };
-    let mut inp = assembly(&t, vec![ko_input(&t)], vec![], NodeTarget::Full);
-    inp.retirements = vec![retire(&before, &after)];
+    inp.retirements = vec![retire(&victim, &by, Some(proof.clone())).unwrap()];
     assert!(
         assemble(&inp, &scratch("regress-ret")).is_err(),
         "refused by default"
@@ -1120,10 +1163,63 @@ fn full_retirement_refused_unless_bound() {
     inp.full_retirements = FullRetirements::BoundProof;
     let ok = assemble(&inp, &scratch("regress-ret")).unwrap();
     assert_eq!(ok.report.retired, vec![victim.clone()]);
-    inp.retirements = vec![retire("unrelated-old", "unrelated-new")];
+    // the shipped table's dispatch set is the one the proof is about (labels / renumbering enter no digest)
+    let tf = read_table_file(&ok.table, ReadOptions { rhs: RhsMode::Skip }).unwrap();
+    let shipped = Dispatcher::new(
+        vec![
+            Table::from_table_file("shipped", "assembled", &tf, DomainOptions::default()).unwrap(),
+        ],
+        vec![0],
+    )
+    .unwrap();
+    assert_eq!(
+        table_set_digest(&DispatcherSource::new(&shipped)),
+        proof.new_tables_digest()
+    );
+    // (a) a proof for OTHER tables: the whole table alone (a valid proof, but not of this assembly's sets)
+    let alone = assembly(&t, vec![whole.clone()], vec![], NodeTarget::Full);
+    let w = tables_in_force(&alone, &[]).unwrap();
+    let other = prove_coverage_preserved(
+        &DispatcherSource::new(&w),
+        &DispatcherSource::new(&w),
+        &t.node.frame,
+        &o,
+        &same,
+    )
+    .expect("the whole table has no gap");
+    inp.retirements = vec![retire(&victim, &by, Some(other)).unwrap()];
+    let e = assemble(&inp, &scratch("regress-ret")).unwrap_err();
     assert!(
-        assemble(&inp, &scratch("regress-ret")).is_err(),
-        "proof about other tables"
+        e.to_string().contains("not about this assembly"),
+        "proof about other tables: {e}"
+    );
+    // (b) the right tables but ANOTHER order statement (a retirement removes records in place)
+    let new_order = prove_coverage_preserved(
+        &bs,
+        &asrc,
+        &t.node.frame,
+        &o,
+        &DispatchOrderStatement::NewOrder("sha256:00ff".into()),
+    )
+    .unwrap();
+    inp.retirements = vec![retire(&victim, &by, Some(new_order)).unwrap()];
+    let e = assemble(&inp, &scratch("regress-ret")).unwrap_err();
+    assert!(e.to_string().contains("order=same"), "order statement: {e}");
+    // (c) a retirement whose new table set has a GAP: the partition verdict is not Proved, so no proof exists, and a
+    // FULL retirement cannot be built without one; the valid proof of the copy's retirement does not fit it either
+    let load_bearing = originals.last().unwrap().1.clone();
+    let gap = tables_in_force(&inp, std::slice::from_ref(&load_bearing)).unwrap();
+    assert!(
+        prove_coverage_preserved(&bs, &DispatcherSource::new(&gap), &t.node.frame, &o, &same)
+            .is_err(),
+        "a gap is never proved"
+    );
+    assert!(retire(&load_bearing, &by, None).is_err());
+    inp.retirements = vec![retire(&load_bearing, &by, Some(proof.clone())).unwrap()];
+    let e = assemble(&inp, &scratch("regress-ret")).unwrap_err();
+    assert!(
+        e.to_string().contains("not about this assembly"),
+        "proof of another retirement: {e}"
     );
 }
 
@@ -1256,9 +1352,8 @@ fn recipe_ctx(t: &Toy) -> (Recipe, Dispatcher, Vec<Key>, Vec<Vec<Key>>) {
     let (_, tab) = load_table(&t.ko_path, "ko");
     let ko = Dispatcher::new(vec![tab], vec![0]).unwrap();
     let w = RuleText::parse(&t.w0, &t.node.frame).unwrap();
-    let solve = json!({"centre": "Target", "offsets": [], "floor": false, "depth": 2, "tight": false,
-        "elimination": "engine-default-v1", "symmetry_rows": false});
-    let recipe = Recipe::new(&w.value, "sha256:order", &solve, "c1", &t.node.frame).unwrap();
+    let file = recipe_file(&w.value, &t.node.frame, 2);
+    let recipe = Recipe::from_file(&file, "sha256:order", "c1", &t.node.frame).unwrap();
     let inst = Instantiator::new(&w).unwrap();
     let rhs: Vec<Vec<Key>> = t
         .gaps
@@ -1297,15 +1392,15 @@ fn recipes_bound_sealed_and_deterministic() {
     };
     let mut text = String::new();
     for (k, r) in keys.iter().zip(&rhs) {
-        text.push_str(&ans(&recipe.digest, k, 1, r, &format!("sha256:rel-{k:?}")));
+        text.push_str(&ans(recipe.digest(), k, 1, r, &format!("sha256:rel-{k:?}")));
     }
-    let mut a = SolveAnswers::new(&recipe.digest);
+    let mut a = SolveAnswers::new(recipe.digest());
     a.load(&text).unwrap();
     // the determinism sample (Count(1)) is the first candidate; give it run 2
     let first = keys.iter().min().unwrap().clone();
     let fr = &rhs[keys.iter().position(|k| *k == first).unwrap()];
     a.load(&ans(
-        &recipe.digest,
+        recipe.digest(),
         &first,
         2,
         fr,
@@ -1323,17 +1418,17 @@ fn recipes_bound_sealed_and_deterministic() {
     let other = keys.iter().max().unwrap().clone();
     let orr = &rhs[keys.iter().position(|k| *k == other).unwrap()];
     let mut b = a.clone();
-    b.load(&ans(&recipe.digest, &other, 2, orr, "sha256:different"))
+    b.load(&ans(recipe.digest(), &other, 2, orr, "sha256:different"))
         .unwrap();
     assert!(matches!(
         accept_recipe(&input(Some("sha256:bin")), &b).unwrap(),
         RecipeVerdict::Rejected { .. }
     ));
     // B m2: an empty right-hand side is open (malformed), never certified on the exact check alone
-    let mut c = SolveAnswers::new(&recipe.digest);
+    let mut c = SolveAnswers::new(recipe.digest());
     let mut ctext = text.replacen(&serde_json::to_string(&rhs[0]).unwrap(), "[]", 1);
     ctext.push_str(&ans(
-        &recipe.digest,
+        recipe.digest(),
         &first,
         2,
         fr,
@@ -1349,10 +1444,13 @@ fn recipes_bound_sealed_and_deterministic() {
         );
     }
     // A M6: shipping a verdict with another recipe is an error, not a silent mix
-    let other_recipe = Recipe::new(
-        &RuleText::parse(&t.w0, &t.node.frame).unwrap().value,
+    let other_recipe = Recipe::from_file(
+        &recipe_file(
+            &RuleText::parse(&t.w0, &t.node.frame).unwrap().value,
+            &t.node.frame,
+            3,
+        ),
         "sha256:order",
-        &json!({"depth": 3}),
         "c1",
         &t.node.frame,
     )
@@ -1370,7 +1468,7 @@ fn recipes_bound_sealed_and_deterministic() {
         .to_string()
     };
     let k = keys[0].clone();
-    let mut e = SolveAnswers::new(&recipe.digest);
+    let mut e = SolveAnswers::new(recipe.digest());
     assert!(
         e.load_engine_results(&format!("{}\n", rel(&k, "aa")), 1, "e", "b")
             .is_err(),
@@ -1440,14 +1538,14 @@ fn b_m5_recipe_in_force_only_on_certified_keys() {
         if i == 0 {
             // key 0 fails to solve: open, not certified
             text.push_str(
-                &ans(&recipe.digest, k, 1, r, "x")
+                &ans(recipe.digest(), k, 1, r, "x")
                     .replace(r#""status":"ok""#, r#""status":"failed""#),
             );
         } else {
-            text.push_str(&ans(&recipe.digest, k, 1, r, &format!("sha256:rel-{k:?}")));
+            text.push_str(&ans(recipe.digest(), k, 1, r, &format!("sha256:rel-{k:?}")));
         }
     }
-    let mut a = SolveAnswers::new(&recipe.digest);
+    let mut a = SolveAnswers::new(recipe.digest());
     a.load(&text).unwrap();
     let v = accept_recipe(&input, &a).unwrap();
     let RecipeVerdict::Certified { certified, .. } = &v else {

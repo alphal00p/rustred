@@ -356,8 +356,8 @@ fn solve_params(r: &rustred_campaign_core::loci::Region, key: &[i32]) -> Option<
 }
 
 fn described(rep: &PartitionReport, k: &[i32]) -> Result<(), String> {
-    let fk = face_of(&rep.nf.lines, k);
-    let Some(face) = rep.faces.iter().find(|f| f.key() == fk) else {
+    let fk = face_of(&rep.nf().lines, k);
+    let Some(face) = rep.faces().iter().find(|f| f.key() == fk) else {
         return Err(format!("face {fk:?} not listed"));
     };
     let slots: Vec<usize> = face.sd.iter().chain(&face.sn).copied().collect();
@@ -372,7 +372,7 @@ fn described(rep: &PartitionReport, k: &[i32]) -> Result<(), String> {
     }) {
         return Ok(());
     }
-    if let Some(res) = &rep.resolution {
+    if let Some(res) = &rep.resolution() {
         for l in res.loci.iter().filter(|l| l.face == fk) {
             let regions = l
                 .pieces
@@ -439,14 +439,14 @@ fn check_table(
         }
     }
     st.keys += keys.len() as u64;
-    if let Some(res) = &rep.resolution {
+    if let Some(res) = &rep.resolution() {
         for loc in &res.loci {
             for w in &loc.witness {
                 assert!(rep.uncovered(w).unwrap(), "{what}: witness {w:?} covered");
             }
         }
     }
-    for fc in &rep.faces {
+    for fc in rep.faces() {
         if let Some(w) = &fc.witness {
             assert!(
                 rep.uncovered(w).unwrap(),
@@ -465,11 +465,11 @@ fn check_table(
             None,
         )
         .unwrap();
-        let ca: BTreeSet<_> = rep.classes.iter().cloned().collect();
-        let cb: BTreeSet<_> = b.classes.iter().cloned().collect();
+        let ca: BTreeSet<_> = rep.classes().iter().cloned().collect();
+        let cb: BTreeSet<_> = b.classes().iter().cloned().collect();
         assert_eq!(ca, cb, "{what}: memo != reference classes");
-        let fa: BTreeSet<_> = rep.faces.iter().map(|x| (x.key(), x.kind)).collect();
-        let fb: BTreeSet<_> = b.faces.iter().map(|x| (x.key(), x.kind)).collect();
+        let fa: BTreeSet<_> = rep.faces().iter().map(|x| (x.key(), x.kind)).collect();
+        let fb: BTreeSet<_> = b.faces().iter().map(|x| (x.key(), x.kind)).collect();
         assert_eq!(fa, fb, "{what}: memo != reference faces");
         st.memo_compared += 1;
     }

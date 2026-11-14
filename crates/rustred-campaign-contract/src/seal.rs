@@ -1,11 +1,16 @@
 //! Append-only record streams with running digests, sealing, and the sealed-stream VERIFIER (child-job.md 3.4.4,
 //! 3.9; ruling R-b: records are accepted ONLY from a sealed, verified table of THIS attempt).
 //!
-//! Revised by audits A/B (C1, C2, M2, M3, M4, m6, m7, F4, F7, F10). A stream is SEALED iff
+//! Revised by audits A/B (C1, C2, M2, M3, M4, m6, m7, F4, F7, F10) and the re-audit (lane contractfix2: ac2-m3, m6,
+//! the verified handle for ac2-M1). A stream is SEALED iff
 //! - its path is the LAYOUT path inside the run directory (never a path read from OUTCOME), reached without any
-//!   symlink, opened with O_NOFOLLOW, a regular file whose (dev, inode) equals the directory entry's;
+//!   symlink: every directory below the run directory is opened RELATIVE TO ITS PARENT'S open handle with
+//!   O_DIRECTORY | O_NOFOLLOW and the file with O_NOFOLLOW | O_NONBLOCK, so a component swapped for a symlink between
+//!   two steps is refused, never followed (ac2-m3); the opened object is a regular file (fstat);
 //! - every line is a record with a canonical form ([`crate::canon`]), the file ends with "\n", exactly one end
 //!   record exists and it is the LAST line (no interior end record, no byte after it);
+//! - a record of type `header` appears at most once, on line 1 (ac2-m6: the family binding of the classifier reads
+//!   that header; a header further down is refused, never ignored);
 //! - rule records (`type` = `rule`) have unique (`chart`, `index`) and unique (`chart`, `target`, `case`), `index` an
 //!   integer;
 //! - every figure OUTCOME reports about it (size, BLAKE3, records, rules, end kind, canonical digest, elided witness
@@ -44,6 +49,44 @@ pub const O_NOFOLLOW: i32 = 0o100000;
     )
 )))]
 pub const O_NOFOLLOW: i32 = 0;
+
+/// `O_DIRECTORY` of the Linux targets (0 elsewhere).
+#[cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "x86")))]
+pub const O_DIRECTORY: i32 = 0o200000;
+#[cfg(all(target_os = "linux", any(target_arch = "aarch64", target_arch = "arm")))]
+pub const O_DIRECTORY: i32 = 0o40000;
+#[cfg(not(all(
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "x86",
+        target_arch = "aarch64",
+        target_arch = "arm"
+    )
+)))]
+pub const O_DIRECTORY: i32 = 0;
+
+/// `O_NONBLOCK` of the Linux targets (a FIFO swapped in never blocks the open; 0 elsewhere).
+#[cfg(all(
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "x86",
+        target_arch = "aarch64",
+        target_arch = "arm"
+    )
+))]
+pub const O_NONBLOCK: i32 = 0o4000;
+#[cfg(not(all(
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "x86",
+        target_arch = "aarch64",
+        target_arch = "arm"
+    )
+)))]
+pub const O_NONBLOCK: i32 = 0;
 
 /// End record types of the table (and of the other JSONL result streams).
 pub const TABLE_END_TYPES: [&str; 2] = ["end", "partial"];
@@ -206,6 +249,10 @@ pub enum UnsealReason {
     },
     /// A resume prefix does not end at a line boundary.
     PrefixNotAtLineBoundary,
+    /// A `header` record that is not line 1 (a second header included; ac2-m6).
+    HeaderNotFirst {
+        line: u64,
+    },
 }
 
 impl fmt::Display for UnsealReason {
@@ -232,7 +279,7 @@ pub struct VerifiedStream {
     pub elided_loci: u64,
     /// Records with at least one elided locus.
     pub elided_records: u64,
-    /// `family_blake3` of a header record on the first line, if any (decoded).
+    /// `family_blake3` of the header record (only ever on line 1, see the module docs), if any (decoded).
     pub family_blake3: Option<String>,
 }
 
@@ -299,6 +346,9 @@ impl<'a> Scan<'a> {
             why: e.to_string(),
         })?;
         let ty = c.record_type.as_deref();
+        if ty == Some("header") && self.records != 0 {
+            return Err(UnsealReason::HeaderNotFirst { line: line_no });
+        }
         if ty.is_some_and(|t| self.end_types.contains(&t)) {
             self.end = ty.map(str::to_string);
         }
@@ -414,42 +464,83 @@ fn rel_ok(rel: &str) -> bool {
     !rel.is_empty() && p.components().all(|c| matches!(c, Component::Normal(_)))
 }
 
-/// Open `root/rel` safely (C2, F7): every component below `root` is a real directory (no symlink), the file is a
-/// regular file, it is opened with O_NOFOLLOW, and its (dev, inode) equals the directory entry's.
+/// Diagnose a failed open of `path` (expected a directory or a regular file): a component that exists but is of
+/// another type (a symlink, a FIFO...) is [`UnsealReason::NotRegularFile`], anything else is unreadable. Only used
+/// AFTER the open already failed, so its own race cannot make anything accepted.
+fn open_failure(path: &Path, want_dir: bool, e: io::Error) -> UnsealReason {
+    match std::fs::symlink_metadata(path) {
+        Ok(m)
+            if (want_dir && !m.file_type().is_dir()) || (!want_dir && !m.file_type().is_file()) =>
+        {
+            UnsealReason::NotRegularFile(path.display().to_string())
+        }
+        _ => UnsealReason::FileUnreadable(format!("{}: {e}", path.display())),
+    }
+}
+
+/// Open `root/rel` safely (C2, F7, ac2-m3): the run directory `root` is opened as a directory; every component
+/// below it is opened RELATIVE TO THE OPEN HANDLE of its parent (std has no `openat`; the path
+/// `/proc/self/fd/<parent fd>/<name>` resolves `name` inside exactly that directory), directories with
+/// O_DIRECTORY | O_NOFOLLOW, the file with O_NOFOLLOW | O_NONBLOCK; the opened file must be a regular file (fstat).
+/// A component swapped for a symlink at any moment is refused (ELOOP / ENOTDIR), never followed; a directory moved
+/// away after it was opened stays the directory that was inside the run. A FIFO swapped in never blocks.
+/// Returns the open file and its (dev, inode). On Linux without `/proc` every open fails closed.
 pub fn open_in_run(root: &Path, rel: &str) -> Result<(File, u64, u64), UnsealReason> {
     if !rel_ok(rel) {
         return Err(UnsealReason::PathNotLayout(rel.to_string()));
     }
-    let mut cur = root.to_path_buf();
     let comps: Vec<_> = Path::new(rel).components().collect();
+    let mut dir = OpenOptions::new()
+        .read(true)
+        .custom_flags(O_DIRECTORY)
+        .open(root)
+        .map_err(|e| UnsealReason::FileUnreadable(format!("{}: {e}", root.display())))?;
+    let mut shown = root.to_path_buf();
     for (k, c) in comps.iter().enumerate() {
-        cur.push(c.as_os_str());
-        let md = std::fs::symlink_metadata(&cur)
-            .map_err(|e| UnsealReason::FileUnreadable(format!("{}: {e}", cur.display())))?;
+        shown.push(c.as_os_str());
         let last = k + 1 == comps.len();
+        let at = dir_relative(&dir, root, &shown, c.as_os_str());
+        let flags = if last {
+            O_NOFOLLOW | O_NONBLOCK
+        } else {
+            O_DIRECTORY | O_NOFOLLOW
+        };
+        let f = OpenOptions::new()
+            .read(true)
+            .custom_flags(flags)
+            .open(&at)
+            .map_err(|e| open_failure(&shown, !last, e))?;
+        let md = f
+            .metadata()
+            .map_err(|e| UnsealReason::FileUnreadable(format!("{}: {e}", shown.display())))?;
         let ok = if last {
             md.file_type().is_file()
         } else {
             md.file_type().is_dir()
         };
         if !ok {
-            return Err(UnsealReason::NotRegularFile(cur.display().to_string()));
+            return Err(UnsealReason::NotRegularFile(shown.display().to_string()));
         }
+        if last {
+            return Ok((f, md.dev(), md.ino()));
+        }
+        dir = f;
     }
-    let entry =
-        std::fs::symlink_metadata(&cur).map_err(|e| UnsealReason::FileUnreadable(e.to_string()))?;
-    let f = OpenOptions::new()
-        .read(true)
-        .custom_flags(O_NOFOLLOW)
-        .open(&cur)
-        .map_err(|e| UnsealReason::FileUnreadable(format!("{}: {e}", cur.display())))?;
-    let md = f
-        .metadata()
-        .map_err(|e| UnsealReason::FileUnreadable(e.to_string()))?;
-    if !md.file_type().is_file() || md.dev() != entry.dev() || md.ino() != entry.ino() {
-        return Err(UnsealReason::InodeChanged);
-    }
-    Ok((f, md.dev(), md.ino()))
+    unreachable!("rel_ok guarantees at least one component")
+}
+
+/// The path that names `name` inside the open directory `dir` (Linux: through `/proc/self/fd`).
+#[cfg(target_os = "linux")]
+fn dir_relative(dir: &File, _root: &Path, _shown: &Path, name: &std::ffi::OsStr) -> PathBuf {
+    use std::os::fd::AsRawFd;
+    PathBuf::from(format!("/proc/self/fd/{}", dir.as_raw_fd())).join(name)
+}
+
+/// Elsewhere there is no `/proc/self/fd`: the joined path (the lstat-free O_NOFOLLOW open of the last component and
+/// the fstat type checks remain).
+#[cfg(not(target_os = "linux"))]
+fn dir_relative(_dir: &File, _root: &Path, shown: &Path, _name: &std::ffi::OsStr) -> PathBuf {
+    shown.to_path_buf()
 }
 
 /// Verify the JSONL stream at layout path `rel` of the run directory `root` (structure only; compare the figures
@@ -459,16 +550,26 @@ pub fn verify_stream(
     rel: &str,
     end_types: &[&str],
 ) -> Result<VerifiedStream, UnsealReason> {
+    verify_stream_handle(root, rel, end_types).map(|(v, _)| v)
+}
+
+/// [`verify_stream`] that also returns the OPEN file it verified, as a [`VerifiedHandle`]: a consumer reads the
+/// accepted bytes through it (re-hashed against the verified figures) instead of re-opening the path (ac2-M1).
+pub fn verify_stream_handle(
+    root: &Path,
+    rel: &str,
+    end_types: &[&str],
+) -> Result<(VerifiedStream, VerifiedHandle), UnsealReason> {
     let (f, dev, ino) = open_in_run(root, rel)?;
     let mut s = Scan::new(end_types);
-    s.feed(BufReader::with_capacity(1 << 20, f), |_| Ok(()))?;
+    s.feed(BufReader::with_capacity(1 << 20, &f), |_| Ok(()))?;
     if s.records == 0 {
         return Err(UnsealReason::Empty);
     }
     let Some(end) = s.end.clone() else {
         return Err(UnsealReason::NoEndRecord(None));
     };
-    Ok(VerifiedStream {
+    let v = VerifiedStream {
         rel: rel.to_string(),
         dev,
         ino,
@@ -481,7 +582,131 @@ pub fn verify_stream(
         elided_loci: s.elided_loci,
         elided_records: s.elided_records,
         family_blake3: s.family,
-    })
+    };
+    let h = VerifiedHandle {
+        file: f,
+        verified: v.clone(),
+    };
+    Ok((v, h))
+}
+
+/// An open handle on a stream the verifier certified, bound to its [`VerifiedStream`] figures (dev, inode, byte
+/// count, raw BLAKE3, records, canonical digest). Lane contractfix2, for the consumer half of ac2-M1: the supervisor
+/// takes the accepted bytes / canonical lines from HERE, never from a fresh read of the path. Every read re-hashes
+/// the whole file through the handle and returns data only when every figure still equals the verified one: a file
+/// rewritten in place (same inode) after verification is refused ([`UnsealReason::SizeMismatch`] /
+/// [`UnsealReason::DigestMismatch`] / [`UnsealReason::CanonicalDigestMismatch`]), and a path replaced by another file
+/// does not matter (the handle keeps the verified inode) or, through [`VerifiedHandle::reopen`], is refused
+/// ([`UnsealReason::InodeChanged`]).
+#[derive(Debug)]
+pub struct VerifiedHandle {
+    file: File,
+    verified: VerifiedStream,
+}
+
+impl VerifiedHandle {
+    /// Re-open a stream verified earlier (e.g. by `classify::assess`, whose evidence keeps only the figures) at its
+    /// layout path `v.rel` in run directory `root`, with [`open_in_run`]; the opened file must be the verified
+    /// inode (dev, ino), else [`UnsealReason::InodeChanged`]. The bytes are checked on every read.
+    pub fn reopen(root: &Path, v: &VerifiedStream) -> Result<VerifiedHandle, UnsealReason> {
+        let (file, dev, ino) = open_in_run(root, &v.rel)?;
+        if (dev, ino) != (v.dev, v.ino) {
+            return Err(UnsealReason::InodeChanged);
+        }
+        Ok(VerifiedHandle {
+            file,
+            verified: v.clone(),
+        })
+    }
+
+    /// The figures this handle is bound to.
+    pub fn verified(&self) -> &VerifiedStream {
+        &self.verified
+    }
+    pub fn dev(&self) -> u64 {
+        self.verified.dev
+    }
+    pub fn ino(&self) -> u64 {
+        self.verified.ino
+    }
+    pub fn bytes(&self) -> u64 {
+        self.verified.bytes
+    }
+    pub fn blake3(&self) -> &str {
+        &self.verified.blake3
+    }
+
+    /// The whole file, read through the handle (positional reads, offset 0), returned only if its size, raw BLAKE3
+    /// and (dev, inode) equal the verified figures. Memory: the file size.
+    pub fn read_verified(&self) -> Result<Vec<u8>, UnsealReason> {
+        use std::os::unix::fs::FileExt;
+        let v = &self.verified;
+        let md = self
+            .file
+            .metadata()
+            .map_err(|e| UnsealReason::FileUnreadable(e.to_string()))?;
+        if (md.dev(), md.ino()) != (v.dev, v.ino) {
+            return Err(UnsealReason::InodeChanged);
+        }
+        let want = usize::try_from(v.bytes).map_err(|_| UnsealReason::SizeMismatch {
+            expected: v.bytes,
+            actual: md.len(),
+        })?;
+        // one byte more than verified, to see a file that grew
+        let mut buf = vec![0u8; want + 1];
+        let mut got = 0usize;
+        while got < buf.len() {
+            let k = self
+                .file
+                .read_at(&mut buf[got..], got as u64)
+                .map_err(|e| UnsealReason::FileUnreadable(e.to_string()))?;
+            if k == 0 {
+                break;
+            }
+            got += k;
+        }
+        if got != want {
+            return Err(UnsealReason::SizeMismatch {
+                expected: v.bytes,
+                actual: got as u64,
+            });
+        }
+        buf.truncate(want);
+        if crate::blake3_hex(&buf) != v.blake3 {
+            return Err(UnsealReason::DigestMismatch);
+        }
+        Ok(buf)
+    }
+
+    /// The canonical lines (each without "\n", in file order) of the verified bytes ([`VerifiedHandle::read_verified`]),
+    /// returned only if every line has a canonical form, the record count equals the verified one and their canonical
+    /// digest equals the verified `canonical_blake3`: what a consumer may accept, all or nothing.
+    pub fn canonical_lines(&self) -> Result<Vec<Vec<u8>>, UnsealReason> {
+        let b = self.read_verified()?;
+        let mut d = CanonicalDigest::new();
+        let mut out = Vec::new();
+        for (k, l) in b.split_inclusive(|&c| c == b'\n').enumerate() {
+            let Some(body) = l.strip_suffix(b"\n") else {
+                return Err(UnsealReason::TornLastLine);
+            };
+            let c = canon::canonical_line(body).map_err(|e| UnsealReason::BadRecord {
+                line: k as u64 + 1,
+                why: e.to_string(),
+            })?;
+            d.push_canonical(&c);
+            out.push(c);
+        }
+        if d.lines() != self.verified.records {
+            return Err(UnsealReason::RecordCountMismatch {
+                expected: self.verified.records,
+                actual: d.lines(),
+            });
+        }
+        if d.hex() != self.verified.canonical_blake3 {
+            return Err(UnsealReason::CanonicalDigestMismatch);
+        }
+        Ok(out)
+    }
 }
 
 /// Compare generic OUTCOME figures with a verified stream; `None` figures are missing claims (incomplete).
@@ -695,9 +920,7 @@ impl RecordWriter {
         let offset = self.bytes;
         self.file.write_all(line_nl)?;
         self.raw.update(line_nl);
-        let mut h = blake3::Hasher::new();
-        h.update(&c.bytes);
-        h.update(b"\n");
+        let canon_blake3 = canon::record_digest_of_canonical(&c.bytes);
         self.canon.push_canonical(&c.bytes);
         self.bytes += line_nl.len() as u64;
         self.records += 1;
@@ -707,7 +930,7 @@ impl RecordWriter {
         Ok(RecordPos {
             offset,
             bytes: line_nl.len() as u64,
-            canon_blake3: h.finalize().to_hex().to_string(),
+            canon_blake3,
         })
     }
 
@@ -844,7 +1067,7 @@ pub struct StreamDigest {
 }
 
 /// One complete record seen by a [`StreamDigest`] that records them: its `type`, offset, line length (with "\n")
-/// and the BLAKE3 of its canonical line + "\n" (the `rule_committed.canon_blake3` of child-job.md 3.5).
+/// and its per-record digest ([`canon::record_digest_of_canonical`]: the `rule_committed.canon_blake3` of 3.5).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordInfo {
     pub record_type: Option<String>,
@@ -898,14 +1121,12 @@ impl StreamDigest {
         match self.scan.push(line_nl) {
             Ok(c) => {
                 if self.record_types {
-                    let mut h = blake3::Hasher::new();
-                    h.update(&c.bytes);
-                    h.update(b"\n");
+                    let canon_blake3 = canon::record_digest_of_canonical(&c.bytes);
                     self.records.push(RecordInfo {
                         record_type: c.record_type,
                         offset,
                         bytes: line_nl.len() as u64,
-                        canon_blake3: h.finalize().to_hex().to_string(),
+                        canon_blake3,
                     });
                 }
             }
@@ -1104,7 +1325,11 @@ mod stream_digest_tests {
         let types: Vec<_> = r.iter().map(|x| x.record_type.clone()).collect();
         assert_eq!(types, vec![Some("covered".to_string()), None]);
         assert_eq!((r[1].offset, r[1].bytes), (19, 8));
-        assert_eq!(r[1].canon_blake3, crate::blake3_hex(b"{\"x\":1}\n"));
+        assert_eq!(
+            r[1].canon_blake3,
+            crate::canon::canonical_line_blake3(b"{\"x\":1}").unwrap()
+        );
+        assert_ne!(r[1].canon_blake3, crate::blake3_hex(b"{\"x\":1}\n"));
         d.feed(b"ueue\"}\n");
         assert_eq!(d.take_records()[0].record_type.as_deref(), Some("enqueue"));
         assert!(d.take_records().is_empty());
