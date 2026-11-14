@@ -43,6 +43,10 @@
 //!                   the rule find_rule selects with its rule point, rejection counts, ambiguity markers; schema
 //!                   rustred.domaincheck.v1, node::domaincheck; exit 0 ok / 3 internal / 41 input / 51 io)
 //! rr_node --capabilities   (JSON list of verbs and the domaincheck options)
+//! rr_node job RUN/job.json   (child-job contract rustred.child-job.v1: one generate job described by a job spec;
+//!                  exit codes of the contract 0/10/20/21/22/30/40/41/42/50/51/70; node::childjob)
+//! rr_node version --json | rr_node --version --json   (program, version, build git commit, contract, features)
+//! rr_node generate|witness ... --no-elide-witness-loci   (opt-in: witness loci written in full whatever their size)
 //! rr_node mastermap --old OLD.table.jsonl --new NEW.table.jsonl --out MAP.json [--old-masters 'K;..'] [--new-masters 'K;..']
 //!                  [--dims ..] [--primes N] [--no-symbolic] [--points 80] [--sym-primes 8] [--symbolic-lower]
 //!                  [--laporta DOTS,RANK|none] [--check-keys auto|'K;..'|none]
@@ -81,6 +85,9 @@ use rustred::node::driver::{
 use rustred::node::order::{NodeOrder, SourceOrder, variants};
 use rustred::node::replay::{self, ReplayArgs};
 use rustred::node::screen::{HeavyAction, LiftScreen};
+
+#[path = "rr_node_job/job.rs"]
+mod job;
 
 struct Args {
     items: Vec<String>,
@@ -129,6 +136,7 @@ impl Args {
 }
 
 fn die(msg: &str) -> ! {
+    job::on_die(msg);
     eprintln!("rr_node: {msg}");
     std::process::exit(2)
 }
@@ -463,6 +471,9 @@ fn probe_options(a: &mut Args) -> ProbeOptions {
 }
 
 fn cmd_generate(mut a: Args) -> i32 {
+    if a.flag("--no-elide-witness-loci") {
+        rustred::node::childjob::set_legacy_no_elision();
+    }
     let family_path = a.need("--family");
     let family = read(&family_path);
     let out = PathBuf::from(a.need("--out"));
@@ -974,6 +985,9 @@ fn cmd_affine(mut a: Args) -> i32 {
 /// options recorded in the table header, with the witness guards on; when the new rule equals the table rule (same
 /// target, RHS and seeds) its witness poles are the table rule's hidden poles.
 fn cmd_witness(mut a: Args) -> i32 {
+    if a.flag("--no-elide-witness-loci") {
+        rustred::node::childjob::set_legacy_no_elision();
+    }
     let table = a.need("--table");
     let out = PathBuf::from(a.need("--out"));
     let rules = ReplayArgs::parse_rules(&a.need("--rules")).unwrap_or_else(|e| die(&e));
@@ -1199,7 +1213,7 @@ fn cmd_laporta(mut a: Args) -> i32 {
 }
 
 /// Every subcommand `main` dispatches (reported by `rr_node --capabilities`).
-const VERBS: [&str; 16] = [
+const VERBS: [&str; 18] = [
     "generate",
     "probe",
     "variants",
@@ -1216,6 +1230,8 @@ const VERBS: [&str; 16] = [
     "symmasters",
     "laporta",
     "domaincheck",
+    "job",
+    "version",
 ];
 
 /// `rr_node --capabilities`: see the header.
@@ -1225,7 +1241,7 @@ fn cmd_capabilities(a: Args) -> i32 {
     println!(
         "{}",
         serde_json::json!({"schema": "rustred.capabilities.v1", "program": "rr_node", "verbs": VERBS,
-            "domaincheck": {"schema": SCHEMA, "options": OPTIONS}})
+            "domaincheck": {"schema": SCHEMA, "options": OPTIONS}, "version": job::version_json()})
     );
     0
 }
@@ -1584,6 +1600,8 @@ fn main() {
         "laporta" => cmd_laporta(a),
         "domaincheck" => cmd_domaincheck(a),
         "--capabilities" => cmd_capabilities(a),
+        "job" => job::cmd_job(a),
+        "version" | "--version" => job::cmd_version(a),
         other => die(&format!("unknown command {other}")),
     };
     let _ = Path::new(".");

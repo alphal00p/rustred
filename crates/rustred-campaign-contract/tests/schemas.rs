@@ -482,6 +482,7 @@ fn golden_resume_and_cases() {
         },
         symbolic_cases: 1,
         discarded: 0,
+        engine: Default::default(),
     };
     r.check().unwrap();
     golden("resume.json", &r);

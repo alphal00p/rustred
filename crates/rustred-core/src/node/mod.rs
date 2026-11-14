@@ -23,6 +23,7 @@
 
 pub mod affine;
 pub mod auto;
+pub mod childjob;
 pub mod descent;
 pub mod domain;
 pub mod domaincheck;
