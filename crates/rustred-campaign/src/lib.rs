@@ -20,3 +20,5 @@ pub mod publish;
 pub mod adapters;
 pub mod cli;
 pub mod tui;
+// lane closeloop (interfaces/closeloop.md)
+pub mod closeloop;

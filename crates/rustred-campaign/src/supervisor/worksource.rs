@@ -129,6 +129,11 @@ pub trait WorkSource {
         verb: &str,
         target: &str,
     ) -> Result<Vec<Event>, String>;
+    /// Lane closeloop (closeloop.md 6.1): ledger events (and the records to write BEFORE them) of the source's own
+    /// in-process passes, called every tick before `ready()` while the campaign runs. Default: nothing.
+    fn poll(&mut self, _st: &CampaignState, _ctx: &SourceContext) -> Result<Routing, String> {
+        Ok(Routing::default())
+    }
     /// All work final.
     fn finished(&self, st: &CampaignState) -> bool;
     /// Number of work units (for logs).
