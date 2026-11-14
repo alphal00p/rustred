@@ -501,6 +501,48 @@ fn edges_into_target_keys_from_a_written_statement() {
         .filter(|l| !l.trim().is_empty())
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
+    // credited keys: their edges are the image record's terms AT THE IMAGE (closure expand_key); the statement does not
+    // carry the image, so a keys-only check without evidence gives it (AUDIT_CL_CREDITS=1)
+    let images: HashMap<Vec<i32>, Vec<i32>> = if std::env::var_os("AUDIT_CL_CREDITS").is_some() {
+        // the spec's evidence + the run's own proof / fact answer directories (AUDIT_CL_EXTRA_PROOFS / _FACTS):
+        // the credit is granted exactly as in the run (Tier C)
+        let mut ev = Evidence::from_spec(&set, &base).unwrap();
+        for (var, facts) in [("AUDIT_CL_EXTRA_PROOFS", false), ("AUDIT_CL_EXTRA_FACTS", true)] {
+            if let Ok(d) = std::env::var(var) {
+                let mut files: Vec<PathBuf> = std::fs::read_dir(&d)
+                    .unwrap()
+                    .map(|e| e.unwrap().path())
+                    .filter(|p| p.extension().is_some_and(|x| x == "jsonl"))
+                    .collect();
+                files.sort();
+                for p in files {
+                    let fr = import::spec::FileRef { path: p.display().to_string(), sha256: None };
+                    if facts {
+                        ev.load_facts(&set, Path::new("/"), &fr).unwrap();
+                    } else {
+                        ev.load_proofs(&set, Path::new("/"), &fr).unwrap();
+                    }
+                }
+            }
+        }
+        let r = check(
+            &set,
+            &ev,
+            &CheckOptions {
+                threads: 2,
+                tier: Some(Tier::C),
+                max_rounds: None,
+            },
+        )
+        .unwrap();
+        r.rows
+            .iter()
+            .filter_map(|x| x.image.clone().map(|im| (x.key.clone(), im)))
+            .collect()
+    } else {
+        HashMap::new()
+    };
+    eprintln!("credit images known: {}", images.len());
     let mut out = std::io::BufWriter::new(std::fs::File::create(env("AUDIT_CL_OUT")).unwrap());
     let f = std::fs::File::open(env("AUDIT_CL_STATEMENT")).unwrap();
     let (mut rows, mut rule_rows, mut terms, mut hits, mut other) = (0u64, 0u64, 0u64, 0u64, 0u64);
@@ -520,20 +562,30 @@ fn edges_into_target_keys_from_a_written_statement() {
         if targets.contains(&key) {
             panic!("target key {key:?} is IN the statement");
         }
-        if kind != "rule" {
-            other += 1;
-            continue;
-        }
+        let row_key = key.clone();
+        let applied = match kind.as_str() {
+            "rule" => key.clone(),
+            "credit" => match images.get(&key) {
+                Some(im) => im.clone(),
+                None => panic!("credited key {key:?} without a known image (set AUDIT_CL_CREDITS=1)"),
+            },
+            _ => {
+                other += 1;
+                continue;
+            }
+        };
         let sha = v["server"]["record_sha256"].as_str().unwrap();
         let &(t, r) = set.by_sha.get(sha).expect("statement record in the set");
         rule_rows += 1;
         buf.clear();
         cm.clear();
         let rr = set.disp.rule_ref(t, r);
-        let Some(nt) = set.bodies.instantiate(&set.disp, rr, &key, &mut buf, &mut cm).unwrap() else {
+        let Some(nt) = set.bodies.instantiate(&set.disp, rr, &applied, &mut buf, &mut cm).unwrap()
+        else {
             continue;
         };
         let dom = &set.disp.tables()[t].domains[r];
+        let key = applied;
         for j in 0..nt {
             terms += 1;
             let tk = &buf[j * n..(j + 1) * n];
@@ -545,6 +597,7 @@ fn edges_into_target_keys_from_a_written_statement() {
                     out,
                     "{}",
                     json!({"table": info.path, "offset": info.offset, "rule": info.index, "record_sha256": sha,
+                        "row_key": row_key, "server_kind": kind,
                         "source": info.source, "witness": format!("{:?}", info.witness),
                         "key": key, "point": pt, "term": j, "term_key": tk,
                         "fact_basis": v["facts"]["basis"]})
