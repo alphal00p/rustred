@@ -1,19 +1,19 @@
-rr_campaign  toy-2loop-optimise  RUNNING  age 20m03s  hb 2s  seq 311  sessions 1
-CPU 2/4   RAM 0.2 used, 0.5 res / 2.0G cap   host 8.0G (floor 1.0)   jobs 2
-NODES 2  FULL 1  BOXED 0  OPEN 1  certified 1  attention 0
-ITEMS 30  open 5  run 2  acc 12  esc 4  rej 0  term 0  ret 9  stale 0
-RULES accepted 21  rejected 0  CERT 0.0% (0/12 proved)  upgrades 12  retired 9
-TERMINALS 3 (cand 0, bound 10/node, preferred used 2/3)  ECONOMY rules 21->12
-cpu-h 0.5  ETA ~ 80s-3m wall (3m-6m CPU left; 5 items; 2 jobs)
--[ Work list by ladder level ]----------------------------- Tab: next table ----
-rung   open  run prod    acc  rej  esc tcand term stale  ret  jobs  med s
-L0        3    1    -     10    -    4     -    -     -    9    30   40.0
-L1        2    1    -      2    -    -     -    -     -    -     8   75.0
+rr_campaign  toy-2loop-optimise  RUNNING  hb 2s  age 20m03s  seq 311  sessions 1
+NODES 2  FULL 1  BOXED 0  OPEN 1  items done ########.. 83% (25 of 30)
+ETA ~ 80s-3m  done ~ 10:01-10:02 UTC  cpu-h 0.5 used  escalations not counted
+NEXT  nothing needs you
+CPU 2/4 in use   jobs 2 running   RAM 0.2/2.0 GiB (0.5 reserved)
+CERTIFIED at the level asked: 1 of 2 nodes; rules: 8 at replay, 4 pending
+ITEMS 30  open 5  run 2  acc 12  esc 4  rej 0  term 0  stale 0
+RULES accepted 21  rejected 0  DEFECT 0 keys (0/1 checked nodes)
+-[ Nodes (2) ]--------------------------------------------- Tab: next table ----
+node   coverage  cert asked/got phase     open term defect rules bef>aft  used%
+kite   OPEN      replay/-       running      5 1/10      -           7>4      -
+sunset FULL PROV replay/replay  certified    0 2/10      0          14>8  87.5%
 -[ Recent events ]-------------------------------------------------- e: all ----
-10:00:00 ok   item_accepted     kite F001: rule kite:R:5 accepted (identity_tes~
-09:59:10 ok   node              sunset: certified (full, provisional: hand-down~
-09:58:00 .    rule_retired      sunset F002: rule sunset:R:3 superseded by suns~
-
+10:00:00 ok   kite F001: rule kite:R:5 accepted (identity_tested)
+09:59:10 ok   sunset: certified (full, provisional: hand-down ranges measured)
+09:58:00 .    sunset F002: rule sunset:R:3 superseded by sunset-item-00011 (rep~
 
 
 

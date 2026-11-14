@@ -5,25 +5,30 @@
 //! optional read-only ledger reduction for drill-down. It never takes the lock, never writes, never signals; it can
 //! run inside the supervisor or as a second process; a restart loses nothing.
 //!
-//! Entry points: [`run_dashboard`] (live; TUI on a terminal, plain lines otherwise), [`render_once`] (one text
-//! rendering: `--once`, final summary, tests), [`view_model_json`] (`--json`), [`plain::status_line`] /
+//! Entry points: [`run_viewer`] (the stand-alone read-only viewer: installs its signal handlers), [`run_dashboard`]
+//! (live; TUI on a terminal, plain lines otherwise; the caller owns signals), [`render_once`] (one text rendering:
+//! `--once`, final summary, tests), [`view_model_json_text`] (`--json`), [`plain::status_line`] /
 //! [`plain::event_line`], [`numbers::screen_numbers`] / [`numbers::campaign_json_numbers`] (website = terminal).
 //!
-//! Layering: `source` (files) -> `model::build` (the ONE adapter) -> `render` / `plain` (views); `app` holds the
-//! interactive state and key handling; `terminal` the live loop and terminal restoration.
+//! Layering: `source` (files, raw) -> `reader` (background thread, live mode) -> `model::build` (the ONE adapter and
+//! the sanitising boundary: every text becomes a [`clean::Clean`]) -> `render` / `plain` (views, `Clean` only);
+//! `app` holds the interactive state and key handling; `terminal` the live loop and terminal restoration.
 
 pub mod app;
+pub mod clean;
 pub mod controls;
 pub mod format;
 pub mod model;
 pub mod numbers;
 pub mod plain;
+pub mod reader;
 pub mod render;
 pub mod source;
 pub mod terminal;
 pub mod theme;
 
 use std::io::{self, IsTerminal, Write};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -32,6 +37,7 @@ use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 
 pub use app::{App, ExitReason};
+pub use clean::Clean;
 pub use controls::{Controls, SupervisorControls, WatchControls};
 pub use model::ViewModel;
 pub use numbers::{campaign_json_numbers, screen_numbers};
@@ -58,6 +64,8 @@ pub struct DashboardOptions {
     pub stale_after: Duration,
     /// Full redraw interval (60 s, plan 3.U.2).
     pub full_redraw: Duration,
+    /// Attention "terminals near the bound" from this share of a node's bound on (display heuristic, 0.9).
+    pub terminal_warn_share: f64,
 }
 
 impl Default for DashboardOptions {
@@ -71,6 +79,7 @@ impl Default for DashboardOptions {
             plain_interval: Duration::from_secs(60),
             stale_after: Duration::from_secs(60),
             full_redraw: Duration::from_secs(60),
+            terminal_warn_share: 0.9,
         }
     }
 }
@@ -90,32 +99,38 @@ pub(crate) fn now_s(opts: &DashboardOptions) -> f64 {
     opts.clock.now_utc().0 as f64 / 1000.0
 }
 
-pub(crate) fn build_vm(raw: &source::RawSnapshot, opts: &DashboardOptions) -> ViewModel {
-    model::build(
-        raw,
-        model::BuildOptions {
-            now_s: now_s(opts),
-            stale_after_s: opts.stale_after.as_secs_f64(),
-        },
-    )
+pub(crate) fn build_options(opts: &DashboardOptions) -> model::BuildOptions {
+    model::BuildOptions {
+        now_s: now_s(opts),
+        stale_after_s: opts.stale_after.as_secs_f64(),
+        terminal_warn_share: opts.terminal_warn_share,
+    }
 }
 
-/// The view-model of a source now (adapter + clock). Fills the running-job list from the source when the progress
-/// files do not carry one.
+/// The view-model of a source now, read synchronously (one-shot uses: `--once`, `--json`, tests). Fills the
+/// running-job list from the source's fallback (labelled "from ledger (partial)") when the progress files do not
+/// carry one.
 pub fn view_model(source: &dyn ProgressSource, opts: &DashboardOptions) -> ViewModel {
-    let mut vm = build_vm(&source.read(), opts);
+    let raw = source.read();
+    let mut vm = model::build(&raw, build_options(opts));
     if vm.jobs.list.is_none()
+        && model::needs_job_fallback(&raw)
         && let Some(list) = source.running_jobs()
     {
-        vm.jobs.list = Some(list);
-        vm.jobs.list_origin = "ledger";
+        vm.jobs.list = Some(model::ledger_jobs(&list));
+        vm.jobs.list_origin = model::JobsOrigin::LedgerPartial;
     }
     vm
 }
 
-/// `--json`: the view-model as JSON.
+/// `--json`: the view-model as a JSON value (every string sanitised).
 pub fn view_model_json(source: &dyn ProgressSource, opts: &DashboardOptions) -> serde_json::Value {
     serde_json::to_value(view_model(source, opts)).unwrap_or(serde_json::Value::Null)
+}
+
+/// `--json` as text to print: pretty JSON in which every control / format character is a `\uXXXX` escape.
+pub fn view_model_json_text(source: &dyn ProgressSource, opts: &DashboardOptions) -> String {
+    clean::json_text(&view_model_json(source, opts), true)
 }
 
 /// Renders one frame into a buffer (tests: colours of cells).
@@ -197,11 +212,38 @@ fn utf8_from_env() -> bool {
     )
 }
 
+/// The stand-alone read-only viewer of a campaign directory (`rr_campaign watch|dashboard CDIR`): installs SIGINT /
+/// SIGTERM / SIGHUP / SIGWINCH handlers for its own [`WatchControls`] (a signal closes the viewer and the terminal is
+/// restored; audit M7), runs [`run_dashboard`], unregisters the handlers. Never touches the campaign.
+pub fn run_viewer(cdir: impl Into<PathBuf>, opts: &DashboardOptions) -> ExitReason {
+    run_viewer_of(Arc::new(DirSource::new(cdir)), opts)
+}
+
+/// [`run_viewer`] on any source.
+pub fn run_viewer_of(source: Arc<dyn ProgressSource>, opts: &DashboardOptions) -> ExitReason {
+    let controls = WatchControls::new();
+    let signals = crate::signals::StopSignals::install_into(controls.handle.clone());
+    if let Err(e) = &signals {
+        let _ = writeln!(
+            io::stderr(),
+            "dashboard: signal handlers not installed ({e}); Ctrl-C still closes the viewer"
+        );
+    }
+    let r = run_dashboard(source, &controls, opts);
+    drop(signals);
+    r
+}
+
 /// The live dashboard: TUI when stdout is a terminal (and not `--plain` / `TERM=dumb`), plain lines otherwise.
 /// Returns when the viewer quits (watcher) or the supervisor reports it is done (`Controls::campaign_done`).
 /// The terminal is restored on every path; the last view is then printed to the normal screen.
+///
+/// The CALLER owns signals: before calling, register SIGINT / SIGTERM / SIGHUP / SIGWINCH into the handle behind
+/// `controls` (`signals::StopSignals::install_into(handle)`, kept alive until this returns); without that, SIGTERM /
+/// SIGHUP kill the process with the default action and the terminal stays raw on the alternate screen. The stand-
+/// alone viewer does this itself: [`run_viewer`].
 pub fn run_dashboard(
-    source: &dyn ProgressSource,
+    source: Arc<dyn ProgressSource>,
     controls: &dyn Controls,
     opts: &DashboardOptions,
 ) -> ExitReason {
@@ -214,7 +256,7 @@ pub fn run_dashboard(
         std::env::var("TERM").ok().as_deref(),
     );
     let utf8 = opts.utf8.unwrap_or_else(utf8_from_env);
-    match terminal::run_tui(source, controls, opts, color, utf8) {
+    match terminal::run_tui(Arc::clone(&source), controls, opts, color, utf8) {
         Ok((reason, vm, app)) => {
             if reason != ExitReason::Hangup {
                 let (w, h) = terminal::terminal_area()

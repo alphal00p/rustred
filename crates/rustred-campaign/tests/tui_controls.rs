@@ -90,7 +90,18 @@ fn ctrl_c_once_drains_with_countdown_twice_forces_third_exits() {
     assert!(t.contains(" FORCED STOP: 21 running job(s) are being killed and recorded as interrupted; still safe"), "{t}");
     assert!(t.contains("STOPPING (forced)"));
     check_golden("stop-forced-120x40", &t);
-    // third: leave at once
+    // m8: a third press right after the second (key repeat, a burst) does not leave the dashboard
+    assert_eq!(
+        app.on_key(ctrl_c(), &vm, &src, &fake, now(&clock)),
+        Action::Redraw
+    );
+    assert_eq!(
+        fake.requests.get(),
+        2,
+        "the burst press is not a stop request"
+    );
+    clock.advance(std::time::Duration::from_secs(2));
+    // third, after a pause: leave at once
     assert_eq!(
         app.on_key(ctrl_c(), &vm, &src, &fake, now(&clock)),
         Action::Quit(ExitReason::ForcedExit)
@@ -210,16 +221,19 @@ fn navigation_panels_and_drill_down() {
         "{t}"
     );
     // Tab cycles the 80-column table
+    // the 80-column table starts with the nodes (audit suggestion 8)
+    let t = tui::render_text(&vm, &app, &o, 80, 24);
+    assert!(t.contains("-[ Nodes (1) ]"), "{t}");
     for title in [
-        "Nodes",
+        "Work list by ladder level",
         "Running jobs",
         "Recent events",
         "Attention",
-        "Work list by ladder level",
+        "Nodes",
     ] {
         app.on_key(key(KeyCode::Tab), &vm, &src, &w, 0.0);
         let t = tui::render_text(&vm, &app, &o, 80, 24);
-        assert!(t.contains(&format!("-[ {title} ]")), "{title}: {t}");
+        assert!(t.contains(&format!("-[ {title}")), "{title}: {t}");
     }
 }
 

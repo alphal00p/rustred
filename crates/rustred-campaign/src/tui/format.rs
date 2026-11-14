@@ -1,16 +1,12 @@
 //! Number and text formatters of the dashboard.
 //!
-//! `clean` (control characters stripped: no ANSI injection from file contents) and the byte / duration helpers follow
-//! `rustred-app/src/cli/shards/monitor.rs` (b9f06de7, `clean`, `count`, `decimal`, `duration`, `bytes`), copied and
-//! adapted: thousands separators, binary gigabytes written `G`, compact durations (`1d04h`, `5m12s`).
+//! The byte / duration helpers follow `rustred-app/src/cli/shards/monitor.rs` (b9f06de7, `count`, `decimal`,
+//! `duration`, `bytes`), copied and adapted: thousands separators, binary gigabytes (GiB), compact durations
+//! (`1d04h`, `5m12s`). Text from files is sanitised by [`super::clean::Clean`] only.
 
-/// Strips control characters (escape sequences in file contents must never reach the terminal) and bounds the length.
+/// The sanitiser as a `String` (see [`super::clean::Clean::new`]; kept for callers outside the renderers).
 pub fn clean(value: &str) -> String {
-    value
-        .chars()
-        .filter(|c| !c.is_control())
-        .take(1024)
-        .collect()
+    super::clean::Clean::new(value).into_string()
 }
 
 /// `1234567` -> `1,234,567`.
@@ -72,6 +68,43 @@ pub fn percent(v: Option<f64>) -> String {
     match v {
         Some(x) if x.is_finite() => format!("{:.1}%", x * 100.0),
         _ => "-".into(),
+    }
+}
+
+/// A CPU-hours range from seconds (`18-55`, `0.4-1.2`).
+pub fn cpu_h_range(lo_s: f64, hi_s: f64) -> String {
+    if (0.0..180.0).contains(&hi_s) {
+        return "<0.1".into();
+    }
+    let one = |s: f64| {
+        let h = s / 3600.0;
+        if !h.is_finite() || h < 0.0 {
+            "?".to_string()
+        } else if h >= 10.0 {
+            format!("{h:.0}")
+        } else {
+            format!("{h:.1}")
+        }
+    };
+    format!("{}-{}", one(lo_s), one(hi_s))
+}
+
+/// Clock range of two instants (seconds since the epoch) as seen at `now_s`: `09:09-10:51 UTC` on the same day,
+/// else with dates (`11-21 09:09 - 11-22 03:00 UTC`).
+pub fn clock_range(now_s: f64, a_s: f64, b_s: f64) -> String {
+    let iso = |t: f64| crate::clock::UtcMillis((t * 1000.0) as i64).to_iso();
+    let (n, a, b) = (iso(now_s), iso(a_s), iso(b_s));
+    let day = |s: &str| s.get(..10).unwrap_or("").to_string();
+    let hm = |s: &str| s.get(11..16).unwrap_or("?").to_string();
+    let md = |s: &str| s.get(5..10).unwrap_or("?").to_string();
+    if day(&a) == day(&n) && day(&b) == day(&n) {
+        if hm(&a) == hm(&b) {
+            format!("{} UTC", hm(&a))
+        } else {
+            format!("{}-{} UTC", hm(&a), hm(&b))
+        }
+    } else {
+        format!("{} {} - {} {} UTC", md(&a), hm(&a), md(&b), hm(&b))
     }
 }
 
@@ -169,6 +202,8 @@ mod tests {
         assert_eq!(hms("2026-11-13T23:00:19.500Z"), "23:00:19");
         assert_eq!(hms("junk"), "junk");
         assert_eq!(fit("abcdef", 4), "abc~");
-        assert_eq!(clean("a\u{1b}[31mb"), "a[31mb");
+        assert_eq!(clean("a\u{1b}[31mb"), "a\u{FFFD}[31mb");
+        assert_eq!(cpu_h_range(64800.0, 198000.0), "18-55");
+        assert_eq!(cpu_h_range(160.0, 345.0), "0.0-0.1");
     }
 }

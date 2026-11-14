@@ -1,40 +1,57 @@
-//! Pseudo-terminal test (plan 6.5 I5, M8 drill in miniature): `examples/dashboard_demo` hosts the dashboard on a
-//! fixture inside a pty (openpty); the test resizes the terminal, sends Ctrl-C bytes and `q`, and checks the screen,
-//! the exit reason and that the terminal modes are restored (raw mode off, alternate screen left).
+//! Pseudo-terminal tests (plan 6.5 I5, M8 drill in miniature): the dashboard demo host runs inside a pty (openpty);
+//! the test resizes the terminal, sends Ctrl-C bytes, `q` and signals, and checks the screen, the exit reason and that
+//! the terminal modes are restored (raw mode off, cursor shown, alternate screen left).
 //!
-//! The example binary is built by `cargo test -p rustred-campaign` (examples are compiled with the tests); when this
-//! test is run alone with `--test tui_pty`, build it first (`cargo build -p rustred-campaign --example dashboard_demo`).
+//! The host is THIS test binary (audit M5): the test re-executes itself (`std::env::current_exe()`) with
+//! `--exact pty_helper_entry` and the demo arguments in `RR_TUI_PTY_HELPER`; the hidden test `pty_helper_entry` then
+//! runs `tui_support::demo::main_with` and exits. No pre-built example, no choice by modification time.
+//! Waits are for markers on the pty with generous timeouts, never fixed sleeps.
+//! Run with `LIGHT_PIDNS=1` (lane rule L10): the tests spawn children and signal them.
 
+mod tui_support;
+
+use std::io::Read;
 use std::os::fd::{FromRawFd, OwnedFd, RawFd};
 use std::os::unix::process::CommandExt;
-use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// The example binary: next to the test executable, or in the workspace target directory (the host's cargo
-/// configuration puts test executables into a separate build directory). The newest candidate wins. Panics with an
-/// instruction when it is not built (a silently skipped terminal test would hide a regression).
-fn demo() -> Option<PathBuf> {
-    let mut c: Vec<PathBuf> = Vec::new();
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(d) = exe.parent().and_then(|p| p.parent())
-    {
-        c.push(d.join("examples/dashboard_demo"));
-    }
-    let ws = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let target = std::env::var_os("CARGO_TARGET_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| ws.join("target"));
-    c.push(target.join("debug/examples/dashboard_demo"));
-    let best = c
-        .into_iter()
-        .filter(|p| p.is_file())
-        .max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
-    Some(best.unwrap_or_else(|| {
-        panic!("examples/dashboard_demo is not built: run `cargo test -p rustred-campaign` (builds examples) or `cargo build -p rustred-campaign --example dashboard_demo` first")
-    }))
+use tui_support::demo::{ALT_EXIT, OSC52, TITLE};
+
+const HELPER_ENV: &str = "RR_TUI_PTY_HELPER";
+
+/// Hidden: the dashboard host. Does nothing in a normal test run.
+#[test]
+fn pty_helper_entry() {
+    let Ok(args) = std::env::var(HELPER_ENV) else {
+        return;
+    };
+    let args: Vec<String> = args
+        .split('\u{1f}')
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .collect();
+    let code = tui_support::demo::main_with(args);
+    std::process::exit(code);
+}
+
+/// This test binary as the dashboard host with demo arguments `args`.
+fn host_command(args: &[&str]) -> Command {
+    let exe = std::env::current_exe().expect("the test binary");
+    let mut cmd = Command::new(exe);
+    cmd.args([
+        "--exact",
+        "pty_helper_entry",
+        "--nocapture",
+        "--test-threads",
+        "1",
+        "-q",
+    ])
+    .env(HELPER_ENV, args.join("\u{1f}"))
+    .env_remove("RUST_TEST_THREADS");
+    cmd
 }
 
 struct Pty {
@@ -102,9 +119,8 @@ impl Pty {
             // SAFETY: dup of an open descriptor; the new descriptor is owned by the Stdio.
             Stdio::from(unsafe { OwnedFd::from_raw_fd(libc::dup(fd)) })
         };
-        let mut cmd = Command::new(demo().unwrap());
-        cmd.args(args)
-            .env("TERM", "xterm-256color")
+        let mut cmd = host_command(args);
+        cmd.env("TERM", "xterm-256color")
             .env("LANG", "C")
             .env_remove("LC_ALL")
             .env_remove("LC_CTYPE")
@@ -124,7 +140,7 @@ impl Pty {
                 Ok(())
             });
         }
-        cmd.spawn().expect("spawn dashboard_demo")
+        cmd.spawn().expect("spawn the dashboard host")
     }
 
     fn text(&self) -> String {
@@ -192,7 +208,7 @@ impl Drop for Pty {
 }
 
 fn printable(s: &str) -> String {
-    s.replace('\u{1b}', "<ESC>")
+    s.replace('\u{1b}', "<ESC>").replace('\u{7}', "<BEL>")
 }
 
 fn wait_exit(child: &mut Child, secs: u64) -> std::process::ExitStatus {
@@ -203,7 +219,7 @@ fn wait_exit(child: &mut Child, secs: u64) -> std::process::ExitStatus {
         }
         if t0.elapsed() > Duration::from_secs(secs) {
             let _ = child.kill();
-            panic!("dashboard_demo did not exit");
+            panic!("the dashboard host did not exit");
         }
         std::thread::sleep(Duration::from_millis(30));
     }
@@ -219,21 +235,22 @@ fn assert_restored(p: &Pty, text: &str) {
         .expect("alternate screen entered");
     let leave = text.rfind("\u{1b}[?1049l").expect("alternate screen left");
     assert!(leave > enter);
+    let shown = text.rfind("\u{1b}[?25h").expect("cursor shown");
+    let hidden = text
+        .rfind("\u{1b}[?25l")
+        .expect("cursor hidden while drawing");
     assert!(
-        text[leave..].contains("\u{1b}[?25h")
-            || text[..leave].ends_with("\u{1b}[?25h")
-            || text.contains("\u{1b}[?25h"),
-        "cursor shown"
+        shown > hidden,
+        "the cursor is shown again after the last hide"
     );
 }
 
 #[test]
 fn supervisor_dashboard_in_a_pty_resize_ctrl_c_twice_restores_terminal() {
-    let Some(_) = demo() else { return };
     let p = Pty::open(120, 40);
     let mut child = p.spawn(&["--fixture", "midrun", "--supervisor", "--grace", "30"]);
-    p.wait_for(0, "RUNNING", 20);
-    p.wait_for(0, "Rules and certificates", 20);
+    p.wait_for(0, "RUNNING", 30);
+    p.wait_for(0, "Rules and certificates", 30);
     // resize to the wide layout: the selected-node column appears
     let mark = p.len();
     p.resize(200, 60);
@@ -263,10 +280,9 @@ fn supervisor_dashboard_in_a_pty_resize_ctrl_c_twice_restores_terminal() {
 
 #[test]
 fn supervisor_single_ctrl_c_drains_until_done() {
-    let Some(_) = demo() else { return };
     let p = Pty::open(80, 24);
     let mut child = p.spawn(&["--fixture", "midrun", "--supervisor", "--grace", "2"]);
-    p.wait_for(0, "Work list by ladder level", 20);
+    p.wait_for(0, "Nodes (4)", 30);
     p.send(b"\x03");
     let st = wait_exit(&mut child, 20);
     assert!(st.success());
@@ -278,10 +294,9 @@ fn supervisor_single_ctrl_c_drains_until_done() {
 
 #[test]
 fn watcher_q_quits_and_tiny_terminal_shows_plain_line() {
-    let Some(_) = demo() else { return };
     let p = Pty::open(79, 23);
     let mut child = p.spawn(&["--fixture", "stale"]);
-    p.wait_for(0, "enlarge to 80x24", 20);
+    p.wait_for(0, "enlarge to 80x24", 30);
     p.wait_for(0, "STALE", 20);
     p.send(b"q");
     let st = wait_exit(&mut child, 20);
@@ -290,31 +305,171 @@ fn watcher_q_quits_and_tiny_terminal_shows_plain_line() {
     assert_restored(&p, &p.text());
 }
 
-#[test]
-fn plain_mode_when_stdout_is_not_a_terminal() {
-    let Some(d) = demo() else { return };
-    let child = Command::new(d)
-        .args(["--fixture", "midrun"])
+type Collected = Arc<Mutex<Vec<u8>>>;
+
+/// Spawns the host with stdout / stderr piped, collecting them.
+fn piped(args: &[&str]) -> (Child, Collected, Collected) {
+    let mut child = host_command(args)
+        .env_remove("LC_ALL")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    std::thread::sleep(Duration::from_millis(1500));
-    // SIGINT to our own child: the viewer stops
+    let collect = |mut r: Box<dyn Read + Send>| {
+        let buf = Arc::new(Mutex::new(Vec::new()));
+        let b2 = Arc::clone(&buf);
+        std::thread::spawn(move || {
+            let mut chunk = [0u8; 8192];
+            while let Ok(n) = r.read(&mut chunk) {
+                if n == 0 {
+                    break;
+                }
+                b2.lock().unwrap().extend_from_slice(&chunk[..n]);
+            }
+        });
+        buf
+    };
+    let out = collect(Box::new(child.stdout.take().unwrap()));
+    let err = collect(Box::new(child.stderr.take().unwrap()));
+    (child, out, err)
+}
+
+fn wait_text(buf: &Arc<Mutex<Vec<u8>>>, needle: &str, secs: u64) {
+    let t0 = Instant::now();
+    while !String::from_utf8_lossy(&buf.lock().unwrap()).contains(needle) {
+        assert!(
+            t0.elapsed() < Duration::from_secs(secs),
+            "timeout waiting for {needle:?}: {}",
+            String::from_utf8_lossy(&buf.lock().unwrap())
+        );
+        std::thread::sleep(Duration::from_millis(30));
+    }
+}
+
+#[test]
+fn plain_mode_when_stdout_is_not_a_terminal() {
+    let (mut child, out, err) = piped(&["--fixture", "midrun"]);
+    // M5: wait for the first status line (not a fixed sleep), then SIGINT to our own child: the viewer stops
+    wait_text(&out, " RUNNING seq 18,402", 30);
     // SAFETY: signalling the child we spawned.
     unsafe { libc::kill(child.id() as i32, libc::SIGINT) };
-    let out = child.wait_with_output().unwrap();
-    let so = String::from_utf8_lossy(&out.stdout);
-    let se = String::from_utf8_lossy(&out.stderr);
+    let st = wait_exit(&mut child, 20);
+    assert!(st.success());
+    wait_text(&err, "exit reason: ViewerQuit", 10);
+    let so = String::from_utf8_lossy(&out.lock().unwrap()).into_owned();
     assert!(
         !so.contains('\u{1b}'),
         "no escape codes in plain mode: {so}"
     );
     assert!(so.contains("event item_accepted T178 F087"), "{so}");
     assert!(
-        so.contains(" RUNNING seq 18,402 cpu 21/32 ram 9.8/30.0G"),
+        so.contains(" RUNNING seq 18,402 cpu 21/32 ram 9.8/30.0GiB"),
         "{so}"
     );
-    assert!(se.contains("exit reason: ViewerQuit"), "{se}");
+}
+
+/// The bytes the C1 probe injects must never reach the terminal raw.
+fn assert_no_injection(bytes: &[u8], legit_alt_exits: usize) {
+    let text = String::from_utf8_lossy(bytes);
+    let p = printable(&text);
+    assert!(
+        !text.contains("\u{1b}]"),
+        "an OSC sequence reached the terminal: {p}"
+    );
+    assert!(!text.contains('\u{7}'), "a BEL reached the terminal: {p}");
+    assert!(
+        !text.contains('\u{9b}'),
+        "a C1 CSI reached the terminal: {p}"
+    );
+    assert!(
+        !text.contains('\u{202e}'),
+        "a bidi override reached the terminal: {p}"
+    );
+    assert_eq!(
+        text.matches(ALT_EXIT).count(),
+        legit_alt_exits,
+        "only the dashboard's own alternate-screen exit: {p}"
+    );
+    // the injected texts are shown, visibly neutralised
+    let _ = (OSC52, TITLE);
+}
+
+#[test]
+fn c1_escape_injection_never_reaches_the_terminal_pty() {
+    let p = Pty::open(200, 60);
+    let mut child = p.spawn(&["--fixture", "probe", "--color", "always"]);
+    p.wait_for(0, "Running jobs", 30);
+    p.wait_for(0, "from ledger, partial", 20);
+    p.wait_for(0, "]52;c;ZXZpbA==", 20); // the job id, shown as text after the placeholder
+    // the node detail of an injected node, the events panel, the jobs panel
+    for k in [b"e".as_slice(), b"q", b"j", b"q", b"a", b"q"] {
+        p.send(k);
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    p.send(b"q");
+    let st = wait_exit(&mut child, 20);
+    assert!(st.success());
+    p.wait_for(0, "exit reason: ViewerQuit", 10);
+    let text = p.text();
+    assert_restored(&p, &text);
+    assert_no_injection(p.out.lock().unwrap().as_slice(), 1);
+    // --once and --json of the probe
+    for mode in ["--once", "--json"] {
+        let (mut child, out, _err) = piped(&[
+            "--fixture",
+            "probe",
+            mode,
+            "--width",
+            "200",
+            "--height",
+            "60",
+        ]);
+        let st = wait_exit(&mut child, 30);
+        assert!(st.success());
+        std::thread::sleep(Duration::from_millis(100));
+        let o = out.lock().unwrap().clone();
+        assert!(!o.contains(&0x1b), "{mode}: ESC in the output");
+        assert_no_injection(&o, 0);
+        if mode == "--json" {
+            let s = String::from_utf8_lossy(&o);
+            let start = s.find('{').expect("json object");
+            let v: serde_json::Value = serde_json::from_str(&s[start..]).expect("valid JSON");
+            assert!(v["campaign_id"].as_str().unwrap().starts_with("camp"));
+        }
+    }
+}
+
+#[test]
+fn m7_sigterm_and_sighup_restore_the_viewer_terminal() {
+    for (sig, reason) in [(libc::SIGTERM, "ViewerQuit"), (libc::SIGHUP, "Hangup")] {
+        let p = Pty::open(120, 40);
+        let mut child = p.spawn(&["--fixture", "midrun"]);
+        p.wait_for(0, "Rules and certificates", 30);
+        // SAFETY: signalling the child we spawned.
+        unsafe { libc::kill(child.id() as i32, sig) };
+        let st = wait_exit(&mut child, 20);
+        assert!(st.success(), "{sig}: {st:?}");
+        p.wait_for(0, &format!("exit reason: {reason}"), 10);
+        assert_restored(&p, &p.text());
+    }
+}
+
+#[test]
+fn m1_ctrl_c_is_handled_while_every_read_blocks() {
+    let p = Pty::open(120, 40);
+    let mut child = p.spawn(&["--fixture", "midrun", "--slow-read-ms", "8000"]);
+    // the screen is up and says it is reading, long before the first read returns
+    p.wait_for(0, "READING", 30);
+    let t0 = Instant::now();
+    p.send(b"\x03");
+    let st = wait_exit(&mut child, 20);
+    let took = t0.elapsed();
+    assert!(st.success());
+    assert!(
+        took < Duration::from_secs(3),
+        "Ctrl-C waited for the slow read: {took:?}"
+    );
+    p.wait_for(0, "exit reason: ViewerQuit", 10);
+    assert_restored(&p, &p.text());
 }
