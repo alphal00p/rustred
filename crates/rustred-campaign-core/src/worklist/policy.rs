@@ -186,7 +186,8 @@ impl SeedPolicy {
         SeedPolicy {
             schema: SEED_POLICY_SCHEMA.into(),
             name: "builtin-20261113".into(),
-            source: "I-LADDER built-in default data (seed-policy.md section 4; tight seeds off)".into(),
+            source: "I-LADDER built-in default data (seed-policy.md section 4; tight seeds off)"
+                .into(),
             classes: vec![PolicyClass {
                 matcher: ClassMatch {
                     node_class: "*".into(),

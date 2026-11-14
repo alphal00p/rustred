@@ -431,7 +431,9 @@ pub struct EvidenceRequest {
 pub enum ExclusionTarget {
     Key(Key),
     /// Every key where all equations hold (an AND-list, presented frame).
-    Locus { equations: Vec<AffineEq> },
+    Locus {
+        equations: Vec<AffineEq>,
+    },
 }
 
 impl ExclusionTarget {
@@ -641,7 +643,11 @@ pub struct LadderExhaustedRecord {
 impl LadderExhaustedRecord {
     /// Re-verify against the item state: the item must be the record's, every setting of its seed space must have a
     /// verdict, and the state machine must propose exactly this key as a terminal.
-    pub fn verify(&self, state: &ItemState, params: &NodeParams) -> Result<LadderExhausted, String> {
+    pub fn verify(
+        &self,
+        state: &ItemState,
+        params: &NodeParams,
+    ) -> Result<LadderExhausted, String> {
         if state.item.id != self.item {
             return Err("token names another item".into());
         }
@@ -704,7 +710,11 @@ pub enum AttentionReason {
     /// The item's global step bound (`Budgets::max_item_steps`) was reached (C2).
     StepBound { steps: u64, bound: u64 },
     /// Operator interrupts of one attempt above the sanity bound (U-5: never a retry cap; a human decides).
-    OperatorInterrupts { attempt: String, count: u32, bound: u32 },
+    OperatorInterrupts {
+        attempt: String,
+        count: u32,
+        bound: u32,
+    },
     /// A POINT item has no accepted rule but some settings of its space have NO verdict outcome (crash, kill,
     /// refusal, budget stop, infra cap): never a terminal proposal (C3).
     NonVerdict { settings: Vec<String> },
@@ -738,7 +748,10 @@ pub enum Disposition {
         exhausted: LadderExhausted,
     },
     /// A counter was exceeded or the input is unusable; never silent.
-    Attention { reason: AttentionReason, why: String },
+    Attention {
+        reason: AttentionReason,
+        why: String,
+    },
     /// Optimise item: no acceptable replacement; the old rules stay (U-13).
     OptimiseKept { why: String },
 }
@@ -875,7 +888,9 @@ impl ItemState {
         }
         r.cpu_ms_total = r.cpu_ms_total.saturating_add(answer.cpu_ms);
         match answer.outcome.class() {
-            OutcomeClass::Operator => r.operator_interrupts = r.operator_interrupts.saturating_add(1),
+            OutcomeClass::Operator => {
+                r.operator_interrupts = r.operator_interrupts.saturating_add(1)
+            }
             OutcomeClass::Infra => r.infra_interrupts = r.infra_interrupts.saturating_add(1),
             OutcomeClass::NonVerdict => r.non_verdict.push(answer.outcome.tag().to_string()),
             OutcomeClass::Verdict => r.answer = Some(answer),
@@ -978,11 +993,7 @@ fn judge_evidence(evs: Option<&Vec<KeyEvidence>>, key: &[i32], min: EvidenceLeve
     if mine.iter().any(|e| e.level.is_none()) {
         return EvJudge::Fail(ExclusionReason::IdentityUnknown);
     }
-    if let Some(low) = mine
-        .iter()
-        .filter_map(|e| e.level)
-        .find(|&l| l < min)
-    {
+    if let Some(low) = mine.iter().filter_map(|e| e.level).find(|&l| l < min) {
         return EvJudge::Fail(ExclusionReason::EvidenceBelowLevel {
             got: low,
             required: min,
@@ -1096,6 +1107,9 @@ fn tie(a: &Accepted) -> (usize, usize) {
     (a.order, a.index)
 }
 
+/// (volume, tie keys, members) of the best exact cover found so far.
+type BestCover = (u64, Vec<(usize, usize)>, Vec<usize>);
+
 /// Minimum set cover over the accepted candidates of the coverable points: exact (fewest members, then smallest
 /// RHS volume, then enumeration order) up to [`EXACT_COVER_MAX`] candidates and 6 members, else greedy.
 pub(crate) fn min_cover(acc: &[Accepted]) -> (Vec<usize>, bool) {
@@ -1109,7 +1123,7 @@ pub(crate) fn min_cover(acc: &[Accepted]) -> (Vec<usize>, bool) {
     let n = acc.len();
     if n <= EXACT_COVER_MAX {
         for k in 1..=n.min(6) {
-            let mut best: Option<(u64, Vec<(usize, usize)>, Vec<usize>)> = None;
+            let mut best: Option<BestCover> = None;
             let mut comb: Vec<usize> = (0..k).collect();
             loop {
                 let u: BTreeSet<usize> = comb

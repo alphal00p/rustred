@@ -113,7 +113,9 @@ impl SymmetryGroup {
                 .and_then(|m| m.as_object())
                 .ok_or("no line_perm")?
             {
-                let (Some(&ia), Some(&ib)) = (idx.get(a.as_str()), b.as_str().and_then(|b| idx.get(b))) else {
+                let (Some(&ia), Some(&ib)) =
+                    (idx.get(a.as_str()), b.as_str().and_then(|b| idx.get(b)))
+                else {
                     return Err(format!("line_perm {a} -> {b}"));
                 };
                 img[ia] = Some(ib);
@@ -204,8 +206,11 @@ impl SymmetryGroup {
             .equations
             .iter()
             .map(|q| {
-                let c: Option<Vec<(usize, i64)>> =
-                    q.coeffs.iter().map(|&(s, c)| map(s).map(|t| (t, c))).collect();
+                let c: Option<Vec<(usize, i64)>> = q
+                    .coeffs
+                    .iter()
+                    .map(|&(s, c)| map(s).map(|t| (t, c)))
+                    .collect();
                 c.and_then(|c| AffineEq::new(c, q.constant))
             })
             .collect();
@@ -268,7 +273,8 @@ pub fn orbit_reduce(
     while !left.is_empty() {
         let first = left.remove(0);
         let mut members: Vec<Item> = vec![first.clone()];
-        if group.nontrivial() && !matches!(first.kind, ItemKind::Optimise | ItemKind::BoxRestricted) {
+        if group.nontrivial() && !matches!(first.kind, ItemKind::Optimise | ItemKind::BoxRestricted)
+        {
             let images: BTreeSet<CaseSpec> = (0..group.elements.len())
                 .filter_map(|g| group.image_case(g, &first.case, lines))
                 .collect();
@@ -283,7 +289,10 @@ pub fn orbit_reduce(
         }
         let rep_pos = (0..members.len())
             .min_by(|&a, &b| {
-                let (ka, kb) = (corner(&members[a].case, lines), corner(&members[b].case, lines));
+                let (ka, kb) = (
+                    corner(&members[a].case, lines),
+                    corner(&members[b].case, lines),
+                );
                 let ord = if descent.lower(&ka, &kb) && !descent.lower(&kb, &ka) {
                     std::cmp::Ordering::Less
                 } else if descent.lower(&kb, &ka) && !descent.lower(&ka, &kb) {

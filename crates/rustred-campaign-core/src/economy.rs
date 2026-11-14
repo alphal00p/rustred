@@ -487,10 +487,16 @@ mod tests {
         .unwrap();
         let text = serde_json::to_string(&r).unwrap();
         let rec: RetirementRecord = serde_json::from_str(&text).unwrap();
-        assert_eq!(rec.verify(None).unwrap_err(), RetireError::FullNodeNeedsProof);
+        assert_eq!(
+            rec.verify(None).unwrap_err(),
+            RetireError::FullNodeNeedsProof
+        );
         assert_eq!(rec.verify(Some(proof)).unwrap(), r);
         let other = ContainmentProof::checked("o", "n2", "exact_partition", "x");
-        assert_eq!(rec.verify(Some(other)).unwrap_err(), RetireError::ProofMismatch);
+        assert_eq!(
+            rec.verify(Some(other)).unwrap_err(),
+            RetireError::ProofMismatch
+        );
         let forged: RetirementRecord = serde_json::from_str(
             r#"{"node":"N","retired":["a","b"],"by":"c","reason":"CheaperSameOrLargerDomain","state":"Full","proof":null,"old_measures":[],"new_measure":{"cases":1,"rhs_terms":1,"monomials":1,"monomials_estimated":false,"max_degree":null,"served_keys":null,"bytes":1}}"#,
         )

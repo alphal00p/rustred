@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 use crate::cover::{Dispatch, Dispatcher};
-use crate::order::NodeComparator;
 use crate::domain::Stage;
+use crate::order::NodeComparator;
 use crate::worklist::items::{CaseSpec, EvidenceLevel, Item, ItemId, Key, NodeParams, repair_item};
 use crate::worklist::ladder::{
     Attempt, AttentionReason, CandidateRule, CoverMember, Disposition, Exclusion, ExclusionReason,
@@ -238,7 +238,10 @@ pub enum FirstMatch {
 
 /// First-match dispatch in the given order, skipping a rule at the keys / loci of its exclusions (the semantics
 /// the library's outputs assume; the engine's `key_excluded` records).
-pub fn first_match_with_exclusions(rules: &[(&CandidateRule, &[Exclusion])], key: &[i32]) -> FirstMatch {
+pub fn first_match_with_exclusions(
+    rules: &[(&CandidateRule, &[Exclusion])],
+    key: &[i32],
+) -> FirstMatch {
     for (i, (r, ex)) in rules.iter().enumerate() {
         if ex.iter().any(|e| e.target.holds(key)) {
             continue;
@@ -320,7 +323,8 @@ pub fn seal_tree(items: &mut [ItemReport], params: &NodeParams) {
                 }
             }
             for c in &children {
-                if let crate::worklist::items::ChildOrigin::ExceptionBranch { branches, .. } = &c.origin
+                if let crate::worklist::items::ChildOrigin::ExceptionBranch { branches, .. } =
+                    &c.origin
                     && branches
                         .iter()
                         .any(|b| b.starts_with(&format!("{}#pole", rule.digest)))
@@ -686,6 +690,7 @@ pub enum RepairFailure {
 /// driven through the ladder (seed search, children, point), sequentially, within the budget. On success the rule
 /// serving the key is returned with every other rule of the run, each with its exclusions and rank, and the
 /// [`DispatchContract`]; the result is checked by first-match dispatch at every key asked about.
+#[allow(clippy::result_large_err)]
 pub fn repair_key(
     inputs: &RepairInputs,
     budget: &RepairBudget,

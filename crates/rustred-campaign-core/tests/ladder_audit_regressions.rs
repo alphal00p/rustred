@@ -50,12 +50,13 @@ fn dom(p: &NodeParams, case: &CaseSpec, exc: &[&[&str]]) -> CaseDomain {
     let free = case.free();
     for i in 0..p.arity {
         if !free.contains(&i) {
-            d.fixed[i] = Some(
-                case.fixed
-                    .get(&i)
-                    .copied()
-                    .unwrap_or(if p.lines[i] { 1 } else { 0 }),
-            );
+            d.fixed[i] =
+                Some(
+                    case.fixed
+                        .get(&i)
+                        .copied()
+                        .unwrap_or(if p.lines[i] { 1 } else { 0 }),
+                );
         }
     }
     for e in &case.equations {
@@ -96,7 +97,8 @@ struct Facts {
 }
 impl FactSource for Facts {
     fn facts(&mut self, r: &CandidateRule, k: &[i32]) -> PointFacts {
-        let hit = |l: &Vec<(String, Key)>| l.iter().any(|(t, kk)| *t == r.digest && kk.as_slice() == k);
+        let hit =
+            |l: &Vec<(String, Key)>| l.iter().any(|(t, kk)| *t == r.digest && kk.as_slice() == k);
         let mut rhs = k.to_vec();
         if hit(&self.bad) {
             rhs[0] += 3;
@@ -141,13 +143,20 @@ impl CaseSolver for ByDim {
 
 /// The rules of a repair outcome as candidates (rebuilt from their written cases; the solvers here write no
 /// exceptions for R / C) in rank order, with their exclusions.
-fn dispatch_at(p: &NodeParams, out: &rustred_campaign_core::repair::RepairOutcome, k: &[i32]) -> Option<String> {
+fn dispatch_at(
+    p: &NodeParams,
+    out: &rustred_campaign_core::repair::RepairOutcome,
+    k: &[i32],
+) -> Option<String> {
     let cands: Vec<CandidateRule> = out
         .rules
         .iter()
         .map(|r| rule(dom(p, &r.case, &[]), &r.digest, r.rhs_terms))
         .collect();
-    let list: Vec<(&CandidateRule, &[rustred_campaign_core::worklist::ladder::Exclusion])> = cands
+    let list: Vec<(
+        &CandidateRule,
+        &[rustred_campaign_core::worklist::ladder::Exclusion],
+    )> = cands
         .iter()
         .zip(&out.rules)
         .map(|(c, r)| (c, r.exclusions.as_slice()))
@@ -186,11 +195,17 @@ fn c1_a1_non_descending_point_is_excluded_from_the_accepted_rule() {
         None,
     )
     .expect("repair succeeds");
-    let r = out.rules.iter().find(|r| r.digest == "R").expect("R accepted");
+    let r = out
+        .rules
+        .iter()
+        .find(|r| r.digest == "R")
+        .expect("R accepted");
     assert!(r.case.contains(&k, &p.lines), "k lies in R's written case");
     assert!(
-        r.exclusions.iter().any(|e| e.target == ExclusionTarget::Key(k.clone())
-            && matches!(e.reason, ExclusionReason::NotDescending { .. })),
+        r.exclusions
+            .iter()
+            .any(|e| e.target == ExclusionTarget::Key(k.clone())
+                && matches!(e.reason, ExclusionReason::NotDescending { .. })),
         "R must carry the exclusion of k: {:?}",
         r.exclusions
     );
@@ -220,7 +235,12 @@ struct FailAt {
     level: Option<EvidenceLevel>,
 }
 impl KeyProver for FailAt {
-    fn prove(&mut self, r: &CandidateRule, keys: &[Key], wanted: EvidenceLevel) -> Vec<KeyEvidence> {
+    fn prove(
+        &mut self,
+        r: &CandidateRule,
+        keys: &[Key],
+        wanted: EvidenceLevel,
+    ) -> Vec<KeyEvidence> {
         keys.iter()
             .map(|kk| {
                 if r.digest == self.tag && *kk == self.k {
@@ -268,15 +288,23 @@ fn c1_a1b_identity_failed_point_is_excluded_from_the_accepted_rule() {
         None,
     )
     .expect("repair succeeds");
-    let r = out.rules.iter().find(|r| r.digest == "R").expect("R accepted");
-    assert!(r.exclusions.iter().any(|e| e.target == ExclusionTarget::Key(k.clone())
-        && matches!(
-            e.reason,
-            ExclusionReason::IdentityFailed {
-                failure: ProofFailure::NonMembership,
-                ..
-            }
-        )));
+    let r = out
+        .rules
+        .iter()
+        .find(|r| r.digest == "R")
+        .expect("R accepted");
+    assert!(
+        r.exclusions
+            .iter()
+            .any(|e| e.target == ExclusionTarget::Key(k.clone())
+                && matches!(
+                    e.reason,
+                    ExclusionReason::IdentityFailed {
+                        failure: ProofFailure::NonMembership,
+                        ..
+                    }
+                ))
+    );
     assert_eq!(dispatch_at(&p, &out, &k).as_deref(), Some("C"));
 }
 
@@ -306,8 +334,12 @@ fn c1_preferred_key_inside_a_repair_rule_is_excluded() {
     )
     .unwrap();
     let r = &out.rules[0];
-    assert!(r.exclusions.iter().any(|e| e.target == ExclusionTarget::Key(key(5, 5))
-        && e.reason == ExclusionReason::PreferredTerminal));
+    assert!(
+        r.exclusions
+            .iter()
+            .any(|e| e.target == ExclusionTarget::Key(key(5, 5))
+                && e.reason == ExclusionReason::PreferredTerminal)
+    );
 }
 
 /// A rule whose POLE locus vanishes at a gap point is excluded there (a pole BLOCKS first match: without the
@@ -358,7 +390,11 @@ fn c1_pole_point_is_excluded_and_the_child_is_reached() {
     )
     .expect("repair succeeds");
     let r = out.rules.iter().find(|r| r.digest == "R").unwrap();
-    assert!(r.exclusions.iter().any(|e| e.target.holds(&k)), "{:?}", r.exclusions);
+    assert!(
+        r.exclusions.iter().any(|e| e.target.holds(&k)),
+        "{:?}",
+        r.exclusions
+    );
     assert!(out.rules.iter().any(|r| r.digest == "C" && r.serves_key));
 }
 
@@ -427,7 +463,11 @@ fn drive_item(
 #[test]
 fn c2_a2_unknown_evidence_terminates_and_never_credits() {
     let p = p();
-    let item = root_item(&p, Face::new(vec![0, 1], vec![]), vec![key(2, 2), key(3, 2)]);
+    let item = root_item(
+        &p,
+        Face::new(vec![0, 1], vec![]),
+        vec![key(2, 2), key(3, 2)],
+    );
     let (d, rounds) = drive_item(
         item,
         &p,
@@ -445,7 +485,10 @@ fn c2_a2_unknown_evidence_terminates_and_never_credits() {
         2000,
     );
     let d = d.expect("terminates");
-    assert!(rounds <= 64, "evidence asked at most once per candidate: {rounds}");
+    assert!(
+        rounds <= 64,
+        "evidence asked at most once per candidate: {rounds}"
+    );
     // nothing credited: no cover member
     match &d {
         Disposition::Covered { cover } => panic!("covered without evidence: {cover:?}"),
@@ -484,7 +527,14 @@ fn c2_step_bounds_hold_for_operator_interrupts_and_the_tree() {
     let mut p = p();
     p.budgets.max_operator_interrupts = 3;
     let item = root_item(&p, Face::new(vec![0, 1], vec![]), vec![key(2, 2)]);
-    let (d, _) = drive_item(item.clone(), &p, &mut Interrupt, &mut Facts::default(), |_| vec![], 100);
+    let (d, _) = drive_item(
+        item.clone(),
+        &p,
+        &mut Interrupt,
+        &mut Facts::default(),
+        |_| vec![],
+        100,
+    );
     assert!(matches!(
         d,
         Some(Disposition::Attention {
@@ -494,7 +544,14 @@ fn c2_step_bounds_hold_for_operator_interrupts_and_the_tree() {
     ));
     p.budgets.max_operator_interrupts = u32::MAX;
     p.budgets.max_item_steps = 40;
-    let (d, _) = drive_item(item.clone(), &p, &mut Interrupt, &mut Facts::default(), |_| vec![], 1000);
+    let (d, _) = drive_item(
+        item.clone(),
+        &p,
+        &mut Interrupt,
+        &mut Facts::default(),
+        |_| vec![],
+        1000,
+    );
     assert!(matches!(
         d,
         Some(Disposition::Attention {
@@ -566,7 +623,9 @@ impl CaseSolver for AdvSolver {
             3 => SolveOutcome::BudgetStop {
                 time_decided: r.chance(1, 2),
             },
-            4 => SolveOutcome::RefusedHeavy { reason: "adv".into() },
+            4 => SolveOutcome::RefusedHeavy {
+                reason: "adv".into(),
+            },
             5 => SolveOutcome::Interrupted {
                 by: if r.chance(1, 2) {
                     Interruption::Operator
@@ -574,7 +633,9 @@ impl CaseSolver for AdvSolver {
                     Interruption::Infra
                 },
             },
-            6 if self.mode == Mode::AlwaysUnknown => SolveOutcome::ProfileRefused { reason: "adv".into() },
+            6 if self.mode == Mode::AlwaysUnknown => SolveOutcome::ProfileRefused {
+                reason: "adv".into(),
+            },
             _ => {
                 let n = r.below(4) as usize;
                 let mut rules = Vec::new();
@@ -582,9 +643,17 @@ impl CaseSolver for AdvSolver {
                     let mut d = dom(&self.p, &req.case, &[]);
                     for s in req.case.free() {
                         if r.chance(1, 3) {
-                            let v = if self.p.lines[s] { 2 + r.below(3) as i32 } else { -1 - r.below(2) as i32 };
+                            let v = if self.p.lines[s] {
+                                2 + r.below(3) as i32
+                            } else {
+                                -1 - r.below(2) as i32
+                            };
                             d.exceptions.push(vec![
-                                Poly::parse_d_free(&AffineEq::fixed(s, v).to_engine(), self.p.arity).unwrap(),
+                                Poly::parse_d_free(
+                                    &AffineEq::fixed(s, v).to_engine(),
+                                    self.p.arity,
+                                )
+                                .unwrap(),
                             ]);
                         }
                     }
@@ -592,10 +661,15 @@ impl CaseSolver for AdvSolver {
                         let f = req.case.free();
                         d.poles.push(PoleLocus::new(
                             PoleKind::Denominator,
-                            &Poly::parse_d_free(&format!("n{}-n{}", f[0], f[1]), self.p.arity).unwrap(),
+                            &Poly::parse_d_free(&format!("n{}-n{}", f[0], f[1]), self.p.arity)
+                                .unwrap(),
                         ));
                     }
-                    rules.push(rule(d, &format!("adv{}-{j}", r.next() % 1000), 1 + r.below(5000)));
+                    rules.push(rule(
+                        d,
+                        &format!("adv{}-{j}", r.next() % 1000),
+                        1 + r.below(5000),
+                    ));
                 }
                 SolveOutcome::Rules(rules)
             }
@@ -661,7 +735,7 @@ impl Descent for AdvDescent {
         let x = r.next();
         self.rng.set(r.0);
         match self.mode {
-            Mode::Erratic => x % 2 == 0,
+            Mode::Erratic => x.is_multiple_of(2),
             Mode::Contradictory => true, // lower(a, b) and lower(b, a) both "true"
             _ => self.cmp.lower(a, b),
         }
@@ -673,7 +747,12 @@ struct AdvProver {
     mode: Mode,
 }
 impl KeyProver for AdvProver {
-    fn prove(&mut self, _r: &CandidateRule, keys: &[Key], wanted: EvidenceLevel) -> Vec<KeyEvidence> {
+    fn prove(
+        &mut self,
+        _r: &CandidateRule,
+        keys: &[Key],
+        wanted: EvidenceLevel,
+    ) -> Vec<KeyEvidence> {
         let r = &mut self.rng;
         let mut out = Vec::new();
         for k in keys {
@@ -789,14 +868,25 @@ fn check_tree(rep: &TreeReport, p: &NodeParams) {
     let mut cands = Vec::new();
     for (idx, m) in &members {
         let st = &rep.items[*idx].state;
-        let v = st.verdicts.get(&(m.attempt_key.clone(), m.index)).expect("judged");
+        let v = st
+            .verdicts
+            .get(&(m.attempt_key.clone(), m.index))
+            .expect("judged");
         for k in &m.served {
             assert!(m.credited.contains(k), "served but not credited");
         }
         for k in &m.credited {
-            let i = st.item.gap_points.iter().position(|g| g == k).expect("credited key is a gap point of its item");
+            let i = st
+                .item
+                .gap_points
+                .iter()
+                .position(|g| g == k)
+                .expect("credited key is a gap point of its item");
             assert!(v[i].covered(), "credited without a covered verdict");
-            assert!(evidence_passes(st, &m.attempt_key, m.index, k, p.min_evidence), "credited without evidence");
+            assert!(
+                evidence_passes(st, &m.attempt_key, m.index, k, p.min_evidence),
+                "credited without evidence"
+            );
         }
         cands.push((rep.rule_of(*idx, m).unwrap(), m.exclusions.as_slice()));
     }
@@ -810,7 +900,10 @@ fn check_tree(rep: &TreeReport, p: &NodeParams) {
                 ms.reverse();
             }
             match first_match_with_exclusions(&list, k) {
-                FirstMatch::Rule(i) => assert!(members[ms[i]].1.credited.contains(k), "dispatch to an uncredited rule at {k:?}"),
+                FirstMatch::Rule(i) => assert!(
+                    members[ms[i]].1.credited.contains(k),
+                    "dispatch to an uncredited rule at {k:?}"
+                ),
                 FirstMatch::Blocked(i) => panic!("blocked by {} at {k:?}", members[ms[i]].1.digest),
                 FirstMatch::None => {}
             }
@@ -819,11 +912,17 @@ fn check_tree(rep: &TreeReport, p: &NodeParams) {
     // terminals only from complete verdict ladders
     for r in &rep.items {
         if let Some(Disposition::TerminalCandidates { exhausted, .. }) = &r.disposition {
-            let space: Vec<_> = seed_space(&r.state.item.case, p).into_iter().flatten().collect();
+            let space: Vec<_> = seed_space(&r.state.item.case, p)
+                .into_iter()
+                .flatten()
+                .collect();
             assert_eq!(exhausted.settings() as usize, space.len());
             for s in &space {
                 let k = rustred_campaign_core::worklist::ladder::attempt_key(&r.state.item.id, s);
-                assert!(r.state.records.get(&k).is_some_and(|x| x.is_verdict()), "terminal without a verdict");
+                assert!(
+                    r.state.records.get(&k).is_some_and(|x| x.is_verdict()),
+                    "terminal without a verdict"
+                );
             }
         }
     }
@@ -835,17 +934,27 @@ fn c2_adversarial_traits_terminate_within_the_bounds_10000_runs() {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(10_000);
-    let modes = [Mode::Random, Mode::Erratic, Mode::AlwaysUnknown, Mode::Contradictory];
+    let modes = [
+        Mode::Random,
+        Mode::Erratic,
+        Mode::AlwaysUnknown,
+        Mode::Contradictory,
+    ];
     let mut max_steps_seen = 0u64;
     for run in 0..runs {
-        let mut r = Rng(0x9E37_79B9_7F4A_7C15 ^ (run.wrapping_mul(0x1000_0001_B3)).wrapping_add(1));
+        let mut r =
+            Rng(0x9E37_79B9_7F4A_7C15 ^ (run.wrapping_mul(0x0010_0000_01B3)).wrapping_add(1));
         let mode = modes[(run % 4) as usize];
         let mut p = p();
         p.budgets.max_item_steps = 300;
         p.budgets.nonverdict_retries = r.below(3) as u32;
         p.budgets.infra_retries = r.below(3) as u32;
         p.budgets.max_operator_interrupts = r.below(4) as u32;
-        p.min_evidence = if r.chance(1, 2) { EvidenceLevel::A2 } else { EvidenceLevel::A3 };
+        p.min_evidence = if r.chance(1, 2) {
+            EvidenceLevel::A2
+        } else {
+            EvidenceLevel::A3
+        };
         let sd: Vec<usize> = if r.chance(1, 2) { vec![0] } else { vec![0, 1] };
         let sn: Vec<usize> = if r.chance(1, 3) { vec![3] } else { vec![] };
         let face = Face::new(sd.clone(), sn.clone());
@@ -861,10 +970,24 @@ fn c2_adversarial_traits_terminate_within_the_bounds_10000_runs() {
             pts.push(k);
         }
         let cmp = cmp6();
-        let mut solver = AdvSolver { p: p.clone(), rng: Rng(r.next() | 1), mode };
-        let mut facts = AdvFacts { rng: Rng(r.next() | 1), mode };
-        let descent = AdvDescent { rng: Cell::new(r.next() | 1), mode, cmp };
-        let mut prover = AdvProver { rng: Rng(r.next() | 1), mode };
+        let mut solver = AdvSolver {
+            p: p.clone(),
+            rng: Rng(r.next() | 1),
+            mode,
+        };
+        let mut facts = AdvFacts {
+            rng: Rng(r.next() | 1),
+            mode,
+        };
+        let descent = AdvDescent {
+            rng: Cell::new(r.next() | 1),
+            mode,
+            cmp,
+        };
+        let mut prover = AdvProver {
+            rng: Rng(r.next() | 1),
+            mode,
+        };
         let limits = TreeLimits {
             max_attempts: 400,
             max_cpu_ms: u64::MAX,
@@ -873,7 +996,10 @@ fn c2_adversarial_traits_terminate_within_the_bounds_10000_runs() {
         };
         if run % 2 == 0 {
             let mut contain = AdvContain(Rng(r.next() | 1));
-            let mut src = AdvSource { p: p.clone(), rng: Rng(r.next() | 1) };
+            let mut src = AdvSource {
+                p: p.clone(),
+                rng: Rng(r.next() | 1),
+            };
             let root = root_item(&p, face, pts);
             let rep = drive_tree(
                 vec![root],
@@ -890,7 +1016,11 @@ fn c2_adversarial_traits_terminate_within_the_bounds_10000_runs() {
             max_steps_seen = max_steps_seen.max(rep.steps);
             for it in &rep.items {
                 // one round may record several answers beyond the check: bounded by the requests of that round
-                assert!(it.state.steps <= p.budgets.max_item_steps + 64, "item steps {}", it.state.steps);
+                assert!(
+                    it.state.steps <= p.budgets.max_item_steps + 64,
+                    "item steps {}",
+                    it.state.steps
+                );
                 assert!(it.disposition.is_some() || rep.stopped.is_some());
             }
             check_tree(&rep, &p);
@@ -911,7 +1041,11 @@ fn c2_adversarial_traits_terminate_within_the_bounds_10000_runs() {
             };
             match repair_key(&inp, &budget, &mut solver, &mut facts, &mut prover, None) {
                 Ok(out) => {
-                    let s = out.rules.iter().find(|x| x.serves_key).expect("a serving rule");
+                    let s = out
+                        .rules
+                        .iter()
+                        .find(|x| x.serves_key)
+                        .expect("a serving rule");
                     assert!(s.credited.contains(&k));
                 }
                 Err(RepairFailure::Terminal { exhausted, .. }) => {
@@ -950,7 +1084,14 @@ fn c3_a3_crash_only_ladder_is_attention_never_terminal() {
         extra_targets: vec![],
         tables: &NoTables,
     };
-    match repair_key(&inp, &RepairBudget::default(), &mut Crash, &mut Facts::default(), &mut ReplayProver, None) {
+    match repair_key(
+        &inp,
+        &RepairBudget::default(),
+        &mut Crash,
+        &mut Facts::default(),
+        &mut ReplayProver,
+        None,
+    ) {
         Err(RepairFailure::Attention {
             reason: AttentionReason::NonVerdict { settings },
             attempts,
@@ -966,7 +1107,9 @@ fn c3_a3_crash_only_ladder_is_attention_never_terminal() {
     for bad in [
         SolveOutcome::KilledMemory,
         SolveOutcome::BudgetStop { time_decided: true },
-        SolveOutcome::BudgetStop { time_decided: false },
+        SolveOutcome::BudgetStop {
+            time_decided: false,
+        },
         SolveOutcome::RefusedHeavy { reason: "x".into() },
         SolveOutcome::ProfileRefused { reason: "x".into() },
     ] {
@@ -978,10 +1121,21 @@ fn c3_a3_crash_only_ladder_is_attention_never_terminal() {
                 } else {
                     SolveOutcome::NoRelation
                 };
-                SolveAnswer { outcome: o, cpu_ms: 1, rows: None }
+                SolveAnswer {
+                    outcome: o,
+                    cpu_ms: 1,
+                    rows: None,
+                }
             }
         }
-        let r = repair_key(&inp, &RepairBudget::default(), &mut OneBad(bad.clone()), &mut Facts::default(), &mut ReplayProver, None);
+        let r = repair_key(
+            &inp,
+            &RepairBudget::default(),
+            &mut OneBad(bad.clone()),
+            &mut Facts::default(),
+            &mut ReplayProver,
+            None,
+        );
         assert!(
             matches!(r, Err(RepairFailure::Attention { .. })),
             "{bad:?}: {r:?}"
@@ -991,11 +1145,22 @@ fn c3_a3_crash_only_ladder_is_attention_never_terminal() {
     struct Nothing;
     impl CaseSolver for Nothing {
         fn solve(&mut self, _r: &CaseRequest, _b: &AttemptBudget) -> SolveAnswer {
-            SolveAnswer { outcome: SolveOutcome::NoRelation, cpu_ms: 1, rows: None }
+            SolveAnswer {
+                outcome: SolveOutcome::NoRelation,
+                cpu_ms: 1,
+                rows: None,
+            }
         }
     }
     assert!(matches!(
-        repair_key(&inp, &RepairBudget::default(), &mut Nothing, &mut Facts::default(), &mut ReplayProver, None),
+        repair_key(
+            &inp,
+            &RepairBudget::default(),
+            &mut Nothing,
+            &mut Facts::default(),
+            &mut ReplayProver,
+            None
+        ),
         Err(RepairFailure::Terminal { .. })
     ));
 }
@@ -1008,18 +1173,48 @@ fn c3_nonverdict_retry_in_larger_class_and_operator_interrupts_do_not_count() {
     let item = root_item(&p, Face::new(vec![0], vec![]), vec![key(2, 1)]);
     let mut st = ItemState::new(item);
     st.record_offers("none", vec![]);
-    let Next::Run(list) = next_steps(&st, &p) else { panic!() };
+    let Next::Run(list) = next_steps(&st, &p) else {
+        panic!()
+    };
     let a = list[0].clone();
     assert_ne!(a.budget.class, BudgetClass::Oversized);
     for _ in 0..5 {
-        st.record_answer(&a, SolveAnswer { outcome: SolveOutcome::Interrupted { by: Interruption::Operator }, cpu_ms: 0, rows: None });
+        st.record_answer(
+            &a,
+            SolveAnswer {
+                outcome: SolveOutcome::Interrupted {
+                    by: Interruption::Operator,
+                },
+                cpu_ms: 0,
+                rows: None,
+            },
+        );
     }
-    st.record_answer(&a, SolveAnswer { outcome: SolveOutcome::KilledMemory, cpu_ms: 1, rows: None });
-    let Next::Run(list) = next_steps(&st, &p) else { panic!() };
+    st.record_answer(
+        &a,
+        SolveAnswer {
+            outcome: SolveOutcome::KilledMemory,
+            cpu_ms: 1,
+            rows: None,
+        },
+    );
+    let Next::Run(list) = next_steps(&st, &p) else {
+        panic!()
+    };
     let retry = list.iter().find(|x| x.key == a.key).expect("retried");
     assert_eq!(retry.budget.class, BudgetClass::Oversized);
-    assert!(!st.records[&a.key].settled(&p.budgets), "operator interrupts did not use up the cap");
-    st.record_answer(retry, SolveAnswer { outcome: SolveOutcome::Error("x".into()), cpu_ms: 1, rows: None });
+    assert!(
+        !st.records[&a.key].settled(&p.budgets),
+        "operator interrupts did not use up the cap"
+    );
+    st.record_answer(
+        retry,
+        SolveAnswer {
+            outcome: SolveOutcome::Error("x".into()),
+            cpu_ms: 1,
+            rows: None,
+        },
+    );
     assert!(st.records[&a.key].settled_without_verdict(&p.budgets));
 }
 
@@ -1033,7 +1228,9 @@ impl CaseSolver for ReserveSolver {
     fn solve(&mut self, req: &CaseRequest, _b: &AttemptBudget) -> SolveAnswer {
         let l = req.setting.label();
         let outcome = match req.case.dim() {
-            2 if l == "target/unfl/d2" => SolveOutcome::Rules(vec![rule(dom(&self.p, &req.case, &[&["n0-2"]]), "A", 10)]),
+            2 if l == "target/unfl/d2" => {
+                SolveOutcome::Rules(vec![rule(dom(&self.p, &req.case, &[&["n0-2"]]), "A", 10)])
+            }
             2 if l == "line:0/fl/d2" => SolveOutcome::Rules(vec![rule(
                 dom(&self.p, &req.case, &[&["n0-4"], &["n0-2", "n1-4"]]),
                 "B",
@@ -1042,7 +1239,11 @@ impl CaseSolver for ReserveSolver {
             0 => SolveOutcome::Rules(vec![rule(dom(&self.p, &req.case, &[]), "PT", 2000)]),
             _ => SolveOutcome::NoRelation,
         };
-        SolveAnswer { outcome, cpu_ms: 5, rows: None }
+        SolveAnswer {
+            outcome,
+            cpu_ms: 5,
+            rows: None,
+        }
     }
 }
 
@@ -1067,7 +1268,11 @@ fn m1_a5_reserve_beats_point_rules() {
         None,
         &TreeLimits::default(),
     );
-    let acc: Vec<(String, Vec<Key>)> = rep.accepted_rules().into_iter().map(|(_, m)| (m.digest, m.served)).collect();
+    let acc: Vec<(String, Vec<Key>)> = rep
+        .accepted_rules()
+        .into_iter()
+        .map(|(_, m)| (m.digest, m.served))
+        .collect();
     let points = acc.iter().filter(|(d, _)| d == "PT").count();
     assert!(acc.iter().any(|(d, _)| d == "B"), "{acc:?}");
     assert_eq!(points, 1, "{acc:?}");
@@ -1090,8 +1295,16 @@ fn m2_a2b_conflicting_evidence_failure_wins() {
         |keys| {
             let mut ev = Vec::new();
             for k in keys {
-                ev.push(KeyEvidence { key: k.clone(), level: None, failure: Some(ProofFailure::NonMembership) });
-                ev.push(KeyEvidence { key: k.clone(), level: Some(EvidenceLevel::A3), failure: None });
+                ev.push(KeyEvidence {
+                    key: k.clone(),
+                    level: None,
+                    failure: Some(ProofFailure::NonMembership),
+                });
+                ev.push(KeyEvidence {
+                    key: k.clone(),
+                    level: Some(EvidenceLevel::A3),
+                    failure: None,
+                });
             }
             ev
         },
@@ -1108,21 +1321,38 @@ fn m2_a2b_conflicting_evidence_failure_wins() {
 fn m3_a6_preferred_top_sector_is_ignored_and_preferences_are_bounded() {
     let mut p = p();
     p.preferred = PreferredTerminals {
-        entries: vec![PreferredEntry::Sector { lines: vec![0, 1, 2] }],
+        entries: vec![PreferredEntry::Sector {
+            lines: vec![0, 1, 2],
+        }],
         ..Default::default()
     };
     let keys: Vec<Key> = (2..40).map(|a| key(a, 2)).collect();
     let items = items_from_closure_keys(&keys, &p).unwrap();
-    assert_eq!(items.iter().map(|i| i.gap_points.len()).sum::<usize>(), keys.len());
-    assert!(p.preferred.warnings(&p.lines).iter().any(|w| w.contains("not a proper subsector")));
-    let terms: Vec<(Key, Option<rustred_campaign_core::worklist::ladder::LadderExhausted>)> =
-        keys.iter().map(|k| (k.clone(), None)).collect();
-    assert!(check_terminals(&terms, 1, &NoTables, &p.preferred, &p.lines)
-        .iter()
-        .any(|f| matches!(f, TerminalFlag::OverBound { .. })));
+    assert_eq!(
+        items.iter().map(|i| i.gap_points.len()).sum::<usize>(),
+        keys.len()
+    );
+    assert!(
+        p.preferred
+            .warnings(&p.lines)
+            .iter()
+            .any(|w| w.contains("not a proper subsector"))
+    );
+    let terms: Vec<(
+        Key,
+        Option<rustred_campaign_core::worklist::ladder::LadderExhausted>,
+    )> = keys.iter().map(|k| (k.clone(), None)).collect();
+    assert!(
+        check_terminals(&terms, 1, &NoTables, &p.preferred, &p.lines)
+            .iter()
+            .any(|f| matches!(f, TerminalFlag::OverBound { .. }))
+    );
     // explicit keys: at most max_preferred honoured, the surplus "not applied" (stays a gap point)
     p.preferred = PreferredTerminals {
-        entries: keys.iter().map(|k| PreferredEntry::Key(k.clone())).collect(),
+        entries: keys
+            .iter()
+            .map(|k| PreferredEntry::Key(k.clone()))
+            .collect(),
         max_preferred: Some(3),
         ..Default::default()
     };
@@ -1141,12 +1371,23 @@ fn m4_a9_undecided_terminal_is_flagged() {
     struct Und;
     impl Coverage for Und {
         fn verdict(&self, _k: &[i32]) -> CoverageVerdict {
-            CoverageVerdict::Undecided { why: "on pole".into() }
+            CoverageVerdict::Undecided {
+                why: "on pole".into(),
+            }
         }
     }
     let p = p();
-    let flags = check_terminals(&[(key(2, 2), None)], 10, &Und, &PreferredTerminals::default(), &p.lines);
-    assert!(matches!(flags.as_slice(), [TerminalFlag::UndecidedTerminal { .. }]), "{flags:?}");
+    let flags = check_terminals(
+        &[(key(2, 2), None)],
+        10,
+        &Und,
+        &PreferredTerminals::default(),
+        &p.lines,
+    );
+    assert!(
+        matches!(flags.as_slice(), [TerminalFlag::UndecidedTerminal { .. }]),
+        "{flags:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1160,18 +1401,40 @@ fn m5_a3b_token_record_must_be_reverified() {
     )
     .unwrap();
     let p = p();
-    let st = ItemState::new(root_item(&p, Face::new(vec![0, 1], vec![]), vec![key(9, 9)]));
+    let st = ItemState::new(root_item(
+        &p,
+        Face::new(vec![0, 1], vec![]),
+        vec![key(9, 9)],
+    ));
     assert!(rec.verify(&st, &p).is_err());
     // a genuine token round-trips through its record against the same state
     struct Nothing;
     impl CaseSolver for Nothing {
         fn solve(&mut self, _r: &CaseRequest, _b: &AttemptBudget) -> SolveAnswer {
-            SolveAnswer { outcome: SolveOutcome::NoRelation, cpu_ms: 1, rows: None }
+            SolveAnswer {
+                outcome: SolveOutcome::NoRelation,
+                cpu_ms: 1,
+                rows: None,
+            }
         }
     }
     let item = root_item(&p, Face::new(vec![], vec![]), vec![vec![1, 1, 1, 0, 0, 0]]);
-    let rep = drive_tree(vec![item], &p, &cmp6(), &mut Nothing, &mut Facts::default(), &mut ReplayProver, None, None, &TreeLimits::default());
-    let (_, tok) = rep.terminal_candidates().into_iter().next().expect("terminal");
+    let rep = drive_tree(
+        vec![item],
+        &p,
+        &cmp6(),
+        &mut Nothing,
+        &mut Facts::default(),
+        &mut ReplayProver,
+        None,
+        None,
+        &TreeLimits::default(),
+    );
+    let (_, tok) = rep
+        .terminal_candidates()
+        .into_iter()
+        .next()
+        .expect("terminal");
     let rec = tok.to_record();
     let text = serde_json::to_string(&rec).unwrap();
     let back: LadderExhaustedRecord = serde_json::from_str(&text).unwrap();
@@ -1186,14 +1449,42 @@ fn m5_a3b_token_record_must_be_reverified() {
 
 #[test]
 fn m6_box_item_needs_the_full_attempt_ended() {
-    use rustred_campaign_core::worklist::items::{FullAttemptEnded, FullAttemptEvidence, UserBox, WorklistError, box_restricted_item};
+    use rustred_campaign_core::worklist::items::{
+        FullAttemptEnded, FullAttemptEvidence, UserBox, WorklistError, box_restricted_item,
+    };
     let mut p = p();
-    p.user_box = Some(UserBox { id: "B".into(), given_by: "user".into() });
+    p.user_box = Some(UserBox {
+        id: "B".into(),
+        given_by: "user".into(),
+    });
     p.full_attempt.fixer_rounds = 2;
-    let ev = FullAttemptEvidence { node: "P".into(), cpu_ms: 0, fixer_rounds: 1, open: vec!["x".into()] };
-    assert!(matches!(FullAttemptEnded::from_evidence(&p, ev.clone()), Err(WorklistError::FullAttemptNotEnded(_))));
-    let ended = FullAttemptEnded::from_evidence(&p, FullAttemptEvidence { fixer_rounds: 2, ..ev }).unwrap();
-    assert!(box_restricted_item(CaseSpec::face_case(Face::new(vec![0], vec![])), vec![], &p, &ended).is_ok());
+    let ev = FullAttemptEvidence {
+        node: "P".into(),
+        cpu_ms: 0,
+        fixer_rounds: 1,
+        open: vec!["x".into()],
+    };
+    assert!(matches!(
+        FullAttemptEnded::from_evidence(&p, ev.clone()),
+        Err(WorklistError::FullAttemptNotEnded(_))
+    ));
+    let ended = FullAttemptEnded::from_evidence(
+        &p,
+        FullAttemptEvidence {
+            fixer_rounds: 2,
+            ..ev
+        },
+    )
+    .unwrap();
+    assert!(
+        box_restricted_item(
+            CaseSpec::face_case(Face::new(vec![0], vec![])),
+            vec![],
+            &p,
+            &ended
+        )
+        .is_ok()
+    );
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1203,10 +1494,21 @@ fn m6_box_item_needs_the_full_attempt_ended() {
 fn m7_a8_policy_replaces_the_builtin_space() {
     let mut p = p();
     let class = |replace: bool, depths: &[u8]| PolicyClass {
-        matcher: ClassMatch { node_class: "*".into(), face_type: "*".into() },
+        matcher: ClassMatch {
+            node_class: "*".into(),
+            face_type: "*".into(),
+        },
         waves: depths
             .iter()
-            .map(|&d| Wave { depth: d, settings: vec![SettingSpec { centre: CentreSpec::Target, floor: None, tight: None, layer_caps: None }] })
+            .map(|&d| Wave {
+                depth: d,
+                settings: vec![SettingSpec {
+                    centre: CentreSpec::Target,
+                    floor: None,
+                    tight: None,
+                    layer_caps: None,
+                }],
+            })
             .collect(),
         tight: false,
         budgets: None,
@@ -1245,7 +1547,10 @@ fn m8_point_locus_points_are_gap_points_of_the_face_item() {
             generic: false,
             points: vec![],
             loci: vec![LocusInput {
-                equations: vec![AffineEq::parse("n0-3", 6).unwrap(), AffineEq::parse("n1-2", 6).unwrap()],
+                equations: vec![
+                    AffineEq::parse("n0-3", 6).unwrap(),
+                    AffineEq::parse("n1-2", 6).unwrap(),
+                ],
                 points: vec![key(3, 2)],
                 proof: "exact".into(),
             }],
@@ -1264,7 +1569,11 @@ fn m8_point_locus_points_are_gap_points_of_the_face_item() {
 
 /// One target rule on face {0,1}; gap points (2,2), (3,2); facts / prover as given; returns whether (2,2) is
 /// CREDITED by the cover (member credited set) and the disposition.
-fn credit_of_22(facts: &mut Facts, prover: &mut dyn KeyProver, p: &NodeParams) -> (bool, Disposition) {
+fn credit_of_22(
+    facts: &mut Facts,
+    prover: &mut dyn KeyProver,
+    p: &NodeParams,
+) -> (bool, Disposition) {
     let item = root_item(p, Face::new(vec![0, 1], vec![]), vec![key(2, 2), key(3, 2)]);
     let rep = drive_tree(
         vec![item],
@@ -1275,13 +1584,17 @@ fn credit_of_22(facts: &mut Facts, prover: &mut dyn KeyProver, p: &NodeParams) -
         prover,
         None,
         None,
-        &TreeLimits { max_items: 1, ..TreeLimits::default() },
+        &TreeLimits {
+            max_items: 1,
+            ..TreeLimits::default()
+        },
     );
     let d = rep.items[0].disposition.clone().unwrap();
     let credited = match &d {
-        Disposition::Covered { cover } | Disposition::Split { cover, .. } => {
-            cover.members.iter().any(|m| m.digest == "R" && m.credited.contains(&key(2, 2)))
-        }
+        Disposition::Covered { cover } | Disposition::Split { cover, .. } => cover
+            .members
+            .iter()
+            .any(|m| m.digest == "R" && m.credited.contains(&key(2, 2))),
         _ => false,
     };
     (credited, d)
@@ -1290,7 +1603,12 @@ fn credit_of_22(facts: &mut Facts, prover: &mut dyn KeyProver, p: &NodeParams) -
 #[test]
 fn m9_mutation_skip_the_evidence_check() {
     let p = p();
-    let mut prover = FailAt { tag: "R".into(), k: key(2, 2), failure: Some(ProofFailure::Fail), level: None };
+    let mut prover = FailAt {
+        tag: "R".into(),
+        k: key(2, 2),
+        failure: Some(ProofFailure::Fail),
+        level: None,
+    };
     let (c, d) = credit_of_22(&mut Facts::default(), &mut prover, &p);
     assert!(!c, "{d:?}");
 }
@@ -1298,7 +1616,10 @@ fn m9_mutation_skip_the_evidence_check() {
 #[test]
 fn m9_mutation_credit_unknown_coverage() {
     let p = p();
-    let mut f = Facts { unknown: vec![("R".into(), key(2, 2))], ..Default::default() };
+    let mut f = Facts {
+        unknown: vec![("R".into(), key(2, 2))],
+        ..Default::default()
+    };
     let (c, d) = credit_of_22(&mut f, &mut ReplayProver, &p);
     assert!(!c, "{d:?}");
 }
@@ -1306,7 +1627,10 @@ fn m9_mutation_credit_unknown_coverage() {
 #[test]
 fn m9_mutation_credit_a_non_descending_point() {
     let p = p();
-    let mut f = Facts { bad: vec![("R".into(), key(2, 2))], ..Default::default() };
+    let mut f = Facts {
+        bad: vec![("R".into(), key(2, 2))],
+        ..Default::default()
+    };
     let (c, d) = credit_of_22(&mut f, &mut ReplayProver, &p);
     assert!(!c, "{d:?}");
 }
@@ -1314,7 +1638,10 @@ fn m9_mutation_credit_a_non_descending_point() {
 #[test]
 fn m9_mutation_ignore_a_pole() {
     let p = p();
-    let mut f = Facts { pole: vec![("R".into(), key(2, 2))], ..Default::default() };
+    let mut f = Facts {
+        pole: vec![("R".into(), key(2, 2))],
+        ..Default::default()
+    };
     let (c, d) = credit_of_22(&mut f, &mut ReplayProver, &p);
     assert!(!c, "{d:?}");
     // the whole candidate is rejected (D-L2: a hidden pole rejects the candidate)
@@ -1328,7 +1655,12 @@ fn m9_mutation_ignore_a_pole() {
 fn m9_mutation_accept_below_the_required_level() {
     let mut p = p();
     p.min_evidence = EvidenceLevel::A3;
-    let mut prover = FailAt { tag: "R".into(), k: key(2, 2), failure: None, level: Some(EvidenceLevel::A2) };
+    let mut prover = FailAt {
+        tag: "R".into(),
+        k: key(2, 2),
+        failure: None,
+        level: Some(EvidenceLevel::A2),
+    };
     let (c, d) = credit_of_22(&mut Facts::default(), &mut prover, &p);
     assert!(!c, "{d:?}");
 }
@@ -1340,16 +1672,37 @@ fn m9_mutation_skip_the_exhaustion_requirement() {
     struct DeepCrash;
     impl CaseSolver for DeepCrash {
         fn solve(&mut self, r: &CaseRequest, _b: &AttemptBudget) -> SolveAnswer {
-            let o = if r.setting.depth == 3 { SolveOutcome::Error("x".into()) } else { SolveOutcome::NoRelation };
-            SolveAnswer { outcome: o, cpu_ms: 1, rows: None }
+            let o = if r.setting.depth == 3 {
+                SolveOutcome::Error("x".into())
+            } else {
+                SolveOutcome::NoRelation
+            };
+            SolveAnswer {
+                outcome: o,
+                cpu_ms: 1,
+                rows: None,
+            }
         }
     }
     let item = root_item(&p, Face::new(vec![], vec![]), vec![vec![1, 1, 1, 0, 0, 0]]);
-    let rep = drive_tree(vec![item], &p, &cmp6(), &mut DeepCrash, &mut Facts::default(), &mut ReplayProver, None, None, &TreeLimits::default());
+    let rep = drive_tree(
+        vec![item],
+        &p,
+        &cmp6(),
+        &mut DeepCrash,
+        &mut Facts::default(),
+        &mut ReplayProver,
+        None,
+        None,
+        &TreeLimits::default(),
+    );
     assert!(rep.terminal_candidates().is_empty());
     assert!(matches!(
         rep.items[0].disposition,
-        Some(Disposition::Attention { reason: AttentionReason::NonVerdict { .. }, .. })
+        Some(Disposition::Attention {
+            reason: AttentionReason::NonVerdict { .. },
+            ..
+        })
     ));
 }
 

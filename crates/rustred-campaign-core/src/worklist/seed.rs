@@ -110,7 +110,10 @@ impl SeedSetting {
         if let Some(c) = &self.layer_cap {
             k.push_str(&format!(
                 ";cap={}",
-                c.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")
+                c.iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
             ));
         }
         if self.symmetry_rows {
@@ -153,7 +156,10 @@ impl SeedSetting {
         let cap = match &self.layer_cap {
             Some(c) => format!(
                 "/cap({})",
-                c.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")
+                c.iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
             ),
             None if self.tight => "/tight".into(),
             None => String::new(),
@@ -260,25 +266,42 @@ fn expand(
     let one = |m: &[(usize, i32)]| -> BTreeMap<usize, i32> { m.iter().copied().collect() };
     let mut out = Vec::new();
     for cap in caps {
-        let mk = |centre: CentreKind, offsets: Vec<BTreeMap<usize, i32>>, floor: bool| SeedSetting {
-            centre,
-            offsets,
+        let mk =
+            |centre: CentreKind, offsets: Vec<BTreeMap<usize, i32>>, floor: bool| SeedSetting {
+                centre,
+                offsets,
+                floor,
+                depth,
+                tight: cap.is_some(),
+                layer_cap: cap.clone(),
+                symmetry_rows: false,
+            };
+        expand_one(
+            spec,
+            &mk,
+            &one,
+            &lines_free,
+            &nums_free,
+            &fixed_off,
             floor,
-            depth,
-            tight: cap.is_some(),
-            layer_cap: cap.clone(),
-            symmetry_rows: false,
-        };
-        expand_one(spec, &mk, &one, &lines_free, &nums_free, &fixed_off, floor, lines, &mut out);
+            lines,
+            &mut out,
+        );
     }
     out
 }
 
+/// Builds one setting from (centre, offsets, floor).
+type MakeSetting<'a> = dyn Fn(CentreKind, Vec<BTreeMap<usize, i32>>, bool) -> SeedSetting + 'a;
+
+/// Builds one centre map from (slot, offset) pairs.
+type OneCentre<'a> = dyn Fn(&[(usize, i32)]) -> BTreeMap<usize, i32> + 'a;
+
 #[allow(clippy::too_many_arguments)]
 fn expand_one(
     spec: &SettingSpec,
-    mk: &dyn Fn(CentreKind, Vec<BTreeMap<usize, i32>>, bool) -> SeedSetting,
-    one: &dyn Fn(&[(usize, i32)]) -> BTreeMap<usize, i32>,
+    mk: &MakeSetting<'_>,
+    one: &OneCentre<'_>,
     lines_free: &[usize],
     nums_free: &[usize],
     fixed_off: &[usize],
