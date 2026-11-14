@@ -591,6 +591,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             work.seed_first_depth.get_or_insert(depth);
             work.seed_last_depth = Some(depth);
             stats.seeds += 1;
+            crate::node::childjob::tick_seed();
             if observed_depth != Some(depth) || stats.seeds.is_power_of_two() {
                 observed_depth = Some(depth);
                 observe(SearchEvent::DiscoveryProgress {
@@ -618,6 +619,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     discovery_zero_sectors,
                     case.affine(),
                 )?;
+                crate::node::childjob::tick_row();
                 if !account_trace {
                     stats.rows += 1;
                 }
@@ -674,7 +676,9 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     Probe::new(self.order.clone(), self.system.variable_count, options)
                 });
                 let modular_row = active_probe.evaluate(&row)?;
+                crate::node::childjob::tick_probe_eval();
                 if let Some(pivot) = active_probe.discovery.add_row(&modular_row) {
+                    crate::node::childjob::tick_reducer_row();
                     original_rows.push(row);
                     original_sources.push(source);
                     stats.independent_rows += 1;

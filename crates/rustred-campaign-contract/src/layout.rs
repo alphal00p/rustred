@@ -42,6 +42,9 @@ pub const OBLIGATIONS: &str = "F.obligations.json";
 pub const WITNESS: &str = "WITNESS.jsonl";
 pub const LOCI: &str = "LOCI.jsonl";
 pub const RESULTS: &str = "results.jsonl";
+/// `generate`: the job's open list at its end (sub-cases returned, open cases / numeric endpoints / regions), sealed
+/// by an `end` record (lane eng2; `--descend open`).
+pub const SUBCASES: &str = "F.subcases.jsonl";
 
 /// The directory of all attempt directories under the work directory.
 pub const JOBS_DIR: &str = "jobs";
@@ -138,6 +141,9 @@ impl RunLayout {
     }
     pub fn loci(&self) -> PathBuf {
         self.out_dir().join(LOCI)
+    }
+    pub fn subcases(&self) -> PathBuf {
+        self.out_dir().join(SUBCASES)
     }
     pub fn results(&self) -> PathBuf {
         self.out_dir().join(RESULTS)

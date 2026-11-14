@@ -109,6 +109,10 @@ pub struct ResumeState {
     pub symbolic_cases: u64,
     #[serde(default)]
     pub discarded: u64,
+    /// Engine-private state needed to continue IDENTICALLY (e.g. the running counters that end records repeat);
+    /// opaque to the supervisor, absent when empty (lane eng2, INTERFACE CHANGE 2026-11-14).
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub engine: serde_json::Map<String, Value>,
 }
 
 impl ResumeState {

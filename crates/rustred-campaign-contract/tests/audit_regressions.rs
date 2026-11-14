@@ -186,6 +186,7 @@ fn prev_attempt(root: &Path, job: &str) -> (PathBuf, JobSpec, ResumeState) {
         },
         symbolic_cases: 1,
         discarded: 0,
+        engine: Default::default(),
     };
     r.check().unwrap();
     rustred_campaign_contract::atomic::write_json_atomic(&run.join("RESUME.json"), &r).unwrap();

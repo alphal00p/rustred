@@ -730,6 +730,7 @@ impl Ctx {
                 counters_at_commit: st.counters,
                 symbolic_cases: st.counters.cases,
                 discarded: 0,
+                engine: Default::default(),
             }
         };
         if rustred_campaign_contract::atomic::write_json_atomic(&self.layout.resume(), &r).is_ok() {
