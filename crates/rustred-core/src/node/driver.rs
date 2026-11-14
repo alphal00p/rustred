@@ -1372,6 +1372,24 @@ pub fn compile_family(text: &str) -> Result<IntegralFamily, String> {
         .into_family())
 }
 
+/// THE list of arities `generate` is compiled for (audit-engjob m9: one source for its dispatch below and for what
+/// `rr_node version --json` reports); `$m!` is applied to the list.
+macro_rules! generate_arities {
+    ($m:ident) => {
+        $m!(5, 9, 12, 14, 20)
+    };
+}
+
+/// The arities of [`generate`] (from `generate_arities!`).
+pub const GENERATE_ARITIES: &[usize] = {
+    macro_rules! list {
+        ($($a:literal),*) => {
+            &[$($a),*]
+        };
+    }
+    generate_arities!(list)
+};
+
 /// Generate one chart of `family_text` (ORIGINAL presentation) under `opts.order` into `out_dir`
 /// (`F.family.sym` = presented family, `F.table.jsonl`, `F.queue.jsonl`, `F.cert.jsonl`, optional candidate dumps).
 pub fn generate(
@@ -1391,57 +1409,20 @@ pub fn generate(
         .map_err(|e| format!("family copy: {e}"))?;
     let n = fam.denominator_count();
     opts.order.validate(n)?;
-    match n {
-        5 => run::<5>(
-            family_text,
-            family_path,
-            &presented,
-            &fam,
-            out_dir,
-            opts,
-            events,
-        ),
-        9 => run::<9>(
-            family_text,
-            family_path,
-            &presented,
-            &fam,
-            out_dir,
-            opts,
-            events,
-        ),
-        12 => run::<12>(
-            family_text,
-            family_path,
-            &presented,
-            &fam,
-            out_dir,
-            opts,
-            events,
-        ),
-        14 => run::<14>(
-            family_text,
-            family_path,
-            &presented,
-            &fam,
-            out_dir,
-            opts,
-            events,
-        ),
-        20 => run::<20>(
-            family_text,
-            family_path,
-            &presented,
-            &fam,
-            out_dir,
-            opts,
-            events,
-        ),
-        other => Err(format!(
-            "arity {other}: node driver compiled for 5, 9, 12, 14, 20"
-        )),
+    macro_rules! dispatch {
+        ($($a:literal),*) => {
+            match n {
+                $($a => run::<$a>(family_text, family_path, &presented, &fam, out_dir, opts, events),)*
+                other => Err(format!(
+                    "arity {other}: node driver compiled for {}",
+                    GENERATE_ARITIES.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", ")
+                )),
+            }
+        };
     }
+    generate_arities!(dispatch)
 }
+
 
 /// The node order's [`SectorConfig`] pieces: legacy order, or the compiled tie-priority program.
 pub(super) fn order_program(
@@ -1967,11 +1948,14 @@ fn guards_of<const N: usize>(
             native_timeout: std::time::Duration::from_secs(secs),
         };
         return match extract_exceptions_routed(candidate, idx, sector, &[false; N], route) {
-            Ok((x, report)) => Guards::Ok(
-                x,
-                Some(format!("{report:?}")),
-                report.route == GuardRouteTaken::Content,
-            ),
+            Ok((x, report)) => {
+                note_guard_report(&report, secs, None);
+                Guards::Ok(
+                    x,
+                    Some(format!("{report:?}")),
+                    report.route == GuardRouteTaken::Content,
+                )
+            }
             Err(e) => Guards::Err(format!("{e:?}")),
         };
     }
@@ -1981,12 +1965,45 @@ fn guards_of<const N: usize>(
             Err(e) => format!("err {e:?}"),
         }
     });
+    note_forked(&r, super::childjob::TimeWhat::GuardTimeout, secs, None, "no guards (side bank)");
     if !matches!(r, Forked::Done(..)) {
         return Guards::Timeout(secs);
     }
     match extract_exceptions(candidate, idx, sector) {
         Ok(x) => Guards::Ok(x, None, false),
         Err(e) => Guards::Err(format!("{e:?}")),
+    }
+}
+
+/// child-job (audit-engjob M5): a fork-timed try that the CLOCK decided (`Forked::Timeout`: `what`), or that a
+/// helper failure decided (`Forked::Failed`: fork unavailable or the helper died), is recorded as a time decision.
+/// No-op in legacy mode and when the try finished.
+fn note_forked(r: &Forked, what: super::childjob::TimeWhat, limit: u64, rule: Option<usize>, taken: &str) {
+    match r {
+        Forked::Done(..) => {}
+        Forked::Timeout(t) => super::childjob::time_decision(what, rule, limit as f64, *t, taken),
+        Forked::Failed(_, t) => super::childjob::time_decision(
+            super::childjob::TimeWhat::ForkUnavailable,
+            rule,
+            limit as f64,
+            *t,
+            taken,
+        ),
+    }
+}
+
+/// child-job (audit-engjob M5): the timed native guard try of the content-fallback route timed out (content route
+/// taken): a time decision. (A helper that could not be forked or was killed by a signal is recorded by
+/// `solver::exception`'s timed try itself; a native error is deterministic and not recorded.)
+fn note_guard_report(report: &crate::solver::GuardReport, limit: u64, rule: Option<usize>) {
+    if report.native_try == crate::solver::NativeGuardTry::TimedOut {
+        super::childjob::time_decision(
+            super::childjob::TimeWhat::GuardRoute,
+            rule,
+            limit as f64,
+            report.try_seconds,
+            "content route",
+        );
     }
 }
 
@@ -2030,14 +2047,13 @@ pub fn forked<F: FnOnce() -> String>(dir: &Path, tag: &str, secs: u64, f: F) -> 
         unsafe { _exit(if ok { 0 } else { 3 }) }
     }
     FORK_CHILD.store(pid, std::sync::atomic::Ordering::SeqCst);
-    super::childjob::proc::register_helper(pid);
+    let registered = super::childjob::proc::register_helper(pid);
     loop {
-        let mut status = 0i32;
-        // SAFETY: own child, WNOHANG.
-        let r = unsafe { waitpid(pid, &mut status, 1) };
-        if r == pid {
+        // the child is reaped only after it left the helper registry (audit-engjob m4: no pid-reuse window for the
+        // job watchdog's kill_helpers)
+        if super::childjob::proc::helper_ended(pid) {
             FORK_CHILD.store(0, std::sync::atomic::Ordering::SeqCst);
-            super::childjob::proc::unregister_helper(pid);
+            let status = super::childjob::proc::reap_helper(pid, registered).unwrap_or(-1);
             let used = t.elapsed().as_secs_f64();
             return match std::fs::read_to_string(&path) {
                 Ok(s) => {
@@ -2048,15 +2064,10 @@ pub fn forked<F: FnOnce() -> String>(dir: &Path, tag: &str, secs: u64, f: F) -> 
             };
         }
         if t.elapsed().as_secs() >= secs {
-            // SAFETY: own child.
-            unsafe {
-                kill(pid, 9);
-                waitpid(pid, &mut status, 0);
-            }
+            super::childjob::proc::kill_reap_helper(pid, registered);
             let _ = std::fs::remove_file(&path);
             let _ = std::fs::remove_file(path.with_extension("part"));
             FORK_CHILD.store(0, std::sync::atomic::Ordering::SeqCst);
-            super::childjob::proc::unregister_helper(pid);
             return Forked::Timeout(t.elapsed().as_secs_f64());
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
@@ -4173,13 +4184,20 @@ fn run<const N: usize>(
         orders
     };
     let mut symbolic_cases = 0usize;
+    // child-job resume of an interrupted NUMERIC stage (audit-engjob C1): (endpoints of the whole stage, endpoints the
+    // per-point search already exhausted, waiting for the shared solve)
+    let mut resumed_numeric: Option<(usize, Vec<CoordinateCase<N>>)> = None;
     // child-job (job mode only): a resumed attempt continues from RESUME.json: its queue and counters, and the
     // committed rules of the copied table prefix as cover entries (rule indices continue after them)
     if let Some(r) = super::childjob::resumed() {
         super::childjob::resume_arm(&mut out, &mut qlog)?;
         let built = |c: &CaseSpec| build_case::<N>(c, &template, &idx, &sector, n);
         pending = r.cases.iter().map(built).collect::<Result<Vec<_>, _>>()?.into_iter().flatten().collect();
-        numerical = r.numerical.iter().filter_map(|f| CoordinateCase::new(std::array::from_fn(|i| Some(if i < n { f[i] as i16 } else { 0 }))).ok()).collect();
+        // audit-engjob m8: a numeric endpoint of the wrong arity, out of range or not a valid point is refused (41),
+        // never dropped or truncated
+        let point = |f: &Vec<i64>| numeric_point::<N>(f, n).unwrap_or_else(|e| super::childjob::fail_input(&format!("resume: numeric endpoint {f:?}: {e}")));
+        numerical = r.numerical.iter().map(point).collect();
+        resumed_numeric = r.numeric_stage.as_ref().map(|(total, ex)| (*total, ex.iter().map(point).collect()));
         deferred_charts = r.deferred.iter().map(|(c, d)| Ok(built(c)?.map(|c| (c, d.clone())))).collect::<Result<Vec<_>, String>>()?.into_iter().flatten().collect();
         for v in &r.rules {
             if let Some((c, b)) = parse_cover_entry::<N>(v, &template, &idx, &sector, n) {
@@ -4189,6 +4207,8 @@ fn run<const N: usize>(
         adopted_rules = r.rules.len();
         symbolic_cases = r.symbolic_cases;
         [terms, branches_total, discarded, deferred_regions, deferred_branches] = r.counters;
+        // audit-engjob M1: not-lower rules of the committed prefix are reported again (stop `not_lower` at the end)
+        outcome.not_lower = r.not_lower.clone();
     }
     // registry leases (postponed sibling-contained cases, with the lessor's label), cases returned from a lease (never
     // leased again), cases left open by `open_on_refusal`, and the case in flight when the loop breaks
@@ -4364,7 +4384,7 @@ fn run<const N: usize>(
         let current = pending.remove(0);
         // child-job (job mode only): commit point of the previous case, safe point, start of this one
         if super::childjob::active() {
-            match super::childjob::case_boundary(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], case_spec(&current, n), false, &mut || super::childjob::queue_lists(&pending, &numerical, &deferred_charts, &refused_open, n))? {
+            match super::childjob::case_boundary(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], case_spec(&current, n), false, &mut || super::childjob::queue_lists(&pending, &numerical, &deferred_charts, &refused_open, None, n))? {
                 super::childjob::Boundary::Stop(s) => {
                     // the popped case stays open: `current` in RESUME and F.subcases, and in F.obligations
                     in_flight = Some(current.clone());
@@ -5088,6 +5108,7 @@ fn run<const N: usize>(
             error = Some(format!(
                 "winning rule is not strictly descending on {current:?}"
             ));
+            super::childjob::note_not_lower(&nl);
             outcome.not_lower.extend(nl);
             break;
         }
@@ -5105,6 +5126,7 @@ fn run<const N: usize>(
                 };
                 match extract_exceptions_routed(&candidate, &idx, &sector, &[false; N], route) {
                     Ok((x, report)) => {
+                        note_guard_report(&report, secs, Some(rules.len() + adopted_rules));
                         if report.route == GuardRouteTaken::Content {
                             outcome.content_routes += 1;
                         }
@@ -5132,6 +5154,7 @@ fn run<const N: usize>(
                         Err(e) => format!("err {e:?}"),
                     },
                 );
+                note_forked(&r, super::childjob::TimeWhat::GuardTimeout, secs, Some(rules.len() + adopted_rules), if opts.open_on_refusal { "case left open (open-on-refusal)" } else { "node stopped (guard_timeout)" });
                 if !matches!(r, Forked::Done(..)) {
                     writeln!(qlog, "{{\"type\":\"guard_timeout\",\"rule\":{},\"case\":{},\"rhs\":{},\"timeout\":{secs}}}", rules.len() + adopted_rules, case_json(&current, n), candidate.rhs.len()).map_err(|e| e.to_string())?;
                     if opts.open_on_refusal {
@@ -5216,7 +5239,9 @@ fn run<const N: usize>(
                 break;
             }
         }
-        terms += write_rule(&mut out, &label, index, &rule, &extras, n);
+        let rhs_written = write_rule(&mut out, &label, index, &rule, &extras, n);
+        terms += rhs_written;
+        super::childjob::rule_written(rhs_written, extras.trace_rows, extras.monomials);
         out.flush().map_err(|e| e.to_string())?;
         branches_total += rule.exceptions.branches.len();
         if opts.cand_dump {
@@ -5285,6 +5310,7 @@ fn run<const N: usize>(
                         Err(e) => format!("err {e:?}"),
                     },
                 );
+                note_forked(&r, super::childjob::TimeWhat::Admission, secs, Some(index), "deferred region");
                 if !matches!(r, Forked::Done(..)) {
                     deferred_regions += 1;
                     deferred_charts.push((rule.candidate.case.clone(), serde_json::json!({"kind": "region", "rule": index, "branch": bi, "reason": format!("AdmissionTimeout({secs} s)"), "conjunction": branch.iter().map(|p| p.to_string()).collect::<Vec<_>>(), "exclusions": [], "parent": case_spec(&rule.candidate.case, n)})));
@@ -5380,7 +5406,7 @@ fn run<const N: usize>(
     }
     // child-job (job mode only): commit point at the end of the symbolic queue
     if super::childjob::active() {
-        let s = super::childjob::queue_done(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], &mut || super::childjob::queue_lists(&pending, &numerical, &deferred_charts, &refused_open, n))?;
+        let s = super::childjob::queue_done(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], &mut || super::childjob::queue_lists(&pending, &numerical, &deferred_charts, &refused_open, resumed_numeric.as_ref().map(|(t, e)| (*t, e.as_slice())), n))?;
         if stop.is_none() && error.is_none() {
             stop = s;
         }
@@ -5412,17 +5438,20 @@ fn run<const N: usize>(
     // numeric endpoints are open obligations unless the numeric phase ran to its end (a stop before the numeric
     // phase leaves them open)
     let numeric_ran = error.is_none() && stop.is_none();
-    if !opts.stop_before_numeric && numeric_ran && !numerical.is_empty() {
-        outcome.numerical_cases = numerical.len();
+    // endpoints exhausted by the per-point search (bulk-solved after the loop) and the endpoint count of the whole
+    // stage; a child-job attempt resumed inside the numeric stage starts from its RESUME (audit-engjob C1)
+    let (numeric_total, mut exhausted): (usize, Vec<CoordinateCase<N>>) =
+        resumed_numeric.take().unwrap_or_else(|| (numerical.len(), Vec::new()));
+    if !opts.stop_before_numeric && numeric_ran && (!numerical.is_empty() || !exhausted.is_empty()) {
+        outcome.numerical_cases = numeric_total;
         let options = SearchOptions {
             max_depth: Some(opts.numeric_depth),
             ..symbolic
         };
-        let mut exhausted: Vec<CoordinateCase<N>> = Vec::new();
         for (point_index, point) in numerical.clone().into_iter().enumerate() {
             // child-job (job mode only): safe point and commit point before each numeric endpoint
             if super::childjob::active() {
-                match super::childjob::case_boundary(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], case_spec(&Case::from(point), n), true, &mut || super::childjob::queue_lists(&[], &numerical[point_index + 1..], &deferred_charts, &refused_open, n))? {
+                match super::childjob::case_boundary(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], case_spec(&Case::from(point), n), true, &mut || super::childjob::queue_lists(&[], &numerical[point_index + 1..], &deferred_charts, &refused_open, Some((numeric_total, &exhausted)), n))? {
                     super::childjob::Boundary::Stop(s) => {
                         stop = Some(s);
                         break;
@@ -5627,6 +5656,7 @@ fn run<const N: usize>(
                         })
                         .map(|t| t.integral.to_string())
                         .collect();
+                    super::childjob::note_not_lower(&nl);
                     outcome.not_lower.extend(nl);
                     let exceptions = extract_exceptions(&candidate, &idx, &sector)
                         .map_err(|e| format!("numerical exceptions: {e:?}"))?;
@@ -5664,7 +5694,9 @@ fn run<const N: usize>(
                             break;
                         }
                     }
-                    terms += write_rule(&mut out, &label, index, &rule, &extras, n);
+                    let rhs_written = write_rule(&mut out, &label, index, &rule, &extras, n);
+                    terms += rhs_written;
+                    super::childjob::rule_written(rhs_written, extras.trace_rows, extras.monomials);
                     out.flush().map_err(|e| e.to_string())?;
                     if opts.cand_dump {
                         write_cand_dump(out_dir, index, &rule.candidate, n)?;
@@ -5698,7 +5730,14 @@ fn run<const N: usize>(
                 }
             }
         }
-        if error.is_none() && !exhausted.is_empty() && opts.strict_numeric_search {
+        // child-job (job mode only): safe point (d) after the per-point loop, before the shared solve (audit-engjob C1)
+        if super::childjob::active() && error.is_none() && stop.is_none() {
+            if let Some(s) = super::childjob::numeric_done(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], !exhausted.is_empty(), &mut || super::childjob::queue_lists(&[], &[], &deferred_charts, &refused_open, Some((numeric_total, &exhausted)), n))? {
+                stop = Some(s);
+            }
+        }
+        // audit-engjob M2: an interrupted stage never becomes a strict-search refusal
+        if error.is_none() && stop.is_none() && !exhausted.is_empty() && opts.strict_numeric_search {
             let cases: Vec<CaseSpec> = exhausted
                 .iter()
                 .map(|point| case_spec(&Case::from(*point), n))
@@ -5759,7 +5798,7 @@ fn run<const N: usize>(
                 .as_ref()
                 .map(|_| &images as &dyn Fn(&Integral<N>) -> Vec<(Integral<N>, bool)>);
             match solver.solve_numeric_cases_with_symmetry(
-                exhausted,
+                exhausted.clone(),
                 options,
                 visit.as_deref(),
                 images_dyn,
@@ -5817,6 +5856,7 @@ fn run<const N: usize>(
                                 })
                                 .map(|t| t.integral.to_string())
                                 .collect();
+                            super::childjob::note_not_lower(&nl);
                             outcome.not_lower.extend(nl);
                             let exceptions = extract_exceptions(&candidate, &idx, &sector)
                                 .map_err(|e| format!("numerical exceptions: {e:?}"))?;
@@ -5848,7 +5888,9 @@ fn run<const N: usize>(
                                     break;
                                 }
                             }
-                            terms += write_rule(&mut out, &label, index, &rule, &extras, n);
+                            let rhs_written = write_rule(&mut out, &label, index, &rule, &extras, n);
+                            terms += rhs_written;
+                            super::childjob::rule_written(rhs_written, extras.trace_rows, extras.monomials);
                             if opts.cand_dump {
                                 write_cand_dump(out_dir, index, &rule.candidate, n)?;
                             }
@@ -5891,6 +5933,7 @@ fn run<const N: usize>(
         // run it in a forked child with a time limit; a timeout leaves every region open (never a silent closure)
         out.flush().map_err(|e| e.to_string())?;
         qlog.flush().map_err(|e| e.to_string())?;
+        super::childjob::deferred_check_started();
         let checked = forked(out_dir, "deferred_check", 600, || {
             let flags: Vec<bool> = deferred_charts
                 .iter()
@@ -5904,6 +5947,7 @@ fn run<const N: usize>(
                 .collect();
             serde_json::to_string(&flags).unwrap_or_default()
         });
+        note_forked(&checked, super::childjob::TimeWhat::DeferredCheck, 600, None, "every region left open");
         let flags: Vec<bool> = match checked {
             Forked::Done(text, _) => {
                 serde_json::from_str(&text).unwrap_or_else(|_| vec![false; deferred_charts.len()])
@@ -5978,6 +6022,10 @@ fn run<const N: usize>(
                     .as_ref()
                     .is_some_and(|ledger| ledger.is_point(&Case::from(**p), n))
             }) {
+                open.push(ob("numerical", &Case::from(*p), serde_json::Value::Null));
+            }
+            // a resumed numeric stage: its exhausted endpoints are not in `numerical` any more
+            for p in exhausted.iter().filter(|p| !numerical.contains(p)) {
                 open.push(ob("numerical", &Case::from(*p), serde_json::Value::Null));
             }
         }
@@ -6164,6 +6212,19 @@ fn run<const N: usize>(
     outcome.seconds = t_total.elapsed().as_secs_f64();
     outcome.vmhwm_kb = vmhwm_kb();
     Ok(outcome)
+}
+
+/// A numeric endpoint (all `n` presented slots fixed) from a RESUME list: the arity must be `n`, every value must fit
+/// the engine's power type, and the point must be a valid coordinate case (child-job resume, audit-engjob m8).
+fn numeric_point<const N: usize>(f: &[i64], n: usize) -> Result<CoordinateCase<N>, String> {
+    if f.len() != n {
+        return Err(format!("arity {} != {n}", f.len()));
+    }
+    let mut fixed = [Some(0i16); N];
+    for (slot, &v) in fixed.iter_mut().zip(f) {
+        *slot = Some(i16::try_from(v).map_err(|_| format!("value {v} out of range"))?);
+    }
+    CoordinateCase::new(fixed).map_err(|e| format!("{e:?}"))
 }
 
 /// Full fields of a deferred region (the queue log keeps chart and conjunction only).
@@ -7611,7 +7672,7 @@ mod tests {
             &[&p1, &full],
             "b",
         );
-        assert!(j.discharged.get("region_covered:test").is_none(), "{j:?}");
+        assert!(!j.discharged.contains_key("region_covered:test"), "{j:?}");
         // (c) no complete owner and no single covering rule: the certificate cannot discharge, the region stays open
         let j = join_with(
             serde_json::json!([{"fixed": [null, null, null, null, null], "equations": []}]),
@@ -7619,7 +7680,7 @@ mod tests {
             "c",
         );
         assert_eq!(j.verdict, "open", "{j:?}");
-        assert!(j.discharged.get("region_covered:test").is_none(), "{j:?}");
+        assert!(!j.discharged.contains_key("region_covered:test"), "{j:?}");
         assert!(
             j.unresolved
                 .iter()

@@ -260,7 +260,20 @@ mod child {
         // hang; it is then killed at the timeout like any slow child.
         let parent = crate::node::childjob::proc::pid();
         let pid = unsafe { libc::fork() };
+        let started = Instant::now();
+        // child-job (audit-engjob M5): the environment decides the route when no helper can be forked, or when the
+        // helper is killed by a signal (OOM kill); a native error (`work` false, exit 3) is deterministic, not recorded
+        let environment = |measured: f64, taken: &str| {
+            crate::node::childjob::time_decision(
+                crate::node::childjob::TimeWhat::ForkUnavailable,
+                None,
+                timeout.as_secs_f64(),
+                measured,
+                taken,
+            )
+        };
         if pid < 0 {
+            environment(0.0, "native route in-process (fork failed)");
             return NativeGuardTry::Unavailable;
         }
         if pid == 0 {
@@ -268,34 +281,31 @@ mod child {
             let finished = catch_unwind(AssertUnwindSafe(work)).unwrap_or(false);
             unsafe { libc::_exit(if finished { 0 } else { 3 }) };
         }
-        crate::node::childjob::proc::register_helper(pid);
+        use crate::node::childjob::proc as helpers;
+        let registered = helpers::register_helper(pid);
         let deadline = Instant::now() + timeout;
         let mut pause = Duration::from_millis(1);
         loop {
-            let mut status = 0;
-            // SAFETY: plain waitpid on our own child.
-            let reaped = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) };
-            if reaped == pid || reaped < 0 {
-                crate::node::childjob::proc::unregister_helper(pid);
-            }
-            if reaped == pid {
-                return if libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0 {
-                    NativeGuardTry::Finished
-                } else {
-                    NativeGuardTry::ChildFailed
+            // ended -> unregistered -> reaped, in this order (audit-engjob m4: no pid-reuse window for the job
+            // watchdog's kill of registered helpers)
+            if helpers::helper_ended(pid) {
+                return match helpers::reap_helper(pid, registered) {
+                    Some(status) if libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0 => {
+                        NativeGuardTry::Finished
+                    }
+                    Some(status) if libc::WIFSIGNALED(status) => {
+                        environment(
+                            started.elapsed().as_secs_f64(),
+                            "content route (helper killed by a signal)",
+                        );
+                        NativeGuardTry::ChildFailed
+                    }
+                    _ => NativeGuardTry::ChildFailed,
                 };
-            }
-            if reaped < 0 {
-                return NativeGuardTry::ChildFailed;
             }
             let now = Instant::now();
             if now >= deadline {
-                // SAFETY: our own unreaped child; reap it after the kill.
-                unsafe {
-                    libc::kill(pid, libc::SIGKILL);
-                    libc::waitpid(pid, &mut status, 0);
-                }
-                crate::node::childjob::proc::unregister_helper(pid);
+                helpers::kill_reap_helper(pid, registered);
                 return NativeGuardTry::TimedOut;
             }
             std::thread::sleep(pause.min(deadline - now));

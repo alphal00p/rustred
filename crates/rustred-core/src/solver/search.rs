@@ -1053,7 +1053,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             }
         }
         Err(SolverError::SearchExhausted {
-            depth: seeds.depth() as u32,
+            depth: seeds.depth(),
             rows: stats.rows,
         }
         .into())

@@ -1,19 +1,23 @@
 //! `rr_node job RUN/job.json` and `rr_node version --json` (child-job contract `rustred.child-job.v1`, engine change
 //! C1). A module of the `rr_node` binary so that the job spec's `args` go through the SAME flag parser as the legacy
 //! command line (`node_options`, `order_arg`). The job itself runs in `rustred::node::childjob`.
+//!
+//! ONE job entry (lane engbase2): kinds `generate` and `solve-recipe` both start here, behind the same contract
+//! preflight; `rr_node solve-recipe --job RUN/job.json` (the engine line's spelling) is an alias of [`cmd_job_at`].
 
 use std::path::Path;
 
 use cc::outcome::ProgramInfo;
 use cc::preflight::{ProgramSelf, preflight};
 use cc::spec::{JobKind, JobSpec};
+use rustred::node::childjob::recipe_job::{self, RecipeArgs};
 use rustred::node::childjob::{self, FEATURES, JobStart, PROGRAM, Resolved};
 use rustred_campaign_contract as cc;
 
 use super::{Args, node_options, order_arg};
 
-/// The node driver's compiled arities (`node::driver::generate`).
-const ARITIES: [u32; 5] = [5, 9, 12, 14, 20];
+/// The job kinds this build runs (`version --json`, preflight step 6).
+const JOB_KINDS: [JobKind; 2] = [JobKind::Generate, JobKind::SolveRecipe];
 
 /// The git commit captured at BUILD time (ruling R-e); "unknown" when the build environment had none.
 pub fn git_commit() -> String {
@@ -27,8 +31,12 @@ fn version_info() -> cc::VersionInfo {
         git_commit: git_commit(),
         contract: vec![cc::CONTRACT.into()],
         features: FEATURES.iter().map(|s| s.to_string()).collect(),
-        job_kinds: vec![JobKind::Generate],
-        arities: ARITIES.to_vec(),
+        job_kinds: JOB_KINDS.to_vec(),
+        // the node driver's compiled arities, from the driver's own list (audit-engjob m9)
+        arities: rustred::node::driver::GENERATE_ARITIES
+            .iter()
+            .map(|&a| a as u32)
+            .collect(),
     }
 }
 
@@ -65,33 +73,72 @@ pub fn on_die(msg: &str) {
 
 /// `rr_node job RUN/job.json`.
 pub fn cmd_job(a: Args) -> i32 {
-    // first thing, before any thread or fork (3.4.1)
-    childjob::proc::install_signals();
     let [path] = a.items.as_slice() else {
         eprintln!("rr_node: usage: rr_node job RUN/job.json");
         std::process::exit(cc::ExitCode::Usage.code());
     };
+    cmd_job_at(path)
+}
+
+/// The single job entry (`rr_node job P`, and the alias `rr_node solve-recipe --job P`): contract preflight, then
+/// the kind's runner. Never returns.
+pub fn cmd_job_at(path: &str) -> i32 {
+    // first thing, before any thread or fork (3.4.1)
+    childjob::proc::install_signals();
+    // preflight step 6 checks the running binary's raw BLAKE3 against `spec.program.blake3` only when it is given
+    // (lane engbase2: it was None since lane eng2, so a spec naming another binary ran; adapters' probe
+    // `foreign_program_digest`). Unreadable executable: unchecked, as before.
+    let own = std::fs::read("/proc/self/exe")
+        .ok()
+        .map(|b| cc::blake3_hex(&b));
     let me = ProgramSelf {
         name: PROGRAM,
         features: &FEATURES,
-        kinds: &[JobKind::Generate],
-        blake3: None,
+        kinds: &JOB_KINDS,
+        blake3: own.as_deref(),
     };
     let prep = match preflight(Path::new(path), &me, &|k| std::env::var(k).ok()) {
         Ok(p) => p,
         Err(r) => childjob::refuse_exit(r, &program_info()),
     };
-    childjob::run_generate(
-        JobStart {
-            spec: prep.spec,
-            spec_blake3: prep.spec_blake3,
-            layout: prep.layout,
-            inputs: prep.inputs,
-            program: program_info(),
-            resume: prep.resume,
-        },
-        &resolve,
-    )
+    let kind = prep.spec.kind;
+    let start = JobStart {
+        spec: prep.spec,
+        spec_blake3: prep.spec_blake3,
+        layout: prep.layout,
+        inputs: prep.inputs,
+        program: program_info(),
+        resume: prep.resume,
+    };
+    match kind {
+        JobKind::SolveRecipe => recipe_job::run(start, &resolve_recipe),
+        _ => childjob::run_generate(start, &resolve),
+    }
+}
+
+/// The batch parameters of a `solve-recipe` job from the spec's `args` (allow-list checked by the preflight:
+/// `--order` required, `--threads`, `--max-trace-rows`, `--key-budget-s`) with the legacy parsers; the per-key wall
+/// budget is `--key-budget-s` or `budgets.wall.case_s` (never both: spec validation).
+fn resolve_recipe(spec: &JobSpec, family_text: &str) -> RecipeArgs {
+    let mut a = Args {
+        items: spec.args.clone(),
+    };
+    let order = a
+        .take("--order")
+        .unwrap_or_else(|| super::die("a solve-recipe job needs --order"));
+    let threads: usize = a.parse("--threads").unwrap_or(1);
+    let max_trace_rows: Option<usize> = a.parse("--max-trace-rows");
+    let key_budget_s = a
+        .parse::<u64>("--key-budget-s")
+        .or(spec.budgets.wall.case_s)
+        .map(|s| s as f64);
+    a.done();
+    RecipeArgs {
+        order: order_arg(&order, family_text, None),
+        threads,
+        max_trace_rows,
+        key_budget_s,
+    }
 }
 
 /// The node options of a `generate` job: `args` through the legacy parser, then the typed fields of the spec.
