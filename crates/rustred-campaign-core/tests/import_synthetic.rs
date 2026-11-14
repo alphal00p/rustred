@@ -351,7 +351,7 @@ fn elided_lift_needs_a_per_key_proof_bound_by_sha() {
     );
     assert_eq!(row(&r, [1, 1, 0]).status, RowStatus::Open);
     assert!(
-        r.blocking().iter().any(|b| b.starts_with("open_keys")),
+        r.blocking().iter().any(|b| b == "import_open_keys:1"),
         "{:?}",
         r.blocking()
     );

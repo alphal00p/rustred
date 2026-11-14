@@ -302,7 +302,7 @@ fn t178_recipe_variant_solve_requests() {
         .iter()
         .filter(|r| {
             r.open_status.as_deref() == Some("uncovered")
-                && !r.open_reason.as_deref().unwrap_or("").contains("recipe")
+                && r.open_reason.as_deref() == Some("uncovered; no recipe domain contains the key")
         })
         .count();
     println!(

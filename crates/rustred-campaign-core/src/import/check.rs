@@ -400,12 +400,22 @@ pub fn check(
             }
             if let Some(o) = o
                 && o.status == OpenStatus::Uncovered
-                && !o.recipe_candidates.is_empty()
             {
-                row.open_reason = Some(format!(
-                    "uncovered; in the domain of recipe(s) {} without a certified relation",
-                    o.recipe_candidates.join(",")
-                ));
+                // only RECIPE sources are candidates (a supplied point set's chart-wide domain says nothing)
+                let cands: Vec<&str> = o
+                    .recipe_candidates
+                    .iter()
+                    .filter(|c| recipe_names.contains(*c))
+                    .map(String::as_str)
+                    .collect();
+                row.open_reason = Some(if cands.is_empty() {
+                    "uncovered; no recipe domain contains the key".to_string()
+                } else {
+                    format!(
+                        "uncovered; in the domain of recipe(s) {} without a certified relation",
+                        cands.join(",")
+                    )
+                });
             }
         } else if c.is_recipe_served(i) {
             let w = c.winner(i);
@@ -643,9 +653,11 @@ impl CheckResult {
         if cert < served {
             b.push(format!("below_required_evidence:{}", served - cert));
         }
+        // the import's own open rows (they include keys the core serves but the import does not certify, e.g. an
+        // elided record lifted without its per-key proof)
         let open = c.get("status:open").copied().unwrap_or(0);
-        if open > 0 && !b.iter().any(|s| s.starts_with("open_keys")) {
-            b.push(format!("open_keys:{open}"));
+        if open > 0 {
+            b.push(format!("import_open_keys:{open}"));
         }
         if self.recipe_binary_unpinned {
             b.push("recipe_binary_unpinned".into());
