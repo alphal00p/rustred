@@ -24,14 +24,14 @@ use crate::poly::Poly;
 use crate::replay_base::arith::{self, Q};
 use crate::replay_base::coeff::{self, Ctx};
 use crate::replay_base::expr::Expr;
-use crate::replay_base::family::Family;
+use crate::replay_base::family::{Family, family_header_check};
 use crate::replay_base::primes::{self, SplitMix64};
 use crate::replay_base::record::{self, Pat};
 use crate::replay_base::rows::{self, Support};
 use crate::replay_base::span::{Elim, MEMORY_GUARD};
 
 /// Version of the row convention and verdict semantics (bump on any change of either).
-pub const ROWS_VERSION: &str = "rustred.campaign.ibp_rows.v1";
+pub const ROWS_VERSION: &str = "rustred.campaign.ibp_rows.v2";
 
 /// A rule record that cannot even be read as a rule (missing / malformed required fields).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -80,6 +80,8 @@ pub struct RowsRule {
     pub witness_present: bool,
     /// the engine node driver's raw pivot (Power bytes), when recorded: authority for the recenter
     pub raw_pivot: Option<Vec<i64>>,
+    /// the rule's `guard_version` (engine guard-fix D1: 2 = witness guards on; absent = unknown here)
+    pub guard_version: Option<u64>,
 }
 
 fn take_str(v: &mut Value, key: &str) -> Result<String, RowsError> {
@@ -224,6 +226,7 @@ impl RowsRule {
                 )));
             }
         };
+        let guard_version = v.get("guard_version").and_then(Value::as_u64);
         let sym_rows = match v.get("sym_rows") {
             None | Some(Value::Null) | Some(Value::Bool(false)) => None,
             Some(x) if x.as_i64() == Some(0) || x.as_u64() == Some(0) => None,
@@ -262,6 +265,7 @@ impl RowsRule {
             witness_elided,
             witness_present,
             raw_pivot,
+            guard_version,
         })
     }
 
@@ -340,8 +344,31 @@ pub enum PointSpec {
     Generic,
 }
 
+/// The table a rule comes from (audit C2): its header binds the family (engine `family_check`) and states the guard
+/// version. `from_header` recognises a `table_dump.v1` header (`"type":"header"`) and an export `cert_header`.
+#[derive(Clone, Debug)]
+pub struct TableBinding {
+    pub header: Value,
+    /// header `guard_version` (absent = 1 in the engine's semantics)
+    pub guard_version: Option<u64>,
+}
+
+impl TableBinding {
+    pub fn from_header(v: &Value) -> Option<TableBinding> {
+        match v.get("type").and_then(Value::as_str) {
+            Some("header") | Some("cert_header") => Some(TableBinding {
+                header: v.clone(),
+                guard_version: v.get("guard_version").and_then(Value::as_u64),
+            }),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct RowsOptions {
+    /// the rule's table header (family binding, guard version); `None` = no header known (recorded as such)
+    pub table: Option<TableBinding>,
     pub seed: u64,
     pub rule_id: Option<u64>,
     pub primes: Option<[u64; 2]>,
@@ -356,6 +383,7 @@ pub struct RowsOptions {
 impl Default for RowsOptions {
     fn default() -> Self {
         RowsOptions {
+            table: None,
             seed: 20_261_113,
             rule_id: None,
             primes: None,
@@ -383,6 +411,12 @@ pub enum Unsupported {
     BadPrime(String),
     /// arity mismatch or a malformed record
     Record(String),
+    /// the family text is outside what the replay models, or does not match the rule's table (audit C2)
+    Family(String),
+    /// the record has an empty exception branch (an empty AND = excepted everywhere; the engine refuses it)
+    EmptyExceptionBranch { branch: usize },
+    /// the rule's target lies in a zero (scaleless) sector at the point (the engine refuses it)
+    TargetInZeroSector,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -447,6 +481,8 @@ impl Verdict {
 pub enum CellStatus {
     Pass,
     Fail,
+    /// refused at this cell (target in a zero sector)
+    Refused(Unsupported),
     Pole { coefficient: usize },
     MemoryGuard { entries: usize },
     Undecided { reason: String },
@@ -520,6 +556,11 @@ pub struct Cost {
 #[derive(Clone, Debug, Serialize)]
 pub struct RowsVerdict {
     pub version: &'static str,
+    /// sha256 of the family text used and its name (audit C2 / M4)
+    pub family_digest: String,
+    pub family_name: Option<String>,
+    /// the table header was given and matched (`false` = no binding known)
+    pub family_bound_to_table: bool,
     pub verdict: Verdict,
     pub rule_index: Option<i64>,
     pub target: String,
@@ -618,6 +659,11 @@ fn eval_coeffs(rule: &RowsRule, ctxs: &[Ctx]) -> Result<CoeffEval, String> {
         deg.sum_den_deg += st.den.deg as u64;
         deg.sum_den_degd += st.den.degd as u64;
         deg.monomials += st.num.terms + st.den.terms;
+        // audit M1: the copied engine expression reader must agree (first context; texts up to CROSS_CHECK_BYTES)
+        if let Some(c0) = ctxs.first() {
+            coeff::cross_check_engine(text, rule.arity, c0, num[0], den[0])
+                .map_err(|e| format!("rhs[{k}] coefficient: {e}"))?;
+        }
         for (j, c) in ctxs.iter().enumerate() {
             if let Ok(v) = &mut vals[j] {
                 match arith::inv(c.p, den[j]) {
@@ -867,6 +913,13 @@ fn generic_rows(cx: &CellCtx, seeds: &[Pat], x: &[u64], d: u64, p: u64) -> Resul
         let mut offs = vec![0i64; n];
         let mut base = vec![0u64; n];
         for (i, &(ax, off)) in s.iter().enumerate() {
+            // audit m6: a slot FIXED by the case is a constant at the generic point (its zero-sector status is
+            // read from its integer value, not from the chart bit)
+            let ax = ax.filter(|_| cx.rule.fixed[i].is_none());
+            let off = match (s[i].0, cx.rule.fixed[i]) {
+                (Some(_), Some(v)) => v + off + rc[i],
+                _ => off,
+            };
             match ax {
                 Some(a) => {
                     mask |= 1 << i;
@@ -915,17 +968,20 @@ fn integer_rows(cx: &CellCtx, seeds: &[Pat], pt: &[i64], d: u64, p: u64) -> Resu
     })
 }
 
-fn pattern_col(pat: &Pat, generic: bool, pt: &[i64]) -> ColKey {
+fn pattern_col(pat: &Pat, generic: bool, pt: &[i64], fixed: &[Option<i64>]) -> ColKey {
     if generic {
         let mut mask = 0u64;
         let v = pat
             .iter()
             .enumerate()
-            .map(|(i, &(ax, off))| {
-                if ax.is_some() {
+            .map(|(i, &(ax, off))| match (ax, fixed.get(i).copied().flatten()) {
+                // audit m6: a fixed slot is a constant
+                (Some(_), Some(f)) => f + off,
+                (Some(_), None) => {
                     mask |= 1 << i;
+                    off
                 }
-                off
+                (None, _) => off,
             })
             .collect();
         (mask, v)
@@ -987,6 +1043,7 @@ fn solve_system(
         }
     }
     let universe_columns = universe.len();
+    let target_zero = is_zero(&target);
     // pivot order: most complex first (index 0); ties by key
     nonzero.sort_by(|a, b| {
         col_weight(b, chart)
@@ -1038,6 +1095,10 @@ fn solve_system(
         entries: 0,
         bytes: row_entries * 16 + bytes_cols,
     };
+    if target_zero {
+        out.status = CellStatus::Refused(Unsupported::TargetInZeroSector);
+        return out;
+    }
     let elim = match Elim::new_guarded(&enc_rows, nonzero.len(), p, cx.opts.max_entries) {
         Ok(e) => e,
         Err(e) if e.starts_with(MEMORY_GUARD) => {
@@ -1254,11 +1315,11 @@ fn integer_cell(
             }
         }
     };
-    let target = pattern_col(&rule.target, false, pt);
+    let target = pattern_col(&rule.target, false, pt, &rule.fixed);
     let rhs: Vec<ColKey> = rule
         .rhs
         .iter()
-        .map(|(k, _)| pattern_col(k, false, pt))
+        .map(|(k, _)| pattern_col(k, false, pt, &rule.fixed))
         .collect();
     let mut c = empty_cell(p, d, CellStatus::Pass);
     c.redraws = redraws;
@@ -1269,7 +1330,8 @@ fn integer_cell(
             0
         }
     };
-    c.sz_degree = c.rank as u64 + deg.max_num_degd + deg.sum_den_degd;
+    // audit m1: bound the GENERIC rank by min(rows, columns), not the rank seen at this point
+    c.sz_degree = c.rows.min(c.row_columns) as u64 + deg.max_num_degd + deg.sum_den_degd;
     c.seconds = t0.elapsed().as_secs_f64();
     Ok(CellRun {
         cell: c,
@@ -1321,11 +1383,11 @@ fn generic_cell(
             }
         }
     };
-    let target = pattern_col(&rule.target, true, &[]);
+    let target = pattern_col(&rule.target, true, &[], &rule.fixed);
     let rhs: Vec<ColKey> = rule
         .rhs
         .iter()
-        .map(|(k, _)| pattern_col(k, true, &[]))
+        .map(|(k, _)| pattern_col(k, true, &[], &rule.fixed))
         .collect();
     let mut c = empty_cell(p, d, CellStatus::Pass);
     c.redraws = redraws;
@@ -1337,7 +1399,7 @@ fn generic_cell(
             0
         }
     };
-    c.sz_degree = c.rank as u64 + deg.max_num_deg + deg.sum_den_deg;
+    c.sz_degree = c.rows.min(c.row_columns) as u64 + deg.max_num_deg + deg.sum_den_deg;
     c.seconds = t0.elapsed().as_secs_f64();
     Ok(CellRun {
         cell: c,
@@ -1362,6 +1424,12 @@ fn shell(seeds: &[Pat]) -> Vec<Pat> {
 }
 
 fn combine(cells: &[CellReport]) -> PointStatus {
+    if let Some(u) = cells.iter().find_map(|c| match &c.status {
+        CellStatus::Refused(u) => Some(u.clone()),
+        _ => None,
+    }) {
+        return PointStatus::Unsupported(u);
+    }
     if let Some(e) = cells.iter().find_map(|c| match c.status {
         CellStatus::MemoryGuard { entries } => Some(entries),
         _ => None,
@@ -1408,6 +1476,7 @@ fn combine(cells: &[CellReport]) -> PointStatus {
 }
 
 fn unsupported_verdict(
+    family: &Family,
     rule: &RowsRule,
     rule_id: u64,
     opts: &RowsOptions,
@@ -1416,6 +1485,9 @@ fn unsupported_verdict(
 ) -> RowsVerdict {
     RowsVerdict {
         version: ROWS_VERSION,
+        family_digest: family.source_digest.clone(),
+        family_name: family.name.clone(),
+        family_bound_to_table: false,
         verdict: Verdict::Unsupported(u),
         rule_index: rule.index,
         target: rule.target_text.clone(),
@@ -1453,33 +1525,47 @@ pub fn identity_test(
         .find_map(|&p| primes::check_verify_prime(p, &opts.lift_primes).err())
         .or_else(|| (primes[0] == primes[1]).then(|| "the two primes are equal".to_string()))
     {
-        return unsupported_verdict(rule, rule_id, opts, primes, Unsupported::BadPrime(e));
+        return unsupported_verdict(family, rule, rule_id, opts, primes, Unsupported::BadPrime(e));
     }
     if family.n != rule.arity {
         let u = Unsupported::Record(format!(
             "family has {} slots, rule {}",
             family.n, rule.arity
         ));
-        return unsupported_verdict(rule, rule_id, opts, primes, u);
+        return unsupported_verdict(family, rule, rule_id, opts, primes, u);
+    }
+    // audit C2: the family must be inside what the replay models and match the rule's table header
+    if let Err(e) = &family.check {
+        return unsupported_verdict(family, rule, rule_id, opts, primes, Unsupported::Family(e.clone()));
+    }
+    if let Some(t) = &opts.table
+        && let Err(e) = family_header_check(&t.header, family)
+    {
+        return unsupported_verdict(family, rule, rule_id, opts, primes, Unsupported::Family(e));
+    }
+    // audit m3: an empty exception branch (the engine refuses it)
+    if let Some(b) = rule.exceptions.iter().position(Vec::is_empty) {
+        let u = Unsupported::EmptyExceptionBranch { branch: b };
+        return unsupported_verdict(family, rule, rule_id, opts, primes, u);
     }
     if rule.sym_rows.is_some() || opts.generated_with_symmetry_rows {
         let u = Unsupported::NeedsSymmetryRows {
             declared: rule.sym_rows.clone(),
         };
-        return unsupported_verdict(rule, rule_id, opts, primes, u);
+        return unsupported_verdict(family, rule, rule_id, opts, primes, u);
     }
     if let Some(e) = &rule.syntax_error {
-        return unsupported_verdict(rule, rule_id, opts, primes, Unsupported::Syntax(e.clone()));
+        return unsupported_verdict(family, rule, rule_id, opts, primes, Unsupported::Syntax(e.clone()));
     }
     if rule.seeds.is_empty() {
-        return unsupported_verdict(rule, rule_id, opts, primes, Unsupported::NoSeeds);
+        return unsupported_verdict(family, rule, rule_id, opts, primes, Unsupported::NoSeeds);
     }
     if rule.arity > 64 {
         let u = Unsupported::Record(format!("arity {} > 64 (column masks are u64)", rule.arity));
-        return unsupported_verdict(rule, rule_id, opts, primes, u);
+        return unsupported_verdict(family, rule, rule_id, opts, primes, u);
     }
     if let Err(e) = check_recenter_authority(rule) {
-        return unsupported_verdict(rule, rule_id, opts, primes, Unsupported::Record(e));
+        return unsupported_verdict(family, rule, rule_id, opts, primes, Unsupported::Record(e));
     }
     let cx = CellCtx { family, rule, opts };
     let mut cost = Cost {
@@ -1584,10 +1670,16 @@ pub fn identity_test(
         cost.rank_max = cost.rank_max.max(c.rank);
         cost.entries_peak = cost.entries_peak.max(c.entries);
     }
+    // a point refused by a cell (e.g. target in a zero sector) is Unsupported like an early refusal
+    if unsupported.is_none() {
+        unsupported = reports.iter().find_map(|r| match &r.status {
+            PointStatus::Unsupported(u) => Some(u.clone()),
+            _ => None,
+        });
+    }
     let first = |f: &dyn Fn(&PointStatus) -> bool| reports.iter().position(|r| f(&r.status));
-    let verdict = if let Some(u) = unsupported {
-        Verdict::Unsupported(u)
-    } else if let Some(i) = first(&|s| *s == PointStatus::Fail) {
+    // audit m2: a Fail (a stored disproof) is reported before an Unsupported point elsewhere
+    let verdict = if let Some(i) = first(&|s| *s == PointStatus::Fail) {
         let c = reports[i]
             .cells
             .iter()
@@ -1599,6 +1691,8 @@ pub fn identity_test(
             d: c.d,
             column: c.witness.clone().unwrap_or_default(),
         }
+    } else if let Some(u) = unsupported {
+        Verdict::Unsupported(u)
     } else if let Some(i) = first(&|s| *s == PointStatus::SeedsInsufficient) {
         Verdict::SeedsInsufficient { point: i }
     } else if let Some(i) = first(&|s| matches!(s, PointStatus::MemoryGuard { .. })) {
@@ -1656,6 +1750,9 @@ pub fn identity_test(
     cost.seconds = t0.elapsed().as_secs_f64();
     RowsVerdict {
         version: ROWS_VERSION,
+        family_digest: family.source_digest.clone(),
+        family_name: family.name.clone(),
+        family_bound_to_table: opts.table.is_some(),
         meets_a2_policy: verdict == Verdict::Pass && points_passed >= 2,
         verdict,
         rule_index: rule.index,
@@ -1705,28 +1802,33 @@ pub fn check_recenter_authority(rule: &RowsRule) -> Result<(), String> {
 // ------------------------------------------------------------------ evidence level `replay` -----------------------
 
 /// Schema of the [`ReplayRecord`] (the artefact the ledger cites for evidence level `replay`).
-pub const REPLAY_SCHEMA: &str = "rustred.campaign.replay_evidence.v1";
+pub const REPLAY_SCHEMA: &str = "rustred.campaign.replay_evidence.v2";
 
-/// Which points establish `replay` (interfaces/ibp-rows.md section 9).
+/// Which points establish `replay` (interfaces/ibp-rows.md section 9, corrected after audit A).
 #[derive(Clone, Debug, Serialize)]
 pub struct ReplayPolicy {
     /// random points on the symbolic slots (skipped for a rule without symbolic slots)
     pub generic_points: usize,
-    /// served keys at which the identity is replayed (deterministic sample; 0 = every served key)
+    /// served keys at which the identity is replayed: 0 = EVERY served key (the `replay` level); any other value
+    /// replays a deterministic sample and can only give the level `ReplaySampled`, which the campaign never accepts
+    /// (audit C1: a pass at sampled keys says nothing at the others, e.g. on boundary faces)
     pub max_identity_keys: usize,
     /// window of the search for an integer point on a witness locus (excess 0..=w per free slot)
     pub loci_window: i64,
     /// cap of that search (beyond it: a deterministic random sample of this many candidates)
     pub loci_max_candidates: usize,
+    /// where the served key set comes from (a file path or ledger id), recorded with its digest (audit M4)
+    pub served_keys_source: Option<String>,
 }
 
 impl Default for ReplayPolicy {
     fn default() -> Self {
         ReplayPolicy {
             generic_points: 2,
-            max_identity_keys: 8,
+            max_identity_keys: 0,
             loci_window: 4,
             loci_max_candidates: 200_000,
+            served_keys_source: None,
         }
     }
 }
@@ -1744,6 +1846,8 @@ pub struct PoleScan {
     pub keys_given: usize,
     pub keys_applicable: usize,
     pub keys_not_applicable: usize,
+    /// the served keys that are NOT applicable (outside the case / chart / on an exception), with the reason
+    pub not_applicable: Vec<(Vec<i64>, NotApplicableReason)>,
     pub poles: Vec<PoleHit>,
     /// identically zero at one prime only, or unreadable
     pub undecided: Vec<(Vec<i64>, String)>,
@@ -1755,11 +1859,13 @@ pub enum LocusStatus {
     Guarded,
     /// the locus contains d: its index part is carried by the exceptions (not sampled, as the engine replay)
     Parameter,
-    /// no applicable integer point on the locus in the search window
-    NoPoint {
-        candidates: usize,
-    },
-    /// replayed at an integer point on the locus (index into the identity points)
+    /// proved free of integer points in the case (affine locus, gcd of the coefficients does not divide the constant)
+    NoIntegerPoint,
+    /// no applicable integer point found in the search window: UNTESTED, blocks the level (audit M3)
+    NoPoint { candidates: usize },
+    /// served keys lie on the locus; they are replayed with every other served key
+    TestedAtServed { keys: usize },
+    /// replayed at a searched integer point on the locus (index into the identity points)
     Tested {
         key: Vec<i64>,
         point: usize,
@@ -1776,15 +1882,31 @@ pub struct LocusReport {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum ReplayLevel {
+    /// every check passed at EVERY served key (plus the generic points)
     Established,
+    /// every check passed, but the identity was replayed at a SAMPLE of the served keys only: never accepted
+    ReplaySampled { replayed: usize, applicable: usize },
     NotEstablished { reasons: Vec<String> },
 }
 
-/// The artefact of evidence level `replay` for one rule.
+/// Witness-guard completeness of the record (audit M3).
+#[derive(Clone, Debug, Serialize)]
+pub struct GuardStatus {
+    /// the rule's `guard_version`, else the table header's (absent = 1 in the engine's semantics)
+    pub guard_version: Option<u64>,
+    /// an empty witness-locus list is complete only with witness guards on (guard_version >= 2)
+    pub witness_list_complete: bool,
+}
+
+/// The artefact of evidence level `replay` for one rule (a third party can re-run it from the recorded inputs).
 #[derive(Clone, Debug, Serialize)]
 pub struct ReplayRecord {
     pub schema: &'static str,
     pub tool_version: &'static str,
+    /// sha256 of the family text and its name; whether a table header bound it (audit C2 / M4)
+    pub family_digest: String,
+    pub family_name: Option<String>,
+    pub family_bound_to_table: bool,
     /// sha256 of the rule's canonical content (see [`rule_digest`])
     pub rule_digest: String,
     pub rule_index: Option<i64>,
@@ -1793,10 +1915,18 @@ pub struct ReplayRecord {
     pub primes: [u64; 2],
     pub policy: ReplayPolicy,
     pub served_keys: usize,
-    /// identity replay at the generic points, the sampled served keys and the loci points, both primes
+    /// sha256 of the served key set (sorted, deduplicated, one key per line, comma-separated) and its source
+    pub served_keys_digest: String,
+    pub served_keys_source: Option<String>,
+    /// served keys at which the identity was replayed (all applicable ones for `Established`)
+    pub served_keys_replayed: usize,
+    /// how the served set is covered: "explicit" (every served key replayed); strata are a documented optimisation
+    pub strata: &'static str,
+    /// identity replay at the generic points, the served keys and the loci points, both primes
     pub identity: RowsVerdict,
     pub pole_scan: PoleScan,
     pub loci: Vec<LocusReport>,
+    pub guards: GuardStatus,
     pub witness_elided: bool,
     pub witness_present: bool,
     pub level: ReplayLevel,
@@ -1818,8 +1948,9 @@ fn pat_text(p: &Pat) -> String {
     format!("I({})", parts.join(","))
 }
 
-/// sha256 over the rule's canonical content: chart, fixed, equations, exceptions, target, rhs (key pattern text,
-/// coefficient text verbatim), seeds, recenter, witness loci, sym_rows; fields separated by NUL / SOH bytes.
+/// sha256 over the rule's canonical content: index, chart, fixed, equations, exceptions, target, rhs (key pattern text,
+/// coefficient text verbatim), seeds, recenter, raw pivot, witness loci, guard version, sym_rows; fields separated by
+/// NUL / SOH bytes.
 pub fn rule_digest(rule: &RowsRule) -> String {
     let mut h = crate::replay_base::sha256::Sha256::new();
     let mut put = |tag: &str, v: &str| {
@@ -1829,6 +1960,7 @@ pub fn rule_digest(rule: &RowsRule) -> String {
         h.update(b"\x00");
     };
     put("version", ROWS_VERSION);
+    put("index", &format!("{:?}", rule.index));
     put("chart", &rule.chart_text);
     put("fixed", &format!("{:?}", rule.fixed));
     put("equations", &format!("{:?}", rule.equations));
@@ -1842,12 +1974,32 @@ pub fn rule_digest(rule: &RowsRule) -> String {
         put("seed", &pat_text(sd));
     }
     put("recenter", &format!("{:?}", rule.recenter));
+    put("raw_pivot", &format!("{:?}", rule.raw_pivot));
     put(
         "witness",
         &format!("{:?}/{}", rule.witness_loci, rule.witness_elided),
     );
+    put("guard_version", &format!("{:?}", rule.guard_version));
     put("sym_rows", &format!("{:?}", rule.sym_rows));
     h.hex()
+}
+
+/// sha256 of a key set: sorted, deduplicated, one key per line, entries comma-separated.
+pub fn key_set_digest(keys: &[Vec<i64>]) -> String {
+    let mut ks: Vec<&Vec<i64>> = keys.iter().collect();
+    ks.sort();
+    ks.dedup();
+    let text: String = ks
+        .iter()
+        .map(|k| {
+            k.iter()
+                .map(i64::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+                + "\n"
+        })
+        .collect();
+    crate::replay_base::sha256::sha256_hex(text.as_bytes())
 }
 
 /// Identically zero in d at the rule point `pt` modulo `p` (deg_d + 1 distinct values).
@@ -1925,15 +2077,77 @@ fn same_poly(a: &str, b: &str, n: usize) -> bool {
     }
 }
 
+/// Proof that an AFFINE d-free locus has no integer point in the case: after substituting the fixed slots, the gcd
+/// of the integer coefficients of the free slots does not divide the constant. Dependent (equation-solved) slots in
+/// the locus: no proof (false).
+fn locus_has_no_integer_point(rule: &RowsRule, text: &str, solved: Option<&Solved>) -> bool {
+    let n = rule.arity;
+    let Ok(lin) = Expr::parse(text, n).and_then(|e| e.linear()) else {
+        return false;
+    };
+    let mut c = lin[0];
+    let mut coefs: Vec<Q> = Vec::new();
+    for i in 0..n {
+        let a = lin[i + 1];
+        if a.is_zero() {
+            continue;
+        }
+        match rule.fixed[i] {
+            Some(v) => match a.mul(Q::int(v as i128)).and_then(|x| c.add(x)) {
+                Ok(x) => c = x,
+                Err(_) => return false,
+            },
+            None if solved.is_some_and(|s| s.contains_key(&i)) => return false,
+            None => coefs.push(a),
+        }
+    }
+    // scale to integers
+    let mut l: i128 = c.d;
+    for q in &coefs {
+        let g = gcd_i128(l, q.d);
+        l = match (l / g).checked_mul(q.d) {
+            Some(x) => x,
+            None => return false,
+        };
+    }
+    let ci = match c.n.checked_mul(l / c.d) {
+        Some(x) => x,
+        None => return false,
+    };
+    let mut g: i128 = 0;
+    for q in &coefs {
+        match q.n.checked_mul(l / q.d) {
+            Some(x) => g = gcd_i128(g, x),
+            None => return false,
+        }
+    }
+    if g == 0 {
+        return ci != 0; // constant nonzero locus: never zero
+    }
+    ci % g != 0
+}
+
+fn gcd_i128(mut a: i128, mut b: i128) -> i128 {
+    a = a.abs();
+    b = b.abs();
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a.max(1)
+}
+
 /// An applicable integer key on the locus `poly = 0` in the window (deterministic), and the number of candidates seen.
+/// The case equations are honoured (audit M3): slots solved by affine equations are computed from the free ones and
+/// must be integers.
 fn locus_point(
     rule: &RowsRule,
     poly: &Poly,
     policy: &ReplayPolicy,
     seed: u64,
+    solved: Option<&Solved>,
 ) -> (Option<Vec<i64>>, usize) {
     let free: Vec<usize> = (0..rule.arity)
-        .filter(|&i| rule.fixed[i].is_none())
+        .filter(|&i| rule.fixed[i].is_none() && !solved.is_some_and(|s| s.contains_key(&i)))
         .collect();
     let w = policy.loci_window.max(0);
     let span = (w + 1) as u128;
@@ -1946,7 +2160,7 @@ fn locus_point(
     };
     let mut s = SplitMix64::derive(seed, &[0x4c4f4349]); // "LOCI"
     let mut seen = 0usize;
-    for idx in 0..count {
+    'cand: for idx in 0..count {
         let mut pt: Vec<i64> = rule.fixed.iter().map(|f| f.unwrap_or(0)).collect();
         let mut r = idx;
         for &i in &free {
@@ -1958,6 +2172,24 @@ fn locus_point(
                 e
             };
             pt[i] = if rule.chart[i] { 1 + e } else { -e };
+        }
+        if let Some(sol) = solved {
+            for (&i, (c, deps)) in sol {
+                let mut v = *c;
+                for (j, a) in deps {
+                    match a.mul(Q::int(pt[*j] as i128)).and_then(|x| v.add(x)) {
+                        Ok(x) => v = x,
+                        Err(_) => continue 'cand,
+                    }
+                }
+                if v.d != 1 {
+                    continue 'cand;
+                }
+                match i64::try_from(v.n) {
+                    Ok(x) => pt[i] = x,
+                    Err(_) => continue 'cand,
+                }
+            }
         }
         seen += 1;
         let Ok(p32) = pt
@@ -1978,10 +2210,12 @@ fn locus_point(
     (None, seen)
 }
 
-/// EVIDENCE LEVEL `replay` of one rule (R40 U-12 / R41 P-3: the acceptance of complete nodes, "the same process as the
-/// hand campaign"): identity replay at two verify-range primes (never a lift prime) at the policy's points, the pole
-/// check at EVERY served key, one replay point on each unguarded witness locus. Descent under the node comparator
-/// and the guard (domain / exception) checks are recorded beside it by the accept module (`checked_elsewhere`).
+/// EVIDENCE LEVEL `replay` of one rule ON ITS SERVED KEY SET (R40 U-12 / R41 P-3, corrected after audit A): the
+/// identity replayed at EVERY served key (and the generic points) at two verify-range primes (never a lift prime),
+/// the pole check at every served key, every served key applicable, every unguarded witness locus tested (at a served
+/// key on it or a searched point; untested = not established), witness guards on when the locus list is empty, the
+/// family bound by digest (and to the table header when given). Descent under the node comparator and the guard
+/// (domain / exception) checks are recorded beside it by the accept module (`checked_elsewhere`).
 pub fn replay_evidence(
     family: &Family,
     rule: &RowsRule,
@@ -1994,17 +2228,26 @@ pub fn replay_evidence(
         .primes
         .unwrap_or_else(|| primes::verify_primes(opts.seed, &opts.lift_primes));
     let mut reasons: Vec<String> = Vec::new();
-    // pole scan at every served key
+    // a point rule with no served key given: its own key is the served set
+    let own: Vec<Vec<i64>>;
+    let served_keys: &[Vec<i64>] = if served_keys.is_empty() && rule.fixed.iter().all(Option::is_some)
+    {
+        let pt: Vec<i64> = rule.fixed.iter().map(|f| f.unwrap_or(0)).collect();
+        own = vec![record::key_at(&rule.target, &pt)];
+        &own
+    } else {
+        served_keys
+    };
+    // pole scan and applicability at every served key
     let mut ps = PoleScan {
         keys_given: served_keys.len(),
         ..PoleScan::default()
     };
-    let mut applicable: Vec<&Vec<i64>> = Vec::new();
+    let mut applicable: Vec<(&Vec<i64>, Vec<i64>)> = Vec::new();
     for (i, k) in served_keys.iter().enumerate() {
         match rule_point(rule, k) {
             Ok(Ok(pt)) => {
                 ps.keys_applicable += 1;
-                applicable.push(k);
                 if rule.syntax_error.is_none() {
                     match pole_at(
                         rule,
@@ -2021,12 +2264,16 @@ pub fn replay_evidence(
                         Err(e) => ps.undecided.push((k.clone(), e)),
                     }
                 }
+                applicable.push((k, pt));
             }
-            Ok(Err(_)) => ps.keys_not_applicable += 1,
+            Ok(Err(r)) => {
+                ps.keys_not_applicable += 1;
+                ps.not_applicable.push((k.clone(), r));
+            }
             Err(u) => ps.undecided.push((k.clone(), format!("{u:?}"))),
         }
     }
-    // points: generic, sampled served keys, loci
+    // points: generic, served keys (all, or a sample -> ReplaySampled), loci
     let mut points: Vec<PointSpec> = Vec::new();
     if rule.fixed.iter().any(Option::is_none) {
         points.extend(std::iter::repeat_n(
@@ -2034,23 +2281,21 @@ pub fn replay_evidence(
             policy.generic_points,
         ));
     }
-    let take: Vec<&Vec<i64>> =
-        if policy.max_identity_keys == 0 || applicable.len() <= policy.max_identity_keys {
-            applicable.clone()
-        } else {
-            let mut s = SplitMix64::derive(opts.seed, &[rule_id, 0x4b455953]); // "KEYS"
-            let mut idx: BTreeSet<usize> = BTreeSet::new();
-            while idx.len() < policy.max_identity_keys {
-                idx.insert(s.range(0, applicable.len() as u64) as usize);
-            }
-            idx.into_iter().map(|i| applicable[i]).collect()
-        };
+    let sampled = policy.max_identity_keys != 0 && applicable.len() > policy.max_identity_keys;
+    let take: Vec<&Vec<i64>> = if !sampled {
+        applicable.iter().map(|(k, _)| *k).collect()
+    } else {
+        let mut s = SplitMix64::derive(opts.seed, &[rule_id, 0x4b455953]); // "KEYS"
+        let mut idx: BTreeSet<usize> = BTreeSet::new();
+        while idx.len() < policy.max_identity_keys {
+            idx.insert(s.range(0, applicable.len() as u64) as usize);
+        }
+        idx.into_iter().map(|i| applicable[i].0).collect()
+    };
+    let served_keys_replayed = take.len();
     points.extend(take.iter().map(|k| PointSpec::Key((*k).clone())));
-    if points.is_empty() && rule.fixed.iter().all(Option::is_some) {
-        // a point rule with no served key given: its own key
-        let pt: Vec<i64> = rule.fixed.iter().map(|f| f.unwrap_or(0)).collect();
-        points.push(PointSpec::Key(record::key_at(&rule.target, &pt)));
-    }
+    let solved_owned = solve_equations(rule).ok().and_then(Result::ok);
+    let solved = solved_owned.as_ref();
     let mut loci: Vec<LocusReport> = Vec::new();
     let mut tested: Vec<(usize, usize)> = Vec::new(); // (loci index, point index)
     for text in &rule.witness_loci {
@@ -2067,18 +2312,37 @@ pub fn replay_evidence(
             }
             Ok(_) => match Poly::parse(text, rule.arity, false) {
                 Err(e) => LocusStatus::Unreadable(e.to_string()),
-                Ok(poly) => match locus_point(rule, &poly, policy, opts.seed ^ rule_id) {
-                    (Some(key), _) => {
-                        tested.push((loci.len(), points.len()));
-                        points.push(PointSpec::Key(key.clone()));
-                        LocusStatus::Tested {
-                            key,
-                            point: points.len() - 1,
-                            status: PointStatus::Pass,
+                Ok(poly) => {
+                    // served keys on the locus (all replayed when !sampled)
+                    let on: Vec<&Vec<i64>> = applicable
+                        .iter()
+                        .filter(|(_, pt)| {
+                            pt.iter()
+                                .map(|&x| i32::try_from(x))
+                                .collect::<Result<Vec<_>, _>>()
+                                .is_ok_and(|p32| matches!(poly.is_zero_at(&p32), Ok(true)))
+                        })
+                        .map(|(k, _)| *k)
+                        .collect();
+                    if !on.is_empty() && !sampled {
+                        LocusStatus::TestedAtServed { keys: on.len() }
+                    } else if locus_has_no_integer_point(rule, text, solved) {
+                        LocusStatus::NoIntegerPoint
+                    } else {
+                        match locus_point(rule, &poly, policy, opts.seed ^ rule_id, solved) {
+                            (Some(key), _) => {
+                                tested.push((loci.len(), points.len()));
+                                points.push(PointSpec::Key(key.clone()));
+                                LocusStatus::Tested {
+                                    key,
+                                    point: points.len() - 1,
+                                    status: PointStatus::Pass,
+                                }
+                            }
+                            (None, n) => LocusStatus::NoPoint { candidates: n },
                         }
                     }
-                    (None, n) => LocusStatus::NoPoint { candidates: n },
-                },
+                }
             },
         };
         loci.push(LocusReport {
@@ -2108,6 +2372,28 @@ pub fn replay_evidence(
             identity.points_passed
         ));
     }
+    // audit M2: nothing served = nothing established; every served key must be applicable
+    if ps.keys_applicable == 0 {
+        reasons.push("NothingServed: no served key is applicable to the rule".into());
+    }
+    if ps.keys_not_applicable > 0 {
+        reasons.push(format!(
+            "{} served key(s) not applicable to the rule (first: {:?})",
+            ps.keys_not_applicable,
+            ps.not_applicable.first()
+        ));
+    }
+    if !sampled && identity.verdict == Verdict::Pass {
+        // every served key point must itself have passed (not merely the rule overall)
+        let bad = identity
+            .points
+            .iter()
+            .filter(|p| matches!(p.spec, PointSpec::Key(_)) && p.status != PointStatus::Pass)
+            .count();
+        if bad > 0 {
+            reasons.push(format!("{bad} replayed key(s) did not pass"));
+        }
+    }
     if !ps.poles.is_empty() {
         reasons.push(format!(
             "{} served key(s) on a coefficient pole",
@@ -2126,14 +2412,45 @@ pub fn replay_evidence(
     if !rule.witness_present {
         reasons.push("witness loci absent (incomplete record)".into());
     }
+    // audit M3: an empty witness list is complete only with witness guards on (guard_version >= 2); point rules
+    // (no free slot) are evaluated at their one key and need no loci
+    let guard_version = rule
+        .guard_version
+        .or_else(|| opts.table.as_ref().and_then(|t| t.guard_version));
+    let free = rule.fixed.iter().any(Option::is_none);
+    let witness_list_complete = !free || !rule.witness_loci.is_empty() || guard_version.unwrap_or(1) >= 2;
+    if !witness_list_complete {
+        reasons.push(
+            "no witness guards: empty witness-locus list with guard_version 1 or absent (Unsupported(no witness guards))"
+                .into(),
+        );
+    }
     for l in &loci {
-        if let LocusStatus::Unreadable(e) = &l.status {
-            reasons.push(format!("witness locus {} unreadable: {e}", l.locus));
+        match &l.status {
+            LocusStatus::Unreadable(e) => reasons.push(format!("witness locus {} unreadable: {e}", l.locus)),
+            LocusStatus::NoPoint { candidates } => reasons.push(format!(
+                "witness locus {} UNTESTED: no point in {candidates} candidates",
+                l.locus
+            )),
+            _ => {}
         }
     }
+    let level = if !reasons.is_empty() {
+        ReplayLevel::NotEstablished { reasons }
+    } else if sampled {
+        ReplayLevel::ReplaySampled {
+            replayed: served_keys_replayed,
+            applicable: applicable.len(),
+        }
+    } else {
+        ReplayLevel::Established
+    };
     ReplayRecord {
         schema: REPLAY_SCHEMA,
         tool_version: ROWS_VERSION,
+        family_digest: family.source_digest.clone(),
+        family_name: family.name.clone(),
+        family_bound_to_table: opts.table.is_some(),
         rule_digest: rule_digest(rule),
         rule_index: rule.index,
         target: rule.target_text.clone(),
@@ -2141,16 +2458,20 @@ pub fn replay_evidence(
         primes,
         policy: policy.clone(),
         served_keys: served_keys.len(),
+        served_keys_digest: key_set_digest(served_keys),
+        served_keys_source: policy.served_keys_source.clone(),
+        served_keys_replayed,
+        strata: "explicit: every served key replayed (strata not implemented; ibp-rows.md 9.4)",
         identity,
         pole_scan: ps,
         loci,
+        guards: GuardStatus {
+            guard_version,
+            witness_list_complete,
+        },
         witness_elided: rule.witness_elided,
         witness_present: rule.witness_present,
-        level: if reasons.is_empty() {
-            ReplayLevel::Established
-        } else {
-            ReplayLevel::NotEstablished { reasons }
-        },
+        level,
         checked_elsewhere: "descent under the node comparator (order/accept), domain and exception guards at the served keys (domain/accept)",
     }
 }
@@ -2192,6 +2513,7 @@ pub fn identity_test_batch<R: BufRead, W: Write>(
     let mut sum = BatchSummary::default();
     let mut buf: Vec<u8> = Vec::new();
     let mut line_no = 0usize;
+    let mut table: Option<TableBinding> = opts.table.clone();
     loop {
         buf.clear();
         let n = input
@@ -2207,9 +2529,32 @@ pub fn identity_test_batch<R: BufRead, W: Write>(
         if text.trim().is_empty() {
             continue;
         }
+        // audit C2: a table header binds the family for the following rules; an export line binds its own
+        // `cert_header` (the caller's `opts.table` is the default)
+        let mut line_table: Option<TableBinding> = None;
         let parsed = serde_json::from_str::<Value>(text)
             .map_err(|e| RowsError::Record(format!("json: {e}")))
-            .and_then(|v| RowsRule::from_line_value(v, family.n));
+            .and_then(|v| {
+                if let Some(t) = TableBinding::from_header(&v) {
+                    table = Some(t);
+                }
+                line_table = v
+                    .get("cert")
+                    .and_then(Value::as_array)
+                    .and_then(|c| c.iter().find_map(TableBinding::from_header));
+                RowsRule::from_line_value(v, family.n)
+            });
+        let lopts_owned;
+        let lopts: &RowsOptions = match line_table.or_else(|| table.clone()) {
+            Some(t) => {
+                lopts_owned = RowsOptions {
+                    table: Some(t),
+                    ..opts.clone()
+                };
+                &lopts_owned
+            }
+            None => opts,
+        };
         let mut emit = |v: &RowsVerdict, run: Option<&str>, k: usize| -> Result<(), RowsError> {
             sum.rules += 1;
             *sum.by_verdict
@@ -2232,13 +2577,16 @@ pub fn identity_test_batch<R: BufRead, W: Write>(
             Ok((rules, ctx)) => {
                 for (k, r) in rules.iter().enumerate() {
                     let pts = plan(r, &ctx);
-                    let v = identity_test(family, r, &pts, opts);
+                    let v = identity_test(family, r, &pts, lopts);
                     emit(&v, ctx.run.as_deref(), k)?;
                 }
             }
             Err(e) => {
                 let v = RowsVerdict {
                     version: ROWS_VERSION,
+                    family_digest: family.source_digest.clone(),
+                    family_name: family.name.clone(),
+                    family_bound_to_table: false,
                     verdict: Verdict::Unsupported(Unsupported::Record(e.to_string())),
                     rule_index: None,
                     target: String::new(),
@@ -2288,6 +2636,6 @@ mod tests {
         let k: ColKey = (0b101, vec![0, 3, -2]);
         assert_eq!(col_text(&k), "I(n0,3,n2-2)");
         let pat = record::parse_integral("I(n0,3,n2-2)", 3).unwrap();
-        assert_eq!(pattern_col(&pat, true, &[]), k);
+        assert_eq!(pattern_col(&pat, true, &[], &[None, None, None]), k);
     }
 }
