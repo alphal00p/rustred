@@ -549,6 +549,13 @@ impl<const N: usize> BoxLaportaSession<N> {
                 master_check.excess
             )));
         }
+        if self.options.master_check == MasterCheckMode::Strict && stable == Some(false) {
+            return Err(SolverError::MasterCheck(format!(
+                "the +1 stability enlargement changed the masters ({} before, {} after): the system is under-seeded",
+                before.len(),
+                self.masters.len()
+            )));
+        }
         let masters: BTreeSet<[i16; N]> = self.masters.iter().copied().collect();
         let preferred_not_masters = self
             .preferred

@@ -322,3 +322,55 @@ fn invalid_seeding_options_are_input_errors() {
         ));
     }
 }
+
+/// The two-loop kite (massless, one external `q` with `q^2 = 1`): the
+/// auditor's family for the stability check.
+const KITE: &str = "I(
+  name(TOY2kite),
+  loops(k1,k2),
+  externals(q),
+  dimension(d),
+  prop(D1,(k1)^2,1),
+  prop(D2,(-k1-k2)^2,1),
+  prop(D3,(k2)^2,1),
+  prop(D4,(k1+k2-q)^2,1),
+  prop(D5,(-k2+q)^2,1),
+  gram(q,q,1)
+)";
+
+/// An under-seeded system (a Kira box too small for the dotted targets) is
+/// found unstable by the +1 check. `Report` returns it with
+/// `stable == Some(false)`; `Strict` refuses it with a `MasterCheck` error.
+#[test]
+fn strict_refuses_an_unstable_system() {
+    const K: usize = 5;
+    let kite = Arc::new(rustred::node::driver::compile_family(KITE).unwrap());
+    let targets: [[i16; K]; 2] = [[2, 1, 1, 1, 1], [1, 2, 1, 1, 2]];
+    let run = |master_check: MasterCheckMode| {
+        let router: Arc<dyn SectorRouter<K>> =
+            Arc::new(CensusRouter::discover(kite.clone(), &[true; K]).unwrap());
+        let mut session = BoxLaportaSession::<K>::new(
+            kite.clone(),
+            &CutConstraint::none(K).unwrap(),
+            router,
+            BoxOptions {
+                seeding: Seeding::KiraBox { r: 6, s: 0, d: 1 },
+                stability: Some((1, 1, 1)),
+                master_check,
+                workers: 1,
+                lp_gate: false,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        session.extend(&targets, &[])
+    };
+    let report = run(MasterCheckMode::Report).unwrap();
+    assert_eq!(report.stable, Some(false));
+    assert_ne!(report.masters, report.masters_before_stability);
+    let refused = run(MasterCheckMode::Strict);
+    assert!(
+        matches!(&refused, Err(SolverError::MasterCheck(message)) if message.contains("stability")),
+        "{refused:?}"
+    );
+}

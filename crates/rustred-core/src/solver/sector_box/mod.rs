@@ -270,6 +270,10 @@ pub struct TubeOptions {
 
 /// What the master check (Kira 3 `check_masters`, arXiv:2505.20197 §3.6)
 /// does besides reporting.
+///
+/// The check needs a reference: with neither [`BoxOptions::expected_counts`]
+/// nor a preferred set it has nothing to compare against, and it passes
+/// trivially in every mode.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum MasterCheckMode {
     /// Report only.
@@ -280,7 +284,12 @@ pub enum MasterCheckMode {
     /// growth of their class (staircase and demand seeding).
     Grow,
     /// As `Grow`, and `extend` fails with [`crate::solver::SolverError::MasterCheck`]
-    /// when extra masters or excess classes remain after growth.
+    /// when extra masters, missing or excess classes remain after growth, or
+    /// when the +1 stability check ([`BoxOptions::stability`]) finds another
+    /// master set. In `Report` and `Grow` an unstable system is only
+    /// reported (`ModularReport::stable == Some(false)`): its masters are
+    /// those of the enlarged system, and they are not checked for stability
+    /// themselves.
     Strict,
 }
 
@@ -296,7 +305,10 @@ pub struct MasterCheckReport<const N: usize> {
     /// followed by the preferred integrals of proved-zero sectors (which
     /// `ModularReport` counts in `zero_demand`).
     pub unneeded: Vec<[i16; N]>,
-    /// `(class, expected, found)` with fewer masters than expected.
+    /// `(class, expected, found)` with fewer masters than expected. More
+    /// seeds only add masters, so this is not under-seeding: it points to a
+    /// wrong expected count or a symmetry that the router does not know.
+    /// Growth does not act on it; `Strict` refuses it.
     pub missing: Vec<(u32, usize, usize)>,
     /// `(class, expected, found)` with more masters than expected.
     pub excess: Vec<(u32, usize, usize)>,
