@@ -1,4 +1,7 @@
-//! The run directory of one attempt (child-job.md 3.1.3): `CDIR/jobs/<job_id>/a<attempt>/`.
+//! The run directory of one attempt (child-job.md 3.1.3) and every path inside it: the SINGLE source of these names
+//! for all campaign crates (coordinator addendum 2). Attempt directories follow plan 3.3.0:
+//! `WDIR/jobs/<job content id>.<rung>.a<attempt>/`, i.e. `jobs/<job_id>.a<attempt>` with `job_id = <content id>.<rung>`
+//! ([`job_id`], [`attempt_dir_name`], [`attempt_rel`], [`attempt_dir`]).
 
 use std::path::{Path, PathBuf};
 
@@ -40,9 +43,27 @@ pub const WITNESS: &str = "WITNESS.jsonl";
 pub const LOCI: &str = "LOCI.jsonl";
 pub const RESULTS: &str = "results.jsonl";
 
-/// `CDIR/jobs/<job_id>/a<attempt>`.
-pub fn attempt_dir(cdir: &Path, job_id: &str, attempt: u32) -> PathBuf {
-    cdir.join("jobs").join(job_id).join(format!("a{attempt}"))
+/// The directory of all attempt directories under the work directory.
+pub const JOBS_DIR: &str = "jobs";
+
+/// The job id of a job of the campaign: `<job content id>.<rung>` (plan 3.3.0).
+pub fn job_id(content_id: &str, rung: &str) -> String {
+    format!("{content_id}.{rung}")
+}
+
+/// The name of an attempt directory: `<job_id>.a<attempt>`.
+pub fn attempt_dir_name(job_id: &str, attempt: u32) -> String {
+    format!("{job_id}.a{attempt}")
+}
+
+/// The attempt directory relative to the work directory: `jobs/<job_id>.a<attempt>`.
+pub fn attempt_rel(job_id: &str, attempt: u32) -> String {
+    format!("{JOBS_DIR}/{}", attempt_dir_name(job_id, attempt))
+}
+
+/// `WDIR/jobs/<job_id>.a<attempt>`.
+pub fn attempt_dir(wdir: &Path, job_id: &str, attempt: u32) -> PathBuf {
+    wdir.join(JOBS_DIR).join(attempt_dir_name(job_id, attempt))
 }
 
 /// Paths of one run directory.
@@ -100,17 +121,34 @@ impl RunLayout {
     pub fn cert(&self) -> PathBuf {
         self.out_dir().join(CERT)
     }
+    pub fn family(&self) -> PathBuf {
+        self.out_dir().join(FAMILY)
+    }
+    pub fn refused(&self) -> PathBuf {
+        self.out_dir().join(REFUSED)
+    }
+    pub fn spill(&self) -> PathBuf {
+        self.out_dir().join(SPILL)
+    }
+    pub fn obligations(&self) -> PathBuf {
+        self.out_dir().join(OBLIGATIONS)
+    }
+    pub fn witness(&self) -> PathBuf {
+        self.out_dir().join(WITNESS)
+    }
+    pub fn loci(&self) -> PathBuf {
+        self.out_dir().join(LOCI)
+    }
+    pub fn results(&self) -> PathBuf {
+        self.out_dir().join(RESULTS)
+    }
     /// Relative path (as recorded in OUTCOME) of a file in `out/`.
     pub fn out_rel(name: &str) -> String {
         format!("{OUT_DIR}/{name}")
     }
-    /// Resolve a path recorded in OUTCOME (relative to RUN unless absolute).
-    pub fn resolve(&self, p: &str) -> PathBuf {
-        let p = Path::new(p);
-        if p.is_absolute() {
-            p.to_path_buf()
-        } else {
-            self.root.join(p)
-        }
+    /// A layout path relative to RUN (`out/<name>`, `OUTCOME.json`, ...) joined to the root. Paths recorded in
+    /// OUTCOME are never resolved: they must EQUAL the layout path (audit A C2; [`crate::seal::open_in_run`]).
+    pub fn at(&self, rel: &str) -> PathBuf {
+        self.root.join(rel)
     }
 }

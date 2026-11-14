@@ -188,7 +188,7 @@ fn entries(r: &Row) -> Value {
 }
 
 #[derive(Clone)]
-struct Rule {
+pub(crate) struct Rule {
     raw: Value,
     chart: String,
     index: usize,
@@ -201,7 +201,7 @@ struct Rule {
     direct_hit: bool,
 }
 
-fn rule_from(v: &Value) -> Result<Rule, Unknown> {
+pub(crate) fn rule_from(v: &Value) -> Result<Rule, Unknown> {
     let s = |x: &Value| {
         x.as_str()
             .map(str::to_string)
@@ -766,7 +766,7 @@ fn rref_equations(rule: &Rule, n: usize) -> Result<(Vec<Vec<Q>>, Vec<usize>), Un
     Ok((rows, piv))
 }
 
-fn point_valid(
+pub(crate) fn point_valid(
     rule: &Rule,
     point: &[i64],
     dims: &[Q],

@@ -2,11 +2,26 @@
   "schema": "rustred.child-job.resume.v1",
   "job_id": "a71d0c9e",
   "attempt": 1,
+  "spec_blake3": "0000000000000000000000000000000000000000000000000000000000000000",
   "chart": "11111111100000000000",
   "frame": "PRESENTED",
   "rules_committed": 1,
-  "table_committed_bytes": 2716,
-  "table_prefix_blake3": "1111111111111111111111111111111111111111111111111111111111111111",
+  "table": {
+    "path": "out/F.table.jsonl",
+    "bytes": 2716,
+    "blake3": "1111111111111111111111111111111111111111111111111111111111111111",
+    "records": 2,
+    "rules": 1,
+    "canonical_blake3": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "queue": {
+    "path": "out/F.queue.jsonl",
+    "bytes": 300,
+    "blake3": "1111111111111111111111111111111111111111111111111111111111111111",
+    "records": 1,
+    "rules": 0,
+    "canonical_blake3": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
   "current": {
     "frame": "PRESENTED",
     "fixed": [

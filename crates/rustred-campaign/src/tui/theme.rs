@@ -1,6 +1,7 @@
 //! Colour roles. Only NAMED ANSI colours (the terminal's own palette: readable on dark and light backgrounds), no
 //! background colours, no RGB. With colour off every role is the default style except the selection (reverse video,
-//! which is not a colour) and bold headers.
+//! which is not a colour) and bold headers. BOXED is the BRIGHT blue (ANSI 94): plain blue is hard to read on dark
+//! backgrounds (audit m5).
 
 use ratatui::style::{Color, Modifier, Style};
 
@@ -47,7 +48,7 @@ impl Theme {
             Role::Label => base.add_modifier(Modifier::BOLD),
             Role::Title => base.fg(Color::Cyan).add_modifier(Modifier::BOLD),
             Role::Ok => base.fg(Color::Green),
-            Role::Boxed => base.fg(Color::Blue),
+            Role::Boxed => base.fg(Color::LightBlue),
             Role::Terminal => base.fg(Color::Magenta),
             Role::Running => base.fg(Color::Cyan).add_modifier(Modifier::BOLD),
             Role::Queued => base.add_modifier(Modifier::DIM),
@@ -116,7 +117,7 @@ mod tests {
         assert_eq!(Theme { color: false }.style(Role::Fail), Style::default());
         assert_eq!(
             Theme { color: true }.style(Role::Boxed).fg,
-            Some(Color::Blue)
+            Some(Color::LightBlue)
         );
     }
 }
