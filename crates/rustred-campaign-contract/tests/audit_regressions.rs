@@ -36,7 +36,7 @@ fn run_with_table(
     let spec = sample_spec(d.to_str().unwrap());
     let sb = spec.to_json_line();
     std::fs::write(d.join("job.json"), &sb).unwrap();
-    let digest = blake3_hex(&sb);
+    let digest = rustred_campaign_contract::spec::spec_blake3(&sb);
     let mut raw = Vec::new();
     for l in lines {
         raw.extend_from_slice(l.as_bytes());
@@ -168,7 +168,7 @@ fn prev_attempt(root: &Path, job: &str) -> (PathBuf, JobSpec, ResumeState) {
         schema: RESUME_SCHEMA.into(),
         job_id: job.into(),
         attempt: 1,
-        spec_blake3: blake3_hex(&sb),
+        spec_blake3: rustred_campaign_contract::spec::spec_blake3(&sb),
         chart: serde_json::json!("C"),
         frame: Frame::Presented,
         rules_committed: 1,
@@ -228,7 +228,7 @@ fn audit_a_c1_resume_point_is_one_consistent_object() {
     let (_, rref) = resume_state(
         &RunLayout::new(&run),
         &prev,
-        &blake3_hex(&prev.to_json_line()),
+        &rustred_campaign_contract::spec::spec_blake3(&prev.to_json_line()),
     )
     .unwrap();
     assert!(rref.from.ends_with("/RESUME.json"));
@@ -640,9 +640,14 @@ fn audit_a_m2_verifier_counts_elided_loci_itself() {
     s.output.elide_witness_loci = true;
     let sb = s.to_json_line();
     std::fs::write(l.job_spec(), &sb).unwrap();
-    j.spec_blake3 = blake3_hex(&sb);
+    j.spec_blake3 = rustred_campaign_contract::spec::spec_blake3(&sb);
     write_outcome(&l, &j);
-    let c = classify_run(&l, &s, &blake3_hex(&sb), 0);
+    let c = classify_run(
+        &l,
+        &s,
+        &rustred_campaign_contract::spec::spec_blake3(&sb),
+        0,
+    );
     assert_eq!(
         (c.row, c.kind, c.accept, c.action),
         (
@@ -704,7 +709,7 @@ fn audit_a_m4_every_kind_needs_its_sealed_outputs() {
     s.program.name = "rr_node".into();
     let sb = s.to_json_line();
     std::fs::write(run.join("job.json"), &sb).unwrap();
-    let dg = blake3_hex(&sb);
+    let dg = rustred_campaign_contract::spec::spec_blake3(&sb);
     let l = RunLayout::new(run);
     let mut j = job_outcome(&s, ExitCode::Complete, None, false);
     j.spec_blake3 = dg.clone();

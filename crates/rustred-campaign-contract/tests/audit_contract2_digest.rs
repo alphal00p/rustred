@@ -16,7 +16,6 @@ use rustred_campaign_contract::canon::{CanonicalDigest, canonical_line, canonica
 use rustred_campaign_contract::{blake3_hex, spec::spec_blake3};
 
 #[test]
-#[ignore = "FINDING ac2-m7: fails until digests of different kinds are domain-separated"]
 fn ac2_digest_kinds_are_not_domain_separated() {
     let rec = br#"{"index":0,"rhs":[],"type":"rule"}"#;
     assert_eq!(

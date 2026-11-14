@@ -381,7 +381,6 @@ fn ac2_seal_hard_link_from_outside_the_run_passes() {
 /// O_DIRECTORY through `/proc/self/fd/<dirfd>/<comp>`), open the file with O_NOFOLLOW | O_NONBLOCK, and compare
 /// (dev, ino) of each opened directory with its lstat.
 #[test]
-#[ignore = "FINDING ac2-m3: fails (escape observed) until open_in_run opens component by component"]
 fn ac2_seal_race_symlink_swap_of_out_dir_escapes_the_run() {
     use std::os::unix::fs::symlink;
     use std::sync::Arc;
@@ -661,7 +660,6 @@ fn ac2_resume_ref_path_validation() {
 /// Smallest fix: read every contract document through `canon::canonical_record` first (it refuses decoded
 /// duplicate keys at any depth) and parse the canonical bytes.
 #[test]
-#[ignore = "FINDING ac2-m4: fails until OUTCOME refuses duplicate keys at every depth"]
 fn ac2_outcome_duplicate_keys_refused() {
     let (run, s) = honest("dup");
     let good = String::from_utf8(std::fs::read(run.layout.outcome()).unwrap()).unwrap();
@@ -795,7 +793,6 @@ fn ac2_misspelt_time_decided_pair_reads_as_deterministic() {
 /// No consumer reads `outputs.extra` today [read: grep of crates/rustred-campaign/src], so latent. Smallest fix:
 /// refuse duplicate roles in `JobOutcome::check`.
 #[test]
-#[ignore = "FINDING ac2-m5: fails until duplicate outputs.extra roles are refused"]
 fn ac2_outputs_extra_duplicate_role_refused() {
     let (run, s) = honest("extra");
     // a sealed subcases file
@@ -865,7 +862,6 @@ fn ac2_cert_is_verified_only_when_listed() {
 /// Smallest fix: in the verifier, require at most one header and, when present, on line 1; compare every header's
 /// `family_blake3`.
 #[test]
-#[ignore = "FINDING ac2-m6: fails until a header off line 1 (or a second header) is refused"]
 fn ac2_family_binding_only_checks_a_first_line_header() {
     let run = new_run("fam", 1);
     let mut w = RecordWriter::create(&run.layout.table()).unwrap();

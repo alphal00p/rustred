@@ -14,5 +14,7 @@ path = "src/lib.rs"
 # Deliberately dependency-light: no rustred core, no Symbolica.
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
+# float_roundtrip (lane contractfix2, audit ac2-m8): readers parse floats exactly, so the f64 a reader holds is the
+# value the canonical form names; feature unification gives it to every crate that links this one.
+serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
 blake3 = "1"

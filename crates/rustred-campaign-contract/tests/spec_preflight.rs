@@ -201,7 +201,7 @@ fn preflight_ok_and_each_refusal() {
     assert!(ok.inputs[0].verified);
     assert_eq!(
         ok.spec_blake3,
-        rustred_campaign_contract::blake3_hex(&std::fs::read(&p).unwrap())
+        rustred_campaign_contract::spec::spec_blake3(&std::fs::read(&p).unwrap())
     );
     let code = |r: Result<Prepared, Refusal>| r.map(|_| ()).unwrap_err();
     // unreadable spec: 40, run dir unknown

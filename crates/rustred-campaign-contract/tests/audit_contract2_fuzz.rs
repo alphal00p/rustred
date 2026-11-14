@@ -335,6 +335,10 @@ fn independent_verify(b: &[u8]) -> Option<(u64, u64)> {
         if is_end != (k + 1 == lines.len()) {
             return None;
         }
+        // lane contractfix2 (ac2-m6, child-job.md 3.4.4): a header record only on line 1
+        if ty == Some("header") && k != 0 {
+            return None;
+        }
         if ty == Some("rule") {
             let idx = c.member("index")?;
             let s = std::str::from_utf8(idx).ok()?;
@@ -400,6 +404,10 @@ fn random_table(r: &mut Rng) -> Vec<u8> {
             lines.insert(k, r#"{"type":"end"}"#.into());
         }
         1 => lines.push(r#"{"type":"rule","index":0}"#.into()),
+        4 => {
+            let k = 1 + r.below(lines.len() as u64) as usize;
+            lines.insert(k.min(lines.len()), r#"{"type":"header","y":2}"#.into());
+        }
         2 => {
             let k = r.below(lines.len() as u64) as usize;
             lines[k] = lines[k].replacen("\"index\":", "\"index\":0.", 1);

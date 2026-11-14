@@ -317,13 +317,8 @@ fn enc_spell(r: &mut Rng, m: &M, out: &mut String) {
     match m {
         M::Null => out.push_str("null"),
         M::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
-        M::Int(s) => {
-            if s == "0" && r.chance(1, 3) {
-                out.push_str("-0")
-            } else {
-                out.push_str(s)
-            }
-        }
+        // lane contractfix2 (ac2-m1 fixed): the integer token `-0` is refused, so it is no longer a spelling of 0
+        M::Int(s) => out.push_str(s),
         M::Float(f) => enc_spell_float(r, *f, out),
         M::Str(s) => enc_spell_str(r, s, out),
         M::Arr(v) => {
@@ -506,6 +501,10 @@ fn ac2_canon_mutation_differential_fuzz() {
             (Err(CanonError::TypeNotString), Ok(_)) => {
                 "ours refuses: type not a string (contract stricter)"
             }
+            // lane contractfix2 (ac2-m1): serde_json reads `-0` as the float -0.0; the contract refuses the token
+            (Err(CanonError::NegativeZeroInteger { .. }), Ok(_)) => {
+                "ours refuses: integer token -0 (contract stricter)"
+            }
             (Err(_), Ok(_)) => "OURS REFUSES, serde accepts (other)",
             (Ok(_), Err(e)) if e.to_string().contains("duplicate") => "serde refuses duplicate",
             (Ok(_), Err(_)) => "OURS ACCEPTS, serde refuses",
@@ -590,7 +589,6 @@ fn ac2_canon_refuses_outside_the_value_space() {
 /// `-0e0` (equal f64 values for every reader) get DIFFERENT canonical forms. Smallest fix: refuse the token `-0`
 /// (CanonError) like any other non-canonical spelling; or keep `-0` verbatim.
 #[test]
-#[ignore = "FINDING ac2-m1: fails until -0 is refused (or kept as a float form serde_json agrees with)"]
 fn ac2_canon_negative_zero_integer_vs_serde_reader() {
     // evidence (holds today): serde_json reads `-0` as the float -0.0, not as the integer 0
     let va: serde_json::Value = serde_json::from_slice(br#"{"index":-0}"#).unwrap();
@@ -737,7 +735,6 @@ fn ac2_canon_typeless_record_in_a_table_hides_seconds_keys() {
 /// Smallest fix: in `P::number`, for an integer token longer than 309 digits parse it as f64 and refuse a
 /// non-finite value (or refuse integers beyond i64/u64, as serde_json's exact range).
 #[test]
-#[ignore = "FINDING ac2-m2: fails until an integer outside the f64 range is refused"]
 fn ac2_canon_huge_integer_accepted_but_serde_refuses() {
     let line = format!(
         "{{\"type\":\"rule\",\"index\":0,\"x\":{}}}",
@@ -758,7 +755,6 @@ fn ac2_canon_huge_integer_accepted_but_serde_refuses() {
 /// limit exceeded"). Smallest fix: `value()` / `members()` refuse `depth >= MAX_DEPTH - 1`, i.e. at most 127
 /// nested containers as serde_json (or make the limit a shared constant tested against serde_json).
 #[test]
-#[ignore = "FINDING ac2-m2: fails until the canonicaliser's depth limit equals serde_json's"]
 fn ac2_canon_depth_boundary_vs_serde() {
     let mut agree = true;
     let mut report = Vec::new();
@@ -783,7 +779,6 @@ fn ac2_canon_depth_boundary_vs_serde() {
 /// Smallest fix: `serde_json = { version = "1.0.151", features = ["float_roundtrip"] }` in the contract crate's
 /// Cargo.toml (feature unification gives every reader exact parsing; a shared-file change for the integration lane).
 #[test]
-#[ignore = "FINDING ac2-m8: fails until serde_json parses floats exactly (float_roundtrip)"]
 fn ac2_canon_float_value_is_reader_dependent() {
     let s = "4.1844674407370955e+21";
     let exact: f64 = s.parse().unwrap();
