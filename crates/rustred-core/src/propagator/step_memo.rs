@@ -92,11 +92,13 @@ pub(crate) struct RouteExpansion {
 /// A memo value: this thread's (`Rc`) or the shared memo's (`Arc`).
 pub(crate) enum Held<V> {
     Local(Rc<V>),
-    /// A shared memo value; its indices name the table of this thread's
-    /// handle of the shared memo (fwd-opt: no clone of the memo's `Arc` per
-    /// lookup, one count updated by every worker; the memo is replaced only
-    /// between requests).
-    Shared(std::sync::Arc<V>),
+    /// A shared memo value and the memo whose table its indices name. The
+    /// memo travels with the value (as before fwd-opt 93126217): a thread
+    /// that reaches the shared memo outside a counted request (its lookups
+    /// see `SHARED_ACTIVE > 0` from another request) may hold the value after
+    /// that request dropped the memo, and resolving its indices through a
+    /// newer memo failed ("an interned shared memo coefficient", batch-6 gate).
+    Shared(std::sync::Arc<V>, std::sync::Arc<SharedMemo>),
 }
 
 impl<V> std::ops::Deref for Held<V> {
@@ -104,7 +106,7 @@ impl<V> std::ops::Deref for Held<V> {
     fn deref(&self) -> &V {
         match self {
             Held::Local(value) => value,
-            Held::Shared(value) => value,
+            Held::Shared(value, _) => value,
         }
     }
 }
@@ -239,7 +241,7 @@ pub(crate) fn coefficients_of<V, R>(
     f: impl FnOnce(&dyn Fn(u32) -> Coefficient) -> R,
 ) -> R {
     match held {
-        Held::Shared(_) => with_shared(|memo| f(&|index| rehome(memo.coefficient(index)))),
+        Held::Shared(_, memo) => f(&|index| rehome(memo.coefficient(index))),
         Held::Local(_) => local_coefficients(f),
     }
 }
@@ -389,7 +391,7 @@ pub(crate) fn insertion(
     if shared_enabled() {
         return with_shared(|memo| {
             if let Some(value) = memo.get(key, true, limits, |shard| &shard.insertion) {
-                return Ok(Some(Held::Shared(value)));
+                return Ok(Some(Held::Shared(value, std::sync::Arc::clone(memo))));
             }
             let (table, weights) = compute()?;
             let Some(weights) = weights
@@ -404,7 +406,7 @@ pub(crate) fn insertion(
             };
             let value = std::sync::Arc::new(InsertionWeights { table, weights });
             memo.put(key, limits, |shard| &mut shard.insertion, &value);
-            Ok(Some(Held::Shared(value)))
+            Ok(Some(Held::Shared(value, std::sync::Arc::clone(memo))))
         });
     }
     STATE.with(|state| {
@@ -445,7 +447,7 @@ pub(crate) fn route(
     if shared_enabled() {
         return with_shared(|memo| {
             if let Some(value) = memo.get(key, false, limits, |shard| &shard.route) {
-                return Ok(Some(Held::Shared(value)));
+                return Ok(Some(Held::Shared(value, std::sync::Arc::clone(memo))));
             }
             let (arity, offsets, coefficients) = compute()?;
             let Ok(offsets) = offsets
@@ -468,7 +470,7 @@ pub(crate) fn route(
                 coefficients,
             });
             memo.put(key, limits, |shard| &mut shard.route, &value);
-            Ok(Some(Held::Shared(value)))
+            Ok(Some(Held::Shared(value, std::sync::Arc::clone(memo))))
         });
     }
     STATE.with(|state| {
