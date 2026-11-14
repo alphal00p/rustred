@@ -2,6 +2,16 @@
 //! BAD branches (AND-lists; the rule is excluded where every member of one branch vanishes). Literals are interned
 //! once with their slot support. Pole loci become BAD branches (the AND of the d-coefficients of each exact linear
 //! factor and of the cofactor: Z[n,d] has no zero divisors, so the zero set is the union over the factors).
+//!
+//! Every coefficient operation is checked (re-audit RA2-C1); an overflow is a typed error or an exclusion / weakening
+//! recorded in the notes, never a wrapped literal.
+
+#![deny(
+    clippy::arithmetic_side_effects,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)]
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -145,8 +155,8 @@ impl NfRules {
                 .lits
                 .iter()
                 .enumerate()
-                .map(|(i, l)| ((l.is_ge, l.poly.clone()), i as u32))
-                .collect(),
+                .map(|(i, l)| Ok(((l.is_ge, l.poly.clone()), lit_id(i)?)))
+                .collect::<Result<_, PartitionError>>()?,
         };
         let mut rules = vec![];
         let mut sources = vec![];
@@ -229,6 +239,10 @@ enum Norm {
     Lit(u32),
 }
 
+fn lit_id(i: usize) -> Result<u32, PartitionError> {
+    u32::try_from(i).map_err(|_| PartitionError::Unsupported("more than u32::MAX literals".into()))
+}
+
 impl Builder {
     fn intern(&mut self, p: &MPoly, is_ge: bool) -> Result<Norm, PartitionError> {
         if let Some(c) = p.as_constant() {
@@ -245,14 +259,7 @@ impl Builder {
             });
         }
         let q = if is_ge {
-            let g = p.content();
-            p.scale(1).map(|x| {
-                let mut r = MPoly::zero(x.nvars);
-                for (e, &c) in &x.terms {
-                    r.terms.insert(e.clone(), c / g);
-                }
-                r
-            })
+            p.positive_primitive()
         } else {
             p.primitive()
         }
@@ -261,10 +268,10 @@ impl Builder {
         if let Some(&i) = self.index.get(&key) {
             return Ok(Norm::Lit(i));
         }
-        let id = self.lits.len() as u32;
+        let id = lit_id(self.lits.len())?;
         let names = slot_names(self.arity, false);
         self.lits.push(Lit {
-            core: q.to_poly(self.arity),
+            core: q.to_poly(self.arity).map_err(PartitionError::Exact)?,
             support: q.support(),
             text: q.render(&names),
             poly: q,
@@ -301,13 +308,14 @@ fn pole_branches(
     if coeffs.is_empty() {
         return Ok(vec![vec![]]); // identically zero: always forbidden
     }
-    let nv = arity + 1;
+    let nv = arity.saturating_add(1); // arity <= 64
     let mut p = MPoly::zero(nv);
     for (k, cm) in coeffs {
         let mut lifted = MPoly::zero(nv);
+        let kk = u32::try_from(*k).map_err(|_| PartitionError::Exact(ExactError::Overflow))?;
         for (e, &x) in &cm.terms {
             let mut e2 = e.clone();
-            e2.push(*k as u32);
+            e2.push(kk);
             lifted.terms.insert(e2, x);
         }
         p = p.add(&lifted).map_err(PartitionError::Exact)?;
@@ -316,7 +324,7 @@ fn pole_branches(
         Ok(x) => x,
         Err(ExactError::Overflow) | Err(ExactError::TooLarge(_)) => (vec![], p.clone()),
     };
-    *nlin += fs.len();
+    *nlin = nlin.saturating_add(fs.len());
     let mut out = vec![];
     for f in fs.iter().chain(std::iter::once(&rest)) {
         if f.as_constant().is_some_and(|c| c != 0) {
@@ -392,7 +400,7 @@ fn pattern_map(
         ));
     }
     let mut map: Vec<Affine> = (0..arity)
-        .map(|a| Affine::constant(arity, fixed[a].unwrap_or(0) as i128))
+        .map(|a| Affine::constant(arity, i128::from(fixed[a].unwrap_or(0))))
         .collect();
     let mut consts = vec![];
     let mut range = vec![];
@@ -407,17 +415,19 @@ fn pattern_map(
                     ));
                 }
                 used[param] = true;
-                let mut a = Affine::var(arity, j);
-                a.c = -(offset as i128);
-                map[param] = a;
+                // i64 -> i128: the negation and the sums below never overflow i128
+                let o = i128::from(offset);
+                map[param] = Affine::unit(arity, j, 1, o.saturating_neg());
                 let nj = MPoly::var(arity, j);
-                let o = offset as i128;
                 let bound = if o > 0 {
                     // n_j - o >= i32::MIN
-                    nj.sub(&MPoly::constant(arity, o + i32::MIN as i128))
+                    nj.sub(&MPoly::constant(
+                        arity,
+                        o.saturating_add(i128::from(i32::MIN)),
+                    ))
                 } else if o < 0 {
                     // i32::MAX - (n_j - o) >= 0
-                    MPoly::constant(arity, i32::MAX as i128 + o).sub(&nj)
+                    MPoly::constant(arity, i128::from(i32::MAX).saturating_add(o)).sub(&nj)
                 } else {
                     continue;
                 };
@@ -463,7 +473,7 @@ pub fn build(
     };
     let in_chart = |s: usize, v: i64| (lines[s] && v >= 1) || (!lines[s] && v <= 0);
     'dom: for i in idx {
-        stats.domains += 1;
+        stats.domains = stats.domains.saturating_add(1);
         let d: &CaseDomain = src.domain(i);
         if d.arity != arity {
             return Err(PartitionError::Arity {
@@ -484,7 +494,7 @@ pub fn build(
         let elided_here = witness_blocked && opts.elided != ElidedPolicy::Ordinary;
         if witness_blocked {
             if elided_here {
-                stats.dropped_elided += 1;
+                stats.dropped_elided = stats.dropped_elided.saturating_add(1);
                 note(&mut notes, NfNote::ElidedRemoved);
             } else {
                 note(&mut notes, NfNote::ElidedCredited);
@@ -498,11 +508,12 @@ pub fn build(
             TargetMap::Canonical => (None, vec![], vec![]),
             TargetMap::Pattern(t) => match pattern_map(t, &d.fixed, arity) {
                 Ok((m, c, r)) => {
-                    stats.pattern_targets += 1;
+                    stats.pattern_targets = stats.pattern_targets.saturating_add(1);
                     (Some(m), c, r)
                 }
                 Err(e) => {
-                    stats.excluded_unrepresentable += 1;
+                    stats.excluded_unrepresentable =
+                        stats.excluded_unrepresentable.saturating_add(1);
                     note(&mut notes, NfNote::Excluded(format!("target pattern: {e}")));
                     continue;
                 }
@@ -528,11 +539,11 @@ pub fn build(
             .fixed
             .iter()
             .enumerate()
-            .filter_map(|(s, f)| f.map(|v| (s, v as i64)))
+            .filter_map(|(s, f)| f.map(|v| (s, i64::from(v))))
             .chain(consts.iter().copied());
         for (s, v) in fixed_iter {
             if !in_chart(s, v) {
-                stats.dropped_out_of_chart += 1;
+                stats.dropped_out_of_chart = stats.dropped_out_of_chart.saturating_add(1);
                 note(
                     &mut notes,
                     NfNote::DroppedEmpty(format!(
@@ -542,18 +553,23 @@ pub fn build(
                 continue 'dom;
             }
             let p = MPoly::var(arity, s)
-                .sub(&MPoly::constant(arity, v as i128))
+                .sub(&MPoly::constant(arity, i128::from(v)))
                 .map_err(PartitionError::Exact)?;
             match b.intern(&p, false)? {
                 Norm::Lit(l) => sel.eq.push(l),
-                _ => unreachable!("n_s - v is never constant"),
+                _ => {
+                    return Err(PartitionError::Unsupported(
+                        "n_s - v interned as a constant".into(),
+                    ));
+                }
             }
         }
         for e in &d.equations {
             let q = match lit_of(e) {
                 Ok(q) => q,
                 Err(why) => {
-                    stats.excluded_unrepresentable += 1;
+                    stats.excluded_unrepresentable =
+                        stats.excluded_unrepresentable.saturating_add(1);
                     note(&mut notes, NfNote::Excluded(format!("equation {why}")));
                     continue 'dom;
                 }
@@ -561,7 +577,7 @@ pub fn build(
             match b.intern(&q, false)? {
                 Norm::Zero => {}
                 Norm::NonZeroConst => {
-                    stats.dropped_dead_constant += 1;
+                    stats.dropped_dead_constant = stats.dropped_dead_constant.saturating_add(1);
                     note(
                         &mut notes,
                         NfNote::DroppedEmpty(format!("equation {e} is a nonzero constant")),
@@ -575,7 +591,8 @@ pub fn build(
             let q = match lit_of(g) {
                 Ok(q) => q,
                 Err(why) => {
-                    stats.excluded_unrepresentable += 1;
+                    stats.excluded_unrepresentable =
+                        stats.excluded_unrepresentable.saturating_add(1);
                     note(&mut notes, NfNote::Excluded(format!("bound {why}")));
                     continue 'dom;
                 }
@@ -583,7 +600,7 @@ pub fn build(
             match b.intern(&q, true)? {
                 Norm::Zero => {}
                 Norm::NonZeroConst => {
-                    stats.dropped_dead_constant += 1;
+                    stats.dropped_dead_constant = stats.dropped_dead_constant.saturating_add(1);
                     note(
                         &mut notes,
                         NfNote::DroppedEmpty(format!("bound {g} is a negative constant")),
@@ -616,13 +633,13 @@ pub fn build(
                 None => {}
                 Some(v) if v.is_empty() => {
                     if weakened.is_empty() {
-                        stats.dropped_dead_constant += 1;
+                        stats.dropped_dead_constant = stats.dropped_dead_constant.saturating_add(1);
                         note(
                             &mut notes,
                             NfNote::DroppedEmpty("an exception branch vanishes everywhere".into()),
                         );
                     } else {
-                        stats.weakened += 1;
+                        stats.weakened = stats.weakened.saturating_add(1);
                         note(
                             &mut notes,
                             NfNote::Weakened(format!(
@@ -688,7 +705,7 @@ pub fn build(
             if weak {
                 weakened.push("a pole coefficient treated as vanishing everywhere".into());
             }
-            stats.pole_branches += pb.len();
+            stats.pole_branches = stats.pole_branches.saturating_add(pb.len());
             for br in pb {
                 match b.branch(&br)? {
                     None => {}
@@ -706,7 +723,7 @@ pub fn build(
             });
         }
         if !weakened.is_empty() {
-            stats.weakened += 1;
+            stats.weakened = stats.weakened.saturating_add(1);
             note(&mut notes, NfNote::Weakened(weakened.join("; ")));
         }
         for v in [&mut sel.eq, &mut sel.ge, &mut blk_ge] {
@@ -749,7 +766,7 @@ pub fn build(
                     never_applies.clone().unwrap_or_default()
                 )),
             );
-            stats.dropped_dead_constant += 1;
+            stats.dropped_dead_constant = stats.dropped_dead_constant.saturating_add(1);
             continue;
         };
         if opts.dedup {
@@ -841,7 +858,8 @@ fn subtract(b: &mut Builder, v: &NfRule, h: &NfRule) -> Result<Vec<NfRule>, Part
     Ok(out)
 }
 
-/// `n_s - v` (or `v - n_s`) -> (s, v).
+/// `n_s - v` (or `v - n_s`) -> (s, v); `None` when v does not fit `i64` (re-audit RA2-m3: never an `as` cast; the
+/// fast pre-check then simply does not apply, the literal itself is still evaluated exactly).
 fn unit_fixed(l: &Lit) -> Option<(usize, i64)> {
     if l.support.len() != 1 {
         return None;
@@ -849,8 +867,8 @@ fn unit_fixed(l: &Lit) -> Option<(usize, i64)> {
     let (coef, c) = l.poly.linear_form()?;
     let s = l.support[0];
     match coef[s] {
-        1 => Some((s, -c as i64)),
-        -1 => Some((s, c as i64)),
+        1 => i64::try_from(c.checked_neg()?).ok().map(|v| (s, v)),
+        -1 => i64::try_from(c).ok().map(|v| (s, v)),
         _ => None,
     }
 }
@@ -867,12 +885,17 @@ impl NfRules {
 
     /// Union coverage of a chart key by rule `r` (exact).
     pub fn rule_covers(&self, r: usize, key: &[i32]) -> Result<bool, PartitionError> {
-        let rule = &self.rules[r];
         for &(s, v) in &self.quick[r] {
-            if key[s] as i64 != v {
+            if i64::from(key[s]) != v {
                 return Ok(false);
             }
         }
+        self.nf_rule_covers(&self.rules[r], key)
+    }
+
+    /// Does a normal-form rule (whose literals are interned here, e.g. a blocker's SELECTED set) hold at the key?
+    /// Exact (big-integer fallback).
+    pub fn nf_rule_covers(&self, rule: &NfRule, key: &[i32]) -> Result<bool, PartitionError> {
         for &l in &rule.eq {
             if self.lit_sign(l, key)? != 0 {
                 return Ok(false);

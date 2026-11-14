@@ -1,7 +1,7 @@
 //! Independent re-audit of the partition / loci / containment (lane audit-part2, 2026-11-14). Synthetic tables only
 //! (lane rule L8). Two kinds of tests:
-//! - `defect_*`: CONFIRMING reproductions of findings (they assert the defect as it is today; a fix inverts the
-//!   assertion, as the first audit round's tests were ported);
+//! - `defect_*`: the reproductions of the findings, INVERTED by lane partfix2 (2026-11-14): each now asserts the
+//!   CORRECT behaviour on the auditor's input (the finding's description is kept in the doc comment);
 //! - `diff_*` / `exact_*`: differential property tests against brute force (they must pass; a failure is a finding).
 //!
 //! Report: WS/notes/implementer.reaudit-part.md.
@@ -15,7 +15,9 @@ use rustred_campaign_core::domain::{CaseDomain, PoleKind, PoleLocus, Stage, Verd
 use rustred_campaign_core::key::{Key, NodeFrame};
 use rustred_campaign_core::loci::Region;
 use rustred_campaign_core::loci::region::{exhaustive_point, fm_feasible};
-use rustred_campaign_core::partition::exact::{Affine, Range, gcd, int_roots, linear_feasible};
+use rustred_campaign_core::partition::exact::{
+    Affine, ExactError, Range, gcd, gcd_u, int_roots, linear_feasible,
+};
 use rustred_campaign_core::partition::{
     ANY_OFF, ArtefactIds, Budget, ClassHit, Containment, CoverageNotion, DomainList, ElidedPolicy,
     Emptiness, Label, PartitionOptions, PartitionReport, contained_in, face_of, gap_partition,
@@ -281,6 +283,8 @@ fn described(rep: &PartitionReport, k: &[i32]) -> Result<(), String> {
 /// (`classes.rs` `ge_val`: `_ => CondVal::Kill`), so a class whose every point is covered by half-space rules is
 /// labelled Uncovered and listed as a GENERIC gap face with proof `exact_partition`. Here A: n0 - n1 >= 0 and
 /// B: n1 - n0 - 1 >= 0 cover the whole chart, yet the partition lists the face {n0, n1}.
+/// FIXED (partfix2, RA2-M2): the varying bound soft-kills its rule, the class is Fragile, the loci split it on the
+/// bound exactly: no U class, no face, a union no-gap proof (the chart IS covered).
 #[test]
 fn defect_varying_multislot_bound_gives_spurious_generic_face() {
     let (n, e) = (2, 2);
@@ -294,31 +298,33 @@ fn defect_varying_multislot_bound_gives_spurious_generic_face() {
         assert!(union_covered(&ds, &k), "brute force: {k:?} is covered");
     }
     let rep = gap_partition(&list(&ds, n), &f, &absent(), None).unwrap();
-    assert!(rep.outcome.is_complete());
-    // the defect: a U class and a generic face with an exact-partition proof, on a fully covered chart
-    assert_eq!(rep.n_u(), 1, "U classes");
-    let face = rep
-        .faces
-        .iter()
-        .find(|x| x.key() == (vec![0, 1], vec![]))
-        .expect("face listed");
-    assert_eq!(
-        face.kind,
-        rustred_campaign_core::partition::FaceKind::Generic
-    );
-    assert_eq!(face.proof.tag(), "exact_partition");
-    assert!(face.witness.is_none(), "no uncovered key exists");
-    assert!(rep.proves_no_gap(CoverageNotion::UnionCoverage).is_err());
-    // the census sees it: every key of the class is a covered key in a U class
+    assert!(rep.outcome.is_complete(), "{:?}", rep.outcome);
+    assert_eq!(rep.n_u(), 0, "U classes");
+    assert!(rep.stats.soft_fragile >= 1);
+    assert!(rep.faces.is_empty(), "{:?}", rep.faces);
+    assert!(rep.proves_no_gap(CoverageNotion::UnionCoverage).is_ok());
     let c = rep.census(&window(n, e, 8)).unwrap();
     assert!(c.uncovered.is_empty());
-    assert_eq!(c.covered_in_u.len(), 49);
+    assert!(c.covered_in_u.is_empty());
+    // a half-plane gap is found exactly: without B the keys n1 > n0 are a gap, described by a locus piece
+    let only_a = vec![ds[0].clone()];
+    let ra = gap_partition(&list(&only_a, n), &f, &absent(), None).unwrap();
+    assert!(ra.outcome.is_complete());
+    for k in window(n, e, 9) {
+        let unc = !union_covered(&only_a, &k);
+        assert_eq!(ra.uncovered(&k).unwrap(), unc, "{k:?}");
+        if unc {
+            assert_ne!(ra.class_of(&k).unwrap(), ClassHit::Covered, "{k:?}");
+            described(&ra, &k).unwrap_or_else(|w| panic!("{k:?}: {w}"));
+        }
+    }
 }
 
 /// FINDING (major, exactness): a ONE-slot NONLINEAR bound is never decided on an interval state (`ge_status`
 /// only handles constants and linear forms), although the slot states are split at every sign change of the bound,
 /// so its sign IS constant on each state. A: n0^2 - 4 >= 0 (true for n0 >= 2) plus B: n0 = 1 cover every key of a
 /// one-line node, but the tail state n0 >= 3 is labelled Uncovered.
+/// FIXED (partfix2, RA2-M2): a one-slot bound of any degree is decided exactly on each state: the tail is covered.
 #[test]
 fn defect_one_slot_nonlinear_bound_killed_on_its_own_tail() {
     let (n, e) = (1, 1);
@@ -332,13 +338,11 @@ fn defect_one_slot_nonlinear_bound_killed_on_its_own_tail() {
         assert!(union_covered(&ds, &k));
     }
     let rep = gap_partition(&list(&ds, n), &f, &absent(), None).unwrap();
-    assert!(rep.n_u() >= 1, "the tail is labelled Uncovered");
-    assert!(rep.faces.iter().any(|x| x.key() == (vec![0], vec![])));
-    assert!(
-        !rep.uncovered(&[7]).unwrap(),
-        "the point oracle knows it is covered"
-    );
-    assert_eq!(rep.class_of(&[7]).unwrap(), ClassHit::Uncovered);
+    assert_eq!(rep.n_u(), 0, "no U class");
+    assert!(rep.faces.is_empty());
+    assert!(!rep.uncovered(&[7]).unwrap());
+    assert_eq!(rep.class_of(&[7]).unwrap(), ClassHit::Covered);
+    assert!(rep.proves_no_gap(CoverageNotion::UnionCoverage).is_ok());
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -446,13 +450,13 @@ fn exact_int_roots_vs_brute_force() {
     let mut g = Rng(0xB0075);
     for case in 0..50_000u64 {
         let mut c: Vec<i128> = vec![g.range(1, 4) as i128 * if g.chance(1, 2) { -1 } else { 1 }];
-        let mut want: BTreeSet<i64> = BTreeSet::new();
+        let mut want: BTreeSet<i128> = BTreeSet::new();
         match g.below(3) {
             0 => {
                 for _ in 0..g.below(4) {
-                    let r = g.range(-30, 30);
+                    let r = g.range(-30, 30) as i128;
                     want.insert(r);
-                    c = poly_mul(&c, &[-(r as i128), 1]);
+                    c = poly_mul(&c, &[-r, 1]);
                 }
                 if g.chance(1, 2) {
                     // x^2 + a x + b without integer roots unless it factors: recompute by brute force below
@@ -471,21 +475,20 @@ fn exact_int_roots_vs_brute_force() {
         if c.iter().all(|&x| x == 0) {
             continue;
         }
-        let brute: BTreeSet<i64> = (-3000i128..=3000)
+        let brute: BTreeSet<i128> = (-3000i128..=3000)
             .filter(|&x| univ_eval(&c, x) == Some(0))
-            .map(|x| x as i64)
             .collect();
         if !want.is_empty() {
             assert!(want.is_subset(&brute));
         }
-        let got: BTreeSet<i64> = int_roots(&c)
+        let got: BTreeSet<i128> = int_roots(&c)
             .unwrap_or_else(|e| panic!("case {case}: {c:?}: {e}"))
             .into_iter()
             .collect();
         assert_eq!(got, brute, "case {case}: roots of {c:?}");
     }
     // far roots: (x - 10^9)(x + 3), (x - 2^40)(x - 1), x^3 (x - 7^11)
-    let far: [(Vec<i128>, Vec<i64>); 3] = [
+    let far: [(Vec<i128>, Vec<i128>); 3] = [
         (
             poly_mul(&[-1_000_000_000, 1], &[3, 1]),
             vec![-3, 1_000_000_000],
@@ -493,7 +496,7 @@ fn exact_int_roots_vs_brute_force() {
         (poly_mul(&[-(1i128 << 40), 1], &[-1, 1]), vec![1, 1 << 40]),
         (
             poly_mul(&[0, 0, 0, 1], &[-(7i128.pow(11)), 1]),
-            vec![0, 7i64.pow(11)],
+            vec![0, 7i128.pow(11)],
         ),
     ];
     for (c, want) in far {
@@ -621,7 +624,7 @@ fn exact_lattice_cut_vs_brute_force() {
             .collect();
         match r.cut(&coef, c).unwrap() {
             None => {
-                let gg = coef.iter().fold(0, |a, &x| gcd(a, x));
+                let gg = coef.iter().fold(0, |a, &x| gcd(a, x).unwrap());
                 assert!(
                     sols.is_empty(),
                     "case {case}: cut None but {} solutions",
@@ -652,16 +655,14 @@ fn exact_lattice_cut_vs_brute_force() {
     }
 }
 
-/// FINDING (minor): `gcd` clamps 2^127 to i128::MAX, which does not divide i128::MIN.
+/// FINDING (minor): `gcd` clamped 2^127 to i128::MAX, which does not divide i128::MIN. FIXED (partfix2, RA2-m2):
+/// `gcd` answers `Overflow` (2^127 does not fit i128), `gcd_u` the exact u128 value.
 #[test]
 fn defect_gcd_clamps_two_to_the_127() {
-    let g = gcd(i128::MIN, 0);
-    assert_eq!(g, i128::MAX);
-    assert_ne!(
-        i128::MIN % g,
-        0,
-        "the returned gcd does not divide its argument"
-    );
+    assert_eq!(gcd(i128::MIN, 0), Err(ExactError::Overflow));
+    assert_eq!(gcd_u(i128::MIN, 0), 1u128 << 127);
+    assert_eq!(gcd(i128::MIN, 12), Ok(4));
+    assert_eq!(gcd(i128::MIN, i128::MAX), Ok(1));
 }
 
 /// FINDING (major, exactness): a locus piece whose region is rationally feasible but has NO integer point is
@@ -672,6 +673,8 @@ fn defect_gcd_clamps_two_to_the_127() {
 /// covered, yet a LOCUS-ONLY gap face {n0, n1, n2} is listed with proof exact_partition and a piece without
 /// witness; the crate's own `exhaustive_point` proves the piece's region integer-empty (found by
 /// `explore_integer_empty_pieces`: 5 such pieces in 39 FM-robust polygons).
+/// FIXED (partfix2, RA2-M3): a piece is emitted only with a point; the integer-empty one is PROVED empty by the
+/// exhaustive search and dropped: no face, complete outcome, union no-gap proof (the chart IS covered).
 #[test]
 fn defect_integer_empty_locus_piece_is_reported() {
     let (n, e) = (3, 3);
@@ -690,36 +693,24 @@ fn defect_integer_empty_locus_piece_is_reported() {
         assert!(union_covered(&ds, &k), "{k:?}");
     }
     let rep = gap_partition(&list(&ds, n), &f, &absent(), None).unwrap();
-    assert!(rep.outcome.is_complete());
+    assert!(rep.outcome.is_complete(), "{:?}", rep.outcome);
     let res = rep.resolution.as_ref().unwrap();
-    let mut empty_pieces = 0;
     for l in &res.loci {
         for pc in &l.pieces {
             let mut budget = 1_000_000u64;
-            if exhaustive_point(&pc.region.cons, pc.region.k, &mut budget).unwrap() == Some(None) {
-                empty_pieces += 1;
-                assert!(pc.witness.is_empty());
-                assert!(!pc.covered_part_unresolved, "not even flagged");
-                assert_eq!(l.proof.tag(), "exact_partition");
-            }
+            assert_ne!(
+                exhaustive_point(&pc.region.cons, pc.region.k, &mut budget).unwrap(),
+                Some(None),
+                "an integer-empty piece is reported"
+            );
         }
     }
-    assert!(empty_pieces >= 1, "an integer-empty piece is reported");
-    let face = rep
-        .faces
-        .iter()
-        .find(|x| x.key() == (vec![0, 1, 2], vec![]))
-        .expect("spurious face listed");
-    assert_eq!(
-        face.kind,
-        rustred_campaign_core::partition::FaceKind::LocusOnly
-    );
-    assert_eq!(face.proof.tag(), "exact_partition");
-    assert!(face.witness.is_none());
     assert!(
-        rep.proves_no_gap(CoverageNotion::UnionCoverage).is_err(),
-        "conservative: no proof"
+        res.pieces_proved_empty >= 1,
+        "the empty piece was proved empty"
     );
+    assert!(!rep.faces.iter().any(|x| x.key() == (vec![0, 1, 2], vec![])));
+    assert!(rep.proves_no_gap(CoverageNotion::UnionCoverage).is_ok());
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -1692,25 +1683,57 @@ fn defect_levels_checkpoint_resumed_for_other_inputs() {
     // fresh run of B: the face {n0} is open at level 1
     let fresh = gap_partition_levels(&list(&b, n), &f, &absent(), 2, None, None).unwrap();
     assert!(fresh[1].faces.contains(&(vec![0], vec![])));
-    // resumed run of B from A's checkpoint: A's levels, "proved", no face
-    let resumed = gap_partition_levels(&list(&b, n), &f, &absent(), 2, Some(&cp), None).unwrap();
-    assert_eq!(resumed.len(), 3);
-    assert!(
-        resumed.iter().all(|r| r.proved && r.faces.is_empty()),
-        "stale levels reported proved"
-    );
-    // even a DISPATCH-mode resume accepts the union-mode checkpoint
-    let resumed_d =
-        gap_partition_levels(&list(&b, n), &f, &dispatch(), 2, Some(&cp), None).unwrap();
-    assert!(resumed_d.iter().all(|r| r.proved && r.faces.is_empty()));
+    // FIXED (partfix2, RA2-M4): resuming B (or A in dispatch mode, or with another frame) from A's checkpoint is
+    // REFUSED; resuming A itself skips the recorded levels
+    use rustred_campaign_core::partition::PartitionError;
+    let stale =
+        |r: Result<Vec<_>, PartitionError>| matches!(r, Err(PartitionError::StaleCheckpoint(_)));
+    assert!(stale(gap_partition_levels(
+        &list(&b, n),
+        &f,
+        &absent(),
+        2,
+        Some(&cp),
+        None
+    )));
+    assert!(stale(gap_partition_levels(
+        &list(&a, n),
+        &f,
+        &dispatch(),
+        2,
+        Some(&cp),
+        None
+    )));
+    let f2 = NodeFrame::without_header_lines_first(n, e + 1);
+    assert!(stale(gap_partition_levels(
+        &list(&a, n),
+        &f2,
+        &absent(),
+        2,
+        Some(&cp),
+        None
+    )));
+    let again = gap_partition_levels(&list(&a, n), &f, &absent(), 2, Some(&cp), None).unwrap();
+    assert_eq!(again.len(), 3);
+    assert!(again.iter().all(|r| r.proved && r.faces.is_empty()));
+    // a checkpoint line of the old format (no input digest) is refused too
+    std::fs::write(&cp, "{\"level\":0,\"faces\":[],\"generic\":[],\"nodes\":1,\"millis\":0,\"proved\":true,\"incomplete\":[]}\n").unwrap();
+    assert!(stale(gap_partition_levels(
+        &list(&a, n),
+        &f,
+        &absent(),
+        2,
+        Some(&cp),
+        None
+    )));
     let _ = std::fs::remove_file(&cp);
 }
 
-/// The node budget is deterministic and an aborted run is never a proof; dispatch mode too; `containment_proof`
-/// refuses it.
+/// The node budget is deterministic and an aborted run is never a proof; dispatch mode too;
+/// `economy::prove_coverage_preserved` refuses it.
 #[test]
 fn budget_abort_is_deterministic_and_never_a_proof() {
-    use rustred_campaign_core::assemble::containment_proof;
+    use rustred_campaign_core::economy::prove_coverage_preserved;
     use rustred_campaign_core::partition::DispatchOrderStatement;
     let (n, e) = (8, 4);
     let f = NodeFrame::without_header_lines_first(n, e);
@@ -1742,7 +1765,10 @@ fn budget_abort_is_deterministic_and_never_a_proof() {
             assert_eq!(r1.stats.nodes, r2.stats.nodes, "deterministic node count");
             assert_eq!(json_without_time(&r1, &f), json_without_time(&r2, &f));
             assert!(r1.proves_no_gap(cov).is_err());
-            assert!(containment_proof(&r1, &DispatchOrderStatement::SameOrder, "o", "n").is_none());
+            assert!(
+                prove_coverage_preserved(&l, &l, &f, &o(cov), &DispatchOrderStatement::SameOrder)
+                    .is_err()
+            );
             for k in window(n, e, 2) {
                 if r1.uncovered(&k).unwrap() {
                     assert_ne!(r1.class_of(&k).unwrap(), ClassHit::Covered, "{k:?}");
@@ -1803,7 +1829,7 @@ fn t266_load() -> Option<(DomainList, NodeFrame)> {
 #[test]
 #[ignore = "needs the read-only T266 sources; release; ~1-2 min"]
 fn t266_node_budget_is_honest_and_deterministic() {
-    use rustred_campaign_core::assemble::containment_proof;
+    use rustred_campaign_core::economy::prove_coverage_preserved;
     use rustred_campaign_core::partition::DispatchOrderStatement;
     let Some((l, frame)) = t266_load() else {
         return;
@@ -1843,7 +1869,9 @@ fn t266_node_budget_is_honest_and_deterministic() {
     ] {
         assert!(r1.proves_no_gap(cov).is_err());
     }
-    assert!(containment_proof(&r1, &DispatchOrderStatement::SameOrder, "o", "n").is_none());
+    assert!(
+        prove_coverage_preserved(&l, &l, &frame, &o, &DispatchOrderStatement::SameOrder).is_err()
+    );
     // the 12,501 closure gaps: uncovered by the oracle, never in a Covered class
     let dir = std::path::PathBuf::from(
         std::env::var("RUSTRED_T266_SOURCES").unwrap_or("/common/ben/sym-investigation".into()),
@@ -1894,25 +1922,38 @@ fn defect_blocked_face_cells_use_sub_report_state_indices() {
         .find(|x| x.key() == (vec![0, 1], vec![]))
         .expect("face");
     let main_n0 = &rep.states[0];
-    let idx5 = rep.state_index(0, 5).unwrap();
-    let idx3 = rep.state_index(1, 3).unwrap();
-    let described_by_main_states = face
-        .generic_cells
-        .iter()
-        .any(|c| c[0] == idx5 && c[1] == idx3);
-    let out_of_range = face
-        .generic_cells
-        .iter()
-        .any(|c| c[0] != ANY_OFF && c[0] as usize >= main_n0.len());
     eprintln!(
-        "main states n0 {main_n0:?}; sub states n0 {:?}; merged cells {:?}",
-        rep.blocked[0].1.states[0], face.generic_cells
-    );
-    assert!(
-        !described_by_main_states || out_of_range,
-        "merged cells use the sub-report's state indices"
+        "main states n0 {main_n0:?}; sub states n0 {:?}; generic cells {:?}; blocked cells {:?}",
+        rep.blocked[0].1.states[0], face.generic_cells, face.blocked_cells
     );
     assert_ne!(rep.blocked[0].1.states[0], rep.states[0]);
+    // FIXED (partfix2, RA2-m1): `generic_cells` are in THIS report's states only (in range); the sub-report's cells
+    // are `blocked_cells`, tagged with their blocker and read with THAT sub-report's states
+    for c in &face.generic_cells {
+        for (j, &s) in [0usize, 1].iter().enumerate() {
+            assert!(c[j] == ANY_OFF || (c[j] as usize) < rep.states[s].len());
+        }
+    }
+    let (e, sub) = (&rep.blocked[0].0, &rep.blocked[0].1);
+    let sub5 = sub.state_index(0, 5).unwrap();
+    let sub3 = sub.state_index(1, 3).unwrap();
+    assert!(
+        face.blocked_cells
+            .iter()
+            .any(|(x, c)| x == e && c[0] == sub5 && c[1] == sub3),
+        "the open key (5,3) is described by a blocked cell in the sub-report's states"
+    );
+    let j = rep.to_json(&ArtefactIds::default(), &f);
+    let face_j = j["faces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["Sd"] == serde_json::json!([0, 1]))
+        .unwrap();
+    assert!(
+        face_j["blocked_cells"].to_string().contains("\"5\""),
+        "{face_j}"
+    );
 }
 
 /// Locator (ignored): the first seeds of the large adversarial run whose check panics, with the domains.
@@ -2024,18 +2065,34 @@ fn locate_slow_adversarial_seeds() {
 /// FINDING (major, robustness): `region::bounds0` computes `div_floor(-c.c, a)` with an UNCHECKED negation; for a
 /// constant c = i128::MIN the negation wraps (release) and `i128::MIN / -1` panics. Reached through the public
 /// `Region::point` / `find_point` / `exhaustive_point` (used by `is_empty`, `contained_in`, `shadowed`, the loci).
+/// FIXED (partfix2, RA2-M1): no panic; -t + i128::MIN >= 0 has the bound t <= i128::MIN (exact).
 #[test]
-#[should_panic(expected = "overflow")]
 fn defect_find_point_panics_on_i128_min_constant() {
     let cons = vec![aff(&[-1], i128::MIN)];
-    let _ = rustred_campaign_core::loci::region::find_point(&cons, 1, 4, &[0]);
+    let r = rustred_campaign_core::loci::region::find_point(&cons, 1, 4, &[0]).unwrap();
+    assert_eq!(r, Some(vec![i128::MIN]));
+    let mut b = 10u64;
+    assert_eq!(
+        exhaustive_point(&cons, 1, &mut b),
+        Ok(None),
+        "unbounded below: undecided"
+    );
+    let cons2 = vec![aff(&[-1], i128::MIN), aff(&[1], i128::MAX)];
+    let mut b = 10u64;
+    assert_eq!(
+        exhaustive_point(&cons2, 1, &mut b),
+        Ok(Some(Some(vec![i128::MIN])))
+    );
+    // a constraint whose bound does not fit i128 is an error, never a panic
+    let cons3 = vec![aff(&[1], i128::MIN)];
+    assert!(rustred_campaign_core::loci::region::find_point(&cons3, 1, 4, &[0]).is_err());
 }
 
 /// FINDING (major, robustness): in dispatch mode the COMPLEMENT of a blocker's selection bound
 /// `n0 + (2^127 - 1) >= 0` is the GE literal `-n0 + i128::MIN >= 0` (exact, checked); `slot_states` /
 /// `sign_breaks` then negate its constant unchecked and divide by -1: the whole partition panics.
+/// FIXED (partfix2, RA2-M1): no panic; the dispatch-mode partition is honest (the open key 3 is found, no proof).
 #[test]
-#[should_panic(expected = "overflow")]
 fn defect_dispatch_partition_panics_on_bound_complement() {
     let (n, e) = (1, 1);
     let f = NodeFrame::without_header_lines_first(n, e);
@@ -2047,14 +2104,28 @@ fn defect_dispatch_partition_panics_on_bound_complement() {
         &Poly::parse("(n0-3)*d+(n0-3)", n, true).unwrap(),
     ));
     let ds = vec![r0, free(n, e)];
-    let _ = gap_partition(&list(&ds, n), &f, &dispatch(), None);
+    let rep = gap_partition(&list(&ds, n), &f, &dispatch(), None).unwrap();
+    let mut tab = Table::new("t", n);
+    for (i, d) in ds.iter().enumerate() {
+        tab.push(i as i64, d.clone()).unwrap();
+    }
+    let disp = Dispatcher::new(vec![tab], vec![0]).unwrap();
+    for k in window(n, e, 40) {
+        let open = disp.first_match(&k).unwrap().is_open();
+        assert_eq!(rep.uncovered(&k).unwrap(), open, "{k:?}");
+        if open {
+            assert_ne!(rep.class_of(&k).unwrap(), ClassHit::Covered);
+        }
+    }
+    assert!(rep.uncovered(&[3]).unwrap());
+    assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
 }
 
 /// FINDING (major, robustness), found by the large adversarial harness (seed 2100): `shadowed` (which acceptance
 /// calls on every FULL-node candidate) panics on a table whose record pins a slot by the case equation
 /// n0 = 2^127 - 1, instead of answering `Unknown`.
+/// FIXED (partfix2, RA2-M1): no panic; every verdict is sound (checked against brute force on a window).
 #[test]
-#[should_panic(expected = "overflow")]
 fn defect_shadowed_panics_on_huge_case_equation() {
     let (n, e) = (3, 3);
     let f = NodeFrame::without_header_lines_first(n, e);
@@ -2082,16 +2153,37 @@ fn defect_shadowed_panics_on_huge_case_equation() {
     ));
     let ds = vec![r0, r2, r3];
     let l = list(&ds, n);
+    let keys = window(n, e, 7);
+    let geo = |d: &CaseDomain, k: &[i32]| {
+        let v = d.applies(k);
+        v == Verdict::Applies || (d.witness_elided && v == Verdict::Elided)
+    };
     for i in 0..ds.len() {
-        let _ = shadowed(&l, i, &f);
+        if let Containment::Proved { .. } = shadowed(&l, i, &f) {
+            for k in &keys {
+                if geo(&ds[i], k) {
+                    assert!((0..i).any(|j| ds[j].applies(k).stage() != Stage::NotSelected));
+                }
+            }
+        }
         let others: Vec<&CaseDomain> = ds
             .iter()
             .enumerate()
             .filter(|(j, _)| *j != i)
             .map(|(_, d)| d)
             .collect();
-        let _ = contained_in(&ds[i], &others, &f);
-        let _ = is_empty(&ds[i], &f);
+        if let Containment::Proved { .. } = contained_in(&ds[i], &others, &f) {
+            for k in &keys {
+                if geo(&ds[i], k) {
+                    assert!(others.iter().any(|o| o.applies(k) == Verdict::Applies));
+                }
+            }
+        }
+        match is_empty(&ds[i], &f) {
+            Emptiness::ProvedEmpty { .. } => assert!(keys.iter().all(|k| !geo(&ds[i], k))),
+            Emptiness::NonEmpty { witness } => assert!(geo(&ds[i], &witness)),
+            Emptiness::Unknown { .. } => {}
+        }
     }
 }
 
@@ -2100,47 +2192,69 @@ fn defect_shadowed_panics_on_huge_case_equation() {
 /// node count), and the sub-partitions are still computed after the MAIN run aborted. A budgeted dispatch-mode run
 /// therefore does up to (blockers + 1) x the stated work (T178 raw38: 5,395 blockers). The verdict stays honest
 /// (Partial / Aborted, no proof), but the budget is not a bound on the run.
+/// FIXED (partfix2, RA2-M5): ONE budget for the whole call. After the main run aborts no sub-partition runs (they
+/// are listed as skipped, their keys read Unexplored, the point oracle stays exact); with a budget that the main run
+/// survives, the main + sub-partition + loci work never exceeds it by more than one unit per consumer.
 #[test]
 fn defect_dispatch_budget_is_per_subpartition() {
     let (n, e) = (8, 4);
     let f = NodeFrame::without_header_lines_first(n, e);
-    let mut shown = false;
+    let (mut aborted_main, mut aborted_later) = (0, 0);
     for seed in 0..60u64 {
         let mut g = Rng(99 + seed);
         let ds: Vec<CaseDomain> = (0..24)
             .map(|_| gen_domain(&mut g, n, e, true, false))
             .collect();
-        let o = PartitionOptions {
-            budget: Budget {
-                max_nodes: Some(1),
-                ..Default::default()
-            },
-            ..dispatch()
-        };
-        let rep = gap_partition(&list(&ds, n), &f, &o, None).unwrap();
-        let sub_nodes: u64 = rep.blocked.iter().map(|(_, b)| b.stats.nodes).sum();
-        let sub_aborted = rep.blocked.iter().filter(|(_, b)| b.stats.aborted).count();
-        if rep.stats.aborted && sub_aborted >= 2 {
-            eprintln!(
-                "seed {seed}: main nodes {} (aborted), blocked sub-partitions run {} (+{} empty), {sub_aborted} of them aborted at their OWN budget, their nodes {sub_nodes}",
-                rep.stats.nodes,
-                rep.blocked.len(),
-                rep.blocked_empty
-            );
-            assert!(rep.outcome.is_aborted());
-            assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
-            assert!(
-                sub_nodes > rep.stats.nodes,
-                "total work exceeds the budget of one run"
-            );
-            shown = true;
-            break;
+        let l = list(&ds, n);
+        let full = gap_partition(&l, &f, &dispatch(), None).unwrap();
+        for max in [1u64, 2_000, 20_000] {
+            let o = PartitionOptions {
+                budget: Budget {
+                    max_nodes: Some(max),
+                    ..Default::default()
+                },
+                ..dispatch()
+            };
+            let rep = gap_partition(&l, &f, &o, None).unwrap();
+            let sub_nodes: u64 = rep.blocked.iter().map(|(_, b)| b.stats.nodes).sum();
+            let total = rep.stats.nodes + sub_nodes;
+            if rep.stats.aborted {
+                aborted_main += 1;
+                assert!(
+                    rep.blocked.is_empty(),
+                    "seed {seed}: a sub-partition ran after the abort"
+                );
+                assert_eq!(rep.blocked_skipped.len(), full.nf.blockers.len());
+            }
+            if rep.outcome.is_aborted() {
+                aborted_later += u64::from(!rep.stats.aborted);
+                assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
+                assert!(
+                    total <= max + 1,
+                    "seed {seed}: {total} recursion nodes > budget {max}"
+                );
+                for k in window(n, e, 2) {
+                    assert_eq!(
+                        rep.uncovered(&k).unwrap(),
+                        full.uncovered(&k).unwrap(),
+                        "{k:?}"
+                    );
+                    if rep.uncovered(&k).unwrap() {
+                        assert_ne!(rep.class_of(&k).unwrap(), ClassHit::Covered, "{k:?}");
+                    }
+                }
+            } else {
+                assert_eq!(
+                    rep.outcome, full.outcome,
+                    "seed {seed}: a run within budget"
+                );
+            }
         }
     }
-    assert!(
-        shown,
-        "a run whose sub-partitions each used a full budget after the main abort"
+    eprintln!(
+        "aborted in the main run: {aborted_main}; aborted later (sub-partitions / loci): {aborted_later}"
     );
+    assert!(aborted_main >= 10);
 }
 
 fn adv_tables(seed: u64) -> (usize, usize, Vec<CaseDomain>) {
@@ -2409,10 +2523,25 @@ fn defect_capped_loci_emit_unbounded_open_regions() {
     );
     assert!(!r.outcome.is_complete());
     assert!(r.proves_no_gap(CoverageNotion::UnionCoverage).is_err());
+    // FIXED (partfix2, RA2-M5): at most `max_open_regions` open regions per resolved cell (+ one whole-cell summary)
+    let lo = rustred_campaign_core::loci::LociOptions::default();
     assert!(
-        parts > 10 * rustred_campaign_core::loci::LociOptions::default().max_nodes as usize / 10,
-        "open regions exceed the per-class node cap"
+        parts <= res.classes_resolved * (lo.max_open_regions + 1),
+        "open regions {parts} for {} cells",
+        res.classes_resolved
     );
+    assert!(vm_hwm_kb() / 1024 < 1024, "peak RSS below 1 GB");
+    // every uncovered window key is still described (by a piece or an open whole-cell region)
+    for k in window(n, e, 4) {
+        let cov = ds.iter().any(|d| {
+            let v = d.applies(&k);
+            v == Verdict::Applies || (d.witness_elided && v == Verdict::Elided)
+        });
+        if !cov {
+            assert_ne!(r.class_of(&k).unwrap(), ClassHit::Covered, "{k:?}");
+            described(&r, &k).unwrap_or_else(|w| panic!("{k:?}: {w}"));
+        }
+    }
 }
 
 /// FINDING (CRITICAL if reproduced, contrived input): `loci::Resolver::ge` negates the bound's coefficients
@@ -2422,7 +2551,7 @@ fn defect_capped_loci_emit_unbounded_open_regions() {
 /// chart), B: exception n0 = n1, C: the point (1,1). The diagonal n0 = n1 >= 2 is uncovered, e.g. (2,2).
 #[test]
 fn defect_i128_min_bound_coefficient_drops_a_fragile_gap() {
-    use rustred_campaign_core::assemble::containment_proof;
+    use rustred_campaign_core::economy::prove_coverage_preserved;
     use rustred_campaign_core::partition::DispatchOrderStatement;
     let (n, e) = (2, 2);
     let f = NodeFrame::without_header_lines_first(n, e);
@@ -2452,13 +2581,313 @@ fn defect_i128_min_bound_coefficient_drops_a_fragile_gap() {
         rep.class_of(&[2, 2]).unwrap()
     );
     let d = gap_partition(&list(&ds, n), &f, &dispatch(), None).unwrap();
-    let proof = containment_proof(&d, &DispatchOrderStatement::SameOrder, "o", "n");
+    let proof = prove_coverage_preserved(
+        &list(&ds, n),
+        &list(&ds, n),
+        &f,
+        &absent(),
+        &DispatchOrderStatement::SameOrder,
+    )
+    .ok();
     eprintln!(
         "dispatch: proves_no_gap {:?}; FULL-node containment proof issued: {}",
         d.proves_no_gap(CoverageNotion::DispatchCoverage),
         proof.is_some()
     );
-    // the defect: a no-gap PROOF although (2,2) is uncovered
-    assert!(rep.proves_no_gap(CoverageNotion::UnionCoverage).is_ok());
-    assert!(proof.is_some());
+    // FIXED (partfix2, RA2-C1): no proof, the gap is described, no FULL-node containment proof
+    assert!(rep.proves_no_gap(CoverageNotion::UnionCoverage).is_err());
+    assert!(d.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
+    assert!(proof.is_none());
+    for k in window(n, e, 9) {
+        if !union_covered(&ds, &k) {
+            assert!(rep.uncovered(&k).unwrap());
+            assert_ne!(rep.class_of(&k).unwrap(), ClassHit::Covered, "{k:?}");
+            described(&rep, &k).unwrap_or_else(|w| panic!("{k:?}: {w}"));
+            assert_ne!(d.class_of(&k).unwrap(), ClassHit::Covered, "{k:?}");
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------------------------------------------
+// partfix2: adversarial generator of EXTREME coefficients (around +-2^63 and +-2^127) against brute force
+// ------------------------------------------------------------------------------------------------------------------
+
+/// Extreme values (decimal text; -2^127 is written as a sum because its absolute value does not parse).
+const EXTREME: [&str; 12] = [
+    "9223372036854775807",                          // 2^63 - 1
+    "9223372036854775808",                          // 2^63
+    "(-9223372036854775808)",                       // -2^63
+    "(-9223372036854775809)",                       // -2^63 - 1
+    "18446744073709551616",                         // 2^64
+    "4611686018427387904",                          // 2^62
+    "170141183460469231731687303715884105727",      // 2^127 - 1
+    "(-170141183460469231731687303715884105727)",   // -(2^127 - 1)
+    "(-170141183460469231731687303715884105727-1)", // -2^127
+    "85070591730234615865843651857942052864",       // 2^126
+    "(-85070591730234615865843651857942052864)",    // -2^126
+    "170141183460469231731687303715884105726",      // 2^127 - 2
+];
+
+/// Exact brute force with extreme values (the core's BigInt: no i128 overflow in the reference).
+fn big_affine(c: &Affine, t: &[i128]) -> rustred_campaign_core::poly::BigInt {
+    use rustred_campaign_core::poly::BigInt;
+    let mut acc = BigInt::from_i128(c.c);
+    for (a, x) in c.coef.iter().zip(t) {
+        acc = acc.add(&BigInt::from_i128(*a).mul(&BigInt::from_i128(*x)));
+    }
+    acc
+}
+
+fn brute_points_big(cons: &[Affine], k: usize, b: i128) -> Vec<Vec<i128>> {
+    let mut out = vec![];
+    let mut t = vec![-b; k];
+    loop {
+        if cons.iter().all(|c| big_affine(c, &t).signum() >= 0) {
+            out.push(t.clone());
+        }
+        let mut j = 0;
+        loop {
+            if j == k {
+                return out;
+            }
+            t[j] += 1;
+            if t[j] <= b {
+                break;
+            }
+            t[j] = -b;
+            j += 1;
+        }
+    }
+}
+
+fn brute_linear_big(terms: &[(i128, Range)], c: i128, w: i64) -> bool {
+    use rustred_campaign_core::poly::BigInt;
+    fn rec(terms: &[(i128, Range)], acc: BigInt, w: i64) -> bool {
+        let Some(((a, r), rest)) = terms.split_first() else {
+            return acc.is_zero();
+        };
+        let (lo, hi) = match (r.lo, r.hi) {
+            (Some(l), Some(h)) => (l, h),
+            (Some(l), None) => (l, l + w),
+            (None, Some(h)) => (h - w, h),
+            (None, None) => (-w, w),
+        };
+        (lo..=hi).any(|x| {
+            rec(
+                rest,
+                acc.add(&BigInt::from_i128(*a).mul(&BigInt::from_i128(x as i128))),
+                w,
+            )
+        })
+    }
+    rec(terms, BigInt::from_i128(c), w)
+}
+
+fn extreme(g: &mut Rng) -> &'static str {
+    EXTREME[g.below(EXTREME.len() as u64) as usize]
+}
+
+fn try_p(t: &str, n: usize) -> Option<Poly> {
+    Poly::parse(t, n, false).ok()
+}
+
+/// A literal with at least one extreme coefficient or constant (`None` if it does not parse: overflow while
+/// expanding is a parse error of the core, not a partition matter).
+fn extreme_lit(g: &mut Rng, n: usize) -> Option<Poly> {
+    let (a, b) = (slot(g, n), slot(g, n));
+    let k = g.range(-4, 4);
+    let (x, y, z) = (extreme(g), extreme(g), extreme(g));
+    let t = match g.below(9) {
+        0 => format!("{x}*n{a}-{x}*n{b}+({k})"),
+        1 => format!("{x}*n{a}+({k})"),
+        2 => format!("n{a}-{x}"),
+        3 => format!("{x}*n{a}+{y}*n{b}+{z}"),
+        4 => format!("{x}*n{a}-{x}*({k})"),
+        5 => format!("{x}*n{a}^2-{y}"),
+        6 => format!("({k})*n{a}+({})*n{b}+{x}", g.range(-3, 3)),
+        7 => format!("{x}*n{a}*n{b}+({k})"),
+        _ => format!("{x}*n{a}+{y}"),
+    };
+    try_p(&t, n)
+}
+
+fn gen_domain_extreme(g: &mut Rng, n: usize, e: usize) -> CaseDomain {
+    let mut d = gen_domain(g, n, e, true, true);
+    for _ in 0..1 + g.below(2) {
+        let Some(q) = extreme_lit(g, n) else { continue };
+        match g.below(6) {
+            0 => d.equations.push(q),
+            1 | 2 => d.bounds.push(q),
+            3 => d.exceptions.push(vec![q]),
+            4 => d.recenter_bounds.push(q),
+            _ => {
+                // a pole locus with an extreme d-coefficient: (q) * d + (small literal)
+                let small = lit(g, n, false);
+                let text = format!("({})*d+({small})", q);
+                if let Ok(pp) = Poly::parse(&text, n, true) {
+                    d.poles.push(PoleLocus::new(PoleKind::Denominator, &pp));
+                }
+            }
+        }
+    }
+    d
+}
+
+fn check_case_extreme(seed: u64, t: &mut Tally, containment: bool) {
+    let mut g = Rng(seed);
+    let n = 2 + g.below(3) as usize; // arity 2..4
+    let e = 1 + g.below(n as u64) as usize;
+    let w: i32 = if n <= 3 { 6 } else { 4 };
+    let nr = 1 + g.below(6) as usize;
+    let mut ds: Vec<CaseDomain> = vec![];
+    for _ in 0..nr {
+        let d = if g.chance(2, 3) {
+            gen_domain_extreme(&mut g, n, e)
+        } else {
+            gen_domain(&mut g, n, e, true, true)
+        };
+        if d.validate().is_ok() {
+            ds.push(d);
+        }
+    }
+    if ds.is_empty() {
+        return;
+    }
+    check_tables(seed, n, e, w, ds, t, containment);
+}
+
+/// Exact tools with extreme coefficients: every answer is sound against brute force on a box (an overflow is an
+/// `Err`, never a verdict, never a panic).
+fn extreme_tools_case(g: &mut Rng, case: u64) {
+    let pick = |g: &mut Rng| -> i128 {
+        match g.below(6) {
+            0 => i128::MIN,
+            1 => i128::MAX,
+            2 => (1i128 << 63) * if g.chance(1, 2) { 1 } else { -1 } + g.range(-2, 2) as i128,
+            3 => (1i128 << 126) * if g.chance(1, 2) { 1 } else { -1 },
+            4 => i128::MIN + g.range(0, 3) as i128,
+            _ => g.range(-5, 5) as i128,
+        }
+    };
+    // linear feasibility on a box
+    let nv = 1 + g.below(3) as usize;
+    let terms: Vec<(i128, Range)> = (0..nv).map(|_| (pick(g), rand_range(g))).collect();
+    let c = pick(g);
+    if let Ok(false) = linear_feasible(&terms, c) {
+        assert!(
+            !brute_linear_big(&terms, c, 40),
+            "case {case}: infeasible claimed: {terms:?} c={c}"
+        );
+    }
+    // integer roots: every claimed root is a root, and every root in a box is claimed
+    let cs: Vec<i128> = (0..2 + g.below(2)).map(|_| pick(g)).collect();
+    if cs.iter().any(|&x| x != 0)
+        && let Ok(rs) = int_roots(&cs)
+    {
+        for &r in &rs {
+            assert_eq!(
+                rustred_campaign_core::partition::exact::univ_sign(&cs, r),
+                0,
+                "case {case}: {cs:?} root {r}"
+            );
+        }
+        for x in -50i128..=50 {
+            if rustred_campaign_core::partition::exact::univ_sign(&cs, x) == 0 {
+                assert!(rs.contains(&x), "case {case}: {cs:?} misses the root {x}");
+            }
+        }
+    }
+    // Fourier-Motzkin / exhaustive search / lattice cut on a box with extreme constraints
+    let k = 1 + g.below(2) as usize;
+    let b = 4i128;
+    let mut cons = vec![];
+    for j in 0..k {
+        let mut lo = vec![0i128; k];
+        lo[j] = 1;
+        cons.push(aff(&lo, b));
+        let mut hi = vec![0i128; k];
+        hi[j] = -1;
+        cons.push(aff(&hi, b));
+    }
+    let coef: Vec<i128> = (0..k).map(|_| pick(g)).collect();
+    cons.push(aff(&coef, pick(g)));
+    let pts = brute_points_big(&cons, k, b);
+    if fm_feasible(&cons, k) == Ok(false) {
+        assert!(
+            pts.is_empty(),
+            "case {case}: FM refuted a system with {} points: {cons:?}",
+            pts.len()
+        );
+    }
+    let mut budget = 100_000u64;
+    match exhaustive_point(&cons, k, &mut budget) {
+        Ok(Some(None)) => assert!(
+            pts.is_empty(),
+            "case {case}: exhaustive: empty claimed: {cons:?}"
+        ),
+        Ok(Some(Some(t))) => assert!(
+            cons.iter()
+                .all(|a| a.eval(&t).map(|v| v >= 0).unwrap_or(false))
+        ),
+        _ => {}
+    }
+    if let Ok(Some(t)) = rustred_campaign_core::loci::region::find_point(&cons, k, 8, &vec![0; k]) {
+        assert!(
+            cons.iter()
+                .all(|a| a.eval(&t).map(|v| v >= 0).unwrap_or(false)),
+            "case {case}"
+        );
+    }
+    let r = Region {
+        k,
+        x: (0..k).map(|j| Affine::var(k, j)).collect(),
+        cons: cons[..2 * k].to_vec(),
+        names: (0..k).map(|j| format!("t{j}")).collect(),
+    };
+    let (cc, c0) = ((0..k).map(|_| pick(g)).collect::<Vec<_>>(), pick(g));
+    let sols: Vec<Vec<i128>> = brute_points_big(&r.cons, k, b)
+        .into_iter()
+        .filter(|t| big_affine(&aff(&cc, c0), t).is_zero())
+        .collect();
+    match r.cut(&cc, c0) {
+        Ok(None) => assert!(
+            sols.is_empty(),
+            "case {case}: cut None but solutions {sols:?}"
+        ),
+        Ok(Some(s)) => {
+            for t in &sols {
+                let key: Vec<i32> = t.iter().map(|&v| v as i32).collect();
+                assert!(
+                    solve_params(&s, &key).is_some(),
+                    "case {case}: {t:?} not on the lattice"
+                );
+            }
+        }
+        Err(_) => {}
+    }
+}
+
+/// partfix2: extreme-coefficient adversarial campaign, 20,000 table sets through the full brute-force harness
+/// (union / memo / capped / FailClosed / Ordinary / dispatch vs `first_match`; emptiness / containment / shadowing on
+/// every 4th set) plus 20,000 exact-tool cases.
+#[test]
+fn diff_extreme_coefficients_against_brute_force() {
+    let mut t = Tally::default();
+    let n_sets: u64 = std::env::var("AUDIT_EXTREME_SETS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(20_000);
+    for seed in 0..n_sets {
+        check_case_extreme(
+            seed.wrapping_mul(0x9FB2_1C65_1E98_DF25) ^ 0xE7,
+            &mut t,
+            seed % 4 == 0,
+        );
+    }
+    let mut g = Rng(0xE77E);
+    for case in 0..20_000u64 {
+        extreme_tools_case(&mut g, case);
+    }
+    eprintln!("{t:#?}");
+    assert!(t.cases >= n_sets * 9 / 10, "cases {}", t.cases);
 }
