@@ -268,34 +268,24 @@ mod child {
             let finished = catch_unwind(AssertUnwindSafe(work)).unwrap_or(false);
             unsafe { libc::_exit(if finished { 0 } else { 3 }) };
         }
-        crate::node::childjob::proc::register_helper(pid);
+        use crate::node::childjob::proc as helpers;
+        let registered = helpers::register_helper(pid);
         let deadline = Instant::now() + timeout;
         let mut pause = Duration::from_millis(1);
         loop {
-            let mut status = 0;
-            // SAFETY: plain waitpid on our own child.
-            let reaped = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) };
-            if reaped == pid || reaped < 0 {
-                crate::node::childjob::proc::unregister_helper(pid);
-            }
-            if reaped == pid {
-                return if libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0 {
-                    NativeGuardTry::Finished
-                } else {
-                    NativeGuardTry::ChildFailed
+            // ended -> unregistered -> reaped, in this order (audit-engjob m4: no pid-reuse window for the job
+            // watchdog's kill of registered helpers)
+            if helpers::helper_ended(pid) {
+                return match helpers::reap_helper(pid, registered) {
+                    Some(status) if libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0 => {
+                        NativeGuardTry::Finished
+                    }
+                    _ => NativeGuardTry::ChildFailed,
                 };
-            }
-            if reaped < 0 {
-                return NativeGuardTry::ChildFailed;
             }
             let now = Instant::now();
             if now >= deadline {
-                // SAFETY: our own unreaped child; reap it after the kill.
-                unsafe {
-                    libc::kill(pid, libc::SIGKILL);
-                    libc::waitpid(pid, &mut status, 0);
-                }
-                crate::node::childjob::proc::unregister_helper(pid);
+                helpers::kill_reap_helper(pid, registered);
                 return NativeGuardTry::TimedOut;
             }
             std::thread::sleep(pause.min(deadline - now));

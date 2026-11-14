@@ -12,9 +12,6 @@ use rustred_campaign_contract as cc;
 
 use super::{Args, node_options, order_arg};
 
-/// The node driver's compiled arities (`node::driver::generate`).
-const ARITIES: [u32; 5] = [5, 9, 12, 14, 20];
-
 /// The git commit captured at BUILD time (ruling R-e); "unknown" when the build environment had none.
 pub fn git_commit() -> String {
     cc::git_commit_from_build_env(option_env!("RUSTRED_BUILD_GIT_COMMIT"))
@@ -28,7 +25,11 @@ fn version_info() -> cc::VersionInfo {
         contract: vec![cc::CONTRACT.into()],
         features: FEATURES.iter().map(|s| s.to_string()).collect(),
         job_kinds: vec![JobKind::Generate],
-        arities: ARITIES.to_vec(),
+        // the node driver's compiled arities, from the driver's own list (audit-engjob m9)
+        arities: rustred::node::driver::GENERATE_ARITIES
+            .iter()
+            .map(|&a| a as u32)
+            .collect(),
     }
 }
 

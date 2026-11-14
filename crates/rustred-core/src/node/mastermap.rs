@@ -35,6 +35,11 @@ pub type Key = Vec<i64>;
 /// Symbolic fits: per seed, terminal key -> N(d)/D(d); plus the keys whose fit failed (key, reason).
 pub type FitPart = (Vec<BTreeMap<Key, RatFun>>, Vec<(Key, String)>);
 
+/// The two generic values of `d` at which an exception polynomial must vanish for a key to be exceptional
+/// (`find_rule` and the vanishing census below); `domaincheck` reports and uses the SAME values (audit-engjob m9:
+/// one source, no copy).
+pub(crate) const EXCEPTION_D: [Q; 2] = [Q { n: 37, d: 7 }, Q { n: -11, d: 5 }];
+
 /// Ten 61-bit primes (the first two are the replay's `P` and `P2`).
 pub const PRIMES: [u64; 10] = [
     2_305_843_009_213_693_951,
@@ -458,7 +463,7 @@ impl Table {
 
     /// First applicable rule (table order) and the rule point of key `k`.
     pub(crate) fn find_rule(&self, k: &[i64]) -> Option<(usize, Vec<i64>)> {
-        let gen_d = [Q { n: 37, d: 7 }, Q { n: -11, d: 5 }];
+        let gen_d = EXCEPTION_D;
         let n = self.n;
         'r: for (ri, r) in self.rules.iter().enumerate() {
             if r.skip {
@@ -580,7 +585,7 @@ impl Table {
         }
         let mut uncovered: Vec<Key> = vec![];
         let mut vanishing = 0usize;
-        let gen_d = [Q { n: 37, d: 7 }, Q { n: -11, d: 5 }];
+        let gen_d = EXCEPTION_D;
         for &r in &roots {
             let mut stack: Vec<(u32, usize)> = vec![(r, 0)];
             while let Some((u, ci)) = stack.pop() {

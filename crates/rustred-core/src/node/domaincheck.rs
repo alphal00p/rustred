@@ -31,8 +31,8 @@ pub const OPTIONS: [&str; 6] = [
     "--dims",
 ];
 
-/// The two values of `d` of `find_rule`'s exception test (copied for the report only; the test itself is the engine's).
-const EXCEPTION_D: [Q; 2] = [Q { n: 37, d: 7 }, Q { n: -11, d: 5 }];
+/// The two values of `d` of `find_rule`'s exception test: the engine's own constant (audit-engjob m9).
+use super::mastermap::EXCEPTION_D;
 /// Further values of `d` of the ambiguity diagnostic.
 const EXTRA_D: [Q; 3] = [Q { n: 9, d: 13 }, Q { n: 1, d: 3 }, Q { n: 5, d: 11 }];
 
