@@ -398,9 +398,11 @@ pub(crate) fn region_owner_ok(owner: &Obligations, ob: &Obligation) -> bool {
                 "branch" => &ob.detail["polys"],
                 _ => return false,
             };
-            polys
-                .as_array()
-                .is_some_and(|a| a.iter().map(|x| x.as_str()).eq(conj.iter().map(|c| Some(c.as_str()))))
+            polys.as_array().is_some_and(|a| {
+                a.iter()
+                    .map(|x| x.as_str())
+                    .eq(conj.iter().map(|c| Some(c.as_str())))
+            })
         }
     }
 }
@@ -1566,7 +1568,8 @@ mod region_owner_tests {
         .unwrap();
         let back: Obligations = serde_json::from_str(&text).unwrap();
         assert_eq!(back.region, Some(vec!["n0^2-n2".to_string()]));
-        let plain: Obligations = serde_json::from_str(&serde_json::to_string(&Obligations::default()).unwrap()).unwrap();
+        let plain: Obligations =
+            serde_json::from_str(&serde_json::to_string(&Obligations::default()).unwrap()).unwrap();
         assert_eq!(plain.region, None);
     }
 }

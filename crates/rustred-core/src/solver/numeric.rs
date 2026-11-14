@@ -306,10 +306,12 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             // sym-gen: exact symmetry rows at this seed (same reducer, same cutoff, same direct-hit path)
             if let (Some(images), true) = (images, remaining != 0) {
                 if unit.is_none() {
-                    unit = first_coefficient.as_ref().map(|c: &crate::algebra::Coefficient| {
-                        let one: crate::algebra::Coefficient = c.numerator.one().into();
-                        one
-                    });
+                    unit = first_coefficient
+                        .as_ref()
+                        .map(|c: &crate::algebra::Coefficient| {
+                            let one: crate::algebra::Coefficient = c.numerator.one().into();
+                            one
+                        });
                 }
                 let Some(one) = unit.as_ref() else { continue };
                 for (image, negative) in images(&seed.integral) {
@@ -369,7 +371,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                                 discovery: probe.as_ref().map(|p| p.discovery.stats()),
                                 ..Default::default()
                             },
-                                hidden_poles: Vec::new(),
+                            hidden_poles: Vec::new(),
                         });
                         stats.direct_rules += 1;
                         pending[index] = false;

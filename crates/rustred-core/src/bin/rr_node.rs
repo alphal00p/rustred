@@ -418,21 +418,25 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
         for (spec, v) in o.initial_presented.iter().zip(&raw) {
             if let Some(off) = v.get("seed_centre_offset").filter(|x| !x.is_null()) {
                 // one centre [ints] or several [[ints], ..] (union of their shells)
-                let mut offs: Vec<Vec<i64>> = match serde_json::from_value::<Vec<i64>>(off.clone()) {
+                let mut offs: Vec<Vec<i64>> = match serde_json::from_value::<Vec<i64>>(off.clone())
+                {
                     Ok(one) => vec![one],
                     Err(_) => serde_json::from_value(off.clone()).unwrap_or_else(|e| {
                         die(&format!("--initial-presented {f}: seed_centre_offset: {e}"))
                     }),
                 };
                 if offs.is_empty() {
-                    die(&format!("--initial-presented {f}: empty seed_centre_offset"));
+                    die(&format!(
+                        "--initial-presented {f}: empty seed_centre_offset"
+                    ));
                 }
                 let first = offs.remove(0);
-                o.case_seed_centres.push(rustred::node::driver::CaseSeedCentre {
-                    case: spec.clone(),
-                    seed_centre_offset: first,
-                    extra: offs,
-                });
+                o.case_seed_centres
+                    .push(rustred::node::driver::CaseSeedCentre {
+                        case: spec.clone(),
+                        seed_centre_offset: first,
+                        extra: offs,
+                    });
             }
         }
     }
@@ -452,8 +456,8 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
     // t266-regions: a region-restricted run on ONE deferred region {chart (PRESENTED), conjunction}; the chart is
     // added to the initial cases and the run owns that region only
     if let Some(f) = a.take("--region") {
-        let v: serde_json::Value = serde_json::from_str(&read(&f))
-            .unwrap_or_else(|e| die(&format!("--region {f}: {e}")));
+        let v: serde_json::Value =
+            serde_json::from_str(&read(&f)).unwrap_or_else(|e| die(&format!("--region {f}: {e}")));
         let chart: rustred::node::driver::CaseSpec = serde_json::from_value(v["chart"].clone())
             .unwrap_or_else(|e| die(&format!("--region {f}: chart: {e}")));
         let conj: Vec<String> = serde_json::from_value(v["conjunction"].clone())

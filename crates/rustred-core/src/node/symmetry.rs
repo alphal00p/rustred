@@ -118,7 +118,10 @@ impl NodeGroup {
             "{{\"loops\":{},\"arity\":{},\"chart\":\"{}\",\"candidates\":{},\"verified_generators\":{},\"group_order\":{},\"key_order\":{},\"total_elements\":{},\"flips\":{},\"elements\":[{}]}}",
             self.loops,
             self.arity,
-            self.chart.iter().map(|&b| if b { '1' } else { '0' }).collect::<String>(),
+            self.chart
+                .iter()
+                .map(|&b| if b { '1' } else { '0' })
+                .collect::<String>(),
             self.candidates,
             self.verified,
             self.group_order,
@@ -487,9 +490,13 @@ impl ChartForms {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CaseVerdict {
     /// `g a` is strictly below `a` in the node order for every key `a` of the case: `I(a) = s I(g a)`.
-    Lower { element: usize },
+    Lower {
+        element: usize,
+    },
     /// `g a = a` and the sign is `-1` for every key of the case: every integral of the case is zero.
-    Zero { element: usize },
+    Zero {
+        element: usize,
+    },
     None,
 }
 
@@ -629,9 +636,15 @@ mod tests {
             case_verdict(&group, &forms, &[Some(1), Some(3)]),
             CaseVerdict::Lower { element: 0 }
         );
-        assert_eq!(case_verdict(&group, &forms, &[Some(3), Some(1)]), CaseVerdict::None);
+        assert_eq!(
+            case_verdict(&group, &forms, &[Some(3), Some(1)]),
+            CaseVerdict::None
+        );
         // free coordinate: undecided
-        assert_eq!(case_verdict(&group, &forms, &[None, Some(1)]), CaseVerdict::None);
+        assert_eq!(
+            case_verdict(&group, &forms, &[None, Some(1)]),
+            CaseVerdict::None
+        );
         assert_eq!(
             least_image(&group, &forms, &[1, 3]),
             Some((0, vec![3, 1], false))
@@ -655,8 +668,14 @@ mod tests {
             case_verdict(&group, &forms, &[None, Some(-1)]),
             CaseVerdict::Zero { element: 0 }
         );
-        assert_eq!(case_verdict(&group, &forms, &[None, Some(-2)]), CaseVerdict::None);
-        assert_eq!(case_verdict(&group, &forms, &[None, None]), CaseVerdict::None);
+        assert_eq!(
+            case_verdict(&group, &forms, &[None, Some(-2)]),
+            CaseVerdict::None
+        );
+        assert_eq!(
+            case_verdict(&group, &forms, &[None, None]),
+            CaseVerdict::None
+        );
     }
 
     #[test]
@@ -664,6 +683,10 @@ mod tests {
         let text = "I(name(S),loops(k1,k2),externals(q),dimension(d),prop(D1,(k1)^2,1),prop(D2,(k2)^2,1),prop(D3,(k1+k2+q)^2,1),prop(D4,(k1+q)^2,0),prop(D5,(k2+q)^2,0),gram(q,q,1))";
         let g = node_group(text, &[true, true, true, false, false]).unwrap();
         assert!(g.key_order() >= 2, "{}", g.to_json());
-        assert!(g.elements.iter().all(|e| (0..3).all(|i| e.action[i].is_some_and(|(t, _)| t < 3))));
+        assert!(
+            g.elements
+                .iter()
+                .all(|e| (0..3).all(|i| e.action[i].is_some_and(|(t, _)| t < 3)))
+        );
     }
 }

@@ -2219,12 +2219,16 @@ pub fn check_symmetry_record(r: &Value, f: &Family) -> Result<(), String> {
             .collect();
         let minus: Vec<i64> = ct.iter().map(|x| -x).collect();
         if image != ct && image != minus {
-            return Err(format!("slot {i}: image momentum {image:?} is not +-{ct:?}"));
+            return Err(format!(
+                "slot {i}: image momentum {image:?} is not +-{ct:?}"
+            ));
         }
     }
     if r["type"] == "sym_zero" {
         // squared propagators never flip: no sign, no zero by symmetry
-        return Err("zero by symmetry needs a sign flip (impossible with squared propagators)".into());
+        return Err(
+            "zero by symmetry needs a sign flip (impossible with squared propagators)".into(),
+        );
     }
     Ok(())
 }
@@ -2358,18 +2362,31 @@ pub fn run(args: &ReplayArgs) -> Result<(String, Value), String> {
         for g in &groups {
             let chart = g["chart"].as_str().unwrap_or_default().to_string();
             let mut ok = Vec::new();
-            for e in g.pointer("/group/elements").and_then(Value::as_array).into_iter().flatten() {
+            for e in g
+                .pointer("/group/elements")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
                 let action = e["action"].clone();
                 let fixed: Vec<Value> = action
                     .as_array()
-                    .map(|a| a.iter().map(|x| if x.is_null() { json!(0) } else { Value::Null }).collect())
+                    .map(|a| {
+                        a.iter()
+                            .map(|x| if x.is_null() { json!(0) } else { Value::Null })
+                            .collect()
+                    })
                     .unwrap_or_default();
                 let rec = json!({"type": "sym", "matrix": e["matrix"], "action": action, "chart": chart, "fixed": fixed});
                 if check_symmetry_record(&rec, &f).is_ok() {
                     ok.push(
                         action
                             .as_array()
-                            .map(|a| a.iter().map(|x| x[0].as_u64().map(|t| t as usize)).collect())
+                            .map(|a| {
+                                a.iter()
+                                    .map(|x| x[0].as_u64().map(|t| t as usize))
+                                    .collect()
+                            })
                             .unwrap_or_default(),
                     );
                 }

@@ -19,13 +19,13 @@
 //! attempt budget (empty over Zp-bar, or only points over extensions): the caller keeps its ordinary point.
 
 use rand::{Rng, SeedableRng, rngs::StdRng};
+use std::sync::RwLock;
+use symbolica::domains::RingOps;
 use symbolica::domains::finite_field::{FiniteFieldCore, FiniteFieldElement, ToFiniteField, Zp64};
 use symbolica::poly::groebner::GroebnerBasis;
 use symbolica::poly::polynomial::MultivariatePolynomial;
 use symbolica::poly::{GrevLexOrder, LexOrder};
-use symbolica::domains::RingOps;
 use symbolica::prelude::{Factorize, Field, Ring};
-use std::sync::RwLock;
 
 use crate::algebra::CoefficientPolynomial;
 
@@ -110,9 +110,14 @@ fn attempt(
         // zero-dimensional (every occurring variable has a pure power among the leading monomials): no free choice is
         // left, so a univariate element is needed; the lex basis of a zero-dimensional ideal has one and is cheap
         let occ: Vec<usize> = {
-            let mut v: Vec<usize> = gbasis.iter().flat_map(|p| {
-                (0..p.nvars()).filter(|&x| (0..p.nterms()).any(|i| p.exponents(i)[x] != 0)).collect::<Vec<_>>()
-            }).collect();
+            let mut v: Vec<usize> = gbasis
+                .iter()
+                .flat_map(|p| {
+                    (0..p.nvars())
+                        .filter(|&x| (0..p.nterms()).any(|i| p.exponents(i)[x] != 0))
+                        .collect::<Vec<_>>()
+                })
+                .collect();
             v.sort_unstable();
             v.dedup();
             v
@@ -125,13 +130,23 @@ fn attempt(
                 })
             });
         let has_uni = gbasis.iter().any(|p| {
-            (0..p.nvars()).filter(|&x| (0..p.nterms()).any(|i| p.exponents(i)[x] != 0)).count() == 1
+            (0..p.nvars())
+                .filter(|&x| (0..p.nterms()).any(|i| p.exponents(i)[x] != 0))
+                .count()
+                == 1
         });
         let basis: Vec<ZpPoly> = if zero_dim && !has_uni {
             let lex: Vec<ZpPoly> = gbasis.iter().map(|p| p.reorder::<LexOrder>()).collect();
-            GroebnerBasis::new(&lex, false).system.into_iter().filter(|p| !p.is_zero()).collect()
+            GroebnerBasis::new(&lex, false)
+                .system
+                .into_iter()
+                .filter(|p| !p.is_zero())
+                .collect()
         } else {
-            gbasis.into_iter().map(|p| p.reorder::<LexOrder>()).collect()
+            gbasis
+                .into_iter()
+                .map(|p| p.reorder::<LexOrder>())
+                .collect()
         };
         if basis.is_empty() {
             return true;
@@ -186,11 +201,7 @@ pub fn region_point(
     None
 }
 
-fn eval(
-    p: &ZpPoly,
-    point: &[FiniteFieldElement<u64>],
-    field: &Zp64,
-) -> FiniteFieldElement<u64> {
+fn eval(p: &ZpPoly, point: &[FiniteFieldElement<u64>], field: &Zp64) -> FiniteFieldElement<u64> {
     p.evaluate_with_coeff_map(|c| *c, point, field)
 }
 
@@ -226,7 +237,8 @@ pub fn region() -> Option<Vec<CoefficientPolynomial>> {
 }
 
 pub(super) fn record_point(prime: u64, point: &[FiniteFieldElement<u64>], field: &Zp64) {
-    *LAST_POINT.write().unwrap() = Some((prime, point.iter().map(|x| field.from_element(x)).collect()));
+    *LAST_POINT.write().unwrap() =
+        Some((prime, point.iter().map(|x| field.from_element(x)).collect()));
 }
 
 /// Drop the recorded point (before a case's search; a search that does not reach the probe leaves none).

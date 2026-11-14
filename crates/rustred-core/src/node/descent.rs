@@ -222,9 +222,7 @@ pub fn check_table_file(
                     .as_array()
                     .ok_or("sym action")?
                     .iter()
-                    .map(|a| {
-                        Some((a.get(0)?.as_u64()? as usize, a.get(1)?.as_bool()?))
-                    })
+                    .map(|a| Some((a.get(0)?.as_u64()? as usize, a.get(1)?.as_bool()?)))
                     .collect();
                 syms.push((chart, label, fixed, action));
             }

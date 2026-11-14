@@ -1,5 +1,5 @@
-use symbolica::domains::finite_field::{FiniteFieldCore, Zp64};
 use symbolica::domains::RingOps;
+use symbolica::domains::finite_field::{FiniteFieldCore, Zp64};
 use symbolica::prelude::{Integer, Ring};
 
 use crate::algebra::{CoefficientContext, CoefficientPolynomial};
@@ -14,7 +14,9 @@ fn polys(context: &CoefficientContext, expressions: &[&str]) -> Vec<CoefficientP
 }
 
 fn base(field: &Zp64, n: usize) -> Vec<symbolica::domains::finite_field::FiniteFieldElement<u64>> {
-    (0..n).map(|i| field.to_element(1000 + 17 * i as u64)).collect()
+    (0..n)
+        .map(|i| field.to_element(1000 + 17 * i as u64))
+        .collect()
 }
 
 const P: u64 = (1 << 61) - 1;

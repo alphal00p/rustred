@@ -102,7 +102,9 @@ pub(crate) fn case_stabiliser<const N: usize>(
     let fixed = case.fixed();
     (0..actions.len())
         .filter(|&k| {
-            (0..N).all(|i| fixed[i].is_some() || actions[k].get(i).copied().flatten() == Some((i, false)))
+            (0..N).all(|i| {
+                fixed[i].is_some() || actions[k].get(i).copied().flatten() == Some((i, false))
+            })
         })
         .collect()
 }
@@ -729,7 +731,9 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             let images: Vec<(Integral<N>, bool)> = match self.config.case_symmetry.as_deref() {
                 Some(actions) if !stabiliser.is_empty() => stabiliser
                     .iter()
-                    .filter_map(|&k| stabiliser_image(&actions[k], &seed.integral, self.order.sector()))
+                    .filter_map(|&k| {
+                        stabiliser_image(&actions[k], &seed.integral, self.order.sector())
+                    })
                     .filter(|(image, negative)| *image != seed.integral || *negative)
                     .collect(),
                 _ => Vec::new(),
@@ -759,7 +763,8 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     }
                     if !stabiliser.is_empty() && unit.is_none() {
                         unit = row.first().map(|t| {
-                            let one: crate::algebra::Coefficient = t.coefficient.numerator.one().into();
+                            let one: crate::algebra::Coefficient =
+                                t.coefficient.numerator.one().into();
                             one
                         });
                     }
@@ -768,7 +773,11 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     let (image, negative) = images[position - nb];
                     let Some(one) = unit.as_ref() else { continue };
                     let a = seed.integral;
-                    let key = if a <= image { (a, image, negative) } else { (image, a, negative) };
+                    let key = if a <= image {
+                        (a, image, negative)
+                    } else {
+                        (image, a, negative)
+                    };
                     if !sym_pairs.insert(key) {
                         continue;
                     }

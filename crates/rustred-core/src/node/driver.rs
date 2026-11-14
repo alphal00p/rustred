@@ -711,8 +711,14 @@ pub fn parse_seed_centre_offset(text: &str, arity: usize) -> Result<Vec<i64>, St
         let (axis, delta) = part
             .split_once(':')
             .ok_or_else(|| format!("'{part}': expected <slot>:<delta>"))?;
-        let axis: usize = axis.trim().parse().map_err(|e| format!("slot '{axis}': {e}"))?;
-        let delta: i64 = delta.trim().parse().map_err(|e| format!("delta '{delta}': {e}"))?;
+        let axis: usize = axis
+            .trim()
+            .parse()
+            .map_err(|e| format!("slot '{axis}': {e}"))?;
+        let delta: i64 = delta
+            .trim()
+            .parse()
+            .map_err(|e| format!("delta '{delta}': {e}"))?;
         if axis >= arity {
             return Err(format!("slot {axis} >= arity {arity}"));
         }
@@ -743,7 +749,8 @@ fn seed_recipe_for<const N: usize>(
             })
         })
         .unwrap_or_default();
-    let conv = |o: &Vec<i64>| -> Vec<i16> { o.iter().map(|&d| i16::try_from(d).unwrap_or(0)).collect() };
+    let conv =
+        |o: &Vec<i64>| -> Vec<i16> { o.iter().map(|&d| i16::try_from(d).unwrap_or(0)).collect() };
     let recipe = crate::solver::SeedRecipe {
         centre_offset: offsets.first().map(conv).unwrap_or_default(),
         extra_centres: offsets.iter().skip(1).map(conv).collect(),
@@ -3138,13 +3145,21 @@ fn run<const N: usize>(
         Some(conj) => conj
             .iter()
             .map(|e| {
-                parse_index_poly(e, &template, &idx).ok_or_else(|| format!("--region polynomial {e}"))
+                parse_index_poly(e, &template, &idx)
+                    .ok_or_else(|| format!("--region polynomial {e}"))
             })
             .collect::<Result<_, _>>()?,
     };
-    crate::solver::region_probe::set_region((!region_polys.is_empty()).then(|| region_polys.clone()));
+    crate::solver::region_probe::set_region(
+        (!region_polys.is_empty()).then(|| region_polys.clone()),
+    );
     if let Some(conj) = &opts.region {
-        writeln!(qlog, "{{\"type\":\"region_run\",\"conjunction\":{}}}", strings(conj.iter())).map_err(|e| e.to_string())?;
+        writeln!(
+            qlog,
+            "{{\"type\":\"region_run\",\"conjunction\":{}}}",
+            strings(conj.iter())
+        )
+        .map_err(|e| e.to_string())?;
     }
     // certificate file: header, original source rows, basis derivation (replay authority for retained traces)
     let mut cert = std::io::BufWriter::new(
@@ -3166,13 +3181,15 @@ fn run<const N: usize>(
     }
     cert.flush().map_err(|e| e.to_string())?;
     // sym-gen: the chart's automorphism group and the node order as linear forms on the chart (cross-checked)
-    let symmetry: Option<(super::symmetry::NodeGroup, super::symmetry::ChartForms)> = if opts.symmetry
+    let symmetry: Option<(super::symmetry::NodeGroup, super::symmetry::ChartForms)> = if opts
+        .symmetry
     {
         let chart: Vec<bool> = base[..n].to_vec();
         let t = Instant::now();
         let group = super::symmetry::node_group(presented, &chart)?;
-        let forms = super::symmetry::ChartForms::from_order(solver.ordering(), &chart)
-            .ok_or("symmetry: the node order is not modelled on this chart (cuts / two-sided axes)")?;
+        let forms = super::symmetry::ChartForms::from_order(solver.ordering(), &chart).ok_or(
+            "symmetry: the node order is not modelled on this chart (cuts / two-sided axes)",
+        )?;
         let bad = forms.mismatches(solver.ordering(), &chart, &group, 20_000);
         if bad > 0 {
             return Err(format!(
@@ -3193,7 +3210,9 @@ fn run<const N: usize>(
         None
     };
     // sym-gen step 2: the group for exact symmetry rows in the shared bulk solve (no order forms needed)
-    let row_group: Option<super::symmetry::NodeGroup> = if !opts.symmetry_rows && !opts.symmetry_symbolic {
+    let row_group: Option<super::symmetry::NodeGroup> = if !opts.symmetry_rows
+        && !opts.symmetry_symbolic
+    {
         None
     } else if let Some((g, _)) = symmetry.as_ref() {
         Some(g.clone())
@@ -3244,8 +3263,8 @@ fn run<const N: usize>(
                 .collect::<Vec<_>>()
                 .join(",")
         );
-        let flipped_free = (0..fixed.len())
-            .any(|i| fixed[i].is_none() && matches!(e.action[i], Some((_, true))));
+        let flipped_free =
+            (0..fixed.len()).any(|i| fixed[i].is_none() && matches!(e.action[i], Some((_, true))));
         let sign = if flipped_free {
             "key".to_string()
         } else {
@@ -3303,10 +3322,10 @@ fn run<const N: usize>(
                     opts.guard_version()
                 ));
             }
-            if let Some(sh) = shapes
-                .iter()
-                .find(|sh| sh.guard_version.is_some_and(|g| g != opts.guard_version() as u64))
-            {
+            if let Some(sh) = shapes.iter().find(|sh| {
+                sh.guard_version
+                    .is_some_and(|g| g != opts.guard_version() as u64)
+            }) {
                 return Err(format!(
                     "cover {path}: rule {:?} carries guard_version {:?}, this run requires {} (guard-fix D1)",
                     sh.index,
@@ -3454,7 +3473,11 @@ fn run<const N: usize>(
     };
     // seed-centre: per-case centre offsets (cases in PRESENTED slots) and the global offset, checked once
     let mut seed_centres: Vec<(Case<N>, Vec<Vec<i64>>)> = Vec::new();
-    for o in opts.seed_centre_offset.iter().chain(&opts.seed_centre_extra) {
+    for o in opts
+        .seed_centre_offset
+        .iter()
+        .chain(&opts.seed_centre_extra)
+    {
         if o.len() != n {
             return Err(format!("seed_centre_offset arity {} != {n}", o.len()));
         }
@@ -3486,9 +3509,9 @@ fn run<const N: usize>(
             rec["seed_layer_cap"] = serde_json::json!(cap);
         }
         outcome.seed_recipe = Some(rec);
-        let cap_field = opts
-            .seed_layer_cap
-            .map_or(String::new(), |c| format!(",\"seed_layer_cap\":{}", serde_json::json!(c)));
+        let cap_field = opts.seed_layer_cap.map_or(String::new(), |c| {
+            format!(",\"seed_layer_cap\":{}", serde_json::json!(c))
+        });
         writeln!(
             qlog,
             "{{\"type\":\"seed_recipe\",\"seed_centre_offset\":{},\"seed_centre_extra\":{},\"case_seed_centres\":{},\"seed_face_floor\":{}{cap_field}}}",
@@ -3892,88 +3915,92 @@ fn run<const N: usize>(
             let mut started: Option<Instant> = None;
             let mut lift = 0.0f64;
             let recipe = seed_recipe_for(opts, &seed_centres, case);
-            let result = crate::solver::with_seed_recipe(recipe, || super::screen::with_seed_schedule(seeds, || {
-                super::screen::with_screen(screen, || {
-                    let observe = |event: SearchEvent<N>| match event {
-                        SearchEvent::ExactStarted {
-                            pivot, trace_rows, ..
-                        } => {
-                            raw = Some(pivot);
-                            started = Some(Instant::now());
-                            eprintln!(
-                                "EVENT {:.3}s ExactStarted rows={trace_rows} pivot={pivot}",
-                                t2.elapsed().as_secs_f64()
-                            );
-                        }
-                        SearchEvent::CanonicalizationStarted { .. } => {
-                            if let Some(s) = started {
-                                lift = s.elapsed().as_secs_f64();
+            let result = crate::solver::with_seed_recipe(recipe, || {
+                super::screen::with_seed_schedule(seeds, || {
+                    super::screen::with_screen(screen, || {
+                        let observe = |event: SearchEvent<N>| match event {
+                            SearchEvent::ExactStarted {
+                                pivot, trace_rows, ..
+                            } => {
+                                raw = Some(pivot);
+                                started = Some(Instant::now());
+                                eprintln!(
+                                    "EVENT {:.3}s ExactStarted rows={trace_rows} pivot={pivot}",
+                                    t2.elapsed().as_secs_f64()
+                                );
                             }
-                        }
-                        // t178 diagnostics (default off): discovery milestones on stderr
-                        SearchEvent::DiscoveryProgress {
-                            depth,
-                            seeds,
-                            rows,
-                            discovery,
-                        } if discovery_progress_log() => {
-                            eprintln!(
-                                "EVENT {:.3}s DiscoveryProgress depth={depth} seeds={seeds} rows={rows} independent={} columns={}",
-                                t2.elapsed().as_secs_f64(),
-                                discovery.map_or(0, |d| d.independent_rows),
-                                discovery.map_or(0, |d| d.columns)
-                            );
-                        }
-                        _ => {}
-                    };
-                    let resolved = opts
-                        .case_seed_priority
-                        .map(|priority| {
-                            resolve_case_seed_schedule(
-                                priority,
-                                opts.case_seed_schedule.as_ref(),
-                                case,
-                                &top,
-                            )
-                        })
-                        .transpose()?
-                        .flatten();
-                    // a priority that declines a case (AffineCoupledFirst on a coordinate case) leaves the default path
-                    let fallback = if opts.case_seed_priority.is_some() {
-                        None
-                    } else {
-                        opts.case_seed_schedule.as_ref()
-                    };
-                    // rr-registry's --case-seed-rung (the depth-2 seed-shell rung) applies on its rung only
-                    let rung_schedule = if shell_rung {
-                        opts.case_seed_rung.as_ref()
-                    } else {
-                        None
-                    };
-                    if let Some(schedule) =
-                        pose.or(rung_schedule).or(resolved.as_ref()).or(fallback)
-                    {
-                        let visit = so.visit(nb);
-                        solver.solve_case_with_schedule_and_observer(
-                            case.clone(),
-                            options,
-                            visit.as_deref(),
-                            schedule,
-                            observe,
-                        )
-                    } else {
-                        match so.visit(nb) {
-                            None => solver.solve_case_with_observer(case.clone(), options, observe),
-                            Some(order) => solver.solve_case_with_source_order_and_observer(
+                            SearchEvent::CanonicalizationStarted { .. } => {
+                                if let Some(s) = started {
+                                    lift = s.elapsed().as_secs_f64();
+                                }
+                            }
+                            // t178 diagnostics (default off): discovery milestones on stderr
+                            SearchEvent::DiscoveryProgress {
+                                depth,
+                                seeds,
+                                rows,
+                                discovery,
+                            } if discovery_progress_log() => {
+                                eprintln!(
+                                    "EVENT {:.3}s DiscoveryProgress depth={depth} seeds={seeds} rows={rows} independent={} columns={}",
+                                    t2.elapsed().as_secs_f64(),
+                                    discovery.map_or(0, |d| d.independent_rows),
+                                    discovery.map_or(0, |d| d.columns)
+                                );
+                            }
+                            _ => {}
+                        };
+                        let resolved = opts
+                            .case_seed_priority
+                            .map(|priority| {
+                                resolve_case_seed_schedule(
+                                    priority,
+                                    opts.case_seed_schedule.as_ref(),
+                                    case,
+                                    &top,
+                                )
+                            })
+                            .transpose()?
+                            .flatten();
+                        // a priority that declines a case (AffineCoupledFirst on a coordinate case) leaves the default path
+                        let fallback = if opts.case_seed_priority.is_some() {
+                            None
+                        } else {
+                            opts.case_seed_schedule.as_ref()
+                        };
+                        // rr-registry's --case-seed-rung (the depth-2 seed-shell rung) applies on its rung only
+                        let rung_schedule = if shell_rung {
+                            opts.case_seed_rung.as_ref()
+                        } else {
+                            None
+                        };
+                        if let Some(schedule) =
+                            pose.or(rung_schedule).or(resolved.as_ref()).or(fallback)
+                        {
+                            let visit = so.visit(nb);
+                            solver.solve_case_with_schedule_and_observer(
                                 case.clone(),
                                 options,
-                                &order,
+                                visit.as_deref(),
+                                schedule,
                                 observe,
-                            ),
+                            )
+                        } else {
+                            match so.visit(nb) {
+                                None => {
+                                    solver.solve_case_with_observer(case.clone(), options, observe)
+                                }
+                                Some(order) => solver.solve_case_with_source_order_and_observer(
+                                    case.clone(),
+                                    options,
+                                    &order,
+                                    observe,
+                                ),
+                            }
                         }
-                    }
+                    })
                 })
-            }));
+            });
             let reports = super::screen::take_reports();
             (
                 result.map(|candidate| Searched {
@@ -4696,8 +4723,15 @@ fn run<const N: usize>(
                 .map_err(|e| e.to_string())?;
             }
             log_case_seed_schedule(&mut qlog, opts, &current, &top, n)?;
-            let (result, reports) =
-                search(&current, so, *seeds, *large_gate, false, *shell_rung, symbolic);
+            let (result, reports) = search(
+                &current,
+                so,
+                *seeds,
+                *large_gate,
+                false,
+                *shell_rung,
+                symbolic,
+            );
             tried_large.push(reports.iter().any(|r| matches!(&r.decision, super::screen::ScreenDecision::Refuse(m) if m.contains("SymbolicFirst rung first"))));
             for r in &reports {
                 outcome.screened_lifts += 1;
@@ -4815,7 +4849,8 @@ fn run<const N: usize>(
                                     source_order.clone(),
                                     false,
                                 );
-                                extras.seed_setting = seed_setting_json(opts, &seed_centres, &rule.candidate.case);
+                                extras.seed_setting =
+                                    seed_setting_json(opts, &seed_centres, &rule.candidate.case);
                                 extras.oversized_fallback = true;
                                 let mut buf: Vec<u8> = Vec::new();
                                 write_rule(&mut buf, &label, bank_index, &rule, &extras, n);
@@ -4896,7 +4931,9 @@ fn run<const N: usize>(
                 // the rows selected modularly can fail to reproduce the target pivot exactly; that is a failure of
                 // this variant's point, not of the run: try the next variant (another seed/pose), and refuse the case
                 // (an open obligation) when none succeeds, instead of stopping the whole run
-                Err(SolverError::ExactReplay(msg)) if opts.region.is_some() && opts.open_on_refusal => {
+                Err(SolverError::ExactReplay(msg))
+                    if opts.region.is_some() && opts.open_on_refusal =>
+                {
                     outcome.refused_lifts += 1;
                     writeln!(
                         qlog,
@@ -4908,7 +4945,9 @@ fn run<const N: usize>(
                     .map_err(|e| e.to_string())?;
                     refusals.push(ScreenReport {
                         measure: super::screen::ScreenMeasure {
-                            note: format!("exact replay failed at the region point ({vlabel}): {msg}"),
+                            note: format!(
+                                "exact replay failed at the region point ({vlabel}): {msg}"
+                            ),
                             ..Default::default()
                         },
                         decision: super::screen::ScreenDecision::Refuse(
@@ -5398,18 +5437,22 @@ fn run<const N: usize>(
             // seed-rung: with the seed-pose rung on, a numeric endpoint runs the symbolic cases' lift ladder (first
             // rung large-gated: the seed-pose rung and the SymbolicFirst gate fire, then SymbolicFirst, the lifted
             // node relation, the retry source orders); with the rung off the legacy numeric ladder (no gate) is kept.
-            let numeric_orders: Vec<(SourceOrder, Option<crate::solver::SeedSchedule>, bool, bool)> =
-                if opts.seed_pose_rung {
-                    lift_ladder()
-                } else {
-                    let mut v: Vec<SourceOrder> = vec![node_source.clone()];
-                    for so in &opts.retry_source_orders {
-                        if !v.contains(so) {
-                            v.push(so.clone());
-                        }
+            let numeric_orders: Vec<(
+                SourceOrder,
+                Option<crate::solver::SeedSchedule>,
+                bool,
+                bool,
+            )> = if opts.seed_pose_rung {
+                lift_ladder()
+            } else {
+                let mut v: Vec<SourceOrder> = vec![node_source.clone()];
+                for so in &opts.retry_source_orders {
+                    if !v.contains(so) {
+                        v.push(so.clone());
                     }
-                    v.into_iter().map(|so| (so, None, false, false)).collect()
-                };
+                }
+                v.into_iter().map(|so| (so, None, false, false)).collect()
+            };
             let mut tried_large = false;
             let fired_before = rung_fired.get();
             let mut result: Result<Searched<N>, SolverError> = Err(SolverError::SearchExhausted {
@@ -5432,7 +5475,8 @@ fn run<const N: usize>(
                     writeln!(qlog, "{{\"type\":\"relation_retry\",\"numerical\":true,\"source_order\":{},\"fixed\":{fixed:?}}}", q(&vlabel)).map_err(|e| e.to_string())?;
                 }
                 log_case_seed_schedule(&mut qlog, opts, &case, &top, n)?;
-                let (r, reports) = search(&case, so, *seeds, *large_gate, true, *shell_rung, options);
+                let (r, reports) =
+                    search(&case, so, *seeds, *large_gate, true, *shell_rung, options);
                 tried_large |= reports.iter().any(|r| matches!(&r.decision, super::screen::ScreenDecision::Refuse(m) if m.contains("SymbolicFirst rung first")));
                 for rep in &reports {
                     outcome.screened_lifts += 1;
@@ -5462,7 +5506,8 @@ fn run<const N: usize>(
                         max_depth: Some(depth),
                         ..options
                     };
-                    let (r, reports) = search(&case, &node_source, None, false, false, false, deeper);
+                    let (r, reports) =
+                        search(&case, &node_source, None, false, false, false, deeper);
                     for rep in &reports {
                         outcome.screened_lifts += 1;
                         writeln!(qlog, "{{\"type\":\"lift_screen\",\"numerical\":true,\"depth\":{depth},\"source_order\":{},\"report\":{}}}", q(&node_source.label()), serde_json::to_string(rep).unwrap()).map_err(|e| e.to_string())?;
@@ -5521,7 +5566,8 @@ fn run<const N: usize>(
                         searched.source_order,
                         true,
                     );
-                    extras.seed_setting = seed_setting_json(opts, &seed_centres, &rule.candidate.case);
+                    extras.seed_setting =
+                        seed_setting_json(opts, &seed_centres, &rule.candidate.case);
                     if let Some(ledger) = &terminal_ledger {
                         if let Err(e) = ledger.check_rule(
                             &rule.candidate.target,
@@ -5608,7 +5654,9 @@ fn run<const N: usize>(
                     return Vec::new();
                 };
                 let p = a.powers();
-                if (0..n).any(|i| chart_lines[i] && p[i].value() < 1) || p[..n].iter().any(|x| x.is_symbolic()) {
+                if (0..n).any(|i| chart_lines[i] && p[i].value() < 1)
+                    || p[..n].iter().any(|x| x.is_symbolic())
+                {
                     return Vec::new();
                 }
                 let key: Vec<i64> = p[..n].iter().map(|x| i64::from(x.value())).collect();
@@ -5625,10 +5673,15 @@ fn run<const N: usize>(
                     })
                     .collect()
             };
-            let images_dyn: Option<&dyn Fn(&Integral<N>) -> Vec<(Integral<N>, bool)>> =
-                row_group.as_ref().map(|_| &images as &dyn Fn(&Integral<N>) -> Vec<(Integral<N>, bool)>);
-            match solver.solve_numeric_cases_with_symmetry(exhausted, options, visit.as_deref(), images_dyn)
-            {
+            let images_dyn: Option<&dyn Fn(&Integral<N>) -> Vec<(Integral<N>, bool)>> = row_group
+                .as_ref()
+                .map(|_| &images as &dyn Fn(&Integral<N>) -> Vec<(Integral<N>, bool)>);
+            match solver.solve_numeric_cases_with_symmetry(
+                exhausted,
+                options,
+                visit.as_deref(),
+                images_dyn,
+            ) {
                 Ok(result) => {
                     outcome.sym_rows = result.stats.symmetry_rows;
                     outcome.sym_rows_independent = result.stats.symmetry_rows_independent;
@@ -5666,7 +5719,11 @@ fn run<const N: usize>(
                     }
                     if error.is_none() {
                         for candidate in result.rules {
-                            if candidate.sources.iter().any(|s| s.basis_row == crate::solver::SYMMETRY_ROW) {
+                            if candidate
+                                .sources
+                                .iter()
+                                .any(|s| s.basis_row == crate::solver::SYMMETRY_ROW)
+                            {
                                 outcome.sym_row_rules += 1;
                             }
                             let nl: Vec<String> = candidate
@@ -6579,7 +6636,14 @@ mod tests {
     fn known_terminals_refuse_a_compact_cover_index() {
         // gf-merge control (T266-MERGE-NOTE): a cover index keeps no rule targets, so an active ledger cannot check
         // it and must refuse it; the full table of the same run is accepted by the ledger check.
-        let cover = generate(SUNSET, "sunset.sym", &tmp("known-index-source"), &quiet(), &mut |_| {}).unwrap();
+        let cover = generate(
+            SUNSET,
+            "sunset.sym",
+            &tmp("known-index-source"),
+            &quiet(),
+            &mut |_| {},
+        )
+        .unwrap();
         assert!(cover.complete && cover.rules > 0);
         let index = format!("{}.cover.jsonl", tmp("known-index").display());
         super::super::registry::write_cover_index(&cover.table, cover.rules, &index).unwrap();
@@ -6596,11 +6660,24 @@ mod tests {
             &opts,
             vec![vec![1, 1, 1, 0, 0]],
         ));
-        let error = generate(SUNSET, "sunset.sym", &tmp("known-index-reject"), &opts, &mut |_| {})
-            .unwrap_err();
+        let error = generate(
+            SUNSET,
+            "sunset.sym",
+            &tmp("known-index-reject"),
+            &opts,
+            &mut |_| {},
+        )
+        .unwrap_err();
         assert!(error.contains("compact cover index"), "{error}");
         opts.cover_tables = vec![(cover.table.clone(), cover.rules)];
-        let outcome = generate(SUNSET, "sunset.sym", &tmp("known-index-full"), &opts, &mut |_| {}).unwrap();
+        let outcome = generate(
+            SUNSET,
+            "sunset.sym",
+            &tmp("known-index-full"),
+            &opts,
+            &mut |_| {},
+        )
+        .unwrap();
         assert!(outcome.complete, "{outcome:?}");
     }
 
@@ -7998,19 +8075,29 @@ mod tests {
     fn seed_centre_options_default_off_and_parse() {
         // defaults serialize exactly as before (no new keys in the options record / registry identity)
         let v = serde_json::to_value(NodeOptions::default()).unwrap();
-        for key in ["seed_centre_offset", "seed_centre_extra", "case_seed_centres", "seed_face_floor"] {
+        for key in [
+            "seed_centre_offset",
+            "seed_centre_extra",
+            "case_seed_centres",
+            "seed_face_floor",
+        ] {
             assert!(v.get(key).is_none(), "{key}");
         }
         let restored: NodeOptions = serde_json::from_value(v).unwrap();
         assert!(restored.seed_centre_offset.is_none() && restored.case_seed_centres.is_empty());
         assert_eq!(parse_seed_centre_offset("0:-1", 3).unwrap(), vec![-1, 0, 0]);
-        assert_eq!(parse_seed_centre_offset("0:-1, 2:1", 3).unwrap(), vec![-1, 0, 1]);
+        assert_eq!(
+            parse_seed_centre_offset("0:-1, 2:1", 3).unwrap(),
+            vec![-1, 0, 1]
+        );
         for bad in ["3:-1", "0", "x:1", "0:99"] {
             assert!(parse_seed_centre_offset(bad, 3).is_err(), "{bad}");
         }
         // a CaseSpec with the per-case field still parses (the field is read separately by the CLI)
-        let spec: CaseSpec =
-            serde_json::from_str(r#"{"fixed":[null,1,0],"equations":[],"seed_centre_offset":[-1,0,0]}"#).unwrap();
+        let spec: CaseSpec = serde_json::from_str(
+            r#"{"fixed":[null,1,0],"equations":[],"seed_centre_offset":[-1,0,0]}"#,
+        )
+        .unwrap();
         assert_eq!(spec.fixed, vec![None, Some(1), Some(0)]);
         // per-case offset wins for contained cases, else the global one; no recipe without both and a floor
         let face = Case::<3>::from(CoordinateCase::new([None, Some(1), Some(0)]).unwrap());
@@ -8023,17 +8110,28 @@ mod tests {
         opts.seed_centre_offset = Some(vec![0, 1, 0]);
         let centres = vec![(face.clone(), vec![vec![-1, 0, 0], vec![0, 0, 0]])];
         let r = seed_recipe_for(&opts, &centres, &point).unwrap();
-        assert_eq!((r.centre_offset.clone(), r.extra_centres.clone()), (vec![-1, 0, 0], vec![vec![0, 0, 0]]));
+        assert_eq!(
+            (r.centre_offset.clone(), r.extra_centres.clone()),
+            (vec![-1, 0, 0], vec![vec![0, 0, 0]])
+        );
         assert_eq!(
             parse_seed_centre_offsets("0:-1;2:-1", 3).unwrap(),
             vec![vec![-1, 0, 0], vec![0, 0, -1]]
         );
         assert!(parse_seed_centre_offsets(";", 3).is_err());
-        assert_eq!(seed_recipe_for(&opts, &centres, &other).unwrap().centre_offset, vec![0, 1, 0]);
+        assert_eq!(
+            seed_recipe_for(&opts, &centres, &other)
+                .unwrap()
+                .centre_offset,
+            vec![0, 1, 0]
+        );
         opts.seed_centre_offset = None;
         opts.seed_face_floor = Some(1);
         let r = seed_recipe_for(&opts, &[], &other).unwrap();
-        assert_eq!((r.centre_offset.iter().all(|&d| d == 0), r.face_floor), (true, Some(1)));
+        assert_eq!(
+            (r.centre_offset.iter().all(|&d| d == 0), r.face_floor),
+            (true, Some(1))
+        );
     }
 
     #[test]
@@ -8300,11 +8398,7 @@ mod tests {
         assert!(on.complete, "{on:?}");
         assert!(on.sym_rows > 0 && on.sym_rows_independent > 0, "{on:?}");
         assert!(on.residuals <= off.residuals, "{on:?} {off:?}");
-        let dotted = on
-            .residual_keys
-            .iter()
-            .filter(|k| k.contains('2'))
-            .count();
+        let dotted = on.residual_keys.iter().filter(|k| k.contains('2')).count();
         assert!(dotted <= 1, "{:?}", on.residual_keys);
         assert!(on.sym_row_rules > 0, "{on:?}");
         assert!(on.not_lower.is_empty());

@@ -309,7 +309,12 @@ impl SeedRecipe {
     }
 
     /// True when `seed` keeps every face line at >= target - k (always true without a floor).
-    pub fn on_face<const N: usize>(&self, target: &Integral<N>, face: &[bool; N], seed: &Integral<N>) -> bool {
+    pub fn on_face<const N: usize>(
+        &self,
+        target: &Integral<N>,
+        face: &[bool; N],
+        seed: &Integral<N>,
+    ) -> bool {
         let Some(k) = self.face_floor else {
             return true;
         };
@@ -388,7 +393,10 @@ impl<const N: usize> Seeds<N> {
 
     /// seed-centre: report symbolic shifts relative to a target `centre_shift` away from this stream's centre.
     pub fn with_centre_shift(mut self, centre_shift: [i16; N]) -> Self {
-        self.centre_shift = centre_shift.iter().any(|&d| d != 0).then(|| Box::new(centre_shift));
+        self.centre_shift = centre_shift
+            .iter()
+            .any(|&d| d != 0)
+            .then(|| Box::new(centre_shift));
         self
     }
 
@@ -717,8 +725,8 @@ impl<const N: usize> CaseSeedStream<N> {
         schedule: &CaseSeedSchedule,
     ) -> Result<Self, SolverError> {
         schedule.validate(N)?;
-        let mut inner =
-            Seeds::new_two_sided(initial, sector, frozen, two_sided).with_centre_shift(centre_shift);
+        let mut inner = Seeds::new_two_sided(initial, sector, frozen, two_sided)
+            .with_centre_shift(centre_shift);
         let mut first_depth = 0;
         let mut symbolic = None;
         let mut seeds_left = None;
@@ -775,9 +783,18 @@ impl<const N: usize> CaseSeedStream<N> {
 
     /// seed-centre: drop seeds that leave the face of `target` by more than the recipe's floor (no-op without one).
     /// Seeds beyond the search depth limit are never dropped, so the caller still sees the exhausting shell.
-    pub(super) fn with_face_floor(mut self, recipe: &SeedRecipe, target: Integral<N>, sector: &[bool; N]) -> Self {
+    pub(super) fn with_face_floor(
+        mut self,
+        recipe: &SeedRecipe,
+        target: Integral<N>,
+        sector: &[bool; N],
+    ) -> Self {
         if recipe.face_floor.is_some() {
-            self.floor = Some((recipe.clone(), target, SeedRecipe::face_lines(&target, sector)));
+            self.floor = Some((
+                recipe.clone(),
+                target,
+                SeedRecipe::face_lines(&target, sector),
+            ));
         }
         self
     }
@@ -1022,7 +1039,10 @@ mod layer_cap_tests {
         assert!(!cap.admits(&t, &s, &sector, &frozen));
         // one dot below, one rank above (trade): refused on rank
         let s = key([true, false, true, false], [-1, 1, 0, -1]);
-        assert_eq!(SeedLayerCap::layer(&t, &s, &sector, &frozen), (-1, 1, false));
+        assert_eq!(
+            SeedLayerCap::layer(&t, &s, &sector, &frozen),
+            (-1, 1, false)
+        );
         assert!(!cap.admits(&t, &s, &sector, &frozen));
         // below in both
         let s = key([true, false, true, false], [-1, 1, 1, 0]);
@@ -1553,7 +1573,8 @@ mod tests {
                 break;
             }
             let seed = seed.unwrap();
-            let off: [i16; 20] = std::array::from_fn(|i| seed.integral[i].value() - target[i].value());
+            let off: [i16; 20] =
+                std::array::from_fn(|i| seed.integral[i].value() - target[i].value());
             // reported shifts stay the displacement from the target (replay contract)
             for i in 0..20 {
                 if seed.integral[i].is_symbolic() {
@@ -1572,7 +1593,13 @@ mod tests {
     /// (offset from target >= -k on the face lines).
     fn helper_seeds(face: &[usize], centre: &[i16; 20], floor: Option<i16>) -> Vec<[i16; 20]> {
         let u = |j: usize| -> [i16; 20] {
-            std::array::from_fn(|i| if i == j { if j < 9 { 1 } else { -1 } } else { 0 })
+            std::array::from_fn(|i| {
+                if i == j {
+                    if j < 9 { 1 } else { -1 }
+                } else {
+                    0
+                }
+            })
         };
         let add = |vs: &[[i16; 20]]| -> [i16; 20] {
             std::array::from_fn(|i| centre[i] + vs.iter().map(|v| v[i]).sum::<i16>())
@@ -1619,7 +1646,10 @@ mod tests {
 
     /// True for the seeds the engine's L1 ball has and the helper's shells lack: two LOWERINGS (Sm2 around C).
     fn double_lowering(off: &[i16; 20], centre: &[i16; 20], face: &[usize]) -> bool {
-        face.iter().map(|&i| (centre[i] - off[i]).max(0)).sum::<i16>() == 2
+        face.iter()
+            .map(|&i| (centre[i] - off[i]).max(0))
+            .sum::<i16>()
+            == 2
     }
 
     #[test]
@@ -1629,8 +1659,16 @@ mod tests {
         centre[0] = -1;
         let mut offset = vec![0i16; 20];
         offset[0] = -1;
-        let plain = SeedRecipe { centre_offset: offset.clone(), extra_centres: vec![], face_floor: None };
-        let floored = SeedRecipe { centre_offset: offset, extra_centres: vec![], face_floor: Some(1) };
+        let plain = SeedRecipe {
+            centre_offset: offset.clone(),
+            extra_centres: vec![],
+            face_floor: None,
+        };
+        let floored = SeedRecipe {
+            centre_offset: offset,
+            extra_centres: vec![],
+            face_floor: Some(1),
+        };
         let engine = recipe_seeds(&face, &plain, 2);
         let engine_floor = recipe_seeds(&face, &floored, 2);
         // centre seed first, at target - e0, depth 0
@@ -1646,7 +1684,10 @@ mod tests {
         // the difference is exactly the double-lowering shell Sm2 (6 seeds; 1 of them, target - e0 - e2 - e7, is on
         // the face and survives the floor)
         let strip = |v: &[[i16; 20]]| -> Vec<[i16; 20]> {
-            v.iter().copied().filter(|s| !double_lowering(s, &centre, &face)).collect()
+            v.iter()
+                .copied()
+                .filter(|s| !double_lowering(s, &centre, &face))
+                .collect()
         };
         assert_eq!(sorted(strip(&engine)), sorted(helper));
         assert_eq!(sorted(strip(&engine_floor)), sorted(helper_floor));
@@ -1660,7 +1701,11 @@ mod tests {
         t[7] = -1;
         assert_eq!(extra, vec![&t]);
         // floor: no face line below target - 1, and rows 30 per seed -> 8,160 vs the helper's 8,130
-        assert!(engine_floor.iter().all(|s| face.iter().all(|&i| s[i] >= -1)));
+        assert!(
+            engine_floor
+                .iter()
+                .all(|s| face.iter().all(|&i| s[i] >= -1))
+        );
         // ISP axes fixed at 0 move: rank-1 and rank-2 numerator seeds present
         assert!(engine_floor.iter().any(|s| (9..20).any(|i| s[i] == -1)));
         assert!(engine_floor.iter().any(|s| (9..20).any(|i| s[i] == -2)));
@@ -1674,7 +1719,11 @@ mod tests {
         centre[0] = -1;
         let mut offset = vec![0i16; 20];
         offset[0] = -1;
-        let plain = SeedRecipe { centre_offset: offset, extra_centres: vec![], face_floor: None };
+        let plain = SeedRecipe {
+            centre_offset: offset,
+            extra_centres: vec![],
+            face_floor: None,
+        };
         let engine = recipe_seeds(&face, &plain, 2);
         let helper = helper_seeds(&face, &centre, None);
         assert_eq!(helper.len(), 311); // X4a
@@ -1692,7 +1741,8 @@ mod tests {
         // face {1,3,4}: centres T - e1, T - e3, T - e4, floor 1 (helper H2 X4b: 708 seeds in the union)
         let face = [1usize, 3, 4];
         let (target, sector) = t162_face(&face);
-        let unit = |j: usize| -> Vec<i16> { (0..20).map(|i| if i == j { -1 } else { 0 }).collect() };
+        let unit =
+            |j: usize| -> Vec<i16> { (0..20).map(|i| if i == j { -1 } else { 0 }).collect() };
         let recipe = SeedRecipe {
             centre_offset: unit(1),
             extra_centres: vec![unit(3), unit(4)],
@@ -1702,11 +1752,19 @@ mod tests {
             .offsets()
             .into_iter()
             .map(|o| {
-                let (c, sh) = SeedRecipe::centre_of(o, &target, &[false; 20], &[false; 20]).unwrap();
-                CaseSeedStream::new_centred(c, sh, sector, [false; 20], [false; 20], &CaseSeedSchedule::Reference)
-                    .unwrap()
-                    .with_search_max_depth(Some(2))
-                    .with_face_floor(&recipe, target, &sector)
+                let (c, sh) =
+                    SeedRecipe::centre_of(o, &target, &[false; 20], &[false; 20]).unwrap();
+                CaseSeedStream::new_centred(
+                    c,
+                    sh,
+                    sector,
+                    [false; 20],
+                    [false; 20],
+                    &CaseSeedSchedule::Reference,
+                )
+                .unwrap()
+                .with_search_max_depth(Some(2))
+                .with_face_floor(&recipe, target, &sector)
             })
             .collect();
         let mut multi = MultiCentreStream::new(streams);
@@ -1723,7 +1781,9 @@ mod tests {
                     assert_eq!(seed.shifts[i], seed.integral[i].value());
                 }
             }
-            got.push(std::array::from_fn(|i| seed.integral[i].value() - target[i].value()));
+            got.push(std::array::from_fn(|i| {
+                seed.integral[i].value() - target[i].value()
+            }));
         }
         assert!(depths.windows(2).all(|w| w[0] <= w[1]));
         let mut uniq = got.clone();
@@ -1791,9 +1851,17 @@ mod tests {
         .collect();
         assert_eq!(same, reference);
         // a default recipe is never installed
-        with_seed_recipe(Some(SeedRecipe::default()), || assert!(seed_recipe_override().is_none()));
-        let r = SeedRecipe { centre_offset: vec![-1], extra_centres: vec![], face_floor: Some(1) };
-        with_seed_recipe(Some(r.clone()), || assert_eq!(seed_recipe_override(), Some(r.clone())));
+        with_seed_recipe(Some(SeedRecipe::default()), || {
+            assert!(seed_recipe_override().is_none())
+        });
+        let r = SeedRecipe {
+            centre_offset: vec![-1],
+            extra_centres: vec![],
+            face_floor: Some(1),
+        };
+        with_seed_recipe(Some(r.clone()), || {
+            assert_eq!(seed_recipe_override(), Some(r.clone()))
+        });
         assert!(seed_recipe_override().is_none());
     }
 
@@ -1806,11 +1874,21 @@ mod tests {
             Power::new(false, 2).unwrap(),
             Power::new(true, 0).unwrap(),
         ]);
-        let r = SeedRecipe { centre_offset: vec![-1, 1, -1, -1], extra_centres: vec![], face_floor: None };
-        let (centre, shift) = r.centre(&target, &[false, false, false, true], &[false; 4]).unwrap();
+        let r = SeedRecipe {
+            centre_offset: vec![-1, 1, -1, -1],
+            extra_centres: vec![],
+            face_floor: None,
+        };
+        let (centre, shift) = r
+            .centre(&target, &[false, false, false, true], &[false; 4])
+            .unwrap();
         assert_eq!(centre.powers().map(|p| p.value()), [1, 0, 1, 0]);
         assert_eq!(shift, [0; 4]);
-        let r = SeedRecipe { centre_offset: vec![0, 0, 0, -1], extra_centres: vec![], face_floor: None };
+        let r = SeedRecipe {
+            centre_offset: vec![0, 0, 0, -1],
+            extra_centres: vec![],
+            face_floor: None,
+        };
         let (centre, shift) = r.centre(&target, &[false; 4], &[false; 4]).unwrap();
         assert_eq!(centre[3].value(), -1);
         assert!(centre[3].is_symbolic());
@@ -1822,11 +1900,21 @@ mod tests {
         let face = [0usize, 2, 7];
         let (target, sector) = t162_face(&face);
         // a floor that drops every lowering: the stream still exposes depth 1 to a depth-0 search
-        let r = SeedRecipe { centre_offset: vec![], extra_centres: vec![], face_floor: Some(0) };
-        let mut stream = CaseSeedStream::new(target, sector, [false; 20], [false; 20], &CaseSeedSchedule::Reference)
-            .unwrap()
-            .with_search_max_depth(Some(0))
-            .with_face_floor(&r, target, &sector);
+        let r = SeedRecipe {
+            centre_offset: vec![],
+            extra_centres: vec![],
+            face_floor: Some(0),
+        };
+        let mut stream = CaseSeedStream::new(
+            target,
+            sector,
+            [false; 20],
+            [false; 20],
+            &CaseSeedSchedule::Reference,
+        )
+        .unwrap()
+        .with_search_max_depth(Some(0))
+        .with_face_floor(&r, target, &sector);
         assert!(stream.next().unwrap().is_ok());
         assert_eq!(stream.depth(), 0);
         let first_over = stream.next().unwrap().unwrap();
