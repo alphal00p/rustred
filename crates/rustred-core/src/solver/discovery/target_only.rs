@@ -218,6 +218,16 @@ fn materialize_in_field_witnessed<const N: usize, F: Field>(
             lower_nonzeros: reducer.l().nvalues(),
         });
         let weights = solve_transposed_lower(reducer.l(), ordinal, one, catch_native)?;
+        if super::weight_capture_on() {
+            // engine-line recipe solve: the exact weights of the prefix rows (input row index = L row index here)
+            let mut exported = Vec::with_capacity(weights.nvalues());
+            for (&j, v) in weights.col_idcs().iter().zip(weights.values()) {
+                if !weights.field().is_zero(v) {
+                    exported.push((j as usize, export(v)?));
+                }
+            }
+            super::capture_weights(exported);
+        }
         observe(MaterializationEvent::TargetWeightsFinished {
             nonzero_weights: weights.nvalues(),
         });
@@ -524,6 +534,9 @@ pub(super) fn witness_of_full_lower<const N: usize, F: Field>(
         .map(|(&j, v)| Ok((j as usize, export(v)?)))
         .collect::<Result<_, MaterializationError>>()?;
     check_witness_at_random_point(rows, &exported, solution)?;
+    if super::weight_capture_on() {
+        super::capture_weights(exported.clone());
+    }
     witness_of(rows, &by_input, poles, restore)
 }
 

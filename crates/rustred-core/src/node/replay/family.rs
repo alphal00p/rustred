@@ -137,6 +137,11 @@ fn call_args(src: &str, name: &str) -> Option<String> {
 }
 
 impl Family {
+    /// Momentum coefficients of propagator `i` (loops then `q`): the sym-gen exact map check.
+    pub fn momentum(&self, i: usize) -> Option<&[i64]> {
+        self.c.get(i).map(Vec::as_slice)
+    }
+
     #[allow(
         clippy::needless_range_loop,
         reason = "index arithmetic over the contraction matrix"
