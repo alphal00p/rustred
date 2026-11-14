@@ -33,7 +33,7 @@ use crate::resources::{Sampler, SamplerConfig, host_memory};
 use crate::signals::{StopHandle, StopLevel, StopSignals};
 use crate::state::{
     AttemptState, AttemptTarget, CampaignPhase, CampaignState, ContractAccept, FinishClass,
-    class_target, class_word, contract_accepts,
+    ItemPhase, class_target, class_word, contract_accepts,
 };
 use failpoint::Failpoints;
 use orphans::ScanRules;
@@ -93,6 +93,9 @@ pub const HEARTBEAT_EVERY: Duration = Duration::from_secs(5);
 pub const SPAWN_SENTINEL: &str = "SPAWN";
 /// `RUN/sup/CAMPAIGN`: the campaign's marker id, written before the launch record (run directory authentication).
 pub const CAMPAIGN_ID_FILE: &str = "CAMPAIGN";
+/// The `item.attention` code of an unconfirmed launch whose execution is unknown (lane int5): the operator decides with
+/// `rr_campaign control CDIR resolve JOB`.
+pub const EXECUTION_UNKNOWN: &str = "execution_unknown";
 
 /// How a `run` ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -525,6 +528,12 @@ pub fn run_with(opts: RunOptions, on_started: &mut dyn FnMut(&Started)) -> RunEx
 
 impl Supervisor {
     fn start(opts: RunOptions, log: &mut Log) -> Result<Supervisor, RunExit> {
+        // gate (d), lane int5: a release build has no test hooks and refuses their variable (before anything is touched).
+        if let Some(name) = failpoint::release_refusal() {
+            return Err(RunExit::Refused(format!(
+                "{name} is set, but this release build has no test hooks: unset it (hooked rehearsals need a test build)"
+            )));
+        }
         let cdir = opts.cdir.clone();
         opts.spec.check_dirs(&cdir).map_err(RunExit::Refused)?;
         std::fs::create_dir_all(&cdir)
@@ -950,11 +959,17 @@ impl Supervisor {
     /// unsettled attempt is settled; an attempt whose launch was journalled but never confirmed is authenticated first
     /// and is never treated as "did not run" without proof (requirement 05:23Z).
     fn recover(&mut self) {
-        let unsettled: Vec<(String, u32, bool)> = self
+        // THE RECOVERY HOOK, step 1 (ledger-and-progress.md 16; lane int5): every launch journalled in an earlier
+        // session and never confirmed becomes `unconfirmed` (EXECUTION UNKNOWN) before anything is decided about it.
+        self.mark_unconfirmed();
+        if self.ledger_dead.is_some() {
+            return;
+        }
+        let unsettled: Vec<(String, u32, AttemptState)> = self
             .st()
             .unsettled_jobs()
             .into_iter()
-            .map(|(id, j)| (id.clone(), j.attempt, j.state == AttemptState::Launching))
+            .map(|(id, j)| (id.clone(), j.attempt, j.state))
             .collect();
         // The boot and start bounds of the previous sessions, from the ledger itself.
         let mut rules = self.scan_rules();
@@ -1012,13 +1027,26 @@ impl Supervisor {
                 "recovery_sweep_unproven {{\"reason\":{r:?}}} (attempts are settled from their files; the periodic sweep continues)"
             ));
         }
-        let survivors: BTreeSet<String> = report
-            .left
-            .iter()
-            .map(|l| l.process.attempt_id.clone())
-            .collect();
-        for (job, attempt, launching) in unsettled {
+        for (job, attempt, state) in unsettled {
+            if self.ledger_dead.is_some() {
+                return;
+            }
+            if state == AttemptState::Launching {
+                // Impossible after the hook (this session has launched nothing yet): never decided here.
+                self.log.line(
+                    "ERROR",
+                    &format!("{job} a{attempt}: launching at recovery after the unconfirmed-launch hook; left as it is"),
+                );
+                continue;
+            }
+            let unconfirmed = state == AttemptState::Unconfirmed;
             if self.moved {
+                if unconfirmed {
+                    // Execution unknown in the ORIGINAL directory: never "lost" automatically (its run directory names
+                    // the original campaign id, so it does not authenticate here: the operator decides).
+                    self.recover_unconfirmed(&job, attempt);
+                    continue;
+                }
                 // Copied / moved directory: the recorded attempt's process (if any) belongs to the ORIGINAL directory.
                 let ev = vec![
                     Event::Job {
@@ -1045,7 +1073,17 @@ impl Supervisor {
                 continue;
             }
             let marker = format!("{job}:a{attempt}");
-            if survivors.contains(&marker) {
+            if let Some(alive) = report
+                .left
+                .iter()
+                .filter(|l| l.process.attempt_id == marker)
+                .min_by_key(|l| l.process.start_ticks)
+                .map(|l| l.process.clone())
+            {
+                // A live marked process: an unconfirmed launch DID start (late confirmation, `started`).
+                if unconfirmed {
+                    self.confirm_late(&job, attempt, &alive, "alive and not signalled by the recovery sweep");
+                }
                 // gate-A M-1: never settle while a marked process of the attempt lives.
                 self.log.line(
                     "ERROR",
@@ -1053,7 +1091,37 @@ impl Supervisor {
                 );
                 continue;
             }
-            let was_killed = report.killed.iter().any(|k| k.attempt_id == marker);
+            let killed = report
+                .killed
+                .iter()
+                .filter(|k| k.attempt_id == marker)
+                .min_by_key(|k| k.start_ticks)
+                .cloned();
+            let was_killed = killed.is_some();
+            if unconfirmed {
+                let Some(k) = killed else {
+                    // No process of it exists: authenticate its run directory (never "did not run" without proof).
+                    self.recover_unconfirmed(&job, attempt);
+                    continue;
+                };
+                // The recovery sweep killed a live marked process of it: the spawn happened and the child ran (late
+                // confirmation); from here on it is a running attempt killed at recovery.
+                if !self.confirm_late(&job, attempt, &k, "killed by the recovery sweep") {
+                    continue;
+                }
+                if !self.feeds_item(&job) {
+                    // Its work was superseded (operator retry / input change): interrupted, nothing to requeue.
+                    self.commit(vec![Event::Job {
+                        job: job.clone(),
+                        attempt,
+                        ev: JobEvent::Interrupt {
+                            reason: "process of a previous supervisor killed at recovery; its work was superseded"
+                                .into(),
+                        },
+                    }]);
+                    continue;
+                }
+            }
             let Some(run_dir) = self.st().jobs.get(&job).and_then(|j| j.run_dir.clone()) else {
                 continue;
             };
@@ -1063,17 +1131,6 @@ impl Supervisor {
                 .jobs
                 .get(&job)
                 .and_then(|j| j.attempt_spec.clone());
-            if launching {
-                self.recover_unconfirmed(
-                    &job,
-                    attempt,
-                    &run_dir,
-                    &layout,
-                    launched.as_deref(),
-                    was_killed,
-                );
-                continue;
-            }
             match read_spec(&layout, launched.as_deref()) {
                 Some((spec, spec_digest)) => {
                     let kill = if was_killed { CKill::Stop } else { CKill::None };
@@ -1090,6 +1147,7 @@ impl Supervisor {
                     );
                 }
                 None => {
+                    // A CONFIRMED (running) attempt whose run directory no longer matches its launch record.
                     let ev = vec![
                         Event::Job {
                             job: job.clone(),
@@ -1113,74 +1171,196 @@ impl Supervisor {
         }
     }
 
-    /// An attempt in `launching` (journalled launch, never confirmed by `job.started`) at recovery (requirement 05:23Z):
-    /// - no spawn sentinel `RUN/sup/SPAWN` (written and fsynced right before the spawn): the spawn was provably never
-    ///   attempted -> lost + requeue (the ONLY case treated as "did not run", and it is proven);
-    /// - otherwise the run directory is AUTHENTICATED (path = this attempt's layout path, `RUN/sup/CAMPAIGN` = this
-    ///   campaign's marker id, job.json digest = the launch record's, job id / attempt / run dir inside job.json), any
-    ///   live process of it was handled by the sweep before, and a valid OUTCOME (bound to the launch digest) is settled
-    ///   as usual (valid sealed results are consumed, never re-solved);
-    /// - anything else: EXECUTION UNKNOWN: a ledger note, the attempt stays as it is, NO automatic retry; the operator
-    ///   decides with `rr_campaign control CDIR resolve JOB` (requeue). HOOK NEEDED FROM LEDGERFIX2: an attempt state
-    ///   `execution_unknown` (job event `unknown {reason}`) and a control verb `resolve` legal only from it; until then the
-    ///   attempt stays `launching` and the resolve is recorded as a note + `lose` + `requeue`.
-    fn recover_unconfirmed(
+    /// THE RECOVERY HOOK, step 1: `job.unconfirmed` for every attempt of `state.unconfirmed_launches()` (launches
+    /// journalled in an earlier session, never confirmed by `job.started`), one group commit, before the sweep and
+    /// before any decision about them. From then on the reducer (strict mode, `ENFORCE_UNCONFIRMED_ACROSS_SESSIONS`)
+    /// refuses lose / interrupt / requeue / an unauthenticated finish of them.
+    fn mark_unconfirmed(&mut self) {
+        let ev: Vec<Event> = self
+            .st()
+            .unconfirmed_launches()
+            .into_iter()
+            .map(|(job, j)| Event::Job {
+                job: job.clone(),
+                attempt: j.attempt,
+                ev: JobEvent::Unconfirmed {
+                    reason: format!(
+                        "launch journalled in session {}, never confirmed by job.started before that supervisor ended",
+                        j.launch_session.unwrap_or(0)
+                    ),
+                },
+            })
+            .collect();
+        if !ev.is_empty() {
+            self.log.line(
+                "WARN",
+                &format!(
+                    "recovery: {} unconfirmed launch(es) marked: execution unknown until authenticated",
+                    ev.len()
+                ),
+            );
+            self.commit(ev);
+        }
+    }
+
+    /// The job can still feed its item: not stale, of the item's current generation, the item open or in progress.
+    fn feeds_item(&self, job: &str) -> bool {
+        let st = self.st();
+        st.jobs.get(job).is_some_and(|j| {
+            j.stale.is_none()
+                && st.items.get(&j.item).is_some_and(|it| {
+                    it.generation == j.generation
+                        && matches!(it.phase, ItemPhase::Open | ItemPhase::InProgress)
+                })
+        })
+    }
+
+    /// Late confirmation of an unconfirmed launch: a live marked process of the attempt was found (and possibly killed
+    /// by the sweep), so the spawn happened: `job.started` with that process's identity.
+    fn confirm_late(
         &mut self,
         job: &str,
         attempt: u32,
-        run_dir: &str,
-        layout: &RunLayout,
-        launched: Option<&str>,
-        was_killed: bool,
-    ) {
-        if !was_killed && !layout.sup_dir().join(SPAWN_SENTINEL).exists() {
-            let ev = vec![
-                Event::Job {
-                    job: job.into(),
-                    attempt,
-                    ev: JobEvent::Lose {
-                        reason: "launch journalled but the spawn was never attempted (no RUN/sup/SPAWN): provably did not run"
-                            .into(),
-                    },
+        p: &crate::resources::MarkedProcess,
+        how: &str,
+    ) -> bool {
+        let ev = vec![Event::Job {
+            job: job.into(),
+            attempt,
+            ev: JobEvent::Started {
+                pid: p.pid,
+                start_ticks: p.start_ticks,
+                boot_id: self.boot_id.clone(),
+            },
+        }];
+        match self.commit_or_refused(ev) {
+            Ok(true) => {
+                self.log.line(
+                    "WARN",
+                    &format!(
+                        "{job} a{attempt}: unconfirmed launch confirmed late: marked process pid {} (start {}) {how}",
+                        p.pid, p.start_ticks
+                    ),
+                );
+                true
+            }
+            Ok(false) => false,
+            Err(why) => {
+                self.log.line(
+                    "ERROR",
+                    &format!("{job} a{attempt}: late confirmation refused by the ledger: {why}"),
+                );
+                false
+            }
+        }
+    }
+
+    /// An UNCONFIRMED launch (execution unknown) of which no live process exists (rule, binding: never "did not run"
+    /// without proof, never an automatic retry):
+    /// - its work was superseded (operator retry -> newer generation, input change -> stale, item final): `cancel`;
+    /// - its item already waits for the operator (attention from an earlier session): still waiting;
+    /// - the run directory is AUTHENTICATED (layout path, `RUN/sup/CAMPAIGN` = this campaign's marker id, job.json digest
+    ///   = the launch record's, job id / attempt / run dir inside job.json), else execution unknown;
+    /// - authenticated and NO spawn sentinel `RUN/sup/SPAWN` (written and fsynced right before every spawn): the spawn
+    ///   provably never happened -> `not_spawned` + `requeue` (the ONLY automatic requeue of an unconfirmed launch);
+    /// - authenticated, spawned, and a valid OUTCOME bound to the launch digest: settled as usual (a bound `finished`;
+    ///   valid sealed results are CONSUMED, never re-solved);
+    /// - anything else: EXECUTION UNKNOWN: `item.attention {code: execution_unknown}`, the attempt stays `unconfirmed`;
+    ///   the operator decides with `rr_campaign control CDIR resolve JOB` (control retry of the item + cancel).
+    fn recover_unconfirmed(&mut self, job: &str, attempt: u32) {
+        let Some(jr) = self.st().jobs.get(job).cloned() else {
+            return;
+        };
+        let phase = self.st().items.get(&jr.item).map(|it| it.phase.clone());
+        let in_attention = matches!(phase, Some(ItemPhase::Attention(_)));
+        if !self.feeds_item(job) && !(in_attention && self.current_generation(job)) {
+            let ev = vec![Event::Job {
+                job: job.into(),
+                attempt,
+                ev: JobEvent::Cancel {
+                    reason: "execution unknown (unconfirmed launch); its work was superseded (operator retry, input change or a final item)".into(),
                 },
-                Event::Job {
-                    job: job.into(),
-                    attempt: attempt + 1,
-                    ev: JobEvent::Requeue {
-                        reason: "spawn never attempted".into(),
-                    },
-                },
-            ];
-            self.log.line(
-                "INFO",
-                &format!("{job} a{attempt}: launch journalled, spawn never attempted: requeued"),
-            );
-            self.commit(ev);
+            }];
+            match self.commit_or_refused(ev) {
+                Ok(_) => self.log.line(
+                    "INFO",
+                    &format!("{job} a{attempt}: unconfirmed launch of superseded work: cancelled"),
+                ),
+                Err(why) => self.execution_unknown(job, attempt, &format!("cancel refused: {why}")),
+            }
             return;
         }
-        let (spec, digest) = match self.authenticate_run(job, attempt, run_dir, layout, launched) {
-            Ok(x) => x,
-            Err(why) => {
+        if in_attention {
+            self.execution_unknown(job, attempt, "still waiting for the operator (item in attention)");
+            return;
+        }
+        let Some(run_dir) = jr.run_dir.clone() else {
+            self.execution_unknown(job, attempt, "launch record without a run directory");
+            return;
+        };
+        let layout = RunLayout::new(&run_dir);
+        let (spec, digest) =
+            match self.authenticate_run(job, attempt, &run_dir, &layout, jr.attempt_spec.as_deref()) {
+                Ok(x) => x,
+                Err(why) => {
+                    self.execution_unknown(
+                        job,
+                        attempt,
+                        &format!("run directory not authenticated: {why}"),
+                    );
+                    return;
+                }
+            };
+        let sentinel = layout.sup_dir().join(SPAWN_SENTINEL);
+        match std::fs::symlink_metadata(&sentinel) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let ev = vec![
+                    Event::Job {
+                        job: job.into(),
+                        attempt,
+                        ev: JobEvent::NotSpawned {
+                            reason: format!(
+                                "authenticated run directory {} has no RUN/sup/{SPAWN_SENTINEL}; no marked process of {job}:a{attempt}",
+                                self.rel_path(&layout.root)
+                            ),
+                        },
+                    },
+                    Event::Job {
+                        job: job.into(),
+                        attempt: attempt + 1,
+                        ev: JobEvent::Requeue {
+                            reason: "spawn provably never happened".into(),
+                        },
+                    },
+                ];
+                self.log.line(
+                    "INFO",
+                    &format!("{job} a{attempt}: launch journalled, spawn provably never attempted: requeued"),
+                );
+                self.commit(ev);
+                return;
+            }
+            Err(e) => {
                 self.execution_unknown(
                     job,
                     attempt,
-                    &format!("run directory not authenticated: {why}"),
+                    &format!("spawn sentinel unreadable ({e}): the spawn cannot be ruled out"),
                 );
                 return;
             }
-        };
-        let kill = if was_killed { CKill::Stop } else { CKill::None };
-        let ev = classify::assess(layout, &spec, &digest, WaitStatus::Unknown, kill, false);
+            Ok(_) => {}
+        }
+        let ev = classify::assess(&layout, &spec, &digest, WaitStatus::Unknown, CKill::None, false);
         if matches!(ev.outcome, OutcomeState::Valid(_)) {
             self.settle(
                 job,
                 attempt,
-                layout,
+                &layout,
                 &spec,
                 &digest,
                 WaitStatus::Unknown,
-                kill,
-                was_killed,
+                CKill::None,
+                false,
                 None,
             );
             return;
@@ -1194,15 +1374,20 @@ impl Supervisor {
         self.execution_unknown(
             job,
             attempt,
-            &format!(
-                "spawned (RUN/sup/SPAWN present){}, {why}",
-                if was_killed {
-                    ", a live process of it was killed by the recovery sweep"
-                } else {
-                    ""
-                }
-            ),
+            &format!("spawned (RUN/sup/{SPAWN_SENTINEL} present), no process found, {why}"),
         );
+    }
+
+    /// The job is of its item's current generation and not stale.
+    fn current_generation(&self, job: &str) -> bool {
+        let st = self.st();
+        st.jobs.get(job).is_some_and(|j| {
+            j.stale.is_none()
+                && st
+                    .items
+                    .get(&j.item)
+                    .is_some_and(|it| it.generation == j.generation)
+        })
     }
 
     fn authenticate_run(
@@ -1235,34 +1420,73 @@ impl Supervisor {
         Ok((spec, digest))
     }
 
+    /// EXECUTION UNKNOWN of an unconfirmed launch (the attempt stays `unconfirmed`): its item goes to
+    /// `attention {code: execution_unknown}` (once), the attempt is charged in admission (cap + cores: a process of it
+    /// may exist where no scan can prove otherwise) and the campaign stops with exit 8 when nothing else can run. Never
+    /// retried automatically: `rr_campaign control CDIR resolve JOB` (control retry of the item + cancel).
     fn execution_unknown(&mut self, job: &str, attempt: u32, why: &str) {
+        let Some(jr) = self.st().jobs.get(job).cloned() else {
+            return;
+        };
+        if jr.state != AttemptState::Unconfirmed {
+            return;
+        }
         self.unknown.insert(job.to_string(), attempt);
-        let cap = self.st().jobs.get(job).map_or(0, |j| j.reserved_bytes);
-        let cores = crate::ledger::read_records(&self.cdir)
-            .ok()
-            .and_then(|recs| {
-                recs.iter().rev().find_map(|r| match &r.event {
-                    Event::Job {
-                        job: j,
-                        attempt: a,
-                        ev: JobEvent::Launch { cpus, .. },
-                    } if j == job && *a == attempt => Some(cpus.len()),
-                    _ => None,
-                })
-            })
-            .unwrap_or(1);
-        self.unknown_charge.insert(job.to_string(), (cap, cores));
+        // The cores of its launch record (streamed: never every record of a long campaign in memory, ledgerfix2 m10).
+        let mut cores = 1usize;
+        let _ = crate::ledger::for_each_record(&self.cdir, &mut |r, _| {
+            if let Event::Job {
+                job: j,
+                attempt: a,
+                ev: JobEvent::Launch { cpus, .. },
+            } = &r.event
+                && j == job
+                && *a == attempt
+            {
+                cores = cpus.len().max(1);
+            }
+            Ok(())
+        });
+        self.unknown_charge
+            .insert(job.to_string(), (jr.reserved_bytes, cores));
         self.log.line(
             "WARN",
             &format!(
-                "{job} a{attempt}: EXECUTION UNKNOWN ({why}); not retried automatically: `rr_campaign control CDIR resolve {job}` requeues it"
+                "{job} a{attempt}: EXECUTION UNKNOWN ({why}); not retried automatically: `rr_campaign control CDIR resolve {job}` reopens its item"
             ),
         );
-        self.commit(vec![Event::Note {
+        let note = Event::Note {
             text: format!(
                 "execution_unknown {{\"job\":{job:?},\"attempt\":{attempt},\"why\":{why:?}}} (never retried automatically; rr_campaign control CDIR resolve JOB)"
             ),
-        }]);
+        };
+        let in_attention = matches!(
+            self.st().items.get(&jr.item).map(|it| &it.phase),
+            Some(ItemPhase::Attention(_))
+        );
+        if in_attention {
+            self.commit(vec![note]);
+            return;
+        }
+        let attention = Event::Item {
+            item: jr.item.clone(),
+            ev: crate::ledger::ItemEvent::Attention {
+                code: EXECUTION_UNKNOWN.into(),
+                text: format!(
+                    "job {job} attempt {attempt}: execution unknown ({why}); decide with `rr_campaign control CDIR resolve {job}`"
+                ),
+            },
+        };
+        match self.commit_or_refused(vec![attention, note.clone()]) {
+            Ok(_) => {}
+            Err(e) => {
+                self.log.line(
+                    "WARN",
+                    &format!("{job} a{attempt}: item {} not put in attention: {e}", jr.item),
+                );
+                self.commit(vec![note]);
+            }
+        }
     }
 
     /// Ledger notes for live marked processes a sweep did not signal (each reported; gate-A M-1, gate-B M1).
@@ -1405,6 +1629,16 @@ impl Supervisor {
             },
             _ => file_ref(&layout.outcome(), self.rel_path(&layout.outcome())),
         };
+        // An UNCONFIRMED launch is settled only by the authenticated OUTCOME of exactly this launch (binding + the
+        // OUTCOME file); anything less stays execution unknown (the reducer would refuse it).
+        if jr.state == AttemptState::Unconfirmed && (binding.is_none() || outcome_ref.is_none()) {
+            self.execution_unknown(
+                job,
+                attempt,
+                "its OUTCOME could not be bound to the launch at settle",
+            );
+            return;
+        }
         let mut events = Vec::new();
         let interrupted = killed_at_recovery && target != AttemptTarget::SucceededSealed;
         let requeue_class = matches!(c.kind, FinishClass::Interrupted | FinishClass::Lost);
@@ -2292,44 +2526,123 @@ impl Supervisor {
         }
     }
 
-    /// `resolve JOB` (requirement 05:23Z): the operator's decision for an attempt whose execution is UNKNOWN (journalled,
-    /// unconfirmed launch, not authenticated by its run directory): lost + requeue of exactly that attempt. Refused for
-    /// anything else. Recorded as a note (the ledger has no `resolve` control yet: HOOK NEEDED FROM LEDGERFIX2).
+    /// `resolve JOB` (requirement 05:23Z; lane int5 on the ledger's unconfirmed state): the operator's decision for an
+    /// attempt whose execution is UNKNOWN (an `unconfirmed` launch, or the job of an item in attention with code
+    /// `execution_unknown`). Recorded with the ledger's own verbs: `control retry` of the item (attention -> open, a new
+    /// generation: the work is reopened, not counted as a failure) and `job.cancel` of the unconfirmed attempt (which can
+    /// no longer feed the item); a note `control_resolve`. Refused (`control_refused`) for anything else.
     fn apply_resolve(&mut self, r: &ControlRequest) {
         let target = r.target.clone().unwrap_or_default();
-        let ok = self.unknown.get(&target).copied().filter(|a| {
-            self.st()
-                .jobs
-                .get(&target)
-                .is_some_and(|j| j.attempt == *a && j.state == AttemptState::Launching)
+        let found = self.st().jobs.get(&target).map(|j| {
+            let attention = matches!(
+                self.st().items.get(&j.item).map(|it| &it.phase),
+                Some(ItemPhase::Attention(code)) if code == EXECUTION_UNKNOWN
+            );
+            (
+                j.item.clone(),
+                j.attempt,
+                j.state == AttemptState::Unconfirmed,
+                attention,
+            )
         });
-        let Some(attempt) = ok else {
-            self.note(format!(
-                "control_refused {{\"id\":{:?},\"verb\":\"resolve\",\"target\":{target:?},\"reason\":\"not an attempt of unknown execution\"}}",
+        let refuse = |s: &mut Self, why: &str| {
+            s.note(format!(
+                "control_refused {{\"id\":{:?},\"verb\":\"resolve\",\"target\":{target:?},\"reason\":{why:?}}}",
                 r.id
             ));
+        };
+        let Some((item, attempt, unconfirmed, attention)) = found else {
+            refuse(self, "unknown job");
             return;
         };
-        let by = if r.by.is_empty() { "operator" } else { &r.by };
+        if !unconfirmed && !attention {
+            refuse(self, "not an attempt of unknown execution (unconfirmed launch)");
+            return;
+        }
+        if r.id.is_empty() || r.id.len() > 128 {
+            refuse(self, "bad id");
+            return;
+        }
+        if self.st().controls.contains_key(&r.id) {
+            refuse(self, "control id already used");
+            return;
+        }
+        let by = if r.by.is_empty() {
+            "operator".to_string()
+        } else {
+            r.by.clone()
+        };
         let reason = r.reason.clone().unwrap_or_default();
-        let mut ev = vec![Event::Note {
+        let requested = Event::Control {
+            id: r.id.clone(),
+            ev: ControlEvent::Requested {
+                verb: ControlVerb::Retry,
+                target: ControlTarget::Item { item: item.clone() },
+                by: by.clone(),
+                reason: format!("resolve {target} a{attempt} (execution unknown): {reason}"),
+            },
+        };
+        match self.commit_or_refused(vec![requested]) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(why) => {
+                refuse(self, &why);
+                return;
+            }
+        }
+        let mut ev = vec![Event::Control {
+            id: r.id.clone(),
+            ev: ControlEvent::Applied {
+                effect: format!(
+                    "item {item} reopened by the operator's resolve of {target} a{attempt} (execution unknown; not a failure)"
+                ),
+            },
+        }];
+        if unconfirmed {
+            ev.push(Event::Job {
+                job: target.clone(),
+                attempt,
+                ev: JobEvent::Cancel {
+                    reason: format!(
+                        "execution unknown; resolved by {by} (control {}): its item was reopened",
+                        r.id
+                    ),
+                },
+            });
+        }
+        ev.push(Event::Note {
             text: format!(
-                "control_resolve {{\"id\":{:?},\"job\":{target:?},\"attempt\":{attempt},\"by\":{by:?},\"reason\":{reason:?}}}",
+                "control_resolve {{\"id\":{:?},\"job\":{target:?},\"attempt\":{attempt},\"item\":{item:?},\"by\":{by:?},\"reason\":{reason:?}}}",
                 r.id
             ),
-        }];
-        ev.extend(not_an_attempt(
-            &target,
-            attempt,
-            &format!("execution unknown; resolved by {by} (requeue): {reason}"),
-        ));
-        if self.commit(ev) {
-            self.unknown.remove(&target);
-            self.unknown_charge.remove(&target);
-            self.log.line(
-                "INFO",
-                &format!("control {}: {target} a{attempt} resolved: requeued", r.id),
-            );
+        });
+        match self.commit_or_refused(ev) {
+            Ok(true) => {
+                self.unknown.remove(&target);
+                self.unknown_charge.remove(&target);
+                self.log.line(
+                    "INFO",
+                    &format!(
+                        "control {}: {target} a{attempt} resolved: item {item} reopened, attempt cancelled",
+                        r.id
+                    ),
+                );
+                match self.source.control(self.ledger.state(), "retry", &item) {
+                    Ok(ev) => {
+                        self.commit(ev);
+                    }
+                    Err(e) => self.log.line("WARN", &format!("control {}: {e}", r.id)),
+                }
+            }
+            Ok(false) => {}
+            Err(why) => {
+                self.log
+                    .line("INFO", &format!("control {} (resolve) refused: {why}", r.id));
+                self.commit(vec![Event::Control {
+                    id: r.id.clone(),
+                    ev: ControlEvent::Refused { why },
+                }]);
+            }
         }
     }
 
@@ -2520,7 +2833,7 @@ impl Supervisor {
         }
         for (item, it) in &view.state.items {
             if let Some(a) = &it.accepted
-                && matches!(it.phase, crate::state::ItemPhase::Accepted(_))
+                && matches!(it.phase, ItemPhase::Accepted(_))
                 && !a.record.path.starts_with("large:")
             {
                 let p = self.cdir.join(&a.record.path);

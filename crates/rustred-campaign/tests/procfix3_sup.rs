@@ -10,14 +10,29 @@ use rustred_campaign::ledger::{Event, JobEvent};
 use rustred_campaign::state::AttemptState;
 use std::time::Duration;
 
-/// Jobs whose attempt is still `launching` (journalled, never confirmed).
-fn launching(d: &std::path::Path) -> Vec<String> {
+/// Jobs whose attempt is in `state`.
+fn in_state(d: &std::path::Path, want: AttemptState) -> Vec<String> {
     state(d)
         .jobs
         .iter()
-        .filter(|(_, j)| j.state == AttemptState::Launching)
+        .filter(|(_, j)| j.state == want)
         .map(|(id, _)| id.clone())
         .collect()
+}
+
+/// Jobs whose attempt is still `launching` (journalled, never confirmed; before the restart).
+fn launching(d: &std::path::Path) -> Vec<String> {
+    in_state(d, AttemptState::Launching)
+}
+
+/// Jobs whose attempt is `unconfirmed` (lane int5: marked by the restart's recovery hook; execution unknown).
+fn unconfirmed(d: &std::path::Path) -> Vec<String> {
+    in_state(d, AttemptState::Unconfirmed)
+}
+
+/// Ledger records `job {job, ev}` matching `f`.
+fn job_events(d: &std::path::Path, job: &str, f: impl Fn(&JobEvent) -> bool) -> usize {
+    count(d, |e| matches!(e, Event::Job { job: j, ev, .. } if j == job && f(ev)))
 }
 
 /// Item 6 (requirement 05:23Z), part 1, Astra's hazard: a launch journalled but never confirmed (crash between the
@@ -91,6 +106,20 @@ fn unconfirmed_launch_with_a_valid_outcome_is_consumed_and_unspawned_is_requeued
     let j = &state(&d).jobs[&unconfirmed[0]];
     assert_eq!(j.attempt, 1, "consumed, not requeued: {j:?}");
     assert!(j.state.is_settled());
+    // lane int5: marked `unconfirmed` by the recovery hook, then settled by a `finished` BOUND to exactly this launch.
+    assert_eq!(
+        job_events(&d, &unconfirmed[0], |e| matches!(e, JobEvent::Unconfirmed { .. })),
+        1
+    );
+    let launched = j.attempt_spec.clone().unwrap();
+    assert_eq!(
+        job_events(&d, &unconfirmed[0], |e| matches!(
+            e,
+            JobEvent::Finished { binding: Some(b), outcome: Some(_), .. }
+                if b.attempt == 1 && b.spec_blake3 == launched
+        )),
+        1
+    );
     assert_eq!(verify(&d), 0);
 
     let d = t.cdir("never-spawned");
@@ -104,24 +133,27 @@ fn unconfirmed_launch_with_a_valid_outcome_is_consumed_and_unspawned_is_requeued
     assert_eq!(run_to_end(&spec_p, &d, &[]), vec![0], "{}", log_tail(&d));
     assert_eq!(result(&d), reference);
     assert!(notes(&d, "execution_unknown").is_empty());
+    // lane int5: the only automatic requeue of an unconfirmed launch is the PROVEN one (`not_spawned`); never `lose`.
     assert!(
         count(&d, |e| matches!(
             e,
             Event::Job {
-                ev: JobEvent::Lose { reason },
+                ev: JobEvent::NotSpawned { reason },
                 ..
-            } if reason.contains("never attempted")
+            } if reason.contains("SPAWN")
         )) >= 1
     );
+    assert!(count(&d, |e| matches!(e, Event::Job { ev: JobEvent::Unconfirmed { .. }, .. })) >= 1);
     let f = ledger_facts(&d);
     assert_eq!(f.requeues, f.interrupted);
     assert_no_marked(&t.campaign);
 }
 
 /// Item 6, part 2: a crash between the spawn and `job.started` whose child was killed before it could write OUTCOME
-/// (long cases): EXECUTION UNKNOWN. The restart never requeues it by itself (exit 8 once nothing else is left, a
-/// ledger note, again at the next start); a `resolve` of another job is refused; `control resolve JOB` requeues
-/// exactly that attempt and the campaign ends equal to the reference.
+/// (long cases): EXECUTION UNKNOWN. The restart marks it `unconfirmed`, puts its item in `attention
+/// {execution_unknown}` and never requeues it by itself (exit 8 once nothing else is left, a ledger note, again at the
+/// next start); a `resolve` of another job is refused; `control resolve JOB` = `control retry` of the item + `cancel`
+/// of exactly that attempt (lane int5), and the campaign ends equal to the reference.
 #[test]
 fn unconfirmed_launch_without_outcome_waits_for_the_operator() {
     let _g = serial();
@@ -153,7 +185,25 @@ fn unconfirmed_launch_without_outcome_waits_for_the_operator() {
         "{}",
         log_tail(&d)
     );
-    assert_eq!(launching(&d), unknown, "never requeued automatically");
+    assert_eq!(unconfirmed(&d), unknown, "never requeued automatically");
+    assert!(launching(&d).is_empty());
+    {
+        let st = state(&d);
+        let item = &st.jobs[&unknown[0]].item;
+        assert!(
+            matches!(&st.items[item].phase, rustred_campaign::state::ItemPhase::Attention(c) if c == "execution_unknown"),
+            "{:?}",
+            st.items[item].phase
+        );
+    }
+    assert_eq!(
+        job_events(&d, &unknown[0], |e| matches!(
+            e,
+            JobEvent::Lose { .. } | JobEvent::Interrupt { .. } | JobEvent::Requeue { .. } | JobEvent::NotSpawned { .. }
+        )),
+        0,
+        "an unconfirmed launch is never 'did not run'"
+    );
     assert!(
         notes(&d, "execution_unknown")
             .iter()
@@ -163,7 +213,7 @@ fn unconfirmed_launch_without_outcome_waits_for_the_operator() {
     );
     let mut c = start(&spec_p, &d, &[], &[]);
     assert_eq!(wait(&mut c, Duration::from_secs(600)), 8);
-    assert_eq!(launching(&d), unknown);
+    assert_eq!(unconfirmed(&d), unknown);
     assert_eq!(
         cli(&["control", d.to_str().unwrap(), "resolve", "N9.nothing-t0"]).0,
         0
@@ -184,6 +234,16 @@ fn unconfirmed_launch_without_outcome_waits_for_the_operator() {
         notes(&d, "control_refused")
             .iter()
             .any(|n| n.contains("N9.nothing-t0"))
+    );
+    // the resolved attempt: cancelled (never lost / requeued); its item's work ran again as a NEW job
+    assert_eq!(state(&d).jobs[&unknown[0]].state, AttemptState::Cancelled);
+    assert_eq!(
+        job_events(&d, &unknown[0], |e| matches!(e, JobEvent::Cancel { .. })),
+        1
+    );
+    assert_eq!(
+        job_events(&d, &unknown[0], |e| matches!(e, JobEvent::Lose { .. } | JobEvent::Requeue { .. })),
+        0
     );
     assert_eq!(verify(&d), 0);
     let f = ledger_facts(&d);

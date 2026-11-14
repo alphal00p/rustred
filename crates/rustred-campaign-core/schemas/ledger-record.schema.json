@@ -1698,7 +1698,8 @@
             "requeue",
             "retry",
             "cancel",
-            "unconfirmed"
+            "unconfirmed",
+            "not_spawned"
           ]
         }
       },
@@ -1983,6 +1984,28 @@
             "properties": {
               "ev": {
                 "const": "unconfirmed"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ev",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ev": true,
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ev": {
+                "const": "not_spawned"
               }
             }
           },

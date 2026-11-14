@@ -354,6 +354,9 @@ pub enum AttemptEvent {
     Cancel,
     /// The launch intent of an earlier session was never confirmed: execution unknown.
     Unconfirmed,
+    /// The spawn of an unconfirmed launch provably never happened (authenticated run directory without the spawn
+    /// sentinel, no marked process): the only "did not run" (lane int5).
+    NotSpawned,
 }
 
 impl AttemptEvent {
@@ -368,6 +371,7 @@ impl AttemptEvent {
             AttemptEvent::Retry => "retry",
             AttemptEvent::Cancel => "cancel",
             AttemptEvent::Unconfirmed => "unconfirmed",
+            AttemptEvent::NotSpawned => "not_spawned",
         }
     }
 }
@@ -413,6 +417,11 @@ pub const ATTEMPT_TABLE: &[(&str, &str, &str)] = &[
         "unconfirmed",
         "cancel",
         "cancelled  [reducer: the job can no longer feed its item (operator retry / input change)]",
+    ),
+    (
+        "unconfirmed",
+        "not_spawned",
+        "lost  (the spawn provably never happened: authenticated run directory without RUN/sup/SPAWN; then requeue)",
     ),
 ];
 
@@ -482,6 +491,7 @@ pub fn apply_attempt(
             },
         ) => finish(class, accept, sealed),
         (S::Unconfirmed, E::Cancel) => Ok(S::Cancelled),
+        (S::Unconfirmed, E::NotSpawned) => Ok(S::Lost),
         (S::Unconfirmed, _) => illegal(
             "execution unknown (unconfirmed launch): never 'did not run', never retried automatically; only a late start, the authenticated outcome or a cancel after the work was superseded",
         ),
@@ -2075,11 +2085,12 @@ pub struct CampaignState {
     pub strict_unconfirmed: bool,
 }
 
-/// Whether the reducer already refuses the legacy recovery of an unconfirmed launch (lose / interrupt / an
-/// unauthenticated finish of an attempt launched in an earlier session). FALSE until the supervisor's recovery
-/// calls the `job.unconfirmed` hook (process-layer lane): today's `recover()` still settles such an attempt with
-/// `lose` + `requeue` or an unauthenticated `finished`, which strict mode refuses. Flip to true with that change.
-pub const ENFORCE_UNCONFIRMED_ACROSS_SESSIONS: bool = false;
+/// Whether the reducer refuses the legacy recovery of an unconfirmed launch (lose / interrupt / an unauthenticated
+/// finish of an attempt launched in an earlier session). ON since lane int5 (2026-11-14): the supervisor's recovery
+/// marks every such attempt `unconfirmed` first and leaves it only by a late `started` (a marked process of it was
+/// found), its authenticated OUTCOME, `not_spawned` (proven: authenticated run directory without the spawn sentinel),
+/// or an operator's `control retry` + `cancel` (`rr_campaign control CDIR resolve JOB`).
+pub const ENFORCE_UNCONFIRMED_ACROSS_SESSIONS: bool = true;
 
 /// Errors of the reducer: an illegal transition, or a record that references something unknown.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -3773,6 +3784,7 @@ impl CampaignState {
             JE::Retry { .. } => AttemptEvent::Retry,
             JE::Cancel { .. } => AttemptEvent::Cancel,
             JE::Unconfirmed { .. } => AttemptEvent::Unconfirmed,
+            JE::NotSpawned { .. } => AttemptEvent::NotSpawned,
         };
         let new_attempt = matches!(machine_ev, AttemptEvent::Requeue | AttemptEvent::Retry);
         // Records of older attempts are refused (audit A m1): never written, so never in a ledger.
@@ -3950,6 +3962,13 @@ impl CampaignState {
                     short(job)
                 );
                 self.push_recent(rec, "launch_unconfirmed", text);
+            }
+            JE::NotSpawned { reason } => {
+                let text = format!(
+                    "job {} attempt {attempt}: unconfirmed launch proven never spawned ({reason})",
+                    short(job)
+                );
+                self.push_recent(rec, "launch_not_spawned", text);
             }
             JE::Started {
                 pid,
@@ -4467,6 +4486,8 @@ mod tests {
             AttemptEvent::Requeue,
             AttemptEvent::Retry,
             AttemptEvent::Cancel,
+            AttemptEvent::Unconfirmed,
+            AttemptEvent::NotSpawned,
         ];
         for c in FINISH_CLASSES {
             for a in ACCEPTS {

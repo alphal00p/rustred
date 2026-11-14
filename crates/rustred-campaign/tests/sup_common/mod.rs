@@ -168,13 +168,14 @@ pub fn signal(c: &Child, sig: i32) {
 /// Exit code of a supervisor that stopped for an operator decision (execution-unknown attempts, procfix3 item 6).
 pub const ATTENTION: i32 = 8;
 
-/// Act as the operator for every attempt of UNKNOWN execution (a journalled, unconfirmed launch whose run directory
-/// holds no valid OUTCOME): `rr_campaign control CDIR resolve JOB`. Returns the jobs resolved.
+/// Act as the operator for every attempt of UNKNOWN execution (an `unconfirmed` launch whose run directory holds no
+/// valid OUTCOME; lane int5: the ledger state, not `launching`): `rr_campaign control CDIR resolve JOB`. Returns the
+/// jobs resolved.
 pub fn resolve_unknown(cdir: &Path) -> Vec<String> {
     let jobs: Vec<String> = state(cdir)
         .jobs
         .iter()
-        .filter(|(_, j)| j.state == rustred_campaign::state::AttemptState::Launching)
+        .filter(|(_, j)| j.state == rustred_campaign::state::AttemptState::Unconfirmed)
         .map(|(id, _)| id.clone())
         .collect();
     for j in &jobs {
@@ -379,8 +380,15 @@ pub fn ledger_facts(cdir: &Path) -> LedgerFacts {
                         }
                         running.remove(&key);
                     }
-                    JobEvent::Interrupt { .. } | JobEvent::Lose { .. } => {
+                    // lane int5: `not_spawned` (the proven "never spawned" of an unconfirmed launch) ends an attempt
+                    // like `lose` (a requeue follows); `cancel` (operator resolve) ends it without one.
+                    JobEvent::Interrupt { .. }
+                    | JobEvent::Lose { .. }
+                    | JobEvent::NotSpawned { .. } => {
                         interrupted += 1;
+                        running.remove(&key);
+                    }
+                    JobEvent::Cancel { .. } => {
                         running.remove(&key);
                     }
                     JobEvent::Requeue { .. } => requeues += 1,

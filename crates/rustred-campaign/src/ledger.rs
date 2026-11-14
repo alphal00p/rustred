@@ -365,6 +365,14 @@ pub enum JobEvent {
     Unconfirmed {
         reason: String,
     },
+    /// Lane int5 (unconfirmed launch, the ONE proven "did not run"): the spawn of this unconfirmed launch provably
+    /// never happened: its run directory is AUTHENTICATED (layout path, `RUN/sup/CAMPAIGN` = this campaign's marker id,
+    /// job.json digest = the launch record's) and holds no spawn sentinel `RUN/sup/SPAWN` (written and fsynced right
+    /// before every spawn), and no marked process of the attempt exists. `unconfirmed` -> `lost` (then `requeue`).
+    /// `reason` names that evidence. Anything less is execution unknown (no automatic retry).
+    NotSpawned {
+        reason: String,
+    },
 }
 
 /// Campaign mode (U-13): `close` (default) or `optimise` (boot from imported results; replacements only through
