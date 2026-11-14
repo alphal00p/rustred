@@ -14,12 +14,13 @@ use std::path::{Path, PathBuf};
 
 use import::lines::key_text;
 use import::{
-    CheckOptions, DiffKind, Evidence, HandFormat, ImportError, Level, RowStatus, TableSetSpec, check,
-    compare, load, read_hand_statement, write_statement,
+    CheckOptions, DiffKind, Evidence, HandFormat, ImportError, Level, RowStatus, TableSetSpec,
+    check, compare, load, read_hand_statement, write_statement,
 };
 use serde_json::{Value, json};
 
-const HEADER: &str = r#"{"type":"header","schema":"table_dump.v1","family":"TOY","denominators":3,"mask":"110"}"#;
+const HEADER: &str =
+    r#"{"type":"header","schema":"table_dump.v1","family":"TOY","denominators":3,"mask":"110"}"#;
 
 fn scratch(tag: &str) -> PathBuf {
     let base = std::env::var_os("RUSTRED_IMPORT_SCRATCH")
@@ -36,7 +37,13 @@ fn sha(p: &Path) -> String {
 }
 
 /// A rule line: canonical target I(n0,..) over the toy node.
-fn rule(index: i64, fixed: [Option<i64>; 3], rhs: &[&str], witness: Option<Value>, extra: Value) -> String {
+fn rule(
+    index: i64,
+    fixed: [Option<i64>; 3],
+    rhs: &[&str],
+    witness: Option<Value>,
+    extra: Value,
+) -> String {
     let t: Vec<String> = (0..3)
         .map(|i| fixed[i].map(|v| v.to_string()).unwrap_or(format!("n{i}")))
         .collect();
@@ -83,7 +90,13 @@ fn base(dir: &Path) -> Value {
     let a = write_table(
         dir,
         "A.table.jsonl",
-        &[rule(0, [None, Some(1), Some(0)], &["I(n0-1,1,0)", "I(n0,0,0)"], Some(json!([])), json!({}))],
+        &[rule(
+            0,
+            [None, Some(1), Some(0)],
+            &["I(n0-1,1,0)", "I(n0,0,0)"],
+            Some(json!([])),
+            json!({}),
+        )],
     );
     let st = write_keys(dir, &[[3, 1, 0], [2, 1, 0]]);
     json!({"schema":"rustred.campaign.import-spec.v1","node":"toy","frame_from":"A","bits":6,
@@ -96,12 +109,23 @@ fn run(spec: &Value, dir: &Path) -> (import::ImportedSet, Evidence, import::Chec
     let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
     let set = load(&s, dir).unwrap();
     let ev = Evidence::from_spec(&set, dir).unwrap();
-    let r = check(&set, &ev, &CheckOptions { threads: 2, ..Default::default() }).unwrap();
+    let r = check(
+        &set,
+        &ev,
+        &CheckOptions {
+            threads: 2,
+            ..Default::default()
+        },
+    )
+    .unwrap();
     (set, ev, r)
 }
 
-fn row<'a>(r: &'a import::CheckResult, k: [i32; 3]) -> &'a import::KeyRow {
-    r.rows.iter().find(|x| x.key == k).unwrap_or_else(|| panic!("key {k:?} not reached"))
+fn row(r: &import::CheckResult, k: [i32; 3]) -> &import::KeyRow {
+    r.rows
+        .iter()
+        .find(|x| x.key == k)
+        .unwrap_or_else(|| panic!("key {k:?} not reached"))
 }
 
 #[test]
@@ -113,7 +137,10 @@ fn base_closes_tier_k_and_names_servers() {
     assert!(r.rows.iter().all(|x| x.status == RowStatus::Served));
     assert_eq!(row(&r, [1, 1, 0]).evidence, Some(Level::Imported));
     assert_eq!(row(&r, [1, 1, 0]).basis, Some("witness_loci"));
-    assert_eq!(import::statement::server_hand_name(&set, row(&r, [2, 1, 0])).as_deref(), Some("A#0"));
+    assert_eq!(
+        import::statement::server_hand_name(&set, row(&r, [2, 1, 0])).as_deref(),
+        Some("A#0")
+    );
     assert_eq!(set.rules[0][0].record_sha256.len(), 64);
     assert_eq!(r.summary.tier, closure::Tier::K);
 }
@@ -134,7 +161,10 @@ fn spec_refuses_unknown_fields_and_bad_digests() {
     let mut spec = base(&d);
     spec["sources"][0]["sha256"] = json!("00".repeat(32));
     let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
-    assert!(matches!(load(&s, &d).unwrap_err(), ImportError::Digest { .. }));
+    assert!(matches!(
+        load(&s, &d).unwrap_err(),
+        ImportError::Digest { .. }
+    ));
 }
 
 #[test]
@@ -145,22 +175,56 @@ fn negative_repeated_label_in_a_source_and_in_a_scope() {
         &d,
         "B.table.jsonl",
         &[
-            rule(5, [Some(2), Some(2), Some(0)], &["I(1,2,0)"], Some(json!([])), json!({})),
-            rule(5, [Some(3), Some(2), Some(0)], &["I(2,2,0)"], Some(json!([])), json!({})),
+            rule(
+                5,
+                [Some(2), Some(2), Some(0)],
+                &["I(1,2,0)"],
+                Some(json!([])),
+                json!({}),
+            ),
+            rule(
+                5,
+                [Some(3), Some(2), Some(0)],
+                &["I(2,2,0)"],
+                Some(json!([])),
+                json!({}),
+            ),
         ],
     );
-    spec["sources"].as_array_mut().unwrap().push(json!({"id":"B","kind":"engine_table","path":b.display().to_string()}));
+    spec["sources"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id":"B","kind":"engine_table","path":b.display().to_string()}));
     let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
-    assert!(matches!(load(&s, &d).unwrap_err(), ImportError::Label { label: 5, .. }));
+    assert!(matches!(
+        load(&s, &d).unwrap_err(),
+        ImportError::Label { label: 5, .. }
+    ));
     // the same label in two sources is fine per source, refused in a shared scope
-    let c = write_table(&d, "C.table.jsonl", &[rule(0, [Some(2), Some(2), Some(0)], &["I(1,2,0)"], Some(json!([])), json!({}))]);
+    let c = write_table(
+        &d,
+        "C.table.jsonl",
+        &[rule(
+            0,
+            [Some(2), Some(2), Some(0)],
+            &["I(1,2,0)"],
+            Some(json!([])),
+            json!({}),
+        )],
+    );
     let mut spec = base(&d);
-    spec["sources"].as_array_mut().unwrap().push(json!({"id":"C","kind":"engine_table","path":c.display().to_string()}));
+    spec["sources"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id":"C","kind":"engine_table","path":c.display().to_string()}));
     let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
     assert!(load(&s, &d).is_ok());
     spec["sources"][0]["label_scope"] = json!("set");
     let e = TableSetSpec::from_json(&spec.to_string()).unwrap_err();
-    assert!(matches!(e, ImportError::Spec(_)), "label_scope is a table_set field: {e}");
+    assert!(
+        matches!(e, ImportError::Spec(_)),
+        "label_scope is a table_set field: {e}"
+    );
 }
 
 #[test]
@@ -170,8 +234,20 @@ fn removed_records_fall_through_and_selection_order() {
         &d,
         "A.table.jsonl",
         &[
-            rule(0, [None, Some(1), Some(0)], &["I(n0-1,1,0)"], Some(json!(["elided"])), json!({})),
-            rule(1, [None, Some(1), Some(0)], &["I(n0-1,1,0)", "I(n0,0,0)"], Some(json!([])), json!({})),
+            rule(
+                0,
+                [None, Some(1), Some(0)],
+                &["I(n0-1,1,0)"],
+                Some(json!(["elided"])),
+                json!({}),
+            ),
+            rule(
+                1,
+                [None, Some(1), Some(0)],
+                &["I(n0-1,1,0)", "I(n0,0,0)"],
+                Some(json!([])),
+                json!({}),
+            ),
         ],
     );
     let st = write_keys(&d, &[[2, 1, 0]]);
@@ -183,17 +259,27 @@ fn removed_records_fall_through_and_selection_order() {
     let x = row(&r, [2, 1, 0]);
     assert_eq!(x.status, RowStatus::Open);
     assert_eq!(x.open_status.as_deref(), Some("blocked"));
-    assert!(x.open_reason.as_deref().unwrap().contains("elided"), "{:?}", x.open_reason);
+    assert!(
+        x.open_reason.as_deref().unwrap().contains("elided"),
+        "{:?}",
+        x.open_reason
+    );
     assert_eq!(x.open_rule.map(|(t, rr)| set.rules[t][rr].label), Some(0));
     // removed with a reason: falls through to record 1
     spec["sources"][0]["removed"] = json!([{"label":0,"reason":"skipped by the hand statement"}]);
     let (set, _ev, r) = run(&spec, &d);
     assert!(r.rows.iter().all(|x| x.status == RowStatus::Served));
-    assert_eq!(set.report.sources[0].removed, vec![(0, "skipped by the hand statement".to_string())]);
+    assert_eq!(
+        set.report.sources[0].removed,
+        vec![(0, "skipped by the hand statement".to_string())]
+    );
     // a removed label that does not exist is refused
     spec["sources"][0]["removed"] = json!([{"label":7,"reason":"x"}]);
     let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
-    assert!(matches!(load(&s, &d).unwrap_err(), ImportError::Label { label: 7, .. }));
+    assert!(matches!(
+        load(&s, &d).unwrap_err(),
+        ImportError::Label { label: 7, .. }
+    ));
     // selection in a given order: [1, 0] puts record 1 first (no block)
     spec["sources"][0]["removed"] = json!([]);
     spec["sources"][0]["records"] = json!([1, 0]);
@@ -202,7 +288,10 @@ fn removed_records_fall_through_and_selection_order() {
     // a selected label that does not exist is refused
     spec["sources"][0]["records"] = json!([1, 9]);
     let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
-    assert!(matches!(load(&s, &d).unwrap_err(), ImportError::Label { label: 9, .. }));
+    assert!(matches!(
+        load(&s, &d).unwrap_err(),
+        ImportError::Label { label: 9, .. }
+    ));
 }
 
 #[test]
@@ -211,7 +300,13 @@ fn elided_lift_needs_a_per_key_proof_bound_by_sha() {
     let a = write_table(
         &d,
         "A.table.jsonl",
-        &[rule(0, [None, Some(1), Some(0)], &["I(n0-1,1,0)", "I(n0,0,0)"], Some(json!(["elided"])), json!({}))],
+        &[rule(
+            0,
+            [None, Some(1), Some(0)],
+            &["I(n0-1,1,0)", "I(n0,0,0)"],
+            Some(json!(["elided"])),
+            json!({}),
+        )],
     );
     let st = write_keys(&d, &[[2, 1, 0]]);
     let mut spec = json!({"schema":"rustred.campaign.import-spec.v1","frame_from":"A","required_evidence":"per-key",
@@ -223,7 +318,10 @@ fn elided_lift_needs_a_per_key_proof_bound_by_sha() {
     for k in [[2, 1, 0], [1, 1, 0]] {
         let x = row(&r, k);
         assert_eq!(x.status, RowStatus::Open);
-        assert_eq!(x.open_reason.as_deref(), Some("elided_witness_loci_no_per_key_proof"));
+        assert_eq!(
+            x.open_reason.as_deref(),
+            Some("elided_witness_loci_no_per_key_proof")
+        );
     }
     assert_eq!(r.proof_requests.len(), 1);
     assert_eq!(r.proof_requests[0].keys.len(), 2);
@@ -243,9 +341,20 @@ fn elided_lift_needs_a_per_key_proof_bound_by_sha() {
     assert_eq!(ev.counts.proofs_foreign, 1);
     assert_eq!(ev.counts.proofs_per_key, 1);
     let x = row(&r, [2, 1, 0]);
-    assert_eq!((x.status, x.evidence, x.basis), (RowStatus::Served, Some(Level::PerKey), Some("elided_per_key_proof")));
+    assert_eq!(
+        (x.status, x.evidence, x.basis),
+        (
+            RowStatus::Served,
+            Some(Level::PerKey),
+            Some("elided_per_key_proof")
+        )
+    );
     assert_eq!(row(&r, [1, 1, 0]).status, RowStatus::Open);
-    assert!(r.blocking().iter().any(|b| b.starts_with("open_keys")), "{:?}", r.blocking());
+    assert!(
+        r.blocking().iter().any(|b| b.starts_with("open_keys")),
+        "{:?}",
+        r.blocking()
+    );
 }
 
 fn fact_line(sha: &str, key: [i32; 3], regular: &str, rhs: &[([i32; 3], &str)]) -> String {
@@ -263,26 +372,56 @@ fn negative_fact_for_another_rule_does_not_lift_a_witness_absent_rule() {
     let a = write_table(
         &d,
         "A.table.jsonl",
-        &[rule(0, [None, Some(1), Some(0)], &["I(n0-1,1,0)", "I(n0,0,0)"], None, json!({}))],
+        &[rule(
+            0,
+            [None, Some(1), Some(0)],
+            &["I(n0-1,1,0)", "I(n0,0,0)"],
+            None,
+            json!({}),
+        )],
     );
-    let z = write_table(&d, "Z.table.jsonl", &[rule(0, [Some(9), Some(9), Some(0)], &["I(8,9,0)"], Some(json!([])), json!({}))]);
+    let z = write_table(
+        &d,
+        "Z.table.jsonl",
+        &[rule(
+            0,
+            [Some(9), Some(9), Some(0)],
+            &["I(8,9,0)"],
+            Some(json!([])),
+            json!({}),
+        )],
+    );
     let st = write_keys(&d, &[[2, 1, 0]]);
     let mut spec = json!({"schema":"rustred.campaign.import-spec.v1","frame_from":"A",
         "start":{"path": st.display().to_string(),"format":"keys_jsonl"},
         "sources":[{"id":"A","kind":"engine_table","path":a.display().to_string()},
                    {"id":"Z","kind":"engine_table","path":z.display().to_string()}]});
     let (set, _ev, r) = run(&spec, &d);
-    assert_eq!(row(&r, [2, 1, 0]).open_status.as_deref(), Some("blocked"), "Tier K: witness-absent blocks");
-    assert!(r.fact_requests.iter().any(|f| f.reasons.iter().any(|x| x == "witness_lift")));
+    assert_eq!(
+        row(&r, [2, 1, 0]).open_status.as_deref(),
+        Some("blocked"),
+        "Tier K: witness-absent blocks"
+    );
+    assert!(
+        r.fact_requests
+            .iter()
+            .any(|f| f.reasons.iter().any(|x| x == "witness_lift"))
+    );
     let sha_a = set.rules[0][0].record_sha256.clone();
     let sha_z = set.rules[1][0].record_sha256.clone();
     // facts: one for Z's record at A's key (another rule), one for an unknown digest, one without digest
     let f = d.join("facts.jsonl");
-    let mut s = fact_line(&sha_z, [2, 1, 0], "regular", &[([1, 1, 0], "nonzero"), ([2, 0, 0], "nonzero")]);
+    let mut s = fact_line(
+        &sha_z,
+        [2, 1, 0],
+        "regular",
+        &[([1, 1, 0], "nonzero"), ([2, 0, 0], "nonzero")],
+    );
     s.push('\n');
     s.push_str(&fact_line(&"cd".repeat(32), [2, 1, 0], "regular", &[]));
     s.push('\n');
-    let mut nodigest: Value = serde_json::from_str(&fact_line(&sha_a, [2, 1, 0], "regular", &[])).unwrap();
+    let mut nodigest: Value =
+        serde_json::from_str(&fact_line(&sha_a, [2, 1, 0], "regular", &[])).unwrap();
     nodigest.as_object_mut().unwrap().remove("record_sha256");
     s.push_str(&nodigest.to_string());
     s.push('\n');
@@ -290,27 +429,58 @@ fn negative_fact_for_another_rule_does_not_lift_a_witness_absent_rule() {
     spec["evidence"] = json!({"facts":[{"path": f.display().to_string(), "sha256": sha(&f)}]});
     let (_set, ev, r) = run(&spec, &d);
     assert_eq!(r.tier, closure::Tier::C);
-    assert_eq!((ev.counts.facts_foreign, ev.counts.facts_unbound, ev.counts.facts_bound), (1, 1, 1));
+    assert_eq!(
+        (
+            ev.counts.facts_foreign,
+            ev.counts.facts_unbound,
+            ev.counts.facts_bound
+        ),
+        (1, 1, 1)
+    );
     let x = row(&r, [2, 1, 0]);
-    assert_eq!(x.status, RowStatus::Open, "a fact for another rule never lifts");
+    assert_eq!(
+        x.status,
+        RowStatus::Open,
+        "a fact for another rule never lifts"
+    );
     // the right fact lifts: (sha_a, I(2,1,0)) and (sha_a, I(1,1,0))
-    s.push_str(&fact_line(&sha_a, [2, 1, 0], "regular", &[([1, 1, 0], "nonzero"), ([2, 0, 0], "nonzero")]));
+    s.push_str(&fact_line(
+        &sha_a,
+        [2, 1, 0],
+        "regular",
+        &[([1, 1, 0], "nonzero"), ([2, 0, 0], "nonzero")],
+    ));
     s.push('\n');
-    s.push_str(&fact_line(&sha_a, [1, 1, 0], "regular", &[([0, 1, 0], "nonzero"), ([1, 0, 0], "nonzero")]));
+    s.push_str(&fact_line(
+        &sha_a,
+        [1, 1, 0],
+        "regular",
+        &[([0, 1, 0], "nonzero"), ([1, 0, 0], "nonzero")],
+    ));
     s.push('\n');
     std::fs::write(&f, &s).unwrap();
     spec["evidence"] = json!({"facts":[{"path": f.display().to_string()}]});
     let (_set, _ev, r) = run(&spec, &d);
     let x = row(&r, [2, 1, 0]);
-    assert_eq!((x.status, x.basis), (RowStatus::Served, Some("regularity_fact")));
-    assert!(r.rows.iter().all(|x| x.status == RowStatus::Served), "{:?}", r.counts());
+    assert_eq!(
+        (x.status, x.basis),
+        (RowStatus::Served, Some("regularity_fact"))
+    );
+    assert!(
+        r.rows.iter().all(|x| x.status == RowStatus::Served),
+        "{:?}",
+        r.counts()
+    );
     // a conflicting fact is an error
     s.push_str(&fact_line(&sha_a, [1, 1, 0], "irregular", &[]));
     s.push('\n');
     std::fs::write(&f, &s).unwrap();
     let sp = TableSetSpec::from_json(&spec.to_string()).unwrap();
     let set = load(&sp, &d).unwrap();
-    assert!(matches!(Evidence::from_spec(&set, &d), Err(ImportError::Evidence { .. })));
+    assert!(matches!(
+        Evidence::from_spec(&set, &d),
+        Err(ImportError::Evidence { .. })
+    ));
 }
 
 #[test]
@@ -321,9 +491,20 @@ fn domain_bounds_and_qualified_recenter_are_selection_bounds() {
         &d,
         "A.table.jsonl",
         &[
-            rule(0, [None, Some(1), Some(0)], &["I(n0-1,1,0)"], Some(json!([])),
-                 json!({"domain_bounds":{"min":[3,null,null],"max":null}})),
-            rule(1, [None, Some(1), Some(0)], &["I(n0-1,1,0)", "I(n0,0,0)"], Some(json!([])), json!({})),
+            rule(
+                0,
+                [None, Some(1), Some(0)],
+                &["I(n0-1,1,0)"],
+                Some(json!([])),
+                json!({"domain_bounds":{"min":[3,null,null],"max":null}}),
+            ),
+            rule(
+                1,
+                [None, Some(1), Some(0)],
+                &["I(n0-1,1,0)", "I(n0,0,0)"],
+                Some(json!([])),
+                json!({}),
+            ),
         ],
     );
     let st = write_keys(&d, &[[3, 1, 0]]);
@@ -331,15 +512,30 @@ fn domain_bounds_and_qualified_recenter_are_selection_bounds() {
         "start":{"path": st.display().to_string(),"format":"keys_jsonl"},
         "sources":[{"id":"A","kind":"engine_table","path":a.display().to_string()}]});
     let (set, _ev, r) = run(&spec, &d);
-    let lab = |k| match row(&r, k).server { Some(import::Server::Rule { table, record }) => set.rules[table][record].label, _ => -1 };
+    let lab = |k| match row(&r, k).server {
+        Some(import::Server::Rule { table, record }) => set.rules[table][record].label,
+        _ => -1,
+    };
     assert_eq!((lab([3, 1, 0]), lab([2, 1, 0]), lab([1, 1, 0])), (0, 1, 1));
     // qualified_recenter: recenter [-2,0,0] => n0 >= 3 as a SELECTION bound
     let b = write_table(
         &d,
         "B.table.jsonl",
         &[
-            rule(0, [None, Some(1), Some(0)], &["I(n0-1,1,0)"], None, json!({"recenter":[-2,0,0]})),
-            rule(1, [None, Some(1), Some(0)], &["I(n0-1,1,0)", "I(n0,0,0)"], Some(json!([])), json!({"recenter":[0,0,0]})),
+            rule(
+                0,
+                [None, Some(1), Some(0)],
+                &["I(n0-1,1,0)"],
+                None,
+                json!({"recenter":[-2,0,0]}),
+            ),
+            rule(
+                1,
+                [None, Some(1), Some(0)],
+                &["I(n0-1,1,0)", "I(n0,0,0)"],
+                Some(json!([])),
+                json!({"recenter":[0,0,0]}),
+            ),
         ],
     );
     let spec = json!({"schema":"rustred.campaign.import-spec.v1","frame_from":"B","policies":{"witness_absent":"block"},
@@ -356,13 +552,25 @@ fn domain_bounds_and_qualified_recenter_are_selection_bounds() {
     let (_set, _ev, r) = run(&spec2, &d);
     assert!(r.rows.iter().all(|x| x.status == RowStatus::Served));
     // a max on a line slot is refused like the engine
-    let c = write_table(&d, "C.table.jsonl", &[rule(0, [None, Some(1), Some(0)], &["I(n0-1,1,0)"], Some(json!([])),
-        json!({"domain_bounds":{"min":null,"max":[2,null,null]}}))]);
+    let c = write_table(
+        &d,
+        "C.table.jsonl",
+        &[rule(
+            0,
+            [None, Some(1), Some(0)],
+            &["I(n0-1,1,0)"],
+            Some(json!([])),
+            json!({"domain_bounds":{"min":null,"max":[2,null,null]}}),
+        )],
+    );
     let spec3 = json!({"schema":"rustred.campaign.import-spec.v1","frame_from":"C",
         "start":{"path": st.display().to_string(),"format":"keys_jsonl"},
         "sources":[{"id":"C","kind":"engine_table","path":c.display().to_string()}]});
     let s = TableSetSpec::from_json(&spec3.to_string()).unwrap();
-    assert!(matches!(load(&s, &d).unwrap_err(), ImportError::Line { .. }));
+    assert!(matches!(
+        load(&s, &d).unwrap_err(),
+        ImportError::Line { .. }
+    ));
 }
 
 fn recipe_file(dir: &Path, fixed: [Option<i64>; 3]) -> PathBuf {
@@ -379,7 +587,14 @@ fn recipe_file(dir: &Path, fixed: [Option<i64>; 3]) -> PathBuf {
     p
 }
 
-fn solved(src: &str, rsha: &str, key: [i32; 3], rhs: &[[i32; 3]], verdict: &str, ok: bool) -> String {
+fn solved(
+    src: &str,
+    rsha: &str,
+    key: [i32; 3],
+    rhs: &[[i32; 3]],
+    verdict: &str,
+    ok: bool,
+) -> String {
     json!({"schema":"rustred.campaign.solved-relation.v1","source":src,"recipe_sha256":rsha,
         "recipe_digest":"e".repeat(64),"determinism_id":"det1","binary_sha256":"b".repeat(64),
         "key":key,"verdict":verdict,"relation_digest":"aa".repeat(32),
@@ -393,7 +608,17 @@ fn solved(src: &str, rsha: &str, key: [i32; 3], rhs: &[[i32; 3]], verdict: &str,
 fn recipes_serve_only_certified_keys_in_their_domain() {
     let d = scratch("recipe");
     // table A serves n1 = 1 only from n0 >= 3 (fixed n0 = 3 point rule); recipe R's domain: n1 = 1, n2 = 0
-    let a = write_table(&d, "A.table.jsonl", &[rule(0, [Some(3), Some(1), Some(0)], &["I(2,1,0)"], Some(json!([])), json!({}))]);
+    let a = write_table(
+        &d,
+        "A.table.jsonl",
+        &[rule(
+            0,
+            [Some(3), Some(1), Some(0)],
+            &["I(2,1,0)"],
+            Some(json!([])),
+            json!({}),
+        )],
+    );
     let rp = recipe_file(&d, [None, Some(1), Some(0)]);
     let rsha = sha(&rp);
     let st = write_keys(&d, &[[3, 1, 0]]);
@@ -404,14 +629,31 @@ fn recipes_serve_only_certified_keys_in_their_domain() {
     let (_set, _ev, r) = run(&spec, &d);
     let x = row(&r, [2, 1, 0]);
     assert_eq!(x.status, RowStatus::Open);
-    assert!(x.open_reason.as_deref().unwrap().contains("recipe"), "{:?}", x.open_reason);
+    assert!(
+        x.open_reason.as_deref().unwrap().contains("recipe"),
+        "{:?}",
+        x.open_reason
+    );
     assert_eq!(r.solve_requests.len(), 1);
-    assert_eq!((r.solve_requests[0].key.clone(), r.solve_requests[0].source.as_str()), (vec![2, 1, 0], "R"));
+    assert_eq!(
+        (
+            r.solve_requests[0].key.clone(),
+            r.solve_requests[0].source.as_str()
+        ),
+        (vec![2, 1, 0], "R")
+    );
     // solved relations: I(2,1,0) in domain (certified), I(5,2,0) OUTSIDE the domain (never served),
     // I(1,1,0) failed (proof not ok)
     let f = d.join("solved.jsonl");
     let s = [
-        solved("R", &rsha, [2, 1, 0], &[[1, 1, 0], [2, 0, 0]], "SOLVED", true),
+        solved(
+            "R",
+            &rsha,
+            [2, 1, 0],
+            &[[1, 1, 0], [2, 0, 0]],
+            "SOLVED",
+            true,
+        ),
         solved("R", &rsha, [5, 2, 0], &[[4, 2, 0]], "SOLVED", true),
         solved("R", &rsha, [1, 1, 0], &[[0, 1, 0]], "SOLVED", false),
     ]
@@ -421,12 +663,34 @@ fn recipes_serve_only_certified_keys_in_their_domain() {
     let (_set, ev, r) = run(&spec, &d);
     assert_eq!(ev.counts.solved_bound, 3);
     let x = row(&r, [2, 1, 0]);
-    assert_eq!((x.status, x.evidence, x.basis), (RowStatus::Served, Some(Level::PerKey), Some("recipe_certified")));
-    assert!(r.rows.iter().all(|x| x.key != vec![5, 2, 0]), "a relation outside the domain is never followed");
+    assert_eq!(
+        (x.status, x.evidence, x.basis),
+        (
+            RowStatus::Served,
+            Some(Level::PerKey),
+            Some("recipe_certified")
+        )
+    );
+    assert!(
+        r.rows.iter().all(|x| x.key != vec![5, 2, 0]),
+        "a relation outside the domain is never followed"
+    );
     let y = row(&r, [1, 1, 0]);
     assert_eq!(y.status, RowStatus::Open);
-    assert!(r.solve_refusals.iter().any(|s| s.key == vec![1, 1, 0] && s.reason.contains("proof")));
-    assert!(r.solve_requests.iter().any(|s| s.key == vec![1, 1, 0] && s.reason.starts_with("certified_relation_missing")));
+    assert!(
+        r.solve_refusals
+            .iter()
+            .any(|s| s.key == vec![1, 1, 0] && s.reason.contains("proof"))
+    );
+    // the only candidate recipe answered (not certified) for I(1,1,0): no second request for the same recipe
+    assert!(!r.solve_requests.iter().any(|s| s.key == vec![1, 1, 0]));
+    assert!(
+        row(&r, [1, 1, 0])
+            .open_reason
+            .as_deref()
+            .unwrap()
+            .contains("recipe")
+    );
     // another binary: refused
     spec["evidence"]["expected_recipe_binary"] = json!("c".repeat(64));
     let (_set, _ev, r) = run(&spec, &d);
@@ -436,10 +700,29 @@ fn recipes_serve_only_certified_keys_in_their_domain() {
 #[test]
 fn supplied_relations_and_terminals() {
     let d = scratch("supplied");
-    let a = write_table(&d, "A.table.jsonl", &[rule(0, [Some(3), Some(1), Some(0)], &["I(2,1,0)"], Some(json!([])), json!({}))]);
+    let a = write_table(
+        &d,
+        "A.table.jsonl",
+        &[rule(
+            0,
+            [Some(3), Some(1), Some(0)],
+            &["I(2,1,0)"],
+            Some(json!([])),
+            json!({}),
+        )],
+    );
     // a supplied point relation I(2,1,0) = I(1,2,0) is NOT lower under the legacy order? use I(1,1,0) (lower)
-    let s = write_table(&d, "S.table.jsonl", &[rule(0, [Some(2), Some(1), Some(0)], &["I(1,1,0)"], Some(json!([])),
-        json!({"dispatch":"Point","kind":"symmetry-one-term"}))]);
+    let s = write_table(
+        &d,
+        "S.table.jsonl",
+        &[rule(
+            0,
+            [Some(2), Some(1), Some(0)],
+            &["I(1,1,0)"],
+            Some(json!([])),
+            json!({"dispatch":"Point","kind":"symmetry-one-term"}),
+        )],
+    );
     let v = d.join("verify.json");
     std::fs::write(&v, "{\"proved\":true}\n").unwrap();
     let st = write_keys(&d, &[[3, 1, 0]]);
@@ -451,11 +734,20 @@ fn supplied_relations_and_terminals() {
                    {"id":"T","kind":"terminals","keys":[[1,1,0]]}]});
     let (set, _ev, r) = run(&spec, &d);
     let x = row(&r, [2, 1, 0]);
-    assert_eq!((x.status, x.evidence, x.basis), (RowStatus::Served, Some(Level::Imported), Some("supplied")));
-    assert_eq!(import::statement::server_hand_name(&set, x).as_deref(), Some("sym#0"));
+    assert_eq!(
+        (x.status, x.evidence, x.basis),
+        (RowStatus::Served, Some(Level::Imported), Some("supplied"))
+    );
+    assert_eq!(
+        import::statement::server_hand_name(&set, x).as_deref(),
+        Some("sym#0")
+    );
     assert_eq!(row(&r, [1, 1, 0]).status, RowStatus::Terminal);
     // without its verification record the supplied relation is unverified (open)
-    spec["sources"][1].as_object_mut().unwrap().remove("verification");
+    spec["sources"][1]
+        .as_object_mut()
+        .unwrap()
+        .remove("verification");
     let (_set, _ev, r) = run(&spec, &d);
     assert_eq!(row(&r, [2, 1, 0]).status, RowStatus::Open);
 }
@@ -475,18 +767,49 @@ fn negative_statement_differing_in_one_key() {
     let hand_rows: Vec<Value> = r
         .rows
         .iter()
-        .map(|x| json!([key_text(&x.key), x.in_start, "base", import::statement::server_hand_name(&set, x), 0]))
+        .map(|x| {
+            json!([
+                key_text(&x.key),
+                x.in_start,
+                "base",
+                import::statement::server_hand_name(&set, x),
+                0
+            ])
+        })
         .collect();
-    let fmt = HandFormat { key: 0, in_box: 1, label: 2, rule: 3, round: Some(4), round_index: None, terminal_label: "terminal".into() };
+    let fmt = HandFormat {
+        key: 0,
+        in_box: 1,
+        label: 2,
+        rule: 3,
+        round: Some(4),
+        round_index: None,
+        terminal_label: "terminal".into(),
+    };
     let hp = d.join("hand.jsonl");
-    std::fs::write(&hp, hand_rows.iter().map(|v| format!("{v}\n")).collect::<String>()).unwrap();
+    std::fs::write(
+        &hp,
+        hand_rows
+            .iter()
+            .map(|v| format!("{v}\n"))
+            .collect::<String>(),
+    )
+    .unwrap();
     let h = read_hand_statement(&hp, &fmt, 3).unwrap();
     let c = compare(&set, &r, &h);
-    assert!(c.key_sets_equal && c.differences.is_empty() && c.terminals_equal, "{:?}", c.counts);
+    assert!(
+        c.key_sets_equal && c.differences.is_empty() && c.terminals_equal,
+        "{:?}",
+        c.counts
+    );
     assert_eq!(c.same_server, 3);
     let mut changed = hand_rows.clone();
     changed[1][3] = json!("A#99");
-    std::fs::write(&hp, changed.iter().map(|v| format!("{v}\n")).collect::<String>()).unwrap();
+    std::fs::write(
+        &hp,
+        changed.iter().map(|v| format!("{v}\n")).collect::<String>(),
+    )
+    .unwrap();
     let c = compare(&set, &r, &read_hand_statement(&hp, &fmt, 3).unwrap());
     assert_eq!(c.differences.len(), 1);
     assert_eq!(c.count(DiffKind::ServerDiffers), 1);
@@ -499,9 +822,109 @@ fn negative_statement_differing_in_one_key() {
     v2[0][3] = Value::Null;
     std::fs::write(&hp, v2.iter().map(|v| format!("{v}\n")).collect::<String>()).unwrap();
     let c = compare(&set, &r, &read_hand_statement(&hp, &fmt, 3).unwrap());
-    assert_eq!((c.count(DiffKind::OnlyOurs), c.count(DiffKind::OnlyHand), c.count(DiffKind::HandTerminalOursServed)), (1, 1, 1));
+    assert_eq!(
+        (
+            c.count(DiffKind::OnlyOurs),
+            c.count(DiffKind::OnlyHand),
+            c.count(DiffKind::HandTerminalOursServed)
+        ),
+        (1, 1, 1)
+    );
     assert!(!c.key_sets_equal && !c.terminals_equal);
     c.write(&d.join("cmp")).unwrap();
-    let n = std::fs::read_to_string(d.join("cmp/differences.jsonl")).unwrap().lines().count();
+    let n = std::fs::read_to_string(d.join("cmp/differences.jsonl"))
+        .unwrap()
+        .lines()
+        .count();
     assert_eq!(n, 3, "every difference listed");
+}
+
+#[test]
+fn solve_requests_go_to_the_first_candidate_recipe_without_an_answer() {
+    let d = scratch("recipe2");
+    let a = write_table(
+        &d,
+        "A.table.jsonl",
+        &[rule(
+            0,
+            [Some(3), Some(1), Some(0)],
+            &["I(2,1,0)"],
+            Some(json!([])),
+            json!({}),
+        )],
+    );
+    let r1 = recipe_file(&d, [None, Some(1), Some(0)]);
+    let r2 = d.join("recipe2.json");
+    let mut v: Value = serde_json::from_str(&std::fs::read_to_string(&r1).unwrap()).unwrap();
+    v["id"] = json!("toy/r2");
+    std::fs::write(&r2, v.to_string()).unwrap();
+    let (s1, s2) = (sha(&r1), sha(&r2));
+    let st = write_keys(&d, &[[3, 1, 0]]);
+    let mut spec = json!({"schema":"rustred.campaign.import-spec.v1","frame_from":"A",
+        "start":{"path": st.display().to_string(),"format":"keys_jsonl"},
+        "sources":[{"id":"A","kind":"engine_table","path":a.display().to_string()},
+                   {"id":"R1","kind":"recipe","path":r1.display().to_string()},
+                   {"id":"R2","kind":"recipe","path":r2.display().to_string()}]});
+    let (_set, _ev, r) = run(&spec, &d);
+    let reqs: Vec<(&str, Vec<i32>)> = r
+        .solve_requests
+        .iter()
+        .map(|q| (q.source.as_str(), q.key.clone()))
+        .collect();
+    assert_eq!(
+        reqs,
+        vec![("R1", vec![2, 1, 0])],
+        "one request, to the first candidate in dispatch order"
+    );
+    // R1 answers NO_RELATION_IN_SEEDS at I(2,1,0): the next request goes to R2
+    let f = d.join("solved.jsonl");
+    std::fs::write(
+        &f,
+        solved("R1", &s1, [2, 1, 0], &[], "NO_RELATION_IN_SEEDS", false),
+    )
+    .unwrap();
+    spec["evidence"] = json!({"solved":[{"path": f.display().to_string()}]});
+    let (_set, _ev, r) = run(&spec, &d);
+    let reqs: Vec<(&str, Vec<i32>)> = r
+        .solve_requests
+        .iter()
+        .map(|q| (q.source.as_str(), q.key.clone()))
+        .collect();
+    assert_eq!(reqs, vec![("R2", vec![2, 1, 0])]);
+    // R2 certifies: served by R2 (dispatch falls through R1, which has no certified relation there)
+    let both = format!(
+        "{}\n{}\n{}\n",
+        solved("R1", &s1, [2, 1, 0], &[], "NO_RELATION_IN_SEEDS", false),
+        solved(
+            "R2",
+            &s2,
+            [2, 1, 0],
+            &[[1, 1, 0], [2, 0, 0]],
+            "SOLVED",
+            true
+        ),
+        solved(
+            "R2",
+            &s2,
+            [1, 1, 0],
+            &[[0, 1, 0], [1, 0, 0]],
+            "SOLVED",
+            true
+        )
+    );
+    std::fs::write(&f, both).unwrap();
+    let (_set, _ev, r) = run(&spec, &d);
+    assert_eq!(
+        row(&r, [2, 1, 0]).server,
+        Some(import::Server::Relation {
+            set: "R2".into(),
+            recipe: true
+        })
+    );
+    assert!(
+        r.rows.iter().all(|x| x.status == RowStatus::Served),
+        "{:?}",
+        r.counts()
+    );
+    assert!(r.blocking().contains(&"recipe_binary_unpinned".to_string()));
 }

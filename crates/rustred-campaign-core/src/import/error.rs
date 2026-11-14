@@ -26,7 +26,10 @@ pub enum ImportError {
         msg: String,
     },
     /// A source whose content contradicts the set (header identity, chart, arity).
-    Source { source: String, msg: String },
+    Source {
+        source: String,
+        msg: String,
+    },
     /// A label repeated inside its scope, a selected / removed label that does not exist.
     Label {
         source: String,
@@ -34,7 +37,11 @@ pub enum ImportError {
         msg: String,
     },
     /// An evidence file the import cannot read or that contradicts itself.
-    Evidence { path: String, line: usize, msg: String },
+    Evidence {
+        path: String,
+        line: usize,
+        msg: String,
+    },
     /// The core refused something (dispatcher, closure, key codec).
     Core(String),
     /// A feature named by the spec that this version does not implement (refused, never ignored).
@@ -50,7 +57,10 @@ impl fmt::Display for ImportError {
                 path,
                 expected,
                 got,
-            } => write!(f, "{path}: sha256 {got} differs from the expected {expected}"),
+            } => write!(
+                f,
+                "{path}: sha256 {got} differs from the expected {expected}"
+            ),
             ImportError::Line {
                 source,
                 path,

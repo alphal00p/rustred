@@ -4,7 +4,8 @@
 //! statement's stage order (bank, sc, symr, fp .. e, sc-r, p2rows, u) from their run tables, the 2 terminals; evidence:
 //! the per-key regularity facts facts-20261114c (whatever files exist: a partial set is reported as such) and the
 //! rr_proof span records of cert-closure-0623Z / cert-bankall-0623Z (bound by record_sha256). Tier C, both elided
-//! policies; the comparison is typed and complete.
+//! policies; the comparison is typed and complete. (The last column of keys.jsonl is the key's (dots, rank) layer, not a
+//! BFS round: the hand rounds are statement.json's total.)
 //!
 //! Paths (test data only): `RUSTRED_IMPORT_WS`, `RUSTRED_IMPORT_LARGE` (default /common/build-cache/vhirschi/
 //! p_integral_dev/bank-conv), scratch `RUSTRED_IMPORT_SCRATCH`.
@@ -20,7 +21,10 @@ mod import;
 use std::path::{Path, PathBuf};
 
 use import::lines::parse_key_text;
-use import::{CheckOptions, Evidence, HandFormat, TableSetSpec, check, compare, load, read_hand_statement, write_statement};
+use import::{
+    CheckOptions, Evidence, HandFormat, TableSetSpec, check, compare, load, read_hand_statement,
+    write_statement,
+};
 use serde_json::{Value, json};
 
 fn ws() -> PathBuf {
@@ -34,12 +38,14 @@ fn large() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/common/build-cache/vhirschi/p_integral_dev/bank-conv"))
 }
 fn scratch() -> PathBuf {
-    std::env::var_os("RUSTRED_IMPORT_SCRATCH").map(PathBuf::from).unwrap_or_else(|| {
-        PathBuf::from(format!(
-            "/common/build-cache/{}/p_integral_dev/implementer-scratch/import",
-            std::env::var("USER").unwrap_or_else(|_| "vhirschi".into())
-        ))
-    })
+    std::env::var_os("RUSTRED_IMPORT_SCRATCH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(format!(
+                "/common/build-cache/{}/p_integral_dev/implementer-scratch/import",
+                std::env::var("USER").unwrap_or_else(|_| "vhirschi".into())
+            ))
+        })
 }
 fn vm_hwm_kb() -> u64 {
     std::fs::read_to_string("/proc/self/status")
@@ -53,19 +59,34 @@ fn vm_hwm_kb() -> u64 {
 }
 
 fn hand_format() -> HandFormat {
-    HandFormat { key: 0, in_box: 3, label: 1, rule: 2, round: Some(4), round_index: Some(0), terminal_label: "terminal".into() }
+    HandFormat {
+        key: 0,
+        in_box: 3,
+        label: 1,
+        rule: 2,
+        round: None,
+        round_index: None,
+        terminal_label: "terminal".into(),
+    }
 }
 
 /// SHA256SUMS of a directory: verify every listed file that exists; returns (listed, present, verified).
 fn verify_sums(dir: &Path) -> (usize, usize) {
     let (mut listed, mut ok) = (0, 0);
-    for l in std::fs::read_to_string(dir.join("SHA256SUMS")).unwrap().lines() {
+    for l in std::fs::read_to_string(dir.join("SHA256SUMS"))
+        .unwrap()
+        .lines()
+    {
         let (h, n) = l.split_once(char::is_whitespace).unwrap();
         let n = n.trim_start().trim_start_matches('*');
         listed += 1;
         let p = dir.join(n);
         if p.is_file() {
-            assert_eq!(import::lines::file_sha256(&p).unwrap(), h, "{n} differs from its SHA256SUMS");
+            assert_eq!(
+                import::lines::file_sha256(&p).unwrap(),
+                h,
+                "{n} differs from its SHA256SUMS"
+            );
             ok += 1;
         }
     }
@@ -73,8 +94,12 @@ fn verify_sums(dir: &Path) -> (usize, usize) {
 }
 
 fn build_spec(ws: &Path, large: &Path, stmt_dir: &Path) -> Value {
-    let cat: Value = serde_json::from_str(&std::fs::read_to_string(stmt_dir.join("catalogue.json")).unwrap()).unwrap();
-    let st: Value = serde_json::from_str(&std::fs::read_to_string(stmt_dir.join("statement.json")).unwrap()).unwrap();
+    let cat: Value =
+        serde_json::from_str(&std::fs::read_to_string(stmt_dir.join("catalogue.json")).unwrap())
+            .unwrap();
+    let st: Value =
+        serde_json::from_str(&std::fs::read_to_string(stmt_dir.join("statement.json")).unwrap())
+            .unwrap();
     let runs = ws.join("SCRATCHPAD/t162-box/runs");
     let mut sources = vec![json!({
         "id":"bank","kind":"table_set","class":"bank",
@@ -85,7 +110,7 @@ fn build_spec(ws: &Path, large: &Path, stmt_dir: &Path) -> Value {
         "label_scope":"t162-set","domain":"qualified_recenter","hand_name":{"template":"bank#{label}"}})];
     // the lane's rules: consecutive catalogue entries of one run = one source (records in catalogue order)
     let mut cur: Option<(String, Vec<i64>)> = None;
-    let mut push = |cur: &mut Option<(String, Vec<i64>)>, sources: &mut Vec<Value>| {
+    let push = |cur: &mut Option<(String, Vec<i64>)>, sources: &mut Vec<Value>| {
         if let Some((run, recs)) = cur.take() {
             let p = runs.join(&run).join("node/F.table.jsonl");
             assert!(p.is_file(), "{}", p.display());
@@ -141,14 +166,29 @@ fn t162_reproduction_of_the_hand_statement() {
     }
     assert_eq!(verify_sums(&stmt), (3, 3));
     let fdir = large.join("facts-20261114c");
-    let (fl, fp) = if fdir.join("SHA256SUMS").is_file() { verify_sums(&fdir) } else { (0, 0) };
+    let (fl, fp) = if fdir.join("SHA256SUMS").is_file() {
+        verify_sums(&fdir)
+    } else {
+        (0, 0)
+    };
     println!("T162 facts-20261114c: SHA256SUMS lists {fl} files, {fp} present and verified");
     let out = scratch().join("t162");
     std::fs::create_dir_all(&out).unwrap();
     let spec_v = build_spec(&ws, &large, &stmt);
-    std::fs::write(out.join("spec.T162.json"), serde_json::to_string_pretty(&spec_v).unwrap()).unwrap();
+    std::fs::write(
+        out.join("spec.T162.json"),
+        serde_json::to_string_pretty(&spec_v).unwrap(),
+    )
+    .unwrap();
     let hand = read_hand_statement(&stmt.join("keys.jsonl"), &hand_format(), 20).unwrap();
     assert_eq!(hand.rows.len(), 65_908);
+    let st: Value =
+        serde_json::from_str(&std::fs::read_to_string(stmt.join("statement.json")).unwrap())
+            .unwrap();
+    println!(
+        "T162 hand statement.json: keys {} rounds {} edges {}",
+        st["keys"], st["rounds"], st["edges"]
+    );
     for policy in ["block", "lift_with_per_key_proof"] {
         let t0 = std::time::Instant::now();
         let mut sv = spec_v.clone();
@@ -160,13 +200,26 @@ fn t162_reproduction_of_the_hand_statement() {
         let t1 = std::time::Instant::now();
         let ev = Evidence::from_spec(&set, Path::new("/")).unwrap();
         let t_ev = t1.elapsed().as_secs_f64();
-        let res = check(&set, &ev, &CheckOptions { threads: 4, ..Default::default() }).unwrap();
+        let res = check(
+            &set,
+            &ev,
+            &CheckOptions {
+                threads: 4,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let dir = out.join(format!("statement-{policy}"));
         let timing = json!({"load_s": t_load, "evidence_s": t_ev, "check_s": res.seconds, "vm_hwm_kb": vm_hwm_kb()});
         write_statement(&set, &ev, &res, &dir, Some(timing)).unwrap();
         let cmp = compare(&set, &res, &hand);
         cmp.write(&dir).unwrap();
-        let not_disp: usize = set.report.sources.iter().map(|s| s.not_dispatched.len()).sum();
+        let not_disp: usize = set
+            .report
+            .sources
+            .iter()
+            .map(|s| s.not_dispatched.len())
+            .sum();
         println!(
             "T162 [{policy}]: load {:.1}s evidence {:.1}s check {:.1}s VmHWM {} MB; tables {} records {} (not dispatched {}); \
              evidence {:?}; keys ours {} hand {}; counts {:?}; closure verdict {:?} tier {:?} rounds {} edges {} \

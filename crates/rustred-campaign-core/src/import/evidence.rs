@@ -65,11 +65,13 @@ pub struct EvidenceCounts {
     pub proofs_foreign: usize,
     pub proofs_unbound: usize,
     pub proof_refusals: usize,
+    /// JSON objects in proof files that are not rr_proof records (e.g. a sample list): counted, not read.
+    pub proof_other_objects: usize,
     pub solved_lines: usize,
     pub solved_bound: usize,
     pub solved_foreign: usize,
     pub files: Vec<(String, String)>,
-    /// Up to 20 foreign record digests (facts / proofs) for diagnosis.
+    /// Up to [`FOREIGN_EXAMPLES`] foreign record digests (facts / proofs) for diagnosis.
     pub foreign_examples: Vec<String>,
 }
 
@@ -86,6 +88,9 @@ pub struct Evidence {
     fact_files: Vec<String>,
 }
 
+/// How many foreign record digests are kept as examples (diagnosis only).
+pub const FOREIGN_EXAMPLES: usize = 20;
+
 fn term_hash(k: &[i32]) -> u64 {
     // FNV-1a over the i32 LE bytes (a consistency check of the term key; the term index pins the term).
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
@@ -100,7 +105,9 @@ fn term_hash(k: &[i32]) -> u64 {
 
 fn json_key(v: &Value, arity: usize) -> Option<Vec<i32>> {
     match v {
-        Value::Array(_) => serde_json::from_value::<Vec<i32>>(v.clone()).ok().filter(|k| k.len() == arity),
+        Value::Array(_) => serde_json::from_value::<Vec<i32>>(v.clone())
+            .ok()
+            .filter(|k| k.len() == arity),
         Value::String(s) => parse_key_text(s, arity),
         Value::Object(o) => {
             if let Some(k) = o.get("key") {
@@ -125,14 +132,19 @@ fn evidence_files(base: &Path, r: &FileRef) -> Result<Vec<(PathBuf, String)>, Im
     let p = super::spec::resolve(base, &r.path);
     if p.is_dir() {
         if r.sha256.is_some() {
-            return Err(ImportError::Spec(format!("{}: a directory has no sha256", p.display())));
+            return Err(ImportError::Spec(format!(
+                "{}: a directory has no sha256",
+                p.display()
+            )));
         }
         let mut v = vec![];
         for e in std::fs::read_dir(&p).map_err(|e| io_err(&p, e))? {
             let e = e.map_err(|er| io_err(&p, er))?;
             let q = e.path();
             let ok = q.is_file()
-                && q.extension().and_then(|x| x.to_str()).is_some_and(|x| x == "json" || x == "jsonl");
+                && q.extension()
+                    .and_then(|x| x.to_str())
+                    .is_some_and(|x| x == "json" || x == "jsonl");
             if ok {
                 v.push(q);
             }
@@ -208,19 +220,31 @@ impl Evidence {
     }
 
     fn foreign(&mut self, sha: &str) {
-        if self.counts.foreign_examples.len() < 20 && !self.counts.foreign_examples.iter().any(|s| s == sha) {
+        if self.counts.foreign_examples.len() < FOREIGN_EXAMPLES
+            && !self.counts.foreign_examples.iter().any(|s| s == sha)
+        {
             self.counts.foreign_examples.push(sha.to_string());
         }
     }
 
     /// Facts: `rustred.proof-kernel.instantiate.v1` lines with `record_sha256`.
-    pub fn load_facts(&mut self, set: &ImportedSet, base: &Path, r: &FileRef) -> Result<(), ImportError> {
+    pub fn load_facts(
+        &mut self,
+        set: &ImportedSet,
+        base: &Path,
+        r: &FileRef,
+    ) -> Result<(), ImportError> {
         let arity = set.arity();
         for (path, digest) in evidence_files(base, r)? {
-            self.counts.files.push((path.display().to_string(), format!("sha256:{digest}")));
+            self.counts
+                .files
+                .push((path.display().to_string(), format!("sha256:{digest}")));
             self.fact_files.push(digest.clone());
             let f = std::fs::File::open(&path).map_err(|e| io_err(&path, e))?;
-            for (i, l) in std::io::BufReader::with_capacity(1 << 20, f).lines().enumerate() {
+            for (i, l) in std::io::BufReader::with_capacity(1 << 20, f)
+                .lines()
+                .enumerate()
+            {
                 let l = l.map_err(|e| io_err(&path, e))?;
                 if l.trim().is_empty() {
                     continue;
@@ -231,7 +255,9 @@ impl Evidence {
                     msg: m,
                 };
                 let v: Value = serde_json::from_str(&l).map_err(|e| bad(e.to_string()))?;
-                if v.get("schema").and_then(Value::as_str) != Some(crate::closure::facts::INSTANTIATE_SCHEMA) {
+                if v.get("schema").and_then(Value::as_str)
+                    != Some(crate::closure::facts::INSTANTIATE_SCHEMA)
+                {
                     self.counts.fact_other_lines += 1;
                     continue;
                 }
@@ -246,7 +272,10 @@ impl Evidence {
                     self.foreign(&s);
                     continue;
                 };
-                let key = v.get("key").and_then(|k| json_key(k, arity)).ok_or_else(|| bad("key".into()))?;
+                let key = v
+                    .get("key")
+                    .and_then(|k| json_key(k, arity))
+                    .ok_or_else(|| bad("key".into()))?;
                 let usable = v["in_case"] == true
                     && v["chart_ok"] == true
                     && v.get("branch").is_none_or(Value::is_null)
@@ -258,9 +287,21 @@ impl Evidence {
                 };
                 let mut terms = vec![];
                 if usable {
-                    for t in v.get("rhs").and_then(Value::as_array).cloned().unwrap_or_default() {
-                        let ti = t.get("term").and_then(Value::as_u64).ok_or_else(|| bad("rhs term".into()))? as usize;
-                        let tk = t.get("key").and_then(|k| json_key(k, arity)).ok_or_else(|| bad("rhs key".into()))?;
+                    for t in v
+                        .get("rhs")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default()
+                    {
+                        let ti = t
+                            .get("term")
+                            .and_then(Value::as_u64)
+                            .ok_or_else(|| bad("rhs term".into()))?
+                            as usize;
+                        let tk = t
+                            .get("key")
+                            .and_then(|k| json_key(k, arity))
+                            .ok_or_else(|| bad("rhs key".into()))?;
                         let c = match t.get("coef").and_then(Value::as_str) {
                             Some("zero") => CoefFact::Zero,
                             Some("nonzero") => CoefFact::NonZero,
@@ -281,7 +322,9 @@ impl Evidence {
                 };
                 match self.facts.get(&(ri, key.clone())) {
                     Some(old) if *old != rec => {
-                        return Err(bad(format!("conflicting facts for record {sha} at {key:?}")));
+                        return Err(bad(format!(
+                            "conflicting facts for record {sha} at {key:?}"
+                        )));
                     }
                     Some(_) => {}
                     None => {
@@ -299,11 +342,27 @@ impl Evidence {
     }
 
     /// Per-key proofs: rr_proof span / exact records (whole-file JSON or JSONL; a directory of them).
-    pub fn load_proofs(&mut self, set: &ImportedSet, base: &Path, r: &FileRef) -> Result<(), ImportError> {
+    pub fn load_proofs(
+        &mut self,
+        set: &ImportedSet,
+        base: &Path,
+        r: &FileRef,
+    ) -> Result<(), ImportError> {
         let arity = set.arity();
         for (path, digest) in evidence_files(base, r)? {
-            self.counts.files.push((path.display().to_string(), format!("sha256:{digest}")));
+            self.counts
+                .files
+                .push((path.display().to_string(), format!("sha256:{digest}")));
             for (line, v) in objects(&path)? {
+                // only rr_proof records (schema rustred.proof-kernel.*): other JSON (sample lists, group files) is counted
+                if !v
+                    .get("schema")
+                    .and_then(Value::as_str)
+                    .is_some_and(|s| s.starts_with("rustred.proof-kernel."))
+                {
+                    self.counts.proof_other_objects += 1;
+                    continue;
+                }
                 let Some(keys) = v.get("keys").and_then(Value::as_array) else {
                     if v.get("verdict").and_then(Value::as_str).is_some_and(|s| {
                         s == "ERROR" || s == "UNSUPPORTED" || s.starts_with("MISSING")
@@ -312,7 +371,10 @@ impl Evidence {
                     }
                     continue;
                 };
-                let top_sha = v.get("record_sha256").and_then(Value::as_str).map(str::to_string);
+                let top_sha = v
+                    .get("record_sha256")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
                 for k in keys {
                     self.counts.proof_entries += 1;
                     let sha = k
@@ -331,14 +393,14 @@ impl Evidence {
                     };
                     let (t, rr) = locate(set, ri);
                     let fixed = &set.disp.tables()[t].domains[rr].fixed;
-                    let mut key = k
-                        .get("key")
-                        .and_then(|x| json_key(x, arity))
-                        .ok_or_else(|| ImportError::Evidence {
-                            path: path.display().to_string(),
-                            line,
-                            msg: "proof entry key".into(),
-                        })?;
+                    let mut key =
+                        k.get("key")
+                            .and_then(|x| json_key(x, arity))
+                            .ok_or_else(|| ImportError::Evidence {
+                                path: path.display().to_string(),
+                                line,
+                                msg: "proof entry key".into(),
+                            })?;
                     for (i, x) in key.iter_mut().enumerate() {
                         if *x == i32::MIN {
                             *x = fixed[i].ok_or_else(|| ImportError::Evidence {
@@ -348,7 +410,11 @@ impl Evidence {
                             })?;
                         }
                     }
-                    let st = k.get("status").and_then(Value::as_str).unwrap_or("").to_string();
+                    let st = k
+                        .get("status")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
                     let word = st.split_whitespace().next().unwrap_or("").to_string();
                     let per_key = word == "EXACT_IN_SPAN_AT_KEY" || word == "EXACT_PROVED_AT_KEY";
                     let ps = ProofStatus {
@@ -372,10 +438,17 @@ impl Evidence {
     }
 
     /// Solved relations (`rustred.campaign.solved-relation.v1`, interfaces/import.md 6.2).
-    pub fn load_solved(&mut self, set: &ImportedSet, base: &Path, r: &FileRef) -> Result<(), ImportError> {
+    pub fn load_solved(
+        &mut self,
+        set: &ImportedSet,
+        base: &Path,
+        r: &FileRef,
+    ) -> Result<(), ImportError> {
         let arity = set.arity();
         for (path, digest) in evidence_files(base, r)? {
-            self.counts.files.push((path.display().to_string(), format!("sha256:{digest}")));
+            self.counts
+                .files
+                .push((path.display().to_string(), format!("sha256:{digest}")));
             for (line, v) in objects(&path)? {
                 let bad = |m: String| ImportError::Evidence {
                     path: path.display().to_string(),
@@ -386,15 +459,30 @@ impl Evidence {
                     return Err(bad(format!("not a {} line", super::SOLVED_SCHEMA)));
                 }
                 self.counts.solved_lines += 1;
-                let src = v.get("source").and_then(Value::as_str).ok_or_else(|| bad("source".into()))?;
+                let src = v
+                    .get("source")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| bad("source".into()))?;
                 if !set.recipes.iter().any(|rc| rc.id == src) {
                     self.counts.solved_foreign += 1;
                     continue;
                 }
-                let key = v.get("key").and_then(|k| json_key(k, arity)).ok_or_else(|| bad("key".into()))?;
+                let key = v
+                    .get("key")
+                    .and_then(|k| json_key(k, arity))
+                    .ok_or_else(|| bad("key".into()))?;
                 let mut rhs = vec![];
-                for t in v.get("rhs").and_then(Value::as_array).cloned().unwrap_or_default() {
-                    rhs.push(t.get("key").and_then(|k| json_key(k, arity)).ok_or_else(|| bad("rhs key".into()))?);
+                for t in v
+                    .get("rhs")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+                {
+                    rhs.push(
+                        t.get("key")
+                            .and_then(|k| json_key(k, arity))
+                            .ok_or_else(|| bad("rhs key".into()))?,
+                    );
                 }
                 let s = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
                 let rel = SolvedRelation {
@@ -414,7 +502,9 @@ impl Evidence {
                 let m = self.solved.entry(src.to_string()).or_default();
                 match m.get(&key) {
                     Some(old) if *old != rel && old.relation_digest != rel.relation_digest => {
-                        return Err(bad(format!("two different solved relations for ({src}, {key:?})")));
+                        return Err(bad(format!(
+                            "two different solved relations for ({src}, {key:?})"
+                        )));
                     }
                     Some(_) => {}
                     None => {
@@ -428,7 +518,13 @@ impl Evidence {
     }
 
     /// The per-key proof status of (rule, key), if any.
-    pub fn proof(&self, set: &ImportedSet, table: usize, record: usize, key: &[i32]) -> Option<&ProofStatus> {
+    pub fn proof(
+        &self,
+        set: &ImportedSet,
+        table: usize,
+        record: usize,
+        key: &[i32],
+    ) -> Option<&ProofStatus> {
         let sha = &set.rules[table][record].record_sha256;
         let ri = *self.sha_index.get(sha)?;
         self.proofs.get(&(ri, key.to_vec()))
@@ -472,7 +568,9 @@ impl FactSource for Evidence {
         }
     }
     fn regularity(&self, rule: &RuleId, key: &[i32]) -> RegFact {
-        self.rec(rule, key).map(|f| f.regular).unwrap_or(RegFact::Unknown)
+        self.rec(rule, key)
+            .map(|f| f.regular)
+            .unwrap_or(RegFact::Unknown)
     }
     fn label(&self) -> String {
         self.label.clone()

@@ -20,6 +20,7 @@ pub const KNOWN_KINDS: &[&str] = &[
     "rule",
     "zero_sectors",
     "chart",
+    "chart_error",
     "symmetry_group",
     "residual",
     "chart_end",
@@ -100,7 +101,9 @@ pub fn scan_table(
     let (mut offset, mut line_no, mut ordinal) = (0u64, 0usize, 0usize);
     loop {
         buf.clear();
-        let n = rd.read_until(b'\n', &mut buf).map_err(|e| io_err(path, e))?;
+        let n = rd
+            .read_until(b'\n', &mut buf)
+            .map_err(|e| io_err(path, e))?;
         if n == 0 {
             break;
         }
@@ -123,7 +126,10 @@ pub fn scan_table(
         match parsed {
             TableLine::Header(h) => {
                 if header.is_some() || !records.is_empty() || !charts.is_empty() {
-                    return Err(lerr(line_no, "a second header or a header after records".into()));
+                    return Err(lerr(
+                        line_no,
+                        "a second header or a header after records".into(),
+                    ));
                 }
                 header = Some(*h);
             }
@@ -133,7 +139,10 @@ pub fn scan_table(
             }
             TableLine::Other { kind } => {
                 if !KNOWN_KINDS.contains(&kind.as_str()) {
-                    return Err(lerr(line_no, format!("line kind {kind:?} is not a table line")));
+                    return Err(lerr(
+                        line_no,
+                        format!("line kind {kind:?} is not a table line"),
+                    ));
                 }
                 *kinds.entry(kind).or_default() += 1;
             }
@@ -151,8 +160,11 @@ pub fn scan_table(
                 if !keep(this, rec.index) {
                     continue;
                 }
-                let spans = top_level_spans(body, &["domain_bounds", "origin", "origin_index", "rhs", "kind"])
-                    .map_err(|m| lerr(line_no, m))?;
+                let spans = top_level_spans(
+                    body,
+                    &["domain_bounds", "origin", "origin_index", "rhs", "kind"],
+                )
+                .map_err(|m| lerr(line_no, m))?;
                 let val = |k: &str| -> Result<Option<Value>, ImportError> {
                     match spans.get(k) {
                         None => Ok(None),
@@ -163,7 +175,9 @@ pub fn scan_table(
                 };
                 let domain_bounds = match val("domain_bounds")? {
                     None | Some(Value::Null) => None,
-                    Some(v) => Some(parse_bounds(&v, rec.fixed.len()).map_err(|m| lerr(line_no, m))?),
+                    Some(v) => {
+                        Some(parse_bounds(&v, rec.fixed.len()).map_err(|m| lerr(line_no, m))?)
+                    }
                 };
                 let origin = val("origin")?.and_then(|v| match v {
                     Value::String(s) => Some(s),
@@ -210,12 +224,18 @@ fn parse_bounds(v: &Value, n: usize) -> Result<DomainBounds, String> {
             None | Some(Value::Null) => Ok(vec![None; n]),
             Some(Value::Array(a)) => {
                 if a.len() != n {
-                    return Err(format!("domain_bounds.{k} of length {} for arity {n}", a.len()));
+                    return Err(format!(
+                        "domain_bounds.{k} of length {} for arity {n}",
+                        a.len()
+                    ));
                 }
                 a.iter()
                     .map(|x| match x {
                         Value::Null => Ok(None),
-                        x => x.as_i64().map(Some).ok_or_else(|| format!("domain_bounds.{k} entry {x}")),
+                        x => x
+                            .as_i64()
+                            .map(Some)
+                            .ok_or_else(|| format!("domain_bounds.{k} entry {x}")),
                     })
                     .collect()
             }
@@ -236,7 +256,10 @@ fn parse_bounds(v: &Value, n: usize) -> Result<DomainBounds, String> {
 }
 
 /// Byte spans of the requested TOP-LEVEL fields of one JSON object line (string-aware; nested objects skipped).
-pub fn top_level_spans(s: &[u8], want: &[&str]) -> Result<BTreeMap<String, (usize, usize)>, String> {
+pub fn top_level_spans(
+    s: &[u8],
+    want: &[&str],
+) -> Result<BTreeMap<String, (usize, usize)>, String> {
     let mut out = BTreeMap::new();
     let mut p = 0usize;
     let ws = |p: &mut usize| {
@@ -371,12 +394,14 @@ pub fn read_sha256sums(path: &Path) -> Result<BTreeMap<String, String>, ImportEr
         if l.trim().is_empty() {
             continue;
         }
-        let (h, name) = l.split_once(char::is_whitespace).ok_or_else(|| ImportError::Line {
-            source: "sha256sums".into(),
-            path: path.display().to_string(),
-            line: i + 1,
-            msg: "not '<hex>  <name>'".into(),
-        })?;
+        let (h, name) = l
+            .split_once(char::is_whitespace)
+            .ok_or_else(|| ImportError::Line {
+                source: "sha256sums".into(),
+                path: path.display().to_string(),
+                line: i + 1,
+                msg: "not '<hex>  <name>'".into(),
+            })?;
         let name = name.trim_start().trim_start_matches('*').to_string();
         if h.len() != 64 || !h.bytes().all(|c| c.is_ascii_hexdigit()) {
             return Err(ImportError::Line {

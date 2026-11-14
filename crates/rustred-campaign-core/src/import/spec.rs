@@ -24,7 +24,9 @@ pub struct FileRef {
 }
 
 /// Required evidence level of a served key (R40 U-9..U-12 words).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum Level {
     /// Imported with provenance only (A0-imported).
@@ -345,13 +347,15 @@ impl TableSetSpec {
             let so = s
                 .as_object()
                 .ok_or_else(|| ImportError::Spec(format!("source {i} is not an object")))?;
-            let kind_s = so.get("kind").and_then(Value::as_str).ok_or_else(|| {
-                ImportError::Spec(format!("source {i} without a string kind"))
-            })?;
+            let kind_s = so
+                .get("kind")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ImportError::Spec(format!("source {i} without a string kind")))?;
             let kind = SourceKind::parse(kind_s)
                 .ok_or_else(|| ImportError::Spec(format!("source {i}: unknown kind {kind_s:?}")))?;
             for k in so.keys() {
-                if !COMMON_SOURCE_FIELDS.contains(&k.as_str()) && !kind.fields().contains(&k.as_str())
+                if !COMMON_SOURCE_FIELDS.contains(&k.as_str())
+                    && !kind.fields().contains(&k.as_str())
                 {
                     return Err(ImportError::Spec(format!(
                         "source {i} ({kind_s}): field {k:?} is not a field of this kind"
@@ -379,7 +383,10 @@ impl TableSetSpec {
             )));
         }
         if !(4..=16).contains(&self.bits) {
-            return Err(ImportError::Spec(format!("bits {} outside 4..=16", self.bits)));
+            return Err(ImportError::Spec(format!(
+                "bits {} outside 4..=16",
+                self.bits
+            )));
         }
         if self.start.format == StartFormat::HandStatement && self.start.hand_format.is_none() {
             return Err(ImportError::Spec(
@@ -389,13 +396,19 @@ impl TableSetSpec {
         let mut ids = BTreeSet::new();
         for s in &self.sources {
             if s.id.is_empty() || !ids.insert(s.id.as_str()) {
-                return Err(ImportError::Spec(format!("source id {:?} empty or repeated", s.id)));
+                return Err(ImportError::Spec(format!(
+                    "source id {:?} empty or repeated",
+                    s.id
+                )));
             }
             let need = |f: bool, what: &str| -> Result<(), ImportError> {
                 if f {
                     Ok(())
                 } else {
-                    Err(ImportError::Spec(format!("source {}: {what} required", s.id)))
+                    Err(ImportError::Spec(format!(
+                        "source {}: {what} required",
+                        s.id
+                    )))
                 }
             };
             match s.kind {
@@ -442,7 +455,9 @@ impl TableSetSpec {
             .sources
             .iter()
             .find(|s| s.id == self.frame_from)
-            .ok_or_else(|| ImportError::Spec(format!("frame_from {:?} names no source", self.frame_from)))?;
+            .ok_or_else(|| {
+                ImportError::Spec(format!("frame_from {:?} names no source", self.frame_from))
+            })?;
         if fs.kind != SourceKind::EngineTable && fs.kind != SourceKind::TableSet {
             return Err(ImportError::Spec(
                 "frame_from must name an engine_table or table_set source".into(),

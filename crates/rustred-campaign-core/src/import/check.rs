@@ -39,11 +39,20 @@ impl Default for CheckOptions {
 /// What serves a key (indices into the set; names are materialised when written).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Server {
-    Rule { table: usize, record: usize },
+    Rule {
+        table: usize,
+        record: usize,
+    },
     /// A relation set (supplied point relations or a recipe's certified relations): its name.
-    Relation { set: String, recipe: bool },
+    Relation {
+        set: String,
+        recipe: bool,
+    },
     /// A symmetry credit through the image's rule.
-    Credit { table: usize, record: usize },
+    Credit {
+        table: usize,
+        record: usize,
+    },
 }
 
 /// The per-key row.
@@ -133,10 +142,10 @@ fn is_top(lines: &[bool], k: &[i32]) -> bool {
 }
 
 /// Build the recipe relation sets from the certified solved relations.
-fn recipe_sets(
-    set: &ImportedSet,
-    ev: &Evidence,
-) -> Result<(Vec<Arc<RelationSet>>, Vec<SolveRefusal>, bool), ImportError> {
+/// Recipe relation sets, the refusals of solved relations, and whether some certification used an unpinned binary.
+type RecipeSets = (Vec<Arc<RelationSet>>, Vec<SolveRefusal>, bool);
+
+fn recipe_sets(set: &ImportedSet, ev: &Evidence) -> Result<RecipeSets, ImportError> {
     let lines = set.frame.mask().to_vec();
     let expected = set.spec.evidence.expected_recipe_binary.clone();
     let mut unpinned = false;
@@ -146,7 +155,12 @@ fn recipe_sets(
         let mut b = RelationStoreBuilder::new(set.codec);
         let solved = ev.solved.get(&rc.id);
         let det: BTreeSet<Option<String>> = solved
-            .map(|m| m.values().filter(|r| r.verdict == "SOLVED").map(|r| r.determinism_id.clone()).collect())
+            .map(|m| {
+                m.values()
+                    .filter(|r| r.verdict == "SOLVED")
+                    .map(|r| r.determinism_id.clone())
+                    .collect()
+            })
             .unwrap_or_default();
         let mixed = det.len() > 1;
         for (key, r) in solved.into_iter().flatten() {
@@ -169,7 +183,9 @@ fn recipe_sets(
                 fail("several determinism ids for one recipe".into());
             }
             match &r.recipe_sha256 {
-                Some(s) if s.trim_start_matches("sha256:").eq_ignore_ascii_case(&rc.recipe_sha256) => {}
+                Some(s)
+                    if s.trim_start_matches("sha256:")
+                        .eq_ignore_ascii_case(&rc.recipe_sha256) => {}
                 Some(s) => fail(format!("recipe_sha256 {s} is not the recipe file's")),
                 None => fail("no recipe_sha256".into()),
             }
@@ -238,7 +254,11 @@ fn recipe_sets(
 }
 
 /// Run the check.
-pub fn check(set: &ImportedSet, ev: &Evidence, opts: &CheckOptions) -> Result<CheckResult, ImportError> {
+pub fn check(
+    set: &ImportedSet,
+    ev: &Evidence,
+    opts: &CheckOptions,
+) -> Result<CheckResult, ImportError> {
     let t0 = std::time::Instant::now();
     let tier = opts.tier.unwrap_or(match set.spec.policies.tier {
         TierChoice::K => Tier::K,
@@ -266,7 +286,8 @@ pub fn check(set: &ImportedSet, ev: &Evidence, opts: &CheckOptions) -> Result<Ch
         }
         let mut b = KeySetBuilder::new(set.codec);
         for k in v {
-            b.push(k).map_err(|e| ImportError::Core(format!("terminal {k:?}: {e:?}")))?;
+            b.push(k)
+                .map_err(|e| ImportError::Core(format!("terminal {k:?}: {e:?}")))?;
         }
         Ok(Some(b.finish()))
     };
@@ -290,7 +311,9 @@ pub fn check(set: &ImportedSet, ev: &Evidence, opts: &CheckOptions) -> Result<Ch
         table_digests: set.table_digests.clone(),
         relation_sets,
         witness_absent: match set.spec.policies.witness_absent {
-            super::spec::WitnessAbsentPolicy::LiftWithRegularFact => WitnessAbsent::LiftWithRegularFact,
+            super::spec::WitnessAbsentPolicy::LiftWithRegularFact => {
+                WitnessAbsent::LiftWithRegularFact
+            }
             super::spec::WitnessAbsentPolicy::Block => WitnessAbsent::Block,
         },
         ..Default::default()
@@ -307,8 +330,11 @@ pub fn check(set: &ImportedSet, ev: &Evidence, opts: &CheckOptions) -> Result<Ch
         .map(|(i, t)| (t.name.as_str(), i))
         .collect();
     let recipe_names: BTreeSet<String> = set.recipes.iter().map(|r| r.id.clone()).collect();
-    let open: HashMap<Vec<i32>, crate::closure::OpenKey> =
-        c.open_keys().into_iter().map(|o| (o.key.clone(), o)).collect();
+    let open: HashMap<Vec<i32>, crate::closure::OpenKey> = c
+        .open_keys()
+        .into_iter()
+        .map(|o| (o.key.clone(), o))
+        .collect();
     // coefficient fact requests per (table path, label, key)
     let freq = c.fact_requests();
     let mut coef_missing: BTreeSet<(String, i64, Vec<i32>)> = BTreeSet::new();
@@ -321,7 +347,11 @@ pub fn check(set: &ImportedSet, ev: &Evidence, opts: &CheckOptions) -> Result<Ch
         .rules
         .iter()
         .enumerate()
-        .flat_map(|(t, v)| v.iter().enumerate().map(move |(r, i)| ((i.path.clone(), i.label), (t, r))))
+        .flat_map(|(t, v)| {
+            v.iter()
+                .enumerate()
+                .map(move |(r, i)| ((i.path.clone(), i.label), (t, r)))
+        })
         .collect();
     let mut rows = Vec::with_capacity(c.len());
     let required = set.spec.required_evidence;
@@ -361,7 +391,8 @@ pub fn check(set: &ImportedSet, ev: &Evidence, opts: &CheckOptions) -> Result<Ch
                 let why = match w {
                     WitnessKind::Elided => "elided witness loci (policy block)".to_string(),
                     WitnessKind::NotCarried => {
-                        "witness loci not carried: no per-key regularity fact (ruling Q2)".to_string()
+                        "witness loci not carried: no per-key regularity fact (ruling Q2)"
+                            .to_string()
                     }
                     _ => o.detail.clone(),
                 };
@@ -391,18 +422,31 @@ pub fn check(set: &ImportedSet, ev: &Evidence, opts: &CheckOptions) -> Result<Ch
             }
         } else if let Some(w) = c.winner(i) {
             let Some((t, r)) = rule_of(&w) else {
-                return Err(ImportError::Core(format!("winner table {} not in the set", w.table)));
+                return Err(ImportError::Core(format!(
+                    "winner table {} not in the set",
+                    w.table
+                )));
             };
             row.status = RowStatus::Served;
             if c.is_credited(i) {
-                row.server = Some(Server::Credit { table: t, record: r });
+                row.server = Some(Server::Credit {
+                    table: t,
+                    record: r,
+                });
                 row.evidence = Some(Level::Imported);
                 row.basis = Some("symmetry_credit");
             } else {
-                row.server = Some(Server::Rule { table: t, record: r });
+                row.server = Some(Server::Rule {
+                    table: t,
+                    record: r,
+                });
                 let info = &set.rules[t][r];
                 let proof = ev.proof(set, t, r, &row.key).is_some_and(|p| p.per_key);
-                row.evidence = Some(if proof { Level::PerKey } else { Level::Imported });
+                row.evidence = Some(if proof {
+                    Level::PerKey
+                } else {
+                    Level::Imported
+                });
                 row.basis = Some(match info.witness {
                     WitnessKind::Complete => "witness_loci",
                     WitnessKind::NotCarried => "regularity_fact",
@@ -444,9 +488,14 @@ pub fn check(set: &ImportedSet, ev: &Evidence, opts: &CheckOptions) -> Result<Ch
         if o.status != OpenStatus::Uncovered {
             continue;
         }
+        // economy (R48 addendum 4): request the FIRST candidate recipe in dispatch order that has no answer for this
+        // key yet; a candidate whose answer did not certify is skipped (the next one is asked); none left -> no request
         for cand in &o.recipe_candidates {
             if let Some(rc) = set.recipes.iter().find(|r| &r.id == cand) {
                 let prev = ev.solved.get(&rc.id).and_then(|m| m.get(&o.key));
+                if prev.is_some() {
+                    continue;
+                }
                 solve_requests.push(SolveRequest {
                     schema: super::SOLVE_REQUEST_SCHEMA,
                     spec_digest: set.report.spec_digest.clone(),
@@ -455,18 +504,17 @@ pub fn check(set: &ImportedSet, ev: &Evidence, opts: &CheckOptions) -> Result<Ch
                     recipe_sha256: rc.recipe_sha256.clone(),
                     engine_digest: rc.engine_digest.clone(),
                     key: o.key.clone(),
-                    reason: match prev {
-                        None => "in_domain_uncovered".into(),
-                        Some(p) => format!("certified_relation_missing (previous answer: {})", p.verdict),
-                    },
+                    reason: "in_domain_uncovered".into(),
                     in_start: o.in_start,
                 });
+                break;
             }
         }
     }
     solve_requests.sort();
     // fact requests: per record
-    let mut fr: BTreeMap<(usize, usize), (BTreeSet<Vec<i32>>, BTreeSet<String>)> = BTreeMap::new();
+    type KeysReasons = (BTreeSet<Vec<i32>>, BTreeSet<String>);
+    let mut fr: BTreeMap<(usize, usize), KeysReasons> = BTreeMap::new();
     for r in &freq {
         if let Some(&(t, rr)) = path_label.get(&(r.table.clone(), r.label)) {
             let e = fr.entry((t, rr)).or_default();
@@ -501,9 +549,12 @@ pub fn check(set: &ImportedSet, ev: &Evidence, opts: &CheckOptions) -> Result<Ch
         for row in &rows {
             let below = row.evidence.is_none_or(|e| e < Level::PerKey);
             let rule = match (&row.server, row.status, row.open_rule) {
-                (Some(Server::Rule { table, record }), RowStatus::Served, _) if below => Some((*table, *record)),
+                (Some(Server::Rule { table, record }), RowStatus::Served, _) if below => {
+                    Some((*table, *record))
+                }
                 (_, RowStatus::Open, Some(tr))
-                    if row.open_reason.as_deref() == Some("elided_witness_loci_no_per_key_proof") =>
+                    if row.open_reason.as_deref()
+                        == Some("elided_witness_loci_no_per_key_proof") =>
                 {
                     Some(tr)
                 }

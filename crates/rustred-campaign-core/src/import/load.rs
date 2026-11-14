@@ -106,6 +106,10 @@ pub struct SourceReport {
     pub witness: BTreeMap<String, usize>,
     pub bounds_records: usize,
     pub relations: usize,
+    /// Non-rule line kinds over the source's files (e.g. `chart_error` records of the engine).
+    pub line_kinds: BTreeMap<String, usize>,
+    /// Files without an `end` record (an unterminated run table: imported as it is, reported).
+    pub files_without_end: Vec<String>,
 }
 
 /// The load report.
@@ -159,7 +163,9 @@ pub struct ImportedSet {
 
 impl std::fmt::Debug for ImportedSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ImportedSet").field("report", &self.report).finish()
+        f.debug_struct("ImportedSet")
+            .field("report", &self.report)
+            .finish()
     }
 }
 
@@ -184,7 +190,13 @@ impl ImportedSet {
 }
 
 /// Fill a hand-name template.
-pub fn hand_name(t: &HandName, source: &str, table: Option<&str>, r: &RawRecord, label: i64) -> String {
+pub fn hand_name(
+    t: &HandName,
+    source: &str,
+    table: Option<&str>,
+    r: &RawRecord,
+    label: i64,
+) -> String {
     let mut origin = r.origin.clone().unwrap_or_default();
     for p in &t.strip {
         if let Some(s) = origin.strip_prefix(p.as_str()) {
@@ -207,7 +219,10 @@ pub fn hand_name(t: &HandName, source: &str, table: Option<&str>, r: &RawRecord,
             "{index}",
             &r.rec.index.map(|i| i.to_string()).unwrap_or_default(),
         )
-        .replace("{origin_index}", &r.origin_index.map(|i| i.to_string()).unwrap_or_default())
+        .replace(
+            "{origin_index}",
+            &r.origin_index.map(|i| i.to_string()).unwrap_or_default(),
+        )
         .replace("{origin}", &origin)
         .replace("{table}", &tab)
 }
@@ -229,12 +244,10 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
         .find(|s| s.id == spec.frame_from)
         .ok_or_else(|| ImportError::Spec("frame_from".into()))?;
     let funits = file_units(fsrc, base)?;
-    let first = funits
-        .first()
-        .ok_or_else(|| ImportError::Source {
-            source: fsrc.id.clone(),
-            msg: "no table file".into(),
-        })?;
+    let first = funits.first().ok_or_else(|| ImportError::Source {
+        source: fsrc.id.clone(),
+        msg: "no table file".into(),
+    })?;
     let fhead = scan_table(&fsrc.id, &first.path, false, &|_, _| false)?.header;
     let frame = NodeFrame::from_header(&fhead).map_err(|e| ImportError::Source {
         source: fsrc.id.clone(),
@@ -260,7 +273,7 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
 
     let mut tables: Vec<Table> = vec![];
     // per dispatcher table: (file, source id, [(ordinal, record sha256)]) for the second (body) pass
-    let mut body_plan: Vec<(PathBuf, String, Vec<(usize, String)>)> = vec![];
+    let mut body_plan: Vec<BodyPlan> = vec![];
     let mut rules: Vec<Vec<RuleInfo>> = vec![];
     let mut fact_tables = BTreeMap::new();
     let mut table_digests = BTreeMap::new();
@@ -289,8 +302,11 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
         match src.kind {
             SourceKind::EngineTable | SourceKind::TableSet => {
                 let units = file_units(src, base)?;
-                let removed: BTreeMap<i64, String> =
-                    src.removed.iter().map(|r| (r.label, r.reason.clone())).collect();
+                let removed: BTreeMap<i64, String> = src
+                    .removed
+                    .iter()
+                    .map(|r| (r.label, r.reason.clone()))
+                    .collect();
                 let mut seen_removed = BTreeSet::new();
                 let mut seen_src_labels: BTreeSet<i64> = BTreeSet::new();
                 let mut first_table_name: Option<String> = None;
@@ -311,6 +327,12 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
                     check_header(&src.id, &raw.header, &frame, &frame_desc, &fhead)?;
                     rep.files.push((u.path.display().to_string(), sha.clone()));
                     rep.records_in_files += raw.records.len();
+                    for (k, n) in &raw.kinds {
+                        *rep.line_kinds.entry(k.clone()).or_default() += n;
+                    }
+                    if !raw.kinds.contains_key("end") {
+                        rep.files_without_end.push(u.path.display().to_string());
+                    }
                     // labels unique inside the file / source / scope
                     let mut by_label: BTreeMap<i64, usize> = BTreeMap::new();
                     for (i, r) in raw.records.iter().enumerate() {
@@ -335,7 +357,9 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
                                 return Err(ImportError::Label {
                                     source: src.id.clone(),
                                     label: l,
-                                    msg: format!("repeated in label scope {scope} (also in source {prev})"),
+                                    msg: format!(
+                                        "repeated in label scope {scope} (also in source {prev})"
+                                    ),
                                 });
                             }
                         }
@@ -360,7 +384,11 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
                         }
                     };
                     order.retain(|&i| {
-                        let l = raw.records[i].rec.i.or(raw.records[i].rec.index).unwrap_or(i64::MIN);
+                        let l = raw.records[i]
+                            .rec
+                            .i
+                            .or(raw.records[i].rec.index)
+                            .unwrap_or(i64::MIN);
                         if let Some(reason) = removed.get(&l) {
                             seen_removed.insert(l);
                             rep.removed.push((l, reason.clone()));
@@ -424,7 +452,10 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
                         body_plan.push((
                             u.path.clone(),
                             src.id.clone(),
-                            infos.iter().map(|i| (i.ordinal, i.record_sha256.clone())).collect(),
+                            infos
+                                .iter()
+                                .map(|i| (i.ordinal, i.record_sha256.clone()))
+                                .collect(),
                         ));
                         drop(tf);
                         tables.push(t);
@@ -455,17 +486,34 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
                     }
                 }
                 if let Some(n) = first_table_name {
-                    flush_pending(&mut pending, DispatchSlot::BeforeTable(n), &mut supplied, &mut recipes, &mut rel_order);
+                    flush_pending(
+                        &mut pending,
+                        DispatchSlot::BeforeTable(n),
+                        &mut supplied,
+                        &mut recipes,
+                        &mut rel_order,
+                    );
                 }
             }
             SourceKind::SuppliedRelations => {
-                let (rs, info) = load_supplied(src, &class, base, &frame, &frame_desc, &fhead, &cmp, codec, &mut rep)?;
+                let (rs, info) = load_supplied(
+                    src,
+                    &class,
+                    base,
+                    &frame,
+                    &frame_desc,
+                    &fhead,
+                    &cmp,
+                    codec,
+                    &mut rep,
+                )?;
                 supplied_info.insert(rs.name.clone(), info);
                 pending.push(Pending::Supplied(rs));
             }
             SourceKind::Recipe => {
                 let rc = load_recipe(src, &class, base, &frame)?;
-                rep.files.push((rc.path.clone(), format!("sha256:{}", rc.recipe_sha256)));
+                rep.files
+                    .push((rc.path.clone(), format!("sha256:{}", rc.recipe_sha256)));
                 pending.push(Pending::Recipe(rc));
             }
             SourceKind::Terminals => {
@@ -474,7 +522,8 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
                     (None, Some(p)) => {
                         let path = resolve(base, p);
                         let d = verify_file(&path, src.sha256.as_deref())?;
-                        rep.files.push((path.display().to_string(), format!("sha256:{d}")));
+                        rep.files
+                            .push((path.display().to_string(), format!("sha256:{d}")));
                         read_key_list(&path, arity)?
                     }
                     _ => return Err(ImportError::Spec(format!("source {}: keys / path", src.id))),
@@ -495,19 +544,31 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
             }
             SourceKind::SymmetryCredit => {
                 if credits.is_some() {
-                    return Err(ImportError::Spec("more than one symmetry_credit source".into()));
+                    return Err(ImportError::Spec(
+                        "more than one symmetry_credit source".into(),
+                    ));
                 }
-                let g = src.group.as_ref().ok_or_else(|| ImportError::Spec("group".into()))?;
+                let g = src
+                    .group
+                    .as_ref()
+                    .ok_or_else(|| ImportError::Spec("group".into()))?;
                 let path = resolve(base, &g.path);
                 let d = verify_file(&path, g.sha256.as_deref())?;
-                rep.files.push((path.display().to_string(), format!("sha256:{d}")));
+                rep.files
+                    .push((path.display().to_string(), format!("sha256:{d}")));
                 credits = Some(read_credit_group(&path, frame.mask())?);
             }
         }
         reports.push(rep);
     }
     // relation sets after the last table
-    flush_pending(&mut pending, DispatchSlot::Last, &mut supplied, &mut recipes, &mut rel_order);
+    flush_pending(
+        &mut pending,
+        DispatchSlot::Last,
+        &mut supplied,
+        &mut recipes,
+        &mut rel_order,
+    );
     if tables.is_empty() {
         return Err(ImportError::Spec("no dispatcher table in the spec".into()));
     }
@@ -533,7 +594,11 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
             if want.get(&r.ordinal) != Some(&r.sha256.as_str()) {
                 return Err(ImportError::Source {
                     source: src_id.clone(),
-                    msg: format!("{} changed between the passes (record {})", path.display(), r.ordinal),
+                    msg: format!(
+                        "{} changed between the passes (record {})",
+                        path.display(),
+                        r.ordinal
+                    ),
                 });
             }
             by_ord.insert(r.ordinal, r);
@@ -549,9 +614,9 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
                 charts: raw.charts.clone(),
                 others: vec![],
             };
-            bodies
-                .load_table_records(&disp, t, &tf)
-                .map_err(|e| ImportError::Core(format!("bodies of {}: {e:?}", disp.tables()[t].name)))?;
+            bodies.load_table_records(&disp, t, &tf).map_err(|e| {
+                ImportError::Core(format!("bodies of {}: {e:?}", disp.tables()[t].name))
+            })?;
         }
     }
     for t in 0..disp.tables().len() {
@@ -620,6 +685,9 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
     })
 }
 
+/// Per dispatcher table: (file, source id, [(ordinal, record sha256)]) for the body pass.
+type BodyPlan = (PathBuf, String, Vec<(usize, String)>);
+
 enum Pending {
     Supplied(RelationSet),
     Recipe(RecipeSource),
@@ -663,10 +731,13 @@ fn file_units(src: &SourceSpec, base: &Path) -> Result<Vec<FileUnit>, ImportErro
                 msg: format!("{}: {e}", pf.display()),
             })?;
             let variant = src.variant.as_deref().unwrap_or_default();
-            let list = v.get(variant).and_then(Value::as_array).ok_or_else(|| ImportError::Source {
-                source: src.id.clone(),
-                msg: format!("{}: no variant {variant:?}", pf.display()),
-            })?;
+            let list =
+                v.get(variant)
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| ImportError::Source {
+                        source: src.id.clone(),
+                        msg: format!("{}: no variant {variant:?}", pf.display()),
+                    })?;
             let tdir = resolve(base, src.tables_dir.as_deref().unwrap_or_default());
             let mut sums: BTreeMap<String, String> = BTreeMap::new();
             for s in &src.sha256sums {
@@ -687,11 +758,18 @@ fn file_units(src: &SourceSpec, base: &Path) -> Result<Vec<FileUnit>, ImportErro
             let mut last_prio: Option<i64> = None;
             let mut origins_seen = BTreeSet::new();
             for e in list {
-                let file = e.get("file").and_then(Value::as_str).ok_or_else(|| ImportError::Source {
-                    source: src.id.clone(),
-                    msg: format!("priority entry without file: {e}"),
-                })?;
-                let origin = e.get("origin").and_then(Value::as_str).unwrap_or(file).to_string();
+                let file =
+                    e.get("file")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| ImportError::Source {
+                            source: src.id.clone(),
+                            msg: format!("priority entry without file: {e}"),
+                        })?;
+                let origin = e
+                    .get("origin")
+                    .and_then(Value::as_str)
+                    .unwrap_or(file)
+                    .to_string();
                 if !origins_seen.insert(origin.clone()) {
                     return Err(ImportError::Source {
                         source: src.id.clone(),
@@ -707,8 +785,14 @@ fn file_units(src: &SourceSpec, base: &Path) -> Result<Vec<FileUnit>, ImportErro
                     }
                     last_prio = Some(p);
                 }
-                if src.include_origins.as_ref().is_some_and(|v| !v.contains(&origin))
-                    || src.exclude_origins.as_ref().is_some_and(|v| v.contains(&origin))
+                if src
+                    .include_origins
+                    .as_ref()
+                    .is_some_and(|v| !v.contains(&origin))
+                    || src
+                        .exclude_origins
+                        .as_ref()
+                        .is_some_and(|v| v.contains(&origin))
                 {
                     continue;
                 }
@@ -725,7 +809,9 @@ fn file_units(src: &SourceSpec, base: &Path) -> Result<Vec<FileUnit>, ImportErro
                 {
                     return Err(ImportError::Source {
                         source: src.id.clone(),
-                        msg: format!("{file}: priority file sha256 {a} differs from SHA256SUMS {b}"),
+                        msg: format!(
+                            "{file}: priority file sha256 {a} differs from SHA256SUMS {b}"
+                        ),
                     });
                 }
                 out.push(FileUnit {
@@ -734,15 +820,13 @@ fn file_units(src: &SourceSpec, base: &Path) -> Result<Vec<FileUnit>, ImportErro
                     expected_sha: sums_sha.or(entry_sha),
                 });
             }
-            for list_name in [&src.include_origins] {
-                if let Some(v) = list_name {
-                    for o in v {
-                        if !origins_seen.contains(o) {
-                            return Err(ImportError::Source {
-                                source: src.id.clone(),
-                                msg: format!("include_origins names {o}, not in the priority file"),
-                            });
-                        }
+            if let Some(v) = &src.include_origins {
+                for o in v {
+                    if !origins_seen.contains(o) {
+                        return Err(ImportError::Source {
+                            source: src.id.clone(),
+                            msg: format!("include_origins names {o}, not in the priority file"),
+                        });
                     }
                 }
             }
@@ -763,7 +847,8 @@ fn check_header(
         source: source.into(),
         msg: format!("frame: {e}"),
     })?;
-    if f.arity() != frame.arity() || !f.same_mask(frame) || f.power_shifts() != frame.power_shifts() {
+    if f.arity() != frame.arity() || !f.same_mask(frame) || f.power_shifts() != frame.power_shifts()
+    {
         return Err(ImportError::Source {
             source: source.into(),
             msg: format!(
@@ -822,12 +907,13 @@ fn build_table(
         witness: !lifted,
         ..Default::default()
     };
-    let mut t = Table::from_table_file(name, u.path.display().to_string(), &tf, opts).map_err(|e| {
-        ImportError::Source {
-            source: src.id.clone(),
-            msg: format!("{}: {e}", u.path.display()),
-        }
-    })?;
+    let mut t =
+        Table::from_table_file(name, u.path.display().to_string(), &tf, opts).map_err(|e| {
+            ImportError::Source {
+                source: src.id.clone(),
+                msg: format!("{}: {e}", u.path.display()),
+            }
+        })?;
     for s in &t.provenance.skipped_not_dispatched {
         rep.not_dispatched
             .push((name.to_string(), s.label, s.dispatch.clone()));
@@ -870,7 +956,11 @@ fn build_table(
                 } else {
                     let hi = 0i128.min(-c);
                     if hi < 0 {
-                        bounds.push(Poly::slot_minus(i, hi).neg().map_err(|e| ImportError::Core(e.to_string()))?);
+                        bounds.push(
+                            Poly::slot_minus(i, hi)
+                                .neg()
+                                .map_err(|e| ImportError::Core(e.to_string()))?,
+                        );
                     }
                 }
             }
@@ -958,7 +1048,9 @@ fn load_supplied(
     let path = resolve(base, src.path.as_deref().unwrap_or_default());
     let raw = scan_table(&src.id, &path, true, &|_, _| true)?;
     if let Some(e) = &src.sha256
-        && !e.trim_start_matches("sha256:").eq_ignore_ascii_case(&raw.file_sha256)
+        && !e
+            .trim_start_matches("sha256:")
+            .eq_ignore_ascii_case(&raw.file_sha256)
     {
         return Err(ImportError::Digest {
             path: path.display().to_string(),
@@ -966,13 +1058,28 @@ fn load_supplied(
             got: raw.file_sha256.clone(),
         });
     }
-    check_header(&src.id, &raw.header, frame, frame_desc, fhead)?;
-    rep.files.push((path.display().to_string(), format!("sha256:{}", raw.file_sha256)));
+    // a supplied file may carry a hand-written header without the frame fields: then every record's chart must be the
+    // set's mask (checked below) and the family, where stated, must agree
+    if raw.header.mask.is_some() || raw.header.denominators.is_some() {
+        check_header(&src.id, &raw.header, frame, frame_desc, fhead)?;
+    } else if let (Some(a), Some(b)) = (&raw.header.family, &fhead.family)
+        && a != b
+    {
+        return Err(ImportError::Source {
+            source: src.id.clone(),
+            msg: format!("family {a} differs from {b}"),
+        });
+    }
+    rep.files.push((
+        path.display().to_string(),
+        format!("sha256:{}", raw.file_sha256),
+    ));
     let ver = match &src.verification {
         Some(v) => {
             let p = resolve(base, &v.path);
             let d = verify_file(&p, v.sha256.as_deref())?;
-            rep.files.push((p.display().to_string(), format!("sha256:{d}")));
+            rep.files
+                .push((p.display().to_string(), format!("sha256:{d}")));
             Some(d)
         }
         None => None,
@@ -988,6 +1095,13 @@ fn load_supplied(
             line: r.line_no,
             msg: m,
         };
+        if r.rec.chart.as_deref() != Some(frame.mask_string().as_str()) {
+            return Err(lerr(format!(
+                "a supplied relation must state the chart {} (has {:?})",
+                frame.mask_string(),
+                r.rec.chart
+            )));
+        }
         let key: Vec<i32> = r
             .rec
             .fixed
@@ -995,18 +1109,31 @@ fn load_supplied(
             .map(|x| x.and_then(|v| i32::try_from(v).ok()))
             .collect::<Option<Vec<i32>>>()
             .filter(|k| k.len() == n)
-            .ok_or_else(|| lerr("a supplied relation must be a point record (every slot fixed)".into()))?;
+            .ok_or_else(|| {
+                lerr("a supplied relation must be a point record (every slot fixed)".into())
+            })?;
         if let Some(t) = &r.rec.target
             && parse_key_text(t, n).as_deref() != Some(&key[..])
         {
             return Err(lerr(format!("target {t} differs from the fixed slots")));
         }
-        let rhs_txt = r.rec.rhs_keys.as_ref().ok_or_else(|| lerr("no rhs".into()))?;
+        let rhs_txt = r
+            .rec
+            .rhs_keys
+            .as_ref()
+            .ok_or_else(|| lerr("no rhs".into()))?;
         let mut rhs = vec![];
         let mut descends = true;
         for t in rhs_txt {
-            let k = parse_key_text(t, n).ok_or_else(|| lerr(format!("rhs key {t} is not a constant key")))?;
-            let top = (0..n).all(|i| if frame.is_line(i) { k[i] >= 1 } else { k[i] <= 0 });
+            let k = parse_key_text(t, n)
+                .ok_or_else(|| lerr(format!("rhs key {t} is not a constant key")))?;
+            let top = (0..n).all(|i| {
+                if frame.is_line(i) {
+                    k[i] >= 1
+                } else {
+                    k[i] <= 0
+                }
+            });
             let posnum = (0..n).any(|i| !frame.is_line(i) && k[i] > 0);
             if posnum || (top && !cmp.lower(&k, &key)) {
                 descends = false;
@@ -1026,7 +1153,8 @@ fn load_supplied(
         if ver.is_some() {
             bits |= VERDICT_EXACT;
         }
-        b.push(&key, &rhs, digest, bits).map_err(|e| lerr(format!("{e:?}")))?;
+        b.push(&key, &rhs, digest, bits)
+            .map_err(|e| lerr(format!("{e:?}")))?;
         let label = r.rec.index;
         info.insert(
             key.clone(),
@@ -1064,7 +1192,12 @@ fn load_supplied(
     ))
 }
 
-fn load_recipe(src: &SourceSpec, class: &str, base: &Path, frame: &NodeFrame) -> Result<RecipeSource, ImportError> {
+fn load_recipe(
+    src: &SourceSpec,
+    class: &str,
+    base: &Path,
+    frame: &NodeFrame,
+) -> Result<RecipeSource, ImportError> {
     let path = resolve(base, src.path.as_deref().unwrap_or_default());
     let d = verify_file(&path, src.sha256.as_deref())?;
     let txt = std::fs::read_to_string(&path).map_err(|e| io_err(&path, e))?;
@@ -1086,9 +1219,14 @@ fn load_recipe(src: &SourceSpec, class: &str, base: &Path, frame: &NodeFrame) ->
     if let Some(c) = v.get("chart").and_then(Value::as_str)
         && c != frame.mask_string()
     {
-        return Err(bad(format!("recipe chart {c} differs from {}", frame.mask_string())));
+        return Err(bad(format!(
+            "recipe chart {c} differs from {}",
+            frame.mask_string()
+        )));
     }
-    let dom = v.get("domain").ok_or_else(|| bad("recipe without domain".into()))?;
+    let dom = v
+        .get("domain")
+        .ok_or_else(|| bad("recipe without domain".into()))?;
     let fixed: Vec<Option<i32>> = match dom.get("fixed") {
         None | Some(Value::Null) => vec![None; n],
         Some(Value::Array(a)) if a.len() == n => a
@@ -1118,7 +1256,9 @@ fn load_recipe(src: &SourceSpec, class: &str, base: &Path, frame: &NodeFrame) ->
     let equations = polys(strs(dom.get("equations"))?)?;
     let exc: Vec<Vec<String>> = match dom.get("exceptions") {
         None | Some(Value::Null) => vec![],
-        Some(v) => serde_json::from_value(v.clone()).map_err(|e| bad(format!("exceptions: {e}")))?,
+        Some(v) => {
+            serde_json::from_value(v.clone()).map_err(|e| bad(format!("exceptions: {e}")))?
+        }
     };
     if exc.iter().any(Vec::is_empty) {
         return Err(bad("an empty exception AND-list (refused, R45)".into()));
@@ -1156,7 +1296,9 @@ fn load_recipe(src: &SourceSpec, class: &str, base: &Path, frame: &NodeFrame) ->
         poles: vec![],
         witness_elided: false,
     };
-    domain.validate().map_err(|e| bad(format!("recipe domain: {e}")))?;
+    domain
+        .validate()
+        .map_err(|e| bad(format!("recipe domain: {e}")))?;
     Ok(RecipeSource {
         id: src.id.clone(),
         class: class.to_string(),
@@ -1188,8 +1330,9 @@ fn read_credit_group(path: &Path, lines: &[bool]) -> Result<CreditPolicy, Import
         .unwrap_or_default();
     let mut group = vec![];
     for e in els {
-        let lines_v: Vec<usize> = serde_json::from_value(e.get("lines").cloned().unwrap_or(Value::Null))
-            .map_err(|er| ImportError::Spec(format!("credit group element lines: {er}")))?;
+        let lines_v: Vec<usize> =
+            serde_json::from_value(e.get("lines").cloned().unwrap_or(Value::Null))
+                .map_err(|er| ImportError::Spec(format!("credit group element lines: {er}")))?;
         let nums: Option<Vec<usize>> = match e.get("numerators") {
             None | Some(Value::Null) => None,
             Some(x) => Some(
@@ -1269,7 +1412,9 @@ fn read_start(spec: &TableSetSpec, base: &Path, codec: KeyCodec) -> Result<KeySe
             let f = std::fs::File::open(&path).map_err(|e| io_err(&path, e))?;
             let ks = KeySet::read(std::io::BufReader::new(f))
                 .map_err(|e| ImportError::Core(format!("{}: {e:?}", path.display())))?;
-            return ks.recode(codec).map_err(|e| ImportError::Core(format!("{e:?}")));
+            return ks
+                .recode(codec)
+                .map_err(|e| ImportError::Core(format!("{e:?}")));
         }
         StartFormat::HandStatement => {
             let fmt = spec
@@ -1287,7 +1432,8 @@ fn read_start(spec: &TableSetSpec, base: &Path, codec: KeyCodec) -> Result<KeySe
     };
     let mut b = KeySetBuilder::new(codec);
     for k in &keys {
-        b.push(k).map_err(|e| ImportError::Core(format!("start key {k:?}: {e:?}")))?;
+        b.push(k)
+            .map_err(|e| ImportError::Core(format!("start key {k:?}: {e:?}")))?;
     }
     Ok(b.finish())
 }

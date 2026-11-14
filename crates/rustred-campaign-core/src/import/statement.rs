@@ -48,16 +48,27 @@ impl HandStatement {
         v
     }
     pub fn rounds(&self) -> Option<i64> {
-        self.rows.iter().filter_map(|r| r.round).max().map(|m| m + 1)
+        self.rows
+            .iter()
+            .filter_map(|r| r.round)
+            .max()
+            .map(|m| m + 1)
     }
 }
 
 /// Read a hand statement (JSONL of arrays) through its column map.
-pub fn read_hand_statement(path: &Path, fmt: &HandFormat, arity: usize) -> Result<HandStatement, ImportError> {
+pub fn read_hand_statement(
+    path: &Path,
+    fmt: &HandFormat,
+    arity: usize,
+) -> Result<HandStatement, ImportError> {
     let f = std::fs::File::open(path).map_err(|e| io_err(path, e))?;
     let mut h = Sha256::new();
     let mut rows = vec![];
-    for (i, l) in std::io::BufReader::with_capacity(1 << 20, f).lines().enumerate() {
+    for (i, l) in std::io::BufReader::with_capacity(1 << 20, f)
+        .lines()
+        .enumerate()
+    {
         let l = l.map_err(|e| io_err(path, e))?;
         h.update(l.as_bytes());
         h.update(b"\n");
@@ -74,12 +85,19 @@ pub fn read_hand_statement(path: &Path, fmt: &HandFormat, arity: usize) -> Resul
         let col = |c: usize| a.get(c).ok_or_else(|| bad(format!("no column {c}")));
         let key = match col(fmt.key)? {
             Value::String(s) => parse_key_text(s, arity),
-            k @ Value::Array(_) => serde_json::from_value::<Vec<i32>>(k.clone()).ok().filter(|k| k.len() == arity),
+            k @ Value::Array(_) => serde_json::from_value::<Vec<i32>>(k.clone())
+                .ok()
+                .filter(|k| k.len() == arity),
             _ => None,
         }
         .ok_or_else(|| bad("key column".into()))?;
-        let in_box = col(fmt.in_box)?.as_bool().ok_or_else(|| bad("in_box column".into()))?;
-        let label = col(fmt.label)?.as_str().ok_or_else(|| bad("label column".into()))?.to_string();
+        let in_box = col(fmt.in_box)?
+            .as_bool()
+            .ok_or_else(|| bad("in_box column".into()))?;
+        let label = col(fmt.label)?
+            .as_str()
+            .ok_or_else(|| bad("label column".into()))?
+            .to_string();
         let rule = match col(fmt.rule)? {
             Value::Null => None,
             Value::String(s) => Some(s.clone()),
@@ -117,13 +135,19 @@ pub fn server_hand_name(set: &ImportedSet, row: &KeyRow) -> Option<String> {
     match row.server.as_ref()? {
         Server::Rule { table, record } => {
             let i = &set.rules[*table][*record];
-            Some(i.hand_name.clone().unwrap_or_else(|| format!("{}#{}", i.source, i.label)))
+            Some(
+                i.hand_name
+                    .clone()
+                    .unwrap_or_else(|| format!("{}#{}", i.source, i.label)),
+            )
         }
         Server::Credit { table, record } => {
             let i = &set.rules[*table][*record];
             Some(format!(
                 "credit:{}",
-                i.hand_name.clone().unwrap_or_else(|| format!("{}#{}", i.source, i.label))
+                i.hand_name
+                    .clone()
+                    .unwrap_or_else(|| format!("{}#{}", i.source, i.label))
             ))
         }
         Server::Relation { set: name, recipe } => {
@@ -133,7 +157,11 @@ pub fn server_hand_name(set: &ImportedSet, row: &KeyRow) -> Option<String> {
                 set.supplied_info
                     .get(name)
                     .and_then(|m| m.get(&row.key))
-                    .map(|s| s.hand_name.clone().unwrap_or_else(|| format!("{}#{}", s.source, s.ordinal)))
+                    .map(|s| {
+                        s.hand_name
+                            .clone()
+                            .unwrap_or_else(|| format!("{}#{}", s.source, s.ordinal))
+                    })
             }
         }
     }
@@ -184,9 +212,9 @@ pub fn row_json(set: &ImportedSet, row: &KeyRow) -> Value {
         RowStatus::Terminal => "terminal",
         RowStatus::Open => "open",
     };
-    let open = row.open_status.as_ref().map(|s| {
-        json!({"status": s, "reason": row.open_reason, "rule": rule_json(set, row.open_rule)})
-    });
+    let open = row.open_status.as_ref().map(
+        |s| json!({"status": s, "reason": row.open_reason, "rule": rule_json(set, row.open_rule)}),
+    );
     json!({
         "key": row.key,
         "in_start": row.in_start,
@@ -205,7 +233,12 @@ pub struct StatementDigests {
     pub files: BTreeMap<String, String>,
 }
 
-fn write_canon(dir: &Path, name: &str, v: &Value, sums: &mut BTreeMap<String, String>) -> Result<(), ImportError> {
+fn write_canon(
+    dir: &Path,
+    name: &str,
+    v: &Value,
+    sums: &mut BTreeMap<String, String>,
+) -> Result<(), ImportError> {
     let t = canonical_json(v, false).map_err(ImportError::Core)?;
     let p = dir.join(name);
     std::fs::write(&p, format!("{t}\n")).map_err(|e| io_err(&p, e))?;
@@ -267,8 +300,11 @@ pub fn write_statement(
     if let Some(t) = timing {
         // not identifying: outside SHA256SUMS on purpose
         let p = dir.join("timing.json");
-        std::fs::write(&p, format!("{}\n", canonical_json(&t, true).map_err(ImportError::Core)?))
-            .map_err(|e| io_err(&p, e))?;
+        std::fs::write(
+            &p,
+            format!("{}\n", canonical_json(&t, true).map_err(ImportError::Core)?),
+        )
+        .map_err(|e| io_err(&p, e))?;
     }
     let terms: Vec<Value> = res
         .rows
@@ -282,9 +318,17 @@ pub fn write_statement(
         .filter(|r| r.status == RowStatus::Open)
         .map(|r| json!({"key": key_text(&r.key), "status": r.open_status, "reason": r.open_reason}))
         .collect();
-    write_canon(dir, "terminals.json", &json!({"terminals": terms, "open": open}), &mut sums)?;
+    write_canon(
+        dir,
+        "terminals.json",
+        &json!({"terminals": terms, "open": open}),
+        &mut sums,
+    )?;
     // requests (JSONL, canonical)
-    let jsonl = |name: &str, vals: Vec<Value>, sums: &mut BTreeMap<String, String>| -> Result<(), ImportError> {
+    let jsonl = |name: &str,
+                 vals: Vec<Value>,
+                 sums: &mut BTreeMap<String, String>|
+     -> Result<(), ImportError> {
         let p = dir.join(name);
         let mut out = String::new();
         for v in vals {
@@ -299,17 +343,26 @@ pub fn write_statement(
     };
     jsonl(
         "solve-requests.jsonl",
-        res.solve_requests.iter().map(|r| serde_json::to_value(r).unwrap_or(Value::Null)).collect(),
+        res.solve_requests
+            .iter()
+            .map(|r| serde_json::to_value(r).unwrap_or(Value::Null))
+            .collect(),
         &mut sums,
     )?;
     jsonl(
         "fact-requests.jsonl",
-        res.fact_requests.iter().map(|r| serde_json::to_value(r).unwrap_or(Value::Null)).collect(),
+        res.fact_requests
+            .iter()
+            .map(|r| serde_json::to_value(r).unwrap_or(Value::Null))
+            .collect(),
         &mut sums,
     )?;
     jsonl(
         "proof-requests.jsonl",
-        res.proof_requests.iter().map(|r| serde_json::to_value(r).unwrap_or(Value::Null)).collect(),
+        res.proof_requests
+            .iter()
+            .map(|r| serde_json::to_value(r).unwrap_or(Value::Null))
+            .collect(),
         &mut sums,
     )?;
     let p = dir.join("SHA256SUMS");
@@ -381,8 +434,14 @@ impl Comparison {
             o.insert("differences_listed".into(), json!(self.differences.len()));
         }
         let p = dir.join("comparison.json");
-        std::fs::write(&p, format!("{}\n", canonical_json(&v, false).map_err(ImportError::Core)?))
-            .map_err(|e| io_err(&p, e))?;
+        std::fs::write(
+            &p,
+            format!(
+                "{}\n",
+                canonical_json(&v, false).map_err(ImportError::Core)?
+            ),
+        )
+        .map_err(|e| io_err(&p, e))?;
         let p = dir.join("differences.jsonl");
         let mut out = String::new();
         for d in &self.differences {
@@ -413,9 +472,11 @@ fn ours_class(set: &ImportedSet, row: &KeyRow) -> String {
         (_, Some(Server::Rule { table, record })) | (_, Some(Server::Credit { table, record })) => {
             set.rules[*table][*record].class.clone()
         }
-        (_, Some(Server::Relation { set: name, .. })) => {
-            set.classes.get(name).cloned().unwrap_or_else(|| name.clone())
-        }
+        (_, Some(Server::Relation { set: name, .. })) => set
+            .classes
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| name.clone()),
         _ => "?".into(),
     }
 }
@@ -426,12 +487,20 @@ pub fn compare(set: &ImportedSet, res: &CheckResult, hand: &HandStatement) -> Co
     let mut produced: std::collections::HashSet<String> = std::collections::HashSet::new();
     for t in &set.rules {
         for i in t {
-            produced.insert(i.hand_name.clone().unwrap_or_else(|| format!("{}#{}", i.source, i.label)));
+            produced.insert(
+                i.hand_name
+                    .clone()
+                    .unwrap_or_else(|| format!("{}#{}", i.source, i.label)),
+            );
         }
     }
     for m in set.supplied_info.values() {
         for s in m.values() {
-            produced.insert(s.hand_name.clone().unwrap_or_else(|| format!("{}#{}", s.source, s.ordinal)));
+            produced.insert(
+                s.hand_name
+                    .clone()
+                    .unwrap_or_else(|| format!("{}#{}", s.source, s.ordinal)),
+            );
         }
     }
     for rc in &set.recipes {
@@ -458,11 +527,19 @@ pub fn compare(set: &ImportedSet, res: &CheckResult, hand: &HandStatement) -> Co
             *unmapped.entry(r.clone()).or_default() += 1;
         }
         let Some(o) = ours.get(h.key.as_slice()) else {
-            diffs.push(d(DiffKind::OnlyHand, None, Some("not reached by our closure".into())));
-            *matrix.entry(format!("{} -> (absent)", h.label)).or_default() += 1;
+            diffs.push(d(
+                DiffKind::OnlyHand,
+                None,
+                Some("not reached by our closure".into()),
+            ));
+            *matrix
+                .entry(format!("{} -> (absent)", h.label))
+                .or_default() += 1;
             continue;
         };
-        *matrix.entry(format!("{} -> {}", h.label, ours_class(set, o))).or_default() += 1;
+        *matrix
+            .entry(format!("{} -> {}", h.label, ours_class(set, o)))
+            .or_default() += 1;
         if o.in_start != h.in_box {
             diffs.push(d(
                 DiffKind::InBoxDiffers,
@@ -474,10 +551,18 @@ pub fn compare(set: &ImportedSet, res: &CheckResult, hand: &HandStatement) -> Co
         let word = ours_word(set, o);
         match (hand_terminal, o.status) {
             (true, RowStatus::Terminal) => same += 1,
-            (true, RowStatus::Served) => diffs.push(d(DiffKind::HandTerminalOursServed, Some(word), None)),
-            (true, RowStatus::Open) => diffs.push(d(DiffKind::HandTerminalOursOpen, Some(word), None)),
-            (false, RowStatus::Terminal) => diffs.push(d(DiffKind::HandServedOursTerminal, Some(word), None)),
-            (false, RowStatus::Open) => diffs.push(d(DiffKind::HandServedOursOpen, Some(word), None)),
+            (true, RowStatus::Served) => {
+                diffs.push(d(DiffKind::HandTerminalOursServed, Some(word), None))
+            }
+            (true, RowStatus::Open) => {
+                diffs.push(d(DiffKind::HandTerminalOursOpen, Some(word), None))
+            }
+            (false, RowStatus::Terminal) => {
+                diffs.push(d(DiffKind::HandServedOursTerminal, Some(word), None))
+            }
+            (false, RowStatus::Open) => {
+                diffs.push(d(DiffKind::HandServedOursOpen, Some(word), None))
+            }
             (false, RowStatus::Served) => {
                 if h.rule.as_deref() == server_hand_name(set, o).as_deref() {
                     same += 1;
@@ -520,7 +605,7 @@ pub fn compare(set: &ImportedSet, res: &CheckResult, hand: &HandStatement) -> Co
         .collect();
     to.sort();
     let to: Vec<String> = to.iter().map(|k| key_text(k)).collect();
-    let key_sets_equal = counts.get("only_hand").is_none() && counts.get("only_ours").is_none();
+    let key_sets_equal = !counts.contains_key("only_hand") && !counts.contains_key("only_ours");
     Comparison {
         hand_path: hand.path.clone(),
         hand_sha256: hand.sha256.clone(),

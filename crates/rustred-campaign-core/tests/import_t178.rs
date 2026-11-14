@@ -19,7 +19,10 @@ mod import;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use import::{CheckOptions, Evidence, HandFormat, TableSetSpec, check, compare, load, read_hand_statement, write_statement};
+use import::{
+    CheckOptions, Evidence, HandFormat, TableSetSpec, check, compare, load, read_hand_statement,
+    write_statement,
+};
 use serde_json::{Value, json};
 
 fn ws() -> PathBuf {
@@ -29,12 +32,14 @@ fn ws() -> PathBuf {
 }
 
 fn scratch() -> PathBuf {
-    std::env::var_os("RUSTRED_IMPORT_SCRATCH").map(PathBuf::from).unwrap_or_else(|| {
-        PathBuf::from(format!(
-            "/common/build-cache/{}/p_integral_dev/implementer-scratch/import",
-            std::env::var("USER").unwrap_or_else(|_| "vhirschi".into())
-        ))
-    })
+    std::env::var_os("RUSTRED_IMPORT_SCRATCH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(format!(
+                "/common/build-cache/{}/p_integral_dev/implementer-scratch/import",
+                std::env::var("USER").unwrap_or_else(|_| "vhirschi".into())
+            ))
+        })
 }
 
 pub fn vm_hwm_kb() -> u64 {
@@ -55,23 +60,43 @@ fn piece_path(regen: &Path, piece: &str) -> PathBuf {
 
 /// Leading number of a face id ("F12" -> 12, "F5x" -> 5); ids without one sort after every numbered one.
 fn face_num(face: &str) -> u64 {
-    let d: String = face.trim_start_matches('F').chars().take_while(|c| c.is_ascii_digit()).collect();
+    let d: String = face
+        .trim_start_matches('F')
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
     d.parse().unwrap_or(u64::MAX)
 }
 
 fn hand_format() -> HandFormat {
-    HandFormat { key: 0, in_box: 1, label: 2, rule: 3, round: Some(4), round_index: None, terminal_label: "terminal".into() }
+    HandFormat {
+        key: 0,
+        in_box: 1,
+        label: 2,
+        rule: 3,
+        round: Some(4),
+        round_index: None,
+        terminal_label: "terminal".into(),
+    }
 }
 
 fn verify_sums(dir: &Path) {
-    for l in std::fs::read_to_string(dir.join("SHA256SUMS")).unwrap().lines() {
+    for l in std::fs::read_to_string(dir.join("SHA256SUMS"))
+        .unwrap()
+        .lines()
+    {
         let (h, n) = l.split_once("  ").unwrap();
-        assert_eq!(import::lines::file_sha256(&dir.join(n)).unwrap(), h, "{n} differs from its SHA256SUMS");
+        assert_eq!(
+            import::lines::file_sha256(&dir.join(n)).unwrap(),
+            h,
+            "{n} differs from its SHA256SUMS"
+        );
     }
 }
 
 fn build_spec(ws: &Path, stmt: &Path) -> Value {
-    let summary: Value = serde_json::from_str(&std::fs::read_to_string(stmt.join("summary.json")).unwrap()).unwrap();
+    let summary: Value =
+        serde_json::from_str(&std::fs::read_to_string(stmt.join("summary.json")).unwrap()).unwrap();
     let rules: BTreeMap<String, Value> =
         serde_json::from_str(&std::fs::read_to_string(stmt.join("rules.json")).unwrap()).unwrap();
     let regen = ws.join("SCRATCHPAD/t178/regenB");
@@ -80,7 +105,9 @@ fn build_spec(ws: &Path, stmt: &Path) -> Value {
     for s in summary["skipped_elided_records"].as_array().unwrap() {
         let (piece, seq) = s.as_str().unwrap().split_once('#').unwrap();
         let seq: usize = seq.parse().unwrap();
-        let raw = import::lines::scan_table(piece, &piece_path(&regen, piece), false, &|o, _| o == seq).unwrap();
+        let raw =
+            import::lines::scan_table(piece, &piece_path(&regen, piece), false, &|o, _| o == seq)
+                .unwrap();
         let r = &raw.records[0];
         assert_eq!(r.ordinal, seq);
         removed.entry(piece.to_string()).or_default().push(json!({"label": r.rec.index.unwrap(),
@@ -97,7 +124,10 @@ fn build_spec(ws: &Path, stmt: &Path) -> Value {
         sources.push(json!({"id": n, "kind":"engine_table", "class":"orderB", "path": p.display().to_string(),
             "removed": removed.remove(n).unwrap_or_default(), "hand_name":{"template":"{source}#{ordinal}"}}));
     }
-    assert!(removed.is_empty(), "every skipped record belongs to a dispatched piece");
+    assert!(
+        removed.is_empty(),
+        "every skipped record belongs to a dispatched piece"
+    );
     // the 110 lane rules in numeric face id order
     let mut new: Vec<(u64, String, &Value)> = rules
         .iter()
@@ -107,8 +137,10 @@ fn build_spec(ws: &Path, stmt: &Path) -> Value {
     new.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
     assert_eq!(new.len(), 110);
     for (_, name, v) in &new {
-        sources.push(json!({"id": name, "kind":"engine_table", "class":"lane", "path": v["path"],
-            "records":[v["index"]], "hand_name":{"template":"{source}"}}));
+        sources.push(
+            json!({"id": name, "kind":"engine_table", "class":"lane", "path": v["path"],
+            "records":[v["index"]], "hand_name":{"template":"{source}"}}),
+        );
     }
     let sym = rules["symmetry#0"]["path"].as_str().unwrap().to_string();
     sources.push(json!({"id":"symmetry","kind":"supplied_relations","class":"symmetry","path": sym,
@@ -135,7 +167,11 @@ fn t178_reproduction_of_the_hand_statement() {
     let out = scratch().join("t178");
     std::fs::create_dir_all(&out).unwrap();
     let spec_v = build_spec(&ws, &stmt);
-    std::fs::write(out.join("spec.T178.json"), serde_json::to_string_pretty(&spec_v).unwrap()).unwrap();
+    std::fs::write(
+        out.join("spec.T178.json"),
+        serde_json::to_string_pretty(&spec_v).unwrap(),
+    )
+    .unwrap();
     let hand = read_hand_statement(&stmt.join("statement.jsonl"), &hand_format(), 20).unwrap();
     assert_eq!(hand.rows.len(), 335_306);
     for policy in ["block", "lift_with_per_key_proof"] {
@@ -147,7 +183,15 @@ fn t178_reproduction_of_the_hand_statement() {
         let t_load = t0.elapsed().as_secs_f64();
         assert_eq!(set.start.len(), 286_066);
         let ev = Evidence::from_spec(&set, Path::new("/")).unwrap();
-        let res = check(&set, &ev, &CheckOptions { threads: 4, ..Default::default() }).unwrap();
+        let res = check(
+            &set,
+            &ev,
+            &CheckOptions {
+                threads: 4,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let dir = out.join(format!("statement-{policy}"));
         let timing = json!({"load_s": t_load, "check_s": res.seconds, "vm_hwm_kb": vm_hwm_kb()});
         write_statement(&set, &ev, &res, &dir, Some(timing)).unwrap();
@@ -211,7 +255,8 @@ fn t178_recipe_variant_solve_requests() {
     let srcs = sv["sources"].as_array_mut().unwrap();
     srcs.retain(|s| s["class"] != "lane");
     let tail: Vec<Value> = srcs.split_off(srcs.len() - 2); // symmetry, terminals
-    let index: Vec<Value> = serde_json::from_str(&std::fs::read_to_string(rdir.join("index.json")).unwrap()).unwrap();
+    let index: Vec<Value> =
+        serde_json::from_str(&std::fs::read_to_string(rdir.join("index.json")).unwrap()).unwrap();
     for e in &index {
         let id = e["id"].as_str().unwrap();
         let p = rdir.join("recipes").join(format!("{id}.json"));
@@ -221,21 +266,44 @@ fn t178_recipe_variant_solve_requests() {
     srcs.extend(tail);
     let out = scratch().join("t178-recipes");
     std::fs::create_dir_all(&out).unwrap();
-    std::fs::write(out.join("spec.T178-recipes.json"), serde_json::to_string_pretty(&sv).unwrap()).unwrap();
+    std::fs::write(
+        out.join("spec.T178-recipes.json"),
+        serde_json::to_string_pretty(&sv).unwrap(),
+    )
+    .unwrap();
     let t0 = std::time::Instant::now();
     let spec = TableSetSpec::from_json(&sv.to_string()).unwrap();
     let set = load(&spec, Path::new("/")).unwrap();
     let ev = Evidence::from_spec(&set, Path::new("/")).unwrap();
-    let res = check(&set, &ev, &CheckOptions { threads: 4, ..Default::default() }).unwrap();
-    write_statement(&set, &ev, &res, &out.join("statement"), Some(json!({"total_s": t0.elapsed().as_secs_f64(), "vm_hwm_kb": vm_hwm_kb()}))).unwrap();
-    let per_recipe: BTreeMap<&str, usize> = res.solve_requests.iter().fold(BTreeMap::new(), |mut m, r| {
-        *m.entry(r.source.as_str()).or_default() += 1;
-        m
-    });
+    let res = check(
+        &set,
+        &ev,
+        &CheckOptions {
+            threads: 4,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    write_statement(
+        &set,
+        &ev,
+        &res,
+        &out.join("statement"),
+        Some(json!({"total_s": t0.elapsed().as_secs_f64(), "vm_hwm_kb": vm_hwm_kb()})),
+    )
+    .unwrap();
+    let per_recipe: BTreeMap<&str, usize> =
+        res.solve_requests.iter().fold(BTreeMap::new(), |mut m, r| {
+            *m.entry(r.source.as_str()).or_default() += 1;
+            m
+        });
     let no_domain = res
         .rows
         .iter()
-        .filter(|r| r.open_status.as_deref() == Some("uncovered") && !r.open_reason.as_deref().unwrap_or("").contains("recipe"))
+        .filter(|r| {
+            r.open_status.as_deref() == Some("uncovered")
+                && !r.open_reason.as_deref().unwrap_or("").contains("recipe")
+        })
         .count();
     println!(
         "T178 recipe variant: {:.1}s VmHWM {} MB; keys {} counts {:?}; solve requests {} over {} recipes; uncovered keys in no recipe domain {}; blocking {:?}",

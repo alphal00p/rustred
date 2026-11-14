@@ -22,7 +22,9 @@ pub use error::ImportError;
 pub use evidence::{Evidence, EvidenceCounts};
 pub use load::{ImportedSet, LoadReport, RuleInfo, WitnessKind, load};
 pub use spec::{HandFormat, Level, TableSetSpec};
-pub use statement::{Comparison, DiffKind, HandStatement, compare, read_hand_statement, write_statement};
+pub use statement::{
+    Comparison, DiffKind, HandStatement, compare, read_hand_statement, write_statement,
+};
 
 /// Schema of OUR statement (summary.json).
 pub const STATEMENT_SCHEMA: &str = "rustred.campaign.import-statement.v1";
