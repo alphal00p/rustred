@@ -1739,6 +1739,10 @@ pub struct ProvenanceRec {
     pub manifest: Option<FileRef>,
     pub files: Vec<FileRef>,
     pub level_claimed: EvidenceLevel,
+    /// False for evidence whose producer digest is unknown (provenance only: no evidence level from it by itself).
+    pub producer_known: bool,
+    /// The provenance class stated for an unknown producer.
+    pub provenance_class: Option<String>,
     pub seq: u64,
 }
 
@@ -2159,7 +2163,35 @@ impl CampaignState {
                 description,
                 files,
                 level_claimed,
+                producer_blake3,
+                provenance_class,
             } => {
+                match (producer_blake3, provenance_class.as_deref()) {
+                    (None, None) => {
+                        return Err(ReduceError::Invalid {
+                            seq,
+                            why: format!(
+                                "evidence {evidence}: no producer digest and no provenance class (one of {:?})",
+                                &crate::ledger::PROVENANCE_CLASSES[1..]
+                            ),
+                        });
+                    }
+                    (None, Some("recorded")) => {
+                        return Err(ReduceError::Invalid {
+                            seq,
+                            why: format!(
+                                "evidence {evidence}: provenance class `recorded` needs the producer digest"
+                            ),
+                        });
+                    }
+                    (_, Some(c)) if !crate::ledger::PROVENANCE_CLASSES.contains(&c) => {
+                        return Err(ReduceError::Invalid {
+                            seq,
+                            why: format!("evidence {evidence}: unknown provenance class {c:?}"),
+                        });
+                    }
+                    _ => {}
+                }
                 let p = ProvenanceRec {
                     kind: "evidence_imported".into(),
                     producer: producer.clone(),
@@ -2168,6 +2200,8 @@ impl CampaignState {
                     manifest: None,
                     files: files.clone(),
                     level_claimed: *level_claimed,
+                    producer_known: producer_blake3.is_some(),
+                    provenance_class: provenance_class.clone(),
                     seq,
                 };
                 self.apply_provenance(rec, evidence, p)?;
@@ -2188,6 +2222,8 @@ impl CampaignState {
                     manifest: Some(manifest.clone()),
                     files: files.clone(),
                     level_claimed: *level_claimed,
+                    producer_known: true,
+                    provenance_class: None,
                     seq,
                 };
                 self.apply_provenance(rec, provenance, p)?;
@@ -2516,6 +2552,8 @@ impl CampaignState {
                 || e.level_claimed != p.level_claimed
                 || e.kind != p.kind
                 || e.manifest != p.manifest
+                || e.producer_known != p.producer_known
+                || e.provenance_class != p.provenance_class
             {
                 return Err(ReduceError::Invalid {
                     seq,
@@ -3076,6 +3114,12 @@ impl CampaignState {
                         let pr = self.provenance.get(e).ok_or_else(|| {
                             invalid(format!("accept of {rule}: unknown evidence {e}"))
                         })?;
+                        if !pr.producer_known {
+                            return Err(invalid(format!(
+                                "accept of {rule}: evidence {e} is provenance only (producer digest unknown: {}); it gives no evidence level by itself",
+                                pr.provenance_class.as_deref().unwrap_or("-")
+                            )));
+                        }
                         if *level > pr.level_claimed {
                             return Err(invalid(format!(
                                 "accept of {rule}: level {} above what evidence {e} claims ({})",
@@ -3106,6 +3150,12 @@ impl CampaignState {
                 let pr = self.provenance.get(provenance).ok_or_else(|| {
                     invalid(format!("import of {rule}: unknown provenance {provenance}"))
                 })?;
+                if !pr.producer_known {
+                    return Err(invalid(format!(
+                        "import of {rule}: {provenance} is provenance only (producer digest unknown: {}); it gives no evidence level by itself",
+                        pr.provenance_class.as_deref().unwrap_or("-")
+                    )));
+                }
                 if *level > pr.level_claimed {
                     return Err(invalid(format!(
                         "import of {rule}: level {} above what {provenance} claims ({})",

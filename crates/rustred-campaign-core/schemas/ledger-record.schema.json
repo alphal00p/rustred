@@ -2610,10 +2610,25 @@
         "producer",
         "description",
         "files",
-        "level_claimed"
+        "level_claimed",
+        "producer_blake3",
+        "provenance_class"
       ],
       "additionalProperties": false,
+      "description": "producer_blake3 null (producer never recorded, historical import) requires a provenance_class other than `recorded`; such evidence is PROVENANCE ONLY: the reducer refuses any accept / import from it (no evidence level by itself)",
+      "allOf": [
+        {
+          "if": {"properties": {"producer_blake3": {"type": "null"}}, "required": ["producer_blake3"]},
+          "then": {"properties": {"provenance_class": {"enum": ["unknown: historical import", "unknown: not recorded by the producer"]}}}
+        }
+      ],
       "properties": {
+        "producer_blake3": {
+          "anyOf": [{"type": "null"}, {"$ref": "common.schema.json#/$defs/blake3"}]
+        },
+        "provenance_class": {
+          "anyOf": [{"type": "null"}, {"enum": ["recorded", "unknown: historical import", "unknown: not recorded by the producer"]}]
+        },
         "evidence": {
           "$ref": "common.schema.json#/$defs/id"
         },

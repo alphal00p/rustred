@@ -1164,6 +1164,8 @@ fn b_exp1_re_registration_and_re_import_must_be_identical() {
         description: description.into(),
         files: vec![fref("f")],
         level_claimed: EvidenceLevel::GeometryAccepted,
+        producer_blake3: Some(digest("producer")),
+        provenance_class: None,
     };
     l.append(ev("one")).unwrap();
     assert!(refused(l.append(ev("two"))));
@@ -1484,4 +1486,62 @@ fn operator_controls_and_attention() {
         1,
         "skipped work stays open"
     );
+}
+
+#[test]
+fn coordinator_unknown_producer_evidence_is_provenance_only() {
+    // coordinator addendum (lane int2): `evidence_imported` with a null producer digest needs a provenance class and
+    // can never by itself give an item an evidence level (accept / import from it refused; the record stays)
+    let d = scratch("unknownprod");
+    let _c = Cleanup(d.clone());
+    let clk = clock();
+    let mut l = new_ledger(&d, as_dyn(&clk), cfg());
+    l.append_all(setup_events(N)).unwrap();
+    let ev = |id: &str, digest_: Option<String>, class: Option<&str>| Event::EvidenceImported {
+        evidence: id.into(),
+        producer: "historical bank".into(),
+        description: "converted bank lines".into(),
+        files: vec![fref("large:bank/accept.jsonl")],
+        level_claimed: EvidenceLevel::IdentityProved,
+        producer_blake3: digest_,
+        provenance_class: class.map(str::to_string),
+    };
+    // null digest without a class, with the class `recorded`, or with an unknown class: refused, nothing written
+    let seq = l.seq();
+    assert!(refused(l.append(ev("e0", None, None))));
+    assert!(refused(l.append(ev("e0", None, Some("recorded")))));
+    assert!(refused(l.append(ev("e0", None, Some("trust me")))));
+    assert_eq!(l.seq(), seq);
+    l.append(ev("hist", None, Some("unknown: historical import")))
+        .unwrap();
+    assert!(!l.state().provenance["hist"].producer_known);
+    l.append(item_created(N, 0, 0, None, "face")).unwrap();
+    // import at ANY level from it: refused (provenance only)
+    for level in [
+        EvidenceLevel::GeometryAccepted,
+        EvidenceLevel::IdentityTested,
+        EvidenceLevel::IdentityProved,
+    ] {
+        assert!(refused(l.append(item(
+            0,
+            ItemEvent::Import {
+                rule: rule_id(N, 0),
+                level,
+                record: record_ref(N, 0),
+                provenance: "hist".into(),
+            },
+        ))));
+    }
+    // the same material WITH a producer digest imports normally (capped by its claim)
+    l.append(ev("known", Some(digest("bin")), None)).unwrap();
+    l.append(item(
+        0,
+        ItemEvent::Import {
+            rule: rule_id(N, 0),
+            level: EvidenceLevel::GeometryAccepted,
+            record: record_ref(N, 0),
+            provenance: "known".into(),
+        },
+    ))
+    .unwrap();
 }

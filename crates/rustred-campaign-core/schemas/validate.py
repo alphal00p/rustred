@@ -519,7 +519,15 @@ def _sem_accept(doc, errs):
     if v.get("normalised") != "PASS" and lvl in ("A2", "A3", "A4") and doc.get("imported_from") is None:
         errs.append(("/level_after", "a %s verdict cannot raise the level to %s" % (v.get("normalised"), lvl)))
     chk = doc.get("check", {})
-    lift = set(doc.get("rule", {}).get("producer", {}).get("lift_primes") or [])
+    prod = doc.get("rule", {}).get("producer", {})
+    # an accept line whose producer digest is unknown (historical import) can never BY ITSELF yield a level above A0
+    # (imported, provenance only); only a check of our own (not kind `imported`, no `imported_from`) can raise it
+    if prod.get("bin_blake3", "") is None and (chk.get("kind") == "imported" or doc.get("imported_from") is not None) \
+            and (lvl != "A0" or ev is not None):
+        errs.append(("/level_after", "producer digest unknown (%s): an imported line cannot raise the level above A0, found %s"
+                     % (prod.get("provenance"), lvl)))
+    lift_v = prod.get("lift_primes")
+    lift = set(lift_v if isinstance(lift_v, list) else [])
     if lift & set(chk.get("primes", [])):
         errs.append(("/check/primes", "verification prime inside the rule's lift-prime set (plan 6.7)"))
 

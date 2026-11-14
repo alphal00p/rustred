@@ -489,12 +489,18 @@ pub enum Event {
         blake3: String,
     },
     /// Hand-made evidence with provenance (M4); `level_claimed` caps what may be accepted from it.
+    /// `producer_blake3` = digest of the producing binary; `None` (historical material whose producer was never
+    /// recorded) requires a `provenance_class` (one of [`PROVENANCE_CLASSES`]) and makes the evidence PROVENANCE ONLY:
+    /// it can never by itself give an item an evidence level (accept / import from it are refused; a check of our own
+    /// is needed).
     EvidenceImported {
         evidence: String,
         producer: String,
         description: String,
         files: Vec<FileRef>,
         level_claimed: EvidenceLevel,
+        producer_blake3: Option<String>,
+        provenance_class: Option<String>,
     },
     /// An imported table set / earlier campaign result (U-13, R41 P-1 import first): provenance with digests;
     /// `level_claimed` caps the level of every rule imported from it. The source is never modified.
@@ -1120,6 +1126,14 @@ pub struct OpenOptions {
     /// and append a `recovery` record with `forced: true`. Never applies to sealed segments.
     pub accept_truncation_to: Option<u64>,
 }
+
+/// Provenance classes of evidence whose producer digest is unknown (`evidence_imported.provenance_class`; the accept
+/// schema's `rule.producer.provenance`): `recorded` only beside a digest.
+pub const PROVENANCE_CLASSES: [&str; 3] = [
+    "recorded",
+    "unknown: historical import",
+    "unknown: not recorded by the producer",
+];
 
 /// Values of record 1.
 #[derive(Clone, Debug)]

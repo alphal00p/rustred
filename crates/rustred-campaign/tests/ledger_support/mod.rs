@@ -436,6 +436,8 @@ pub fn scenario() -> Vec<Event> {
             fref("large:handoff/bank/NATIVE-RULE-BODIES.jsonl"),
         ],
         level_claimed: EvidenceLevel::IdentityTested,
+        producer_blake3: Some(digest("producer")),
+        provenance_class: None,
     });
     v.push(Event::TablesImported {
         provenance: "earlier-campaign".into(),

@@ -1020,6 +1020,8 @@ fn ledger_record_examples_cover_every_kind() {
             description: "T162 bank".into(),
             files: vec![large("handoff/t162-bank/MANIFEST.json")],
             level_claimed: EvidenceLevel::IdentityTested,
+            producer_blake3: Some(h('7')),
+            provenance_class: None,
         },
         Event::TablesImported {
             provenance: "earlier".into(),
@@ -1367,4 +1369,47 @@ fn as_built_structs_roundtrip_examples_and_fixtures() {
     );
     SiteConfig::read(&e.join("site-policy.json")).unwrap();
     println!("ledger lines round-tripped byte for byte: {lines}");
+}
+
+/// The coordinator's converted bank accept lines (coord-bank-tables.md), validated by REFERENCE (2,448 lines are not
+/// copied into the repository; 3 representative lines are in `examples/accept-bank-import.jsonl`). Ignored: it reads
+/// a workspace file; skips with a reason when the path is absent. `RR_BANK_ACCEPT` overrides the path.
+#[test]
+#[ignore = "reads the coordinator's bank conversion output (WS/SCRATCHPAD/bank-conv); run with --ignored"]
+fn coordinator_bank_accept_lines_validate() {
+    let path = std::env::var("RR_BANK_ACCEPT").unwrap_or_else(|_| {
+        "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/SCRATCHPAD/bank-conv/out/20261114/ACCEPT/T162.bank.accept.jsonl"
+            .into()
+    });
+    if !Path::new(&path).exists() {
+        println!("SKIPPED: {path} absent (the coordinator's bank conversion output is not on this host)");
+        return;
+    }
+    let o = std::process::Command::new("python3")
+        .arg("-I")
+        .arg("validate.py")
+        .arg("--schema")
+        .arg("accept")
+        .arg(&path)
+        .current_dir(schemas())
+        .output()
+        .expect("python3");
+    let text = String::from_utf8_lossy(&o.stdout).into_owned() + &String::from_utf8_lossy(&o.stderr);
+    let errors: Vec<&str> = text.lines().filter(|l| l.starts_with("error:")).collect();
+    let only_class = !errors.is_empty()
+        && errors
+            .iter()
+            .all(|l| l.ends_with("/rule/producer: missing required field 'provenance'"));
+    assert!(
+        o.status.success(),
+        "{} of the coordinator's lines invalid{}:\n{}",
+        errors.len(),
+        if only_class {
+            " ONLY because rule.producer.provenance is missing (null bin_blake3 needs a provenance class, e.g. \
+             \"unknown: historical import\"): the converter must write it"
+        } else {
+            ""
+        },
+        errors.iter().take(5).copied().collect::<Vec<_>>().join("\n")
+    );
 }
