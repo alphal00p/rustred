@@ -32,9 +32,15 @@ def main():
     pairs = [(i, j) for i in range(len(loops)) for j in range(i, len(loops))]
     if any(Fraction(x) != 0 for x in data.get('power_shifts', [])):
         sys.exit('power shifts are not supported by this converter')
+    constant = re.compile(r'\s*([-+]?\d+(?:/\d+)?)\s*(?:([-+])\s*([A-Za-z_]\w*))?\s*')
     parameters = list(data.get('parameters', []))
     if not parameters:
+        # The documented default: d, then the parameters named in the constants (first appearance).
         parameters = ['d']
+        for denominator in data['denominators']:
+            match = constant.fullmatch(denominator['constant'])
+            if match and match[3] and match[3] not in parameters:
+                parameters.append(match[3])
     lines = ['schema = "rustred.project.toml.v1"', f'parameters = {json.dumps(parameters)}', '',
              '[family]', f'name = {json.dumps(data["name"])}', f'loop_momenta = {json.dumps(loops)}',
              'external_momenta = []', 'dimension = "d"']
@@ -46,7 +52,7 @@ def main():
         for (i, j), value in zip(pairs, coefficients):
             monomial = f'{loops[i]}^2' if i == j else f'{loops[i]}*{loops[j]}'
             expression += term(Fraction(value), monomial)
-        match = re.fullmatch(r'\s*([-+]?\d+(?:/\d+)?)\s*(?:([-+])\s*([A-Za-z_]\w*))?\s*', denominator['constant'])
+        match = constant.fullmatch(denominator['constant'])
         if not match:
             sys.exit(f'denominator {index}: unsupported constant {denominator["constant"]!r}')
         expression += term(Fraction(match[1]), '')
