@@ -579,8 +579,12 @@ pub fn t178_tables() -> Option<(Vec<String>, Vec<Table>, NodeFrame)> {
             name.clone(),
             p.display().to_string(),
             &tf,
+            // LEGACY reference numbers (k3 F5): the exports carry no witness loci, so the witness check is OFF here
+            // (re-audit RA-MAJOR-1: with it on, every export credit is Blocked(WitnessNotCarried)); every credit says
+            // `Assurance::CheckDisabled`. The strict dispatch from the raw tables is in tests/cover_raw_tables.rs.
             DomainOptions {
                 targets: T178B_EXPORT_TARGETS,
+                witness: false,
                 ..Default::default()
             },
         )
