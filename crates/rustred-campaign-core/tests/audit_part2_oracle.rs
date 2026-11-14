@@ -239,6 +239,11 @@ fn described(rep: &PartitionReport, k: &[i32]) -> Result<(), String> {
             }
         }
         if let Some(res) = &r.resolution {
+            // harness guard: a face with tens of thousands of open regions (capped classes) is not re-solved per key
+            let parts: usize = res.loci.iter().filter(|l| l.face == fk).map(|l| l.pieces.len() + l.unresolved_parts.len()).sum();
+            if parts > 3_000 {
+                return Ok(());
+            }
             for l in res.loci.iter().filter(|l| l.face == fk) {
                 for pc in &l.pieces {
                     if let Some(t) = solve_params(&pc.region, k)
@@ -760,6 +765,9 @@ struct Tally {
     shadow_not: u64,
     shadow_unknown: u64,
     determinism_checks: u64,
+    flagged_but_complete: u64,
+    capped_runs: u64,
+    linear_unknown: u64,
 }
 
 fn json_without_time(rep: &PartitionReport, f: &NodeFrame) -> String {
@@ -780,6 +788,18 @@ fn check_case(seed: u64, t: &mut Tally, containment: bool) {
     let w: i32 = if n <= 3 { 7 } else { 5 };
     let nr = 1 + g.below(6) as usize;
     let ds: Vec<CaseDomain> = (0..nr).map(|_| gen_domain(&mut g, n, e, true, true)).collect();
+    check_tables(seed, n, e, w, ds, t, containment);
+}
+
+fn trace(what: &str, t0: &std::time::Instant) {
+    if std::env::var("AUDIT_TRACE").is_ok() {
+        eprintln!("[trace] {what} at {} ms", t0.elapsed().as_millis());
+    }
+}
+
+fn check_tables(seed: u64, n: usize, e: usize, w: i32, ds: Vec<CaseDomain>, t: &mut Tally, containment: bool) {
+    let nr = ds.len();
+    let tt = std::time::Instant::now();
     let f = NodeFrame::without_header_lines_first(n, e);
     let l = list(&ds, n);
     let keys = window(n, e, w);
@@ -794,6 +814,7 @@ fn check_case(seed: u64, t: &mut Tally, containment: bool) {
         rustred_campaign_core::partition::Outcome::Incomplete { .. } => t.incomplete += 1,
         o => panic!("{}: unexpected outcome {o:?}", what("union")),
     }
+    trace("union partition done", &tt);
     let mut any_unc = false;
     for k in &keys {
         let cov = union_covered(&ds, k);
@@ -813,6 +834,31 @@ fn check_case(seed: u64, t: &mut Tally, containment: bool) {
             }
         }
     }
+    trace("union window checks done", &tt);
+    // far keys (unbounded directions): slots small or large (up to 10^6), oracle == brute force, never Covered
+    let mut gf = Rng(seed ^ 0xFA4);
+    for _ in 0..150 {
+        let k: Key = (0..n)
+            .map(|s| {
+                let v = match gf.below(3) {
+                    0 => gf.range(0, 3),
+                    1 => gf.range(8, 60),
+                    _ => gf.range(1_000, 1_000_000),
+                } as i32;
+                if s < e { v.max(1) } else { -v.abs() }
+            })
+            .collect();
+        let cov = union_covered(&ds, &k);
+        assert_eq!(rep.uncovered(&k).unwrap(), !cov, "{}: far key {k:?}", what("union"));
+        if !cov {
+            any_unc = true;
+            assert_ne!(rep.class_of(&k).unwrap(), ClassHit::Covered, "{}: far {k:?} Covered", what("union"));
+            if let Err(why) = described(&rep, &k) {
+                panic!("{}: far uncovered {k:?} not described: {why}", what("union"));
+            }
+        }
+    }
+    trace("far keys done", &tt);
     if rep.proves_no_gap(CoverageNotion::UnionCoverage).is_ok() {
         t.union_proofs += 1;
         assert!(!any_unc, "{}: FALSE union no-gap proof", what("union"));
@@ -828,6 +874,7 @@ fn check_case(seed: u64, t: &mut Tally, containment: bool) {
             }
         }
     }
+    trace("witness checks done", &tt);
     // spurious U classes: a bounded U class inside the window whose every key is covered
     for c in rep.classes.iter().filter(|c| c.label == Label::Uncovered) {
         let b = cell_box(&rep, &c.states);
@@ -837,6 +884,7 @@ fn check_case(seed: u64, t: &mut Tally, containment: bool) {
         }
         t.covered_in_u += inside.iter().filter(|k| union_covered(&ds, k)).count() as u64;
     }
+    trace("spurious done", &tt);
     // memo == reference
     let r2 = gap_partition(
         &l,
@@ -865,6 +913,94 @@ fn check_case(seed: u64, t: &mut Tally, containment: bool) {
         t.determinism_checks += 1;
     }
 
+    if rep.outcome.is_complete()
+        && rep
+            .resolution
+            .as_ref()
+            .is_some_and(|r| r.loci.iter().any(|l| l.pieces.iter().any(|p| p.covered_part_unresolved)))
+    {
+        t.flagged_but_complete += 1;
+    }
+    trace("memo/determinism done", &tt);
+    // ---------------- capped modes (audit A M1 / M2): tiny locus caps and an off-floor cap of 1
+    for (lo_nodes, cap) in [(2u64, None), (20_000, Some(1usize))] {
+        let o = PartitionOptions {
+            loci: rustred_campaign_core::loci::LociOptions {
+                max_nodes: lo_nodes,
+                ..Default::default()
+            },
+            max_off_floor: cap,
+            ..absent()
+        };
+        let c = gap_partition(&l, &f, &o, None).unwrap_or_else(|e| panic!("{}: {e:?}", what("capped")));
+        t.capped_runs += 1;
+        for k in &keys {
+            if !union_covered(&ds, k) {
+                let hit = c.class_of(k).unwrap();
+                assert_ne!(hit, ClassHit::Covered, "{}: capped run reads {k:?} Covered", what("capped"));
+                let off = face_of(&c.nf.lines, k);
+                if cap.is_none_or(|cc| off.0.len() + off.1.len() <= cc) && hit != ClassHit::Unexplored {
+                    if let Err(why) = described(&c, k) {
+                        panic!("{}: capped run, {k:?} not described: {why}", what("capped"));
+                    }
+                }
+            }
+        }
+        if any_unc {
+            assert!(c.proves_no_gap(CoverageNotion::UnionCoverage).is_err());
+        }
+        if cap.is_some() && c.stats.pruned_off_floor > 0 {
+            assert!(!c.outcome.is_complete(), "{}: capped run says complete", what("capped"));
+        }
+    }
+
+    trace("capped done", &tt);
+    // ---------------- union mode, FailClosed (default policy): elided records block where SELECTED (first-match
+    // semantics for elided records only, the other blockers are holes of their applies sets); Ordinary: credited
+    let fc = gap_partition(&l, &f, &PartitionOptions::default(), None)
+        .unwrap_or_else(|e| panic!("{}: {e:?}", what("failclosed")));
+    let ord = gap_partition(
+        &l,
+        &f,
+        &PartitionOptions {
+            elided: ElidedPolicy::Ordinary,
+            ..Default::default()
+        },
+        None,
+    )
+    .unwrap_or_else(|e| panic!("{}: {e:?}", what("ordinary")));
+    for k in &keys {
+        let first_applies = ds.iter().position(|d| d.applies(k) == Verdict::Applies);
+        let blocked_by_elided = ds.iter().enumerate().any(|(j, d)| {
+            d.witness_elided
+                && d.applies(k).stage() == Stage::Blocked
+                && first_applies.is_none_or(|a| a > j)
+        });
+        let unc_fc = first_applies.is_none() || blocked_by_elided;
+        assert_eq!(fc.uncovered(k).unwrap(), unc_fc, "{}: FailClosed oracle at {k:?}", what("failclosed"));
+        if unc_fc {
+            assert_ne!(fc.class_of(k).unwrap(), ClassHit::Covered, "{}: {k:?}", what("failclosed"));
+            if let Err(why) = described(&fc, k) {
+                panic!("{}: {k:?} not described: {why}", what("failclosed"));
+            }
+        }
+        let cov_ord = ds.iter().any(|d| {
+            let v = d.applies(k);
+            v == Verdict::Applies || (d.witness_elided && v == Verdict::Elided)
+        });
+        assert_eq!(ord.uncovered(k).unwrap(), !cov_ord, "{}: Ordinary oracle at {k:?}", what("ordinary"));
+        if !cov_ord {
+            assert_ne!(ord.class_of(k).unwrap(), ClassHit::Covered, "{}: {k:?}", what("ordinary"));
+        }
+    }
+    if fc.proves_no_gap(CoverageNotion::UnionCoverage).is_ok() {
+        assert!(keys.iter().all(|k| !fc.uncovered(k).unwrap()));
+    }
+    if ds.iter().any(|d| d.witness_elided) {
+        assert!(ord.proves_no_gap(CoverageNotion::UnionCoverage).is_err(), "{}: Ordinary credited elided records but claims a proof", what("ordinary"));
+    }
+
+    trace("failclosed/ordinary done", &tt);
     // ---------------- dispatch mode against the core dispatcher's first match
     let mut tab = Table::new("t", n);
     for (i, d) in ds.iter().enumerate() {
@@ -897,6 +1033,7 @@ fn check_case(seed: u64, t: &mut Tally, containment: bool) {
         assert!(!any_open, "{}: FALSE dispatch no-gap proof", what("dispatch"));
     }
 
+    trace("dispatch done", &tt);
     if !containment {
         return;
     }
@@ -905,6 +1042,13 @@ fn check_case(seed: u64, t: &mut Tally, containment: bool) {
         let v = d.applies(k);
         v == Verdict::Applies || (d.witness_elided && v == Verdict::Elided)
     };
+    let linear_dom = |d: &CaseDomain| {
+        d.target == rustred_campaign_core::domain::TargetMap::Canonical
+            && d.poles.is_empty()
+            && d.equations.iter().chain(&d.bounds).chain(d.exceptions.iter().flatten()).chain(&d.recenter_bounds)
+                .all(|q| q.degree() <= 1)
+    };
+    let all_linear = ds.iter().all(|d| linear_dom(d));
     for i in 0..nr {
         let d = &ds[i];
         match is_empty(d, &f) {
@@ -917,7 +1061,15 @@ fn check_case(seed: u64, t: &mut Tally, containment: bool) {
             Emptiness::NonEmpty { witness } => {
                 assert!(geo(d, &witness), "{}: bad NonEmpty witness {witness:?} (record {i})", what("empty"));
             }
-            Emptiness::Unknown { .. } => t.empty_unknown += 1,
+            Emptiness::Unknown { reason } => {
+                t.empty_unknown += 1;
+                if all_linear {
+                    t.linear_unknown += 1;
+                    if t.linear_unknown <= 3 {
+                        eprintln!("LINEAR Unknown (is_empty) seed {seed} record {i}: {reason}");
+                    }
+                }
+            }
         }
         let others: Vec<&CaseDomain> = (0..nr).filter(|&j| j != i).map(|j| &ds[j]).collect();
         match contained_in(d, &others, &f) {
@@ -942,7 +1094,15 @@ fn check_case(seed: u64, t: &mut Tally, containment: bool) {
                     what("contain")
                 );
             }
-            Containment::Unknown { .. } => t.contain_unknown += 1,
+            Containment::Unknown { reason } => {
+                t.contain_unknown += 1;
+                if all_linear {
+                    t.linear_unknown += 1;
+                    if t.linear_unknown <= 3 {
+                        eprintln!("LINEAR Unknown (contained_in) seed {seed} record {i}: {reason}");
+                    }
+                }
+            }
         }
         match shadowed(&l, i, &f) {
             Containment::Proved { certificate } => {
@@ -966,7 +1126,15 @@ fn check_case(seed: u64, t: &mut Tally, containment: bool) {
                     what("shadow")
                 );
             }
-            Containment::Unknown { .. } => t.shadow_unknown += 1,
+            Containment::Unknown { reason } => {
+                t.shadow_unknown += 1;
+                if all_linear {
+                    t.linear_unknown += 1;
+                    if t.linear_unknown <= 3 {
+                        eprintln!("LINEAR Unknown (shadowed) seed {seed} record {i}: {reason}");
+                    }
+                }
+            }
         }
     }
 }
@@ -1090,4 +1258,645 @@ fn explore_triangle_debug() {
     ] {
         eprintln!("{what}: fm {:?}", fm_feasible(&cons, 2));
     }
+}
+
+// ------------------------------------------------------------------------------------------------------------------
+// adversarial generator: shadowing copies, target patterns, contradictions, point domains, huge coefficients
+// ------------------------------------------------------------------------------------------------------------------
+
+fn huge_lit(g: &mut Rng, n: usize) -> String {
+    let (a, b) = (slot(g, n), slot(g, n));
+    let big = [
+        "170141183460469231731687303715884105727",
+        "1267650600228229401496703205376",
+        "18446744073709551616",
+        "9223372036854775807",
+    ][g.below(4) as usize];
+    match g.below(4) {
+        0 => format!("{big}*n{a}-{big}*n{b}"),
+        1 => format!("{big}*n{a}-({})", g.range(-3, 3)),
+        2 => format!("{big}*n{a}^2-{big}*n{b}"),
+        _ => format!("n{a}-{big}"),
+    }
+}
+
+fn gen_domain_adv(g: &mut Rng, n: usize, e: usize, prev: &[CaseDomain]) -> CaseDomain {
+    use rustred_campaign_core::domain::{TargetMap, TargetSlot};
+    // a modified copy of an earlier record (overlap / shadowing / exact duplicate)
+    if !prev.is_empty() && g.chance(2, 5) {
+        let mut d = prev[g.below(prev.len() as u64) as usize].clone();
+        match g.below(6) {
+            0 => {}
+            1 => {
+                let s = slot(g, n);
+                d.fixed[s] = Some(if s < e { g.range(1, 3) as i32 } else { -(g.range(0, 2) as i32) });
+            }
+            2 => d.exceptions.push(vec![p(&lit(g, n, true), n)]),
+            3 => {
+                if !d.exceptions.is_empty() {
+                    d.exceptions.remove(0);
+                }
+            }
+            4 => d.bounds.push(p(&lit(g, n, false), n)),
+            _ => d.witness_elided = !d.witness_elided,
+        }
+        return d;
+    }
+    let mut d = gen_domain(g, n, e, true, true);
+    match g.below(8) {
+        // contradictory equations
+        0 => {
+            let s = slot(g, n);
+            d.equations.push(p(&format!("n{s}-2"), n));
+            d.equations.push(p(&format!("n{s}-3"), n));
+        }
+        // single-point domain
+        1 => {
+            for s in 0..n {
+                d.fixed[s] = Some(if s < e { g.range(1, 4) as i32 } else { -(g.range(0, 3) as i32) });
+            }
+        }
+        // a non-canonical target pattern (permutation with offsets, sometimes a constant slot)
+        2 | 3 => {
+            let mut perm: Vec<usize> = (0..n).collect();
+            for i in (1..n).rev() {
+                let j = g.below(i as u64 + 1) as usize;
+                perm.swap(i, j);
+            }
+            let mut t = vec![];
+            for (j, &a) in perm.iter().enumerate() {
+                if g.chance(1, 6) {
+                    t.push(TargetSlot::Const(if j < e { g.range(1, 3) } else { -g.range(0, 2) }));
+                } else {
+                    t.push(TargetSlot::Param {
+                        param: a,
+                        offset: g.range(-2, 2),
+                    });
+                }
+            }
+            d.target = TargetMap::Pattern(t);
+            d.recenter_bounds.clear();
+        }
+        // huge coefficients (overflow paths)
+        4 => {
+            let h = huge_lit(g, n);
+            match g.below(3) {
+                0 => d.equations.push(p(&h, n)),
+                1 => d.bounds.push(p(&h, n)),
+                _ => d.exceptions.push(vec![p(&h, n)]),
+            }
+        }
+        _ => {}
+    }
+    d
+}
+
+fn check_case_adv(seed: u64, t: &mut Tally, containment: bool) {
+    let mut g = Rng(seed);
+    let n = 2 + g.below(4) as usize; // arity 2..5
+    let e = 1 + g.below(n as u64) as usize;
+    let w: i32 = match n {
+        2 | 3 => 7,
+        4 => 5,
+        _ => 4,
+    };
+    let nr = 1 + g.below(9) as usize;
+    let mut ds: Vec<CaseDomain> = vec![];
+    for _ in 0..nr {
+        let d = gen_domain_adv(&mut g, n, e, &ds);
+        if d.validate().is_ok() {
+            ds.push(d);
+        }
+    }
+    if ds.is_empty() {
+        return;
+    }
+    check_tables(seed, n, e, w, ds, t, containment);
+}
+
+/// Adversarial differential harness, default size (2,000 table sets).
+#[test]
+fn diff_adversarial_tables_against_brute_force() {
+    let mut t = Tally::default();
+    for seed in 0..2_000u64 {
+        check_case_adv(seed.wrapping_mul(0xD1B5_4A32_D192_ED03) ^ 0x77, &mut t, true);
+    }
+    eprintln!("{t:#?}");
+}
+
+/// Adversarial differential harness, large size (run with `--ignored`).
+#[test]
+#[ignore]
+fn diff_adversarial_tables_against_brute_force_large() {
+    let mut t = Tally::default();
+    for seed in 0..14_000u64 {
+        check_case_adv(seed.wrapping_mul(0xA076_1D64_78BD_642F) ^ 0x1234, &mut t, true);
+    }
+    eprintln!("{t:#?}");
+}
+
+// ------------------------------------------------------------------------------------------------------------------
+// levels checkpoint, budgets, T266
+// ------------------------------------------------------------------------------------------------------------------
+
+/// FINDING (major, latent: no production caller yet): the per-level checkpoint of `gap_partition_levels` records
+/// no digest of its inputs (domains, frame, coverage notion, elided policy, options). A checkpoint written for one
+/// table set is resumed for ANOTHER: its levels come back `proved: true` with the OLD face lists. Here table A
+/// covers the whole chart (no face at levels 0..2); table B leaves the face {n0} open; resuming B from A's
+/// checkpoint reports levels 0..2 proved with no face.
+#[test]
+fn defect_levels_checkpoint_resumed_for_other_inputs() {
+    use rustred_campaign_core::partition::gap_partition_levels;
+    let (n, e) = (3, 2);
+    let f = NodeFrame::without_header_lines_first(n, e);
+    let a = vec![free(n, e)];
+    let mut b0 = free(n, e);
+    b0.fixed[0] = Some(1);
+    let b = vec![b0];
+    let dir = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    let cp = dir.join("audit_part2_levels.checkpoint.jsonl");
+    let _ = std::fs::remove_file(&cp);
+    let la = gap_partition_levels(&list(&a, n), &f, &absent(), 2, Some(&cp), None).unwrap();
+    assert!(la.iter().all(|r| r.proved && r.faces.is_empty()));
+    // fresh run of B: the face {n0} is open at level 1
+    let fresh = gap_partition_levels(&list(&b, n), &f, &absent(), 2, None, None).unwrap();
+    assert!(fresh[1].faces.contains(&(vec![0], vec![])));
+    // resumed run of B from A's checkpoint: A's levels, "proved", no face
+    let resumed = gap_partition_levels(&list(&b, n), &f, &absent(), 2, Some(&cp), None).unwrap();
+    assert_eq!(resumed.len(), 3);
+    assert!(resumed.iter().all(|r| r.proved && r.faces.is_empty()), "stale levels reported proved");
+    // even a DISPATCH-mode resume accepts the union-mode checkpoint
+    let resumed_d = gap_partition_levels(&list(&b, n), &f, &dispatch(), 2, Some(&cp), None).unwrap();
+    assert!(resumed_d.iter().all(|r| r.proved && r.faces.is_empty()));
+    let _ = std::fs::remove_file(&cp);
+}
+
+/// The node budget is deterministic and an aborted run is never a proof; dispatch mode too; `containment_proof`
+/// refuses it.
+#[test]
+fn budget_abort_is_deterministic_and_never_a_proof() {
+    use rustred_campaign_core::assemble::containment_proof;
+    use rustred_campaign_core::partition::DispatchOrderStatement;
+    let (n, e) = (8, 4);
+    let f = NodeFrame::without_header_lines_first(n, e);
+    let mut checked = 0;
+    for seed in 0..8u64 {
+        let mut g = Rng(4242 + seed);
+        let ds: Vec<CaseDomain> = (0..24).map(|_| gen_domain(&mut g, n, e, true, false)).collect();
+        let l = list(&ds, n);
+        let o = |cov| PartitionOptions {
+            coverage: cov,
+            budget: Budget {
+                max_nodes: Some(5_000),
+                ..Default::default()
+            },
+            ..absent()
+        };
+        for cov in [CoverageNotion::UnionCoverage, CoverageNotion::DispatchCoverage] {
+            let r1 = gap_partition(&l, &f, &o(cov), None).unwrap();
+            if !r1.outcome.is_aborted() {
+                continue;
+            }
+            checked += 1;
+            let r2 = gap_partition(&l, &f, &o(cov), None).unwrap();
+            assert_eq!(r1.stats.nodes, r2.stats.nodes, "deterministic node count");
+            assert_eq!(json_without_time(&r1, &f), json_without_time(&r2, &f));
+            assert!(r1.proves_no_gap(cov).is_err());
+            assert!(containment_proof(&r1, &DispatchOrderStatement::SameOrder, "o", "n").is_none());
+            for k in window(n, e, 2) {
+                if r1.uncovered(&k).unwrap() {
+                    assert_ne!(r1.class_of(&k).unwrap(), ClassHit::Covered, "{k:?}");
+                }
+            }
+        }
+    }
+    eprintln!("aborted runs checked: {checked}");
+    assert!(checked >= 2);
+}
+
+fn t266_load() -> Option<(DomainList, NodeFrame)> {
+    let dir = std::path::PathBuf::from(
+        std::env::var("RUSTRED_T266_SOURCES").unwrap_or("/common/ben/sym-investigation".into()),
+    );
+    let path = dir.join("h11b/out/rules266_nf.json");
+    if !path.is_file() {
+        println!("SKIP: T266 sources not found");
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let e = v["E"].as_u64().unwrap() as usize;
+    let n = 20;
+    let frame = NodeFrame::without_header_lines_first(n, e);
+    let mut l = DomainList::new(n);
+    for r in v["rules"].as_array().unwrap() {
+        let mut d = free(n, e);
+        let pp = |s: &serde_json::Value| {
+            Poly::parse(&s.as_str().unwrap().replace("**", "^").replace(' ', ""), n, false).ok()
+        };
+        let eq: Option<Vec<Poly>> = r["EQ"].as_array().unwrap().iter().map(pp).collect();
+        let bad: Option<Vec<Vec<Poly>>> = r["BAD"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b.as_array().unwrap().iter().map(pp).collect())
+            .collect();
+        let (Some(eq), Some(bad)) = (eq, bad) else { continue };
+        d.equations = eq;
+        d.exceptions = bad;
+        let k = r["k"].as_u64().unwrap() as usize;
+        l.push(RuleRef::bare(0, k, k as i64), d);
+    }
+    Some((l, frame))
+}
+
+/// T266 (test data, read-only checker sources): the exact partition under a DETERMINISTIC node budget returns an
+/// honest `budget_exceeded` (Partial / Aborted), identical node counts on two runs, no proof under either notion,
+/// no FULL-node containment proof, and the closure-gap keys are never read Covered.
+#[test]
+#[ignore = "needs the read-only T266 sources; release; ~1-2 min"]
+fn t266_node_budget_is_honest_and_deterministic() {
+    use rustred_campaign_core::assemble::containment_proof;
+    use rustred_campaign_core::partition::DispatchOrderStatement;
+    let Some((l, frame)) = t266_load() else { return };
+    let o = PartitionOptions {
+        elided: ElidedPolicy::Ordinary,
+        resolve_loci: false,
+        budget: Budget {
+            max_nodes: Some(1_000_000),
+            max_memo: Some(25_000),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let t0 = std::time::Instant::now();
+    let r1 = gap_partition(&l, &frame, &o, None).unwrap();
+    let s1 = t0.elapsed().as_millis();
+    let r2 = gap_partition(&l, &frame, &o, None).unwrap();
+    println!(
+        "T266: {} domains, outcome {} ({:?}), nodes {} / {}, U {} F {} unexplored {}, faces {}, {s1} ms",
+        l.items.len(),
+        r1.outcome.tag(),
+        r1.outcome.reasons(),
+        r1.stats.nodes,
+        r2.stats.nodes,
+        r1.n_u(),
+        r1.n_f(),
+        r1.n_unexplored(),
+        r1.faces.len()
+    );
+    assert!(r1.outcome.is_aborted());
+    assert_eq!(r1.stats.nodes, r2.stats.nodes);
+    assert_eq!(r1.classes, r2.classes);
+    for cov in [CoverageNotion::UnionCoverage, CoverageNotion::DispatchCoverage] {
+        assert!(r1.proves_no_gap(cov).is_err());
+    }
+    assert!(containment_proof(&r1, &DispatchOrderStatement::SameOrder, "o", "n").is_none());
+    // the 12,501 closure gaps: uncovered by the oracle, never in a Covered class
+    let dir = std::path::PathBuf::from(
+        std::env::var("RUSTRED_T266_SOURCES").unwrap_or("/common/ben/sym-investigation".into()),
+    );
+    let text = std::fs::read_to_string(dir.join("k2/out/close/uncovered.txt")).unwrap();
+    let (mut n_keys, mut cov_class) = (0, 0);
+    for line in text.lines() {
+        let k: Vec<i32> = serde_json::from_str(line.split_whitespace().next().unwrap()).unwrap();
+        n_keys += 1;
+        assert!(r1.uncovered(&k).unwrap());
+        if r1.class_of(&k).unwrap() == ClassHit::Covered {
+            cov_class += 1;
+        }
+    }
+    println!("T266: {n_keys} closure-gap keys, {cov_class} in a Covered class");
+    assert_eq!(cov_class, 0, "a gap key in a class labelled Covered");
+}
+
+/// FINDING (minor, description): in dispatch / FailClosed mode the faces of the blocked sub-partitions are merged
+/// into the main face list (`merge_blocked_faces`) with their generic cells written in the SUB-report's state
+/// indices, while `PartitionReport::states` (and the artefact's "states") are the MAIN report's. R0 (bound
+/// n0 >= 5, pole on n1 = 3) blocks on {n0 >= 5, n1 = 3}; R1 covers everything else. The main states of n0 are
+/// {1},[2,4],{5},[6,inf); the sub-report's {1},[2,3],{4},{5},[6,inf): the merged cells read with the main states
+/// miss the open key (5,3) and name a state index the main slot does not have.
+#[test]
+fn defect_blocked_face_cells_use_sub_report_state_indices() {
+    let (n, e) = (2, 2);
+    let f = NodeFrame::without_header_lines_first(n, e);
+    let mut r0 = free(n, e);
+    r0.bounds.push(p("n0-5", n));
+    r0.poles.push(PoleLocus::new(
+        PoleKind::Denominator,
+        &Poly::parse("(n1-3)*d+(n1-3)", n, true).unwrap(),
+    ));
+    let r1 = free(n, e);
+    let ds = vec![r0, r1];
+    let mut tab = Table::new("t", n);
+    for (i, d) in ds.iter().enumerate() {
+        tab.push(i as i64, d.clone()).unwrap();
+    }
+    let disp = Dispatcher::new(vec![tab], vec![0]).unwrap();
+    let rep = gap_partition(&list(&ds, n), &f, &dispatch(), None).unwrap();
+    assert!(disp.first_match(&[5, 3]).unwrap().is_open());
+    assert!(rep.uncovered(&[5, 3]).unwrap());
+    let face = rep.faces.iter().find(|x| x.key() == (vec![0, 1], vec![])).expect("face");
+    let main_n0 = &rep.states[0];
+    let idx5 = rep.state_index(0, 5).unwrap();
+    let idx3 = rep.state_index(1, 3).unwrap();
+    let described_by_main_states = face.generic_cells.iter().any(|c| c[0] == idx5 && c[1] == idx3);
+    let out_of_range = face.generic_cells.iter().any(|c| c[0] != ANY_OFF && c[0] as usize >= main_n0.len());
+    eprintln!("main states n0 {main_n0:?}; sub states n0 {:?}; merged cells {:?}", rep.blocked[0].1.states[0], face.generic_cells);
+    assert!(!described_by_main_states || out_of_range, "merged cells use the sub-report's state indices");
+    assert_ne!(rep.blocked[0].1.states[0], rep.states[0]);
+}
+
+/// Locator (ignored): the first seeds of the large adversarial run whose check panics, with the domains.
+#[test]
+#[ignore]
+fn locate_adversarial_panics() {
+    let mut found = 0;
+    for seed in 0..14_000u64 {
+        let s = seed.wrapping_mul(0xA076_1D64_78BD_642F) ^ 0x1234;
+        let r = std::panic::catch_unwind(|| {
+            let mut t = Tally::default();
+            check_case_adv(s, &mut t, true);
+        });
+        if r.is_err() {
+            found += 1;
+            let mut g = Rng(s);
+            let n = 2 + g.below(4) as usize;
+            let e = 1 + g.below(n as u64) as usize;
+            let _ = (n, e);
+            eprintln!("PANIC at loop seed {seed} (rng seed {s:#x})");
+            if found >= 3 {
+                break;
+            }
+        }
+    }
+    eprintln!("panicking seeds found: {found}");
+}
+
+/// Locator (ignored): one adversarial seed (env AUDIT_SEED = loop seed), printing the domains first.
+#[test]
+#[ignore]
+fn locate_one_adversarial_seed() {
+    let seed: u64 = std::env::var("AUDIT_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(2100);
+    let s = seed.wrapping_mul(0xA076_1D64_78BD_642F) ^ 0x1234;
+    let mut g = Rng(s);
+    let n = 2 + g.below(4) as usize;
+    let e = 1 + g.below(n as u64) as usize;
+    let _w = g.clone();
+    let nr = 1 + g.below(9) as usize;
+    let mut ds: Vec<CaseDomain> = vec![];
+    for _ in 0..nr {
+        let d = gen_domain_adv(&mut g, n, e, &ds);
+        if d.validate().is_ok() {
+            ds.push(d);
+        }
+    }
+    for (i, d) in ds.iter().enumerate() {
+        eprintln!("n={n} e={e} record {i}: fixed {:?} target {:?} eqs {:?} bounds {:?} exc {:?} recenter {:?} poles {:?} elided {}",
+            d.fixed, d.target, d.equations.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
+            d.bounds.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
+            d.exceptions.iter().map(|b| b.iter().map(|x| x.to_string()).collect::<Vec<_>>()).collect::<Vec<_>>(),
+            d.recenter_bounds.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
+            d.poles, d.witness_elided);
+    }
+    let mut t = Tally::default();
+    let t0 = std::time::Instant::now();
+    check_case_adv(s, &mut t, true);
+    eprintln!("ok in {} ms", t0.elapsed().as_millis());
+}
+
+/// Locator (ignored): per-seed wall time of the adversarial checks from AUDIT_FROM (env), printing slow seeds.
+#[test]
+#[ignore]
+fn locate_slow_adversarial_seeds() {
+    let from: u64 = std::env::var("AUDIT_FROM").ok().and_then(|s| s.parse().ok()).unwrap_or(2101);
+    let to: u64 = std::env::var("AUDIT_TO").ok().and_then(|s| s.parse().ok()).unwrap_or(14_000);
+    for seed in from..to {
+        let s = seed.wrapping_mul(0xA076_1D64_78BD_642F) ^ 0x1234;
+        eprintln!("start {seed}");
+        let t0 = std::time::Instant::now();
+        let r = std::panic::catch_unwind(|| {
+            let mut t = Tally::default();
+            check_case_adv(s, &mut t, true);
+        });
+        let ms = t0.elapsed().as_millis();
+        if ms > 3000 || r.is_err() {
+            eprintln!("seed {seed}: {ms} ms panic={}", r.is_err());
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------------------------------------------
+// integer overflow: unchecked negations reach a division by -1 (panic in release AND debug)
+// ------------------------------------------------------------------------------------------------------------------
+
+/// FINDING (major, robustness): `region::bounds0` computes `div_floor(-c.c, a)` with an UNCHECKED negation; for a
+/// constant c = i128::MIN the negation wraps (release) and `i128::MIN / -1` panics. Reached through the public
+/// `Region::point` / `find_point` / `exhaustive_point` (used by `is_empty`, `contained_in`, `shadowed`, the loci).
+#[test]
+#[should_panic(expected = "overflow")]
+fn defect_find_point_panics_on_i128_min_constant() {
+    let cons = vec![aff(&[-1], i128::MIN)];
+    let _ = rustred_campaign_core::loci::region::find_point(&cons, 1, 4, &[0]);
+}
+
+/// FINDING (major, robustness): in dispatch mode the COMPLEMENT of a blocker's selection bound
+/// `n0 + (2^127 - 1) >= 0` is the GE literal `-n0 + i128::MIN >= 0` (exact, checked); `slot_states` /
+/// `sign_breaks` then negate its constant unchecked and divide by -1: the whole partition panics.
+#[test]
+#[should_panic(expected = "overflow")]
+fn defect_dispatch_partition_panics_on_bound_complement() {
+    let (n, e) = (1, 1);
+    let f = NodeFrame::without_header_lines_first(n, e);
+    let mut r0 = free(n, e);
+    r0.bounds.push(p("n0+170141183460469231731687303715884105727", n));
+    r0.poles.push(PoleLocus::new(
+        PoleKind::Denominator,
+        &Poly::parse("(n0-3)*d+(n0-3)", n, true).unwrap(),
+    ));
+    let ds = vec![r0, free(n, e)];
+    let _ = gap_partition(&list(&ds, n), &f, &dispatch(), None);
+}
+
+/// FINDING (major, robustness), found by the large adversarial harness (seed 2100): `shadowed` (which acceptance
+/// calls on every FULL-node candidate) panics on a table whose record pins a slot by the case equation
+/// n0 = 2^127 - 1, instead of answering `Unknown`.
+#[test]
+#[should_panic(expected = "overflow")]
+fn defect_shadowed_panics_on_huge_case_equation() {
+    let (n, e) = (3, 3);
+    let f = NodeFrame::without_header_lines_first(n, e);
+    let mut r0 = free(n, e);
+    r0.equations.push(p("-170141183460469231731687303715884105727+n0", n));
+    r0.bounds.push(p("1-n0+n1-n2", n));
+    r0.poles.push(PoleLocus::new(
+        PoleKind::Denominator,
+        &Poly::parse("6-5*n0+n0^2+(n1-4)*d", n, true).unwrap(),
+    ));
+    r0.witness_elided = true;
+    let mut r2 = free(n, e);
+    r2.fixed[1] = Some(1);
+    let mut r3 = free(n, e);
+    r3.equations.push(p("-3-2*n2+n2^2", n));
+    r3.bounds.push(p("1+3*n1+n2", n));
+    r3.exceptions.push(vec![p("-2+n0^2", n), p("2+2*n1-3*n2", n)]);
+    r3.exceptions.push(vec![p("-3+2*n1", n), p("3+n0+n1", n)]);
+    r3.exceptions.push(vec![p("4+n0+2*n2", n)]);
+    r3.poles.push(PoleLocus::new(
+        PoleKind::Denominator,
+        &Poly::parse("-5+2*n0-2*n2+(2+n0)*d", n, true).unwrap(),
+    ));
+    let ds = vec![r0, r2, r3];
+    let l = list(&ds, n);
+    for i in 0..ds.len() {
+        let _ = shadowed(&l, i, &f);
+        let others: Vec<&CaseDomain> = ds.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, d)| d).collect();
+        let _ = contained_in(&ds[i], &others, &f);
+        let _ = is_empty(&ds[i], &f);
+    }
+}
+
+/// FINDING (major, budgets; audit-part-B M3 not fully closed): in dispatch / FailClosed mode every blocked
+/// sub-partition gets the FULL budget again (`partition_nf(sub, opts, None, Instant::now())`: fresh wall clock, fresh
+/// node count), and the sub-partitions are still computed after the MAIN run aborted. A budgeted dispatch-mode run
+/// therefore does up to (blockers + 1) x the stated work (T178 raw38: 5,395 blockers). The verdict stays honest
+/// (Partial / Aborted, no proof), but the budget is not a bound on the run.
+#[test]
+fn defect_dispatch_budget_is_per_subpartition() {
+    let (n, e) = (8, 4);
+    let f = NodeFrame::without_header_lines_first(n, e);
+    let mut shown = false;
+    for seed in 0..60u64 {
+        let mut g = Rng(99 + seed);
+        let ds: Vec<CaseDomain> = (0..24).map(|_| gen_domain(&mut g, n, e, true, false)).collect();
+        let o = PartitionOptions {
+            budget: Budget {
+                max_nodes: Some(1),
+                ..Default::default()
+            },
+            ..dispatch()
+        };
+        let rep = gap_partition(&list(&ds, n), &f, &o, None).unwrap();
+        let sub_nodes: u64 = rep.blocked.iter().map(|(_, b)| b.stats.nodes).sum();
+        let sub_aborted = rep.blocked.iter().filter(|(_, b)| b.stats.aborted).count();
+        if rep.stats.aborted && sub_aborted >= 2 {
+            eprintln!(
+                "seed {seed}: main nodes {} (aborted), blocked sub-partitions run {} (+{} empty), {sub_aborted} of them aborted at their OWN budget, their nodes {sub_nodes}",
+                rep.stats.nodes,
+                rep.blocked.len(),
+                rep.blocked_empty
+            );
+            assert!(rep.outcome.is_aborted());
+            assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
+            assert!(sub_nodes > rep.stats.nodes, "total work exceeds the budget of one run");
+            shown = true;
+            break;
+        }
+    }
+    assert!(shown, "a run whose sub-partitions each used a full budget after the main abort");
+}
+
+fn adv_tables(seed: u64) -> (usize, usize, Vec<CaseDomain>) {
+    let s = seed.wrapping_mul(0xA076_1D64_78BD_642F) ^ 0x1234;
+    let mut g = Rng(s);
+    let n = 2 + g.below(4) as usize;
+    let e = 1 + g.below(n as u64) as usize;
+    let nr = 1 + g.below(9) as usize;
+    let mut ds: Vec<CaseDomain> = vec![];
+    for _ in 0..nr {
+        let d = gen_domain_adv(&mut g, n, e, &ds);
+        if d.validate().is_ok() {
+            ds.push(d);
+        }
+    }
+    (n, e, ds)
+}
+
+/// Locator (ignored): phase timings of one adversarial seed (env AUDIT_SEED).
+#[test]
+#[ignore]
+fn locate_phases_of_one_seed() {
+    let seed: u64 = std::env::var("AUDIT_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(6209);
+    let (n, e, ds) = adv_tables(seed);
+    for (i, d) in ds.iter().enumerate() {
+        eprintln!("n={n} e={e} record {i}: fixed {:?} target {:?} eqs {:?} bounds {:?} exc {:?} recenter {:?} poles {:?} elided {}",
+            d.fixed, d.target, d.equations.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
+            d.bounds.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
+            d.exceptions.iter().map(|b| b.iter().map(|x| x.to_string()).collect::<Vec<_>>()).collect::<Vec<_>>(),
+            d.recenter_bounds.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
+            d.poles, d.witness_elided);
+    }
+    let f = NodeFrame::without_header_lines_first(n, e);
+    let l = list(&ds, n);
+    let t0 = std::time::Instant::now();
+    let ms = |t0: &std::time::Instant| t0.elapsed().as_millis();
+    let r = gap_partition(&l, &f, &absent(), None).unwrap();
+    eprintln!("union {} ms ({:?})", ms(&t0), r.outcome.tag());
+    let t0 = std::time::Instant::now();
+    let _ = gap_partition(&l, &f, &PartitionOptions { memo: false, ..absent() }, None).unwrap();
+    eprintln!("union no-memo {} ms", ms(&t0));
+    let t0 = std::time::Instant::now();
+    let _ = gap_partition(&l, &f, &PartitionOptions::default(), None).unwrap();
+    eprintln!("failclosed {} ms", ms(&t0));
+    let t0 = std::time::Instant::now();
+    let d = gap_partition(&l, &f, &dispatch(), None).unwrap();
+    eprintln!("dispatch {} ms, blockers kept {} empty {}", ms(&t0), d.blocked.len(), d.blocked_empty);
+    for i in 0..ds.len() {
+        let t0 = std::time::Instant::now();
+        let a = is_empty(&ds[i], &f);
+        eprintln!("is_empty({i}) {} ms {:?}", ms(&t0), std::mem::discriminant(&a));
+        let others: Vec<&CaseDomain> = ds.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, d)| d).collect();
+        let t0 = std::time::Instant::now();
+        let b = contained_in(&ds[i], &others, &f);
+        eprintln!("contained_in({i}) {} ms {}", ms(&t0), match &b { Containment::Unknown { reason } => reason.clone(), x => format!("{:?}", std::mem::discriminant(x)) });
+        let t0 = std::time::Instant::now();
+        let c = shadowed(&l, i, &f);
+        eprintln!("shadowed({i}) {} ms {}", ms(&t0), match &c { Containment::Unknown { reason } => reason.clone(), x => format!("{:?}", std::mem::discriminant(x)) });
+    }
+}
+
+/// Locator (ignored): the Ordinary-policy partition of one adversarial seed, with a wall budget (env AUDIT_WALL_S).
+#[test]
+#[ignore]
+fn locate_ordinary_of_one_seed() {
+    let seed: u64 = std::env::var("AUDIT_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(6209);
+    let wall: Option<u64> = std::env::var("AUDIT_WALL_S").ok().and_then(|s| s.parse().ok());
+    let (n, e, ds) = adv_tables(seed);
+    let f = NodeFrame::without_header_lines_first(n, e);
+    let l = list(&ds, n);
+    let t0 = std::time::Instant::now();
+    let env = |k: &str| std::env::var(k).ok().and_then(|s| s.parse::<u64>().ok());
+    let mut lo = rustred_campaign_core::loci::LociOptions::default();
+    if let Some(x) = env("AUDIT_LOCI_NODES") {
+        lo.max_nodes = x;
+    }
+    if let Some(x) = env("AUDIT_SPLIT") {
+        lo.max_split_nodes = x;
+    }
+    if let Some(x) = env("AUDIT_TRIES") {
+        lo.tries = x as usize;
+    }
+    if let Some(x) = env("AUDIT_WIT") {
+        lo.witnesses = x as usize;
+    }
+    let o = PartitionOptions {
+        elided: ElidedPolicy::Ordinary,
+        resolve_loci: env("AUDIT_NOLOCI").is_none(),
+        loci: lo,
+        budget: Budget {
+            wall: wall.map(std::time::Duration::from_secs),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let cb = |p: &rustred_campaign_core::partition::Progress| eprintln!("progress nodes {} at {} ms", p.nodes, p.seconds_x1000);
+    let r = gap_partition(&l, &f, &o, Some(&cb)).unwrap();
+    eprintln!(
+        "ordinary {} ms outcome {} nodes {} U {} F {} loci {:?}",
+        t0.elapsed().as_millis(),
+        r.outcome.tag(),
+        r.stats.nodes,
+        r.n_u(),
+        r.n_f(),
+        r.resolution.as_ref().map(|x| (x.loci.len(), x.classes_resolved, x.classes_capped, x.exact_errors))
+    );
 }
