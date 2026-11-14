@@ -34,7 +34,10 @@ fn statement_keys(cdir: &Path) -> BTreeSet<Vec<i32>> {
     std::fs::read_to_string(cdir.join("closeloop/toy/final/statement/statement.jsonl"))
         .unwrap()
         .lines()
-        .map(|l| serde_json::from_value(serde_json::from_str::<Value>(l).unwrap()["key"].clone()).unwrap())
+        .map(|l| {
+            serde_json::from_value(serde_json::from_str::<Value>(l).unwrap()["key"].clone())
+                .unwrap()
+        })
         .collect()
 }
 
@@ -87,7 +90,11 @@ fn f_evpin_same_pinned_spec_other_evidence_content_changes_the_verdict() {
         .unwrap()
     };
     let a = pass("honest");
-    assert!(a.final_.is_none(), "honest round 1 needs solves: {}", a.check);
+    assert!(
+        a.final_.is_none(),
+        "honest round 1 needs solves: {}",
+        a.check
+    );
     assert!(!a.batches.is_empty());
     // flip ONE term of the fact line to zero (the lower key [4,1,0]): same spec text, same pinned digest
     let lie = honest.replacen(
@@ -109,7 +116,12 @@ fn f_evpin_same_pinned_spec_other_evidence_content_changes_the_verdict() {
     let fb = b.final_.as_ref().expect("the lie makes round 1 final");
     eprintln!(
         "honest: keys {} certified {} closed {}; lie: keys {} certified {} verdict {}",
-        a.check["keys"], a.check["certified"], a.check["closed"], b.check["keys"], b.check["certified"], fb.verdict
+        a.check["keys"],
+        a.check["certified"],
+        a.check["closed"],
+        b.check["keys"],
+        b.check["certified"],
+        fb.verdict
     );
     assert_eq!(fb.verdict, "closed", "{}", b.check);
     assert!(b.check["keys"].as_u64() < a.check["keys"].as_u64());
@@ -149,11 +161,23 @@ fn tamper_to_closed(cdir: &Path) {
 fn f_out_a_tampered_result_file_currently_turns_exit_10_into_0() {
     let _g = serial();
     let (_t, sp, cdir) = open_toy("acout");
-    assert_eq!(run_to_end(&sp, &cdir, &["--plain"]).last(), Some(&10), "{}", log_tail(&cdir));
+    assert_eq!(
+        run_to_end(&sp, &cdir, &["--plain"]).last(),
+        Some(&10),
+        "{}",
+        log_tail(&cdir)
+    );
     tamper_to_closed(&cdir);
     let codes = run_to_end(&sp, &cdir, &["--plain"]);
-    eprintln!("after tamper: exit codes {codes:?}; verify {}", verify(&cdir));
-    assert_eq!(codes.last(), Some(&0), "defect F-OUT reproduced if 0: {codes:?}");
+    eprintln!(
+        "after tamper: exit codes {codes:?}; verify {}",
+        verify(&cdir)
+    );
+    assert_eq!(
+        codes.last(),
+        Some(&0),
+        "defect F-OUT reproduced if 0: {codes:?}"
+    );
 }
 
 /// F-OUT, the correct behaviour: a result file that no longer matches its recorded BLAKE3 is an error (11), never 0.
@@ -216,10 +240,18 @@ fn elided_setup(tag: &str, lies: &[Value]) -> (Tmp, PathBuf, PathBuf) {
         serde_json::from_slice(&std::fs::read(&files.import_spec).unwrap()).unwrap();
     spec["sources"][0]["sha256"] = json!(sha256_file(&a));
     spec["evidence"] = json!({"proofs":[{"path": dir.join("proofs.json").display().to_string()}]});
-    std::fs::write(&files.import_spec, serde_json::to_vec_pretty(&spec).unwrap()).unwrap();
+    std::fs::write(
+        &files.import_spec,
+        serde_json::to_vec_pretty(&spec).unwrap(),
+    )
+    .unwrap();
     let mut c: Value = serde_json::from_slice(&std::fs::read(&files.config).unwrap()).unwrap();
     let lp = dir.join("exact-lies.jsonl");
-    std::fs::write(&lp, lies.iter().map(|v| format!("{v}\n")).collect::<String>()).unwrap();
+    std::fs::write(
+        &lp,
+        lies.iter().map(|v| format!("{v}\n")).collect::<String>(),
+    )
+    .unwrap();
     c["nodes"][0]["proof"]["exact_eval"] = json!({"program": "rr_coef_facts", "max_keys_per_job": 8,
         "wall_s": 60, "cap_bytes": 268435456, "expected_peak_bytes": 67108864,
         "fake": {"oracle": lp.display().to_string(), "ms": 150, "program": "rr_fake_child"}});
@@ -238,12 +270,22 @@ fn elided_setup(tag: &str, lies: &[Value]) -> (Tmp, PathBuf, PathBuf) {
 fn a_well_bound_lying_exact_eval_answer_closes_the_node_on_fewer_keys() {
     let _g = serial();
     let (_ta, spa, ca) = elided_setup("acexh", &[]);
-    assert_eq!(run_to_end(&spa, &ca, &["--plain"]).last(), Some(&0), "{}", log_tail(&ca));
+    assert_eq!(
+        run_to_end(&spa, &ca, &["--plain"]).last(),
+        Some(&0),
+        "{}",
+        log_tail(&ca)
+    );
     assert_eq!(result_json(&ca)["verdict"], "closed");
     let honest = statement_keys(&ca);
     let lie = json!({"key": [5, 1, 0], "line": {"nonzero": [], "zero_terms": 3}});
     let (_tb, spb, cb) = elided_setup("acexl", &[lie]);
-    assert_eq!(run_to_end(&spb, &cb, &["--plain"]).last(), Some(&0), "{}", log_tail(&cb));
+    assert_eq!(
+        run_to_end(&spb, &cb, &["--plain"]).last(),
+        Some(&0),
+        "{}",
+        log_tail(&cb)
+    );
     let r = result_json(&cb);
     let lied = statement_keys(&cb);
     eprintln!(
@@ -265,7 +307,12 @@ fn a_well_bound_lying_exact_eval_answer_closes_the_node_on_fewer_keys() {
 fn sigkill_at_random_points_and_double_resume_give_the_same_statement() {
     let _g = serial();
     let (_ta, spa, ca) = elided_setup("acskref", &[]);
-    assert_eq!(run_to_end(&spa, &ca, &["--plain"]).last(), Some(&0), "{}", log_tail(&ca));
+    assert_eq!(
+        run_to_end(&spa, &ca, &["--plain"]).last(),
+        Some(&0),
+        "{}",
+        log_tail(&ca)
+    );
     let ref_stmt = std::fs::read(ca.join("closeloop/toy/final/statement/statement.jsonl")).unwrap();
     let ref_res = result_json(&ca);
     for seed in [3u64, 17, 29] {
@@ -288,20 +335,41 @@ fn sigkill_at_random_points_and_double_resume_give_the_same_statement() {
                 let _ = resolve_unknown(&cb);
             }
         }
-        assert_eq!(codes.last(), Some(&0), "seed {seed}: {codes:?} {}", log_tail(&cb));
+        assert_eq!(
+            codes.last(),
+            Some(&0),
+            "seed {seed}: {codes:?} {}",
+            log_tail(&cb)
+        );
         let stmt = std::fs::read(cb.join("closeloop/toy/final/statement/statement.jsonl")).unwrap();
-        assert!(stmt == ref_stmt, "seed {seed}: statements differ ({codes:?})");
+        assert!(
+            stmt == ref_stmt,
+            "seed {seed}: statements differ ({codes:?})"
+        );
         // double resume: nothing changes, exit 0
         let again = run_to_end(&spb, &cb, &["--plain"]);
         assert_eq!(again.last(), Some(&0));
-        let stmt2 = std::fs::read(cb.join("closeloop/toy/final/statement/statement.jsonl")).unwrap();
-        assert!(stmt2 == ref_stmt, "seed {seed}: statement changed by the second resume");
+        let stmt2 =
+            std::fs::read(cb.join("closeloop/toy/final/statement/statement.jsonl")).unwrap();
+        assert!(
+            stmt2 == ref_stmt,
+            "seed {seed}: statement changed by the second resume"
+        );
         let r = result_json(&cb);
         assert_eq!(r["verdict"], ref_res["verdict"]);
         // summary.json embeds the campaign directory's paths (and the load-order fact label, F-SUMM): every other
         // statement file must be byte-identical
-        for f in ["statement.jsonl", "terminals.json", "fact-requests.jsonl", "proof-requests.jsonl", "solve-requests.jsonl"] {
-            assert_eq!(r["statement"]["files"][f], ref_res["statement"]["files"][f], "seed {seed}: {f}");
+        for f in [
+            "statement.jsonl",
+            "terminals.json",
+            "fact-requests.jsonl",
+            "proof-requests.jsonl",
+            "solve-requests.jsonl",
+        ] {
+            assert_eq!(
+                r["statement"]["files"][f], ref_res["statement"]["files"][f],
+                "seed {seed}: {f}"
+            );
         }
         assert_eq!(verify(&cb), 0, "seed {seed}");
         eprintln!("seed {seed}: codes {codes:?} then {again:?}");

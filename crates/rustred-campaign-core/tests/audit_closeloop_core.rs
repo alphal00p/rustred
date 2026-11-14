@@ -68,7 +68,11 @@ fn write_table_h(dir: &Path, name: &str, header: &str, rules: &[String]) -> Path
 }
 
 fn write_lines(p: &Path, lines: &[Value]) -> PathBuf {
-    std::fs::write(p, lines.iter().map(|l| format!("{l}\n")).collect::<String>()).unwrap();
+    std::fs::write(
+        p,
+        lines.iter().map(|l| format!("{l}\n")).collect::<String>(),
+    )
+    .unwrap();
     p.to_path_buf()
 }
 
@@ -210,7 +214,11 @@ fn f_cmp_streamed_comparison_must_report_a_missing_key_and_a_changed_server() {
         !c.key_sets_equal,
         "our closure has I(1,1,0), the hand statement does not"
     );
-    assert_eq!(c.count(DiffKind::ServerDiffers), 1, "A#0 vs A#7 at I(2,1,0)");
+    assert_eq!(
+        c.count(DiffKind::ServerDiffers),
+        1,
+        "A#0 vs A#7 at I(2,1,0)"
+    );
 }
 
 /// The same streamed comparison, demonstrated as a PASSING test of the current behaviour (so the defect is visible in
@@ -308,14 +316,16 @@ fn f_bind_a_proof_for_another_family_must_not_certify_an_identical_record() {
         &[("I(n0-1,1,0)", "(d-4)/(d-3)"), ("I(n0,0,0)", "1")],
     );
     assert_eq!(sha_text(&r0), sha);
-    let other =
-        r#"{"type":"header","schema":"table_dump.v1","family":"TOY2","denominators":3,"mask":"110"}"#;
+    let other = r#"{"type":"header","schema":"table_dump.v1","family":"TOY2","denominators":3,"mask":"110"}"#;
     let b = write_table_h(&d, "B.table.jsonl", other, &[r0]);
     let ev = json!({"proofs":[{"path": d.join("proofs.jsonl").display().to_string()}],
                     "facts":[{"path": d.join("facts.jsonl").display().to_string()}]});
     let spec = spec_of(&d, &b, &[[3, 1, 0]], ev, "per-key");
     let (set, ev) = load_ev(&spec, &d);
-    assert_eq!(ev.counts.proofs_foreign, 0, "every TOY proof line bound to TOY2");
+    assert_eq!(
+        ev.counts.proofs_foreign, 0,
+        "every TOY proof line bound to TOY2"
+    );
     let r = check(&set, &ev, &tier_c()).unwrap();
     let row = r.rows.iter().find(|x| x.key == [3, 1, 0]).unwrap();
     assert_ne!(
@@ -382,7 +392,11 @@ fn a_box_key_reached_only_through_a_zero_edge_must_still_be_served() {
     let spec = spec_of(&d, &a, &[[3, 1, 0], [2, 1, 0]], ev, "per-key");
     let (set, e) = load_ev(&spec, &d);
     let r = check(&set, &e, &tier_c()).unwrap();
-    let row = r.rows.iter().find(|x| x.key == [2, 1, 0]).expect("box key in the closure");
+    let row = r
+        .rows
+        .iter()
+        .find(|x| x.key == [2, 1, 0])
+        .expect("box key in the closure");
     assert!(row.in_start);
     assert_eq!(row.status, RowStatus::Open);
     assert!(!r.blocking().is_empty());
@@ -466,7 +480,10 @@ fn f_solv_two_different_solved_relations_without_digest_must_conflict() {
         json!({"solved":[{"path": sp.display().to_string()}]}),
         "imported",
     );
-    spec["sources"].as_array_mut().unwrap().push(json!({"id":"R","kind":"recipe","class":"recipe",
+    spec["sources"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id":"R","kind":"recipe","class":"recipe",
         "path": rf.display().to_string(), "sha256": file_sha(&rf)}));
     let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
     let set = load(&s, &d).unwrap();
@@ -501,7 +518,12 @@ fn edges_into_target_keys_from_a_written_statement() {
     let targets: HashSet<Vec<i32>> = if all {
         std::io::BufReader::new(std::fs::File::open(env("AUDIT_CL_STATEMENT")).unwrap())
             .lines()
-            .map(|l| serde_json::from_value(serde_json::from_str::<Value>(&l.unwrap()).unwrap()["key"].clone()).unwrap())
+            .map(|l| {
+                serde_json::from_value(
+                    serde_json::from_str::<Value>(&l.unwrap()).unwrap()["key"].clone(),
+                )
+                .unwrap()
+            })
             .collect()
     } else {
         std::fs::read_to_string(env("AUDIT_CL_TARGETS"))
@@ -518,7 +540,10 @@ fn edges_into_target_keys_from_a_written_statement() {
         // the spec's evidence + the run's own proof / fact answer directories (AUDIT_CL_EXTRA_PROOFS / _FACTS):
         // the credit is granted exactly as in the run (Tier C)
         let mut ev = Evidence::from_spec(&set, &base).unwrap();
-        for (var, facts) in [("AUDIT_CL_EXTRA_PROOFS", false), ("AUDIT_CL_EXTRA_FACTS", true)] {
+        for (var, facts) in [
+            ("AUDIT_CL_EXTRA_PROOFS", false),
+            ("AUDIT_CL_EXTRA_FACTS", true),
+        ] {
             if let Ok(d) = std::env::var(var) {
                 let mut files: Vec<PathBuf> = std::fs::read_dir(&d)
                     .unwrap()
@@ -527,7 +552,10 @@ fn edges_into_target_keys_from_a_written_statement() {
                     .collect();
                 files.sort();
                 for p in files {
-                    let fr = import::spec::FileRef { path: p.display().to_string(), sha256: None };
+                    let fr = import::spec::FileRef {
+                        path: p.display().to_string(),
+                        sha256: None,
+                    };
                     if facts {
                         ev.load_facts(&set, Path::new("/"), &fr).unwrap();
                     } else {
@@ -565,7 +593,9 @@ fn edges_into_target_keys_from_a_written_statement() {
         let v: Value = serde_json::from_str(&l).unwrap();
         rows += 1;
         let kind = v["server"]["kind"].as_str().unwrap_or("-").to_string();
-        *by_kind.entry(format!("{}:{}", v["status"].as_str().unwrap_or("-"), kind)).or_default() += 1;
+        *by_kind
+            .entry(format!("{}:{}", v["status"].as_str().unwrap_or("-"), kind))
+            .or_default() += 1;
         if v["status"] != "served" {
             continue;
         }
@@ -579,7 +609,9 @@ fn edges_into_target_keys_from_a_written_statement() {
             "rule" => key.clone(),
             "credit" => match images.get(&key) {
                 Some(im) => im.clone(),
-                None => panic!("credited key {key:?} without a known image (set AUDIT_CL_CREDITS=1)"),
+                None => {
+                    panic!("credited key {key:?} without a known image (set AUDIT_CL_CREDITS=1)")
+                }
             },
             _ => {
                 other += 1;
@@ -592,7 +624,10 @@ fn edges_into_target_keys_from_a_written_statement() {
         buf.clear();
         cm.clear();
         let rr = set.disp.rule_ref(t, r);
-        let Some(nt) = set.bodies.instantiate(&set.disp, rr, &applied, &mut buf, &mut cm).unwrap()
+        let Some(nt) = set
+            .bodies
+            .instantiate(&set.disp, rr, &applied, &mut buf, &mut cm)
+            .unwrap()
         else {
             continue;
         };
@@ -603,7 +638,9 @@ fn edges_into_target_keys_from_a_written_statement() {
             let tk = &buf[j * n..(j + 1) * n];
             if targets.contains(tk) {
                 hits += 1;
-                assert!(rustred_campaign_core::closure::bodies::rule_point(dom, &key, &mut pt));
+                assert!(rustred_campaign_core::closure::bodies::rule_point(
+                    dom, &key, &mut pt
+                ));
                 let info = &set.rules[t][r];
                 let e = json!({"table": info.path, "offset": info.offset, "rule": info.index, "record_sha256": sha,
                         "row_key": row_key, "server_kind": kind,
@@ -628,7 +665,11 @@ fn edges_into_target_keys_from_a_written_statement() {
         for e in &one {
             writeln!(out, "{e}").unwrap();
         }
-        eprintln!("in-degree: {} targets with an in-edge, {} with exactly one", indeg.len(), one.len());
+        eprintln!(
+            "in-degree: {} targets with an in-edge, {} with exactly one",
+            indeg.len(),
+            one.len()
+        );
     }
     out.flush().unwrap();
     eprintln!(
