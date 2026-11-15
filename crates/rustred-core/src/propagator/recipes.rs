@@ -126,6 +126,119 @@ pub fn outside_policy_of(node: &str) -> POutsidePolicy {
     }
 }
 
+/// Optional cap of the size of a regular relation relative to a relation
+/// with a (d-4) pole already found: `unbounded` (default) or a rational >= 1
+/// (`3/2`, `2`).
+pub const OUTSIDE_MAX_SIZE_RATIO_ENV: &str = "RUSTRED_P_OUTSIDE_MAX_SIZE_RATIO";
+
+/// The settings of run-time solves at keys outside a certified set
+/// (programmatic, for embedders such as vakint; the environment is the
+/// fallback when none were set).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct POutsideSettings {
+    /// Recipe families tried at one key.
+    pub max_recipes: usize,
+    /// Trace-row cap of one solve.
+    pub max_trace_rows: usize,
+    /// Prefer a relation regular at d = 4 (default on): a relation with a
+    /// (d-4) pole is kept as fallback while the next families are tried.
+    pub prefer_regular_at_4: bool,
+    /// `None` (default, "unbounded"): a regular relation ALWAYS wins, whatever
+    /// its size. `Some((p, q))`: a regular relation wins over a pole relation
+    /// already found only when its number of terms is at most p/q times the
+    /// pole relation's (p/q >= 1); a larger one is set aside and the search
+    /// goes on; when no regular relation qualifies, the smallest pole relation
+    /// is taken.
+    pub max_size_ratio: Option<(u64, u64)>,
+}
+
+impl Default for POutsideSettings {
+    fn default() -> Self {
+        Self {
+            max_recipes: OUTSIDE_MAX_RECIPES,
+            max_trace_rows: OUTSIDE_MAX_TRACE_ROWS,
+            prefer_regular_at_4: true,
+            max_size_ratio: None,
+        }
+    }
+}
+
+/// Parse a size ratio: `unbounded` -> `None`, `p/q` or `p` (>= 1) -> `Some`.
+pub fn parse_size_ratio(text: &str) -> Result<Option<(u64, u64)>, String> {
+    let text = text.trim();
+    if text.eq_ignore_ascii_case("unbounded") {
+        return Ok(None);
+    }
+    let (p, q) = match text.split_once('/') {
+        Some((p, q)) => (p.trim(), q.trim()),
+        None => (text, "1"),
+    };
+    let (Ok(p), Ok(q)) = (p.parse::<u64>(), q.parse::<u64>()) else {
+        return Err(format!(
+            "max_size_ratio {text:?}: `unbounded` or a rational p/q >= 1"
+        ));
+    };
+    if q == 0 || p < q {
+        return Err(format!("max_size_ratio {text:?}: must be a rational >= 1"));
+    }
+    Ok(Some((p, q)))
+}
+
+static OUTSIDE_SETTINGS: RwLock<Option<POutsideSettings>> = RwLock::new(None);
+static NODE_OUTSIDE_SETTINGS: RwLock<BTreeMap<String, POutsideSettings>> =
+    RwLock::new(BTreeMap::new());
+
+/// Set the outside-solve settings of this process.
+pub fn set_outside_settings(settings: POutsideSettings) {
+    *OUTSIDE_SETTINGS
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(settings);
+}
+
+/// Set the outside-solve settings of node `node` (wins over the process's).
+pub fn set_outside_settings_for(node: &str, settings: POutsideSettings) {
+    NODE_OUTSIDE_SETTINGS
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(node.to_owned(), settings);
+}
+
+/// The outside-solve settings in force for `node`: its own, the process's,
+/// else the environment over the defaults.
+pub fn outside_settings_of(node: &str) -> POutsideSettings {
+    if let Some(settings) = NODE_OUTSIDE_SETTINGS
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(node)
+    {
+        return *settings;
+    }
+    if let Some(settings) = *OUTSIDE_SETTINGS
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    {
+        return settings;
+    }
+    POutsideSettings {
+        max_recipes: env_cap(OUTSIDE_MAX_RECIPES_ENV, OUTSIDE_MAX_RECIPES),
+        max_trace_rows: env_cap(OUTSIDE_MAX_TRACE_ROWS_ENV, OUTSIDE_MAX_TRACE_ROWS),
+        prefer_regular_at_4: !matches!(
+            std::env::var(PREFER_REGULAR_ENV).as_deref().map(str::trim),
+            Ok("0" | "off" | "no" | "false")
+        ),
+        max_size_ratio: std::env::var(OUTSIDE_MAX_SIZE_RATIO_ENV)
+            .ok()
+            .and_then(|text| match parse_size_ratio(&text) {
+                Ok(ratio) => Some(ratio),
+                Err(error) => {
+                    eprintln!("rustred: {OUTSIDE_MAX_SIZE_RATIO_ENV} ignored: {error}");
+                    None
+                }
+            })
+            .flatten(),
+    }
+}
+
 fn env_cap(name: &str, default: usize) -> usize {
     std::env::var(name)
         .ok()
@@ -947,6 +1060,12 @@ fn solver_for(node: &str) -> Arc<dyn PRecipeSolver> {
 pub struct RecipeCacheRoots {
     pub user: Option<PathBuf>,
     pub prefilled: Vec<PathBuf>,
+    /// Size cap of the user root's relation entries (bytes); `None`: the
+    /// environment ([`super::relation_entries::MAX_BYTES_ENV`]), else none.
+    pub max_bytes: Option<u64>,
+    /// Whether relation entries of evidence level `none` are used; `None`:
+    /// the environment ([`super::relation_entries::ALLOW_FIELD_ENV`]), else yes.
+    pub allow_field: Option<bool>,
 }
 
 static CACHE_ROOTS: RwLock<Option<RecipeCacheRoots>> = RwLock::new(None);
@@ -1007,7 +1126,18 @@ pub fn recipe_cache_roots() -> RecipeCacheRoots {
                     .collect()
             })
             .unwrap_or_default(),
+        max_bytes: None,
+        allow_field: None,
     }
+}
+
+/// The bytes of relation entries on disk under the user (writable) root in
+/// force for this process (all nodes; 0 without a root).
+pub fn relation_cache_bytes_on_disk() -> u64 {
+    recipe_cache_roots()
+        .user
+        .as_deref()
+        .map_or(0, super::relation_entries::bytes_on_disk)
 }
 
 /// The node identity of a bundle (relation entries; family text + node
@@ -1172,11 +1302,15 @@ impl RecipeDispatch {
         let _ = (family_fingerprint, support);
         let roots = recipe_cache_roots_of(&bundle.node);
         let node_identity = bundle_node_identity(&bundle);
-        let cache = super::relation_entries::RelationStore::new(
+        let cache = super::relation_entries::RelationStore::with_options(
             &bundle.node,
             &node_identity,
             &roots.prefilled,
             roots.user.as_deref(),
+            super::relation_entries::StoreOptions {
+                max_bytes: roots.max_bytes,
+                allow_field: roots.allow_field,
+            },
         );
         Ok(Self {
             node_identity,
@@ -1399,8 +1533,9 @@ impl RecipeDispatch {
             .iter()
             .map(|&p| if p > 0 { '1' } else { '0' })
             .collect();
-        let max_recipes = env_cap(OUTSIDE_MAX_RECIPES_ENV, OUTSIDE_MAX_RECIPES);
-        let max_rows = env_cap(OUTSIDE_MAX_TRACE_ROWS_ENV, OUTSIDE_MAX_TRACE_ROWS);
+        let settings = outside_settings_of(&self.bundle.node);
+        let max_recipes = settings.max_recipes.max(1);
+        let max_rows = settings.max_trace_rows.max(1);
         let families = self.outside_families(&key_table, &chart, max_rows)?;
         if let Some((_, first)) = families.first()
             && let Some((relation, _)) = self.stored(first, key, &key_table)?
@@ -1414,14 +1549,12 @@ impl RecipeDispatch {
             self.remember_outside(key, &relation, &id);
             return Ok((relation, id));
         }
-        let prefer_regular = !matches!(
-            std::env::var(PREFER_REGULAR_ENV).as_deref().map(str::trim),
-            Ok("0" | "off" | "no" | "false")
-        );
+        let prefer_regular = settings.prefer_regular_at_4;
         let tried = families.len().min(max_recipes);
         let mut attempts = Vec::new();
         let mut first_failure: Option<PRecipeFailure> = None;
         let mut fallback: Option<(Arc<Relation>, String, RecipeRecord, Value)> = None;
+        let mut too_large = false;
         for (id, at_key) in families.iter().take(max_recipes) {
             let started = Instant::now();
             let solved = self.solver.solve(&self.bundle, at_key, &key_table);
@@ -1446,6 +1579,19 @@ impl RecipeDispatch {
                     let regular = relation.pole_order_at_4 == Some(0);
                     attempts.push(json!({"recipe": id, "kind": "SOLVED",
                         "pole_order_at_4": relation.pole_order_at_4}));
+                    let terms = relation.children.len() as u128;
+                    // a regular relation wins unless a size ratio is set and it
+                    // is more than p/q times the smallest pole relation found
+                    let within_ratio = match (&fallback, settings.max_size_ratio) {
+                        (Some((pole, ..)), Some((p, q))) => {
+                            terms * u128::from(q) <= u128::from(p) * pole.children.len() as u128
+                        }
+                        _ => true,
+                    };
+                    if regular && !within_ratio {
+                        too_large = true;
+                        continue;
+                    }
                     if regular || !prefer_regular {
                         let alternative = if regular { "yes" } else { "not_tried" };
                         return Ok(self.keep_outside(
@@ -1458,7 +1604,10 @@ impl RecipeDispatch {
                             alternative,
                         ));
                     }
-                    if fallback.is_none() {
+                    let smaller = fallback
+                        .as_ref()
+                        .is_none_or(|(pole, ..)| relation.children.len() < pole.children.len());
+                    if smaller {
                         fallback = Some((relation, id.clone(), at_key.clone(), value));
                     }
                 }
@@ -1471,7 +1620,16 @@ impl RecipeDispatch {
             }
         }
         if let Some((relation, id, at_key, value)) = fallback {
-            return Ok(self.keep_outside(key, &key_table, &id, &at_key, &value, relation, "no"));
+            let alternative = if too_large { "too_large" } else { "no" };
+            return Ok(self.keep_outside(
+                key,
+                &key_table,
+                &id,
+                &at_key,
+                &value,
+                relation,
+                alternative,
+            ));
         }
         OUTSIDE_FAILURES.fetch_add(1, Ordering::Relaxed);
         FAILURES.fetch_add(1, Ordering::Relaxed);
@@ -2155,6 +2313,7 @@ mod kite_tests {
             RecipeCacheRoots {
                 user: Some(user.clone()),
                 prefilled: vec![],
+                ..Default::default()
             },
         );
         let records = vec![record("kite/d0", &[dot(0)], &SHELLS)];
@@ -2189,6 +2348,7 @@ mod kite_tests {
             RecipeCacheRoots {
                 user: Some(user2.clone()),
                 prefilled: vec![user.clone()],
+                ..Default::default()
             },
         );
         let overlay = library(node, &[dot(0)], Some(records));
@@ -2538,6 +2698,7 @@ mod kite_tests {
             RecipeCacheRoots {
                 user: Some(root.clone()),
                 prefilled: vec![],
+                ..Default::default()
             },
         );
         let records = vec![record("kite/d0", &[dot(0)], &SHELLS)];
@@ -2641,6 +2802,65 @@ mod kite_tests {
         )
         .unwrap();
         assert_eq!(id, family);
+    }
+
+    /// User ruling 2026-11-15: by default a regular relation ALWAYS wins,
+    /// whatever its size (max_size_ratio unbounded); with max_size_ratio 2 a
+    /// regular relation of 3 terms loses against a 1-term pole relation (the
+    /// pole one is taken, regular_alternative "too_large").
+    #[test]
+    fn a_regular_relation_wins_whatever_its_size_unless_a_size_ratio_is_set() {
+        let three = [2, 2, 2, 1, 1];
+        let relation = |rhs: Value| {
+            json!({"verdict": "SOLVED", "proof": {"ok": true, "kind": "exact-weights"}, "all_lower": true,
+                   "relation_digest": rhs.to_string(), "rhs": rhs})
+        };
+        let pole = relation(json!([["I(1,1,1,1,1)", "1/(d-4)", "top"]]));
+        let big = relation(json!([
+            ["I(1,1,1,1,1)", "1/(d-3)", "top"],
+            ["I(2,1,1,1,1)", "1", "top"],
+            ["I(1,2,1,1,1)", "1", "top"]
+        ]));
+        for (node, ratio, winner) in [
+            ("KITE-ratio-unbounded", None, "kite/d1"),
+            ("KITE-ratio-2", Some((2, 1)), "kite/d0"),
+            ("KITE-ratio-3", Some((3, 1)), "kite/d1"),
+        ] {
+            let fake = install(node, vec![toy(dot(0)), toy(dot(1))]);
+            fake.by_recipe.lock().unwrap().extend([
+                (("kite/d0@outside".to_owned(), three.to_vec()), pole.clone()),
+                (("kite/d1@outside".to_owned(), three.to_vec()), big.clone()),
+            ]);
+            set_outside_settings_for(
+                node,
+                POutsideSettings {
+                    max_size_ratio: ratio,
+                    ..POutsideSettings::default()
+                },
+            );
+            let records = vec![
+                record("kite/d0", &[dot(0)], &SHELLS),
+                record("kite/d1", &[dot(1)], &["S0", "S1"]),
+            ];
+            let imported = import(node, &[dot(0), dot(1)], Some(records)).unwrap();
+            let (solved, id) = crate::propagator::custom::custom_payload_solve_outside(
+                &imported.presentation,
+                &imported.payload,
+                &imported.meta,
+                &presented(three),
+            )
+            .unwrap();
+            assert_eq!(id, winner, "{node}");
+            assert_eq!(
+                solved.pole_order_at_4,
+                Some(u32::from(winner == "kite/d0")),
+                "{node}"
+            );
+        }
+        assert_eq!(parse_size_ratio("unbounded"), Ok(None));
+        assert_eq!(parse_size_ratio("3/2"), Ok(Some((3, 2))));
+        assert_eq!(parse_size_ratio("2"), Ok(Some((2, 1))));
+        assert!(parse_size_ratio("1/2").is_err() && parse_size_ratio("x").is_err());
     }
 
     #[test]

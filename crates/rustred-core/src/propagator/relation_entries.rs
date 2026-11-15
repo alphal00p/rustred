@@ -244,15 +244,62 @@ pub enum EntryRefusal {
     Field,
 }
 
-fn allow_field() -> bool {
+/// The field-entry setting of [`ALLOW_FIELD_ENV`] (default: allowed).
+pub fn allow_field_from_env() -> bool {
     !matches!(
         std::env::var(ALLOW_FIELD_ENV).as_deref().map(str::trim),
         Ok("0" | "off" | "no" | "false")
     )
 }
 
-/// The load check of one entry (interface section 3, items 1-6).
+/// The size cap of [`MAX_BYTES_ENV`], if set.
+pub fn max_bytes_from_env() -> Option<u64> {
+    std::env::var(MAX_BYTES_ENV)
+        .ok()
+        .and_then(|value| value.trim().parse().ok())
+}
+
+/// The settings of one store (programmatic; `None` fields fall back to the
+/// environment).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StoreOptions {
+    /// Cap of the writable root's node directory (bytes); inserts above it
+    /// are skipped and counted, nothing is evicted.
+    pub max_bytes: Option<u64>,
+    /// Whether entries of evidence level `none` are used.
+    pub allow_field: Option<bool>,
+}
+
+/// The total size of the relation entries (`*.jsonl` of every node
+/// directory) under a cache root; 0 when the root does not exist.
+pub fn bytes_on_disk(root: &Path) -> u64 {
+    let Ok(nodes) = std::fs::read_dir(root) else {
+        return 0;
+    };
+    nodes
+        .filter_map(Result::ok)
+        .filter(|node| node.path().is_dir())
+        .filter_map(|node| std::fs::read_dir(node.path()).ok())
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|file| file.path().extension().is_some_and(|ext| ext == "jsonl"))
+        .filter_map(|file| file.metadata().ok())
+        .map(|meta| meta.len())
+        .sum()
+}
+
+/// The load check of one entry (interface section 3, items 1-6), field
+/// entries as [`ALLOW_FIELD_ENV`] says.
 pub fn check_entry(entry: &Value, node_identity: &str) -> Result<Vec<i64>, EntryRefusal> {
+    check_entry_with(entry, node_identity, allow_field_from_env())
+}
+
+/// [`check_entry`] with an explicit field-entry setting.
+pub fn check_entry_with(
+    entry: &Value,
+    node_identity: &str,
+    allow_field: bool,
+) -> Result<Vec<i64>, EntryRefusal> {
     if entry["schema"] != RELATION_ENTRY_SCHEMA || entry["node_identity"] != node_identity {
         return Err(EntryRefusal::Foreign);
     }
@@ -276,7 +323,7 @@ pub fn check_entry(entry: &Value, node_identity: &str) -> Result<Vec<i64>, Entry
     {
         return Err(EntryRefusal::Unproved);
     }
-    if evidence_rank(entry["evidence"]["level"].as_str().unwrap_or("none")) == 0 && !allow_field() {
+    if evidence_rank(entry["evidence"]["level"].as_str().unwrap_or("none")) == 0 && !allow_field {
         return Err(EntryRefusal::Field);
     }
     Ok(key)
@@ -384,6 +431,7 @@ pub struct RelationStore {
     writer: Mutex<Option<(PathBuf, File)>>,
     disk_bytes: AtomicU64,
     max_bytes: Option<u64>,
+    allow_field: bool,
 }
 
 /// The directory of a node under a cache root.
@@ -408,6 +456,17 @@ impl RelationStore {
     /// The store of `node` over read-only `shipped` roots and an optional
     /// writable `cache` root. Nothing is read before the first lookup.
     pub fn new(node: &str, node_identity: &str, shipped: &[PathBuf], cache: Option<&Path>) -> Self {
+        Self::with_options(node, node_identity, shipped, cache, StoreOptions::default())
+    }
+
+    /// [`Self::new`] with explicit settings (`None` fields: the environment).
+    pub fn with_options(
+        node: &str,
+        node_identity: &str,
+        shipped: &[PathBuf],
+        cache: Option<&Path>,
+        options: StoreOptions,
+    ) -> Self {
         let mut layers: Vec<Layer> = shipped
             .iter()
             .map(|root| Layer {
@@ -421,9 +480,8 @@ impl RelationStore {
                 writable: true,
             });
         }
-        let max_bytes = std::env::var(MAX_BYTES_ENV)
-            .ok()
-            .and_then(|value| value.trim().parse().ok());
+        let max_bytes = options.max_bytes.or_else(max_bytes_from_env);
+        let allow_field = options.allow_field.unwrap_or_else(allow_field_from_env);
         Self {
             node: node.to_owned(),
             node_identity: node_identity.to_owned(),
@@ -432,6 +490,7 @@ impl RelationStore {
             writer: Mutex::new(None),
             disk_bytes: AtomicU64::new(0),
             max_bytes,
+            allow_field,
         }
     }
 
@@ -504,7 +563,8 @@ impl RelationStore {
                         CORRUPT.fetch_add(1, Ordering::Relaxed);
                         continue;
                     };
-                    let key = match check_entry(&entry, &self.node_identity) {
+                    let key = match check_entry_with(&entry, &self.node_identity, self.allow_field)
+                    {
                         Ok(key) => key,
                         Err(EntryRefusal::Foreign) => {
                             FOREIGN.fetch_add(1, Ordering::Relaxed);
@@ -559,7 +619,10 @@ impl RelationStore {
         };
         let entry = read_line(&located.path, located.offset, located.len)
             .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-            .filter(|entry| check_entry(entry, &self.node_identity).as_deref() == Ok(key_table));
+            .filter(|entry| {
+                check_entry_with(entry, &self.node_identity, self.allow_field).as_deref()
+                    == Ok(key_table)
+            });
         match entry {
             Some(entry) => {
                 let source = if located.writable {
@@ -776,6 +839,30 @@ mod tests {
         let mut tampered = regular.clone();
         tampered["body"]["rhs"][0][1] = json!("2");
         assert_eq!(check_entry(&tampered, &id), Err(EntryRefusal::Corrupt));
+        // the programmatic cap: no insert above it; field entries refused when not allowed
+        let capped = RelationStore::with_options(
+            "N",
+            &id,
+            &[],
+            Some(&root),
+            StoreOptions {
+                max_bytes: Some(1),
+                allow_field: Some(false),
+            },
+        );
+        let skipped = relation_cache_statistics().inserts_skipped_cap;
+        let disk = bytes_on_disk(&root);
+        assert!(disk > 0);
+        capped.put(&pole).unwrap();
+        assert_eq!(relation_cache_statistics().inserts_skipped_cap, skipped + 1);
+        assert_eq!(bytes_on_disk(&root), disk, "nothing written above the cap");
+        let mut field = regular.clone();
+        field["evidence"]["level"] = json!("none");
+        assert_eq!(
+            check_entry_with(&field, &id, false),
+            Err(EntryRefusal::Field)
+        );
+        assert!(check_entry_with(&field, &id, true).is_ok());
         // shipped (read-only) first; the cache does not replace it at equal evidence
         let shipped = RelationStore::new("N", &id, std::slice::from_ref(&root), None);
         assert_eq!(shipped.get(&[2, 1]).unwrap().1, StoreSource::Shipped);
