@@ -112,6 +112,29 @@ fn main() {
         );
         return;
     }
+    if args.get(1).map(String::as_str) == Some("regions") {
+        // post-pass on an earlier run: rr_rf_symflow regions --choices FILE --out FILE [--policy P] [--node N]
+        let cf = arg(&args, "--choices").unwrap_or_else(|| die("--choices"));
+        let recs: Vec<KeyChoices> = std::fs::read_to_string(&cf)
+            .unwrap_or_else(|e| die(&format!("{cf}: {e}")))
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l).unwrap_or_else(|e| die(&format!("{cf}: {e}"))))
+            .collect();
+        let pol = match arg(&args, "--policy") {
+            Some(p) => PolicyFile::parse(
+                &std::fs::read_to_string(&p).unwrap_or_else(|e| die(&e.to_string())),
+            )
+            .and_then(|f| f.effective(arg(&args, "--node").as_deref()))
+            .unwrap_or_else(|e| die(&e)),
+            None => Default::default(),
+        };
+        let v = symflow::fit_face_regions(&recs, &pol.regions);
+        let o = arg(&args, "--out").unwrap_or_else(|| die("--out"));
+        std::fs::write(&o, serde_json::to_string_pretty(&v).expect("json") + "\n")
+            .unwrap_or_else(|e| die(&e.to_string()));
+        return;
+    }
     let out = PathBuf::from(arg(&args, "--out").unwrap_or_else(|| die("--out")));
     // the request: given (contract form) or built from the flags (hand form, inputs unpinned)
     let (request, request_bytes): (Value, Vec<u8>) = if args.get(1).map(String::as_str)
@@ -302,18 +325,21 @@ fn main() {
     table.push('\n');
     let mut ver = String::new();
     let mut accepted: Vec<symflow::KeyService> = vec![];
+    let mut all_choices: Vec<KeyChoices> = vec![];
     for (k, r) in &results {
         let line = match r {
             Err(e) => {
                 let ch = KeyChoices::failed(k, &lines, e);
                 fc.push_str(&serde_json::to_string(&ch).expect("json"));
                 fc.push('\n');
+                all_choices.push(ch.clone());
                 json!({"key": k, "face": ch.face, "status": ch.status})
             }
             Ok(kc) => {
                 let ch = KeyChoices::of_composites(k, kc, &lines);
                 fc.push_str(&serde_json::to_string(&ch).expect("json"));
                 fc.push('\n');
+                all_choices.push(ch.clone());
                 let outs: Vec<Value> = kc
                     .outcomes
                     .iter()
@@ -421,6 +447,11 @@ fn main() {
     seal.write("keys.jsonl", fk.as_bytes());
     seal.write("composite.table.jsonl", table.as_bytes());
     seal.write("composite.verification.jsonl", ver.as_bytes());
+    let regions = symflow::fit_face_regions(&all_choices, &policy.regions);
+    seal.write(
+        "regions.json",
+        (serde_json::to_string_pretty(&regions).expect("json") + "\n").as_bytes(),
+    );
     seal.write(
         "report.json",
         (serde_json::to_string_pretty(&rep).expect("json") + "\n").as_bytes(),

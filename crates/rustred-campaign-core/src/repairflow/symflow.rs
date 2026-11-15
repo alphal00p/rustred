@@ -196,3 +196,37 @@ pub fn frame_table_path(set: &crate::import::load::ImportedSet) -> Option<String
         .find(|r| r.source == set.spec.frame_from)
         .map(|r| r.path.clone())
 }
+
+/// Regions per face from the per-key records (lane regions' `regionfit`, the policy's `regions` section): one record per
+/// face (`RegionFit::record()`, schema rustred.campaign.regionfit.v1) or the error of that face. Deterministic.
+pub fn fit_face_regions(
+    records: &[super::composite::KeyChoices],
+    policy: &super::policy::RegionsPolicy,
+) -> Value {
+    use crate::regionfit::keychoices::{faces_from_key_choices, ranking_from_preferred};
+    if !policy.enabled {
+        return json!({"enabled": false});
+    }
+    let ok: Vec<super::composite::KeyChoices> = records
+        .iter()
+        .filter(|r| r.status == "ok")
+        .cloned()
+        .collect();
+    let faces = match faces_from_key_choices(&ok, &policy.adapter) {
+        Ok(f) => f,
+        Err(e) => return json!({"error": e}),
+    };
+    let mut fit = policy.fit.clone();
+    if fit.ranking.is_empty() {
+        fit.ranking = ranking_from_preferred(&ok, &policy.adapter);
+    }
+    let mut out = serde_json::Map::new();
+    for f in &faces {
+        let v = match crate::regionfit::fit_regions(f, None, &fit) {
+            Ok(r) => r.record(),
+            Err(e) => json!({"error": format!("{e:?}")}),
+        };
+        out.insert(f.signature.clone(), v);
+    }
+    json!({"enabled": true, "adapter": policy.adapter, "faces": out})
+}

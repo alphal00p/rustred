@@ -34,6 +34,7 @@ fn rec(key: &[i32], face: &str, choices: Vec<Choice>, preferred: Option<usize>) 
         choices,
         refused: vec![],
         preferred,
+        status: "ok".into(),
     }
 }
 

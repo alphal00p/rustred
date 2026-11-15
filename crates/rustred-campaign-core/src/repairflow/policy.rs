@@ -20,6 +20,7 @@ pub struct RepairPolicy {
     pub shadow_test: bool,
     pub route0: Route0Policy,
     pub composite: CompositePolicy,
+    pub regions: RegionsPolicy,
     pub faces: FacesPolicy,
     pub symbolic: SymbolicPolicy,
     pub keep: KeepPolicy,
@@ -37,6 +38,7 @@ impl Default for RepairPolicy {
             shadow_test: true,
             route0: Route0Policy::default(),
             composite: CompositePolicy::default(),
+            regions: RegionsPolicy::default(),
             faces: FacesPolicy::default(),
             symbolic: SymbolicPolicy::default(),
             keep: KeepPolicy::default(),
@@ -127,6 +129,29 @@ impl Default for CompositePolicy {
             max_terms: 100_000,
             max_replacements: 10_000,
             max_record_bytes: 16 << 20,
+        }
+    }
+}
+
+/// ELEMENT BY REGION (TRICKS 2; lane regions' `regionfit`, interfaces/regionfit.md): fitted per face on the per-key
+/// record of all acceptable choices (`KeyChoices`), after the per-key choice; a compression and a record, never a
+/// condition of serving a key.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct RegionsPolicy {
+    pub enabled: bool,
+    /// Which identity of a choice the regions are fitted on (form / element / id) and which choices count.
+    pub adapter: crate::regionfit::keychoices::KeyChoicesOptions,
+    /// The fit itself (atom family, sizes, search budgets; an empty ranking = by the producer's preferred choices).
+    pub fit: crate::regionfit::RegionPolicy,
+}
+
+impl Default for RegionsPolicy {
+    fn default() -> Self {
+        RegionsPolicy {
+            enabled: true,
+            adapter: Default::default(),
+            fit: Default::default(),
         }
     }
 }
