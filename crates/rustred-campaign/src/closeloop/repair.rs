@@ -1993,6 +1993,11 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
             })
     }
 
+    fn outcome(&self, st: &CampaignState) -> crate::supervisor::worksource::CampaignOutcome {
+        // the closing loop's verdict (the decorator adds no verdict of its own)
+        self.inner.outcome(st)
+    }
+
     fn describe(&self) -> String {
         if self.nodes.is_empty() {
             self.inner.describe()
