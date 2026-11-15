@@ -552,7 +552,12 @@ fn build_piece(
         let mut tried: BTreeSet<Offset> = BTreeSet::new();
         let mut witness: VecDeque<Key> = VecDeque::new();
         let mut rr = 0usize;
-        let halving = policy.drop_chunks == "halving";
+        // the joint strategy is its own (spec data): auto = halving above the size threshold
+        let halving = match policy.joint.drop_chunks.as_str() {
+            "halving" => true,
+            "single" => false,
+            _ => keys.len() > policy.joint.halving_above_keys,
+        };
         let mut chunk = 0usize;
         // a refused removal set: a single seed is kept for good; a chunk halves (halving mode)
         let refuse = |set: &[Offset], tried: &mut BTreeSet<Offset>, chunk: &mut usize| {

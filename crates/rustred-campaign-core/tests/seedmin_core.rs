@@ -751,6 +751,14 @@ fn halving_chunks_reach_the_same_lists_with_fewer_solves() {
         &mut StubSystemPoles,
     )
     .unwrap();
+    let halving = SeedMinPolicy {
+        drop_chunks: "halving".into(),
+        joint: rustred_campaign_core::seedmin::policy::JointPolicy {
+            drop_chunks: "halving".into(),
+            ..Default::default()
+        },
+        ..SeedMinPolicy::default()
+    };
     let jb = minimise_joint(
         &ks,
         &C0,
@@ -1215,4 +1223,77 @@ fn the_core_solver_entry_for_shell_subsets_ranks_the_alternatives() {
     assert_eq!(alts[2].shells, vec!["S0", "S1", "S2"]);
     assert_eq!(alts[2].measures["unserved"], 1);
     assert!(!infos.is_empty());
+}
+
+#[test]
+fn the_joint_strategy_is_data_auto_switches_to_halving_above_the_threshold() {
+    use rustred_campaign_core::seedmin::policy::JointPolicy;
+    let ks: Vec<Key> = vec![
+        vec![2, 1, 0],
+        vec![3, 1, 0],
+        vec![4, 1, 0],
+        vec![5, 1, 0],
+        vec![6, 1, 0],
+    ];
+    let mut o = Oracle::default();
+    let private = [[1, 0, 0], [0, 1, 0], [0, 0, -1], [1, 1, 0], [1, 0, -1]];
+    for (k, pr) in ks.iter().zip(private) {
+        o.alts.insert(k.clone(), vec![alt(&[[0, 0, 0], pr], 7)]);
+    }
+    let with = |mode: &str, above: usize| SeedMinPolicy {
+        joint: JointPolicy {
+            drop_chunks: mode.into(),
+            halving_above_keys: above,
+            ..Default::default()
+        },
+        ..SeedMinPolicy::default()
+    };
+    let single = minimise_joint(
+        &ks,
+        &C0,
+        &shell(),
+        &with("single", 0),
+        &mut o.clone(),
+        &mut StubSystemPoles,
+    )
+    .unwrap();
+    let auto_small = minimise_joint(
+        &ks,
+        &C0,
+        &shell(),
+        &with("auto", 50),
+        &mut o.clone(),
+        &mut StubSystemPoles,
+    )
+    .unwrap();
+    let auto_large = minimise_joint(
+        &ks,
+        &C0,
+        &shell(),
+        &with("auto", 4),
+        &mut o.clone(),
+        &mut StubSystemPoles,
+    )
+    .unwrap();
+    let halving = minimise_joint(
+        &ks,
+        &C0,
+        &shell(),
+        &with("halving", 0),
+        &mut o.clone(),
+        &mut StubSystemPoles,
+    )
+    .unwrap();
+    // same lists; auto below the threshold = single, above = halving
+    assert_eq!(single.pieces[0].list, halving.pieces[0].list);
+    assert_eq!(
+        auto_small.record["pieces"][0]["minimise"],
+        single.record["pieces"][0]["minimise"]
+    );
+    assert_eq!(
+        auto_large.record["pieces"][0]["minimise"]["solves"],
+        halving.record["pieces"][0]["minimise"]["solves"]
+    );
+    assert!(SeedMinPolicy::parse(r#"{"joint":{"drop_chunks":"sometimes"}}"#).is_err());
+    assert_eq!(SeedMinPolicy::default().joint.drop_chunks, "auto");
 }
