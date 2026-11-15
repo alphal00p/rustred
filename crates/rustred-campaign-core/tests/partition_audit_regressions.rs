@@ -648,7 +648,7 @@ fn m3_dispatch_mode_equals_first_match_random() {
 /// `assemble::containment_proof(report, ..)` minted a proof from a caller-supplied report and is gone.)
 #[test]
 fn m3_economy_requires_a_dispatch_proof() {
-    use rustred_campaign_core::economy::{prove_coverage_preserved, table_set_digest};
+    use rustred_campaign_core::economy::{ProofWork, prove_coverage_preserved, table_set_digest};
     let m = |t: u64| RuleMeasure {
         cases: 1,
         rhs_terms: t,
@@ -676,21 +676,28 @@ fn m3_economy_requires_a_dispatch_proof() {
     let l = list(vec![CaseDomain::free(n, Some(vec![true, true]))], n);
     let u = gap_partition(&l, &f, &ordinary(), None).unwrap();
     assert!(u.proves_no_gap(CoverageNotion::UnionCoverage).is_ok());
-    // the checking function runs the DISPATCH-mode partition even when the options name union coverage
-    let p = prove_coverage_preserved(&l, &l, &f, &ordinary(), &DispatchOrderStatement::SameOrder)
-        .unwrap();
+    // the checking function runs the DISPATCH-mode partition with its OWN options (partfix3: it takes a work budget
+    // only, audit-part3 C1)
+    let p = prove_coverage_preserved(
+        &l,
+        &l,
+        &f,
+        &ProofWork::default(),
+        &DispatchOrderStatement::SameOrder,
+    )
+    .unwrap();
     assert_eq!(
         p.method(),
         dispatch_proof_method(&DispatchOrderStatement::SameOrder)
     );
-    assert_eq!(p.new_tables_digest(), table_set_digest(&l));
+    assert_eq!(p.new_tables_digest(), table_set_digest(&l, &f));
     let r = retire(Some(p)).unwrap();
-    assert!(r.check_tables(&l, &l).is_ok());
+    assert!(r.check_tables(&l, &l, &f).is_ok());
     let p2 = prove_coverage_preserved(
         &l,
         &l,
         &f,
-        &PartitionOptions::default(),
+        &ProofWork::default(),
         &DispatchOrderStatement::NewOrder("abc123".into()),
     )
     .unwrap();
@@ -704,7 +711,7 @@ fn m3_economy_requires_a_dispatch_proof() {
             &l,
             &l,
             &f,
-            &PartitionOptions::default(),
+            &ProofWork::default(),
             &DispatchOrderStatement::NewOrder(String::new())
         )
         .is_err()
@@ -717,13 +724,13 @@ fn m3_economy_requires_a_dispatch_proof() {
             &l,
             &gap,
             &f,
-            &PartitionOptions::default(),
+            &ProofWork::default(),
             &DispatchOrderStatement::SameOrder
         )
         .is_err()
     );
     assert_eq!(
-        r.check_tables(&l, &gap).unwrap_err(),
+        r.check_tables(&l, &gap, &f).unwrap_err(),
         RetireError::ProofMismatch
     );
     assert!(parse_dispatch_proof_method("dispatch_partition.v1;order=new:").is_none());
