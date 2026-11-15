@@ -82,10 +82,18 @@ pub fn lines_digest<'a>(lines: impl Iterator<Item = &'a ArrivalLine>) -> String 
 }
 
 /// Write an arrival-set file; returns its sha256 (hex). `lines` must be in strictly increasing key order.
-pub fn write(path: &Path, header: &Value, lines: &[ArrivalLine], summary: &Value) -> Result<String, String> {
+pub fn write(
+    path: &Path,
+    header: &Value,
+    lines: &[ArrivalLine],
+    summary: &Value,
+) -> Result<String, String> {
     for w in lines.windows(2) {
         if w[0].key >= w[1].key {
-            return Err(format!("arrival lines not strictly increasing at {:?}", w[1].key));
+            return Err(format!(
+                "arrival lines not strictly increasing at {:?}",
+                w[1].key
+            ));
         }
     }
     let mut h = header.clone();
@@ -95,7 +103,12 @@ pub fn write(path: &Path, header: &Value, lines: &[ArrivalLine], summary: &Value
     s["schema"] = json!(ARRIVAL_SET_SCHEMA);
     s["kind"] = json!("summary");
     s["keys"] = json!(lines.len());
-    s["exact_keys"] = json!(lines.iter().filter(|l| l.exact_senders.is_some_and(|n| n > 0)).count());
+    s["exact_keys"] = json!(
+        lines
+            .iter()
+            .filter(|l| l.exact_senders.is_some_and(|n| n > 0))
+            .count()
+    );
     s["exact_level_keys"] = json!(lines.iter().filter(|l| l.exact_senders.is_some()).count());
     s["lines_digest"] = json!(lines_digest(lines.iter()));
     let f = std::fs::File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -121,11 +134,15 @@ pub fn read(path: &Path) -> Result<ArrivalSet, String> {
     let mut hs = Sha256::new();
     let (mut header, mut summary) = (None, None);
     let mut lines: Vec<ArrivalLine> = vec![];
-    for (i, l) in std::io::BufReader::with_capacity(1 << 20, f).lines().enumerate() {
+    for (i, l) in std::io::BufReader::with_capacity(1 << 20, f)
+        .lines()
+        .enumerate()
+    {
         let l = l.map_err(|e| format!("{}: {e}", path.display()))?;
         hs.update(l.as_bytes());
         hs.update(b"\n");
-        let v: Value = serde_json::from_str(&l).map_err(|e| format!("{} line {}: {e}", path.display(), i + 1))?;
+        let v: Value = serde_json::from_str(&l)
+            .map_err(|e| format!("{} line {}: {e}", path.display(), i + 1))?;
         let at = || format!("{} line {}", path.display(), i + 1);
         if summary.is_some() {
             return Err(format!("{}: a line after the summary", at()));
@@ -139,13 +156,20 @@ pub fn read(path: &Path) -> Result<ArrivalSet, String> {
             }
             Some("arrival") if header.is_some() => {
                 let a = ArrivalLine {
-                    key: serde_json::from_value(v["key"].clone()).map_err(|e| format!("{}: key: {e}", at()))?,
-                    senders: v["senders"].as_u64().ok_or_else(|| format!("{}: senders", at()))?,
+                    key: serde_json::from_value(v["key"].clone())
+                        .map_err(|e| format!("{}: key: {e}", at()))?,
+                    senders: v["senders"]
+                        .as_u64()
+                        .ok_or_else(|| format!("{}: senders", at()))?,
                     exact_senders: v["exact_senders"].as_u64(),
-                    first: serde_json::from_value(v["first"].clone()).map_err(|e| format!("{}: first: {e}", at()))?,
+                    first: serde_json::from_value(v["first"].clone())
+                        .map_err(|e| format!("{}: first: {e}", at()))?,
                     first_exact: match &v["first_exact"] {
                         Value::Null => None,
-                        x => Some(serde_json::from_value(x.clone()).map_err(|e| format!("{}: first_exact: {e}", at()))?),
+                        x => Some(
+                            serde_json::from_value(x.clone())
+                                .map_err(|e| format!("{}: first_exact: {e}", at()))?,
+                        ),
                     },
                 };
                 if a.senders == 0 {
@@ -168,7 +192,12 @@ pub fn read(path: &Path) -> Result<ArrivalSet, String> {
     let header = header.ok_or_else(|| format!("{}: no header", path.display()))?;
     let summary = summary.ok_or_else(|| format!("{}: no summary (truncated?)", path.display()))?;
     if summary["keys"].as_u64() != Some(lines.len() as u64) {
-        return Err(format!("{}: summary keys {} != {} lines", path.display(), summary["keys"], lines.len()));
+        return Err(format!(
+            "{}: summary keys {} != {} lines",
+            path.display(),
+            summary["keys"],
+            lines.len()
+        ));
     }
     if summary["lines_digest"].as_str() != Some(lines_digest(lines.iter()).as_str()) {
         return Err(format!("{}: lines_digest mismatch", path.display()));
@@ -215,9 +244,19 @@ mod tests {
         assert_eq!(a.lines, ls);
         assert_eq!(a.summary["exact_keys"], 2);
         // unsorted input refused at write
-        assert!(write(&p, &json!({}), &[line(&[2, 1], 1), line(&[1, 1], 1)], &json!({})).is_err());
+        assert!(
+            write(
+                &p,
+                &json!({}),
+                &[line(&[2, 1], 1), line(&[1, 1], 1)],
+                &json!({})
+            )
+            .is_err()
+        );
         // a forged count is refused at read (lines digest)
-        let text = std::fs::read_to_string(&p).unwrap().replace("\"senders\":2", "\"senders\":3");
+        let text = std::fs::read_to_string(&p)
+            .unwrap()
+            .replace("\"senders\":2", "\"senders\":3");
         std::fs::write(&p, text).unwrap();
         assert!(read(&p).unwrap_err().contains("lines_digest"));
         // a truncated file is refused

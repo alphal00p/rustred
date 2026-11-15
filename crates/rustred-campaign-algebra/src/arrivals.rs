@@ -47,7 +47,7 @@ type Fe = FiniteFieldElement<u64>;
 /// The two evaluation points of the modular witnesses (primes verified at start; d values arbitrary: a non-zero value
 /// is a proof at any point, a zero value only sends the pair to the exact evaluation).
 pub const PRIMES: [(u64, u64); 2] = [
-    (2_305_843_009_213_693_951, 1_000_003),        // 2^61 - 1
+    (2_305_843_009_213_693_951, 1_000_003),         // 2^61 - 1
     (4_611_686_018_427_387_847, 7_777_777_777_777), // 2^62 - 57
 ];
 
@@ -104,10 +104,18 @@ impl Transporter {
 
     /// The image of `key` (a parent key of sector `s`) as (child key, coefficient), child keys sorted, zero coefficients
     /// dropped. Refuses a key that is not of the sector (a kept line < 1, a dropped line or numerator > 0).
-    pub fn apply(&self, s: &RoutedSector, key: &[i32]) -> Result<Vec<(Vec<i32>, Rational)>, String> {
+    pub fn apply(
+        &self,
+        s: &RoutedSector,
+        key: &[i32],
+    ) -> Result<Vec<(Vec<i32>, Rational)>, String> {
         let n = self.arity;
         if key.len() != n || s.subst.len() != n {
-            return Err(format!("key of arity {} for a route of arity {}", key.len(), s.subst.len()));
+            return Err(format!(
+                "key of arity {} for a route of arity {}",
+                key.len(),
+                s.subst.len()
+            ));
         }
         let mut base = vec![0i32; n];
         let mut poly = self.tpl.constant(Rational::from(1));
@@ -115,13 +123,19 @@ impl Transporter {
             match sub {
                 SlotSub::Line(j) => {
                     if key[t] < 1 {
-                        return Err(format!("kept line {t} at power {} (not this sector)", key[t]));
+                        return Err(format!(
+                            "kept line {t} at power {} (not this sector)",
+                            key[t]
+                        ));
                     }
                     base[*j] = key[t];
                 }
                 SlotSub::Form { coefs, q2 } => {
                     if key[t] > 0 {
-                        return Err(format!("slot {t} at power {} > 0 (not this sector)", key[t]));
+                        return Err(format!(
+                            "slot {t} at power {} > 0 (not this sector)",
+                            key[t]
+                        ));
                     }
                     let e = (-key[t]) as usize;
                     if e == 0 {
@@ -164,7 +178,9 @@ pub fn transport_identity_mod_p(
     let mut x = vec![0u128; n];
     let mut st = seed ^ 0x9E37_79B9_7F4A_7C15;
     for v in x.iter_mut() {
-        st = st.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        st = st
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
         *v = (st >> 3) as u128 % P;
     }
     let md = |a: i128| -> u128 { a.rem_euclid(P as i128) as u128 };
@@ -247,7 +263,8 @@ pub fn read_record(
             info.path, info.offset, info.record_sha256
         ));
     }
-    let rt = RuleText::parse(&line, &frame).map_err(|e| format!("{}@{}: {e:?}", info.path, info.offset))?;
+    let rt = RuleText::parse(&line, &frame)
+        .map_err(|e| format!("{}@{}: {e:?}", info.path, info.offset))?;
     Ok((rt, frame))
 }
 
@@ -270,7 +287,12 @@ pub struct RecCache<'s> {
 }
 
 impl<'s> RecCache<'s> {
-    pub fn new(alg: &'static SymbolicaAlgebra, set: &'s ImportedSet, cfg: ProverCfg, recs: impl IntoIterator<Item = (usize, usize)>) -> RecCache<'s> {
+    pub fn new(
+        alg: &'static SymbolicaAlgebra,
+        set: &'s ImportedSet,
+        cfg: ProverCfg,
+        recs: impl IntoIterator<Item = (usize, usize)>,
+    ) -> RecCache<'s> {
         RecCache {
             set,
             alg,
@@ -300,22 +322,43 @@ impl<'s> RecCache<'s> {
     }
 
     /// Run `f` on the record's entry (parsed on first use).
-    pub fn with<R>(&self, t: usize, r: usize, f: impl FnOnce(&mut RecEntry) -> Result<R, String>) -> Result<R, String> {
-        let slot = self.slots.get(&(t, r)).ok_or_else(|| format!("record ({t}, {r}) not in the cache"))?;
-        let mut g = slot.lock().map_err(|_| "record cache lock poisoned".to_string())?;
+    pub fn with<R>(
+        &self,
+        t: usize,
+        r: usize,
+        f: impl FnOnce(&mut RecEntry) -> Result<R, String>,
+    ) -> Result<R, String> {
+        let slot = self
+            .slots
+            .get(&(t, r))
+            .ok_or_else(|| format!("record ({t}, {r}) not in the cache"))?;
+        let mut g = slot
+            .lock()
+            .map_err(|_| "record cache lock poisoned".to_string())?;
         if g.is_none() {
-            let known = self.texts.lock().map_err(|_| "texts lock".to_string())?.get(&(t, r)).cloned();
+            let known = self
+                .texts
+                .lock()
+                .map_err(|_| "texts lock".to_string())?
+                .get(&(t, r))
+                .cloned();
             let (rt, frame) = match known {
                 Some(x) => x,
                 None => {
                     let (rt, frame) = read_record(self.set, &self.frames, t, r)?;
                     let rt: &'static RuleText = Box::leak(Box::new(rt));
-                    self.texts.lock().map_err(|_| "texts lock".to_string())?.insert((t, r), (rt, frame.clone()));
+                    self.texts
+                        .lock()
+                        .map_err(|_| "texts lock".to_string())?
+                        .insert((t, r), (rt, frame.clone()));
                     (rt, frame)
                 }
             };
             let p = RecordProver::new(self.alg, self.cfg.clone(), rt, frame.mask())?;
-            *g = Some(RecEntry { p, me: ModEval::new() });
+            *g = Some(RecEntry {
+                p,
+                me: ModEval::new(),
+            });
         }
         f(g.as_mut().expect("set"))
     }
@@ -341,7 +384,12 @@ impl ModEval {
         }
     }
 
-    fn reduced(&mut self, p: &mut RecordProver<'_>, j: usize, i: usize) -> Result<&(PPoly, Option<PPoly>), String> {
+    fn reduced(
+        &mut self,
+        p: &mut RecordProver<'_>,
+        j: usize,
+        i: usize,
+    ) -> Result<&(PPoly, Option<PPoly>), String> {
         if !self.cache.contains_key(&(j, i)) {
             let f = self.fields[i].clone();
             let (num, den) = p.term_polys(j)?;
@@ -353,7 +401,13 @@ impl ModEval {
     }
 
     /// (numerator, denominator) of term j at (rule point, d_i) mod p_i; denominator 1 when the term has none.
-    pub fn values(&mut self, p: &mut RecordProver<'_>, j: usize, pt: &[i32], i: usize) -> Result<(Fe, Fe), String> {
+    pub fn values(
+        &mut self,
+        p: &mut RecordProver<'_>,
+        j: usize,
+        pt: &[i32],
+        i: usize,
+    ) -> Result<(Fe, Fe), String> {
         let f = self.fields[i].clone();
         let d0 = PRIMES[i].1;
         let mut point: Vec<Fe> = pt.iter().map(|&v| small_mod(&f, v as i64)).collect();
@@ -368,7 +422,13 @@ impl ModEval {
     }
 
     /// The coefficient value at point i, None when the denominator vanishes mod p_i there.
-    pub fn coef(&mut self, p: &mut RecordProver<'_>, j: usize, pt: &[i32], i: usize) -> Result<Option<u64>, String> {
+    pub fn coef(
+        &mut self,
+        p: &mut RecordProver<'_>,
+        j: usize,
+        pt: &[i32],
+        i: usize,
+    ) -> Result<Option<u64>, String> {
         let f = self.fields[i].clone();
         let (n, d) = self.values(p, j, pt, i)?;
         if f.is_zero(&d) {
@@ -383,7 +443,12 @@ impl ModEval {
 }
 
 /// The exact word of term j at `pt` with a modular witness first: (word, by).
-pub fn exact_word(p: &mut RecordProver<'_>, me: &mut ModEval, j: usize, pt: &[i32]) -> Result<(CoefFact, String), String> {
+pub fn exact_word(
+    p: &mut RecordProver<'_>,
+    me: &mut ModEval,
+    j: usize,
+    pt: &[i32],
+) -> Result<(CoefFact, String), String> {
     let f = me.field(0).clone();
     let (n, d) = me.values(p, j, pt, 0)?;
     if !f.is_zero(&n) && !f.is_zero(&d) {
@@ -506,7 +571,9 @@ fn par_map<T: Sync, R: Send>(items: &[T], threads: usize, f: impl Fn(&T) -> R + 
             });
         }
     });
-    out.into_iter().map(|m| m.into_inner().expect("lock").expect("done")).collect()
+    out.into_iter()
+        .map(|m| m.into_inner().expect("lock").expect("done"))
+        .collect()
 }
 
 /// The result of the walk of one parent.
@@ -520,7 +587,12 @@ pub struct Walk {
 }
 
 /// Phases A and B (module docs). `cache` holds every record that serves a row (built by the caller).
-pub fn walk(set: &ImportedSet, rows: &ParentRows, cache: &RecCache<'_>, cfg: &WalkCfg) -> Result<Walk, String> {
+pub fn walk(
+    set: &ImportedSet,
+    rows: &ParentRows,
+    cache: &RecCache<'_>,
+    cfg: &WalkCfg,
+) -> Result<Walk, String> {
     let t0 = std::time::Instant::now();
     let lines = set.frame.mask().to_vec();
     let mut st = WalkStats {
@@ -528,15 +600,31 @@ pub fn walk(set: &ImportedSet, rows: &ParentRows, cache: &RecCache<'_>, cfg: &Wa
         rows_served: rows.served.len() as u64,
         ..Default::default()
     };
-    let idx: HashMap<&[i32], usize> = rows.served.iter().enumerate().map(|(i, r)| (r.key.as_slice(), i)).collect();
+    let idx: HashMap<&[i32], usize> = rows
+        .served
+        .iter()
+        .enumerate()
+        .map(|(i, r)| (r.key.as_slice(), i))
+        .collect();
     // --- A: the exact closure, lazily ---
-    let mut reached: BTreeSet<Vec<i32>> = rows.keys.iter().filter(|(_, s)| **s).map(|(k, _)| k.clone()).collect();
+    let mut reached: BTreeSet<Vec<i32>> = rows
+        .keys
+        .iter()
+        .filter(|(_, s)| **s)
+        .map(|(k, _)| k.clone())
+        .collect();
     st.start_keys = reached.len() as u64;
     let n = set.arity();
     let tops = |i: usize| -> Vec<(u32, Vec<i32>)> {
         let r = &rows.served[i];
         let (mut buf, mut cm) = (vec![], vec![]);
-        let Ok(Some(nt)) = set.bodies.instantiate(&set.disp, set.disp.rule_ref(r.table, r.record), &r.applied, &mut buf, &mut cm) else {
+        let Ok(Some(nt)) = set.bodies.instantiate(
+            &set.disp,
+            set.disp.rule_ref(r.table, r.record),
+            &r.applied,
+            &mut buf,
+            &mut cm,
+        ) else {
             return vec![];
         };
         (0..nt)
@@ -556,7 +644,9 @@ pub fn walk(set: &ImportedSet, rows: &ParentRows, cache: &RecCache<'_>, cfg: &Wa
                 for (j, tk) in tops(i) {
                     if !reached.contains(&tk) {
                         if !rows.keys.contains_key(&tk) {
-                            return Err(format!("the rows file is not closed: {tk:?} (top term {j} of {k:?}) is not a row"));
+                            return Err(format!(
+                                "the rows file is not closed: {tk:?} (top term {j} of {k:?}) is not a row"
+                            ));
                         }
                         cand.entry(tk).or_default().push((i, j));
                     }
@@ -565,28 +655,41 @@ pub fn walk(set: &ImportedSet, rows: &ParentRows, cache: &RecCache<'_>, cfg: &Wa
         }
         let mut new: Vec<Vec<i32>> = vec![];
         loop {
-            let pend: Vec<(Vec<i32>, (usize, u32))> = cand.iter().filter_map(|(k, v)| v.first().map(|c| (k.clone(), *c))).collect();
+            let pend: Vec<(Vec<i32>, (usize, u32))> = cand
+                .iter()
+                .filter_map(|(k, v)| v.first().map(|c| (k.clone(), *c)))
+                .collect();
             if pend.is_empty() {
                 break;
             }
             let mut by_rec: BTreeMap<(usize, usize), Vec<(usize, u32, usize)>> = BTreeMap::new();
             for (pi, (_, (i, j))) in pend.iter().enumerate() {
                 let r = &rows.served[*i];
-                by_rec.entry((r.table, r.record)).or_default().push((*i, *j, pi));
+                by_rec
+                    .entry((r.table, r.record))
+                    .or_default()
+                    .push((*i, *j, pi));
             }
-            let groups: Vec<((usize, usize), Vec<(usize, u32, usize)>)> = by_rec.into_iter().collect();
-            let res = par_map(&groups, cfg.threads, |((t, r), items)| -> Result<Vec<(usize, CoefFact, bool)>, String> {
-                cache.with(*t, *r, |e| {
-                    let mut out = vec![];
-                    for (i, j, pi) in items {
-                        let row = &rows.served[*i];
-                        let pt = e.p.point(&row.applied).ok_or_else(|| format!("{:?}: no rule point", row.applied))?;
-                        let (w, by) = exact_word(&mut e.p, &mut e.me, *j as usize, &pt)?;
-                        out.push((*pi, w, by == "key:mod"));
-                    }
-                    Ok(out)
-                })
-            });
+            let groups: Vec<((usize, usize), Vec<(usize, u32, usize)>)> =
+                by_rec.into_iter().collect();
+            let res = par_map(
+                &groups,
+                cfg.threads,
+                |((t, r), items)| -> Result<Vec<(usize, CoefFact, bool)>, String> {
+                    cache.with(*t, *r, |e| {
+                        let mut out = vec![];
+                        for (i, j, pi) in items {
+                            let row = &rows.served[*i];
+                            let pt =
+                                e.p.point(&row.applied)
+                                    .ok_or_else(|| format!("{:?}: no rule point", row.applied))?;
+                            let (w, by) = exact_word(&mut e.p, &mut e.me, *j as usize, &pt)?;
+                            out.push((*pi, w, by == "key:mod"));
+                        }
+                        Ok(out)
+                    })
+                },
+            );
             let mut decided = vec![CoefFact::Unknown; pend.len()];
             for r in res {
                 for (pi, w, m) in r? {
@@ -610,7 +713,14 @@ pub fn walk(set: &ImportedSet, rows: &ParentRows, cache: &RecCache<'_>, cfg: &Wa
         }
         cand.clear();
         new.sort();
-        eprintln!("[arrivals] closure round {}: +{} keys, reached {}, top decisions {} ({:.0} s)", st.rounds, new.len(), reached.len(), st.top_decisions, t0.elapsed().as_secs_f64());
+        eprintln!(
+            "[arrivals] closure round {}: +{} keys, reached {}, top decisions {} ({:.0} s)",
+            st.rounds,
+            new.len(),
+            reached.len(),
+            st.top_decisions,
+            t0.elapsed().as_secs_f64()
+        );
         frontier = new;
     }
     cache.release_all();
@@ -621,7 +731,9 @@ pub fn walk(set: &ImportedSet, rows: &ParentRows, cache: &RecCache<'_>, cfg: &Wa
         h.update(format!("{k:?}\n").as_bytes());
     }
     let closure_digest = format!("sha256:{}", h.finish_hex());
-    let cl_served: Vec<usize> = (0..rows.served.len()).filter(|&i| reached.contains(&rows.served[i].key)).collect();
+    let cl_served: Vec<usize> = (0..rows.served.len())
+        .filter(|&i| reached.contains(&rows.served[i].key))
+        .collect();
     st.closure_served = cl_served.len() as u64;
     st.seconds_closure = t0.elapsed().as_secs_f64();
     // --- B: hand-down decisions on CL(S) ---
@@ -635,74 +747,92 @@ pub fn walk(set: &ImportedSet, rows: &ParentRows, cache: &RecCache<'_>, cfg: &Wa
     groups.sort_by_key(|g| std::cmp::Reverse(g.1.len()));
     st.records_walked = groups.len() as u64;
     type Out = (Vec<(usize, Vec<HandTerm>)>, WalkStats);
-    let res = par_map(&groups, cfg.threads, |((t, r), items)| -> Result<Out, String> {
-        cache.with(*t, *r, |e| {
-            let (p, me) = (&mut e.p, &mut e.me);
-            let mut s = WalkStats::default();
-            let mut out = vec![];
-            for &ci in items {
-                let row = &rows.served[cl_served[ci]];
-                let pt = p.point(&row.applied).ok_or_else(|| format!("{:?}: no rule point", row.applied))?;
-                let mut hand = vec![];
-                for j in 0..p.n_terms() {
-                    let Some(tk) = p.term_key(j, &pt) else {
-                        return Err(format!("{:?}: term {j} pattern", row.applied));
-                    };
-                    if tk.len() != n {
-                        return Err("term key arity".into());
-                    }
-                    let (pos, mask) = split_lines(&lines, &tk);
-                    if pos {
-                        s.positive_numerator_terms += 1;
-                        continue;
-                    }
-                    if mask == 0 {
-                        continue;
-                    }
-                    s.handdown_terms += 1;
-                    let structural = if cfg.structural { p.handdown_structural(j, &pt, &tk) } else { None };
-                    let (word, by) = match structural {
-                        Some((w, by)) => {
-                            if w == CoefFact::Zero {
-                                s.by_structural_zero += 1;
-                            } else {
-                                s.by_structural_nonzero += 1;
+    let res = par_map(
+        &groups,
+        cfg.threads,
+        |((t, r), items)| -> Result<Out, String> {
+            cache
+                .with(*t, *r, |e| {
+                    let (p, me) = (&mut e.p, &mut e.me);
+                    let mut s = WalkStats::default();
+                    let mut out = vec![];
+                    for &ci in items {
+                        let row = &rows.served[cl_served[ci]];
+                        let pt = p
+                            .point(&row.applied)
+                            .ok_or_else(|| format!("{:?}: no rule point", row.applied))?;
+                        let mut hand = vec![];
+                        for j in 0..p.n_terms() {
+                            let Some(tk) = p.term_key(j, &pt) else {
+                                return Err(format!("{:?}: term {j} pattern", row.applied));
+                            };
+                            if tk.len() != n {
+                                return Err("term key arity".into());
                             }
-                            (w, by)
-                        }
-                        None => {
-                            let (w, by) = exact_word(p, me, j, &pt)?;
-                            if by == "key:mod" {
-                                s.by_key_mod += 1;
-                            } else {
-                                s.by_key_exact += 1;
+                            let (pos, mask) = split_lines(&lines, &tk);
+                            if pos {
+                                s.positive_numerator_terms += 1;
+                                continue;
                             }
-                            (w, by)
+                            if mask == 0 {
+                                continue;
+                            }
+                            s.handdown_terms += 1;
+                            let structural = if cfg.structural {
+                                p.handdown_structural(j, &pt, &tk)
+                            } else {
+                                None
+                            };
+                            let (word, by) = match structural {
+                                Some((w, by)) => {
+                                    if w == CoefFact::Zero {
+                                        s.by_structural_zero += 1;
+                                    } else {
+                                        s.by_structural_nonzero += 1;
+                                    }
+                                    (w, by)
+                                }
+                                None => {
+                                    let (w, by) = exact_word(p, me, j, &pt)?;
+                                    if by == "key:mod" {
+                                        s.by_key_mod += 1;
+                                    } else {
+                                        s.by_key_exact += 1;
+                                    }
+                                    (w, by)
+                                }
+                            };
+                            match word {
+                                CoefFact::Zero => {
+                                    s.handdown_zero += 1;
+                                    continue;
+                                }
+                                CoefFact::NonZero => s.handdown_nonzero += 1,
+                                CoefFact::Unknown => s.handdown_unknown += 1,
+                            }
+                            let mut vals = [None, None];
+                            if cfg.exact.any() && word == CoefFact::NonZero {
+                                for (i, v) in vals.iter_mut().enumerate() {
+                                    *v = me.coef(p, j, &pt, i)?;
+                                }
+                            }
+                            hand.push(HandTerm {
+                                j: j as u32,
+                                tk,
+                                mask,
+                                word,
+                                by,
+                                vals,
+                            });
                         }
-                    };
-                    match word {
-                        CoefFact::Zero => {
-                            s.handdown_zero += 1;
-                            continue;
-                        }
-                        CoefFact::NonZero => s.handdown_nonzero += 1,
-                        CoefFact::Unknown => s.handdown_unknown += 1,
+                        out.push((ci, hand));
                     }
-                    let mut vals = [None, None];
-                    if cfg.exact.any() && word == CoefFact::NonZero {
-                        for (i, v) in vals.iter_mut().enumerate() {
-                            *v = me.coef(p, j, &pt, i)?;
-                        }
-                    }
-                    hand.push(HandTerm { j: j as u32, tk, mask, word, by, vals });
-                }
-                out.push((ci, hand));
-            }
-            let _ = p.take_new();
-            Ok((out, s))
-        })
-        .inspect(|_| cache.release(*t, *r))
-    });
+                    let _ = p.take_new();
+                    Ok((out, s))
+                })
+                .inspect(|_| cache.release(*t, *r))
+        },
+    );
     let mut hand: Vec<Vec<HandTerm>> = vec![vec![]; cl_served.len()];
     for r in res {
         let (o, s) = r?;
@@ -720,8 +850,20 @@ pub fn walk(set: &ImportedSet, rows: &ParentRows, cache: &RecCache<'_>, cfg: &Wa
         st.positive_numerator_terms += s.positive_numerator_terms;
     }
     st.seconds_handdowns = t1.elapsed().as_secs_f64();
-    eprintln!("[arrivals] hand-down decisions: {} terms ({} zero, {} non-zero) at {} keys ({:.0} s)", st.handdown_terms, st.handdown_zero, st.handdown_nonzero, cl_served.len(), st.seconds_handdowns);
-    Ok(Walk { cl_served, hand, stats: st, closure_digest })
+    eprintln!(
+        "[arrivals] hand-down decisions: {} terms ({} zero, {} non-zero) at {} keys ({:.0} s)",
+        st.handdown_terms,
+        st.handdown_zero,
+        st.handdown_nonzero,
+        cl_served.len(),
+        st.seconds_handdowns
+    );
+    Ok(Walk {
+        cl_served,
+        hand,
+        stats: st,
+        closure_digest,
+    })
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -767,7 +909,11 @@ struct PerKey {
 }
 
 fn min_ref(w: &Walk, a: SenderRef, b: SenderRef) -> SenderRef {
-    if (w.cl_served[a.0], a.1) <= (w.cl_served[b.0], b.1) { a } else { b }
+    if (w.cl_served[a.0], a.1) <= (w.cl_served[b.0], b.1) {
+        a
+    } else {
+        b
+    }
 }
 
 /// Phase C for all edges of the parent at once: the arrival lines per edge and the masks no edge routes (mask -> terms).
@@ -785,8 +931,16 @@ pub fn aggregate(
     let alg = cache.alg;
     let child_lines: Vec<Vec<usize>> = edges.iter().map(|e| e.child.table_lines.clone()).collect();
     let chunk = w.cl_served.len().div_ceil(cfg.threads.max(1) * 4).max(1);
-    let parts: Vec<(usize, usize)> = (0..w.cl_served.len()).step_by(chunk).map(|a| (a, (a + chunk).min(w.cl_served.len()))).collect();
-    type Part = (Vec<HashMap<Vec<i32>, Acc>>, Vec<EdgeStats>, BTreeMap<u64, u64>, Vec<(usize, usize, Vec<i32>, SenderRef)>);
+    let parts: Vec<(usize, usize)> = (0..w.cl_served.len())
+        .step_by(chunk)
+        .map(|a| (a, (a + chunk).min(w.cl_served.len())))
+        .collect();
+    type Part = (
+        Vec<HashMap<Vec<i32>, Acc>>,
+        Vec<EdgeStats>,
+        BTreeMap<u64, u64>,
+        Vec<(usize, usize, Vec<i32>, SenderRef)>,
+    );
     let res = par_map(&parts, cfg.threads, |&(a, b)| -> Result<Part, String> {
         let tr = Transporter::new(alg, n)?;
         let fields: Vec<Zp64> = PRIMES.iter().map(|(p, _)| Zp64::new(*p)).collect();
@@ -795,10 +949,12 @@ pub fn aggregate(
         let mut other: BTreeMap<u64, u64> = BTreeMap::new();
         let mut fallback = vec![];
         // expansion per (edge, parent term key): child keys with the coefficient reduced mod each prime
-        let mut tcache: HashMap<(usize, Vec<i32>), std::sync::Arc<Vec<(Vec<i32>, [Fe; 2])>>> = HashMap::new();
+        let mut tcache: HashMap<(usize, Vec<i32>), std::sync::Arc<Vec<(Vec<i32>, [Fe; 2])>>> =
+            HashMap::new();
         let mut cached = 0usize;
         for ci in a..b {
-            let mut per: Vec<HashMap<Vec<i32>, PerKey>> = edges.iter().map(|_| HashMap::new()).collect();
+            let mut per: Vec<HashMap<Vec<i32>, PerKey>> =
+                edges.iter().map(|_| HashMap::new()).collect();
             let mut sent = vec![false; edges.len()];
             for (hi, h) in w.hand[ci].iter().enumerate() {
                 let Some(&e) = owners.get(&h.mask) else {
@@ -817,7 +973,12 @@ pub fn aggregate(
                             .apply(sec, &h.tk)?
                             .into_iter()
                             .map(|(k, c)| {
-                                let t = |f: &Zp64| f.mul(&int_mod(f, &c.numerator()), &f.inv(&int_mod(f, &c.denominator())));
+                                let t = |f: &Zp64| {
+                                    f.mul(
+                                        &int_mod(f, &c.numerator()),
+                                        &f.inv(&int_mod(f, &c.denominator())),
+                                    )
+                                };
                                 (k, [t(&fields[0]), t(&fields[1])])
                             })
                             .collect();
@@ -838,7 +999,10 @@ pub fn aggregate(
                         est[e].lower_child_sector_terms += 1;
                         continue;
                     }
-                    let ent = per[e].entry(k.clone()).or_insert_with(|| PerKey { acc: [Some(fields[0].zero()), Some(fields[1].zero())], first: me });
+                    let ent = per[e].entry(k.clone()).or_insert_with(|| PerKey {
+                        acc: [Some(fields[0].zero()), Some(fields[1].zero())],
+                        first: me,
+                    });
                     if cfg.exact.wants(k) {
                         for (i, f) in fields.iter().enumerate() {
                             let acc = &mut ent.acc[i];
@@ -856,7 +1020,13 @@ pub fn aggregate(
                 est[e].sending_parent_keys += sent[e] as u64;
                 for (k, pk) in per[e].drain() {
                     let wants = cfg.exact.wants(&k);
-                    let m = maps[e].entry(k.clone()).or_insert(Acc { senders: 0, first: pk.first, exact_senders: 0, exact_level: false, first_exact: None });
+                    let m = maps[e].entry(k.clone()).or_insert(Acc {
+                        senders: 0,
+                        first: pk.first,
+                        exact_senders: 0,
+                        exact_level: false,
+                        first_exact: None,
+                    });
                     m.senders += 1;
                     m.first = min_ref(w, m.first, pk.first);
                     if !wants {
@@ -864,11 +1034,16 @@ pub fn aggregate(
                     }
                     est[e].exact_pairs += 1;
                     m.exact_level = true;
-                    let witness = pk.acc.iter().enumerate().any(|(i, v)| v.as_ref().is_some_and(|v| !fields[i].is_zero(v)));
+                    let witness = pk
+                        .acc
+                        .iter()
+                        .enumerate()
+                        .any(|(i, v)| v.as_ref().is_some_and(|v| !fields[i].is_zero(v)));
                     if witness {
                         est[e].exact_by_witness += 1;
                         m.exact_senders += 1;
-                        m.first_exact = Some(m.first_exact.map_or(pk.first, |f| min_ref(w, f, pk.first)));
+                        m.first_exact =
+                            Some(m.first_exact.map_or(pk.first, |f| min_ref(w, f, pk.first)));
                     } else {
                         fallback.push((ci, e, k, pk.first));
                     }
@@ -919,62 +1094,81 @@ pub fn aggregate(
     }
     // the exact symbolic fallback (zero at both points or a denominator zero mod p), grouped by record
     if !fallback.is_empty() {
-        let mut by_rec: BTreeMap<(usize, usize), Vec<(usize, usize, Vec<i32>, SenderRef)>> = BTreeMap::new();
+        let mut by_rec: BTreeMap<(usize, usize), Vec<(usize, usize, Vec<i32>, SenderRef)>> =
+            BTreeMap::new();
         for x in fallback {
             let r = &rows.served[w.cl_served[x.0]];
             by_rec.entry((r.table, r.record)).or_default().push(x);
         }
         let groups: Vec<_> = by_rec.into_iter().collect();
-        let res = par_map(&groups, cfg.threads, |((t, r), items)| -> Result<Vec<(usize, Vec<i32>, SenderRef, bool)>, String> {
-            let tr = Transporter::new(alg, n)?;
-            cache.with(*t, *r, |ent| {
-                let p = &mut ent.p;
-                let mut out = vec![];
-                for (ci, e, k, first) in items {
-                    let row = &rows.served[w.cl_served[*ci]];
-                    let pt = p.point(&row.applied).ok_or("no rule point")?;
-                    let vals: Vec<Integer> = pt.iter().map(|&x| Integer::from(x as i64)).collect();
-                    let reps: Vec<(usize, &Integer)> = vals.iter().enumerate().collect();
-                    let mut parts: Vec<(Rational, QPoly, Option<QPoly>)> = vec![];
-                    for h in &w.hand[*ci] {
-                        if owners.get(&h.mask) != Some(e) {
-                            continue;
-                        }
-                        let sec = edges[*e].sector(h.mask).expect("owner");
-                        let img = tr.apply(sec, &h.tk)?;
-                        let Ok(pos) = img.binary_search_by(|x| x.0.as_slice().cmp(k.as_slice())) else { continue };
-                        let (num, den) = p.term_polys(h.j as usize)?;
-                        let nq = num.replace_multiple(&reps, true).map_coeff(|c| Rational::from(c), Q);
-                        let dq = den.map(|d| d.replace_multiple(&reps, true).map_coeff(|c| Rational::from(c), Q));
-                        parts.push((img[pos].1.clone(), nq, dq));
-                    }
-                    // a contributing term whose denominator vanishes identically at the key (0/0) is undecided: it sends
-                    if parts.iter().any(|(_, _, d)| d.as_ref().is_some_and(|d| d.is_zero())) {
-                        out.push((*e, k.clone(), *first, true));
-                        continue;
-                    }
-                    // sum_t T_t N_t prod_{s != t} D_s == 0 ?
-                    let mut total: Option<QPoly> = None;
-                    for (a, (c, nq, _)) in parts.iter().enumerate() {
-                        let mut term = nq.clone().mul_coeff(c.clone());
-                        for (b, (_, _, d)) in parts.iter().enumerate() {
-                            if a != b
-                                && let Some(d) = d
-                            {
-                                term = &term * d;
+        let res = par_map(
+            &groups,
+            cfg.threads,
+            |((t, r), items)| -> Result<Vec<(usize, Vec<i32>, SenderRef, bool)>, String> {
+                let tr = Transporter::new(alg, n)?;
+                cache
+                    .with(*t, *r, |ent| {
+                        let p = &mut ent.p;
+                        let mut out = vec![];
+                        for (ci, e, k, first) in items {
+                            let row = &rows.served[w.cl_served[*ci]];
+                            let pt = p.point(&row.applied).ok_or("no rule point")?;
+                            let vals: Vec<Integer> =
+                                pt.iter().map(|&x| Integer::from(x as i64)).collect();
+                            let reps: Vec<(usize, &Integer)> = vals.iter().enumerate().collect();
+                            let mut parts: Vec<(Rational, QPoly, Option<QPoly>)> = vec![];
+                            for h in &w.hand[*ci] {
+                                if owners.get(&h.mask) != Some(e) {
+                                    continue;
+                                }
+                                let sec = edges[*e].sector(h.mask).expect("owner");
+                                let img = tr.apply(sec, &h.tk)?;
+                                let Ok(pos) =
+                                    img.binary_search_by(|x| x.0.as_slice().cmp(k.as_slice()))
+                                else {
+                                    continue;
+                                };
+                                let (num, den) = p.term_polys(h.j as usize)?;
+                                let nq = num
+                                    .replace_multiple(&reps, true)
+                                    .map_coeff(|c| Rational::from(c), Q);
+                                let dq = den.map(|d| {
+                                    d.replace_multiple(&reps, true)
+                                        .map_coeff(|c| Rational::from(c), Q)
+                                });
+                                parts.push((img[pos].1.clone(), nq, dq));
                             }
+                            // a contributing term whose denominator vanishes identically at the key (0/0) is undecided: it sends
+                            if parts
+                                .iter()
+                                .any(|(_, _, d)| d.as_ref().is_some_and(|d| d.is_zero()))
+                            {
+                                out.push((*e, k.clone(), *first, true));
+                                continue;
+                            }
+                            // sum_t T_t N_t prod_{s != t} D_s == 0 ?
+                            let mut total: Option<QPoly> = None;
+                            for (a, (c, nq, _)) in parts.iter().enumerate() {
+                                let mut term = nq.clone().mul_coeff(c.clone());
+                                for (b, (_, _, d)) in parts.iter().enumerate() {
+                                    if a != b
+                                        && let Some(d) = d
+                                    {
+                                        term = &term * d;
+                                    }
+                                }
+                                total = Some(match total {
+                                    None => term,
+                                    Some(t) => &t + &term,
+                                });
+                            }
+                            out.push((*e, k.clone(), *first, total.is_some_and(|t| !t.is_zero())));
                         }
-                        total = Some(match total {
-                            None => term,
-                            Some(t) => &t + &term,
-                        });
-                    }
-                    out.push((*e, k.clone(), *first, total.is_some_and(|t| !t.is_zero())));
-                }
-                Ok(out)
-            })
-            .inspect(|_| cache.release(*t, *r))
-        });
+                        Ok(out)
+                    })
+                    .inspect(|_| cache.release(*t, *r))
+            },
+        );
         for r in res {
             for (e, k, first, nz) in r? {
                 let m = maps[e].get_mut(&k).expect("acc");

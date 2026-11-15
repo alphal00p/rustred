@@ -70,8 +70,12 @@ impl Rat {
                         .map(|x| Rat { num: x, den: 1 })
                         .map_err(|e| format!("rational {s:?}: {e}")),
                     Some((p, q)) => Rat::new(
-                        p.trim().parse().map_err(|e| format!("rational {s:?}: {e}"))?,
-                        q.trim().parse().map_err(|e| format!("rational {s:?}: {e}"))?,
+                        p.trim()
+                            .parse()
+                            .map_err(|e| format!("rational {s:?}: {e}"))?,
+                        q.trim()
+                            .parse()
+                            .map_err(|e| format!("rational {s:?}: {e}"))?,
                     ),
                 }
             }
@@ -153,7 +157,8 @@ fn side(v: &Value, what: &str) -> Result<EdgeSide, String> {
     let ps = v["presentation_slots"]
         .as_array()
         .ok_or_else(|| format!("{what}: no presentation_slots"))?;
-    let vecs = |x: &Value| -> Option<Vec<i64>> { x.as_array()?.iter().map(Value::as_i64).collect() };
+    let vecs =
+        |x: &Value| -> Option<Vec<i64>> { x.as_array()?.iter().map(Value::as_i64).collect() };
     let mut momenta = vec![];
     for (t, &p) in sm.iter().enumerate() {
         let s = ps
@@ -172,7 +177,9 @@ fn side(v: &Value, what: &str) -> Result<EdgeSide, String> {
             }
             a
         } else {
-            return Err(format!("{what}: presentation slot {p}: neither line nor isp"));
+            return Err(format!(
+                "{what}: presentation slot {p}: neither line nor isp"
+            ));
         };
         momenta.push(m);
     }
@@ -204,7 +211,9 @@ fn sub(v: &Value, t: usize) -> Result<SlotSub, String> {
         .ok_or_else(|| format!("slot {t}: neither line nor form"))?;
     let mut coefs = vec![];
     for (j, c) in f {
-        let j: usize = j.parse().map_err(|e| format!("slot {t}: form slot {j:?}: {e}"))?;
+        let j: usize = j
+            .parse()
+            .map_err(|e| format!("slot {t}: form slot {j:?}: {e}"))?;
         let c = Rat::parse(c).map_err(|e| format!("slot {t}: {e}"))?;
         if !c.is_zero() {
             coefs.push((j, c));
@@ -235,7 +244,9 @@ impl EdgeFile {
         let v: Value = serde_json::from_slice(bytes).map_err(|e| format!("{path}: {e}"))?;
         let schema = v["schema"].as_str().unwrap_or("").to_string();
         if schema != EDGE_SCHEMA {
-            return Err(format!("{path}: schema {schema:?} (expected {EDGE_SCHEMA})"));
+            return Err(format!(
+                "{path}: schema {schema:?} (expected {EDGE_SCHEMA})"
+            ));
         }
         let parent = side(&v["parent"], "parent")?;
         let child = side(&v["child"], "child")?;
@@ -468,9 +479,15 @@ mod tests {
         let lines = [true, true, true, true, false];
         assert_eq!(e.parent.check_frame(pf, &lines).unwrap(), 5);
         // a permuted header is refused
-        let bad = pf.replace("(k1-q)^2", "(k2-q)^2").replace("(-k2+q)^2", "(k1-q)^2");
+        let bad = pf
+            .replace("(k1-q)^2", "(k2-q)^2")
+            .replace("(-k2+q)^2", "(k1-q)^2");
         assert!(e.parent.check_frame(&bad, &lines).is_err());
-        assert!(e.parent.check_frame(pf, &[true, true, true, false, false]).is_err());
+        assert!(
+            e.parent
+                .check_frame(pf, &[true, true, true, false, false])
+                .is_err()
+        );
         // a routed sector whose line map is not a bijection onto the child's lines is refused
         let mut v = toy_edge();
         v["sectors"][1]["substitution"]["chosen"][3] = json!({"line": 1});
@@ -479,6 +496,9 @@ mod tests {
         assert!(EdgeFile::parse(toy_edge().to_string().as_bytes(), "toy", "c9").is_err());
         assert_eq!(Rat::parse(&json!("-6/4")).unwrap(), Rat { num: -3, den: 2 });
         assert_eq!(Rat::parse(&json!("(2)")).unwrap(), Rat { num: 2, den: 1 });
-        assert_eq!(Rat::parse(&json!(" ( -1/2 ) ")).unwrap(), Rat { num: -1, den: 2 });
+        assert_eq!(
+            Rat::parse(&json!(" ( -1/2 ) ")).unwrap(),
+            Rat { num: -1, den: 2 }
+        );
     }
 }

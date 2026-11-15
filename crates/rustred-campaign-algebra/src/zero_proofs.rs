@@ -374,12 +374,16 @@ impl<'r> RecordProver<'r> {
     fn restrict(&mut self, j: usize, locus: Locus) -> Result<Restricted, Outcome> {
         if let Locus::Plane { param, value } = locus {
             if param as usize >= self.arity {
-                return Err(Outcome::NotProved(format!("parameter {param} out of range")));
+                return Err(Outcome::NotProved(format!(
+                    "parameter {param} out of range"
+                )));
             }
             if let Some(c) = self.konst[param as usize]
                 && c != value
             {
-                return Err(Outcome::Excluded(format!("n{param} is the constant {c} on the record")));
+                return Err(Outcome::Excluded(format!(
+                    "n{param} is the constant {c} on the record"
+                )));
             }
         }
         let term = match self.term(j) {
@@ -417,7 +421,9 @@ impl<'r> RecordProver<'r> {
             .collect();
         let mut used: Vec<u32> = vec![];
         if eq_l.iter().any(|e| !e.is_zero() && e.is_constant()) {
-            return Err(Outcome::Excluded("a case equation is a non-zero constant on the locus".into()));
+            return Err(Outcome::Excluded(
+                "a case equation is a non-zero constant on the locus".into(),
+            ));
         }
         if !num.is_zero() && !eq_l.is_empty() {
             // solve the equations for unit parameters, one after the other
@@ -456,7 +462,9 @@ impl<'r> RecordProver<'r> {
             .iter()
             .position(|b| !b.is_empty() && b.iter().all(ZPoly::is_zero))
         {
-            return Err(Outcome::Excluded(format!("exception branch {b} holds the whole locus")));
+            return Err(Outcome::Excluded(format!(
+                "exception branch {b} holds the whole locus"
+            )));
         }
         Ok(Restricted {
             num,
@@ -1260,7 +1268,9 @@ impl RecordProver<'_> {
                                     den,
                                     equations: r.used,
                                 }
-                            } else if self.classify_den(&r.num, &r.exc, locus) == DenStatus::NowhereZero {
+                            } else if self.classify_den(&r.num, &r.exc, locus)
+                                == DenStatus::NowhereZero
+                            {
                                 NzOutcome::NonZero {
                                     class: "factors",
                                     den,
@@ -1308,7 +1318,12 @@ impl RecordProver<'_> {
 
     /// lane arrivals: the STRUCTURAL word of hand-down term j at rule point `pt` (None: not decided structurally) and how:
     /// `zero:<locus>` / `nonzero:<locus>` (`+den` = the denominator was evaluated at the key).
-    pub fn handdown_structural(&mut self, j: usize, pt: &[i32], tk: &[i32]) -> Option<(CoefFact, String)> {
+    pub fn handdown_structural(
+        &mut self,
+        j: usize,
+        pt: &[i32],
+        tk: &[i32],
+    ) -> Option<(CoefFact, String)> {
         let cands = self.handdown_candidates(j, pt, tk);
         let name = |l: Locus| match l {
             Locus::Domain => "domain".to_string(),
@@ -1365,11 +1380,22 @@ impl RecordProver<'_> {
 }
 
 /// lane arrivals: the line of a non-zero / not-decided hand-down locus.
-pub fn nonzero_line(sha: &str, rule: Option<i64>, j: usize, l: Locus, o: &NzOutcome, secs: f64) -> Value {
+pub fn nonzero_line(
+    sha: &str,
+    rule: Option<i64>,
+    j: usize,
+    l: Locus,
+    o: &NzOutcome,
+    secs: f64,
+) -> Value {
     let mut v = json!({"schema": NONZERO_PROOF_SCHEMA, "record_sha256": sha, "rule": rule, "term": j, "locus": l.json(),
         "class": "hand_down", "method": HANDDOWN_METHOD, "tool": tool_word(), "seconds": (secs * 1e6).round() / 1e6});
     match o {
-        NzOutcome::NonZero { class, den, equations } => {
+        NzOutcome::NonZero {
+            class,
+            den,
+            equations,
+        } => {
             v["verdict"] = json!("nonzero_on_locus");
             v["numerator"] = json!(class);
             v["denominator"] = json!(den.word());
@@ -1424,7 +1450,11 @@ impl HandDownCounts {
 /// plane), else per locus zero / non-zero / per_key. One line per decided (term, locus): zero claims as zero-proof.v1
 /// lines with `class: hand_down` (+ `den` for where_regular), non-zero and per_key as nonzero-proof.v1 lines
 /// (excluded loci only with `all`).
-pub fn prove_handdown_record(p: &mut RecordProver<'_>, c: &mut HandDownCounts, all: bool) -> Vec<Value> {
+pub fn prove_handdown_record(
+    p: &mut RecordProver<'_>,
+    c: &mut HandDownCounts,
+    all: bool,
+) -> Vec<Value> {
     c.records += 1;
     let mut out = vec![];
     let (sha, rule) = (p.sha.clone(), p.rule.index());
@@ -1438,8 +1468,13 @@ pub fn prove_handdown_record(p: &mut RecordProver<'_>, c: &mut HandDownCounts, a
         let zero_line = |p: &mut RecordProver<'_>, l: Locus, o: &Outcome, secs: f64| {
             let mut v = proof_line(&sha, rule, j, l, o, secs);
             v["class"] = json!("hand_down");
-            if matches!(o, Outcome::Proved { den: DenStatus::WhereRegular, .. })
-                && let Ok((_, Some(d))) = p.side_texts(j)
+            if matches!(
+                o,
+                Outcome::Proved {
+                    den: DenStatus::WhereRegular,
+                    ..
+                }
+            ) && let Ok((_, Some(d))) = p.side_texts(j)
             {
                 v["den"] = json!(d.trim());
             }
@@ -1493,7 +1528,10 @@ pub fn prove_handdown_record(p: &mut RecordProver<'_>, c: &mut HandDownCounts, a
                 }
             }
             let mut v = nonzero_line(&sha, rule, j, l, &nz, secs);
-            if let NzOutcome::NonZero { den: DenStatus::WhereRegular, .. } = nz
+            if let NzOutcome::NonZero {
+                den: DenStatus::WhereRegular,
+                ..
+            } = nz
                 && let Ok((_, Some(d))) = p.side_texts(j)
             {
                 v["den"] = json!(d.trim());

@@ -30,15 +30,18 @@ pub fn read_certified(path: &Path) -> Result<(BTreeSet<Vec<i32>>, String), Strin
     let f = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut h = crate::closure::sha256::Sha256::new();
     let mut out = BTreeSet::new();
-    for (i, l) in std::io::BufReader::with_capacity(1 << 20, f).lines().enumerate() {
+    for (i, l) in std::io::BufReader::with_capacity(1 << 20, f)
+        .lines()
+        .enumerate()
+    {
         let l = l.map_err(|e| format!("{}: {e}", path.display()))?;
         h.update(l.as_bytes());
         h.update(b"\n");
         if l.trim().is_empty() {
             continue;
         }
-        let v: Value =
-            serde_json::from_str(&l).map_err(|e| format!("{} line {}: {e}", path.display(), i + 1))?;
+        let v: Value = serde_json::from_str(&l)
+            .map_err(|e| format!("{} line {}: {e}", path.display(), i + 1))?;
         let k = match &v {
             Value::Array(a) if !a.is_empty() && !a[0].is_number() => parse_key(&a[0]),
             Value::Object(_) => parse_key(&v["key"]),
@@ -159,7 +162,9 @@ pub fn check_parent(
             pc.b += 1;
             pc.exact_b += exact as u64;
         } else {
-            return Err(format!("{name}: arrival {k:?} is not in its own closure (internal error)"));
+            return Err(format!(
+                "{name}: arrival {k:?} is not in its own closure (internal error)"
+            ));
         }
     }
     pc.closure_keys = ks.len() as u64;

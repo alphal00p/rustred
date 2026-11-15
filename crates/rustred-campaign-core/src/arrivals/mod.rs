@@ -146,7 +146,13 @@ mod tests {
         assert_eq!(parse_key(&json!("I(1,-2,0)")).unwrap(), vec![1, -2, 0]);
         assert_eq!(parse_key(&json!([3, 0])).unwrap(), vec![3, 0]);
         assert!(parse_key(&json!("I(1,x)")).is_err());
-        assert_eq!(face_of(&[2, 1, -1, 0], &[true, true, false, false]), "{0}/{2}");
-        assert_eq!(dots_rank(&[3, 1, -2, -1], &[true, true, false, false]), (2, 3));
+        assert_eq!(
+            face_of(&[2, 1, -1, 0], &[true, true, false, false]),
+            "{0}/{2}"
+        );
+        assert_eq!(
+            dots_rank(&[3, 1, -2, -1], &[true, true, false, false]),
+            (2, 3)
+        );
     }
 }

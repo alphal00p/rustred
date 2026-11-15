@@ -48,7 +48,10 @@ impl ParentRows {
             path: path.display().to_string(),
             ..Default::default()
         };
-        for (i, l) in std::io::BufReader::with_capacity(1 << 20, f).lines().enumerate() {
+        for (i, l) in std::io::BufReader::with_capacity(1 << 20, f)
+            .lines()
+            .enumerate()
+        {
             let l = l.map_err(|e| format!("{}: {e}", path.display()))?;
             h.update(l.as_bytes());
             h.update(b"\n");
@@ -57,7 +60,8 @@ impl ParentRows {
             }
             let at = || format!("{} line {}", path.display(), i + 1);
             let v: Value = serde_json::from_str(&l).map_err(|e| format!("{}: {e}", at()))?;
-            let key: Vec<i32> = serde_json::from_value(v["key"].clone()).map_err(|e| format!("{}: key: {e}", at()))?;
+            let key: Vec<i32> = serde_json::from_value(v["key"].clone())
+                .map_err(|e| format!("{}: key: {e}", at()))?;
             let in_start = v["in_start"] == true;
             if out.keys.insert(key.clone(), in_start).is_some() {
                 return Err(format!("{}: key {key:?} twice", at()));
@@ -96,17 +100,16 @@ impl ParentRows {
             };
             // a sym-served rule row carries its image too (import5): the record is applied there
             let applied = match (kind, v["server"].get("image")) {
-                ("rule", Some(img)) if !img.is_null() => {
-                    serde_json::from_value(img.clone()).map_err(|e| format!("{}: image: {e}", at()))?
-                }
+                ("rule", Some(img)) if !img.is_null() => serde_json::from_value(img.clone())
+                    .map_err(|e| format!("{}: image: {e}", at()))?,
                 _ => applied,
             };
             let sha = v["server"]["record_sha256"]
                 .as_str()
                 .ok_or_else(|| format!("{}: server without record_sha256", at()))?;
-            let (t, r) = set
-                .find_sha(sha)
-                .ok_or_else(|| format!("{}: record {sha} is not in the parent's table set", at()))?;
+            let (t, r) = set.find_sha(sha).ok_or_else(|| {
+                format!("{}: record {sha} is not in the parent's table set", at())
+            })?;
             out.served.push(ServedRow {
                 key,
                 applied,
