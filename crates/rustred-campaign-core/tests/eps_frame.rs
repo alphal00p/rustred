@@ -1080,7 +1080,28 @@ fn eps_campaign_node() {
         };
         let frame =
             NodeFrame::from_header_eps_aware(&header_of(&head)).map_err(|e| e.to_string())?;
-        let start = layer_keys(&frame, layer);
+        // the start set: the BOXDEF B eps box of EPSC_BOX_CLAUSE (data), else the probe layer box
+        let start = match std::env::var("EPSC_BOX_CLAUSE") {
+            Ok(p) => {
+                use rustred_campaign_core::boxdef::{EpsBox, EpsBoxClause};
+                let txt = std::fs::read_to_string(&p).map_err(|e| e.to_string())?;
+                let c = EpsBoxClause::from_json(&txt).map_err(|e| e.to_string())?;
+                let b = EpsBox::from_clause(&frame, &c, &node).map_err(|e| e.to_string())?;
+                line["box"] = serde_json::json!(format!("eps_box({})", c.origin));
+                line["box_layers"] = serde_json::json!(b.layers);
+                let mut v = vec![];
+                b.for_each_key(|k| v.push(k.to_vec()));
+                v
+            }
+            Err(_) => layer_keys(&frame, layer),
+        };
+        line["start"] = serde_json::json!(start.len());
+        if mode == "count" {
+            return Ok(());
+        }
+        if start.is_empty() {
+            return Err("empty start set (the box has no key)".into());
+        }
         let sp = dir.join("start.jsonl");
         let text: String = start
             .iter()
@@ -1119,7 +1140,6 @@ fn eps_campaign_node() {
         std::fs::write(dir.join("requests.jsonl"), text).map_err(|e| e.to_string())?;
         line["loaded"] = serde_json::json!(true);
         line["records"] = serde_json::json!(set.rules.iter().map(Vec::len).sum::<usize>());
-        line["start"] = serde_json::json!(start.len());
         line["verdict"] = serde_json::to_value(s.verdict).unwrap();
         line["keys"] = serde_json::json!(s.keys_total);
         line["keys_eps_nonpos"] = serde_json::json!(nonpos);
