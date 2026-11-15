@@ -97,7 +97,7 @@ fn zero_proofs_cover_the_positive_numerator_edges_of_a_spec() {
     }
     let scan_s = t2.elapsed().as_secs_f64();
     let mut top: Vec<((String, usize), u64)> = not_proved.into_iter().collect();
-    top.sort_by(|a, b| b.1.cmp(&a.1));
+    top.sort_by_key(|x| std::cmp::Reverse(x.1));
     let total = by.values().fold([0u64; 5], |mut a, v| {
         for i in 0..5 {
             a[i] += v[i];

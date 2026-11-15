@@ -550,12 +550,17 @@ pub fn decisive_line(
 // lane zeros2 (interfaces/closeloop.md 23, interfaces/zero-proofs.md): the second route of EVERY zero term
 // ---------------------------------------------------------------------------------------------------------------------
 
+/// One asked term's answer: (term, word, how it was decided).
+pub type ZeroWord = (u32, CoefFact, String);
+/// Zero terms to ask per record: (table, record) -> [(applied key, term indices)].
+pub type ZerosMissing = BTreeMap<(usize, usize), Vec<(Vec<i32>, Vec<u32>)>>;
+
 /// The answers of zeros asks: per (record_sha256, applied key) the asked terms' words and how each was decided, and the
 /// structural proofs (verified on load by the core's fact source).
 #[derive(Default)]
 pub struct ZerosAnswers {
     /// (sha, key) -> (term, word, by) where by = `plane:p=v` | `domain` (optionally `+den`) | `key` | other.
-    pub verdicts: BTreeMap<(String, Vec<i32>), Vec<(u32, CoefFact, String)>>,
+    pub verdicts: BTreeMap<(String, Vec<i32>), Vec<ZeroWord>>,
     pub proofs: ZeroProofs,
     /// Proof references that no loaded proof line backs (record, key, term, by): such a term is not confirmed.
     pub unbound: Vec<(String, Vec<i32>, u32, String)>,
@@ -743,7 +748,7 @@ pub fn zeros_basis(first: &str, c: &ZeroCompare) -> &'static str {
 /// `missing`: (table, record) -> [(applied key, terms)].
 pub fn zeros_batches(
     set: &ImportedSet,
-    missing: &BTreeMap<(usize, usize), Vec<(Vec<i32>, Vec<u32>)>>,
+    missing: &ZerosMissing,
     keys_cap: usize,
     terms_cap: usize,
     reason: &str,

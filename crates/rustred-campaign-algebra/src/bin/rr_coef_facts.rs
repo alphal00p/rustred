@@ -160,9 +160,7 @@ fn zeros_requests(a: &Args) -> Vec<Option<(Vec<Vec<usize>>, bool)>> {
         .map(|(i, l)| {
             let v: Value =
                 serde_json::from_str(l).unwrap_or_else(|e| die(&format!("request {}: {e}", i + 1)));
-            if v.get("terms").is_none() {
-                return None;
-            }
+            v.get("terms")?;
             let terms: Vec<Vec<usize>> = serde_json::from_value(v["terms"].clone())
                 .unwrap_or_else(|e| die(&format!("request {}: terms: {e}", i + 1)));
             let per_key = match v["zeros"].as_str() {
@@ -467,7 +465,8 @@ fn verify(a: &Args) {
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for tp in &a.tables {
         let (frame, _) = coef_facts::table_frame(tp).unwrap_or_else(|e| die(&e));
-        let work = |off: u64| -> Result<Option<(String, Counts, Vec<Value>, Vec<Value>)>, String> {
+        type Verified = Option<(String, Counts, Vec<Value>, Vec<Value>)>;
+        let work = |off: u64| -> Result<Verified, String> {
             let (line, sha) = coef_facts::line_at(tp, off)?;
             let rt = match rustred_campaign_core::accept::rule::RuleText::parse(&line, &frame) {
                 Ok(rt) => rt,

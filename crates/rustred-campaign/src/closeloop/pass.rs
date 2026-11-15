@@ -866,7 +866,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         AllZeros::Off
     });
     let zeros_on = zeros_mode != AllZeros::Off;
-    let mut zeros_missing: BTreeMap<(usize, usize), Vec<(Vec<i32>, Vec<u32>)>> = BTreeMap::new();
+    let mut zeros_missing: zeros::ZerosMissing = BTreeMap::new();
     let scan_all = if tier_c_now {
         Some(zeros::scan_with(&set, &ev, res, threads, zeros_on)?)
     } else {

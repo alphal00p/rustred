@@ -7,6 +7,7 @@
 //!   `second_route_disagreement:1` naming the term; `all_zeros: off` is closeloop4's behaviour: the node CLOSES (the lie
 //!   is not caught: what this lane fixes);
 //! - an explicit `all_zeros` without `proof.exact_eval` blocks (`all_zeros_unavailable`).
+//!
 //! Spawns processes and sends signals: run ONLY inside a private pid namespace (`LIGHT_PIDNS=1 .../light_build.sh
 //! zeros2 test -p rustred-campaign --test zeros2_fake`).
 

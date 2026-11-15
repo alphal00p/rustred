@@ -212,10 +212,13 @@ pub struct LoadStats {
     pub tools: BTreeSet<String>,
 }
 
+/// The proofs of one record: (term, locus, denominator status), sorted.
+pub type RecordProofs = Vec<(u32, Locus, DenStatus)>;
+
 /// The proofs of a set, by (table, record) and term (see the module documentation).
 #[derive(Clone, Debug, Default)]
 pub struct ZeroProofs {
-    by_record: HashMap<(u32, u32), Vec<(u32, Locus, DenStatus)>>,
+    by_record: HashMap<(u32, u32), RecordProofs>,
     pub stats: LoadStats,
 }
 

@@ -630,11 +630,11 @@ impl<'r> RecordProver<'r> {
                 }
             }
         }
-        for q in 0..self.arity {
+        for (q, &v) in pt.iter().enumerate().take(self.arity) {
             if self.konst[q].is_none() {
                 let l = Locus::Plane {
                     param: q as u32,
-                    value: pt[q] as i64,
+                    value: v as i64,
                 };
                 if !c.contains(&l) {
                     c.push(l);
