@@ -261,13 +261,16 @@ pub fn minimise(
     }))
 }
 
+/// Every coreseed `RelationInfo` met through the bridge, by (key, relation digest).
+pub type RelationInfos = BTreeMap<(Key, String), RelationInfo>;
+
 /// coreseed's CoreSolver as a seedmin solver for any of the minimiser's entries (the adapter of [`minimise`]).
 fn with_bridge<T>(
     solver: &mut dyn CoreSolver,
     make: &MakeReq<'_>,
     engine: bool,
     f: impl FnOnce(&mut dyn TrialSolver) -> Result<T, super::SeedMinError>,
-) -> Result<(T, BTreeMap<(Key, String), RelationInfo>), String> {
+) -> Result<(T, RelationInfos), String> {
     let mut br = Bridge {
         solver,
         make,
@@ -289,7 +292,7 @@ pub fn minimise_joint_core(
     keys: &[Key],
     centre: &[i32],
     list: &[Offset],
-) -> Result<(super::JointMin, BTreeMap<(Key, String), RelationInfo>), String> {
+) -> Result<(super::JointMin, RelationInfos), String> {
     let sp = policy_from_core(policy);
     let engine = sp.backend == "engine";
     with_bridge(solver, make, engine, |s| {
@@ -311,13 +314,7 @@ pub fn minimise_shell_subsets_core(
     lines: &[bool],
     base: &[String],
     escalation: &[String],
-) -> Result<
-    (
-        Vec<super::SubsetAlternative>,
-        BTreeMap<(Key, String), RelationInfo>,
-    ),
-    String,
-> {
+) -> Result<(Vec<super::SubsetAlternative>, RelationInfos), String> {
     let sp = policy_from_core(policy);
     let engine = sp.backend == "engine";
     let spec = super::ShellSubsetSpec::from_policy(base, escalation, &sp).unwrap_or_else(|| {
