@@ -620,7 +620,12 @@ impl WorkSource for ImproveSource {
                     let cand = self.cfg.improve.candidates.iter().find(|k| &k.name == c);
                     let mut args = vec!["--order".to_string(), n.order.clone()];
                     args.extend(cand.map(|k| k.args.clone()).unwrap_or_default());
+                    // only the target case is solved; an exhausted search is "no rule" (open obligation), not an
+                    // engine error (found on the real engine: `tight` exhausts at depth 3 on some cases -> exit 70)
                     args.extend(["--descend".to_string(), "open".to_string()]);
+                    if !args.iter().any(|a| a == "--open-on-refusal") {
+                        args.push("--open-on-refusal".to_string());
+                    }
                     args.extend(self.cfg.common_args.iter().cloned());
                     let j = &self.cfg.job;
                     out.push(JobRequest {
