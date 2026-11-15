@@ -149,6 +149,11 @@ pub struct SeedPolicy {
     /// space only, no information attempt either).
     #[serde(default = "symmetry_dimension_default")]
     pub symmetry_dimension: bool,
+    /// lane termmin2 (helper K15, 2026-11-14T22:00Z): the MIXED-SHELL recipe in the default recipe sequence (centres
+    /// the key + each dotted line one step down; `harder`-unit shells S0+S1+Sm1+S1m1+S1m2+Sm2; no floor), SPEC DATA, default
+    /// `true` (`termmin::steps::mixed_shell_offsets`).
+    #[serde(default = "symmetry_dimension_default")]
+    pub mixed_shell: bool,
 }
 
 fn symmetry_dimension_default() -> bool {
@@ -212,6 +217,7 @@ impl SeedPolicy {
             }],
             evidence: vec![],
             symmetry_dimension: true,
+            mixed_shell: true,
         }
     }
 
