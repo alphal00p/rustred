@@ -3092,6 +3092,14 @@ impl OrderedKernel for PKernel<'_, '_> {
         }
     }
 
+    /// p5l-library-3: the Custom programs of lazy payloads are not used by
+    /// the replay; release them (5L: up to the program budget, 32 GB).
+    fn forward_finished(&mut self) {
+        if let Some(budget) = self.stepper.library.program_budget() {
+            budget.release_unheld();
+        }
+    }
+
     fn inspect_phase(&mut self, event: OrderedPhaseEvent<'_>) -> Result<(), PError> {
         if self.stepper.census.on {
             let stepper = self.stepper;

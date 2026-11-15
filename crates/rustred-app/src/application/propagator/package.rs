@@ -44,11 +44,11 @@ use super::assemble::{
 };
 use super::format::{
     CENSUS_FILE, CENSUS_JSON_FILE, CustomRecord, EdgeMapRecord, FAMILIES_FILE, FamilyFileRecord,
-    FilesRecord, LAYER_FILE, LIBRARY_FILE, LaneRecord, LibraryManifest, NodeRecord, OwnerRecord,
-    PayloadRecord, PresentationRecord, ProducerRecord, RolesRecord, TOPOLOGY_FILE, TerminalRecord,
-    check_save_format, encode_census, encode_family_file, encode_payload_file, encode_topology,
-    family_file, malformed, owner_file, payload_encoding_for_write, pretty_json, state_save_format,
-    symbolica_save_format,
+    FilesRecord, LAYER_FILE, LIBRARY_FILE, LaneRecord, LibraryManifest, NodeRecord, OpenNodeRecord,
+    OwnerRecord, P_OPEN_NODE_RECORD_VERSION, PayloadRecord, PresentationRecord, ProducerRecord,
+    RolesRecord, TOPOLOGY_FILE, TerminalRecord, check_save_format, encode_census,
+    encode_family_file, encode_payload_file, encode_topology, family_file, malformed, owner_file,
+    payload_encoding_for_write, pretty_json, state_save_format, symbolica_save_format,
 };
 use super::loader::counts_of;
 use crate::application::producer::ProducerOutputV1;
@@ -301,6 +301,18 @@ fn p_library_parts(
         terminals,
         owners,
         counts: counts_of(library, assembled.families.families.len()),
+        open_nodes: (library.open_nodes().iter())
+            .map(|(class, open)| {
+                Ok(OpenNodeRecord {
+                    version: P_OPEN_NODE_RECORD_VERSION,
+                    class: labels.get(class).cloned().ok_or_else(|| {
+                        malformed(format!("open node {} outside the census", open.node))
+                    })?,
+                    node: open.node.clone(),
+                    status: open.status.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, PError>>()?,
     };
     files.insert(
         LIBRARY_FILE.to_owned(),

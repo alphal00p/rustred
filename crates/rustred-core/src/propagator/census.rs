@@ -621,6 +621,38 @@ pub fn p_census(
     dag: Option<&Dag>,
     options: &PCensusOptions,
 ) -> Result<PCensus, PError> {
+    p_census_journaled(presentations, dag, options, &PCensusJournal::default())
+}
+
+/// Incremental checkpoint of the routes stage of [`p_census_journaled`]
+/// (p5l-library session 4: a 15-hour 5L census must survive a stop).
+#[derive(Default)]
+pub struct PCensusJournal<'a> {
+    /// A partial census of an earlier run on the same presentations and
+    /// options, or (vk5l WP6) the census of another package translated onto
+    /// these presentation ids. A sector is reused when its class is the same
+    /// and that class has the same key and owner sector in both; anything
+    /// else is recomputed. A
+    /// caller should check the final census completely
+    /// ([`PCensus::check_complete_with`]): reused routes were verified only by
+    /// the earlier process.
+    pub resume: Option<&'a PCensus>,
+    /// Called with a partial census (every class, the sectors routed so far)
+    /// at most once per `every`, from a census worker.
+    #[allow(clippy::type_complexity)]
+    pub write: Option<&'a (dyn Fn(&PCensus) -> Result<(), PError> + Sync)>,
+    pub every: std::time::Duration,
+}
+
+/// [`p_census`] with an incremental checkpoint of its routes stage. The census
+/// returned is the same as [`p_census`]'s (a reused sector carries the fate
+/// the earlier run computed for the same class).
+pub fn p_census_journaled(
+    presentations: &[Arc<Presentation>],
+    dag: Option<&Dag>,
+    options: &PCensusOptions,
+    journal: &PCensusJournal<'_>,
+) -> Result<PCensus, PError> {
     let ordered = by_id(presentations)?;
     let threads = options.threads();
     let limits = &options.limits;
@@ -746,7 +778,54 @@ pub fn p_census(
         .iter()
         .map(|(&sector, &class)| (sector, class))
         .collect();
-    let routed = parallel_map_labeled("routes", &sectors, threads, |&((id, support), class)| {
+    // vk5l WP6: a sector is reused when its class has, in the earlier census,
+    // the same key and the same owner sector as in this run (the stored map
+    // routes into that owner). With equal class maps (a journal of the same
+    // run) this is every class; a census of another package translated onto
+    // these presentations ([`PCensusJournal::resume`], e.g. a seed package
+    // with fewer tops) agrees on the classes whose owner did not move.
+    let resume = journal.resume;
+    if let Some(old) = resume {
+        let agreeing = (census.classes.iter())
+            .filter(|(id, record)| {
+                old.classes
+                    .get(id)
+                    .is_some_and(|o| o.key == record.key && o.owner == record.owner)
+            })
+            .count();
+        eprintln!(
+            "[census] journal: {agreeing} of {} classes agree with the resumed census ({} classes, {} sectors)",
+            census.classes.len(),
+            old.classes.len(),
+            old.sectors.len()
+        );
+    }
+    let class_agrees = |class: OwnerClassId| {
+        resume.is_some_and(
+            |old| match (old.classes.get(&class), census.classes.get(&class)) {
+                (Some(o), Some(n)) => o.key == n.key && o.owner == n.owner,
+                _ => false,
+            },
+        )
+    };
+    let done: std::sync::Mutex<Vec<((PresentationId, u64), PSectorFate)>> = Default::default();
+    let last_write = std::sync::Mutex::new(std::time::Instant::now());
+    let reused = AtomicUsize::new(0);
+    let route_one = |&((id, support), class): &((PresentationId, u64), Option<OwnerClassId>)|
+     -> Result<((PresentationId, u64), PSectorFate), PError> {
+        if let Some(old) = resume.and_then(|old| old.sectors.get(&(id, support))) {
+            let same = match (old, class) {
+                (PSectorFate::Zero, None) => true,
+                (PSectorFate::Owner { class: old, .. }, Some(class)) => {
+                    *old == class && class_agrees(class)
+                }
+                _ => false,
+            };
+            if same {
+                reused.fetch_add(1, Ordering::Relaxed);
+                return Ok(((id, support), old.clone()));
+            }
+        }
         let Some(class) = class else {
             return Ok(((id, support), PSectorFate::Zero));
         };
@@ -781,7 +860,32 @@ pub fn p_census(
             map = chosen.map;
         }
         Ok(((id, support), PSectorFate::Owner { class, map }))
+    };
+    let routed = parallel_map_labeled("routes", &sectors, threads, |item| {
+        let (sector, fate) = route_one(item)?;
+        if let Some(write) = journal.write {
+            done.lock().unwrap().push((sector, fate.clone()));
+            // One writer at a time; the others go on routing.
+            if let Ok(mut last) = last_write.try_lock()
+                && last.elapsed() >= journal.every
+            {
+                let partial = PCensus {
+                    sectors: done.lock().unwrap().iter().cloned().collect(),
+                    classes: census.classes.clone(),
+                };
+                write(&partial)?;
+                *last = std::time::Instant::now();
+            }
+        }
+        Ok((sector, fate))
     })?;
+    if resume.is_some() {
+        eprintln!(
+            "[census] journal: {} of {} sectors reused",
+            reused.load(Ordering::Relaxed),
+            sectors.len()
+        );
+    }
     census.sectors = routed.into_iter().collect();
     Ok(census)
 }
@@ -874,6 +978,26 @@ impl PCensus {
         dag: Option<&Dag>,
         options: &PCensusOptions,
     ) -> Result<(), PError> {
+        self.check_complete_except(
+            presentations,
+            dag,
+            options,
+            &std::collections::BTreeSet::new(),
+        )
+    }
+
+    /// vk5l WP6: [`Self::check_complete_with`] whose per-sector part (the
+    /// zero proof or the route of a sector) skips the sectors in `skip`; the
+    /// shape, class ids and owners are checked in full. For a census seeded
+    /// from a checked package: `skip` = the sectors taken from it unchanged
+    /// (same fate, and a class with the same key and owner in both).
+    pub fn check_complete_except(
+        &self,
+        presentations: &[Arc<Presentation>],
+        dag: Option<&Dag>,
+        options: &PCensusOptions,
+        skip: &std::collections::BTreeSet<(PresentationId, u64)>,
+    ) -> Result<(), PError> {
         let ordered = by_id(presentations)?;
         self.check_class_ids()?;
         let links = dag
@@ -894,8 +1018,17 @@ impl PCensus {
                 Ok((id, classed_support(ordered[position], support, limits)?))
             })
             .collect::<Result<BTreeMap<_, _>, PError>>()?;
-        parallel_map_labeled("check", &ordered, options.threads(), |p| {
-            self.check_presentation(p, &owners, limits)
+        let checked: Vec<&Arc<Presentation>> = (ordered.iter())
+            .filter(|p| {
+                skip.is_empty()
+                    || Axes::of(p)
+                        .map(|axes| axes.supports().any(|s| !skip.contains(&(p.id, s))))
+                        .unwrap_or(true)
+            })
+            .copied()
+            .collect();
+        parallel_map_labeled("check", &checked, options.threads(), |p| {
+            self.check_presentation(p, &owners, limits, skip)
         })?;
         Ok(())
     }
@@ -999,10 +1132,14 @@ impl PCensus {
         p: &Presentation,
         owners: &BTreeMap<OwnerClassId, ClassedSector>,
         limits: &ClassLimits,
+        skip: &std::collections::BTreeSet<(PresentationId, u64)>,
     ) -> Result<(), PError> {
         let axes = Axes::of(p)?;
         let analyzer = Analyzer::try_unrestricted(&p.family).map_err(|e| zero_error(p, e))?;
         for support in axes.supports() {
+            if skip.contains(&(p.id, support)) {
+                continue;
+            }
             let sector = |detail: String| {
                 PError::MalformedLibrary(format!("sector ({}, {support:#x}): {detail}", p.id.0))
             };

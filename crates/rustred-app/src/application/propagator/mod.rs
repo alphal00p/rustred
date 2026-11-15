@@ -10,6 +10,7 @@ pub mod generate;
 pub mod loader;
 pub mod ordering;
 pub mod package;
+pub mod seed;
 
 pub use assemble::{AssembleOptions, AssembledLibrary, assemble_library};
 pub use generate::{CustomOwnerOptions, CustomOwnerPayload, generate_custom_owner};
@@ -42,6 +43,12 @@ pub enum CustomPayloads {
     Imported {
         provided: BTreeMap<String, CustomOwnerPayload>,
         imported: BTreeMap<Vec<u8>, ImportedCustomNode>,
+        /// vk5l WP6: Custom nodes declared NOT CLOSED, by graph key: (node
+        /// name, status). Their owner has no payload (`OwnerProgram::Missing`)
+        /// and the package records them in `library.json` `open_nodes`; a key
+        /// reaching one is `PError::NodeNotClosed`. A node both imported and
+        /// open is refused.
+        open: BTreeMap<Vec<u8>, (String, String)>,
     },
 }
 

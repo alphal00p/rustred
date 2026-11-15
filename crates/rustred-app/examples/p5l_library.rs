@@ -7,7 +7,9 @@
 //! p5l_library assemble <families.json> <max_loops> <provided package dir> <imports.tsv> <out dir> <threads>
 //!     assemble with CustomPayloads::Imported (provided payloads by class label from the package,
 //!     imported nodes by graph key from p-import-table records), write the package (no basis layer).
-//!     imports.tsv: <TID> \t <record .json> \t <payload .rrbin>.  P5L_VERIFY=0 skips the descent certificate.
+//!     imports.tsv: <TID> \t <record .json> \t <payload .rrbin>, or (vk5l WP6) <TID> \t OPEN \t <graph key hex> \t
+//!     <status> for a node declared not closed.  P5L_VERIFY=0 skips the descent certificate.
+//!     RUSTRED_P_ASSEMBLE_CENSUS_SEED=<package dir> starts the census from an earlier package's (vk5l WP6).
 //! p5l_library load <package dir> <verify 0|1>
 //!     load time and peak RSS.
 //! p5l_library encoding <sample> <payload .rrbin>...
@@ -92,6 +94,15 @@ fn main() {
         Some("check") => check(&args[2..]),
         Some("reduce") => reduce_cli(&args[2..]),
         Some("encoding") => encoding(&args[2..]),
+        // vk5l WP6: p5l_library seed-fingerprints <package dir> <out.json>
+        Some("seed-fingerprints") => {
+            let count = rustred_app::propagator::seed::write_seed_fingerprints(
+                std::path::Path::new(&args[2]),
+                std::path::Path::new(&args[3]),
+            )
+            .unwrap();
+            println!("{count} family fingerprints written to {}", args[3]);
+        }
         Some("edges") => edges(
             &args[2],
             args[3].parse().unwrap(),
@@ -248,11 +259,26 @@ fn assemble(args: &[String]) {
     let mut imported = BTreeMap::new();
     let mut bytes_total = 0usize;
     let mut labels = BTreeMap::new();
+    let mut open = BTreeMap::new();
     for line in imports
         .lines()
         .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
     {
         let fields: Vec<&str> = line.split('\t').collect();
+        // vk5l WP6: `<TID> \t OPEN \t <graph key hex> \t <status>` declares the
+        // node not closed (no payload; library.json `open_nodes`).
+        if fields.get(1) == Some(&"OPEN") {
+            let key = unhex(fields[2].trim());
+            labels.insert(key.clone(), fields[0].to_owned());
+            open.insert(
+                key,
+                (
+                    fields[0].to_owned(),
+                    fields.get(3).map_or("not closed", |s| s.trim()).to_owned(),
+                ),
+            );
+            continue;
+        }
         let record: Value =
             serde_json::from_str(&std::fs::read_to_string(fields[1]).unwrap()).unwrap();
         // Session 2: the payload stays on disk (read once by assembly for its
@@ -290,7 +316,11 @@ fn assemble(args: &[String]) {
     let assembled = assemble_library(
         &families,
         max_loops,
-        CustomPayloads::Imported { provided, imported },
+        CustomPayloads::Imported {
+            provided,
+            imported,
+            open,
+        },
         &AssembleOptions {
             threads,
             verify_descent: verify,
@@ -348,6 +378,7 @@ fn assemble(args: &[String]) {
         "owners": library.owners().len(), "lanes": lanes, "terminals": library.terminals().len(),
         "census_sectors": library.census().sectors.len(), "classes": library.census().classes.len(),
         "dag_nodes": assembled.dag.nodes.len(), "imported_owners": used,
+        "open_nodes": library.open_nodes().values().map(|o| o.node.clone()).collect::<Vec<_>>(),
         "assemble_seconds": assemble_seconds, "write_seconds": write_seconds,
         "timings": assembled.timings.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>(),
         "verify_descent": verify, "peak_rss_gb": rss().1,

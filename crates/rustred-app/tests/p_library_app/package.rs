@@ -592,12 +592,13 @@ fn another_version_is_refused_with_the_regenerate_hint() {
         "rustred.p-owner-library.v2",
     );
     let format = symbolica_save_format().unwrap();
+    // Any format other than the linked one (the pin moves 6 -> 11).
+    let other = format + 1;
     version_mismatch(
-        edit("save-format", &|v| v["symbolica_save_format"] = 11.into()),
+        edit("save-format", &|v| v["symbolica_save_format"] = other.into()),
         &format!("SYMBOLICA_SAVE_FORMAT ({LIBRARY_FILE})"),
-        "11",
+        &other.to_string(),
     );
-    assert_ne!(format, 11);
     // The same refusal for the payload reader of --reuse-custom.
     let (_scratch, directory) = written(scope_two(), "reuse-version");
     let mut value = manifest_of(&directory);
@@ -1889,4 +1890,244 @@ fn an_ordering_and_saved_routes_change_no_value() {
         )
     });
     assert!(refused, "no request reached the damaged owner");
+}
+
+// ---------------------------------------------------------------------------
+// vk5l WP6: open nodes (a node the package declares not closed, e.g. T266)
+// ---------------------------------------------------------------------------
+
+/// Scope 1-2 with the 2L top owner (Triangle; nothing descends into it)
+/// replaced by an OPEN Custom owner: no payload, no terminal, its edge maps
+/// dropped, declared `T999` / `stuck: not closed`.
+fn with_open_top() -> &'static AssembledLibrary {
+    static LIBRARY: OnceLock<AssembledLibrary> = OnceLock::new();
+    LIBRARY.get_or_init(|| {
+        let assembled = scope_two();
+        let library = &assembled.library;
+        let census = library.census();
+        let target = library
+            .owners()
+            .map(|owner| &owner.spec)
+            .find(|spec| {
+                spec.lane == OwnerLane::Triangle && census.classes[&spec.class].key.loops == 2
+            })
+            .unwrap()
+            .clone();
+        let mut builder = PLibrary::builder(library.coefficient_context().clone(), library.scope());
+        for presentation in library.presentations() {
+            builder
+                .add_presentation(Presentation::clone(presentation))
+                .unwrap();
+        }
+        builder
+            .set_topology(Arc::clone(library.topology().unwrap()))
+            .unwrap();
+        let mut renumbered = BTreeMap::new();
+        for (index, map) in library.edge_maps().iter().enumerate() {
+            if !target.edge_maps.contains(&index) {
+                renumbered.insert(index, builder.add_edge_map(map.clone()).unwrap());
+            }
+        }
+        for terminal in library.terminals() {
+            builder.add_terminal(terminal.clone()).unwrap();
+        }
+        builder.set_census(census.clone()).unwrap();
+        for owner in library.owners() {
+            let mut spec = owner.spec.clone();
+            if spec.class == target.class {
+                spec = POwnerSpec {
+                    lane: OwnerLane::Custom,
+                    roles: LaneRoles::None,
+                    edge_maps: Vec::new(),
+                    payload: None,
+                    custom: None,
+                    terminals: Vec::new(),
+                    ..spec
+                };
+                builder
+                    .add_owner_with_program(
+                        spec,
+                        rustred::propagator::library::OwnerProgram::Missing { ledger: 0 },
+                    )
+                    .unwrap();
+            } else {
+                spec.edge_maps = spec.edge_maps.iter().map(|e| renumbered[e]).collect();
+                builder.add_owner(spec).unwrap();
+            }
+        }
+        builder
+            .declare_open_node(target.class, "T999", "stuck: not closed")
+            .unwrap();
+        let mut nodes = assembled.nodes.clone();
+        let node = nodes
+            .iter_mut()
+            .find(|node| node.presentation == Some(target.presentation))
+            .unwrap();
+        node.decision.lane = OwnerLane::Custom;
+        node.decision.roles = LaneRoles::None;
+        AssembledLibrary {
+            library: Arc::new(builder.build().unwrap()),
+            families: assembled.families.clone(),
+            max_loops: assembled.max_loops,
+            dag: Arc::clone(&assembled.dag),
+            nodes,
+            custom: BTreeMap::new(),
+            descent: None,
+            timings: Vec::new(),
+        }
+    })
+}
+
+/// vk5l WP6: an open node travels as a `library.json` `open_nodes` record
+/// (version, class, node, status); the package loads lazily, eagerly and
+/// verified (the descent certificate skips the open owner and counts it),
+/// keys elsewhere reduce as before, and a key reaching the open owner is
+/// `NodeNotClosed` naming the node, its status and the key. A record of
+/// another version, or on an owner that has a payload or terminals, is refused.
+#[test]
+fn an_open_node_travels_in_library_json_and_refuses_with_node_not_closed() {
+    let assembled = with_open_top();
+    let (_scratch, directory) = written(assembled, "open-node");
+    let manifest: LibraryManifest =
+        serde_json::from_slice(&std::fs::read(directory.join(LIBRARY_FILE)).unwrap()).unwrap();
+    assert_eq!(manifest.open_nodes.len(), 1);
+    let record = &manifest.open_nodes[0];
+    assert_eq!(
+        (record.version, record.node.as_str(), record.status.as_str()),
+        (1, "T999", "stuck: not closed")
+    );
+    let owner = manifest
+        .owners
+        .iter()
+        .find(|owner| owner.class == record.class)
+        .unwrap();
+    assert!(owner.payload.is_none() && owner.terminals.is_empty());
+
+    let verified = load(&directory).unwrap();
+    assert_eq!(verified.open_nodes().len(), 1);
+    let report = descent::check(&verified).unwrap();
+    assert_eq!(report.open_nodes, 1);
+    let unchecked =
+        load_p_library(PLibrarySource::Directory(directory.clone()), &UNCHECKED).unwrap();
+    assert_eq!(
+        p_library_differences(&assembled.library, &unchecked).unwrap(),
+        Vec::<String>::new()
+    );
+
+    // The 2L top corner reaches the open owner.
+    let top = assembled.tops_of(2)[0];
+    let arity = assembled.library.presentation(top).slots.len();
+    let one = assembled.library.coefficient_context().one();
+    let corner = vec![(top, IntegralKey::try_new(vec![1; arity]).unwrap(), one)];
+    for library in [&verified, &unchecked] {
+        match library.reduce(request(corner.clone(), false)) {
+            Err(error @ PError::NodeNotClosed { .. }) => {
+                let text = error.to_string();
+                assert!(
+                    text.contains("T999") && text.contains("stuck: not closed"),
+                    "{text}"
+                );
+            }
+            other => panic!("expected NodeNotClosed, got {other:?}"),
+        }
+    }
+    // A 1L request does not touch it.
+    let bubble = assembled.tops_of(1)[0];
+    let arity = assembled.library.presentation(bubble).slots.len();
+    let one = assembled.library.coefficient_context().one();
+    assert!(
+        verified
+            .reduce(request(
+                vec![(bubble, IntegralKey::try_new(vec![1; arity]).unwrap(), one)],
+                false
+            ))
+            .is_ok()
+    );
+
+    // Refusals.
+    let edit = |label: &str, change: &dyn Fn(&mut serde_json::Value)| {
+        let (_scratch, directory) = written(assembled, label);
+        let mut value = manifest_of(&directory);
+        change(&mut value);
+        write_manifest(&directory, &value);
+        load(&directory)
+    };
+    version_mismatch(
+        edit("open-version", &|v| {
+            v["open_nodes"][0]["version"] = 2.into()
+        })
+        .unwrap_err(),
+        "P_OPEN_NODE_RECORD_VERSION",
+        "2",
+    );
+    let class = record.class.clone();
+    malformed(
+        edit("open-terminal", &|v| {
+            let owners = v["owners"].as_array_mut().unwrap();
+            let owner = owners
+                .iter_mut()
+                .find(|o| o["class"] == class.as_str())
+                .unwrap();
+            owner["terminals"] = serde_json::json!([0]);
+        }),
+        "needs a Custom owner without payload or terminals",
+    );
+}
+
+/// vk5l WP6: the census of an earlier package as the seed of a new census
+/// (`RUSTRED_P_ASSEMBLE_CENSUS_SEED`): the scope 1-1 package translated onto
+/// the scope 1-2 presentations gives the 1L sectors; resumed from it (or from
+/// the scope 1-2 package itself, every sector) the census is the one computed
+/// from scratch.
+#[test]
+fn a_census_seed_from_another_package_gives_the_same_census() {
+    use rustred::propagator::census::{
+        PCensusJournal, PCensusOptions, PRouteMaps, p_census_journaled,
+    };
+    use rustred_app::propagator::seed::{census_seed, write_seed_fingerprints};
+    let two = scope_two();
+    let presentations = two.library.presentations();
+    let options = PCensusOptions {
+        threads: 1,
+        route_maps: PRouteMaps::StaticScore,
+        ..PCensusOptions::default()
+    };
+    let one = assemble(1);
+    let (_s1, dir_one) = written(&one, "seed-one");
+    let (_s2, dir_two) = written(two, "seed-two");
+    let (seed_one, report_one) = census_seed(&dir_one, presentations, None).unwrap();
+    assert_eq!(
+        report_one.matched_presentations,
+        one.library.presentations().len()
+    );
+    assert!(report_one.translated_sectors > 0);
+    let (seed_two, report_two) = census_seed(&dir_two, presentations, None).unwrap();
+    // The fingerprint sidecar (written once, read instead of the family files:
+    // a seed across a Symbolica save-format change) gives the same seed; a
+    // sidecar of another package is refused.
+    let sidecar = dir_two.join("..").join("seed-two.fingerprints.json");
+    let written_count = write_seed_fingerprints(&dir_two, &sidecar).unwrap();
+    assert!(written_count > 0);
+    let (seed_side, report_side) = census_seed(&dir_two, presentations, Some(&sidecar)).unwrap();
+    assert_eq!(seed_side, seed_two);
+    assert_eq!(report_side, report_two);
+    assert!(census_seed(&dir_one, presentations, Some(&sidecar)).is_err());
+    assert_eq!(
+        report_two.translated_sectors,
+        two.library.census().sectors.len()
+    );
+    for seed in [&seed_one, &seed_two] {
+        let census = p_census_journaled(
+            presentations,
+            two.library.topology().map(Arc::as_ref),
+            &options,
+            &PCensusJournal {
+                resume: Some(seed),
+                write: None,
+                every: std::time::Duration::from_secs(3600),
+            },
+        )
+        .unwrap();
+        assert_eq!(&census, two.library.census());
+    }
 }
