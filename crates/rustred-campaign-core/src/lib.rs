@@ -41,5 +41,7 @@ pub mod import;
 pub mod termmin;
 // lane poles (interfaces/pole-diagnostics.md): REQUEST TO I-INT, one line
 pub mod poles;
+// lane epsdepth (interfaces/epsdepth.md): REQUEST TO I-INT, one line
+pub mod epsdepth;
 // lane regbasis (interfaces/regbasis.md): REQUEST TO I-INT, one line
 pub mod regbasis;
