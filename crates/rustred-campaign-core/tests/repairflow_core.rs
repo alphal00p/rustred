@@ -894,3 +894,93 @@ fn face_recipe_records_round_trip() {
             .is_err()
     );
 }
+
+/// MEASUREMENT (ignored): closure size, open keys (classified by status and face) and served-by-class counts of
+/// nested import-spec variants (`RF_SPECS`, ':'-separated): the attribution of a closure's growth per object class.
+#[test]
+#[ignore]
+fn measure_closure_variants() {
+    use rustred_campaign_core::import::check::{CheckOptions, RowStatus, Server};
+    for spec in std::env::var("RF_SPECS").expect("RF_SPECS").split(':') {
+        let ts = rustred_campaign_core::import::TableSetSpec::from_json(
+            &std::fs::read_to_string(spec).unwrap(),
+        )
+        .unwrap();
+        let base = std::path::Path::new("/");
+        let set = rustred_campaign_core::import::load(&ts, base).unwrap();
+        let ev = rustred_campaign_core::import::Evidence::from_spec(&set, base).unwrap();
+        let res = rustred_campaign_core::import::check::check(
+            &set,
+            &ev,
+            &CheckOptions {
+                threads: 4,
+                tier: None,
+                max_rounds: None,
+            },
+        )
+        .unwrap();
+        let lines = set.frame.mask().to_vec();
+        let mut by: std::collections::BTreeMap<String, u64> = Default::default();
+        let mut open: std::collections::BTreeMap<String, u64> = Default::default();
+        for r in &res.rows {
+            match r.status {
+                RowStatus::Served => {
+                    let c = match &r.server {
+                        Some(Server::Rule { table, record }) => {
+                            set.rules[*table][*record].class.clone()
+                        }
+                        Some(Server::Credit { .. }) => "credit".into(),
+                        Some(Server::Relation { set: s, .. }) => {
+                            set.classes.get(s).cloned().unwrap_or_else(|| s.clone())
+                        }
+                        None => "?".into(),
+                    };
+                    *by.entry(c).or_default() += 1;
+                }
+                RowStatus::Open => {
+                    let f = rustred_campaign_core::worklist::items::Face::of_key(&r.key, &lines)
+                        .map(|f| f.label())
+                        .unwrap_or_default();
+                    let st = r.open_status.clone().unwrap_or_default();
+                    let cand = if r.open_reason.as_deref().unwrap_or("").contains("recipe") {
+                        "recipe candidates left"
+                    } else {
+                        "no candidate"
+                    };
+                    *open.entry(format!("{st} | {cand} | {f}")).or_default() += 1;
+                }
+                RowStatus::Terminal => *by.entry("terminal".into()).or_default() += 1,
+            }
+        }
+        println!(
+            "{}",
+            json!({"spec": spec, "closure_keys": res.summary.keys_total, "open": res.summary.open_total,
+            "served_by_class": by, "open_classified": open, "solve_requests": res.solve_requests.len()})
+        );
+    }
+}
+
+#[test]
+fn minimised_objects_are_accepted_only_when_tested_at_every_key_and_never_lose_keys() {
+    use rustred_campaign_core::repairflow::minimise::judge_minimised;
+    use std::collections::BTreeSet;
+    let region: Vec<Vec<i32>> = (2..8).map(|d| vec![d, 1, 1, 0, 0]).collect();
+    let original: BTreeSet<Vec<i32>> = region.iter().cloned().collect();
+    // tested at ONE key only (the minimisation key): refused, whatever it gave there
+    let one: BTreeMap<Vec<i32>, bool> = [(region[0].clone(), true)].into_iter().collect();
+    let v = judge_minimised(&region, &original, &one);
+    assert!(!v.accept, "{v:?}");
+    assert_eq!(v.tested, "1 of 6 keys of the region");
+    // tested everywhere, but it DROPS a sub-locus (d = 2, 3): accepted only with the lost keys as a guard sub-locus
+    let all: BTreeMap<Vec<i32>, bool> = region.iter().map(|k| (k.clone(), k[0] >= 4)).collect();
+    let v = judge_minimised(&region, &original, &all);
+    assert!(v.accept);
+    assert_eq!(v.lost_keys, vec![vec![2, 1, 1, 0, 0], vec![3, 1, 1, 0, 0]]);
+    // no key disappears: minimised-served + guard (served by the original) = what the original served
+    let mut served: BTreeSet<Vec<i32>> = v.accepted_keys.iter().cloned().collect();
+    served.extend(v.lost_keys.iter().cloned());
+    assert_eq!(served, original);
+    // serving nothing: refused
+    let none: BTreeMap<Vec<i32>, bool> = region.iter().map(|k| (k.clone(), false)).collect();
+    assert!(!judge_minimised(&region, &original, &none).accept);
+}

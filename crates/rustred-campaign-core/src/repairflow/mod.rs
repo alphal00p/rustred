@@ -8,6 +8,7 @@ pub mod decide;
 pub mod face_format;
 pub mod faces;
 pub mod judge;
+pub mod minimise;
 pub mod policy;
 pub mod recipes;
 pub mod symrel;
