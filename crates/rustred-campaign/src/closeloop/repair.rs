@@ -531,6 +531,12 @@ impl<S: WorkSource> RepairFlowSource<S> {
                 t.push_str(l);
                 t.push('\n');
             }
+            // int7 (repairflow x partfix4, import.md 20): the table's end record (the file states that it is
+            // complete; a table without one is refused as `table_incomplete`)
+            t.push_str(&format!(
+                "{{\"type\":\"end\",\"rules\":{}}}\n",
+                kept_lines.len()
+            ));
             let rel = format!("{dir}/symbolic.table.jsonl");
             rt.accepts.push(record(rel.clone(), t.into_bytes()));
             table_rel = Some(rel);
