@@ -157,6 +157,9 @@ pub struct SuppliedInfo {
     pub check: Option<RelationCheck>,
     /// From a `diagnostic` (keys-only) source: followed, never certified.
     pub diagnostic: bool,
+    /// lane symfix (audit r2-sym F1): how the import verified the relation AT LOAD (the EXACT bit and the level follow
+    /// from it; interfaces/import.md 13.3).
+    pub route: super::supplied_verify::SuppliedRoute,
 }
 
 /// One relation-set entry of the dispatch (in spec order).
@@ -190,6 +193,12 @@ pub struct SourceReport {
     /// `supplied_relations.verify`: relations verified / not verified by re-derivation from the verified group.
     pub relations_verified: usize,
     pub relations_not_verified: Vec<(Vec<i32>, String)>,
+    /// lane symfix: supplied relations with a kernel certificate checked at load (per-key).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub relations_kernel_certified: usize,
+    /// lane symfix: supplied composites re-verified at load by the composer's own functions (same backend: imported).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub relations_same_backend: usize,
     /// Table sources: how each file's index was obtained (one pass over the table, or a reused index; NOT
     /// identifying: a reused index carries the file sha256 recorded when it was built, see `import::index`). Never
     /// serialized into the canonical statement (it holds timings); callers put it into their timing record.
@@ -510,6 +519,7 @@ pub(crate) fn load_inner(
     let mut table_digests = BTreeMap::new();
     let mut supplied: Vec<Arc<RelationSet>> = vec![];
     let mut supplied_info = BTreeMap::new();
+    let mut supplied_pending: Vec<super::supplied_verify::PendingSource> = vec![];
     let mut recipes = vec![];
     let mut terminals_preferred = vec![];
     let mut terminals_other = vec![];
@@ -883,7 +893,7 @@ pub(crate) fn load_inner(
                 }
             }
             SourceKind::SuppliedRelations => {
-                let (rs, info) = load_supplied(
+                let (rs, info, pend) = load_supplied(
                     src,
                     &class,
                     base,
@@ -896,6 +906,7 @@ pub(crate) fn load_inner(
                     spec.read_limits(),
                 )?;
                 supplied_info.insert(rs.name.clone(), info);
+                supplied_pending.push(pend);
                 pending.push(Pending::Supplied(rs));
             }
             SourceKind::Recipe => {
@@ -1136,7 +1147,7 @@ pub(crate) fn load_inner(
         terminals_other: terminals_other.len(),
         terminals_from_tables: terminal_provenance.len(),
     };
-    Ok(ImportedSet {
+    let mut set = ImportedSet {
         spec: spec.clone(),
         frame,
         cmp,
@@ -1160,7 +1171,15 @@ pub(crate) fn load_inner(
         strict_domains,
         family: fhead.family.clone(),
         terminal_provenance,
-    })
+    };
+    // lane symfix (import.md 13.3 (c)): the same-backend re-verification of supplied composites, on the loaded catalogue
+    super::supplied_verify::finish(
+        &mut set,
+        supplied_pending,
+        !validate_bodies_only,
+        &crate::repairflow::composite_verify::LineOptions::default(),
+    )?;
+    Ok(set)
 }
 
 /// Per dispatcher table: (file, source id, [(ordinal, record sha256)]) for the body pass.
@@ -1587,7 +1606,14 @@ fn load_supplied(
     codec: KeyCodec,
     rep: &mut SourceReport,
     limits: crate::record::ReadLimits,
-) -> Result<(RelationSet, BTreeMap<Vec<i32>, SuppliedInfo>), ImportError> {
+) -> Result<
+    (
+        RelationSet,
+        BTreeMap<Vec<i32>, SuppliedInfo>,
+        super::supplied_verify::PendingSource,
+    ),
+    ImportError,
+> {
     let path = resolve(base, src.path.as_deref().unwrap_or_default());
     let raw = scan_table_with(&src.id, &path, true, &|_, _| true, limits)?;
     if let Some(r) = raw.records.iter().find(|r| r.sym.is_some()) {
@@ -1625,39 +1651,82 @@ fn load_supplied(
         path.display().to_string(),
         format!("sha256:{}", raw.file_sha256),
     ));
-    let ver = match &src.verification {
+    let (ver, ver_path) = match &src.verification {
         Some(v) => {
             let p = resolve(base, &v.path);
             let d = verify_file(&p, v.sha256.as_deref())?;
             rep.files
                 .push((p.display().to_string(), format!("sha256:{d}")));
-            Some(d)
+            (Some(d), Some(p))
         }
-        None => None,
+        None => (None, None),
     };
     let n = frame.arity();
-    // `verify`: the verified group and the coefficient texts of every record (small files: read whole)
-    let vgroup = match &src.verify {
-        Some(gs) => {
-            let (vg, gr) = load_verified_group(
-                gs,
-                base,
-                frame.mask(),
-                cmp.presentation().new_to_old(),
-                fhead.raw.get("family_source").and_then(Value::as_str),
-            )?;
-            rep.files
-                .push((gr.family.clone(), format!("sha256:{}", gr.family_sha256)));
-            rep.group = Some(gr);
-            Some((vg, gs.max_terms.unwrap_or(DEFAULT_MAX_TERMS)))
+    // lane symfix (audit r2-sym F1, interfaces/import.md 13.3): a record gets the EXACT bit ONLY when this import
+    // verifies it at load: (a) group re-derivation (plain), (b) a CHECKED kernel certificate, (c) the same-backend
+    // re-verification of a composite from its READ verification line (after the catalogue exists: `finish`). The
+    // verified group is derived when `verify` is given (refusal = load error, as before) or when a `verification` file
+    // asks for re-verification (refusal = the records stay unverified, typed).
+    let want_group = src.verify.is_some() || src.verification.is_some();
+    let (vgroup, group_error): (Option<(VerifiedGroup, String, usize)>, Option<String>) = if want_group
+    {
+        // no `verify`: the frame header's family, derived (the import's own group, never supplied data)
+        let gs = src
+            .verify
+            .clone()
+            .unwrap_or(super::symmetry::GroupSpec {
+                family: None,
+                group: None,
+                group_format: super::symmetry::GroupFormat::Derive,
+                max_candidates: None,
+                max_terms: None,
+            });
+        match load_verified_group(
+            &gs,
+            base,
+            frame.mask(),
+            cmp.presentation().new_to_old(),
+            fhead.raw.get("family_source").and_then(Value::as_str),
+        ) {
+            Ok((vg, gr)) => {
+                rep.files
+                    .push((gr.family.clone(), format!("sha256:{}", gr.family_sha256)));
+                let digest = gr.digest.clone();
+                rep.group = Some(gr);
+                (
+                    Some((vg, digest, gs.max_terms.unwrap_or(DEFAULT_MAX_TERMS))),
+                    None,
+                )
+            }
+            Err(e) if src.verify.is_some() => return Err(e),
+            Err(e) => (None, Some(e.to_string())),
+        }
+    } else {
+        (None, None)
+    };
+    let certs = match &src.kernel_certificates {
+        Some(cs) => {
+            let book = super::supplied_verify::CertificateBook::load(cs, base, &src.id, n)?;
+            for (p, d) in &book.files {
+                rep.files.push((p.clone(), format!("sha256:{d}")));
+            }
+            Some(book)
         }
         None => None,
     };
-    let coefs: SuppliedCoefficients = if vgroup.is_some() {
-        supplied_coefficients(&src.id, &path, n, limits)?
-    } else {
+    let family = fhead
+        .raw
+        .get("family_source")
+        .and_then(Value::as_str)
+        .map(super::supplied_verify::family_sha256);
+    // every non-diagnostic record's coefficient texts (read whole per line, bounded by the per-record budget)
+    let coefs: SuppliedCoefficients = if src.diagnostic {
         HashMap::new()
+    } else {
+        supplied_coefficients(&src.id, &path, n, limits)?
     };
+    let ds = crate::repairflow::composite_verify::DEFAULT_D_VALUES;
+    let mut pending: Vec<super::supplied_verify::PendingComposite> = vec![];
     let mut b = RelationStoreBuilder::new(codec);
     let mut info = BTreeMap::new();
     rep.records_in_files = raw.records.len();
@@ -1713,6 +1782,28 @@ fn load_supplied(
             }
             rhs.push(k);
         }
+        // PARSE CHECKS (refused, typed): repeated rhs keys; malformed coefficient texts ("1/0", unreadable)
+        {
+            let mut sorted: Vec<&Vec<i32>> = rhs.iter().collect();
+            sorted.sort();
+            if let Some(w) = sorted.windows(2).find(|w| w[0] == w[1]) {
+                return Err(lerr(format!(
+                    "rhs key {:?} repeated in a supplied relation",
+                    w[0]
+                )));
+            }
+        }
+        let rhs_c = coefs.get(&r.ordinal).cloned().unwrap_or_default();
+        if !src.diagnostic {
+            if rhs_c.iter().map(|(k, _)| k).ne(rhs.iter()) {
+                return Err(lerr(
+                    "the coefficient list differs from the rhs keys".into(),
+                ));
+            }
+            for (_, c) in &rhs_c {
+                super::supplied_verify::check_coefficient_text(c, &ds).map_err(&lerr)?;
+            }
+        }
         let mut digest = [0u8; 32];
         if let Some(h) = &r.rhs_sha256 {
             for (i, byte) in digest.iter_mut().enumerate() {
@@ -1723,34 +1814,70 @@ fn load_supplied(
         if descends {
             bits |= VERDICT_DESCENDS;
         }
-        // re-derivation from the verified group (fail closed: a relation that is not verified does not serve)
-        let check = vgroup.as_ref().map(|(vg, max_terms)| {
-            let rhs_c = coefs.get(&r.ordinal).cloned().unwrap_or_default();
-            if rhs_c.iter().map(|(k, _)| k).ne(rhs.iter()) {
-                RelationCheck::Unknown("the coefficient list differs from the rhs keys".into())
-            } else {
-                verify_relation_with(
-                    &crate::independent_algebra::Independent,
-                    vg,
-                    &key,
-                    &rhs_c,
-                    &[],
-                    *max_terms,
-                )
-            }
+        // (a) re-derivation from the verified group (fail closed: a relation that is not verified does not serve)
+        let check = vgroup.as_ref().map(|(vg, _, max_terms)| {
+            verify_relation_with(
+                &crate::independent_algebra::Independent,
+                vg,
+                &key,
+                &rhs_c,
+                &[],
+                *max_terms,
+            )
         });
-        match &check {
-            Some(c) if c.verified() => {
-                bits |= VERDICT_EXACT;
+        if let Some(c) = &check {
+            if c.verified() {
                 rep.relations_verified += 1;
+            } else if src.verify.is_some() && src.verification.is_none() && certs.is_none() {
+                rep.relations_not_verified.push((key.clone(), format!("{c:?}")));
             }
-            Some(c) => rep
-                .relations_not_verified
-                .push((key.clone(), format!("{c:?}"))),
-            None if ver.is_some() => bits |= VERDICT_EXACT,
+        }
+        // (b) a kernel certificate, checked
+        let cert = certs.as_ref().map(|book| {
+            book.check(
+                &key,
+                &rhs_c,
+                family.as_deref(),
+                vgroup.as_ref().map(|(_, d, _)| d.as_str()),
+            )
+        });
+        use super::supplied_verify::{self as sv, SuppliedRoute};
+        let route = if src.diagnostic {
             // a DIAGNOSTIC keys-only relation is followed as if exact (never certified: see check)
-            None if src.diagnostic => bits |= VERDICT_EXACT,
-            None => {}
+            SuppliedRoute::Diagnostic
+        } else if let Some(Ok((c, k))) = &cert {
+            rep.relations_kernel_certified += 1;
+            SuppliedRoute::KernelCertified {
+                certificate_sha256: c.clone(),
+                kernel_sha256: k.clone(),
+            }
+        } else if check.as_ref().is_some_and(RelationCheck::verified) {
+            SuppliedRoute::GroupRederived
+        } else if src.verification.is_some() {
+            // (c) later, on the loaded catalogue (`supplied_verify::finish`)
+            pending.push(sv::PendingComposite {
+                key: key.clone(),
+                rhs: rhs_c.clone(),
+            });
+            SuppliedRoute::unverified(sv::UNVERIFIED_NO_LINE, "pending")
+        } else {
+            let why = match (&cert, &check) {
+                (Some(Err(e)), _) => sv::SuppliedRoute::unverified(sv::UNVERIFIED_CERTIFICATE, e),
+                (None, Some(c)) => sv::SuppliedRoute::unverified(sv::UNVERIFIED_NOT_IN_SPAN, format!("{c:?}")),
+                _ => sv::SuppliedRoute::unverified(
+                    sv::UNVERIFIED_NO_ROUTE,
+                    "no verify group, no kernel certificate, no verification line",
+                ),
+            };
+            if let SuppliedRoute::Unverified { reason } = &why
+                && !(src.verify.is_some() && src.verification.is_none() && certs.is_none())
+            {
+                rep.relations_not_verified.push((key.clone(), reason.clone()));
+            }
+            why
+        };
+        if route.exact() {
+            bits |= VERDICT_EXACT;
         }
         b.push(&key, &rhs, digest, bits)
             .map_err(|e| lerr(format!("{e:?}")))?;
@@ -1771,6 +1898,7 @@ fn load_supplied(
                 verification_sha256: ver.clone(),
                 check,
                 diagnostic: src.diagnostic,
+                route,
             },
         );
     }
@@ -1790,6 +1918,13 @@ fn load_supplied(
             slot: DispatchSlot::Last,
         },
         info,
+        super::supplied_verify::PendingSource {
+            name: src.id.clone(),
+            group: vgroup,
+            group_error,
+            verification: ver_path,
+            records: pending,
+        },
     ))
 }
 

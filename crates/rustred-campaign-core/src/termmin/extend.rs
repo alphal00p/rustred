@@ -15,12 +15,15 @@ use serde_json::{Value, json};
 use super::machine::{Candidate, ClosingSolve, ClosureOracle, Economy, Extension, Key, SymStep};
 use super::symrel::{SymRelation, q_text, symmetry_relation_at_key};
 use crate::closure::relations::{
-    DispatchSlot, RelationSet, RelationStoreBuilder, VERDICT_CERTIFIED,
+    DispatchSlot, RelationSet, RelationStoreBuilder, VERDICT_CERTIFIED, VERDICT_EXACT,
 };
 use crate::domain::{CaseDomain, TargetMap};
 use crate::import::check::{CheckOptions, CheckResult, RowStatus, Server, check};
 use crate::import::evidence::{Evidence, SolvedRelation};
 use crate::import::load::{ImportedSet, RecipeSource, RelEntry, SuppliedInfo};
+use crate::import::supplied_verify::{
+    SuppliedRoute, UNVERIFIED_NO_GROUP, UNVERIFIED_NOT_IN_SPAN,
+};
 use crate::import::symmetry::verify_relation_with;
 use crate::independent_algebra::Independent;
 use crate::replay_base::symrows::VerifiedGroup;
@@ -295,9 +298,6 @@ impl ImportExtension {
                             .unwrap_or(0);
                     }
                 }
-                b.push(t, &cand.rhs, d, VERDICT_CERTIFIED)
-                    .map_err(|e| format!("{e:?}"))?;
-                let relations = b.finish().map_err(|e| format!("{e:?}"))?;
                 let check_v = self.group.as_ref().map(|g| {
                     let rhs: Vec<(Vec<i32>, String)> = cand.payload["coefficients"]
                         .as_array()
@@ -314,6 +314,20 @@ impl ImportExtension {
                         self.symmetry_max_terms,
                     )
                 });
+                // lane symfix (import.md 13.3): EXACT (served) only when re-derived from the verified group
+                let route = match &check_v {
+                    Some(c) if c.verified() => SuppliedRoute::GroupRederived,
+                    Some(c) => SuppliedRoute::unverified(UNVERIFIED_NOT_IN_SPAN, format!("{c:?}")),
+                    None => SuppliedRoute::unverified(UNVERIFIED_NO_GROUP, "no verified group"),
+                };
+                let bits = if route.exact() {
+                    VERDICT_CERTIFIED
+                } else {
+                    VERDICT_CERTIFIED & !VERDICT_EXACT
+                };
+                b.push(t, &cand.rhs, d, bits)
+                    .map_err(|e| format!("{e:?}"))?;
+                let relations = b.finish().map_err(|e| format!("{e:?}"))?;
                 self.set.supplied.push(Arc::new(RelationSet {
                     name: src.clone(),
                     recipe_digest: format!(
@@ -348,6 +362,7 @@ impl ImportExtension {
                             check: check_v,
                             // a terminal-minimisation relation is a candidate with its own check, not a keys-only source
                             diagnostic: false,
+                            route,
                         },
                     );
                 u.supplied = Some(src.clone());

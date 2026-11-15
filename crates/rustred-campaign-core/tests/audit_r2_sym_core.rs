@@ -99,6 +99,16 @@ fn toy_set(
     start: &[Vec<i32>],
     extra: Option<Value>,
 ) -> import::ImportedSet {
+    toy_set_result(d, rules, start, extra).unwrap()
+}
+
+/// [`toy_set`] returning the load's result (lane symfix: a malformed supplied record is refused at load).
+fn toy_set_result(
+    d: &Path,
+    rules: &[Value],
+    start: &[Vec<i32>],
+    extra: Option<Value>,
+) -> Result<import::ImportedSet, import::ImportError> {
     let mut all = vec![point_rule(
         0,
         &[4, 4, 4, 0, 0],
@@ -129,7 +139,7 @@ fn toy_set(
     let spec = json!({"schema":"rustred.campaign.import-spec.v1","node":"toy-sunset","frame_from":"A",
         "start":{"path": st.display().to_string(),"format":"keys_jsonl"},"sources":sources});
     let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
-    load(&s, d).unwrap()
+    load(&s, d)
 }
 
 fn group_of(d: &Path, set: &import::ImportedSet) -> VerifiedGroup {
@@ -173,17 +183,22 @@ fn q_text(q: &Q) -> String {
 
 // ------------------------------------------------------------------------------------------------------------ F1
 
-/// F1 setup: two FALSE relations (a top key = 7 x the terminal; another = "1/0" x the terminal) in a supplied file;
-/// `with` = the source's checking field (`verification` or `verify`).
-fn f1_check(tag: &str, with: &str) -> (import::ImportedSet, import::CheckResult, Vec<Vec<i32>>) {
+/// F1 setup: FALSE relations in a supplied file (a top key = 7 x the terminal; with `bad_coefficient` also another =
+/// "1/0" x the terminal); `with` = the source's checking field (`verification` or `verify`). lane symfix: the
+/// malformed coefficient "1/0" is now REFUSED at load (see `a_malformed_coefficient_is_refused_at_parse`), so the
+/// served-row tests use the "7" relation alone.
+fn f1_spec(tag: &str, with: &str, bad_coefficient: bool) -> (PathBuf, Value, Vec<Vec<i32>>) {
     let d = scratch(tag);
     let k1 = vec![2, 1, 1, 0, 0];
     let k2 = vec![1, 1, 3, 0, 0];
-    let rules = [
-        point_rule(0, &k1, &[(LOW.to_vec(), "7".into())]),
-        point_rule(1, &k2, &[(LOW.to_vec(), "1/0".into())]),
-    ]
-    .iter()
+    let mut rels = vec![point_rule(0, &k1, &[(LOW.to_vec(), "7".into())])];
+    let mut keys = vec![k1];
+    if bad_coefficient {
+        rels.push(point_rule(1, &k2, &[(LOW.to_vec(), "1/0".into())]));
+        keys.push(k2);
+    }
+    let rules = rels
+        .iter()
     .map(|r| {
         let mut r = r.clone();
         r["dispatch"] = json!("Point");
@@ -204,7 +219,12 @@ fn f1_check(tag: &str, with: &str) -> (import::ImportedSet, import::CheckResult,
         std::fs::write(&fam, FAMILY).unwrap();
         src["verify"] = json!({"family": {"path": fam.display().to_string()}});
     }
-    let set = toy_set(&d, &[], &[k1.clone(), k2.clone()], Some(src));
+    (d, src, keys)
+}
+
+fn f1_check(tag: &str, with: &str) -> (import::ImportedSet, import::CheckResult, Vec<Vec<i32>>) {
+    let (d, src, keys) = f1_spec(tag, with, false);
+    let set = toy_set(&d, &[], &keys, Some(src));
     let ev = Evidence::from_spec(&set, &d).unwrap();
     let r = check(
         &set,
@@ -216,7 +236,7 @@ fn f1_check(tag: &str, with: &str) -> (import::ImportedSet, import::CheckResult,
         },
     )
     .unwrap();
-    (set, r, vec![k1, k2])
+    (set, r, keys)
 }
 
 fn certified(r: &import::CheckResult, k: &[i32]) -> Option<(RowStatus, Option<Level>, String)> {
@@ -229,10 +249,24 @@ fn certified(r: &import::CheckResult, k: &[i32]) -> Option<(RowStatus, Option<Le
 }
 
 #[test]
-#[ignore = "AUDIT r2-sym F1: a verification-only supplied relation is served EXACT without reading the verification (import/load.rs `None if ver.is_some()`)"]
 fn a_verification_only_supplied_relation_is_not_certified_unread() {
-    let (_, r, keys) = f1_check("f1", "verification");
+    let (set, r, keys) = f1_check("f1", "verification");
     assert_eq!(r.required, Level::Imported, "the default required evidence");
+    // lane symfix: the empty verification file is READ: no line of the key -> unverified, typed
+    let rep = set
+        .report
+        .sources
+        .iter()
+        .find(|s| s.relations > 0)
+        .expect("the supplied source's report");
+    assert_eq!(rep.relations_not_verified.len(), keys.len(), "{rep:?}");
+    assert!(
+        rep.relations_not_verified
+            .iter()
+            .all(|(_, why)| why.starts_with("verification_line_missing")),
+        "{:?}",
+        rep.relations_not_verified
+    );
     for k in &keys {
         let (st, lv, basis) = certified(&r, k).expect("row");
         let at_required = st == RowStatus::Served && lv.is_some_and(|l| l >= r.required);
@@ -255,13 +289,26 @@ fn the_import_verify_mode_refuses_the_same_false_relations() {
         .find(|s| s.relations > 0)
         .expect("the supplied source's report");
     assert_eq!(rep.relations_verified, 0);
-    assert_eq!(rep.relations_not_verified.len(), 2);
+    assert_eq!(rep.relations_not_verified.len(), keys.len());
     for k in &keys {
         let (st, lv, _) = certified(&r, k).expect("row");
         assert!(
             !(st == RowStatus::Served && lv.is_some_and(|l| l >= r.required)),
             "{k:?}: {st:?} {lv:?}"
         );
+    }
+}
+
+/// lane symfix (F1, "1/0"): a malformed coefficient text is REFUSED AT PARSE (load error, typed), whatever checking
+/// field the source carries.
+#[test]
+fn a_malformed_coefficient_is_refused_at_parse() {
+    for with in ["verification", "verify"] {
+        let (d, src, keys) = f1_spec(&format!("f1p-{with}"), with, true);
+        let e = toy_set_result(&d, &[], &keys, Some(src))
+            .expect_err("a supplied record with the coefficient 1/0 must be refused at load");
+        let m = e.to_string();
+        assert!(m.contains("vanishes identically"), "{with}: {m}");
     }
 }
 
@@ -487,7 +534,6 @@ impl Ctx {
 }
 
 #[test]
-#[ignore = "AUDIT r2-sym F2: verify_shipped does not check that the shipped terms are distinct (composite_verify.rs: length + per-shipped-term lookup)"]
 fn verify_shipped_refuses_a_duplicated_term_that_hides_a_missing_one() {
     let (cx, found) = plain_ctx("dup");
     let p = found.first().expect("a plain multi-term relation");

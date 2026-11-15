@@ -23,6 +23,8 @@ pub mod statement;
 /// lane t266run: disk-backed evidence store (interfaces/evidence-store.md).
 pub mod store;
 pub mod sweep;
+// lane symfix: load-time verification of supplied relations (interfaces/import.md 13.3)
+pub mod supplied_verify;
 pub mod symmetry;
 // lane zeros2: structural zero proofs of rule terms as a fact source (interfaces/zero-proofs.md)
 pub mod zero_proofs;

@@ -291,9 +291,14 @@ impl SourceKind {
                 "sym_group",
             ],
             SourceKind::Recipe => &["path", "sha256", "engine_digest", "assignment"],
-            SourceKind::SuppliedRelations => {
-                &["path", "sha256", "verification", "verify", "diagnostic"]
-            }
+            SourceKind::SuppliedRelations => &[
+                "path",
+                "sha256",
+                "verification",
+                "verify",
+                "diagnostic",
+                "kernel_certificates",
+            ],
             SourceKind::SymmetryCredit => &["group", "family", "group_format", "max_candidates"],
             SourceKind::Terminals => &["keys", "path", "sha256", "preferred"],
         }
@@ -366,6 +371,11 @@ pub struct SourceSpec {
     /// key-set comparison with a checker's delivery before the solves exist). Refused with `verify` / `verification`.
     #[serde(default)]
     pub diagnostic: bool,
+    /// `supplied_relations` (lane symfix, interfaces/import.md 13.3 (b)): sealed kernel certificate streams of the
+    /// contract kind proof-symrows + the allow-list of kernel binaries; a record with a CHECKED certificate is served
+    /// per-key (`symmetry_relation_kernel_certified`). Serialized only when given (earlier spec digests unchanged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kernel_certificates: Option<super::supplied_verify::CertificateSpec>,
     /// Table sources (lane import5, interfaces/import.md 18.2): which terminals the TABLE declares (default `ledger`).
     /// Serialized only when given (spec digests of earlier specs unchanged).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -634,9 +644,13 @@ impl TableSetSpec {
                 SourceKind::Recipe => need(s.path.is_some(), "path")?,
                 SourceKind::SuppliedRelations => {
                     need(s.path.is_some(), "path")?;
-                    if s.diagnostic && (s.verify.is_some() || s.verification.is_some()) {
+                    if s.diagnostic
+                        && (s.verify.is_some()
+                            || s.verification.is_some()
+                            || s.kernel_certificates.is_some())
+                    {
                         return Err(ImportError::Spec(format!(
-                            "source {}: diagnostic keys-only relations cannot carry verify / verification",
+                            "source {}: diagnostic keys-only relations cannot carry verify / verification / kernel_certificates",
                             s.id
                         )));
                     }
