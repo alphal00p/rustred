@@ -977,15 +977,22 @@ pub fn walk_stream(
     // the record (one at a time per record), releases it, then transports the chunk; the record's parsed form is freed
     // when its last chunk is decided. Long-lived workers (one per thread) keep their accumulators across items and
     // merge them into the shared ones past LOCAL_FLUSH entries and at their end.
-    let items: Vec<(usize, usize, usize)> = groups
+    // interleaved: every group's first chunk (largest groups first), then every second chunk, ...: concurrent workers
+    // mostly hold different records (chunks of one record are decided one at a time)
+    let max_chunks = groups
         .iter()
-        .enumerate()
-        .flat_map(|(g, (_, ks))| {
-            (0..ks.len())
-                .step_by(CHUNK)
-                .map(move |a| (g, a, (a + CHUNK).min(ks.len())))
-        })
-        .collect();
+        .map(|(_, ks)| ks.len().div_ceil(CHUNK))
+        .max()
+        .unwrap_or(0);
+    let mut items: Vec<(usize, usize, usize)> = vec![];
+    for c in 0..max_chunks {
+        for (g, (_, ks)) in groups.iter().enumerate() {
+            let a = c * CHUNK;
+            if a < ks.len() {
+                items.push((g, a, (a + CHUNK).min(ks.len())));
+            }
+        }
+    }
     let left: Vec<AtomicUsize> = groups
         .iter()
         .map(|(_, ks)| AtomicUsize::new(ks.len().div_ceil(CHUNK)))
