@@ -23,6 +23,11 @@
 //!     needs-compose: ONE request = the weighted sum of the file's inputs, one per line
 //!     `p<presentation>:<powers,...> TAB <numerator> TAB <denominator>` (polynomials in d as space-separated
 //!     `power:integer` monomials, integers of any size; empty = 1). Prints the terms like `reduce` (P_RETAIN=1 as there).
+//! p5l_library reduce-files <package dir> <list.tsv> <exact|modular> <threads>
+//!     needs-compose: one process, the package loaded once, the list's chunks `<inputs.tsv> TAB <output.txt>` reduced in order
+//!     (each one request, as reduce-file), one shared step cache (P_STEP_CACHE=<dir>: opened, populated and saved after each
+//!     chunk; unset = in memory). A chunk's output is written when it finishes (`.tmp` then renamed); a refusal is written as
+//!     `error: ...` into its output and the loop continues. Chunks whose output exists are skipped (restartable).
 //! p5l_library check <package dir> <top name> <dots> <rank> <ibp seeds> <laporta dots> <laporta rank>
 //!     the cell numerator of the benchmark grid (rank r = dot(k1,p) dot(k2,p) dot(k1,k3) ...) times the top at
 //!     powers 1 (first line 1 + dots): (A) the library reduction; (B) its top-sector part against a RustRed
@@ -102,6 +107,7 @@ fn main() {
         Some("check") => check(&args[2..]),
         Some("reduce") => reduce_cli(&args[2..]),
         Some("reduce-file") => reduce_file_cli(&args[2..]),
+        Some("reduce-files") => reduce_files_cli(&args[2..]),
         Some("encoding") => encoding(&args[2..]),
         // vk5l WP6: p5l_library seed-fingerprints <package dir> <out.json>
         Some("seed-fingerprints") => {
@@ -506,6 +512,71 @@ fn print_reduction(library: &PLibrary, result: Result<PReduction, rustred::propa
     }
 }
 
+fn format_reduction(library: &PLibrary, reduction: &PReduction) -> String {
+    let mut out = String::new();
+    for term in &reduction.terms {
+        let basis = match &term.basis {
+            PBasis::Residual(id) => match library.residual_terminal(*id) {
+                Ok(Some(named)) => format!("PResidual({}, {:?}){}", named.node, named.key.powers(),
+                    if named.retained.is_some() { " [retained]" } else { "" }),
+                _ => format!("{:?}", term.basis),
+            },
+            other => format!("{other:?}"),
+        };
+        out.push_str(&format!("{basis} {:?} : {}\n", term.tag, term.coefficient));
+    }
+    out
+}
+
+fn reduce_files_cli(args: &[String]) {
+    let (library, _) = load(&args[0], false);
+    let context = library.coefficient_context();
+    let threads: usize = args.get(3).map_or(1, |t| t.parse().expect("threads"));
+    let modular = args.get(2).map(String::as_str) == Some("modular");
+    let binding = library.step_cache_binding().expect("step cache binding");
+    let options = rustred::reduction::OrderedStepCacheOptions {
+        populate: true,
+        max_resident_bytes: std::env::var("P_STEP_CACHE_MAX_GB").ok().map(|g| (g.parse::<f64>().unwrap() * 1e9) as usize),
+        ..Default::default()
+    };
+    let cache = match std::env::var("P_STEP_CACHE") {
+        Ok(dir) => rustred::reduction::OrderedStepCache::open(&dir, binding, options).expect("open the step cache"),
+        Err(_) => rustred::reduction::OrderedStepCache::in_memory(binding, options),
+    };
+    let list = std::fs::read_to_string(&args[1]).expect("list file");
+    for line in list.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') { continue; }
+        let (input, output) = line.split_once('\t').expect("<inputs> TAB <output>");
+        if std::path::Path::new(output).exists() { continue; }
+        let started = Instant::now();
+        let inputs = read_inputs(context, input);
+        let n = inputs.len();
+        let arithmetic = if modular { modular_polynomial(threads) } else { OrderedWeightArithmetic::Exact };
+        let result = library.reduce(PReductionRequest {
+            inputs,
+            arithmetic,
+            scheduler: OrderedSchedulerOptions::default(),
+            step_cache: Some(Arc::clone(&cache)),
+            uncovered: PUncoveredPolicy::Reject,
+            onto_masters: false,
+            limits: ReductionLimits::default(),
+            inspector: None,
+        });
+        let text = match &result {
+            Ok(reduction) => format_reduction(&library, reduction),
+            Err(error) => format!("error: {error}\n"),
+        };
+        let tmp = format!("{output}.tmp");
+        std::fs::write(&tmp, text).expect("write output");
+        std::fs::rename(&tmp, output).expect("rename output");
+        let saved = if std::env::var("P_STEP_CACHE").is_ok() { format!("{:?}", cache.save().map(|_| "saved")) } else { "mem".into() };
+        let st = cache.statistics();
+        eprintln!("chunk {input}: {n} inputs, {} in {:.1} s {} cache {saved} {st:?}",
+            if result.is_ok() { "ok" } else { "ERROR" }, started.elapsed().as_secs_f64(), stamp());
+    }
+}
+
 /// needs-compose: an exact integer (any size) as a coefficient, by base-10^9 chunks.
 fn big_integer(context: &CoefficientContext, text: &str) -> Coefficient {
     let limits = exact();
@@ -554,17 +625,9 @@ fn poly_in_d(context: &CoefficientContext, text: &str) -> Coefficient {
     value
 }
 
-fn reduce_file_cli(args: &[String]) {
-    let (library, _) = load(&args[0], false);
-    let context = library.coefficient_context();
-    let threads: usize = args.get(3).map_or(1, |t| t.parse().expect("threads"));
-    let arithmetic = match args.get(2).map(String::as_str) {
-        Some("modular") => modular_polynomial(threads),
-        _ => OrderedWeightArithmetic::Exact,
-    };
-    let started = Instant::now();
+fn read_inputs(context: &CoefficientContext, path: &str) -> Vec<Input> {
     let mut inputs: Vec<Input> = Vec::new();
-    for line in std::fs::read_to_string(&args[1]).expect("inputs file").lines() {
+    for line in std::fs::read_to_string(path).expect("inputs file").lines() {
         let line = line.trim_end();
         if line.is_empty() || line.starts_with('#') {
             continue;
@@ -585,6 +648,19 @@ fn reduce_file_cli(args: &[String]) {
             weight,
         ));
     }
+    inputs
+}
+
+fn reduce_file_cli(args: &[String]) {
+    let (library, _) = load(&args[0], false);
+    let context = library.coefficient_context();
+    let threads: usize = args.get(3).map_or(1, |t| t.parse().expect("threads"));
+    let arithmetic = match args.get(2).map(String::as_str) {
+        Some("modular") => modular_polynomial(threads),
+        _ => OrderedWeightArithmetic::Exact,
+    };
+    let started = Instant::now();
+    let inputs = read_inputs(context, &args[1]);
     eprintln!("reduce-file: {} inputs parsed in {:.2} s {}", inputs.len(), started.elapsed().as_secs_f64(), stamp());
     let uncovered = if std::env::var("P_RETAIN").as_deref() == Ok("1") {
         PUncoveredPolicy::Retain
