@@ -87,9 +87,8 @@ fn request(off: u64, line: &[u8]) -> SymrowsRequest {
         }],
         kernel_sha256: KSHA.into(),
         family_blake3: b3(FAMILY.as_bytes()),
-        // SHA-256 values are the supervisor's (no SHA-256 in the contract): made-up hex here, echoed and compared
-        family_sha256: SHA.into(),
-        relation_sha256: KSHA.into(),
+        family_sha256: symcert::sha256_hex(FAMILY.as_bytes()),
+        relation_sha256: symcert::sha256_hex(&symcert::relation_canonical(&key, &r).unwrap()),
         max_primes: None,
     }
 }

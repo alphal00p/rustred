@@ -430,8 +430,9 @@ pub fn read_verdicts(path: &std::path::Path) -> Result<Vec<RelationVerdict>, Str
         .collect()
 }
 
-/// What an import-side lift is bound to (lane symcert; audit r2-sym F4): the pinned kernels, the import's family and
-/// the directories certificates may come from. Data of the caller (the campaign's configuration), never constants.
+/// What the certificates handed to an import are bound to (lane symcert; audit r2-sym F4): the pinned kernels, the
+/// import's family and the directories certificates may come from. Data of the caller (the campaign's configuration),
+/// never constants. The import re-checks every certificate against its own record (lane symfix, route (b)).
 #[derive(Clone, Debug)]
 pub struct ImportBinding {
     /// SHA-256 of every kernel binary whose certificates count (the pinned frozen kernels).
@@ -443,35 +444,22 @@ pub struct ImportBinding {
     pub roots: Vec<PathBuf>,
 }
 
-/// Why a verdict does not lift a level (typed; the relation keeps today's level).
+/// Why a verdict's certificate is not handed to the import (typed; the relation keeps today's level).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct NoLift {
     pub id: String,
     pub key: Vec<i64>,
     /// `not_decided` | `no_run_dir` | `outside_certificate_roots` | `job_unreadable` | `not_a_certificate_job` |
-    /// `certificate_not_sealed` | `certificate_unbound` | `kernel_not_pinned` | `family_differs` |
-    /// `no_import_record` | `import_record_unreadable` | `relation_digest_differs` | `key_out_of_range`
+    /// `certificate_not_sealed` | `certificate_unbound` | `kernel_not_pinned` | `family_differs`
     pub reason: &'static str,
     pub detail: String,
 }
 
-/// The import's supplied records at a key: (record SHA-256, the record line) for every supplied relation set that
-/// serves the key (callers: [`import_records`] over an `ImportedSet`, tests over data).
-pub type ImportRecords<'a> = dyn Fn(&[i32]) -> Vec<(String, Vec<u8>)> + 'a;
-
-/// What a run directory proves when classified again from its own files.
-enum RunAnswer {
-    /// Row 40: the sealed certificate, re-checked against the run's pinned request / table / symrows input.
-    Sealed(Box<rustred_campaign_contract::classify::symcert::Certificate>),
-    /// Row 41 (not a kernel capacity limit): the kernel refused a symmetry row of THIS pinned request.
-    Refused41(
-        Box<rustred_campaign_contract::classify::symcert::SymrowsRequest>,
-        String,
-    ),
-}
-
-/// The answer of one run directory (the attempt classified again from its files).
-fn run_answer(run_dir: &std::path::Path) -> Result<RunAnswer, (&'static str, String)> {
+/// The sealed certificate of one run directory, re-verified: the attempt classified again from its own files (row
+/// 40) and the sealed line re-checked against the run's pinned request / table / symrows input.
+fn sealed_certificate(
+    run_dir: &std::path::Path,
+) -> Result<rustred_campaign_contract::classify::symcert::Certificate, (&'static str, String)> {
     use rustred_campaign_contract::classify::{self, KillReason, WaitStatus};
     use rustred_campaign_contract::layout::RunLayout;
     use rustred_campaign_contract::spec::{JobKind, JobSpec};
@@ -498,15 +486,6 @@ fn run_answer(run_dir: &std::path::Path) -> Result<RunAnswer, (&'static str, Str
         false,
     );
     let c = classify::classify(&ev);
-    if c.row == 41 {
-        let msg = crate::adapters::symrows::refusal_message(&layout).unwrap_or_default();
-        if is_capacity_refusal(&msg) {
-            return Err(("certificate_not_sealed", format!("row 41 capacity: {msg}")));
-        }
-        let r = rustred_campaign_contract::classify::symcert::request(&spec)
-            .map_err(|e| ("certificate_unbound", e))?;
-        return Ok(RunAnswer::Refused41(Box::new(r), msg));
-    }
     if c.row != 40 {
         return Err((
             "certificate_not_sealed",
@@ -521,160 +500,9 @@ fn run_answer(run_dir: &std::path::Path) -> Result<RunAnswer, (&'static str, Str
         rustred_campaign_contract::classify::symcert::certificates_of_run(&layout.root, &spec, v)
             .map_err(|e| ("certificate_unbound", e))?;
     match (certs.pop(), certs.is_empty()) {
-        (Some(c), true) => Ok(RunAnswer::Sealed(Box::new(c))),
+        (Some(c), true) => Ok(c),
         _ => Err(("certificate_unbound", "not exactly one certificate".into())),
     }
-}
-
-/// The import's evidence of kernel certificates, BOUND AT IMPORT (audit r2-sym F4): a verdict line is only a POINTER to
-/// a run directory; a level is lifted only when that directory lies under `b.roots`, its attempt classifies as row 40
-/// from its own files, its sealed certificate re-checks against its pinned request / table / symrows input, the
-/// certificate's kernel is one of `b.kernels`, its family is the import's (`b.family_blake3`), and the relation digest
-/// recomputed from the IMPORT'S OWN record (the supplied record with the certificate's producer record SHA-256 at the
-/// certificate's key, from `records`) equals the certificate's. Class certified -> certify; kernel_refused -> refuse
-/// (never per-key while the disagreement stands). Everything else: no lift, with a typed reason.
-pub fn bind_certificates(
-    verdicts: &[RelationVerdict],
-    records: &ImportRecords<'_>,
-    b: &ImportBinding,
-) -> (
-    rustred_campaign_core::symcert::SymmetryCertificates,
-    Vec<NoLift>,
-) {
-    use rustred_campaign_contract::classify::symcert as sc;
-    let mut m = rustred_campaign_core::symcert::SymmetryCertificates::default();
-    let mut no = vec![];
-    let roots: Vec<PathBuf> = b
-        .roots
-        .iter()
-        .filter_map(|r| std::fs::canonicalize(r).ok())
-        .collect();
-    for v in verdicts {
-        let fail = |reason: &'static str, detail: String| NoLift {
-            id: v.id.clone(),
-            key: v.key.clone(),
-            reason,
-            detail,
-        };
-        if !matches!(v.verdict.as_str(), "certified" | "kernel_refused") {
-            no.push(fail("not_decided", v.verdict.clone()));
-            continue;
-        }
-        let Some(rd) = &v.run_dir else {
-            no.push(fail(
-                "no_run_dir",
-                "the verdict names no run directory".into(),
-            ));
-            continue;
-        };
-        let Ok(run) = std::fs::canonicalize(rd) else {
-            no.push(fail("job_unreadable", format!("{rd}: not found")));
-            continue;
-        };
-        if !roots.iter().any(|r| run.starts_with(r)) {
-            no.push(fail("outside_certificate_roots", run.display().to_string()));
-            continue;
-        }
-        // (kernel, family, relation digest, key, producer record, class, status, certificate sha)
-        let cert = match run_answer(&run) {
-            Ok(RunAnswer::Sealed(c)) => Bound {
-                kernel: c.kernel_sha256.clone(),
-                family: c.family_blake3.clone(),
-                digest: c.relation_digest.clone(),
-                key: c.key.clone(),
-                producer: c.producer_record_sha256.clone(),
-                class: c.class.clone(),
-                status: c.status.clone(),
-                sha: crate::adapters::job::sha256_hex(&c.canonical),
-            },
-            Ok(RunAnswer::Refused41(r, msg)) => Bound {
-                kernel: r.kernel_sha256.clone(),
-                family: r.family_blake3.clone(),
-                digest: r.relation_digest.clone(),
-                key: r.key.clone(),
-                producer: r.producer_record_sha256.clone(),
-                class: "kernel_refused".into(),
-                status: msg,
-                sha: String::new(),
-            },
-            Err((reason, d)) => {
-                no.push(fail(reason, d));
-                continue;
-            }
-        };
-        if !b.kernels.contains(&cert.kernel) {
-            no.push(fail("kernel_not_pinned", cert.kernel.clone()));
-            continue;
-        }
-        if cert.family != b.family_blake3 {
-            no.push(fail("family_differs", cert.family.clone()));
-            continue;
-        }
-        let Ok(key) = cert
-            .key
-            .iter()
-            .map(|&k| i32::try_from(k))
-            .collect::<Result<Vec<i32>, _>>()
-        else {
-            no.push(fail("key_out_of_range", format!("{:?}", cert.key)));
-            continue;
-        };
-        let Some(sha) = &cert.producer else {
-            no.push(fail(
-                "no_import_record",
-                "the certificate names no producer record".into(),
-            ));
-            continue;
-        };
-        let Some((_, line)) = records(&key).into_iter().find(|(s, _)| s == sha) else {
-            no.push(fail(
-                "no_import_record",
-                format!("no supplied record {sha} at the key in the import"),
-            ));
-            continue;
-        };
-        let digest = match sc::relation_of_record(&line)
-            .and_then(|(k, rhs)| sc::relation_digest(&k, &rhs).map(|d| (k, d)))
-        {
-            Ok((k, d)) if k == cert.key => d,
-            Ok(_) => {
-                no.push(fail(
-                    "relation_digest_differs",
-                    "the import record is at another key".into(),
-                ));
-                continue;
-            }
-            Err(e) => {
-                no.push(fail("import_record_unreadable", e));
-                continue;
-            }
-        };
-        if digest != cert.digest {
-            no.push(fail(
-                "relation_digest_differs",
-                format!("import {digest}, certificate {}", cert.digest),
-            ));
-            continue;
-        }
-        match cert.class.as_str() {
-            "certified" => m.certify(sha, key, cert.sha.clone()),
-            "kernel_refused" => m.refuse(sha, key, cert.status.clone()),
-            other => no.push(fail("not_decided", format!("certificate class {other}"))),
-        }
-    }
-    (m, no)
-}
-
-/// The binding members of a run's answer (sealed certificate or row-41 refusal of its pinned request).
-struct Bound {
-    kernel: String,
-    family: String,
-    digest: String,
-    key: Vec<i64>,
-    producer: Option<String>,
-    class: String,
-    status: String,
-    sha: String,
 }
 
 /// A sealed certificate stream for the import's route (b) (lane symfix: `kernel_certificates.files`): the run's
@@ -687,10 +515,10 @@ pub struct CertificateFile {
 }
 
 /// The sealed certificate streams of the CERTIFIED verdicts for an import spec's `kernel_certificates.files` (the
-/// import checks each certificate against its own record at load): every run directory re-verified as in
-/// [`bind_certificates`] (under the roots, row 40 from its own files, sealed line re-checked against its pinned inputs,
-/// kernel pinned, family the import's); anything else is left out with a typed reason. The kernels allow-list of the
-/// spec is `b.kernels`.
+/// import checks each certificate against its own record at load, lane symfix's route (b)): a verdict line is only a
+/// POINTER; every run directory is re-verified (under `b.roots`, row 40 from its own files, the sealed line re-checked
+/// against its pinned inputs, kernel in `b.kernels`, family = `b.family_blake3`, class certified); anything else is
+/// left out with a typed reason. The spec's `kernel_certificates.kernels` allow-list is `b.kernels`.
 pub fn kernel_certificate_files(
     verdicts: &[RelationVerdict],
     b: &ImportBinding,
@@ -725,8 +553,8 @@ pub fn kernel_certificate_files(
             no.push(fail("outside_certificate_roots", run.display().to_string()));
             continue;
         }
-        match run_answer(&run) {
-            Ok(RunAnswer::Sealed(c)) => {
+        match sealed_certificate(&run) {
+            Ok(c) => {
                 if !b.kernels.contains(&c.kernel_sha256) {
                     no.push(fail("kernel_not_pinned", c.kernel_sha256.clone()));
                 } else if c.family_blake3 != b.family_blake3 {
@@ -745,37 +573,10 @@ pub fn kernel_certificate_files(
                     }
                 }
             }
-            Ok(RunAnswer::Refused41(..)) => no.push(fail("not_decided", "row 41".into())),
             Err((reason, d)) => no.push(fail(reason, d)),
         }
     }
     (files, no)
-}
-
-/// [`ImportRecords`] over an imported set: every supplied relation set's record at the key (its line read from the
-/// source file and bound by its SHA-256, which the loader recorded).
-pub fn import_records(
-    set: &rustred_campaign_core::import::ImportedSet,
-) -> impl Fn(&[i32]) -> Vec<(String, Vec<u8>)> + '_ {
-    move |key: &[i32]| {
-        let mut out = vec![];
-        for m in set.supplied_info.values() {
-            let Some(i) = m.get(key) else { continue };
-            let Ok(f) = std::fs::File::open(&i.path) else {
-                continue;
-            };
-            for l in std::io::BufReader::new(f)
-                .split(b'\n')
-                .map_while(Result::ok)
-            {
-                if crate::adapters::job::sha256_hex(&l) == i.record_sha256 {
-                    out.push((i.record_sha256.clone(), l));
-                    break;
-                }
-            }
-        }
-        out
-    }
 }
 
 #[cfg(test)]

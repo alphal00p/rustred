@@ -6,13 +6,13 @@
 
 use rustred_campaign::adapters::job::{Invocation, Program};
 use rustred_campaign::closeloop::symcert::{
-    CertifyConfig, ImportBinding, RelationVerdict, bind_certificates, certify_symmetry_relations,
-    summary,
+    CertifyConfig, ImportBinding, RelationVerdict, certify_symmetry_relations,
+    kernel_certificate_files, summary,
 };
 use rustred_campaign_contract::exit::ExitCode;
 use rustred_campaign_contract::fake::{FakeOp, FakeScript};
 use rustred_campaign_core::symcert::{
-    CatalogueSeeds, CertVerdict, KernelCaps, SymRelation, SymRow, ZeroSectors,
+    CatalogueSeeds, KernelCaps, SymRelation, SymRow, ZeroSectors,
 };
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -240,71 +240,41 @@ fn every_verdict_through_the_process_layer() {
     let s = summary(&v);
     assert_eq!(s["by_verdict"]["certified"], 2);
     assert_eq!(s["findings"], 2);
-    // THE IMPORT-SIDE BINDING (audit r2-sym F4): a verdict is only a pointer to a sealed run directory
-    let k32 = |r: &RelationVerdict| r.key.iter().map(|&x| x as i32).collect::<Vec<i32>>();
-    let pr = |id: &str| b[id].producer_record_sha256.clone().unwrap();
-    // the import's own records: the point record of each relation, under its producer record digest
-    let by_key: BTreeMap<Vec<i32>, (String, Vec<u8>)> = rels
-        .iter()
-        .filter(|r| r.key.len() == 3)
-        .map(|r| {
-            (
-                r.key.iter().map(|&x| x as i32).collect(),
-                (
-                    r.producer_record_sha256.clone().unwrap(),
-                    rustred_campaign_core::symcert::record_line(r),
-                ),
-            )
-        })
-        .collect();
-    let records = |k: &[i32]| by_key.get(k).cloned().into_iter().collect::<Vec<_>>();
+    // THE CERTIFICATES HANDED TO THE IMPORT (audit r2-sym F4; lane symfix's route (b) re-checks each against its own
+    // record): a verdict is only a pointer to a sealed, re-verified run directory
     let binding = ImportBinding {
         kernels: vec![cfg.program.sha256.clone().unwrap()],
         family_blake3: rustred_campaign_contract::blake3_hex(cfg.family_source.as_bytes()),
         roots: vec![root.clone()],
     };
-    let (c, no) = bind_certificates(&v, &records, &binding);
     let reason = |no: &[rustred_campaign::closeloop::symcert::NoLift], id: &str| {
         no.iter().find(|x| x.id == id).map(|x| x.reason)
     };
-    assert!(matches!(
-        c.get(&pr("ok"), &k32(&b["ok"])),
-        Some(CertVerdict::Certified(_))
-    ));
-    assert!(matches!(
-        c.get(&pr("composite"), &k32(&b["composite"])),
-        Some(CertVerdict::Certified(_))
-    ));
-    assert!(matches!(
-        c.get(&pr("refused"), &k32(&b["refused"])),
-        Some(CertVerdict::Refused(_))
-    ));
-    // a row-41 refusal (no sealed certificate) still keeps its relation from per-key: refused, never lifted
-    assert!(matches!(
-        c.get(&pr("symrow"), &k32(&b["symrow"])),
-        Some(CertVerdict::Refused(_))
-    ));
-    assert_eq!(
-        c.len(),
-        4,
-        "only sealed certificates / re-classified refusals bind: {no:?}"
-    );
-    assert_eq!(reason(&no, "capacity"), Some("not_decided"));
-    assert_eq!(reason(&no, "forged"), Some("not_decided"));
-    // the sealed streams for the import's route (b): only the certified runs, each pinned by SHA-256, and every
-    // certificate line carries the import-side digests (relation_sha256 of the relation's canonical text, family_sha256)
-    let (files, _) = rustred_campaign::closeloop::symcert::kernel_certificate_files(&v, &binding);
+    let (files, no) = kernel_certificate_files(&v, &binding);
     let mut ids: Vec<&str> = files.iter().map(|f| f.relation_id.as_str()).collect();
     ids.sort();
-    assert_eq!(ids, vec!["composite", "ok"]);
+    assert_eq!(ids, vec!["composite", "ok"], "{no:?}");
+    assert_eq!(reason(&no, "refused"), Some("not_decided"));
+    assert_eq!(reason(&no, "symrow"), Some("not_decided"));
     for f in &files {
         let bytes = std::fs::read(&f.path).unwrap();
         assert_eq!(
             rustred_campaign::adapters::job::sha256_hex(&bytes),
             f.sha256
         );
-        let line: serde_json::Value =
-            serde_json::from_slice(bytes.split(|&c| c == b'\n').next().unwrap()).unwrap();
+        // the stream symfix's import reads: certificate line(s) then ONE end record with request_blake3, last
+        let lines: Vec<&[u8]> = bytes
+            .split(|&c| c == b'\n')
+            .filter(|l| !l.is_empty())
+            .collect();
+        assert_eq!(lines.len(), 2);
+        let end: serde_json::Value = serde_json::from_slice(lines[1]).unwrap();
+        assert_eq!(
+            (end["type"].as_str(), end["records"].as_u64()),
+            (Some("end"), Some(1))
+        );
+        assert_eq!(end["request_blake3"].as_str().map(str::len), Some(64));
+        let line: serde_json::Value = serde_json::from_slice(lines[0]).unwrap();
         let rel = rels.iter().find(|r| r.id == f.relation_id).unwrap();
         let canon =
             rustred_campaign_contract::classify::symcert::relation_canonical(&rel.key, &rel.rhs)
@@ -317,69 +287,50 @@ fn every_verdict_through_the_process_layer() {
             line["family_sha256"].as_str().unwrap(),
             rustred_campaign::adapters::job::sha256_hex(cfg.family_source.as_bytes())
         );
+        assert_eq!(
+            (line["class"].as_str(), line["verdict"].as_str()),
+            (Some("certified"), Some("EXACT_IN_SPAN_AT_KEY"))
+        );
     }
-    // (1) an UNSEALED verdict line: a "certified" line pointing at the run whose answers the wrapper refused (row 43),
-    // and one without a run directory
+    // (1) an UNSEALED verdict line: "certified" pointing at the run whose answers the wrapper refused (row 43), and
+    // one without a run directory
     let mut fake = b["ok"].clone();
     fake.run_dir = b["lie"].run_dir.clone();
     let mut bare = b["ok"].clone();
     bare.run_dir = None;
-    let (c1, n1) = bind_certificates(&[fake, bare], &records, &binding);
-    assert!(c1.is_empty());
+    let (f1, n1) = kernel_certificate_files(&[fake, bare], &binding);
+    assert!(f1.is_empty());
     assert_eq!(n1[0].reason, "certificate_not_sealed", "{n1:?}");
     assert_eq!(n1[1].reason, "no_run_dir");
-    // (2) a verdict line that says "certified" for the run that the kernel REFUSED: the sealed class decides
+    // (2) a verdict line that says "certified" for the run the kernel REFUSED: the sealed class decides
     let mut lied = b["refused"].clone();
     lied.verdict = "certified".into();
-    let (c2, _) = bind_certificates(&[lied], &records, &binding);
-    assert!(matches!(
-        c2.get(&pr("refused"), &k32(&b["refused"])),
-        Some(CertVerdict::Refused(_))
-    ));
-    // (3) the certificate of ANOTHER relation: the import's record at that key is a different relation
-    let mut other = rels[0].clone();
-    other.rhs[0].1 = "7".into();
-    let other_line = rustred_campaign_core::symcert::record_line(&other);
-    let other_records = |k: &[i32]| -> Vec<(String, Vec<u8>)> {
-        if k == k32(&b["ok"]).as_slice() {
-            vec![(pr("ok"), other_line.clone())]
-        } else {
-            records(k)
-        }
-    };
-    let (c3, n3) = bind_certificates(&[b["ok"].clone()], &other_records, &binding);
-    assert!(c3.is_empty());
-    assert_eq!(n3[0].reason, "relation_digest_differs");
-    // (4) ANOTHER KEY: a verdict naming another key binds only at the certificate's own key (never the claimed one)
-    let mut moved = b["ok"].clone();
-    moved.key = vec![1, 1, -99];
-    let (c4, _) = bind_certificates(&[moved], &records, &binding);
-    assert!(c4.get(&pr("ok"), &[1, 1, -99]).is_none());
-    assert!(matches!(
-        c4.get(&pr("ok"), &k32(&b["ok"])),
-        Some(CertVerdict::Certified(_))
-    ));
-    // (5) ANOTHER FAMILY and (6) ANOTHER KERNEL
+    let (f2, n2) = kernel_certificate_files(&[lied], &binding);
+    assert!(f2.is_empty());
+    assert_eq!(n2[0].reason, "not_decided");
+    // (3) ANOTHER FAMILY and (4) ANOTHER KERNEL
     let mut fam = binding.clone();
     fam.family_blake3 = rustred_campaign_contract::blake3_hex(b"I(name(other))");
-    let (c5, n5) = bind_certificates(&[b["ok"].clone()], &records, &fam);
-    assert!(c5.is_empty());
-    assert_eq!(n5[0].reason, "family_differs");
+    assert_eq!(
+        kernel_certificate_files(&[b["ok"].clone()], &fam).1[0].reason,
+        "family_differs"
+    );
     let mut ker = binding.clone();
     ker.kernels = vec!["e".repeat(64)];
-    let (c6, n6) = bind_certificates(&[b["ok"].clone()], &records, &ker);
-    assert!(c6.is_empty());
-    assert_eq!(n6[0].reason, "kernel_not_pinned");
-    // (7) REPLAY ACROSS CAMPAIGNS: certificates of another campaign's work tree are never read
+    assert_eq!(
+        kernel_certificate_files(&[b["ok"].clone()], &ker).1[0].reason,
+        "kernel_not_pinned"
+    );
+    // (5) REPLAY ACROSS CAMPAIGNS: certificates of another campaign's work tree are never handed on
     let root_b = tmp("replay");
     let mut cfg_b = config(&root_b, BTreeMap::new());
     cfg_b.parallel = 1;
     let vb = certify_symmetry_relations(&rels[..1], &cfg_b).unwrap();
     assert_eq!(vb[0].verdict, "certified");
-    let (c7, n7) = bind_certificates(&vb, &records, &binding);
-    assert!(c7.is_empty());
-    assert_eq!(n7[0].reason, "outside_certificate_roots");
-    // ... and a replayed certificate whose run directory was tampered after sealing (the certificate line edited)
+    let (f5, n5) = kernel_certificate_files(&vb, &binding);
+    assert!(f5.is_empty());
+    assert_eq!(n5[0].reason, "outside_certificate_roots");
+    // (6) a seal tampered after the fact (the certificate line edited): not handed on
     let run_ok = PathBuf::from(b["ok"].run_dir.clone().unwrap());
     let res = run_ok.join("out/results.jsonl");
     let txt = std::fs::read_to_string(&res).unwrap();
@@ -388,9 +339,9 @@ fn every_verdict_through_the_process_layer() {
         txt.replace("EXACT_IN_SPAN_AT_KEY", "EXACT_IN_SPAN_AT_KEX"),
     )
     .unwrap();
-    let (c8, n8) = bind_certificates(&[b["ok"].clone()], &records, &binding);
-    assert!(c8.is_empty());
-    assert_eq!(n8[0].reason, "certificate_not_sealed", "{n8:?}");
+    let (f6, n6) = kernel_certificate_files(&[b["ok"].clone()], &binding);
+    assert!(f6.is_empty());
+    assert_eq!(n6[0].reason, "certificate_not_sealed", "{n6:?}");
     std::fs::write(&res, txt).unwrap();
     let _ = std::fs::remove_dir_all(&root_b);
     // RESUME: a second call answers the decided relations from the journal (same certificate, no new attempt)

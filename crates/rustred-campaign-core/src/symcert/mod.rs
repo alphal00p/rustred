@@ -195,45 +195,6 @@ impl SymRelation {
     }
 }
 
-/// A kernel certificate's verdict for the import (interfaces/proof-symrows-job.md 6).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CertVerdict {
-    /// `EXACT_IN_SPAN_AT_KEY` (the certificate line's SHA-256).
-    Certified(String),
-    /// The kernel refused (its answer): the relation is NOT per-key while the disagreement stands.
-    Refused(String),
-}
-
-/// The import's evidence of kernel certificates: (SHA-256 of the producer's supplied record, key) -> verdict. A
-/// refusal wins over a certificate of the same pair (contradicting answers are never per-key).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct SymmetryCertificates {
-    map: std::collections::HashMap<(String, Vec<i32>), CertVerdict>,
-}
-
-impl SymmetryCertificates {
-    pub fn certify(&mut self, record_sha256: &str, key: Vec<i32>, certificate_sha256: String) {
-        self.map
-            .entry((record_sha256.to_string(), key))
-            .or_insert(CertVerdict::Certified(certificate_sha256));
-    }
-    pub fn refuse(&mut self, record_sha256: &str, key: Vec<i32>, answer: String) {
-        self.map.insert(
-            (record_sha256.to_string(), key),
-            CertVerdict::Refused(answer),
-        );
-    }
-    pub fn get(&self, record_sha256: &str, key: &[i32]) -> Option<&CertVerdict> {
-        self.map.get(&(record_sha256.to_string(), key.to_vec()))
-    }
-    pub fn len(&self) -> usize {
-        self.map.len()
-    }
-    pub fn is_empty(&self) -> bool {
-        self.map.is_empty()
-    }
-}
-
 /// The constant pattern text `I(a,b,..)` of a key.
 pub fn key_pattern(k: &[i64]) -> String {
     format!(

@@ -23,14 +23,6 @@ pub const BASIS_WITNESS_UNCHECKED: &str = "witness_unchecked_diagnostic";
 /// Basis word of a key served by a supplied symmetry relation VERIFIED by re-derivation from the verified group.
 pub const BASIS_SYMMETRY_RELATION: &str = "symmetry_relation";
 
-/// lane symcert: basis word of a key served by a supplied symmetry relation with a KERNEL CERTIFICATE bound to (its
-/// record, key) (rr_proof --symrows, EXACT_IN_SPAN_AT_KEY): the evidence of a per-key proof of a table rule.
-pub const BASIS_SYMMETRY_RELATION_KERNEL_CERTIFIED: &str = "symmetry_relation_kernel_certified";
-
-/// lane symcert: basis word of a supplied symmetry relation the KERNEL REFUSED at the key (a finding when our algebra
-/// accepted it): level `imported`, never per-key while the disagreement stands.
-pub const BASIS_SYMMETRY_RELATION_KERNEL_REFUSED: &str = "symmetry_relation_kernel_refused";
-
 /// Basis word of a key served through the per-key lift (elided / witness-absent record + bound per-key proof).
 pub const BASIS_PER_KEY_PROOF: &str = "per_key_proof";
 
@@ -567,25 +559,6 @@ pub(crate) fn relation_level(
         } else {
             (Some(Level::Imported), "recipe_relation_unproved")
         };
-    }
-    // lane symcert (interfaces/proof-symrows-job.md 6): a kernel certificate bound to (this record, key) decides;
-    // without one the level below is unchanged (`symmetry_relation` = exact by own algebra, engine_certificate none)
-    if let (Some(i), Some(c)) = (sinfo, ev.symmetry_certificates.as_ref()) {
-        match c.get(&i.record_sha256, key) {
-            Some(crate::symcert::CertVerdict::Certified(_)) => {
-                return (
-                    Some(Level::PerKey),
-                    BASIS_SYMMETRY_RELATION_KERNEL_CERTIFIED,
-                );
-            }
-            Some(crate::symcert::CertVerdict::Refused(_)) => {
-                return (
-                    Some(Level::Imported),
-                    BASIS_SYMMETRY_RELATION_KERNEL_REFUSED,
-                );
-            }
-            None => {}
-        }
     }
     if sinfo
         .and_then(|i| i.check.as_ref())
