@@ -8,7 +8,6 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde::Serialize;
 use serde_json::json;
@@ -53,9 +52,9 @@ pub struct ClassifyOptions {
     pub index_dir: Option<PathBuf>,
     /// `marker_rules.accept_fewer` for this load (None = strict: interfaces/import.md 18.3).
     pub accept_fewer_rules: Option<String>,
+    /// The spec's `reader` (per-record memory limits; None = the defaults: interfaces/import.md 19).
+    pub reader: Option<super::spec::ReaderSpec>,
 }
-
-static SEQ: AtomicUsize = AtomicUsize::new(0);
 
 /// The stable word of an import error (the refusal's own word for a refused table).
 pub fn error_word(e: &ImportError) -> String {
@@ -98,16 +97,12 @@ fn classify_inner(
     opts: &ClassifyOptions,
     out: &mut TableClass,
 ) -> Result<(), ImportError> {
-    let scratch = opts
-        .scratch
-        .clone()
-        .unwrap_or_else(std::env::temp_dir)
-        .join(format!(
-            "rr-import-classify-{}-{}",
-            std::process::id(),
-            SEQ.fetch_add(1, Ordering::Relaxed)
-        ));
-    std::fs::create_dir_all(&scratch).map_err(|e| super::error::io_err(&scratch, e))?;
+    // a fresh private directory (exclusive mkdir; unique also for processes with the same pid)
+    let own = super::index::unique_dir(
+        &opts.scratch.clone().unwrap_or_else(std::env::temp_dir),
+        "rr-import-classify",
+    )?;
+    let scratch = own.path().to_path_buf();
     let start = scratch.join("start.jsonl");
     let res = (|| {
         std::fs::write(&start, b"").map_err(|e| super::error::io_err(&start, e))?;
@@ -116,12 +111,16 @@ fn classify_inner(
         if let Some(r) = &opts.accept_fewer_rules {
             src["marker_rules"] = json!({ "accept_fewer": r });
         }
-        let spec = json!({
+        let mut spec = json!({
             "schema": super::spec::SPEC_SCHEMA,
             "frame_from": "table",
             "start": {"path": start.display().to_string(), "format": "keys_jsonl"},
             "sources": [src],
         });
+        if let Some(r) = &opts.reader {
+            spec["reader"] =
+                serde_json::to_value(r).map_err(|e| ImportError::Spec(e.to_string()))?;
+        }
         let spec = TableSetSpec::from_json(&spec.to_string())?;
         // bodies validated (every rhs key parsed) but not kept: bounded memory on tables of several GB
         let set = load_inner(
@@ -147,6 +146,6 @@ fn classify_inner(
         out.marker_overrides = rep.marker_overrides.clone();
         Ok(())
     })();
-    let _ = std::fs::remove_dir_all(&scratch);
+    drop(own); // the directory this process created (OwnedDir guard), nothing else
     res
 }

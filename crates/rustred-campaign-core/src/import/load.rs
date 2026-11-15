@@ -13,10 +13,10 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::error::{ImportError, io_err};
-use super::index::{IndexOrigin, TableIndex, open_or_build};
+use super::index::{IndexOrigin, TableIndex, open_scan_checked};
 use super::lines::{
     MAX_BOUND_EXCLUSIONS_PER_SLOT, MarkerPolicy, RawRecord, RawTable, SymfaceRef, check_markers,
-    parse_key_text, read_sha256sums, scan_table, verify_file,
+    parse_key_text, read_sha256sums, scan_table_with, verify_file,
 };
 use super::spec::{
     DomainMode, HandName, SourceKind, SourceSpec, StartFormat, TableSetSpec, TableTerminals,
@@ -510,15 +510,19 @@ pub(crate) fn load_inner(
                 let mut sym_err: Option<String> = None;
                 for u in &units {
                     let want: Option<Vec<i64>> = src.records.clone();
-                    let (idx, origin) =
-                        open_or_build(&src.id, &u.path, lopts.index_dir.as_deref())?;
+                    // lane bigline: the index verified against the TABLE (size, mtime, sampled digest, record
+                    // count, file digests, spot-checked records); refused and rebuilt once on a failed check
+                    let (idx, mut origin, raw, rebuilt) = open_scan_checked(
+                        &src.id,
+                        &u.path,
+                        lopts.index_dir.as_deref(),
+                        spec.read_limits(),
+                        spec.spot_check_records(),
+                    )?;
+                    if rebuilt.is_some() {
+                        origin.how = "rebuilt_after_failed_check";
+                    }
                     rep.indexes.push(origin);
-                    let mut recs = vec![];
-                    let mut raw = idx.scan_domains(&src.id, &|_, _| true, &mut |r| {
-                        recs.push(r);
-                        Ok(())
-                    })?;
-                    raw.records = recs;
                     indexes.insert(u.path.clone(), idx);
                     let sha = format!("sha256:{}", raw.file_sha256);
                     if let Some(e) = &u.expected_sha {
@@ -798,6 +802,7 @@ pub(crate) fn load_inner(
                     &cmp,
                     codec,
                     &mut rep,
+                    spec.read_limits(),
                 )?;
                 supplied_info.insert(rs.name.clone(), info);
                 pending.push(Pending::Supplied(rs));
@@ -1474,9 +1479,10 @@ fn load_supplied(
     cmp: &NodeComparator,
     codec: KeyCodec,
     rep: &mut SourceReport,
+    limits: crate::record::ReadLimits,
 ) -> Result<(RelationSet, BTreeMap<Vec<i32>, SuppliedInfo>), ImportError> {
     let path = resolve(base, src.path.as_deref().unwrap_or_default());
-    let raw = scan_table(&src.id, &path, true, &|_, _| true)?;
+    let raw = scan_table_with(&src.id, &path, true, &|_, _| true, limits)?;
     if let Some(r) = raw.records.iter().find(|r| r.sym.is_some()) {
         return Err(ImportError::Line {
             source: src.id.clone(),
@@ -1541,7 +1547,7 @@ fn load_supplied(
         None => None,
     };
     let coefs: SuppliedCoefficients = if vgroup.is_some() {
-        supplied_coefficients(&src.id, &path, n)?
+        supplied_coefficients(&src.id, &path, n, limits)?
     } else {
         HashMap::new()
     };
@@ -1689,11 +1695,45 @@ fn supplied_coefficients(
     source: &str,
     path: &Path,
     n: usize,
+    limits: crate::record::ReadLimits,
 ) -> Result<SuppliedCoefficients, ImportError> {
-    let txt = std::fs::read_to_string(path).map_err(|e| io_err(path, e))?;
+    // one line at a time, each at most the per-record budget (lane bigline): a longer line is refused, typed
+    let f = std::fs::File::open(path).map_err(|e| io_err(path, e))?;
+    let mut rd = std::io::BufReader::with_capacity(1 << 20, f);
+    let mut buf: Vec<u8> = vec![];
     let mut out = HashMap::new();
     let mut ordinal = 0usize;
-    for (i, l) in txt.lines().enumerate() {
+    for i in 0usize.. {
+        buf.clear();
+        let (got, complete) = crate::record::read_until_limited(
+            &mut rd,
+            &mut buf,
+            limits.record_budget.saturating_add(1),
+        )
+        .map_err(|e| io_err(path, e))?;
+        if got == 0 {
+            break;
+        }
+        if !complete {
+            return Err(ImportError::Refused {
+                source: source.into(),
+                path: path.display().to_string(),
+                line: i + 1,
+                reason: Box::new(super::error::TableRefusal::RecordTooLarge {
+                    record: None,
+                    what: "a supplied relation line (its coefficients are kept)".into(),
+                    bytes: got as u64,
+                    budget: limits.record_budget,
+                }),
+            });
+        }
+        let l = std::str::from_utf8(super::lines::line_body(&buf)).map_err(|e| {
+            io_err(
+                path,
+                std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()),
+            )
+        })?;
+        let l = l.strip_suffix('\r').unwrap_or(l);
         if l.trim().is_empty() {
             continue;
         }
