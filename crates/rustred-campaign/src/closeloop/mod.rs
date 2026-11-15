@@ -20,6 +20,8 @@ pub mod termmin;
 // lane closeloop4 (closeloop.md 18 / 19): second route of the zero test, terminals behind a decision
 pub mod terminals;
 pub mod zeros;
+// lane repairflow (interfaces/repairflow.md): cheap symbolic first, else recipe export (FOR THE INTEGRATOR: one line)
+pub mod repair;
 
 pub use config::{CONFIG_ROLE, CONFIG_SCHEMA, CloseLoopConfig, NodeCfg, SolveCfg, Target};
 pub use source::CloseFromMaterialSource;

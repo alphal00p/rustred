@@ -1031,10 +1031,16 @@ impl Supervisor {
                 .any(|i| i.role == crate::closeloop::CONFIG_ROLE) =>
             {
                 Box::new(
-                    // lane termmin (termmin.md 6): phase E wraps the closing loop (terminal minimisation)
-                    crate::closeloop::termmin::wrap(
-                        crate::closeloop::CloseFromMaterialSource::from_spec(&opts.spec, &cdir)
-                            .map_err(RunExit::Refused)?,
+                    // lane repairflow (repairflow.md 6): the repair flow wraps phase E and the closing loop
+                    crate::closeloop::repair::wrap(
+                        // lane termmin (termmin.md 6): phase E wraps the closing loop (terminal minimisation)
+                        crate::closeloop::termmin::wrap(
+                            crate::closeloop::CloseFromMaterialSource::from_spec(&opts.spec, &cdir)
+                                .map_err(RunExit::Refused)?,
+                            &opts.spec,
+                            &cdir,
+                        )
+                        .map_err(RunExit::Refused)?,
                         &opts.spec,
                         &cdir,
                     )

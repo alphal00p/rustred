@@ -800,8 +800,8 @@ impl TermminSource {
     fn start_load(&mut self, st: &CampaignState, i: usize) -> Result<(), String> {
         let n = self.nodes[i].n.clone();
         let node = self.nodes[i].cfg.node.clone();
-        let text = String::from_utf8(Self::read_input(st, &super::ids::input_import_spec(&n))?)
-            .map_err(|e| format!("effective import spec: {e}"))?;
+        // lane repairflow (repairflow.md 6): the composed spec when the repair flow wrote one
+        let text = super::repair::effective_spec_text(st, &n)?;
         self.nodes[i].spec_text = text.clone();
         // the inner's recipe answers (the closing loop's evidence), ledger order, digests checked in the thread
         let mut files: Vec<(u64, PathBuf, String)> = st

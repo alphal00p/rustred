@@ -47,3 +47,7 @@ pub mod poles;
 pub mod epsdepth;
 // lane regbasis (interfaces/regbasis.md): REQUEST TO I-INT, one line
 pub mod regbasis;
+// lane repairflow (interfaces/repairflow.md): REQUEST TO I-INT, one line
+pub mod repairflow;
+// lane regions (interfaces/regionfit.md): REQUEST TO I-INT, one line
+pub mod regionfit;
