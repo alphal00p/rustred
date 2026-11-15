@@ -54,7 +54,8 @@ pub fn hash_parts(parts: &[&[u8]]) -> String {
 pub fn cert_hash(text: &str) -> Result<String, String> {
     let mut h = blake3::Hasher::new();
     for (i, l) in text.lines().enumerate() {
-        let kind = super::records::record_kind(l, "F.cert.jsonl", i + 1, super::records::CERT_KINDS)?;
+        let kind =
+            super::records::record_kind(l, "F.cert.jsonl", i + 1, super::records::CERT_KINDS)?;
         if matches!(kind, Some("cert_header" | "source_row" | "basis_row")) {
             h.update(l.as_bytes());
             h.update(b"\n");
@@ -1477,7 +1478,9 @@ fn write_joined_table(
             // re-index: the TOP-LEVEL "index" member of the rule record (any key order)
             let (pos, end) = super::records::top_member_span(l, "index")
                 .filter(|(a, b)| b > a && l[*a..*b].bytes().all(|c| c.is_ascii_digit()))
-                .ok_or_else(|| format!("{table_name} line {line_no}: rule record without an integer index"))?;
+                .ok_or_else(|| {
+                    format!("{table_name} line {line_no}: rule record without an integer index")
+                })?;
             let body = l
                 .strip_suffix('}')
                 .ok_or("rule line does not end with '}'")?;

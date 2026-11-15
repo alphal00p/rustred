@@ -15,8 +15,8 @@
 //! Output: one JSON line per run on stdout (and appended to --out). Exit 0 for a decided run (PASS or FAIL, see
 //! `verdict`), 2 for a refusal / error.
 use rustred_proof::core::{find, jparse, read_lines_matching};
-use rustred_proof::span::{run_span, SpanArgs};
-use rustred_proof::stream::{run_stored, EngineRows, StoredArgs};
+use rustred_proof::span::{SpanArgs, run_span};
+use rustred_proof::stream::{EngineRows, StoredArgs, run_stored};
 use std::io::Write;
 
 fn parse_key(s: &str) -> Vec<(usize, i64)> {
@@ -27,32 +27,64 @@ fn parse_key(s: &str) -> Vec<(usize, i64)> {
         let j = jparse(b);
         let obj = j.get(b, "key").unwrap_or(&j);
         if let rustred_proof::core::J::Obj(v) = obj {
-            return v.iter().map(|((a, e), x)| (std::str::from_utf8(&b[*a..*e]).unwrap().trim_start_matches('n').parse().expect("key index"), x.int(b))).collect();
+            return v
+                .iter()
+                .map(|((a, e), x)| {
+                    (
+                        std::str::from_utf8(&b[*a..*e])
+                            .unwrap()
+                            .trim_start_matches('n')
+                            .parse()
+                            .expect("key index"),
+                        x.int(b),
+                    )
+                })
+                .collect();
         }
         panic!("bad key json");
     }
-    s.split(',').filter(|x| !x.is_empty()).map(|kv| {
-        let mut it = kv.split('=');
-        let n = it.next().unwrap().trim();
-        let x: i64 = it.next().expect("key n=value").trim().parse().expect("key value");
-        (n.trim_start_matches('n').parse().expect("key index"), x)
-    }).collect()
+    s.split(',')
+        .filter(|x| !x.is_empty())
+        .map(|kv| {
+            let mut it = kv.split('=');
+            let n = it.next().unwrap().trim();
+            let x: i64 = it
+                .next()
+                .expect("key n=value")
+                .trim()
+                .parse()
+                .expect("key value");
+            (n.trim_start_matches('n').parse().expect("key index"), x)
+        })
+        .collect()
 }
 
 fn header_family(table: &str) -> Option<String> {
     let mut fam = None;
     read_lines_matching(table, |l| {
-        if rustred_proof::core::record_kind(l, table, 1, rustred_proof::core::TABLE_KINDS) == Some(b"header") {
+        if rustred_proof::core::record_kind(l, table, 1, rustred_proof::core::TABLE_KINDS)
+            == Some(b"header")
+        {
             // the parsed top-level member (any key order, any whitespace); field_string unescapes the JSON string
-            let v: serde_like::Val = rustred_proof::core::top_members_raw(l, |_, _| true).ok().and_then(|_| {
-                let mut raw: Option<&[u8]> = None;
-                rustred_proof::core::top_members_raw(l, |k, v| { if k == b"family_source" { raw = Some(v); false } else { true } }).ok()?;
-                let raw = raw?;
-                let mut wrapped = b"{\"family_source\":".to_vec();
-                wrapped.extend_from_slice(raw);
-                wrapped.push(b'}');
-                serde_like::field_string(&wrapped, "family_source")
-            });
+            let v: serde_like::Val = rustred_proof::core::top_members_raw(l, |_, _| true)
+                .ok()
+                .and_then(|_| {
+                    let mut raw: Option<&[u8]> = None;
+                    rustred_proof::core::top_members_raw(l, |k, v| {
+                        if k == b"family_source" {
+                            raw = Some(v);
+                            false
+                        } else {
+                            true
+                        }
+                    })
+                    .ok()?;
+                    let raw = raw?;
+                    let mut wrapped = b"{\"family_source\":".to_vec();
+                    wrapped.extend_from_slice(raw);
+                    wrapped.push(b'}');
+                    serde_like::field_string(&wrapped, "family_source")
+                });
             fam = v;
         }
         false
@@ -77,7 +109,10 @@ mod serde_like {
                     '"' => out.push('"'),
                     '\\' => out.push('\\'),
                     '/' => out.push('/'),
-                    'u' => { let h: String = (0..4).filter_map(|_| it.next()).collect(); out.push(char::from_u32(u32::from_str_radix(&h, 16).ok()?)?); }
+                    'u' => {
+                        let h: String = (0..4).filter_map(|_| it.next()).collect();
+                        out.push(char::from_u32(u32::from_str_radix(&h, 16).ok()?)?);
+                    }
                     o => out.push(o),
                 },
                 c => out.push(c),
@@ -90,12 +125,26 @@ mod serde_like {
 #[cfg(feature = "engine")]
 fn engine_rows(table: &str, family: Option<&str>) -> Result<EngineRows, String> {
     let (text, from) = match family {
-        Some(f) => (std::fs::read_to_string(f).map_err(|e| format!("family {}: {}", f, e))?, format!("--family {}", f)),
-        None => (header_family(table).ok_or("table header has no family_source")?, "table header family_source".to_string()),
+        Some(f) => (
+            std::fs::read_to_string(f).map_err(|e| format!("family {}: {}", f, e))?,
+            format!("--family {}", f),
+        ),
+        None => (
+            header_family(table).ok_or("table header has no family_source")?,
+            "table header family_source".to_string(),
+        ),
     };
     let t = std::time::Instant::now();
     let lines = rustred_proof::engine::source_row_lines(&text)?;
-    Ok(EngineRows { note: format!("rustred SourceSystem::from_family_with_capacity(presented family from {}), {} rows, {:.3} s", from, lines.len(), t.elapsed().as_secs_f64()), lines })
+    Ok(EngineRows {
+        note: format!(
+            "rustred SourceSystem::from_family_with_capacity(presented family from {}), {} rows, {:.3} s",
+            from,
+            lines.len(),
+            t.elapsed().as_secs_f64()
+        ),
+        lines,
+    })
 }
 #[cfg(not(feature = "engine"))]
 fn engine_rows(_table: &str, _family: Option<&str>) -> Result<EngineRows, String> {
@@ -106,23 +155,52 @@ fn main() {
     let a: Vec<String> = std::env::args().collect();
     if a.get(1).map(|x| x.as_str()) == Some("instantiate") {
         // rr_proof instantiate --requests REQ.jsonl --out OUT.jsonl [--elided-loci refuse|facts]  (EC-2: exact per-key facts, no proof)
-        let get = |f: &str| a.iter().position(|x| x == f).and_then(|i| a.get(i + 1)).cloned();
+        let get = |f: &str| {
+            a.iter()
+                .position(|x| x == f)
+                .and_then(|i| a.get(i + 1))
+                .cloned()
+        };
         let usage = "usage: rr_proof instantiate --requests REQ.jsonl --out OUT.jsonl [--elided-loci refuse|facts]";
-        let (req, out) = match (get("--requests"), get("--out")) { (Some(r), Some(o)) => (r, o), _ => { println!("{}", rustred_proof::error_record(usage)); std::process::exit(2); } };
+        let (req, out) = match (get("--requests"), get("--out")) {
+            (Some(r), Some(o)) => (r, o),
+            _ => {
+                println!("{}", rustred_proof::error_record(usage));
+                std::process::exit(2);
+            }
+        };
         let elided = match get("--elided-loci") {
             None => rustred_proof::instantiate::ElidedLoci::Refuse,
-            Some(v) => match rustred_proof::instantiate::ElidedLoci::parse(&v) { Some(m) => m, None => { println!("{}", rustred_proof::error_record(usage)); std::process::exit(2); } },
+            Some(v) => match rustred_proof::instantiate::ElidedLoci::parse(&v) {
+                Some(m) => m,
+                None => {
+                    println!("{}", rustred_proof::error_record(usage));
+                    std::process::exit(2);
+                }
+            },
         };
-        match rustred_proof::guarded(|| rustred_proof::instantiate::run_instantiate_with(&req, &out, elided)) {
-            Ok(s) => { println!("{}", s); std::process::exit(0); }
-            Err(e) => { println!("{}", rustred_proof::error_record(&e)); std::process::exit(2); }
+        match rustred_proof::guarded(|| {
+            rustred_proof::instantiate::run_instantiate_with(&req, &out, elided)
+        }) {
+            Ok(s) => {
+                println!("{}", s);
+                std::process::exit(0);
+            }
+            Err(e) => {
+                println!("{}", rustred_proof::error_record(&e));
+                std::process::exit(2);
+            }
         }
     }
     let mut mode = "streaming-eval".to_string();
     let mut sa = StoredArgs::default();
     let mut pa = SpanArgs::default();
     let mut keys: Vec<Vec<(usize, i64)>> = vec![];
-    let mut rows_src = if cfg!(feature = "engine") { "engine".to_string() } else { "cert".to_string() };
+    let mut rows_src = if cfg!(feature = "engine") {
+        "engine".to_string()
+    } else {
+        "cert".to_string()
+    };
     let mut family: Option<String> = None;
     let mut out: Option<String> = None;
     let mut kmod: Option<usize> = None;
@@ -133,10 +211,22 @@ fn main() {
         let mut flag = false;
         match a[i].as_str() {
             "--mode" => mode = v,
-            "--table" => { sa.table = v.clone(); pa.table = v; }
-            "--cert" => { sa.cert = v.clone(); pa.cert = Some(v); }
-            "--rule" => { sa.rule = v.parse().unwrap(); pa.rule = sa.rule; }
-            "--chart" => { sa.chart = Some(v.clone()); pa.chart = Some(v); }
+            "--table" => {
+                sa.table = v.clone();
+                pa.table = v;
+            }
+            "--cert" => {
+                sa.cert = v.clone();
+                pa.cert = Some(v);
+            }
+            "--rule" => {
+                sa.rule = v.parse().unwrap();
+                pa.rule = sa.rule;
+            }
+            "--chart" => {
+                sa.chart = Some(v.clone());
+                pa.chart = Some(v);
+            }
             "--offset" => pa.offset = Some(v.parse().unwrap()),
             "--kmod" => kmod = Some(v.parse().unwrap()),
             "--kexact" => kex = Some(v.parse().unwrap()),
@@ -144,7 +234,13 @@ fn main() {
             "--bd" => sa.bd_from = v,
             "--exact-range-bits" => sa.xbits = v.parse().unwrap(),
             "--key" => keys.push(parse_key(&v)),
-            "--keys" => { for l in std::fs::read_to_string(&v).expect("keys file").lines() { if !l.trim().is_empty() && !l.starts_with('#') { keys.push(parse_key(l)); } } }
+            "--keys" => {
+                for l in std::fs::read_to_string(&v).expect("keys file").lines() {
+                    if !l.trim().is_empty() && !l.starts_with('#') {
+                        keys.push(parse_key(l));
+                    }
+                }
+            }
             "--rows" => rows_src = v,
             "--family" => family = Some(v),
             "--out" => out = Some(v),
@@ -153,14 +249,45 @@ fn main() {
             "--emit-certs" => pa.emit_dir = Some(v),
             "--symmetry" => pa.symmetry = v,
             "--symmetry-group" => pa.symmetry_group = Some(v),
-            "--drop-zero-sectors" => { pa.drop_zero_sectors = true; flag = true; }
-            "--ignore-exceptions" => { sa.ignore_exc = true; pa.ignore_exc = true; flag = true; }
-            other => { eprintln!("rr_proof: unknown argument {}", other); std::process::exit(2); }
+            "--drop-zero-sectors" => {
+                pa.drop_zero_sectors = true;
+                flag = true;
+            }
+            "--ignore-exceptions" => {
+                sa.ignore_exc = true;
+                pa.ignore_exc = true;
+                flag = true;
+            }
+            other => {
+                eprintln!("rr_proof: unknown argument {}", other);
+                std::process::exit(2);
+            }
         }
         i += if flag { 1 } else { 2 };
     }
-    let rows = if rows_src == "engine" { Some(engine_rows(if sa.table.is_empty() { &pa.table } else { &sa.table }, family.as_deref())) } else { None };
-    let engine = match &rows { Some(Ok(r)) => Some(r), Some(Err(e)) => { println!("{}", rustred_proof::error_record(&format!("engine rows: {}", e))); std::process::exit(2); } None => None };
+    let rows = if rows_src == "engine" {
+        Some(engine_rows(
+            if sa.table.is_empty() {
+                &pa.table
+            } else {
+                &sa.table
+            },
+            family.as_deref(),
+        ))
+    } else {
+        None
+    };
+    let engine = match &rows {
+        Some(Ok(r)) => Some(r),
+        Some(Err(e)) => {
+            println!(
+                "{}",
+                rustred_proof::error_record(&format!("engine rows: {}", e))
+            );
+            std::process::exit(2);
+        }
+        None => None,
+    };
     let res = match mode.as_str() {
         "streaming-eval" | "instance-exact" => {
             sa.mode = mode.clone();
@@ -170,12 +297,25 @@ fn main() {
             sa.keys = keys;
             rustred_proof::guarded(|| run_stored(&sa, engine))
         }
-        "instance-span" => { pa.keys = keys; rustred_proof::guarded(|| run_span(&pa, engine)) }
+        "instance-span" => {
+            pa.keys = keys;
+            rustred_proof::guarded(|| run_span(&pa, engine))
+        }
         m => Err(format!("unknown mode {}", m)),
     };
-    let (line, code) = match res { Ok(s) => (s, 0), Err(e) => (rustred_proof::error_record(&e), 2) };
+    let (line, code) = match res {
+        Ok(s) => (s, 0),
+        Err(e) => (rustred_proof::error_record(&e), 2),
+    };
     println!("{}", line);
-    if let Some(f) = out { let mut fh = std::fs::OpenOptions::new().create(true).append(true).open(f).unwrap(); writeln!(fh, "{}", line).unwrap(); }
+    if let Some(f) = out {
+        let mut fh = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(f)
+            .unwrap();
+        writeln!(fh, "{}", line).unwrap();
+    }
     let _ = find;
     std::process::exit(code);
 }

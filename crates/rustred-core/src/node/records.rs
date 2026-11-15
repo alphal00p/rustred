@@ -27,7 +27,13 @@ pub const TABLE_KINDS: &[&str] = &[
     "composite_terminal_ledger",
 ];
 /// Record kinds of a certificate (`F.cert.jsonl`).
-pub const CERT_KINDS: &[&str] = &["cert_header", "source_row", "basis_row", "cert_rule", "cert_end"];
+pub const CERT_KINDS: &[&str] = &[
+    "cert_header",
+    "source_row",
+    "basis_row",
+    "cert_rule",
+    "cert_end",
+];
 
 fn skip_ws(l: &[u8], mut i: usize) -> usize {
     while i < l.len() && l[i].is_ascii_whitespace() {
@@ -72,7 +78,8 @@ fn end_of_value(l: &[u8], i: usize) -> Option<usize> {
         }
         _ => {
             let mut j = i;
-            while j < l.len() && !matches!(l[j], b',' | b'}' | b']') && !l[j].is_ascii_whitespace() {
+            while j < l.len() && !matches!(l[j], b',' | b'}' | b']') && !l[j].is_ascii_whitespace()
+            {
                 j += 1;
             }
             (j > i).then_some(j)
@@ -92,7 +99,11 @@ pub fn top_members<'a>(
     }
     i = skip_ws(l, i + 1);
     if l.get(i) == Some(&b'}') {
-        return if skip_ws(l, i + 1) == l.len() { Ok(()) } else { Err("text after the object") };
+        return if skip_ws(l, i + 1) == l.len() {
+            Ok(())
+        } else {
+            Err("text after the object")
+        };
     }
     loop {
         if l.get(i) != Some(&b'"') {
@@ -113,7 +124,11 @@ pub fn top_members<'a>(
         match l.get(i) {
             Some(b',') => i = skip_ws(l, i + 1),
             Some(b'}') => {
-                return if skip_ws(l, i + 1) == l.len() { Ok(()) } else { Err("text after the object") };
+                return if skip_ws(l, i + 1) == l.len() {
+                    Ok(())
+                } else {
+                    Err("text after the object")
+                };
             }
             _ => return Err("',' or '}' expected"),
         }
@@ -136,7 +151,9 @@ pub fn first_member_kind(head: &str) -> Option<&str> {
     let rest = rest.get(j..)?.strip_prefix('"')?;
     let end = rest.find('"')?;
     let k = &rest[..end];
-    k.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_').then_some(k)
+    k.bytes()
+        .all(|c| c.is_ascii_alphanumeric() || c == b'_')
+        .then_some(k)
 }
 
 /// Byte range of the RAW value of the top-level member `name` (a string keeps its quotes), None if absent.
@@ -197,15 +214,23 @@ pub fn record_kind<'a>(
             if v.len() >= 3
                 && v[0] == b'"'
                 && v[v.len() - 1] == b'"'
-                && v[1..v.len() - 1].iter().all(|c| c.is_ascii_alphanumeric() || *c == b'_') =>
+                && v[1..v.len() - 1]
+                    .iter()
+                    .all(|c| c.is_ascii_alphanumeric() || *c == b'_') =>
         {
             // ASCII checked above
             std::str::from_utf8(&v[1..v.len() - 1]).expect("ascii kind")
         }
-        _ => return Err(format!("UNREADABLE_RECORD: {file} line {line_no}: no string member \"type\"")),
+        _ => {
+            return Err(format!(
+                "UNREADABLE_RECORD: {file} line {line_no}: no string member \"type\""
+            ));
+        }
     };
     if !allowed.contains(&k) {
-        return Err(format!("UNKNOWN_RECORD_KIND: {file} line {line_no}: type {k:?}"));
+        return Err(format!(
+            "UNKNOWN_RECORD_KIND: {file} line {line_no}: type {k:?}"
+        ));
     }
     Ok(Some(k))
 }
@@ -220,7 +245,10 @@ mod tests {
         assert_eq!(record_kind(sorted, "t", 1, TABLE_KINDS), Ok(Some("rule")));
         assert_eq!(top_int(sorted, "index"), Some(2894));
         let nested = r#"{"a":{"type":"rule","index":1},"s":"\"type\":\"end\"","type":"residual"}"#;
-        assert_eq!(record_kind(nested, "t", 2, TABLE_KINDS), Ok(Some("residual")));
+        assert_eq!(
+            record_kind(nested, "t", 2, TABLE_KINDS),
+            Ok(Some("residual"))
+        );
         assert_eq!(top_int(nested, "index"), None);
         assert_eq!(record_kind("   ", "t", 3, TABLE_KINDS), Ok(None));
         for (bad, want) in [
@@ -233,7 +261,10 @@ mod tests {
             let e = record_kind(bad, "t", 9, TABLE_KINDS).unwrap_err();
             assert!(e.starts_with(want), "{bad}: {e}");
         }
-        assert_eq!(record_kind(r#"{"type":"cert_rule","rule":3}"#, "c", 1, CERT_KINDS), Ok(Some("cert_rule")));
+        assert_eq!(
+            record_kind(r#"{"type":"cert_rule","rule":3}"#, "c", 1, CERT_KINDS),
+            Ok(Some("cert_rule"))
+        );
         // Python-written tables: whitespace after ':' and ','
         let spaced = r#"{"type": "rule", "chart": "110", "index": 7, "fixed": [1, null]}"#;
         assert_eq!(record_kind(spaced, "t", 6, TABLE_KINDS), Ok(Some("rule")));
@@ -242,8 +273,24 @@ mod tests {
         assert_eq!(first_member_kind(r#"{"type":"end","rules":2"#), Some("end"));
         assert_eq!(first_member_kind(r#"{"case":"x","type":"rule"}"#), None);
         // sym-gen tables carry symmetry records; they are known kinds, not refused
-        assert_eq!(record_kind(r#"{"type":"sym","chart":"110","index":3}"#, "t", 4, TABLE_KINDS), Ok(Some("sym")));
-        assert_eq!(record_kind(r#"{"type":"sym_zero","chart":"110","index":4}"#, "t", 5, TABLE_KINDS), Ok(Some("sym_zero")));
+        assert_eq!(
+            record_kind(
+                r#"{"type":"sym","chart":"110","index":3}"#,
+                "t",
+                4,
+                TABLE_KINDS
+            ),
+            Ok(Some("sym"))
+        );
+        assert_eq!(
+            record_kind(
+                r#"{"type":"sym_zero","chart":"110","index":4}"#,
+                "t",
+                5,
+                TABLE_KINDS
+            ),
+            Ok(Some("sym_zero"))
+        );
     }
 
     /// The cover reader (registry::read_rule_shapes) finds a key-reordered rule record and refuses unknown kinds.
@@ -260,14 +307,18 @@ mod tests {
             "{\"rules\":2,\"type\":\"end\"}\n"
         );
         std::fs::write(&p, body).unwrap();
-        let (shapes, _) = super::super::registry::read_rule_shapes(p.to_str().unwrap(), 10).unwrap();
+        let (shapes, _) =
+            super::super::registry::read_rule_shapes(p.to_str().unwrap(), 10).unwrap();
         assert_eq!(shapes.len(), 2);
         assert_eq!(shapes[1].index, Some(1));
         assert_eq!(shapes[1].equations, vec!["n0-n1".to_string()]);
         std::fs::write(&p, format!("{body}{{\"type\":\"mystery\"}}\n")).unwrap();
         let e = super::super::registry::read_rule_shapes(p.to_str().unwrap(), 10).unwrap_err();
         assert!(e.starts_with("UNKNOWN_RECORD_KIND"), "{e}");
-        assert_eq!(top_member_span(r#"{"a":"index","index":42}"#, "index"), Some((21, 23)));
+        assert_eq!(
+            top_member_span(r#"{"a":"index","index":42}"#, "index"),
+            Some((21, 23))
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }

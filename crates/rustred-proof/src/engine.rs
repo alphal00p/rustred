@@ -13,13 +13,23 @@ fn q(s: &str) -> String {
 }
 
 fn lines<const N: usize>(fam: &IntegralFamily) -> Result<Vec<Vec<u8>>, String> {
-    let sources = SourceSystem::<N>::from_family_with_capacity(fam, true).map_err(|e| format!("source system: {e:?}"))?;
+    let sources = SourceSystem::<N>::from_family_with_capacity(fam, true)
+        .map_err(|e| format!("source system: {e:?}"))?;
     let (loops, externals) = (fam.loop_count(), fam.external_count());
     let contraction: Vec<usize> = (loops..loops + externals).rev().chain(0..loops).collect();
     let mut out = vec![];
     for (m, row) in sources.rows().iter().enumerate() {
         let (loop_id, momentum) = (m / contraction.len(), contraction[m % contraction.len()]);
-        let terms: Vec<String> = row.iter().map(|t| format!("[{},{}]", q(&t.integral.to_string()), q(&t.coefficient.to_string()))).collect();
+        let terms: Vec<String> = row
+            .iter()
+            .map(|t| {
+                format!(
+                    "[{},{}]",
+                    q(&t.integral.to_string()),
+                    q(&t.coefficient.to_string())
+                )
+            })
+            .collect();
         out.push(format!("{{\"type\":\"source_row\",\"m\":{m},\"differentiated_loop\":{loop_id},\"contraction_momentum\":{momentum},\"terms\":[{}]}}", terms.join(",")).into_bytes());
     }
     Ok(out)
@@ -34,6 +44,8 @@ pub fn source_row_lines(family_text: &str) -> Result<Vec<Vec<u8>>, String> {
         12 => lines::<12>(&fam),
         14 => lines::<14>(&fam),
         20 => lines::<20>(&fam),
-        n => Err(format!("arity {n}: compiled for 5, 9, 12, 14, 20 (as rr_node)")),
+        n => Err(format!(
+            "arity {n}: compiled for 5, 9, 12, 14, 20 (as rr_node)"
+        )),
     }
 }

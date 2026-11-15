@@ -146,7 +146,8 @@ pub(super) fn serve_credit(
                     if ctx.cfg.per_key_lift == super::PerKeyLift::Proof
                         && matches!(
                             reason,
-                            crate::domain::Verdict::WitnessNotCarried | crate::domain::Verdict::Elided
+                            crate::domain::Verdict::WitnessNotCarried
+                                | crate::domain::Verdict::Elided
                         )
                         && ctx.bodies.has(at.table, at.record) =>
                 {

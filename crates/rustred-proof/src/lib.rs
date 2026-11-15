@@ -18,11 +18,11 @@
 //! rows stored in a certificate. The H8 kernel (handoff/helper-h10-kernel) is the origin of `core` and `stream`.
 pub mod big;
 pub mod core;
+#[cfg(feature = "engine")]
+pub mod engine;
 pub mod instantiate;
 pub mod span;
 pub mod stream;
-#[cfg(feature = "engine")]
-pub mod engine;
 
 /// Run `f`, turning a kernel refusal (`core::die`) or any other panic into `Err(message)`.
 pub fn guarded<T>(f: impl FnOnce() -> T) -> Result<T, String> {
@@ -52,5 +52,9 @@ pub fn error_record(msg: &str) -> String {
     } else {
         "ERROR"
     };
-    format!("{{\"verdict\":{},\"error\":{}}}", core::jstr(verdict), core::jstr(msg))
+    format!(
+        "{{\"verdict\":{},\"error\":{}}}",
+        core::jstr(verdict),
+        core::jstr(msg)
+    )
 }
