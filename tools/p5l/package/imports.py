@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """imports.py PLAN_DIR STAGES [--parallel N] [--dry]: p-import-table of every node the tops of STAGES (e.g. 1,2,3)
 need and that has no reusable import record (select_tables.py), one job per node through job6.py (one CPU, flock,
-ledger, systemd scope with MemoryMax = 8 GB + 6 x table bytes, at most 48 GB; guarded_run floor 50 GB).
+ledger, systemd scope with MemoryMax = 8 GB + 6 x table bytes (no fixed cap; optional runaway guard
+WP6_IMPORT_MEM_CAP_GB); guarded_run floor 50 GB).
 Arguments per node: rules_study/targets.tsv (edges, S, T), ledger lp, census family rules_study/classify/families/<T>.sym,
 and the order map of the node's previous import of the ORIGINAL table when it had one. Output:
 /common/build-cache/vhirschi/p_integral_dev/vk5l-wp6/imports/<T>.{json,rrbin} (a node whose run dir has rc 0 is skipped:
@@ -159,7 +160,11 @@ def job(t):
         cmd += ['--order-map', om]
     if n['kind'] == 'boxed':
         cmd += ['--mixed-box', '--certified-keys', n['statement']]
-    mem = min(48, 8 + int(6 * (n.get('bytes') or 0) / 1e9 + 0.999))
+    # Job memory = what the import needs (importer ~4.8x the JSONL; 6x + 8 GB headroom). WP6_IMPORT_MEM_CAP_GB is only a
+    # runaway guard (default none, user rule 12); the host 50 GB floor is enforced by job6/guarded_run.
+    mem = 8 + int(6 * (n.get('bytes') or 0) / 1e9 + 0.999)
+    if os.environ.get('WP6_IMPORT_MEM_CAP_GB'):
+        mem = min(mem, int(os.environ['WP6_IMPORT_MEM_CAP_GB']))
     full = [sys.executable, '-I', JOB, '--tag', f'import-{t}', '--ncpu', '1', '--mem', f'{mem}G',
             '--max-seconds', '14400', '--out', run, '--wait', '7200', '--',
             'bash', '-c', f'source {WS}/ops/env.sh; ' + ' '.join(f"'{c}'" for c in cmd)]
