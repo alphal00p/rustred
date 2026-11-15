@@ -19,8 +19,8 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use rustred_campaign_algebra::SymbolicaAlgebra;
 use rustred_campaign_core::accept::rule::RuleText;
@@ -607,15 +607,44 @@ pub struct WalkCfg {
     pub routed_masks: Option<BTreeSet<u64>>,
 }
 
-/// A decided hand-down term at a key.
+/// A decided hand-down term at a key (compact: one per non-zero routed term of every closure key is kept).
 #[derive(Clone, Debug)]
 pub struct HandTerm {
     pub j: u32,
-    pub tk: Vec<i32>,
     pub mask: u64,
     pub word: CoefFact,
-    pub by: String,
-    pub vals: [Option<u64>; 2],
+    /// The term key, one byte per slot (`term_key()` gives it back).
+    pub tk: Box<[i8]>,
+    /// How the word was decided (shared text: few distinct values).
+    pub by: Arc<str>,
+    /// The coefficient's values at the two (prime, d0) points (exact level only; None = not computed).
+    pub vals: Option<Box<[Option<u64>; 2]>>,
+}
+
+impl HandTerm {
+    pub fn term_key(&self) -> Vec<i32> {
+        self.tk.iter().map(|&x| i32::from(x)).collect()
+    }
+    fn val(&self, i: usize) -> Option<u64> {
+        self.vals.as_ref().and_then(|v| v[i])
+    }
+}
+
+thread_local! {
+    /// Per thread: the decision texts already shared.
+    static BY_TEXT: std::cell::RefCell<HashMap<String, Arc<str>>> = std::cell::RefCell::new(HashMap::new());
+}
+
+fn shared_text(s: String) -> Arc<str> {
+    BY_TEXT.with(|c| {
+        let mut c = c.borrow_mut();
+        if let Some(a) = c.get(&s) {
+            return a.clone();
+        }
+        let a: Arc<str> = Arc::from(s.as_str());
+        c.insert(s, a.clone());
+        a
+    })
 }
 
 /// Counters of a walk.
@@ -843,6 +872,13 @@ pub fn walk(
     let cl_served: Vec<usize> = (0..rows.served.len())
         .filter(|&i| reached.contains(&rows.served[i].key))
         .collect();
+    drop(reached);
+    if u32::try_from(cl_served.len()).is_err() {
+        return Err(format!(
+            "{} closure keys: more than a sender reference holds",
+            cl_served.len()
+        ));
+    }
     st.closure_served = cl_served.len() as u64;
     st.seconds_closure = t0.elapsed().as_secs_f64();
     // --- B: hand-down decisions on CL(S) ---
@@ -929,21 +965,25 @@ pub fn walk(
                                 CoefFact::NonZero => s.handdown_nonzero += 1,
                                 CoefFact::Unknown => s.handdown_unknown += 1,
                             }
-                            let mut vals = [None, None];
-                            if cfg.exact.any() && word == CoefFact::NonZero {
-                                for (i, v) in vals.iter_mut().enumerate() {
-                                    *v = me.coef(p, j, &pt, i)?;
+                            let vals = if cfg.exact.any() && word == CoefFact::NonZero {
+                                let mut v = [None, None];
+                                for (i, x) in v.iter_mut().enumerate() {
+                                    *x = me.coef(p, j, &pt, i)?;
                                 }
-                            }
+                                Some(Box::new(v))
+                            } else {
+                                None
+                            };
                             hand.push(HandTerm {
                                 j: j as u32,
-                                tk,
                                 mask,
                                 word,
-                                by,
+                                tk: ck(&tk)?,
+                                by: shared_text(by),
                                 vals,
                             });
                         }
+                        hand.shrink_to_fit();
                         out.push((ci, hand));
                     }
                     let _ = p.take_new();
@@ -1010,8 +1050,12 @@ pub struct EdgeStats {
     pub seconds: f64,
 }
 
-/// (cl index, term j, hand index) of a sender.
-type SenderRef = (usize, u32, usize);
+/// (cl index, hand index) of a sender (its term index is `w.hand[cl][hand].j`; the walk refuses more than u32 keys).
+type SenderRef = (u32, u32);
+
+fn hand_of(w: &Walk, r: SenderRef) -> &HandTerm {
+    &w.hand[r.0 as usize][r.1 as usize]
+}
 
 struct Acc {
     senders: u64,
@@ -1064,7 +1108,8 @@ fn merge_acc(w: &Walk, dst: &mut HashMap<CKey, Acc>, src: HashMap<CKey, Acc>) {
 }
 
 fn min_ref(w: &Walk, a: SenderRef, b: SenderRef) -> SenderRef {
-    if (w.cl_served[a.0], a.1) <= (w.cl_served[b.0], b.1) {
+    if (w.cl_served[a.0 as usize], hand_of(w, a).j) <= (w.cl_served[b.0 as usize], hand_of(w, b).j)
+    {
         a
     } else {
         b
@@ -1075,7 +1120,7 @@ fn min_ref(w: &Walk, a: SenderRef, b: SenderRef) -> SenderRef {
 static AGG_CALL: AtomicUsize = AtomicUsize::new(1);
 
 /// A worker thread's expansion cache: (call id, (edge, parent term key) -> expansion, cached child-key entries).
-type ExpCache = (usize, HashMap<(usize, Vec<i32>), ImageMod>, usize);
+type ExpCache = (usize, HashMap<(usize, Box<[i8]>), ImageMod>, usize);
 
 thread_local! {
     /// Per worker thread (one aggregation call at a time; reset when the call id changes).
@@ -1091,6 +1136,25 @@ pub fn aggregate(
     cache: &RecCache<'_>,
     cfg: &WalkCfg,
 ) -> Result<(Vec<EdgeResult>, BTreeMap<u64, u64>), String> {
+    let mut out = vec![];
+    let other = aggregate_each(set, rows, w, edges, cache, cfg, &mut |_, r| {
+        out.push(r);
+        Ok(())
+    })?;
+    Ok((out, other))
+}
+
+/// `aggregate`, handing each edge's result to `emit(edge index, result)` in edge order as soon as it is formed (one
+/// edge's lines in memory at a time); returns the masks no edge routes.
+pub fn aggregate_each(
+    set: &ImportedSet,
+    rows: &ParentRows,
+    w: &Walk,
+    edges: &[EdgeFile],
+    cache: &RecCache<'_>,
+    cfg: &WalkCfg,
+    emit: &mut dyn FnMut(usize, EdgeResult) -> Result<(), String>,
+) -> Result<BTreeMap<u64, u64>, String> {
     let t0 = std::time::Instant::now();
     let call = AGG_CALL.fetch_add(1, Ordering::Relaxed);
     let owners = mask_owners(edges)?;
@@ -1142,7 +1206,7 @@ pub fn aggregate(
                         return Ok(x.clone());
                     }
                     let red: Vec<(Vec<i32>, [Fe; 2])> = tr
-                        .apply_top(sec, &h.tk, &child_lines[e])?
+                        .apply_top(sec, &h.term_key(), &child_lines[e])?
                         .into_iter()
                         .map(|(k, c)| {
                             let t = |f: &Zp64| {
@@ -1163,7 +1227,7 @@ pub fn aggregate(
                     c.1.insert(key, v.clone());
                     Ok(v)
                 })?;
-                let me = (ci, h.j, hi);
+                let me = (ci as u32, hi as u32);
                 for (k, c) in img.iter() {
                     est[e].image_terms += 1;
                     if child_lines[e].iter().any(|&j| k[j] < 1) {
@@ -1177,7 +1241,7 @@ pub fn aggregate(
                     if cfg.exact.wants(k) {
                         for (i, f) in fields.iter().enumerate() {
                             let acc = &mut ent.acc[i];
-                            match (acc.as_ref(), h.vals[i]) {
+                            match (acc.as_ref(), h.val(i)) {
                                 (Some(av), Some(v)) => {
                                     *acc = Some(f.add(av, &f.mul(&c[i], &f.to_element(v))));
                                 }
@@ -1284,7 +1348,7 @@ pub fn aggregate(
                                     continue;
                                 }
                                 let sec = edges[*e].sector(h.mask).expect("owner");
-                                let img = tr.apply(sec, &h.tk)?;
+                                let img = tr.apply(sec, &h.term_key())?;
                                 let Ok(pos) =
                                     img.binary_search_by(|x| x.0.as_slice().cmp(k.as_slice()))
                                 else {
@@ -1344,21 +1408,23 @@ pub fn aggregate(
             }
         }
     }
-    let sender = |(ci, _j, hi): SenderRef| -> Sender {
-        let row = &rows.served[w.cl_served[ci]];
-        let h = &w.hand[ci][hi];
+    let sender = |r: SenderRef| -> Sender {
+        let row = &rows.served[w.cl_served[r.0 as usize]];
+        let h = hand_of(w, r);
         Sender {
             parent_key: row.key.clone(),
             applied: row.applied.clone(),
             record_sha256: set.rules[row.table][row.record].record_sha256.clone(),
             term: h.j,
-            term_key: h.tk.clone(),
-            by: h.by.clone(),
+            term_key: h.term_key(),
+            by: h.by.to_string(),
         }
     };
-    let mut out = vec![];
+    // one edge at a time: its map is consumed (sorted by key) into its lines, handed out, then dropped
     for (e, m) in maps.into_iter().enumerate() {
-        let mut lines: Vec<ArrivalLine> = m
+        let mut acc: Vec<(CKey, Acc)> = m.into_iter().collect();
+        acc.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        let lines: Vec<ArrivalLine> = acc
             .into_iter()
             .map(|(k, a)| ArrivalLine {
                 key: k.iter().map(|&x| i32::from(x)).collect(),
@@ -1368,12 +1434,11 @@ pub fn aggregate(
                 first_exact: a.first_exact.map(sender),
             })
             .collect();
-        lines.sort_by(|a, b| a.key.cmp(&b.key));
         let mut s = est[e].clone();
         s.seconds = t0.elapsed().as_secs_f64();
-        out.push(EdgeResult { lines, stats: s });
+        emit(e, EdgeResult { lines, stats: s })?;
     }
-    Ok((out, other))
+    Ok(other)
 }
 
 /// The header of an arrival file (bindings).

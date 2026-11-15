@@ -690,10 +690,10 @@ fn compute(a: &Args) {
         // distinct routed hand-down term keys with a non-zero (or 0/0) coefficient at some closure key, parent frame
         let owners = rustred_campaign_core::import::arrivals::edge::mask_owners(&pr.edges)
             .unwrap_or_else(|e| die(&e));
-        let mut tks: BTreeSet<&Vec<i32>> = BTreeSet::new();
+        let mut tks: BTreeSet<Vec<i32>> = BTreeSet::new();
         for h in w.hand.iter().flatten() {
             if owners.contains_key(&h.mask) {
-                tks.insert(&h.tk);
+                tks.insert(h.term_key());
             }
         }
         let text: String = tks
@@ -729,21 +729,19 @@ fn compute(a: &Args) {
                 .map(|p| EdgeFile::read(p, map).unwrap_or_else(|e| die(&e)))
                 .collect()
         };
-        let (res, oth) = arrivals::aggregate(&pr.set, &pr.rows, &w, &edges, &cache, &cfg)
-            .unwrap_or_else(|e| die(&e));
-        other = oth;
-        for (m, c) in &w.unrouted {
-            *other.entry(*m).or_default() += c;
-        }
-        for (e, r) in edges.iter().zip(&res) {
-            let u = union.entry(e.child.label.clone()).or_default();
-            u.0.extend(r.lines.iter().map(|l| l.key.clone()));
-            u.1.extend(
-                r.lines
-                    .iter()
-                    .filter(|l| l.exact_senders.is_some_and(|n| n > 0))
-                    .map(|l| l.key.clone()),
-            );
+        // each edge's file is written as soon as its lines are formed (one edge's lines in memory at a time)
+        let mut emit = |ei: usize, r: arrivals::EdgeResult| -> Result<(), String> {
+            let e = &edges[ei];
+            if multi {
+                let u = union.entry(e.child.label.clone()).or_default();
+                u.0.extend(r.lines.iter().map(|l| l.key.clone()));
+                u.1.extend(
+                    r.lines
+                        .iter()
+                        .filter(|l| l.exact_senders.is_some_and(|n| n > 0))
+                        .map(|l| l.key.clone()),
+                );
+            }
             let mut h = arrivals::header(
                 &parent,
                 &tables,
@@ -764,7 +762,7 @@ fn compute(a: &Args) {
                 format!("{}-{}.arrivals.jsonl", parent, e.child.label)
             };
             let p = out_dir.join(&name);
-            let sha = format::write(&p, &h, &r.lines, &summ).unwrap_or_else(|x| die(&x));
+            let sha = format::write(&p, &h, &r.lines, &summ)?;
             let exact = r
                 .lines
                 .iter()
@@ -772,6 +770,12 @@ fn compute(a: &Args) {
                 .count();
             files.push(json!({"child": e.child.label, "map": map, "file": p, "sha256": sha, "keys": r.lines.len(), "exact_keys": exact,
             "exact_level_keys": r.lines.iter().filter(|l| l.exact_senders.is_some()).count(), "stats": r.stats}));
+            Ok(())
+        };
+        other = arrivals::aggregate_each(&pr.set, &pr.rows, &w, &edges, &cache, &cfg, &mut emit)
+            .unwrap_or_else(|e| die(&e));
+        for (m, c) in &w.unrouted {
+            *other.entry(*m).or_default() += c;
         }
     }
     // per-record decision sample for the second route (rr_proof instantiate requests + our words)
@@ -797,7 +801,7 @@ fn compute(a: &Args) {
                 .push(row.applied.clone());
             let info = &pr.set.rules[row.table][row.record];
             dec.push(json!({"record_sha256": info.record_sha256, "applied": row.applied,
-                "nonzero": w.hand[ci].iter().map(|h| json!([h.j, h.tk, match h.word {CoefFact::NonZero => "nonzero", CoefFact::Zero => "zero", CoefFact::Unknown => "unknown"}, h.by])).collect::<Vec<_>>()}));
+                "nonzero": w.hand[ci].iter().map(|h| json!([h.j, h.term_key(), match h.word {CoefFact::NonZero => "nonzero", CoefFact::Zero => "zero", CoefFact::Unknown => "unknown"}, &*h.by])).collect::<Vec<_>>()}));
         }
         let rq: Vec<String> = req
             .into_iter()
@@ -823,7 +827,7 @@ fn compute(a: &Args) {
         let mut tks: BTreeSet<Vec<i32>> = BTreeSet::new();
         for h in w.hand.iter().flatten() {
             if owners.contains_key(&h.mask) {
-                tks.insert(h.tk.clone());
+                tks.insert(h.term_key());
             }
         }
         let step = tks
