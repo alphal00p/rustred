@@ -366,6 +366,7 @@ fn spec_family(v: &Value, base: &Path) -> Option<String> {
     None
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn extended_spec(
     import_text: &str,
     base: &Path,

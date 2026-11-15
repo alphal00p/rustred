@@ -370,6 +370,19 @@ fn store_check_equals_in_memory_check_for_every_form() {
     ));
     std::thread::sleep(std::time::Duration::from_millis(20));
     std::fs::write(&pp, t).unwrap();
+    // lane closeloop4 (audit-closeloop M1): the changed file no longer matches its pin: refused under the old spec;
+    // the RE-PINNED spec (new sha256) rebuilds the store
+    assert!(
+        Evidence::from_spec_with(
+            &set,
+            &d,
+            &EvidenceOptions {
+                store: Some(so.clone())
+            }
+        )
+        .is_err()
+    );
+    let set = load(&TableSetSpec::from_json(&pin_ev(&spec0)).unwrap(), &d).unwrap();
     let ev = Evidence::from_spec_with(&set, &d, &EvidenceOptions { store: Some(so) }).unwrap();
     assert_eq!(ev.counts.stores[0].origin, "built");
     let r = checked(&set, &ev);
