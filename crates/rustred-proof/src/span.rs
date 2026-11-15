@@ -48,6 +48,10 @@ pub struct SpanArgs {
     pub symmetry: String,
     /// side file with a symmetry_group record (std build; else the table's own record is used)
     pub symmetry_group: Option<String>,
+    /// EXPANDED (multi-term) symmetry rows, JSONL {seed|offset, matrix|element} (interface proof-symrows.md)
+    pub symrows: Option<String>,
+    /// no IBP rows: the relation must lie in the span of the given symmetry rows alone
+    pub symrows_only: bool,
 }
 impl Default for SpanArgs {
     fn default() -> Self {
@@ -65,6 +69,8 @@ impl Default for SpanArgs {
             emit_dir: None,
             symmetry: "auto".into(),
             symmetry_group: None,
+            symrows: None,
+            symrows_only: false,
         }
     }
 }
@@ -372,6 +378,319 @@ impl Elim {
 pub(crate) struct Sym {
     pub actions: Vec<Vec<Option<(usize, bool)>>>,
     pub lines: Vec<bool>,
+    /// expanded symmetry rows (proof-symrows.md): the specs, the family's slot momenta, symrows-only
+    pub expanded: Vec<SymRowSpec>,
+    pub momenta: Vec<Vec<i64>>,
+    pub only: bool,
+}
+
+/// One requested expanded symmetry row: its seed (absolute, or an offset from the key) and its momentum map T.
+#[derive(Clone, Debug)]
+pub(crate) struct SymRowSpec {
+    pub seed: Option<Vec<i64>>,
+    pub offset: Option<Vec<i64>>,
+    pub matrix: Vec<i64>,
+    pub id: String,
+}
+
+/// The JSON string at a byte slice (escapes decoded).
+fn unescape(b: &[u8]) -> String {
+    let s = String::from_utf8_lossy(b);
+    let mut out = String::new();
+    let mut it = s.chars();
+    while let Some(c) = it.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match it.next() {
+            Some('n') => out.push('\n'),
+            Some('t') => out.push('\t'),
+            Some('r') => out.push('\r'),
+            Some('u') => {
+                let h: String = (0..4).filter_map(|_| it.next()).collect();
+                if let Some(ch) = u32::from_str_radix(&h, 16).ok().and_then(char::from_u32) {
+                    out.push(ch);
+                }
+            }
+            Some(o) => out.push(o),
+            None => {}
+        }
+    }
+    out
+}
+
+/// The slot momenta (coefficients over (k_1..k_L, q)) of a compact family source `I(.., loops(..), externals(q),
+/// prop(D<i>,(mom)^2,flag) ..)`, in prop order.
+pub(crate) fn family_momenta(src: &str) -> Vec<Vec<i64>> {
+    let t: String = src.chars().filter(|c| !c.is_whitespace()).collect();
+    let args = |name: &str| -> Vec<String> {
+        let at = t
+            .find(&format!("{name}("))
+            .unwrap_or_else(|| die(&format!("SYMROW_REFUSED: family without {name}(..)")));
+        let rest = &t[at + name.len() + 1..];
+        rest[..rest.find(')').unwrap_or(0)]
+            .split(',')
+            .map(str::to_string)
+            .collect()
+    };
+    let mut vars = args("loops");
+    vars.extend(args("externals"));
+    let mut out = vec![];
+    let mut rest = t.as_str();
+    while let Some(at) = rest.find("prop(") {
+        rest = &rest[at + 5..];
+        let open = rest
+            .find(",(")
+            .unwrap_or_else(|| die("SYMROW_REFUSED: prop without momentum"));
+        let close = rest[open..]
+            .find(")^2")
+            .unwrap_or_else(|| die("SYMROW_REFUSED: only squared propagators"))
+            + open;
+        let mom = &rest[open + 2..close];
+        let mut v = vec![0i64; vars.len()];
+        let b: Vec<char> = mom.chars().collect();
+        let mut i = 0;
+        while i < b.len() {
+            let mut sign = 1;
+            if b[i] == '+' || b[i] == '-' {
+                if b[i] == '-' {
+                    sign = -1;
+                }
+                i += 1;
+            }
+            let st = i;
+            while i < b.len() && b[i].is_ascii_digit() {
+                i += 1;
+            }
+            let coef: i64 = if i > st {
+                b[st..i].iter().collect::<String>().parse().unwrap()
+            } else {
+                1
+            };
+            if i < b.len() && b[i] == '*' {
+                i += 1;
+            }
+            let vs = i;
+            while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == '_') {
+                i += 1;
+            }
+            let name: String = b[vs..i].iter().collect();
+            let pos = vars
+                .iter()
+                .position(|x| *x == name)
+                .unwrap_or_else(|| die(&format!("SYMROW_REFUSED: unknown symbol {name} in {mom}")));
+            v[pos] += sign * coef;
+        }
+        out.push(v);
+        rest = &rest[close..];
+    }
+    out
+}
+
+fn form(m: &[i64]) -> Vec<i128> {
+    let w = m.len();
+    let mut o = Vec::with_capacity(w * (w + 1) / 2);
+    for a in 0..w {
+        for b in a..w {
+            o.push(i128::from(m[a]) * i128::from(m[b]));
+        }
+    }
+    o
+}
+fn gcd_i(a: i128, b: i128) -> i128 {
+    let (mut a, mut b) = (a.abs(), b.abs());
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
+}
+/// exact solve sum x_c basis_c = target over Q (fractions as (num, den)); None if inconsistent or not unique
+fn decompose(basis: &[Vec<i128>], target: &[i128]) -> Option<Vec<(i128, i128)>> {
+    let rows = target.len();
+    let cols = basis.len();
+    let norm = |(n, d): (i128, i128)| -> (i128, i128) {
+        if n == 0 {
+            return (0, 1);
+        }
+        let g = gcd_i(n, d);
+        let s = if d < 0 { -1 } else { 1 };
+        (s * n / g, s * d / g)
+    };
+    let mul = |a: (i128, i128), b: (i128, i128)| norm((a.0 * b.0, a.1 * b.1));
+    let sub = |a: (i128, i128), b: (i128, i128)| norm((a.0 * b.1 - b.0 * a.1, a.1 * b.1));
+    let mut m: Vec<Vec<(i128, i128)>> = (0..rows)
+        .map(|r| {
+            let mut v: Vec<(i128, i128)> = (0..cols).map(|c| (basis[c][r], 1)).collect();
+            v.push((target[r], 1));
+            v
+        })
+        .collect();
+    let mut piv = vec![];
+    let mut r = 0;
+    for c in 0..cols {
+        let Some(p) = (r..rows).find(|&i| m[i][c].0 != 0) else {
+            continue;
+        };
+        m.swap(r, p);
+        let inv = norm((m[r][c].1, m[r][c].0));
+        for k in c..=cols {
+            m[r][k] = mul(m[r][k], inv);
+        }
+        for i in 0..rows {
+            if i != r && m[i][c].0 != 0 {
+                let f = m[i][c];
+                for k in c..=cols {
+                    let v = mul(m[r][k], f);
+                    m[i][k] = sub(m[i][k], v);
+                }
+            }
+        }
+        piv.push(c);
+        r += 1;
+        if r == rows {
+            break;
+        }
+    }
+    if (r..rows).any(|i| m[i][cols].0 != 0) || piv.len() != cols {
+        return None;
+    }
+    let mut x = vec![(0, 1); cols];
+    for (i, &c) in piv.iter().enumerate() {
+        x[c] = m[i][cols];
+    }
+    Some(x)
+}
+fn det_i128(mut a: Vec<Vec<i128>>) -> i128 {
+    let n = a.len();
+    let mut sign = 1i128;
+    let mut prev = 1i128;
+    for k in 0..n {
+        if a[k][k] == 0 {
+            match (k + 1..n).find(|&r| a[r][k] != 0) {
+                Some(r) => {
+                    a.swap(k, r);
+                    sign = -sign;
+                }
+                None => return 0,
+            }
+        }
+        for i in k + 1..n {
+            for j in k + 1..n {
+                a[i][j] = (a[i][j] * a[k][k] - a[i][k] * a[k][j]) / prev;
+            }
+        }
+        prev = a[k][k];
+    }
+    if n == 0 { 1 } else { sign * a[n - 1][n - 1] }
+}
+
+/// The expanded symmetry row at seed `sd` for momentum map `t`: (integral key -> integer coefficient) of
+/// I(sd) - E_g(sd); every check of proof-symrows.md (unimodular, q -> +-q, exact denominator images, exact numerator
+/// decomposition) or a typed SYMROW_REFUSED.
+pub(crate) fn expanded_row(
+    momenta: &[Vec<i64>],
+    t: &[i64],
+    sd: &[i64],
+) -> Result<BTreeMap<Vec<i64>, i128>, String> {
+    let n = momenta.len();
+    let w = momenta.first().map_or(0, |m| m.len());
+    if w == 0 || t.len() != w * w {
+        return Err(format!(
+            "SYMROW_REFUSED: matrix of {} entries for {} momentum components",
+            t.len(),
+            w
+        ));
+    }
+    let l = w - 1;
+    if (0..l).any(|j| t[l * w + j] != 0) || t[l * w + l].abs() != 1 {
+        return Err("SYMROW_REFUSED: q is not mapped to +-q".into());
+    }
+    let a: Vec<Vec<i128>> = (0..l)
+        .map(|i| (0..l).map(|j| i128::from(t[i * w + j])).collect())
+        .collect();
+    if det_i128(a).abs() != 1 {
+        return Err("SYMROW_REFUSED: loop part not unimodular".into());
+    }
+    let mapped = |m: &[i64]| -> Vec<i64> {
+        (0..w)
+            .map(|col| (0..w).map(|row| m[row] * t[row * w + col]).sum())
+            .collect()
+    };
+    let forms: Vec<Vec<i128>> = momenta.iter().map(|m| form(m)).collect();
+    let mut basis = forms.clone();
+    let mut qv = vec![0i64; w];
+    qv[l] = 1;
+    basis.push(form(&qv));
+    let mut base = vec![0i64; n];
+    let mut poly: BTreeMap<Vec<u32>, i128> = BTreeMap::new();
+    poly.insert(vec![0; n], 1);
+    for i in 0..n {
+        let a_i = sd.get(i).copied().unwrap_or(0);
+        if a_i == 0 {
+            continue;
+        }
+        let img = form(&mapped(&momenta[i]));
+        if let Some(tg) = forms.iter().position(|f| *f == img) {
+            base[tg] += a_i;
+            continue;
+        }
+        if a_i > 0 {
+            return Err(format!(
+                "SYMROW_REFUSED: denominator slot {i} has no exact image"
+            ));
+        }
+        let x = decompose(&basis, &img).ok_or_else(|| {
+            format!("SYMROW_REFUSED: slot {i}: image not uniquely in the span of the slot forms")
+        })?;
+        if x.iter().any(|q| q.1 != 1) {
+            return Err(format!(
+                "SYMROW_REFUSED: slot {i}: non-integral decomposition"
+            ));
+        }
+        // exact check
+        for r in 0..img.len() {
+            if (0..basis.len()).map(|c| x[c].0 * basis[c][r]).sum::<i128>() != img[r] {
+                return Err(format!("SYMROW_REFUSED: slot {i}: form check failed"));
+            }
+        }
+        let fac: Vec<(Option<usize>, i128)> = (0..n)
+            .filter(|&k| x[k].0 != 0)
+            .map(|k| (Some(k), x[k].0))
+            .chain((x[n].0 != 0).then_some((None, x[n].0)))
+            .collect();
+        for _ in 0..(-a_i) {
+            let mut nx: BTreeMap<Vec<u32>, i128> = BTreeMap::new();
+            for (ex, c) in &poly {
+                for (k, f) in &fac {
+                    let mut e = ex.clone();
+                    if let Some(k) = k {
+                        e[*k] += 1;
+                    }
+                    let v = c
+                        .checked_mul(*f)
+                        .ok_or("SYMROW_REFUSED: coefficient overflow")?;
+                    let s = nx.entry(e).or_insert(0);
+                    *s = s
+                        .checked_add(v)
+                        .ok_or("SYMROW_REFUSED: coefficient overflow")?;
+                }
+            }
+            nx.retain(|_, c| *c != 0);
+            poly = nx;
+            if poly.len() > 5_000_000 {
+                return Err("SYMROW_REFUSED: expansion above 5,000,000 terms".into());
+            }
+        }
+    }
+    let mut row: BTreeMap<Vec<i64>, i128> = BTreeMap::new();
+    *row.entry(sd.to_vec()).or_insert(0) += 1;
+    for (ex, c) in poly {
+        let key: Vec<i64> = (0..n).map(|k| base[k] - i64::from(ex[k])).collect();
+        *row.entry(key).or_insert(0) -= c;
+    }
+    row.retain(|_, c| *c != 0);
+    Ok(row)
 }
 impl Sym {
     fn image(&self, e: usize, key: &[i64]) -> Option<(Vec<i64>, bool)> {
@@ -419,6 +738,26 @@ pub(crate) fn parse_group(l: &[u8]) -> (Option<Vec<u8>>, Vec<Vec<Option<(usize, 
         })
         .collect();
     (chart, actions)
+}
+
+/// The `matrix` of every element of a symmetry_group record (None for an element without one), with the record's chart.
+fn group_matrices(l: &[u8]) -> (Option<Vec<u8>>, Vec<Option<Vec<i64>>>) {
+    let j = jparse(l);
+    let chart = j.get(l, "chart").map(|x| x.s(l).to_vec());
+    let g = j.get(l, "group").unwrap_or(&j);
+    let empty = vec![];
+    let els = match g.get(l, "elements") {
+        Some(J::Arr(v)) => v,
+        _ => &empty,
+    };
+    let m = els
+        .iter()
+        .map(|e| match e.get(l, "matrix") {
+            Some(J::Arr(v)) => Some(v.iter().map(|x| x.int(l)).collect()),
+            _ => None,
+        })
+        .collect();
+    (chart, m)
 }
 
 // ===================================================================== instantiated system at a key
@@ -533,6 +872,7 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
     let mut zero_masks: std::collections::HashSet<Vec<u8>> = Default::default();
     let mut zero_scope = String::new();
     let mut groups: Vec<(Option<Vec<u8>>, Vec<Vec<Option<(usize, bool)>>>)> = vec![];
+    let mut gmats: Vec<(Option<Vec<u8>>, Vec<Option<Vec<i64>>>)> = vec![];
     let mut nl = 0;
     read_lines_matching(&args.table, |l| {
         nl += 1;
@@ -553,6 +893,7 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
         }
         if kind == b"symmetry_group" {
             groups.push(parse_group(l));
+            gmats.push(group_matrices(l));
         }
         nl < 64 && kind != b"rule"
     });
@@ -611,6 +952,7 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
         read_lines_matching(f, |l| {
             if l.iter().any(|c| !c.is_ascii_whitespace()) {
                 groups.push(parse_group(l));
+                gmats.push(group_matrices(l));
             }
             true
         });
@@ -633,6 +975,7 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
             Some(actions) => Sym {
                 actions,
                 lines: chart.bytes().map(|c| c == b'1').collect(),
+                ..Default::default()
             },
             None => die(
                 "MISSING_SYMMETRY_GROUP: the rule uses symmetry rows (sym_rows > 0 or --symmetry on) but neither the table nor --symmetry-group FILE carries a symmetry_group record for its chart",
@@ -641,6 +984,54 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
     } else {
         Sym::default()
     };
+    let mut sym = sym;
+    if let Some(f) = &args.symrows {
+        let fam = crate::core::top_field(&hline, "family_source")
+            .map(unescape)
+            .unwrap_or_else(|| die("SYMROW_REFUSED: the table header has no family_source"));
+        sym.momenta = family_momenta(&fam);
+        sym.only = args.symrows_only;
+        let mut ln = 0usize;
+        read_lines_matching(f, |l| {
+            ln += 1;
+            if l.iter().all(|c| c.is_ascii_whitespace()) {
+                return true;
+            }
+            let j = jparse(l);
+            let ints = |k: &str| {
+                j.get(l, k).and_then(|x| match x {
+                    J::Arr(a) => Some(a.iter().map(|v| v.int(l)).collect::<Vec<i64>>()),
+                    _ => None,
+                })
+            };
+            // the element by its matrix, or by its index into the chart's symmetry_group record (table or --symmetry-group);
+            // either way only the matrix is taken: the kernel derives the action and the numerator images itself
+            let matrix = ints("matrix").unwrap_or_else(|| {
+                let k = match j.get(l, "element") { Some(J::Num(..)) => j.get(l, "element").unwrap().int(l), _ => die(&format!("SYMROW_REFUSED: --symrows line {ln}: give \"matrix\" or \"element\"")) };
+                let g = gmats.iter().find(|g| g.0.as_deref().map_or(true, |c| c == chart.as_bytes()))
+                    .unwrap_or_else(|| die(&format!("SYMROW_REFUSED: --symrows line {ln}: \"element\" {k} but no symmetry_group record for chart {chart} (table or --symmetry-group)")));
+                usize::try_from(k).ok().and_then(|k| g.1.get(k).cloned().flatten())
+                    .unwrap_or_else(|| die(&format!("SYMROW_REFUSED: --symrows line {ln}: element {k} has no matrix in the symmetry_group record ({} elements)", g.1.len())))
+            });
+            let id = j
+                .get(l, "id")
+                .map(|x| String::from_utf8_lossy(x.s(l)).to_string())
+                .unwrap_or_else(|| format!("line{ln}"));
+            sym.expanded.push(SymRowSpec {
+                seed: ints("seed"),
+                offset: ints("offset"),
+                matrix,
+                id,
+            });
+            true
+        });
+    } else if args.symrows_only {
+        die("--symrows-only needs --symrows FILE");
+    }
+    put!(
+        "symrows",
+        format!("{{\"given\":{},\"only\":{}}}", sym.expanded.len(), sym.only)
+    );
     put!(
         "symmetry",
         format!(
@@ -697,7 +1088,7 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
         );
         exr
     } else {
-        if cert_rows.is_empty() {
+        if cert_rows.is_empty() && !args.symrows_only {
             die("no rows: give --cert with source_row records or build with the engine");
         }
         put!(
@@ -762,15 +1153,13 @@ pub fn run_span(args: &SpanArgs, engine: Option<&EngineRows>) -> String {
             "UNSUPPORTED: EMPTY_EXCEPTION_BRANCH (an exception AND-list is empty; the engine never writes one (solver/exception.rs) and refuses it in replay (node/replay/mod.rs:823); read logically it excludes the rule everywhere, as rr_node reduce (node/mastermap.rs:456) and cover (node/driver.rs:1527) treat it)",
         );
     }
-    let seeds: Vec<Pat> = tj
-        .get(&tline, "seeds")
-        .unwrap_or_else(|| {
+    let seeds: Vec<Pat> = match tj.get(&tline, "seeds") {
+        Some(x) => x.arr().iter().map(|x| parse_pat(x.s(&tline))).collect(),
+        None if args.symrows_only => vec![],
+        None => {
             die("MISSING_SEEDS: the rule record has no seeds; instance-span needs the seed set")
-        })
-        .arr()
-        .iter()
-        .map(|x| parse_pat(x.s(&tline)))
-        .collect();
+        }
+    };
     // recenter: the rule record's own (new tables), else the certificate's cert_rule (older rr_node dumps keep it
     // there only), else none
     let mut recenter_from = "rule record";
@@ -1193,6 +1582,9 @@ fn instantiate(
     let mut sym_pairs: std::collections::BTreeSet<(Vec<i64>, Vec<i64>, bool)> = Default::default();
     let mut sym_added = 0usize;
     for (si, s) in seeds.iter().enumerate() {
+        if sym.only {
+            break;
+        }
         let sg: Vec<i64> = pat_at(s, kv)
             .iter()
             .zip(recenter)
@@ -1275,6 +1667,35 @@ fn instantiate(
                     sym_added += 1;
                 }
             }
+        }
+    }
+    // expanded (multi-term) symmetry rows (proof-symrows.md), label (0, -1_000_000 - j)
+    let na = sym.momenta.len();
+    for (j, sp) in sym.expanded.iter().enumerate() {
+        let sd: Vec<i64> = match (&sp.seed, &sp.offset) {
+            (Some(s), _) => s.clone(),
+            (None, Some(o)) => (0..na)
+                .map(|i| kv[i] + o.get(i).copied().unwrap_or(0))
+                .collect(),
+            _ => die("SYMROW_REFUSED: a symmetry row without seed or offset"),
+        };
+        let row = expanded_row(&sym.momenta, &sp.matrix, &sd)
+            .unwrap_or_else(|e| die(&format!("{e} (symrow {} {:?})", sp.id, sd)));
+        let mut r: Vec<(u32, i64, i64)> = vec![];
+        for (k, c) in row {
+            let mut full = k.clone();
+            full.resize(20, 0);
+            let c64 =
+                i64::try_from(c).unwrap_or_else(|_| die("SYMROW_REFUSED: coefficient beyond i64"));
+            if let Some(id) = cid(full, &mut colid, &mut cols) {
+                r.push((id, c64, 0));
+            }
+        }
+        r.sort();
+        if !r.is_empty() {
+            out_rows.push(r);
+            row_label.push((0, -1_000_000 - j as i64));
+            sym_added += 1;
         }
     }
     Inst {
@@ -2190,6 +2611,65 @@ fn verify_exact(inst: &Inst, s_rows: &[usize], l: &BigPoly, w: &[BigPoly]) -> us
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// proof-symrows: a 2-loop toy with an ISP-mixing element k2 -> q - k2: D5 = (k1-k2)^2 -> (k1+k2-q)^2
+    /// = D1 + D2 + D3 + D4 - D5 - q^2 (q^2 = 1), denominators permuted D2 <-> D4.
+    #[test]
+    fn expanded_symmetry_row_exact_and_refusals() {
+        let src = "I(name(toy),loops(k1,k2),externals(q),dimension(d),prop(D1,(k1)^2,1),prop(D2,(k2)^2,1),prop(D3,(k1-q)^2,1),prop(D4,(k2-q)^2,1),prop(D5,(k1-k2)^2,0))";
+        let m = family_momenta(src);
+        assert_eq!(
+            m,
+            vec![
+                vec![1, 0, 0],
+                vec![0, 1, 0],
+                vec![1, 0, -1],
+                vec![0, 1, -1],
+                vec![1, -1, 0]
+            ]
+        );
+        let t = [1, 0, 0, 0, -1, 1, 0, 0, 1]; // rows: k1 -> k1, k2 -> -k2 + q, q -> q
+        let row = expanded_row(&m, &t, &[1, 1, 1, 1, -1]).unwrap();
+        let want: BTreeMap<Vec<i64>, i128> = [
+            (vec![1, 1, 1, 1, -1], 2), // I(S) and the -D5 term of the expansion
+            (vec![0, 1, 1, 1, 0], -1),
+            (vec![1, 0, 1, 1, 0], -1),
+            (vec![1, 1, 0, 1, 0], -1),
+            (vec![1, 1, 1, 0, 0], -1),
+            (vec![1, 1, 1, 1, 0], 1), // the -q^2 term
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(row, want);
+        // a pure relabelling with no numerator: I(S) - I(gS)
+        let row = expanded_row(&m, &t, &[2, 1, 1, 3, 0]).unwrap();
+        assert_eq!(
+            row,
+            [(vec![2, 1, 1, 3, 0], 1), (vec![2, 3, 1, 1, 0], -1)]
+                .into_iter()
+                .collect()
+        );
+        // refusals: not unimodular, q not to +-q, a denominator without an exact image
+        assert!(
+            expanded_row(&m, &[1, 0, 0, 0, 2, 0, 0, 0, 1], &[1, 1, 1, 1, -1])
+                .unwrap_err()
+                .contains("unimodular")
+        );
+        assert!(
+            expanded_row(&m, &[1, 0, 0, 0, 1, 0, 1, 0, 1], &[1, 1, 1, 1, -1])
+                .unwrap_err()
+                .contains("q is not mapped")
+        );
+        assert!(
+            expanded_row(&m, &t, &[1, 1, 1, 1, 1])
+                .unwrap_err()
+                .contains("denominator slot 4")
+        );
+        assert!(
+            expanded_row(&m, &t[..8], &[1, 1, 1, 1, -1])
+                .unwrap_err()
+                .contains("matrix of 8 entries")
+        );
+    }
     #[test]
     fn ratrec_univariate_mod_p() {
         let p = 2305843009213693951u64; // test only

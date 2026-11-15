@@ -17,6 +17,7 @@
 //! ([`engine`]: `rustred::solver::SourceSystem::from_family_with_capacity`, as `rr_node` does) and compared with the
 //! rows stored in a certificate. The H8 kernel (handoff/helper-h10-kernel) is the origin of `core` and `stream`.
 pub mod big;
+pub mod bounds_rule;
 pub mod core;
 #[cfg(feature = "engine")]
 pub mod engine;

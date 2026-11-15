@@ -19,8 +19,13 @@
 
 use serde_json::Value;
 
+/// The ONE reading of `domain_bounds`, shared with rr_proof (dependency-free source compiled into both crates).
+#[path = "../../../rustred-proof/src/bounds_rule.rs"]
+#[allow(dead_code)]
+mod shared;
+
 /// Upper limit of excluded values per slot (a bound further than this from the chart is refused).
-pub const MAX_EXCLUDED_PER_SLOT: i64 = 64;
+pub const MAX_EXCLUDED_PER_SLOT: i64 = shared::MAX_EXCLUDED_PER_SLOT;
 
 /// `n<i> - v` in the engine's printing style (`n3`, `-2+n3`, `1+n3`).
 fn eq_text(i: usize, v: i64) -> String {
@@ -72,51 +77,55 @@ pub fn bound_exclusions(record: &Value) -> Result<Vec<Vec<String>>, String> {
         .as_array()
         .map(|a| a.iter().map(Value::as_i64).collect())
         .unwrap_or_else(|| vec![None; n]);
+    if fixed.len() != n {
+        return Err(format!("domain_bounds: fixed of arity {} for a chart of arity {n}", fixed.len()));
+    }
+    let shift = target_shifts(record["target"].as_str().ok_or("domain_bounds: rule without target")?, n)?;
+    // THE shared reading (rustred-proof/src/bounds_rule.rs, also rr_proof's): excluded values of the case variables
+    let e = shared::bound_exclusions(&chart, &shift, &fixed, &min, &max, MAX_EXCLUDED_PER_SLOT)?;
     let mut out = Vec::new();
-    for i in 0..n {
-        // the kind of a bound depends on the slot kind only (fixed or not): the core's rule (mn-2)
-        if chart[i] && max[i].is_some() {
-            return Err(format!(
-                "domain_bounds: a max on line slot {i} would cut an infinite set"
-            ));
-        }
-        if !chart[i] && min[i].is_some() {
-            return Err(format!(
-                "domain_bounds: a min on non-line slot {i} would cut an infinite set"
-            ));
-        }
-        if let Some(f) = fixed.get(i).copied().flatten() {
-            if min[i].is_some_and(|m| f < m) || max[i].is_some_and(|m| f > m) {
-                // the fixed value violates the bound: n_i == f on the whole case, so this branch excludes it all
-                out.push(vec![eq_text(i, f)]);
-            }
-            continue;
-        }
-        if chart[i] {
-            if let Some(m) = min[i] {
-                if m - 1 > MAX_EXCLUDED_PER_SLOT {
-                    return Err(format!(
-                        "domain_bounds: min {m} on slot {i} is too far from the chart"
-                    ));
-                }
-                for v in 1..m {
-                    out.push(vec![eq_text(i, v)]);
-                }
-            }
-        } else {
-            if let Some(m) = max[i] {
-                if -m > MAX_EXCLUDED_PER_SLOT {
-                    return Err(format!(
-                        "domain_bounds: max {m} on slot {i} is too far from the chart"
-                    ));
-                }
-                for v in (m + 1)..=0 {
-                    out.push(vec![eq_text(i, v)]);
-                }
-            }
+    if e.whole_case {
+        // a fixed slot violates its bound: n_i - f vanishes on the whole case, so this branch excludes it all
+        let (i, f) = fixed.iter().enumerate().find_map(|(i, f)| f.map(|f| (i, f))).ok_or("domain_bounds: whole case without a fixed slot")?;
+        out.push(vec![eq_text(i, f)]);
+    }
+    for (i, vals) in &e.per_slot {
+        for &v in vals {
+            out.push(vec![eq_text(*i, v)]);
         }
     }
     Ok(out)
+}
+
+/// Per slot of a target pattern `I(n0+1,n1,2,..)`: Some(shift) for `n<i>[+-k]`, None for a constant.
+fn target_shifts(target: &str, n: usize) -> Result<Vec<Option<i64>>, String> {
+    let t: String = target.chars().filter(|c| !c.is_whitespace()).collect();
+    let inner = t
+        .strip_prefix("I(")
+        .and_then(|r| r.strip_suffix(')'))
+        .ok_or(format!("domain_bounds: target {target}"))?;
+    let parts: Vec<&str> = inner.split(',').collect();
+    if parts.len() != n {
+        return Err(format!("domain_bounds: target arity {} != {n}", parts.len()));
+    }
+    parts
+        .iter()
+        .enumerate()
+        .map(|(i, a)| match a.strip_prefix('n') {
+            Some(r) => {
+                let p = r.find(['+', '-']).unwrap_or(r.len());
+                if r[..p].parse::<usize>().ok() != Some(i) {
+                    return Err(format!("domain_bounds: target slot {i} is {a}"));
+                }
+                if p == r.len() {
+                    Ok(Some(0))
+                } else {
+                    r[p..].trim_start_matches('+').parse::<i64>().map(Some).map_err(|_| format!("domain_bounds: target slot {a}"))
+                }
+            }
+            None => a.parse::<i64>().map(|_| None).map_err(|_| format!("domain_bounds: target slot {a}")),
+        })
+        .collect()
 }
 
 /// The bounds that the T162 bank's qualified domain implies (lines `n_i >= max(1, 1 - recenter_i)`, numerators
@@ -159,7 +168,7 @@ mod tests {
     fn absent_bounds_add_nothing_and_finite_cuts_only() {
         let r = json!({"chart":"110","fixed":[null,1,null]});
         assert!(bound_exclusions(&r).unwrap().is_empty());
-        let r = json!({"chart":"110","fixed":[null,1,null],"domain_bounds":{"min":[3,null,null],"max":[null,null,-2]}});
+        let r = json!({"chart":"110","fixed":[null,1,null],"target":"I(n0,1,n2)","domain_bounds":{"min":[3,null,null],"max":[null,null,-2]}});
         assert_eq!(
             bound_exclusions(&r).unwrap(),
             vec![
@@ -170,10 +179,10 @@ mod tests {
             ]
         );
         let bad =
-            json!({"chart":"110","fixed":[null,1,null],"domain_bounds":{"max":[4,null,null]}});
+            json!({"chart":"110","fixed":[null,1,null],"target":"I(n0,1,n2)","domain_bounds":{"max":[4,null,null]}});
         assert!(bound_exclusions(&bad).is_err());
         let fixed_violated =
-            json!({"chart":"110","fixed":[null,1,null],"domain_bounds":{"min":[null,2,null]}});
+            json!({"chart":"110","fixed":[null,1,null],"target":"I(n0,1,n2)","domain_bounds":{"min":[null,2,null]}});
         assert_eq!(
             bound_exclusions(&fixed_violated).unwrap(),
             vec![vec!["-1+n1".to_string()]]
@@ -181,22 +190,32 @@ mod tests {
         // engfix4 mn-2 (one rule with the campaign core): the bound kind follows the slot kind on FIXED slots too,
         // a non-object value is refused, a far bound on a fixed slot is a comparison (no enumeration, no limit)
         let min_on_fixed_numerator =
-            json!({"chart":"110","fixed":[null,1,0],"domain_bounds":{"min":[null,null,-1]}});
+            json!({"chart":"110","fixed":[null,1,0],"target":"I(n0,1,0)","domain_bounds":{"min":[null,null,-1]}});
         assert!(bound_exclusions(&min_on_fixed_numerator).is_err());
         let max_on_fixed_line =
-            json!({"chart":"110","fixed":[null,1,null],"domain_bounds":{"max":[null,3,null]}});
+            json!({"chart":"110","fixed":[null,1,null],"target":"I(n0,1,n2)","domain_bounds":{"max":[null,3,null]}});
         assert!(bound_exclusions(&max_on_fixed_line).is_err());
-        let not_object = json!({"chart":"110","fixed":[null,1,null],"domain_bounds":[1,2,3]});
+        let not_object = json!({"chart":"110","fixed":[null,1,null],"target":"I(n0,1,n2)","domain_bounds":[1,2,3]});
         assert!(bound_exclusions(&not_object).is_err());
         let far_free =
-            json!({"chart":"110","fixed":[null,1,null],"domain_bounds":{"min":[100,null,null]}});
+            json!({"chart":"110","fixed":[null,1,null],"target":"I(n0,1,n2)","domain_bounds":{"min":[100,null,null]}});
         assert!(bound_exclusions(&far_free).is_err());
         let far_fixed =
-            json!({"chart":"110","fixed":[null,1,null],"domain_bounds":{"min":[null,100,null]}});
+            json!({"chart":"110","fixed":[null,1,null],"target":"I(n0,1,n2)","domain_bounds":{"min":[null,100,null]}});
         assert_eq!(
             bound_exclusions(&far_fixed).unwrap(),
             vec![vec!["-1+n1".to_string()]]
         );
+        // a SHIFTED pattern target (the reading shared with rr_proof): I(n0+1,1,n2-1) has n0 >= 0 and n2 <= 1 in the
+        // chart, so min 2 excludes n0 = 0, 1 and max 0 excludes n2 = 1 (before 2026-11-15: n0 = 1 and nothing)
+        let shifted = json!({"chart":"110","fixed":[null,1,null],"target":"I(n0+1,1,n2-1)",
+            "domain_bounds":{"min":[2,null,null],"max":[null,null,0]}});
+        assert_eq!(
+            bound_exclusions(&shifted).unwrap(),
+            vec![vec!["n0".to_string()], vec!["-1+n0".into()], vec!["-1+n2".into()]]
+        );
+        let bad_target = json!({"chart":"110","fixed":[null,1,null],"target":"I(n1,1,n2)","domain_bounds":{"min":[2,null,null]}});
+        assert!(bound_exclusions(&bad_target).is_err());
         let rc = json!({"chart":"110","recenter":[-1,0,1]});
         assert_eq!(
             bounds_from_recenter(&rc).unwrap(),

@@ -26,6 +26,7 @@
 pub mod affine;
 pub mod auto;
 pub mod bounds;
+pub mod choice;
 pub mod childjob;
 pub mod descent;
 pub mod domain;
@@ -40,5 +41,6 @@ pub mod records;
 pub mod registry;
 pub mod replay;
 pub mod screen;
+pub mod symface;
 pub mod symmasters;
 pub mod symmetry;

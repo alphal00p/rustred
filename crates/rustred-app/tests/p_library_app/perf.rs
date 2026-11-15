@@ -23,7 +23,7 @@ use rustred::reduction::{
 use symbolica::domains::rational::Rational;
 use symbolica::utils::resources::{ResourceBudget, ResourceLimitError, ResourceLimits};
 
-use super::package::{Scratch, scope_two};
+use super::package::{Scratch, assemble, scope_two};
 
 type Inputs = Vec<(PresentationId, IntegralKey, Coefficient)>;
 
@@ -227,29 +227,36 @@ fn is_cancellation(error: &PError) -> bool {
 /// refusal in the cause chain; a budget that never refuses changes nothing.
 #[test]
 fn a_refused_checkpoint_stops_a_p_reduction_under_every_arithmetic() {
-    let library = &scope_two().library;
-    let inputs = benchmark_cell(library, 2);
-    let off = reduce(library, &inputs, OrderedWeightArithmetic::Exact, None).unwrap();
+    let shared = &scope_two().library;
+    let inputs = benchmark_cell(shared, 2);
+    let off = reduce(shared, &inputs, OrderedWeightArithmetic::Exact, None).unwrap();
+    // A library builds its engine and per-sector state (route verifications, orbits, step memos) lazily on first use,
+    // so the checkpoint count of a request depends on what earlier requests on the SAME library warmed (measured,
+    // modular_polynomial threads=4 on the shared library: 138,228 / 116,004 first, then 70,781 / 93,005, then about
+    // 4,100-4,400 with scheduling jitter): a halfway point taken in one state may never be reached in another. Every run
+    // below therefore uses a FRESH library (0.1 s to assemble), so the refusing runs start from the same cold state as
+    // the run that fixes the halfway point (measured: 101,299 / 298,952 / 298,918 checkpoints, equal on every run
+    // within 1 %). Refusals are not lost: every refusing run below must end in the cancellation.
     for arithmetic in arithmetics() {
         let seen = Arc::new(AtomicUsize::new(0));
+        let library = assemble(2).library;
         let full = stopping(usize::MAX, Arc::clone(&seen))
-            .run(|| reduce(library, &inputs, arithmetic, None))
+            .run(|| reduce(&library, &inputs, arithmetic, None))
             .unwrap();
         assert_eq!(full.terms, off.terms, "{arithmetic}");
         let checkpoints = seen.load(Ordering::SeqCst);
-        assert!(
-            checkpoints > 1000,
-            "{arithmetic}: {checkpoints} checkpoints"
-        );
+        assert!(checkpoints > 1000, "{arithmetic}: {checkpoints} checkpoints");
         for stop_at in [1, checkpoints / 2] {
             let seen = Arc::new(AtomicUsize::new(0));
-            let error = stopping(stop_at, seen)
-                .run(|| reduce(library, &inputs, arithmetic, None))
+            let library = assemble(2).library;
+            let error = stopping(stop_at, Arc::clone(&seen))
+                .run(|| reduce(&library, &inputs, arithmetic, None))
                 .unwrap_err();
             assert!(
                 is_cancellation(&error),
                 "{arithmetic} at {stop_at}: {error}"
             );
+            assert!(seen.load(Ordering::SeqCst) >= stop_at, "{arithmetic} at {stop_at}");
         }
     }
 }

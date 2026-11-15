@@ -2018,7 +2018,11 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
     let mut n_sub = 0usize;
     let mut all_lower = true;
     let mut first_not_lower: Option<Vec<i64>> = None;
+    // d_poles (kept for compatibility) = the UNION of the lift's hidden (witness) poles and the delivered coefficients'
+    // denominators; a consumer asking "is the RELATION singular at d0" must read coefficient_denominator_factors /
+    // pole_order_d4 (delivered coefficients only), never d_poles (interfaces/coord-pole-engine.md, d_poles note)
     let mut poles: BTreeSet<String> = rel.hidden.iter().cloned().collect();
+    let mut final_dens: Vec<&CoefficientPolynomial> = Vec::new();
     for (ki, pc) in &terms {
         let k = to_vec(ki);
         let coef = -(*pc).clone();
@@ -2035,12 +2039,14 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
         }
         if !coef.denominator.is_constant() {
             poles.insert(coef.denominator.to_string());
+            final_dens.push(&pc.denominator);
         }
         let c = coef.to_string();
         // every RHS term: key text, exact coefficient, top sector or a proper subsector (proved-zero sectors never appear)
         rhs.push(json!([ki.to_string(), c, if it { "top" } else { "sub" }]));
         rhs_canon.push(json!([k, c]));
     }
+    let (factors, pole_order_d4) = denominator_census(&final_dens, 4);
     let canon = json!({"relation_rule": rule.name(), "rhs": rhs_canon, "target": key});
     let relation_digest = blake3::hash(format!("{canon}\n").as_bytes())
         .to_hex()
@@ -2125,8 +2131,55 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
         "rhs_count": terms.len(), "rhs_sub_count": n_sub, "top_rhs": top, "all_lower": all_lower,
         "seeds_total": n_seeds, "rows": main.stats_rows, "trace_rows": main.trace_rows,
         "seeds_used": seeds_used, "proof": proof, "d_poles": poles.into_iter().collect::<Vec<_>>(),
+        "coefficient_denominator_factors": factors.iter().map(|(f, m)| json!([f, m])).collect::<Vec<_>>(),
+        "pole_order_d4": pole_order_d4, "lift_poles": rel.hidden.iter().cloned().collect::<BTreeSet<_>>(),
         "failure": Value::Null,
     })
+}
+
+/// The irreducible factors (exact, over Z) of the DELIVERED coefficients' denominators with their maximal multiplicity
+/// over the coefficients (constants dropped), and the pole order of the relation at d = `d0`: the largest multiplicity
+/// over the coefficients of the factors vanishing at d0 (coefficients are reduced, so a vanishing denominator factor is
+/// a pole). The order is None when a factor depends on more than one variable (not a fixed-key relation).
+pub(crate) fn denominator_census(dens: &[&CoefficientPolynomial], d0: i64) -> (Vec<(String, usize)>, Option<usize>) {
+    use symbolica::domains::integer::Integer;
+    use symbolica::poly::factor::Factorize;
+    let mut max_mult: BTreeMap<String, usize> = BTreeMap::new();
+    let mut cache: BTreeMap<String, (Vec<(String, usize)>, Option<usize>)> = BTreeMap::new();
+    let mut order: Option<usize> = Some(0);
+    for den in dens {
+        let key = den.to_string();
+        let (fs, o) = cache.entry(key).or_insert_with(|| {
+            let mut fs = Vec::new();
+            let mut o = Some(0usize);
+            for (f, m) in den.factor() {
+                if f.is_constant() {
+                    continue;
+                }
+                let vars: Vec<usize> = (0..f.nvars()).filter(|&x| f.degree(x) > 0).collect();
+                let vanishes = match vars.as_slice() {
+                    [x] => Some(f.replace(*x, &Integer::from(d0)).is_zero()),
+                    _ => None,
+                };
+                o = match (o, vanishes) {
+                    (Some(acc), Some(true)) => Some(acc + m),
+                    (Some(acc), Some(false)) => Some(acc),
+                    _ => None,
+                };
+                fs.push((f.to_string(), m));
+            }
+            (fs, o)
+        });
+        for (f, m) in fs.iter() {
+            let e = max_mult.entry(f.clone()).or_insert(0);
+            *e = (*e).max(*m);
+        }
+        order = match (order, *o) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            _ => None,
+        };
+    }
+    (max_mult.into_iter().collect(), order)
 }
 
 /// Identity of one trace row across the solves of a key: basis row (or the symmetry-row marker), seed, and EVERY
@@ -2333,6 +2386,24 @@ pub fn binary_identity() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// d_poles vs the delivered coefficients: the census reads only the final denominators (reduced), factors them
+    /// exactly and counts the order at d = 4; a pole that cancels in the coefficient is not counted.
+    #[test]
+    fn denominator_census_counts_only_delivered_poles() {
+        let ctx = crate::algebra::CoefficientContext::new(vec!["d"]);
+        let c1 = ctx.coefficient_fixture("(d-3)/((d-4)^2*(2*d-5))");
+        let c2 = ctx.coefficient_fixture("(d-4)*(d-6)/((d-4)*(3*d-11))"); // the (d-4) cancels: regular at 4
+        let c3 = ctx.coefficient_fixture("7/(2*d-8)");
+        let (f, o) = denominator_census(&[&c2.denominator], 4);
+        assert_eq!(o, Some(0), "{f:?}");
+        assert_eq!(f.len(), 1);
+        let (f, o) = denominator_census(&[&c1.denominator, &c2.denominator, &c3.denominator], 4);
+        assert_eq!(o, Some(2), "{f:?}");
+        assert_eq!(f.len(), 3, "{f:?}"); // d-4 (max multiplicity 2), 2d-5, 3d-11; constants dropped
+        assert!(f.iter().any(|(_, m)| *m == 2));
+        assert_eq!(denominator_census(&[], 4), (vec![], Some(0)));
+    }
 
     const KITE: &str = "I(\n  name(TOY2kite),\n  loops(k1,k2),\n  externals(q),\n  dimension(d),\n  prop(D1,(k1)^2,1),\n  prop(D2,(-k1-k2)^2,1),\n  prop(D3,(k2)^2,1),\n  prop(D4,(k1+k2-q)^2,1),\n  prop(D5,(-k2+q)^2,1),\n  gram(q,q,1)\n)\n";
 
