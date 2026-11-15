@@ -301,3 +301,224 @@ fn t162_ship_three_readers() {
     .unwrap();
     eprintln!("{summary}");
 }
+
+/// Which (record, key, rhs term) of the closure reach the given keys (PF4_TARGETS, one JSON array per line) when every
+/// rhs term counts as an edge (the keys-only superset of a Tier K check)? Writes PF4_OUT/pred.jsonl and an
+/// `rr_proof instantiate` request file PF4_OUT/pred_requests.jsonl (the predecessor keys per record), so the real
+/// kernel decides whether those coefficients vanish at their keys. IGNORED (multi-GB table).
+#[test]
+#[ignore]
+fn t162_ship_predecessors_of_open_keys() {
+    let table = PathBuf::from(std::env::var("PF4_SHIP_TABLE").expect("PF4_SHIP_TABLE"));
+    let keys_path = PathBuf::from(std::env::var("PF4_KEYS").expect("PF4_KEYS"));
+    let targets_path = PathBuf::from(std::env::var("PF4_TARGETS").expect("PF4_TARGETS"));
+    let out = PathBuf::from(std::env::var("PF4_OUT").expect("PF4_OUT"));
+    std::fs::create_dir_all(&out).unwrap();
+    let read = |p: &PathBuf| -> Vec<Vec<i32>> {
+        std::fs::read_to_string(p)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
+    };
+    let keys = read(&keys_path);
+    let targets: std::collections::BTreeSet<Vec<i32>> = read(&targets_path).into_iter().collect();
+    let raw = scan_table("ship", &table, true, &|_, _| true).expect("scan");
+    let frame = NodeFrame::from_header(&raw.header).expect("frame");
+    let n = frame.arity();
+    let mask: Vec<bool> = (0..n).map(|i| frame.is_line(i)).collect();
+    let tf = TableFile {
+        header: Some(raw.header.clone()),
+        rules: raw
+            .records
+            .iter()
+            .map(|r| {
+                let mut x = r.rec.clone();
+                x.unknown_members.clear();
+                x
+            })
+            .collect(),
+        charts: raw.charts.clone(),
+        others: vec![],
+    };
+    let t = Table::from_table_file(
+        "ship",
+        table.display().to_string(),
+        &tf,
+        DomainOptions::default(),
+    )
+    .expect("core load");
+    let disp = Dispatcher::new(vec![t], vec![0])
+        .unwrap()
+        .with_chart(mask)
+        .unwrap();
+    let pats: Vec<Vec<Vec<TargetSlot>>> = raw
+        .records
+        .iter()
+        .map(|r| {
+            r.rec
+                .rhs_keys
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .map(|p| parse_target(p, n).unwrap())
+                .collect()
+        })
+        .collect();
+    let mut w = std::io::BufWriter::new(std::fs::File::create(out.join("pred.jsonl")).unwrap());
+    let mut by_rec: BTreeMap<usize, std::collections::BTreeSet<Vec<i32>>> = BTreeMap::new();
+    for k in &keys {
+        let i = match disp.first_match(k).unwrap() {
+            Dispatch::Covered(r) => r.record,
+            Dispatch::Blocked { at, .. } | Dispatch::Undecided { at, .. } => at.record,
+            _ => continue,
+        };
+        // canonical targets (asserted by t162_ship_three_readers' shapes): the rule point is the key
+        for (ti, p) in pats[i].iter().enumerate() {
+            let img: Vec<i32> = p
+                .iter()
+                .map(|s| match *s {
+                    TargetSlot::Param { param, offset } => {
+                        k[param] + i32::try_from(offset).unwrap()
+                    }
+                    TargetSlot::Const(c) => i32::try_from(c).unwrap(),
+                })
+                .collect();
+            if targets.contains(&img) {
+                let label = raw.records[i].rec.index.unwrap();
+                writeln!(
+                    w,
+                    "{}",
+                    serde_json::json!({"target": img, "rule": label, "key": k, "term": ti})
+                )
+                .unwrap();
+                by_rec.entry(i).or_default().insert(k.clone());
+            }
+        }
+    }
+    w.flush().unwrap();
+    let mut req =
+        std::io::BufWriter::new(std::fs::File::create(out.join("pred_requests.jsonl")).unwrap());
+    for (i, ks) in &by_rec {
+        let r = &raw.records[*i];
+        writeln!(
+            req,
+            "{}",
+            serde_json::json!({"table": table.display().to_string(), "offset": r.offset, "rule": r.rec.index.unwrap(),
+                "keys": ks.iter().collect::<Vec<_>>()})
+        )
+        .unwrap();
+    }
+    req.flush().unwrap();
+    eprintln!("predecessor records {}", by_rec.len());
+}
+
+/// The KEYS-ONLY superset closure (every rhs term an edge, as a Tier K check): from the start keys (PF4_KEYS) over
+/// chart-orthant images of the first SELECTED record's rhs at each key, to a fixed point; writes PF4_OUT/superset.jsonl
+/// (key, parent key, parent rule, term) for every key reached, so the chain to any key can be followed. IGNORED.
+#[test]
+#[ignore]
+fn t162_ship_keys_only_superset() {
+    let table = PathBuf::from(std::env::var("PF4_SHIP_TABLE").expect("PF4_SHIP_TABLE"));
+    let keys_path = PathBuf::from(std::env::var("PF4_KEYS").expect("PF4_KEYS"));
+    let out = PathBuf::from(std::env::var("PF4_OUT").expect("PF4_OUT"));
+    std::fs::create_dir_all(&out).unwrap();
+    let start: Vec<Vec<i32>> = std::fs::read_to_string(&keys_path)
+        .unwrap()
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let raw = scan_table("ship", &table, true, &|_, _| true).expect("scan");
+    let frame = NodeFrame::from_header(&raw.header).expect("frame");
+    let n = frame.arity();
+    let mask: Vec<bool> = (0..n).map(|i| frame.is_line(i)).collect();
+    let tf = TableFile {
+        header: Some(raw.header.clone()),
+        rules: raw
+            .records
+            .iter()
+            .map(|r| {
+                let mut x = r.rec.clone();
+                x.unknown_members.clear();
+                x
+            })
+            .collect(),
+        charts: raw.charts.clone(),
+        others: vec![],
+    };
+    let t = Table::from_table_file(
+        "ship",
+        table.display().to_string(),
+        &tf,
+        DomainOptions::default(),
+    )
+    .expect("core load");
+    let disp = Dispatcher::new(vec![t], vec![0])
+        .unwrap()
+        .with_chart(mask.clone())
+        .unwrap();
+    let pats: Vec<Vec<Vec<TargetSlot>>> = raw
+        .records
+        .iter()
+        .map(|r| {
+            r.rec
+                .rhs_keys
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .map(|p| parse_target(p, n).unwrap())
+                .collect()
+        })
+        .collect();
+    let in_chart = |k: &[i32]| (0..n).all(|s| if mask[s] { k[s] >= 1 } else { k[s] <= 0 });
+    let mut seen: BTreeMap<Vec<i32>, Option<(Vec<i32>, i64, usize)>> = BTreeMap::new();
+    let mut frontier: Vec<Vec<i32>> = vec![];
+    for k in start {
+        if seen.insert(k.clone(), None).is_none() {
+            frontier.push(k);
+        }
+    }
+    let mut uncovered: Vec<Vec<i32>> = vec![];
+    while let Some(k) = frontier.pop() {
+        let i = match disp.first_match(&k).unwrap() {
+            Dispatch::Covered(r) => r.record,
+            Dispatch::Blocked { at, .. } | Dispatch::Undecided { at, .. } => at.record,
+            _ => {
+                uncovered.push(k.clone());
+                continue;
+            }
+        };
+        for (ti, p) in pats[i].iter().enumerate() {
+            let img: Vec<i32> = p
+                .iter()
+                .map(|s| match *s {
+                    TargetSlot::Param { param, offset } => {
+                        k[param] + i32::try_from(offset).unwrap()
+                    }
+                    TargetSlot::Const(c) => i32::try_from(c).unwrap(),
+                })
+                .collect();
+            if in_chart(&img) && !seen.contains_key(&img) {
+                seen.insert(
+                    img.clone(),
+                    Some((k.clone(), raw.records[i].rec.index.unwrap(), ti)),
+                );
+                frontier.push(img);
+            }
+        }
+    }
+    let mut w = std::io::BufWriter::new(std::fs::File::create(out.join("superset.jsonl")).unwrap());
+    for (k, p) in &seen {
+        let v = match p {
+            None => serde_json::json!({"key": k, "start": true}),
+            Some((pk, rule, term)) => {
+                serde_json::json!({"key": k, "parent": pk, "rule": rule, "term": term})
+            }
+        };
+        writeln!(w, "{v}").unwrap();
+    }
+    w.flush().unwrap();
+    eprintln!("superset keys {} uncovered {:?}", seen.len(), uncovered);
+}
