@@ -18,6 +18,10 @@
 // lane adapters: kind solve-recipe's records and per-key outcomes. Mounted at the crate root since lane int5
 // (`rustred_campaign_contract::recipe`); the old path `classify::recipe` stays valid through this re-export.
 pub use crate::recipe;
+// lane symjob: kind symmetry-composite's child seal, sealed results and tally. Mounted here until the integration lane
+// adds `pub mod symcomp;` to lib.rs (REQUEST TO I-INT); then this line becomes `pub use crate::symcomp;`.
+#[path = "symcomp.rs"]
+pub mod symcomp;
 
 use crate::exit::ExitCode;
 use crate::layout::RunLayout;
@@ -146,6 +150,12 @@ pub enum Accept {
     /// `--probe-d`) may be read as diagnostics; they are NEVER rule or relation evidence and never count a key as
     /// solved.
     DiagnosticRecords,
+    /// Lane symjob (rows 33 / 34, kind symmetry-composite): the sealed results name SUPPLIED-RELATION CANDIDATES
+    /// (table + verification lines of the child, bound by their SHA-256). Never evidence by themselves: each relation
+    /// is accepted ONLY when the import's own verification of it passes (image re-derived from the verified group,
+    /// cited records = first match, composition repeated mod p, descent by the import's test); unlike
+    /// `solved_records`, whose records carry the child's own exact proof and are accepted on their own.
+    SuppliedRelations,
     Nothing,
 }
 
@@ -247,9 +257,9 @@ const fn rs(
 
 /// The decision table. Evaluation order (first match wins): O normalisation (row 22 reasons), W unknown (21b, 21c,
 /// 22), then the c rows in this order: 26, the kind's exit-code set (22), S (22), 25, then for kind solve-recipe 1 /
-/// 28 / 29 / 22 (a probe job, line 7: 31 / 32 / 22), for kind node-basis 30 / 22, and for every other kind 1-8 with 24 and 27 after their siblings, 9-17 (11b / 11c before 11: the supervisor's kill reason K decides over an `interrupted` OUTCOME; 13b before 13, 15b, 16, 17); then
+/// 28 / 29 / 22 (a probe job, line 7: 31 / 32 / 22), for kind node-basis 30 / 22, for kind symmetry-composite 33 / 34 / 35 / 22 (lane symjob), and for every other kind 1-8 with 24 and 27 after their siblings, 9-17 (11b / 11c before 11: the supervisor's kill reason K decides over an `interrupted` OUTCOME; 36 and 13b before 13, 15b, 16, 17); then
 /// the signal rows 18-21; then 22; then 23.
-pub const ROWS: [RowSpec; 39] = {
+pub const ROWS: [RowSpec; 43] = {
     use Accept::*;
     use Action::*;
     use OutcomeKind::*;
@@ -352,6 +362,30 @@ pub const ROWS: [RowSpec; 39] = {
             QueueFailures,
         ),
         rs(
+            33,
+            "",
+            "c=0, O, S, kind symmetry-composite (legacy-wrapped; the child's own seal checked by the wrapper), every key has a shipped relation (candidates)",
+            Complete,
+            SuppliedRelations,
+            ItemDone,
+        ),
+        rs(
+            34,
+            "",
+            "c=10, O, S, kind symmetry-composite, stop keys_unsolved, shipped relations >= 1 and >= 1 key none / over_cap / error (typed per-key outcomes)",
+            RuleFound,
+            SuppliedRelations,
+            QueueFailures,
+        ),
+        rs(
+            35,
+            "",
+            "c=10, O, S, kind symmetry-composite, stop keys_unsolved, no shipped relation",
+            NoRule,
+            Nothing,
+            QueueFailures,
+        ),
+        rs(
             7,
             "",
             "c=11, O, checker kind",
@@ -433,6 +467,14 @@ pub const ROWS: [RowSpec; 39] = {
             Nothing,
             TableUnreadableByTool,
         ),
+        rs(
+            36,
+            "",
+            "c=41, O whose error names PINNED_INPUTS_MISMATCH, kind symmetry-composite (the child's sealed result is bound to other inputs: request digest, input pins, tool digest)",
+            Refused,
+            Nothing,
+            ItemAttentionNoRetry,
+        ),
         rs(13, "", "c=41", Refused, Nothing, ItemAttentionNoRetry),
         rs(14, "", "c=42", Refused, Nothing, Attention),
         rs(15, "", "c=50", Lost, Nothing, PauseAllLaunches),
@@ -504,7 +546,7 @@ pub const ROWS: [RowSpec; 39] = {
         rs(
             22,
             "",
-            "contract violation: OUTCOME unreadable, inconsistent (`check`), of another attempt or spec (job_id, attempt, kind, spec_blake3), exit_code != c, a path not the layout path, family_blake3 not the spec's, elided loci under \"forbidden\"; or c in {0, 10, 20} with O and an output not sealed / not verified; or c outside the kind's set (checker 10 / 20, producing kind 11 / 12, solve-recipe 20 or an exit-10 stop other than keys_unsolved, keys_unsolved of another kind, proof-instantiate / proof-instance-span / coefficient-facts / node-basis 10 / 20); or solve-recipe exit 0 with an unsolved record, keys_unsolved without one (probe job: an unanswered record); or W unknown with an invalid OUTCOME",
+            "contract violation: OUTCOME unreadable, inconsistent (`check`), of another attempt or spec (job_id, attempt, kind, spec_blake3), exit_code != c, a path not the layout path, family_blake3 not the spec's, elided loci under \"forbidden\"; or c in {0, 10, 20} with O and an output not sealed / not verified; or c outside the kind's set (checker 10 / 20, producing kind 11 / 12, solve-recipe 20 or an exit-10 stop other than keys_unsolved, keys_unsolved of another kind, proof-instantiate / proof-instance-span / coefficient-facts / node-basis 10 / 20); or solve-recipe exit 0 with an unsolved record, keys_unsolved without one (probe job: an unanswered record); or symmetry-composite exit 20, an exit-10 stop other than keys_unsolved, exit 0 with a key without relation, keys_unsolved without one; or W unknown with an invalid OUTCOME",
             Crashed,
             Nothing,
             Attention,
@@ -735,6 +777,8 @@ fn decide(
                 // lane adapters: the exit-code sets of the kinds without a rule table
                 match e.kind {
                     JobKind::SolveRecipe => return solve_recipe_row(c, stop, v),
+                    // lane symjob: rows 33 / 34 / 35 / 22 (the results tally against the keys)
+                    JobKind::SymmetryComposite => return symmetry_composite_row(c, stop, v),
                     JobKind::NodeBasis if c == 0 => {
                         return row(
                             30,
@@ -857,6 +901,18 @@ fn decide(
                 },
                 _ => {}
             }
+        }
+        // lane symjob: the child's sealed result bound to other inputs (row 36), before 13
+        if c == 41
+            && e.kind == JobKind::SymmetryComposite
+            && o.and_then(|o| o.error.as_ref())
+                .is_some_and(|x| symcomp::names_pinned_mismatch(&x.message))
+        {
+            return row(
+                36,
+                "",
+                "the child's sealed result is bound to other inputs than the job's",
+            );
         }
         // line 7: a legacy proof tool's typed reader error is an input refusal of the job (row 13b), before 13 / 17
         if matches!(c, 41 | 70)
@@ -982,6 +1038,69 @@ fn solve_recipe_row(c: i32, stop: Option<StopCode>, v: &VerifiedOutputs) -> Clas
             format!("contract violation: exit {c} with stop {stop:?} for kind solve-recipe"),
         ),
     }
+}
+
+/// Rows 33 / 34 / 35 / 22 of kind symmetry-composite (lane symjob): S needs the tally of the results file.
+fn symmetry_composite_row(c: i32, stop: Option<StopCode>, v: &VerifiedOutputs) -> Classification {
+    let Some(t) = v.relations.as_ref().filter(|t| !t.probe) else {
+        return row(
+            22,
+            "",
+            "contract violation: symmetry-composite results not tallied against the keys",
+        );
+    };
+    let unsolved = t.unsolved_total();
+    match (c, stop) {
+        (0, _) if unsolved == 0 => row(
+            33,
+            "",
+            format!("every key has a shipped relation ({} candidates)", t.accepted),
+        ),
+        (10, Some(StopCode::KeysUnsolved)) if unsolved >= 1 && t.accepted >= 1 => row(
+            34,
+            "",
+            format!(
+                "keys_unsolved: {} shipped relations (candidates), {unsolved} keys without one",
+                t.accepted
+            ),
+        ),
+        (10, Some(StopCode::KeysUnsolved)) if unsolved >= 1 => row(
+            35,
+            "",
+            format!("keys_unsolved: no shipped relation, {unsolved} keys"),
+        ),
+        _ => row(
+            22,
+            "",
+            format!(
+                "contract violation: exit {c} with stop {stop:?}, {} relations / {unsolved} keys without one, kind symmetry-composite",
+                t.accepted
+            ),
+        ),
+    }
+}
+
+/// S of kind symmetry-composite (lane symjob): the verified results stream (through its handle) re-read by
+/// [`symcomp::tally`] against the spec (request, keys input) and against OUTCOME (`counters.rules_committed` = the
+/// shipped relations).
+pub fn symmetry_composite_tally(
+    layout: &RunLayout,
+    spec: &JobSpec,
+    o: &JobOutcome,
+    v: &VerifiedOutputs,
+) -> Result<(symcomp::SymResults, recipe::RelationTally), String> {
+    let rel = RunLayout::out_rel(crate::layout::RESULTS);
+    let s = v
+        .streams
+        .iter()
+        .find(|s| s.rel == rel)
+        .ok_or("no verified results stream")?;
+    let lines = crate::seal::VerifiedHandle::reopen(&layout.root, s)
+        .and_then(|h| h.canonical_lines())
+        .map_err(|e| format!("results: {e}"))?;
+    let (r, t) = symcomp::tally(&lines, spec)?;
+    check_tally_against_outcome(o, &t)?;
+    Ok((r, t))
 }
 
 /// S of kind solve-recipe (lane adapters): the verified results stream (read through its [`crate::seal::VerifiedHandle`],
@@ -1286,6 +1405,15 @@ pub fn assess(
                     match solve_recipe_tally(layout, spec, o, &v) {
                         Ok((_, t)) => v.relations = Some(t),
                         Err(why) => unsealed_why = Some(format!("solve-recipe results: {why}")),
+                    }
+                }
+                // lane symjob: kind symmetry-composite: the results' tally against the request and the keys
+                if spec.kind == JobKind::SymmetryComposite {
+                    match symmetry_composite_tally(layout, spec, o, &v) {
+                        Ok((_, t)) => v.relations = Some(t),
+                        Err(why) => {
+                            unsealed_why = Some(format!("symmetry-composite results: {why}"))
+                        }
                     }
                 }
                 // line 7: kind node-basis: the closed record list against the spec's dims / primes

@@ -59,10 +59,14 @@ fn cf2_row3_never_closes_an_item_on_unverified_claims() {
         .filter(|r| r.kind == OutcomeKind::Complete)
         .map(|r| r.row)
         .collect();
-    assert_eq!(complete, vec![1, 30, 31]);
+    // lane symjob: row 33 (kind symmetry-composite, sealed + the child's own seal checked + tallied) accepts supplied-
+    // relation CANDIDATES only, each accepted later through the import's own verification, never by the row
+    assert_eq!(complete, vec![1, 30, 31, 33]);
     for r in ROWS.iter().filter(|r| r.row == 30 || r.row == 31) {
         assert_eq!(r.accept, Accept::DiagnosticRecords);
     }
+    let r33 = ROWS.iter().find(|r| r.row == 33).unwrap();
+    assert_eq!(r33.accept, Accept::SuppliedRelations);
 }
 
 /// The verified handle (ac2-M1 consumer API): the canonical lines come from the verified bytes, all or nothing.
