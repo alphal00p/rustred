@@ -498,6 +498,7 @@ impl ChildHandle for ScriptedChild {
             });
         }
         let report = FinalReport {
+            barrier_refused: None,
             label: p.label.clone(),
             identity: p.identity.clone(),
             marker: crate::resources::CampaignMarker {

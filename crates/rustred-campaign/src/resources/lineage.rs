@@ -67,6 +67,10 @@ pub struct SessionLineage {
     pub pid_ns: u64,
     /// The verified parent chain at the session's start, parent first, up to the top of its pid namespace.
     pub ancestors: Vec<Link>,
+    /// procfix7 (gate7 MJ-2): inode of `/proc/self/ns/time` of the session (start times are shifted by a time
+    /// namespace's boottime offset: only sessions of ONE time namespace compare). None: unknown (older notes / kernel).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_ns: Option<u64>,
 }
 
 impl SessionLineage {
@@ -83,6 +87,7 @@ impl SessionLineage {
             boot_id: super::boot_id().map_err(|e| format!("boot id: {e}"))?,
             pid_ns: own_pid_ns().map_err(|e| format!("pid namespace: {e}"))?,
             ancestors: verified_ancestors_at(root, pid, st.start_ticks)?,
+            time_ns: own_time_ns(),
         })
     }
 
@@ -104,6 +109,26 @@ impl SessionLineage {
 /// Inode of this process's pid namespace.
 pub fn own_pid_ns() -> std::io::Result<u64> {
     Ok(std::fs::metadata("/proc/self/ns/pid")?.ino())
+}
+
+/// procfix7 (gate7 MJ-2): inode of this process's time namespace (None: no time namespaces on this kernel).
+pub fn own_time_ns() -> Option<u64> {
+    std::fs::metadata("/proc/self/ns/time")
+        .ok()
+        .map(|m| m.ino())
+}
+
+impl SessionLineage {
+    /// procfix7 (gate7 MJ-2): did this session run in ANOTHER time namespace than `current`? Recorded and current differ,
+    /// or recorded while the current one is unknown (cannot be shown the same: different). Nothing recorded (an older
+    /// binary, a failed read) counts as the same (RUNBOOK A4).
+    pub fn other_time_ns(&self, current: &SessionLineage) -> bool {
+        match (self.time_ns, current.time_ns) {
+            (Some(a), Some(b)) => a != b,
+            (Some(_), None) => true,
+            (None, _) => false,
+        }
+    }
 }
 
 /// One verified link read.
@@ -238,6 +263,13 @@ impl LineageRules {
             if n.boot_id == *boot && n.pid_ns != current.pid_ns {
                 return Err(format!(
                     "session pid {} (start {}) of this boot ran in another pid namespace",
+                    n.pid, n.start_ticks
+                ));
+            }
+            // procfix7 (gate7 MJ-2): start times of another time namespace do not compare
+            if n.boot_id == *boot && n.other_time_ns(current) {
+                return Err(format!(
+                    "session pid {} (start {}) of this boot ran in another time namespace",
                     n.pid, n.start_ticks
                 ));
             }
@@ -467,6 +499,7 @@ mod tests {
             boot_id: boot.into(),
             pid_ns: ns,
             ancestors: anc.to_vec(),
+            time_ns: None,
         }
     }
 
@@ -647,6 +680,42 @@ mod tests {
         assert!(t.starts_with("session_lineage {"));
         assert_eq!(SessionLineage::parse_note(&t), Some(me));
         assert_eq!(SessionLineage::parse_note("session_lineagex {}"), None);
+    }
+
+    /// procfix7 (gate7 MJ-2): a session of this boot that ran in another TIME namespace switches the rule OFF (start
+    /// times do not compare across a boottime offset); unknown time namespaces (older notes) do not.
+    #[test]
+    fn mj2_another_time_namespace_switches_the_rule_off() {
+        let me = SessionLineage {
+            time_ns: Some(11),
+            ..lineage(900, 10_000, "b2", 7, &[(1, 1)])
+        };
+        let other = SessionLineage {
+            time_ns: Some(12),
+            ..lineage(600, 8_000, "b2", 7, &[(1, 1)])
+        };
+        let s = [session(600, 8_000, "b2"), session(900, 10_000, "b2")];
+        assert!(
+            LineageRules::build(&s, &[other, me.clone()], &me, true)
+                .unwrap_err()
+                .contains("time namespace")
+        );
+        let unknown = lineage(600, 8_000, "b2", 7, &[(1, 1)]);
+        assert!(LineageRules::build(&s, &[unknown, me.clone()], &me, true).is_ok());
+        // the current time namespace unreadable while an earlier session recorded one: different
+        let me_unknown = SessionLineage {
+            time_ns: None,
+            ..me.clone()
+        };
+        let recorded = SessionLineage {
+            time_ns: Some(11),
+            ..lineage(600, 8_000, "b2", 7, &[(1, 1)])
+        };
+        assert!(
+            LineageRules::build(&s, &[recorded, me_unknown.clone()], &me_unknown, true)
+                .unwrap_err()
+                .contains("time namespace")
+        );
     }
 
     /// Rules installed for one campaign are not used for another, and only by the process that installed them.

@@ -573,7 +573,8 @@ fn m4_sigxfsz_death_is_a_resource_end_not_a_crash() {
     assert_eq!(resource, 0, "{}", log_tail(&d));
     let log = std::fs::read_to_string(d.join("log/supervisor.log")).unwrap_or_default();
     assert!(!log.contains("a resource end (row 15b)"), "{log}");
-    assert_eq!(result(&d).accepted.len(), result(&r).accepted.len());
+    // gate7 m-h1: the RESULT is compared with the reference (each item accepted with the same rule and record)
+    assert_eq!(result(&d), result(&r));
     assert_eq!(verify(&d), 0);
     assert_no_marked(&t.campaign);
 }

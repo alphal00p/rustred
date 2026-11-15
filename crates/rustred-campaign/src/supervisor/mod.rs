@@ -107,15 +107,15 @@ pub const SPAWN_BARRIER_TAG: &str = "barrier v1\n";
 pub const CAMPAIGN_ID_FILE: &str = "CAMPAIGN";
 /// procfix7 (gate7 B1): prefix of an `authenticate_run` error that is a supervisor resource limit (never a verdict).
 const AUTH_RESOURCE: &str = "resource limit while reading: ";
-/// procfix7 (gate6 m2-a): `RUN/sup/BARRIER_REFUSED`, written by the spawn-barrier shim when it refused the release (EOF,
-/// short or wrong token): the program never ran.
-pub const BARRIER_REFUSED_FILE: &str = "BARRIER_REFUSED";
+
 /// The `item.attention` code of an unconfirmed launch whose execution is unknown (lane int5): the operator decides with
 /// `rr_campaign control CDIR resolve JOB`.
 pub const EXECUTION_UNKNOWN: &str = "execution_unknown";
 /// The `item.attention` code of a job whose child ended [`MAX_CHILD_RESOURCE_ENDS`] times in a row for lack of a host
 /// resource (gate3 M4; decision rows 15 / 15b): `resolve JOB` (or `control retry ITEM`) reopens it.
 pub const CHILD_RESOURCE_FAILURE: &str = "child_resource_failure";
+/// procfix7 (gate7 m-nr): run directories that cannot be created, in a row, before the run stops (exit 1).
+const MAX_RUN_DIR_FAILURES: u32 = 5;
 /// Ends of one job in a row for lack of a host resource before its item goes to attention (gate3 M4).
 pub const MAX_CHILD_RESOURCE_ENDS: u32 = 5;
 
@@ -351,6 +351,12 @@ struct IntentLogs {
     intents: Vec<crate::launch::LoggedIntent>,
     bad: usize,
     unreadable: Vec<String>,
+    /// procfix7 (gate7 m-fb): fallback logs of THIS campaign and one of its recorded sessions (merged; removed once
+    /// their intents are in the ledger).
+    merged_fallbacks: Vec<PathBuf>,
+    /// procfix7 (gate7 m-fb): fallback logs of another campaign / an unknown session / without a header: never merged,
+    /// never removed, reported.
+    foreign: Vec<String>,
 }
 
 /// procfix7 (gate7 B1): a file read of recovery, classified.
@@ -475,6 +481,11 @@ pub struct Supervisor {
     /// (dev, inode) of CDIR and of CDIR/ledger when the ledger was opened (procfix3 item 0: a directory removed or
     /// replaced under a running supervisor is an internal error, never a finished campaign).
     dir_ids: Option<((u64, u64), (u64, u64))>,
+    /// procfix7 (gate7 m-rw): the (dev, inode) of an EXTERNAL work directory at start (None: internal); it and its
+    /// claim are checked like the campaign directory (a removed / replaced one is exit 70, never re-created unclaimed).
+    work_dir_id: Option<(u64, u64)>,
+    /// procfix7 (gate7 m-nr): run directories that could not be created, in a row (a typed stop at the bound).
+    run_dir_failures: u32,
     last_dir_check: Option<Instant>,
     /// Finished attempts waiting for proof + marker sweep before settle.
     pending: Vec<PendingSettle>,
@@ -516,6 +527,9 @@ pub struct Supervisor {
     /// procfix7 (gate7 B1, the class): reads that failed in a way that may hide a process of the campaign or a record of
     /// its signals: the run never claims a clean end (exit 8 after the final sweep, naming each reason).
     end_unproven: Vec<String>,
+    /// procfix7 (gate7 MJ-1): quarantined attempts whose unproven end exceeded `unproven_end_limit_s` (named, lease
+    /// released, in `survivors`).
+    unproven_given_up: BTreeSet<String>,
 }
 
 /// Bound of consecutive supervisor resource failures at launch before the campaign stops (exit 71).
@@ -752,17 +766,6 @@ impl Supervisor {
                 RunExit::Refused(format!("signal intent log: {e}"))
             }
         })?;
-        // procfix7 (gate6 m3-a): the intent log's tmpfs fallback (ZFS cannot reserve space for the log itself).
-        match crate::launch::install_intent_fallback(&cdir) {
-            Ok(p) => log.line(
-                "INFO",
-                &format!("signal intent log: tmpfs fallback {} (used if the campaign directory's log is full)", p.display()),
-            ),
-            Err(e) => log.line(
-                "WARN",
-                &format!("signal intent log: no tmpfs fallback ({e}): on a full disk signals whose intent cannot be written are NOT sent (listed at exit)"),
-            ),
-        }
         let fp = Failpoints::from_env();
         if let Some(a) = fp.active() {
             log.line(
@@ -932,6 +935,18 @@ impl Supervisor {
                     .map_err(|e| RunExit::Refused(format!("ledger: {e}")))?;
                 moved = true;
             }
+        }
+        // procfix7 (gate6 m3-a, gate7 m-fb): the intent log's tmpfs fallback (ZFS cannot reserve space for the log itself);
+        // its header names this campaign id and session (only an exact match is ever merged at a restart).
+        match crate::launch::install_intent_fallback(&cdir, &key) {
+            Ok(p) => log.line(
+                "INFO",
+                &format!("signal intent log: tmpfs fallback {} (used if the campaign directory's log is full)", p.display()),
+            ),
+            Err(e) => log.line(
+                "WARN",
+                &format!("signal intent log: no tmpfs fallback ({e}): on a full disk signals whose intent cannot be written are NOT sent (listed at exit)"),
+            ),
         }
         // procfix5 (run book): where the operator finds the campaign id (every job's marker starts with it).
         log.line(
@@ -1170,6 +1185,9 @@ impl Supervisor {
         let boot_id = crate::resources::boot_id().unwrap_or_default();
         let started_utc = clock.now_utc().to_iso();
         let dir_ids = dir_id(&cdir).zip(dir_id(&crate::ledger::ledger_dir(&cdir)));
+        let work_dir_id = workdir::is_external(&work_root, &cdir)
+            .then(|| dir_id(&work_root))
+            .flatten();
         Ok(Supervisor {
             cdir,
             work_root,
@@ -1208,6 +1226,8 @@ impl Supervisor {
             started_utc,
             drain_started: None,
             dir_ids,
+            work_dir_id,
+            run_dir_failures: 0,
             last_dir_check: None,
             pending: Vec::new(),
             unknown: BTreeMap::new(),
@@ -1227,6 +1247,7 @@ impl Supervisor {
             resource_stop: None,
             refusal_stop: None,
             end_unproven: Vec::new(),
+            unproven_given_up: BTreeSet::new(),
             opts,
         })
     }
@@ -1402,7 +1423,7 @@ impl Supervisor {
                 return;
             }
         };
-        let logs = match self.read_intent_logs() {
+        let logs = match self.read_intent_logs(&facts.sessions) {
             Ok(l) => l,
             Err(e) => {
                 self.recovery_read_failed("the signal intent log", &e);
@@ -1436,6 +1457,27 @@ impl Supervisor {
         } = facts;
         self.child_resource_ends = resource_ends;
         self.install_lineage_rules(&sessions, &lineages);
+        // procfix7 (gate7 MJ-2): a session of this boot in ANOTHER time namespace recorded start times shifted by that
+        // namespace's boottime offset: no start time compares across them, so the bound is 0 (every process of our uid
+        // since boot is a candidate; the lineage rule is OFF, see `LineageRules::build`)
+        let mut min_ticks = min_ticks;
+        {
+            // an unreadable current time namespace against a recorded one counts as different (more conservative)
+            let now = crate::resources::lineage::own_time_ns();
+            let other: Vec<String> = lineages
+                .iter()
+                .filter(|l| l.boot_id == self.boot_id && l.time_ns.is_some() && l.time_ns != now)
+                .map(|l| format!("pid {} (start {})", l.pid, l.start_ticks))
+                .collect();
+            if !other.is_empty() {
+                self.log.line(
+                    "WARN",
+                    &format!("session(s) {} of this boot ran in another time namespace (or this one is unreadable): start times do not compare; every sweep of this session starts at 0 (all processes of our uid since boot)", other.join(", ")),
+                );
+                self.note(format!("time_namespace_differs {{\"sessions\":{other:?}}}"));
+                min_ticks = Some(0);
+            }
+        }
         // Sessions of another boot contribute no bound: everything they started is gone (min_ticks stays None
         // when no session of this boot launched anything, and then nothing is signalled).
         rules.min_start_ticks = min_ticks.unwrap_or(u64::MAX);
@@ -1534,15 +1576,18 @@ impl Supervisor {
 
     /// procfix7 (gate7 B1): the signal intent logs of earlier sessions (campaign directory + tmpfs fallbacks). Err: a
     /// resource limit stopped a read (nothing may be decided); other unreadable logs are listed in `unreadable`.
-    fn read_intent_logs(&self) -> Result<IntentLogs, String> {
+    fn read_intent_logs(
+        &self,
+        sessions: &[crate::resources::lineage::RecordedSession],
+    ) -> Result<IntentLogs, String> {
         let mut out = IntentLogs {
             intents: Vec::new(),
             bad: 0,
             unreadable: Vec::new(),
+            merged_fallbacks: Vec::new(),
+            foreign: Vec::new(),
         };
-        let mut files = vec![self.cdir.join("log").join(crate::launch::INTENT_LOG_FILE)];
-        files.extend(crate::launch::intent_fallback_logs(&self.cdir));
-        for (k, f) in files.iter().enumerate() {
+        let merge = |out: &mut IntentLogs, f: &Path, what: &str| -> Result<bool, String> {
             self.recovery_read_fault("a signal intent log")
                 .map_err(|e| format!("{}: {e}", f.display()))?;
             match crate::launch::read_intent_log(f) {
@@ -1556,19 +1601,61 @@ impl Supervisor {
                             None => out.intents.push(li),
                         }
                     }
+                    Ok(true)
                 }
-                Err(e) if io_resource_errno(&e).is_some() => {
-                    return Err(format!("{}: {e}", f.display()));
+                Err(e) if io_resource_errno(&e).is_some() => Err(format!("{}: {e}", f.display())),
+                Err(e) => {
+                    out.unreadable
+                        .push(format!("{} ({what}): {e}", f.display()));
+                    Ok(false)
                 }
-                Err(e) => out.unreadable.push(format!(
-                    "{} ({}): {e}",
-                    f.display(),
-                    if k == 0 {
-                        "campaign directory"
-                    } else {
-                        "tmpfs fallback"
+            }
+        };
+        let primary = self.cdir.join("log").join(crate::launch::INTENT_LOG_FILE);
+        merge(&mut out, &primary, "campaign directory")?;
+        // gate7 m-fb: a fallback log is merged only when its header names THIS campaign and a session this ledger
+        // records (the session string of `install_intent_log`: boot prefix, pid, start ticks)
+        let known: BTreeSet<String> = sessions
+            .iter()
+            .map(|r| {
+                format!(
+                    "{}.{}.{}",
+                    r.boot_id.get(..8).unwrap_or("boot"),
+                    r.pid,
+                    r.start_ticks
+                )
+            })
+            .collect();
+        let files = match crate::launch::intent_fallback_logs(&self.cdir) {
+            Ok(v) => v,
+            Err(e) if io_resource_errno(&e).is_some() => {
+                return Err(format!("the fallback directory: {e}"));
+            }
+            Err(e) => {
+                // a fallback directory that is not ours (owner / mode / symlink) holds nothing we wrote
+                out.foreign
+                    .push(format!("fallback directory not used: {e}"));
+                Vec::new()
+            }
+        };
+        for f in files {
+            self.recovery_read_fault("a signal intent log header")
+                .map_err(|e| format!("{}: {e}", f.display()))?;
+            match crate::launch::read_fallback_header(&f) {
+                Ok(Some((c, sess))) if c == self.ctx.campaign_key && known.contains(&sess) => {
+                    if merge(&mut out, &f, "tmpfs fallback")? {
+                        out.merged_fallbacks.push(f);
                     }
+                }
+                Ok(Some((c, sess))) => out.foreign.push(format!(
+                    "{} (campaign {c:?}, session {sess:?}: not this campaign / not a recorded session)",
+                    f.display()
                 )),
+                Ok(None) => out
+                    .foreign
+                    .push(format!("{} (no header: not a fallback log of this campaign)", f.display())),
+                Err(e) if io_resource_errno(&e).is_some() => return Err(format!("{}: {e}", f.display())),
+                Err(e) => out.unreadable.push(format!("{} (tmpfs fallback): {e}", f.display())),
             }
         }
         Ok(out)
@@ -2604,7 +2691,17 @@ impl Supervisor {
             intents,
             bad,
             unreadable,
+            merged_fallbacks,
+            foreign,
         } = logs;
+        for f in &foreign {
+            // procfix7 (gate7 m-fb): never merged, never removed
+            self.log.line(
+                "WARN",
+                &format!("signal intent fallback log not merged: {f}"),
+            );
+            self.note(format!("signal_intents_foreign {{\"file\":{f:?}}}"));
+        }
         for u in &unreadable {
             self.log.line(
                 "ERROR",
@@ -2619,7 +2716,7 @@ impl Supervisor {
         let all_read = unreadable.is_empty();
         if intents.is_empty() && bad == 0 {
             if all_read {
-                crate::launch::remove_earlier_intent_fallbacks(&self.cdir);
+                crate::launch::remove_intent_fallbacks(&merged_fallbacks);
             }
             return;
         }
@@ -2691,7 +2788,7 @@ impl Supervisor {
         }
         if delivered + possibly == 0 && bad == 0 {
             if all_read {
-                crate::launch::remove_earlier_intent_fallbacks(&self.cdir);
+                crate::launch::remove_intent_fallbacks(&merged_fallbacks);
             }
             return;
         }
@@ -2709,7 +2806,7 @@ impl Supervisor {
         );
         // procfix7 (gate6 m3-a): the earlier sessions' tmpfs fallback logs only once their intents are in the ledger
         if self.commit(ev) && all_read {
-            crate::launch::remove_earlier_intent_fallbacks(&self.cdir);
+            crate::launch::remove_intent_fallbacks(&merged_fallbacks);
         }
     }
 
@@ -3051,6 +3148,15 @@ impl Supervisor {
             self.dirs_gone(e);
             return SettleEnd::Done;
         }
+        // procfix7 (gate7 m-rm): a recorded run directory of ours that LOST its identity was damaged or is being removed
+        // (with its campaign / work directory): the typed end of a damaged campaign directory (70), deterministically
+        if let workdir::RunDirOwner::Unknown(why) = &owner {
+            self.dirs_gone(format!(
+                "the run directory {} of {job} a{attempt} lost its identity ({why}): the campaign or work directory was damaged or is being removed",
+                layout.root.display()
+            ));
+            return SettleEnd::Done;
+        }
         if owner != workdir::RunDirOwner::Ours {
             let still = self
                 .st()
@@ -3095,7 +3201,7 @@ impl Supervisor {
         // procfix7 (gate6 m2-a): the spawn-barrier shim REFUSED the release (garbage or nothing on its pipe: another
         // process of the uid wrote into it or took the token): the program never ran. A typed attempt end (row 15s:
         // retried after the launch back-off, bounded by the resource-end rule), never a crash count.
-        let c = match barrier_refused(layout, &ev) {
+        let c = match barrier_refused(report.and_then(|r| r.barrier_refused.as_deref()), &ev) {
             Some(why) => {
                 self.log.line(
                     "WARN",
@@ -3490,8 +3596,19 @@ impl Supervisor {
         }
         let key = self.ctx.campaign_key.clone();
         for _ in 0..2 {
-            match workdir::create_run_dir(run_dir, &key) {
-                Ok(()) => return Ok(()),
+            // procfix7 (gate7 m-nr): test builds: `run_dir_noreplace:<n>` = a file system without RENAME_NOREPLACE
+            let made = if self.fp.reached("run_dir_noreplace") {
+                Err(workdir::CreateError::Io(std::io::Error::from_raw_os_error(
+                    libc::EINVAL,
+                )))
+            } else {
+                workdir::create_run_dir(run_dir, &key)
+            };
+            match made {
+                Ok(()) => {
+                    self.run_dir_failures = 0;
+                    return Ok(());
+                }
                 Err(workdir::CreateError::Exists) => match workdir::run_dir_owner(run_dir, &key) {
                     workdir::RunDirOwner::Ours => {
                         let aside = run_dir.with_file_name(format!(
@@ -3522,10 +3639,31 @@ impl Supervisor {
                         return Err(format!("{}: {why}", run_dir.display()));
                     }
                     workdir::RunDirOwner::Unknown(why) => {
-                        self.refuse_run_dir(
-                            run_dir,
-                            &format!("it carries no campaign identity ({why})"),
-                        );
+                        // procfix7 (gate7 m-rm): a vanishing campaign / work directory is its own typed end (70)
+                        if let Err(e) = self.dirs_intact() {
+                            self.dirs_gone(e.clone());
+                            return Err(e);
+                        }
+                        if !workdir::is_external(&self.work_root, &self.cdir) {
+                            // inside THIS campaign directory nothing but this campaign creates run directories (an
+                            // older binary wrote the identity after job.json): ours, moved aside below
+                            self.log.line(
+                                "WARN",
+                                &format!("{job} a{attempt}: run directory {} without an identity inside this campaign directory ({why}): treated as this campaign's", run_dir.display()),
+                            );
+                            let aside = run_dir.with_file_name(format!(
+                                "{}.unrecorded-{}",
+                                run_dir
+                                    .file_name()
+                                    .map(|n| n.to_string_lossy().into_owned())
+                                    .unwrap_or_else(|| format!("a{attempt}")),
+                                self.clock.now_utc().0
+                            ));
+                            std::fs::rename(run_dir, &aside)
+                                .map_err(|e| format!("move aside {}: {e}", run_dir.display()))?;
+                            continue;
+                        }
+                        self.refuse_unidentified_run_dir(run_dir, &why);
                         return Err(format!(
                             "run directory {} carries no campaign identity",
                             run_dir.display()
@@ -3535,6 +3673,36 @@ impl Supervisor {
                 Err(workdir::CreateError::Io(e)) => {
                     if let Some(c) = io_resource_errno(&e) {
                         self.resource_failure(c, &format!("creating {}: {e}", run_dir.display()));
+                        return Err(format!("creating {}: {e}", run_dir.display()));
+                    }
+                    // procfix7 (gate7 m-rm): ENOENT after the parent was made = a directory removed under us (the
+                    // campaign or work directory is being removed): the typed end of a damaged campaign directory (70)
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        if !self.dirs_vanishing() {
+                            self.dirs_gone(format!(
+                                "creating the run directory {}: {e}: a directory was removed while it was created (the campaign or work directory is being removed?)",
+                                run_dir.display()
+                            ));
+                        }
+                        return Err(format!("creating {}: {e}", run_dir.display()));
+                    }
+                    // procfix7 (gate7 m-nr): a run directory that cannot be created (e.g. a file system without
+                    // RENAME_NOREPLACE) stops the run after a bounded number of tries in a row, never retried forever
+                    self.run_dir_failures += 1;
+                    if self.run_dir_failures >= MAX_RUN_DIR_FAILURES
+                        && self.refusal_stop.is_none()
+                        && !self.dirs_vanishing()
+                    {
+                        let msg = format!(
+                            "run directories cannot be created in {} ({} tries in a row; last: {e}): the work directory must be on a local file system with renameat2 RENAME_NOREPLACE; fix that, then run the same command",
+                            self.work_root.display(),
+                            self.run_dir_failures
+                        );
+                        self.log.line("ERROR", &msg);
+                        self.refusal_stop = Some(msg);
+                        if self.signals.handle.level() == StopLevel::Running {
+                            self.signals.handle.request_stop();
+                        }
                     }
                     return Err(format!("creating {}: {e}", run_dir.display()));
                 }
@@ -3549,6 +3717,10 @@ impl Supervisor {
     /// procfix7 (gate6 MJ-B): a run directory that is not this campaign's: never renamed, removed or read; the run drains
     /// and ends with the typed refusal (exit 1) naming it (ledger note `run_dir_not_ours`).
     fn refuse_run_dir(&mut self, run_dir: &Path, why: &str) {
+        // procfix7 (gate7 m-rm): a vanishing campaign / work directory is its own typed end (70), never a refusal
+        if self.dirs_vanishing() {
+            return;
+        }
         let msg = format!(
             "run directory {} is not this campaign's ({why}): it was not renamed, removed or read. Another campaign shares              this work directory (a copied campaign directory with the same dirs.work_dir?): give each campaign its own              work_dir, then run the same command",
             run_dir.display()
@@ -3565,6 +3737,42 @@ impl Supervisor {
             self.refusal_stop = Some(msg);
             if self.signals.handle.level() == StopLevel::Running {
                 self.signals.handle.request_stop();
+            }
+        }
+    }
+
+    /// procfix7 (gate7 m-rw / m-rm): an unidentified directory (no RUN/sup/CAMPAIGN) in the way under an EXTERNAL work
+    /// directory whose claim is intact: never renamed, removed or read; exit 1 with a TRUE message (not "another campaign").
+    fn refuse_unidentified_run_dir(&mut self, run_dir: &Path, why: &str) {
+        if self.dirs_vanishing() {
+            return;
+        }
+        let msg = format!(
+            "run directory {} carries no campaign identity ({why}): made by hand, by an older binary or damaged; it was not renamed, removed or read; check it, remove it, then run the same command",
+            run_dir.display()
+        );
+        self.log.line("ERROR", &msg);
+        self.commit(vec![Event::Note {
+            text: format!(
+                "run_dir_unidentified {{\"run_dir\":{:?},\"why\":{why:?}}}",
+                run_dir.display().to_string()
+            ),
+        }]);
+        if self.refusal_stop.is_none() {
+            self.refusal_stop = Some(msg);
+            if self.signals.handle.level() == StopLevel::Running {
+                self.signals.handle.request_stop();
+            }
+        }
+    }
+
+    /// procfix7 (gate7 m-rm): checks the directories NOW; true (and the typed end 70 armed) when they are not intact.
+    fn dirs_vanishing(&mut self) -> bool {
+        match self.dirs_intact() {
+            Ok(()) => false,
+            Err(e) => {
+                self.dirs_gone(e);
+                true
             }
         }
     }
@@ -3633,9 +3841,26 @@ impl Supervisor {
         };
         // Run directory authentication at recovery (requirement 05:23Z): the campaign's marker id was written when the
         // directory was created (procfix7, before the launch record); it must still be ours.
-        if workdir::run_dir_owner(&run_dir, &self.ctx.campaign_key) != workdir::RunDirOwner::Ours {
-            self.refuse_run_dir(&run_dir, "its identity changed after it was created");
-            return Err(format!("RUN/sup/{CAMPAIGN_ID_FILE} is not this campaign's"));
+        match workdir::run_dir_owner(&run_dir, &self.ctx.campaign_key) {
+            workdir::RunDirOwner::Ours => {}
+            workdir::RunDirOwner::Unreadable(c, why) => {
+                self.resource_failure(c, &format!("reading {}: {why}", run_dir.display()));
+                return Err(format!("{}: {why}", run_dir.display()));
+            }
+            // procfix7 (gate7 m-rm): the directory made just now lost its identity: removed under us (70), deterministically
+            workdir::RunDirOwner::Unknown(why) => {
+                if !self.dirs_vanishing() {
+                    self.dirs_gone(format!(
+                        "the run directory {} made just now lost its identity ({why}): the campaign or work directory was damaged or is being removed",
+                        run_dir.display()
+                    ));
+                }
+                return Err(format!("RUN/sup/{CAMPAIGN_ID_FILE} vanished: {why}"));
+            }
+            workdir::RunDirOwner::Other(_) => {
+                self.refuse_run_dir(&run_dir, "its identity changed after it was created");
+                return Err(format!("RUN/sup/{CAMPAIGN_ID_FILE} is not this campaign's"));
+            }
         }
         // lane closeloop (closeloop.md 6.3): `<path> <verb> --job RUN/job.json` for a program with a job verb
         if kind == AdapterKind::Contract
@@ -3726,12 +3951,6 @@ impl Supervisor {
         self.fp.hit("after_launch_record");
         // procfix5 (gate4 m1): the child waits behind the spawn barrier until `job.started` is durable (below).
         ls.spawn_barrier = crate::cli::barrier_hosted() && !self.fp.armed("no_spawn_barrier");
-        // procfix7 (gate6 m2-a): where the shim records a refused release (a typed attempt end at settle).
-        ls.barrier_refused_file = ls.spawn_barrier.then(|| {
-            RunLayout::new(&run_dir)
-                .sup_dir()
-                .join(BARRIER_REFUSED_FILE)
-        });
         // The spawn sentinel (requirement 05:23Z): durable BEFORE the spawn, so that its absence proves "never spawned".
         if let Err(e) = write_spawn_sentinel(&RunLayout::new(&run_dir), ls.spawn_barrier) {
             self.commit(not_an_attempt(
@@ -4106,20 +4325,9 @@ impl Supervisor {
         }
         if let Some(l) = p.lease.take() {
             // Released after the settle above has been committed.
-            let lease_after = l;
-            let (r, held) = lease_after.release_checked();
-            let mut notes: Vec<String> = Vec::new();
-            if let Err(e) = r {
-                notes.push(format!("release: {e}"));
-            }
-            for h in held {
-                notes.push(format!(
-                    "CPU {} still held after release by {:?} (unmarked survivor? not signalled; its claim stays in the ledger)",
-                    h.cpu, h.holders
-                ));
-            }
-            if !notes.is_empty() {
-                self.note(format!("lease {label}: {}", notes.join("; ")));
+            let n = release_lease_noted(l);
+            if !n.is_empty() {
+                self.note(format!("lease {label}: {n}"));
             }
         }
     }
@@ -4310,7 +4518,84 @@ impl Supervisor {
     }
 
     /// The launcher's quarantine (procfix2): ledger notes for jobs proven gone later (their leases are released then).
+    /// procfix7 (gate7 MJ-1): the processes that may hold attempt `label` (a strict scan: marked processes of the attempt
+    /// and every candidate whose marker cannot be read and that may descend from the campaign), as (pids, text).
+    fn hidden_of(&self, label: &str) -> (Vec<u32>, String) {
+        let bound = self
+            .campaign_min_ticks
+            .unwrap_or_else(orphans::own_start_ticks);
+        match crate::resources::scan_marked_inline(&self.ctx.campaign_key, bound, Some(label)) {
+            Ok(s) => {
+                let mut pids: Vec<u32> = s.processes.iter().map(|p| p.pid).collect();
+                pids.extend(s.hidden.iter().map(|h| h.pid));
+                let mut parts: Vec<String> = s
+                    .processes
+                    .iter()
+                    .map(|p| {
+                        format!(
+                            "pid {} ({}, start {}): carries the marker",
+                            p.pid, p.comm, p.start_ticks
+                        )
+                    })
+                    .collect();
+                if !s.hidden.is_empty() {
+                    parts.push(crate::resources::describe_hidden(&s.hidden));
+                }
+                (pids, parts.join("; "))
+            }
+            Err(e) => (Vec::new(), format!("/proc scan failed: {e}")),
+        }
+    }
+
+    /// procfix7 (gate7 MJ-1): an attempt whose end stayed unproven longer than `unproven_end_limit_s`: every process that
+    /// may hold it is NAMED (log, note `unproven_end`), its CPU lease is released, and it arms the exit-8 rule
+    /// (`survivors`); the launcher keeps hunting (a later proof settles it normally).
+    fn give_up_unproven_ends(&mut self) {
+        let limit = Duration::from_secs(self.opts.spec.resources.unproven_end_limit_s);
+        for (label, since, reason) in self.launcher.quarantined() {
+            if since < limit || self.unproven_given_up.contains(&label) {
+                continue;
+            }
+            self.unproven_given_up.insert(label.clone());
+            let (pids, text) = self.hidden_of(&label);
+            // the attempt's lease lives with its pending settle (the launcher's quarantine holds one only when handed one)
+            let lease = match self
+                .pending
+                .iter_mut()
+                .find(|p| p.label() == label)
+                .and_then(|p| p.lease.take())
+            {
+                Some(l) => Some(release_lease_noted(l)),
+                None => self.launcher.release_quarantined_lease(&label),
+            };
+            if let Some(n) = lease.as_ref().filter(|n| !n.is_empty()) {
+                self.note(format!("lease {label}: {n}"));
+            }
+            self.log.line(
+                "ERROR",
+                &format!(
+                    "{label}: end UNPROVEN after {}s ({reason}): processes that may hold it, never signalled: {}; CPU lease {}; operator decision needed (exit 8 once nothing else runs)",
+                    since.as_secs(),
+                    if text.is_empty() { "none found by the scan (see the reason)".into() } else { text.clone() },
+                    match &lease {
+                        Some(n) if !n.is_empty() => format!("released ({n})"),
+                        Some(_) => "released".into(),
+                        None => "already released".into(),
+                    }
+                ),
+            );
+            self.commit(vec![Event::Note {
+                text: format!(
+                    "unproven_end {{\"marker\":{label:?},\"after_s\":{},\"pids\":{pids:?},\"reason\":{reason:?},\"processes\":{text:?}}}",
+                    since.as_secs()
+                ),
+            }]);
+            self.survivors.insert(label, pids);
+        }
+    }
+
     fn tick_quarantine(&mut self) {
+        self.give_up_unproven_ends();
         for ev in self.launcher.tick() {
             match ev {
                 crate::launch::RetireEvent::Cleared {
@@ -4726,6 +5011,22 @@ impl Supervisor {
 
     /// CDIR and CDIR/ledger are still the directories the ledger was opened in, and the manifest is there.
     fn dirs_intact(&self) -> Result<(), String> {
+        // procfix7 (gate7 m-rw): an external work directory and its claim, too
+        if let Some(id) = self.work_dir_id {
+            let claim = std::fs::read_to_string(self.work_root.join(workdir::WORK_OWNER_FILE));
+            // a read refused for the supervisor's own resource limit decides nothing here (the launch path reports it)
+            let claim_ok = match &claim {
+                Ok(c) => c.trim() == self.ctx.campaign_key,
+                Err(e) => io_resource_errno(e).is_some(),
+            };
+            if dir_id(&self.work_root) != Some(id) || !claim_ok {
+                return Err(format!(
+                    "the external work directory {} (or its claim {}) was removed or replaced while the supervisor ran",
+                    self.work_root.display(),
+                    workdir::WORK_OWNER_FILE
+                ));
+            }
+        }
         let ldir = crate::ledger::ledger_dir(&self.cdir);
         let now = dir_id(&self.cdir).zip(dir_id(&ldir));
         if self.dir_ids.is_none() || now != self.dir_ids {
@@ -5343,7 +5644,14 @@ impl Supervisor {
             // 6. progress
             self.write_progress(false);
             // 7. exit conditions
-            if !self.children.is_empty() || !self.pending.is_empty() {
+            // procfix7 (gate7 MJ-1): an attempt held only by processes that could not be killed or inspected (survivors,
+            // incl. an end given up as unproven) does not count as running: it keeps its slot and reservation, so the
+            // exit-8 rule below must see the time admission stays blocked behind it.
+            let only_held = self
+                .pending
+                .iter()
+                .all(|p| self.survivors.contains_key(&p.label()) && p.sweep.is_none());
+            if !self.children.is_empty() || !only_held {
                 self.blocked_since = None;
             }
             if self.children.is_empty() && level > StopLevel::Running {
@@ -5506,7 +5814,7 @@ impl Supervisor {
                             .map(|(l, p)| format!("{l}: pids {p:?}"))
                             .collect();
                         parts.push(format!(
-                            "live marked processes that could not be killed hold attempts unsettled ({}): check and kill exactly those pids, then run the same command",
+                            "processes that could not be killed or inspected hold attempts unsettled ({}): check and kill exactly those pids (log / ledger notes `marked_survivor`, `unproven_end` name them), then run the same command",
                             s.join("; ")
                         ));
                     }
@@ -5537,13 +5845,23 @@ impl Supervisor {
             }
         }
         for (label, since, reason) in self.launcher.quarantined() {
+            // procfix7 (gate7 MJ-1): any exit (also an operator stop) NAMES what may hold an unproven attempt
+            let (pids, text) = self.hidden_of(&label);
             self.log.line(
                 "WARN",
                 &format!(
-                    "{label}: end still unproven after {}s at exit ({reason}); the restart's orphan scan looks for its marker",
-                    since.as_secs()
+                    "{label}: end still unproven after {}s at exit ({reason}); processes that may hold it, never signalled: {}; the restart's sweeps look for its marker",
+                    since.as_secs(),
+                    if text.is_empty() { "none found by the scan".into() } else { text.clone() }
                 ),
             );
+            if !pids.is_empty() {
+                self.commit(vec![Event::Note {
+                    text: format!(
+                        "unproven_at_exit {{\"marker\":{label:?},\"pids\":{pids:?},\"processes\":{text:?}}}"
+                    ),
+                }]);
+            }
         }
         #[allow(clippy::let_underscore_must_use)]
         // ignored-ok (procfix7): the exit code is decided; an unsynced tail is verified / repaired by the next start (torn-tail recovery)
@@ -5616,6 +5934,23 @@ pub struct ControlRequest {
 }
 
 pub const CONTROL_SCHEMA: &str = "rustred.campaign.control.v1";
+
+/// Release a CPU lease; the text of what went wrong (a release error, CPUs whose flock is still held by another process
+/// afterwards), empty when nothing.
+fn release_lease_noted(lease: CpuLease) -> String {
+    let (r, held) = lease.release_checked();
+    let mut notes: Vec<String> = Vec::new();
+    if let Err(e) = r {
+        notes.push(format!("release: {e}"));
+    }
+    for h in held {
+        notes.push(format!(
+            "CPU {} still held after release by {:?} (unmarked survivor? not signalled; its claim stays in the ledger)",
+            h.cpu, h.holders
+        ));
+    }
+    notes.join("; ")
+}
 
 /// The sequence number of a control request file `c-<seq, 12 digits>-...json` (written by [`next_control_seq`]); 0 for
 /// other names (older format: applied first, by name).
@@ -6026,16 +6361,16 @@ fn disk_attributed_end(
     }
 }
 
-/// procfix7 (gate6 m2-a): the reason recorded by the spawn-barrier shim when it exited [`crate::launch::BARRIER_NOT_RELEASED`]
-/// without starting the program (`RUN/sup/BARRIER_REFUSED`), if that is how this attempt ended.
-fn barrier_refused(layout: &RunLayout, ev: &classify::Evidence) -> Option<String> {
+/// procfix7 (gate6 m2-a, gate7 m-br): the refusal the spawn-barrier shim reported on its report pipe (`refusal`, from
+/// the launcher's `FinalReport::barrier_refused`: nothing the program can write) when the attempt ended with
+/// [`crate::launch::BARRIER_NOT_RELEASED`] and no OUTCOME.
+fn barrier_refused(refusal: Option<&str>, ev: &classify::Evidence) -> Option<String> {
     if ev.wait != WaitStatus::Exited(crate::launch::BARRIER_NOT_RELEASED)
         || !matches!(ev.outcome, OutcomeState::Absent)
     {
         return None;
     }
-    let t = std::fs::read_to_string(layout.sup_dir().join(BARRIER_REFUSED_FILE)).ok()?;
-    Some(t.lines().next().unwrap_or("refused").trim().to_string())
+    refusal.map(|r| r.lines().next().unwrap_or("refused").trim().to_string())
 }
 
 /// procfix7 (gate6 m2-a): row 15s, a refused spawn barrier (the program never ran): lost, retried after the back-off.
@@ -6537,35 +6872,21 @@ mod tests {
     /// while the run directory's file system is full are RESOURCE ends (row 15b, lost, retried after the back-off);
     /// DECOYS stay what they were: a missing OUTCOME on a file system with space is a crash (row 23); SIGKILL from
     /// outside is row 21 (not a crash, untouched); an OUTCOME naming another errno is not re-read as a disk end.
-    /// procfix7 (gate6 m2-a): a shim that REFUSED its release (exit 125 + RUN/sup/BARRIER_REFUSED, no OUTCOME) is a typed
-    /// attempt end (row 15s: lost, retried after the back-off, counted by the resource-end rule); exit 125 WITHOUT the
-    /// file (the program's own code), or with an OUTCOME, stays what the decision table says.
+    /// procfix7 (gate6 m2-a, gate7 m-br): a shim that REFUSED its release (exit 125 + the refusal on its report pipe, no
+    /// OUTCOME) is a typed attempt end (row 15s: lost, retried after the back-off, counted by the resource-end rule);
+    /// exit 125 WITHOUT a reported refusal (the program's own code, whatever it wrote into its run directory), or with an
+    /// OUTCOME, stays what the decision table says.
     #[test]
     fn m2a_refused_barrier_is_a_typed_retry_not_a_crash() {
-        let d = std::env::temp_dir().join(format!(
-            "rr-m2a-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let layout = RunLayout::new(&d);
-        std::fs::create_dir_all(layout.sup_dir()).unwrap();
         let ev = evidence(WaitStatus::Exited(crate::launch::BARRIER_NOT_RELEASED));
         let c = classify::classify(&ev);
         assert_eq!(c.kind, classify::OutcomeKind::Crashed, "{c:?}");
         assert_eq!(
-            barrier_refused(&layout, &ev),
+            barrier_refused(None, &ev),
             None,
-            "no file: the program's own exit code"
+            "nothing reported: the program's own exit code"
         );
-        std::fs::write(
-            layout.sup_dir().join(BARRIER_REFUSED_FILE),
-            "wrong token: 32 byte(s)\n",
-        )
-        .unwrap();
-        let why = barrier_refused(&layout, &ev).expect("refused");
+        let why = barrier_refused(Some("wrong token: 32 byte(s)\n"), &ev).expect("refused");
         assert!(why.starts_with("wrong token"), "{why}");
         let r = barrier_refused_classification(&c, why);
         assert_eq!((r.row, r.sub.as_str()), (15, "s"));
@@ -6573,10 +6894,9 @@ mod tests {
         assert_eq!(r.action, classify::Action::RetryAfterResourceBackoff);
         assert!(!r.attention);
         assert!(is_resource_requeue("lost (row 15s)"));
-        // another exit code with the file present: not a refused barrier
+        // another exit code with a report: not a refused barrier
         let ev = evidence(WaitStatus::Exited(1));
-        assert_eq!(barrier_refused(&layout, &ev), None);
-        let _ = std::fs::remove_dir_all(&d);
+        assert_eq!(barrier_refused(Some("eof"), &ev), None);
     }
 
     /// procfix7 (gate6 m4-a): the SIGXFSZ / exit-153 ends are resource ends ONLY with the supervisor's own evidence (its

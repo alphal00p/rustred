@@ -19,7 +19,36 @@ static SERIAL: Mutex<()> = Mutex::new(());
 
 /// One test at a time per test binary (keeps the number of children bounded on a loaded host).
 pub fn serial() -> std::sync::MutexGuard<'static, ()> {
+    private_shm();
     SERIAL.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// procfix7 (gate7 m-h2): inside the private namespace of the test run, a private tmpfs on /dev/shm (this test
+/// binary's own mount namespace), once per process: the supervisors' tmpfs fallback intent logs
+/// (`/dev/shm/rr-campaign-intents-<uid>`) are exercised there and never reach the host's /dev/shm or /run/user.
+pub fn private_shm() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        if !rustred_campaign::launch::in_private_namespace() {
+            return;
+        }
+        // SAFETY: NUL-terminated strings; the root of a user namespace may mount tmpfs in its own mount namespace.
+        let r = unsafe {
+            libc::mount(
+                c"tmpfs".as_ptr(),
+                c"/dev/shm".as_ptr(),
+                c"tmpfs".as_ptr(),
+                0,
+                c"size=64m,mode=1777".as_ptr().cast(),
+            )
+        };
+        assert_eq!(
+            r,
+            0,
+            "private /dev/shm: {}",
+            std::io::Error::last_os_error()
+        );
+    });
 }
 
 /// CPUs for the plain policy: 8 allowed CPUs outside 168-175 and 288-319 (the fake children barely use them).
@@ -62,6 +91,7 @@ pub fn process_token() -> String {
 
 impl Tmp {
     pub fn new(tag: &str) -> Tmp {
+        private_shm();
         let n = N.fetch_add(1, Ordering::Relaxed);
         let campaign = format!("sup-{tag}-{}-{n}", process_token());
         let path = std::env::temp_dir().join(format!("rr-{campaign}"));
@@ -136,10 +166,7 @@ pub fn start(spec: &Path, cdir: &Path, extra: &[&str], env: &[(&str, &str)]) -> 
         .stdin(Stdio::null())
         .stdout(log.try_clone().unwrap())
         .stderr(log)
-        .env_remove("RR_CAMPAIGN_FAILPOINT")
-        // procfix7: no tmpfs fallback of the signal intent log in tests unless a test asks for one (a test supervisor
-        // that crashes and is never restarted would leave its fallback file in the real runtime directory)
-        .env("XDG_RUNTIME_DIR", cdir.with_extension("no-xdg"));
+        .env_remove("RR_CAMPAIGN_FAILPOINT");
     for (k, v) in env {
         c.env(k, v);
     }

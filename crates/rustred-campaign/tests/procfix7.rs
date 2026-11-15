@@ -339,7 +339,272 @@ fn mj_a_non_dumpable_descendant_of_a_job_is_named_and_never_proved_away() {
             .all(|n| !n.contains("\"pids\":[]") || n.contains(&nd.to_string())),
         "an unproven end names the process"
     );
+    // gate7 MJ-1: the operator's stop NAMES what holds the unproven attempt
+    let log = std::fs::read_to_string(d.with_extension("log")).unwrap_or_default();
+    assert!(
+        log.lines()
+            .any(|l| l.contains("end still unproven") && l.contains(&format!("pid {nd} "))),
+        "the stop names pid {nd}: {}",
+        log_tail(&d)
+    );
+    assert!(
+        notes(&d, "unproven_at_exit")
+            .iter()
+            .any(|n| n.contains(&nd.to_string()))
+    );
     kill_pid(nd);
+}
+
+/// gate7 MJ-1: a run whose attempt is held by a LIVE NON-DUMPABLE marked descendant ends ON ITS OWN: after
+/// `resources.unproven_end_limit_s` (here 5 s) the supervisor names every process that may hold the attempt (note
+/// `unproven_end`, the pid of the descendant), releases the attempt's CPU lease (the attempt keeps its job slot and
+/// reservation: with max_jobs 1 nothing new launches) and stops with exit 8 naming it (before: the attempt stayed in the
+/// launcher quarantine forever, lease held); after the operator kills that pid, the same command ends the campaign.
+#[test]
+fn mj1_an_unproven_end_is_named_its_lease_released_and_the_run_ends_8() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    let t = Tmp::new("pf7-mj1");
+    let x = xonly_sleep(&t.path);
+    let pids = t.path.join("nd-desc.txt");
+    let wrap = script(
+        &t.path,
+        "wrap.sh",
+        &format!(
+            "#!/bin/sh\nif [ \"$1\" = job ] && [ ! -e {pids} ]; then\n  setsid {x} 600 </dev/null >/dev/null 2>&1 &\n  \
+             echo $! > {pids}\nfi\nexec {fake} \"$@\"\n",
+            x = x.display(),
+            pids = pids.display(),
+            fake = FAKE
+        ),
+    );
+    let mut v = spec(
+        &t,
+        serde_json::json!({"items": 2, "nodes": 1, "rungs": 1, "seed": 3, "case_ms": [300, 500],
+            "p_crash": 0.0, "p_mem": 0.0, "p_norule": 0.0}),
+        serde_json::json!({"max_jobs": 1, "unproven_end_limit_s": 5}),
+    );
+    v["programs"]["rr_fake_child"]["path"] = serde_json::json!(wrap);
+    let sp_ = write_spec(&t, "spec.json", &v);
+    let d = t.cdir("c");
+    let mut c = start_capless(&sp_, &d, &["--plain", "--fake-child"]);
+    let nd = read_pid(&pids);
+    assert!(alive(nd) && refused_to_capless(nd));
+    let t0 = Instant::now();
+    let code = loop {
+        if let Some(st) = c.try_wait().unwrap() {
+            use std::os::unix::process::ExitStatusExt;
+            break st.code().unwrap_or(128 + st.signal().unwrap_or(0));
+        }
+        if t0.elapsed() > Duration::from_secs(150) {
+            let _ = c.kill();
+            let _ = c.wait();
+            kill_pid(nd);
+            panic!("the run did not end on its own: {}", log_tail(&d));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert_eq!(code, ATTENTION, "{}", log_tail(&d));
+    let n = notes(&d, "unproven_end");
+    assert!(n.iter().any(|x| x.contains(&nd.to_string())), "{n:?}");
+    let log = std::fs::read_to_string(d.with_extension("log")).unwrap_or_default();
+    assert!(
+        log.lines()
+            .any(|l| l.contains("operator decision needed") && l.contains(&nd.to_string())),
+        "the exit-8 message names pid {nd}: {}",
+        log_tail(&d)
+    );
+    // the CPU lease was released; the attempt keeps its job slot and reservation (the process may still run): with
+    // max_jobs 1 nothing new launched, so the run ended within seconds of the limit
+    assert!(
+        log.lines()
+            .any(|l| l.contains("end UNPROVEN after") && l.contains("CPU lease released")),
+        "{}",
+        log_tail(&d)
+    );
+    assert!(
+        result(&d).accepted.is_empty(),
+        "nothing new in the held slot: {:?}",
+        result(&d)
+    );
+    assert!(alive(nd), "never signalled");
+    assert!(!signalled_pids(&d).contains(&nd));
+    // the operator kills exactly the named pid and runs the same command: the campaign ends normally
+    kill_pid(nd);
+    let codes = run_to_end(&sp_, &d, &["--plain", "--fake-child"]);
+    assert_eq!(codes.last(), Some(&0), "{codes:?}: {}", log_tail(&d));
+    assert_eq!(result(&d).accepted.len(), 2, "{:?}", result(&d));
+}
+
+/// gate7 MJ-2: session 1 runs in a TIME NAMESPACE (boottime offset +100000 s: its start times are shifted) and crashes
+/// leaving a marked daemon; session 2 runs outside. The recorded time namespace differs: every bound is 0 and the
+/// lineage rule is off, so the recovery sweep finds and kills the daemon and the campaign ends with the reference
+/// (before: '0 marked process(es) seen', exit 0, the daemon alive).
+#[test]
+fn mj2_a_session_in_another_time_namespace_never_hides_a_marked_process() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    let t = Tmp::new("pf7-mj2");
+    let base = spec(
+        &t,
+        serde_json::json!({"items": 4, "nodes": 1, "rungs": 1, "seed": 8, "case_ms": [2500, 4000],
+            "p_crash": 0.0, "p_mem": 0.0, "p_norule": 0.0, "deps": 0.0}),
+        serde_json::json!({"max_jobs": 2}),
+    );
+    let r = t.cdir("ref");
+    let spr = write_spec(&t, "spec_ref.json", &base);
+    let ref_codes = run_to_end(&spr, &r, &[]);
+    let reference = result(&r);
+    let mut v = base.clone();
+    v["programs"]["rr_fake_child"]["path"] = serde_json::json!(daemon_wrapper_once(&t.path));
+    let sp_ = write_spec(&t, "spec.json", &v);
+    let d = t.cdir("c");
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(d.with_extension("log"))
+        .unwrap();
+    let mut s1 = Command::new("unshare")
+        .args(["-T", "--boottime", "100000", "--fork", "--kill-child", "--"])
+        .arg(SUP)
+        .args(["run", "--spec"])
+        .arg(&sp_)
+        .arg("--dir")
+        .arg(&d)
+        .env("PATH", path_env())
+        .env_remove("RR_CAMPAIGN_FAILPOINT")
+        .stdin(Stdio::null())
+        .stdout(log.try_clone().unwrap())
+        .stderr(log)
+        .spawn()
+        .unwrap();
+    wait_until(
+        "two started jobs and the daemon",
+        Duration::from_secs(120),
+        || started_count(&d) >= 2 && t.path.join("daemon.txt").exists(),
+    );
+    // the daemon's start time as THIS process reads it (the recorded one is shifted by the time namespace)
+    let dm = {
+        let pid = daemon_of(&t.path).0;
+        (pid, start_ticks(pid))
+    };
+    // the unshare parent dies, --kill-child SIGKILLs the supervisor (a crash)
+    let _ = s1.kill();
+    let _ = s1.wait();
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(alive_with(dm.0, dm.1));
+    let codes = run_to_end(&sp_, &d, &[]);
+    assert_eq!(
+        codes.last(),
+        ref_codes.last(),
+        "{codes:?}: {}",
+        log_tail(&d)
+    );
+    assert!(
+        !notes(&d, "time_namespace_differs").is_empty(),
+        "{}",
+        log_tail(&d)
+    );
+    assert!(
+        !alive_with(dm.0, dm.1),
+        "the marked daemon of the time-namespace session survived"
+    );
+    assert_eq!(result(&d), reference);
+    assert_eq!(verify(&d), 0);
+    assert_no_marked(&t.campaign);
+}
+
+/// gate7 m-nr: on a file system without renameat2 RENAME_NOREPLACE (test build: `run_dir_noreplace:1`) no run
+/// directory can be created: the run stops with exit 1 after a bounded number of tries naming the condition (before:
+/// the same WARN forever, never an end).
+#[test]
+fn m_nr_run_dirs_that_cannot_be_created_end_typed() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    let t = Tmp::new("pf7-mnr");
+    let sp_ = small_spec(&t, 5);
+    let d = t.cdir("c");
+    let mut c = start(
+        &sp_,
+        &d,
+        &[],
+        &[("RR_CAMPAIGN_FAILPOINT", "run_dir_noreplace:1")],
+    );
+    let code = wait(&mut c, Duration::from_secs(180));
+    assert_eq!(code, 1, "{}", log_tail(&d));
+    assert!(
+        log_tail(&d).contains("RENAME_NOREPLACE"),
+        "{}",
+        log_tail(&d)
+    );
+    assert_eq!(launch_count(&d), 0, "nothing launched");
+    assert_eq!(verify(&d), 0);
+}
+
+/// gate7 m-rw: the external work directory is moved away while a job runs: the run ends with exit 70 naming the work
+/// directory (before: exit 1 'not this campaign's', blaming another campaign, and the directory re-created without its
+/// claim). Moved back, the same command finishes with the reference result.
+#[test]
+fn m_rw_a_removed_external_work_dir_is_a_typed_end_with_a_true_message() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    let t = Tmp::new("pf7-mrw");
+    let work = t.path.join("work");
+    let base = spec(
+        &t,
+        serde_json::json!({"items": 2, "nodes": 1, "rungs": 1, "seed": 7, "case_ms": [3000, 4000],
+            "p_norule": 0.0, "p_mem": 0.0, "p_crash": 0.0, "deps": 0.0}),
+        serde_json::json!({"max_jobs": 1}),
+    );
+    let mut v = base.clone();
+    v["dirs"] = serde_json::json!({"work_dir": work});
+    let sp_ = write_spec(&t, "spec.json", &v);
+    let spr = write_spec(&t, "spec_ref.json", &base);
+    let rd = t.cdir("ref");
+    let ref_codes = run_to_end(&spr, &rd, &[]);
+    let reference = result(&rd);
+    let d = t.cdir("c");
+    let mut c = start(&sp_, &d, &[], &[]);
+    wait_until("a started job", Duration::from_secs(120), || {
+        started_count(&d) >= 1
+    });
+    let aside = t.path.join("work.moved");
+    std::fs::rename(&work, &aside).unwrap();
+    let code = wait(&mut c, Duration::from_secs(300));
+    assert_eq!(code, 70, "{}", log_tail(&d));
+    assert!(
+        log_tail(&d).contains("external work directory"),
+        "{}",
+        log_tail(&d)
+    );
+    assert!(
+        !log_tail(&d).contains("belongs to campaign"),
+        "{}",
+        log_tail(&d)
+    );
+    assert!(
+        !work.exists(),
+        "the work directory is never re-created (unclaimed)"
+    );
+    std::fs::rename(&aside, &work).unwrap();
+    let codes = run_to_end(&sp_, &d, &[]);
+    assert_eq!(
+        codes.last(),
+        ref_codes.last(),
+        "{codes:?}: {}",
+        log_tail(&d)
+    );
+    assert_eq!(result(&d), reference);
+    assert_eq!(verify(&d), 0);
+    assert_no_marked(&t.campaign);
 }
 
 fn started_count(d: &Path) -> usize {
@@ -643,35 +908,11 @@ fn m2a_garbage_in_the_barrier_pipe_is_a_typed_retry() {
     assert_no_marked(&t.campaign);
 }
 
-/// Mount a private tmpfs at `dir` (the test's own mount namespace; never visible outside it).
-fn mount_tmpfs(dir: &Path, opts: &str) {
-    std::fs::create_dir_all(dir).unwrap();
-    let c = std::ffi::CString::new(dir.to_string_lossy().as_bytes()).unwrap();
-    let o = std::ffi::CString::new(opts).unwrap();
-    // SAFETY: NUL-terminated strings; tmpfs may be mounted by the root of a user namespace.
-    let r = unsafe {
-        libc::mount(
-            c"tmpfs".as_ptr(),
-            c.as_ptr(),
-            c"tmpfs".as_ptr(),
-            0,
-            o.as_ptr().cast(),
-        )
-    };
-    assert_eq!(r, 0, "tmpfs mount: {}", std::io::Error::last_os_error());
-}
-
-fn umount(dir: &Path) {
-    let c = std::ffi::CString::new(dir.to_string_lossy().as_bytes()).unwrap();
-    // SAFETY: unmount our own test mount.
-    unsafe { libc::umount2(c.as_ptr(), libc::MNT_DETACH) };
-}
-
 /// gate6 m3-a: on ZFS nothing in the campaign directory reserves room for the signal intent log; the tmpfs FALLBACK
 /// does. Here the campaign directory's log is full (test build: `intent_primary_enospc:1`) and the supervisor crashes
 /// right after its first send (`signal_after_send:1`): the intent is in the tmpfs fallback (never in the campaign
 /// directory's log), the signal WAS sent, and the restart records it from the fallback (`signal_intents_reconciled`)
-/// and then removes the earlier session's fallback file. XDG_RUNTIME_DIR points at a private tmpfs of the test.
+/// and then removes the earlier session's fallback file. The fallback lives on the test binary's private /dev/shm.
 #[test]
 fn m3a_full_intent_log_uses_the_tmpfs_fallback_and_the_restart_reads_it() {
     if !in_ns() {
@@ -679,8 +920,6 @@ fn m3a_full_intent_log_uses_the_tmpfs_fallback_and_the_restart_reads_it() {
     }
     let _g = serial();
     let t = Tmp::new("pf7-m3a");
-    let xdg = t.path.join("xdg");
-    mount_tmpfs(&xdg, "size=4m,mode=0700");
     let v = spec(
         &t,
         serde_json::json!({"items": 1, "nodes": 1, "rungs": 1, "deps": 0.0, "case_ms": [600000, 600000],
@@ -689,18 +928,14 @@ fn m3a_full_intent_log_uses_the_tmpfs_fallback_and_the_restart_reads_it() {
     );
     let sp_ = write_spec(&t, "spec.json", &v);
     let d = t.cdir("c");
-    let x = xdg.to_str().unwrap();
     let mut c = start(
         &sp_,
         &d,
         &[],
-        &[
-            ("XDG_RUNTIME_DIR", x),
-            (
-                "RR_CAMPAIGN_FAILPOINT",
-                "intent_primary_enospc:1,signal_after_send:1",
-            ),
-        ],
+        &[(
+            "RR_CAMPAIGN_FAILPOINT",
+            "intent_primary_enospc:1,signal_after_send:1",
+        )],
     );
     wait_until("a started job", Duration::from_secs(120), || {
         started_count(&d) >= 1
@@ -717,20 +952,14 @@ fn m3a_full_intent_log_uses_the_tmpfs_fallback_and_the_restart_reads_it() {
     let primary =
         std::fs::read_to_string(d.join("log").join("signal-intents.jsonl")).unwrap_or_default();
     assert!(!primary.contains("\"kind\":\"intent\""), "{primary}");
-    let fb: Vec<PathBuf> = {
-        let mut v = Vec::new();
-        let mut stack = vec![xdg.clone()];
-        while let Some(p) = stack.pop() {
-            for e in std::fs::read_dir(&p).unwrap().flatten() {
-                if e.file_type().unwrap().is_dir() {
-                    stack.push(e.path());
-                } else if e.path().extension().is_some_and(|x| x == "jsonl") {
-                    v.push(e.path());
-                }
-            }
-        }
-        v
-    };
+    let fb_dir = rustred_campaign::launch::intent_fallback_dir(&d).unwrap();
+    assert!(fb_dir.starts_with("/dev/shm"), "{}", fb_dir.display());
+    let fb: Vec<PathBuf> = std::fs::read_dir(&fb_dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "jsonl"))
+        .collect();
     let intents: usize = fb
         .iter()
         .map(|p| {
@@ -742,7 +971,7 @@ fn m3a_full_intent_log_uses_the_tmpfs_fallback_and_the_restart_reads_it() {
         .sum();
     assert!(intents >= 1, "the intent is in the tmpfs fallback: {fb:?}");
     // the restart (no failpoint) records the dead session's signal from the fallback
-    let mut c2 = start(&sp_, &d, &[], &[("XDG_RUNTIME_DIR", x)]);
+    let mut c2 = start(&sp_, &d, &[], &[]);
     wait_until("the reconciled intent", Duration::from_secs(120), || {
         d.join("ledger").join("MANIFEST.json").exists()
             && !notes(&d, "signal_intents_reconciled").is_empty()
@@ -773,7 +1002,6 @@ fn m3a_full_intent_log_uses_the_tmpfs_fallback_and_the_restart_reads_it() {
     }
     assert_eq!(verify(&d), 0);
     assert_no_marked(&t.campaign);
-    umount(&xdg);
 }
 
 /// A job wrapper whose FIRST job leaves a marked daemon (double fork, own session; it carries the job's marker) and
@@ -1036,17 +1264,16 @@ fn an_unreadable_intent_log_never_gives_a_clean_end() {
     }
     let _g = serial();
     let t = Tmp::new("pf7-unr");
-    let xdg = t.path.join("xdg");
-    mount_tmpfs(&xdg, "size=4m,mode=0777");
     let sp_ = small_spec(&t, 4);
     let d = t.cdir("c");
     std::fs::create_dir_all(&d).unwrap();
-    let md = std::fs::metadata(&d).unwrap();
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
-    let fb_dir = xdg
-        .join("rr-campaign-intents-0")
-        .join(format!("{}-{}", md.dev(), md.ino()));
-    std::fs::create_dir_all(&fb_dir).unwrap();
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    let fb_dir = rustred_campaign::launch::intent_fallback_dir(&d).unwrap();
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&fb_dir)
+        .unwrap();
     let old = fb_dir.join("earlier.jsonl");
     std::fs::write(&old, b"").unwrap();
     std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o000)).unwrap();
@@ -1064,8 +1291,7 @@ fn an_unreadable_intent_log_never_gives_a_clean_end() {
         .stdin(Stdio::null())
         .stdout(log.try_clone().unwrap())
         .stderr(log)
-        .env_remove("RR_CAMPAIGN_FAILPOINT")
-        .env("XDG_RUNTIME_DIR", &xdg);
+        .env_remove("RR_CAMPAIGN_FAILPOINT");
     drop_caps(&mut c);
     let mut c = c.spawn().unwrap();
     let code = wait(&mut c, Duration::from_secs(300));
@@ -1074,5 +1300,4 @@ fn an_unreadable_intent_log_never_gives_a_clean_end() {
     assert!(n.iter().any(|x| x.contains("earlier.jsonl")), "{n:?}");
     assert!(old.exists(), "an unreadable log is never removed");
     assert_eq!(verify(&d), 0);
-    umount(&xdg);
 }

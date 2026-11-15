@@ -44,9 +44,10 @@ pub use guard::{
     DELIVERY_LOG_MAX, Delivery, INTENT_LOG_FILE, INTENT_RESERVE_FILE, INTENT_SCHEMA, IntentLine,
     LoggedIntent, NotSignalled, PidfdProbe, ProcessTarget, Proof, Refusal, SigchldSetup, StartRule,
     Verdict, delivered_total, ensure_sigchld_default, ignore_sigxfsz, install_intent_fallback,
-    install_intent_log, intent_disk_full, intent_fallback_dir, intent_fallback_logs, intent_id_in,
-    intent_log_installed, intent_on_fallback, is_child_subreaper, kill_orphan, pidfd_probe,
-    pidfd_supported, read_intent_log, remove_earlier_intent_fallbacks, retire_own_intent_fallback,
+    install_intent_log, intent_disk_full, intent_fallback_base, intent_fallback_dir,
+    intent_fallback_dir_checked, intent_fallback_logs, intent_id_in, intent_log_installed,
+    intent_on_fallback, is_child_subreaper, kill_orphan, pidfd_probe, pidfd_supported,
+    read_fallback_header, read_intent_log, remove_intent_fallbacks, retire_own_intent_fallback,
     set_child_subreaper, sigchld_autoreaps, signal_verified_process, take_deliveries,
     take_not_signalled, uninstall_intent_log,
 };
@@ -233,6 +234,9 @@ pub struct FinalReport {
     pub wall_seconds: f64,
     pub memory_mechanism: MemoryMechanism,
     pub rlimit_as_bytes: Option<u64>,
+    /// procfix7 (gate7 m-br): the spawn-barrier shim REFUSED the release (its reason, from the report pipe only the shim
+    /// could write): the program never ran. None: no refusal reported (the program ran, or no barrier).
+    pub barrier_refused: Option<String>,
 }
 
 impl FinalReport {
@@ -337,16 +341,14 @@ pub struct LaunchSpec {
     /// so their descriptors are not reachable through /proc by other processes of the uid either.
     /// procfix7 (gate6 m2-a): EXCEPT in the instant between the shim's exec and its first `prctl` (the exec resets
     /// dumpability; std's spawn waits for the exec, so the wait cannot move before it): a writer there can only make the
-    /// shim refuse (DoS), never release it; see `barrier_refused_file`.
+    /// shim refuse (DoS), never release it. procfix7 (gate7 m-br): a refusal is reported on a REPORT PIPE whose write
+    /// end only the shim holds (close-on-exec: the program never has it) and whose read end only the launcher holds
+    /// (`FinalReport::barrier_refused`): nothing the program can write fakes "the program never ran".
     pub spawn_barrier: bool,
-    /// procfix7 (gate6 m2-a): where the shim records a REFUSED release (EOF, a short or a wrong token) before it exits
-    /// [`BARRIER_NOT_RELEASED`]: the caller then knows the program never ran (a typed attempt end, retried; never a
-    /// crash). None: not recorded.
-    pub barrier_refused_file: Option<PathBuf>,
 }
 
-/// The hidden verb of the spawn barrier: `<exe> __spawn-barrier <fd> <blake3 hex of the release token> [--refused
-/// <file>] -- <program> <args...>` (see [`LaunchSpec::spawn_barrier`], [`LaunchSpec::barrier_refused_file`]).
+/// The hidden verb of the spawn barrier: `<exe> __spawn-barrier <fd> <blake3 hex of the release token> [--report
+/// <fd>] -- <program> <args...>` (see [`LaunchSpec::spawn_barrier`]).
 pub const BARRIER_VERB: &str = "__spawn-barrier";
 /// Exit code of a barrier shim whose barrier was never released (the program was not executed).
 pub const BARRIER_NOT_RELEASED: i32 = 125;
@@ -373,7 +375,6 @@ impl LaunchSpec {
             pdeathsig: true,
             scope_unit: None,
             spawn_barrier: false,
-            barrier_refused_file: None,
         }
     }
 

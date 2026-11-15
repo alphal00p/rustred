@@ -167,6 +167,11 @@ pub struct Resources {
     /// No `job_started` event this long after spawn = unresponsive (contract 6.2: 60 s).
     #[serde(default = "d_start_timeout")]
     pub start_timeout_s: u64,
+    /// procfix7 (gate7 MJ-1): how long a job's end may stay UNPROVEN (e.g. a non-dumpable descendant that keeps its
+    /// marker unreadable) before the supervisor stops waiting for the proof: it names every process that may hold the
+    /// attempt, releases the attempt's CPU lease and arms the exit-8 rule (the hunt keeps going meanwhile). Default 600.
+    #[serde(default = "d_unproven_end_limit")]
+    pub unproven_end_limit_s: u64,
     /// Allow running on a kernel without pidfd (signals then use the documented weaker path). Default false: refused.
     #[serde(default)]
     pub allow_no_pidfd: bool,
@@ -202,6 +207,10 @@ fn d_sampler_ms() -> u64 {
 }
 fn d_start_timeout() -> u64 {
     60
+}
+
+fn d_unproven_end_limit() -> u64 {
+    600
 }
 
 impl Default for Resources {

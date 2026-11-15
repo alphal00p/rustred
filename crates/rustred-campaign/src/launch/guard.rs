@@ -378,6 +378,9 @@ pub struct IntentLine {
     /// "intent" | "done".
     pub kind: String,
     pub id: String,
+    /// procfix7 (gate7 m-fb): the campaign id, on the header line of a tmpfs fallback log.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub campaign: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub utc: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -474,51 +477,120 @@ fn on_tmpfs(p: &Path) -> bool {
     (unsafe { libc::statfs(c.as_ptr(), &mut v) } == 0) && v.f_type as i64 == TMPFS_MAGIC
 }
 
-/// procfix7 (gate6 m3-a): the tmpfs directory of the fallback intent logs of the campaign directory `cdir` (keyed by
-/// its device and inode: a copied directory has its own), under `$XDG_RUNTIME_DIR` when it is set (only there), else
-/// the first tmpfs of `/run/user/<uid>`, `/dev/shm`. None: no tmpfs available (then there is no fallback).
+/// procfix7 (gate7 m-xdg): the base of the fallback intent logs: `/dev/shm/rr-campaign-intents-<uid>`, a path derived
+/// from the uid ONLY (as the id lock since procfix3: no environment variable decides where intents of a campaign go,
+/// so every session of a campaign looks in the same place), on the tmpfs `/dev/shm`.
+pub fn intent_fallback_base() -> PathBuf {
+    PathBuf::from(format!(
+        "/dev/shm/{FALLBACK_DIR_PREFIX}{}",
+        crate::resources::our_uid()
+    ))
+}
+
+/// procfix7 (gate7 m-xdg): a directory we may keep intents in: created 0700 if absent; refused unless it is a real
+/// directory (not a symlink) owned by us and not accessible to group / others (a directory someone else created
+/// first is never used: the remedy procfix3 gave the id lock).
+fn private_dir(dir: &Path, create: bool) -> io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+    match std::fs::symlink_metadata(dir) {
+        Ok(_) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound && create => {
+            match std::fs::DirBuilder::new().mode(0o700).create(dir) {
+                Ok(()) => {}
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Err(e) => return Err(e),
+    }
+    let m = std::fs::symlink_metadata(dir)?;
+    if !m.file_type().is_dir() {
+        return Err(io::Error::other(format!(
+            "{}: not a directory (or a symlink)",
+            dir.display()
+        )));
+    }
+    if m.uid() != crate::resources::our_uid() {
+        return Err(io::Error::other(format!(
+            "{}: owned by uid {}, not by us",
+            dir.display(),
+            m.uid()
+        )));
+    }
+    if m.permissions().mode() & 0o077 != 0 {
+        return Err(io::Error::other(format!(
+            "{}: mode {:o} is accessible to group / others",
+            dir.display(),
+            m.permissions().mode() & 0o777
+        )));
+    }
+    Ok(())
+}
+
+/// procfix7 (gate6 m3-a, gate7 m-xdg): the directory of the fallback intent logs of the campaign directory `cdir`
+/// (keyed by its device and inode under [`intent_fallback_base`]); checked (owner, mode, no symlink) and, with
+/// `create`, created. Err: no usable fallback directory (NotFound when it does not exist and `create` is false).
+pub fn intent_fallback_dir_checked(cdir: &Path, create: bool) -> io::Result<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let md = std::fs::metadata(cdir)?;
+    let base = intent_fallback_base();
+    if create && !on_tmpfs(Path::new("/dev/shm")) {
+        return Err(io::Error::other("/dev/shm is not a tmpfs"));
+    }
+    private_dir(&base, create)?;
+    let dir = base.join(format!("{}-{}", md.dev(), md.ino()));
+    private_dir(&dir, create)?;
+    Ok(dir)
+}
+
+/// The fallback directory of `cdir` (not created, not checked; see [`intent_fallback_dir_checked`]).
 pub fn intent_fallback_dir(cdir: &Path) -> Option<PathBuf> {
     use std::os::unix::fs::MetadataExt;
     let md = std::fs::metadata(cdir).ok()?;
-    // SAFETY: geteuid has no arguments and cannot fail.
-    let uid = unsafe { libc::geteuid() };
-    let bases: Vec<PathBuf> = match std::env::var_os("XDG_RUNTIME_DIR") {
-        Some(x) if !x.is_empty() => vec![PathBuf::from(x)],
-        _ => vec![
-            PathBuf::from(format!("/run/user/{uid}")),
-            PathBuf::from("/dev/shm"),
-        ],
-    };
-    bases
-        .into_iter()
-        .find(|b| b.is_dir() && on_tmpfs(b))
-        .map(|b| {
-            b.join(format!("{FALLBACK_DIR_PREFIX}{uid}"))
-                .join(format!("{}-{}", md.dev(), md.ino()))
-        })
+    Some(intent_fallback_base().join(format!("{}-{}", md.dev(), md.ino())))
 }
 
 /// procfix7 (gate6 m3-a): give the INSTALLED intent log its tmpfs fallback for this session (`<dir>/<session>.jsonl`,
-/// directories 0700, 1 MiB pre-allocated). Returns the path; Err: no fallback (the log works as before).
-pub fn install_intent_fallback(cdir: &Path) -> io::Result<PathBuf> {
+/// 256 KiB pre-allocated). gate7 m-fb: its FIRST line is a header naming the campaign id and the session, written and
+/// synced at install: only a log whose header names this campaign and one of its recorded sessions is ever merged.
+/// Returns the path; Err: no fallback (the log works as before).
+pub fn install_intent_fallback(cdir: &Path, campaign_id: &str) -> io::Result<PathBuf> {
+    use std::io::Write;
     use std::os::fd::AsRawFd;
-    use std::os::unix::fs::DirBuilderExt;
-    let dir = intent_fallback_dir(cdir).ok_or_else(|| {
-        io::Error::other("no tmpfs ($XDG_RUNTIME_DIR, /run/user/<uid>, /dev/shm)")
-    })?;
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(&dir)?;
+    use std::os::unix::fs::OpenOptionsExt;
+    let dir = intent_fallback_dir_checked(cdir, true)?;
     let mut g = INTENTS.lock().unwrap_or_else(|p| p.into_inner());
     let log = g
         .as_mut()
         .ok_or_else(|| io::Error::other("no intent log installed"))?;
     let path = dir.join(format!("{}.jsonl", log.session));
-    let file = std::fs::OpenOptions::new()
-        .create(true)
+    let mut file = std::fs::OpenOptions::new()
+        .create_new(true)
         .append(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
         .open(&path)?;
+    let header = IntentLine {
+        schema: INTENT_SCHEMA.into(),
+        kind: "header".into(),
+        id: log.session.clone(),
+        campaign: Some(campaign_id.to_string()),
+        utc: Some(crate::cpu_policy::utc_now()),
+        pid: None,
+        start_ticks: None,
+        signal: None,
+        target: None,
+        marker: None,
+        proof: None,
+        by: None,
+        label: None,
+        detail: None,
+        result: None,
+    };
+    let mut line = serde_json::to_vec(&header).map_err(io::Error::other)?;
+    line.push(b'\n');
+    file.write_all(&line)?;
+    file.sync_data()?;
     // SAFETY: fallocate on our own descriptor with integer arguments (tmpfs: allocates the pages).
     if unsafe {
         libc::fallocate(
@@ -535,34 +607,49 @@ pub fn install_intent_fallback(cdir: &Path) -> io::Result<PathBuf> {
     Ok(path)
 }
 
-/// procfix7 (gate6 m3-a): every fallback intent log of the campaign directory `cdir` (earlier sessions of this boot).
-pub fn intent_fallback_logs(cdir: &Path) -> Vec<PathBuf> {
-    let Some(dir) = intent_fallback_dir(cdir) else {
-        return Vec::new();
-    };
-    let mut v: Vec<PathBuf> = std::fs::read_dir(&dir)
-        .map(|rd| {
-            rd.flatten()
-                .map(|e| e.path())
-                .filter(|p| p.extension().is_some_and(|x| x == "jsonl"))
-                .collect()
-        })
-        .unwrap_or_default();
-    v.sort();
-    v
+/// procfix7 (gate7 m-fb): the header of a fallback log: (campaign id, session). Ok(None): no header (a foreign file or
+/// a log of an older binary: never merged).
+pub fn read_fallback_header(path: &Path) -> io::Result<Option<(String, String)>> {
+    use std::io::BufRead;
+    let f = std::fs::File::open(path)?;
+    let mut first = String::new();
+    std::io::BufReader::new(f).read_line(&mut first)?;
+    Ok(serde_json::from_str::<IntentLine>(first.trim())
+        .ok()
+        .filter(|l| l.schema == INTENT_SCHEMA && l.kind == "header")
+        .and_then(|l| l.campaign.map(|c| (c, l.id))))
 }
 
-/// procfix7 (gate6 m3-a): remove the fallback logs of EARLIER sessions of `cdir` (call it only after their intents are
-/// in the ledger); this session's own file is kept. Returns how many were removed.
-pub fn remove_earlier_intent_fallbacks(cdir: &Path) -> usize {
+/// procfix7 (gate6 m3-a): every fallback intent log of the campaign directory `cdir` (earlier sessions of this boot).
+/// gate7 m-xdg: Err when the fallback directory exists but is not ours (owner / mode / symlink): nothing in it is used.
+pub fn intent_fallback_logs(cdir: &Path) -> io::Result<Vec<PathBuf>> {
+    let dir = match intent_fallback_dir_checked(cdir, false) {
+        Ok(d) => d,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e),
+    };
+    let mut v = Vec::new();
+    for e in std::fs::read_dir(&dir)? {
+        let p = e?.path();
+        if p.extension().is_some_and(|x| x == "jsonl") {
+            v.push(p);
+        }
+    }
+    v.sort();
+    Ok(v)
+}
+
+/// procfix7 (gate6 m3-a, gate7 m-fb): remove exactly these fallback logs (earlier sessions of THIS campaign whose
+/// intents are in the ledger now); never this session's own. Returns how many were removed.
+pub fn remove_intent_fallbacks(paths: &[PathBuf]) -> usize {
     let own = INTENTS
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .as_ref()
         .and_then(|l| l.fallback.as_ref().map(|f| f.1.clone()));
-    intent_fallback_logs(cdir)
-        .into_iter()
-        .filter(|p| Some(p) != own.as_ref())
+    paths
+        .iter()
+        .filter(|p| Some(*p) != own.as_ref())
         .filter(|p| std::fs::remove_file(p).is_ok())
         .count()
 }
@@ -583,11 +670,6 @@ pub fn retire_own_intent_fallback() {
             #[allow(clippy::let_underscore_must_use)]
             // ignored-ok (procfix7): only our own UNUSED fallback log and then-empty directories (best effort cleanup)
             let _ = std::fs::remove_dir(d);
-            if let Some(u) = d.parent() {
-                #[allow(clippy::let_underscore_must_use)]
-                // ignored-ok (procfix7): only our own UNUSED fallback log and then-empty directories (best effort cleanup)
-                let _ = std::fs::remove_dir(u);
-            }
         }
     }
 }
@@ -760,6 +842,7 @@ fn write_intents_to(
             schema: INTENT_SCHEMA.into(),
             kind: "intent".into(),
             id: id.clone(),
+            campaign: None,
             utc: Some(utc.clone()),
             pid: Some(it.pid),
             start_ticks: it.start_ticks,
@@ -870,6 +953,7 @@ fn write_done_to(log: &mut IntentLog, done: &[(Option<String>, String)]) {
             schema: INTENT_SCHEMA.into(),
             kind: "done".into(),
             id: id.clone(),
+            campaign: None,
             utc: None,
             pid: None,
             start_ticks: None,
@@ -950,6 +1034,8 @@ pub fn read_intent_log(path: &Path) -> io::Result<(Vec<LoggedIntent>, usize)> {
                     i.result = l.result.clone();
                 }
             }
+            // procfix7 (gate7 m-fb): the header of a fallback log
+            "header" => {}
             _ => bad += 1,
         }
     }

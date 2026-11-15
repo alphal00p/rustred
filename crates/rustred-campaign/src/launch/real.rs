@@ -506,6 +506,18 @@ impl RealLauncher {
         out
     }
 
+    /// procfix7 (gate7 MJ-1): release the CPU lease of a quarantined job whose end the caller stopped waiting for (the
+    /// handle stays: its hunts go on and may still prove the end). Some(note): released (with the note of a CPU whose
+    /// flock is still held); None: no such label, or no lease left.
+    pub fn release_quarantined_lease(&mut self, label: &str) -> Option<String> {
+        let q = self
+            .quarantine
+            .iter_mut()
+            .find(|q| q.handle.label == label)?;
+        let lease = q.lease.take()?;
+        Some(release_lease(lease).unwrap_or_default())
+    }
+
     /// Labels in the quarantine with the time since they were retired and the latest reason.
     pub fn quarantined(&self) -> Vec<(String, Duration, String)> {
         self.quarantine
@@ -852,6 +864,27 @@ impl ChildLauncher for RealLauncher {
         } else {
             None
         };
+        // procfix7 (gate7 m-br): the shim's REPORT PIPE (write end to the shim only; read end here)
+        let report_pipe = if barrier.is_some() {
+            let mut fds = [0 as libc::c_int; 2];
+            // SAFETY: pipe2 writes two descriptors into the array.
+            if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC | libc::O_NONBLOCK) } != 0 {
+                return Err(LaunchError::Io {
+                    what: "spawn barrier report pipe".into(),
+                    error: last_err(),
+                });
+            }
+            // SAFETY: two fresh descriptors owned by nobody else.
+            Some(unsafe {
+                use std::os::fd::FromRawFd;
+                (
+                    std::os::fd::OwnedFd::from_raw_fd(fds[0]),
+                    std::os::fd::OwnedFd::from_raw_fd(fds[1]),
+                )
+            })
+        } else {
+            None
+        };
         let mut cmd = match &barrier {
             Some((r, _)) => {
                 let mut c = Command::new("/proc/self/exe");
@@ -862,8 +895,8 @@ impl ChildLauncher for RealLauncher {
                 c.arg(super::BARRIER_VERB)
                     .arg(r.as_raw_fd().to_string())
                     .arg(hash);
-                if let Some(f) = &spec.barrier_refused_file {
-                    c.arg("--refused").arg(f);
+                if let Some((_, w)) = &report_pipe {
+                    c.arg("--report").arg(w.as_raw_fd().to_string());
                 }
                 c.arg("--").arg(&prog);
                 c
@@ -943,6 +976,9 @@ impl ChildLauncher for RealLauncher {
         if let Some((r, _)) = &barrier {
             keep.push(r.as_raw_fd());
         }
+        if let Some((_, w)) = &report_pipe {
+            keep.push(w.as_raw_fd());
+        }
         let fd_limit = nofile_limit();
         let pdeathsig = spec.pdeathsig;
         // SAFETY: the closure only calls child_setup, which uses async-signal-safe syscalls and does not allocate;
@@ -988,6 +1024,11 @@ impl ChildLauncher for RealLauncher {
             drop(r);
             token.map(|t| (w, t))
         });
+        // the shim holds the report pipe's write end now: ours is closed (EOF once the shim execs or exits)
+        let report_r = report_pipe.map(|(r, w)| {
+            drop(w);
+            r
+        });
         // Our unreaped child cannot be recycled, so reading its identity now is race-free (bounded: audit A M5).
         let identity = match run_bounded(Duration::from_secs(5), move || {
             ProcessIdentity::capture(pid)
@@ -1030,6 +1071,7 @@ impl ChildLauncher for RealLauncher {
         h.enumeration = self.setup.enumeration;
         h.scope_unit = spec.scope_unit.clone();
         h.barrier = barrier_w;
+        h.barrier_report = report_r;
         Ok(h)
     }
 
@@ -1119,6 +1161,9 @@ pub struct RealChild {
     /// procfix5 m1: the write end of the spawn barrier while the child waits behind it (see `LaunchSpec::spawn_barrier`),
     /// with the release token (procfix6 m2).
     barrier: Option<(std::os::fd::OwnedFd, [u8; RELEASE_TOKEN_BYTES])>,
+    /// procfix7 (gate7 m-br): the read end of the shim's report pipe, and what it said (read once, at the first report).
+    barrier_report: Option<std::os::fd::OwnedFd>,
+    barrier_refused: std::cell::OnceCell<Option<String>>,
     label: String,
     marker: CampaignMarker,
     identity: ProcessIdentity,
@@ -1189,6 +1234,8 @@ impl RealChild {
         let launched = child.is_some();
         Self {
             barrier: None,
+            barrier_report: None,
+            barrier_refused: std::cell::OnceCell::new(),
             label,
             marker,
             sid: identity.pid,
@@ -1564,7 +1611,33 @@ impl RealChild {
             wall_seconds: self.launched_at.elapsed().as_secs_f64(),
             memory_mechanism: self.mechanism.clone(),
             rlimit_as_bytes: self.rlimit_as,
+            barrier_refused: self.barrier_refused().clone(),
         }
+    }
+
+    /// procfix7 (gate7 m-br): what the shim wrote on its report pipe (`R<reason>`: it refused the release), read once
+    /// (non-blocking: the shim has exited or exec'd by the time a report is made).
+    fn barrier_refused(&self) -> &Option<String> {
+        self.barrier_refused.get_or_init(|| {
+            let fd = self.barrier_report.as_ref()?;
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 512];
+            loop {
+                // SAFETY: a read into our stack buffer from our own non-blocking descriptor.
+                let n =
+                    unsafe { libc::read(fd.as_raw_fd(), chunk.as_mut_ptr().cast(), chunk.len()) };
+                if n > 0 && buf.len() < 4096 {
+                    buf.extend_from_slice(&chunk[..n as usize]);
+                    continue;
+                }
+                if n < 0 && io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+                    continue;
+                }
+                break;
+            }
+            buf.strip_prefix(b"R")
+                .map(|r| String::from_utf8_lossy(r).trim().to_string())
+        })
     }
 
     fn finish_verified(&mut self, by: VerifiedBy) -> FinalReport {
@@ -2138,11 +2211,16 @@ pub fn barrier_shim(args: &[String]) -> i32 {
     #[allow(clippy::let_underscore_must_use)]
     // ignored-ok (procfix7): the release token is the protection (procfix6 m2, documented window)
     let _ = set_not_dumpable();
-    // procfix7 (gate6 m2-a): optional `--refused <file>` before `--`.
-    let (refused, rest) = match args.get(2).map(String::as_str) {
-        Some("--refused") => (args.get(3).map(std::path::PathBuf::from), 4),
+    // procfix7 (gate7 m-br): optional `--report <fd>` before `--`: the report pipe (close-on-exec at once, so the
+    // program never inherits it).
+    let (report, rest) = match args.get(2).map(String::as_str) {
+        Some("--report") => (args.get(3).and_then(|s| s.parse::<RawFd>().ok()), 4),
         _ => (None, 2),
     };
+    if let Some(r) = report.filter(|&r| r >= 3) {
+        // SAFETY: fcntl on an inherited descriptor with integer arguments.
+        unsafe { libc::fcntl(r, libc::F_SETFD, libc::FD_CLOEXEC) };
+    }
     let (Some(fd), Some(hash), Some("--"), Some(prog)) = (
         args.first().and_then(|s| s.parse::<RawFd>().ok()),
         args.get(1),
@@ -2158,20 +2236,13 @@ pub fn barrier_shim(args: &[String]) -> i32 {
         );
         return 2;
     };
-    // The program was NOT started: say so where the caller looks (create-only; never overwrites).
+    // The program was NOT started: say so on the report pipe (only the launcher reads it; the program never has it).
     let record_refusal = |why: &str| {
-        if let Some(p) = &refused
-            && let Ok(mut f) = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(p)
-        {
-            #[allow(clippy::let_underscore_must_use)]
-            // ignored-ok (procfix7): best effort: without the record the refusal is classified as a crash (more conservative)
-            let _ = writeln!(f, "{why}");
-            #[allow(clippy::let_underscore_must_use)]
-            // ignored-ok (procfix7): best effort: without the record the refusal is classified as a crash (more conservative)
-            let _ = f.sync_all();
+        if let Some(r) = report.filter(|&r| r >= 3) {
+            let msg = format!("R{why}");
+            // SAFETY: a write of our own buffer to the inherited report descriptor (best effort: without it the
+            // refusal is classified as a crash, the more conservative class).
+            unsafe { libc::write(r, msg.as_ptr().cast(), msg.len()) };
         }
     };
     if fd < 3 {

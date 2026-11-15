@@ -32,6 +32,7 @@ fn script(dir: &Path, name: &str, body: &str) -> PathBuf {
 }
 
 /// Mount a private tmpfs at `dir` (the test's own mount namespace).
+#[allow(dead_code)] // procfix7: unused since the fallback base is uid-derived (gate7 m-xdg)
 fn mount_tmpfs(dir: &Path, opts: &str) {
     std::fs::create_dir_all(dir).unwrap();
     let c = std::ffi::CString::new(dir.to_string_lossy().as_bytes()).unwrap();
@@ -49,6 +50,7 @@ fn mount_tmpfs(dir: &Path, opts: &str) {
     assert_eq!(r, 0, "tmpfs mount: {}", std::io::Error::last_os_error());
 }
 
+#[allow(dead_code)] // procfix7: unused since the fallback base is uid-derived (gate7 m-xdg)
 fn umount(dir: &Path) {
     let c = std::ffi::CString::new(dir.to_string_lossy().as_bytes()).unwrap();
     // SAFETY: unmount our own test mount.
@@ -81,17 +83,15 @@ fn started_count(d: &Path) -> usize {
 /// checking that the intents belong to this campaign. A new campaign directory that gets the inode number of a removed
 /// one (ZFS / ext4 recycle object numbers) records the OTHER campaign's intents as its own `signal_sent` ("POSSIBLY
 /// SENT ... of an earlier session") at its FIRST start. Simulated here by renaming A's key directory to B's key.
+// procfix7: fixed (gate7 m-fb: the fallback header names the campaign and the session; only an exact match is merged);
+// adapted to the uid-derived fallback base on the test binary's private /dev/shm (gate7 m-xdg: no XDG_RUNTIME_DIR).
 #[test]
-#[ignore = "FAILS on 452d0207: gate7 m-fb (a stale fallback intent log of another campaign is merged into this ledger)"]
 fn g7_fallback_intent_log_of_another_campaign_is_never_recorded() {
     if !in_ns() {
         return;
     }
     let _g = serial();
     let t = Tmp::new("g7-fb");
-    let xdg = t.path.join("xdg");
-    mount_tmpfs(&xdg, "size=4m,mode=0700");
-    let x = xdg.to_str().unwrap().to_string();
     // campaign A: its campaign-directory log is full, the first send goes through the fallback, then it aborts
     let va = spec(
         &t,
@@ -105,13 +105,10 @@ fn g7_fallback_intent_log_of_another_campaign_is_never_recorded() {
         &sa,
         &a,
         &[],
-        &[
-            ("XDG_RUNTIME_DIR", &x),
-            (
-                "RR_CAMPAIGN_FAILPOINT",
-                "intent_primary_enospc:1,signal_after_send:1",
-            ),
-        ],
+        &[(
+            "RR_CAMPAIGN_FAILPOINT",
+            "intent_primary_enospc:1,signal_after_send:1",
+        )],
     );
     wait_until("a started job of A", Duration::from_secs(120), || {
         started_count(&a) >= 1
@@ -124,12 +121,7 @@ fn g7_fallback_intent_log_of_another_campaign_is_never_recorded() {
         "{}",
         log_tail(&a)
     );
-    let base = std::fs::read_dir(&xdg)
-        .unwrap()
-        .flatten()
-        .next()
-        .expect("fallback base directory")
-        .path();
+    let base = rustred_campaign::launch::intent_fallback_base();
     let ka = base.join(dev_ino(&a));
     assert!(ka.is_dir(), "A's fallback key directory {}", ka.display());
     // campaign B: a NEW directory whose <dev>-<ino> key A's fallback now carries (inode number recycled)
@@ -144,7 +136,7 @@ fn g7_fallback_intent_log_of_another_campaign_is_never_recorded() {
     let b = t.cdir("b");
     std::fs::create_dir_all(&b).unwrap();
     std::fs::rename(&ka, base.join(dev_ino(&b))).unwrap();
-    let mut c2 = start(&sb, &b, &[], &[("XDG_RUNTIME_DIR", &x)]);
+    let mut c2 = start(&sb, &b, &[], &[]);
     let code = wait(&mut c2, Duration::from_secs(240));
     assert!(finished(code), "{code}: {}", log_tail(&b));
     let foreign: Vec<String> = records(&b)
@@ -161,7 +153,6 @@ fn g7_fallback_intent_log_of_another_campaign_is_never_recorded() {
         "B's FIRST start recorded signals of another campaign as its own: {foreign:?}"
     );
     assert_eq!(verify(&b), 0);
-    umount(&xdg);
 }
 
 /// gate7 finding m-br (supervisor barrier_refused / launch::barrier_shim): the "spawn barrier refused" evidence is a
@@ -169,8 +160,8 @@ fn g7_fallback_intent_log_of_another_campaign_is_never_recorded() {
 /// writes it and exits 125 is recorded as "the program never ran" (row 15s, a typed retry, not a crash), so the crash
 /// rules are evaded and the ledger states something false. Here every first attempt of a job leaves a mark that it
 /// ran and then fakes the refusal.
+// procfix7: fixed (gate7 m-br: the refusal comes from the shim's report pipe, which the program never holds).
 #[test]
-#[ignore = "FAILS on 452d0207: gate7 m-br (the job program can fake 'the spawn barrier refused: the program never ran')"]
 fn g7_a_program_that_ran_is_never_recorded_as_never_ran() {
     if !in_ns() {
         return;

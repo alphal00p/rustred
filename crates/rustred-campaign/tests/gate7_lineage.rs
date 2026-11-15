@@ -54,6 +54,7 @@ fn lineage(pid: u32, start: u64, anc: &[(u32, u64)]) -> SessionLineage {
         boot_id: "b".into(),
         pid_ns: 7,
         ancestors: anc.to_vec(),
+        time_ns: None, // procfix7 (gate7 MJ-2): field added
     }
 }
 
