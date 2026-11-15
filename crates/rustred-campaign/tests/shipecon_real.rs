@@ -54,6 +54,8 @@ fn real_ship_economy() {
         licence_env: std::env::var_os("SYMBOLICA_LICENSE").map(|_| "SYMBOLICA_LICENSE".to_string()),
         previous: opt("previous"),
         table_times: opt("table_times"),
+        engine_probe_sample: c["engine_probe_sample"].as_u64().unwrap_or(2000) as usize,
+        engine_first_match: opt("engine_first_match"),
         verbose: true,
     };
     let rep = run_ship(&cfg).unwrap();

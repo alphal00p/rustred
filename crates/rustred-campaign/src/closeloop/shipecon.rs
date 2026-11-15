@@ -68,6 +68,11 @@ pub struct ShipRunConfig {
     /// Measured table times (`rr_shipecon_table` output, JSONL `{record_sha256, load_s, apply_s, instantiated_bytes,
     /// tool}`); rules without one get the cost-model estimate.
     pub table_times: Option<PathBuf>,
+    /// Keys of the engine dispatch cross-check (every migrated key + a stride sample of the closure up to this many).
+    pub engine_probe_sample: usize,
+    /// `rr_node first-match --table ship/probe/table.jsonl --keys ship/probe/keys.jsonl` output of an earlier run's
+    /// probe (compared key by key with the import's dispatch of the shipped spec).
+    pub engine_first_match: Option<PathBuf>,
     pub verbose: bool,
 }
 
@@ -523,6 +528,37 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
             plans.insert(i, ship::plan(p, &census.rules[i], prev.get(&census.rules[i].rule.record_sha256)));
         }
     }
+    // a rule decided earlier with an ESTIMATED table time and measured now: re-decided (its trials reused)
+    for (i, r) in plans.iter_mut() {
+        let sha = &census.rules[*i].rule.record_sha256;
+        if *r == Reuse::Unchanged
+            && ttimes.contains_key(sha)
+            && prev.get(sha).is_some_and(|x| x.table_time.as_ref().is_none_or(|t| !t.measured))
+        {
+            *r = Reuse::Continue {
+                trials: prev[sha].trials.clone(),
+                to_try: vec![],
+            };
+        }
+    }
+    // the table-time request (rr_shipecon_table): the examined rules and their certified keys
+    let req: Vec<Value> = plans
+        .keys()
+        .map(|&i| {
+            json!({"record_sha256": census.rules[i].rule.record_sha256, "label": census.rules[i].rule.label,
+                   "bytes": census.rules[i].bytes,
+                   "keys": census.rules[i].keys.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>()})
+        })
+        .collect();
+    write(&cfg.out_dir.join("table_time_request.jsonl"), &jsonl(&req))?;
+    write(
+        &cfg.out_dir.join("census.json"),
+        &serde_json::to_vec_pretty(&json!({"totals": census.totals(), "rules": census.rules.iter().enumerate()
+            .map(|(i, r)| json!({"rule": r.rule, "bytes": r.bytes, "in": r.served_in_start, "out": r.served_outside_start,
+                                 "candidacy": cand[i]}))
+            .collect::<Vec<_>>()}))
+        .map_err(|e| e.to_string())?,
+    )?;
     let n_exam = plans.len();
     let n_unchanged = plans.values().filter(|r| **r == Reuse::Unchanged).count();
     say(format!(
@@ -873,11 +909,12 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
         path: solved_path.display().to_string(),
         sha256: Some(sha256_hex(solved_text.as_bytes())),
         manifest: None,
-        family: None,
+        family: set0.family.clone(),
     };
     let mut check_log: Vec<Value> = vec![];
     let mut closing: Option<ClosingCheck> = None;
     let mut final_spec: Option<TableSetSpec> = None;
+    let mut probe: Option<Value> = None;
     for it in 0..=p.check.max_iterations {
         let (recipes, assign) = shipped_recipes(cfg, &decisions, &recipe_files)?;
         let mut sspec = ship::shipped_spec(
@@ -923,6 +960,7 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
             "migrating": decisions.iter().filter(|d| d.outcome.migrates()).count(),
             "seconds": tc.elapsed().as_secs_f64()});
         if cc.holds {
+            probe = Some(engine_probe(cfg, &set_s, &res, &decisions)?);
             check_log.push(entry);
             closing = Some(cc);
             final_spec = Some(sspec);
@@ -1050,6 +1088,7 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
         "closing_iterations": check_log,
         "decisions": per_rule,
         "not_examined_by_reason": not_examined,
+        "engine_probe": probe,
         "applied": applied,
         "timing": {"load_s": load_s, "guard_s": guard_s, "guard_jobs_cpu_s": guard_cpu_s,
                    "guard_jobs_wall_s": guard_wall_s, "wall_s": t0.elapsed().as_secs_f64(),
@@ -1060,6 +1099,134 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
         &serde_json::to_vec_pretty(&v).map_err(|e| e.to_string())?,
     )?;
     Ok(v)
+}
+
+/// The engine dispatch cross-check of the shipped spec: the probe table (header line, chart lines, the shipped rule
+/// records VERBATIM in dispatch order: `rr_node first-match` positions are positions among them), the key sample and the
+/// import's expected position per key (`null` = no table rule takes it: the key goes to the stored relation / recipe /
+/// terminal); with `engine_first_match` given, the key-by-key comparison.
+fn engine_probe(
+    cfg: &ShipRunConfig,
+    set: &ImportedSet,
+    res: &rustred_campaign_core::import::CheckResult,
+    decisions: &[RuleDecision],
+) -> Result<Value, String> {
+    let dir = cfg.out_dir.join("ship/probe");
+    // positions of the shipped records in dispatch order
+    let mut pos: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+    let mut lines: Vec<Vec<u8>> = vec![];
+    let mut header: Option<Vec<u8>> = None;
+    let mut charts: Vec<Vec<u8>> = vec![];
+    for &t in set.disp.priority() {
+        let name = &set.disp.tables()[t].name;
+        let Some(ti) = set.table_index(name) else {
+            return Err(format!("probe: table {name} not in the set"));
+        };
+        for (r, info) in set.rules[ti].iter().enumerate() {
+            let mut f = std::fs::File::open(&info.path).map_err(|e| format!("{}: {e}", info.path))?;
+            use std::io::{Read, Seek, SeekFrom};
+            if header.is_none() {
+                let mut first = String::new();
+                std::io::BufReader::new(std::fs::File::open(&info.path).map_err(|e| e.to_string())?)
+                    .read_line(&mut first)
+                    .map_err(|e| e.to_string())?;
+                header = Some(first.trim_end().as_bytes().to_vec());
+                for l in std::io::BufReader::new(std::fs::File::open(&info.path).map_err(|e| e.to_string())?)
+                    .lines()
+                    .map_while(Result::ok)
+                    .take_while(|l| !l.starts_with("{\"type\": \"rule\""))
+                {
+                    if l.starts_with("{\"type\": \"chart\"") {
+                        charts.push(l.into_bytes());
+                    }
+                }
+            }
+            f.seek(SeekFrom::Start(info.offset)).map_err(|e| e.to_string())?;
+            let mut b = vec![0u8; info.bytes as usize];
+            f.read_exact(&mut b).map_err(|e| e.to_string())?;
+            if sha256_hex(&b) != info.record_sha256 {
+                return Err(format!("probe: record at {}+{} changed", info.path, info.offset));
+            }
+            pos.insert((ti, r), lines.len());
+            lines.push(b);
+        }
+    }
+    let table = rustred_campaign_core::economy::engine_probe_table(
+        header.as_deref().unwrap_or(b""),
+        &charts,
+        &lines,
+    );
+    write(&dir.join("table.jsonl"), &table)?;
+    // the sample: every key of a migrated rule, then a stride over the closure
+    let rows = all_rows(set, res)?;
+    let migrated: BTreeSet<&Vec<i32>> = decisions
+        .iter()
+        .filter(|d| d.outcome.migrates())
+        .flat_map(|d| d.keys.iter().map(|k| &k.key))
+        .collect();
+    let plain = |r: &&rustred_campaign_core::import::KeyRow| {
+        matches!(
+            (&r.status, &r.server),
+            (RowStatus::Served, Some(Server::Rule { .. })) | (RowStatus::Served, Some(Server::Relation { .. }))
+        )
+    };
+    let mut sample: Vec<&rustred_campaign_core::import::KeyRow> =
+        rows.iter().filter(|r| migrated.contains(&r.key)).collect();
+    let others: Vec<&rustred_campaign_core::import::KeyRow> = rows
+        .iter()
+        .filter(plain)
+        .filter(|r| !migrated.contains(&r.key))
+        .collect();
+    let want = cfg.engine_probe_sample.saturating_sub(sample.len());
+    if want > 0 && !others.is_empty() {
+        let stride = (others.len() / want).max(1);
+        sample.extend(others.iter().step_by(stride).take(want));
+    }
+    let mut keys = String::new();
+    let mut expected: Vec<Option<usize>> = vec![];
+    for r in &sample {
+        keys.push_str(&format!("{}\n", json!(r.key)));
+        expected.push(match &r.server {
+            Some(Server::Rule { table, record }) => pos.get(&(*table, *record)).copied(),
+            _ => None,
+        });
+    }
+    write(&dir.join("keys.jsonl"), keys.as_bytes())?;
+    write(
+        &dir.join("expected.json"),
+        &serde_json::to_vec(&json!({"expected": expected, "migrated_keys": migrated.len()})).map_err(|e| e.to_string())?,
+    )?;
+    let mut out = json!({"dir": dir.display().to_string(), "keys": sample.len(), "migrated_keys": migrated.len(),
+        "table_sha256": sha256_hex(&table), "keys_sha256": sha256_hex(keys.as_bytes()),
+        "command": format!("{} first-match --table {} --keys {} > ENGINE_OUT", cfg.program.path.display(),
+                           dir.join("table.jsonl").display(), dir.join("keys.jsonl").display())});
+    if let Some(ep) = &cfg.engine_first_match {
+        let text = std::fs::read_to_string(ep).map_err(|e| format!("{}: {e}", ep.display()))?;
+        let mut agree = 0usize;
+        let mut differ: Vec<Value> = vec![];
+        let mut n = 0usize;
+        for (i, l) in text.lines().filter(|l| !l.trim().is_empty()).enumerate() {
+            let v: Value = serde_json::from_str(l).map_err(|e| format!("engine line {}: {e}", i + 1))?;
+            let Some(r) = sample.get(i) else {
+                return Err(format!("engine line {}: more answers than keys", i + 1));
+            };
+            let k: Vec<i32> = serde_json::from_value(v["key"].clone()).map_err(|e| e.to_string())?;
+            if k != r.key {
+                return Err(format!("engine line {}: key {k:?}, expected {:?}", i + 1, r.key));
+            }
+            let got = v["position"].as_u64().map(|x| x as usize);
+            n += 1;
+            if got == expected[i] {
+                agree += 1;
+            } else if differ.len() < 50 {
+                differ.push(json!({"key": r.key, "engine": got, "import": expected[i],
+                                   "migrated": migrated.contains(&r.key)}));
+            }
+        }
+        out["engine"] = json!({"output": ep.display().to_string(), "answers": n, "agree": agree,
+            "differ": n - agree, "differences": differ, "complete": n == sample.len()});
+    }
+    Ok(out)
 }
 
 fn failed_trial(job: &Job, k: &[i32], verdict: &str, why: &str, bound: &Value) -> KeyTrial {
