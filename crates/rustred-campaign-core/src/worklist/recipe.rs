@@ -114,6 +114,11 @@ pub struct Recipe {
     pub domain: RecipeDomain,
     pub seeds: RecipeSeeds,
     pub symmetry_rows: bool,
+    /// v1.2 (coord-recipe-solve.md 13): `m1_first` | `first_admissible` (the node comparator's first hit); omitted =
+    /// the engine's default (`m1_first`). Omitted when unset, so the digests of existing recipes are unchanged (lane
+    /// coreseed: the core recipe rule's comparator measure).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relation_rule: Option<String>,
     pub elimination: RecipeElimination,
     /// Free JSON echoed by the engine and part of its digest: the campaign writes the node, the node order and the
     /// setting label here (identity, re-audit A m4).
@@ -198,6 +203,7 @@ impl Recipe {
                 sector_slots: Some(sector_slots),
             },
             symmetry_rows: setting.symmetry_rows,
+            relation_rule: None,
             elimination: RecipeElimination {
                 convention: RECIPE_ELIMINATION.into(),
             },
@@ -220,6 +226,12 @@ impl Recipe {
     pub fn validate(&self) -> Result<(), String> {
         if self.schema != RECIPE_SCHEMA {
             return Err(format!("schema {} (want {RECIPE_SCHEMA})", self.schema));
+        }
+        if let Some(r) = &self.relation_rule
+            && r != "m1_first"
+            && r != "first_admissible"
+        {
+            return Err(format!("relation_rule {r} (m1_first | first_admissible)"));
         }
         if self.elimination.convention != RECIPE_ELIMINATION {
             return Err(format!("elimination {}", self.elimination.convention));

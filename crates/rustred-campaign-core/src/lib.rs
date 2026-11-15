@@ -55,3 +55,7 @@ pub mod regionfit;
 pub mod pieces;
 // lane tworow (interfaces/tworow.md): REQUEST TO I-INT, one line
 pub mod tworow;
+// lane coreseed (interfaces/coreseed.md): the IBP core of a face (recipe rule, escalation, joint seed minimisation)
+pub mod coreseed;
+// lane seedmin (interfaces/seedmin.md): per-key and joint seed minimisation (REQUEST TO I-INT, one line)
+pub mod seedmin;

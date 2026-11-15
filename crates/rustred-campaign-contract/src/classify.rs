@@ -21,6 +21,9 @@ pub use crate::recipe;
 // lane symjob: kind symmetry-composite's child seal, sealed results and tally. Mounted at the crate root since int7
 // (`rustred_campaign_contract::symcomp`); the path `classify::symcomp` stays valid through this re-export.
 pub use crate::symcomp;
+// lane coreseed: kind pole-regular-at's answer checks (rr_poles regular-at as a diagnostic legacy child). Mounted at
+// the crate root since int7 (`rustred_campaign_contract::poleat`); the path `classify::poleat` stays valid.
+pub use crate::poleat;
 
 use crate::exit::ExitCode;
 use crate::layout::RunLayout;
@@ -221,6 +224,9 @@ pub enum Action {
     /// Rows 28 / 29 (kind solve-recipe, lane adapters): every unsolved key is a typed per-key outcome routed by its
     /// failure class ([`recipe::FailureClass::route`]).
     QueueFailures,
+    /// Rows 38 / 39 (kind pole-regular-at, lane coreseed): the diagnostic produced nothing readable; every relation of
+    /// the job stays `undecided`; recorded, never attention (a missing diagnostic never holds an item or a node).
+    DiagnosticsUndecided,
 }
 
 /// One row of the decision table (6.5): the single source of the classifier AND of the document's table
@@ -256,9 +262,10 @@ const fn rs(
 
 /// The decision table. Evaluation order (first match wins): O normalisation (row 22 reasons), W unknown (21b, 21c,
 /// 22), then the c rows in this order: 26, the kind's exit-code set (22), S (22), 25, then for kind solve-recipe 1 /
-/// 28 / 29 / 22 (a probe job, line 7: 31 / 32 / 22), for kind node-basis 30 / 22, for kind symmetry-composite 33 / 34 / 35 / 22 (lane symjob), and for every other kind 1-8 with 24 and 27 after their siblings, 9-17 (11b / 11c before 11: the supervisor's kill reason K decides over an `interrupted` OUTCOME; 36 and 13b before 13, 15b, 16, 17); then
+/// 28 / 29 / 22 (a probe job, line 7: 31 / 32 / 22), for kind node-basis 30 / 22, for kind symmetry-composite 33 / 34 / 35 / 22 (lane symjob), for kind pole-regular-at 37 / 38 (38
+/// also for its unverified outputs, before 22; lane coreseed), and for every other kind 1-8 with 24 and 27 after their siblings, 9-17 (11b / 11c before 11: the supervisor's kill reason K decides over an `interrupted` OUTCOME; 36, 39 and 13b before 13, 15b, 16, 17); then
 /// the signal rows 18-21; then 22; then 23.
-pub const ROWS: [RowSpec; 43] = {
+pub const ROWS: [RowSpec; 46] = {
     use Accept::*;
     use Action::*;
     use OutcomeKind::*;
@@ -385,6 +392,22 @@ pub const ROWS: [RowSpec; 43] = {
             QueueFailures,
         ),
         rs(
+            37,
+            "",
+            "c=0, O, S, kind pole-regular-at (diagnostic, legacy-wrapped: one answer per request of the pinned requests input, each checked against its request; pole orders, never evidence)",
+            Complete,
+            DiagnosticRecords,
+            ItemDone,
+        ),
+        rs(
+            38,
+            "",
+            "kind pole-regular-at, c in {0, 10, 20} with O but the answers not sealed / not verified against the requests (the wrapper refused them), or c in {10, 20}: nothing is read, the relations stay undecided (evaluated before 22 for this kind)",
+            Undecided,
+            Nothing,
+            DiagnosticsUndecided,
+        ),
+        rs(
             7,
             "",
             "c=11, O, checker kind",
@@ -473,6 +496,14 @@ pub const ROWS: [RowSpec; 43] = {
             Refused,
             Nothing,
             ItemAttentionNoRetry,
+        ),
+        rs(
+            39,
+            "",
+            "c=41, kind pole-regular-at (the pinned requests input unreadable or not the spec's: POLE_INPUT_MISMATCH): nothing is read, the relations stay undecided",
+            Refused,
+            Nothing,
+            DiagnosticsUndecided,
         ),
         rs(13, "", "c=41", Refused, Nothing, ItemAttentionNoRetry),
         rs(14, "", "c=42", Refused, Nothing, Attention),
@@ -756,6 +787,17 @@ fn decide(
                         ),
                     );
                 }
+                // lane coreseed: a diagnostic job whose answers are not verified gives nothing, never attention (38)
+                if e.kind == JobKind::PoleRegularAt && (e.verified.is_none() || c != 0) {
+                    return row(
+                        38,
+                        "",
+                        format!(
+                            "pole-regular-at: exit {c}, answers not read: {}",
+                            e.unsealed_why.as_deref().unwrap_or("not verified")
+                        ),
+                    );
+                }
                 let Some(v) = &e.verified else {
                     return row(
                         22,
@@ -778,6 +820,14 @@ fn decide(
                     JobKind::SolveRecipe => return solve_recipe_row(c, stop, v),
                     // lane symjob: rows 33 / 34 / 35 / 22 (the results tally against the keys)
                     JobKind::SymmetryComposite => return symmetry_composite_row(c, stop, v),
+                    // lane coreseed: exit 0 with verified answers (exit 10 / 20 and unverified are row 38 above)
+                    JobKind::PoleRegularAt => {
+                        return row(
+                            37,
+                            "",
+                            "pole-regular-at: exit 0, OUTCOME, answers sealed and checked (diagnostic records)",
+                        );
+                    }
                     JobKind::NodeBasis if c == 0 => {
                         return row(
                             30,
@@ -911,6 +961,14 @@ fn decide(
                 36,
                 "",
                 "the child's sealed result is bound to other inputs than the job's",
+            );
+        }
+        // lane coreseed: the diagnostic's pinned input refused (row 39), before 13: nothing read, never attention
+        if c == 41 && e.kind == JobKind::PoleRegularAt {
+            return row(
+                39,
+                "",
+                "pole-regular-at: requests input refused; the relations stay undecided",
             );
         }
         // line 7: a legacy proof tool's typed reader error is an input refusal of the job (row 13b), before 13 / 17
@@ -1103,6 +1161,32 @@ pub fn symmetry_composite_tally(
     let (r, t) = symcomp::tally(&lines, spec)?;
     check_tally_against_outcome(o, &t)?;
     Ok((r, t))
+}
+
+/// S of kind pole-regular-at (lane coreseed): the verified results stream (through its handle) checked against the
+/// pinned `requests` input (its raw bytes must have the spec's digest): one answer per request, in order
+/// ([`poleat::check_results`]).
+pub fn pole_regular_at_answers(
+    layout: &RunLayout,
+    spec: &JobSpec,
+    v: &VerifiedOutputs,
+) -> Result<Vec<poleat::PoleAnswer>, String> {
+    let rel = RunLayout::out_rel(crate::layout::RESULTS);
+    let s = v
+        .streams
+        .iter()
+        .find(|s| s.rel == rel)
+        .ok_or("no verified results stream")?;
+    let lines = crate::seal::VerifiedHandle::reopen(&layout.root, s)
+        .and_then(|h| h.canonical_lines())
+        .map_err(|e| format!("results: {e}"))?;
+    let rq = spec
+        .inputs
+        .iter()
+        .find(|i| i.role == "requests")
+        .ok_or("no requests input")?;
+    let bytes = std::fs::read(spec.input_path(rq)).map_err(|e| format!("requests input: {e}"))?;
+    poleat::check_results(&lines, &bytes, spec)
 }
 
 /// S of kind solve-recipe (lane adapters): the verified results stream (read through its [`crate::seal::VerifiedHandle`],
@@ -1417,6 +1501,12 @@ pub fn assess(
                             unsealed_why = Some(format!("symmetry-composite results: {why}"))
                         }
                     }
+                }
+                // lane coreseed: kind pole-regular-at: every sealed answer checked against the pinned requests
+                if spec.kind == JobKind::PoleRegularAt
+                    && let Err(why) = pole_regular_at_answers(layout, spec, &v)
+                {
+                    unsealed_why = Some(format!("pole-regular-at answers: {why}"));
                 }
                 // line 7: kind node-basis: the closed record list against the spec's dims / primes
                 if spec.kind == JobKind::NodeBasis

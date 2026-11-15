@@ -22,6 +22,10 @@ pub mod terminals;
 pub mod zeros;
 // lane repairflow (interfaces/repairflow.md): cheap symbolic first, else recipe export (FOR THE INTEGRATOR: one line)
 pub mod repair;
+// lane coreseed (interfaces/coreseed.md): the IBP core of a face, solved through solve-recipe children
+pub mod coreseed;
+// lane seedmin (interfaces/seedmin.md): solve-recipe children for the seed minimiser (REQUEST TO I-INT, one line)
+pub mod seedmin;
 
 pub use config::{CONFIG_ROLE, CONFIG_SCHEMA, CloseLoopConfig, NodeCfg, SolveCfg, Target};
 pub use source::CloseFromMaterialSource;

@@ -31,7 +31,9 @@ pub const MINIMISE_MODES: [&str; 2] = ["support", "greedy"];
 /// Line 7 (coord-seed-minimise.md 7): `minimise.measure` values.
 pub const MINIMISE_MEASURES: [&str; 2] = ["comparator", "m1"];
 /// Line 7: `minimise.order` values (the only order defined now: outermost shell first).
-pub const MINIMISE_ORDERS: [&str; 1] = ["outermost_first"];
+/// int7 (requests of lanes coreseed / seedmin, additive): `distance` = the campaign seed minimiser's default order (seeds
+/// ordered by their distance from the centre; coord-seed-minimise.md 8, interfaces/seedmin.md).
+pub const MINIMISE_ORDERS: [&str; 2] = ["outermost_first", "distance"];
 /// Line 7: `minimise.stopped` values.
 pub const MINIMISE_STOPS: [&str; 2] = ["done", "max_solves"];
 /// Line 7 (seed minimisation, coord-seed-minimise.md 6): `centre_scan.reason` values.

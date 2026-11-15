@@ -20,6 +20,9 @@
 //! Extended by lane symjob (2026-11-15; interfaces/symmetry-composite-job.md 5): kind symmetry-composite (rows 33 / 34 /
 //! 35 from its results tally, exit 0 / 10 keys_unsolved only), row 36 (exit 41 naming PINNED_INPUTS_MISMATCH), and the
 //! `supplied_relations` accept mode, which the safety predicate allows only for that kind.
+//! Extended by lane coreseed (2026-11-15; interfaces/coreseed.md 10): kind pole-regular-at (row 37 exit 0 with verified
+//! answers; row 38 for exit 10 / 20 or unverified answers, before 22; row 39 at exit 41, before 13) and the
+//! `diagnostic_records` accept mode for it (exit 0 only).
 
 mod common;
 use common::*;
@@ -97,11 +100,18 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                 if checker && c != 0 {
                     return (22, "");
                 }
+                // lane coreseed: pole-regular-at reads nothing unless exit 0 with verified answers (38, never 22)
+                if e.kind == JobKind::PoleRegularAt && (e.verified.is_none() || c != 0) {
+                    return (38, "");
+                }
                 let Some(v) = &e.verified else {
                     return (22, "");
                 };
                 if v.elided_loci > 0 {
                     return (25, "");
+                }
+                if e.kind == JobKind::PoleRegularAt {
+                    return (37, "");
                 }
                 // adapters.md 1.2: solve-recipe uses rows 1 / 28 / 29 and needs the results tally (S); proof-instantiate
                 // has exit 0 only; keys_unsolved belongs to solve-recipe only
@@ -251,6 +261,10 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
         {
             return (13, "b");
         }
+        // lane coreseed: pole-regular-at's refused input is row 39 (nothing read, never attention)
+        if c == 41 && e.kind == JobKind::PoleRegularAt {
+            return (39, "");
+        }
         match c {
             40 => return (12, ""),
             41 => return (13, ""),
@@ -325,7 +339,9 @@ fn may_accept(e: &Evidence, accept: Accept) -> Result<(), String> {
     }
     // line 7: diagnostic records only from node-basis (exit 0) and solve-recipe probe jobs; never rules / relations
     let probe = v.relations.as_ref().is_some_and(|t| t.probe);
-    let diagnostic_kind = e.kind == JobKind::NodeBasis || (e.kind == JobKind::SolveRecipe && probe);
+    let diagnostic_kind = e.kind == JobKind::NodeBasis
+        || e.kind == JobKind::PoleRegularAt
+        || (e.kind == JobKind::SolveRecipe && probe);
     if (accept == Accept::DiagnosticRecords) != diagnostic_kind {
         return Err(format!(
             "accept {accept:?} for kind {:?} (probe tally {probe})",
@@ -355,11 +371,11 @@ fn may_accept(e: &Evidence, accept: Accept) -> Result<(), String> {
             )),
         };
     }
-    if e.kind == JobKind::NodeBasis {
+    if e.kind == JobKind::NodeBasis || e.kind == JobKind::PoleRegularAt {
         return if c == 0 {
             Ok(())
         } else {
-            Err(format!("node-basis accepted on exit {c}"))
+            Err(format!("{:?} accepted on exit {c}", e.kind))
         };
     }
     if e.kind == JobKind::SolveRecipe && probe {

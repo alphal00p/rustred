@@ -31,6 +31,8 @@ pub mod layout;
 // line 7: records of the diagnostic kind node-basis
 pub mod node_basis;
 pub mod outcome;
+// lane coreseed's request (granted by int7): kind pole-regular-at's answer checks
+pub mod poleat;
 pub mod preflight;
 // lane adapters' request (granted by lane int5): kind solve-recipe's records and per-key outcomes
 pub mod recipe;

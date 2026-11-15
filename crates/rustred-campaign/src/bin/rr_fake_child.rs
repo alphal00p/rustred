@@ -149,6 +149,9 @@ mod proof;
 // lane symjob: kind symmetry-composite emulated (src/bin/rr_fake_child/symcomp.rs)
 #[path = "rr_fake_child/symcomp.rs"]
 mod symcomp;
+// lane coreseed: kind pole-regular-at emulated (src/bin/rr_fake_child/poleat.rs)
+#[path = "rr_fake_child/poleat.rs"]
+mod poleat;
 
 mod own {
     use serde_json::Value;
@@ -1632,6 +1635,14 @@ fn run_job(spec_path: &Path) -> ! {
         .is_some_and(|v| v["kind"] == "symmetry-composite")
     {
         symcomp::run(spec_path)
+    }
+    // lane coreseed: kind pole-regular-at (rr_poles regular-at emulated with a test rule)
+    if std::fs::read(spec_path)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .is_some_and(|v| v["kind"] == "pole-regular-at")
+    {
+        poleat::run(spec_path)
     }
     if let Some(k) = std::fs::read(spec_path)
         .ok()

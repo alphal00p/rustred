@@ -60,9 +60,13 @@ fn cf2_row3_never_closes_an_item_on_unverified_claims() {
         .map(|r| r.row)
         .collect();
     // lane symjob: row 33 (kind symmetry-composite, sealed + the child's own seal checked + tallied) accepts supplied-
-    // relation CANDIDATES only, each accepted later through the import's own verification, never by the row
-    assert_eq!(complete, vec![1, 30, 31, 33]);
-    for r in ROWS.iter().filter(|r| r.row == 30 || r.row == 31) {
+    // relation CANDIDATES only, each accepted later through the import's own verification, never by the row; lane
+    // coreseed: row 37 (kind pole-regular-at, answers sealed and checked) gives diagnostic records only
+    assert_eq!(complete, vec![1, 30, 31, 33, 37]);
+    for r in ROWS
+        .iter()
+        .filter(|r| r.row == 30 || r.row == 31 || r.row == 37)
+    {
         assert_eq!(r.accept, Accept::DiagnosticRecords);
     }
     let r33 = ROWS.iter().find(|r| r.row == 33).unwrap();
