@@ -199,22 +199,39 @@ struct KeyState {
     alts: Vec<Alternative>,
 }
 
-/// Rank of an alternative (lower is better): regularity first in mode regular_preferred, then terms, seeds, order.
-fn rank(a: &Alternative, regular_first: bool) -> (u8, u64, u64) {
-    let r = if regular_first {
-        match a.d0 {
-            D0Verdict::Regular => 0,
-            D0Verdict::Undecided => 1,
-            D0Verdict::Singular { .. } => 2,
-        }
-    } else {
-        0
-    };
-    (r, a.rhs_terms, a.seeds as u64)
-}
-
+/// int7 (wire-in B1): THE selection among a key's certified alternatives is `poles::pole_objective` (one function for
+/// every choice). Mode regular_preferred: the user's default objective (eps box excess, max pole order, sum of pole
+/// orders, singular terms, size; max_size_ratio unbounded) on each alternative's d0 verdict (regular = order 0,
+/// singular of known order p = p, singular of unknown order / undecided = unknown, ranked worst); otherwise economy first
+/// (size, then regularity / pole order). Ties: fewer seeds, then the relation digest (the candidate id), independent of
+/// the order the alternatives were found in. All alternatives are certified: the choice never decides acceptance.
 fn choose(alts: &[Alternative], regular_first: bool) -> Option<usize> {
-    (0..alts.len()).min_by_key(|&i| (rank(&alts[i], regular_first), i))
+    use crate::poles::params::CriteriaOrder;
+    use crate::poles::{Candidate, MaxSizeRatio, PoleObjective, pole_objective};
+    let cands: Vec<Candidate> = alts
+        .iter()
+        .map(|a| Candidate {
+            id: format!("{:010}/{}", a.seeds, a.relation_digest),
+            admissible: true,
+            excluded_by: None,
+            evidence_level: 0,
+            size: a.rhs_terms,
+            pole_order: match a.d0 {
+                D0Verdict::Regular => Some(0),
+                D0Verdict::Singular { order: Some(p) } => Some(u64::from(p)),
+                D0Verdict::Singular { order: None } | D0Verdict::Undecided => None,
+            },
+        })
+        .collect();
+    let obj = if regular_first {
+        PoleObjective::default()
+    } else {
+        PoleObjective::from_criteria(MaxSizeRatio::Unbounded, CriteriaOrder::EconomyFirst)
+    };
+    pole_objective(&cands, &[], &obj, None)
+        .ok()
+        .flatten()
+        .map(|c| c.index)
 }
 
 struct Group<'a> {
@@ -991,4 +1008,61 @@ pub fn solve_core(
         keys: out_keys,
         totals,
     })
+}
+
+#[cfg(test)]
+mod int7_choose_tests {
+    use super::*;
+
+    fn alt(digest: &str, terms: u64, seeds: usize, d0: D0Verdict) -> Alternative {
+        Alternative {
+            phase: "rule".into(),
+            rule: "r".into(),
+            list: "l".into(),
+            seeds,
+            seeds_at_key: None,
+            rhs_terms: terms,
+            d0,
+            relation_digest: digest.into(),
+            recipe_digest: String::new(),
+            record_sha256: String::new(),
+        }
+    }
+
+    /// int7 (B1): the choice among certified alternatives is poles::pole_objective with the user's objective.
+    #[test]
+    fn the_choice_is_the_pole_objective() {
+        let s = |p| D0Verdict::Singular { order: Some(p) };
+        // regular wins whatever its size (max_size_ratio unbounded)
+        let a = [alt("a", 10, 5, s(1)), alt("b", 1000, 9, D0Verdict::Regular)];
+        assert_eq!(choose(&a, true), Some(1));
+        // no regular one: the lower pole order, then the size
+        let a = [
+            alt("a", 10, 5, s(2)),
+            alt("b", 1000, 9, s(1)),
+            alt("c", 5, 1, D0Verdict::Undecided),
+        ];
+        assert_eq!(
+            choose(&a, true),
+            Some(1),
+            "unknown ranks after every known order"
+        );
+        // economy mode: the smallest
+        assert_eq!(choose(&a, false), Some(2));
+        // ties: fewer seeds, then the digest, whatever the order found
+        let a = [
+            alt("z", 10, 7, D0Verdict::Regular),
+            alt("y", 10, 3, D0Verdict::Regular),
+        ];
+        assert_eq!(choose(&a, true), Some(1));
+        let b = [a[1].clone(), a[0].clone()];
+        assert_eq!(choose(&b, true), Some(0));
+        // all undecided (the stub judge): the size decides, as before
+        let a = [
+            alt("a", 30, 1, D0Verdict::Undecided),
+            alt("b", 20, 9, D0Verdict::Undecided),
+        ];
+        assert_eq!(choose(&a, true), Some(1));
+        assert_eq!(choose(&[], true), None);
+    }
 }
