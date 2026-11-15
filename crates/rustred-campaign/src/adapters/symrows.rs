@@ -97,6 +97,8 @@ impl SymrowsJobRequest {
                 .collect(),
             kernel_sha256: kernel_sha256.to_string(),
             family_blake3: rustred_campaign_contract::blake3_hex(family_source.as_bytes()),
+            family_sha256: sha256_hex(family_source.as_bytes()),
+            relation_sha256: sha256_hex(&sc::relation_canonical(&rel.key, &rel.rhs)?),
             max_primes,
         };
         request.check()?;
@@ -152,6 +154,21 @@ fn checked_certificate(layout: &RunLayout, spec: &JobSpec) -> Result<Vec<u8>, St
     let line = sc::table_relation(&table, &r)?;
     if sha256_hex(&line) != r.record_sha256 {
         return Err("the table record's SHA-256 is not the request's".into());
+    }
+    // the import-side digests (SHA-256; the contract checks their echo, the values are checked here)
+    let (key, rhs) = sc::relation_of_record(&line)?;
+    if sha256_hex(&sc::relation_canonical(&key, &rhs)?) != r.relation_sha256 {
+        return Err("the record's relation SHA-256 is not the request's".into());
+    }
+    let head: serde_json::Value = serde_json::from_slice(sc::line_at(&table, 0)?)
+        .map_err(|e| format!("table header: {e}"))?;
+    if head["family_source"]
+        .as_str()
+        .map(|f| sha256_hex(f.as_bytes()))
+        .as_deref()
+        != Some(r.family_sha256.as_str())
+    {
+        return Err("the table header's family SHA-256 is not the request's".into());
     }
     let symrows = sc::pinned(spec, "symrows")?;
     let n = symrows

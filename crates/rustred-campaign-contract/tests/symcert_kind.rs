@@ -87,6 +87,9 @@ fn request(off: u64, line: &[u8]) -> SymrowsRequest {
         }],
         kernel_sha256: KSHA.into(),
         family_blake3: b3(FAMILY.as_bytes()),
+        // SHA-256 values are the supervisor's (no SHA-256 in the contract): made-up hex here, echoed and compared
+        family_sha256: SHA.into(),
+        relation_sha256: KSHA.into(),
         max_primes: None,
     }
 }
@@ -511,6 +514,18 @@ fn a_forged_certificate_with_a_valid_seal_is_refused_row_43() {
     let j = job("sym-43h");
     let mut other = j.req.clone();
     other.family_blake3 = b3(b"I(name(other),loops(k1,k2),externals(q))");
+    let line = symcert::certificate_line(
+        &other,
+        &symrows_b3(&j),
+        &entry(&other, "EXACT_IN_SPAN_AT_KEY"),
+    )
+    .unwrap();
+    seal_and_outcome(&j, &[line], true);
+    assert_eq!(classify_job(&j, WaitStatus::Exited(0)).row, 43);
+    // (i) a certificate whose import-side digest (relation_sha256) is another relation's
+    let j = job("sym-43i");
+    let mut other = j.req.clone();
+    other.relation_sha256 = "e".repeat(64);
     let line = symcert::certificate_line(
         &other,
         &symrows_b3(&j),

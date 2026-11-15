@@ -291,6 +291,33 @@ fn every_verdict_through_the_process_layer() {
     );
     assert_eq!(reason(&no, "capacity"), Some("not_decided"));
     assert_eq!(reason(&no, "forged"), Some("not_decided"));
+    // the sealed streams for the import's route (b): only the certified runs, each pinned by SHA-256, and every
+    // certificate line carries the import-side digests (relation_sha256 of the relation's canonical text, family_sha256)
+    let (files, _) = rustred_campaign::closeloop::symcert::kernel_certificate_files(&v, &binding);
+    let mut ids: Vec<&str> = files.iter().map(|f| f.relation_id.as_str()).collect();
+    ids.sort();
+    assert_eq!(ids, vec!["composite", "ok"]);
+    for f in &files {
+        let bytes = std::fs::read(&f.path).unwrap();
+        assert_eq!(
+            rustred_campaign::adapters::job::sha256_hex(&bytes),
+            f.sha256
+        );
+        let line: serde_json::Value =
+            serde_json::from_slice(bytes.split(|&c| c == b'\n').next().unwrap()).unwrap();
+        let rel = rels.iter().find(|r| r.id == f.relation_id).unwrap();
+        let canon =
+            rustred_campaign_contract::classify::symcert::relation_canonical(&rel.key, &rel.rhs)
+                .unwrap();
+        assert_eq!(
+            line["relation_sha256"].as_str().unwrap(),
+            rustred_campaign::adapters::job::sha256_hex(&canon)
+        );
+        assert_eq!(
+            line["family_sha256"].as_str().unwrap(),
+            rustred_campaign::adapters::job::sha256_hex(cfg.family_source.as_bytes())
+        );
+    }
     // (1) an UNSEALED verdict line: a "certified" line pointing at the run whose answers the wrapper refused (row 43),
     // and one without a run directory
     let mut fake = b["ok"].clone();

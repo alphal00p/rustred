@@ -97,6 +97,12 @@ pub struct SymrowsRequest {
     /// BLAKE3 of the presented family text written as the table header's `family_source` (the frame the keys, the
     /// rows' momenta and the IBP rows are in): binds the certificate to that family.
     pub family_blake3: String,
+    /// SHA-256 of the same family text (the import binds with SHA-256: the core crate has no BLAKE3; lane symfix's
+    /// route (b)); checked against the table by the supervisor's wrapper.
+    pub family_sha256: String,
+    /// SHA-256 of the canonical relation text ([`relation_canonical`]; the import's `relation_sha256`); checked against
+    /// the table record by the supervisor's wrapper.
+    pub relation_sha256: String,
     #[serde(default)]
     pub max_primes: Option<u32>,
 }
@@ -130,6 +136,8 @@ impl SymrowsRequest {
             ("relation_digest", &self.relation_digest),
             ("record_blake3", &self.record_blake3),
             ("family_blake3", &self.family_blake3),
+            ("family_sha256", &self.family_sha256),
+            ("relation_sha256", &self.relation_sha256),
         ] {
             if !crate::is_blake3_hex(d) {
                 return Err(format!("{n} is not a hex digest"));
@@ -158,6 +166,13 @@ pub fn key_pattern(k: &[i64]) -> String {
 /// with the rhs sorted by key (coefficient texts byte-exact as the producer wrote them). A relation with a repeated
 /// rhs key is refused (a producer merges equal integrals).
 pub fn relation_digest(key: &[i64], rhs: &[(Vec<i64>, String)]) -> Result<String, String> {
+    Ok(crate::blake3_hex(&relation_canonical(key, rhs)?))
+}
+
+/// The canonical relation text hashed by [`relation_digest`] (BLAKE3) and by the import's `relation_sha256`
+/// (SHA-256): `{"key":[..],"rhs":[[[..],"<text>"],..],"schema":"rustred.campaign.symrows-relation.v1"}` in the
+/// campaign's canonical form (members sorted, no whitespace), rhs sorted by key, texts byte-exact.
+pub fn relation_canonical(key: &[i64], rhs: &[(Vec<i64>, String)]) -> Result<Vec<u8>, String> {
     let mut r: Vec<&(Vec<i64>, String)> = rhs.iter().collect();
     r.sort_by(|a, b| a.0.cmp(&b.0));
     if r.windows(2).any(|w| w[0].0 == w[1].0) {
@@ -165,8 +180,7 @@ pub fn relation_digest(key: &[i64], rhs: &[(Vec<i64>, String)]) -> Result<String
     }
     let v = json!({"schema": RELATION_SCHEMA, "key": key,
         "rhs": r.iter().map(|(k, c)| json!([k, c])).collect::<Vec<_>>()});
-    let c = crate::canon::canonical_line(v.to_string().as_bytes()).map_err(|e| format!("{e:?}"))?;
-    Ok(crate::blake3_hex(&c))
+    crate::canon::canonical_line(v.to_string().as_bytes()).map_err(|e| format!("{e:?}"))
 }
 
 /// A relation: its key and its right-hand side (key, the producer's exact coefficient text).
@@ -424,7 +438,8 @@ pub fn certificate_line(
         "elements": r.elements, "symrows_blake3": symrows_blake3, "symrows_given": r.symrows_lines,
         "symrows_only": r.symrows_only, "rows": r.rows, "drop_zero_sectors": r.drop_zero_sectors,
         "zero_census": r.zero_census, "catalogue": r.catalogue, "kernel_sha256": r.kernel_sha256,
-        "family_blake3": r.family_blake3,
+        "family_blake3": r.family_blake3, "family_sha256": r.family_sha256,
+        "relation_sha256": r.relation_sha256,
         "producer": r.producer, "producer_record_sha256": r.producer_record_sha256,
         "instance": entry["instance"].clone(), "seconds": entry["seconds"].clone()});
     crate::canon::canonical_line(v.to_string().as_bytes()).map_err(|e| format!("{e:?}"))
@@ -475,6 +490,8 @@ pub fn check_certificate(
     want("catalogue", json!(r.catalogue))?;
     want("kernel_sha256", json!(r.kernel_sha256))?;
     want("family_blake3", json!(r.family_blake3))?;
+    want("family_sha256", json!(r.family_sha256))?;
+    want("relation_sha256", json!(r.relation_sha256))?;
     want("producer", json!(r.producer))?;
     want("producer_record_sha256", json!(r.producer_record_sha256))?;
     let status = v["status"].as_str().ok_or("certificate without status")?;

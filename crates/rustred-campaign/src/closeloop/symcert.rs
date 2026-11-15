@@ -677,6 +677,81 @@ struct Bound {
     sha: String,
 }
 
+/// A sealed certificate stream for the import's route (b) (lane symfix: `kernel_certificates.files`): the run's
+/// `out/results.jsonl`, pinned by SHA-256.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct CertificateFile {
+    pub path: String,
+    pub sha256: String,
+    pub relation_id: String,
+}
+
+/// The sealed certificate streams of the CERTIFIED verdicts for an import spec's `kernel_certificates.files` (the
+/// import checks each certificate against its own record at load): every run directory re-verified as in
+/// [`bind_certificates`] (under the roots, row 40 from its own files, sealed line re-checked against its pinned inputs,
+/// kernel pinned, family the import's); anything else is left out with a typed reason. The kernels allow-list of the
+/// spec is `b.kernels`.
+pub fn kernel_certificate_files(
+    verdicts: &[RelationVerdict],
+    b: &ImportBinding,
+) -> (Vec<CertificateFile>, Vec<NoLift>) {
+    let roots: Vec<PathBuf> = b
+        .roots
+        .iter()
+        .filter_map(|r| std::fs::canonicalize(r).ok())
+        .collect();
+    let mut files = vec![];
+    let mut no = vec![];
+    for v in verdicts {
+        let fail = |reason: &'static str, detail: String| NoLift {
+            id: v.id.clone(),
+            key: v.key.clone(),
+            reason,
+            detail,
+        };
+        if v.verdict != "certified" {
+            no.push(fail("not_decided", v.verdict.clone()));
+            continue;
+        }
+        let Some(run) = v
+            .run_dir
+            .as_ref()
+            .and_then(|d| std::fs::canonicalize(d).ok())
+        else {
+            no.push(fail("no_run_dir", format!("{:?}", v.run_dir)));
+            continue;
+        };
+        if !roots.iter().any(|r| run.starts_with(r)) {
+            no.push(fail("outside_certificate_roots", run.display().to_string()));
+            continue;
+        }
+        match run_answer(&run) {
+            Ok(RunAnswer::Sealed(c)) => {
+                if !b.kernels.contains(&c.kernel_sha256) {
+                    no.push(fail("kernel_not_pinned", c.kernel_sha256.clone()));
+                } else if c.family_blake3 != b.family_blake3 {
+                    no.push(fail("family_differs", c.family_blake3.clone()));
+                } else if c.class != "certified" {
+                    no.push(fail("not_decided", c.class.clone()));
+                } else {
+                    let p = run.join("out/results.jsonl");
+                    match std::fs::read(&p) {
+                        Ok(bytes) => files.push(CertificateFile {
+                            path: p.display().to_string(),
+                            sha256: crate::adapters::job::sha256_hex(&bytes),
+                            relation_id: v.id.clone(),
+                        }),
+                        Err(e) => no.push(fail("job_unreadable", e.to_string())),
+                    }
+                }
+            }
+            Ok(RunAnswer::Refused41(..)) => no.push(fail("not_decided", "row 41".into())),
+            Err((reason, d)) => no.push(fail(reason, d)),
+        }
+    }
+    (files, no)
+}
+
 /// [`ImportRecords`] over an imported set: every supplied relation set's record at the key (its line read from the
 /// source file and bound by its SHA-256, which the loader recorded).
 pub fn import_records(
