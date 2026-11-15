@@ -227,7 +227,10 @@ impl ChildTrialSolver {
                 }
                 let j: JournalLine =
                     serde_json::from_str(l).map_err(|e| format!("journal line {}: {e}", i + 1))?;
-                journal.insert(j.digest, j.answers);
+                // an undecided answer (interrupted, refused, budget) is never replayed: the trial runs again
+                if j.answers.iter().all(decided) {
+                    journal.insert(j.digest, j.answers);
+                }
             }
         }
         Ok(ChildTrialSolver {
