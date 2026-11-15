@@ -39,3 +39,5 @@ pub mod schema;
 pub mod import;
 // lane termmin (interfaces/termmin.md): REQUEST TO I-INT, one line
 pub mod termmin;
+// lane poles (interfaces/pole-diagnostics.md): REQUEST TO I-INT, one line
+pub mod poles;
