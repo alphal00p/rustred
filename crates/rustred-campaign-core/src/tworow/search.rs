@@ -124,7 +124,8 @@ struct Info {
 struct PRow {
     element: usize,
     seed: usize,
-    terms: Vec<(u32, Q)>,
+    /// expanded on first use ([`Enumerator::materialise`])
+    terms: Option<Vec<(u32, Q)>>,
     bad: Vec<u32>,
     has_k: bool,
     kcoef: Q,
@@ -323,73 +324,23 @@ pub fn search_key<A: CheckAlgebra>(
     stats.pool_rows = pool.len();
     drop(by_bad);
 
-    // (C) the pool rows in full (recomputed per seed: the scan kept only the non-lower terms)
-    let mut need: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
-    for &i in &pool {
-        need.entry(infos[i].seed)
-            .or_default()
-            .insert(infos[i].element);
-    }
-    let mut full: HashMap<(usize, usize), Vec<(u32, Q)>> = HashMap::new();
-    for (&si, els) in &need {
-        match rows_for_seed(
-            alg,
-            group,
-            &seeds[si].1,
-            policy.max_terms_per_row,
-            zero,
-            &|e| els.contains(&e),
-        ) {
-            SeedRows::Rows(rows) => {
-                for (e, v) in rows {
-                    if els.contains(&e) {
-                        let row = v.iter().map(|(t, c)| (terms.id(t), *c)).collect();
-                        full.insert((si, e), row);
-                    }
-                }
-            }
-            // deterministic: the scan computed the same seed; fail closed if it does not repeat
-            SeedRows::OverCap => stats.seeds_over_cap += 1,
-            SeedRows::Undecided(e) => {
-                stats.undecided += 1;
-                undecided_reason.get_or_insert(e);
-            }
-        }
-    }
+    // (C) the pool rows: membership data only; a row is expanded in full LAZILY, when a subset containing it is
+    // tested (the pre-filter rejects nearly every subset)
     let prows: Vec<PRow> = pool
         .iter()
-        .filter_map(|&i| {
+        .map(|&i| {
             let r = &infos[i];
-            let t = full.remove(&(r.seed, r.element))?;
-            let kcoef = t
-                .iter()
-                .find(|(id, _)| *id == kid)
-                .map(|(_, c)| *c)
-                .unwrap_or(Q::ZERO);
-            Some(PRow {
+            PRow {
                 element: r.element,
                 seed: r.seed,
-                terms: t,
+                terms: None,
                 bad: r.bad.clone(),
                 has_k: r.has_k,
-                kcoef,
-            })
+                kcoef: Q::ZERO,
+            }
         })
         .collect();
-    drop(full);
     drop(infos);
-    // global rank of every term of the pool (comparator order, lowest = 0)
-    let mut used: Vec<u32> = prows
-        .iter()
-        .flat_map(|r| r.terms.iter().map(|(t, _)| *t))
-        .collect();
-    used.sort_unstable();
-    used.dedup();
-    used.sort_by(|&a, &b| cmp(&terms.keys[a as usize], &terms.keys[b as usize]));
-    let mut rank = vec![u32::MAX; terms.keys.len()];
-    for (r, &t) in used.iter().enumerate() {
-        rank[t as usize] = r as u32;
-    }
 
     // (D) enumeration
     let mut bad_index: HashMap<u32, Vec<usize>> = HashMap::new();
@@ -398,13 +349,15 @@ pub fn search_key<A: CheckAlgebra>(
             bad_index.entry(t).or_default().push(i);
         }
     }
+    let anchors: Vec<usize> = (0..prows.len()).filter(|&i| prows[i].has_k).collect();
     let mut en = Enumerator {
         alg,
-        prows: &prows,
+        group,
+        zero,
+        prows,
         bad_index: &bad_index,
         kid,
-        rank: &rank,
-        keys: &terms.keys,
+        terms,
         key,
         cmp,
         policy,
@@ -413,20 +366,20 @@ pub fn search_key<A: CheckAlgebra>(
         found: vec![],
         seen_rel: HashSet::new(),
         near: vec![],
+        undecided_reason: None,
         stats: &mut stats,
     };
-    for (a, r) in prows.iter().enumerate() {
-        if r.has_k {
-            en.dfs(vec![a]);
-        }
+    for &a in &anchors {
+        en.dfs(vec![a]);
     }
     if en.found.is_empty() && policy.max_near_misses > 0 {
         en.visited.clear();
-        for (a, r) in prows.iter().enumerate() {
-            if r.has_k {
-                en.dfs_near(vec![a]);
-            }
+        for &a in &anchors {
+            en.dfs_near(vec![a]);
         }
+    }
+    if let Some(e) = en.undecided_reason.take() {
+        undecided_reason.get_or_insert(e);
     }
     let mut found = std::mem::take(&mut en.found);
     let mut near = std::mem::take(&mut en.near);
@@ -522,11 +475,12 @@ fn same_relation(a: &Combination, b: &Combination) -> bool {
 
 struct Enumerator<'x, A: CheckAlgebra> {
     alg: &'x A,
-    prows: &'x [PRow],
+    group: &'x VerifiedGroup,
+    zero: ZeroSector<'x>,
+    prows: Vec<PRow>,
     bad_index: &'x HashMap<u32, Vec<usize>>,
     kid: u32,
-    rank: &'x [u32],
-    keys: &'x [Vec<i32>],
+    terms: Terms,
     key: &'x [i32],
     cmp: Cmp<'x>,
     policy: &'x TwoRowPolicy,
@@ -536,10 +490,53 @@ struct Enumerator<'x, A: CheckAlgebra> {
     found: Vec<(Vec<usize>, Combination)>,
     seen_rel: HashSet<Vec<(u32, Q)>>,
     near: Vec<NearMiss>,
+    undecided_reason: Option<String>,
     stats: &'x mut SearchStats,
 }
 
 impl<A: CheckAlgebra> Enumerator<'_, A> {
+    /// Expand pool row `i` in full (once); `false` if the seed is over the cap or undecided (counted).
+    fn materialise(&mut self, i: usize) -> bool {
+        if self.prows[i].terms.is_some() {
+            return true;
+        }
+        let (si, el) = (self.prows[i].seed, self.prows[i].element);
+        match rows_for_seed(
+            self.alg,
+            self.group,
+            &self.seeds[si].1,
+            self.policy.max_terms_per_row,
+            self.zero,
+            &|e| e == el,
+        ) {
+            SeedRows::Rows(rows) => {
+                let Some((_, v)) = rows.into_iter().find(|(e, _)| *e == el) else {
+                    self.stats.undecided += 1;
+                    self.undecided_reason
+                        .get_or_insert("a pool row did not repeat".into());
+                    return false;
+                };
+                let t: Vec<(u32, Q)> = v.iter().map(|(k, c)| (self.terms.id(k), *c)).collect();
+                self.prows[i].kcoef = t
+                    .iter()
+                    .find(|(id, _)| *id == self.kid)
+                    .map(|(_, c)| *c)
+                    .unwrap_or(Q::ZERO);
+                self.prows[i].terms = Some(t);
+                true
+            }
+            SeedRows::OverCap => {
+                self.stats.seeds_over_cap += 1;
+                false
+            }
+            SeedRows::Undecided(e) => {
+                self.stats.undecided += 1;
+                self.undecided_reason.get_or_insert(e);
+                false
+            }
+        }
+    }
+
     fn elements_ok(&self, s: &[usize], j: usize) -> bool {
         let mut el: BTreeSet<usize> = s.iter().map(|&i| self.prows[i].element).collect();
         el.insert(self.prows[j].element);
@@ -620,31 +617,38 @@ impl<A: CheckAlgebra> Enumerator<'_, A> {
     /// `I(key) = c_T I(T) + lower`. Returns the relation (rhs incl. a nonzero `allowed` term) and whether it is new.
     fn eval(&mut self, s: &[usize], allowed: Option<u32>) -> Option<(Combination, bool)> {
         let alg = self.alg;
+        for &i in s {
+            if !self.materialise(i) {
+                return None;
+            }
+        }
         let mut cols: Vec<u32> = s
             .iter()
-            .flat_map(|&i| self.prows[i].terms.iter().map(|(t, _)| *t))
+            .flat_map(|&i| self.prows[i].terms.iter().flatten().map(|(t, _)| *t))
             .collect();
         cols.sort_unstable();
         cols.dedup();
-        let kr = self.rank[self.kid as usize];
-        let key_of = |t: u32| -> (u8, u32) {
-            // sort key, descending: higher terms, then the key, then the allowed term, then lower terms
-            let r = self.rank[t as usize];
-            if Some(t) == allowed {
-                (1, 0)
-            } else if r >= kr {
-                (3, r)
+        // column order, descending: terms not lower than the key, the key, the allowed term, lower terms; within a
+        // class by the comparator (highest first)
+        let keys = &self.terms.keys;
+        let (kid, key, cmp) = (self.kid, self.key, self.cmp);
+        let class = |t: u32| -> u8 {
+            if t == kid {
+                2
+            } else if Some(t) == allowed {
+                1
+            } else if cmp(&keys[t as usize], key) != Ordering::Less {
+                3
             } else {
-                (0, r)
+                0
             }
         };
-        cols.sort_by(|&a, &b| {
-            let (ca, ra) = key_of(a);
-            let (cb, rb) = key_of(b);
-            let ca = if a == self.kid { 2 } else { ca };
-            let cb = if b == self.kid { 2 } else { cb };
-            cb.cmp(&ca).then(rb.cmp(&ra))
+        let mut keyed: Vec<(u8, u32)> = cols.iter().map(|&t| (class(t), t)).collect();
+        keyed.sort_by(|a, b| {
+            b.0.cmp(&a.0)
+                .then_with(|| cmp(&keys[b.1 as usize], &keys[a.1 as usize]))
         });
+        let cols: Vec<u32> = keyed.into_iter().map(|(_, t)| t).collect();
         let pos: HashMap<u32, usize> = cols.iter().enumerate().map(|(i, &t)| (t, i)).collect();
         let &tcol = pos.get(&self.kid)?;
         let n = cols.len();
@@ -654,7 +658,7 @@ impl<A: CheckAlgebra> Enumerator<'_, A> {
             .enumerate()
             .map(|(r, &i)| {
                 let mut row = vec![Q::ZERO; n + m];
-                for (t, c) in &self.prows[i].terms {
+                for (t, c) in self.prows[i].terms.iter().flatten() {
                     row[pos[t]] = *c;
                 }
                 row[n + r] = Q::ONE;
@@ -681,7 +685,7 @@ impl<A: CheckAlgebra> Enumerator<'_, A> {
             if row[j].is_zero() {
                 continue;
             }
-            let k = &self.keys[cols[j] as usize];
+            let k = &self.terms.keys[cols[j] as usize];
             if Some(cols[j]) != allowed && (self.cmp)(k, self.key) != Ordering::Less {
                 self.stats.not_lower += 1;
                 return None;
@@ -711,7 +715,7 @@ impl<A: CheckAlgebra> Enumerator<'_, A> {
                             shift: self.seeds[r.seed].0.clone(),
                         },
                         seed: self.seeds[r.seed].1.clone(),
-                        terms: r.terms.len(),
+                        terms: r.terms.as_ref().map_or(0, Vec::len),
                     }
                 })
                 .collect(),
