@@ -675,6 +675,8 @@ fn check_inner(
                     required_level: set.spec.required_evidence.word().to_string(),
                     tier,
                     strict: false,
+                    // the import has no zero route of its own (the closing loop passes its guarantees)
+                    zero_route: vec![],
                 })
         }),
         ..Default::default()

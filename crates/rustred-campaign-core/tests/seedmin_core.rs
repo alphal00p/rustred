@@ -1353,10 +1353,21 @@ fn the_final_verification_solves_every_key_and_hands_on_a_key_that_fails_there()
     let jm = minimise_joint(&keys, &C0, &shell(), &p, &mut fl, &mut StubSystemPoles).unwrap();
     assert!(fl.failed, "the verify trial reached the last key");
     let first = &jm.pieces[0];
-    assert!(!first.keys.contains(&last), "claimed at a key whose verification failed: {:?}", first.keys);
+    assert!(
+        !first.keys.contains(&last),
+        "claimed at a key whose verification failed: {:?}",
+        first.keys
+    );
     assert_eq!(first.keys.len(), keys.len() - 1);
-    assert_eq!(first.per_key.len(), first.keys.len(), "one verified relation per piece key");
-    assert_eq!(first.domain_tested["verification_failed"], json!([last.clone()]));
+    assert_eq!(
+        first.per_key.len(),
+        first.keys.len(),
+        "one verified relation per piece key"
+    );
+    assert_eq!(
+        first.domain_tested["verification_failed"],
+        json!([last.clone()])
+    );
     // the key is handed on (served by a later piece, verified there), never lost
     assert!(
         jm.pieces[1..].iter().any(|pc| pc.keys.contains(&last)) || jm.unserved.contains(&last),
@@ -1390,7 +1401,8 @@ fn beyond_its_piece_a_list_is_compared_with_the_full_list_and_worse_keys_are_lis
     // at `worse`: the regular relation needs [1,0,0] (only in the full list); the minimised list gets a singular one
     let mut sing = alt(&[[0, 0, 0]], 4);
     sing.pole = PoleOrder::Order { order: 1 };
-    o.alts.insert(worse.clone(), vec![alt(&[[0, 0, 0], [1, 0, 0]], 9), sing]);
+    o.alts
+        .insert(worse.clone(), vec![alt(&[[0, 0, 0], [1, 0, 0]], 9), sing]);
     o.alts.insert(lost.clone(), vec![alt(&[[0, 1, 0]], 9)]);
     let piece = Piece {
         label: "0".into(),
@@ -1404,20 +1416,41 @@ fn beyond_its_piece_a_list_is_compared_with_the_full_list_and_worse_keys_are_lis
     };
     let extra = vec![own.clone(), same.clone(), worse.clone(), lost.clone()];
     let r = verify_beyond_piece(&piece, &C0, Some(&shell()), &extra, 2, &mut o).unwrap();
-    assert_eq!((r.own_keys, r.extra_keys), (1, 3), "the piece's own key is not re-counted");
+    assert_eq!(
+        (r.own_keys, r.extra_keys),
+        (1, 3),
+        "the piece's own key is not re-counted"
+    );
     assert_eq!((r.extra_valid, r.extra_regular), (2, 1));
     assert_eq!((r.full_valid, r.full_regular), (Some(3), Some(3)));
     assert_eq!(
         r.worse_than_full,
-        vec![(worse.clone(), PoleOrder::Order { order: 1 }, PoleOrder::regular())]
+        vec![(
+            worse.clone(),
+            PoleOrder::Order { order: 1 },
+            PoleOrder::regular()
+        )]
     );
     assert_eq!(r.failed, vec![(lost.clone(), "no_relation".to_string())]);
-    assert!(r.claim.starts_with("pole objective applied at the 1 piece keys only"), "{}", r.claim);
-    assert!(r.claim.contains("WORSE than the full list at 1 key(s)"), "{}", r.claim);
+    assert!(
+        r.claim
+            .starts_with("pole objective applied at the 1 piece keys only"),
+        "{}",
+        r.claim
+    );
+    assert!(
+        r.claim.contains("WORSE than the full list at 1 key(s)"),
+        "{}",
+        r.claim
+    );
     // without the comparison: counts only, and the claim says so
     let r2 = verify_beyond_piece(&piece, &C0, None, &extra, 40, &mut o).unwrap();
     assert!(r2.worse_than_full.is_empty() && r2.full_valid.is_none());
-    assert!(r2.claim.ends_with("not compared with the full list"), "{}", r2.claim);
+    assert!(
+        r2.claim.ends_with("not compared with the full list"),
+        "{}",
+        r2.claim
+    );
 }
 
 /// planfix (audit r2-planners ITEM 6): the halving factor is a policy parameter (default 2, omitted from the canonical
@@ -1428,8 +1461,16 @@ fn the_halving_factor_is_a_parameter_with_a_digest_stable_default() {
     let d = SeedMinPolicy::default();
     assert_eq!(d.halving_factor, 2);
     let explicit = SeedMinPolicy::parse(r#"{"halving_factor": 2}"#).unwrap();
-    assert_eq!(explicit.digest(), d.digest(), "the default is not part of the digest");
-    assert!(!serde_json::to_string(&d).unwrap().contains("halving_factor"));
+    assert_eq!(
+        explicit.digest(),
+        d.digest(),
+        "the default is not part of the digest"
+    );
+    assert!(
+        !serde_json::to_string(&d)
+            .unwrap()
+            .contains("halving_factor")
+    );
     let e = SeedMinPolicy::parse(r#"{"halving_factor": 1}"#).unwrap_err();
     assert!(e.contains("halving_factor"), "{e}");
     let three = SeedMinPolicy::parse(r#"{"halving_factor": 3, "drop_chunks": "halving"}"#).unwrap();

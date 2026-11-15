@@ -21,8 +21,7 @@ use rustred_campaign::closeloop::seedmin::{
 use rustred_campaign::resources::{Sampler, SamplerConfig};
 use rustred_campaign_core::coreseed::seeds::{shell_offsets, valid_at};
 use rustred_campaign_core::seedmin::{
-    LocalValuationJudge, SeedMinPolicy, StubSystemPoles, add,
-    minimise_joint, rule_candidate,
+    LocalValuationJudge, SeedMinPolicy, StubSystemPoles, add, minimise_joint, rule_candidate,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeSet;

@@ -89,6 +89,11 @@ pub struct LeafProducer {
     pub tier: String,
     /// Its basis was strict exact (Tier C, strict dispatcher, nothing diagnostic).
     pub strict: bool,
+    /// audit r2-zeros F9: the ZERO-ROUTE guarantees the producer enforced before calling a key certified (sorted words
+    /// of the producer's own vocabulary, e.g. the closing loop's `all_zeros`, `decisive_zeros`, `elided_zeros`). A
+    /// consumer requiring a guarantee not listed here refuses the leaf (`leaf_zero_route_weaker`). Empty: none stated.
+    #[serde(default)]
+    pub zero_route: Vec<String>,
 }
 
 impl LeafProducer {
@@ -97,27 +102,44 @@ impl LeafProducer {
             required_level: required_level.to_string(),
             tier: tier_word(tier).to_string(),
             strict,
+            zero_route: vec![],
         }
+    }
+    /// The same producer with its zero-route guarantees (sorted, deduplicated).
+    pub fn with_zero_route(mut self, words: &[String]) -> Self {
+        let mut w = words.to_vec();
+        w.sort();
+        w.dedup();
+        self.zero_route = w;
+        self
     }
     /// The basis of a set composed of several parts: the WEAKEST part's (lowest required level, tier `C` only if every
     /// part is, strict only if every part is). `None` when there is no part or any part's producer is unknown (or names
     /// a level that is no level word): the composed set certifies no more than its weakest part.
     pub fn weakest<'a>(parts: impl IntoIterator<Item = Option<&'a LeafProducer>>) -> Option<Self> {
-        let mut out: Option<(usize, bool, bool)> = None;
+        let mut out: Option<(usize, bool, bool, Vec<String>)> = None;
         for p in parts {
             let p = p?;
             let r = level_rank(&p.required_level)?;
             let c = p.tier == tier_word(super::Tier::C);
             out = Some(match out {
-                None => (r, c, p.strict),
-                Some((r0, c0, s0)) => (r0.min(r), c0 && c, s0 && p.strict),
+                None => (r, c, p.strict, p.zero_route.clone()),
+                Some((r0, c0, s0, z0)) => (
+                    r0.min(r),
+                    c0 && c,
+                    s0 && p.strict,
+                    z0.into_iter()
+                        .filter(|w| p.zero_route.contains(w))
+                        .collect(),
+                ),
             });
         }
-        let (r, c, strict) = out?;
+        let (r, c, strict, zero_route) = out?;
         Some(LeafProducer {
             required_level: LEAF_LEVEL_ORDER[r].to_string(),
             tier: tier_word(if c { super::Tier::C } else { super::Tier::K }).to_string(),
             strict,
+            zero_route,
         })
     }
 }
@@ -143,6 +165,9 @@ pub struct LeafRequirement {
     pub required_level: String,
     pub tier: super::Tier,
     pub strict: bool,
+    /// audit r2-zeros F9: the zero-route guarantees the consumer enforces itself (its producer vocabulary); a leaf whose
+    /// producer did not enforce every one of them is refused (`leaf_zero_route_weaker`). Empty: none required.
+    pub zero_route: Vec<String>,
 }
 
 /// Why a CERTIFIED leaf does not meet a [`LeafRequirement`] (blocking words of the consuming walk).
@@ -156,6 +181,9 @@ pub enum LeafShortfall {
     BelowRequiredTier,
     /// `leaf_basis_not_strict`: the producer's basis was not strict exact (or unknown) while the consumer requires it.
     BasisNotStrict,
+    /// `leaf_zero_route_weaker` (audit r2-zeros F9): the producer did not enforce a zero-route guarantee the consumer
+    /// enforces (e.g. closed with `all_zeros: off` under a default run), or states none.
+    ZeroRouteWeaker,
 }
 
 impl LeafShortfall {
@@ -164,12 +192,14 @@ impl LeafShortfall {
             LeafShortfall::BelowRequiredEvidence => "leaf_below_required_evidence",
             LeafShortfall::BelowRequiredTier => "leaf_below_required_tier",
             LeafShortfall::BasisNotStrict => "leaf_basis_not_strict",
+            LeafShortfall::ZeroRouteWeaker => "leaf_zero_route_weaker",
         }
     }
-    pub const ALL: [LeafShortfall; 3] = [
+    pub const ALL: [LeafShortfall; 4] = [
         LeafShortfall::BelowRequiredEvidence,
         LeafShortfall::BelowRequiredTier,
         LeafShortfall::BasisNotStrict,
+        LeafShortfall::ZeroRouteWeaker,
     ];
 }
 
@@ -360,6 +390,32 @@ impl LeafSet {
         if req.strict && !p.is_some_and(|p| p.strict) {
             return Some(LeafShortfall::BasisNotStrict);
         }
+        if !req.zero_route.is_empty()
+            && !p.is_some_and(|p| req.zero_route.iter().all(|w| p.zero_route.contains(w)))
+        {
+            return Some(LeafShortfall::ZeroRouteWeaker);
+        }
+        None
+    }
+    /// The SET-level part of [`LeafSet::shortfall`] (the producer's basis against `req`, ignoring the per-key level
+    /// words): e.g. whether a frozen layer may stay frozen under a run's requirement. None: the producer meets it.
+    pub fn producer_shortfall(&self, req: &LeafRequirement) -> Option<LeafShortfall> {
+        let p = self.producer();
+        let want = level_rank(&req.required_level).unwrap_or(LEAF_LEVEL_ORDER.len());
+        if p.and_then(|p| level_rank(&p.required_level)).unwrap_or(0) < want {
+            return Some(LeafShortfall::BelowRequiredEvidence);
+        }
+        if req.tier == super::Tier::C && p.is_none_or(|p| p.tier != tier_word(super::Tier::C)) {
+            return Some(LeafShortfall::BelowRequiredTier);
+        }
+        if req.strict && !p.is_some_and(|p| p.strict) {
+            return Some(LeafShortfall::BasisNotStrict);
+        }
+        if !req.zero_route.is_empty()
+            && !p.is_some_and(|p| req.zero_route.iter().all(|w| p.zero_route.contains(w)))
+        {
+            return Some(LeafShortfall::ZeroRouteWeaker);
+        }
         None
     }
     pub fn classes(&self) -> &[String] {
@@ -469,7 +525,13 @@ impl LeafSet {
     }
     fn compute_digest(&self) -> String {
         let arity = self.codec.arity();
-        let mut d = LeafDigest::new(arity, &self.classes, &self.levels, &self.binding, self.format);
+        let mut d = LeafDigest::new(
+            arity,
+            &self.classes,
+            &self.levels,
+            &self.binding,
+            self.format,
+        );
         let w = self.codec.words();
         let mut k = vec![0i32; arity];
         for i in 0..self.len() {
@@ -943,6 +1005,7 @@ mod tests {
             required_level: level.into(),
             tier,
             strict,
+            zero_route: vec![],
         }
     }
 
@@ -974,22 +1037,38 @@ mod tests {
     #[test]
     fn a_leaf_meets_a_requirement_only_at_its_certified_level_tier_and_basis() {
         let i = 0; // [2,1]
-        let pk = set(2, Some(LeafProducer::new("per-key", Tier::C, true)), "per-key");
+        let pk = set(
+            2,
+            Some(LeafProducer::new("per-key", Tier::C, true)),
+            "per-key",
+        );
         assert_eq!(pk.shortfall(i, &req("per-key", Tier::C, true)), None);
         // certified level = min(level word, producer's required level)
-        let imp = set(2, Some(LeafProducer::new("imported", Tier::C, true)), "per-key");
+        let imp = set(
+            2,
+            Some(LeafProducer::new("imported", Tier::C, true)),
+            "per-key",
+        );
         assert_eq!(
             imp.shortfall(i, &req("per-key", Tier::C, false)),
             Some(LeafShortfall::BelowRequiredEvidence)
         );
         assert_eq!(imp.shortfall(i, &req("imported", Tier::C, true)), None);
-        let k = set(2, Some(LeafProducer::new("per-key", Tier::K, false)), "per-key");
+        let k = set(
+            2,
+            Some(LeafProducer::new("per-key", Tier::K, false)),
+            "per-key",
+        );
         assert_eq!(
             k.shortfall(i, &req("per-key", Tier::C, false)),
             Some(LeafShortfall::BelowRequiredTier)
         );
         assert_eq!(k.shortfall(i, &req("per-key", Tier::K, false)), None);
-        let ns = set(2, Some(LeafProducer::new("per-key", Tier::C, false)), "per-key");
+        let ns = set(
+            2,
+            Some(LeafProducer::new("per-key", Tier::C, false)),
+            "per-key",
+        );
         assert_eq!(
             ns.shortfall(i, &req("per-key", Tier::C, true)),
             Some(LeafShortfall::BasisNotStrict)
@@ -1025,7 +1104,10 @@ mod tests {
         assert_eq!(LeafProducer::weakest([Some(&a), None]), None);
         assert_eq!(LeafProducer::weakest(std::iter::empty()), None);
         let k = LeafProducer::new("per-key", Tier::K, true);
-        assert_eq!(LeafProducer::weakest([Some(&a), Some(&k)]).unwrap().tier, "K");
+        assert_eq!(
+            LeafProducer::weakest([Some(&a), Some(&k)]).unwrap().tier,
+            "K"
+        );
     }
 
     #[test]
@@ -1037,5 +1119,58 @@ mod tests {
             .collect();
         assert_eq!(words, LEAF_LEVEL_ORDER);
         assert!(Level::Imported < Level::Replay && Level::Replay < Level::PerKey);
+    }
+}
+
+#[cfg(test)]
+mod zero_route_tests {
+    use super::*;
+    use crate::closure::Tier;
+
+    /// audit r2-zeros F9: the producer's zero-route guarantees bound the leaf; a consumer enforcing more refuses it.
+    #[test]
+    fn a_leaf_closed_with_a_weaker_zero_route_is_refused() {
+        let words = |w: &[&str]| w.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let mk = |z: &[&str]| {
+            let mut b = LeafSetBuilder::new(KeyCodec::new(2, 6).unwrap(), vec![], vec![]);
+            b.push(&[2, 1], "table", "per-key", true).unwrap();
+            b.finish(LeafBinding {
+                source_verdict: "closed".into(),
+                producer: Some(
+                    LeafProducer::new("per-key", Tier::C, true).with_zero_route(&words(z)),
+                ),
+                ..Default::default()
+            })
+            .unwrap()
+        };
+        let req = |z: &[&str]| LeafRequirement {
+            required_level: "per-key".into(),
+            tier: Tier::C,
+            strict: true,
+            zero_route: words(z),
+        };
+        let full = ["all_zeros", "decisive_zeros", "elided_zeros"];
+        let off = mk(&["decisive_zeros", "elided_zeros"]);
+        assert_eq!(
+            off.shortfall(0, &req(&full)),
+            Some(LeafShortfall::ZeroRouteWeaker)
+        );
+        assert_eq!(
+            off.producer_shortfall(&req(&full)),
+            Some(LeafShortfall::ZeroRouteWeaker)
+        );
+        assert_eq!(off.shortfall(0, &req(&["decisive_zeros"])), None);
+        let on = mk(&full);
+        assert_eq!(on.shortfall(0, &req(&full)), None);
+        assert_eq!(on.producer_shortfall(&req(&full)), None);
+        // the guarantees survive the file round trip and enter the digest
+        let mut buf = vec![];
+        on.write(&mut buf).unwrap();
+        let back = LeafSet::read(&buf[..]).unwrap();
+        assert_eq!(back.producer().unwrap().zero_route, words(&full));
+        assert_ne!(on.digest(), off.digest());
+        // the weakest part: the intersection
+        let w = LeafProducer::weakest([on.producer(), off.producer()]).unwrap();
+        assert_eq!(w.zero_route, words(&["decisive_zeros", "elided_zeros"]));
     }
 }

@@ -167,7 +167,10 @@ pub struct SeedMinPolicy {
     /// refused chunk is divided by it, a kept one multiplied by it, the first chunk is the candidates divided by it.
     /// Default 2 (coord-seed-minimise.md 1b: bisection, O(m log n) solves for m essential seeds). Default not yet backed
     /// by an experiment (no other factor was measured). Omitted from the canonical policy (digest) at its default.
-    #[serde(default = "d_halving_factor", skip_serializing_if = "is_d_halving_factor")]
+    #[serde(
+        default = "d_halving_factor",
+        skip_serializing_if = "is_d_halving_factor"
+    )]
     pub halving_factor: usize,
     /// After a kept drop, restrict to the new relation's support by one more trial.
     #[serde(default = "yes")]

@@ -726,16 +726,34 @@ fn apply_combination_refuses_a_term_that_is_not_strictly_lower() {
                 element: e,
                 shift: None,
             };
-            match apply_combination(&Independent, &f.group, &r.key, &[spec], &[one], &cmp, &p, None) {
+            match apply_combination(
+                &Independent,
+                &f.group,
+                &r.key,
+                &[spec],
+                &[one],
+                &cmp,
+                &p,
+                None,
+            ) {
                 Ok(c) => {
                     ok += 1;
                     for (t, _) in &c.rhs {
-                        assert_eq!(cmp(t, &r.key), Ordering::Less, "{t:?} not lower than {:?}", r.key);
+                        assert_eq!(
+                            cmp(t, &r.key),
+                            Ordering::Less,
+                            "{t:?} not lower than {:?}",
+                            r.key
+                        );
                     }
                 }
                 Err(Reject::NotLower { term }) => {
                     not_lower += 1;
-                    assert_ne!(cmp(&term, &r.key), Ordering::Less, "refused a lower term {term:?}");
+                    assert_ne!(
+                        cmp(&term, &r.key),
+                        Ordering::Less,
+                        "refused a lower term {term:?}"
+                    );
                 }
                 Err(_) => {}
             }
@@ -772,9 +790,15 @@ fn apply_combination_refuses_a_term_that_is_not_strictly_lower() {
                 .iter()
                 .map(|wf| wf.eval(&Independent, k).unwrap())
                 .collect();
-            let c = apply_combination(&Independent, &f.group, k, &v.shape.rows, &w, &cmp, &p, None).unwrap();
+            let c = apply_combination(&Independent, &f.group, k, &v.shape.rows, &w, &cmp, &p, None)
+                .unwrap();
             for (t, _) in &c.rhs {
-                assert_eq!(cmp(t, k), Ordering::Less, "region form {:?}: {t:?} vs {k:?}", v.shape.rows);
+                assert_eq!(
+                    cmp(t, k),
+                    Ordering::Less,
+                    "region form {:?}: {t:?} vs {k:?}",
+                    v.shape.rows
+                );
             }
             checked += 1;
         }
@@ -791,7 +815,9 @@ fn a_kernel_certificate_reference_binds_to_its_relation_and_is_checked() {
     use rustred_campaign_core::tworow::cert::{
         SYMROWS_CERT_SCHEMA, relation_canonical, relation_digest,
     };
-    use rustred_campaign_core::tworow::{CertificateCheck, KernelCertificateRef, check_certificate};
+    use rustred_campaign_core::tworow::{
+        CertificateCheck, KernelCertificateRef, check_certificate,
+    };
     let f = sunbub();
     let p = TwoRowPolicy::default();
     let keys = box_keys(&f.chart, 1, 4);
@@ -808,7 +834,10 @@ fn a_kernel_certificate_reference_binds_to_its_relation_and_is_checked() {
     assert_eq!(relation_digest(&c.key, &rev).unwrap(), d);
     let canon = relation_canonical(&c.key, &rev).unwrap();
     assert!(canon.starts_with("{\"key\":["), "{canon}");
-    assert!(canon.ends_with("\"schema\":\"rustred.campaign.symrows-relation.v1\"}"), "{canon}");
+    assert!(
+        canon.ends_with("\"schema\":\"rustred.campaign.symrows-relation.v1\"}"),
+        "{canon}"
+    );
     // a sealed certificate line and its reference
     let line = json!({"schema": SYMROWS_CERT_SCHEMA, "relation_digest": d, "record_sha256": "a".repeat(64),
         "rule": 0, "key": c.key, "verdict": "EXACT_IN_SPAN_AT_KEY", "status": "EXACT_IN_SPAN_AT_KEY",
@@ -828,25 +857,48 @@ fn a_kernel_certificate_reference_binds_to_its_relation_and_is_checked() {
         kernel_sha256: "b".repeat(64),
         certificate_sha256: sha,
     };
-    assert_eq!(check_certificate(&c, &cert, Some(&line)), CertificateCheck::Certified);
+    assert_eq!(
+        check_certificate(&c, &cert, Some(&line)),
+        CertificateCheck::Certified
+    );
     assert!(check_certificate(&c, &cert, None).certified());
     let j = c.to_json_with(Some(&cert));
     assert_eq!(j["engine_certificate"]["class"], "certified");
     assert_eq!(j["relation_digest"], json!(d));
-    assert!(c.to_json_with(None)["engine_certificate"].as_str().unwrap().starts_with("none"));
+    assert!(
+        c.to_json_with(None)["engine_certificate"]
+            .as_str()
+            .unwrap()
+            .starts_with("none")
+    );
     // another relation (one coefficient changed) / another key / a forged line / a refusal
     let mut other = c.clone();
     other.rhs[0].1 = rustred_campaign_core::replay_base::algebra::Q::int(7);
-    assert!(matches!(check_certificate(&other, &cert, None), CertificateCheck::NotBound(_)));
+    assert!(matches!(
+        check_certificate(&other, &cert, None),
+        CertificateCheck::NotBound(_)
+    ));
     let mut k2 = cert.clone();
     k2.key[0] += 1;
-    assert!(matches!(check_certificate(&c, &k2, None), CertificateCheck::NotBound(_)));
+    assert!(matches!(
+        check_certificate(&c, &k2, None),
+        CertificateCheck::NotBound(_)
+    ));
     let forged = line.replace("\"certified\"", "\"certified\" ");
-    assert!(matches!(check_certificate(&c, &cert, Some(&forged)), CertificateCheck::NotBound(_)));
+    assert!(matches!(
+        check_certificate(&c, &cert, Some(&forged)),
+        CertificateCheck::NotBound(_)
+    ));
     let mut refused = cert.clone();
     refused.class = "kernel_refused".into();
-    assert_eq!(check_certificate(&c, &refused, None), CertificateCheck::KernelRefused);
+    assert_eq!(
+        check_certificate(&c, &refused, None),
+        CertificateCheck::KernelRefused
+    );
     let mut bogus = cert.clone();
     bogus.class = "fine".into();
-    assert!(matches!(check_certificate(&c, &bogus, None), CertificateCheck::NotBound(_)));
+    assert!(matches!(
+        check_certificate(&c, &bogus, None),
+        CertificateCheck::NotBound(_)
+    ));
 }

@@ -11,13 +11,15 @@ use std::sync::Arc;
 
 use rustred_campaign_core::closure::{
     ClosureConfig, ClosureError, CoefFact, FactSource, HandDowns, KeyCodec, KeySet, LeafBinding,
-    LeafProducer, LeafSet, LeafSetBuilder, RegFact, RuleBodies, RuleId, TerminalSets, Tier, Verdict,
-    closure,
+    LeafProducer, LeafSet, LeafSetBuilder, RegFact, RuleBodies, RuleId, TerminalSets, Tier,
+    Verdict, closure,
 };
 use rustred_campaign_core::cover::{Dispatcher, Table};
 use rustred_campaign_core::domain::CaseDomain;
 use rustred_campaign_core::import::check::check_streamed_with_leaves;
-use rustred_campaign_core::import::{CheckOptions, Evidence, ImportedSet, Level, TableSetSpec, load};
+use rustred_campaign_core::import::{
+    CheckOptions, Evidence, ImportedSet, Level, TableSetSpec, load,
+};
 use rustred_campaign_core::order::NodeComparator;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -187,7 +189,11 @@ fn a_per_key_run_closes_relative_to_a_leaf_set_certified_only_at_imported_defect
         &[],
     )
     .unwrap();
-    assert!(l0.blocking().is_empty(), "layer 0 closed at its required level: {:?}", l0.blocking());
+    assert!(
+        l0.blocking().is_empty(),
+        "layer 0 closed at its required level: {:?}",
+        l0.blocking()
+    );
     let ls = leafset_like_layers(&set_i, &l0, &rows0, Level::Imported);
     assert!(ls.is_closed());
     let levels: Vec<String> = (0..ls.len()).map(|i| ls.level_of(i).to_string()).collect();
@@ -311,7 +317,8 @@ fn leaves_of(c: &rustred_campaign_core::closure::Closure, verdict: &str) -> Leaf
 /// Free rule on the chart lowering line 1 (`I(n0, n1-1)`), so every top key is served.
 fn chain_node() -> (Dispatcher, RuleBodies) {
     let mut t = Table::new("A", 4);
-    t.push(0, CaseDomain::free(4, Some(CHART.to_vec()))).unwrap();
+    t.push(0, CaseDomain::free(4, Some(CHART.to_vec())))
+        .unwrap();
     let d = Dispatcher::new(vec![t], vec![0]).unwrap();
     let mut b = RuleBodies::new(&d);
     b.set(&d, 0, 0, &["I(n0,n1-1,n2,n3)"]).unwrap();
@@ -323,7 +330,15 @@ fn chain_node() -> (Dispatcher, RuleBodies) {
 #[test]
 fn a_terminal_declared_later_at_a_frozen_key_refuses_the_later_walk() {
     let (d, b) = chain_node();
-    let base = closure(&d, &b, &cmp4(), &ks4(&[vec![3, 3, 0, 0]]), &cfg4(), &AllRegular).unwrap();
+    let base = closure(
+        &d,
+        &b,
+        &cmp4(),
+        &ks4(&[vec![3, 3, 0, 0]]),
+        &cfg4(),
+        &AllRegular,
+    )
+    .unwrap();
     assert_eq!(base.summary().verdict, Verdict::Closed);
     let ls = Arc::new(leaves_of(&base, "closed"));
     let term_at = |k: Vec<i32>| ClosureConfig {
@@ -334,11 +349,25 @@ fn a_terminal_declared_later_at_a_frozen_key_refuses_the_later_walk() {
         }),
         ..cfg4()
     };
-    match closure(&d, &b, &cmp4(), &ks4(&[vec![3, 5, 0, 0]]), &term_at(vec![3, 2, 0, 0]), &AllRegular) {
+    match closure(
+        &d,
+        &b,
+        &cmp4(),
+        &ks4(&[vec![3, 5, 0, 0]]),
+        &term_at(vec![3, 2, 0, 0]),
+        &AllRegular,
+    ) {
         Err(ClosureError::Leaves(m)) => assert!(m.contains("terminals@keys"), "{m}"),
         r => panic!("not refused: {:?}", r.map(|c| c.summary().verdict)),
     }
-    let ok = closure(&d, &b, &cmp4(), &ks4(&[vec![3, 5, 0, 0]]), &term_at(vec![7, 7, 0, 0]), &AllRegular);
+    let ok = closure(
+        &d,
+        &b,
+        &cmp4(),
+        &ks4(&[vec![3, 5, 0, 0]]),
+        &term_at(vec![7, 7, 0, 0]),
+        &AllRegular,
+    );
     assert!(ok.is_ok(), "{:?}", ok.err());
 }
 
@@ -394,8 +423,14 @@ fn random_node(seed: u64) -> (Dispatcher, RuleBodies, Vec<Vec<i32>>) {
             } else {
                 x[slot] += if up { -1 } else { 1 };
             }
-            let in_box = x[0] >= 1 && x[0] <= 3 && x[1] >= 1 && x[1] <= 3 && x[2] >= -1 && x[2] <= 0
-                && x[3] >= -1 && x[3] <= 0;
+            let in_box = x[0] >= 1
+                && x[0] <= 3
+                && x[1] >= 1
+                && x[1] <= 3
+                && x[2] >= -1
+                && x[2] <= 0
+                && x[3] >= -1
+                && x[3] <= 0;
             let tk: Vec<i32> = if r.below(5) == 0 || !in_box {
                 vec![k[0], 0, k[2], k[3]] // sub-sector (line 1 dropped): a hand-down
             } else {
@@ -454,12 +489,19 @@ fn layered_closure_equals_the_single_walk_on_seeded_random_tables() {
                         .winner(i)
                         .map(|w| format!("{}#{}", w.table, w.record))
                         .unwrap_or_else(|| "open".into());
-                    assert!(own.insert(c.key(i), w).is_none(), "seed {seed}: key walked twice");
+                    assert!(
+                        own.insert(c.key(i), w).is_none(),
+                        "seed {seed}: key walked twice"
+                    );
                 }
             }
             leaves.push(Arc::new(leaves_of(
                 &c,
-                if v == Verdict::Closed { "closed" } else { "open" },
+                if v == Verdict::Closed {
+                    "closed"
+                } else {
+                    "open"
+                },
             )));
         }
         let single_w: BTreeMap<Vec<i32>, String> = (0..single.len())
@@ -474,7 +516,12 @@ fn layered_closure_equals_the_single_walk_on_seeded_random_tables() {
             })
             .collect();
         assert_eq!(own, single_w, "seed {seed}: keys / winners differ");
-        assert_eq!(all_closed, s_closed, "seed {seed}: verdicts differ (single {:?})", single.summary().blocking);
+        assert_eq!(
+            all_closed,
+            s_closed,
+            "seed {seed}: verdicts differ (single {:?})",
+            single.summary().blocking
+        );
         if s_closed {
             closed_both += 1;
         } else {
@@ -482,5 +529,8 @@ fn layered_closure_equals_the_single_walk_on_seeded_random_tables() {
         }
     }
     eprintln!("random tables: closed in both {closed_both}, open in both {open_both}");
-    assert!(closed_both >= 10 && open_both >= 10, "both outcomes exercised: {closed_both} / {open_both}");
+    assert!(
+        closed_both >= 10 && open_both >= 10,
+        "both outcomes exercised: {closed_both} / {open_both}"
+    );
 }

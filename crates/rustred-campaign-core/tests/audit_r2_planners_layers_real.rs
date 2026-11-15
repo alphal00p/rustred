@@ -10,9 +10,13 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use rustred_campaign_core::closure::{KeySet, KeySetBuilder, LeafBinding, LeafSet, LeafSetBuilder, Tier};
+use rustred_campaign_core::closure::{
+    KeySet, KeySetBuilder, LeafBinding, LeafSet, LeafSetBuilder, Tier,
+};
 use rustred_campaign_core::import::check::check_streamed_with_leaves;
-use rustred_campaign_core::import::{CheckOptions, CheckResult, Evidence, ImportedSet, Level, TableSetSpec, load};
+use rustred_campaign_core::import::{
+    CheckOptions, CheckResult, Evidence, ImportedSet, Level, TableSetSpec, load,
+};
 use serde_json::{Value, json};
 
 fn coarse(lines: &[bool], k: &[i32]) -> i64 {
@@ -55,17 +59,20 @@ fn rows_of(p: &Path) -> BTreeMap<Vec<i32>, String> {
         let key: Vec<i32> = serde_json::from_value(v["key"].clone()).unwrap();
         let w = format!(
             "{}|{}|{}|{}",
-            v["status"],
-            v["server"],
-            v["evidence"],
-            v["open_status"]
+            v["status"], v["server"], v["evidence"], v["open_status"]
         );
         assert!(m.insert(key, w).is_none(), "key twice in {}", p.display());
     }
     m
 }
 
-fn leafset(set: &ImportedSet, res: &CheckResult, rows: &Path, required: Level, verdict: &str) -> LeafSet {
+fn leafset(
+    set: &ImportedSet,
+    res: &CheckResult,
+    rows: &Path,
+    required: Level,
+    verdict: &str,
+) -> LeafSet {
     let mut b = LeafSetBuilder::new(set.codec, vec![], vec![]);
     for l in std::fs::read_to_string(rows).unwrap().lines() {
         if l.trim().is_empty() {
@@ -84,7 +91,11 @@ fn leafset(set: &ImportedSet, res: &CheckResult, rows: &Path, required: Level, v
         b.aux(im).unwrap();
     }
     b.finish(LeafBinding {
-        statement_digest: res.streamed.as_ref().map(|s| s.sha256.clone()).unwrap_or_default(),
+        statement_digest: res
+            .streamed
+            .as_ref()
+            .map(|s| s.sha256.clone())
+            .unwrap_or_default(),
         source_verdict: verdict.into(),
         node: "audit".into(),
         clause: "layer".into(),
@@ -103,7 +114,9 @@ fn leafset(set: &ImportedSet, res: &CheckResult, rows: &Path, required: Level, v
 }
 
 fn no_blocker(res: &CheckResult) -> bool {
-    res.blocking().is_empty() && res.summary.cycles == Some(0) && res.summary.descent_violations == 0
+    res.blocking().is_empty()
+        && res.summary.cycles == Some(0)
+        && res.summary.descent_violations == 0
 }
 
 #[test]
@@ -139,7 +152,10 @@ fn layered_equals_single_on_real_nodes() {
         for k in set.start.iter() {
             let c = coarse(&lines, &k);
             if c <= max_dr {
-                by.entry(c).or_insert_with(|| KeySetBuilder::new(set.codec)).push(&k).unwrap();
+                by.entry(c)
+                    .or_insert_with(|| KeySetBuilder::new(set.codec))
+                    .push(&k)
+                    .unwrap();
                 all.push(&k).unwrap();
             }
         }
@@ -148,7 +164,8 @@ fn layered_equals_single_on_real_nodes() {
         std::fs::create_dir_all(&dir).unwrap();
         let t1 = std::time::Instant::now();
         let single_rows = dir.join("single.rows.jsonl");
-        let single = check_streamed_with_leaves(&set, &ev, &opts, &single_rows, &start, &[]).unwrap();
+        let single =
+            check_streamed_with_leaves(&set, &ev, &opts, &single_rows, &start, &[]).unwrap();
         let single_s = t1.elapsed().as_secs_f64();
         let t2 = std::time::Instant::now();
         let mut leaves: Vec<Arc<LeafSet>> = vec![];
@@ -163,17 +180,34 @@ fn layered_equals_single_on_real_nodes() {
             all_clean &= clean;
             let rows = rows_of(&rp);
             for (k, w) in rows {
-                assert!(composed.insert(k.clone(), w).is_none(), "{label}: key {k:?} walked in two layers");
+                assert!(
+                    composed.insert(k.clone(), w).is_none(),
+                    "{label}: key {k:?} walked in two layers"
+                );
             }
             layers.push(json!({"dr": c, "start": ks.len(), "own_keys": res.streamed.as_ref().map(|s| s.rows),
                 "leaves_reached": res.leaves.as_ref().map(|h| h.summary.reached), "clean": clean,
                 "blocking": res.blocking()}));
-            leaves.push(Arc::new(leafset(&set, &res, &rp, required, if clean { "closed" } else { "open" })));
+            leaves.push(Arc::new(leafset(
+                &set,
+                &res,
+                &rp,
+                required,
+                if clean { "closed" } else { "open" },
+            )));
         }
         let layered_s = t2.elapsed().as_secs_f64();
         let single_map = rows_of(&single_rows);
-        let only_single: Vec<&Vec<i32>> = single_map.keys().filter(|k| !composed.contains_key(*k)).take(5).collect();
-        let only_layered: Vec<&Vec<i32>> = composed.keys().filter(|k| !single_map.contains_key(*k)).take(5).collect();
+        let only_single: Vec<&Vec<i32>> = single_map
+            .keys()
+            .filter(|k| !composed.contains_key(*k))
+            .take(5)
+            .collect();
+        let only_layered: Vec<&Vec<i32>> = composed
+            .keys()
+            .filter(|k| !single_map.contains_key(*k))
+            .take(5)
+            .collect();
         let differ: Vec<&Vec<i32>> = single_map
             .iter()
             .filter(|(k, w)| composed.get(*k).is_some_and(|x| x != *w))
@@ -186,10 +220,18 @@ fn layered_equals_single_on_real_nodes() {
             "single_clean": no_blocker(&single), "single_blocking": single.blocking(), "layers_all_clean": all_clean,
             "layers": layers, "load_s": load_s, "single_s": single_s, "layered_s": layered_s});
         eprintln!("{rec}");
-        std::fs::write(dir.join("report.json"), serde_json::to_vec_pretty(&rec).unwrap()).unwrap();
+        std::fs::write(
+            dir.join("report.json"),
+            serde_json::to_vec_pretty(&rec).unwrap(),
+        )
+        .unwrap();
         report.push(rec);
         assert_eq!(single_map, composed, "{label}: layered rows != single rows");
         assert_eq!(no_blocker(&single), all_clean, "{label}: verdicts differ");
     }
-    std::fs::write(out.join("summary.json"), serde_json::to_vec_pretty(&report).unwrap()).unwrap();
+    std::fs::write(
+        out.join("summary.json"),
+        serde_json::to_vec_pretty(&report).unwrap(),
+    )
+    .unwrap();
 }

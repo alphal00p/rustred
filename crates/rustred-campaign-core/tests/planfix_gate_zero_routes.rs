@@ -16,7 +16,8 @@ use rustred_campaign_core::closure::Tier;
 use rustred_campaign_core::import::check::check;
 use rustred_campaign_core::import::lines::term_key_digest;
 use rustred_campaign_core::import::zero_proofs::{
-    LoadOptions, ZERO_PROOF_SCHEMA, ZeroProofFacts, ZeroProofs, is_confirmed_basis,
+    LoadOptions, VERIFY_SUMMARY_SCHEMA, VerifiedZeroProofs, ZERO_PROOF_SCHEMA, ZeroProofFacts,
+    ZeroProofs, is_confirmed_basis,
 };
 use rustred_campaign_core::import::{CheckOptions, Evidence, ImportedSet, TableSetSpec, load};
 use rustred_campaign_core::pieces::import_edges::{
@@ -73,7 +74,14 @@ fn inst(line: &str, rule: i64, key: [i32; 3], terms: &[([i32; 3], &str)]) -> Val
 }
 
 /// Compact fact verdict line of producer `producer`: the listed terms non-zero, every other term ZERO.
-fn compact(line: &str, index: i64, key: [i32; 3], n_terms: usize, nonzero: &[[i32; 3]], producer: &str) -> Value {
+fn compact(
+    line: &str,
+    index: i64,
+    key: [i32; 3],
+    n_terms: usize,
+    nonzero: &[[i32; 3]],
+    producer: &str,
+) -> Value {
     json!({"schema":"rustred.campaign.fact-verdict.v1","index":index,"record_sha256": sha(line.as_bytes()),"key":key,
         "verdict":"regular","n_terms":n_terms,"producer":producer,
         "nonzero":nonzero.iter().map(|k| format!("{:016x}", term_key_digest(k))).collect::<Vec<_>>()})
@@ -111,14 +119,35 @@ fn material(dir: &Path, facts: &[Value]) -> (ImportedSet, Evidence) {
     (set, ev)
 }
 
-fn proofs(dir: &Path, set: &ImportedSet) -> ZeroProofs {
+fn proof_file(dir: &Path) -> PathBuf {
     let proof = json!({"schema": ZERO_PROOF_SCHEMA, "record_sha256": sha(lines()[0].as_bytes()), "rule": 0,
         "term": 2, "locus": {"plane": [2, 0]}, "verdict": "zero_on_locus", "denominator": "nowhere_zero",
         "tool": "planfix-test@1"});
     let pp = dir.join("toy.zero-proofs.jsonl");
     std::fs::write(&pp, format!("{proof}\n")).unwrap();
-    let zp = ZeroProofs::load(set, &[pp], &LoadOptions::default()).unwrap();
-    assert_eq!(zp.stats.proved, 1);
+    pp
+}
+
+/// A verify summary (as `rr_coef_facts verify-zero-proofs --summary` writes it) listing `files` by sha256; (path, pin).
+fn summary(dir: &Path, files: &[&Path], verified: bool) -> (PathBuf, String) {
+    let shas: Vec<String> = files
+        .iter()
+        .map(|f| sha(&std::fs::read(f).unwrap()))
+        .collect();
+    let v = json!({"schema": VERIFY_SUMMARY_SCHEMA, "verified": verified, "proofs_sha256": shas,
+        "counts": {"mismatches": if verified { 0 } else { 1 }, "claims_without_record": 0}, "header_mismatch": []});
+    let p = dir.join("verify.summary.json");
+    let t = format!("{v}\n");
+    std::fs::write(&p, &t).unwrap();
+    (p, sha(t.as_bytes()))
+}
+
+/// The proofs of the toy, VERIFIED (audit r2-zeros F5: only a pinned verification gives facts).
+fn proofs(dir: &Path, set: &ImportedSet) -> VerifiedZeroProofs {
+    let pp = proof_file(dir);
+    let (sp, pin) = summary(dir, &[&pp], true);
+    let zp = VerifiedZeroProofs::load(set, &[pp], &sp, &pin, &LoadOptions::default()).unwrap();
+    assert_eq!(zp.proofs.stats.proved, 1);
     zp
 }
 
@@ -137,9 +166,18 @@ fn rr_proof_facts() -> Vec<Value> {
             &ls[0],
             0,
             [3, 1, 0],
-            &[([2, 1, 0], "nonzero"), ([3, 0, 0], "nonzero"), ([3, 1, 1], "zero")],
+            &[
+                ([2, 1, 0], "nonzero"),
+                ([3, 0, 0], "nonzero"),
+                ([3, 1, 1], "zero"),
+            ],
         ),
-        inst(&ls[1], 1, [2, 1, 0], &[([1, 1, 0], "nonzero"), ([2, 0, 0], "nonzero")]),
+        inst(
+            &ls[1],
+            1,
+            [2, 1, 0],
+            &[([1, 1, 0], "nonzero"), ([2, 0, 0], "nonzero")],
+        ),
     ]
 }
 
@@ -150,11 +188,22 @@ fn a_first_route_zero_is_dropped_only_when_an_independent_second_route_confirms_
     let (set, ev) = material(&d, &rr_proof_facts());
     let res = check(&set, &ev, &tier(Tier::C)).unwrap();
     let zp = proofs(&d, &set);
-    let zf = ZeroProofFacts::new(&set, &zp, &ev);
+    let zf = ZeroProofFacts::verified(&set, &zp, &ev);
     let (r, st) = gate_check_with(&set, &ev, &zf, &res, GateConfig::memory()).unwrap();
-    assert_eq!(r.verdict, GateVerdict::Pass, "{:?} {:?}", r.verdict, r.reasons);
+    assert_eq!(
+        r.verdict,
+        GateVerdict::Pass,
+        "{:?} {:?}",
+        r.verdict,
+        r.reasons
+    );
     assert_eq!(r.zero_terms_skipped, 1);
-    assert_eq!(st.zero_terms.get("zeros_route"), Some(&1), "{:?}", st.zero_terms);
+    assert_eq!(
+        st.zero_terms.get("zeros_route"),
+        Some(&1),
+        "{:?}",
+        st.zero_terms
+    );
     assert!(r.reasons.is_empty());
     // the same evidence WITHOUT the proof: refused, typed
     let (r0, _) = gate_check(&set, &ev, &res, GateConfig::memory()).unwrap();
@@ -165,28 +214,65 @@ fn a_first_route_zero_is_dropped_only_when_an_independent_second_route_confirms_
     let d = tmp("b");
     let ls = lines();
     let facts = vec![
-        compact(&ls[0], 0, [3, 1, 0], 3, &[[2, 1, 0], [3, 0, 0]], "exact_eval"),
-        compact(&ls[1], 1, [2, 1, 0], 2, &[[1, 1, 0], [2, 0, 0]], "exact_eval"),
+        compact(
+            &ls[0],
+            0,
+            [3, 1, 0],
+            3,
+            &[[2, 1, 0], [3, 0, 0]],
+            "exact_eval",
+        ),
+        compact(
+            &ls[1],
+            1,
+            [2, 1, 0],
+            2,
+            &[[1, 1, 0], [2, 0, 0]],
+            "exact_eval",
+        ),
     ];
     let (set, ev) = material(&d, &facts);
     let res = check(&set, &ev, &tier(Tier::C)).unwrap();
     let zp = proofs(&d, &set);
-    let zf = ZeroProofFacts::new(&set, &zp, &ev);
+    let zf = ZeroProofFacts::verified(&set, &zp, &ev);
     let (r, st) = gate_check_with(&set, &ev, &zf, &res, GateConfig::memory()).unwrap();
     assert_ne!(r.verdict, GateVerdict::Pass, "{:?}", r.verdict);
     assert_eq!(r.reasons, vec!["all_zeros_unconfirmed:1".to_string()]);
-    assert_eq!(st.zero_terms.get("second_route_unconfirmed"), Some(&1), "{:?}", st.zero_terms);
+    assert_eq!(
+        st.zero_terms.get("second_route_unconfirmed"),
+        Some(&1),
+        "{:?}",
+        st.zero_terms
+    );
 
     // (c) rr_proof zero confirmed by closeloop4's term-by-term comparison (confirmed basis): pass without a proof
     let d = tmp("c");
     let (set, mut ev) = material(&d, &rr_proof_facts());
     assert!(is_confirmed_basis("rr_proof + exact_eval"));
-    assert!(!is_confirmed_basis("rr_proof + rr_proof_elided"), "two dependent producers confirm nothing");
-    assert!(ev.confirm_basis(&sha(lines()[0].as_bytes()), &[3, 1, 0], "rr_proof + exact_eval"));
+    assert!(
+        !is_confirmed_basis("rr_proof + rr_proof_elided"),
+        "two dependent producers confirm nothing"
+    );
+    assert!(ev.confirm_basis(
+        &sha(lines()[0].as_bytes()),
+        &[3, 1, 0],
+        "rr_proof + exact_eval"
+    ));
     let res = check(&set, &ev, &tier(Tier::C)).unwrap();
     let (r, st) = gate_check(&set, &ev, &res, GateConfig::memory()).unwrap();
-    assert_eq!(r.verdict, GateVerdict::Pass, "{:?} {:?}", r.verdict, r.reasons);
-    assert_eq!(st.zero_terms.get("confirmed_basis"), Some(&1), "{:?}", st.zero_terms);
+    assert_eq!(
+        r.verdict,
+        GateVerdict::Pass,
+        "{:?} {:?}",
+        r.verdict,
+        r.reasons
+    );
+    assert_eq!(
+        st.zero_terms.get("confirmed_basis"),
+        Some(&1),
+        "{:?}",
+        st.zero_terms
+    );
     for d in ["a", "b", "c"] {
         let _ = std::fs::remove_dir_all(tmp(d));
     }
@@ -200,7 +286,7 @@ fn a_structural_proof_alone_is_one_route_and_drops_nothing() {
     let (set, ev) = material(&d, &[]);
     let res = check(&set, &ev, &tier(Tier::K)).unwrap();
     let zp = proofs(&d, &set);
-    let zf = ZeroProofFacts::new(&set, &zp, &ev);
+    let zf = ZeroProofFacts::verified(&set, &zp, &ev);
     let (r, st) = gate_check_with(&set, &ev, &zf, &res, GateConfig::memory()).unwrap();
     assert_eq!(r.zero_terms_skipped, 0);
     assert!(st.zero_terms.is_empty(), "{:?}", st.zero_terms);
@@ -215,7 +301,10 @@ fn a_plan_is_gated_only_against_the_table_set_it_names() {
     let d = tmp("e");
     let (set, _) = material(&d, &[]);
     let digest = table_set_digest(&set);
-    assert!(digest.starts_with("sha256:") && digest.len() == 71, "{digest}");
+    assert!(
+        digest.starts_with("sha256:") && digest.len() == 71,
+        "{digest}"
+    );
     let cmp = rustred_campaign_core::order::NodeComparator::legacy(3, None).unwrap();
     let keys = vec![UnservedKey {
         key: vec![3, 1, 0],
@@ -227,14 +316,91 @@ fn a_plan_is_gated_only_against_the_table_set_it_names() {
             regular_at_4: None,
         }],
     }];
-    let bound = plan(&cmp, &PlanInput::new(3, keys.clone()).with_table_set(digest.clone())).unwrap();
+    let bound = plan(
+        &cmp,
+        &PlanInput::new(3, keys.clone()).with_table_set(digest.clone()),
+    )
+    .unwrap();
     assert_eq!(bound.table_set_digest.as_deref(), Some(digest.as_str()));
     assert!(check_plan_table_set(&bound, &set).is_ok());
-    let other = plan(&cmp, &PlanInput::new(3, keys.clone()).with_table_set("sha256:other")).unwrap();
+    let other = plan(
+        &cmp,
+        &PlanInput::new(3, keys.clone()).with_table_set("sha256:other"),
+    )
+    .unwrap();
     let e = check_plan_table_set(&other, &set).unwrap_err();
     assert!(e.starts_with("plan_of_another_table_set:"), "{e}");
     let none = plan(&cmp, &PlanInput::new(3, keys)).unwrap();
     let e = check_plan_table_set(&none, &set).unwrap_err();
     assert!(e.starts_with("plan_table_set_unstated:"), "{e}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// planfix (audit r2-zeros F5): an UNVERIFIED proof file gives no fact (the same proof that confirms when its
+/// verification is pinned); a verification is accepted only when its summary is pinned, clean, and lists the file.
+#[test]
+fn an_unverified_proof_file_gives_no_fact_and_a_verification_must_be_pinned_and_list_the_file() {
+    let d = tmp("f5");
+    let (set, ev) = material(&d, &rr_proof_facts());
+    let res = check(&set, &ev, &tier(Tier::C)).unwrap();
+    let pp = proof_file(&d);
+    let raw = ZeroProofs::load(&set, std::slice::from_ref(&pp), &LoadOptions::default()).unwrap();
+    let un = ZeroProofFacts::new(&set, &raw, &ev);
+    assert!(!un.is_verified());
+    let (r, st) = gate_check_with(&set, &ev, &un, &res, GateConfig::memory()).unwrap();
+    assert_ne!(
+        r.verdict,
+        GateVerdict::Pass,
+        "an unverified proof confirmed a zero"
+    );
+    assert_eq!(r.reasons, vec!["all_zeros_unconfirmed:1".to_string()]);
+    assert_eq!(st.zero_terms.get("second_route_unconfirmed"), Some(&1));
+    // pinned + clean + listed: the proof confirms
+    let (sp, pin) = summary(&d, &[&pp], true);
+    let v = VerifiedZeroProofs::load(
+        &set,
+        std::slice::from_ref(&pp),
+        &sp,
+        &pin,
+        &LoadOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(v.files.len(), 1);
+    let (r, _) = gate_check_with(
+        &set,
+        &ev,
+        &ZeroProofFacts::verified(&set, &v, &ev),
+        &res,
+        GateConfig::memory(),
+    )
+    .unwrap();
+    assert_eq!(r.verdict, GateVerdict::Pass);
+    // refusals (typed): another pin, a summary that is not clean, a file the summary does not list
+    let load = |sp: &Path, pin: &str| {
+        VerifiedZeroProofs::load(
+            &set,
+            std::slice::from_ref(&pp),
+            sp,
+            pin,
+            &LoadOptions::default(),
+        )
+        .err()
+        .unwrap_or_default()
+    };
+    assert!(load(&sp, &"0".repeat(64)).starts_with("zero_proofs_unverified:"));
+    let (sp2, pin2) = summary(&d, &[&pp], false);
+    assert!(
+        load(&sp2, &pin2).contains("clean verification"),
+        "{}",
+        load(&sp2, &pin2)
+    );
+    let other = d.join("other.jsonl");
+    std::fs::write(&other, "{}\n").unwrap();
+    let (sp3, pin3) = summary(&d, &[&other], true);
+    assert!(
+        load(&sp3, &pin3).contains("is not a file the pinned summary verified"),
+        "{}",
+        load(&sp3, &pin3)
+    );
     let _ = std::fs::remove_dir_all(&d);
 }

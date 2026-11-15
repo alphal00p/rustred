@@ -56,10 +56,7 @@ fn an_element_label_region_spans_keys_whose_composed_relations_differ() {
         fk(&[4, 1, -1], &["e3+T#2"]),
         fk(&[2, 1, -2], &["e3+T#1"]),
     ];
-    let keys_el: Vec<FaceKey> = keys_form
-        .iter()
-        .map(|k| fk(&k.key, &["e3"]))
-        .collect();
+    let keys_el: Vec<FaceKey> = keys_form.iter().map(|k| fk(&k.key, &["e3"])).collect();
     let p = RegionPolicy::default();
     let by_el = fit_regions(
         &FaceInput {

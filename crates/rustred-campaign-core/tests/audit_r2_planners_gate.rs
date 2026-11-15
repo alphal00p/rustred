@@ -129,9 +129,18 @@ fn an_unconfirmed_first_route_zero_on_a_non_descending_term_passes_the_ship_gate
             &l0,
             0,
             [3, 1, 0],
-            &[([2, 1, 0], "nonzero"), ([3, 0, 0], "nonzero"), ([3, 1, 1], "zero")],
+            &[
+                ([2, 1, 0], "nonzero"),
+                ([3, 0, 0], "nonzero"),
+                ([3, 1, 1], "zero"),
+            ],
         ),
-        fact_line(&l1, 1, [2, 1, 0], &[([1, 1, 0], "nonzero"), ([2, 0, 0], "nonzero")]),
+        fact_line(
+            &l1,
+            1,
+            [2, 1, 0],
+            &[([1, 1, 0], "nonzero"), ([2, 0, 0], "nonzero")],
+        ),
     ]
     .join("\n")
         + "\n";
@@ -158,8 +167,17 @@ fn an_unconfirmed_first_route_zero_on_a_non_descending_term_passes_the_ship_gate
     assert_ne!(r0.verdict, GateVerdict::Pass, "{:?}", r0.verdict);
     assert_eq!(r0.zero_terms_skipped, 0);
     assert_eq!(r0.zero_unconfirmed_non_descending, 1);
-    assert!(r0.reasons.iter().any(|r| r == "all_zeros_unconfirmed:1"), "{:?}", r0.reasons);
-    assert_eq!(s0.zero_terms.get("second_route_unconfirmed"), Some(&1), "{:?}", s0.zero_terms);
+    assert!(
+        r0.reasons.iter().any(|r| r == "all_zeros_unconfirmed:1"),
+        "{:?}",
+        r0.reasons
+    );
+    assert_eq!(
+        s0.zero_terms.get("second_route_unconfirmed"),
+        Some(&1),
+        "{:?}",
+        s0.zero_terms
+    );
 
     let zp = ZeroProofs::load(&set, &[], &LoadOptions::default()).unwrap();
     assert_eq!(zp.stats.proved, 0, "no structural proof at all");
@@ -168,7 +186,11 @@ fn an_unconfirmed_first_route_zero_on_a_non_descending_term_passes_the_ship_gate
     // FIXED (planfix G1; was DEFECT): B2's fact source refuses the same unconfirmed zero (no proof = no second route)
     assert_ne!(r1.verdict, GateVerdict::Pass, "{:?}", r1.verdict);
     assert_eq!(r1.zero_terms_skipped, 0);
-    assert!(r1.reasons.iter().any(|r| r == "all_zeros_unconfirmed:1"), "{:?}", r1.reasons);
+    assert!(
+        r1.reasons.iter().any(|r| r == "all_zeros_unconfirmed:1"),
+        "{:?}",
+        r1.reasons
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -193,7 +215,11 @@ fn a_gate_run_on_another_table_set_than_its_check_passes_what_that_set_ships_def
     let (set_b, ev_b) = material(&db, &[("X", "repair", tx), ("A", "base", ta)], None, "K");
     let res_b = check_streamed(&set_b, &ev_b, &opts(Tier::K), &db.join("b.rows.jsonl")).unwrap();
     let (rb, _) = gate_check(&set_b, &ev_b, &res_b, GateConfig::memory()).unwrap();
-    assert_ne!(rb.verdict, GateVerdict::Pass, "B's own check fails the gate");
+    assert_ne!(
+        rb.verdict,
+        GateVerdict::Pass,
+        "B's own check fails the gate"
+    );
     assert_ne!(res_a.spec_digest, set_b.report.spec_digest);
     // FIXED (planfix G2; was DEFECT): the gate refuses a check of another spec / table set (typed word)
     match gate_check(&set_b, &ev_b, &res_a, GateConfig::memory()) {
@@ -208,7 +234,8 @@ fn a_gate_run_on_another_table_set_than_its_check_passes_what_that_set_ships_def
 /// (descent + acyclicity only) passes the hand-down edge into a key that nothing serves. Neither refuses: the closure
 /// walk of the closing loop is what keeps it open. The plan / gate reports are not closure statements.
 #[test]
-fn a_hand_down_into_an_unserved_key_outside_the_input_is_called_outside_input_and_passes_the_gate() {
+fn a_hand_down_into_an_unserved_key_outside_the_input_is_called_outside_input_and_passes_the_gate()
+{
     let cmp = rustred_campaign_core::order::NodeComparator::legacy(3, None).unwrap();
     let k = vec![3, 1, 0];
     let t = vec![2, 1, 0]; // lower; NOT in the input; nothing serves it anywhere
@@ -229,9 +256,16 @@ fn a_hand_down_into_an_unserved_key_outside_the_input_is_called_outside_input_an
     let v = serde_json::to_value(&p).unwrap();
     let s = v.to_string();
     // FIXED (planfix G3): the target outside the input is `outside_input` (unknown to the planner), never "served"
-    assert!(!s.contains("\"served\""), "hand-down target labelled served: {s}");
+    assert!(
+        !s.contains("\"served\""),
+        "hand-down target labelled served: {s}"
+    );
     assert!(s.contains("\"outside_input\""), "{s}");
-    assert!(p.core_open.is_empty(), "no key left to the core: {:?}", p.core_open);
+    assert!(
+        p.core_open.is_empty(),
+        "no key left to the core: {:?}",
+        p.core_open
+    );
     let mut g = ShipGate::new(&cmp, 3, GateConfig::memory()).unwrap();
     g.push_relation(&k, "hd", [(&t[..], NonZero::Yes)].into_iter())
         .unwrap();

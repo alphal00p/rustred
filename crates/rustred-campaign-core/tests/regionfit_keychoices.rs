@@ -226,7 +226,11 @@ fn an_element_label_region_names_the_image_rules_it_stands_for() {
     let regions = rec_el["regions"].as_array().unwrap();
     assert_eq!(regions.len(), 1, "{rec_el}");
     assert_eq!(regions[0]["choice"], "e3");
-    assert_eq!(regions[0]["image_rules"], serde_json::json!(["e3+T#1", "e3+T#2"]), "{rec_el}");
+    assert_eq!(
+        regions[0]["image_rules"],
+        serde_json::json!(["e3+T#1", "e3+T#2"]),
+        "{rec_el}"
+    );
     assert_eq!(regions[0]["image_rule_uniform"], false);
     // the form label: one image rule per region, the choice itself
     let faces = faces_from_key_choices(&rs, &KeyChoicesOptions::default()).unwrap();
@@ -234,10 +238,18 @@ fn an_element_label_region_names_the_image_rules_it_stands_for() {
         .unwrap()
         .record();
     for r in rec_f["regions"].as_array().unwrap() {
-        assert_eq!(r["image_rules"], serde_json::json!([r["choice"].clone()]), "{rec_f}");
+        assert_eq!(
+            r["image_rules"],
+            serde_json::json!([r["choice"].clone()]),
+            "{rec_f}"
+        );
         assert_eq!(r["image_rule_uniform"], true);
     }
     for r in rec_f["residual"].as_array().unwrap() {
-        assert_eq!(r["image_rules"], serde_json::json!([r["choice"].clone()]), "{rec_f}");
+        assert_eq!(
+            r["image_rules"],
+            serde_json::json!([r["choice"].clone()]),
+            "{rec_f}"
+        );
     }
 }

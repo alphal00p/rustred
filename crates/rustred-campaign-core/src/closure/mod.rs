@@ -2237,10 +2237,11 @@ fn run(
             identity.components.insert(
                 "leaf_requirement".into(),
                 format!(
-                    "{}|{}|strict={}",
+                    "{}|{}|strict={}|zero_route={}",
                     r.required_level,
                     leaves::tier_word(r.tier),
-                    r.strict
+                    r.strict,
+                    r.zero_route.join("+")
                 ),
             );
         }
@@ -2778,6 +2779,7 @@ fn run(
                 required_level: leaves::LEAF_LEVEL_ORDER[0].to_string(),
                 tier: cfg.tier,
                 strict: false,
+                zero_route: vec![],
             }),
         walk_inputs: Arc::new(WalkInputs {
             rsets: ctx.rsets.clone(),

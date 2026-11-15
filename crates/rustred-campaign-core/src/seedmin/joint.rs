@@ -14,8 +14,8 @@ use super::key::{KeyMachine, KeyMin, TrialLog, check_input, preflight, run_locks
 use super::order::{drop_order, row_ordered, union_in_order, without, without_all};
 use super::policy::SeedMinPolicy;
 use super::{
-    Key, Offset, PoleOrder, RelationFacts, SeedMinError, SystemPoles, Trial, TrialAnswer, TrialMode,
-    TrialSolver, key_label, list_digest, run_batch, sha256_hex,
+    Key, Offset, PoleOrder, RelationFacts, SeedMinError, SystemPoles, Trial, TrialAnswer,
+    TrialMode, TrialSolver, key_label, list_digest, run_batch, sha256_hex,
 };
 
 /// One piece of a domain: the keys a list is certified at.
@@ -1051,7 +1051,9 @@ pub fn verify_beyond_piece(
     let full_valid = full
         .as_ref()
         .map(|f| f.iter().filter(|a| a.relation().is_some()).count());
-    let full_regular = full.as_ref().map(|f| f.iter().filter(|a| regular(a)).count());
+    let full_regular = full
+        .as_ref()
+        .map(|f| f.iter().filter(|a| regular(a)).count());
     let claim = format!(
         "pole objective applied at the {} piece keys only; at {} further keys: a relation at {}, regular at {}{}",
         piece.keys.len(),

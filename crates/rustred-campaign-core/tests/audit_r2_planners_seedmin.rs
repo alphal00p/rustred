@@ -72,12 +72,21 @@ fn shell() -> Vec<Offset> {
 /// needs a seed nobody inside needs.
 fn oracle() -> (Oracle, Vec<Key>, Key) {
     let mut o = Oracle::default();
-    let privs: [[i32; 3]; 6] = [[1, 0, 0], [0, 1, 0], [0, 0, -1], [1, 1, 0], [1, 0, -1], [0, 1, -1]];
+    let privs: [[i32; 3]; 6] = [
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, -1],
+        [1, 1, 0],
+        [1, 0, -1],
+        [0, 1, -1],
+    ];
     let mut keys = vec![];
     for (i, p) in privs.iter().enumerate() {
         let k: Key = vec![2 + i as i32, 1, 0];
-        o.needs
-            .insert(k.clone(), vec![vec![vec![0, 0, 0], p.to_vec()], vec![vec![-1, -1, -1]]]);
+        o.needs.insert(
+            k.clone(),
+            vec![vec![vec![0, 0, 0], p.to_vec()], vec![vec![-1, -1, -1]]],
+        );
         keys.push(k);
     }
     let outside: Key = vec![8, 1, 0];
@@ -92,7 +101,15 @@ fn the_same_input_gives_the_same_list_and_record_also_with_parallel_trials() {
         let (mut o, keys, _) = oracle();
         let mut p = SeedMinPolicy::default();
         p.parallel_trials = par;
-        let jm = minimise_joint(&keys, &[0, 0, 0], &shell(), &p, &mut o, &mut StubSystemPoles).unwrap();
+        let jm = minimise_joint(
+            &keys,
+            &[0, 0, 0],
+            &shell(),
+            &p,
+            &mut o,
+            &mut StubSystemPoles,
+        )
+        .unwrap();
         let lists: Vec<Vec<Offset>> = jm.pieces.iter().map(|p| p.list.clone()).collect();
         (lists, jm.record.to_string())
     };
@@ -108,7 +125,15 @@ fn the_same_input_gives_the_same_list_and_record_also_with_parallel_trials() {
 fn valid_is_claimed_only_at_the_keys_handed_in_and_the_final_verification_solves_every_one() {
     let (mut o, keys, outside) = oracle();
     let p = SeedMinPolicy::default();
-    let jm = minimise_joint(&keys, &[0, 0, 0], &shell(), &p, &mut o, &mut StubSystemPoles).unwrap();
+    let jm = minimise_joint(
+        &keys,
+        &[0, 0, 0],
+        &shell(),
+        &p,
+        &mut o,
+        &mut StubSystemPoles,
+    )
+    .unwrap();
     assert_eq!(jm.pieces.len(), 1);
     let pc = &jm.pieces[0];
     assert_eq!(pc.keys.len(), keys.len());

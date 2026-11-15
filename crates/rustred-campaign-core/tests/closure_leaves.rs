@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use rustred_campaign_core::closure::{
     ClosureConfig, ClosureError, CoefFact, DispatchSlot, FactSource, HandDowns, KeyCodec, KeySet,
-    LeafBinding, LeafProducer, LeafSet, LeafSetBuilder, NoFacts, RegFact, RelationSet, RelationStoreBuilder,
-    RuleBodies, RuleId, Tier, VERDICT_CERTIFIED, Verdict, closure,
+    LeafBinding, LeafProducer, LeafSet, LeafSetBuilder, NoFacts, RegFact, RelationSet,
+    RelationStoreBuilder, RuleBodies, RuleId, Tier, VERDICT_CERTIFIED, Verdict, closure,
 };
 use rustred_campaign_core::cover::{Dispatcher, Table};
 use rustred_campaign_core::domain::CaseDomain;

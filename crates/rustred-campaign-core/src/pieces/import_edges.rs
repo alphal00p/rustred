@@ -62,7 +62,6 @@ fn term_class(lines: &[bool], k: &[i32]) -> &'static str {
     }
 }
 
-
 /// A relation handed to the sink: key, provenance, terms.
 pub type RelationSink<'a> =
     dyn FnMut(&[i32], &str, &[(Vec<i32>, NonZero)]) -> Result<(), String> + 'a;
@@ -130,7 +129,8 @@ fn rule_terms(
             CoefFact::NonZero => NonZero::Yes,
             CoefFact::Unknown => NonZero::Unknown,
             CoefFact::Zero => {
-                let c = confirm_first_route_zero(ev.fact_basis(&rid, applied), facts, &rid, applied, j);
+                let c =
+                    confirm_first_route_zero(ev.fact_basis(&rid, applied), facts, &rid, applied, j);
                 *zeros.entry(c.word().to_string()).or_default() += 1;
                 if c.confirmed() {
                     NonZero::Zero
