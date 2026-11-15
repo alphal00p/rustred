@@ -105,6 +105,8 @@ fn real_node_composed_profiles() {
         max_depth: spec.budgets.max_depth,
         max_keys: spec.budgets.max_keys,
         max_seconds: spec.budgets.max_seconds,
+        keep_coefficients: std::env::var("EPSDEPTH_REREAD").is_err(),
+        progress: true,
     };
     let nt = src.n_terminals();
     let terminals = src.terminals().to_vec();

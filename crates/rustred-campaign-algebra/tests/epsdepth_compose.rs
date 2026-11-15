@@ -327,6 +327,17 @@ fn deterministic_report_and_streaming_equals_memoised() {
         (h, rows)
     };
     let x = one(&mut s, &[A, B, C]);
+    // phase 3 re-reading the source (keep_coefficients false) gives the same composition
+    let c1 = run(&mut s, &[A, B, C], &ComposeParams::default());
+    let c2 = run(
+        &mut s,
+        &[A, B, C],
+        &ComposeParams {
+            keep_coefficients: false,
+            ..Default::default()
+        },
+    );
+    assert_eq!(c1.results, c2.results);
     let y = one(&mut s, &[C, B, A]);
     assert_eq!(x.1, y.1);
     assert_eq!(x.0["per_terminal"], y.0["per_terminal"]);
