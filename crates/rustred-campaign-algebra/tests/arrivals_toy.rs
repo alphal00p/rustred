@@ -301,6 +301,65 @@ fn compute_x(t: &Toy, out: &Path, threads: &str, extra: &[&str]) -> (i32, Value)
     run(&args)
 }
 
+/// `compute` on another rows file (same toy).
+fn compute_rows(t: &Toy, rows: &Path, out: &Path, extra: &[&str]) -> (i32, Value) {
+    let child = format!("C={}", t.ctable.display());
+    let mut args = vec![
+        "compute",
+        "--spec",
+        t.pspec.to_str().unwrap(),
+        "--rows",
+        rows.to_str().unwrap(),
+        "--edge",
+        t.edge.to_str().unwrap(),
+        "--out-dir",
+        out.to_str().unwrap(),
+        "--parent",
+        "P",
+        "--child-table",
+        &child,
+        "--edge-producer",
+        "toy (test)",
+        "--threads",
+        "2",
+    ];
+    args.extend_from_slice(extra);
+    run(&args)
+}
+
+#[test]
+fn streamed_walk_reads_unsorted_rows_and_refuses_a_duplicate_key() {
+    let Some(_a) = alg() else { return };
+    let t = build("rows");
+    let text = std::fs::read_to_string(&t.rows).unwrap();
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert!(lines.len() > 2);
+    // reversed order: the compact reader sorts; the arrival lines are those of the in-memory walk on the sorted file
+    let rev = t.dir.join("rows_rev.jsonl");
+    let mut r: Vec<&str> = lines.clone();
+    r.reverse();
+    std::fs::write(&rev, r.join("\n") + "\n").unwrap();
+    let (rc1, s1) = compute_rows(&t, &t.rows, &t.dir.join("o_mem"), &["--in-memory"]);
+    assert_eq!(rc1, 0, "{s1}");
+    let (rc2, s2) = compute_rows(&t, &rev, &t.dir.join("o_rev"), &[]);
+    assert_eq!(rc2, 0, "{s2}");
+    let a = format::read(&t.dir.join("o_mem").join("P-C.arrivals.jsonl")).unwrap();
+    let b = format::read(&t.dir.join("o_rev").join("P-C.arrivals.jsonl")).unwrap();
+    assert_eq!(a.lines, b.lines);
+    assert_eq!(a.summary["lines_digest"], b.summary["lines_digest"]);
+    assert_eq!(
+        a.header["parent"]["closure_digest"],
+        b.header["parent"]["closure_digest"]
+    );
+    // a key twice: refused
+    let dup = t.dir.join("rows_dup.jsonl");
+    std::fs::write(&dup, text.clone() + lines[0] + "\n").unwrap();
+    let (rc3, s3) = compute_rows(&t, &dup, &t.dir.join("o_dup"), &[]);
+    assert_ne!(rc3, 0, "a duplicate key must be refused: {s3}");
+    let (rc4, s4) = compute_rows(&t, &dup, &t.dir.join("o_dup_mem"), &["--in-memory"]);
+    assert_ne!(rc4, 0, "the in-memory reader refuses it too: {s4}");
+}
+
 #[test]
 fn streamed_walk_equals_in_memory_walk() {
     let Some(_a) = alg() else { return };
