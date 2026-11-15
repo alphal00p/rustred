@@ -286,9 +286,12 @@ pub enum MasterCheckMode {
     /// As `Grow`, and `extend` fails with [`crate::solver::SolverError::MasterCheck`]
     /// when extra masters, missing or excess classes remain after growth, or
     /// when the +1 stability check ([`BoxOptions::stability`]) finds another
-    /// master set. In `Report` and `Grow` an unstable system is only
-    /// reported (`ModularReport::stable == Some(false)`): its masters are
-    /// those of the enlarged system, and they are not checked for stability
+    /// master set. A refusal fails the session: every later `extend` is
+    /// refused with the same verdict, and the session keeps no selection,
+    /// so it can neither materialise nor be checkpointed. In `Report` and
+    /// `Grow` an unstable system is only reported
+    /// (`ModularReport::stable == Some(false)`): its masters are those of
+    /// the enlarged system, and they are not checked for stability
     /// themselves.
     Strict,
 }
@@ -500,7 +503,8 @@ pub struct ModularReport<const N: usize> {
     /// Sectors grown in each round, by id (empty with Kira boxes).
     pub growth: Vec<Vec<u32>>,
     /// `Some(true)` when the enlarged system reproduced the master set;
-    /// `None` without a stability check or when this call seeded nothing.
+    /// `None` without a stability check. A call that seeded nothing reports
+    /// the verdict of the last check.
     pub stable: Option<bool>,
     /// Masters before the stability enlargement (equal to `masters` when
     /// stable).
