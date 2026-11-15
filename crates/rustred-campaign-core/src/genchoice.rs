@@ -1034,7 +1034,41 @@ fn constrained_first(shape: &FamilyShape, lists: &[Vec<OpenCase>], m: usize) -> 
         })
         .collect();
     v.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then(a.2.cmp(&b.2)));
-    v.into_iter().take(m).map(|(_, _, _, c)| c).collect()
+    // v1.4 (after blind T228 attempt 2: the most constrained cases were all of ONE type, all lines at 1, while the slow
+    // cases had free lines + a dot): round robin over the case TYPES (free lines, free ISPs, interior slots), each type's
+    // most constrained case first, types in the order of their best case
+    let ty = |c: &OpenCase| {
+        let free_l = shape
+            .lines
+            .iter()
+            .filter(|&&s| c.fixed[s].is_none())
+            .count();
+        let free_i = shape.isps.iter().filter(|&&s| c.fixed[s].is_none()).count();
+        let interior = (0..shape.arity)
+            .filter(|&s| r1_class(shape.is_line(s), c.fixed[s]) == 2)
+            .count();
+        (free_l, free_i, interior)
+    };
+    let mut groups: Vec<((usize, usize, usize), std::collections::VecDeque<OpenCase>)> = Vec::new();
+    for (_, _, _, c) in v {
+        let t = ty(&c);
+        match groups.iter_mut().find(|g| g.0 == t) {
+            Some(g) => g.1.push_back(c),
+            None => groups.push((t, std::collections::VecDeque::from([c]))),
+        }
+    }
+    let mut out = Vec::new();
+    while out.len() < m && groups.iter().any(|g| !g.1.is_empty()) {
+        for g in groups.iter_mut() {
+            if out.len() >= m {
+                break;
+            }
+            if let Some(c) = g.1.pop_front() {
+                out.push(c);
+            }
+        }
+    }
+    out
 }
 
 /// What a candidate's deep job gave on the deep cases.
