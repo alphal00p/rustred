@@ -136,14 +136,15 @@ pub struct RecipeBound {
 impl Default for RecipeBound {
     fn default() -> Self {
         RecipeBound {
-            // T266 first measurement (coordinator addendum 2026-11-15T21:01Z, lane vk5l-wp2,
-            // artefacts/size/recipe_vs_table_T266.first5.json): centre-on-key depth 2 found NO relation on 5/5 heavy
-            // few-key rules; centre one step down the first dotted line + floor + depth 2 + symmetry rows + m1_first
-            // solved; then the repair flow's depth-2 face steps (repairflow.md 9)
+            // T266 measurement (lane vk5l-wp2, artefacts/size/recipe_vs_table_T266.json, 1,000 heaviest rules):
+            // centre on the key, depth 2: NO relation on 5/5 sampled; centre one step down the first dotted line, floor
+            // on the dotted lines, shells S0 S1 Sm1 S1m1 S2 (`_wdown`), symmetry rows, m1_first: 966/1,000 solved within
+            // 120 s (its recipe files, e.g. t266m/r7181.cfirst_fon_d2_s_m1.recipe.json, are this step exactly); then
+            // the last-line and union centres of the repair flow's depth-2 face steps (repairflow.md 9)
             steps: vec![
-                "d2_cfirst_fon_ssym_mM1C".into(),
-                "d2_clast_fon_mM1C".into(),
-                "d2_cunion_fon_mM1C".into(),
+                "d2_cfirst_fon_wdown_ssym_mM1C".into(),
+                "d2_clast_fon_wdown_mM1C".into(),
+                "d2_cunion_fon_wdown_mM1C".into(),
             ],
             max_trace_rows: Some(200_000),
             key_budget_s: Some(120),

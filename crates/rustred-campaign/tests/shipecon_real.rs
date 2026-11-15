@@ -56,6 +56,9 @@ fn real_ship_economy() {
         table_times: opt("table_times"),
         engine_probe_sample: c["engine_probe_sample"].as_u64().unwrap_or(2000) as usize,
         engine_first_match: opt("engine_first_match"),
+        statement_format: c["statement_format"].as_str().unwrap_or("tool").to_string(),
+        rule_index: opt("rule_index"),
+        check_mode: c["check_mode"].as_str().unwrap_or("full").to_string(),
         verbose: true,
     };
     let rep = run_ship(&cfg).unwrap();

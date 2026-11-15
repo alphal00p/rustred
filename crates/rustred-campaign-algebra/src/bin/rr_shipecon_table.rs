@@ -14,6 +14,7 @@
 //! environment (`source WS/ops/env.sh`).
 
 #[path = "../compose_sym.rs"]
+#[allow(dead_code)]
 mod compose_sym;
 
 use compose_sym::{SetCatalogue, SymQd};
@@ -114,9 +115,6 @@ fn measure(
             }
             Ok(Service::Unserved(w)) => {
                 return json!({"record_sha256": sha, "error": format!("key {k:?}: {w}"), "tool": tool});
-            }
-            Ok(_) => {
-                return json!({"record_sha256": sha, "error": format!("key {k:?}: not a rule service"), "tool": tool});
             }
             Err(e) => return json!({"record_sha256": sha, "error": format!("key {k:?}: {e}"), "tool": tool}),
         };

@@ -70,6 +70,15 @@ pub struct ShipRunConfig {
     pub table_times: Option<PathBuf>,
     /// Keys of the engine dispatch cross-check (every migrated key + a stride sample of the closure up to this many).
     pub engine_probe_sample: usize,
+    /// Format of `statement_rows`: `tool` (the tool's statement.jsonl) | `ship_keys` (JSON arrays `[key text, kind,
+    /// rule index | null, in_box, ..]`: a ship's per-key server list; `rule_index` maps a rule index to its record sha256).
+    pub statement_format: String,
+    /// The table's index (`{"index", "kind": "rule", "sha256"}` per line) for `ship_keys`.
+    pub rule_index: Option<PathBuf>,
+    /// `full` (the import loads and checks the shipped spec) | `local` (the material is a SELECTION of the node's rules:
+    /// coverage is proved locally: every migrated key served by its certified relation whose top right-hand side lies in
+    /// the certified set; requires `coverage.require_rhs_in_certified_set`).
+    pub check_mode: String,
     /// `rr_node first-match --table ship/probe/table.jsonl --keys ship/probe/keys.jsonl` output of an earlier run's
     /// probe (compared key by key with the import's dispatch of the shipped spec).
     pub engine_first_match: Option<PathBuf>,
@@ -182,7 +191,55 @@ fn census_and_before(
     let mut b = CensusBuilder::new(rules_of(set), cfg.policy.candidates.max_keys_per_rule)?;
     let mut v = ClosureView::default();
     let source;
+    let index_map: BTreeMap<i64, String> = match (&cfg.rule_index, cfg.statement_format.as_str()) {
+        (Some(ip), "ship_keys") => {
+            let f = std::fs::File::open(ip).map_err(|e| format!("{}: {e}", ip.display()))?;
+            let mut m = BTreeMap::new();
+            for l in std::io::BufReader::new(f).lines() {
+                let l = l.map_err(|e| e.to_string())?;
+                let v: Value = serde_json::from_str(&l).map_err(|e| format!("{}: {e}", ip.display()))?;
+                if v["kind"] == "rule"
+                    && let (Some(i), Some(h)) = (v["index"].as_i64(), v["sha256"].as_str())
+                {
+                    m.insert(i, h.to_string());
+                }
+            }
+            m
+        }
+        (None, "ship_keys") => return Err("statement_format ship_keys needs rule_index".into()),
+        (_, "tool") => BTreeMap::new(),
+        (_, f) => return Err(format!("statement_format {f:?}: tool | ship_keys")),
+    };
     match &cfg.statement_rows {
+        Some(p) if cfg.statement_format == "ship_keys" => {
+            let f = std::fs::File::open(p).map_err(|e| format!("{}: {e}", p.display()))?;
+            for l in std::io::BufReader::with_capacity(1 << 20, f).lines() {
+                let l = l.map_err(|e| format!("{}: {e}", p.display()))?;
+                if l.trim().is_empty() {
+                    continue;
+                }
+                let r: Value = serde_json::from_str(&l).map_err(|e| format!("{}: {e}", p.display()))?;
+                let key = r[0]
+                    .as_str()
+                    .and_then(rustred_campaign_core::assemble::parse_key_text)
+                    .ok_or_else(|| format!("{}: key {}", p.display(), r[0]))?;
+                let in_start = r[3] == true;
+                let sha = (r[1] == "table")
+                    .then(|| r[2].as_i64().and_then(|i| index_map.get(&i)).map(String::as_str))
+                    .flatten();
+                b.add(&key, in_start, sha);
+                if r[1] == "terminal" {
+                    v.terminals.push(key.clone());
+                }
+                if in_start {
+                    v.start.push(key.clone());
+                }
+                v.keys.push(key);
+            }
+            source = json!({"statement_rows": p.display().to_string(), "format": "ship_keys",
+                "bytes": std::fs::metadata(p).map(|m| m.len()).unwrap_or(0),
+                "rule_index": cfg.rule_index.as_ref().map(|x| x.display().to_string())});
+        }
         Some(p) => {
             let f = std::fs::File::open(p).map_err(|e| format!("{}: {e}", p.display()))?;
             for l in std::io::BufReader::with_capacity(1 << 20, f).lines() {
@@ -915,7 +972,54 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
     let mut closing: Option<ClosingCheck> = None;
     let mut final_spec: Option<TableSetSpec> = None;
     let mut probe: Option<Value> = None;
+    let local = cfg.check_mode == "local";
+    if local && !p.coverage.require_rhs_in_certified_set {
+        return Err("check_mode local needs coverage.require_rhs_in_certified_set".into());
+    }
+    if local {
+        // every migrated key: served by its certified relation (the accept chain: exact proof, regularity, strict
+        // descent under the full comparator) whose top right-hand side lies in the certified set (decide refused the
+        // others): every reached key stays a certified key with its old service or its new relation, every new edge
+        // descends (acyclic); the closure can only shrink; terminals are a subset (reachability not recomputed)
+        let migrated: Vec<&RuleDecision> = decisions.iter().filter(|d| d.outcome.migrates()).collect();
+        let unserved: Vec<Vec<i32>> = migrated
+            .iter()
+            .flat_map(|d| d.keys.iter())
+            .filter(|k| !matches!(k.form.as_str(), "recipe" | "stored"))
+            .map(|k| k.key.clone())
+            .collect();
+        let cc = ClosingCheck {
+            closed: before.blocking.is_empty() && before.open == 0,
+            blocking: before.blocking.clone(),
+            same_start: true,
+            same_terminals: true,
+            terminals_before: before.terminals.clone(),
+            terminals_after: before.terminals.clone(),
+            start_keys: before.start.len() as u64,
+            closure_before: before.keys.len() as u64,
+            closure_after: before.keys.len() as u64,
+            new_keys: 0,
+            dropped_keys: 0,
+            open_before: before.open,
+            open_after: before.open,
+            new_blocking: vec![],
+            holds: unserved.is_empty(),
+        };
+        check_log.push(json!({"mode": "local", "migrating": migrated.len(), "unserved_migrated_keys": unserved,
+            "note": "local proof (the material is a selection of the node's rules): closure membership and service of \
+                     every key; NOT computed: dropped keys, terminal reachability, later-table-rule fall-through \
+                     (after_table: a later rule that takes a key keeps it served by that rule)"}));
+        if !cc.holds {
+            for d in decisions.iter_mut().filter(|d| d.outcome.migrates()) {
+                ship::revert(d, "local check: a migrated key without a certified relation");
+            }
+        }
+        closing = Some(cc);
+    }
     for it in 0..=p.check.max_iterations {
+        if local {
+            break;
+        }
         let (recipes, assign) = shipped_recipes(cfg, &decisions, &recipe_files)?;
         let mut sspec = ship::shipped_spec(
             &isp,
@@ -1063,7 +1167,19 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
         .iter()
         .filter(|d| d.outcome == Outcome::NotExamined)
         .fold(BTreeMap::new(), |mut m, d| {
-            let w = d.why.split(" <").next().unwrap_or("").split(" >").next().unwrap_or("").to_string();
+            // the reason CLASS: the policy field it names
+            let w = [
+                "candidates.min_rule_bytes",
+                "candidates.max_keys_per_rule",
+                "candidates.max_guard_keys",
+                "candidates.max_rules",
+                "coverage.target",
+                "kept_aside",
+            ]
+            .into_iter()
+            .find(|f| d.why.contains(f))
+            .unwrap_or("other")
+            .to_string();
             *m.entry(w).or_default() += 1;
             m
         });
@@ -1099,6 +1215,54 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
         &serde_json::to_vec_pretty(&v).map_err(|e| e.to_string())?,
     )?;
     Ok(v)
+}
+
+/// The in-campaign hook (closing loop phase D, a CLOSED node): the report-mode proposal (default policy) next to the
+/// statement: `<statement dir>/../shipecon/proposal.json` = census totals, candidacy, and per examined rule its bytes,
+/// keys and the ESTIMATED economy (table time from the cost model, recipe seconds from the prior); the guard (engine
+/// jobs) and the measured decision are the driver's ([`run_ship`]). Best effort: an error is written, never raised.
+pub fn proposal_after_close(set: &ImportedSet, res: &rustred_campaign_core::import::CheckResult, sdir: &Path) {
+    let dir = sdir.parent().map(|d| d.join("shipecon")).unwrap_or_else(|| sdir.join("shipecon"));
+    let p = ShipPolicy::default();
+    let out = (|| -> Result<Value, String> {
+        let mut b = CensusBuilder::new(rules_of(set), p.candidates.max_keys_per_rule)?;
+        for r in all_rows(set, res)? {
+            let sha = match (&r.status, &r.server) {
+                (RowStatus::Served, Some(Server::Rule { table, record })) => {
+                    Some(set.rules[*table][*record].record_sha256.as_str())
+                }
+                _ => None,
+            };
+            b.add(&r.key, r.in_start, sha);
+        }
+        let census = b.finish();
+        let cand = ship::candidacy(&p, &census);
+        let mut examined = vec![];
+        let mut kept = vec![];
+        for (i, c) in cand.iter().enumerate() {
+            let r = &census.rules[i];
+            match c {
+                Candidacy::Examine => {
+                    let tt = TableTime::estimate(&p.cost, r.bytes, r.monomials);
+                    examined.push(json!({"rule": r.rule, "bytes": r.bytes, "in": r.served_in_start,
+                        "out": r.served_outside_start,
+                        "table_seconds_per_key_estimate": tt.per_key(&[], r.served()),
+                        "recipe_seconds_per_key_prior": p.cost.recipe_solve_s}));
+                }
+                Candidacy::KeptAside => kept.push(json!({"rule": r.rule, "bytes": r.bytes})),
+                Candidacy::NotExamined { .. } => {}
+            }
+        }
+        Ok(json!({"schema": REPORT_SCHEMA, "mode": "proposal", "policy_digest": p.digest(),
+            "census": census.totals(), "examined": examined, "kept_aside": kept,
+            "next": "run the ship-economy driver (closeloop::shipecon::run_ship) for the guard, the measured decision \
+                     and the closing check of the shipped spec"}))
+    })();
+    let v = out.unwrap_or_else(|e| json!({"schema": REPORT_SCHEMA, "mode": "proposal", "error": e}));
+    let _ = write(
+        &dir.join("proposal.json"),
+        &serde_json::to_vec_pretty(&v).unwrap_or_default(),
+    );
 }
 
 /// The engine dispatch cross-check of the shipped spec: the probe table (header line, chart lines, the shipped rule
