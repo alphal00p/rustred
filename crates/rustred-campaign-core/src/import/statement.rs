@@ -150,6 +150,24 @@ pub fn read_hand_statement(
     })
 }
 
+/// Eps-shifted families: the (chart, engine rule index) of record `r` of table `t` (its packed label decoded;
+/// the engine restarts `index` in every chart). `None` on an integer table.
+fn eps_rule(set: &ImportedSet, t: usize, r: usize) -> Option<(String, i64)> {
+    set.disp
+        .tables()
+        .get(t)?
+        .eps_rule_of_label(set.rules[t][r].label)
+}
+
+/// The default name of a rule: `source#label`, on an eps table `source#chart:index` (never the index alone).
+fn default_rule_name(set: &ImportedSet, t: usize, r: usize) -> String {
+    let i = &set.rules[t][r];
+    match eps_rule(set, t, r) {
+        Some((c, x)) => format!("{}#{c}:{x}", i.source),
+        None => format!("{}#{}", i.source, i.label),
+    }
+}
+
 /// The hand name of our server of a row.
 pub fn server_hand_name(set: &ImportedSet, row: &KeyRow) -> Option<String> {
     match row.server.as_ref()? {
@@ -158,7 +176,7 @@ pub fn server_hand_name(set: &ImportedSet, row: &KeyRow) -> Option<String> {
             Some(
                 i.hand_name
                     .clone()
-                    .unwrap_or_else(|| format!("{}#{}", i.source, i.label)),
+                    .unwrap_or_else(|| default_rule_name(set, *table, *record)),
             )
         }
         Server::Credit { table, record } => {
@@ -167,7 +185,7 @@ pub fn server_hand_name(set: &ImportedSet, row: &KeyRow) -> Option<String> {
                 "credit:{}",
                 i.hand_name
                     .clone()
-                    .unwrap_or_else(|| format!("{}#{}", i.source, i.label))
+                    .unwrap_or_else(|| default_rule_name(set, *table, *record))
             ))
         }
         Server::Relation { set: name, recipe } => {
@@ -196,6 +214,11 @@ fn server_json(set: &ImportedSet, row: &KeyRow) -> Value {
             let mut v = json!({"kind": if matches!(row.server, Some(Server::Credit{..})) {"credit"} else {"rule"},
                    "source": i.source, "class": i.class, "label": i.label, "ordinal": i.ordinal,
                    "record_sha256": i.record_sha256, "recipe_sha256": null, "hand_name": hn});
+            // epsframe: an eps rule names its (chart, index) (integer rows unchanged)
+            if let Some((c, x)) = eps_rule(set, *table, *record) {
+                v["chart"] = json!(c);
+                v["index"] = json!(x);
+            }
             // lane import5 (18.4): a sym-served row says so (other rows unchanged)
             if i.sym.is_some() && matches!(row.server, Some(Server::Rule { .. })) {
                 v["sym"] = Value::Bool(true);
@@ -229,8 +252,13 @@ fn rule_json(set: &ImportedSet, tr: Option<(usize, usize)>) -> Value {
         None => Value::Null,
         Some((t, r)) => {
             let i = &set.rules[t][r];
-            json!({"source": i.source, "label": i.label, "record_sha256": i.record_sha256,
-                   "hand_name": i.hand_name})
+            let mut v = json!({"source": i.source, "label": i.label, "record_sha256": i.record_sha256,
+                   "hand_name": i.hand_name});
+            if let Some((c, x)) = eps_rule(set, t, r) {
+                v["chart"] = json!(c);
+                v["index"] = json!(x);
+            }
+            v
         }
     }
 }
@@ -559,12 +587,12 @@ fn ours_class(set: &ImportedSet, row: &KeyRow) -> String {
 pub fn compare(set: &ImportedSet, res: &CheckResult, hand: &HandStatement) -> Comparison {
     let ours: HashMap<&[i32], &KeyRow> = res.rows.iter().map(|r| (r.key.as_slice(), r)).collect();
     let mut produced: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for t in &set.rules {
-        for i in t {
+    for (ti, t) in set.rules.iter().enumerate() {
+        for (ri, i) in t.iter().enumerate() {
             produced.insert(
                 i.hand_name
                     .clone()
-                    .unwrap_or_else(|| format!("{}#{}", i.source, i.label)),
+                    .unwrap_or_else(|| default_rule_name(set, ti, ri)),
             );
         }
     }

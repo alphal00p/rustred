@@ -749,6 +749,18 @@ fn eps_check(
     facts: Option<&std::path::Path>,
     dir: &std::path::Path,
 ) -> rustred_campaign_core::import::CheckResult {
+    eps_check_full(file, facts, dir).2
+}
+
+fn eps_check_full(
+    file: &str,
+    facts: Option<&std::path::Path>,
+    dir: &std::path::Path,
+) -> (
+    rustred_campaign_core::import::ImportedSet,
+    rustred_campaign_core::import::Evidence,
+    rustred_campaign_core::import::CheckResult,
+) {
     use rustred_campaign_core::import::load::load_with_eps;
     use rustred_campaign_core::import::{CheckOptions, Evidence, LoadOptions, TableSetSpec, check};
     let tf = read_table_file(data(file), ReadOptions::default()).unwrap();
@@ -774,7 +786,8 @@ fn eps_check(
     let set = load_with_eps(&spec, dir, &LoadOptions::default()).unwrap();
     assert!(set.frame.has_eps_axes());
     let ev = Evidence::from_spec(&set, dir).unwrap();
-    check(&set, &ev, &CheckOptions::default()).unwrap()
+    let r = check(&set, &ev, &CheckOptions::default()).unwrap();
+    (set, ev, r)
 }
 
 /// Writes the fact requests of the eps import checks (one JSONL per table) to EPSFRAME_REQ_DIR: the input of the
@@ -823,7 +836,35 @@ fn eps_import_check_closes_with_engine_facts() {
         assert!(!r0.fact_requests.is_empty(), "{file}");
         // with the engine's facts: closed
         let facts = data(&format!("{stem}.check_facts.jsonl"));
-        let r = eps_check(file, Some(&facts), &dir);
+        let (set, ev, r) = eps_check_full(file, Some(&facts), &dir);
+        // the statement: every served row names its rule by (chart, index) besides label / ordinal / record_sha256
+        let sdir = dir.join(format!("{stem}.statement"));
+        rustred_campaign_core::import::write_statement(&set, &ev, &r, &sdir, None).unwrap();
+        let tf_raw = read_table_file(data(file), ReadOptions::default()).unwrap();
+        let mut served = 0;
+        for l in std::fs::read_to_string(sdir.join("statement.jsonl"))
+            .unwrap()
+            .lines()
+        {
+            let v: serde_json::Value = serde_json::from_str(l).unwrap();
+            if v["status"] != "served" {
+                continue;
+            }
+            let sv = &v["server"];
+            let rec = &tf_raw.rules[sv["ordinal"].as_u64().unwrap() as usize];
+            assert_eq!(sv["chart"].as_str(), rec.chart.as_deref(), "{file}: {sv}");
+            assert_eq!(sv["index"].as_i64(), rec.index, "{file}: {sv}");
+            assert!(
+                sv["hand_name"].as_str().unwrap().ends_with(&format!(
+                    "#{}:{}",
+                    rec.chart.as_deref().unwrap(),
+                    rec.index.unwrap()
+                )),
+                "{file}: {sv}"
+            );
+            served += 1;
+        }
+        assert!(served > 0, "{file}");
         let s = &r.summary;
         assert_eq!(s.verdict, Verdict::Closed, "{file}: {s:?}");
         assert_eq!(s.open_total, 0, "{file}");
