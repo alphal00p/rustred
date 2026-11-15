@@ -732,9 +732,13 @@ fn table_text(s: &Set) -> String {
                 let sl = sup[0];
                 let a = b.terms.iter().find(|(e, _)| e[sl] == 1).unwrap().1;
                 let c = b.terms.iter().find(|(e, _)| e[sl] == 0).map_or(0, |t| t.1);
+                // several bounds on one slot: the intersection (largest min, smallest max)
                 if a > 0 {
-                    mn[sl] = (-c).to_string();
-                } else {
+                    let v = -c;
+                    if mn[sl] == "null" || mn[sl].parse::<i128>().unwrap() < v {
+                        mn[sl] = v.to_string();
+                    }
+                } else if mx[sl] == "null" || mx[sl].parse::<i128>().unwrap() > c {
                     mx[sl] = c.to_string();
                 }
             }

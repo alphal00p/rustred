@@ -231,7 +231,11 @@ fn p4_b1_end_to_end_assembly_accepts_the_retirement() {
     let mask = "1";
     let a = r#"{"type":"rule","chart":"1","index":0,"fixed":[null],"equations":[],"exceptions":[],"target":"I(n0)","rhs":[["I(n0-1)","1"]],"witness_loci":[],"dispatch":"Partition","domain_bounds":{"min":[3],"max":[null]}}"#;
     let b = r#"{"type":"rule","chart":"1","index":1,"fixed":[null],"equations":[],"exceptions":[],"target":"I(n0)","rhs":[["I(n0-1)","1"]],"witness_loci":[],"dispatch":"Partition"}"#;
-    let t = write(&dir, "node.table.jsonl", &[header(mask), chart(mask), a.into(), b.into()]);
+    let t = write(
+        &dir,
+        "node.table.jsonl",
+        &[header(mask), chart(mask), a.into(), b.into(), r#"{"type":"end"}"#.into()],
+    );
     let tag = |l: &str| format!("sha256:{}", sha256_hex(l.as_bytes()));
     let (va, vb) = (tag(a), tag(b));
     let mut inp = AssemblyInput {
