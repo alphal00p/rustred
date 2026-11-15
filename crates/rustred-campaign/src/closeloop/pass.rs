@@ -881,6 +881,10 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         .or(res_k.as_ref())
         .ok_or("no check result")?;
     let required = inp.required.unwrap_or(res.required);
+    // lane zerosfix3 (audit-r2-zeros F8): the decided check DROPPED coefficient-fact zeros whenever it ran at Tier C: the
+    // exact tier reached, or (`exact_tier: false`) the spec's own policy tier C. Every second route (decisive, elided,
+    // all zeros) and the descent scan run on it; before, `exact_tier: false` skipped them all and closed on one route.
+    let second_route_on = tier_c_now || (!inp.exact_tier && res.tier == Tier::C);
     let (strict, strict_why) = strictness(&set);
     let diagnostic = res.summary.diagnostic || res.summary.verdict == Verdict::Diagnostic;
     let tier_c = res.tier == Tier::C;
@@ -981,7 +985,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     // standing DESCENT gate (every followed edge strictly lower under the node's FULL comparator; the closure's own
     // Tarjan pass for cycles): `closed` needs non_descending_edges == 0 and cycles == 0
     let mut zeros_missing: zeros::ZerosMissing = BTreeMap::new();
-    let scan_all = if tier_c_now {
+    let scan_all = if second_route_on {
         Some(match &layer_walked {
             // lane layers: the walked layers' own scans (frozen layers are never scanned again); int7: each layer's
             // scan collects its zero pairs as well (zeros2's all_zeros route covers every walked layer)
@@ -1025,7 +1029,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             "non_descending_list": bad.into_iter().take(1000).collect::<Vec<_>>()});
     }
     let zeros_disputed = zcmp.values().filter(|(_, c)| !c.differ.is_empty()).count() as u64;
-    if tier_c_now && (inp.second_route.decisive_zeros || inp.second_route.elided || zeros_on) {
+    if second_route_on && (inp.second_route.decisive_zeros || inp.second_route.elided || zeros_on) {
         let mut scan = scan_all.clone().unwrap_or_default();
         if !inp.second_route.decisive_zeros {
             scan.decisive.clear();
@@ -1768,6 +1772,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         "schema": CHECK_SCHEMA, "node": inp.node, "round": inp.round, "target": inp.target,
         "spec_digest": res.spec_digest, "key_set_digest": res.key_set_digest,
         "tier": format!("{:?}", res.tier), "exact_tier": {"wanted": inp.exact_tier, "reached": tier_c_now,
+            "second_routes_run": second_route_on,
             "facts_missing_keys": n_missing, "keys_only_closure": keys_only_n,
             "facts_unavailable_elided_keys": elided_no_facts,
             "exact_eval": exact_eval,

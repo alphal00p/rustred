@@ -208,7 +208,6 @@ fn f7_big_node_mode_routes_exact_eval_first_pairs_to_rr_proof() {
 /// still drops the terms the imported facts call zero: the node closes on the FALSE positive-numerator zero of t2
 /// with `all_zeros` at its default (structural) and no blocker naming the missing route.
 #[test]
-#[ignore = "AUDIT-R2-ZEROS F8: exact_tier=false silently disables every second route while the spec's Tier C drops zero terms"]
 fn f8_exact_tier_off_does_not_close_on_unconfirmed_zeros() {
     let d = root("noexact");
     let (verdict, blockers, check) = pass_with(&d, false, false, false);
@@ -349,7 +348,6 @@ fn f9_a_default_run_refuses_a_leaf_set_closed_without_the_zero_route() {
 /// comparison skips every pair closeloop4 compared (pass.rs: `if second.compared.contains_key(..) { continue }`), so
 /// the pair never gets a zeros status: with its zeros answer present and issued it stays `all_zeros_unanswered`.
 #[test]
-#[ignore = "AUDIT-R2-ZEROS F10: a pair confirmed by closeloop4's route is never counted confirmed by the all_zeros gate"]
 fn f10_a_pair_confirmed_by_closeloop4_route_counts_for_all_zeros() {
     let d = root("m5");
     std::fs::create_dir_all(&d).unwrap();
