@@ -9,6 +9,7 @@
 //! 4. the verdict word against the lists (covered: no element meets the cone and no probe is open);
 //! 5. optionally an EXHAUSTIVE box (small instances): every key of the box inside the cone is dispatched; an open key
 //!    must lie in a listed element (and none may exist for `covered`).
+//!
 //! A cross-check of the evidence, not a second proof.
 
 use serde_json::Value;
@@ -149,14 +150,15 @@ fn member(r: &Reg, key: &[i32]) -> Option<bool> {
         };
         m.swap(row, p);
         let pv = m[row][col];
-        for j in col..=r.k {
-            m[row][j] = m[row][j].div(pv)?;
+        for v in m[row].iter_mut().skip(col) {
+            *v = v.div(pv)?;
         }
-        for i in 0..n {
-            if i != row && m[i][col].0 != 0 {
-                let f = m[i][col];
-                for j in col..=r.k {
-                    m[i][j] = m[i][j].sub(f.mul(m[row][j])?)?;
+        let prow = m[row].clone();
+        for (i, ri) in m.iter_mut().enumerate() {
+            if i != row && ri[col].0 != 0 {
+                let f = ri[col];
+                for (x, pj) in ri.iter_mut().zip(prow.iter()).skip(col) {
+                    *x = x.sub(f.mul(*pj)?)?;
                 }
             }
         }

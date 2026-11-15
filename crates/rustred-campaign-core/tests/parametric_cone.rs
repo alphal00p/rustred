@@ -223,3 +223,48 @@ fn differential_against_brute_force() {
     );
     assert!(und_n * 5 < 120, "too many undecided: {und_n}");
 }
+
+#[test]
+fn capped_dispatch_gives_the_same_cone_verdicts() {
+    use rustred_campaign_core::parametric::cone::{capped_dispatcher, cone_inside_caps};
+    let f = NodeFrame::without_header_lines_first(3, 2);
+    let mut rng = Rng(0x00ca_99ed);
+    let mut agree = 0;
+    for case in 0..80 {
+        let mut recs = Vec::new();
+        for _ in 0..1 + rng.below(3) as usize {
+            let mut r = rec(3);
+            for _ in 0..rng.below(3) {
+                r.exceptions
+                    .push(vec![EXC[rng.below(EXC.len() as u64) as usize]]);
+            }
+            if rng.below(3) == 0 {
+                r.bounds.push(BND[rng.below(BND.len() as u64) as usize]);
+            }
+            r.elided = rng.below(6) == 0;
+            recs.push(r);
+        }
+        let d = disp(&f, &recs);
+        let s = 2 + rng.below(3) as i64;
+        let cone = Cone::excess_simplex(&f, s);
+        let caps = Cone::box_caps(&f, s + 1, -s);
+        assert!(cone_inside_caps(&cone, &caps, &f));
+        // a cone sticking out of the caps is refused
+        assert!(!cone_inside_caps(
+            &Cone::excess_simplex(&f, s + 1),
+            &caps,
+            &f
+        ));
+        let cd = capped_dispatcher(&d, &f, &caps).unwrap();
+        let a = cone_coverage(&d, &f, &cone, &ConeOptions::default()).unwrap();
+        let b = cone_coverage(&cd, &f, &cone, &ConeOptions::default()).unwrap();
+        let cert = certificate(&b, &cd, &f);
+        let chk = check_cone_certificate(&cert, &cd, &f, Some((s as i32 + 1, -(s as i32))));
+        assert!(chk.ok(), "case {case}: {:?}", chk.problems);
+        if a.verdict != "undecided" && b.verdict != "undecided" {
+            assert_eq!(a.verdict, b.verdict, "case {case}");
+            agree += 1;
+        }
+    }
+    assert!(agree > 60, "{agree}");
+}

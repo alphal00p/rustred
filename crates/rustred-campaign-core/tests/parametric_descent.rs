@@ -444,7 +444,10 @@ fn differential(seed: u64, cases: usize, program: bool) {
                     for l in loci {
                         if let Some(w) = &l.witness {
                             assert!(d.applies(w).applies());
-                            let tk = terms[j][l.slot].map_or_else(|o| w[l.slot] + o, |c| c);
+                            let tk = match terms[j][l.slot] {
+                                Ok(c) => c,
+                                Err(o) => w[l.slot] + o,
+                            };
                             assert!(
                                 tk >= 1,
                                 "case {case}: listed witness has no positive numerator"
@@ -488,4 +491,72 @@ fn differential_against_brute_force_program_order() {
 #[test]
 fn differential_against_brute_force_legacy_order() {
     differential(0x5eed_0002, 300, false);
+}
+
+#[test]
+fn zero_proofs_load_only_under_a_pinned_clean_verify_summary() {
+    use rustred_campaign_core::closure::sha256::Sha256;
+    let sha = |b: &[u8]| {
+        let mut h = Sha256::new();
+        h.update(b);
+        h.finish_hex()
+    };
+    let dir = std::env::temp_dir().join(format!("parametric_zv_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let proof = dir.join("p.jsonl");
+    let line = json!({"schema":"rustred.campaign.zero-proof.v1","record_sha256":SHA,"rule":0,"term":0,
+        "locus":"domain","verdict":"zero_on_locus","denominator":"nowhere_zero","tool":"t@1"});
+    std::fs::write(
+        &proof,
+        format!("{{\"schema\":\"rustred.campaign.zero-proof-header.v1\"}}\n{line}\n"),
+    )
+    .unwrap();
+    let psha = sha(&std::fs::read(&proof).unwrap());
+    let write_summary = |name: &str, v: serde_json::Value| -> (std::path::PathBuf, String) {
+        let p = dir.join(name);
+        let t = serde_json::to_string(&v).unwrap();
+        std::fs::write(&p, &t).unwrap();
+        (p, sha(t.as_bytes()))
+    };
+    let good = json!({"schema":"rustred.campaign.zero-proof-verify.v1","verified":true,"header_mismatch":[],
+        "counts":{"mismatches":0,"claims_without_record":0},"proofs_sha256":[psha]});
+    let (sp, ss) = write_summary("good.json", good.clone());
+    let z = ZeroIndex::load_verified(&[proof.as_path()], &sp, &ss).unwrap();
+    assert_eq!(z.proved_lines, 1);
+    assert!(
+        z.proof(
+            SHA,
+            0,
+            rustred_campaign_core::import::zero_proofs::Locus::Domain
+        )
+        .is_some()
+    );
+    // wrong pin
+    let e = ZeroIndex::load_verified(&[proof.as_path()], &sp, &"0".repeat(64)).unwrap_err();
+    assert!(e.starts_with("zero_proofs_unverified"), "{e}");
+    // the file is not listed
+    let mut other = good.clone();
+    other["proofs_sha256"] = json!(["ab".repeat(32)]);
+    let (sp2, ss2) = write_summary("other.json", other);
+    assert!(ZeroIndex::load_verified(&[proof.as_path()], &sp2, &ss2).is_err());
+    // an unclean verification / no proofs_sha256
+    let mut unclean = good.clone();
+    unclean["counts"]["mismatches"] = json!(1);
+    let (sp3, ss3) = write_summary("unclean.json", unclean);
+    assert!(ZeroIndex::load_verified(&[proof.as_path()], &sp3, &ss3).is_err());
+    let mut old = good;
+    old.as_object_mut().unwrap().remove("proofs_sha256");
+    let (sp4, ss4) = write_summary("old.json", old);
+    let e = ZeroIndex::load_verified(&[proof.as_path()], &sp4, &ss4).unwrap_err();
+    assert!(e.contains("proofs_sha256"), "{e}");
+    for f in [
+        "p.jsonl",
+        "good.json",
+        "other.json",
+        "unclean.json",
+        "old.json",
+    ] {
+        std::fs::remove_file(dir.join(f)).unwrap();
+    }
+    std::fs::remove_dir(&dir).unwrap();
 }

@@ -78,6 +78,27 @@ impl Cone {
         }
     }
 
+    /// The box of a node as a cone: dots `sum_lines (k - 1) <= d_max`, rank `sum_numerators (-k) <= r_max`, every line
+    /// `<= line_max`.
+    pub fn dots_rank_box(frame: &NodeFrame, d_max: i64, r_max: i64, line_max: i64) -> Cone {
+        let n = frame.arity();
+        let lines = (0..n).filter(|&i| frame.is_line(i)).count() as i64;
+        let dots: Vec<i64> = (0..n).map(|i| i64::from(frame.is_line(i))).collect();
+        let rank: Vec<i64> = (0..n).map(|i| -i64::from(!frame.is_line(i))).collect();
+        let mut c = Cone {
+            label: format!("D <= {d_max}, r <= {r_max}, lines <= {line_max}"),
+            constraints: vec![(dots, d_max.saturating_add(lines)), (rank, r_max)],
+        };
+        for i in 0..n {
+            if frame.is_line(i) {
+                let mut a = vec![0i64; n];
+                a[i] = 1;
+                c.constraints.push((a, line_max));
+            }
+        }
+        c
+    }
+
     /// Intersection with another cone.
     pub fn and(mut self, o: &Cone) -> Cone {
         self.label = format!("{} and {}", self.label, o.label);
@@ -120,6 +141,157 @@ impl Default for ConeOptions {
             enumeration: 200_000,
         }
     }
+}
+
+/// Number of keys of a CELL (per-slot intervals, every slot bounded inside the cone's reach) inside the cone, by
+/// enumeration over the cell when it has at most `cap` points; `None` = unbounded or larger than `cap`. A U cell's
+/// uncovered keys are the cell minus covered sub-loci: an UPPER bound of its uncovered keys.
+pub fn cell_keys_in_cone(region: &Region, cone: &Cone, frame: &NodeFrame, cap: u64) -> Option<u64> {
+    let mut n = 0u64;
+    cell_keys_each(region, cone, frame, cap, &mut |_| n += 1)?;
+    Some(n)
+}
+
+/// Every key of a cell inside the cone (see [`cell_keys_in_cone`]); `None` = unbounded or more than `cap` cell points.
+pub fn cell_keys_each(
+    region: &Region,
+    cone: &Cone,
+    frame: &NodeFrame,
+    cap: u64,
+    f: &mut dyn FnMut(&[i32]),
+) -> Option<()> {
+    let n = frame.arity();
+    // the cell's intervals from its constraints (identity parameter map), clipped by the cone's one-slot reach
+    let mut lo = vec![i64::MIN; n];
+    let mut hi = vec![i64::MAX; n];
+    for c in &region.cons {
+        let nz: Vec<usize> = (0..c.coef.len()).filter(|&j| c.coef[j] != 0).collect();
+        if nz.len() != 1 {
+            return None;
+        }
+        let j = nz[0];
+        let v = i64::try_from(c.c).ok()?;
+        match c.coef[j] {
+            1 => lo[j] = lo[j].max(v.checked_neg()?),
+            -1 => hi[j] = hi[j].min(v),
+            _ => return None,
+        }
+    }
+    let reg = with_cone(region, cone)?;
+    for j in 0..n {
+        let (l, h) = reg.range_of(j).ok()?;
+        if let Some(l) = l {
+            lo[j] = lo[j].max(i64::try_from(l).ok()?);
+        }
+        if let Some(h) = h {
+            hi[j] = hi[j].min(i64::try_from(h).ok()?);
+        }
+        if lo[j] == i64::MIN || hi[j] == i64::MAX {
+            return None;
+        }
+        if lo[j] > hi[j] {
+            return Some(());
+        }
+    }
+    let mut size: u64 = 1;
+    for j in 0..n {
+        size = size.checked_mul(u64::try_from(hi[j] - lo[j] + 1).ok()?)?;
+        if size > cap {
+            return None;
+        }
+    }
+    let mut k: Vec<i64> = lo.clone();
+    loop {
+        let key: Option<Vec<i32>> = k.iter().map(|v| i32::try_from(*v).ok()).collect();
+        if let Some(key) = key
+            && cone.contains(&key)
+            && region
+                .contains_t(&k.iter().map(|v| i128::from(*v)).collect::<Vec<_>>())
+                .unwrap_or(false)
+        {
+            f(&key);
+        }
+        let mut s = 0;
+        loop {
+            if s == n {
+                return Some(());
+            }
+            if k[s] < hi[s] {
+                k[s] += 1;
+                break;
+            }
+            k[s] = lo[s];
+            s += 1;
+        }
+    }
+}
+
+/// A dispatcher with leading CAP records (B2 scaling, sound): one record per one-slot cap `a k_s <= b` of `caps`, whose
+/// domain is the cap's VIOLATION (`a k_s - b - 1 >= 0`), placed BEFORE every table of `disp`. A key outside the caps is
+/// served by a cap record (no exception, no pole: it applies wherever it is selected); a key inside every cap selects no
+/// cap record and is dispatched exactly as by `disp`. So the dispatch-uncovered set of the result is `disp`'s
+/// uncovered set intersected with the caps, and the partition only has to describe a bounded region. The cone used
+/// with it must lie inside the caps: [`cone_inside_caps`].
+pub fn capped_dispatcher(
+    disp: &Dispatcher,
+    frame: &NodeFrame,
+    caps: &Cone,
+) -> Result<Dispatcher, String> {
+    use crate::cover::Table;
+    use crate::domain::CaseDomain;
+    use crate::poly::Poly;
+    let n = frame.arity();
+    let mut t = Table::new("cone-caps", n);
+    for (i, (a, b)) in caps.constraints.iter().enumerate() {
+        let nz: Vec<usize> = (0..a.len()).filter(|&j| a[j] != 0).collect();
+        if a.len() != n || nz.len() != 1 {
+            return Err(format!("cap {i}: only one-slot caps are allowed"));
+        }
+        let s = nz[0];
+        // a k_s - b - 1 >= 0
+        let p = Poly::var(s)
+            .mul(&Poly::constant(i128::from(a[s])))
+            .and_then(|x| x.sub(&Poly::constant(i128::from(*b) + 1)))
+            .map_err(|e| format!("{e:?}"))?;
+        let mut d = CaseDomain::free(n, Some(frame.mask().to_vec()));
+        d.bounds.push(p);
+        t.push(i as i64, d).map_err(|e| e.to_string())?;
+    }
+    let mut tables = vec![t];
+    for &ti in disp.priority() {
+        tables.push(disp.tables()[ti].clone());
+    }
+    let m = tables.len();
+    Dispatcher::new(tables, (0..m).collect())
+        .and_then(|d| d.with_chart(frame.mask().to_vec()))
+        .map_err(|e| e.to_string())
+}
+
+/// Is every key of `cone` (in the chart orthant) inside every one-slot cap of `caps`? Proved by the per-slot ranges of
+/// the cone's region (rational Fourier-Motzkin projection with rounding: a SUPERSET of the true range, so `true` is a
+/// proof); `false` = not proved.
+pub fn cone_inside_caps(cone: &Cone, caps: &Cone, frame: &NodeFrame) -> bool {
+    let n = frame.arity();
+    let lo: Vec<Option<i64>> = (0..n).map(|i| frame.is_line(i).then_some(1)).collect();
+    let hi: Vec<Option<i64>> = (0..n).map(|i| (!frame.is_line(i)).then_some(0)).collect();
+    let Some(reg) = with_cone(&identity_region(n, &lo, &hi), cone) else {
+        return false;
+    };
+    caps.constraints.iter().all(|(a, b)| {
+        let nz: Vec<usize> = (0..a.len()).filter(|&j| a[j] != 0).collect();
+        if nz.len() != 1 {
+            return false;
+        }
+        let s = nz[0];
+        let Ok((l, h)) = reg.range_of(s) else {
+            return false;
+        };
+        let b = i128::from(*b);
+        match a[s].signum() {
+            1 => h.is_some_and(|h| i128::from(a[s]) * h <= b),
+            _ => l.is_some_and(|l| i128::from(a[s]) * l <= b),
+        }
+    })
 }
 
 /// One gap element of the partition.

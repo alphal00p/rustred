@@ -29,6 +29,71 @@ fn sha256_file(p: &Path) -> String {
     h.finish_hex()
 }
 
+/// Zero proofs for a run: `PARAMETRIC_ZEROS` files, VERIFIED by default (`PARAMETRIC_ZERO_SUMMARIES` = `summary@sha256`
+/// entries separated by `;`, one per group of files that summary verified; every file must be listed by one of them).
+/// `PARAMETRIC_ZEROS_UNVERIFIED=1` loads them without a pinned summary (labelled in the evidence).
+fn load_zeros() -> (Option<ZeroIndex>, serde_json::Value) {
+    let paths: Vec<PathBuf> = std::env::var("PARAMETRIC_ZEROS")
+        .ok()
+        .map(|s| {
+            s.split(':')
+                .filter(|x| !x.is_empty())
+                .map(PathBuf::from)
+                .collect()
+        })
+        .unwrap_or_default();
+    if paths.is_empty() {
+        return (None, json!(null));
+    }
+    let refs: Vec<&Path> = paths.iter().map(PathBuf::as_path).collect();
+    if std::env::var("PARAMETRIC_ZEROS_UNVERIFIED").as_deref() == Ok("1") {
+        let z = ZeroIndex::load(&refs).unwrap();
+        return (Some(z), json!("UNVERIFIED (no pinned verify summary)"));
+    }
+    let sums = std::env::var("PARAMETRIC_ZERO_SUMMARIES")
+        .expect("PARAMETRIC_ZERO_SUMMARIES (or PARAMETRIC_ZEROS_UNVERIFIED=1)");
+    let mut total = ZeroIndex::new();
+    let mut pins = Vec::new();
+    let mut done: Vec<String> = Vec::new();
+    for entry in sums.split(';').filter(|x| !x.is_empty()) {
+        let (sp, sha) = entry.rsplit_once('@').expect("summary@sha256");
+        let sv: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(sp).unwrap()).unwrap();
+        let listed: Vec<String> = sv["proofs_sha256"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mine: Vec<&Path> = refs
+            .iter()
+            .copied()
+            .filter(|p| {
+                listed
+                    .iter()
+                    .any(|l| l.trim_start_matches("sha256:") == sha256_file(p))
+            })
+            .collect();
+        let z = ZeroIndex::load_verified(&mine, Path::new(sp), sha).unwrap();
+        for (p, _) in &z.files {
+            done.push(p.clone());
+        }
+        let v = serde_json::to_value(z.files.clone()).unwrap();
+        pins.push(json!({"summary": sp, "sha256": sha, "files": v}));
+        total.merge(z);
+    }
+    for p in &refs {
+        assert!(
+            done.contains(&p.display().to_string()),
+            "{}: not verified by any pinned summary",
+            p.display()
+        );
+    }
+    (Some(total), json!({"verified": pins}))
+}
+
 #[test]
 #[ignore]
 fn b1_descent_on_a_real_set() {
@@ -41,15 +106,6 @@ fn b1_descent_on_a_real_set() {
     let limit: Option<usize> = std::env::var("PARAMETRIC_LIMIT")
         .ok()
         .and_then(|s| s.parse().ok());
-    let zero_paths: Vec<PathBuf> = std::env::var("PARAMETRIC_ZEROS")
-        .ok()
-        .map(|s| {
-            s.split(':')
-                .filter(|x| !x.is_empty())
-                .map(PathBuf::from)
-                .collect()
-        })
-        .unwrap_or_default();
     let t0 = std::time::Instant::now();
     let ld = load_any(
         &spec_path,
@@ -63,8 +119,7 @@ fn b1_descent_on_a_real_set() {
         ld.jobs.len(),
         ld.loader
     );
-    let zrefs: Vec<&Path> = zero_paths.iter().map(PathBuf::as_path).collect();
-    let zeros = (!zrefs.is_empty()).then(|| ZeroIndex::load(&zrefs).unwrap());
+    let (zeros, zero_basis) = load_zeros();
     if let Some(z) = &zeros {
         eprintln!(
             "zero proofs: {} proved lines, {} other",
@@ -89,6 +144,7 @@ fn b1_descent_on_a_real_set() {
         "node": ld.node, "frame": ld.frame.mask_string(), "comparator": ld.cmp.name(), "loader": ld.loader,
         "tables": ld.tables,
         "zero_proofs": zeros.as_ref().map(|z| z.files.iter().map(|(p, s)| json!({"path": p, "sha256": s})).collect::<Vec<_>>()),
+        "zero_proof_basis": zero_basis,
         "records": jobs.len(), "limit": limit, "budget_wall_seconds_per_emptiness": 20, "threads": threads,
     });
     let mut f = std::io::BufWriter::new(std::fs::File::create(&out).unwrap());
@@ -237,7 +293,7 @@ pub fn load_any(spec_path: &Path, index_dir: Option<PathBuf>) -> Loaded {
                     {
                         continue;
                     }
-                    let meta = full.meta[r].clone();
+                    let meta = full.meta[r];
                     let (off, len) = offs[meta.line_no - 1];
                     let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
                     {
@@ -320,7 +376,31 @@ fn b2_cone_coverage_on_a_real_set() {
     let mut opts = ConeOptions::default();
     opts.budget.max_nodes = Some(units);
     opts.budget.wall = Some(std::time::Duration::from_secs(wall));
-    let cp = partition_for_cones(&ld.disp, &ld.frame, &opts).unwrap();
+    if let Some(m) = std::env::var("PARAMETRIC_MEMO")
+        .ok()
+        .and_then(|s| s.parse().ok())
+    {
+        opts.budget.max_memo = Some(m);
+    }
+    // optional CAPS (one-slot, e.g. "box:6:-3"): the partition describes the capped region only (capped_dispatcher)
+    use rustred_campaign_core::parametric::cone::{capped_dispatcher, cone_inside_caps};
+    let caps: Option<Cone> = std::env::var("PARAMETRIC_CAPS")
+        .ok()
+        .filter(|c| !c.is_empty())
+        .map(|c| {
+            let v: Vec<&str> = c.split(':').collect();
+            assert_eq!(v[0], "box", "caps: box:<line max>:<numerator min>");
+            Cone::box_caps(&ld.frame, v[1].parse().unwrap(), v[2].parse().unwrap())
+        });
+    let capped;
+    let disp = match &caps {
+        Some(c) => {
+            capped = capped_dispatcher(&ld.disp, &ld.frame, c).unwrap();
+            &capped
+        }
+        None => &ld.disp,
+    };
+    let cp = partition_for_cones(disp, &ld.frame, &opts).unwrap();
     let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
     for e in &cp.elements {
         *kinds
@@ -348,11 +428,29 @@ fn b2_cone_coverage_on_a_real_set() {
             ["orthant"] => Cone::orthant(),
             ["simplex", s] => Cone::excess_simplex(&ld.frame, s.parse().unwrap()),
             ["box", l, m] => Cone::box_caps(&ld.frame, l.parse().unwrap(), m.parse().unwrap()),
+            ["drbox", d, r, l] => Cone::dots_rank_box(
+                &ld.frame,
+                d.parse().unwrap(),
+                r.parse().unwrap(),
+                l.parse().unwrap(),
+            ),
             other => panic!("cone {other:?}"),
         };
-        let cov = coverage_from_partition(&cp, &ld.disp, &ld.frame, &cone, &opts).unwrap();
-        let cert = certificate(&cov, &ld.disp, &ld.frame);
-        let chk = check_cone_certificate(&cert, &ld.disp, &ld.frame, None);
+        if let Some(c) = &caps
+            && !cone_inside_caps(&cone, c, &ld.frame)
+        {
+            eprintln!(
+                "cone {} is not proved inside the caps {}: skipped",
+                cone.label, c.label
+            );
+            all.push(
+                json!({"cone": cone, "verdict": "not_run", "reason": "not proved inside the caps"}),
+            );
+            continue;
+        }
+        let cov = coverage_from_partition(&cp, disp, &ld.frame, &cone, &opts).unwrap();
+        let cert = certificate(&cov, disp, &ld.frame);
+        let chk = check_cone_certificate(&cert, disp, &ld.frame, None);
         let tag = c.replace(':', "_");
         std::fs::write(
             format!("{out}.{tag}.certificate.json"),
@@ -367,7 +465,57 @@ fn b2_cone_coverage_on_a_real_set() {
                 .entry(l["v"]["verdict"].as_str().unwrap_or("?").to_string())
                 .or_default() += 1;
         }
+        // the residual finite part: keys of the uncovered / undecided CELLS inside the cone (an upper bound of the open
+        // keys: a cell minus covered sub-loci); keys of cells up to 1e6 points are written, the others counted as unsized
+        use rustred_campaign_core::parametric::cone::cell_keys_each;
+        let (mut res_keys, mut unsized_cells, mut open_keys) = (0u64, 0usize, 0u64);
+        let mut reasons: BTreeMap<String, u64> = BTreeMap::new();
+        let mut kf = std::io::BufWriter::new(
+            std::fs::File::create(format!("{out}.{tag}.cellkeys.jsonl")).unwrap(),
+        );
+        for l in &cov.listed {
+            let i = l["element"].as_u64().unwrap() as usize;
+            let el = &cp.elements[i];
+            if el.kind != "generic" {
+                unsized_cells += 1;
+                continue;
+            }
+            let mut keys_here = Vec::new();
+            match cell_keys_each(&el.region, &cone, &ld.frame, 1_000_000, &mut |k| {
+                keys_here.push(k.to_vec())
+            }) {
+                Some(()) => {
+                    for k in keys_here {
+                        res_keys += 1;
+                        let d = format!("{:?}", disp.first_match(&k));
+                        let why = if d.starts_with("Ok(Covered") {
+                            "covered".to_string()
+                        } else if let Some(p) = d.find("reason: ") {
+                            let r: String = d[p + 8..]
+                                .chars()
+                                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                                .collect();
+                            format!("blocked:{r}")
+                        } else {
+                            d.chars().take(40).collect()
+                        };
+                        let open = why != "covered";
+                        open_keys += u64::from(open);
+                        *reasons.entry(why.clone()).or_default() += 1;
+                        writeln!(
+                            kf,
+                            "{}",
+                            json!({"key": k, "element": i, "open": open, "dispatch": why})
+                        )
+                        .unwrap();
+                    }
+                }
+                None => unsized_cells += 1,
+            }
+        }
+        kf.flush().unwrap();
         let summary = json!({
+            "residual": {"cell_keys_in_cone": res_keys, "of_them_open_by_first_match": open_keys, "cells_not_sized": unsized_cells, "by_dispatch": reasons},
             "cone": cov.cone, "verdict": cov.verdict, "elements": cov.elements, "outside_cone": cov.outside,
             "uncovered": cov.uncovered, "undecided": cov.undecided, "listed_by_kind": by_kind,
             "partition": cov.partition, "flags": cov.partition_flags, "probes": cov.probes.len(),
@@ -390,7 +538,7 @@ fn b2_cone_coverage_on_a_real_set() {
         "spec": {"path": spec_path.display().to_string(), "sha256": sha256_file(&spec_path)},
         "node": ld.node, "loader": ld.loader, "tables": ld.tables, "records": ld.jobs.len(),
         "partition_seconds": cp.millis as f64 / 1e3, "elements_by_kind": kinds, "partition_flags": cp.flags,
-        "budget": {"units": units, "wall_seconds": wall},
+        "budget": {"units": units, "wall_seconds": wall, "max_memo": opts.budget.max_memo}, "caps": caps,
     });
     std::fs::write(
         format!("{out}.summary.json"),
@@ -431,11 +579,7 @@ fn load_catalogue(cat: &Path, prefix: &str) -> Loaded {
                 .unwrap()
                 .unwrap();
         let hv: serde_json::Value = serde_json::from_str(&hline).unwrap();
-        if frame.is_none() {
-            frame = Some(NodeFrame::from_header(tf.header.as_ref().unwrap()).unwrap());
-            cmp = Some(NodeComparator::from_header(&hv).unwrap());
-            order0 = Some(hv["node_order"].clone());
-        } else {
+        if let Some(fr) = frame.as_ref() {
             assert_eq!(
                 Some(&hv["node_order"]),
                 order0.as_ref(),
@@ -446,8 +590,12 @@ fn load_catalogue(cat: &Path, prefix: &str) -> Loaded {
                 NodeFrame::from_header(tf.header.as_ref().unwrap())
                     .unwrap()
                     .mask_string(),
-                frame.as_ref().unwrap().mask_string()
+                fr.mask_string()
             );
+        } else {
+            frame = Some(NodeFrame::from_header(tf.header.as_ref().unwrap()).unwrap());
+            cmp = Some(NodeComparator::from_header(&hv).unwrap());
+            order0 = Some(hv["node_order"].clone());
         }
         let full = Table::from_table_file(
             path_s.clone(),
@@ -491,12 +639,8 @@ fn load_catalogue(cat: &Path, prefix: &str) -> Loaded {
                 meta: json!({"table": ti, "record": t.domains.len(), "source": e["name"], "class": e["kind"],
                     "label": full.labels[r], "path": path_s, "offset": o, "record_sha256": sha}),
             });
-            t.push_with_meta(
-                full.labels[r],
-                full.domains[r].clone(),
-                full.meta[r].clone(),
-            )
-            .unwrap();
+            t.push_with_meta(full.labels[r], full.domains[r].clone(), full.meta[r])
+                .unwrap();
         }
         tables.push(t);
     }
@@ -528,18 +672,8 @@ fn b1_descent_on_catalogue_entries() {
     let cat = PathBuf::from(std::env::var("PARAMETRIC_CATALOGUE").expect("PARAMETRIC_CATALOGUE"));
     let prefix = std::env::var("PARAMETRIC_PREFIX").expect("PARAMETRIC_PREFIX");
     let out = PathBuf::from(std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT"));
-    let zero_paths: Vec<PathBuf> = std::env::var("PARAMETRIC_ZEROS")
-        .ok()
-        .map(|s| {
-            s.split(':')
-                .filter(|x| !x.is_empty())
-                .map(PathBuf::from)
-                .collect()
-        })
-        .unwrap_or_default();
     let ld = load_catalogue(&cat, &prefix);
-    let zrefs: Vec<&Path> = zero_paths.iter().map(PathBuf::as_path).collect();
-    let zeros = (!zrefs.is_empty()).then(|| ZeroIndex::load(&zrefs).unwrap());
+    let (zeros, zero_basis) = load_zeros();
     let budget = ProofBudget {
         wall: Some(std::time::Duration::from_secs(20)),
         ..ProofBudget::default()
@@ -550,6 +684,8 @@ fn b1_descent_on_catalogue_entries() {
         "catalogue": {"path": cat.display().to_string(), "sha256": sha256_file(&cat)}, "prefix": prefix, "loader": ld.loader,
         "frame": ld.frame.mask_string(), "comparator": ld.cmp.name(), "tables": ld.tables, "records": ld.jobs.len(),
         "zero_proofs": zeros.as_ref().map(|z| z.files.iter().map(|(p, s)| json!({"path": p, "sha256": s})).collect::<Vec<_>>())});
+    let mut header = header;
+    header["zero_proof_basis"] = zero_basis;
     let mut f = std::io::BufWriter::new(std::fs::File::create(&out).unwrap());
     writeln!(f, "{header}").unwrap();
     for (line, _) in &results {
@@ -585,23 +721,14 @@ fn b1_crosscheck_by_brute_force_on_real_records() {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(64);
-    let zero_paths: Vec<PathBuf> = std::env::var("PARAMETRIC_ZEROS")
-        .ok()
-        .map(|s| {
-            s.split(':')
-                .filter(|x| !x.is_empty())
-                .map(PathBuf::from)
-                .collect()
-        })
-        .unwrap_or_default();
     let ld = load_any(
         &spec_path,
         std::env::var("PARAMETRIC_INDEX_DIR")
             .ok()
             .map(PathBuf::from),
     );
-    let zrefs: Vec<&Path> = zero_paths.iter().map(PathBuf::as_path).collect();
-    let zeros = ZeroIndex::load(&zrefs).unwrap();
+    let (zeros, _) = load_zeros();
+    let zeros = zeros.unwrap_or_default();
     let n = ld.frame.arity();
     let mut seed: u64 = 0x5eed_b1c0;
     let mut next = move || {

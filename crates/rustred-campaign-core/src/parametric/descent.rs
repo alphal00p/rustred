@@ -13,6 +13,7 @@
 //!   It also leaves the node's sector (descent in the DAG). Listed as sub-loci, never a failure.
 //! - P (positive numerator): some numerator slot >= 1: NOT lower; the term needs a ZERO coefficient there. P is a finite
 //!   union of planes `pt_s = v` (v from 1 - o to the slot's upper bound) or a half-space / the whole domain.
+//!
 //! Every emptiness question is decided EXACTLY by [`crate::loci::contain::is_empty_with`] (sign splits, rational
 //! Fourier-Motzkin, integer witnesses verified with `applies`); `Unknown` stays undecided. A zero proof of the same
 //! (record sha256, term) on the plane or on the whole domain discharges the term ON THAT LOCUS ONLY.
@@ -111,6 +112,68 @@ impl ZeroIndex {
         Ok(z)
     }
 
+    /// [`ZeroIndex::load`] of proof files whose STANDALONE VERIFICATION is pinned (the rule of audit r2-zeros F5,
+    /// `import::zero_proofs::VerifiedZeroProofs`): the verifier's summary hashes to `summary_sha256`, has the verify
+    /// schema, says `verified` with no mismatch, no claim without its record and no header mismatch, and lists the
+    /// sha256 of every file loaded here (`proofs_sha256`). Refusals start with `zero_proofs_unverified:`.
+    pub fn load_verified(
+        paths: &[&Path],
+        summary: &Path,
+        summary_sha256: &str,
+    ) -> Result<ZeroIndex, String> {
+        let un = |m: String| format!("zero_proofs_unverified: {m}");
+        let bytes =
+            std::fs::read(summary).map_err(|e| un(format!("{}: {e}", summary.display())))?;
+        let mut h = Sha256::new();
+        h.update(&bytes);
+        let got = h.finish_hex();
+        let pin = summary_sha256
+            .trim_start_matches("sha256:")
+            .to_ascii_lowercase();
+        if got != pin {
+            return Err(un(format!(
+                "the verify summary {} has sha256 {got}, pinned {pin}",
+                summary.display()
+            )));
+        }
+        let v: Value = String::from_utf8_lossy(&bytes)
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .and_then(|l| serde_json::from_str(l).ok())
+            .or_else(|| serde_json::from_slice(&bytes).ok())
+            .ok_or_else(|| un(format!("{}: no JSON summary", summary.display())))?;
+        if v["schema"] != crate::import::zero_proofs::VERIFY_SUMMARY_SCHEMA {
+            return Err(un(format!("summary schema {}", v["schema"])));
+        }
+        let clean = v["verified"] == true
+            && v["counts"]["mismatches"].as_u64() == Some(0)
+            && v["counts"]["claims_without_record"].as_u64() == Some(0)
+            && v["header_mismatch"].as_array().is_some_and(Vec::is_empty);
+        if !clean {
+            return Err(un("the summary does not state a clean verification".into()));
+        }
+        let listed: Vec<String> = v["proofs_sha256"]
+            .as_array()
+            .ok_or_else(|| {
+                un("the summary binds no proof file by its sha256 (proofs_sha256 absent)".into())
+            })?
+            .iter()
+            .filter_map(|x| {
+                x.as_str()
+                    .map(|s| s.trim_start_matches("sha256:").to_ascii_lowercase())
+            })
+            .collect();
+        let z = ZeroIndex::load(paths)?;
+        for (p, s) in &z.files {
+            if !listed.contains(s) {
+                return Err(un(format!(
+                    "{p} (sha256 {s}) is not a file the pinned summary verified"
+                )));
+            }
+        }
+        Ok(z)
+    }
+
     /// The denominator class of a proved claim for (record, term) on `locus` or on the whole domain.
     pub fn proof(&self, record_sha256: &str, term: u32, locus: Locus) -> Option<DenStatus> {
         let v = self.by_record.get(record_sha256)?;
@@ -126,6 +189,16 @@ impl ZeroIndex {
             }
         }
         best
+    }
+
+    /// Add every claim and file of `o`.
+    pub fn merge(&mut self, o: ZeroIndex) {
+        for (k, v) in o.by_record {
+            self.by_record.entry(k).or_default().extend(v);
+        }
+        self.files.extend(o.files);
+        self.proved_lines += o.proved_lines;
+        self.other_lines += o.other_lines;
     }
 
     pub fn has_record(&self, record_sha256: &str) -> bool {
@@ -292,11 +365,17 @@ struct Cand {
     value: i64,
 }
 
+/// Emptiness of a sub-locus with its witness and the reason of an `Unknown`.
+pub type CellState = (EmptyState, Option<Vec<i32>>, Option<String>);
+
+/// One record's evidence line and verdict (`None`: the record could not be read).
+pub type JobResult = (Value, Option<RuleDescent>);
+
 /// Per record: emptiness of D intersected with one condition, cached across terms.
 struct RecordCache<'a, 'b> {
     ctx: &'a DescentContext<'b>,
     dom: &'a CaseDomain,
-    cells: HashMap<(usize, Rel, i64), (EmptyState, Option<Vec<i32>>, Option<String>)>,
+    cells: HashMap<(usize, Rel, i64), CellState>,
 }
 
 /// `n_p - v` / `-(n_p) + v` / `n_p - v` as polynomials on the rule point.
@@ -319,7 +398,7 @@ pub fn emptiness(
     budget: &ProofBudget,
     eqs: &[Poly],
     bounds: &[Poly],
-) -> (EmptyState, Option<Vec<i32>>, Option<String>) {
+) -> CellState {
     let mut d = dom.clone();
     d.equations.extend_from_slice(eqs);
     d.bounds.extend_from_slice(bounds);
@@ -356,7 +435,7 @@ pub fn emptiness(
 }
 
 impl<'a, 'b> RecordCache<'a, 'b> {
-    fn cell(&mut self, c: Cand) -> (EmptyState, Option<Vec<i32>>, Option<String>) {
+    fn cell(&mut self, c: Cand) -> CellState {
         let k = (c.param, c.rel, c.value);
         if let Some(v) = self.cells.get(&k) {
             return v.clone();
@@ -958,11 +1037,11 @@ pub fn run_jobs(
     zeros: Option<&ZeroIndex>,
     budget: &ProofBudget,
     threads: usize,
-) -> Vec<(Value, Option<RuleDescent>)> {
+) -> Vec<JobResult> {
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering as AO};
     let next = AtomicUsize::new(0);
-    let out: Mutex<Vec<Option<(Value, Option<RuleDescent>)>>> = Mutex::new(vec![None; jobs.len()]);
+    let out: Mutex<Vec<Option<JobResult>>> = Mutex::new(vec![None; jobs.len()]);
     std::thread::scope(|sc| {
         for _ in 0..threads.max(1) {
             sc.spawn(|| {
@@ -1014,7 +1093,7 @@ pub fn run_jobs(
 
 /// The summary of a run: per worst verdict (records), per verdict (terms), per class, the exceptional sub-loci and
 /// every does-not-descend / undecided term (capped lists with totals), and the hand-down excess bounds.
-pub fn summarize(results: &[(Value, Option<RuleDescent>)], max_listed: usize) -> Value {
+pub fn summarize(results: &[JobResult], max_listed: usize) -> Value {
     let mut by_worst: BTreeMap<String, usize> = BTreeMap::new();
     let mut by_class: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
     let mut terms: BTreeMap<String, usize> = BTreeMap::new();
