@@ -752,7 +752,11 @@ fn split_lines(frame_lines: &[bool], tk: &[i32]) -> (bool, u64) {
 }
 
 /// Run `f` over groups in parallel (dynamic scheduling), results in group order.
-fn par_map<T: Sync, R: Send>(items: &[T], threads: usize, f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+pub fn par_map<T: Sync, R: Send>(
+    items: &[T],
+    threads: usize,
+    f: impl Fn(&T) -> R + Sync,
+) -> Vec<R> {
     let next = AtomicUsize::new(0);
     let out: Vec<Mutex<Option<R>>> = items.iter().map(|_| Mutex::new(None)).collect();
     std::thread::scope(|s| {

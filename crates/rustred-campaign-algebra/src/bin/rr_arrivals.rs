@@ -1672,6 +1672,128 @@ fn closure_rows(a: &Args) {
     println!("{}", canonical_json(&s));
 }
 
+/// `cone-excess --tables T [..] --out F`: per node (the union of its tables' rule records) the exact hand-down excess per
+/// drop mask, the top terms' excess, the largest feasible mask (core `import::arrivals::cone`). Frames must agree.
+fn cone_excess(a: &Args) {
+    use rustred_campaign_core::import::arrivals::cone::{NodeExcess, read_rules};
+    let t0 = std::time::Instant::now();
+    if a.tables.is_empty() {
+        die("--tables missing");
+    }
+    let out = a.out.clone().unwrap_or_else(|| die("--out missing"));
+    let mut ne = NodeExcess::default();
+    let mut frame: Option<Vec<bool>> = None;
+    let mut tables = vec![];
+    for p in &a.tables {
+        let (fr, rules) = read_rules(p).unwrap_or_else(|e| die(&e));
+        match &frame {
+            None => frame = Some(fr.clone()),
+            Some(f) if *f != fr => die(&format!(
+                "{}: frame differs from the first table's",
+                p.display()
+            )),
+            _ => {}
+        }
+        for r in &rules {
+            ne.add_rule(r, &fr);
+        }
+        let (sha, bytes) = file_sha256(p).unwrap_or_else(|e| die(&e));
+        tables.push(json!({"path": p, "sha256": sha, "bytes": bytes, "records": rules.len()}));
+    }
+    let frame = frame.expect("frame");
+    let s = json!({"schema": "rustred.campaign.cone-excess.v1", "tables": tables,
+        "frame": frame.iter().map(|&l| if l { '1' } else { '0' }).collect::<String>(), "excess": ne,
+        "definition": "excess = D + r(sub) of the hand-down term (dropped lines counted as numerators) - D + r of the target, max over the record's rule-point range per drop mask; equations and exception branches ignored (sound)",
+        "seconds": t0.elapsed().as_secs_f64(), "tool": arrivals::TOOL_VERSION});
+    write_json(&out, &s);
+    println!(
+        "{}",
+        canonical_json(
+            &json!({"out": out, "records": s["excess"]["records"], "terms": s["excess"]["terms"],
+        "top_max": s["excess"]["top_max"], "handdown_max": s["excess"]["handdown_max"],
+        "max_lines_dropped": s["excess"]["max_lines_dropped"], "undecided": s["excess"]["undecided"].as_array().map_or(0, |v| v.len())})
+        )
+    );
+}
+
+/// `edge-cone --edge E [..] --out F` (JSON lines): per edge file its sha256 and the child-side image of every routed sector.
+fn edge_cone(a: &Args) {
+    use rustred_campaign_core::import::arrivals::cone::{edge_image, mask_string};
+    let out = a.out.clone().unwrap_or_else(|| die("--out missing"));
+    let mut lines = vec![];
+    for p in &a.edges {
+        let e = EdgeFile::read(p, &a.map).unwrap_or_else(|x| die(&x));
+        let pn = e.parent.momenta.len();
+        let imgs = edge_image(&e);
+        let masks: Vec<String> = e
+            .sectors
+            .iter()
+            .map(|s| mask_string(s.dropped_mask, pn))
+            .collect();
+        lines.push(canonical_json(&json!({"edge": p, "sha256": e.sha256, "parent": e.parent.label, "child": e.child.label,
+            "parent_lines": e.parent.table_lines, "child_lines": e.child.table_lines, "child_arity": e.child.momenta.len(),
+            "masks": masks, "sectors": imgs, "bound_holds": imgs.iter().all(|s| s.bound_holds)})));
+    }
+    std::fs::write(&out, lines.join("\n") + "\n")
+        .unwrap_or_else(|e| die(&format!("{}: {e}", out.display())));
+    println!(
+        "{}",
+        canonical_json(&json!({"out": out, "edges": lines.len()}))
+    );
+}
+
+/// `arrival-dr --arrivals F [..] --out F` (JSON lines): per arrival file (streamed, verified) D / r / D + r statistics of its
+/// keys in the child's frame (the header's child lines).
+fn arrival_dr(a: &Args) {
+    use rustred_campaign_core::import::arrivals::cone::DrStats;
+    let out = a.out.clone().unwrap_or_else(|| die("--out missing"));
+    let files: Vec<String> = a.arrivals.clone();
+    let res = arrivals::par_map(&files, a.threads, |p: &String| -> Result<Value, String> {
+        // the header (first line): the child's line slots
+        let first = {
+            use std::io::BufRead;
+            let f = std::fs::File::open(p).map_err(|e| format!("{p}: {e}"))?;
+            let mut s = String::new();
+            std::io::BufReader::new(f)
+                .read_line(&mut s)
+                .map_err(|e| format!("{p}: {e}"))?;
+            s
+        };
+        let h: Value = serde_json::from_str(&first).map_err(|e| format!("{p}: header: {e}"))?;
+        let child_lines: Vec<usize> = serde_json::from_value(h["child"]["lines"].clone())
+            .map_err(|e| format!("{p}: child lines: {e}"))?;
+        let mut st = DrStats::default();
+        let mut fr: Option<Vec<bool>> = None;
+        let r = format::read_streamed(Path::new(p), &mut |l| {
+            let f = fr.get_or_insert_with(|| {
+                let mut v = vec![false; l.key.len()];
+                for &j in &child_lines {
+                    if j < v.len() {
+                        v[j] = true;
+                    }
+                }
+                v
+            });
+            st.add(&l.key, f);
+            Ok(())
+        })?;
+        Ok(
+            json!({"file": p, "sha256": r.sha256, "parent": r.header["parent"]["node"], "child": r.header["child"]["label"],
+            "edge_sha256": r.header["edge"]["sha256"], "child_lines": child_lines, "stats": st}),
+        )
+    });
+    let mut lines = vec![];
+    for r in res {
+        lines.push(canonical_json(&r.unwrap_or_else(|e| die(&e))));
+    }
+    std::fs::write(&out, lines.join("\n") + "\n")
+        .unwrap_or_else(|e| die(&format!("{}: {e}", out.display())));
+    println!(
+        "{}",
+        canonical_json(&json!({"out": out, "files": lines.len()}))
+    );
+}
+
 fn header_family(p: &Path) -> Option<String> {
     let h = rustred_campaign_core::import::lines::read_header("arrivals", p).ok()?;
     h.raw
@@ -1701,6 +1823,9 @@ fn main() {
         "second-route" => second_route(&a),
         "compare-engine" => compare_engine(&a),
         "closure-rows" => closure_rows(&a),
+        "cone-excess" => cone_excess(&a),
+        "edge-cone" => edge_cone(&a),
+        "arrival-dr" => arrival_dr(&a),
         x => die(&format!("unknown command {x}")),
     }
 }

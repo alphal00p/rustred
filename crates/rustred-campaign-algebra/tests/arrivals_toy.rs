@@ -761,3 +761,60 @@ fn truncated_expansion_equals_the_top_sector_part_of_the_full_one() {
     }
     assert!(seen_lower > 0, "the grid must exercise the pruning");
 }
+
+/// The edge bound behind the arrival cones (core `import::arrivals::cone`, section 2): every top-sector image of a parent
+/// key of a routed sector has child D + r <= D + r(sub) of the parent key (dropped lines counted as numerators), on a grid;
+/// `edge_image` says the bound holds structurally for this sector.
+#[test]
+fn edge_bound_child_dr_never_exceeds_the_parent_terms_sub_sector_dr() {
+    let Some(a) = alg() else { return };
+    let a: &'static SymbolicaAlgebra = Box::leak(Box::new(a));
+    let e = rustred_campaign_core::import::arrivals::edge::EdgeFile::parse(
+        edge_json(Path::new("p"), Path::new("c"))
+            .to_string()
+            .as_bytes(),
+        "toy",
+        "chosen",
+    )
+    .unwrap();
+    let im = rustred_campaign_core::import::arrivals::cone::edge_image(&e);
+    assert!(im.iter().all(|s| s.bound_holds), "{im:?}");
+    let sec = &e.sectors[0];
+    let plines = [true, true, true, true, false];
+    let clines: Vec<bool> = (0..e.child.momenta.len())
+        .map(|j| e.child.table_lines.contains(&j))
+        .collect();
+    let dr = |k: &[i32], lines: &[bool]| -> i64 {
+        k.iter()
+            .zip(lines)
+            .map(|(&v, &l)| {
+                let v = i64::from(v);
+                if l && v >= 1 { v - 1 } else { -v }
+            })
+            .sum()
+    };
+    let tr = arrivals::Transporter::new(a, 5).unwrap();
+    let (mut images, mut attained) = (0u64, 0u64);
+    for n0 in 1..=4 {
+        for n1 in 1..=3 {
+            for n3 in 1..=2 {
+                for d2 in [0, -1, -2] {
+                    for n4 in [0, -1, -2, -3] {
+                        let key = [n0, n1, d2, n3, n4];
+                        let bound = dr(&key, &plines);
+                        for (k, _) in tr.apply_top(sec, &key, &[0, 1, 2]).unwrap() {
+                            images += 1;
+                            let c = dr(&k, &clines);
+                            assert!(c <= bound, "{key:?} -> {k:?}: {c} > {bound}");
+                            attained += (c == bound) as u64;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        images > 0 && attained > 0,
+        "the bound is attained on the grid ({attained} of {images})"
+    );
+}

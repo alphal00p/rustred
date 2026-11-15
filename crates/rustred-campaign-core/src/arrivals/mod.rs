@@ -15,6 +15,7 @@
 //! `rr_arrivals`). Nothing here names a node, a count, an arity or a frame (L8): all of that is data.
 
 pub mod child;
+pub mod cone;
 pub mod edge;
 pub mod format;
 pub mod rows;
