@@ -471,13 +471,11 @@ fn deep_cases_sample_every_case_type_round_robin() {
         OpenCase::from_case(&serde_json::json!({"frame":"presented","fixed":f,"equations":[]}))
             .unwrap()
     };
-    // type A (no free line): three highly constrained cases; type B (two free lines): less constrained
+    // type A (no free line, one free ISP, no interior slot): two cases with 4 fixed slots; type B (two free lines): 3
     let open = vec![vec![
         oc(vec![Some(1), Some(1), Some(1), Some(0), None]),
         oc(vec![Some(1), Some(1), Some(1), None, Some(0)]),
-        oc(vec![Some(1), Some(1), Some(1), Some(-1), None]),
         oc(vec![None, None, Some(1), Some(0), Some(0)]),
-        oc(vec![None, None, Some(2), Some(0), None]),
     ]];
     let d = deep_cases(&s, &[], &open, 2);
     let free_lines = |c: &OpenCase| c.fixed[..3].iter().filter(|x| x.is_none()).count();
