@@ -18,6 +18,7 @@ pub mod judge;
 pub mod key;
 pub mod order;
 pub mod policy;
+pub mod system;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -28,6 +29,7 @@ pub use journal::JournaledSolver;
 pub use judge::{LocalValuationJudge, StubRelationPoles, StubSystemPoles, facts_from_record};
 pub use key::{KeyMin, minimise_key};
 pub use policy::SeedMinPolicy;
+pub use system::TadicSystem;
 
 /// An integral key (one integer per slot).
 pub type Key = Vec<i32>;

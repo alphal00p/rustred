@@ -245,8 +245,23 @@ fn the_system_judge_vetoes_drops_when_available() {
     let k: Key = vec![2, 2, 0];
     let mut o = Oracle::default();
     o.alts.insert(k.clone(), vec![alt(&[[0, 0, 0]], 5)]);
-    let p = SeedMinPolicy::default();
+    let p = SeedMinPolicy {
+        system_regularity: "on".into(),
+        ..SeedMinPolicy::default()
+    };
     let km = minimise_key(&k, &C0, &shell(), &p, &mut o, &mut NeedsSeed(vec![1, 1, 1])).unwrap();
+    // off (the default): the system judge is not consulted
+    let off = SeedMinPolicy::default();
+    let km_off = minimise_key(
+        &k,
+        &C0,
+        &shell(),
+        &off,
+        &mut o,
+        &mut NeedsSeed(vec![1, 1, 1]),
+    )
+    .unwrap();
+    assert_eq!(km_off.list, vec![vec![0, 0, 0]]);
     assert!(km.list.contains(&vec![1, 1, 1]));
     assert!(km.list.contains(&vec![0, 0, 0]));
     assert_eq!(km.list.len(), 2);
@@ -752,4 +767,89 @@ fn halving_chunks_reach_the_same_lists_with_fewer_solves() {
         jb.solves,
         ja.solves
     );
+}
+
+/// A mock p* oracle: Order(0) while the system holds a seed equal to `regular_seed`, Order(1) otherwise.
+struct MockTadic {
+    regular_seed: Vec<i64>,
+}
+
+impl rustred_campaign_core::tadic::PoleOrderOracle for MockTadic {
+    fn best_pole_order(
+        &self,
+        sys: &rustred_campaign_core::tadic::ExactSystem,
+        q: &rustred_campaign_core::tadic::PoleQuery<'_>,
+    ) -> rustred_campaign_core::tadic::PoleOrderResult {
+        use rustred_campaign_core::tadic::*;
+        let p = if sys.seeds.contains(&self.regular_seed) {
+            0
+        } else {
+            1
+        };
+        PoleOrderResult {
+            schema: TADIC_VERSION,
+            system: sys.id.clone(),
+            target: q.target.to_vec(),
+            d0: q.d0.text(),
+            arith: Arith::Exact,
+            verdict: Verdict::Exact,
+            p_star: Some(PStar::Order(p)),
+            relation: None,
+            rank: Default::default(),
+            screen_at_d0: None,
+            seconds: 0.0,
+            notes: vec![],
+        }
+    }
+}
+
+#[test]
+fn the_tadic_system_judge_bounds_drops_by_the_start_systems_p_star() {
+    use rustred_campaign_core::replay_base::family::Family;
+    use rustred_campaign_core::seedmin::TadicSystem;
+    const SUNSET: &str = "I(name(S),loops(k1,k2),externals(q),dimension(d),prop(D1,(k1)^2,1),prop(D2,(k2)^2,1),prop(D3,(k1+k2+q)^2,1),prop(D4,(k1+q)^2,0),prop(D5,(k2+q)^2,0),gram(q,q,1))";
+    let fam = Family::parse(SUNSET).unwrap();
+    let lines = vec![true, true, true, false, false];
+    let key = vec![2, 1, 1, -1, 0];
+    let lower = |_k: &[i64], _t: &[i64]| true;
+    // the system holding the seed key + [1,0,0,0,0] is "regular"; dropping that seed raises p* to 1: refused
+    let oracle = MockTadic {
+        regular_seed: vec![3, 1, 1, -1, 0],
+    };
+    let mut ts = TadicSystem::new(&oracle, &fam, lines, &lower, Default::default(), true);
+    let before = vec![
+        vec![0, 0, 0, 0, 0],
+        vec![1, 0, 0, 0, 0],
+        vec![0, 1, 0, 0, 0],
+        vec![0, 0, -1, 0, 0],
+    ];
+    let drop_regular = vec![
+        vec![0, 0, 0, 0, 0],
+        vec![0, 1, 0, 0, 0],
+        vec![0, 0, -1, 0, 0],
+    ];
+    let drop_other = vec![
+        vec![0, 0, 0, 0, 0],
+        vec![1, 0, 0, 0, 0],
+        vec![0, 0, -1, 0, 0],
+    ];
+    assert_eq!(
+        ts.keeps_regularity(&before, &drop_regular, &key, "4"),
+        Some(false)
+    );
+    assert_eq!(
+        ts.keeps_regularity(&before, &drop_other, &key, "4"),
+        Some(true)
+    );
+    // a seed outside the top sector at the key (line 1 at 0) is filtered as the engine's sector filter does
+    let outside = vec![
+        vec![0, 0, 0, 0, 0],
+        vec![1, 0, 0, 0, 0],
+        vec![0, -1, 0, 0, 0],
+    ];
+    assert_eq!(
+        ts.keeps_regularity(&before, &outside, &key, "4"),
+        Some(true)
+    );
+    assert!(ts.seconds.len() >= 3);
 }

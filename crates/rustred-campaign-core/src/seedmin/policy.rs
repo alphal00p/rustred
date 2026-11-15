@@ -161,6 +161,12 @@ pub struct SeedMinPolicy {
     /// judge).
     #[serde(default = "d_on")]
     pub pole_objective: String,
+    /// `off` (default) | `on`: regularity check (ii), the SYSTEM's best pole order p* (lane tadic) not worse after a
+    /// change; informative only (the binding test is the delivered relation's order, check (i)); off by default for its
+    /// cost (one exact p* of the start system per key plus one per change: seconds for hundreds of rows, far more for
+    /// the thousands of rows of a face's list; notes, record of the measurement).
+    #[serde(default = "d_off")]
+    pub system_regularity: String,
     /// The ROW ORDER of the lists (TRICKS 17 (2): head reduction depends on it): `given` (the start list's order = the
     /// recipe's generation order, kept by the engine minimiser design, coord-seed-minimise.md 1b) | `distance_asc` |
     /// `distance_desc` (stable, L1 per `distance_from`). Applied once to the start list; every later list keeps it.
@@ -220,6 +226,9 @@ fn d_on_undecided() -> String {
 fn d_on() -> String {
     "on".into()
 }
+fn d_off() -> String {
+    "off".into()
+}
 fn d_row_order() -> String {
     "given".into()
 }
@@ -260,6 +269,7 @@ impl SeedMinPolicy {
         pick(&self.terms_aggregate, &["max", "sum"], "terms_aggregate")?;
         pick(&self.pole_objective, &["on", "off"], "pole_objective")?;
         pick(&self.drop_chunks, &["single", "halving"], "drop_chunks")?;
+        pick(&self.system_regularity, &["off", "on"], "system_regularity")?;
         pick(
             &self.row_order,
             &["given", "distance_asc", "distance_desc"],

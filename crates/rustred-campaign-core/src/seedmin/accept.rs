@@ -132,7 +132,7 @@ pub fn judge_change(
             return refuse(format!("monotone_rhs: terms {b} -> {a}"));
         }
     }
-    if poles_on && system.available() {
+    if poles_on && policy.system_regularity == "on" && system.available() {
         for n in new {
             let b: Vec<Offset> = before.iter().map(|o| add(centre, o)).collect();
             let a: Vec<Offset> = after.iter().map(|o| add(centre, o)).collect();
