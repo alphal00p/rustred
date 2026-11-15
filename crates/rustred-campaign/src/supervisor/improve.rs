@@ -604,7 +604,7 @@ impl WorkSource for ImproveSource {
                     };
                     // the case input: the rule's case in the table's PRESENTED frame
                     let line =
-                        json!({"frame": "presented", "fixed": r.fixed, "equations": r.equations})
+                        json!({"frame": "PRESENTED", "fixed": r.fixed, "equations": r.equations})
                             .to_string()
                             + "\n";
                     let rel = format!("{}/cases/{}.jsonl", dir(&node), r.index);
