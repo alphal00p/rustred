@@ -385,7 +385,10 @@ pub struct Evidence {
     fact_files: Vec<String>,
     /// lane zerosfix3: (rule, key) pairs whose fact a second, independent route CONFIRMED -> the confirmed basis word
     /// (memory and store-backed facts alike; the producer itself is never overwritten: it selects the second route).
-    confirmed: HashMap<(u32, Box<[i32]>), &'static str>,
+    /// Keys packed by the set's codec when they fit two words (a big node confirms ~10^7 pairs per pass).
+    confirmed: HashMap<PairKey, &'static str>,
+    /// lane zerosfix3: the set's key codec (packs the keys of `confirmed`).
+    codec: Option<crate::closure::KeyCodec>,
     /// lane closeloop4 (closeloop.md 18): (rule, key) pairs whose coefficient facts are DISPUTED (the two independent
     /// routes disagree): every term is `Unknown` there (a term is an edge unless its zero is confirmed; the key's
     /// row is never certified).
@@ -405,6 +408,14 @@ pub struct Evidence {
     /// lane zerosfix3: (rule, key) pairs whose facts in two attached stores contradict each other (looked up: each was
     /// answered as an unusable fact); the closing loop's verdict names them (`contradicting_facts`).
     fact_conflicts: std::sync::Mutex<BTreeSet<(u32, Vec<i32>)>>,
+}
+
+/// lane zerosfix3: a (rule index, key) of [`Evidence`]'s confirmed map: the key packed into 128 bits by the set's codec
+/// when it fits (no allocation, ~5x smaller than a boxed key), else boxed.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum PairKey {
+    Packed(u32, u128),
+    Boxed(u32, Box<[i32]>),
 }
 
 /// How many foreign record digests are kept as examples (diagnosis only).
@@ -653,7 +664,21 @@ impl Evidence {
             }
         }
         ev.label = "import:none".into();
+        ev.codec = Some(set.codec);
         ev
+    }
+
+    /// lane zerosfix3: the confirmed map's key of (rule index, key).
+    fn pair_key(&self, ri: u32, key: &[i32]) -> PairKey {
+        if let Some(c) = self.codec
+            && c.words() <= 2
+        {
+            let mut w = [0u64; 2];
+            if c.encode(key, &mut w) {
+                return PairKey::Packed(ri, (u128::from(w[0]) << 64) | u128::from(w[1]));
+            }
+        }
+        PairKey::Boxed(ri, Box::from(key))
     }
 
     /// Load everything the spec names; with `opts.store` the facts and proofs files go into ONE disk-backed store
@@ -1541,7 +1566,8 @@ impl Evidence {
         if self.fact_ref(ri, key).is_none() {
             return false;
         }
-        self.confirmed.insert((ri, Box::from(key)), basis);
+        let k = self.pair_key(ri, key);
+        self.confirmed.insert(k, basis);
         true
     }
 
@@ -1553,7 +1579,7 @@ impl Evidence {
         let ri = *self.rule_index2.get(rule.table)?.get(&rule.label)?;
         let f = self.fact_ref(ri, key)?;
         if !self.confirmed.is_empty()
-            && let Some(b) = self.confirmed.get(&(ri, Box::<[i32]>::from(key)))
+            && let Some(b) = self.confirmed.get(&self.pair_key(ri, key))
         {
             return Some(b);
         }
