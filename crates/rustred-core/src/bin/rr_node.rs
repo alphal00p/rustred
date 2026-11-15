@@ -2011,6 +2011,7 @@ fn cmd_symface(mut a: Args) -> i32 {
             })
             .collect()
     });
+    let pair = a.take("--pair-shift").map(|t| rustred::node::symface::PairShift::parse(&t).unwrap_or_else(|e| die(&e)));
     let face_arg = a.take("--face").unwrap_or_else(|| if point_keys.is_some() { "-/-".into() } else { die("missing --face (or --point-keys FILE)") });
     let (d, nu) = face_arg.split_once('/').unwrap_or_else(|| die("--face DOTTED/NUMERATORS"));
     let list = |t: &str| -> Vec<usize> {
@@ -2061,6 +2062,7 @@ fn cmd_symface(mut a: Args) -> i32 {
         max_expansion,
         check_keys,
         point_keys,
+        pair,
     };
     match run(&o) {
         Ok(r) => {

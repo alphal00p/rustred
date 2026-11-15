@@ -744,6 +744,38 @@ pub fn rule_records(
         .collect()
 }
 
+/// The shift K -> K' of the second row (pair mode): per slot either `slot=value` (set) or `slot+delta` (add).
+#[derive(Clone, Debug)]
+pub struct PairShift {
+    pub ops: Vec<(usize, bool, i64)>, // (slot, is_set, value)
+}
+
+impl PairShift {
+    /// `11=-1,12+1` (comma list of `SLOT=VALUE` / `SLOT+DELTA` / `SLOT-DELTA`)
+    pub fn parse(t: &str) -> Result<Self, String> {
+        let mut ops = Vec::new();
+        for part in t.split(',').map(str::trim).filter(|x| !x.is_empty()) {
+            let (slot, set, val) = if let Some((a, b)) = part.split_once('=') {
+                (a, true, b.trim().parse::<i64>().map_err(|_| format!("pair shift {part}"))?)
+            } else if let Some(i) = part[1..].find(|c| c == '+' || c == '-').map(|i| i + 1) {
+                let (a, b) = part.split_at(i);
+                (a, false, b.trim_start_matches('+').parse::<i64>().map_err(|_| format!("pair shift {part}"))?)
+            } else {
+                return Err(format!("pair shift {part}: SLOT=VALUE or SLOT+DELTA"));
+            };
+            ops.push((slot.trim().parse::<usize>().map_err(|_| format!("pair shift slot {part}"))?, set, val));
+        }
+        Ok(Self { ops })
+    }
+    pub fn apply(&self, key: &[i64]) -> Vec<i64> {
+        let mut k = key.to_vec();
+        for &(s, set, v) in &self.ops {
+            if s < k.len() { if set { k[s] = v } else { k[s] += v } }
+        }
+        k
+    }
+}
+
 /// Point mode: at ONE key (every slot fixed), every element; the smallest relation whose every term is strictly lower
 /// than the key under the engine order (`concrete`) wins (ties by element index). Returns (element, rule) or the
 /// per-element refusals.
@@ -755,13 +787,15 @@ pub fn point_rule(
     zero: &dyn Fn(&[bool]) -> bool,
     concrete: &dyn Fn(&[i64], &[i64]) -> std::cmp::Ordering,
     max_expansion: u128,
+    pair: Option<&PairShift>,
 ) -> (Option<(usize, SliceRule)>, Vec<(usize, String)>) {
     let n = chart.len();
-    let face = Face {
+    let face_of = |k: &[i64]| Face {
         chart: chart.to_vec(),
-        dotted: (0..n).filter(|&i| chart[i] && key[i] >= 2).collect(),
-        numerators: (0..n).filter(|&i| !chart[i] && key[i] <= -1).collect(),
+        dotted: (0..n).filter(|&i| chart[i] && k[i] >= 2).collect(),
+        numerators: (0..n).filter(|&i| !chart[i] && k[i] <= -1).collect(),
     };
+    let face = face_of(key);
     let mut best: Option<(usize, SliceRule)> = None;
     let mut refused = Vec::new();
     for (k, e) in group.elements.iter().enumerate() {
@@ -774,10 +808,51 @@ pub fn point_rule(
         if est > max_expansion {
             refused.push((k, format!("EXPANSION_TOO_LARGE: about {est} terms"))); continue;
         }
-        let r = match slice_rule_at(e, &face, &subs, &slice, zero, Some(key)) {
+        let mut r = match slice_rule_at(e, &face, &subs, &slice, zero, Some(key)) {
             Ok(r) => r,
             Err(m) => { refused.push((k, m)); continue; }
         };
+        // two rows of the same element: 0 = row(K) - row(K'), row(s) = I(s) - E(g s):
+        // I(K) = I(K') + E(gK) - E(gK'); a K on the right is solved for (coefficient 1 - c, exact division required)
+        if let Some(ps) = pair {
+            let k2 = ps.apply(key);
+            if k2.iter().zip(chart).any(|(v, &line)| if line { *v < 1 } else { *v > 0 }) {
+                refused.push((k, format!("pair: shifted key {k2:?} leaves the chart"))); continue;
+            }
+            let face2 = face_of(&k2);
+            let subs2 = match face_action(ff, e, &face2) {
+                Ok(s) => s,
+                Err(m) => { refused.push((k, format!("pair: {m}"))); continue; }
+            };
+            let slice2: BTreeMap<usize, i64> = subs2.keys().map(|&j| (j, k2[j])).collect();
+            if expansion_estimate(&subs2, &slice2) > max_expansion {
+                refused.push((k, "pair: EXPANSION_TOO_LARGE at the shifted key".into())); continue;
+            }
+            let r2 = match slice_rule_at(e, &face2, &subs2, &slice2, zero, Some(&k2)) {
+                Ok(r) => r,
+                Err(m) => { refused.push((k, format!("pair: {m}"))); continue; }
+            };
+            let mut acc: BTreeMap<Vec<i64>, i128> = BTreeMap::new();
+            *acc.entry(k2.clone()).or_insert(0) += 1;
+            for (p, c) in &r.terms { *acc.entry(instantiate(p, key)).or_insert(0) += c; }
+            for (p, c) in &r2.terms { *acc.entry(instantiate(p, &k2)).or_insert(0) -= c; }
+            let self_c = acc.remove(&key.to_vec()).unwrap_or(0);
+            let lead = 1 - self_c;
+            if lead == 0 {
+                refused.push((k, "pair: the key cancels (no relation)".into())); continue;
+            }
+            acc.retain(|_, c| *c != 0);
+            if acc.values().any(|c| c % lead != 0) {
+                refused.push((k, format!("pair: non-integral coefficients (divide by {lead})"))); continue;
+            }
+            r = SliceRule {
+                slice: slice.clone(),
+                target: key.iter().map(|&c| Pow { var: None, c }).collect(),
+                terms: acc.into_iter().map(|(t, c)| (t.into_iter().map(|c| Pow { var: None, c }).collect(), c / lead)).collect(),
+                dropped_zero_sector: r.dropped_zero_sector + r2.dropped_zero_sector,
+                expanded: r.expanded + r2.expanded,
+            };
+        }
         if let Some((p, _)) = r.terms.iter().find(|(p, _)| concrete(key, &instantiate(p, key)) != std::cmp::Ordering::Less) {
             refused.push((k, format!("term {:?} is not strictly lower (full node order)", instantiate(p, key)))); continue;
         }
@@ -801,6 +876,8 @@ pub struct RunOptions {
     pub check_keys: Vec<Vec<i64>>,
     /// point mode: one point rule per listed key (the face is ignored)
     pub point_keys: Option<Vec<Vec<i64>>>,
+    /// pair mode (with point keys): the second row's key K' = shift(K)
+    pub pair: Option<PairShift>,
 }
 
 macro_rules! with_n {
@@ -971,7 +1048,7 @@ fn run_points(
             if key.len() != n {
                 return Err(format!("point key of arity {} (family {n})", key.len()));
             }
-            let (best, refused) = point_rule(ff, group, &o.face.chart, key, zero_fn, &concrete, o.max_expansion);
+            let (best, refused) = point_rule(ff, group, &o.face.chart, key, zero_fn, &concrete, o.max_expansion, o.pair.as_ref());
             match best {
                 Some((k, r)) => {
                     served += 1;
