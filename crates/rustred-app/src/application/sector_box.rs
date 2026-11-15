@@ -497,10 +497,10 @@ pub fn solution_file_name(value: &str) -> String {
 }
 
 /// The file name of a solution whose certificates did not all pass
-/// (`solution-<d>.rejected.json`): kept for diagnosis, never read as a
-/// solution by name.
+/// (`solution-<d>.json.rejected`): kept for diagnosis. It does not end in
+/// `.json`, so a `solution-*.json` glob never picks it up.
 pub fn rejected_file_name(value: &str) -> String {
-    format!("solution-{}.rejected.json", file_safe(value))
+    format!("solution-{}.json.rejected", file_safe(value))
 }
 
 fn file_safe(value: &str) -> String {
@@ -861,7 +861,10 @@ fn run_phases<const N: usize>(
             .map_err(engine(&format!("solution file at {dimension} = {value}")))?;
         // Only a certified solution takes the name consumers read; one whose
         // certificates did not all pass is kept for diagnosis under another
-        // name and never replaces an existing `solution-<d>.json`.
+        // name and never replaces an existing `solution-<d>.json`. A
+        // certified solution supersedes a rejected one of the same value: the
+        // stale `.rejected` file is removed, so the directory holds the
+        // latest verdict for every value.
         let name = if ok {
             solution_file_name(value)
         } else {
@@ -869,6 +872,18 @@ fn run_phases<const N: usize>(
             rejected_file_name(value)
         };
         write_atomic(&spec.out_dir.join(&name), text.as_bytes())?;
+        if ok {
+            let stale = spec.out_dir.join(rejected_file_name(value));
+            match std::fs::remove_file(&stale) {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(AppError::execution(format!(
+                        "cannot remove {}: {error}",
+                        stale.display()
+                    )));
+                }
+                _ => {}
+            }
+        }
         per_d.push(json!({
             "d": value, "file": name, "blake3": blake3::hash(text.as_bytes()).to_hex().to_string(),
             "ff_seconds": ff_seconds, "free": solution.free,

@@ -278,10 +278,16 @@ does not use a candidate bundle. The command:
    `d/dm I[a] = a_s I[a + e_s]` (up to the sign convention of the denominator);
 3. for every value of the dimension in `d_list`, reconstructs every
    coefficient in the free parameter (multi-prime, verified at a fresh prime),
-   writes `solution-<d>.json` (`rustred-harness-solution.v1`; `/` becomes `_`
-   and `-` becomes `m`), and checks a probabilistic certificate at a prime that
-   is neither a reconstruction nor a verification prime of that solution. The
-   file carries the certificates that passed.
+   checks a probabilistic certificate at a prime that is neither a
+   reconstruction nor a verification prime of that solution (and the exact one
+   with `exact_certificate`), and writes the solution
+   (`rustred-harness-solution.v1`) with the certificates that passed. A
+   certified solution is `solution-<d>.json` (the canonical value of `d`; `/`
+   becomes `_` and `-` becomes `m`) and removes a stale
+   `solution-<d>.json.rejected` of the same value. A solution whose
+   certificates did not all pass is kept for diagnosis as
+   `solution-<d>.json.rejected`: it never replaces a `solution-<d>.json`, and a
+   `solution-*.json` glob does not match it.
 
 ```bash
 rustred sector-box-reduce --spec spec.json --output report.json
@@ -289,8 +295,13 @@ rustred sector-box-reduce --spec spec.json --output report.json
 
 The report (schema `rustred.sector-box-reduce-report.v1`) is also written to
 `out_dir/report.json`, atomically after every phase. It carries
-`label = "uncertified-sector-box"`. The record of every solution lists its
-reconstruction, verification and certificate primes.
+`label = "uncertified-sector-box"`. The record of every solution lists the
+file written, its reconstruction, verification and certificate primes, and
+every certificate's `verdict`: `passed`, `refuted` (a reduction is not in the
+span) or `no-verdict` (only special points, or a refused prime). Its final
+`status` is always terminal: `ok`, `modular-only`, `master-check-failed`,
+`certificate-failed`, or `failed` with `error: {kind, message}` when the run
+stopped on an error after its first report write.
 
 Exit codes:
 - 0: `status` is `ok`, or `modular-only`;
@@ -314,7 +325,7 @@ same as in `litered-reduce`.
 | `expected` | `{}` | expected masters per class: Kira id of the representative sector (decimal string) -> count |
 | `derivative_slot` | none | close the demand under the derivative in the mass of that line |
 | `closure_rounds` | 8 | maximal closure rounds after the first modular phase; still unclosed after them is an error |
-| `d_list` | required unless `modular_only` | values `"p/q"` of the family dimension |
+| `d_list` | required unless `modular_only` | values `"p/q"` of the family dimension; each value once (`"1/2"` and `"2/4"` are the same value) |
 | `fixed` | `{}` | further fixed parameters, name -> `"p/q"` |
 | `free` | the only unfixed parameter | checked when given |
 | `router` | `"census-top"` | or `"census"` (all slots) or `"identity"` |

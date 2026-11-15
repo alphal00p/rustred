@@ -185,7 +185,7 @@ fn k6_eta_derivative_equations_match_the_campaign_goldens() {
     assert_eq!(third["restored_from_checkpoint"], false);
     // A reconstruction prime as the certificate prime is refused: the
     // certificate fails, exit 1, and the solution is kept for diagnosis as
-    // `solution-37_11.rejected.json`; the certified `solution-37_11.json`
+    // `solution-37_11.json.rejected`; the certified `solution-37_11.json`
     // of the earlier run is not replaced.
     let good = std::fs::read(dir.join("out").join("solution-37_11.json")).unwrap();
     let mut reused = spec.clone();
@@ -206,16 +206,42 @@ fn k6_eta_derivative_equations_match_the_campaign_goldens() {
         verdict["per_d"][0]["certificates"]["probabilistic"]["verdict"],
         "no-verdict"
     );
-    assert_eq!(verdict["per_d"][0]["file"], "solution-37_11.rejected.json");
+    assert_eq!(verdict["per_d"][0]["file"], "solution-37_11.json.rejected");
     assert!(
         dir.join("out")
-            .join("solution-37_11.rejected.json")
+            .join("solution-37_11.json.rejected")
             .exists()
     );
     assert_eq!(
         std::fs::read(dir.join("out").join("solution-37_11.json")).unwrap(),
         good
     );
+    // A solution-*.json glob of the output directory sees only certified
+    // solutions, never the rejected one.
+    let globbed = |dir: &Path| -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .filter(|name| name.starts_with("solution-") && name.ends_with(".json"))
+            .collect();
+        names.sort();
+        names
+    };
+    assert_eq!(
+        globbed(&dir.join("out")),
+        vec!["solution-319999_80000.json", "solution-37_11.json"]
+    );
+    // A later certified run of the same value supersedes the rejected file.
+    let mut certified = reused.clone();
+    certified["certificate_prime"] = Value::Null;
+    let (code, again) = run(&dir, &certified);
+    assert_eq!(code, 0, "{again}");
+    assert!(
+        !dir.join("out")
+            .join("solution-37_11.json.rejected")
+            .exists()
+    );
+    assert_eq!(again["per_d"][0]["file"], "solution-37_11.json");
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
