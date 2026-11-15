@@ -1999,7 +1999,19 @@ fn cmd_symface(mut a: Args) -> i32 {
     let text = std::fs::read_to_string(&family).unwrap_or_else(|e| die(&format!("{family}: {e}")));
     let order_text = a.need("--order");
     let order = order_arg(&order_text, &text, None);
-    let face_arg = a.need("--face");
+    let point_keys: Option<Vec<Vec<i64>>> = a.take("--point-keys").map(|p| {
+        std::fs::read_to_string(&p)
+            .unwrap_or_else(|e| die(&format!("{p}: {e}")))
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| {
+                let v: serde_json::Value = serde_json::from_str(l).unwrap_or_else(|e| die(&format!("--point-keys: {e}")));
+                let k = if v.is_array() { v } else { v["key"].clone() };
+                serde_json::from_value::<Vec<i64>>(k).unwrap_or_else(|e| die(&format!("--point-keys key: {e}")))
+            })
+            .collect()
+    });
+    let face_arg = a.take("--face").unwrap_or_else(|| if point_keys.is_some() { "-/-".into() } else { die("missing --face (or --point-keys FILE)") });
     let (d, nu) = face_arg.split_once('/').unwrap_or_else(|| die("--face DOTTED/NUMERATORS"));
     let list = |t: &str| -> Vec<usize> {
         if t == "-" || t.is_empty() {
@@ -2048,10 +2060,11 @@ fn cmd_symface(mut a: Args) -> i32 {
         out: out.into(),
         max_expansion,
         check_keys,
+        point_keys,
     };
     match run(&o) {
         Ok(r) => {
-            println!("{}", serde_json::to_string(&serde_json::json!({"verdict": if r["chosen"].is_null() { "NO_ELEMENT" } else { "DONE" },
+            println!("{}", serde_json::to_string(&serde_json::json!({"verdict": if r["chosen"].is_null() { "NO_ELEMENT" } else { "DONE" }, "served": r["served"],
                 "chosen": r["chosen"], "rules": r["rules"], "rhs_terms": r["rhs_terms"], "max_terms_per_rule": r["max_terms_per_rule"],
                 "seconds": r["seconds"]})).unwrap());
             if r["chosen"].is_null() { 10 } else { 0 }

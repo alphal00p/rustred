@@ -286,9 +286,23 @@ pub fn slice_rule(
     slice: &BTreeMap<usize, i64>,
     zero: &dyn Fn(&[bool]) -> bool,
 ) -> Result<SliceRule, String> {
+    slice_rule_at(e, face, subs, slice, zero, None)
+}
+
+/// As [`slice_rule`]; with `point = Some(key)` the target is the key itself (every slot fixed: point mode).
+pub fn slice_rule_at(
+    e: &SymElement,
+    face: &Face,
+    subs: &BTreeMap<usize, Combination>,
+    slice: &BTreeMap<usize, i64>,
+    zero: &dyn Fn(&[bool]) -> bool,
+    point: Option<&[i64]>,
+) -> Result<SliceRule, String> {
     let n = face.chart.len();
     // target pattern
-    let target: Vec<Pow> = (0..n)
+    let target: Vec<Pow> = if let Some(k) = point {
+        k.iter().map(|&c| Pow { var: None, c }).collect()
+    } else { (0..n)
         .map(|i| match slice.get(&i) {
             Some(&v) => Pow { var: None, c: v },
             None if face.free(i) => Pow { var: Some(i), c: 0 },
@@ -297,7 +311,7 @@ pub fn slice_rule(
                 c: i64::from(face.chart[i]),
             },
         })
-        .collect();
+        .collect() };
     // exactly mapped slots move their power
     let mut base = vec![Pow { var: None, c: 0 }; n];
     for i in 0..n {
@@ -730,6 +744,50 @@ pub fn rule_records(
         .collect()
 }
 
+/// Point mode: at ONE key (every slot fixed), every element; the smallest relation whose every term is strictly lower
+/// than the key under the engine order (`concrete`) wins (ties by element index). Returns (element, rule) or the
+/// per-element refusals.
+pub fn point_rule(
+    ff: &FamilyForms,
+    group: &NodeGroup,
+    chart: &[bool],
+    key: &[i64],
+    zero: &dyn Fn(&[bool]) -> bool,
+    concrete: &dyn Fn(&[i64], &[i64]) -> std::cmp::Ordering,
+    max_expansion: u128,
+) -> (Option<(usize, SliceRule)>, Vec<(usize, String)>) {
+    let n = chart.len();
+    let face = Face {
+        chart: chart.to_vec(),
+        dotted: (0..n).filter(|&i| chart[i] && key[i] >= 2).collect(),
+        numerators: (0..n).filter(|&i| !chart[i] && key[i] <= -1).collect(),
+    };
+    let mut best: Option<(usize, SliceRule)> = None;
+    let mut refused = Vec::new();
+    for (k, e) in group.elements.iter().enumerate() {
+        let subs = match face_action(ff, e, &face) {
+            Ok(s) => s,
+            Err(m) => { refused.push((k, m)); continue; }
+        };
+        let slice: BTreeMap<usize, i64> = subs.keys().map(|&j| (j, key[j])).collect();
+        let est = expansion_estimate(&subs, &slice);
+        if est > max_expansion {
+            refused.push((k, format!("EXPANSION_TOO_LARGE: about {est} terms"))); continue;
+        }
+        let r = match slice_rule_at(e, &face, &subs, &slice, zero, Some(key)) {
+            Ok(r) => r,
+            Err(m) => { refused.push((k, m)); continue; }
+        };
+        if let Some((p, _)) = r.terms.iter().find(|(p, _)| concrete(key, &instantiate(p, key)) != std::cmp::Ordering::Less) {
+            refused.push((k, format!("term {:?} is not strictly lower (full node order)", instantiate(p, key)))); continue;
+        }
+        if best.as_ref().is_none_or(|(_, b)| r.terms.len() < b.terms.len()) {
+            best = Some((k, r));
+        }
+    }
+    (best, refused)
+}
+
 /// Options of `rr_node symface`.
 pub struct RunOptions {
     pub family_text: String,
@@ -741,6 +799,8 @@ pub struct RunOptions {
     pub out: std::path::PathBuf,
     pub max_expansion: u128,
     pub check_keys: Vec<Vec<i64>>,
+    /// point mode: one point rule per listed key (the face is ignored)
+    pub point_keys: Option<Vec<Vec<i64>>>,
 }
 
 macro_rules! with_n {
@@ -791,6 +851,9 @@ pub fn run(o: &RunOptions) -> Result<Value, String> {
     let ff = FamilyForms::new(&o.family_text)?;
     let group = node_group(&o.family_text, &o.face.chart)?;
     let label: String = o.face.chart.iter().map(|&b| if b { '1' } else { '0' }).collect();
+    if let Some(keys) = &o.point_keys {
+        return run_points(o, keys, &ff, &group, &zero_fn, &label, zeros.len(), t0);
+    }
     let results: Vec<ElementResult> = with_n!(n, N, {
         let mut sector = [false; N];
         sector[..n].copy_from_slice(&o.face.chart);
@@ -873,6 +936,80 @@ pub fn run(o: &RunOptions) -> Result<Value, String> {
         }
     }
     report["seconds"] = json!(t0.elapsed().as_secs_f64());
+    std::fs::write(o.out.join("REPORT.json"), serde_json::to_string_pretty(&report).unwrap()).map_err(|e| e.to_string())?;
+    Ok(report)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_points(
+    o: &RunOptions,
+    keys: &[Vec<i64>],
+    ff: &FamilyForms,
+    group: &NodeGroup,
+    zero_fn: &dyn Fn(&[bool]) -> bool,
+    label: &str,
+    n_zero: usize,
+    t0: std::time::Instant,
+) -> Result<Value, String> {
+    let n = o.face.chart.len();
+    let mut lines = Vec::new();
+    let mut per_key = Vec::new();
+    let mut served = 0usize;
+    with_n!(n, N, {
+        let mut sector = [false; N];
+        sector[..n].copy_from_slice(&o.face.chart);
+        let io = super::descent::integral_order::<N>(&o.order, sector, n)?;
+        let concrete = |a: &[i64], b: &[i64]| -> std::cmp::Ordering {
+            let to = |v: &[i64]| {
+                crate::solver::Integral::<N>::new(std::array::from_fn(|i| {
+                    crate::solver::Power::new(false, if i < n { v[i] as i16 } else { 0 }).expect("power")
+                }))
+            };
+            io.compare(&to(a), &to(b))
+        };
+        for key in keys {
+            if key.len() != n {
+                return Err(format!("point key of arity {} (family {n})", key.len()));
+            }
+            let (best, refused) = point_rule(ff, group, &o.face.chart, key, zero_fn, &concrete, o.max_expansion);
+            match best {
+                Some((k, r)) => {
+                    served += 1;
+                    let e = &group.elements[k];
+                    let res = ElementResult { element: k, substituted: r.slice.keys().copied().collect(), rules: vec![r], refused: None, checked: (1, 1, 0) };
+                    let face = Face {
+                        chart: o.face.chart.clone(),
+                        dotted: (0..n).filter(|&i| o.face.chart[i] && key[i] >= 2).collect(),
+                        numerators: (0..n).filter(|&i| !o.face.chart[i] && key[i] <= -1).collect(),
+                    };
+                    let mut recs = rule_records(&res, e, &face, label, lines.len(), 0, "point");
+                    lines.append(&mut recs);
+                    per_key.push(json!({"key": key, "element": k, "terms": res.rules[0].terms.len(), "refused": refused.len()}));
+                }
+                None => per_key.push(json!({"key": key, "element": Value::Null,
+                    "refusals": refused.iter().map(|(k, m)| json!([k, m.chars().take(160).collect::<String>()])).collect::<Vec<_>>()})),
+            }
+        }
+        Ok::<(), String>(())
+    })?;
+    std::fs::create_dir_all(&o.out).map_err(|e| e.to_string())?;
+    let mut text = String::new();
+    if !lines.is_empty() {
+        let header = json!({"schema": "table_dump.v1", "node_schema": "rustred.node.v1", "source_base": "rustred-node symface (point mode)",
+            "family_source": o.family_text, "charts": [label],
+            "node_order": serde_json::from_str::<Value>(&o.order.to_json()).unwrap_or(Value::Null), "guard_version": 2,
+            "symface_tables": {"mode": "point", "keys": keys.len(), "served": served}});
+        text.push_str(&format!("{{\"type\":\"header\",{}\n", &header.to_string()[1..]));
+        text.push_str(&format!("{{\"type\":\"chart\",\"chart\":\"{label}\",\"guards\":[],\"zero\":false}}\n"));
+        for l in &lines { text.push_str(l); text.push('\n'); }
+        text.push_str(&format!("{{\"type\":\"end\",\"charts\":1,\"rules\":{},\"residuals\":0,\"chart_errors\":0,\"harness\":\"rustred node symface point mode\"}}\n", lines.len()));
+        std::fs::write(o.out.join("F.table.jsonl"), &text).map_err(|e| e.to_string())?;
+    }
+    let report = json!({"schema": "rustred.symface-report.v1", "mode": "point", "keys": keys.len(), "served": served,
+        "chosen": if served > 0 { json!("per key") } else { Value::Null }, "rules": lines.len(),
+        "rhs_terms": per_key.iter().filter_map(|k| k["terms"].as_u64()).sum::<u64>(), "zero_sectors": n_zero,
+        "group_order": group.group_order, "per_key": per_key, "seconds": t0.elapsed().as_secs_f64(),
+        "table_bytes": text.len()});
     std::fs::write(o.out.join("REPORT.json"), serde_json::to_string_pretty(&report).unwrap()).map_err(|e| e.to_string())?;
     Ok(report)
 }
