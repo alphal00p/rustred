@@ -102,9 +102,6 @@ pub struct CoreDriverConfig {
     pub licence_env: Option<String>,
     /// d0 of the regularity verdicts.
     pub d0: String,
-    /// The valuation child (`rr_coreseed_valuation` of the algebra crate, or lane poles' `rr_poles`): called for a
-    /// relation the cheap exact test leaves undecided. None = the cheap test only.
-    pub valuation: Option<PathBuf>,
     /// Keep the run directories of minimisation trials (default: removed after the answer is journaled).
     pub keep_trial_outputs: bool,
     pub verbose: bool,
@@ -162,48 +159,15 @@ fn sha256_hex(b: &[u8]) -> String {
     h.finish_hex()
 }
 
-/// The regularity judge of the driver: the core's cheap exact test first (a regular verdict is sound), then the
-/// valuation child for what it leaves undecided.
-pub struct DriverJudge {
-    pub valuation: Option<PathBuf>,
-}
+/// The regularity judge of the driver: the core's exact in-process denominator test (a `regular` verdict is sound; else
+/// `undecided`). The supervisor starts NO process of its own here: every child goes through the process layer as a
+/// job. Exact pole orders (lane poles' `rr_poles regular-at`) are a diagnostic job outside this solver (REQUEST: a
+/// contract job kind `pole-regular-at`, interfaces/coreseed.md 10); an undecided verdict never blocks a closing relation.
+pub struct DriverJudge;
 
 impl RegularityJudge for DriverJudge {
     fn is_regular_at(&self, record: &Value, key: &[i32], d0: &str) -> D0Verdict {
-        let cheap = DenominatorJudge.is_regular_at(record, key, d0);
-        if cheap.is_regular() {
-            return cheap;
-        }
-        let Some(p) = &self.valuation else {
-            return cheap;
-        };
-        let run = || -> Result<D0Verdict, String> {
-            let mut child = std::process::Command::new(p)
-                .args(["--d0", d0])
-                .stdin(std::process::Stdio::piped())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::null())
-                .spawn()
-                .map_err(|e| e.to_string())?;
-            {
-                let mut si = child.stdin.take().ok_or("stdin")?;
-                writeln!(si, "{}", json!({"key": key, "record": record}))
-                    .map_err(|e| e.to_string())?;
-            }
-            let out = child.wait_with_output().map_err(|e| e.to_string())?;
-            let v: Value = serde_json::from_slice(
-                out.stdout.split(|&b| b == b'\n').next().unwrap_or_default(),
-            )
-            .map_err(|e| e.to_string())?;
-            Ok(match v["verdict"].as_str() {
-                Some("regular") => D0Verdict::Regular,
-                Some("singular") => D0Verdict::Singular {
-                    order: v["order"].as_u64().map(|x| x as u32),
-                },
-                _ => D0Verdict::Undecided,
-            })
-        };
-        run().unwrap_or(D0Verdict::Undecided)
+        DenominatorJudge.is_regular_at(record, key, d0)
     }
 }
 
@@ -247,7 +211,11 @@ impl<'a> ChildSolver<'a> {
                         serde_json::from_value::<Vec<KeyAnswer>>(v["answers"].clone()),
                     )
                 {
-                    journal.insert(d.to_string(), a);
+                    // an entry with a transient answer (e.g. an interrupted job of a stopped run, journaled before this
+                    // rule existed) is solved again
+                    if !a.iter().any(is_transient) {
+                        journal.insert(d.to_string(), a);
+                    }
                 }
             }
         }
@@ -450,6 +418,14 @@ fn utc_now() -> String {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     format!("t={t}")
+}
+
+/// A failed answer that a later run must solve again (never journaled, never replayed): no answer, a job that did not
+/// run, an interrupted job (also in the old form `job_refused` with an `(Interrupted)` classification).
+fn is_transient(a: &KeyAnswer) -> bool {
+    matches!(a, KeyAnswer::Failed { class, message }
+        if class == "missing" || class == "job_error" || class == "interrupted"
+            || (class == "job_refused" && message.contains("(Interrupted)")))
 }
 
 /// A minimisation trial request (its outputs are not kept): labels of the minimiser's trials.
@@ -693,7 +669,12 @@ impl CoreSolver for ChildSolver<'_> {
                                     }
                                 } else {
                                     KeyAnswer::Failed {
-                                        class: "job_refused".into(),
+                                        // an interrupted job (the run was stopped) is transient: solved again
+                                        class: if why.contains("(Interrupted)") {
+                                            "interrupted".into()
+                                        } else {
+                                            "job_refused".into()
+                                        },
                                         message: why.clone(),
                                     }
                                 }
@@ -769,10 +750,7 @@ impl CoreSolver for ChildSolver<'_> {
                 })
                 .collect();
             // transient failures are not journaled (a resumed run solves the request again)
-            let transient = a.iter().any(|x| {
-                matches!(x, KeyAnswer::Failed { class, .. }
-                    if class == "missing" || class == "job_error" || class == "interrupted")
-            });
+            let transient = a.iter().any(is_transient);
             let d = r.digest();
             if !transient {
                 let line = json!({"digest": d, "label": r.label, "keys": r.keys, "answers": a});
@@ -812,5 +790,31 @@ impl CoreSolver for ChildSolver<'_> {
                        "requests_solved": self.requests_solved});
         self.append("progress.jsonl", &v);
         self.say(&format!("phase {phase}: {partial}"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn interrupted_and_missing_answers_are_transient_decided_ones_are_not() {
+        let f = |class: &str, message: &str| KeyAnswer::Failed {
+            class: class.into(),
+            message: message.into(),
+        };
+        assert!(is_transient(&f("interrupted", "")));
+        assert!(is_transient(&f("missing", "no answer")));
+        assert!(is_transient(&f("job_error", "spawn")));
+        assert!(is_transient(&f(
+            "job_refused",
+            "row 11 (Interrupted): interrupted; refusal None"
+        )));
+        assert!(!is_transient(&f("job_refused", "row 40 (Refused): usage")));
+        assert!(!is_transient(&f("refused", "not lower")));
+        assert!(!is_transient(&KeyAnswer::NoRelation));
+        assert!(!is_transient(&KeyAnswer::Budget {
+            what: "wall".into()
+        }));
     }
 }

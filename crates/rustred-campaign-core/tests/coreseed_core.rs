@@ -225,7 +225,7 @@ fn the_escalation_order_is_followed_and_recorded() {
     let kc = key_report(&r, &c);
     assert_eq!(
         kc.first_solved_by.as_deref(),
-        Some("escalation:escalation:shells_S2_S2m1")
+        Some("escalation:escalation:shells_S2")
     );
     assert_eq!(kc.steps[0].phase, "rule");
     assert_eq!(kc.steps[0].outcome, "no_relation");
@@ -242,6 +242,14 @@ fn the_escalation_order_is_followed_and_recorded() {
     assert_eq!(phases[0], ("rule".into(), "no_relation".into()));
     assert_eq!(
         phases[1],
+        ("escalation:shells_S2".into(), "no_relation".into())
+    );
+    assert_eq!(
+        phases[2],
+        ("escalation:shells_S2m1".into(), "no_relation".into())
+    );
+    assert_eq!(
+        phases[3],
         ("escalation:shells_S2_S2m1".into(), "no_relation".into())
     );
     assert!(

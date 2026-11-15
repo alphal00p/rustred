@@ -1,5 +1,10 @@
 //! D1 per relation: the record `rustred.campaign.pole-relation.v1` (pole-diagnostics.md section 2 / 12; TRICKS 9, 12).
 //!
+//! A ROUTE-POLE RECORD (POLES_OBJECTIVE.md 2(A)): the order at d0 of ONE delivered relation at one key. It feeds the
+//! preference (regular / lower order first) and the route census; it is NEVER a statement about need (the eps depth a
+//! terminal is needed at is decided by the composed reduction on a regular terminal set: lanes epsdepth / regbasis),
+//! never about the key or the system of rows, and never inherent / spurious.
+//!
 //! One record per (relation, key, d0) for a relation at a key (`scope: "key"`), or per (rule, d0) for a parametric rule
 //! with its per-key verdicts (`scope: "rule"`). The orders are computed by the algebra crate (exact, Symbolica); this
 //! module holds the data, the summary (pole order = `max(0, max_j -v(c_j))` over the non-zero normalised coefficients,
@@ -16,6 +21,9 @@
 //! `{relation_rule, rhs, target}`, `relation.entry_digest` = sha256 of the canonical body as `rustred.relation-entry.v1`
 //! defines it ([`entry_digest`]), or a table record's sha256) and carries its own `record_digest` = sha256 of its
 //! canonical JSON without that member. Deterministic: terms in the relation's order, `worst` sorted.
+//! TRICKS 17: a probe at d0 (rows evaluated at d0, positive or negative) is NEVER a pole verdict for a relation; the
+//! only verdict is the exact one on the DELIVERED relation's coefficients, bound by [`relation_identity`] (relation digest,
+//! recipe digest with its seed / row order, seeds used, and the digest of the evaluated texts).
 
 use serde_json::{Map, Value, json};
 
@@ -125,6 +133,39 @@ pub fn entry_digest(record: &Value) -> String {
     }
     let t = crate::schema::canon::canonical_json(&body, true).unwrap_or_else(|_| body.to_string());
     crate::replay_base::sha256::sha256_hex(t.as_bytes())
+}
+
+/// sha256 hex of exactly what a verdict judged: the canonical JSON of `{key, target, target_coefficient, rhs}` of the
+/// record (missing members as null). Two relations of the same seed set (another row order, another seed list) have other
+/// coefficients and so another digest: a verdict cannot be attached to a relation it was not computed on (TRICKS 17).
+pub fn evaluated_digest(record: &Value) -> String {
+    let v = json!({"key": record["key"], "target": record["target"], "target_coefficient": record["target_coefficient"],
+        "rhs": record["rhs"]});
+    let t = crate::schema::canon::canonical_json(&v, true).unwrap_or_else(|_| v.to_string());
+    crate::replay_base::sha256::sha256_hex(t.as_bytes())
+}
+
+/// The identity of a relation record as every verdict names it (TRICKS 17: the relation, its recipe and the seed / ROW
+/// ORDER it came from): the engine's `relation_digest` (BLAKE3 of rule, rhs, target), `entry_digest` (sha256 of the
+/// canonical body: recipe digest, determinism id, seeds used, proof), `recipe_digest` (the recipe JSON as solved, with
+/// its seed order), `determinism_id`, `seeds_used`'s digest, and `evaluated_sha256` ([`evaluated_digest`]).
+pub fn relation_identity(record: &Value) -> Value {
+    let seeds = if record["seeds_used"].is_null() {
+        Value::Null
+    } else {
+        let t = crate::schema::canon::canonical_json(&record["seeds_used"], true)
+            .unwrap_or_else(|_| record["seeds_used"].to_string());
+        json!(crate::replay_base::sha256::sha256_hex(t.as_bytes()))
+    };
+    json!({
+        "relation_digest": record["relation_digest"],
+        "entry_digest": entry_digest(record),
+        "recipe_digest": record["recipe_digest"],
+        "determinism_id": record["determinism_id"],
+        "relation_rule_taken": record["relation_rule_taken"],
+        "seeds_used_sha256": seeds,
+        "evaluated_sha256": evaluated_digest(record),
+    })
 }
 
 /// The D1 record of one relation (scope key) or one rule (scope rule).
