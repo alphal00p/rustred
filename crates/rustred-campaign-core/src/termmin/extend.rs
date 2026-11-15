@@ -21,9 +21,7 @@ use crate::domain::{CaseDomain, TargetMap};
 use crate::import::check::{CheckOptions, CheckResult, RowStatus, Server, check};
 use crate::import::evidence::{Evidence, SolvedRelation};
 use crate::import::load::{ImportedSet, RecipeSource, RelEntry, SuppliedInfo};
-use crate::import::supplied_verify::{
-    SuppliedRoute, UNVERIFIED_NO_GROUP, UNVERIFIED_NOT_IN_SPAN,
-};
+use crate::import::supplied_verify::{SuppliedRoute, UNVERIFIED_NO_GROUP, UNVERIFIED_NOT_IN_SPAN};
 use crate::import::symmetry::verify_relation_with;
 use crate::independent_algebra::Independent;
 use crate::replay_base::symrows::VerifiedGroup;
@@ -314,7 +312,7 @@ impl ImportExtension {
                         self.symmetry_max_terms,
                     )
                 });
-                // lane symfix (import.md 13.3): EXACT (served) only when re-derived from the verified group
+                // lane symfix (import.md 21): EXACT (served) only when re-derived from the verified group
                 let route = match &check_v {
                     Some(c) if c.verified() => SuppliedRoute::GroupRederived,
                     Some(c) => SuppliedRoute::unverified(UNVERIFIED_NOT_IN_SPAN, format!("{c:?}")),

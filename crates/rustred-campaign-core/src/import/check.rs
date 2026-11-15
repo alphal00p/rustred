@@ -23,12 +23,12 @@ pub const BASIS_WITNESS_UNCHECKED: &str = "witness_unchecked_diagnostic";
 /// Basis word of a key served by a supplied symmetry relation VERIFIED by re-derivation from the verified group.
 pub const BASIS_SYMMETRY_RELATION: &str = "symmetry_relation";
 
-/// lane symfix (import.md 13.3 (b)): basis word of a key served by a supplied relation whose KERNEL CERTIFICATE (sealed
+/// lane symfix (import.md 21 (b)): basis word of a key served by a supplied relation whose KERNEL CERTIFICATE (sealed
 /// proof-symrows stream, EXACT_IN_SPAN_AT_KEY) the import CHECKED at load against its own record: per-key. (The same
 /// word as lane symcert's.)
 pub const BASIS_SYMMETRY_RELATION_KERNEL_CERTIFIED: &str = "symmetry_relation_kernel_certified";
 
-/// lane symfix (import.md 13.3 (c)): basis word of a key served by a supplied composite RE-VERIFIED at load by the
+/// lane symfix (import.md 21 (c)): basis word of a key served by a supplied composite RE-VERIFIED at load by the
 /// composer's own functions (same backend, modular): level `imported`, never per-key.
 pub const BASIS_SYMMETRY_COMPOSITE_SAME_BACKEND: &str = "symmetry_composite_same_backend";
 
@@ -573,7 +573,7 @@ pub(crate) fn relation_level(
             (Some(Level::Imported), "recipe_relation_unproved")
         };
     }
-    // lane symfix (interfaces/import.md 13.3, closeloop.md 24): the level follows from how the import verified the
+    // lane symfix (interfaces/import.md 21, closeloop.md 24): the level follows from how the import verified the
     // record AT LOAD; a record it did not verify gives no level (it has no EXACT bit and is never served)
     use super::supplied_verify::SuppliedRoute;
     match sinfo.map(|i| &i.route) {

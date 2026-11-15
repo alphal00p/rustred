@@ -14,7 +14,7 @@
 //!   every shipped term lower by the import's descent test). Lines are bound to the sealed results by SHA-256. This is
 //!   the COMPOSER'S OWN BACKEND (rows_by_element / image_of / compose_image; lane symfix, audit r2-sym F3): a filter,
 //!   never evidence above `imported`. EVIDENCE comes only from the node import, which re-verifies every supplied relation
-//!   AT LOAD (interfaces/import.md 13.3): same backend -> `imported`, a checked kernel certificate (the independent
+//!   AT LOAD (interfaces/import.md 21): same backend -> `imported`, a checked kernel certificate (the independent
 //!   SECOND ROUTE, [`composite_second_route`]) -> `per-key`. The ledger refuses a direct credit from this kind (F5).
 //! - [`route_settled`]: the WorkSource-level function: a settled attempt (canonical lines of the verified results) ->
 //!   [`SymCompRouted`] (per-key outcomes, accepted / refused relations, the accepted `supplied_relations` table +
@@ -397,10 +397,14 @@ pub fn verify_relations(
                 .iter()
                 .map(|x| x["record_sha256"].as_str().unwrap_or_default())
                 .collect();
-            if cited.iter().copied().ne(r.records.iter().map(String::as_str)) {
+            if cited
+                .iter()
+                .copied()
+                .ne(r.records.iter().map(String::as_str))
+            {
                 return Err("the cited records are not the sealed ones".into());
             }
-            // the SAME-BACKEND re-check (interfaces/import.md 13.3 (c)): the composer's own functions, modular at d
+            // the SAME-BACKEND re-check (interfaces/import.md 21 (c)): the composer's own functions, modular at d
             // values the child did not use; the one entry shared with the import's load-time verification
             verify_line(&ctx.set, &ctx.group, &key, &rhs, &vv, &lopts)?;
             Ok((tl.clone(), vl.clone()))
@@ -872,7 +876,7 @@ pub fn keys_of(r: &SymCompRouted, class: SymClass) -> Vec<Vec<i64>> {
 /// frozen manifest lists one yet: request in notes/implementer.symfix.md); the first one present decides.
 pub const SYMROWS_FEATURES: [&str; 2] = ["proof_symrows", "symrows"];
 
-/// The default second route of a composite (interfaces/import.md 13.3, closeloop.md 24).
+/// The default second route of a composite (interfaces/import.md 21, closeloop.md 24).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CompositeRoute {
     /// The kernel certificate (independent of the composer): the kernel program and its SHA-256 (the import's
@@ -895,11 +899,18 @@ pub fn composite_second_route(engine_dir: &Path, program: &str) -> CompositeRout
     {
         Some(v) => v["features"]
             .as_array()
-            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(str::to_string))
+                    .collect()
+            })
             .unwrap_or_default(),
         None => return same(format!("no readable manifest {}", manifest.display())),
     };
-    if !features.iter().any(|f| SYMROWS_FEATURES.contains(&f.as_str())) {
+    if !features
+        .iter()
+        .any(|f| SYMROWS_FEATURES.contains(&f.as_str()))
+    {
         return same(format!(
             "manifest {} declares none of {SYMROWS_FEATURES:?}",
             manifest.display()
@@ -922,7 +933,10 @@ pub fn composite_second_route(engine_dir: &Path, program: &str) -> CompositeRout
             program: path,
             sha256: want,
         },
-        Ok(_) => same(format!("{} differs from its SHA256SUMS entry", path.display())),
+        Ok(_) => same(format!(
+            "{} differs from its SHA256SUMS entry",
+            path.display()
+        )),
         Err(e) => same(format!("{}: {e}", path.display())),
     }
 }

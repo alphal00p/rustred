@@ -309,7 +309,9 @@ pub fn verify_line(
 ) -> Result<(), String> {
     let arity = set.frame.arity();
     if vline["schema"] != COMPOSITE_SCHEMA {
-        return Err(format!("verification line schema is not {COMPOSITE_SCHEMA}"));
+        return Err(format!(
+            "verification line schema is not {COMPOSITE_SCHEMA}"
+        ));
     }
     let kt = |t: &Value| -> Result<Vec<i32>, String> {
         t.as_str()
@@ -350,8 +352,9 @@ pub fn verify_line(
         .max(opts.min_depth);
     let element = vline["element"].as_u64().ok_or("element")? as usize;
     let field = ModField::engine(&Independent, &opts.d_values);
-    let line_of =
-        |t: usize, r: usize| crate::import::exact_facts::record_line(set, t, r).map_err(|e| e.to_string());
+    let line_of = |t: usize, r: usize| {
+        crate::import::exact_facts::record_line(set, t, r).map_err(|e| e.to_string())
+    };
     let cat = ModCatalogue {
         set,
         line_of: &line_of,

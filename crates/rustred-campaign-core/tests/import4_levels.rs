@@ -382,7 +382,9 @@ fn credited_level_never_exceeds_its_image() {
                     Level::Imported
                 }),
                 Some(Serve::Relation) => match kind {
-                    RelKind::SuppliedVerification => Some(Level::Imported),
+                    // lane symfix (import.md 21): a supplied relation with an unusable `verification` file is
+                    // not verified at load: no EXACT bit, no credit through it, no level
+                    RelKind::SuppliedVerification => None,
                     RelKind::SuppliedDiagnostic => None,
                     RelKind::Recipe => Some(
                         if recipe_proofs
@@ -480,7 +482,6 @@ fn credited_level_never_exceeds_its_image() {
         "table w0 proof true -> per-key",
         "table w1 proof true -> per-key",
         "table w2 proof true -> per-key",
-        "SuppliedVerification -> imported",
         "SuppliedDiagnostic -> none",
         "Recipe hook -> imported",
         "Recipe hook -> per-key",
@@ -491,6 +492,11 @@ fn credited_level_never_exceeds_its_image() {
             "the generator never produced `{p}` (stats {stats:?})"
         );
     }
+    // lane symfix (audit r2-sym F1): an unverified supplied relation never gives a credited key a level
+    assert!(
+        !has("SuppliedVerification -> imported") && !has("SuppliedVerification -> per-key"),
+        "a credit through an UNVERIFIED supplied relation got a level (stats {stats:?})"
+    );
     let _ = std::fs::remove_dir_all(&d);
 }
 

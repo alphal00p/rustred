@@ -199,13 +199,13 @@ fn f1_spec(tag: &str, with: &str, bad_coefficient: bool) -> (PathBuf, Value, Vec
     }
     let rules = rels
         .iter()
-    .map(|r| {
-        let mut r = r.clone();
-        r["dispatch"] = json!("Point");
-        r["kind"] = json!("symmetry-composite");
-        r
-    })
-    .collect::<Vec<_>>();
+        .map(|r| {
+            let mut r = r.clone();
+            r["dispatch"] = json!("Point");
+            r["kind"] = json!("symmetry-composite");
+            r
+        })
+        .collect::<Vec<_>>();
     let s = write_table(&d, "S.table.jsonl", &rules);
     let mut src = json!({"id":"rf:symmetry-composite","kind":"supplied_relations","class":"symmetry-composite",
         "path": s.display().to_string(), "sha256": sha256(&std::fs::read(&s).unwrap())});

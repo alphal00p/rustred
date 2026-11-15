@@ -703,7 +703,9 @@ fn tally_refuses_inconsistent_results_streams() {
 #[test]
 fn check_child_alone_refuses_a_self_check_below_the_shipped_relations() {
     let j = fresh("selfcheck", &keys3());
-    write_child(&j, &keys3(), &|_, _, r| r["independently_verified"] = json!(2));
+    write_child(&j, &keys3(), &|_, _, r| {
+        r["independently_verified"] = json!(2)
+    });
     let e = symcomp::check_child(&j.spec, &sha)
         .err()
         .expect("check_child must refuse a child whose own re-check verified fewer relations than it shipped");

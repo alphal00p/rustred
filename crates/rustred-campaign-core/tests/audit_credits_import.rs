@@ -402,26 +402,22 @@ fn credit_via_unverified_supplied_relation_is_not_above_its_image() {
                "verification":{"path": ver.display().to_string()},"hand_name":{"template":"{source}#{index}"}}),
     );
     let (_set, _ev, r) = run(&spec, &d, Tier::K);
+    // lane symfix (audit r2-sym F1, import.md 21): a supplied relation whose `verification` file the import cannot
+    // use (here not a composite verification line, and the relation not re-derivable from the group) is NOT verified at
+    // load: no EXACT bit, the image is NOT served (it was served at `imported`, basis `supplied`, before the fix)
     for im in &imgs {
         let y = row(&r, im);
-        assert_eq!(
-            (y.status, y.evidence, y.basis),
-            (RowStatus::Served, Some(Level::Imported), Some("supplied")),
-            "image {im:?}"
+        assert!(
+            !(y.status == RowStatus::Served && y.evidence.is_some()),
+            "image {im:?}: an unverified supplied relation served: {y:?}"
         );
     }
+    // the M1 rule (a credit never raises a level) on the new semantics: the image has no level, the credit has none
     let x = row(&r, &K);
     println!("credited key row: {x:?}");
-    assert_eq!(x.status, RowStatus::Served);
-    assert_eq!(x.basis, Some(import::check::BASIS_CREDIT_VIA_RELATION));
-    assert_eq!(
-        x.evidence,
-        Some(Level::Imported),
-        "the credit is reported above its image's level"
-    );
     assert!(
-        imgs.iter().any(|im| x.image.as_deref() == Some(&im[..])),
-        "{x:?}"
+        !(x.status == RowStatus::Served && x.evidence.is_some()),
+        "the credit is reported above its image's (absent) level: {x:?}"
     );
     let _ = std::fs::remove_dir_all(&d);
 }

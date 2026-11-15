@@ -262,7 +262,10 @@ impl CertificateBook {
                 .map(|(i, l)| (i + 1, l))
                 .collect();
             let Some(&(end_no, end_line)) = lines.last() else {
-                return Err(lerr(0, "an empty certificate file (not a sealed stream)".into()));
+                return Err(lerr(
+                    0,
+                    "an empty certificate file (not a sealed stream)".into(),
+                ));
             };
             let end: Value = serde_json::from_str(end_line)
                 .map_err(|e| lerr(end_no, format!("end record: {e}")))?;
@@ -312,7 +315,9 @@ impl CertificateBook {
                             .collect::<Option<Vec<i32>>>()
                     })
                     .filter(|k| k.len() == arity)
-                    .ok_or_else(|| lerr(no, format!("certificate key is not a key of arity {arity}")))?;
+                    .ok_or_else(|| {
+                        lerr(no, format!("certificate key is not a key of arity {arity}"))
+                    })?;
                 book.by
                     .entry((rel.to_ascii_lowercase(), key))
                     .or_default()
@@ -345,14 +350,19 @@ impl CertificateBook {
             return Err("no certificate bound to this relation and key".into());
         };
         let Some(fam) = family else {
-            return Err("the frame header carries no family_source to bind a certificate to".into());
+            return Err(
+                "the frame header carries no family_source to bind a certificate to".into(),
+            );
         };
         let mut why = vec![];
         for c in cands {
             let r = if c.class != CERT_CLASS_CERTIFIED || c.verdict != CERT_VERDICT_PROVED {
                 Err(format!("class {} verdict {}", c.class, c.verdict))
             } else if c.family_sha256 != fam {
-                Err(format!("family {} is not the import's {fam}", c.family_sha256))
+                Err(format!(
+                    "family {} is not the import's {fam}",
+                    c.family_sha256
+                ))
             } else if !self.kernels.contains(&c.kernel_sha256) {
                 Err(format!("kernel {} not in the allow-list", c.kernel_sha256))
             } else if let (Some(g), Some(mine)) = (&c.group_digest, group_digest)
@@ -405,9 +415,7 @@ fn read_verification_lines(path: &Path, arity: usize) -> Result<BTreeMap<Vec<i32
         let Some(k) = v["target"].as_str().and_then(|t| parse_key_text(t, arity)) else {
             continue;
         };
-        out.entry(k)
-            .and_modify(|e| *e = None)
-            .or_insert(Some(v));
+        out.entry(k).and_modify(|e| *e = None).or_insert(Some(v));
     }
     Ok(out
         .into_iter()
@@ -506,7 +514,8 @@ pub fn finish(
                 if let Some(r) = rep.as_deref_mut() {
                     r.relations_same_backend += 1;
                 }
-            } else if let (Some(r), SuppliedRoute::Unverified { reason }) = (rep.as_deref_mut(), &route)
+            } else if let (Some(r), SuppliedRoute::Unverified { reason }) =
+                (rep.as_deref_mut(), &route)
             {
                 r.relations_not_verified.push((key.clone(), reason.clone()));
             }

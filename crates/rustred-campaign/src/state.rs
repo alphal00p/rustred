@@ -220,7 +220,7 @@ pub fn accept_permits_records(a: ContractAccept) -> bool {
         // lane symjob (rows 33 / 34): the sealed results are read (PRODUCE) and handed to the work source as
         // CANDIDATES; lane symfix (audit r2-sym F5): an item ACCEPT (direct credit) from such an attempt is refused in
         // `apply_item_event`: supplied relations become evidence only through the node import's load-time
-        // verification (interfaces/import.md 13.3)
+        // verification (interfaces/import.md 21)
         ContractAccept::SuppliedRelations => true,
         ContractAccept::Nothing => false,
     }
@@ -3240,7 +3240,7 @@ impl CampaignState {
                     .job_feeds(item, &p.job, p.attempt)
                     .map_err(|w| invalid(format!("accept of {rule}: {w}")))?;
                 // lane symfix (audit r2-sym F5): a supplied-relations attempt's records are CANDIDATES; they become
-                // evidence only through the node import's load-time verification (interfaces/import.md 13.3), never
+                // evidence only through the node import's load-time verification (interfaces/import.md 21), never
                 // as a direct credit: refused here whatever the work source did (or did not) call.
                 if pj.accept == Some(ContractAccept::SuppliedRelations) {
                     return Err(invalid(format!(

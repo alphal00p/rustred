@@ -956,7 +956,7 @@ fn main() {
                 .iter()
                 .position(|x| x["id"] == "default-recipe")
                 .unwrap_or(srcs.len());
-            // lane symfix (interfaces/import.md 13.3): the import re-verifies every shipped relation at load
+            // lane symfix (interfaces/import.md 21): the import re-verifies every shipped relation at load
             let mut src = json!({"id": sid, "kind": "supplied_relations", "class": "symmetry-composite",
                 "path": tpath, "sha256": tsha, "verification": {"path": vpath, "sha256": vsha}});
             if let Some(f) = &policy.route0.family {

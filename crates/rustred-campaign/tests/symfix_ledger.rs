@@ -1,7 +1,7 @@
 //! lane symfix (audit r2-sym F5): the ledger does not depend on the work source calling `route_settled`: a job whose
 //! contract row accepts `supplied_relations` may have its sealed table PRODUCED (the candidates are recorded), but an
 //! item ACCEPT (a direct credit) from it is REFUSED whatever the source wrote: supplied relations become evidence only
-//! through the node import's load-time verification (interfaces/import.md 13.3). Control: the same life with accept
+//! through the node import's load-time verification (interfaces/import.md 21). Control: the same life with accept
 //! `canonical` is credited. Pure ledger test (no process).
 mod ledger_support;
 

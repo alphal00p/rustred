@@ -1351,7 +1351,7 @@ fn with_route0(text: &str, policy: &RepairPolicy) -> Result<(String, Option<Valu
 
 /// The pinned symmetry-composite result of the policy (`route0.composite_input`) as a `supplied_relations` source of
 /// the spec (once; placed before the default recipe): the import loads it, re-checks descent and RE-VERIFIES every
-/// relation at load (lane symfix, interfaces/import.md 13.3).
+/// relation at load (lane symfix, interfaces/import.md 21).
 fn with_composites(text: &str, policy: &RepairPolicy) -> Result<String, String> {
     if policy.route0.composite_input.is_none() && policy.evidence.facts.is_empty() {
         return Ok(text.to_string());
@@ -1390,7 +1390,7 @@ fn with_composites(text: &str, policy: &RepairPolicy) -> Result<String, String> 
         .iter()
         .position(|s| s["id"] == "default-recipe")
         .unwrap_or(srcs.len());
-    // lane symfix (interfaces/import.md 13.3): the import RE-VERIFIES every relation at load (plain: group
+    // lane symfix (interfaces/import.md 21): the import RE-VERIFIES every relation at load (plain: group
     // re-derivation from the policy's family, else the frame header's; composites: the verification line, same backend;
     // or a checked kernel certificate); an unverified relation is never served
     let mut src = json!({"id": "rf:symmetry-composite", "kind": "supplied_relations", "class": "symmetry-composite",

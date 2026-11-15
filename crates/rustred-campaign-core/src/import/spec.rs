@@ -371,7 +371,7 @@ pub struct SourceSpec {
     /// key-set comparison with a checker's delivery before the solves exist). Refused with `verify` / `verification`.
     #[serde(default)]
     pub diagnostic: bool,
-    /// `supplied_relations` (lane symfix, interfaces/import.md 13.3 (b)): sealed kernel certificate streams of the
+    /// `supplied_relations` (lane symfix, interfaces/import.md 21 (b)): sealed kernel certificate streams of the
     /// contract kind proof-symrows + the allow-list of kernel binaries; a record with a CHECKED certificate is served
     /// per-key (`symmetry_relation_kernel_certified`). Serialized only when given (earlier spec digests unchanged).
     #[serde(default, skip_serializing_if = "Option::is_none")]

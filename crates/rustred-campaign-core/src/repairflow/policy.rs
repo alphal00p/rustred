@@ -83,7 +83,7 @@ pub struct Route0Policy {
 }
 
 /// A pinned symmetry-composite result (`route0.composite_input`). The import RE-VERIFIES every relation at load
-/// (interfaces/import.md 13.3: plain by group re-derivation, composites by the same backend from `verification`, or a
+/// (interfaces/import.md 21: plain by group re-derivation, composites by the same backend from `verification`, or a
 /// checked kernel certificate from `kernel_certificates`, lane symfix); nothing here is trusted as evidence.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

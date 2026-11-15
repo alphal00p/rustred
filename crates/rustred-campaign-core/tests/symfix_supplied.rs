@@ -1,4 +1,4 @@
-//! lane symfix (audit r2-sym F1 / F2 / F3 / F4 / F8; interfaces/import.md 13.3): a `supplied_relations` record is served
+//! lane symfix (audit r2-sym F1 / F2 / F3 / F4 / F8; interfaces/import.md 21): a `supplied_relations` record is served
 //! ONLY when the import verifies it AT LOAD. Toy node: the two-loop sunset (arity 5, lines D1 D2 D3, numerators D4 D5;
 //! nothing five-loop specific, L8), group DERIVED from the frame header's family.
 //!
@@ -17,8 +17,8 @@ use rustred_campaign_core::import::{
 };
 use rustred_campaign_core::independent_algebra::Independent;
 use rustred_campaign_core::repairflow::composite::{
-    COMPOSITE_SCHEMA, Catalogue, ComposeOptions, QField, RuleUse, Service, compose_image,
-    image_of, import_lower, rows_by_element,
+    COMPOSITE_SCHEMA, Catalogue, ComposeOptions, QField, RuleUse, Service, compose_image, image_of,
+    import_lower, rows_by_element,
 };
 use rustred_campaign_core::replay_base::algebra::Q;
 use rustred_campaign_core::replay_base::symrows::VerifiedGroup;
@@ -71,9 +71,10 @@ fn point_rule(index: i64, key: &[i32], rhs: &[(Vec<i32>, String)]) -> Value {
 
 fn write_table(dir: &Path, name: &str, rules: &[Value]) -> PathBuf {
     let p = dir.join(name);
-    let mut s = json!({"type":"header","schema":"table_dump.v1","family":"S","denominators":N,"mask":MASK,
+    let mut s =
+        json!({"type":"header","schema":"table_dump.v1","family":"S","denominators":N,"mask":MASK,
         "family_source":FAMILY})
-    .to_string();
+        .to_string();
     s.push('\n');
     s.push_str(&json!({"type":"chart","chart":MASK,"guards":["n>=1","n>=1","n>=1","n<=0","n<=0"],"zero":false}).to_string());
     s.push('\n');
@@ -141,7 +142,11 @@ fn load_toy(
     load(&TableSetSpec::from_json(&spec.to_string()).unwrap(), d)
 }
 
-fn row_of(set: &import::ImportedSet, d: &Path, k: &[i32]) -> (RowStatus, Option<Level>, String, Level) {
+fn row_of(
+    set: &import::ImportedSet,
+    d: &Path,
+    k: &[i32],
+) -> (RowStatus, Option<Level>, String, Level) {
     let ev = Evidence::from_spec(set, d).unwrap();
     let r = check(
         set,
@@ -336,9 +341,7 @@ fn certificate_file(
     .to_string();
     s.push('\n');
     if end {
-        s.push_str(
-            &json!({"type":"end","records":1,"request_blake3": "0".repeat(64)}).to_string(),
-        );
+        s.push_str(&json!({"type":"end","records":1,"request_blake3": "0".repeat(64)}).to_string());
         s.push('\n');
     }
     std::fs::write(&p, &s).unwrap();
@@ -389,13 +392,15 @@ fn composite_row(
 }
 
 fn served_at(r: &(RowStatus, Option<Level>, String, Level)) -> Option<(Level, String)> {
-    (r.0 == RowStatus::Served).then(|| (r.1.unwrap_or(Level::Imported), r.2.clone()))
+    (r.0 == RowStatus::Served)
+        .then(|| (r.1.unwrap_or(Level::Imported), r.2.clone()))
         .filter(|_| r.1.is_some())
 }
 
 #[test]
 fn an_honest_composite_is_served_at_imported_by_the_same_backend_only() {
-    let Some((r, _, _)) = composite_row("honest", |t| t.rhs.clone(), None, true, None, "imported") else {
+    let Some((r, _, _)) = composite_row("honest", |t| t.rhs.clone(), None, true, None, "imported")
+    else {
         eprintln!("no single-non-lower-term image on the toy node: not exercised");
         return;
     };
@@ -453,14 +458,9 @@ fn a_forged_composite_with_the_honest_line_is_not_served() {
 #[test]
 fn a_checked_kernel_certificate_lifts_the_composite_to_per_key() {
     let fam = family_sha256(FAMILY);
-    let Some((r, toy, rhs)) = composite_row(
-        "cert",
-        |t| t.rhs.clone(),
-        None,
-        false,
-        None,
-        "per-key",
-    ) else {
+    let Some((r, toy, rhs)) =
+        composite_row("cert", |t| t.rhs.clone(), None, false, None, "per-key")
+    else {
         return;
     };
     // no route at all: open
@@ -477,7 +477,16 @@ fn a_checked_kernel_certificate_lifts_the_composite_to_per_key() {
         if other {
             rel[0].1 = format!("({})*2", rel[0].1);
         }
-        let f = certificate_file(&dd, "results.jsonl", &toy.key, &rel, class, kernel, family, end);
+        let f = certificate_file(
+            &dd,
+            "results.jsonl",
+            &toy.key,
+            &rel,
+            class,
+            kernel,
+            family,
+            end,
+        );
         composite_row(
             &format!("cert-{tag}"),
             |t| t.rhs.clone(),
@@ -496,10 +505,38 @@ fn a_checked_kernel_certificate_lifts_the_composite_to_per_key() {
         "{ok:?}"
     );
     for (tag, class, kernel, family, other, allowed) in [
-        ("refused", "kernel_refused", KERNEL, fam.as_str(), false, KERNEL),
-        ("kernel", "certified", KERNEL, fam.as_str(), false, &"cd".repeat(32)[..]),
-        ("family", "certified", KERNEL, &"ef".repeat(32)[..], false, KERNEL),
-        ("other-relation", "certified", KERNEL, fam.as_str(), true, KERNEL),
+        (
+            "refused",
+            "kernel_refused",
+            KERNEL,
+            fam.as_str(),
+            false,
+            KERNEL,
+        ),
+        (
+            "kernel",
+            "certified",
+            KERNEL,
+            fam.as_str(),
+            false,
+            &"cd".repeat(32)[..],
+        ),
+        (
+            "family",
+            "certified",
+            KERNEL,
+            &"ef".repeat(32)[..],
+            false,
+            KERNEL,
+        ),
+        (
+            "other-relation",
+            "certified",
+            KERNEL,
+            fam.as_str(),
+            true,
+            KERNEL,
+        ),
     ] {
         let r = mk(tag, class, kernel, family, true, other, allowed).expect("load");
         assert_eq!(r.0, RowStatus::Open, "{tag}: {r:?}");
@@ -583,7 +620,10 @@ fn a_plain_relation_with_a_verification_file_is_rederived_per_key() {
 
 #[test]
 fn the_relation_digest_is_order_free_and_refuses_repeats() {
-    let a = vec![(vec![1, 1, 1, 0, 0], "2".to_string()), (vec![1, 0, 1, 0, 0], "-1/2".to_string())];
+    let a = vec![
+        (vec![1, 1, 1, 0, 0], "2".to_string()),
+        (vec![1, 0, 1, 0, 0], "-1/2".to_string()),
+    ];
     let b = vec![a[1].clone(), a[0].clone()];
     let k = [2, 1, 1, 0, 0];
     assert_eq!(relation_sha256(&k, &a), relation_sha256(&k, &b));

@@ -158,7 +158,7 @@ pub struct SuppliedInfo {
     /// From a `diagnostic` (keys-only) source: followed, never certified.
     pub diagnostic: bool,
     /// lane symfix (audit r2-sym F1): how the import verified the relation AT LOAD (the EXACT bit and the level follow
-    /// from it; interfaces/import.md 13.3).
+    /// from it; interfaces/import.md 21).
     pub route: super::supplied_verify::SuppliedRoute,
 }
 
@@ -1172,7 +1172,7 @@ pub(crate) fn load_inner(
         family: fhead.family.clone(),
         terminal_provenance,
     };
-    // lane symfix (import.md 13.3 (c)): the same-backend re-verification of supplied composites, on the loaded catalogue
+    // lane symfix (import.md 21 (c)): the same-backend re-verification of supplied composites, on the loaded catalogue
     super::supplied_verify::finish(
         &mut set,
         supplied_pending,
@@ -1662,48 +1662,45 @@ fn load_supplied(
         None => (None, None),
     };
     let n = frame.arity();
-    // lane symfix (audit r2-sym F1, interfaces/import.md 13.3): a record gets the EXACT bit ONLY when this import
+    // lane symfix (audit r2-sym F1, interfaces/import.md 21): a record gets the EXACT bit ONLY when this import
     // verifies it at load: (a) group re-derivation (plain), (b) a CHECKED kernel certificate, (c) the same-backend
     // re-verification of a composite from its READ verification line (after the catalogue exists: `finish`). The
     // verified group is derived when `verify` is given (refusal = load error, as before) or when a `verification` file
     // asks for re-verification (refusal = the records stay unverified, typed).
     let want_group = src.verify.is_some() || src.verification.is_some();
-    let (vgroup, group_error): (Option<(VerifiedGroup, String, usize)>, Option<String>) = if want_group
-    {
-        // no `verify`: the frame header's family, derived (the import's own group, never supplied data)
-        let gs = src
-            .verify
-            .clone()
-            .unwrap_or(super::symmetry::GroupSpec {
+    let (vgroup, group_error): (Option<(VerifiedGroup, String, usize)>, Option<String>) =
+        if want_group {
+            // no `verify`: the frame header's family, derived (the import's own group, never supplied data)
+            let gs = src.verify.clone().unwrap_or(super::symmetry::GroupSpec {
                 family: None,
                 group: None,
                 group_format: super::symmetry::GroupFormat::Derive,
                 max_candidates: None,
                 max_terms: None,
             });
-        match load_verified_group(
-            &gs,
-            base,
-            frame.mask(),
-            cmp.presentation().new_to_old(),
-            fhead.raw.get("family_source").and_then(Value::as_str),
-        ) {
-            Ok((vg, gr)) => {
-                rep.files
-                    .push((gr.family.clone(), format!("sha256:{}", gr.family_sha256)));
-                let digest = gr.digest.clone();
-                rep.group = Some(gr);
-                (
-                    Some((vg, digest, gs.max_terms.unwrap_or(DEFAULT_MAX_TERMS))),
-                    None,
-                )
+            match load_verified_group(
+                &gs,
+                base,
+                frame.mask(),
+                cmp.presentation().new_to_old(),
+                fhead.raw.get("family_source").and_then(Value::as_str),
+            ) {
+                Ok((vg, gr)) => {
+                    rep.files
+                        .push((gr.family.clone(), format!("sha256:{}", gr.family_sha256)));
+                    let digest = gr.digest.clone();
+                    rep.group = Some(gr);
+                    (
+                        Some((vg, digest, gs.max_terms.unwrap_or(DEFAULT_MAX_TERMS))),
+                        None,
+                    )
+                }
+                Err(e) if src.verify.is_some() => return Err(e),
+                Err(e) => (None, Some(e.to_string())),
             }
-            Err(e) if src.verify.is_some() => return Err(e),
-            Err(e) => (None, Some(e.to_string())),
-        }
-    } else {
-        (None, None)
-    };
+        } else {
+            (None, None)
+        };
     let certs = match &src.kernel_certificates {
         Some(cs) => {
             let book = super::supplied_verify::CertificateBook::load(cs, base, &src.id, n)?;
@@ -1829,7 +1826,8 @@ fn load_supplied(
             if c.verified() {
                 rep.relations_verified += 1;
             } else if src.verify.is_some() && src.verification.is_none() && certs.is_none() {
-                rep.relations_not_verified.push((key.clone(), format!("{c:?}")));
+                rep.relations_not_verified
+                    .push((key.clone(), format!("{c:?}")));
             }
         }
         // (b) a kernel certificate, checked
@@ -1863,7 +1861,9 @@ fn load_supplied(
         } else {
             let why = match (&cert, &check) {
                 (Some(Err(e)), _) => sv::SuppliedRoute::unverified(sv::UNVERIFIED_CERTIFICATE, e),
-                (None, Some(c)) => sv::SuppliedRoute::unverified(sv::UNVERIFIED_NOT_IN_SPAN, format!("{c:?}")),
+                (None, Some(c)) => {
+                    sv::SuppliedRoute::unverified(sv::UNVERIFIED_NOT_IN_SPAN, format!("{c:?}"))
+                }
                 _ => sv::SuppliedRoute::unverified(
                     sv::UNVERIFIED_NO_ROUTE,
                     "no verify group, no kernel certificate, no verification line",
@@ -1872,7 +1872,8 @@ fn load_supplied(
             if let SuppliedRoute::Unverified { reason } = &why
                 && !(src.verify.is_some() && src.verification.is_none() && certs.is_none())
             {
-                rep.relations_not_verified.push((key.clone(), reason.clone()));
+                rep.relations_not_verified
+                    .push((key.clone(), reason.clone()));
             }
             why
         };
