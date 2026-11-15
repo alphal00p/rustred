@@ -161,6 +161,7 @@ fn real_joint_seed_minimisation_on_one_face() {
         records_cap_bytes: c["records_cap_bytes"].as_u64().unwrap_or(400_000_000),
         fake: None,
         poles: None,
+        pole_objective: "on".into(),
         verbose: true,
         site: Default::default(),
     };

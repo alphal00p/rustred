@@ -392,3 +392,41 @@ fn the_exact_backend_agrees_with_the_truncated_one() {
         Some(Rational::from(1))
     );
 }
+
+/// Lane polefix (audit r2-poles F8, F9). F8: two NON-TERMINAL paths whose poles cancel only in their SUM: the
+/// composition must add the contributions (the auditor's mutation M2, "sum replaced by the larger pole", turns the
+/// regular coefficient 2 into a simple pole). F9: an exactly cancelled coefficient is `Zero` with the exact backend,
+/// never `Pole(0)`; the truncated backend can only say "no pole to its precision".
+#[test]
+fn poles_of_two_paths_cancel_in_the_sum_and_an_exact_cancellation_is_zero() {
+    let Some(mut s) = setup("4") else { return };
+    const D: &[i32] = &[7, 0];
+    const E: &[i32] = &[6, 0];
+    s.terminal(T1);
+    // A = T1 / t ; B = (2 - 1/t) T1 ; C = A + B = 2 T1 (both paths singular, the sum regular)
+    s.relation(A, "rule-A", &[(T1, "1/(d-4)")]);
+    s.relation(B, "rule-B", &[(T1, "2 - 1/(d-4)")]);
+    s.relation(C, "rule-C", &[(A, "1"), (B, "1")]);
+    // E = -T1 / t ; D = A + E = 0 exactly
+    s.relation(E, "rule-E", &[(T1, "-1/(d-4)")]);
+    s.relation(D, "rule-D", &[(A, "1"), (E, "1")]);
+    let sel: Vec<usize> = [C, D].iter().map(|k| s.index_of(k).unwrap()).collect();
+    let mut lau = SymbolicaLaurent::new("4").unwrap();
+    let tr = compose(&mut s, &mut lau, &sel, 1, &ComposeParams::default()).unwrap();
+    let mut ex = SymbolicaExact::new().unwrap();
+    let exr = compose(&mut s, &mut ex, &sel, 1, &ComposeParams::default()).unwrap();
+    // C: regular on both backends (M2 would give Pole(1)); the exact one gives the coefficient 2
+    assert_eq!(tr.results[0].pairs[0].order, Order::Pole(0));
+    assert_eq!(exr.results[0].pairs[0].order, Order::Pole(0));
+    assert_eq!(exr.results[0].pairs[0].leading.as_deref(), Some("2"));
+    assert_eq!(
+        exr.results[0].pairs[0].bound,
+        Some(1),
+        "each path has a pole"
+    );
+    // D: exactly zero on the exact backend (F9); "no pole to its precision" on the truncated one
+    assert_eq!(exr.results[1].pairs[0].order, Order::Zero);
+    assert_eq!(exr.results[1].pairs[0].leading, None);
+    assert_eq!(tr.results[1].pairs[0].order, Order::Pole(0));
+    assert!(tr.results[1].pairs[0].precision.is_some());
+}

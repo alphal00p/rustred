@@ -330,10 +330,10 @@ fn parse_vec(
     let mut out = Vec::with_capacity(n);
     for s in v {
         let l = parse_series(s, tv).map_err(ComposeError::Undecided)?;
-        if l.prec < need_prec {
+        if l.prec() < need_prec {
             return Err(ComposeError::Undecided(format!(
                 "precision {} below {need_prec}",
-                l.prec
+                l.prec()
             )));
         }
         out.push(l);
