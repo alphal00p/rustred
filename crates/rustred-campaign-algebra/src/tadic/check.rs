@@ -143,11 +143,73 @@ pub(crate) fn parse_in_t_with(
     Ok(ctx.rf(z(&n), z(&d)))
 }
 
+/// The DUAL vector y (y_K = 1, y orthogonal to V, `min v(y_S)` = the lower bound of p*) from the oracle's exact
+/// triangular basis by back substitution, keyed by system column; and the basis' own p*.
+fn dual_vector(
+    ctx: &Ctx,
+    sys: &ExactSystem,
+    q: &PoleQuery<'_>,
+) -> Result<(PStar, std::collections::HashMap<u32, RF>), String> {
+    let eb = exact_basis(sys, q)?;
+    let t = eb.target_col.ok_or("target absent")?;
+    let get = |e: &[(u32, ZP)], col: u32| e.iter().find(|x| x.0 == col).map(|x| x.1.clone());
+    let shift_rf = |p: ZP, sh: u32| -> RF {
+        let den = ctx.poly(&[(sh as u16, Integer::one())]);
+        ctx.rf(p, den)
+    };
+    let mut y: std::collections::HashMap<u32, RF> = std::collections::HashMap::new();
+    for (pc, s, c, sh) in eb.rows.iter().rev() {
+        // y_pc = -((h)_K + sum_{later pivots l} y_l h_l) / h_pc
+        let mut acc = get(c, t).map_or_else(|| ctx.zero(), |k| shift_rf(k, *sh));
+        for (col, val) in s {
+            if col == pc {
+                continue;
+            }
+            if let Some(yl) = y.get(col) {
+                let term = ctx
+                    .field
+                    .mul(yl, &ctx.rf(val.clone(), ctx.poly(&[(0, Integer::one())])));
+                acc = ctx.field.add(&acc, &term);
+            }
+        }
+        let hp = ctx.rf(
+            get(s, *pc).ok_or("pivot entry")?,
+            ctx.poly(&[(0, Integer::one())]),
+        );
+        let ypc = ctx.field.neg(&ctx.field.div(&acc, &hp));
+        y.insert(*pc, ypc);
+    }
+    // the pivots are columns of interest (phase 2): y lives there (y_K = 1 implied)
+    y.retain(|c, _| eb.interest_cols.contains(c));
+    Ok((eb.p_star, y))
+}
+
 /// Run the check mode on a result of the oracle (exact verdicts only). Dense: refuses above `max_entries`.
 pub fn check_result(
     sys: &ExactSystem,
     q: &PoleQuery<'_>,
     res: &PoleOrderResult,
+    max_entries: usize,
+) -> Result<CheckReport, String> {
+    let ctx = Ctx::new();
+    let dual = match res.p_star {
+        Some(PStar::Order(p)) if p > 0 => {
+            let (eb_p, y) = dual_vector(&ctx, sys, q)?;
+            Some((eb_p == PStar::Order(p), y))
+        }
+        _ => None,
+    };
+    check_with(sys, q, res.p_star, res.relation.as_ref(), dual, max_entries)
+}
+
+/// The checks of [`check_result`] with the dual vector GIVEN (by system column; `bool` = its source agrees with the
+/// claim): the oracle's own basis, or a certificate file's vector ([`check_certificate`]).
+fn check_with(
+    sys: &ExactSystem,
+    q: &PoleQuery<'_>,
+    claimed: Option<PStar>,
+    relation: Option<&rustred_campaign_core::tadic::Relation>,
+    dual: Option<(bool, std::collections::HashMap<u32, RF>)>,
     max_entries: usize,
 ) -> Result<CheckReport, String> {
     let ncol = sys.columns.len();
@@ -237,10 +299,9 @@ pub fn check_result(
         v_rows.push(v);
     }
     rep.dim_w0 = v_rows.len();
-    let claimed = res.p_star;
     let mut ok = true;
     // upper bound: relation membership + recomputed order
-    if let Some(rel) = &res.relation {
+    if let Some(rel) = relation {
         let mut w = vec![ctx.zero(); ncol];
         if let Some(t) = tcol {
             w[pos_of[t]] = ctx.one();
@@ -277,39 +338,13 @@ pub fn check_result(
             ok &= all_zero;
         }
         Some(PStar::Order(p)) if p > 0 => {
-            // dual certificate from the oracle's triangular basis: back substitution
-            let eb = exact_basis(sys, q)?;
-            ok &= eb.p_star == PStar::Order(p);
-            let t = eb.target_col.ok_or("target absent")?;
-            let ni: Vec<u32> = eb.interest_cols.clone();
-            let get =
-                |e: &[(u32, ZP)], col: u32| e.iter().find(|x| x.0 == col).map(|x| x.1.clone());
-            let shift_rf = |p: ZP, sh: u32| -> RF {
-                let den = ctx.poly(&[(sh as u16, Integer::one())]);
-                ctx.rf(p, den)
+            // the dual certificate (lower bound): without one the claim p > 0 is not certified
+            let Some((agrees, y)) = dual else {
+                rep.dual_ok = Some(false);
+                rep.consistent = false;
+                return Ok(rep);
             };
-            let mut y: std::collections::HashMap<u32, RF> = std::collections::HashMap::new();
-            for (pc, s, c, sh) in eb.rows.iter().rev() {
-                // y_pc = -((h)_K + sum_{later pivots l} y_l h_l) / h_pc
-                let mut acc = get(c, t).map_or_else(|| ctx.zero(), |k| shift_rf(k, *sh));
-                for (col, val) in s {
-                    if col == pc {
-                        continue;
-                    }
-                    if let Some(yl) = y.get(col) {
-                        let term = ctx
-                            .field
-                            .mul(yl, &ctx.rf(val.clone(), ctx.poly(&[(0, Integer::one())])));
-                        acc = ctx.field.add(&acc, &term);
-                    }
-                }
-                let hp = ctx.rf(
-                    get(s, *pc).ok_or("pivot entry")?,
-                    ctx.poly(&[(0, Integer::one())]),
-                );
-                let ypc = ctx.field.neg(&ctx.field.div(&acc, &hp));
-                y.insert(*pc, ypc);
-            }
+            ok &= agrees;
             // check against numerica's V (columns: interest order `int`, then target)
             let mut dual_ok = true;
             let mut bound = i64::MAX;
@@ -319,7 +354,6 @@ pub fn check_result(
                     bound = bound.min(val_rf(yc));
                 }
             }
-            let _ = ni;
             for v in &v_rows {
                 let mut s = v.last().cloned().unwrap_or_else(|| ctx.zero());
                 for (k, &c) in int.iter().enumerate() {
@@ -443,4 +477,227 @@ pub fn brute_force_upper(
         }
     }
     None
+}
+
+/// Schema of the self-contained certificate file of a p* claim.
+pub const CERTIFICATE_SCHEMA: &str = "rustred.campaign.tadic-certificate.v1";
+
+/// A SELF-CONTAINED certificate of one p* claim (lane polefix, audit r2-poles F12): the system (rows `sum (a + b d)
+/// I(col) = 0`, integers as text), the partition of its columns (target, upper = must be eliminated, interest =
+/// columns of interest; every other column is carried), d0, the claim, the UPPER-bound certificate (an exact relation
+/// `I(K) = sum c_j I(k_j)`, coefficients in d) and the LOWER-bound certificate (the dual vector y on the columns of
+/// interest, y_K = 1, entries in d). [`check_certificate`] verifies both from this object alone (no oracle, no other
+/// input): the relation lies in the row space and has the claimed order; y is orthogonal to V and `min v(y_S)` >= the
+/// claim; "no relation" = every V vector has K-coordinate 0.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Certificate {
+    pub schema: String,
+    pub arity: usize,
+    pub target: Vec<i64>,
+    pub d0: String,
+    /// Rows: (key, a, b) with integer texts.
+    pub rows: Vec<Vec<(Vec<i64>, String, String)>>,
+    pub upper: Vec<Vec<i64>>,
+    pub interest: Vec<Vec<i64>>,
+    /// `{"order": p}` or `"no_relation"`.
+    pub p_star: serde_json::Value,
+    /// Upper bound: (key, coefficient in d, of interest).
+    pub relation: Option<Vec<(Vec<i64>, String, bool)>>,
+    /// Lower bound: (key of interest, y entry in d); absent when the claim needs none (p* = 0, no relation).
+    pub dual: Option<Vec<(Vec<i64>, String)>>,
+    /// The system's identity as the oracle named it (information).
+    pub system: serde_json::Value,
+}
+
+fn pstar_json(p: PStar) -> serde_json::Value {
+    match p {
+        PStar::Order(o) => serde_json::json!({"order": o}),
+        PStar::NoRelation => serde_json::json!("no_relation"),
+    }
+}
+
+fn pstar_of(v: &serde_json::Value) -> Result<PStar, String> {
+    if v.as_str() == Some("no_relation") {
+        return Ok(PStar::NoRelation);
+    }
+    v["order"]
+        .as_u64()
+        .and_then(|o| u32::try_from(o).ok())
+        .map(PStar::Order)
+        .ok_or_else(|| format!("p_star {v} is neither {{order: p}} nor \"no_relation\""))
+}
+
+/// EXPORT the certificate of an exact result: the relation from the result, the dual vector from the oracle's exact
+/// basis (when p* > 0). Refused for a result without an exact p*.
+pub fn certificate(
+    sys: &ExactSystem,
+    q: &PoleQuery<'_>,
+    res: &PoleOrderResult,
+) -> Result<Certificate, String> {
+    let p = res.p_star.ok_or("no p* to certify (undecided result)")?;
+    let interest_of = |k: &Vec<i64>| match &q.interest {
+        Interest::AllLower => true,
+        Interest::Keys(ks) => ks.contains(k),
+    };
+    let mut upper = vec![];
+    let mut interest = vec![];
+    for k in &sys.columns {
+        if k.as_slice() == q.target {
+            continue;
+        }
+        if !(q.lower)(k) {
+            upper.push(k.clone());
+        } else if interest_of(k) {
+            interest.push(k.clone());
+        }
+    }
+    let rows = sys
+        .rows
+        .iter()
+        .map(|r| {
+            r.iter()
+                .map(|&(c, a, b)| {
+                    (
+                        sys.columns[c as usize].clone(),
+                        a.to_string(),
+                        b.to_string(),
+                    )
+                })
+                .collect()
+        })
+        .collect();
+    let dual = match p {
+        PStar::Order(o) if o > 0 => {
+            let ctx = Ctx::new();
+            let (eb_p, y) = dual_vector(&ctx, sys, q)?;
+            if eb_p != p {
+                return Err(format!(
+                    "the exact basis gives {eb_p:?}, the result claims {p:?}"
+                ));
+            }
+            let mut v: Vec<(Vec<i64>, String)> = y
+                .iter()
+                .filter(|(c, _)| interest_of(&sys.columns[**c as usize]))
+                .map(|(c, r)| {
+                    (
+                        sys.columns[*c as usize].clone(),
+                        super::ratio_text_in_d(&r.numerator, &r.denominator, &q.d0),
+                    )
+                })
+                .collect();
+            v.sort();
+            Some(v)
+        }
+        _ => None,
+    };
+    Ok(Certificate {
+        schema: CERTIFICATE_SCHEMA.into(),
+        arity: sys.arity,
+        target: q.target.to_vec(),
+        d0: q.d0.text(),
+        rows,
+        upper,
+        interest,
+        p_star: pstar_json(p),
+        relation: res.relation.as_ref().map(|r| {
+            r.terms
+                .iter()
+                .map(|t| (t.key.clone(), t.coefficient.clone(), t.of_interest))
+                .collect()
+        }),
+        dual,
+        system: serde_json::to_value(&res.system).unwrap_or(serde_json::Value::Null),
+    })
+}
+
+/// VERIFY a certificate from its content ALONE (numerica / Symbolica route of the check mode; no oracle).
+pub fn check_certificate(cert: &Certificate, max_entries: usize) -> Result<CheckReport, String> {
+    use rustred_campaign_core::tadic::{Arith, Profile, Rat, RelTerm, Relation, TadicBudget};
+    if cert.schema != CERTIFICATE_SCHEMA {
+        return Err(format!(
+            "schema {:?}, expected {CERTIFICATE_SCHEMA}",
+            cert.schema
+        ));
+    }
+    let int = |t: &str| {
+        t.trim()
+            .parse::<i128>()
+            .map_err(|_| format!("integer {t:?}"))
+    };
+    let mut rows = Vec::with_capacity(cert.rows.len());
+    for r in &cert.rows {
+        let mut row = Vec::with_capacity(r.len());
+        for (k, a, b) in r {
+            if k.len() != cert.arity {
+                return Err(format!("key {k:?} of arity {}", k.len()));
+            }
+            row.push((k.clone(), int(a)?, int(b)?));
+        }
+        rows.push(row);
+    }
+    let sys = ExactSystem::from_rows(cert.arity, &rows, "certificate");
+    let d0 = Rat::parse(&cert.d0).ok_or_else(|| format!("d0 {:?}", cert.d0))?;
+    let upper: std::collections::HashSet<&Vec<i64>> = cert.upper.iter().collect();
+    let target = cert.target.clone();
+    let lower = |k: &[i64]| k != target.as_slice() && !upper.contains(&k.to_vec());
+    let q = PoleQuery {
+        target: &cert.target,
+        lower: &lower,
+        d0,
+        interest: Interest::Keys(cert.interest.clone()),
+        arith: Arith::Exact,
+        budget: TadicBudget::default(),
+        want_relation: false,
+    };
+    let claimed = pstar_of(&cert.p_star)?;
+    let relation = cert.relation.as_ref().map(|ts| Relation {
+        terms: ts
+            .iter()
+            .map(|(k, c, i)| RelTerm {
+                key: k.clone(),
+                coefficient: c.clone(),
+                pole_order: 0,
+                of_interest: *i,
+            })
+            .collect(),
+        profile: Profile::default(),
+    });
+    let ctx = Ctx::new();
+    let dual = match &cert.dual {
+        None => None,
+        Some(ys) => {
+            let mut y = std::collections::HashMap::new();
+            for (k, text) in ys {
+                let c = sys
+                    .columns
+                    .iter()
+                    .position(|x| x == k)
+                    .ok_or_else(|| format!("dual key {k:?} not a column of the system"))?;
+                y.insert(c as u32, parse_in_t_with(&ctx, text, &d0)?);
+            }
+            Some((true, y))
+        }
+    };
+    check_with(
+        &sys,
+        &q,
+        Some(claimed),
+        relation.as_ref(),
+        dual,
+        max_entries,
+    )
+}
+
+/// Write a certificate file (canonical JSON + "\n").
+pub fn write_certificate(path: &std::path::Path, cert: &Certificate) -> Result<(), String> {
+    let v = serde_json::to_value(cert).map_err(|e| e.to_string())?;
+    let mut t = rustred_campaign_core::schema::canon::canonical_json(&v, false)?;
+    t.push('\n');
+    std::fs::write(path, t).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Read a certificate file.
+pub fn read_certificate(path: &std::path::Path) -> Result<Certificate, String> {
+    let b = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    serde_json::from_slice(&b).map_err(|e| format!("{}: {e}", path.display()))
 }

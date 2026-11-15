@@ -5,7 +5,6 @@
 use serde_json::Value;
 
 use super::{Offset, PoleOrder, RelationFacts, RelationPoles, SystemPoles, sub};
-use crate::poly::{BigInt, Poly};
 
 /// Until lane poles' function lands: every relation is Undecided.
 pub struct StubRelationPoles;
@@ -34,111 +33,26 @@ impl SystemPoles for StubSystemPoles {
     }
 }
 
-/// TEMPORARY relation judge (to be replaced by lane poles' `pole_order_of`, Symbolica-backed on ac/poles): at a
-/// numeric key every coefficient is a rational function of d alone, printed by the engine NORMALISED (`N/D`, coprime);
-/// its pole order at an INTEGER d0 is `max(0, v(D) - v(N))` with `v` the multiplicity of the root d0 (exact: Taylor
-/// coefficients at d0 with the core's own polynomial reader and big integers); the relation's order is the maximum over
-/// its terms. An unreadable coefficient, a non-integer d0 or a zero numerator gives Undecided.
-/// L11: the campaign-core crate builds without Symbolica (design reason, recorded in the notes, not a verification).
+/// The in-process relation judge of the seed minimiser: THE core text judge ([`crate::poles::textjudge`], lane polefix,
+/// audit r2-poles F5; one implementation shared with coreseed's `DenominatorJudge`). Exact pole order at an INTEGER d0
+/// for coefficients in the ENGINE's printed form (`(N)/(D)`, `(N)/q`, `p/q`, a polynomial without `/`); anything else
+/// (an unreadable or non-engine form, a non-integer d0, an unnormalised record) is UNDECIDED, never a number. Where
+/// the Symbolica-backed algebra crate is linked, `rustred_campaign_algebra::valuation::relation::ExactJudge` replaces
+/// it; in the supervisor the orders it leaves undecided come from the `pole-regular-at` child job.
 pub struct LocalValuationJudge;
 
-/// Multiplicity of the root `d0` of the polynomial text `t` in d (`None`: unreadable or the zero polynomial).
-pub fn root_multiplicity(t: &str, d0: i64) -> Option<u32> {
-    let p = Poly::parse_exact(t.trim(), 0, true).ok()?;
-    let mut a: Vec<BigInt> = vec![];
-    for (j, c) in p.d_coefficients() {
-        let j = j as usize;
-        if a.len() <= j {
-            a.resize(j + 1, BigInt::zero());
-        }
-        a[j] = a[j].add(&c.eval_big(&[]).ok()?);
-    }
-    if a.iter().all(|x| x.is_zero()) {
-        return None;
-    }
-    let n = a.len();
-    let x = BigInt::from_i128(d0 as i128);
-    // powers of d0
-    let mut pw = vec![BigInt::from_i128(1)];
-    for i in 1..n {
-        pw.push(pw[i - 1].mul(&x));
-    }
-    // binomial rows on the fly: b_m = sum_{j >= m} a_j C(j, m) d0^(j - m)
-    let mut row: Vec<BigInt> = vec![BigInt::from_i128(1)];
-    let mut rows: Vec<Vec<BigInt>> = vec![row.clone()];
-    for _ in 1..n {
-        let mut next = vec![BigInt::from_i128(1)];
-        for w in row.windows(2) {
-            next.push(w[0].add(&w[1]));
-        }
-        next.push(BigInt::from_i128(1));
-        rows.push(next.clone());
-        row = next;
-    }
-    for m in 0..n {
-        let mut b = BigInt::zero();
-        for (j, aj) in a.iter().enumerate().skip(m) {
-            if aj.is_zero() {
-                continue;
-            }
-            b = b.add(&aj.mul(&rows[j][m]).mul(&pw[j - m]));
-        }
-        if !b.is_zero() {
-            return Some(m as u32);
-        }
-    }
-    None
-}
-
-/// Split a coefficient text at its single top-level `/` (none: denominator 1).
-pub fn split_fraction(c: &str) -> Option<(String, String)> {
-    let mut depth = 0i32;
-    let mut at: Vec<usize> = vec![];
-    for (i, ch) in c.char_indices() {
-        match ch {
-            '(' => depth += 1,
-            ')' => depth -= 1,
-            '/' if depth == 0 => at.push(i),
-            _ => {}
-        }
-    }
-    match at.as_slice() {
-        [] => Some((c.to_string(), "1".to_string())),
-        [i] => Some((c[..*i].to_string(), c[i + 1..].to_string())),
-        _ => None,
-    }
-}
-
-/// Pole order at `d0` of a coefficient text (None: undecided).
-pub fn coefficient_pole_order(c: &str, d0: i64) -> Option<u32> {
-    let (n, d) = split_fraction(c)?;
-    let vn = root_multiplicity(&n, d0)?;
-    let vd = root_multiplicity(&d, d0)?;
-    Some(vd.saturating_sub(vn))
-}
+/// Re-exported from the shared text judge (one implementation).
+pub use crate::poles::textjudge::{coefficient_pole_order, root_multiplicity};
 
 impl RelationPoles for LocalValuationJudge {
     fn pole_order_of(&mut self, record: &Value, _key: &[i32], d0: &str) -> PoleOrder {
-        let Ok(d0) = d0.trim().parse::<i64>() else {
-            return PoleOrder::Undecided;
-        };
-        let Some(rhs) = record["rhs"].as_array() else {
-            return PoleOrder::Undecided;
-        };
-        let mut max = 0u32;
-        for t in rhs {
-            let Some(c) = t.get(1).and_then(Value::as_str) else {
-                return PoleOrder::Undecided;
-            };
-            match coefficient_pole_order(c, d0) {
-                Some(o) => max = max.max(o),
-                None => return PoleOrder::Undecided,
-            }
+        match crate::poles::textjudge::relation_pole_order(record, d0) {
+            Some(order) => PoleOrder::Order { order },
+            None => PoleOrder::Undecided,
         }
-        PoleOrder::Order { order: max }
     }
     fn name(&self) -> String {
-        "local_valuation (temporary)".into()
+        "local_valuation (core text judge: engine form only)".into()
     }
 }
 
@@ -196,11 +110,14 @@ mod tests {
         assert_eq!(coefficient_pole_order("(d-4)/((d-4)^3*(d-1))", 4), Some(2));
         assert_eq!(coefficient_pole_order("x/y/z", 4), None);
         let mut j = LocalValuationJudge;
-        let rec = json!({"rhs": [["I(1)", "(8-3*d)/(-14+6*d)", "top"], ["I(2)", "1/(d-4)^2", "sub"], ["I(3)", "2", "sub"]]});
+        let rec = json!({"rhs": [["I(1)", "(8-3*d)/(-14+6*d)", "top"], ["I(2)", "1/(16-8*d+d^2)", "sub"], ["I(3)", "2", "sub"]]});
         assert_eq!(
             j.pole_order_of(&rec, &[], "4"),
             PoleOrder::Order { order: 2 }
         );
+        // lane polefix (F5): `1/(d-4)^2` is not the engine's printed form: undecided, never a guess
+        let hand = json!({"rhs": [["I(2)", "1/(d-4)^2", "sub"]]});
+        assert_eq!(j.pole_order_of(&hand, &[], "4"), PoleOrder::Undecided);
         assert_eq!(j.pole_order_of(&rec, &[], "9/2"), PoleOrder::Undecided);
         let big = json!({"rhs": [["I(1)", "(123456789012345678901234567890*d)/(-4+d)", "top"]]});
         assert_eq!(

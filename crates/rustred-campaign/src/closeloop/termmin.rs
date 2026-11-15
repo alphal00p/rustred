@@ -107,6 +107,8 @@ pub struct AcceptBits {
     /// lane closeloop3: the per-key caps of the solves (recorded on the answer line of a key that hit one).
     pub max_trace_rows: Option<u64>,
     pub key_budget_s: Option<u64>,
+    /// Lane polefix (audit r2-poles F4): the objective of the SOLVED lines' `choice` annotation (`None` = off).
+    pub pole_objective: Option<rustred_campaign_core::poles::PoleObjective>,
 }
 
 /// Run the closeloop's accept chain on one settled point solve: `undeclare` = the terminal the solve is FOR (removed
@@ -148,6 +150,7 @@ pub fn accept_point(
             run_dir: run_dir.to_string(),
             max_trace_rows: bits.max_trace_rows,
             key_budget_s: bits.key_budget_s,
+            pole_objective: bits.pole_objective.clone(),
         };
         decide(&ctx, lines)
     });
@@ -732,6 +735,8 @@ impl TermminSource {
             order: p.cfg.solve.order_arg(),
             max_trace_rows: p.spec.caps.max_trace_rows.or(p.cfg.solve.max_trace_rows),
             key_budget_s: p.spec.caps.key_budget_s.or(p.cfg.solve.key_budget_s),
+            // the node's setting (validated with the config; an unreadable one cannot reach here)
+            pole_objective: p.cfg.pole_objective_setting().unwrap_or_default(),
         }
     }
 

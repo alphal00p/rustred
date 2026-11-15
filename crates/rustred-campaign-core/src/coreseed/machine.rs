@@ -1,12 +1,17 @@
-//! The flow of the IBP core (interfaces/coreseed.md 3), per support signature of the given keys:
+//! The flow of the IBP core (interfaces/coreseed.md 3 and 11), per support signature of the given keys:
+//! CLOSE FIRST (POLES_OBJECTIVE.md 1, binding; audit r2-poles F2):
 //! A. the RULE's explicit list at every key;
+//! B. the ESCALATION steps for keys without a relation (shells, then shifted centres; one job per centre);
+//! -> the CLOSE-FIRST REPORT (every key served or decided; full-list pieces) is PUBLISHED ([`CoreSolver::publish`])
+//!    before any request of the later phases: whatever they do (budget, interruption, a request that never returns),
+//!    nothing published is lost or changed; they only ADD alternatives and pieces.
+//! VARIANTS (own budget `variants.max_requests`, resumable by the solver's journal like every request):
 //! S. a CENTRE SCAN for keys whose relation is large (> `centre_scan.min_terms`) or not regular at d0 (mode
-//!    `regular_preferred`), with the shells of the step that solved them (TRICKS 13-15);
+//!    `regular_preferred`), with the shells of the step that served them (TRICKS 13-15);
 //! R. the REGULAR ESCALATION for keys still without a regular relation (mode `regular_preferred`);
-//! B. the ESCALATION steps for keys without a relation (cumulative shells; one job per centre), each followed by S, R;
 //! L. per chosen rule: LISTS minimised at a pivot key (the minimiser, lane seedmin) and accepted on a domain only after
 //!    the solve at EVERY key of it (no sampling); a failing key becomes the next pivot; keys left keep the full list.
-//!    The pieces (rule, list, tested domain) form the SPLIT recipe of the core.
+//!    The pieces (rule, list, tested domain) form the SPLIT recipe of the core (the final report).
 //! Every answer is recorded per key (relation / no_relation / not_in_domain / budget / failed); a key is
 //! `no_relation_decided` only when every step decided NO_RELATION; any budget or failure leaves it `undecided`.
 //! All certified relations are kept per key as ALTERNATIVES with their d0 verdict; `chosen` by the policy (regular
@@ -124,6 +129,8 @@ pub struct GroupReport {
 #[derive(Clone, Debug, Serialize)]
 pub struct CoreReport {
     pub schema: String,
+    /// `close_first` (published after A + B, before any variant or list request) | `final` (after S, R, L).
+    pub stage: String,
     pub policy_digest: String,
     pub mode: String,
     pub d0: String,
@@ -216,11 +223,7 @@ fn choose(alts: &[Alternative], regular_first: bool) -> Option<usize> {
             excluded_by: None,
             evidence_level: 0,
             size: a.rhs_terms,
-            pole_order: match a.d0 {
-                D0Verdict::Regular => Some(0),
-                D0Verdict::Singular { order: Some(p) } => Some(u64::from(p)),
-                D0Verdict::Singular { order: None } | D0Verdict::Undecided => None,
-            },
+            pole_order: d0_order(&a.d0),
         })
         .collect();
     let obj = if regular_first {
@@ -232,6 +235,42 @@ fn choose(alts: &[Alternative], regular_first: bool) -> Option<usize> {
         .ok()
         .flatten()
         .map(|c| c.index)
+}
+
+/// The pole order a d0 verdict gives the objective: regular 0, singular of known order p, else unknown (`None`).
+fn d0_order(v: &D0Verdict) -> Option<u64> {
+    match v {
+        D0Verdict::Regular => Some(0),
+        D0Verdict::Singular { order: Some(p) } => Some(u64::from(*p)),
+        D0Verdict::Singular { order: None } | D0Verdict::Undecided => None,
+    }
+}
+
+/// Lane polefix (audit r2-poles F11): is `new` (a minimised list's relation at a key) NOT WORSE than `old` (the
+/// full list's) under `poles::pole_objective`'s pole measures (the user's default objective without the size: max pole
+/// order, sum, singular terms; an unknown order ranks worst)? Ties keep `new`. The domain test of a list refuses a key
+/// whose relation got worse (mode regular_preferred): no private ranking.
+fn poles_not_worse(old: &D0Verdict, new: &D0Verdict) -> bool {
+    use crate::poles::{Candidate, Measure, PoleObjective, pole_objective};
+    let obj = PoleObjective {
+        measures: PoleObjective::default()
+            .measures
+            .into_iter()
+            .filter(|m| *m != Measure::Size)
+            .collect(),
+        ..PoleObjective::default()
+    };
+    let c = |id: &str, v: &D0Verdict| Candidate {
+        id: id.into(),
+        admissible: true,
+        excluded_by: None,
+        evidence_level: 0,
+        size: 0,
+        pole_order: d0_order(v),
+    };
+    // ids order the tie in favour of `new`
+    let cands = [c("0-new", new), c("1-old", old)];
+    matches!(pole_objective(&cands, &[], &obj, None), Ok(Some(ch)) if ch.index == 0)
 }
 
 struct Group<'a> {
@@ -251,9 +290,53 @@ struct Group<'a> {
     rule_lists: BTreeMap<String, (Rule, Vec<Offset>)>,
     scan_jobs: usize,
     requests: u64,
+    /// Requests of the variant phase (S + R) so far: its own budget (`variants.max_requests`).
+    variant_requests: u64,
 }
 
 impl<'a> Group<'a> {
+    /// What is left of the variant budget (`None` = no budget of its own).
+    fn variant_budget_left(&self) -> Option<u64> {
+        self.policy
+            .variants
+            .max_requests
+            .map(|m| m.saturating_sub(self.variant_requests))
+    }
+
+    /// Cap a variant rule set by the budget; keys of `need` left without any rule record a `budget` step.
+    fn cap_variants(&mut self, phase: &str, rules: &mut Vec<Rule>, need: &[Key]) {
+        let Some(left) = self.variant_budget_left() else {
+            return;
+        };
+        let left = usize::try_from(left).unwrap_or(usize::MAX);
+        if rules.len() <= left {
+            return;
+        }
+        rules.truncate(left);
+        let max = self.policy.variants.max_requests.unwrap_or(0);
+        for k in need {
+            if !rules.iter().any(|r| r.applies(k, self.lines, &self.lowest)) {
+                let a = KeyAnswer::Budget {
+                    what: format!("variant budget: variants.max_requests {max} spent"),
+                };
+                self.record(k, phase, "variant_budget", "none", 0, &a);
+            }
+        }
+    }
+
+    /// Run variant rules (S or R) under the variant budget, counting their requests.
+    fn run_variant_rules(
+        &mut self,
+        solver: &mut dyn CoreSolver,
+        rules: &[Rule],
+        keys: &[Key],
+    ) -> Result<(), String> {
+        let before = self.requests;
+        let r = self.run_rules(solver, rules, keys);
+        self.variant_requests += self.requests - before;
+        r
+    }
+
     fn regular_first(&self) -> bool {
         self.policy.mode == "regular_preferred"
     }
@@ -532,6 +615,7 @@ impl<'a> Group<'a> {
         let mut rules = self.step_rules(&step, "centre_scan", shells, &need);
         let left = cs.max_jobs_per_face.saturating_sub(self.scan_jobs);
         rules.truncate(left);
+        self.cap_variants("centre_scan", &mut rules, &need);
         self.scan_jobs += rules.len();
         // per key: only its first `max_candidates_per_key` labels (in scan order)
         let per_key = cs.max_candidates_per_key;
@@ -551,7 +635,7 @@ impl<'a> Group<'a> {
         for r in &rules {
             if let Some(ks) = sent.get(&r.id) {
                 let ks = ks.clone();
-                self.run_rules(solver, std::slice::from_ref(r), &ks)?;
+                self.run_variant_rules(solver, std::slice::from_ref(r), &ks)?;
             }
         }
         Ok(())
@@ -582,8 +666,9 @@ impl<'a> Group<'a> {
                     sh.push(s.clone());
                 }
             }
-            let rules = self.step_rules(&step, "regular", &sh, &need);
-            self.run_rules(solver, &rules, &need)?;
+            let mut rules = self.step_rules(&step, "regular", &sh, &need);
+            self.cap_variants("regular", &mut rules, &need);
+            self.run_variant_rules(solver, &rules, &need)?;
         }
         Ok(())
     }
@@ -666,11 +751,17 @@ impl<'a> Group<'a> {
                     class: "missing".into(),
                     message: "no answer".into(),
                 });
-                // in mode regular_preferred a key whose full-list relation was regular must stay regular
-                let was_regular = matches!(self.cache.get(&(lsha.clone(), k.clone())),
-                    Some(KeyAnswer::Relation(r)) if r.d0.is_regular());
-                let ok = match &a {
-                    KeyAnswer::Relation(r) => !(regular_first && was_regular && !r.d0.is_regular()),
+                // in mode regular_preferred a key's relation must not get WORSE under the pole objective than its
+                // full-list relation (regular stays regular; a known order does not rise; F11: pole_objective)
+                let was = match self.cache.get(&(lsha.clone(), k.clone())) {
+                    Some(KeyAnswer::Relation(r)) => Some(r.d0.clone()),
+                    _ => None,
+                };
+                let ok = match (&a, &was) {
+                    (KeyAnswer::Relation(r), Some(w)) => {
+                        !regular_first || poles_not_worse(w, &r.d0)
+                    }
+                    (KeyAnswer::Relation(_), None) => true,
                     _ => false,
                 };
                 self.record(k, "domain_test", &rule.id, &piece_id, res.list.len(), &a);
@@ -720,7 +811,11 @@ impl<'a> Group<'a> {
     }
 
     fn full_piece(&self, rule: &Rule, full: &[Offset], keys: &[Key]) -> Piece {
-        let id = format!("{}#{}", rule.id, self.pieces.len());
+        self.full_piece_n(rule, full, keys, self.pieces.len())
+    }
+
+    fn full_piece_n(&self, rule: &Rule, full: &[Offset], keys: &[Key], n: usize) -> Piece {
+        let id = format!("{}#{n}", rule.id);
         Piece {
             d0: self.d0_counts(keys, &rule.id, "full"),
             fixed_in_piece: self.fixed_in(keys),
@@ -781,6 +876,70 @@ impl<'a> Group<'a> {
         }
     }
 
+    /// The keys of each rule whose alternative is chosen now, in the order the rules were run (full lists only).
+    fn chosen_full_by_rule(&self) -> Vec<(String, Vec<Key>)> {
+        let regular_first = self.regular_first();
+        let mut by_rule: BTreeMap<String, Vec<Key>> = BTreeMap::new();
+        for k in &self.keys {
+            if let Some(i) = self
+                .state
+                .get(k)
+                .and_then(|s| choose(&s.alts, regular_first))
+            {
+                let a = &self.state[k].alts[i];
+                if a.list == "full" {
+                    by_rule.entry(a.rule.clone()).or_default().push(k.clone());
+                }
+            }
+        }
+        let mut out = vec![];
+        let mut done: BTreeSet<String> = BTreeSet::new();
+        for r in &self.rules {
+            if done.insert(r.id.clone())
+                && let Some(ks) = by_rule.remove(&r.id)
+            {
+                out.push((r.id.clone(), ks));
+            }
+        }
+        out
+    }
+
+    /// The close-first pieces: per rule of a chosen relation, its FULL list on the keys it serves (no minimisation:
+    /// lists come after the variant search; a full-list piece is a valid split recipe on its keys).
+    fn close_first_pieces(&self) -> Vec<Piece> {
+        let mut out = vec![];
+        for (rid, ks) in self.chosen_full_by_rule() {
+            if let Some((rule, full)) = self.rule_lists.get(&rid) {
+                let p = self.full_piece_n(rule, full, &ks, out.len());
+                out.push(p);
+            }
+        }
+        out
+    }
+
+    /// The report of every key of the group as it stands (not consuming the state).
+    fn key_reports(&self) -> Vec<KeyReport> {
+        let regular_first = self.regular_first();
+        self.keys
+            .iter()
+            .map(|k| match self.state.get(k) {
+                Some(st) => key_report(k, st, self.lines, regular_first),
+                None => key_report(k, &KeyState::default(), self.lines, regular_first),
+            })
+            .collect()
+    }
+
+    fn group_report(&self, pieces: Vec<Piece>) -> GroupReport {
+        GroupReport {
+            dotted: self.sig.0.clone(),
+            numerators: self.sig.1.clone(),
+            keys: self.keys.len(),
+            domain: self.domain.clone(),
+            rules: self.rules.clone(),
+            pieces,
+        }
+    }
+
     fn partial(&self) -> Value {
         let mut c: BTreeMap<&str, usize> = BTreeMap::new();
         for k in &self.keys {
@@ -795,7 +954,80 @@ impl<'a> Group<'a> {
     }
 }
 
-/// Solve the IBP core given by `keys` (any order; duplicates ignored) under `policy` (interfaces/coreseed.md 3).
+/// The report of one key from its state.
+fn key_report(k: &Key, st: &KeyState, lines: &[bool], regular_first: bool) -> KeyReport {
+    let decided_none = !st.steps.is_empty() && st.steps.iter().all(|s| s.outcome == "no_relation");
+    let nid = !st.steps.is_empty() && st.steps.iter().all(|s| s.outcome == "not_in_domain");
+    let status = if !st.alts.is_empty() {
+        "relation"
+    } else if decided_none {
+        "no_relation_decided"
+    } else if nid {
+        "not_in_domain"
+    } else {
+        "undecided"
+    };
+    let first = st
+        .steps
+        .iter()
+        .find(|s| s.outcome == "relation")
+        .map(|s| format!("{}:{}", s.phase, s.rule));
+    KeyReport {
+        key: k.clone(),
+        dots_rank: dots_rank(k, lines),
+        status: status.into(),
+        first_solved_by: first,
+        chosen: choose(&st.alts, regular_first),
+        alternatives: st.alts.clone(),
+        steps: st.steps.clone(),
+    }
+}
+
+/// Assemble a report (`stage` `close_first` | `final`).
+fn assemble(
+    policy: &CoreSeedPolicy,
+    stage: &str,
+    groups: Vec<GroupReport>,
+    keys: Vec<KeyReport>,
+    requests: u64,
+) -> CoreReport {
+    let mut status: BTreeMap<String, usize> = BTreeMap::new();
+    let mut first: BTreeMap<String, usize> = BTreeMap::new();
+    let mut chosen_d0: BTreeMap<String, usize> = BTreeMap::new();
+    for k in &keys {
+        *status.entry(k.status.clone()).or_default() += 1;
+        if let Some(f) = &k.first_solved_by {
+            *first.entry(f.clone()).or_default() += 1;
+        }
+        if let Some(i) = k.chosen {
+            *chosen_d0
+                .entry(k.alternatives[i].d0.word().into())
+                .or_default() += 1;
+        }
+    }
+    let totals = json!({"keys": keys.len(), "status": status, "first_solved_by": first,
+        "chosen_d0": chosen_d0, "requests": requests});
+    CoreReport {
+        schema: REPORT_SCHEMA.into(),
+        stage: stage.into(),
+        policy_digest: policy.digest(),
+        mode: policy.mode.clone(),
+        d0: policy.d0.clone(),
+        groups,
+        keys,
+        totals,
+    }
+}
+
+/// Solve the IBP core given by `keys` (any order; duplicates ignored) under `policy` (interfaces/coreseed.md 3, 11).
+///
+/// CLOSE FIRST (audit r2-poles F2): A and B run for EVERY group; then the close-first report (stage `close_first`: every
+/// key served or decided, full-list pieces) goes to [`CoreSolver::publish`] BEFORE any variant or list request. Then
+/// the variant phase (S + R, own budget `variants.max_requests`) and the lists (L) run and the FINAL report (stage
+/// `final`) is returned; they only add alternatives and pieces: every key's status, `first_solved_by` and close-first
+/// alternatives are those published. An error of the later phases is returned AFTER the publication (a caller that
+/// persisted the published report loses nothing); a restart replays the journal: the same publication, then the later
+/// phases continue.
 pub fn solve_core(
     keys: &[Key],
     lines: &[bool],
@@ -820,9 +1052,8 @@ pub fn solve_core(
             .or_default()
             .push(k.clone());
     }
-    let mut out_groups = vec![];
-    let mut out_keys = vec![];
-    let mut requests = 0u64;
+    // ---- CLOSE FIRST: A + B for every group (a certified relation serves its key at once, singular at d0 or not) ----
+    let mut gs: Vec<Group<'_>> = vec![];
     for (gi, (sig, gkeys)) in groups.into_iter().enumerate() {
         let lowest: Vec<i32> = (0..n)
             .map(|s| gkeys.iter().map(|k| k[s]).min().unwrap_or(0))
@@ -855,10 +1086,8 @@ pub fn solve_core(
             rule_lists: BTreeMap::new(),
             scan_jobs: 0,
             requests: 0,
+            variant_requests: 0,
         };
-        // CLOSE FIRST (POLES_OBJECTIVE.md 1; binding): A and the whole escalation B serve keys; a certified relation serves
-        // its key at once, singular at d0 or not; the variant search (centre scan, regular escalation) runs only AFTER
-        // every key is served or decided, on its own budget, and only adds alternatives (it never holds a key open)
         // A: the rule at every key
         let r0 = Rule {
             id: "rule".into(),
@@ -870,7 +1099,7 @@ pub fn solve_core(
         };
         g.run_rules(solver, std::slice::from_ref(&r0), &gkeys)?;
         solver.progress("rule", &g.partial());
-        // B: escalation for the keys without a relation (cumulative shells)
+        // B: escalation for the keys without a relation
         let mut shells = policy.rule.shells.clone();
         for step in &policy.escalation {
             let open: Vec<Key> = gkeys
@@ -902,9 +1131,30 @@ pub fn solve_core(
             g.run_rules(solver, &rules, &open)?;
             solver.progress(&format!("escalation:{}", step.id), &g.partial());
         }
-        // S + R: variants of SERVED keys, with the shells of the rule that served each key first
+        gs.push(g);
+    }
+    // ---- PUBLISH the close-first report: nothing after this point can hold it back or change it ----
+    {
+        let mut keys_cf = vec![];
+        let mut groups_cf = vec![];
+        for g in &gs {
+            keys_cf.extend(g.key_reports());
+            groups_cf.push(g.group_report(g.close_first_pieces()));
+        }
+        let requests: u64 = gs.iter().map(|g| g.requests).sum();
+        solver.publish(&assemble(
+            policy,
+            "close_first",
+            groups_cf,
+            keys_cf,
+            requests,
+        ));
+    }
+    // ---- VARIANTS (S + R): variants of SERVED keys, with the shells of the rule that served each key first; own
+    // budget; they only add alternatives ----
+    for g in &mut gs {
         let mut by_shells: BTreeMap<Vec<String>, Vec<Key>> = BTreeMap::new();
-        for k in &gkeys {
+        for k in &g.keys {
             let first_rule = g
                 .state
                 .get(k)
@@ -922,92 +1172,22 @@ pub fn solve_core(
             g.regular_escalation(solver, &ks, &sh)?;
         }
         solver.progress("variants", &g.partial());
-        // L: lists + domain test per chosen rule (full-list alternatives)
-        let regular_first = g.regular_first();
-        let mut by_rule: BTreeMap<String, Vec<Key>> = BTreeMap::new();
-        for k in &gkeys {
-            if let Some(i) = g.state.get(k).and_then(|s| choose(&s.alts, regular_first)) {
-                let a = &g.state[k].alts[i];
-                if a.list == "full" {
-                    by_rule.entry(a.rule.clone()).or_default().push(k.clone());
-                }
-            }
-        }
-        // rules in the order they were run
-        let order: Vec<String> = g.rules.iter().map(|r| r.id.clone()).collect();
-        let mut done: BTreeSet<String> = BTreeSet::new();
-        for rid in order {
-            if done.insert(rid.clone())
-                && let Some(ks) = by_rule.get(&rid).cloned()
-            {
-                g.lists_for_rule(solver, &rid, &ks)?;
-            }
+    }
+    // ---- L: lists + domain test per chosen rule (full-list alternatives) ----
+    let mut out_groups = vec![];
+    let mut out_keys = vec![];
+    let mut requests = 0u64;
+    for mut g in gs {
+        for (rid, ks) in g.chosen_full_by_rule() {
+            g.lists_for_rule(solver, &rid, &ks)?;
         }
         solver.progress("lists", &g.partial());
         requests += g.requests;
-        for k in &gkeys {
-            let st = g.state.remove(k).unwrap_or_default();
-            let decided_none =
-                !st.steps.is_empty() && st.steps.iter().all(|s| s.outcome == "no_relation");
-            let nid = !st.steps.is_empty() && st.steps.iter().all(|s| s.outcome == "not_in_domain");
-            let status = if !st.alts.is_empty() {
-                "relation"
-            } else if decided_none {
-                "no_relation_decided"
-            } else if nid {
-                "not_in_domain"
-            } else {
-                "undecided"
-            };
-            let first = st
-                .steps
-                .iter()
-                .find(|s| s.outcome == "relation")
-                .map(|s| format!("{}:{}", s.phase, s.rule));
-            out_keys.push(KeyReport {
-                key: k.clone(),
-                dots_rank: dots_rank(k, lines),
-                status: status.into(),
-                first_solved_by: first,
-                chosen: choose(&st.alts, regular_first),
-                alternatives: st.alts,
-                steps: st.steps,
-            });
-        }
-        out_groups.push(GroupReport {
-            dotted: g.sig.0.clone(),
-            numerators: g.sig.1.clone(),
-            keys: gkeys.len(),
-            domain: g.domain.clone(),
-            rules: g.rules,
-            pieces: g.pieces,
-        });
+        out_keys.extend(g.key_reports());
+        let pieces = std::mem::take(&mut g.pieces);
+        out_groups.push(g.group_report(pieces));
     }
-    let mut status: BTreeMap<String, usize> = BTreeMap::new();
-    let mut first: BTreeMap<String, usize> = BTreeMap::new();
-    let mut chosen_d0: BTreeMap<String, usize> = BTreeMap::new();
-    for k in &out_keys {
-        *status.entry(k.status.clone()).or_default() += 1;
-        if let Some(f) = &k.first_solved_by {
-            *first.entry(f.clone()).or_default() += 1;
-        }
-        if let Some(i) = k.chosen {
-            *chosen_d0
-                .entry(k.alternatives[i].d0.word().into())
-                .or_default() += 1;
-        }
-    }
-    let totals = json!({"keys": out_keys.len(), "status": status, "first_solved_by": first,
-        "chosen_d0": chosen_d0, "requests": requests});
-    Ok(CoreReport {
-        schema: REPORT_SCHEMA.into(),
-        policy_digest: policy.digest(),
-        mode: policy.mode.clone(),
-        d0: policy.d0.clone(),
-        groups: out_groups,
-        keys: out_keys,
-        totals,
-    })
+    Ok(assemble(policy, "final", out_groups, out_keys, requests))
 }
 
 #[cfg(test)]

@@ -16,6 +16,7 @@
 //!   one exists and the generic cure candidates of TRICKS 13 (hints only).
 //! - [`basis`]: the terminal-set check (D2, section 3 / 9) over node-basis diagnostic records (never evidence).
 //! - [`census`]: the per-box-key census (D3, section 4) composition over a closure's edges, given per-edge orders.
+//! - [`textjudge`]: THE Symbolica-free text judge (engine-form coefficients only, else undecided; lane polefix F5).
 //!
 //! MUST NOT (section 13): no diagnostic and no preference decides acceptance, a closure verdict or the terminal bound;
 //! the selection only CHOOSES among candidates the normal accept chain already admitted.
@@ -27,6 +28,7 @@ pub mod params;
 pub mod record;
 pub mod select;
 pub mod split;
+pub mod textjudge;
 
 pub use params::{MaxSizeRatio, PoleParams, PolicyError};
 pub use record::{PoleRelationRecord, RegularAt, TermPole};

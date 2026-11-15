@@ -340,7 +340,6 @@ fn audit_seedmin_pole_objective_on_never_unserves_and_never_worsens() {
 /// at d0 always wins" for relations (smaller intermediate expressions, no cancellations to carry); with the default
 /// `max_size_ratio` "unbounded" the regular candidate must win.
 #[test]
-#[ignore = "AUDIT FINDING r2poles-F3: composed profiles drop the local regular-first default"]
 fn audit_pole_objective_composed_tie_keeps_regular_first() {
     let t: Vec<(Vec<i32>, Option<u32>)> = vec![(vec![1, 1, 1], Some(0)), (vec![2, 1, 1], Some(0))];
     let cands = vec![

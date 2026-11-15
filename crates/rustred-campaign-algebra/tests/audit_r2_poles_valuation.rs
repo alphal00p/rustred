@@ -166,11 +166,10 @@ fn audit_relation_normalised_and_unnormalised_agree() {
     assert!(pole_order_of(&norm, &[9, 9], &d4()).is_err());
 }
 
-/// FINDING (MAJOR, latent): a table rule's coefficients are evaluated at the KEY, not at the RULE POINT of its target
+/// FINDING (MAJOR, latent; FIXED by lane polefix): a table rule's coefficients are evaluated at the KEY, not at the RULE POINT of its target
 /// pattern. Target "I(n0+1,n1)" at key (3, 1) has rule point n0 = 2, n1 = 1 (the engine's find_rule and the core's
 /// `closure::bodies::rule_point`); there the rhs coefficient 1/(d - 2 n0) = 1/(d-4): pole order 1.
 #[test]
-#[ignore = "AUDIT FINDING r2poles-F1: valuation::relation substitutes the key, not the rule point"]
 fn audit_rule_coefficients_at_the_rule_point_noncanonical_target() {
     if !common::licensed_or_skip("audit_rule_point") {
         return;
@@ -184,27 +183,39 @@ fn audit_rule_coefficients_at_the_rule_point_noncanonical_target() {
     );
 }
 
-/// FINDING (MINOR): the seed minimiser's TEMPORARY in-process judge splits the coefficient text at its single top-level
-/// '/', so `3/4*(-4+d)` (= 3(d-4)/4, a ZERO at 4) is read as 3 / (4 (d-4)): pole order 1.
+/// FINDING (MINOR; FIXED by lane polefix): the seed minimiser's in-process judge split the coefficient text at its single
+/// top-level '/', so `3/4*(-4+d)` (= 3(d-4)/4, a ZERO at 4) was read as 3 / (4 (d-4)): pole order 1. Now the ONE core text
+/// judge answers UNDECIDED for anything but the engine's printed form (brief F5), never a wrong number; the
+/// Symbolica-backed `ExactJudge` (algebra crate) gives the exact 0.
 #[test]
-#[ignore = "AUDIT FINDING r2poles-F5: LocalValuationJudge reads A/B*C as A/(B*C)"]
 fn audit_local_valuation_judge_precedence() {
     if !common::licensed_or_skip("audit_local_judge") {
         return;
     }
+    use rustred_campaign_algebra::valuation::relation::ExactJudge;
     let rec = json!({"type": "relation", "verdict": "SOLVED", "key": [1, 1], "rhs": [["I(1,0)", "3/4*(-4+d)"]]});
     let exact = pole_order_of(&rec, &[1, 1], &d4()).unwrap();
     assert_eq!(exact, 0);
+    let text = LocalValuationJudge.pole_order_of(&rec, &[1, 1], "4");
+    assert!(
+        matches!(text, PoleOrder::Undecided | PoleOrder::Order { order: 0 }),
+        "the text judge may say undecided or the true 0, never a pole: {text:?}"
+    );
+    assert_eq!(text, PoleOrder::Undecided, "not the engine form");
     assert_eq!(
-        LocalValuationJudge.pole_order_of(&rec, &[1, 1], "4"),
+        ExactJudge.pole_order_of(&rec, &[1, 1], "4"),
         PoleOrder::Order { order: 0 }
+    );
+    assert_eq!(
+        RegularityJudge::is_regular_at(&ExactJudge, &rec, &[1, 1], "4"),
+        D0Verdict::Regular
     );
 }
 
-/// FINDING (MINOR): coreseed's DenominatorJudge claims "a regular verdict is sound" but evaluates everything after the
-/// single top-level '/': `1/(d-4)+1` (a POLE at 4) is judged regular (it evaluates "(d-4)+1" at 4).
+/// FINDING (MINOR; FIXED by lane polefix): coreseed's DenominatorJudge claimed "a regular verdict is sound" but evaluated
+/// everything after the single top-level '/': `1/(d-4)+1` (a POLE at 4) was judged regular (it evaluated "(d-4)+1" at
+/// 4). Now: the one core text judge (engine form only), undecided here; the exact judge says singular of order 1.
 #[test]
-#[ignore = "AUDIT FINDING r2poles-F5: DenominatorJudge unsound on A/B+C"]
 fn audit_denominator_judge_soundness() {
     if !common::licensed_or_skip("audit_denominator_judge") {
         return;
@@ -215,6 +226,11 @@ fn audit_denominator_judge_soundness() {
         DenominatorJudge.is_regular_at(&rec, &[1, 1], "4"),
         D0Verdict::Regular,
         "a sound judge may say undecided, never regular"
+    );
+    use rustred_campaign_algebra::valuation::relation::ExactJudge;
+    assert_eq!(
+        RegularityJudge::is_regular_at(&ExactJudge, &rec, &[1, 1], "4"),
+        D0Verdict::Singular { order: Some(1) }
     );
 }
 
