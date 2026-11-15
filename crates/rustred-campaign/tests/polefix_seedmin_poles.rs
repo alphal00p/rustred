@@ -112,6 +112,8 @@ fn config(dir: &Path, poles: Option<PolesCfg>, objective: &str) -> ChildConfig {
         poles,
         pole_objective: objective.into(),
         verbose: false,
+        // int7: the child-site policy field (default), as the other seedmin / coreseed tests set it
+        site: Default::default(),
     }
 }
 
