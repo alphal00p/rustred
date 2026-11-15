@@ -104,11 +104,31 @@ static OUTSIDE_OVERRIDES: RwLock<BTreeMap<String, POutsidePolicy>> = RwLock::new
 /// Set the outside policy of the boxed node `node` in this process (tests,
 /// embedders); it wins over [`OUTSIDE_POLICY_ENV`].
 pub fn set_outside_policy_for(node: &str, policy: POutsidePolicy) {
+    if policy == POutsidePolicy::Refuse {
+        REFUSE_OVERRIDDEN.store(true, Ordering::Relaxed);
+    }
     OUTSIDE_OVERRIDES
         .write()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .insert(node.to_owned(), policy);
 }
+
+/// Whether any node may refuse outside keys in this process (an override
+/// or the environment says `refuse`): enables the early check of step
+/// children (a Solve-only process skips it).
+pub fn refuse_policy_anywhere() -> bool {
+    static FROM_ENV: OnceLock<bool> = OnceLock::new();
+    REFUSE_OVERRIDDEN.load(Ordering::Relaxed)
+        || *FROM_ENV.get_or_init(|| {
+            matches!(
+                std::env::var(OUTSIDE_POLICY_ENV).as_deref().map(str::trim),
+                Ok("refuse" | "off" | "0")
+            )
+        })
+}
+
+/// Set once a node is given the Refuse policy ([`set_outside_policy_for`]).
+static REFUSE_OVERRIDDEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// The outside policy of `node`: its override, else [`OUTSIDE_POLICY_ENV`]
 /// (`refuse` / `off` / `0` refuse; anything else solves).
