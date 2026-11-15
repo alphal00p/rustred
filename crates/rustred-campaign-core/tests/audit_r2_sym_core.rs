@@ -99,7 +99,11 @@ fn toy_set(
     start: &[Vec<i32>],
     extra: Option<Value>,
 ) -> import::ImportedSet {
-    let mut all = vec![point_rule(0, &[4, 4, 4, 0, 0], &[(LOW.to_vec(), "1".into())])];
+    let mut all = vec![point_rule(
+        0,
+        &[4, 4, 4, 0, 0],
+        &[(LOW.to_vec(), "1".into())],
+    )];
     for (i, r) in rules.iter().enumerate() {
         let mut r = r.clone();
         r["index"] = json!(i as i64 + 1);
@@ -194,8 +198,7 @@ fn f1_check(tag: &str, with: &str) -> (import::ImportedSet, import::CheckResult,
         // the verification file's CONTENT is irrelevant to the import: an empty file, pinned as the repair flow pins
         let v = d.join("verification.jsonl");
         std::fs::write(&v, b"").unwrap();
-        src["verification"] =
-            json!({"path": v.display().to_string(), "sha256": sha256(b"")});
+        src["verification"] = json!({"path": v.display().to_string(), "sha256": sha256(b"")});
     } else {
         let fam = d.join("S.sym");
         std::fs::write(&fam, FAMILY).unwrap();
@@ -218,7 +221,11 @@ fn f1_check(tag: &str, with: &str) -> (import::ImportedSet, import::CheckResult,
 
 fn certified(r: &import::CheckResult, k: &[i32]) -> Option<(RowStatus, Option<Level>, String)> {
     let row = r.rows.iter().find(|x| x.key == k)?;
-    Some((row.status, row.evidence, row.basis.unwrap_or("").to_string()))
+    Some((
+        row.status,
+        row.evidence,
+        row.basis.unwrap_or("").to_string(),
+    ))
 }
 
 #[test]
@@ -380,7 +387,10 @@ fn verify_shipped_accepts_the_honest_plain_relation_and_refuses_forgeries() {
     // (a) one coefficient changed
     let mut f = rhs.clone();
     f[0].1 = format!("({})+1", f[0].1);
-    refuse("coefficient + 1", cx.verify(&p.key, p.element, &p.image, &[], &f));
+    refuse(
+        "coefficient + 1",
+        cx.verify(&p.key, p.element, &p.image, &[], &f),
+    );
     // (b) the true relation of ANOTHER key shipped for this key (image and rhs of found[j], j with another key)
     if let Some(o) = found.iter().find(|o| o.key != p.key) {
         refuse(
@@ -403,7 +413,11 @@ fn verify_shipped_accepts_the_honest_plain_relation_and_refuses_forgeries() {
             let same = found
                 .iter()
                 .any(|o| o.key == p.key && o.element == e && o.image == p.image);
-            assert!(same, "element {e} accepted with element {}'s image", p.element);
+            assert!(
+                same,
+                "element {e} accepted with element {}'s image",
+                p.element
+            );
         }
     }
     // (d) a term dropped (a nonzero coefficient silently assumed zero)
@@ -414,18 +428,27 @@ fn verify_shipped_accepts_the_honest_plain_relation_and_refuses_forgeries() {
     // (e) a term that is not lower (the key itself; a higher key)
     let mut f = rhs.clone();
     f.push((p.key.clone(), "1".into()));
-    refuse("the key on its own rhs", cx.verify(&p.key, p.element, &p.image, &[], &f));
+    refuse(
+        "the key on its own rhs",
+        cx.verify(&p.key, p.element, &p.image, &[], &f),
+    );
     // (f) an extra term with coefficient zero
     let mut f = rhs.clone();
     f.push((LOW.to_vec(), "0".into()));
     if !rhs.iter().any(|(k, _)| k == &LOW.to_vec()) {
-        refuse("an extra zero term", cx.verify(&p.key, p.element, &p.image, &[], &f));
+        refuse(
+            "an extra zero term",
+            cx.verify(&p.key, p.element, &p.image, &[], &f),
+        );
     }
     // (g) a coefficient with a pole (at every d) and one with a pole at the key's d value is not expressible here:
     //     a coefficient text that is not a number
     let mut f = rhs.clone();
     f[0].1 = "1/0".into();
-    refuse("coefficient 1/0", cx.verify(&p.key, p.element, &p.image, &[], &f));
+    refuse(
+        "coefficient 1/0",
+        cx.verify(&p.key, p.element, &p.image, &[], &f),
+    );
     let mut f = rhs.clone();
     f[0].1 = format!("{}*(d-d+1)/(d-d)", f[0].1);
     refuse(
@@ -436,7 +459,13 @@ fn verify_shipped_accepts_the_honest_plain_relation_and_refuses_forgeries() {
     let rec = cx.set.rules[0][0].record_sha256.clone();
     refuse(
         "a cited record on a plain relation",
-        cx.verify(&p.key, p.element, &p.image, &[(p.image[0].0.clone(), rec)], &rhs),
+        cx.verify(
+            &p.key,
+            p.element,
+            &p.image,
+            &[(p.image[0].0.clone(), rec)],
+            &rhs,
+        ),
     );
     // (i) a forged image (one image coefficient changed, shipped consistently)
     let mut im = p.image.clone();
@@ -523,7 +552,9 @@ fn verify_shipped_composite_binds_the_cited_record_and_term() {
                 .all(|(t, _)| t.iter().zip(&lines).all(|(&x, &l)| !(!l && x > 0)))
     });
     let Some(p) = found.first() else {
-        eprintln!("no single-non-lower-term image on the toy node: composite forgeries not exercised");
+        eprintln!(
+            "no single-non-lower-term image on the toy node: composite forgeries not exercised"
+        );
         return;
     };
     let t = p

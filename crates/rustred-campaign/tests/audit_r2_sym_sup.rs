@@ -222,7 +222,9 @@ fn a_resealed_relation_with_a_duplicated_term_is_refused() {
     };
     let mut recs: Vec<Vec<u8>> = symcomp::results_records(&seal)
         .iter()
-        .map(|r| rustred_campaign_contract::canon::canonical_line(r.to_string().as_bytes()).unwrap())
+        .map(|r| {
+            rustred_campaign_contract::canon::canonical_line(r.to_string().as_bytes()).unwrap()
+        })
         .collect();
     recs.push(
         rustred_campaign_contract::canon::canonical_line(
@@ -255,8 +257,10 @@ fn route_settled_refuses_a_stale_job_id_or_attempt() {
         .unwrap()
         .lines()
         .map(|l| {
-            String::from_utf8(rustred_campaign_contract::canon::canonical_line(l.as_bytes()).unwrap())
-                .unwrap()
+            String::from_utf8(
+                rustred_campaign_contract::canon::canonical_line(l.as_bytes()).unwrap(),
+            )
+            .unwrap()
         })
         .collect();
     let abs = std::path::absolute(root.path()).unwrap();

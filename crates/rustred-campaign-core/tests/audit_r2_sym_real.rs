@@ -9,10 +9,12 @@
 //! - a composite's catalogue rules enter as IBP rows: each cited record (found by its record_sha256 in the catalogue
 //!   tables) contributes its seed patterns instantiated at its term plus its recenter (absolute seeds), `--rows engine`;
 //!   a plain relation is `--symrows-only --rows cert` (no IBP rows at all).
+//!
 //! A pass (`EXACT_IN_SPAN_AT_KEY`) is an exact certificate in Z[d] that the shipped relation at the key is a Q(d)
 //! combination of valid symmetry rows (and IBP rows): it does NOT rely on the producer's algebra, on the catalogue
 //! rule's own coefficients, or on the campaign's composition code. NEGATIVE CONTROLS: per run, the first `controls`
-//! selected relations are also submitted with their first coefficient + 1 (must NOT be certified).
+//! selected composites and plain relations are also submitted WELL-FORMED but wrong (two distinct coefficients
+//! swapped; a plain relation with one coefficient value gets another rational): the kernel must refuse them.
 //!
 //! Config (env `AUDIT_R2_REAL`, JSON): {"kernel": path, "out": dir, "parallel": n, "controls": n,
 //!   "runs": [{"name", "table", "verification", "frame", "catalogue": [dir | file], "plain": n, "composites": n,
@@ -80,7 +82,12 @@ fn seeds_at(rec: &Value, term: &[i64]) -> Result<Vec<Vec<i64>>, String> {
     for (i, s) in target.iter().enumerate() {
         match *s {
             Slot::C(c) if c == term[i] => {}
-            Slot::C(c) => return Err(format!("slot {i}: constant {c} but the term has {}", term[i])),
+            Slot::C(c) => {
+                return Err(format!(
+                    "slot {i}: constant {c} but the term has {}",
+                    term[i]
+                ));
+            }
             Slot::P(j, off) => {
                 let v = term[i] - off;
                 if p.insert(j, v).is_some_and(|o| o != v) {
@@ -103,7 +110,11 @@ fn seeds_at(rec: &Value, term: &[i64]) -> Result<Vec<Vec<i64>>, String> {
         for (i, sl) in pat.iter().enumerate() {
             k[i] = match *sl {
                 Slot::C(c) => c,
-                Slot::P(j, off) => p.get(&j).ok_or_else(|| format!("seed parameter n{j} unknown"))? + off,
+                Slot::P(j, off) => {
+                    p.get(&j)
+                        .ok_or_else(|| format!("seed parameter n{j} unknown"))?
+                        + off
+                }
             } + rc.get(i).copied().unwrap_or(0);
         }
         out.push(k);
@@ -255,14 +266,9 @@ fn kernel_certify_real_shipped_relations() {
         let n = chart.len();
         let gs: import::symmetry::GroupSpec = serde_json::from_value(json!({})).unwrap();
         let ident: Vec<usize> = (0..n).collect();
-        let (group, rep) = import::symmetry::load_verified_group(
-            &gs,
-            Path::new("/"),
-            &chart,
-            &ident,
-            Some(&fam),
-        )
-        .expect("verified group");
+        let (group, rep) =
+            import::symmetry::load_verified_group(&gs, Path::new("/"), &chart, &ident, Some(&fam))
+                .expect("verified group");
         let want_digest = pairs[0].1["group_digest"].as_str().unwrap_or("");
         assert_eq!(rep.digest, want_digest, "{name}: group digest");
         // selection: composites (up to `composites`) and a seeded sample of plain relations
@@ -291,10 +297,7 @@ fn kernel_certify_real_shipped_relations() {
         let cat = if want.is_empty() {
             BTreeMap::new()
         } else {
-            find_records(
-                &table_files(run["catalogue"].as_array().unwrap()),
-                &want,
-            )
+            find_records(&table_files(run["catalogue"].as_array().unwrap()), &want)
         };
         setup.insert(
             name.clone(),
@@ -325,11 +328,16 @@ fn kernel_certify_real_shipped_relations() {
             seeds.sort();
             seeds.dedup();
             // controls: the first `controls` composites and the first `controls` plain relations of the selection
-            let rank = if is_plain { pos.saturating_sub(comp.len()) } else { pos };
-            let distinct = t["rhs"].as_array().is_some_and(|a| {
-                a.iter().any(|x| x[1] != a[0][1])
-            });
-            let variants: Vec<(&str, bool)> = if rank < controls && distinct {
+            let rank = if is_plain {
+                pos.saturating_sub(comp.len())
+            } else {
+                pos
+            };
+            let distinct = t["rhs"]
+                .as_array()
+                .is_some_and(|a| a.iter().any(|x| x[1] != a[0][1]));
+            // a plain relation's coefficients are rationals: it can always be corrupted (see below)
+            let variants: Vec<(&str, bool)> = if rank < controls && (distinct || is_plain) {
                 vec![("asis", false), ("control", true)]
             } else {
                 vec![("asis", false)]
@@ -343,10 +351,15 @@ fn kernel_certify_real_shipped_relations() {
                     // a WELL-FORMED wrong relation: the coefficients of the first term and of the first term with a
                     // different coefficient are swapped (the kernel parses it; the identity is broken)
                     let a = rhs.as_array_mut().unwrap();
-                    let j = (1..a.len()).find(|&j| a[j][1] != a[0][1]).unwrap();
-                    let c0 = a[0][1].clone();
-                    a[0][1] = a[j][1].clone();
-                    a[j][1] = c0;
+                    match (1..a.len()).find(|&j| a[j][1] != a[0][1]) {
+                        Some(j) => {
+                            let c0 = a[0][1].clone();
+                            a[0][1] = a[j][1].clone();
+                            a[j][1] = c0;
+                        }
+                        // all coefficients equal (e.g. a one-term image): another rational in the first term
+                        None => a[0][1] = json!(if a[0][1] == "1" { "2" } else { "1" }),
+                    }
                 }
                 let seed_txt: Vec<String> = seeds
                     .iter()
@@ -379,7 +392,8 @@ fn kernel_certify_real_shipped_relations() {
                 std::fs::write(dir.join("keys.txt"), key_named(&key) + "\n").unwrap();
                 std::fs::write(
                     dir.join("symrows.jsonl"),
-                    json!({"id": format!("e{e}"), "matrix": matrix, "seed": key}).to_string() + "\n",
+                    json!({"id": format!("e{e}"), "matrix": matrix, "seed": key}).to_string()
+                        + "\n",
                 )
                 .unwrap();
                 let mut args: Vec<String> = [
@@ -401,7 +415,11 @@ fn kernel_certify_real_shipped_relations() {
                         .map(|s| s.to_string()),
                 );
                 if is_plain {
-                    args.extend(["--symrows-only", "--rows", "cert"].iter().map(|s| s.to_string()));
+                    args.extend(
+                        ["--symrows-only", "--rows", "cert"]
+                            .iter()
+                            .map(|s| s.to_string()),
+                    );
                 } else {
                     args.extend(["--rows", "engine"].iter().map(|s| s.to_string()));
                 }
@@ -454,7 +472,8 @@ fn kernel_certify_real_shipped_relations() {
                             std::fs::write(j.dir.join("stdout.log"), &o.stdout).ok();
                             std::fs::write(j.dir.join("stderr.log"), &o.stderr).ok();
                             m["exit"] = json!(o.status.code());
-                            let span = std::fs::read_to_string(j.dir.join("span.jsonl")).unwrap_or_default();
+                            let span = std::fs::read_to_string(j.dir.join("span.jsonl"))
+                                .unwrap_or_default();
                             let v: Value = span
                                 .lines()
                                 .find(|l| !l.trim().is_empty())
@@ -464,10 +483,12 @@ fn kernel_certify_real_shipped_relations() {
                             m["verdict"] = v["verdict"].clone();
                             m["symrows_used"] = v["symrows"].clone();
                             if v.is_null() {
-                                m["stderr"] = json!(String::from_utf8_lossy(&o.stderr)
-                                    .chars()
-                                    .take(400)
-                                    .collect::<String>());
+                                m["stderr"] = json!(
+                                    String::from_utf8_lossy(&o.stderr)
+                                        .chars()
+                                        .take(400)
+                                        .collect::<String>()
+                                );
                             }
                         }
                         Err(e) => m["spawn_error"] = json!(e.to_string()),
@@ -487,8 +508,16 @@ fn kernel_certify_real_shipped_relations() {
             .unwrap_or_else(|| "NO_ANSWER".into());
         let class = format!(
             "{}:{}:{}",
-            if m["control"] == true { "control" } else { "asis" },
-            if m["plain"] == true { "plain" } else { "composite" },
+            if m["control"] == true {
+                "control"
+            } else {
+                "asis"
+            },
+            if m["plain"] == true {
+                "plain"
+            } else {
+                "composite"
+            },
             st
         );
         *summary
@@ -506,10 +535,17 @@ fn kernel_certify_real_shipped_relations() {
         std::fs::write(out.join(run).join("verdicts.jsonl"), body).unwrap();
     }
     let s = json!({"jobs": n_jobs, "by_run": summary, "setup": setup, "kernel": kernel});
-    std::fs::write(out.join("summary.json"), serde_json::to_string_pretty(&s).unwrap()).unwrap();
+    std::fs::write(
+        out.join("summary.json"),
+        serde_json::to_string_pretty(&s).unwrap(),
+    )
+    .unwrap();
     eprintln!("{}", serde_json::to_string_pretty(&s).unwrap());
     // the verdict of this audit item: every as-is relation certified, every control refused
-    for (run, m) in by_run.iter().flat_map(|(r, v)| v.iter().map(move |m| (r, m))) {
+    for (run, m) in by_run
+        .iter()
+        .flat_map(|(r, v)| v.iter().map(move |m| (r, m)))
+    {
         let st = m["status"].as_str().unwrap_or("");
         if m["control"] == true {
             assert!(
