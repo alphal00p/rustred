@@ -457,7 +457,9 @@ struct Ctx<'a> {
     statuses: &'a StatusIntern,
 }
 
-fn fnv64(vals: &[i32]) -> u64 {
+/// FNV-1a over the i32 LE bytes of the instantiated term keys (the index form's `terms_fnv64`; lane zerosfix3: also
+/// the in-memory loader's check).
+pub(crate) fn fnv64(vals: &[i32]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for v in vals {
         for b in v.to_le_bytes() {

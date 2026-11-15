@@ -284,3 +284,93 @@ fn a_store_of_another_version_is_refused_by_open_and_rebuilt_by_open_or_build() 
     assert!(EvidenceStore::open(&dir).is_ok());
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// FNV-1a over the i32 LE bytes (the index form's `terms_fnv64`, as the store computes it).
+fn fnv(vals: &[i32]) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for v in vals {
+        for b in v.to_le_bytes() {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    format!("{h:016x}")
+}
+
+fn index_form(k: i32, n_terms: u64, fnv64: &str) -> String {
+    json!({"schema":"rustred.campaign.fact-verdict.v1","record_sha256": sha(record(k).as_bytes()), "index": k,
+        "key": [k,1,0], "verdict":"regular", "n_terms": n_terms, "zero_idx":[1], "unknown_idx":[],
+        "terms_fnv64": fnv64, "producer":"rr_proof"})
+    .to_string()
+}
+
+/// The compact INDEX form (`zero_idx`, `terms_fnv64`) in MEMORY mode: read by index exactly as the store reads it (it
+/// was read as "no non-zero term": every term zero); a wrong `terms_fnv64` or `n_terms` and a digest line with a wrong
+/// `n_terms` are refused in both modes alike.
+#[test]
+fn the_index_form_and_term_count_checks_read_the_same_in_memory_and_in_the_store() {
+    let d = scratch("index-form");
+    let terms_of = |k: i32| [k - 1, 1, 0, k, 1, 1];
+    let mut bad_n: serde_json::Value = serde_json::from_str(&compact(5, Some("rr_proof"))).unwrap();
+    bad_n["n_terms"] = json!(3);
+    let s = spec(
+        &d,
+        &[(
+            "f1.jsonl",
+            vec![
+                index_form(2, 2, &fnv(&terms_of(2))),
+                index_form(3, 2, &fnv(&[9, 9, 9])),
+                index_form(4, 3, &fnv(&terms_of(4))),
+                bad_n.to_string(),
+                compact(6, Some("exact_eval")),
+            ],
+        )],
+    );
+    let set = load(&s, &d).unwrap();
+    let mem = Evidence::from_spec(&set, &d).unwrap();
+    let so = StoreOptions {
+        dir: d.join("store"),
+        budget_bytes: 1 << 20,
+        threads: 1,
+    };
+    let sto = Evidence::from_spec_with(&set, &d, &EvidenceOptions { store: Some(so) }).unwrap();
+    for (name, ev) in [("memory", &mem), ("store", &sto)] {
+        // record 2: bound, term 0 non-zero, term 1 zero
+        assert_eq!(
+            ev.fact_producer(&rid(&set, 2), &[2, 1, 0]),
+            Some("rr_proof"),
+            "{name}"
+        );
+        assert_eq!(
+            ev.coefficient(&rid(&set, 2), &[2, 1, 0], 0, &[1, 1, 0]),
+            CoefFact::NonZero,
+            "{name}"
+        );
+        assert_eq!(
+            ev.coefficient(&rid(&set, 2), &[2, 1, 0], 1, &[2, 1, 1]),
+            CoefFact::Zero,
+            "{name}"
+        );
+        // records 3 (fnv), 4 (n_terms in the index form), 5 (n_terms in the digest form): refused, no fact
+        for k in [3, 4, 5] {
+            assert_eq!(
+                ev.fact_producer(&rid(&set, k), &[k, 1, 0]),
+                None,
+                "{name} {k}"
+            );
+            assert_eq!(
+                ev.coefficient(&rid(&set, k), &[k, 1, 0], 0, &[k - 1, 1, 0]),
+                CoefFact::Unknown,
+                "{name} {k}"
+            );
+        }
+        assert_eq!(
+            ev.fact_producer(&rid(&set, 6), &[6, 1, 0]),
+            Some("exact_eval"),
+            "{name}"
+        );
+    }
+    assert_eq!(mem.counts.facts_terms_mismatch, 3);
+    assert_eq!(sto.counts.stores[0].counts.terms_mismatch, 3);
+    let _ = std::fs::remove_dir_all(&d);
+}

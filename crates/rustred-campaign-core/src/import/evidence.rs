@@ -33,6 +33,15 @@ enum Terms {
         unknown: Box<[u64]>,
         n_terms: Option<u32>,
     },
+    /// lane zerosfix3: compact INDEX form (`zero_idx` / `unknown_idx` / `terms_fnv64`, the evidence store's form): the
+    /// sorted term INDICES (record rhs order) whose coefficient is zero / unknown; every other index < n_terms is
+    /// non-zero. Bound only when `n_terms` and `terms_fnv64` equal OUR instantiation of the record at the key (as in the
+    /// store; before this lane the in-memory loader read such a line as "no non-zero term": every term zero).
+    Index {
+        zero: Box<[u32]>,
+        unknown: Box<[u32]>,
+        n_terms: u32,
+    },
 }
 
 /// A fact read from an attached evidence store (lane t266run, interfaces/evidence-store.md): term INDICES (record rhs
@@ -240,6 +249,20 @@ impl FactRec {
                     CoefFact::Zero
                 }
             }
+            Terms::Index {
+                zero,
+                unknown,
+                n_terms,
+            } => {
+                let t = term as u32;
+                if t >= *n_terms || unknown.binary_search(&t).is_ok() {
+                    CoefFact::Unknown
+                } else if zero.binary_search(&t).is_ok() {
+                    CoefFact::Zero
+                } else {
+                    CoefFact::NonZero
+                }
+            }
         }
     }
 }
@@ -306,6 +329,12 @@ pub struct EvidenceCounts {
     pub facts_foreign: usize,
     pub facts_unbound: usize,
     pub fact_other_lines: usize,
+    /// lane zerosfix3 (the store's rule, in memory too): usable fact lines whose term statement disagrees with OUR
+    /// instantiation of the record (`n_terms`, `terms_fnv64`, a term index beyond the record): refused, not bound.
+    pub facts_terms_mismatch: usize,
+    /// lane zerosfix3: usable fact lines whose record cannot be instantiated at the key (no body / key outside its
+    /// case): not bound (as in the store).
+    pub facts_not_instantiable: usize,
     pub proof_entries: usize,
     pub proofs_bound: usize,
     pub proofs_per_key: usize,
@@ -933,6 +962,108 @@ impl Evidence {
                     .and_then(|k| json_key(k, arity))
                     .ok_or_else(|| bad("key".into()))?;
                 self.complete_key(set, ri, &mut key).map_err(&bad)?;
+                // lane zerosfix3: OUR instantiation of the record at the key decides whether a usable line's term
+                // statement is about this record's term list (the evidence store's rule: memory = big-node mode)
+                let (rt, rr) = locate(set, ri);
+                let our_terms = || -> Option<(usize, Vec<i32>)> {
+                    let (mut ib, mut cm) = (vec![], vec![]);
+                    match set.bodies.instantiate(
+                        &set.disp,
+                        set.disp.rule_ref(rt, rr),
+                        &key,
+                        &mut ib,
+                        &mut cm,
+                    ) {
+                        Ok(Some(n)) => Some((n, ib)),
+                        _ => None,
+                    }
+                };
+                let line_usable = if compact {
+                    matches!(
+                        v.get("verdict").and_then(Value::as_str),
+                        Some("regular" | "irregular" | "hidden")
+                    )
+                } else {
+                    v["in_case"] == true
+                        && v["chart_ok"] == true
+                        && v.get("branch").is_none_or(Value::is_null)
+                        && v.get("error").is_none_or(Value::is_null)
+                };
+                let mut index_terms: Option<Terms> = None;
+                if line_usable {
+                    let mut pt = vec![];
+                    if !set.bodies.has(rt, rr)
+                        || !crate::closure::bodies::rule_point(
+                            &set.disp.tables()[rt].domains[rr],
+                            &key,
+                            &mut pt,
+                        )
+                    {
+                        self.counts.facts_not_instantiable += 1;
+                        return Ok(());
+                    }
+                    let nt = set.bodies.n_terms(rt, rr);
+                    let stated_n = v.get("n_terms").and_then(Value::as_u64);
+                    if compact && v.get("zero_idx").is_some() {
+                        if v.get("nonzero").is_some() {
+                            return Err(bad("index form with a nonzero list".into()));
+                        }
+                        let fnv = v
+                            .get("terms_fnv64")
+                            .and_then(Value::as_str)
+                            .and_then(|s| u64::from_str_radix(s, 16).ok());
+                        let ok = stated_n == Some(nt as u64)
+                            && our_terms()
+                                .is_some_and(|(_, ib)| fnv == Some(super::store::fnv64(&ib)));
+                        if !ok {
+                            self.counts.facts_terms_mismatch += 1;
+                            return Ok(());
+                        }
+                        let idx = |field: &str| -> Result<Box<[u32]>, ImportError> {
+                            let mut x: Vec<u32> = match v.get(field) {
+                                None | Some(Value::Null) => vec![],
+                                Some(Value::Array(a)) => a
+                                    .iter()
+                                    .map(|e| {
+                                        e.as_u64()
+                                            .and_then(|y| u32::try_from(y).ok())
+                                            .ok_or_else(|| bad(format!("{field}: {e}")))
+                                    })
+                                    .collect::<Result<_, _>>()?,
+                                Some(o) => return Err(bad(format!("{field}: {o}"))),
+                            };
+                            x.sort_unstable();
+                            x.dedup();
+                            if x.last().is_some_and(|&j| j as usize >= nt) {
+                                return Err(bad("a term index >= n_terms".into()));
+                            }
+                            Ok(x.into_boxed_slice())
+                        };
+                        index_terms = Some(Terms::Index {
+                            zero: idx("zero_idx")?,
+                            unknown: idx("unknown_idx")?,
+                            n_terms: nt as u32,
+                        });
+                    } else if compact {
+                        if stated_n.is_some_and(|s| s != nt as u64) {
+                            self.counts.facts_terms_mismatch += 1;
+                            return Ok(());
+                        }
+                    } else if v
+                        .get("rhs")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .any(|t| {
+                            t.get("term")
+                                .and_then(Value::as_u64)
+                                .is_some_and(|j| j as usize >= nt)
+                        })
+                    {
+                        self.counts.facts_terms_mismatch += 1;
+                        return Ok(());
+                    }
+                }
                 let (usable, regular, terms) = if compact {
                     let verdict = v.get("verdict").and_then(Value::as_str).unwrap_or("");
                     let (usable, regular) = match verdict {
@@ -970,6 +1101,10 @@ impl Evidence {
                             Box::new([])
                         },
                         n_terms: v.get("n_terms").and_then(Value::as_u64).map(|n| n as u32),
+                    };
+                    let terms = match index_terms.take() {
+                        Some(ix) if usable => ix,
+                        _ => terms,
                     };
                     (
                         usable,
