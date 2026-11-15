@@ -5,14 +5,18 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use rustred_campaign_core::order::NodeComparator;
-use rustred_campaign_core::pieces::{GateConfig, GateReport, GateVerdict, KeyOrder, NonZero, ShipGate};
+use rustred_campaign_core::pieces::{
+    GateConfig, GateReport, GateVerdict, KeyOrder, NonZero, ShipGate,
+};
 
 const ARITY: usize = 20;
 const KEYS: usize = 200_000;
 const EDGES: usize = 1_000_000;
 
 fn spill(name: &str) -> PathBuf {
-    let base = std::env::var_os("TMPDIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    let base = std::env::var_os("TMPDIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
     base.join(format!("pieces-scale-{}-{name}", std::process::id()))
 }
 
@@ -28,7 +32,10 @@ fn status_kb(field: &str) -> u64 {
 struct Rng(u64);
 impl Rng {
     fn next(&mut self, m: u64) -> u64 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (self.0 >> 33) % m
     }
 }
@@ -51,7 +58,11 @@ fn pool(r: &mut Rng) -> Vec<i32> {
 /// Pushes EDGES descending edges (each random pair oriented by the comparator, equal pairs skipped); `plant` adds one
 /// reversed (non-descending) copy of the first edge.
 fn run(c: &NodeComparator, keys: &[i32], chunk: usize, tag: &str, plant: bool) -> GateReport {
-    let mut cfg = if chunk == 0 { GateConfig::memory() } else { GateConfig::disk(spill(tag)) };
+    let mut cfg = if chunk == 0 {
+        GateConfig::memory()
+    } else {
+        GateConfig::disk(spill(tag))
+    };
     cfg.chunk_bytes = chunk;
     let mut g = ShipGate::new(c, ARITY, cfg).unwrap();
     let mut r = Rng(99);
@@ -65,7 +76,8 @@ fn run(c: &NodeComparator, keys: &[i32], chunk: usize, tag: &str, plant: bool) -
             std::cmp::Ordering::Less => (b, a),
             std::cmp::Ordering::Equal => continue,
         };
-        g.push_edge(k(hi), "synthetic", k(lo), NonZero::Unknown).unwrap();
+        g.push_edge(k(hi), "synthetic", k(lo), NonZero::Unknown)
+            .unwrap();
         first.get_or_insert((hi, lo));
         n += 1;
     }
@@ -106,7 +118,11 @@ fn a_million_edges_within_memory_and_a_planted_cycle() {
     assert_eq!(a.edges, EDGES as u64);
     assert_eq!(a.graph.kahn_processed, a.keys);
     assert!(hwm < 2 * 1024 * 1024, "process peak {hwm} kB");
-    assert!(a.memory_bytes < 64 << 20, "gate memory {} bytes", a.memory_bytes);
+    assert!(
+        a.memory_bytes < 64 << 20,
+        "gate memory {} bytes",
+        a.memory_bytes
+    );
     assert!(d.memory_bytes < a.memory_bytes);
     assert!(b.graph.csr_passes > 1);
     for x in [&d, &b] {
@@ -126,7 +142,12 @@ fn a_million_edges_within_memory_and_a_planted_cycle() {
             }
         );
         assert_eq!(p.non_descending_listed[0].provenance, "planted");
-        assert!(p.graph.witness_cycle.iter().any(|e| e.provenance == "planted"));
+        assert!(
+            p.graph
+                .witness_cycle
+                .iter()
+                .any(|e| e.provenance == "planted")
+        );
         assert!(p.graph.witness_cycle.len() >= 2);
         assert_eq!(p.graph.sccs.cyclic, 1);
         println!(

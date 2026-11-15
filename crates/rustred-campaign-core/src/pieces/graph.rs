@@ -126,9 +126,16 @@ impl KeyInterner {
             }
             p = (p + 1) & mask;
         }
-        assert!(self.len < MAX_KEYS, "KeyInterner: more than {MAX_KEYS} keys");
+        assert!(
+            self.len < MAX_KEYS,
+            "KeyInterner: more than {MAX_KEYS} keys"
+        );
         let id = self.len as u32;
-        if self.wide.is_none() && key.iter().any(|&x| x < i8::MIN as i32 || x > i8::MAX as i32) {
+        if self.wide.is_none()
+            && key
+                .iter()
+                .any(|&x| x < i8::MIN as i32 || x > i8::MAX as i32)
+        {
             self.wide = Some(self.narrow.iter().map(|&x| x as i32).collect());
             self.narrow = Vec::new();
         }
@@ -441,10 +448,7 @@ impl Adjacency for DiskGraph {
         let mut s = self.scratch.borrow_mut();
         s.resize(((b - a) * 4) as usize, 0);
         self.csr.read_exact_at(&mut s, a * 4)?;
-        buf.extend(
-            s.chunks_exact(4)
-                .map(|c| u32::from_le_bytes(c.try_into().unwrap())),
-        );
+        buf.extend(s.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c)));
         Ok(())
     }
 }

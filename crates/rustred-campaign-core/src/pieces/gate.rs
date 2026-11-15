@@ -69,6 +69,9 @@ impl Default for GateConfig {
     }
 }
 
+/// Streams every stored edge (src, dst, tag) into the callback.
+type EachEdge<'a> = dyn Fn(&mut dyn FnMut(u32, u32, u32)) -> std::io::Result<()> + 'a;
+
 /// The edge store of a running gate.
 enum Edges {
     Memory {
@@ -114,7 +117,10 @@ impl Edges {
 #[derive(Debug)]
 pub enum GateError {
     /// A key of another arity than the gate's.
-    Arity { expected: usize, key: Vec<i32> },
+    Arity {
+        expected: usize,
+        key: Vec<i32>,
+    },
     Io(std::io::Error),
 }
 
@@ -122,7 +128,11 @@ impl std::fmt::Display for GateError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             GateError::Arity { expected, key } => {
-                write!(f, "pieces gate: key {key:?} has arity {} (gate arity {expected})", key.len())
+                write!(
+                    f,
+                    "pieces gate: key {key:?} has arity {} (gate arity {expected})",
+                    key.len()
+                )
             }
             GateError::Io(e) => write!(f, "pieces gate: i/o: {e}"),
         }
@@ -282,7 +292,12 @@ impl<'o, O: KeyOrder + ?Sized> ShipGate<'o, O> {
     }
 
     /// One shipped relation `key -> terms`. The key is a node of the graph even if every term is zero.
-    pub fn push_relation<'t, I>(&mut self, key: &[i32], provenance: &str, terms: I) -> Result<(), GateError>
+    pub fn push_relation<'t, I>(
+        &mut self,
+        key: &[i32],
+        provenance: &str,
+        terms: I,
+    ) -> Result<(), GateError>
     where
         I: IntoIterator<Item = (&'t [i32], NonZero)>,
     {
@@ -361,7 +376,7 @@ impl<'o, O: KeyOrder + ?Sized> ShipGate<'o, O> {
         &self,
         g: &A,
         mut indeg: Vec<u32>,
-        each_edge: &dyn Fn(&mut dyn FnMut(u32, u32, u32)) -> std::io::Result<()>,
+        each_edge: &EachEdge<'_>,
     ) -> Result<GraphCheck, GateError> {
         let nodes = indeg.len() as u64;
         let processed = kahn(g, &mut indeg, None)?;
@@ -463,7 +478,7 @@ impl<'o, O: KeyOrder + ?Sized> ShipGate<'o, O> {
                 let mem = (self.keys.bytes() + g.bytes()) as u64;
                 let indeg = std::mem::take(&mut g.indeg);
                 let each = |f: &mut dyn FnMut(u32, u32, u32)| -> std::io::Result<()> {
-                    g.for_each_edge(|s, d, t| f(s, d, t))
+                    g.for_each_edge(&mut *f)
                 };
                 let mut gc = self.analyse(&g, indeg, &each)?;
                 gc.method = "kahn over the edges spilled to disk; witness by a backward walk; tarjan over the residual".into();
@@ -505,7 +520,11 @@ impl<'o, O: KeyOrder + ?Sized> ShipGate<'o, O> {
             graph,
             seconds_intake,
             seconds_graph,
-            edges_per_second: if total > 0.0 { edges as f64 / total } else { 0.0 },
+            edges_per_second: if total > 0.0 {
+                edges as f64 / total
+            } else {
+                0.0
+            },
             memory_bytes: mem_intake.max(mem_graph),
         })
     }

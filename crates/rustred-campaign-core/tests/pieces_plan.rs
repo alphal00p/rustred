@@ -48,7 +48,11 @@ fn coupled_faces() -> Vec<UnservedKey> {
         ukey(
             &[2, 1, 0, 0],
             "A",
-            vec![cand(ServiceKind::CoreRecipe, &[LEAF, &[0, 1, 0, 0]], "recipe:A")],
+            vec![cand(
+                ServiceKind::CoreRecipe,
+                &[LEAF, &[0, 1, 0, 0]],
+                "recipe:A",
+            )],
         ),
         // B: hand-down [1,3,0,0] -> A core [2,1,0,0]; core [1,2,0,0] by a recipe
         ukey(
@@ -72,7 +76,10 @@ fn faces_handing_down_into_each_others_cores_are_cyclic_at_face_level_and_planne
     assert!(p.refused.is_empty(), "{:?}", p.refused);
     // face level: A -> B and B -> A
     assert!(p.face_report.face_level_cyclic);
-    assert_eq!(p.face_report.face_cycles, vec![vec!["A".to_string(), "B".to_string()]]);
+    assert_eq!(
+        p.face_report.face_cycles,
+        vec![vec!["A".to_string(), "B".to_string()]]
+    );
     assert!(p.face_report.piece_level_acyclic);
     assert!(p.face_report.key_level_acyclic);
     // hand-downs land in the OTHER face's core
@@ -107,8 +114,16 @@ fn a_true_key_level_cycle_gets_no_plan_through_it_and_a_witness() {
     let (k1, k2): (&[i32], &[i32]) = (&[3, 1, 0, 0], &[1, 3, 0, 0]);
     let lower_is_k2 = c.cmp_keys(k2, k1) == Ordering::Less;
     let keys = vec![
-        ukey(k1, "A", vec![cand(ServiceKind::Composite, &[k2], "alias:1->2")]),
-        ukey(k2, "B", vec![cand(ServiceKind::Composite, &[k1], "alias:2->1")]),
+        ukey(
+            k1,
+            "A",
+            vec![cand(ServiceKind::Composite, &[k2], "alias:1->2")],
+        ),
+        ukey(
+            k2,
+            "B",
+            vec![cand(ServiceKind::Composite, &[k1], "alias:2->1")],
+        ),
     ];
     let p = plan(&c, &PlanInput::new(4, keys)).unwrap();
     // exactly one of the two edges descends: the higher key is served through the lower, the lower is left to core
@@ -137,8 +152,16 @@ fn a_broken_order_that_calls_both_alias_edges_descending_is_caught_by_the_graph_
         label: "broken: everything lower".into(),
     };
     let keys = vec![
-        ukey(&[3, 1, 0, 0], "A", vec![cand(ServiceKind::Composite, &[&[1, 3, 0, 0]], "x")]),
-        ukey(&[1, 3, 0, 0], "B", vec![cand(ServiceKind::Composite, &[&[3, 1, 0, 0]], "y")]),
+        ukey(
+            &[3, 1, 0, 0],
+            "A",
+            vec![cand(ServiceKind::Composite, &[&[1, 3, 0, 0]], "x")],
+        ),
+        ukey(
+            &[1, 3, 0, 0],
+            "B",
+            vec![cand(ServiceKind::Composite, &[&[3, 1, 0, 0]], "y")],
+        ),
     ];
     match plan(&broken, &PlanInput::new(4, keys)) {
         Err(PlanError::Inconsistent { cycle }) => {
@@ -154,7 +177,11 @@ fn an_edge_equal_under_the_order_is_refused() {
     // a coarse order (dots + rank only): the alias K -> gK sits at EQUAL rank and must be refused
     let coarse = FnOrder {
         f: |a: &[i32], b: &[i32]| {
-            let m = |k: &[i32]| k.iter().map(|&x| if x > 0 { x - 1 } else { -x }).sum::<i32>();
+            let m = |k: &[i32]| {
+                k.iter()
+                    .map(|&x| if x > 0 { x - 1 } else { -x })
+                    .sum::<i32>()
+            };
             m(a).cmp(&m(b))
         },
         label: "coarse dots+rank".into(),
@@ -190,10 +217,26 @@ fn a_hand_down_into_the_same_faces_own_core() {
     // full order decides which is lower: the higher hands down INTO THE SAME FACE'S core
     let c = cmp4();
     let (a, b): (&[i32], &[i32]) = (&[2, 3, 0, 0], &[3, 2, 0, 0]);
-    let (hi, lo) = if c.cmp_keys(b, a) == Ordering::Less { (a, b) } else { (b, a) };
+    let (hi, lo) = if c.cmp_keys(b, a) == Ordering::Less {
+        (a, b)
+    } else {
+        (b, a)
+    };
     let keys = vec![
-        ukey(hi, "F", vec![cand(ServiceKind::HandDown, &[lo], "g:swap01")]),
-        ukey(lo, "F", vec![cand(ServiceKind::CoreRecipe, &[&[2, 2, 0, 0], LEAF], "recipe:F")]),
+        ukey(
+            hi,
+            "F",
+            vec![cand(ServiceKind::HandDown, &[lo], "g:swap01")],
+        ),
+        ukey(
+            lo,
+            "F",
+            vec![cand(
+                ServiceKind::CoreRecipe,
+                &[&[2, 2, 0, 0], LEAF],
+                "recipe:F",
+            )],
+        ),
     ];
     let p = plan(&c, &PlanInput::new(4, keys)).unwrap();
     let ch = p.chosen.iter().find(|x| x.key == hi).unwrap();
@@ -203,9 +246,18 @@ fn a_hand_down_into_the_same_faces_own_core() {
     assert_eq!(p.face_report.face_graph["F"]["F"], 1);
     assert!(p.face_report.face_level_cyclic);
     assert!(p.face_report.piece_level_acyclic);
-    let pos = |l: &str| p.piece_order.iter().position(|g| g.iter().any(|x| x == l)).unwrap();
+    let pos = |l: &str| {
+        p.piece_order
+            .iter()
+            .position(|g| g.iter().any(|x| x == l))
+            .unwrap()
+    };
     assert!(pos("F#iii:core") < pos("F#ii:hand_downs"));
-    let core = p.pieces.iter().find(|x| x.id.label() == "F#iii:core").unwrap();
+    let core = p
+        .pieces
+        .iter()
+        .find(|x| x.id.label() == "F#iii:core")
+        .unwrap();
     assert_eq!((core.keys, core.core_solved, core.core_open), (1, 1, 0));
 }
 
@@ -227,7 +279,10 @@ fn ranking_terms_and_zero_terms() {
         kinds: vec![ServiceKind::CoreRecipe, ServiceKind::Composite],
         singular_last: true,
     };
-    assert_eq!(plan(&c, &inp).unwrap().chosen[0].kind, Some(ServiceKind::CoreRecipe));
+    assert_eq!(
+        plan(&c, &inp).unwrap().chosen[0].kind,
+        Some(ServiceKind::CoreRecipe)
+    );
     // a kind outside the ranking is never chosen
     inp.ranking = Ranking {
         kinds: vec![ServiceKind::TableRule],
@@ -235,16 +290,27 @@ fn ranking_terms_and_zero_terms() {
     };
     let p = plan(&c, &inp).unwrap();
     assert_eq!(p.core_open, vec![k.to_vec()]);
-    assert!(p.refused.iter().all(|r| r.reason == RefusalReason::KindNotRanked));
+    assert!(
+        p.refused
+            .iter()
+            .all(|r| r.reason == RefusalReason::KindNotRanked)
+    );
     // a HIGHER term with an exactly zero coefficient is not an edge; the same term with unknown non-zero-ness is
     let higher: &[i32] = &[4, 1, 0, 0];
     let zero = Candidate {
         kind: ServiceKind::Composite,
-        terms: vec![Term::new(higher.to_vec(), NonZero::Zero), Term::new(LEAF.to_vec(), NonZero::Yes)],
+        terms: vec![
+            Term::new(higher.to_vec(), NonZero::Zero),
+            Term::new(LEAF.to_vec(), NonZero::Yes),
+        ],
         provenance: "zero-higher".into(),
         regular_at_4: None,
     };
-    let p = plan(&c, &PlanInput::new(4, vec![ukey(k, "A", vec![zero.clone()])])).unwrap();
+    let p = plan(
+        &c,
+        &PlanInput::new(4, vec![ukey(k, "A", vec![zero.clone()])]),
+    )
+    .unwrap();
     assert_eq!(p.chosen[0].provenance.as_deref(), Some("zero-higher"));
     assert_eq!(p.chosen[0].edge_terms, 1);
     let mut unk = zero;
@@ -261,7 +327,10 @@ fn ranking_terms_and_zero_terms() {
 fn errors_arity_and_face_conflict() {
     let c = cmp4();
     let bad = vec![ukey(&[1, 1, 0], "A", vec![])];
-    assert!(matches!(plan(&c, &PlanInput::new(4, bad)), Err(PlanError::Arity { .. })));
+    assert!(matches!(
+        plan(&c, &PlanInput::new(4, bad)),
+        Err(PlanError::Arity { .. })
+    ));
     let conflict = vec![ukey(LEAF, "A", vec![]), ukey(LEAF, "B", vec![])];
     assert!(matches!(
         plan(&c, &PlanInput::new(4, conflict)),
@@ -273,7 +342,9 @@ fn errors_arity_and_face_conflict() {
 fn random_instance(seed: u64, n: usize) -> Vec<UnservedKey> {
     let mut s = seed;
     let mut rnd = move |m: u64| {
-        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (s >> 33) % m
     };
     let mut keys: Vec<Vec<i32>> = Vec::new();
@@ -299,13 +370,21 @@ fn random_instance(seed: u64, n: usize) -> Vec<UnservedKey> {
         .map(|k| {
             let face = format!(
                 "{{{}}}",
-                (0..2).filter(|&i| k[i] > 1).map(|i| i.to_string()).collect::<Vec<_>>().join(",")
+                (0..2)
+                    .filter(|&i| k[i] > 1)
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
             );
             let nc = rnd(4) as usize;
             let cands = (0..nc)
                 .map(|ci| {
                     let kind = kinds[rnd(5) as usize];
-                    let nt = if kind == ServiceKind::HandDown { 1 } else { 1 + rnd(3) as usize };
+                    let nt = if kind == ServiceKind::HandDown {
+                        1
+                    } else {
+                        1 + rnd(3) as usize
+                    };
                     let terms = (0..nt)
                         .map(|_| {
                             let t = if rnd(3) == 0 {
@@ -370,8 +449,13 @@ fn random_plans_descend_on_every_chosen_edge_and_respect_the_key_order() {
     for seed in 1..30u64 {
         let inst = random_instance(seed, 30);
         let p = plan(&c, &PlanInput::new(4, inst.clone())).unwrap();
-        let pos: std::collections::BTreeMap<Vec<i32>, usize> =
-            p.key_order.iter().cloned().enumerate().map(|(i, k)| (k, i)).collect();
+        let pos: std::collections::BTreeMap<Vec<i32>, usize> = p
+            .key_order
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(i, k)| (k, i))
+            .collect();
         assert_eq!(pos.len(), inst.len());
         // rebuild the chosen candidate from provenance + kind and check every edge
         for ch in &p.chosen {

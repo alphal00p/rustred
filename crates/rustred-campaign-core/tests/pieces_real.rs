@@ -55,7 +55,11 @@ fn check(set: &ImportedSet, ev: &Evidence) -> rustred_campaign_core::import::Che
 }
 
 fn stem(p: &str) -> String {
-    Path::new(p).file_stem().unwrap().to_string_lossy().into_owned()
+    Path::new(p)
+        .file_stem()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned()
 }
 
 #[test]
@@ -63,7 +67,10 @@ fn stem(p: &str) -> String {
 fn real_gate() {
     let out = PathBuf::from(std::env::var("PIECES_OUT").expect("PIECES_OUT"));
     std::fs::create_dir_all(&out).unwrap();
-    for spec in std::env::var("PIECES_GATE_SPECS").expect("PIECES_GATE_SPECS").split(':') {
+    for spec in std::env::var("PIECES_GATE_SPECS")
+        .expect("PIECES_GATE_SPECS")
+        .split(':')
+    {
         let t0 = Instant::now();
         let (set, ev) = load(spec);
         let res = check(&set, &ev);
@@ -104,15 +111,20 @@ fn candidates_from(
     let res = check(&set, &ev);
     let mut grouped: BTreeMap<(Vec<i32>, String), Vec<Term>> = BTreeMap::new();
     {
-        let mut sink = |key: &[i32], prov: &str, terms: &[(Vec<i32>, NonZero)]| -> Result<(), String> {
-            if unserved.contains(key) {
-                // provenance = class|server|term-class: the candidate is the whole relation (all term classes)
-                let server = prov.rsplit_once('|').map(|x| x.0).unwrap_or(prov).to_string();
-                let e = grouped.entry((key.to_vec(), server)).or_default();
-                e.extend(terms.iter().map(|(k, n)| Term::new(k.clone(), *n)));
-            }
-            Ok(())
-        };
+        let mut sink =
+            |key: &[i32], prov: &str, terms: &[(Vec<i32>, NonZero)]| -> Result<(), String> {
+                if unserved.contains(key) {
+                    // provenance = class|server|term-class: the candidate is the whole relation (all term classes)
+                    let server = prov
+                        .rsplit_once('|')
+                        .map(|x| x.0)
+                        .unwrap_or(prov)
+                        .to_string();
+                    let e = grouped.entry((key.to_vec(), server)).or_default();
+                    e.extend(terms.iter().map(|(k, n)| Term::new(k.clone(), *n)));
+                }
+                Ok(())
+            };
         shipped_relations(&set, &ev, &ev, &res, &mut sink).unwrap();
     }
     let n = grouped.len();
@@ -138,12 +150,14 @@ fn candidates_from(
 #[test]
 #[ignore = "real data: PIECES_PLAN"]
 fn real_piece_plan() {
-    let cfg: Value =
-        serde_json::from_str(&std::fs::read_to_string(std::env::var("PIECES_PLAN").expect("PIECES_PLAN")).unwrap())
-            .unwrap();
+    let cfg: Value = serde_json::from_str(
+        &std::fs::read_to_string(std::env::var("PIECES_PLAN").expect("PIECES_PLAN")).unwrap(),
+    )
+    .unwrap();
     let mut infos = vec![];
     // the unserved set
-    let (mut unserved, mut cmp_lines): (BTreeSet<Vec<i32>>, Option<(NodeComparator, Vec<bool>)>) =
+    type OrderAndLines = Option<(NodeComparator, Vec<bool>)>;
+    let (mut unserved, mut cmp_lines): (BTreeSet<Vec<i32>>, OrderAndLines) =
         (BTreeSet::new(), None);
     if let Some(spec) = cfg["unserved"]["spec"].as_str() {
         let (set, ev) = load(spec);
@@ -172,13 +186,17 @@ fn real_piece_plan() {
     }
     let mut r0b = 0;
     for p in cfg["route0b"].as_array().cloned().unwrap_or_default() {
-        let v: Value = serde_json::from_str(&std::fs::read_to_string(p.as_str().unwrap()).unwrap()).unwrap();
+        let v: Value =
+            serde_json::from_str(&std::fs::read_to_string(p.as_str().unwrap()).unwrap()).unwrap();
         for e in v["first"].as_array().cloned().unwrap_or_default() {
             let key: Vec<i32> = serde_json::from_value(e["key"].clone()).unwrap();
             let rhs: Vec<Vec<i32>> = serde_json::from_value(e["rhs_keys"].clone()).unwrap();
             cands.entry(key).or_default().push(Candidate {
                 kind: ServiceKind::Composite,
-                terms: rhs.into_iter().map(|k| Term::new(k, NonZero::Yes)).collect(),
+                terms: rhs
+                    .into_iter()
+                    .map(|k| Term::new(k, NonZero::Yes))
+                    .collect(),
                 provenance: format!("route0b:element{}", e["best"][0]),
                 regular_at_4: None,
             });
@@ -194,7 +212,11 @@ fn real_piece_plan() {
             .iter()
             .filter(|c| c.kind == ServiceKind::Composite)
             .filter(|c| {
-                let e: Vec<&Term> = c.terms.iter().filter(|t| t.nonzero != NonZero::Zero).collect();
+                let e: Vec<&Term> = c
+                    .terms
+                    .iter()
+                    .filter(|t| t.nonzero != NonZero::Zero)
+                    .collect();
                 e.len() == 1 && unserved.contains(&e[0].key)
             })
             .map(|c| Candidate {
@@ -205,7 +227,9 @@ fn real_piece_plan() {
         cs.extend(extra);
         keys.push(UnservedKey {
             key: k.clone(),
-            face: Face::of_key(k, &lines).map(|f| f.label()).unwrap_or_else(|| "?".into()),
+            face: Face::of_key(k, &lines)
+                .map(|f| f.label())
+                .unwrap_or_else(|| "?".into()),
             candidates: cs,
         });
     }
@@ -233,15 +257,25 @@ fn real_piece_plan() {
         "candidate_cyclic_sccs": p.candidate_cyclic_sccs, "refused": refused, "plan_seconds": secs});
     println!("{summary}");
     if let Some(o) = cfg["out"].as_str() {
-        std::fs::write(o, serde_json::to_string_pretty(&json!({"summary": summary, "plan": p})).unwrap()).unwrap();
+        std::fs::write(
+            o,
+            serde_json::to_string_pretty(&json!({"summary": summary, "plan": p})).unwrap(),
+        )
+        .unwrap();
     }
 }
 
 /// `I(1,2,-1)` -> [1, 2, -1].
 fn parse_i(t: &str) -> Vec<i32> {
     let t = t.trim();
-    let inner = t.strip_prefix("I(").and_then(|x| x.strip_suffix(')')).unwrap_or_else(|| panic!("key text {t}"));
-    inner.split(',').map(|x| x.trim().parse().unwrap()).collect()
+    let inner = t
+        .strip_prefix("I(")
+        .and_then(|x| x.strip_suffix(')'))
+        .unwrap_or_else(|| panic!("key text {t}"));
+    inner
+        .split(',')
+        .map(|x| x.trim().parse().unwrap())
+        .collect()
 }
 
 /// The plan from a repair-flow KeyChoices file, and the gate over the point table its composite step shipped (alone,
@@ -260,15 +294,30 @@ fn real_keychoices() {
     let (set, ev) = load(&spec);
     let t_load = t0.elapsed().as_secs_f64();
     let lines = set.frame.mask().to_vec();
-    let recs = read_key_choices(Path::new(&std::env::var("PIECES_KC").expect("PIECES_KC"))).unwrap();
+    let recs =
+        read_key_choices(Path::new(&std::env::var("PIECES_KC").expect("PIECES_KC"))).unwrap();
     let mut open: BTreeSet<Vec<i32>> = BTreeSet::new();
-    for l in std::fs::read_to_string(std::env::var("PIECES_KC_OPEN").expect("PIECES_KC_OPEN")).unwrap().lines() {
+    for l in std::fs::read_to_string(std::env::var("PIECES_KC_OPEN").expect("PIECES_KC_OPEN"))
+        .unwrap()
+        .lines()
+    {
         if !l.trim().is_empty() {
             open.insert(serde_json::from_str(l).unwrap());
         }
     }
-    let face_of = |k: &[i32]| Face::of_key(k, &lines).map(|f| f.label()).unwrap_or_else(|| "?".into());
-    let inp = plan_input_from_key_choices(lines.len(), &recs, &open, &face_of, &KeyChoicesOptions::default()).unwrap();
+    let face_of = |k: &[i32]| {
+        Face::of_key(k, &lines)
+            .map(|f| f.label())
+            .unwrap_or_else(|| "?".into())
+    };
+    let inp = plan_input_from_key_choices(
+        lines.len(),
+        &recs,
+        &open,
+        &face_of,
+        &KeyChoicesOptions::default(),
+    )
+    .unwrap();
     let t1 = Instant::now();
     let p = plan(&set.cmp, &inp).unwrap();
     let t_plan = t1.elapsed().as_secs_f64();
@@ -276,10 +325,14 @@ fn real_keychoices() {
     for r in &p.refused {
         *refused.entry(format!("{:?}", r.reason)).or_default() += 1;
     }
-    let core_faces: BTreeMap<String, u64> = p.chosen.iter().filter(|c| c.kind.is_none()).fold(BTreeMap::new(), |mut m, c| {
-        *m.entry(c.face.clone()).or_default() += 1;
-        m
-    });
+    let core_faces: BTreeMap<String, u64> =
+        p.chosen
+            .iter()
+            .filter(|c| c.kind.is_none())
+            .fold(BTreeMap::new(), |mut m, c| {
+                *m.entry(c.face.clone()).or_default() += 1;
+                m
+            });
     let summary = json!({"keychoices": recs.len(), "open": open.len(), "unserved": p.keys,
         "candidates": inp.keys.iter().map(|k| k.candidates.len()).sum::<usize>(),
         "faces": p.chosen.iter().map(|c| c.face.as_str()).collect::<BTreeSet<_>>().len(),
@@ -291,8 +344,14 @@ fn real_keychoices() {
         "key_level_acyclic": p.face_report.key_level_acyclic, "candidate_cyclic_sccs": p.candidate_cyclic_sccs,
         "refused": refused, "plan_seconds": t_plan, "load_seconds": t_load});
     println!("{summary}");
-    std::fs::write(out.join("keychoices.plan.json"), serde_json::to_string_pretty(&json!({"summary": summary, "plan": p})).unwrap()).unwrap();
-    let Ok(table) = std::env::var("PIECES_KC_TABLE") else { return };
+    std::fs::write(
+        out.join("keychoices.plan.json"),
+        serde_json::to_string_pretty(&json!({"summary": summary, "plan": p})).unwrap(),
+    )
+    .unwrap();
+    let Ok(table) = std::env::var("PIECES_KC_TABLE") else {
+        return;
+    };
     // (a) the shipped point table alone
     let mut g = ShipGate::new(&set.cmp, lines.len(), GateConfig::memory()).unwrap();
     for l in std::fs::read_to_string(&table).unwrap().lines() {
@@ -307,22 +366,36 @@ fn real_keychoices() {
             .iter()
             .map(|t| {
                 let c = t[1].as_str().unwrap().trim();
-                (parse_i(t[0].as_str().unwrap()), if c == "0" { NonZero::Zero } else { NonZero::Yes })
+                (
+                    parse_i(t[0].as_str().unwrap()),
+                    if c == "0" {
+                        NonZero::Zero
+                    } else {
+                        NonZero::Yes
+                    },
+                )
             })
             .collect();
-        let prov = format!("{}", v["kind"].as_str().unwrap_or("relation"));
-        g.push_relation(&key, &prov, terms.iter().map(|(k, n)| (k.as_slice(), *n))).unwrap();
+        let prov = v["kind"].as_str().unwrap_or("relation").to_string();
+        g.push_relation(&key, &prov, terms.iter().map(|(k, n)| (k.as_slice(), *n)))
+            .unwrap();
     }
     let rep = g.finish().unwrap();
     let alone = json!({"table": table, "verdict": rep.verdict, "relations": rep.relations, "edges": rep.edges,
         "keys": rep.keys, "non_descending": rep.non_descending, "zero_terms_skipped": rep.zero_terms_skipped,
         "residual": rep.graph.residual, "seconds": rep.seconds_intake + rep.seconds_graph});
     println!("{alone}");
-    assert!(matches!(rep.verdict, GateVerdict::Pass | GateVerdict::Fail { .. }), "{:?}", rep.verdict);
+    assert!(
+        matches!(rep.verdict, GateVerdict::Pass | GateVerdict::Fail { .. }),
+        "{:?}",
+        rep.verdict
+    );
     // (b) inside the spec it extends: the spec + a supplied_relations source with the table, checked and gated
     let mut sv: Value = serde_json::from_str(&std::fs::read_to_string(&spec).unwrap()).unwrap();
-    sv["sources"].as_array_mut().unwrap().push(json!({"id": "pieces:composite", "kind": "supplied_relations",
-        "class": "symmetry-composite", "path": table}));
+    sv["sources"].as_array_mut().unwrap().push(
+        json!({"id": "pieces:composite", "kind": "supplied_relations",
+        "class": "symmetry-composite", "path": table}),
+    );
     let sp = out.join("spec.with-composite.json");
     std::fs::write(&sp, serde_json::to_string_pretty(&sv).unwrap()).unwrap();
     drop((set, ev));
@@ -339,8 +412,14 @@ fn real_keychoices() {
     });
     let in_spec = match r {
         Ok(v) => v,
-        Err(e) => json!({"error": format!("{:?}", e.downcast_ref::<String>().cloned().or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string())))}),
+        Err(e) => {
+            json!({"error": format!("{:?}", e.downcast_ref::<String>().cloned().or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string())))})
+        }
     };
     println!("{in_spec}");
-    std::fs::write(out.join("keychoices.gate.json"), serde_json::to_string_pretty(&json!({"alone": alone, "in_spec": in_spec})).unwrap()).unwrap();
+    std::fs::write(
+        out.join("keychoices.gate.json"),
+        serde_json::to_string_pretty(&json!({"alone": alone, "in_spec": in_spec})).unwrap(),
+    )
+    .unwrap();
 }

@@ -40,7 +40,11 @@ pub struct ShippedStats {
 fn term_class(lines: &[bool], k: &[i32]) -> &'static str {
     if k.iter().zip(lines).any(|(&x, &l)| !l && x > 0) {
         "positive_numerator"
-    } else if k.iter().zip(lines).all(|(&x, &l)| if l { x >= 1 } else { x <= 0 }) {
+    } else if k
+        .iter()
+        .zip(lines)
+        .all(|(&x, &l)| if l { x >= 1 } else { x <= 0 })
+    {
         "top"
     } else {
         "lower_sector"
@@ -56,7 +60,8 @@ fn nz(f: CoefFact) -> NonZero {
 }
 
 /// A relation handed to the sink: key, provenance, terms.
-pub type RelationSink<'a> = dyn FnMut(&[i32], &str, &[(Vec<i32>, NonZero)]) -> Result<(), String> + 'a;
+pub type RelationSink<'a> =
+    dyn FnMut(&[i32], &str, &[(Vec<i32>, NonZero)]) -> Result<(), String> + 'a;
 
 struct Emitter<'s> {
     lines: Vec<bool>,
@@ -93,7 +98,13 @@ fn rule_terms(
     let (mut buf, mut cm) = (vec![], vec![]);
     let nt = set
         .bodies
-        .instantiate(&set.disp, set.disp.rule_ref(table, record), applied, &mut buf, &mut cm)
+        .instantiate(
+            &set.disp,
+            set.disp.rule_ref(table, record),
+            applied,
+            &mut buf,
+            &mut cm,
+        )
         .map_err(|e| format!("instantiate {table}/{record} at {applied:?}: {e:?}"))?;
     let Some(nt) = nt else { return Ok(false) };
     let i = &set.rules[table][record];
@@ -112,9 +123,19 @@ fn rule_terms(
     Ok(true)
 }
 
-fn relation_rhs(set: &ImportedSet, ev: &Evidence, name: &str, recipe: bool, at: &[i32]) -> Option<Vec<Vec<i32>>> {
+fn relation_rhs(
+    set: &ImportedSet,
+    ev: &Evidence,
+    name: &str,
+    recipe: bool,
+    at: &[i32],
+) -> Option<Vec<Vec<i32>>> {
     if recipe {
-        return ev.solved.get(name).and_then(|m| m.get(at)).map(|s| s.rhs.clone());
+        return ev
+            .solved
+            .get(name)
+            .and_then(|m| m.get(at))
+            .map(|s| s.rhs.clone());
     }
     let rs = set.supplied.iter().find(|x| x.name == name)?;
     let i = rs.relations.find(at)?;
@@ -146,13 +167,16 @@ pub fn shipped_relations<'s>(
     // table-rule rows of a streamed check live in its rows file
     if let Some(sr) = &res.streamed {
         let f = std::fs::File::open(&sr.path).map_err(|e| format!("{}: {e}", sr.path))?;
-        for (li, l) in std::io::BufReader::with_capacity(1 << 20, f).lines().enumerate() {
+        for (li, l) in std::io::BufReader::with_capacity(1 << 20, f)
+            .lines()
+            .enumerate()
+        {
             let l = l.map_err(|e| format!("{}: {e}", sr.path))?;
             if l.trim().is_empty() {
                 continue;
             }
-            let v: Value =
-                serde_json::from_str(&l).map_err(|e| format!("{} line {}: {e}", sr.path, li + 1))?;
+            let v: Value = serde_json::from_str(&l)
+                .map_err(|e| format!("{} line {}: {e}", sr.path, li + 1))?;
             if v["status"] != "served" || v["server"]["kind"] != "rule" {
                 continue;
             }
@@ -162,9 +186,9 @@ pub fn shipped_relations<'s>(
             ) else {
                 return Err(format!("{} line {}: key / server record", sr.path, li + 1));
             };
-            let (t, r) = set
-                .find_sha(sha)
-                .ok_or_else(|| format!("{} line {}: record {sha} not in the set", sr.path, li + 1))?;
+            let (t, r) = set.find_sha(sha).ok_or_else(|| {
+                format!("{} line {}: record {sha} not in the set", sr.path, li + 1)
+            })?;
             st.rule_rows += 1;
             if !rule_terms(set, facts, t, r, &key, &mut em.buf)? {
                 st.no_body += 1;
@@ -186,7 +210,10 @@ pub fn shipped_relations<'s>(
                     continue;
                 }
                 st.terms += em.buf.len() as u64;
-                em.emit(&row.key, &format!("{}|rule", class_of_rule(*table, *record)))?;
+                em.emit(
+                    &row.key,
+                    &format!("{}|rule", class_of_rule(*table, *record)),
+                )?;
             }
             (RowStatus::Served, Some(Server::Credit { table, record })) => {
                 st.credit_rows += 1;
@@ -198,7 +225,10 @@ pub fn shipped_relations<'s>(
                     continue;
                 }
                 st.terms += em.buf.len() as u64;
-                em.emit(&row.key, &format!("{}|credit", class_of_rule(*table, *record)))?;
+                em.emit(
+                    &row.key,
+                    &format!("{}|credit", class_of_rule(*table, *record)),
+                )?;
             }
             (RowStatus::Served, Some(Server::Relation { set: name, recipe })) => {
                 st.relation_rows += 1;
@@ -209,7 +239,11 @@ pub fn shipped_relations<'s>(
                 };
                 st.terms += rhs.len() as u64;
                 em.buf.extend(rhs.into_iter().map(|k| (k, NonZero::Yes)));
-                let class = set.classes.get(name).cloned().unwrap_or_else(|| name.clone());
+                let class = set
+                    .classes
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| name.clone());
                 let kind = if *recipe { "recipe" } else { "relation" };
                 em.emit(&row.key, &format!("{class}|{kind}"))?;
             }
@@ -247,10 +281,11 @@ pub fn gate_check(
     let mut gate = ShipGate::new(&set.cmp, set.arity(), cfg).map_err(|e| e.to_string())?;
     let mut err: Option<String> = None;
     let stats = {
-        let mut sink = |key: &[i32], prov: &str, terms: &[(Vec<i32>, NonZero)]| -> Result<(), String> {
-            gate.push_relation(key, prov, terms.iter().map(|(k, n)| (k.as_slice(), *n)))
-                .map_err(|e| e.to_string())
-        };
+        let mut sink =
+            |key: &[i32], prov: &str, terms: &[(Vec<i32>, NonZero)]| -> Result<(), String> {
+                gate.push_relation(key, prov, terms.iter().map(|(k, n)| (k.as_slice(), *n)))
+                    .map_err(|e| e.to_string())
+            };
         match shipped_relations(set, ev, ev, res, &mut sink) {
             Ok(s) => s,
             Err(e) => {

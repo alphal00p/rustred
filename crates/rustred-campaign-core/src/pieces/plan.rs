@@ -45,7 +45,9 @@ pub enum ServiceKind {
 impl ServiceKind {
     pub fn piece(self) -> PieceKind {
         match self {
-            ServiceKind::Composite | ServiceKind::TwoRow | ServiceKind::TableRule => PieceKind::Rules,
+            ServiceKind::Composite | ServiceKind::TwoRow | ServiceKind::TableRule => {
+                PieceKind::Rules
+            }
             ServiceKind::HandDown => PieceKind::HandDowns,
             ServiceKind::CoreRecipe => PieceKind::Core,
         }
@@ -286,11 +288,19 @@ pub struct Plan {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlanError {
-    Arity { expected: usize, key: Vec<i32> },
+    Arity {
+        expected: usize,
+        key: Vec<i32>,
+    },
     /// The same key given with two face labels.
-    FaceConflict { key: Vec<i32>, faces: [String; 2] },
+    FaceConflict {
+        key: Vec<i32>,
+        faces: [String; 2],
+    },
     /// Every chosen edge descends, yet the plan's key graph has a cycle: the order is not a strict order on these keys.
-    Inconsistent { cycle: Vec<Vec<i32>> },
+    Inconsistent {
+        cycle: Vec<Vec<i32>>,
+    },
     Graph(String),
 }
 
@@ -298,10 +308,18 @@ impl std::fmt::Display for PlanError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PlanError::Arity { expected, key } => {
-                write!(f, "pieces plan: key {key:?} has arity {} (expected {expected})", key.len())
+                write!(
+                    f,
+                    "pieces plan: key {key:?} has arity {} (expected {expected})",
+                    key.len()
+                )
             }
             PlanError::FaceConflict { key, faces } => {
-                write!(f, "pieces plan: key {key:?} given on faces {} and {}", faces[0], faces[1])
+                write!(
+                    f,
+                    "pieces plan: key {key:?} given on faces {} and {}",
+                    faces[0], faces[1]
+                )
             }
             PlanError::Inconsistent { cycle } => write!(
                 f,
@@ -314,6 +332,9 @@ impl std::fmt::Display for PlanError {
 }
 
 impl std::error::Error for PlanError {}
+
+/// A key with its face and canonical candidates.
+type KeyEntry<'a> = (&'a Vec<i32>, &'a (String, Vec<Candidate>));
 
 fn gerr(e: std::io::Error) -> PlanError {
     PlanError::Graph(e.to_string())
@@ -424,7 +445,7 @@ pub fn plan<O: KeyOrder + ?Sized>(order: &O, input: &PlanInput) -> Result<Plan, 
     }
     refused.sort();
 
-    let entries: Vec<(&Vec<i32>, &(String, Vec<Candidate>))> = by_key.iter().collect();
+    let entries: Vec<KeyEntry<'_>> = by_key.iter().collect();
     let pieces_k: Vec<PieceKind> = (0..n)
         .map(|i| match pick[i] {
             Some(ci) => entries[i].1.1[ci].kind.piece(),
@@ -487,11 +508,23 @@ pub fn plan<O: KeyOrder + ?Sized>(order: &O, input: &PlanInput) -> Result<Plan, 
                 };
                 ch.hand_down_target = Some(tc);
                 *hd_targets
-                    .entry(serde_json::to_value(tc).unwrap().as_str().unwrap().to_string())
+                    .entry(
+                        serde_json::to_value(tc)
+                            .unwrap()
+                            .as_str()
+                            .unwrap()
+                            .to_string(),
+                    )
                     .or_default() += 1;
             }
             *by_kind
-                .entry(serde_json::to_value(c.kind).unwrap().as_str().unwrap().to_string())
+                .entry(
+                    serde_json::to_value(c.kind)
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                        .to_string(),
+                )
                 .or_default() += 1;
         } else {
             *by_kind.entry("left_to_core".into()).or_default() += 1;
@@ -513,7 +546,10 @@ pub fn plan<O: KeyOrder + ?Sized>(order: &O, input: &PlanInput) -> Result<Plan, 
             cycle: c.iter().map(|&v| keys[v as usize].clone()).collect(),
         });
     }
-    let key_order: Vec<Vec<i32>> = order_ids.iter().map(|&v| keys[v as usize].clone()).collect();
+    let key_order: Vec<Vec<i32>> = order_ids
+        .iter()
+        .map(|&v| keys[v as usize].clone())
+        .collect();
 
     // pieces
     let mut piece_ids: BTreeMap<PieceId, u32> = BTreeMap::new();
@@ -616,7 +652,11 @@ pub fn plan<O: KeyOrder + ?Sized>(order: &O, input: &PlanInput) -> Result<Plan, 
     let piece_level_acyclic = psum.cyclic == 0;
     let verdict = format!(
         "face level {}, piece level {}, key level acyclic (descent on every chosen edge and Kahn agree)",
-        if face_level_cyclic { "CYCLIC" } else { "acyclic" },
+        if face_level_cyclic {
+            "CYCLIC"
+        } else {
+            "acyclic"
+        },
         if piece_level_acyclic {
             "acyclic"
         } else {

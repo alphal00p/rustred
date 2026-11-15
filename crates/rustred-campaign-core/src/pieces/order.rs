@@ -23,7 +23,10 @@ impl KeyOrder for NodeComparator {
         self.cmp(a, b)
     }
     fn order_label(&self) -> String {
-        format!("node comparator {} (full order, every tie-break)", self.name())
+        format!(
+            "node comparator {} (full order, every tie-break)",
+            self.name()
+        )
     }
 }
 
@@ -43,7 +46,9 @@ impl<F: Fn(&[i32], &[i32]) -> Ordering> KeyOrder for FnOrder<F> {
 }
 
 /// How an edge `k -> t` relates to the order.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum EdgeOrder {
     /// `t < k`: descends.

@@ -92,7 +92,10 @@ impl Default for KeyChoicesOptions {
 pub fn read_key_choices(path: &Path) -> Result<Vec<KeyChoicesRecord>, String> {
     let f = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut out = vec![];
-    for (i, l) in std::io::BufReader::with_capacity(1 << 20, f).lines().enumerate() {
+    for (i, l) in std::io::BufReader::with_capacity(1 << 20, f)
+        .lines()
+        .enumerate()
+    {
         let l = l.map_err(|e| format!("{}: {e}", path.display()))?;
         if l.trim().is_empty() {
             continue;
@@ -126,9 +129,13 @@ pub fn plan_input_from_key_choices(
         let mut cands = Vec::with_capacity(r.choices.len());
         for c in &r.choices {
             let mut kind = *opts.kinds.get(&c.kind).ok_or_else(|| {
-                format!("key {:?}: choice {} has the unknown kind {:?}", r.key, c.id, c.kind)
+                format!(
+                    "key {:?}: choice {} has the unknown kind {:?}",
+                    r.key, c.id, c.kind
+                )
             })?;
-            if opts.symmetry_kinds.contains(&c.kind) && c.rhs.len() == 1 && open.contains(&c.rhs[0]) {
+            if opts.symmetry_kinds.contains(&c.kind) && c.rhs.len() == 1 && open.contains(&c.rhs[0])
+            {
                 kind = ServiceKind::HandDown;
             }
             let prov = if c.form.is_empty() || c.form == c.id {
@@ -138,7 +145,11 @@ pub fn plan_input_from_key_choices(
             };
             cands.push(Candidate {
                 kind,
-                terms: c.rhs.iter().map(|k| Term::new(k.clone(), NonZero::Yes)).collect(),
+                terms: c
+                    .rhs
+                    .iter()
+                    .map(|k| Term::new(k.clone(), NonZero::Yes))
+                    .collect(),
                 provenance: prov,
                 regular_at_4: c.regular_at_4,
             });
@@ -149,7 +160,10 @@ pub fn plan_input_from_key_choices(
             candidates: vec![],
         });
         if e.face != r.face {
-            return Err(format!("key {:?} recorded on faces {} and {}", r.key, e.face, r.face));
+            return Err(format!(
+                "key {:?} recorded on faces {} and {}",
+                r.key, e.face, r.face
+            ));
         }
         e.candidates.extend(cands);
     }
