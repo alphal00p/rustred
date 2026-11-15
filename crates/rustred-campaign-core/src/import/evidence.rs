@@ -2,7 +2,7 @@
 //! bound EXACTLY to (record_sha256 | recipe source, key). Lines that name no imported record are counted `foreign`,
 //! lines without a record digest `unbound`; neither is ever used. Conflicting answers are an error (fail closed).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
@@ -35,6 +35,121 @@ enum Terms {
     },
 }
 
+/// A fact read from an attached evidence store (lane t266run, interfaces/evidence-store.md): term INDICES (record rhs
+/// order) whose coefficient is zero / unknown; every other index < n_terms is non-zero. The store checked the term list
+/// against our instantiation when it was built.
+fn store_coefficient(f: &super::store::StoreFact, term: usize) -> CoefFact {
+    if term >= f.n_terms as usize {
+        return CoefFact::Unknown;
+    }
+    let t = term as u32;
+    if f.unknown.binary_search(&t).is_ok() {
+        CoefFact::Unknown
+    } else if f.zero.binary_search(&t).is_ok() {
+        CoefFact::Zero
+    } else {
+        CoefFact::NonZero
+    }
+}
+
+/// The fact of (rule, key): from memory, from a store, or both (lane t266run).
+enum FactRef<'a> {
+    Mem(&'a FactRec),
+    Store(std::sync::Arc<super::store::StoreEntry>),
+    /// Both exist: every answer is the common one, else Unknown (fail closed).
+    Both(&'a FactRec, std::sync::Arc<super::store::StoreEntry>),
+}
+
+impl FactRef<'_> {
+    fn sf(e: &super::store::StoreEntry) -> &super::store::StoreFact {
+        e.fact.as_ref().expect("store fact present")
+    }
+    fn regular(&self) -> RegFact {
+        match self {
+            FactRef::Mem(f) => f.regular,
+            FactRef::Store(e) => {
+                let f = Self::sf(e);
+                if f.usable {
+                    f.regular
+                } else {
+                    RegFact::Unknown
+                }
+            }
+            FactRef::Both(m, e) => {
+                let f = Self::sf(e);
+                let s = if f.usable {
+                    f.regular
+                } else {
+                    RegFact::Unknown
+                };
+                if s == m.regular { s } else { RegFact::Unknown }
+            }
+        }
+    }
+    fn lift(&self) -> bool {
+        match self {
+            FactRef::Mem(f) => f.lift,
+            FactRef::Store(e) => {
+                let f = Self::sf(e);
+                f.usable && f.regular == RegFact::Regular
+            }
+            FactRef::Both(m, e) => {
+                let f = Self::sf(e);
+                m.lift && f.usable && f.regular == RegFact::Regular
+            }
+        }
+    }
+    fn coefficient(&self, term: usize, term_key: &[i32]) -> CoefFact {
+        match self {
+            FactRef::Mem(f) => f.coefficient(term, term_key),
+            FactRef::Store(e) => {
+                let f = Self::sf(e);
+                if f.usable {
+                    store_coefficient(f, term)
+                } else {
+                    CoefFact::Unknown
+                }
+            }
+            FactRef::Both(m, e) => {
+                let f = Self::sf(e);
+                let a = m.coefficient(term, term_key);
+                let b = if f.usable {
+                    store_coefficient(f, term)
+                } else {
+                    CoefFact::Unknown
+                };
+                if a == b { a } else { CoefFact::Unknown }
+            }
+        }
+    }
+}
+
+/// Options of [`Evidence::from_spec_with`].
+#[derive(Clone, Debug, Default)]
+pub struct EvidenceOptions {
+    /// Some: the spec's facts and proofs files go into ONE disk-backed store (interfaces/evidence-store.md).
+    pub store: Option<super::store::StoreOptions>,
+}
+
+/// An attached store: the store, store record id by our rule index, store status id -> our interned status.
+struct AttachedStore {
+    store: std::sync::Arc<super::store::EvidenceStore>,
+    rec_of_ri: Vec<Option<u32>>,
+    status_map: Vec<u32>,
+}
+
+/// Counts of the attached stores (statement).
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct StoreUse {
+    pub dir: String,
+    pub origin: String,
+    pub entries: u64,
+    pub data_sha256: String,
+    pub records_bound: usize,
+    pub counts: super::store::StoreCounts,
+    pub inputs: Vec<(String, String)>,
+}
+
 /// One usable fact: (rule, key) -> regularity, lift and per-term coefficient facts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct FactRec {
@@ -56,6 +171,8 @@ fn fact_producer(v: &Value, compact: bool) -> &'static str {
     match v.get("producer").and_then(Value::as_str) {
         Some("exact_eval") => "exact_eval",
         Some("rr_proof") => "rr_proof",
+        // lane closeloop4: rr_proof instantiate `--elided-loci facts` (coefficient facts of an elided record only)
+        Some("rr_proof_elided") => "rr_proof_elided",
         _ => "compact",
     }
 }
@@ -107,6 +224,26 @@ pub fn is_per_key_status(word: &str) -> bool {
     word == "EXACT_IN_SPAN_AT_KEY" || word == "EXACT_PROVED_AT_KEY"
 }
 
+/// lane closeloop4 (audit-closeloop m1): a proof status word that DECIDES something about the key (not an error, a
+/// time-out, a budget stop, an unsupported input or an undecided attempt).
+pub fn is_decided_status(word: &str) -> bool {
+    let w = word.to_ascii_uppercase();
+    ![
+        "ERROR",
+        "TIMEOUT",
+        "TIME_OUT",
+        "UNDECIDED",
+        "NOT_DECIDED",
+        "BUDGET",
+        "SKIP",
+        "UNSUPPORTED",
+        "REFUSED",
+        "UNKNOWN",
+    ]
+    .iter()
+    .any(|x| w.contains(x))
+}
+
 /// One solved relation for (recipe source, key).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SolvedRelation {
@@ -139,6 +276,9 @@ pub struct EvidenceCounts {
     pub proofs_foreign: usize,
     pub proofs_unbound: usize,
     pub proof_refusals: usize,
+    /// lane closeloop4 (audit-closeloop m1): (record, key) pairs with contradicting proof verdicts (no per-key level),
+    /// in memory (lane t266run: the stores count their own, `stores[].counts.proof_conflicts`).
+    pub proof_conflicts: usize,
     /// Compact proof verdict lines (`record_sha256`, `key`, `verdict`; no `schema`) read.
     pub proof_verdict_lines: usize,
     /// Compact fact verdict lines (`rustred.campaign.fact-verdict.v1`) read.
@@ -151,12 +291,18 @@ pub struct EvidenceCounts {
     pub files: Vec<(String, String)>,
     /// Up to [`FOREIGN_EXAMPLES`] foreign record digests (facts / proofs) for diagnosis.
     pub foreign_examples: Vec<String>,
+    /// Attached evidence stores (lane t266run).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub stores: Vec<StoreUse>,
 }
 
 /// The imported evidence of one set.
 #[derive(Default)]
 pub struct Evidence {
     rule_index: HashMap<(String, i64), u32>,
+    /// lane t266run: the same index as table name / path -> label -> rule (looked up without allocating: the closure
+    /// asks per term).
+    rule_index2: HashMap<String, HashMap<i64, u32>>,
     sha_index: HashMap<String, u32>,
     facts: HashMap<(u32, Vec<i32>), FactRec>,
     /// (rule, key) -> index into `statuses` (compact: no per-entry strings).
@@ -175,6 +321,22 @@ pub struct Evidence {
     pub counts: EvidenceCounts,
     label: String,
     fact_files: Vec<String>,
+    /// lane closeloop4 (closeloop.md 18): (rule, key) pairs whose coefficient facts are DISPUTED (the two independent
+    /// routes disagree): every term is `Unknown` there (a term is an edge unless its zero is confirmed; the key's
+    /// row is never certified).
+    disputed: std::collections::HashSet<(u32, Vec<i32>)>,
+    /// lane closeloop4 (audit-closeloop M1): set by [`Evidence::accept_ledger_verified_files`] AFTER the spec's evidence
+    /// was loaded (pinned): later `load_*` calls may name files the caller verified against its ledger.
+    ledger_verified: bool,
+    /// lane closeloop4 (audit-closeloop m1): (rule, key) with contradicting proof verdicts.
+    proof_conflicts: std::collections::HashSet<(u32, Box<[i32]>)>,
+    /// lane t266run: disk-backed evidence stores consulted when the maps above miss.
+    stores: Vec<AttachedStore>,
+    /// rule index -> record_sha256.
+    rule_sha: Vec<String>,
+    /// lane t266run: the conflicted (rule, key) pairs a check ASKED for a per-key level (each denied it): the
+    /// node's verdict names them (`contradicting_proofs`).
+    conflicts_used: std::sync::Mutex<BTreeSet<(u32, Vec<i32>)>>,
 }
 
 /// How many foreign record digests are kept as examples (diagnosis only).
@@ -217,39 +379,143 @@ fn json_key(v: &Value, arity: usize) -> Option<Vec<i32>> {
     }
 }
 
-/// Files of an evidence reference: a file, or every `*.json` / `*.jsonl` file of a directory (sorted, not recursive).
-fn evidence_files(base: &Path, r: &FileRef) -> Result<Vec<(PathBuf, String)>, ImportError> {
+/// Schema of a JSON evidence manifest (lane closeloop4, audit-closeloop M1).
+pub const EVIDENCE_MANIFEST_SCHEMA: &str = "rustred.campaign.evidence-manifest.v1";
+
+/// lane closeloop4 (audit-closeloop M1): the PINNED files of an evidence reference, each verified against its pin
+/// BEFORE use: a file entry needs its `sha256`; a directory entry needs a `manifest` (itself pinned by sha256) that
+/// lists every `*.json` / `*.jsonl` file of the directory with its sha256 (and size, JSON form); an unlisted file, a
+/// listed file that is missing, a size or digest mismatch refuses. Sorted by path. This is the ONLY way spec evidence
+/// is read.
+pub fn resolve_evidence(base: &Path, r: &FileRef) -> Result<Vec<(PathBuf, String)>, ImportError> {
     let p = super::spec::resolve(base, &r.path);
-    if p.is_dir() {
-        if r.sha256.is_some() {
+    if !p.is_dir() {
+        let Some(want) = r.sha256.as_deref() else {
             return Err(ImportError::Spec(format!(
-                "{}: a directory has no sha256",
+                "evidence file {} is not pinned: give its sha256 (unpinned evidence is never read)",
+                p.display()
+            )));
+        };
+        let d = verify_file(&p, Some(want))?;
+        return Ok(vec![(p, d)]);
+    }
+    if r.sha256.is_some() {
+        return Err(ImportError::Spec(format!(
+            "{}: a directory has no sha256: name its manifest (`manifest: {{path, sha256}}`)",
+            p.display()
+        )));
+    }
+    let Some(m) = r.manifest.as_deref() else {
+        return Err(ImportError::Spec(format!(
+            "evidence directory {} is not pinned: give its manifest (`manifest: {{path, sha256}}`, e.g. its SHA256SUMS)",
+            p.display()
+        )));
+    };
+    let mp = super::spec::resolve(base, &m.path);
+    let Some(mwant) = m.sha256.as_deref() else {
+        return Err(ImportError::Spec(format!(
+            "manifest {} of evidence directory {} is not pinned: give its sha256",
+            mp.display(),
+            p.display()
+        )));
+    };
+    verify_file(&mp, Some(mwant))?;
+    // name -> (sha256, optional size)
+    let mtext = std::fs::read_to_string(&mp).map_err(|e| io_err(&mp, e))?;
+    let mut listed: BTreeMap<String, (String, Option<u64>)> = BTreeMap::new();
+    if let Ok(v) = serde_json::from_str::<Value>(&mtext)
+        && v.is_object()
+    {
+        if v["schema"] != EVIDENCE_MANIFEST_SCHEMA {
+            return Err(ImportError::Spec(format!(
+                "manifest {}: schema {} (expected {EVIDENCE_MANIFEST_SCHEMA})",
+                mp.display(),
+                v["schema"]
+            )));
+        }
+        for f in v["files"].as_array().into_iter().flatten() {
+            let (Some(name), Some(sha)) = (f["path"].as_str(), f["sha256"].as_str()) else {
+                return Err(ImportError::Spec(format!(
+                    "manifest {}: entry {f}",
+                    mp.display()
+                )));
+            };
+            listed.insert(name.to_string(), (sha.to_string(), f["bytes"].as_u64()));
+        }
+    } else {
+        for (name, sha) in super::lines::read_sha256sums(&mp)? {
+            listed.insert(name.trim_start_matches('*').to_string(), (sha, None));
+        }
+    }
+    let mut v = vec![];
+    for e in std::fs::read_dir(&p).map_err(|e| io_err(&p, e))? {
+        let e = e.map_err(|er| io_err(&p, er))?;
+        let q = e.path();
+        let ok = q.is_file()
+            && q.extension()
+                .and_then(|x| x.to_str())
+                .is_some_and(|x| x == "json" || x == "jsonl");
+        if ok && q != mp {
+            v.push(q);
+        }
+    }
+    v.sort();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = vec![];
+    for q in v {
+        let name = q
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let Some((sha, bytes)) = listed.get(&name) else {
+            return Err(ImportError::Spec(format!(
+                "evidence file {} is not listed in the manifest {} (an unlisted file is never read)",
+                q.display(),
+                mp.display()
+            )));
+        };
+        if let Some(b) = bytes {
+            let got = std::fs::metadata(&q).map_err(|e| io_err(&q, e))?.len();
+            if got != *b {
+                return Err(ImportError::Spec(format!(
+                    "evidence file {}: {got} bytes, the manifest says {b}",
+                    q.display()
+                )));
+            }
+        }
+        let d = verify_file(&q, Some(sha))?;
+        seen.insert(name);
+        out.push((q, d));
+    }
+    for name in listed.keys() {
+        let is_ev = name.ends_with(".json") || name.ends_with(".jsonl");
+        if is_ev && !seen.contains(name) && p.join(name) != mp {
+            return Err(ImportError::Spec(format!(
+                "evidence file {name} listed in {} is missing from {}",
+                mp.display(),
                 p.display()
             )));
         }
-        let mut v = vec![];
-        for e in std::fs::read_dir(&p).map_err(|e| io_err(&p, e))? {
-            let e = e.map_err(|er| io_err(&p, er))?;
-            let q = e.path();
-            let ok = q.is_file()
-                && q.extension()
-                    .and_then(|x| x.to_str())
-                    .is_some_and(|x| x == "json" || x == "jsonl");
-            if ok {
-                v.push(q);
-            }
-        }
-        v.sort();
-        v.into_iter()
-            .map(|q| {
-                let d = verify_file(&q, None)?;
-                Ok((q, d))
-            })
-            .collect()
-    } else {
-        let d = verify_file(&p, r.sha256.as_deref())?;
-        Ok(vec![(p, d)])
     }
+    Ok(out)
+}
+
+/// The files of an evidence reference: spec evidence through [`resolve_evidence`] (pinned, the only mode); files the
+/// CALLER verified against its own record (`ledger_verified`: the closing loop's answer files, each checked against
+/// the BLAKE3 its ledger recorded right before) are read as given.
+fn evidence_files(
+    base: &Path,
+    r: &FileRef,
+    ledger_verified: bool,
+) -> Result<Vec<(PathBuf, String)>, ImportError> {
+    if ledger_verified && r.sha256.is_none() && r.manifest.is_none() {
+        let p = super::spec::resolve(base, &r.path);
+        if p.is_file() {
+            let d = verify_file(&p, None)?;
+            return Ok(vec![(p, d)]);
+        }
+    }
+    resolve_evidence(base, r)
 }
 
 /// Visit the objects of a file one at a time: JSONL (one object per line; streamed, bounded memory) or one JSON object
@@ -304,8 +570,17 @@ impl Evidence {
             for r in t {
                 ev.rule_index.insert((r.path.clone(), r.label), n);
                 ev.rule_index.insert((r.table_name.clone(), r.label), n);
+                ev.rule_index2
+                    .entry(r.path.clone())
+                    .or_default()
+                    .insert(r.label, n);
+                ev.rule_index2
+                    .entry(r.table_name.clone())
+                    .or_default()
+                    .insert(r.label, n);
                 ev.sha_index.insert(r.record_sha256.clone(), n);
                 ev.rule_record_index.push(r.index);
+                ev.rule_sha.push(r.record_sha256.clone());
                 n += 1;
             }
         }
@@ -313,8 +588,186 @@ impl Evidence {
         ev
     }
 
+    /// Load everything the spec names; with `opts.store` the facts and proofs files go into ONE disk-backed store
+    /// (built or reused under the store directory) instead of memory (lane t266run).
+    pub fn from_spec_with(
+        set: &ImportedSet,
+        base: &Path,
+        opts: &EvidenceOptions,
+    ) -> Result<Evidence, ImportError> {
+        let Some(so) = &opts.store else {
+            return Self::from_spec(set, base);
+        };
+        Self::check_families(set)?;
+        let mut ev = Evidence::new(set);
+        let sp = set.spec.evidence.clone();
+        // lane closeloop4 (audit-closeloop M1): every store input is a PINNED file (manifests resolved, verified)
+        let mut inputs: Vec<(PathBuf, Option<String>)> = vec![];
+        for r in sp.facts.iter().chain(sp.proofs.iter()) {
+            for (p, d) in resolve_evidence(base, r)? {
+                inputs.push((p, Some(d)));
+            }
+        }
+        if !inputs.is_empty() {
+            let st = super::store::EvidenceStore::open_or_build(set, &inputs, so)?;
+            ev.attach_store(st);
+        }
+        for r in &sp.solved {
+            ev.load_solved(set, base, r)?;
+        }
+        Ok(ev)
+    }
+
+    /// Attach a disk-backed store: consulted for every (rule, key) the in-memory maps do not answer.
+    pub fn attach_store(&mut self, st: std::sync::Arc<super::store::EvidenceStore>) {
+        let m = st.meta();
+        let rec_of_ri: Vec<Option<u32>> = self.rule_sha.iter().map(|s| st.rec_id(s)).collect();
+        let status_map: Vec<u32> = m
+            .statuses
+            .iter()
+            .map(|(w, pk, f)| {
+                self.intern(ProofStatus {
+                    status: w.clone(),
+                    per_key: *pk,
+                    file: f.clone(),
+                })
+            })
+            .collect();
+        self.counts.stores.push(StoreUse {
+            dir: st.dir().display().to_string(),
+            origin: st.origin.clone(),
+            entries: m.entries,
+            data_sha256: m.data_sha256.clone(),
+            records_bound: rec_of_ri.iter().filter(|x| x.is_some()).count(),
+            counts: m.counts.clone(),
+            inputs: m
+                .inputs
+                .iter()
+                .map(|i| (i.path.clone(), format!("sha256:{}", i.sha256)))
+                .collect(),
+        });
+        if m.counts.facts_stored > 0 {
+            self.fact_files.push(format!("store:{}", m.data_sha256));
+            self.label = format!(
+                "import:facts:{}",
+                crate::closure::sha256::sha256_tag(self.fact_files.join(",").as_bytes())
+            );
+        }
+        self.counts.proofs_per_key += m.counts.proofs_per_key as usize;
+        self.stores.push(AttachedStore {
+            store: st,
+            rec_of_ri,
+            status_map,
+        });
+    }
+
+    /// The store entries of (rule index, key): the first store with a fact, the strongest proof over all stores.
+    fn store_fact(&self, ri: u32, key: &[i32]) -> Option<std::sync::Arc<super::store::StoreEntry>> {
+        for a in &self.stores {
+            if let Some(rec) = a.rec_of_ri.get(ri as usize).copied().flatten()
+                && let Some(e) = a.store.get_rec(rec, key)
+                && e.fact.is_some()
+            {
+                return Some(e);
+            }
+        }
+        None
+    }
+
+    /// Our interned status of the strongest store proof of (rule index, key).
+    fn store_proof(&self, ri: u32, key: &[i32]) -> Option<u32> {
+        let mut best: Option<u32> = None;
+        for a in &self.stores {
+            if let Some(rec) = a.rec_of_ri.get(ri as usize).copied().flatten()
+                && let Some(e) = a.store.get_rec(rec, key)
+                && let Some(s) = e.proof
+            {
+                let mine = a.status_map[s as usize];
+                best = Some(match best {
+                    Some(b)
+                        if self.statuses[b as usize].per_key
+                            || !self.statuses[mine as usize].per_key =>
+                    {
+                        b
+                    }
+                    _ => mine,
+                });
+            }
+        }
+        best
+    }
+
+    /// The fact of (rule index, key) from memory and / or the stores.
+    fn fact_ref(&self, ri: u32, key: &[i32]) -> Option<FactRef<'_>> {
+        // (no allocation when nothing is in memory: the store-backed case asks per term)
+        let m = if self.facts.is_empty() {
+            None
+        } else {
+            self.facts.get(&(ri, key.to_vec()))
+        };
+        let s = if self.stores.is_empty() {
+            None
+        } else {
+            self.store_fact(ri, key)
+        };
+        match (m, s) {
+            (Some(m), Some(s)) => Some(FactRef::Both(m, s)),
+            (Some(m), None) => Some(FactRef::Mem(m)),
+            (None, Some(s)) => Some(FactRef::Store(s)),
+            (None, None) => None,
+        }
+    }
+
+    /// The proof status index of (rule index, key): memory first (the strongest is kept there), else the stores; a
+    /// per-key status wins.
+    fn proof_index(&self, ri: u32, key: &[i32]) -> Option<u32> {
+        let m = if self.proofs.is_empty() {
+            None
+        } else {
+            self.proofs.get(&(ri, Box::<[i32]>::from(key))).copied()
+        };
+        if m.is_some_and(|i| self.statuses[i as usize].per_key) || self.stores.is_empty() {
+            return m;
+        }
+        match (m, self.store_proof(ri, key)) {
+            (Some(a), Some(b)) => Some(if self.statuses[b as usize].per_key {
+                b
+            } else {
+                a
+            }),
+            (a, b) => a.or(b),
+        }
+    }
+
+    /// lane closeloop4 (audit-closeloop m4): every spec evidence entry names the family it was produced for, and it is
+    /// the set's.
+    pub fn check_families(set: &ImportedSet) -> Result<(), ImportError> {
+        let e = &set.spec.evidence;
+        for r in e.facts.iter().chain(e.proofs.iter()).chain(e.solved.iter()) {
+            match (&r.family, &set.family) {
+                (Some(a), Some(b)) if a == b => {}
+                (Some(a), b) => {
+                    return Err(ImportError::Spec(format!(
+                        "evidence {} was produced for family {a}, the set's tables are of family {}: refused",
+                        r.path,
+                        b.as_deref().unwrap_or("(none)")
+                    )));
+                }
+                (None, _) => {
+                    return Err(ImportError::Spec(format!(
+                        "evidence {}: name the family it was produced for (`family`): evidence binds to a record of \
+                         that family only",
+                        r.path
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Load everything the spec names.
     pub fn from_spec(set: &ImportedSet, base: &Path) -> Result<Evidence, ImportError> {
+        Self::check_families(set)?;
         let mut ev = Evidence::new(set);
         let sp = set.spec.evidence.clone();
         for r in &sp.facts {
@@ -347,7 +800,7 @@ impl Evidence {
         r: &FileRef,
     ) -> Result<(), ImportError> {
         let arity = set.arity();
-        for (path, digest) in evidence_files(base, r)? {
+        for (path, digest) in evidence_files(base, r, self.ledger_verified)? {
             self.counts
                 .files
                 .push((path.display().to_string(), format!("sha256:{digest}")));
@@ -490,9 +943,14 @@ impl Evidence {
                 Ok(())
             })?;
         }
+        // lane closeloop4 (audit-closeloop m9): the label names the SET of fact files (sorted digests), never their load
+        // order (= job completion order in the closing loop)
+        let mut sorted = self.fact_files.clone();
+        sorted.sort();
+        sorted.dedup();
         self.label = format!(
             "import:facts:{}",
-            crate::closure::sha256::sha256_tag(self.fact_files.join(",").as_bytes())
+            crate::closure::sha256::sha256_tag(sorted.join(",").as_bytes())
         );
         Ok(())
     }
@@ -551,6 +1009,19 @@ impl Evidence {
         let si = self.intern(ps);
         self.counts.proofs_bound += 1;
         let k = (ri, key.into_boxed_slice());
+        // lane closeloop4 (audit-closeloop m1): a per-key proof and a DECIDED contrary verdict for the same (record,
+        // key) (e.g. IRREGULAR_KEY) are a CONFLICT: the key gets no per-key level (never "the positive one wins");
+        // undecided attempts (errors, time-outs, refusals) stand beside a proof
+        if let Some(&old) = self.proofs.get(&k) {
+            let o = &self.statuses[old as usize];
+            let n = &self.statuses[si as usize];
+            if o.per_key != n.per_key
+                && is_decided_status(if o.per_key { &n.status } else { &o.status })
+            {
+                self.counts.proof_conflicts += 1;
+                self.proof_conflicts.insert(k.clone());
+            }
+        }
         match self.proofs.get(&k) {
             Some(&old) if self.statuses[old as usize].per_key && !per_key => {}
             _ => {
@@ -570,7 +1041,7 @@ impl Evidence {
         r: &FileRef,
     ) -> Result<(), ImportError> {
         let arity = set.arity();
-        for (path, digest) in evidence_files(base, r)? {
+        for (path, digest) in evidence_files(base, r, self.ledger_verified)? {
             self.counts
                 .files
                 .push((path.display().to_string(), format!("sha256:{digest}")));
@@ -667,7 +1138,12 @@ impl Evidence {
             .proofs
             .values()
             .filter(|&&i| self.statuses[i as usize].per_key)
-            .count();
+            .count()
+            + self
+                .stores
+                .iter()
+                .map(|a| a.store.meta().counts.proofs_per_key as usize)
+                .sum::<usize>();
         Ok(())
     }
 
@@ -679,7 +1155,7 @@ impl Evidence {
         r: &FileRef,
     ) -> Result<(), ImportError> {
         let arity = set.arity();
-        for (path, digest) in evidence_files(base, r)? {
+        for (path, digest) in evidence_files(base, r, self.ledger_verified)? {
             self.counts
                 .files
                 .push((path.display().to_string(), format!("sha256:{digest}")));
@@ -735,7 +1211,12 @@ impl Evidence {
                 };
                 let m = self.solved.entry(src.to_string()).or_default();
                 match m.get(&key) {
-                    Some(old) if *old != rel && old.relation_digest != rel.relation_digest => {
+                    // lane closeloop4 (audit-closeloop m5): two answers for (source, key) must be the SAME relation
+                    // (verdict, rhs, digest), never "the first wins" when the digests are absent
+                    Some(old)
+                        if (&old.verdict, &old.rhs, &old.relation_digest)
+                            != (&rel.verdict, &rel.rhs, &rel.relation_digest) =>
+                    {
                         return Err(bad(format!(
                             "two different solved relations for ({src}, {key:?})"
                         )));
@@ -762,9 +1243,8 @@ impl Evidence {
     ) -> Option<&ProofStatus> {
         let sha = &set.rules[table][record].record_sha256;
         let ri = *self.sha_index.get(sha)?;
-        self.proofs
-            .get(&(ri, Box::<[i32]>::from(key)))
-            .map(|&i| &self.statuses[i as usize])
+        self.proof_index(ri, key)
+            .map(|i| &self.statuses[i as usize])
     }
 
     /// Whether a usable regularity fact exists for (rule, key).
@@ -772,40 +1252,207 @@ impl Evidence {
         let sha = &set.rules[table][record].record_sha256;
         self.sha_index
             .get(sha)
-            .and_then(|ri| self.facts.get(&(*ri, key.to_vec())))
-            .is_some_and(|f| f.lift)
+            .and_then(|ri| self.fact_ref(*ri, key))
+            .is_some_and(|f| f.lift())
+    }
+
+    /// Whether any usable fact (memory or store) exists for (rule, key) (lane t266run: the closing loop asks a fact
+    /// only for keys without one).
+    pub fn has_fact(&self, set: &ImportedSet, table: usize, record: usize, key: &[i32]) -> bool {
+        let sha = &set.rules[table][record].record_sha256;
+        self.sha_index
+            .get(sha)
+            .and_then(|ri| self.fact_ref(*ri, key))
+            // lane closeloop3: a USABLE fact line (an unusable answer is no fact)
+            .is_some_and(|f| match f {
+                FactRef::Mem(m) => !matches!(&m.terms, Terms::Full(t) if t.is_empty()) || m.lift,
+                FactRef::Store(e) => FactRef::sf(&e).usable,
+                FactRef::Both(m, e) => {
+                    !matches!(&m.terms, Terms::Full(t) if t.is_empty())
+                        || m.lift
+                        || FactRef::sf(&e).usable
+                }
+            })
     }
 
     pub fn has_facts(&self) -> bool {
         !self.fact_files.is_empty()
     }
 
-    /// lane closeloop3: whether ANY usable fact line (whatever its regularity verdict) is bound to (rule, key).
-    pub fn has_fact(&self, set: &ImportedSet, table: usize, record: usize, key: &[i32]) -> bool {
-        let sha = &set.rules[table][record].record_sha256;
-        self.sha_index
-            .get(sha)
-            .and_then(|ri| self.facts.get(&(*ri, key.to_vec())))
-            .is_some_and(|f| !matches!(&f.terms, Terms::Full(t) if t.is_empty()) || f.lift)
+    /// lane closeloop4 (audit-closeloop M1): from now on `load_facts` / `load_proofs` / `load_solved` may name files
+    /// WITHOUT a pin that the caller verified against its own ledger record (the closing loop's answer files); the
+    /// spec's evidence is always loaded pinned ([`resolve_evidence`]).
+    pub fn accept_ledger_verified_files(&mut self) {
+        self.ledger_verified = true;
+    }
+
+    /// lane closeloop4 (closeloop.md 18): the coefficient facts of (record `sha`, `key`) are DISPUTED by a second
+    /// route: from now on every term there is `Unknown` (an edge, the key uncertified). False = no such record.
+    pub fn dispute(&mut self, sha: &str, key: &[i32]) -> bool {
+        match self.sha_index.get(sha) {
+            Some(&ri) => {
+                self.disputed.insert((ri, key.to_vec()));
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// lane closeloop4 (closeloop.md 18): the bound (in-memory) fact of (record `sha`, `key`) was CONFIRMED term by
+    /// term by a second, independent route: its fact basis becomes `basis` (e.g. `rr_proof + exact_eval`). False = no
+    /// in-memory fact.
+    pub fn confirm_basis(&mut self, sha: &str, key: &[i32], basis: &'static str) -> bool {
+        let Some(&ri) = self.sha_index.get(sha) else {
+            return false;
+        };
+        match self.facts.get_mut(&(ri, key.to_vec())) {
+            Some(f) => {
+                f.producer = basis;
+                true
+            }
+            None => false,
+        }
     }
 
     /// lane closeloop3: the fact basis of (rule, key): the producer of the bound fact line (`rr_proof` | `exact_eval`
-    /// | `compact`), `None` without a fact.
+    /// | `compact`; `store` for a fact read from an attached evidence store only), `None` without a fact.
     pub fn fact_basis(&self, rule: &RuleId, key: &[i32]) -> Option<&'static str> {
-        self.rec(rule, key).map(|f| f.producer)
+        self.rec(rule, key).map(|f| match f {
+            FactRef::Mem(m) | FactRef::Both(m, _) => m.producer,
+            FactRef::Store(_) => "store",
+        })
     }
 
-    fn rec(&self, rule: &RuleId, key: &[i32]) -> Option<&FactRec> {
-        let ri = self.rule_index.get(&(rule.table.to_string(), rule.label))?;
-        self.facts.get(&(*ri, key.to_vec()))
+    fn rec(&self, rule: &RuleId, key: &[i32]) -> Option<FactRef<'_>> {
+        let ri = self.rule_index2.get(rule.table)?.get(&rule.label)?;
+        self.fact_ref(*ri, key)
     }
 
     /// Whether an exact per-key proof is bound to the record named by `rule` at `key`.
     fn per_key(&self, rule: &RuleId, key: &[i32]) -> bool {
-        self.rule_index
-            .get(&(rule.table.to_string(), rule.label))
-            .and_then(|ri| self.proofs.get(&(*ri, Box::<[i32]>::from(key))))
-            .is_some_and(|&i| self.statuses[i as usize].per_key)
+        let Some(&ri) = self
+            .rule_index2
+            .get(rule.table)
+            .and_then(|m| m.get(&rule.label))
+        else {
+            return false;
+        };
+        let pk = self
+            .proof_index(ri, key)
+            .is_some_and(|i| self.statuses[i as usize].per_key);
+        // closeloop4 m1 in every mode: a per-key proof contradicted by a decided verdict (in memory, inside one store,
+        // or across memory / stores) gives no per-key level; the pair is recorded for the verdict's blocker
+        pk && !self.conflicted(ri, key)
+    }
+
+    /// lane t266run: (rule, key) has a proof conflict ([`Self::proof_conflict`]); a conflicted pair is recorded in
+    /// `conflicts_used` (the closing loop's blocker names it).
+    fn conflicted(&self, ri: u32, key: &[i32]) -> bool {
+        if self.proof_conflict(ri, key) {
+            self.conflicts_used
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert((ri, key.to_vec()));
+            return true;
+        }
+        false
+    }
+
+    /// [`Self::conflicted`] for a rule id of the closure.
+    fn rule_conflicted(&self, rule: &RuleId, key: &[i32]) -> bool {
+        self.rule_index2
+            .get(rule.table)
+            .and_then(|m| m.get(&rule.label))
+            .is_some_and(|ri| self.conflicted(*ri, key))
+    }
+
+    /// Whether any proof conflict can exist: a conflict in memory or inside a store, or proofs from two sources or more.
+    fn conflicts_possible(&self) -> bool {
+        !self.proof_conflicts.is_empty()
+            || self
+                .stores
+                .iter()
+                .any(|a| a.store.meta().counts.proof_conflicts > 0)
+            || usize::from(!self.proofs.is_empty())
+                + self
+                    .stores
+                    .iter()
+                    .filter(|a| a.store.meta().counts.proofs_stored > 0)
+                    .count()
+                >= 2
+    }
+
+    /// Whether (table, record) at `key` has an exact per-key proof that no decided verdict contradicts (lane t266run:
+    /// the import's own row levels; a contradicted pair is recorded for the blocker).
+    pub fn per_key_at(&self, set: &ImportedSet, table: usize, record: usize, key: &[i32]) -> bool {
+        let sha = &set.rules[table][record].record_sha256;
+        let Some(&ri) = self.sha_index.get(sha) else {
+            return false;
+        };
+        self.proof_index(ri, key)
+            .is_some_and(|i| self.statuses[i as usize].per_key)
+            && !self.conflicted(ri, key)
+    }
+
+    /// lane t266run (closeloop4 m1 in store mode): (rule, key) has a per-key proof AND a decided contrary verdict:
+    /// in memory, inside one store (its entry's conflict flag), or across memory and the stores.
+    fn proof_conflict(&self, ri: u32, key: &[i32]) -> bool {
+        if !self.conflicts_possible() {
+            return false;
+        }
+        if !self.proof_conflicts.is_empty()
+            && self
+                .proof_conflicts
+                .contains(&(ri, Box::<[i32]>::from(key)))
+        {
+            return true;
+        }
+        if self.stores.is_empty() {
+            return false;
+        }
+        let (mut per, mut contra) = (false, false);
+        let mut see = |si: u32| {
+            let s = &self.statuses[si as usize];
+            if s.per_key {
+                per = true;
+            } else if is_decided_status(&s.status) {
+                contra = true;
+            }
+        };
+        if !self.proofs.is_empty()
+            && let Some(&m) = self.proofs.get(&(ri, Box::<[i32]>::from(key)))
+        {
+            see(m);
+        }
+        for a in &self.stores {
+            if let Some(rec) = a.rec_of_ri.get(ri as usize).copied().flatten()
+                && let Some(e) = a.store.get_rec(rec, key)
+            {
+                if e.proof_conflict {
+                    return true;
+                }
+                if let Some(s) = e.proof {
+                    see(a.status_map[s as usize]);
+                }
+            }
+        }
+        per && contra
+    }
+
+    /// lane t266run: the contradicted (record_sha256, key) pairs a check asked for a per-key level (each was denied
+    /// it), sorted.
+    pub fn conflicts_used(&self) -> Vec<(String, Vec<i32>)> {
+        self.conflicts_used
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(ri, k)| {
+                (
+                    self.rule_sha.get(*ri as usize).cloned().unwrap_or_default(),
+                    k.clone(),
+                )
+            })
+            .collect()
     }
 }
 
@@ -822,6 +1469,15 @@ fn locate(set: &ImportedSet, ri: u32) -> (usize, usize) {
 
 impl FactSource for Evidence {
     fn coefficient(&self, rule: &RuleId, key: &[i32], term: usize, term_key: &[i32]) -> CoefFact {
+        if !self.disputed.is_empty()
+            && self
+                .rule_index2
+                .get(rule.table)
+                .and_then(|m| m.get(&rule.label))
+                .is_some_and(|ri| self.disputed.contains(&(*ri, key.to_vec())))
+        {
+            return CoefFact::Unknown;
+        }
         self.rec(rule, key)
             .map(|f| f.coefficient(term, term_key))
             .unwrap_or(CoefFact::Unknown)
@@ -829,26 +1485,34 @@ impl FactSource for Evidence {
     fn regularity(&self, rule: &RuleId, key: &[i32]) -> RegFact {
         // a regularity fact first; else an exact per-key proof at the key implies the rule is regular there (the proof
         // evaluates the rule at the key; a pole is the different status IRREGULAR_KEY)
-        match self.rec(rule, key).map(|f| f.regular) {
+        let r = match self.rec(rule, key).map(|f| f.regular()) {
             Some(RegFact::Unknown) | None if self.per_key(rule, key) => RegFact::Regular,
             Some(f) => f,
             None => RegFact::Unknown,
+        };
+        // lane t266run (closeloop4 m1): a regularity fact does not make a pair regular whose proofs contradict each
+        // other (a decided contrary verdict beside a per-key proof): unknown, recorded for the blocker
+        if r == RegFact::Regular && self.rule_conflicted(rule, key) {
+            return RegFact::Unknown;
         }
+        r
     }
     fn per_key_proof(&self, rule: &RuleId, key: &[i32]) -> bool {
         // a Pole fact for the same (rule, key) contradicts the proof: fail closed (no lift)
         self.per_key(rule, key)
             && self
                 .rec(rule, key)
-                .is_none_or(|f| f.regular != RegFact::Pole)
+                .is_none_or(|f| f.regular() != RegFact::Pole)
     }
     fn label(&self) -> String {
         self.label.clone()
     }
     fn witness_lift(&self, rule: &RuleId, key: &[i32]) -> RegFact {
         match self.rec(rule, key) {
-            Some(f) if f.lift => RegFact::Regular,
-            Some(f) if f.regular == RegFact::Pole => RegFact::Pole,
+            // lane t266run (closeloop4 m1): no lift through a fact for a pair whose proofs contradict each other
+            Some(f) if f.lift() && self.rule_conflicted(rule, key) => RegFact::Unknown,
+            Some(f) if f.lift() => RegFact::Regular,
+            Some(f) if f.regular() == RegFact::Pole => RegFact::Pole,
             _ => RegFact::Unknown,
         }
     }

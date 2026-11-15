@@ -317,6 +317,39 @@ fn parallel_map<T: Sync, R: Send>(
     threads: NonZeroUsize,
     f: impl Fn(&T) -> Result<R, PError> + Sync,
 ) -> Result<Vec<R>, PError> {
+    parallel_map_labeled("map", items, threads, f)
+}
+
+/// `RUSTRED_P_CENSUS_PROGRESS=1` (p5l-library session 2): one stderr line per
+/// 5 % of the items of each census stage, with the elapsed seconds.
+fn census_progress() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("RUSTRED_P_CENSUS_PROGRESS").is_ok_and(|v| v == "1"))
+}
+
+fn parallel_map_labeled<T: Sync, R: Send>(
+    label: &str,
+    items: &[T],
+    threads: NonZeroUsize,
+    f: impl Fn(&T) -> Result<R, PError> + Sync,
+) -> Result<Vec<R>, PError> {
+    let started = std::time::Instant::now();
+    let finished = AtomicUsize::new(0);
+    let step = (items.len() / 20).max(1);
+    let f = |item: &T| {
+        let out = f(item);
+        if census_progress() {
+            let count = finished.fetch_add(1, Ordering::Relaxed) + 1;
+            if count.is_multiple_of(step) || count == items.len() {
+                eprintln!(
+                    "[census] {label}: {count}/{} in {:.1} s",
+                    items.len(),
+                    started.elapsed().as_secs_f64()
+                );
+            }
+        }
+        out
+    };
     let workers = threads.get().min(items.len());
     if workers <= 1 {
         return items.iter().map(f).collect();
@@ -593,7 +626,7 @@ pub fn p_census(
     let limits = &options.limits;
 
     // Fates first: an owner can be chosen only once every class is known.
-    let scanned = parallel_map(&ordered, threads, |p| {
+    let scanned = parallel_map_labeled("fates", &ordered, threads, |p| {
         let axes = Axes::of(p)?;
         let analyzer = Analyzer::try_unrestricted(&p.family).map_err(|e| zero_error(p, e))?;
         axes.supports()
@@ -713,7 +746,7 @@ pub fn p_census(
         .iter()
         .map(|(&sector, &class)| (sector, class))
         .collect();
-    let routed = parallel_map(&sectors, threads, |&((id, support), class)| {
+    let routed = parallel_map_labeled("routes", &sectors, threads, |&((id, support), class)| {
         let Some(class) = class else {
             return Ok(((id, support), PSectorFate::Zero));
         };
@@ -861,7 +894,7 @@ impl PCensus {
                 Ok((id, classed_support(ordered[position], support, limits)?))
             })
             .collect::<Result<BTreeMap<_, _>, PError>>()?;
-        parallel_map(&ordered, options.threads(), |p| {
+        parallel_map_labeled("check", &ordered, options.threads(), |p| {
             self.check_presentation(p, &owners, limits)
         })?;
         Ok(())

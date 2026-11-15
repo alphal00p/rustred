@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+use crate::poles::params::CriteriaOrder;
+use crate::poles::{Candidate, MaxSizeRatio, select};
+
 /// Schema of the policy file (campaign input role `repairflow`).
 pub const POLICY_SCHEMA: &str = "rustred.campaign.repairflow.v1";
 
@@ -235,38 +238,75 @@ pub enum SizeRatio {
 }
 
 impl SizeRatio {
-    /// The bound, None = unbounded; Err for a word other than "unbounded" or a ratio below 1.
+    /// The bound, None = unbounded; Err for a word other than "unbounded" or a ratio below 1. (Diagnostic form: the
+    /// choice itself uses [`SizeRatio::exact`].)
     pub fn bound(&self) -> Result<Option<f64>, String> {
-        match self {
-            SizeRatio::Word(w) if w == "unbounded" => Ok(None),
-            SizeRatio::Word(w) => Err(format!(
-                "max_size_ratio {w:?}: a rational >= 1 or \"unbounded\""
-            )),
-            SizeRatio::Ratio(r) if r.is_finite() && *r >= 1.0 => Ok(Some(*r)),
-            SizeRatio::Ratio(r) => Err(format!("max_size_ratio {r}: must be >= 1")),
+        match self.exact()? {
+            MaxSizeRatio::Unbounded => Ok(None),
+            MaxSizeRatio::Ratio { num, den } => Ok(Some(num as f64 / den as f64)),
         }
+    }
+
+    /// int7 (B1): the EXACT ratio through the one parser of `max_size_ratio` (`poles::MaxSizeRatio::parse`): a word
+    /// ("unbounded", "p/q", "8") as it is; a JSON number by its exact binary value (a finite float is a dyadic
+    /// rational: doubling it until it is an integer is exact), refused when it does not fit u64 / u64 or is below 1.
+    pub fn exact(&self) -> Result<MaxSizeRatio, String> {
+        let text = match self {
+            SizeRatio::Word(w) => w.clone(),
+            SizeRatio::Ratio(r) => {
+                let (mut x, mut den) = (*r, 1u64);
+                if !x.is_finite() || x < 1.0 {
+                    return Err(format!("max_size_ratio {r}: must be >= 1"));
+                }
+                while x.fract() != 0.0 {
+                    if den >= 1 << 62 {
+                        return Err(format!(
+                            "max_size_ratio {r}: not an exact rational p/q in u64 (write it as text \"p/q\")"
+                        ));
+                    }
+                    x *= 2.0;
+                    den *= 2;
+                }
+                if x >= u64::MAX as f64 {
+                    return Err(format!("max_size_ratio {r}: too large"));
+                }
+                format!("{}/{den}", x as u64)
+            }
+        };
+        MaxSizeRatio::parse(&Value::String(text)).map_err(|e| e.0)
     }
 }
 
 /// The regular-vs-size trade: keep the REGULAR candidate (size `regular`) over the smallest singular one (size
 /// `smallest`) iff `regular <= ratio x smallest` (always with "unbounded"). Returns (prefer regular, report line naming
-/// the value in force and both sizes).
+/// the value in force and both sizes). int7 (B1): decided by the ONE selection function (`poles::select`, the special
+/// case of `poles::pole_objective`) in exact integer arithmetic.
 pub fn prefer_regular(
     regular: u64,
     smallest: u64,
     ratio: &SizeRatio,
 ) -> Result<(bool, String), String> {
-    let b = ratio.bound()?;
-    let keep = match b {
-        None => true,
-        Some(r) => (regular as f64) <= r * (smallest.max(1) as f64),
+    let exact = ratio.exact()?;
+    let cand = |id: &str, size: u64, pole: Option<u64>| Candidate {
+        id: id.into(),
+        admissible: true,
+        excluded_by: None,
+        evidence_level: 0,
+        size,
+        pole_order: pole,
     };
+    // the singular candidate's order is not known here: unknown ranks after every regular one, as a singular would
+    let cands = [
+        cand("regular", regular, Some(0)),
+        cand("smallest", smallest.max(1), None),
+    ];
+    let keep =
+        select(&cands, exact, CriteriaOrder::RegularFirst).is_some_and(|c| c.id == "regular");
     Ok((
         keep,
         format!(
             "max_size_ratio {}: regular candidate {regular} terms vs smallest {smallest}: {}",
-            b.map(|r| r.to_string())
-                .unwrap_or_else(|| "unbounded".into()),
+            exact.text(),
             if keep {
                 "regular kept"
             } else {
@@ -691,7 +731,7 @@ impl RepairPolicy {
                 self.faces.plain_faces
             ));
         }
-        self.symbolic.max_size_ratio.bound()?;
+        self.symbolic.max_size_ratio.exact()?;
         if self.composite.max_depth > 8 {
             return Err("repair policy: composite.max_depth must be <= 8".into());
         }

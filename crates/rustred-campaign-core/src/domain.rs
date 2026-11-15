@@ -3,7 +3,14 @@
 //! A [`CaseDomain`] is the set of keys a parametric rule applies to:
 //! - **chart** (optional): the orthant test (line slots >= 1, numerator slots <= 0), reported as
 //!   [`Verdict::ChartMismatch`] and kept separate from the case. A record's `chart` must equal the frame mask
-//!   ([`DomainError::ChartNotFrame`]; the engine refuses a chart other than the node mask);
+//!   ([`DomainError::ChartNotFrame`]; the engine refuses a chart other than the node mask). EPS FRAMES (frames with eps
+//!   axes, [`NodeFrame::from_header_eps_aware`]): the record's chart must be one of [`NodeFrame::charts`]; the
+//!   domain then carries NO orthant chart (`chart: None`: an eps axis is two-sided, which a line mask cannot say; the
+//!   node's orthant on the integer slots is tested by the dispatcher, [`crate::cover::Dispatcher`]) and the record's
+//!   sign on each eps axis is a SELECTION bound (`n_a - 1 >= 0` on a `n>=1` chart, `-n_a >= 0` on a `n<=0` chart):
+//!   a key of another chart passes the record over ([`NotInCase::Bound`]), as the engine's per-chart rule lists
+//!   (`propagator/custom.rs:319-333`, `:789-791`). An eps axis must be canonical in the target (rule point = key there)
+//!   or fixed to a value of the chart's sign; recenter bounds on an eps frame are refused;
 //! - **target pattern** ([`TargetMap`]): as the engine's `find_rule`, the key is matched against the rule's `target`
 //!   (`n<a>+o` sets the rule point `pt[a] = k[j] - o`, a constant `o` requires `k[j] == o`); equations, bounds,
 //!   exceptions and pole loci are evaluated AT THE RULE POINT. A source that carries no target (case-domain
@@ -46,7 +53,7 @@ use std::fmt;
 
 use crate::key::{FrameError, NodeFrame};
 use crate::poly::{EvalError, Poly, PolyError};
-use crate::record::{BankPredicate, RuleRecord};
+use crate::record::{BankPredicate, DomainBounds, RuleRecord};
 
 /// Errors while building a domain.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -79,6 +86,12 @@ pub enum DomainError {
     MissingRecenter,
     /// Inconsistent public fields (from [`CaseDomain::validate`]).
     Invalid(String),
+    /// The record's `domain_bounds` is one the engine refuses or one whose engine behaviour is not modelled
+    /// ([`bound_branches`]; lane partfix4).
+    Bounds(String),
+    /// The record carries top-level members outside [`crate::record::RULE_RECORD_MEMBERS`] (sorted): never loaded,
+    /// since a member this crate does not know may change what the engine does (lane partfix4).
+    UnknownMember(Vec<String>),
 }
 
 impl fmt::Display for DomainError {
@@ -106,6 +119,11 @@ impl fmt::Display for DomainError {
                 "recenter bounds requested but the record's recenter is null or absent"
             ),
             DomainError::Invalid(s) => write!(f, "invalid domain: {s}"),
+            DomainError::Bounds(s) => write!(f, "domain_bounds: {s}"),
+            DomainError::UnknownMember(m) => write!(
+                f,
+                "rule record member(s) {m:?} unknown to the reader (refused, never ignored)"
+            ),
         }
     }
 }
@@ -369,6 +387,91 @@ fn target_map(slots: Vec<TargetSlot>, fixed: &[Option<i32>]) -> TargetMap {
     }
 }
 
+/// The most chart values one `domain_bounds` entry may exclude on a FREE slot (rustred-core node/bounds.rs
+/// `MAX_EXCLUDED_PER_SLOT`; the engine refuses a farther bound at load).
+pub const ENGINE_MAX_BOUND_EXCLUSIONS: i64 = 64;
+
+/// THE meaning of a rule record's `domain_bounds` (lane partfix4; audit-part4 B1 / B2 / B2b): the ENGINE's, ported
+/// line by line from rustred-core node/bounds.rs `bound_exclusions` (frozen engine-line7a 6c2fb15c), which
+/// mastermap.rs `Table::load` appends to the record's exceptions. The result is a list of extra EXCEPTION BRANCHES,
+/// each the one literal `n_i - v`, which [`CaseDomain::from_rule_record`] appends AFTER the written exceptions, so the
+/// dispatcher, the partition and the engine evaluate them by one code path: at the RULE POINT, a branch that vanishes
+/// deselects the record (dispatch falls through). Per slot `i` (`chart[i]`: the record's chart, line = `1`):
+/// - a `max` on a line slot or a `min` on a non-line slot is refused (fixed or not; the engine: it would cut an
+///   infinite set);
+/// - a FIXED slot (`fixed[i] = f`, tested on the KEY): a violated bound (`f < min` or `f > max`) adds `n_i - f`,
+///   otherwise nothing, whatever the rule point's coordinate `i` is (B2b: with a target pattern the engine compares
+///   the key's fixed value, not the rule point; reproduced, not "corrected");
+/// - a free line slot with `min = m`: `n_i - v` for `v = 1 .. m-1` (refused when `m - 1 > 64`); a free non-line slot
+///   with `max = M`: `n_i - v` for `v = M+1 ..= 0` (refused when `-M > 64`). With a canonical target the rule point is
+///   the key and these are exactly `n_i >= m` / `n_i <= M` on the chart; with a target pattern the rule point may
+///   leave the chart side, and only these finitely many values are excluded (B2; reproduced).
+///
+/// Refused where the engine's behaviour is not modelled: lengths other than the chart's; an `i64` edge value where the
+/// engine's arithmetic would overflow (`min = i64::MIN`; `max = i64::MIN` makes the engine enumerate 2^63 values).
+pub fn bound_branches(
+    b: &DomainBounds,
+    chart: &[bool],
+    fixed: &[Option<i64>],
+) -> Result<Vec<Vec<Poly>>, String> {
+    let n = chart.len();
+    if b.min.len() != n || b.max.len() != n || fixed.len() != n {
+        return Err(format!(
+            "min / max / fixed of lengths {} / {} / {} for the chart's arity {n}",
+            b.min.len(),
+            b.max.len(),
+            fixed.len()
+        ));
+    }
+    let mut out: Vec<Vec<Poly>> = Vec::new();
+    for i in 0..n {
+        let (min, max) = (b.min[i], b.max[i]);
+        if chart[i] && max.is_some() {
+            return Err(format!(
+                "a max on line slot {i} would cut an infinite set (refused as by the engine)"
+            ));
+        }
+        if !chart[i] && min.is_some() {
+            return Err(format!(
+                "a min on non-line slot {i} would cut an infinite set (refused as by the engine)"
+            ));
+        }
+        if let Some(f) = fixed[i] {
+            if min.is_some_and(|m| f < m) || max.is_some_and(|m| f > m) {
+                out.push(vec![Poly::slot_minus(i, i128::from(f))]);
+            }
+            continue;
+        }
+        if let Some(m) = min {
+            let far = m
+                .checked_sub(1)
+                .is_none_or(|x| x > ENGINE_MAX_BOUND_EXCLUSIONS);
+            if far {
+                return Err(format!(
+                    "min {m} on free slot {i} excludes more than {ENGINE_MAX_BOUND_EXCLUSIONS} chart values (refused as by the engine)"
+                ));
+            }
+            for v in 1..m {
+                out.push(vec![Poly::slot_minus(i, i128::from(v))]);
+            }
+        }
+        if let Some(m) = max {
+            let far = m
+                .checked_neg()
+                .is_none_or(|x| x > ENGINE_MAX_BOUND_EXCLUSIONS);
+            if far {
+                return Err(format!(
+                    "max {m} on free slot {i} excludes more than {ENGINE_MAX_BOUND_EXCLUSIONS} chart values (refused as by the engine)"
+                ));
+            }
+            for v in (m + 1)..=0 {
+                out.push(vec![Poly::slot_minus(i, i128::from(v))]);
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// What to take from a raw rule record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DomainOptions {
@@ -537,8 +640,11 @@ impl CaseDomain {
 
     /// From an rr_node `table_dump.v1` rule record or a case-domain export record.
     ///
-    /// Refused (typed errors, never a silent reading): a non-zero power shift of the frame, `dispatch` other than
-    /// absent/`Partition` ([`DomainError::NotDispatched`]), a record chart other than the frame mask, a missing
+    /// Eps frames: see the module documentation (record chart required and one of the frame's charts; eps-axis signs
+    /// become selection bounds; no orthant chart on the domain).
+    ///
+    /// Refused (typed errors, never a silent reading): recenter bounds on an eps frame, `dispatch` other than
+    /// absent/`Partition` ([`DomainError::NotDispatched`]), a record chart other than the frame's, a missing
     /// target unless `opts.targets` states canonical-by-construction, an unreadable target, a `recenter` that is
     /// missing, `null` or of the wrong length (when recenter bounds are requested), a non-canonical target together
     /// with recenter bounds.
@@ -547,8 +653,36 @@ impl CaseDomain {
         frame: &NodeFrame,
         opts: DomainOptions,
     ) -> Result<Self, DomainError> {
-        frame.require_integer_only()?;
         let n = frame.arity();
+        let eps = frame.eps_axes();
+        if opts.recenter_bounds && !eps.is_empty() {
+            frame.require_integer_only_for("recenter bounds (DomainOptions::recenter_bounds)")?;
+        }
+        // `domain_bounds` first (lane partfix4): the engine converts them for EVERY rule record at load, dispatched or
+        // not, and refuses the whole table on a bad one (mastermap.rs `Table::load`)
+        let bound_exc = match &r.domain_bounds {
+            None => vec![],
+            Some(b) => {
+                // lane epsframe (kept at int7): no bound on an eps axis (a floor is not defined on a two-sided axis;
+                // the engine never reads eps tables' bounds: its Table::load refuses eps families)
+                if let Some(&a) = eps.iter().find(|&&a| {
+                    b.min.get(a).is_some_and(Option::is_some)
+                        || b.max.get(a).is_some_and(Option::is_some)
+                }) {
+                    return Err(DomainError::Bounds(format!(
+                        "domain_bounds on the eps axis {a} (a bound is not defined on a two-sided axis)"
+                    )));
+                }
+                let chart: Vec<bool> = r
+                    .chart
+                    .as_deref()
+                    .ok_or_else(|| DomainError::Bounds("rule without chart".into()))?
+                    .chars()
+                    .map(|c| c == '1')
+                    .collect();
+                bound_branches(b, &chart, &r.fixed).map_err(DomainError::Bounds)?
+            }
+        };
         if let Some(dsp) = &r.dispatch
             && dsp != "Partition"
         {
@@ -556,34 +690,83 @@ impl CaseDomain {
                 dispatch: dsp.clone(),
             });
         }
+        if !r.unknown_members.is_empty() {
+            return Err(DomainError::UnknownMember(r.unknown_members.clone()));
+        }
         if r.fixed.len() != n {
             return Err(DomainError::Malformed(format!(
                 "fixed of length {} for arity {n}",
                 r.fixed.len()
             )));
         }
-        if let Some(c) = &r.chart
-            && *c != frame.mask_string()
-        {
-            return Err(DomainError::ChartNotFrame {
-                chart: c.clone(),
-                frame: frame.mask_string(),
-            });
-        }
-        let chart = opts.chart.then(|| frame.mask().to_vec());
+        let chart_not_frame = |c: &str| DomainError::ChartNotFrame {
+            chart: c.to_string(),
+            frame: frame.mask_string(),
+        };
+        // eps frame: the record's chart (one of the frame's charts; required) gives the eps-axis signs
+        let record_chart: Option<Vec<bool>> = if eps.is_empty() {
+            if let Some(c) = &r.chart
+                && *c != frame.mask_string()
+            {
+                return Err(chart_not_frame(c));
+            }
+            None
+        } else {
+            let c = r.chart.as_deref().ok_or_else(|| {
+                DomainError::Malformed("record without chart in an eps-shifted family".into())
+            })?;
+            let bits: Vec<bool> = c.chars().map(|x| x == '1').collect();
+            if !c.chars().all(|x| x == '0' || x == '1') || !frame.charts().contains(&bits) {
+                return Err(chart_not_frame(c));
+            }
+            Some(bits)
+        };
+        let chart = (opts.chart && eps.is_empty()).then(|| frame.mask().to_vec());
         let fixed = fixed_i32(&r.fixed)?;
         let target = match (&r.target, opts.targets) {
             (Some(t), _) => target_map(parse_target(t, n).map_err(DomainError::Target)?, &fixed),
             (None, TargetSource::CanonicalByConstruction { .. }) => TargetMap::Canonical,
             (None, TargetSource::FromRecord) => return Err(DomainError::MissingTarget),
         };
+        let mut bounds = vec![];
+        if let Some(rc) = &record_chart {
+            for &a in &eps {
+                let positive = rc[a];
+                if let Some(v) = fixed[a] {
+                    if (v >= 1) != positive {
+                        return Err(DomainError::Malformed(format!(
+                            "fixed value {v} on the eps axis {a} outside the record's chart"
+                        )));
+                    }
+                    continue;
+                }
+                if let TargetMap::Pattern(slots) = &target
+                    && slots.get(a)
+                        != Some(&TargetSlot::Param {
+                            param: a,
+                            offset: 0,
+                        })
+                {
+                    return Err(DomainError::Target(format!(
+                        "non-canonical target on the eps axis {a} (its chart sign is tested at the rule point)"
+                    )));
+                }
+                bounds.push(if positive {
+                    Poly::slot_minus(a, 1) // n_a - 1 >= 0
+                } else {
+                    Poly::slot_minus(a, 0)
+                        .neg()
+                        .map_err(|e| DomainError::Malformed(format!("eps chart bound: {e}")))? // -n_a >= 0
+                });
+            }
+        }
         let mut d = CaseDomain {
             arity: n,
             chart,
             fixed,
             target,
             equations: parse_list(&r.equations, n, "equation")?,
-            bounds: vec![],
+            bounds,
             exceptions: r
                 .exceptions
                 .iter()
@@ -593,6 +776,8 @@ impl CaseDomain {
             poles: vec![],
             witness_elided: false,
         };
+        // the engine's order: written exceptions, then the bound branches ([`bound_branches`])
+        d.exceptions.extend(bound_exc);
         if opts.witness
             && let Some(w) = &r.witness_loci
         {

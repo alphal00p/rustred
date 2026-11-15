@@ -29,11 +29,18 @@
 //! quadratic on unsorted input); it is never used here for acceptance. PR candidates: WS/notes/implementer.rows3.md.
 
 pub mod backend;
+// lane closeloop3 / zeros2 (I-INT request): exact coefficient facts and structural zero proofs (interfaces/zero-proofs.md)
+pub mod coef_facts;
+// lane epsdepth (interfaces/epsdepth.md): REQUEST TO I-INT, one line
+pub mod epsdepth;
 pub mod modes;
 pub mod referee;
+// lane tadic (interfaces/tadic.md): REQUEST TO I-INT, one line
+pub mod tadic;
 // lane poles (interfaces/pole-diagnostics.md, B0): REQUEST TO I-INT, one line
 pub mod valuation;
 pub mod wrap;
+pub mod zero_proofs;
 // lane tworow (interfaces/tworow.md): REQUEST TO I-INT, one line
 pub mod tworow_check;
 
@@ -43,3 +50,5 @@ pub use modes::{
     TriageReport, identity_test_mode, replay_evidence_mode, replay_evidence_triage,
     triage_identity,
 };
+// lane regbasis (interfaces/regbasis.md): REQUEST TO I-INT, one line
+pub mod regbasis;

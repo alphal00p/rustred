@@ -181,7 +181,7 @@ fn hard_errors_propagate_but_native_pole_inapplicability_can_fall_through() {
         )
         .unwrap();
     let owner = Arc::get_mut(p.owners.get_mut(&[true]).unwrap()).unwrap();
-    Arc::get_mut(&mut owner.batches[0]).unwrap().rules[2].rhs[0].denominator = zero;
+    Arc::get_mut(&mut owner.batches[0]).unwrap().rules[2].rhs[0].denominator = zero.into();
     let (result, visits) = step(&p, &key([3])).unwrap();
     assert!(matches!(result, OwnerStep::Applied(_)));
     assert_eq!(visits, vec![0, 1]);

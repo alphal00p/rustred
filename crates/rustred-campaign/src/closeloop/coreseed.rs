@@ -8,6 +8,7 @@
 //! (L10). Generic: node, paths, order, CPUs and caps are configuration.
 
 use crate::adapters::job::{InputFile, JobAdapter, Program, RunOptions, run_attempt};
+use crate::adapters::poleat::{PoleAdapter, PoleRequest};
 use crate::adapters::solve_recipe::{
     BatchPolicy, RecipeInput, SolveRecipeAdapter, SolveRecipeConfig, SolveRequest as AdReq,
 };
@@ -102,14 +103,31 @@ pub struct CoreDriverConfig {
     pub licence_env: Option<String>,
     /// d0 of the regularity verdicts.
     pub d0: String,
-    /// The valuation child (`rr_coreseed_valuation` of the algebra crate, or lane poles' `rr_poles`): called for a
-    /// relation the cheap exact test leaves undecided. None = the cheap test only.
-    pub valuation: Option<PathBuf>,
     /// Keep the run directories of minimisation trials (default: removed after the answer is journaled).
     pub keep_trial_outputs: bool,
     pub verbose: bool,
     /// Test stand: the fake child's answers.
     pub fake: Option<FakeCore>,
+    /// CPU budget of this solver (seconds of child CPU, e.g. one face's variant pass): once spent, every new request
+    /// is answered BUDGET ("cpu budget", never "no relation") without solving and is NOT journaled (a later run with a
+    /// larger budget solves it). None = unbounded (the closing pass).
+    pub cpu_budget_s: Option<f64>,
+    /// The pole orders of the certified relations the in-process test leaves undecided: ONE `pole-regular-at` child
+    /// job per solve batch (lane poles' `rr_poles regular-at`, many pairs per invocation; interfaces/coreseed.md 10).
+    /// None = the in-process sound test only (`regular` or `undecided`).
+    pub poles: Option<PolesCfg>,
+}
+
+/// The diagnostic child of the pole orders (program `rr_poles`, `Invocation::Legacy`; or the fake child with a script).
+#[derive(Debug, Clone)]
+pub struct PolesCfg {
+    pub program: Program,
+    /// Threads of the child (rr_poles: 1..4).
+    pub threads: u32,
+    pub cap_bytes: u64,
+    pub wall_cap_s: u64,
+    /// Test stand: the fake child's script for kind pole-regular-at.
+    pub fake: Option<FakeScript>,
 }
 
 /// The chart mask of the node (from the import set's frame).
@@ -158,48 +176,15 @@ fn sha256_hex(b: &[u8]) -> String {
     h.finish_hex()
 }
 
-/// The regularity judge of the driver: the core's cheap exact test first (a regular verdict is sound), then the
-/// valuation child for what it leaves undecided.
-pub struct DriverJudge {
-    pub valuation: Option<PathBuf>,
-}
+/// The regularity judge of the driver: the core's exact in-process denominator test (a `regular` verdict is sound; else
+/// `undecided`). The supervisor starts NO process of its own here: every child goes through the process layer as a
+/// job. Exact pole orders (lane poles' `rr_poles regular-at`) are a diagnostic job outside this solver (REQUEST: a
+/// contract job kind `pole-regular-at`, interfaces/coreseed.md 10); an undecided verdict never blocks a closing relation.
+pub struct DriverJudge;
 
 impl RegularityJudge for DriverJudge {
     fn is_regular_at(&self, record: &Value, key: &[i32], d0: &str) -> D0Verdict {
-        let cheap = DenominatorJudge.is_regular_at(record, key, d0);
-        if cheap.is_regular() {
-            return cheap;
-        }
-        let Some(p) = &self.valuation else {
-            return cheap;
-        };
-        let run = || -> Result<D0Verdict, String> {
-            let mut child = std::process::Command::new(p)
-                .args(["--d0", d0])
-                .stdin(std::process::Stdio::piped())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::null())
-                .spawn()
-                .map_err(|e| e.to_string())?;
-            {
-                let mut si = child.stdin.take().ok_or("stdin")?;
-                writeln!(si, "{}", json!({"key": key, "record": record}))
-                    .map_err(|e| e.to_string())?;
-            }
-            let out = child.wait_with_output().map_err(|e| e.to_string())?;
-            let v: Value = serde_json::from_slice(
-                out.stdout.split(|&b| b == b'\n').next().unwrap_or_default(),
-            )
-            .map_err(|e| e.to_string())?;
-            Ok(match v["verdict"].as_str() {
-                Some("regular") => D0Verdict::Regular,
-                Some("singular") => D0Verdict::Singular {
-                    order: v["order"].as_u64().map(|x| x as u32),
-                },
-                _ => D0Verdict::Undecided,
-            })
-        };
-        run().unwrap_or(D0Verdict::Undecided)
+        DenominatorJudge.is_regular_at(record, key, d0)
     }
 }
 
@@ -217,6 +202,9 @@ pub struct ChildSolver<'a> {
     lines: Vec<bool>,
     pub requests_solved: u64,
     pub requests_journaled: u64,
+    /// Child CPU seconds spent by this solver, and the requests answered by the CPU budget (not tried).
+    pub cpu_used_s: f64,
+    pub not_tried: Vec<String>,
 }
 
 impl<'a> ChildSolver<'a> {
@@ -240,7 +228,11 @@ impl<'a> ChildSolver<'a> {
                         serde_json::from_value::<Vec<KeyAnswer>>(v["answers"].clone()),
                     )
                 {
-                    journal.insert(d.to_string(), a);
+                    // an entry with a transient answer (e.g. an interrupted job of a stopped run, journaled before this
+                    // rule existed) is solved again
+                    if !a.iter().any(is_transient) {
+                        journal.insert(d.to_string(), a);
+                    }
                 }
             }
         }
@@ -286,6 +278,8 @@ impl<'a> ChildSolver<'a> {
             seq: 0,
             lines,
             requests_solved: 0,
+            cpu_used_s: 0.0,
+            not_tried: vec![],
         })
     }
 
@@ -398,6 +392,120 @@ impl<'a> ChildSolver<'a> {
             .collect()
     }
 
+    /// ONE `pole-regular-at` child job for the (record, key) pairs, through the process layer and the contract
+    /// (rows 37-39); returns per pair the verdict of the job (None = not read: the in-process verdict stays). A
+    /// host-resource end (row 15b) is retried once. Never an error of the solve: a failed diagnostic is recorded.
+    fn pole_job(&mut self, pairs: &[(usize, Key, Value)]) -> Vec<Option<D0Verdict>> {
+        let none = || vec![None; pairs.len()];
+        let Some(pc) = self.cfg.poles.clone() else {
+            return none();
+        };
+        let reqs: Vec<PoleRequest> = pairs
+            .iter()
+            .enumerate()
+            .map(|(i, (_, k, rec))| PoleRequest {
+                id: format!("p{i}"),
+                key: k.clone(),
+                record: rec.clone(),
+            })
+            .collect();
+        let ad = PoleAdapter {
+            program: pc.program.clone(),
+            d0: self.cfg.d0.clone(),
+            threads: pc.threads,
+            licence_env: self.cfg.licence_env.clone(),
+            fake: pc.fake.clone(),
+        };
+        self.seq += 1;
+        let work = self
+            .cfg
+            .work_root
+            .join(&self.session)
+            .join(format!("{:06}-poles", self.seq));
+        let opts = RunOptions {
+            cpus: if self.cfg.pin {
+                self.cfg.cpus.first().copied().into_iter().collect()
+            } else {
+                vec![]
+            },
+            memory_cap_bytes: Some(pc.cap_bytes),
+            licence_env: self.cfg.licence_env.clone(),
+            wall_cap: Some(Duration::from_secs(pc.wall_cap_s)),
+            grace: Some(Duration::from_secs(10)),
+        };
+        let note = |m: String| {
+            self.append(
+                "poles.jsonl",
+                &json!({"pairs": pairs.len(), "note": m, "utc": utc_now()}),
+            );
+        };
+        let plans = match ad.plan(&reqs) {
+            Ok(p) => p,
+            Err(e) => {
+                note(format!("plan: {e:?}"));
+                return none();
+            }
+        };
+        let Some(plan) = plans.first() else {
+            return none();
+        };
+        for attempt in 1..=2u32 {
+            let mut l = RealLauncher::new(self.sampler.clone());
+            match run_attempt(&mut l, &ad, &reqs, plan, &work, attempt, &opts) {
+                Ok((b, _)) if b.unread.is_none() => {
+                    let by_id: BTreeMap<
+                        String,
+                        &rustred_campaign_contract::classify::poleat::PoleAnswer,
+                    > = b
+                        .answers
+                        .iter()
+                        .filter_map(|a| a.id.as_str().map(|s| (s.to_string(), a)))
+                        .collect();
+                    note(format!(
+                        "row {} job {}: {} answers",
+                        b.classification.row,
+                        b.job_id,
+                        b.answers.len()
+                    ));
+                    return reqs
+                        .iter()
+                        .map(|q| {
+                            by_id
+                                .get(&q.id)
+                                .map(|a| match (a.verdict.as_str(), a.pole_order) {
+                                    ("regular", _) => D0Verdict::Regular,
+                                    ("pole", p) => D0Verdict::Singular {
+                                        order: p.map(|x| x as u32),
+                                    },
+                                    _ => D0Verdict::Undecided,
+                                })
+                        })
+                        .collect();
+                }
+                Ok((b, _)) => {
+                    let retry = b.classification.row == 15 && b.classification.sub == "b";
+                    note(format!(
+                        "attempt {attempt}: nothing read ({}){}",
+                        b.unread.unwrap_or_default(),
+                        if retry {
+                            ", host resource: retried"
+                        } else {
+                            ""
+                        }
+                    ));
+                    if !retry {
+                        return none();
+                    }
+                }
+                Err(e) => {
+                    note(format!("attempt {attempt}: {e:?}"));
+                    return none();
+                }
+            }
+        }
+        none()
+    }
+
     fn relation_info(&self, rec: &Value, key: &[i32]) -> RelationInfo {
         let rhs: Vec<Key> = rec["rhs"]
             .as_array()
@@ -441,6 +549,14 @@ fn utc_now() -> String {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     format!("t={t}")
+}
+
+/// A failed answer that a later run must solve again (never journaled, never replayed): no answer, a job that did not
+/// run, an interrupted job (also in the old form `job_refused` with an `(Interrupted)` classification).
+fn is_transient(a: &KeyAnswer) -> bool {
+    matches!(a, KeyAnswer::Failed { class, message }
+        if class == "missing" || class == "job_error" || class == "interrupted"
+            || (class == "job_refused" && message.contains("(Interrupted)")))
 }
 
 /// A minimisation trial request (its outputs are not kept): labels of the minimiser's trials.
@@ -550,6 +666,18 @@ impl CoreSolver for ChildSolver<'_> {
                 out[ri] = Some(a.clone());
                 continue;
             }
+            if self.cfg.cpu_budget_s.is_some_and(|b| self.cpu_used_s >= b) {
+                self.not_tried.push(r.label.clone());
+                out[ri] = Some(
+                    r.keys
+                        .iter()
+                        .map(|_| KeyAnswer::Budget {
+                            what: "cpu budget of the pass (not tried)".into(),
+                        })
+                        .collect(),
+                );
+                continue;
+            }
             self.seq += 1;
             let rdir = self.cfg.work_root.join(&self.session).join(format!(
                 "{:06}-{}",
@@ -644,6 +772,7 @@ impl CoreSolver for ChildSolver<'_> {
         }
         // acceptance per job (the accept chain needs the import set: sequential), answers per request
         let mut per_req: BTreeMap<usize, BTreeMap<Key, KeyAnswer>> = BTreeMap::new();
+        let mut pole_needed: Vec<(usize, Key, Value)> = vec![];
         let mut cost: BTreeMap<usize, (f64, u64, usize)> = BTreeMap::new();
         for (ji, j) in jobs.iter().enumerate() {
             let r = &batch[j.req];
@@ -672,7 +801,12 @@ impl CoreSolver for ChildSolver<'_> {
                                     }
                                 } else {
                                     KeyAnswer::Failed {
-                                        class: "job_refused".into(),
+                                        // an interrupted job (the run was stopped) is transient: solved again
+                                        class: if why.contains("(Interrupted)") {
+                                            "interrupted".into()
+                                        } else {
+                                            "job_refused".into()
+                                        },
                                         message: why.clone(),
                                     }
                                 }
@@ -705,7 +839,23 @@ impl CoreSolver for ChildSolver<'_> {
                             None,
                         );
                         match d {
-                            Ok(d) => self.answers_of(&d, &j.keys),
+                            Ok(d) => {
+                                // the accept chain's solved-relation lines (import 6.2): the proof references
+                                // of every decided key, next to the sealed results
+                                if !is_trial(&r.label) {
+                                    let mut t = d.lines.join("\n");
+                                    t.push('\n');
+                                    let _ = std::fs::write(j.work.join("solved.jsonl"), t);
+                                }
+                                // relations the in-process test leaves undecided: to the pole job of the batch
+                                for (k, rec) in &d.records {
+                                    if !self.judge.is_regular_at(rec, k, &self.cfg.d0).is_regular()
+                                    {
+                                        pole_needed.push((j.req, k.clone(), rec.clone()));
+                                    }
+                                }
+                                self.answers_of(&d, &j.keys)
+                            }
                             Err(e) => j
                                 .keys
                                 .iter()
@@ -726,6 +876,18 @@ impl CoreSolver for ChildSolver<'_> {
                 let _ = std::fs::remove_dir_all(&j.work);
             }
         }
+        // the pole orders of the batch's undecided relations (one diagnostic child job; never blocks a relation)
+        if !pole_needed.is_empty() {
+            let verdicts = self.pole_job(&pole_needed);
+            for ((ri, k, _), v) in pole_needed.iter().zip(verdicts) {
+                if let Some(KeyAnswer::Relation(info)) =
+                    per_req.get_mut(ri).and_then(|m| m.get_mut(k))
+                    && let Some(v) = v
+                {
+                    info.d0 = v;
+                }
+            }
+        }
         for (ri, m) in per_req {
             let r = &batch[ri];
             let a: Vec<KeyAnswer> = r
@@ -739,10 +901,7 @@ impl CoreSolver for ChildSolver<'_> {
                 })
                 .collect();
             // transient failures are not journaled (a resumed run solves the request again)
-            let transient = a.iter().any(|x| {
-                matches!(x, KeyAnswer::Failed { class, .. }
-                    if class == "missing" || class == "job_error" || class == "interrupted")
-            });
+            let transient = a.iter().any(is_transient);
             let d = r.digest();
             if !transient {
                 let line = json!({"digest": d, "label": r.label, "keys": r.keys, "answers": a});
@@ -769,6 +928,7 @@ impl CoreSolver for ChildSolver<'_> {
                 cpu_s
             ));
             self.requests_solved += 1;
+            self.cpu_used_s += cpu_s;
             out[ri] = Some(a);
         }
         out.into_iter()
@@ -781,5 +941,31 @@ impl CoreSolver for ChildSolver<'_> {
                        "requests_solved": self.requests_solved});
         self.append("progress.jsonl", &v);
         self.say(&format!("phase {phase}: {partial}"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn interrupted_and_missing_answers_are_transient_decided_ones_are_not() {
+        let f = |class: &str, message: &str| KeyAnswer::Failed {
+            class: class.into(),
+            message: message.into(),
+        };
+        assert!(is_transient(&f("interrupted", "")));
+        assert!(is_transient(&f("missing", "no answer")));
+        assert!(is_transient(&f("job_error", "spawn")));
+        assert!(is_transient(&f(
+            "job_refused",
+            "row 11 (Interrupted): interrupted; refusal None"
+        )));
+        assert!(!is_transient(&f("job_refused", "row 40 (Refused): usage")));
+        assert!(!is_transient(&f("refused", "not lower")));
+        assert!(!is_transient(&KeyAnswer::NoRelation));
+        assert!(!is_transient(&KeyAnswer::Budget {
+            what: "wall".into()
+        }));
     }
 }

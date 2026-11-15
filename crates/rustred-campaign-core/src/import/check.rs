@@ -52,6 +52,18 @@ pub const BASIS_CREDIT_VIA_RELATION: &str = "symmetry_credit_via_relation";
 /// closure.md 15.7): its evidence level is the image's (per-key iff a per-key proof is bound to (image record, image)).
 pub const BASIS_SYMMETRY_CREDIT_VERIFIED: &str = "symmetry_credit_verified";
 
+/// Basis word of a key served by a VERIFIED `sym` record (interfaces/import.md 18.4): I(key) = I(image) proved on the
+/// record's case from the family (seven steps) and the record's action in our derived group; level = the lower of
+/// per-key and the image's level.
+pub const BASIS_SYM_RECORD_VERIFIED: &str = "sym_record_verified";
+
+/// Basis word of a key served by a verified `sym` record whose image is NOT strictly lower at the key (step 7 fails
+/// there; the closure counts the descent violation): no evidence.
+pub const BASIS_SYM_NOT_LOWER: &str = "sym_record_not_lower";
+
+/// Open reason (prefix) of a key whose first-match record is an UNVERIFIED `sym` record.
+pub const REASON_SYM_UNVERIFIED: &str = "sym_record_unverified";
+
 /// Options of a check (never part of a result's identity except `tier`).
 #[derive(Clone, Debug)]
 pub struct CheckOptions {
@@ -200,6 +212,33 @@ pub struct CheckResult {
     pub seconds: f64,
     pub key_set_digest: String,
     pub required: Level,
+    /// lane layers (interfaces/closure.md 18, closeloop.md 23): the leaves this check's walk met (None without leaf
+    /// sets). Leaf keys have NO row (they belong to the earlier clause), are not in `key_set` and not counted.
+    pub leaves: Option<LeafHits>,
+    /// lane layers: the walk components of this check's OWN keys and credit images, and those images: what a leaf set
+    /// built from this result is bound to (closure.md 18).
+    pub leaf_walk: BTreeMap<String, String>,
+    pub credit_images: Vec<Vec<i32>>,
+}
+
+/// lane layers: the leaves a check met.
+#[derive(Clone, Debug, Serialize)]
+pub struct LeafHits {
+    pub summary: crate::closure::LeafSummary,
+    /// Start keys that are leaves (the composed statement marks them `in_start`).
+    pub in_start: Vec<Vec<i32>>,
+    /// Reached leaves that are not certified (they block: `leaf_open:N`).
+    pub open: Vec<Vec<i32>>,
+    /// The leaf sets themselves (membership of the composed closure: a key of a leaf set is a closure key).
+    #[serde(skip)]
+    pub parts: Vec<Arc<crate::closure::LeafSet>>,
+}
+
+impl LeafHits {
+    /// Whether `key` is a key of one of the leaf sets.
+    pub fn contains(&self, key: &[i32]) -> bool {
+        self.parts.iter().any(|p| p.contains(key))
+    }
 }
 
 fn is_top(lines: &[bool], k: &[i32]) -> bool {
@@ -356,7 +395,82 @@ pub fn check(
     ev: &Evidence,
     opts: &CheckOptions,
 ) -> Result<CheckResult, ImportError> {
-    check_inner(set, ev, opts, None)
+    check_inner(set, ev, opts, None, &set.start, &[])
+}
+
+/// lane layers (closure.md 18): the walk components of this set's configuration (tables, relation sets of the
+/// evidence, terminals, credits) for the key set `member` (e.g. a node's composed statement): an empty walk computes
+/// the identity, nothing is dispatched.
+pub fn leaf_walk_for(
+    set: &ImportedSet,
+    ev: &Evidence,
+    tier: Tier,
+    member: &dyn Fn(&[i32]) -> bool,
+) -> Result<BTreeMap<String, String>, ImportError> {
+    let (rsets, _, _) = recipe_sets(set, ev)?;
+    let relation_sets: Vec<Arc<RelationSet>> = set
+        .rel_order
+        .iter()
+        .map(|e| match *e {
+            super::load::RelEntry::Supplied(i) => set.supplied[i].clone(),
+            super::load::RelEntry::Recipe(i) => rsets[i].clone(),
+        })
+        .collect();
+    let ks = |v: &[Vec<i32>]| -> Result<Option<crate::closure::KeySet>, ImportError> {
+        if v.is_empty() {
+            return Ok(None);
+        }
+        let mut b = KeySetBuilder::new(set.codec);
+        for k in v {
+            b.push(k)
+                .map_err(|e| ImportError::Core(format!("terminal {k:?}: {e:?}")))?;
+        }
+        Ok(Some(b.finish()))
+    };
+    let terminals = if set.terminals_preferred.is_empty() && set.terminals_other.is_empty() {
+        None
+    } else {
+        Some(TerminalSets {
+            preferred: ks(&set.terminals_preferred)?,
+            other: ks(&set.terminals_other)?,
+        })
+    };
+    let cfg = ClosureConfig {
+        tier,
+        threads: 1,
+        bits: set.spec.bits,
+        hand_downs: HandDowns::Counts,
+        credits: set.credits.clone(),
+        terminals,
+        fact_tables: set.fact_tables.clone(),
+        table_digests: set.table_digests.clone(),
+        relation_sets,
+        witness_absent: match set.spec.policies.witness_absent {
+            super::spec::WitnessAbsentPolicy::LiftWithRegularFact => {
+                WitnessAbsent::LiftWithRegularFact
+            }
+            super::spec::WitnessAbsentPolicy::Block => WitnessAbsent::Block,
+        },
+        per_key_lift: per_key_lift(set),
+        longest_chain: false,
+        ..Default::default()
+    };
+    let empty = crate::closure::KeySet::empty(set.codec);
+    let c = closure(&set.disp, &set.bodies, &set.cmp, &empty, &cfg, ev)
+        .map_err(|e| ImportError::Core(format!("closure: {e}")))?;
+    Ok(c.walk_for(member))
+}
+
+/// lane layers (closure.md 18): [`check`] from another START set with LEAF SETS (every row kept in memory). The walk
+/// stops at a leaf; leaf keys get no row; every leaf set's binding is verified by the closure (refused on a mismatch).
+pub fn check_from_with_leaves(
+    set: &ImportedSet,
+    ev: &Evidence,
+    opts: &CheckOptions,
+    start: &crate::closure::KeySet,
+    leaves: &[Arc<crate::closure::LeafSet>],
+) -> Result<CheckResult, ImportError> {
+    check_inner(set, ev, opts, None, start, leaves)
 }
 
 /// A row sink of [`check_streamed`].
@@ -371,6 +485,30 @@ pub fn check_streamed(
     ev: &Evidence,
     opts: &CheckOptions,
     rows_path: &std::path::Path,
+) -> Result<CheckResult, ImportError> {
+    check_streamed_from(set, ev, opts, rows_path, &set.start)
+}
+
+/// [`check_streamed`] from another START set (lane t266run: one clause of a box made of several clauses; everything
+/// else, tables, relations, evidence, terminals, is the set's).
+pub fn check_streamed_from(
+    set: &ImportedSet,
+    ev: &Evidence,
+    opts: &CheckOptions,
+    rows_path: &std::path::Path,
+    start: &crate::closure::KeySet,
+) -> Result<CheckResult, ImportError> {
+    check_streamed_with_leaves(set, ev, opts, rows_path, start, &[])
+}
+
+/// lane layers (closure.md 18): [`check_streamed_from`] with LEAF SETS (leaf keys get no row).
+pub fn check_streamed_with_leaves(
+    set: &ImportedSet,
+    ev: &Evidence,
+    opts: &CheckOptions,
+    rows_path: &std::path::Path,
+    start: &crate::closure::KeySet,
+    leaves: &[Arc<crate::closure::LeafSet>],
 ) -> Result<CheckResult, ImportError> {
     use std::io::Write;
     if let Some(d) = rows_path.parent() {
@@ -393,7 +531,7 @@ pub fn check_streamed(
             n += 1;
             Ok(())
         };
-        check_inner(set, ev, opts, Some(&mut sink))?
+        check_inner(set, ev, opts, Some(&mut sink), start, leaves)?
     };
     w.flush().map_err(|e| super::error::io_err(rows_path, e))?;
     res.streamed = Some(StreamedRows {
@@ -465,6 +603,8 @@ fn check_inner(
     ev: &Evidence,
     opts: &CheckOptions,
     mut sink: Option<&mut RowSink<'_>>,
+    start: &crate::closure::KeySet,
+    leaves: &[Arc<crate::closure::LeafSet>],
 ) -> Result<CheckResult, ImportError> {
     let t0 = std::time::Instant::now();
     let tier = opts.tier.unwrap_or(match set.spec.policies.tier {
@@ -524,9 +664,10 @@ fn check_inner(
             super::spec::WitnessAbsentPolicy::Block => WitnessAbsent::Block,
         },
         per_key_lift: per_key_lift(set),
+        leaves: leaves.to_vec(),
         ..Default::default()
     };
-    let c = closure(&set.disp, &set.bodies, &set.cmp, &set.start, &cfg, ev)
+    let c = closure(&set.disp, &set.bodies, &set.cmp, start, &cfg, ev)
         .map_err(|e| ImportError::Core(format!("closure: {e}")))?;
     let summary = c.summary();
     // name -> table index; open info by key
@@ -577,7 +718,9 @@ fn check_inner(
     let mut rows = Vec::with_capacity(if sink.is_some() { 0 } else { c.len() });
     let mut agg = Aggregates::default();
     let required = set.spec.required_evidence;
-    for i in 0..c.len() {
+    let mut leaf_in_start: Vec<Vec<i32>> = vec![];
+    // one key's row (the image of a sym-served key is classified by the same function: interfaces/import.md 18.4)
+    let classify = |i: usize| -> Result<KeyRow, ImportError> {
         let key = c.key(i);
         let in_start = c.in_start(i);
         let mut row = KeyRow {
@@ -611,7 +754,14 @@ fn check_inner(
             if let (Some(o), Some((t, r))) = (o, row.open_rule)
                 && o.status == OpenStatus::Blocked
             {
-                row.open_reason = Some(blocked_reason(set, set.rules[t][r].witness, &o.detail));
+                row.open_reason = Some(match &set.rules[t][r].sym {
+                    // an unverified sym record blocks every key of its case (lane import5)
+                    Some(si) if !si.verified => format!(
+                        "{REASON_SYM_UNVERIFIED}: {}",
+                        si.reason.as_deref().unwrap_or("")
+                    ),
+                    _ => blocked_reason(set, set.rules[t][r].witness, &o.detail),
+                });
             }
             if let Some(o) = o
                 && o.status == OpenStatus::Uncovered
@@ -680,7 +830,7 @@ fn check_inner(
                 });
                 let image_proof = credit_images
                     .get(&row.key)
-                    .is_some_and(|im| ev.proof(set, t, r, im).is_some_and(|p| p.per_key));
+                    .is_some_and(|im| ev.per_key_at(set, t, r, im));
                 // the image's level exactly as the direct-rule branch scores a key served by (t, r): per-key iff an
                 // exact per-key proof is bound at the image (which is also what lifts an image, closure.md 17)
                 let image_level = if image_proof {
@@ -696,6 +846,23 @@ fn check_inner(
                 } else {
                     "symmetry_credit"
                 });
+            } else if let Some(si) = &set.rules[t][r].sym {
+                // a VERIFIED sym record (an unverified one never serves): I(key) = I(image) exactly on its case; its
+                // level is the lower of per-key (its own) and its image's, filled in by the caller (`sym_image`)
+                row.server = Some(Server::Rule {
+                    table: t,
+                    record: r,
+                });
+                let image = si.image_of(&row.key);
+                if set.cmp.try_lower(&image, &row.key).unwrap_or(false) {
+                    row.evidence = Some(Level::PerKey);
+                    row.basis = Some(BASIS_SYM_RECORD_VERIFIED);
+                } else {
+                    // step 7 of the verification fails AT THIS KEY (the closure counts the descent violation)
+                    row.evidence = None;
+                    row.basis = Some(BASIS_SYM_NOT_LOWER);
+                }
+                row.image = Some(image);
             } else {
                 row.server = Some(Server::Rule {
                     table: t,
@@ -703,7 +870,8 @@ fn check_inner(
                 });
                 let info = &set.rules[t][r];
                 let lifted = c.is_per_key_lifted(i);
-                let proof = lifted || ev.proof(set, t, r, &row.key).is_some_and(|p| p.per_key);
+                // lane t266run (closeloop4 m1): a per-key proof contradicted by a decided verdict does not label the row
+                let proof = lifted || ev.per_key_at(set, t, r, &row.key);
                 row.evidence = Some(if proof {
                     Level::PerKey
                 } else {
@@ -746,6 +914,55 @@ fn check_inner(
             row.open_status = Some("undecided".into());
             row.open_reason = Some("symmetry credit pending on unknown facts".into());
         }
+        Ok(row)
+    };
+    for i in 0..c.len() {
+        // lane layers: a leaf has no row here (it belongs to the earlier clause's statement)
+        if c.is_leaf(i) {
+            if c.in_start(i) {
+                leaf_in_start.push(c.key(i));
+            }
+            continue;
+        }
+        let mut row = classify(i)?;
+        if row.basis == Some(BASIS_SYM_RECORD_VERIFIED) {
+            // the level of a sym-served key: the lower of its own (per-key) and its image's, along a chain of sym
+            // records (images strictly lower: finite; a repeated key stops the walk at `imported`)
+            let mut level = Level::PerKey;
+            let mut seen: BTreeSet<usize> = BTreeSet::from([i]);
+            let mut next = row.image.clone();
+            while let Some(im) = next.take() {
+                let Some(j) = c.index_of(&im).filter(|j| seen.insert(*j)) else {
+                    level = level.min(Level::Imported);
+                    break;
+                };
+                // int7 (layers x import5 sym records): an image in a LEAF set has no row of this walk; its level is
+                // the one its leaf set recorded when certified there, else `imported` (never raised)
+                if c.is_leaf(j) {
+                    let leaf_level = c
+                        .leaf_hit(j)
+                        .filter(|h| h.certified)
+                        .and_then(|h| {
+                            serde_json::from_value::<Level>(serde_json::Value::String(h.level)).ok()
+                        })
+                        .unwrap_or(Level::Imported);
+                    level = level.min(leaf_level);
+                    break;
+                }
+                let r2 = classify(j)?;
+                match r2.status {
+                    RowStatus::Terminal => {}
+                    RowStatus::Open => level = level.min(Level::Imported),
+                    RowStatus::Served if r2.basis == Some(BASIS_SYM_RECORD_VERIFIED) => {
+                        next = r2.image.clone();
+                    }
+                    RowStatus::Served => {
+                        level = level.min(r2.evidence.unwrap_or(Level::Imported));
+                    }
+                }
+            }
+            row.evidence = Some(level);
+        }
         match sink.as_mut() {
             None => rows.push(row),
             Some(s) => {
@@ -764,8 +981,12 @@ fn check_inner(
         }
     }
     rows.sort_by(|a, b| a.key.cmp(&b.key));
-    // key-set digest
-    let ks = c.keys();
+    // key-set digest (lane layers: the walk's OWN keys; reached leaves belong to their leaf set)
+    let ks = if leaves.is_empty() {
+        c.keys()
+    } else {
+        c.own_keys()
+    };
     let key_set_digest = ks.digest();
     // solve requests
     let mut solve_requests = vec![];
@@ -879,7 +1100,19 @@ fn check_inner(
         })
         .collect();
     let streaming = sink.is_some();
+    let leaf_hits = summary.leaves.clone().map(|s| {
+        leaf_in_start.sort();
+        LeafHits {
+            summary: s,
+            in_start: leaf_in_start,
+            open: c.leaf_open_keys(),
+            parts: leaves.to_vec(),
+        }
+    });
     Ok(CheckResult {
+        leaves: leaf_hits,
+        leaf_walk: c.leaf_walk().clone(),
+        credit_images: c.credit_images().iter().collect(),
         rows,
         streamed: None,
         aggregates: streaming.then_some(agg),

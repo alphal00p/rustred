@@ -144,7 +144,11 @@ impl Splitter {
         }
         let units = u64::try_from(holes.len().saturating_add(others.len()).saturating_add(1))
             .unwrap_or(u64::MAX);
-        self.work = self.work.saturating_add(units);
+        // plus the Fourier-Motzkin / point-search work of the previous node (audit-part3 m4)
+        self.work = self
+            .work
+            .saturating_add(units)
+            .saturating_add(super::region::take_work());
         if self.work > self.max_work {
             return Sub::Unknown(format!("proof work budget {} exhausted", self.max_work));
         }
@@ -543,6 +547,26 @@ fn containment(
     mode: OthersAre,
     budget: &ProofBudget,
 ) -> Containment {
+    // ONE wall deadline for the whole call (every part of a root split shares it)
+    let deadline = budget
+        .wall
+        .and_then(|w| std::time::Instant::now().checked_add(w));
+    containment_at(d, others, frame, mode, budget, deadline)
+}
+
+fn containment_at(
+    d: &CaseDomain,
+    others: &[&CaseDomain],
+    frame: &NodeFrame,
+    mode: OthersAre,
+    budget: &ProofBudget,
+    deadline: Option<std::time::Instant>,
+) -> Containment {
+    if deadline.is_some_and(|t| std::time::Instant::now() > t) {
+        return Containment::Unknown {
+            reason: "proof wall budget exhausted".into(),
+        };
+    }
     if d.target == crate::domain::TargetMap::Canonical {
         for (ei, e) in d.equations.iter().enumerate() {
             let Ok(m) = MPoly::from_poly(e, d.arity, false) else {
@@ -586,7 +610,7 @@ fn containment(
                 part.fixed[s] = Some(xv);
                 part.equations.remove(ei);
                 parts = parts.saturating_add(1);
-                match containment(&part, others, frame, mode, budget) {
+                match containment_at(&part, others, frame, mode, budget, deadline) {
                     Containment::Proved { .. } => {}
                     Containment::NotContained { witness } => {
                         return Containment::NotContained { witness };
@@ -604,7 +628,7 @@ fn containment(
             };
         }
     }
-    containment_linear(d, others, frame, mode, budget)
+    containment_linear(d, others, frame, mode, budget, deadline)
 }
 
 fn containment_linear(
@@ -613,18 +637,28 @@ fn containment_linear(
     frame: &NodeFrame,
     mode: OthersAre,
     budget: &ProofBudget,
+    deadline: Option<std::time::Instant>,
 ) -> Containment {
     // the subject is read geometrically (elided flag ignored); in Applying mode an elided other never applies
     let mut subject = d.clone();
     subject.witness_elided = false;
     let mut all: Vec<CaseDomain> = vec![subject];
-    let mut kept: Vec<&CaseDomain> = vec![];
+    // an OTHER whose literals may meet the engine's modular zero test (audit-part3 C2) is dropped: where the engine
+    // reads one of its exception members as zero it passes the record while the normal form says it matches /
+    // applies; dropping an other only shrinks the union (sound)
+    let mut risky = 0usize;
+    // every other that counts, risky ones included: a WITNESS (NotContained) is verified against all of them
+    let mut verify: Vec<&CaseDomain> = vec![];
     for o in others {
         if mode == OthersAre::Applying && o.witness_elided {
             continue;
         }
+        verify.push(o);
+        if nf::modular_zero_risk(o).is_some() {
+            risky = risky.saturating_add(1);
+            continue;
+        }
         all.push((*o).clone());
-        kept.push(o);
     }
     // FailClosed so that every other's SELECTED set is available (`selected`), its APPLIES set as its rule
     let nfr = match nf_of(&all, frame, ElidedPolicy::FailClosed) {
@@ -645,7 +679,9 @@ fn containment_linear(
                     certificate: format!("the domain never applies (exact): {w}"),
                 };
             }
-            NfNote::ElidedRemoved | NfNote::ElidedCredited => {}
+            // the subject's applies set may be over-approximated where the engine's modular zero test differs: a
+            // larger subject only makes containment harder to prove (sound)
+            NfNote::ElidedRemoved | NfNote::ElidedCredited | NfNote::ModularZeroRisk(_) => {}
         }
     }
     let Some(r0) = nfr.sources.iter().position(|s| s == &vec![0]) else {
@@ -695,6 +731,7 @@ fn containment_linear(
             });
         }
     }
+    let _ = super::region::take_work(); // leftovers of earlier calls on this thread are not this proof's work
     let mut sp = Splitter {
         nodes: 0,
         leaves: 0,
@@ -704,14 +741,12 @@ fn containment_linear(
         work: 0,
         max_work: budget.max_work,
         max_enumeration: budget.max_enumeration,
-        deadline: budget
-            .wall
-            .and_then(|w| std::time::Instant::now().checked_add(w)),
+        deadline,
     };
     match sp.solve(reg.clone(), holes, os) {
         Sub::Empty => Containment::Proved {
             certificate: format!(
-                "exact sign split: {} nodes, {} leaves, each integer-infeasible (Fourier-Motzkin with rounding), on an exception branch, or inside a listed domain ({}){}",
+                "exact sign split: {} nodes, {} leaves, each integer-infeasible (Fourier-Motzkin with rounding), on an exception branch, or inside a listed domain ({}){}{}",
                 sp.nodes,
                 sp.leaves,
                 match mode {
@@ -724,6 +759,13 @@ fn containment_linear(
                     )
                 } else {
                     String::new()
+                },
+                if risky > 0 {
+                    format!(
+                        "; {risky} other domain(s) left out (their literals may meet the engine's modular zero test)"
+                    )
+                } else {
+                    String::new()
                 }
             ),
         },
@@ -733,14 +775,15 @@ fn containment_linear(
             let key: Option<Key> = x.iter().map(|&v| i32::try_from(v).ok()).collect();
             if let Some(key) = key
                 && subject_applies(d, &key)
-                && !kept.iter().any(|o| other_counts(o, &key, mode))
+                && !verify.iter().any(|o| other_counts(o, &key, mode))
             {
                 return Containment::NotContained { witness: key };
             }
-            match verified_witness(&reg, d, &kept, mode) {
+            match verified_witness(&reg, d, &verify, mode, &mut sp) {
                 Some(k) => Containment::NotContained { witness: k },
                 None => Containment::Unknown {
-                    reason: "a nonempty leaf was found but no verified integer witness".into(),
+                    reason: "a nonempty leaf was found but no verified integer witness (within the proof budget)"
+                        .into(),
                 },
             }
         }
@@ -763,12 +806,20 @@ pub fn contained_in_with(
     containment(d, others, frame, OthersAre::Applying, budget)
 }
 
-/// Exact search for a key in `d` and in none of `others`, verified by `CaseDomain::applies`.
+/// Points tried at most by [`verified_witness`]'s walk (beyond: no witness, the verdict is `Unknown`).
+const WITNESS_WALK_CAP: u64 = 20_000;
+
+/// Exact search for a key in `d` and in none of `others`, verified by `CaseDomain::applies`: the base point of the
+/// region, then an L1 walk of radius 1..=12 around it. BUDGETED (audit-part3 M3: the walk used to visit every point
+/// of the ball in all k parameters, ~6e10 at k = 20, with no check): every point tried costs one work unit of the
+/// splitter's budget, the wall deadline is read every 256 points, and at most `min(WITNESS_WALK_CAP,
+/// max_enumeration)` points are tried; exhausted = `None` (the caller answers `Unknown`).
 fn verified_witness(
     reg: &Region,
     d: &CaseDomain,
     others: &[&CaseDomain],
     mode: OthersAre,
+    sp: &mut Splitter,
 ) -> Option<Key> {
     let k = reg.k;
     let check = |t: &[i128]| -> Option<Key> {
@@ -783,6 +834,27 @@ fn verified_witness(
             None
         }
     };
+    let mut left = WITNESS_WALK_CAP.min(sp.max_enumeration);
+    let mut spend = |sp: &mut Splitter| -> bool {
+        if left == 0 {
+            return false;
+        }
+        left = left.saturating_sub(1);
+        sp.work = sp
+            .work
+            .saturating_add(1)
+            .saturating_add(super::region::take_work());
+        if sp.work > sp.max_work {
+            return false;
+        }
+        if left.is_multiple_of(256) && sp.deadline.is_some_and(|t| std::time::Instant::now() > t) {
+            return false;
+        }
+        true
+    };
+    if !spend(sp) {
+        return None;
+    }
     let base = reg.point(10).ok()??;
     if let Some(w) = check(&base) {
         return Some(w);
@@ -790,9 +862,12 @@ fn verified_witness(
     // L1 walk around the base point
     for radius in 1..=12i128 {
         let mut stack: Vec<(usize, i128, Vec<i128>)> = vec![(0, radius, base.clone())];
-        while let Some((j, left, t)) = stack.pop() {
+        while let Some((j, left_r, t)) = stack.pop() {
+            if !spend(sp) {
+                return None;
+            }
             if j == k {
-                if left == 0
+                if left_r == 0
                     && reg.contains_t(&t).unwrap_or(false)
                     && let Some(w) = check(&t)
                 {
@@ -800,7 +875,7 @@ fn verified_witness(
                 }
                 continue;
             }
-            for dlt in left.saturating_neg()..=left {
+            for dlt in left_r.saturating_neg()..=left_r {
                 let mut t2 = t.clone();
                 let Some(v) = t2[j].checked_add(dlt) else {
                     continue;
@@ -808,7 +883,7 @@ fn verified_witness(
                 t2[j] = v;
                 stack.push((
                     j.saturating_add(1),
-                    left.saturating_sub(dlt.saturating_abs()),
+                    left_r.saturating_sub(dlt.saturating_abs()),
                     t2,
                 ));
             }

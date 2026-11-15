@@ -225,7 +225,7 @@ fn the_escalation_order_is_followed_and_recorded() {
     let kc = key_report(&r, &c);
     assert_eq!(
         kc.first_solved_by.as_deref(),
-        Some("escalation:escalation:shells_S2_S2m1")
+        Some("escalation:escalation:shells_S2")
     );
     assert_eq!(kc.steps[0].phase, "rule");
     assert_eq!(kc.steps[0].outcome, "no_relation");
@@ -242,6 +242,14 @@ fn the_escalation_order_is_followed_and_recorded() {
     assert_eq!(phases[0], ("rule".into(), "no_relation".into()));
     assert_eq!(
         phases[1],
+        ("escalation:shells_S2".into(), "no_relation".into())
+    );
+    assert_eq!(
+        phases[2],
+        ("escalation:shells_S2m1".into(), "no_relation".into())
+    );
+    assert_eq!(
+        phases[3],
         ("escalation:shells_S2_S2m1".into(), "no_relation".into())
     );
     assert!(
@@ -516,59 +524,5 @@ fn a_large_relation_triggers_the_centre_scan_and_the_smaller_wins() {
     assert_eq!(key_report(&r0, &k).alternatives.len(), 1);
 }
 
-#[test]
-fn the_engine_minimiser_and_the_emulation_are_interchangeable_at_the_api() {
-    let o = mixed_oracle();
-    let emu = solve_core(&mixed_keys(), &LINES, &policy("{}"), &mut solver(&o)).unwrap();
-    let eng = solve_core(
-        &mixed_keys(),
-        &LINES,
-        &policy(r#"{"minimise": {"backend": "engine"}}"#),
-        &mut solver(&o),
-    )
-    .unwrap();
-    type PieceView = (String, Vec<Offset>, Vec<Key>, Vec<Key>);
-    let view = |r: &CoreReport| -> Vec<PieceView> {
-        r.groups
-            .iter()
-            .flat_map(|g| {
-                g.pieces.iter().map(|p| {
-                    (
-                        p.rule.clone(),
-                        p.list.clone(),
-                        p.domain.clone(),
-                        p.failed.clone(),
-                    )
-                })
-            })
-            .collect()
-    };
-    assert_eq!(view(&emu), view(&eng));
-    let st = |r: &CoreReport| {
-        r.keys
-            .iter()
-            .map(|k| {
-                (
-                    k.key.clone(),
-                    k.status.clone(),
-                    k.chosen.map(|i| k.alternatives[i].relation_digest.clone()),
-                )
-            })
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(st(&emu), st(&eng));
-    assert!(
-        eng.groups[0]
-            .pieces
-            .iter()
-            .filter(|p| p.kind == "minimised")
-            .all(|p| p.minimise["backend"] == "engine")
-    );
-    assert!(
-        emu.groups[0]
-            .pieces
-            .iter()
-            .filter(|p| p.kind == "minimised")
-            .all(|p| p.minimise["backend"] == "emulated")
-    );
-}
+// The engine-minimiser / emulation interchangeability test moved to lane seedmin with the minimiser (one minimiser in
+// the tree: coreseed calls `seedmin::bridge::minimise`).

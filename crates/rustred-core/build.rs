@@ -124,7 +124,45 @@ macro_rules! with_candidate_runtime_arities {
         )
 }
 
+/// `RUSTRED_BUILD_GIT_COMMIT` for the binary identity of recipe records and
+/// failures: the exported value when set, else `git rev-parse HEAD` of the
+/// source tree (rerun when HEAD or its branch ref moves); nothing outside git.
+fn export_git_commit() {
+    const COMMIT: &str = "RUSTRED_BUILD_GIT_COMMIT";
+    println!("cargo:rerun-if-env-changed={COMMIT}");
+    if env::var(COMMIT).is_ok_and(|value| !value.trim().is_empty()) {
+        return;
+    }
+    let git = |arguments: &[&str]| {
+        std::process::Command::new("git")
+            .args(arguments)
+            .current_dir(env::var_os("CARGO_MANIFEST_DIR").unwrap_or_default())
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .map(|text| text.trim().to_owned())
+            .filter(|text| !text.is_empty())
+    };
+    let Some(commit) = git(&["rev-parse", "HEAD"]) else {
+        return;
+    };
+    for path in [
+        Some("HEAD".to_owned()),
+        git(&["rev-parse", "--symbolic-full-name", "HEAD"]),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if let Some(file) = git(&["rev-parse", "--path-format=absolute", "--git-path", &path]) {
+            println!("cargo:rerun-if-changed={file}");
+        }
+    }
+    println!("cargo:rustc-env={COMMIT}={commit}");
+}
+
 fn main() {
+    export_git_commit();
     println!("cargo:rerun-if-env-changed={VARIABLE}");
     let value = match env::var(VARIABLE) {
         Ok(value) => Some(value),

@@ -129,8 +129,16 @@ pub struct Resources {
     /// "plain" (CPU list or count) or "site" (site-policy JSON file, process-layer.md section 7).
     #[serde(default = "d_policy")]
     pub policy: String,
+    /// lane closeloop4 (closeloop.md 20): the DEFAULT CPU list (or `count:N`) of a session under policy plain. A
+    /// LAUNCH-TIME value, NOT part of the campaign's identity ([`identity_digest`]): `rr_campaign run --cpus LIST`
+    /// overrides it per session, and without both the session takes the process's affinity mask (the launcher's
+    /// pick, e.g. `taskset`), capped by `max_cores`; the list used is recorded in the ledger per session.
     #[serde(default)]
     pub cpus: Option<String>,
+    /// lane closeloop4 (closeloop.md 20): CPUs a session never uses (part of the campaign's CPU BUDGET = policy +
+    /// `max_cores` + `exclude_cpus`, which IS identity).
+    #[serde(default)]
+    pub exclude_cpus: Option<String>,
     #[serde(default)]
     pub site_policy: Option<PathBuf>,
     /// Cores the campaign may hold (default: what the policy allows).
@@ -169,6 +177,13 @@ pub struct Resources {
     /// `--fake-child`) are never refused.
     #[serde(default)]
     pub containment: Option<String>,
+    /// lane t266run (rule L17): the PER-JOB memory cap of this session (bytes or "8G"), a LAUNCH-TIME resource like the
+    /// CPU list: when set, every job of the session is launched and reserved with this cap instead of the work
+    /// source's (`rr_campaign run --mem-cap`); recorded per session (ledger note `session_resources`) and per attempt
+    /// (`job_queued.reserved_bytes`). A child killed at its cap is a resource end (retry, then attention
+    /// `memory_cap_exceeded`), never evidence; a session with a higher cap reopens those items.
+    #[serde(default)]
+    pub job_mem_cap: Option<ByteSize>,
 }
 
 fn d_policy() -> String {
@@ -338,14 +353,50 @@ impl<'de> Deserialize<'de> for ByteSize {
     }
 }
 
+/// lane closeloop4 (closeloop.md 20): the spec fields that are LAUNCH-TIME resources, outside the campaign identity.
+pub const LAUNCH_TIME_FIELDS: [(&str, &str); 1] = [("resources", "cpus")];
+const IDENTITY_DOMAIN: &[u8] = b"rustred.campaign.spec-identity.v1\n";
+
+/// lane closeloop4 (closeloop.md 20): the campaign IDENTITY digest of a spec text: BLAKE3 over a domain tag and the
+/// canonical JSON (sorted keys, no insignificant whitespace) of the spec WITHOUT its launch-time fields
+/// ([`LAUNCH_TIME_FIELDS`]: the concrete CPU list). Two specs that differ only there are the same campaign: a stopped
+/// run resumes on other CPUs. Everything else (programs, inputs, budgets incl. the CPU budget) stays identity.
+pub fn identity_digest(bytes: &[u8]) -> Result<String, String> {
+    let mut v: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|e| format!("spec: {e}"))?;
+    for (obj, field) in LAUNCH_TIME_FIELDS {
+        if let Some(o) = v.get_mut(obj).and_then(serde_json::Value::as_object_mut) {
+            o.remove(field);
+        }
+    }
+    let raw = serde_json::to_vec(&v).map_err(|e| e.to_string())?;
+    let canon =
+        rustred_campaign_contract::canon::canonical_line(&raw).map_err(|e| e.to_string())?;
+    let mut h = blake3::Hasher::new();
+    h.update(IDENTITY_DOMAIN);
+    h.update(&canon);
+    Ok(h.finalize().to_hex().to_string())
+}
+
 impl CampaignSpec {
-    /// Parses and validates; returns the spec and the BLAKE3 of its bytes.
+    /// Parses and validates; returns the spec and its campaign IDENTITY digest ([`identity_digest`]; lane closeloop4:
+    /// no longer the BLAKE3 of the bytes, which [`CampaignSpec::read_digests`] also returns for older ledgers).
     pub fn read(path: &Path) -> Result<(CampaignSpec, String), String> {
+        let (s, id, _) = Self::read_digests(path)?;
+        Ok((s, id))
+    }
+
+    /// (spec, identity digest, BLAKE3 of the bytes = the identity a ledger created before lane closeloop4 recorded).
+    pub fn read_digests(path: &Path) -> Result<(CampaignSpec, String, String), String> {
         let bytes = std::fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
         let spec: CampaignSpec =
             serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;
         spec.validate()?;
-        Ok((spec, blake3::hash(&bytes).to_hex().to_string()))
+        Ok((
+            spec,
+            identity_digest(&bytes)?,
+            blake3::hash(&bytes).to_hex().to_string(),
+        ))
     }
 
     pub fn validate(&self) -> Result<(), String> {
@@ -368,9 +419,15 @@ impl CampaignSpec {
             ));
         }
         match self.resources.policy.as_str() {
+            // lane closeloop4: the CPU list is launch-time (`--cpus`, else `resources.cpus`, else the affinity mask)
             "plain" => {
-                if self.resources.cpus.is_none() {
-                    return Err("resources.cpus is required with policy plain".into());
+                if let Some(c) = &self.resources.cpus {
+                    crate::cpu_policy::CpuSpec::parse(c)
+                        .map_err(|e| format!("resources.cpus: {e}"))?;
+                }
+                if let Some(x) = &self.resources.exclude_cpus {
+                    crate::resources::parse_cpu_list(x)
+                        .map_err(|e| format!("resources.exclude_cpus: {e}"))?;
                 }
             }
             "site" => {
@@ -490,5 +547,24 @@ mod tests {
             serde_json::from_str::<CampaignSpec>(r#"{"schema":"x","campaign":"t","bogus":1}"#)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn identity_digest_ignores_the_cpu_list_only() {
+        let a = br#"{"schema":"rustred.campaign.spec.v1","campaign":"t","resources":{"cpus":"0-3","max_cores":4}}"#;
+        let b = br#"{"campaign":"t","resources":{"max_cores":4,"cpus":"8,9,10,11"},"schema":"rustred.campaign.spec.v1"}"#;
+        let c = br#"{"schema":"rustred.campaign.spec.v1","campaign":"t","resources":{"cpus":"0-3","max_cores":5}}"#;
+        let d =
+            br#"{"schema":"rustred.campaign.spec.v1","campaign":"t","resources":{"max_cores":4}}"#;
+        let (ia, ib, ic, id) = (
+            identity_digest(a).unwrap(),
+            identity_digest(b).unwrap(),
+            identity_digest(c).unwrap(),
+            identity_digest(d).unwrap(),
+        );
+        assert_eq!(ia, ib, "another CPU list and key order: the same campaign");
+        assert_eq!(ia, id, "no CPU list at all: the same campaign");
+        assert_ne!(ia, ic, "the CPU budget is identity");
+        assert_ne!(ia, blake3::hash(a).to_hex().to_string());
     }
 }

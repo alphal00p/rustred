@@ -44,6 +44,16 @@ pub enum JobKind {
     /// elimination with the given terminals lowest, at fixed dimensions and primes, L1. A DIAGNOSTIC kind: its sealed
     /// records are never rule or relation evidence (accept mode `diagnostic_records`).
     NodeBasis,
+    /// `rr_rf_symflow run --request` (lane symjob; interfaces/symmetry-composite-job.md): the repair flow's symmetry
+    /// COMPOSITE step (exact Q(d) through Symbolica) as a LEGACY child like `coefficient-facts`; the supervisor-side
+    /// wrapper checks the child's own seal, seals `out/results.jsonl` and writes OUTCOME. Its shipped relations are
+    /// CANDIDATES accepted only through the import's verification (accept mode `supplied_relations`).
+    SymmetryComposite,
+    /// `rr_poles regular-at --requests` (lane coreseed; interfaces/coreseed.md 10; lane poles' CLI): the pole order at
+    /// d0 of MANY certified relations at their keys, as a LEGACY DIAGNOSTIC child; the supervisor-side wrapper checks
+    /// every answer against the pinned requests, seals `out/results.jsonl` and writes OUTCOME. Accept mode
+    /// `diagnostic_records` (rows 37-39): never rule or relation evidence.
+    PoleRegularAt,
     /// `rr_proof --mode instance-span --symrows FILE [--symrows-only]` (lane symcert; interfaces/proof-symrows-job.md;
     /// kernel side interfaces/proof-symrows.md): ONE relation (a point-rule record written by the supervisor) at its key,
     /// certified against the given multi-term symmetry rows (and the IBP rows at its seeds), run as a LEGACY child; the
@@ -65,7 +75,7 @@ pub enum Level {
 }
 
 impl JobKind {
-    pub const ALL: [JobKind; 17] = [
+    pub const ALL: [JobKind; 19] = [
         JobKind::Generate,
         JobKind::GenerateAuto,
         JobKind::Descent,
@@ -82,6 +92,8 @@ impl JobKind {
         JobKind::ProofInstanceSpan,
         JobKind::CoefficientFacts,
         JobKind::NodeBasis,
+        JobKind::SymmetryComposite,
+        JobKind::PoleRegularAt,
         JobKind::ProofSymrows,
     ];
 
@@ -92,6 +104,8 @@ impl JobKind {
             | JobKind::ProofInstantiate
             | JobKind::ProofInstanceSpan
             | JobKind::CoefficientFacts
+            | JobKind::SymmetryComposite
+            | JobKind::PoleRegularAt
             | JobKind::ProofSymrows => Level::Legacy,
             _ => Level::L1,
         }
@@ -117,6 +131,8 @@ impl JobKind {
             JobKind::TableDump => "table_dump",
             JobKind::Fake => "rr_fake_child",
             JobKind::CoefficientFacts => "rr_coef_facts",
+            JobKind::SymmetryComposite => "rr_rf_symflow",
+            JobKind::PoleRegularAt => "rr_poles",
         }
     }
 
@@ -149,6 +165,8 @@ impl JobKind {
             | JobKind::ProofInstanceSpan
             | JobKind::CoefficientFacts
             | JobKind::NodeBasis
+            | JobKind::SymmetryComposite
+            | JobKind::PoleRegularAt
             | JobKind::ProofSymrows => Some(&RESULT_OUTPUTS),
             JobKind::GenerateAuto => None,
         }
@@ -171,6 +189,11 @@ impl JobKind {
             // it passes `--elided-loci refuse|facts` through (coord-ec2-instantiate.md 2d)
             JobKind::ProofInstantiate => &PROOF_INSTANTIATE_ARGS,
             JobKind::ProofInstanceSpan | JobKind::CoefficientFacts => &[],
+            // lane symjob: EMPTY allow-list; every parameter is in the pinned `request` input
+            // (interfaces/symmetry-composite-job.md 1)
+            JobKind::SymmetryComposite => &[],
+            // lane coreseed: the dimension and the child's thread count (rr_poles: 1..4)
+            JobKind::PoleRegularAt => &POLE_REGULAR_AT_ARGS,
             // lane symcert: every parameter is in the pinned request (the wrapper builds the argv from it)
             JobKind::ProofSymrows => &[],
         }
@@ -192,6 +215,16 @@ impl JobKind {
             // lane closeloop3: the same request form (A) and one table per job
             JobKind::CoefficientFacts => Some(InputRoles {
                 required: &["requests", "table"],
+                optional: &[],
+            }),
+            // lane symjob: the tool's request (pins the others by sha256) and the inputs it pins
+            JobKind::SymmetryComposite => Some(InputRoles {
+                required: &["request", "import_spec"],
+                optional: &["keys", "policy"],
+            }),
+            // lane coreseed: the pinned request lines (record + key pairs)
+            JobKind::PoleRegularAt => Some(InputRoles {
+                required: &["requests"],
                 optional: &[],
             }),
             // line 7: the presented family and the terminal keys (JSONL, put lowest)
@@ -221,6 +254,8 @@ impl JobKind {
                 | JobKind::ProofInstantiate
                 | JobKind::ProofInstanceSpan
                 | JobKind::CoefficientFacts
+                | JobKind::SymmetryComposite
+                | JobKind::PoleRegularAt
                 | JobKind::ProofSymrows
         )
     }
@@ -233,6 +268,8 @@ impl JobKind {
             JobKind::ProofInstantiate
                 | JobKind::ProofInstanceSpan
                 | JobKind::CoefficientFacts
+                | JobKind::SymmetryComposite
+                | JobKind::PoleRegularAt
                 | JobKind::ProofSymrows
         )
     }
@@ -529,6 +566,9 @@ pub const NODE_BASIS_ARGS: [ArgRule; 5] = [
 ];
 /// `proof-instantiate` (line 7, coord-ec2-instantiate.md 2d): `--elided-loci refuse` (the default when absent: the
 /// R-f refusal) or `facts` (records with elided witness loci answer coefficient facts only, never regularity).
+/// Lane coreseed: kind `pole-regular-at` (`--d0` a decimal dimension, `--threads` the child's threads).
+pub const POLE_REGULAR_AT_ARGS: [ArgRule; 2] =
+    [a("--d0", ArgShape::Decimal), a("--threads", ArgShape::UInt)];
 pub const PROOF_INSTANTIATE_ARGS: [ArgRule; 1] =
     [a("--elided-loci", ArgShape::Choice(&["refuse", "facts"]))];
 const REPLAY_ARGS: [ArgRule; 9] = [
@@ -1190,6 +1230,8 @@ impl JobSpec {
                 | JobKind::ProofInstanceSpan
                 | JobKind::CoefficientFacts
                 | JobKind::NodeBasis
+                | JobKind::SymmetryComposite
+                | JobKind::PoleRegularAt
                 | JobKind::ProofSymrows
         ) {
             return Ok(());

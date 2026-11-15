@@ -338,7 +338,7 @@ fn optional_refusal_does_not_swallow_denominator_or_child_source_preflight() {
     let mut p = fixture();
     let c = p.context.coefficient_context().clone();
     let mut original = term(&c, [-1, 0, 0], c.zero());
-    original.denominator = poly(&c, &coupled(&c));
+    original.denominator = poly(&c, &coupled(&c)).into();
     batch(&mut p).rules = vec![rule(0, vec![original])];
     let (out, result) = inspect(&p, [1, 0, 0], small_limits());
     let error = result.unwrap_err();

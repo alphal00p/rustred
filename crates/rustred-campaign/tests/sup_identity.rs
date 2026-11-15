@@ -13,6 +13,99 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
+/// (job, attempt) of every launch record of `dir` without a `job.started` (an in-flight launch).
+fn in_flight(dir: &Path) -> Vec<(String, u32)> {
+    let mut launched = std::collections::BTreeSet::new();
+    let mut started = std::collections::BTreeSet::new();
+    for r in records(dir) {
+        if let Event::Job { job, attempt, ev } = r.event {
+            match ev {
+                JobEvent::Launch { .. } => {
+                    launched.insert((job, attempt));
+                }
+                JobEvent::Started { .. } => {
+                    started.insert((job, attempt));
+                }
+                _ => {}
+            }
+        }
+    }
+    launched.difference(&started).cloned().collect()
+}
+
+fn control(dir: &Path, verb: &str) {
+    let st = Command::new(SUP)
+        .args(["control"])
+        .arg(dir)
+        .arg(verb)
+        .env_remove("RR_CAMPAIGN_FAILPOINT")
+        .status()
+        .unwrap();
+    assert!(st.success(), "control {verb}");
+}
+
+/// The copy's invariant (procfix6, the directing session's ruling): run with `--adopt-moved-campaign`, every attempt the
+/// ORIGINAL left unsettled is a `foreign_attempt` (one note each, `was` = started / unconfirmed), an unconfirmed one is
+/// cancelled with that reason and its item reopened as new work of the copy (never `execution_unknown`, never an
+/// operator decision), the copy finishes with exit 0, and it SIGNALS NOTHING OF THE ORIGINAL: no `signal_sent` record of
+/// the copy names a pid of `original_pids` or carries the original's marker id, and those processes were not disturbed.
+fn check_copy(
+    b_dir: &Path,
+    b: &mut std::process::Child,
+    a_id: &str,
+    original_pids: &[u32],
+    unconfirmed: usize,
+) {
+    assert_eq!(wait(b, Duration::from_secs(600)), 0, "{}", log_tail(b_dir));
+    let notes: Vec<String> = records(b_dir)
+        .into_iter()
+        .filter_map(|r| match r.event {
+            Event::Note { text } if text.starts_with("foreign_attempt ") => Some(text),
+            _ => None,
+        })
+        .collect();
+    assert!(!notes.is_empty(), "{}", log_tail(b_dir));
+    assert_eq!(
+        notes
+            .iter()
+            .filter(|n| n.contains("\"was\":\"unconfirmed\""))
+            .count(),
+        unconfirmed,
+        "{notes:#?}"
+    );
+    assert_eq!(
+        count(
+            b_dir,
+            |e| matches!(e, Event::Note { text } if text.starts_with("execution_unknown"))
+        ),
+        0,
+        "{}",
+        log_tail(b_dir)
+    );
+    assert_eq!(
+        count(b_dir, |e| matches!(
+            e,
+            Event::Job { ev: JobEvent::Cancel { reason }, .. } if reason.starts_with("foreign_attempt")
+        )),
+        unconfirmed
+    );
+    for r in records(b_dir) {
+        if let Event::SignalSent { pid, marker, .. } = &r.event {
+            assert!(
+                !original_pids.contains(pid),
+                "the copy signalled the original's pid {pid}"
+            );
+            assert!(
+                !marker.as_deref().is_some_and(|m| m.contains(a_id)),
+                "the copy signalled a process with the original's marker: {marker:?}"
+            );
+        }
+    }
+    assert_eq!(verify(b_dir), 0);
+}
+
+/// A copied campaign directory (a different marker id) signals nothing of the original, case 1: NO launch in flight at
+/// copy time (the live original is paused and copied only when every launch has its `job.started`).
 #[test]
 fn copied_campaign_directory_signals_nothing_of_the_original() {
     let _g = serial();
@@ -22,7 +115,7 @@ fn copied_campaign_directory_signals_nothing_of_the_original() {
     let a_dir = t.cdir("orig");
     let mut a = start(&spec_p, &a_dir, &[], &[]);
     wait_until("original's jobs running", Duration::from_secs(120), || {
-        a_dir.join("ledger").exists()
+        a_dir.join("ledger").join("MANIFEST.json").exists()
             && count(&a_dir, |e| {
                 matches!(
                     e,
@@ -33,6 +126,18 @@ fn copied_campaign_directory_signals_nothing_of_the_original() {
                 )
             }) >= 3
     });
+    // Deterministic: no launch in flight when the directory is copied.
+    control(&a_dir, "pause");
+    let mut stable = 0;
+    wait_until("no launch in flight", Duration::from_secs(60), || {
+        stable = if in_flight(&a_dir).is_empty() {
+            stable + 1
+        } else {
+            0
+        };
+        std::thread::sleep(Duration::from_millis(300));
+        stable >= 4
+    });
     // Copy the live directory (as a backup / restore or an operator's cp -a would).
     let b_dir = t.cdir("copy");
     let st = Command::new("cp")
@@ -42,6 +147,10 @@ fn copied_campaign_directory_signals_nothing_of_the_original() {
         .status()
         .unwrap();
     assert!(st.success());
+    assert!(in_flight(&b_dir).is_empty());
+    control(&a_dir, "resume");
+    // The copy carries the original's pause (a ledger record): its own resume is applied when it starts.
+    control(&b_dir, "resume");
     let a_id = identity::recorded_id(&state(&a_dir)).unwrap();
     let a_live_before: Vec<u32> = marked(&t.campaign);
     assert!(!a_live_before.is_empty());
@@ -69,7 +178,7 @@ fn copied_campaign_directory_signals_nothing_of_the_original() {
     );
     let b_id = identity::campaign_marker_id(&b_dir, &t.campaign).unwrap();
     assert_ne!(a_id, b_id);
-    // 3) With --adopt-moved-campaign: the recorded live attempts become lost (not signalled) and are redone here.
+    // 3) With --adopt-moved-campaign: the recorded live attempts become foreign / lost (not signalled), redone here.
     let mut b = start(&spec_p, &b_dir, &["--adopt-moved-campaign"], &[]);
     wait_until("copy's recovery", Duration::from_secs(60), || {
         count(
@@ -93,12 +202,7 @@ fn copied_campaign_directory_signals_nothing_of_the_original() {
         "{}",
         log_tail(&a_dir)
     );
-    assert_eq!(
-        wait(&mut b, Duration::from_secs(600)),
-        0,
-        "{}",
-        log_tail(&b_dir)
-    );
+    check_copy(&b_dir, &mut b, &a_id, &a_live_before, 0);
     // No attempt of the original ended by a signal it did not expect (a kill by the copy would show as signal 9).
     let killed = count(&a_dir, |e| {
         matches!(
@@ -125,7 +229,102 @@ fn copied_campaign_directory_signals_nothing_of_the_original() {
     assert_eq!(result(&a_dir).accepted, result(&b_dir).accepted);
     assert_eq!(identity::recorded_id(&state(&b_dir)).unwrap(), b_id);
     assert_eq!(verify(&a_dir), 0);
-    assert_eq!(verify(&b_dir), 0);
+    assert_no_marked(&t.campaign);
+}
+
+/// Case 2: ONE launch in flight at copy time, made deterministic with the test-build failpoint `after_launch_record:3`
+/// (the original stops right after its 3rd launch record is durable: that launch never spawned). Processes carrying the
+/// ORIGINAL's marker (standing in for its live jobs) are planted; the copy (adopted) records the unconfirmed launch as a
+/// foreign attempt (never execution unknown, never exit 8), reopens its item, finishes with exit 0 and the reference
+/// result, and signals none of the planted processes.
+#[test]
+fn copied_campaign_directory_with_a_launch_in_flight_is_foreign_never_execution_unknown() {
+    let _g = serial();
+    let t = Tmp::new("copyfl");
+    let syn = serde_json::json!({"items": 8, "case_ms": [6000, 9000], "seed": 5, "p_mem": 0.0, "p_crash": 0.0});
+    let spec_p = write_spec(&t, "spec.json", &spec(&t, syn, serde_json::json!({})));
+    let r_dir = t.cdir("reference");
+    assert_eq!(run_to_end(&spec_p, &r_dir, &[]), vec![0]);
+    let a_dir = t.cdir("orig");
+    let mut a = start(
+        &spec_p,
+        &a_dir,
+        &[],
+        &[("RR_CAMPAIGN_FAILPOINT", "after_launch_record:3")],
+    );
+    assert_eq!(
+        wait(&mut a, Duration::from_secs(300)),
+        134,
+        "{}",
+        log_tail(&a_dir)
+    );
+    let fl = in_flight(&a_dir);
+    assert!(
+        fl.iter().any(|(_, k)| *k == 1),
+        "a launch in flight: {fl:?}"
+    );
+    let a_id = identity::recorded_id(&state(&a_dir)).unwrap();
+    // The original's "live jobs": processes carrying ITS marker (one per launched attempt), never the copy's.
+    let mut planted = Vec::new();
+    for (job, k) in fl.iter().chain(
+        records(&a_dir)
+            .iter()
+            .filter_map(|r| match &r.event {
+                Event::Job {
+                    job,
+                    attempt,
+                    ev: JobEvent::Started { .. },
+                } => Some((job.clone(), *attempt)),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .iter(),
+    ) {
+        planted.push(
+            Command::new(sleep_bin())
+                .arg("600")
+                .env_clear()
+                .env("RR_CAMPAIGN_JOB", format!("{a_id}:{job}:a{k}"))
+                .spawn()
+                .unwrap(),
+        );
+    }
+    let planted_pids: Vec<u32> = planted.iter().map(|c| c.id()).collect();
+    let b_dir = t.cdir("copy");
+    let st = Command::new("cp")
+        .arg("-a")
+        .arg(&a_dir)
+        .arg(&b_dir)
+        .status()
+        .unwrap();
+    assert!(st.success());
+    assert_eq!(in_flight(&b_dir), fl);
+    let mut b = start(&spec_p, &b_dir, &[], &[]);
+    assert_eq!(
+        wait(&mut b, Duration::from_secs(60)),
+        7,
+        "{}",
+        log_tail(&b_dir)
+    );
+    let mut b = start(&spec_p, &b_dir, &["--adopt-moved-campaign"], &[]);
+    check_copy(&b_dir, &mut b, &a_id, &planted_pids, fl.len());
+    assert!(
+        !log_tail(&b_dir).contains("EXECUTION UNKNOWN"),
+        "{}",
+        log_tail(&b_dir)
+    );
+    for c in &mut planted {
+        assert!(
+            c.try_wait().unwrap().is_none(),
+            "planted process {} of the original was signalled",
+            c.id()
+        );
+    }
+    assert_eq!(result(&b_dir).accepted, result(&r_dir).accepted);
+    for mut c in planted {
+        let _ = c.kill();
+        let _ = c.wait();
+    }
     assert_no_marked(&t.campaign);
 }
 

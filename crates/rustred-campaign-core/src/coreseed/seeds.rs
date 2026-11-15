@@ -201,6 +201,7 @@ pub fn ordered(list: &[Offset], order: &str) -> Vec<Offset> {
     let mut v = list.to_vec();
     match order {
         "outermost_first" => v.reverse(),
+        "given" => {}
         _ => v.sort_by_key(|o| o.iter().map(|x| x.unsigned_abs() as u64).sum::<u64>()),
     }
     v

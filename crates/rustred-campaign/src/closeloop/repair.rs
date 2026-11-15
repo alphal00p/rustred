@@ -531,6 +531,12 @@ impl<S: WorkSource> RepairFlowSource<S> {
                 t.push_str(l);
                 t.push('\n');
             }
+            // int7 (repairflow x partfix4, import.md 20): the table's end record (the file states that it is
+            // complete; a table without one is refused as `table_incomplete`)
+            t.push_str(&format!(
+                "{{\"type\":\"end\",\"rules\":{}}}\n",
+                kept_lines.len()
+            ));
             let rel = format!("{dir}/symbolic.table.jsonl");
             rt.accepts.push(record(rel.clone(), t.into_bytes()));
             table_rel = Some(rel);
@@ -2039,6 +2045,27 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
     fn outcome(&self, st: &CampaignState) -> crate::supervisor::worksource::CampaignOutcome {
         // the closing loop's verdict (the decorator adds no verdict of its own)
         self.inner.outcome(st)
+    }
+
+    /// int7 (repairflow x closeloop4, closeloop.md 19.3): the closing loop's operator decisions pass through the
+    /// repair flow, as through phase E (termmin.rs); without this the supervisor never stops with the attention exit
+    /// for terminal proposals and `resolve-terminals` is refused by the default.
+    fn operator_decision(&self, st: &CampaignState) -> Option<String> {
+        self.inner.operator_decision(st)
+    }
+
+    fn resolve_operator_decision(
+        &mut self,
+        st: &CampaignState,
+        req: &crate::supervisor::ControlRequest,
+    ) -> Result<crate::supervisor::worksource::Routing, String> {
+        self.inner.resolve_operator_decision(st, req)
+    }
+
+    /// int7 (repairflow x t266run L17): a node held by items that ended at their memory cap blocks on the operator
+    /// (resume with a higher `--mem-cap`): forwarded, as phase E forwards it.
+    fn blocked_on_operator(&self, st: &CampaignState) -> Option<String> {
+        self.inner.blocked_on_operator(st)
     }
 
     fn describe(&self) -> String {

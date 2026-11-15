@@ -12,7 +12,7 @@
 //! shells, orders and caps are input or policy data.
 
 pub mod machine;
-pub mod minimise;
+
 pub mod seeds;
 pub mod spec;
 

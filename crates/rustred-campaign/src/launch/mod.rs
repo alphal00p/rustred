@@ -39,17 +39,17 @@ pub use fake::{
 pub(crate) use guard::reap_adopted;
 pub use guard::{
     DELIVERY_LOG_MAX, Delivery, INTENT_LOG_FILE, INTENT_RESERVE_FILE, INTENT_SCHEMA, IntentLine,
-    LoggedIntent, PidfdProbe, ProcessTarget, Proof, Refusal, SigchldSetup, StartRule, Verdict,
-    ensure_sigchld_default, ignore_sigxfsz, install_intent_log, intent_id_in, intent_log_installed,
-    is_child_subreaper, kill_orphan, pidfd_probe, pidfd_supported, read_intent_log,
-    set_child_subreaper, sigchld_autoreaps, signal_verified_process, take_deliveries,
-    uninstall_intent_log,
+    LoggedIntent, NotSignalled, PidfdProbe, ProcessTarget, Proof, Refusal, SigchldSetup, StartRule,
+    Verdict, delivered_total, ensure_sigchld_default, ignore_sigxfsz, install_intent_log,
+    intent_disk_full, intent_id_in, intent_log_installed, is_child_subreaper, kill_orphan,
+    pidfd_probe, pidfd_supported, read_intent_log, set_child_subreaper, sigchld_autoreaps,
+    signal_verified_process, take_deliveries, take_not_signalled, uninstall_intent_log,
 };
 pub use idlock::{IdLockError, default_lock_dir};
 pub use real::{
-    CapPreference, LauncherError, LauncherSetup, RealChild, RealConfig, RealLauncher, RetireEvent,
-    TrackingPreference, adhoc_campaign_id, audit_inheritable_fds, barrier_shim,
-    in_private_namespace, peek_exit,
+    CapPreference, Containment, LauncherError, LauncherSetup, RealChild, RealConfig, RealLauncher,
+    RetireEvent, TrackingPreference, adhoc_campaign_id, audit_inheritable_fds, barrier_shim,
+    in_private_namespace, peek_exit, set_not_dumpable,
 };
 pub use sweep::{LeftMarked, Narrowing, SweepReport, SweepSpec};
 
@@ -114,6 +114,29 @@ pub enum KillReason {
 
 /// Outcome code for a per-job memory cap excess (admission and scheduler use the same string).
 pub const MEMORY_CAP_EXCEEDED: &str = "memory_cap_exceeded";
+
+/// lane t266run (L17): the item is in attention BECAUSE its last attempt ended at its memory cap: the typed code
+/// `memory_cap_exceeded`, or (an attention written by an older build under another code, e.g. `solve_job_failed`) a
+/// last attempt recorded `BudgetStopped(KilledMemory)`. A session with a higher cap reopens such an item.
+pub fn ended_at_memory_cap(st: &crate::state::CampaignState, item: &str) -> bool {
+    let Some(it) = st.items.get(item) else {
+        return false;
+    };
+    let crate::state::ItemPhase::Attention(code) = &it.phase else {
+        return false;
+    };
+    code == MEMORY_CAP_EXCEEDED
+        || it
+            .jobs
+            .last()
+            .and_then(|j| st.jobs.get(j))
+            .is_some_and(|j| {
+                j.state
+                    == crate::state::AttemptState::BudgetStopped(
+                        crate::state::FinishClass::KilledMemory,
+                    )
+            })
+}
 
 impl KillReason {
     pub fn outcome(&self) -> &'static str {
@@ -325,11 +348,16 @@ pub struct LaunchSpec {
     /// (same pid, session, start time, marker, PDEATHSIG, affinity, scope). If the caller dies first, the pipe reports
     /// EOF and the program is never executed. Only for binaries whose `main` dispatches [`BARRIER_VERB`] (the
     /// `rr_campaign` CLI does: `cli::main_with`). Default false.
+    /// procfix6 (gate5 m2): the release is AUTHENTICATED: the shim's argv carries the BLAKE3 of 32 random bytes the
+    /// caller keeps; the release writes those bytes, and the shim execs only if their hash matches (anything else, e.g.
+    /// a byte written by another process of the same uid through /proc/<pid>/fd, ends the shim with
+    /// [`BARRIER_NOT_RELEASED`] without executing). The shim and the supervisor (`set_not_dumpable`) are non-dumpable,
+    /// so their descriptors are not reachable through /proc by other processes of the uid either.
     pub spawn_barrier: bool,
 }
 
-/// The hidden verb of the spawn barrier: `<exe> __spawn-barrier <fd> -- <program> <args...>` (see
-/// [`LaunchSpec::spawn_barrier`]).
+/// The hidden verb of the spawn barrier: `<exe> __spawn-barrier <fd> <blake3 hex of the release token> -- <program>
+/// <args...>` (see [`LaunchSpec::spawn_barrier`]).
 pub const BARRIER_VERB: &str = "__spawn-barrier";
 /// Exit code of a barrier shim whose barrier was never released (the program was not executed).
 pub const BARRIER_NOT_RELEASED: i32 = 125;
