@@ -1587,35 +1587,74 @@ fn cached_zero_certificates(
 
 /// Zero proofs of the downset of `support` (raw sectors; eps axes are always
 /// effective in the analyzer).
+///
+/// Engine threading (batch 10): the subsectors are analysed independently, so on a worker of a
+/// request's pool (a multi-threaded request) they are analysed in parallel on that pool, each
+/// worker with its own analyzer (its Symanzik polynomials on that thread's polynomial context).
+/// The proofs are collected in the sequential order (descending subsets) and the first error in
+/// that order is returned: the result is identical to the sequential loop. Outside a pool (a
+/// one-thread request, the calling thread) the loop is sequential as before.
 fn zero_certificates(
     presentation: &Presentation,
     support: u64,
 ) -> Result<Vec<zero::Certificate>, PError> {
+    /// Below this many subsectors the sequential loop is used.
+    const PARALLEL_MIN_SUBSETS: usize = 64;
+    zero_certificates_with(presentation, support, PARALLEL_MIN_SUBSETS)
+}
+
+fn zero_certificates_with(
+    presentation: &Presentation,
+    support: u64,
+    parallel_min_subsets: usize,
+) -> Result<Vec<zero::Certificate>, PError> {
+    use rayon::prelude::*;
     let family = &presentation.family;
-    let analyzer = zero::Analyzer::try_unrestricted(family)
-        .map_err(|error| PError::Unsupported(format!("custom owner zero analysis: {error}")))?;
+    let analyzer_of = || {
+        zero::Analyzer::try_unrestricted(family)
+            .map_err(|error| PError::Unsupported(format!("custom owner zero analysis: {error}")))
+    };
     let arity = presentation.slots.len();
-    let mut proofs = Vec::new();
+    let decide =
+        |analyzer: &zero::Analyzer, subset: u64| -> Result<Option<zero::Certificate>, PError> {
+            let sector = Mask::try_new(bits(subset, arity))
+                .map_err(|error| PError::Contract(error.to_string()))?;
+            match analyzer.analyze(&sector).map_err(|error| {
+                PError::Unsupported(format!("custom owner zero analysis: {error}"))
+            })? {
+                zero::Decision::ProvedZero(proof) => Ok(Some(proof)),
+                zero::Decision::Inconclusive(_) => Ok(None),
+                zero::Decision::Excluded(_) => Err(PError::Unsupported(format!(
+                    "custom owner zero analysis excluded the sector {subset:#x}"
+                ))),
+            }
+        };
+    let mut subsets = Vec::new();
     let mut subset = support;
     loop {
-        let sector = Mask::try_new(bits(subset, arity))
-            .map_err(|error| PError::Contract(error.to_string()))?;
-        match analyzer
-            .analyze(&sector)
-            .map_err(|error| PError::Unsupported(format!("custom owner zero analysis: {error}")))?
-        {
-            zero::Decision::ProvedZero(proof) => proofs.push(proof),
-            zero::Decision::Inconclusive(_) => {}
-            zero::Decision::Excluded(_) => {
-                return Err(PError::Unsupported(format!(
-                    "custom owner zero analysis excluded the sector {subset:#x}"
-                )));
-            }
-        }
+        subsets.push(subset);
         if subset == 0 {
             break;
         }
         subset = (subset - 1) & support;
+    }
+    let mut proofs = Vec::new();
+    if rayon::current_thread_index().is_some() && subsets.len() >= parallel_min_subsets {
+        let decided: Vec<Result<Option<zero::Certificate>, PError>> = subsets
+            .par_iter()
+            .map_init(analyzer_of, |analyzer, &subset| match analyzer {
+                Ok(analyzer) => decide(analyzer, subset),
+                Err(error) => Err(error.clone()),
+            })
+            .collect();
+        for result in decided {
+            proofs.extend(result?);
+        }
+    } else {
+        let analyzer = analyzer_of()?;
+        for subset in subsets {
+            proofs.extend(decide(&analyzer, subset)?);
+        }
     }
     Ok(proofs)
 }
@@ -2750,6 +2789,28 @@ pub fn replay_custom_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Engine threading: the parallel zero analysis (on a pool worker) gives the sequential proofs,
+    /// in the same order.
+    #[test]
+    fn parallel_zero_certificates_equal_the_sequential_ones() {
+        let library = super::super::testing::boxed_kite_library().unwrap();
+        let presentation = (library.presentations().iter())
+            .max_by_key(|p| p.slots.len())
+            .unwrap()
+            .clone();
+        let support = (1_u64 << presentation.slots.len()) - 1;
+        let sequential = zero_certificates_with(&presentation, support, usize::MAX).unwrap();
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .unwrap();
+        let parallel = pool
+            .install(|| zero_certificates_with(&presentation, support, 1))
+            .unwrap();
+        assert!(!sequential.is_empty());
+        assert_eq!(format!("{sequential:?}"), format!("{parallel:?}"));
+    }
 
     fn keys(powers: &[&[i64]]) -> Vec<IntegralKey> {
         (powers.iter())
