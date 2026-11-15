@@ -11,7 +11,8 @@ use rustred_campaign::adapters::job::{Invocation, Program};
 use rustred_campaign::closeloop::coreseed::PolesCfg;
 use rustred_campaign::closeloop::seedmin::{ChildConfig, ChildTrialSolver, FakeAlt, FakeOracle};
 use rustred_campaign::resources::{Sampler, SamplerConfig};
-use rustred_campaign_contract::fake::{FakeOp, FakeScript, Fault, FaultKind, OnSigterm, RssPlan};
+use rustred_campaign_contract::exit::ExitCode;
+use rustred_campaign_contract::fake::{FakeOp, FakeScript, OnSigterm, RssPlan};
 use rustred_campaign_core::seedmin::{
     EngineCaps, PoleOrder, StubRelationPoles, Trial, TrialAnswer, TrialMode, TrialSolver,
 };
@@ -63,20 +64,21 @@ fn oracle() -> FakeOracle {
     o
 }
 
-fn poles(faults: Vec<Fault>) -> PolesCfg {
+/// The pole job's fake script: `None` = it answers (the fake rule: order = rhs keys I(9,..)); `Some(op)` = that op.
+fn poles(fail: Option<FakeOp>) -> PolesCfg {
     PolesCfg {
         program: program(),
         threads: 1,
         cap_bytes: 256 << 20,
         wall_cap_s: 60,
         fake: Some(FakeScript {
-            script: vec![FakeOp::Prepare { ms: 1 }],
+            script: vec![fail.unwrap_or(FakeOp::Prepare { ms: 1 })],
             on_sigterm: OnSigterm::Graceful,
             slow_ms: 0,
             start_delay_ms: 0,
             rss: RssPlan::default(),
             helpers: vec![],
-            faults,
+            faults: vec![],
             time_scale: 1.0,
             volatile_jitter: false,
         }),
@@ -164,7 +166,7 @@ fn no_pole_job_when_the_objective_is_off() {
         "run under LIGHT_PIDNS=1 (private pid namespace, rule L10)"
     );
     let dir = root("off");
-    let mut s = solver(config(&dir, Some(poles(vec![])), "off"));
+    let mut s = solver(config(&dir, Some(poles(None)), "off"));
     let a = s.solve(&trials()).unwrap();
     assert_eq!(s.stats.pole_jobs, 0, "objective off: no pole job");
     assert_eq!(
@@ -173,7 +175,7 @@ fn no_pole_job_when_the_objective_is_off() {
     );
     // on: the job runs and gives the orders
     let dir2 = root("on");
-    let mut s2 = solver(config(&dir2, Some(poles(vec![])), "on"));
+    let mut s2 = solver(config(&dir2, Some(poles(None)), "on"));
     let a2 = s2.solve(&trials()).unwrap();
     assert_eq!(s2.stats.pole_jobs, 1);
     assert_eq!(
@@ -202,15 +204,12 @@ fn a_solved_trial_is_journaled_before_the_pole_job_and_a_resume_asks_the_job_aga
     );
     let dir = root("journal");
     let work = dir.join("work");
-    // the pole job dies (exit without OUTCOME; no core dump): the trial is journaled anyway, its records wait in
-    // poles_pending.jsonl
-    let dying = vec![Fault {
-        at_op: 0,
-        kind: FaultKind::Exit,
-        bytes: 0,
-        code: 3,
-        path: None,
-    }];
+    // the pole job fails (rr_poles refuses its input: nothing read): the trial is journaled anyway, its records wait
+    // in poles_pending.jsonl
+    let dying = Some(FakeOp::Fail {
+        code: ExitCode::Input,
+        message: "refused".into(),
+    });
     let mut s1 = solver(config(&dir, Some(poles(dying)), "on"));
     let a1 = s1.solve(&trials()).unwrap();
     assert_eq!(s1.stats.jobs, 1);
@@ -227,7 +226,7 @@ fn a_solved_trial_is_journaled_before_the_pole_job_and_a_resume_asks_the_job_aga
     assert_eq!(lines(&work.join("poles_pending.jsonl")), 2);
     drop(s1);
     // resume with a working pole job: no solve job, one pole job, the orders of an uninterrupted run
-    let mut s2 = solver(config(&dir, Some(poles(vec![])), "on"));
+    let mut s2 = solver(config(&dir, Some(poles(None)), "on"));
     assert_eq!(s2.journal_len(), 1);
     let a2 = s2.solve(&trials()).unwrap();
     assert_eq!(s2.stats.jobs, 0, "the solve is never repeated");
@@ -240,13 +239,13 @@ fn a_solved_trial_is_journaled_before_the_pole_job_and_a_resume_asks_the_job_aga
     // the orders are journaled as a later line: a third solver answers everything from the journal
     assert_eq!(lines(&work.join("journal.jsonl")), 2);
     drop(s2);
-    let mut s3 = solver(config(&dir, Some(poles(vec![])), "on"));
+    let mut s3 = solver(config(&dir, Some(poles(None)), "on"));
     let a3 = s3.solve(&trials()).unwrap();
     assert_eq!((s3.stats.jobs, s3.stats.pole_jobs), (0, 0));
     assert_eq!(poles_of(&a3), want);
     // an uninterrupted run gives the same answers
     let dir4 = root("journal-ref");
-    let mut s4 = solver(config(&dir4, Some(poles(vec![])), "on"));
+    let mut s4 = solver(config(&dir4, Some(poles(None)), "on"));
     let a4 = s4.solve(&trials()).unwrap();
     assert_eq!(
         serde_json::to_value(&a4).unwrap(),

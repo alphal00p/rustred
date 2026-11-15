@@ -595,11 +595,14 @@ impl ChildTrialSolver {
             return none();
         };
         self.stats.pole_jobs += 1;
-        let work = self
-            .cfg
-            .work_root
-            .join("poles")
-            .join(format!("{:06}", self.stats.pole_jobs));
+        // a fresh directory per job: the counter restarts with every solver (resume), so the next FREE number is taken
+        // (an earlier run's job directory, e.g. of an interrupted or failed pole job, is never reused)
+        let base = self.cfg.work_root.join("poles");
+        let mut n = self.stats.pole_jobs;
+        while base.join(format!("{n:06}")).exists() {
+            n += 1;
+        }
+        let work = base.join(format!("{n:06}"));
         let opts = RunOptions {
             cpus: vec![],
             memory_cap_bytes: Some(pc.cap_bytes),
