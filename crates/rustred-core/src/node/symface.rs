@@ -242,8 +242,22 @@ pub struct SliceRule {
     pub slice: BTreeMap<usize, i64>,
     pub target: Vec<Pow>,
     pub terms: Vec<(Vec<Pow>, i128)>,
+    /// common denominator of the term coefficients (1 for an expansion; 1 - c after solving a self-term c I(K))
+    pub den: i128,
     pub dropped_zero_sector: usize,
     pub expanded: usize,
+}
+
+impl SliceRule {
+    /// The coefficient of a term as text: reduced `num/den` (integer when the denominator divides).
+    pub fn coef_text(&self, c: i128) -> String {
+        let (mut a, mut b) = (c, self.den);
+        if b < 0 { a = -a; b = -b; }
+        let (mut x, mut y) = (a.unsigned_abs(), b.unsigned_abs());
+        while y != 0 { (x, y) = (y, x % y); }
+        let g = x.max(1) as i128;
+        if b / g == 1 { format!("{}", a / g) } else { format!("{}/{}", a / g, b / g) }
+    }
 }
 
 /// How element `e` acts on the face: Err when a line or an exactly needed slot has no image, else the substituted
@@ -401,6 +415,7 @@ pub fn slice_rule_at(
         slice: slice.clone(),
         target,
         terms: terms.into_iter().collect(),
+        den: 1,
         dropped_zero_sector: dropped,
         expanded,
     })
@@ -716,7 +731,7 @@ pub fn rule_records(
             let rhs: Vec<Value> = r
                 .terms
                 .iter()
-                .map(|(p, c)| json!([pattern_text(p), c.to_string()]))
+                .map(|(p, c)| json!([pattern_text(p), r.coef_text(*c)]))
                 .collect();
             let rec = json!({
                 "type": "rule", "chart": chart_label, "index": first_index + k,
@@ -840,22 +855,26 @@ pub fn point_rule(
             *acc.entry(k2.clone()).or_insert(0) += 1;
             for (p, c) in &r.terms { *acc.entry(instantiate(p, key)).or_insert(0) += c; }
             for (p, c) in &r2.terms { *acc.entry(instantiate(p, &k2)).or_insert(0) -= c; }
-            let self_c = acc.remove(&key.to_vec()).unwrap_or(0);
-            let lead = 1 - self_c;
-            if lead == 0 {
-                refused.push((k, "pair: the key cancels (no relation)".into())); continue;
-            }
             acc.retain(|_, c| *c != 0);
-            if acc.values().any(|c| c % lead != 0) {
-                refused.push((k, format!("pair: non-integral coefficients (divide by {lead})"))); continue;
-            }
             r = SliceRule {
                 slice: slice.clone(),
                 target: key.iter().map(|&c| Pow { var: None, c }).collect(),
-                terms: acc.into_iter().map(|(t, c)| (t.into_iter().map(|c| Pow { var: None, c }).collect(), c / lead)).collect(),
+                terms: acc.into_iter().map(|(t, c)| (t.into_iter().map(|c| Pow { var: None, c }).collect(), c)).collect(),
+                den: 1,
                 dropped_zero_sector: r.dropped_zero_sector + r2.dropped_zero_sector,
                 expanded: r.expanded + r2.expanded,
             };
+        }
+        // a SELF-TERM (the key itself on the right with coefficient c, single row or pair) is solved for:
+        // (1 - c) I(K) = rest, coefficients rest / (1 - c) exactly (rational: `den`); 1 - c = 0 refuses (no relation)
+        let self_c: i128 = r.terms.iter().filter(|(p, _)| instantiate(p, key) == key).map(|(_, c)| *c).sum();
+        if r.terms.iter().any(|(p, _)| instantiate(p, key) == key) {
+            let lead = r.den - self_c;
+            if lead == 0 {
+                refused.push((k, "self-term: the key cancels (no relation)".into())); continue;
+            }
+            r.terms.retain(|(p, _)| instantiate(p, key) != key);
+            r.den = lead;
         }
         if let Some((p, _)) = r.terms.iter().find(|(p, _)| concrete(key, &instantiate(p, key)) != std::cmp::Ordering::Less) {
             refused.push((k, format!("term {:?} is not strictly lower (full node order)", instantiate(p, key)))); continue;
@@ -1007,7 +1026,7 @@ pub fn run(o: &RunOptions) -> Result<Value, String> {
             for key in &o.check_keys {
                 if let Some(r) = rule_for_key(&c.rules, key) {
                     if (0..n).all(|i| r.target[i].var.is_some() || r.target[i].c == key[i]) {
-                        let terms: Vec<Value> = r.terms.iter().map(|(p, co)| json!([instantiate(p, key), co.to_string()])).collect();
+                        let terms: Vec<Value> = r.terms.iter().map(|(p, co)| json!([instantiate(p, key), r.coef_text(*co)])).collect();
                         lines.push_str(&json!({"key": key, "element": c.element, "terms": terms}).to_string());
                         lines.push('\n');
                     }
