@@ -58,6 +58,13 @@ pub struct Route0Policy {
     pub symmetry_credit: bool,
     /// Family file of the group (null = derived from the frame table header's family).
     pub family: Option<String>,
+    /// ROUTE 0b: the exact multi-term symmetry relation at the key, every element alone, the smallest DESCENDING
+    /// relation (full node comparator) kept (`repairflow::symrel`); served keys leave the symbolic step.
+    pub symmetry_relation: bool,
+    /// Keys tried by route 0b per node (in key order); beyond: not tried (recorded).
+    pub max_keys: u64,
+    /// Bound of one expanded symmetry row (terms).
+    pub max_terms: usize,
 }
 
 impl Default for Route0Policy {
@@ -65,6 +72,9 @@ impl Default for Route0Policy {
         Route0Policy {
             symmetry_credit: true,
             family: None,
+            symmetry_relation: true,
+            max_keys: 1_000_000,
+            max_terms: 65_536,
         }
     }
 }

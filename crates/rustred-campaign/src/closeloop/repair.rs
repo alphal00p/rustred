@@ -202,6 +202,8 @@ struct P1 {
     /// The generate jobs' family text, derived from the frame header (None: the header carries none; the closeloop's
     /// solve family is used and the pre-flight job decides).
     family: Option<(String, &'static str)>,
+    /// ROUTE 0b: the point-record table of the kept symmetry relations (None: none kept / route off).
+    r0b_table: Option<String>,
 }
 
 struct RfNode {
@@ -568,6 +570,20 @@ impl<S: WorkSource> RepairFlowSource<S> {
                 }
             }
         }
+        let mut ext0: Vec<Value> = vec![];
+        if let Some(t) = &p1.r0b_table {
+            let rel = format!("{dir}/symrel.table.jsonl");
+            // (re)written: the P1 commit wrote the same bytes; a resume recomputes them identically
+            rt.accepts.push(record(rel.clone(), t.clone().into_bytes()));
+            let mut src = json!({"id": "rf:symmetry-relations", "kind": "supplied_relations",
+                "class": "symmetry-relation", "path": self.abs(&rel).display().to_string(),
+                "sha256": sha256_hex(t.as_bytes())});
+            src["verify"] = match &self.nodes[i].policy.route0.family {
+                Some(f) => json!({"family": {"path": f}}),
+                None => json!({}),
+            };
+            ext0.push(src);
+        }
         let ext = rf::extension_sources(
             &d,
             table_rel
@@ -589,7 +605,7 @@ impl<S: WorkSource> RepairFlowSource<S> {
             .iter()
             .position(|s| s["id"] == "default-recipe")
             .unwrap_or(srcs.len());
-        for (k, s) in ext.into_iter().enumerate() {
+        for (k, s) in ext0.into_iter().chain(ext).enumerate() {
             srcs.insert(at + k, s);
         }
         // (the import spec refuses unknown fields: the policy / decisions digests live in the decisions and report)
@@ -1444,6 +1460,112 @@ fn p1_pass(
     if let Some(nn) = &policy.recipes.numerator_priority {
         np = nn.clone();
     }
+    // ROUTE 0b: the smallest DESCENDING multi-term symmetry relation at each open key (every verified element alone;
+    // descent re-checked under the FULL node comparator); served keys leave the symbolic step
+    let mut faces = faces;
+    let mut r0b = json!({"enabled": policy.route0.symmetry_relation});
+    let mut r0b_table = None;
+    if policy.route0.symmetry_relation {
+        let gs: rustred_campaign_core::import::symmetry::GroupSpec = match &policy.route0.family {
+            Some(f) => serde_json::from_value(json!({"family": {"path": f}})),
+            None => serde_json::from_value(json!({})),
+        }
+        .map_err(|e| e.to_string())?;
+        match rustred_campaign_core::import::symmetry::load_verified_group(
+            &gs,
+            base,
+            set.frame.mask(),
+            set.cmp.presentation().new_to_old(),
+            header["family_source"].as_str(),
+        ) {
+            Err(e) => r0b["skipped"] = json!(format!("no verified group: {e}")),
+            Ok((g, grep)) => {
+                let cmp = |a: &[i32], b: &[i32]| set.cmp.cmp(a, b);
+                let mut served: BTreeSet<Vec<i32>> = BTreeSet::new();
+                let mut lines_out: Vec<String> = vec![];
+                let mut regions: BTreeMap<String, BTreeMap<usize, u64>> = BTreeMap::new();
+                let (mut not_lower, mut unknown, mut none, mut tried) = (0u64, 0u64, 0u64, 0u64);
+                for k in uncovered.iter().take(policy.route0.max_keys as usize) {
+                    tried += 1;
+                    match rf::symrel::smallest_symmetry_relation(
+                        &rustred_campaign_core::independent_algebra::Independent,
+                        &g,
+                        k,
+                        &cmp,
+                        policy.route0.max_terms,
+                    ) {
+                        Err(_) => unknown += 1,
+                        Ok(r) => match r.best {
+                            None => none += 1,
+                            Some(b) => {
+                                // acceptance: EVERY right-hand-side key strictly lower under the full comparator
+                                if !b
+                                    .rhs
+                                    .iter()
+                                    .all(|(q, _)| cmp(q, k) == std::cmp::Ordering::Less)
+                                {
+                                    not_lower += 1;
+                                    continue;
+                                }
+                                let rhs: Vec<Value> = b
+                                    .rhs
+                                    .iter()
+                                    .map(|(q, c)| {
+                                        json!([
+                                            rustred_campaign_core::termmin::key_text(q),
+                                            rustred_campaign_core::termmin::symrel::q_text(c)
+                                        ])
+                                    })
+                                    .collect();
+                                lines_out.push(
+                                    json!({"type": "rule", "chart": "", "index": lines_out.len(),
+                                        "kind": "symmetry-relation", "case": "point", "fixed": k, "equations": [],
+                                        "target": rustred_campaign_core::termmin::key_text(k), "rhs": rhs,
+                                        "exceptions": [], "dispatch": "Point", "witness_loci": [],
+                                        "symmetry_elements": [b.element]})
+                                    .to_string(),
+                                );
+                                let sig = Face::of_key(k, set.frame.mask())
+                                    .map(|f| f.label())
+                                    .unwrap_or_default();
+                                *regions
+                                    .entry(sig)
+                                    .or_default()
+                                    .entry(b.element)
+                                    .or_default() += 1;
+                                served.insert(k.clone());
+                            }
+                        },
+                    }
+                }
+                for f in &mut faces {
+                    f.open_keys.retain(|k| !served.contains(k));
+                    if f.exception.is_none() {
+                        f.unattributed = f
+                            .open_keys
+                            .iter()
+                            .filter(|k| !attributed.contains(*k))
+                            .count() as u64;
+                    }
+                }
+                faces.retain(|f| !f.open_keys.is_empty());
+                if !lines_out.is_empty() {
+                    let mut t = json!({"type": "header", "schema": "table_dump.v1", "family": "repairflow-route0b"})
+                        .to_string();
+                    t.push('\n');
+                    for l in &lines_out {
+                        t.push_str(l);
+                        t.push('\n');
+                    }
+                    r0b_table = Some(t);
+                }
+                r0b = json!({"enabled": true, "group": {"elements": grep.elements, "digest": grep.digest},
+                    "tried": tried, "served": served.len(), "no_relation": none, "not_lower": not_lower,
+                    "unknown": unknown, "regions_by_signature_and_element": regions,
+                    "acyclic": "by construction: every kept relation strictly descends under the node comparator (re-checked per key)"});
+            }
+        }
+    }
     // shadowing test per PLAIN face (against the in-force tables, dispatch order); an exception face is cut out of a
     // rule by construction (its keys are open: not matched first by an earlier entry)
     let budget = rustred_campaign_core::loci::contain::ProofBudget::default();
@@ -1465,11 +1587,13 @@ fn p1_pass(
             "open_keys": f.open_keys, "shadow": s})).collect::<Vec<_>>(),
         "outside_chart": outside, "line_priority": lp, "numerator_priority": np,
         "attribution": astats,
+        "route0b": r0b,
         "route0": {"source": route0, "credit_served_keys_by_signature": route0_keys},
         "frame_header_sha256": sha256_hex(header_line.as_bytes()),
     });
     let family = rf::faces::job_family_from_header(&header).ok();
     Ok(P1 {
+        r0b_table,
         family,
         faces,
         shadow,
@@ -1774,6 +1898,12 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
                     }
                     Some(_) => {}
                     None => {
+                        if let Some(t) = &p.r0b_table {
+                            rt.accepts.push(record(
+                                format!("{}/symrel.table.jsonl", rf_dir(&n)),
+                                t.clone().into_bytes(),
+                            ));
+                        }
                         let rec = record(format!("{}/check.json", rf_dir(&n)), p.record.clone());
                         self.reg(&mut rt, input_check(&n), ROLE_CHECK, rec);
                         let plan = rf::s_plan(&p.faces, &p.shadow, &self.nodes[i].policy);
