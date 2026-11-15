@@ -9,7 +9,7 @@
 //!                     [--maps M1,M2,..] [--dump-handdown-keys FILE]
 //! rr_arrivals verify --spec PARENT_SPEC --rows ROWS --edge E [..] --arrivals A [..] [--sample N] [--threads N]
 //!                    [--index-dir DIR]
-//! rr_arrivals child-check --spec CHILD_SPEC --statement F --arrivals NAME=A [..] [--closed-set NAME=FILE ..] --out REPORT --work-dir W
+//! rr_arrivals child-check (--services MANIFEST | --spec CHILD_SPEC) --statement F --arrivals NAME=A [..] [--closed-set NAME=FILE ..] --out REPORT --work-dir W
 //!                    [--threads N] [--index-dir DIR]
 //! rr_arrivals second-route --spec PARENT_SPEC --decisions D --facts F [..] --out REPORT [--index-dir DIR]
 //! rr_arrivals compare-engine --edge E --facts ENGINE.keys.jsonl [..] [--out REPORT]
@@ -79,6 +79,7 @@ struct Args {
     no_structural: bool,
     decide_all_handdowns: bool,
     closed_sets: Vec<String>,
+    services: Option<PathBuf>,
 }
 
 fn parse(args: &[String]) -> Args {
@@ -133,6 +134,7 @@ fn parse(args: &[String]) -> Args {
             "--no-structural" => a.no_structural = true,
             "--decide-all-handdowns" => a.decide_all_handdowns = true,
             "--closed-set" => a.closed_sets.push(val(&mut i)),
+            "--services" => a.services = Some(val(&mut i).into()),
             x => die(&format!("unknown argument {x}")),
         }
         i += 1;
@@ -1050,9 +1052,77 @@ fn verify(a: &Args) {
 }
 
 /// `child-check`: classify every parent's arrivals against the child's certified set and tables (core `arrivals::child`).
+/// Schema of a child-side SERVICE SET manifest (interfaces/arrivals.md 5): the child's import spec (its tables and
+/// relations in FIRST-MATCH order) and its closed key sets, every file pinned by sha256 (verified here, fail closed).
+const SERVICES_SCHEMA: &str = "rustred.campaign.arrival-services.v1";
+
+/// Read and verify a service manifest: (name, spec path, closed sets as NAME=PATH, manifest sha256).
+fn read_services(p: &Path) -> (String, PathBuf, Vec<String>, String) {
+    let (msha, _) = file_sha256(p).unwrap_or_else(|e| die(&e));
+    let v: Value = serde_json::from_str(
+        &std::fs::read_to_string(p).unwrap_or_else(|e| die(&format!("{}: {e}", p.display()))),
+    )
+    .unwrap_or_else(|e| die(&format!("{}: {e}", p.display())));
+    if v["schema"] != SERVICES_SCHEMA {
+        die(&format!(
+            "{}: schema {} (expected {SERVICES_SCHEMA})",
+            p.display(),
+            v["schema"]
+        ));
+    }
+    let pinned = |x: &Value, what: &str| -> PathBuf {
+        let path = PathBuf::from(
+            x["path"]
+                .as_str()
+                .unwrap_or_else(|| die(&format!("{what}: no path"))),
+        );
+        let want = x["sha256"]
+            .as_str()
+            .unwrap_or_else(|| die(&format!("{what}: not pinned (no sha256)")));
+        let (got, _) = file_sha256(&path).unwrap_or_else(|e| die(&e));
+        if got != want {
+            die(&format!(
+                "{what}: {} has sha256 {got}, the manifest pins {want}",
+                path.display()
+            ));
+        }
+        path
+    };
+    let spec = pinned(&v["spec"], "services spec");
+    let closed = v["closed_sets"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|c| {
+            let n = c["name"]
+                .as_str()
+                .unwrap_or_else(|| die("closed set without a name"));
+            format!("{n}={}", pinned(c, &format!("closed set {n}")).display())
+        })
+        .collect();
+    (
+        v["name"].as_str().unwrap_or("").to_string(),
+        spec,
+        closed,
+        msha,
+    )
+}
+
 fn child_check(a: &Args) {
     let t0 = std::time::Instant::now();
-    let spec = a.spec.clone().unwrap_or_else(|| die("--spec missing"));
+    // the service set: a pinned manifest (preferred) or an explicit spec; never a default path
+    let services = a.services.as_ref().map(|p| read_services(p));
+    let spec = match &services {
+        Some((_, s, _, _)) => s.clone(),
+        None => a
+            .spec
+            .clone()
+            .unwrap_or_else(|| die("--services MANIFEST (or --spec) missing")),
+    };
+    let mut closed_args = a.closed_sets.clone();
+    if let Some((_, _, c, _)) = &services {
+        closed_args.extend(c.iter().cloned());
+    }
     let st = a
         .statement
         .clone()
@@ -1076,8 +1146,7 @@ fn child_check(a: &Args) {
         .unwrap_or_else(|e| die(&format!("evidence: {e}")));
     let (cert, cert_sha) = child::read_certified(&st).unwrap_or_else(|e| die(&e));
     // named closed sets of the child (served by definition), each bound by its sha256
-    let closed: Vec<child::ClosedSet> = a
-        .closed_sets
+    let closed: Vec<child::ClosedSet> = closed_args
         .iter()
         .map(|x| {
             let (n, p) = x
@@ -1129,6 +1198,7 @@ fn child_check(a: &Args) {
         "certified_set": {"path": st, "sha256": cert_sha, "keys": cert.len()}, "parents": parents,
         "closed_sets": closed.iter().map(|c| json!({"name": c.name, "path": c.path, "sha256": c.sha256,
             "keys": c.keys.len()})).collect::<Vec<_>>(),
+        "services": services.as_ref().map(|(n, s, _, m)| json!({"manifest": a.services, "manifest_sha256": m, "name": n, "spec": s})),
         "seconds": t0.elapsed().as_secs_f64(), "tool": arrivals::TOOL_VERSION});
     write_json(&out, &r);
     println!("{}", canonical_json(&r));

@@ -435,6 +435,76 @@ fn toy_dag_arrivals_child_check_determinism_and_verifier() {
         p["a_in_certified_set"].as_u64().unwrap() + p["b_served_outside"].as_u64().unwrap() + c,
         a.lines.len() as u64
     );
+    // the child-side SERVICE SET as a pinned manifest: the same verdicts; a wrong pin is refused (fail closed)
+    let man = t.dir.join("C.services.json");
+    let pin = |sha: &str| {
+        json!({"schema": "rustred.campaign.arrival-services.v1", "node": "C", "name": "toy child services",
+            "spec": {"path": t.cspec, "sha256": sha}, "closed_sets": []})
+        .to_string()
+    };
+    std::fs::write(&man, pin(&sha(&t.cspec))).unwrap();
+    let rep2 = t.dir.join("child2.json");
+    let (mr, ms) = run(&[
+        "child-check",
+        "--services",
+        man.to_str().unwrap(),
+        "--statement",
+        cert.to_str().unwrap(),
+        "--arrivals",
+        &format!("P={}", f.display()),
+        "--out",
+        rep2.to_str().unwrap(),
+        "--work-dir",
+        work.to_str().unwrap(),
+    ]);
+    assert_eq!(mr, 0, "{ms}");
+    assert_eq!(ms["parents"][0]["c_not_served"], p["c_not_served"]);
+    assert_eq!(ms["services"]["name"], "toy child services");
+    std::fs::write(&man, pin(&"0".repeat(64))).unwrap();
+    let (br, bs) = run(&[
+        "child-check",
+        "--services",
+        man.to_str().unwrap(),
+        "--statement",
+        cert.to_str().unwrap(),
+        "--arrivals",
+        &format!("P={}", f.display()),
+        "--out",
+        rep2.to_str().unwrap(),
+        "--work-dir",
+        work.to_str().unwrap(),
+    ]);
+    assert_eq!(br, 2, "a wrong pin must be refused: {bs}");
+    // a closed set serves its keys: every (c) key put into a closed key list -> nothing unserved
+    let cl = t.dir.join("closed.keys.jsonl");
+    let c_keys: Vec<String> = p["c_first50"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x["key"].to_string())
+        .collect();
+    std::fs::write(&cl, c_keys.join("\n") + "\n").unwrap();
+    let (cr2, cs2) = run(&[
+        "child-check",
+        "--spec",
+        t.cspec.to_str().unwrap(),
+        "--statement",
+        cert.to_str().unwrap(),
+        "--arrivals",
+        &format!("P={}", f.display()),
+        "--closed-set",
+        &format!("toy={}", cl.display()),
+        "--out",
+        rep2.to_str().unwrap(),
+        "--work-dir",
+        work.to_str().unwrap(),
+    ]);
+    assert_eq!(cr2, 0, "{cs2}");
+    let q = &cs2["parents"][0];
+    if c as usize <= 50 {
+        assert_eq!(q["c_not_served"], 0, "{q}");
+        assert_eq!(q["b_in_closed_sets"]["toy"].as_u64().unwrap(), c);
+    }
     let _ = std::fs::remove_dir_all(&t.dir);
 }
 
