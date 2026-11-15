@@ -59,6 +59,7 @@ fn real_ship_economy() {
         statement_format: c["statement_format"].as_str().unwrap_or("tool").to_string(),
         rule_index: opt("rule_index"),
         check_mode: c["check_mode"].as_str().unwrap_or("full").to_string(),
+        later_rule_probe: opt("later_rule_probe"),
         verbose: true,
     };
     let rep = run_ship(&cfg).unwrap();

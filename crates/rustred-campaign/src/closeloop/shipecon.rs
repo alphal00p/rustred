@@ -79,6 +79,10 @@ pub struct ShipRunConfig {
     /// coverage is proved locally: every migrated key served by its certified relation whose top right-hand side lies in
     /// the certified set; requires `coverage.require_rhs_in_certified_set`).
     pub check_mode: String,
+    /// `rr_node first-match` output (`{key, position}` lines) on the node's SHIPPED table (the leaving rules out) for the
+    /// migrated keys: a key with a position is taken by a later table rule (the engine's own dispatch; replaces the
+    /// tentative set, which in local mode sees only the selected rules). Given: every examined rule is re-decided.
+    pub later_rule_probe: Option<PathBuf>,
     /// `rr_node first-match --table ship/probe/table.jsonl --keys ship/probe/keys.jsonl` output of an earlier run's
     /// probe (compared key by key with the import's dispatch of the shipped spec).
     pub engine_first_match: Option<PathBuf>,
@@ -695,9 +699,42 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
             }
         }
     }
+    if let Some(lp) = &cfg.later_rule_probe {
+        let text = std::fs::read_to_string(lp).map_err(|e| format!("{}: {e}", lp.display()))?;
+        let examined: BTreeSet<&Vec<i32>> = cand
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| matches!(c, Candidacy::Examine))
+            .flat_map(|(i, _)| census.rules[i].keys.iter().map(|(k, _)| k))
+            .collect();
+        for l in text.lines().filter(|l| !l.trim().is_empty()) {
+            let v: Value = serde_json::from_str(l).map_err(|e| format!("{}: {e}", lp.display()))?;
+            let k: Vec<i32> =
+                serde_json::from_value(v["key"].clone()).map_err(|e| e.to_string())?;
+            if examined.contains(&k) && !v["position"].is_null() {
+                taken_by_table.insert(k);
+            }
+        }
+        for (i, r) in plans.iter_mut() {
+            if *r == Reuse::Unchanged {
+                *r = Reuse::Continue {
+                    trials: prev
+                        .get(&census.rules[*i].rule.record_sha256)
+                        .map(|x| x.trials.clone())
+                        .unwrap_or_default(),
+                    to_try: vec![],
+                };
+            }
+        }
+    }
     say(format!(
-        "tentative shipped dispatch: {} examined keys taken by a later table rule",
-        taken_by_table.len()
+        "shipped dispatch: {} examined keys taken by a later table rule{}",
+        taken_by_table.len(),
+        if cfg.later_rule_probe.is_some() {
+            " (engine probe)"
+        } else {
+            ""
+        }
     ));
     drop(set_t);
     // the accept chain certifies each relation as such (no table before it): the slot before the first table
@@ -1025,6 +1062,26 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
         // descent under the full comparator) whose top right-hand side lies in the certified set (decide refused the
         // others): every reached key stays a certified key with its old service or its new relation, every new edge
         // descends (acyclic); the closure can only shrink; terminals are a subset (reachability not recomputed)
+        // a key a LATER table rule takes stays served, but that rule's right-hand side is outside the local proof:
+        // its rule is reverted (conservative, per rule); `stored.precedence = over_table` has no such keys
+        let mut later_reverted: Vec<String> = vec![];
+        for d in decisions.iter_mut().filter(|d| d.outcome.migrates()) {
+            let n = d
+                .keys
+                .iter()
+                .filter(|k| k.form == "later_table_rule")
+                .count();
+            if n > 0 {
+                later_reverted.push(format!("{} ({n} keys)", d.rule.id()));
+                ship::revert(
+                    d,
+                    &format!(
+                        "local check: {n} keys taken by a later table rule whose right-hand side the local proof does \
+                         not cover (full check, or stored.precedence over_table)"
+                    ),
+                );
+            }
+        }
         let migrated: Vec<&RuleDecision> =
             decisions.iter().filter(|d| d.outcome.migrates()).collect();
         let unserved: Vec<Vec<i32>> = migrated
@@ -1051,9 +1108,9 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
             holds: unserved.is_empty(),
         };
         check_log.push(json!({"mode": "local", "migrating": migrated.len(), "unserved_migrated_keys": unserved,
+            "reverted_later_rule": later_reverted,
             "note": "local proof (the material is a selection of the node's rules): closure membership and service of \
-                     every key; NOT computed: dropped keys, terminal reachability, later-table-rule fall-through \
-                     (after_table: a later rule that takes a key keeps it served by that rule)"}));
+                     every key; NOT computed: dropped keys, terminal reachability"}));
         if !cc.holds {
             for d in decisions.iter_mut().filter(|d| d.outcome.migrates()) {
                 ship::revert(
