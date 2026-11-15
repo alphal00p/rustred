@@ -32,6 +32,8 @@ pub mod backend;
 pub mod modes;
 pub mod referee;
 pub mod wrap;
+// lane tworow (interfaces/tworow.md): REQUEST TO I-INT, one line
+pub mod tworow_check;
 
 pub use backend::{SymbolicaAlgebra, SymbolicaBudget, licensed};
 pub use modes::{
