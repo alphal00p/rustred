@@ -2027,6 +2027,21 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
         self.inner.outcome(st)
     }
 
+    /// int7 (repairflow x closeloop4, closeloop.md 19.3): the closing loop's operator decisions pass through the
+    /// repair flow, as through phase E (termmin.rs); without this the supervisor never stops with the attention exit
+    /// for terminal proposals and `resolve-terminals` is refused by the default.
+    fn operator_decision(&self, st: &CampaignState) -> Option<String> {
+        self.inner.operator_decision(st)
+    }
+
+    fn resolve_operator_decision(
+        &mut self,
+        st: &CampaignState,
+        req: &crate::supervisor::ControlRequest,
+    ) -> Result<crate::supervisor::worksource::Routing, String> {
+        self.inner.resolve_operator_decision(st, req)
+    }
+
     fn describe(&self) -> String {
         if self.nodes.is_empty() {
             self.inner.describe()
