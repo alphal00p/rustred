@@ -277,6 +277,36 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
     load_with(spec, base, &LoadOptions::default())
 }
 
+/// The frame source of the spec and the header line of its first table file (the file itself is verified when its
+/// source is loaded).
+fn frame_header<'a>(
+    spec: &'a TableSetSpec,
+    base: &Path,
+) -> Result<(&'a SourceSpec, TableHeader), ImportError> {
+    let fsrc = spec
+        .sources
+        .iter()
+        .find(|s| s.id == spec.frame_from)
+        .ok_or_else(|| ImportError::Spec("frame_from".into()))?;
+    let funits = file_units(fsrc, base)?;
+    let first = funits.first().ok_or_else(|| ImportError::Source {
+        source: fsrc.id.clone(),
+        msg: "no table file".into(),
+    })?;
+    let fhead = super::lines::read_header(&fsrc.id, &first.path)?;
+    Ok((fsrc, fhead))
+}
+
+/// The node frame of the spec (from the header line of the first file of `frame_from`; no table is read): the same
+/// frame [`load_with`] gives the loaded set.
+pub fn frame_of(spec: &TableSetSpec, base: &Path) -> Result<NodeFrame, ImportError> {
+    let (fsrc, fhead) = frame_header(spec, base)?;
+    NodeFrame::from_header(&fhead).map_err(|e| ImportError::Source {
+        source: fsrc.id.clone(),
+        msg: format!("frame: {e}"),
+    })
+}
+
 /// Load the spec with [`LoadOptions`]. Every table file is read through its index (`import::index`): ONE streaming
 /// pass over a table that has no valid index (domains + sha256 digests + rhs keys), none over a table whose index is
 /// reused; the bodies are then read from the index.
@@ -288,19 +318,8 @@ pub fn load_with(
     let spec_digest = spec.digest();
     // open table indexes by file (kept for the body pass)
     let mut indexes: BTreeMap<PathBuf, TableIndex> = BTreeMap::new();
-    // ---- the frame: the first file of `frame_from`
-    let fsrc = spec
-        .sources
-        .iter()
-        .find(|s| s.id == spec.frame_from)
-        .ok_or_else(|| ImportError::Spec("frame_from".into()))?;
-    let funits = file_units(fsrc, base)?;
-    let first = funits.first().ok_or_else(|| ImportError::Source {
-        source: fsrc.id.clone(),
-        msg: "no table file".into(),
-    })?;
-    // the frame: the header line only (the file itself is verified when its source is loaded)
-    let fhead = super::lines::read_header(&fsrc.id, &first.path)?;
+    // ---- the frame: the header line of the first file of `frame_from`
+    let (fsrc, fhead) = frame_header(spec, base)?;
     let frame = NodeFrame::from_header(&fhead).map_err(|e| ImportError::Source {
         source: fsrc.id.clone(),
         msg: format!("frame: {e}"),
