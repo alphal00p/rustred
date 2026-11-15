@@ -702,3 +702,82 @@ fn structural_filter_changes_cost_not_results() {
     println!("{n} keys: rows expanded {rows_on} with the filter, {rows_off} without");
     assert!(rows_on <= rows_off);
 }
+
+/// planfix (audit r2-planners T1): `apply_combination`'s OWN strictly-lower check (search.rs, the re-derivation used for
+/// every kept relation and for every region-form verdict) is exercised directly: over the one-element rows at the keys
+/// where route 0b gives no relation, every `Ok` relation has every right-hand-side key strictly lower (checked here with
+/// the order itself), and some row is refused `NotLower` naming a term that is indeed not lower. With that check turned
+/// off (the auditor's surviving mutation M-tworow) the refusals become `Ok` relations with a non-lower term: both
+/// assertions fail. The same for the region forms: every accepted (shape, key) re-derives to a strictly lower relation.
+#[test]
+fn apply_combination_refuses_a_term_that_is_not_strictly_lower() {
+    let f = sunbub();
+    let cmp = |a: &[i32], b: &[i32]| (f.cmp)(a, b);
+    let p = TwoRowPolicy::default();
+    let keys = box_keys(&f.chart, 1, 4);
+    let rs = keys_needing_more(&f, &keys, &p);
+    assert!(!rs.is_empty());
+    let one = rustred_campaign_core::replay_base::algebra::Q::ONE;
+    let n_el = f.group.group().elements.len();
+    let (mut ok, mut not_lower) = (0usize, 0usize);
+    for r in &rs {
+        for e in 0..n_el {
+            let spec = RowSpec {
+                element: e,
+                shift: None,
+            };
+            match apply_combination(&Independent, &f.group, &r.key, &[spec], &[one], &cmp, &p, None) {
+                Ok(c) => {
+                    ok += 1;
+                    for (t, _) in &c.rhs {
+                        assert_eq!(cmp(t, &r.key), Ordering::Less, "{t:?} not lower than {:?}", r.key);
+                    }
+                }
+                Err(Reject::NotLower { term }) => {
+                    not_lower += 1;
+                    assert_ne!(cmp(&term, &r.key), Ordering::Less, "refused a lower term {term:?}");
+                }
+                Err(_) => {}
+            }
+        }
+    }
+    assert!(
+        not_lower > 0,
+        "no one-element row refused NotLower at {} keys ({ok} ok)",
+        rs.len()
+    );
+    // region forms: every accepted shape re-derives at its keys to a strictly lower relation
+    let r0 = rs
+        .iter()
+        .find(|r| r.outcome.best().is_some_and(|b| b.rows.len() == 2))
+        .expect("a pair key");
+    let face = Face::of_key(&r0.key, &f.chart).unwrap();
+    let region: Vec<Vec<i32>> = keys
+        .iter()
+        .filter(|k| Face::of_key(k, &f.chart).as_ref() == Some(&face))
+        .cloned()
+        .collect();
+    let results: Vec<KeyResult> = region
+        .iter()
+        .map(|k| search_key(&Independent, k, &f.group, &cmp, &p, None))
+        .collect();
+    let rep = region_forms(&Independent, &f.group, &region, &results, &cmp, &p, None);
+    let mut checked = 0usize;
+    for v in &rep.shapes {
+        for &i in &v.accepted {
+            let k = &region[i];
+            let w: Vec<_> = v
+                .shape
+                .weights
+                .iter()
+                .map(|wf| wf.eval(&Independent, k).unwrap())
+                .collect();
+            let c = apply_combination(&Independent, &f.group, k, &v.shape.rows, &w, &cmp, &p, None).unwrap();
+            for (t, _) in &c.rhs {
+                assert_eq!(cmp(t, k), Ordering::Less, "region form {:?}: {t:?} vs {k:?}", v.shape.rows);
+            }
+            checked += 1;
+        }
+    }
+    assert!(checked > 0);
+}
