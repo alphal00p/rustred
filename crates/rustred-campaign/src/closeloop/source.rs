@@ -328,8 +328,8 @@ impl CloseFromMaterialSource {
     }
 
     /// lane t266run (L17): an item in attention for a memory-cap end (it holds its node until the cap is raised).
-    fn memory_cap_held(p: &ItemPhase) -> bool {
-        matches!(p, ItemPhase::Attention(c) if c == crate::launch::MEMORY_CAP_EXCEEDED)
+    fn memory_cap_held(st: &CampaignState, item: &str) -> bool {
+        crate::launch::ended_at_memory_cap(st, item)
     }
 
     fn item_final(p: &ItemPhase) -> bool {
@@ -617,10 +617,10 @@ impl CloseFromMaterialSource {
         }
         // lane t266run (L17): an item in attention for a MEMORY-CAP end is not final for the loop: it holds the node
         // (no pass, no final verdict) until a session with a higher --mem-cap reopens it
-        let busy = st.items.values().any(|it| {
+        let busy = st.items.iter().any(|(id, it)| {
             it.node == *node
                 && (it.kind == KIND_SOLVE || it.kind == KIND_PROOF || it.kind == KIND_FACTS)
-                && (!Self::item_final(&it.phase) || Self::memory_cap_held(&it.phase))
+                && (!Self::item_final(&it.phase) || Self::memory_cap_held(st, id))
         });
         if busy {
             return if r.set.is_none() { Some(0) } else { None };
@@ -2257,13 +2257,13 @@ impl WorkSource for CloseFromMaterialSource {
             }
             let mut held = 0usize;
             let mut moving = false;
-            for it in st.items.values() {
+            for (id, it) in st.items.iter() {
                 if it.node != r.cfg.node
                     || !(it.kind == KIND_SOLVE || it.kind == KIND_PROOF || it.kind == KIND_FACTS)
                 {
                     continue;
                 }
-                if Self::memory_cap_held(&it.phase) {
+                if Self::memory_cap_held(st, id) {
                     held += 1;
                 } else if !Self::item_final(&it.phase) {
                     moving = true;
