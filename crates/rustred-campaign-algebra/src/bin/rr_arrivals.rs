@@ -9,7 +9,7 @@
 //!                     [--maps M1,M2,..] [--dump-handdown-keys FILE]
 //! rr_arrivals verify --spec PARENT_SPEC --rows ROWS --edge E [..] --arrivals A [..] [--sample N] [--threads N]
 //!                    [--index-dir DIR]
-//! rr_arrivals child-check --spec CHILD_SPEC --statement F --arrivals NAME=A [..] --out REPORT --work-dir W
+//! rr_arrivals child-check --spec CHILD_SPEC --statement F --arrivals NAME=A [..] [--closed-set NAME=FILE ..] --out REPORT --work-dir W
 //!                    [--threads N] [--index-dir DIR]
 //! rr_arrivals second-route --spec PARENT_SPEC --decisions D --facts F [..] --out REPORT [--index-dir DIR]
 //! rr_arrivals compare-engine --edge E --facts ENGINE.keys.jsonl [..] [--out REPORT]
@@ -77,6 +77,8 @@ struct Args {
     max_planes: usize,
     all_lines: bool,
     no_structural: bool,
+    decide_all_handdowns: bool,
+    closed_sets: Vec<String>,
 }
 
 fn parse(args: &[String]) -> Args {
@@ -129,6 +131,8 @@ fn parse(args: &[String]) -> Args {
             "--max-planes" => a.max_planes = num(val(&mut i)),
             "--all-lines" => a.all_lines = true,
             "--no-structural" => a.no_structural = true,
+            "--decide-all-handdowns" => a.decide_all_handdowns = true,
+            "--closed-set" => a.closed_sets.push(val(&mut i)),
             x => die(&format!("unknown argument {x}")),
         }
         i += 1;
@@ -258,6 +262,12 @@ fn per_record<R: Send>(
 }
 
 type RecordLines = Result<Option<(Vec<Value>, zero_proofs::HandDownCounts)>, String>;
+/// A re-derived record of the hand-down verifier: (record sha256, lines, lines, independent failures).
+type RederivedRecord = (String, usize, Vec<Value>, Vec<String>);
+/// A key set (support, exact) per child of the multi-map union.
+type KeySetB = BTreeSet<Vec<i32>>;
+/// An expansion with i128 coefficients (for the independent identity check).
+type ImageI128 = Vec<(Vec<i32>, (i128, i128))>;
 
 fn prove_record(
     alg: &SymbolicaAlgebra,
@@ -400,7 +410,7 @@ fn verify_proofs(a: &Args) {
         let res = per_record(
             tp,
             a.threads,
-            |off| -> Result<Option<(String, usize, Vec<Value>, Vec<String>)>, String> {
+            |off| -> Result<Option<RederivedRecord>, String> {
                 let (frame, _) = coef_facts::table_frame(tp)?;
                 let (line, _) = coef_facts::line_at(tp, off)?;
                 let rt = match rustred_campaign_core::accept::rule::RuleText::parse(&line, &frame) {
@@ -423,26 +433,22 @@ fn verify_proofs(a: &Args) {
                             .map_err(|e| e.to_string())?;
                     let subs = p.substitutions(locus);
                     let (num, _) = p.side_texts(j)?;
-                    match v["verdict"].as_str() {
+                    // (claim checked independently?, failure text)
+                    let failed = match v["verdict"].as_str() {
                         Some("zero_on_locus") if !eqs => {
-                            if !zero_proofs::core_vanishes(&num, p.arity(), &subs)? {
-                                bad.push(format!(
-                                    "independent: term {j} {} does not vanish",
-                                    v["locus"]
-                                ));
-                            }
+                            (!zero_proofs::core_vanishes(&num, p.arity(), &subs)?)
+                                .then_some("does not vanish")
                         }
                         Some("nonzero_on_locus")
                             if !eqs && v["numerator"] == "constant_d_coefficient" =>
                         {
-                            if !zero_proofs::core_constant_d_coefficient(&num, p.arity(), &subs)? {
-                                bad.push(format!(
-                                    "independent: term {j} {} has no constant d-coefficient",
-                                    v["locus"]
-                                ));
-                            }
+                            (!zero_proofs::core_constant_d_coefficient(&num, p.arity(), &subs)?)
+                                .then_some("has no constant d-coefficient")
                         }
-                        _ => {}
+                        _ => None,
+                    };
+                    if let Some(f) = failed {
+                        bad.push(format!("independent: term {j} {} {f}", v["locus"]));
                     }
                 }
                 let sha = p.record_id().0.to_string();
@@ -576,7 +582,18 @@ fn walk_cfg(a: &Args) -> arrivals::WalkCfg {
         exact,
         structural: !a.no_structural,
         cache_entries: a.cache_entries,
+        routed_masks: None,
     }
+}
+
+/// The masks the given edges route (hand-down terms on other masks are only counted), unless --decide-all-handdowns.
+fn routed(a: &Args, edges: &[EdgeFile]) -> Option<BTreeSet<u64>> {
+    (!a.decide_all_handdowns).then(|| {
+        edges
+            .iter()
+            .flat_map(|e| e.sectors.iter().map(|s| s.dropped_mask))
+            .collect()
+    })
 }
 
 struct Prepared {
@@ -660,7 +677,8 @@ fn compute(a: &Args) {
         .unwrap_or_else(|e| die(&format!("{}: {e}", out_dir.display())));
     let alg = algebra();
     let pr = prepare(a);
-    let cfg = walk_cfg(a);
+    let mut cfg = walk_cfg(a);
+    cfg.routed_masks = routed(a, &pr.edges);
     let t_load = t0.elapsed().as_secs_f64();
     let recs: BTreeSet<(usize, usize)> =
         pr.rows.served.iter().map(|r| (r.table, r.record)).collect();
@@ -698,7 +716,7 @@ fn compute(a: &Args) {
         a.maps.clone()
     };
     let multi = maps.len() > 1;
-    let mut union: BTreeMap<String, (BTreeSet<Vec<i32>>, BTreeSet<Vec<i32>>)> = BTreeMap::new();
+    let mut union: BTreeMap<String, (KeySetB, KeySetB)> = BTreeMap::new();
     let mut other = BTreeMap::new();
     for map in &maps {
         let edges: Vec<EdgeFile> = if *map == a.map {
@@ -712,6 +730,9 @@ fn compute(a: &Args) {
         let (res, oth) = arrivals::aggregate(&pr.set, &pr.rows, &w, &edges, &cache, &cfg)
             .unwrap_or_else(|e| die(&e));
         other = oth;
+        for (m, c) in &w.unrouted {
+            *other.entry(*m).or_default() += c;
+        }
         for (e, r) in edges.iter().zip(&res) {
             let u = union.entry(e.child.label.clone()).or_default();
             u.0.extend(r.lines.iter().map(|l| l.key.clone()));
@@ -753,7 +774,12 @@ fn compute(a: &Args) {
     }
     // per-record decision sample for the second route (rr_proof instantiate requests + our words)
     if a.decisions_sample > 0 {
-        let step = (w.cl_served.len() / a.decisions_sample).max(1);
+        let step = w
+            .cl_served
+            .len()
+            .checked_div(a.decisions_sample)
+            .unwrap_or(1)
+            .max(1);
         let mut req: BTreeMap<(usize, usize), Vec<Vec<i32>>> = BTreeMap::new();
         let mut dec = vec![];
         for ci in (0..w.cl_served.len())
@@ -798,7 +824,11 @@ fn compute(a: &Args) {
                 tks.insert(h.tk.clone());
             }
         }
-        let step = (tks.len() / a.decisions_sample).max(1);
+        let step = tks
+            .len()
+            .checked_div(a.decisions_sample)
+            .unwrap_or(1)
+            .max(1);
         let sample: Vec<&Vec<i32>> = tks.iter().step_by(step).take(a.decisions_sample).collect();
         std::fs::write(
             out_dir.join(format!("{parent}.handdown-keys.sample.json")),
@@ -853,6 +883,7 @@ fn verify(a: &Args) {
         }
     }
     let mut cfg = walk_cfg(a);
+    cfg.routed_masks = routed(a, &pr.edges);
     cfg.structural = false;
     let exact_in_files = files
         .iter()
@@ -980,7 +1011,7 @@ fn verify(a: &Args) {
                             e.child.label, fl.key
                         ));
                     }
-                    let im: Option<Vec<(Vec<i32>, (i128, i128))>> = img
+                    let im: Option<ImageI128> = img
                         .iter()
                         .map(|(k, c)| arrivals::rat_i128(c).map(|x| (k.clone(), x)))
                         .collect();
@@ -1044,6 +1075,17 @@ fn child_check(a: &Args) {
     let ev = Evidence::from_spec(&set, Path::new("/"))
         .unwrap_or_else(|e| die(&format!("evidence: {e}")));
     let (cert, cert_sha) = child::read_certified(&st).unwrap_or_else(|e| die(&e));
+    // named closed sets of the child (served by definition), each bound by its sha256
+    let closed: Vec<child::ClosedSet> = a
+        .closed_sets
+        .iter()
+        .map(|x| {
+            let (n, p) = x
+                .split_once('=')
+                .unwrap_or_else(|| die("--closed-set NAME=FILE"));
+            child::ClosedSet::read(n, Path::new(p), &set).unwrap_or_else(|e| die(&e))
+        })
+        .collect();
     let mut parents = vec![];
     let lines = set.frame.mask().to_vec();
     for s in &a.arrivals {
@@ -1052,7 +1094,7 @@ fn child_check(a: &Args) {
             .unwrap_or_else(|| die("--arrivals NAME=FILE"));
         let arr = format::read(Path::new(p)).unwrap_or_else(|e| die(&e));
         let rows = work.join(format!("rows.{name}.jsonl"));
-        let pc = child::check_parent(&set, &ev, &cert, name, &arr, &rows, a.threads)
+        let pc = child::check_parent(&set, &ev, &cert, &closed, name, &arr, &rows, a.threads)
             .unwrap_or_else(|e| die(&e));
         // every (c) key and every open key reached, in full (the report lists the first 50)
         let kl = |k: &Vec<i32>| {
@@ -1085,6 +1127,8 @@ fn child_check(a: &Args) {
     }
     let r = json!({"schema": CHILD_CHECK_SCHEMA, "child_spec": {"path": spec, "node": sv["node"]},
         "certified_set": {"path": st, "sha256": cert_sha, "keys": cert.len()}, "parents": parents,
+        "closed_sets": closed.iter().map(|c| json!({"name": c.name, "path": c.path, "sha256": c.sha256,
+            "keys": c.keys.len()})).collect::<Vec<_>>(),
         "seconds": t0.elapsed().as_secs_f64(), "tool": arrivals::TOOL_VERSION});
     write_json(&out, &r);
     println!("{}", canonical_json(&r));

@@ -43,6 +43,20 @@ use super::zero_proofs::{ProverCfg, RecordProver};
 type QPoly = MultivariatePolynomial<RationalField, u16>;
 type PPoly = MultivariatePolynomial<Zp64, u16>;
 type Fe = FiniteFieldElement<u64>;
+/// (table, record) of a rule record.
+type RecKey = (usize, usize);
+/// A record text kept for the run and its table frame.
+type TextEntry = (&'static RuleText, NodeFrame);
+/// A top edge to decide: (source row index, term index).
+type TopEdge = (usize, u32);
+/// A pending decision: (source row index, term index, position in the pending list).
+type PendItem = (usize, u32, usize);
+/// An expansion cached per (edge, parent term key): child keys with the coefficient mod each prime.
+type ImageMod = std::sync::Arc<Vec<(Vec<i32>, [Fe; 2])>>;
+/// An exact-fallback item: (closure index, edge, child key, first contributing sender).
+type FallbackItem = (usize, usize, Vec<i32>, SenderRef);
+/// Its answer: (edge, child key, first sender, total non-zero).
+type FallbackOut = (usize, Vec<i32>, SenderRef, bool);
 
 /// The two evaluation points of the modular witnesses (primes verified at start; d values arbitrary: a non-zero value
 /// is a proof at any point, a zero value only sends the pair to the exact evaluation).
@@ -281,9 +295,9 @@ pub struct RecCache<'s> {
     alg: &'static SymbolicaAlgebra,
     cfg: ProverCfg,
     frames: Mutex<BTreeMap<String, NodeFrame>>,
-    slots: HashMap<(usize, usize), Mutex<Option<RecEntry>>>,
+    slots: HashMap<RecKey, Mutex<Option<RecEntry>>>,
     /// Every record text read once (leaked, reused by later phases after a slot was released).
-    texts: Mutex<HashMap<(usize, usize), (&'static RuleText, NodeFrame)>>,
+    texts: Mutex<HashMap<RecKey, TextEntry>>,
 }
 
 impl<'s> RecCache<'s> {
@@ -499,6 +513,8 @@ pub struct WalkCfg {
     pub structural: bool,
     /// Max child-key entries kept in a thread's route cache.
     pub cache_entries: usize,
+    /// Decide only hand-down terms whose dropped mask some given edge routes (others are counted per mask, undecided).
+    pub routed_masks: Option<BTreeSet<u64>>,
 }
 
 /// A decided hand-down term at a key.
@@ -536,6 +552,8 @@ pub struct WalkStats {
     pub by_key_mod: u64,
     pub by_key_exact: u64,
     pub positive_numerator_terms: u64,
+    /// Hand-down terms on masks no given edge routes (counted, not decided).
+    pub handdown_unrouted: u64,
     pub seconds_closure: f64,
     pub seconds_handdowns: f64,
 }
@@ -584,6 +602,8 @@ pub struct Walk {
     pub hand: Vec<Vec<HandTerm>>,
     pub stats: WalkStats,
     pub closure_digest: String,
+    /// Hand-down terms per dropped mask that no given edge routes (undecided when `routed_masks` is set).
+    pub unrouted: BTreeMap<u64, u64>,
 }
 
 /// Phases A and B (module docs). `cache` holds every record that serves a row (built by the caller).
@@ -636,7 +656,7 @@ pub fn walk(
             .collect()
     };
     let mut frontier: Vec<Vec<i32>> = reached.iter().cloned().collect();
-    let mut cand: BTreeMap<Vec<i32>, Vec<(usize, u32)>> = BTreeMap::new();
+    let mut cand: BTreeMap<Vec<i32>, Vec<TopEdge>> = BTreeMap::new();
     while !frontier.is_empty() {
         st.rounds += 1;
         for k in &frontier {
@@ -655,14 +675,14 @@ pub fn walk(
         }
         let mut new: Vec<Vec<i32>> = vec![];
         loop {
-            let pend: Vec<(Vec<i32>, (usize, u32))> = cand
+            let pend: Vec<(Vec<i32>, TopEdge)> = cand
                 .iter()
                 .filter_map(|(k, v)| v.first().map(|c| (k.clone(), *c)))
                 .collect();
             if pend.is_empty() {
                 break;
             }
-            let mut by_rec: BTreeMap<(usize, usize), Vec<(usize, u32, usize)>> = BTreeMap::new();
+            let mut by_rec: BTreeMap<RecKey, Vec<PendItem>> = BTreeMap::new();
             for (pi, (_, (i, j))) in pend.iter().enumerate() {
                 let r = &rows.served[*i];
                 by_rec
@@ -670,8 +690,7 @@ pub fn walk(
                     .or_default()
                     .push((*i, *j, pi));
             }
-            let groups: Vec<((usize, usize), Vec<(usize, u32, usize)>)> =
-                by_rec.into_iter().collect();
+            let groups: Vec<(RecKey, Vec<PendItem>)> = by_rec.into_iter().collect();
             let res = par_map(
                 &groups,
                 cfg.threads,
@@ -746,7 +765,7 @@ pub fn walk(
     let mut groups: Vec<((usize, usize), Vec<usize>)> = by_rec.into_iter().collect();
     groups.sort_by_key(|g| std::cmp::Reverse(g.1.len()));
     st.records_walked = groups.len() as u64;
-    type Out = (Vec<(usize, Vec<HandTerm>)>, WalkStats);
+    type Out = (Vec<(usize, Vec<HandTerm>)>, WalkStats, BTreeMap<u64, u64>);
     let res = par_map(
         &groups,
         cfg.threads,
@@ -755,6 +774,7 @@ pub fn walk(
                 .with(*t, *r, |e| {
                     let (p, me) = (&mut e.p, &mut e.me);
                     let mut s = WalkStats::default();
+                    let mut unr: BTreeMap<u64, u64> = BTreeMap::new();
                     let mut out = vec![];
                     for &ci in items {
                         let row = &rows.served[cl_served[ci]];
@@ -775,6 +795,15 @@ pub fn walk(
                                 continue;
                             }
                             if mask == 0 {
+                                continue;
+                            }
+                            if cfg
+                                .routed_masks
+                                .as_ref()
+                                .is_some_and(|r| !r.contains(&mask))
+                            {
+                                s.handdown_unrouted += 1;
+                                *unr.entry(mask).or_default() += 1;
                                 continue;
                             }
                             s.handdown_terms += 1;
@@ -828,14 +857,19 @@ pub fn walk(
                         out.push((ci, hand));
                     }
                     let _ = p.take_new();
-                    Ok((out, s))
+                    Ok((out, s, unr))
                 })
                 .inspect(|_| cache.release(*t, *r))
         },
     );
     let mut hand: Vec<Vec<HandTerm>> = vec![vec![]; cl_served.len()];
+    let mut unrouted: BTreeMap<u64, u64> = BTreeMap::new();
     for r in res {
-        let (o, s) = r?;
+        let (o, s, u) = r?;
+        for (m, c) in u {
+            *unrouted.entry(m).or_default() += c;
+        }
+        st.handdown_unrouted += s.handdown_unrouted;
         for (ci, h) in o {
             hand[ci] = h;
         }
@@ -863,6 +897,7 @@ pub fn walk(
         hand,
         stats: st,
         closure_digest,
+        unrouted,
     })
 }
 
@@ -939,7 +974,7 @@ pub fn aggregate(
         Vec<HashMap<Vec<i32>, Acc>>,
         Vec<EdgeStats>,
         BTreeMap<u64, u64>,
-        Vec<(usize, usize, Vec<i32>, SenderRef)>,
+        Vec<FallbackItem>,
     );
     let res = par_map(&parts, cfg.threads, |&(a, b)| -> Result<Part, String> {
         let tr = Transporter::new(alg, n)?;
@@ -949,8 +984,7 @@ pub fn aggregate(
         let mut other: BTreeMap<u64, u64> = BTreeMap::new();
         let mut fallback = vec![];
         // expansion per (edge, parent term key): child keys with the coefficient reduced mod each prime
-        let mut tcache: HashMap<(usize, Vec<i32>), std::sync::Arc<Vec<(Vec<i32>, [Fe; 2])>>> =
-            HashMap::new();
+        let mut tcache: HashMap<(usize, Vec<i32>), ImageMod> = HashMap::new();
         let mut cached = 0usize;
         for ci in a..b {
             let mut per: Vec<HashMap<Vec<i32>, PerKey>> =
@@ -1094,8 +1128,7 @@ pub fn aggregate(
     }
     // the exact symbolic fallback (zero at both points or a denominator zero mod p), grouped by record
     if !fallback.is_empty() {
-        let mut by_rec: BTreeMap<(usize, usize), Vec<(usize, usize, Vec<i32>, SenderRef)>> =
-            BTreeMap::new();
+        let mut by_rec: BTreeMap<RecKey, Vec<FallbackItem>> = BTreeMap::new();
         for x in fallback {
             let r = &rows.served[w.cl_served[x.0]];
             by_rec.entry((r.table, r.record)).or_default().push(x);
@@ -1104,7 +1137,7 @@ pub fn aggregate(
         let res = par_map(
             &groups,
             cfg.threads,
-            |((t, r), items)| -> Result<Vec<(usize, Vec<i32>, SenderRef, bool)>, String> {
+            |((t, r), items)| -> Result<Vec<FallbackOut>, String> {
                 let tr = Transporter::new(alg, n)?;
                 cache
                     .with(*t, *r, |ent| {

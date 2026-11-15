@@ -53,6 +53,133 @@ pub fn read_certified(path: &Path) -> Result<(BTreeSet<Vec<i32>>, String), Strin
     Ok((out, h.finish_hex()))
 }
 
+/// Read a key list: a NumPy `.npy` file (2-D, dtype int8 / int16 / int32, C order: one key per row) or text lines (a JSON
+/// array, an object with `key`, or an `I(..)` text). Returns the keys and the file's sha256 (hex).
+pub fn read_keys(path: &Path) -> Result<(Vec<Vec<i32>>, String), String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut h = crate::closure::sha256::Sha256::new();
+    h.update(&bytes);
+    let sha = h.finish_hex();
+    if bytes.starts_with(b"\x93NUMPY") {
+        let (major, hl_at) = (bytes[6], 8usize);
+        let (hlen, data_at) = if major == 1 {
+            (
+                u16::from_le_bytes([bytes[hl_at], bytes[hl_at + 1]]) as usize,
+                hl_at + 2,
+            )
+        } else {
+            (
+                u32::from_le_bytes([
+                    bytes[hl_at],
+                    bytes[hl_at + 1],
+                    bytes[hl_at + 2],
+                    bytes[hl_at + 3],
+                ]) as usize,
+                hl_at + 4,
+            )
+        };
+        let header = std::str::from_utf8(&bytes[data_at..data_at + hlen])
+            .map_err(|e| format!("{}: npy header: {e}", path.display()))?;
+        let field = |name: &str| -> Option<&str> {
+            let i = header.find(&format!("'{name}'"))?;
+            Some(header[i + name.len() + 2..].trim_start_matches([':', ' ']))
+        };
+        let descr = field("descr").ok_or("npy: no descr")?;
+        let width = if descr.starts_with("'|i1'") || descr.starts_with("'<i1'") {
+            1
+        } else if descr.starts_with("'<i2'") {
+            2
+        } else if descr.starts_with("'<i4'") {
+            4
+        } else {
+            return Err(format!(
+                "{}: npy dtype {descr:.8} not supported (int8/16/32 little endian)",
+                path.display()
+            ));
+        };
+        if field("fortran_order").is_some_and(|f| f.starts_with("True")) {
+            return Err(format!("{}: npy in Fortran order", path.display()));
+        }
+        let shape = field("shape").ok_or("npy: no shape")?;
+        let dims: Vec<usize> = shape
+            .trim_start_matches('(')
+            .split(')')
+            .next()
+            .unwrap_or("")
+            .split(',')
+            .filter_map(|x| x.trim().parse().ok())
+            .collect();
+        if dims.len() != 2 {
+            return Err(format!("{}: npy shape {dims:?} is not 2-D", path.display()));
+        }
+        let (n, ar) = (dims[0], dims[1]);
+        let body = &bytes[data_at + hlen..];
+        if body.len() != n * ar * width {
+            return Err(format!(
+                "{}: npy body {} bytes for shape {n}x{ar}",
+                path.display(),
+                body.len()
+            ));
+        }
+        let val = |i: usize| -> i32 {
+            match width {
+                1 => body[i] as i8 as i32,
+                2 => i16::from_le_bytes([body[2 * i], body[2 * i + 1]]) as i32,
+                _ => i32::from_le_bytes([
+                    body[4 * i],
+                    body[4 * i + 1],
+                    body[4 * i + 2],
+                    body[4 * i + 3],
+                ]),
+            }
+        };
+        let keys = (0..n)
+            .map(|r| (0..ar).map(|c| val(r * ar + c)).collect())
+            .collect();
+        return Ok((keys, sha));
+    }
+    let text = std::str::from_utf8(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut keys = vec![];
+    for (i, l) in text.lines().enumerate() {
+        let l = l.trim();
+        if l.is_empty() {
+            continue;
+        }
+        let k = match serde_json::from_str::<Value>(l) {
+            Ok(Value::Object(o)) => parse_key(o.get("key").unwrap_or(&Value::Null)),
+            Ok(v) => parse_key(&v),
+            Err(_) => super::parse_key_text(l),
+        }
+        .map_err(|e| format!("{} line {}: {e}", path.display(), i + 1))?;
+        keys.push(k);
+    }
+    Ok((keys, sha))
+}
+
+/// A named CLOSED key set of the child (a set closed under the child's service set with no open key, e.g. a coordinator
+/// statement's closure): its keys are served by definition; bound by the file's sha256.
+#[derive(Clone, Debug)]
+pub struct ClosedSet {
+    pub name: String,
+    pub path: String,
+    pub sha256: String,
+    pub keys: KeySet,
+}
+
+impl ClosedSet {
+    pub fn read(name: &str, path: &Path, set: &ImportedSet) -> Result<ClosedSet, String> {
+        let (keys, sha256) = read_keys(path)?;
+        let keys = KeySet::from_keys(set.codec, keys.iter().map(|k| k.as_slice()))
+            .map_err(|e| format!("{}: keys do not fit the child's codec: {e}", path.display()))?;
+        Ok(ClosedSet {
+            name: name.to_string(),
+            path: path.display().to_string(),
+            sha256,
+            keys,
+        })
+    }
+}
+
 /// The classification of one parent's arrivals.
 #[derive(Clone, Debug, Default)]
 pub struct ParentCheck {
@@ -60,6 +187,8 @@ pub struct ParentCheck {
     pub arrivals: u64,
     pub a: u64,
     pub b: u64,
+    /// Arrivals outside the certified set but in a named closed set (name -> count).
+    pub b_closed: BTreeMap<String, u64>,
     pub c: Vec<Vec<i32>>,
     pub exact_arrivals: u64,
     pub exact_a: u64,
@@ -81,7 +210,7 @@ impl ParentCheck {
             *c_by_face.entry(face_of(k, lines)).or_default() += 1;
         }
         json!({"parent": self.parent, "arrivals": self.arrivals,
-            "a_in_certified_set": self.a, "b_served_outside": self.b, "c_not_served": self.c.len(),
+            "a_in_certified_set": self.a, "b_served_outside": self.b, "b_in_closed_sets": self.b_closed, "c_not_served": self.c.len(),
             "c_first50": self.c.iter().take(50).map(|k| json!({"key": k, "face": face_of(k, lines),
                 "dots_rank": dr(k)})).collect::<Vec<_>>(),
             "c_by_face": c_by_face,
@@ -92,16 +221,18 @@ impl ParentCheck {
                     "face": face_of(k, lines)})).collect::<Vec<_>>(),
                 "open_by_face": self.open_by_face, "terminals_reached": self.terminals_reached,
                 "closes": self.open_reached.is_empty()},
-            "covers": self.b == 0 && self.c.is_empty(), "served": self.c.is_empty() && self.open_reached.is_empty(),
+            "covers": self.b == 0 && self.b_closed.values().sum::<u64>() == 0 && self.c.is_empty(), "served": self.c.is_empty() && self.open_reached.is_empty(),
             "seconds": self.seconds})
     }
 }
 
-/// Run the check of one parent's arrival set against the child's set and certified keys.
+/// Run the check of one parent's arrival set against the child's set, certified keys and closed sets.
+#[allow(clippy::too_many_arguments)]
 pub fn check_parent(
     set: &ImportedSet,
     ev: &Evidence,
     certified: &BTreeSet<Vec<i32>>,
+    closed: &[ClosedSet],
     name: &str,
     arr: &ArrivalSet,
     rows_path: &Path,
@@ -109,7 +240,19 @@ pub fn check_parent(
 ) -> Result<ParentCheck, String> {
     let t0 = std::time::Instant::now();
     let keys: Vec<&Vec<i32>> = arr.keys().collect();
-    let start = KeySet::from_keys(set.codec, keys.iter().map(|k| k.as_slice()))
+    let in_closed = |k: &[i32]| {
+        closed
+            .iter()
+            .find(|c| c.keys.contains(k))
+            .map(|c| c.name.clone())
+    };
+    // the walk starts from the arrivals that neither the certified set nor a closed set serves
+    let todo: Vec<&Vec<i32>> = keys
+        .iter()
+        .copied()
+        .filter(|k| !certified.contains(*k) && in_closed(k).is_none())
+        .collect();
+    let start = KeySet::from_keys(set.codec, todo.iter().map(|k| k.as_slice()))
         .map_err(|e| format!("{name}: arrival keys do not fit the child's codec: {e}"))?;
     let r = check_streamed_from(
         set,
@@ -155,6 +298,9 @@ pub fn check_parent(
         if certified.contains(k) {
             pc.a += 1;
             pc.exact_a += exact as u64;
+        } else if let Some(c) = in_closed(k) {
+            *pc.b_closed.entry(c).or_default() += 1;
+            pc.exact_b += exact as u64;
         } else if open.contains_key(k) {
             pc.c.push(k.clone());
             pc.exact_c += exact as u64;
@@ -173,6 +319,10 @@ pub fn check_parent(
         .filter(|k| !certified.contains(k) && !arrset.contains(k))
         .count() as u64;
     for (k, s) in open {
+        // an open row of the walk that the certified set or a closed set serves is not open for the child
+        if certified.contains(&k) || in_closed(&k).is_some() {
+            continue;
+        }
         *pc.open_by_face.entry(face_of(&k, lines)).or_default() += 1;
         pc.open_reached.push((k, s));
     }
