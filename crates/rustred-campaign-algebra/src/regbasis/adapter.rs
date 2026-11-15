@@ -22,14 +22,36 @@ use rustred_campaign_core::epsdepth::{
 use rustred_campaign_core::key::Key;
 use rustred_campaign_core::regbasis::{Compose, ComposeError, ComposedVec, SeriesText};
 
-use crate::epsdepth::{QSeries, SymbolicaLaurent, TCoeff};
+use crate::epsdepth::{QSeries, SymbolicaExact, SymbolicaLaurent, TCoeff, TRational};
+use rustred_campaign_core::epsdepth::Laurent;
 
-use super::series::{QP, RF, ZP, d_vars, rational_text, rf_text, t_vars};
+use super::series::{QP, RF, ZP, d_vars, expand_t_ratio, rational_text, rf_text, t_vars};
 
-/// Lane epsdepth's composition behind the core trait.
-pub struct EpsdepthCompose<'s, S: ReductionSource<Coeff = TCoeff>> {
+/// A composition backend of lane epsdepth whose series the adapter can hand over as text.
+pub trait SeriesExport: Laurent<Coeff = TCoeff> + Clone {
+    /// The series truncated to `abs_prec` as the core's text form (Err when its precision is below `abs_prec`).
+    fn export(&self, s: &Self::Series, abs_prec: i64) -> Result<SeriesText, String>;
+}
+
+impl SeriesExport for SymbolicaLaurent {
+    fn export(&self, s: &QSeries, abs_prec: i64) -> Result<SeriesText, String> {
+        series_text(s, abs_prec)
+    }
+}
+
+impl SeriesExport for SymbolicaExact {
+    /// An exact rational function of t: expanded exactly (any precision).
+    fn export(&self, s: &TRational, abs_prec: i64) -> Result<SeriesText, String> {
+        Ok(expand_t_ratio(&s.numerator, &s.denominator, abs_prec, &t_vars()).to_text())
+    }
+}
+
+/// Lane epsdepth's composition behind the core trait (backend `L`: truncated Laurent or exact).
+pub struct EpsdepthCompose<'s, S: ReductionSource<Coeff = TCoeff>, L: SeriesExport> {
     pub src: &'s mut S,
-    pub lau: SymbolicaLaurent,
+    pub lau: L,
+    /// d0 (the source's coefficients are in t = d - d0; the exact texts are mapped back to d with it).
+    pub d0: Rational,
     pub nterm: usize,
     index: HashMap<Key, usize>,
     /// Budgets of the composition (`target` is set per call from the requested precision).
@@ -38,10 +60,11 @@ pub struct EpsdepthCompose<'s, S: ReductionSource<Coeff = TCoeff>> {
     pub exact_max_keys: usize,
 }
 
-impl<'s, S: ReductionSource<Coeff = TCoeff>> EpsdepthCompose<'s, S> {
+impl<'s, S: ReductionSource<Coeff = TCoeff>, L: SeriesExport> EpsdepthCompose<'s, S, L> {
     pub fn new(
         src: &'s mut S,
-        lau: SymbolicaLaurent,
+        lau: L,
+        d0: Rational,
         nterm: usize,
         params: ComposeParams,
         exact_max_keys: usize,
@@ -50,6 +73,7 @@ impl<'s, S: ReductionSource<Coeff = TCoeff>> EpsdepthCompose<'s, S> {
         EpsdepthCompose {
             src,
             lau,
+            d0,
             nterm,
             index,
             params,
@@ -146,7 +170,7 @@ fn rf_t_to_d(r: &RF, d0: &Rational) -> RF {
     qp_ratio(&back(&r.numerator), &back(&r.denominator), &dv)
 }
 
-impl<S: ReductionSource<Coeff = TCoeff>> Compose for EpsdepthCompose<'_, S> {
+impl<S: ReductionSource<Coeff = TCoeff>, L: SeriesExport> Compose for EpsdepthCompose<'_, S, L> {
     fn n_terminals(&self) -> usize {
         self.nterm
     }
@@ -184,20 +208,21 @@ impl<S: ReductionSource<Coeff = TCoeff>> Compose for EpsdepthCompose<'_, S> {
         };
         let nterm = self.nterm;
         let mut seen: HashMap<usize, bool> = HashMap::new();
+        let lau_ref = self.lau.clone();
         compose_streaming(
             self.src,
             &mut self.lau,
             &sel,
             nterm,
             &params,
-            Some(&mut |g: usize, r: Result<&[Option<QSeries>], &str>| {
+            Some(&mut |g: usize, r: Result<&[Option<L::Series>], &str>| {
                 let res: Result<ComposedVec, ComposeError> = match r {
                     Err(e) => Err(ComposeError::Undecided(e.to_string())),
                     Ok(v) => v
                         .iter()
                         .map(|s| match s {
                             None => Ok(SeriesText::zero(abs_prec)),
-                            Some(s) => series_text(s, abs_prec),
+                            Some(s) => lau_ref.export(s, abs_prec),
                         })
                         .collect::<Result<Vec<_>, String>>()
                         .map_err(ComposeError::Undecided),
@@ -346,7 +371,7 @@ impl<S: ReductionSource<Coeff = TCoeff>> Compose for EpsdepthCompose<'_, S> {
             };
             vecs.insert(k, v);
         }
-        let d0 = self.lau.d0().value().clone();
+        let d0 = self.d0.clone();
         Ok(vecs[&root]
             .iter()
             .map(|r| rf_text(&rf_t_to_d(r, &d0)))

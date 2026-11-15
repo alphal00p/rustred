@@ -15,8 +15,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use rustred_campaign_algebra::epsdepth::SymbolicaLaurent;
 use rustred_campaign_algebra::epsdepth::record_source::{RecordSource, file_sha256};
+use rustred_campaign_algebra::epsdepth::{SymbolicaExact, SymbolicaLaurent};
 use rustred_campaign_algebra::regbasis::adapter::EpsdepthCompose;
 use rustred_campaign_algebra::regbasis::build::{BuildInput, Published, construct};
 use rustred_campaign_algebra::regbasis::tower::{TowerInput, TowerSeed, tower};
@@ -26,7 +26,7 @@ use rustred_campaign_core::epsdepth::{ComposeParams, EpsBox, EpsBoxChecked, Redu
 use rustred_campaign_core::import::{self, LoadOptions, TableSetSpec};
 use rustred_campaign_core::key::Key;
 use rustred_campaign_core::regbasis::record::Binding;
-use rustred_campaign_core::regbasis::{Availability, RegBasisSpec, rank_of};
+use rustred_campaign_core::regbasis::{Availability, Compose, RegBasisSpec, rank_of};
 use serde_json::{Value, json};
 
 struct EpsAvail(EpsBoxChecked);
@@ -60,6 +60,95 @@ fn text_or_file(s: &str) -> Result<Value, String> {
         s.to_string()
     };
     serde_json::from_str(&t).map_err(|e| format!("{s}: {e}"))
+}
+
+struct RunCtx<'a> {
+    node: &'a str,
+    chart: &'a [bool],
+    terminals: &'a [Key],
+    band: &'a [Key],
+    r_max: Option<u32>,
+    set: &'a rustred_campaign_core::import::ImportedSet,
+    spec: &'a RegBasisSpec,
+    published: Option<&'a Published>,
+    avail: Option<&'a dyn Availability>,
+    binding: Binding,
+    out: &'a Path,
+    tower: bool,
+    backend: &'a str,
+}
+
+fn build_and_tower(comp: &mut dyn Compose, c: &RunCtx<'_>) -> Result<Value, String> {
+    let cmp_fn = |a: &[i32], b: &[i32]| c.set.cmp.cmp(a, b);
+    let t1 = Instant::now();
+    let inp = BuildInput {
+        chart: c.chart,
+        terminals: c.terminals,
+        band: c.band,
+        band_r_max: c.r_max,
+        cmp: &cmp_fn,
+        spec: c.spec,
+        published: c.published,
+        availability: c.avail,
+        binding: Some(c.binding.clone()),
+    };
+    let res = construct(comp, &inp)?;
+    let t_build = t1.elapsed().as_secs_f64();
+    eprintln!(
+        "BUILD {}: R = {:?} ({:?}); {}; q {} z {}; c1 {:?} c3 {:?} c4 {:?} c5 {:?} c2 {:?}/{:?}; {t_build:.1} s, rss {} MB",
+        c.node,
+        res.regular_set,
+        res.sources,
+        res.verdict,
+        res.q,
+        res.lattice.length(),
+        res.cert_lattice,
+        res.cert_det,
+        res.cert_poles_check,
+        res.cert_tadic_smith,
+        res.cert_keys_with_pole,
+        res.cert_keys_checked,
+        rss_mb()
+    );
+    std::fs::create_dir_all(c.out).map_err(|e| e.to_string())?;
+    std::fs::write(
+        c.out.join("regular_basis.json"),
+        res.record_text.clone().unwrap_or_default(),
+    )
+    .map_err(|e| e.to_string())?;
+    let mut summary = json!({
+        "node": c.node, "backend": c.backend, "regular_set": res.regular_set, "sources": res.sources,
+        "verdict": res.verdict, "q": res.q, "z": res.lattice.length(), "keys": c.band.len(),
+        "decided": res.keys_decided, "keys_with_pole_on_T": res.keys_with_pole_on_t,
+        "certificates": res.record["certificate"], "needs": res.record["need"], "M_order": res.record["M_order"],
+        "M_inv_order": res.record["M_inv_order"], "det_M_order": res.record["det_M_order"],
+        "terminal_in_t_N": res.terminal_in_t_n, "timing": {"build_s": t_build, "rss_peak_mb": rss_mb()},
+    });
+    if c.tower {
+        let t2 = Instant::now();
+        let seed = TowerSeed::from_build(&res, c.published.is_some());
+        let tin = TowerInput {
+            chart: c.chart,
+            terminals: c.terminals,
+            cmp: &cmp_fn,
+            r_max: res.r_max,
+            spec: c.spec,
+            published: c.published,
+            seed,
+            binding: Some(c.binding.clone()),
+        };
+        let tw = tower(comp, &tin)?;
+        eprintln!(
+            "TOWER {}: {} ({:.1} s)",
+            c.node,
+            tw.verdict,
+            t2.elapsed().as_secs_f64()
+        );
+        let text = rustred_campaign_core::schema::canon::canonical_json(&tw.record, false)?;
+        std::fs::write(c.out.join("tower.json"), text).map_err(|e| e.to_string())?;
+        summary["tower"] = json!({"verdict": tw.verdict, "seconds": t2.elapsed().as_secs_f64()});
+    }
+    Ok(summary)
 }
 
 fn main() {
@@ -213,80 +302,45 @@ fn run() -> Result<(), String> {
         max_depth: get("--max-depth")
             .and_then(|x| x.parse().ok())
             .unwrap_or(32),
-        max_keys: None,
-        max_seconds: None,
+        progress: flag("--progress"),
+        ..ComposeParams::default()
     };
     let exact_max = get("--exact-max-keys")
         .and_then(|x| x.parse().ok())
         .unwrap_or(200_000);
     let nt = terminals.len();
-    let cmp_fn = |a: &[i32], b: &[i32]| set.cmp.cmp(a, b);
-    let mut comp = EpsdepthCompose::new(&mut src, lau, nt, params, exact_max);
-    let t1 = Instant::now();
-    let inp = BuildInput {
+    let d0v = rustred_campaign_algebra::valuation::D0::parse(&spec.d0)
+        .map_err(|e| e.to_string())?
+        .value()
+        .clone();
+    let backend = get("--backend").unwrap_or_else(|| "exact".into());
+    let ctx = RunCtx {
+        node: &node,
         chart: &chart,
         terminals: &terminals,
         band: &band,
-        band_r_max: r_max,
-        cmp: &cmp_fn,
+        r_max,
+        set: &set,
         spec: &spec,
         published: published.as_ref(),
-        availability: avail.as_ref().map(|a| a as &dyn Availability),
-        binding: Some(binding.clone()),
+        avail: avail.as_ref().map(|a| a as &dyn Availability),
+        binding,
+        out: &out,
+        tower: spec.tower_enabled && !flag("--no-tower"),
+        backend: &backend,
     };
-    let res = construct(&mut comp, &inp)?;
-    let t_build = t1.elapsed().as_secs_f64();
-    eprintln!(
-        "BUILD {node}: R = {:?} ({:?}); {}; q {} z {}; c1 {:?} c3 {:?} c4 {:?} c2 {:?}/{:?}; {t_build:.1} s, rss {} MB",
-        res.regular_set,
-        res.sources,
-        res.verdict,
-        res.q,
-        res.lattice.length(),
-        res.cert_lattice,
-        res.cert_det,
-        res.cert_poles_check,
-        res.cert_keys_with_pole,
-        res.cert_keys_checked,
-        rss_mb()
-    );
-    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
-    std::fs::write(
-        out.join("regular_basis.json"),
-        res.record_text.clone().unwrap_or_default(),
-    )
-    .map_err(|e| e.to_string())?;
-    let mut summary = json!({
-        "node": node, "regular_set": res.regular_set, "sources": res.sources, "verdict": res.verdict,
-        "q": res.q, "z": res.lattice.length(), "keys": band.len(), "decided": res.keys_decided,
-        "keys_with_pole_on_T": res.keys_with_pole_on_t, "certificates": res.record["certificate"],
-        "needs": res.record["need"], "M_order": res.record["M_order"], "M_inv_order": res.record["M_inv_order"],
-        "det_M_order": res.record["det_M_order"], "terminal_in_t_N": res.terminal_in_t_n,
-        "timing": {"build_s": t_build, "rss_peak_mb": rss_mb()},
-    });
-    if spec.tower_enabled && !flag("--no-tower") {
-        let t2 = Instant::now();
-        let seed = TowerSeed::from_build(&res, published.is_some());
-        let tin = TowerInput {
-            chart: &chart,
-            terminals: &terminals,
-            cmp: &cmp_fn,
-            r_max: res.r_max,
-            spec: &spec,
-            published: published.as_ref(),
-            seed,
-            binding: Some(binding),
-        };
-        let tw = tower(&mut comp, &tin)?;
-        eprintln!(
-            "TOWER {node}: {} ({:.1} s)",
-            tw.verdict,
-            t2.elapsed().as_secs_f64()
-        );
-        let text = rustred_campaign_core::schema::canon::canonical_json(&tw.record, false)?;
-        std::fs::write(out.join("tower.json"), text).map_err(|e| e.to_string())?;
-        summary["tower"] = json!({"verdict": tw.verdict, "seconds": t2.elapsed().as_secs_f64()});
-    }
+    let summary = match backend.as_str() {
+        "exact" => {
+            let mut comp =
+                EpsdepthCompose::new(&mut src, SymbolicaExact::new()?, d0v, nt, params, exact_max);
+            build_and_tower(&mut comp, &ctx)?
+        }
+        "laurent" => {
+            let mut comp = EpsdepthCompose::new(&mut src, lau, d0v, nt, params, exact_max);
+            build_and_tower(&mut comp, &ctx)?
+        }
+        b => return Err(format!("--backend exact | laurent, got {b}")),
+    };
     let mut f = std::fs::File::create(out.join("summary.json")).map_err(|e| e.to_string())?;
     writeln!(
         f,

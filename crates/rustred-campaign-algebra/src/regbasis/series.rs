@@ -358,7 +358,30 @@ pub fn expand_rf(r: &RF, d0: &Rational, abs_prec: i64, tv: &Arc<Vec<PolyVariable
     }
     let n = shifted_q(&r.numerator, d0, tv);
     let d = shifted_q(&r.denominator, d0, tv);
-    let (vn, vd) = (low(&n).expect("non-zero"), low(&d).expect("non-zero"));
+    expand_at_zero(&n, &d, abs_prec, tv)
+}
+
+/// The exact expansion at t = 0 of `num / den` given over Z in ANY one variable (read as t), every exponent
+/// `< abs_prec` known (e.g. lane epsdepth's exact composed rational functions of t = d - d0).
+pub fn expand_t_ratio(num: &ZP, den: &ZP, abs_prec: i64, tv: &Arc<Vec<PolyVariable>>) -> Laurent {
+    if num.is_zero() {
+        return Laurent::zero(abs_prec, tv);
+    }
+    let rehome = |p: &ZP| -> QP {
+        let mut out = QP::new(&Q, Some(p.nterms()), tv.clone());
+        for i in 0..p.nterms() {
+            out.append_monomial(
+                Rational::from(p.coefficients[i].clone()),
+                &[p.exponents(i)[0]],
+            );
+        }
+        out
+    };
+    expand_at_zero(&rehome(num), &rehome(den), abs_prec, tv)
+}
+
+fn expand_at_zero(n: &QP, d: &QP, abs_prec: i64, tv: &Arc<Vec<PolyVariable>>) -> Laurent {
+    let (vn, vd) = (low(n).expect("non-zero"), low(d).expect("non-zero"));
     let v = i64::from(vn) - i64::from(vd);
     let terms = abs_prec - v;
     if terms <= 0 {
@@ -366,8 +389,8 @@ pub fn expand_rf(r: &RF, d0: &Rational, abs_prec: i64, tv: &Arc<Vec<PolyVariable
         return Laurent::zero(abs_prec, tv);
     }
     let terms = terms as u32;
-    let nu = div_t(&n, vn);
-    let du = div_t(&d, vd);
+    let nu = div_t(n, vn);
+    let du = div_t(d, vd);
     let inv = unit_inverse(&du, terms);
     Laurent::normalised(v, mod_t(&(&nu * &inv), terms), abs_prec)
 }

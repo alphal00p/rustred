@@ -548,7 +548,14 @@ fn adapter_on_epsdepth_text_reduction() {
     src.relation(&x, "rx", &[(&t2(), "1/(d-4)"), (&t1(), "-1/(d-4)")]);
     src.relation(&y, "ry", &[(&x, "d-4"), (&t1(), "3")]);
     src.relation(&z, "rz", &[(&y, "2"), (&x, "-1")]);
-    let mut ad = EpsdepthCompose::new(&mut src, lau, 2, ComposeParams::default(), 1000);
+    let mut ad = EpsdepthCompose::new(
+        &mut src,
+        lau,
+        Rational::from(4),
+        2,
+        ComposeParams::default(),
+        1000,
+    );
     let expected: HashMap<Key, Vec<String>> = [
         (t1(), vec!["1".to_string(), "0".to_string()]),
         (t2(), vec!["0".to_string(), "1".to_string()]),
@@ -581,6 +588,32 @@ fn adapter_on_epsdepth_text_reduction() {
     sc.stream(&keys, 1, &mut |i, r| b[i] = Some(r.unwrap()))
         .unwrap();
     assert_eq!(a, b);
+    drop(ad);
+    // the same through epsdepth's EXACT backend
+    {
+        use rustred_campaign_algebra::epsdepth::SymbolicaExact;
+        let mut ex = EpsdepthCompose::new(
+            &mut src,
+            SymbolicaExact::new().unwrap(),
+            Rational::from(4),
+            2,
+            ComposeParams::default(),
+            1000,
+        );
+        let mut c = vec![None; 5];
+        ex.stream(&keys, 1, &mut |i, r| c[i] = Some(r.unwrap()))
+            .unwrap();
+        assert_eq!(c, b, "exact backend = truncated backend = stand-in");
+    }
+    let lau = SymbolicaLaurent::new("4").unwrap();
+    let mut ad = EpsdepthCompose::new(
+        &mut src,
+        lau,
+        Rational::from(4),
+        2,
+        ComposeParams::default(),
+        1000,
+    );
     // the construction through the adapter
     let spec = RegBasisSpec::default();
     let terms = vec![t1(), t2()];
