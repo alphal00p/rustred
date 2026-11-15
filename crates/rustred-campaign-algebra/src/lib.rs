@@ -48,3 +48,5 @@ pub use modes::{
     TriageReport, identity_test_mode, replay_evidence_mode, replay_evidence_triage,
     triage_identity,
 };
+// lane regbasis (interfaces/regbasis.md): REQUEST TO I-INT, one line
+pub mod regbasis;
