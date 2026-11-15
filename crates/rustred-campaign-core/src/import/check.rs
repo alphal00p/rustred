@@ -192,6 +192,23 @@ pub struct CheckResult {
     pub seconds: f64,
     pub key_set_digest: String,
     pub required: Level,
+    /// lane layers (interfaces/closure.md 18, closeloop.md 23): the leaves this check's walk met (None without leaf
+    /// sets). Leaf keys have NO row (they belong to the earlier clause), are not in `key_set` and not counted.
+    pub leaves: Option<LeafHits>,
+    /// lane layers: the walk components of this check's OWN keys and credit images, and those images: what a leaf set
+    /// built from this result is bound to (closure.md 18).
+    pub leaf_walk: BTreeMap<String, String>,
+    pub credit_images: Vec<Vec<i32>>,
+}
+
+/// lane layers: the leaves a check met.
+#[derive(Clone, Debug, Serialize)]
+pub struct LeafHits {
+    pub summary: crate::closure::LeafSummary,
+    /// Start keys that are leaves (the composed statement marks them `in_start`).
+    pub in_start: Vec<Vec<i32>>,
+    /// Reached leaves that are not certified (they block: `leaf_open:N`).
+    pub open: Vec<Vec<i32>>,
 }
 
 fn is_top(lines: &[bool], k: &[i32]) -> bool {
@@ -348,7 +365,19 @@ pub fn check(
     ev: &Evidence,
     opts: &CheckOptions,
 ) -> Result<CheckResult, ImportError> {
-    check_inner(set, ev, opts, None, &set.start)
+    check_inner(set, ev, opts, None, &set.start, &[])
+}
+
+/// lane layers (closure.md 18): [`check`] from another START set with LEAF SETS (every row kept in memory). The walk
+/// stops at a leaf; leaf keys get no row; every leaf set's binding is verified by the closure (refused on a mismatch).
+pub fn check_from_with_leaves(
+    set: &ImportedSet,
+    ev: &Evidence,
+    opts: &CheckOptions,
+    start: &crate::closure::KeySet,
+    leaves: &[Arc<crate::closure::LeafSet>],
+) -> Result<CheckResult, ImportError> {
+    check_inner(set, ev, opts, None, start, leaves)
 }
 
 /// A row sink of [`check_streamed`].
@@ -376,6 +405,18 @@ pub fn check_streamed_from(
     rows_path: &std::path::Path,
     start: &crate::closure::KeySet,
 ) -> Result<CheckResult, ImportError> {
+    check_streamed_with_leaves(set, ev, opts, rows_path, start, &[])
+}
+
+/// lane layers (closure.md 18): [`check_streamed_from`] with LEAF SETS (leaf keys get no row).
+pub fn check_streamed_with_leaves(
+    set: &ImportedSet,
+    ev: &Evidence,
+    opts: &CheckOptions,
+    rows_path: &std::path::Path,
+    start: &crate::closure::KeySet,
+    leaves: &[Arc<crate::closure::LeafSet>],
+) -> Result<CheckResult, ImportError> {
     use std::io::Write;
     if let Some(d) = rows_path.parent() {
         std::fs::create_dir_all(d).map_err(|e| super::error::io_err(d, e))?;
@@ -397,7 +438,7 @@ pub fn check_streamed_from(
             n += 1;
             Ok(())
         };
-        check_inner(set, ev, opts, Some(&mut sink), start)?
+        check_inner(set, ev, opts, Some(&mut sink), start, leaves)?
     };
     w.flush().map_err(|e| super::error::io_err(rows_path, e))?;
     res.streamed = Some(StreamedRows {
@@ -451,6 +492,7 @@ fn check_inner(
     opts: &CheckOptions,
     mut sink: Option<&mut RowSink<'_>>,
     start: &crate::closure::KeySet,
+    leaves: &[Arc<crate::closure::LeafSet>],
 ) -> Result<CheckResult, ImportError> {
     let t0 = std::time::Instant::now();
     let tier = opts.tier.unwrap_or(match set.spec.policies.tier {
@@ -510,6 +552,7 @@ fn check_inner(
             super::spec::WitnessAbsentPolicy::Block => WitnessAbsent::Block,
         },
         per_key_lift: per_key_lift(set),
+        leaves: leaves.to_vec(),
         ..Default::default()
     };
     let c = closure(&set.disp, &set.bodies, &set.cmp, start, &cfg, ev)
@@ -563,7 +606,15 @@ fn check_inner(
     let mut rows = Vec::with_capacity(if sink.is_some() { 0 } else { c.len() });
     let mut agg = Aggregates::default();
     let required = set.spec.required_evidence;
+    let mut leaf_in_start: Vec<Vec<i32>> = vec![];
     for i in 0..c.len() {
+        // lane layers: a leaf has no row here (it belongs to the earlier clause's statement)
+        if c.is_leaf(i) {
+            if c.in_start(i) {
+                leaf_in_start.push(c.key(i));
+            }
+            continue;
+        }
         let key = c.key(i);
         let in_start = c.in_start(i);
         let mut row = KeyRow {
@@ -750,8 +801,8 @@ fn check_inner(
         }
     }
     rows.sort_by(|a, b| a.key.cmp(&b.key));
-    // key-set digest
-    let ks = c.keys();
+    // key-set digest (lane layers: the walk's OWN keys; reached leaves belong to their leaf set)
+    let ks = if leaves.is_empty() { c.keys() } else { c.own_keys() };
     let key_set_digest = ks.digest();
     // solve requests
     let mut solve_requests = vec![];
@@ -865,7 +916,18 @@ fn check_inner(
         })
         .collect();
     let streaming = sink.is_some();
+    let leaf_hits = summary.leaves.clone().map(|s| {
+        leaf_in_start.sort();
+        LeafHits {
+            summary: s,
+            in_start: leaf_in_start,
+            open: c.leaf_open_keys(),
+        }
+    });
     Ok(CheckResult {
+        leaves: leaf_hits,
+        leaf_walk: c.leaf_walk().clone(),
+        credit_images: c.credit_images().iter().collect(),
         rows,
         streamed: None,
         aggregates: streaming.then_some(agg),
