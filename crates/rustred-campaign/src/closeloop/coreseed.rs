@@ -110,6 +110,10 @@ pub struct CoreDriverConfig {
     pub verbose: bool,
     /// Test stand: the fake child's answers.
     pub fake: Option<FakeCore>,
+    /// CPU budget of this solver (seconds of child CPU, e.g. one face's variant pass): once spent, every new request
+    /// is answered BUDGET ("cpu budget", never "no relation") without solving and is NOT journaled (a later run with a
+    /// larger budget solves it). None = unbounded (the closing pass).
+    pub cpu_budget_s: Option<f64>,
 }
 
 /// The chart mask of the node (from the import set's frame).
@@ -217,6 +221,9 @@ pub struct ChildSolver<'a> {
     lines: Vec<bool>,
     pub requests_solved: u64,
     pub requests_journaled: u64,
+    /// Child CPU seconds spent by this solver, and the requests answered by the CPU budget (not tried).
+    pub cpu_used_s: f64,
+    pub not_tried: Vec<String>,
 }
 
 impl<'a> ChildSolver<'a> {
@@ -286,6 +293,8 @@ impl<'a> ChildSolver<'a> {
             seq: 0,
             lines,
             requests_solved: 0,
+            cpu_used_s: 0.0,
+            not_tried: vec![],
         })
     }
 
@@ -550,6 +559,18 @@ impl CoreSolver for ChildSolver<'_> {
                 out[ri] = Some(a.clone());
                 continue;
             }
+            if self.cfg.cpu_budget_s.is_some_and(|b| self.cpu_used_s >= b) {
+                self.not_tried.push(r.label.clone());
+                out[ri] = Some(
+                    r.keys
+                        .iter()
+                        .map(|_| KeyAnswer::Budget {
+                            what: "cpu budget of the pass (not tried)".into(),
+                        })
+                        .collect(),
+                );
+                continue;
+            }
             self.seq += 1;
             let rdir = self.cfg.work_root.join(&self.session).join(format!(
                 "{:06}-{}",
@@ -705,7 +726,16 @@ impl CoreSolver for ChildSolver<'_> {
                             None,
                         );
                         match d {
-                            Ok(d) => self.answers_of(&d, &j.keys),
+                            Ok(d) => {
+                                // the accept chain's solved-relation lines (import 6.2): the proof references
+                                // of every decided key, next to the sealed results
+                                if !is_trial(&r.label) {
+                                    let mut t = d.lines.join("\n");
+                                    t.push('\n');
+                                    let _ = std::fs::write(j.work.join("solved.jsonl"), t);
+                                }
+                                self.answers_of(&d, &j.keys)
+                            }
                             Err(e) => j
                                 .keys
                                 .iter()
@@ -769,6 +799,7 @@ impl CoreSolver for ChildSolver<'_> {
                 cpu_s
             ));
             self.requests_solved += 1;
+            self.cpu_used_s += cpu_s;
             out[ri] = Some(a);
         }
         out.into_iter()

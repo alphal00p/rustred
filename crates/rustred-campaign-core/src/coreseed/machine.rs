@@ -17,13 +17,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::minimise::{MakeReq, minimise};
 use super::seeds::{
     Offset, dots_rank, face_domain, ordered, recipe_doc, resolve_centres, shell_offsets, signature,
     valid_at,
 };
 use super::spec::{CentreSpec, CoreSeedPolicy, StepSpec};
 use super::{CoreSolver, D0Verdict, Key, KeyAnswer, RelationInfo, SolveReq};
+use crate::seedmin::bridge::{MakeReq, minimise};
 
 pub const REPORT_SCHEMA: &str = "rustred.campaign.coreseed-report.v1";
 

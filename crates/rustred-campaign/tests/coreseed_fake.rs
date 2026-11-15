@@ -85,6 +85,7 @@ fn config(tmp: &Path, files: &TmFiles, fake: FakeCore, journal: &Path) -> CoreDr
         keep_trial_outputs: false,
         verbose: false,
         fake: Some(fake),
+        cpu_budget_s: None,
     }
 }
 
