@@ -378,6 +378,8 @@ pub const RULE_MEMBERS_INFORMATIONAL: &[&str] = &[
     "origin_index",
     // the registry join's provenance of a re-indexed record (rustred-core node/registry.rs)
     "join_source",
+    // free-text note of a hand-assembled record (the T162 box symmetry rules: "symmetry rule")
+    "case_note",
     // provenance indices of an external assembler's records (seen in an imported assembled table)
     "component_variant",
     "component_index",

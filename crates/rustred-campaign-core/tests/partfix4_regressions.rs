@@ -367,7 +367,7 @@ fn pf4_reader_keeps_bounds_and_refuses_unknown_members() {
         "[null,null]",
         "I(n0,n1)",
         "[]",
-        r#","case":"c","seeds":[],"nsources":1,"direct_hit":false,"seconds_search":0.1,"raw_pivot_encoded":[1,1],"recenter":[0,0],"trace_rows":1,"lift_seconds":0.1,"source_order":"input","numerical":false,"monomials":1,"oversized_fallback":false,"witness_poles":0,"witness_d_poles":[],"guard_version":2,"origin":"x","origin_index":1"#,
+        r#","case":"c","seeds":[],"nsources":1,"direct_hit":false,"seconds_search":0.1,"raw_pivot_encoded":[1,1],"recenter":[0,0],"trace_rows":1,"lift_seconds":0.1,"source_order":"input","numerical":false,"monomials":1,"oversized_fallback":false,"witness_poles":0,"witness_d_poles":[],"guard_version":2,"origin":"x","origin_index":1,"case_note":"symmetry rule""#,
     );
     let p = write(&dir, "all.jsonl", &[header(m), chart(m), all]);
     assert!(load(&p).is_ok());
