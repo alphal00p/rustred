@@ -11,12 +11,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::replay_base::algebra::{CheckAlgebra, Q};
 use crate::replay_base::symrows::{SymRowMode, VerifiedGroup, rows_at_with};
 
+/// A sparse row / right-hand side: (key, exact coefficient) pairs.
+pub type Terms = Vec<(Vec<i32>, Q)>;
+
 /// One element's relation at the key.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ElementRelation {
     /// Index into the verified group's non-identity elements.
     pub element: usize,
-    pub rhs: Vec<(Vec<i32>, Q)>,
+    pub rhs: Terms,
 }
 
 /// The per-element outcome at a key: the smallest relation (fewest terms; ties: the comparator on the highest RHS
@@ -29,10 +32,10 @@ pub struct SmallestSym {
 
 fn relation_from_rows<A: CheckAlgebra>(
     alg: &A,
-    rows: &[Vec<(Vec<i32>, Q)>],
+    rows: &[Terms],
     key: &[i32],
     cmp: &dyn Fn(&[i32], &[i32]) -> Ordering,
-) -> Result<Option<Vec<(Vec<i32>, Q)>>, String> {
+) -> Result<Option<Terms>, String> {
     let mut cols: BTreeSet<Vec<i32>> = BTreeSet::new();
     for r in rows {
         for (k, _) in r {
@@ -85,7 +88,7 @@ pub fn smallest_symmetry_relation<A: CheckAlgebra>(
     let seed = (0u64, key.iter().map(|&x| x as i64).collect::<Vec<i64>>());
     let rows = rows_at_with(alg, group, &seed, SymRowMode::Expanded, max_terms)
         .map_err(|e| format!("symmetry rows at the key: {e}"))?;
-    let mut by: BTreeMap<usize, Vec<Vec<(Vec<i32>, Q)>>> = BTreeMap::new();
+    let mut by: BTreeMap<usize, Vec<Terms>> = BTreeMap::new();
     for r in &rows {
         let mut v = vec![];
         for ((mask, k), c) in &r.terms {
