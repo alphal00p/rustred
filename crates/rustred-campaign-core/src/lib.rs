@@ -45,3 +45,5 @@ pub mod poles;
 pub mod epsdepth;
 // lane regbasis (interfaces/regbasis.md): REQUEST TO I-INT, one line
 pub mod regbasis;
+// lane tadic (interfaces/tadic.md; TRICKS 15/16 system pole order): REQUEST TO I-INT, one line
+pub mod tadic;
