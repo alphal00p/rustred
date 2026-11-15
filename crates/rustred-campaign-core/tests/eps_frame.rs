@@ -261,7 +261,10 @@ fn forced_axis_semantics() {
     assert_eq!(g.dots(&pos), Some(1));
 }
 
-fn engine_first(file: &str) -> Vec<(Vec<i32>, Option<(String, i64)>)> {
+/// (key, engine first match as (chart, index)).
+type EngineFirst = (Vec<i32>, Option<(String, i64)>);
+
+fn engine_first(file: &str) -> Vec<EngineFirst> {
     std::fs::read_to_string(data(file))
         .unwrap()
         .lines()

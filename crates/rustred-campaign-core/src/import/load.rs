@@ -610,7 +610,11 @@ pub(crate) fn load_inner(
                         rep.table_terminals += 1;
                     }
                     // `sym` records: the verified group of the source, once (interfaces/import.md 18.4)
-                    if raw.sym_lines > 0 && sym_ctx.is_none() && sym_err.is_none() && frame.has_eps_axes() {
+                    if raw.sym_lines > 0
+                        && sym_ctx.is_none()
+                        && sym_err.is_none()
+                        && frame.has_eps_axes()
+                    {
                         // the seven-step check reads the line mask (integer-only): the sym records stay unverified
                         sym_err = Some(
                             "eps-shifted family: sym-record verification is integer-only (lane epsframe)".into(),
