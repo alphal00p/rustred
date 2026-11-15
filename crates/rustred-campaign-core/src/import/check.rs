@@ -875,7 +875,11 @@ fn check_inner(
     }
     rows.sort_by(|a, b| a.key.cmp(&b.key));
     // key-set digest (lane layers: the walk's OWN keys; reached leaves belong to their leaf set)
-    let ks = if leaves.is_empty() { c.keys() } else { c.own_keys() };
+    let ks = if leaves.is_empty() {
+        c.keys()
+    } else {
+        c.own_keys()
+    };
     let key_set_digest = ks.digest();
     // solve requests
     let mut solve_requests = vec![];

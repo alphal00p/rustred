@@ -73,16 +73,17 @@ fn cfg(tier: Tier, digest: &str) -> ClosureConfig {
     }
 }
 /// The leaf set of a finished walk: every own key, certified iff `certified`, with the run's walk binding.
-fn leafset(
-    c: &rustred_campaign_core::closure::Closure,
-    verdict: &str,
-    certified: bool,
-) -> LeafSet {
+fn leafset(c: &rustred_campaign_core::closure::Closure, verdict: &str, certified: bool) -> LeafSet {
     let mut b = LeafSetBuilder::new(codec(), vec![], vec![]);
     let own = c.own_keys();
     for k in own.iter() {
-        b.push(&k, "table", if certified { "per-key" } else { "open" }, certified)
-            .unwrap();
+        b.push(
+            &k,
+            "table",
+            if certified { "per-key" } else { "open" },
+            certified,
+        )
+        .unwrap();
     }
     for im in c.credit_images().iter() {
         b.aux(&im).unwrap();
@@ -203,8 +204,13 @@ fn the_binding_refuses_another_table_set_another_order_and_a_relation_serving_a_
     // a relation set certified at a key ELSEWHERE does not touch the binding; one certified AT a leaf refuses
     let rel = |at: [i32; 4]| -> Arc<RelationSet> {
         let mut rb = RelationStoreBuilder::new(codec());
-        rb.push(&at, &[vec![at[0], at[1] - 1, 0, 0]], [7u8; 32], VERDICT_CERTIFIED)
-            .unwrap();
+        rb.push(
+            &at,
+            &[vec![at[0], at[1] - 1, 0, 0]],
+            [7u8; 32],
+            VERDICT_CERTIFIED,
+        )
+        .unwrap();
         Arc::new(RelationSet {
             name: "rec".into(),
             recipe_digest: "sha256:recipe".into(),
@@ -285,7 +291,11 @@ fn an_uncertified_leaf_or_a_leaf_set_that_is_not_closed_blocks_with_the_keys_nam
     .unwrap();
     let s = later.summary();
     assert_eq!(s.verdict, Verdict::Open);
-    assert!(s.blocking.iter().any(|b| b == "leaf_open:1"), "{:?}", s.blocking);
+    assert!(
+        s.blocking.iter().any(|b| b == "leaf_open:1"),
+        "{:?}",
+        s.blocking
+    );
     assert!(
         s.blocking
             .iter()
@@ -335,6 +345,22 @@ fn an_uncertified_leaf_or_a_leaf_set_that_is_not_closed_blocks_with_the_keys_nam
     .unwrap();
     assert_eq!(k.own_keys().len(), 2);
     assert_eq!(k.summary().verdict, Verdict::SupersetClean);
+    // a leaf set of the EXACT tier serves the keys-only walk (the witness-absent policy is bound as configured, not as
+    // the tier-effective identity word)
+    let exact = Arc::new(leafset(&base, "closed", true));
+    let k2 = closure(
+        &d,
+        &b,
+        &cmp(),
+        &ks(&[[3, 5, 0, 0]]),
+        &ClosureConfig {
+            leaves: vec![exact],
+            ..cfg(Tier::K, "sha256:A")
+        },
+        &NoFacts,
+    )
+    .unwrap();
+    assert_eq!(k2.own_keys().len(), 2);
 }
 
 #[test]

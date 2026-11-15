@@ -21,12 +21,12 @@ use super::zeros::{self, SecondRoute, ZeroScan};
 use rustred_campaign_core::closure::{
     ClosureSummary, KeySet, KeySetBuilder, LeafBinding, LeafSet, LeafSetBuilder, Tier, Verdict,
 };
+use rustred_campaign_core::import::check::RecordRequest;
 use rustred_campaign_core::import::check::{LeafHits, check_streamed_with_leaves};
 use rustred_campaign_core::import::load::read_start;
 use rustred_campaign_core::import::{
     CheckOptions, CheckResult, Evidence, ImportedSet, KeyRow, Level, RowStatus, TableSetSpec,
 };
-use rustred_campaign_core::import::check::RecordRequest;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -117,7 +117,8 @@ pub struct Plan {
 }
 
 fn sha256_file(p: &Path) -> Result<String, String> {
-    rustred_campaign_core::import::lines::file_sha256(p).map_err(|e| format!("{}: {e}", p.display()))
+    rustred_campaign_core::import::lines::file_sha256(p)
+        .map_err(|e| format!("{}: {e}", p.display()))
 }
 
 fn strip(d: &str) -> String {
@@ -277,8 +278,8 @@ pub fn plan(inp: &PassIn, set: &ImportedSet) -> Result<Option<Plan>, String> {
     };
     let mut frozen = BTreeMap::new();
     for (idx, body) in &inp.frozen_layers {
-        let rec: LayerRecord = serde_json::from_slice(body)
-            .map_err(|e| format!("frozen layer {idx}: record: {e}"))?;
+        let rec: LayerRecord =
+            serde_json::from_slice(body).map_err(|e| format!("frozen layer {idx}: record: {e}"))?;
         if rec.schema != LAYER_RECORD_SCHEMA || rec.idx != *idx {
             return Err(format!("frozen layer {idx}: record schema / index"));
         }
@@ -487,8 +488,13 @@ pub fn leafset_of(
         let v: Value = serde_json::from_str(&l).map_err(|e| e.to_string())?;
         let key: Vec<i32> = serde_json::from_value(v["key"].clone()).map_err(|e| e.to_string())?;
         let (class, level) = row_words(&v);
-        b.push(&key, &class, &level, row_json_certified(&v, required, basis_ok))
-            .map_err(|e| e.to_string())?;
+        b.push(
+            &key,
+            &class,
+            &level,
+            row_json_certified(&v, required, basis_ok),
+        )
+        .map_err(|e| e.to_string())?;
     }
     for im in &res.credit_images {
         b.aux(im).map_err(|e| e.to_string())?;
@@ -610,7 +616,8 @@ pub fn walk_c(
         }
         if gates.second_elided {
             for (_, applied, t, r) in zeros::served_rule_rows(set, &res)? {
-                if set.rules[t][r].witness == rustred_campaign_core::import::load::WitnessKind::Elided
+                if set.rules[t][r].witness
+                    == rustred_campaign_core::import::load::WitnessKind::Elided
                 {
                     pairs.insert((set.rules[t][r].record_sha256.clone(), applied));
                 }
@@ -687,13 +694,27 @@ pub fn walk_c(
                     digest: Some(k.digest()),
                 });
             }
-            let rec = freeze(inp, plan, l, &mut w, k_file.clone(), t0.elapsed().as_secs_f64())?;
+            let rec = freeze(
+                inp,
+                plan,
+                l,
+                &mut w,
+                k_file.clone(),
+                t0.elapsed().as_secs_f64(),
+            )?;
             if let Some(tx) = tx {
                 let body = serde_json::to_vec_pretty(&rec).map_err(|e| e.to_string())?;
                 // the source registers it while the pass still runs (an interrupt never loses a closed layer)
                 let _ = tx.send(LayerMsg { idx: l.idx, body });
             }
             w.frozen_now = Some(rec);
+        }
+        // TESTS ONLY: a pause after each walked layer (the interrupt-between-layers test stops the run here)
+        if let Some(ms) = std::env::var("RR_LAYERS_TEST_LAYER_DELAY_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+        {
+            std::thread::sleep(std::time::Duration::from_millis(ms));
         }
         leaves.push(ls);
         out.push(w);
@@ -840,8 +861,14 @@ fn add_json(a: &mut Value, b: &Value) {
         (av @ Value::Null, v) => *av = v.clone(),
         (Value::Array(x), Value::Array(y)) => {
             if x.iter().chain(y).all(Value::is_string) {
-                let xs: Vec<String> = x.iter().filter_map(|v| v.as_str().map(String::from)).collect();
-                let ys: Vec<String> = y.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+                let xs: Vec<String> = x
+                    .iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect();
+                let ys: Vec<String> = y
+                    .iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect();
                 *x = merge_words(&xs, &ys).into_iter().map(Value::from).collect();
             }
         }
@@ -990,7 +1017,8 @@ pub fn compose(
     if let Some(d) = rows_path.parent() {
         std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
     }
-    let f = std::fs::File::create(rows_path).map_err(|e| format!("{}: {e}", rows_path.display()))?;
+    let f =
+        std::fs::File::create(rows_path).map_err(|e| format!("{}: {e}", rows_path.display()))?;
     let mut w = std::io::BufWriter::with_capacity(1 << 20, f);
     let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
     let mut n = 0u64;
@@ -1127,7 +1155,9 @@ pub fn compose(
         witness_unchecked: unchecked,
         keys_only_diagnostic: kod,
         seconds,
-        required: first.map(|r| r.required).unwrap_or(set.spec.required_evidence),
+        required: first
+            .map(|r| r.required)
+            .unwrap_or(set.spec.required_evidence),
         leaves,
         leaf_walk: BTreeMap::new(),
         credit_images: vec![],
@@ -1252,7 +1282,9 @@ pub fn node_leafset(
 // ------------------------------------------------------------------------------------------------ equality
 
 /// The route-free per-key view of a statement (key -> canonical row without `in_start`) and its start keys.
-pub fn statement_view(path: &Path) -> Result<(BTreeMap<Vec<i32>, String>, BTreeSet<Vec<i32>>), String> {
+pub fn statement_view(
+    path: &Path,
+) -> Result<(BTreeMap<Vec<i32>, String>, BTreeSet<Vec<i32>>), String> {
     let f = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut m = BTreeMap::new();
     let mut st = BTreeSet::new();
@@ -1289,7 +1321,8 @@ pub fn compare_composed(single: &Path, parts: &[PathBuf]) -> Result<Value, Strin
     let mut per_part = vec![];
     for p in parts {
         let (m, st) = statement_view(p)?;
-        per_part.push(json!({"file": p.display().to_string(), "keys": m.len(), "in_start": st.len()}));
+        per_part
+            .push(json!({"file": p.display().to_string(), "keys": m.len(), "in_start": st.len()}));
         comp_start.extend(st);
         for (k, v) in m {
             if comp.insert(k, v).is_some() {

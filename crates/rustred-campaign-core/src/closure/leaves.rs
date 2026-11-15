@@ -26,7 +26,9 @@ pub const LEAF_CERTIFIED: u8 = 1;
 
 /// Identity components copied verbatim into a leaf set's walk binding (what decides what serves a key). The components
 /// `relations`, `terminals` and `exclusions` enter RESTRICTED to the leaf set's keys (see [`walk_components`]); facts,
-/// start set, inputs, tier, hand-down mode and round limit never enter.
+/// start set, inputs, tier, hand-down mode and round limit never enter. The witness-absent policy enters as CONFIGURED
+/// (`witness_absent_policy`), not as the identity's tier-effective word (Tier K always reports `block`): a leaf set of
+/// the exact tier serves the keys-only walk too.
 pub const WALK_COMPONENTS: &[&str] = &[
     "tool",
     "frame",
@@ -38,7 +40,6 @@ pub const WALK_COMPONENTS: &[&str] = &[
     "table_sources",
     "credits",
     "zero_sectors",
-    "witness_absent",
     "per_key_lift",
     "dispatcher_summary",
     "diagnostic",
@@ -374,24 +375,25 @@ impl LeafSet {
             .map_err(|e| LeafError::Format(format!("binding: {e}")))?;
         let want = h["digest"].as_str().unwrap_or("").to_string();
         let w = codec.words();
-        let read_codes = |r: &mut dyn BufRead, n: usize, what: &str| -> Result<Vec<u64>, LeafError> {
-            let mut data = Vec::with_capacity(n * w);
-            let mut b8 = [0u8; 8];
-            for i in 0..n {
-                for _ in 0..w {
-                    r.read_exact(&mut b8).map_err(|e| {
-                        LeafError::Format(format!("{what}: truncated at key {i}: {e}"))
-                    })?;
-                    data.push(u64::from_le_bytes(b8));
+        let read_codes =
+            |r: &mut dyn BufRead, n: usize, what: &str| -> Result<Vec<u64>, LeafError> {
+                let mut data = Vec::with_capacity(n * w);
+                let mut b8 = [0u8; 8];
+                for i in 0..n {
+                    for _ in 0..w {
+                        r.read_exact(&mut b8).map_err(|e| {
+                            LeafError::Format(format!("{what}: truncated at key {i}: {e}"))
+                        })?;
+                        data.push(u64::from_le_bytes(b8));
+                    }
+                    if i > 0 && data[(i - 1) * w..i * w] >= data[i * w..(i + 1) * w] {
+                        return Err(LeafError::Format(format!(
+                            "{what}: key {i} not strictly increasing"
+                        )));
+                    }
                 }
-                if i > 0 && data[(i - 1) * w..i * w] >= data[i * w..(i + 1) * w] {
-                    return Err(LeafError::Format(format!(
-                        "{what}: key {i} not strictly increasing"
-                    )));
-                }
-            }
-            Ok(data)
-        };
+                Ok(data)
+            };
         let codes = read_codes(&mut r, count, "codes")?;
         let mut bytes = |n: usize, what: &str| -> Result<Vec<u8>, LeafError> {
             let mut v = vec![0u8; n];
@@ -429,9 +431,7 @@ impl LeafSet {
         };
         let got = s.compute_digest();
         if got != want {
-            return Err(LeafError::Format(format!(
-                "digest {got} != header {want}"
-            )));
+            return Err(LeafError::Format(format!("digest {got} != header {want}")));
         }
         s.digest = got;
         Ok(s)
@@ -472,9 +472,7 @@ impl LeafSetBuilder {
             return Ok(i as u8);
         }
         if v.len() >= 256 {
-            return Err(LeafError::Format(
-                "more than 256 classes or levels".into(),
-            ));
+            return Err(LeafError::Format("more than 256 classes or levels".into()));
         }
         v.push(s.to_string());
         Ok((v.len() - 1) as u8)
@@ -590,6 +588,7 @@ fn digest_of(parts: &[String]) -> String {
 /// key, per terminal and per exclusion (never per leaf).
 pub fn walk_components(
     identity: &ConfigIdentity,
+    witness_absent_policy: &str,
     rsets: &[(u32, Arc<RelationSet>)],
     terminals: (&Option<KeySet>, &Option<KeySet>),
     exclusions: &[KeyExclusion],
@@ -607,6 +606,10 @@ pub fn walk_components(
         );
     }
     m.insert("leaf_semantics".into(), LEAF_SEMANTICS.into());
+    m.insert(
+        "witness_absent_policy".into(),
+        witness_absent_policy.to_string(),
+    );
     // relation sets with a certified key among the members: header + per member key (in domain, relation, verdict)
     let mut rparts: Vec<String> = vec![];
     for (rank, s) in rsets {
@@ -620,11 +623,7 @@ pub fn walk_components(
                     .iter()
                     .map(|b| format!("{b:02x}"))
                     .collect();
-                hits.push(format!(
-                    "{k:?}|{}|{rd}|{}",
-                    s.in_domain(&k),
-                    st.verdict(i)
-                ));
+                hits.push(format!("{k:?}|{}|{rd}|{}", s.in_domain(&k), st.verdict(i)));
             }
         }
         if !hits.is_empty() {

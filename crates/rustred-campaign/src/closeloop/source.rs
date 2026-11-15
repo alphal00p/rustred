@@ -942,7 +942,12 @@ impl CloseFromMaterialSource {
                 .inputs
                 .iter()
                 .filter(|(id, r)| id.starts_with(&pre) && r.role == super::layers::ROLE_LAYER)
-                .filter_map(|(id, _)| id[pre.len()..].parse::<usize>().ok().map(|k| (k, id.clone())))
+                .filter_map(|(id, _)| {
+                    id[pre.len()..]
+                        .parse::<usize>()
+                        .ok()
+                        .map(|k| (k, id.clone()))
+                })
                 .collect();
             for (k, id) in ids {
                 frozen_layers.push((k, self.input_file(st, &id)?));

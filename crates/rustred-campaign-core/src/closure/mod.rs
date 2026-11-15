@@ -52,7 +52,8 @@ pub use facts::{
 pub use fast::FastDispatch;
 pub use keyset::{KeyCodec, KeySet, KeySetBuilder, KeySetError, KeyTable};
 pub use leaves::{
-    LeafBinding, LeafEntry, LeafError, LeafHit, LeafSet, LeafSetBuilder, LeafSummary, LEAFSET_SCHEMA,
+    LEAFSET_SCHEMA, LeafBinding, LeafEntry, LeafError, LeafHit, LeafSet, LeafSetBuilder,
+    LeafSummary,
 };
 pub use relations::{
     DispatchSlot, RelationSet, RelationStore, RelationStoreBuilder, SolveResultsStats,
@@ -905,6 +906,7 @@ struct WalkInputs {
     term_pref: Option<KeySet>,
     term_other: Option<KeySet>,
     exclusions: Vec<KeyExclusion>,
+    witness_absent: String,
 }
 
 /// sha256 over the dispatch order: per table in priority order its name, record count and labels.
@@ -2195,6 +2197,7 @@ fn run(
         let member = |k: &[i32]| ls.contains(k) || ls.aux_contains(k);
         let cur = leaves::walk_components(
             &identity,
+            &format!("{:?}", cfg.witness_absent),
             &rsets,
             (&term_pref, &term_other),
             &cfg.exclusions,
@@ -2750,6 +2753,7 @@ fn run(
             term_pref: ctx.term_pref.clone(),
             term_other: ctx.term_other.clone(),
             exclusions: cfg.exclusions.clone(),
+            witness_absent: format!("{:?}", cfg.witness_absent),
         }),
     };
     // lane layers (closure.md 18): the walk components of THIS run's own keys (and credit images), for a leaf set built
@@ -2765,6 +2769,7 @@ fn run(
         };
         leaves::walk_components(
             &cl.identity,
+            &format!("{:?}", cfg.witness_absent),
             &ctx.rsets,
             (&ctx.term_pref, &ctx.term_other),
             &cfg.exclusions,
@@ -3245,6 +3250,7 @@ impl Closure {
         let w = &self.walk_inputs;
         leaves::walk_components(
             &self.identity,
+            &w.witness_absent,
             &w.rsets,
             (&w.term_pref, &w.term_other),
             &w.exclusions,

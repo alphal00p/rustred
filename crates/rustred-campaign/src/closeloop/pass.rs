@@ -639,13 +639,9 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     } else {
         Some(match &layer_plan {
             // lane layers: one keys-only walk of the layers that are not frozen, the frozen ones as leaves
-            Some(lp) => super::layers::check_k(
-                &set,
-                &ev,
-                &opts_k,
-                stream_k.then_some(krows.as_path()),
-                lp,
-            )?,
+            Some(lp) => {
+                super::layers::check_k(&set, &ev, &opts_k, stream_k.then_some(krows.as_path()), lp)?
+            }
             None => if stream_k {
                 rustred_campaign_core::import::check::check_streamed(&set, &ev, &opts_k, &krows)
             } else {
@@ -1531,8 +1527,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     check_v["escalation"] = esc_summary(esc_out.as_ref(), uncovered.len());
     // lane layers (closeloop.md 23): per layer frozen / walked, verdict, leaves met, relative to which leaf sets
     if let Some(lp) = &layer_plan {
-        check_v["layers"] =
-            super::layers::layers_json(lp, layer_walked.as_deref().unwrap_or(&[]));
+        check_v["layers"] = super::layers::layers_json(lp, layer_walked.as_deref().unwrap_or(&[]));
     }
     let dispatch_order = json!({
         "schema": DISPATCH_SCHEMA, "node": inp.node, "spec_digest": set.report.spec_digest,
@@ -2245,7 +2240,11 @@ fn write_final(
     if let Some((lp, walked)) = f.layers {
         result["layers"] = f.check["layers"].clone();
         if lp.configured {
-            let st_sha = dig.files.get("statement.jsonl").cloned().unwrap_or_default();
+            let st_sha = dig
+                .files
+                .get("statement.jsonl")
+                .cloned()
+                .unwrap_or_default();
             let ls = super::layers::node_leafset(
                 set,
                 ev,
