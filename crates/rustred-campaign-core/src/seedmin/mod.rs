@@ -79,7 +79,9 @@ impl Trial {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "pole")]
 pub enum PoleOrder {
-    Order { order: u32 },
+    Order {
+        order: u32,
+    },
     /// Singular, order not known (at least 1): e.g. coreseed's temporary denominator test.
     Singular,
     Undecided,
@@ -131,9 +133,14 @@ pub enum TrialAnswer {
     NoRelation,
     NotInDomain,
     /// Probe mode only: the probe verdict (never a relation, never evidence).
-    Probe { verdict: String },
+    Probe {
+        verdict: String,
+    },
     /// Budget / error / refused / interrupted: UNDECIDED, never "no relation".
-    Undecided { class: String, message: String },
+    Undecided {
+        class: String,
+        message: String,
+    },
 }
 
 impl TrialAnswer {
@@ -268,7 +275,8 @@ pub fn sha256_hex(b: &[u8]) -> String {
 
 /// sha256 of the canonical JSON of a seed list (the list's identity in labels and records).
 pub fn list_digest(list: &[Offset]) -> String {
-    let t = crate::schema::canon::canonical_json(&serde_json::json!(list), false).unwrap_or_default();
+    let t =
+        crate::schema::canon::canonical_json(&serde_json::json!(list), false).unwrap_or_default();
     sha256_hex(t.as_bytes())
 }
 
@@ -276,7 +284,10 @@ pub fn list_digest(list: &[Offset]) -> String {
 pub fn key_label(k: &[i32]) -> String {
     format!(
         "[{}]",
-        k.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")
+        k.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
     )
 }
 

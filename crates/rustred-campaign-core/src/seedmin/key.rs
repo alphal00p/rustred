@@ -12,8 +12,8 @@ use super::accept::{State, judge_change};
 use super::order::{drop_order, restrict, row_ordered, without};
 use super::policy::SeedMinPolicy;
 use super::{
-    Key, Offset, RelationFacts, SeedMinError, SystemPoles, Trial, TrialAnswer, TrialMode, TrialSolver,
-    key_label, list_digest, run_batch, sub,
+    Key, Offset, RelationFacts, SeedMinError, SystemPoles, Trial, TrialAnswer, TrialMode,
+    TrialSolver, key_label, list_digest, run_batch, sub,
 };
 
 /// One trial as recorded (the emulation's trial record; cost data stays with the solver).
@@ -173,7 +173,14 @@ impl<'p> KeyMachine<'p> {
         }
     }
 
-    fn log(&mut self, p: &Pending, a: &TrialAnswer, kept: Option<bool>, reason: String, counted: bool) {
+    fn log(
+        &mut self,
+        p: &Pending,
+        a: &TrialAnswer,
+        kept: Option<bool>,
+        reason: String,
+        counted: bool,
+    ) {
         self.out.trials.push(TrialLog {
             label: p.trial.label.clone(),
             digest: p.trial.digest(),
@@ -284,7 +291,8 @@ impl<'p> KeyMachine<'p> {
                     }
                     if self.order.is_none() {
                         let idx = drop_order(&self.out.list, &self.out.centre, self.policy);
-                        self.order = Some(idx.into_iter().map(|i| self.out.list[i].clone()).collect());
+                        self.order =
+                            Some(idx.into_iter().map(|i| self.out.list[i].clone()).collect());
                     }
                     let cur: BTreeSet<&Offset> = self.out.list.iter().collect();
                     let remaining: Vec<Offset> = self
@@ -328,10 +336,12 @@ impl<'p> KeyMachine<'p> {
         self.out.trials_run += pending.len() as u64;
         let mut ans: Vec<TrialAnswer> = answers
             .into_iter()
-            .map(|mut v| v.pop().unwrap_or(TrialAnswer::Undecided {
-                class: "missing".into(),
-                message: "no answer".into(),
-            }))
+            .map(|mut v| {
+                v.pop().unwrap_or(TrialAnswer::Undecided {
+                    class: "missing".into(),
+                    message: "no answer".into(),
+                })
+            })
             .collect();
         match self.phase {
             Phase::Start => {
@@ -385,7 +395,13 @@ impl<'p> KeyMachine<'p> {
                         }
                         self.log(p, a, Some(k), r, true);
                     } else {
-                        self.log(p, a, None, "speculative: after the first kept drop".into(), false);
+                        self.log(
+                            p,
+                            a,
+                            None,
+                            "speculative: after the first kept drop".into(),
+                            false,
+                        );
                     }
                 }
                 if let Some(j) = first {
@@ -482,7 +498,14 @@ pub fn minimise_key(
     let mut km = if policy.backend == "engine" {
         engine_key(key, centre, list, policy, solver, &label)?
     } else {
-        let mut ms = vec![KeyMachine::new(key, centre, list, policy, label.clone(), None)];
+        let mut ms = vec![KeyMachine::new(
+            key,
+            centre,
+            list,
+            policy,
+            label.clone(),
+            None,
+        )];
         run_lockstep(&mut ms, solver, system)?;
         ms.pop().expect("one machine").finish()
     };
@@ -511,7 +534,11 @@ pub fn minimise_key(
 }
 
 /// Shared input checks: non-empty list, one arity everywhere, no duplicate offsets or keys.
-pub(crate) fn check_input(keys: &[Key], centre: &[i32], list: &[Offset]) -> Result<(), SeedMinError> {
+pub(crate) fn check_input(
+    keys: &[Key],
+    centre: &[i32],
+    list: &[Offset],
+) -> Result<(), SeedMinError> {
     let bad = |m: String| Err(SeedMinError::Input { message: m });
     let n = centre.len();
     if list.is_empty() {
@@ -535,7 +562,10 @@ pub(crate) fn check_input(keys: &[Key], centre: &[i32], list: &[Offset]) -> Resu
 }
 
 /// Capability checks before any solve (typed refusals).
-pub(crate) fn preflight(policy: &SeedMinPolicy, solver: &dyn TrialSolver) -> Result<(), SeedMinError> {
+pub(crate) fn preflight(
+    policy: &SeedMinPolicy,
+    solver: &dyn TrialSolver,
+) -> Result<(), SeedMinError> {
     policy
         .validate()
         .map_err(|message| SeedMinError::Input { message })?;

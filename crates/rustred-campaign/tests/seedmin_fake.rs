@@ -1,0 +1,207 @@
+//! Lane seedmin: the supervisor's child solver with FAKE children (`rr_fake_child` emulating kind solve-recipe) through
+//! the REAL launcher: joint minimisation, every trial one child job, journal resume (a second run answers every trial
+//! from the journal and launches nothing), records accepted by the adapter only. Spawns processes: run ONLY under
+//! `LIGHT_PIDNS=1` (private pid namespace, rule L10):
+//! `LIGHT_PIDNS=1 light_build.sh seedmin test -p rustred-campaign --test seedmin_fake`
+
+use rustred_campaign::adapters::job::{Invocation, Program};
+use rustred_campaign::closeloop::seedmin::{ChildConfig, ChildTrialSolver, FakeAlt, FakeOracle};
+use rustred_campaign::resources::{Sampler, SamplerConfig};
+use rustred_campaign_core::seedmin::{
+    EngineCaps, LocalValuationJudge, PoleOrder, SeedMinError, SeedMinPolicy, StubSystemPoles,
+    minimise_joint,
+};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
+
+const FAKE: &str = env!("CARGO_BIN_EXE_rr_fake_child");
+const ORDER: &str =
+    r#"{"name":"o","slot_permutation":null,"coordinate_priority":null,"source_order":"Input"}"#;
+
+/// A NEW directory under the (private, per-invocation) TMPDIR; removed at the end of the test only (L18).
+fn root(tag: &str) -> PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let p = std::env::temp_dir().join(format!("rr-seedmin-{tag}-{}-{nanos}", std::process::id()));
+    std::fs::create_dir(&p).unwrap();
+    p
+}
+
+fn config(dir: &Path, oracle: FakeOracle) -> ChildConfig {
+    let family = dir.join("family.sym");
+    std::fs::write(&family, "fake family\n").unwrap();
+    let mut program =
+        Program::from_file("rr_fake_child", Path::new(FAKE), Invocation::Contract).unwrap();
+    program.features_required = vec!["fake".into()];
+    ChildConfig {
+        program,
+        family,
+        order: ORDER.into(),
+        lines: vec![true, true, false],
+        domain: None,
+        relation_rule: "first_admissible".into(),
+        cpus: vec![0, 1],
+        pin_cpus: false,
+        threads_per_job: 2,
+        cap_bytes: 256 << 20,
+        key_budget_s: None,
+        max_trace_rows: None,
+        wall_cap_s: 60,
+        work_root: dir.join("work"),
+        licence_env: None,
+        keep_run_dirs: false,
+        d0: "4".into(),
+        records_out: Some(dir.join("relations.jsonl")),
+        records_cap_bytes: 1 << 20,
+        fake: Some(oracle),
+        verbose: false,
+    }
+}
+
+fn sampler() -> Arc<Sampler> {
+    Arc::new(
+        Sampler::spawn(SamplerConfig {
+            interval: Duration::from_millis(200),
+            collect_foreign_pinning: false,
+        })
+        .unwrap(),
+    )
+}
+
+#[test]
+fn joint_minimisation_through_fake_children_resumes_from_the_journal() {
+    assert!(
+        rustred_campaign::launch::in_private_namespace(),
+        "run under LIGHT_PIDNS=1 (private pid namespace, rule L10)"
+    );
+    let dir = root("joint");
+    let ka = vec![3, 2, -1];
+    let kb = vec![2, 3, -1];
+    let mut oracle = FakeOracle {
+        ms: 5,
+        ..Default::default()
+    };
+    // A needs the key and one line-0 step; B the key and one numerator step (offsets from the key = centre zero)
+    oracle.alts.insert(
+        ka.clone(),
+        vec![FakeAlt {
+            needs: vec![vec![0, 0, 0], vec![1, 0, 0]],
+            rhs: vec![vec![2, 2, -1]],
+        }],
+    );
+    oracle.alts.insert(
+        kb.clone(),
+        vec![FakeAlt {
+            needs: vec![vec![0, 0, 0], vec![0, 0, -1]],
+            rhs: vec![vec![2, 2, -1], vec![1, 3, -1]],
+        }],
+    );
+    let list: Vec<Vec<i32>> = vec![
+        vec![0, 0, 0],
+        vec![1, 0, 0],
+        vec![0, 1, 0],
+        vec![0, 0, -1],
+        vec![1, 1, 0],
+        vec![-1, 0, 0],
+    ];
+    let policy = SeedMinPolicy {
+        parallel_trials: 2,
+        ..SeedMinPolicy::default()
+    };
+    let keys = vec![ka.clone(), kb.clone()];
+    let caps = EngineCaps::default();
+    let s = sampler();
+    let mut solver = ChildTrialSolver::new(
+        config(&dir, oracle.clone()),
+        s.clone(),
+        Box::new(LocalValuationJudge),
+        caps.clone(),
+    )
+    .unwrap();
+    let jm = minimise_joint(
+        &keys,
+        &[0, 0, 0],
+        &list,
+        &policy,
+        &mut solver,
+        &mut StubSystemPoles,
+    )
+    .unwrap();
+    assert_eq!(jm.pieces.len(), 1);
+    assert_eq!(jm.pieces[0].keys, keys);
+    assert_eq!(
+        jm.pieces[0].list,
+        vec![vec![0, 0, 0], vec![1, 0, 0], vec![0, 0, -1]]
+    );
+    // the fake child's coefficients are 1/(d-4): pole order 1 everywhere (the judge ran on the records)
+    assert!(
+        jm.pieces[0]
+            .per_key
+            .iter()
+            .all(|f| f.pole == PoleOrder::Order { order: 1 })
+    );
+    // the fake writes no seeds_used: support unavailable at the spread keys
+    assert!(
+        jm.record["spread"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["support"] == "unavailable")
+    );
+    let jobs = solver.stats.jobs;
+    assert!(jobs > 5, "{jobs} jobs");
+    assert!(
+        std::fs::read_to_string(dir.join("relations.jsonl"))
+            .unwrap()
+            .lines()
+            .count()
+            >= 2
+    );
+    // run directories removed after settling
+    assert_eq!(
+        std::fs::read_dir(dir.join("work/runs"))
+            .map(|d| d.count())
+            .unwrap_or(0),
+        0
+    );
+    // RESUME: a new solver on the same work root answers everything from the journal
+    let mut again = ChildTrialSolver::new(
+        config(&dir, oracle.clone()),
+        s.clone(),
+        Box::new(LocalValuationJudge),
+        caps,
+    )
+    .unwrap();
+    let jm2 = minimise_joint(
+        &keys,
+        &[0, 0, 0],
+        &list,
+        &policy,
+        &mut again,
+        &mut StubSystemPoles,
+    )
+    .unwrap();
+    assert_eq!(jm2.record, jm.record);
+    assert_eq!(again.stats.jobs, 0);
+    assert!(again.stats.journal_hits > 0);
+    // rows at d0 on an engine without probe mode: typed refusal before any job
+    let mut d0 = policy.clone();
+    d0.rows_at_d0 = true;
+    let e = minimise_joint(
+        &keys,
+        &[0, 0, 0],
+        &list,
+        &d0,
+        &mut again,
+        &mut StubSystemPoles,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(e, SeedMinError::EngineLacksProbeMode { .. }),
+        "{e}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

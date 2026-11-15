@@ -197,10 +197,16 @@ mod tests {
         assert_eq!(coefficient_pole_order("x/y/z", 4), None);
         let mut j = LocalValuationJudge;
         let rec = json!({"rhs": [["I(1)", "(8-3*d)/(-14+6*d)", "top"], ["I(2)", "1/(d-4)^2", "sub"], ["I(3)", "2", "sub"]]});
-        assert_eq!(j.pole_order_of(&rec, &[], "4"), PoleOrder::Order { order: 2 });
+        assert_eq!(
+            j.pole_order_of(&rec, &[], "4"),
+            PoleOrder::Order { order: 2 }
+        );
         assert_eq!(j.pole_order_of(&rec, &[], "9/2"), PoleOrder::Undecided);
         let big = json!({"rhs": [["I(1)", "(123456789012345678901234567890*d)/(-4+d)", "top"]]});
-        assert_eq!(j.pole_order_of(&big, &[], "4"), PoleOrder::Order { order: 1 });
+        assert_eq!(
+            j.pole_order_of(&big, &[], "4"),
+            PoleOrder::Order { order: 1 }
+        );
         let f = facts_from_record(
             &json!({"relation_digest": "ab", "rhs": [["I(1)", "1", "top"]], "seeds_used": [[0, -1], [1, -1]]}),
             &[3, 2],

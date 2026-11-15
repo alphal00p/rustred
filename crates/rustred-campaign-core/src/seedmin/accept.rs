@@ -12,7 +12,9 @@ fn pole_cmp(new: PoleOrder, old: PoleOrder) -> Option<Ordering> {
     match (new, old) {
         (PoleOrder::Order { order: a }, PoleOrder::Order { order: b }) => Some(a.cmp(&b)),
         // regular can never be worse than anything
-        (PoleOrder::Order { order: 0 }, PoleOrder::Singular | PoleOrder::Undecided) => Some(Ordering::Less),
+        (PoleOrder::Order { order: 0 }, PoleOrder::Singular | PoleOrder::Undecided) => {
+            Some(Ordering::Less)
+        }
         // a singular relation (order unknown) is worse than a regular one
         (PoleOrder::Singular, PoleOrder::Order { order: 0 }) => Some(Ordering::Greater),
         _ => None,
@@ -34,7 +36,11 @@ pub struct State<'a> {
 
 fn terms(states: &[State<'_>], agg: &str) -> u64 {
     let it = states.iter().map(|s| s.facts.rhs_count);
-    if agg == "sum" { it.sum() } else { it.max().unwrap_or(0) }
+    if agg == "sum" {
+        it.sum()
+    } else {
+        it.max().unwrap_or(0)
+    }
 }
 
 /// Judge the change from `old` (list `before`) to `new` (list `after`) on the same keys (in the same order). Every

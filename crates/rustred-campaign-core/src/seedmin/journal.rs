@@ -28,7 +28,10 @@ pub struct JournaledSolver<S> {
 
 impl<S: TrialSolver> JournaledSolver<S> {
     /// From existing journal lines (unreadable lines are an error: a journal is never guessed).
-    pub fn from_lines<'a>(inner: S, lines: impl IntoIterator<Item = &'a str>) -> Result<Self, String> {
+    pub fn from_lines<'a>(
+        inner: S,
+        lines: impl IntoIterator<Item = &'a str>,
+    ) -> Result<Self, String> {
         let mut map = BTreeMap::new();
         for (i, l) in lines.into_iter().enumerate() {
             if l.trim().is_empty() {

@@ -14,8 +14,8 @@ use super::key::{KeyMachine, KeyMin, TrialLog, check_input, preflight, run_locks
 use super::order::{drop_order, row_ordered, union_in_order, without};
 use super::policy::SeedMinPolicy;
 use super::{
-    Key, Offset, RelationFacts, SeedMinError, SystemPoles, Trial, TrialAnswer, TrialMode, TrialSolver,
-    key_label, list_digest, run_batch, sha256_hex,
+    Key, Offset, RelationFacts, SeedMinError, SystemPoles, Trial, TrialAnswer, TrialMode,
+    TrialSolver, key_label, list_digest, run_batch, sha256_hex,
 };
 
 /// One piece of a domain: the keys a list is certified at.
@@ -124,7 +124,11 @@ fn spread_keys(domain: &[Key], policy: &SeedMinPolicy) -> Vec<usize> {
                 .iter()
                 .filter_map(|k| domain.iter().position(|d| d == k))
                 .collect();
-            if v.is_empty() { farthest(domain, n, &[]) } else { v }
+            if v.is_empty() {
+                farthest(domain, n, &[])
+            } else {
+                v
+            }
         }
         "first" => (0..n).collect(),
         _ => farthest(domain, n, &[]),
@@ -238,7 +242,8 @@ pub fn minimise_joint(
             pieces.push(start_piece(&remaining, list, &start, pieces.len()));
             break;
         }
-        let (piece, failing) = build_piece(&remaining, &start, pieces.len(), &mut cx, solver, system)?;
+        let (piece, failing) =
+            build_piece(&remaining, &start, pieces.len(), &mut cx, solver, system)?;
         pieces.push(piece);
         if failing.len() == remaining.len() {
             // no progress (cannot happen: a piece always takes a key); guard against a loop
@@ -278,7 +283,10 @@ pub fn minimise_joint(
     let mut acceptable: BTreeMap<Key, BTreeSet<String>> = BTreeMap::new();
     for (i, p) in pieces.iter().enumerate() {
         for k in &p.keys {
-            acceptable.entry(k.clone()).or_default().insert(labels[i].clone());
+            acceptable
+                .entry(k.clone())
+                .or_default()
+                .insert(labels[i].clone());
         }
     }
     if policy.joint.choice_sets_complete && pieces.len() > 1 {
@@ -286,7 +294,11 @@ pub fn minimise_joint(
         let mut idx = vec![];
         for (i, p) in pieces.iter().enumerate() {
             let own: BTreeSet<&Key> = p.keys.iter().collect();
-            let others: Vec<Key> = served.iter().filter(|k| !own.contains(k)).cloned().collect();
+            let others: Vec<Key> = served
+                .iter()
+                .filter(|k| !own.contains(k))
+                .cloned()
+                .collect();
             if !others.is_empty() {
                 ts.push(cx.trial("choice", &p.list, &others, TrialMode::Solve));
                 idx.push(i);
@@ -294,10 +306,21 @@ pub fn minimise_joint(
         }
         let ans = cx.run(solver, &ts)?;
         for ((t, a), i) in ts.iter().zip(&ans).zip(&idx) {
-            cx.log(t, "choice", None, a, None, format!("choice set of {}", labels[*i]), false);
+            cx.log(
+                t,
+                "choice",
+                None,
+                a,
+                None,
+                format!("choice set of {}", labels[*i]),
+                false,
+            );
             for (k, x) in t.keys.iter().zip(a) {
                 if x.relation().is_some() {
-                    acceptable.entry(k.clone()).or_default().insert(labels[*i].clone());
+                    acceptable
+                        .entry(k.clone())
+                        .or_default()
+                        .insert(labels[*i].clone());
                 }
             }
         }
@@ -354,6 +377,9 @@ fn start_piece(
     }
 }
 
+/// Per-key answers of a confirmation and the failing keys with their reasons.
+type Confirmation = (Vec<TrialAnswer>, Vec<(Key, String)>);
+
 /// Confirm `cand` at `domain` against the start relations: (per-key answers, failing keys with reasons).
 fn confirm(
     cx: &mut Ctx<'_>,
@@ -363,13 +389,22 @@ fn confirm(
     domain: &[Key],
     start: &BTreeMap<Key, RelationFacts>,
     kind: &str,
-) -> Result<(Vec<TrialAnswer>, Vec<(Key, String)>), SeedMinError> {
+) -> Result<Confirmation, SeedMinError> {
     let t = cx.trial(kind, cand, domain, TrialMode::Solve);
     let a = cx.run(solver, std::slice::from_ref(&t))?.remove(0);
     cx.solves += 1;
     let mut fail = vec![];
     for (k, x) in domain.iter().zip(&a) {
-        let (ok, why) = key_ok(k, &start[k], x, cx.start_list, cand, cx.centre, cx.policy, system);
+        let (ok, why) = key_ok(
+            k,
+            &start[k],
+            x,
+            cx.start_list,
+            cand,
+            cx.centre,
+            cx.policy,
+            system,
+        );
         if !ok {
             fail.push((k.clone(), why));
         }
@@ -451,7 +486,13 @@ fn build_piece(
             break;
         };
         chosen.push(next);
-        let l = minimise_at(cx, solver, system, std::slice::from_ref(&domain[next]), start)?;
+        let l = minimise_at(
+            cx,
+            solver,
+            system,
+            std::slice::from_ref(&domain[next]),
+            start,
+        )?;
         cand = union_in_order(start_list, &[cand.clone(), l[0].clone()]);
         (ans, fail) = confirm(cx, solver, system, &cand, domain, start, "confirm")?;
         extra += 1;
@@ -459,7 +500,12 @@ fn build_piece(
     if !fail.is_empty() && policy.joint.on_candidate_failure == "repair_union" {
         let mut parts = vec![cand.clone()];
         for (k, _) in &fail {
-            parts.push(start[k].seeds_used.clone().unwrap_or_else(|| start_list.to_vec()));
+            parts.push(
+                start[k]
+                    .seeds_used
+                    .clone()
+                    .unwrap_or_else(|| start_list.to_vec()),
+            );
         }
         let rep = union_in_order(start_list, &parts);
         let (a2, f2) = confirm(cx, solver, system, &rep, domain, start, "repair")?;
@@ -470,7 +516,11 @@ fn build_piece(
         }
     }
     let failing: BTreeSet<Key> = fail.iter().map(|(k, _)| k.clone()).collect();
-    let keys: Vec<Key> = domain.iter().filter(|k| !failing.contains(*k)).cloned().collect();
+    let keys: Vec<Key> = domain
+        .iter()
+        .filter(|k| !failing.contains(*k))
+        .cloned()
+        .collect();
     if keys.is_empty() {
         // no candidate serves a key: the start list keeps the whole domain
         let p = start_piece(domain, start_list, start, index);
@@ -547,7 +597,10 @@ fn build_piece(
                 // screen check per key against the current relation of that key
                 let mut bad: Option<(Key, String)> = None;
                 for (k, x) in t.keys.iter().zip(a) {
-                    let pos = keys.iter().position(|y| y == k).expect("screen key in piece");
+                    let pos = keys
+                        .iter()
+                        .position(|y| y == k)
+                        .expect("screen key in piece");
                     let (ok, why) =
                         key_ok(k, &cur[pos], x, &cand, after, cx.centre, policy, system);
                     if !ok {
@@ -560,7 +613,15 @@ fn build_piece(
                     witness.retain(|x| x != &wk);
                     witness.push_front(wk);
                     witness.truncate(policy.joint.screen_keys);
-                    cx.log(t, "screen", Some(s), a, Some(false), format!("screen: {why}"), true);
+                    cx.log(
+                        t,
+                        "screen",
+                        Some(s),
+                        a,
+                        Some(false),
+                        format!("screen: {why}"),
+                        true,
+                    );
                     continue;
                 }
                 // confirmation on EVERY key of the piece (never skipped; the screen is it when it covers the piece)
@@ -657,14 +718,26 @@ fn build_piece(
             None,
             &a,
             Some(bad.is_empty()),
-            format!("final verification: {} of {} keys certified", keys.len() - bad.len(), keys.len()),
+            format!(
+                "final verification: {} of {} keys certified",
+                keys.len() - bad.len(),
+                keys.len()
+            ),
             false,
         );
         (a, bad)
     };
-    let mut handed: Vec<Key> = domain.iter().filter(|k| failing.contains(*k)).cloned().collect();
+    let mut handed: Vec<Key> = domain
+        .iter()
+        .filter(|k| failing.contains(*k))
+        .cloned()
+        .collect();
     handed.extend(vfail.iter().cloned());
-    let keep_keys: Vec<Key> = keys.iter().filter(|k| !vfail.contains(k)).cloned().collect();
+    let keep_keys: Vec<Key> = keys
+        .iter()
+        .filter(|k| !vfail.contains(k))
+        .cloned()
+        .collect();
     let per_key: Vec<RelationFacts> = keys
         .iter()
         .zip(&va)

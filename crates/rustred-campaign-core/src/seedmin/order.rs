@@ -1,7 +1,7 @@
 //! The order in which seeds are offered for dropping (spec data, interfaces/seedmin.md 4).
 
-use super::{Offset, add};
 use super::policy::SeedMinPolicy;
+use super::{Offset, add};
 
 /// L1 norm.
 fn l1(o: &[i32]) -> u64 {
@@ -82,7 +82,13 @@ mod tests {
     #[test]
     fn distance_order_is_outermost_first_with_late_ties_first() {
         let p = SeedMinPolicy::default();
-        let list = vec![vec![0, 0], vec![1, 0], vec![0, -1], vec![1, -1], vec![-1, 0]];
+        let list = vec![
+            vec![0, 0],
+            vec![1, 0],
+            vec![0, -1],
+            vec![1, -1],
+            vec![-1, 0],
+        ];
         // distances 0,1,1,2,1 -> [3] then the 1s latest first [4,2,1] then [0]
         assert_eq!(drop_order(&list, &[0, 0], &p), vec![3, 4, 2, 1, 0]);
         let mut q = p.clone();
@@ -97,6 +103,9 @@ mod tests {
             union_in_order(&list, &[vec![vec![1, -1], vec![5, 5]], vec![vec![0, 0]]]),
             vec![vec![0, 0], vec![1, -1], vec![5, 5]]
         );
-        assert_eq!(restrict(&list, &[vec![-1, 0], vec![1, 0]]), vec![vec![1, 0], vec![-1, 0]]);
+        assert_eq!(
+            restrict(&list, &[vec![-1, 0], vec![1, 0]]),
+            vec![vec![1, 0], vec![-1, 0]]
+        );
     }
 }
