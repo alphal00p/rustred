@@ -1,0 +1,15 @@
+# sources: SCRATCHPAD/p5l/runs/T012/a0-td-e/F.table.jsonl; /common/build-cache/vhirschi/p_integral_dev/simplify-tables/min/<T>/F.table.jsonl (header = first line)
+# *.engine_first.jsonl: rr_proof instantiate (frozen 20261114T2332Z-engine-line7a, git 6c2fb15c) facts per chart via mkreq.py + condense.py
+3b5971648ffe02196bc1d3dff613487ad0fe1664f3190bb5beae60713f539ec8  T012_a0-td-e.table.jsonl
+1fec621d497e09b91f23d987bfb2d282ab50af1d830af8570bdd04fd211c2027  T012.engine_first.jsonl
+92d06cb8561ed5ff82991036700ad0910cc39e1f32dcac406efe74fb6744fa5f  T041.engine_first.jsonl
+5a5915e26669d1a6346fdc847b32dfe8f541d21639466879a516d4adeba30fb1  T041_min.table.jsonl
+92d06cb8561ed5ff82991036700ad0910cc39e1f32dcac406efe74fb6744fa5f  T047.engine_first.jsonl
+e193416da9e13015419831ccebc945d7df3d407851faace71b78f547ea150c05  T047_min.table.jsonl
+295751a803256707131369c788e617737fb5a35f7e6f2ec7cf23a4633ce066e7  T002_min.header.json
+e6e0a2b4c2985ac74d7e32a7ca25b3159c468b67ba8aa4f8aa15ef8ed8952128  T003_min.header.json
+58cc4ce202deeabf4cea592d7e011dfa11a792998c2672931020f5021dc818ff  T011_min.header.json
+c66ae1b7431e7c48a2df53ed227f1972bca5b472de5d702ed33fafab7a37e734  T064_min.header.json
+2070eb2211cd74171fad0fdd7b9d6e6a65782266132f038469b0fd4b28b6078f  T082_min.header.json
+9ef6d7d904a5d2190e8d0b6ad2a754995c9b3bbf3896df5d42198372b82274fc  condense.py
+fe282557b92ebe731f8172686b814b52bce910b3e1b6f909d01466cddde4aeec  mkreq.py

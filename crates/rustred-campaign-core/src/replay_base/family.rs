@@ -301,7 +301,11 @@ fn lin(mom: &str, declared: &[String]) -> Result<BTreeMap<String, i64>, Unknown>
 
 /// Integer k with `value == k (4-d)/2` exactly (campaign copy, CHANGED (rows3): the affine form of `value` in d, no
 /// n dependence, instead of three evaluations mod P61 at d = 0, 2, 4: the same answer for every polynomial value).
-fn eps_multiple<A: CheckAlgebra>(alg: &A, value: &str, n: usize) -> Result<i64, Unknown> {
+pub(crate) fn eps_multiple<A: CheckAlgebra>(
+    alg: &A,
+    value: &str,
+    n: usize,
+) -> Result<i64, Unknown> {
     let lin = alg
         .expr_linear(value, n)
         .map_err(|e| format!("power shift {value}: {e}"))?;

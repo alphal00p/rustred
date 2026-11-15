@@ -1,0 +1,549 @@
+//! Eps-shifted (two-sided) families in the frame, the domains and first-match dispatch (lane epsframe).
+//!
+//! Test data `tests/data/eps/` (MANIFEST.sha256): three small real tables (T012 a0-td-e: shift (12-3d)/2 = 3 eps;
+//! T041 min: (4-d)/2; T047 min: 4-d = 2 eps), five real headers (T002 mixed 4-d / (4-d)/2, T003 two axes, T011 three
+//! axes, T064, T082 order n_e_t), and per table the ENGINE's first match on a box of keys: rr_proof instantiate facts
+//! (frozen 20261114T2332Z-engine-line7a), one job per chart, condensed to "first record in file order with in_case,
+//! chart_ok and no exception branch" (`mkreq.py`, `condense.py` next to the data). rr_node's own first-match /
+//! domaincheck verbs refuse eps tables (mastermap.rs:300-305), so rr_proof's per-record facts are the engine reference.
+
+use std::path::PathBuf;
+
+use rustred_campaign_core::cover::{
+    CoverError, Dispatch, Dispatcher, EPS_LABEL_STRIDE, LoadError, Table, eps_label,
+};
+use rustred_campaign_core::domain::{CaseDomain, DomainError, DomainOptions};
+use rustred_campaign_core::key::{FrameError, KeyClass, NodeFrame};
+use rustred_campaign_core::record::{
+    ReadOptions, RecordReader, TableFile, TableHeader, TableLine, read_table_file,
+};
+
+fn data(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/data/eps")
+        .join(name)
+}
+
+fn header_of(text: &str) -> TableHeader {
+    let line = text.lines().next().unwrap();
+    let mut rd = RecordReader::new(line.as_bytes(), ReadOptions::default());
+    match rd.next().unwrap().unwrap() {
+        TableLine::Header(h) => *h,
+        _ => panic!("not a header"),
+    }
+}
+
+fn header_file(name: &str) -> TableHeader {
+    header_of(&std::fs::read_to_string(data(name)).unwrap())
+}
+
+/// (file, expected kshift (slot, k) entries)
+const REAL: &[(&str, &[(usize, i64)])] = &[
+    ("T012_a0-td-e.table.jsonl", &[(0, 3)]),
+    ("T041_min.table.jsonl", &[(5, 1)]),
+    ("T047_min.table.jsonl", &[(5, 2)]),
+    ("T002_min.header.json", &[]),
+    ("T003_min.header.json", &[]),
+    ("T011_min.header.json", &[]),
+    ("T064_min.header.json", &[(7, 1)]),
+    ("T082_min.header.json", &[(3, 1)]),
+];
+
+#[test]
+fn eps_frame_parses_real_headers() {
+    for (file, expect) in REAL {
+        let h = header_file(file);
+        // integer-only consumers refuse, naming the refusal
+        match NodeFrame::from_header(&h) {
+            Err(FrameError::Unsupported(m)) => assert!(m.contains("integer-only"), "{file}: {m}"),
+            o => panic!("{file}: {o:?}"),
+        }
+        let f = NodeFrame::from_header_eps_aware(&h).unwrap_or_else(|e| panic!("{file}: {e}"));
+        let raw: Vec<String> = h.raw["power_shifts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(f.power_shifts(), raw.as_slice(), "{file}");
+        // exact values: (4-d)/2 -> 1, 4-d -> 2, (12-3*d)/2 -> 3
+        for (i, s) in raw.iter().enumerate() {
+            let k = match s.as_str() {
+                "0" => 0,
+                "(4-d)/2" => 1,
+                "4-d" => 2,
+                "(12-3*d)/2" => 3,
+                o => panic!("{file}: unexpected shift {o}"),
+            };
+            assert_eq!(f.kshift()[i], k, "{file} slot {i}");
+        }
+        for &(slot, k) in *expect {
+            assert_eq!(f.kshift()[slot], k, "{file}");
+        }
+        // eps axes = the header's two-sided axes, every eps axis is a line, 2^k charts
+        let ts: Vec<usize> = (0..h.two_sided.len()).filter(|&i| h.two_sided[i]).collect();
+        assert_eq!(f.eps_axes(), ts, "{file}");
+        assert!(f.eps_axes().iter().all(|&a| f.is_line(a)));
+        assert_eq!(f.charts().len(), 1 << f.eps_axes().len(), "{file}");
+        assert!(f.has_eps_axes() && !f.is_integer_only());
+    }
+    // the multi-axis headers
+    let f = NodeFrame::from_header_eps_aware(&header_file("T002_min.header.json")).unwrap();
+    let mut ks: Vec<i64> = f.eps_axes().iter().map(|&a| f.kshift()[a]).collect();
+    ks.sort();
+    assert_eq!(ks, vec![1, 2]);
+    assert_eq!(
+        NodeFrame::from_header_eps_aware(&header_file("T003_min.header.json"))
+            .unwrap()
+            .eps_axes()
+            .len(),
+        2
+    );
+    assert_eq!(
+        NodeFrame::from_header_eps_aware(&header_file("T011_min.header.json"))
+            .unwrap()
+            .charts()
+            .len(),
+        8
+    );
+}
+
+#[test]
+fn chart_lines_of_real_tables_are_frame_charts() {
+    for file in [
+        "T012_a0-td-e.table.jsonl",
+        "T041_min.table.jsonl",
+        "T047_min.table.jsonl",
+    ] {
+        let tf = read_table_file(data(file), ReadOptions::default()).unwrap();
+        let f = NodeFrame::from_header_eps_aware(tf.header.as_ref().unwrap()).unwrap();
+        assert_eq!(tf.charts.len(), f.charts().len(), "{file}");
+        for (c, guards) in &tf.charts {
+            let bits: Vec<bool> = c.chars().map(|x| x == '1').collect();
+            assert!(f.charts().contains(&bits), "{file} {c}");
+            assert_eq!(f.chart_guards(&bits).as_ref(), Some(guards), "{file} {c}");
+        }
+    }
+}
+
+fn h5(shifts: &str, two_sided: &str) -> TableHeader {
+    header_of(&format!(
+        r#"{{"type":"header","denominators":5,"mask":"11110","power_shifts":{shifts},"order":{{"two_sided":{two_sided}}}}}"#
+    ))
+}
+
+#[test]
+fn shift_forms_exact_and_refusals() {
+    let ts1 = "[true,false,false,false,false]";
+    for (s, k) in [
+        ("(4-d)/2", 1),
+        ("2-d/2", 1),
+        ("(d-4)/2", -1),
+        ("4-d", 2),
+        ("(8-2*d)/2", 2),
+        ("6-3*d/2", 3),
+        ("(12-3*d)/2", 3),
+    ] {
+        let h = h5(&format!(r#"["{s}","0","0","0","0"]"#), ts1);
+        let f = NodeFrame::from_header_eps_aware(&h).unwrap_or_else(|e| panic!("{s}: {e}"));
+        assert_eq!(f.kshift(), &[k, 0, 0, 0, 0], "{s}");
+        assert!(matches!(
+            NodeFrame::from_header(&h),
+            Err(FrameError::Unsupported(_))
+        ));
+    }
+    // not a nonzero integer multiple of (4-d)/2, not a string, padded zero: refused, never read as 0
+    for s in [
+        r#""1""#,
+        r#""eps""#,
+        r#""(3-d)/2""#,
+        r#""d""#,
+        r#""0 ""#,
+        r#""4-d+n1""#,
+        "0",
+        "1",
+    ] {
+        let h = h5(&format!(r#"[{s},"0","0","0","0"]"#), ts1);
+        assert!(
+            matches!(
+                NodeFrame::from_header_eps_aware(&h),
+                Err(FrameError::Unsupported(_))
+            ),
+            "{s}"
+        );
+    }
+    // an eps shift on a numerator slot
+    let h = h5(
+        r#"["0","0","0","0","(4-d)/2"]"#,
+        "[false,false,false,false,true]",
+    );
+    assert!(matches!(
+        NodeFrame::from_header_eps_aware(&h),
+        Err(FrameError::Unsupported(_))
+    ));
+    // eps axes differ from the two-sided order axes (or the order has none)
+    for ts in ["[false,true,false,false,false]", "[]", "null"] {
+        let h = h5(r#"["(4-d)/2","0","0","0","0"]"#, ts);
+        assert!(
+            matches!(
+                NodeFrame::from_header_eps_aware(&h),
+                Err(FrameError::Unsupported(_))
+            ),
+            "{ts}"
+        );
+    }
+    // an integer header reads the same through both constructors
+    let h = h5(r#"["0","0","0","0","0"]"#, "null");
+    assert_eq!(
+        NodeFrame::from_header(&h).unwrap(),
+        NodeFrame::from_header_eps_aware(&h).unwrap()
+    );
+}
+
+#[test]
+fn forced_axis_semantics() {
+    // slot 0 eps (k = 1), slots 1..3 lines, slot 4 numerator
+    let f = NodeFrame::from_header_eps_aware(&h5(
+        r#"["(4-d)/2","0","0","0","0"]"#,
+        "[true,false,false,false,false]",
+    ))
+    .unwrap();
+    let neg = [-2, 1, 1, 1, 0];
+    let pos = [2, 1, 1, 1, -1];
+    // the eps axis is in every sector, never a removed line
+    assert_eq!(f.sector(&neg), 0b1111);
+    assert_eq!(f.sector_slots(&neg), vec![0, 1, 2, 3]);
+    assert!(f.is_top_sector(&neg) && f.in_chart_orthant(&neg));
+    assert_eq!(f.chart_violation(&neg), None);
+    assert_eq!(f.classify(&neg).unwrap(), KeyClass::Chart);
+    // an integer line <= 0 still removes the line; a positive numerator still leaves the chart
+    assert_eq!(
+        f.classify(&[0, 0, 1, 1, 0]).unwrap(),
+        KeyClass::Subsector {
+            removed_lines: vec![1],
+            positive_numerators: vec![]
+        }
+    );
+    assert_eq!(f.sector(&[0, 0, 1, 1, 0]), 0b1101);
+    assert_eq!(f.chart_violation(&[0, 1, 1, 1, 1]), Some(4));
+    // charts and the chart of a key
+    assert_eq!(
+        f.charts(),
+        vec![
+            vec![false, true, true, true, false],
+            vec![true, true, true, true, false]
+        ]
+    );
+    assert_eq!(
+        f.chart_of(&neg).unwrap(),
+        vec![false, true, true, true, false]
+    );
+    assert_eq!(
+        f.chart_of(&pos).unwrap(),
+        vec![true, true, true, true, false]
+    );
+    assert_eq!(f.chart_of(&[1, 1]), None);
+    assert_eq!(
+        f.chart_guards(&[false, true, true, true, false]).unwrap(),
+        vec!["two_sided:n<=0", "n>=1", "n>=1", "n>=1", "n<=0"]
+    );
+    assert_eq!(f.chart_guards(&[true, false, true, true, false]), None);
+    // dots / rank / layers: integer frames only (the eps box convention is spec data)
+    assert_eq!(f.dots(&pos), None);
+    assert_eq!(f.rank(&pos), None);
+    assert!(f.chart_layer(1, 1, None).is_empty());
+    assert!(f.require_integer_only_for("the box").is_err());
+    // integer frame: unchanged
+    let g = NodeFrame::without_header_from_mask("11110").unwrap();
+    assert_eq!(g.sector(&neg), 0b1110);
+    assert!(!g.in_chart_orthant(&neg));
+    assert_eq!(g.charts(), vec![g.mask().to_vec()]);
+    assert_eq!(g.dots(&pos), Some(1));
+}
+
+fn engine_first(file: &str) -> Vec<(Vec<i32>, Option<(String, i64)>)> {
+    std::fs::read_to_string(data(file))
+        .unwrap()
+        .lines()
+        .map(|l| {
+            let v: serde_json::Value = serde_json::from_str(l).unwrap();
+            let key = v["key"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|x| x.as_i64().unwrap() as i32)
+                .collect();
+            let first = v["first"]
+                .as_array()
+                .map(|a| (a[0].as_str().unwrap().to_string(), a[1].as_i64().unwrap()));
+            (key, first)
+        })
+        .collect()
+}
+
+fn load_eps(file: &str) -> (TableFile, Dispatcher) {
+    let tf = read_table_file(data(file), ReadOptions::default()).unwrap();
+    // the witness status is not what is compared here (minimised tables may carry no loci)
+    let opts = DomainOptions {
+        witness: false,
+        ..Default::default()
+    };
+    let t = Table::from_table_file_eps_aware(file, file, &tf, opts).unwrap();
+    assert_eq!(t.skipped_count(), 0);
+    assert!(t.eps_chart().is_some());
+    (tf, Dispatcher::new(vec![t], vec![0]).unwrap())
+}
+
+#[test]
+fn first_match_agrees_with_engine_facts() {
+    for (table, facts) in [
+        ("T012_a0-td-e.table.jsonl", "T012.engine_first.jsonl"),
+        ("T041_min.table.jsonl", "T041.engine_first.jsonl"),
+        ("T047_min.table.jsonl", "T047.engine_first.jsonl"),
+    ] {
+        let (tf, disp) = load_eps(table);
+        let frame = NodeFrame::from_header_eps_aware(tf.header.as_ref().unwrap()).unwrap();
+        let rule_of = |source_index: usize| {
+            let r = &tf.rules[source_index];
+            (r.chart.clone().unwrap(), r.index.unwrap())
+        };
+        let (mut agree, mut nonpos) = (0usize, 0usize);
+        for (key, want) in engine_first(facts) {
+            if frame.eps_axes().iter().any(|&a| key[a] <= 0) {
+                nonpos += 1;
+            }
+            let got = disp.first_match(&key).unwrap();
+            let fast_slow = disp.first_match_slow(&key).unwrap();
+            assert_eq!(got, fast_slow, "{table} {key:?}");
+            let sel = match &got {
+                Dispatch::Covered(r) => Some(rule_of(r.source_index)),
+                Dispatch::Blocked { at, .. } => Some(rule_of(at.source_index)),
+                Dispatch::Uncovered => None,
+                o => panic!("{table} {key:?}: {o:?}"),
+            };
+            assert_eq!(sel, want, "{table} {key:?}: {got:?}");
+            // the selected rule is of the key's chart
+            if let Some((c, _)) = &sel {
+                let bits: Vec<bool> = c.chars().map(|x| x == '1').collect();
+                assert_eq!(Some(bits), frame.chart_of(&key), "{table} {key:?}");
+            }
+            agree += 1;
+        }
+        assert!(
+            agree > 500 && nonpos > 200,
+            "{table}: {agree} keys, {nonpos} with eps <= 0"
+        );
+    }
+}
+
+#[test]
+fn integer_only_consumers_still_refuse_eps_tables() {
+    let tf = read_table_file(data("T041_min.table.jsonl"), ReadOptions::default()).unwrap();
+    assert!(matches!(
+        Table::from_table_file("t", "t", &tf, DomainOptions::default()),
+        Err(LoadError::Frame(FrameError::Unsupported(_)))
+    ));
+    // recenter bounds are not defined on an eps axis (floors assume n >= 1)
+    let opts = DomainOptions {
+        recenter_bounds: true,
+        witness: false,
+        ..Default::default()
+    };
+    assert!(matches!(
+        Table::from_table_file_eps_aware("t", "t", &tf, opts),
+        Err(LoadError::Record {
+            err: DomainError::Frame(FrameError::Unsupported(_)),
+            ..
+        })
+    ));
+    // an eps table never shares a dispatcher with integer-chart tables
+    let (_, disp) = load_eps("T041_min.table.jsonl");
+    let eps_t = disp.tables()[0].clone();
+    let mut int_t = Table::new("int", eps_t.arity());
+    int_t
+        .push(
+            0,
+            CaseDomain::free(eps_t.arity(), Some(vec![true; eps_t.arity()])),
+        )
+        .unwrap();
+    assert!(matches!(
+        Dispatcher::new(vec![eps_t, int_t], vec![0, 1]),
+        Err(CoverError::Invalid(_))
+    ));
+}
+
+#[test]
+fn eps_records_need_a_frame_chart_and_unique_labels_per_chart() {
+    let head = r#"{"type":"header","denominators":5,"mask":"11110","power_shifts":["(4-d)/2","0","0","0","0"],"order":{"two_sided":[true,false,false,false,false]}}"#;
+    let rule = |chart: &str, index: i64, fixed0: &str| {
+        format!(
+            r#"{{"type":"rule","chart":"{chart}","index":{index},"fixed":[{fixed0},null,null,null,null],"equations":[],"target":"I(n0,n1,n2,n3,n4)","rhs":[],"exceptions":[]}}"#
+        )
+    };
+    let load = |lines: &[String]| {
+        let text = format!("{head}\n{}\n", lines.join("\n"));
+        let path = std::env::temp_dir().join(format!(
+            "eps_frame_{}_{}.jsonl",
+            std::process::id(),
+            lines.len() * 31 + lines.iter().map(|l| l.len()).sum::<usize>()
+        ));
+        std::fs::write(&path, text).unwrap();
+        let tf = read_table_file(&path, ReadOptions::default()).unwrap();
+        std::fs::remove_file(&path).ok();
+        Table::from_table_file_eps_aware(
+            "c",
+            "c",
+            &tf,
+            DomainOptions {
+                witness: false,
+                ..Default::default()
+            },
+        )
+    };
+    // the same index in two charts: two rules
+    let t = load(&[rule("11110", 0, "null"), rule("01110", 0, "null")]).unwrap();
+    assert_eq!(t.len(), 2);
+    let d = Dispatcher::new(vec![t], vec![0]).unwrap();
+    for (key, src) in [
+        ([1, 1, 1, 1, 0], 0usize),
+        ([0, 1, 1, 1, 0], 1),
+        ([-3, 1, 1, 1, -1], 1),
+    ] {
+        match d.first_match(&key).unwrap() {
+            Dispatch::Covered(r) => assert_eq!(r.source_index, src, "{key:?}"),
+            o => panic!("{key:?}: {o:?}"),
+        }
+    }
+    // integer slots keep the node orthant; the eps axis is free there
+    assert!(matches!(
+        d.first_match(&[1, 0, 1, 1, 0]).unwrap(),
+        Dispatch::OutsideChart { slot: 1 }
+    ));
+    assert_eq!(d.chart_free(), &[0]);
+    // the same index twice in one chart: refused
+    assert!(matches!(
+        load(&[rule("11110", 0, "null"), rule("11110", 0, "2")]),
+        Err(LoadError::DuplicateLabel { .. })
+    ));
+    // a chart that is not a chart of the frame, a fixed eps value outside the record's chart
+    assert!(load(&[rule("11100", 0, "null")]).is_err());
+    assert!(load(&[rule("01110", 0, "2")]).is_err());
+    // a record without chart in an eps family
+    let nochart = rule("11110", 0, "null").replace(r#""chart":"11110","#, "");
+    assert!(load(&[nochart]).is_err());
+}
+
+/// Coordinator requirement (2026-11-15, kernel defect be01c25e): on a multi-chart table a record is never identified
+/// by its index alone. Two charts, both with a rule `index` 0, with DIFFERENT bodies: every lookup returns the right
+/// record (dispatch, label, label decoding) or refuses.
+#[test]
+fn two_charts_with_index_zero_are_never_confused() {
+    let head = r#"{"type":"header","denominators":5,"mask":"11110","power_shifts":["(4-d)/2","0","0","0","0"],"order":{"two_sided":[true,false,false,false,false]}}"#;
+    // chart 11110 rule 0: case n1 = 2; chart 01110 rule 0: case n1 = 3; then a catch-all rule 1 in each chart
+    let rec = |chart: &str, index: i64, eq: &str| {
+        format!(
+            r#"{{"type":"rule","chart":"{chart}","index":{index},"fixed":[null,null,null,null,null],"equations":[{eq}],"target":"I(n0,n1,n2,n3,n4)","rhs":[],"exceptions":[]}}"#
+        )
+    };
+    let text = format!(
+        "{head}\n{}\n{}\n{}\n{}\n",
+        rec("11110", 0, r#""n1-2""#),
+        rec("11110", 1, ""),
+        rec("01110", 0, r#""n1-3""#),
+        rec("01110", 1, ""),
+    );
+    let path = std::env::temp_dir().join(format!("eps_two_charts_{}.jsonl", std::process::id()));
+    std::fs::write(&path, text).unwrap();
+    let tf = read_table_file(&path, ReadOptions::default()).unwrap();
+    std::fs::remove_file(&path).ok();
+    let opts = DomainOptions {
+        witness: false,
+        ..Default::default()
+    };
+    let t = Table::from_table_file_eps_aware("two", "two", &tf, opts).unwrap();
+    // labels: unique, each decodes to its own (chart, index)
+    let mut uniq = t.labels.clone();
+    uniq.sort();
+    uniq.dedup();
+    assert_eq!(uniq.len(), 4);
+    for (k, &l) in t.labels.iter().enumerate() {
+        let r = &tf.rules[t.meta[k].source_index];
+        assert_eq!(
+            t.eps_rule_of_label(l),
+            Some((r.chart.clone().unwrap(), r.index.unwrap())),
+            "label {l}"
+        );
+    }
+    assert_eq!(t.labels[0], eps_label(1, 0).unwrap()); // 11110 is chart number 1 (charts sorted)
+    assert_eq!(t.labels[2], eps_label(0, 0).unwrap());
+    assert_ne!(t.labels[0], t.labels[2]);
+    assert_eq!(t.eps_rule_of_label(eps_label(2, 0).unwrap()), None); // no third chart
+    assert_eq!(eps_label(0, -1), None);
+    assert_eq!(eps_label(0, EPS_LABEL_STRIDE), None);
+    // dispatch: each key gets the index-0 rule of ITS chart, or the chart's rule 1
+    let d = Dispatcher::new(vec![t], vec![0]).unwrap();
+    let src = |key: [i32; 5]| match d.first_match(&key).unwrap() {
+        Dispatch::Covered(r) => (
+            tf.rules[r.source_index].chart.clone().unwrap(),
+            tf.rules[r.source_index].index.unwrap(),
+        ),
+        o => panic!("{key:?}: {o:?}"),
+    };
+    assert_eq!(src([1, 2, 1, 1, 0]), ("11110".into(), 0));
+    assert_eq!(src([1, 3, 1, 1, 0]), ("11110".into(), 1));
+    assert_eq!(src([0, 3, 1, 1, 0]), ("01110".into(), 0));
+    assert_eq!(src([-1, 2, 1, 1, 0]), ("01110".into(), 1));
+    // the integer-only loader refuses the table outright (no index-keyed consumer ever sees it)
+    assert!(matches!(
+        Table::from_table_file("two", "two", &tf, opts),
+        Err(LoadError::Frame(FrameError::Unsupported(_)))
+    ));
+}
+
+/// The load sweep's 267 refused eps tables, through the eps-aware table loader (classify-only: frame, charts,
+/// domains, dispatcher). Needs EPSFRAME_SWEEP_LIST (one path per line); writes EPSFRAME_SWEEP_OUT (JSONL) if set.
+#[test]
+#[ignore = "real five-loop tables (3.1 GB in all); EPSFRAME_SWEEP_LIST=<list>; run with --ignored"]
+fn eps_sweep_classify_only() {
+    use std::io::Write;
+    let list = std::env::var("EPSFRAME_SWEEP_LIST").expect("EPSFRAME_SWEEP_LIST");
+    let mut out = std::env::var("EPSFRAME_SWEEP_OUT")
+        .ok()
+        .map(|p| std::fs::File::create(p).unwrap());
+    let (mut loaded, mut refused) = (0usize, 0usize);
+    let mut reasons: std::collections::BTreeMap<String, usize> = Default::default();
+    for path in std::fs::read_to_string(list).unwrap().lines() {
+        let path = path.trim();
+        if path.is_empty() {
+            continue;
+        }
+        let res = read_table_file(path, ReadOptions::default())
+            .map_err(|e| format!("read: {e}"))
+            .and_then(|tf| {
+                Table::from_table_file_eps_aware(path, path, &tf, DomainOptions::default())
+                    .map_err(|e| format!("{e}"))
+            })
+            .and_then(|t| {
+                let n = t.len();
+                Dispatcher::new(vec![t], vec![0])
+                    .map(|_| n)
+                    .map_err(|e| format!("dispatcher: {e}"))
+            });
+        let line = match &res {
+            Ok(n) => {
+                loaded += 1;
+                serde_json::json!({"path": path, "outcome": "loaded", "records": n})
+            }
+            Err(e) => {
+                refused += 1;
+                let head: String = e.chars().take(80).collect();
+                *reasons.entry(head).or_default() += 1;
+                serde_json::json!({"path": path, "outcome": "refused", "reason": e})
+            }
+        };
+        if let Some(f) = out.as_mut() {
+            writeln!(f, "{line}").unwrap();
+        }
+    }
+    eprintln!("eps sweep: loaded {loaded}, refused {refused}; reasons {reasons:#?}");
+}

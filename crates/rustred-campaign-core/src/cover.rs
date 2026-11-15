@@ -282,17 +282,35 @@ impl TableProvenance {
     }
 }
 
+/// Stride of the packed labels of an eps table ([`eps_label`]).
+pub const EPS_LABEL_STRIDE: i64 = 1 << 32;
+
+/// The label of the record with engine `index` in chart number `chart_ordinal` (position in
+/// [`NodeFrame::charts`]) of an eps table: `chart_ordinal * 2^32 + index`; `None` if `index` is outside `0..2^32`.
+pub fn eps_label(chart_ordinal: usize, index: i64) -> Option<i64> {
+    let ord = i64::try_from(chart_ordinal).ok()?;
+    ((0..EPS_LABEL_STRIDE).contains(&index))
+        .then(|| ord.checked_mul(EPS_LABEL_STRIDE)?.checked_add(index))
+        .flatten()
+}
+
 /// A named rule table.
 #[derive(Clone, Debug)]
 pub struct Table {
     pub name: String,
     arity: usize,
     pub domains: Vec<CaseDomain>,
-    /// One label per domain (record `i`, `index` or bank id).
+    /// One label per domain (record `i`, `index` or bank id), unique per table. In a table of an eps-shifted family
+    /// the engine restarts `index` in every chart, so the label is the PACKED pair (chart ordinal in
+    /// [`NodeFrame::charts`], index): [`eps_label`] / [`Table::eps_rule_of_label`]; a label never names a record by
+    /// its index alone there.
     pub labels: Vec<i64>,
     /// One entry per domain: source position, witness status and what it rests on (re-audit RA-MAJOR-1, N-m2).
     pub meta: Vec<RecordMeta>,
     pub provenance: TableProvenance,
+    /// Eps-shifted family ([`Table::from_table_file_eps_aware`]): the node mask and the eps axes. Its domains carry no
+    /// orthant chart; the dispatcher tests the node orthant on the other slots (eps axes are two-sided).
+    eps_chart: Option<(Vec<bool>, Vec<usize>)>,
 }
 
 /// Errors of the table loaders.
@@ -355,6 +373,7 @@ impl Table {
             domains: vec![],
             labels: vec![],
             meta: vec![],
+            eps_chart: None,
         }
     }
     /// Append a hand-built domain (validated, arity checked). Its [`RecordMeta`]: source index = push position,
@@ -397,6 +416,36 @@ impl Table {
     pub fn arity(&self) -> usize {
         self.arity
     }
+    /// For a table of an eps-shifted family: the (chart mask string, engine rule index) a label names (`None` for an
+    /// integer table or a label that is not of this table's packed form).
+    pub fn eps_rule_of_label(&self, label: i64) -> Option<(String, i64)> {
+        let (mask, axes) = self.eps_chart.as_ref()?;
+        let (ord, index) = (
+            label.div_euclid(EPS_LABEL_STRIDE),
+            label.rem_euclid(EPS_LABEL_STRIDE),
+        );
+        let mut charts: Vec<Vec<bool>> = (0..1u64 << axes.len())
+            .map(|bits| {
+                let mut c = mask.clone();
+                for (j, &a) in axes.iter().enumerate() {
+                    c[a] = bits >> j & 1 == 1;
+                }
+                c
+            })
+            .collect();
+        charts.sort();
+        let c = charts.get(usize::try_from(ord).ok()?)?;
+        Some((
+            c.iter().map(|&b| if b { '1' } else { '0' }).collect(),
+            index,
+        ))
+    }
+    /// The node mask and eps axes of a table of an eps-shifted family (`None` for an integer family).
+    pub fn eps_chart(&self) -> Option<(&[bool], &[usize])> {
+        self.eps_chart
+            .as_ref()
+            .map(|(m, a)| (m.as_slice(), a.as_slice()))
+    }
     pub fn len(&self) -> usize {
         self.domains.len()
     }
@@ -424,7 +473,21 @@ impl Table {
         tf: &TableFile,
         opts: DomainOptions,
     ) -> Result<Table, LoadError> {
-        Self::load(name.into(), source.into(), tf, opts, None, None)
+        Self::load(name.into(), source.into(), tf, opts, None, None, false)
+    }
+
+    /// [`Table::from_table_file`] for callers audited for eps-shifted families: the frame is read with
+    /// [`NodeFrame::from_header_eps_aware`]; `chart` lines must be charts of the frame ([`NodeFrame::charts`]) with
+    /// the engine's guards ([`NodeFrame::chart_guards`]: `two_sided:n>=1|n<=0` on an eps axis); every record's
+    /// chart decides its eps-axis signs (see [`crate::domain`]). Recenter bounds are refused on an eps frame. On an
+    /// integer family this is exactly [`Table::from_table_file`].
+    pub fn from_table_file_eps_aware(
+        name: impl Into<String>,
+        source: impl Into<String>,
+        tf: &TableFile,
+        opts: DomainOptions,
+    ) -> Result<Table, LoadError> {
+        Self::load(name.into(), source.into(), tf, opts, None, None, true)
     }
 
     /// [`Table::from_table_file`] with a witness / target [`Attestation`] (re-audit RA-MAJOR-1/2). With `raw` (the
@@ -441,7 +504,15 @@ impl Table {
         attestation: &Attestation,
         raw: Option<&TableFile>,
     ) -> Result<Table, LoadError> {
-        Self::load(name.into(), source.into(), tf, opts, Some(attestation), raw)
+        Self::load(
+            name.into(),
+            source.into(),
+            tf,
+            opts,
+            Some(attestation),
+            raw,
+            false,
+        )
     }
 
     fn load(
@@ -451,23 +522,33 @@ impl Table {
         opts: DomainOptions,
         att: Option<&Attestation>,
         raw: Option<&TableFile>,
+        eps_aware: bool,
     ) -> Result<Table, LoadError> {
         let h = tf.header.as_ref().ok_or(LoadError::NoHeader)?;
-        let frame = NodeFrame::from_header(h).map_err(LoadError::Frame)?;
+        let frame = if eps_aware {
+            NodeFrame::from_header_eps_aware(h)
+        } else {
+            NodeFrame::from_header(h)
+        }
+        .map_err(LoadError::Frame)?;
         let mask = frame.mask_string();
+        let mut seen_charts = BTreeSet::new();
         for (c, guards) in &tf.charts {
-            if *c != mask {
+            let bits: Vec<bool> = c.chars().map(|x| x == '1').collect();
+            let Some(want) = frame
+                .chart_guards(&bits)
+                .filter(|_| c.chars().all(|x| x == '0' || x == '1'))
+            else {
                 return Err(LoadError::Chart(format!(
-                    "{c} differs from the node mask {mask}"
+                    "{c} is not a chart of the node (mask {mask}, eps axes {:?})",
+                    frame.eps_axes()
                 )));
-            }
-            if guards.len() != frame.arity()
-                || guards
-                    .iter()
-                    .enumerate()
-                    .any(|(i, g)| g != if frame.is_line(i) { "n>=1" } else { "n<=0" })
-            {
+            };
+            if *guards != want {
                 return Err(LoadError::Chart(format!("unsupported guards {guards:?}")));
+            }
+            if !seen_charts.insert(c.clone()) {
+                return Err(LoadError::Chart(format!("chart {c} twice")));
             }
         }
         // the raw table of an attestation, indexed by `index`
@@ -475,6 +556,9 @@ impl Table {
             (Some(_), Some(rt)) => {
                 let rh = rt.header.as_ref().ok_or(LoadError::NoHeader)?;
                 let rframe = NodeFrame::from_header(rh).map_err(LoadError::Frame)?;
+                frame
+                    .require_integer_only_for("attested loading")
+                    .map_err(LoadError::Frame)?;
                 if !rframe.same_mask(&frame) || rframe.arity() != frame.arity() {
                     return Err(LoadError::Attestation {
                         line_no: 0,
@@ -499,6 +583,9 @@ impl Table {
             _ => None,
         };
         let mut t = Table::new(name, frame.arity());
+        if frame.has_eps_axes() {
+            t.eps_chart = Some((frame.mask().to_vec(), frame.eps_axes()));
+        }
         let fmt = match tf.rules.first().map(|r| r.format) {
             Some(RecordFormat::CaseExport) => SourceFormat::CaseExport,
             _ => SourceFormat::TableDump,
@@ -535,10 +622,32 @@ impl Table {
             Assurance::AttestedUnchecked
         };
         let mut seen_labels = std::collections::HashSet::new();
+        let charts = frame.charts();
         for (source_index, r) in tf.rules.iter().enumerate() {
-            let label =
+            let mut label =
                 r.i.or(r.index)
                     .ok_or(LoadError::NoLabel { line_no: r.line_no })?;
+            if frame.has_eps_axes() {
+                // the engine restarts `index` in every chart: the label is (chart, index), packed (eps_label)
+                let bits: Vec<bool> = r
+                    .chart
+                    .as_deref()
+                    .unwrap_or("")
+                    .chars()
+                    .map(|x| x == '1')
+                    .collect();
+                label = charts
+                    .iter()
+                    .position(|c| *c == bits)
+                    .and_then(|ord| eps_label(ord, label))
+                    .ok_or_else(|| LoadError::Record {
+                        line_no: r.line_no,
+                        err: DomainError::Malformed(format!(
+                            "eps table record: chart {:?} not a chart of the frame or index {label} outside 0..2^32",
+                            r.chart
+                        )),
+                    })?;
+            }
             let claim_w = att.is_some_and(|a| a.witness_complete.covers(r.index));
             let claim_t =
                 att.is_some_and(|a| a.targets_canonical.covers(r.index)) && r.target.is_none();
@@ -945,6 +1054,8 @@ pub struct Dispatcher {
     arity: usize,
     /// The common chart of the domains that carry one (or given with [`Dispatcher::with_chart`]).
     chart: Option<Vec<bool>>,
+    /// Eps axes of an eps-shifted family: two-sided slots the node-orthant test of `chart` skips.
+    chart_free: Vec<usize>,
     /// Per entry: the verdict that blocks the record when it is selected because of its witness status.
     entry_block: Vec<Option<Verdict>>,
 }
@@ -1075,7 +1186,18 @@ impl Dispatcher {
             .map(Table::arity)
             .ok_or_else(|| CoverError::Arity("no table".into()))?;
         let mut chart: Option<Vec<bool>> = None;
+        let mut eps_chart: Option<&(Vec<bool>, Vec<usize>)> = None;
         for t in &tables {
+            match (&t.eps_chart, eps_chart) {
+                (Some(e), None) => eps_chart = Some(e),
+                (Some(e), Some(e0)) if e != e0 => {
+                    return Err(CoverError::Invalid(format!(
+                        "table {}: eps axes / mask differ from the other tables'",
+                        t.name
+                    )));
+                }
+                _ => {}
+            }
             if t.arity != arity {
                 return Err(CoverError::Arity(format!(
                     "table {} of arity {}, expected {arity}",
@@ -1114,6 +1236,16 @@ impl Dispatcher {
                 }
             }
         }
+        let mut chart_free = vec![];
+        if let Some((mask, axes)) = eps_chart {
+            if chart.is_some() || tables.iter().any(|t| t.eps_chart.is_none()) {
+                return Err(CoverError::Invalid(
+                    "a table of an eps-shifted family together with integer-chart tables".into(),
+                ));
+            }
+            chart = Some(mask.clone());
+            chart_free = axes.clone();
+        }
         let mut entries = vec![];
         for &t in &priority {
             for r in 0..tables[t].len() {
@@ -1146,6 +1278,7 @@ impl Dispatcher {
             patterns,
             arity,
             chart,
+            chart_free,
             entry_block,
         })
     }
@@ -1243,9 +1376,13 @@ impl Dispatcher {
 
     fn outside_chart(&self, key: &[i32]) -> Option<usize> {
         let mask = self.chart.as_ref()?;
-        key.iter()
-            .enumerate()
-            .position(|(i, &x)| (mask[i] && x < 1) || (!mask[i] && x > 0))
+        key.iter().enumerate().position(|(i, &x)| {
+            !self.chart_free.contains(&i) && ((mask[i] && x < 1) || (!mask[i] && x > 0))
+        })
+    }
+    /// Eps axes of an eps-shifted family (two-sided slots the chart test skips); empty for an integer family.
+    pub fn chart_free(&self) -> &[usize] {
+        &self.chart_free
     }
 
     fn candidates(&self, key: &[i32], out: &mut Vec<u32>) {

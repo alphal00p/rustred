@@ -501,6 +501,11 @@ impl BoxDef {
 
     /// The box was written for this frame's line mask.
     pub fn check_frame(&self, frame: &NodeFrame) -> Result<(), BoxError> {
+        // epsframe: the box predicates read line signs (an eps axis is forced and two-sided; BOXDEF B is not
+        // implemented here)
+        frame
+            .require_integer_only_for("the box (boxdef: integer frames only)")
+            .map_err(|e| BoxError::Invalid(e.to_string()))?;
         if frame.mask() != self.chart.as_slice() {
             return Err(BoxError::Invalid(format!(
                 "box chart {} differs from the frame mask {}",
