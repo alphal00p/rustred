@@ -231,6 +231,14 @@ fn tworow_on_real_keys() {
         use rustred_campaign_core::replay_base::algebra::CheckAlgebra;
         use rustred_campaign_core::tworow::{PairShift, RowSpec, apply_combination};
         let shapes: Value = serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap();
+        // TWOROW_SHAPE_CAP: the row cap of the comparison evaluation (default: the policy's)
+        let mut spol = policy.clone();
+        if let Some(c) = std::env::var("TWOROW_SHAPE_CAP")
+            .ok()
+            .and_then(|x| x.parse().ok())
+        {
+            spol.max_terms_per_row = c;
+        }
         let mut out_s = serde_json::Map::new();
         for sh in shapes.as_array().unwrap() {
             let rows: Vec<RowSpec> = sh["rows"]
@@ -258,7 +266,7 @@ fn tworow_on_real_keys() {
                         &rows,
                         &w,
                         &cmp,
-                        &policy,
+                        &spol,
                         zero.map(|z| z as &dyn Fn(&[i32]) -> bool),
                     ) {
                         Ok(c) => json!({"key": k, "rhs_terms": c.rhs.len(),
