@@ -36,6 +36,8 @@ pub const SPAN_OUT: &str = "span.jsonl";
 pub const SPAN_SCHEMA: &str = "rustred.proof-kernel.span.v1";
 /// The child's output file in `out/` for kind `coefficient-facts` (lane closeloop3; closeloop.md 16).
 pub const COEF_OUT: &str = "coefficient_facts.jsonl";
+/// lane zeros2: schema of the per-(record, key) answer of a zeros request (closeloop.md 23).
+pub const ZERO_VERDICT_SCHEMA: &str = "rustred.campaign.zero-verdict.v1";
 /// `producer` every `coefficient-facts` answer must state (rr_coef_facts: exact evaluation of the record's own text).
 pub const COEF_PRODUCER: &str = "exact_eval";
 
@@ -401,6 +403,10 @@ fn check_instantiate(spec: &JobSpec, out: &[u8]) -> Result<Vec<Vec<u8>>, String>
     let req = input_bytes(spec, "requests")?;
     let mut want: Wanted = BTreeMap::new();
     let mut shas: BTreeMap<(String, u64), String> = BTreeMap::new();
+    // lane zeros2 (closeloop.md 23): a coefficient-facts request with `terms` is a ZEROS request: its answers are zero
+    // verdict lines (the asked terms of each key) and structural proof lines of its records
+    let mut zeros_terms: BTreeMap<(String, Vec<i64>), Vec<u64>> = BTreeMap::new();
+    let mut zeros_records: BTreeMap<String, i64> = BTreeMap::new();
     for (i, l) in String::from_utf8_lossy(&req).lines().enumerate() {
         if l.trim().is_empty() {
             continue;
@@ -429,6 +435,17 @@ fn check_instantiate(spec: &JobSpec, out: &[u8]) -> Result<Vec<Vec<u8>>, String>
         };
         let keys: Vec<Vec<i64>> = serde_json::from_value(v["keys"].clone())
             .map_err(|e| format!("request {}: keys: {e}", i + 1))?;
+        if coef && v.get("terms").is_some() {
+            let terms: Vec<Vec<u64>> = serde_json::from_value(v["terms"].clone())
+                .map_err(|e| format!("request {}: terms: {e}", i + 1))?;
+            if terms.len() != keys.len() {
+                return Err(format!("request {}: terms not parallel to keys", i + 1));
+            }
+            zeros_records.insert(sha.clone(), rule);
+            for (k, ts) in keys.iter().zip(terms) {
+                zeros_terms.insert((sha.clone(), k.clone()), ts);
+            }
+        }
         for k in keys {
             want.insert((sha.clone(), k), rule);
         }
@@ -440,7 +457,23 @@ fn check_instantiate(spec: &JobSpec, out: &[u8]) -> Result<Vec<Vec<u8>>, String>
             continue;
         }
         let v: Value = serde_json::from_slice(l).map_err(|e| format!("answer {}: {e}", i + 1))?;
-        if v["schema"] != schema {
+        // lane zeros2: a structural proof line of a record a zeros request names (no key: not a pair answer)
+        if coef && v["schema"] == rustred_campaign_core::import::zero_proofs::ZERO_PROOF_SCHEMA {
+            let sha = v["record_sha256"].as_str().unwrap_or("");
+            if zeros_records.get(sha).copied() != v["rule"].as_i64() || v["rule"].is_null() {
+                return Err(format!(
+                    "answer {}: a proof line of record {sha} / rule {} no zeros request names",
+                    i + 1,
+                    v["rule"]
+                ));
+            }
+            lines.push(
+                rustred_campaign_contract::canon::canonical_line(l).map_err(|e| e.to_string())?,
+            );
+            continue;
+        }
+        let zeros_line = coef && v["schema"] == ZERO_VERDICT_SCHEMA;
+        if v["schema"] != schema && !zeros_line {
             return Err(format!("answer {}: schema {}", i + 1, v["schema"]));
         }
         if !coef {
@@ -460,6 +493,30 @@ fn check_instantiate(spec: &JobSpec, out: &[u8]) -> Result<Vec<Vec<u8>>, String>
             .to_string();
         let key: Vec<i64> = serde_json::from_value(v["key"].clone())
             .map_err(|e| format!("answer {}: key: {e}", i + 1))?;
+        if coef {
+            // a zeros request is answered by zero verdict lines of exactly its asked terms, an ordinary one by facts
+            match zeros_terms.get(&(sha.clone(), key.clone())) {
+                Some(asked) => {
+                    let got: Vec<u64> = v["terms"]
+                        .as_array()
+                        .map(|a| a.iter().filter_map(|x| x[0].as_u64()).collect())
+                        .unwrap_or_default();
+                    if !zeros_line || &got != asked {
+                        return Err(format!(
+                            "answer {}: a zeros request needs a zero verdict line of its asked terms",
+                            i + 1
+                        ));
+                    }
+                }
+                None if zeros_line => {
+                    return Err(format!(
+                        "answer {}: a zero verdict line for a facts request",
+                        i + 1
+                    ));
+                }
+                None => {}
+            }
+        }
         let id = (sha.clone(), key);
         let Some(&rule) = want.get(&id) else {
             return Err(format!(

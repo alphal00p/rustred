@@ -26,6 +26,9 @@
 //! disagreement is reported, not a load error) and compared per (record, key) over EVERY term of the record at the key.
 
 use rustred_campaign_core::closure::{CoefFact, FactSource, RuleId};
+use rustred_campaign_core::import::zero_proofs::{
+    LoadOptions as ZeroLoadOptions, Locus, ZeroProofs,
+};
 use rustred_campaign_core::import::{CheckResult, Evidence, ImportedSet, RowStatus, Server};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -63,6 +66,18 @@ pub struct ZeroScan {
     pub zero_positive_numerator: u64,
     pub zero_other: u64,
     pub seconds: f64,
+    /// lane zeros2 (closeloop.md 23): with `collect`, every rule-served pair (table, record, applied key) with the
+    /// indices of its zero terms (the zeros the closure relies on), in scan order (pairs may repeat: dedup by caller).
+    pub zero_pairs: Vec<ZeroPair>,
+}
+
+/// lane zeros2: one rule-served pair and the terms the first route calls zero there.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ZeroPair {
+    pub table: usize,
+    pub record: usize,
+    pub applied: Vec<i32>,
+    pub terms: Vec<u32>,
 }
 
 fn is_top(lines: &[bool], k: &[i32]) -> bool {
@@ -183,6 +198,17 @@ pub fn scan(
     res: &CheckResult,
     threads: usize,
 ) -> Result<ZeroScan, String> {
+    scan_with(set, facts, res, threads, false)
+}
+
+/// [`scan`]; lane zeros2: `collect` also lists every served pair's zero terms ([`ZeroScan::zero_pairs`]).
+pub fn scan_with(
+    set: &ImportedSet,
+    facts: &(dyn FactSource + Sync),
+    res: &CheckResult,
+    threads: usize,
+    collect: bool,
+) -> Result<ZeroScan, String> {
     let t0 = std::time::Instant::now();
     let rows = served_rule_rows(set, res)?;
     let member = closure_membership(res);
@@ -202,6 +228,7 @@ pub fn scan(
                             continue;
                         };
                         let rid = rule_id(set, *t, *r);
+                        let mut zs: Vec<u32> = vec![];
                         for (j, tk) in terms.iter().enumerate() {
                             if facts.coefficient(&rid, applied, j, tk) != CoefFact::Zero {
                                 // a FOLLOWED edge: strictly lower than the key under the full comparator?
@@ -217,6 +244,9 @@ pub fn scan(
                                     }
                                 }
                                 continue;
+                            }
+                            if collect {
+                                zs.push(j as u32);
                             }
                             if is_top(lines, tk) && !set.cmp.lower(tk, key) {
                                 z.dropped_non_descending += 1;
@@ -247,6 +277,14 @@ pub fn scan(
                                 z.zero_other += 1;
                             }
                         }
+                        if !zs.is_empty() {
+                            z.zero_pairs.push(ZeroPair {
+                                table: *t,
+                                record: *r,
+                                applied: applied.clone(),
+                                terms: zs,
+                            });
+                        }
                     }
                     z
                 })
@@ -266,6 +304,7 @@ pub fn scan(
         z.followed_top += p.followed_top;
         z.non_descending.extend(p.non_descending);
         z.dropped_non_descending += p.dropped_non_descending;
+        z.zero_pairs.extend(p.zero_pairs);
     }
     z.non_descending.sort();
     z.decisive.sort();
@@ -506,6 +545,299 @@ pub fn decisive_line(
            "term": z.term, "term_key": z.term_key,
            "first": {"producer": first, "coef": "zero"}, "second": second, "status": status})
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// lane zeros2 (interfaces/closeloop.md 23, interfaces/zero-proofs.md): the second route of EVERY zero term
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// The answers of zeros asks: per (record_sha256, applied key) the asked terms' words and how each was decided, and the
+/// structural proofs (verified on load by the core's fact source).
+#[derive(Default)]
+pub struct ZerosAnswers {
+    /// (sha, key) -> (term, word, by) where by = `plane:p=v` | `domain` (optionally `+den`) | `key` | other.
+    pub verdicts: BTreeMap<(String, Vec<i32>), Vec<(u32, CoefFact, String)>>,
+    pub proofs: ZeroProofs,
+    /// Proof references that no loaded proof line backs (record, key, term, by): such a term is not confirmed.
+    pub unbound: Vec<(String, Vec<i32>, u32, String)>,
+}
+
+fn word_of(w: &str) -> CoefFact {
+    match w {
+        "zero" => CoefFact::Zero,
+        "nonzero" => CoefFact::NonZero,
+        _ => CoefFact::Unknown,
+    }
+}
+
+/// The locus named by a verdict's `by` (`plane:p=v[+den]`, `domain[+den]`); None = decided at the key.
+pub fn by_locus(by: &str) -> Option<Locus> {
+    let b = by.strip_suffix("+den").unwrap_or(by);
+    if b == "domain" {
+        return Some(Locus::Domain);
+    }
+    let (p, v) = b.strip_prefix("plane:")?.split_once('=')?;
+    Some(Locus::Plane {
+        param: p.parse().ok()?,
+        value: v.parse().ok()?,
+    })
+}
+
+impl ZerosAnswers {
+    /// Read one answer file (verdict lines and proof lines; proof lines verified against the set: any violation refuses).
+    pub fn load(&mut self, set: &ImportedSet, p: &Path) -> Result<(), String> {
+        self.proofs
+            .load_files(set, &[p.to_path_buf()], &ZeroLoadOptions::default())?;
+        let t = std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?;
+        for (i, l) in t.lines().enumerate().filter(|(_, l)| !l.trim().is_empty()) {
+            let v: Value = serde_json::from_str(l)
+                .map_err(|e| format!("{} line {}: {e}", p.display(), i + 1))?;
+            if v["schema"] != super::proofs::ZERO_VERDICT_SCHEMA {
+                continue;
+            }
+            let (Some(sha), Ok(key)) = (
+                v["record_sha256"].as_str(),
+                serde_json::from_value::<Vec<i32>>(v["key"].clone()),
+            ) else {
+                return Err(format!("{} line {}: record / key", p.display(), i + 1));
+            };
+            let mut words = vec![];
+            for x in v["terms"].as_array().into_iter().flatten() {
+                let (Some(j), Some(w), Some(by)) = (x[0].as_u64(), x[1].as_str(), x[2].as_str())
+                else {
+                    return Err(format!("{} line {}: terms entry {x}", p.display(), i + 1));
+                };
+                words.push((j as u32, word_of(w), by.to_string()));
+            }
+            self.verdicts.insert((sha.to_string(), key), words);
+        }
+        Ok(())
+    }
+
+    /// Bind every structural reference to a loaded proof whose locus holds the key's rule point (after all files are
+    /// loaded): an unbacked reference is recorded in `unbound` and its word becomes `unknown`.
+    pub fn bind(&mut self, set: &ImportedSet) {
+        let mut unbound = vec![];
+        for ((sha, key), words) in self.verdicts.iter_mut() {
+            let Some((t, r)) = set.find_sha(sha) else {
+                continue;
+            };
+            let mut pt = vec![];
+            let has_pt = rustred_campaign_core::closure::bodies::rule_point(
+                &set.disp.tables()[t].domains[r],
+                key,
+                &mut pt,
+            );
+            for (j, w, by) in words.iter_mut() {
+                let Some(l) = by_locus(by) else {
+                    continue;
+                };
+                let backed = has_pt
+                    && l.contains(&pt)
+                    && self
+                        .proofs
+                        .of_record(t, r)
+                        .iter()
+                        .any(|(pj, pl, _)| *pj == *j && *pl == l);
+                if !backed {
+                    unbound.push((sha.clone(), key.clone(), *j, by.clone()));
+                    *w = CoefFact::Unknown;
+                }
+            }
+        }
+        self.unbound = unbound;
+    }
+}
+
+/// The comparison of one zeros-answered pair with the first route.
+#[derive(Clone, Debug, Default)]
+pub struct ZeroCompare {
+    /// Terms the first route calls zero.
+    pub first_zero: u64,
+    /// ... confirmed by the answer, by how: structural proof (nowhere-zero denominator) / structural + per-key
+    /// denominator / per-key evaluation.
+    pub by_structural: u64,
+    pub by_structural_den: u64,
+    pub by_key: u64,
+    /// First-route zeros the answer contradicts: (term, term key, second word).
+    pub differ: Vec<(u32, Vec<i32>, &'static str)>,
+    /// First-route zeros the answer does not cover (asked set differs).
+    pub missing: Vec<u32>,
+    /// confirmed zero terms by class: positive numerator, top, other.
+    pub pos: u64,
+    pub top: u64,
+    pub other: u64,
+}
+
+impl ZeroCompare {
+    pub fn agree(&self) -> bool {
+        self.differ.is_empty() && self.missing.is_empty()
+    }
+}
+
+/// Compare a zeros answer with the first route at (record, applied key): every term the first route calls zero must be
+/// answered `zero`. None: the record is not in the set or has no body.
+pub fn compare_zeros(
+    set: &ImportedSet,
+    first: &Evidence,
+    answers: &ZerosAnswers,
+    sha: &str,
+    key: &[i32],
+) -> Option<ZeroCompare> {
+    let (t, r) = set.find_sha(sha)?;
+    let words = answers.verdicts.get(&(sha.to_string(), key.to_vec()))?;
+    let rid = rule_id(set, t, r);
+    let terms = term_keys(set, t, r, key)?;
+    let lines = set.frame.mask();
+    let by: BTreeMap<u32, (CoefFact, &str)> = words
+        .iter()
+        .map(|(j, w, b)| (*j, (*w, b.as_str())))
+        .collect();
+    let mut c = ZeroCompare::default();
+    for (j, tk) in terms.iter().enumerate() {
+        if first.coefficient(&rid, key, j, tk) != CoefFact::Zero {
+            continue;
+        }
+        c.first_zero += 1;
+        match by.get(&(j as u32)) {
+            None => c.missing.push(j as u32),
+            Some((CoefFact::Zero, b)) => {
+                if b.ends_with("+den") {
+                    c.by_structural_den += 1;
+                } else if by_locus(b).is_some() {
+                    c.by_structural += 1;
+                } else {
+                    c.by_key += 1;
+                }
+                if positive_numerator(lines, tk) {
+                    c.pos += 1;
+                } else if is_top(lines, tk) {
+                    c.top += 1;
+                } else {
+                    c.other += 1;
+                }
+            }
+            Some((w, _)) => c.differ.push((j as u32, tk.clone(), coef_word(*w))),
+        }
+    }
+    Some(c)
+}
+
+/// The confirmed basis word of a pair whose zeros were all confirmed by the zeros route (first producer, how).
+pub fn zeros_basis(first: &str, c: &ZeroCompare) -> &'static str {
+    let structural = c.by_structural + c.by_structural_den > 0;
+    let per_key = c.by_key > 0;
+    match (first, structural, per_key) {
+        ("compact", true, false) => "compact + zeros:structural",
+        ("compact", false, _) => "compact + zeros:per_key",
+        ("compact", true, true) => "compact + zeros:mixed",
+        ("rr_proof_elided", true, false) => "rr_proof_elided + zeros:structural",
+        ("rr_proof_elided", false, _) => "rr_proof_elided + zeros:per_key",
+        ("rr_proof_elided", true, true) => "rr_proof_elided + zeros:mixed",
+        (_, true, false) => "rr_proof + zeros:structural",
+        (_, false, _) => "rr_proof + zeros:per_key",
+        (_, true, true) => "rr_proof + zeros:mixed",
+    }
+}
+
+/// Batches of zeros asks: one table per batch, at most `keys_cap` (record, key) pairs and `terms_cap` asked terms.
+/// `missing`: (table, record) -> [(applied key, terms)].
+pub fn zeros_batches(
+    set: &ImportedSet,
+    missing: &BTreeMap<(usize, usize), Vec<(Vec<i32>, Vec<u32>)>>,
+    keys_cap: usize,
+    terms_cap: usize,
+    reason: &str,
+) -> Vec<super::proofs::ProofBatch> {
+    use super::proofs::{ProofBatch, RecordReq};
+    let (keys_cap, terms_cap) = (keys_cap.max(1), terms_cap.max(1));
+    let mut by_table: BTreeMap<String, Vec<(usize, usize)>> = BTreeMap::new();
+    for (t, r) in missing.keys() {
+        by_table
+            .entry(set.rules[*t][*r].path.clone())
+            .or_default()
+            .push((*t, *r));
+    }
+    let mut out = vec![];
+    for (table, recs) in by_table {
+        let mut cur: Vec<RecordReq> = vec![];
+        let (mut nk, mut nt) = (0usize, 0usize);
+        for (t, r) in recs {
+            let info = &set.rules[t][r];
+            let mut req = RecordReq {
+                rule: info.index.unwrap_or(info.label),
+                offset: info.offset,
+                record_sha256: info.record_sha256.clone(),
+                ..Default::default()
+            };
+            for (k, ts) in &missing[&(t, r)] {
+                if (nk + 1 > keys_cap || nt + ts.len() > terms_cap) && (nk > 0) {
+                    if !req.keys.is_empty() {
+                        cur.push(std::mem::replace(
+                            &mut req,
+                            RecordReq {
+                                rule: info.index.unwrap_or(info.label),
+                                offset: info.offset,
+                                record_sha256: info.record_sha256.clone(),
+                                ..Default::default()
+                            },
+                        ));
+                    }
+                    out.push(ProofBatch {
+                        kind: "exact".into(),
+                        reason: reason.into(),
+                        table: table.clone(),
+                        records: std::mem::take(&mut cur),
+                        relation_source: None,
+                    });
+                    nk = 0;
+                    nt = 0;
+                }
+                req.keys.push(k.clone());
+                req.terms.push(ts.clone());
+                nk += 1;
+                nt += ts.len();
+            }
+            if !req.keys.is_empty() {
+                cur.push(req);
+            }
+        }
+        if !cur.is_empty() {
+            out.push(ProofBatch {
+                kind: "exact".into(),
+                reason: reason.into(),
+                table: table.clone(),
+                records: cur,
+                relation_source: None,
+            });
+        }
+    }
+    out
+}
+
+/// One line of the statement's zero-term confirmation table (`statement/zero_terms.jsonl`): per confirmed or disputed
+/// pair, the counts by route.
+pub fn zeros_pair_line(
+    set: &ImportedSet,
+    sha: &str,
+    key: &[i32],
+    first: &str,
+    c: &ZeroCompare,
+) -> Value {
+    let (label, source) = set
+        .find_sha(sha)
+        .map(|(t, r)| (set.rules[t][r].label, set.rules[t][r].source.clone()))
+        .unwrap_or((0, String::new()));
+    json!({"schema": ZEROS_PAIR_SCHEMA, "record_sha256": sha, "source": source, "label": label, "applied": key,
+        "first": first, "zero_terms": c.first_zero, "structural": c.by_structural,
+        "structural_den_at_key": c.by_structural_den, "per_key": c.by_key,
+        "positive_numerator": c.pos, "top": c.top, "other": c.other,
+        "status": if c.agree() { "confirmed" } else { "disagreement" },
+        "differ": c.differ.iter().map(|(j, tk, w)| json!({"term": j, "term_key": tk, "first": "zero", "second": w}))
+            .collect::<Vec<_>>(), "missing": c.missing})
+}
+
+/// Schema of a line of `statement/zero_terms.jsonl`.
+pub const ZEROS_PAIR_SCHEMA: &str = "rustred.campaign.closeloop-zero-terms.v1";
 
 #[cfg(test)]
 mod tests {

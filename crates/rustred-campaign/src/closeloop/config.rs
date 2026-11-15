@@ -375,6 +375,47 @@ pub struct SecondRouteCfg {
     /// (`--elided-loci facts`) and compared over every term (basis `exact_eval + rr_proof_elided`).
     #[serde(default = "d_yes")]
     pub elided: bool,
+    /// lane zeros2 (closeloop.md 23): the second route of EVERY zero term the decided exact closure uses (positive
+    /// numerators, non-decisive top terms, hand-downs, zero sectors): `structural` (DEFAULT: one proof per (record,
+    /// term, locus) by `rr_coef_facts`, the exact per-key evaluation where no proof covers the key), `per_key` (the
+    /// per-key evaluation only), `off` (closeloop4's behaviour: decisive / elided pairs only). A disagreement blocks.
+    /// ABSENT (None) = `structural` when `proof.exact_eval` is configured, else `off` (recorded as such in the
+    /// result); an EXPLICIT `structural` / `per_key` without `proof.exact_eval` blocks (`all_zeros_unavailable`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub all_zeros: Option<AllZeros>,
+    /// (record, key) pairs of one zeros job (records of one table).
+    #[serde(default = "d_zeros_keys")]
+    pub zeros_keys_per_job: usize,
+    /// Asked terms of one zeros job.
+    #[serde(default = "d_zeros_terms")]
+    pub zeros_terms_per_job: usize,
+}
+
+/// lane zeros2: how every zero term is confirmed (see [`SecondRouteCfg::all_zeros`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AllZeros {
+    #[default]
+    Structural,
+    PerKey,
+    Off,
+}
+
+impl AllZeros {
+    pub fn word(self) -> &'static str {
+        match self {
+            AllZeros::Structural => "structural",
+            AllZeros::PerKey => "per_key",
+            AllZeros::Off => "off",
+        }
+    }
+}
+
+fn d_zeros_keys() -> usize {
+    4096
+}
+fn d_zeros_terms() -> usize {
+    200_000
 }
 
 impl Default for SecondRouteCfg {
@@ -382,6 +423,9 @@ impl Default for SecondRouteCfg {
         SecondRouteCfg {
             decisive_zeros: true,
             elided: true,
+            all_zeros: None,
+            zeros_keys_per_job: d_zeros_keys(),
+            zeros_terms_per_job: d_zeros_terms(),
         }
     }
 }

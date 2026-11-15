@@ -133,9 +133,18 @@ pub fn run(spec_path: &Path, kind: &str) -> ! {
             };
             let keys: Vec<Vec<i32>> =
                 serde_json::from_value(v["keys"].clone()).unwrap_or_else(|_| die("keys"));
-            for k in keys {
-                let mut a =
-                    core_fact_line(Path::new(table), off, rule, &k).unwrap_or_else(|e| die(&e));
+            // lane zeros2: a zeros request (asked terms per key) answers zero verdict lines (per key, core evaluation)
+            let zterms: Option<Vec<Vec<usize>>> = v
+                .get("terms")
+                .map(|x| serde_json::from_value(x.clone()).unwrap_or_else(|_| die("terms")));
+            for (ki, k) in keys.into_iter().enumerate() {
+                let mut a = match &zterms {
+                    Some(zt) => core_zero_line(Path::new(table), off, rule, &k, &zt[ki])
+                        .unwrap_or_else(|e| die(&e)),
+                    None => {
+                        core_fact_line(Path::new(table), off, rule, &k).unwrap_or_else(|e| die(&e))
+                    }
+                };
                 if let Some(FakeOp::ProofAnswer {
                     ms,
                     record_sha256,
@@ -397,6 +406,54 @@ fn core_terms(
 }
 
 /// The fact line of (record at `off` of `table`, key) from the campaign core's exact evaluation (lane closeloop3).
+/// lane zeros2: the zero verdict line of a zeros request at one key (asked terms, decided per key by the CORE's exact
+/// evaluation, `by: key`; producer exact_eval, backend fake-core-poly).
+fn core_zero_line(
+    table: &Path,
+    off: u64,
+    rule: i64,
+    key: &[i32],
+    asked: &[usize],
+) -> Result<Value, String> {
+    use rustred_campaign_core::accept::facts::{CoefficientFacts, ExactRecordFacts};
+    use rustred_campaign_core::accept::rule::RuleText;
+    use rustred_campaign_core::closure::CoefFact;
+    let h = rustred_campaign_core::import::lines::read_header("fake", table)
+        .map_err(|e| e.to_string())?;
+    let frame =
+        rustred_campaign_core::key::NodeFrame::from_header(&h).map_err(|e| format!("{e:?}"))?;
+    let mut f = std::fs::File::open(table).map_err(|e| e.to_string())?;
+    f.seek(SeekFrom::Start(off)).map_err(|e| e.to_string())?;
+    let mut all = Vec::new();
+    f.read_to_end(&mut all).map_err(|e| e.to_string())?;
+    let end = all.iter().position(|&c| c == b'\n').unwrap_or(all.len());
+    let line = &all[..end];
+    let mut hs = rustred_campaign_core::closure::sha256::Sha256::new();
+    hs.update(line);
+    let sha = hs.finish_hex();
+    let rt = RuleText::parse(line, &frame).map_err(|e| format!("{e:?}"))?;
+    if rt.index() != Some(rule) {
+        return Err("rule record not found in table".into());
+    }
+    let mut ex = ExactRecordFacts::new();
+    let terms: Vec<Value> = asked
+        .iter()
+        .map(|&j| {
+            let w = match ex.coefficient(&rt, key, j) {
+                CoefFact::Zero => "zero",
+                CoefFact::NonZero => "nonzero",
+                CoefFact::Unknown => "unknown",
+            };
+            json!([j, w, "key"])
+        })
+        .collect();
+    Ok(
+        json!({"schema": "rustred.campaign.zero-verdict.v1", "producer": "exact_eval",
+        "backend": "fake-core-poly", "method": "zeros:per_key", "record_sha256": sha, "rule": rule, "index": rule,
+        "key": key, "in_case": true, "branch": null, "n_terms": rt.rhs.len(), "terms": terms, "seconds": 0.0}),
+    )
+}
+
 fn core_fact_line(table: &Path, off: u64, rule: i64, key: &[i32]) -> Result<Value, String> {
     use rustred_campaign_core::accept::facts::{
         CoefficientFacts, ExactRecordFacts, RegVerdict, Regularity,

@@ -100,6 +100,10 @@ pub fn input_final(n: &str) -> String {
 pub fn input_facts2(item: &str, job: &str) -> String {
     format!("closeloop:{item}:facts2:{job}")
 }
+/// lane zeros2 (closeloop.md 23): the answers of a zeros ask (per-key zero verdicts + structural proof lines).
+pub fn input_zeros2(item: &str, job: &str) -> String {
+    format!("closeloop:{item}:zeros2:{job}")
+}
 /// lane closeloop4 (closeloop.md 19): the terminal proposals of node `n` at check round `k` (awaiting a decision).
 pub fn input_tproposals(n: &str, k: u32) -> String {
     format!("closeloop:{n}:tproposals:r{k}")
@@ -128,6 +132,8 @@ pub const ROLE_FACTS: &str = "closeloop_facts";
 pub const ROLE_RELATIONS: &str = "closeloop_relations";
 pub const ROLE_RETRY: &str = "closeloop_retry";
 pub const ROLE_FACTS2: &str = "closeloop_facts2";
+/// lane zeros2 (closeloop.md 23): answers of zeros asks (kept apart from both fact routes).
+pub const ROLE_ZEROS2: &str = "closeloop_zeros2";
 pub const ROLE_TPROPOSALS: &str = "closeloop_terminal_proposals";
 pub const ROLE_TDECISION: &str = "closeloop_terminal_decision";
 pub const ROLE_PINS: &str = "closeloop_input_pins";

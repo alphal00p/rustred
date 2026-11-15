@@ -63,7 +63,7 @@ pub const MAX_EXPONENT: u64 = 4096;
 
 /// lane closeloop4 (audit-closeloop m3): the side's text may hold no division and only literal, non-negative exponents
 /// up to [`MAX_EXPONENT`].
-fn side_budget(t: &str) -> Result<(), String> {
+pub fn side_budget(t: &str) -> Result<(), String> {
     if t.contains('/') {
         return Err("a division inside one side of the ratio (refused: no side is reduced)".into());
     }
@@ -559,7 +559,7 @@ pub fn line_at(path: &Path, offset: u64) -> Result<(Vec<u8>, String), String> {
 }
 
 /// A table's frame and guard version (from its header line only).
-fn table_frame(path: &Path) -> Result<(NodeFrame, Option<i64>), String> {
+pub fn table_frame(path: &Path) -> Result<(NodeFrame, Option<i64>), String> {
     let h = read_header("coefficient-facts", path).map_err(|e| e.to_string())?;
     let g = h.guard_version;
     Ok((NodeFrame::from_header(&h).map_err(|e| format!("{e:?}"))?, g))
