@@ -11,7 +11,7 @@
 //! answers) reproduces the record and the number of CPUs never changes a result. Generic (L8): arity, chart, centres,
 //! shells, orders and caps are input or policy data.
 
-// pub mod machine; (next commit)
+pub mod machine;
 pub mod minimise;
 pub mod seeds;
 pub mod spec;
@@ -19,6 +19,7 @@ pub mod spec;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub use machine::{CoreReport, solve_core};
 pub use seeds::Offset;
 pub use spec::CoreSeedPolicy;
 
