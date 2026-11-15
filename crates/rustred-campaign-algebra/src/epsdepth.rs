@@ -26,8 +26,9 @@ use std::sync::Arc;
 use rustred_campaign_core::epsdepth::{KeyStatus, Laurent, ReductionSource, Terms, Val, Valuation};
 use symbolica::atom::{NamespacedSymbol, SymbolBuilder};
 use symbolica::domains::Ring;
-use symbolica::domains::integer::{Integer, IntegerRing};
+use symbolica::domains::integer::{Integer, IntegerRing, Z};
 use symbolica::domains::rational::{Q, Rational, RationalField};
+use symbolica::domains::rational_polynomial::{FromNumeratorAndDenominator, RationalPolynomial};
 use symbolica::poly::PolyVariable;
 use symbolica::poly::polynomial::MultivariatePolynomial;
 use symbolica::poly::series::Series;
@@ -236,6 +237,112 @@ impl Laurent for SymbolicaLaurent {
         let r = abs_prec.max(1);
         QSeries::new(&Q, Some(1), self.tvar.clone(), Q.zero(), Rational::from(r))
             .monomial(Q.one(), Rational::from(0))
+    }
+}
+
+/// An EXACT rational function of `t = d - d0` over Z (Symbolica `RationalPolynomial`, gcd-normalised): the "series"
+/// of [`SymbolicaExact`], of infinite precision.
+pub type TRational = RationalPolynomial<IntegerRing, u16>;
+
+/// The EXACT backend of the composition (POLES_OBJECTIVE 2A: "compose exactly in d down to the terminals before
+/// anything is expanded"): every coefficient and every composed vector component is an exact rational function of
+/// `t = d - d0` (Symbolica `RationalPolynomial` over Z: add / mul with gcd normalisation), so no precision is ever
+/// lost or needed: the order at d0 is the multiplicity of `t` in numerator minus denominator. Same `Coeff` as
+/// [`SymbolicaLaurent`] (any [`ReductionSource`] of `TCoeff` works with both).
+#[derive(Clone, Debug)]
+pub struct SymbolicaExact {
+    vars: Arc<Vec<PolyVariable>>,
+}
+
+impl SymbolicaExact {
+    pub fn new() -> Result<SymbolicaExact, String> {
+        let ns = NamespacedSymbol::try_parse("rustred::epsdepth_t")
+            .ok_or("symbol rustred::epsdepth_t")?;
+        let t = SymbolBuilder::new(ns).build().map_err(|e| e.to_string())?;
+        Ok(SymbolicaExact {
+            vars: Arc::new(vec![PolyVariable::Symbol(t)]),
+        })
+    }
+
+    fn qpoly(
+        &self,
+        coeffs: &[Rational],
+        shift: usize,
+    ) -> MultivariatePolynomial<RationalField, u16> {
+        let mut p = MultivariatePolynomial::new(&Q, Some(coeffs.len()), self.vars.clone());
+        for (i, c) in coeffs.iter().enumerate() {
+            if !Q.is_zero(c) {
+                p.append_monomial(c.clone(), &[(i + shift) as u16]);
+            }
+        }
+        p
+    }
+
+    /// The exact rational function of a coefficient (`None` = zero).
+    pub fn rational(&self, c: &TCoeff) -> Option<TRational> {
+        let TCoeff::Ratio { v, n1, d1 } = c else {
+            return None;
+        };
+        let num = self.qpoly(n1.coefficients(), (*v).max(0) as usize);
+        let den = self.qpoly(d1.coefficients(), (-*v).max(0) as usize);
+        Some(<TRational as FromNumeratorAndDenominator<
+            RationalField,
+            IntegerRing,
+            u16,
+        >>::from_num_den(num, den, &Z, true))
+    }
+
+    /// Order at d0 (multiplicity of t) of a non-zero rational function; `None` for zero.
+    pub fn order_of(r: &TRational) -> Option<i64> {
+        if r.numerator.is_zero() {
+            return None;
+        }
+        Some(
+            i64::from(r.numerator.degree_bounds(0).0) - i64::from(r.denominator.degree_bounds(0).0),
+        )
+    }
+
+    /// The exact coefficient of `t^e` of the Laurent expansion is not needed here; the LEADING coefficient (of t^order).
+    pub fn leading(r: &TRational) -> Option<Rational> {
+        if r.numerator.is_zero() {
+            return None;
+        }
+        let low = |p: &MultivariatePolynomial<IntegerRing, u16>| -> Integer {
+            let m = p.degree_bounds(0).0;
+            p.into_iter()
+                .find(|t| t.exponents[0] == m)
+                .map(|t| t.coefficient.clone())
+                .unwrap_or_else(|| Integer::from(0i64))
+        };
+        Some(Rational::from((low(&r.numerator), low(&r.denominator))))
+    }
+}
+
+impl Laurent for SymbolicaExact {
+    type Coeff = TCoeff;
+    type Series = TRational;
+
+    fn valuation(&mut self, c: &TCoeff) -> Result<Val, String> {
+        Ok(c.valuation())
+    }
+    fn expand(&mut self, c: &TCoeff, _abs_prec: i64) -> Result<Option<TRational>, String> {
+        Ok(self.rational(c))
+    }
+    fn add(&self, a: &TRational, b: &TRational) -> TRational {
+        a + b
+    }
+    fn mul(&self, a: &TRational, b: &TRational) -> TRational {
+        a * b
+    }
+    fn order(&self, s: &TRational) -> (Option<i64>, i64) {
+        (Self::order_of(s), i64::MAX)
+    }
+    fn leading_text(&self, s: &TRational) -> Option<String> {
+        Self::leading(s).map(|q| q.to_string())
+    }
+    fn one(&mut self, _abs_prec: i64) -> TRational {
+        let one = MultivariatePolynomial::new(&Z, Some(1), self.vars.clone()).one();
+        TRational::from(one)
     }
 }
 

@@ -32,4 +32,4 @@ pub use compose::{
 pub use epsbox::{BoxStatus, EpsBox, EpsBoxChecked};
 pub use profile::{LocalProfile, TermKind, TermVal, Val, Valuation};
 pub use report::{PairVerdict, node_report, verdict};
-pub use spec::{EpsDepthSpec, KeyMode, TerminalSetStatus, dots_rank};
+pub use spec::{Arith, EpsDepthSpec, KeyMode, TerminalSetStatus, dots_rank};

@@ -885,7 +885,8 @@ fn key_result<L: Laurent, S: ReductionSource>(
                     PairResult {
                         order,
                         valuation: o,
-                        precision: Some(p),
+                        // an exact backend has infinite precision (i64::MAX): reported as none
+                        precision: (p != i64::MAX).then_some(p),
                         bound,
                         blame,
                         blame_server: blame.map(|b| src.server(b)),

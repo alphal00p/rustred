@@ -32,6 +32,15 @@ pub enum KeyMode {
     },
 }
 
+/// The arithmetic of the composition (interfaces/epsdepth.md 4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Arith {
+    /// Exact rational functions of d composed down to the terminals, expanded only at the end (default; POLES_OBJECTIVE 2A).
+    Exact,
+    /// Truncated Laurent series with the required-precision propagation (capped by `budgets.max_depth`).
+    Laurent,
+}
+
 /// What is known of the terminal set at d0 (lane poles' B2 record; TRICKS 16: `inherent` only on a certified set).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TerminalSetStatus {
@@ -65,6 +74,7 @@ pub struct Budgets {
 #[derive(Clone, Debug, PartialEq)]
 pub struct EpsDepthSpec {
     pub d0: String,
+    pub arith: Arith,
     pub target_exponent: i64,
     pub budgets: Budgets,
     pub keys: KeyMode,
@@ -79,6 +89,7 @@ impl Default for EpsDepthSpec {
     fn default() -> Self {
         EpsDepthSpec {
             d0: "4".into(),
+            arith: Arith::Exact,
             target_exponent: 0,
             budgets: Budgets {
                 max_depth: 32,
@@ -136,6 +147,7 @@ impl EpsDepthSpec {
             "epsdepth",
             &[
                 "d0",
+                "arith",
                 "target_exponent",
                 "budgets",
                 "keys",
@@ -151,6 +163,13 @@ impl EpsDepthSpec {
                 return Err(format!("epsdepth.d0 {t:?} is not a rational a or a/b"));
             }
             s.d0 = t.to_string();
+        }
+        if let Some(a) = o.get("arith") {
+            s.arith = match a.as_str() {
+                Some("exact") => Arith::Exact,
+                Some("laurent") => Arith::Laurent,
+                _ => return Err(format!("epsdepth.arith {a} is not exact / laurent")),
+            };
         }
         if let Some(t) = o.get("target_exponent") {
             s.target_exponent = int(t, "epsdepth.target_exponent")?;
@@ -253,7 +272,12 @@ impl EpsDepthSpec {
                 json!({"mode": "layer", "max_dots_rank": max_dots_rank})
             }
         };
-        json!({"schema": "rustred.campaign.epsdepth-spec.v1", "d0": self.d0, "target_exponent": self.target_exponent,
+        let arith = match self.arith {
+            Arith::Exact => "exact",
+            Arith::Laurent => "laurent",
+        };
+        json!({"schema": "rustred.campaign.epsdepth-spec.v1", "d0": self.d0, "arith": arith,
+            "target_exponent": self.target_exponent,
             "budgets": {"max_depth": self.budgets.max_depth, "max_keys": self.budgets.max_keys,
                         "max_seconds": self.budgets.max_seconds},
             "keys": keys, "terminal_set": self.terminal_set.word(),
