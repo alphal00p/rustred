@@ -1989,6 +1989,95 @@ fn cmd_mastermap(mut a: Args) -> i32 {
 }
 
 /// `rr_node symmasters`: see the header.
+/// `rr_node symface --family F.sym --order ORDER --face DOTTED/NUMERATORS [--chart MASK] [--slice-max 12]
+/// [--slice-bound each|total] [--element K] --out DIR`: multi-term symmetry face rules as slice rules
+/// (node::symface; interface coord-pole-engine.md 9b-9c). DOTTED / NUMERATORS: comma-separated 0-based slots, `-`
+/// for none (e.g. `-/10,11,16`, `9/11,13,14,15`).
+fn cmd_symface(mut a: Args) -> i32 {
+    use rustred::node::symface::{Face, RunOptions, run};
+    let family = a.need("--family");
+    let text = std::fs::read_to_string(&family).unwrap_or_else(|e| die(&format!("{family}: {e}")));
+    let order_text = a.need("--order");
+    let order = order_arg(&order_text, &text, None);
+    let point_keys: Option<Vec<Vec<i64>>> = a.take("--point-keys").map(|p| {
+        std::fs::read_to_string(&p)
+            .unwrap_or_else(|e| die(&format!("{p}: {e}")))
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| {
+                let v: serde_json::Value = serde_json::from_str(l).unwrap_or_else(|e| die(&format!("--point-keys: {e}")));
+                let k = if v.is_array() { v } else { v["key"].clone() };
+                serde_json::from_value::<Vec<i64>>(k).unwrap_or_else(|e| die(&format!("--point-keys key: {e}")))
+            })
+            .collect()
+    });
+    let pair = a.take("--pair-shift").map(|t| rustred::node::symface::PairShift::parse(&t).unwrap_or_else(|e| die(&e)));
+    let face_arg = a.take("--face").unwrap_or_else(|| if point_keys.is_some() { "-/-".into() } else { die("missing --face (or --point-keys FILE)") });
+    let (d, nu) = face_arg.split_once('/').unwrap_or_else(|| die("--face DOTTED/NUMERATORS"));
+    let list = |t: &str| -> Vec<usize> {
+        if t == "-" || t.is_empty() {
+            return vec![];
+        }
+        t.split(',').map(|x| x.trim().parse().unwrap_or_else(|_| die("--face slot"))).collect()
+    };
+    let chart: Vec<bool> = match a.take("--chart") {
+        Some(m) => m.chars().map(|c| c == '1').collect(),
+        None => rustred::node::order::physical_slots(&text),
+    };
+    let slice_max: i64 = a.parse("--slice-max").unwrap_or(12);
+    let total_bound = match a.take("--slice-bound").as_deref() {
+        None | Some("each") => false,
+        Some("total") => true,
+        Some(o) => die(&format!("--slice-bound each|total, not {o}")),
+    };
+    // --element K (one element) or `auto` / absent (every element; the smallest relation that passes wins)
+    let element: Option<usize> = match a.take("--element").as_deref() {
+        None | Some("auto") | Some("all") => None,
+        Some(k) => Some(k.parse().unwrap_or_else(|_| die("--element K (an index) or auto"))),
+    };
+    let max_expansion: u128 = a.parse("--max-expansion").unwrap_or(2_000_000);
+    let check_keys: Vec<Vec<i64>> = match a.take("--check-keys") {
+        None => vec![],
+        Some(p) => std::fs::read_to_string(&p)
+            .unwrap_or_else(|e| die(&format!("{p}: {e}")))
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| {
+                let v: serde_json::Value = serde_json::from_str(l).unwrap_or_else(|e| die(&format!("--check-keys: {e}")));
+                let k = if v.is_array() { v } else { v["key"].clone() };
+                serde_json::from_value::<Vec<i64>>(k).unwrap_or_else(|e| die(&format!("--check-keys key: {e}")))
+            })
+            .collect(),
+    };
+    let out = a.need("--out");
+    a.done();
+    let o = RunOptions {
+        family_text: text,
+        order,
+        face: Face { chart, dotted: list(d), numerators: list(nu) },
+        slice_max,
+        total_bound,
+        element,
+        out: out.into(),
+        max_expansion,
+        check_keys,
+        point_keys,
+        pair,
+    };
+    match run(&o) {
+        Ok(r) => {
+            println!("{}", serde_json::to_string(&serde_json::json!({"verdict": if r["chosen"].is_null() { "NO_ELEMENT" } else { "DONE" }, "served": r["served"],
+                "chosen": r["chosen"], "rules": r["rules"], "rhs_terms": r["rhs_terms"], "max_terms_per_rule": r["max_terms_per_rule"],
+                "seconds": r["seconds"]})).unwrap());
+            if r["chosen"].is_null() { 10 } else { 0 }
+        }
+        Err(e) => {
+            eprintln!("symface: {e}");
+            2
+        }
+    }
+}
+
 fn cmd_symmasters(mut a: Args) -> i32 {
     use rustred::node::replay::family::Family;
     use rustred::node::symmasters::{Options, run};
@@ -2167,6 +2256,7 @@ fn main() {
         "mastermap" => cmd_mastermap(a),
         "mapcheck" => cmd_mapcheck(a),
         "symmasters" => cmd_symmasters(a),
+        "symface" => cmd_symface(a),
         "laporta" => cmd_laporta(a),
         "symmetry" => cmd_symmetry(a),
         "solve-recipe" => cmd_solve_recipe(a),
