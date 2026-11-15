@@ -24,9 +24,9 @@ use rustred_campaign_core::closure::{
 use rustred_campaign_core::import::check::{LeafHits, check_streamed_with_leaves};
 use rustred_campaign_core::import::load::read_start;
 use rustred_campaign_core::import::{
-    CheckOptions, CheckResult, Evidence, ImportedSet, KeyRow, Level, RecordRequest, RowStatus,
-    TableSetSpec,
+    CheckOptions, CheckResult, Evidence, ImportedSet, KeyRow, Level, RowStatus, TableSetSpec,
 };
+use rustred_campaign_core::import::check::RecordRequest;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -1108,12 +1108,12 @@ pub fn compose(
     let first = Some(walked.first().map(|x| &x.res).unwrap_or(base));
     Ok(CheckResult {
         rows,
-        streamed: Some(rustred_campaign_core::import::StreamedRows {
+        streamed: Some(rustred_campaign_core::import::check::StreamedRows {
             path: rows_path.display().to_string(),
             sha256: h.finish_hex(),
             rows: n,
         }),
-        aggregates: Some(rustred_campaign_core::import::Aggregates { counts, by_class }),
+        aggregates: Some(rustred_campaign_core::import::check::Aggregates { counts, by_class }),
         key_set_digest: ks.digest(),
         key_set: Some(ks),
         summary,

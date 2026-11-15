@@ -887,7 +887,7 @@ impl EvidenceStore {
         }
         let paths: Vec<PathBuf> = files.iter().map(|x| x.0.clone()).collect();
         let dir = store_dir_for(&opts.dir, &paths)?;
-        if let Some(s) = Self::validate(&dir, &files, set.arity())? {
+        if let Some(s) = Self::validate(&dir, &files, set.arity(), opts.threads)? {
             return Ok(Arc::new(s));
         }
         Self::build(set, &files, opts, &dir)?;
@@ -900,6 +900,7 @@ impl EvidenceStore {
         dir: &Path,
         files: &[(PathBuf, Option<String>)],
         arity: usize,
+        threads: usize,
     ) -> Result<Option<EvidenceStore>, ImportError> {
         let Ok(t) = std::fs::read_to_string(dir.join("meta.json")) else {
             return Ok(None);
@@ -938,8 +939,31 @@ impl EvidenceStore {
                 }
             }
         }
+        // inputs PINNED by an expected sha256 are re-hashed in full on every reuse (size / mtime / sampled digest prove
+        // nothing against an edited line; audit-closeloop M1): parallel over the files
+        let pinned: Vec<&(PathBuf, Option<String>)> = files.iter().filter(|(_, e)| e.is_some()).collect();
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let errs: std::sync::Mutex<Vec<ImportError>> = std::sync::Mutex::new(vec![]);
+        std::thread::scope(|sc| {
+            for _ in 0..threads.max(1).min(pinned.len().max(1)) {
+                sc.spawn(|| {
+                    loop {
+                        let i = next.fetch_add(1, AtOrd::Relaxed);
+                        let Some((p, e)) = pinned.get(i) else {
+                            break;
+                        };
+                        if let Err(er) = super::lines::verify_file(p, e.as_deref()) {
+                            errs.lock().unwrap_or_else(|x| x.into_inner()).push(er);
+                        }
+                    }
+                });
+            }
+        });
+        if let Some(e) = errs.into_inner().unwrap_or_else(|x| x.into_inner()).into_iter().next() {
+            return Err(e);
+        }
         let mut s = Self::open(dir)?;
-        s.origin = "reused".into();
+        s.origin = if pinned.is_empty() { "reused".into() } else { "reused_reverified".into() };
         Ok(Some(s))
     }
 

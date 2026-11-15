@@ -388,6 +388,10 @@ pub struct ScaleCfg {
     /// tier at once, its own fact / proof requests drive the jobs (when the imported evidence covers most keys).
     #[serde(default = "d_yes")]
     pub keys_only_first: bool,
+    /// Refuse a spec evidence entry (facts / proofs / solved) that is a directory or carries no sha256 (audit-closeloop
+    /// M1: an unpinned evidence file with one altered line changes the verdict without refusal).
+    #[serde(default = "d_yes")]
+    pub require_pinned_evidence: bool,
 }
 
 fn d_store_budget() -> u64 {

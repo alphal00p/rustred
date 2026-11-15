@@ -123,15 +123,28 @@ impl DerivedState {
     }
 }
 
+/// How [`effective_spec`] treats the derived files the spec names BY PATH (the symmetry-relation table, the accepted
+/// terminal proposals; the recipes carry their sha256): `Write` (a pass: written when absent or different) or
+/// `Verify` (a restarted session, lane t266run: each file must exist with exactly the bytes re-derived from the
+/// BLAKE3-verified ledger inputs; any difference or absence REFUSES, typed `effective_spec_mismatch`; nothing is
+/// rewritten).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DerivedFiles {
+    Write,
+    Verify,
+}
+
 /// The effective import spec: the node's base spec + the derived sources (symmetry relations as ONE supplied relation
 /// set re-derived from the verified group, the step recipes in generation order, the accepted terminal proposals).
-/// Writes the derived files under `dir` (idempotent: same state, same bytes).
+/// Writes (or, with [`DerivedFiles::Verify`], compares byte for byte) the derived files under `dir` (idempotent: same
+/// state, same bytes).
 pub fn effective_spec(
     base_text: &str,
     ds: &DerivedState,
     esc: Option<&EscalationCfg>,
     dir: &Path,
     chart: &str,
+    mode: DerivedFiles,
 ) -> Result<String, String> {
     if ds.is_empty() {
         return Ok(base_text.to_string());
@@ -143,10 +156,34 @@ pub fn effective_spec(
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let write = |name: &str, body: &str| -> Result<PathBuf, String> {
         let p = dir.join(name);
-        if std::fs::read(&p).ok().as_deref() != Some(body.as_bytes()) {
-            crate::atomic::write_atomic(&p, body.as_bytes())
-                .map_err(|e| format!("{}: {e}", p.display()))?;
+        let disk = std::fs::read(&p).ok();
+        let b3 = |b: &[u8]| blake3::hash(b).to_hex().to_string();
+        if disk.as_deref() == Some(body.as_bytes()) {
+            if mode == DerivedFiles::Verify {
+                eprintln!(
+                    "closeloop: restart: derived file {} verified byte for byte against its re-derivation (blake3 {}, {} bytes)",
+                    p.display(),
+                    b3(body.as_bytes()),
+                    body.len()
+                );
+            }
+            return Ok(p);
         }
+        if mode == DerivedFiles::Verify {
+            return Err(format!(
+                "{}: derived file {}: on disk {}, re-derived from the ledger blake3 {} ({} bytes): refused (never rewritten)",
+                super::source::EFFECTIVE_SPEC_MISMATCH,
+                p.display(),
+                match &disk {
+                    Some(d) => format!("blake3 {} ({} bytes)", b3(d), d.len()),
+                    None => "absent".to_string(),
+                },
+                b3(body.as_bytes()),
+                body.len()
+            ));
+        }
+        crate::atomic::write_atomic(&p, body.as_bytes())
+            .map_err(|e| format!("{}: {e}", p.display()))?;
         Ok(p)
     };
     if !ds.relations.is_empty() {
@@ -516,4 +553,44 @@ pub fn face_table(
     json!({"faces": by_face.len(), "closed_by_one_recipe_or_symmetry": one_recipe, "needed_several_recipes": several,
         "with_open_or_terminal_keys": faces_open, "face_id": "support signature L<dotted line slots>|N<non-zero numerator slots>",
         "table": rows})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// lane t266run: a restarted session verifies the derived files byte for byte (the same bytes pass; another
+    /// re-derivation, a tampered or a missing file refuse, typed; nothing is rewritten).
+    #[test]
+    fn verify_mode_accepts_the_same_bytes_and_refuses_any_difference() {
+        let base = std::env::var_os("TMPDIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+        let d = base.join(format!("derived-verify-{}", std::process::id()));
+        let spec = json!({"sources": [{"id": "A"}]}).to_string();
+        let mut ds = DerivedState::default();
+        ds.relations.insert(vec![3, 1, 0], vec![(vec![2, 1, 0], "1".to_string())]);
+        ds.terminals.insert(vec![1, 1, 0]);
+        let w = effective_spec(&spec, &ds, None, &d, "110", DerivedFiles::Write).unwrap();
+        let v = effective_spec(&spec, &ds, None, &d, "110", DerivedFiles::Verify).unwrap();
+        assert_eq!(w, v);
+        let table = d.join("symmetry-at-key.table.jsonl");
+        let before = std::fs::read(&table).unwrap();
+        // another re-derivation (another chart): refused, the file untouched
+        let e = effective_spec(&spec, &ds, None, &d, "111", DerivedFiles::Verify).unwrap_err();
+        assert!(e.starts_with(super::super::source::EFFECTIVE_SPEC_MISMATCH), "{e}");
+        assert_eq!(std::fs::read(&table).unwrap(), before);
+        // a tampered file: refused, not rewritten
+        let tp = d.join("terminal-proposals.json");
+        std::fs::write(&tp, "[]\n").unwrap();
+        let e = effective_spec(&spec, &ds, None, &d, "110", DerivedFiles::Verify).unwrap_err();
+        assert!(e.contains("terminal-proposals.json") && e.contains("refused"), "{e}");
+        assert_eq!(std::fs::read_to_string(&tp).unwrap(), "[]\n");
+        // a missing file: refused
+        std::fs::remove_file(&table).unwrap();
+        let e = effective_spec(&spec, &ds, None, &d, "110", DerivedFiles::Verify).unwrap_err();
+        assert!(e.contains("absent"), "{e}");
+        // a pass (write mode) restores both
+        effective_spec(&spec, &ds, None, &d, "110", DerivedFiles::Write).unwrap();
+        assert_eq!(std::fs::read(&table).unwrap(), before);
+        assert!(effective_spec(&spec, &ds, None, &d, "110", DerivedFiles::Verify).is_ok());
+    }
 }

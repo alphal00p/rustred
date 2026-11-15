@@ -29,6 +29,10 @@ use std::thread::JoinHandle;
 use std::time::Instant;
 
 pub const PROGRESS_SCHEMA: &str = "rustred.campaign.closeloop-progress.v1";
+/// lane t266run: the typed refusal of a set whose re-derived effective spec differs from the one its pass recorded.
+pub const EFFECTIVE_SPEC_MISMATCH: &str = "effective_spec_mismatch";
+/// lane t266run: an item whose settled attempt could not be routed (requeued as a new attempt, then attention).
+pub const ROUTING_REFUSED: &str = "routing_refused";
 
 /// Fake-child answers per (recipe source, key): verdict and right-hand-side keys (tests only).
 type Oracle = BTreeMap<(String, Vec<i32>), (Verdict, Vec<Vec<i64>>)>;
@@ -56,6 +60,8 @@ enum PassResult {
 struct Running {
     round: u32,
     handle: JoinHandle<Result<PassResult, String>>,
+    /// lane layers (closeloop.md 23): records of layers the running pass froze (registered while it runs)
+    layer_rx: Option<std::sync::mpsc::Receiver<super::layers::LayerMsg>>,
     /// lane t266run: BLAKE3 of the effective import spec text the pass loads / checks.
     digest: Option<String>,
 }
@@ -567,30 +573,51 @@ impl CloseFromMaterialSource {
     }
 
     /// lane t266run: NODE-level inputs `closeloop:<n>:<what>` of role `role`, in ledger order.
-    fn node_inputs_of_role(&self, st: &CampaignState, i: usize, role: &str) -> Vec<PathBuf> {
+    /// The node's inputs of `role` in registration order; with `before = Some(k)` only those registered by the commits
+    /// of rounds < k (input ids `closeloop:<n>:<what>:r<round>`; an id without a round suffix never passes a bound).
+    fn node_inputs_of_role(
+        &self,
+        st: &CampaignState,
+        i: usize,
+        role: &str,
+        before: Option<u32>,
+    ) -> Vec<PathBuf> {
         let pre = format!("closeloop:{}:", self.nodes[i].n);
         let mut v: Vec<_> = st
             .inputs
             .iter()
-            .filter(|(id, r)| r.role == role && id.starts_with(&pre))
+            .filter(|(id, r)| r.role == role && id.starts_with(&pre) && Self::round_before(id, before))
             .map(|(_, r)| (r.registered_seq, PathBuf::from(&r.path), r.blake3.clone()))
             .collect();
         v.sort();
         v.into_iter().map(|(_, p, _)| p).collect()
     }
 
+    /// Whether the input id's round suffix (`:r<k>`) is below `before` (always true without a bound).
+    fn round_before(id: &str, before: Option<u32>) -> bool {
+        let Some(b) = before else {
+            return true;
+        };
+        id.rsplit_once(":r")
+            .and_then(|(_, k)| k.parse::<u32>().ok())
+            .is_some_and(|k| k < b)
+    }
+
     /// lane t266run: the escalation recorded for node `i` (closeloop.md 17); every file is checked against its
-    /// recorded BLAKE3 before it is read.
+    /// recorded BLAKE3 before it is read. `before = Some(k)`: only what the commits of rounds < k recorded (= the
+    /// escalation the pass of round k ran on).
     fn derived_state(
         &self,
         st: &CampaignState,
         i: usize,
+        before: Option<u32>,
     ) -> Result<super::derived::DerivedState, String> {
         use super::derived::{ROLE_RECIPES, ROLE_SYMREL, ROLE_TERMINALS};
         let pre = format!("closeloop:{}:", self.nodes[i].n);
         for (id, r) in &st.inputs {
             if id.starts_with(&pre)
                 && [ROLE_SYMREL, ROLE_RECIPES, ROLE_TERMINALS].contains(&r.role.as_str())
+                && Self::round_before(id, before)
             {
                 let got = file_blake3(Path::new(&r.path))?;
                 if got != r.blake3 {
@@ -602,10 +629,66 @@ impl CloseFromMaterialSource {
             }
         }
         super::derived::DerivedState::read(
-            &self.node_inputs_of_role(st, i, ROLE_SYMREL),
-            &self.node_inputs_of_role(st, i, ROLE_RECIPES),
-            &self.node_inputs_of_role(st, i, ROLE_TERMINALS),
+            &self.node_inputs_of_role(st, i, ROLE_SYMREL, before),
+            &self.node_inputs_of_role(st, i, ROLE_RECIPES, before),
+            &self.node_inputs_of_role(st, i, ROLE_TERMINALS, before),
         )
+    }
+
+    /// The chart (line mask) of node `i`: the loaded set's, else read from the frame header of the base import spec
+    /// (no table is read).
+    fn chart_of(&self, i: usize) -> Result<String, String> {
+        if let Some(c) = &self.nodes[i].chart {
+            return Ok(c.clone());
+        }
+        let r = &self.nodes[i];
+        let spec = rustred_campaign_core::import::TableSetSpec::from_json(&r.spec_text)
+            .map_err(|e| format!("import spec: {e}"))?;
+        let f = rustred_campaign_core::import::load::frame_of(&spec, &r.cfg.base())
+            .map_err(|e| format!("frame: {e}"))?;
+        Ok(f.mask_string())
+    }
+
+    /// lane t266run: the effective import spec the node's LAST pass ran on, for a set loaded after a restart (settles
+    /// of the batches that pass issued route against it). Round L = the number of check records; its spec is
+    /// RE-DERIVED from the base spec and the escalation inputs of rounds < L (each BLAKE3-verified against the
+    /// ledger) and VERIFIED against the spec digest the pass of round L recorded in its check record (itself
+    /// BLAKE3-verified): a mismatch is refused, nothing is trusted from a file a previous session wrote. Before the
+    /// first pass: the base spec.
+    fn last_pass_spec(&mut self, st: &CampaignState, i: usize) -> Result<String, String> {
+        let n = self.nodes[i].n.clone();
+        let l = Self::rounds_done(st, &n);
+        if l == 0 {
+            return Ok(self.nodes[i].spec_text.clone());
+        }
+        let derived = self.derived_state(st, i, Some(l))?;
+        let chart = self.chart_of(i)?;
+        let eff = {
+            let r = &self.nodes[i];
+            super::derived::effective_spec(
+                &r.spec_text,
+                &derived,
+                r.cfg.escalation.as_ref(),
+                &self.abs(&format!("{}/derived", node_dir(&r.n))),
+                &chart,
+                super::derived::DerivedFiles::Verify,
+            )?
+        };
+        let check: Value = serde_json::from_slice(&self.input_file(st, &input_check(&n, l))?)
+            .map_err(|e| format!("check record of round {l}: {e}"))?;
+        let want = check["spec_digest"]
+            .as_str()
+            .ok_or_else(|| format!("check record of round {l}: no spec_digest"))?;
+        let got = rustred_campaign_core::import::TableSetSpec::from_json(&eff)
+            .map_err(|e| format!("import spec: {e}"))?
+            .digest();
+        if got != want {
+            return Err(format!(
+                "{EFFECTIVE_SPEC_MISMATCH}: the effective import spec of round {l} re-derived from the ledger has digest {got}, the pass of round {l} recorded {want}: refused"
+            ));
+        }
+        self.nodes[i].chart = Some(chart);
+        Ok(eff)
     }
 
     /// (recipe source, key) pairs of every solve item of the node, keys issued, jobs issued, items in attention.
@@ -757,8 +840,10 @@ impl CloseFromMaterialSource {
         let decisions = self.terminal_decisions(st, i)?;
         let spec_text = super::terminals::effective_spec(&self.nodes[i].spec_text, &decisions)?;
         if round == 0 {
+            // lane t266run: the set of a restarted session is the one the last pass ran on (re-derived + verified;
+            // before any pass: the base spec), so the settles of the batches that pass issued route against it
+            let text = self.last_pass_spec(st, i)?;
             let r = &self.nodes[i];
-            let text = r.spec_text.clone();
             let base = r.cfg.base();
             // lane t266run: a persistent table index in big-node mode (an unchanged table is not re-read)
             let index_dir = r.cfg.scale.as_ref().map(|sc| {
@@ -766,6 +851,7 @@ impl CloseFromMaterialSource {
                     .clone()
                     .unwrap_or_else(|| self.abs(&format!("{}/index", node_dir(&r.n))))
             });
+            let digest_text = text.clone();
             let h = std::thread::Builder::new()
                 .name(format!("closeloop-load-{}", r.n))
                 .spawn(move || {
@@ -783,7 +869,8 @@ impl CloseFromMaterialSource {
             self.nodes[i].running = Some(Running {
                 round,
                 handle: h,
-                digest: Some(blake3_hex(self.nodes[i].spec_text.as_bytes())),
+                layer_rx: None,
+                digest: Some(blake3_hex(digest_text.as_bytes())),
             });
             self.nodes[i].pass_started = Some(Instant::now());
             return Ok(());
@@ -814,7 +901,7 @@ impl CloseFromMaterialSource {
         let relation_tables = self.relation_tables(st, i);
         // lane t266run (closeloop.md 17): the escalation recorded so far and the effective spec it implies; a set
         // loaded from another effective spec is dropped (the pass reloads it; the table index makes that cheap)
-        let derived = self.derived_state(st, i)?;
+        let derived = self.derived_state(st, i, None)?;
         let eff = {
             let r = &self.nodes[i];
             let chart = r.chart.clone().unwrap_or_default();
@@ -824,6 +911,7 @@ impl CloseFromMaterialSource {
                 r.cfg.escalation.as_ref(),
                 &self.abs(&format!("{}/derived", node_dir(&r.n))),
                 &chart,
+                super::derived::DerivedFiles::Write,
             )?
         };
         let eff_digest = blake3_hex(eff.as_bytes());
@@ -845,6 +933,23 @@ impl CloseFromMaterialSource {
             } else {
                 None
             };
+        // lane layers (closeloop.md 23): the frozen layers come back ONLY from the ledger (record BLAKE3 verified here;
+        // the pass verifies the sha256 of every file the record pins, the leaf-set digest and the walk binding)
+        let mut frozen_layers: Vec<(usize, Vec<u8>)> = vec![];
+        {
+            let pre = format!("closeloop:{}:layer:", self.nodes[i].n);
+            let ids: Vec<(usize, String)> = st
+                .inputs
+                .iter()
+                .filter(|(id, r)| id.starts_with(&pre) && r.role == super::layers::ROLE_LAYER)
+                .filter_map(|(id, _)| id[pre.len()..].parse::<usize>().ok().map(|k| (k, id.clone())))
+                .collect();
+            for (k, id) in ids {
+                frozen_layers.push((k, self.input_file(st, &id)?));
+            }
+            frozen_layers.sort_by_key(|x| x.0);
+        }
+        let (layer_tx, layer_rx) = std::sync::mpsc::channel::<super::layers::LayerMsg>();
         let recipe_dir = self.abs(&format!(
             "{}/escalation/r{round}",
             node_dir(&self.nodes[i].n)
@@ -916,6 +1021,15 @@ impl CloseFromMaterialSource {
             derived,
             recipe_dir,
             clauses: r.cfg.clauses.clone(),
+            layers: r.cfg.layers.clone(),
+            prior_leaf_sets: r
+                .cfg
+                .prior_clauses
+                .iter()
+                .filter_map(|c| c.leaf_set.clone().map(|l| (c.id.clone(), l)))
+                .collect(),
+            frozen_layers,
+            layer_tx: Some(layer_tx),
         };
         let h = std::thread::Builder::new()
             .name(format!("closeloop-pass-{}", r.n))
@@ -924,6 +1038,7 @@ impl CloseFromMaterialSource {
         self.nodes[i].running = Some(Running {
             round,
             handle: h,
+            layer_rx: Some(layer_rx),
             digest: Some(eff_digest),
         });
         self.nodes[i].pass_started = Some(Instant::now());
@@ -1034,13 +1149,15 @@ impl CloseFromMaterialSource {
         })
     }
 
-    fn ensure_set(&mut self, i: usize) -> Result<Arc<ImportedSet>, String> {
+    fn ensure_set(&mut self, st: &CampaignState, i: usize) -> Result<Arc<ImportedSet>, String> {
         if let Some(s) = &self.nodes[i].set {
             return Ok(s.clone());
         }
-        // only at recovery (a settled attempt routed before any pass ran): synchronous load
+        // only at recovery (a settled attempt routed before any pass ran): synchronous load of the set the LAST pass
+        // ran on (lane t266run: re-derived from the ledger and verified against the digest that pass recorded)
+        let text = self.last_pass_spec(st, i)?;
         let r = &self.nodes[i];
-        let spec = rustred_campaign_core::import::TableSetSpec::from_json(&r.spec_text)
+        let spec = rustred_campaign_core::import::TableSetSpec::from_json(&text)
             .map_err(|e| format!("import spec: {e}"))?;
         // lane t266run: the persistent table index in big-node mode (the tables are what this set is used for here)
         let index_dir = r.cfg.scale.as_ref().map(|sc| {
@@ -1056,7 +1173,7 @@ impl CloseFromMaterialSource {
             )
             .map_err(|e| format!("import load: {e}"))?,
         );
-        self.nodes[i].set_digest = Some(blake3_hex(r.spec_text.as_bytes()));
+        self.nodes[i].set_digest = Some(blake3_hex(text.as_bytes()));
         self.nodes[i].set = Some(set.clone());
         Ok(set)
     }
@@ -1777,6 +1894,10 @@ impl CloseFromMaterialSource {
                 "jobs": {"running": running}, "cpu_s": cpu_ms as f64 / 1000.0,
                 "per_key_cpu_s": per_key_s, "eta_s": eta_s,
                 "pass_running_s": r.pass_started.filter(|_| r.running.is_some()).map(|t| t.elapsed().as_secs()),
+                // lane t266run: which pass runs and since when (status readers see the real phase of the loop)
+                "pass": r.running.as_ref().map(|p| json!({"round": p.round,
+                    "kind": if p.round == 0 { "load" } else { "check" },
+                    "running_s": r.pass_started.map(|t| t.elapsed().as_secs())})),
                 "last_check": {"defect": lc["defect"], "blocking": lc["blocking"], "closed": lc["closed"]},
                 "evidence_by_class": lc["evidence_by_class"], "relation_rule": r.cfg.solve.relation_rule,
                 "target": lc["target"], "tier": lc["tier"], "exact_tier": lc["exact_tier"],
@@ -1805,6 +1926,233 @@ impl CloseFromMaterialSource {
 }
 
 impl CloseFromMaterialSource {
+    /// Route one settled solve attempt (the batch's per-key decisions; closeloop.md 6.4 / 13).
+    fn route_solve(&mut self, st: &CampaignState, i: usize, done: &Settled) -> Result<Routing, String> {
+        let b = self.batch(st, i, &done.item)?;
+        let c = &done.classification;
+        let decided_row = matches!((c.row, c.sub.as_str()), (1, "") | (28, "") | (29, ""));
+        let mut rt = Routing::default();
+        if !(decided_row && !done.canonical_lines.is_empty() && done.table.is_some()) {
+            // no per-key decision: rerun (ready) until max_job_attempts, then attention
+            let what = format!("{} keys of recipe {} stay open", b.keys.len(), b.source);
+            self.fail_or_attention(st, i, done, "solve_job_failed", &what, &mut rt);
+            return Ok(rt);
+        }
+        let table = done.table.clone().expect("checked");
+        let set = self.ensure_set(st, i)?;
+        let slot = set
+            .recipes
+            .iter()
+            .find(|r| r.id == b.source)
+            .map(|r| r.slot.clone())
+            .ok_or_else(|| format!("recipe source {} not in the imported set", b.source))?;
+        let skey = format!("{slot:?}");
+        if !self.nodes[i].prefixes.contains_key(&skey) {
+            let d = prefix_dispatcher(&set, &slot)?;
+            self.nodes[i].prefixes.insert(skey.clone(), d);
+        }
+        let pinned = self.pinned(st, i, &b);
+        let prog = self.solve_program(&self.nodes[i].cfg).to_string();
+        let r = &self.nodes[i];
+        let ctx = AcceptCtx {
+            set: &set,
+            before: r.prefixes.get(&skey).and_then(|x| x.as_ref()),
+            boxed: r.cfg.target == Target::Boxed,
+            batch: &b,
+            pinned_digest: pinned,
+            determinism_id: r.cfg.solve.determinism_id.clone(),
+            binary_blake3: self.blake3.get(&prog).cloned().unwrap_or_default(),
+            binary_sha256: self.sha256.get(&prog).cloned().unwrap_or_default(),
+            binary_path: self
+                .programs
+                .get(&prog)
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
+            family_path: r.cfg.solve.family.display().to_string(),
+            family_blake3: r.family_blake3.clone(),
+            order: r.cfg.solve.order_arg(),
+            results_path: table.path.clone(),
+            results_blake3: table.blake3.clone(),
+            run_dir: st
+                .jobs
+                .get(&done.job)
+                .and_then(|j| j.run_dir.clone())
+                .unwrap_or_default(),
+            max_trace_rows: r.cfg.solve.max_trace_rows,
+            key_budget_s: r.cfg.solve.key_budget_s,
+        };
+        let d = decide(&ctx, &done.canonical_lines)?;
+        if let (None, Some(e)) = (self.nodes[i].pins.get(&b.source), &d.engine_digest)
+            && d.refused.is_none()
+        {
+            self.nodes[i].pins.insert(b.source.clone(), e.clone());
+        }
+        let n = self.nodes[i].n.clone();
+        let dir = format!("{}/answers", node_dir(&n));
+        // lane closeloop3: ERROR / IRREGULAR keys are recorded apart (retried, then attention), never as answers
+        if !d.retry.is_empty() {
+            let mut rb = d
+                .retry
+                .iter()
+                .map(|(_, l)| l.as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
+                .into_bytes();
+            rb.push(b'\n');
+            let rr = record(format!("{dir}/{}.{}.retry.jsonl", done.item, done.job), rb);
+            let rref = rr.file_ref();
+            rt.events.push(Event::InputRegistered {
+                input: input_retry(&done.item, &done.job),
+                role: ROLE_RETRY.into(),
+                path: self.abs(&rr.path).display().to_string(),
+                bytes: rref.bytes,
+                blake3: rref.blake3,
+            });
+            rt.accepts.push(rr);
+        }
+        let mut ab = d.lines.join("\n").into_bytes();
+        ab.push(b'\n');
+        let ans = record(format!("{dir}/{}.{}.jsonl", done.item, done.job), ab);
+        let aref = ans.file_ref();
+        rt.events.push(Event::InputRegistered {
+            input: input_answers(&done.item, &done.job),
+            role: ROLE_ANSWERS.into(),
+            path: self.abs(&ans.path).display().to_string(),
+            bytes: aref.bytes,
+            blake3: aref.blake3.clone(),
+        });
+        let (round, _) = parse_solve_item(&n, &done.item).unwrap_or((0, 0));
+        if !d.records.is_empty() {
+            // lane closeloop2 (closeloop.md 13.1): our relations as POINT RECORDS, proved per key by proof jobs
+            let rel = self.relation_table(i, &b, &done.item, &done.job, &d.records)?;
+            let rref = rel.file_ref();
+            rt.events.push(Event::InputRegistered {
+                input: input_relations(&done.item, &done.job),
+                role: ROLE_RELATIONS.into(),
+                path: self.abs(&rel.path).display().to_string(),
+                bytes: rref.bytes,
+                blake3: rref.blake3,
+            });
+            rt.accepts.push(rel);
+        }
+        if !d.certified.is_empty() {
+            let keys = record(
+                format!("{dir}/{}.{}.keys.json", done.item, done.job),
+                json_bytes(
+                    &json!({"schema": "rustred.campaign.closeloop-keys.v1", "keys": d.certified}),
+                ),
+            );
+            let kref = keys.file_ref();
+            let canon = done
+                .canonical_blake3
+                .clone()
+                .unwrap_or_else(|| aref.blake3.clone());
+            rt.events.push(Event::Item {
+                item: done.item.clone(),
+                ev: ItemEvent::Produce {
+                    job: done.job.clone(),
+                    attempt: done.attempt,
+                    table: table.clone(),
+                },
+            });
+            rt.events.push(Event::Item {
+                item: done.item.clone(),
+                ev: ItemEvent::Accept {
+                    rule: format!("{}:{}", done.item, &canon[..16.min(canon.len())]),
+                    level: EvidenceLevel::IdentityProved,
+                    record: aref.clone(),
+                    source: AcceptSource::Job {
+                        job: done.job.clone(),
+                        attempt: done.attempt,
+                        table_blake3: table.blake3.clone(),
+                    },
+                    elided: false,
+                    evidence: Some(LevelEvidence::IdentityProved {
+                        proofs: aref.clone(),
+                        keys: kref,
+                    }),
+                    round: Some(round),
+                },
+            });
+            rt.accepts.push(keys);
+        } else {
+            rt.events.push(Event::Item {
+                item: done.item.clone(),
+                ev: ItemEvent::Escalate {
+                    to: Rung(1),
+                    reason: match &d.refused {
+                        Some(w) => format!("attempt refused: {w}; the keys go to the next recipe candidate"),
+                        None if !d.retry.is_empty() => format!(
+                            "no key certified ({} failures; {} keys typed ERROR / IRREGULAR are retried, then attention); the other keys go to the next recipe candidate",
+                            d.failed.len(),
+                            d.retry.len()
+                        ),
+                        None => format!(
+                            "no key certified ({} failures); the keys go to the next recipe candidate",
+                            d.failed.len()
+                        ),
+                    },
+                },
+            });
+        }
+        rt.accepts.push(ans);
+        Ok(rt)
+    }
+
+    /// lane t266run: an item whose settled attempt was NOT routed (its routing was refused, or an older build left
+    /// it in progress with a sealed-success attempt): a TYPED end in the ledger, never in progress forever. The
+    /// attempt's result is never used: while the item has fewer than `max_job_attempts` attempts it goes back to
+    /// `open` (requeue) and `ready` issues a NEW attempt, whose result goes through the normal acceptance (the
+    /// supervisor's verified-stream handle); then attention `routing_refused`. A set whose effective spec does not
+    /// verify goes to attention `effective_spec_mismatch` at once (a rerun cannot change it).
+    fn unrouted(&self, st: &CampaignState, i: usize, item: &str, why: &str) -> Routing {
+        let n_att = st.items.get(item).map(|it| it.jobs.len() as u32).unwrap_or(0);
+        let max = self.nodes[i].cfg.budgets.max_job_attempts;
+        let ev = if why.starts_with(EFFECTIVE_SPEC_MISMATCH) {
+            ItemEvent::Attention {
+                code: EFFECTIVE_SPEC_MISMATCH.into(),
+                text: why.to_string(),
+            }
+        } else if n_att < max {
+            ItemEvent::Requeue {
+                reason: format!(
+                    "{ROUTING_REFUSED}: {why}; attempt {n_att} of {max}: a new attempt (its result through the normal acceptance)"
+                ),
+            }
+        } else {
+            ItemEvent::Attention {
+                code: ROUTING_REFUSED.into(),
+                text: format!("{why}; {n_att} attempt(s), max_job_attempts {max}"),
+            }
+        };
+        let mut rt = Routing::default();
+        rt.events.push(Event::Item {
+            item: item.to_string(),
+            ev,
+        });
+        rt
+    }
+
+    /// lane t266run: the node's items left IN PROGRESS whose last attempt settled as a sealed success without any
+    /// routing (see [`Self::unrouted`]).
+    fn unrouted_items(&self, st: &CampaignState, i: usize) -> Vec<String> {
+        let node = &self.nodes[i].cfg.node;
+        st.items
+            .iter()
+            .filter(|(_, it)| {
+                it.node == *node
+                    && (it.kind == KIND_SOLVE || it.kind == KIND_PROOF || it.kind == KIND_FACTS)
+                    && it.phase == ItemPhase::InProgress
+                    && it
+                        .jobs
+                        .last()
+                        .and_then(|j| st.jobs.get(j))
+                        .is_some_and(|r| matches!(r.state, AttemptState::SucceededSealed(_)))
+            })
+            .map(|(k, _)| k.clone())
+            .collect()
+    }
+
     /// A job without a decision: rerun (ready) until max_job_attempts, then attention (its keys stay open).
     fn fail_or_attention(
         &self,
@@ -2262,181 +2610,30 @@ impl WorkSource for CloseFromMaterialSource {
         let i = self
             .node_of(&it.node)
             .ok_or_else(|| format!("item {} of a node this source does not hold", done.item))?;
-        if is_proof_kind(&it.kind) {
-            return self.route_proof(st, i, done);
+        // test builds only (supervisor/failpoint.rs): `closeloop_route_refused` refuses, `closeloop_route_dropped`
+        // drops (no events: the state an older build left), the routing of every FIRST solve attempt
+        let fp = crate::supervisor::failpoint::Failpoints::from_env();
+        let first_solve = it.kind == KIND_SOLVE && it.jobs.len() <= 1;
+        if first_solve && fp.armed("closeloop_route_dropped") {
+            return Ok(Routing::default());
         }
-        if it.kind != KIND_SOLVE {
-            return Err(format!("item {} is not a solve item", done.item));
-        }
-        let b = self.batch(st, i, &done.item)?;
-        let c = &done.classification;
-        let decided_row = matches!((c.row, c.sub.as_str()), (1, "") | (28, "") | (29, ""));
-        let mut rt = Routing::default();
-        if !(decided_row && !done.canonical_lines.is_empty() && done.table.is_some()) {
-            // no per-key decision: rerun (ready) until max_job_attempts, then attention
-            let what = format!("{} keys of recipe {} stay open", b.keys.len(), b.source);
-            self.fail_or_attention(st, i, done, "solve_job_failed", &what, &mut rt);
-            return Ok(rt);
-        }
-        let table = done.table.clone().expect("checked");
-        let set = self.ensure_set(i)?;
-        let slot = set
-            .recipes
-            .iter()
-            .find(|r| r.id == b.source)
-            .map(|r| r.slot.clone())
-            .ok_or_else(|| format!("recipe source {} not in the imported set", b.source))?;
-        let skey = format!("{slot:?}");
-        if !self.nodes[i].prefixes.contains_key(&skey) {
-            let d = prefix_dispatcher(&set, &slot)?;
-            self.nodes[i].prefixes.insert(skey.clone(), d);
-        }
-        let pinned = self.pinned(st, i, &b);
-        let prog = self.solve_program(&self.nodes[i].cfg).to_string();
-        let r = &self.nodes[i];
-        let ctx = AcceptCtx {
-            set: &set,
-            before: r.prefixes.get(&skey).and_then(|x| x.as_ref()),
-            boxed: r.cfg.target == Target::Boxed,
-            batch: &b,
-            pinned_digest: pinned,
-            determinism_id: r.cfg.solve.determinism_id.clone(),
-            binary_blake3: self.blake3.get(&prog).cloned().unwrap_or_default(),
-            binary_sha256: self.sha256.get(&prog).cloned().unwrap_or_default(),
-            binary_path: self
-                .programs
-                .get(&prog)
-                .map(|p| p.display().to_string())
-                .unwrap_or_default(),
-            family_path: r.cfg.solve.family.display().to_string(),
-            family_blake3: r.family_blake3.clone(),
-            order: r.cfg.solve.order_arg(),
-            results_path: table.path.clone(),
-            results_blake3: table.blake3.clone(),
-            run_dir: st
-                .jobs
-                .get(&done.job)
-                .and_then(|j| j.run_dir.clone())
-                .unwrap_or_default(),
-            max_trace_rows: r.cfg.solve.max_trace_rows,
-            key_budget_s: r.cfg.solve.key_budget_s,
-        };
-        let d = decide(&ctx, &done.canonical_lines)?;
-        if let (None, Some(e)) = (self.nodes[i].pins.get(&b.source), &d.engine_digest)
-            && d.refused.is_none()
-        {
-            self.nodes[i].pins.insert(b.source.clone(), e.clone());
-        }
-        let n = self.nodes[i].n.clone();
-        let dir = format!("{}/answers", node_dir(&n));
-        // lane closeloop3: ERROR / IRREGULAR keys are recorded apart (retried, then attention), never as answers
-        if !d.retry.is_empty() {
-            let mut rb = d
-                .retry
-                .iter()
-                .map(|(_, l)| l.as_str())
-                .collect::<Vec<_>>()
-                .join("\n")
-                .into_bytes();
-            rb.push(b'\n');
-            let rr = record(format!("{dir}/{}.{}.retry.jsonl", done.item, done.job), rb);
-            let rref = rr.file_ref();
-            rt.events.push(Event::InputRegistered {
-                input: input_retry(&done.item, &done.job),
-                role: ROLE_RETRY.into(),
-                path: self.abs(&rr.path).display().to_string(),
-                bytes: rref.bytes,
-                blake3: rref.blake3,
-            });
-            rt.accepts.push(rr);
-        }
-        let mut ab = d.lines.join("\n").into_bytes();
-        ab.push(b'\n');
-        let ans = record(format!("{dir}/{}.{}.jsonl", done.item, done.job), ab);
-        let aref = ans.file_ref();
-        rt.events.push(Event::InputRegistered {
-            input: input_answers(&done.item, &done.job),
-            role: ROLE_ANSWERS.into(),
-            path: self.abs(&ans.path).display().to_string(),
-            bytes: aref.bytes,
-            blake3: aref.blake3.clone(),
-        });
-        let (round, _) = parse_solve_item(&n, &done.item).unwrap_or((0, 0));
-        if !d.records.is_empty() {
-            // lane closeloop2 (closeloop.md 13.1): our relations as POINT RECORDS, proved per key by proof jobs
-            let rel = self.relation_table(i, &b, &done.item, &done.job, &d.records)?;
-            let rref = rel.file_ref();
-            rt.events.push(Event::InputRegistered {
-                input: input_relations(&done.item, &done.job),
-                role: ROLE_RELATIONS.into(),
-                path: self.abs(&rel.path).display().to_string(),
-                bytes: rref.bytes,
-                blake3: rref.blake3,
-            });
-            rt.accepts.push(rel);
-        }
-        if !d.certified.is_empty() {
-            let keys = record(
-                format!("{dir}/{}.{}.keys.json", done.item, done.job),
-                json_bytes(
-                    &json!({"schema": "rustred.campaign.closeloop-keys.v1", "keys": d.certified}),
-                ),
-            );
-            let kref = keys.file_ref();
-            let canon = done
-                .canonical_blake3
-                .clone()
-                .unwrap_or_else(|| aref.blake3.clone());
-            rt.events.push(Event::Item {
-                item: done.item.clone(),
-                ev: ItemEvent::Produce {
-                    job: done.job.clone(),
-                    attempt: done.attempt,
-                    table: table.clone(),
-                },
-            });
-            rt.events.push(Event::Item {
-                item: done.item.clone(),
-                ev: ItemEvent::Accept {
-                    rule: format!("{}:{}", done.item, &canon[..16.min(canon.len())]),
-                    level: EvidenceLevel::IdentityProved,
-                    record: aref.clone(),
-                    source: AcceptSource::Job {
-                        job: done.job.clone(),
-                        attempt: done.attempt,
-                        table_blake3: table.blake3.clone(),
-                    },
-                    elided: false,
-                    evidence: Some(LevelEvidence::IdentityProved {
-                        proofs: aref.clone(),
-                        keys: kref,
-                    }),
-                    round: Some(round),
-                },
-            });
-            rt.accepts.push(keys);
+        let routed = if is_proof_kind(&it.kind) {
+            self.route_proof(st, i, done)
+        } else if it.kind == KIND_SOLVE {
+            if first_solve && fp.armed("closeloop_route_refused") {
+                Err("failpoint closeloop_route_refused".to_string())
+            } else {
+                self.route_solve(st, i, done)
+            }
         } else {
-            rt.events.push(Event::Item {
-                item: done.item.clone(),
-                ev: ItemEvent::Escalate {
-                    to: Rung(1),
-                    reason: match &d.refused {
-                        Some(w) => format!("attempt refused: {w}; the keys go to the next recipe candidate"),
-                        None if !d.retry.is_empty() => format!(
-                            "no key certified ({} failures; {} keys typed ERROR / IRREGULAR are retried, then attention); the other keys go to the next recipe candidate",
-                            d.failed.len(),
-                            d.retry.len()
-                        ),
-                        None => format!(
-                            "no key certified ({} failures); the keys go to the next recipe candidate",
-                            d.failed.len()
-                        ),
-                    },
-                },
-            });
-        }
-        rt.accepts.push(ans);
-        Ok(rt)
+            return Err(format!("item {} is not a solve item", done.item));
+        };
+        // lane t266run: a refused routing is a typed item event (requeue as a new attempt, then attention), never an
+        // item left in progress with a settled attempt
+        Ok(routed.unwrap_or_else(|e| {
+            eprintln!("closeloop: {} {} a{}: routing refused: {e}", done.item, done.job, done.attempt);
+            self.unrouted(st, i, &done.item, &e)
+        }))
     }
 
     fn control(
@@ -2460,7 +2657,41 @@ impl WorkSource for CloseFromMaterialSource {
 
     fn poll(&mut self, st: &CampaignState, _ctx: &SourceContext) -> Result<Routing, String> {
         let mut rt = Routing::default();
+        // lane t266run: no item stays in progress over a settled attempt that was never routed
+        for i in 0..self.nodes.len() {
+            for item in self.unrouted_items(st, i) {
+                let why = "settled attempt without routing (sealed success, item still in progress)";
+                eprintln!("closeloop: {item}: {why}");
+                rt.events.extend(self.unrouted(st, i, &item, why).events);
+            }
+        }
         let mut finalized: BTreeMap<usize, String> = BTreeMap::new();
+        // lane layers (closeloop.md 23): register the layers a running pass froze, NOW (an interrupt never loses them)
+        for i in 0..self.nodes.len() {
+            let msgs: Vec<super::layers::LayerMsg> = self.nodes[i]
+                .running
+                .as_ref()
+                .and_then(|r| r.layer_rx.as_ref())
+                .map(|rx| rx.try_iter().collect())
+                .unwrap_or_default();
+            for m in msgs {
+                let n = self.nodes[i].n.clone();
+                let input = super::layers::input_layer(&n, m.idx);
+                if st.inputs.contains_key(&input) {
+                    continue; // frozen once: never re-registered
+                }
+                let rec = record(format!("{}/layers/{}.record.json", node_dir(&n), m.idx), m.body);
+                let fr = rec.file_ref();
+                rt.events.push(Event::InputRegistered {
+                    input,
+                    role: super::layers::ROLE_LAYER.into(),
+                    path: self.abs(&rec.path).display().to_string(),
+                    bytes: fr.bytes,
+                    blake3: fr.blake3,
+                });
+                rt.accepts.push(rec);
+            }
+        }
         for i in 0..self.nodes.len() {
             let fin = self.nodes[i]
                 .running
