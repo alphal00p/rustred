@@ -139,8 +139,10 @@ pub fn effective_spec(base: &str, decisions: &[TerminalDecision]) -> Result<Stri
 
 /// Who accepted each terminal row of a check: `operator` / `auto` (a decision; the latest wins), `auto` for the keys an
 /// escalation accepted under its rule (`escalated`), `spec` for pre-approved keys and every other declared terminal.
+/// int6 (import5 x closeloop4): a terminal declared by a TABLE (`composite_terminal_ledger` keys; residual keys under
+/// `table_terminals: ledger_and_residuals`) is a declared terminal (`spec`), named with its table provenance.
 pub fn accepted_terminals(
-    _set: &ImportedSet,
+    set: &ImportedSet,
     res: &CheckResult,
     decisions: &[TerminalDecision],
     escalated: &std::collections::BTreeSet<Vec<i32>>,
@@ -162,6 +164,12 @@ pub fn accepted_terminals(
                 "by": "escalation.terminals.approved (pre-approved)", "decision": null, "pole_diagnostics": null}),
             None if escalated.contains(&r.key) => json!({"key": r.key, "accepted_by": "auto",
                 "by": "escalation terminal rule (terminals.max_auto)", "decision": null, "pole_diagnostics": null}),
+            None if set.terminal_provenance.contains_key(&r.key) => {
+                let t = &set.terminal_provenance[&r.key];
+                json!({"key": r.key, "accepted_by": "spec",
+                       "by": format!("import spec: table {} ({}, line {})", t.source, t.provenance, t.line),
+                       "provenance": t.provenance, "decision": null, "pole_diagnostics": null})
+            }
             None => json!({"key": r.key, "accepted_by": "spec", "by": "import spec (declared terminals)",
                            "decision": null, "pole_diagnostics": null}),
         })
