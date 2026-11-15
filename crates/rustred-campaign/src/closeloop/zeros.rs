@@ -284,6 +284,24 @@ pub fn relation_descent(
     let lines = set.frame.mask().to_vec();
     let (mut n, mut bad) = (0u64, vec![]);
     for r in &res.rows {
+        // a relation the import REFUSED for not descending (a supplied / symmetry relation left without its
+        // `descends` verdict bit: the key is open `recipeunverified`) is a non-descending edge as well
+        if r.status == RowStatus::Open && r.open_status.as_deref() == Some("recipeunverified") {
+            for rs in &set.supplied {
+                if let Some(i) = rs.relations.find(&r.key) {
+                    let st = &rs.relations;
+                    let w = st.codec().words();
+                    let mut buf = vec![0i32; set.arity()];
+                    for c in st.rhs_codes(i).chunks_exact(w) {
+                        st.codec().decode(c, &mut buf);
+                        if is_top(&lines, &buf) && !set.cmp.lower(&buf, &r.key) {
+                            bad.push((r.key.clone(), rs.name.clone(), buf.clone()));
+                        }
+                    }
+                }
+            }
+            continue;
+        }
         let (RowStatus::Served, Some(Server::Relation { set: name, recipe })) =
             (r.status, &r.server)
         else {
@@ -325,6 +343,20 @@ pub fn relation_descent(
             }
         }
     }
+    // our recipe relations the import refused because a right-hand-side key is not lower than the key
+    for rf in &res.solve_refusals {
+        if rf.reason.contains("is not lower than the key")
+            && let Some(rel) = ev.solved.get(&rf.source).and_then(|m| m.get(&rf.key))
+        {
+            for t in &rel.rhs {
+                if is_top(&lines, t) && !set.cmp.lower(t, &rf.key) {
+                    bad.push((rf.key.clone(), rf.source.clone(), t.clone()));
+                }
+            }
+        }
+    }
+    bad.sort();
+    bad.dedup();
     (n, bad)
 }
 

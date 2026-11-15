@@ -13,6 +13,66 @@ use import::store::{EvidenceStore, StoreOptions};
 use import::{CheckOptions, Evidence, ImportError, RowStatus, TableSetSpec, check, load};
 use serde_json::{Value, json};
 
+/// lane closeloop4 (audit-closeloop M1 / m4): the spec text with its evidence PINNED (each file's sha256, a
+/// SHA256SUMS manifest beside a directory) and the family of its tables named (spec evidence is read only so).
+#[allow(dead_code)]
+fn pin_ev(spec: &serde_json::Value) -> String {
+    use std::io::BufRead;
+    let mut v = spec.clone();
+    let fam = v["sources"].as_array().and_then(|a| {
+        a.iter().find_map(|s| {
+            let p = s["path"].as_str()?;
+            let f = std::fs::File::open(p).ok()?;
+            let mut l = String::new();
+            std::io::BufReader::new(f).read_line(&mut l).ok()?;
+            let h: serde_json::Value = serde_json::from_str(l.trim()).ok()?;
+            h["family"].as_str().map(str::to_string)
+        })
+    });
+    let sha = |p: &std::path::Path| rustred_campaign_core::import::lines::file_sha256(p).unwrap();
+    if let Some(ev) = v.get_mut("evidence").and_then(|e| e.as_object_mut()) {
+        for k in ["facts", "proofs", "solved"] {
+            if let Some(a) = ev.get_mut(k).and_then(|x| x.as_array_mut()) {
+                for e in a {
+                    let p = std::path::PathBuf::from(e["path"].as_str().unwrap_or(""));
+                    if p.is_file() && e.get("sha256").is_none() {
+                        e["sha256"] = serde_json::json!(sha(&p));
+                    }
+                    if p.is_dir() && e.get("manifest").is_none() {
+                        let mut names: Vec<String> = std::fs::read_dir(&p)
+                            .unwrap()
+                            .flatten()
+                            .map(|x| x.file_name().to_string_lossy().into_owned())
+                            .filter(|n| n.ends_with(".json") || n.ends_with(".jsonl"))
+                            .collect();
+                        names.sort();
+                        let body: String = names
+                            .iter()
+                            .map(|n| format!("{}  {n}\n", sha(&p.join(n))))
+                            .collect();
+                        let m = std::env::temp_dir().join(format!(
+                            "pin-ev-{}-{}.SHA256SUMS",
+                            std::process::id(),
+                            rustred_campaign_core::closure::sha256::sha256_tag(
+                                p.display().to_string().as_bytes()
+                            )
+                        ));
+                        std::fs::write(&m, body).unwrap();
+                        e["manifest"] =
+                            serde_json::json!({"path": m.display().to_string(), "sha256": sha(&m)});
+                    }
+                    if e.get("family").is_none()
+                        && let Some(f) = &fam
+                    {
+                        e["family"] = serde_json::json!(f);
+                    }
+                }
+            }
+        }
+    }
+    v.to_string()
+}
+
 const HEADER: &str =
     r#"{"type":"header","schema":"table_dump.v1","family":"TOY","denominators":3,"mask":"110"}"#;
 
@@ -210,7 +270,7 @@ fn store_check_equals_in_memory_check_for_every_form() {
     let d = scratch("eq");
     let top = 30;
     let (spec0, _a) = toy(&d, top);
-    let s = TableSetSpec::from_json(&spec0.to_string()).unwrap();
+    let s = TableSetSpec::from_json(&pin_ev(&spec0)).unwrap();
     let set = load(&s, &d).unwrap();
     let sha0 = set.rules[0][0].record_sha256.clone();
     let sha1 = set.rules[0][1].record_sha256.clone();
@@ -218,7 +278,7 @@ fn store_check_equals_in_memory_check_for_every_form() {
     let mut spec = spec0.clone();
     spec["evidence"] = json!({"facts":[{"path": fp.display().to_string()}],
                               "proofs":[{"path": pp.display().to_string()}]});
-    let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
+    let s = TableSetSpec::from_json(&pin_ev(&spec)).unwrap();
     let set = load(&s, &d).unwrap();
     // the in-memory evidence cannot read the index form (it is new): compare against an in-memory run whose index-form
     // lines are rewritten as compact digest lines (same facts)
@@ -249,7 +309,7 @@ fn store_check_equals_in_memory_check_for_every_form() {
     }
     let mut spec_mem = spec.clone();
     spec_mem["evidence"]["facts"] = json!([{"path": mem_facts.display().to_string()}]);
-    let set_mem = load(&TableSetSpec::from_json(&spec_mem.to_string()).unwrap(), &d).unwrap();
+    let set_mem = load(&TableSetSpec::from_json(&pin_ev(&spec_mem)).unwrap(), &d).unwrap();
     let ev_mem = Evidence::from_spec(&set_mem, &d).unwrap();
     let r_mem = checked(&set_mem, &ev_mem);
     assert_eq!(r_mem.tier, closure::Tier::C);
@@ -321,7 +381,7 @@ fn store_check_equals_in_memory_check_for_every_form() {
 fn store_refuses_a_foreign_term_list_and_conflicts() {
     let d = scratch("ref");
     let (spec0, _a) = toy(&d, 6);
-    let set = load(&TableSetSpec::from_json(&spec0.to_string()).unwrap(), &d).unwrap();
+    let set = load(&TableSetSpec::from_json(&pin_ev(&spec0)).unwrap(), &d).unwrap();
     let sha0 = set.rules[0][0].record_sha256.clone();
     let good: Vec<i32> = terms(3).iter().flatten().copied().collect();
     let line = |fnv64: &str, n: u64, zero: Vec<u32>| {
@@ -385,7 +445,7 @@ fn store_lookups_over_many_blocks_equal_a_full_scan() {
     let d = scratch("blk");
     let top = 30;
     let (spec0, _a) = toy(&d, top);
-    let set = load(&TableSetSpec::from_json(&spec0.to_string()).unwrap(), &d).unwrap();
+    let set = load(&TableSetSpec::from_json(&pin_ev(&spec0)).unwrap(), &d).unwrap();
     let sha0 = set.rules[0][0].record_sha256.clone();
     // many proof lines (keys need not be in the closure): 5,000 keys -> > 19 blocks of 256
     let mut s = String::new();

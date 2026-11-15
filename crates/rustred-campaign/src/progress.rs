@@ -934,8 +934,11 @@ pub fn verify_against(cdir: &Path, target: Option<u64>) -> Result<VerifyReport, 
     // difference (resume re-checks them through the work source as well)
     let croot = std::fs::canonicalize(cdir).unwrap_or_else(|_| cdir.to_path_buf());
     for (id, inp) in &st.inputs {
+        // records are registered with absolute paths; other inputs (e.g. the campaign marker id) are not files
         let p = std::path::PathBuf::from(&inp.path);
-        let p = if p.is_absolute() { p } else { cdir.join(p) };
+        if !p.is_absolute() {
+            continue;
+        }
         let inside = std::fs::canonicalize(p.parent().unwrap_or(&p))
             .map(|d| d.starts_with(&croot))
             .unwrap_or(false);
