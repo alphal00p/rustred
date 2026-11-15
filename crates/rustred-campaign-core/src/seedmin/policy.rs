@@ -167,6 +167,13 @@ pub struct SeedMinPolicy {
     /// the thousands of rows of a face's list; notes, record of the measurement).
     #[serde(default = "d_off")]
     pub system_regularity: String,
+    /// `smallest_first` (default, MEASURED: T162 {0,1,3,4} centre line 4 down, 44 keys: base six + {S2} gave 67 seeds /
+    /// 654-833 terms / 44 of 44 regular against 103 / 1,258-1,528 / 43 regular from base + {S2, S2m1}; base + {S2m1} solved
+    /// no key) | `full_first` | `off` (the full list only): how a caller whose start list is base + escalation shells
+    /// orders the subset alternatives of [`super::subsets::minimise_shell_subsets`] (TRICKS 17: greedy drops from a
+    /// superset need not reach the minimum of a sub-family).
+    #[serde(default = "d_shell_subsets")]
+    pub shell_subsets: String,
     /// The ROW ORDER of the lists (TRICKS 17 (2): head reduction depends on it): `given` (the start list's order = the
     /// recipe's generation order, kept by the engine minimiser design, coord-seed-minimise.md 1b) | `distance_asc` |
     /// `distance_desc` (stable, L1 per `distance_from`). Applied once to the start list; every later list keeps it.
@@ -226,6 +233,9 @@ fn d_on_undecided() -> String {
 fn d_on() -> String {
     "on".into()
 }
+fn d_shell_subsets() -> String {
+    "smallest_first".into()
+}
 fn d_off() -> String {
     "off".into()
 }
@@ -270,6 +280,11 @@ impl SeedMinPolicy {
         pick(&self.pole_objective, &["on", "off"], "pole_objective")?;
         pick(&self.drop_chunks, &["single", "halving"], "drop_chunks")?;
         pick(&self.system_regularity, &["off", "on"], "system_regularity")?;
+        pick(
+            &self.shell_subsets,
+            &["smallest_first", "full_first", "off"],
+            "shell_subsets",
+        )?;
         pick(
             &self.row_order,
             &["given", "distance_asc", "distance_desc"],

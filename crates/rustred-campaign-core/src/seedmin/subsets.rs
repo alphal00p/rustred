@@ -59,6 +59,20 @@ pub const RANK_MEASURES: [&str; 6] = [
 ];
 
 impl ShellSubsetSpec {
+    /// The spec of a caller's start list `base + escalation` under the policy's `shell_subsets` (None when `off`).
+    pub fn from_policy(
+        base: &[String],
+        escalation: &[String],
+        policy: &SeedMinPolicy,
+    ) -> Option<ShellSubsetSpec> {
+        (policy.shell_subsets != "off" && !escalation.is_empty()).then(|| ShellSubsetSpec {
+            base: base.to_vec(),
+            escalation: escalation.to_vec(),
+            order: policy.shell_subsets.clone(),
+            rank: d_rank(),
+        })
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if self.escalation.is_empty() {
             return Err("shell subsets: no escalation shells".into());
