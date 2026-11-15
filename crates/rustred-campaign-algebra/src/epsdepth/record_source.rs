@@ -97,6 +97,8 @@ pub struct RecordSource<'a> {
     cache: HashMap<(usize, usize), Entry>,
     cache_bytes: usize,
     pub budget_bytes: usize,
+    /// Threads for the coefficients of one record at many keys (1 = sequential; results never depend on it).
+    pub threads: usize,
     tick: u64,
     /// Supplied relation records (path, record sha256): addressed as table [`SUPPLIED`].
     supplied: Vec<(String, String)>,
@@ -231,6 +233,7 @@ impl<'a> RecordSource<'a> {
             cache: HashMap::new(),
             cache_bytes: 0,
             budget_bytes,
+            threads: 1,
             tick: 0,
             supplied: vec![],
             stats: SourceStats::default(),
@@ -487,13 +490,15 @@ impl<'a> RecordSource<'a> {
         }
     }
 
-    /// The top terms of record (table, record) applied at `point_key` (the key, or a credit's image).
-    fn instantiate(
+    /// The rule point of record (table, record) at `point_key` and its TOP terms (term index, term key); every needed
+    /// coefficient parsed into the cache.
+    #[allow(clippy::type_complexity)]
+    fn plan(
         &mut self,
         table: usize,
         record: usize,
         point_key: &[i32],
-    ) -> Result<Vec<(Vec<i32>, TCoeff)>, String> {
+    ) -> Result<(Vec<i32>, Vec<(usize, Vec<i32>)>), String> {
         self.entry(table, record)?;
         let arity = self.set.arity();
         let mut pt = vec![];
@@ -502,19 +507,16 @@ impl<'a> RecordSource<'a> {
         }
         self.stats.instantiations += 1;
         let n = self.cache[&(table, record)].patterns.len();
-        let mut out = vec![];
+        let mut top = vec![];
         let mut added = 0usize;
         for j in 0..n {
-            let tk: Option<Vec<i32>> = {
-                let e = &self.cache[&(table, record)];
-                e.patterns[j]
-                    .iter()
-                    .map(|s| match *s {
-                        RhsSlot::Param { param, offset } => pt.get(param)?.checked_add(offset),
-                        RhsSlot::Const(c) => Some(c),
-                    })
-                    .collect()
-            };
+            let tk: Option<Vec<i32>> = self.cache[&(table, record)].patterns[j]
+                .iter()
+                .map(|s| match *s {
+                    RhsSlot::Param { param, offset } => pt.get(param)?.checked_add(offset),
+                    RhsSlot::Const(c) => Some(c),
+                })
+                .collect();
             let tk = tk.ok_or_else(|| format!("term {j}: key out of range"))?;
             match self.sectors.classify_masked(&tk, 0) {
                 TermClass::Top => {}
@@ -527,31 +529,111 @@ impl<'a> RecordSource<'a> {
                     continue;
                 }
             }
-            let parsed = {
-                let e = self.cache.get_mut(&(table, record)).expect("entry");
-                if !e.parsed.contains_key(&j) {
-                    let text = e.texts[j].clone();
-                    let r = parse_coefficient(&self.alg, &text, arity);
-                    if let Ok((a, b)) = &r {
-                        let b2 = 40 * (a.nterms() + b.nterms()) * (arity + 2);
-                        e.bytes += b2;
-                        added += b2;
-                    }
-                    e.parsed.insert(j, r);
-                    self.stats.coefficients_parsed += 1;
+            let e = self.cache.get_mut(&(table, record)).expect("entry");
+            if !e.parsed.contains_key(&j) {
+                let text = e.texts[j].clone();
+                let r = parse_coefficient(&self.alg, &text, arity);
+                if let Ok((a, b)) = &r {
+                    let b2 = 40 * (a.nterms() + b.nterms()) * (arity + 2);
+                    e.bytes += b2;
+                    added += b2;
                 }
-                e.parsed[&j].clone()
-            };
-            let (num, den) = parsed.map_err(|e| format!("term {j}: {e}"))?;
-            let c = self
-                .lau
-                .coeff_at_key(&num, &den, arity, &pt)
-                .map_err(|e| format!("term {j}: {e}"))?;
-            out.push((tk, c));
+                e.parsed.insert(j, r);
+                self.stats.coefficients_parsed += 1;
+            }
+            top.push((j, tk));
         }
         self.cache_bytes += added;
+        Ok((pt, top))
+    }
+
+    /// The exact coefficients of a plan (pure: parsed polynomials of the cache entry, the rule point).
+    fn coefficients(
+        e: &Entry,
+        lau: &SymbolicaLaurent,
+        arity: usize,
+        pt: &[i32],
+        top: &[(usize, Vec<i32>)],
+    ) -> Result<Vec<(Vec<i32>, TCoeff)>, String> {
+        top.iter()
+            .map(|(j, tk)| {
+                let (num, den) = e.parsed[j]
+                    .as_ref()
+                    .map_err(|er| format!("term {j}: {er}"))?;
+                let c = lau
+                    .coeff_at_key(num, den, arity, pt)
+                    .map_err(|er| format!("term {j}: {er}"))?;
+                Ok((tk.clone(), c))
+            })
+            .collect()
+    }
+
+    /// The top terms of record (table, record) applied at `point_key` (the key, or a credit's image).
+    fn instantiate(
+        &mut self,
+        table: usize,
+        record: usize,
+        point_key: &[i32],
+    ) -> Result<Vec<(Vec<i32>, TCoeff)>, String> {
+        let (pt, top) = self.plan(table, record, point_key)?;
+        let out = Self::coefficients(
+            &self.cache[&(table, record)],
+            &self.lau,
+            self.set.arity(),
+            &pt,
+            &top,
+        );
         self.evict();
-        Ok(out)
+        out
+    }
+
+    /// Rule rows of ONE record at many keys, the coefficients computed on `self.threads` threads (results never depend
+    /// on the thread count: each key's terms are computed independently and returned in input order).
+    fn instantiate_group(
+        &mut self,
+        table: usize,
+        record: usize,
+        keys: &[usize],
+    ) -> Vec<Result<Vec<(Vec<i32>, TCoeff)>, String>> {
+        let plans: Vec<Result<(Vec<i32>, Vec<(usize, Vec<i32>)>), String>> = keys
+            .iter()
+            .map(|&k| {
+                let key = self.keys[k].clone();
+                self.plan(table, record, &key)
+            })
+            .collect();
+        let arity = self.set.arity();
+        let out = match self.cache.get(&(table, record)) {
+            None => plans.into_iter().map(|p| p.map(|_| vec![])).collect(),
+            Some(e) => {
+                let lau = &self.lau;
+                let t = self.threads.clamp(1, plans.len().max(1));
+                let chunk = plans.len().div_ceil(t);
+                let mut out: Vec<Result<Vec<(Vec<i32>, TCoeff)>, String>> =
+                    Vec::with_capacity(plans.len());
+                std::thread::scope(|sc| {
+                    let hs: Vec<_> = plans
+                        .chunks(chunk.max(1))
+                        .map(|ch| {
+                            sc.spawn(move || {
+                                ch.iter()
+                                    .map(|p| match p {
+                                        Ok((pt, top)) => Self::coefficients(e, lau, arity, pt, top),
+                                        Err(er) => Err(er.clone()),
+                                    })
+                                    .collect::<Vec<_>>()
+                            })
+                        })
+                        .collect();
+                    for h in hs {
+                        out.extend(h.join().expect("coefficient thread"));
+                    }
+                });
+                out
+            }
+        };
+        self.evict();
+        out
     }
 
     fn relation_of(&mut self, k: usize) -> Result<Terms<TCoeff>, String> {
@@ -745,9 +827,34 @@ impl ReductionSource for RecordSource<'_> {
             St::Rule { table, record } | St::Credit { table, record, .. } => (*table, *record, k),
             _ => (usize::MAX, usize::MAX, k),
         });
-        for k in order {
-            let r = self.relation_of(k);
-            visit(k, r);
+        let mut i = 0;
+        while i < order.len() {
+            let k = order[i];
+            if let St::Rule { table, record } = self.st[k].clone()
+                && self.threads > 1
+            {
+                let mut j = i;
+                while j < order.len()
+                    && matches!(&self.st[order[j]], St::Rule { table: t, record: r } if *t == table && *r == record)
+                {
+                    j += 1;
+                }
+                let group: Vec<usize> = order[i..j].to_vec();
+                let res = self.instantiate_group(table, record, &group);
+                for (&k, r) in group.iter().zip(res) {
+                    let r = r.map(|t| {
+                        t.into_iter()
+                            .map(|(tk, c)| (self.intern_outside(tk), c))
+                            .collect()
+                    });
+                    visit(k, r);
+                }
+                i = j;
+            } else {
+                let r = self.relation_of(k);
+                visit(k, r);
+                i += 1;
+            }
         }
         Ok(())
     }

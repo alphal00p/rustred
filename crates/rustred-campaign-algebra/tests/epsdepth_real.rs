@@ -86,6 +86,9 @@ fn real_node_composed_profiles() {
         << 20;
     let mut src =
         RecordSource::from_statement(&set, Path::new(&stmt), alg, lau.clone(), cache).unwrap();
+    src.threads = env("EPSDEPTH_THREADS")
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(1);
     eprintln!(
         "statement: {:?} kinds {:?}",
         src.stats.statement_rows,
