@@ -102,6 +102,9 @@ pub const SPAWN_SENTINEL: &str = "SPAWN";
 pub const SPAWN_BARRIER_TAG: &str = "barrier v1\n";
 /// `RUN/sup/CAMPAIGN`: the campaign's marker id, written before the launch record (run directory authentication).
 pub const CAMPAIGN_ID_FILE: &str = "CAMPAIGN";
+/// procfix7 (gate6 m2-a): `RUN/sup/BARRIER_REFUSED`, written by the spawn-barrier shim when it refused the release (EOF,
+/// short or wrong token): the program never ran.
+pub const BARRIER_REFUSED_FILE: &str = "BARRIER_REFUSED";
 /// The `item.attention` code of an unconfirmed launch whose execution is unknown (lane int5): the operator decides with
 /// `rr_campaign control CDIR resolve JOB`.
 pub const EXECUTION_UNKNOWN: &str = "execution_unknown";
@@ -651,6 +654,8 @@ impl Supervisor {
                 "{name} is set, but this release build has no test hooks: unset it (hooked rehearsals need a test build)"
             )));
         }
+        // procfix7 (gate6 m-x): a test build refuses a malformed failpoint value (before anything is touched).
+        Failpoints::check_env().map_err(RunExit::Refused)?;
         // procfix5 (gate4 m2): never killed by SIGXFSZ (`ulimit -f`): EFBIG is "disk full" (exit 75).
         crate::launch::ignore_sigxfsz()
             .map_err(|e| RunExit::Internal(format!("SIGXFSZ disposition: {e}")))?;
@@ -2729,11 +2734,29 @@ impl Supervisor {
             return SettleEnd::Deferred { errno, what };
         }
         let c = classify::classify(&ev);
+        // procfix7 (gate6 m2-a): the spawn-barrier shim REFUSED the release (garbage or nothing on its pipe: another
+        // process of the uid wrote into it or took the token): the program never ran. A typed attempt end (row 15s:
+        // retried after the launch back-off, bounded by the resource-end rule), never a crash count.
+        let c = match barrier_refused(layout, &ev) {
+            Some(why) => {
+                self.log.line(
+                    "WARN",
+                    &format!("{job} a{attempt}: the spawn barrier refused its release ({why}): the program never ran; retried (row 15s), not a crash (was row {}{})", c.row, c.sub),
+                );
+                barrier_refused_classification(&c, why)
+            }
+            None => c,
+        };
         // procfix6 (gate5 m4): a death attributable to the HOST's disk state (SIGXFSZ, an OUTCOME naming EFBIG, or no /
         // a torn OUTCOME while the run directory's or the campaign directory's file system is full at settle time) is a
         // resource end of the attempt (row 15b: retried after a back-off, then attention `child_resource_failure`),
         // never a crash count.
-        let c = match disk_attributed_end(&ev, &c, &[layout.root.as_path(), self.cdir.as_path()]) {
+        let c = match disk_attributed_end(
+            &ev,
+            &c,
+            &[layout.root.as_path(), self.cdir.as_path()],
+            own_file_size_limit(),
+        ) {
             Some(why) => {
                 self.log.line(
                     "WARN",
@@ -3321,6 +3344,12 @@ impl Supervisor {
         self.fp.hit("after_launch_record");
         // procfix5 (gate4 m1): the child waits behind the spawn barrier until `job.started` is durable (below).
         ls.spawn_barrier = crate::cli::barrier_hosted() && !self.fp.armed("no_spawn_barrier");
+        // procfix7 (gate6 m2-a): where the shim records a refused release (a typed attempt end at settle).
+        ls.barrier_refused_file = ls.spawn_barrier.then(|| {
+            RunLayout::new(&run_dir)
+                .sup_dir()
+                .join(BARRIER_REFUSED_FILE)
+        });
         // The spawn sentinel (requirement 05:23Z): durable BEFORE the spawn, so that its absence proves "never spawned".
         if let Err(e) = write_spawn_sentinel(&RunLayout::new(&run_dir), ls.spawn_barrier) {
             self.commit(not_an_attempt(
@@ -3395,6 +3424,10 @@ impl Supervisor {
         }]);
         // procfix5 (gate4 m1): only now (the spawn is in the ledger) may the child run its program.
         if recorded {
+            // procfix7: test builds only: hold the release (`release_delay_ms:<ms>`) so a test can reach the shim's pipe.
+            if let Some(ms) = self.fp.number("release_delay_ms") {
+                std::thread::sleep(Duration::from_millis(ms));
+            }
             if let Err(e) = handle.release_barrier() {
                 self.log.line(
                     "WARN",
@@ -5505,42 +5538,84 @@ fn names_errno(m: &str, n: i32) -> bool {
 /// SIGXFSZ (`ulimit -f` / a file-size limit), its OUTCOME names EFBIG, or it left no usable OUTCOME (absent, torn) while
 /// one of `dirs` (the run directory, the campaign directory) is on a file system with less than
 /// [`DISK_FULL_BELOW_BYTES`] free at settle time. Never for a valid OUTCOME that names something else.
+///
+/// procfix7 (gate6 m4-a): what the CHILD reports (a SIGXFSZ death, the shell's exit 153, an OUTCOME naming EFBIG) is
+/// never evidence by itself: such an end is a resource end only when the SUPERVISOR sees the condition itself: its own
+/// finite file-size limit (`fsize_limit`, inherited by every child) or a full file system (statvfs of `dirs`). Else it
+/// stays a crash (a child that limits itself, or that sends itself SIGXFSZ / exits 153, crashed).
 fn disk_attributed_end(
     ev: &classify::Evidence,
     c: &classify::Classification,
     dirs: &[&Path],
+    fsize_limit: Option<u64>,
 ) -> Option<String> {
     if c.kind != classify::OutcomeKind::Crashed {
         return None;
     }
+    let full = || {
+        dirs.iter().find_map(|d| {
+            free_bytes(d)
+                .filter(|&f| f < DISK_FULL_BELOW_BYTES)
+                .map(|f| {
+                    format!(
+                        "the file system of {} is full ({f} bytes free)",
+                        d.display()
+                    )
+                })
+        })
+    };
+    let evidence = || {
+        fsize_limit
+            .map(|l| {
+                format!("this supervisor runs under a file-size limit of {l} bytes that its children inherit")
+            })
+            .or_else(full)
+    };
     let sig = match ev.wait {
         WaitStatus::Signaled(s) => Some(s),
         WaitStatus::Exited(x) if (129..=192).contains(&x) => Some(x - 128),
         _ => None,
     };
     if sig == Some(libc::SIGXFSZ) {
-        return Some(format!(
-            "{SIGXFSZ_WHY} (a file-size limit: the host's `ulimit -f` or the file system)"
-        ));
+        return evidence().map(|e| format!("{SIGXFSZ_WHY} while {e}"));
     }
     match &ev.outcome {
         OutcomeState::Valid(o) => o
             .error
             .as_ref()
             .filter(|e| names_errno(&e.message, libc::EFBIG))
-            .map(|_| "its OUTCOME names EFBIG (file too large)".to_string()),
+            .and_then(|_| evidence())
+            .map(|e| format!("its OUTCOME names EFBIG (file too large) while {e}")),
         OutcomeState::Absent | OutcomeState::Invalid(_) | OutcomeState::Unreadable(_) => {
-            dirs.iter().find_map(|d| {
-                free_bytes(d)
-                    .filter(|&f| f < DISK_FULL_BELOW_BYTES)
-                    .map(|f| {
-                        format!(
-                            "no usable OUTCOME while the file system of {} is full ({f} bytes free)",
-                            d.display()
-                        )
-                    })
-            })
+            full().map(|e| format!("no usable OUTCOME while {e}"))
         }
+    }
+}
+
+/// procfix7 (gate6 m2-a): the reason recorded by the spawn-barrier shim when it exited [`crate::launch::BARRIER_NOT_RELEASED`]
+/// without starting the program (`RUN/sup/BARRIER_REFUSED`), if that is how this attempt ended.
+fn barrier_refused(layout: &RunLayout, ev: &classify::Evidence) -> Option<String> {
+    if ev.wait != WaitStatus::Exited(crate::launch::BARRIER_NOT_RELEASED)
+        || !matches!(ev.outcome, OutcomeState::Absent)
+    {
+        return None;
+    }
+    let t = std::fs::read_to_string(layout.sup_dir().join(BARRIER_REFUSED_FILE)).ok()?;
+    Some(t.lines().next().unwrap_or("refused").trim().to_string())
+}
+
+/// procfix7 (gate6 m2-a): row 15s, a refused spawn barrier (the program never ran): lost, retried after the back-off.
+fn barrier_refused_classification(
+    c: &classify::Classification,
+    why: String,
+) -> classify::Classification {
+    classify::Classification {
+        sub: "s".into(),
+        why: format!(
+            "spawn barrier refused: {why}; the program never ran (classified row {}{}: {})",
+            c.row, c.sub, c.why
+        ),
+        ..resource_classification(c, String::new())
     }
 }
 
@@ -5563,7 +5638,7 @@ fn resource_classification(c: &classify::Classification, why: String) -> classif
 /// Is this `job.requeue` reason the one of a host-resource end (decision rows 15 / 15b; written by `settle` as
 /// `"<class> (row 15<sub>)"`)? procfix5 m6: the count of such ends in a row is derived from the ledger at recovery.
 fn is_resource_requeue(reason: &str) -> bool {
-    reason.ends_with("(row 15)") || reason.ends_with("(row 15b)")
+    reason.ends_with("(row 15)") || reason.ends_with("(row 15b)") || reason.ends_with("(row 15s)")
 }
 
 fn ledger_error_is_disk_full(e: &LedgerError) -> bool {
@@ -6027,6 +6102,50 @@ mod tests {
     /// while the run directory's file system is full are RESOURCE ends (row 15b, lost, retried after the back-off);
     /// DECOYS stay what they were: a missing OUTCOME on a file system with space is a crash (row 23); SIGKILL from
     /// outside is row 21 (not a crash, untouched); an OUTCOME naming another errno is not re-read as a disk end.
+    /// procfix7 (gate6 m2-a): a shim that REFUSED its release (exit 125 + RUN/sup/BARRIER_REFUSED, no OUTCOME) is a typed
+    /// attempt end (row 15s: lost, retried after the back-off, counted by the resource-end rule); exit 125 WITHOUT the
+    /// file (the program's own code), or with an OUTCOME, stays what the decision table says.
+    #[test]
+    fn m2a_refused_barrier_is_a_typed_retry_not_a_crash() {
+        let d = std::env::temp_dir().join(format!(
+            "rr-m2a-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let layout = RunLayout::new(&d);
+        std::fs::create_dir_all(layout.sup_dir()).unwrap();
+        let ev = evidence(WaitStatus::Exited(crate::launch::BARRIER_NOT_RELEASED));
+        let c = classify::classify(&ev);
+        assert_eq!(c.kind, classify::OutcomeKind::Crashed, "{c:?}");
+        assert_eq!(
+            barrier_refused(&layout, &ev),
+            None,
+            "no file: the program's own exit code"
+        );
+        std::fs::write(
+            layout.sup_dir().join(BARRIER_REFUSED_FILE),
+            "wrong token: 32 byte(s)\n",
+        )
+        .unwrap();
+        let why = barrier_refused(&layout, &ev).expect("refused");
+        assert!(why.starts_with("wrong token"), "{why}");
+        let r = barrier_refused_classification(&c, why);
+        assert_eq!((r.row, r.sub.as_str()), (15, "s"));
+        assert_eq!(r.kind, classify::OutcomeKind::Lost);
+        assert_eq!(r.action, classify::Action::RetryAfterResourceBackoff);
+        assert!(!r.attention);
+        assert!(is_resource_requeue("lost (row 15s)"));
+        // another exit code with the file present: not a refused barrier
+        let ev = evidence(WaitStatus::Exited(1));
+        assert_eq!(barrier_refused(&layout, &ev), None);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// procfix7 (gate6 m4-a): the SIGXFSZ / exit-153 ends are resource ends ONLY with the supervisor's own evidence (its
+    /// finite file-size limit, or a full file system); on a roomy disk without a limit they stay crashes.
     #[test]
     fn m4_disk_attributed_child_ends_are_resource_ends() {
         let roomy = std::env::temp_dir();
@@ -6037,7 +6156,14 @@ mod tests {
             let ev = evidence(w);
             let c = classify::classify(&ev);
             assert_eq!(c.kind, classify::OutcomeKind::Crashed, "{c:?}");
-            let why = disk_attributed_end(&ev, &c, &[roomy.as_path()]).expect("SIGXFSZ");
+            // gate6 m4-a: a self-sent SIGXFSZ / exit 153 on a roomy disk without a limit: a crash
+            assert_eq!(disk_attributed_end(&ev, &c, &[roomy.as_path()], None), None);
+            let why =
+                disk_attributed_end(&ev, &c, &[roomy.as_path()], Some(1 << 20)).expect("SIGXFSZ");
+            assert!(
+                why.starts_with(SIGXFSZ_WHY) && why.contains("file-size limit"),
+                "{why}"
+            );
             let r = resource_classification(&c, why);
             assert_eq!((r.row, r.sub.as_str()), (15, "b"));
             assert_eq!(r.kind, classify::OutcomeKind::Lost);
@@ -6048,12 +6174,16 @@ mod tests {
         let ev = evidence(WaitStatus::Exited(1));
         let c = classify::classify(&ev);
         assert_eq!(c.row, 23);
-        assert_eq!(disk_attributed_end(&ev, &c, &[roomy.as_path()]), None);
+        assert_eq!(disk_attributed_end(&ev, &c, &[roomy.as_path()], None), None);
+        assert_eq!(
+            disk_attributed_end(&ev, &c, &[roomy.as_path()], Some(1 << 20)),
+            None
+        );
         // decoy: SIGKILL from outside, no OUTCOME: row 21 (lost), never re-classified
         let ev = evidence(WaitStatus::Signaled(libc::SIGKILL));
         let c = classify::classify(&ev);
         assert_eq!(c.row, 21);
-        assert_eq!(disk_attributed_end(&ev, &c, &[roomy.as_path()]), None);
+        assert_eq!(disk_attributed_end(&ev, &c, &[roomy.as_path()], None), None);
         // errno renderings
         assert!(names_errno(
             "write OUTCOME: File too large (os error 27)",
@@ -6070,8 +6200,16 @@ mod tests {
             Some(full) => {
                 let ev = evidence(WaitStatus::Exited(1));
                 let c = classify::classify(&ev);
-                let why = disk_attributed_end(&ev, &c, &[full.as_path()]).expect("full fs");
+                let why = disk_attributed_end(&ev, &c, &[full.as_path()], None).expect("full fs");
                 assert!(why.contains("is full"), "{why}");
+                // ... and a SIGXFSZ death on the full file system (the supervisor's own evidence): a resource end
+                let ev = evidence(WaitStatus::Signaled(libc::SIGXFSZ));
+                let c = classify::classify(&ev);
+                let why = disk_attributed_end(&ev, &c, &[full.as_path()], None).expect("full fs");
+                assert!(
+                    why.starts_with(SIGXFSZ_WHY) && why.contains("is full"),
+                    "{why}"
+                );
                 // SAFETY: unmount our own test mount.
                 let cs = std::ffi::CString::new(full.to_string_lossy().as_bytes()).unwrap();
                 unsafe { libc::umount2(cs.as_ptr(), libc::MNT_DETACH) };

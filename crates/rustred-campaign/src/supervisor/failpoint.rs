@@ -43,6 +43,55 @@ impl Failpoints {
         }
     }
 
+    /// procfix7 (gate6 m-x): every comma-separated part of the value must be `<site>:<n>` with an integer n >= 1. A part
+    /// without `:n` used to be dropped silently, so a test with a void failpoint looked like a pass: now the supervisor
+    /// refuses to start (exit 1) naming the part. Test builds only (a release build refuses the variable altogether).
+    pub fn check(v: &str) -> Result<(), String> {
+        for p in v.split(',').map(str::trim) {
+            match p.rsplit_once(':') {
+                Some((site, n)) if !site.is_empty() && n.parse::<u64>().is_ok_and(|n| n >= 1) => {}
+                _ => {
+                    return Err(format!(
+                        "{FAILPOINT_ENV}={v:?}: part {p:?} is not <site>:<n> with n >= 1: refused (a void failpoint would make the test look like a pass)"
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// [`Failpoints::check`] of `RR_CAMPAIGN_FAILPOINT` when it is set (test builds); Ok in a release build.
+    pub fn check_env() -> Result<(), String> {
+        #[cfg(debug_assertions)]
+        {
+            match std::env::var(FAILPOINT_ENV) {
+                Ok(v) => Self::check(&v),
+                Err(std::env::VarError::NotPresent) => Ok(()),
+                Err(e) => Err(format!("{FAILPOINT_ENV}: {e}")),
+            }
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            Ok(())
+        }
+    }
+
+    /// procfix7: the number of a configured NON-counting site (`release_delay_ms:<ms>`: a value, not a pass count).
+    /// Always None in a release build.
+    #[cfg(debug_assertions)]
+    pub fn number(&self, site: &str) -> Option<u64> {
+        if self.site.as_deref() == Some(site) {
+            return Some(self.n);
+        }
+        self.more.iter().find_map(|f| f.number(site))
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[inline(always)]
+    pub fn number(&self, _site: &str) -> Option<u64> {
+        None
+    }
+
     /// The configured site, if any (for the supervisor's log line).
     pub fn active(&self) -> Option<String> {
         #[cfg(debug_assertions)]
@@ -203,6 +252,42 @@ mod enospc {
         }
         fn write_at(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
             self.inner.write_at(offset, bytes)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// procfix7 (gate6 m-x): a value part without `:n` (or with n = 0 / not a number / an empty part) is refused, naming
+    /// the part; well-formed values (also comma-separated) pass.
+    #[test]
+    fn m_x_failpoint_value_without_count_is_refused() {
+        for bad in [
+            "no_intent_prealloc",
+            "after_spawn:",
+            "after_spawn:0",
+            "after_spawn:x",
+            ":3",
+            "a:1,,b:2",
+            "",
+        ] {
+            let e = Failpoints::check(bad).unwrap_err();
+            assert!(e.contains("not <site>:<n>"), "{bad:?}: {e}");
+        }
+        for good in [
+            "after_spawn:2",
+            "after_spawn:2,no_spawn_barrier:1",
+            "release_delay_ms:1500",
+        ] {
+            assert_eq!(Failpoints::check(good), Ok(()), "{good}");
+        }
+        #[cfg(debug_assertions)]
+        {
+            let f = Failpoints::parse("after_spawn:2,release_delay_ms:1500");
+            assert_eq!(f.number("release_delay_ms"), Some(1500));
+            assert_eq!(f.number("other"), None);
         }
     }
 }

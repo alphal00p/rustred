@@ -330,11 +330,18 @@ pub struct LaunchSpec {
     /// a byte written by another process of the same uid through /proc/<pid>/fd, ends the shim with
     /// [`BARRIER_NOT_RELEASED`] without executing). The shim and the supervisor (`set_not_dumpable`) are non-dumpable,
     /// so their descriptors are not reachable through /proc by other processes of the uid either.
+    /// procfix7 (gate6 m2-a): EXCEPT in the instant between the shim's exec and its first `prctl` (the exec resets
+    /// dumpability; std's spawn waits for the exec, so the wait cannot move before it): a writer there can only make the
+    /// shim refuse (DoS), never release it; see `barrier_refused_file`.
     pub spawn_barrier: bool,
+    /// procfix7 (gate6 m2-a): where the shim records a REFUSED release (EOF, a short or a wrong token) before it exits
+    /// [`BARRIER_NOT_RELEASED`]: the caller then knows the program never ran (a typed attempt end, retried; never a
+    /// crash). None: not recorded.
+    pub barrier_refused_file: Option<PathBuf>,
 }
 
-/// The hidden verb of the spawn barrier: `<exe> __spawn-barrier <fd> <blake3 hex of the release token> -- <program>
-/// <args...>` (see [`LaunchSpec::spawn_barrier`]).
+/// The hidden verb of the spawn barrier: `<exe> __spawn-barrier <fd> <blake3 hex of the release token> [--refused
+/// <file>] -- <program> <args...>` (see [`LaunchSpec::spawn_barrier`], [`LaunchSpec::barrier_refused_file`]).
 pub const BARRIER_VERB: &str = "__spawn-barrier";
 /// Exit code of a barrier shim whose barrier was never released (the program was not executed).
 pub const BARRIER_NOT_RELEASED: i32 = 125;
@@ -361,6 +368,7 @@ impl LaunchSpec {
             pdeathsig: true,
             scope_unit: None,
             spawn_barrier: false,
+            barrier_refused_file: None,
         }
     }
 

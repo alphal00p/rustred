@@ -533,3 +533,112 @@ fn mj_b_settle_reads_nothing_from_a_run_dir_that_is_not_ours() {
     assert_eq!(verify(&c), 0);
     assert_no_marked(&t.campaign);
 }
+
+/// gate6 m-x: a failpoint value without `:n` used to be ignored silently (a void test looked like a pass): the test
+/// build now refuses to start (exit 1) naming the part, before it creates a ledger.
+#[test]
+fn m_x_failpoint_without_count_is_refused() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    let t = Tmp::new("pf7-fp");
+    let sp_ = small_spec(&t, 2);
+    let d = t.cdir("c");
+    let mut c = start(
+        &sp_,
+        &d,
+        &[],
+        &[("RR_CAMPAIGN_FAILPOINT", "no_intent_prealloc")],
+    );
+    assert_eq!(wait(&mut c, Duration::from_secs(60)), 1, "{}", log_tail(&d));
+    let log = std::fs::read_to_string(d.with_extension("log")).unwrap_or_default();
+    assert!(log.contains("not <site>:<n>"), "{log}");
+    assert!(!d.join("ledger").join("MANIFEST.json").exists());
+}
+
+/// gate6 m2-a: 32 garbage bytes written into a waiting shim's barrier pipe (here by the test, which holds
+/// CAP_SYS_PTRACE in its namespace; on the host: a same-uid process in the instant between the shim's exec and its
+/// prctl) make the shim refuse the release: the program never runs, and the attempt is a TYPED end (row 15s, requeued
+/// after the back-off), never a crash: no crash record, no item in attention, exit 0 and the reference result (before:
+/// row 23 crash, attention, exit 10). The test build holds each release 1.5 s (`release_delay_ms`) so the pipe can be
+/// reached deterministically.
+#[test]
+fn m2a_garbage_in_the_barrier_pipe_is_a_typed_retry() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    let t = Tmp::new("pf7-m2a");
+    let v = spec(
+        &t,
+        serde_json::json!({"items": 2, "nodes": 1, "rungs": 1, "seed": 6, "case_ms": [300, 600],
+            "p_crash": 0.0, "p_mem": 0.0, "p_norule": 0.0}),
+        serde_json::json!({"max_jobs": 1}),
+    );
+    let sp_ = write_spec(&t, "spec.json", &v);
+    let r = t.cdir("ref");
+    let ref_codes = run_to_end(&sp_, &r, &[]);
+    let d = t.cdir("c");
+    let mut c = start(
+        &sp_,
+        &d,
+        &[],
+        &[("RR_CAMPAIGN_FAILPOINT", "release_delay_ms:1500")],
+    );
+    // the first shim waiting behind its barrier: its argv names the barrier descriptor
+    let (shim, fd) = {
+        let t0 = Instant::now();
+        loop {
+            let found = std::fs::read_dir("/proc").unwrap().flatten().find_map(|e| {
+                let pid: u32 = e.file_name().to_str()?.parse().ok()?;
+                let argv = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+                let a: Vec<String> = argv
+                    .split(|&b| b == 0)
+                    .map(|x| String::from_utf8_lossy(x).into_owned())
+                    .collect();
+                if a.get(1).map(String::as_str) != Some("__spawn-barrier") {
+                    return None;
+                }
+                let fd: i32 = a.get(2)?.parse().ok()?;
+                Some((pid, fd))
+            });
+            if let Some(x) = found {
+                break x;
+            }
+            assert!(t0.elapsed() < Duration::from_secs(60), "{}", log_tail(&d));
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    };
+    {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .open(format!("/proc/{shim}/fd/{fd}"))
+            .expect("the test holds CAP_SYS_PTRACE in its namespace");
+        f.write_all(b"GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG").unwrap();
+    }
+    let code = wait(&mut c, Duration::from_secs(300));
+    assert_eq!(Some(&code), ref_codes.last(), "{}", log_tail(&d));
+    let crashed = count(&d, |e| {
+        matches!(
+            e,
+            Event::Job {
+                ev: JobEvent::Finished {
+                    class: rustred_campaign::state::FinishClass::Crashed,
+                    ..
+                },
+                ..
+            }
+        )
+    });
+    assert_eq!(crashed, 0, "{}", log_tail(&d));
+    let typed = count(
+        &d,
+        |e| matches!(e, Event::Job { ev: JobEvent::Requeue { reason }, .. } if reason.ends_with("(row 15s)")),
+    );
+    assert_eq!(typed, 1, "{}", log_tail(&d));
+    assert_eq!(result(&d), result(&r));
+    assert_eq!(verify(&d), 0);
+    assert_no_marked(&t.campaign);
+}

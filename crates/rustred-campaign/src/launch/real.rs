@@ -861,9 +861,11 @@ impl ChildLauncher for RealLauncher {
                     .unwrap_or_default();
                 c.arg(super::BARRIER_VERB)
                     .arg(r.as_raw_fd().to_string())
-                    .arg(hash)
-                    .arg("--")
-                    .arg(&prog);
+                    .arg(hash);
+                if let Some(f) = &spec.barrier_refused_file {
+                    c.arg("--refused").arg(f);
+                }
+                c.arg("--").arg(&prog);
                 c
             }
             None => Command::new(&prog),
@@ -2122,18 +2124,35 @@ pub fn barrier_shim(args: &[String]) -> i32 {
     use std::os::unix::process::CommandExt;
     // Before anything else (the descriptor is reachable through /proc only until here).
     let _ = set_not_dumpable();
+    // procfix7 (gate6 m2-a): optional `--refused <file>` before `--`.
+    let (refused, rest) = match args.get(2).map(String::as_str) {
+        Some("--refused") => (args.get(3).map(std::path::PathBuf::from), 4),
+        _ => (None, 2),
+    };
     let (Some(fd), Some(hash), Some("--"), Some(prog)) = (
         args.first().and_then(|s| s.parse::<RawFd>().ok()),
         args.get(1),
-        args.get(2).map(String::as_str),
-        args.get(3),
+        args.get(rest).map(String::as_str),
+        args.get(rest + 1),
     ) else {
         let _ = writeln!(
             std::io::stderr(),
-            "{}: usage <fd> <blake3 hex> -- <program> [args]",
+            "{}: usage <fd> <blake3 hex> [--refused <file>] -- <program> [args]",
             super::BARRIER_VERB
         );
         return 2;
+    };
+    // The program was NOT started: say so where the caller looks (create-only; never overwrites).
+    let record_refusal = |why: &str| {
+        if let Some(p) = &refused
+            && let Ok(mut f) = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(p)
+        {
+            let _ = writeln!(f, "{why}");
+            let _ = f.sync_all();
+        }
     };
     if fd < 3 {
         return 2;
@@ -2162,6 +2181,9 @@ pub fn barrier_shim(args: &[String]) -> i32 {
             "{}: the supervisor ended before it recorded this spawn: the program was not started",
             super::BARRIER_VERB
         );
+        record_refusal(
+            "eof: no release token (the supervisor ended or cancelled, or another process took the token)",
+        );
         return super::BARRIER_NOT_RELEASED;
     }
     if failed || blake3::hash(&b).to_hex().as_str() != hash.as_str() {
@@ -2170,9 +2192,14 @@ pub fn barrier_shim(args: &[String]) -> i32 {
             "{}: the barrier was released with a wrong token ({n} byte(s); another process wrote into the barrier pipe?): the program was not started",
             super::BARRIER_VERB
         );
+        record_refusal(&format!(
+            "wrong token: {n} byte(s) that are not the release token (another process wrote into the barrier pipe?)"
+        ));
         return super::BARRIER_NOT_RELEASED;
     }
-    let e = std::process::Command::new(prog).args(&args[4..]).exec();
+    let e = std::process::Command::new(prog)
+        .args(&args[rest + 2..])
+        .exec();
     let _ = writeln!(
         std::io::stderr(),
         "{}: exec {prog}: {e}",
