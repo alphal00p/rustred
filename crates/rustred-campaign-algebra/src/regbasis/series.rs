@@ -67,7 +67,11 @@ pub fn rational_text(r: &Rational) -> String {
 
 /// The lowest exponent of a non-zero univariate polynomial.
 pub fn low(p: &QP) -> Option<u32> {
-    if p.is_zero() { None } else { Some(u32::from(p.exponents(0)[0])) }
+    if p.is_zero() {
+        None
+    } else {
+        Some(u32::from(p.exponents(0)[0]))
+    }
 }
 
 /// p / t^e (caller guarantees low(p) >= e).
@@ -84,7 +88,11 @@ pub fn div_t(p: &QP, e: u32) -> QP {
 
 /// p * t^e.
 pub fn mul_t(p: &QP, e: u32) -> QP {
-    if e == 0 || p.is_zero() { p.clone() } else { p.clone().mul_exp(&[e as u16]) }
+    if e == 0 || p.is_zero() {
+        p.clone()
+    } else {
+        p.clone().mul_exp(&[e as u16])
+    }
 }
 
 /// The terms of p of degree >= e, divided by t^e (the polynomial quotient by t^e).
@@ -124,22 +132,42 @@ pub struct Laurent {
 
 impl Laurent {
     pub fn zero(prec: i64, vars: &Arc<Vec<PolyVariable>>) -> Laurent {
-        Laurent { start: prec, poly: QP::new(&Q, None, vars.clone()), prec }
+        Laurent {
+            start: prec,
+            poly: QP::new(&Q, None, vars.clone()),
+            prec,
+        }
     }
 
     /// Normalise: truncate to `prec`, shift the lowest term to exponent 0.
     pub fn normalised(start: i64, poly: QP, prec: i64) -> Laurent {
         let keep = prec - start;
-        let poly = if keep <= 0 { poly.zero() } else { mod_t(&poly, keep.min(u16::MAX as i64) as u32) };
+        let poly = if keep <= 0 {
+            poly.zero()
+        } else {
+            mod_t(&poly, keep.min(u16::MAX as i64) as u32)
+        };
         match low(&poly) {
-            None => Laurent { start: prec, poly, prec },
-            Some(l) => Laurent { start: start + i64::from(l), poly: div_t(&poly, l), prec },
+            None => Laurent {
+                start: prec,
+                poly,
+                prec,
+            },
+            Some(l) => Laurent {
+                start: start + i64::from(l),
+                poly: div_t(&poly, l),
+                prec,
+            },
         }
     }
 
     /// The valuation (`None`: zero to its precision).
     pub fn valuation(&self) -> Option<i64> {
-        if self.poly.is_zero() { None } else { Some(self.start) }
+        if self.poly.is_zero() {
+            None
+        } else {
+            Some(self.start)
+        }
     }
 
     /// The pole order (0 for a regular or zero series; the caller checks that the precision decides it, see
@@ -164,7 +192,11 @@ impl Laurent {
     pub fn mul(&self, o: &Laurent) -> Laurent {
         let prec = (self.w() + o.prec).min(o.w() + self.prec);
         if self.poly.is_zero() || o.poly.is_zero() {
-            return Laurent { start: prec, poly: self.poly.zero(), prec };
+            return Laurent {
+                start: prec,
+                poly: self.poly.zero(),
+                prec,
+            };
         }
         Laurent::normalised(self.start + o.start, &self.poly * &o.poly, prec)
     }
@@ -214,7 +246,11 @@ impl Laurent {
                 while c.last().is_some_and(|x| x == "0") {
                     c.pop();
                 }
-                SeriesText { start: v, coeffs: c, prec: self.prec }
+                SeriesText {
+                    start: v,
+                    coeffs: c,
+                    prec: self.prec,
+                }
             }
         }
     }
@@ -234,7 +270,9 @@ impl Laurent {
         }
         let e = self.start + shift;
         if e < 0 {
-            return Err(format!("scaled entry has a negative exponent {e} (shift {shift} below the pole order)"));
+            return Err(format!(
+                "scaled entry has a negative exponent {e} (shift {shift} below the pole order)"
+            ));
         }
         Ok(mod_t(&mul_t(&self.poly, e as u32), s))
     }
@@ -255,7 +293,8 @@ pub fn parse_series(s: &SeriesText, vars: &Arc<Vec<PolyVariable>>) -> Result<Lau
 
 /// Parse a coefficient text (house syntax, a rational function of `d` only) into a rational function over Z in d.
 pub fn parse_rf(text: &str) -> Result<RF, String> {
-    let atom = try_parse!(text, default_namespace = "rustred").map_err(|e| format!("parse {text:?}: {e}"))?;
+    let atom = try_parse!(text, default_namespace = "rustred")
+        .map_err(|e| format!("parse {text:?}: {e}"))?;
     let rf: RF = atom
         .as_view()
         .try_to_rational_polynomial::<_, _, u16>(&Q, &Z, Some(d_vars()))
@@ -267,7 +306,10 @@ pub fn parse_rf(text: &str) -> Result<RF, String> {
 }
 
 fn print_zp(p: &ZP) -> String {
-    let opts = PrintOptions { hide_all_namespaces: true, ..PrintOptions::new() };
+    let opts = PrintOptions {
+        hide_all_namespaces: true,
+        ..PrintOptions::new()
+    };
     p.to_expression().printer(opts).to_string()
 }
 
@@ -279,11 +321,17 @@ pub fn rf_text(r: &RF) -> String {
     if r.denominator.is_one() {
         return print_zp(&r.numerator);
     }
-    format!("({})/({})", print_zp(&r.numerator), print_zp(&r.denominator))
+    format!(
+        "({})/({})",
+        print_zp(&r.numerator),
+        print_zp(&r.denominator)
+    )
 }
 
 fn shifted_q(p: &ZP, d0: &Rational, tv: &Arc<Vec<PolyVariable>>) -> QP {
-    let q: QP = p.map_coeff(|c| Rational::from(c.clone()), Q).shift_var(0, d0);
+    let q: QP = p
+        .map_coeff(|c| Rational::from(c.clone()), Q)
+        .shift_var(0, d0);
     // re-home the polynomial in the variable t
     let mut out = QP::new(&Q, Some(q.nterms()), tv.clone());
     for i in 0..q.nterms() {

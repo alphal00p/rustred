@@ -31,6 +31,8 @@ pub mod record;
 pub mod spec;
 
 pub use compose::{Compose, ComposeError, ComposedVec, SeriesText};
-pub use keys::{Preference, band_keys, candidate_family, dot_free_keys, dots_of, rank_of, sort_by_preference};
+pub use keys::{
+    Preference, band_keys, candidate_family, dot_free_keys, dots_of, rank_of, sort_by_preference,
+};
 pub use need::{Availability, MapAvailability, NeedRow, NeedTable, need_table};
 pub use spec::{CandidateOrder, CertifyKeys, RegBasisSpec};

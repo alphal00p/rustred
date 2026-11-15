@@ -17,8 +17,7 @@ pub const TOWER_SCHEMA: &str = "rustred.campaign.regular-basis-tower.v1";
 /// The lattice convention used for R (the brief / Theorem 1: the closure's terminals must stay finite, M regular).
 pub const CONVENTION_BAND_PLUS_TERMINALS: &str = "band_plus_terminals";
 /// The matrix convention of the record.
-pub const MATRIX_CONVENTION: &str =
-    "T_i = sum_j M[i][j] R_j (+ subsector terms); R_j = sum_i Minv[j][i] T_i; modulo subsectors; orders at d0: >0 zero order, <0 pole order, null = identically zero";
+pub const MATRIX_CONVENTION: &str = "T_i = sum_j M[i][j] R_j (+ subsector terms); R_j = sum_i Minv[j][i] T_i; modulo subsectors; orders at d0: >0 zero order, <0 pole order, null = identically zero";
 
 /// What the object is bound to (all members required, non-empty).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -90,10 +89,15 @@ pub fn seal(v: Value) -> Result<(Value, String), String> {
 /// Check a sealed object's digest.
 pub fn verify(v: &Value) -> Result<(), String> {
     let o = v.as_object().ok_or("record: expected an object")?;
-    let stated = o.get("digest").and_then(Value::as_str).ok_or("record: no digest")?;
+    let stated = o
+        .get("digest")
+        .and_then(Value::as_str)
+        .ok_or("record: no digest")?;
     let d = digest_of(o)?;
     if d != stated {
-        return Err(format!("record digest mismatch: stated {stated}, computed {d}"));
+        return Err(format!(
+            "record digest mismatch: stated {stated}, computed {d}"
+        ));
     }
     Ok(())
 }

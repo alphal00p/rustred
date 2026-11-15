@@ -27,7 +27,8 @@ use rustred_campaign_core::regbasis::record::{
     Binding, CONVENTION_BAND_PLUS_TERMINALS, MATRIX_CONVENTION, RECORD_SCHEMA, band_verdict, seal,
 };
 use rustred_campaign_core::regbasis::{
-    Compose, ComposeError, ComposedVec, Preference, RegBasisSpec, candidate_family, rank_of, sort_by_preference,
+    Compose, ComposeError, ComposedVec, Preference, RegBasisSpec, candidate_family, rank_of,
+    sort_by_preference,
 };
 
 use crate::valuation::D0;
@@ -41,6 +42,9 @@ pub const METHOD: &str = "regbasis: band lattice N = O-span{c(K)} + O^n over O =
      (Hermite form over Q[t]/t^s, own logic on Symbolica polynomials); R = Nakayama greedy (t N + span membership) in the \
      preference order; M = A^-1 exact (numerica Matrix::inv over RationalPolynomialField); orders by lane poles' valuation";
 
+/// Length cap of the example lists in a record (undecided keys, certificate failures): a record size bound, not data.
+pub const MAX_EXAMPLES: usize = 20;
+
 /// The published masters: `T = Q P` (`q[i][k]` = exact coefficient of P_k in T_i, text in d).
 #[derive(Clone, Debug)]
 pub struct Published {
@@ -52,7 +56,10 @@ pub struct Published {
 impl Published {
     /// From lane poles' master map (`valuation::basis::read_master_map`, THE reader): the map must be `T = Q P` with
     /// rows = the closure's terminals (key texts, compared exactly when they parse as keys) and columns = the masters.
-    pub fn from_master_map(map: &crate::valuation::basis::MasterMap, terminals: &[Key]) -> Result<Published, String> {
+    pub fn from_master_map(
+        map: &crate::valuation::basis::MasterMap,
+        terminals: &[Key],
+    ) -> Result<Published, String> {
         if map.rows.len() != terminals.len() {
             return Err(format!(
                 "master map has {} rows, the closure {} terminals (rows must be the terminals: T = Q P)",
@@ -61,14 +68,25 @@ impl Published {
             ));
         }
         for (i, r) in map.rows.iter().enumerate() {
-            if let Ok(k) = rustred_campaign_core::key::parse_key(r) {
-                if k != terminals[i] {
-                    return Err(format!("master map row {i} is {r}, terminal {i} is {:?}", terminals[i]));
-                }
+            if let Ok(k) = rustred_campaign_core::key::parse_key(r)
+                && k != terminals[i]
+            {
+                return Err(format!(
+                    "master map row {i} is {r}, terminal {i} is {:?}",
+                    terminals[i]
+                ));
             }
         }
-        let keys = map.cols.iter().map(|c| rustred_campaign_core::key::parse_key(c).ok()).collect();
-        Ok(Published { labels: map.cols.clone(), keys, q: map.entries.clone() })
+        let keys = map
+            .cols
+            .iter()
+            .map(|c| rustred_campaign_core::key::parse_key(c).ok())
+            .collect();
+        Ok(Published {
+            labels: map.cols.clone(),
+            keys,
+            q: map.entries.clone(),
+        })
     }
 }
 
@@ -168,7 +186,12 @@ pub(crate) struct QMap {
 }
 
 impl QMap {
-    pub(crate) fn new(texts: &[Vec<String>], n: usize, d0: &Rational, tv: &Arc<Vec<PolyVariable>>) -> Result<QMap, String> {
+    pub(crate) fn new(
+        texts: &[Vec<String>],
+        n: usize,
+        d0: &Rational,
+        tv: &Arc<Vec<PolyVariable>>,
+    ) -> Result<QMap, String> {
         if texts.len() != n || texts.is_empty() {
             return Err(format!("published map: {} rows, expected {n}", texts.len()));
         }
@@ -176,18 +199,29 @@ impl QMap {
         if m == 0 || texts.iter().any(|r| r.len() != m) {
             return Err("published map: rows of unequal or zero length".into());
         }
-        let rf: Vec<Vec<RF>> = texts.iter().map(|r| r.iter().map(|t| parse_rf(t)).collect()).collect::<Result<_, _>>()?;
+        let rf: Vec<Vec<RF>> = texts
+            .iter()
+            .map(|r| r.iter().map(|t| parse_rf(t)).collect())
+            .collect::<Result<_, _>>()?;
         let mut pole = 0u32;
         for r in &rf {
             for x in r {
-                if let Some(v) = super::series::rf_valuation(x, d0) {
-                    if v < 0 {
-                        pole = pole.max((-v) as u32);
-                    }
+                if let Some(v) = super::series::rf_valuation(x, d0)
+                    && v < 0
+                {
+                    pole = pole.max((-v) as u32);
                 }
             }
         }
-        let mut q = QMap { rf, exp: vec![], prec: i64::MIN, d0: d0.clone(), tv: tv.clone(), pole, m };
+        let mut q = QMap {
+            rf,
+            exp: vec![],
+            prec: i64::MIN,
+            d0: d0.clone(),
+            tv: tv.clone(),
+            pole,
+            m,
+        };
         q.ensure(1);
         Ok(q)
     }
@@ -199,14 +233,22 @@ impl QMap {
         self.exp = self
             .rf
             .iter()
-            .map(|r| r.iter().map(|x| expand_rf(x, &self.d0, prec, &self.tv)).collect())
+            .map(|r| {
+                r.iter()
+                    .map(|x| expand_rf(x, &self.d0, prec, &self.tv))
+                    .collect()
+            })
             .collect();
         self.prec = prec;
     }
 
     /// c_P = c Q (series), precise enough for every exponent below `want`.
     pub(crate) fn apply(&mut self, c: &[Laurent], want: i64) -> Vec<Laurent> {
-        let cpole = c.iter().map(|x| -x.valuation().unwrap_or(0).min(0)).max().unwrap_or(0);
+        let cpole = c
+            .iter()
+            .map(|x| -x.valuation().unwrap_or(0).min(0))
+            .max()
+            .unwrap_or(0);
         self.ensure(want + cpole + 1);
         (0..self.m)
             .map(|k| {
@@ -237,7 +279,12 @@ fn pole_of(c: &[Laurent]) -> u32 {
 
 /// Pole exponents of a lattice scaled by t^q over O^n (descending, positive only).
 pub(crate) fn elementary(l: &HermiteLattice, q: u32) -> Vec<u32> {
-    let mut e: Vec<u32> = l.smith_exponents().into_iter().filter(|&x| x < q).map(|x| q - x).collect();
+    let mut e: Vec<u32> = l
+        .smith_exponents()
+        .into_iter()
+        .filter(|&x| x < q)
+        .map(|x| q - x)
+        .collect();
     e.sort_unstable_by(|a, b| b.cmp(a));
     e
 }
@@ -261,15 +308,26 @@ impl Scaled {
     }
 }
 
-fn parse_vec(v: &ComposedVec, n: usize, need_prec: i64, tv: &Arc<Vec<PolyVariable>>) -> Result<Vec<Laurent>, ComposeError> {
+fn parse_vec(
+    v: &ComposedVec,
+    n: usize,
+    need_prec: i64,
+    tv: &Arc<Vec<PolyVariable>>,
+) -> Result<Vec<Laurent>, ComposeError> {
     if v.len() != n {
-        return Err(ComposeError::Undecided(format!("vector of length {}, expected {n}", v.len())));
+        return Err(ComposeError::Undecided(format!(
+            "vector of length {}, expected {n}",
+            v.len()
+        )));
     }
     let mut out = Vec::with_capacity(n);
     for s in v {
         let l = parse_series(s, tv).map_err(ComposeError::Undecided)?;
         if l.prec < need_prec {
-            return Err(ComposeError::Undecided(format!("precision {} below {need_prec}", l.prec)));
+            return Err(ComposeError::Undecided(format!(
+                "precision {} below {need_prec}",
+                l.prec
+            )));
         }
         out.push(l);
     }
@@ -296,7 +354,9 @@ pub(crate) fn stream_parsed(
         })?;
         for (i, r) in buf.into_iter().enumerate() {
             let r = match r {
-                None => Err(ComposeError::Undecided("no answer from the composition".into())),
+                None => Err(ComposeError::Undecided(
+                    "no answer from the composition".into(),
+                )),
                 Some(Err(e)) => Err(e),
                 Some(Ok(v)) => parse_vec(&v, n, abs_prec, tv),
             };
@@ -334,7 +394,10 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
         return Err("no terminals".into());
     }
     if compose.n_terminals() != n {
-        return Err(format!("composition has {} terminals, closure {n}", compose.n_terminals()));
+        return Err(format!(
+            "composition has {} terminals, closure {n}",
+            compose.n_terminals()
+        ));
     }
     let spec = inp.spec;
     let d0 = D0::parse(&spec.d0).map_err(|e| e.to_string())?;
@@ -362,7 +425,12 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
 
     // candidate family (restricted to band keys and terminals)
     let band_set: HashSet<&[i32]> = inp.band.iter().map(|k| k.as_slice()).collect();
-    let term_pos: HashMap<&[i32], usize> = inp.terminals.iter().enumerate().map(|(i, k)| (k.as_slice(), i)).collect();
+    let term_pos: HashMap<&[i32], usize> = inp
+        .terminals
+        .iter()
+        .enumerate()
+        .map(|(i, k)| (k.as_slice(), i))
+        .collect();
     let mut cands = candidate_family(inp.chart, spec, &|k| band_set.contains(k));
     for t in inp.terminals {
         cands.push(t.clone());
@@ -378,12 +446,22 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
     let cand_set: HashSet<Key> = cands.iter().cloned().collect();
 
     // lattices: T per rank (socle q), global (socle q), variant (socle q+1); P per rank (socle q_p)
-    let mut lt = Scaled { q: 0, lats: (0..nr).map(|_| (HermiteLattice::new(n, 0, tv.clone()), 0)).collect() };
+    let mut lt = Scaled {
+        q: 0,
+        lats: (0..nr)
+            .map(|_| (HermiteLattice::new(n, 0, tv.clone()), 0))
+            .collect(),
+    };
     lt.lats.push((HermiteLattice::new(n, 0, tv.clone()), 0)); // global
     lt.lats.push((HermiteLattice::new(n, 1, tv.clone()), 1)); // variant: band keys alone + t O^n
     let gi = nr;
     let vi = nr + 1;
-    let mut lp = Scaled { q: 0, lats: (0..if m > 0 { nr } else { 0 }).map(|_| (HermiteLattice::new(m, 0, tv.clone()), 0)).collect() };
+    let mut lp = Scaled {
+        q: 0,
+        lats: (0..if m > 0 { nr } else { 0 })
+            .map(|_| (HermiteLattice::new(m, 0, tv.clone()), 0))
+            .collect(),
+    };
 
     let mut keys_per_rank = vec![0usize; nr];
     let mut decided_per_rank = vec![0usize; nr];
@@ -403,66 +481,73 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
         keys_per_rank[r as usize] += 1;
     }
 
-    stream_parsed(compose, inp.band, spec.chunk_keys, abs_prec, &tv, |i, res| {
-        let key = &inp.band[i];
-        let r = ranks[i] as usize;
-        let c = match res {
-            Ok(c) => c,
-            Err(e) => {
-                if undecided_examples.len() < 20 {
-                    undecided_examples.push((key.clone(), e.to_string()));
+    stream_parsed(
+        compose,
+        inp.band,
+        spec.chunk_keys,
+        abs_prec,
+        &tv,
+        |i, res| {
+            let key = &inp.band[i];
+            let r = ranks[i] as usize;
+            let c = match res {
+                Ok(c) => c,
+                Err(e) => {
+                    if undecided_examples.len() < MAX_EXAMPLES {
+                        undecided_examples.push((key.clone(), e.to_string()));
+                    }
+                    return Ok(());
                 }
-                return Ok(());
-            }
-        };
-        keys_decided += 1;
-        decided_per_rank[r] += 1;
-        let mut polar = false;
-        for (j, x) in c.iter().enumerate() {
-            if x.valuation().is_some() {
-                let p = x.pole_order();
-                maxpole_t[r][j] = max_opt(maxpole_t[r][j], Some(p));
-                if p > 0 {
-                    polar = true;
-                }
-            }
-        }
-        if polar {
-            polar_t_per_rank[r] += 1;
-            keys_polar += 1;
-        }
-        lt.raise(pole_of(&c));
-        let q = lt.q;
-        let polar_part = scaled(&c, q, q)?;
-        if lt.lats[r].0.insert(&polar_part)? > 0 {
-            rank_pivots[r].push((key.clone(), c.clone()));
-        }
-        let g = lt.lats[gi].0.insert(&polar_part)?;
-        if g > 0 {
-            pivots.push((key.clone(), c.clone()));
-        }
-        let var_entries = scaled(&c, q, q + 1)?;
-        lt.lats[vi].0.insert(&var_entries)?;
-        if cand_set.contains(key) {
-            cache.insert(key.clone(), c.clone());
-        }
-        if let Some(qm) = qmap.as_mut() {
-            let cp = qm.apply(&c, 0);
-            if cp.iter().all(|x| x.decides_pole()) {
-                for (k, x) in cp.iter().enumerate() {
-                    if x.valuation().is_some() {
-                        maxpole_p[r][k] = max_opt(maxpole_p[r][k], Some(x.pole_order()));
+            };
+            keys_decided += 1;
+            decided_per_rank[r] += 1;
+            let mut polar = false;
+            for (j, x) in c.iter().enumerate() {
+                if x.valuation().is_some() {
+                    let p = x.pole_order();
+                    maxpole_t[r][j] = max_opt(maxpole_t[r][j], Some(p));
+                    if p > 0 {
+                        polar = true;
                     }
                 }
-                lp.raise(pole_of(&cp));
-                let qp = lp.q;
-                lp.lats[r].0.insert(&scaled(&cp, qp, qp)?)?;
-            } else {
-                p_undecided += 1;
             }
-        }
-        Ok(())
-    })?;
+            if polar {
+                polar_t_per_rank[r] += 1;
+                keys_polar += 1;
+            }
+            lt.raise(pole_of(&c));
+            let q = lt.q;
+            let polar_part = scaled(&c, q, q)?;
+            if lt.lats[r].0.insert(&polar_part)? > 0 {
+                rank_pivots[r].push((key.clone(), c.clone()));
+            }
+            let g = lt.lats[gi].0.insert(&polar_part)?;
+            if g > 0 {
+                pivots.push((key.clone(), c.clone()));
+            }
+            let var_entries = scaled(&c, q, q + 1)?;
+            lt.lats[vi].0.insert(&var_entries)?;
+            if cand_set.contains(key) {
+                cache.insert(key.clone(), c.clone());
+            }
+            if let Some(qm) = qmap.as_mut() {
+                let cp = qm.apply(&c, 0);
+                if cp.iter().all(|x| x.decides_pole()) {
+                    for (k, x) in cp.iter().enumerate() {
+                        if x.valuation().is_some() {
+                            maxpole_p[r][k] = max_opt(maxpole_p[r][k], Some(x.pole_order()));
+                        }
+                    }
+                    lp.raise(pole_of(&cp));
+                    let qp = lp.q;
+                    lp.lats[r].0.insert(&scaled(&cp, qp, qp)?)?;
+                } else {
+                    p_undecided += 1;
+                }
+            }
+            Ok(())
+        },
+    )?;
     if keys_decided == 0 {
         return Err("no band key has a decided composition".into());
     }
@@ -471,7 +556,11 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
     // prefix lattices and per-rank summaries
     let mut ranks_out = Vec::with_capacity(nr);
     let mut acc = HermiteLattice::new(n, q, tv.clone());
-    let mut acc_p = if m > 0 { Some(HermiteLattice::new(m, lp.q, tv.clone())) } else { None };
+    let mut acc_p = if m > 0 {
+        Some(HermiteLattice::new(m, lp.q, tv.clone()))
+    } else {
+        None
+    };
     let mut prev_len = 0u64;
     let mut prefix_t = Vec::with_capacity(nr);
     let mut prefix_p = Vec::with_capacity(nr);
@@ -537,13 +626,20 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
     // terminals in t N (never selectable) and the variant (band keys alone contain T?)
     let t_n = n_lat.scaled(1);
     let terminal_in_t_n: Vec<bool> = (0..n).map(|i| t_n.contains(&n_lat.unit(i, q))).collect();
-    let terminal_in_band_lattice: Vec<bool> = (0..n).map(|i| lt.lats[vi].0.contains(&n_lat.unit(i, q))).collect();
+    let terminal_in_band_lattice: Vec<bool> = (0..n)
+        .map(|i| lt.lats[vi].0.contains(&n_lat.unit(i, q)))
+        .collect();
 
     // SELECTION (Nakayama greedy)
     let mut g = t_n.clone();
     let mut chosen: Vec<(Key, Vec<Laurent>, String)> = vec![];
     let mut considered: HashSet<Key> = HashSet::new();
-    let try_take = |k: &Key, c: &Vec<Laurent>, src: &str, g: &mut HermiteLattice, chosen: &mut Vec<(Key, Vec<Laurent>, String)>| -> Result<(), String> {
+    let try_take = |k: &Key,
+                    c: &Vec<Laurent>,
+                    src: &str,
+                    g: &mut HermiteLattice,
+                    chosen: &mut Vec<(Key, Vec<Laurent>, String)>|
+     -> Result<(), String> {
         if chosen.len() >= n {
             return Ok(());
         }
@@ -569,7 +665,11 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
         } else {
             continue;
         };
-        let src = if term_pos.contains_key(k.as_slice()) { "terminal" } else { "candidate" };
+        let src = if term_pos.contains_key(k.as_slice()) {
+            "terminal"
+        } else {
+            "candidate"
+        };
         try_take(k, &c, src, &mut g, &mut chosen)?;
     }
     if chosen.len() < n {
@@ -584,7 +684,13 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
         }
         for (i, t) in inp.terminals.iter().enumerate() {
             if considered.insert(t.clone()) {
-                try_take(t, &unit_laurent(n, i, abs_prec, &tv), "terminal", &mut g, &mut chosen)?;
+                try_take(
+                    t,
+                    &unit_laurent(n, i, abs_prec, &tv),
+                    "terminal",
+                    &mut g,
+                    &mut chosen,
+                )?;
             }
         }
     }
@@ -603,7 +709,10 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
     chosen.sort_by_key(|x| order_of[&x.0]);
     let regular_set: Vec<Key> = chosen.iter().map(|x| x.0.clone()).collect();
     let sources: Vec<String> = chosen.iter().map(|x| x.2.clone()).collect();
-    let kept_terminals: Vec<usize> = regular_set.iter().filter_map(|k| term_pos.get(k.as_slice()).copied()).collect();
+    let kept_terminals: Vec<usize> = regular_set
+        .iter()
+        .filter_map(|k| term_pos.get(k.as_slice()).copied())
+        .collect();
 
     // c1: the lattice of R equals N
     let cert_lattice = if spec.certify_lattice {
@@ -621,12 +730,25 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
     let mut a_rows: Vec<Vec<String>> = vec![];
     for k in &regular_set {
         if let Some(&i) = term_pos.get(k.as_slice()) {
-            a_rows.push((0..n).map(|j| if i == j { "1".to_string() } else { "0".to_string() }).collect());
+            a_rows.push(
+                (0..n)
+                    .map(|j| {
+                        if i == j {
+                            "1".to_string()
+                        } else {
+                            "0".to_string()
+                        }
+                    })
+                    .collect(),
+            );
         } else {
             match compose.exact(k) {
                 Ok(v) if v.len() == n => a_rows.push(v),
                 Ok(v) => {
-                    exact_note = Some(format!("exact coefficients of {k:?}: {} entries, expected {n}", v.len()));
+                    exact_note = Some(format!(
+                        "exact coefficients of {k:?}: {} entries, expected {n}",
+                        v.len()
+                    ));
                     break;
                 }
                 Err(e) => {
@@ -681,10 +803,19 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
         let rows: Vec<Vec<(u32, String)>> = x
             .a_text
             .iter()
-            .map(|r| r.iter().enumerate().filter(|(_, t)| t.as_str() != "0").map(|(j, t)| (j as u32, t.clone())).collect())
+            .map(|r| {
+                r.iter()
+                    .enumerate()
+                    .filter(|(_, t)| t.as_str() != "0")
+                    .map(|(j, t)| (j as u32, t.clone()))
+                    .collect()
+            })
             .collect();
         let got = crate::tadic::lattice::smith_exponents(&rows, rat);
-        let mut want: Vec<i64> = elementary(&n_lat, q).iter().map(|&k| -i64::from(k)).collect();
+        let mut want: Vec<i64> = elementary(&n_lat, q)
+            .iter()
+            .map(|&k| -i64::from(k))
+            .collect();
         want.resize(n, 0);
         want.sort_unstable();
         Some(match got {
@@ -693,22 +824,44 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
         })
     });
     let c5_agree = c5.as_ref().and_then(|v| v["agree"].as_bool());
-    let cert_det = exact.as_ref().map(|x| x.det_m_order == Some(n_lat.length() as i64) || (n_lat.length() == 0 && x.det_m_order == Some(0)));
-    let m_regular = exact.as_ref().map(|x| x.m_orders.iter().flatten().all(|o| o.is_none_or(|v| v >= 0)));
+    let cert_det = exact.as_ref().map(|x| {
+        x.det_m_order == Some(n_lat.length() as i64)
+            || (n_lat.length() == 0 && x.det_m_order == Some(0))
+    });
+    let m_regular = exact.as_ref().map(|x| {
+        x.m_orders
+            .iter()
+            .flatten()
+            .all(|o| o.is_none_or(|v| v >= 0))
+    });
 
     // c2: per band key on R (streamed)
     let mut cert_keys_checked = None;
     let mut cert_keys_with_pole = None;
     let mut max_pole_on_r: Option<Vec<u32>> = None;
     let mut failures: Vec<Key> = vec![];
-    if spec.certify_keys == rustred_campaign_core::regbasis::CertifyKeys::All {
-        if let Some(x) = exact.as_ref() {
-            let mexp: Vec<Vec<Laurent>> = x.m.iter().map(|r| r.iter().map(|e| expand_rf(e, d0.value(), i64::from(q) + 1, &tv)).collect()).collect();
-            let mut checked = 0usize;
-            let mut with_pole = 0usize;
-            let mut mx = vec![0u32; n];
-            let mut per_rank = vec![0usize; nr];
-            stream_parsed(compose, inp.band, spec.chunk_keys, abs_prec, &tv, |i, res| {
+    if spec.certify_keys == rustred_campaign_core::regbasis::CertifyKeys::All
+        && let Some(x) = exact.as_ref()
+    {
+        let mexp: Vec<Vec<Laurent>> =
+            x.m.iter()
+                .map(|r| {
+                    r.iter()
+                        .map(|e| expand_rf(e, d0.value(), i64::from(q) + 1, &tv))
+                        .collect()
+                })
+                .collect();
+        let mut checked = 0usize;
+        let mut with_pole = 0usize;
+        let mut mx = vec![0u32; n];
+        let mut per_rank = vec![0usize; nr];
+        stream_parsed(
+            compose,
+            inp.band,
+            spec.chunk_keys,
+            abs_prec,
+            &tv,
+            |i, res| {
                 let Ok(c) = res else { return Ok(()) };
                 checked += 1;
                 let mut polar = false;
@@ -718,7 +871,10 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
                         acc = acc.add(&ci.mul(&mexp[ii][j]));
                     }
                     if !acc.decides_pole() {
-                        return Err(format!("certificate c2: precision does not decide the pole of {:?}", inp.band[i]));
+                        return Err(format!(
+                            "certificate c2: precision does not decide the pole of {:?}",
+                            inp.band[i]
+                        ));
                     }
                     let p = acc.pole_order();
                     mx[j] = mx[j].max(p);
@@ -729,19 +885,19 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
                 if polar {
                     with_pole += 1;
                     per_rank[ranks[i] as usize] += 1;
-                    if failures.len() < 20 {
+                    if failures.len() < MAX_EXAMPLES {
                         failures.push(inp.band[i].clone());
                     }
                 }
                 Ok(())
-            })?;
-            for (r, s) in ranks_out.iter_mut().enumerate() {
-                s.keys_with_pole_on_r = Some(per_rank[r]);
-            }
-            cert_keys_checked = Some(checked);
-            cert_keys_with_pole = Some(with_pole);
-            max_pole_on_r = Some(mx);
+            },
+        )?;
+        for (r, s) in ranks_out.iter_mut().enumerate() {
+            s.keys_with_pole_on_r = Some(per_rank[r]);
         }
+        cert_keys_checked = Some(checked);
+        cert_keys_with_pole = Some(with_pole);
+        max_pole_on_r = Some(mx);
     }
 
     let regular = cert_lattice.unwrap_or(true)
@@ -753,20 +909,63 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
     let verdict = band_verdict(r_complete, r_max, regular);
 
     // needs
-    let tmax: Vec<Option<u32>> = (0..n).map(|j| ranks_out.iter().fold(None, |a, s| max_opt(a, s.max_pole_on_t[j]))).collect();
-    let tlabels: Vec<String> = inp.terminals.iter().map(|k| rustred_campaign_core::key::key_text(k)).collect();
+    let tmax: Vec<Option<u32>> = (0..n)
+        .map(|j| {
+            ranks_out
+                .iter()
+                .fold(None, |a, s| max_opt(a, s.max_pole_on_t[j]))
+        })
+        .collect();
+    let tlabels: Vec<String> = inp
+        .terminals
+        .iter()
+        .map(|k| rustred_campaign_core::key::key_text(k))
+        .collect();
     let tkeys: Vec<Option<Key>> = inp.terminals.iter().cloned().map(Some).collect();
-    let mut needs = vec![need_table("T", spec.base_order, &tlabels, &tkeys, &tmax, inp.availability, &verdict)];
-    let rlabels: Vec<String> = regular_set.iter().map(|k| rustred_campaign_core::key::key_text(k)).collect();
+    let mut needs = vec![need_table(
+        "T",
+        spec.base_order,
+        &tlabels,
+        &tkeys,
+        &tmax,
+        inp.availability,
+        &verdict,
+    )];
+    let rlabels: Vec<String> = regular_set
+        .iter()
+        .map(|k| rustred_campaign_core::key::key_text(k))
+        .collect();
     let rkeys: Vec<Option<Key>> = regular_set.iter().cloned().map(Some).collect();
     let rmax: Vec<Option<u32>> = match &max_pole_on_r {
         Some(v) => v.iter().map(|&p| Some(p)).collect(),
         None => vec![Some(0); n],
     };
-    needs.push(need_table("R", spec.base_order, &rlabels, &rkeys, &rmax, inp.availability, &verdict));
+    needs.push(need_table(
+        "R",
+        spec.base_order,
+        &rlabels,
+        &rkeys,
+        &rmax,
+        inp.availability,
+        &verdict,
+    ));
     if let Some(p) = inp.published {
-        let pmax: Vec<Option<u32>> = (0..m).map(|k| ranks_out.iter().fold(None, |a, s| max_opt(a, s.max_pole_on_p.as_ref().and_then(|v| v[k])))).collect();
-        needs.push(need_table("P", spec.base_order, &p.labels, &p.keys, &pmax, inp.availability, &verdict));
+        let pmax: Vec<Option<u32>> = (0..m)
+            .map(|k| {
+                ranks_out.iter().fold(None, |a, s| {
+                    max_opt(a, s.max_pole_on_p.as_ref().and_then(|v| v[k]))
+                })
+            })
+            .collect();
+        needs.push(need_table(
+            "P",
+            spec.base_order,
+            &p.labels,
+            &p.keys,
+            &pmax,
+            inp.availability,
+            &verdict,
+        ));
     }
 
     // export object

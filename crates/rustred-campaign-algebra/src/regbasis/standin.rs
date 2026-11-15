@@ -28,7 +28,14 @@ pub struct StandIn {
 
 impl StandIn {
     pub fn new(n: usize, d0: Rational, f: Formula) -> StandIn {
-        StandIn { n, d0, tv: t_vars(), f, undecided: HashSet::new(), series_calls: 0 }
+        StandIn {
+            n,
+            d0,
+            tv: t_vars(),
+            f,
+            undecided: HashSet::new(),
+            series_calls: 0,
+        }
     }
 
     /// From an explicit table.
@@ -51,15 +58,27 @@ impl Compose for StandIn {
         for (i, k) in keys.iter().enumerate() {
             self.series_calls += 1;
             if self.undecided.contains(k) {
-                visit(i, Err(ComposeError::Undecided("stand-in: listed undecided".into())));
+                visit(
+                    i,
+                    Err(ComposeError::Undecided("stand-in: listed undecided".into())),
+                );
                 continue;
             }
             let Some(texts) = (self.f)(k) else {
-                visit(i, Err(ComposeError::Undecided("stand-in: key not in the table".into())));
+                visit(
+                    i,
+                    Err(ComposeError::Undecided(
+                        "stand-in: key not in the table".into(),
+                    )),
+                );
                 continue;
             };
             if texts.len() != self.n {
-                return Err(format!("stand-in: {} coefficients for {k:?}, expected {}", texts.len(), self.n));
+                return Err(format!(
+                    "stand-in: {} coefficients for {k:?}, expected {}",
+                    texts.len(),
+                    self.n
+                ));
             }
             let mut v = Vec::with_capacity(self.n);
             for t in &texts {
@@ -72,6 +91,7 @@ impl Compose for StandIn {
     }
 
     fn exact(&mut self, key: &[i32]) -> Result<Vec<String>, ComposeError> {
-        (self.f)(key).ok_or_else(|| ComposeError::Unavailable("stand-in: key not in the table".into()))
+        (self.f)(key)
+            .ok_or_else(|| ComposeError::Unavailable("stand-in: key not in the table".into()))
     }
 }

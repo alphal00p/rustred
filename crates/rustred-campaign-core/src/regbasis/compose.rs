@@ -27,12 +27,20 @@ pub struct SeriesText {
 impl SeriesText {
     /// The series that is zero to precision `prec`.
     pub fn zero(prec: i64) -> SeriesText {
-        SeriesText { start: prec, coeffs: vec![], prec }
+        SeriesText {
+            start: prec,
+            coeffs: vec![],
+            prec,
+        }
     }
 
     /// The constant `c` (one coefficient at exponent 0), known to precision `prec >= 1`.
     pub fn constant(c: &str, prec: i64) -> SeriesText {
-        SeriesText { start: 0, coeffs: vec![c.to_string()], prec }
+        SeriesText {
+            start: 0,
+            coeffs: vec![c.to_string()],
+            prec,
+        }
     }
 
     /// Structural check: listed coefficients lie below the precision.

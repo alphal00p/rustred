@@ -78,7 +78,11 @@ pub fn dot_free_keys(chart: &[bool], rank: u32) -> Vec<Key> {
 
 /// The candidate family of the spec: the top-sector keys with dots <= max_dots, rank <= max_rank, dots + rank <=
 /// max_weight, line powers bounded by the dots, restricted to `allowed` (normally: in the band). Unsorted.
-pub fn candidate_family(chart: &[bool], spec: &RegBasisSpec, allowed: &dyn Fn(&[i32]) -> bool) -> Vec<Key> {
+pub fn candidate_family(
+    chart: &[bool],
+    spec: &RegBasisSpec,
+    allowed: &dyn Fn(&[i32]) -> bool,
+) -> Vec<Key> {
     let lines: Vec<usize> = (0..chart.len()).filter(|&i| chart[i]).collect();
     let nums: Vec<usize> = (0..chart.len()).filter(|&i| !chart[i]).collect();
     let mut out = vec![];
@@ -125,7 +129,9 @@ pub fn sort_by_preference(keys: &mut Vec<Key>, p: &Preference<'_>) {
         .enumerate()
         .map(|(i, k)| (k.as_slice(), i))
         .collect();
-    let weight = |k: &[i32]| -> i64 { dots_of(p.chart, k).unwrap_or(i64::MAX / 4) + rank_of(p.chart, k).unwrap_or(i64::MAX / 4) };
+    let weight = |k: &[i32]| -> i64 {
+        dots_of(p.chart, k).unwrap_or(i64::MAX / 4) + rank_of(p.chart, k).unwrap_or(i64::MAX / 4)
+    };
     keys.sort_by(|a, b| {
         if p.terminals_first {
             match (tpos.get(a.as_slice()), tpos.get(b.as_slice())) {

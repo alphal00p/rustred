@@ -38,11 +38,23 @@ impl HermiteLattice {
         let h = (0..n)
             .map(|j| {
                 (0..n)
-                    .map(|k| if k == j { zero.monomial(Rational::one(), vec![s as u16]) } else { zero.clone() })
+                    .map(|k| {
+                        if k == j {
+                            zero.monomial(Rational::one(), vec![s as u16])
+                        } else {
+                            zero.clone()
+                        }
+                    })
                     .collect()
             })
             .collect();
-        HermiteLattice { n, s, h, a: vec![s; n], vars }
+        HermiteLattice {
+            n,
+            s,
+            h,
+            a: vec![s; n],
+            vars,
+        }
     }
 
     pub fn n(&self) -> usize {
@@ -75,7 +87,13 @@ impl HermiteLattice {
     /// The vector `t^e e_j` (a terminal's unit vector in coordinates scaled by `t^e`).
     pub fn unit(&self, j: usize, e: u32) -> Vec<QP> {
         (0..self.n)
-            .map(|k| if k == j { self.zero().monomial(Rational::one(), vec![e as u16]) } else { self.zero() })
+            .map(|k| {
+                if k == j {
+                    self.zero().monomial(Rational::one(), vec![e as u16])
+                } else {
+                    self.zero()
+                }
+            })
             .collect()
     }
 
@@ -97,9 +115,9 @@ impl HermiteLattice {
 
     /// x <- x - c * H[j] on columns >= j (entries reduced mod t^s).
     fn sub_row(&self, x: &mut [QP], c: &QP, j: usize) {
-        for k in j..self.n {
-            if !self.h[j][k].is_zero() {
-                x[k] = mod_t(&(&x[k] - &(c * &self.h[j][k])), self.s);
+        for (xk, hk) in x.iter_mut().zip(&self.h[j]).skip(j) {
+            if !hk.is_zero() {
+                *xk = mod_t(&(&*xk - &(c * hk)), self.s);
             }
         }
     }
@@ -108,7 +126,11 @@ impl HermiteLattice {
     /// (the decrease of `sum_j a_j`; 0 = `x` was already in the lattice). Err on a wrong length.
     pub fn insert(&mut self, x: &[QP]) -> Result<u64, String> {
         if x.len() != self.n {
-            return Err(format!("vector of length {}, lattice rank {}", x.len(), self.n));
+            return Err(format!(
+                "vector of length {}, lattice rank {}",
+                x.len(),
+                self.n
+            ));
         }
         let before = self.det_valuation();
         let mut x: Vec<QP> = x.to_vec();
@@ -130,8 +152,8 @@ impl HermiteLattice {
             changed = true;
             let u = div_t(&x[j], w);
             let inv = unit_inverse(&u, self.s);
-            for k in j..self.n {
-                x[k] = mod_t(&(&x[k] * &inv), self.s);
+            for xk in x.iter_mut().skip(j) {
+                *xk = mod_t(&(&*xk * &inv), self.s);
             }
             x[j] = self.zero().monomial(Rational::one(), vec![w as u16]);
             let a_old = self.a[j];
@@ -139,7 +161,9 @@ impl HermiteLattice {
             self.a[j] = w;
             // continue with old - t^(a_old - w) * new (zero in column j)
             let mut y = old;
-            let c = self.zero().monomial(Rational::one(), vec![(a_old - w) as u16]);
+            let c = self
+                .zero()
+                .monomial(Rational::one(), vec![(a_old - w) as u16]);
             self.sub_row(&mut y, &c, j);
             y[j] = self.zero();
             x = y;
@@ -159,9 +183,9 @@ impl HermiteLattice {
                     continue;
                 }
                 let row_k = self.h[k].clone();
-                for m in k..self.n {
-                    if !row_k[m].is_zero() {
-                        self.h[j][m] = mod_t(&(&self.h[j][m] - &(&c * &row_k[m])), self.s);
+                for (hm, rm) in self.h[j].iter_mut().zip(&row_k).skip(k) {
+                    if !rm.is_zero() {
+                        *hm = mod_t(&(&*hm - &(&c * rm)), self.s);
                     }
                 }
             }
@@ -214,7 +238,9 @@ impl HermiteLattice {
 
     /// Lattice equality (mutual containment of the Hermite rows; the socles may differ).
     pub fn equals(&self, o: &HermiteLattice) -> bool {
-        self.n == o.n && self.h.iter().all(|r| o.contains_exact(r)) && o.h.iter().all(|r| self.contains_exact(r))
+        self.n == o.n
+            && self.h.iter().all(|r| o.contains_exact(r))
+            && o.h.iter().all(|r| self.contains_exact(r))
     }
 
     /// Membership without reducing `x` mod this lattice's socle first when the other socle is larger (exact test of a
@@ -235,10 +261,10 @@ impl HermiteLattice {
             for (i, r) in m.iter().enumerate() {
                 for &c in &cols {
                     let e = mod_t(&r[c], self.s);
-                    if let Some(w) = low(&e) {
-                        if best.is_none_or(|(bw, _, _)| w < bw) {
-                            best = Some((w, i, c));
-                        }
+                    if let Some(w) = low(&e)
+                        && best.is_none_or(|(bw, _, _)| w < bw)
+                    {
+                        best = Some((w, i, c));
                     }
                 }
             }
@@ -267,7 +293,10 @@ impl HermiteLattice {
             cols.retain(|&x| x != c);
         }
         out.sort_unstable();
-        debug_assert_eq!(out.iter().map(|&e| u64::from(e)).sum::<u64>(), self.det_valuation());
+        debug_assert_eq!(
+            out.iter().map(|&e| u64::from(e)).sum::<u64>(),
+            self.det_valuation()
+        );
         out
     }
 
@@ -275,7 +304,7 @@ impl HermiteLattice {
     pub fn rows_text(&self) -> Vec<Vec<String>> {
         self.h
             .iter()
-            .map(|r| r.iter().map(|x| poly_text(x)).collect())
+            .map(|r| r.iter().map(poly_text).collect())
             .collect()
     }
 }

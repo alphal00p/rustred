@@ -8,7 +8,7 @@
 use rustred_campaign_core::regbasis::need::{Availability, NeedTable, need_table};
 use serde_json::{Value, json};
 
-use crate::valuation::basis::{MasterMap, MapCheck, check_master_map};
+use crate::valuation::basis::{MapCheck, MasterMap, check_master_map};
 use crate::valuation::{D0, Valuation};
 
 /// The need table of the rows of `map` (X), read off M_X^-1. `exact_if_contained`: the record states whether L was
@@ -25,7 +25,11 @@ pub fn need_from_map(
         .inverse_orders
         .as_ref()
         .ok_or_else(|| format!("map not invertible over Q(d): {:?}", chk.reason))?;
-    let m_regular = chk.entry_orders.iter().flatten().all(|v| !matches!(v, Valuation::Order(o) if *o < 0));
+    let m_regular = chk
+        .entry_orders
+        .iter()
+        .flatten()
+        .all(|v| !matches!(v, Valuation::Order(o) if *o < 0));
     let n = map.rows.len();
     let poles: Vec<Option<u32>> = (0..n)
         .map(|i| {
@@ -39,7 +43,11 @@ pub fn need_from_map(
             mx
         })
         .collect();
-    let keys = map.rows.iter().map(|r| rustred_campaign_core::key::parse_key(r).ok()).collect::<Vec<_>>();
+    let keys = map
+        .rows
+        .iter()
+        .map(|r| rustred_campaign_core::key::parse_key(r).ok())
+        .collect::<Vec<_>>();
     let established = if exact_if_contained {
         "read off M_X^-1: exact (L certified regular on the band and contained in it)"
     } else {

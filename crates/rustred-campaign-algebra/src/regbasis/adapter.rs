@@ -16,7 +16,9 @@ use symbolica::domains::rational::{Q, Rational};
 use symbolica::domains::rational_polynomial::{FromNumeratorAndDenominator, RationalPolynomial};
 use symbolica::poly::PolyVariable;
 
-use rustred_campaign_core::epsdepth::{ComposeParams, KeyStatus, ReductionSource, compose_streaming};
+use rustred_campaign_core::epsdepth::{
+    ComposeParams, KeyStatus, ReductionSource, compose_streaming,
+};
 use rustred_campaign_core::key::Key;
 use rustred_campaign_core::regbasis::{Compose, ComposeError, ComposedVec, SeriesText};
 
@@ -37,9 +39,22 @@ pub struct EpsdepthCompose<'s, S: ReductionSource<Coeff = TCoeff>> {
 }
 
 impl<'s, S: ReductionSource<Coeff = TCoeff>> EpsdepthCompose<'s, S> {
-    pub fn new(src: &'s mut S, lau: SymbolicaLaurent, nterm: usize, params: ComposeParams, exact_max_keys: usize) -> Self {
+    pub fn new(
+        src: &'s mut S,
+        lau: SymbolicaLaurent,
+        nterm: usize,
+        params: ComposeParams,
+        exact_max_keys: usize,
+    ) -> Self {
         let index = (0..src.n_keys()).map(|i| (src.key(i), i)).collect();
-        EpsdepthCompose { src, lau, nterm, index, params, exact_max_keys }
+        EpsdepthCompose {
+            src,
+            lau,
+            nterm,
+            index,
+            params,
+            exact_max_keys,
+        }
     }
 }
 
@@ -54,13 +69,18 @@ fn series_text(s: &QSeries, abs_prec: i64) -> Result<SeriesText, String> {
         Some(v) => {
             let mut coeffs = Vec::with_capacity((abs_prec - v) as usize);
             for e in v..abs_prec {
-                let c = SymbolicaLaurent::series_coefficient(s, e).ok_or("coefficient beyond precision")?;
+                let c = SymbolicaLaurent::series_coefficient(s, e)
+                    .ok_or("coefficient beyond precision")?;
                 coeffs.push(rational_text(&c));
             }
             while coeffs.last().is_some_and(|x| x == "0") {
                 coeffs.pop();
             }
-            Ok(SeriesText { start: v, coeffs, prec: abs_prec })
+            Ok(SeriesText {
+                start: v,
+                coeffs,
+                prec: abs_prec,
+            })
         }
     }
 }
@@ -79,7 +99,11 @@ fn tcoeff_rf(c: &TCoeff, tv: &Arc<Vec<PolyVariable>>) -> Option<RF> {
                 }
                 p
             };
-            let (sn, sd) = if *v >= 0 { (*v as u32, 0) } else { (0, (-*v) as u32) };
+            let (sn, sd) = if *v >= 0 {
+                (*v as u32, 0)
+            } else {
+                (0, (-*v) as u32)
+            };
             let n = to_qp(n1.coefficients(), sn);
             let d = to_qp(d1.coefficients(), sd);
             Some(qp_ratio(&n, &d, tv))
@@ -96,7 +120,10 @@ fn qp_ratio(n: &QP, d: &QP, tv: &Arc<Vec<PolyVariable>>) -> RF {
     let z = |p: &QP| -> ZP {
         let mut out = ZP::new(&Z, Some(p.nterms()), tv.clone());
         for i in 0..p.nterms() {
-            out.append_monomial((&p.coefficients[i] * &Rational::from(l.clone())).numerator(), &[p.exponents(i)[0]]);
+            out.append_monomial(
+                (&p.coefficients[i] * &Rational::from(l.clone())).numerator(),
+                &[p.exponents(i)[0]],
+            );
         }
         out
     };
@@ -107,7 +134,9 @@ fn qp_ratio(n: &QP, d: &QP, tv: &Arc<Vec<PolyVariable>>) -> RF {
 fn rf_t_to_d(r: &RF, d0: &Rational) -> RF {
     let dv = d_vars();
     let back = |p: &ZP| -> QP {
-        let q: QP = p.map_coeff(|c| Rational::from(c.clone()), Q).shift_var(0, &(-d0.clone()));
+        let q: QP = p
+            .map_coeff(|c| Rational::from(c.clone()), Q)
+            .shift_var(0, &(-d0.clone()));
         let mut out = QP::new(&Q, Some(q.nterms()), dv.clone());
         for i in 0..q.nterms() {
             out.append_monomial(q.coefficients[i].clone(), &[q.exponents(i)[0]]);
@@ -136,7 +165,12 @@ impl<S: ReductionSource<Coeff = TCoeff>> Compose for EpsdepthCompose<'_, S> {
                     pos.entry(g).or_default().push(i);
                     sel.push(g);
                 }
-                None => visit(i, Err(ComposeError::Undecided("key not in the reduction source".into()))),
+                None => visit(
+                    i,
+                    Err(ComposeError::Undecided(
+                        "key not in the reduction source".into(),
+                    )),
+                ),
             }
         }
         sel.sort_unstable();
@@ -144,7 +178,10 @@ impl<S: ReductionSource<Coeff = TCoeff>> Compose for EpsdepthCompose<'_, S> {
         if sel.is_empty() {
             return Ok(());
         }
-        let params = ComposeParams { target: abs_prec, ..self.params.clone() };
+        let params = ComposeParams {
+            target: abs_prec,
+            ..self.params.clone()
+        };
         let nterm = self.nterm;
         let mut seen: HashMap<usize, bool> = HashMap::new();
         compose_streaming(
@@ -176,7 +213,12 @@ impl<S: ReductionSource<Coeff = TCoeff>> Compose for EpsdepthCompose<'_, S> {
         for g in sel {
             if !seen.contains_key(&g) {
                 for &i in &pos[&g] {
-                    visit(i, Err(ComposeError::Undecided("not handed over by the composition".into())));
+                    visit(
+                        i,
+                        Err(ComposeError::Undecided(
+                            "not handed over by the composition".into(),
+                        )),
+                    );
                 }
             }
         }
@@ -196,14 +238,21 @@ impl<S: ReductionSource<Coeff = TCoeff>> Compose for EpsdepthCompose<'_, S> {
         seen.insert(root, ());
         while !frontier.is_empty() {
             if seen.len() > self.exact_max_keys {
-                return Err(ComposeError::Undecided(format!("exact cone above {} keys", self.exact_max_keys)));
+                return Err(ComposeError::Undecided(format!(
+                    "exact cone above {} keys",
+                    self.exact_max_keys
+                )));
             }
             let mut served = vec![];
             for &k in &frontier {
                 match self.src.status(k) {
                     KeyStatus::Terminal(_) => {}
                     KeyStatus::Served => served.push(k),
-                    KeyStatus::Open(w) => return Err(ComposeError::Undecided(format!("open key in the cone: {w}"))),
+                    KeyStatus::Open(w) => {
+                        return Err(ComposeError::Undecided(format!(
+                            "open key in the cone: {w}"
+                        )));
+                    }
                 }
             }
             let mut next = vec![];
@@ -254,17 +303,37 @@ impl<S: ReductionSource<Coeff = TCoeff>> Compose for EpsdepthCompose<'_, S> {
                 }
             }
         }
-        let zero = || RationalPolynomial::from_num_den(ZP::new(&Z, None, tv.clone()), ZP::new(&Z, None, tv.clone()).one(), &Z, false);
+        let zero = || {
+            RationalPolynomial::from_num_den(
+                ZP::new(&Z, None, tv.clone()),
+                ZP::new(&Z, None, tv.clone()).one(),
+                &Z,
+                false,
+            )
+        };
         let mut vecs: HashMap<usize, Vec<RF>> = HashMap::new();
         for &k in &order {
             let v: Vec<RF> = match self.src.status(k) {
                 KeyStatus::Terminal(j) => (0..self.nterm)
-                    .map(|i| if i == j { RationalPolynomial::from_num_den(ZP::new(&Z, None, tv.clone()).one(), ZP::new(&Z, None, tv.clone()).one(), &Z, false) } else { zero() })
+                    .map(|i| {
+                        if i == j {
+                            RationalPolynomial::from_num_den(
+                                ZP::new(&Z, None, tv.clone()).one(),
+                                ZP::new(&Z, None, tv.clone()).one(),
+                                &Z,
+                                false,
+                            )
+                        } else {
+                            zero()
+                        }
+                    })
                     .collect(),
                 _ => {
                     let mut acc: Vec<RF> = (0..self.nterm).map(|_| zero()).collect();
                     for (c, coeff) in &terms[&k] {
-                        let Some(rc) = tcoeff_rf(coeff, &tv) else { continue };
+                        let Some(rc) = tcoeff_rf(coeff, &tv) else {
+                            continue;
+                        };
                         let child = &vecs[c];
                         for i in 0..self.nterm {
                             if !child[i].numerator.is_zero() {
@@ -278,6 +347,9 @@ impl<S: ReductionSource<Coeff = TCoeff>> Compose for EpsdepthCompose<'_, S> {
             vecs.insert(k, v);
         }
         let d0 = self.lau.d0().value().clone();
-        Ok(vecs[&root].iter().map(|r| rf_text(&rf_t_to_d(r, &d0))).collect())
+        Ok(vecs[&root]
+            .iter()
+            .map(|r| rf_text(&rf_t_to_d(r, &d0)))
+            .collect())
     }
 }

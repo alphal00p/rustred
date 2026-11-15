@@ -40,13 +40,25 @@ impl Availability for EpsAvail {
 fn rss_mb() -> u64 {
     std::fs::read_to_string("/proc/self/status")
         .ok()
-        .and_then(|s| s.lines().find(|l| l.starts_with("VmHWM:")).map(str::to_string))
-        .and_then(|l| l.split_whitespace().nth(1).and_then(|x| x.parse::<u64>().ok()))
+        .and_then(|s| {
+            s.lines()
+                .find(|l| l.starts_with("VmHWM:"))
+                .map(str::to_string)
+        })
+        .and_then(|l| {
+            l.split_whitespace()
+                .nth(1)
+                .and_then(|x| x.parse::<u64>().ok())
+        })
         .map_or(0, |kb| kb / 1024)
 }
 
 fn text_or_file(s: &str) -> Result<Value, String> {
-    let t = if Path::new(s).is_file() { std::fs::read_to_string(s).map_err(|e| e.to_string())? } else { s.to_string() };
+    let t = if Path::new(s).is_file() {
+        std::fs::read_to_string(s).map_err(|e| e.to_string())?
+    } else {
+        s.to_string()
+    };
     serde_json::from_str(&t).map_err(|e| format!("{s}: {e}"))
 }
 
@@ -60,13 +72,20 @@ fn main() {
 /// `rr_regbasis need-from-map --map MAP.json [--d0 4] [--base 0] [--eps-box JSON|PATH] [--exact] [--out FILE]`:
 /// the need of the map's rows (X = M_X L) read off M_X^-1 (lane poles' reader and exact check).
 fn need_cmd(args: &[String]) -> Result<(), String> {
-    let get = |name: &str| -> Option<String> { args.iter().position(|a| a == name).and_then(|i| args.get(i + 1).cloned()) };
+    let get = |name: &str| -> Option<String> {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1).cloned())
+    };
     if !licensed() {
         return Err("no Symbolica licence (source WS/ops/env.sh)".into());
     }
     let map_path = get("--map").ok_or("missing --map")?;
-    let map = rustred_campaign_algebra::valuation::basis::read_master_map(&text_or_file(&map_path)?)?;
-    let d0 = rustred_campaign_algebra::valuation::D0::parse(&get("--d0").unwrap_or_else(|| "4".into())).map_err(|e| e.to_string())?;
+    let map =
+        rustred_campaign_algebra::valuation::basis::read_master_map(&text_or_file(&map_path)?)?;
+    let d0 =
+        rustred_campaign_algebra::valuation::D0::parse(&get("--d0").unwrap_or_else(|| "4".into()))
+            .map_err(|e| e.to_string())?;
     let base: i64 = get("--base").and_then(|x| x.parse().ok()).unwrap_or(0);
     let avail = match get("--eps-box") {
         Some(s) => Some(EpsAvail(EpsBox::from_value(&text_or_file(&s)?)?)),
@@ -93,7 +112,11 @@ fn run() -> Result<(), String> {
     if args.first().map(String::as_str) == Some("need-from-map") {
         return need_cmd(&args[1..]);
     }
-    let get = |name: &str| -> Option<String> { args.iter().position(|a| a == name).and_then(|i| args.get(i + 1).cloned()) };
+    let get = |name: &str| -> Option<String> {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1).cloned())
+    };
     let flag = |name: &str| args.iter().any(|a| a == name);
     let need = |name: &str| get(name).ok_or_else(|| format!("missing {name}"));
     if !licensed() {
@@ -110,12 +133,21 @@ fn run() -> Result<(), String> {
     let node = get("--node").unwrap_or_else(|| "node".into());
     let base = PathBuf::from(get("--import-base").unwrap_or_else(|| "/".into()));
     let ts = TableSetSpec::read(Path::new(&spec_path)).map_err(|e| e.to_string())?;
-    let opts = LoadOptions { index_dir: get("--index-dir").map(PathBuf::from) };
+    let opts = LoadOptions {
+        index_dir: get("--index-dir").map(PathBuf::from),
+    };
     let set = import::load_with(&ts, &base, &opts).map_err(|e| e.to_string())?;
-    eprintln!("loaded set in {:.1} s, rss {} MB", t0.elapsed().as_secs_f64(), rss_mb());
+    eprintln!(
+        "loaded set in {:.1} s, rss {} MB",
+        t0.elapsed().as_secs_f64(),
+        rss_mb()
+    );
     let alg = SymbolicaAlgebra::new().map_err(|e| e.to_string())?;
     let lau = SymbolicaLaurent::new(&spec.d0)?;
-    let cache = get("--cache-mb").and_then(|x| x.parse::<usize>().ok()).unwrap_or(4096) << 20;
+    let cache = get("--cache-mb")
+        .and_then(|x| x.parse::<usize>().ok())
+        .unwrap_or(4096)
+        << 20;
     let mut src = RecordSource::from_statement(&set, &stmt, alg, lau.clone(), cache)?;
     let chart: Vec<bool> = src.lines().to_vec();
     let terminals: Vec<Key> = src.terminals().to_vec();
@@ -125,10 +157,15 @@ fn run() -> Result<(), String> {
         .map(|i| src.key(i))
         .filter(|k| rank_of(&chart, k).is_some())
         .collect();
-    eprintln!("terminals {:?}; band (top-sector start keys) {}", terminals, band.len());
+    eprintln!(
+        "terminals {:?}; band (top-sector start keys) {}",
+        terminals,
+        band.len()
+    );
     let (bx_id, bx_digest, r_max) = match get("--box") {
         Some(p) => {
-            let b = BoxDef::from_json(&std::fs::read_to_string(&p).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+            let b = BoxDef::from_json(&std::fs::read_to_string(&p).map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?;
             let r = b.layers.iter().map(|l| l[1]).max();
             (b.id.clone(), b.digest(), r)
         }
@@ -136,7 +173,11 @@ fn run() -> Result<(), String> {
             let mut s = band.clone();
             s.sort();
             let text = serde_json::to_string(&s).map_err(|e| e.to_string())?;
-            ("statement-start-keys".to_string(), blake3_hex(text.as_bytes()), None)
+            (
+                "statement-start-keys".to_string(),
+                blake3_hex(text.as_bytes()),
+                None,
+            )
         }
     };
     let stmt_digest = file_sha256(&stmt.join("statement.jsonl"))?;
@@ -150,11 +191,15 @@ fn run() -> Result<(), String> {
         box_id: bx_id,
         box_digest: bx_digest,
         closure_statement_digest: stmt_digest,
-        d0: rustred_campaign_algebra::valuation::D0::parse(&spec.d0).map_err(|e| e.to_string())?.text().to_string(),
+        d0: rustred_campaign_algebra::valuation::D0::parse(&spec.d0)
+            .map_err(|e| e.to_string())?
+            .text()
+            .to_string(),
     };
     let published = match get("--published") {
         Some(p) => {
-            let map = rustred_campaign_algebra::valuation::basis::read_master_map(&text_or_file(&p)?)?;
+            let map =
+                rustred_campaign_algebra::valuation::basis::read_master_map(&text_or_file(&p)?)?;
             Some(Published::from_master_map(&map, &terminals)?)
         }
         None => None,
@@ -165,11 +210,15 @@ fn run() -> Result<(), String> {
     };
     let params = ComposeParams {
         target: 1,
-        max_depth: get("--max-depth").and_then(|x| x.parse().ok()).unwrap_or(32),
+        max_depth: get("--max-depth")
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(32),
         max_keys: None,
         max_seconds: None,
     };
-    let exact_max = get("--exact-max-keys").and_then(|x| x.parse().ok()).unwrap_or(200_000);
+    let exact_max = get("--exact-max-keys")
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(200_000);
     let nt = terminals.len();
     let cmp_fn = |a: &[i32], b: &[i32]| set.cmp.cmp(a, b);
     let mut comp = EpsdepthCompose::new(&mut src, lau, nt, params, exact_max);
@@ -202,7 +251,11 @@ fn run() -> Result<(), String> {
         rss_mb()
     );
     std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
-    std::fs::write(out.join("regular_basis.json"), res.record_text.clone().unwrap_or_default()).map_err(|e| e.to_string())?;
+    std::fs::write(
+        out.join("regular_basis.json"),
+        res.record_text.clone().unwrap_or_default(),
+    )
+    .map_err(|e| e.to_string())?;
     let mut summary = json!({
         "node": node, "regular_set": res.regular_set, "sources": res.sources, "verdict": res.verdict,
         "q": res.q, "z": res.lattice.length(), "keys": band.len(), "decided": res.keys_decided,
@@ -225,13 +278,26 @@ fn run() -> Result<(), String> {
             binding: Some(binding),
         };
         let tw = tower(&mut comp, &tin)?;
-        eprintln!("TOWER {node}: {} ({:.1} s)", tw.verdict, t2.elapsed().as_secs_f64());
+        eprintln!(
+            "TOWER {node}: {} ({:.1} s)",
+            tw.verdict,
+            t2.elapsed().as_secs_f64()
+        );
         let text = rustred_campaign_core::schema::canon::canonical_json(&tw.record, false)?;
         std::fs::write(out.join("tower.json"), text).map_err(|e| e.to_string())?;
         summary["tower"] = json!({"verdict": tw.verdict, "seconds": t2.elapsed().as_secs_f64()});
     }
     let mut f = std::fs::File::create(out.join("summary.json")).map_err(|e| e.to_string())?;
-    writeln!(f, "{}", serde_json::to_string_pretty(&summary).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-    eprintln!("DONE in {:.1} s, rss {} MB", t0.elapsed().as_secs_f64(), rss_mb());
+    writeln!(
+        f,
+        "{}",
+        serde_json::to_string_pretty(&summary).map_err(|e| e.to_string())?
+    )
+    .map_err(|e| e.to_string())?;
+    eprintln!(
+        "DONE in {:.1} s, rss {} MB",
+        t0.elapsed().as_secs_f64(),
+        rss_mb()
+    );
     Ok(())
 }

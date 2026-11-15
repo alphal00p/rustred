@@ -98,10 +98,14 @@ impl Default for RegBasisSpec {
 }
 
 fn obj<'a>(v: &'a Value, what: &str, allowed: &[&str]) -> Result<&'a Map<String, Value>, String> {
-    let o = v.as_object().ok_or_else(|| format!("{what}: expected an object"))?;
+    let o = v
+        .as_object()
+        .ok_or_else(|| format!("{what}: expected an object"))?;
     for k in o.keys() {
         if !allowed.contains(&k.as_str()) {
-            return Err(format!("{what}: unknown member {k:?} (allowed: {allowed:?})"));
+            return Err(format!(
+                "{what}: unknown member {k:?} (allowed: {allowed:?})"
+            ));
         }
     }
     Ok(o)
@@ -121,7 +125,8 @@ fn opt_u32(v: Option<&Value>, what: &str) -> Result<Option<u32>, String> {
 }
 
 fn bool_of(v: &Value, what: &str) -> Result<bool, String> {
-    v.as_bool().ok_or_else(|| format!("{what}: expected a boolean, got {v}"))
+    v.as_bool()
+        .ok_or_else(|| format!("{what}: expected a boolean, got {v}"))
 }
 
 /// `a` or `a/b` with decimal digits, `b` non-zero (the algebra crate normalises with lane poles' `D0::parse`).
@@ -145,12 +150,22 @@ impl RegBasisSpec {
         let o = obj(
             v,
             "regular_basis",
-            &["schema", "d0", "base_order", "candidates", "certify", "chunk_keys", "tower"],
+            &[
+                "schema",
+                "d0",
+                "base_order",
+                "candidates",
+                "certify",
+                "chunk_keys",
+                "tower",
+            ],
         )?;
-        if let Some(x) = o.get("schema") {
-            if x.as_str() != Some(SPEC_SCHEMA) {
-                return Err(format!("regular_basis.schema: expected {SPEC_SCHEMA:?}, got {x}"));
-            }
+        if let Some(x) = o.get("schema")
+            && x.as_str() != Some(SPEC_SCHEMA)
+        {
+            return Err(format!(
+                "regular_basis.schema: expected {SPEC_SCHEMA:?}, got {x}"
+            ));
         }
         if let Some(x) = o.get("d0") {
             let t = x.as_str().ok_or("regular_basis.d0: expected a string")?;
@@ -158,13 +173,21 @@ impl RegBasisSpec {
             s.d0 = t.to_string();
         }
         if let Some(x) = o.get("base_order") {
-            s.base_order = x.as_i64().ok_or("regular_basis.base_order: expected an integer")?;
+            s.base_order = x
+                .as_i64()
+                .ok_or("regular_basis.base_order: expected an integer")?;
         }
         if let Some(c) = o.get("candidates") {
             let c = obj(
                 c,
                 "regular_basis.candidates",
-                &["terminals_first", "max_dots", "max_rank", "max_weight", "order"],
+                &[
+                    "terminals_first",
+                    "max_dots",
+                    "max_rank",
+                    "max_weight",
+                    "order",
+                ],
             )?;
             if let Some(x) = c.get("terminals_first") {
                 s.terminals_first = bool_of(x, "candidates.terminals_first")?;
@@ -182,7 +205,11 @@ impl RegBasisSpec {
                 s.order = match x.as_str() {
                     Some("weight_then_node") => CandidateOrder::WeightThenNode,
                     Some("node") => CandidateOrder::Node,
-                    _ => return Err(format!("candidates.order: weight_then_node | node, got {x}")),
+                    _ => {
+                        return Err(format!(
+                            "candidates.order: weight_then_node | node, got {x}"
+                        ));
+                    }
                 };
             }
         }
@@ -210,7 +237,13 @@ impl RegBasisSpec {
             let t = obj(
                 t,
                 "regular_basis.tower",
-                &["enabled", "max_rank", "max_keys_per_rank", "max_seconds", "seed_with_band"],
+                &[
+                    "enabled",
+                    "max_rank",
+                    "max_keys_per_rank",
+                    "max_seconds",
+                    "seed_with_band",
+                ],
             )?;
             if let Some(x) = t.get("enabled") {
                 s.tower_enabled = bool_of(x, "tower.enabled")?;

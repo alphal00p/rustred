@@ -50,25 +50,56 @@ pub fn exact_map(a_rows: &[Vec<String>], d0: &D0) -> Result<ExactMap, String> {
     }
     // all entries must share one variable map (parse_rf uses the map [d]); constants too
     let mat = Matrix::from_linear(data, n as u32, n as u32, field.clone())?;
-    let inv = mat.inv().map_err(|e| format!("A is singular over Q(d): {e:?}"))?;
+    let inv = mat
+        .inv()
+        .map_err(|e| format!("A is singular over Q(d): {e:?}"))?;
     let det_a = mat.det().map_err(|e| format!("det A: {e:?}"))?;
-    let m: Vec<Vec<RF>> = (0..n).map(|i| (0..n).map(|j| inv[(i as u32, j as u32)].clone()).collect()).collect();
+    let m: Vec<Vec<RF>> = (0..n)
+        .map(|i| (0..n).map(|j| inv[(i as u32, j as u32)].clone()).collect())
+        .collect();
     let det_m = det_a.inv();
     let a_text: Vec<Vec<String>> = a.iter().map(|r| r.iter().map(rf_text).collect()).collect();
     let m_text: Vec<Vec<String>> = m.iter().map(|r| r.iter().map(rf_text).collect()).collect();
     let det_m_text = rf_text(&det_m);
-    let m_orders = m_text.iter().map(|r| r.iter().map(|t| order(t, d0)).collect::<Result<Vec<_>, _>>()).collect::<Result<Vec<_>, _>>()?;
-    let a_orders = a_text.iter().map(|r| r.iter().map(|t| order(t, d0)).collect::<Result<Vec<_>, _>>()).collect::<Result<Vec<_>, _>>()?;
+    let m_orders = m_text
+        .iter()
+        .map(|r| {
+            r.iter()
+                .map(|t| order(t, d0))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let a_orders = a_text
+        .iter()
+        .map(|r| {
+            r.iter()
+                .map(|t| order(t, d0))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let det_m_order = order(&det_m_text, d0)?;
     // cross-check of the printed texts against the internal objects (own small valuation on the same objects)
     for (i, r) in m.iter().enumerate() {
         for (j, x) in r.iter().enumerate() {
             if rf_valuation(x, d0.value()) != m_orders[i][j] {
-                return Err(format!("valuation mismatch on M[{i}][{j}] (text {:?})", m_text[i][j]));
+                return Err(format!(
+                    "valuation mismatch on M[{i}][{j}] (text {:?})",
+                    m_text[i][j]
+                ));
             }
         }
     }
-    Ok(ExactMap { a, m, det_m, a_text, m_text, det_m_text, m_orders, a_orders, det_m_order })
+    Ok(ExactMap {
+        a,
+        m,
+        det_m,
+        a_text,
+        m_text,
+        det_m_text,
+        m_orders,
+        a_orders,
+        det_m_order,
+    })
 }
 
 /// `x * M` exactly for exact coefficient rows (rational functions): the coefficients of a key on R.

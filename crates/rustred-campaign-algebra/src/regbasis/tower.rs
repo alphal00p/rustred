@@ -14,11 +14,13 @@ use serde_json::{Value, json};
 use rustred_campaign_core::key::Key;
 use rustred_campaign_core::regbasis::record::{Binding, TOWER_SCHEMA, seal};
 use rustred_campaign_core::regbasis::spec::CandidateOrder;
-use rustred_campaign_core::regbasis::{Compose, Preference, RegBasisSpec, dot_free_keys, sort_by_preference};
+use rustred_campaign_core::regbasis::{
+    Compose, Preference, RegBasisSpec, dot_free_keys, sort_by_preference,
+};
 
 use crate::valuation::D0;
 
-use super::build::{QMap, Published, elementary, scaled, stream_parsed};
+use super::build::{Published, QMap, elementary, scaled, stream_parsed};
 use super::lattice::HermiteLattice;
 use super::series::{Laurent, t_vars};
 
@@ -37,9 +39,17 @@ impl TowerSeed {
         let r = b.r_complete?;
         if on_published {
             let (v, q) = b.prefix_p.as_ref()?;
-            Some(TowerSeed { rank: r, lattice: v.get(r as usize)?.clone(), q: *q })
+            Some(TowerSeed {
+                rank: r,
+                lattice: v.get(r as usize)?.clone(),
+                q: *q,
+            })
         } else {
-            Some(TowerSeed { rank: r, lattice: b.prefix_t.get(r as usize)?.clone(), q: b.q })
+            Some(TowerSeed {
+                rank: r,
+                lattice: b.prefix_t.get(r as usize)?.clone(),
+                q: b.q,
+            })
         }
     }
 }
@@ -97,7 +107,10 @@ pub fn tower(compose: &mut dyn Compose, inp: &TowerInput<'_>) -> Result<TowerRes
     let m = qmap.as_ref().map_or(n, |q| q.m);
     let abs_prec: i64 = 1.max(qmap.as_ref().map_or(0, |q| i64::from(q.pole)));
     let reference = if inp.published.is_some() { "P" } else { "T" }.to_string();
-    let r_top = inp.spec.tower_max_rank.map_or(inp.r_max, |c| c.min(inp.r_max));
+    let r_top = inp
+        .spec
+        .tower_max_rank
+        .map_or(inp.r_max, |c| c.min(inp.r_max));
     let t0 = Instant::now();
     let pref = Preference {
         chart: inp.chart,
@@ -111,7 +124,10 @@ pub fn tower(compose: &mut dyn Compose, inp: &TowerInput<'_>) -> Result<TowerRes
         _ => (HermiteLattice::new(m, 0, tv.clone()), 0, None),
     };
     if lat.n() != m {
-        return Err(format!("tower seed of rank {} on a reference basis of size {m}", lat.n()));
+        return Err(format!(
+            "tower seed of rank {} on a reference basis of size {m}",
+            lat.n()
+        ));
     }
     let mut out: Vec<TowerRank> = vec![];
     let mut prev = lat.length();
@@ -140,7 +156,11 @@ pub fn tower(compose: &mut dyn Compose, inp: &TowerInput<'_>) -> Result<TowerRes
             }
             continue;
         }
-        if inp.spec.tower_max_seconds.is_some_and(|s| t0.elapsed().as_secs_f64() > s) {
+        if inp
+            .spec
+            .tower_max_seconds
+            .is_some_and(|s| t0.elapsed().as_secs_f64() > s)
+        {
             time_decided = true;
             break;
         }
@@ -151,12 +171,19 @@ pub fn tower(compose: &mut dyn Compose, inp: &TowerInput<'_>) -> Result<TowerRes
             keys.truncate(c);
         }
         let mut vecs: Vec<Option<Vec<Laurent>>> = vec![None; keys.len()];
-        stream_parsed(compose, &keys, inp.spec.chunk_keys, abs_prec, &tv, |i, res| {
-            if let Ok(c) = res {
-                vecs[i] = Some(c);
-            }
-            Ok(())
-        })?;
+        stream_parsed(
+            compose,
+            &keys,
+            inp.spec.chunk_keys,
+            abs_prec,
+            &tv,
+            |i, res| {
+                if let Ok(c) = res {
+                    vecs[i] = Some(c);
+                }
+                Ok(())
+            },
+        )?;
         let mut undecided = 0usize;
         let mut max_pole = 0u32;
         let mut first: Option<(Key, u32)> = None;
@@ -205,10 +232,16 @@ pub fn tower(compose: &mut dyn Compose, inp: &TowerInput<'_>) -> Result<TowerRes
         }
     }
     let verdict = match z_through {
-        Some((z, r)) => format!("z = {z} through rank {r} on {reference} (lower bound beyond the seeded band ranks)"),
+        Some((z, r)) => format!(
+            "z = {z} through rank {r} on {reference} (lower bound beyond the seeded band ranks)"
+        ),
         None => format!("no rank completed on {reference}"),
     };
-    let increments_gt1: Vec<u32> = out.iter().filter(|x| x.source.starts_with("tower") && x.increment > 1).map(|x| x.rank).collect();
+    let increments_gt1: Vec<u32> = out
+        .iter()
+        .filter(|x| x.source.starts_with("tower") && x.increment > 1)
+        .map(|x| x.rank)
+        .collect();
     let mut rec = json!({
         "schema": TOWER_SCHEMA,
         "binding": inp.binding.as_ref().map(|b| b.to_value()),
@@ -229,5 +262,12 @@ pub fn tower(compose: &mut dyn Compose, inp: &TowerInput<'_>) -> Result<TowerRes
         b.validate()?;
         rec = seal(rec)?.0;
     }
-    Ok(TowerResult { reference, ranks: out, z_through, verdict, time_decided, record: rec })
+    Ok(TowerResult {
+        reference,
+        ranks: out,
+        z_through,
+        verdict,
+        time_decided,
+        record: rec,
+    })
 }
