@@ -196,3 +196,109 @@ fn f8_exact_tier_off_does_not_close_on_unconfirmed_zeros() {
         check["tier"], check["second_route"]
     );
 }
+
+/// Two point records on ONE table (shared by both runs, so the walk binding of a leaf set matches): R3 at [3,1,0] as in
+/// `material` (t2 a FALSE zero of the first route, rr_proof instantiate facts), R4 at [4,1,0] -> [3,1,0] (non-zero).
+fn material2(dir: &Path, start: &str) -> String {
+    let shared = dir.join("shared");
+    std::fs::create_dir_all(&shared).unwrap();
+    let r3 = json!({"type":"rule","chart":"110","index":0,"fixed":[3,1,0],"equations":[],"target":"I(3,1,0)",
+        "rhs":[["I(2,1,0)","1"],["I(3,1,1)","n2"],["I(2,1,1)","1+n2"]],
+        "exceptions":[],"dispatch":"Partition","witness_loci":[]})
+    .to_string();
+    let r4 = json!({"type":"rule","chart":"110","index":1,"fixed":[4,1,0],"equations":[],"target":"I(4,1,0)",
+        "rhs":[["I(3,1,0)","1"]],"exceptions":[],"dispatch":"Partition","witness_loci":[]})
+    .to_string();
+    let t = format!("{HEADER}\n{CHART}\n{r3}\n{r4}\n{{\"type\":\"end\",\"charts\":1}}\n");
+    std::fs::write(shared.join("A.table.jsonl"), &t).unwrap();
+    let inst = |rec: &str, idx: i64, key: [i32; 3], rhs: Value| {
+        json!({"schema":"rustred.proof-kernel.instantiate.v1","record_sha256": sha(rec.as_bytes()), "rule": idx,
+            "key": key, "in_case": true, "chart_ok": true, "branch": null, "regular": "regular", "irregular_terms": [],
+            "hidden_loci": [], "rhs": rhs, "zero_test": "exact", "error": null})
+        .to_string()
+    };
+    let facts = format!(
+        "{}\n{}\n",
+        inst(&r3, 0, [3, 1, 0], json!([{"term":0,"key":[2,1,0],"coef":"nonzero"},
+            {"term":1,"key":[3,1,1],"coef":"zero"},{"term":2,"key":[2,1,1],"coef":"zero"}])),
+        inst(&r4, 1, [4, 1, 0], json!([{"term":0,"key":[3,1,0],"coef":"nonzero"}]))
+    );
+    std::fs::write(shared.join("facts.jsonl"), &facts).unwrap();
+    let proofs = format!(
+        "{}\n{}\n",
+        json!({"record_sha256": sha(r3.as_bytes()), "index": 0, "key": [3,1,0], "verdict": "EXACT_IN_SPAN_AT_KEY"}),
+        json!({"record_sha256": sha(r4.as_bytes()), "index": 1, "key": [4,1,0], "verdict": "EXACT_IN_SPAN_AT_KEY"})
+    );
+    std::fs::write(shared.join("proofs.jsonl"), &proofs).unwrap();
+    std::fs::create_dir_all(dir).unwrap();
+    std::fs::write(dir.join("start.jsonl"), format!("{start}\n")).unwrap();
+    json!({"schema":"rustred.campaign.import-spec.v1","node":"toy","frame_from":"A","bits":6,
+        "start":{"path": dir.join("start.jsonl").display().to_string(),"format":"keys_jsonl"},
+        "required_evidence":"imported","policies":{"tier":"C"},
+        "sources":[{"id":"A","kind":"engine_table","class":"base","path": shared.join("A.table.jsonl").display().to_string(),
+                    "sha256": sha(t.as_bytes())},
+                   {"id":"T","kind":"terminals","keys":[[2,1,0]]}],
+        "evidence":{"facts":[{"path": shared.join("facts.jsonl").display().to_string(),
+                              "sha256": sha(facts.as_bytes()), "family": "TOY"}],
+                    "proofs":[{"path": shared.join("proofs.jsonl").display().to_string(),
+                               "sha256": sha(proofs.as_bytes()), "family": "TOY"}]}})
+    .to_string()
+}
+
+/// F9: a run with `all_zeros: off` (explicit) closes [3,1,0] on the false zero and writes its leaf set; a LATER run
+/// with the DEFAULT second route (structural) takes that leaf set as a prior clause and closes relative to it: the leaf
+/// set (core closure/leaves.rs LeafBinding) and the frozen-layer record (layers.rs LayerRecord) carry no zero-route
+/// mode, so a default-on run inherits zeros that were confirmed by no second route.
+#[test]
+#[ignore = "AUDIT-R2-ZEROS F9: a prior clause's leaf set closed with all_zeros=off is accepted by a default-on run"]
+fn f9_a_default_run_refuses_a_leaf_set_closed_without_the_zero_route() {
+    use rustred_campaign::closeloop::config::{AllZeros, LayersCfg, LeafSetRef, SecondRouteCfg};
+    let root = root("leafset");
+    let da = root.join("a");
+    let spec_a = material2(&root, "[3,1,0]");
+    std::fs::create_dir_all(&da).unwrap();
+    let out_a = run_pass(
+        &PassIn {
+            threads: 1,
+            exact_tier: true,
+            rows_path: da.join("rows.jsonl"),
+            second_route: SecondRouteCfg {
+                all_zeros: Some(AllZeros::Off),
+                ..SecondRouteCfg::default()
+            },
+            layers: Some(LayersCfg { order: "coarse".into(), list: vec![], freeze: false }),
+            ..PassIn::first("toy", spec_a, da.clone(), da.join("final"))
+        },
+        None,
+    )
+    .unwrap();
+    let fa = out_a.final_.expect("run A final");
+    assert_eq!(fa.verdict, "closed", "run A (all_zeros off) closes: {:#}", fa.result["blockers"]);
+    let ls = &fa.result["leaf_set"];
+    let lref = LeafSetRef {
+        path: PathBuf::from(ls["path"].as_str().expect("leaf set written")),
+        sha256: ls["sha256"].as_str().unwrap().to_string(),
+        statement: None,
+    };
+    let db = root.join("b");
+    std::fs::create_dir_all(&db).unwrap();
+    let spec_b = material2(&root.join("bspec"), "[4,1,0]");
+    let out_b = run_pass(
+        &PassIn {
+            threads: 1,
+            exact_tier: true,
+            rows_path: db.join("rows.jsonl"),
+            prior_leaf_sets: vec![("A".into(), lref)],
+            ..PassIn::first("toy", spec_b, db.clone(), db.join("final"))
+        },
+        None,
+    );
+    let _ = std::fs::remove_dir_all(&root);
+    let out_b = out_b.expect("run B pass");
+    let fb = out_b.final_.expect("run B final");
+    assert_ne!(
+        fb.verdict, "closed",
+        "the default-on run CLOSES relative to a leaf set certified with all_zeros=off: {:#}",
+        fb.result["relative_to"]
+    );
+}
