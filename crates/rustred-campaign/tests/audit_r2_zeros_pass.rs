@@ -20,7 +20,8 @@ use std::path::{Path, PathBuf};
 
 const HEADER: &str =
     r#"{"type":"header","schema":"table_dump.v1","family":"TOY","denominators":3,"mask":"110"}"#;
-const CHART: &str = r#"{"type":"chart","chart":"110","guards":["n>=1","n>=1","n<=0"],"zero":false}"#;
+const CHART: &str =
+    r#"{"type":"chart","chart":"110","guards":["n>=1","n>=1","n<=0"],"zero":false}"#;
 
 fn sha(b: &[u8]) -> String {
     let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
@@ -30,7 +31,10 @@ fn sha(b: &[u8]) -> String {
 
 /// The term-key digest of the compact fact lines (core `import::lines::term_key_digest`).
 fn digest(k: &[i32]) -> String {
-    format!("{:016x}", rustred_campaign_core::import::lines::term_key_digest(k))
+    format!(
+        "{:016x}",
+        rustred_campaign_core::import::lines::term_key_digest(k)
+    )
 }
 
 /// One point record at [3,1,0]: t0 -> [2,1,0] (a terminal) "1", t1 -> [3,1,1] "n2" (positive numerator, TRULY zero
@@ -88,7 +92,12 @@ fn pass(dir: &Path, elided: bool, big: bool) -> (String, Vec<String>, Value) {
     pass_with(dir, elided, big, true)
 }
 
-fn pass_with(dir: &Path, elided: bool, big: bool, exact_tier: bool) -> (String, Vec<String>, Value) {
+fn pass_with(
+    dir: &Path,
+    elided: bool,
+    big: bool,
+    exact_tier: bool,
+) -> (String, Vec<String>, Value) {
     let spec = material(dir, elided);
     let out = run_pass(
         &PassIn {
@@ -106,7 +115,11 @@ fn pass_with(dir: &Path, elided: bool, big: bool, exact_tier: bool) -> (String, 
             f.verdict.clone(),
             f.result["blockers"]
                 .as_array()
-                .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(str::to_string))
+                        .collect()
+                })
                 .unwrap_or_default(),
         ),
         None => ("none".to_string(), vec![]),
@@ -127,13 +140,21 @@ fn ok_memory_mode_an_elided_pair_without_its_second_route_blocks() {
     let d = root("mem-elided");
     let (verdict, blockers, check) = pass(&d, true, false);
     let _ = std::fs::remove_dir_all(&d);
-    assert_ne!(verdict, "closed", "{blockers:?} {:#}", check["second_route"]);
+    assert_ne!(
+        verdict, "closed",
+        "{blockers:?} {:#}",
+        check["second_route"]
+    );
     assert!(
         blockers.iter().any(|b| b.starts_with("second_route_")),
         "{blockers:?} {:#}",
         check["second_route"]
     );
-    assert_eq!(check["second_route"]["elided_pairs"], 1, "{:#}", check["second_route"]);
+    assert_eq!(
+        check["second_route"]["elided_pairs"], 1,
+        "{:#}",
+        check["second_route"]
+    );
 }
 
 /// F6: the same material in BIG-NODE mode closes: the elided pair is `no_fact` (basis `store`), not blocking, and
@@ -160,7 +181,11 @@ fn ok_memory_mode_exact_eval_first_pairs_go_to_rr_proof() {
     let _ = std::fs::remove_dir_all(&d);
     assert_ne!(verdict, "closed");
     let az = &check["second_route"]["all_zeros"];
-    assert_eq!(az["same_backend_to_rr_proof"], 1, "{:#}", check["second_route"]);
+    assert_eq!(
+        az["same_backend_to_rr_proof"], 1,
+        "{:#}",
+        check["second_route"]
+    );
     assert_eq!(az["pairs"], 0, "{az:#}");
 }
 
@@ -219,9 +244,19 @@ fn material2(dir: &Path, start: &str) -> String {
     };
     let facts = format!(
         "{}\n{}\n",
-        inst(&r3, 0, [3, 1, 0], json!([{"term":0,"key":[2,1,0],"coef":"nonzero"},
-            {"term":1,"key":[3,1,1],"coef":"zero"},{"term":2,"key":[2,1,1],"coef":"zero"}])),
-        inst(&r4, 1, [4, 1, 0], json!([{"term":0,"key":[3,1,0],"coef":"nonzero"}]))
+        inst(
+            &r3,
+            0,
+            [3, 1, 0],
+            json!([{"term":0,"key":[2,1,0],"coef":"nonzero"},
+            {"term":1,"key":[3,1,1],"coef":"zero"},{"term":2,"key":[2,1,1],"coef":"zero"}])
+        ),
+        inst(
+            &r4,
+            1,
+            [4, 1, 0],
+            json!([{"term":0,"key":[3,1,0],"coef":"nonzero"}])
+        )
     );
     std::fs::write(shared.join("facts.jsonl"), &facts).unwrap();
     let proofs = format!(
@@ -266,14 +301,22 @@ fn f9_a_default_run_refuses_a_leaf_set_closed_without_the_zero_route() {
                 all_zeros: Some(AllZeros::Off),
                 ..SecondRouteCfg::default()
             },
-            layers: Some(LayersCfg { order: "coarse".into(), list: vec![], freeze: false }),
+            layers: Some(LayersCfg {
+                order: "coarse".into(),
+                list: vec![],
+                freeze: false,
+            }),
             ..PassIn::first("toy", spec_a, da.clone(), da.join("final"))
         },
         None,
     )
     .unwrap();
     let fa = out_a.final_.expect("run A final");
-    assert_eq!(fa.verdict, "closed", "run A (all_zeros off) closes: {:#}", fa.result["blockers"]);
+    assert_eq!(
+        fa.verdict, "closed",
+        "run A (all_zeros off) closes: {:#}",
+        fa.result["blockers"]
+    );
     let ls = &fa.result["leaf_set"];
     let lref = LeafSetRef {
         path: PathBuf::from(ls["path"].as_str().expect("leaf set written")),

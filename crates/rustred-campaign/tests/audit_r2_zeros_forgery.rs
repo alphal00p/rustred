@@ -22,7 +22,8 @@ use std::path::{Path, PathBuf};
 
 const HEADER: &str =
     r#"{"type":"header","schema":"table_dump.v1","family":"TOY","denominators":3,"mask":"110"}"#;
-const CHART: &str = r#"{"type":"chart","chart":"110","guards":["n>=1","n>=1","n<=0"],"zero":false}"#;
+const CHART: &str =
+    r#"{"type":"chart","chart":"110","guards":["n>=1","n>=1","n<=0"],"zero":false}"#;
 const VERDICT_SCHEMA: &str = "rustred.campaign.zero-verdict.v1";
 
 fn sha(b: &[u8]) -> String {
@@ -152,28 +153,52 @@ fn st(z: &ZeroProofs, set: &ImportedSet, term: usize, key: [i32; 3]) -> ZeroStat
 #[test]
 fn ok_honest_proofs_answer_with_the_one_semantics() {
     let d = tmp("ok-honest");
-    let (set, _, rsha) = p_material(&d, &[K, K2], &["nonzero", "zero", "nonzero", "unknown", "zero"]);
+    let (set, _, rsha) = p_material(
+        &d,
+        &[K, K2],
+        &["nonzero", "zero", "nonzero", "unknown", "zero"],
+    );
     let z = load_p(
         &set,
         &d,
         &[
             proof(&rsha, 1, plane(2, 0), "zero_on_locus", Some("nowhere_zero")),
             {
-                let mut v = proof(&rsha, 3, plane(2, 0), "zero_on_locus", Some("where_regular"));
+                let mut v = proof(
+                    &rsha,
+                    3,
+                    plane(2, 0),
+                    "zero_on_locus",
+                    Some("where_regular"),
+                );
                 v["den"] = json!("(n0-3)");
                 v
             },
             proof(&rsha, 4, plane(2, 0), "zero_on_locus", Some("nowhere_zero")),
-            proof(&rsha, 4, plane(2, -1), "zero_on_locus", Some("nowhere_zero")),
+            proof(
+                &rsha,
+                4,
+                plane(2, -1),
+                "zero_on_locus",
+                Some("nowhere_zero"),
+            ),
             proof(&rsha, 2, plane(2, 0), "not_proved", None),
         ],
     )
     .unwrap();
     assert_eq!(st(&z, &set, 1, K), ZeroStatus::Proved);
-    assert_eq!(st(&z, &set, 3, K), ZeroStatus::DenominatorVanishes, "0/0 is not a proof");
+    assert_eq!(
+        st(&z, &set, 3, K),
+        ZeroStatus::DenominatorVanishes,
+        "0/0 is not a proof"
+    );
     assert_eq!(st(&z, &set, 3, K2), ZeroStatus::Proved);
     assert_eq!(st(&z, &set, 2, K), ZeroStatus::NotProved);
-    assert_eq!(st(&z, &set, 1, [3, 1, -1]), ZeroStatus::NotProved, "plane n2 = 0 does not hold n2 = -1");
+    assert_eq!(
+        st(&z, &set, 1, [3, 1, -1]),
+        ZeroStatus::NotProved,
+        "plane n2 = 0 does not hold n2 = -1"
+    );
     assert_eq!(st(&z, &set, 4, [3, 1, -1]), ZeroStatus::Proved);
     let _ = std::fs::remove_dir_all(&d);
 }
@@ -224,7 +249,11 @@ fn ok_loader_refuses_malformed_or_misbound_lines() {
     let opts = LoadOptions {
         tools: Some(["rr_coef_facts@9.9.9".to_string()].into_iter().collect()),
     };
-    assert!(ZeroProofs::load(&set, &[p], &opts).unwrap_err().contains("not allowed"));
+    assert!(
+        ZeroProofs::load(&set, &[p], &opts)
+            .unwrap_err()
+            .contains("not allowed")
+    );
     // a file truncated INSIDE a line
     let s = format!("{good}\n");
     let p = d.join("trunc.jsonl");
@@ -236,7 +265,11 @@ fn ok_loader_refuses_malformed_or_misbound_lines() {
 #[test]
 fn ok_misbound_or_partial_material_is_never_a_proof() {
     let d = tmp("ok-misbound");
-    let (set, _, rsha) = p_material(&d, &[K, K2], &["nonzero", "zero", "nonzero", "unknown", "zero"]);
+    let (set, _, rsha) = p_material(
+        &d,
+        &[K, K2],
+        &["nonzero", "zero", "nonzero", "unknown", "zero"],
+    );
     // a proof RE-DIGESTED for a mutated record (t2's text "1+n2" -> "n2"): the record is not in the set (foreign)
     let mutated = p_record().replace("\"1+n2\"", "\"n2\"");
     let msha = sha(mutated.as_bytes());
@@ -247,23 +280,65 @@ fn ok_misbound_or_partial_material_is_never_a_proof() {
     assert_eq!(z.stats.foreign, 1);
     assert_eq!(st(&z, &set, 2, K), ZeroStatus::NotProved);
     // a proof on the WRONG plane value (n2 = -1) does not cover the key (n2 = 0)
-    let z = load_p(&set, &d, &[proof(&rsha, 1, plane(2, -1), "zero_on_locus", Some("nowhere_zero"))]).unwrap();
+    let z = load_p(
+        &set,
+        &d,
+        &[proof(
+            &rsha,
+            1,
+            plane(2, -1),
+            "zero_on_locus",
+            Some("nowhere_zero"),
+        )],
+    )
+    .unwrap();
     assert_eq!(st(&z, &set, 1, K), ZeroStatus::NotProved);
     // where_regular without a den text / with an unreadable one: never a proof
-    let z = load_p(&set, &d, &[proof(&rsha, 3, plane(2, 0), "zero_on_locus", Some("where_regular"))]).unwrap();
+    let z = load_p(
+        &set,
+        &d,
+        &[proof(
+            &rsha,
+            3,
+            plane(2, 0),
+            "zero_on_locus",
+            Some("where_regular"),
+        )],
+    )
+    .unwrap();
     assert_eq!(st(&z, &set, 3, K2), ZeroStatus::NotProved);
-    let mut v = proof(&rsha, 3, plane(2, 0), "zero_on_locus", Some("where_regular"));
+    let mut v = proof(
+        &rsha,
+        3,
+        plane(2, 0),
+        "zero_on_locus",
+        Some("where_regular"),
+    );
     v["den"] = json!("(n0-");
     let z = load_p(&set, &d, &[v]).unwrap();
     assert_eq!(st(&z, &set, 3, K2), ZeroStatus::NotProved);
     // a file truncated at a line boundary: the dropped proofs are missing (fails closed)
-    let z = load_p(&set, &d, &[proof(&rsha, 4, plane(2, -1), "zero_on_locus", Some("nowhere_zero"))]).unwrap();
+    let z = load_p(
+        &set,
+        &d,
+        &[proof(
+            &rsha,
+            4,
+            plane(2, -1),
+            "zero_on_locus",
+            Some("nowhere_zero"),
+        )],
+    )
+    .unwrap();
     assert_eq!(st(&z, &set, 4, K), ZeroStatus::NotProved);
     // not_proved / excluded lines never prove
     let z = load_p(
         &set,
         &d,
-        &[proof(&rsha, 2, plane(2, 0), "not_proved", None), proof(&rsha, 2, plane(2, 0), "excluded", None)],
+        &[
+            proof(&rsha, 2, plane(2, 0), "not_proved", None),
+            proof(&rsha, 2, plane(2, 0), "excluded", None),
+        ],
     )
     .unwrap();
     assert_eq!(st(&z, &set, 2, K), ZeroStatus::NotProved);
@@ -282,13 +357,26 @@ fn ok_misbound_or_partial_material_is_never_a_proof() {
 fn f1_loader_refuses_a_proof_whose_numerator_does_not_vanish() {
     let d = tmp("f1");
     let (set, _, rsha) = p_material(&d, &[K], &["nonzero", "zero", "nonzero", "unknown", "zero"]);
-    let r = load_p(&set, &d, &[proof(&rsha, 2, plane(2, 0), "zero_on_locus", Some("nowhere_zero"))]);
+    let r = load_p(
+        &set,
+        &d,
+        &[proof(
+            &rsha,
+            2,
+            plane(2, 0),
+            "zero_on_locus",
+            Some("nowhere_zero"),
+        )],
+    );
     let ok = match r {
         Err(_) => true,
         Ok(z) => st(&z, &set, 2, K) != ZeroStatus::Proved,
     };
     let _ = std::fs::remove_dir_all(&d);
-    assert!(ok, "a false zero (coefficient 1 at the key) is accepted as Proved");
+    assert!(
+        ok,
+        "a false zero (coefficient 1 at the key) is accepted as Proved"
+    );
 }
 
 /// F1b (loader, same root): an honest proof of term 1 re-labelled as term 2 is accepted for term 2.
@@ -305,7 +393,10 @@ fn f1b_loader_refuses_a_proof_rebound_to_another_term() {
         Ok(z) => st(&z, &set, 2, K) != ZeroStatus::Proved,
     };
     let _ = std::fs::remove_dir_all(&d);
-    assert!(ok, "term 1's proof answers Proved for term 2 (coefficient 1)");
+    assert!(
+        ok,
+        "term 1's proof answers Proved for term 2 (coefficient 1)"
+    );
 }
 
 /// F2 (loader): a `where_regular` line's `den` is taken from the PROOF LINE and never compared with the record's own
@@ -316,7 +407,13 @@ fn f1b_loader_refuses_a_proof_rebound_to_another_term() {
 fn f2_loader_checks_the_den_text_against_the_record() {
     let d = tmp("f2");
     let (set, _, rsha) = p_material(&d, &[K], &["nonzero", "zero", "nonzero", "unknown", "zero"]);
-    let mut v = proof(&rsha, 3, plane(2, 0), "zero_on_locus", Some("where_regular"));
+    let mut v = proof(
+        &rsha,
+        3,
+        plane(2, 0),
+        "zero_on_locus",
+        Some("where_regular"),
+    );
     v["den"] = json!("1");
     let r = load_p(&set, &d, &[v]);
     let ok = match r {
@@ -324,7 +421,10 @@ fn f2_loader_checks_the_den_text_against_the_record() {
         Ok(z) => st(&z, &set, 3, K) != ZeroStatus::Proved,
     };
     let _ = std::fs::remove_dir_all(&d);
-    assert!(ok, "0/0 at [3,1,0] answers Proved through a forged den text");
+    assert!(
+        ok,
+        "0/0 at [3,1,0] answers Proved through a forged den text"
+    );
 }
 
 /// F3 (loader): two lines for ONE (record, term, locus) that contradict each other are both accepted, and the
@@ -335,7 +435,13 @@ fn f2_loader_checks_the_den_text_against_the_record() {
 fn f3_loader_refuses_contradicting_lines_for_one_locus() {
     let d = tmp("f3");
     let (set, _, rsha) = p_material(&d, &[K], &["nonzero", "zero", "nonzero", "unknown", "zero"]);
-    let mut honest = proof(&rsha, 3, plane(2, 0), "zero_on_locus", Some("where_regular"));
+    let mut honest = proof(
+        &rsha,
+        3,
+        plane(2, 0),
+        "zero_on_locus",
+        Some("where_regular"),
+    );
     honest["den"] = json!("(n0-3)");
     let forged = proof(&rsha, 3, plane(2, 0), "zero_on_locus", Some("nowhere_zero"));
     let a = match load_p(&set, &d, &[forged, honest]) {
@@ -354,8 +460,14 @@ fn f3_loader_refuses_contradicting_lines_for_one_locus() {
         Ok(z) => st(&z, &set, 2, K) != ZeroStatus::Proved,
     };
     let _ = std::fs::remove_dir_all(&d);
-    assert!(a, "nowhere_zero + where_regular for one locus: the 0/0 key answers Proved");
-    assert!(b, "zero_on_locus + not_proved for one locus: answers Proved");
+    assert!(
+        a,
+        "nowhere_zero + where_regular for one locus: the 0/0 key answers Proved"
+    );
+    assert!(
+        b,
+        "zero_on_locus + not_proved for one locus: answers Proved"
+    );
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -381,15 +493,41 @@ fn answers(set: &ImportedSet, dir: &Path, lines: &[Value]) -> ZerosAnswers {
 #[test]
 fn ok_accept_path_honest_answers_dispute_the_0_over_0_key_and_confirm_the_rest() {
     let d = tmp("ok-accept");
-    let (set, ev, rsha) = p_material(&d, &[K, K2], &["nonzero", "zero", "nonzero", "zero", "zero"]);
-    let mut wr = proof(&rsha, 3, plane(2, 0), "zero_on_locus", Some("where_regular"));
+    let (set, ev, rsha) = p_material(
+        &d,
+        &[K, K2],
+        &["nonzero", "zero", "nonzero", "zero", "zero"],
+    );
+    let mut wr = proof(
+        &rsha,
+        3,
+        plane(2, 0),
+        "zero_on_locus",
+        Some("where_regular"),
+    );
     wr["den"] = json!("(n0-3)");
     let z = answers(
         &set,
         &d,
         &[
-            verdict(&rsha, K, json!([[1, "zero", "plane:2=0"], [3, "unknown", "plane:2=0+den"], [4, "zero", "plane:2=0"]])),
-            verdict(&rsha, K2, json!([[1, "zero", "plane:2=0"], [3, "zero", "plane:2=0+den"], [4, "zero", "plane:2=0"]])),
+            verdict(
+                &rsha,
+                K,
+                json!([
+                    [1, "zero", "plane:2=0"],
+                    [3, "unknown", "plane:2=0+den"],
+                    [4, "zero", "plane:2=0"]
+                ]),
+            ),
+            verdict(
+                &rsha,
+                K2,
+                json!([
+                    [1, "zero", "plane:2=0"],
+                    [3, "zero", "plane:2=0+den"],
+                    [4, "zero", "plane:2=0"]
+                ]),
+            ),
             proof(&rsha, 1, plane(2, 0), "zero_on_locus", Some("nowhere_zero")),
             wr,
             proof(&rsha, 4, plane(2, 0), "zero_on_locus", Some("nowhere_zero")),
@@ -414,7 +552,15 @@ fn ok_accept_path_unbacked_contradicted_or_missing_words_never_confirm() {
     let z = answers(
         &set,
         &d,
-        &[verdict(&rsha, K2, json!([[1, "zero", "plane:2=0"], [3, "zero", "domain"], [4, "nonzero", "key"]]))],
+        &[verdict(
+            &rsha,
+            K2,
+            json!([
+                [1, "zero", "plane:2=0"],
+                [3, "zero", "domain"],
+                [4, "nonzero", "key"]
+            ]),
+        )],
     );
     assert_eq!(z.unbound.len(), 2, "{:?}", z.unbound);
     let c = compare_zeros(&set, &ev, &z, &rsha, &K2).unwrap();
@@ -425,13 +571,39 @@ fn ok_accept_path_unbacked_contradicted_or_missing_words_never_confirm() {
         &set,
         &d,
         &[
-            verdict(&rsha, K2, json!([[1, "zero", "plane:2=-1"], [3, "zero", "key"], [4, "zero", "key"]])),
-            proof(&rsha, 1, plane(2, -1), "zero_on_locus", Some("nowhere_zero")),
+            verdict(
+                &rsha,
+                K2,
+                json!([
+                    [1, "zero", "plane:2=-1"],
+                    [3, "zero", "key"],
+                    [4, "zero", "key"]
+                ]),
+            ),
+            proof(
+                &rsha,
+                1,
+                plane(2, -1),
+                "zero_on_locus",
+                Some("nowhere_zero"),
+            ),
         ],
     );
-    assert_eq!(z.unbound.len(), 1, "the plane n2 = -1 does not hold the key's rule point");
+    assert_eq!(
+        z.unbound.len(),
+        1,
+        "the plane n2 = -1 does not hold the key's rule point"
+    );
     // a missing term
-    let z = answers(&set, &d, &[verdict(&rsha, K2, json!([[1, "zero", "key"], [4, "zero", "key"]]))]);
+    let z = answers(
+        &set,
+        &d,
+        &[verdict(
+            &rsha,
+            K2,
+            json!([[1, "zero", "key"], [4, "zero", "key"]]),
+        )],
+    );
     let c = compare_zeros(&set, &ev, &z, &rsha, &K2).unwrap();
     assert_eq!(c.missing, vec![3]);
     assert!(!c.agree());
@@ -447,20 +619,37 @@ fn ok_accept_path_unbacked_contradicted_or_missing_words_never_confirm() {
 fn f4_accept_path_applies_the_one_semantics_to_bound_proofs() {
     let d = tmp("f4");
     let (set, ev, rsha) = p_material(&d, &[K], &["nonzero", "zero", "nonzero", "zero", "zero"]);
-    let mut wr = proof(&rsha, 3, plane(2, 0), "zero_on_locus", Some("where_regular"));
+    let mut wr = proof(
+        &rsha,
+        3,
+        plane(2, 0),
+        "zero_on_locus",
+        Some("where_regular"),
+    );
     wr["den"] = json!("(n0-3)");
     let z = answers(
         &set,
         &d,
         &[
-            verdict(&rsha, K, json!([[1, "zero", "plane:2=0"], [3, "zero", "plane:2=0"], [4, "zero", "plane:2=0"]])),
+            verdict(
+                &rsha,
+                K,
+                json!([
+                    [1, "zero", "plane:2=0"],
+                    [3, "zero", "plane:2=0"],
+                    [4, "zero", "plane:2=0"]
+                ]),
+            ),
             proof(&rsha, 1, plane(2, 0), "zero_on_locus", Some("nowhere_zero")),
             wr,
             proof(&rsha, 4, plane(2, 0), "zero_on_locus", Some("nowhere_zero")),
         ],
     );
     // the core's own lookup on the same proofs: not a proof at this key
-    assert_eq!(z.proofs.is_zero_term(&set, 0, 0, 3, &K), ZeroStatus::DenominatorVanishes);
+    assert_eq!(
+        z.proofs.is_zero_term(&set, 0, 0, 3, &K),
+        ZeroStatus::DenominatorVanishes
+    );
     let c = compare_zeros(&set, &ev, &z, &rsha, &K).unwrap();
     let _ = std::fs::remove_dir_all(&d);
     assert!(
@@ -480,7 +669,10 @@ fn f4_accept_path_applies_the_one_semantics_to_bound_proofs() {
 fn f5_ship_gate_keeps_a_nonzero_positive_numerator_term_despite_a_forged_proof() {
     let d = tmp("f5");
     let rule_line = |index: i64, k: i32, extra: bool| -> String {
-        let mut rhs = vec![json!([format!("I({},1,0)", k - 1), "1"]), json!([format!("I({k},0,0)"), "1"])];
+        let mut rhs = vec![
+            json!([format!("I({},1,0)", k - 1), "1"]),
+            json!([format!("I({k},0,0)"), "1"]),
+        ];
         if extra {
             rhs.push(json!([format!("I({k},1,1)"), "1"]));
         }
@@ -506,9 +698,22 @@ fn f5_ship_gate_keeps_a_nonzero_positive_numerator_term_despite_a_forged_proof()
     let spec = TableSetSpec::from_json(&spec.to_string()).unwrap();
     let set = load(&spec, Path::new("/")).unwrap();
     let ev = Evidence::from_spec(&set, Path::new("/")).unwrap();
-    let res = check(&set, &ev, &CheckOptions { threads: 1, tier: Some(Tier::K), max_rounds: None }).unwrap();
+    let res = check(
+        &set,
+        &ev,
+        &CheckOptions {
+            threads: 1,
+            tier: Some(Tier::K),
+            max_rounds: None,
+        },
+    )
+    .unwrap();
     let (r0, _) = gate_check(&set, &ev, &res, GateConfig::memory()).unwrap();
-    assert_ne!(r0.verdict, GateVerdict::Pass, "without proofs the positive-numerator edge blocks the gate");
+    assert_ne!(
+        r0.verdict,
+        GateVerdict::Pass,
+        "without proofs the positive-numerator edge blocks the gate"
+    );
     let forged = json!({"schema": ZERO_PROOF_SCHEMA, "record_sha256": sha(lines[0].as_bytes()), "rule": 0, "term": 2,
         "locus": "domain", "verdict": "zero_on_locus", "denominator": "nowhere_zero", "tool": "forger@1"});
     let pp = write_lines(&d, "forged.zero-proofs.jsonl", &[forged]);
@@ -516,7 +721,12 @@ fn f5_ship_gate_keeps_a_nonzero_positive_numerator_term_despite_a_forged_proof()
         Err(_) => None,
         Ok(zp) => {
             let facts = ZeroProofFacts::new(&set, &zp, &ev);
-            Some(gate_check_with(&set, &ev, &facts, &res, GateConfig::memory()).unwrap().0.verdict)
+            Some(
+                gate_check_with(&set, &ev, &facts, &res, GateConfig::memory())
+                    .unwrap()
+                    .0
+                    .verdict,
+            )
         }
     };
     let _ = std::fs::remove_dir_all(&d);

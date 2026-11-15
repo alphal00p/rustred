@@ -59,7 +59,11 @@ fn prove(dir: &Path, t: &Path) -> Vec<Value> {
         .arg(&out)
         .output()
         .unwrap();
-    assert!(st.status.success(), "{}", String::from_utf8_lossy(&st.stdout));
+    assert!(
+        st.status.success(),
+        "{}",
+        String::from_utf8_lossy(&st.stdout)
+    );
     std::fs::read_to_string(&out)
         .unwrap()
         .lines()
@@ -80,7 +84,10 @@ fn verify(dir: &Path, t: &Path, name: &str, lines: &[Value]) -> (i32, Value) {
 }
 
 fn verify_file(dir: &Path, t: &Path, p: &Path) -> (i32, Value) {
-    let sum = dir.join(format!("{}.summary.json", p.file_name().unwrap().to_string_lossy()));
+    let sum = dir.join(format!(
+        "{}.summary.json",
+        p.file_name().unwrap().to_string_lossy()
+    ));
     let _ = std::fs::remove_file(&sum);
     let st = Command::new(bin())
         .args(["verify-zero-proofs", "--tables"])
@@ -115,20 +122,35 @@ fn ok_the_honest_prove_output_verifies_with_independent_rechecks() {
     let t = table(&d);
     let lines = prove(&d, &t);
     assert!(lines[0]["schema"] == "rustred.campaign.zero-proof-header.v1");
-    let find = |term: u64, locus: Value| lines.iter().find(|l| is_line(l, term, locus.clone())).cloned();
+    let find = |term: u64, locus: Value| {
+        lines
+            .iter()
+            .find(|l| is_line(l, term, locus.clone()))
+            .cloned()
+    };
     assert_eq!(find(1, plane(2, 0)).unwrap()["denominator"], "nowhere_zero");
     assert_eq!(find(2, plane(2, 0)).unwrap()["verdict"], "not_proved");
     let wr = find(3, plane(2, 0)).unwrap();
-    assert_eq!((wr["denominator"].as_str(), wr["den"].as_str()), (Some("where_regular"), Some("(n0-3)")));
+    assert_eq!(
+        (wr["denominator"].as_str(), wr["den"].as_str()),
+        (Some("where_regular"), Some("(n0-3)"))
+    );
     assert_eq!(find(4, plane(2, -1)).unwrap()["verdict"], "zero_on_locus");
     // a d-free linear denominator that vanishes ON the chart bound (n0 = 1) is not sign-definite: where_regular
     let t5 = find(5, plane(2, 0)).unwrap();
-    assert_eq!((t5["denominator"].as_str(), t5["den"].as_str()), (Some("where_regular"), Some("(n0-1)")), "{t5}");
+    assert_eq!(
+        (t5["denominator"].as_str(), t5["den"].as_str()),
+        (Some("where_regular"), Some("(n0-1)")),
+        "{t5}"
+    );
     let (code, s) = verify(&d, &t, "honest.jsonl", &lines);
     let _ = std::fs::remove_dir_all(&d);
     assert_eq!(code, 0, "{s:#}");
     assert_eq!(s["counts"]["mismatches"], 0);
-    assert!(s["counts"]["independent_numerator"].as_u64().unwrap() >= 4, "{s:#}");
+    assert!(
+        s["counts"]["independent_numerator"].as_u64().unwrap() >= 4,
+        "{s:#}"
+    );
 }
 
 #[test]
@@ -144,7 +166,11 @@ fn ok_every_listed_forgery_is_refused_by_the_verifier() {
         f(&mut v);
         v
     };
-    let pos = |v: &Vec<Value>, term: u64, locus: Value| v.iter().position(|l| is_line(l, term, locus.clone())).unwrap();
+    let pos = |v: &Vec<Value>, term: u64, locus: Value| {
+        v.iter()
+            .position(|l| is_line(l, term, locus.clone()))
+            .unwrap()
+    };
     let mut refused: Vec<(&str, i32)> = vec![];
     // (a) a not-proved locus claimed proved
     let a = edit(&|v| {
@@ -173,7 +199,10 @@ fn ok_every_listed_forgery_is_refused_by_the_verifier() {
         l["term"] = json!(2);
         v[j] = l;
     });
-    refused.push(("proof of term 1 presented for term 2", verify(&d, &t, "d.jsonl", &dd).0));
+    refused.push((
+        "proof of term 1 presented for term 2",
+        verify(&d, &t, "d.jsonl", &dd).0,
+    ));
     // (e) a claim re-digested for a record the tables do not hold
     let e = edit(&|v| {
         let i = pos(v, 1, plane(2, 0));
@@ -204,17 +233,32 @@ fn ok_every_listed_forgery_is_refused_by_the_verifier() {
         l["locus"] = plane(2, -2);
         v.push(l);
     });
-    refused.push(("claim on a plane where the numerator is 2", verify(&d, &t, "i.jsonl", &i).0));
+    refused.push((
+        "claim on a plane where the numerator is 2",
+        verify(&d, &t, "i.jsonl", &i).0,
+    ));
     // (j) the honest file against an EDITED table (one coefficient changed: the record's sha256 changes)
     let t2 = d.join("A2.table.jsonl");
-    std::fs::write(&t2, std::fs::read_to_string(&t).unwrap().replace("(n2+n0-3)", "(n2+n0-4)")).unwrap();
+    std::fs::write(
+        &t2,
+        std::fs::read_to_string(&t)
+            .unwrap()
+            .replace("(n2+n0-3)", "(n2+n0-4)"),
+    )
+    .unwrap();
     let ph2 = d.join("j.jsonl");
     std::fs::write(&ph2, &s).unwrap();
     refused.push(("table edited after prove", verify_file(&d, &t2, &ph2).0));
     let _ = std::fs::remove_dir_all(&d);
     let accepted: Vec<&(&str, i32)> = refused.iter().filter(|(_, c)| *c == 0).collect();
-    assert!(accepted.is_empty(), "forgeries VERIFIED (exit 0): {accepted:?}; all: {refused:?}");
-    assert!(refused.iter().all(|(_, c)| *c == 3 || *c == 2), "{refused:?}");
+    assert!(
+        accepted.is_empty(),
+        "forgeries VERIFIED (exit 0): {accepted:?}; all: {refused:?}"
+    );
+    assert!(
+        refused.iter().all(|(_, c)| *c == 3 || *c == 2),
+        "{refused:?}"
+    );
 }
 
 /// F3v: a forged proved line for t2 (truly non-zero on n2 = 0) placed BEFORE the honest not-proved line of the same
@@ -236,5 +280,9 @@ fn f3v_verifier_refuses_two_lines_for_one_locus() {
     v.insert(j, forged);
     let (code, s) = verify(&d, &t, "dup.jsonl", &v);
     let _ = std::fs::remove_dir_all(&d);
-    assert_ne!(code, 0, "a file with a forged proved line VERIFIES: {:#}", s["counts"]);
+    assert_ne!(
+        code, 0,
+        "a file with a forged proved line VERIFIES: {:#}",
+        s["counts"]
+    );
 }
