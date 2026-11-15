@@ -22,6 +22,7 @@
 //! Exact arithmetic only (Symbolica `Integer` = GMP big integers, `Rational`); no floating point, no modular shortcut.
 //! Generic (L8): the arity is a parameter, the variable names are the engine's `n0 .. n{N-1}`, `d`.
 
+pub mod basis;
 pub mod relation;
 
 use std::fmt;
@@ -440,6 +441,76 @@ impl Coefficient {
             return Err(ValuationError::NotRationalInD { symbols });
         }
         Ok(self.generic(d0).order)
+    }
+}
+
+/// A coefficient prepared for many keys at one d0: the generic multiplicities of `(d - d0)` in N and D and the locus
+/// polynomials `R_N(n) = N_shifted / t^mN at t = 0`, `R_D(n)` likewise. At a key OFF both loci (`R_N(k) != 0`,
+/// `R_D(k) != 0`, exact rational evaluation by Symbolica `replace_all`) the order IS `mN - mD`, exactly
+/// (`N(k, d) = (d - d0)^mN R_N(k, d)` with `R_N(k, d0) != 0`); on a locus the full substitution of [`Coefficient::at_key`]
+/// decides. Same verdicts as `at_key` at every key, cheaper.
+#[derive(Debug, Clone)]
+pub struct Prepared {
+    coef: Coefficient,
+    d0: D0,
+    zero: bool,
+    nm: u64,
+    dm: u64,
+    nrest: QPoly,
+    drest: QPoly,
+}
+
+impl Prepared {
+    pub fn new(coef: Coefficient, d0: &D0) -> Prepared {
+        let dv = coef.arity;
+        let (dm, drest) = multiplicity(&coef.den, dv, d0.value());
+        let zero = coef.num.is_zero();
+        let (nm, nrest) = if zero {
+            (0, drest.zero())
+        } else {
+            multiplicity(&coef.num, dv, d0.value())
+        };
+        Prepared {
+            coef,
+            d0: d0.clone(),
+            zero,
+            nm,
+            dm,
+            nrest,
+            drest,
+        }
+    }
+
+    /// The order at the key (exact; same as [`Coefficient::at_key`]).
+    pub fn at_key(&self, key: &[i64]) -> Result<Valuation, ValuationError> {
+        if self.zero {
+            return Ok(Valuation::Zero);
+        }
+        if key.len() != self.coef.arity {
+            return Err(ValuationError::KeyArity {
+                expected: self.coef.arity,
+                got: key.len(),
+            });
+        }
+        let pt: Vec<Rational> = key
+            .iter()
+            .map(|&k| Rational::from(k))
+            .chain(std::iter::once(Rational::from(0)))
+            .collect();
+        let off = |p: &QPoly| p.is_constant() || !p.replace_all(&pt).is_zero();
+        if off(&self.nrest) && off(&self.drest) {
+            return Ok(Valuation::Order(self.nm as i64 - self.dm as i64));
+        }
+        self.coef.at_key(key, &self.d0)
+    }
+
+    /// The generic order (`mN - mD`; Zero for the zero coefficient).
+    pub fn generic_order(&self) -> Valuation {
+        if self.zero {
+            Valuation::Zero
+        } else {
+            Valuation::Order(self.nm as i64 - self.dm as i64)
+        }
     }
 }
 
