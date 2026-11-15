@@ -33,6 +33,8 @@ pub mod backend;
 pub mod coef_facts;
 pub mod modes;
 pub mod referee;
+// lane tadic (interfaces/tadic.md): REQUEST TO I-INT, one line
+pub mod tadic;
 pub mod wrap;
 pub mod zero_proofs;
 
