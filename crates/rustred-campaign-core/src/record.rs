@@ -628,6 +628,192 @@ fn parse_line(buf: &[u8], line: usize, opts: ReadOptions) -> Result<TableLine, R
 }
 
 // ------------------------------------------------------------------------------------------------------------------
+// Line kinds of a `table_dump.v1` file; `sym` records
+// ------------------------------------------------------------------------------------------------------------------
+
+/// The CLOSED list of line kinds a rule table (`F.table.jsonl`) may contain (interfaces/coord-sym-records.md section
+/// 6; interfaces/import.md 18.1). One list for the import and the assembly; any other kind is refused by both.
+/// `sym_zero` is deliberately absent: zero by symmetry needs a sign flip, impossible with squared propagators (the
+/// engine's replay refuses it); readers refuse a table that carries one ([`SYM_ZERO_KIND`]).
+pub const TABLE_LINE_KINDS: &[&str] = &[
+    "header",
+    "rule",
+    "sym",
+    "zero_sectors",
+    "chart",
+    "chart_error",
+    "symmetry_group",
+    "residual",
+    "chart_end",
+    "end",
+    "assembly_provenance",
+    "composite_assembly_complete",
+    "assembly_end",
+    "composite_terminal_ledger",
+];
+
+/// The kind of a one-term symmetry rule record ([`SymRecord`]).
+pub const SYM_KIND: &str = "sym";
+/// The kind of a zero-by-symmetry record: never valid for squared propagators; a table carrying one is refused.
+pub const SYM_ZERO_KIND: &str = "sym_zero";
+
+/// A `"type":"sym"` record (engine `rr_node generate --symmetry`; interfaces/coord-sym-records.md section 1): the case
+/// (`chart`, `fixed`, `equations`) is closed by `I(a) = s(g, a) * I(g a)`: ONE right-hand-side term `image`, unit
+/// coefficient, no exceptions. Parsed strictly: a member `exceptions` or `rhs` is a format error (a sym record serves
+/// exactly one term and has no exception); unknown other members are ignored (provenance), as readers of rule records do.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SymRecord {
+    /// 1-based line number.
+    pub line_no: usize,
+    pub chart: String,
+    /// Position in the table's ONE index sequence shared with rule records.
+    pub index: i64,
+    /// `null` = free slot.
+    pub fixed: Vec<Option<i64>>,
+    pub equations: Vec<String>,
+    /// The key pattern `I(..)` of the case.
+    pub target: String,
+    /// The pattern of `g(target)`.
+    pub image: String,
+    /// Index into the table's `symmetry_group` elements (informational: the import verifies against its own group).
+    pub element: Option<i64>,
+    /// Per slot: `(target slot, flip)`, or `None` (the slot goes to a combination: fixed at 0 on the case).
+    pub action: Vec<Option<(usize, bool)>>,
+    /// The momentum map T, `(L+1)^2` integers row-major, row-vector convention `v -> v T` over `(k_1..k_L, q)`.
+    pub matrix: Vec<i64>,
+    /// `+`, `-` or `key`.
+    pub sign: String,
+    pub numerical: Option<bool>,
+}
+
+/// Parse one `sym` line (the caller has established that its `type` is [`SYM_KIND`]).
+pub fn parse_sym_line(buf: &[u8], line: usize) -> Result<SymRecord, RecordError> {
+    let fmt = |m: String| RecordError::Format { line, msg: m };
+    let v: Value = serde_json::from_slice(buf).map_err(|e| fmt(e.to_string()))?;
+    let o = v
+        .as_object()
+        .ok_or_else(|| fmt("sym record is not an object".into()))?;
+    if o.get("type").and_then(Value::as_str) != Some(SYM_KIND) {
+        return Err(fmt("not a sym record".into()));
+    }
+    for k in ["exceptions", "rhs"] {
+        if o.contains_key(k) {
+            return Err(fmt(format!(
+                "sym record with a member {k:?} (a sym record has one term and no exception)"
+            )));
+        }
+    }
+    let s = |k: &str| -> Result<String, RecordError> {
+        o.get(k)
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| fmt(format!("sym record without a string {k}")))
+    };
+    let fixed: Vec<Option<i64>> = serde_json::from_value(
+        o.get("fixed")
+            .cloned()
+            .ok_or_else(|| fmt("sym record without fixed".into()))?,
+    )
+    .map_err(|e| fmt(format!("field fixed: {e}")))?;
+    let equations: Vec<String> = match o.get("equations") {
+        None => return Err(fmt("sym record without equations".into())),
+        Some(e) => {
+            serde_json::from_value(e.clone()).map_err(|e| fmt(format!("field equations: {e}")))?
+        }
+    };
+    let index = o
+        .get("index")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| fmt("sym record without an integer index".into()))?;
+    let action = match o.get("action") {
+        Some(Value::Array(a)) => a
+            .iter()
+            .map(|x| match x {
+                Value::Null => Ok(None),
+                Value::Array(p) if p.len() == 2 => {
+                    let t = p[0]
+                        .as_u64()
+                        .and_then(|t| usize::try_from(t).ok())
+                        .ok_or_else(|| fmt(format!("action entry {x}")))?;
+                    let flip = match &p[1] {
+                        Value::Bool(b) => *b,
+                        Value::Number(n) if n.as_u64() == Some(0) => false,
+                        Value::Number(n) if n.as_u64() == Some(1) => true,
+                        _ => return Err(fmt(format!("action entry {x}"))),
+                    };
+                    Ok(Some((t, flip)))
+                }
+                _ => Err(fmt(format!("action entry {x}"))),
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        _ => return Err(fmt("sym record without an action array".into())),
+    };
+    let matrix: Vec<i64> = serde_json::from_value(
+        o.get("matrix")
+            .cloned()
+            .ok_or_else(|| fmt("sym record without matrix".into()))?,
+    )
+    .map_err(|e| fmt(format!("field matrix: {e}")))?;
+    let element = match o.get("element") {
+        None | Some(Value::Null) => None,
+        Some(e) => Some(
+            e.as_i64()
+                .ok_or_else(|| fmt(format!("field element {e}")))?,
+        ),
+    };
+    let numerical = match o.get("numerical") {
+        None | Some(Value::Null) => None,
+        Some(Value::Bool(b)) => Some(*b),
+        Some(x) => return Err(fmt(format!("field numerical {x}"))),
+    };
+    let r = SymRecord {
+        line_no: line,
+        chart: s("chart")?,
+        index,
+        fixed,
+        equations,
+        target: s("target")?,
+        image: s("image")?,
+        element,
+        action,
+        matrix,
+        sign: s("sign")?,
+        numerical,
+    };
+    if r.action.len() != r.fixed.len() {
+        return Err(fmt(format!(
+            "sym record: action of length {} for {} slots",
+            r.action.len(),
+            r.fixed.len()
+        )));
+    }
+    Ok(r)
+}
+
+impl SymRecord {
+    /// The record as the rule record the dispatcher reads: same case, no exceptions, ONE body term `image`, complete
+    /// (empty) witness loci (unit coefficient: no pole), dispatch `Partition`. `with_rhs`: the body key (else None).
+    pub fn as_rule_record(&self, with_rhs: bool) -> RuleRecord {
+        RuleRecord {
+            line_no: self.line_no,
+            format: RecordFormat::TableDump,
+            i: None,
+            index: Some(self.index),
+            chart: Some(self.chart.clone()),
+            fixed: self.fixed.clone(),
+            equations: self.equations.clone(),
+            exceptions: vec![],
+            dispatch: Some("Partition".into()),
+            numerical: self.numerical,
+            target: Some(self.target.clone()),
+            rhs_keys: with_rhs.then(|| vec![self.image.clone()]),
+            witness_loci: Some(vec![]),
+            recenter: None,
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------------------------------------------
 // T162 bank predicates
 // ------------------------------------------------------------------------------------------------------------------
 

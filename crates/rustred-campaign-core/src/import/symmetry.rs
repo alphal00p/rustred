@@ -141,6 +141,19 @@ pub fn load_verified_group(
     new_to_old: &[usize],
     header_family: Option<&str>,
 ) -> Result<(VerifiedGroup, GroupReport), ImportError> {
+    load_verified_group_family(spec, base, chart, new_to_old, header_family)
+        .map(|(vg, r, _)| (vg, r))
+}
+
+/// [`load_verified_group`] that also returns the PRESENTED family model the group was derived from (lane import5:
+/// the momentum proof of a `sym` record's own matrix needs it).
+pub fn load_verified_group_family(
+    spec: &GroupSpec,
+    base: &Path,
+    chart: &[bool],
+    new_to_old: &[usize],
+    header_family: Option<&str>,
+) -> Result<(VerifiedGroup, GroupReport, Family), ImportError> {
     let (fpath, fsha, src, presented_already) = match &spec.family {
         Some(f) => {
             let p = resolve(base, &f.path);
@@ -248,7 +261,188 @@ pub fn load_verified_group(
     report.provenance = format!("{:?}", vg.provenance());
     report.digest = vg.digest().to_string();
     report.family_digest = vg.family_digest().to_string();
-    Ok((vg, report))
+    Ok((vg, report, family))
+}
+
+/// INDEPENDENT VERIFICATION of one `sym` record (interfaces/coord-sym-records.md section 5, the seven steps;
+/// interfaces/import.md 18.4) from the family and the record alone, plus membership in OUR derived group:
+/// 1. the family's momenta (the presented `family`);
+/// 2. the record's `matrix`: q -> +-q and |det| = 1 of the loop block (exact integers);
+/// 3. every slot that can be non-zero on the case (fixed non-zero, or free) has an action `(t, flip)`, no flip,
+///    `chart[i] == chart[t]`, targets distinct, and `c_i T = c_t` exactly (the element is proved by
+///    `replay_base::symrows::verify_group`, which recomputes every stated image from the momenta);
+/// 4. every slot without an action is FIXED at 0 on the case;
+/// 5. hence the integrand of I(a) maps factor by factor onto that of I(g a) (unit Jacobian): I(a) = I(g a), sign `+`;
+/// 6. the `image` pattern is the target moved along the action (power of i goes to t; other slots 0), and the
+///    `target` pattern is the case's (fixed values, `n<i>` on free slots);
+///
+/// plus: the action on the slots non-zero on the case equals that of an element of `group` (our derived group).
+/// Step 7 (descent) is checked at every key the record serves (the closure's descent check; import.md 18.4).
+/// `Ok(element index in group)` or the first failed step.
+pub fn verify_sym_record(
+    rec: &crate::record::SymRecord,
+    family: &Family,
+    group: &VerifiedGroup,
+    chart: &[bool],
+) -> Result<usize, String> {
+    use crate::replay_base::symrows::{SlotImage, SymElement};
+    let n = chart.len();
+    if rec.fixed.len() != n || rec.action.len() != n {
+        return Err(format!(
+            "step 1: record of {} slots for arity {n}",
+            rec.fixed.len()
+        ));
+    }
+    let chart_text: String = chart.iter().map(|&b| if b { '1' } else { '0' }).collect();
+    if rec.chart != chart_text {
+        return Err(format!(
+            "chart {} is not the frame's {chart_text}",
+            rec.chart
+        ));
+    }
+    if rec.sign != "+" {
+        return Err(format!(
+            "step 5: sign {:?} (squared propagators never flip: the sign is +)",
+            rec.sign
+        ));
+    }
+    // step 4 / 3: the slots that can be non-zero on the case
+    let mut hit = vec![false; n];
+    for i in 0..n {
+        let nonzero = rec.fixed[i] != Some(0);
+        match rec.action[i] {
+            None if nonzero => {
+                return Err(format!(
+                    "step 4: slot {i} has no action but is not fixed at 0 on the case"
+                ));
+            }
+            None => {}
+            Some((t, flip)) => {
+                if t >= n {
+                    return Err(format!("step 3: slot {i} -> {t} beyond arity {n}"));
+                }
+                if flip {
+                    return Err(format!(
+                        "step 3: slot {i} flips (a squared propagator cannot change sign)"
+                    ));
+                }
+                if chart[i] != chart[t] {
+                    return Err(format!(
+                        "step 3: slot {i} -> {t} mixes a line and a numerator"
+                    ));
+                }
+                if std::mem::replace(&mut hit[t], true) {
+                    return Err(format!("step 3: target slot {t} hit twice"));
+                }
+            }
+        }
+    }
+    // step 2 / 3 / 5: the record's own momentum map, proved exactly from the family (every stated image recomputed)
+    let w = family.loops() + 1;
+    if rec.matrix.len() != w * w {
+        return Err(format!(
+            "step 2: matrix of {} entries, (L+1)^2 = {}",
+            rec.matrix.len(),
+            w * w
+        ));
+    }
+    let action: Vec<SlotImage> = rec
+        .action
+        .iter()
+        .enumerate()
+        .map(|(i, a)| match a {
+            // only the slots non-zero on the case are stated: the identity needs no more (step 4)
+            Some((t, _)) if rec.fixed[i] != Some(0) => SlotImage::Exact {
+                target: *t,
+                flip: false,
+            },
+            _ => SlotImage::Unknown,
+        })
+        .collect();
+    let element = SymElement {
+        matrix: Some(rec.matrix.clone()),
+        action: action.clone(),
+    };
+    let one = crate::replay_base::symrows::SymGroup {
+        arity: n,
+        loops: family.loops(),
+        chart: chart.to_vec(),
+        elements: vec![element],
+    };
+    crate::replay_base::symrows::verify_group(family, one, "sym record")
+        .map_err(|e| format!("steps 2-3: {}", e.reason))?;
+    // step 6: target and image patterns
+    let pat = |t: &str| -> Result<Vec<String>, String> {
+        let inner = t
+            .trim()
+            .strip_prefix("I(")
+            .and_then(|x| x.strip_suffix(')'))
+            .ok_or_else(|| format!("step 6: pattern {t:?}"))?;
+        let v: Vec<String> = inner
+            .split(',')
+            .map(|x| x.chars().filter(|c| !c.is_whitespace()).collect())
+            .collect();
+        if v.len() != n {
+            return Err(format!("step 6: pattern {t:?} of {} slots", v.len()));
+        }
+        Ok(v)
+    };
+    let target = pat(&rec.target)?;
+    let image = pat(&rec.image)?;
+    for (i, (got, f)) in target.iter().zip(&rec.fixed).enumerate() {
+        let want = match f {
+            Some(v) => v.to_string(),
+            None => format!("n{i}"),
+        };
+        if *got != want {
+            return Err(format!(
+                "step 6: target slot {i} is {got:?}, the case says {want:?}"
+            ));
+        }
+    }
+    let mut want_image = vec!["0".to_string(); n];
+    for (a, t_i) in rec.action.iter().zip(&target) {
+        if let Some((t, _)) = a {
+            want_image[*t] = t_i.clone();
+        }
+    }
+    if image != want_image {
+        return Err(format!(
+            "step 6: image {} is not the target moved along the action (I({}))",
+            rec.image,
+            want_image.join(",")
+        ));
+    }
+    // OUR derived group: an element with the same action on the slots that can be non-zero on the case
+    let same = |e: &SymElement| -> bool {
+        (0..n).all(|i| match &action[i] {
+            SlotImage::Unknown => true,
+            SlotImage::Exact { target, .. } => match &e.action[i] {
+                SlotImage::Exact { target: t2, flip } => t2 == target && !flip,
+                SlotImage::Linear { terms, constant } => {
+                    constant.n == 0
+                        && terms.len() == 1
+                        && terms[0].0 == *target
+                        && terms[0].1.n == terms[0].1.d
+                }
+                SlotImage::Unknown => false,
+            },
+            SlotImage::Linear { .. } => false,
+        })
+    };
+    let identity = (0..n).all(|i| match &action[i] {
+        SlotImage::Exact { target, .. } => *target == i,
+        _ => true,
+    });
+    if identity {
+        return Err("the identity element (I(a) = I(a): no descent)".into());
+    }
+    group
+        .group()
+        .elements
+        .iter()
+        .position(same)
+        .ok_or_else(|| "the action is not that of an element of the derived group".to_string())
 }
 
 /// GENERATORS: derive + verify the whole group from the family, then require every generator to be an element of it

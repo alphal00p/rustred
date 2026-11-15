@@ -62,11 +62,30 @@ pub const HEADER_PROVENANCE_FIELDS: &[&str] = &[
     "harness",
     "host",
     "created",
+    // lane import5 (coord-pole-engine.md 9c): the per-face summary of `rr_node symface` slice tables
+    "symface_tables",
 ];
 
-/// Line kinds of a `table_dump.v1` file and what assembly does with them. Any other kind is an error.
-const COPIED_ONCE: &[&str] = &["zero_sectors", "chart", "symmetry_group"];
-const NOT_COPIED: &[&str] = &["residual", "chart_end", "end", "composite_terminal_ledger"];
+/// Line kinds of a `table_dump.v1` file and what assembly does with them (the closed list is
+/// `record::TABLE_LINE_KINDS`; any other kind is an error). `rule` records are copied in dispatch order; the kinds below
+/// are copied once or dropped. `residual` and `composite_terminal_ledger` are INPUT TERMINALS (their keys must be
+/// declared terminals; the assembly regenerates every declared terminal as one `residual` record; interfaces/import.md
+/// 18.2). `chart_error` (an incomplete table) and `sym` records are REFUSED by the assembly (not assembled yet: their rule form would need the import's
+/// verification); `sym_zero` is never valid.
+pub const COPIED_ONCE: &[&str] = &["zero_sectors", "chart", "symmetry_group"];
+pub const NOT_COPIED: &[&str] = &[
+    "residual",
+    "chart_end",
+    "end",
+    "composite_terminal_ledger",
+    "assembly_provenance",
+    "composite_assembly_complete",
+    "assembly_end",
+];
+/// Closing records of an input table: `end` (engine), or the completeness markers of an external composite assembly
+/// (they play the role of `end` for these tables, which carry none). At least one must close the file; only closing
+/// records may follow the first one.
+pub const END_LIKE: &[&str] = &["end", "composite_assembly_complete", "assembly_end"];
 
 /// An input table of the node with its spec priority (D1: fixed in the spec at campaign start).
 #[derive(Clone, Debug)]
@@ -398,7 +417,7 @@ fn scan_input(t: &InputTable, keep_skipped: bool) -> Result<Scanned, AssembleErr
         let kind = line_kind(line)
             .map_err(|e| bad(line_no, format!("not a JSON object: {e}")))?
             .ok_or_else(|| bad(line_no, "a line without a \"type\"".into()))?;
-        if ends > 0 {
+        if ends > 0 && !END_LIKE.contains(&kind.as_str()) {
             return Err(bad(line_no, format!("a {kind} line after the end record")));
         }
         let parse = |line: &[u8]| -> Result<Value, AssembleError> {
@@ -473,7 +492,38 @@ fn scan_input(t: &InputTable, keep_skipped: bool) -> Result<Scanned, AssembleErr
                     .ok_or_else(|| bad(line_no, "residual without a readable key".into()))?;
                 out.residual_keys.push(k);
             }
-            "end" => ends += 1,
+            "composite_terminal_ledger" => {
+                // its keys are input terminals exactly like residual records (interfaces/import.md 18.2)
+                let v = parse(line)?;
+                let keys = v
+                    .get("keys")
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| bad(line_no, "composite_terminal_ledger without keys".into()))?;
+                for k in keys {
+                    let k = k.as_str().and_then(parse_key_text).ok_or_else(|| {
+                        bad(
+                            line_no,
+                            format!("composite_terminal_ledger key {k} unreadable"),
+                        )
+                    })?;
+                    out.residual_keys.push(k);
+                }
+            }
+            "chart_error" => {
+                return Err(bad(
+                    line_no,
+                    "a chart_error record (the table is not complete)".into(),
+                ));
+            }
+            "sym" | "sym_zero" => {
+                return Err(bad(
+                    line_no,
+                    format!(
+                        "a {kind} record (symmetry records are not assembled; sym_zero is never valid)"
+                    ),
+                ));
+            }
+            k if END_LIKE.contains(&k) => ends += 1,
             k if NOT_COPIED.contains(&k) || COPIED_ONCE.contains(&k) => {}
             other => {
                 return Err(bad(
@@ -493,7 +543,7 @@ fn scan_input(t: &InputTable, keep_skipped: bool) -> Result<Scanned, AssembleErr
                 .into(),
         });
     }
-    if ends != 1 || last_kind != "end" {
+    if ends == 0 || !END_LIKE.contains(&last_kind.as_str()) {
         return Err(AssembleError::Record {
             source: t.id.clone(),
             detail: "no end record as the last line (truncated table?)".into(),
