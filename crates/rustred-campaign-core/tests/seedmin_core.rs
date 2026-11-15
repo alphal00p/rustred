@@ -1373,3 +1373,49 @@ fn the_final_verification_solves_every_key_and_hands_on_a_key_that_fails_there()
     assert!(!verify.is_empty());
     assert_eq!(verify[0]["keys"], keys.len());
 }
+
+/// planfix (audit r2-planners S1): a piece's list beyond its own keys is compared key by key with the FULL list; a key
+/// where the minimised list is singular and the full list regular is LISTED (the objective never judged it), and the
+/// claim says the objective applied at the piece's keys only.
+#[test]
+fn beyond_its_piece_a_list_is_compared_with_the_full_list_and_worse_keys_are_listed() {
+    use rustred_campaign_core::seedmin::{Piece, verify_beyond_piece};
+    let mut o = Oracle::default();
+    let own: Key = vec![2, 1, 0];
+    let same: Key = vec![3, 1, 0];
+    let worse: Key = vec![4, 1, 0];
+    let lost: Key = vec![5, 1, 0];
+    o.alts.insert(own.clone(), vec![alt(&[[0, 0, 0]], 5)]);
+    o.alts.insert(same.clone(), vec![alt(&[[0, 0, 0]], 6)]);
+    // at `worse`: the regular relation needs [1,0,0] (only in the full list); the minimised list gets a singular one
+    let mut sing = alt(&[[0, 0, 0]], 4);
+    sing.pole = PoleOrder::Order { order: 1 };
+    o.alts.insert(worse.clone(), vec![alt(&[[0, 0, 0], [1, 0, 0]], 9), sing]);
+    o.alts.insert(lost.clone(), vec![alt(&[[0, 1, 0]], 9)]);
+    let piece = Piece {
+        label: "0".into(),
+        keys: vec![own.clone()],
+        list: vec![vec![0, 0, 0]],
+        per_key: vec![],
+        how: "joint".into(),
+        minimise: None,
+        domain_tested: json!({}),
+        rows_at_d0: None,
+    };
+    let extra = vec![own.clone(), same.clone(), worse.clone(), lost.clone()];
+    let r = verify_beyond_piece(&piece, &C0, Some(&shell()), &extra, 2, &mut o).unwrap();
+    assert_eq!((r.own_keys, r.extra_keys), (1, 3), "the piece's own key is not re-counted");
+    assert_eq!((r.extra_valid, r.extra_regular), (2, 1));
+    assert_eq!((r.full_valid, r.full_regular), (Some(3), Some(3)));
+    assert_eq!(
+        r.worse_than_full,
+        vec![(worse.clone(), PoleOrder::Order { order: 1 }, PoleOrder::regular())]
+    );
+    assert_eq!(r.failed, vec![(lost.clone(), "no_relation".to_string())]);
+    assert!(r.claim.starts_with("pole objective applied at the 1 piece keys only"), "{}", r.claim);
+    assert!(r.claim.contains("WORSE than the full list at 1 key(s)"), "{}", r.claim);
+    // without the comparison: counts only, and the claim says so
+    let r2 = verify_beyond_piece(&piece, &C0, None, &extra, 40, &mut o).unwrap();
+    assert!(r2.worse_than_full.is_empty() && r2.full_valid.is_none());
+    assert!(r2.claim.ends_with("not compared with the full list"), "{}", r2.claim);
+}

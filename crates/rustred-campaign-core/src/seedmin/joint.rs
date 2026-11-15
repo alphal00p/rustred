@@ -14,7 +14,7 @@ use super::key::{KeyMachine, KeyMin, TrialLog, check_input, preflight, run_locks
 use super::order::{drop_order, row_ordered, union_in_order, without, without_all};
 use super::policy::SeedMinPolicy;
 use super::{
-    Key, Offset, RelationFacts, SeedMinError, SystemPoles, Trial, TrialAnswer, TrialMode,
+    Key, Offset, PoleOrder, RelationFacts, SeedMinError, SystemPoles, Trial, TrialAnswer, TrialMode,
     TrialSolver, key_label, list_digest, run_batch, sha256_hex,
 };
 
@@ -797,6 +797,10 @@ fn build_piece(
             "rhs_after": per_key.iter().map(|f| f.rhs_count).max().unwrap_or(0),
             "original_relation_digest": sha256_hex(digests.as_bytes())})
     });
+    let n_regular = per_key
+        .iter()
+        .filter(|f| f.pole == PoleOrder::regular())
+        .count();
     let piece = Piece {
         label: format!("{index}"),
         keys: keep_keys.clone(),
@@ -804,7 +808,9 @@ fn build_piece(
         per_key,
         how: "joint".into(),
         minimise,
-        domain_tested: json!({"keys": keep_keys.len(), "solved": keep_keys.len(), "failed": [],
+        domain_tested: json!({"keys": keep_keys.len(), "solved": keep_keys.len(),
+            // planfix S1: what the list is at its own keys (the only keys the pole objective judged)
+            "regular": n_regular, "failed": [],
             "handed_on": handed.len(), "handed_on_reasons": fail.iter().map(|(k, w)| json!([k, w])).collect::<Vec<_>>(),
             "verification_failed": vfail}),
         rows_at_d0: None,
@@ -942,5 +948,136 @@ pub(crate) fn rows_at_d0_pass(
     Ok(D0Pass {
         adopted: adopt.then(|| (cur.clone(), facts)),
         record,
+    })
+}
+
+/// audit r2-planners S1: what a piece's list does BEYOND the keys it was minimised on, compared key by key with a FULL
+/// (start) list. The joint minimiser applies the pole objective (per-key Pareto, `judge_change`) only at the piece's
+/// own keys; at further keys the list was never judged, so the record states exactly that and lists the keys where the
+/// minimised list is WORSE than the full list (singular where the full list is regular, or a higher pole order): under
+/// the default objective ("regular at d = 4 wins", POLES_OBJECTIVE.md, pole-diagnostics.md Addendum 8) a consumer must
+/// not take the list there.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionReport {
+    pub piece: String,
+    pub seeds: usize,
+    /// The piece's own keys (minimised + verified there; the objective applied there).
+    pub own_keys: usize,
+    /// Further keys tried (not the piece's).
+    pub extra_keys: usize,
+    /// Of the further keys: a relation / a regular relation (pole order 0) with the piece's list.
+    pub extra_valid: usize,
+    pub extra_regular: usize,
+    /// The same with the full list (None: no comparison asked).
+    pub full_valid: Option<usize>,
+    pub full_regular: Option<usize>,
+    /// Further keys where the piece's list is worse than the full list: (key, piece's pole, full list's pole).
+    pub worse_than_full: Vec<(Key, PoleOrder, PoleOrder)>,
+    /// Further keys where the piece's list gives no relation: (key, answer word).
+    pub failed: Vec<(Key, String)>,
+    /// What is claimed, in words.
+    pub claim: String,
+}
+
+fn worse_pole(min: PoleOrder, full: PoleOrder) -> bool {
+    match (min, full) {
+        (PoleOrder::Order { order: a }, PoleOrder::Order { order: b }) => a > b,
+        (PoleOrder::Singular, PoleOrder::Order { order: 0 }) => true,
+        _ => false,
+    }
+}
+
+/// Solve the piece's list (and, when given, the FULL list) at the `extra` keys (keys of the piece itself are skipped),
+/// in trials of at most `chunk` keys, and report per [`ExtensionReport`]. Deterministic; one trial batch per list.
+pub fn verify_beyond_piece(
+    piece: &Piece,
+    centre: &[i32],
+    full_list: Option<&[Offset]>,
+    extra: &[Key],
+    chunk: usize,
+    solver: &mut dyn TrialSolver,
+) -> Result<ExtensionReport, SeedMinError> {
+    let own: std::collections::BTreeSet<&Key> = piece.keys.iter().collect();
+    let extra: Vec<Key> = extra.iter().filter(|k| !own.contains(k)).cloned().collect();
+    let chunk = chunk.max(1);
+    let mut solve = |what: &str, list: &[Offset]| -> Result<Vec<TrialAnswer>, SeedMinError> {
+        let trials: Vec<Trial> = extra
+            .chunks(chunk)
+            .enumerate()
+            .map(|(i, ks)| Trial {
+                label: format!("seedmin/extension/{}/{what}/{i}", piece.label),
+                centre: centre.to_vec(),
+                list: list.to_vec(),
+                keys: ks.to_vec(),
+                mode: TrialMode::Solve,
+                engine_minimise: None,
+            })
+            .collect();
+        let ans = solver
+            .solve(&trials)
+            .map_err(|message| SeedMinError::Solver { message })?;
+        let all: Vec<TrialAnswer> = ans.into_iter().flatten().collect();
+        if all.len() != extra.len() {
+            return Err(SeedMinError::Protocol {
+                message: format!("{} answers for {} keys", all.len(), extra.len()),
+            });
+        }
+        Ok(all)
+    };
+    let mine = solve("list", &piece.list)?;
+    let full = match full_list {
+        Some(l) => Some(solve("full", l)?),
+        None => None,
+    };
+    let regular = |a: &TrialAnswer| a.relation().is_some_and(|f| f.pole == PoleOrder::regular());
+    let extra_valid = mine.iter().filter(|a| a.relation().is_some()).count();
+    let extra_regular = mine.iter().filter(|a| regular(a)).count();
+    let mut worse = vec![];
+    if let Some(fa) = &full {
+        for ((k, m), f) in extra.iter().zip(&mine).zip(fa) {
+            if let (Some(m), Some(f)) = (m.relation(), f.relation())
+                && worse_pole(m.pole, f.pole)
+            {
+                worse.push((k.clone(), m.pole, f.pole));
+            }
+        }
+    }
+    let failed: Vec<(Key, String)> = extra
+        .iter()
+        .zip(&mine)
+        .filter(|(_, a)| a.relation().is_none())
+        .map(|(k, a)| (k.clone(), a.word()))
+        .collect();
+    let full_valid = full
+        .as_ref()
+        .map(|f| f.iter().filter(|a| a.relation().is_some()).count());
+    let full_regular = full.as_ref().map(|f| f.iter().filter(|a| regular(a)).count());
+    let claim = format!(
+        "pole objective applied at the {} piece keys only; at {} further keys: a relation at {}, regular at {}{}",
+        piece.keys.len(),
+        extra.len(),
+        extra_valid,
+        extra_regular,
+        match (full_valid, full_regular) {
+            (Some(v), Some(r)) => format!(
+                "; the full list: a relation at {v}, regular at {r}; the piece's list is WORSE than the full list at {} \
+                 key(s) (listed): not to be taken there under the pole objective",
+                worse.len()
+            ),
+            _ => "; not compared with the full list".into(),
+        }
+    );
+    Ok(ExtensionReport {
+        piece: piece.label.clone(),
+        seeds: piece.list.len(),
+        own_keys: piece.keys.len(),
+        extra_keys: extra.len(),
+        extra_valid,
+        extra_regular,
+        full_valid,
+        full_regular,
+        worse_than_full: worse,
+        failed,
+        claim,
     })
 }
