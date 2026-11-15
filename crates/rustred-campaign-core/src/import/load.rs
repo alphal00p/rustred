@@ -13,7 +13,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::error::{ImportError, io_err};
-use super::index::{IndexOrigin, TableIndex, open_or_build_with};
+use super::index::{IndexOrigin, TableIndex, open_scan_checked};
 use super::lines::{
     MAX_BOUND_EXCLUSIONS_PER_SLOT, MarkerPolicy, RawRecord, RawTable, SymfaceRef, check_markers,
     parse_key_text, read_sha256sums, scan_table_with, verify_file,
@@ -488,19 +488,19 @@ pub(crate) fn load_inner(
                 let mut sym_err: Option<String> = None;
                 for u in &units {
                     let want: Option<Vec<i64>> = src.records.clone();
-                    let (idx, origin) = open_or_build_with(
+                    // lane bigline: the index verified against the TABLE (size, mtime, sampled digest, record
+                    // count, file digests, spot-checked records); refused and rebuilt once on a failed check
+                    let (idx, mut origin, raw, rebuilt) = open_scan_checked(
                         &src.id,
                         &u.path,
                         lopts.index_dir.as_deref(),
                         spec.read_limits(),
+                        spec.spot_check_records(),
                     )?;
+                    if rebuilt.is_some() {
+                        origin.how = "rebuilt_after_failed_check";
+                    }
                     rep.indexes.push(origin);
-                    let mut recs = vec![];
-                    let mut raw = idx.scan_domains(&src.id, &|_, _| true, &mut |r| {
-                        recs.push(r);
-                        Ok(())
-                    })?;
-                    raw.records = recs;
                     indexes.insert(u.path.clone(), idx);
                     let sha = format!("sha256:{}", raw.file_sha256);
                     if let Some(e) = &u.expected_sha {

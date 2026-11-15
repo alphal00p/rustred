@@ -14,11 +14,11 @@
 //! import's fact requests, adapter (b)); this function is the same exact evaluation inside the library, for small
 //! numbers of (record, key) pairs (each call reads and parses one record line).
 //!
-//! A RECORD LONGER THAN THE PER-RECORD BUDGET (spec `reader.record_budget_bytes`; lane bigline) is never read whole:
+//! A RECORD LONGER THAN THE WHOLE-LINE LIMIT (spec `reader.stream_lines_above`; lane bigline) is never read whole:
 //! it is streamed twice from its offset, each pass checked against `record_sha256` (pass 1: the record without its rhs
 //! value, for the domain and the fields; pass 2: the rhs terms one at a time, each decoded strictly and evaluated
 //! with the same exact code, then dropped). The answer is identical to the in-memory evaluation. A single term larger
-//! than the budget cannot be evaluated in memory: a typed refusal (`record_too_large`, naming the record and the term
+//! than the per-record budget (`reader.record_budget_bytes`) cannot be evaluated in memory: a typed refusal (`record_too_large`, naming the record and the term
 //! size); the key is then left to the child job, never skipped, never counted as served.
 
 use std::io::{BufReader, Read, Seek, SeekFrom};
@@ -233,9 +233,9 @@ pub fn fact_verdict_line(
     key: &[i32],
 ) -> Result<Value, ImportError> {
     let info = set.rule(table, record);
-    let budget = set.spec.read_limits().record_budget;
-    let ev = if info.bytes > budget {
-        evaluate_streamed(set, info, key, budget)?
+    let limits = set.spec.read_limits();
+    let ev = if info.bytes > limits.whole_line_max {
+        evaluate_streamed(set, info, key, limits.record_budget)?
     } else {
         let line = record_line(set, table, record)?;
         let rt = RuleText::parse(&line, &set.frame).map_err(|e| ImportError::Source {

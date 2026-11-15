@@ -48,7 +48,8 @@ use crate::record::stream::stream_line;
 use crate::record::{ReadLimits, RhsMode, read_until_limited};
 
 /// Version of the index format and of what it promises. Bump on ANY change of the files or of their meaning.
-pub const INDEX_VERSION: u32 = 2;
+/// 3 (lane bigline): `index.json` records the sha256 of `domains.jsonl` and `bodies.jsonl`, verified on every read.
+pub const INDEX_VERSION: u32 = 3;
 /// Schema word of `index.json`.
 pub const INDEX_SCHEMA: &str = "rustred.campaign.table-index.v1";
 /// Blocks read for the sampled digest.
@@ -80,6 +81,12 @@ pub struct IndexMeta {
     pub lines: usize,
     pub rule_records: usize,
     pub kinds: BTreeMap<String, usize>,
+    /// sha256 of `domains.jsonl` / `bodies.jsonl` as written by the build: every read of an index file is checked
+    /// against them (an index file of another build, e.g. of another table in a shared directory, is refused).
+    pub domains_sha256: String,
+    pub bodies_sha256: String,
+    /// Random id of the build that wrote the three files.
+    pub build_id: String,
 }
 
 /// How an index was obtained (for the load report; NOT identifying).
@@ -102,14 +109,53 @@ pub struct TableIndex {
     pub table: PathBuf,
     /// The reader limits the index is read under (an index line longer than the budget is refused).
     pub limits: ReadLimits,
-    temporary: bool,
+    /// A temporary index: the directory this process created (removed with the index); None = persistent.
+    owned: Option<OwnedDir>,
 }
 
-impl Drop for TableIndex {
+/// A directory THIS process created by an exclusive mkdir ([`unique_dir`]): the ONLY kind of directory the import
+/// ever removes recursively (rule L18: never a pre-existing directory). Removed with its content when dropped, unless
+/// released (renamed into place, or kept).
+#[derive(Debug)]
+pub struct OwnedDir {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl OwnedDir {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+    /// Give up ownership: the directory is no longer removed by this guard (it was renamed away, or must stay).
+    pub fn release(mut self) -> PathBuf {
+        self.armed = false;
+        std::mem::take(&mut self.path)
+    }
+}
+
+impl Drop for OwnedDir {
     fn drop(&mut self) {
-        if self.temporary {
-            let _ = std::fs::remove_dir_all(&self.dir);
+        if self.armed {
+            let _ = std::fs::remove_dir_all(&self.path);
         }
+    }
+}
+
+/// The files of an index directory (the only names [`remove_index_files`] removes).
+pub const INDEX_FILES: &[&str] = &["index.json", "domains.jsonl", "bodies.jsonl"];
+
+/// Remove a STALE persistent index directory that this process did not create: its known files by name, then the
+/// directory with `rmdir` (never recursively): a directory holding anything else is left in place (Err).
+pub fn remove_index_files(dir: &Path) -> std::io::Result<()> {
+    for f in INDEX_FILES {
+        match std::fs::remove_file(dir.join(f)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+            _ => {}
+        }
+    }
+    match std::fs::remove_dir(dir) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
     }
 }
 
@@ -215,6 +261,54 @@ pub fn validate(dir: &Path, path: &Path) -> Result<Option<IndexMeta>, ImportErro
 
 static TEMP_SEQ: AtomicUsize = AtomicUsize::new(0);
 
+/// 64 random bits from the OS (`/dev/urandom`; else the standard library's randomly seeded hasher keys).
+fn os_nonce() -> u64 {
+    let mut b = [0u8; 8];
+    if std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut b))
+        .is_ok()
+    {
+        return u64::from_le_bytes(b);
+    }
+    use std::hash::{BuildHasher, Hasher};
+    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    h.write_usize(TEMP_SEQ.fetch_add(1, Ordering::Relaxed));
+    h.finish()
+}
+
+/// The process's start (clock ticks since boot, `/proc/self/stat` field 22; 0 where unavailable).
+fn process_start() -> u64 {
+    std::fs::read_to_string("/proc/self/stat")
+        .ok()
+        .and_then(|s| {
+            let rest = s.rsplit_once(')')?.1.to_string();
+            rest.split_whitespace().nth(19)?.parse().ok()
+        })
+        .unwrap_or(0)
+}
+
+/// A NEW private directory `<parent>/<prefix>-<pid>-<start>-<nonce>` created by an EXCLUSIVE mkdir (retried with a
+/// fresh OS nonce if the name exists): unique even for processes with the same pid (private pid namespaces, where
+/// every run is pid 1) sharing one temporary directory, whatever TMPDIR is (lane bigline; defect found by lane
+/// repairflow2). Returned as an [`OwnedDir`] guard: removed when dropped unless released.
+pub fn unique_dir(parent: &Path, prefix: &str) -> Result<OwnedDir, ImportError> {
+    std::fs::create_dir_all(parent).map_err(|e| io_err(parent, e))?;
+    let (pid, start) = (std::process::id(), process_start());
+    loop {
+        let d = parent.join(format!("{prefix}-{pid}-{start}-{:016x}", os_nonce()));
+        match std::fs::create_dir(&d) {
+            Ok(()) => {
+                return Ok(OwnedDir {
+                    path: d,
+                    armed: true,
+                });
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(io_err(&d, e)),
+        }
+    }
+}
+
 /// Open the index of `path`: reuse a valid one under `cache`, else build it there (or, without `cache`, in a private
 /// temporary directory under `std::env::temp_dir()`, removed with the returned [`TableIndex`]). No per-record limit
 /// ([`open_or_build_with`]).
@@ -234,78 +328,118 @@ pub fn open_or_build_with(
     cache: Option<&Path>,
     limits: ReadLimits,
 ) -> Result<(TableIndex, IndexOrigin), ImportError> {
+    open_inner(source, path, cache, limits, false)
+}
+
+/// `rebuild`: never reuse (a persistent index that failed a check is replaced).
+fn open_inner(
+    source: &str,
+    path: &Path,
+    cache: Option<&Path>,
+    limits: ReadLimits,
+    rebuild: bool,
+) -> Result<(TableIndex, IndexOrigin), ImportError> {
     let t0 = Instant::now();
     let table_bytes = std::fs::metadata(path).map_err(|e| io_err(path, e))?.len();
-    let (dir, temporary) = match cache {
-        Some(c) => {
-            std::fs::create_dir_all(c).map_err(|e| io_err(c, e))?;
-            (index_dir_for(c, path)?, false)
-        }
-        None => (
-            std::env::temp_dir().join(format!(
-                "rr-import-index-{}-{}",
-                std::process::id(),
-                TEMP_SEQ.fetch_add(1, Ordering::Relaxed)
-            )),
-            true,
-        ),
+    let origin = |how: &'static str, dir: &Path| IndexOrigin {
+        how,
+        dir: dir.display().to_string(),
+        seconds: t0.elapsed().as_secs_f64(),
+        table_bytes,
     };
-    if !temporary && let Some(meta) = validate(&dir, path)? {
-        return Ok((
-            TableIndex {
-                dir: dir.clone(),
-                meta,
-                table: path.to_path_buf(),
-                limits,
-                temporary: false,
-            },
-            IndexOrigin {
-                how: "reused",
-                dir: dir.display().to_string(),
-                seconds: t0.elapsed().as_secs_f64(),
-                table_bytes,
-            },
-        ));
-    }
-    let work = if temporary {
-        dir.clone()
-    } else {
-        let mut w = dir.clone().into_os_string();
-        w.push(format!(".building-{}", std::process::id()));
-        PathBuf::from(w)
+    let Some(c) = cache else {
+        // a fresh private directory (exclusive mkdir), never one of another process
+        let own = unique_dir(&std::env::temp_dir(), "rr-import-index")?;
+        let meta = build(source, path, own.path(), limits)?;
+        let ix = TableIndex {
+            dir: own.path().to_path_buf(),
+            meta,
+            table: path.to_path_buf(),
+            limits,
+            owned: Some(own),
+        };
+        ix.check_table()?;
+        let o = origin("built_temporary", &ix.dir);
+        return Ok((ix, o));
     };
-    let _ = std::fs::remove_dir_all(&work);
-    std::fs::create_dir_all(&work).map_err(|e| io_err(&work, e))?;
-    let meta = match build(source, path, &work, limits) {
-        Ok(m) => m,
-        Err(e) => {
-            let _ = std::fs::remove_dir_all(&work);
-            return Err(e);
-        }
-    };
-    if !temporary {
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::rename(&work, &dir).map_err(|e| io_err(&dir, e))?;
-    }
-    Ok((
-        TableIndex {
+    std::fs::create_dir_all(c).map_err(|e| io_err(c, e))?;
+    let dir = index_dir_for(c, path)?;
+    if !rebuild && let Some(meta) = validate(&dir, path)? {
+        let ix = TableIndex {
             dir: dir.clone(),
             meta,
             table: path.to_path_buf(),
             limits,
-            temporary,
-        },
-        IndexOrigin {
-            how: if temporary {
-                "built_temporary"
-            } else {
-                "built"
-            },
-            dir: dir.display().to_string(),
-            seconds: t0.elapsed().as_secs_f64(),
-            table_bytes,
-        },
-    ))
+            owned: None,
+        };
+        return Ok((ix, origin("reused", &dir)));
+    }
+    // a private build directory beside the index (exclusive mkdir): concurrent builders never share one
+    let name = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let work = unique_dir(c, &format!("{name}.building"))?;
+    let mut meta = build(source, path, work.path(), limits)?;
+    match validate(&dir, path)? {
+        // another builder put a valid index in place meanwhile: use it (ours goes with its guard)
+        Some(m) if !rebuild => meta = m,
+        _ => {
+            // replace a stale index: its known files only, never a directory with anything else in it
+            remove_index_files(&dir).map_err(|e| io_err(&dir, e))?;
+            match std::fs::rename(work.path(), &dir) {
+                Ok(()) => {
+                    work.release();
+                }
+                Err(e) => match validate(&dir, path)? {
+                    Some(m) => meta = m,
+                    None => return Err(io_err(&dir, e)),
+                },
+            }
+        }
+    }
+    let ix = TableIndex {
+        dir: dir.clone(),
+        meta,
+        table: path.to_path_buf(),
+        limits,
+        owned: None,
+    };
+    ix.check_table()?;
+    Ok((ix, origin("built", &dir)))
+}
+
+/// A RawTable read from a verified index: [`TableIndex::scan_domains`] (every record), then the spot check
+/// ([`TableIndex::spot_check`], `spot` records re-hashed from the table bytes). An index that fails the spot check
+/// or any of its read checks is refused and rebuilt ONCE (a persistent one in place); a failure of the rebuilt index
+/// is an error.
+pub fn open_scan_checked(
+    source: &str,
+    path: &Path,
+    cache: Option<&Path>,
+    limits: ReadLimits,
+    spot: usize,
+) -> Result<(TableIndex, IndexOrigin, RawTable, Option<String>), ImportError> {
+    let attempt = |rebuild: bool| -> Result<(TableIndex, IndexOrigin, RawTable), ImportError> {
+        let (ix, o) = open_inner(source, path, cache, limits, rebuild)?;
+        let mut recs = vec![];
+        let mut raw = ix.scan_domains(source, &|_, _| true, &mut |r| {
+            recs.push(r);
+            Ok(())
+        })?;
+        raw.records = recs;
+        ix.spot_check(&raw.records, spot)?;
+        Ok((ix, o, raw))
+    };
+    match attempt(false) {
+        Ok((ix, o, raw)) => Ok((ix, o, raw, None)),
+        Err(e @ (ImportError::Digest { .. } | ImportError::Source { .. })) => {
+            let why = format!("index refused and rebuilt: {e}");
+            let (ix, o, raw) = attempt(true)?;
+            Ok((ix, o, raw, Some(why)))
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Byte budget of the lines in flight.
@@ -486,7 +620,7 @@ fn build(
         .map_err(|_| ImportError::Core("index hash thread panicked".into()))?;
     lh.join()
         .map_err(|_| ImportError::Core("index line-hash thread panicked".into()))?;
-    let (lines, raw) = res?;
+    let c = res?;
     let md1 = std::fs::metadata(path).map_err(|e| io_err(path, e))?;
     if md1.len() != md0.len() || mtime_ns(&md1) != mtime_ns(&md0) || total != md0.len() {
         return Err(ImportError::Source {
@@ -502,9 +636,12 @@ fn build(
         mtime_ns: mtime_ns(&md0),
         sample_sha256: sample,
         file_sha256,
-        lines,
-        rule_records: raw.1,
-        kinds: raw.0,
+        lines: c.lines,
+        rule_records: c.rules,
+        kinds: c.kinds,
+        domains_sha256: c.domains_sha256,
+        bodies_sha256: c.bodies_sha256,
+        build_id: format!("{:016x}{:016x}", os_nonce(), os_nonce()),
     };
     let ip = work.join("index.json");
     std::fs::write(&ip, serde_json::to_string_pretty(&meta).expect("meta"))
@@ -513,7 +650,6 @@ fn build(
 }
 
 /// The calling thread's part of the pass: parse every line (rhs keys only), write `domains.jsonl` and `bodies.jsonl`.
-#[allow(clippy::type_complexity)]
 fn consume(
     source: &str,
     path: &Path,
@@ -521,22 +657,25 @@ fn consume(
     rx: Receiver<Arc<Line>>,
     rx_sha: Receiver<String>,
     limits: ReadLimits,
-) -> Result<(usize, (BTreeMap<String, usize>, usize)), ImportError> {
+) -> Result<Consumed, ImportError> {
     let dp = work.join("domains.jsonl");
     let bp = work.join("bodies.jsonl");
-    let mut dw = BufWriter::with_capacity(
-        1 << 20,
-        std::fs::File::create(&dp).map_err(|e| io_err(&dp, e))?,
-    );
-    let mut bw = BufWriter::with_capacity(
-        4 << 20,
-        std::fs::File::create(&bp).map_err(|e| io_err(&bp, e))?,
-    );
+    let mut dw = HashWriter {
+        w: BufWriter::with_capacity(
+            1 << 20,
+            std::fs::File::create(&dp).map_err(|e| io_err(&dp, e))?,
+        ),
+        h: Sha256::new(),
+    };
+    let mut bw = HashWriter {
+        w: BufWriter::with_capacity(
+            4 << 20,
+            std::fs::File::create(&bp).map_err(|e| io_err(&bp, e))?,
+        ),
+        h: Sha256::new(),
+    };
     let mut sc = LineScanner::new(source, path, RhsMode::KeysOnly, false).with_limits(limits);
     let (mut offset, mut line_no, mut rules) = (0u64, 0usize, 0usize);
-    let wr = |w: &mut BufWriter<std::fs::File>, p: &Path, b: &[u8]| -> Result<(), ImportError> {
-        w.write_all(b).map_err(|e| io_err(p, e))
-    };
     while let Ok(l) = rx.recv() {
         line_no += 1;
         let start = offset;
@@ -598,44 +737,170 @@ fn consume(
                 } else {
                     "chart"
                 };
-                wr(&mut dw, &dp, entry(k, None).as_bytes())?;
-                wr(&mut dw, &dp, body)?;
-                wr(&mut dw, &dp, b"\n")?;
+                dw.put(&dp, entry(k, None).as_bytes())?;
+                dw.put(&dp, body)?;
+                dw.put(&dp, b"\n")?;
             }
             Fed::Other(kind) => {
-                wr(&mut dw, &dp, entry(&kind, None).as_bytes())?;
+                dw.put(&dp, entry(&kind, None).as_bytes())?;
                 if CONTENT_KINDS.contains(&kind.as_str()) {
-                    wr(&mut dw, &dp, body)?;
-                    wr(&mut dw, &dp, b"\n")?;
+                    dw.put(&dp, body)?;
+                    dw.put(&dp, b"\n")?;
                 }
             }
             Fed::Rule(r) => {
                 rules += 1;
-                wr(&mut dw, &dp, entry("rule", Some(sha.clone())).as_bytes())?;
+                dw.put(&dp, entry("rule", Some(sha.clone())).as_bytes())?;
                 match r.rhs_span.filter(|_| !replaced) {
                     Some((a, b)) => {
-                        wr(&mut dw, &dp, &body[..a])?;
-                        wr(&mut dw, &dp, b"[]")?;
-                        wr(&mut dw, &dp, &body[b..])?;
+                        dw.put(&dp, &body[..a])?;
+                        dw.put(&dp, b"[]")?;
+                        dw.put(&dp, &body[b..])?;
                     }
-                    None => wr(&mut dw, &dp, body)?,
+                    None => dw.put(&dp, body)?,
                 }
-                wr(&mut dw, &dp, b"\n")?;
+                dw.put(&dp, b"\n")?;
                 let keys = r.rec.rhs_keys.as_deref().unwrap_or(&[]);
                 let mut t = format!("{{\"o\":{},\"s\":\"{}\",\"rhs\":", r.ordinal, r.sha256);
                 t.push_str(&serde_json::to_string(keys).expect("keys"));
                 t.push_str("}\n");
-                wr(&mut bw, &bp, t.as_bytes())?;
+                bw.put(&bp, t.as_bytes())?;
             }
         }
     }
-    dw.flush().map_err(|e| io_err(&dp, e))?;
-    bw.flush().map_err(|e| io_err(&bp, e))?;
+    dw.w.flush().map_err(|e| io_err(&dp, e))?;
+    bw.w.flush().map_err(|e| io_err(&bp, e))?;
     let raw = sc.finish(String::new(), offset)?;
-    Ok((line_no, (raw.kinds, rules)))
+    Ok(Consumed {
+        lines: line_no,
+        kinds: raw.kinds,
+        rules,
+        domains_sha256: dw.h.finish_hex(),
+        bodies_sha256: bw.h.finish_hex(),
+    })
+}
+
+/// What the parse thread of the index pass produced.
+struct Consumed {
+    lines: usize,
+    kinds: BTreeMap<String, usize>,
+    rules: usize,
+    domains_sha256: String,
+    bodies_sha256: String,
+}
+
+/// A buffered index-file writer that hashes what it writes.
+struct HashWriter {
+    w: BufWriter<std::fs::File>,
+    h: Sha256,
+}
+
+impl HashWriter {
+    fn put(&mut self, p: &Path, b: &[u8]) -> Result<(), ImportError> {
+        self.h.update(b);
+        self.w.write_all(b).map_err(|e| io_err(p, e))
+    }
 }
 
 impl TableIndex {
+    /// A temporary index (its directory, created by this process, goes with it).
+    pub fn is_temporary(&self) -> bool {
+        self.owned.is_some()
+    }
+
+    /// The TABLE FILE is still the one the index describes: size, mtime and the sampled digest against the meta
+    /// (temporary and persistent indexes alike; the meta's whole-file sha256 was computed from the table bytes by
+    /// the build that wrote it).
+    pub fn check_table(&self) -> Result<(), ImportError> {
+        let md = std::fs::metadata(&self.table).map_err(|e| io_err(&self.table, e))?;
+        let bad = |what: &str| ImportError::Source {
+            source: "index".into(),
+            msg: format!(
+                "index {} does not describe {} ({what} differs)",
+                self.dir.display(),
+                self.table.display()
+            ),
+        };
+        if md.len() != self.meta.size {
+            return Err(bad("size"));
+        }
+        if mtime_ns(&md) != self.meta.mtime_ns {
+            return Err(bad("mtime"));
+        }
+        if canonical(&self.table)?.display().to_string() != self.meta.path {
+            return Err(bad("path"));
+        }
+        if sample_digest(&self.table)? != self.meta.sample_sha256 {
+            return Err(bad("sampled digest"));
+        }
+        Ok(())
+    }
+
+    /// SPOT CHECK against the table bytes: `n` records spread over the file (the first and the last included) are
+    /// re-read at their offset and re-hashed (streamed, never held) against their `record_sha256`, with their line
+    /// boundaries (a newline or the start before, a newline or the end after). A mismatch is a Digest error (the
+    /// caller refuses the index and rebuilds it).
+    pub fn spot_check(&self, records: &[RawRecord], n: usize) -> Result<(), ImportError> {
+        if records.is_empty() || n == 0 {
+            return Ok(());
+        }
+        let m = records.len();
+        let mut pick: Vec<usize> = if n >= m {
+            (0..m).collect()
+        } else {
+            (0..n).map(|i| i * (m - 1) / (n - 1).max(1)).collect()
+        };
+        pick.push(m - 1);
+        pick.sort_unstable();
+        pick.dedup();
+        let p = &self.table;
+        let mut f = std::fs::File::open(p).map_err(|e| io_err(p, e))?;
+        let size = self.meta.size;
+        let mut buf = vec![0u8; 1 << 20];
+        for &k in &pick {
+            let r = &records[k];
+            let bad = |what: String| ImportError::Digest {
+                path: format!("{}@{}", p.display(), r.offset),
+                expected: r.sha256.clone(),
+                got: what,
+            };
+            if r.offset + r.bytes > size {
+                return Err(bad("beyond the end of the table".into()));
+            }
+            let start = r.offset.saturating_sub(1);
+            f.seek(SeekFrom::Start(start)).map_err(|e| io_err(p, e))?;
+            let mut h = Sha256::new();
+            let mut left = r.bytes + (r.offset - start);
+            let mut first = r.offset > 0;
+            while left > 0 {
+                let want = left.min(buf.len() as u64) as usize;
+                f.read_exact(&mut buf[..want]).map_err(|e| io_err(p, e))?;
+                let mut chunk = &buf[..want];
+                if first {
+                    if chunk[0] != b'\n' {
+                        return Err(bad("no line start at the offset".into()));
+                    }
+                    chunk = &chunk[1..];
+                    first = false;
+                }
+                h.update(chunk);
+                left -= want as u64;
+            }
+            if r.offset + r.bytes < size {
+                let mut nl = [0u8; 1];
+                f.read_exact(&mut nl).map_err(|e| io_err(p, e))?;
+                if nl[0] != b'\n' {
+                    return Err(bad("no line end after the record".into()));
+                }
+            }
+            let got = h.finish_hex();
+            if got != r.sha256 {
+                return Err(bad(got));
+            }
+        }
+        Ok(())
+    }
+
     /// One line of an index file, at most the per-record budget (plus the newline): a longer one (an index built
     /// under a larger budget) refuses, typed. `line`: the table line it describes (0 = not known).
     fn bounded_line(
@@ -645,9 +910,11 @@ impl TableIndex {
         file: &Path,
         source: &str,
         line: usize,
+        h: &mut Sha256,
     ) -> Result<usize, ImportError> {
         let limit = self.limits.record_budget.saturating_add(1);
         let (n, complete) = read_until_limited(rd, buf, limit).map_err(|e| io_err(file, e))?;
+        h.update(buf);
         if !complete {
             // measure the line without keeping it
             let mut more = n as u64;
@@ -674,6 +941,20 @@ impl TableIndex {
         Ok(n)
     }
 
+    /// The end of a read of an index file: its sha256 must be the one its build recorded (the file is this index's,
+    /// not another build's, e.g. of another table in a shared directory).
+    fn verify_file(&self, file: &Path, h: Sha256, expected: &str) -> Result<(), ImportError> {
+        let got = h.finish_hex();
+        if got != expected {
+            return Err(ImportError::Digest {
+                path: file.display().to_string(),
+                expected: expected.to_string(),
+                got,
+            });
+        }
+        Ok(())
+    }
+
     /// The table as the index describes it, every kept record WITHOUT its body (`rec.rhs_keys` = None), in file
     /// order: the same [`RawTable`] / [`RawRecord`] fields a direct scan gives (`file_sha256` from the index).
     pub fn scan_domains(
@@ -691,11 +972,14 @@ impl TableIndex {
             source: source.to_string(),
             msg: format!("index {}: {m}", self.dir.display()),
         };
+        self.check_table()?;
         let mut eb: Vec<u8> = vec![];
         let mut pb: Vec<u8> = vec![];
+        let mut fh = Sha256::new();
+        let mut rule_entries = 0usize;
         loop {
             eb.clear();
-            if self.bounded_line(&mut rd, &mut eb, &dp, source, 0)? == 0 {
+            if self.bounded_line(&mut rd, &mut eb, &dp, source, 0, &mut fh)? == 0 {
                 break;
             }
             let e: Entry =
@@ -703,8 +987,11 @@ impl TableIndex {
             match e.k.as_str() {
                 "header" | "chart" | "rule" => {
                     pb.clear();
-                    if self.bounded_line(&mut rd, &mut pb, &dp, source, e.l)? == 0 {
+                    if self.bounded_line(&mut rd, &mut pb, &dp, source, e.l, &mut fh)? == 0 {
                         return Err(bad("payload missing".into()));
+                    }
+                    if e.k == "rule" {
+                        rule_entries += 1;
                     }
                     let fed = sc.feed(line_body(&pb), e.l, e.o, e.b, e.s.clone(), keep)?;
                     let ok = match (e.k.as_str(), fed) {
@@ -723,7 +1010,7 @@ impl TableIndex {
                 }
                 k if CONTENT_KINDS.contains(&k) => {
                     pb.clear();
-                    if self.bounded_line(&mut rd, &mut pb, &dp, source, e.l)? == 0 {
+                    if self.bounded_line(&mut rd, &mut pb, &dp, source, e.l, &mut fh)? == 0 {
                         return Err(bad("payload missing".into()));
                     }
                     match sc.feed(line_body(&pb), e.l, e.o, e.b, None, keep)? {
@@ -733,6 +1020,13 @@ impl TableIndex {
                 }
                 k => sc.count_kind(e.l, k)?,
             }
+        }
+        self.verify_file(&dp, fh, &self.meta.domains_sha256)?;
+        if rule_entries != self.meta.rule_records {
+            return Err(bad(format!(
+                "{rule_entries} rule entries, the index records {}",
+                self.meta.rule_records
+            )));
         }
         sc.finish(self.meta.file_sha256.clone(), self.meta.size)
     }
@@ -747,11 +1041,25 @@ impl TableIndex {
         let f = std::fs::File::open(&bp).map_err(|e| io_err(&bp, e))?;
         let mut rd = BufReader::with_capacity(4 << 20, f);
         let mut buf: Vec<u8> = vec![];
+        let mut fh = Sha256::new();
+        let mut lines = 0usize;
         loop {
             buf.clear();
-            if self.bounded_line(&mut rd, &mut buf, &bp, "index", 0)? == 0 {
+            if self.bounded_line(&mut rd, &mut buf, &bp, "index", 0, &mut fh)? == 0 {
+                self.verify_file(&bp, fh, &self.meta.bodies_sha256)?;
+                if lines != self.meta.rule_records {
+                    return Err(ImportError::Source {
+                        source: "index".into(),
+                        msg: format!(
+                            "index {}: {lines} bodies, the index records {} rule records",
+                            self.dir.display(),
+                            self.meta.rule_records
+                        ),
+                    });
+                }
                 return Ok(());
             }
+            lines += 1;
             // the ordinal first (cheap) so that unwanted bodies are not parsed
             let o = buf
                 .get(5..)

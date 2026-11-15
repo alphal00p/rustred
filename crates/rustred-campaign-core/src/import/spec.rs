@@ -402,11 +402,16 @@ impl SourceSpec {
 }
 
 /// DEFAULT per-record in-memory budget of the table readers (bytes), used when the spec's `reader` does not set
-/// `record_budget_bytes` (interfaces/import.md 19). Measured 2026-11-15 on the five-loop tables that did not load in
-/// 2 GB (lane bigline): the largest part of a record that must be held whole (the line without its `rhs` value) was
-/// 14.4 MB, the largest single coefficient term 1.7 MB; 64 MiB covers both with a factor >= 4 and keeps a load of one
-/// table (index pass: 256 MiB of lines in flight + one whole line + its parse) far below a 2 GB process limit.
-pub const DEFAULT_RECORD_BUDGET_BYTES: u64 = 64 << 20;
+/// `record_budget_bytes` (interfaces/import.md 19): the size above which a record part that must be held refuses,
+/// typed. Memory policy L17 (2026-11-15: up to 64 GB per job): the default does not bite below 64 GiB.
+pub const DEFAULT_RECORD_BUDGET_BYTES: u64 = 64 << 30;
+
+/// DEFAULT length above which a line is STREAMED instead of read whole (`reader.stream_lines_above`; the path only,
+/// never a result). Measured 2026-11-15 on the 14 five-loop tables with the longest lines (lane bigline): the largest
+/// record part that must be held (the line without its `rhs` value) was 14.4 MB, the largest single coefficient term
+/// 2.35 MB, the longest line 5.05 GB; 64 MiB keeps every ordinary line on the whole-line path and bounds a load's
+/// memory per record to about that (index pass: 256 MiB of lines in flight + one line + its parse).
+pub const DEFAULT_STREAM_LINES_ABOVE: u64 = 64 << 20;
 
 /// Per-record memory limits of the table readers (spec field `reader`; lane bigline, interfaces/import.md 19).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -418,12 +423,20 @@ pub struct ReaderSpec {
     /// [`DEFAULT_RECORD_BUDGET_BYTES`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub record_budget_bytes: Option<u64>,
-    /// Lines longer than this (bytes, without the newline) are streamed instead of read whole. Default: the budget;
-    /// at most the budget. A smaller value changes no result (the streamed and the whole-line readers give identical
-    /// records, digests and index files), only the path: a diagnostic / test knob.
+    /// Lines longer than this (bytes, without the newline) are streamed instead of read whole. Default
+    /// [`DEFAULT_STREAM_LINES_ABOVE`] (or the budget when smaller); at most the budget. It changes no result (the
+    /// streamed and the whole-line readers give identical records, digests and index files), only the path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stream_lines_above: Option<u64>,
+    /// Records of each table re-read from the TABLE BYTES at load and re-hashed against the index's `record_sha256`
+    /// (spread over the file, the first and the last included); a mismatch refuses the index and rebuilds it.
+    /// Default [`DEFAULT_SPOT_CHECK_RECORDS`]; 0 = none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spot_check_records: Option<usize>,
 }
+
+/// DEFAULT number of records spot-checked against the table bytes per table load (`reader.spot_check_records`).
+pub const DEFAULT_SPOT_CHECK_RECORDS: usize = 64;
 
 /// The import spec.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -523,13 +536,23 @@ impl TableSetSpec {
         Self::from_json(&t)
     }
 
+    /// Records spot-checked per table load (`reader.spot_check_records`, else [`DEFAULT_SPOT_CHECK_RECORDS`]).
+    pub fn spot_check_records(&self) -> usize {
+        self.reader
+            .and_then(|r| r.spot_check_records)
+            .unwrap_or(DEFAULT_SPOT_CHECK_RECORDS)
+    }
+
     /// The reader limits of this spec (`reader`, else the defaults).
     pub fn read_limits(&self) -> crate::record::ReadLimits {
         let r = self.reader.unwrap_or_default();
         let budget = r.record_budget_bytes.unwrap_or(DEFAULT_RECORD_BUDGET_BYTES);
         crate::record::ReadLimits {
             record_budget: budget,
-            whole_line_max: r.stream_lines_above.unwrap_or(budget).min(budget),
+            whole_line_max: r
+                .stream_lines_above
+                .unwrap_or(DEFAULT_STREAM_LINES_ABOVE)
+                .min(budget),
         }
     }
 

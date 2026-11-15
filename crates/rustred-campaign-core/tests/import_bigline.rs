@@ -74,7 +74,7 @@ fn many_terms() -> Vec<(String, String)> {
         .map(|i| {
             let c = match i {
                 5 => coef("n0-3", 4000),
-                7 => format!("{}/(n2-3)", coef("1", 3990)),
+                7 => format!("({})/(n2-3)", coef("1", 3988)),
                 _ => coef("1", 4000),
             };
             (kt(&below(i)), c)
@@ -112,11 +112,17 @@ fn index_identity(table: &Path, scratch: &Path, a: ReadLimits, b: ReadLimits) {
     let _ = std::fs::remove_dir_all(&cb);
     let (ia, _) = open_or_build_with("t", table, Some(&ca), a).unwrap();
     let (ib, _) = open_or_build_with("t", table, Some(&cb), b).unwrap();
-    assert_eq!(ia.meta, ib.meta, "{}", table.display());
+    // equal in everything but the random id of the build
+    let mut mb = ib.meta.clone();
+    mb.build_id = ia.meta.build_id.clone();
+    assert_eq!(ia.meta, mb, "{}", table.display());
     let (fa, fb) = (files_of(&ia.dir), files_of(&ib.dir));
     assert_eq!(fa.len(), fb.len());
     for ((na, xa), (nb, xb)) in fa.iter().zip(&fb) {
         assert_eq!(na, nb);
+        if na == "index.json" {
+            continue; // = the metas compared above
+        }
         assert!(xa == xb, "{}: index file {na} differs", table.display());
     }
     drop((ia, ib));
@@ -190,7 +196,7 @@ fn a_line_far_beyond_the_budget_goes_through_the_whole_import() {
             scratch: Some(d.join("cl")),
             reader: Some(import::spec::ReaderSpec {
                 record_budget_bytes: Some(BUDGET),
-                stream_lines_above: None,
+                ..Default::default()
             }),
             ..Default::default()
         },
@@ -418,7 +424,13 @@ fn reader_spec_validation_and_digest() {
     let t = write_table(&d, "t.jsonl", &[point_rule(0, &TOP, &[&below(0)])]);
     let sp = spec(&d, &t, &[&TOP], json!({}), &[]);
     let s0 = import::TableSetSpec::from_json(&sp.to_string()).unwrap();
-    assert_eq!(s0.read_limits(), ReadLimits::new(import::spec::DEFAULT_RECORD_BUDGET_BYTES));
+    assert_eq!(
+        s0.read_limits(),
+        ReadLimits {
+            record_budget: import::spec::DEFAULT_RECORD_BUDGET_BYTES,
+            whole_line_max: import::spec::DEFAULT_STREAM_LINES_ABOVE
+        }
+    );
     assert!(!serde_json::to_string(&s0).unwrap().contains("reader"));
     let mut sp1 = sp.clone();
     reader_spec(&mut sp1, 1000, Some(2000));
@@ -470,7 +482,10 @@ fn identity_of_the_readers_on_real_tables() {
             &t,
             &d,
             whole(),
-            ReadLimits::new(import::spec::DEFAULT_RECORD_BUDGET_BYTES),
+            ReadLimits {
+                record_budget: import::spec::DEFAULT_RECORD_BUDGET_BYTES,
+                whole_line_max: import::spec::DEFAULT_STREAM_LINES_ABOVE,
+            },
         );
         scan_identity(&t, whole(), streamed_all());
         println!(
@@ -499,5 +514,273 @@ fn classify_one_real_table() {
         },
     );
     println!("BIGLINE {}", serde_json::to_string(&c).unwrap());
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Temporary directories of the import: unique per process even with the same pid (private pid namespaces)
+// ---------------------------------------------------------------------------------------------------------------
+
+/// The load spec of `table` (start key file `start` beside it), temporary index.
+fn child_spec(table: &Path, start: &Path) -> import::TableSetSpec {
+    let v = json!({"schema":"rustred.campaign.import-spec.v1","node":"toy-sunset","frame_from":"A",
+        "start":{"path": start.display().to_string(),"format":"keys_jsonl"},
+        "sources":[{"id":"A","kind":"engine_table","path":table.display().to_string()}]});
+    import::TableSetSpec::from_json(&v.to_string()).unwrap()
+}
+
+/// What a load of a table must show: rule records, file digest, and the record digests in order.
+fn load_fingerprint(set: &import::ImportedSet) -> String {
+    let shas: Vec<&str> = set.rules[0]
+        .iter()
+        .map(|r| r.record_sha256.as_str())
+        .collect();
+    let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
+    h.update(shas.join(",").as_bytes());
+    format!(
+        "records={} file={} recs={}",
+        shas.len(),
+        set.table_digests.values().next().cloned().unwrap_or_default(),
+        h.finish_hex()
+    )
+}
+
+/// CHILD of [`two_namespaced_imports_share_one_tmpdir`] (run by it, never alone): loads RUSTRED_BIGLINE_CHILD_TABLE
+/// with a temporary index under TMPDIR and prints its pid and the load's fingerprint.
+#[test]
+#[ignore]
+fn bigline_child_import() {
+    let t = PathBuf::from(std::env::var("RUSTRED_BIGLINE_CHILD_TABLE").expect("child only"));
+    let start = t.with_file_name("start.jsonl");
+    let base = t.parent().unwrap().to_path_buf();
+    let set = import::load(&child_spec(&t, &start), &base).unwrap();
+    println!(
+        "CHILD pid={} {}",
+        std::process::id(),
+        load_fingerprint(&set)
+    );
+}
+
+/// Defect found by lane repairflow2: the temporary index directory was `TMPDIR/rr-import-index-<pid>-<n>`; inside
+/// private pid namespaces every run is pid 1, so two concurrent runs with the same TMPDIR shared it (one failed; one
+/// could have read the other's index). Two processes, BOTH pid 1 of their own namespace, same TMPDIR, importing
+/// DIFFERENT tables at the same time, three rounds: both loads are correct (fingerprint of a load in this process)
+/// and nothing is left in TMPDIR. Needs `unshare` (user + pid namespaces), as the whole suite under LIGHT_PIDNS=1.
+#[test]
+fn two_namespaced_imports_share_one_tmpdir() {
+    let d = scratch("bigline-pidns");
+    let shared = d.join("tmp");
+    std::fs::create_dir_all(&shared).unwrap();
+    let mut expect = vec![];
+    let mut tables = vec![];
+    for (name, n, pad) in [("a", 3000usize, 2000usize), ("b", 2200, 3000)] {
+        let td = d.join(name);
+        std::fs::create_dir_all(&td).unwrap();
+        let rules: Vec<String> = (0..n)
+            .map(|i| {
+                json!({"type":"rule","chart":MASK,"index":i,"fixed":below(i + 1),"equations":[],
+                    "target":kt(&below(i + 1)),"rhs":[[kt(&below(i)), coef(&format!("{name}{i}"), pad)]],
+                    "exceptions":[],"dispatch":"Partition","witness_loci":[]})
+                .to_string()
+            })
+            .collect();
+        let t = write_table(&td, "t.jsonl", &rules);
+        std::fs::write(td.join("start.jsonl"), "").unwrap();
+        let set = import::load(&child_spec(&t, &td.join("start.jsonl")), &td).unwrap();
+        expect.push(load_fingerprint(&set));
+        tables.push(t);
+    }
+    assert_ne!(expect[0], expect[1]);
+    let exe = std::env::current_exe().unwrap();
+    for round in 0..3 {
+        let kids: Vec<_> = tables
+            .iter()
+            .map(|t| {
+                std::process::Command::new("unshare")
+                    .args(["-Urpf", "--mount-proc", "--"])
+                    .arg(&exe)
+                    .args([
+                        "--ignored",
+                        "--exact",
+                        "bigline_child_import",
+                        "--nocapture",
+                        "--test-threads",
+                        "1",
+                    ])
+                    .env("RUSTRED_BIGLINE_CHILD_TABLE", t)
+                    .env("TMPDIR", &shared)
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .spawn()
+                    .expect("unshare (user + pid namespaces) is needed by this test")
+            })
+            .collect();
+        for (i, k) in kids.into_iter().enumerate() {
+            let out = k.wait_with_output().unwrap();
+            let so = String::from_utf8_lossy(&out.stdout);
+            assert!(
+                out.status.success(),
+                "round {round} child {i}: {so}\n{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            // (libtest prints "test bigline_child_import ... " on the same line)
+            let line = so
+                .lines()
+                .find_map(|l| l.find("CHILD ").map(|p| &l[p..]))
+                .unwrap_or_else(|| panic!("round {round} child {i}: {so}"));
+            assert_eq!(line, format!("CHILD pid=1 {}", expect[i]), "round {round}");
+        }
+        let left: Vec<_> = std::fs::read_dir(&shared).unwrap().collect();
+        assert!(left.is_empty(), "round {round}: {left:?} left in TMPDIR");
+    }
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// The exclusive directory: distinct names for the same pid, and an index file of another build is refused.
+#[test]
+fn unique_dirs_and_index_files_bound_to_their_build() {
+    let d = scratch("bigline-unique");
+    let a = import::index::unique_dir(&d, "x").unwrap();
+    let b = import::index::unique_dir(&d, "x").unwrap();
+    assert_ne!(a.path(), b.path());
+    assert!(a.path().is_dir() && b.path().is_dir());
+    // the guard removes the directory it created, a released one stays
+    let (pa, pb) = (a.path().to_path_buf(), b.path().to_path_buf());
+    drop(a);
+    assert!(!pa.exists());
+    let kept = b.release();
+    assert_eq!(kept, pb);
+    assert!(kept.is_dir());
+    // two tables indexed in one cache; then the data files of one are swapped into the other's index
+    let ta = write_table(&d, "ta.jsonl", &[point_rule(0, &TOP, &[&below(0)])]);
+    let tb = write_table(
+        &d,
+        "tb.jsonl",
+        &[point_rule(0, &TOP, &[&below(1)]), point_rule(1, &below(1), &[&below(2)])],
+    );
+    let cache = d.join("cache");
+    let (ia, _) = open_or_build_with("A", &ta, Some(&cache), whole()).unwrap();
+    let (ib, _) = open_or_build_with("B", &tb, Some(&cache), whole()).unwrap();
+    for f in ["domains.jsonl", "bodies.jsonl"] {
+        std::fs::copy(ib.dir.join(f), ia.dir.join(f)).unwrap();
+    }
+    let e = ia
+        .scan_domains("A", &|_, _| true, &mut |_| Ok(()))
+        .unwrap_err();
+    assert!(matches!(e, import::ImportError::Digest { .. }), "{e}");
+    let e = ia.scan_bodies(&|_| true, &mut |_, _, _| Ok(())).unwrap_err();
+    assert!(matches!(e, import::ImportError::Digest { .. }), "{e}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// L18 invariant: the import removes recursively ONLY a directory it created by its exclusive mkdir. A pre-existing
+/// cache entry holding anything but index files is never removed (the load fails instead); a stale entry of index
+/// files only is replaced file by file; a whole index directory of ANOTHER table of the same node (same frame, family,
+/// order) put in place of this table's is refused and rebuilt (never loaded).
+#[test]
+fn removals_are_scoped_and_foreign_indexes_are_rebuilt() {
+    let d = scratch("bigline-scoped");
+    let ta = write_table(&d, "ta.jsonl", &[point_rule(0, &TOP, &[&below(0)])]);
+    let tb = write_table(
+        &d,
+        "tb.jsonl",
+        &[point_rule(0, &TOP, &[&below(1)]), point_rule(1, &below(1), &[&below(2)])],
+    );
+    let cache = d.join("cache");
+    let entry = import::index::index_dir_for(&cache, &ta).unwrap();
+    std::fs::create_dir_all(&entry).unwrap();
+    std::fs::write(entry.join("index.json"), "{}").unwrap();
+    std::fs::write(entry.join("precious.txt"), "not the import's").unwrap();
+    let e = open_or_build_with("A", &ta, Some(&cache), whole()).unwrap_err();
+    assert!(matches!(e, import::ImportError::Io { .. }), "{e}");
+    assert!(entry.join("precious.txt").is_file(), "a foreign file was removed");
+    // nothing of the failed build is left beside the entry
+    let left: Vec<String> = std::fs::read_dir(&cache)
+        .unwrap()
+        .map(|x| x.unwrap().file_name().to_string_lossy().to_string())
+        .collect();
+    assert_eq!(left.len(), 1, "{left:?}");
+    std::fs::remove_file(entry.join("precious.txt")).unwrap();
+    // a stale entry of index files only: replaced
+    let (ia, oa) = open_or_build_with("A", &ta, Some(&cache), whole()).unwrap();
+    assert_eq!(oa.how, "built");
+    assert_eq!(ia.meta.rule_records, 1);
+    drop(ia);
+    // the index of B (same node) copied over A's entry: refused by the table check, rebuilt, A's records loaded
+    let (ib, _) = open_or_build_with("B", &tb, Some(&cache), whole()).unwrap();
+    for f in import::index::INDEX_FILES {
+        std::fs::copy(ib.dir.join(f), entry.join(f)).unwrap();
+    }
+    let mut sp = spec(&d, &ta, &[&TOP], json!({}), &[]);
+    sp["reader"] = json!({"spot_check_records": 1000});
+    let s = import::TableSetSpec::from_json(&sp.to_string()).unwrap();
+    let set = import::load_with(
+        &s,
+        &d,
+        &import::LoadOptions {
+            index_dir: Some(cache.clone()),
+        },
+    )
+    .unwrap();
+    assert_eq!(set.rules[0].len(), 1);
+    assert_eq!(set.report.sources[0].indexes[0].how, "built");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// The spot check: a table changed IN PLACE where the sampled digest does not look, its mtime restored, keeps a
+/// persistent index that passes size + mtime + sample; re-hashing records from the table bytes refuses it and the
+/// load rebuilds the index (and loads the table as it is now).
+#[test]
+fn spot_check_refuses_an_index_the_table_no_longer_matches() {
+    let d = scratch("bigline-spot");
+    let rules: Vec<String> = (0..3000)
+        .map(|i| {
+            json!({"type":"rule","chart":MASK,"index":i,"fixed":below(i + 1),"equations":[],
+                "target":kt(&below(i + 1)),"rhs":[[kt(&below(i)), coef(&format!("x{i}"), 3000)]],
+                "exceptions":[],"dispatch":"Partition","witness_loci":[]})
+            .to_string()
+        })
+        .collect();
+    let t = write_table(&d, "t.jsonl", &rules);
+    let cache = d.join("cache");
+    let mut sp = spec(&d, &t, &[], json!({}), &[]);
+    sp["reader"] = json!({"spot_check_records": 100000});
+    let s = import::TableSetSpec::from_json(&sp.to_string()).unwrap();
+    let lo = import::LoadOptions {
+        index_dir: Some(cache.clone()),
+    };
+    let set1 = import::load_with(&s, &d, &lo).unwrap();
+    assert_eq!(set1.report.sources[0].indexes[0].how, "built");
+    // a byte outside every sampled block, inside a coefficient: n1 -> n2 (same length, still valid)
+    let mut bytes = std::fs::read(&t).unwrap();
+    let size = bytes.len() as u64;
+    let blk = 1u64 << 16;
+    let sampled = |o: u64| {
+        (0..64u64).any(|i| {
+            let s0 = i * (size - blk) / 63;
+            o >= s0 && o < s0 + blk
+        })
+    };
+    let pos = (0..bytes.len() - 2)
+        .find(|&i| &bytes[i..i + 2] == b"n1" && !sampled(i as u64) && !sampled(i as u64 + 1))
+        .expect("an unsampled position");
+    bytes[pos + 1] = b'2';
+    let mtime = std::fs::metadata(&t).unwrap().modified().unwrap();
+    std::fs::write(&t, &bytes).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&t)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+    let set2 = import::load_with(&s, &d, &lo).unwrap();
+    assert_eq!(
+        set2.report.sources[0].indexes[0].how,
+        "rebuilt_after_failed_check"
+    );
+    let changed: Vec<usize> = (0..3000)
+        .filter(|&r| set1.rules[0][r].record_sha256 != set2.rules[0][r].record_sha256)
+        .collect();
+    assert_eq!(changed.len(), 1);
     let _ = std::fs::remove_dir_all(&d);
 }

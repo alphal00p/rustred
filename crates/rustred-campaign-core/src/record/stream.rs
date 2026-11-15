@@ -527,7 +527,11 @@ impl Stream<'_, '_> {
                 let array = self.peek()? == Some(b'[');
                 // the rhs value is NOT kept: `[]` in the compact line
                 self.sinks.compact_on = false;
-                if opts.rhs_digest && array {
+                // a value whose span ends at its last byte (array, string, object) is hashed as it passes; a scalar
+                // (whose span `Scan` trims of trailing blanks) is held, bounded, and hashed over its span
+                let first = self.peek()?;
+                let scalar = !matches!(first, Some(b'[' | b'"' | b'{'));
+                if opts.rhs_digest && !scalar {
                     self.sinks.rhs_hash = Some(Sha256::new());
                 }
                 let mut keys = vec![];
@@ -536,16 +540,15 @@ impl Stream<'_, '_> {
                 let mut end = None;
                 match opts.rhs {
                     _ if !array => {
-                        // held (bounded) so that its digest covers exactly `Scan`'s span of it
                         self.sinks.field.clear();
                         self.sinks.field_over = false;
-                        self.sinks.field_on = true;
+                        self.sinks.field_on = scalar && opts.rhs_digest;
                         let len = self.value()?;
                         self.sinks.field_on = false;
-                        if self.sinks.field_over {
-                            return Err(self.too_large("the rhs value", len));
-                        }
-                        if opts.rhs_digest {
+                        if scalar && opts.rhs_digest {
+                            if self.sinks.field_over {
+                                return Err(self.too_large("the scalar rhs value", len));
+                            }
                             let mut h = Sha256::new();
                             h.update(&self.sinks.field[..len as usize]);
                             self.sinks.rhs_hash = Some(h);
