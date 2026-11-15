@@ -5,7 +5,8 @@
 //! a mismatch, exit 2 = an unreadable file). They also detect three plausible verifier regressions (mutation check of
 //! the audit, notes WS/notes/implementer.audit-r2-zeros.md): the den-text comparison dropped, the independent
 //! re-check's exponent applied once, a missing proved line accepted.
-//! `f3v_*` is `#[ignore = "AUDIT-R2-ZEROS ..."]`: the verifier keeps only the LAST line per (record, term, locus), so a
+//! lane zerosfix3: `f3v_*` passes since that lane (the verifier refuses every duplicate (record, term, locus)); it was
+//! `#[ignore = "AUDIT-R2-ZEROS ..."]`: the verifier kept only the LAST line per (record, term, locus), so a
 //! file carrying a forged proved line followed by the honest line VERIFIES (the core loader then accepts the forged line:
 //! tests/audit_r2_zeros_forgery.rs f3 in crate rustred-campaign).
 //! Needs the Symbolica licence (`source WS/ops/env.sh`); SKIPS without it. Toy table only (arity 3, mask 110).
@@ -264,7 +265,6 @@ fn ok_every_listed_forgery_is_refused_by_the_verifier() {
 /// F3v: a forged proved line for t2 (truly non-zero on n2 = 0) placed BEFORE the honest not-proved line of the same
 /// locus: the verifier's claim map keeps the last line, re-derives `not_proved`, and VERIFIES the file.
 #[test]
-#[ignore = "AUDIT-R2-ZEROS F3: verify-zero-proofs keeps the last line per locus: a forged earlier line verifies"]
 fn f3v_verifier_refuses_two_lines_for_one_locus() {
     if !licensed() {
         return;
