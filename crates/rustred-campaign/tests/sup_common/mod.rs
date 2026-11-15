@@ -136,7 +136,10 @@ pub fn start(spec: &Path, cdir: &Path, extra: &[&str], env: &[(&str, &str)]) -> 
         .stdin(Stdio::null())
         .stdout(log.try_clone().unwrap())
         .stderr(log)
-        .env_remove("RR_CAMPAIGN_FAILPOINT");
+        .env_remove("RR_CAMPAIGN_FAILPOINT")
+        // procfix7: no tmpfs fallback of the signal intent log in tests unless a test asks for one (a test supervisor
+        // that crashes and is never restarted would leave its fallback file in the real runtime directory)
+        .env("XDG_RUNTIME_DIR", cdir.with_extension("no-xdg"));
     for (k, v) in env {
         c.env(k, v);
     }

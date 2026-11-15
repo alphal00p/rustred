@@ -642,3 +642,136 @@ fn m2a_garbage_in_the_barrier_pipe_is_a_typed_retry() {
     assert_eq!(verify(&d), 0);
     assert_no_marked(&t.campaign);
 }
+
+/// Mount a private tmpfs at `dir` (the test's own mount namespace; never visible outside it).
+fn mount_tmpfs(dir: &Path, opts: &str) {
+    std::fs::create_dir_all(dir).unwrap();
+    let c = std::ffi::CString::new(dir.to_string_lossy().as_bytes()).unwrap();
+    let o = std::ffi::CString::new(opts).unwrap();
+    // SAFETY: NUL-terminated strings; tmpfs may be mounted by the root of a user namespace.
+    let r = unsafe {
+        libc::mount(
+            c"tmpfs".as_ptr(),
+            c.as_ptr(),
+            c"tmpfs".as_ptr(),
+            0,
+            o.as_ptr().cast(),
+        )
+    };
+    assert_eq!(r, 0, "tmpfs mount: {}", std::io::Error::last_os_error());
+}
+
+fn umount(dir: &Path) {
+    let c = std::ffi::CString::new(dir.to_string_lossy().as_bytes()).unwrap();
+    // SAFETY: unmount our own test mount.
+    unsafe { libc::umount2(c.as_ptr(), libc::MNT_DETACH) };
+}
+
+/// gate6 m3-a: on ZFS nothing in the campaign directory reserves room for the signal intent log; the tmpfs FALLBACK
+/// does. Here the campaign directory's log is full (test build: `intent_primary_enospc:1`) and the supervisor crashes
+/// right after its first send (`signal_after_send:1`): the intent is in the tmpfs fallback (never in the campaign
+/// directory's log), the signal WAS sent, and the restart records it from the fallback (`signal_intents_reconciled`)
+/// and then removes the earlier session's fallback file. XDG_RUNTIME_DIR points at a private tmpfs of the test.
+#[test]
+fn m3a_full_intent_log_uses_the_tmpfs_fallback_and_the_restart_reads_it() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    let t = Tmp::new("pf7-m3a");
+    let xdg = t.path.join("xdg");
+    mount_tmpfs(&xdg, "size=4m,mode=0700");
+    let v = spec(
+        &t,
+        serde_json::json!({"items": 1, "nodes": 1, "rungs": 1, "deps": 0.0, "case_ms": [600000, 600000],
+            "seed": 9, "p_mem": 0.0, "p_crash": 0.0, "p_norule": 0.0}),
+        serde_json::json!({"grace_seconds": 2}),
+    );
+    let sp_ = write_spec(&t, "spec.json", &v);
+    let d = t.cdir("c");
+    let x = xdg.to_str().unwrap();
+    let mut c = start(
+        &sp_,
+        &d,
+        &[],
+        &[
+            ("XDG_RUNTIME_DIR", x),
+            (
+                "RR_CAMPAIGN_FAILPOINT",
+                "intent_primary_enospc:1,signal_after_send:1",
+            ),
+        ],
+    );
+    wait_until("a started job", Duration::from_secs(120), || {
+        started_count(&d) >= 1
+    });
+    std::thread::sleep(Duration::from_secs(1));
+    signal(&c, libc::SIGINT);
+    let code = wait(&mut c, Duration::from_secs(120));
+    assert_eq!(
+        code,
+        134,
+        "the abort right after the first send: {}",
+        log_tail(&d)
+    );
+    let primary =
+        std::fs::read_to_string(d.join("log").join("signal-intents.jsonl")).unwrap_or_default();
+    assert!(!primary.contains("\"kind\":\"intent\""), "{primary}");
+    let fb: Vec<PathBuf> = {
+        let mut v = Vec::new();
+        let mut stack = vec![xdg.clone()];
+        while let Some(p) = stack.pop() {
+            for e in std::fs::read_dir(&p).unwrap().flatten() {
+                if e.file_type().unwrap().is_dir() {
+                    stack.push(e.path());
+                } else if e.path().extension().is_some_and(|x| x == "jsonl") {
+                    v.push(e.path());
+                }
+            }
+        }
+        v
+    };
+    let intents: usize = fb
+        .iter()
+        .map(|p| {
+            std::fs::read_to_string(p)
+                .unwrap_or_default()
+                .matches("\"kind\":\"intent\"")
+                .count()
+        })
+        .sum();
+    assert!(intents >= 1, "the intent is in the tmpfs fallback: {fb:?}");
+    // the restart (no failpoint) records the dead session's signal from the fallback
+    let mut c2 = start(&sp_, &d, &[], &[("XDG_RUNTIME_DIR", x)]);
+    wait_until("the reconciled intent", Duration::from_secs(120), || {
+        d.join("ledger").join("MANIFEST.json").exists()
+            && !notes(&d, "signal_intents_reconciled").is_empty()
+    });
+    let o = Command::new(SUP)
+        .args(["control", d.to_str().unwrap(), "stop"])
+        .output()
+        .unwrap();
+    assert!(o.status.success());
+    assert_eq!(
+        wait(&mut c2, Duration::from_secs(120)),
+        140,
+        "{}",
+        log_tail(&d)
+    );
+    let n = notes(&d, "signal_intents_reconciled");
+    assert!(
+        n.iter()
+            .any(|t| !t.contains("\"delivered_unrecorded\":0,\"possibly_sent\":0")),
+        "{n:?}"
+    );
+    for p in &fb {
+        assert!(
+            !p.exists(),
+            "the earlier session's fallback is removed after the merge: {}",
+            p.display()
+        );
+    }
+    assert_eq!(verify(&d), 0);
+    assert_no_marked(&t.campaign);
+    umount(&xdg);
+}

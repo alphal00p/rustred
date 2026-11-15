@@ -621,6 +621,8 @@ pub fn run_with(opts: RunOptions, on_started: &mut dyn FnMut(&Started)) -> RunEx
             r
         }
         Err(e) => {
+            // procfix7 (gate6 m3-a): a start that ends here leaves no tmpfs fallback intent log behind
+            crate::launch::retire_own_intent_fallback();
             // gate-B M3 at START: the supervisor's own resources (open files, file table, memory, processes) are not a
             // refusal of the campaign: exit 71 like a launch-time resource stop (nothing was launched).
             let e = match e {
@@ -701,6 +703,17 @@ impl Supervisor {
                 RunExit::Refused(format!("signal intent log: {e}"))
             }
         })?;
+        // procfix7 (gate6 m3-a): the intent log's tmpfs fallback (ZFS cannot reserve space for the log itself).
+        match crate::launch::install_intent_fallback(&cdir) {
+            Ok(p) => log.line(
+                "INFO",
+                &format!("signal intent log: tmpfs fallback {} (used if the campaign directory's log is full)", p.display()),
+            ),
+            Err(e) => log.line(
+                "WARN",
+                &format!("signal intent log: no tmpfs fallback ({e}): on a full disk signals whose intent cannot be written are NOT sent (listed at exit)"),
+            ),
+        }
         let fp = Failpoints::from_env();
         if let Some(a) = fp.active() {
             log.line(
@@ -2264,7 +2277,7 @@ impl Supervisor {
     /// judged by the recovery sweep's identity checklist. Intents completed `gone` / `failed` were not delivered.
     fn reconcile_intents(&mut self) {
         let path = self.cdir.join("log").join(crate::launch::INTENT_LOG_FILE);
-        let (intents, bad) = match crate::launch::read_intent_log(&path) {
+        let (mut intents, mut bad) = match crate::launch::read_intent_log(&path) {
             Ok(x) => x,
             Err(e) => {
                 self.log.line(
@@ -2278,7 +2291,31 @@ impl Supervisor {
                 return;
             }
         };
+        // procfix7 (gate6 m3-a): the tmpfs fallback logs of earlier sessions of this boot (intents written while the
+        // campaign directory's log was full); merged by intent id (a completion line wins).
+        for f in crate::launch::intent_fallback_logs(&self.cdir) {
+            match crate::launch::read_intent_log(&f) {
+                Ok((more, b)) => {
+                    bad += b;
+                    for li in more {
+                        match intents.iter_mut().find(|x| x.line.id == li.line.id) {
+                            Some(x) if x.result.is_none() => x.result = li.result,
+                            Some(_) => {}
+                            None => intents.push(li),
+                        }
+                    }
+                }
+                Err(e) => self.log.line(
+                    "ERROR",
+                    &format!(
+                        "signal intent fallback log {} unreadable ({e})",
+                        f.display()
+                    ),
+                ),
+            }
+        }
         if intents.is_empty() && bad == 0 {
+            crate::launch::remove_earlier_intent_fallbacks(&self.cdir);
             return;
         }
         let mut recorded: BTreeSet<String> = BTreeSet::new();
@@ -2357,6 +2394,7 @@ impl Supervisor {
             });
         }
         if delivered + possibly == 0 && bad == 0 {
+            crate::launch::remove_earlier_intent_fallbacks(&self.cdir);
             return;
         }
         ev.push(Event::Note {
@@ -2371,7 +2409,10 @@ impl Supervisor {
                 if bad > 0 { format!(" ({bad} unparsable line(s): a torn tail)") } else { String::new() }
             ),
         );
-        self.commit(ev);
+        // procfix7 (gate6 m3-a): the earlier sessions' tmpfs fallback logs only once their intents are in the ledger
+        if self.commit(ev) {
+            crate::launch::remove_earlier_intent_fallbacks(&self.cdir);
+        }
     }
 
     /// gate3 M2 (lane int5): every signal the process layer delivered since the last call (guard and cgroup kills, any
@@ -2518,10 +2559,16 @@ impl Supervisor {
             );
         }
         if crate::launch::intent_disk_full() && self.ledger_dead.is_none() {
-            self.log.line(
-                "ERROR",
-                "the signal intent log cannot be written (disk full): no signal can be sent; stopping with exit 75 (DISK FULL); free space, then run the same command (its recovery sweep stops what is left)",
-            );
+            match crate::launch::intent_on_fallback() {
+                Some(p) => self.log.line(
+                    "ERROR",
+                    &format!("the signal intent log of the campaign directory cannot be written (disk full): intents go to the tmpfs fallback {} and signals are still sent; stopping with exit 75 (DISK FULL); free space, then run the same command", p.display()),
+                ),
+                None => self.log.line(
+                    "ERROR",
+                    "the signal intent log cannot be written (disk full): no signal can be sent; stopping with exit 75 (DISK FULL); free space, then run the same command (its recovery sweep stops what is left)",
+                ),
+            }
             if !fresh.is_empty() {
                 let pids: Vec<u32> = fresh.iter().map(|n| n.pid).collect();
                 self.commit(vec![Event::Note {
@@ -5102,6 +5149,8 @@ impl Supervisor {
     }
 
     fn finish_run(&mut self, r: &RunExit) {
+        // procfix7 (gate6 m3-a): an unused tmpfs fallback intent log of this session is removed (a used one stays).
+        crate::launch::retire_own_intent_fallback();
         for ev in self.launcher.shutdown(Duration::from_secs(10)) {
             if let crate::launch::RetireEvent::Cleared { label, .. } = ev {
                 self.log

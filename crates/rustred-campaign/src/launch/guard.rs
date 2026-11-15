@@ -298,6 +298,10 @@ struct IntentLog {
     next: u64,
     /// procfix6 (gate5 m3): an intent write of this log failed for lack of space.
     disk_full: bool,
+    /// procfix7 (gate6 m3-a): the tmpfs FALLBACK log of this session (pre-allocated pages), used once the campaign
+    /// directory's log is full; `on_fallback` = from then on every intent and completion line goes there.
+    fallback: Option<(std::fs::File, PathBuf)>,
+    on_fallback: bool,
 }
 
 static INTENTS: std::sync::Mutex<Option<IntentLog>> = std::sync::Mutex::new(None);
@@ -324,6 +328,8 @@ fn with_intent_log<R>(log_dir: &Path, session: &str, f: impl FnOnce() -> R) -> R
             session: session.into(),
             next: 0,
             disk_full: false,
+            fallback: None,
+            on_fallback: false,
         })
     });
     let r = f();
@@ -433,8 +439,158 @@ pub fn install_intent_log(log_dir: &Path, session: &str) -> io::Result<()> {
         session: session.to_string(),
         next: 0,
         disk_full: false,
+        fallback: None,
+        on_fallback: false,
     });
     Ok(())
+}
+
+// procfix7 (gate6 m3-a): on ZFS (where the host run's campaign directory lives) NOTHING written inside the campaign
+// directory reserves space: fallocate returns 0 and allocates nothing, an overwrite in place is copy-on-write (it needs
+// new blocks), and a deleted reserve file frees its blocks only after the transaction group syncs (and not at all while
+// a snapshot holds them). A dataset reservation would, but needs the administrator. What IS sound: a second intent log
+// on a TMPFS (memory-backed; `fallocate` there really allocates the pages, so appends within them cannot fail for lack
+// of space), used once the campaign directory's log is full. tmpfs survives a supervisor crash (the only case the
+// intents serve: the restart records what the dead session sent), not a reboot (after which no process of the earlier
+// boot exists; only the ledger's record of the last signals before a crash + reboot could then be incomplete).
+
+/// Sub-directory (of the tmpfs base) of the fallback logs of one user.
+const FALLBACK_DIR_PREFIX: &str = "rr-campaign-intents-";
+/// Bytes pre-allocated in a fallback log (tmpfs: real pages).
+const FALLBACK_PREALLOC_BYTES: i64 = 256 << 10;
+const TMPFS_MAGIC: i64 = 0x0102_1994;
+
+fn on_tmpfs(p: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(c) = std::ffi::CString::new(p.as_os_str().as_bytes()) else {
+        return false;
+    };
+    // SAFETY: statfs fills a plain struct through a valid pointer; the path is NUL-terminated.
+    let mut v: libc::statfs = unsafe { std::mem::zeroed() };
+    (unsafe { libc::statfs(c.as_ptr(), &mut v) } == 0) && v.f_type as i64 == TMPFS_MAGIC
+}
+
+/// procfix7 (gate6 m3-a): the tmpfs directory of the fallback intent logs of the campaign directory `cdir` (keyed by
+/// its device and inode: a copied directory has its own), under `$XDG_RUNTIME_DIR` when it is set (only there), else
+/// the first tmpfs of `/run/user/<uid>`, `/dev/shm`. None: no tmpfs available (then there is no fallback).
+pub fn intent_fallback_dir(cdir: &Path) -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let md = std::fs::metadata(cdir).ok()?;
+    // SAFETY: geteuid has no arguments and cannot fail.
+    let uid = unsafe { libc::geteuid() };
+    let bases: Vec<PathBuf> = match std::env::var_os("XDG_RUNTIME_DIR") {
+        Some(x) if !x.is_empty() => vec![PathBuf::from(x)],
+        _ => vec![
+            PathBuf::from(format!("/run/user/{uid}")),
+            PathBuf::from("/dev/shm"),
+        ],
+    };
+    bases
+        .into_iter()
+        .find(|b| b.is_dir() && on_tmpfs(b))
+        .map(|b| {
+            b.join(format!("{FALLBACK_DIR_PREFIX}{uid}"))
+                .join(format!("{}-{}", md.dev(), md.ino()))
+        })
+}
+
+/// procfix7 (gate6 m3-a): give the INSTALLED intent log its tmpfs fallback for this session (`<dir>/<session>.jsonl`,
+/// directories 0700, 1 MiB pre-allocated). Returns the path; Err: no fallback (the log works as before).
+pub fn install_intent_fallback(cdir: &Path) -> io::Result<PathBuf> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::DirBuilderExt;
+    let dir = intent_fallback_dir(cdir).ok_or_else(|| {
+        io::Error::other("no tmpfs ($XDG_RUNTIME_DIR, /run/user/<uid>, /dev/shm)")
+    })?;
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&dir)?;
+    let mut g = INTENTS.lock().unwrap_or_else(|p| p.into_inner());
+    let log = g
+        .as_mut()
+        .ok_or_else(|| io::Error::other("no intent log installed"))?;
+    let path = dir.join(format!("{}.jsonl", log.session));
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)?;
+    // SAFETY: fallocate on our own descriptor with integer arguments (tmpfs: allocates the pages).
+    if unsafe {
+        libc::fallocate(
+            file.as_raw_fd(),
+            libc::FALLOC_FL_KEEP_SIZE,
+            0,
+            FALLBACK_PREALLOC_BYTES,
+        )
+    } != 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    log.fallback = Some((file, path.clone()));
+    Ok(path)
+}
+
+/// procfix7 (gate6 m3-a): every fallback intent log of the campaign directory `cdir` (earlier sessions of this boot).
+pub fn intent_fallback_logs(cdir: &Path) -> Vec<PathBuf> {
+    let Some(dir) = intent_fallback_dir(cdir) else {
+        return Vec::new();
+    };
+    let mut v: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .map(|rd| {
+            rd.flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|x| x == "jsonl"))
+                .collect()
+        })
+        .unwrap_or_default();
+    v.sort();
+    v
+}
+
+/// procfix7 (gate6 m3-a): remove the fallback logs of EARLIER sessions of `cdir` (call it only after their intents are
+/// in the ledger); this session's own file is kept. Returns how many were removed.
+pub fn remove_earlier_intent_fallbacks(cdir: &Path) -> usize {
+    let own = INTENTS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .as_ref()
+        .and_then(|l| l.fallback.as_ref().map(|f| f.1.clone()));
+    intent_fallback_logs(cdir)
+        .into_iter()
+        .filter(|p| Some(p) != own.as_ref())
+        .filter(|p| std::fs::remove_file(p).is_ok())
+        .count()
+}
+
+/// procfix7 (gate6 m3-a): at the end of a session, remove its own fallback log if it was never used (a used one stays
+/// for the restart), and the then empty directories.
+pub fn retire_own_intent_fallback() {
+    let mut g = INTENTS.lock().unwrap_or_else(|p| p.into_inner());
+    let Some(log) = g.as_mut() else { return };
+    if log.on_fallback {
+        return;
+    }
+    if let Some((_, p)) = log.fallback.take() {
+        let _ = std::fs::remove_file(&p);
+        if let Some(d) = p.parent() {
+            let _ = std::fs::remove_dir(d);
+            if let Some(u) = d.parent() {
+                let _ = std::fs::remove_dir(u);
+            }
+        }
+    }
+}
+
+/// procfix7 (gate6 m3-a): the fallback log the installed intent log writes to since the campaign directory's log filled
+/// up (None: still the campaign directory's log).
+pub fn intent_on_fallback() -> Option<PathBuf> {
+    INTENTS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .as_ref()
+        .filter(|l| l.on_fallback)
+        .and_then(|l| l.fallback.as_ref().map(|f| f.1.clone()))
 }
 
 /// Remove the installation (tests; a supervisor keeps it until it exits).
@@ -609,12 +765,25 @@ fn write_intents_to(
         ids.push(Some(id));
     }
     let attempt = |log: &mut IntentLog, lead: bool| -> io::Result<()> {
+        #[cfg(debug_assertions)]
+        if test_reached("intent_primary_enospc") {
+            return Err(io::Error::from_raw_os_error(libc::ENOSPC));
+        }
         if lead {
             // A torn line of the failed attempt ends here (the reader skips it).
             log.file.write_all(b"\n")?;
         }
         log.file.write_all(&buf)?;
         log.file.sync_data()
+    };
+    // procfix7 (gate6 m3-a): the tmpfs fallback (a leading newline ends a torn line of an earlier failed attempt).
+    let to_fallback = |log: &mut IntentLog| -> Option<io::Result<()>> {
+        let (f, _) = log.fallback.as_mut()?;
+        Some(
+            f.write_all(b"\n")
+                .and_then(|()| f.write_all(&buf))
+                .and_then(|()| f.sync_data()),
+        )
     };
     #[cfg(debug_assertions)]
     if test_reached("intent_enospc") {
@@ -623,11 +792,23 @@ fn write_intents_to(
             "signal intent not durable: TEST BUILD intent_enospc {DISK_FULL_WORD}"
         ));
     }
+    if log.on_fallback {
+        return match to_fallback(log) {
+            Some(Ok(())) => Ok(ids),
+            Some(Err(e)) => Err(format!(
+                "signal intent not durable: {e} (tmpfs fallback log) {}",
+                if is_disk_full(&e) { DISK_FULL_WORD } else { "" }
+            )),
+            None => Err(format!(
+                "signal intent not durable: no fallback log {DISK_FULL_WORD}"
+            )),
+        };
+    }
     let word = |e: &io::Error| if is_disk_full(e) { DISK_FULL_WORD } else { "" };
     let r = match attempt(log, false) {
-        Ok(()) => Ok(ids),
+        Ok(()) => Ok(ids.clone()),
         Err(e) if is_disk_full(&e) && std::fs::remove_file(&log.reserve).is_ok() => {
-            attempt(log, true).map(|()| ids).map_err(|e2| {
+            attempt(log, true).map(|()| ids.clone()).map_err(|e2| {
                 format!(
                     "signal intent not durable: {e2} (after freeing the reserve; first: {e}) {}",
                     word(&e2)
@@ -636,8 +817,23 @@ fn write_intents_to(
         }
         Err(e) => Err(format!("signal intent not durable: {e} {}", word(&e))),
     };
+    // procfix7 (gate6 m3-a): the campaign directory's log is full: the batch goes to the tmpfs fallback (durable against
+    // a supervisor crash), the run still ends with exit 75 (disk full), and the signals ARE sent.
+    let r = match r {
+        Err(e) if e.contains(DISK_FULL_WORD) => match to_fallback(log) {
+            Some(Ok(())) => {
+                log.on_fallback = true;
+                log.disk_full = true;
+                Ok(ids)
+            }
+            Some(Err(e2)) => Err(format!("{e}; tmpfs fallback log: {e2}")),
+            None => Err(e),
+        },
+        other => other,
+    };
     match &r {
-        Ok(_) => prealloc_tail(&log.file),
+        Ok(_) if !log.on_fallback => prealloc_tail(&log.file),
+        Ok(_) => {}
         Err(e) if e.contains(DISK_FULL_WORD) => log.disk_full = true,
         Err(_) => {}
     }
@@ -679,7 +875,14 @@ fn write_done_to(log: &mut IntentLog, done: &[(Option<String>, String)]) {
         }
     }
     if !buf.is_empty() {
-        let _ = log.file.write_all(&buf);
+        match (&mut log.fallback, log.on_fallback) {
+            (Some((f, _)), true) => {
+                let _ = f.write_all(&buf);
+            }
+            _ => {
+                let _ = log.file.write_all(&buf);
+            }
+        }
     }
 }
 
@@ -2210,6 +2413,68 @@ mod tests {
         ));
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    /// procfix7 (gate6 m3-a): the campaign directory's intent log is FULL (here /dev/full: every write ENOSPC). Without
+    /// a fallback the intent is not durable (nothing may be sent, disk full); with the tmpfs fallback the batch is durable
+    /// there, and every later intent and completion line goes there too (the restart merges it by intent id).
+    #[test]
+    fn m3a_a_full_log_switches_to_the_fallback() {
+        let full = tmpdir("m3a-full");
+        std::os::unix::fs::symlink("/dev/full", full.join(INTENT_LOG_FILE)).unwrap();
+        let fb_dir = tmpdir("m3a-fb");
+        let fb_path = fb_dir.join("s.jsonl");
+        let mk = |fallback: bool| IntentLog {
+            file: std::fs::OpenOptions::new()
+                .append(true)
+                .open(full.join(INTENT_LOG_FILE))
+                .unwrap(),
+            reserve: full.join(INTENT_RESERVE_FILE),
+            session: "s".into(),
+            next: 0,
+            disk_full: false,
+            fallback: fallback.then(|| {
+                (
+                    std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&fb_path)
+                        .unwrap(),
+                    fb_path.clone(),
+                )
+            }),
+            on_fallback: false,
+        };
+        let it = Intent {
+            pid: 4242,
+            start_ticks: Some(7),
+            signal: libc::SIGKILL,
+            target: "process",
+            marker: None,
+            proof: "unit",
+            detail: None,
+        };
+        let mut l = mk(false);
+        let e = write_intents_to(Some(&mut l), std::slice::from_ref(&it), "by".into(), None)
+            .unwrap_err();
+        assert!(
+            e.contains(DISK_FULL_WORD) && l.disk_full && !l.on_fallback,
+            "{e}"
+        );
+        let mut l = mk(true);
+        let ids =
+            write_intents_to(Some(&mut l), std::slice::from_ref(&it), "by".into(), None).unwrap();
+        assert!(l.on_fallback && l.disk_full);
+        write_done_to(&mut l, &[(ids[0].clone(), "delivered".into())]);
+        let ids2 =
+            write_intents_to(Some(&mut l), std::slice::from_ref(&it), "by".into(), None).unwrap();
+        let (v, bad) = read_intent_log(&fb_path).unwrap();
+        assert_eq!(bad, 0);
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0].result.as_deref(), Some("delivered"));
+        assert_eq!(Some(v[1].line.id.clone()), ids2[0]);
+        let _ = std::fs::remove_dir_all(&full);
+        let _ = std::fs::remove_dir_all(&fb_dir);
     }
 
     /// procfix5 (gate4 M1): no durable intent, no signal; with one, the intent precedes the send, the completion
