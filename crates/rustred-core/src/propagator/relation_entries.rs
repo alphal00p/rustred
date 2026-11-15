@@ -34,6 +34,10 @@ pub const RELATION_CACHE_SCHEMA: &str = "rustred.relation-cache.v1";
 pub const KEY_FRAME: &str = "table";
 /// The determinism-id major line an entry must have.
 pub const DETERMINISM_MAJOR: &str = "rustred.recipe-solve.v2/elim=rustred.recipe-elim.v1/";
+/// The determinism line of an IMPORTED relation that is not a recipe solve
+/// (a symmetry image or a symmetry relation at the key, exact, from a
+/// statement): `rustred.relation-import.v1/kind=<kind>/statement=<id>`.
+pub const IMPORT_MAJOR: &str = "rustred.relation-import.v1/";
 /// Optional cap of the writable cache (bytes of its node directories).
 pub const MAX_BYTES_ENV: &str = "RUSTRED_P_RELATION_CACHE_MAX_BYTES";
 /// `0` / `off` / `no`: entries of evidence level `none` are not used.
@@ -304,7 +308,7 @@ pub fn check_entry_with(
         return Err(EntryRefusal::Foreign);
     }
     let determinism = entry["bound_to"]["determinism_id"].as_str().unwrap_or("");
-    if !determinism.starts_with(DETERMINISM_MAJOR) {
+    if !determinism.starts_with(DETERMINISM_MAJOR) && !determinism.starts_with(IMPORT_MAJOR) {
         return Err(EntryRefusal::Foreign);
     }
     if entry["key_frame"] != KEY_FRAME {
