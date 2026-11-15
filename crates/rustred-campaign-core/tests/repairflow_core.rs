@@ -190,6 +190,7 @@ fn cand(sha: &str, bytes: u64, served: Vec<Vec<i32>>) -> CandidateAnswer {
         line: format!("{{\"type\":\"rule\",\"x\":\"{sha}\"}}"),
         measures: m(bytes, 10, 100, 10),
         served,
+        boundary: BTreeMap::new(),
     }
 }
 
@@ -310,8 +311,17 @@ fn face_recipes_domain_and_seeds() {
         node: "N",
         node_order: "id",
         policy_digest: "p",
+        mixed_shells: RepairPolicy::default().recipes.mixed_shells,
     };
     let f = Face::new(vec![0, 2], vec![3]);
+    // the mixed-shell face recipe: explicit offsets (one centre per seed), shell S0, no floor, the proper face domain
+    let m = face_recipe(&f, "mixed_shell", &lines(), &[2, 1, 0], &[3, 4], &ctx).unwrap();
+    assert!(m.seeds.centres.len() > 3 && m.seeds.min_offset.is_empty());
+    assert!(
+        m.seeds.centres.contains(&vec![0, 0, 0, 0, 0])
+            && m.seeds.centres.contains(&vec![-1, 0, 0, 0, 0])
+    );
+    assert!(m.in_domain(&[2, 1, 3, -1, 0]) && !m.in_domain(&[1, 1, 3, -1, 0]));
     let r = face_recipe(&f, "d2_clast_fon_mM1C", &lines(), &[2, 1, 0], &[3, 4], &ctx).unwrap();
     assert_eq!(r.seeds.centres, vec![vec![-1, 0, 0, 0, 0]]);
     assert_eq!(
@@ -828,4 +838,59 @@ fn write_face_recipe_records() {
     )
     .unwrap();
     println!("{} records", recs.len());
+}
+
+#[test]
+fn face_recipe_records_round_trip() {
+    use rustred_campaign_core::repairflow::face_format::{
+        Binding, face_recipe_records, read_face_record,
+    };
+    let fa = face(&[0], &[], vec![vec![2, 1, 1, 0, 0], vec![3, 1, 1, 0, 0]]);
+    let fb = face(&[1], &[], vec![vec![1, 2, 1, 0, 0], vec![1, 3, 1, 0, 0]]);
+    let mut answers = BTreeMap::new();
+    answers.insert(
+        fa.label.clone(),
+        FaceAnswer::Candidates {
+            job: "j".into(),
+            candidates: vec![cand("a", 10, fa.open_keys.clone())],
+        },
+    );
+    let p = RepairPolicy::default();
+    let d = decide(
+        "N",
+        &[fa.clone(), fb.clone()],
+        &[ShadowClass::Skipped, ShadowClass::Skipped],
+        &answers,
+        &[],
+        &p,
+    );
+    let b = Binding {
+        node_identity: Some("id".into()),
+        policy_digest: d.policy_digest.clone(),
+        ..Default::default()
+    };
+    let recs = face_recipe_records(&d, &b);
+    assert_eq!(recs.len(), 2);
+    for (r, f) in recs.iter().zip(&d.faces) {
+        let back = read_face_record(&r.to_string()).unwrap();
+        assert_eq!(back.face_id, f.face);
+        assert_eq!(back.dotted, f.sd);
+        assert_eq!(back.numerators, f.sn);
+        assert_eq!(back.bound_to["node_identity"], "id");
+        assert_eq!(back.raw, *r, "the whole record survives");
+    }
+    assert_eq!(
+        read_face_record(&recs[0].to_string())
+            .unwrap()
+            .route_decision
+            .as_deref(),
+        Some("symbolic_rule")
+    );
+    // a helper-style record without our additive fields reads with nulls
+    let h = read_face_record(r#"{"schema":"face_recipe.v1","id":"F1","signature":{"dotted":[9],"numerators":[11,13,14,15]}}"#).unwrap();
+    assert_eq!((h.face_id.as_str(), h.route_decision), ("F1", None));
+    assert!(
+        read_face_record(r#"{"schema":"other.v1","signature":{"dotted":[],"numerators":[]}}"#)
+            .is_err()
+    );
 }

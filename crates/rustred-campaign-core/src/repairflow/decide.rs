@@ -88,6 +88,9 @@ pub struct CandidateAnswer {
     pub measures: Measures,
     /// The face's open keys where the candidate's domain applies.
     pub served: Vec<Key>,
+    /// The face's other open keys by the domain's verdict (`exception[k]`, not in case, ...): the BOUNDARY sub-faces.
+    #[serde(default)]
+    pub boundary: BTreeMap<String, u64>,
 }
 
 /// What the step-S job of a face returned.

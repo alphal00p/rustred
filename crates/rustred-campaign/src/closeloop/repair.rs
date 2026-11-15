@@ -542,6 +542,7 @@ impl<S: WorkSource> RepairFlowSource<S> {
             node: &node,
             node_order: &ctx_order,
             policy_digest: &pd,
+            mixed_shells: self.nodes[i].policy.recipes.mixed_shells.clone(),
         };
         let mut files: BTreeMap<(String, String), String> = BTreeMap::new();
         let mut recipe_errors: Vec<Value> = vec![];
@@ -1538,6 +1539,39 @@ fn p1_pass(
                         },
                     }
                 }
+                // HAND-DOWNS: right-hand-side keys of the kept relations that are themselves open, by face (the faces
+                // are coupled: a face is served when the closing loop's fixed point serves those keys; no cycle: every
+                // kept relation strictly descends)
+                let open_set: BTreeSet<&Vec<i32>> = uncovered.iter().collect();
+                let mut hands: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
+                for l in &lines_out {
+                    let v: Value = serde_json::from_str(l).unwrap_or(Value::Null);
+                    let k: Vec<i32> =
+                        serde_json::from_value(v["fixed"].clone()).unwrap_or_default();
+                    let from = Face::of_key(&k, set.frame.mask())
+                        .map(|f| f.label())
+                        .unwrap_or_default();
+                    for t in v["rhs"].as_array().into_iter().flatten() {
+                        let txt = t[0].as_str().unwrap_or("");
+                        let q: Vec<i32> = txt
+                            .trim_start_matches("I(")
+                            .trim_end_matches(')')
+                            .split(',')
+                            .filter_map(|x| x.trim().parse().ok())
+                            .collect();
+                        if open_set.contains(&q) && !served.contains(&q) {
+                            let to = Face::of_key(&q, set.frame.mask())
+                                .map(|f| f.label())
+                                .unwrap_or_default();
+                            *hands
+                                .entry(from.clone())
+                                .or_default()
+                                .entry(to)
+                                .or_default() += 1;
+                        }
+                    }
+                }
+                let r0b_hands = json!(hands);
                 for f in &mut faces {
                     f.open_keys.retain(|k| !served.contains(k));
                     if f.exception.is_none() {
@@ -1562,7 +1596,8 @@ fn p1_pass(
                 r0b = json!({"enabled": true, "group": {"elements": grep.elements, "digest": grep.digest},
                     "tried": tried, "served": served.len(), "no_relation": none, "not_lower": not_lower,
                     "unknown": unknown, "regions_by_signature_and_element": regions,
-                    "acyclic": "by construction: every kept relation strictly descends under the node comparator (re-checked per key)"});
+                    "acyclic": "by construction: every kept relation strictly descends under the node comparator (re-checked per key)",
+                    "hands_down_to": r0b_hands});
             }
         }
     }
@@ -2035,11 +2070,29 @@ fn candidates_of(
                     Ok(s) => s,
                     Err(e) => return Ok(Err(("domain".into(), e))),
                 };
+                // INTERIOR / BOUNDARY: the face keys outside the candidate's domain, by the domain's verdict (a boundary
+                // sub-face; its keys fall to the face's recipes, or to a later candidate)
+                let mut boundary: BTreeMap<String, u64> = BTreeMap::new();
+                if let Ok(rt) =
+                    rustred_campaign_core::accept::rule::RuleText::parse(line.as_bytes(), &p1.frame)
+                    && let Some(dm) = rt.domain
+                {
+                    for k in face.open_keys.iter().filter(|k| !served.contains(*k)) {
+                        let why = match dm.applies(k) {
+                            rustred_campaign_core::domain::Verdict::OnException { branch } => {
+                                format!("exception[{branch}]")
+                            }
+                            other => format!("{other:?}").chars().take(40).collect(),
+                        };
+                        *boundary.entry(why).or_default() += 1;
+                    }
+                }
                 out.push(CandidateAnswer {
                     record_sha256: sha256_hex(line.as_bytes()),
                     line: line.to_string(),
                     measures: m,
                     served,
+                    boundary,
                 });
             }
             _ => {}

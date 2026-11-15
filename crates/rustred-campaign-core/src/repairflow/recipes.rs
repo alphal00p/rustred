@@ -22,6 +22,78 @@ pub struct RecipeContext<'a> {
     pub node: &'a str,
     pub node_order: &'a str,
     pub policy_digest: &'a str,
+    /// Shells of the `mixed_shell` step (harder unit; policy `recipes.mixed_shells`).
+    pub mixed_shells: Vec<String>,
+}
+
+/// The step name of the MIXED-SHELL family (lane termmin2: centres = the key and each dotted line one step down,
+/// shells in the harder unit, an EXPLICIT offset list since `rustred.recipe.v1` has no S1m2 shell).
+pub const MIXED_SHELL: &str = "mixed_shell";
+
+/// The face recipe of the mixed-shell step: the offsets of `termmin::steps::mixed_shell_offsets` at the face's LOWEST key
+/// (face lines at 2, face numerators at -1): they depend on the key only through its dotted lines, so they are uniform
+/// over the face; one centre per seed, shell S0, no floor; domain = the proper face.
+pub fn mixed_shell_recipe(
+    face: &Face,
+    lines: &[bool],
+    shells: &[String],
+    ctx: &RecipeContext<'_>,
+) -> Result<Recipe, String> {
+    let n = lines.len();
+    let rep: Vec<i32> = (0..n)
+        .map(|i| {
+            if face.sd.contains(&i) {
+                2
+            } else if face.sn.contains(&i) {
+                -1
+            } else if lines[i] {
+                1
+            } else {
+                0
+            }
+        })
+        .collect();
+    let offs = crate::termmin::steps::mixed_shell_offsets(&rep, lines, shells)?;
+    let slots = face.slots();
+    let fixed: Vec<Option<i32>> = (0..n)
+        .map(|i| (!slots.contains(&i)).then_some(if lines[i] { 1 } else { 0 }))
+        .collect();
+    let bounds = (!slots.is_empty()).then(|| RecipeBounds {
+        min: (0..n).map(|i| face.sd.contains(&i).then_some(2)).collect(),
+        max: (0..n).map(|i| face.sn.contains(&i).then_some(-1)).collect(),
+    });
+    let r = Recipe {
+        schema: RECIPE_SCHEMA.into(),
+        id: format!("rf/{}/{MIXED_SHELL}", face_tag(face)),
+        arity: n,
+        chart: lines.iter().map(|&l| if l { '1' } else { '0' }).collect(),
+        domain: RecipeDomain {
+            fixed,
+            equations: vec![],
+            exceptions: vec![],
+            bounds,
+        },
+        seeds: RecipeSeeds {
+            unit: RECIPE_UNIT.into(),
+            centres: offs,
+            generator: RecipeGenerator::Shells(vec!["S0".into()]),
+            min_offset: BTreeMap::new(),
+            max_offset: BTreeMap::new(),
+            layer_cap: None,
+            sector_filter: true,
+            sector_slots: None,
+        },
+        symmetry_rows: false,
+        elimination: RecipeElimination {
+            convention: RECIPE_ELIMINATION.into(),
+        },
+        provenance: Some(serde_json::json!({
+            "node": ctx.node, "node_order": ctx.node_order, "face": face.label(), "step": MIXED_SHELL,
+            "shells_harder_unit": shells, "producer": "repairflow", "policy": ctx.policy_digest,
+        })),
+    };
+    r.validate()?;
+    Ok(r)
 }
 
 /// A safe file-name component of a face label + step (`{6,7}x{11}` -> `d6.7_n11`).
@@ -44,6 +116,9 @@ pub fn face_recipe(
     num_priority: &[usize],
     ctx: &RecipeContext<'_>,
 ) -> Result<Recipe, String> {
+    if step_name == MIXED_SHELL {
+        return mixed_shell_recipe(face, lines, &ctx.mixed_shells, ctx);
+    }
     let st = parse_step(step_name).map_err(|e| e.to_string())?;
     if st.relation.is_none() {
         return Err(format!(

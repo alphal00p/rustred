@@ -90,3 +90,50 @@ pub fn face_recipe_records(d: &NodeDecisions, b: &Binding) -> Vec<Value> {
         .map(|f| face_recipe_record(&d.node, f, b))
         .collect()
 }
+
+/// What a `face_recipe.v1` record says, as the campaign READS it (base identity + our additive fields; unknown fields
+/// are kept in `raw`): the round trip of [`face_recipe_record`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct FaceRecord {
+    pub node: Option<String>,
+    pub face_id: String,
+    pub dotted: Vec<usize>,
+    pub numerators: Vec<usize>,
+    pub route_decision: Option<String>,
+    pub route_status: Value,
+    pub cut_by: Value,
+    pub bound_to: Value,
+    pub evidence_layers: Vec<Value>,
+    pub raw: Value,
+}
+
+/// Read one `face_recipe.v1` line (ours or the helper's: their records lack our additive fields, which read as null).
+pub fn read_face_record(line: &str) -> Result<FaceRecord, String> {
+    let v: Value = serde_json::from_str(line).map_err(|e| format!("face record: {e}"))?;
+    if v.get("schema")
+        .and_then(Value::as_str)
+        .is_some_and(|s| s != "face_recipe.v1")
+    {
+        return Err(format!("face record: schema {}", v["schema"]));
+    }
+    let slots = |k: &str| -> Result<Vec<usize>, String> {
+        serde_json::from_value(v["signature"][k].clone())
+            .map_err(|e| format!("face record: signature.{k}: {e}"))
+    };
+    Ok(FaceRecord {
+        node: v["node"].as_str().map(str::to_string),
+        face_id: v["face_id"]
+            .as_str()
+            .or(v["id"].as_str())
+            .unwrap_or_default()
+            .to_string(),
+        dotted: slots("dotted")?,
+        numerators: slots("numerators")?,
+        route_decision: v["route"]["decision"].as_str().map(str::to_string),
+        route_status: v["route"]["status"].clone(),
+        cut_by: v["cut_by"].clone(),
+        bound_to: v["bound_to"].clone(),
+        evidence_layers: v["evidence_layers"].as_array().cloned().unwrap_or_default(),
+        raw: v,
+    })
+}

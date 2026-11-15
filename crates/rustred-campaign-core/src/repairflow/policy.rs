@@ -313,6 +313,8 @@ pub struct RecipePolicy {
     pub numerator_priority: Option<Vec<usize>>,
     /// Cap of faces given per-face recipes (in `symbolic.face_order`); null = all.
     pub max_faces: Option<usize>,
+    /// Shells of the `mixed_shell` step, in the harder unit (+1 line, -1 numerator): explicit offsets (lane termmin2).
+    pub mixed_shells: Vec<String>,
     /// Tie-break among ADMISSIBLE relations / candidates only: prefer the one regular at these dimensions (USER ruling:
     /// ON by default with [4]; [] = off). Never changes whether a node closes; recorded when it changes a choice.
     /// RESERVED: not evaluated yet (needs the engine's fixed-d solve entry, interfaces/pole-diagnostics.md): the
@@ -329,6 +331,9 @@ impl Default for RecipePolicy {
                 // prior (helper k13 classification of 8,215 unserved T162 arrival keys): ~78 % symmetry only, ~22 %
                 // depth 2 (last line 1,477, union 320), depth 3 rare (9): depth 3 only under an explicit policy
                 "d0_cnone_foff_ssym_mM1C".into(),
+                // the mixed-shell family (helper: one generation rule closed every T162 core tried; lane termmin2
+                // reproduced K* with it); before the depth-2 steps
+                "mixed_shell".into(),
                 "d2_clast_fon_mM1C".into(),
                 "d2_cnum_fon_mM1C".into(),
                 "d2_cunion_fon_mM1C".into(),
@@ -336,6 +341,10 @@ impl Default for RecipePolicy {
             line_priority: None,
             numerator_priority: None,
             max_faces: None,
+            mixed_shells: ["S0", "S1", "Sm1", "S1m1", "S1m2", "Sm2"]
+                .iter()
+                .map(|x| x.to_string())
+                .collect(),
             prefer_regular_at: vec![4],
         }
     }
@@ -543,8 +552,15 @@ impl RepairPolicy {
             return Err("repair policy: symbolic.wall_case_s must be > 0".into());
         }
         for s in &self.recipes.escalation {
+            if s == super::recipes::MIXED_SHELL {
+                continue;
+            }
             crate::import::recipe_steps::parse_step(s)
                 .map_err(|e| format!("repair policy: recipes.escalation: {e}"))?;
+        }
+        for sh in &self.recipes.mixed_shells {
+            crate::termmin::steps::parse_shell(sh)
+                .map_err(|e| format!("repair policy: recipes.mixed_shells: {e}"))?;
         }
         Ok(())
     }
