@@ -415,6 +415,21 @@ fn contradicting_proofs_deny_the_per_key_level_in_memory_and_in_the_store() {
     let basis = |r: &import::CheckResult, n0: i32| {
         r.rows.iter().find(|x| x.key == [n0, 1, 0]).and_then(|x| x.basis).map(str::to_string)
     };
+    // the import ITSELF (independent of the closing loop's blocker): the conflicted pair is not per-key even though
+    // its regularity fact would lift it; the verdict names the missing level
+    let level = |r: &import::CheckResult, n0: i32| r.rows.iter().find(|x| x.key == [n0, 1, 0]).and_then(|x| x.evidence);
+    let not_per_key = |r: &import::CheckResult| {
+        // the witness-not-carried key 6 can no longer be lifted through its fact: OPEN in the import's Tier C (key 5,
+        // without proof, stays served below per-key); key 7 (ERROR beside the proof) stays per-key
+        let row6 = r.rows.iter().find(|x| x.key == [6, 1, 0]);
+        assert!(
+            row6.is_none_or(|x| x.status == RowStatus::Open || x.evidence != Some(import::Level::PerKey)),
+            "the conflicted pair is served per-key: {row6:?}"
+        );
+        assert_eq!(level(r, 7), Some(import::Level::PerKey));
+        assert_ne!(r.summary.verdict, closure::Verdict::Closed, "{:?}", r.blocking());
+        assert!(r.blocking().iter().any(|b| b.starts_with("open_keys:")), "{:?}", r.blocking());
+    };
     // in memory
     let ev = Evidence::from_spec(&set, &d).unwrap();
     assert_eq!(ev.counts.proof_conflicts, 1);
@@ -422,6 +437,7 @@ fn contradicting_proofs_deny_the_per_key_level_in_memory_and_in_the_store() {
     assert_ne!(basis(&r, 6).as_deref(), Some("per_key_proof"));
     assert_eq!(basis(&r, 7).as_deref(), Some("per_key_proof"));
     assert_eq!(ev.conflicts_used(), vec![(sha0.clone(), vec![6, 1, 0])]);
+    not_per_key(&r);
     // (rows are not compared with the store runs: the in-memory evidence does not read the index fact form)
     // in a store: one sort run (big budget) and one run per line (budget 1: the lines meet in the final merge)
     for (i, budget) in [1usize << 30, 1].iter().enumerate() {
@@ -443,5 +459,6 @@ fn contradicting_proofs_deny_the_per_key_level_in_memory_and_in_the_store() {
         assert_ne!(basis(&r, 6).as_deref(), Some("per_key_proof"), "budget {budget}");
         assert_eq!(basis(&r, 7).as_deref(), Some("per_key_proof"), "budget {budget}");
         assert_eq!(ev.conflicts_used(), vec![(sha0.clone(), vec![6, 1, 0])], "budget {budget}");
+        not_per_key(&r);
     }
 }
