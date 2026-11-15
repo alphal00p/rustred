@@ -564,11 +564,14 @@ mod tests {
     /// re-derivation, a tampered or a missing file refuse, typed; nothing is rewritten).
     #[test]
     fn verify_mode_accepts_the_same_bytes_and_refuses_any_difference() {
-        let base = std::env::var_os("TMPDIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+        let base = std::env::var_os("TMPDIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir);
         let d = base.join(format!("derived-verify-{}", std::process::id()));
         let spec = json!({"sources": [{"id": "A"}]}).to_string();
         let mut ds = DerivedState::default();
-        ds.relations.insert(vec![3, 1, 0], vec![(vec![2, 1, 0], "1".to_string())]);
+        ds.relations
+            .insert(vec![3, 1, 0], vec![(vec![2, 1, 0], "1".to_string())]);
         ds.terminals.insert(vec![1, 1, 0]);
         let w = effective_spec(&spec, &ds, None, &d, "110", DerivedFiles::Write).unwrap();
         let v = effective_spec(&spec, &ds, None, &d, "110", DerivedFiles::Verify).unwrap();
@@ -577,13 +580,19 @@ mod tests {
         let before = std::fs::read(&table).unwrap();
         // another re-derivation (another chart): refused, the file untouched
         let e = effective_spec(&spec, &ds, None, &d, "111", DerivedFiles::Verify).unwrap_err();
-        assert!(e.starts_with(super::super::source::EFFECTIVE_SPEC_MISMATCH), "{e}");
+        assert!(
+            e.starts_with(super::super::source::EFFECTIVE_SPEC_MISMATCH),
+            "{e}"
+        );
         assert_eq!(std::fs::read(&table).unwrap(), before);
         // a tampered file: refused, not rewritten
         let tp = d.join("terminal-proposals.json");
         std::fs::write(&tp, "[]\n").unwrap();
         let e = effective_spec(&spec, &ds, None, &d, "110", DerivedFiles::Verify).unwrap_err();
-        assert!(e.contains("terminal-proposals.json") && e.contains("refused"), "{e}");
+        assert!(
+            e.contains("terminal-proposals.json") && e.contains("refused"),
+            "{e}"
+        );
         assert_eq!(std::fs::read_to_string(&tp).unwrap(), "[]\n");
         // a missing file: refused
         std::fs::remove_file(&table).unwrap();
