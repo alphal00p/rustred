@@ -8,6 +8,7 @@
 //! (L10). Generic: node, paths, order, CPUs and caps are configuration.
 
 use crate::adapters::job::{InputFile, JobAdapter, Program, RunOptions, run_attempt};
+use crate::adapters::poleat::{PoleAdapter, PoleRequest};
 use crate::adapters::solve_recipe::{
     BatchPolicy, RecipeInput, SolveRecipeAdapter, SolveRecipeConfig, SolveRequest as AdReq,
 };
@@ -111,6 +112,22 @@ pub struct CoreDriverConfig {
     /// is answered BUDGET ("cpu budget", never "no relation") without solving and is NOT journaled (a later run with a
     /// larger budget solves it). None = unbounded (the closing pass).
     pub cpu_budget_s: Option<f64>,
+    /// The pole orders of the certified relations the in-process test leaves undecided: ONE `pole-regular-at` child
+    /// job per solve batch (lane poles' `rr_poles regular-at`, many pairs per invocation; interfaces/coreseed.md 10).
+    /// None = the in-process sound test only (`regular` or `undecided`).
+    pub poles: Option<PolesCfg>,
+}
+
+/// The diagnostic child of the pole orders (program `rr_poles`, `Invocation::Legacy`; or the fake child with a script).
+#[derive(Debug, Clone)]
+pub struct PolesCfg {
+    pub program: Program,
+    /// Threads of the child (rr_poles: 1..4).
+    pub threads: u32,
+    pub cap_bytes: u64,
+    pub wall_cap_s: u64,
+    /// Test stand: the fake child's script for kind pole-regular-at.
+    pub fake: Option<FakeScript>,
 }
 
 /// The chart mask of the node (from the import set's frame).
@@ -373,6 +390,120 @@ impl<'a> ChildSolver<'a> {
                 }
             })
             .collect()
+    }
+
+    /// ONE `pole-regular-at` child job for the (record, key) pairs, through the process layer and the contract
+    /// (rows 37-39); returns per pair the verdict of the job (None = not read: the in-process verdict stays). A
+    /// host-resource end (row 15b) is retried once. Never an error of the solve: a failed diagnostic is recorded.
+    fn pole_job(&mut self, pairs: &[(usize, Key, Value)]) -> Vec<Option<D0Verdict>> {
+        let none = || vec![None; pairs.len()];
+        let Some(pc) = self.cfg.poles.clone() else {
+            return none();
+        };
+        let reqs: Vec<PoleRequest> = pairs
+            .iter()
+            .enumerate()
+            .map(|(i, (_, k, rec))| PoleRequest {
+                id: format!("p{i}"),
+                key: k.clone(),
+                record: rec.clone(),
+            })
+            .collect();
+        let ad = PoleAdapter {
+            program: pc.program.clone(),
+            d0: self.cfg.d0.clone(),
+            threads: pc.threads,
+            licence_env: self.cfg.licence_env.clone(),
+            fake: pc.fake.clone(),
+        };
+        self.seq += 1;
+        let work = self
+            .cfg
+            .work_root
+            .join(&self.session)
+            .join(format!("{:06}-poles", self.seq));
+        let opts = RunOptions {
+            cpus: if self.cfg.pin {
+                self.cfg.cpus.first().copied().into_iter().collect()
+            } else {
+                vec![]
+            },
+            memory_cap_bytes: Some(pc.cap_bytes),
+            licence_env: self.cfg.licence_env.clone(),
+            wall_cap: Some(Duration::from_secs(pc.wall_cap_s)),
+            grace: Some(Duration::from_secs(10)),
+        };
+        let note = |m: String| {
+            self.append(
+                "poles.jsonl",
+                &json!({"pairs": pairs.len(), "note": m, "utc": utc_now()}),
+            );
+        };
+        let plans = match ad.plan(&reqs) {
+            Ok(p) => p,
+            Err(e) => {
+                note(format!("plan: {e:?}"));
+                return none();
+            }
+        };
+        let Some(plan) = plans.first() else {
+            return none();
+        };
+        for attempt in 1..=2u32 {
+            let mut l = RealLauncher::new(self.sampler.clone());
+            match run_attempt(&mut l, &ad, &reqs, plan, &work, attempt, &opts) {
+                Ok((b, _)) if b.unread.is_none() => {
+                    let by_id: BTreeMap<
+                        String,
+                        &rustred_campaign_contract::classify::poleat::PoleAnswer,
+                    > = b
+                        .answers
+                        .iter()
+                        .filter_map(|a| a.id.as_str().map(|s| (s.to_string(), a)))
+                        .collect();
+                    note(format!(
+                        "row {} job {}: {} answers",
+                        b.classification.row,
+                        b.job_id,
+                        b.answers.len()
+                    ));
+                    return reqs
+                        .iter()
+                        .map(|q| {
+                            by_id
+                                .get(&q.id)
+                                .map(|a| match (a.verdict.as_str(), a.pole_order) {
+                                    ("regular", _) => D0Verdict::Regular,
+                                    ("pole", p) => D0Verdict::Singular {
+                                        order: p.map(|x| x as u32),
+                                    },
+                                    _ => D0Verdict::Undecided,
+                                })
+                        })
+                        .collect();
+                }
+                Ok((b, _)) => {
+                    let retry = b.classification.row == 15 && b.classification.sub == "b";
+                    note(format!(
+                        "attempt {attempt}: nothing read ({}){}",
+                        b.unread.unwrap_or_default(),
+                        if retry {
+                            ", host resource: retried"
+                        } else {
+                            ""
+                        }
+                    ));
+                    if !retry {
+                        return none();
+                    }
+                }
+                Err(e) => {
+                    note(format!("attempt {attempt}: {e:?}"));
+                    return none();
+                }
+            }
+        }
+        none()
     }
 
     fn relation_info(&self, rec: &Value, key: &[i32]) -> RelationInfo {
@@ -641,6 +772,7 @@ impl CoreSolver for ChildSolver<'_> {
         }
         // acceptance per job (the accept chain needs the import set: sequential), answers per request
         let mut per_req: BTreeMap<usize, BTreeMap<Key, KeyAnswer>> = BTreeMap::new();
+        let mut pole_needed: Vec<(usize, Key, Value)> = vec![];
         let mut cost: BTreeMap<usize, (f64, u64, usize)> = BTreeMap::new();
         for (ji, j) in jobs.iter().enumerate() {
             let r = &batch[j.req];
@@ -715,6 +847,13 @@ impl CoreSolver for ChildSolver<'_> {
                                     t.push('\n');
                                     let _ = std::fs::write(j.work.join("solved.jsonl"), t);
                                 }
+                                // relations the in-process test leaves undecided: to the pole job of the batch
+                                for (k, rec) in &d.records {
+                                    if !self.judge.is_regular_at(rec, k, &self.cfg.d0).is_regular()
+                                    {
+                                        pole_needed.push((j.req, k.clone(), rec.clone()));
+                                    }
+                                }
                                 self.answers_of(&d, &j.keys)
                             }
                             Err(e) => j
@@ -735,6 +874,18 @@ impl CoreSolver for ChildSolver<'_> {
             }
             if is_trial(&r.label) && !self.cfg.keep_trial_outputs {
                 let _ = std::fs::remove_dir_all(&j.work);
+            }
+        }
+        // the pole orders of the batch's undecided relations (one diagnostic child job; never blocks a relation)
+        if !pole_needed.is_empty() {
+            let verdicts = self.pole_job(&pole_needed);
+            for ((ri, k, _), v) in pole_needed.iter().zip(verdicts) {
+                if let Some(KeyAnswer::Relation(info)) =
+                    per_req.get_mut(ri).and_then(|m| m.get_mut(k))
+                    && let Some(v) = v
+                {
+                    info.d0 = v;
+                }
             }
         }
         for (ri, m) in per_req {

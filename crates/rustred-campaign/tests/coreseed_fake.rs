@@ -8,7 +8,9 @@ mod sup_common;
 mod termmin_support;
 
 use rustred_campaign::adapters::job::{Invocation, Program};
-use rustred_campaign::closeloop::coreseed::{ChildSolver, CoreDriverConfig, FakeCore, FakeOpt};
+use rustred_campaign::closeloop::coreseed::{
+    ChildSolver, CoreDriverConfig, DriverJudge, FakeCore, FakeOpt, PolesCfg,
+};
 use rustred_campaign::resources::{Sampler, SamplerConfig};
 use rustred_campaign_core::coreseed::spec::CoreSeedPolicy;
 use rustred_campaign_core::coreseed::{
@@ -85,6 +87,7 @@ fn config(tmp: &Path, files: &TmFiles, fake: FakeCore, journal: &Path) -> CoreDr
         verbose: false,
         fake: Some(fake),
         cpu_budget_s: None,
+        poles: None,
     }
 }
 
@@ -344,4 +347,86 @@ fn resume_mid_escalation_gives_the_same_record() {
         "only the missing requests ran again"
     );
     let _ = BTreeMap::<u8, u8>::new();
+}
+
+fn fake_poles(script: Vec<rustred_campaign_contract::fake::FakeOp>) -> PolesCfg {
+    use rustred_campaign_contract::fake::{FakeScript, OnSigterm, RssPlan};
+    PolesCfg {
+        program: Program::from_file("rr_fake_child", Path::new(FAKE), Invocation::Contract)
+            .unwrap(),
+        threads: 1,
+        cap_bytes: 268_435_456,
+        wall_cap_s: 120,
+        fake: Some(FakeScript {
+            script,
+            on_sigterm: OnSigterm::Graceful,
+            slow_ms: 0,
+            start_delay_ms: 0,
+            rss: RssPlan::default(),
+            helpers: vec![],
+            faults: vec![],
+            time_scale: 1.0,
+            volatile_jitter: false,
+        }),
+    }
+}
+
+/// Lane coreseed (kind pole-regular-at): the pole ORDERS come from the diagnostic child job (the fake child's test
+/// rule: order = number of rhs keys I(9,..)); the in-process test alone leaves the fake's 1/(d-4) coefficients
+/// undecided. With the job: the singular alternative carries its order and the regular one wins; with a refusing job:
+/// every verdict stays undecided and the key is still served (a missing diagnostic never blocks).
+#[test]
+fn pole_orders_come_from_the_diagnostic_child_job_and_its_failure_never_blocks() {
+    use rustred_campaign_contract::exit::ExitCode;
+    use rustred_campaign_contract::fake::FakeOp;
+    let f = || {
+        fake(
+            &[
+                (
+                    A,
+                    vec![opt(&[[2, 0, 0]], &[R1, R2]), opt(&[[0, 0, 1]], &[SING])],
+                ),
+                (B, vec![opt(&[[0, 0, 1]], &[R2])]),
+            ],
+            &[],
+        )
+    };
+    let run_with = |tag: &str, poles: PolesCfg| -> CoreReport {
+        let tmp = Tmp::new(tag);
+        let files = toy(&tmp.path.join("material"), &TmToy::default());
+        let mut set = load_set(&files);
+        let journal = tmp.path.join("out/journal.jsonl");
+        let mut cfg = config(&tmp.path, &files, f(), &journal);
+        cfg.poles = Some(poles);
+        let p: CoreSeedPolicy = serde_json::from_str("{}").unwrap();
+        let mut s = ChildSolver::new(cfg, &mut set, Box::new(DriverJudge), sampler()).unwrap();
+        let ks: Vec<Key> = [A, B].iter().map(|k| k.to_vec()).collect();
+        solve_core(&ks, &LINES, &p, &mut s).unwrap()
+    };
+    let r = run_with("cs-poles", fake_poles(vec![FakeOp::Prepare { ms: 1 }]));
+    let ka = key(&r, &A);
+    let ch = &ka.alternatives[ka.chosen.unwrap()];
+    assert_eq!(ch.d0, D0Verdict::Regular, "{:?}", ka.alternatives);
+    assert!(
+        ka.alternatives
+            .iter()
+            .any(|a| a.d0 == D0Verdict::Singular { order: Some(1) }),
+        "{:?}",
+        ka.alternatives
+    );
+    // the job refuses (rr_poles exit 2 -> row 39): nothing read, verdicts stay undecided, both keys served
+    let r = run_with(
+        "cs-poles-fail",
+        fake_poles(vec![FakeOp::Fail {
+            code: ExitCode::Input,
+            message: "refused".into(),
+        }]),
+    );
+    assert!(r.keys.iter().all(|k| k.status == "relation"));
+    assert!(
+        r.keys
+            .iter()
+            .flat_map(|k| k.alternatives.iter())
+            .all(|a| a.d0 == D0Verdict::Undecided)
+    );
 }

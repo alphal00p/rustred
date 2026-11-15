@@ -44,6 +44,11 @@ pub enum JobKind {
     /// elimination with the given terminals lowest, at fixed dimensions and primes, L1. A DIAGNOSTIC kind: its sealed
     /// records are never rule or relation evidence (accept mode `diagnostic_records`).
     NodeBasis,
+    /// `rr_poles regular-at --requests` (lane coreseed; interfaces/coreseed.md 10; lane poles' CLI): the pole order at
+    /// d0 of MANY certified relations at their keys, as a LEGACY DIAGNOSTIC child; the supervisor-side wrapper checks
+    /// every answer against the pinned requests, seals `out/results.jsonl` and writes OUTCOME. Accept mode
+    /// `diagnostic_records` (rows 37-39): never rule or relation evidence.
+    PoleRegularAt,
 }
 
 /// Compliance level (1.1).
@@ -59,7 +64,7 @@ pub enum Level {
 }
 
 impl JobKind {
-    pub const ALL: [JobKind; 16] = [
+    pub const ALL: [JobKind; 17] = [
         JobKind::Generate,
         JobKind::GenerateAuto,
         JobKind::Descent,
@@ -76,6 +81,7 @@ impl JobKind {
         JobKind::ProofInstanceSpan,
         JobKind::CoefficientFacts,
         JobKind::NodeBasis,
+        JobKind::PoleRegularAt,
     ];
 
     pub const fn level(self) -> Level {
@@ -84,7 +90,8 @@ impl JobKind {
             JobKind::TableDump
             | JobKind::ProofInstantiate
             | JobKind::ProofInstanceSpan
-            | JobKind::CoefficientFacts => Level::Legacy,
+            | JobKind::CoefficientFacts
+            | JobKind::PoleRegularAt => Level::Legacy,
             _ => Level::L1,
         }
     }
@@ -108,6 +115,7 @@ impl JobKind {
             JobKind::TableDump => "table_dump",
             JobKind::Fake => "rr_fake_child",
             JobKind::CoefficientFacts => "rr_coef_facts",
+            JobKind::PoleRegularAt => "rr_poles",
         }
     }
 
@@ -139,7 +147,8 @@ impl JobKind {
             | JobKind::ProofInstantiate
             | JobKind::ProofInstanceSpan
             | JobKind::CoefficientFacts
-            | JobKind::NodeBasis => Some(&RESULT_OUTPUTS),
+            | JobKind::NodeBasis
+            | JobKind::PoleRegularAt => Some(&RESULT_OUTPUTS),
             JobKind::GenerateAuto => None,
         }
     }
@@ -161,6 +170,8 @@ impl JobKind {
             // it passes `--elided-loci refuse|facts` through (coord-ec2-instantiate.md 2d)
             JobKind::ProofInstantiate => &PROOF_INSTANTIATE_ARGS,
             JobKind::ProofInstanceSpan | JobKind::CoefficientFacts => &[],
+            // lane coreseed: the dimension and the child's thread count (rr_poles: 1..4)
+            JobKind::PoleRegularAt => &POLE_REGULAR_AT_ARGS,
         }
     }
 
@@ -180,6 +191,11 @@ impl JobKind {
             // lane closeloop3: the same request form (A) and one table per job
             JobKind::CoefficientFacts => Some(InputRoles {
                 required: &["requests", "table"],
+                optional: &[],
+            }),
+            // lane coreseed: the pinned request lines (record + key pairs)
+            JobKind::PoleRegularAt => Some(InputRoles {
+                required: &["requests"],
                 optional: &[],
             }),
             // line 7: the presented family and the terminal keys (JSONL, put lowest)
@@ -204,6 +220,7 @@ impl JobKind {
                 | JobKind::ProofInstantiate
                 | JobKind::ProofInstanceSpan
                 | JobKind::CoefficientFacts
+                | JobKind::PoleRegularAt
         )
     }
 
@@ -212,7 +229,10 @@ impl JobKind {
     pub const fn legacy_wrapped(self) -> bool {
         matches!(
             self,
-            JobKind::ProofInstantiate | JobKind::ProofInstanceSpan | JobKind::CoefficientFacts
+            JobKind::ProofInstantiate
+                | JobKind::ProofInstanceSpan
+                | JobKind::CoefficientFacts
+                | JobKind::PoleRegularAt
         )
     }
 
@@ -508,6 +528,9 @@ pub const NODE_BASIS_ARGS: [ArgRule; 5] = [
 ];
 /// `proof-instantiate` (line 7, coord-ec2-instantiate.md 2d): `--elided-loci refuse` (the default when absent: the
 /// R-f refusal) or `facts` (records with elided witness loci answer coefficient facts only, never regularity).
+/// Lane coreseed: kind `pole-regular-at` (`--d0` a decimal dimension, `--threads` the child's threads).
+pub const POLE_REGULAR_AT_ARGS: [ArgRule; 2] =
+    [a("--d0", ArgShape::Decimal), a("--threads", ArgShape::UInt)];
 pub const PROOF_INSTANTIATE_ARGS: [ArgRule; 1] =
     [a("--elided-loci", ArgShape::Choice(&["refuse", "facts"]))];
 const REPLAY_ARGS: [ArgRule; 9] = [
@@ -1169,6 +1192,7 @@ impl JobSpec {
                 | JobKind::ProofInstanceSpan
                 | JobKind::CoefficientFacts
                 | JobKind::NodeBasis
+                | JobKind::PoleRegularAt
         ) {
             return Ok(());
         }
