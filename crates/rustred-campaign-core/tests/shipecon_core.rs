@@ -17,7 +17,10 @@ fn rule(label: i64, sha: &str) -> RuleRef {
     }
 }
 
-fn census_of(rows: &[(i64, &str, u64, Vec<(Vec<i32>, bool)>)], cap: u64) -> Census {
+/// (label, record sha256, bytes, served keys with their in-start flag)
+type CensusRow<'a> = (i64, &'a str, u64, Vec<(Vec<i32>, bool)>);
+
+fn census_of(rows: &[CensusRow], cap: u64) -> Census {
     let mut b = CensusBuilder::new(
         rows.iter()
             .map(|(l, s, by, _)| (rule(*l, s), *by))
@@ -599,7 +602,16 @@ fn shipped_spec_removes_rules_and_appends_relation_sets_last() {
     // a duplicate source id / an unknown rule source: refused
     let mut r2 = r.clone();
     r2.id = "u".into();
-    assert!(shipped_spec(&spec(), &[d.clone()], &[r2], &[], Precedence::AfterTable).is_err());
+    assert!(
+        shipped_spec(
+            &spec(),
+            std::slice::from_ref(&d),
+            &[r2],
+            &[],
+            Precedence::AfterTable
+        )
+        .is_err()
+    );
     let mut d2 = d.clone();
     d2.rule.source = "zz".into();
     assert!(shipped_spec(&spec(), &[d2], &[], &[], Precedence::AfterTable).is_err());
@@ -660,7 +672,7 @@ fn totals_report_bytes_seconds_and_guard_failures() {
         )],
         64,
     );
-    let v = totals(&c, &[d.clone()]);
+    let v = totals(&c, std::slice::from_ref(&d));
     assert_eq!(v["bytes_before"], 1_000_000);
     assert_eq!(v["bytes_saved"], d.bytes_saved);
     assert_eq!(v["recipe_seconds_per_key"]["keys"], 2);

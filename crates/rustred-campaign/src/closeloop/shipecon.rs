@@ -397,6 +397,9 @@ fn coordinate_priority(set: &ImportedSet) -> Option<Vec<usize>> {
     Some(set.cmp.equivalent_descriptor().coordinate_priority)
 }
 
+/// (recipe id, recipe document, its keys).
+type GroupRecipe = (String, Value, Vec<Vec<i32>>);
+
 /// The recipes of one (rule, step) at the keys: grouped by explicit seed set (the core's step grammar); each group's
 /// recipe has the slots common to its keys fixed (the acceptance chain reads `domain.fixed`) and is assigned its keys.
 fn recipes_for(
@@ -405,7 +408,7 @@ fn recipes_for(
     rule: &RuleRef,
     step: &str,
     keys: &[Vec<i32>],
-) -> Result<Vec<(String, Value, Vec<Vec<i32>>)>, String> {
+) -> Result<Vec<GroupRecipe>, String> {
     let lines: Vec<bool> = set.frame.mask().to_vec();
     let cp = coordinate_priority(set);
     let (lp, np) = rustred_campaign_core::termmin::priorities(&lines, cp.as_deref());
