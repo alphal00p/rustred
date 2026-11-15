@@ -233,10 +233,14 @@ mod tests {
         assert_eq!(j.is_regular_at(&sing, &[], "4"), D0Verdict::Undecided);
         let big = json!({"rhs": [["I(1)", "(123456789012345678901234567890*d)/(-4+d)", "top"]]});
         assert_eq!(j.is_regular_at(&big, &[], "4"), D0Verdict::Undecided);
-        let big_reg = json!({"rhs": [["I(1)", "(123456789012345678901234567890*d)/(-5+d)", "top"]]});
+        let big_reg =
+            json!({"rhs": [["I(1)", "(123456789012345678901234567890*d)/(-5+d)", "top"]]});
         assert_eq!(j.is_regular_at(&big_reg, &[], "4"), D0Verdict::Regular);
         let junk = json!({"rhs": [["I(1)", "x/y/z", "top"]]});
         assert_eq!(j.is_regular_at(&junk, &[], "4"), D0Verdict::Undecided);
-        assert_eq!(StubJudge.is_regular_at(&reg, &[], "4"), D0Verdict::Undecided);
+        assert_eq!(
+            StubJudge.is_regular_at(&reg, &[], "4"),
+            D0Verdict::Undecided
+        );
     }
 }

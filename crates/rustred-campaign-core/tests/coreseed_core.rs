@@ -125,7 +125,10 @@ fn policy(over: &str) -> CoreSeedPolicy {
     serde_json::from_value(p).unwrap()
 }
 
-fn key_report<'a>(r: &'a CoreReport, k: &[i32]) -> &'a rustred_campaign_core::coreseed::machine::KeyReport {
+fn key_report<'a>(
+    r: &'a CoreReport,
+    k: &[i32],
+) -> &'a rustred_campaign_core::coreseed::machine::KeyReport {
     r.keys.iter().find(|x| x.key == k).unwrap()
 }
 
@@ -154,8 +157,22 @@ fn a_list_minimised_at_one_key_is_not_accepted_where_it_fails() {
     let o1 = vec![1, 0, 0, 0];
     let o2 = vec![0, 0, 1, 0];
     let mut o = Oracle::default();
-    o.opts.insert(A.to_vec(), vec![Opt { needs: vec![o1.clone()], rhs: rel(&[[1, 1, -1, 0]]), d0: D0Verdict::Regular }]);
-    o.opts.insert(B.to_vec(), vec![Opt { needs: vec![o2.clone()], rhs: rel(&[[2, 1, -2, 0]]), d0: D0Verdict::Regular }]);
+    o.opts.insert(
+        A.to_vec(),
+        vec![Opt {
+            needs: vec![o1.clone()],
+            rhs: rel(&[[1, 1, -1, 0]]),
+            d0: D0Verdict::Regular,
+        }],
+    );
+    o.opts.insert(
+        B.to_vec(),
+        vec![Opt {
+            needs: vec![o2.clone()],
+            rhs: rel(&[[2, 1, -2, 0]]),
+            d0: D0Verdict::Regular,
+        }],
+    );
     let p = policy(r#"{"centre_scan": {"enabled": false}}"#);
     let mut s = solver(&o);
     let r = solve_core(&[A.to_vec(), B.to_vec()], &LINES, &p, &mut s).unwrap();
@@ -169,7 +186,11 @@ fn a_list_minimised_at_one_key_is_not_accepted_where_it_fails() {
     assert_eq!(g.pieces[1].list, vec![o1.clone()]);
     // A's record shows the failed domain test of B's list
     let ka = key_report(&r, &A);
-    assert!(ka.steps.iter().any(|x| x.phase == "domain_test" && x.outcome == "no_relation"));
+    assert!(
+        ka.steps
+            .iter()
+            .any(|x| x.phase == "domain_test" && x.outcome == "no_relation")
+    );
     assert_eq!(ka.status, "relation");
     assert_eq!(r.totals["status"]["relation"], 2);
 }
@@ -182,13 +203,30 @@ fn the_escalation_order_is_followed_and_recorded() {
     let d = [4, 1, -1, 0];
     let e = [3, 1, -1, 0];
     let mut o = Oracle::default();
-    o.opts.insert(c.to_vec(), vec![Opt { needs: vec![vec![2, 0, 0, 0]], rhs: rel(&[[1, 1, -1, 0]]), d0: D0Verdict::Regular }]);
-    o.opts.insert(d.to_vec(), vec![Opt { needs: vec![vec![-3, 0, 0, 0]], rhs: rel(&[[1, 1, -1, 0]]), d0: D0Verdict::Regular }]);
+    o.opts.insert(
+        c.to_vec(),
+        vec![Opt {
+            needs: vec![vec![2, 0, 0, 0]],
+            rhs: rel(&[[1, 1, -1, 0]]),
+            d0: D0Verdict::Regular,
+        }],
+    );
+    o.opts.insert(
+        d.to_vec(),
+        vec![Opt {
+            needs: vec![vec![-3, 0, 0, 0]],
+            rhs: rel(&[[1, 1, -1, 0]]),
+            d0: D0Verdict::Regular,
+        }],
+    );
     let p = policy(r#"{"centre_scan": {"enabled": false}}"#);
     let mut s = solver(&o);
     let r = solve_core(&[c.to_vec(), d.to_vec(), e.to_vec()], &LINES, &p, &mut s).unwrap();
     let kc = key_report(&r, &c);
-    assert_eq!(kc.first_solved_by.as_deref(), Some("escalation:escalation:shells_S2_S2m1"));
+    assert_eq!(
+        kc.first_solved_by.as_deref(),
+        Some("escalation:escalation:shells_S2_S2m1")
+    );
     assert_eq!(kc.steps[0].phase, "rule");
     assert_eq!(kc.steps[0].outcome, "no_relation");
     let kd = key_report(&r, &d);
@@ -196,10 +234,21 @@ fn the_escalation_order_is_followed_and_recorded() {
         kd.first_solved_by.as_deref(),
         Some("escalation:escalation:shifted_centres:line0_down")
     );
-    let phases: Vec<(String, String)> = kd.steps.iter().map(|x| (x.rule.clone(), x.outcome.clone())).collect();
+    let phases: Vec<(String, String)> = kd
+        .steps
+        .iter()
+        .map(|x| (x.rule.clone(), x.outcome.clone()))
+        .collect();
     assert_eq!(phases[0], ("rule".into(), "no_relation".into()));
-    assert_eq!(phases[1], ("escalation:shells_S2_S2m1".into(), "no_relation".into()));
-    assert!(phases.iter().any(|x| x.0 == "escalation:shifted_centres:line0_down" && x.1 == "relation"));
+    assert_eq!(
+        phases[1],
+        ("escalation:shells_S2_S2m1".into(), "no_relation".into())
+    );
+    assert!(
+        phases
+            .iter()
+            .any(|x| x.0 == "escalation:shifted_centres:line0_down" && x.1 == "relation")
+    );
     let ke = key_report(&r, &e);
     assert_eq!(ke.status, "no_relation_decided");
     assert!(ke.steps.len() >= 3 && ke.steps.iter().all(|x| x.outcome == "no_relation"));
@@ -229,8 +278,16 @@ fn a_budget_stop_is_never_no_relation() {
     assert_eq!(ke.status, "undecided");
     assert!(ke.steps.iter().all(|x| x.outcome == "budget"));
     let kf = key_report(&r, &f);
-    assert!(kf.steps.iter().any(|x| x.outcome == "no_relation"), "{:?}", kf.steps);
-    assert!(kf.steps.iter().any(|x| x.outcome == "budget"), "{:?}", kf.steps);
+    assert!(
+        kf.steps.iter().any(|x| x.outcome == "no_relation"),
+        "{:?}",
+        kf.steps
+    );
+    assert!(
+        kf.steps.iter().any(|x| x.outcome == "budget"),
+        "{:?}",
+        kf.steps
+    );
     assert_eq!(kf.status, "undecided");
     assert_eq!(r.totals["status"]["undecided"], 2);
     assert!(r.totals["status"]["no_relation_decided"].is_null());
@@ -238,7 +295,13 @@ fn a_budget_stop_is_never_no_relation() {
 
 fn mixed_oracle() -> Oracle {
     let mut o = Oracle::default();
-    let ks: Vec<[i32; 4]> = vec![[2, 1, -1, 0], [3, 1, -1, 0], [2, 1, -2, 0], [3, 1, -2, 0], [4, 1, -1, 0]];
+    let ks: Vec<[i32; 4]> = vec![
+        [2, 1, -1, 0],
+        [3, 1, -1, 0],
+        [2, 1, -2, 0],
+        [3, 1, -2, 0],
+        [4, 1, -1, 0],
+    ];
     for (i, k) in ks.iter().enumerate() {
         let needs = match i {
             0 => vec![vec![1, 0, 0, 0], vec![0, 0, 1, 0]],
@@ -247,7 +310,14 @@ fn mixed_oracle() -> Oracle {
             3 => vec![vec![0, 0, 1, 0], vec![1, 0, 0, 0]],
             _ => vec![vec![-3, 0, 0, 0]],
         };
-        o.opts.insert(k.to_vec(), vec![Opt { needs, rhs: rel(&[[1, 1, -1, 0], [1, 1, 0, 0]]), d0: D0Verdict::Regular }]);
+        o.opts.insert(
+            k.to_vec(),
+            vec![Opt {
+                needs,
+                rhs: rel(&[[1, 1, -1, 0], [1, 1, 0, 0]]),
+                d0: D0Verdict::Regular,
+            }],
+        );
     }
     o.opts.insert(vec![3, 1, -3, 0], vec![]);
     o.budget.insert(vec![2, 1, -3, 0]);
@@ -283,16 +353,38 @@ fn resume_mid_escalation_gives_the_same_record() {
         s2.journal = s1.journal.clone();
         let r2 = solve_core(&mixed_keys(), &LINES, &p, &mut s2).unwrap();
         assert_eq!(decisions(&r2), decisions(&r_full), "cut after {cut}");
-        assert_eq!(s2.fresh, n - cut, "only the missing requests are solved again");
+        assert_eq!(
+            s2.fresh,
+            n - cut,
+            "only the missing requests are solved again"
+        );
     }
 }
 
 #[test]
 fn results_do_not_depend_on_the_number_of_parallel_trials() {
     let o = mixed_oracle();
-    let r1 = solve_core(&mixed_keys(), &LINES, &policy(r#"{"minimise": {"parallel_trials": 1}}"#), &mut solver(&o)).unwrap();
-    let r4 = solve_core(&mixed_keys(), &LINES, &policy(r#"{"minimise": {"parallel_trials": 4}}"#), &mut solver(&o)).unwrap();
-    let r9 = solve_core(&mixed_keys(), &LINES, &policy(r#"{"minimise": {"parallel_trials": 9}}"#), &mut solver(&o)).unwrap();
+    let r1 = solve_core(
+        &mixed_keys(),
+        &LINES,
+        &policy(r#"{"minimise": {"parallel_trials": 1}}"#),
+        &mut solver(&o),
+    )
+    .unwrap();
+    let r4 = solve_core(
+        &mixed_keys(),
+        &LINES,
+        &policy(r#"{"minimise": {"parallel_trials": 4}}"#),
+        &mut solver(&o),
+    )
+    .unwrap();
+    let r9 = solve_core(
+        &mixed_keys(),
+        &LINES,
+        &policy(r#"{"minimise": {"parallel_trials": 9}}"#),
+        &mut solver(&o),
+    )
+    .unwrap();
     let strip = |r: &CoreReport| {
         let mut v = decisions(r);
         v.as_object_mut().unwrap().remove("policy_digest");
@@ -311,11 +403,29 @@ fn regular_preferred_tries_the_up_centre_and_keeps_both_alternatives() {
     let h = [3, 1, -1, 0];
     let o_s = vec![0, 0, 1, 0];
     let mut o = Oracle::default();
-    o.opts.insert(g.to_vec(), vec![
-        Opt { needs: vec![vec![2, 0, 0, 0]], rhs: rel(&[[1, 1, -1, 0], [1, 1, 0, 0], [2, 1, 0, 0]]), d0: D0Verdict::Regular },
-        Opt { needs: vec![o_s.clone()], rhs: rel(&[[1, 1, -1, 0]]), d0: D0Verdict::Singular { order: Some(1) } },
-    ]);
-    o.opts.insert(h.to_vec(), vec![Opt { needs: vec![o_s.clone()], rhs: rel(&[[1, 1, -1, 0]]), d0: D0Verdict::Regular }]);
+    o.opts.insert(
+        g.to_vec(),
+        vec![
+            Opt {
+                needs: vec![vec![2, 0, 0, 0]],
+                rhs: rel(&[[1, 1, -1, 0], [1, 1, 0, 0], [2, 1, 0, 0]]),
+                d0: D0Verdict::Regular,
+            },
+            Opt {
+                needs: vec![o_s.clone()],
+                rhs: rel(&[[1, 1, -1, 0]]),
+                d0: D0Verdict::Singular { order: Some(1) },
+            },
+        ],
+    );
+    o.opts.insert(
+        h.to_vec(),
+        vec![Opt {
+            needs: vec![o_s.clone()],
+            rhs: rel(&[[1, 1, -1, 0]]),
+            d0: D0Verdict::Regular,
+        }],
+    );
     let ks = vec![g.to_vec(), h.to_vec()];
     let r = solve_core(&ks, &LINES, &policy("{}"), &mut solver(&o)).unwrap();
     let kg = key_report(&r, &g);
@@ -323,17 +433,35 @@ fn regular_preferred_tries_the_up_centre_and_keeps_both_alternatives() {
     let ch = &kg.alternatives[kg.chosen.unwrap()];
     assert_eq!(ch.d0, D0Verdict::Regular);
     assert!(ch.rule.contains("line0_up"), "{}", ch.rule);
-    assert!(kg.alternatives.iter().any(|a| matches!(a.d0, D0Verdict::Singular { .. })));
+    assert!(
+        kg.alternatives
+            .iter()
+            .any(|a| matches!(a.d0, D0Verdict::Singular { .. }))
+    );
     assert_eq!(kg.first_solved_by.as_deref(), Some("rule:rule"));
     // mode any_relation: no regular search, the smallest relation (the singular one) is chosen
-    let ra = solve_core(&ks, &LINES, &policy(r#"{"mode": "any_relation", "centre_scan": {"enabled": false}}"#), &mut solver(&o)).unwrap();
+    let ra = solve_core(
+        &ks,
+        &LINES,
+        &policy(r#"{"mode": "any_relation", "centre_scan": {"enabled": false}}"#),
+        &mut solver(&o),
+    )
+    .unwrap();
     let ka = key_report(&ra, &g);
     assert_eq!(ka.alternatives.len(), 1);
     assert!(matches!(ka.alternatives[0].d0, D0Verdict::Singular { .. }));
     // the split: G's chosen rule (up-centre) and H's (the rule) are different pieces
     let pieces = &r.groups[0].pieces;
-    assert!(pieces.iter().any(|p| p.domain == vec![g.to_vec()] && p.rule.contains("line0_up")));
-    assert!(pieces.iter().any(|p| p.domain.contains(&h.to_vec()) && p.rule == "rule"));
+    assert!(
+        pieces
+            .iter()
+            .any(|p| p.domain == vec![g.to_vec()] && p.rule.contains("line0_up"))
+    );
+    assert!(
+        pieces
+            .iter()
+            .any(|p| p.domain.contains(&h.to_vec()) && p.rule == "rule")
+    );
 }
 
 #[test]
@@ -341,17 +469,50 @@ fn a_large_relation_triggers_the_centre_scan_and_the_smaller_wins() {
     // K: the rule gives a 5-term relation; the centre "line 0 one step down" a 2-term one; min_terms 3
     let k = [4, 1, -1, 0];
     let mut o = Oracle::default();
-    o.opts.insert(k.to_vec(), vec![
-        Opt { needs: vec![vec![-3, 0, 0, 0]], rhs: rel(&[[1, 1, -1, 0], [2, 1, 0, 0]]), d0: D0Verdict::Regular },
-        Opt { needs: vec![vec![0, 0, 1, 0]], rhs: rel(&[[1, 1, -1, 0], [2, 1, -1, 0], [1, 1, 0, 0], [2, 1, 0, 0], [3, 1, 0, 0]]), d0: D0Verdict::Regular },
-    ]);
-    let r = solve_core(&[k.to_vec()], &LINES, &policy(r#"{"centre_scan": {"min_terms": 3}}"#), &mut solver(&o)).unwrap();
+    o.opts.insert(
+        k.to_vec(),
+        vec![
+            Opt {
+                needs: vec![vec![-3, 0, 0, 0]],
+                rhs: rel(&[[1, 1, -1, 0], [2, 1, 0, 0]]),
+                d0: D0Verdict::Regular,
+            },
+            Opt {
+                needs: vec![vec![0, 0, 1, 0]],
+                rhs: rel(&[
+                    [1, 1, -1, 0],
+                    [2, 1, -1, 0],
+                    [1, 1, 0, 0],
+                    [2, 1, 0, 0],
+                    [3, 1, 0, 0],
+                ]),
+                d0: D0Verdict::Regular,
+            },
+        ],
+    );
+    let r = solve_core(
+        &[k.to_vec()],
+        &LINES,
+        &policy(r#"{"centre_scan": {"min_terms": 3}}"#),
+        &mut solver(&o),
+    )
+    .unwrap();
     let kr = key_report(&r, &k);
     let ch = &kr.alternatives[kr.chosen.unwrap()];
     assert_eq!(ch.rhs_terms, 2);
-    assert_eq!(ch.rule, "centre_scan:scan:line0_down");
+    assert!(
+        ch.rule.starts_with("centre_scan:scan:line0_down@S0+"),
+        "{}",
+        ch.rule
+    );
     // without the trigger the scan does not run
-    let r0 = solve_core(&[k.to_vec()], &LINES, &policy(r#"{"centre_scan": {"min_terms": 9}}"#), &mut solver(&o)).unwrap();
+    let r0 = solve_core(
+        &[k.to_vec()],
+        &LINES,
+        &policy(r#"{"centre_scan": {"min_terms": 9}}"#),
+        &mut solver(&o),
+    )
+    .unwrap();
     assert_eq!(key_report(&r0, &k).alternatives.len(), 1);
 }
 
@@ -359,13 +520,54 @@ fn a_large_relation_triggers_the_centre_scan_and_the_smaller_wins() {
 fn the_engine_minimiser_and_the_emulation_are_interchangeable_at_the_api() {
     let o = mixed_oracle();
     let emu = solve_core(&mixed_keys(), &LINES, &policy("{}"), &mut solver(&o)).unwrap();
-    let eng = solve_core(&mixed_keys(), &LINES, &policy(r#"{"minimise": {"backend": "engine"}}"#), &mut solver(&o)).unwrap();
+    let eng = solve_core(
+        &mixed_keys(),
+        &LINES,
+        &policy(r#"{"minimise": {"backend": "engine"}}"#),
+        &mut solver(&o),
+    )
+    .unwrap();
     let view = |r: &CoreReport| -> Vec<(String, Vec<Offset>, Vec<Key>, Vec<Key>)> {
-        r.groups.iter().flat_map(|g| g.pieces.iter().map(|p| (p.rule.clone(), p.list.clone(), p.domain.clone(), p.failed.clone()))).collect()
+        r.groups
+            .iter()
+            .flat_map(|g| {
+                g.pieces.iter().map(|p| {
+                    (
+                        p.rule.clone(),
+                        p.list.clone(),
+                        p.domain.clone(),
+                        p.failed.clone(),
+                    )
+                })
+            })
+            .collect()
     };
     assert_eq!(view(&emu), view(&eng));
-    let st = |r: &CoreReport| r.keys.iter().map(|k| (k.key.clone(), k.status.clone(), k.chosen.map(|i| k.alternatives[i].relation_digest.clone()))).collect::<Vec<_>>();
+    let st = |r: &CoreReport| {
+        r.keys
+            .iter()
+            .map(|k| {
+                (
+                    k.key.clone(),
+                    k.status.clone(),
+                    k.chosen.map(|i| k.alternatives[i].relation_digest.clone()),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
     assert_eq!(st(&emu), st(&eng));
-    assert!(eng.groups[0].pieces.iter().filter(|p| p.kind == "minimised").all(|p| p.minimise["backend"] == "engine"));
-    assert!(emu.groups[0].pieces.iter().filter(|p| p.kind == "minimised").all(|p| p.minimise["backend"] == "emulated"));
+    assert!(
+        eng.groups[0]
+            .pieces
+            .iter()
+            .filter(|p| p.kind == "minimised")
+            .all(|p| p.minimise["backend"] == "engine")
+    );
+    assert!(
+        emu.groups[0]
+            .pieces
+            .iter()
+            .filter(|p| p.kind == "minimised")
+            .all(|p| p.minimise["backend"] == "emulated")
+    );
 }

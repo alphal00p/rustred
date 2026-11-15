@@ -24,7 +24,8 @@ use super::spec::CoreSeedPolicy;
 use super::{CoreSolver, Key, KeyAnswer, RelationInfo, SolveReq};
 
 /// Builds the request of a list at keys (the rule's recipe with `list` as its explicit centres).
-pub type MakeReq<'a> = dyn Fn(&[Offset], &[Key], &str, Option<Value>) -> Result<SolveReq, String> + 'a;
+pub type MakeReq<'a> =
+    dyn Fn(&[Offset], &[Key], &str, Option<Value>) -> Result<SolveReq, String> + 'a;
 
 /// What a minimisation produced.
 #[derive(Clone, Debug)]
@@ -193,7 +194,12 @@ pub fn minimise(
         let Some(KeyAnswer::Relation(r)) = ans.first().and_then(|a| a.first()) else {
             return Ok(None);
         };
-        let used: BTreeSet<Offset> = r.seeds_used.clone().unwrap_or_default().into_iter().collect();
+        let used: BTreeSet<Offset> = r
+            .seeds_used
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
         let mut mem = r.minimise.clone().unwrap_or(Value::Null);
         mem["backend"] = json!("engine");
         return Ok(Some(MinResult {
@@ -208,12 +214,18 @@ pub fn minimise(
     let mut discarded = 0u64;
     let mut solved_total = 0u64;
     let base: BTreeMap<Key, RelationInfo> = match known {
-        Some(k) if keys.iter().all(|x| k.contains_key(x)) => keys
-            .iter()
-            .map(|x| (x.clone(), k[x].clone()))
-            .collect(),
+        Some(k) if keys.iter().all(|x| k.contains_key(x)) => {
+            keys.iter().map(|x| (x.clone(), k[x].clone())).collect()
+        }
         _ => {
-            let a = solve_trials(solver, make, &[list.to_vec()], keys, &[], &format!("{label}/full"))?;
+            let a = solve_trials(
+                solver,
+                make,
+                &[list.to_vec()],
+                keys,
+                &[],
+                &format!("{label}/full"),
+            )?;
             solves += 1;
             solved_total += 1;
             let t = judge(policy, keys, &BTreeMap::new(), &a[0]);
@@ -238,7 +250,10 @@ pub fn minimise(
     let original = if joint {
         original
     } else {
-        base.values().next().map(|r| r.relation_digest.clone()).unwrap_or(original)
+        base.values()
+            .next()
+            .map(|r| r.relation_digest.clone())
+            .unwrap_or(original)
     };
     let (rhs_before, rhs_sum_before) = rhs_of(&base);
     let mut keep: Vec<Offset> = list.to_vec();
@@ -250,7 +265,14 @@ pub fn minimise(
         if let Some(s) = support(&cur) {
             let r = restrict(&keep, &s);
             if r.len() < keep.len() && !r.is_empty() && solves < m.max_solves {
-                let a = solve_trials(solver, make, std::slice::from_ref(&r), keys, &[], &format!("{label}/support"))?;
+                let a = solve_trials(
+                    solver,
+                    make,
+                    std::slice::from_ref(&r),
+                    keys,
+                    &[],
+                    &format!("{label}/support"),
+                )?;
                 solves += 1;
                 solved_total += 1;
                 let t = judge(policy, keys, &cur, &a[0]);
@@ -303,7 +325,14 @@ pub fn minimise(
             let answers = if lists.is_empty() {
                 vec![]
             } else {
-                solve_trials(solver, make, &lists, keys, &witness, &format!("{label}/c{chunk}p{pos}"))?
+                solve_trials(
+                    solver,
+                    make,
+                    &lists,
+                    keys,
+                    &witness,
+                    &format!("{label}/c{chunk}p{pos}"),
+                )?
             };
             solved_total += lists.len() as u64;
             let mut it = answers.into_iter();
@@ -345,7 +374,14 @@ pub fn minimise(
     }
     // the relations of the FINAL list (a support restriction of the last solved list): solve it once more
     if keep != solved_list {
-        let a = solve_trials(solver, make, std::slice::from_ref(&keep), keys, &witness, &format!("{label}/final"))?;
+        let a = solve_trials(
+            solver,
+            make,
+            std::slice::from_ref(&keep),
+            keys,
+            &witness,
+            &format!("{label}/final"),
+        )?;
         solves += 1;
         solved_total += 1;
         let t = judge(policy, keys, &cur, &a[0]);

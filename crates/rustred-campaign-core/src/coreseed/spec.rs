@@ -427,7 +427,9 @@ fn check_centres(c: &[CentreSpec], what: &str) -> Result<(), String> {
         if let CentreSpec::Token(t) = x
             && !CENTRE_TOKENS.contains(&t.as_str())
         {
-            return Err(format!("{what}: centre token {t:?} not in {CENTRE_TOKENS:?}"));
+            return Err(format!(
+                "{what}: centre token {t:?} not in {CENTRE_TOKENS:?}"
+            ));
         }
     }
     Ok(())
@@ -442,7 +444,8 @@ fn check_shells(s: &[String], what: &str) -> Result<(), String> {
 
 impl CoreSeedPolicy {
     pub fn parse(text: &str) -> Result<CoreSeedPolicy, String> {
-        let p: CoreSeedPolicy = serde_json::from_str(text).map_err(|e| format!("coreseed policy: {e}"))?;
+        let p: CoreSeedPolicy =
+            serde_json::from_str(text).map_err(|e| format!("coreseed policy: {e}"))?;
         p.validate()?;
         Ok(p)
     }
@@ -460,12 +463,36 @@ impl CoreSeedPolicy {
         }
         pick(&self.mode, &["regular_preferred", "any_relation"], "mode")?;
         pick(&self.rule.measure, &["comparator", "m1"], "rule.measure")?;
-        pick(&self.minimise.backend, &["emulated", "engine"], "minimise.backend")?;
-        pick(&self.minimise.mode, &["greedy", "support", "off"], "minimise.mode")?;
-        pick(&self.minimise.order, &["distance", "outermost_first"], "minimise.order")?;
-        pick(&self.minimise.measure, &["comparator", "m1"], "minimise.measure")?;
-        pick(&self.domain.pivot, &["highest_dr", "lowest_dr", "first"], "domain.pivot")?;
-        pick(&self.joint.shells, &["rule", "rule+escalation"], "joint.shells")?;
+        pick(
+            &self.minimise.backend,
+            &["emulated", "engine"],
+            "minimise.backend",
+        )?;
+        pick(
+            &self.minimise.mode,
+            &["greedy", "support", "off"],
+            "minimise.mode",
+        )?;
+        pick(
+            &self.minimise.order,
+            &["distance", "outermost_first"],
+            "minimise.order",
+        )?;
+        pick(
+            &self.minimise.measure,
+            &["comparator", "m1"],
+            "minimise.measure",
+        )?;
+        pick(
+            &self.domain.pivot,
+            &["highest_dr", "lowest_dr", "first"],
+            "domain.pivot",
+        )?;
+        pick(
+            &self.joint.shells,
+            &["rule", "rule+escalation"],
+            "joint.shells",
+        )?;
         pick(&self.select, &["smallest"], "select")?;
         if self.rule.centres.is_empty() || self.rule.shells.is_empty() {
             return Err("rule: centres and shells must not be empty".into());

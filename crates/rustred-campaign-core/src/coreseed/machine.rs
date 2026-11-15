@@ -78,6 +78,8 @@ pub struct RuleRecord {
     /// Centre labels at the first key the rule was run at.
     pub centres: Vec<String>,
     pub shells: Vec<String>,
+    /// The seed (row) order of the list (TRICKS 17 b: the relation depends on it; every size is stated with it).
+    pub order: String,
     pub seeds: usize,
     pub list_sha256: String,
     pub keys_sent: usize,
@@ -92,6 +94,8 @@ pub struct RuleRecord {
 pub struct Piece {
     pub id: String,
     pub rule: String,
+    /// The seed (row) order of `list` (part of the recipe text and digest).
+    pub order: String,
     /// `minimised` | `full_list`.
     pub kind: String,
     pub list: Vec<Offset>,
@@ -237,7 +241,10 @@ impl<'a> Group<'a> {
         self.policy.mode == "regular_preferred"
     }
 
-    fn make_req(&self, rule: &Rule) -> impl Fn(&[Offset], &[Key], &str, Option<Value>) -> Result<SolveReq, String> + '_ {
+    fn make_req(
+        &self,
+        rule: &Rule,
+    ) -> impl Fn(&[Offset], &[Key], &str, Option<Value>) -> Result<SolveReq, String> + '_ {
         let rid = rule.id.clone();
         let shells = rule.shells.clone();
         move |list: &[Offset], keys: &[Key], label: &str, eng: Option<Value>| {
@@ -266,7 +273,15 @@ impl<'a> Group<'a> {
         self.state.get(k).is_some_and(|s| !s.alts.is_empty())
     }
 
-    fn record(&mut self, k: &Key, phase: &str, rule: &str, list: &str, seeds: usize, a: &KeyAnswer) {
+    fn record(
+        &mut self,
+        k: &Key,
+        phase: &str,
+        rule: &str,
+        list: &str,
+        seeds: usize,
+        a: &KeyAnswer,
+    ) {
         let (detail, rhs, d0, dig) = match a {
             KeyAnswer::Relation(r) => (
                 None,
@@ -275,7 +290,9 @@ impl<'a> Group<'a> {
                 Some(r.relation_digest.clone()),
             ),
             KeyAnswer::Budget { what } => (Some(what.clone()), None, None, None),
-            KeyAnswer::Failed { class, message } => (Some(format!("{class}: {message}")), None, None, None),
+            KeyAnswer::Failed { class, message } => {
+                (Some(format!("{class}: {message}")), None, None, None)
+            }
             _ => (None, None, None, None),
         };
         let st = self.state.entry(k.clone()).or_default();
@@ -291,7 +308,10 @@ impl<'a> Group<'a> {
             relation_digest: dig,
         });
         if let KeyAnswer::Relation(r) = a
-            && !st.alts.iter().any(|x| x.relation_digest == r.relation_digest)
+            && !st
+                .alts
+                .iter()
+                .any(|x| x.relation_digest == r.relation_digest)
         {
             st.alts.push(Alternative {
                 phase: phase.into(),
@@ -338,6 +358,7 @@ impl<'a> Group<'a> {
                 phase: r.phase.clone(),
                 centres,
                 shells: r.shells.clone(),
+                order: self.policy.minimise.order.clone(),
                 seeds: list.len(),
                 list_sha256: lsha.clone(),
                 keys_sent: ks.len(),
@@ -346,11 +367,16 @@ impl<'a> Group<'a> {
                 budget: 0,
                 failed: 0,
             });
-            self.rule_lists.insert(r.id.clone(), (r.clone(), list.clone()));
+            self.rule_lists
+                .insert(r.id.clone(), (r.clone(), list.clone()));
             if list.len() > self.policy.caps.max_seeds {
                 for k in &ks {
                     let a = KeyAnswer::Budget {
-                        what: format!("over_seed_cap {} > {}", list.len(), self.policy.caps.max_seeds),
+                        what: format!(
+                            "over_seed_cap {} > {}",
+                            list.len(),
+                            self.policy.caps.max_seeds
+                        ),
                     };
                     self.record(k, &r.phase, &r.id, "full", list.len(), &a);
                 }
@@ -403,8 +429,20 @@ impl<'a> Group<'a> {
         Ok(())
     }
 
-    /// Rules of one step for `keys` (one rule, or one per resolved centre label).
-    fn step_rules(&self, step: &StepSpec, phase: &str, shells: &[String], keys: &[Key]) -> Vec<Rule> {
+    /// Rules of one step for `keys` (one rule, or one per resolved centre label). The variant phases (centre scan,
+    /// regular escalation) run once per shell set, so their ids carry the shells.
+    fn step_rules(
+        &self,
+        step: &StepSpec,
+        phase: &str,
+        shells: &[String],
+        keys: &[Key],
+    ) -> Vec<Rule> {
+        let at = if phase == "escalation" {
+            String::new()
+        } else {
+            format!("@{}", shells.join("+"))
+        };
         let base = if step.centres.is_empty() || step.keep_base_centre {
             self.policy.rule.centres.clone()
         } else {
@@ -412,7 +450,7 @@ impl<'a> Group<'a> {
         };
         if step.centres.is_empty() || !step.per_centre {
             return vec![Rule {
-                id: format!("{phase}:{}", step.id),
+                id: format!("{phase}:{}{at}", step.id),
                 phase: phase.into(),
                 base,
                 extra: step.centres.clone(),
@@ -431,7 +469,7 @@ impl<'a> Group<'a> {
         labels
             .into_iter()
             .map(|l| Rule {
-                id: format!("{phase}:{}:{l}", step.id),
+                id: format!("{phase}:{}:{l}{at}", step.id),
                 phase: phase.into(),
                 base: base.clone(),
                 extra: step.centres.clone(),
@@ -457,7 +495,8 @@ impl<'a> Group<'a> {
             .iter()
             .filter(|k| {
                 self.best(k).is_some_and(|b| {
-                    b.rhs_terms > cs.min_terms || (cs.on_singular && regular_first && !b.d0.is_regular())
+                    b.rhs_terms > cs.min_terms
+                        || (cs.on_singular && regular_first && !b.d0.is_regular())
                 })
             })
             .cloned()
@@ -550,10 +589,13 @@ impl<'a> Group<'a> {
             && self.policy.minimise.mode != "off"
         {
             let pivot = self.pivot(&remaining);
-            let known: BTreeMap<Key, RelationInfo> = match self.cache.get(&(lsha.clone(), pivot.clone())) {
-                Some(KeyAnswer::Relation(r)) => [(pivot.clone(), (**r).clone())].into_iter().collect(),
-                _ => BTreeMap::new(),
-            };
+            let known: BTreeMap<Key, RelationInfo> =
+                match self.cache.get(&(lsha.clone(), pivot.clone())) {
+                    Some(KeyAnswer::Relation(r)) => {
+                        [(pivot.clone(), (**r).clone())].into_iter().collect()
+                    }
+                    _ => BTreeMap::new(),
+                };
             let label = format!("min{n_lists}");
             let mk = self.make_req(&rule);
             let mk_dyn: &MakeReq<'_> = &mk;
@@ -571,7 +613,8 @@ impl<'a> Group<'a> {
             let Some(res) = res else {
                 // the pivot is not certified by the full list any more (budget at a re-solve): it keeps the full list
                 remaining.retain(|k| *k != pivot);
-                self.pieces.push(self.full_piece(&rule, &full, &[pivot.clone()]));
+                self.pieces
+                    .push(self.full_piece(&rule, &full, &[pivot.clone()]));
                 continue;
             };
             let piece_id = format!("{}#{}", rule.id, self.pieces.len());
@@ -591,7 +634,14 @@ impl<'a> Group<'a> {
             let mut failed = vec![];
             let pr = res.per_key.get(&pivot).cloned();
             if let Some(r) = &pr {
-                self.record(&pivot, "minimise", &rule.id, &piece_id, res.list.len(), &KeyAnswer::Relation(Box::new(r.clone())));
+                self.record(
+                    &pivot,
+                    "minimise",
+                    &rule.id,
+                    &piece_id,
+                    res.list.len(),
+                    &KeyAnswer::Relation(Box::new(r.clone())),
+                );
             }
             for k in &test {
                 let a = answers.remove(k).unwrap_or(KeyAnswer::Failed {
@@ -631,6 +681,7 @@ impl<'a> Group<'a> {
             self.pieces.push(Piece {
                 id: piece_id,
                 rule: rule.id.clone(),
+                order: self.policy.minimise.order.clone(),
                 kind: "minimised".into(),
                 list_sha256: sha256_list(&res.list),
                 list: res.list,
@@ -657,6 +708,7 @@ impl<'a> Group<'a> {
             fixed_in_piece: self.fixed_in(keys),
             id,
             rule: rule.id.clone(),
+            order: self.policy.minimise.order.clone(),
             kind: "full_list".into(),
             list: full.to_vec(),
             list_sha256: sha256_list(full),
@@ -714,7 +766,11 @@ impl<'a> Group<'a> {
     fn partial(&self) -> Value {
         let mut c: BTreeMap<&str, usize> = BTreeMap::new();
         for k in &self.keys {
-            let s = if self.has_relation(k) { "relation" } else { "open" };
+            let s = if self.has_relation(k) {
+                "relation"
+            } else {
+                "open"
+            };
             *c.entry(s).or_default() += 1;
         }
         json!({"group": self.tag, "keys": self.keys.len(), "counts": c, "requests": self.requests})
@@ -733,12 +789,18 @@ pub fn solve_core(
     let mut ks: Vec<Key> = keys.to_vec();
     ks.sort();
     ks.dedup();
-    if let Some(k) = ks.iter().find(|k| k.len() != n || !valid_at(k, &vec![0; n], lines)) {
+    if let Some(k) = ks
+        .iter()
+        .find(|k| k.len() != n || !valid_at(k, &vec![0; n], lines))
+    {
         return Err(format!("key {k:?} is not a top-sector key of the chart"));
     }
     let mut groups: BTreeMap<(Vec<usize>, Vec<usize>), Vec<Key>> = BTreeMap::new();
     for k in &ks {
-        groups.entry(signature(k, lines)).or_default().push(k.clone());
+        groups
+            .entry(signature(k, lines))
+            .or_default()
+            .push(k.clone());
     }
     let mut out_groups = vec![];
     let mut out_keys = vec![];
@@ -749,8 +811,16 @@ pub fn solve_core(
             .collect();
         let tag = format!(
             "g{gi}-L{}-N{}",
-            sig.0.iter().map(|x| x.to_string()).collect::<Vec<_>>().join("."),
-            sig.1.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(".")
+            sig.0
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join("."),
+            sig.1
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join(".")
         );
         let mut g = Group {
             policy,
@@ -768,6 +838,9 @@ pub fn solve_core(
             scan_jobs: 0,
             requests: 0,
         };
+        // CLOSE FIRST (POLES_OBJECTIVE.md 1; binding): A and the whole escalation B serve keys; a certified relation serves
+        // its key at once, singular at d0 or not; the variant search (centre scan, regular escalation) runs only AFTER
+        // every key is served or decided, on its own budget, and only adds alternatives (it never holds a key open)
         // A: the rule at every key
         let r0 = Rule {
             id: "rule".into(),
@@ -778,15 +851,15 @@ pub fn solve_core(
             shells: policy.rule.shells.clone(),
         };
         g.run_rules(solver, std::slice::from_ref(&r0), &gkeys)?;
-        let solved: Vec<Key> = gkeys.iter().filter(|k| g.has_relation(k)).cloned().collect();
         solver.progress("rule", &g.partial());
-        g.centre_scan(solver, &solved, &policy.rule.shells)?;
-        g.regular_escalation(solver, &solved, &policy.rule.shells)?;
-        solver.progress("rule+scan", &g.partial());
         // B: escalation for the keys without a relation (cumulative shells)
         let mut shells = policy.rule.shells.clone();
         for step in &policy.escalation {
-            let open: Vec<Key> = gkeys.iter().filter(|k| !g.has_relation(k)).cloned().collect();
+            let open: Vec<Key> = gkeys
+                .iter()
+                .filter(|k| !g.has_relation(k))
+                .cloned()
+                .collect();
             if open.is_empty() {
                 break;
             }
@@ -797,11 +870,28 @@ pub fn solve_core(
             }
             let rules = g.step_rules(step, "escalation", &shells, &open);
             g.run_rules(solver, &rules, &open)?;
-            let new: Vec<Key> = open.iter().filter(|k| g.has_relation(k)).cloned().collect();
-            g.centre_scan(solver, &new, &shells)?;
-            g.regular_escalation(solver, &new, &shells)?;
             solver.progress(&format!("escalation:{}", step.id), &g.partial());
         }
+        // S + R: variants of SERVED keys, with the shells of the rule that served each key first
+        let mut by_shells: BTreeMap<Vec<String>, Vec<Key>> = BTreeMap::new();
+        for k in &gkeys {
+            let first_rule = g
+                .state
+                .get(k)
+                .and_then(|s| s.alts.first())
+                .map(|a| a.rule.clone());
+            if let Some(sh) = first_rule
+                .and_then(|r| g.rule_lists.get(&r))
+                .map(|(r, _)| r.shells.clone())
+            {
+                by_shells.entry(sh).or_default().push(k.clone());
+            }
+        }
+        for (sh, ks) in by_shells {
+            g.centre_scan(solver, &ks, &sh)?;
+            g.regular_escalation(solver, &ks, &sh)?;
+        }
+        solver.progress("variants", &g.partial());
         // L: lists + domain test per chosen rule (full-list alternatives)
         let regular_first = g.regular_first();
         let mut by_rule: BTreeMap<String, Vec<Key>> = BTreeMap::new();
@@ -827,10 +917,9 @@ pub fn solve_core(
         requests += g.requests;
         for k in &gkeys {
             let st = g.state.remove(k).unwrap_or_default();
-            let decided_none = !st.steps.is_empty()
-                && st.steps.iter().all(|s| s.outcome == "no_relation");
-            let nid = !st.steps.is_empty()
-                && st.steps.iter().all(|s| s.outcome == "not_in_domain");
+            let decided_none =
+                !st.steps.is_empty() && st.steps.iter().all(|s| s.outcome == "no_relation");
+            let nid = !st.steps.is_empty() && st.steps.iter().all(|s| s.outcome == "not_in_domain");
             let status = if !st.alts.is_empty() {
                 "relation"
             } else if decided_none {
@@ -873,7 +962,9 @@ pub fn solve_core(
             *first.entry(f.clone()).or_default() += 1;
         }
         if let Some(i) = k.chosen {
-            *chosen_d0.entry(k.alternatives[i].d0.word().into()).or_default() += 1;
+            *chosen_d0
+                .entry(k.alternatives[i].d0.word().into())
+                .or_default() += 1;
         }
     }
     let totals = json!({"keys": out_keys.len(), "status": status, "first_solved_by": first,

@@ -15,8 +15,12 @@ pub type Offset = Vec<i32>;
 
 /// The support signature of a key: (dotted lines = lines at power >= 2, nonzero numerators).
 pub fn signature(key: &[i32], lines: &[bool]) -> (Vec<usize>, Vec<usize>) {
-    let dotted = (0..key.len()).filter(|&i| lines[i] && key[i] >= 2).collect();
-    let nums = (0..key.len()).filter(|&i| !lines[i] && key[i] < 0).collect();
+    let dotted = (0..key.len())
+        .filter(|&i| lines[i] && key[i] >= 2)
+        .collect();
+    let nums = (0..key.len())
+        .filter(|&i| !lines[i] && key[i] < 0)
+        .collect();
     (dotted, nums)
 }
 
@@ -24,7 +28,13 @@ pub fn signature(key: &[i32], lines: &[bool]) -> (Vec<usize>, Vec<usize>) {
 pub fn dots_rank(key: &[i32], lines: &[bool]) -> i64 {
     key.iter()
         .zip(lines)
-        .map(|(&v, &l)| if l { (v - 1).max(0) as i64 } else { (-v).max(0) as i64 })
+        .map(|(&v, &l)| {
+            if l {
+                (v - 1).max(0) as i64
+            } else {
+                (-v).max(0) as i64
+            }
+        })
         .sum()
 }
 
@@ -131,7 +141,11 @@ fn multisets(n: usize, k: u32) -> Vec<Vec<usize>> {
 
 /// The offsets of `shells` around `centre` (generation order: shells in list order, raised multiset outer, lowered
 /// inner, both lexicographic; raised and lowered slots disjoint), WITHOUT the sector filter.
-pub fn shell_offsets(centre: &[i32], lines: &[bool], shells: &[String]) -> Result<Vec<Offset>, String> {
+pub fn shell_offsets(
+    centre: &[i32],
+    lines: &[bool],
+    shells: &[String],
+) -> Result<Vec<Offset>, String> {
     let n = centre.len();
     let mut out = vec![];
     for s in shells {
@@ -212,10 +226,22 @@ pub fn face_domain(sig: &(Vec<usize>, Vec<usize>), lines: &[bool]) -> Value {
         })
         .collect();
     let min: Vec<Value> = (0..n)
-        .map(|i| if sig.0.contains(&i) { json!(2) } else { Value::Null })
+        .map(|i| {
+            if sig.0.contains(&i) {
+                json!(2)
+            } else {
+                Value::Null
+            }
+        })
         .collect();
     let max: Vec<Value> = (0..n)
-        .map(|i| if sig.1.contains(&i) { json!(-1) } else { Value::Null })
+        .map(|i| {
+            if sig.1.contains(&i) {
+                json!(-1)
+            } else {
+                Value::Null
+            }
+        })
         .collect();
     json!({"fixed": fixed, "equations": [], "exceptions": [], "bounds": {"min": min, "max": max}})
 }
@@ -266,12 +292,17 @@ mod tests {
         let all = shell_offsets(&[0; 20], &l, &shells).unwrap();
         assert_eq!(all.len(), 4431);
         // with the centres {key, line 0 down} the list at K* is termmin2's 458 (= the helper's K* list), as a SET
-        let k: Vec<i32> = vec![2, 1, 1, 1, 1, 1, 1, 1, 1, -2, -1, 0, -1, 0, 0, 0, 0, 0, 0, -1];
-        let c = vec![CentreSpec::token("key"), CentreSpec::Offset({
-            let mut o = vec![0; 20];
-            o[0] = -1;
-            o
-        })];
+        let k: Vec<i32> = vec![
+            2, 1, 1, 1, 1, 1, 1, 1, 1, -2, -1, 0, -1, 0, 0, 0, 0, 0, 0, -1,
+        ];
+        let c = vec![
+            CentreSpec::token("key"),
+            CentreSpec::Offset({
+                let mut o = vec![0; 20];
+                o[0] = -1;
+                o
+            }),
+        ];
         let ours = rule_offsets(std::slice::from_ref(&k), &l, &c, &shells, &k).unwrap();
         let theirs = crate::termmin::steps::mixed_shell_offsets(&k, &l, &shells).unwrap();
         let a: BTreeSet<_> = ours.iter().cloned().collect();
@@ -279,8 +310,14 @@ mod tests {
         assert_eq!(a, b);
         assert_eq!(ours.len(), 458);
         // the same through the token dotted_line_down (K* has one dotted line)
-        let c2 = vec![CentreSpec::token("key"), CentreSpec::token("dotted_line_down")];
-        assert_eq!(rule_offsets(std::slice::from_ref(&k), &l, &c2, &shells, &k).unwrap(), ours);
+        let c2 = vec![
+            CentreSpec::token("key"),
+            CentreSpec::token("dotted_line_down"),
+        ];
+        assert_eq!(
+            rule_offsets(std::slice::from_ref(&k), &l, &c2, &shells, &k).unwrap(),
+            ours
+        );
     }
 
     #[test]
@@ -303,7 +340,14 @@ mod tests {
         let labels: Vec<&str> = r.iter().map(|x| x.0.as_str()).collect();
         assert_eq!(
             labels,
-            vec!["key", "line0_down", "line1_down", "num3_up", "line1_up", "floor_of_free"]
+            vec![
+                "key",
+                "line0_down",
+                "line1_down",
+                "num3_up",
+                "line1_up",
+                "floor_of_free"
+            ]
         );
         assert_eq!(r[3].1, vec![0, 0, 0, 1, 0]);
         assert_eq!(r[4].1, vec![0, 1, 0, 0, 0]);
@@ -323,8 +367,10 @@ mod tests {
         );
         assert_eq!(ordered(&list, "outermost_first")[0], vec![0, -1]);
         let dom = face_domain(&(vec![0], vec![]), &l);
-        let (_, text) = recipe_doc("t", &l, &dom, &list, "first_admissible", json!({}), None).unwrap();
-        let r = crate::worklist::recipe::Recipe::parse(&text).expect("the acceptance chain reads it");
+        let (_, text) =
+            recipe_doc("t", &l, &dom, &list, "first_admissible", json!({}), None).unwrap();
+        let r =
+            crate::worklist::recipe::Recipe::parse(&text).expect("the acceptance chain reads it");
         assert_eq!(r.relation_rule.as_deref(), Some("first_admissible"));
         assert_eq!(r.case_domain().unwrap().arity, 2);
     }
