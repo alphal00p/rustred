@@ -1396,3 +1396,8 @@ mod tests {
         assert!(rec.verify(Some(proof("exact_partition"))).is_err());
     }
 }
+
+/// Lane sizegen (interfaces/genchoice.md): the generation-choice portfolio of a whole node. Declared here until the
+/// integration lane adds `pub mod genchoice;` to lib.rs (REQUEST TO I-INT in notes/implementer.sizegen.md).
+#[path = "genchoice.rs"]
+pub mod genchoice;

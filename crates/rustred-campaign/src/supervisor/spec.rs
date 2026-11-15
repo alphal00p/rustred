@@ -458,10 +458,15 @@ impl CampaignSpec {
             if !self.programs.contains_key("rr_fake_child") {
                 return Err("a synthetic campaign needs programs.rr_fake_child".into());
             }
-        } else if !self.inputs.iter().any(|i| i.role == "closeloop") {
+        } else if !self
+            .inputs
+            .iter()
+            .any(|i| i.role == "closeloop" || i.role == super::genchoice::CONFIG_ROLE)
+        {
+            // lane sizegen (interfaces/genchoice.md): a generation-choice campaign names its config (role genchoice)
             // lane closeloop (closeloop.md 6.2): a close-from-material campaign names its config as an input
             return Err(
-                "only synthetic and close-from-material (an input of role closeloop) campaigns are supported by this version"
+                "only synthetic, close-from-material (an input of role closeloop) and generation-choice (role genchoice) campaigns are supported by this version"
                     .into(),
             );
         }
