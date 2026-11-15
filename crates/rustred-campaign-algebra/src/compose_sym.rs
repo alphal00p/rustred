@@ -258,6 +258,15 @@ impl Catalogue<SymQd> for SetCatalogue<'_> {
         if !rule_point(dom, term, &mut pt) {
             return Ok(Service::Unserved("no rule point at the term".into()));
         }
+        // the import's own term keys of this record at the term (the closure's bodies): must equal the record's
+        let mut bk: Vec<i32> = vec![];
+        let mut bm: Vec<u64> = vec![];
+        let body = self
+            .set
+            .bodies
+            .instantiate(&self.set.disp, rr, term, &mut bk, &mut bm)
+            .map_err(|e| format!("{e:?}"))?;
+        let arity = self.set.frame.arity();
         let vals: Vec<Integer> = pt.iter().map(|&x| Integer::from(x as i64)).collect();
         let reps: Vec<(usize, &Integer)> = vals.iter().enumerate().collect();
         let mut rhs = Vec::with_capacity(p.coefs.len());
@@ -280,6 +289,18 @@ impl Catalogue<SymQd> for SetCatalogue<'_> {
                 )));
             };
             rhs.push((k, c));
+        }
+        if let Some(nb) = body {
+            let same = nb == rhs.len()
+                && rhs
+                    .iter()
+                    .enumerate()
+                    .all(|(j, (k, _))| bk[j * arity..(j + 1) * arity] == k[..]);
+            if !same {
+                return Ok(Service::Unserved(
+                    "the record's term keys differ from the import's bodies at the term".into(),
+                ));
+            }
         }
         let info = &self.set.rules[rr.table][rr.record];
         Ok(Service::Rule {

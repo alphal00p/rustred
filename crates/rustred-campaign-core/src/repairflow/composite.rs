@@ -324,6 +324,11 @@ pub fn compose_image<A: ComposeAlgebra, C: Catalogue<A>>(
             Service::Unserved(why) => return Ok(Err(Refusal::Unserved { term: t, why })),
             Service::Rule { rule, rhs } => {
                 for (u, r) in rhs {
+                    // a rule term whose coefficient is exactly zero at the term is NOT an edge (e.g. a positive
+                    // numerator term, TRICKS 10): skipped before any test
+                    if alg.is_zero(&r)? {
+                        continue;
+                    }
                     // termination: a produced term that must be replaced again is lower than the one it came from
                     if u != key && !lower(&u, key) && cmp(&u, &t) != Ordering::Less {
                         return Ok(Err(Refusal::RuleNotDescending {

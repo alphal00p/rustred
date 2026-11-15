@@ -5,6 +5,7 @@
 //! terminal proposal. Pure library: no process, file, clock or ledger. Every threshold is policy DATA ([`policy`]).
 
 pub mod composite;
+pub mod core_stub;
 pub mod decide;
 pub mod face_format;
 pub mod faces;
