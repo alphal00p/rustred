@@ -341,3 +341,195 @@ fn mj_a_non_dumpable_descendant_of_a_job_is_named_and_never_proved_away() {
     );
     kill_pid(nd);
 }
+
+fn started_count(d: &Path) -> usize {
+    if !d.join("ledger").join("MANIFEST.json").exists() {
+        return 0;
+    }
+    count(d, |e| {
+        matches!(
+            e,
+            Event::Job {
+                ev: JobEvent::Started { .. },
+                ..
+            }
+        )
+    })
+}
+
+fn launch_count(d: &Path) -> usize {
+    count(d, |e| {
+        matches!(
+            e,
+            Event::Job {
+                ev: JobEvent::Launch { .. },
+                ..
+            }
+        )
+    })
+}
+
+/// Every directory below `root` whose name says it was moved aside ("unrecorded").
+fn moved_aside(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for e in rd.flatten() {
+            let p = e.path();
+            if e.file_type().is_ok_and(|t| t.is_dir()) {
+                if e.file_name().to_string_lossy().contains(".unrecorded-") {
+                    out.push(p.clone());
+                }
+                stack.push(p);
+            }
+        }
+    }
+    out
+}
+
+/// gate6 MJ-B (cp_inner.sh 'shared'): the original crashes with 3 jobs running, its directory is copied, and the copy
+/// (`--adopt-moved-campaign`) and the original's restart run AT ONCE with ONE external `dirs.work_dir`. The copy is
+/// REFUSED (exit 1) before it touches anything (no launch, no rename, no read); the original finishes with the result
+/// of an uninterrupted reference; no directory is renamed anywhere (before: both rc 10, results != reference, 7 run
+/// directories renamed).
+#[test]
+fn mj_b_copy_sharing_an_external_work_dir_is_refused_and_the_original_finishes() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    let t = Tmp::new("pf7-cp");
+    let work = t.path.join("work");
+    let base = spec(
+        &t,
+        serde_json::json!({"items": 6, "nodes": 2, "rungs": 1, "seed": 5, "case_ms": [3000, 5000],
+            "p_norule": 0.25, "p_mem": 0.0, "p_crash": 0.0, "deps": 0.0}),
+        serde_json::json!({"max_jobs": 3}),
+    );
+    let mut v = base.clone();
+    v["dirs"] = serde_json::json!({"work_dir": work});
+    let sp_ = write_spec(&t, "spec.json", &v);
+    let spr = write_spec(&t, "spec_ref.json", &base);
+    let rd = t.cdir("ref");
+    let ref_codes = run_to_end(&spr, &rd, &[]);
+    let reference = result(&rd);
+    let c = t.cdir("c");
+    let mut o = start(&sp_, &c, &[], &[]);
+    wait_until("three started jobs", Duration::from_secs(120), || {
+        started_count(&c) >= 3
+    });
+    std::thread::sleep(Duration::from_secs(1));
+    signal(&o, libc::SIGKILL);
+    let _ = o.wait();
+    assert!(work.join("RR_CAMPAIGN_WORK_OWNER").exists());
+    let c2 = t.cdir("c2");
+    let st = Command::new("cp")
+        .arg("-a")
+        .arg(&c)
+        .arg(&c2)
+        .env("PATH", path_env())
+        .status()
+        .unwrap();
+    assert!(st.success());
+    let launches_before = launch_count(&c2);
+    let mut nc = start(&sp_, &c2, &[], &[]);
+    assert_eq!(
+        wait(&mut nc, Duration::from_secs(60)),
+        7,
+        "a copy without --adopt-moved-campaign"
+    );
+    let mut cc = start(&sp_, &c2, &["--adopt-moved-campaign"], &[]);
+    let mut o2 = start(&sp_, &c, &[], &[]);
+    let ccode = wait(&mut cc, Duration::from_secs(120));
+    assert_eq!(ccode, 1, "the copy must be refused: {}", log_tail(&c2));
+    assert!(
+        log_tail(&c2).contains("belongs to campaign"),
+        "{}",
+        log_tail(&c2)
+    );
+    let ocode = wait(&mut o2, Duration::from_secs(600));
+    assert_eq!(Some(&ocode), ref_codes.last(), "{}", log_tail(&c));
+    assert_eq!(result(&c), reference, "{}", log_tail(&c));
+    assert_eq!(
+        launch_count(&c2),
+        launches_before,
+        "the copy launched nothing"
+    );
+    assert!(
+        moved_aside(&t.path).is_empty(),
+        "{:?}",
+        moved_aside(&t.path)
+    );
+    assert!(notes(&c, "run_dir_not_ours").is_empty());
+    assert_eq!(verify(&c), 0);
+    assert_no_marked(&t.campaign);
+}
+
+/// MJ-B, the settle side: a running attempt's run directory whose identity is replaced by another campaign's is NEVER
+/// read at settle: the attempt is lost and requeued, the run drains and ends with the typed refusal (exit 1) naming
+/// the directory; the restart redoes the work in a directory of its own and ends with the reference result.
+#[test]
+fn mj_b_settle_reads_nothing_from_a_run_dir_that_is_not_ours() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    let t = Tmp::new("pf7-ids");
+    let work = t.path.join("work");
+    let base = spec(
+        &t,
+        serde_json::json!({"items": 2, "nodes": 1, "rungs": 1, "seed": 7, "case_ms": [3000, 4000],
+            "p_norule": 0.0, "p_mem": 0.0, "p_crash": 0.0, "deps": 0.0}),
+        serde_json::json!({"max_jobs": 1}),
+    );
+    let mut v = base.clone();
+    v["dirs"] = serde_json::json!({"work_dir": work});
+    let sp_ = write_spec(&t, "spec.json", &v);
+    let spr = write_spec(&t, "spec_ref.json", &base);
+    let rd = t.cdir("ref");
+    let ref_codes = run_to_end(&spr, &rd, &[]);
+    let reference = result(&rd);
+    let c = t.cdir("c");
+    let mut s1 = start(&sp_, &c, &[], &[]);
+    wait_until("a started job", Duration::from_secs(120), || {
+        started_count(&c) >= 1
+    });
+    let run_dir = records(&c)
+        .into_iter()
+        .find_map(|r| match r.event {
+            Event::Job {
+                ev: JobEvent::Launch { run_dir, .. },
+                ..
+            } => Some(PathBuf::from(run_dir)),
+            _ => None,
+        })
+        .unwrap();
+    let id_file = run_dir.join("sup").join("CAMPAIGN");
+    std::fs::write(&id_file, "intruder.0123456789abcdef\n").unwrap();
+    let code = wait(&mut s1, Duration::from_secs(300));
+    assert_eq!(code, 1, "{}", log_tail(&c));
+    let n = notes(&c, "run_dir_not_ours");
+    assert!(
+        !n.is_empty() && n[0].contains(&run_dir.display().to_string()),
+        "{n:?}"
+    );
+    let lost = count(
+        &c,
+        |e| matches!(e, Event::Job { ev: JobEvent::Lose { reason }, .. } if reason.contains("not this campaign's")),
+    );
+    assert_eq!(lost, 1, "{}", log_tail(&c));
+    assert!(run_dir.exists(), "never renamed or removed");
+    let codes = run_to_end(&sp_, &c, &[]);
+    assert_eq!(
+        codes.last(),
+        ref_codes.last(),
+        "{codes:?}: {}",
+        log_tail(&c)
+    );
+    assert_eq!(result(&c), reference);
+    assert_eq!(verify(&c), 0);
+    assert_no_marked(&t.campaign);
+}

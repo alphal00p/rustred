@@ -11,6 +11,7 @@ pub mod identity;
 pub mod orphans;
 pub mod result;
 pub mod spec;
+pub mod workdir;
 pub mod worksource;
 
 use crate::adapters::{self, AdapterInput, AdapterKind};
@@ -461,6 +462,8 @@ pub struct Supervisor {
     resource_failures: u32,
     resource_backoff_until: Option<Instant>,
     resource_stop: Option<String>,
+    /// procfix7 (gate6 MJ-B): a run directory of another campaign (or of none) was met: draining, then exit 1.
+    refusal_stop: Option<String>,
 }
 
 /// Bound of consecutive supervisor resource failures at launch before the campaign stops (exit 71).
@@ -870,6 +873,27 @@ impl Supervisor {
                 "campaign id {key} (every job carries RR_CAMPAIGN_JOB={key}:<job>:a<k>; ledger input campaign:marker_id)"
             ),
         );
+        // procfix7 (gate6 MJ-B): an EXTERNAL work directory belongs to exactly one campaign (claimed at its first start,
+        // exclusive create): a copy of a campaign directory that shares its original's work_dir is refused HERE, before
+        // anything in the work directory is touched (never relaxed by --adopt-moved-campaign).
+        if workdir::is_external(&work_root, &cdir) {
+            match workdir::claim_work_dir(&work_root, &key) {
+                Ok(c) => log.line(
+                    "INFO",
+                    &format!(
+                        "work directory {} {} by this campaign ({})",
+                        work_root.display(),
+                        if c == workdir::ClaimOutcome::Claimed {
+                            "claimed"
+                        } else {
+                            "owned"
+                        },
+                        workdir::WORK_OWNER_FILE
+                    ),
+                ),
+                Err(e) => return Err(RunExit::Refused(e)),
+            }
+        }
         // A transient probe failure (EMFILE ...) is not "unsupported" (gate re-audit m-2/m-3): only a permanent answer refuses.
         if crate::launch::pidfd_probe() == crate::launch::PidfdProbe::Unsupported
             && !opts.spec.resources.allow_no_pidfd
@@ -1134,6 +1158,7 @@ impl Supervisor {
             resource_failures: 0,
             resource_backoff_until: None,
             resource_stop: None,
+            refusal_stop: None,
             opts,
         })
     }
@@ -1616,7 +1641,13 @@ impl Supervisor {
                 .jobs
                 .get(&job)
                 .and_then(|j| j.attempt_spec.clone());
-            match read_spec(&layout, launched.as_deref()) {
+            // procfix7 (gate6 MJ-B): never read a run directory that is not this campaign's
+            let owned = workdir::run_dir_owner(&layout.root, &self.ctx.campaign_key)
+                == workdir::RunDirOwner::Ours;
+            match owned
+                .then(|| read_spec(&layout, launched.as_deref()))
+                .flatten()
+            {
                 Some((spec, spec_digest)) => {
                     let kill = if was_killed { CKill::Stop } else { CKill::None };
                     self.settle_at_recovery(
@@ -2653,6 +2684,42 @@ impl Supervisor {
         // The supervisor's own kill reason K is an input of the decision table: a child stopped for time, silence or
         // memory that still writes an `interrupted` OUTCOME is killed_time / killed_memory there (rows 11b / 11c).
         // lane closeloop2 (closeloop.md 13.1): the legacy rr_proof kinds are sealed by the wrapper before classification
+        // procfix7 (gate6 MJ-B): nothing is read from a run directory that is not this campaign's: the attempt is lost
+        // (its work redone in a directory of our own) and the run ends with the typed refusal.
+        if workdir::run_dir_owner(&layout.root, &self.ctx.campaign_key)
+            != workdir::RunDirOwner::Ours
+        {
+            let still = self
+                .st()
+                .jobs
+                .get(job)
+                .is_some_and(|j| j.attempt == attempt && !j.state.is_settled());
+            if still && self.st().jobs.get(job).map(|j| j.state) != Some(AttemptState::Unconfirmed)
+            {
+                self.commit(vec![
+                    Event::Job {
+                        job: job.into(),
+                        attempt,
+                        ev: JobEvent::Lose {
+                            reason: "run directory is not this campaign's at settle: nothing read"
+                                .into(),
+                        },
+                    },
+                    Event::Job {
+                        job: job.into(),
+                        attempt: attempt + 1,
+                        ev: JobEvent::Requeue {
+                            reason: "lost (run directory not this campaign's)".into(),
+                        },
+                    },
+                ]);
+            }
+            self.refuse_run_dir(
+                &layout.root,
+                "its identity is not this campaign's at settle",
+            );
+            return SettleEnd::Done;
+        }
         let wait = crate::adapters::legacy::wrap(layout, spec, spec_digest, wait);
         let ev = classify::assess(layout, spec, spec_digest, wait, kill, false);
         // gate (c), lane int5: the SUPERVISOR's own resource failure while reading the attempt's files (EMFILE, ENFILE,
@@ -3025,6 +3092,87 @@ impl Supervisor {
         }
     }
 
+    /// procfix7 (gate6 MJ-B): create `run_dir` with this campaign's identity. An existing directory that is ours (a crash
+    /// between its creation and the launch record) is moved aside first; one that is not ours stops the run (exit 1).
+    fn create_own_run_dir(
+        &mut self,
+        run_dir: &Path,
+        job: &str,
+        attempt: u32,
+    ) -> Result<(), String> {
+        let key = self.ctx.campaign_key.clone();
+        for _ in 0..2 {
+            match workdir::create_run_dir(run_dir, &key) {
+                Ok(()) => return Ok(()),
+                Err(workdir::CreateError::Exists) => match workdir::run_dir_owner(run_dir, &key) {
+                    workdir::RunDirOwner::Ours => {
+                        let aside = run_dir.with_file_name(format!(
+                            "{}.unrecorded-{}",
+                            run_dir
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_else(|| format!("a{attempt}")),
+                            self.clock.now_utc().0
+                        ));
+                        self.log.line(
+                            "WARN",
+                            &format!("{job} a{attempt}: run directory {} of this campaign was never recorded (crash before the launch record): moved aside to {}", run_dir.display(), aside.display()),
+                        );
+                        std::fs::rename(run_dir, &aside)
+                            .map_err(|e| format!("move aside {}: {e}", run_dir.display()))?;
+                    }
+                    workdir::RunDirOwner::Other(id) => {
+                        self.refuse_run_dir(run_dir, &format!("it belongs to campaign {id:?}"));
+                        return Err(format!(
+                            "run directory {} belongs to campaign {id:?}",
+                            run_dir.display()
+                        ));
+                    }
+                    workdir::RunDirOwner::Unknown(why) => {
+                        self.refuse_run_dir(
+                            run_dir,
+                            &format!("it carries no campaign identity ({why})"),
+                        );
+                        return Err(format!(
+                            "run directory {} carries no campaign identity",
+                            run_dir.display()
+                        ));
+                    }
+                },
+                Err(workdir::CreateError::Io(e)) => {
+                    if let Some(c) = io_resource_errno(&e) {
+                        self.resource_failure(c, &format!("creating {}: {e}", run_dir.display()));
+                    }
+                    return Err(format!("creating {}: {e}", run_dir.display()));
+                }
+            }
+        }
+        Err(format!(
+            "run directory {} reappeared after it was moved aside",
+            run_dir.display()
+        ))
+    }
+
+    /// procfix7 (gate6 MJ-B): a run directory that is not this campaign's: never renamed, removed or read; the run drains
+    /// and ends with the typed refusal (exit 1) naming it (ledger note `run_dir_not_ours`).
+    fn refuse_run_dir(&mut self, run_dir: &Path, why: &str) {
+        let msg = format!(
+            "run directory {} is not this campaign's ({why}): it was not renamed, removed or read. Another campaign shares              this work directory (a copied campaign directory with the same dirs.work_dir?): give each campaign its own              work_dir, then run the same command",
+            run_dir.display()
+        );
+        self.log.line("ERROR", &msg);
+        self.commit(vec![Event::Note {
+            text: format!(
+                "run_dir_not_ours {{\"run_dir\":{:?},\"why\":{why:?}}}",
+                run_dir.display().to_string()
+            ),
+        }]);
+        if self.refusal_stop.is_none() {
+            self.refusal_stop = Some(msg);
+        }
+        self.signals.handle.request_stop();
+    }
+
     fn launch(&mut self, req: &JobRequest, lease: CpuLease) -> Result<(), String> {
         let existing = self.st().jobs.get(&req.job).cloned();
         let attempt = match &existing {
@@ -3038,19 +3186,17 @@ impl Supervisor {
             .cloned()
             .ok_or_else(|| format!("program {} not in the spec", req.program))?;
         let run_dir = attempt_dir(&self.work_root.clone(), &req.job, attempt);
-        if run_dir.exists() {
-            // Left by a crash between job.json and the launch record: never recorded, move it aside.
-            let aside =
-                run_dir.with_file_name(format!("a{attempt}.unrecorded-{}", self.clock.now_utc().0));
-            std::fs::rename(&run_dir, &aside)
-                .map_err(|e| format!("move aside {}: {e}", run_dir.display()))?;
-        }
+        // procfix7 (gate6 MJ-B): the run directory is created WITH this campaign's identity (RUN/sup/CAMPAIGN) in one
+        // atomic step; an existing one is moved aside only when it is ours (left by a crash between its creation and
+        // the launch record); another campaign's (or an unidentified) directory is never renamed, removed or read.
+        self.create_own_run_dir(&run_dir, &req.job, attempt)?;
         let resume = if attempt > 1 {
             let prev_spec = existing.as_ref().and_then(|j| j.prev_attempt_spec.clone());
-            resume_from(
-                &attempt_dir(&self.work_root.clone(), &req.job, attempt - 1),
-                prev_spec.as_deref(),
-            )
+            let prev = attempt_dir(&self.work_root.clone(), &req.job, attempt - 1);
+            // never read from a previous run directory that is not this campaign's
+            (workdir::run_dir_owner(&prev, &self.ctx.campaign_key) == workdir::RunDirOwner::Ours)
+                .then(|| resume_from(&prev, prev_spec.as_deref()))
+                .flatten()
         } else {
             None
         };
@@ -3080,15 +3226,11 @@ impl Supervisor {
                 return Err(format!("run dir: {e}"));
             }
         };
-        // Run directory authentication at recovery (requirement 05:23Z): the campaign's marker id, before the launch record.
-        if let Err(e) = crate::atomic::write_atomic(
-            &RunLayout::new(&run_dir).sup_dir().join(CAMPAIGN_ID_FILE),
-            format!("{}\n", self.ctx.campaign_key).as_bytes(),
-        ) {
-            if let Some(c) = io_resource_errno(&std::io::Error::other(e.to_string())) {
-                self.resource_failure(c, "writing RUN/sup/CAMPAIGN");
-            }
-            return Err(format!("RUN/sup/{CAMPAIGN_ID_FILE}: {e}"));
+        // Run directory authentication at recovery (requirement 05:23Z): the campaign's marker id was written when the
+        // directory was created (procfix7, before the launch record); it must still be ours.
+        if workdir::run_dir_owner(&run_dir, &self.ctx.campaign_key) != workdir::RunDirOwner::Ours {
+            self.refuse_run_dir(&run_dir, "its identity changed after it was created");
+            return Err(format!("RUN/sup/{CAMPAIGN_ID_FILE} is not this campaign's"));
         }
         // lane closeloop (closeloop.md 6.3): `<path> <verb> --job RUN/job.json` for a program with a job verb
         if kind == AdapterKind::Contract
@@ -4771,6 +4913,9 @@ impl Supervisor {
                     }
                     if self.disk_floor_hit {
                         return RunExit::DiskFloor;
+                    }
+                    if let Some(m) = self.refusal_stop.clone() {
+                        return RunExit::Refused(m);
                     }
                     if let Some(m) = self.resource_stop.clone() {
                         return RunExit::Resources(m);
