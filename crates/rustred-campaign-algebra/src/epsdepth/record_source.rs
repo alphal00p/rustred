@@ -96,8 +96,13 @@ pub struct RecordSource<'a> {
     cache_bytes: usize,
     pub budget_bytes: usize,
     tick: u64,
+    /// Supplied relation records (path, record sha256): addressed as table [`SUPPLIED`].
+    supplied: Vec<(String, String)>,
     pub stats: SourceStats,
 }
+
+/// The pseudo table index of supplied relation records.
+const SUPPLIED: usize = usize::MAX;
 
 /// The raw line at `offset` of `path` (without its newline) and its sha256 (hex): the record reader of the import's
 /// table index (a record is addressed by byte offset, TRICKS 11).
@@ -116,6 +121,21 @@ pub fn line_at(path: &Path, offset: u64) -> Result<(Vec<u8>, String), String> {
     let mut h = Sha256::new();
     h.update(&line);
     Ok((line, h.finish_hex()))
+}
+
+/// The line of `path` whose sha256 is `want` (small supplied relation files; scanned once per record).
+pub fn line_with_sha(path: &Path, want: &str) -> Result<Vec<u8>, String> {
+    use std::io::BufRead;
+    let f = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    for line in std::io::BufReader::new(f).split(b'\n') {
+        let line = line.map_err(|e| format!("{}: {e}", path.display()))?;
+        let mut h = Sha256::new();
+        h.update(&line);
+        if h.finish_hex() == want {
+            return Ok(line);
+        }
+    }
+    Err(format!("no line of {} has sha256 {want}", path.display()))
 }
 
 /// sha256 hex of a file (streamed).
@@ -210,6 +230,7 @@ impl<'a> RecordSource<'a> {
             cache_bytes: 0,
             budget_bytes,
             tick: 0,
+            supplied: vec![],
             stats: SourceStats::default(),
         };
         let text = std::fs::read_to_string(statement_dir.join("statement.jsonl"))
@@ -265,6 +286,25 @@ impl<'a> RecordSource<'a> {
                         }
                         (Some(k), None) if k == "rule" || k == "credit" => {
                             St::Open(format!("record {sha} not dispatched by the set"))
+                        }
+                        (Some("relation"), _) => {
+                            // a supplied relation set entry (point record): bound by its record sha256
+                            let src_id = srv["source"].as_str().unwrap_or("");
+                            match set.supplied_info.get(src_id).and_then(|m| m.get(&key)) {
+                                Some(info)
+                                    if info.record_sha256.trim_start_matches("sha256:")
+                                        == sha.trim_start_matches("sha256:") =>
+                                {
+                                    s.supplied.push((info.path.clone(), sha.to_string()));
+                                    St::Rule {
+                                        table: SUPPLIED,
+                                        record: s.supplied.len() - 1,
+                                    }
+                                }
+                                _ => St::Open(format!(
+                                    "relation of set {src_id:?} not a supplied point record of the set (recipe relations are not composed by this source)"
+                                )),
+                            }
                         }
                         (k, _) => {
                             St::Open(format!("server kind {k:?} not composed by this source"))
@@ -374,15 +414,22 @@ impl<'a> RecordSource<'a> {
             e.last = self.tick;
             return Ok(());
         }
-        let info = self.set.rule(table, record);
-        let (line, sha) = line_at(Path::new(&info.path), info.offset)?;
-        let want = info.record_sha256.trim_start_matches("sha256:");
-        if sha.trim_start_matches("sha256:") != want {
-            return Err(format!(
-                "record at {}@{}: sha256 {sha} != {want}",
-                info.path, info.offset
-            ));
-        }
+        let (line, want) = if table == SUPPLIED {
+            let (path, want) = self.supplied[record].clone();
+            let want = want.trim_start_matches("sha256:").to_string();
+            (line_with_sha(Path::new(&path), &want)?, want)
+        } else {
+            let info = self.set.rule(table, record);
+            let (line, sha) = line_at(Path::new(&info.path), info.offset)?;
+            let want = info.record_sha256.trim_start_matches("sha256:").to_string();
+            if sha.trim_start_matches("sha256:") != want {
+                return Err(format!(
+                    "record at {}@{}: sha256 {sha} != {want}",
+                    info.path, info.offset
+                ));
+            }
+            (line, want)
+        };
         let rt = RuleText::parse(&line, &self.set.frame).map_err(|e| e.to_string())?;
         let domain = rt.domain.clone().ok_or_else(|| {
             format!(
