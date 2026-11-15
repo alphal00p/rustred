@@ -17,12 +17,12 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
+use super::rows::{RowsError, rows_pruned};
 use super::{
     Combination, KeyOutcome, KeyResult, PairShift, RowRef, RowSpec, SearchStats, TwoRowPolicy,
 };
 use crate::import::symmetry::{RelationCheck, verify_relation_with};
 use crate::replay_base::algebra::{CheckAlgebra, Q};
-use super::rows::{RowsError, rows_pruned};
 use crate::replay_base::symrows::VerifiedGroup;
 
 /// The node comparator: `cmp(a, b) == Less` iff `a` is lower than `b`.
@@ -37,12 +37,19 @@ pub enum Reject {
     /// Malformed shape: empty, weight count, a shift that does not apply or leaves the chart.
     Shape(String),
     /// The element gives no row at that seed (a numerator image not usable there, or the row cancels).
-    NoRow { element: usize, seed: Vec<i32> },
-    OverCap { seed: Vec<i32> },
+    NoRow {
+        element: usize,
+        seed: Vec<i32>,
+    },
+    OverCap {
+        seed: Vec<i32>,
+    },
     Undecided(String),
     /// The coefficient of the key in the combination is exactly 0.
     KeyCancels,
-    NotLower { term: Vec<i32> },
+    NotLower {
+        term: Vec<i32>,
+    },
 }
 
 impl std::fmt::Display for Reject {
@@ -371,7 +378,8 @@ pub fn search_key<A: CheckAlgebra>(
             Ok(d) if same_relation(&c, &d) => kept.push(c),
             Ok(_) => {
                 stats.undecided += 1;
-                undecided_reason.get_or_insert("re-derivation differs from the echelon form".into());
+                undecided_reason
+                    .get_or_insert("re-derivation differs from the echelon form".into());
             }
             Err(e) => {
                 stats.undecided += 1;
@@ -390,7 +398,10 @@ pub fn search_key<A: CheckAlgebra>(
             ));
         }
         if stats.pool_truncated {
-            what.push(format!("pool truncated at max_pool_rows {}", policy.max_pool_rows));
+            what.push(format!(
+                "pool truncated at max_pool_rows {}",
+                policy.max_pool_rows
+            ));
         }
         if stats.subsets_budget_hit {
             what.push(format!("max_subsets {} reached", policy.max_subsets));

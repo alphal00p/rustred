@@ -54,8 +54,14 @@ impl PairShift {
         for part in text.split(',').map(str::trim).filter(|p| !p.is_empty()) {
             let op = if let Some((a, b)) = part.split_once('=') {
                 ShiftOp::Set {
-                    slot: a.trim().parse().map_err(|_| format!("shift {part}: slot"))?,
-                    value: b.trim().parse().map_err(|_| format!("shift {part}: value"))?,
+                    slot: a
+                        .trim()
+                        .parse()
+                        .map_err(|_| format!("shift {part}: slot"))?,
+                    value: b
+                        .trim()
+                        .parse()
+                        .map_err(|_| format!("shift {part}: value"))?,
                 }
             } else if let Some(i) = part
                 .char_indices()
@@ -65,7 +71,10 @@ impl PairShift {
             {
                 let (a, b) = part.split_at(i);
                 ShiftOp::Add {
-                    slot: a.trim().parse().map_err(|_| format!("shift {part}: slot"))?,
+                    slot: a
+                        .trim()
+                        .parse()
+                        .map_err(|_| format!("shift {part}: slot"))?,
                     delta: b
                         .trim()
                         .trim_start_matches('+')
@@ -73,7 +82,9 @@ impl PairShift {
                         .map_err(|_| format!("shift {part}: delta"))?,
                 }
             } else {
-                return Err(format!("shift {part}: SLOT=VALUE, SLOT+DELTA or SLOT-DELTA"));
+                return Err(format!(
+                    "shift {part}: SLOT=VALUE, SLOT+DELTA or SLOT-DELTA"
+                ));
             };
             ops.push(op);
         }

@@ -19,7 +19,9 @@ use rustred_campaign_core::independent_algebra::Independent;
 use rustred_campaign_core::order::{NodeComparator, NodeOrderRecord};
 use rustred_campaign_core::replay_base::family::Family;
 use rustred_campaign_core::replay_base::symrows::VerifiedGroup;
-use rustred_campaign_core::tworow::{KeyResult, TwoRowPolicy, import_check, region_forms, search_key};
+use rustred_campaign_core::tworow::{
+    KeyResult, TwoRowPolicy, import_check, region_forms, search_key,
+};
 use rustred_campaign_core::worklist::items::Face;
 use serde_json::{Value, json};
 
@@ -40,7 +42,12 @@ fn frame() -> (VerifiedGroup, NodeComparator, Vec<bool>, Value, Family) {
         std::io::BufReader::new(f).read_line(&mut l).unwrap();
         let h: Value = serde_json::from_str(&l).unwrap();
         let cmp = NodeComparator::from_header(&h).unwrap();
-        let chart: Vec<bool> = h["mask"].as_str().unwrap().bytes().map(|b| b == b'1').collect();
+        let chart: Vec<bool> = h["mask"]
+            .as_str()
+            .unwrap()
+            .bytes()
+            .map(|b| b == b'1')
+            .collect();
         let gs: GroupSpec = serde_json::from_value(json!({})).unwrap();
         let (g, rep) = load_verified_group(
             &gs,
@@ -56,9 +63,10 @@ fn frame() -> (VerifiedGroup, NodeComparator, Vec<bool>, Value, Family) {
         (g, cmp, chart, info, fam)
     } else {
         let fam = std::env::var("TWOROW_FAMILY").expect("TWOROW_HEADER_TABLE or TWOROW_FAMILY");
-        let ord: NodeOrderRecord =
-            serde_json::from_str(&std::fs::read_to_string(std::env::var("TWOROW_ORDER").unwrap()).unwrap())
-                .unwrap();
+        let ord: NodeOrderRecord = serde_json::from_str(
+            &std::fs::read_to_string(std::env::var("TWOROW_ORDER").unwrap()).unwrap(),
+        )
+        .unwrap();
         let chart: Vec<bool> = std::env::var("TWOROW_CHART")
             .unwrap()
             .bytes()
@@ -86,8 +94,10 @@ fn tworow_on_real_keys() {
     let zero: Option<&(dyn Fn(&[i32]) -> bool + Sync)> =
         (std::env::var("TWOROW_ZERO").as_deref() == Ok("family")).then_some(&zf);
     let policy = match std::env::var("TWOROW_POLICY") {
-        Ok(p) => TwoRowPolicy::from_spec(&serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap())
-            .unwrap(),
+        Ok(p) => TwoRowPolicy::from_spec(
+            &serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap(),
+        )
+        .unwrap(),
         Err(_) => TwoRowPolicy::default(),
     };
     let mut keys: Vec<(Vec<i32>, String)> = vec![];
@@ -119,17 +129,28 @@ fn tworow_on_real_keys() {
                         break;
                     }
                     let t = Instant::now();
-                    let r = search_key(&Independent, &keys[i].0, &g, &cmp, &policy, zero.map(|z| z as &dyn Fn(&[i32]) -> bool));
+                    let r = search_key(
+                        &Independent,
+                        &keys[i].0,
+                        &g,
+                        &cmp,
+                        &policy,
+                        zero.map(|z| z as &dyn Fn(&[i32]) -> bool),
+                    );
                     let secs = t.elapsed().as_secs_f64();
                     // route (A) on the best relation
                     let a = match r.outcome.best() {
-                        Some(_) if zero.is_some() => json!({"skipped": "zero-sector terms dropped: not in the row span"}),
-                        Some(c) => match import_check(&Independent, &g, c, policy.max_terms_per_row) {
-                            RelationCheck::Verified { rows, rank, .. } => {
-                                json!({"verified": true, "rows": rows, "rank": rank})
+                        Some(_) if zero.is_some() => {
+                            json!({"skipped": "zero-sector terms dropped: not in the row span"})
+                        }
+                        Some(c) => {
+                            match import_check(&Independent, &g, c, policy.max_terms_per_row) {
+                                RelationCheck::Verified { rows, rank, .. } => {
+                                    json!({"verified": true, "rows": rows, "rank": rank})
+                                }
+                                x => json!({"verified": false, "check": format!("{x:?}")}),
                             }
-                            x => json!({"verified": false, "check": format!("{x:?}")}),
-                        },
+                        }
                         None => Value::Null,
                     };
                     results.lock().unwrap()[i] = Some((r, secs, a));
@@ -137,8 +158,12 @@ fn tworow_on_real_keys() {
             });
         }
     });
-    let results: Vec<(KeyResult, f64, Value)> =
-        results.into_inner().unwrap().into_iter().map(|x| x.unwrap()).collect();
+    let results: Vec<(KeyResult, f64, Value)> = results
+        .into_inner()
+        .unwrap()
+        .into_iter()
+        .map(|x| x.unwrap())
+        .collect();
     let mut out: Box<dyn Write> = match std::env::var("TWOROW_OUT") {
         Ok(p) => Box::new(std::io::BufWriter::new(std::fs::File::create(p).unwrap())),
         Err(_) => Box::new(std::io::sink()),
@@ -174,7 +199,12 @@ fn tworow_on_real_keys() {
         writeln!(out, "{j}").unwrap();
     }
     sizes.sort_unstable();
-    let line_perms: Vec<Value> = g.group().elements.iter().map(|e| json!(e.line_perm(&chart))).collect();
+    let line_perms: Vec<Value> = g
+        .group()
+        .elements
+        .iter()
+        .map(|e| json!(e.line_perm(&chart)))
+        .collect();
     let mut summary = json!({"summary": true, "info": info, "line_perms": line_perms, "policy": serde_json::to_value(&policy).unwrap(),
         "keys": keys.len(), "outcomes": by_outcome, "best_kind": by_kind, "by_label": by_label,
         "best_rhs_terms": {"min": sizes.first(), "median": sizes.get(sizes.len() / 2), "max": sizes.last()},
@@ -183,14 +213,24 @@ fn tworow_on_real_keys() {
     if std::env::var("TWOROW_REGION").as_deref() == Ok("1") {
         let mut faces: BTreeMap<String, Vec<usize>> = BTreeMap::new();
         for (i, (k, _)) in keys.iter().enumerate() {
-            let f = Face::of_key(k, &chart).map(|f| f.label()).unwrap_or_default();
+            let f = Face::of_key(k, &chart)
+                .map(|f| f.label())
+                .unwrap_or_default();
             faces.entry(f).or_default().push(i);
         }
         let mut regs = serde_json::Map::new();
         for (f, idx) in faces {
             let rk: Vec<Vec<i32>> = idx.iter().map(|&i| keys[i].0.clone()).collect();
             let rr: Vec<KeyResult> = idx.iter().map(|&i| results[i].0.clone()).collect();
-            let rep = region_forms(&Independent, &g, &rk, &rr, &cmp, &policy, zero.map(|z| z as &dyn Fn(&[i32]) -> bool));
+            let rep = region_forms(
+                &Independent,
+                &g,
+                &rk,
+                &rr,
+                &cmp,
+                &policy,
+                zero.map(|z| z as &dyn Fn(&[i32]) -> bool),
+            );
             regs.insert(f, rep.to_json());
         }
         summary["regions"] = Value::Object(regs);

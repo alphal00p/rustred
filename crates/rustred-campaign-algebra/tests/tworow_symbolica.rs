@@ -18,7 +18,9 @@ use rustred_campaign_core::replay_base::algebra::{CheckAlgebra, Q};
 use rustred_campaign_core::replay_base::family::Family;
 use rustred_campaign_core::replay_base::symrows::{DeriveOptions, verify_derived};
 use rustred_campaign_core::termmin::{SymRelation, symmetry_relation_at_key};
-use rustred_campaign_core::tworow::{Combination, PairShift, RowRef, RowSpec, TwoRowPolicy, search_key};
+use rustred_campaign_core::tworow::{
+    Combination, PairShift, RowRef, RowSpec, TwoRowPolicy, search_key,
+};
 use serde_json::{Value, json};
 
 const SUNSET: &str = "I(name(S),loops(k1,k2),externals(q),dimension(d),prop(D1,(k1)^2,1),prop(D2,(k2)^2,1),prop(D3,(k1+k2+q)^2,1),prop(D4,(k1+q)^2,0),prop(D5,(k2+q)^2,0),gram(q,q,1))";
@@ -79,7 +81,9 @@ fn second_route_agrees_and_symbolica_search_is_identical() {
             let rs = search_key(&sym, &k, &g, &cmp, &policy, None);
             // the same search with the Symbolica arithmetic: identical outcome and relations
             assert_eq!(ri.outcome, rs.outcome, "backends differ at {k:?}");
-            if let rustred_campaign_core::tworow::KeyOutcome::Served { relations: rels } = &ri.outcome {
+            if let rustred_campaign_core::tworow::KeyOutcome::Served { relations: rels } =
+                &ri.outcome
+            {
                 for comb in rels {
                     relations += 1;
                     let sr = second_route(&g, comb, &cmp, policy.max_terms_per_row, None).unwrap();
@@ -90,7 +94,8 @@ fn second_route_agrees_and_symbolica_search_is_identical() {
                     if let Some((_, q)) = comb.rhs.first() {
                         let mut bad = comb.clone();
                         bad.rhs[0].1 = Independent.q_add(*q, Q::ONE).unwrap();
-                        let sb = second_route(&g, &bad, &cmp, policy.max_terms_per_row, None).unwrap();
+                        let sb =
+                            second_route(&g, &bad, &cmp, policy.max_terms_per_row, None).unwrap();
                         assert!(!sb.equal);
                         planted += 1;
                     }
@@ -124,7 +129,12 @@ fn comb_from_json(v: &Value) -> Combination {
             })
             .collect(),
         weights: v["weights"].as_array().unwrap().iter().map(q).collect(),
-        key_coefficients: v["key_coefficients"].as_array().unwrap().iter().map(q).collect(),
+        key_coefficients: v["key_coefficients"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(q)
+            .collect(),
         rhs: v["rhs"]
             .as_array()
             .unwrap()
@@ -135,7 +145,7 @@ fn comb_from_json(v: &Value) -> Combination {
 }
 
 /// REAL: every relation in `TWOROW_RESULTS` (the core `tworow_real` JSONL) recomputed by the second route; the frame as
-/// in the core test (`TWOROW_HEADER_TABLE`, or `TWOROW_FAMILY` + `TWOROW_ORDER` + `TWOROW_CHART`).
+/// in the core test (`TWOROW_HEADER_TABLE`, or `TWOROW_FAMILY` + `TWOROW_ORDER` + `TWOROW_CHART`), `TWOROW_ZERO` as there.
 #[test]
 #[ignore]
 fn tworow_second_route_on_results() {
@@ -143,14 +153,19 @@ fn tworow_second_route_on_results() {
         return;
     }
     let base = Path::new("/");
-    let (g, cmpr) = if let Ok(tp) = std::env::var("TWOROW_HEADER_TABLE") {
+    let (g, cmpr, fam) = if let Ok(tp) = std::env::var("TWOROW_HEADER_TABLE") {
         let mut l = String::new();
         std::io::BufReader::new(std::fs::File::open(&tp).unwrap())
             .read_line(&mut l)
             .unwrap();
         let h: Value = serde_json::from_str(&l).unwrap();
         let cmp = NodeComparator::from_header(&h).unwrap();
-        let chart: Vec<bool> = h["mask"].as_str().unwrap().bytes().map(|b| b == b'1').collect();
+        let chart: Vec<bool> = h["mask"]
+            .as_str()
+            .unwrap()
+            .bytes()
+            .map(|b| b == b'1')
+            .collect();
         let gs: GroupSpec = serde_json::from_value(json!({})).unwrap();
         let (g, _) = load_verified_group(
             &gs,
@@ -160,12 +175,14 @@ fn tworow_second_route_on_results() {
             h["family_source"].as_str(),
         )
         .unwrap();
-        (g, cmp)
+        let fam = Family::parse(h["family_source"].as_str().unwrap()).unwrap();
+        (g, cmp, fam)
     } else {
         let fam = std::env::var("TWOROW_FAMILY").unwrap();
-        let ord: NodeOrderRecord =
-            serde_json::from_str(&std::fs::read_to_string(std::env::var("TWOROW_ORDER").unwrap()).unwrap())
-                .unwrap();
+        let ord: NodeOrderRecord = serde_json::from_str(
+            &std::fs::read_to_string(std::env::var("TWOROW_ORDER").unwrap()).unwrap(),
+        )
+        .unwrap();
         let chart: Vec<bool> = std::env::var("TWOROW_CHART")
             .unwrap()
             .bytes()
@@ -176,8 +193,13 @@ fn tworow_second_route_on_results() {
         let gs: GroupSpec = serde_json::from_value(json!({"family": {"path": fam}})).unwrap();
         let id: Vec<usize> = (0..n).collect();
         let (g, _) = load_verified_group(&gs, base, &chart, &id, None).unwrap();
-        (g, cmp)
+        let fam = Family::parse(&std::fs::read_to_string(&fam).unwrap()).unwrap();
+        (g, cmp, fam)
     };
+    // the same zero-sector predicate as the run that produced the results (TWOROW_ZERO=family)
+    let zf = |k: &[i32]| fam.zero_key(&k.iter().map(|&x| x as i64).collect::<Vec<_>>());
+    let zero: Option<&dyn Fn(&[i32]) -> bool> =
+        (std::env::var("TWOROW_ZERO").as_deref() == Ok("family")).then_some(&zf);
     let cmp = |a: &[i32], b: &[i32]| cmpr.cmp(a, b);
     let (mut n, mut equal, mut terms) = (0usize, 0usize, 0usize);
     let mut bad = vec![];
@@ -189,13 +211,15 @@ fn tworow_second_route_on_results() {
         for r in v["relations"].as_array().into_iter().flatten() {
             let c = comb_from_json(r);
             n += 1;
-            let sr = second_route(&g, &c, &cmp, 1 << 20, None).unwrap();
+            let sr = second_route(&g, &c, &cmp, 1 << 22, zero).unwrap();
             terms += sr.terms_compared;
             if sr.equal && sr.not_lower.is_none() {
                 equal += 1;
             } else {
-                bad.push(json!({"key": c.key, "difference": format!("{:?}", sr.difference),
-                    "not_lower": sr.not_lower}));
+                bad.push(
+                    json!({"key": c.key, "difference": format!("{:?}", sr.difference),
+                    "not_lower": sr.not_lower}),
+                );
             }
         }
     }

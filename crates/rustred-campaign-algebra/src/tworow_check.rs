@@ -102,7 +102,8 @@ pub fn row_by_polynomials(
                 }
             }
             SlotImage::Linear { terms, constant } if p < 0 => {
-                let mut lin: P = MultivariatePolynomial::new(&Q, Some(terms.len() + 1), vars.clone());
+                let mut lin: P =
+                    MultivariatePolynomial::new(&Q, Some(terms.len() + 1), vars.clone());
                 for (m, c) in terms {
                     let mut ex = vec![0u16; n];
                     ex[*m] = 1;
@@ -157,8 +158,14 @@ pub fn second_route(
     }
     let mut acc: BTreeMap<Vec<i32>, Rational> = BTreeMap::new();
     for (r, w) in comb.rows.iter().zip(&comb.weights) {
-        let row = row_by_polynomials(group, r.spec.element, &r.seed, max_terms, zero)?
-            .ok_or_else(|| format!("second route: no row of g{} at {:?}", r.spec.element, r.seed))?;
+        let row = row_by_polynomials(group, r.spec.element, &r.seed, max_terms, zero)?.ok_or_else(
+            || {
+                format!(
+                    "second route: no row of g{} at {:?}",
+                    r.spec.element, r.seed
+                )
+            },
+        )?;
         let w = rat(*w);
         for (k, c) in row {
             let e = acc.entry(k).or_insert_with(Rational::zero);

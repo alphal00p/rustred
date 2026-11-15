@@ -11,8 +11,8 @@ use rustred_campaign_core::replay_base::family::Family;
 use rustred_campaign_core::replay_base::symrows::{
     DeriveOptions, SymRowMode, VerifiedGroup, rows_at, verify_derived,
 };
-use rustred_campaign_core::tworow::rows::rows_pruned;
 use rustred_campaign_core::termmin::{SymRelation, symmetry_relation_at_key};
+use rustred_campaign_core::tworow::rows::rows_pruned;
 use rustred_campaign_core::tworow::{
     KeyOutcome, KeyResult, PairShift, Reject, RowSpec, ShiftOp, TwoRowPolicy, apply_combination,
     import_check, region_forms, search_key,
@@ -162,10 +162,19 @@ fn check_served(f: &Fam, r: &KeyResult, policy: &TwoRowPolicy) {
         }
         let j = c.to_json();
         assert_eq!(j["d_free"], json!(true));
-        assert!(j["engine_certificate"].as_str().unwrap().starts_with("none"));
+        assert!(
+            j["engine_certificate"]
+                .as_str()
+                .unwrap()
+                .starts_with("none")
+        );
     }
     // ranking: fewest RHS terms first
-    assert!(relations.windows(2).all(|w| w[0].rhs.len() <= w[1].rhs.len()));
+    assert!(
+        relations
+            .windows(2)
+            .all(|w| w[0].rhs.len() <= w[1].rhs.len())
+    );
 }
 
 #[test]
@@ -206,8 +215,10 @@ fn constructed_pair_serves_where_single_rows_do_not() {
             .iter()
             .find(|r| r.outcome.best().is_some_and(|b| b.rows.len() == 2))
             .map(|r| r.to_json());
-        summary.push(json!({"family": name, "box_keys": keys.len(), "route0b_none": rs.len(),
-            "outcomes": by_outcome, "best_kind": by_kind, "first_pair": first_pair}));
+        summary.push(
+            json!({"family": name, "box_keys": keys.len(), "route0b_none": rs.len(),
+            "outcomes": by_outcome, "best_kind": by_kind, "first_pair": first_pair}),
+        );
     }
     println!("{}", serde_json::to_string_pretty(&summary).unwrap());
     assert!(
@@ -269,16 +280,33 @@ fn refusals_and_typed_outcomes() {
     assert!(TwoRowPolicy::from_spec(&json!({"tworow": {"shifts": {"explicit": ["x"]}}})).is_err());
     // the corner (a master): no combination, complete search -> none_in_neighbourhood
     let r = search_key(&Independent, &[1, 1, 1, 0, 0], &f.group, &cmp, &p, None);
-    assert_eq!(r.outcome, KeyOutcome::NoneInNeighbourhood, "{}", r.to_json());
+    assert_eq!(
+        r.outcome,
+        KeyOutcome::NoneInNeighbourhood,
+        "{}",
+        r.to_json()
+    );
     assert!(r.stats.complete() && r.stats.seeds > 1);
     // a cap is never "no relation": every seed's expansion over a cap of 1 term
     let capped = TwoRowPolicy {
         max_terms_per_row: 1,
         ..TwoRowPolicy::default()
     };
-    let r = search_key(&Independent, &[1, 1, 1, -2, -1], &f.group, &cmp, &capped, None);
+    let r = search_key(
+        &Independent,
+        &[1, 1, 1, -2, -1],
+        &f.group,
+        &cmp,
+        &capped,
+        None,
+    );
     assert!(!r.stats.complete());
-    assert_ne!(r.outcome, KeyOutcome::NoneInNeighbourhood, "{}", r.to_json());
+    assert_ne!(
+        r.outcome,
+        KeyOutcome::NoneInNeighbourhood,
+        "{}",
+        r.to_json()
+    );
     if r.outcome.best().is_none() {
         assert_eq!(r.outcome.word(), "over_cap", "{}", r.to_json());
     }
@@ -348,7 +376,16 @@ fn not_lower_single_row_is_refused_at_a_pair_key() {
         .map(|x| x.spec.clone());
     if let Some(spec) = at_k {
         let one = rustred_campaign_core::replay_base::algebra::Q::ONE;
-        let res = apply_combination(&Independent, &f.group, &r.key, &[spec], &[one], &cmp, &p, None);
+        let res = apply_combination(
+            &Independent,
+            &f.group,
+            &r.key,
+            &[spec],
+            &[one],
+            &cmp,
+            &p,
+            None,
+        );
         assert!(
             matches!(res, Err(Reject::NotLower { .. }) | Err(Reject::KeyCancels)),
             "{res:?}"
@@ -384,15 +421,22 @@ fn shift_text_and_neighbourhood() {
     assert_eq!(sh[0].text(), "0-1");
     assert_eq!(sh[1].text(), "0+1");
     assert_eq!(sh[10].text(), "0-1,1-1");
-    let q = TwoRowPolicy::from_spec(&json!({"tworow": {"shifts": {"unit_slots": 1, "slots": [2, 4],
-        "explicit": ["2+1", "1=-1,3+1"], "max_shifts": 4}}}))
+    let q = TwoRowPolicy::from_spec(
+        &json!({"tworow": {"shifts": {"unit_slots": 1, "slots": [2, 4],
+        "explicit": ["2+1", "1=-1,3+1"], "max_shifts": 4}}}),
+    )
     .unwrap();
     let t: Vec<String> = q.shifts(5).unwrap().iter().map(PairShift::text).collect();
     assert_eq!(t, vec!["2-1", "2+1", "4-1", "4+1"]);
-    let q = TwoRowPolicy::from_spec(&json!({"shifts": {"unit_slots": 0, "explicit": ["1=-1,3+1"]}})).unwrap();
+    let q =
+        TwoRowPolicy::from_spec(&json!({"shifts": {"unit_slots": 0, "explicit": ["1=-1,3+1"]}}))
+            .unwrap();
     let t: Vec<String> = q.shifts(5).unwrap().iter().map(PairShift::text).collect();
     assert_eq!(t, vec!["1=-1,3+1"]);
-    assert_eq!(TwoRowPolicy::from_spec(&json!(null)).unwrap(), TwoRowPolicy::default());
+    assert_eq!(
+        TwoRowPolicy::from_spec(&json!(null)).unwrap(),
+        TwoRowPolicy::default()
+    );
 }
 
 #[test]
@@ -425,7 +469,12 @@ fn region_forms_evaluate_every_key_of_the_region() {
     // the pair key's own best shape is accepted there
     let b = r0.outcome.best().unwrap();
     let i0 = region.iter().position(|k| *k == r0.key).unwrap();
-    assert!(rep.acceptable()[i0].1.iter().any(|l| l.contains(&b.rows[0].spec.text())));
+    assert!(
+        rep.acceptable()[i0]
+            .1
+            .iter()
+            .any(|l| l.contains(&b.rows[0].spec.text()))
+    );
     if let Some(w) = rep.whole_region {
         assert_eq!(rep.shapes[w].accepted.len(), region.len());
     }
@@ -448,7 +497,10 @@ fn pruned_rows_equal_the_symrows_rows() {
             let a = rows_at(&g, &(0, s64), SymRowMode::Expanded, 1 << 16).unwrap();
             let plain = rows_pruned(&Independent, &g, s, 1 << 16, None).unwrap();
             let pruned = rows_pruned(&Independent, &g, s, 1 << 16, Some(&zero)).unwrap();
-            let want: Vec<(usize, Vec<(Vec<i32>, rustred_campaign_core::replay_base::algebra::Q)>)> = a
+            let want: Vec<(
+                usize,
+                Vec<(Vec<i32>, rustred_campaign_core::replay_base::algebra::Q)>,
+            )> = a
                 .iter()
                 .map(|r| {
                     (
@@ -463,7 +515,15 @@ fn pruned_rows_equal_the_symrows_rows() {
             assert_eq!(plain, want, "seed {s:?}");
             let want_z: Vec<_> = want
                 .iter()
-                .map(|(e, t)| (*e, t.iter().filter(|(k, _)| !zero(k)).cloned().collect::<Vec<_>>()))
+                .map(|(e, t)| {
+                    (
+                        *e,
+                        t.iter()
+                            .filter(|(k, _)| !zero(k))
+                            .cloned()
+                            .collect::<Vec<_>>(),
+                    )
+                })
                 .filter(|(_, t)| !t.is_empty())
                 .collect();
             assert_eq!(pruned, want_z, "seed {s:?}");

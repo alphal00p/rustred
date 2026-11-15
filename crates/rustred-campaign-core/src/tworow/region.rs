@@ -110,8 +110,11 @@ pub struct RegionReport {
 impl RegionReport {
     /// Per key: the labels of the acceptable shapes (the input of lane regions' `regionfit`).
     pub fn acceptable(&self) -> Vec<(Vec<i32>, BTreeSet<String>)> {
-        let mut out: Vec<(Vec<i32>, BTreeSet<String>)> =
-            self.keys.iter().map(|k| (k.clone(), BTreeSet::new())).collect();
+        let mut out: Vec<(Vec<i32>, BTreeSet<String>)> = self
+            .keys
+            .iter()
+            .map(|k| (k.clone(), BTreeSet::new()))
+            .collect();
         for v in &self.shapes {
             let l = v.shape.label();
             for &i in &v.accepted {
