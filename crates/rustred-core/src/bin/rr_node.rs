@@ -2017,7 +2017,11 @@ fn cmd_symface(mut a: Args) -> i32 {
         Some("total") => true,
         Some(o) => die(&format!("--slice-bound each|total, not {o}")),
     };
-    let element: Option<usize> = a.parse("--element");
+    // --element K (one element) or `auto` / absent (every element; the smallest relation that passes wins)
+    let element: Option<usize> = match a.take("--element").as_deref() {
+        None | Some("auto") | Some("all") => None,
+        Some(k) => Some(k.parse().unwrap_or_else(|_| die("--element K (an index) or auto"))),
+    };
     let max_expansion: u128 = a.parse("--max-expansion").unwrap_or(2_000_000);
     let check_keys: Vec<Vec<i64>> = match a.take("--check-keys") {
         None => vec![],
