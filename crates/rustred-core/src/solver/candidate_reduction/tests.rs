@@ -307,7 +307,7 @@ fn factorized_empty_zero_child_does_not_hide_the_original_pole() {
     rules.truncate(1);
     rules[0].rhs.truncate(1);
     rules[0].rhs[0].shift = [-2];
-    rules[0].rhs[0].denominator = pole;
+    rules[0].rhs[0].denominator = pole.into();
     let before = owner.statistics();
     assert!(matches!(
         owner.reduce_unit_mass(&key([2])),

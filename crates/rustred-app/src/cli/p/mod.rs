@@ -12,6 +12,7 @@ mod certify;
 mod generate;
 mod import;
 mod package;
+mod recipes;
 mod validate;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,6 +25,7 @@ pub(crate) enum PSubcommand {
     Canary,
     ImportTable,
     Certify,
+    Recipes,
 }
 
 pub(super) fn run(subcommand: PSubcommand, arguments: Vec<OsString>) -> Result<(), CliError> {
@@ -36,6 +38,7 @@ pub(super) fn run(subcommand: PSubcommand, arguments: Vec<OsString>) -> Result<(
         PSubcommand::Canary => canary::run(arguments),
         PSubcommand::ImportTable => import::run(arguments),
         PSubcommand::Certify => certify::run(arguments),
+        PSubcommand::Recipes => recipes::run(arguments),
     }
 }
 

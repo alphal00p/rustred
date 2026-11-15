@@ -46,9 +46,13 @@ pub enum CustomPayloads {
 }
 
 /// One imported Custom node: the presentation its payload is bound to (its id
-/// and node reference are set by assembly) and the payload.
+/// and node reference are set by assembly), the payload and its record. The
+/// payload may stay on disk (`CustomPayloadRef::File`, p5l-library session 2):
+/// assembly then reads it once for its residuals, the package writer copies
+/// it, and its program is built on use.
 #[derive(Clone, Debug)]
 pub struct ImportedCustomNode {
     pub presentation: rustred::propagator::presentation::Presentation,
-    pub payload: CustomOwnerPayload,
+    pub payload: rustred::propagator::programs::CustomPayloadRef,
+    pub meta: rustred::propagator::library::CustomOwnerMeta,
 }

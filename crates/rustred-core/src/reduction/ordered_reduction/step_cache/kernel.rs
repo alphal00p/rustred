@@ -57,6 +57,12 @@ pub(crate) trait OrderedStepCacheKernel: OrderedKernel {
     fn step_was_reproducible(&self) -> bool {
         true
     }
+    /// Whether the step just computed for `key` may be recorded (checked
+    /// after the step; an adapter declines steps whose reporting the replay
+    /// would lose). Default: every step.
+    fn step_may_record(&self, _key: &Self::Key) -> bool {
+        true
+    }
     /// Per-step accounting and cancellation checks that a replayed step must
     /// still perform (e.g. operational-node limits).
     fn step_cache_hit(&mut self, _key: &Self::Key) -> Result<(), Self::Error> {
@@ -97,6 +103,17 @@ pub(crate) trait ConcurrentStepCacheKernel:
         Self: 's;
     /// rr-par: [`Self::stepper_shard`] through the detached stepper. Only
     /// called for adapters whose `detached_stepper` returns one.
+    /// [`OrderedStepCacheKernel::step_may_record`] through the stepper.
+    fn stepper_may_record<'s>(_stepper: &Self::Stepper<'s>, _key: &Self::Key) -> bool
+    where
+        Self: 's,
+    {
+        true
+    }
+    /// [`OrderedStepCacheKernel::step_may_record`] through the detached stepper.
+    fn detached_may_record(_stepper: &Self::Detached, _key: &Self::Key) -> bool {
+        true
+    }
     fn detached_shard(_stepper: &Self::Detached, _key: &Self::Key) -> Option<OrderedStepShard> {
         unreachable!("an adapter with a detached stepper implements detached_shard")
     }
@@ -315,7 +332,7 @@ impl<K: OrderedStepCacheKernel> OrderedKernel for CachedKernel<'_, '_, K> {
         };
         self.counters.misses += 1;
         let step = self.inner.step(key, request, work)?;
-        if record {
+        if record && self.inner.step_may_record(key) {
             let opaque = !self.inner.step_was_reproducible();
             self.record(shard, &step, opaque)?;
         }
@@ -489,7 +506,7 @@ impl<'s, K: ConcurrentStepCacheKernel + 's> OrderedStepper for CachedStepper<'s,
         };
         let (result, account) = self.inner.step(key);
         let record = match &result {
-            Ok(step) if offer => {
+            Ok(step) if offer && K::stepper_may_record(&self.inner, key) => {
                 let mut nodes = Vec::new();
                 match encode_step::<K>(step, &mut nodes) {
                     None => Recording::Skip,
@@ -589,7 +606,7 @@ impl<'c, K: ConcurrentStepCacheKernel> OrderedStepper for DetachedCachedStepper<
         };
         let (result, account) = self.inner.step(key);
         let record = match &result {
-            Ok(step) if offer => {
+            Ok(step) if offer && K::detached_may_record(&self.inner, key) => {
                 let mut nodes = Vec::new();
                 match encode_step::<K>(step, &mut nodes) {
                     None => Recording::Skip,

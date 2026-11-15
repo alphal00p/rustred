@@ -719,7 +719,7 @@ pub fn run_batch(
 
 struct Ctx<'a, const N: usize> {
     t0: Instant,
-    solver: SectorSolver<'a, N>,
+    solver: &'a SectorSolver<'a, N>,
     template: CoefficientPolynomial,
     idx: [usize; N],
     sector: [bool; N],
@@ -732,17 +732,29 @@ struct Ctx<'a, const N: usize> {
     n: usize,
 }
 
-/// Prepare the engine once for (family, order, recipe) and run `f` with it (the solver borrows the source system,
-/// so the prepared state lives inside this call).
+/// The engine prepared for (family, order, chart, symmetry rows): what every recipe of that chart shares (vk5l WP2:
+/// one preparation serves many recipes of a node, [`session_group`]).
+struct Prepared<'a, const N: usize> {
+    t0: Instant,
+    solver: SectorSolver<'a, N>,
+    template: CoefficientPolynomial,
+    idx: [usize; N],
+    sector: [bool; N],
+    node: Value,
+    n: usize,
+}
+
+/// Prepare the engine once for (family, order, chart, symmetry rows) and run `f` with it (the solver borrows the
+/// source system, so the prepared state lives inside this call).
 #[allow(clippy::too_many_arguments)]
-fn with_ctx<const N: usize, R>(
+fn with_prepared<const N: usize, R>(
     family_text: &str,
     presented: &str,
     fam: &crate::family::IntegralFamily,
     order: &NodeOrder,
-    recipe: &Recipe,
-    opts: &BatchOptions,
-    f: impl FnOnce(&Ctx<'_, N>) -> R,
+    chart_text: &str,
+    symmetry_rows: bool,
+    f: impl FnOnce(&Prepared<'_, N>) -> R,
 ) -> Result<R, String> {
     let t0 = Instant::now();
     let n = fam.denominator_count();
@@ -753,6 +765,11 @@ fn with_ctx<const N: usize, R>(
     {
         return Err("two-sided (eps) families are not supported by the recipe solve".into());
     }
+    if chart_text.len() != n || !chart_text.chars().all(|c| c == '0' || c == '1') {
+        return Err(format!(
+            "chart {chart_text:?}: a 0/1 mask of the family's arity {n}"
+        ));
+    }
     let sources = SourceSystem::<N>::from_family_with_capacity(fam, true)
         .map_err(|e| format!("sources: {e:?}"))?;
     let flags = super::order::physical_slots(presented);
@@ -760,7 +777,7 @@ fn with_ctx<const N: usize, R>(
         return Err("family propagator lines do not match the compiled arity".into());
     }
     let top: [bool; N] = std::array::from_fn(|i| i < n && flags[i]);
-    let chart = recipe.lines();
+    let chart: Vec<bool> = chart_text.chars().map(|c| c == '1').collect();
     let base: [bool; N] = std::array::from_fn(|i| i < n && chart[i]);
     if (0..n).any(|i| base[i] && !top[i]) {
         return Err("recipe chart has a line that is not a propagator line of the family".into());
@@ -787,7 +804,7 @@ fn with_ctx<const N: usize, R>(
         return Err("the recipe's chart is a proved-zero sector".into());
     }
     let backend = SymbolicExactBackend::SparseTargetOnlyFactorized;
-    let case_symmetry = if recipe.symmetry_rows {
+    let case_symmetry = if symmetry_rows {
         let g = super::symmetry::node_group(presented, &chart)?;
         Some(
             g.elements
@@ -819,43 +836,84 @@ fn with_ctx<const N: usize, R>(
         .clone();
     let idx: [usize; N] = *sources.index_variables();
     let sector: [bool; N] = *solver.ordering().sector();
+    let prepared = Prepared {
+        t0,
+        solver,
+        template,
+        idx,
+        sector,
+        node: json!({
+            "family": fam.name(),
+            "family_blake3": blake3::hash(family_text.as_bytes()).to_hex().to_string(),
+            "order": serde_json::from_str::<Value>(&order.to_json()).unwrap_or(Value::Null),
+            "chart": chart_text,
+        }),
+        n,
+    };
+    Ok(f(&prepared))
+}
+
+/// The per-recipe part of a context over a prepared engine (domain case and exception branches of the recipe).
+fn recipe_ctx<'a, const N: usize>(
+    p: &'a Prepared<'a, N>,
+    recipe: &'a Recipe,
+    opts: &'a BatchOptions,
+) -> Result<Ctx<'a, N>, String> {
+    let n = p.n;
     let dom_spec = CaseSpec {
         fixed: recipe.domain.fixed.clone().unwrap_or_else(|| vec![None; n]),
         equations: recipe.domain.equations.clone(),
     };
-    let domain_case = build_case::<N>(&dom_spec, &template, &idx, &sector, n)?;
+    let domain_case = build_case::<N>(&dom_spec, &p.template, &p.idx, &p.sector, n)?;
     let exceptions: Vec<Vec<CoefficientPolynomial>> = recipe
         .domain
         .exceptions
         .iter()
         .map(|b| {
             b.iter()
-                .map(|p| {
-                    parse_index_poly(p, &template, &idx).ok_or_else(|| format!("exception {p}"))
+                .map(|q| {
+                    parse_index_poly(q, &p.template, &p.idx).ok_or_else(|| format!("exception {q}"))
                 })
                 .collect::<Result<Vec<_>, String>>()
         })
         .collect::<Result<_, _>>()?;
-    let ctx = Ctx {
-        t0,
-        solver,
-        template,
-        idx,
-        sector,
+    Ok(Ctx {
+        t0: p.t0,
+        solver: &p.solver,
+        template: p.template.clone(),
+        idx: p.idx,
+        sector: p.sector,
         domain_case,
         exceptions,
         recipe,
         recipe_digest: recipe.digest(),
-        node: json!({
-            "family": fam.name(),
-            "family_blake3": blake3::hash(family_text.as_bytes()).to_hex().to_string(),
-            "order": serde_json::from_str::<Value>(&order.to_json()).unwrap_or(Value::Null),
-            "chart": recipe.chart,
-        }),
+        node: p.node.clone(),
         opts,
         n,
-    };
-    Ok(f(&ctx))
+    })
+}
+
+/// Prepare the engine once for (family, order, recipe) and run `f` with it (the solver borrows the source system,
+/// so the prepared state lives inside this call).
+#[allow(clippy::too_many_arguments)]
+fn with_ctx<const N: usize, R>(
+    family_text: &str,
+    presented: &str,
+    fam: &crate::family::IntegralFamily,
+    order: &NodeOrder,
+    recipe: &Recipe,
+    opts: &BatchOptions,
+    f: impl FnOnce(&Ctx<'_, N>) -> R,
+) -> Result<R, String> {
+    with_prepared::<N, _>(
+        family_text,
+        presented,
+        fam,
+        order,
+        &recipe.chart,
+        recipe.symmetry_rows,
+        |p| recipe_ctx(p, recipe, opts).map(|ctx| f(&ctx)),
+    )?
 }
 
 /// Dispatch on the arity: `$body` is run with `N` = the family's arity.
@@ -938,6 +996,70 @@ pub fn solve_keys(
                 r
             })
             .collect()
+    })
+}
+
+/// vk5l WP2 (the dispatcher's in-process solve): prepare the engine ONCE for (family, order, chart, symmetry rows)
+/// and hand `f` a closure solving `(recipe text, key)` for ANY recipe of that chart and symmetry setting (the
+/// preparation, ~10 s on a 5L node, is shared by all of them). Each call returns the same record as
+/// [`session`] for that recipe (domain check, seeds, elimination, exact proof, `opts.expect` digests); a recipe
+/// that does not parse, or names another chart or symmetry setting, gives an `ERROR` record (never a relation).
+pub fn session_group<R>(
+    family_text: &str,
+    order: &NodeOrder,
+    chart: &str,
+    symmetry_rows: bool,
+    opts: &BatchOptions,
+    f: impl FnOnce(&mut dyn FnMut(&str, &[i64]) -> Value) -> R,
+) -> Result<R, String> {
+    let presented = order.present_family(family_text)?;
+    let fam = compile_family(&presented)?;
+    let n = fam.denominator_count();
+    order.validate(n)?;
+    with_arity!(n, M, {
+        with_prepared::<M, R>(
+            family_text,
+            &presented,
+            &fam,
+            order,
+            chart,
+            symmetry_rows,
+            |p| {
+                let mut solve = |recipe_text: &str, key: &[i64]| -> Value {
+                    let t = Instant::now();
+                    let setup_error = |message: String| {
+                        json!({
+                            "type": "relation", "key": key, "verdict": "ERROR", "target": key_text(key),
+                            "rhs": Value::Null, "relation_digest": Value::Null, "determinism_id": DETERMINISM_ID,
+                            "failure": {"schema": FAILURE_SCHEMA, "class": "error", "message": message,
+                                        "detail": {}, "node": p.node, "key": key,
+                                        "context": {"request_key": Value::Null, "rule_chain": []}},
+                        })
+                    };
+                    let recipe = match Recipe::parse(recipe_text) {
+                        Ok(r) => r,
+                        Err(e) => return setup_error(e),
+                    };
+                    if recipe.arity != n
+                        || recipe.chart != chart
+                        || recipe.symmetry_rows != symmetry_rows
+                    {
+                        return setup_error(format!(
+                            "recipe {} (arity {}, chart {}, symmetry rows {}) is not of this session (arity {n}, \
+                             chart {chart}, symmetry rows {symmetry_rows})",
+                            recipe.id, recipe.arity, recipe.chart, recipe.symmetry_rows
+                        ));
+                    }
+                    let mut rec = match recipe_ctx(p, &recipe, opts) {
+                        Ok(ctx) => solve_guarded(&ctx, key),
+                        Err(e) => setup_error(format!("recipe {}: {e}", recipe.id)),
+                    };
+                    rec["seconds"] = json!(t.elapsed().as_secs_f64());
+                    rec
+                };
+                f(&mut solve)
+            },
+        )
     })
 }
 
@@ -1456,11 +1578,14 @@ fn failure<const N: usize>(
             keyarg.replace([',', '-'], "_")
         )
     } else {
-        format!(
-            "/tmp/recipe-repro-{}-{}",
-            &ctx.recipe_digest[..12],
-            keyarg.replace([',', '-'], "_")
-        )
+        std::env::temp_dir()
+            .join(format!(
+                "recipe-repro-{}-{}",
+                &ctx.recipe_digest[..12],
+                keyarg.replace([',', '-'], "_")
+            ))
+            .display()
+            .to_string()
     };
     let reproduce = format!(
         "{} solve-recipe --family {} --order {} --recipe {} --key {} --out {}",

@@ -17,8 +17,8 @@ fn factor_guard_box_original_denominator_proof_keeps_priority_and_concrete_parit
     // Even a zero RHS retains its original denominator obligation.
     first.rhs.push(PreparedTerm {
         shift: [0; 3],
-        coefficient: c.zero(),
-        denominator: poly(&c, denominator),
+        coefficient: c.zero().into(),
+        denominator: poly(&c, denominator).into(),
     });
     batch(&mut p).rules = vec![first, rule(1)];
     let pieces = collect(&p, &[3, 1, 0], &[None, None, Some(0)], Some(0));

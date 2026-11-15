@@ -365,9 +365,23 @@ pub(crate) struct PreparedRule<const N: usize> {
     pub rhs: Vec<PreparedTerm<N>>,
 }
 
+/// One RHS term of a prepared rule. t162-export (memory of the loaded form):
+/// the shift is stored as `i8` (a difference of two powers of
+/// [`crate::solver::Power`]'s range [-64, 63], checked at preparation;
+/// [`Self::shift`] widens it) and the coefficient and
+/// its denominator are shared (`Arc`): preparation interns equal values, so a
+/// table whose terms repeat coefficients or pivot denominators holds each one
+/// once. The values and their arithmetic are unchanged.
 #[derive(Debug)]
 pub(crate) struct PreparedTerm<const N: usize> {
-    pub shift: [i64; N],
-    pub coefficient: IndexedCoefficient,
-    pub denominator: IndexedPolynomial,
+    pub shift: [i8; N],
+    pub coefficient: Arc<IndexedCoefficient>,
+    pub denominator: Arc<IndexedPolynomial>,
+}
+
+impl<const N: usize> PreparedTerm<N> {
+    /// The shift widened to `i64` (the arithmetic type of keys).
+    pub fn shift(&self) -> [i64; N] {
+        self.shift.map(i64::from)
+    }
 }

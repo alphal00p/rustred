@@ -111,8 +111,8 @@ fn excluded_and_lookahead_retains_other_branches_original_poles_and_source_condi
     // Even a zero RHS coefficient must retain the original denominator pole.
     first.rhs.push(PreparedTerm {
         shift: [0; 3],
-        coefficient: c.zero(),
-        denominator: minus(&c, 1, 3),
+        coefficient: c.zero().into(),
+        denominator: minus(&c, 1, 3).into(),
     });
     Arc::get_mut(&mut Arc::get_mut(&mut p).unwrap().context)
         .unwrap()

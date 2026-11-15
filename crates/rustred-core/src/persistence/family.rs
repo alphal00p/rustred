@@ -252,12 +252,27 @@ impl NativeFamilyRecord {
         family_limits: IntegralFamilyLimits,
         io_limits: BinaryIoLimits,
     ) -> Result<IntegralFamily, BinaryIoError> {
+        self.to_family_with(
+            |id| table.coefficient(id).cloned(),
+            family_limits,
+            io_limits,
+        )
+    }
+
+    /// [`Self::to_family`] reading the coefficients through `lookup` (any
+    /// table, e.g. a non-retaining lazy one).
+    pub fn to_family_with(
+        &self,
+        lookup: impl Fn(CoefficientId) -> Result<Coefficient, BinaryIoError>,
+        family_limits: IntegralFamilyLimits,
+        io_limits: BinaryIoLimits,
+    ) -> Result<IntegralFamily, BinaryIoError> {
         self.validate_shape(family_limits, io_limits)?;
         let context = CoefficientContext::try_new(self.parameters.clone())
             .map_err(|error| BinaryIoError::Native(error.to_string()))?;
         let coefficient = |index: u32| -> Result<Coefficient, BinaryIoError> {
             super::resource_checkpoint()?;
-            let value = table.coefficient(CoefficientId::try_from_index(index as usize)?)?;
+            let value = lookup(CoefficientId::try_from_index(index as usize)?)?;
             if value.numerator.variables() != context.variables()
                 || value.denominator.variables() != context.variables()
             {
@@ -265,7 +280,7 @@ impl NativeFamilyRecord {
                     "family coefficient variable map differs from its declared context",
                 ));
             }
-            Ok(value.clone())
+            Ok(value)
         };
         let dimension = coefficient(self.dimension)?;
         let denominators = self
