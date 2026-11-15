@@ -304,6 +304,26 @@ fn derive_face_core() {
     }
     let out = PathBuf::from(c["out"].as_str().unwrap());
     std::fs::create_dir_all(&out).unwrap();
+    let kt = |k: &Key| {
+        format!(
+            "I({})",
+            k.iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+    };
+    let mut fh = std::fs::File::create(out.join("handed.tsv")).unwrap();
+    for (k, img, e) in &handed {
+        writeln!(fh, "{}\t{}\t{e}", kt(k), kt(img)).unwrap();
+    }
+    let mut fs = std::fs::File::create(out.join("served.keys")).unwrap();
+    for k in keys
+        .iter()
+        .filter(|k| !core.contains(k) && !handed.iter().any(|h| h.0 == **k))
+    {
+        writeln!(fs, "{}", kt(k)).unwrap();
+    }
     let mut f = std::fs::File::create(out.join("core.keys")).unwrap();
     for k in &core {
         writeln!(
