@@ -57,7 +57,7 @@ fn setup(tag: &str, exact: bool, lies: &[Value]) -> (Tmp, PathBuf, PathBuf) {
     let mut spec: Value =
         serde_json::from_slice(&std::fs::read(&files.import_spec).unwrap()).unwrap();
     spec["sources"][0]["sha256"] = json!(sha256_file(&a));
-    spec["evidence"] = json!({"proofs":[{"path": dir.join("proofs.json").display().to_string()}]});
+    spec["evidence"] = json!({"proofs":[pin(&dir.join("proofs.json"))]});
     std::fs::write(
         &files.import_spec,
         serde_json::to_vec_pretty(&spec).unwrap(),
@@ -117,8 +117,13 @@ fn an_elided_record_gets_exact_eval_facts_and_the_node_closes_boxed_per_key() {
     assert_eq!(r["verdict"], "closed", "{r:#}");
     assert_eq!(r["label"], "closed, boxed, per-key", "{r:#}");
     assert_eq!(r["check"]["tier"], "C");
-    // the fact of the elided record came from the exact evaluation, nothing else needed a fact line
-    assert_eq!(r["fact_basis"], json!({"exact_eval": 1}), "{r:#}");
+    // the fact of the elided record came from the exact evaluation, nothing else needed a fact line; lane closeloop4
+    // (closeloop.md 18): rr_proof `--elided-loci facts` confirmed it term by term (the second route)
+    assert_eq!(
+        r["fact_basis"],
+        json!({"exact_eval + rr_proof_elided": 1}),
+        "{r:#}"
+    );
     // box clause view (closeloop.md 16.9): every start key listed with its clause; one verdict per clause
     assert_eq!(r["box_clause"], "box");
     assert_eq!(r["clauses"], json!({"box": "closed"}), "{r:#}");
@@ -135,7 +140,10 @@ fn an_elided_record_gets_exact_eval_facts_and_the_node_closes_boxed_per_key() {
     let row = statement_row(&cdir, json!([5, 1, 0]));
     assert_eq!(row["evidence"], "per-key", "{row}");
     assert_eq!(row["basis"], "per_key_proof", "{row}");
-    assert_eq!(row["facts"]["basis"], "exact_eval", "{row}");
+    assert_eq!(
+        row["facts"]["basis"], "exact_eval + rr_proof_elided",
+        "{row}"
+    );
     assert_eq!(row["facts"]["coefficient_unknown"], false, "{row}");
     let stmt = std::fs::read_to_string(cdir.join("closeloop/toy/final/statement/statement.jsonl"))
         .unwrap();

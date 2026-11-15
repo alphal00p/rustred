@@ -42,6 +42,10 @@ type Issued = (BTreeSet<(String, Vec<i32>)>, u64, u64, u64, u64, Vec<Value>);
 struct ProofIssued {
     spans: BTreeSet<(String, Vec<i32>)>,
     facts: BTreeSet<(String, Vec<i32>)>,
+    /// lane closeloop4: pairs given to a SECOND-route fact item (reason second_route).
+    facts2: BTreeSet<(String, Vec<i32>)>,
+    /// lane zeros2: pairs given to a zeros item (reason all_zeros*).
+    zeros2: BTreeSet<(String, Vec<i32>)>,
     jobs: u64,
     attention: u64,
 }
@@ -54,6 +58,8 @@ enum PassResult {
 struct Running {
     round: u32,
     handle: JoinHandle<Result<PassResult, String>>,
+    /// lane t266run: BLAKE3 of the effective import spec text the pass loads / checks.
+    digest: Option<String>,
 }
 
 struct NodeRt {
@@ -77,6 +83,9 @@ struct NodeRt {
     exact_oracle: ProofOracle,
     /// BLAKE3 of the proof config's family / cert / symmetry group files.
     proof_inputs: BTreeMap<String, (PathBuf, String)>,
+    /// lane t266run: BLAKE3 of the effective import spec text the cached set was loaded from, and the chart text.
+    set_digest: Option<String>,
+    chart: Option<String>,
 }
 
 /// The close-from-material work source.
@@ -185,6 +194,7 @@ impl CloseFromMaterialSource {
                         offset,
                         record_sha256: sha,
                         keys: vec![key],
+                        ..Default::default()
                     }],
                     relation_source: Some(source.clone()),
                 };
@@ -273,6 +283,8 @@ fn file_blake3(p: &Path) -> Result<String, String> {
         .map(|(_, d)| d)
         .map_err(|e| format!("{}: {e}", p.display()))
 }
+
+use super::proofs::file_blake3_cached;
 
 fn resolve(base: &Path, p: &str) -> PathBuf {
     let pb = PathBuf::from(p);
@@ -439,6 +451,8 @@ impl CloseFromMaterialSource {
                 proof_oracle,
                 exact_oracle,
                 proof_inputs,
+                set_digest: None,
+                chart: None,
             });
         }
         Ok(s)
@@ -555,6 +569,48 @@ impl CloseFromMaterialSource {
         v.into_iter().map(|(_, id, p, b)| (id, p, b)).collect()
     }
 
+    /// lane t266run: NODE-level inputs `closeloop:<n>:<what>` of role `role`, in ledger order.
+    fn node_inputs_of_role(&self, st: &CampaignState, i: usize, role: &str) -> Vec<PathBuf> {
+        let pre = format!("closeloop:{}:", self.nodes[i].n);
+        let mut v: Vec<_> = st
+            .inputs
+            .iter()
+            .filter(|(id, r)| r.role == role && id.starts_with(&pre))
+            .map(|(_, r)| (r.registered_seq, PathBuf::from(&r.path), r.blake3.clone()))
+            .collect();
+        v.sort();
+        v.into_iter().map(|(_, p, _)| p).collect()
+    }
+
+    /// lane t266run: the escalation recorded for node `i` (closeloop.md 17); every file is checked against its
+    /// recorded BLAKE3 before it is read.
+    fn derived_state(
+        &self,
+        st: &CampaignState,
+        i: usize,
+    ) -> Result<super::derived::DerivedState, String> {
+        use super::derived::{ROLE_RECIPES, ROLE_SYMREL, ROLE_TERMINALS};
+        let pre = format!("closeloop:{}:", self.nodes[i].n);
+        for (id, r) in &st.inputs {
+            if id.starts_with(&pre)
+                && [ROLE_SYMREL, ROLE_RECIPES, ROLE_TERMINALS].contains(&r.role.as_str())
+            {
+                let got = file_blake3(Path::new(&r.path))?;
+                if got != r.blake3 {
+                    return Err(format!(
+                        "{}: BLAKE3 {got} differs from the recorded {}",
+                        r.path, r.blake3
+                    ));
+                }
+            }
+        }
+        super::derived::DerivedState::read(
+            &self.node_inputs_of_role(st, i, ROLE_SYMREL),
+            &self.node_inputs_of_role(st, i, ROLE_RECIPES),
+            &self.node_inputs_of_role(st, i, ROLE_TERMINALS),
+        )
+    }
+
     /// (recipe source, key) pairs of every solve item of the node, keys issued, jobs issued, items in attention.
     fn issued(&mut self, st: &CampaignState, i: usize) -> Result<Issued, String> {
         let node = self.nodes[i].cfg.node.clone();
@@ -637,7 +693,11 @@ impl CloseFromMaterialSource {
         let mut out = ProofIssued::default();
         for (item, ph) in &items {
             let b = self.pbatch(st, i, item)?;
-            if b.kind == "facts" || b.kind == "exact" {
+            if b.reason == proofs::REASON_SECOND_ROUTE {
+                out.facts2.extend(b.pairs());
+            } else if proofs::is_zeros_reason(&b.reason) {
+                out.zeros2.extend(b.pairs());
+            } else if b.kind == "facts" || b.kind == "exact" {
                 out.facts.extend(b.pairs());
             } else {
                 out.spans.extend(b.pairs());
@@ -672,6 +732,10 @@ impl CloseFromMaterialSource {
         if r.running.is_some() || st.inputs.contains_key(&input_final(&r.n)) {
             return None;
         }
+        // lane closeloop4: proposals waiting for the operator: no pass until a decision is recorded
+        if self.awaiting(st, i).is_some() {
+            return None;
+        }
         let node = &r.cfg.node;
         let nr = st.nodes.get(node)?;
         if nr.state.phase == NodePhase::Registered || nr.state.phase == NodePhase::Stale {
@@ -694,21 +758,38 @@ impl CloseFromMaterialSource {
 
     fn start_pass(&mut self, st: &CampaignState, i: usize, round: u32) -> Result<(), String> {
         let cached = self.nodes[i].set.clone();
+        // lane closeloop4 (closeloop.md 19): the node's spec + the decided terminals (then t266run's derived part)
+        let decisions = self.terminal_decisions(st, i)?;
+        let spec_text = super::terminals::effective_spec(&self.nodes[i].spec_text, &decisions)?;
         if round == 0 {
             let r = &self.nodes[i];
             let text = r.spec_text.clone();
             let base = r.cfg.base();
+            // lane t266run: a persistent table index in big-node mode (an unchanged table is not re-read)
+            let index_dir = r.cfg.scale.as_ref().map(|sc| {
+                sc.index_dir
+                    .clone()
+                    .unwrap_or_else(|| self.abs(&format!("{}/index", node_dir(&r.n))))
+            });
             let h = std::thread::Builder::new()
                 .name(format!("closeloop-load-{}", r.n))
                 .spawn(move || {
                     let spec = rustred_campaign_core::import::TableSetSpec::from_json(&text)
                         .map_err(|e| format!("import spec: {e}"))?;
-                    let set = rustred_campaign_core::import::load(&spec, &base)
-                        .map_err(|e| format!("import load: {e}"))?;
+                    let set = rustred_campaign_core::import::load_with(
+                        &spec,
+                        &base,
+                        &rustred_campaign_core::import::LoadOptions { index_dir },
+                    )
+                    .map_err(|e| format!("import load: {e}"))?;
                     Ok(PassResult::Loaded(Arc::new(set)))
                 })
                 .map_err(|e| format!("pass thread: {e}"))?;
-            self.nodes[i].running = Some(Running { round, handle: h });
+            self.nodes[i].running = Some(Running {
+                round,
+                handle: h,
+                digest: Some(blake3_hex(self.nodes[i].spec_text.as_bytes())),
+            });
             self.nodes[i].pass_started = Some(Instant::now());
             return Ok(());
         }
@@ -730,12 +811,59 @@ impl CloseFromMaterialSource {
             .into_iter()
             .map(|(_, p, b)| (p, b))
             .collect();
+        let fact2_files = self
+            .inputs_of_role(st, i, ROLE_FACTS2)
+            .into_iter()
+            .map(|(_, p, b)| (p, b))
+            .collect();
+        let zeros2_files = self
+            .inputs_of_role(st, i, ROLE_ZEROS2)
+            .into_iter()
+            .map(|(_, p, b)| (p, b))
+            .collect();
         let relation_tables = self.relation_tables(st, i);
+        // lane t266run (closeloop.md 17): the escalation recorded so far and the effective spec it implies; a set
+        // loaded from another effective spec is dropped (the pass reloads it; the table index makes that cheap)
+        let derived = self.derived_state(st, i)?;
+        let eff = {
+            let r = &self.nodes[i];
+            let chart = r.chart.clone().unwrap_or_default();
+            super::derived::effective_spec(
+                &spec_text,
+                &derived,
+                r.cfg.escalation.as_ref(),
+                &self.abs(&format!("{}/derived", node_dir(&r.n))),
+                &chart,
+            )?
+        };
+        let eff_digest = blake3_hex(eff.as_bytes());
+        // lane closeloop4: the set of ANOTHER effective spec is not given to the pass (it reloads), but it is KEPT for the
+        // acceptance of settled solves (their recipes are in the set that issued them): a settle never loads tables on
+        // the supervisor's main thread
+        let cached = if self.nodes[i].set_digest.as_deref() == Some(eff_digest.as_str()) {
+            cached
+        } else {
+            None
+        };
+        // lane closeloop4 (audit-closeloop M1): the files' digests recorded at their first use (ledger)
+        let pins_recorded: Option<BTreeMap<String, String>> =
+            if st.inputs.contains_key(&input_pins(&self.nodes[i].n)) {
+                Some(
+                    serde_json::from_slice(&self.input_file(st, &input_pins(&self.nodes[i].n))?)
+                        .map_err(|e| format!("pins: {e}"))?,
+                )
+            } else {
+                None
+            };
+        let recipe_dir = self.abs(&format!(
+            "{}/escalation/r{round}",
+            node_dir(&self.nodes[i].n)
+        ));
         let r = &self.nodes[i];
         let inp = PassIn {
             node: r.cfg.node.clone(),
             round,
-            spec_text: r.spec_text.clone(),
+            spec_text: eff,
             base: r.cfg.base(),
             answers,
             threads: r.cfg.check_threads,
@@ -765,6 +893,7 @@ impl CloseFromMaterialSource {
                 max_keys_per_job: p.max_keys_per_job,
                 max_fact_keys_per_job: p.max_fact_keys_per_job,
                 exact_keys_per_job: p.exact_eval.as_ref().map(|x| x.max_keys_per_job),
+                max_fact_terms_per_job: p.max_fact_terms_per_job,
             }),
             exact_tier: r.cfg.exact_tier,
             rows_path: self.abs(&format!("{}/checks/r{round}.rows.jsonl", node_dir(&r.n))),
@@ -779,12 +908,36 @@ impl CloseFromMaterialSource {
                 .iter()
                 .map(|c| (c.id.clone(), c.result.clone()))
                 .collect(),
+            fact2_files,
+            issued_facts2: pi.facts2,
+            zeros2_files,
+            issued_zeros2: pi.zeros2,
+            second_route: r.cfg.second_route,
+            terminals: r.cfg.terminals,
+            terminal_decisions: decisions,
+            pins_recorded,
+            reference_mismatch: r.cfg.reference.mismatch.clone(),
+            prior_sha256: r
+                .cfg
+                .prior_clauses
+                .iter()
+                .filter_map(|c| c.sha256.clone().map(|d| (c.id.clone(), d)))
+                .collect(),
+            scale: r.cfg.scale.clone(),
+            escalation: r.cfg.escalation.clone(),
+            derived,
+            recipe_dir,
+            clauses: r.cfg.clauses.clone(),
         };
         let h = std::thread::Builder::new()
             .name(format!("closeloop-pass-{}", r.n))
             .spawn(move || run_pass(&inp, cached).map(|o| PassResult::Checked(Box::new(o))))
             .map_err(|e| format!("pass thread: {e}"))?;
-        self.nodes[i].running = Some(Running { round, handle: h });
+        self.nodes[i].running = Some(Running {
+            round,
+            handle: h,
+            digest: Some(eff_digest),
+        });
         self.nodes[i].pass_started = Some(Instant::now());
         Ok(())
     }
@@ -901,10 +1054,21 @@ impl CloseFromMaterialSource {
         let r = &self.nodes[i];
         let spec = rustred_campaign_core::import::TableSetSpec::from_json(&r.spec_text)
             .map_err(|e| format!("import spec: {e}"))?;
+        // lane t266run: the persistent table index in big-node mode (the tables are what this set is used for here)
+        let index_dir = r.cfg.scale.as_ref().map(|sc| {
+            sc.index_dir
+                .clone()
+                .unwrap_or_else(|| self.abs(&format!("{}/index", node_dir(&r.n))))
+        });
         let set = Arc::new(
-            rustred_campaign_core::import::load(&spec, &r.cfg.base())
-                .map_err(|e| format!("import load: {e}"))?,
+            rustred_campaign_core::import::load_with(
+                &spec,
+                &r.cfg.base(),
+                &rustred_campaign_core::import::LoadOptions { index_dir },
+            )
+            .map_err(|e| format!("import load: {e}"))?,
         );
+        self.nodes[i].set_digest = Some(blake3_hex(r.spec_text.as_bytes()));
         self.nodes[i].set = Some(set.clone());
         Ok(set)
     }
@@ -1078,6 +1242,103 @@ impl CloseFromMaterialSource {
         for (j, b) in out.proof_batches.iter().enumerate() {
             self.new_proof_item(&mut rt, i, k, j, b)?;
         }
+        // lane closeloop4 (audit-closeloop M1): the digests of every file the passes read, registered at first use and
+        // whenever a pass read a file not recorded before (an existing entry never changes: the pass refuses that)
+        {
+            let body = json_bytes(&serde_json::to_value(&out.pins).expect("json"));
+            let rec = record(format!("{}/pins.json", node_dir(&n)), body);
+            let fr = rec.file_ref();
+            if st
+                .inputs
+                .get(&input_pins(&n))
+                .is_none_or(|r| r.blake3 != fr.blake3)
+            {
+                rt.events.push(Event::InputRegistered {
+                    input: input_pins(&n),
+                    role: ROLE_PINS.into(),
+                    path: self.abs(&rec.path).display().to_string(),
+                    bytes: fr.bytes,
+                    blake3: fr.blake3,
+                });
+                rt.accepts.push(rec);
+            }
+        }
+        // lane closeloop4 (closeloop.md 19): terminal proposals waiting for a decision / an automatic decision
+        if let Some(p) = &out.terminal_proposals {
+            let rec = record(
+                format!("{}/final/terminal_proposals.r{k}.json", node_dir(&n)),
+                json_bytes(p),
+            );
+            let fr = rec.file_ref();
+            rt.events.push(Event::InputRegistered {
+                input: input_tproposals(&n, k),
+                role: ROLE_TPROPOSALS.into(),
+                path: self.abs(&rec.path).display().to_string(),
+                bytes: fr.bytes,
+                blake3: fr.blake3,
+            });
+            rt.events.push(Event::Note {
+                text: format!(
+                    "closeloop {node}: {} (round {k}); `rr_campaign control CDIR resolve-terminals --node {node} --accept KEYS | --reject`",
+                    p["label"].as_str().unwrap_or("terminal proposals")
+                ),
+            });
+            rt.accepts.push(rec);
+        }
+        if let Some(d) = &out.terminal_decision {
+            let (ev, rec) = self.decision_record(i, d)?;
+            rt.events.push(ev);
+            rt.accepts.push(rec);
+        }
+        // lane t266run (closeloop.md 17): the escalation's records (symmetry attempts, step recipes, accepted terminals)
+        if let Some(e) = &out.escalation {
+            use super::derived::{ROLE_RECIPES, ROLE_SYMREL, ROLE_TERMINALS};
+            let reg = |rt: &mut Routing, what: &str, role: &str, rel: String, body: Vec<u8>| {
+                let rec = record(rel, body);
+                let fref = rec.file_ref();
+                rt.events.push(Event::InputRegistered {
+                    input: format!("closeloop:{n}:{what}:r{k}"),
+                    role: role.into(),
+                    path: self.abs(&rec.path).display().to_string(),
+                    bytes: fref.bytes,
+                    blake3: fref.blake3.clone(),
+                });
+                rt.accepts.push(rec);
+            };
+            if !e.symrel_lines.is_empty() {
+                reg(
+                    &mut rt,
+                    "symrel",
+                    ROLE_SYMREL,
+                    format!("{}/escalation/symrel.r{k}.jsonl", node_dir(&n)),
+                    (e.symrel_lines.join("\n") + "\n").into_bytes(),
+                );
+            }
+            if !e.recipe_manifest.is_empty() {
+                for (file, text) in &e.recipe_files {
+                    rt.accepts.push(record(
+                        format!("{}/escalation/r{k}/{file}", node_dir(&n)),
+                        text.clone().into_bytes(),
+                    ));
+                }
+                reg(
+                    &mut rt,
+                    "recipes",
+                    ROLE_RECIPES,
+                    format!("{}/escalation/recipes.r{k}.jsonl", node_dir(&n)),
+                    (e.recipe_manifest.join("\n") + "\n").into_bytes(),
+                );
+            }
+            if let Some(t) = &e.terminals {
+                reg(
+                    &mut rt,
+                    "terminals",
+                    ROLE_TERMINALS,
+                    format!("{}/escalation/terminals.r{k}.json", node_dir(&n)),
+                    json_bytes(t),
+                );
+            }
+        }
         // phase D
         if let Some(f) = &out.final_ {
             let fr = record(
@@ -1093,6 +1354,20 @@ impl CloseFromMaterialSource {
                 blake3: fref.blake3.clone(),
             });
             rt.accepts.push(fr);
+            // lane closeloop4 (audit-closeloop m8): the statement and every other phase-D file are ledger records
+            if let Some(m) = f.result["final_files_blake3"].as_object() {
+                for (rel, b3) in m {
+                    let p = self.abs(&format!("{}/final/{rel}", node_dir(&n)));
+                    let bytes = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+                    rt.events.push(Event::InputRegistered {
+                        input: format!("{}:{}", input_final(&n), rel),
+                        role: ROLE_FINAL_FILE.into(),
+                        path: p.display().to_string(),
+                        bytes,
+                        blake3: b3.as_str().unwrap_or("").to_string(),
+                    });
+                }
+            }
             if f.verdict == "closed" {
                 if on_full_closed {
                     rt.events.push(Event::Note {
@@ -1220,7 +1495,7 @@ impl CloseFromMaterialSource {
             kind: b.kind.clone(),
             reason: b.reason.clone(),
             table: tp.display().to_string(),
-            table_blake3: file_blake3(&tp)?,
+            table_blake3: file_blake3_cached(&tp)?,
             records: b.records.clone(),
             relation_source: b.relation_source.clone(),
             rows: pc.rows.clone(),
@@ -1383,7 +1658,12 @@ impl CloseFromMaterialSource {
                 .map(|x| x.program_key())
                 .unwrap_or(pc.program_key())
                 .to_string(),
-            args: vec![],
+            // lane closeloop4: a second-route rr_proof job instantiates records with elided loci in facts mode
+            args: if kind == JobKind::ProofInstantiate && b.reason == proofs::REASON_SECOND_ROUTE {
+                vec!["--elided-loci".into(), "facts".into()]
+            } else {
+                vec![]
+            },
             inputs,
             depends_on: vec![input_pbatch(item)],
             budgets: JobBudgets::default(),
@@ -1469,9 +1749,13 @@ impl CloseFromMaterialSource {
                 _ if finalized.contains_key(&i) => "final",
                 (_, true, Some(NodePhase::Closed | NodePhase::Certified)) => "closed",
                 (_, true, _) => "final",
-                (Some(p), _, _) if p.round <= 1 => "import",
+                // lane closeloop4: the phase the loop is REALLY in (round 0 = loading the tables; every other running
+                // pass is a check; after a commit: the jobs it issued, or the operator)
+                (Some(p), _, _) if p.round == 0 => "loading",
                 (Some(_), _, _) => "checking",
+                _ if self.awaiting(st, i).is_some() => "awaiting operator",
                 _ if pending > 0 => "solving",
+                _ if self.proofs_pending(st, node) => "proving",
                 _ => "waiting",
             };
             let lc = r.last_check.clone().unwrap_or(Value::Null);
@@ -1498,6 +1782,7 @@ impl CloseFromMaterialSource {
             }
             nodes.push(json!({
                 "node": node, "phase": phase, "round": Self::rounds_done(st, &r.n),
+                "pass_round": r.running.as_ref().map(|p| p.round),
                 "keys": {"closure": lc["keys"], "certified": lc["certified"], "open": lc["open"],
                          "requested": requested, "pending": pending},
                 "solve_items_by_phase": by_phase, "answers_files": answers,
@@ -1645,7 +1930,13 @@ impl CloseFromMaterialSource {
             }
         };
         let n = self.nodes[i].n.clone();
-        let (sub, input, role) = if b.kind == "facts" || b.kind == "exact" {
+        let (sub, input, role) = if b.reason == proofs::REASON_SECOND_ROUTE {
+            // lane closeloop4: the second route's answers are kept apart (compared with the first, never merged)
+            ("facts2", input_facts2(&done.item, &done.job), ROLE_FACTS2)
+        } else if proofs::is_zeros_reason(&b.reason) {
+            // lane zeros2: the zeros asks' answers (verdicts + proof lines), kept apart as well
+            ("zeros2", input_zeros2(&done.item, &done.job), ROLE_ZEROS2)
+        } else if b.kind == "facts" || b.kind == "exact" {
             ("facts", input_facts(&done.item, &done.job), ROLE_FACTS)
         } else {
             ("proofs", input_proofs(&done.item, &done.job), ROLE_PROOFS)
@@ -1710,6 +2001,79 @@ impl CloseFromMaterialSource {
         rt.accepts.push(keys);
         rt.accepts.push(ans);
         Ok(rt)
+    }
+}
+
+// lane closeloop4 (closeloop.md 19): terminal proposals and decisions
+impl CloseFromMaterialSource {
+    /// The recorded terminal decisions of node `i` (ledger order; each file verified by its digest).
+    fn terminal_decisions(
+        &self,
+        st: &CampaignState,
+        i: usize,
+    ) -> Result<Vec<super::terminals::TerminalDecision>, String> {
+        let pre = input_tdecision_prefix(&self.nodes[i].n);
+        let mut ids: Vec<(u64, String)> = st
+            .inputs
+            .iter()
+            .filter(|(id, _)| id.starts_with(&pre))
+            .map(|(id, r)| (r.registered_seq, id.clone()))
+            .collect();
+        ids.sort();
+        ids.into_iter()
+            .map(|(_, id)| {
+                serde_json::from_slice(&self.input_file(st, &id)?)
+                    .map_err(|e| format!("terminal decision {id}: {e}"))
+            })
+            .collect()
+    }
+
+    /// (round, proposals) when node `i`'s latest proposals record has no decision yet.
+    fn awaiting(&self, st: &CampaignState, i: usize) -> Option<(u32, u64)> {
+        let n = &self.nodes[i].n;
+        if st.inputs.contains_key(&input_final(n)) {
+            return None;
+        }
+        let k = Self::rounds_done(st, n);
+        let p = st.inputs.get(&input_tproposals(n, k))?;
+        let pre = input_tdecision_prefix(n);
+        let decided = st
+            .inputs
+            .iter()
+            .any(|(id, r)| id.starts_with(&pre) && r.registered_seq > p.registered_seq);
+        if decided {
+            return None;
+        }
+        let count = std::fs::read(self.abs_or(&p.path))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            .and_then(|v| v["count"].as_u64())
+            .unwrap_or(0);
+        Some((k, count))
+    }
+
+    /// The ledger input and the file of a terminal decision.
+    fn decision_record(
+        &self,
+        i: usize,
+        d: &super::terminals::TerminalDecision,
+    ) -> Result<(Event, AcceptedRecord), String> {
+        let n = &self.nodes[i].n;
+        let rec = record(
+            format!("{}/terminals/decision.{}.json", node_dir(n), safe(&d.id)),
+            json_bytes(&serde_json::to_value(d).map_err(|e| e.to_string())?),
+        );
+        let fr = rec.file_ref();
+        Ok((
+            Event::InputRegistered {
+                input: input_tdecision(n, &d.id),
+                role: ROLE_TDECISION.into(),
+                path: self.abs(&rec.path).display().to_string(),
+                bytes: fr.bytes,
+                blake3: fr.blake3,
+            },
+            rec,
+        ))
     }
 }
 
@@ -1847,7 +2211,13 @@ impl WorkSource for CloseFromMaterialSource {
                     )
                 })
                 .collect();
+            // lane closeloop4: no solve job before the node's set is loaded (its settle accepts against that set: never
+            // a synchronous table load on the supervisor's main thread)
+            let set_loaded = self.nodes[i].set.is_some();
             for (item, ikind, ph, jobs) in items {
+                if ikind == KIND_SOLVE && !set_loaded {
+                    continue;
+                }
                 let (k, j) = parse_solve_item(&self.nodes[i].n, &item)
                     .or_else(|| parse_proof_item(&self.nodes[i].n, &item))
                     .unwrap_or((0, 0));
@@ -2124,8 +2494,27 @@ impl WorkSource for CloseFromMaterialSource {
                     .join()
                     .unwrap_or_else(|_| Err("pass thread panicked".into()));
                 match res {
-                    Ok(PassResult::Loaded(s)) => self.nodes[i].set = Some(s),
+                    Ok(PassResult::Loaded(s)) => {
+                        self.nodes[i].chart = Some(
+                            s.frame
+                                .mask()
+                                .iter()
+                                .map(|&l| if l { '1' } else { '0' })
+                                .collect(),
+                        );
+                        self.nodes[i].set_digest = run.digest.clone();
+                        self.nodes[i].set = Some(s)
+                    }
                     Ok(PassResult::Checked(o)) => {
+                        self.nodes[i].chart = Some(
+                            o.set
+                                .frame
+                                .mask()
+                                .iter()
+                                .map(|&l| if l { '1' } else { '0' })
+                                .collect(),
+                        );
+                        self.nodes[i].set_digest = run.digest.clone();
                         // the pass ran on the state of its start: still the node's next round?
                         if self.needs_pass(st, i) == Some(o.round) {
                             if let Some(f) = &o.final_ {
@@ -2173,6 +2562,114 @@ impl WorkSource for CloseFromMaterialSource {
             .all(|r| r.running.is_none() && st.inputs.contains_key(&input_final(&r.n)))
     }
 
+    /// lane closeloop4 (closeloop.md 19): nodes whose terminal proposals wait for the operator (exit 8); lane t266run:
+    /// also a FINAL result that says `awaiting_operator` (a campaign directory written by that lane's build).
+    fn operator_decision(&self, st: &CampaignState) -> Option<String> {
+        let mut v: Vec<String> = (0..self.nodes.len())
+            .filter(|&i| self.nodes[i].running.is_none())
+            .filter_map(|i| {
+                self.awaiting(st, i).map(|(k, n)| {
+                    format!(
+                        "{}: open: awaiting operator decision on {n} terminal proposals (round {k}; `rr_campaign control CDIR resolve-terminals --node {} --accept KEYS_FILE | --reject`)",
+                        self.nodes[i].cfg.node, self.nodes[i].cfg.node
+                    )
+                })
+            })
+            .collect();
+        for r in &self.nodes {
+            if let Ok(b) = self.input_file(st, &input_final(&r.n))
+                && let Ok(x) = serde_json::from_slice::<Value>(&b)
+                && let Some(m) = x["awaiting_operator"].as_str()
+            {
+                v.push(format!("node {}: {m}", r.cfg.node));
+            }
+        }
+        (!v.is_empty()).then(|| v.join(" | "))
+    }
+
+    /// lane closeloop4 (closeloop.md 19): the operator's `resolve-terminals` request.
+    fn resolve_operator_decision(
+        &mut self,
+        st: &CampaignState,
+        req: &crate::supervisor::ControlRequest,
+    ) -> Result<Routing, String> {
+        let mut rt = Routing::default();
+        let targets: Vec<usize> = (0..self.nodes.len())
+            .filter(|&i| {
+                req.target
+                    .as_deref()
+                    .is_none_or(|t| t == self.nodes[i].cfg.node)
+            })
+            .filter(|&i| self.awaiting(st, i).is_some())
+            .collect();
+        if targets.is_empty() {
+            return Err(format!(
+                "no node {}awaits a terminal decision",
+                req.target
+                    .as_deref()
+                    .map(|t| format!("{t} "))
+                    .unwrap_or_default()
+            ));
+        }
+        let p = req.payload.clone().unwrap_or(Value::Null);
+        let accept: Option<Vec<Vec<i32>>> = if p["reject"] == true {
+            None
+        } else {
+            Some(
+                serde_json::from_value(p["accept"].clone())
+                    .map_err(|e| format!("payload accept: {e}"))?,
+            )
+        };
+        for i in targets {
+            let (k, _) = self.awaiting(st, i).expect("awaiting");
+            let pr: Value = serde_json::from_slice(
+                &self.input_file(st, &input_tproposals(&self.nodes[i].n, k))?,
+            )
+            .map_err(|e| format!("proposals: {e}"))?;
+            let proposed: Vec<Vec<i32>> = pr["proposals"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|x| serde_json::from_value(x["key"].clone()).ok())
+                .collect();
+            // with several nodes, each takes the listed keys that are its own proposals
+            let acc: Option<Vec<Vec<i32>>> = accept.as_ref().map(|a| {
+                if req.target.is_some() {
+                    a.clone()
+                } else {
+                    a.iter().filter(|k| proposed.contains(k)).cloned().collect()
+                }
+            });
+            let d = super::terminals::operator_decision(
+                &self.nodes[i].cfg.node,
+                k,
+                &proposed,
+                acc.as_deref(),
+                &req.id,
+                if req.by.is_empty() {
+                    "operator"
+                } else {
+                    &req.by
+                },
+                req.reason.as_deref().unwrap_or(""),
+            )?;
+            let (ev, rec) = self.decision_record(i, &d)?;
+            rt.events.push(ev);
+            rt.accepts.push(rec);
+            rt.events.push(Event::Note {
+                text: format!(
+                    "closeloop {}: terminal decision {} by {}: accepted {}, rejected {}",
+                    d.node,
+                    d.id,
+                    d.by,
+                    d.accept.len(),
+                    d.reject.len()
+                ),
+            });
+        }
+        Ok(rt)
+    }
+
     /// lane closeloop3 (procfix5, supervisor.md 19.4): the outcome from every node's FINAL verdict (the recorded
     /// `final/result.json`): `closed` -> Closed; `error` (or an unreadable result) -> Error; anything else (`open`,
     /// `budget`, no result) -> Open. Error wins over Open.
@@ -2184,7 +2681,26 @@ impl WorkSource for CloseFromMaterialSource {
                 open.push(format!("{node}: no final verdict"));
                 continue;
             };
-            let v: Option<Value> = std::fs::read(self.abs_or(&inp.path))
+            // lane closeloop4 (audit-closeloop m8): a changed / truncated statement or phase-D file is an error
+            let pre = format!("{}:", input_final(&r.n));
+            let bad: Vec<String> = st
+                .inputs
+                .keys()
+                .filter(|id| id.starts_with(&pre))
+                .filter(|id| self.input_file(st, id).is_err())
+                .cloned()
+                .collect();
+            if !bad.is_empty() {
+                error.push(format!(
+                    "{node}: phase-D file(s) changed since they were recorded: {}",
+                    bad.join(", ")
+                ));
+                continue;
+            }
+            // lane closeloop4 (audit-closeloop F-OUT): the result is read through its RECORDED digest (input_file
+            // refuses a changed file: then the verdict is unreadable -> error), never the bare file
+            let v: Option<Value> = self
+                .input_file(st, &input_final(&r.n))
                 .ok()
                 .and_then(|b| serde_json::from_slice(&b).ok());
             match v.as_ref().and_then(|v| v["verdict"].as_str()) {

@@ -19,6 +19,66 @@ use import::{CheckOptions, Evidence, Level, RowStatus, Server, TableSetSpec, che
 use rustred_campaign_core::closure::Tier;
 use serde_json::{Value, json};
 
+/// lane closeloop4 (audit-closeloop M1 / m4): the spec text with its evidence PINNED (each file's sha256, a
+/// SHA256SUMS manifest beside a directory) and the family of its tables named (spec evidence is read only so).
+#[allow(dead_code)]
+fn pin_ev(spec: &serde_json::Value) -> String {
+    use std::io::BufRead;
+    let mut v = spec.clone();
+    let fam = v["sources"].as_array().and_then(|a| {
+        a.iter().find_map(|s| {
+            let p = s["path"].as_str()?;
+            let f = std::fs::File::open(p).ok()?;
+            let mut l = String::new();
+            std::io::BufReader::new(f).read_line(&mut l).ok()?;
+            let h: serde_json::Value = serde_json::from_str(l.trim()).ok()?;
+            h["family"].as_str().map(str::to_string)
+        })
+    });
+    let sha = |p: &std::path::Path| rustred_campaign_core::import::lines::file_sha256(p).unwrap();
+    if let Some(ev) = v.get_mut("evidence").and_then(|e| e.as_object_mut()) {
+        for k in ["facts", "proofs", "solved"] {
+            if let Some(a) = ev.get_mut(k).and_then(|x| x.as_array_mut()) {
+                for e in a {
+                    let p = std::path::PathBuf::from(e["path"].as_str().unwrap_or(""));
+                    if p.is_file() && e.get("sha256").is_none() {
+                        e["sha256"] = serde_json::json!(sha(&p));
+                    }
+                    if p.is_dir() && e.get("manifest").is_none() {
+                        let mut names: Vec<String> = std::fs::read_dir(&p)
+                            .unwrap()
+                            .flatten()
+                            .map(|x| x.file_name().to_string_lossy().into_owned())
+                            .filter(|n| n.ends_with(".json") || n.ends_with(".jsonl"))
+                            .collect();
+                        names.sort();
+                        let body: String = names
+                            .iter()
+                            .map(|n| format!("{}  {n}\n", sha(&p.join(n))))
+                            .collect();
+                        let m = std::env::temp_dir().join(format!(
+                            "pin-ev-{}-{}.SHA256SUMS",
+                            std::process::id(),
+                            rustred_campaign_core::closure::sha256::sha256_tag(
+                                p.display().to_string().as_bytes()
+                            )
+                        ));
+                        std::fs::write(&m, body).unwrap();
+                        e["manifest"] =
+                            serde_json::json!({"path": m.display().to_string(), "sha256": sha(&m)});
+                    }
+                    if e.get("family").is_none()
+                        && let Some(f) = &fam
+                    {
+                        e["family"] = serde_json::json!(f);
+                    }
+                }
+            }
+        }
+    }
+    v.to_string()
+}
+
 const N: usize = 5;
 const MASK: &str = "11100";
 const LOW: [i32; 5] = [1, 1, 1, 0, 0];
@@ -287,7 +347,7 @@ fn credited_level_never_exceeds_its_image() {
             "sources":sources,"evidence":evidence.clone()});
         // the per-key proofs at (record, key) of the table records chosen with a proof: the record shas come from a
         // first load
-        let s0 = TableSetSpec::from_json(&spec.to_string()).unwrap();
+        let s0 = TableSetSpec::from_json(&pin_ev(&spec)).unwrap();
         let set0 = load(&s0, &d).unwrap();
         let mut sha_at: BTreeMap<i64, String> = BTreeMap::new();
         for r in &set0.rules[0] {
@@ -308,7 +368,7 @@ fn credited_level_never_exceeds_its_image() {
             evidence["proofs"] = json!([{"path": p.display().to_string()}]);
             spec["evidence"] = evidence;
         }
-        let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
+        let s = TableSetSpec::from_json(&pin_ev(&spec)).unwrap();
         let set = load(&s, &d).unwrap();
         let mut ev = Evidence::from_spec(&set, &d).unwrap();
         ev.recipe_proofs = recipe_proofs.clone();
@@ -469,7 +529,7 @@ fn explicit_family_with_a_non_identity_slot_order_loads() {
         "sources":[{"id":"A","kind":"engine_table","path":a.display().to_string()},
                    {"id":"G","kind":"symmetry_credit","family":{"path": fam.display().to_string()}},
                    {"id":"T","kind":"terminals","keys":[LOW]}]});
-    let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
+    let s = TableSetSpec::from_json(&pin_ev(&spec)).unwrap();
     let set = load(&s, &d).expect("an explicit family with a non-identity presentation loads");
     assert!(!set.cmp.presentation().is_identity());
     let g = set

@@ -839,6 +839,17 @@ fn d_resume_every() -> u32 {
     30
 }
 
+/// `proof-instantiate --elided-loci` (coord-ec2-instantiate.md 2d).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ElidedLoci {
+    /// R-f fail closed: a record with elided witness loci is refused (the whole legacy job, exit 2 -> 41).
+    #[default]
+    Refuse,
+    /// Records with elided witness loci answer exact COEFFICIENT facts only; never regularity evidence.
+    Facts,
+}
+
 /// The job spec.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1303,6 +1314,21 @@ impl JobSpec {
             p.to_path_buf()
         } else {
             Path::new(&self.run_dir).join(p)
+        }
+    }
+
+    /// The value of a two-token flag of `args` (`None` when absent or the flag has no value). The allow-list check
+    /// ([`JobSpec::check_args`]) guarantees one occurrence and a value of the flag's shape.
+    pub fn arg_value(&self, flag: &str) -> Option<&str> {
+        let i = self.args.iter().position(|a| a == flag)?;
+        self.args.get(i + 1).map(String::as_str)
+    }
+
+    /// Kind proof-instantiate, line 7: the elided-loci mode (`--elided-loci`, default [`ElidedLoci::Refuse`]).
+    pub fn elided_loci(&self) -> ElidedLoci {
+        match self.arg_value("--elided-loci") {
+            Some("facts") if self.kind == JobKind::ProofInstantiate => ElidedLoci::Facts,
+            _ => ElidedLoci::Refuse,
         }
     }
 

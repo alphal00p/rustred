@@ -181,7 +181,13 @@ impl RunExit {
 #[derive(Clone, Debug)]
 pub struct RunOptions {
     pub spec: CampaignSpec,
+    /// The campaign IDENTITY digest of the spec (lane closeloop4: without the launch-time CPU list).
     pub spec_blake3: String,
+    /// lane closeloop4: the BLAKE3 of the spec's bytes (the identity a ledger created before closeloop4 recorded):
+    /// such a campaign directory still resumes with the very same spec file.
+    pub spec_bytes_blake3: Option<String>,
+    /// lane closeloop4 (closeloop.md 20): this SESSION's CPU list (`--cpus`; launch-time, never identity).
+    pub cpus: Option<String>,
     pub cdir: PathBuf,
     pub plain: bool,
     pub fake_child: bool,
@@ -735,7 +741,13 @@ impl Supervisor {
             log.line("WARN", &format!("ledger: {w}"));
         }
         let st = ledger.state();
-        if st.spec_blake3 != opts.spec_blake3 || st.campaign_id != opts.spec.campaign {
+        // lane closeloop4: the identity digest (no CPU list); a ledger of an older build recorded the bytes' BLAKE3
+        let same_spec = st.spec_blake3 == opts.spec_blake3
+            || opts
+                .spec_bytes_blake3
+                .as_deref()
+                .is_some_and(|b| st.spec_blake3 == b);
+        if !same_spec || st.campaign_id != opts.spec.campaign {
             return Err(RunExit::Refused(format!(
                 "spec digest differs from the directory's (campaign {}, spec {}): use the spec this campaign was created with",
                 st.campaign_id,
@@ -841,6 +853,7 @@ impl Supervisor {
         .map_err(|e| RunExit::Refused(format!("marker id {key:?}: {e}")))?;
         let mut pause_files = opts.spec.resources.pause_files.clone();
         pause_files.push(cdir.join("control").join("PAUSED"));
+        let mut session_cpus: Option<String> = None;
         let policy: Box<dyn CpuPolicy> = match opts.spec.resources.policy.as_str() {
             "site" => {
                 let path = opts.spec.resources.site_policy.clone().unwrap_or_default();
@@ -867,16 +880,60 @@ impl Supervisor {
                 Box::new(p)
             }
             _ => {
-                let cs = CpuSpec::parse(opts.spec.resources.cpus.as_deref().unwrap_or("1"))
-                    .map_err(RunExit::Refused)?;
+                // lane closeloop4 (closeloop.md 20): the CPUs are a LAUNCH-TIME resource chosen at each session start:
+                // `--cpus` > the spec's default list > the process's affinity mask (the launcher's pick), minus
+                // `exclude_cpus`, capped by the budget (`--cores` / `max_cores`); recorded in the ledger per session
                 let budget = opts.cores.or(opts.spec.resources.max_cores);
-                Box::new(
-                    PlainPolicy::new(&cs, budget)
-                        .map_err(|e| RunExit::Refused(e.to_string()))?
-                        .with_pause_files(pause_files),
-                )
+                let (cs, from) = match (&opts.cpus, &opts.spec.resources.cpus) {
+                    (Some(c), _) => (c.clone(), "--cpus"),
+                    (None, Some(c)) => (c.clone(), "resources.cpus"),
+                    (None, None) => (
+                        format!("count:{}", budget.unwrap_or(usize::MAX >> 1)),
+                        "affinity mask",
+                    ),
+                };
+                let mut cs = CpuSpec::parse(&cs).map_err(RunExit::Refused)?;
+                if let Some(x) = &opts.spec.resources.exclude_cpus {
+                    let ex = crate::resources::parse_cpu_list(x).map_err(RunExit::Refused)?;
+                    cs = match cs {
+                        CpuSpec::List(l) => CpuSpec::List(l.difference(&ex).copied().collect()),
+                        CpuSpec::Count(n) => {
+                            let aff = crate::resources::allowed_cpus()
+                                .map_err(|e| RunExit::Refused(format!("sched_getaffinity: {e}")))?;
+                            let l: std::collections::BTreeSet<usize> =
+                                aff.difference(&ex).copied().collect();
+                            let n = n.min(l.len());
+                            if n == 0 {
+                                return Err(RunExit::Refused(
+                                    "no CPU left after resources.exclude_cpus".into(),
+                                ));
+                            }
+                            CpuSpec::List(l.into_iter().take(n).collect())
+                        }
+                    };
+                }
+                let p = PlainPolicy::new(&cs, budget)
+                    .map_err(|e| RunExit::Refused(e.to_string()))?
+                    .with_pause_files(pause_files);
+                session_cpus = Some(format!(
+                    "session_cpus {{\"from\":{from:?},\"cpus\":{:?},\"budget\":{},\"exclude\":{:?}}}",
+                    crate::resources::format_cpu_list(p.candidates()),
+                    p.budget(),
+                    opts.spec.resources.exclude_cpus.as_deref().unwrap_or("")
+                ));
+                Box::new(p)
             }
         };
+        // lane closeloop4 (closeloop.md 20): the session's CPUs in the ledger (they may differ between sessions)
+        let session_note = session_cpus.unwrap_or_else(|| {
+            format!(
+                "session_cpus {{\"from\":\"site policy\",\"budget\":{}}}",
+                policy.budget()
+            )
+        });
+        ledger
+            .append(Event::Note { text: session_note })
+            .map_err(|e| RunExit::Refused(format!("ledger: {e}")))?;
         let mut admission = AdmissionPolicy::new(policy.budget());
         admission.floor_bytes = opts.spec.resources.host_floor.0;
         admission.campaign_mem_cap_bytes =
@@ -3270,6 +3327,15 @@ impl Supervisor {
             let req: Option<ControlRequest> = std::fs::read(&p)
                 .ok()
                 .and_then(|b| serde_json::from_slice(&b).ok());
+            // lane closeloop4 (closeloop.md 19): an operator decision of the work source (terminal proposals)
+            if let Some(r) = req.as_ref().filter(|r| r.verb == "resolve-terminals") {
+                self.apply_source_decision(r);
+                if self.ledger_dead.is_some() {
+                    return;
+                }
+                let _ = std::fs::rename(&p, done.join(&name));
+                continue;
+            }
             if let Some(r) = req.as_ref().filter(|r| r.verb == "resolve") {
                 self.apply_resolve(r);
                 if self.ledger_dead.is_some() {
@@ -3292,6 +3358,58 @@ impl Supervisor {
                 return;
             }
             let _ = std::fs::rename(&p, done.join(&name));
+        }
+    }
+
+    /// lane closeloop4 (closeloop.md 19): `resolve-terminals` = the work source's operator decision: its records are
+    /// written and its events committed like a poll routing (the decision is a ledger input); a refusal is a note.
+    fn apply_source_decision(&mut self, r: &ControlRequest) {
+        let routing = match self
+            .source
+            .resolve_operator_decision(self.ledger.state(), r)
+        {
+            Ok(x) => x,
+            Err(why) => {
+                self.log.line(
+                    "WARN",
+                    &format!("control {} (resolve-terminals) refused: {why}", r.id),
+                );
+                self.note(format!(
+                    "control_refused {{\"id\":{:?},\"verb\":\"resolve-terminals\",\"reason\":{why:?}}}",
+                    r.id
+                ));
+                return;
+            }
+        };
+        for a in &routing.accepts {
+            let p = self.cdir.join(&a.path);
+            if let Some(d) = p.parent() {
+                let _ = std::fs::create_dir_all(d);
+            }
+            if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
+                if e.is_no_space() {
+                    self.ledger_dead = Some(RunExit::DiskFull);
+                }
+                self.log.line(
+                    "ERROR",
+                    &format!("decision record {}: {e}; not recorded", a.path),
+                );
+                return;
+            }
+        }
+        match self.commit_or_refused(routing.events) {
+            Ok(_) => self.log.line(
+                "INFO",
+                &format!(
+                    "control {}: resolve-terminals recorded (by {})",
+                    r.id,
+                    if r.by.is_empty() { "operator" } else { &r.by }
+                ),
+            ),
+            Err(e) => self.log.line(
+                "ERROR",
+                &format!("control {} (resolve-terminals): ledger refused: {e}", r.id),
+            ),
         }
     }
 
@@ -4171,11 +4289,25 @@ impl Supervisor {
                 // procfix5: a source that is "finished" while operator decisions are pending (unknown executions,
                 // items in attention for repeated resource ends, live marked survivors) does NOT finish: the exit-8 rule
                 // below decides (a source may count an item in attention as settled for its own purposes).
+                // lane closeloop4: a source waiting for an operator decision (terminal proposals) does not finish
+                let source_awaits = self.source.operator_decision(self.ledger.state());
                 let decisions_pending = !self.unknown.is_empty()
                     || !self.attention.is_empty()
-                    || !self.survivors.is_empty();
+                    || !self.survivors.is_empty()
+                    || source_awaits.is_some();
                 if !decisions_pending && self.source.finished(self.ledger.state()) {
                     if let Err(msg) = self.final_sweep() {
+                        self.log.line("WARN", &msg);
+                        self.commit(vec![Event::Campaign {
+                            ev: crate::state::CampaignEvent::Stop,
+                            reason: msg.clone(),
+                        }]);
+                        self.write_progress(true);
+                        return RunExit::Attention(msg);
+                    }
+                    // lane t266run: the work is final but an operator must decide (e.g. terminal proposals)
+                    if let Some(msg) = self.source.operator_decision(self.ledger.state()) {
+                        let msg = format!("operator decision needed: {msg}");
                         self.log.line("WARN", &msg);
                         self.commit(vec![Event::Campaign {
                             ev: crate::state::CampaignEvent::Stop,
@@ -4233,7 +4365,8 @@ impl Supervisor {
                 if level == StopLevel::Running
                     && (!self.unknown.is_empty()
                         || !self.attention.is_empty()
-                        || !self.survivors.is_empty())
+                        || !self.survivors.is_empty()
+                        || source_awaits.is_some())
                     && (self.last_ready == 0 || blocked_for > Duration::from_secs(2))
                     && self
                         .resource_backoff_until
@@ -4273,6 +4406,9 @@ impl Supervisor {
                             "live marked processes that could not be killed hold attempts unsettled ({}): check and kill exactly those pids, then run the same command",
                             s.join("; ")
                         ));
+                    }
+                    if let Some(w) = &source_awaits {
+                        parts.push(w.clone());
                     }
                     let msg = format!("operator decision needed: {}", parts.join("; "));
                     self.log.line("WARN", &msg);
@@ -4355,6 +4491,10 @@ pub struct ControlRequest {
     pub target: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// lane closeloop4: the data of a work-source decision (`resolve-terminals`: `{"accept": [keys]}` | `{"reject":
+    /// true}`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload: Option<serde_json::Value>,
 }
 
 pub const CONTROL_SCHEMA: &str = "rustred.campaign.control.v1";

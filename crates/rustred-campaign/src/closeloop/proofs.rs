@@ -9,9 +9,12 @@
 //! (adapters::legacy) and here again against the batch file the ledger names (never trusted from the child).
 //! Generic (L8): records, tables, keys and arities are data.
 
+/// lane zeros2: schema of a per-(record, key) answer of a zeros ask (rr_coef_facts zeros requests).
+pub use crate::adapters::legacy::ZERO_VERDICT_SCHEMA;
 use crate::adapters::legacy::{SPAN_REQUEST_SCHEMA, SpanRequest, key_text_named};
 use rustred_campaign_contract::fake::{FakeOp, FakeScript, OnSigterm, RssPlan};
 use rustred_campaign_core::import::evidence::FACT_VERDICT_SCHEMA;
+use rustred_campaign_core::import::zero_proofs::ZERO_PROOF_SCHEMA;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -22,12 +25,16 @@ pub const PBATCH_SCHEMA: &str = "rustred.campaign.closeloop-proof-batch.v1";
 pub const RELATIONS_SCHEMA: &str = "rustred.campaign.closeloop-relations.v1";
 
 /// One rule record of a batch with its keys.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct RecordReq {
     pub rule: i64,
     pub offset: u64,
     pub record_sha256: String,
     pub keys: Vec<Vec<i32>>,
+    /// lane zeros2 (closeloop.md 23): a ZEROS ask: per key (parallel to `keys`) the term indices whose first-route
+    /// zero is to be confirmed; empty = an ordinary fact / proof ask (older batch files).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub terms: Vec<Vec<u32>>,
 }
 
 /// Why a batch was asked.
@@ -36,6 +43,19 @@ pub const REASON_RELATION: &str = "relation";
 pub const REASON_FACTS: &str = "import_fact_request";
 /// lane closeloop3: fact requests of records rr_proof instantiate refuses (elided witness loci): exact evaluation.
 pub const REASON_EXACT: &str = "import_fact_request_exact_eval";
+/// lane closeloop4 (closeloop.md 18): the SECOND route of a fact the check used (a decisive zero, or a record with
+/// elided loci): kind `facts` (rr_proof, `--elided-loci facts`) or `exact` (exact evaluation); its answers are recorded
+/// apart (role `closeloop_facts2`) and compared with the first route's term by term.
+pub const REASON_SECOND_ROUTE: &str = "second_route";
+/// lane zeros2 (closeloop.md 23): the second route of EVERY zero term the exact closure uses (kind `exact`, zeros
+/// requests): structural proofs per (record, term, locus), per-key evaluation where none covers the key; answers recorded
+/// apart (role `closeloop_zeros2`). `..._per_key`: the per-key evaluation only (spec `all_zeros: per_key`).
+pub const REASON_ALL_ZEROS: &str = "all_zeros";
+pub const REASON_ALL_ZEROS_PER_KEY: &str = "all_zeros_per_key";
+/// lane zeros2: whether a batch reason is a zeros ask.
+pub fn is_zeros_reason(r: &str) -> bool {
+    r == REASON_ALL_ZEROS || r == REASON_ALL_ZEROS_PER_KEY
+}
 
 /// One new proof / fact batch (output of a pass, before its item exists).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -116,14 +136,21 @@ pub fn span_keys_bytes(b: &ProofBatchFile) -> Vec<u8> {
     s.into_bytes()
 }
 
-/// The `requests` input of a facts job (rr_proof instantiate form (A)).
+/// The `requests` input of a facts job (rr_proof instantiate form (A)); lane zeros2: a zeros ask adds `terms` (per key)
+/// and `zeros` (`structural` | `per_key`).
 pub fn fact_requests_bytes(b: &ProofBatchFile) -> Vec<u8> {
     let mut s = String::new();
     for r in &b.records {
-        s.push_str(
-            &json!({"table": b.table, "offset": r.offset, "rule": r.rule, "keys": r.keys})
-                .to_string(),
-        );
+        let mut v = json!({"table": b.table, "offset": r.offset, "rule": r.rule, "keys": r.keys});
+        if is_zeros_reason(&b.reason) {
+            v["terms"] = json!(r.terms);
+            v["zeros"] = json!(if b.reason == REASON_ALL_ZEROS_PER_KEY {
+                "per_key"
+            } else {
+                "structural"
+            });
+        }
+        s.push_str(&v.to_string());
         s.push('\n');
     }
     s.into_bytes()
@@ -207,9 +234,38 @@ pub fn evidence_lines(
     let asked = b.pairs();
     let mut seen = BTreeSet::new();
     let mut out = vec![];
+    // lane zeros2 (closeloop.md 23): the asked terms of every (record, key) of a zeros ask
+    let zeros = is_zeros_reason(&b.reason);
+    let mut asked_terms: BTreeMap<(String, Vec<i32>), Vec<u32>> = BTreeMap::new();
+    if zeros {
+        for r in &b.records {
+            for (k, ts) in r.keys.iter().zip(&r.terms) {
+                asked_terms.insert((r.record_sha256.clone(), k.clone()), ts.clone());
+            }
+        }
+    }
     for (i, l) in canonical_lines.iter().enumerate() {
         let v: Value = serde_json::from_str(l).map_err(|e| format!("answer {}: {e}", i + 1))?;
         if v.get("type").and_then(Value::as_str) == Some("end") {
+            continue;
+        }
+        if zeros && v["schema"] == ZERO_PROOF_SCHEMA {
+            // a proof line of a record of the batch (no key): kept as it is (verified again when loaded)
+            let sha = v["record_sha256"].as_str().unwrap_or("");
+            match rule_of.get(sha) {
+                Some(&rule) if v["rule"].as_i64() == Some(rule) => {}
+                _ => {
+                    return Err(format!(
+                        "answer {}: a proof line of record {sha} / rule {} the batch does not ask",
+                        i + 1,
+                        v["rule"]
+                    ));
+                }
+            }
+            out.push(
+                rustred_campaign_core::schema::canon::canonical_json(&v, false)
+                    .unwrap_or_else(|_| v.to_string()),
+            );
             continue;
         }
         let sha = v["record_sha256"]
@@ -230,7 +286,39 @@ pub fn evidence_lines(
         if !seen.insert(id) {
             return Err(format!("answer {}: (record, key) twice", i + 1));
         }
-        let line = if b.kind == "span" {
+        let line = if zeros {
+            if v["schema"] != ZERO_VERDICT_SCHEMA || v["producer"] != "exact_eval" {
+                return Err(format!(
+                    "answer {}: not a zero verdict line of the exact evaluation ({} / {})",
+                    i + 1,
+                    v["schema"],
+                    v["producer"]
+                ));
+            }
+            let got: Vec<u32> = v["terms"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x[0].as_u64().map(|j| j as u32))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let want = asked_terms
+                .get(&(sha.clone(), key.clone()))
+                .cloned()
+                .unwrap_or_default();
+            if got != want {
+                return Err(format!(
+                    "answer {}: answered terms {got:?}, asked {want:?}",
+                    i + 1
+                ));
+            }
+            let mut o = v.clone();
+            if let Some(m) = o.as_object_mut() {
+                m.insert("source".into(), json!("closeloop"));
+            }
+            o
+        } else if b.kind == "span" {
             json!({"record_sha256": sha, "key": key, "verdict": v["verdict"], "index": v["rule"],
                    "status": v["status"], "source": "closeloop"})
         } else if b.kind == "exact" {
@@ -283,9 +371,26 @@ pub fn evidence_lines(
                     _ => unknown.push(d),
                 }
             }
-            json!({"schema": FACT_VERDICT_SCHEMA, "index": v["rule"], "record_sha256": sha, "key": key,
+            // lane closeloop4: an answer of `--elided-loci facts` about a record with elided loci is coefficient facts
+            // ONLY (the wrapper refused it if it claimed `regular`): producer rr_proof_elided, verdict hidden
+            let elided = !v["elided_cover"].is_null() || !v["witness_loci_elided"].is_null();
+            let (verdict, producer) = if elided && usable {
+                let w = if verdict == "irregular" {
+                    "irregular"
+                } else {
+                    "hidden"
+                };
+                (w.to_string(), "rr_proof_elided")
+            } else {
+                (verdict, "rr_proof")
+            };
+            let mut o = json!({"schema": FACT_VERDICT_SCHEMA, "index": v["rule"], "record_sha256": sha, "key": key,
                    "verdict": verdict, "n_terms": terms.len(), "nonzero": nonzero, "unknown": unknown,
-                   "producer": "rr_proof"})
+                   "producer": producer});
+            if elided {
+                o["elided_cover"] = v["elided_cover"].clone();
+            }
+            o
         };
         out.push(
             rustred_campaign_core::schema::canon::canonical_json(&line, false)
@@ -389,6 +494,37 @@ pub fn symmetry_group_line(text: &str, chart: &str) -> Result<String, String> {
     Ok(json!({"type": "symmetry_group", "chart": chart, "group": v}).to_string())
 }
 
+/// lane t266run (moved here by lane closeloop4): BLAKE3 of a (possibly huge) input file, computed once per (path, size,
+/// mtime) in this process. A proof item names its table by digest; an 85 GB table hashed per item stalled the
+/// supervisor for minutes per item. The closing loop's PASS THREAD warms this cache for every table its batches name,
+/// so the supervisor's main thread (which creates the items) never hashes a table itself.
+pub fn file_blake3_cached(p: &std::path::Path) -> Result<String, String> {
+    use std::sync::Mutex;
+    type Cache = BTreeMap<(std::path::PathBuf, u64, u128), String>;
+    static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
+    let md = std::fs::metadata(p).map_err(|e| format!("{}: {e}", p.display()))?;
+    let mtime = md
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos());
+    let k = (p.to_path_buf(), md.len(), mtime);
+    if let Some(d) = CACHE
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().and_then(|m| m.get(&k).cloned()))
+    {
+        return Ok(d);
+    }
+    let d = crate::atomic::blake3_file(p)
+        .map(|(_, d)| d)
+        .map_err(|e| format!("{}: {e}", p.display()))?;
+    if let Ok(mut g) = CACHE.lock() {
+        g.get_or_insert_with(BTreeMap::new).insert(k, d.clone());
+    }
+    Ok(d)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -427,6 +563,7 @@ mod tests {
                 offset: 0,
                 record_sha256: "aa".into(),
                 keys: vec![vec![1, 1]],
+                ..Default::default()
             }],
             relation_source: None,
             rows: "engine".into(),
