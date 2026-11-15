@@ -48,6 +48,8 @@ struct ProofIssued {
     facts: BTreeSet<(String, Vec<i32>)>,
     /// lane closeloop4: pairs given to a SECOND-route fact item (reason second_route).
     facts2: BTreeSet<(String, Vec<i32>)>,
+    /// lane zeros2: pairs given to a zeros item (reason all_zeros*).
+    zeros2: BTreeSet<(String, Vec<i32>)>,
     jobs: u64,
     attention: u64,
 }
@@ -196,6 +198,7 @@ impl CloseFromMaterialSource {
                         offset,
                         record_sha256: sha,
                         keys: vec![key],
+                        ..Default::default()
                     }],
                     relation_source: Some(source.clone()),
                 };
@@ -775,6 +778,8 @@ impl CloseFromMaterialSource {
             let b = self.pbatch(st, i, item)?;
             if b.reason == proofs::REASON_SECOND_ROUTE {
                 out.facts2.extend(b.pairs());
+            } else if proofs::is_zeros_reason(&b.reason) {
+                out.zeros2.extend(b.pairs());
             } else if b.kind == "facts" || b.kind == "exact" {
                 out.facts.extend(b.pairs());
             } else {
@@ -897,6 +902,11 @@ impl CloseFromMaterialSource {
             .into_iter()
             .map(|(_, p, b)| (p, b))
             .collect();
+        let zeros2_files = self
+            .inputs_of_role(st, i, ROLE_ZEROS2)
+            .into_iter()
+            .map(|(_, p, b)| (p, b))
+            .collect();
         let relation_tables = self.relation_tables(st, i);
         // lane t266run (closeloop.md 17): the escalation recorded so far and the effective spec it implies; a set
         // loaded from another effective spec is dropped (the pass reloads it; the table index makes that cheap)
@@ -987,6 +997,8 @@ impl CloseFromMaterialSource {
                 .collect(),
             fact2_files,
             issued_facts2: pi.facts2,
+            zeros2_files,
+            issued_zeros2: pi.zeros2,
             second_route: r.cfg.second_route,
             terminals: r.cfg.terminals,
             terminal_decisions: decisions,
@@ -2251,6 +2263,9 @@ impl CloseFromMaterialSource {
         let (sub, input, role) = if b.reason == proofs::REASON_SECOND_ROUTE {
             // lane closeloop4: the second route's answers are kept apart (compared with the first, never merged)
             ("facts2", input_facts2(&done.item, &done.job), ROLE_FACTS2)
+        } else if proofs::is_zeros_reason(&b.reason) {
+            // lane zeros2: the zeros asks' answers (verdicts + proof lines), kept apart as well
+            ("zeros2", input_zeros2(&done.item, &done.job), ROLE_ZEROS2)
         } else if b.kind == "facts" || b.kind == "exact" {
             ("facts", input_facts(&done.item, &done.job), ROLE_FACTS)
         } else {

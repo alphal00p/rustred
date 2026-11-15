@@ -10,12 +10,13 @@
 //! with its bound proof (import hook `Evidence::recipe_proofs`).
 
 use super::config::{
-    Budgets, EscalationCfg, HandCfg, ScaleCfg, SecondRouteCfg, TerminalAccept, TerminalsCfg,
+    AllZeros, Budgets, EscalationCfg, HandCfg, ScaleCfg, SecondRouteCfg, TerminalAccept,
+    TerminalsCfg,
 };
 use super::derived::{DerivedState, EscOut};
 use super::proofs::{
-    ProofBatch, REASON_EXACT, REASON_FACTS, REASON_IMPORT_PROOF, REASON_RELATION,
-    REASON_SECOND_ROUTE, RecordReq, relation_records,
+    ProofBatch, REASON_ALL_ZEROS, REASON_ALL_ZEROS_PER_KEY, REASON_EXACT, REASON_FACTS,
+    REASON_IMPORT_PROOF, REASON_RELATION, REASON_SECOND_ROUTE, RecordReq, relation_records,
 };
 use super::terminals::TerminalDecision;
 use super::zeros;
@@ -157,6 +158,12 @@ pub struct PassIn {
     pub recipe_dir: PathBuf,
     /// lane t266run: the clauses of the box (closeloop.md 17.4); None = one box.
     pub clauses: Option<Vec<super::config::ClauseCfg>>,
+    // ---- lane zeros2 ----
+    /// Answer files of zeros asks (role `closeloop_zeros2`: zero verdicts + structural proofs), recorded BLAKE3
+    /// (closeloop.md 23).
+    pub zeros2_files: Vec<(PathBuf, String)>,
+    /// (record_sha256, applied key) pairs already given to a zeros item.
+    pub issued_zeros2: BTreeSet<(String, Vec<i32>)>,
 }
 
 impl PassIn {
@@ -208,6 +215,8 @@ impl PassIn {
             derived: DerivedState::default(),
             recipe_dir: PathBuf::from("/nonexistent-escalation-dir"),
             clauses: None,
+            zeros2_files: vec![],
+            issued_zeros2: BTreeSet::new(),
         }
     }
 }
@@ -582,6 +591,52 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         second.compared.insert((sha.clone(), key.clone()), c);
     }
     second.seconds = t_sr.elapsed().as_secs_f64();
+    // lane zeros2 (closeloop.md 23): the zeros asks' answers (per-key zero verdicts + structural proofs, the proofs
+    // VERIFIED on load), every structural reference bound to a loaded proof whose locus holds the key, compared with the
+    // first route BEFORE the check: every first-route zero answered `zero` confirms the pair (basis `<first> +
+    // zeros:<how>`); a contradicted zero DISPUTES the pair (its terms are edges / undecided) and blocks the node
+    let t_z = std::time::Instant::now();
+    let mut zans = zeros::ZerosAnswers::default();
+    for (p, b3) in &inp.zeros2_files {
+        verify_b3(p, b3)?;
+        zans.load(&set, p)
+            .map_err(|e| format!("zeros answers {}: {e}", p.display()))?;
+    }
+    zans.bind(&set);
+    let mut zcmp: BTreeMap<(String, Vec<i32>), (&'static str, zeros::ZeroCompare)> =
+        BTreeMap::new();
+    let answered_z: Vec<(String, Vec<i32>)> = zans.verdicts.keys().cloned().collect();
+    for (sha, key) in answered_z {
+        if second.compared.contains_key(&(sha.clone(), key.clone())) {
+            continue; // compared term by term by closeloop4's route already
+        }
+        let Some((zt, zr)) = set.find_sha(&sha) else {
+            continue;
+        };
+        let first = ev
+            .fact_basis(&zeros::rule_id(&set, zt, zr), &key)
+            .unwrap_or("none");
+        let Some(c) = zeros::compare_zeros(&set, &ev, &zans, &sha, &key) else {
+            continue;
+        };
+        if !c.differ.is_empty() {
+            ev.dispute(&sha, &key);
+        } else if c.agree() && c.first_zero > 0 {
+            ev.confirm_basis(&sha, &key, zeros::zeros_basis(first, &c));
+        }
+        zcmp.insert((sha, key), (first, c));
+    }
+    let zeros_compare_s = t_z.elapsed().as_secs_f64();
+    // the pairs a second route contradicted (closeloop4's route or the zeros route)
+    let disputed_pairs: BTreeSet<(String, Vec<i32>)> = second
+        .disagreements()
+        .map(|c| (c.sha.clone(), c.key.clone()))
+        .chain(
+            zcmp.iter()
+                .filter(|(_, (_, c))| !c.differ.is_empty())
+                .map(|(id, _)| id.clone()),
+        )
+        .collect();
     // our relations: their point records and the per-key proofs bound to (record_sha256, key)
     let mut rels: Vec<RelRec> = vec![];
     for (p, b3, source) in &inp.relation_tables {
@@ -836,8 +891,13 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     // lane closeloop4 (closeloop.md 21): ONE scan of the decided exact tier's edges: the decisive zeros AND the
     // standing DESCENT gate (every followed edge strictly lower under the node's FULL comparator; the closure's own
     // Tarjan pass for cycles): `closed` needs non_descending_edges == 0 and cycles == 0
+    // lane zeros2 (closeloop.md 23): the mode of the zero-term route (DEFAULT structural; without exact evaluation
+    // configured every zero to confirm blocks below: a zero is never accepted on one route unless `off` is explicit)
+    let zeros_mode = inp.second_route.all_zeros.unwrap_or(AllZeros::Structural);
+    let zeros_on = zeros_mode != AllZeros::Off;
+    let mut zeros_missing: zeros::ZerosMissing = BTreeMap::new();
     let scan_all = if tier_c_now {
-        Some(zeros::scan(&set, &ev, res, threads)?)
+        Some(zeros::scan_with(&set, &ev, res, threads, zeros_on)?)
     } else {
         None
     };
@@ -868,7 +928,8 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             "dropped_zero_edges_non_descending": sc.dropped_non_descending,
             "non_descending_list": bad.into_iter().take(1000).collect::<Vec<_>>()});
     }
-    if tier_c_now && (inp.second_route.decisive_zeros || inp.second_route.elided) {
+    let zeros_disputed = zcmp.values().filter(|(_, c)| !c.differ.is_empty()).count() as u64;
+    if tier_c_now && (inp.second_route.decisive_zeros || inp.second_route.elided || zeros_on) {
         let mut scan = scan_all.clone().unwrap_or_default();
         if !inp.second_route.decisive_zeros {
             scan.decisive.clear();
@@ -896,6 +957,31 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                     let sha = set.rules[t][r].record_sha256.clone();
                     pairs.entry((sha, applied)).or_insert((t, r, false, true)).3 = true;
                 }
+            }
+        }
+        // lane zeros2 (closeloop.md 23): every other served pair with a first-route zero term: its zeros are confirmed
+        // by the zeros route; a pair whose first route IS the exact evaluation goes to rr_proof (closeloop4's route: the
+        // zeros route runs on the same algebra)
+        type ZPair = (usize, usize, Vec<i32>, Vec<u32>);
+        let mut zpairs: Vec<ZPair> = vec![];
+        let mut zeros_same_backend = 0u64;
+        if zeros_on {
+            let mut seen: HashSet<(usize, usize, Vec<i32>)> = HashSet::new();
+            for zp in std::mem::take(&mut scan.zero_pairs) {
+                if !seen.insert((zp.table, zp.record, zp.applied.clone())) {
+                    continue;
+                }
+                let sha = set.rules[zp.table][zp.record].record_sha256.clone();
+                if pairs.contains_key(&(sha.clone(), zp.applied.clone())) {
+                    continue;
+                }
+                let first = ev.fact_basis(&zeros::rule_id(&set, zp.table, zp.record), &zp.applied);
+                if first == Some("exact_eval") {
+                    zeros_same_backend += 1;
+                    pairs.insert((sha, zp.applied), (zp.table, zp.record, false, true));
+                    continue;
+                }
+                zpairs.push((zp.table, zp.record, zp.applied, zp.terms));
             }
         }
         let rr_proof_ok = inp.proof.as_ref().is_some_and(|p| p.facts);
@@ -975,8 +1061,87 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             .disagreements()
             .map(zeros::PairCompare::json)
             .collect();
+        // lane zeros2: the statuses of the zero-term pairs
+        let (mut z_conf, mut z_conf_terms, mut z_terms) = (0u64, 0u64, 0u64);
+        let (mut z_pending, mut z_unanswered, mut z_unavailable, mut z_incomplete) =
+            (0u64, 0u64, 0u64, 0u64);
+        let (mut z_struct, mut z_struct_den, mut z_key) = (0u64, 0u64, 0u64);
+        let (mut z_pos, mut z_top, mut z_other) = (0u64, 0u64, 0u64);
+        for (zt, zr, applied, terms) in &zpairs {
+            z_terms += terms.len() as u64;
+            let id = (set.rules[*zt][*zr].record_sha256.clone(), applied.clone());
+            match zcmp.get(&id) {
+                Some((_, c)) if c.agree() => {
+                    z_conf += 1;
+                    z_conf_terms += c.first_zero;
+                    z_struct += c.by_structural;
+                    z_struct_den += c.by_structural_den;
+                    z_key += c.by_key;
+                    z_pos += c.pos;
+                    z_top += c.top;
+                    z_other += c.other;
+                }
+                Some((_, c)) if c.differ.is_empty() => z_incomplete += 1,
+                Some(_) => {} // a disagreement: counted with the disputed pairs
+                None => {
+                    if inp.issued_zeros2.contains(&id) {
+                        z_unanswered += 1;
+                    } else if !exact_ok {
+                        z_unavailable += 1;
+                    } else {
+                        z_pending += 1;
+                        zeros_missing
+                            .entry((*zt, *zr))
+                            .or_default()
+                            .push((applied.clone(), terms.clone()));
+                    }
+                }
+            }
+        }
+        if z_pending > 0 {
+            blocking.push(format!("all_zeros_pending:{z_pending}"));
+        }
+        if z_unanswered + z_incomplete > 0 {
+            blocking.push(format!(
+                "all_zeros_unanswered:{}",
+                z_unanswered + z_incomplete
+            ));
+        }
+        if z_unavailable > 0 {
+            blocking.push(format!("all_zeros_unavailable:{z_unavailable}"));
+        }
+        if !zans.unbound.is_empty() {
+            blocking.push(format!("all_zeros_unbound:{}", zans.unbound.len()));
+        }
+        let mut z_dis_list: Vec<Value> = vec![];
+        for ((sha, key), (first, c)) in &zcmp {
+            if !c.differ.is_empty() && z_dis_list.len() < 1000 {
+                z_dis_list.push(zeros::zeros_pair_line(&set, sha, key, first, c));
+            }
+        }
+        if let Some(((sha, key), (_, c))) = zcmp.iter().find(|(_, (_, c))| !c.differ.is_empty()) {
+            blocking.push(format!(
+                "second_route_disagreement_term:{}@{:?}#{}",
+                &sha[..16.min(sha.len())],
+                key,
+                c.differ[0].0
+            ));
+        }
+        let zs = &zans.proofs.stats;
+        let zeros_v = json!({"mode": zeros_mode.word(), "explicit": inp.second_route.all_zeros.is_some(),
+            "pairs": zpairs.len(), "terms": z_terms, "confirmed_pairs": z_conf, "confirmed_terms": z_conf_terms,
+            "confirmed_by": {"structural": z_struct, "structural_den_at_key": z_struct_den, "per_key": z_key},
+            "confirmed_by_class": {"positive_numerator": z_pos, "top": z_top, "other": z_other},
+            "disagreements": zeros_disputed, "pending": z_pending, "unanswered": z_unanswered,
+            "incomplete": z_incomplete, "unavailable": z_unavailable, "unbound": zans.unbound.len(),
+            "same_backend_to_rr_proof": zeros_same_backend,
+            "proofs": {"lines": zs.lines, "proved": zs.proved, "nowhere_zero": zs.proved_nowhere_zero,
+                       "not_proved": zs.not_proved, "excluded": zs.excluded, "records": zs.records,
+                       "foreign": zs.foreign, "tools": zs.tools},
+            "answered_pairs": zans.verdicts.len(), "compare_s": zeros_compare_s,
+            "disagreement_list": z_dis_list});
         // the disputed pairs of earlier answers stay blocking even when no longer decisive (their terms are edges now)
-        let disputed_all = second.disagreements().count() as u64;
+        let disputed_all = second.disagreements().count() as u64 + zeros_disputed;
         if disputed_all > 0 {
             blocking.push(format!("second_route_disagreement:{disputed_all}"));
         }
@@ -1007,7 +1172,9 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                            "other": scan.zero_other},
             "keys_scanned": scan.keys_scanned, "scan_s": scan.seconds, "compare_s": second.seconds,
             "compared_pairs": second.compared.len(), "disagreement_list": dis_list,
-            "config": {"decisive_zeros": inp.second_route.decisive_zeros, "elided": inp.second_route.elided}});
+            "config": {"decisive_zeros": inp.second_route.decisive_zeros, "elided": inp.second_route.elided,
+                       "all_zeros": zeros_mode.word()},
+            "all_zeros": zeros_v});
     }
     // lane t266run (closeloop4 m1 in every evidence mode, incl. the stores): a per-key proof contradicted by a
     // decided verdict for the same (record, key) gave that key no per-key level, and it blocks by name
@@ -1114,6 +1281,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                             offset: r.offset,
                             record_sha256: r.record_sha256.clone(),
                             keys: chunk.to_vec(),
+                            ..Default::default()
                         }],
                         relation_source: None,
                     });
@@ -1137,6 +1305,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                         offset: r.offset,
                         record_sha256: r.sha.clone(),
                         keys: vec![r.key.clone()],
+                        ..Default::default()
                     }],
                     relation_source: Some(r.source.clone()),
                 });
@@ -1155,10 +1324,13 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                         continue;
                     }
                     for k in &fr.keys {
-                        if !inp
-                            .issued_facts
-                            .contains(&(fr.record_sha256.clone(), k.clone()))
-                        {
+                        // lane zeros2: a pair DISPUTED by a second route is never asked from the first route again: the
+                        // disagreement is the answer (it blocks the node); a re-ask would only reload the contradiction
+                        let id = (fr.record_sha256.clone(), k.clone());
+                        if disputed_pairs.contains(&id) {
+                            continue;
+                        }
+                        if !inp.issued_facts.contains(&id) {
                             let m = if elided {
                                 &mut missing_exact
                             } else {
@@ -1178,6 +1350,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                         offset: info.offset,
                         record_sha256: info.record_sha256.clone(),
                         keys: ks.iter().cloned().collect(),
+                        ..Default::default()
                     },
                     (set.bodies.n_terms(*t, *r) as u64).max(1),
                 ));
@@ -1254,6 +1427,20 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                 pp.max_fact_keys_per_job.max(1),
                 "facts",
                 REASON_SECOND_ROUTE,
+            ));
+        }
+        // lane zeros2 (closeloop.md 23): the zero terms' second route (exact-evaluation program, zeros requests)
+        if !zeros_missing.is_empty() && pp.exact_keys_per_job.is_some() {
+            proof_batches.extend(zeros::zeros_batches(
+                &set,
+                &zeros_missing,
+                inp.second_route.zeros_keys_per_job,
+                inp.second_route.zeros_terms_per_job,
+                if zeros_mode == AllZeros::PerKey {
+                    REASON_ALL_ZEROS_PER_KEY
+                } else {
+                    REASON_ALL_ZEROS
+                },
             ));
         }
     }
@@ -1857,6 +2044,14 @@ fn write_final(
         "fact_basis": f.check["fact_basis"].clone(),
         "descent": {"non_descending_edges": f.check["descent"]["non_descending_edges"].clone(),
                     "cycles": f.check["descent"]["cycles"].clone()}}});
+    // lane zeros2 (closeloop.md 23): the zero terms the closure relies on and how many both routes confirmed
+    let az = &f.check["second_route"]["all_zeros"];
+    if az.is_object() && az["mode"] != "off" {
+        header["closeloop"]["zero_terms"] = json!({"mode": az["mode"], "pairs": az["pairs"], "terms": az["terms"],
+            "confirmed_pairs": az["confirmed_pairs"], "confirmed_terms": az["confirmed_terms"],
+            "confirmed_by": az["confirmed_by"], "confirmed_by_class": az["confirmed_by_class"],
+            "disagreements": az["disagreements"]});
+    }
     let compare_into = |r: &CheckResult, dir: &str| -> Result<(Value, Vec<Vec<i32>>), String> {
         let Some(h) = &inp.hand else {
             return Ok((Value::Null, vec![]));
@@ -2209,6 +2404,7 @@ fn record_batches(
                 offset: info.offset,
                 record_sha256: info.record_sha256.clone(),
                 keys: ks.iter().cloned().collect(),
+                ..Default::default()
             });
     }
     let mut out = vec![];

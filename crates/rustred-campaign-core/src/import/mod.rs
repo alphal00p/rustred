@@ -24,6 +24,8 @@ pub mod statement;
 pub mod store;
 pub mod sweep;
 pub mod symmetry;
+// lane zeros2: structural zero proofs of rule terms as a fact source (interfaces/zero-proofs.md)
+pub mod zero_proofs;
 
 pub use check::{CheckOptions, CheckResult, KeyRow, RowStatus, Server, SolveRequest, check};
 pub use error::ImportError;
