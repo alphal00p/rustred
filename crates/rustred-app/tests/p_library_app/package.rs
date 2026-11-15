@@ -595,7 +595,9 @@ fn another_version_is_refused_with_the_regenerate_hint() {
     // Any format other than the linked one (the pin moves 6 -> 11).
     let other = format + 1;
     version_mismatch(
-        edit("save-format", &|v| v["symbolica_save_format"] = other.into()),
+        edit("save-format", &|v| {
+            v["symbolica_save_format"] = other.into()
+        }),
         &format!("SYMBOLICA_SAVE_FORMAT ({LIBRARY_FILE})"),
         &other.to_string(),
     );

@@ -120,15 +120,15 @@ fn decompose(basis: &[Vec<i128>], target: &[i128]) -> Option<(Vec<Q>, bool)> {
         };
         a.swap(r, p);
         let inv = Q::int(1).div(a[r][c]);
-        for k in c..=cols {
-            a[r][k] = a[r][k].mul(inv);
+        for value in a[r].iter_mut().take(cols + 1).skip(c) {
+            *value = value.mul(inv);
         }
         for i in 0..rows {
             if i != r && !a[i][c].is_zero() {
                 let f = a[i][c];
-                for k in c..=cols {
-                    let v = a[r][k].mul(f);
-                    a[i][k] = a[i][k].sub(v);
+                let pivot = a[r].clone();
+                for (value, p) in a[i].iter_mut().zip(&pivot).take(cols + 1).skip(c) {
+                    *value = value.sub(p.mul(f));
                 }
             }
         }
@@ -189,11 +189,11 @@ impl FamilyForms {
             return Err(format!("slot {j}: non-integral decomposition"));
         }
         // exact check: sum x_i basis_i == image
-        for r in 0..image.len() {
+        for (r, &component) in image.iter().enumerate() {
             let s: i128 = (0..self.basis.len())
                 .map(|c| x[c].n * self.basis[c][r])
                 .sum();
-            if s != image[r] {
+            if s != component {
                 return Err(format!(
                     "SYMMETRY_FORM_CHECK_FAILED: slot {j}, component {r}"
                 ));
@@ -351,11 +351,10 @@ pub fn slice_rule_at(
     };
     // exactly mapped slots move their power
     let mut base = vec![Pow { var: None, c: 0 }; n];
-    for i in 0..n {
+    for (i, &p) in target.iter().enumerate().take(n) {
         if subs.contains_key(&i) {
             continue;
         }
-        let p = target[i];
         if p.var.is_none() && p.c == 0 {
             continue;
         }
@@ -835,7 +834,7 @@ impl PairShift {
                         .parse::<i64>()
                         .map_err(|_| format!("pair shift {part}"))?,
                 )
-            } else if let Some(i) = part[1..].find(|c| c == '+' || c == '-').map(|i| i + 1) {
+            } else if let Some(i) = part[1..].find(['+', '-']).map(|i| i + 1) {
                 let (a, b) = part.split_at(i);
                 (
                     a,
@@ -871,6 +870,10 @@ impl PairShift {
 /// Point mode: at ONE key (every slot fixed), every element; the smallest relation whose every term is strictly lower
 /// than the key under the engine order (`concrete`) wins (ties by element index). Returns (element, rule) or the
 /// per-element refusals.
+/// What [`point_rule`] gives: the smallest admissible (element, rule) and the refusals (element, reason).
+pub type PointRuleOutcome = (Option<(usize, SliceRule)>, Vec<(usize, String)>);
+
+#[allow(clippy::too_many_arguments)]
 pub fn point_rule(
     ff: &FamilyForms,
     group: &NodeGroup,
@@ -881,7 +884,7 @@ pub fn point_rule(
     max_expansion: u128,
     pair: Option<&PairShift>,
     only: Option<usize>,
-) -> (Option<(usize, SliceRule)>, Vec<(usize, String)>) {
+) -> PointRuleOutcome {
     let n = chart.len();
     let face_of = |k: &[i64]| Face {
         chart: chart.to_vec(),
@@ -1251,6 +1254,7 @@ fn table_preamble(label: &str, zeros: &std::collections::BTreeSet<Vec<bool>>) ->
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_points(
     o: &RunOptions,
     keys: &[Vec<i64>],
@@ -1325,7 +1329,7 @@ fn run_points(
             "{{\"type\":\"header\",{}\n",
             &header.to_string()[1..]
         ));
-        text.push_str(&table_preamble(&label, &zeros));
+        text.push_str(&table_preamble(label, zeros));
         for l in &lines {
             text.push_str(l);
             text.push('\n');

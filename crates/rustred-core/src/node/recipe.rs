@@ -2136,19 +2136,18 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
         "failure": Value::Null,
     })
 }
+/// Irreducible denominator factors with their maximal multiplicity, and the pole order at d0.
+pub(crate) type DenominatorCensus = (Vec<(String, usize)>, Option<usize>);
 
 /// The irreducible factors (exact, over Z) of the DELIVERED coefficients' denominators with their maximal multiplicity
 /// over the coefficients (constants dropped), and the pole order of the relation at d = `d0`: the largest multiplicity
 /// over the coefficients of the factors vanishing at d0 (coefficients are reduced, so a vanishing denominator factor is
 /// a pole). The order is None when a factor depends on more than one variable (not a fixed-key relation).
-pub(crate) fn denominator_census(
-    dens: &[&CoefficientPolynomial],
-    d0: i64,
-) -> (Vec<(String, usize)>, Option<usize>) {
+pub(crate) fn denominator_census(dens: &[&CoefficientPolynomial], d0: i64) -> DenominatorCensus {
     use symbolica::domains::integer::Integer;
     use symbolica::poly::factor::Factorize;
     let mut max_mult: BTreeMap<String, usize> = BTreeMap::new();
-    let mut cache: BTreeMap<String, (Vec<(String, usize)>, Option<usize>)> = BTreeMap::new();
+    let mut cache: BTreeMap<String, DenominatorCensus> = BTreeMap::new();
     let mut order: Option<usize> = Some(0);
     for den in dens {
         let key = den.to_string();
