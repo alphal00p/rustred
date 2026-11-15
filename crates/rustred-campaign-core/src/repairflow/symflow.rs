@@ -280,3 +280,138 @@ pub fn ship_gate_split(
             "note": "positive-numerator right-hand-side terms without a zero fact: not judged for descent here (a zero-fact source, lane zeros2, decides them)"}}),
     )
 }
+
+/// The result of a [`bounded_walk`].
+#[derive(Clone, Debug, Default)]
+pub struct WalkResult {
+    /// Keys served and expanded by this walk (by a table rule or an extra relation).
+    pub served: std::collections::HashSet<Vec<i32>>,
+    pub served_by_table: u64,
+    pub served_by_extra: u64,
+    /// Top-sector keys no table rule and no extra relation serves (in walk order).
+    pub uncovered: Vec<Vec<i32>>,
+    /// Keys whose first selected rule cannot be used there (reason).
+    pub blocked: Vec<(Vec<i32>, String)>,
+    /// Keys reached but NOT expanded because `expand` refused them (beyond the layer bound).
+    pub beyond: u64,
+    /// Keys reached that are leaves (closed earlier: not re-walked).
+    pub leaf_hits: u64,
+    pub terminals: u64,
+    /// Right-hand-side terms with a positive numerator (need a zero fact; not followed).
+    pub positive_numerator_terms: u64,
+    /// Right-hand-side terms in a sub-sector (some line <= 0: other sectors / nodes; not followed).
+    pub subsector_terms: u64,
+    pub no_body: u64,
+}
+
+/// A KEYS-ONLY forward walk of the first-match dispatch from `starts` (TRICKS 10: close layer by layer): a key in
+/// `leaves` is not re-walked; a key `expand` refuses is counted as beyond the bound and not expanded; a key no table
+/// rule serves is served by `extra` (key -> right-hand-side keys: shipped composites, core relations) when present,
+/// else recorded uncovered; blocked keys are recorded with the dispatcher's reason. Every right-hand-side term of a
+/// rule is followed (keys-only: a zero coefficient is not known here), except positive-numerator and sub-sector terms
+/// (counted). Pure; memory = the keys visited.
+pub fn bounded_walk(
+    set: &crate::import::load::ImportedSet,
+    starts: &[Vec<i32>],
+    extra: &HashMap<Vec<i32>, Vec<Vec<i32>>>,
+    leaves: &std::collections::HashSet<Vec<i32>>,
+    expand: &dyn Fn(&[i32]) -> bool,
+) -> WalkResult {
+    use crate::cover::Dispatch;
+    let lines = set.frame.mask().to_vec();
+    let n = lines.len();
+    let terminals: std::collections::HashSet<&Vec<i32>> = set
+        .terminals_preferred
+        .iter()
+        .chain(set.terminals_other.iter())
+        .collect();
+    let mut out = WalkResult::default();
+    let mut seen: std::collections::HashSet<Vec<i32>> = std::collections::HashSet::new();
+    let mut queue: std::collections::VecDeque<Vec<i32>> = std::collections::VecDeque::new();
+    for s in starts {
+        if seen.insert(s.clone()) {
+            queue.push_back(s.clone());
+        }
+    }
+    let mut buf: Vec<i32> = vec![];
+    let mut cm: Vec<u64> = vec![];
+    let mut push = |k: Vec<i32>,
+                    seen: &mut std::collections::HashSet<Vec<i32>>,
+                    queue: &mut std::collections::VecDeque<Vec<i32>>,
+                    out: &mut WalkResult| {
+        let pos = k.iter().zip(&lines).any(|(&x, &l)| !l && x > 0);
+        if pos {
+            out.positive_numerator_terms += 1;
+            return;
+        }
+        let sub = k.iter().zip(&lines).any(|(&x, &l)| l && x <= 0);
+        if sub {
+            out.subsector_terms += 1;
+            return;
+        }
+        if seen.insert(k.clone()) {
+            queue.push_back(k);
+        }
+    };
+    while let Some(k) = queue.pop_front() {
+        if leaves.contains(&k) {
+            out.leaf_hits += 1;
+            continue;
+        }
+        if terminals.contains(&k) {
+            out.terminals += 1;
+            continue;
+        }
+        if !expand(&k) {
+            out.beyond += 1;
+            continue;
+        }
+        match set.disp.first_match(&k) {
+            Ok(Dispatch::Covered(rr)) => {
+                buf.clear();
+                cm.clear();
+                match set.bodies.instantiate(&set.disp, rr, &k, &mut buf, &mut cm) {
+                    Ok(Some(c)) => {
+                        out.served_by_table += 1;
+                        let terms: Vec<Vec<i32>> =
+                            (0..c).map(|j| buf[j * n..(j + 1) * n].to_vec()).collect();
+                        out.served.insert(k);
+                        for t in terms {
+                            push(t, &mut seen, &mut queue, &mut out);
+                        }
+                    }
+                    _ => out.no_body += 1,
+                }
+            }
+            Ok(Dispatch::Uncovered) => match extra.get(&k) {
+                Some(rhs) => {
+                    out.served_by_extra += 1;
+                    out.served.insert(k);
+                    for t in rhs {
+                        push(t.clone(), &mut seen, &mut queue, &mut out);
+                    }
+                }
+                None => out.uncovered.push(k),
+            },
+            Ok(d) => {
+                if let Some(rhs) = extra.get(&k) {
+                    out.served_by_extra += 1;
+                    out.served.insert(k);
+                    for t in rhs {
+                        push(t.clone(), &mut seen, &mut queue, &mut out);
+                    }
+                } else {
+                    let why = match d {
+                        Dispatch::Blocked { reason, .. } => format!("blocked:{reason:?}"),
+                        Dispatch::Undecided { .. } => "undecided".to_string(),
+                        Dispatch::OutsideChart { .. } => "outside_chart".to_string(),
+                        _ => "other".to_string(),
+                    };
+                    out.blocked.push((k, why));
+                }
+            }
+            Err(e) => out.blocked.push((k, format!("error:{e:?}"))),
+        }
+    }
+    out
+}
