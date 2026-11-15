@@ -1009,6 +1009,12 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             "compared_pairs": second.compared.len(), "disagreement_list": dis_list,
             "config": {"decisive_zeros": inp.second_route.decisive_zeros, "elided": inp.second_route.elided}});
     }
+    // lane t266run (closeloop4 m1 in every evidence mode, incl. the stores): a per-key proof contradicted by a
+    // decided verdict for the same (record, key) gave that key no per-key level, and it blocks by name
+    let contradicted = ev.conflicts_used();
+    if !contradicted.is_empty() {
+        blocking.push(format!("contradicting_proofs:{}", contradicted.len()));
+    }
     let closed = certified == keys && blocking.is_empty();
     // a verdict blocker without a per-key count counts as one defect (the node machine needs defect > 0 to end)
     let defect = if closed { 0 } else { (keys - certified).max(1) };
@@ -1444,6 +1450,8 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         "relation_rule": inp.relation_rule,
         "relations": {"records": rels.len(), "proved": proved.len(), "proof_verdicts": relation_proof_status},
         "evidence_import": serde_json::to_value(&ev.counts).unwrap_or(Value::Null),
+        "contradicting_proofs": contradicted.iter().take(50)
+            .map(|(sha, k)| json!({"record_sha256": sha, "key": k})).collect::<Vec<_>>(),
         "requests": {"solve": res.solve_requests.len(), "solve_new": new_reqs.len(),
                      "solve_by_source": solve_by_source, "fact_records": res.fact_requests.len(),
                      "fact_keys": fact_keys, "proof_records": res.proof_requests.len(), "proof_keys": proof_keys},

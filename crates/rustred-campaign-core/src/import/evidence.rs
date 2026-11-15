@@ -2,7 +2,7 @@
 //! bound EXACTLY to (record_sha256 | recipe source, key). Lines that name no imported record are counted `foreign`,
 //! lines without a record digest `unbound`; neither is ever used. Conflicting answers are an error (fail closed).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
@@ -276,7 +276,8 @@ pub struct EvidenceCounts {
     pub proofs_foreign: usize,
     pub proofs_unbound: usize,
     pub proof_refusals: usize,
-    /// lane closeloop4 (audit-closeloop m1): (record, key) pairs with contradicting proof verdicts (no per-key level).
+    /// lane closeloop4 (audit-closeloop m1): (record, key) pairs with contradicting proof verdicts (no per-key level),
+    /// in memory (lane t266run: the stores count their own, `stores[].counts.proof_conflicts`).
     pub proof_conflicts: usize,
     /// Compact proof verdict lines (`record_sha256`, `key`, `verdict`; no `schema`) read.
     pub proof_verdict_lines: usize,
@@ -330,6 +331,9 @@ pub struct Evidence {
     stores: Vec<AttachedStore>,
     /// rule index -> record_sha256.
     rule_sha: Vec<String>,
+    /// lane t266run: the conflicted (rule, key) pairs a check ASKED for a per-key level (each denied it): the
+    /// node's verdict names them (`contradicting_proofs`).
+    conflicts_used: std::sync::Mutex<BTreeSet<(u32, Vec<i32>)>>,
 }
 
 /// How many foreign record digests are kept as examples (diagnosis only).
@@ -1330,15 +1334,77 @@ impl Evidence {
         else {
             return false;
         };
+        let pk = self
+            .proof_index(ri, key)
+            .is_some_and(|i| self.statuses[i as usize].per_key);
+        // closeloop4 m1 in every mode: a per-key proof contradicted by a decided verdict (in memory, inside one store,
+        // or across memory / stores) gives no per-key level; the pair is recorded for the verdict's blocker
+        if pk && self.proof_conflict(ri, key) {
+            self.conflicts_used
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert((ri, key.to_vec()));
+            return false;
+        }
+        pk
+    }
+
+    /// lane t266run (closeloop4 m1 in store mode): (rule, key) has a per-key proof AND a decided contrary verdict:
+    /// in memory, inside one store (its entry's conflict flag), or across memory and the stores.
+    fn proof_conflict(&self, ri: u32, key: &[i32]) -> bool {
         if !self.proof_conflicts.is_empty()
             && self
                 .proof_conflicts
                 .contains(&(ri, Box::<[i32]>::from(key)))
         {
+            return true;
+        }
+        if self.stores.is_empty() {
             return false;
         }
-        self.proof_index(ri, key)
-            .is_some_and(|i| self.statuses[i as usize].per_key)
+        let (mut per, mut contra) = (false, false);
+        let mut see = |si: u32| {
+            let s = &self.statuses[si as usize];
+            if s.per_key {
+                per = true;
+            } else if is_decided_status(&s.status) {
+                contra = true;
+            }
+        };
+        if !self.proofs.is_empty()
+            && let Some(&m) = self.proofs.get(&(ri, Box::<[i32]>::from(key)))
+        {
+            see(m);
+        }
+        for a in &self.stores {
+            if let Some(rec) = a.rec_of_ri.get(ri as usize).copied().flatten()
+                && let Some(e) = a.store.get_rec(rec, key)
+            {
+                if e.proof_conflict {
+                    return true;
+                }
+                if let Some(s) = e.proof {
+                    see(a.status_map[s as usize]);
+                }
+            }
+        }
+        per && contra
+    }
+
+    /// lane t266run: the contradicted (record_sha256, key) pairs a check asked for a per-key level (each was denied
+    /// it), sorted.
+    pub fn conflicts_used(&self) -> Vec<(String, Vec<i32>)> {
+        self.conflicts_used
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(ri, k)| {
+                (
+                    self.rule_sha.get(*ri as usize).cloned().unwrap_or_default(),
+                    k.clone(),
+                )
+            })
+            .collect()
     }
 }
 
