@@ -529,7 +529,8 @@ fn contradicting_proofs_deny_the_per_key_level_in_memory_and_in_the_store() {
     let mut spec = spec0.clone();
     spec["evidence"] = json!({"facts":[{"path": fp.display().to_string()}],
         "proofs":[{"path": pp.display().to_string()}, {"path": pp2.display().to_string()}]});
-    let set = load(&TableSetSpec::from_json(&spec.to_string()).unwrap(), &d).unwrap();
+    // int6: spec evidence is read only pinned and with its family (closeloop4 M1 / m4): `pin_ev`, as the other tests
+    let set = load(&TableSetSpec::from_json(&pin_ev(&spec)).unwrap(), &d).unwrap();
     let basis = |r: &import::CheckResult, n0: i32| {
         r.rows
             .iter()
