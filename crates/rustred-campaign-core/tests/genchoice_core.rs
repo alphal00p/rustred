@@ -131,16 +131,7 @@ fn default_policy_candidates_and_args() {
     assert_eq!(c[2].id, "bfi-default-std");
     assert_eq!(p.bfi_base().unwrap().id, "id-default-std");
     let a = p.args(&c[1], "{}");
-    assert_eq!(
-        a,
-        vec![
-            "--order",
-            "{}",
-            "--seed-pose-rung",
-            "--numeric-depth-max",
-            "3"
-        ]
-    );
+    assert_eq!(a, vec!["--order", "{}", "--seed-pose-rung"]);
     // a bfi order without a base is refused; a duplicate order is refused
     let mut q = Policy {
         orders: vec![OrderKind::Bfi],

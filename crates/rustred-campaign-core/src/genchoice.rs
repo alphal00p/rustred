@@ -434,7 +434,9 @@ impl Default for Policy {
                 name: "std".into(),
                 args: vec![],
             }],
-            common_args: vec!["--numeric-depth-max".into(), "3".into()],
+            // v1.5: none (the engine's own exhausted-endpoint route). `--numeric-depth-max 3` (seed-rung recipe) made
+            // blind T218's first full run search depth 3 on a genuine master for > 3600 s: killed, nothing sealed.
+            common_args: vec![],
             probe: ProbePolicy::default(),
             deep: DeepPolicy::default(),
             first: FirstPolicy::default(),

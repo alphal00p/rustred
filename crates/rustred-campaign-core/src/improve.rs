@@ -510,7 +510,7 @@ pub fn generation_record(
 pub const IMPROVE_CONFIG_SCHEMA: &str = "rustred.campaign.improve.v1";
 
 fn default_common_args() -> Vec<String> {
-    vec!["--numeric-depth-max".into(), "3".into()]
+    vec![]
 }
 
 /// A node of an improve run: its family and its EXISTING table (+ optional record, + optional box for the import spec).
