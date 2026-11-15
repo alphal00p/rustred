@@ -22,9 +22,14 @@ use crate::poles::{MaxSizeRatio, PoleObjective};
 pub enum KeyMode {
     All,
     /// `n` keys drawn deterministically (splitmix64 with `seed`) from the sorted box keys.
-    Sample { n: usize, seed: u64 },
+    Sample {
+        n: usize,
+        seed: u64,
+    },
     /// Box keys with dots + rank <= the bound (dots / rank from the node's line mask).
-    Layer { max_dots_rank: i64 },
+    Layer {
+        max_dots_rank: i64,
+    },
 }
 
 /// What is known of the terminal set at d0 (lane poles' B2 record; TRICKS 16: `inherent` only on a certified set).
@@ -75,7 +80,11 @@ impl Default for EpsDepthSpec {
         EpsDepthSpec {
             d0: "4".into(),
             target_exponent: 0,
-            budgets: Budgets { max_depth: 32, max_keys: None, max_seconds: None },
+            budgets: Budgets {
+                max_depth: 32,
+                max_keys: None,
+                max_seconds: None,
+            },
             keys: KeyMode::All,
             terminal_set: TerminalSetStatus::NotCertified,
             top_keys: 5,
@@ -87,7 +96,9 @@ impl Default for EpsDepthSpec {
 }
 
 fn obj<'a>(v: &'a Value, at: &str, allowed: &[&str]) -> Result<&'a Map<String, Value>, String> {
-    let o = v.as_object().ok_or_else(|| format!("{at} must be an object"))?;
+    let o = v
+        .as_object()
+        .ok_or_else(|| format!("{at} must be an object"))?;
     for k in o.keys() {
         if !allowed.contains(&k.as_str()) {
             return Err(format!("{at}: unknown member {k:?} (allowed: {allowed:?})"));
@@ -97,7 +108,8 @@ fn obj<'a>(v: &'a Value, at: &str, allowed: &[&str]) -> Result<&'a Map<String, V
 }
 
 fn uint(v: &Value, at: &str) -> Result<u64, String> {
-    v.as_u64().ok_or_else(|| format!("{at} must be an unsigned integer"))
+    v.as_u64()
+        .ok_or_else(|| format!("{at} must be an unsigned integer"))
 }
 
 fn int(v: &Value, at: &str) -> Result<i64, String> {
@@ -122,7 +134,16 @@ impl EpsDepthSpec {
         let o = obj(
             v,
             "epsdepth",
-            &["d0", "target_exponent", "budgets", "keys", "terminal_set", "report", "pole_objective", "eps_box"],
+            &[
+                "d0",
+                "target_exponent",
+                "budgets",
+                "keys",
+                "terminal_set",
+                "report",
+                "pole_objective",
+                "eps_box",
+            ],
         )?;
         if let Some(d) = o.get("d0") {
             let t = d.as_str().ok_or("epsdepth.d0 must be a text a or a/b")?;
@@ -135,7 +156,11 @@ impl EpsDepthSpec {
             s.target_exponent = int(t, "epsdepth.target_exponent")?;
         }
         if let Some(b) = o.get("budgets") {
-            let b = obj(b, "epsdepth.budgets", &["max_depth", "max_keys", "max_seconds"])?;
+            let b = obj(
+                b,
+                "epsdepth.budgets",
+                &["max_depth", "max_keys", "max_seconds"],
+            )?;
             if let Some(x) = b.get("max_depth") {
                 s.budgets.max_depth = i64::try_from(uint(x, "epsdepth.budgets.max_depth")?)
                     .map_err(|_| "epsdepth.budgets.max_depth too large".to_string())?;
@@ -144,13 +169,19 @@ impl EpsDepthSpec {
                 s.budgets.max_keys = Some(uint(x, "epsdepth.budgets.max_keys")? as usize);
             }
             if let Some(x) = b.get("max_seconds").filter(|x| !x.is_null()) {
-                let f = x.as_f64().filter(|f| *f > 0.0).ok_or("epsdepth.budgets.max_seconds must be > 0")?;
+                let f = x
+                    .as_f64()
+                    .filter(|f| *f > 0.0)
+                    .ok_or("epsdepth.budgets.max_seconds must be > 0")?;
                 s.budgets.max_seconds = Some(f);
             }
         }
         if let Some(k) = o.get("keys") {
             let k = obj(k, "epsdepth.keys", &["mode", "sample", "max_dots_rank"])?;
-            let mode = k.get("mode").map(|m| m.as_str().unwrap_or("?")).unwrap_or("all");
+            let mode = k
+                .get("mode")
+                .map(|m| m.as_str().unwrap_or("?"))
+                .unwrap_or("all");
             let (mut n, mut seed) = (2000usize, 0u64);
             if let Some(sm) = k.get("sample") {
                 let sm = obj(sm, "epsdepth.keys.sample", &["n", "seed"])?;
@@ -169,9 +200,15 @@ impl EpsDepthSpec {
                         .get("max_dots_rank")
                         .filter(|x| !x.is_null())
                         .ok_or("epsdepth.keys.mode layer needs max_dots_rank")?;
-                    KeyMode::Layer { max_dots_rank: int(b, "epsdepth.keys.max_dots_rank")? }
+                    KeyMode::Layer {
+                        max_dots_rank: int(b, "epsdepth.keys.max_dots_rank")?,
+                    }
                 }
-                m => return Err(format!("epsdepth.keys.mode {m:?} is not all / sample / layer")),
+                m => {
+                    return Err(format!(
+                        "epsdepth.keys.mode {m:?} is not all / sample / layer"
+                    ));
+                }
             };
         }
         if let Some(t) = o.get("terminal_set") {
@@ -179,7 +216,11 @@ impl EpsDepthSpec {
                 Some("certified_regular") => TerminalSetStatus::CertifiedRegular,
                 Some("degenerate") => TerminalSetStatus::Degenerate,
                 Some("not_certified") => TerminalSetStatus::NotCertified,
-                _ => return Err(format!("epsdepth.terminal_set {t} is not certified_regular / degenerate / not_certified")),
+                _ => {
+                    return Err(format!(
+                        "epsdepth.terminal_set {t} is not certified_regular / degenerate / not_certified"
+                    ));
+                }
             };
         }
         if let Some(r) = o.get("report") {
@@ -192,7 +233,8 @@ impl EpsDepthSpec {
             }
         }
         if let Some(p) = o.get("pole_objective") {
-            s.objective = PoleObjective::from_value(p, MaxSizeRatio::Unbounded).map_err(|e| e.to_string())?;
+            s.objective =
+                PoleObjective::from_value(p, MaxSizeRatio::Unbounded).map_err(|e| e.to_string())?;
         }
         if let Some(b) = o.get("eps_box").filter(|b| !b.is_null()) {
             s.eps_box = Some(EpsBox::from_value(b)?);
@@ -204,8 +246,12 @@ impl EpsDepthSpec {
     pub fn to_json(&self) -> Value {
         let keys = match &self.keys {
             KeyMode::All => json!({"mode": "all"}),
-            KeyMode::Sample { n, seed } => json!({"mode": "sample", "sample": {"n": n, "seed": seed}}),
-            KeyMode::Layer { max_dots_rank } => json!({"mode": "layer", "max_dots_rank": max_dots_rank}),
+            KeyMode::Sample { n, seed } => {
+                json!({"mode": "sample", "sample": {"n": n, "seed": seed}})
+            }
+            KeyMode::Layer { max_dots_rank } => {
+                json!({"mode": "layer", "max_dots_rank": max_dots_rank})
+            }
         };
         json!({"schema": "rustred.campaign.epsdepth-spec.v1", "d0": self.d0, "target_exponent": self.target_exponent,
             "budgets": {"max_depth": self.budgets.max_depth, "max_keys": self.budgets.max_keys,
@@ -218,13 +264,20 @@ impl EpsDepthSpec {
 
     /// Select box keys by the key mode. `keys` sorted or not: the result is sorted; `dots_rank` maps a key to its
     /// dots + rank. Deterministic.
-    pub fn select_keys(&self, keys: &[Vec<i32>], dots_rank: impl Fn(&[i32]) -> i64) -> Vec<Vec<i32>> {
+    pub fn select_keys(
+        &self,
+        keys: &[Vec<i32>],
+        dots_rank: impl Fn(&[i32]) -> i64,
+    ) -> Vec<Vec<i32>> {
         let mut all: Vec<Vec<i32>> = keys.to_vec();
         all.sort();
         all.dedup();
         match &self.keys {
             KeyMode::All => all,
-            KeyMode::Layer { max_dots_rank } => all.into_iter().filter(|k| dots_rank(k) <= *max_dots_rank).collect(),
+            KeyMode::Layer { max_dots_rank } => all
+                .into_iter()
+                .filter(|k| dots_rank(k) <= *max_dots_rank)
+                .collect(),
             KeyMode::Sample { n, seed } => {
                 if *n >= all.len() {
                     return all;
@@ -255,6 +308,12 @@ impl EpsDepthSpec {
 pub fn dots_rank(key: &[i32], lines: &[bool]) -> i64 {
     key.iter()
         .zip(lines)
-        .map(|(&v, &l)| if l { i64::from(v) - 1 } else { i64::from(v).abs() })
+        .map(|(&v, &l)| {
+            if l {
+                i64::from(v) - 1
+            } else {
+                i64::from(v).abs()
+            }
+        })
         .sum()
 }

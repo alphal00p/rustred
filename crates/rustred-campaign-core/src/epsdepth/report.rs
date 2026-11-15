@@ -104,7 +104,11 @@ pub fn node_report(
     node: &str,
 ) -> Result<(Value, Vec<Value>), String> {
     if terminals.len() != comp.terminals {
-        return Err(format!("{} terminal keys for {} components", terminals.len(), comp.terminals));
+        return Err(format!(
+            "{} terminal keys for {} components",
+            terminals.len(),
+            comp.terminals
+        ));
     }
     if let Some(b) = &spec.eps_box {
         b.covers(terminals)?;
@@ -115,7 +119,15 @@ pub fn node_report(
     let mut rows = Vec::with_capacity(comp.results.len());
     for r in &comp.results {
         let key = key_of(r.key);
-        rows.push(row(r, &key, spec, terminals, lines, &mut aggs, &mut totals)?);
+        rows.push(row(
+            r,
+            &key,
+            spec,
+            terminals,
+            lines,
+            &mut aggs,
+            &mut totals,
+        )?);
     }
     let per_terminal: Vec<Value> = aggs
         .into_iter()
@@ -243,9 +255,11 @@ fn row(
         blames.push(p.blame_server.clone().map_or(Value::Null, Value::String));
         leading.push(p.leading.clone().map_or(Value::Null, Value::String));
     }
-    Ok(json!({"schema": ROW_SCHEMA, "key": key, "D": dots, "r": rank, "orders": orders, "bounds": bounds,
+    Ok(
+        json!({"schema": ROW_SCHEMA, "key": key, "D": dots, "r": rank, "orders": orders, "bounds": bounds,
               "verdicts": verdicts, "blame": blames, "eps": eps, "leading": leading,
               "local": {"pole_order": r.local_pole, "singular_terms": r.local_singular,
                         "verdict": if r.local_pole == 0 { "regular_here".to_string() } else { format!("singular_here({})", r.local_pole) },
-                        "pole_in_cone": r.local_pole_in_cone}}))
+                        "pole_in_cone": r.local_pole_in_cone}}),
+    )
 }

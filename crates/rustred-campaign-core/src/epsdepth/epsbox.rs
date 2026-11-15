@@ -83,7 +83,11 @@ impl EpsBox {
             match arity {
                 None => arity = Some(k.key.len()),
                 Some(a) if a != k.key.len() => {
-                    return Err(format!("eps_box: key {:?} of arity {}, expected {a}", k.key, k.key.len()));
+                    return Err(format!(
+                        "eps_box: key {:?} of arity {}, expected {a}",
+                        k.key,
+                        k.key.len()
+                    ));
                 }
                 _ => {}
             }
@@ -106,10 +110,9 @@ impl EpsBoxChecked {
         if let Some(o) = self.by_key.get(terminal) {
             return Ok(*o);
         }
-        self.spec
-            .available
-            .default
-            .ok_or_else(|| format!("eps_box: terminal {terminal:?} has no available order and no default"))
+        self.spec.available.default.ok_or_else(|| {
+            format!("eps_box: terminal {terminal:?} has no available order and no default")
+        })
     }
 
     /// Check that every terminal of a node is covered (call before a report).
@@ -129,6 +132,10 @@ impl EpsBoxChecked {
     pub fn status(&self, terminal: &[i32], p: u32) -> Result<BoxStatus, String> {
         let avail = self.available(terminal)?;
         let req = self.required(p);
-        Ok(if req <= avail { BoxStatus::Within } else { BoxStatus::Exceeds(req - avail) })
+        Ok(if req <= avail {
+            BoxStatus::Within
+        } else {
+            BoxStatus::Exceeds(req - avail)
+        })
     }
 }

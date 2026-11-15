@@ -65,7 +65,10 @@ pub struct SymbolicaLaurent {
 }
 
 fn trailing_zeros(p: &QUni) -> usize {
-    p.coefficients().iter().position(|c| !Q.is_zero(c)).unwrap_or(0)
+    p.coefficients()
+        .iter()
+        .position(|c| !Q.is_zero(c))
+        .unwrap_or(0)
 }
 
 fn strip(p: &QUni, k: usize) -> QUni {
@@ -76,9 +79,13 @@ impl SymbolicaLaurent {
     /// `d0` = `a` or `a/b` (lane poles' `D0::parse`).
     pub fn new(d0: &str) -> Result<SymbolicaLaurent, String> {
         let d0 = D0::parse(d0).map_err(|e| e.to_string())?;
-        let ns = NamespacedSymbol::try_parse("rustred::epsdepth_t").ok_or("symbol rustred::epsdepth_t")?;
+        let ns = NamespacedSymbol::try_parse("rustred::epsdepth_t")
+            .ok_or("symbol rustred::epsdepth_t")?;
         let t = SymbolBuilder::new(ns).build().map_err(|e| e.to_string())?;
-        Ok(SymbolicaLaurent { d0, tvar: Arc::new(PolyVariable::Symbol(t)) })
+        Ok(SymbolicaLaurent {
+            d0,
+            tvar: Arc::new(PolyVariable::Symbol(t)),
+        })
     }
 
     pub fn d0(&self) -> &D0 {
@@ -105,7 +112,11 @@ impl SymbolicaLaurent {
         };
         let (n, d) = (to_q(num), to_q(den));
         let (a, b) = (trailing_zeros(&n), trailing_zeros(&d));
-        Ok(TCoeff::Ratio { v: a as i64 - b as i64, n1: strip(&n, a), d1: strip(&d, b) })
+        Ok(TCoeff::Ratio {
+            v: a as i64 - b as i64,
+            n1: strip(&n, a),
+            d1: strip(&d, b),
+        })
     }
 
     /// Read a coefficient text (any rational function of `d` and `n0 .. n{arity-1}`, read whole by the engine's parse
@@ -123,9 +134,18 @@ impl SymbolicaLaurent {
 
     /// Put the key's index values into numerator / denominator polynomials in `n0 .. n{arity-1}, d` (variable `d`
     /// at index `arity`) and build the exact coefficient.
-    pub fn coeff_at_key(&self, num: &ZPoly, den: &ZPoly, arity: usize, key: &[i32]) -> Result<TCoeff, String> {
+    pub fn coeff_at_key(
+        &self,
+        num: &ZPoly,
+        den: &ZPoly,
+        arity: usize,
+        key: &[i32],
+    ) -> Result<TCoeff, String> {
         if key.len() != arity {
-            return Err(format!("key of arity {}, coefficient of arity {arity}", key.len()));
+            return Err(format!(
+                "key of arity {}, coefficient of arity {arity}",
+                key.len()
+            ));
         }
         let vals: Vec<Integer> = key.iter().map(|&x| Integer::from(x as i64)).collect();
         let reps: Vec<(usize, &Integer)> = vals.iter().enumerate().collect();
@@ -150,7 +170,13 @@ impl SymbolicaLaurent {
         }
         let q = n1 * &s;
         let coeffs = q.coefficients();
-        let base = QSeries::new(&Q, Some(r), self.tvar.clone(), Q.zero(), Rational::from(r as i64));
+        let base = QSeries::new(
+            &Q,
+            Some(r),
+            self.tvar.clone(),
+            Q.zero(),
+            Rational::from(r as i64),
+        );
         let mut terms = Vec::with_capacity(r);
         for (i, c) in coeffs.iter().take(r).enumerate() {
             if !Q.is_zero(c) {
@@ -208,7 +234,8 @@ impl Laurent for SymbolicaLaurent {
     }
     fn one(&mut self, abs_prec: i64) -> QSeries {
         let r = abs_prec.max(1);
-        QSeries::new(&Q, Some(1), self.tvar.clone(), Q.zero(), Rational::from(r)).monomial(Q.one(), Rational::from(0))
+        QSeries::new(&Q, Some(1), self.tvar.clone(), Q.zero(), Rational::from(r))
+            .monomial(Q.one(), Rational::from(0))
     }
 }
 
@@ -217,7 +244,13 @@ impl Laurent for SymbolicaLaurent {
 pub struct ExactValuation;
 
 impl Valuation for ExactValuation {
-    fn pole_order(&mut self, coeff: &str, arity: usize, key: &[i32], d0: &str) -> Result<Val, String> {
+    fn pole_order(
+        &mut self,
+        coeff: &str,
+        arity: usize,
+        key: &[i32],
+        d0: &str,
+    ) -> Result<Val, String> {
         let d0 = D0::parse(d0).map_err(|e| e.to_string())?;
         let key: Vec<i64> = key.iter().map(|&x| i64::from(x)).collect();
         match order_at_key(coeff, arity, &key, &d0).map_err(|e| e.to_string())? {
@@ -227,6 +260,9 @@ impl Valuation for ExactValuation {
     }
 }
 
+/// (server label, [(term key, coefficient text)]) of one served key of a [`TextReduction`].
+type TextRelation = (String, Vec<(Vec<i32>, String)>);
+
 /// A reduction given as coefficient TEXTS (tests, small hand-made nodes, other lanes' fixtures): every served key has
 /// a relation `I(key) = sum_j c_j I(k_j)` over top-sector keys, `c_j` a rational function of `d` and the key's
 /// indices `n0 .. n{arity-1}` (put in at the key: index-dependent poles, TRICKS 9).
@@ -234,7 +270,7 @@ pub struct TextReduction {
     pub keys: Vec<Vec<i32>>,
     index: HashMap<Vec<i32>, usize>,
     terminals: Vec<usize>,
-    relations: HashMap<usize, (String, Vec<(Vec<i32>, String)>)>,
+    relations: HashMap<usize, TextRelation>,
     open: HashMap<usize, String>,
     alg: SymbolicaAlgebra,
     lau: SymbolicaLaurent,
@@ -277,7 +313,12 @@ impl TextReduction {
         }
         self.relations.insert(
             i,
-            (server.to_string(), rhs.iter().map(|(t, c)| (t.to_vec(), c.to_string())).collect()),
+            (
+                server.to_string(),
+                rhs.iter()
+                    .map(|(t, c)| (t.to_vec(), c.to_string()))
+                    .collect(),
+            ),
         );
         i
     }
@@ -294,7 +335,10 @@ impl TextReduction {
         self.terminals.len()
     }
     pub fn terminal_keys(&self) -> Vec<Vec<i32>> {
-        self.terminals.iter().map(|&i| self.keys[i].clone()).collect()
+        self.terminals
+            .iter()
+            .map(|&i| self.keys[i].clone())
+            .collect()
     }
 }
 
@@ -313,10 +357,17 @@ impl ReductionSource for TextReduction {
         if let Some(r) = self.open.get(&i) {
             return KeyStatus::Open(r.clone());
         }
-        if self.relations.contains_key(&i) { KeyStatus::Served } else { KeyStatus::Open("no relation".into()) }
+        if self.relations.contains_key(&i) {
+            KeyStatus::Served
+        } else {
+            KeyStatus::Open("no relation".into())
+        }
     }
     fn server(&self, i: usize) -> String {
-        self.relations.get(&i).map(|r| r.0.clone()).unwrap_or_default()
+        self.relations
+            .get(&i)
+            .map(|r| r.0.clone())
+            .unwrap_or_default()
     }
     fn relations(
         &mut self,
@@ -333,7 +384,9 @@ impl ReductionSource for TextReduction {
                 .iter()
                 .map(|(t, c)| {
                     let ti = self.index[t];
-                    self.lau.coeff_from_text(&self.alg, c, self.arity, &key).map(|c| (ti, c))
+                    self.lau
+                        .coeff_from_text(&self.alg, c, self.arity, &key)
+                        .map(|c| (ti, c))
                 })
                 .collect();
             visit(k, res);

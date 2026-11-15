@@ -16,11 +16,15 @@ use std::path::Path;
 
 use rustred_campaign_core::accept::facts::split_ratio;
 use rustred_campaign_core::accept::rule::RuleText;
-use rustred_campaign_core::closure::bodies::{RhsSlot, Sectors, TermClass, parse_rhs_pattern, rule_point};
+use rustred_campaign_core::closure::bodies::{
+    RhsSlot, Sectors, TermClass, parse_rhs_pattern, rule_point,
+};
 use rustred_campaign_core::closure::sha256::Sha256;
 use rustred_campaign_core::cover::Dispatch;
 use rustred_campaign_core::domain::CaseDomain;
-use rustred_campaign_core::epsdepth::{KeyStatus, LocalProfile, ReductionSource, TermKind, TermVal, Terms};
+use rustred_campaign_core::epsdepth::{
+    KeyStatus, LocalProfile, ReductionSource, TermKind, TermVal, Terms,
+};
 use rustred_campaign_core::import::ImportedSet;
 use rustred_campaign_core::symmetry::apply_framed;
 use serde_json::Value;
@@ -36,8 +40,15 @@ type ZPoly = MultivariatePolynomial<IntegerRing, u16>;
 #[derive(Clone, Debug)]
 enum St {
     Terminal(usize),
-    Rule { table: usize, record: usize },
-    Credit { table: usize, record: usize, images: Vec<Vec<i32>> },
+    Rule {
+        table: usize,
+        record: usize,
+    },
+    Credit {
+        table: usize,
+        record: usize,
+        images: Vec<Vec<i32>>,
+    },
     Open(String),
 }
 
@@ -93,10 +104,12 @@ pub struct RecordSource<'a> {
 pub fn line_at(path: &Path, offset: u64) -> Result<(Vec<u8>, String), String> {
     use std::io::{BufRead, Seek, SeekFrom};
     let mut f = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    f.seek(SeekFrom::Start(offset)).map_err(|e| format!("{}: {e}", path.display()))?;
+    f.seek(SeekFrom::Start(offset))
+        .map_err(|e| format!("{}: {e}", path.display()))?;
     let mut r = std::io::BufReader::with_capacity(1 << 20, f);
     let mut line = Vec::new();
-    r.read_until(b'\n', &mut line).map_err(|e| format!("{}: {e}", path.display()))?;
+    r.read_until(b'\n', &mut line)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
     if line.last() == Some(&b'\n') {
         line.pop();
     }
@@ -112,7 +125,9 @@ pub fn file_sha256(path: &Path) -> Result<String, String> {
     let mut h = Sha256::new();
     let mut buf = vec![0u8; 1 << 20];
     loop {
-        let n = f.read(&mut buf).map_err(|e| format!("{}: {e}", path.display()))?;
+        let n = f
+            .read(&mut buf)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
         if n == 0 {
             break;
         }
@@ -123,7 +138,8 @@ pub fn file_sha256(path: &Path) -> Result<String, String> {
 
 /// Check `dir/name` against the `SHA256SUMS` of `dir` (refuses a missing entry or a mismatch).
 pub fn verify_in_sums(dir: &Path, name: &str) -> Result<String, String> {
-    let sums = std::fs::read_to_string(dir.join("SHA256SUMS")).map_err(|e| format!("SHA256SUMS: {e}"))?;
+    let sums =
+        std::fs::read_to_string(dir.join("SHA256SUMS")).map_err(|e| format!("SHA256SUMS: {e}"))?;
     let want = sums
         .lines()
         .find_map(|l| {
@@ -135,13 +151,18 @@ pub fn verify_in_sums(dir: &Path, name: &str) -> Result<String, String> {
         .ok_or_else(|| format!("{name} is not listed in {}/SHA256SUMS", dir.display()))?;
     let got = file_sha256(&dir.join(name))?;
     if got != want {
-        return Err(format!("{name}: sha256 {got} differs from SHA256SUMS {want}"));
+        return Err(format!(
+            "{name}: sha256 {got} differs from SHA256SUMS {want}"
+        ));
     }
     Ok(got)
 }
 
 fn parse_key(v: &Value) -> Option<Vec<i32>> {
-    v.as_array()?.iter().map(|x| x.as_i64().and_then(|x| i32::try_from(x).ok())).collect()
+    v.as_array()?
+        .iter()
+        .map(|x| x.as_i64().and_then(|x| i32::try_from(x).ok()))
+        .collect()
 }
 
 /// `I(a,b,..)` or a JSON array -> key.
@@ -163,7 +184,8 @@ impl<'a> RecordSource<'a> {
         verify_in_sums(statement_dir, "statement.jsonl")?;
         verify_in_sums(statement_dir, "terminals.json")?;
         let tj: Value = serde_json::from_str(
-            &std::fs::read_to_string(statement_dir.join("terminals.json")).map_err(|e| e.to_string())?,
+            &std::fs::read_to_string(statement_dir.join("terminals.json"))
+                .map_err(|e| e.to_string())?,
         )
         .map_err(|e| format!("terminals.json: {e}"))?;
         let terminals: Vec<Vec<i32>> = tj["terminals"]
@@ -190,15 +212,23 @@ impl<'a> RecordSource<'a> {
             tick: 0,
             stats: SourceStats::default(),
         };
-        let text = std::fs::read_to_string(statement_dir.join("statement.jsonl")).map_err(|e| e.to_string())?;
+        let text = std::fs::read_to_string(statement_dir.join("statement.jsonl"))
+            .map_err(|e| e.to_string())?;
         for (ln, line) in text.lines().enumerate() {
             if line.trim().is_empty() {
                 continue;
             }
-            let v: Value = serde_json::from_str(line).map_err(|e| format!("statement line {}: {e}", ln + 1))?;
-            let key = parse_key(&v["key"]).ok_or_else(|| format!("statement line {}: key", ln + 1))?;
+            let v: Value = serde_json::from_str(line)
+                .map_err(|e| format!("statement line {}: {e}", ln + 1))?;
+            let key =
+                parse_key(&v["key"]).ok_or_else(|| format!("statement line {}: key", ln + 1))?;
             if key.len() != set.arity() {
-                return Err(format!("statement line {}: key arity {} != {}", ln + 1, key.len(), set.arity()));
+                return Err(format!(
+                    "statement line {}: key arity {} != {}",
+                    ln + 1,
+                    key.len(),
+                    set.arity()
+                ));
             }
             let srv = &v["server"];
             let label = format!(
@@ -210,7 +240,12 @@ impl<'a> RecordSource<'a> {
             let st = match v["status"].as_str() {
                 Some("terminal") => match terminals.iter().position(|t| *t == key) {
                     Some(j) => St::Terminal(j),
-                    None => return Err(format!("statement line {}: terminal row not in terminals.json", ln + 1)),
+                    None => {
+                        return Err(format!(
+                            "statement line {}: terminal row not in terminals.json",
+                            ln + 1
+                        ));
+                    }
                 },
                 Some("served") => {
                     let sha = srv["record_sha256"].as_str().unwrap_or("");
@@ -221,13 +256,19 @@ impl<'a> RecordSource<'a> {
                             if images.is_empty() {
                                 St::Open("credit image not reproduced".into())
                             } else {
-                                St::Credit { table, record, images }
+                                St::Credit {
+                                    table,
+                                    record,
+                                    images,
+                                }
                             }
                         }
                         (Some(k), None) if k == "rule" || k == "credit" => {
                             St::Open(format!("record {sha} not dispatched by the set"))
                         }
-                        (k, _) => St::Open(format!("server kind {k:?} not composed by this source")),
+                        (k, _) => {
+                            St::Open(format!("server kind {k:?} not composed by this source"))
+                        }
                     }
                 }
                 other => St::Open(format!("statement status {other:?}")),
@@ -304,7 +345,9 @@ impl<'a> RecordSource<'a> {
     }
     /// Key indices of the statement's start (box) rows, in statement order.
     pub fn box_keys(&self) -> Vec<usize> {
-        (0..self.in_start.len()).filter(|&i| self.in_start[i]).collect()
+        (0..self.in_start.len())
+            .filter(|&i| self.in_start[i])
+            .collect()
     }
     pub fn lines(&self) -> &[bool] {
         self.set.frame.mask()
@@ -317,7 +360,8 @@ impl<'a> RecordSource<'a> {
         let i = self.keys.len();
         self.index.insert(k.clone(), i);
         self.keys.push(k);
-        self.st.push(St::Open("term outside the statement's closure".into()));
+        self.st
+            .push(St::Open("term outside the statement's closure".into()));
         self.server.push(String::new());
         self.in_start.push(false);
         self.stats.outside_statement_terms += 1;
@@ -334,11 +378,17 @@ impl<'a> RecordSource<'a> {
         let (line, sha) = line_at(Path::new(&info.path), info.offset)?;
         let want = info.record_sha256.trim_start_matches("sha256:");
         if sha.trim_start_matches("sha256:") != want {
-            return Err(format!("record at {}@{}: sha256 {sha} != {want}", info.path, info.offset));
+            return Err(format!(
+                "record at {}@{}: sha256 {sha} != {want}",
+                info.path, info.offset
+            ));
         }
         let rt = RuleText::parse(&line, &self.set.frame).map_err(|e| e.to_string())?;
         let domain = rt.domain.clone().ok_or_else(|| {
-            format!("record {want}: no case domain ({})", rt.domain_error.as_deref().unwrap_or("?"))
+            format!(
+                "record {want}: no case domain ({})",
+                rt.domain_error.as_deref().unwrap_or("?")
+            )
         })?;
         let arity = self.set.arity();
         let mut patterns = Vec::with_capacity(rt.rhs.len());
@@ -351,14 +401,26 @@ impl<'a> RecordSource<'a> {
         }
         self.stats.records_read += 1;
         self.cache_bytes += bytes;
-        self.cache.insert((table, record), Entry { domain, patterns, texts, parsed: HashMap::new(), bytes, last: self.tick });
+        self.cache.insert(
+            (table, record),
+            Entry {
+                domain,
+                patterns,
+                texts,
+                parsed: HashMap::new(),
+                bytes,
+                last: self.tick,
+            },
+        );
         self.evict();
         Ok(())
     }
 
     fn evict(&mut self) {
         while self.cache_bytes > self.budget_bytes && self.cache.len() > 1 {
-            let Some((&k, _)) = self.cache.iter().min_by_key(|(_, e)| e.last) else { break };
+            let Some((&k, _)) = self.cache.iter().min_by_key(|(_, e)| e.last) else {
+                break;
+            };
             if let Some(e) = self.cache.remove(&k) {
                 self.cache_bytes -= e.bytes;
                 self.stats.records_evicted += 1;
@@ -425,7 +487,10 @@ impl<'a> RecordSource<'a> {
                 e.parsed[&j].clone()
             };
             let (num, den) = parsed.map_err(|e| format!("term {j}: {e}"))?;
-            let c = self.lau.coeff_at_key(&num, &den, arity, &pt).map_err(|e| format!("term {j}: {e}"))?;
+            let c = self
+                .lau
+                .coeff_at_key(&num, &den, arity, &pt)
+                .map_err(|e| format!("term {j}: {e}"))?;
             out.push((tk, c));
         }
         self.cache_bytes += added;
@@ -437,7 +502,11 @@ impl<'a> RecordSource<'a> {
         let key = self.keys[k].clone();
         let terms = match self.st[k].clone() {
             St::Rule { table, record } => self.instantiate(table, record, &key)?,
-            St::Credit { table, record, images } => {
+            St::Credit {
+                table,
+                record,
+                images,
+            } => {
                 // the first image whose composed relation descends below the ORIGINAL key (non-zero top terms)
                 let mut chosen = None;
                 for im in &images {
@@ -455,7 +524,10 @@ impl<'a> RecordSource<'a> {
             St::Terminal(_) => return Err("a terminal has no relation".into()),
             St::Open(r) => return Err(r),
         };
-        Ok(terms.into_iter().map(|(tk, c)| (self.intern_outside(tk), c)).collect())
+        Ok(terms
+            .into_iter()
+            .map(|(tk, c)| (self.intern_outside(tk), c))
+            .collect())
     }
 
     /// The FULL local profile of the relation serving key `k` (every non-zero term: top AND subsector; zero-sector and
@@ -465,7 +537,11 @@ impl<'a> RecordSource<'a> {
         let key = self.keys[k].clone();
         let (table, record, point) = match self.st[k].clone() {
             St::Rule { table, record } => (table, record, key.clone()),
-            St::Credit { table, record, images } => (table, record, images[0].clone()),
+            St::Credit {
+                table,
+                record,
+                images,
+            } => (table, record, images[0].clone()),
             _ => return Err("not served".into()),
         };
         self.entry(table, record)?;
@@ -501,8 +577,15 @@ impl<'a> RecordSource<'a> {
                 e.parsed[&j].clone()
             };
             let (num, den) = parsed.map_err(|e| format!("term {j}: {e}"))?;
-            let c = self.lau.coeff_at_key(&num, &den, arity, &pt).map_err(|e| format!("term {j}: {e}"))?;
-            terms.push(TermVal { key: tk, kind, val: c.valuation() });
+            let c = self
+                .lau
+                .coeff_at_key(&num, &den, arity, &pt)
+                .map_err(|e| format!("term {j}: {e}"))?;
+            terms.push(TermVal {
+                key: tk,
+                kind,
+                val: c.valuation(),
+            });
         }
         Ok(LocalProfile::of(&terms, worst))
     }
@@ -510,7 +593,9 @@ impl<'a> RecordSource<'a> {
     /// The server label and (table, record) of a served key (census grouping).
     pub fn record_of(&self, k: usize) -> Option<(usize, usize)> {
         match &self.st[k] {
-            St::Rule { table, record } | St::Credit { table, record, .. } => Some((*table, *record)),
+            St::Rule { table, record } | St::Credit { table, record, .. } => {
+                Some((*table, *record))
+            }
             _ => None,
         }
     }
@@ -539,7 +624,11 @@ impl<'a> RecordSource<'a> {
 /// A coefficient text as numerator / denominator over Z in n0..n{N-1}, d (the importer's split rule when it applies,
 /// else the whole text; the engine's parse path; the exact quotient of the two sides, never reduced: valuations and
 /// expansions are invariant under a common factor).
-pub fn parse_coefficient(alg: &SymbolicaAlgebra, text: &str, arity: usize) -> Result<(ZPoly, ZPoly), String> {
+pub fn parse_coefficient(
+    alg: &SymbolicaAlgebra,
+    text: &str,
+    arity: usize,
+) -> Result<(ZPoly, ZPoly), String> {
     let Ok((nt, dt)) = split_ratio(text.trim()) else {
         // not of the importer's `(num)/(den)` forms: the whole text is one rational function (same value)
         return alg.parse_ratio(text.trim(), arity);

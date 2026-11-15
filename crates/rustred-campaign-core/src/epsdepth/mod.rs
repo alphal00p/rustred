@@ -26,8 +26,8 @@ pub mod report;
 pub mod spec;
 
 pub use compose::{
-    ComposeParams, ComposeStats, Composition, KeyResult, KeyStatus, Laurent, Order, PairResult, ReductionSource,
-    Terms, VectorSink, compose, compose_streaming, onto_terminals,
+    ComposeParams, ComposeStats, Composition, KeyResult, KeyStatus, Laurent, Order, PairResult,
+    ReductionSource, Terms, VectorSink, compose, compose_streaming, onto_terminals,
 };
 pub use epsbox::{BoxStatus, EpsBox, EpsBoxChecked};
 pub use profile::{LocalProfile, TermKind, TermVal, Val, Valuation};
