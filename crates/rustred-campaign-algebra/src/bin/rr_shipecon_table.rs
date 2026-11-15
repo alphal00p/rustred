@@ -33,7 +33,10 @@ fn die(m: &str) -> ! {
 }
 
 fn key_text(k: &[i32]) -> String {
-    k.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")
+    k.iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn main() {
@@ -62,17 +65,22 @@ fn main() {
         .unwrap_or_else(|e| die(&format!("import load: {e}")));
     eprintln!("loaded in {:.1} s", t0.elapsed().as_secs_f64());
     let qd = SymQd::new().unwrap_or_else(|e| die(&e));
-    let req = std::fs::File::open(&req_p).unwrap_or_else(|e| die(&format!("{}: {e}", req_p.display())));
-    let mut out = std::fs::File::create(&out_p).unwrap_or_else(|e| die(&format!("{}: {e}", out_p.display())));
+    let req =
+        std::fs::File::open(&req_p).unwrap_or_else(|e| die(&format!("{}: {e}", req_p.display())));
+    let mut out =
+        std::fs::File::create(&out_p).unwrap_or_else(|e| die(&format!("{}: {e}", out_p.display())));
     for l in std::io::BufReader::new(req).lines() {
         let l = l.unwrap_or_else(|e| die(&e.to_string()));
         if l.trim().is_empty() {
             continue;
         }
         let r: Value = serde_json::from_str(&l).unwrap_or_else(|e| die(&format!("request: {e}")));
-        let sha = r["record_sha256"].as_str().unwrap_or_else(|| die("record_sha256")).to_string();
-        let keys: Vec<Vec<i32>> =
-            serde_json::from_value(r["keys"].clone()).unwrap_or_else(|e| die(&format!("keys: {e}")));
+        let sha = r["record_sha256"]
+            .as_str()
+            .unwrap_or_else(|| die("record_sha256"))
+            .to_string();
+        let keys: Vec<Vec<i32>> = serde_json::from_value(r["keys"].clone())
+            .unwrap_or_else(|e| die(&format!("keys: {e}")));
         let line = measure(&set, &qd, max_bytes, &sha, &keys);
         writeln!(out, "{line}").unwrap_or_else(|e| die(&e.to_string()));
         out.flush().ok();
@@ -116,7 +124,9 @@ fn measure(
             Ok(Service::Unserved(w)) => {
                 return json!({"record_sha256": sha, "error": format!("key {k:?}: {w}"), "tool": tool});
             }
-            Err(e) => return json!({"record_sha256": sha, "error": format!("key {k:?}: {e}"), "tool": tool}),
+            Err(e) => {
+                return json!({"record_sha256": sha, "error": format!("key {k:?}: {e}"), "tool": tool});
+            }
         };
         // the application alone: the record is parsed now (cached in the catalogue)
         let t2 = Instant::now();

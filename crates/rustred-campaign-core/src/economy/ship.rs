@@ -345,7 +345,9 @@ impl ShipPolicy {
             return Err("stored.max_bytes_ratio: a finite number >= 0".into());
         }
         if self.recipe.steps.is_empty() {
-            return Err("recipe.steps: at least one step (the guard needs a bounded recipe)".into());
+            return Err(
+                "recipe.steps: at least one step (the guard needs a bounded recipe)".into(),
+            );
         }
         for s in &self.recipe.steps {
             crate::import::recipe_steps::parse_step(s).map_err(|e| format!("recipe.steps: {e}"))?;
@@ -374,9 +376,11 @@ impl ShipPolicy {
     /// Digest of what decides a rule (bars, stored, kept-aside, recipe bound, decision version): a record with the
     /// same decision digest and the same inputs is not decided again.
     pub fn decision_digest(&self) -> String {
-        digest_of(&json!({"v": DECISION_VERSION, "bars": self.bars, "stored": self.stored,
+        digest_of(
+            &json!({"v": DECISION_VERSION, "bars": self.bars, "stored": self.stored,
             "kept_aside": self.kept_aside, "recipe": self.bound_value(), "coverage": self.coverage,
-            "stored_apply_s": self.cost.stored_apply_s}))
+            "stored_apply_s": self.cost.stored_apply_s}),
+        )
     }
 
     /// The bound of a trial: a trial measured under the same bound (or, for deterministic verdicts, any bound) is
@@ -1191,8 +1195,10 @@ pub struct EconomyRecord {
 
 /// Digest of what a rule's decision depends on besides the settings: its record, its table and its served keys.
 pub fn inputs_digest(svc: &RuleService) -> String {
-    digest_of(&json!({"rule": svc.rule, "bytes": svc.bytes, "in": svc.served_in_start,
-        "out": svc.served_outside_start, "keys": svc.keys, "complete": svc.keys_complete}))
+    digest_of(
+        &json!({"rule": svc.rule, "bytes": svc.bytes, "in": svc.served_in_start,
+        "out": svc.served_outside_start, "keys": svc.keys, "complete": svc.keys_complete}),
+    )
 }
 
 /// What a run has to do for one examined rule given its previous record.
@@ -1201,7 +1207,10 @@ pub enum Reuse {
     /// Same inputs and same decision settings: nothing to do (the previous decision stands).
     Unchanged,
     /// Re-decide from the recorded measurements; measure only these (step, key) trials (may be empty).
-    Continue { trials: Vec<KeyTrial>, to_try: Vec<(String, Vec<i32>)> },
+    Continue {
+        trials: Vec<KeyTrial>,
+        to_try: Vec<(String, Vec<i32>)>,
+    },
     /// No usable record: measure everything the guard needs.
     Fresh,
 }
@@ -1358,8 +1367,8 @@ pub fn shipped_spec(
         if let Some(a) = &r.assignment {
             sv["assignment"] = serde_json::to_value(a).map_err(|e| e.to_string())?;
         }
-        let src: SourceSpec = serde_json::from_value(sv)
-        .map_err(|e| format!("recipe source {}: {e}", r.id))?;
+        let src: SourceSpec =
+            serde_json::from_value(sv).map_err(|e| format!("recipe source {}: {e}", r.id))?;
         if r.form == "stored" && precedence == Precedence::OverTable {
             // before every table: the entry takes its listed keys before the table's first match
             s.sources.insert(0, src);
@@ -1477,7 +1486,10 @@ impl ClosingCheck {
             dropped_keys: b.difference(&a).count() as u64,
             open_before: before.open,
             open_after: after.open,
-            holds: same_start && same_terminals && after.open <= before.open && new_blocking.is_empty(),
+            holds: same_start
+                && same_terminals
+                && after.open <= before.open
+                && new_blocking.is_empty(),
             new_blocking,
         }
     }

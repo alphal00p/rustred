@@ -13,7 +13,6 @@
 
 use super::accept::{BATCH_SCHEMA, BatchFile};
 use super::termmin::{AcceptBits, accept_point, cost_of};
-use rustred_campaign_core::termmin::machine::Cost;
 use crate::adapters::job::{InputFile, JobAdapter, Program, RunOptions, run_attempt};
 use crate::adapters::solve_recipe::{
     BatchPolicy, RecipeInput, SolveRecipeAdapter, SolveRecipeConfig, SolveRequest as AdReq,
@@ -24,9 +23,9 @@ use rustred_campaign_contract::layout::RunLayout;
 use rustred_campaign_contract::seal::verify_stream_handle;
 use rustred_campaign_core::closure::relations::DispatchSlot;
 use rustred_campaign_core::economy::ship::{
-    self as ship, Candidacy, Census, CensusBuilder, ClosingCheck, ClosureView, ECONOMY_RECORD_SCHEMA,
-    EconomyRecord, KeyTrial, Outcome, RECORD_KIND, REPORT_SCHEMA, Reuse, RuleDecision, RuleRef,
-    ShipMode, ShipPolicy, ShippedRecipe, TableTime,
+    self as ship, Candidacy, Census, CensusBuilder, ClosingCheck, ClosureView,
+    ECONOMY_RECORD_SCHEMA, EconomyRecord, KeyTrial, Outcome, RECORD_KIND, REPORT_SCHEMA, Reuse,
+    RuleDecision, RuleRef, ShipMode, ShipPolicy, ShippedRecipe, TableTime,
 };
 use rustred_campaign_core::import::recipe_steps::{RecipeForm, recipes_for_steps};
 use rustred_campaign_core::import::spec::FileRef;
@@ -34,6 +33,7 @@ use rustred_campaign_core::import::statement::all_rows;
 use rustred_campaign_core::import::{
     CheckOptions, Evidence, ImportedSet, RowStatus, Server, TableSetSpec, check, load,
 };
+use rustred_campaign_core::termmin::machine::Cost;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::BufRead;
@@ -137,7 +137,10 @@ struct Done {
 }
 
 /// The closure view of a check: keys, start keys, terminals, open count, blocking words.
-fn view_of(set: &ImportedSet, res: &rustred_campaign_core::import::CheckResult) -> Result<ClosureView, String> {
+fn view_of(
+    set: &ImportedSet,
+    res: &rustred_campaign_core::import::CheckResult,
+) -> Result<ClosureView, String> {
     let rows = all_rows(set, res)?;
     let mut v = ClosureView {
         blocking: res.blocking(),
@@ -197,7 +200,8 @@ fn census_and_before(
             let mut m = BTreeMap::new();
             for l in std::io::BufReader::new(f).lines() {
                 let l = l.map_err(|e| e.to_string())?;
-                let v: Value = serde_json::from_str(&l).map_err(|e| format!("{}: {e}", ip.display()))?;
+                let v: Value =
+                    serde_json::from_str(&l).map_err(|e| format!("{}: {e}", ip.display()))?;
                 if v["kind"] == "rule"
                     && let (Some(i), Some(h)) = (v["index"].as_i64(), v["sha256"].as_str())
                 {
@@ -218,14 +222,19 @@ fn census_and_before(
                 if l.trim().is_empty() {
                     continue;
                 }
-                let r: Value = serde_json::from_str(&l).map_err(|e| format!("{}: {e}", p.display()))?;
+                let r: Value =
+                    serde_json::from_str(&l).map_err(|e| format!("{}: {e}", p.display()))?;
                 let key = r[0]
                     .as_str()
                     .and_then(rustred_campaign_core::assemble::parse_key_text)
                     .ok_or_else(|| format!("{}: key {}", p.display(), r[0]))?;
                 let in_start = r[3] == true;
                 let sha = (r[1] == "table")
-                    .then(|| r[2].as_i64().and_then(|i| index_map.get(&i)).map(String::as_str))
+                    .then(|| {
+                        r[2].as_i64()
+                            .and_then(|i| index_map.get(&i))
+                            .map(String::as_str)
+                    })
                     .flatten();
                 b.add(&key, in_start, sha);
                 if r[1] == "terminal" {
@@ -247,7 +256,8 @@ fn census_and_before(
                 if l.trim().is_empty() {
                     continue;
                 }
-                let r: Value = serde_json::from_str(&l).map_err(|e| format!("{}: {e}", p.display()))?;
+                let r: Value =
+                    serde_json::from_str(&l).map_err(|e| format!("{}: {e}", p.display()))?;
                 let key: Vec<i32> = serde_json::from_value(r["key"].clone())
                     .map_err(|e| format!("{}: key: {e}", p.display()))?;
                 let in_start = r["in_start"] == true;
@@ -269,7 +279,8 @@ fn census_and_before(
                 "bytes": std::fs::metadata(p).map(|m| m.len()).unwrap_or(0)});
         }
         None => {
-            let ev = Evidence::from_spec(set, &cfg.import_base).map_err(|e| format!("evidence: {e}"))?;
+            let ev =
+                Evidence::from_spec(set, &cfg.import_base).map_err(|e| format!("evidence: {e}"))?;
             let res = check(
                 set,
                 &ev,
@@ -389,8 +400,12 @@ fn recipes_for(
     let (lp, np) = rustred_campaign_core::termmin::priorities(&lines, cp.as_deref());
     let lp = p.recipe.line_priority.clone().unwrap_or(lp);
     let np = p.recipe.numerator_priority.clone().unwrap_or(np);
-    let assignments: Vec<(String, Vec<i32>)> = keys.iter().map(|k| (step.to_string(), k.clone())).collect();
-    let prefix = format!("shipecon/{}/", rule.record_sha256.get(..16).unwrap_or(&rule.record_sha256));
+    let assignments: Vec<(String, Vec<i32>)> =
+        keys.iter().map(|k| (step.to_string(), k.clone())).collect();
+    let prefix = format!(
+        "shipecon/{}/",
+        rule.record_sha256.get(..16).unwrap_or(&rule.record_sha256)
+    );
     let g = recipes_for_steps(&assignments, &lines, &lp, &np, RecipeForm::V1_2, &prefix)
         .map_err(|e| format!("recipe step {step}: {e}"))?;
     let mut out = vec![];
@@ -407,7 +422,10 @@ fn recipes_for(
                 }
             })
             .collect();
-        let rule_word = doc["relation_rule"].as_str().unwrap_or("first_admissible").to_string();
+        let rule_word = doc["relation_rule"]
+            .as_str()
+            .unwrap_or("first_admissible")
+            .to_string();
         if let Some(o) = doc.as_object_mut() {
             o.remove("relation_rule");
             o.insert(
@@ -429,7 +447,12 @@ fn recipes_for(
 }
 
 /// Run one solve job through the adapter and the launcher (worker thread).
-fn launch(cfg: &ShipRunConfig, job: Job, sampler: Arc<Sampler>, tx: mpsc::Sender<Done>) -> Result<(), String> {
+fn launch(
+    cfg: &ShipRunConfig,
+    job: Job,
+    sampler: Arc<Sampler>,
+    tx: mpsc::Sender<Done>,
+) -> Result<(), String> {
     let adcfg = SolveRecipeConfig {
         program: cfg.program.clone(),
         family: InputFile::from_file(&cfg.family).map_err(|e| format!("{e:?}"))?,
@@ -487,8 +510,8 @@ fn launch(cfg: &ShipRunConfig, job: Job, sampler: Arc<Sampler>, tx: mpsc::Sender
                     return Err(format!("{} plans for one job", plans.len()));
                 }
                 let mut l = RealLauncher::new(sampler);
-                let (out, rep) =
-                    run_attempt(&mut l, &ad, &reqs, plan, &work, 1, &opts).map_err(|e| format!("{e:?}"))?;
+                let (out, rep) = run_attempt(&mut l, &ad, &reqs, plan, &work, 1, &opts)
+                    .map_err(|e| format!("{e:?}"))?;
                 let run_dir = rep.prepared.spec.run_dir.clone();
                 let cost = cost_of(Path::new(&run_dir), &out.job_id);
                 let c = &out.classification;
@@ -510,8 +533,12 @@ fn launch(cfg: &ShipRunConfig, job: Job, sampler: Arc<Sampler>, tx: mpsc::Sender
                     ));
                 }
                 let layout = RunLayout::new(&run_dir);
-                let (_, h) = verify_stream_handle(&layout.root, &RunLayout::out_rel("results.jsonl"), &["end"])
-                    .map_err(|e| format!("results stream: {e:?}"))?;
+                let (_, h) = verify_stream_handle(
+                    &layout.root,
+                    &RunLayout::out_rel("results.jsonl"),
+                    &["end"],
+                )
+                .map_err(|e| format!("results stream: {e:?}"))?;
                 let lines: Vec<String> = h
                     .canonical_lines()
                     .map_err(|e| format!("canonical lines: {e:?}"))?
@@ -519,7 +546,9 @@ fn launch(cfg: &ShipRunConfig, job: Job, sampler: Arc<Sampler>, tx: mpsc::Sender
                     .map(|b| String::from_utf8_lossy(&b).into_owned())
                     .collect();
                 let p = layout.root.join(RunLayout::out_rel("results.jsonl"));
-                let b3 = crate::atomic::blake3_file(&p).map(|x| x.1).unwrap_or_default();
+                let b3 = crate::atomic::blake3_file(&p)
+                    .map(|x| x.1)
+                    .unwrap_or_default();
                 Ok((p.display().to_string(), lines, b3, run_dir, cost))
             })();
             let _ = tx.send(Done { job, result: res });
@@ -582,7 +611,14 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
     let mut plans: BTreeMap<usize, Reuse> = BTreeMap::new();
     for (i, c) in cand.iter().enumerate() {
         if *c == Candidacy::Examine {
-            plans.insert(i, ship::plan(p, &census.rules[i], prev.get(&census.rules[i].rule.record_sha256)));
+            plans.insert(
+                i,
+                ship::plan(
+                    p,
+                    &census.rules[i],
+                    prev.get(&census.rules[i].rule.record_sha256),
+                ),
+            );
         }
     }
     // a rule decided earlier with an ESTIMATED table time and measured now: re-decided (its trials reused)
@@ -590,7 +626,9 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
         let sha = &census.rules[*i].rule.record_sha256;
         if *r == Reuse::Unchanged
             && ttimes.contains_key(sha)
-            && prev.get(sha).is_some_and(|x| x.table_time.as_ref().is_none_or(|t| !t.measured))
+            && prev
+                .get(sha)
+                .is_some_and(|x| x.table_time.as_ref().is_none_or(|t| !t.measured))
         {
             *r = Reuse::Continue {
                 trials: prev[sha].trials.clone(),
@@ -688,7 +726,8 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
         };
         trials.insert(i, have);
     }
-    let prog_bytes = std::fs::read(&cfg.program.path).map_err(|e| format!("{}: {e}", cfg.program.path.display()))?;
+    let prog_bytes = std::fs::read(&cfg.program.path)
+        .map_err(|e| format!("{}: {e}", cfg.program.path.display()))?;
     let bits = AcceptBits {
         boxed: true,
         determinism_id: None,
@@ -696,7 +735,9 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
         binary_sha256: sha256_hex(&prog_bytes),
         binary_path: cfg.program.path.display().to_string(),
         family_path: cfg.family.display().to_string(),
-        family_blake3: crate::atomic::blake3_file(&cfg.family).map_err(|e| e.to_string())?.1,
+        family_blake3: crate::atomic::blake3_file(&cfg.family)
+            .map_err(|e| e.to_string())?
+            .1,
         order: cfg.order.clone(),
         max_trace_rows: p.recipe.max_trace_rows,
         key_budget_s: p.recipe.key_budget_s,
@@ -844,9 +885,11 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
                                         .to_string();
                                     let body = r.map(entry_body);
                                     let entry_bytes = body.as_ref().map(|b| {
-                                        rustred_campaign_core::schema::canon::canonical_json(b, true)
-                                            .map(|t| t.len() as u64 + 600)
-                                            .unwrap_or(0)
+                                        rustred_campaign_core::schema::canon::canonical_json(
+                                            b, true,
+                                        )
+                                        .map(|t| t.len() as u64 + 600)
+                                        .unwrap_or(0)
                                     });
                                     if cert.contains(k)
                                         && let Some(rv) = r
@@ -946,7 +989,8 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
                     .cloned()
                     .unwrap_or_else(|| TableTime::estimate(&p.cost, svc.bytes, svc.monomials));
                 let g = ship::guard(p, svc, trials.get(&i).map(Vec::as_slice).unwrap_or(&[]));
-                let rb: BTreeMap<String, u64> = recipe_files.iter().map(|(k, v)| (k.clone(), v.2)).collect();
+                let rb: BTreeMap<String, u64> =
+                    recipe_files.iter().map(|(k, v)| (k.clone(), v.2)).collect();
                 decisions.push(ship::decide(p, svc, &g, &tt, &rb, &taken_by_table));
                 guards.insert(i, g);
                 table_time_of.insert(i, tt);
@@ -981,7 +1025,8 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
         // descent under the full comparator) whose top right-hand side lies in the certified set (decide refused the
         // others): every reached key stays a certified key with its old service or its new relation, every new edge
         // descends (acyclic); the closure can only shrink; terminals are a subset (reachability not recomputed)
-        let migrated: Vec<&RuleDecision> = decisions.iter().filter(|d| d.outcome.migrates()).collect();
+        let migrated: Vec<&RuleDecision> =
+            decisions.iter().filter(|d| d.outcome.migrates()).collect();
         let unserved: Vec<Vec<i32>> = migrated
             .iter()
             .flat_map(|d| d.keys.iter())
@@ -1011,7 +1056,10 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
                      (after_table: a later rule that takes a key keeps it served by that rule)"}));
         if !cc.holds {
             for d in decisions.iter_mut().filter(|d| d.outcome.migrates()) {
-                ship::revert(d, "local check: a migrated key without a certified relation");
+                ship::revert(
+                    d,
+                    "local check: a migrated key without a certified relation",
+                );
             }
         }
         closing = Some(cc);
@@ -1036,7 +1084,8 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
         )?;
         let tc = Instant::now();
         let set_s = load(&sspec, &cfg.import_base).map_err(|e| format!("shipped load: {e}"))?;
-        let mut ev = Evidence::from_spec(&set_s, &cfg.import_base).map_err(|e| format!("shipped evidence: {e}"))?;
+        let mut ev = Evidence::from_spec(&set_s, &cfg.import_base)
+            .map_err(|e| format!("shipped evidence: {e}"))?;
         ev.accept_ledger_verified_files();
         let res = check(
             &set_s,
@@ -1103,14 +1152,25 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
             // nothing attributable: revert every migration (the shipped spec = the original material)
             entry["reverted"] = json!("all (no attributable culprit or last iteration)");
             for d in decisions.iter_mut().filter(|d| d.outcome.migrates()) {
-                ship::revert(d, &format!("closing check iteration {it} failed: {:?}", cc.blocking));
+                ship::revert(
+                    d,
+                    &format!("closing check iteration {it} failed: {:?}", cc.blocking),
+                );
             }
         } else {
-            entry["reverted"] = json!(culprits.iter().map(|&di| decisions[di].rule.id()).collect::<Vec<_>>());
+            entry["reverted"] = json!(
+                culprits
+                    .iter()
+                    .map(|&di| decisions[di].rule.id())
+                    .collect::<Vec<_>>()
+            );
             for &di in &culprits {
                 ship::revert(
                     &mut decisions[di],
-                    &format!("its keys or relations reach {} open / new-terminal keys", bad.len()),
+                    &format!(
+                        "its keys or relations reach {} open / new-terminal keys",
+                        bad.len()
+                    ),
                 );
             }
         }
@@ -1154,7 +1214,14 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
     write(&cfg.out_dir.join("jobs.jsonl"), &jsonl(&jobs_log))?;
     let totals = ship::totals(&census, &decisions);
     let applied = if p.mode == ShipMode::Apply && closing.as_ref().is_some_and(|c| c.holds) {
-        Some(write_artifact(cfg, &census, &decisions, final_spec.as_ref(), &records_by_key, &set0)?)
+        Some(write_artifact(
+            cfg,
+            &census,
+            &decisions,
+            final_spec.as_ref(),
+            &records_by_key,
+            &set0,
+        )?)
     } else {
         None
     };
@@ -1221,8 +1288,15 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
 /// statement: `<statement dir>/../shipecon/proposal.json` = census totals, candidacy, and per examined rule its bytes,
 /// keys and the ESTIMATED economy (table time from the cost model, recipe seconds from the prior); the guard (engine
 /// jobs) and the measured decision are the driver's ([`run_ship`]). Best effort: an error is written, never raised.
-pub fn proposal_after_close(set: &ImportedSet, res: &rustred_campaign_core::import::CheckResult, sdir: &Path) {
-    let dir = sdir.parent().map(|d| d.join("shipecon")).unwrap_or_else(|| sdir.join("shipecon"));
+pub fn proposal_after_close(
+    set: &ImportedSet,
+    res: &rustred_campaign_core::import::CheckResult,
+    sdir: &Path,
+) {
+    let dir = sdir
+        .parent()
+        .map(|d| d.join("shipecon"))
+        .unwrap_or_else(|| sdir.join("shipecon"));
     let p = ShipPolicy::default();
     let out = (|| -> Result<Value, String> {
         let mut b = CensusBuilder::new(rules_of(set), p.candidates.max_keys_per_rule)?;
@@ -1244,21 +1318,26 @@ pub fn proposal_after_close(set: &ImportedSet, res: &rustred_campaign_core::impo
             match c {
                 Candidacy::Examine => {
                     let tt = TableTime::estimate(&p.cost, r.bytes, r.monomials);
-                    examined.push(json!({"rule": r.rule, "bytes": r.bytes, "in": r.served_in_start,
+                    examined.push(
+                        json!({"rule": r.rule, "bytes": r.bytes, "in": r.served_in_start,
                         "out": r.served_outside_start,
                         "table_seconds_per_key_estimate": tt.per_key(&[], r.served()),
-                        "recipe_seconds_per_key_prior": p.cost.recipe_solve_s}));
+                        "recipe_seconds_per_key_prior": p.cost.recipe_solve_s}),
+                    );
                 }
                 Candidacy::KeptAside => kept.push(json!({"rule": r.rule, "bytes": r.bytes})),
                 Candidacy::NotExamined { .. } => {}
             }
         }
-        Ok(json!({"schema": REPORT_SCHEMA, "mode": "proposal", "policy_digest": p.digest(),
+        Ok(
+            json!({"schema": REPORT_SCHEMA, "mode": "proposal", "policy_digest": p.digest(),
             "census": census.totals(), "examined": examined, "kept_aside": kept,
             "next": "run the ship-economy driver (closeloop::shipecon::run_ship) for the guard, the measured decision \
-                     and the closing check of the shipped spec"}))
+                     and the closing check of the shipped spec"}),
+        )
     })();
-    let v = out.unwrap_or_else(|e| json!({"schema": REPORT_SCHEMA, "mode": "proposal", "error": e}));
+    let v =
+        out.unwrap_or_else(|e| json!({"schema": REPORT_SCHEMA, "mode": "proposal", "error": e}));
     let _ = write(
         &dir.join("proposal.json"),
         &serde_json::to_vec_pretty(&v).unwrap_or_default(),
@@ -1287,29 +1366,38 @@ fn engine_probe(
             return Err(format!("probe: table {name} not in the set"));
         };
         for (r, info) in set.rules[ti].iter().enumerate() {
-            let mut f = std::fs::File::open(&info.path).map_err(|e| format!("{}: {e}", info.path))?;
+            let mut f =
+                std::fs::File::open(&info.path).map_err(|e| format!("{}: {e}", info.path))?;
             use std::io::{Read, Seek, SeekFrom};
             if header.is_none() {
                 let mut first = String::new();
-                std::io::BufReader::new(std::fs::File::open(&info.path).map_err(|e| e.to_string())?)
-                    .read_line(&mut first)
-                    .map_err(|e| e.to_string())?;
+                std::io::BufReader::new(
+                    std::fs::File::open(&info.path).map_err(|e| e.to_string())?,
+                )
+                .read_line(&mut first)
+                .map_err(|e| e.to_string())?;
                 header = Some(first.trim_end().as_bytes().to_vec());
-                for l in std::io::BufReader::new(std::fs::File::open(&info.path).map_err(|e| e.to_string())?)
-                    .lines()
-                    .map_while(Result::ok)
-                    .take_while(|l| !l.starts_with("{\"type\": \"rule\""))
+                for l in std::io::BufReader::new(
+                    std::fs::File::open(&info.path).map_err(|e| e.to_string())?,
+                )
+                .lines()
+                .map_while(Result::ok)
+                .take_while(|l| !l.starts_with("{\"type\": \"rule\""))
                 {
                     if l.starts_with("{\"type\": \"chart\"") {
                         charts.push(l.into_bytes());
                     }
                 }
             }
-            f.seek(SeekFrom::Start(info.offset)).map_err(|e| e.to_string())?;
+            f.seek(SeekFrom::Start(info.offset))
+                .map_err(|e| e.to_string())?;
             let mut b = vec![0u8; info.bytes as usize];
             f.read_exact(&mut b).map_err(|e| e.to_string())?;
             if sha256_hex(&b) != info.record_sha256 {
-                return Err(format!("probe: record at {}+{} changed", info.path, info.offset));
+                return Err(format!(
+                    "probe: record at {}+{} changed",
+                    info.path, info.offset
+                ));
             }
             pos.insert((ti, r), lines.len());
             lines.push(b);
@@ -1331,7 +1419,8 @@ fn engine_probe(
     let plain = |r: &&rustred_campaign_core::import::KeyRow| {
         matches!(
             (&r.status, &r.server),
-            (RowStatus::Served, Some(Server::Rule { .. })) | (RowStatus::Served, Some(Server::Relation { .. }))
+            (RowStatus::Served, Some(Server::Rule { .. }))
+                | (RowStatus::Served, Some(Server::Relation { .. }))
         )
     };
     let mut sample: Vec<&rustred_campaign_core::import::KeyRow> =
@@ -1358,7 +1447,8 @@ fn engine_probe(
     write(&dir.join("keys.jsonl"), keys.as_bytes())?;
     write(
         &dir.join("expected.json"),
-        &serde_json::to_vec(&json!({"expected": expected, "migrated_keys": migrated.len()})).map_err(|e| e.to_string())?,
+        &serde_json::to_vec(&json!({"expected": expected, "migrated_keys": migrated.len()}))
+            .map_err(|e| e.to_string())?,
     )?;
     let mut out = json!({"dir": dir.display().to_string(), "keys": sample.len(), "migrated_keys": migrated.len(),
         "table_sha256": sha256_hex(&table), "keys_sha256": sha256_hex(keys.as_bytes()),
@@ -1370,13 +1460,19 @@ fn engine_probe(
         let mut differ: Vec<Value> = vec![];
         let mut n = 0usize;
         for (i, l) in text.lines().filter(|l| !l.trim().is_empty()).enumerate() {
-            let v: Value = serde_json::from_str(l).map_err(|e| format!("engine line {}: {e}", i + 1))?;
+            let v: Value =
+                serde_json::from_str(l).map_err(|e| format!("engine line {}: {e}", i + 1))?;
             let Some(r) = sample.get(i) else {
                 return Err(format!("engine line {}: more answers than keys", i + 1));
             };
-            let k: Vec<i32> = serde_json::from_value(v["key"].clone()).map_err(|e| e.to_string())?;
+            let k: Vec<i32> =
+                serde_json::from_value(v["key"].clone()).map_err(|e| e.to_string())?;
             if k != r.key {
-                return Err(format!("engine line {}: key {k:?}, expected {:?}", i + 1, r.key));
+                return Err(format!(
+                    "engine line {}: key {k:?}, expected {:?}",
+                    i + 1,
+                    r.key
+                ));
             }
             let got = v["position"].as_u64().map(|x| x as usize);
             n += 1;
@@ -1439,10 +1535,10 @@ fn shipped_recipes(
             .get(&rid)
             .ok_or_else(|| format!("recipe {rid}: no file"))?;
         let a = format!("{}\n", json!({"recipe": rid, "keys": keys}));
-        let ap = cfg
-            .out_dir
-            .join("ship/assign")
-            .join(format!("{form}.{}.jsonl", crate::closeloop::ids::safe(&rid)));
+        let ap = cfg.out_dir.join("ship/assign").join(format!(
+            "{form}.{}.jsonl",
+            crate::closeloop::ids::safe(&rid)
+        ));
         write(&ap, a.as_bytes())?;
         n += keys.len();
         out.push(ShippedRecipe {
@@ -1504,7 +1600,9 @@ fn write_artifact(
             continue;
         }
         let svc = &census.rules[i];
-        let info = set.find_sha(&svc.rule.record_sha256).map(|(t, r)| &set.rules[t][r]);
+        let info = set
+            .find_sha(&svc.rule.record_sha256)
+            .map(|(t, r)| &set.rules[t][r]);
         let row = json!({"rule": d.rule, "outcome": d.outcome, "bytes": d.bytes_before,
             "table_path": info.map(|x| x.path.clone()), "offset": info.map(|x| x.offset)});
         if d.outcome == Outcome::KeptAside {
@@ -1512,7 +1610,9 @@ fn write_artifact(
         }
         removed.push(row);
         for k in &d.keys {
-            let Some(rec) = records_by_key.get(&k.key) else { continue };
+            let Some(rec) = records_by_key.get(&k.key) else {
+                continue;
+            };
             match k.form.as_str() {
                 "recipe" => {
                     let rid = k.recipe_id.clone().unwrap_or_default();
@@ -1550,8 +1650,10 @@ fn write_artifact(
     put("recipes.records.jsonl", &jsonl(&rr))?;
     put("relations.entries.jsonl", &jsonl(&entries))?;
     std::fs::write(dir.join("SHA256SUMS"), sums.as_bytes()).map_err(|e| e.to_string())?;
-    Ok(json!({"dir": dir.display().to_string(), "kept_aside": kept.len(), "removed": removed.len(),
-        "recipe_records": rr.len(), "stored_entries": entries.len(), "node_identity": node_identity}))
+    Ok(
+        json!({"dir": dir.display().to_string(), "kept_aside": kept.len(), "removed": removed.len(),
+        "recipe_records": rr.len(), "stored_entries": entries.len(), "node_identity": node_identity}),
+    )
 }
 
 /// The frame table's `original_family_source` (else `family_source`) header text.

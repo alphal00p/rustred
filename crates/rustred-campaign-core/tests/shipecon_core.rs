@@ -19,7 +19,9 @@ fn rule(label: i64, sha: &str) -> RuleRef {
 
 fn census_of(rows: &[(i64, &str, u64, Vec<(Vec<i32>, bool)>)], cap: u64) -> Census {
     let mut b = CensusBuilder::new(
-        rows.iter().map(|(l, s, by, _)| (rule(*l, s), *by)).collect(),
+        rows.iter()
+            .map(|(l, s, by, _)| (rule(*l, s), *by))
+            .collect(),
         cap,
     )
     .unwrap();
@@ -39,7 +41,11 @@ fn trial(key: &[i32], step: &str, ok: bool, secs: f64, bytes: u64, p: &ShipPolic
         recipe_id: format!("rec-{step}"),
         recipe_sha256: "rs".into(),
         recipe_digest: Some("rd".into()),
-        verdict: if ok { "SOLVED".into() } else { "NO_RELATION_IN_SEEDS".into() },
+        verdict: if ok {
+            "SOLVED".into()
+        } else {
+            "NO_RELATION_IN_SEEDS".into()
+        },
         certified: ok,
         relation_digest: ok.then(|| format!("rel-{key:?}")),
         seconds: Some(secs),
@@ -68,14 +74,22 @@ fn policy_defaults_parse_and_refuse_unknown_fields() {
     assert_eq!(p.bars.max_recipe_seconds_per_key, 10.0);
     assert_eq!(p.bars.max_recipe_to_table_ratio, None);
     assert_eq!(p.mode, ShipMode::Report);
-    assert!(ShipPolicy::parse(r#"{"schema":"rustred.campaign.shipecon.v1","bars":{"max_secs":1}}"#).is_err());
+    assert!(
+        ShipPolicy::parse(r#"{"schema":"rustred.campaign.shipecon.v1","bars":{"max_secs":1}}"#)
+            .is_err()
+    );
     assert!(ShipPolicy::parse(r#"{"schema":"other"}"#).is_err());
     assert!(
-        ShipPolicy::parse(r#"{"schema":"rustred.campaign.shipecon.v1","recipe":{"steps":["bogus"]}}"#).is_err()
+        ShipPolicy::parse(
+            r#"{"schema":"rustred.campaign.shipecon.v1","recipe":{"steps":["bogus"]}}"#
+        )
+        .is_err()
     );
     assert!(
-        ShipPolicy::parse(r#"{"schema":"rustred.campaign.shipecon.v1","bars":{"max_recipe_to_table_ratio":0}}"#)
-            .is_err()
+        ShipPolicy::parse(
+            r#"{"schema":"rustred.campaign.shipecon.v1","bars":{"max_recipe_to_table_ratio":0}}"#
+        )
+        .is_err()
     );
     // the decision digest moves with a bar, not with the mode
     let mut q = p.clone();
@@ -91,7 +105,12 @@ fn census_counts_and_key_cap() {
     let c = census_of(
         &[
             (0, "a", 5000, vec![(vec![1, 0], true), (vec![2, 0], false)]),
-            (1, "b", 7000, vec![(vec![1, 1], true), (vec![2, 1], true), (vec![3, 1], true)]),
+            (
+                1,
+                "b",
+                7000,
+                vec![(vec![1, 1], true), (vec![2, 1], true), (vec![3, 1], true)],
+            ),
             (2, "c", 100, vec![]),
         ],
         2,
@@ -121,19 +140,33 @@ fn candidacy_classes_and_budget_largest_first() {
             (1, "b", 9000, vec![(vec![1, 1], true), (vec![2, 1], true)]),
             (2, "c", 100, vec![]),
             (3, "d", 500, vec![(vec![1, 3], true)]),
-            (4, "e", 8000, vec![(vec![1, 4], true), (vec![2, 4], true), (vec![3, 4], true)]),
+            (
+                4,
+                "e",
+                8000,
+                vec![(vec![1, 4], true), (vec![2, 4], true), (vec![3, 4], true)],
+            ),
         ],
         2,
     );
     let k = candidacy(&p, &c);
     assert_eq!(k[2], Candidacy::KeptAside);
-    assert!(matches!(&k[3], Candidacy::NotExamined { reason } if reason.contains("min_rule_bytes")));
-    assert!(matches!(&k[4], Candidacy::NotExamined { reason } if reason.contains("max_keys_per_rule")));
+    assert!(
+        matches!(&k[3], Candidacy::NotExamined { reason } if reason.contains("min_rule_bytes"))
+    );
+    assert!(
+        matches!(&k[4], Candidacy::NotExamined { reason } if reason.contains("max_keys_per_rule"))
+    );
     // budget 3 keys: the largest (b, 2 keys) first, then a (2 keys) does not fit
     assert_eq!(k[1], Candidacy::Examine);
-    assert!(matches!(&k[0], Candidacy::NotExamined { reason } if reason.contains("max_guard_keys")));
+    assert!(
+        matches!(&k[0], Candidacy::NotExamined { reason } if reason.contains("max_guard_keys"))
+    );
     p.kept_aside.enabled = false;
-    assert!(matches!(&candidacy(&p, &c)[2], Candidacy::NotExamined { .. }));
+    assert!(matches!(
+        &candidacy(&p, &c)[2],
+        Candidacy::NotExamined { .. }
+    ));
 }
 
 fn one_rule(bytes: u64, keys: &[&[i32]]) -> RuleService {
@@ -195,14 +228,31 @@ fn decide_recipe_stored_mixed_and_table() {
         trial(&[1, 0], "d2_clast_fon_mM1C", true, 2.0, 50_000, &p),
         trial(&[2, 0], "d2_clast_fon_mM1C", true, 3.0, 50_000, &p),
     ];
-    let d = decide(&p, &svc, &guard(&p, &svc, &t), &tt(1.0, 0.01), &rb, &BTreeSet::new());
+    let d = decide(
+        &p,
+        &svc,
+        &guard(&p, &svc, &t),
+        &tt(1.0, 0.01),
+        &rb,
+        &BTreeSet::new(),
+    );
     assert_eq!(d.outcome, Outcome::Recipe, "{}", d.why);
     assert_eq!(d.seconds_added_total, 5.0);
     assert!(d.bytes_saved > 990_000);
     assert!(d.keys[0].ratio_recipe_to_table.unwrap() > 1.0);
     // one over the bar: mixed (stored at that key)
-    let t2 = vec![t[0].clone(), trial(&[2, 0], "d2_clast_fon_mM1C", true, 30.0, 50_000, &p)];
-    let d = decide(&p, &svc, &guard(&p, &svc, &t2), &tt(1.0, 0.01), &rb, &BTreeSet::new());
+    let t2 = vec![
+        t[0].clone(),
+        trial(&[2, 0], "d2_clast_fon_mM1C", true, 30.0, 50_000, &p),
+    ];
+    let d = decide(
+        &p,
+        &svc,
+        &guard(&p, &svc, &t2),
+        &tt(1.0, 0.01),
+        &rb,
+        &BTreeSet::new(),
+    );
     assert_eq!(d.outcome, Outcome::Mixed, "{}", d.why);
     assert_eq!(d.keys[1].form, "stored");
     // all over the bar: stored relations (no seconds added)
@@ -210,7 +260,14 @@ fn decide_recipe_stored_mixed_and_table() {
         trial(&[1, 0], "d2_clast_fon_mM1C", true, 40.0, 50_000, &p),
         trial(&[2, 0], "d2_clast_fon_mM1C", true, 30.0, 50_000, &p),
     ];
-    let d = decide(&p, &svc, &guard(&p, &svc, &t3), &tt(1.0, 0.01), &rb, &BTreeSet::new());
+    let d = decide(
+        &p,
+        &svc,
+        &guard(&p, &svc, &t3),
+        &tt(1.0, 0.01),
+        &rb,
+        &BTreeSet::new(),
+    );
     assert_eq!(d.outcome, Outcome::StoredRelations, "{}", d.why);
     assert_eq!(d.seconds_added_total, 0.0);
     // stored relations too large for the ratio: table
@@ -218,31 +275,78 @@ fn decide_recipe_stored_mixed_and_table() {
         trial(&[1, 0], "d2_clast_fon_mM1C", true, 40.0, 400_000, &p),
         trial(&[2, 0], "d2_clast_fon_mM1C", true, 30.0, 400_000, &p),
     ];
-    let d = decide(&p, &svc, &guard(&p, &svc, &t4), &tt(1.0, 0.01), &rb, &BTreeSet::new());
+    let d = decide(
+        &p,
+        &svc,
+        &guard(&p, &svc, &t4),
+        &tt(1.0, 0.01),
+        &rb,
+        &BTreeSet::new(),
+    );
     assert_eq!(d.outcome, Outcome::Table);
     assert!(d.why.contains("max_bytes_ratio"), "{}", d.why);
     // no stored relations allowed and over the bar: table
     let mut q = p.clone();
     q.stored.enabled = false;
-    let d = decide(&q, &svc, &guard(&q, &svc, &t3), &tt(1.0, 0.01), &rb, &BTreeSet::new());
+    let d = decide(
+        &q,
+        &svc,
+        &guard(&q, &svc, &t3),
+        &tt(1.0, 0.01),
+        &rb,
+        &BTreeSet::new(),
+    );
     assert_eq!(d.outcome, Outcome::Table);
     // the relative bar
     let mut r = p.clone();
     r.bars.max_recipe_to_table_ratio = Some(10.0);
-    let d = decide(&r, &svc, &guard(&r, &svc, &t), &tt(0.0, 0.1), &rb, &BTreeSet::new());
-    assert_eq!(d.outcome, Outcome::StoredRelations, "ratio 20-30 > 10: {}", d.why);
+    let d = decide(
+        &r,
+        &svc,
+        &guard(&r, &svc, &t),
+        &tt(0.0, 0.1),
+        &rb,
+        &BTreeSet::new(),
+    );
+    assert_eq!(
+        d.outcome,
+        Outcome::StoredRelations,
+        "ratio 20-30 > 10: {}",
+        d.why
+    );
     // guard failure: table
-    let d = decide(&p, &svc, &guard(&p, &svc, &t[..1]), &tt(1.0, 0.01), &rb, &BTreeSet::new());
+    let d = decide(
+        &p,
+        &svc,
+        &guard(&p, &svc, &t[..1]),
+        &tt(1.0, 0.01),
+        &rb,
+        &BTreeSet::new(),
+    );
     assert_eq!(d.outcome, Outcome::Table);
     assert!(d.why.starts_with("guard"));
     // economy: the recipe does not pay its seconds against the stored relation -> stored (a first-class kind)
     let mut e = p.clone();
     e.bars.min_bytes_saved_per_second = 1e9;
-    let d = decide(&e, &svc, &guard(&e, &svc, &t), &tt(1.0, 0.01), &rb, &BTreeSet::new());
+    let d = decide(
+        &e,
+        &svc,
+        &guard(&e, &svc, &t),
+        &tt(1.0, 0.01),
+        &rb,
+        &BTreeSet::new(),
+    );
     assert_eq!(d.outcome, Outcome::StoredRelations, "{}", d.why);
     // ... and without stored relations the recipe migration fails the per-second bar -> table
     e.stored.enabled = false;
-    let d = decide(&e, &svc, &guard(&e, &svc, &t), &tt(1.0, 0.01), &rb, &BTreeSet::new());
+    let d = decide(
+        &e,
+        &svc,
+        &guard(&e, &svc, &t),
+        &tt(1.0, 0.01),
+        &rb,
+        &BTreeSet::new(),
+    );
     assert_eq!(d.outcome, Outcome::Table);
     assert!(d.why.contains("per second"), "{}", d.why);
 }
@@ -274,20 +378,51 @@ fn coverage_rules_later_table_rule_rhs_outside_and_full_target() {
     // a relation leaving the certified set keeps the rule
     let mut t2 = t.clone();
     t2[0].rhs_outside_certified = Some(3);
-    let d = decide(&p, &svc, &guard(&p, &svc, &t2), &tt(1.0, 0.01), &rb, &BTreeSet::new());
+    let d = decide(
+        &p,
+        &svc,
+        &guard(&p, &svc, &t2),
+        &tt(1.0, 0.01),
+        &rb,
+        &BTreeSet::new(),
+    );
     assert_eq!(d.outcome, Outcome::Table);
     assert!(d.why.contains("certified set"), "{}", d.why);
     let mut q = p.clone();
     q.coverage.require_rhs_in_certified_set = false;
-    let d = decide(&q, &svc, &guard(&q, &svc, &t2), &tt(1.0, 0.01), &rb, &BTreeSet::new());
+    let d = decide(
+        &q,
+        &svc,
+        &guard(&q, &svc, &t2),
+        &tt(1.0, 0.01),
+        &rb,
+        &BTreeSet::new(),
+    );
     assert_eq!(d.outcome, Outcome::StoredRelations);
     // a full-coverage node: nothing leaves the shipped table
     let mut f = p.clone();
     f.coverage.target = Target::Full;
-    let d = decide(&f, &svc, &guard(&f, &svc, &t), &tt(1.0, 0.01), &rb, &BTreeSet::new());
+    let d = decide(
+        &f,
+        &svc,
+        &guard(&f, &svc, &t),
+        &tt(1.0, 0.01),
+        &rb,
+        &BTreeSet::new(),
+    );
     assert_eq!(d.outcome, Outcome::Table);
-    let c = census_of(&[(0, "a", 5000, vec![]), (1, "b", 9000, vec![(vec![1, 1], true)])], 4);
-    assert!(candidacy(&f, &c).iter().all(|x| matches!(x, Candidacy::NotExamined { .. })));
+    let c = census_of(
+        &[
+            (0, "a", 5000, vec![]),
+            (1, "b", 9000, vec![(vec![1, 1], true)]),
+        ],
+        4,
+    );
+    assert!(
+        candidacy(&f, &c)
+            .iter()
+            .all(|x| matches!(x, Candidacy::NotExamined { .. }))
+    );
     // over_table puts the stored relation sets BEFORE the tables in the shipped spec
     let r = ShippedRecipe {
         id: "shipecon:stored:r".into(),
@@ -296,9 +431,23 @@ fn coverage_rules_later_table_rule_rhs_outside_and_full_target() {
         form: "stored".into(),
         assignment: None,
     };
-    let s = shipped_spec(&spec(), &[], std::slice::from_ref(&r), &[], Precedence::OverTable).unwrap();
+    let s = shipped_spec(
+        &spec(),
+        &[],
+        std::slice::from_ref(&r),
+        &[],
+        Precedence::OverTable,
+    )
+    .unwrap();
     assert_eq!(s.sources[0].id, "shipecon:stored:r");
-    let s = shipped_spec(&spec(), &[], std::slice::from_ref(&r), &[], Precedence::AfterTable).unwrap();
+    let s = shipped_spec(
+        &spec(),
+        &[],
+        std::slice::from_ref(&r),
+        &[],
+        Precedence::AfterTable,
+    )
+    .unwrap();
     assert_eq!(s.sources.last().unwrap().id, "shipecon:stored:r");
 }
 
@@ -317,7 +466,14 @@ fn unexamined_and_revert() {
 
 fn record(p: &ShipPolicy, svc: &RuleService, trials: Vec<KeyTrial>) -> EconomyRecord {
     let g = guard(p, svc, &trials);
-    let d = decide(p, svc, &g, &tt(1.0, 0.01), &BTreeMap::new(), &BTreeSet::new());
+    let d = decide(
+        p,
+        svc,
+        &g,
+        &tt(1.0, 0.01),
+        &BTreeMap::new(),
+        &BTreeSet::new(),
+    );
     EconomyRecord {
         schema: ECONOMY_RECORD_SCHEMA.into(),
         kind: RECORD_KIND.into(),
@@ -396,9 +552,19 @@ fn shipped_spec_removes_rules_and_appends_relation_sets_last() {
     let p = policy();
     let svc = one_rule(1_000_000, &[&[1, 0]]);
     let t = vec![trial(&[1, 0], "d2_clast_fon_mM1C", true, 2.0, 100, &p)];
-    let d = decide(&p, &svc, &guard(&p, &svc, &t), &tt(1.0, 0.01), &BTreeMap::new(), &BTreeSet::new());
+    let d = decide(
+        &p,
+        &svc,
+        &guard(&p, &svc, &t),
+        &tt(1.0, 0.01),
+        &BTreeMap::new(),
+        &BTreeSet::new(),
+    );
     assert!(d.outcome.migrates());
-    let keep = decide_unexamined(&one_rule(10, &[&[5, 5]]), &Candidacy::NotExamined { reason: "x".into() });
+    let keep = decide_unexamined(
+        &one_rule(10, &[&[5, 5]]),
+        &Candidacy::NotExamined { reason: "x".into() },
+    );
     let r = ShippedRecipe {
         id: "shipecon:r1".into(),
         path: "r1.json".into(),
@@ -411,7 +577,14 @@ fn shipped_spec_removes_rules_and_appends_relation_sets_last() {
             family: None,
         }),
     };
-    let s = shipped_spec(&spec(), &[d.clone(), keep], std::slice::from_ref(&r), &[], Precedence::AfterTable).unwrap();
+    let s = shipped_spec(
+        &spec(),
+        &[d.clone(), keep],
+        std::slice::from_ref(&r),
+        &[],
+        Precedence::AfterTable,
+    )
+    .unwrap();
     assert_eq!(s.sources[0].removed.len(), 2);
     assert_eq!(s.sources[0].removed[0].label, 0);
     assert!(s.sources[0].removed[0].reason.starts_with("shipecon"));
@@ -468,14 +641,36 @@ fn totals_report_bytes_seconds_and_guard_failures() {
         trial(&[1, 0], "d2_clast_fon_mM1C", true, 2.0, 200_000, &p),
         trial(&[2, 0], "d2_clast_fon_mM1C", true, 4.0, 200_000, &p),
     ];
-    let d = decide(&p, &svc, &guard(&p, &svc, &t), &tt(1.0, 0.01), &BTreeMap::new(), &BTreeSet::new());
-    let c = census_of(&[(0, "a", 1_000_000, vec![(vec![1, 0], true), (vec![2, 0], true)])], 64);
+    let d = decide(
+        &p,
+        &svc,
+        &guard(&p, &svc, &t),
+        &tt(1.0, 0.01),
+        &BTreeMap::new(),
+        &BTreeSet::new(),
+    );
+    let c = census_of(
+        &[(
+            0,
+            "a",
+            1_000_000,
+            vec![(vec![1, 0], true), (vec![2, 0], true)],
+        )],
+        64,
+    );
     let v = totals(&c, &[d.clone()]);
     assert_eq!(v["bytes_before"], 1_000_000);
     assert_eq!(v["bytes_saved"], d.bytes_saved);
     assert_eq!(v["recipe_seconds_per_key"]["keys"], 2);
     assert_eq!(v["recipe_seconds_per_key"]["max"], 4.0);
     let g = guard(&p, &svc, &t[..1]);
-    let d2 = decide(&p, &svc, &g, &tt(1.0, 0.01), &BTreeMap::new(), &BTreeSet::new());
+    let d2 = decide(
+        &p,
+        &svc,
+        &g,
+        &tt(1.0, 0.01),
+        &BTreeMap::new(),
+        &BTreeSet::new(),
+    );
     assert_eq!(totals(&c, &[d2])["guard_failed_rules"], 1);
 }
