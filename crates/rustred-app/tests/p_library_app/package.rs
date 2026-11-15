@@ -443,6 +443,39 @@ fn a_package_revision_survives_attaching_the_basis_layer() {
     assert_eq!(rebuilt.identity(), identity);
 }
 
+/// b7-schemeload: the loader marks a library to trust its Scheme certificates
+/// only for a revisioned package of this P_SCHEME_TEMPLATE_VERSION loaded
+/// without the descent certificate; a package without a revision and the
+/// verified load are verified as before; another template version is refused.
+#[test]
+fn only_a_revisioned_package_trusts_its_scheme_certificates() {
+    let (_scratch, directory) = written(scope_two(), "scheme-trust");
+    let fast = |directory: &Path| {
+        load_p_library(
+            PLibrarySource::Directory(directory.to_path_buf()),
+            &UNCHECKED,
+        )
+    };
+    assert!(!fast(&directory).unwrap().scheme_certificates_trusted());
+    let mut manifest = manifest_of(&directory);
+    manifest["identity"] = format!(
+        "{},P_PACKAGE_REVISION=b7-test",
+        manifest["identity"].as_str().unwrap()
+    )
+    .into();
+    write_manifest(&directory, &manifest);
+    assert!(fast(&directory).unwrap().scheme_certificates_trusted());
+    assert!(!load(&directory).unwrap().scheme_certificates_trusted());
+    let older = rustred::propagator::P_SCHEME_TEMPLATE_VERSION - 1;
+    manifest["versions"]["P_SCHEME_TEMPLATE_VERSION"] = older.to_string().into();
+    write_manifest(&directory, &manifest);
+    version_mismatch(
+        fast(&directory).unwrap_err(),
+        "P_SCHEME_TEMPLATE_VERSION",
+        &older.to_string(),
+    );
+}
+
 /// Batch 6: an ordering tag goes before the package content revision, so an
 /// ordered revised package keeps the identity `PLibrary::identity` computes.
 #[test]

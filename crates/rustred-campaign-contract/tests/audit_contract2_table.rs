@@ -12,16 +12,21 @@
 //! Extended by lane adapters (2026-11-14): kinds solve-recipe / proof-instantiate, stop keys_unsolved, rows 28 / 29
 //! (oracle written from interfaces/adapters.md 1.2 and the regenerated child-job.md 6.5), the solve-recipe verified
 //! states (results tally: accepted 0 / 1 x unsolved 0 / 1, or no tally) and the `solved_records` accept mode.
+//! Extended by lane contract-line7 (2026-11-14; child-job.md "Line 7"): kind node-basis (row 30, exit 0 only), the
+//! solve-recipe PROBE tallies (answered 0 / 1 x unanswered 0 / 1, and a lying tally with an accepted relation; rows
+//! 31 / 32) and the `diagnostic_records` accept mode, which the safety predicate allows only for those two; OUTCOMEs
+//! naming a typed reader error (UNREADABLE_RECORD / UNKNOWN_RECORD_KIND) at exit 41 / 70 (row 13b for proof-instantiate
+//! and proof-instance-span).
 
 mod common;
 use common::*;
 use rustred_campaign_contract::ExitCode;
-use rustred_campaign_contract::classify::recipe::{FailureClass, RelationTally};
+use rustred_campaign_contract::classify::recipe::{FailureClass, ProbeVerdict, RelationTally};
 use rustred_campaign_contract::classify::{
     self, Accept, Evidence, KillReason, OutcomeState, ROWS, VerifiedOutputs, WaitStatus,
 };
 use rustred_campaign_contract::outcome::{
-    JobOutcome, PerCase, StopInfo, TimeDecision, TimeDecisionWhat,
+    ErrorClass, ErrorInfo, JobOutcome, PerCase, StopInfo, TimeDecision, TimeDecisionWhat,
 };
 use rustred_campaign_contract::resume::ResumeRef;
 use rustred_campaign_contract::spec::JobKind;
@@ -101,6 +106,22 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                     let Some(t) = &v.relations else {
                         return (22, "");
                     };
+                    // line 7: a probe job (its tally says so): 31 / 32 / 22, never an accepted relation
+                    if t.probe {
+                        let open: u64 = t
+                            .probes
+                            .iter()
+                            .filter(|(v, _)| !v.is_answer())
+                            .map(|(_, n)| n)
+                            .sum();
+                        return match (c, stop) {
+                            (0, _) if open == 0 && t.accepted == 0 => (31, ""),
+                            (10, Some(StopCode::KeysUnsolved)) if open >= 1 && t.accepted == 0 => {
+                                (32, "")
+                            }
+                            _ => (22, ""),
+                        };
+                    }
                     let unsolved: u64 = t.unsolved.values().sum();
                     return match (c, stop) {
                         (0, _) if unsolved == 0 => (1, ""),
@@ -110,6 +131,10 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                         (10, Some(StopCode::KeysUnsolved)) if unsolved >= 1 => (29, ""),
                         _ => (22, ""),
                     };
+                }
+                // line 7: node-basis has exit 0 only (row 30)
+                if e.kind == JobKind::NodeBasis {
+                    return if c == 0 { (30, "") } else { (22, "") };
                 }
                 if e.kind.legacy_wrapped() && c != 0 {
                     return (22, "");
@@ -185,11 +210,29 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                 _ => {}
             }
         }
+        // line 7: a legacy proof tool's typed reader error (in OUTCOME's error message) is the input refusal 13b
+        if let O::Ok(j) = &o
+            && [41, 70].contains(&c)
+            && matches!(
+                e.kind,
+                JobKind::ProofInstantiate | JobKind::ProofInstanceSpan
+            )
+            && j.error.as_ref().is_some_and(|x| {
+                x.message.contains("UNREADABLE_RECORD") || x.message.contains("UNKNOWN_RECORD_KIND")
+            })
+        {
+            return (13, "b");
+        }
         match c {
             40 => return (12, ""),
             41 => return (13, ""),
             42 => return (14, ""),
             50 => return (15, ""),
+            // row 15b (lane int5): a host-resource errno named by the OUTCOME error, at 51 / 70
+            51 | 70 if matches!(&o, O::Ok(j) if j.error.as_ref().is_some_and(|x| x.message.contains("Os { code: 11"))) =>
+            {
+                return (15, "b");
+            }
             51 => return (16, ""),
             70 if matches!(o, O::Ok(_)) => return (17, ""),
             _ => {}
@@ -217,7 +260,7 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
 }
 
 /// The safety predicate, independent of any row: what MUST hold whenever something is accepted.
-fn may_accept(e: &Evidence) -> Result<(), String> {
+fn may_accept(e: &Evidence, accept: Accept) -> Result<(), String> {
     let OutcomeState::Valid(j) = &e.outcome else {
         return Err("accepted without a valid OUTCOME".into());
     };
@@ -251,6 +294,39 @@ fn may_accept(e: &Evidence) -> Result<(), String> {
     }
     if (e.kind == JobKind::SolveRecipe || e.kind.legacy_wrapped()) && c == 20 {
         return Err("a kind without work budgets accepted on 20".into());
+    }
+    // line 7: diagnostic records only from node-basis (exit 0) and solve-recipe probe jobs; never rules / relations
+    let probe = v.relations.as_ref().is_some_and(|t| t.probe);
+    let diagnostic_kind = e.kind == JobKind::NodeBasis || (e.kind == JobKind::SolveRecipe && probe);
+    if (accept == Accept::DiagnosticRecords) != diagnostic_kind {
+        return Err(format!(
+            "accept {accept:?} for kind {:?} (probe tally {probe})",
+            e.kind
+        ));
+    }
+    if e.kind == JobKind::NodeBasis {
+        return if c == 0 {
+            Ok(())
+        } else {
+            Err(format!("node-basis accepted on exit {c}"))
+        };
+    }
+    if e.kind == JobKind::SolveRecipe && probe {
+        let t = v.relations.as_ref().expect("probe tally");
+        let open: u64 = t
+            .probes
+            .iter()
+            .filter(|(v, _)| !v.is_answer())
+            .map(|(_, n)| n)
+            .sum();
+        return match c {
+            _ if t.accepted != 0 => Err("a probe job with an accepted relation".into()),
+            0 if open == 0 => Ok(()),
+            10 if j.stop.code == Some(StopCode::KeysUnsolved) && open >= 1 => Ok(()),
+            _ => Err(format!(
+                "probe job read on exit {c} with {open} unanswered keys"
+            )),
+        };
     }
     if e.kind == JobKind::SolveRecipe {
         let Some(t) = &v.relations else {
@@ -471,6 +547,34 @@ fn run(stride: u64) -> BTreeMap<String, u64> {
     };
     let mut with_tally = base.clone();
     with_tally.extend([tally(0, 0), tally(1, 0), tally(0, 1), tally(1, 1)]);
+    // line 7: probe tallies (answered x unanswered), and one that lies (an accepted relation in a probe job)
+    let probe_tally = |answered: u64, open: u64, accepted: u64| {
+        let mut t = RelationTally {
+            records: answered + open,
+            accepted,
+            probe: true,
+            ..Default::default()
+        };
+        if answered > 0 {
+            t.probes.insert(ProbeVerdict::NoRelationAtD0, answered);
+        }
+        if open > 0 {
+            t.probes.insert(ProbeVerdict::UnresolvedPrimes, open);
+        }
+        Some(VerifiedOutputs {
+            rules: 0,
+            elided_loci: 0,
+            streams: vec![],
+            relations: Some(t),
+        })
+    };
+    with_tally.extend([
+        probe_tally(0, 0, 0),
+        probe_tally(1, 0, 0),
+        probe_tally(0, 1, 0),
+        probe_tally(1, 1, 0),
+        probe_tally(1, 0, 1),
+    ]);
     let rref = ResumeRef {
         from: "/w/jobs/J.a1/RESUME.json".into(),
         blake3: D0.into(),
@@ -492,6 +596,39 @@ fn run(stride: u64) -> BTreeMap<String, u64> {
                 .into_iter()
                 .map(|j| OutcomeState::Valid(Box::new(j))),
         );
+        // line 7: OUTCOMEs naming a typed reader error (row 13b for the legacy proof kinds; 13 / 17 elsewhere)
+        let reader: Vec<OutcomeState> = valid_outcomes(kind)
+            .into_iter()
+            .filter(|j| [41, 70].contains(&j.exit_code.code()))
+            .filter_map(|mut j| {
+                let class = if j.exit_code.code() == 41 {
+                    ErrorClass::Input
+                } else {
+                    ErrorClass::Internal
+                };
+                j.error = Some(ErrorInfo::new(class, "UNKNOWN_RECORD_KIND: line 947"));
+                j.check().is_ok().then(|| OutcomeState::Valid(Box::new(j)))
+            })
+            .collect();
+        outcomes.extend(reader);
+        // OUTCOMEs naming a host-resource errno at 51 / 70 (row 15b; no full-product case had one before line 7)
+        let errno: Vec<OutcomeState> = valid_outcomes(kind)
+            .into_iter()
+            .filter(|j| [51, 70].contains(&j.exit_code.code()))
+            .filter_map(|mut j| {
+                let class = if j.exit_code.code() == 51 {
+                    ErrorClass::Io
+                } else {
+                    ErrorClass::Internal
+                };
+                j.error = Some(ErrorInfo::new(
+                    class,
+                    "failed to spawn thread: Os { code: 11, kind: WouldBlock }",
+                ));
+                j.check().is_ok().then(|| OutcomeState::Valid(Box::new(j)))
+            })
+            .collect();
+        outcomes.extend(errno);
         let verified = if kind == JobKind::SolveRecipe {
             &with_tally
         } else {
@@ -551,7 +688,7 @@ fn run(stride: u64) -> BTreeMap<String, u64> {
                                         ));
                                     }
                                     if c.accept != Accept::Nothing
-                                        && let Err(why) = may_accept(&e)
+                                        && let Err(why) = may_accept(&e, c.accept)
                                         && unsafe_accepts.len() < 20
                                     {
                                         unsafe_accepts

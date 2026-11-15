@@ -12,11 +12,18 @@
 //! branches themselves ([`vanishes_at`]: a branch with a polynomial nonzero at the region point cannot contain the
 //! region's component through that point, for every prime not dividing the leading data).
 //!
-//! The point is a random Zp point of `V(system)` found by alternating exact Zp Groebner bases (Symbolica) and
-//! random specialisation: a variable with a univariate basis element is set to a random Zp root of it (native
-//! finite-field factorisation), otherwise a variable of the basis gets a random value. Variables not occurring in
-//! the system (the dimension `d`, unconstrained indices) keep random values. `None` = no point found within the
-//! attempt budget (empty over Zp-bar, or only points over extensions): the caller keeps its ordinary point.
+//! The point is a random Zp point of `V(system)` found by alternating exact Zp Groebner bases (Symbolica, GREVLEX
+//! only) and random specialisation: a variable with a univariate basis element is set to a random Zp root of it
+//! (native finite-field factorisation); on a zero-dimensional ideal without one, the minimal polynomial of a variable
+//! in the quotient ring is computed by linear algebra mod p (Krylov sequence of grevlex normal forms 1, x, x^2, ..);
+//! otherwise a variable of the basis gets a random value. Variables not occurring in the system (the dimension `d`,
+//! unconstrained indices) keep random values. `Ok(None)` = no point found within the attempt budget (empty over
+//! Zp-bar, or only points over extensions): the caller keeps its ordinary point. `Err` = a typed refusal (quotient
+//! ring larger than [`REGION_QUOTIENT_CAP`]): the caller refuses the case (an open obligation with the reason).
+//!
+//! gb-fix (2026-11-14): no LEX Groebner basis is computed any more. Symbolica's F4 in lex order on the T266 region
+//! systems (R56.3.2: 11 polynomials, 5 variables, degree <= 5, zero-dimensional, lex basis of degree 16 by FGLM)
+//! ran to 40-170 GB and panicked with a u16 exponent overflow (handoff/symbolica-gb-overflow).
 
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::sync::RwLock;
@@ -33,6 +40,119 @@ type ZpPoly = MultivariatePolynomial<Zp64, u16>;
 
 /// Attempts (independent random restarts) before giving up.
 pub const REGION_POINT_ATTEMPTS: usize = 64;
+
+/// Largest dimension of the quotient ring `Zp[x]/I` (number of standard monomials of a zero-dimensional ideal) for
+/// which the probe computes a minimal polynomial; beyond it the region is refused (typed, never a panic). The Krylov
+/// step costs O(D^2) field operations per power and stores D vectors of length <= D (D = 4096: 16M elements, 128 MB).
+pub const REGION_QUOTIENT_CAP: usize = 4096;
+
+/// A region the probe refuses to place a point on (an open obligation for the caller, with this reason).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegionRefusal(pub String);
+
+impl std::fmt::Display for RegionRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "region point not placed: {}", self.0)
+    }
+}
+
+type GrevPoly = MultivariatePolynomial<Zp64, u16, GrevLexOrder>;
+
+/// The minimal polynomial of variable `var` in `Zp[x]/I`, for a GREVLEX Groebner basis `basis` of a zero-dimensional
+/// ideal `I` (no constant in it): the first linear dependency of the normal forms NF(1), NF(x), NF(x^2), .. found by
+/// incremental Gaussian elimination mod p. Its roots are the `var`-coordinates of the points of V(I) over Zp-bar.
+/// `Err` when no dependency appears within `cap` powers (the quotient is larger than the cap; the probe passes
+/// [`REGION_QUOTIENT_CAP`]).
+fn minimal_polynomial(
+    basis: &[GrevPoly],
+    var: usize,
+    field: &Zp64,
+    cap: usize,
+) -> Result<ZpPoly, RegionRefusal> {
+    use std::collections::HashMap;
+    let template = &basis[0];
+    let nvars = template.nvars();
+    let mut e = vec![0u16; nvars];
+    e[var] = 1;
+    let mut cur = template.one().reduce(basis);
+    let mut columns: HashMap<Vec<u16>, usize> = HashMap::new();
+    // echelon rows: (pivot column, row over the columns, combination over the powers x^0..x^k)
+    #[allow(clippy::type_complexity)]
+    let mut rows: Vec<(
+        usize,
+        Vec<FiniteFieldElement<u64>>,
+        Vec<FiniteFieldElement<u64>>,
+    )> = Vec::new();
+    for k in 0..=cap {
+        let mut v = vec![field.zero(); columns.len()];
+        for i in 0..cur.nterms() {
+            let next = columns.len();
+            let c = *columns.entry(cur.exponents(i).to_vec()).or_insert(next);
+            if c >= v.len() {
+                v.resize(c + 1, field.zero());
+            }
+            v[c] = cur.coefficients[i];
+        }
+        if columns.len() > cap {
+            return Err(RegionRefusal(format!(
+                "quotient ring of dimension > {cap} (standard monomials met in the normal forms of \
+                 the powers of variable {var})"
+            )));
+        }
+        let mut comb = vec![field.zero(); k + 1];
+        comb[k] = field.one();
+        for (pivot, row, rc) in &rows {
+            if *pivot >= v.len() || field.is_zero(&v[*pivot]) {
+                continue;
+            }
+            let f = v[*pivot];
+            for (j, r) in row.iter().enumerate() {
+                if !field.is_zero(r) {
+                    if j >= v.len() {
+                        v.resize(j + 1, field.zero());
+                    }
+                    v[j] = field.sub(&v[j], &field.mul(&f, r));
+                }
+            }
+            for (j, r) in rc.iter().enumerate() {
+                comb[j] = field.sub(&comb[j], &field.mul(&f, r));
+            }
+        }
+        match v.iter().position(|c| !field.is_zero(c)) {
+            None => {
+                // sum_j comb_j x^j lies in I: the minimal polynomial of x (monic in x^k)
+                let mut m = to_lex_zero(template);
+                for (j, c) in comb.iter().enumerate() {
+                    if !field.is_zero(c) {
+                        let mut e = vec![0u16; nvars];
+                        e[var] = j as u16;
+                        m.append_monomial(*c, &e);
+                    }
+                }
+                return Ok(m);
+            }
+            Some(pivot) => {
+                let inv = field.inv(&v[pivot]);
+                for c in v.iter_mut() {
+                    *c = field.mul(&*c, &inv);
+                }
+                for c in comb.iter_mut() {
+                    *c = field.mul(&*c, &inv);
+                }
+                rows.push((pivot, v, comb));
+            }
+        }
+        // multiplying every term by the same monomial keeps the (multiplicative) monomial order
+        cur = cur.mul_exp(&e).reduce(basis);
+    }
+    Err(RegionRefusal(format!(
+        "no minimal polynomial of variable {var} within {cap} powers (quotient ring larger than the cap)"
+    )))
+}
+
+fn to_lex_zero(p: &GrevPoly) -> ZpPoly {
+    p.zero().reorder::<LexOrder>()
+}
 
 fn to_zp(p: &CoefficientPolynomial, field: &Zp64) -> ZpPoly {
     p.map_coeff(|c| c.to_finite_field(field), field.clone())
@@ -82,7 +202,7 @@ fn attempt(
     field: &Zp64,
     rng: &mut StdRng,
     point: &mut [FiniteFieldElement<u64>],
-) -> bool {
+) -> Result<bool, RegionRefusal> {
     let random = |rng: &mut StdRng| {
         symbolica::prelude::Integer::from(rng.random_range(1..field.get_prime()))
             .to_finite_field(field)
@@ -91,10 +211,10 @@ fn attempt(
     // every step fixes one more variable; the loop is bounded by the variable count
     for _ in 0..=point.len() {
         if system.is_empty() {
-            return true;
+            return Ok(true);
         }
         if system.iter().any(|p| p.is_constant()) {
-            return false;
+            return Ok(false);
         }
         // t266-4: the basis in GREVLEX order. `ZpPoly` carries the default lex order, and a lex basis of a
         // positive-dimensional region (R05.0.0 / R77.0 of T266: quartics with 14-digit coefficients) exhausted a 10 GB
@@ -108,7 +228,8 @@ fn attempt(
             .filter(|p| !p.is_zero())
             .collect();
         // zero-dimensional (every occurring variable has a pure power among the leading monomials): no free choice is
-        // left, so a univariate element is needed; the lex basis of a zero-dimensional ideal has one and is cheap
+        // left, so a univariate element is needed: the minimal polynomial of an occurring variable in the quotient
+        // ring, by linear algebra on grevlex normal forms (gb-fix: never a lex basis, see the module docs)
         let occ: Vec<usize> = {
             let mut v: Vec<usize> = gbasis
                 .iter()
@@ -135,34 +256,36 @@ fn attempt(
                 .count()
                 == 1
         });
-        let basis: Vec<ZpPoly> = if zero_dim && !has_uni {
-            let lex: Vec<ZpPoly> = gbasis.iter().map(|p| p.reorder::<LexOrder>()).collect();
-            GroebnerBasis::new(&lex, false)
-                .system
-                .into_iter()
-                .filter(|p| !p.is_zero())
-                .collect()
-        } else {
-            gbasis
-                .into_iter()
-                .map(|p| p.reorder::<LexOrder>())
-                .collect()
-        };
-        if basis.is_empty() {
-            return true;
+        if gbasis.iter().any(|p| p.is_constant()) {
+            return Ok(false);
         }
-        if basis.iter().any(|p| p.is_constant()) {
-            return false;
+        let eliminant: Option<(ZpPoly, usize)> = if zero_dim && !has_uni {
+            let var = occ[rng.random_range(0..occ.len())];
+            Some((
+                minimal_polynomial(&gbasis, var, field, REGION_QUOTIENT_CAP)?,
+                var,
+            ))
+        } else {
+            None
+        };
+        let basis: Vec<ZpPoly> = gbasis
+            .into_iter()
+            .map(|p| p.reorder::<LexOrder>())
+            .collect();
+        if basis.is_empty() {
+            return Ok(true);
         }
         // a univariate element: a root of it
-        let uni = basis.iter().find_map(|p| {
-            let vars = occurring(p);
-            (vars.len() == 1).then(|| (p.clone(), vars[0]))
+        let uni = eliminant.or_else(|| {
+            basis.iter().find_map(|p| {
+                let vars = occurring(p);
+                (vars.len() == 1).then(|| (p.clone(), vars[0]))
+            })
         });
         let (var, value) = if let Some((p, var)) = uni {
             let rs = roots(&p, var, field);
             if rs.is_empty() {
-                return false;
+                return Ok(false);
             }
             let k = rng.random_range(0..rs.len());
             (var, rs[k])
@@ -177,28 +300,29 @@ fn attempt(
         system = basis;
         substitute(&mut system, var, &value);
     }
-    system.is_empty()
+    Ok(system.is_empty())
 }
 
 /// A random Zp point of `V(system)` (all polynomials in one variable map of `nvars` variables). Variables the
-/// system does not fix keep the values of `base` (the caller's random point).
+/// system does not fix keep the values of `base` (the caller's random point). `Ok(None)`: no point within the
+/// attempt budget; `Err`: the region is refused (see [`RegionRefusal`]).
 pub fn region_point(
     system: &[CoefficientPolynomial],
     base: &[FiniteFieldElement<u64>],
     field: &Zp64,
     seed: u64,
-) -> Option<Vec<FiniteFieldElement<u64>>> {
+) -> Result<Option<Vec<FiniteFieldElement<u64>>>, RegionRefusal> {
     let zp: Vec<ZpPoly> = system.iter().map(|p| to_zp(p, field)).collect();
     let mut rng = StdRng::seed_from_u64(seed ^ 0x7266_5e61_6f6e_5072);
     for _ in 0..REGION_POINT_ATTEMPTS {
         let mut point = base.to_vec();
-        if attempt(zp.clone(), field, &mut rng, &mut point)
+        if attempt(zp.clone(), field, &mut rng, &mut point)?
             && zp.iter().all(|p| field.is_zero(&eval(p, &point, field)))
         {
-            return Some(point);
+            return Ok(Some(point));
         }
     }
-    None
+    Ok(None)
 }
 
 fn eval(p: &ZpPoly, point: &[FiniteFieldElement<u64>], field: &Zp64) -> FiniteFieldElement<u64> {

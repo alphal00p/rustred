@@ -3169,6 +3169,7 @@ fn run<const N: usize>(
     } else {
         None
     };
+    #[allow(clippy::type_complexity)]
     let case_symmetry: Option<Arc<[Vec<Option<(usize, bool)>>]>> = early_group.as_ref().map(|g| {
         g.elements
             .iter()
@@ -5081,6 +5082,30 @@ fn run<const N: usize>(
                     });
                     continue;
                 }
+                // gb-fix: the region probe refused this region (typed, e.g. quotient ring above its cap): no variant can
+                // place the point either, so the case is refused at once (an open obligation with the reason)
+                Err(SolverError::RegionPoint(msg)) if opts.open_on_refusal => {
+                    outcome.refused_lifts += 1;
+                    writeln!(
+                        qlog,
+                        "{{\"type\":\"region_point_refused\",\"source_order\":{},\"error\":{},\"case\":{}}}",
+                        q(&vlabel),
+                        q(&msg.chars().take(400).collect::<String>()),
+                        case_json(&current, n)
+                    )
+                    .map_err(|e| e.to_string())?;
+                    refusals.push(ScreenReport {
+                        measure: super::screen::ScreenMeasure {
+                            note: format!("region point not placed ({vlabel}): {msg}"),
+                            ..Default::default()
+                        },
+                        decision: super::screen::ScreenDecision::Refuse(
+                            "region point not placed".into(),
+                        ),
+                        heavy: None,
+                    });
+                    break;
+                }
                 // t266-3: in a region-restricted run the discovery point lies on the region (a special locus), where
                 // the rows selected modularly can fail to reproduce the target pivot exactly; that is a failure of
                 // this variant's point, not of the run: try the next variant (another seed/pose), and refuse the case
@@ -5870,6 +5895,7 @@ fn run<const N: usize>(
                     })
                     .collect()
             };
+            #[allow(clippy::type_complexity)]
             let images_dyn: Option<&dyn Fn(&Integral<N>) -> Vec<(Integral<N>, bool)>> = row_group
                 .as_ref()
                 .map(|_| &images as &dyn Fn(&Integral<N>) -> Vec<(Integral<N>, bool)>);

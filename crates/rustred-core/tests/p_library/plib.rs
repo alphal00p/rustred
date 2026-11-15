@@ -2575,7 +2575,7 @@ fn a_foreign_coefficient_in_a_row_is_refused() {
 }
 
 /// One Unit terminal on the full sector of `L (L + 3) / 2` lines.
-fn unit_owner_library(context: &CoefficientContext, loops: u8) -> PLibrary {
+pub(super) fn unit_owner_library(context: &CoefficientContext, loops: u8) -> PLibrary {
     let slots = all_lines(usize::from(loops));
     let arity = slots.len();
     let mut builder = PLibrary::builder(context.clone(), loops..=loops);
