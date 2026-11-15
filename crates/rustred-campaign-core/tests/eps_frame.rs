@@ -33,6 +33,13 @@ fn header_of(text: &str) -> TableHeader {
     }
 }
 
+/// sha256 (hex) of a file: evidence entries are pinned (closeloop4 M1).
+fn file_sha256(p: &std::path::Path) -> String {
+    let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
+    h.update(&std::fs::read(p).unwrap());
+    h.finish_hex()
+}
+
 fn header_file(name: &str) -> TableHeader {
     header_of(&std::fs::read_to_string(data(name)).unwrap())
 }
@@ -780,7 +787,9 @@ fn eps_check_full(
                      "table_terminals": "ledger_and_residuals"}],
     });
     if let Some(f) = facts {
-        spec["evidence"] = serde_json::json!({"facts": [{"path": f.display().to_string()}]});
+        // pinned and family-bound evidence (closeloop4 M1 / m4): sha256 of the file, the table family
+        spec["evidence"] = serde_json::json!({"facts": [{"path": f.display().to_string(),
+            "sha256": file_sha256(f), "family": tf.header.as_ref().and_then(|h| h.family.clone())}]});
     }
     let spec = TableSetSpec::from_json(&spec.to_string()).unwrap();
     let set = load_with_eps(&spec, dir, &LoadOptions::default()).unwrap();
@@ -1177,7 +1186,9 @@ fn eps_campaign_node() {
         if mode == "k" {
             spec["policies"] = serde_json::json!({"witness_check": "off_diagnostic", "tier": "K"});
         } else if let Ok(f) = std::env::var("EPSC_FACTS") {
-            spec["evidence"] = serde_json::json!({"facts": [{"path": f}]});
+            let fam = header_of(&head).family;
+            spec["evidence"] = serde_json::json!({"facts": [{"path": f.clone(),
+                "sha256": file_sha256(std::path::Path::new(&f)), "family": fam}]});
         }
         let spec = TableSetSpec::from_json(&spec.to_string()).map_err(|e| e.to_string())?;
         let set = load_with_eps(&spec, &dir, &LoadOptions::default())
