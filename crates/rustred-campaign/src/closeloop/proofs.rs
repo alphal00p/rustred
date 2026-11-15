@@ -36,6 +36,10 @@ pub const REASON_RELATION: &str = "relation";
 pub const REASON_FACTS: &str = "import_fact_request";
 /// lane closeloop3: fact requests of records rr_proof instantiate refuses (elided witness loci): exact evaluation.
 pub const REASON_EXACT: &str = "import_fact_request_exact_eval";
+/// lane closeloop4 (closeloop.md 18): the SECOND route of a fact the check used (a decisive zero, or a record with
+/// elided loci): kind `facts` (rr_proof, `--elided-loci facts`) or `exact` (exact evaluation); its answers are recorded
+/// apart (role `closeloop_facts2`) and compared with the first route's term by term.
+pub const REASON_SECOND_ROUTE: &str = "second_route";
 
 /// One new proof / fact batch (output of a pass, before its item exists).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -283,9 +287,26 @@ pub fn evidence_lines(
                     _ => unknown.push(d),
                 }
             }
-            json!({"schema": FACT_VERDICT_SCHEMA, "index": v["rule"], "record_sha256": sha, "key": key,
+            // lane closeloop4: an answer of `--elided-loci facts` about a record with elided loci is coefficient facts
+            // ONLY (the wrapper refused it if it claimed `regular`): producer rr_proof_elided, verdict hidden
+            let elided = !v["elided_cover"].is_null() || !v["witness_loci_elided"].is_null();
+            let (verdict, producer) = if elided && usable {
+                let w = if verdict == "irregular" {
+                    "irregular"
+                } else {
+                    "hidden"
+                };
+                (w.to_string(), "rr_proof_elided")
+            } else {
+                (verdict, "rr_proof")
+            };
+            let mut o = json!({"schema": FACT_VERDICT_SCHEMA, "index": v["rule"], "record_sha256": sha, "key": key,
                    "verdict": verdict, "n_terms": terms.len(), "nonzero": nonzero, "unknown": unknown,
-                   "producer": "rr_proof"})
+                   "producer": producer});
+            if elided {
+                o["elided_cover"] = v["elided_cover"].clone();
+            }
+            o
         };
         out.push(
             rustred_campaign_core::schema::canon::canonical_json(&line, false)
@@ -387,6 +408,37 @@ pub fn symmetry_group_line(text: &str, chart: &str) -> Result<String, String> {
         return Ok(v.to_string());
     }
     Ok(json!({"type": "symmetry_group", "chart": chart, "group": v}).to_string())
+}
+
+/// lane t266run (moved here by lane closeloop4): BLAKE3 of a (possibly huge) input file, computed once per (path, size,
+/// mtime) in this process. A proof item names its table by digest; an 85 GB table hashed per item stalled the
+/// supervisor for minutes per item. The closing loop's PASS THREAD warms this cache for every table its batches name,
+/// so the supervisor's main thread (which creates the items) never hashes a table itself.
+pub fn file_blake3_cached(p: &std::path::Path) -> Result<String, String> {
+    use std::sync::Mutex;
+    type Cache = BTreeMap<(std::path::PathBuf, u64, u128), String>;
+    static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
+    let md = std::fs::metadata(p).map_err(|e| format!("{}: {e}", p.display()))?;
+    let mtime = md
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos());
+    let k = (p.to_path_buf(), md.len(), mtime);
+    if let Some(d) = CACHE
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().and_then(|m| m.get(&k).cloned()))
+    {
+        return Ok(d);
+    }
+    let d = crate::atomic::blake3_file(p)
+        .map(|(_, d)| d)
+        .map_err(|e| format!("{}: {e}", p.display()))?;
+    if let Ok(mut g) = CACHE.lock() {
+        g.get_or_insert_with(BTreeMap::new).insert(k, d.clone());
+    }
+    Ok(d)
 }
 
 #[cfg(test)]
