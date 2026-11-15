@@ -7,12 +7,15 @@
 //!   path ([`job_request`]) or one attempt through [`SymmetryCompositeAdapter`] (`JobAdapter`).
 //! - [`wrap`]: the contract's wrapper (`classify::symcomp::wrap`) with campaign-core's SHA-256; called by
 //!   `adapters::legacy::wrap` at the supervisor's settle and by the adapter's `finish`.
-//! - IMPORT VERIFICATION ([`load_import`], [`verify_relations`]): the shipped relations are CANDIDATES (accept mode
-//!   `supplied_relations`); each one is accepted ONLY when the import's own check passes: the pinned import spec loaded
-//!   by `rustred_campaign_core::import::load`, the verified group derived like the tool, and
-//!   `repairflow::composite_verify::verify_shipped` (image re-derived, every replaced term's FIRST MATCH = the cited
-//!   record_sha256, composition repeated mod p at the two engine primes x three values of d DIFFERENT from the child's,
-//!   every shipped term lower by the import's descent test). Lines are bound to the sealed results by SHA-256.
+//! - SAME-BACKEND RE-CHECK ([`load_import`], [`verify_relations`]): the shipped relations are CANDIDATES (accept mode
+//!   `supplied_relations`); each one is kept ONLY when `repairflow::composite_verify::verify_line` passes against the
+//!   pinned import (image re-derived, every replaced term's FIRST MATCH = the cited record_sha256, composition repeated
+//!   mod p at the two engine primes x three values of d DIFFERENT from the child's, shipped terms compared as a map,
+//!   every shipped term lower by the import's descent test). Lines are bound to the sealed results by SHA-256. This is
+//!   the COMPOSER'S OWN BACKEND (rows_by_element / image_of / compose_image; lane symfix, audit r2-sym F3): a filter,
+//!   never evidence above `imported`. EVIDENCE comes only from the node import, which re-verifies every supplied relation
+//!   AT LOAD (interfaces/import.md 13.3): same backend -> `imported`, a checked kernel certificate (the independent
+//!   SECOND ROUTE, [`composite_second_route`]) -> `per-key`. The ledger refuses a direct credit from this kind (F5).
 //! - [`route_settled`]: the WorkSource-level function: a settled attempt (canonical lines of the verified results) ->
 //!   [`SymCompRouted`] (per-key outcomes, accepted / refused relations, the accepted `supplied_relations` table +
 //!   verification as content-addressed records, and the `route0.composite_input` value for the repair flow).
@@ -35,18 +38,15 @@ use rustred_campaign_contract::spec::{
 };
 use rustred_campaign_core::import::load::ImportedSet;
 use rustred_campaign_core::import::{TableSetSpec, lines::parse_key_text};
-use rustred_campaign_core::independent_algebra::Independent;
-use rustred_campaign_core::repairflow::composite::import_lower;
-use rustred_campaign_core::repairflow::composite_verify::{ModCatalogue, ModField, verify_shipped};
+use rustred_campaign_core::repairflow::composite_verify::{LineOptions, verify_line};
 use rustred_campaign_core::repairflow::policy::{
     CompositeInput, PinnedFile, PolicyFile, RepairPolicy,
 };
-use rustred_campaign_core::replay_base::algebra::CheckAlgebra;
 use rustred_campaign_core::replay_base::symrows::VerifiedGroup;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
-use std::io::{BufRead, Read, Seek, SeekFrom};
+use std::io::{BufRead, Read};
 use std::path::{Path, PathBuf};
 
 /// The rung tag of symmetry-composite job ids.
@@ -55,7 +55,8 @@ pub const RUNG: &str = "sc";
 pub const KEY_SCHEMA: &str = "rustred.campaign.symmetry-composite-key.v1";
 /// The values of d of the supervisor's modular re-check: DIFFERENT from the child's own independent check (the tool
 /// uses 1000003, 7777771, 123456791), so the two checks share no evaluation point. Data: [`VerifyOptions::d_values`].
-pub const DEFAULT_D_VALUES: [u64; 3] = [2_000_029, 9_999_991, 314_159_257];
+pub const DEFAULT_D_VALUES: [u64; 3] =
+    rustred_campaign_core::repairflow::composite_verify::DEFAULT_D_VALUES;
 
 /// One repair-flow request: the open keys of a node grouped by face (the flow's per-face key lists) and its policy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -279,28 +280,6 @@ pub fn load_import(spec: &JobSpec) -> Result<ImportCtx, String> {
     })
 }
 
-/// The record line of (table, record) of the import, its SHA-256 checked against the import's.
-fn record_line(set: &ImportedSet, table: usize, record: usize) -> Result<Vec<u8>, String> {
-    let info = &set.rules[table][record];
-    let mut f = std::fs::File::open(&info.path).map_err(|e| format!("{}: {e}", info.path))?;
-    f.seek(SeekFrom::Start(info.offset))
-        .map_err(|e| e.to_string())?;
-    let mut line = Vec::with_capacity(info.bytes as usize + 1);
-    std::io::BufReader::new(f)
-        .read_until(b'\n', &mut line)
-        .map_err(|e| e.to_string())?;
-    while matches!(line.last(), Some(b'\n' | b'\r')) {
-        line.pop();
-    }
-    if sha256_hex(&line) != info.record_sha256 {
-        return Err(format!(
-            "{} record {record}: sha256 differs from the import's",
-            info.path
-        ));
-    }
-    Ok(line)
-}
-
 /// One relation the import's verification accepted: its key and its child lines (verbatim, bound by SHA-256).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AcceptedRelation {
@@ -374,16 +353,11 @@ pub fn verify_relations(
     let ver = &lines[symcomp::VERIFICATION_FILE];
     out.header = table.first().cloned().unwrap_or_default();
     let arity = ctx.lines.len();
-    let field = ModField::engine(&Independent, &opts.d_values);
-    let line_of = |t: usize, r: usize| record_line(&ctx.set, t, r);
-    let mcat = ModCatalogue {
-        set: &ctx.set,
-        line_of: &line_of,
-        field: &field,
+    let lopts = LineOptions {
+        d_values: opts.d_values.clone(),
+        max_row_terms: ctx.policy.route0.max_terms,
+        min_depth: ctx.policy.composite.max_depth,
     };
-    let cmp = |a: &[i32], b: &[i32]| ctx.set.cmp.cmp(a, b);
-    let lower = |k: &[i32], t: &[i32]| import_lower(&ctx.lines, k, t, &cmp);
-    let max_row_terms = ctx.policy.route0.max_terms;
     for r in &results.relations {
         let j = r.index as usize;
         let check = || -> Result<(Vec<u8>, Vec<u8>), String> {
@@ -406,59 +380,29 @@ pub fn verify_relations(
                     .and_then(|s| parse_key_text(s, arity))
                     .ok_or_else(|| format!("key text {t}"))
             };
-            let pairs = |v: &Value, what: &str| -> Result<Vec<(Vec<i32>, String)>, String> {
-                v.as_array()
-                    .ok_or_else(|| what.to_string())?
-                    .iter()
-                    .map(|p| {
-                        Ok((
-                            kt(&p[0])?,
-                            p[1].as_str().ok_or("coefficient text")?.to_string(),
-                        ))
-                    })
-                    .collect()
-            };
-            let rhs = pairs(&tv["rhs"], "rhs")?;
-            let image: Vec<(Vec<i32>, _)> = pairs(&vv["image"], "image")?
-                .into_iter()
-                .map(|(k, q)| Independent.q_parse(&q).map(|q| (k, q)))
-                .collect::<Result<_, _>>()?;
-            let reps = vv["replacements"].as_array().ok_or("replacements")?;
-            let records: Vec<(Vec<i32>, String)> = reps
+            let rhs: Vec<(Vec<i32>, String)> = tv["rhs"]
+                .as_array()
+                .ok_or("rhs")?
                 .iter()
-                .map(|x| {
+                .map(|p| {
                     Ok((
-                        kt(&x["term"])?,
-                        x["record_sha256"].as_str().unwrap_or_default().to_string(),
+                        kt(&p[0])?,
+                        p[1].as_str().ok_or("coefficient text")?.to_string(),
                     ))
                 })
                 .collect::<Result<_, String>>()?;
-            if records.iter().map(|(_, s)| s).ne(r.records.iter()) {
+            let cited: Vec<&str> = vv["replacements"]
+                .as_array()
+                .ok_or("replacements")?
+                .iter()
+                .map(|x| x["record_sha256"].as_str().unwrap_or_default())
+                .collect();
+            if cited.iter().copied().ne(r.records.iter().map(String::as_str)) {
                 return Err("the cited records are not the sealed ones".into());
             }
-            let depth = reps
-                .iter()
-                .filter_map(|x| x["depth"].as_u64())
-                .map(|d| d as usize + 1)
-                .max()
-                .unwrap_or(0)
-                .max(ctx.policy.composite.max_depth);
-            let element = vv["element"].as_u64().ok_or("element")? as usize;
-            verify_shipped(
-                &Independent,
-                &field,
-                &mcat,
-                &ctx.group,
-                &key,
-                element,
-                &image,
-                &records,
-                &rhs,
-                &lower,
-                &cmp,
-                max_row_terms,
-                depth,
-            )?;
+            // the SAME-BACKEND re-check (interfaces/import.md 13.3 (c)): the composer's own functions, modular at d
+            // values the child did not use; the one entry shared with the import's load-time verification
+            verify_line(&ctx.set, &ctx.group, &key, &rhs, &vv, &lopts)?;
             Ok((tl.clone(), vl.clone()))
         };
         match check() {
@@ -551,6 +495,7 @@ impl SymCompRouted {
         Some(CompositeInput {
             table: pin(&r[0]),
             verification: pin(&r[1]),
+            kernel_certificates: None,
         })
     }
 }
@@ -918,4 +863,66 @@ pub fn keys_of(r: &SymCompRouted, class: SymClass) -> Vec<Vec<i64>> {
         .filter(|k| k.outcome == class.word())
         .map(|k| k.key.clone())
         .collect()
+}
+
+// ------------------------------------------------------------------------------------------------ second route (F3)
+
+/// Feature names (an engine directory's MANIFEST `version.json`, its `features` list) that declare the kernel's
+/// symmetry-row certificates (`rr_proof --mode instance-span --symrows`, contract kind proof-symrows). PROPOSED names (no
+/// frozen manifest lists one yet: request in notes/implementer.symfix.md); the first one present decides.
+pub const SYMROWS_FEATURES: [&str; 2] = ["proof_symrows", "symrows"];
+
+/// The default second route of a composite (interfaces/import.md 13.3, closeloop.md 24).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompositeRoute {
+    /// The kernel certificate (independent of the composer): the kernel program and its SHA-256 (the import's
+    /// `kernel_certificates.kernels` allow-list entry).
+    Kernel { program: PathBuf, sha256: String },
+    /// No kernel available: the same-backend re-verification alone (level `imported`), with the reason.
+    SameBackend { why: String },
+}
+
+/// Decide the default second route from the engine directory's MANIFEST (`version.json` features, as lane seedmin reads
+/// capabilities) and its `SHA256SUMS` (the kernel binary `program` listed with the SHA-256 of the file as it is). NO
+/// process is started (every child of the supervisor goes through the ONE launch path); a missing manifest, feature,
+/// listing or a digest mismatch gives [`CompositeRoute::SameBackend`] with the reason, never a guess.
+pub fn composite_second_route(engine_dir: &Path, program: &str) -> CompositeRoute {
+    let same = |why: String| CompositeRoute::SameBackend { why };
+    let manifest = engine_dir.join("version.json");
+    let features: Vec<String> = match std::fs::read(&manifest)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+    {
+        Some(v) => v["features"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+            .unwrap_or_default(),
+        None => return same(format!("no readable manifest {}", manifest.display())),
+    };
+    if !features.iter().any(|f| SYMROWS_FEATURES.contains(&f.as_str())) {
+        return same(format!(
+            "manifest {} declares none of {SYMROWS_FEATURES:?}",
+            manifest.display()
+        ));
+    }
+    let sums = engine_dir.join("SHA256SUMS");
+    let listed = std::fs::read_to_string(&sums).ok().and_then(|t| {
+        t.lines().find_map(|l| {
+            let mut it = l.split_whitespace();
+            let (h, n) = (it.next()?, it.next()?);
+            (n.trim_start_matches('*') == program).then(|| h.to_ascii_lowercase())
+        })
+    });
+    let Some(want) = listed else {
+        return same(format!("{} does not list {program}", sums.display()));
+    };
+    let path = engine_dir.join(program);
+    match std::fs::read(&path) {
+        Ok(b) if sha256_hex(&b) == want => CompositeRoute::Kernel {
+            program: path,
+            sha256: want,
+        },
+        Ok(_) => same(format!("{} differs from its SHA256SUMS entry", path.display())),
+        Err(e) => same(format!("{}: {e}", path.display())),
+    }
 }

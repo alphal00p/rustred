@@ -217,8 +217,10 @@ pub fn accept_permits_records(a: ContractAccept) -> bool {
         ContractAccept::SolvedRecords => true, // row 28 (lane adapters)
         // line 7 (rows 30-32): diagnostic records are never rule or relation evidence; no record is taken from them here
         ContractAccept::DiagnosticRecords => false,
-        // lane symjob (rows 33 / 34): the sealed results are read and handed to the work source, which accepts each
-        // supplied relation ONLY through the import's own verification (adapters::symcomp::verify_relations)
+        // lane symjob (rows 33 / 34): the sealed results are read (PRODUCE) and handed to the work source as
+        // CANDIDATES; lane symfix (audit r2-sym F5): an item ACCEPT (direct credit) from such an attempt is refused in
+        // `apply_item_event`: supplied relations become evidence only through the node import's load-time
+        // verification (interfaces/import.md 13.3)
         ContractAccept::SuppliedRelations => true,
         ContractAccept::Nothing => false,
     }
@@ -3234,8 +3236,18 @@ impl CampaignState {
                         "accept of {rule}: item {item} has no produced result"
                     ))
                 })?;
-                self.job_feeds(item, &p.job, p.attempt)
+                let pj = self
+                    .job_feeds(item, &p.job, p.attempt)
                     .map_err(|w| invalid(format!("accept of {rule}: {w}")))?;
+                // lane symfix (audit r2-sym F5): a supplied-relations attempt's records are CANDIDATES; they become
+                // evidence only through the node import's load-time verification (interfaces/import.md 13.3), never
+                // as a direct credit: refused here whatever the work source did (or did not) call.
+                if pj.accept == Some(ContractAccept::SuppliedRelations) {
+                    return Err(invalid(format!(
+                        "accept of {rule}: job {} attempt {} accepts supplied_relations: its relations enter only through the import's load-time verification, never as a direct credit",
+                        p.job, p.attempt
+                    )));
+                }
                 let from = match source {
                     AcceptSource::Job {
                         job,

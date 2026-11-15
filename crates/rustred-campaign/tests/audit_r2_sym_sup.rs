@@ -173,7 +173,6 @@ fn reseal(dir: &Path) {
 }
 
 #[test]
-#[ignore = "AUDIT r2-sym F2 (end to end): a resealed relation with a duplicated term passes check_child + verify_relations"]
 fn a_resealed_relation_with_a_duplicated_term_is_refused() {
     let (_g, root, frame) = setup!("dup");
     let req = request(&root, &frame);

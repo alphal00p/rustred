@@ -1350,7 +1350,8 @@ fn with_route0(text: &str, policy: &RepairPolicy) -> Result<(String, Option<Valu
 }
 
 /// The pinned symmetry-composite result of the policy (`route0.composite_input`) as a `supplied_relations` source of
-/// the spec (once; placed before the default recipe): the import loads it, re-checks descent, cites the verification.
+/// the spec (once; placed before the default recipe): the import loads it, re-checks descent and RE-VERIFIES every
+/// relation at load (lane symfix, interfaces/import.md 13.3).
 fn with_composites(text: &str, policy: &RepairPolicy) -> Result<String, String> {
     if policy.route0.composite_input.is_none() && policy.evidence.facts.is_empty() {
         return Ok(text.to_string());
@@ -1389,12 +1390,19 @@ fn with_composites(text: &str, policy: &RepairPolicy) -> Result<String, String> 
         .iter()
         .position(|s| s["id"] == "default-recipe")
         .unwrap_or(srcs.len());
-    srcs.insert(
-        at,
-        json!({"id": "rf:symmetry-composite", "kind": "supplied_relations", "class": "symmetry-composite",
-            "path": ci.table.path, "sha256": ci.table.sha256,
-            "verification": {"path": ci.verification.path, "sha256": ci.verification.sha256}}),
-    );
+    // lane symfix (interfaces/import.md 13.3): the import RE-VERIFIES every relation at load (plain: group
+    // re-derivation from the policy's family, else the frame header's; composites: the verification line, same backend;
+    // or a checked kernel certificate); an unverified relation is never served
+    let mut src = json!({"id": "rf:symmetry-composite", "kind": "supplied_relations", "class": "symmetry-composite",
+        "path": ci.table.path, "sha256": ci.table.sha256,
+        "verification": {"path": ci.verification.path, "sha256": ci.verification.sha256}});
+    if let Some(f) = &policy.route0.family {
+        src["verify"] = json!({"family": {"path": f}});
+    }
+    if let Some(kc) = &ci.kernel_certificates {
+        src["kernel_certificates"] = serde_json::to_value(kc).map_err(|e| e.to_string())?;
+    }
+    srcs.insert(at, src);
     Ok(serde_json::to_string_pretty(&v).expect("json") + "\n")
 }
 
