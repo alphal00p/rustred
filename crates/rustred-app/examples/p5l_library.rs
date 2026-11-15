@@ -19,6 +19,10 @@
 //!     vk5l WP1: the reproduction line of a typed refusal (OutsideBox, OutsideCertifiedSet, NodeNotClosed):
 //!     the inputs at weight one reduced onto the terminals (Exact arithmetic, one thread); prints the terms, or the
 //!     error and exits 3. P_RETAIN=1 uses PUncoveredPolicy::Retain.
+//! p5l_library reduce-file <package dir> <inputs.tsv> <exact|modular> <threads>
+//!     needs-compose: ONE request = the weighted sum of the file's inputs, one per line
+//!     `p<presentation>:<powers,...> TAB <numerator> TAB <denominator>` (polynomials in d as space-separated
+//!     `power:integer` monomials, integers of any size; empty = 1). Prints the terms like `reduce` (P_RETAIN=1 as there).
 //! p5l_library check <package dir> <top name> <dots> <rank> <ibp seeds> <laporta dots> <laporta rank>
 //!     the cell numerator of the benchmark grid (rank r = dot(k1,p) dot(k2,p) dot(k1,k3) ...) times the top at
 //!     powers 1 (first line 1 + dots): (A) the library reduction; (B) its top-sector part against a RustRed
@@ -97,6 +101,7 @@ fn main() {
         }
         Some("check") => check(&args[2..]),
         Some("reduce") => reduce_cli(&args[2..]),
+        Some("reduce-file") => reduce_file_cli(&args[2..]),
         Some("encoding") => encoding(&args[2..]),
         // vk5l WP6: p5l_library seed-fingerprints <package dir> <out.json>
         Some("seed-fingerprints") => {
@@ -432,6 +437,10 @@ fn reduce_cli(args: &[String]) {
         limits: ReductionLimits::default(),
         inspector: None,
     });
+    print_reduction(&library, result);
+}
+
+fn print_reduction(library: &PLibrary, result: Result<PReduction, rustred::propagator::error::PError>) {
     match result {
         Ok(reduction) => {
             // vk5l WP2: the recipe / relation-cache counters of this request
@@ -495,6 +504,105 @@ fn reduce_cli(args: &[String]) {
             std::process::exit(3);
         }
     }
+}
+
+/// needs-compose: an exact integer (any size) as a coefficient, by base-10^9 chunks.
+fn big_integer(context: &CoefficientContext, text: &str) -> Coefficient {
+    let limits = exact();
+    let (negative, digits) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, text.strip_prefix('+').unwrap_or(text)),
+    };
+    assert!(!digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()), "integer {text:?}");
+    let base = context.integer(1_000_000_000);
+    let mut value = context.zero();
+    let head = digits.len() % 9;
+    let mut chunks: Vec<&str> = Vec::new();
+    if head > 0 {
+        chunks.push(&digits[..head]);
+    }
+    let mut i = head;
+    while i < digits.len() {
+        chunks.push(&digits[i..i + 9]);
+        i += 9;
+    }
+    for chunk in chunks {
+        let part = context.integer(chunk.parse::<i64>().unwrap());
+        value = context.try_mul(&value, &base, limits).unwrap();
+        value = context.try_add(&value, &part, limits).unwrap();
+    }
+    if negative { context.try_neg(&value, limits).unwrap() } else { value }
+}
+
+/// needs-compose: `power:integer power:integer ...` -> polynomial in d (empty = 1).
+fn poly_in_d(context: &CoefficientContext, text: &str) -> Coefficient {
+    let limits = exact();
+    let text = text.trim();
+    if text.is_empty() {
+        return context.one();
+    }
+    let d = context.parameter("d").expect("the library's parameter d");
+    let mut value = context.zero();
+    for mono in text.split_whitespace() {
+        let (power, integer) = mono.split_once(':').unwrap_or_else(|| panic!("monomial {mono:?}: power:integer"));
+        let mut term = big_integer(context, integer);
+        for _ in 0..power.parse::<u32>().expect("a power") {
+            term = context.try_mul(&term, &d, limits).unwrap();
+        }
+        value = context.try_add(&value, &term, limits).unwrap();
+    }
+    value
+}
+
+fn reduce_file_cli(args: &[String]) {
+    let (library, _) = load(&args[0], false);
+    let context = library.coefficient_context();
+    let threads: usize = args.get(3).map_or(1, |t| t.parse().expect("threads"));
+    let arithmetic = match args.get(2).map(String::as_str) {
+        Some("modular") => modular_polynomial(threads),
+        _ => OrderedWeightArithmetic::Exact,
+    };
+    let started = Instant::now();
+    let mut inputs: Vec<Input> = Vec::new();
+    for line in std::fs::read_to_string(&args[1]).expect("inputs file").lines() {
+        let line = line.trim_end();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut cols = line.split('\t');
+        let spec = cols.next().unwrap();
+        let num = poly_in_d(context, cols.next().unwrap_or(""));
+        let den = poly_in_d(context, cols.next().unwrap_or(""));
+        let weight = context.try_div(&num, &den, exact()).unwrap();
+        let (id, powers) = spec
+            .strip_prefix('p')
+            .and_then(|rest| rest.split_once(':'))
+            .unwrap_or_else(|| panic!("input {spec:?}: p<presentation>:<powers,...>"));
+        let powers: Vec<i64> = powers.split(',').map(|p| p.trim().parse().expect("an integer power")).collect();
+        inputs.push((
+            PresentationId(id.parse().expect("a presentation id")),
+            IntegralKey::try_new(powers).expect("a key"),
+            weight,
+        ));
+    }
+    eprintln!("reduce-file: {} inputs parsed in {:.2} s {}", inputs.len(), started.elapsed().as_secs_f64(), stamp());
+    let uncovered = if std::env::var("P_RETAIN").as_deref() == Ok("1") {
+        PUncoveredPolicy::Retain
+    } else {
+        PUncoveredPolicy::Reject
+    };
+    let result = library.reduce(PReductionRequest {
+        inputs,
+        arithmetic,
+        scheduler: OrderedSchedulerOptions::default(),
+        step_cache: None,
+        uncovered,
+        onto_masters: false,
+        limits: ReductionLimits::default(),
+        inspector: None,
+    });
+    eprintln!("reduce-file: reduced in {:.2} s {}", started.elapsed().as_secs_f64(), stamp());
+    print_reduction(&library, result);
 }
 
 fn load(dir: &str, verify: bool) -> (Arc<PLibrary>, f64) {
