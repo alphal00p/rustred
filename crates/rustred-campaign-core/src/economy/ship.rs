@@ -1040,11 +1040,13 @@ pub fn decide(
     if let Some(why) = stuck {
         return base(Outcome::Table, why, keys);
     }
+    // `+ 0.0`: an empty f64 sum is -0.0
     let secs: f64 = keys
         .iter()
         .filter(|k| k.form == "recipe")
         .filter_map(|k| k.recipe_seconds)
-        .sum();
+        .sum::<f64>()
+        + 0.0;
     let max_s = keys
         .iter()
         .filter(|k| k.form == "recipe")
@@ -1544,7 +1546,7 @@ pub fn totals(census: &Census, decisions: &[RuleDecision]) -> Value {
         "by_outcome": by.iter().map(|(k, (n, b, s))| (k.clone(), json!({"rules": n, "bytes": b, "saved": s})))
             .collect::<serde_json::Map<String, Value>>(),
         "recipe_seconds_per_key": {"keys": secs.len(), "min": q(0.0), "median": q(0.5), "p90": q(0.9), "max": q(1.0),
-                                   "sum": secs.iter().sum::<f64>()},
+                                   "sum": secs.iter().sum::<f64>() + 0.0},
         "guard_failed_rules": guard_failed,
         "guard_failed_keys_reported": guard_failed_keys,
     })
