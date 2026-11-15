@@ -4,6 +4,8 @@
 //! escalation (face-domain recipes solved at the keys by the closing loop); what nothing serves becomes a typed
 //! terminal proposal. Pure library: no process, file, clock or ledger. Every threshold is policy DATA ([`policy`]).
 
+pub mod composite;
+pub mod core_stub;
 pub mod decide;
 pub mod face_format;
 pub mod faces;
@@ -11,6 +13,7 @@ pub mod judge;
 pub mod minimise;
 pub mod policy;
 pub mod recipes;
+pub mod symflow;
 pub mod symrel;
 
 pub use decide::{

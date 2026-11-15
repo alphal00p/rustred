@@ -19,6 +19,7 @@ pub struct RepairPolicy {
     /// Shadowing test before any symbolic search (R31 evidence 04:37Z).
     pub shadow_test: bool,
     pub route0: Route0Policy,
+    pub composite: CompositePolicy,
     pub faces: FacesPolicy,
     pub symbolic: SymbolicPolicy,
     pub keep: KeepPolicy,
@@ -35,6 +36,7 @@ impl Default for RepairPolicy {
             enabled: true,
             shadow_test: true,
             route0: Route0Policy::default(),
+            composite: CompositePolicy::default(),
             faces: FacesPolicy::default(),
             symbolic: SymbolicPolicy::default(),
             keep: KeepPolicy::default(),
@@ -75,6 +77,34 @@ impl Default for Route0Policy {
             symmetry_relation: true,
             max_keys: 1_000_000,
             max_terms: 65_536,
+        }
+    }
+}
+
+/// COMPOSITE DESCENT (TRICKS 1 + 3; interfaces/repairflow.md 17; `repairflow::composite`): a symmetry service is judged
+/// as the composed relation (image row, then the catalogue rule at every image term that is not lower).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct CompositePolicy {
+    pub enabled: bool,
+    /// Catalogue replacements chained below one image term (1 = the image, then one rule).
+    pub max_depth: usize,
+    /// Safety bound: terms alive during one composition.
+    pub max_terms: usize,
+    /// Safety bound: replacements of one composition.
+    pub max_replacements: usize,
+    /// Catalogue records larger than this are not read (the element is refused at that term, recorded).
+    pub max_record_bytes: u64,
+}
+
+impl Default for CompositePolicy {
+    fn default() -> Self {
+        CompositePolicy {
+            enabled: true,
+            max_depth: 1,
+            max_terms: 100_000,
+            max_replacements: 10_000,
+            max_record_bytes: 16 << 20,
         }
     }
 }
@@ -604,6 +634,9 @@ impl RepairPolicy {
             ));
         }
         self.symbolic.max_size_ratio.bound()?;
+        if self.composite.max_depth > 8 {
+            return Err("repair policy: composite.max_depth must be <= 8".into());
+        }
         if self.symbolic.wall_case_s == 0 {
             return Err("repair policy: symbolic.wall_case_s must be > 0".into());
         }
