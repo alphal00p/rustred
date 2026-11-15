@@ -12,6 +12,7 @@
 //!    `parallel_trials` speculative drops are solved at once and the FIRST success in order wins (the later ones are
 //!    discarded): the result is that of the sequential procedure, whatever the number of CPUs. A budget answer counts as
 //!    a failed drop (the seeds are kept; the list stays valid) and is counted.
+//!
 //! Joint domains (many keys): the keys that failed the latest trials are solved first (`witness_keys`), the rest only
 //! if those pass: cost only, the decision is "certified at every key".
 
@@ -261,27 +262,27 @@ pub fn minimise(
     // the last list whose relations `cur` are (the final list may be a support restriction of it)
     let mut solved_list: Vec<Offset> = keep.clone();
     let mut stopped = "done";
-    if m.mode != "off" {
-        if let Some(s) = support(&cur) {
-            let r = restrict(&keep, &s);
-            if r.len() < keep.len() && !r.is_empty() && solves < m.max_solves {
-                let a = solve_trials(
-                    solver,
-                    make,
-                    std::slice::from_ref(&r),
-                    keys,
-                    &[],
-                    &format!("{label}/support"),
-                )?;
-                solves += 1;
-                solved_total += 1;
-                let t = judge(policy, keys, &cur, &a[0]);
-                budget_trials += t.budget as u64;
-                if t.feasible {
-                    keep = r;
-                    cur = t.per_key;
-                    solved_list = keep.clone();
-                }
+    if m.mode != "off"
+        && let Some(s) = support(&cur)
+    {
+        let r = restrict(&keep, &s);
+        if r.len() < keep.len() && !r.is_empty() && solves < m.max_solves {
+            let a = solve_trials(
+                solver,
+                make,
+                std::slice::from_ref(&r),
+                keys,
+                &[],
+                &format!("{label}/support"),
+            )?;
+            solves += 1;
+            solved_total += 1;
+            let t = judge(policy, keys, &cur, &a[0]);
+            budget_trials += t.budget as u64;
+            if t.feasible {
+                keep = r;
+                cur = t.per_key;
+                solved_list = keep.clone();
             }
         }
     }

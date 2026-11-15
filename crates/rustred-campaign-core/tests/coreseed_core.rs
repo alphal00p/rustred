@@ -527,7 +527,8 @@ fn the_engine_minimiser_and_the_emulation_are_interchangeable_at_the_api() {
         &mut solver(&o),
     )
     .unwrap();
-    let view = |r: &CoreReport| -> Vec<(String, Vec<Offset>, Vec<Key>, Vec<Key>)> {
+    type PieceView = (String, Vec<Offset>, Vec<Key>, Vec<Key>);
+    let view = |r: &CoreReport| -> Vec<PieceView> {
         r.groups
             .iter()
             .flat_map(|g| {

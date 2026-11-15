@@ -614,7 +614,7 @@ impl<'a> Group<'a> {
                 // the pivot is not certified by the full list any more (budget at a re-solve): it keeps the full list
                 remaining.retain(|k| *k != pivot);
                 self.pieces
-                    .push(self.full_piece(&rule, &full, &[pivot.clone()]));
+                    .push(self.full_piece(&rule, &full, std::slice::from_ref(&pivot)));
                 continue;
             };
             let piece_id = format!("{}#{}", rule.id, self.pieces.len());

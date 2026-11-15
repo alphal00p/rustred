@@ -71,6 +71,7 @@ fn config(tmp: &Path, files: &TmFiles, fake: FakeCore, journal: &Path) -> CoreDr
             .filter_map(|x| x.trim().parse().ok())
             .take(3)
             .collect(),
+        pin: true,
         work_root: tmp.join("work"),
         journal: journal.to_path_buf(),
         keys_per_job: 2,

@@ -85,8 +85,10 @@ pub struct CoreDriverConfig {
     pub program: Program,
     pub family: PathBuf,
     pub order: String,
-    /// One job per CPU, each pinned to it.
+    /// One job per CPU, each pinned to it (`pin`); unpinned (`pin: false`, DEV-22): the list only sets how many jobs run
+    /// at once (the unit's CPU quota carries them).
     pub cpus: Vec<usize>,
+    pub pin: bool,
     pub work_root: PathBuf,
     /// The answers journal (resume) and the cost / progress files go next to it.
     pub journal: PathBuf,
@@ -123,6 +125,16 @@ struct Job {
     label: String,
     work: PathBuf,
 }
+
+/// What a worker thread needs to run one job: adapter config, recipe path, keys, recipe sha256, label, work dir.
+type JobInput = (
+    SolveRecipeConfig,
+    PathBuf,
+    Vec<Key>,
+    String,
+    String,
+    PathBuf,
+);
 
 struct JobDone {
     job: usize,
@@ -439,7 +451,7 @@ fn is_trial(label: &str) -> bool {
 fn run_job(
     cfg_ad: SolveRecipeConfig,
     job: &Job,
-    cpu: usize,
+    cpu: Option<usize>,
     cap_bytes: u64,
     wall_cap_s: u64,
     licence_env: Option<String>,
@@ -469,7 +481,7 @@ fn run_job(
         return Err(format!("{} job plans for one chunk", plans.len()));
     };
     let opts = RunOptions {
-        cpus: vec![cpu],
+        cpus: cpu.into_iter().collect(),
         memory_cap_bytes: Some(cap_bytes),
         licence_env,
         wall_cap: Some(Duration::from_secs(wall_cap_s)),
@@ -567,16 +579,7 @@ impl CoreSolver for ChildSolver<'_> {
         let queue: Arc<Mutex<VecDeque<usize>>> = Arc::new(Mutex::new((0..jobs.len()).collect()));
         let (tx, rx) = mpsc::channel::<JobDone>();
         let t0 = Instant::now();
-        let shared: Arc<
-            Vec<(
-                SolveRecipeConfig,
-                PathBuf,
-                Vec<Key>,
-                String,
-                String,
-                PathBuf,
-            )>,
-        > = Arc::new(
+        let shared: Arc<Vec<JobInput>> = Arc::new(
             jobs.iter()
                 .map(|j| {
                     let fake = self.fake_script(&batch[j.req], &j.keys);
@@ -599,6 +602,7 @@ impl CoreSolver for ChildSolver<'_> {
                 shared.clone(),
                 self.sampler.clone(),
             );
+            let pin = self.cfg.pin.then_some(cpu);
             let (cap, wall, lic) = (
                 self.cfg.cap_bytes,
                 self.cfg.wall_cap_s,
@@ -621,7 +625,7 @@ impl CoreSolver for ChildSolver<'_> {
                                 work,
                             };
                             let result =
-                                run_job(c, &job, cpu, cap, wall, lic.clone(), sampler.clone());
+                                run_job(c, &job, pin, cap, wall, lic.clone(), sampler.clone());
                             if tx.send(JobDone { job: i, result }).is_err() {
                                 break;
                             }

@@ -352,7 +352,7 @@ mod tests {
         assert_eq!(r[3].1, vec![0, 0, 0, 1, 0]);
         assert_eq!(r[4].1, vec![0, 1, 0, 0, 0]);
         assert_eq!(r[5].1, vec![-1, -1, 0, 1, 0]);
-        assert!(valid_at(&k, &[0, 0, -1, 0, 0], &l) == false);
+        assert!(!valid_at(&k, &[0, 0, -1, 0, 0], &l));
         assert_eq!(dots_rank(&k, &l), 5);
         assert_eq!(signature(&k, &l), (vec![0, 1], vec![3]));
     }

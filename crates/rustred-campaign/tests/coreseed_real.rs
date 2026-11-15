@@ -43,12 +43,11 @@ fn read_keys(p: &Path) -> Vec<Key> {
 }
 
 fn utc() -> String {
-    let o = std::process::Command::new("date")
+    std::process::Command::new("date")
         .args(["-u", "+%FT%TZ"])
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_default();
-    o
+        .unwrap_or_default()
 }
 
 #[test]
@@ -61,9 +60,12 @@ fn real_core_faces() {
     let p = std::env::var("CORESEED_REAL_CONFIG").expect("CORESEED_REAL_CONFIG");
     let c: Value = serde_json::from_slice(&std::fs::read(&p).unwrap()).unwrap();
     let s = |k: &str| c[k].as_str().unwrap_or_else(|| panic!("{k}")).to_string();
-    let cpus: Vec<usize> = match c["cpus"].as_array() {
-        Some(a) => a.iter().map(|x| x.as_u64().unwrap() as usize).collect(),
-        None => std::env::var("HELD_CPUS")
+    // DEV-22: `"unpinned_slots": N` = N concurrent children, no pinning (the unit's CPU quota carries them)
+    let pin = c["unpinned_slots"].is_null();
+    let cpus: Vec<usize> = match (c["unpinned_slots"].as_u64(), c["cpus"].as_array()) {
+        (Some(n), _) => (0..n as usize).collect(),
+        (None, Some(a)) => a.iter().map(|x| x.as_u64().unwrap() as usize).collect(),
+        (None, None) => std::env::var("HELD_CPUS")
             .expect("HELD_CPUS")
             .split(',')
             .map(|x| x.trim().parse().unwrap())
@@ -112,6 +114,7 @@ fn real_core_faces() {
             family: s("family").into(),
             order: order.clone(),
             cpus: cpus.clone(),
+            pin,
             work_root: PathBuf::from(s("work_root"))
                 .join(rustred_campaign::closeloop::ids::safe(&name)),
             journal: fdir.join("journal.jsonl"),
