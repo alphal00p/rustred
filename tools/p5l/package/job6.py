@@ -91,29 +91,42 @@ def main():
         return 0
     if os.path.exists(rcf):
         os.remove(rcf)
+    # Rule 15 (user, 2026-11-15): never wait for a pinned CPU. Only the memory admission waits (up to --wait);
+    # if the picker cannot give the CPUs at once, the job starts UNPINNED: CPUQuota = 100 % x ncpu, AllowedCPUs =
+    # every CPU except the reserved sets (NEVER above: 168-175, 288-319, build slots 192-215, slot 4).
     deadline = time.time() + a.wait
     held = []
-    while time.time() < deadline:
+    while True:
         if os.path.exists(WS + '/ops/PAUSE'):
             print('PAUSE present: not starting', file=sys.stderr)
             open(rcf, 'w').write('98\n')
             return 98
         if mem_avail_gb() - cap_gb(a.mem) >= 50:
-            held = pick(a.ncpu)
-            if held:
-                break
+            break
+        if time.time() >= deadline:
+            open(rcf, 'w').write('99\n')
+            return 99
         time.sleep(20)
-    if not held:
-        open(rcf, 'w').write('99\n')
-        return 99
-    cpus = ','.join(str(c) for c, _ in held)
-    open(os.path.join(a.out, 'cpus'), 'w').write(cpus + '\n')
-    ledger(f'{utc()} ({a.lane}): + CPU {cpus} (flock) -> {a.tag} (MemoryMax {a.mem}). Released at its end.')
+    held = pick(a.ncpu)
     unit = f'vk5l-wp6-{a.tag}-{os.getpid()}'
-    full = ['systemd-run', '--user', '--scope', '-q', f'--unit={unit}', '-p', f'MemoryMax={a.mem}',
-            '-p', 'MemorySwapMax=0', '--', sys.executable, WS + '/ops/guarded_run.py', '--out',
-            os.path.join(a.out, 'guard'), '--min-avail-gb', '50', '--max-seconds', str(a.max_seconds), '--',
-            'taskset', '-c', cpus] + cmd
+    if held:
+        cpus = ','.join(str(c) for c, _ in held)
+        open(os.path.join(a.out, 'cpus'), 'w').write(cpus + '\n')
+        ledger(f'{utc()} ({a.lane}): + CPU {cpus} (flock) -> {a.tag} (MemoryMax {a.mem}). Released at its end.')
+        scope = ['-p', f'MemoryMax={a.mem}', '-p', 'MemorySwapMax=0']
+        pin = ['taskset', '-c', cpus]
+    else:
+        allowed = ','.join(str(c) for c in range(os.cpu_count() or 384) if c not in NEVER)
+        cpus = f'unpinned:{a.ncpu}'
+        open(os.path.join(a.out, 'cpus'), 'w').write(cpus + '\n')
+        ledger(f'{utc()} ({a.lane}): unpinned CPUQuota {100 * a.ncpu}% (taskset: all CPUs minus the reserved sets) -> '
+               f'{a.tag} (MemoryMax {a.mem}). Released at its end.')
+        # AllowedCPUs is not applied in a user scope here (cpuset not delegated, checked 2026-11-15): taskset instead.
+        scope = ['-p', f'MemoryMax={a.mem}', '-p', 'MemorySwapMax=0', '-p', f'CPUQuota={100 * a.ncpu}%']
+        pin = ['taskset', '-c', allowed]
+    full = ['systemd-run', '--user', '--scope', '-q', f'--unit={unit}'] + scope + [
+            '--', sys.executable, WS + '/ops/guarded_run.py', '--out',
+            os.path.join(a.out, 'guard'), '--min-avail-gb', '50', '--max-seconds', str(a.max_seconds), '--'] + pin + cmd
     open(os.path.join(a.out, 'cmd'), 'w').write(' '.join(full) + '\n')
     with open(os.path.join(a.out, 'stdout.log'), 'w') as so, open(os.path.join(a.out, 'stderr.log'), 'w') as se:
         rc = subprocess.run(full, stdout=so, stderr=se, pass_fds=[fd for _, fd in held]).returncode
