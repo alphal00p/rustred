@@ -886,6 +886,39 @@ pub enum CompositeRoute {
     SameBackend { why: String },
 }
 
+/// int7 (implementer's ruling 2026-11-15; closeloop.md 24.9): THE default second route of a composite, from the
+/// CONFIGURATION: availability of the kernel route = the spec names the proof kernel (`kernel`: the program symcert's
+/// adapter runs for `proof-symrows` jobs, path + SHA-256; that SHA-256 is the import's `kernel_certificates.kernels`
+/// allow-list entry). Configured and the file at its path has the stated SHA-256 -> [`CompositeRoute::Kernel`]; no
+/// kernel configured -> [`CompositeRoute::SameBackend`] (level `imported`, symfix's rule); a configured kernel without a
+/// SHA-256, unreadable, or with another SHA-256 is no kernel (SameBackend with the reason, never a guess). No process is
+/// started; a frozen engine's manifest is NOT consulted (the coordinator's `version.json` describes rr_node only).
+pub fn composite_second_route_configured(kernel: Option<&Program>) -> CompositeRoute {
+    let same = |why: String| CompositeRoute::SameBackend { why };
+    let Some(k) = kernel else {
+        return same(
+            "no proof kernel configured: the same-backend re-check alone (level imported)".into(),
+        );
+    };
+    let Some(want) = k.sha256.as_deref().map(str::to_ascii_lowercase) else {
+        return same(format!(
+            "the configured proof kernel {} names no sha256 (the import's allow-list entry)",
+            k.path.display()
+        ));
+    };
+    match std::fs::read(&k.path) {
+        Ok(b) if sha256_hex(&b) == want => CompositeRoute::Kernel {
+            program: k.path.clone(),
+            sha256: want,
+        },
+        Ok(_) => same(format!(
+            "the configured proof kernel {} does not have the sha256 {want}",
+            k.path.display()
+        )),
+        Err(e) => same(format!("{}: {e}", k.path.display())),
+    }
+}
+
 /// Decide the default second route from the engine directory's MANIFEST (`version.json` features, as lane seedmin reads
 /// capabilities) and its `SHA256SUMS` (the kernel binary `program` listed with the SHA-256 of the file as it is). NO
 /// process is started (every child of the supervisor goes through the ONE launch path); a missing manifest, feature,

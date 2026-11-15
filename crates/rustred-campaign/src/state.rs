@@ -188,8 +188,9 @@ pub fn contract_accepts(class: FinishClass) -> &'static [ContractAccept] {
     use ContractAccept as A;
     use FinishClass::*;
     match class {
-        // rows 1, 3; 33 = kind symmetry-composite (lane symjob: candidates, accepted only through the import)
-        Complete => &[A::Canonical, A::SuppliedRelations, A::Nothing],
+        // rows 1, 3; 33 = kind symmetry-composite (lane symjob: candidates, accepted only through the import);
+        // 40 = kind proof-symrows (lane symcert: certificates bound to the asked relation)
+        Complete => &[A::Canonical, A::SuppliedRelations, A::Certificates, A::Nothing],
         NoRule => &[A::CommittedRules, A::Nothing], // rows 4, 24
         Spill => &[A::CommittedRules],              // row 8
         DecidedNegative => &[A::Nothing],           // row 7 (c=11)
@@ -222,6 +223,9 @@ pub fn accept_permits_records(a: ContractAccept) -> bool {
         // `apply_item_event`: supplied relations become evidence only through the node import's load-time
         // verification (interfaces/import.md 21)
         ContractAccept::SuppliedRelations => true,
+        // lane symcert (row 40): the sealed certificate is read and handed to the work source, which binds it to the
+        // relation it asked about (closeloop::symcert): evidence of that relation's per-key level only
+        ContractAccept::Certificates => true,
         ContractAccept::Nothing => false,
     }
 }
@@ -233,6 +237,7 @@ pub fn accept_word(a: ContractAccept) -> &'static str {
         ContractAccept::SolvedRecords => "solved_records", // lane adapters (row 28)
         ContractAccept::DiagnosticRecords => "diagnostic_records", // line 7 (rows 30-32)
         ContractAccept::SuppliedRelations => "supplied_relations", // lane symjob (rows 33 / 34)
+        ContractAccept::Certificates => "certificates",    // lane symcert (row 40)
         ContractAccept::Nothing => "nothing",
     }
 }

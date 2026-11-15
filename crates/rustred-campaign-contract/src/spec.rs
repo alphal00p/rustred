@@ -54,6 +54,12 @@ pub enum JobKind {
     /// every answer against the pinned requests, seals `out/results.jsonl` and writes OUTCOME. Accept mode
     /// `diagnostic_records` (rows 37-39): never rule or relation evidence.
     PoleRegularAt,
+    /// `rr_proof --mode instance-span --symrows FILE [--symrows-only]` (lane symcert; interfaces/proof-symrows-job.md;
+    /// kernel side interfaces/proof-symrows.md): ONE relation (a point-rule record written by the supervisor) at its key,
+    /// certified against the given multi-term symmetry rows (and the IBP rows at its seeds), run as a LEGACY child; the
+    /// supervisor-side wrapper checks the kernel's answer against the pinned request and seals ONE certificate. Accept
+    /// mode `certificates` (row 40): evidence of the per-key level of exactly the asked relation.
+    ProofSymrows,
 }
 
 /// Compliance level (1.1).
@@ -69,7 +75,7 @@ pub enum Level {
 }
 
 impl JobKind {
-    pub const ALL: [JobKind; 18] = [
+    pub const ALL: [JobKind; 19] = [
         JobKind::Generate,
         JobKind::GenerateAuto,
         JobKind::Descent,
@@ -88,6 +94,7 @@ impl JobKind {
         JobKind::NodeBasis,
         JobKind::SymmetryComposite,
         JobKind::PoleRegularAt,
+        JobKind::ProofSymrows,
     ];
 
     pub const fn level(self) -> Level {
@@ -98,7 +105,8 @@ impl JobKind {
             | JobKind::ProofInstanceSpan
             | JobKind::CoefficientFacts
             | JobKind::SymmetryComposite
-            | JobKind::PoleRegularAt => Level::Legacy,
+            | JobKind::PoleRegularAt
+            | JobKind::ProofSymrows => Level::Legacy,
             _ => Level::L1,
         }
     }
@@ -118,7 +126,8 @@ impl JobKind {
             | JobKind::ProofExact
             | JobKind::ProofStream
             | JobKind::ProofInstantiate
-            | JobKind::ProofInstanceSpan => "rr_proof",
+            | JobKind::ProofInstanceSpan
+            | JobKind::ProofSymrows => "rr_proof",
             JobKind::TableDump => "table_dump",
             JobKind::Fake => "rr_fake_child",
             JobKind::CoefficientFacts => "rr_coef_facts",
@@ -157,7 +166,8 @@ impl JobKind {
             | JobKind::CoefficientFacts
             | JobKind::NodeBasis
             | JobKind::SymmetryComposite
-            | JobKind::PoleRegularAt => Some(&RESULT_OUTPUTS),
+            | JobKind::PoleRegularAt
+            | JobKind::ProofSymrows => Some(&RESULT_OUTPUTS),
             JobKind::GenerateAuto => None,
         }
     }
@@ -184,6 +194,8 @@ impl JobKind {
             JobKind::SymmetryComposite => &[],
             // lane coreseed: the dimension and the child's thread count (rr_poles: 1..4)
             JobKind::PoleRegularAt => &POLE_REGULAR_AT_ARGS,
+            // lane symcert: every parameter is in the pinned request (the wrapper builds the argv from it)
+            JobKind::ProofSymrows => &[],
         }
     }
 
@@ -220,6 +232,11 @@ impl JobKind {
                 required: &["family", "terminals"],
                 optional: &[],
             }),
+            // lane symcert: one relation (point record) + its key + its symmetry rows; `family` for --rows engine --family
+            JobKind::ProofSymrows => Some(InputRoles {
+                required: &["request", "table", "keys", "symrows"],
+                optional: &["family"],
+            }),
             // one rule record of one table at many keys; rows from the family (engine build) or a cert / ROWS file
             JobKind::ProofInstanceSpan => Some(InputRoles {
                 required: &["request", "table", "keys"],
@@ -239,6 +256,7 @@ impl JobKind {
                 | JobKind::CoefficientFacts
                 | JobKind::SymmetryComposite
                 | JobKind::PoleRegularAt
+                | JobKind::ProofSymrows
         )
     }
 
@@ -252,6 +270,7 @@ impl JobKind {
                 | JobKind::CoefficientFacts
                 | JobKind::SymmetryComposite
                 | JobKind::PoleRegularAt
+                | JobKind::ProofSymrows
         )
     }
 
@@ -1213,6 +1232,7 @@ impl JobSpec {
                 | JobKind::NodeBasis
                 | JobKind::SymmetryComposite
                 | JobKind::PoleRegularAt
+                | JobKind::ProofSymrows
         ) {
             return Ok(());
         }
