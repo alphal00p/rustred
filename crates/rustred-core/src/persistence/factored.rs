@@ -15,6 +15,16 @@
 //! - per coefficient: its map, then numerator and denominator as
 //!   integer content times a product of dictionary entries with exponents.
 //!
+//! The SHARED form ([`encode_shared_table`], `p-import-table --coef-form
+//! shared`) is the same container with factoring switched off: every
+//! non-constant numerator and denominator is one whole dictionary entry,
+//! numbered in encounter order (numerator before denominator, coefficient by
+//! coefficient), a constant is the part's integer content. It shares the
+//! repeated denominators of a table and drops the native atom framing at no
+//! factoring cost; the bytes depend only on the coefficient table. Readers
+//! cannot tell the two forms apart (no new version: a whole entry with
+//! exponent 1 has always been valid).
+//!
 //! Decoding multiplies every part back. The encoder checks, per polynomial,
 //! that the product is the stored polynomial itself, so a decoded table is
 //! IDENTICAL (same normalised numerator and denominator, same variable map)
@@ -283,42 +293,43 @@ fn put_part(out: &mut Vec<u8>, part: &Part) {
 /// The factored coefficient section of `coefficients` (in table order; ids
 /// unchanged). The Symbolica state section of the table it replaces must stay
 /// with it: it carries every symbol of the template atoms.
-pub fn encode_factored_table(coefficients: &[Coefficient]) -> Result<Vec<u8>, BinaryIoError> {
+/// The variable map index of every coefficient (first occurrence order) and
+/// one zero template per map.
+fn maps_and_templates(
+    coefficients: &[Coefficient],
+) -> Result<(Vec<u32>, Vec<Coefficient>), BinaryIoError> {
     let mut maps: Vec<Arc<Vec<PolyVariable>>> = Vec::new();
-    let mut map_of = |c: &Coefficient| -> u32 {
+    let mut templates: Vec<Coefficient> = Vec::new();
+    let mut map_of = Vec::with_capacity(coefficients.len());
+    for c in coefficients {
+        super::resource_checkpoint()?;
         let vars = c.numerator.variables();
-        match maps.iter().position(|m| m == vars) {
+        let map = match maps.iter().position(|m| m == vars) {
             Some(i) => i as u32,
             None => {
                 maps.push(vars.clone());
+                let mut zero = c.clone();
+                zero.numerator = c.numerator.zero();
+                zero.denominator = c.numerator.one();
+                templates.push(zero);
                 (maps.len() - 1) as u32
             }
-        }
-    };
-    let mut dict = Dictionary {
-        entries: Vec::new(),
-        index: HashMap::new(),
-    };
-    let mut parts = Vec::with_capacity(coefficients.len());
-    let mut templates: Vec<Coefficient> = Vec::new();
-    for c in coefficients {
-        super::resource_checkpoint()?;
-        let map = map_of(c);
-        if templates.len() <= map as usize {
-            let mut zero = c.clone();
-            zero.numerator = c.numerator.zero();
-            zero.denominator = c.numerator.one();
-            templates.push(zero);
-        }
-        let num = factor_part(&c.numerator, map, &mut dict);
-        let den = factor_part(&c.denominator, map, &mut dict);
-        parts.push((map, num, den));
+        };
+        map_of.push(map);
     }
+    Ok((map_of, templates))
+}
+
+fn write_section<'a>(
+    templates: &[Coefficient],
+    entries: impl ExactSizeIterator<Item = (u32, &'a CoefficientPolynomial)>,
+    parts: &[(u32, Part, Part)],
+) -> Result<Vec<u8>, BinaryIoError> {
     let mut out = Vec::new();
     out.extend_from_slice(&FACTORED_TABLE_MAGIC);
     out.extend_from_slice(&FACTORED_TABLE_VERSION.to_le_bytes());
     varint(&mut out, templates.len() as u64);
-    for template in &templates {
+    for template in templates {
         let mut atom = Atom::new();
         atom.to_num(NativeCoefficient::RationalPolynomial(template.clone()));
         let mut frame = Vec::new();
@@ -327,18 +338,81 @@ pub fn encode_factored_table(coefficients: &[Coefficient]) -> Result<Vec<u8>, Bi
         varint(&mut out, frame.len() as u64);
         out.extend_from_slice(&frame);
     }
-    varint(&mut out, dict.entries.len() as u64);
-    for (map, p) in &dict.entries {
-        varint(&mut out, u64::from(*map));
+    varint(&mut out, entries.len() as u64);
+    for (map, p) in entries {
+        varint(&mut out, u64::from(map));
         put_poly(&mut out, p);
     }
     varint(&mut out, parts.len() as u64);
-    for (map, num, den) in &parts {
+    for (map, num, den) in parts {
         varint(&mut out, u64::from(*map));
         put_part(&mut out, num);
         put_part(&mut out, den);
     }
     Ok(out)
+}
+
+pub fn encode_factored_table(coefficients: &[Coefficient]) -> Result<Vec<u8>, BinaryIoError> {
+    let (map_of, templates) = maps_and_templates(coefficients)?;
+    let mut dict = Dictionary {
+        entries: Vec::new(),
+        index: HashMap::new(),
+    };
+    let mut parts = Vec::with_capacity(coefficients.len());
+    for (c, &map) in coefficients.iter().zip(&map_of) {
+        super::resource_checkpoint()?;
+        let num = factor_part(&c.numerator, map, &mut dict);
+        let den = factor_part(&c.denominator, map, &mut dict);
+        parts.push((map, num, den));
+    }
+    write_section(
+        &templates,
+        dict.entries.iter().map(|(m, p)| (*m, p)),
+        &parts,
+    )
+}
+
+/// coef-form `shared`: the factored container without factoring (module
+/// docs). The dictionary borrows the coefficients' polynomials, so the
+/// encoder holds no second copy of them.
+pub fn encode_shared_table(coefficients: &[Coefficient]) -> Result<Vec<u8>, BinaryIoError> {
+    let (map_of, templates) = maps_and_templates(coefficients)?;
+    let mut index: HashMap<(u32, &CoefficientPolynomial), u32> = HashMap::new();
+    let mut entries: Vec<(u32, &CoefficientPolynomial)> = Vec::new();
+    let mut parts = Vec::with_capacity(coefficients.len());
+    for (c, &map) in coefficients.iter().zip(&map_of) {
+        super::resource_checkpoint()?;
+        let num = shared_part(&c.numerator, map, &mut index, &mut entries);
+        let den = shared_part(&c.denominator, map, &mut index, &mut entries);
+        parts.push((map, num, den));
+    }
+    write_section(&templates, entries.into_iter(), &parts)
+}
+
+fn shared_part<'a>(
+    p: &'a CoefficientPolynomial,
+    map: u32,
+    index: &mut HashMap<(u32, &'a CoefficientPolynomial), u32>,
+    entries: &mut Vec<(u32, &'a CoefficientPolynomial)>,
+) -> Part {
+    if p.is_constant() {
+        return Part {
+            content: if p.is_zero() {
+                Integer::zero()
+            } else {
+                p.lcoeff()
+            },
+            factors: Vec::new(),
+        };
+    }
+    let id = *index.entry((map, p)).or_insert_with(|| {
+        entries.push((map, p));
+        (entries.len() - 1) as u32
+    });
+    Part {
+        content: Integer::one(),
+        factors: vec![(id, 1)],
+    }
 }
 
 // ----- decoder -----
@@ -596,6 +670,123 @@ mod tests {
                 .coefficient(crate::persistence::CoefficientId::try_from_index(i).unwrap())
                 .unwrap();
             assert_eq!(*value, *original, "lazy {i}");
+        }
+    }
+
+    /// coef-form `shared`: the factored container without factoring. Same
+    /// coefficients through the eager and the lazy reader, no factoring
+    /// (every non-constant polynomial is one entry with exponent 1, shared
+    /// between coefficients), and the bytes depend only on the table.
+    #[test]
+    fn shared_table_round_trips_unfactored_and_reproducibly() {
+        let vars: Arc<Vec<PolyVariable>> = Arc::new(
+            ["d", "n0", "n1", "n2"]
+                .iter()
+                .map(|s| PolyVariable::Symbol(symbolica::symbol!(*s)))
+                .collect(),
+        );
+        let small: Arc<Vec<PolyVariable>> =
+            Arc::new(vec![PolyVariable::Symbol(symbolica::symbol!("d"))]);
+        let texts = [
+            "-n0/(-1+n2)",
+            "n1/(-1+n2)",
+            "(d-4)*(n0+n1-2)^2*(3*d-2*n2+1)/((d-2*n0-1)*(n1-1)^2*(2*d-7))",
+            "123456789012345678901234567890*(n0-n1)^3/((d-3)*(d-5)^2)",
+            "-(2^62+5)*n2/(d+1)",
+            "0",
+            "-5",
+            "n0^2/((d-2*n0-1)*(n1-1)^2*(2*d-7))",
+        ];
+        let mut values: Vec<Coefficient> = texts.iter().map(|t| coefficient(t, &vars)).collect();
+        values.push(coefficient("(d-4)/(2*d-7)", &small));
+        values.push(coefficient("(d+1)/(2*d-7)", &small));
+        let mut builder = CoefficientTableBuilder::new(BinaryIoLimits::default());
+        for value in &values {
+            builder.intern(value).unwrap();
+        }
+        let encoded = builder.finish().unwrap();
+        let expanded = DecodedCoefficientTable::import_generated(
+            &encoded.state,
+            &encoded.atoms,
+            BinaryIoLimits::default(),
+        )
+        .unwrap();
+        let originals: Vec<Coefficient> = (0..expanded.len())
+            .map(|i| {
+                expanded
+                    .coefficient(crate::persistence::CoefficientId::try_from_index(i).unwrap())
+                    .unwrap()
+                    .clone()
+            })
+            .collect();
+        let shared = encode_shared_table(&originals).unwrap();
+        assert!(is_factored_table(&shared));
+        assert_eq!(
+            shared,
+            encode_shared_table(&originals).unwrap(),
+            "reproducible"
+        );
+        assert_eq!(
+            shared,
+            encode_shared_table(&originals.clone()).unwrap(),
+            "independent of the caller's copy"
+        );
+        let state_map = super::super::atoms::import_state(&encoded.state).unwrap();
+        let section = parse_factored_table(&shared, &state_map, BinaryIoLimits::default()).unwrap();
+        // no factoring: whole entries, exponent 1, shared (two coefficients
+        // here have the same denominator on each map)
+        let mut distinct = std::collections::HashSet::new();
+        for c in &originals {
+            for p in [&c.numerator, &c.denominator] {
+                if !p.is_constant() {
+                    distinct.insert((p.variables().clone(), p.clone()));
+                }
+            }
+        }
+        assert_eq!(
+            section.entries.len(),
+            distinct.len(),
+            "one entry per distinct polynomial"
+        );
+        for (_, num, den) in &section.parts {
+            for part in [num, den] {
+                assert!(part.factors.len() <= 1);
+                assert!(part.factors.iter().all(|&(_, e)| e == 1));
+                if !part.factors.is_empty() {
+                    assert_eq!(part.content, Integer::one());
+                }
+            }
+        }
+        let decoded = DecodedCoefficientTable::import_generated(
+            &encoded.state,
+            &shared,
+            BinaryIoLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(decoded.len(), originals.len());
+        let lazy = crate::persistence::LazyDecodedCoefficientTable::new(
+            encoded.state.clone().into(),
+            shared.clone().into(),
+            BinaryIoLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(lazy.len(), originals.len());
+        for (i, original) in originals.iter().enumerate().rev() {
+            let id = crate::persistence::CoefficientId::try_from_index(i).unwrap();
+            let eager = decoded.coefficient(id).unwrap();
+            assert_eq!(eager, original, "eager {i}");
+            assert_eq!(
+                eager.get_variables(),
+                original.get_variables(),
+                "eager map {i}"
+            );
+            let value = lazy.coefficient(id).unwrap();
+            assert_eq!(*value, *original, "lazy {i}");
+            assert_eq!(
+                value.get_variables(),
+                original.get_variables(),
+                "lazy map {i}"
+            );
         }
     }
 }

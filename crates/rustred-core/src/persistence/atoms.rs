@@ -465,6 +465,17 @@ impl DecodedCoefficientTable {
             .ok_or(BinaryIoError::Invalid("coefficient ID is outside table"))
     }
 
+    /// The coefficients by value, without a copy (a lazily kept factored
+    /// section is expanded here). Used by re-encoders of whole tables.
+    pub fn into_coefficients(self) -> Result<Vec<Coefficient>, BinaryIoError> {
+        match self.lazy {
+            None => Ok(self.coefficients),
+            Some(lazy) => (0..lazy.section.len())
+                .map(|i| lazy.section.expand(i))
+                .collect(),
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.lazy
             .as_ref()
