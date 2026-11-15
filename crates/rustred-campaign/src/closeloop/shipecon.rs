@@ -510,7 +510,7 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
     std::fs::create_dir_all(&cfg.work_root).map_err(|e| e.to_string())?;
     let isp = TableSetSpec::read(&cfg.import_spec).map_err(|e| format!("import spec: {e}"))?;
     say(format!("loading {}", cfg.import_spec.display()));
-    let set0 = load(&isp, &cfg.import_base).map_err(|e| format!("import load: {e}"))?;
+    let mut set0 = load(&isp, &cfg.import_base).map_err(|e| format!("import load: {e}"))?;
     let load_s = t0.elapsed().as_secs_f64();
     let (census, before, census_source) = census_and_before(cfg, &set0, &say)?;
     let cand = ship::candidacy(p, &census);
@@ -543,10 +543,45 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
             d
         })
         .collect();
-    let tspec = ship::shipped_spec(&isp, &tentative, &[], &[])?;
+    let tspec = ship::shipped_spec(&isp, &tentative, &[], &[], p.stored.precedence)?;
     let tspec_path = cfg.out_dir.join("work/tentative.spec.json");
-    write(&tspec_path, &serde_json::to_vec_pretty(&tspec).map_err(|e| e.to_string())?)?;
-    let mut set_t = load(&tspec, &cfg.import_base).map_err(|e| format!("tentative load: {e}"))?;
+    write(
+        &tspec_path,
+        &serde_json::to_vec_pretty(&ship::spec_json(&tspec)).map_err(|e| e.to_string())?,
+    )?;
+    let set_t = load(&tspec, &cfg.import_base).map_err(|e| format!("tentative load: {e}"))?;
+    // the keys a LATER table rule takes once the examined / kept-aside rules leave the shipped table
+    let mut taken_by_table: BTreeSet<Vec<i32>> = BTreeSet::new();
+    for (i, c) in cand.iter().enumerate() {
+        if matches!(c, Candidacy::Examine) {
+            for (k, _) in &census.rules[i].keys {
+                if matches!(
+                    set_t.disp.first_match(k),
+                    Ok(rustred_campaign_core::cover::Dispatch::Covered(_))
+                ) {
+                    taken_by_table.insert(k.clone());
+                }
+            }
+        }
+    }
+    say(format!(
+        "tentative shipped dispatch: {} examined keys taken by a later table rule",
+        taken_by_table.len()
+    ));
+    drop(set_t);
+    // the accept chain certifies each relation as such (no table before it): the slot before the first table
+    let set_a = &mut set0;
+    let first_table = {
+        let tables = set_a.disp.tables();
+        set_a
+            .disp
+            .priority()
+            .first()
+            .map(|&t| tables[t].name.clone())
+            .ok_or("no table in the dispatch")?
+    };
+    let slot_a = DispatchSlot::BeforeTable(first_table);
+    let certified_keys: std::collections::HashSet<&Vec<i32>> = before.keys.iter().collect();
     // trials: reusable ones from the plan, new ones by rounds of steps
     let mut trials: BTreeMap<usize, Vec<KeyTrial>> = BTreeMap::new();
     for (&i, r) in &plans {
@@ -604,7 +639,7 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
         let mut queue: Vec<Job> = vec![];
         for ((i, s), keys) in &need {
             let rule = &census.rules[*i].rule;
-            for (rid, doc, rkeys) in recipes_for(p, &set_t, rule, s, keys)? {
+            for (rid, doc, rkeys) in recipes_for(p, set_a, rule, s, keys)? {
                 let mut text = rustred_campaign_core::schema::canon::canonical_json(&doc, false)?;
                 text.push('\n');
                 let sha = sha256_hex(text.as_bytes());
@@ -685,10 +720,10 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
                         };
                         let raw = raw_records(&results);
                         match accept_point(
-                            &mut set_t,
+                            set_a,
                             None,
                             &batch,
-                            &DispatchSlot::Last,
+                            &slot_a,
                             &lines,
                             &bits,
                             (&results, &b3),
@@ -742,6 +777,19 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
                                         pole_order_d4: r
                                             .and_then(|r| r["pole_order_d4"].as_u64())
                                             .map(|x| x as u32),
+                                        rhs_outside_certified: r.map(|r| {
+                                            r["rhs"]
+                                                .as_array()
+                                                .into_iter()
+                                                .flatten()
+                                                .filter(|t| t[2] == "top")
+                                                .filter_map(|t| {
+                                                    t[0].as_str()
+                                                        .and_then(rustred_campaign_core::assemble::parse_key_text)
+                                                })
+                                                .filter(|k| !certified_keys.contains(k))
+                                                .count() as u64
+                                        }),
                                         why: if cert.contains(k) {
                                             None
                                         } else {
@@ -806,7 +854,7 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
                     .unwrap_or_else(|| TableTime::estimate(&p.cost, svc.bytes, svc.monomials));
                 let g = ship::guard(p, svc, trials.get(&i).map(Vec::as_slice).unwrap_or(&[]));
                 let rb: BTreeMap<String, u64> = recipe_files.iter().map(|(k, v)| (k.clone(), v.2)).collect();
-                decisions.push(ship::decide(p, svc, &g, &tt, &rb));
+                decisions.push(ship::decide(p, svc, &g, &tt, &rb, &taken_by_table));
                 guards.insert(i, g);
                 table_time_of.insert(i, tt);
             }
@@ -832,10 +880,19 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
     let mut final_spec: Option<TableSetSpec> = None;
     for it in 0..=p.check.max_iterations {
         let (recipes, assign) = shipped_recipes(cfg, &decisions, &recipe_files)?;
-        let mut sspec = ship::shipped_spec(&isp, &decisions, &recipes, std::slice::from_ref(&solved_ref))?;
+        let mut sspec = ship::shipped_spec(
+            &isp,
+            &decisions,
+            &recipes,
+            std::slice::from_ref(&solved_ref),
+            p.stored.precedence,
+        )?;
         sspec.evidence.expected_recipe_binary = Some(bits.binary_sha256.clone());
         let sp = cfg.out_dir.join(format!("ship/spec.iter{it}.json"));
-        write(&sp, &serde_json::to_vec_pretty(&sspec).map_err(|e| e.to_string())?)?;
+        write(
+            &sp,
+            &serde_json::to_vec_pretty(&ship::spec_json(&sspec)).map_err(|e| e.to_string())?,
+        )?;
         let tc = Instant::now();
         let set_s = load(&sspec, &cfg.import_base).map_err(|e| format!("shipped load: {e}"))?;
         let mut ev = Evidence::from_spec(&set_s, &cfg.import_base).map_err(|e| format!("shipped evidence: {e}"))?;
@@ -1019,6 +1076,7 @@ fn failed_trial(job: &Job, k: &[i32], verdict: &str, why: &str, bound: &Value) -
         rhs_terms: None,
         entry_bytes: None,
         pole_order_d4: None,
+        rhs_outside_certified: None,
         why: Some(why.into()),
         bound: bound.clone(),
     }
@@ -1031,20 +1089,21 @@ fn shipped_recipes(
     decisions: &[RuleDecision],
     recipe_files: &BTreeMap<String, (PathBuf, String, u64)>,
 ) -> Result<(Vec<ShippedRecipe>, usize), String> {
-    let mut by: BTreeMap<String, (String, Vec<Vec<i32>>)> = BTreeMap::new();
+    let mut by: BTreeMap<(String, String), Vec<Vec<i32>>> = BTreeMap::new();
     for d in decisions.iter().filter(|d| d.outcome.migrates()) {
         for k in &d.keys {
-            if k.form == "table" {
+            if !matches!(k.form.as_str(), "recipe" | "stored") {
                 continue;
             }
             let Some(rid) = &k.recipe_id else { continue };
-            let e = by.entry(rid.clone()).or_insert_with(|| (k.form.clone(), vec![]));
-            e.1.push(k.key.clone());
+            by.entry((rid.clone(), k.form.clone()))
+                .or_default()
+                .push(k.key.clone());
         }
     }
     let mut out = vec![];
     let mut n = 0usize;
-    for (rid, (form, keys)) in by {
+    for ((rid, form), keys) in by {
         let (path, sha, _) = recipe_files
             .get(&rid)
             .ok_or_else(|| format!("recipe {rid}: no file"))?;
@@ -1052,11 +1111,11 @@ fn shipped_recipes(
         let ap = cfg
             .out_dir
             .join("ship/assign")
-            .join(format!("{}.jsonl", crate::closeloop::ids::safe(&rid)));
+            .join(format!("{form}.{}.jsonl", crate::closeloop::ids::safe(&rid)));
         write(&ap, a.as_bytes())?;
         n += keys.len();
         out.push(ShippedRecipe {
-            id: format!("shipecon:{rid}"),
+            id: format!("shipecon:{form}:{rid}"),
             path: path.display().to_string(),
             sha256: sha.clone(),
             form,
@@ -1090,7 +1149,10 @@ fn write_artifact(
         Ok(())
     };
     if let Some(s) = spec {
-        put("spec.json", &serde_json::to_vec_pretty(s).map_err(|e| e.to_string())?)?;
+        put(
+            "spec.json",
+            &serde_json::to_vec_pretty(&ship::spec_json(s)).map_err(|e| e.to_string())?,
+        )?;
     }
     let mut kept = vec![];
     let mut removed = vec![];

@@ -155,13 +155,27 @@ impl Default for RecipeBound {
     }
 }
 
-/// Stored relations (the certified recipe relation at the key shipped as a `rustred.relation-entry.v1`).
+/// Where shipped entries stand in the dispatch of a key (plan/ARTIFACT_MANIFEST.md `entries.precedence`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Precedence {
+    /// After the table's first match (the engine since batch 9, fc08b3fe): a key of a removed rule that a LATER table
+    /// rule takes is served by that rule (its entry is then not shipped).
+    #[default]
+    AfterTable,
+    /// Before the table at the listed keys (the manifest draft's `over_table`).
+    OverTable,
+}
+
+/// Stored relations = EXPLICIT KEY EXPRESSIONS (user ruling 2026-11-15T21:13Z: a first-class kind, not a fallback): the
+/// certified recipe relation at the key shipped as a `rustred.relation-entry.v1`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Stored {
     pub enabled: bool,
     /// The stored relations of a rule may cost at most this fraction of the rule's bytes.
     pub max_bytes_ratio: f64,
+    pub precedence: Precedence,
 }
 
 impl Default for Stored {
@@ -169,6 +183,37 @@ impl Default for Stored {
         Stored {
             enabled: true,
             max_bytes_ratio: 0.5,
+            precedence: Precedence::AfterTable,
+        }
+    }
+}
+
+/// What "coverage never reduced" means for the node (USER, binding).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Target {
+    /// A boxed node: its certified set (box closure + margin) must stay served key for key, identical terminals.
+    #[default]
+    Boxed,
+    /// A full-coverage node: a rule's WHOLE domain must stay served; an enumerated guard cannot prove that for an
+    /// infinite domain, so no rule leaves the shipped table (report only).
+    Full,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct Coverage {
+    pub target: Target,
+    /// A replacement relation is used at a key only when every top-sector right-hand-side key lies in the certified set
+    /// (the manifest producer's verification (i)): the closure cannot grow.
+    pub require_rhs_in_certified_set: bool,
+}
+
+impl Default for Coverage {
+    fn default() -> Self {
+        Coverage {
+            target: Target::Boxed,
+            require_rhs_in_certified_set: true,
         }
     }
 }
@@ -200,6 +245,8 @@ pub struct TableCost {
     pub apply_ns_per_monomial: f64,
     /// Prior of the recipe solve seconds per key (candidate ranking only; decisions use measured seconds).
     pub recipe_solve_s: f64,
+    /// Seconds to apply a stored relation at its key (load of the entry + application).
+    pub stored_apply_s: f64,
 }
 
 impl Default for TableCost {
@@ -211,6 +258,8 @@ impl Default for TableCost {
             apply_ns_base: 1_300_000.0,
             apply_ns_per_monomial: 82.0,
             recipe_solve_s: 5.0,
+            // T266 first measurement (vk5l-wp2, recipe_vs_table_T266.first5.json): 0.01-0.05 s per step; upper end
+            stored_apply_s: 0.05,
         }
     }
 }
@@ -243,6 +292,7 @@ pub struct ShipPolicy {
     pub kept_aside: KeptAside,
     pub cost: TableCost,
     pub check: CheckPolicy,
+    pub coverage: Coverage,
 }
 
 impl Default for ShipPolicy {
@@ -258,6 +308,7 @@ impl Default for ShipPolicy {
             kept_aside: KeptAside::default(),
             cost: TableCost::default(),
             check: CheckPolicy::default(),
+            coverage: Coverage::default(),
         }
     }
 }
@@ -323,7 +374,8 @@ impl ShipPolicy {
     /// same decision digest and the same inputs is not decided again.
     pub fn decision_digest(&self) -> String {
         digest_of(&json!({"v": DECISION_VERSION, "bars": self.bars, "stored": self.stored,
-            "kept_aside": self.kept_aside, "recipe": self.bound_value()}))
+            "kept_aside": self.kept_aside, "recipe": self.bound_value(), "coverage": self.coverage,
+            "stored_apply_s": self.cost.stored_apply_s}))
     }
 
     /// The bound of a trial: a trial measured under the same bound (or, for deterministic verdicts, any bound) is
@@ -528,7 +580,11 @@ pub fn candidacy(p: &ShipPolicy, census: &Census) -> Vec<Candidacy> {
         .rules
         .iter()
         .map(|r| {
-            if r.served() == 0 {
+            if p.coverage.target == Target::Full {
+                Candidacy::NotExamined {
+                    reason: "full-coverage node (coverage.target = full): no rule leaves the shipped table".into(),
+                }
+            } else if r.served() == 0 {
                 if p.kept_aside.enabled && r.bytes >= p.kept_aside.min_bytes {
                     Candidacy::KeptAside
                 } else {
@@ -607,6 +663,9 @@ pub struct KeyTrial {
     /// Bytes of the relation as a `rustred.relation-entry.v1` line (what a stored relation costs).
     pub entry_bytes: Option<u64>,
     pub pole_order_d4: Option<u32>,
+    /// Top-sector right-hand-side keys of the relation outside the certified set (None: not checked).
+    #[serde(default)]
+    pub rhs_outside_certified: Option<u64>,
     /// Why not certified (failure class / refusal), if so.
     pub why: Option<String>,
     /// The bound the trial ran under ([`ShipPolicy::bound_value`]).
@@ -710,6 +769,8 @@ pub struct GuardKey {
     pub rhs_terms: Option<u64>,
     pub entry_bytes: Option<u64>,
     pub pole_order_d4: Option<u32>,
+    #[serde(default)]
+    pub rhs_outside_certified: Option<u64>,
 }
 
 /// The guard of a rule from its trials: per key the FIRST step (policy order) whose trial certified.
@@ -735,6 +796,7 @@ pub fn guard(p: &ShipPolicy, svc: &RuleService, trials: &[KeyTrial]) -> GuardRec
                 rhs_terms: t.rhs_terms,
                 entry_bytes: t.entry_bytes,
                 pole_order_d4: t.pole_order_d4,
+                rhs_outside_certified: t.rhs_outside_certified,
             }),
             None => {
                 let why: Vec<String> = p
@@ -770,21 +832,19 @@ pub fn guard(p: &ShipPolicy, svc: &RuleService, trials: &[KeyTrial]) -> GuardRec
     g
 }
 
-/// Typed outcome of one rule.
+/// Typed outcome of one rule. The KINDS of service (USER ruling 2026-11-15T21:13Z) are three: `table` (the parametric
+/// rule stays shipped), `recipe` (solved at the key at first use, cached), `stored_relations` (explicit per-key
+/// expressions); `mixed` = per key recipe or stored; `kept_aside` = the rule leaves the shipped table with NOTHING to
+/// replace at certified keys (it serves none, or a later table rule takes each of them); `not_examined` = table, not
+/// measured in this run (`why`). A rule that leaves the shipped table stays in the archive (never deleted).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {
-    /// Every certified key served by the bounded recipe (shipped as recipe records with certified digests).
     Recipe,
-    /// Recipe at the keys within the bars, stored relations at the others.
     Mixed,
-    /// Every certified key served by a stored relation (the certified recipe relation shipped as an entry).
     StoredRelations,
-    /// The rule stays in the shipped table (`why` says which test kept it).
     Table,
-    /// Serves no certified key: moved to the generated data kept aside.
     KeptAside,
-    /// Not examined in this run (`why`).
     NotExamined,
 }
 
@@ -809,6 +869,9 @@ pub struct KeyChoice {
     pub relation_digest: Option<String>,
     pub recipe_seconds: Option<f64>,
     pub table_seconds: Option<f64>,
+    /// Seconds to apply the stored relation (`cost.stored_apply_s`) when one exists.
+    #[serde(default)]
+    pub stored_seconds: Option<f64>,
     pub ratio_recipe_to_table: Option<f64>,
     pub bytes: u64,
 }
@@ -834,18 +897,26 @@ pub struct RuleDecision {
     pub guard_holds: Option<bool>,
 }
 
-/// Bytes a shipped recipe record costs per key it carries (key + certified relation digest in the record), and per
-/// record (the recipe JSON; the caller passes the measured size when it has the file).
+/// Bytes a shipped recipe record costs per key it carries (key + certified relation digest in the record); the recipe
+/// file itself is counted once per recipe (its measured size).
 pub const RECIPE_BYTES_PER_KEY: u64 = 160;
 
-/// Decide one EXAMINED rule from its guard, its table time and the recipe files' sizes (`recipe_bytes`: bytes of each
-/// distinct recipe file the guard's keys use, by recipe id).
+/// Decide one EXAMINED rule (USER ruling 2026-11-15T21:13Z: three kinds, chosen per rule and per key, coverage never
+/// reduced): `g` its guard, `tt` its table time, `recipe_bytes` the size of each recipe file by id, `taken_by_table`
+/// the keys a LATER table rule takes once the examined rules leave the shipped table (used under `after_table`).
+///
+/// Per key whose relation the guard certified: RECIPE when its first-use seconds pass the bars AND the bytes it saves
+/// over the stored relation pay its seconds (`bars.min_bytes_saved_per_second`), else STORED RELATION (when enabled),
+/// else the rule stays (TABLE). The rule leaves the shipped table only when every certified key it serves is served
+/// (later table rule / stored / recipe) and the saving passes `bars.min_bytes_saved`, `bars.min_bytes_saved_per_second`
+/// and `stored.max_bytes_ratio`.
 pub fn decide(
     p: &ShipPolicy,
     svc: &RuleService,
     g: &GuardRecord,
     tt: &TableTime,
     recipe_bytes: &BTreeMap<String, u64>,
+    taken_by_table: &BTreeSet<Vec<i32>>,
 ) -> RuleDecision {
     let served = svc.served();
     let base = |outcome: Outcome, why: String, keys: Vec<KeyChoice>| RuleDecision {
@@ -865,6 +936,15 @@ pub fn decide(
         guard_digest: Some(g.digest.clone()),
         guard_holds: Some(g.holds),
     };
+    if p.coverage.target == Target::Full {
+        return base(
+            Outcome::Table,
+            "full-coverage node: the rule's whole domain must stay served and an enumerated guard cannot prove that \
+             for an infinite domain (coverage.target = full)"
+                .into(),
+            vec![],
+        );
+    }
     if !g.holds {
         return base(
             Outcome::Table,
@@ -880,58 +960,81 @@ pub fn decide(
             vec![],
         );
     }
-    // per key: recipe if within the bars, else stored if enabled and measured, else the rule stays
+    let mut uses: BTreeMap<&str, u64> = BTreeMap::new();
+    for gk in &g.keys {
+        *uses.entry(gk.recipe_id.as_str()).or_default() += 1;
+    }
     let mut keys = vec![];
     let mut stuck: Option<String> = None;
     for gk in &g.keys {
         let ts = tt.per_key(&gk.key, served);
         let rs = gk.seconds;
         let ratio = rs.map(|s| if ts > 0.0 { s / ts } else { f64::INFINITY });
+        let rbytes = RECIPE_BYTES_PER_KEY
+            + recipe_bytes.get(&gk.recipe_id).copied().unwrap_or(2048)
+                / uses.get(gk.recipe_id.as_str()).copied().unwrap_or(1).max(1);
+        let mut choice = KeyChoice {
+            key: gk.key.clone(),
+            in_start: gk.in_start,
+            form: "table".into(),
+            step: Some(gk.step.clone()),
+            recipe_id: Some(gk.recipe_id.clone()),
+            relation_digest: gk.relation_digest.clone(),
+            recipe_seconds: rs,
+            table_seconds: Some(ts),
+            stored_seconds: gk.entry_bytes.map(|_| p.cost.stored_apply_s),
+            ratio_recipe_to_table: ratio,
+            bytes: 0,
+        };
+        if p.stored.precedence == Precedence::AfterTable && taken_by_table.contains(&gk.key) {
+            choice.form = "later_table_rule".into();
+            keys.push(choice);
+            continue;
+        }
+        if p.coverage.require_rhs_in_certified_set && gk.rhs_outside_certified != Some(0) {
+            stuck.get_or_insert_with(|| {
+                format!(
+                    "key {:?}: the relation's top right-hand side leaves the certified set ({:?} keys; \
+                     coverage.require_rhs_in_certified_set)",
+                    gk.key, gk.rhs_outside_certified
+                )
+            });
+            keys.push(choice);
+            continue;
+        }
         let within_abs = rs.is_some_and(|s| s <= p.bars.max_recipe_seconds_per_key);
         let within_rel = match (p.bars.max_recipe_to_table_ratio, ratio) {
             (None, _) => true,
             (Some(m), Some(r)) => r <= m,
             (Some(_), None) => false,
         };
-        let (form, bytes) = if within_abs && within_rel {
-            ("recipe", RECIPE_BYTES_PER_KEY)
-        } else if p.stored.enabled && gk.entry_bytes.is_some() {
-            ("stored", gk.entry_bytes.unwrap_or(0))
-        } else {
-            stuck.get_or_insert_with(|| {
-                format!(
-                    "key {:?}: recipe {:?} s over the bars and no stored relation (stored.enabled = {})",
-                    gk.key, rs, p.stored.enabled
-                )
-            });
-            ("table", 0)
+        let recipe_ok = within_abs && within_rel;
+        let stored_ok = p.stored.enabled && gk.entry_bytes.is_some();
+        let recipe_pays = |eb: u64| {
+            let s = rs.unwrap_or(f64::INFINITY);
+            s <= 0.0 || (eb.saturating_sub(rbytes)) as f64 / s >= p.bars.min_bytes_saved_per_second
         };
-        keys.push(KeyChoice {
-            key: gk.key.clone(),
-            in_start: gk.in_start,
-            form: form.into(),
-            step: Some(gk.step.clone()),
-            recipe_id: Some(gk.recipe_id.clone()),
-            relation_digest: gk.relation_digest.clone(),
-            recipe_seconds: rs,
-            table_seconds: Some(ts),
-            ratio_recipe_to_table: ratio,
-            bytes,
-        });
+        let (form, bytes) = match (recipe_ok, stored_ok) {
+            (true, true) if recipe_pays(gk.entry_bytes.unwrap_or(0)) => ("recipe", rbytes),
+            (_, true) => ("stored", gk.entry_bytes.unwrap_or(0)),
+            (true, false) => ("recipe", rbytes),
+            (false, false) => {
+                stuck.get_or_insert_with(|| {
+                    format!(
+                        "key {:?}: recipe {:?} s over the bars and no stored relation (stored.enabled = {})",
+                        gk.key, rs, p.stored.enabled
+                    )
+                });
+                ("table", 0)
+            }
+        };
+        choice.form = form.into();
+        choice.bytes = bytes;
+        keys.push(choice);
     }
     if let Some(why) = stuck {
         return base(Outcome::Table, why, keys);
     }
-    let recipe_ids: BTreeSet<&String> = keys
-        .iter()
-        .filter(|k| k.form == "recipe")
-        .filter_map(|k| k.recipe_id.as_ref())
-        .collect();
-    let files: u64 = recipe_ids
-        .iter()
-        .map(|id| recipe_bytes.get(*id).copied().unwrap_or(2048))
-        .sum();
-    let after: u64 = keys.iter().map(|k| k.bytes).sum::<u64>() + files;
     let secs: f64 = keys
         .iter()
         .filter(|k| k.form == "recipe")
@@ -942,14 +1045,12 @@ pub fn decide(
         .filter(|k| k.form == "recipe")
         .filter_map(|k| k.recipe_seconds)
         .fold(None, |m: Option<f64>, s| Some(m.map_or(s, |m| m.max(s))));
+    let after: u64 = keys.iter().map(|k| k.bytes).sum();
     let saved = svc.bytes as i64 - after as i64;
-    let per_s = if secs > 0.0 {
-        Some(saved as f64 / secs)
-    } else {
-        None
-    };
+    let per_s = (secs > 0.0).then(|| saved as f64 / secs);
     let n_recipe = keys.iter().filter(|k| k.form == "recipe").count();
-    let n_stored = keys.len() - n_recipe;
+    let n_stored = keys.iter().filter(|k| k.form == "stored").count();
+    let n_later = keys.iter().filter(|k| k.form == "later_table_rule").count();
     let stored_bytes: u64 = keys
         .iter()
         .filter(|k| k.form == "stored")
@@ -972,9 +1073,7 @@ pub fn decide(
             per_s.unwrap_or(0.0),
             p.bars.min_bytes_saved_per_second
         ))
-    } else if n_stored > 0
-        && stored_bytes as f64 > p.stored.max_bytes_ratio * svc.bytes as f64
-    {
+    } else if n_stored > 0 && stored_bytes as f64 > p.stored.max_bytes_ratio * svc.bytes as f64 {
         Some(format!(
             "stored relations {stored_bytes} bytes > stored.max_bytes_ratio x {} rule bytes",
             svc.bytes
@@ -987,15 +1086,22 @@ pub fn decide(
             d.why = why;
             d.bytes_after = svc.bytes;
             d.bytes_saved = 0;
+            d.seconds_added_total = 0.0;
+            for k in &mut d.keys {
+                k.form = "table".into();
+                k.bytes = 0;
+            }
         }
         None => {
             d.outcome = match (n_recipe, n_stored) {
+                (0, 0) => Outcome::KeptAside,
                 (_, 0) => Outcome::Recipe,
                 (0, _) => Outcome::StoredRelations,
                 _ => Outcome::Mixed,
             };
             d.why = format!(
-                "guard holds at {} keys; {n_recipe} recipe ({secs:.2} s first use in all), {n_stored} stored; saves {saved} bytes",
+                "guard holds at {} keys; {n_stored} stored ({stored_bytes} bytes), {n_recipe} recipe ({secs:.2} s \
+                 first use in all), {n_later} taken by a later table rule; saves {saved} bytes",
                 g.keys.len()
             );
         }
@@ -1209,6 +1315,7 @@ pub fn shipped_spec(
     decisions: &[RuleDecision],
     recipes: &[ShippedRecipe],
     solved: &[FileRef],
+    precedence: Precedence,
 ) -> Result<TableSetSpec, String> {
     let mut s = orig.clone();
     let ids: BTreeSet<String> = s.sources.iter().map(|x| x.id.clone()).collect();
@@ -1252,10 +1359,49 @@ pub fn shipped_spec(
         }
         let src: SourceSpec = serde_json::from_value(sv)
         .map_err(|e| format!("recipe source {}: {e}", r.id))?;
-        s.sources.push(src);
+        if r.form == "stored" && precedence == Precedence::OverTable {
+            // before every table: the entry takes its listed keys before the table's first match
+            s.sources.insert(0, src);
+        } else {
+            s.sources.push(src);
+        }
     }
     s.evidence.solved.extend(solved.iter().cloned());
     Ok(s)
+}
+
+/// The JSON of a spec that `TableSetSpec::from_json` reads back (the strict per-kind field lists: null / empty / default
+/// members dropped).
+pub fn spec_json(spec: &TableSetSpec) -> Value {
+    let mut v = serde_json::to_value(spec).unwrap_or(Value::Null);
+    let strip = |o: &mut serde_json::Map<String, Value>| {
+        o.retain(|_, x| {
+            !(x.is_null()
+                || x.as_array().is_some_and(Vec::is_empty)
+                || x.as_object().is_some_and(serde_json::Map::is_empty))
+        });
+    };
+    if let Some(srcs) = v["sources"].as_array_mut() {
+        for src in srcs {
+            if let Some(o) = src.as_object_mut() {
+                strip(o);
+                if o.get("diagnostic") == Some(&Value::Bool(false)) {
+                    o.remove("diagnostic");
+                }
+                let table = matches!(
+                    o.get("kind").and_then(Value::as_str),
+                    Some("engine_table" | "table_set")
+                );
+                if !table || o.get("domain").and_then(Value::as_str) == Some("engine") {
+                    o.remove("domain");
+                }
+            }
+        }
+    }
+    if let Some(o) = v.as_object_mut() {
+        o.retain(|_, x| !x.is_null());
+    }
+    v
 }
 
 /// The closing check of the shipped spec against the statement it replaces.
@@ -1274,8 +1420,12 @@ pub struct ClosingCheck {
     /// Keys in the new closure that were not in the old one / old keys no longer reached.
     pub new_keys: u64,
     pub dropped_keys: u64,
+    pub open_before: u64,
     pub open_after: u64,
-    /// The verdict: closed AND same start AND same terminals.
+    /// Blocking words (kind = the text before `:`) of the shipped check that the original check did not have.
+    pub new_blocking: Vec<String>,
+    /// The verdict: same start AND same terminals AND no new open key AND no new blocking word (the original closed
+    /// iff the shipped one is closed when the original had no blocking word).
     pub holds: bool,
 }
 
@@ -1304,6 +1454,14 @@ impl ClosingCheck {
         let closed = after.blocking.is_empty() && after.open == 0;
         let same_start = sb == sa;
         let same_terminals = tb == ta;
+        let kind = |w: &String| w.split(':').next().unwrap_or("").to_string();
+        let had: BTreeSet<String> = before.blocking.iter().map(kind).collect();
+        let new_blocking: Vec<String> = after
+            .blocking
+            .iter()
+            .filter(|w| !had.contains(&kind(w)))
+            .cloned()
+            .collect();
         ClosingCheck {
             closed,
             blocking: after.blocking.clone(),
@@ -1316,8 +1474,10 @@ impl ClosingCheck {
             closure_after: a.len() as u64,
             new_keys: a.difference(&b).count() as u64,
             dropped_keys: b.difference(&a).count() as u64,
+            open_before: before.open,
             open_after: after.open,
-            holds: closed && same_start && same_terminals,
+            holds: same_start && same_terminals && after.open <= before.open && new_blocking.is_empty(),
+            new_blocking,
         }
     }
 }
