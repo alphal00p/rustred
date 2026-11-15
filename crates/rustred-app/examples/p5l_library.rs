@@ -607,6 +607,21 @@ fn reduce(library: &PLibrary, inputs: Vec<Input>) -> PReduction {
         .unwrap()
 }
 
+/// User + system CPU seconds of this process so far (/proc/self/stat, clock ticks of 1/100 s).
+fn process_cpu_seconds() -> f64 {
+    let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+    let fields: Vec<&str> = stat
+        .rsplit_once(')')
+        .map_or(vec![], |(_, rest)| rest.split_whitespace().collect());
+    let ticks = |i: usize| {
+        fields
+            .get(i)
+            .and_then(|x| x.parse::<f64>().ok())
+            .unwrap_or(0.0)
+    };
+    (ticks(11) + ticks(12)) / 100.0
+}
+
 fn terms_digest(value: &PReduction) -> String {
     use std::hash::{Hash, Hasher};
     let mut t: Vec<String> = value.terms.iter().map(|x| format!("{x:?}")).collect();
@@ -1038,12 +1053,16 @@ fn check(args: &[String]) {
     };
     let inputs = cell_inputs(&library, top, &powers, &numerator);
     let t = Instant::now();
+    let cpu0 = process_cpu_seconds();
     let value = reduce(&library, inputs.clone());
     let reduce_seconds = t.elapsed().as_secs_f64();
+    let reduce_cpu = process_cpu_seconds() - cpu0;
     eprintln!(
-        "(A) {} inputs reduced in {reduce_seconds:.2} s: {} terms {}",
+        "(A) {} inputs reduced in {reduce_seconds:.2} s: {} terms, cpu {reduce_cpu:.2} s, busy {:.2} threads, digest {} {}",
         inputs.len(),
         value.terms.len(),
+        reduce_cpu / reduce_seconds.max(1e-9),
+        terms_digest(&value),
         stamp()
     );
     // P5L_REDUCE_REPEAT=n: n warm repeats of the cell request in this process (timing, digest)
@@ -1053,12 +1072,17 @@ fn check(args: &[String]) {
         .unwrap_or(0);
     for r in 0..repeats {
         let t = Instant::now();
+        let cpu0 = process_cpu_seconds();
         let again = reduce(&library, inputs.clone());
+        let cpu = process_cpu_seconds() - cpu0;
+        let wall = t.elapsed().as_secs_f64();
         eprintln!(
-            "(A{}) warm repeat in {:.2} s: {} terms, digest {} (first {})",
+            "(A{}) warm repeat in {:.2} s: {} terms, cpu {:.2} s, busy {:.2} threads, digest {} (first {})",
             r + 1,
-            t.elapsed().as_secs_f64(),
+            wall,
             again.terms.len(),
+            cpu,
+            cpu / wall.max(1e-9),
             terms_digest(&again),
             terms_digest(&value)
         );
