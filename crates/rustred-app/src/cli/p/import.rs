@@ -356,15 +356,18 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             None => None,
         },
     };
-    // vk5l WP6: --stream-payload (requires --no-verify, no --coef-form factored,
+    // vk5l WP6: --stream-payload (requires --no-verify, the expanded --coef-form,
     // no --replay): coefficients spilled to a scratch file beside the output,
     // the payload written to `<label>.rrbin.partial` while it is built and
     // renamed at the end; memory = the hash index + the program records.
     let mut table = Some(table);
     let streamed = if arguments.stream_payload {
-        if !arguments.no_verify || arguments.factored || arguments.replay.is_some() {
+        if !arguments.no_verify
+            || arguments.coef_form != CoefForm::Expanded
+            || arguments.replay.is_some()
+        {
             return Err(CliError::Input(
-                "--stream-payload needs --no-verify and allows neither --coef-form factored nor --replay"
+                "--stream-payload needs --no-verify and allows neither --coef-form factored / shared nor --replay"
                     .to_owned(),
             ));
         }
