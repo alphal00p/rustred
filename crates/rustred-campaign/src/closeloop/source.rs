@@ -487,6 +487,7 @@ impl CloseFromMaterialSource {
                 r.cfg.escalation.as_ref(),
                 &self.abs(&format!("{}/derived", node_dir(&r.n))),
                 &chart,
+                super::derived::DerivedFiles::Verify,
             )?
         };
         let check: Value = serde_json::from_slice(&self.input_file(st, &input_check(&n, l))?)
@@ -676,6 +677,7 @@ impl CloseFromMaterialSource {
                 r.cfg.escalation.as_ref(),
                 &self.abs(&format!("{}/derived", node_dir(&r.n))),
                 &chart,
+                super::derived::DerivedFiles::Write,
             )?
         };
         let eff_digest = blake3_hex(eff.as_bytes());
