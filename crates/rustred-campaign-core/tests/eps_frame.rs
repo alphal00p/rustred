@@ -500,50 +500,83 @@ fn two_charts_with_index_zero_are_never_confused() {
     ));
 }
 
-/// The load sweep's 267 refused eps tables, through the eps-aware table loader (classify-only: frame, charts,
-/// domains, dispatcher). Needs EPSFRAME_SWEEP_LIST (one path per line); writes EPSFRAME_SWEEP_OUT (JSONL) if set.
+/// The load sweep's eps tables through the import's CLASSIFY-ONLY load (`import::sweep::classify_table`, the path of
+/// lane import5's sweep). Needs EPSFRAME_SWEEP_LIST (one path per line); appends one JSON line per table to
+/// EPSFRAME_SWEEP_OUT if set (run one table per process under a memory cap for tables of several GB).
 #[test]
-#[ignore = "real five-loop tables (3.1 GB in all); EPSFRAME_SWEEP_LIST=<list>; run with --ignored"]
+#[ignore = "real five-loop tables (up to GBs); EPSFRAME_SWEEP_LIST=<list>; run with --ignored"]
 fn eps_sweep_classify_only() {
+    use rustred_campaign_core::import::sweep::{ClassifyOptions, classify_table};
     use std::io::Write;
     let list = std::env::var("EPSFRAME_SWEEP_LIST").expect("EPSFRAME_SWEEP_LIST");
-    let mut out = std::env::var("EPSFRAME_SWEEP_OUT")
-        .ok()
-        .map(|p| std::fs::File::create(p).unwrap());
+    let mut out = std::env::var("EPSFRAME_SWEEP_OUT").ok().map(|p| {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(p)
+            .unwrap()
+    });
+    let opts = ClassifyOptions {
+        scratch: Some(std::env::temp_dir()),
+        ..Default::default()
+    };
     let (mut loaded, mut refused) = (0usize, 0usize);
-    let mut reasons: std::collections::BTreeMap<String, usize> = Default::default();
     for path in std::fs::read_to_string(list).unwrap().lines() {
         let path = path.trim();
         if path.is_empty() {
             continue;
         }
-        let res = read_table_file(path, ReadOptions::default())
-            .map_err(|e| format!("read: {e}"))
-            .and_then(|tf| {
-                Table::from_table_file_eps_aware(path, path, &tf, DomainOptions::default())
-                    .map_err(|e| format!("{e}"))
-            })
-            .and_then(|t| {
-                let n = t.len();
-                Dispatcher::new(vec![t], vec![0])
-                    .map(|_| n)
-                    .map_err(|e| format!("dispatcher: {e}"))
-            });
-        let line = match &res {
-            Ok(n) => {
-                loaded += 1;
-                serde_json::json!({"path": path, "outcome": "loaded", "records": n})
-            }
-            Err(e) => {
-                refused += 1;
-                let head: String = e.chars().take(80).collect();
-                *reasons.entry(head).or_default() += 1;
-                serde_json::json!({"path": path, "outcome": "refused", "reason": e})
-            }
-        };
+        let c = classify_table(std::path::Path::new(path), &opts);
+        if c.outcome == "loaded" {
+            loaded += 1;
+        } else {
+            refused += 1;
+        }
+        let line = serde_json::json!({"path": path, "outcome": c.outcome, "reason": c.reason,
+            "detail": c.detail, "records": c.records, "dispatched": c.dispatched, "seconds": c.seconds});
         if let Some(f) = out.as_mut() {
             writeln!(f, "{line}").unwrap();
         }
     }
-    eprintln!("eps sweep: loaded {loaded}, refused {refused}; reasons {reasons:#?}");
+    eprintln!("eps sweep: loaded {loaded}, refused {refused}");
+}
+
+/// The import (src/import): the classify-only load (import::sweep) reads eps tables (frame, charts, labels as
+/// (chart, index), domains, dispatcher, bodies parsed); a campaign load refuses them, typed, naming why.
+#[test]
+fn import_classify_only_loads_eps_tables_and_campaign_load_refuses() {
+    use rustred_campaign_core::import::sweep::{ClassifyOptions, classify_table};
+    use rustred_campaign_core::import::{TableSetSpec, load};
+    let scratch = std::env::temp_dir().join(format!("eps_import_{}", std::process::id()));
+    std::fs::create_dir_all(&scratch).unwrap();
+    let opts = ClassifyOptions {
+        scratch: Some(scratch.clone()),
+        ..Default::default()
+    };
+    for file in [
+        "T012_a0-td-e.table.jsonl",
+        "T041_min.table.jsonl",
+        "T047_min.table.jsonl",
+    ] {
+        let c = classify_table(&data(file), &opts);
+        assert_eq!(c.outcome, "loaded", "{file}: {:?} {:?}", c.reason, c.detail);
+        let tf = read_table_file(data(file), ReadOptions::default()).unwrap();
+        assert_eq!(c.records, tf.rules.len(), "{file}");
+        assert_eq!(c.dispatched + c.not_dispatched, tf.rules.len(), "{file}");
+    }
+    // a campaign load (with a closure to come) refuses the eps family with a typed reason
+    let start = scratch.join("start.jsonl");
+    std::fs::write(&start, b"").unwrap();
+    let spec = serde_json::json!({
+        "schema": rustred_campaign_core::import::spec::SPEC_SCHEMA,
+        "frame_from": "table",
+        "start": {"path": start.display().to_string(), "format": "keys_jsonl"},
+        "sources": [{"id": "table", "kind": "engine_table", "path": data("T041_min.table.jsonl").display().to_string()}],
+    });
+    let spec = TableSetSpec::from_json(&spec.to_string()).unwrap();
+    match load(&spec, &scratch) {
+        Err(e) => assert!(e.to_string().contains("campaign load"), "{e}"),
+        Ok(_) => panic!("a campaign load of an eps family must refuse"),
+    }
+    std::fs::remove_dir_all(&scratch).ok();
 }
