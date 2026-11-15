@@ -34,7 +34,10 @@ impl KeyService {
 
 /// Per face: keys, served by a plain relation, by a composite (and of those, how many have NO plain alternative =
 /// keys the image-only check rejected), not served (with the refusal classes of every element), errors.
-pub fn summarise<E>(results: &[(Vec<i32>, Option<&KeyComposites<E>>)], lines: &[bool]) -> Value {
+pub fn summarise<E>(
+    results: &[(Vec<i32>, Result<&KeyComposites<E>, String>)],
+    lines: &[bool],
+) -> Value {
     #[derive(Default)]
     struct F {
         keys: u64,
@@ -43,6 +46,7 @@ pub fn summarise<E>(results: &[(Vec<i32>, Option<&KeyComposites<E>>)], lines: &[
         composite_no_plain: u64,
         none: u64,
         error: u64,
+        over_cap: u64,
         with_key_coefficient: u64,
         dropped_zero_terms: u64,
         terms: Vec<u64>,
@@ -56,9 +60,16 @@ pub fn summarise<E>(results: &[(Vec<i32>, Option<&KeyComposites<E>>)], lines: &[
             .unwrap_or_default();
         let f = by.entry(face).or_default();
         f.keys += 1;
-        let Some(kc) = r else {
-            f.error += 1;
-            continue;
+        let kc = match r {
+            Ok(kc) => kc,
+            Err(e) => {
+                if super::composite::error_class(e).starts_with("over_cap") {
+                    f.over_cap += 1;
+                } else {
+                    f.error += 1;
+                }
+                continue;
+            }
         };
         match kc.best() {
             Some(b) => {
@@ -87,7 +98,8 @@ pub fn summarise<E>(results: &[(Vec<i32>, Option<&KeyComposites<E>>)], lines: &[
             }
         }
     }
-    let mut totals = json!({"keys": 0, "plain": 0, "composite": 0, "composite_no_plain": 0, "none": 0, "error": 0});
+    let mut totals = json!({"keys": 0, "plain": 0, "composite": 0, "composite_no_plain": 0, "none": 0,
+        "over_cap": 0, "error": 0});
     let mut faces = serde_json::Map::new();
     for (face, mut f) in by {
         for (n, v) in [
@@ -96,6 +108,7 @@ pub fn summarise<E>(results: &[(Vec<i32>, Option<&KeyComposites<E>>)], lines: &[
             ("composite", f.composite),
             ("composite_no_plain", f.composite_no_plain),
             ("none", f.none),
+            ("over_cap", f.over_cap),
             ("error", f.error),
         ] {
             totals[n] = json!(totals[n].as_u64().unwrap_or(0) + v);
@@ -105,7 +118,7 @@ pub fn summarise<E>(results: &[(Vec<i32>, Option<&KeyComposites<E>>)], lines: &[
         faces.insert(
             face,
             json!({"keys": f.keys, "plain": f.plain, "composite": f.composite,
-                "composite_no_plain": f.composite_no_plain, "none": f.none, "error": f.error,
+                "composite_no_plain": f.composite_no_plain, "none": f.none, "over_cap": f.over_cap, "error": f.error,
                 "with_key_coefficient": f.with_key_coefficient, "dropped_zero_terms": f.dropped_zero_terms,
                 "terms": {"min": f.terms.first(), "median": med, "max": f.terms.last()},
                 "refusals_of_unserved": f.refusals, "best_elements": f.best_elements}),

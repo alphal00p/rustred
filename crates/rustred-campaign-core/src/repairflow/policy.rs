@@ -67,6 +67,27 @@ pub struct Route0Policy {
     pub max_keys: u64,
     /// Bound of one expanded symmetry row (terms).
     pub max_terms: usize,
+    /// The SHIPPED composite relations of the symmetry-composite step (`rr_rf_symflow` result: its
+    /// `composite.table.jsonl` + `composite.verification.jsonl`, pinned): added to the node's spec as a
+    /// `supplied_relations` source (the import checks descent; the verification is cited) before faces are formed and
+    /// shipped first in the extension. Until the contract kind `symmetry-composite` runs the step as a child.
+    pub composite_input: Option<CompositeInput>,
+}
+
+/// A pinned symmetry-composite result (`route0.composite_input`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompositeInput {
+    pub table: PinnedFile,
+    pub verification: PinnedFile,
+}
+
+/// A file with its sha256 (verified by the import at load).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PinnedFile {
+    pub path: String,
+    pub sha256: String,
 }
 
 impl Default for Route0Policy {
@@ -77,6 +98,7 @@ impl Default for Route0Policy {
             symmetry_relation: true,
             max_keys: 1_000_000,
             max_terms: 65_536,
+            composite_input: None,
         }
     }
 }
