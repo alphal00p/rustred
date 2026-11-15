@@ -118,6 +118,8 @@ struct Member {
     fd: OwnedFd,
     facts: ProcFacts,
     proof: Proof,
+    /// procfix6 (gate5 m1): the identity held at the stop this hunt delivered.
+    hold: Option<guard::StopHold>,
 }
 
 enum Stop {
@@ -359,9 +361,10 @@ impl Hunt<'_> {
         }
     }
 
-    fn stop(&self, fd: &OwnedFd, f: &ProcFacts, proof: &Proof) -> Stop {
+    fn stop(&self, fd: &OwnedFd, f: &ProcFacts, proof: &Proof) -> (Stop, Option<guard::StopHold>) {
         let t = self.target(f, proof.clone());
-        match guard::signal_with_pidfd(fd, &t, libc::SIGSTOP, Some(&self.s.leaders)) {
+        let (v, hold) = guard::stop_with_pidfd(fd, &t, Some(&self.s.leaders));
+        let st = match v {
             Verdict::Delivered => match self.wait_stopped(f.stat.pid, fd) {
                 Stop::Failed(e) => Stop::DeliveredUnconfirmed(e),
                 other => other,
@@ -369,7 +372,8 @@ impl Hunt<'_> {
             Verdict::Gone => Stop::Exited,
             Verdict::NotOurs(r) => Stop::Failed(format!("pid {}: refused: {r:?}", f.stat.pid)),
             Verdict::Unverified(e) => Stop::Failed(e),
-        }
+        };
+        (st, hold)
     }
 
     fn out_of_time(&self) -> bool {
@@ -507,7 +511,8 @@ impl Hunt<'_> {
                 match class {
                     Class::Ours(proof, facts) => {
                         let Some(fd) = fd else { continue };
-                        match self.stop(&fd, &facts, &proof) {
+                        let (st, hold) = self.stop(&fd, &facts, &proof);
+                        match st {
                             Stop::Stopped => {
                                 trace(|| {
                                     format!(
@@ -526,12 +531,28 @@ impl Hunt<'_> {
                                         Err(e) => inconclusive = Some(e),
                                     }
                                 }
-                                known.insert(pid, Member { fd, facts, proof });
+                                known.insert(
+                                    pid,
+                                    Member {
+                                        fd,
+                                        facts,
+                                        proof,
+                                        hold,
+                                    },
+                                );
                             }
                             Stop::DeliveredUnconfirmed(e) => {
                                 // gate-A m-2: the STOP was delivered; keep it so that it gets the SIGKILL.
                                 changed = true;
-                                known.insert(pid, Member { fd, facts, proof });
+                                known.insert(
+                                    pid,
+                                    Member {
+                                        fd,
+                                        facts,
+                                        proof,
+                                        hold,
+                                    },
+                                );
                                 inconclusive = Some(e);
                             }
                             Stop::Exited => changed = true,
@@ -579,7 +600,7 @@ impl Hunt<'_> {
                     FactRead::Facts(_) => {
                         changed = true;
                         let (fd, facts, proof) = (&m.fd, m.facts.clone(), m.proof.clone());
-                        if let Stop::Failed(e) | Stop::DeliveredUnconfirmed(e) =
+                        if let (Stop::Failed(e) | Stop::DeliveredUnconfirmed(e), _) =
                             self.stop(fd, &facts, &proof)
                         {
                             inconclusive = Some(e);
@@ -643,6 +664,26 @@ impl Hunt<'_> {
             match v {
                 Verdict::Delivered | Verdict::Gone => {
                     self.killed.push(record(&m.facts));
+                    pending.push(m);
+                }
+                // procfix6 (gate5 m1): a member this hunt STOPPED that the proof check refuses now (it dropped the marker
+                // between the read and the stop) is killed by the identity held at its stop, else continued; if neither
+                // can be sent it stays in `left` below (NotProven, reported). Never left stopped silently.
+                _ if m.hold.is_some() && guard::pidfd_exited(&m.fd) != Some(true) => {
+                    let h = m.hold.as_ref().expect("checked");
+                    let kv = guard::kill_held(&[(&m.fd, h)])
+                        .pop()
+                        .unwrap_or(Verdict::Unverified("no verdict".into()));
+                    trace(|| format!("sid {} held SIGKILL pid {}: {kv:?}", self.s.sid, h.pid()));
+                    match kv {
+                        Verdict::Delivered | Verdict::Gone => self.killed.push(record(&m.facts)),
+                        _ => {
+                            let cv = guard::continue_held(&[(&m.fd, h)]);
+                            trace(|| {
+                                format!("sid {} held continue pid {}: {cv:?}", self.s.sid, h.pid())
+                            });
+                        }
+                    }
                     pending.push(m);
                 }
                 // The pinned-group SIGKILL may have killed it already (then the pidfd says so below).
