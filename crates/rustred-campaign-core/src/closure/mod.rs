@@ -2242,6 +2242,8 @@ fn run(
         facts,
         sectors: Sectors {
             lines: lines.clone(),
+            // eps families: the dispatcher's two-sided axes are forced (in every sector)
+            forced: disp.chart_free().iter().fold(0u64, |m, &a| m | 1 << a),
             zero_sectors: cfg.zero_sectors.clone(),
         },
         codec,

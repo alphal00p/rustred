@@ -34,7 +34,7 @@ use crate::closure::{KeyCodec, KeySet, KeySetBuilder, RuleBodies};
 use crate::cover::{Dispatcher, Table, WitnessStatus};
 use crate::domain::{CaseDomain, DomainOptions, TargetMap};
 use crate::domain::{PoleKind, PoleLocus};
-use crate::key::NodeFrame;
+use crate::key::{FrameError, NodeFrame};
 use crate::order::{GroupElement, NodeComparator};
 use crate::poly::Poly;
 use crate::record::{TableFile, TableHeader};
@@ -198,6 +198,10 @@ pub struct SourceReport {
     /// lane import5 (18.3): counts of the marker kinds over the source's files (only when present).
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub markers: BTreeMap<String, usize>,
+    /// (file, chart) of every chart line without a guard list, read as `chart_guards: implied_by_mask` (the guards
+    /// of its mask; engine lane verdict 2026-11-15T03:22Z). Only when present.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub chart_guards_implied: Vec<(String, String)>,
     /// Files that carry a composite-assembly record.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub assembly_files: Vec<String>,
@@ -426,7 +430,19 @@ pub fn load_with(
     base: &Path,
     lopts: &LoadOptions,
 ) -> Result<ImportedSet, ImportError> {
-    load_inner(spec, base, lopts, false)
+    load_inner(spec, base, lopts, false, false)
+}
+
+/// [`load_with`] for callers audited for eps-shifted (two-sided) families (lane epsframe): the frame is read with
+/// `NodeFrame::from_header_eps_aware`; on an integer family identical to [`load_with`]. The consumers audited so far:
+/// the import's own load, the closure walk ([`crate::import::check`] through `closure`), the fact pass and the
+/// evidence lookups (offset + record_sha256). Every other consumer of the set must check `set.frame.has_eps_axes()`.
+pub fn load_with_eps(
+    spec: &TableSetSpec,
+    base: &Path,
+    lopts: &LoadOptions,
+) -> Result<ImportedSet, ImportError> {
+    load_inner(spec, base, lopts, false, true)
 }
 
 /// [`load_with`]; `validate_bodies_only` (the classify-only sweep, `import::sweep`): the body pass streams every
@@ -437,13 +453,33 @@ pub(crate) fn load_inner(
     base: &Path,
     lopts: &LoadOptions,
     validate_bodies_only: bool,
+    eps_aware: bool,
 ) -> Result<ImportedSet, ImportError> {
     let spec_digest = spec.digest();
     // open table indexes by file (kept for the body pass)
     let mut indexes: BTreeMap<PathBuf, TableIndex> = BTreeMap::new();
-    // ---- the frame: the header line of the first file of `frame_from`
+    // ---- the frame: the header line of the first file of `frame_from` (the file itself is verified when its source is
+    // loaded)
     let (fsrc, fhead) = frame_header(spec, base)?;
-    let frame = NodeFrame::from_header(&fhead).map_err(|e| ImportError::Source {
+    // epsframe: an eps-shifted (two-sided) family is accepted by the CLASSIFY-ONLY load only (frame, charts, domains,
+    // labels (chart, index), dispatcher, bodies parsed); a campaign load refuses it, typed: the closure, check,
+    // partition, loci and termmin read line signs (integer-only; interfaces/campaign-core-domain.md "Eps")
+    let frame = if validate_bodies_only || eps_aware {
+        NodeFrame::from_header_eps_aware(&fhead)
+    } else {
+        NodeFrame::from_header(&fhead).map_err(|e| {
+            match NodeFrame::from_header_eps_aware(&fhead) {
+                Ok(f) => FrameError::Unsupported(format!(
+                    "eps-shifted family (eps axes {:?}, kshift {:?}): a campaign load (closure, check, partition, \
+                     loci, termmin) is integer-only; only the classify-only load accepts it",
+                    f.eps_axes(),
+                    f.kshift()
+                )),
+                Err(_) => e,
+            }
+        })
+    }
+    .map_err(|e| ImportError::Source {
         source: fsrc.id.clone(),
         msg: format!("frame: {e}"),
     })?;
@@ -495,6 +531,19 @@ pub(crate) fn load_inner(
             class: class.clone(),
             ..Default::default()
         };
+        if frame.has_eps_axes()
+            && !matches!(
+                src.kind,
+                SourceKind::EngineTable | SourceKind::TableSet | SourceKind::Terminals
+            )
+        {
+            // supplied relations, recipes and symmetry credits read the line mask (integer-only)
+            return Err(ImportError::Unsupported(format!(
+                "source {} ({:?}) on an eps-shifted family: only table and terminal sources are read for eps \
+                 families (lane epsframe)",
+                src.id, src.kind
+            )));
+        }
         match src.kind {
             SourceKind::EngineTable | SourceKind::TableSet => {
                 let units = file_units(src, base)?;
@@ -605,6 +654,16 @@ pub(crate) fn load_inner(
                         rep.table_terminals += 1;
                     }
                     // `sym` records: the verified group of the source, once (interfaces/import.md 18.4)
+                    if raw.sym_lines > 0
+                        && sym_ctx.is_none()
+                        && sym_err.is_none()
+                        && frame.has_eps_axes()
+                    {
+                        // the seven-step check reads the line mask (integer-only): the sym records stay unverified
+                        sym_err = Some(
+                            "eps-shifted family: sym-record verification is integer-only (lane epsframe)".into(),
+                        );
+                    }
                     if raw.sym_lines > 0 && sym_ctx.is_none() && sym_err.is_none() {
                         let gs = src.sym_group.clone().unwrap_or(GroupSpec {
                             family: None,
@@ -632,14 +691,19 @@ pub(crate) fn load_inner(
                     if !raw.kinds.contains_key("end") {
                         rep.files_without_end.push(u.path.display().to_string());
                     }
-                    // labels unique inside the file / source / scope
+                    // labels unique inside the file / source / scope (eps family: the label is (chart, index), packed
+                    // as the cover table packs it: the engine restarts `index` in every chart)
                     let mut by_label: BTreeMap<i64, usize> = BTreeMap::new();
                     for (i, r) in raw.records.iter().enumerate() {
-                        let l = r.rec.i.or(r.rec.index).ok_or_else(|| ImportError::Line {
+                        let l = record_label(&frame, &r.rec).ok_or_else(|| ImportError::Line {
                             source: src.id.clone(),
                             path: u.path.display().to_string(),
                             line: r.line_no,
-                            msg: "rule record without index".into(),
+                            msg: if frame.has_eps_axes() {
+                                "rule record without index, or its chart is not a chart of the eps frame".into()
+                            } else {
+                                "rule record without index".into()
+                            },
                         })?;
                         if by_label.insert(l, i).is_some() || !seen_src_labels.insert(l) {
                             return Err(ImportError::Label {
@@ -683,11 +747,7 @@ pub(crate) fn load_inner(
                         }
                     };
                     order.retain(|&i| {
-                        let l = raw.records[i]
-                            .rec
-                            .i
-                            .or(raw.records[i].rec.index)
-                            .unwrap_or(i64::MIN);
+                        let l = record_label(&frame, &raw.records[i].rec).unwrap_or(i64::MIN);
                         if let Some(reason) = removed.get(&l) {
                             seen_removed.insert(l);
                             rep.removed.push((l, reason.clone()));
@@ -1020,6 +1080,13 @@ pub(crate) fn load_inner(
             }
         }
     }
+    if frame.has_eps_axes() && spec.start.format == StartFormat::Box {
+        // the box enumerates line powers >= 1 only (boxdef is integer-only; the eps box, BOXDEF B, is spec data not
+        // implemented): a box start on an eps family would silently miss every key with an eps axis <= 0
+        return Err(ImportError::Unsupported(
+            "start format box on an eps-shifted family (boxdef is integer-only; give the start keys)".into(),
+        ));
+    }
     let start = read_start(spec, base, codec)?;
     let records = rules.iter().map(Vec::len).sum();
     let report = LoadReport {
@@ -1216,6 +1283,19 @@ fn file_units(src: &SourceSpec, base: &Path) -> Result<Vec<FileUnit>, ImportErro
     }
 }
 
+/// The label of a rule record in the import: `i`, else `index`; on an eps-shifted family the PACKED (chart, index)
+/// of the cover table ([`crate::cover::eps_label`]: the engine restarts `index` in every chart). `None` without an
+/// index, or (eps) with a chart that is not a chart of the frame.
+fn record_label(frame: &NodeFrame, rec: &crate::record::RuleRecord) -> Option<i64> {
+    let l = rec.i.or(rec.index)?;
+    if !frame.has_eps_axes() {
+        return Some(l);
+    }
+    let bits: Vec<bool> = rec.chart.as_deref()?.chars().map(|x| x == '1').collect();
+    let ord = frame.charts().iter().position(|c| *c == bits)?;
+    crate::cover::eps_label(ord, l)
+}
+
 fn check_header(
     source: &str,
     h: &TableHeader,
@@ -1223,11 +1303,19 @@ fn check_header(
     frame_desc: &str,
     fhead: &TableHeader,
 ) -> Result<(), ImportError> {
-    let f = NodeFrame::from_header(h).map_err(|e| ImportError::Source {
+    let f = if frame.has_eps_axes() {
+        NodeFrame::from_header_eps_aware(h)
+    } else {
+        NodeFrame::from_header(h)
+    }
+    .map_err(|e| ImportError::Source {
         source: source.into(),
         msg: format!("frame: {e}"),
     })?;
-    if f.arity() != frame.arity() || !f.same_mask(frame) || f.power_shifts() != frame.power_shifts()
+    if f.arity() != frame.arity()
+        || !f.same_mask(frame)
+        || f.power_shifts() != frame.power_shifts()
+        || f.kshift() != frame.kshift()
     {
         return Err(ImportError::Source {
             source: source.into(),
@@ -1288,13 +1376,19 @@ fn build_table(
         witness: witness_check,
         ..Default::default()
     };
-    let mut t =
-        Table::from_table_file(name, u.path.display().to_string(), &tf, opts).map_err(|e| {
-            ImportError::Source {
-                source: src.id.clone(),
-                msg: format!("{}: {e}", u.path.display()),
-            }
-        })?;
+    let loaded = if frame.has_eps_axes() {
+        Table::from_table_file_eps_aware(name, u.path.display().to_string(), &tf, opts)
+    } else {
+        Table::from_table_file(name, u.path.display().to_string(), &tf, opts)
+    };
+    let mut t = loaded.map_err(|e| ImportError::Source {
+        source: src.id.clone(),
+        msg: format!("{}: {e}", u.path.display()),
+    })?;
+    for c in &t.provenance.chart_guards_implied {
+        rep.chart_guards_implied
+            .push((u.path.display().to_string(), c.clone()));
+    }
     for s in &t.provenance.skipped_not_dispatched {
         rep.not_dispatched
             .push((name.to_string(), s.label, s.dispatch.clone()));
@@ -1304,6 +1398,12 @@ fn build_table(
         let r = &raw.records[seg[t.meta[k].source_index]];
         let label = t.labels[k];
         let mut bounds: Vec<Poly> = vec![];
+        if src.domain == DomainMode::QualifiedRecenter && frame.has_eps_axes() {
+            return Err(ImportError::Unsupported(format!(
+                "source {}: domain qualified_recenter on an eps-shifted family (a floor is not defined on an eps axis)",
+                src.id
+            )));
+        }
         if src.domain == DomainMode::QualifiedRecenter {
             let rc = r.rec.recenter.as_ref().ok_or_else(|| ImportError::Line {
                 source: src.id.clone(),
@@ -1363,6 +1463,16 @@ fn build_table(
                     });
                 }
                 if let Some(lo) = db.min[i] {
+                    if frame.is_eps_axis(i) {
+                        return Err(ImportError::Line {
+                            source: src.id.clone(),
+                            path: u.path.display().to_string(),
+                            line: r.line_no,
+                            msg: format!(
+                                "domain_bounds.min on the eps axis {i} (a floor is not defined on a two-sided axis)"
+                            ),
+                        });
+                    }
                     if !frame.is_line(i) {
                         return Err(ImportError::Line {
                             source: src.id.clone(),

@@ -1,0 +1,5 @@
+{"schema":"rustred.campaign.eps-box-clause.v1",
+ "d_coef":1,"e_coef":1,"eps_coef":1,"constant":-11,
+ "d_max_constant":4,"carriers":0,
+ "dots_floor":"one_minus_weight","rank_from_nonpositive":true,
+ "origin":"BOXDEF.v3 B PROVISIONAL reading (w = kshift, e = sum of w, E = top lines incl. eps, carriers 0; Q1-Q5 open)"}

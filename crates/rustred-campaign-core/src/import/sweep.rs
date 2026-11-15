@@ -39,6 +39,8 @@ pub struct TableClass {
     pub table_terminals: usize,
     pub assembly: bool,
     pub marker_overrides: Vec<String>,
+    /// Charts of chart lines without guards, read as implied by their mask (`chart_guards: implied_by_mask`).
+    pub chart_guards_implied: Vec<String>,
     pub seconds: f64,
 }
 
@@ -130,6 +132,7 @@ fn classify_inner(
                 index_dir: opts.index_dir.clone(),
             },
             true,
+            true,
         )?;
         let rep = &set.report().sources[0];
         out.kinds = rep.line_kinds.clone();
@@ -144,6 +147,11 @@ fn classify_inner(
         out.table_terminals = rep.table_terminals;
         out.assembly = !rep.assembly_files.is_empty();
         out.marker_overrides = rep.marker_overrides.clone();
+        out.chart_guards_implied = rep
+            .chart_guards_implied
+            .iter()
+            .map(|(_, c)| c.clone())
+            .collect();
         Ok(())
     })();
     drop(own); // the directory this process created (OwnedDir guard), nothing else
