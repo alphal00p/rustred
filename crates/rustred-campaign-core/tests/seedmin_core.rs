@@ -853,3 +853,162 @@ fn the_tadic_system_judge_bounds_drops_by_the_start_systems_p_star() {
     );
     assert!(ts.seconds.len() >= 3);
 }
+
+/// A coreseed CoreSolver oracle for the BRIDGE (one key): the key solves iff the list (offsets from the key) contains
+/// `needs`; with `engine` a request carrying `elimination.minimise` is answered like the engine verb: the minimisation
+/// run inside (the emulation through the bridge on a plain copy of this oracle) and the contract's `minimise` member
+/// (+ the proposed `seeds`, offsets from the key) in the record.
+#[derive(Clone)]
+struct CoreOracle {
+    needs: Vec<Offset>,
+    engine: bool,
+}
+
+fn core_info(
+    needs: &[Offset],
+    k: &[i32],
+    rhs: u64,
+    minimise: Option<Value>,
+) -> rustred_campaign_core::coreseed::RelationInfo {
+    rustred_campaign_core::coreseed::RelationInfo {
+        relation_digest: sha256_hex(format!("{k:?}/{needs:?}").as_bytes()),
+        rhs: vec![],
+        rhs_count: rhs,
+        seeds_total: None,
+        seeds_used: Some(needs.to_vec()),
+        d0: rustred_campaign_core::coreseed::D0Verdict::Regular,
+        recipe_digest: "r".into(),
+        determinism_id: "fake".into(),
+        relation_rule_taken: None,
+        minimise,
+        record_sha256: "s".into(),
+    }
+}
+
+fn core_make(
+    list: &[Offset],
+    keys: &[Key],
+    label: &str,
+    member: Option<Value>,
+) -> Result<rustred_campaign_core::coreseed::SolveReq, String> {
+    let mut recipe = json!({"seeds": {"centres": list}, "elimination": {"convention": "rustred.recipe-elim.v1"}});
+    if let Some(m) = member {
+        recipe["elimination"]["minimise"] = m;
+    }
+    Ok(rustred_campaign_core::coreseed::SolveReq {
+        label: label.into(),
+        text: recipe.to_string(),
+        recipe,
+        keys: keys.to_vec(),
+        relation_rule: "first_admissible".into(),
+    })
+}
+
+impl rustred_campaign_core::coreseed::CoreSolver for CoreOracle {
+    fn solve(
+        &mut self,
+        batch: &[rustred_campaign_core::coreseed::SolveReq],
+    ) -> Result<Vec<Vec<rustred_campaign_core::coreseed::KeyAnswer>>, String> {
+        use rustred_campaign_core::coreseed::KeyAnswer;
+        let mut out = vec![];
+        for r in batch {
+            let list: Vec<Offset> =
+                serde_json::from_value(r.recipe["seeds"]["centres"].clone()).unwrap();
+            let member = r.recipe["elimination"].get("minimise").cloned();
+            let mut v = vec![];
+            for k in &r.keys {
+                if self.engine && member.is_some() {
+                    let mut inner = CoreOracle {
+                        engine: false,
+                        ..self.clone()
+                    };
+                    let pol = rustred_campaign_core::coreseed::spec::CoreSeedPolicy::default();
+                    let res = rustred_campaign_core::seedmin::bridge::minimise(
+                        &mut inner,
+                        &pol,
+                        &core_make,
+                        &list,
+                        std::slice::from_ref(k),
+                        None,
+                        "engine-inside",
+                    )?
+                    .expect("solves");
+                    let mut m = res.member.clone();
+                    m["seeds"] = json!(res.list);
+                    let info = res.per_key[k].clone();
+                    v.push(KeyAnswer::Relation(Box::new(core_info(
+                        &self.needs,
+                        k,
+                        info.rhs_count,
+                        Some(m),
+                    ))));
+                } else if self.needs.iter().all(|o| list.contains(o)) {
+                    v.push(KeyAnswer::Relation(Box::new(core_info(
+                        &self.needs,
+                        k,
+                        40,
+                        None,
+                    ))));
+                } else {
+                    v.push(KeyAnswer::NoRelation);
+                }
+            }
+            out.push(v);
+        }
+        Ok(out)
+    }
+}
+
+#[test]
+fn through_the_bridge_the_engine_verb_and_the_emulation_give_the_same_result() {
+    let k: Key = vec![3, 2, -1];
+    let needs: Vec<Offset> = vec![vec![0, 0, 0], vec![1, 0, 0], vec![0, 1, -1]];
+    let list = shell();
+    let emu_pol = rustred_campaign_core::coreseed::spec::CoreSeedPolicy::default();
+    let mut eng_pol = emu_pol.clone();
+    eng_pol.minimise.backend = "engine".into();
+    let emu = rustred_campaign_core::seedmin::bridge::minimise(
+        &mut CoreOracle {
+            needs: needs.clone(),
+            engine: false,
+        },
+        &emu_pol,
+        &core_make,
+        &list,
+        std::slice::from_ref(&k),
+        None,
+        "emu",
+    )
+    .unwrap()
+    .expect("the emulation minimises");
+    let eng = rustred_campaign_core::seedmin::bridge::minimise(
+        &mut CoreOracle {
+            needs: needs.clone(),
+            engine: true,
+        },
+        &eng_pol,
+        &core_make,
+        &list,
+        std::slice::from_ref(&k),
+        None,
+        "eng",
+    )
+    .unwrap()
+    .expect("the engine backend returns the minimised relation (not None, not the start list)");
+    assert_eq!(eng.list, emu.list);
+    assert_eq!(eng.list.len(), 3);
+    assert_eq!(
+        eng.per_key[&k].relation_digest,
+        emu.per_key[&k].relation_digest
+    );
+    let strip = |m: &Value| {
+        let mut m = m.clone();
+        let o = m.as_object_mut().unwrap();
+        o.remove("seeds");
+        o.remove("backend");
+        m
+    };
+    assert_eq!(strip(&eng.member), strip(&emu.member));
+    assert_eq!(eng.member["backend"], "engine");
+    assert_eq!(emu.member["backend"], "emulated");
+}
