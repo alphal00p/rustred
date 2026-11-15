@@ -190,7 +190,12 @@ pub fn contract_accepts(class: FinishClass) -> &'static [ContractAccept] {
     match class {
         // rows 1, 3; 33 = kind symmetry-composite (lane symjob: candidates, accepted only through the import);
         // 40 = kind proof-symrows (lane symcert: certificates bound to the asked relation)
-        Complete => &[A::Canonical, A::SuppliedRelations, A::Certificates, A::Nothing],
+        Complete => &[
+            A::Canonical,
+            A::SuppliedRelations,
+            A::Certificates,
+            A::Nothing,
+        ],
         NoRule => &[A::CommittedRules, A::Nothing], // rows 4, 24
         Spill => &[A::CommittedRules],              // row 8
         DecidedNegative => &[A::Nothing],           // row 7 (c=11)
