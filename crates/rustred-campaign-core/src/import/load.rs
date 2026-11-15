@@ -1594,6 +1594,14 @@ fn build_table(
     Ok((t, tf, infos))
 }
 
+/// What `load_supplied` gives: the relation set, its per-key provenance, the composites awaiting the post-load
+/// same-backend re-verification (lane symfix).
+type SuppliedLoad = (
+    RelationSet,
+    BTreeMap<Vec<i32>, SuppliedInfo>,
+    super::supplied_verify::PendingSource,
+);
+
 #[allow(clippy::too_many_arguments)]
 fn load_supplied(
     src: &SourceSpec,
@@ -1606,14 +1614,7 @@ fn load_supplied(
     codec: KeyCodec,
     rep: &mut SourceReport,
     limits: crate::record::ReadLimits,
-) -> Result<
-    (
-        RelationSet,
-        BTreeMap<Vec<i32>, SuppliedInfo>,
-        super::supplied_verify::PendingSource,
-    ),
-    ImportError,
-> {
+) -> Result<SuppliedLoad, ImportError> {
     let path = resolve(base, src.path.as_deref().unwrap_or_default());
     let raw = scan_table_with(&src.id, &path, true, &|_, _| true, limits)?;
     if let Some(r) = raw.records.iter().find(|r| r.sym.is_some()) {

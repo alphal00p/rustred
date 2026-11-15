@@ -18,7 +18,8 @@ fn sha256(b: &[u8]) -> String {
 
 #[test]
 fn the_relation_digest_hashes_the_contracts_canonical_form() {
-    let cases: Vec<(Vec<i32>, Vec<(Vec<i32>, String)>)> = vec![
+    type Case = (Vec<i32>, Vec<(Vec<i32>, String)>);
+    let cases: Vec<Case> = vec![
         (
             vec![2, 1, 1, 0, -1],
             vec![

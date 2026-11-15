@@ -88,7 +88,12 @@ fn write_table(dir: &Path, name: &str, rules: &[Value]) -> PathBuf {
     p
 }
 
-fn supplied_table(d: &Path, rels: &[(Vec<i32>, Vec<(Vec<i32>, String)>, &str)]) -> PathBuf {
+/// (key, rhs (key, coefficient text), record kind) of one supplied relation.
+type Rel<'a> = (Vec<i32>, Vec<(Vec<i32>, String)>, &'a str);
+/// (key, element, image) of a symmetry relation of the toy node.
+type Image = (Vec<i32>, usize, Vec<(Vec<i32>, Q)>);
+
+fn supplied_table(d: &Path, rels: &[Rel<'_>]) -> PathBuf {
     let rules: Vec<Value> = rels
         .iter()
         .enumerate()
@@ -185,7 +190,7 @@ fn search(
     set: &import::ImportedSet,
     g: &VerifiedGroup,
     want: impl Fn(&[(Vec<i32>, Q)], &[i32]) -> bool,
-) -> Vec<(Vec<i32>, usize, Vec<(Vec<i32>, Q)>)> {
+) -> Vec<Image> {
     let cmp = |a: &[i32], b: &[i32]| set.cmp.cmp(a, b);
     let mut out = vec![];
     for a in 1..=3 {
@@ -323,6 +328,7 @@ fn verification_line(toy: &Toy, kind: Option<&str>) -> Value {
     v
 }
 
+#[allow(clippy::too_many_arguments)]
 fn certificate_file(
     d: &Path,
     name: &str,
@@ -381,7 +387,7 @@ fn composite_row(
     let set = load_toy(
         &d,
         &[point_rule(1, &toy.t, &[(LOW.to_vec(), "1".into())])],
-        &[toy.key.clone()],
+        std::slice::from_ref(&toy.key),
         Some(src),
         required,
     );
@@ -609,7 +615,7 @@ fn a_plain_relation_with_a_verification_file_is_rederived_per_key() {
     let src = json!({"id":"rf","kind":"supplied_relations","class":"symmetry-composite",
         "path": s.display().to_string(), "sha256": sha256(&std::fs::read(&s).unwrap()),
         "verification": {"path": v.display().to_string(), "sha256": sha256(b"")}});
-    let set = load_toy(&d, &[], &[key.clone()], Some(src), "per-key").unwrap();
+    let set = load_toy(&d, &[], std::slice::from_ref(&key), Some(src), "per-key").unwrap();
     let r = row_of(&set, &d, &key);
     assert_eq!(
         served_at(&r),

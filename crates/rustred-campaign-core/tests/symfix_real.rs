@@ -50,7 +50,7 @@ fn real_spec_supplied_relations_are_verified_at_load() {
         .report
         .sources
         .iter()
-        .filter(|s| s.kind == "supplied_relations")
+        .filter(|s| set.supplied_info.contains_key(&s.id))
     {
         let info = set.supplied_info.get(&s.id).cloned().unwrap_or_default();
         let mut routes: BTreeMap<String, u64> = BTreeMap::new();
@@ -89,6 +89,10 @@ fn real_spec_supplied_relations_are_verified_at_load() {
         out["sources"].as_array_mut().unwrap().push(row);
     }
     println!("load {load_s:.1} s");
+    assert!(
+        !out["sources"].as_array().unwrap().is_empty(),
+        "the spec has no supplied_relations source"
+    );
     if let Ok(p) = std::env::var("SYMFIX_REAL_OUT") {
         std::fs::write(p, serde_json::to_string_pretty(&out).unwrap()).unwrap();
     }
