@@ -268,10 +268,37 @@ impl EdgeFile {
             .iter()
             .enumerate()
         {
-            let dropped = usizes(&s["parent_table_slots_dropped"])
+            // the dropped parent table slots: named `parent_table_slots_dropped` (delivered files), `parent_table_slot_dropped`
+            // (one-line files) or `table_slots_dropped` (raw generator output); for a routed sector they must equal the
+            // parent's table lines minus `parent_table_lines_kept` (derived and cross-checked)
+            let given = usizes(&s["parent_table_slots_dropped"])
                 .or_else(|| usizes(&s["parent_table_slot_dropped"]))
-                .ok_or_else(|| format!("{path}: sector {i}: no parent_table_slots_dropped"))?;
-            let mut dropped = dropped;
+                .or_else(|| usizes(&s["table_slots_dropped"]));
+            let derived = usizes(&s["parent_table_lines_kept"]).map(|kept| {
+                parent
+                    .table_lines
+                    .iter()
+                    .copied()
+                    .filter(|t| !kept.contains(t))
+                    .collect::<Vec<usize>>()
+            });
+            let mut dropped = match (given, derived) {
+                (Some(mut g), Some(d)) => {
+                    g.sort_unstable();
+                    g.dedup();
+                    if g != d {
+                        return Err(format!(
+                            "{path}: sector {i}: dropped slots {g:?} != parent lines minus kept {d:?}"
+                        ));
+                    }
+                    g
+                }
+                (Some(g), None) => g,
+                (None, Some(d)) => d,
+                (None, None) => {
+                    return Err(format!("{path}: sector {i}: no dropped parent table slots"));
+                }
+            };
             dropped.sort_unstable();
             dropped.dedup();
             if dropped.iter().any(|&t| t >= arity) {
@@ -496,6 +523,15 @@ mod tests {
         assert!(EdgeFile::parse(toy_edge().to_string().as_bytes(), "toy", "c9").is_err());
         assert_eq!(Rat::parse(&json!("-6/4")).unwrap(), Rat { num: -3, den: 2 });
         assert_eq!(Rat::parse(&json!("(2)")).unwrap(), Rat { num: 2, den: 1 });
+        // raw generator naming (`table_slots_dropped`) and the derivation from the kept lines agree; a contradiction refuses
+        let mut v = toy_edge();
+        let o = v["sectors"][1].as_object_mut().unwrap();
+        let d = o.remove("parent_table_slots_dropped").unwrap();
+        o.insert("table_slots_dropped".into(), d);
+        let e2 = EdgeFile::parse(v.to_string().as_bytes(), "toy", "chosen").unwrap();
+        assert_eq!(e2.sectors[0].dropped_mask, 1 << 2);
+        v["sectors"][1]["table_slots_dropped"] = json!([3]);
+        assert!(EdgeFile::parse(v.to_string().as_bytes(), "toy", "chosen").is_err());
         assert_eq!(
             Rat::parse(&json!(" ( -1/2 ) ")).unwrap(),
             Rat { num: -1, den: 2 }
