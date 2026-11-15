@@ -43,3 +43,7 @@ pub mod termmin;
 pub mod coreseed;
 // lane poles (interfaces/pole-diagnostics.md): REQUEST TO I-INT, one line
 pub mod poles;
+// lane seedmin (interfaces/seedmin.md): per-key and joint seed minimisation (REQUEST TO I-INT, one line)
+pub mod seedmin;
+// lane tadic (interfaces/tadic.md; TRICKS 15/16 system pole order): REQUEST TO I-INT, one line
+pub mod tadic;
