@@ -751,7 +751,11 @@ mod boxed_kite_tests {
         library.set_source("/packages/kite");
         let corner = reduce(&library, [1; 5]).unwrap();
         assert_eq!(corner.terms.len(), 1);
+        let early = crate::propagator::engine::early_outside_refusals();
         let error = reduce(&library, [3, 1, 1, 1, 1]).unwrap_err();
+        // vk5l WP2: refused when the route step produced the key (before it
+        // is stepped), not at its own step
+        assert!(crate::propagator::engine::early_outside_refusals() > early);
         match &error {
             PError::OutsideCertifiedSet {
                 node,

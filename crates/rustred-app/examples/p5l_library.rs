@@ -399,6 +399,22 @@ fn reduce_cli(args: &[String]) {
     });
     match result {
         Ok(reduction) => {
+            // vk5l WP2: the recipe / relation-cache counters of this request
+            let stats = reduction.relation_cache;
+            let recipes = rustred::propagator::recipes::recipe_statistics();
+            eprintln!(
+                "p-reduce counters: outside_certified {} | relation_cache shipped_hits {} cache_hits {} misses {} inserts {} \
+                 bytes_written {} | recipe solves {} outside_solves {} | bytes_on_disk {}",
+                reduction.outside_certified.len(),
+                stats.shipped_hits,
+                stats.cache_hits,
+                stats.misses,
+                stats.inserts,
+                stats.bytes_written,
+                recipes.solves,
+                recipes.outside_solves,
+                rustred::propagator::recipes::relation_cache_bytes_on_disk()
+            );
             for term in &reduction.terms {
                 let basis = match &term.basis {
                     PBasis::Residual(id) => match library.residual_terminal(*id) {

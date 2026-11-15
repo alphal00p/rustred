@@ -2742,7 +2742,10 @@ impl<'l> PStepper<'l> {
         let OwnerProgram::Lane(lane) = owner.loaded_program()? else {
             return None;
         };
-        let node = lane.boxed_node()?;
+        // (a lazy program forwards its box record, not its node name; never
+        // build a program here: a cache hit needs none)
+        let record = lane.boxed_record_if_known()?;
+        let node = record.node.as_str();
         let slot = self.engine.owner(*class).ok()?;
         let slots = view.slots();
         let (powers, _) = self.engine.split(slot.presentation, &slots).ok()?;
@@ -2750,6 +2753,55 @@ impl<'l> PStepper<'l> {
             node: node.to_owned(),
             presentation: slot.presentation,
             powers: powers.to_vec(),
+        })
+    }
+
+    /// vk5l WP2: the refusal of `key` when it lands on a boxed Custom owner
+    /// outside its certified set and that node's policy refuses (the owner's
+    /// program is built for the check: its keys follow anyway).
+    fn early_refusal(&self, key: &PKey) -> Option<PError> {
+        let PKey::Apply { class, view } = key else {
+            return None;
+        };
+        let owner = self.library.owner(*class)?;
+        if owner.spec.lane != OwnerLane::Custom {
+            return None;
+        }
+        let OwnerProgram::Lane(lane) = owner.program(self.library).ok()? else {
+            return None;
+        };
+        let record = lane.boxed_record()?;
+        if super::recipes::outside_policy_of(&record.node) != super::recipes::POutsidePolicy::Refuse
+        {
+            return None;
+        }
+        let slot = self.engine.owner(*class).ok()?;
+        let slots = view.slots();
+        let (powers, _) = self.engine.split(slot.presentation, &slots).ok()?;
+        if lane.box_contains(powers) != Some(false) {
+            return None;
+        }
+        let key = IntegralKey::try_new(powers.iter().copied()).ok()?;
+        let violated = record.violation(powers).map(Box::new);
+        Some(match lane.certified_keys() {
+            Some(certified_keys) => PError::OutsideCertifiedSet {
+                class: *class,
+                violated,
+                key,
+                node: record.node.clone(),
+                definition: record.describe(),
+                certified_keys,
+                request: None,
+            },
+            // a box-only node: its box is the domain
+            None => PError::OutsideBox {
+                class: *class,
+                key,
+                node: record.node.clone(),
+                definition: record.describe(),
+                violated,
+                request: None,
+            },
         })
     }
 
@@ -2852,6 +2904,22 @@ impl OrderedStepper for PStepper<'_> {
                 (result, account)
             }
         };
+        // vk5l WP2: under a Refuse policy a key outside a boxed node's
+        // certified set is refused as soon as a step produces it (before the
+        // rest of the request is reduced), not when it is stepped.
+        // (a Retain request keeps such a key as a named residual at its own
+        // step instead)
+        if let Ok(step) = &result
+            && !self.retain
+            && super::recipes::refuse_policy_anywhere()
+            && let Some(error) = step
+                .terms
+                .keys()
+                .find_map(|child| self.early_refusal(child))
+        {
+            EARLY_REFUSALS.fetch_add(1, AtomicOrdering::Relaxed);
+            return (Err(error), account);
+        }
         if let (Some(started), Ok(step)) = (started, &result) {
             let nanos = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
             let mut record = self.census_record(key, step, nanos);
@@ -2927,6 +2995,15 @@ impl OrderedStepper for PStepper<'_> {
             None => {}
         }
     }
+}
+
+/// vk5l WP2: refusals made when a step produced an outside key (tests).
+static EARLY_REFUSALS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// vk5l WP2: how many requests were refused early (an outside key produced
+/// by a step under a Refuse policy) in this process.
+pub fn early_outside_refusals() -> u64 {
+    EARLY_REFUSALS.load(AtomicOrdering::Relaxed)
 }
 
 /// The adapter of one request.

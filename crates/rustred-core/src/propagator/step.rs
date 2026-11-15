@@ -42,6 +42,21 @@ pub trait PLaneStep: Send + Sync {
         None
     }
 
+    /// vk5l WP2: [`Self::boxed_record`] when it is known WITHOUT building
+    /// the program (a lazy program answers from its memory of an earlier
+    /// build, else `None`); every resident program answers as
+    /// [`Self::boxed_record`].
+    fn boxed_record_if_known(
+        &self,
+    ) -> Option<std::sync::Arc<super::table_import::BoxedNodeRecord>> {
+        self.boxed_record()
+    }
+
+    /// vk5l WP2: the size of a boxed owner's certified key set.
+    fn certified_keys(&self) -> Option<u64> {
+        None
+    }
+
     /// vk5l WP2: one rule chain of a boxed Custom owner from `from` to `to`
     /// (owner keys) through its rules and the recipe relations solved so far,
     /// at most `budget` keys expanded (`None`: not found, or no such owner).

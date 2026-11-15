@@ -850,6 +850,7 @@ pub(super) fn install_recipe_options(
         rustred::propagator::recipes::set_recipe_cache_roots(RecipeCacheRoots {
             user: roots.user,
             prefilled: roots.prefilled,
+            ..Default::default()
         });
     }
     if let Some(workers) = workers

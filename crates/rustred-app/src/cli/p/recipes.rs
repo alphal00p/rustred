@@ -242,6 +242,7 @@ fn prefill(arguments: Vec<OsString>) -> Result<(), CliError> {
     set_recipe_cache_roots(RecipeCacheRoots {
         user: Some(root.clone()),
         prefilled: Vec::new(),
+        ..Default::default()
     });
     override_recipe_solver(
         &boxed.node,

@@ -299,6 +299,8 @@ pub struct PEvictableStep {
     built: AtomicU64,
     last: AtomicU64,
     budget: Arc<PProgramBudget>,
+    /// vk5l WP2: the box record, remembered from the first build.
+    boxed: std::sync::OnceLock<Option<Arc<super::table_import::BoxedNodeRecord>>>,
 }
 
 impl fmt::Debug for PEvictableStep {
@@ -329,6 +331,7 @@ impl PEvictableStep {
             built: AtomicU64::new(0),
             last: AtomicU64::new(0),
             budget,
+            boxed: std::sync::OnceLock::new(),
         });
         step.budget.register(&step);
         step
@@ -396,7 +399,29 @@ impl PLaneStep for PEvictableStep {
     }
 
     fn boxed_record(&self) -> Option<Arc<super::table_import::BoxedNodeRecord>> {
-        self.program().ok()?.boxed_record()
+        if let Some(known) = self.boxed.get() {
+            return known.clone();
+        }
+        let record = self.program().ok()?.boxed_record();
+        self.boxed.get_or_init(|| record.clone()).clone()
+    }
+
+    fn boxed_record_if_known(&self) -> Option<Arc<super::table_import::BoxedNodeRecord>> {
+        if let Some(known) = self.boxed.get() {
+            return known.clone();
+        }
+        let resident = self
+            .slot
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(Arc::clone)?;
+        let record = resident.boxed_record();
+        self.boxed.get_or_init(|| record.clone()).clone()
+    }
+
+    fn certified_keys(&self) -> Option<u64> {
+        self.program().ok()?.certified_keys()
     }
 
     fn recipe_chain(

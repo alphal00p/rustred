@@ -1506,6 +1506,10 @@ impl<const N: usize> PLaneStep for CustomStep<N> {
         self.boxed.clone()
     }
 
+    fn certified_keys(&self) -> Option<u64> {
+        self.certified.as_deref().map(|set| set.len() as u64)
+    }
+
     fn recipe_chain(&self, from: &[i64], to: &[i64], budget: usize) -> Option<Vec<PChainLink>> {
         self.chain_to(from, to, budget)
     }
