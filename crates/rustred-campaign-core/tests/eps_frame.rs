@@ -1145,3 +1145,78 @@ fn eps_campaign_node() {
         .unwrap();
     writeln!(f, "{line}").unwrap();
 }
+
+/// The eps box (BOXDEF section B as DATA): clause parsing, the eps-axis measure, membership = enumeration (each key
+/// once, every enumerated key a member, every member of a grid enumerated), refusals.
+#[test]
+fn eps_box_is_data_driven() {
+    use rustred_campaign_core::boxdef::{EpsBox, EpsBoxClause};
+    let clause_text = |constant: i64, floor: &str, rank: bool| {
+        format!(
+            r#"{{"schema":"rustred.campaign.eps-box-clause.v1","d_coef":1,"e_coef":1,"eps_coef":1,"constant":{constant},
+               "d_max_constant":4,"carriers":0,"dots_floor":"{floor}","rank_from_nonpositive":{rank},"origin":"test"}}"#
+        )
+    };
+    assert!(EpsBoxClause::from_json(&clause_text(-11, "one_minus_weight", false)).is_err());
+    assert!(EpsBoxClause::from_json(&clause_text(-11, "zero", true)).is_err());
+    // slot 0 eps (k = 2), lines 1..3, numerator 4: E = 4, e = 2
+    let f = NodeFrame::from_header_eps_aware(&h5(
+        r#"["4-d","0","0","0","0"]"#,
+        "[true,false,false,false,false]",
+    ))
+    .unwrap();
+    for (constant, floor) in [
+        (-5, "one_minus_weight"),
+        (-6, "one"),
+        (-4, "one_minus_weight"),
+    ] {
+        let c = EpsBoxClause::from_json(&clause_text(constant, floor, true)).unwrap();
+        let b = EpsBox::from_clause(&f, &c, "t").unwrap();
+        b.check_frame(&f).unwrap();
+        // layers: r_max(D) = D + 4 + 2 + constant for D in 0..=4, negative dropped
+        for &[d, r] in &b.layers {
+            assert_eq!(i64::from(r), i64::from(d) + 6 + constant);
+        }
+        let mut keys = vec![];
+        b.for_each_key(|k| keys.push(k.to_vec()));
+        let n = keys.len();
+        keys.sort();
+        keys.dedup();
+        assert_eq!(keys.len(), n, "each key once");
+        assert_eq!(b.count() as usize, n);
+        assert!(keys.iter().all(|k| b.contains(k)));
+        // a grid around the box: every member is enumerated
+        let mut members = 0;
+        for a in -8..=8 {
+            for x1 in 1..=6 {
+                for x2 in 1..=6 {
+                    for x3 in 1..=6 {
+                        for x4 in -8..=0 {
+                            let k = vec![a, x1, x2, x3, x4];
+                            if b.contains(&k) {
+                                members += 1;
+                                assert!(keys.binary_search(&k).is_ok(), "{k:?}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(members, n, "{floor} {constant}");
+        // the eps axis: w = 2; floor 1 - w = -1 (or 1): n = 1 -> D = 2 (0), n = -1 -> D = 0, r = 1
+        let m = |a: i32| b.measure(&[a, 1, 1, 1, 0]).unwrap();
+        if floor == "one_minus_weight" {
+            assert_eq!(m(1), (2, 0));
+            assert_eq!(m(0), (1, 0));
+            assert_eq!(m(-1), (0, 1));
+            assert_eq!(m(-3), (0, 3));
+        } else {
+            assert_eq!(m(1), (0, 0));
+            assert_eq!(m(0), (0, 0));
+            assert_eq!(m(3), (2, 0));
+        }
+        assert_eq!(b.measure(&[1, 0, 1, 1, 0]), None); // an integer line dropped: not the top support
+    }
+    // the integer box still refuses eps frames
+    assert!(f.require_integer_only_for("x").is_err());
+}
