@@ -13,6 +13,7 @@
 
 pub mod atoms;
 pub mod cover;
+pub mod keychoices;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
