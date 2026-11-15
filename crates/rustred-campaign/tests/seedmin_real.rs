@@ -14,7 +14,9 @@
 //! valid at N of N keys, trials), cost (CPU, wall, jobs, journal hits). Resumable: the journal lives in `work_root`.
 
 use rustred_campaign::adapters::job::{Invocation, Program};
-use rustred_campaign::closeloop::seedmin::{ChildConfig, ChildTrialSolver, engine_caps};
+use rustred_campaign::closeloop::seedmin::{
+    ChildConfig, ChildTrialSolver, engine_caps_from_manifest,
+};
 use rustred_campaign::resources::{Sampler, SamplerConfig};
 use rustred_campaign_core::coreseed::seeds::{shell_offsets, valid_at};
 use rustred_campaign_core::seedmin::{
@@ -121,7 +123,12 @@ fn real_joint_seed_minimisation_on_one_face() {
     std::fs::create_dir_all(&out).unwrap();
     let work = PathBuf::from(s("work_root"));
     let program = PathBuf::from(s("program"));
-    let caps = engine_caps(&program);
+    // capabilities from the engine's manifest (config "engine_manifest", else version.json next to the program)
+    let manifest = c["engine_manifest"]
+        .as_str()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| program.with_file_name("version.json"));
+    let caps = engine_caps_from_manifest(&manifest);
     eprintln!(
         "[seedmin] {} keys, start list {} seeds, engine features {:?}",
         keys.len(),

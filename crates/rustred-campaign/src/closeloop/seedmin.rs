@@ -183,15 +183,14 @@ fn decided(a: &TrialAnswer) -> bool {
     !matches!(a, TrialAnswer::Undecided { .. })
 }
 
-/// The engine's capabilities from `<program> version --json` (features); empty on any failure.
-pub fn engine_caps(program: &Path) -> EngineCaps {
-    let out = std::process::Command::new(program)
-        .args(["version", "--json"])
-        .stdin(std::process::Stdio::null())
-        .output();
-    let features: Vec<String> = out
+/// The engine's capabilities from its MANIFEST: a `version.json` file with the `features` list that `rr_node version
+/// --json` prints (every frozen engine directory carries one). No process is started here (every child of the
+/// supervisor goes through the ONE launch path); a missing or unreadable manifest gives no capability (typed refusals
+/// downstream, never a guess).
+pub fn engine_caps_from_manifest(manifest: &Path) -> EngineCaps {
+    let features: Vec<String> = std::fs::read(manifest)
         .ok()
-        .and_then(|o| serde_json::from_slice::<Value>(&o.stdout).ok())
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
         .and_then(|v| v["features"].as_array().cloned())
         .map(|a| {
             a.iter()
@@ -204,7 +203,7 @@ pub fn engine_caps(program: &Path) -> EngineCaps {
 
 impl ChildTrialSolver {
     /// A solver; loads `work_root/journal.jsonl` when it exists (resume). `caps` = the engine's capabilities (see
-    /// [`engine_caps`]; fake mode: none).
+    /// [`engine_caps_from_manifest`]; fake mode: none).
     pub fn new(
         cfg: ChildConfig,
         sampler: Arc<Sampler>,

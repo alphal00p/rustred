@@ -5,7 +5,9 @@
 //! `LIGHT_PIDNS=1 light_build.sh seedmin test -p rustred-campaign --test seedmin_fake`
 
 use rustred_campaign::adapters::job::{Invocation, Program};
-use rustred_campaign::closeloop::seedmin::{ChildConfig, ChildTrialSolver, FakeAlt, FakeOracle};
+use rustred_campaign::closeloop::seedmin::{
+    ChildConfig, ChildTrialSolver, FakeAlt, FakeOracle, engine_caps_from_manifest,
+};
 use rustred_campaign::resources::{Sampler, SamplerConfig};
 use rustred_campaign_core::seedmin::{
     EngineCaps, LocalValuationJudge, PoleOrder, SeedMinError, SeedMinPolicy, StubSystemPoles,
@@ -237,5 +239,21 @@ fn joint_minimisation_through_fake_children_resumes_from_the_journal() {
         matches!(e, SeedMinError::EngineLacksProbeMode { .. }),
         "{e}"
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn engine_capabilities_come_from_the_manifest_without_a_process() {
+    let dir = root("manifest");
+    let m = dir.join("version.json");
+    std::fs::write(
+        &m,
+        r#"{"program":"rr_node","features":["job","solve_recipe","probe_d"]}"#,
+    )
+    .unwrap();
+    let c = engine_caps_from_manifest(&m);
+    assert!(c.probe_d && !c.minimise && !c.discovery_d);
+    let none = engine_caps_from_manifest(&dir.join("absent.json"));
+    assert!(!none.probe_d && none.features.is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
