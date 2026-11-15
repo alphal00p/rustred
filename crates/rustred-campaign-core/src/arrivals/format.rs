@@ -103,8 +103,29 @@ pub struct Written {
 }
 
 /// Write an arrival-set file from a stream of lines (strictly increasing keys, checked), one line in memory at a
-/// time; the summary (last line) gets the counts and the lines digest. Same bytes as `write` for the same lines.
+/// time; the summary (last line) gets the counts and the lines digest. Same bytes as `write` for the same lines. The
+/// file is written as `<path>.partial` and renamed when complete: on an error nothing is left at `path` (an existing
+/// file there is kept).
 pub fn write_stream(
+    path: &Path,
+    header: &Value,
+    lines: &mut dyn Iterator<Item = Result<ArrivalLine, String>>,
+    summary: &Value,
+) -> Result<Written, String> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".partial");
+    let tmp = std::path::PathBuf::from(tmp);
+    let r = write_stream_to(&tmp, header, lines, summary);
+    match &r {
+        Ok(_) => std::fs::rename(&tmp, path).map_err(|e| format!("{}: {e}", path.display()))?,
+        Err(_) => {
+            let _ = std::fs::remove_file(&tmp);
+        }
+    }
+    r
+}
+
+fn write_stream_to(
     path: &Path,
     header: &Value,
     lines: &mut dyn Iterator<Item = Result<ArrivalLine, String>>,
@@ -274,7 +295,7 @@ mod tests {
         assert_eq!(a.sha256, sha);
         assert_eq!(a.lines, ls);
         assert_eq!(a.summary["exact_keys"], 2);
-        // unsorted input refused at write
+        // unsorted input refused at write; the file written before is untouched and no partial file is left
         assert!(
             write(
                 &p,
@@ -284,6 +305,8 @@ mod tests {
             )
             .is_err()
         );
+        assert_eq!(read(&p).unwrap().sha256, sha);
+        assert!(!d.join("a.jsonl.partial").exists());
         // a forged count is refused at read (lines digest)
         let text = std::fs::read_to_string(&p)
             .unwrap()
