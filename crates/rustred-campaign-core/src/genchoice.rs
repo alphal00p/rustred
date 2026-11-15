@@ -259,8 +259,12 @@ pub enum Select {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct JobPolicy {
+    /// Memory cap of a PROBE job (the session's launch-time `--mem-cap` replaces every job's cap).
     pub cap_bytes: u64,
     pub expected_peak_bytes: u64,
+    /// Memory cap and expected peak of a FULL run (first or alternative); None = the probe values.
+    pub full_cap_bytes: Option<u64>,
+    pub full_expected_peak_bytes: Option<u64>,
     pub heartbeat_s: u32,
     pub stop_grace_s: u32,
 }
@@ -268,8 +272,10 @@ pub struct JobPolicy {
 impl Default for JobPolicy {
     fn default() -> Self {
         JobPolicy {
-            cap_bytes: 32 << 30,
-            expected_peak_bytes: 4 << 30,
+            cap_bytes: 4 << 30,
+            expected_peak_bytes: 2 << 30,
+            full_cap_bytes: Some(16 << 30),
+            full_expected_peak_bytes: Some(4 << 30),
             heartbeat_s: 30,
             stop_grace_s: 60,
         }

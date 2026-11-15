@@ -540,8 +540,18 @@ impl GenChoiceSource {
             rung: it.rung,
             kind: JobKind::Generate,
             priority,
-            cap_bytes: p.job.cap_bytes,
-            expected_peak_bytes: p.job.expected_peak_bytes,
+            cap_bytes: if stage == "probe" {
+                p.job.cap_bytes
+            } else {
+                p.job.full_cap_bytes.unwrap_or(p.job.cap_bytes)
+            },
+            expected_peak_bytes: if stage == "probe" {
+                p.job.expected_peak_bytes
+            } else {
+                p.job
+                    .full_expected_peak_bytes
+                    .unwrap_or(p.job.expected_peak_bytes)
+            },
             cores: 1,
             heartbeat_s: p.job.heartbeat_s,
             stop_grace_s: p.job.stop_grace_s,
