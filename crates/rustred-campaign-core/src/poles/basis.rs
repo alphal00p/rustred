@@ -119,12 +119,15 @@ pub fn node_basis_from_symmasters(
             .iter()
             .filter(|t| !free.contains(t))
             .map(|t| {
+                // the exact map of a pivoted terminal: an EMPTY map = it reduces to 0 (a valid null direction e_t);
+                // an ABSENT map (no reconstruction) = unknown
                 let row = exact
                     .get(&d)
                     .and_then(|m| m[t.as_str()].as_object())
-                    .map(|o| o.iter().map(|(k, c)| json!([k, c])).collect::<Vec<_>>())
-                    .unwrap_or_default();
-                json!({"pivot": t, "row": row, "row_field": "Q (symmasters exact map at this d)"})
+                    .map(|o| o.iter().map(|(k, c)| json!([k, c])).collect::<Vec<_>>());
+                let known = row.is_some();
+                json!({"pivot": t, "row": row.unwrap_or_default(), "row_known": known,
+                    "row_field": "Q (symmasters exact map at this d)"})
             })
             .collect();
         let rows = s["rows_ibp"].as_u64().unwrap_or(0) + s["rows_sym"].as_u64().unwrap_or(0);
@@ -166,10 +169,9 @@ pub fn node_basis_from_symmasters(
             }
             nulls.push(Value::Array(dir));
         }
-        let complete = ss[0]["pivots_in_terminals"].as_array().is_some_and(|a| {
-            a.iter()
-                .all(|p| p["row"].as_array().is_some_and(|r| !r.is_empty()))
-        });
+        let complete = ss[0]["pivots_in_terminals"]
+            .as_array()
+            .is_some_and(|a| a.iter().all(|p| p["row_known"] == true));
         dims.push(json!({"type": "dim", "d": d, "rank_T": ss[0]["rank_T"], "rank_system": ss[0]["rank_system"],
             "free_columns": ss[0]["free_columns"], "null_directions": nulls,
             "status": if same && complete { "ok" } else { "unresolved" }}));
