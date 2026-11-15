@@ -11,7 +11,9 @@
 use rustred_campaign::closeloop::{layers, zeros};
 use rustred_campaign_core::closure::{KeySet, Tier};
 use rustred_campaign_core::import::check::{check_streamed, check_streamed_with_leaves};
-use rustred_campaign_core::import::{CheckOptions, Evidence, ImportedSet, Level, TableSetSpec, load};
+use rustred_campaign_core::import::{
+    CheckOptions, Evidence, ImportedSet, Level, TableSetSpec, load,
+};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -128,7 +130,11 @@ fn opts() -> CheckOptions {
 type Pairs = BTreeSet<(Vec<i32>, Vec<i32>)>;
 
 /// (decisive (key, term key), zero pairs (applied key, terms) as (applied, [term..]) flattened to (applied, term key))
-fn scanned(set: &ImportedSet, ev: &Evidence, res: &rustred_campaign_core::import::CheckResult) -> (Pairs, Pairs) {
+fn scanned(
+    set: &ImportedSet,
+    ev: &Evidence,
+    res: &rustred_campaign_core::import::CheckResult,
+) -> (Pairs, Pairs) {
     let sc = zeros::scan_with(set, ev, res, 2, true).unwrap();
     let decisive = sc
         .decisive
@@ -148,10 +154,13 @@ fn scanned(set: &ImportedSet, ev: &Evidence, res: &rustred_campaign_core::import
 }
 
 #[test]
-fn layered_decisive_zeros_and_zero_pairs_equal_one_walk_of_the_union_and_leaf_keys_are_closure_keys() {
+fn layered_decisive_zeros_and_zero_pairs_equal_one_walk_of_the_union_and_leaf_keys_are_closure_keys()
+ {
     let root = std::env::temp_dir().join(format!("int7-layers-zeros-{}", std::process::id()));
     let (set, ev) = material(&root.join("m"));
-    let ks = |keys: &[[i32; 3]]| KeySet::from_keys(set.codec, keys.iter().map(|k| k.as_slice())).unwrap();
+    let ks = |keys: &[[i32; 3]]| {
+        KeySet::from_keys(set.codec, keys.iter().map(|k| k.as_slice())).unwrap()
+    };
 
     // ONE walk of the union {[5,1,0], [3,2,0]}
     let union = rustred_campaign_core::import::check::check_streamed_from(
@@ -169,11 +178,15 @@ fn layered_decisive_zeros_and_zero_pairs_equal_one_walk_of_the_union_and_leaf_ke
     ]
     .into_iter()
     .collect();
-    assert_eq!(d_union, want, "decisive zeros of the single walk of the union");
+    assert_eq!(
+        d_union, want,
+        "decisive zeros of the single walk of the union"
+    );
 
     // LAYER 0 = {[3,2,0]}, then LAYER 1 = {[5,1,0]} with layer 0's leaf set
     let rows0 = root.join("l0.rows.jsonl");
-    let l0 = check_streamed_with_leaves(&set, &ev, &opts(), &rows0, &ks(&[[3, 2, 0]]), &[]).unwrap();
+    let l0 =
+        check_streamed_with_leaves(&set, &ev, &opts(), &rows0, &ks(&[[3, 2, 0]]), &[]).unwrap();
     let ls0 = layers::leafset_of(
         &set,
         &l0,
@@ -209,11 +222,17 @@ fn layered_decisive_zeros_and_zero_pairs_equal_one_walk_of_the_union_and_leaf_ke
     let layered: Pairs = d0.union(&d1).cloned().collect();
     assert_eq!(layered, d_union, "layered decisive zeros == single walk's");
     let layered_z: Pairs = z0.union(&z1).cloned().collect();
-    assert_eq!(layered_z, z_union, "layered zero pairs == single walk's (all_zeros covers every layer)");
+    assert_eq!(
+        layered_z, z_union,
+        "layered zero pairs == single walk's (all_zeros covers every layer)"
+    );
 
     // WITHOUT the leaf set the same zero is decisive (reach): the leaf-key rule is what makes both agree
     let alone = check_streamed(&set, &ev, &opts(), &root.join("alone.rows.jsonl")).unwrap();
     let (d_alone, _) = scanned(&set, &ev, &alone);
-    assert!(d_alone.contains(&(vec![5, 1, 0], vec![3, 2, 0])), "{d_alone:?}");
+    assert!(
+        d_alone.contains(&(vec![5, 1, 0], vec![3, 2, 0])),
+        "{d_alone:?}"
+    );
     let _ = std::fs::remove_dir_all(&root);
 }

@@ -38,8 +38,8 @@ use symbolica::domains::integer::{Integer, IntegerRing};
 use symbolica::poly::factor::Factorize;
 use symbolica::poly::polynomial::MultivariatePolynomial;
 
-use super::coef_facts::side_budget;
 use super::SymbolicaAlgebra;
+use super::coef_facts::side_budget;
 
 type ZPoly = MultivariatePolynomial<IntegerRing, u16>;
 

@@ -22,14 +22,22 @@ fn cand(id: &str, size: u64, pole: Option<u64>) -> Candidate {
 
 #[test]
 fn without_any_pole_profile_the_size_decides_and_the_choice_says_no_profile() {
-    let cs = [cand("b", 30, None), cand("a", 30, None), cand("c", 10, None)];
+    let cs = [
+        cand("b", 30, None),
+        cand("a", 30, None),
+        cand("c", 10, None),
+    ];
     let c = pole_objective(&cs, &[], &PoleObjective::default(), None)
         .unwrap()
         .unwrap();
     assert_eq!(c.id, "c");
     assert_eq!(c.profile_used, "none");
     assert_eq!(c.reason, ChoiceReason::Economy);
-    assert!(c.report_line().contains("no profile"), "{}", c.report_line());
+    assert!(
+        c.report_line().contains("no profile"),
+        "{}",
+        c.report_line()
+    );
     assert_eq!(c.to_json()["profile_used"], "none");
     // equal sizes: the smaller id (order-independent)
     let c = pole_objective(&cs[..2], &[], &PoleObjective::default(), None)
@@ -65,8 +73,15 @@ fn prefer_regular_is_exact_and_reads_the_one_parser() {
     assert!(prefer_regular(25, 10, &r52).unwrap().0);
     assert!(!prefer_regular(26, 10, &r52).unwrap().0);
     let line = prefer_regular(26, 10, &r52).unwrap().1;
-    assert!(line.contains("max_size_ratio 5/2") && line.contains("over max_size_ratio"), "{line}");
-    assert!(prefer_regular(u64::MAX, 1, &SizeRatio::Word("unbounded".into())).unwrap().0);
+    assert!(
+        line.contains("max_size_ratio 5/2") && line.contains("over max_size_ratio"),
+        "{line}"
+    );
+    assert!(
+        prefer_regular(u64::MAX, 1, &SizeRatio::Word("unbounded".into()))
+            .unwrap()
+            .0
+    );
     assert!(prefer_regular(15, 10, &SizeRatio::Ratio(1.5)).unwrap().0);
     assert!(!prefer_regular(16, 10, &SizeRatio::Ratio(1.5)).unwrap().0);
     // refused: below 1, not a rational, not finite

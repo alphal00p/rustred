@@ -915,7 +915,9 @@ fn check_inner(
                     let leaf_level = c
                         .leaf_hit(j)
                         .filter(|h| h.certified)
-                        .and_then(|h| serde_json::from_value::<Level>(serde_json::Value::String(h.level)).ok())
+                        .and_then(|h| {
+                            serde_json::from_value::<Level>(serde_json::Value::String(h.level)).ok()
+                        })
                         .unwrap_or(Level::Imported);
                     level = level.min(leaf_level);
                     break;

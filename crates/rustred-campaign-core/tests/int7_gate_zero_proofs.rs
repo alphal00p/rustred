@@ -43,7 +43,8 @@ fn rule_line(index: i64, k: i32, extra: bool) -> String {
 }
 
 #[test]
-fn positive_numerator_unknowns_are_their_own_class_without_zero_proofs_and_the_gate_passes_with_them() {
+fn positive_numerator_unknowns_are_their_own_class_without_zero_proofs_and_the_gate_passes_with_them()
+ {
     let dir = std::env::temp_dir().join(format!("int7-gate-zp-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     // [3,1,0] (with the positive-numerator term) -> [2,1,0] -> [1,1,0] (hand-downs only below)
@@ -85,20 +86,24 @@ fn positive_numerator_unknowns_are_their_own_class_without_zero_proofs_and_the_g
         .iter()
         .filter(|(k, _)| k.ends_with("|positive_numerator"))
         .collect();
-    assert_eq!(pos0.len(), 1, "one positive-numerator class: {:?}", r0.by_provenance);
     assert_eq!(
-        pos0[0].1[0],
+        pos0.len(),
         1,
+        "one positive-numerator class: {:?}",
+        r0.by_provenance
+    );
+    assert_eq!(
+        pos0[0].1[0], 1,
         "its one edge: {:?} zero {} edges {} relations {} {s0:?}",
-        r0.by_provenance,
-        r0.zero_terms_skipped,
-        r0.edges,
-        r0.relations
+        r0.by_provenance, r0.zero_terms_skipped, r0.edges, r0.relations
     );
     assert_eq!(r0.zero_terms_skipped, 0);
     assert!(s0.rule_rows >= 2, "{s0:?}");
     // the edge leaves the chart: never lower than the key under the node order, so the gate does not pass
-    assert_eq!(pos0[0].1[1], 1, "the positive-numerator edge is non-descending");
+    assert_eq!(
+        pos0[0].1[1], 1,
+        "the positive-numerator edge is non-descending"
+    );
     assert_ne!(r0.verdict, GateVerdict::Pass, "{:?}", r0.verdict);
     assert!(
         r0.non_descending_listed

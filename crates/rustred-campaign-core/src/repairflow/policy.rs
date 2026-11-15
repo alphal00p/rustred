@@ -260,9 +260,12 @@ pub fn prefer_regular(
         pole_order: pole,
     };
     // the singular candidate's order is not known here: unknown ranks after every regular one, as a singular would
-    let cands = [cand("regular", regular, Some(0)), cand("smallest", smallest.max(1), None)];
-    let keep = select(&cands, exact, CriteriaOrder::RegularFirst)
-        .is_some_and(|c| c.id == "regular");
+    let cands = [
+        cand("regular", regular, Some(0)),
+        cand("smallest", smallest.max(1), None),
+    ];
+    let keep =
+        select(&cands, exact, CriteriaOrder::RegularFirst).is_some_and(|c| c.id == "regular");
     Ok((
         keep,
         format!(
