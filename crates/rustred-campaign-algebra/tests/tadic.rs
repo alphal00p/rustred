@@ -516,7 +516,10 @@ fn tadic_engine_row_span_equality_on_a_recipe() {
         total,
         "seed generation differs from the engine's build_seeds"
     );
-    let used: Vec<Vec<i64>> = serde_json::from_str(rec["seeds_used"].as_str().unwrap()).unwrap();
+    let used: Vec<Vec<i64>> = match &rec["seeds_used"] {
+        serde_json::Value::String(t) => serde_json::from_str(t).unwrap(),
+        v => serde_json::from_value(v.clone()).unwrap(),
+    };
     let used_abs: Vec<Vec<i64>> = used
         .iter()
         .map(|o| (0..n).map(|j| key[j] + o[j]).collect())
