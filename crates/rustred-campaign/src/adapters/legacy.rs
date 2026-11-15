@@ -207,6 +207,8 @@ pub fn argv(spec: &JobSpec) -> Result<Vec<String>, String> {
             "--out".into(),
             format!("out/{COEF_OUT}"),
         ]),
+        // lane symjob: rr_rf_symflow run --request (interfaces/symmetry-composite-job.md 1)
+        JobKind::SymmetryComposite => rustred_campaign_contract::classify::symcomp::argv(spec),
         k => Err(format!("kind {k:?} is not legacy-wrapped")),
     }
 }
@@ -441,6 +443,10 @@ pub fn child_out(kind: JobKind) -> &'static str {
 pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitStatus) -> WaitStatus {
     if !spec.kind.legacy_wrapped() || matches!(wait, WaitStatus::Unknown) {
         return wait;
+    }
+    // lane symjob: kind symmetry-composite has its own wrapper (the child's seal checked, results sealed)
+    if spec.kind == JobKind::SymmetryComposite {
+        return super::symcomp::wrap(layout, spec, spec_blake3, wait);
     }
     let mapped = legacy_wait(wait);
     if layout.outcome().exists() {

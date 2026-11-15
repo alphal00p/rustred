@@ -1054,7 +1054,10 @@ fn symmetry_composite_row(c: i32, stop: Option<StopCode>, v: &VerifiedOutputs) -
         (0, _) if unsolved == 0 => row(
             33,
             "",
-            format!("every key has a shipped relation ({} candidates)", t.accepted),
+            format!(
+                "every key has a shipped relation ({} candidates)",
+                t.accepted
+            ),
         ),
         (10, Some(StopCode::KeysUnsolved)) if unsolved >= 1 && t.accepted >= 1 => row(
             34,

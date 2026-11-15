@@ -36,13 +36,21 @@ fn b3(b: &[u8]) -> String {
 
 const PROG_SHA: &str = "ab12000000000000000000000000000000000000000000000000000000000000";
 
+/// A consistent forger's edit of (table lines, verification lines, result.json) before sealing.
+type ChildEdit = dyn Fn(&mut Vec<String>, &mut Vec<String>, &mut Value);
+/// An edit of (results records, end record).
+type ResultsEdit = dyn Fn(&mut Vec<Value>, &mut Value);
+
 /// One synthetic key of the child: (key, class).
 type K = (Vec<i64>, SymClass);
 
 fn kt(k: &[i64]) -> String {
     format!(
         "I({})",
-        k.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")
+        k.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
     )
 }
 
@@ -91,7 +99,12 @@ fn inputs_dir(t: &TempDir, keys: &[K], with_policy: bool) -> (Vec<InputRef>, Val
 fn job(t: TempDir, mut ins: Vec<InputRef>, req: &Value, attempt: u32) -> Job {
     let run = t.path().join(format!("run{attempt}"));
     let layout = RunLayout::new(&run);
-    for d in [layout.in_dir(), layout.out_dir(), layout.tmp_dir(), layout.sup_dir()] {
+    for d in [
+        layout.in_dir(),
+        layout.out_dir(),
+        layout.tmp_dir(),
+        layout.sup_dir(),
+    ] {
         std::fs::create_dir_all(d).unwrap();
     }
     let rb = serde_json::to_vec_pretty(req).unwrap();
@@ -137,7 +150,7 @@ fn spec_with(run: &Path, inputs: Vec<InputRef>) -> JobSpec {
 
 /// The tool's sealed layout for `keys` (exact format of rr_rf_symflow run --request), optionally altered by `edit`
 /// BEFORE sealing (a consistent forger).
-fn write_child(j: &Job, keys: &[K], edit: &dyn Fn(&mut Vec<String>, &mut Vec<String>, &mut Value)) {
+fn write_child(j: &Job, keys: &[K], edit: &ChildEdit) {
     let out = j.layout.out_dir().join(symcomp::CHILD_DIR);
     std::fs::create_dir_all(&out).unwrap();
     let mut table = vec![
@@ -151,13 +164,19 @@ fn write_child(j: &Job, keys: &[K], edit: &dyn Fn(&mut Vec<String>, &mut Vec<Str
     for (k, c) in keys {
         let face = "{0}x{}";
         let (status, best) = match c {
-            SymClass::Plain => ("ok".to_string(), json!({"element": 1, "terms": 1, "plain": true, "replacements": 0})),
+            SymClass::Plain => (
+                "ok".to_string(),
+                json!({"element": 1, "terms": 1, "plain": true, "replacements": 0}),
+            ),
             SymClass::Composite => (
                 "ok".to_string(),
                 json!({"element": 2, "terms": 2, "plain": false, "replacements": 1}),
             ),
             SymClass::None => ("ok".to_string(), Value::Null),
-            SymClass::OverCap => ("over_cap:row_expansion: symmetry row expansion bound 8".to_string(), Value::Null),
+            SymClass::OverCap => (
+                "over_cap:row_expansion: symmetry row expansion bound 8".to_string(),
+                Value::Null,
+            ),
             SymClass::Error => ("error: no rows".to_string(), Value::Null),
         };
         kl.push_str(
@@ -197,15 +216,16 @@ fn write_child(j: &Job, keys: &[K], edit: &dyn Fn(&mut Vec<String>, &mut Vec<Str
         }
     }
     let shipped = ver.len();
-    let req: Value = serde_json::from_slice(
-        &std::fs::read(j.layout.in_dir().join("request.json")).unwrap(),
-    )
-    .unwrap();
+    let req: Value =
+        serde_json::from_slice(&std::fs::read(j.layout.in_dir().join("request.json")).unwrap())
+            .unwrap();
     let rb = std::fs::read(j.layout.in_dir().join("request.json")).unwrap();
     let mut inputs = vec![];
     for role in symcomp::PINNED_ROLES {
         if !req[role].is_null() {
-            inputs.push(json!({"role": role, "path": req[role]["path"], "sha256": req[role]["sha256"]}));
+            inputs.push(
+                json!({"role": role, "path": req[role]["path"], "sha256": req[role]["sha256"]}),
+            );
         }
     }
     let mut result = json!({"schema": symcomp::RESULT_SCHEMA, "verdict": "DONE", "request_sha256": sha(&rb),
@@ -318,8 +338,14 @@ fn spec_rules_of_the_kind() {
     // the legacy argv is derived from the spec only
     let a = symcomp::argv(&j.spec).unwrap();
     assert_eq!(a[0], "run");
-    assert_eq!(a[2], j.layout.in_dir().join("request.json").display().to_string());
-    assert_eq!(a[4], j.layout.out_dir().join("symflow").display().to_string());
+    assert_eq!(
+        a[2],
+        j.layout.in_dir().join("request.json").display().to_string()
+    );
+    assert_eq!(
+        a[4],
+        j.layout.out_dir().join("symflow").display().to_string()
+    );
 }
 
 #[test]
@@ -328,25 +354,55 @@ fn rows_33_34_35_from_a_sealed_child() {
     let j = fresh("r33", &keys3());
     write_child(&j, &keys3(), &no_edit);
     let c = settle(&j, WaitStatus::Exited(0));
-    assert_eq!((c.row, c.accept, c.action), (33, Accept::SuppliedRelations, Action::ItemDone), "{}", c.why);
+    assert_eq!(
+        (c.row, c.accept, c.action),
+        (33, Accept::SuppliedRelations, Action::ItemDone),
+        "{}",
+        c.why
+    );
     assert_eq!(c.kind, OutcomeKind::Complete);
     // the sealed results: 3 key records, 3 relations, 6 file records; tally accepted 3
-    let ev = classify::assess(&j.layout, &j.spec, &j.digest, WaitStatus::Exited(0), KillReason::None, false);
+    let ev = classify::assess(
+        &j.layout,
+        &j.spec,
+        &j.digest,
+        WaitStatus::Exited(0),
+        KillReason::None,
+        false,
+    );
     let v = ev.verified.unwrap();
     let t = v.relations.unwrap();
     assert_eq!((t.records, t.accepted, t.unsolved_total()), (3, 3, 0));
-    assert!(t.determinism_id.unwrap().starts_with(symcomp::DETERMINISM_PREFIX));
+    assert!(
+        t.determinism_id
+            .unwrap()
+            .starts_with(symcomp::DETERMINISM_PREFIX)
+    );
     // 34: some keys none / over_cap / error -> exit 10 keys_unsolved, typed per-key classes with their routes
     let j = fresh("r34", &mixed());
     write_child(&j, &mixed(), &no_edit);
     let c = settle(&j, WaitStatus::Exited(0));
-    assert_eq!((c.row, c.accept, c.action), (34, Accept::SuppliedRelations, Action::QueueFailures), "{}", c.why);
-    let ev = classify::assess(&j.layout, &j.spec, &j.digest, WaitStatus::Exited(10), KillReason::None, false);
+    assert_eq!(
+        (c.row, c.accept, c.action),
+        (34, Accept::SuppliedRelations, Action::QueueFailures),
+        "{}",
+        c.why
+    );
+    let ev = classify::assess(
+        &j.layout,
+        &j.spec,
+        &j.digest,
+        WaitStatus::Exited(10),
+        KillReason::None,
+        false,
+    );
     let o = match &ev.outcome {
         classify::OutcomeState::Valid(o) => o.clone(),
         x => panic!("{x:?}"),
     };
-    let (res, t) = classify::symmetry_composite_tally(&j.layout, &j.spec, &o, ev.verified.as_ref().unwrap()).unwrap();
+    let (res, t) =
+        classify::symmetry_composite_tally(&j.layout, &j.spec, &o, ev.verified.as_ref().unwrap())
+            .unwrap();
     assert_eq!((t.records, t.accepted), (5, 2));
     assert_eq!(t.unsolved.get(&FailureClass::NoSymmetryRelation), Some(&1));
     assert_eq!(t.unsolved.get(&FailureClass::OverCapRowExpansion), Some(&1));
@@ -354,39 +410,82 @@ fn rows_33_34_35_from_a_sealed_child() {
     let classes: Vec<SymClass> = res.keys.iter().map(|k| k.class).collect();
     assert_eq!(classes, mixed().iter().map(|(_, c)| *c).collect::<Vec<_>>());
     use rustred_campaign_contract::classify::recipe::KeyRoute;
-    assert_eq!(FailureClass::NoSymmetryRelation.route(), KeyRoute::NextRecipeRung);
-    assert_eq!(FailureClass::OverCapRowExpansion.route(), KeyRoute::NextWorkClass);
+    assert_eq!(
+        FailureClass::NoSymmetryRelation.route(),
+        KeyRoute::NextRecipeRung
+    );
+    assert_eq!(
+        FailureClass::OverCapRowExpansion.route(),
+        KeyRoute::NextWorkClass
+    );
     assert_eq!(o.counters.rules_committed, 2);
     assert!(o.effective.as_ref().unwrap().verify());
     // 35: no relation at all
-    let none: Vec<K> = vec![(vec![1, 1, 0, 0], SymClass::None), (vec![2, 2, 0, 0], SymClass::OverCap)];
+    let none: Vec<K> = vec![
+        (vec![1, 1, 0, 0], SymClass::None),
+        (vec![2, 2, 0, 0], SymClass::OverCap),
+    ];
     let j = fresh("r35", &none);
     write_child(&j, &none, &no_edit);
     let c = settle(&j, WaitStatus::Exited(0));
-    assert_eq!((c.row, c.accept, c.action), (35, Accept::Nothing, Action::QueueFailures), "{}", c.why);
+    assert_eq!(
+        (c.row, c.accept, c.action),
+        (35, Accept::Nothing, Action::QueueFailures),
+        "{}",
+        c.why
+    );
 }
 
 #[test]
 fn row_36_results_bound_to_other_inputs() {
-    let cases: Vec<(&str, Box<dyn Fn(&mut Vec<String>, &mut Vec<String>, &mut Value)>)> = vec![
-        ("request digest", Box::new(|_, _, r| r["request_sha256"] = json!("00".repeat(32)))),
-        ("input path", Box::new(|_, _, r| r["inputs"][0]["path"] = json!("/elsewhere/import-spec.json"))),
-        ("input digest", Box::new(|_, _, r| r["inputs"][1]["sha256"] = json!("11".repeat(32)))),
-        ("input missing", Box::new(|_, _, r| { r["inputs"].as_array_mut().unwrap().pop(); })),
-        ("tool digest", Box::new(|_, _, r| r["tool"]["sha256"] = json!("ff".repeat(32)))),
+    let cases: Vec<(&str, Box<ChildEdit>)> = vec![
+        (
+            "request digest",
+            Box::new(|_, _, r| r["request_sha256"] = json!("00".repeat(32))),
+        ),
+        (
+            "input path",
+            Box::new(|_, _, r| r["inputs"][0]["path"] = json!("/elsewhere/import-spec.json")),
+        ),
+        (
+            "input digest",
+            Box::new(|_, _, r| r["inputs"][1]["sha256"] = json!("11".repeat(32))),
+        ),
+        (
+            "input missing",
+            Box::new(|_, _, r| {
+                r["inputs"].as_array_mut().unwrap().pop();
+            }),
+        ),
+        (
+            "tool digest",
+            Box::new(|_, _, r| r["tool"]["sha256"] = json!("ff".repeat(32))),
+        ),
     ];
     for (what, edit) in cases {
         let j = fresh("r36", &keys3());
         write_child(&j, &keys3(), &*edit);
         let c = settle(&j, WaitStatus::Exited(0));
-        assert_eq!((c.row, c.accept, c.action), (36, Accept::Nothing, Action::ItemAttentionNoRetry), "{what}: {}", c.why);
+        assert_eq!(
+            (c.row, c.accept, c.action),
+            (36, Accept::Nothing, Action::ItemAttentionNoRetry),
+            "{what}: {}",
+            c.why
+        );
         assert!(c.attention);
         assert!(!j.layout.results().exists(), "{what}: nothing sealed");
     }
     // the request itself pins a file that changed after the spec was written
     let j = fresh("r36b", &keys3());
     write_child(&j, &keys3(), &no_edit);
-    let kp = j.spec.inputs.iter().find(|i| i.role == "keys").unwrap().path.clone();
+    let kp = j
+        .spec
+        .inputs
+        .iter()
+        .find(|i| i.role == "keys")
+        .unwrap()
+        .path
+        .clone();
     std::fs::write(&kp, "[9,9,9,9]\n").unwrap();
     let c = settle(&j, WaitStatus::Exited(0));
     assert_eq!(c.row, 36, "{}", c.why);
@@ -398,7 +497,10 @@ fn row_36_results_bound_to_other_inputs() {
     req["keys"]["path"] = json!(other.display().to_string());
     let j = job(t, ins, &req, 1);
     write_child(&j, &keys3(), &no_edit);
-    assert!(matches!(symcomp::check_child(&j.spec, &sha), Err(ChildRefusal::PinnedInputs(_))));
+    assert!(matches!(
+        symcomp::check_child(&j.spec, &sha),
+        Err(ChildRefusal::PinnedInputs(_))
+    ));
     assert_eq!(settle(&j, WaitStatus::Exited(0)).row, 36);
 }
 
@@ -407,44 +509,97 @@ fn unsealed_truncated_tampered_and_self_check_failures_accept_nothing() {
     type Mut = Box<dyn Fn(&Path)>;
     let dir = |j: &Job| j.layout.out_dir().join(symcomp::CHILD_DIR);
     let cases: Vec<(&str, Mut)> = vec![
-        ("no result.json", Box::new(|d: &Path| std::fs::remove_file(d.join("result.json")).unwrap())),
-        ("result.json torn", Box::new(|d: &Path| std::fs::write(d.join("result.json"), "{\"schema\":").unwrap())),
-        ("table truncated", Box::new(|d: &Path| {
-            let p = d.join("composite.table.jsonl");
-            let b = std::fs::read(&p).unwrap();
-            std::fs::write(&p, &b[..b.len() - 7]).unwrap();
-        })),
-        ("coefficient changed after the seal", Box::new(|d: &Path| {
-            let p = d.join("composite.table.jsonl");
-            let s = std::fs::read_to_string(&p).unwrap().replacen("\"1\"]]", "\"2\"]]", 1);
-            std::fs::write(&p, s).unwrap();
-        })),
-        ("SHA256SUMS changed", Box::new(|d: &Path| std::fs::write(d.join("SHA256SUMS"), "x\n").unwrap())),
-        ("a file missing", Box::new(|d: &Path| std::fs::remove_file(d.join("report.json")).unwrap())),
+        (
+            "no result.json",
+            Box::new(|d: &Path| std::fs::remove_file(d.join("result.json")).unwrap()),
+        ),
+        (
+            "result.json torn",
+            Box::new(|d: &Path| std::fs::write(d.join("result.json"), "{\"schema\":").unwrap()),
+        ),
+        (
+            "table truncated",
+            Box::new(|d: &Path| {
+                let p = d.join("composite.table.jsonl");
+                let b = std::fs::read(&p).unwrap();
+                std::fs::write(&p, &b[..b.len() - 7]).unwrap();
+            }),
+        ),
+        (
+            "coefficient changed after the seal",
+            Box::new(|d: &Path| {
+                let p = d.join("composite.table.jsonl");
+                let s = std::fs::read_to_string(&p)
+                    .unwrap()
+                    .replacen("\"1\"]]", "\"2\"]]", 1);
+                std::fs::write(&p, s).unwrap();
+            }),
+        ),
+        (
+            "SHA256SUMS changed",
+            Box::new(|d: &Path| std::fs::write(d.join("SHA256SUMS"), "x\n").unwrap()),
+        ),
+        (
+            "a file missing",
+            Box::new(|d: &Path| std::fs::remove_file(d.join("report.json")).unwrap()),
+        ),
     ];
     for (what, m) in cases {
         let j = fresh("r22", &keys3());
         write_child(&j, &keys3(), &no_edit);
         m(&dir(&j));
         let c = settle(&j, WaitStatus::Exited(0));
-        assert_eq!((c.row, c.accept), (22, Accept::Nothing), "{what}: {}", c.why);
+        assert_eq!(
+            (c.row, c.accept),
+            (22, Accept::Nothing),
+            "{what}: {}",
+            c.why
+        );
         assert!(!j.layout.results().exists(), "{what}");
-        assert!(j.layout.sup_dir().join(symcomp::REFUSAL_FILE).exists(), "{what}");
+        assert!(
+            j.layout.sup_dir().join(symcomp::REFUSAL_FILE).exists(),
+            "{what}"
+        );
     }
     // consistent (re-sealed) children whose content contradicts itself: refused by the seal check
-    let edits: Vec<(&str, Box<dyn Fn(&mut Vec<String>, &mut Vec<String>, &mut Value)>)> = vec![
-        ("self-check below shipped", Box::new(|_, _, r| r["independently_verified"] = json!(2))),
-        ("relation count", Box::new(|_, _, r| r["shipped_relations"] = json!(2))),
-        ("a relation dropped", Box::new(|t, v, _| { t.pop(); v.pop(); })),
-        ("target of another key", Box::new(|t, _, _| { t[1] = t[1].replace("\"fixed\":[2,1,0,0]", "\"fixed\":[7,1,0,0]"); })),
+    let edits: Vec<(&str, Box<ChildEdit>)> = vec![
+        (
+            "self-check below shipped",
+            Box::new(|_, _, r| r["independently_verified"] = json!(2)),
+        ),
+        (
+            "relation count",
+            Box::new(|_, _, r| r["shipped_relations"] = json!(2)),
+        ),
+        (
+            "a relation dropped",
+            Box::new(|t, v, _| {
+                t.pop();
+                v.pop();
+            }),
+        ),
+        (
+            "target of another key",
+            Box::new(|t, _, _| {
+                t[1] = t[1].replace("\"fixed\":[2,1,0,0]", "\"fixed\":[7,1,0,0]");
+            }),
+        ),
         ("keys count", Box::new(|_, _, r| r["keys"] = json!(4))),
-        ("verdict", Box::new(|_, _, r| r["verdict"] = json!("PARTIAL"))),
+        (
+            "verdict",
+            Box::new(|_, _, r| r["verdict"] = json!("PARTIAL")),
+        ),
     ];
     for (what, e) in edits {
         let j = fresh("r22b", &keys3());
         write_child(&j, &keys3(), &*e);
         let c = settle(&j, WaitStatus::Exited(0));
-        assert_eq!((c.row, c.accept), (22, Accept::Nothing), "{what}: {}", c.why);
+        assert_eq!(
+            (c.row, c.accept),
+            (22, Accept::Nothing),
+            "{what}: {}",
+            c.why
+        );
     }
     // keys of the child are not the keys input
     let j = fresh("r22c", &keys3());
@@ -459,14 +614,30 @@ fn a_consistently_resealed_forgery_passes_the_contract_but_a_tampered_results_st
     // a forger who changes a coefficient BEFORE sealing produces a valid seal: the contract accepts the CANDIDATES
     // (row 33); only the import's verification can refuse the relation (supervisor fake test)
     let j = fresh("forge", &keys3());
-    write_child(&j, &keys3(), &|t, _, _| t[1] = t[1].replace("\"1\"]]", "\"5/7\"]]"));
+    write_child(&j, &keys3(), &|t, _, _| {
+        t[1] = t[1].replace("\"1\"]]", "\"5/7\"]]")
+    });
     let c = settle(&j, WaitStatus::Exited(0));
-    assert_eq!((c.row, c.accept), (33, Accept::SuppliedRelations), "{}", c.why);
+    assert_eq!(
+        (c.row, c.accept),
+        (33, Accept::SuppliedRelations),
+        "{}",
+        c.why
+    );
     // the wrapper's sealed stream changed after sealing (in place or re-sealed by hand): S false -> 22
     let p = j.layout.results();
-    let s = std::fs::read_to_string(&p).unwrap().replacen("\"plain\"", "\"composite\"", 1);
+    let s = std::fs::read_to_string(&p)
+        .unwrap()
+        .replacen("\"plain\"", "\"composite\"", 1);
     std::fs::write(&p, s).unwrap();
-    let ev = classify::assess(&j.layout, &j.spec, &j.digest, WaitStatus::Exited(0), KillReason::None, false);
+    let ev = classify::assess(
+        &j.layout,
+        &j.spec,
+        &j.digest,
+        WaitStatus::Exited(0),
+        KillReason::None,
+        false,
+    );
     assert_eq!(classify::classify(&ev).row, 22);
 }
 
@@ -476,21 +647,47 @@ fn tally_refuses_inconsistent_results_streams() {
     write_child(&j, &mixed(), &no_edit);
     let seal = symcomp::check_child(&j.spec, &sha).unwrap();
     let lines = |recs: Vec<Value>, end: Value| -> Vec<Vec<u8>> {
-        recs.iter().chain([&end]).map(|r| r.to_string().into_bytes()).collect()
+        recs.iter()
+            .chain([&end])
+            .map(|r| r.to_string().into_bytes())
+            .collect()
     };
     let recs = symcomp::results_records(&seal);
     let end = symcomp::end_record(&seal);
     symcomp::tally(&lines(recs.clone(), end.clone()), &j.spec).unwrap();
-    let bad: Vec<(&str, Box<dyn Fn(&mut Vec<Value>, &mut Value)>)> = vec![
+    let bad: Vec<(&str, Box<ResultsEdit>)> = vec![
         ("key out of order", Box::new(|r, _| r.swap(0, 1))),
-        ("unknown outcome", Box::new(|r, _| r[0]["outcome"] = json!("maybe"))),
-        ("relation without key", Box::new(|r, _| r[1]["relation"] = json!(0))),
-        ("relation target", Box::new(|r, _| r[5]["target"] = json!([9, 9, 9, 9]))),
-        ("file record missing", Box::new(|r, _| { r.pop(); })),
+        (
+            "unknown outcome",
+            Box::new(|r, _| r[0]["outcome"] = json!("maybe")),
+        ),
+        (
+            "relation without key",
+            Box::new(|r, _| r[1]["relation"] = json!(0)),
+        ),
+        (
+            "relation target",
+            Box::new(|r, _| r[5]["target"] = json!([9, 9, 9, 9])),
+        ),
+        (
+            "file record missing",
+            Box::new(|r, _| {
+                r.pop();
+            }),
+        ),
         ("end records", Box::new(|_, e| e["records"] = json!(1))),
-        ("end self-check", Box::new(|_, e| e["independently_verified"] = json!(0))),
-        ("request of another job", Box::new(|_, e| e["request_blake3"] = json!(D1))),
-        ("unknown record type", Box::new(|r, _| r.push(json!({"type": "rule", "index": 0})))),
+        (
+            "end self-check",
+            Box::new(|_, e| e["independently_verified"] = json!(0)),
+        ),
+        (
+            "request of another job",
+            Box::new(|_, e| e["request_blake3"] = json!(D1)),
+        ),
+        (
+            "unknown record type",
+            Box::new(|r, _| r.push(json!({"type": "rule", "index": 0}))),
+        ),
     ];
     for (what, f) in bad {
         let (mut r, mut e) = (recs.clone(), end.clone());
@@ -503,9 +700,18 @@ fn tally_refuses_inconsistent_results_streams() {
 fn tool_refusal_resource_failure_and_signals() {
     // exit 2 -> 41 (row 13, attention, no retry: deterministic)
     let j = fresh("r13", &keys3());
-    std::fs::write(j.layout.stdout_log(), "{\"verdict\":\"ERROR\",\"error\":\"import load: frame\"}\n").unwrap();
+    std::fs::write(
+        j.layout.stdout_log(),
+        "{\"verdict\":\"ERROR\",\"error\":\"import load: frame\"}\n",
+    )
+    .unwrap();
     let c = settle(&j, WaitStatus::Exited(2));
-    assert_eq!((c.row, c.action), (13, Action::ItemAttentionNoRetry), "{}", c.why);
+    assert_eq!(
+        (c.row, c.action),
+        (13, Action::ItemAttentionNoRetry),
+        "{}",
+        c.why
+    );
     // exit 2 naming a host resource errno -> 51 (row 15b: retry after back-off, then attention)
     let j = fresh("r15b", &keys3());
     std::fs::write(
@@ -514,11 +720,23 @@ fn tool_refusal_resource_failure_and_signals() {
     )
     .unwrap();
     let c = settle(&j, WaitStatus::Exited(2));
-    assert_eq!((c.row, c.sub.as_str(), c.action), (15, "b", Action::RetryAfterResourceBackoff), "{}", c.why);
+    assert_eq!(
+        (c.row, c.sub.as_str(), c.action),
+        (15, "b", Action::RetryAfterResourceBackoff),
+        "{}",
+        c.why
+    );
     // killed (OOM / signal from outside): no OUTCOME, nothing accepted (rows 18 / 21)
     let j = fresh("r21", &keys3());
     write_child(&j, &keys3(), &no_edit);
-    let w = symcomp::wrap(&j.layout, &j.spec, &j.digest, WaitStatus::Signaled(9), &sha, true);
+    let w = symcomp::wrap(
+        &j.layout,
+        &j.spec,
+        &j.digest,
+        WaitStatus::Signaled(9),
+        &sha,
+        true,
+    );
     assert_eq!(w, WaitStatus::Signaled(9));
     let ev = classify::assess(&j.layout, &j.spec, &j.digest, w, KillReason::None, false);
     assert_eq!(classify::classify(&ev).row, 21);
@@ -550,8 +768,7 @@ fn effective_digest_is_pinned_and_deterministic() {
     h.update(canonical.as_bytes());
     assert_eq!(e.blake3, h.finalize().to_hex().to_string());
     assert_eq!(
-        e.blake3,
-        "719fb2e6f0d3273a52656d871c054749308936509cc7668c51c1d6961fc78c2f",
+        e.blake3, "719fb2e6f0d3273a52656d871c054749308936509cc7668c51c1d6961fc78c2f",
         "pinned vector (recompute only for a deliberate change of the definition)"
     );
     assert_eq!(symcomp::effective(&opts, true).unwrap().blake3, e.blake3);
@@ -573,8 +790,18 @@ fn effective_digest_is_pinned_and_deterministic() {
     for j in [&j1, &j2] {
         write_child(j, &mixed(), &no_edit);
         assert_eq!(settle(j, WaitStatus::Exited(0)).row, 34);
-        let o = rustred_campaign_contract::outcome::Outcome::from_slice(&std::fs::read(j.layout.outcome()).unwrap()).unwrap();
-        let x = o.job.outputs.extra.iter().find(|x| x.role == "results").unwrap().clone();
+        let o = rustred_campaign_contract::outcome::Outcome::from_slice(
+            &std::fs::read(j.layout.outcome()).unwrap(),
+        )
+        .unwrap();
+        let x = o
+            .job
+            .outputs
+            .extra
+            .iter()
+            .find(|x| x.role == "results")
+            .unwrap()
+            .clone();
         digests.push((o.job.effective.unwrap().blake3, x.canonical_blake3));
     }
     assert_eq!(digests[0], digests[1]);
@@ -582,13 +809,43 @@ fn effective_digest_is_pinned_and_deterministic() {
 
 #[test]
 fn rows_33_to_36_are_in_the_table_with_their_columns() {
-    let get = |r: u8| ROWS.iter().find(|x| x.row == r && x.sub.is_empty()).unwrap();
-    assert_eq!((get(33).kind, get(33).accept, get(33).action), (OutcomeKind::Complete, Accept::SuppliedRelations, Action::ItemDone));
-    assert_eq!((get(34).kind, get(34).accept, get(34).action), (OutcomeKind::RuleFound, Accept::SuppliedRelations, Action::QueueFailures));
-    assert_eq!((get(35).kind, get(35).accept, get(35).action), (OutcomeKind::NoRule, Accept::Nothing, Action::QueueFailures));
-    assert_eq!((get(36).kind, get(36).accept, get(36).action), (OutcomeKind::Refused, Accept::Nothing, Action::ItemAttentionNoRetry));
+    let get = |r: u8| {
+        ROWS.iter()
+            .find(|x| x.row == r && x.sub.is_empty())
+            .unwrap()
+    };
+    assert_eq!(
+        (get(33).kind, get(33).accept, get(33).action),
+        (
+            OutcomeKind::Complete,
+            Accept::SuppliedRelations,
+            Action::ItemDone
+        )
+    );
+    assert_eq!(
+        (get(34).kind, get(34).accept, get(34).action),
+        (
+            OutcomeKind::RuleFound,
+            Accept::SuppliedRelations,
+            Action::QueueFailures
+        )
+    );
+    assert_eq!(
+        (get(35).kind, get(35).accept, get(35).action),
+        (OutcomeKind::NoRule, Accept::Nothing, Action::QueueFailures)
+    );
+    assert_eq!(
+        (get(36).kind, get(36).accept, get(36).action),
+        (
+            OutcomeKind::Refused,
+            Accept::Nothing,
+            Action::ItemAttentionNoRetry
+        )
+    );
     assert_eq!(ROWS.len(), 43);
     assert!(classify::decision_table_markdown().contains("| supplied_relations |"));
     assert!(symcomp::names_pinned_mismatch("PINNED_INPUTS_MISMATCH: x"));
-    assert!(!symcomp::names_pinned_mismatch("NOT_PINNED_INPUTS_MISMATCHED"));
+    assert!(!symcomp::names_pinned_mismatch(
+        "NOT_PINNED_INPUTS_MISMATCHED"
+    ));
 }

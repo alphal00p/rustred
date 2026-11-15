@@ -188,7 +188,8 @@ pub fn contract_accepts(class: FinishClass) -> &'static [ContractAccept] {
     use ContractAccept as A;
     use FinishClass::*;
     match class {
-        Complete => &[A::Canonical, A::Nothing],    // rows 1, 3
+        // rows 1, 3; 33 = kind symmetry-composite (lane symjob: candidates, accepted only through the import)
+        Complete => &[A::Canonical, A::SuppliedRelations, A::Nothing],
         NoRule => &[A::CommittedRules, A::Nothing], // rows 4, 24
         Spill => &[A::CommittedRules],              // row 8
         DecidedNegative => &[A::Nothing],           // row 7 (c=11)
@@ -202,7 +203,8 @@ pub fn contract_accepts(class: FinishClass) -> &'static [ContractAccept] {
         Crashed => &[A::Nothing],                   // rows 6, 16, 17, 22, 23
         SetupError => &[A::Nothing],
         // rows 2, 5; 28 = kind solve-recipe (lane adapters)
-        RuleFound => &[A::Canonical, A::SolvedRecords],
+        // 34 = kind symmetry-composite (lane symjob)
+        RuleFound => &[A::Canonical, A::SolvedRecords, A::SuppliedRelations],
         SealedWithElided => &[A::Nothing], // row 25 (elided witness loci: never used, R-f)
         UnverifiableKind => &[A::Nothing], // row 26 (no sealing rule for the kind)
     }
@@ -215,6 +217,9 @@ pub fn accept_permits_records(a: ContractAccept) -> bool {
         ContractAccept::SolvedRecords => true, // row 28 (lane adapters)
         // line 7 (rows 30-32): diagnostic records are never rule or relation evidence; no record is taken from them here
         ContractAccept::DiagnosticRecords => false,
+        // lane symjob (rows 33 / 34): the sealed results are read and handed to the work source, which accepts each
+        // supplied relation ONLY through the import's own verification (adapters::symcomp::verify_relations)
+        ContractAccept::SuppliedRelations => true,
         ContractAccept::Nothing => false,
     }
 }
@@ -225,6 +230,7 @@ pub fn accept_word(a: ContractAccept) -> &'static str {
         ContractAccept::CommittedRules => "committed_rules",
         ContractAccept::SolvedRecords => "solved_records", // lane adapters (row 28)
         ContractAccept::DiagnosticRecords => "diagnostic_records", // line 7 (rows 30-32)
+        ContractAccept::SuppliedRelations => "supplied_relations", // lane symjob (rows 33 / 34)
         ContractAccept::Nothing => "nothing",
     }
 }

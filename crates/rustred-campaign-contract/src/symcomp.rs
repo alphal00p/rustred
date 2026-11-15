@@ -183,11 +183,16 @@ pub fn request_of(spec: &JobSpec) -> Result<(Vec<u8>, Value), ChildRefusal> {
     let r = input_of(spec, "request").ok_or_else(|| pin("no request input".into()))?;
     let b = std::fs::read(spec.input_path(r)).map_err(|e| pin(format!("request input: {e}")))?;
     if crate::blake3_hex(&b) != r.blake3 {
-        return Err(pin("the request input changed (BLAKE3 differs from the spec's)".into()));
+        return Err(pin(
+            "the request input changed (BLAKE3 differs from the spec's)".into(),
+        ));
     }
     let v: Value = serde_json::from_slice(&b).map_err(|e| pin(format!("request: {e}")))?;
     if v["schema"] != REQUEST_SCHEMA {
-        return Err(pin(format!("request schema {} (expected {REQUEST_SCHEMA})", v["schema"])));
+        return Err(pin(format!(
+            "request schema {} (expected {REQUEST_SCHEMA})",
+            v["schema"]
+        )));
     }
     Ok((b, v))
 }
@@ -206,8 +211,16 @@ pub fn check_pins(
         let want = &request[role];
         match (input_of(spec, role), want.is_null()) {
             (None, true) => continue,
-            (None, false) => return Err(pin(format!("the request pins {role}, the spec has no such input"))),
-            (Some(_), true) => return Err(pin(format!("the spec has input {role}, the request does not pin it"))),
+            (None, false) => {
+                return Err(pin(format!(
+                    "the request pins {role}, the spec has no such input"
+                )));
+            }
+            (Some(_), true) => {
+                return Err(pin(format!(
+                    "the spec has input {role}, the request does not pin it"
+                )));
+            }
             (Some(i), false) => {
                 let p = spec.input_path(i);
                 let rp = want["path"].as_str().unwrap_or_default();
@@ -217,7 +230,8 @@ pub fn check_pins(
                         p.display()
                     )));
                 }
-                let b = std::fs::read(&p).map_err(|e| pin(format!("{role} {}: {e}", p.display())))?;
+                let b =
+                    std::fs::read(&p).map_err(|e| pin(format!("{role} {}: {e}", p.display())))?;
                 if crate::blake3_hex(&b) != i.blake3 {
                     return Err(pin(format!("{role}: BLAKE3 differs from the spec's")));
                 }
@@ -281,7 +295,8 @@ pub fn check_child(spec: &JobSpec, sha256: Sha256Fn) -> Result<ChildSeal, ChildR
     let (req_bytes, req) = request_of(spec)?;
     let pins = check_pins(spec, &req, sha256)?;
     let dir: PathBuf = Path::new(&spec.run_dir).join("out").join(CHILD_DIR);
-    let rb = std::fs::read(dir.join(RESULT_FILE)).map_err(|e| uns(format!("{RESULT_FILE}: {e}")))?;
+    let rb =
+        std::fs::read(dir.join(RESULT_FILE)).map_err(|e| uns(format!("{RESULT_FILE}: {e}")))?;
     let res: Value = serde_json::from_slice(&rb).map_err(|e| uns(format!("{RESULT_FILE}: {e}")))?;
     if res["schema"] != RESULT_SCHEMA || res["verdict"] != "DONE" {
         return Err(uns(format!(
@@ -314,15 +329,23 @@ pub fn check_child(spec: &JobSpec, sha256: Sha256Fn) -> Result<ChildSeal, ChildR
             "result.inputs {got_inputs:?} are not the job's pins {pins:?}"
         )));
     }
-    let want_tool = req[PROGRAM_SHA256].as_str().map(strip_sha).unwrap_or_default();
-    let tool = res["tool"]["sha256"].as_str().map(strip_sha).unwrap_or_default();
+    let want_tool = req[PROGRAM_SHA256]
+        .as_str()
+        .map(strip_sha)
+        .unwrap_or_default();
+    let tool = res["tool"]["sha256"]
+        .as_str()
+        .map(strip_sha)
+        .unwrap_or_default();
     if want_tool.is_empty() || tool != want_tool {
         return Err(pin(format!(
             "result.tool.sha256 {tool:?} is not the launched program's {want_tool:?}"
         )));
     }
     // every sealed file: digest and line count recomputed, SHA256SUMS exactly these, result.outputs exactly these
-    let outs = res["outputs"].as_array().ok_or_else(|| uns("result.outputs".into()))?;
+    let outs = res["outputs"]
+        .as_array()
+        .ok_or_else(|| uns("result.outputs".into()))?;
     if outs.len() != CHILD_FILES.len() {
         return Err(uns(format!("result.outputs lists {} files", outs.len())));
     }
@@ -331,7 +354,10 @@ pub fn check_child(spec: &JobSpec, sha256: Sha256Fn) -> Result<ChildSeal, ChildR
     let mut sums = String::new();
     for (o, name) in outs.iter().zip(CHILD_FILES) {
         if o["file"] != name {
-            return Err(uns(format!("result.outputs names {} where {name} belongs", o["file"])));
+            return Err(uns(format!(
+                "result.outputs names {} where {name} belongs",
+                o["file"]
+            )));
         }
         let b = std::fs::read(dir.join(name)).map_err(|e| uns(format!("{name}: {e}")))?;
         let h = sha256(&b);
@@ -349,7 +375,9 @@ pub fn check_child(spec: &JobSpec, sha256: Sha256Fn) -> Result<ChildSeal, ChildR
     }
     let sb = std::fs::read(dir.join(SUMS_FILE)).map_err(|e| uns(format!("{SUMS_FILE}: {e}")))?;
     if sb != sums.as_bytes() {
-        return Err(uns(format!("{SUMS_FILE} is not the digest list of the five files")));
+        return Err(uns(format!(
+            "{SUMS_FILE} is not the digest list of the five files"
+        )));
     }
     files.push((
         RESULT_FILE.to_string(),
@@ -360,8 +388,8 @@ pub fn check_child(spec: &JobSpec, sha256: Sha256Fn) -> Result<ChildSeal, ChildR
     let kl = lines_of(&bytes[KEYS_FILE]).map_err(|e| uns(format!("{KEYS_FILE}: {e}")))?;
     let mut keys = vec![];
     for (n, l) in kl.iter().enumerate() {
-        let v: Value =
-            serde_json::from_slice(l).map_err(|e| uns(format!("{KEYS_FILE} line {}: {e}", n + 1)))?;
+        let v: Value = serde_json::from_slice(l)
+            .map_err(|e| uns(format!("{KEYS_FILE} line {}: {e}", n + 1)))?;
         let key: Vec<i64> = serde_json::from_value(v["key"].clone())
             .map_err(|e| uns(format!("{KEYS_FILE} line {}: key: {e}", n + 1)))?;
         let status = v["status"].as_str().unwrap_or_default().to_string();
@@ -370,17 +398,28 @@ pub fn check_child(spec: &JobSpec, sha256: Sha256Fn) -> Result<ChildSeal, ChildR
                 Value::Null => SymClass::None,
                 b if b["plain"] == true => SymClass::Plain,
                 b if b["plain"] == false => SymClass::Composite,
-                _ => return Err(uns(format!("{KEYS_FILE} line {}: best without plain", n + 1))),
+                _ => {
+                    return Err(uns(format!(
+                        "{KEYS_FILE} line {}: best without plain",
+                        n + 1
+                    )));
+                }
             }
         } else if status.starts_with("over_cap") {
             SymClass::OverCap
         } else if status.starts_with("error") {
             SymClass::Error
         } else {
-            return Err(uns(format!("{KEYS_FILE} line {}: status {status:?}", n + 1)));
+            return Err(uns(format!(
+                "{KEYS_FILE} line {}: status {status:?}",
+                n + 1
+            )));
         };
         if !class.has_relation() && !v["best"].is_null() {
-            return Err(uns(format!("{KEYS_FILE} line {}: a best without status ok", n + 1)));
+            return Err(uns(format!(
+                "{KEYS_FILE} line {}: a best without status ok",
+                n + 1
+            )));
         }
         keys.push(SymKey {
             key,
@@ -390,7 +429,11 @@ pub fn check_child(spec: &JobSpec, sha256: Sha256Fn) -> Result<ChildSeal, ChildR
         });
     }
     if res["keys"].as_u64() != Some(keys.len() as u64) {
-        return Err(uns(format!("result.keys {} but {} key lines", res["keys"], keys.len())));
+        return Err(uns(format!(
+            "result.keys {} but {} key lines",
+            res["keys"],
+            keys.len()
+        )));
     }
     if let Some(want) = keys_input(spec).map_err(&uns)? {
         let want: Vec<Vec<i64>> = match req["limit"].as_u64() {
@@ -398,20 +441,28 @@ pub fn check_child(spec: &JobSpec, sha256: Sha256Fn) -> Result<ChildSeal, ChildR
             None => want,
         };
         if keys.iter().map(|k| &k.key).ne(want.iter()) {
-            return Err(uns("the child's keys are not the keys input (order, set)".into()));
+            return Err(uns(
+                "the child's keys are not the keys input (order, set)".into()
+            ));
         }
     }
     // shipped relations: table (header + one line each) and verification lines, 1:1 with the keys that have one
     let tl = lines_of(&bytes[TABLE_FILE]).map_err(|e| uns(format!("{TABLE_FILE}: {e}")))?;
-    let vl = lines_of(&bytes[VERIFICATION_FILE]).map_err(|e| uns(format!("{VERIFICATION_FILE}: {e}")))?;
+    let vl = lines_of(&bytes[VERIFICATION_FILE])
+        .map_err(|e| uns(format!("{VERIFICATION_FILE}: {e}")))?;
     let Some((head, tl)) = tl.split_first() else {
         return Err(uns(format!("{TABLE_FILE}: no header")));
     };
-    let h: Value = serde_json::from_slice(head).map_err(|e| uns(format!("{TABLE_FILE} header: {e}")))?;
+    let h: Value =
+        serde_json::from_slice(head).map_err(|e| uns(format!("{TABLE_FILE} header: {e}")))?;
     if h["type"] != "header" || h["kind"] != "symmetry-composite" {
-        return Err(uns(format!("{TABLE_FILE}: line 1 is not the symmetry-composite header")));
+        return Err(uns(format!(
+            "{TABLE_FILE}: line 1 is not the symmetry-composite header"
+        )));
     }
-    let with: Vec<usize> = (0..keys.len()).filter(|&i| keys[i].class.has_relation()).collect();
+    let with: Vec<usize> = (0..keys.len())
+        .filter(|&i| keys[i].class.has_relation())
+        .collect();
     let shipped = res["shipped_relations"].as_u64();
     if tl.len() != vl.len() || tl.len() != with.len() || shipped != Some(tl.len() as u64) {
         return Err(uns(format!(
@@ -422,13 +473,17 @@ pub fn check_child(spec: &JobSpec, sha256: Sha256Fn) -> Result<ChildSeal, ChildR
             shipped
         )));
     }
-    let group_digest = res["group"]["digest"].as_str().unwrap_or_default().to_string();
+    let group_digest = res["group"]["digest"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
     let mut relations = vec![];
     let mut relation_of = vec![None; keys.len()];
     for (j, ((t, v), &ki)) in tl.iter().zip(&vl).zip(&with).enumerate() {
         let at = |m: String| uns(format!("relation {j}: {m}"));
         let tv: Value = serde_json::from_slice(t).map_err(|e| at(format!("table line: {e}")))?;
-        let vv: Value = serde_json::from_slice(v).map_err(|e| at(format!("verification line: {e}")))?;
+        let vv: Value =
+            serde_json::from_slice(v).map_err(|e| at(format!("verification line: {e}")))?;
         let target: Vec<i64> = serde_json::from_value(tv["fixed"].clone())
             .map_err(|e| at(format!("table line fixed: {e}")))?;
         if target != keys[ki].key
@@ -454,7 +509,9 @@ pub fn check_child(spec: &JobSpec, sha256: Sha256Fn) -> Result<ChildSeal, ChildR
             .map(|r| r["record_sha256"].as_str().unwrap_or_default().to_string())
             .collect();
         if plain != records.is_empty() {
-            return Err(at("a plain relation with replacements or a composite without".into()));
+            return Err(at(
+                "a plain relation with replacements or a composite without".into(),
+            ));
         }
         let rhs_terms = tv["rhs"].as_array().map_or(0, Vec::len) as u64;
         if vv["rhs_terms"].as_u64() != Some(rhs_terms) {
@@ -486,7 +543,9 @@ pub fn check_child(spec: &JobSpec, sha256: Sha256Fn) -> Result<ChildSeal, ChildR
         relations,
         files,
         request_sha256: req_sha,
-        request_blake3: input_of(spec, "request").map(|i| i.blake3.clone()).unwrap_or_default(),
+        request_blake3: input_of(spec, "request")
+            .map(|i| i.blake3.clone())
+            .unwrap_or_default(),
         tool_sha256: tool,
         group_digest,
         spec_digest: res["spec_digest"].clone(),
@@ -560,9 +619,13 @@ pub fn tally(lines: &[Vec<u8>], spec: &JobSpec) -> Result<(SymResults, RelationT
     let mut files: BTreeMap<String, (String, u64)> = BTreeMap::new();
     let mut end: Option<Value> = None;
     for (n, l) in lines.iter().enumerate() {
-        let v: Value = serde_json::from_slice(l).map_err(|e| format!("results line {}: {e}", n + 1))?;
+        let v: Value =
+            serde_json::from_slice(l).map_err(|e| format!("results line {}: {e}", n + 1))?;
         if end.is_some() {
-            return Err(format!("results line {}: a record after the end record", n + 1));
+            return Err(format!(
+                "results line {}: a record after the end record",
+                n + 1
+            ));
         }
         match v["type"].as_str() {
             Some("key") => {
@@ -578,7 +641,10 @@ pub fn tally(lines: &[Vec<u8>], spec: &JobSpec) -> Result<(SymResults, RelationT
                     || relation.is_some() != class.has_relation()
                     || (relation.is_none() && !v["relation"].is_null())
                 {
-                    return Err(format!("results line {}: key record ordinal / relation", n + 1));
+                    return Err(format!(
+                        "results line {}: key record ordinal / relation",
+                        n + 1
+                    ));
                 }
                 keys.push(SymKeyOutcome {
                     ordinal: keys.len() as u64,
@@ -592,7 +658,10 @@ pub fn tally(lines: &[Vec<u8>], spec: &JobSpec) -> Result<(SymResults, RelationT
             }
             Some("relation") => {
                 if !files.is_empty() {
-                    return Err(format!("results line {}: relation record out of order", n + 1));
+                    return Err(format!(
+                        "results line {}: relation record out of order",
+                        n + 1
+                    ));
                 }
                 let r: SymRelation = serde_json::from_value(json!({"index": v["index"], "target": v["target"],
                     "line_sha256": v["line_sha256"], "verification_sha256": v["verification_sha256"],
@@ -607,7 +676,10 @@ pub fn tally(lines: &[Vec<u8>], spec: &JobSpec) -> Result<(SymResults, RelationT
             Some("file") => {
                 let f = v["file"].as_str().unwrap_or_default().to_string();
                 let h = v["sha256"].as_str().unwrap_or_default().to_string();
-                if files.insert(f.clone(), (h, v["lines"].as_u64().unwrap_or(0))).is_some() {
+                if files
+                    .insert(f.clone(), (h, v["lines"].as_u64().unwrap_or(0)))
+                    .is_some()
+                {
                     return Err(format!("results line {}: file {f} twice", n + 1));
                 }
             }
@@ -623,19 +695,30 @@ pub fn tally(lines: &[Vec<u8>], spec: &JobSpec) -> Result<(SymResults, RelationT
             if r != j {
                 return Err(format!("key {}: relation {r}, expected {j}", k.ordinal));
             }
-            let rel = relations.get(r as usize).ok_or("a key names a missing relation")?;
+            let rel = relations
+                .get(r as usize)
+                .ok_or("a key names a missing relation")?;
             if rel.target != k.key || rel.plain != (k.class == SymClass::Plain) {
-                return Err(format!("relation {r}: target / plain is not key {}'s", k.ordinal));
+                return Err(format!(
+                    "relation {r}: target / plain is not key {}'s",
+                    k.ordinal
+                ));
             }
             j += 1;
         }
     }
     if j != relations.len() as u64 {
-        return Err(format!("{} relations, {j} keys with a relation", relations.len()));
+        return Err(format!(
+            "{} relations, {j} keys with a relation",
+            relations.len()
+        ));
     }
     let names: Vec<&str> = CHILD_FILES.iter().copied().chain([RESULT_FILE]).collect();
     if files.len() != names.len() || names.iter().any(|f| !files.contains_key(*f)) {
-        return Err(format!("file records {:?} are not the child's files", files.keys()));
+        return Err(format!(
+            "file records {:?} are not the child's files",
+            files.keys()
+        ));
     }
     let total = keys.len() + relations.len() + files.len();
     if end["records"].as_u64() != Some(total as u64)
@@ -650,10 +733,7 @@ pub fn tally(lines: &[Vec<u8>], spec: &JobSpec) -> Result<(SymResults, RelationT
         return Err("results end request_blake3 is not the spec's request input".into());
     }
     if let Some(want) = keys_input(spec)? {
-        let limit = request_of(spec)
-            .map_err(|e| e.to_string())?
-            .1["limit"]
-            .as_u64();
+        let limit = request_of(spec).map_err(|e| e.to_string())?.1["limit"].as_u64();
         let want: Vec<Vec<i64>> = match limit {
             Some(n) => want.into_iter().take(n as usize).collect(),
             None => want,
@@ -713,7 +793,10 @@ impl SymmetryCompositeNodeOptions {
             import_base: request["import_base"].as_str().unwrap_or("/").to_string(),
             limit: request["limit"].as_u64(),
             threads: request["threads"].as_u64().unwrap_or(1).max(1),
-            program_sha256: request[PROGRAM_SHA256].as_str().unwrap_or_default().to_string(),
+            program_sha256: request[PROGRAM_SHA256]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
         }
     }
 }
@@ -923,10 +1006,20 @@ pub fn wrap(
                 .ok()
                 .and_then(|s| s.lines().last().map(str::to_string))
                 .unwrap_or_else(|| "rr_rf_symflow exit 2".into());
-            let j = errored(ExitCode::Input, StopCode::InputError, ErrorClass::Input, msg.clone());
+            let j = errored(
+                ExitCode::Input,
+                StopCode::InputError,
+                ErrorClass::Input,
+                msg.clone(),
+            );
             // row 15b: a refusal naming a HOST resource errno is a resource failure (exit 51), never an input refusal
             if crate::classify::resource_errno_of(&j).is_some() {
-                write(errored(ExitCode::Io, StopCode::IoError, ErrorClass::Io, msg));
+                write(errored(
+                    ExitCode::Io,
+                    StopCode::IoError,
+                    ErrorClass::Io,
+                    msg,
+                ));
                 return WaitStatus::Exited(ExitCode::Io.code());
             }
             write(j);

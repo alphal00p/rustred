@@ -146,6 +146,9 @@ mod solve_recipe;
 // lane closeloop2: the legacy rr_proof kinds emulated (src/bin/rr_fake_child/proof.rs)
 #[path = "rr_fake_child/proof.rs"]
 mod proof;
+// lane symjob: kind symmetry-composite emulated (src/bin/rr_fake_child/symcomp.rs)
+#[path = "rr_fake_child/symcomp.rs"]
+mod symcomp;
 
 mod own {
     use serde_json::Value;
@@ -1621,6 +1624,14 @@ fn run_job(spec_path: &Path) -> ! {
         .is_some_and(|v| v["kind"] == "solve-recipe")
     {
         solve_recipe::run(spec_path)
+    }
+    // lane symjob: kind symmetry-composite (rr_rf_symflow emulated over Q with the campaign core)
+    if std::fs::read(spec_path)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .is_some_and(|v| v["kind"] == "symmetry-composite")
+    {
+        symcomp::run(spec_path)
     }
     if let Some(k) = std::fs::read(spec_path)
         .ok()
