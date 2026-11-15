@@ -59,3 +59,5 @@ pub mod tworow;
 pub mod coreseed;
 // lane seedmin (interfaces/seedmin.md): per-key and joint seed minimisation (REQUEST TO I-INT, one line)
 pub mod seedmin;
+// lane parametric (interfaces/parametric.md; whole-domain descent B1, cone coverage B2): REQUEST TO I-INT, one line
+pub mod parametric;

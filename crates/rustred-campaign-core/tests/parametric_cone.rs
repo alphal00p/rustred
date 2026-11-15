@@ -1,0 +1,225 @@
+//! B2 (interfaces/parametric.md section 2): coverage of a cone at first match. Constructed tables with known gaps,
+//! first-match shadowing by a blocking record, a multi-slot bound against a simplex cone; every certificate re-checked
+//! by the independent checker (incl. an exhaustive box); a seeded differential against brute-force enumeration.
+
+use rustred_campaign_core::cover::{Dispatch, Dispatcher, Table};
+use rustred_campaign_core::domain::CaseDomain;
+use rustred_campaign_core::key::NodeFrame;
+use rustred_campaign_core::parametric::check::check_cone_certificate;
+use rustred_campaign_core::parametric::cone::{Cone, ConeOptions, certificate, cone_coverage};
+use rustred_campaign_core::poly::Poly;
+
+fn poly(s: &str, n: usize) -> Poly {
+    Poly::parse_d_free_exact(s, n).unwrap()
+}
+
+struct Rec {
+    fixed: Vec<Option<i32>>,
+    exceptions: Vec<Vec<&'static str>>,
+    bounds: Vec<&'static str>,
+    elided: bool,
+}
+
+fn rec(n: usize) -> Rec {
+    Rec {
+        fixed: vec![None; n],
+        exceptions: vec![],
+        bounds: vec![],
+        elided: false,
+    }
+}
+
+fn disp(frame: &NodeFrame, recs: &[Rec]) -> Dispatcher {
+    let n = frame.arity();
+    let mut t = Table::new("t", n);
+    for (i, r) in recs.iter().enumerate() {
+        let mut d = CaseDomain::free(n, Some(frame.mask().to_vec()));
+        d.fixed = r.fixed.clone();
+        d.exceptions = r
+            .exceptions
+            .iter()
+            .map(|b| b.iter().map(|m| poly(m, n)).collect())
+            .collect();
+        d.bounds = r.bounds.iter().map(|b| poly(b, n)).collect();
+        d.witness_elided = r.elided;
+        t.push(i as i64, d).unwrap();
+    }
+    Dispatcher::new(vec![t], vec![0])
+        .unwrap()
+        .with_chart(frame.mask().to_vec())
+        .unwrap()
+}
+
+fn run(f: &NodeFrame, d: &Dispatcher, cone: &Cone, ex: (i32, i32)) -> String {
+    let cov = cone_coverage(d, f, cone, &ConeOptions::default()).unwrap();
+    let cert = certificate(&cov, d, f);
+    let chk = check_cone_certificate(&cert, d, f, Some(ex));
+    assert!(chk.ok(), "checker: {:?}\ncertificate: {cert}", chk.problems);
+    cov.verdict.to_string()
+}
+
+#[test]
+fn a_free_record_covers_the_orthant() {
+    let f = NodeFrame::without_header_lines_first(3, 2);
+    let d = disp(&f, &[rec(3)]);
+    assert_eq!(run(&f, &d, &Cone::orthant(), (5, -4)), "covered");
+    assert_eq!(
+        run(&f, &d, &Cone::excess_simplex(&f, 6), (8, -6)),
+        "covered"
+    );
+}
+
+#[test]
+fn a_plane_gap_is_uncovered_on_the_orthant_and_outside_a_cone_that_misses_it() {
+    let f = NodeFrame::without_header_lines_first(3, 2);
+    let mut r = rec(3);
+    r.exceptions = vec![vec!["n0-1"]];
+    let d = disp(&f, &[r]);
+    let cov = cone_coverage(&d, &f, &Cone::orthant(), &ConeOptions::default()).unwrap();
+    assert_eq!(cov.verdict, "uncovered");
+    let w: Vec<i32> = serde_json::from_value(cov.listed[0]["v"]["witness"].clone()).unwrap();
+    assert_eq!(w[0], 1);
+    assert!(!matches!(d.first_match(&w), Ok(Dispatch::Covered(_))));
+    // the cone n0 >= 2 misses the gap
+    let cone = Cone {
+        label: "n0 >= 2".into(),
+        constraints: vec![(vec![-1, 0, 0], -2)],
+    };
+    assert_eq!(run(&f, &d, &cone, (5, -4)), "covered");
+    assert_eq!(run(&f, &d, &Cone::orthant(), (5, -4)), "uncovered");
+}
+
+#[test]
+fn first_match_shadowing_by_a_blocking_record() {
+    // A (n1 = 1, elided witness loci) is selected first and blocks; B (free) would serve: union-covered, dispatch-open
+    let f = NodeFrame::without_header_lines_first(3, 2);
+    let mut a = rec(3);
+    a.fixed[1] = Some(1);
+    a.elided = true;
+    let d = disp(&f, &[a, rec(3)]);
+    let cov = cone_coverage(&d, &f, &Cone::orthant(), &ConeOptions::default()).unwrap();
+    assert_eq!(cov.verdict, "uncovered");
+    let w: Vec<i32> = serde_json::from_value(cov.listed[0]["v"]["witness"].clone()).unwrap();
+    assert_eq!(w[1], 1);
+    assert_eq!(cov.listed[0]["blocked_by"], 0);
+    let cone = Cone {
+        label: "n1 >= 2".into(),
+        constraints: vec![(vec![0, -1, 0], -2)],
+    };
+    assert_eq!(run(&f, &d, &cone, (5, -4)), "covered");
+    // order matters: with B first nothing is open
+    let mut a2 = rec(3);
+    a2.fixed[1] = Some(1);
+    a2.elided = true;
+    let d2 = disp(&f, &[rec(3), a2]);
+    assert_eq!(run(&f, &d2, &Cone::orthant(), (5, -4)), "covered");
+}
+
+#[test]
+fn a_multi_slot_bound_against_simplex_cones() {
+    // the record serves D <= 3 only (n0 + n1 <= 5): the cone D + r <= 3 is covered, D + r <= 4 is not
+    let f = NodeFrame::without_header_lines_first(3, 2);
+    let mut r = rec(3);
+    r.bounds = vec!["5-n0-n1"];
+    let d = disp(&f, &[r]);
+    assert_eq!(
+        run(&f, &d, &Cone::excess_simplex(&f, 3), (6, -5)),
+        "covered"
+    );
+    assert_eq!(
+        run(&f, &d, &Cone::excess_simplex(&f, 4), (6, -5)),
+        "uncovered"
+    );
+    assert_eq!(run(&f, &d, &Cone::orthant(), (6, -5)), "uncovered");
+}
+
+// ---------------------------------------------------------------- seeded differential
+
+struct Rng(u64);
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+    fn below(&mut self, n: u64) -> u64 {
+        self.next() % n
+    }
+}
+
+const EXC: [&str; 10] = [
+    "n0-1", "n0-2", "n1-1", "n1-3", "n2", "n2+1", "n0-n1", "n0-n1-1", "n1+n2-1", "n0+n2-2",
+];
+const BND: [&str; 4] = ["6-n0-n1", "n0-2", "3+n2", "4-n0+n2"];
+
+#[test]
+fn differential_against_brute_force() {
+    let f = NodeFrame::without_header_lines_first(3, 2);
+    let mut rng = Rng(20_261_115);
+    let (mut cov_n, mut unc_n, mut und_n) = (0, 0, 0);
+    for case in 0..120 {
+        let nrec = 1 + rng.below(3) as usize;
+        let mut recs = Vec::new();
+        for _ in 0..nrec {
+            let mut r = rec(3);
+            if rng.below(3) == 0 {
+                let s = rng.below(3) as usize;
+                r.fixed[s] = Some(if s < 2 {
+                    1 + rng.below(2) as i32
+                } else {
+                    -(rng.below(2) as i32)
+                });
+            }
+            for _ in 0..rng.below(3) {
+                r.exceptions
+                    .push(vec![EXC[rng.below(EXC.len() as u64) as usize]]);
+            }
+            if rng.below(3) == 0 {
+                r.bounds.push(BND[rng.below(BND.len() as u64) as usize]);
+            }
+            r.elided = rng.below(6) == 0;
+            recs.push(r);
+        }
+        let d = disp(&f, &recs);
+        let s = 2 + rng.below(3) as i64;
+        let cone = Cone::excess_simplex(&f, s);
+        let cov = cone_coverage(&d, &f, &cone, &ConeOptions::default()).unwrap();
+        let cert = certificate(&cov, &d, &f);
+        let ex = (s as i32 + 1, -(s as i32));
+        let chk = check_cone_certificate(&cert, &d, &f, Some(ex));
+        assert!(chk.ok(), "case {case}: checker {:?}", chk.problems);
+        // brute force: the cone is inside the box
+        let mut open = None;
+        for a in 1..=ex.0 {
+            for b in 1..=ex.0 {
+                for c in ex.1..=0 {
+                    let k = vec![a, b, c];
+                    if cone.contains(&k) && !matches!(d.first_match(&k), Ok(Dispatch::Covered(_))) {
+                        open.get_or_insert(k);
+                    }
+                }
+            }
+        }
+        match cov.verdict {
+            "covered" => {
+                assert!(open.is_none(), "case {case}: covered but {open:?} is open");
+                cov_n += 1;
+            }
+            "uncovered" => {
+                assert!(
+                    open.is_some(),
+                    "case {case}: uncovered but brute force finds no open key"
+                );
+                unc_n += 1;
+            }
+            _ => und_n += 1,
+        }
+    }
+    assert!(
+        cov_n > 10 && unc_n > 10,
+        "generator too narrow: {cov_n} covered, {unc_n} uncovered, {und_n} undecided"
+    );
+    assert!(und_n * 5 < 120, "too many undecided: {und_n}");
+}
