@@ -1276,10 +1276,12 @@ fn certify_given(
             .map(|p| Laurent::normalised(-i64::from(q), p.clone(), i64::MAX / 4))
             .collect();
         for j in 0..n {
-            let mut acc = Laurent::zero(i64::MAX / 4, tv);
-            for (ii, ci) in c.iter().enumerate() {
-                acc = acc.add(&ci.mul(&mexp[ii][j]));
-            }
+            let acc = c
+                .iter()
+                .zip(&mexp)
+                .fold(Laurent::zero(i64::MAX / 4, tv), |acc, (ci, row)| {
+                    acc.add(&ci.mul(&row[j]))
+                });
             if acc.pole_order() > 0 {
                 rows_ok = false;
             }
