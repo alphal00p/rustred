@@ -24,6 +24,29 @@ use rustred_campaign_core::tworow::{
 use serde_json::{Value, json};
 
 const SUNSET: &str = "I(name(S),loops(k1,k2),externals(q),dimension(d),prop(D1,(k1)^2,1),prop(D2,(k2)^2,1),prop(D3,(k1+k2+q)^2,1),prop(D4,(k1+q)^2,0),prop(D5,(k2+q)^2,0),gram(q,q,1))";
+/// The constructed family of the core test (tests/tworow_core.rs SUNBUB) and its weighted test order.
+const SUNBUB: &str = "I(name(SB),loops(k1,k2,k3),externals(q),dimension(d),prop(D1,(k1)^2,1),prop(D2,(k2)^2,1),prop(D3,(k1+k2+q)^2,1),prop(D4,(k3)^2,1),prop(D5,(k2+k3)^2,1),prop(D6,(k1+q)^2,0),prop(D7,(k2+q)^2,0),prop(D8,(k3+q)^2,0),prop(D9,(k1+k3)^2,0),gram(q,q,1))";
+
+fn weighted(chart: &[bool], w: &[i64], a: &[i32], b: &[i32]) -> std::cmp::Ordering {
+    let m = |k: &[i32]| {
+        let (mut lines, mut dots, mut rank, mut wt) = (0i64, 0i64, 0i64, 0i64);
+        for (i, (&v, &l)) in k.iter().zip(chart).enumerate() {
+            if l {
+                if v >= 1 {
+                    lines += 1;
+                    dots += v as i64 - 1;
+                }
+            } else if v < 0 {
+                rank += -v as i64;
+                wt += w[i] * -v as i64;
+            }
+        }
+        (lines, dots, rank, wt)
+    };
+    m(a).cmp(&m(b)).then_with(|| a.cmp(b))
+}
+
+#[allow(dead_code)]
 const BANANA3: &str = "I(name(B),loops(k1,k2,k3),externals(q),dimension(d),prop(D1,(k1)^2,1),prop(D2,(k2)^2,1),prop(D3,(k3)^2,1),prop(D4,(k1+k2+k3+q)^2,1),prop(D5,(k1+q)^2,0),prop(D6,(k2+q)^2,0),prop(D7,(k3+q)^2,0),prop(D8,(k1-k2)^2,0),prop(D9,(k1-k3)^2,0),gram(q,q,1))";
 
 fn box_keys(chart: &[bool], max_line: i32, max_rank: i32) -> Vec<Vec<i32>> {
@@ -64,12 +87,20 @@ fn second_route_agrees_and_symbolica_search_is_identical() {
     let sym = SymbolicaAlgebra::new().unwrap();
     let policy = TwoRowPolicy::default();
     let (mut compared, mut relations, mut planted) = (0usize, 0usize, 0usize);
-    for (text, lines, max_line, max_rank) in [(SUNSET, 3usize, 2, 3), (BANANA3, 4, 2, 2)] {
+    for (text, lines, max_line, max_rank) in [(SUNSET, 3usize, 2, 3), (SUNBUB, 5, 1, 4)] {
         let f = Family::parse(text).unwrap();
         let chart: Vec<bool> = (0..f.n()).map(|i| i < lines).collect();
         let g = verify_derived(&f, &chart, &DeriveOptions::default()).unwrap();
         let c = NodeComparator::legacy(f.n(), None).unwrap();
-        let cmp = |a: &[i32], b: &[i32]| c.cmp(a, b);
+        let w: Vec<i64> = vec![0, 0, 0, 0, 0, 0, 100, 2, 1];
+        let sunbub = text == SUNBUB;
+        let cmp = |a: &[i32], b: &[i32]| {
+            if sunbub {
+                weighted(&chart, &w, a, b)
+            } else {
+                c.cmp(a, b)
+            }
+        };
         for k in box_keys(&chart, max_line, max_rank) {
             if matches!(
                 symmetry_relation_at_key(&Independent, &g, &k, &cmp, 65_536),
