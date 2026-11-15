@@ -396,7 +396,7 @@ fn verify(a: &Args) {
     let mut cfg = prover_cfg(a);
     cfg.report = zero_proofs::Report::All;
     // the file's claims by (record sha256, term, locus)
-    type Claim = (String, Option<String>);
+    type Claim = (String, Option<String>, Option<String>);
     let mut claims: HashMap<
         String,
         BTreeMap<(usize, rustred_campaign_core::import::zero_proofs::Locus), Claim>,
@@ -422,6 +422,7 @@ fn verify(a: &Args) {
                 (
                     pl.verdict.clone(),
                     pl.denominator.map(|d| d.word().to_string()),
+                    pl.den.clone(),
                 ),
             );
         }
@@ -537,9 +538,18 @@ fn verify(a: &Args) {
                 }
                 let claim = cl.get(&(j, l));
                 let ok = match claim {
-                    Some((w, d)) => {
+                    Some((w, d, dt)) => {
                         k.claims_checked += 1;
-                        w == word && (word != "zero_on_locus" || d.as_deref() == den.as_deref())
+                        // a where_regular claim must carry the record's own denominator text (consumers evaluate it)
+                        let den_text_ok = d.as_deref() != Some("where_regular")
+                            || p.side_texts(j)
+                                .ok()
+                                .and_then(|x| x.1)
+                                .map(|s| s.trim().to_string())
+                                == dt.as_deref().map(|s| s.trim().to_string());
+                        w == word
+                            && (word != "zero_on_locus" || d.as_deref() == den.as_deref())
+                            && den_text_ok
                     }
                     // a missing line is allowed for excluded loci, for planes a domain proof covers, and for a failed
                     // domain attempt whose planes carry the claims

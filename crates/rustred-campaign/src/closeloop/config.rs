@@ -379,8 +379,9 @@ pub struct SecondRouteCfg {
     /// numerators, non-decisive top terms, hand-downs, zero sectors): `structural` (DEFAULT: one proof per (record,
     /// term, locus) by `rr_coef_facts`, the exact per-key evaluation where no proof covers the key), `per_key` (the
     /// per-key evaluation only), `off` (closeloop4's behaviour: decisive / elided pairs only). A disagreement blocks.
-    /// ABSENT (None) = `structural` when `proof.exact_eval` is configured, else `off` (recorded as such in the
-    /// result); an EXPLICIT `structural` / `per_key` without `proof.exact_eval` blocks (`all_zeros_unavailable`).
+    /// ABSENT (None) = `structural` (the DEFAULT, implementer decision 2026-11-15 after the real re-runs); a
+    /// zero to confirm without `proof.exact_eval` blocks (`all_zeros_unavailable`): only an explicit `off` accepts a
+    /// zero on one route.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub all_zeros: Option<AllZeros>,
     /// (record, key) pairs of one zeros job (records of one table).

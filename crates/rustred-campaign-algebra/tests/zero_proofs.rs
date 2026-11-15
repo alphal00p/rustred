@@ -188,6 +188,13 @@ fn equations_exceptions_and_denominators() {
     // every proof line reads back through the core's fact-source parser
     let lines = p.take_new();
     assert!(!lines.is_empty());
+    // a where_regular proof carries the term's denominator text (consumers evaluate it at each key)
+    assert!(
+        lines
+            .iter()
+            .any(|l| l["denominator"] == "where_regular" && l["den"] == "(n0+n2-n1+1)"),
+        "{lines:?}"
+    );
     for l in &lines {
         let pl = parse_line(l).unwrap_or_else(|e| panic!("{e}: {l}"));
         assert_eq!(pl.record_sha256, p.sha);

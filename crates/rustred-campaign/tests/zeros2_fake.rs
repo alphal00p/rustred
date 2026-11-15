@@ -6,7 +6,7 @@
 //! - LIED (coefficient `2`, non-zero): `all_zeros` (default with exact evaluation configured) catches it: verdict open,
 //!   `second_route_disagreement:1` naming the term; `all_zeros: off` is closeloop4's behaviour: the node CLOSES (the lie
 //!   is not caught: what this lane fixes);
-//! - an explicit `all_zeros` without `proof.exact_eval` blocks (`all_zeros_unavailable`).
+//! - `all_zeros` (default structural, or explicit) without `proof.exact_eval` blocks (`all_zeros_unavailable`).
 //!
 //! Spawns processes and sends signals: run ONLY inside a private pid namespace (`LIGHT_PIDNS=1 .../light_build.sh
 //! zeros2 test -p rustred-campaign --test zeros2_fake`).
@@ -221,12 +221,16 @@ fn per_key_mode_confirms_and_an_explicit_mode_without_exact_evaluation_blocks() 
             .any(|b| b.starts_with("all_zeros_unavailable:")),
         "{r:#}"
     );
-    // absent mode and no exact evaluation: off, recorded, closes (closeloop4's behaviour)
+    // absent mode (the DEFAULT, structural) and no exact evaluation: a zero to confirm blocks too (never one route)
     let (_t3, sp3, cdir3) = setup("z2abs", &rule, None, false);
     let codes = run_to_end(&sp3, &cdir3, &["--plain"]);
-    assert_eq!(codes.last(), Some(&0), "{codes:?} {}", log_tail(&cdir3));
-    assert_eq!(
-        result_json(&cdir3)["second_route"]["all_zeros"]["mode"],
-        "off"
+    assert_eq!(codes.last(), Some(&10), "{codes:?} {}", log_tail(&cdir3));
+    let r = result_json(&cdir3);
+    assert_eq!(r["second_route"]["all_zeros"]["mode"], "structural");
+    assert!(
+        blockers(&r)
+            .iter()
+            .any(|b| b.starts_with("all_zeros_unavailable:")),
+        "{r:#}"
     );
 }

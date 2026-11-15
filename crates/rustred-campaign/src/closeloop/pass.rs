@@ -858,13 +858,9 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     // lane closeloop4 (closeloop.md 21): ONE scan of the decided exact tier's edges: the decisive zeros AND the
     // standing DESCENT gate (every followed edge strictly lower under the node's FULL comparator; the closure's own
     // Tarjan pass for cycles): `closed` needs non_descending_edges == 0 and cycles == 0
-    // lane zeros2 (closeloop.md 23): the mode of the zero-term route (absent = structural iff exact evaluation is
-    // configured; an explicit mode without it blocks below)
-    let zeros_mode = inp.second_route.all_zeros.unwrap_or(if exact_eval {
-        AllZeros::Structural
-    } else {
-        AllZeros::Off
-    });
+    // lane zeros2 (closeloop.md 23): the mode of the zero-term route (DEFAULT structural; without exact evaluation
+    // configured every zero to confirm blocks below: a zero is never accepted on one route unless `off` is explicit)
+    let zeros_mode = inp.second_route.all_zeros.unwrap_or(AllZeros::Structural);
     let zeros_on = zeros_mode != AllZeros::Off;
     let mut zeros_missing: zeros::ZerosMissing = BTreeMap::new();
     let scan_all = if tier_c_now {
@@ -1078,7 +1074,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                 z_unanswered + z_incomplete
             ));
         }
-        if z_unavailable > 0 && inp.second_route.all_zeros.is_some() {
+        if z_unavailable > 0 {
             blocking.push(format!("all_zeros_unavailable:{z_unavailable}"));
         }
         if !zans.unbound.is_empty() {

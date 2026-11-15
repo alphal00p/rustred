@@ -711,23 +711,37 @@ impl<'r> RecordProver<'r> {
         (self.word_at(j, pt), "key".into())
     }
 
-    /// The proof lines of every outcome decided since the last call (as `cfg.report` selects).
+    /// The proof lines of every outcome decided since the last call (as `cfg.report` selects). A `where_regular` line
+    /// carries the term's denominator text (`den`): consumers evaluate it at each key (interfaces/zero-proofs.md 3).
     pub fn take_new(&mut self) -> Vec<Value> {
         let fresh = std::mem::take(&mut self.fresh);
         let report = self.cfg.report;
-        fresh
-            .into_iter()
-            .filter_map(|(j, l)| {
-                let (o, s) = &self.outcomes[&(j, l)];
-                let keep = match (report, o) {
-                    (_, Outcome::Proved { .. }) => true,
-                    (Report::Proved, _) => false,
-                    (Report::ProvedAndNotProved, Outcome::Excluded(_)) => false,
-                    _ => true,
-                };
-                keep.then(|| proof_line(&self.sha, self.rule.index(), j, l, o, *s))
-            })
-            .collect()
+        let mut out = vec![];
+        for (j, l) in fresh {
+            let (o, s) = &self.outcomes[&(j, l)];
+            let keep = match (report, o) {
+                (_, Outcome::Proved { .. }) => true,
+                (Report::Proved, _) => false,
+                (Report::ProvedAndNotProved, Outcome::Excluded(_)) => false,
+                _ => true,
+            };
+            if !keep {
+                continue;
+            }
+            let mut v = proof_line(&self.sha, self.rule.index(), j, l, o, *s);
+            if matches!(
+                o,
+                Outcome::Proved {
+                    den: DenStatus::WhereRegular,
+                    ..
+                }
+            ) && let Ok((_, Some(d))) = self.side_texts(j)
+            {
+                v["den"] = json!(d.trim());
+            }
+            out.push(v);
+        }
+        out
     }
 
     /// The rule point of `key` (None: not in the record's case / no rule point).

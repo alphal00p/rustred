@@ -4,8 +4,10 @@
 //! as a polynomial in the remaining indices and d, on a LOCUS of the record's rule points: its whole domain, or one
 //! hyperplane `n_p = v` of the rule point (intersected with the domain; case equations may have been used). So at every
 //! key whose rule point lies on the locus the coefficient c_j = N_j / D_j is identically zero in d wherever D_j does not
-//! vanish identically there (`denominator: where_regular`); `nowhere_zero` = the producer also proved that D_j never
-//! vanishes identically on the locus. The proofs are made by the Symbolica-backed producer (`rr_coef_facts`, crate
+//! vanish identically there; `nowhere_zero` = the producer also proved that D_j never vanishes identically on the
+//! locus, `where_regular` = not proved: such a line CARRIES the denominator text (`den`) and counts at a key ONLY where
+//! that denominator does not vanish identically in d at the key's rule point (evaluated here, exactly, with the core's
+//! `domain::PoleLocus`); at a 0/0 key it is not a proof (ONE semantics for every consumer). The proofs are made by the Symbolica-backed producer (`rr_coef_facts`, crate
 //! rustred-campaign-algebra); this module only LOADS (verified: binding to the set's records, term index, parameter,
 //! index echo, closed vocabulary; any violation refuses the file) and LOOKS UP (`is_zero_term`: rule point + hash lookup).
 //!
@@ -22,6 +24,8 @@ use serde_json::Value;
 use super::load::ImportedSet;
 use crate::closure::bodies::rule_point;
 use crate::closure::facts::{CoefFact, FactSource, RegFact, RuleId};
+use crate::domain::{PoleKind, PoleLocus};
+use crate::poly::Poly;
 
 /// Schema of a proof line.
 pub const ZERO_PROOF_SCHEMA: &str = "rustred.campaign.zero-proof.v1";
@@ -106,11 +110,22 @@ impl DenStatus {
 /// The answer of a lookup.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ZeroStatus {
-    /// A proof covers the term at the key and the denominator is proved nowhere zero on its locus.
+    /// A proof covers the term at the key: its numerator vanishes on the locus and the denominator is non-zero at the
+    /// key (proved nowhere zero on the locus, or evaluated non-zero at this key).
     Proved,
-    /// A proof covers the numerator; the denominator's non-vanishing at the key is the record's regularity there.
-    ProvedWhereRegular,
+    /// A proof covers the numerator but the denominator vanishes identically in d at this key (0/0): NOT a proof.
+    DenominatorVanishes,
     NotProved,
+}
+
+/// How a proved line's denominator is checked at a key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DenCheck {
+    NowhereZero,
+    /// `where_regular`: evaluated at the key (the line's `den` text).
+    AtKey(PoleLocus),
+    /// `where_regular` without a readable `den` text: never a proof at a key.
+    Unchecked,
 }
 
 /// One parsed proof line (proved, not proved or excluded).
@@ -122,6 +137,8 @@ pub struct ProofLine {
     pub locus: Locus,
     pub verdict: String,
     pub denominator: Option<DenStatus>,
+    /// The term's denominator text (`where_regular` lines; None: no denominator / not given).
+    pub den: Option<String>,
     pub equations: Vec<u32>,
     /// `program@version` (the line's `tool` word, or `tool.program@tool.version`).
     pub tool: String,
@@ -184,6 +201,7 @@ pub fn parse_line(v: &Value) -> Result<ProofLine, String> {
         locus,
         verdict,
         denominator,
+        den: v["den"].as_str().map(str::to_string),
         equations,
         tool,
     })
@@ -203,6 +221,9 @@ pub struct LoadStats {
     pub lines: u64,
     pub proved: u64,
     pub proved_nowhere_zero: u64,
+    /// `where_regular` lines with a readable denominator (checked at each key) / without one (never a proof).
+    pub den_at_key: u64,
+    pub den_unchecked: u64,
     pub not_proved: u64,
     pub excluded: u64,
     /// Lines of records that are not in the set (skipped).
@@ -212,8 +233,8 @@ pub struct LoadStats {
     pub tools: BTreeSet<String>,
 }
 
-/// The proofs of one record: (term, locus, denominator status), sorted.
-pub type RecordProofs = Vec<(u32, Locus, DenStatus)>;
+/// The proofs of one record: (term, locus, denominator check).
+pub type RecordProofs = Vec<(u32, Locus, DenCheck)>;
 
 /// The proofs of a set, by (table, record) and term (see the module documentation).
 #[derive(Clone, Debug, Default)]
@@ -275,17 +296,35 @@ impl ZeroProofs {
         match (l.verdict.as_str(), l.denominator) {
             (VERDICT_PROVED, Some(d)) => {
                 self.stats.proved += 1;
-                if d == DenStatus::NowhereZero {
-                    self.stats.proved_nowhere_zero += 1;
-                }
+                let check = match d {
+                    DenStatus::NowhereZero => {
+                        self.stats.proved_nowhere_zero += 1;
+                        DenCheck::NowhereZero
+                    }
+                    DenStatus::WhereRegular => match l
+                        .den
+                        .as_deref()
+                        .and_then(|s| Poly::parse_exact(s.trim(), set.arity(), true).ok())
+                    {
+                        Some(p) => {
+                            self.stats.den_at_key += 1;
+                            DenCheck::AtKey(PoleLocus::new(PoleKind::Denominator, &p))
+                        }
+                        None => {
+                            self.stats.den_unchecked += 1;
+                            DenCheck::Unchecked
+                        }
+                    },
+                };
                 let v = self.by_record.entry((t as u32, r as u32)).or_default();
                 if v.is_empty() {
                     self.stats.records += 1;
                 }
-                let e = (l.term, l.locus, d);
-                if !v.contains(&e) {
-                    v.push(e);
-                    v.sort();
+                if !v
+                    .iter()
+                    .any(|(j, lo, c)| *j == l.term && *lo == l.locus && *c == check)
+                {
+                    v.push((l.term, l.locus, check));
                 }
             }
             ("not_proved", _) => self.stats.not_proved += 1,
@@ -361,15 +400,18 @@ impl ZeroProofs {
             return ZeroStatus::NotProved;
         };
         let mut best = ZeroStatus::NotProved;
-        for &(j, locus, den) in v {
-            if j as usize != term {
+        for (j, locus, den) in v {
+            if *j as usize != term || !locus.contains(pt) {
                 continue;
             }
-            if locus.contains(pt) {
-                match den {
-                    DenStatus::NowhereZero => return ZeroStatus::Proved,
-                    DenStatus::WhereRegular => best = ZeroStatus::ProvedWhereRegular,
-                }
+            match den {
+                DenCheck::NowhereZero => return ZeroStatus::Proved,
+                DenCheck::AtKey(pl) => match pl.vanishes_at(pt) {
+                    Ok(false) => return ZeroStatus::Proved,
+                    Ok(true) => best = ZeroStatus::DenominatorVanishes,
+                    Err(_) => {}
+                },
+                DenCheck::Unchecked => {}
             }
         }
         best
@@ -402,7 +444,7 @@ impl ZeroProofs {
     }
 
     /// The proofs of (table, record): (term, locus, denominator status), sorted.
-    pub fn of_record(&self, table: usize, record: usize) -> &[(u32, Locus, DenStatus)] {
+    pub fn of_record(&self, table: usize, record: usize) -> &[(u32, Locus, DenCheck)] {
         self.by_record
             .get(&(table as u32, record as u32))
             .map(Vec::as_slice)
@@ -410,14 +452,13 @@ impl ZeroProofs {
     }
 }
 
-/// A [`FactSource`] that answers like `inner`, except that an `Unknown` coefficient covered by a proof is `Zero`
-/// (`ProvedWhereRegular` only with `accept_where_regular`: the consumer then relies on the record's regularity at the
-/// key, which it must establish itself). Regularity and every other question go to `inner`.
+/// A [`FactSource`] that answers like `inner`, except that an `Unknown` coefficient that a proof covers AT THE KEY
+/// ([`ZeroStatus::Proved`]: the same semantics as [`ZeroProofs::is_zero_term`]) is `Zero`. Regularity and every other
+/// question go to `inner`.
 pub struct ZeroProofFacts<'a> {
     pub set: &'a ImportedSet,
     pub proofs: &'a ZeroProofs,
     pub inner: &'a (dyn FactSource + Sync),
-    pub accept_where_regular: bool,
     tables: BTreeMap<String, usize>,
 }
 
@@ -426,7 +467,6 @@ impl<'a> ZeroProofFacts<'a> {
         set: &'a ImportedSet,
         proofs: &'a ZeroProofs,
         inner: &'a (dyn FactSource + Sync),
-        accept_where_regular: bool,
     ) -> Self {
         let tables = set
             .disp
@@ -439,7 +479,6 @@ impl<'a> ZeroProofFacts<'a> {
             set,
             proofs,
             inner,
-            accept_where_regular,
             tables,
         }
     }
@@ -459,7 +498,6 @@ impl FactSource for ZeroProofFacts<'_> {
             .is_zero_term(self.set, t, rule.record, term, key)
         {
             ZeroStatus::Proved => CoefFact::Zero,
-            ZeroStatus::ProvedWhereRegular if self.accept_where_regular => CoefFact::Zero,
             _ => c,
         }
     }
@@ -561,5 +599,68 @@ mod tests {
             Locus::from_json(&Locus::Domain.json()).unwrap(),
             Locus::Domain
         );
+    }
+
+    #[test]
+    fn a_where_regular_proof_counts_only_where_its_denominator_is_non_zero_at_the_key() {
+        let den = |s: &str| {
+            DenCheck::AtKey(PoleLocus::new(
+                PoleKind::Denominator,
+                &Poly::parse_exact(s, 3, true).unwrap(),
+            ))
+        };
+        let mut z = ZeroProofs::new();
+        z.by_record.insert(
+            (0, 0),
+            vec![
+                (1, Locus::Plane { param: 2, value: 0 }, den("(n0-3)")),
+                (
+                    2,
+                    Locus::Plane { param: 2, value: 0 },
+                    DenCheck::NowhereZero,
+                ),
+                (3, Locus::Plane { param: 2, value: 0 }, DenCheck::Unchecked),
+                // identically zero in d only where n0 = 3 AND n1 = 1 (both d-coefficients vanish)
+                (4, Locus::Domain, den("(n0-3)*d+(n1-1)")),
+            ],
+        );
+        assert_eq!(z.status_at_point(0, 0, 1, &[4, 1, 0]), ZeroStatus::Proved);
+        assert_eq!(
+            z.status_at_point(0, 0, 1, &[3, 1, 0]),
+            ZeroStatus::DenominatorVanishes
+        );
+        assert_eq!(
+            z.status_at_point(0, 0, 1, &[4, 1, -1]),
+            ZeroStatus::NotProved
+        );
+        assert_eq!(z.status_at_point(0, 0, 2, &[3, 1, 0]), ZeroStatus::Proved);
+        assert_eq!(
+            z.status_at_point(0, 0, 3, &[4, 1, 0]),
+            ZeroStatus::NotProved
+        );
+        assert_eq!(z.status_at_point(0, 0, 4, &[3, 2, -5]), ZeroStatus::Proved);
+        assert_eq!(
+            z.status_at_point(0, 0, 4, &[3, 1, -5]),
+            ZeroStatus::DenominatorVanishes
+        );
+        assert_eq!(
+            z.status_at_point(0, 0, 9, &[3, 1, 0]),
+            ZeroStatus::NotProved
+        );
+        assert_eq!(
+            z.status_at_point(0, 1, 1, &[4, 1, 0]),
+            ZeroStatus::NotProved
+        );
+    }
+
+    #[test]
+    fn a_where_regular_line_carries_its_denominator() {
+        let mut v = line(
+            json!({"plane": [2, 0]}),
+            VERDICT_PROVED,
+            Some("where_regular"),
+        );
+        v["den"] = json!("(n0-3)");
+        assert_eq!(parse_line(&v).unwrap().den.as_deref(), Some("(n0-3)"));
     }
 }

@@ -61,9 +61,12 @@ fn zero_proofs_cover_the_positive_numerator_edges_of_a_spec() {
     let served = zeros::served_rule_rows(&set, &res).expect("rows");
     let lines = set.frame.mask().to_vec();
     let t2 = Instant::now();
-    // class -> [pos-num terms, of them first-route unknown, proved, proved where regular, not proved]
+    // class -> [pos-num terms, of them first-route unknown, proved at the key, 0/0 at the key, not proved]; the same for
+    // the NON-DESCENDING terms only (the ship gate's edges: not lower than the key under the node comparator)
     let mut by: BTreeMap<String, [u64; 5]> = BTreeMap::new();
+    let mut by_nd: BTreeMap<String, [u64; 5]> = BTreeMap::new();
     let mut not_proved: BTreeMap<(String, usize), u64> = BTreeMap::new();
+    let mut den0: BTreeMap<(String, usize, Vec<i32>), u64> = BTreeMap::new();
     let mut lookups = 0u64;
     for (key, applied, t, r) in &served {
         let Some(terms) = zeros::term_keys(&set, *t, *r, applied) else {
@@ -76,18 +79,43 @@ fn zero_proofs_cover_the_positive_numerator_edges_of_a_spec() {
             if !tk.iter().zip(&lines).any(|(&x, &l)| !l && x > 0) {
                 continue;
             }
+            let nd = !set.cmp.lower(tk, key);
             let e = by.entry(class.clone()).or_default();
             e[0] += 1;
+            let mut e2 = [0u64; 5];
+            e2[0] = 1;
             if ev.coefficient(&rid, applied, j, tk) != CoefFact::Unknown {
+                if nd {
+                    let f = by_nd.entry(class.clone()).or_default();
+                    f[0] += 1;
+                }
                 continue;
             }
             e[1] += 1;
+            e2[1] = 1;
             lookups += 1;
-            match zp.is_zero_term(&set, *t, *r, j, applied) {
-                ZeroStatus::Proved => e[2] += 1,
-                ZeroStatus::ProvedWhereRegular => e[3] += 1,
+            let st = zp.is_zero_term(&set, *t, *r, j, applied);
+            let slot = match st {
+                ZeroStatus::Proved => 2,
+                ZeroStatus::DenominatorVanishes => 3,
+                ZeroStatus::NotProved => 4,
+            };
+            e[slot] += 1;
+            e2[slot] = 1;
+            if nd {
+                let f = by_nd.entry(class.clone()).or_default();
+                for i in 0..5 {
+                    f[i] += e2[i];
+                }
+            }
+            match st {
+                ZeroStatus::Proved => {}
+                ZeroStatus::DenominatorVanishes => {
+                    *den0
+                        .entry((set.rules[*t][*r].record_sha256.clone(), j, applied.clone()))
+                        .or_default() += 1;
+                }
                 ZeroStatus::NotProved => {
-                    e[4] += 1;
                     *not_proved
                         .entry((set.rules[*t][*r].record_sha256.clone(), j))
                         .or_default() += 1;
@@ -107,11 +135,16 @@ fn zero_proofs_cover_the_positive_numerator_edges_of_a_spec() {
     let s = json!({"schema": "rustred.campaign.zeros2-real.v1", "spec": spec_path, "proofs": proofs,
         "tier": format!("{tier:?}"), "closure_keys": res.streamed.as_ref().map(|s| s.rows).unwrap_or(res.rows.len() as u64),
         "served_rule_rows": served.len(), "proof_stats": zp.stats, "proofs_held": zp.len(),
-        "positive_numerator_terms": total[0], "first_route_unknown": total[1], "proved": total[2],
-        "proved_where_regular": total[3], "not_proved": total[4],
-        "by_class": by.iter().map(|(k, v)| (k.clone(), json!({"terms": v[0], "unknown": v[1], "proved": v[2],
-            "proved_where_regular": v[3], "not_proved": v[4]}))).collect::<BTreeMap<_, _>>(),
+        "positive_numerator_terms": total[0], "first_route_unknown": total[1], "proved_at_key": total[2],
+        "denominator_vanishes_at_key": total[3], "not_proved": total[4],
+        "by_class": by.iter().map(|(k, v)| (k.clone(), json!({"terms": v[0], "unknown": v[1], "proved_at_key": v[2],
+            "denominator_vanishes_at_key": v[3], "not_proved": v[4]}))).collect::<BTreeMap<_, _>>(),
+        "non_descending_by_class": by_nd.iter().map(|(k, v)| (k.clone(), json!({"terms": v[0], "unknown": v[1],
+            "proved_at_key": v[2], "denominator_vanishes_at_key": v[3], "not_proved": v[4]})))
+            .collect::<BTreeMap<_, _>>(),
         "not_proved_distinct_record_terms": top.len(),
+        "denominator_vanishes_list": den0.iter().take(200).map(|((s, j, k), n)| json!({"record_sha256": s,
+            "term": j, "applied": k, "edges": n})).collect::<Vec<_>>(),
         "not_proved_top": top.iter().take(30).map(|((s, j), n)| json!({"record_sha256": s, "term": j, "edges": n}))
             .collect::<Vec<_>>(),
         "seconds": {"load_check": load_check_s, "proofs_load": proofs_load_s, "lookup_scan": scan_s},
