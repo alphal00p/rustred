@@ -189,7 +189,15 @@ pub fn node_basis_from_symmasters(
             json!(g.saturating_sub(a)),
             if g > a { "degenerate" } else { "regular" },
         ),
-        _ => (Value::Null, "unresolved"),
+        // the contract's end record always carries a number: the rank loss read from the first sample of each dim
+        // (largest generic rank_T against the d0 rank_T, 0 when either is missing), with the verdict `unresolved`
+        _ => (
+            json!(match (r0, rg.iter().next_back()) {
+                (Some(a), Some(&g)) => g.saturating_sub(a),
+                _ => 0,
+            }),
+            "unresolved",
+        ),
     };
     out.extend(dims);
     out.push(json!({"type": "end", "deficiency": deficiency, "verdict": verdict,
