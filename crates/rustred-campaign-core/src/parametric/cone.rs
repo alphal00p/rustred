@@ -477,6 +477,47 @@ pub fn gap_elements(
     }
 }
 
+/// The per-slot intervals `[[lo | null, hi | null], ..]` of a CELL region (identity parameter map, every constraint on
+/// one slot with coefficient +-1); `None` for any other region.
+pub fn cell_box(r: &Region) -> Option<Value> {
+    let n = r.x.len();
+    if r.k != n
+        || !r.x.iter().enumerate().all(|(s, a)| {
+            a.c == 0
+                && a.coef
+                    .iter()
+                    .enumerate()
+                    .all(|(j, v)| *v == i128::from(j == s))
+        })
+    {
+        return None;
+    }
+    let mut lo: Vec<Option<i64>> = vec![None; n];
+    let mut hi: Vec<Option<i64>> = vec![None; n];
+    for c in &r.cons {
+        let nz: Vec<usize> = (0..c.coef.len()).filter(|&j| c.coef[j] != 0).collect();
+        if nz.len() != 1 {
+            return None;
+        }
+        let j = nz[0];
+        let v = i64::try_from(c.c).ok()?;
+        match c.coef[j] {
+            1 => {
+                lo[j] =
+                    Some(lo[j].map_or(v.checked_neg()?, |l| l.max(v.checked_neg().unwrap_or(l))))
+            }
+            -1 => hi[j] = Some(hi[j].map_or(v, |h| h.min(v))),
+            _ => return None,
+        }
+    }
+    Some(json!(
+        lo.iter()
+            .zip(&hi)
+            .map(|(l, h)| json!([l, h]))
+            .collect::<Vec<_>>()
+    ))
+}
+
 /// The structured region `{k, x: [[coef], c].., cons: [[coef], c]..}` (null when a number exceeds i64).
 pub fn region_json(r: &Region) -> Value {
     let aff = |a: &Affine| -> Option<Value> {
@@ -750,10 +791,17 @@ pub fn coverage_from_partition(
             ElementVerdict::Undecided { .. } => und += 1,
         }
         if v != ElementVerdict::OutsideCone {
-            listed.push(json!({
-                "element": i, "kind": el.kind, "blocked_by": el.blocked_by, "note": el.note,
-                "x": el.region.render_x(), "constraints": el.region.render_cons(), "region": region_json(&el.region), "v": v,
-            }));
+            // a CELL (identity parameter map, one-slot constraints) is listed compactly as its per-slot intervals
+            let entry = match cell_box(&el.region) {
+                Some(bx) => json!({
+                    "element": i, "kind": el.kind, "blocked_by": el.blocked_by, "box": bx, "v": v,
+                }),
+                None => json!({
+                    "element": i, "kind": el.kind, "blocked_by": el.blocked_by, "note": el.note,
+                    "x": el.region.render_x(), "constraints": el.region.render_cons(), "region": region_json(&el.region), "v": v,
+                }),
+            };
+            listed.push(entry);
         }
         verdicts.push(v);
     }

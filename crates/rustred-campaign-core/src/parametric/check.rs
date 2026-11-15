@@ -110,6 +110,26 @@ fn affine(v: &Value) -> Option<(Vec<i128>, i128)> {
     Some((coef, i128::from(v.get(1)?.as_i64()?)))
 }
 
+/// A cell listed by its per-slot intervals as a region with the identity parameter map.
+fn reg_of_box(v: &Value) -> Option<Reg> {
+    let b = v.as_array()?;
+    let k = b.len();
+    let mut x = Vec::with_capacity(k);
+    let mut cons = Vec::new();
+    for (s, iv) in b.iter().enumerate() {
+        let mut coef = vec![0i128; k];
+        coef[s] = 1;
+        x.push((coef.clone(), 0));
+        if let Some(l) = iv.get(0).and_then(Value::as_i64) {
+            cons.push((coef.clone(), -i128::from(l)));
+        }
+        if let Some(h) = iv.get(1).and_then(Value::as_i64) {
+            cons.push((coef.iter().map(|v| -v).collect(), i128::from(h)));
+        }
+    }
+    Some(Reg { k, x, cons })
+}
+
 fn reg_of(v: &Value) -> Option<Reg> {
     let k = usize::try_from(v.get("k")?.as_u64()?).ok()?;
     let x = v["x"]
@@ -260,7 +280,12 @@ pub fn check_cone_certificate(
     let mut n_uncovered = 0usize;
     for e in &listed {
         let idx = e["element"].as_u64().unwrap_or(u64::MAX);
-        regions.push((idx, reg_of(&e["region"])));
+        let reg = if e.get("box").is_some() {
+            reg_of_box(&e["box"])
+        } else {
+            reg_of(&e["region"])
+        };
+        regions.push((idx, reg));
         if e["v"]["verdict"] == "uncovered" {
             n_uncovered += 1;
             match key_of(&e["v"]["witness"]) {
@@ -276,8 +301,11 @@ pub fn check_cone_certificate(
                             format!("witness {w:?} is served by the dispatcher"),
                             &mut rep,
                         );
-                    } else if let Some(r) = reg_of(&e["region"])
-                        && member(&r, &w) == Some(false)
+                    } else if let Some(r) = if e.get("box").is_some() {
+                        reg_of_box(&e["box"])
+                    } else {
+                        reg_of(&e["region"])
+                    } && member(&r, &w) == Some(false)
                     {
                         bad(
                             format!("witness {w:?} not in its element's region"),

@@ -470,6 +470,10 @@ fn b2_cone_coverage_on_a_real_set() {
         use rustred_campaign_core::parametric::cone::cell_keys_each;
         let (mut res_keys, mut unsized_cells, mut open_keys) = (0u64, 0usize, 0u64);
         let mut reasons: BTreeMap<String, u64> = BTreeMap::new();
+        let residual_max: u64 = std::env::var("PARAMETRIC_RESIDUAL_MAX")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(5_000_000);
         let mut kf = std::io::BufWriter::new(
             std::fs::File::create(format!("{out}.{tag}.cellkeys.jsonl")).unwrap(),
         );
@@ -481,6 +485,10 @@ fn b2_cone_coverage_on_a_real_set() {
                 continue;
             }
             let mut keys_here = Vec::new();
+            if res_keys >= residual_max {
+                unsized_cells += 1;
+                continue;
+            }
             match cell_keys_each(&el.region, &cone, &ld.frame, 1_000_000, &mut |k| {
                 keys_here.push(k.to_vec())
             }) {
