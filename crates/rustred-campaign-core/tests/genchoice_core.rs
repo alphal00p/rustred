@@ -142,8 +142,10 @@ fn default_policy_candidates_and_args() {
         ]
     );
     // a bfi order without a base is refused; a duplicate order is refused
-    let mut q = Policy::default();
-    q.orders = vec![OrderKind::Bfi];
+    let mut q = Policy {
+        orders: vec![OrderKind::Bfi],
+        ..Policy::default()
+    };
     assert!(q.check().is_err());
     q.orders = vec![OrderKind::Id, OrderKind::Id];
     assert!(q.check().is_err());

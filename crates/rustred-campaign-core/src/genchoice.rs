@@ -683,7 +683,10 @@ impl RunStatus {
 
 /// Factor-2 band of a non-negative number (0 for 0).
 pub fn band(x: f64) -> u32 {
-    if !(x >= 1.0) {
+    // NaN and everything below 1 are band 0
+    if x.partial_cmp(&1.0) != Some(std::cmp::Ordering::Greater)
+        && x.partial_cmp(&1.0) != Some(std::cmp::Ordering::Equal)
+    {
         return 0;
     }
     let v = if x >= u64::MAX as f64 {
@@ -849,7 +852,9 @@ pub fn alternatives(ranking: &[usize], pos: usize, done: &[FullRun], p: &Policy)
     if p.economy.optimise {
         return rest.collect();
     }
-    if !(p.economy.factor > 0.0) || p.economy.max_alternatives == 0 {
+    if p.economy.factor.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater)
+        || p.economy.max_alternatives == 0
+    {
         return vec![];
     }
     rest.take(p.economy.max_alternatives as usize).collect()

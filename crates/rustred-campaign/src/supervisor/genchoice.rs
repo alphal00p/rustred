@@ -759,6 +759,7 @@ impl GenChoiceSource {
     }
 
     /// The choice of a node: choice.json, per_rule.jsonl, import.json (when the node names a box).
+    #[allow(clippy::too_many_arguments)]
     fn decide(
         &mut self,
         st: &CampaignState,
