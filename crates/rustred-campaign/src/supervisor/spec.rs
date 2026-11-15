@@ -177,6 +177,13 @@ pub struct Resources {
     /// `--fake-child`) are never refused.
     #[serde(default)]
     pub containment: Option<String>,
+    /// lane t266run (rule L17): the PER-JOB memory cap of this session (bytes or "8G"), a LAUNCH-TIME resource like the
+    /// CPU list: when set, every job of the session is launched and reserved with this cap instead of the work
+    /// source's (`rr_campaign run --mem-cap`); recorded per session (ledger note `session_resources`) and per attempt
+    /// (`job_queued.reserved_bytes`). A child killed at its cap is a resource end (retry, then attention
+    /// `memory_cap_exceeded`), never evidence; a session with a higher cap reopens those items.
+    #[serde(default)]
+    pub job_mem_cap: Option<ByteSize>,
 }
 
 fn d_policy() -> String {

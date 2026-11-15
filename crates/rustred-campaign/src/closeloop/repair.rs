@@ -2042,6 +2042,12 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
         self.inner.resolve_operator_decision(st, req)
     }
 
+    /// int7 (repairflow x t266run L17): a node held by items that ended at their memory cap blocks on the operator
+    /// (resume with a higher `--mem-cap`): forwarded, as phase E forwards it.
+    fn blocked_on_operator(&self, st: &CampaignState) -> Option<String> {
+        self.inner.blocked_on_operator(st)
+    }
+
     fn describe(&self) -> String {
         if self.nodes.is_empty() {
             self.inner.describe()

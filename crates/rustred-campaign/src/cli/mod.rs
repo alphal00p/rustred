@@ -11,9 +11,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub const USAGE: &str = "usage:
-  rr_campaign run --spec SPEC.json [--dir CDIR] [--plain] [--fake-child] [--accept-binary-change] [--adopt-moved-campaign] [--cores N] [--mem-total 30G] [--cpus LIST] [--max-jobs N] [--accept-truncation-to SEQ]
+  rr_campaign run --spec SPEC.json [--dir CDIR] [--plain] [--fake-child] [--accept-binary-change] [--adopt-moved-campaign] [--cores N] [--mem-total 30G] [--cpus LIST] [--max-jobs N] [--mem-cap SIZE] [--accept-truncation-to SEQ]
       (the live dashboard when stdout is a terminal and --plain is not given; Ctrl-C = drain, twice = force;
-       --cpus / --max-jobs: this SESSION's resources (launch-time; not part of the campaign's identity: a resume may use other CPUs))
+       --cpus / --max-jobs / --mem-cap: this SESSION's resources (launch-time; not part of the campaign's identity: a resume may use other CPUs))
   rr_campaign preflight --spec SPEC.json [--dir CDIR]
   rr_campaign watch CDIR [--plain]          (alias: dashboard; read-only viewer: q / Ctrl-C close it, the campaign is unaffected)
   rr_campaign status CDIR [--once] [--width N] [--height M] [--json]
@@ -122,6 +122,7 @@ struct Flags {
     /// resumes on other CPUs; the session's argv, recorded by `SupervisorStarted`, names them).
     cpus: Option<String>,
     max_jobs: Option<usize>,
+    mem_cap: Option<String>,
     positional: Vec<String>,
     // lane closeloop4
     node: Option<String>,
@@ -164,6 +165,7 @@ fn parse(rest: &[String]) -> Result<Flags, String> {
             }
             "--cores" => f.cores = Some(val("--cores")?.parse().map_err(|_| "--cores: a number")?),
             "--cpus" => f.cpus = Some(val("--cpus")?),
+            "--mem-cap" => f.mem_cap = Some(val("--mem-cap")?),
             "--max-jobs" => {
                 f.max_jobs = Some(
                     val("--max-jobs")?
@@ -236,6 +238,20 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
     }
     if let Some(m) = f.max_jobs {
         spec.resources.max_jobs = m.max(1);
+    }
+    // lane t266run (L17): the per-job memory cap is a launch-time resource too (never part of the campaign identity)
+    if let Some(m) = &f.mem_cap {
+        match crate::supervisor::spec::ByteSize::parse(m) {
+            Ok(b) if b.0 > 0 => spec.resources.job_mem_cap = Some(b),
+            Ok(_) => {
+                errln!("--mem-cap: must be > 0");
+                return exit::USAGE;
+            }
+            Err(e) => {
+                errln!("--mem-cap: {e}");
+                return exit::USAGE;
+            }
+        }
     }
     let mut full = vec!["rr_campaign".to_string()];
     full.extend(argv.iter().cloned());

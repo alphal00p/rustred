@@ -273,6 +273,17 @@ fn is_proof_kind(k: &str) -> bool {
     k == KIND_PROOF || k == KIND_FACTS || k == KIND_EXACT
 }
 
+/// lane t266run (L17): the attention code of an attempt without a decision: a child killed at its MEMORY CAP is a
+/// resource end (`memory_cap_exceeded`: retried, then attention; a session with a higher `--mem-cap` reopens the item),
+/// never evidence about the keys; anything else keeps the caller's code.
+fn failure_code<'a>(done: &Settled, otherwise: &'a str) -> &'a str {
+    if done.classification.kind == crate::state::FinishClass::KilledMemory {
+        crate::launch::MEMORY_CAP_EXCEEDED
+    } else {
+        otherwise
+    }
+}
+
 fn blake3_hex(b: &[u8]) -> String {
     blake3::hash(b).to_hex().to_string()
 }
@@ -498,6 +509,11 @@ impl CloseFromMaterialSource {
         st.items
             .iter()
             .filter(move |(_, it)| it.node == node && it.kind == kind)
+    }
+
+    /// lane t266run (L17): an item in attention for a memory-cap end (it holds its node until the cap is raised).
+    fn memory_cap_held(st: &CampaignState, item: &str) -> bool {
+        crate::launch::ended_at_memory_cap(st, item)
     }
 
     fn item_final(p: &ItemPhase) -> bool {
@@ -830,10 +846,12 @@ impl CloseFromMaterialSource {
         if imp.phase == ItemPhase::Open {
             return Some(1);
         }
-        let busy = st.items.values().any(|it| {
+        // lane t266run (L17): an item in attention for a MEMORY-CAP end is not final for the loop: it holds the node
+        // (no pass, no final verdict) until a session with a higher --mem-cap reopens it
+        let busy = st.items.iter().any(|(id, it)| {
             it.node == *node
                 && (it.kind == KIND_SOLVE || is_proof_kind(&it.kind))
-                && !Self::item_final(&it.phase)
+                && (!Self::item_final(&it.phase) || Self::memory_cap_held(st, id))
         });
         if busy {
             return if r.set.is_none() { Some(0) } else { None };
@@ -1094,7 +1112,14 @@ impl CloseFromMaterialSource {
             on_sigterm: OnSigterm::Graceful,
             slow_ms: 0,
             start_delay_ms: 0,
-            rss: RssPlan::default(),
+            rss: if f.rss_bytes > 0 {
+                RssPlan {
+                    grow_bytes_per_s: f.rss_bytes.saturating_mul(4),
+                    max_bytes: f.rss_bytes,
+                }
+            } else {
+                RssPlan::default()
+            },
             helpers: vec![],
             faults: vec![],
             time_scale: 1.0,
@@ -1960,7 +1985,7 @@ impl CloseFromMaterialSource {
         if !(decided_row && !done.canonical_lines.is_empty() && done.table.is_some()) {
             // no per-key decision: rerun (ready) until max_job_attempts, then attention
             let what = format!("{} keys of recipe {} stay open", b.keys.len(), b.source);
-            self.fail_or_attention(st, i, done, "solve_job_failed", &what, &mut rt);
+            self.fail_or_attention(st, i, done, failure_code(done, "solve_job_failed"), &what, &mut rt);
             return Ok(rt);
         }
         let table = done.table.clone().expect("checked");
@@ -2276,7 +2301,7 @@ impl CloseFromMaterialSource {
             && done.table.is_some())
         {
             let what = format!("{} {} keys stay below their level", b.pairs().len(), b.kind);
-            self.fail_or_attention(st, i, done, "proof_job_failed", &what, &mut rt);
+            self.fail_or_attention(st, i, done, failure_code(done, "proof_job_failed"), &what, &mut rt);
             return Ok(rt);
         }
         let table = done.table.clone().expect("checked");
@@ -2813,6 +2838,38 @@ impl WorkSource for CloseFromMaterialSource {
         self.nodes
             .iter()
             .all(|r| r.running.is_none() && st.inputs.contains_key(&input_final(&r.n)))
+    }
+
+    fn blocked_on_operator(&self, st: &CampaignState) -> Option<String> {
+        // lane t266run (L17): a node with nothing left to run but items that ended at their memory cap: the operator
+        // resumes with a higher --mem-cap (a launch-time resource: the same campaign)
+        let mut v = vec![];
+        for r in &self.nodes {
+            if r.running.is_some() || st.inputs.contains_key(&input_final(&r.n)) {
+                continue;
+            }
+            let mut held = 0usize;
+            let mut moving = false;
+            for (id, it) in st.items.iter() {
+                // int7: the proof kinds by `is_proof_kind` (incl. closeloop3's exact-eval items), as route / unrouted
+                if it.node != r.cfg.node || !(it.kind == KIND_SOLVE || is_proof_kind(&it.kind)) {
+                    continue;
+                }
+                if Self::memory_cap_held(st, id) {
+                    held += 1;
+                } else if !Self::item_final(&it.phase) {
+                    moving = true;
+                }
+            }
+            if held > 0 && !moving {
+                v.push(format!(
+                    "node {}: {held} item(s) ended at their memory cap ({}): resume with a higher `--mem-cap SIZE` (launch-time resource, same campaign)",
+                    r.cfg.node,
+                    crate::launch::MEMORY_CAP_EXCEEDED
+                ));
+            }
+        }
+        (!v.is_empty()).then(|| v.join("; "))
     }
 
     /// lane closeloop4 (closeloop.md 19): nodes whose terminal proposals wait for the operator (exit 8); lane t266run:

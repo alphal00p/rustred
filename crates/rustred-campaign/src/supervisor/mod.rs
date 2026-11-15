@@ -801,6 +801,16 @@ impl Supervisor {
             version: env!("CARGO_PKG_VERSION").into(),
             lock_token: lock.token().to_string(),
         });
+        // lane t266run (L17): a session with a launch-time memory cap records its resources (not part of the identity)
+        if let Some(cap) = opts.spec.resources.job_mem_cap {
+            first.push(Event::Note {
+                text: format!(
+                    "session_resources {}",
+                    serde_json::json!({"cpus": opts.spec.resources.cpus, "max_jobs": opts.spec.resources.max_jobs,
+                        "job_mem_cap": cap.0})
+                ),
+            });
+        }
         ledger.append_all(first).map_err(|e| match e {
             LedgerError::NoSpace { .. } => RunExit::DiskFull,
             e => RunExit::Refused(format!("ledger: {e}")),
@@ -4248,6 +4258,8 @@ impl Supervisor {
                 .get(item)
                 .is_some_and(|it| it.paused || st.nodes.get(&it.node).is_some_and(|n| n.paused))
         };
+        // lane t266run (L17): the session's per-job memory cap (launch-time resource) replaces the source's cap
+        let mem_cap = self.opts.spec.resources.job_mem_cap.map(|b| b.0);
         let reqs: Vec<JobRequest> = self
             .source
             .ready(st, &self.ctx, limit)
@@ -4257,6 +4269,13 @@ impl Supervisor {
                     && !paused(&r.item)
                     && !self.unknown.contains_key(&r.job)
                     && !self.pending.iter().any(|p| p.job == r.job)
+            })
+            .map(|mut r| {
+                if let Some(c) = mem_cap {
+                    r.cap_bytes = c;
+                    r.expected_peak_bytes = r.expected_peak_bytes.min(c);
+                }
+                r
             })
             .collect();
         self.last_ready = reqs.len();
@@ -4540,6 +4559,33 @@ impl Supervisor {
                     .line("WARN", &format!("item {item}: work source retry: {e}")),
             }
         }
+        // lane t266run (L17): an item in attention for a memory-cap end whose last attempt ran under a LOWER cap than
+        // this session's `--mem-cap` is reopened (the cause is gone; a new attempt, never the old result)
+        if let Some(cap) = self.opts.spec.resources.job_mem_cap.map(|b| b.0) {
+            let st = self.ledger.state();
+            let mut ev = vec![];
+            for (id, it) in st.items.iter() {
+                if crate::launch::ended_at_memory_cap(st, id) {
+                    let last = it.jobs.last().and_then(|j| st.jobs.get(j)).map_or(0, |j| j.reserved_bytes);
+                    if last < cap {
+                        ev.push(Event::Item {
+                            item: id.clone(),
+                            ev: crate::ledger::ItemEvent::Reopen {
+                                reason: format!(
+                                    "memory cap raised from {last} to {cap} bytes (launch-time resource --mem-cap): a new attempt"
+                                ),
+                            },
+                        });
+                    }
+                }
+            }
+            if !ev.is_empty() {
+                self.log.line("INFO", &format!("{} item(s) in attention for a memory-cap end reopened at the raised cap {cap}", ev.len()));
+                if !self.commit(ev) {
+                    return self.ledger_dead.clone().unwrap_or(RunExit::DiskFull);
+                }
+            }
+        }
         self.commit(vec![Event::Campaign {
             ev: crate::state::CampaignEvent::Run,
             reason: "recovered; scheduling".into(),
@@ -4764,6 +4810,21 @@ impl Supervisor {
                             RunExit::FinishedError(m)
                         }
                     };
+                }
+                // lane t266run (L17): nothing runs, nothing is ready, and the source waits for an operator (e.g. a higher
+                // --mem-cap for items that ended at their memory cap)
+                if level == StopLevel::Running
+                    && self.last_ready == 0
+                    && let Some(m) = self.source.blocked_on_operator(self.ledger.state())
+                {
+                    let msg = format!("operator decision needed: {m}");
+                    self.log.line("WARN", &msg);
+                    self.commit(vec![Event::Campaign {
+                        ev: crate::state::CampaignEvent::Stop,
+                        reason: msg.clone(),
+                    }]);
+                    self.write_progress(true);
+                    return RunExit::Attention(msg);
                 }
                 // Nothing runs and attempts of unknown execution block the rest (nothing is ready, or their reservations
                 // keep admission waiting for more than 2 s with nothing running): an operator decides.
