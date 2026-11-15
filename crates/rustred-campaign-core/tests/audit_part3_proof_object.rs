@@ -76,6 +76,22 @@ fn measure(t: u64) -> RuleMeasure {
     }
 }
 
+/// lane partfix4: a SIMULATED engine run (it answers the core dispatcher's first match at every probe key) bound into
+/// the proof: a FULL retirement needs the engine cross-check; the real frozen engine runs in
+/// tests/partfix4_regressions.rs, here only the digest binding is under test.
+fn sim_checked(
+    p: rustred_campaign_core::economy::ContainmentProof,
+) -> rustred_campaign_core::economy::ContainmentProof {
+    let req = p.engine_probe().clone();
+    let run = rustred_campaign_core::economy::EngineFirstMatchRun {
+        engine_sha256: "simulated".into(),
+        table_sha256: "simulated-table".into(),
+        keys_sha256: req.keys_sha256.clone(),
+        positions: req.expected.iter().map(|&x| Some(x)).collect(),
+    };
+    p.with_engine_check(&run, "simulated-table").unwrap()
+}
+
 /// P3-m1 (minor), INVERTED by partfix3: `table_set_digest` v3 binds the FRAME (arity and line mask): a proof minted
 /// on one mask for chart-less domains no longer checks for the same tables on another mask.
 #[test]
@@ -101,7 +117,7 @@ fn p3_m1_frame_is_bound_by_the_digest() {
         &[("a".into(), measure(100))],
         ("b", &measure(10)),
         SupersedeReason::CheaperSameOrLargerDomain,
-        Some(p),
+        Some(sim_checked(p)),
     )
     .unwrap();
     assert!(r.check_tables(&l, &l, &as_line).is_ok());
@@ -188,7 +204,7 @@ fn p3_m2_source_answers_are_snapshotted() {
             &[("a".into(), measure(100))],
             ("b", &measure(10)),
             SupersedeReason::CheaperSameOrLargerDomain,
-            Some(p),
+            Some(sim_checked(p)),
         )
         .unwrap();
         assert!(r.check_tables(&real, &real, &f).is_err());

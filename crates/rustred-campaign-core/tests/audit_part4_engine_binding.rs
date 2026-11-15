@@ -9,6 +9,11 @@
 //! notes/implementer.reaudit-part4.md for the commands and the engine's answers.
 //!
 //! Synthetic tables only (lane rule L8).
+//!
+//! INVERTED by lane partfix4 (notes/implementer.partfix4.md): the reader keeps `domain_bounds` and gives them the
+//! engine's meaning (`domain::bound_branches`: exception branches at the rule point), the digest is v4, and a
+//! selection bound on a target-pattern record is a refused precondition: B1 / B1b / B2 / B2b now assert the refusal
+//! or the engine's dispatch (the engine answers recorded by the audit).
 
 use std::path::{Path, PathBuf};
 
@@ -44,7 +49,13 @@ fn header(mask: &str) -> String {
 fn chart(mask: &str) -> String {
     let guards: Vec<String> = mask
         .chars()
-        .map(|c| if c == '1' { "\"n>=1\"".into() } else { "\"n<=0\"".into() })
+        .map(|c| {
+            if c == '1' {
+                "\"n>=1\"".into()
+            } else {
+                "\"n<=0\"".into()
+            }
+        })
         .collect();
     format!(
         r#"{{"type":"chart","chart":"{mask}","guards":[{}]}}"#,
@@ -86,29 +97,26 @@ fn p4_b1_domain_bounds_dropped_by_the_core_reader_proof_minted() {
     let new = write(&dir, "new.jsonl", &[header(mask), chart(mask), a.into()]);
     let (dold, frame) = load(&old);
     let (dnew, _) = load(&new);
-    // the core's view of record A: no bound at all
-    assert!(
-        dnew.tables()[0].domains[0].bounds.is_empty(),
-        "the reader kept no bound of A's domain_bounds"
-    );
-    let proof = prove_coverage_preserved(
+    // partfix4: the core's view of record A = the engine's: n0 = 1, 2 excluded (two exception branches)
+    assert_eq!(dnew.tables()[0].domains[0].exceptions.len(), 2);
+    let e = prove_coverage_preserved(
         &DispatcherSource::new(&dold),
         &DispatcherSource::new(&dnew),
         &frame,
         &ProofWork::default(),
         &DispatchOrderStatement::SameOrder,
     )
-    .expect("the core proves that retiring B keeps every key covered");
-    assert_eq!(
-        proof.new_tables_digest(),
-        table_set_digest(&DispatcherSource::new(&dnew), &frame)
-    );
-    for k in [1, 2, 3, 1000] {
-        assert!(
+    .expect_err("retiring B opens keys 1 and 2: no proof");
+    eprintln!("B1 refused: {e}");
+    // the engine's answers (audit): key 1 -> null, 2 -> null, 3 -> A, 1000 -> A; the core now says the same
+    for (k, served) in [(1, false), (2, false), (3, true), (1000, true)] {
+        assert_eq!(
             matches!(dnew.first_match(&[k]).unwrap(), Dispatch::Covered(_)),
-            "core: key {k} covered by A"
+            served,
+            "core: key {k}"
         );
     }
+    let _ = table_set_digest(&DispatcherSource::new(&dnew), &frame);
     // engine (find_rule with bound_exclusions): A is excluded at n0 = 1, 2 -> no rule at keys [1], [2] of `new`
     eprintln!(
         "B1 files: {} {} (ask: rr_node first-match --table <new> --key 1)",
@@ -131,10 +139,10 @@ fn p4_b1b_digest_does_not_bind_domain_bounds() {
     let p2 = write(&dir, "bounded.jsonl", &[header(mask), chart(mask), bounded]);
     let (d1, f1) = load(&p1);
     let (d2, f2) = load(&p2);
-    assert_eq!(
+    assert_ne!(
         table_set_digest(&DispatcherSource::new(&d1), &f1),
         table_set_digest(&DispatcherSource::new(&d2), &f2),
-        "the digest does not see domain_bounds"
+        "partfix4: the digest (v4) sees domain_bounds"
     );
 }
 
@@ -168,21 +176,25 @@ fn p4_b2_bound_with_a_target_pattern_engine_selects_where_the_core_does_not() {
         d
     };
     let mut old = DomainList::new(n);
-    for (i, d) in [q(1), q(2), q(3), r.clone(), s.clone()].into_iter().enumerate() {
+    for (i, d) in [q(1), q(2), q(3), r.clone(), s.clone()]
+        .into_iter()
+        .enumerate()
+    {
         old.push(RuleRef::bare(0, i, i as i64), d);
     }
     let mut new = DomainList::new(n);
     new.push(RuleRef::bare(0, 0, 3), r.clone());
     new.push(RuleRef::bare(0, 1, 4), s.clone());
-    prove_coverage_preserved(
+    let e = prove_coverage_preserved(
         &old,
         &new,
         &frame,
         &ProofWork::default(),
         &DispatchOrderStatement::SameOrder,
     )
-    .expect("minted");
-    // the core's verdicts: R NotSelected at keys 1..=3 (rule point -2..=0 below the bound), applies from key 5
+    .expect_err("partfix4: a selection bound on a target-pattern record is not engine-readable");
+    assert!(e.contains("target pattern"), "{e}");
+    // the core's verdicts of the GE domain: R NotSelected at keys 1..=3 (rule point -2..=0 below the bound), applies from key 5
     for k in 1..=4 {
         assert!(!r.applies(&[k]).applies(), "core: R does not apply at {k}");
     }
@@ -191,10 +203,21 @@ fn p4_b2_bound_with_a_target_pattern_engine_selects_where_the_core_does_not() {
     let dir = out_dir("b2");
     let rr = r#"{"type":"rule","chart":"1","index":3,"fixed":[null],"equations":[],"exceptions":[],"target":"I(n0+3)","rhs":[["I(n0+2)","1"]],"witness_loci":[],"dispatch":"Partition","domain_bounds":{"min":[2],"max":[null]}}"#;
     let ss = r#"{"type":"rule","chart":"1","index":4,"fixed":[null],"equations":[],"exceptions":[],"target":"I(n0)","rhs":[["I(n0-1)","1"]],"witness_loci":[],"dispatch":"Partition"}"#;
-    let p = write(&dir, "new.jsonl", &[header("1"), chart("1"), rr.into(), ss.into()]);
-    eprintln!(
-        "B2 file: {} (ask: rr_node first-match --table <it> --key K for K = 1..5: core answers S (label 4) for 1..=4, R (3) from 5)",
-        p.display()
+    let p = write(
+        &dir,
+        "new.jsonl",
+        &[header("1"), chart("1"), rr.into(), ss.into()],
+    );
+    // partfix4: the record READ FROM THE FILE dispatches as the engine (audit's answers: label 3 (R) at keys 1..=3, 4
+    // (S) at key 4, 3 from 5)
+    let (d, _) = load(&p);
+    let label = |k: i32| match d.first_match(&[k]).unwrap() {
+        Dispatch::Covered(r) => r.label,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        (1..=6).map(label).collect::<Vec<_>>(),
+        vec![3, 3, 3, 4, 3, 3]
     );
 }
 
@@ -220,12 +243,11 @@ fn p4_b_eps_frames_are_refused_before_minting() {
 /// the proof minted on `assemble::tables_in_force` before / after retiring B is accepted by `assemble`, which ships A
 /// verbatim (with its `domain_bounds`); the engine's first match on the SHIPPED table has no rule at keys 1 and 2.
 #[test]
-fn p4_b1_end_to_end_assembly_accepts_the_retirement() {
+fn p4_b1_end_to_end_assembly_no_longer_mints() {
     use rustred_campaign_core::accept::NodeTarget;
     use rustred_campaign_core::assemble::{
-        AssemblyInput, FullRetirements, InputTable, assemble, tables_in_force,
+        AssemblyInput, FullRetirements, InputTable, tables_in_force,
     };
-    use rustred_campaign_core::economy::{CoverageState, Retirement, RuleMeasure, SupersedeReason};
     use rustred_campaign_core::replay_base::sha256::sha256_hex;
     let dir = out_dir("b1e2e");
     let mask = "1";
@@ -234,11 +256,17 @@ fn p4_b1_end_to_end_assembly_accepts_the_retirement() {
     let t = write(
         &dir,
         "node.table.jsonl",
-        &[header(mask), chart(mask), a.into(), b.into(), r#"{"type":"end"}"#.into()],
+        &[
+            header(mask),
+            chart(mask),
+            a.into(),
+            b.into(),
+            r#"{"type":"end"}"#.into(),
+        ],
     );
     let tag = |l: &str| format!("sha256:{}", sha256_hex(l.as_bytes()));
-    let (va, vb) = (tag(a), tag(b));
-    let mut inp = AssemblyInput {
+    let vb = tag(b);
+    let inp = AssemblyInput {
         node: "SYNTH".into(),
         target: NodeTarget::Full,
         inputs: vec![InputTable {
@@ -261,43 +289,22 @@ fn p4_b1_end_to_end_assembly_accepts_the_retirement() {
     let frame = NodeFrame::without_header_lines_first(1, 1);
     let before = tables_in_force(&inp, &[]).unwrap();
     let after = tables_in_force(&inp, std::slice::from_ref(&vb)).unwrap();
-    assert!(after.tables()[0].domains[0].bounds.is_empty(), "tables in force: A without its bounds");
-    let proof = prove_coverage_preserved(
+    assert_eq!(
+        after.tables()[0].domains[0].exceptions.len(),
+        2,
+        "partfix4: tables in force read A WITH its bounds"
+    );
+    prove_coverage_preserved(
         &DispatcherSource::new(&before),
         &DispatcherSource::new(&after),
         &frame,
         &ProofWork::default(),
         &DispatchOrderStatement::SameOrder,
     )
-    .expect("minted on the tables in force");
-    let m = |terms: u64| RuleMeasure {
-        cases: 1,
-        rhs_terms: terms,
-        monomials: terms,
-        monomials_estimated: false,
-        max_degree: None,
-        served_keys: None,
-        bytes: 0,
-    };
-    inp.retirements = vec![
-        Retirement::new(
-            "SYNTH",
-            CoverageState::Full,
-            &[(vb.clone(), m(10))],
-            (&va, &m(2)),
-            SupersedeReason::CheaperSameOrLargerDomain,
-            Some(proof),
-        )
-        .unwrap(),
-    ];
-    let out = assemble(&inp, &dir.join("assembled")).expect("assembly accepts the bound proof");
-    assert_eq!(out.report.retired, vec![vb]);
-    let shipped = std::fs::read_to_string(&out.table).unwrap();
-    assert!(shipped.contains("domain_bounds"), "A shipped with its domain_bounds");
-    eprintln!(
-        "B1e2e shipped table: {} (ask: rr_node first-match --table <it> --key 1 / 2 / 3)",
-        out.table.display()
-    );
+    .expect_err("partfix4: retiring B opens keys 1, 2 of the tables in force: no proof");
+    // (what was accepted before: a FULL retirement with a proof minted on the misread set; since partfix4 such a
+    // retirement also needs the ENGINE cross-check, which fails on the shipped table: tests/partfix4_regressions.rs
+    // pf4_engine_cross_check_catches_a_misread_table)
 }
 
 /// B2b: node/bounds.rs tests a bound on a FIXED slot against `fixed[i]` of the KEY, while `domain_bounds` bounds the
@@ -316,21 +323,44 @@ fn p4_b2b_bound_on_a_fixed_slot_is_tested_on_the_wrong_slot_by_the_engine() {
     let mut r = CaseDomain::free(n, Some(mask.clone()));
     r.fixed = vec![Some(5), None];
     r.target = TargetMap::Pattern(vec![
-        TargetSlot::Param { param: 1, offset: 0 },
-        TargetSlot::Param { param: 0, offset: 0 },
+        TargetSlot::Param {
+            param: 1,
+            offset: 0,
+        },
+        TargetSlot::Param {
+            param: 0,
+            offset: 0,
+        },
     ]);
     r.bounds = vec![Poly::parse_d_free_exact("n0-3", n).unwrap()];
     let s = CaseDomain::free(n, Some(mask.clone()));
     let mut new = DomainList::new(n);
     new.push(RuleRef::bare(0, 0, 0), r.clone());
     new.push(RuleRef::bare(0, 1, 1), s);
-    prove_coverage_preserved(&new, &new, &frame, &ProofWork::default(), &DispatchOrderStatement::SameOrder)
-        .expect("minted");
+    prove_coverage_preserved(
+        &new,
+        &new,
+        &frame,
+        &ProofWork::default(),
+        &DispatchOrderStatement::SameOrder,
+    )
+    .expect_err("partfix4: a selection bound on a target-pattern record is not engine-readable");
     assert!(!r.applies(&[5, 1]).applies() && !r.applies(&[5, 2]).applies());
     assert!(r.applies(&[5, 3]).applies());
     let dir = out_dir("b2b");
     let rr = r#"{"type":"rule","chart":"11","index":0,"fixed":[5,null],"equations":[],"exceptions":[],"target":"I(n1,n0)","rhs":[["I(4,1)","1"]],"witness_loci":[],"dispatch":"Partition","domain_bounds":{"min":[3,null],"max":[null,null]}}"#;
     let ss = r#"{"type":"rule","chart":"11","index":1,"fixed":[null,null],"equations":[],"exceptions":[],"target":"I(n0,n1)","rhs":[["I(n0-1,n1)","1"]],"witness_loci":[],"dispatch":"Partition"}"#;
-    let p = write(&dir, "new.jsonl", &[header("11"), chart("11"), rr.into(), ss.into()]);
-    eprintln!("B2b file: {} (ask: rr_node first-match --table <it> --key 5,1 / 5,2 / 5,3)", p.display());
+    let p = write(
+        &dir,
+        "new.jsonl",
+        &[header("11"), chart("11"), rr.into(), ss.into()],
+    );
+    // partfix4: read from the file, R serves (5,1), (5,2), (5,3) as in the engine (audit's answers)
+    let (d, _) = load(&p);
+    for k in [[5, 1], [5, 2], [5, 3]] {
+        assert!(
+            matches!(d.first_match(&k).unwrap(), Dispatch::Covered(r) if r.label == 0),
+            "{k:?}"
+        );
+    }
 }

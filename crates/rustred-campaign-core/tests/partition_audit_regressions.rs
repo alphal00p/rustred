@@ -641,6 +641,22 @@ fn m3_dispatch_mode_equals_first_match_random() {
     }
 }
 
+/// lane partfix4: a SIMULATED engine run (it answers the core dispatcher's first match at every probe key) bound into
+/// the proof: a FULL retirement needs the engine cross-check; the real frozen engine runs in
+/// tests/partfix4_regressions.rs, here only the digest binding is under test.
+fn sim_checked(
+    p: rustred_campaign_core::economy::ContainmentProof,
+) -> rustred_campaign_core::economy::ContainmentProof {
+    let req = p.engine_probe().clone();
+    let run = rustred_campaign_core::economy::EngineFirstMatchRun {
+        engine_sha256: "simulated".into(),
+        table_sha256: "simulated-table".into(),
+        keys_sha256: req.keys_sha256.clone(),
+        positions: req.expected.iter().map(|&x| Some(x)).collect(),
+    };
+    p.with_engine_check(&run, "simulated-table").unwrap()
+}
+
 /// audit-part-A M3 (c), with re-audit ladder-A M3 (lane ladderfix2): a FULL-node proof is minted ONLY by
 /// `economy::prove_coverage_preserved`, which runs the DISPATCH-mode partition of the new table set itself (whatever
 /// coverage the options name) and binds both table-set digests; `Retirement::new` accepts it on a FULL node; a new
@@ -691,7 +707,11 @@ fn m3_economy_requires_a_dispatch_proof() {
         dispatch_proof_method(&DispatchOrderStatement::SameOrder)
     );
     assert_eq!(p.new_tables_digest(), table_set_digest(&l, &f));
-    let r = retire(Some(p)).unwrap();
+    assert_eq!(
+        retire(Some(p.clone())).unwrap_err(),
+        RetireError::EngineCheckMissing
+    );
+    let r = retire(Some(sim_checked(p))).unwrap();
     assert!(r.check_tables(&l, &l, &f).is_ok());
     let p2 = prove_coverage_preserved(
         &l,
@@ -705,7 +725,7 @@ fn m3_economy_requires_a_dispatch_proof() {
         parse_dispatch_proof_method(p2.method()),
         Some(DispatchOrderStatement::NewOrder("abc123".into()))
     );
-    assert!(retire(Some(p2)).is_ok());
+    assert!(retire(Some(sim_checked(p2))).is_ok());
     assert!(
         prove_coverage_preserved(
             &l,

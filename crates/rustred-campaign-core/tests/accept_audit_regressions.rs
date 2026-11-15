@@ -28,15 +28,15 @@ use rustred_campaign_core::accept::{
 use rustred_campaign_core::assemble::domaincheck::{DispatchEqual, compare, core_view};
 use rustred_campaign_core::assemble::recipes::{RecipeToShip, write as write_recipes};
 use rustred_campaign_core::assemble::{
-    AssembleError, AssemblyInput, FullRetirements, InputTable, Splice, assemble, splice_index_head,
-    tables_in_force, verify_assembled,
+    AssembleError, AssemblyInput, FullRetirements, InputTable, Splice, assemble,
+    engine_probe_table_for, splice_index_head, tables_in_force, verify_assembled,
 };
 use rustred_campaign_core::closure::facts::CoefFact;
 use rustred_campaign_core::cover::{Dispatch, Dispatcher, Table};
 use rustred_campaign_core::domain::DomainOptions;
 use rustred_campaign_core::economy::{
-    CoverageState, ProofWork, Retirement, RuleMeasure, SupersedeReason, prove_coverage_preserved,
-    table_set_digest,
+    ContainmentProof, CoverageState, EngineFirstMatchRun, ProofWork, Retirement, RuleMeasure,
+    SupersedeReason, prove_coverage_preserved, table_set_digest,
 };
 use rustred_campaign_core::ibp_rows::TableBinding;
 use rustred_campaign_core::key::Key;
@@ -718,7 +718,9 @@ fn b_c4_every_line_classified_never_dropped() {
     let pad = "x".repeat(3 << 20);
     let sorted = removed_part(&t, "sorted", |k, v| {
         if k == "rule" {
-            v["aaa_pad"] = json!(pad);
+            // partfix4: a KNOWN (informational) member as padding: an unknown one is refused since the closed
+            // member list (record::RULE_RECORD_MEMBERS); "alternatives" still sorts before "type"
+            v["alternatives"] = json!(pad);
         }
         true // every line re-serialised with sorted keys: "type" is no longer first
     });
@@ -1066,6 +1068,22 @@ fn dispatch_equal_not_vacuous_and_file_verified() {
 // 9. FULL-node retirements and removals
 // =================================================================================================================
 
+/// lane partfix4: a SIMULATED engine run (it answers the core dispatcher's first match at every probe key of the
+/// proof) bound to the probe table assembly writes for `tables_in_force(inp, minus)`. The real frozen engine is run in
+/// tests/partfix4_regressions.rs; here only the binding matters.
+fn engine_checked(p: ContainmentProof, inp: &AssemblyInput, minus: &[String]) -> ContainmentProof {
+    let table = engine_probe_table_for(inp, minus).unwrap();
+    let sha = rustred_campaign_core::replay_base::sha256::sha256_hex(&table);
+    let req = p.engine_probe().clone();
+    let run = EngineFirstMatchRun {
+        engine_sha256: "simulated".into(),
+        table_sha256: sha.clone(),
+        keys_sha256: req.keys_sha256.clone(),
+        positions: req.expected.iter().map(|&x| Some(x)).collect(),
+    };
+    p.with_engine_check(&run, &sha).unwrap()
+}
+
 /// audit-accept-A M2 / B M3 + integration int4: a FULL retirement is refused by default; with `BoundProof` it is
 /// accepted only when its containment proof was made by `economy::prove_coverage_preserved` (the ONLY constructor:
 /// it runs the dispatch-mode partition and computes both digests itself) on THIS assembly's tables in force before
@@ -1162,6 +1180,9 @@ fn full_retirement_refused_unless_bound() {
             p,
         )
     };
+    // partfix4: a FULL retirement needs the engine cross-check (simulated here: engine_checked); without it refused
+    assert!(retire(&victim, &by, Some(proof.clone())).is_err());
+    let proof = engine_checked(proof, &inp, std::slice::from_ref(&victim));
     inp.retirements = vec![retire(&victim, &by, Some(proof.clone())).unwrap()];
     assert!(
         assemble(&inp, &scratch("regress-ret")).is_err(),
@@ -1194,6 +1215,7 @@ fn full_retirement_refused_unless_bound() {
         &same,
     )
     .expect("the whole table has no gap");
+    let other = engine_checked(other, &alone, &[]);
     inp.retirements = vec![retire(&victim, &by, Some(other)).unwrap()];
     let e = assemble(&inp, &scratch("regress-ret")).unwrap_err();
     assert!(
@@ -1209,6 +1231,8 @@ fn full_retirement_refused_unless_bound() {
         &DispatchOrderStatement::NewOrder("sha256:00ff".into()),
     )
     .unwrap();
+    inp.retirements = vec![];
+    let new_order = engine_checked(new_order, &inp, std::slice::from_ref(&victim));
     inp.retirements = vec![retire(&victim, &by, Some(new_order)).unwrap()];
     let e = assemble(&inp, &scratch("regress-ret")).unwrap_err();
     assert!(e.to_string().contains("order=same"), "order statement: {e}");

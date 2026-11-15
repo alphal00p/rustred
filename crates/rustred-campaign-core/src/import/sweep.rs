@@ -52,6 +52,8 @@ pub struct ClassifyOptions {
     pub index_dir: Option<PathBuf>,
     /// `marker_rules.accept_fewer` for this load (None = strict: interfaces/import.md 18.3).
     pub accept_fewer_rules: Option<String>,
+    /// `marker_rules.accept_missing_end` for this load (None = strict; lane partfix4).
+    pub accept_missing_end: Option<String>,
     /// The spec's `reader` (per-record memory limits; None = the defaults: interfaces/import.md 19).
     pub reader: Option<super::spec::ReaderSpec>,
 }
@@ -110,6 +112,9 @@ fn classify_inner(
             json!({"id": "table", "kind": "engine_table", "path": path.display().to_string()});
         if let Some(r) = &opts.accept_fewer_rules {
             src["marker_rules"] = json!({ "accept_fewer": r });
+        }
+        if let Some(r) = &opts.accept_missing_end {
+            src["marker_rules"]["accept_missing_end"] = json!(r);
         }
         let mut spec = json!({
             "schema": super::spec::SPEC_SCHEMA,

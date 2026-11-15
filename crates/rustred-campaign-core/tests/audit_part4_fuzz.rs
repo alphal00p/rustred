@@ -17,6 +17,9 @@
 //! Env: `AUDIT_P4_SETS` (default 400 in the suite), `AUDIT_P4_SEED`, `AUDIT_P4_BOX` (default 9), `AUDIT_P4_THREADS`
 //! (default 1, at most 4). Synthetic tables only (lane rule L8).
 
+// lane partfix4: helper methods kept for the auditor's harness; the index loop mirrors the target slots (lint only)
+#![allow(dead_code, clippy::needless_range_loop)]
+
 use std::collections::BTreeSet;
 use std::io::Write as _;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -96,12 +99,19 @@ impl P {
             out.push((e, c));
         }
         out.retain(|t| t.1 != 0);
-        P { n: self.n, terms: out }
+        P {
+            n: self.n,
+            terms: out,
+        }
     }
     fn add(&self, o: &P) -> P {
         let mut t = self.terms.clone();
         t.extend(o.terms.iter().cloned());
-        P { n: self.n, terms: t }.norm()
+        P {
+            n: self.n,
+            terms: t,
+        }
+        .norm()
     }
     fn scale(&self, k: i128) -> P {
         P {
@@ -117,7 +127,11 @@ impl P {
                 t.push((a.iter().zip(b).map(|(p, q)| p + q).collect(), x * y));
             }
         }
-        P { n: self.n, terms: t }.norm()
+        P {
+            n: self.n,
+            terms: t,
+        }
+        .norm()
     }
     fn is_const(&self) -> bool {
         self.terms.iter().all(|(e, _)| e.iter().all(|&x| x == 0))
@@ -434,10 +448,18 @@ impl Gen<'_> {
         let mut t = vec![];
         for j in 0..n {
             if self.r.chance(80) {
-                let v = if j < self.e { self.r.range(1, 6) } else { -self.r.range(0, 5) };
+                let v = if j < self.e {
+                    self.r.range(1, 6)
+                } else {
+                    -self.r.range(0, 5)
+                };
                 t.push(Err(v));
             } else {
-                let o = if self.r.chance(500) { self.r.range(-3, 3) } else { 0 };
+                let o = if self.r.chance(500) {
+                    self.r.range(-3, 3)
+                } else {
+                    0
+                };
                 t.push(Ok((perm[j], o)));
             }
         }
@@ -574,7 +596,10 @@ fn gen_set_n(seed: u64, arity: Option<usize>) -> Set {
     for _ in 0..g.r.below(3) {
         let len = recs.len();
         if len >= 2 {
-            let (a, b) = (g.r.below(len as u64) as usize, g.r.below(len as u64) as usize);
+            let (a, b) = (
+                g.r.below(len as u64) as usize,
+                g.r.below(len as u64) as usize,
+            );
             recs.swap(a, b);
         }
     }
@@ -701,9 +726,18 @@ fn table_text(s: &Set) -> String {
         {
             let g: Vec<String> = mask(s)
                 .iter()
-                .map(|&b| if b { "\"n>=1\"".into() } else { "\"n<=0\"".into() })
+                .map(|&b| {
+                    if b {
+                        "\"n>=1\"".into()
+                    } else {
+                        "\"n<=0\"".into()
+                    }
+                })
                 .collect();
-            format!(r#"{{"type":"chart","chart":"{m}","guards":[{}]}}"#, g.join(","))
+            format!(
+                r#"{{"type":"chart","chart":"{m}","guards":[{}]}}"#,
+                g.join(",")
+            )
         },
     ];
     let js = |v: &[String]| -> String {
@@ -978,7 +1012,13 @@ fn run_one(seed: u64, bx: i64, t: &Tally, engine_dir: Option<&std::path::Path>) 
         wall: Some(std::time::Duration::from_secs(4)),
         max_memo: Some(50_000),
     };
-    let res = prove_coverage_preserved(&src, &src, &frame, &work, &DispatchOrderStatement::SameOrder);
+    let res = prove_coverage_preserved(
+        &src,
+        &src,
+        &frame,
+        &work,
+        &DispatchOrderStatement::SameOrder,
+    );
     let mut rng = Rng(seed ^ 0x9E37_79B9_7F4A_7C15);
     match res {
         Ok(_) => {
@@ -1023,7 +1063,8 @@ fn run_one(seed: u64, bx: i64, t: &Tally, engine_dir: Option<&std::path::Path>) 
                     .iter()
                     .all(|k| matches!(disp.first_match(k).unwrap(), Dispatch::Covered(_)))
                 {
-                    t.refused_but_covered_on_oracle.fetch_add(1, Ordering::Relaxed);
+                    t.refused_but_covered_on_oracle
+                        .fetch_add(1, Ordering::Relaxed);
                     if std::env::var_os("AUDIT_P4_WHY").is_some() {
                         let w: String = why.chars().take(240).collect();
                         eprintln!("REFUSED-BUT-ORACLE-COVERED seed {seed:#x}: {w}");
@@ -1119,7 +1160,13 @@ fn p4_q2_large_arity_liveness_default_budget() {
         let frame = NodeFrame::without_header_lines_first(s.n, s.e);
         let src = DispatcherSource::new(&disp);
         let t0 = std::time::Instant::now();
-        let r = prove_coverage_preserved(&src, &src, &frame, &ProofWork::default(), &DispatchOrderStatement::SameOrder);
+        let r = prove_coverage_preserved(
+            &src,
+            &src,
+            &frame,
+            &ProofWork::default(),
+            &DispatchOrderStatement::SameOrder,
+        );
         let secs = t0.elapsed().as_secs_f64();
         let what = match &r {
             Ok(_) => "minted".to_string(),
@@ -1152,7 +1199,11 @@ fn p4_q2_large_arity_liveness_default_budget() {
     }
     let hwm = std::fs::read_to_string("/proc/self/status")
         .ok()
-        .and_then(|t| t.lines().find(|l| l.starts_with("VmHWM:")).map(str::to_string))
+        .and_then(|t| {
+            t.lines()
+                .find(|l| l.starts_with("VmHWM:"))
+                .map(str::to_string)
+        })
         .unwrap_or_default();
     eprintln!(
         "P4 LARGE ARITY: sets {n_sets} minted {minted} refused {refused} unbuildable {skipped} false {false_proofs}; slowest {:.1} s (seed {:#x}, {}); {hwm}",

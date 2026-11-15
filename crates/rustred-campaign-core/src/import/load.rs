@@ -15,8 +15,8 @@ use serde_json::Value;
 use super::error::{ImportError, io_err};
 use super::index::{IndexOrigin, TableIndex, open_scan_checked};
 use super::lines::{
-    MAX_BOUND_EXCLUSIONS_PER_SLOT, MarkerPolicy, RawRecord, RawTable, SymfaceRef, check_markers,
-    parse_key_text, read_sha256sums, scan_table_with, verify_file,
+    MarkerPolicy, RawRecord, RawTable, SymfaceRef, check_markers, parse_key_text, read_sha256sums,
+    scan_table_with, verify_file,
 };
 use super::spec::{
     DomainMode, HandName, SourceKind, SourceSpec, StartFormat, TableSetSpec, TableTerminals,
@@ -541,8 +541,22 @@ pub(crate) fn load_inner(
                         accept_fewer_rules: src
                             .marker_rules
                             .as_ref()
-                            .map(|m| m.accept_fewer.clone()),
+                            .and_then(|m| m.accept_fewer.clone()),
+                        accept_missing_end: src
+                            .marker_rules
+                            .as_ref()
+                            .and_then(|m| m.accept_missing_end.clone()),
                     };
+                    if let Some(m) = &src.marker_rules
+                        && [&m.accept_fewer, &m.accept_missing_end]
+                            .iter()
+                            .any(|r| r.as_deref().is_some_and(|x| x.trim().is_empty()))
+                    {
+                        return Err(ImportError::Spec(format!(
+                            "source {}: a marker_rules override needs a reason (empty)",
+                            src.id
+                        )));
+                    }
                     let ms = check_markers(&src.id, &u.path, &raw, arity, &policy)?;
                     rep.marker_overrides.extend(ms.overrides.iter().cloned());
                     for k in [
@@ -1290,9 +1304,19 @@ fn build_table(
     };
     let mut t =
         Table::from_table_file(name, u.path.display().to_string(), &tf, opts).map_err(|e| {
-            ImportError::Source {
-                source: src.id.clone(),
-                msg: format!("{}: {e}", u.path.display()),
+            match e {
+                // a record the domain builder refuses (incl. its `domain_bounds` and unknown members, lane partfix4):
+                // a typed error at its line
+                crate::cover::LoadError::Record { line_no, err } => ImportError::Line {
+                    source: src.id.clone(),
+                    path: u.path.display().to_string(),
+                    line: line_no,
+                    msg: err.to_string(),
+                },
+                e => ImportError::Source {
+                    source: src.id.clone(),
+                    msg: format!("{}: {e}", u.path.display()),
+                },
             }
         })?;
     for s in &t.provenance.skipped_not_dispatched {
@@ -1346,49 +1370,13 @@ fn build_table(
                 }
             }
         }
-        if let Some(db) = &r.domain_bounds {
-            for i in 0..frame.arity() {
-                // engfix4 mn-2: the engine's limit on a FREE slot (one exception branch per excluded value there)
-                let free = r.rec.fixed.get(i).is_some_and(Option::is_none);
-                let far = db.min[i].is_some_and(|lo| lo - 1 > MAX_BOUND_EXCLUSIONS_PER_SLOT)
-                    || db.max[i].is_some_and(|hi| -hi > MAX_BOUND_EXCLUSIONS_PER_SLOT);
-                if free && far {
-                    return Err(ImportError::Line {
-                        source: src.id.clone(),
-                        path: u.path.display().to_string(),
-                        line: r.line_no,
-                        msg: format!(
-                            "domain_bounds on the free slot {i} excludes more than {MAX_BOUND_EXCLUSIONS_PER_SLOT} values (refused as by the engine)"
-                        ),
-                    });
-                }
-                if let Some(lo) = db.min[i] {
-                    if !frame.is_line(i) {
-                        return Err(ImportError::Line {
-                            source: src.id.clone(),
-                            path: u.path.display().to_string(),
-                            line: r.line_no,
-                            msg: format!("domain_bounds.min on the numerator slot {i}"),
-                        });
-                    }
-                    bounds.push(Poly::slot_minus(i, lo as i128));
-                }
-                if let Some(hi) = db.max[i] {
-                    if frame.is_line(i) {
-                        return Err(ImportError::Line {
-                            source: src.id.clone(),
-                            path: u.path.display().to_string(),
-                            line: r.line_no,
-                            msg: format!("domain_bounds.max on the line slot {i}"),
-                        });
-                    }
-                    bounds.push(
-                        Poly::slot_minus(i, hi as i128)
-                            .neg()
-                            .map_err(|e| ImportError::Core(e.to_string()))?,
-                    );
-                }
-            }
+        // `domain_bounds` (lane partfix4, audit-part4 B2 / B2b): NOT read here any more. `Table::from_table_file`
+        // (CaseDomain::from_rule_record) has already appended them as the engine's exception branches
+        // (`domain::bound_branches`), evaluated at the rule point exactly as rustred-core's find_rule does; the
+        // former GE reading here differed from the engine for target patterns (B2) and bounded fixed slots (B2b).
+        let has_domain_bounds = r.domain_bounds.is_some();
+        if has_domain_bounds && bounds.is_empty() {
+            rep.bounds_records += 1;
         }
         if !bounds.is_empty() {
             rep.bounds_records += 1;

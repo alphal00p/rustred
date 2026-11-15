@@ -398,7 +398,12 @@ pub enum TableTerminals {
 pub struct MarkerRules {
     /// The reason a marker's `rules` GREATER than the file's rule records is accepted (e.g. "minimised table: the
     /// minimiser kept the original assembly's marker"); recorded in the load report.
-    pub accept_fewer: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accept_fewer: Option<String>,
+    /// The reason a file WITHOUT an `end` record is accepted (lane partfix4; default strict: refused as
+    /// `table_incomplete`); recorded in the load report. An empty reason is refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accept_missing_end: Option<String>,
 }
 
 impl SourceSpec {

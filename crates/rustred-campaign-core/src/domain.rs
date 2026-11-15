@@ -46,7 +46,7 @@ use std::fmt;
 
 use crate::key::{FrameError, NodeFrame};
 use crate::poly::{EvalError, Poly, PolyError};
-use crate::record::{BankPredicate, RuleRecord};
+use crate::record::{BankPredicate, DomainBounds, RuleRecord};
 
 /// Errors while building a domain.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -79,6 +79,12 @@ pub enum DomainError {
     MissingRecenter,
     /// Inconsistent public fields (from [`CaseDomain::validate`]).
     Invalid(String),
+    /// The record's `domain_bounds` is one the engine refuses or one whose engine behaviour is not modelled
+    /// ([`bound_branches`]; lane partfix4).
+    Bounds(String),
+    /// The record carries top-level members outside [`crate::record::RULE_RECORD_MEMBERS`] (sorted): never loaded,
+    /// since a member this crate does not know may change what the engine does (lane partfix4).
+    UnknownMember(Vec<String>),
 }
 
 impl fmt::Display for DomainError {
@@ -106,6 +112,11 @@ impl fmt::Display for DomainError {
                 "recenter bounds requested but the record's recenter is null or absent"
             ),
             DomainError::Invalid(s) => write!(f, "invalid domain: {s}"),
+            DomainError::Bounds(s) => write!(f, "domain_bounds: {s}"),
+            DomainError::UnknownMember(m) => write!(
+                f,
+                "rule record member(s) {m:?} unknown to the reader (refused, never ignored)"
+            ),
         }
     }
 }
@@ -369,6 +380,91 @@ fn target_map(slots: Vec<TargetSlot>, fixed: &[Option<i32>]) -> TargetMap {
     }
 }
 
+/// The most chart values one `domain_bounds` entry may exclude on a FREE slot (rustred-core node/bounds.rs
+/// `MAX_EXCLUDED_PER_SLOT`; the engine refuses a farther bound at load).
+pub const ENGINE_MAX_BOUND_EXCLUSIONS: i64 = 64;
+
+/// THE meaning of a rule record's `domain_bounds` (lane partfix4; audit-part4 B1 / B2 / B2b): the ENGINE's, ported
+/// line by line from rustred-core node/bounds.rs `bound_exclusions` (frozen engine-line7a 6c2fb15c), which
+/// mastermap.rs `Table::load` appends to the record's exceptions. The result is a list of extra EXCEPTION BRANCHES,
+/// each the one literal `n_i - v`, which [`CaseDomain::from_rule_record`] appends AFTER the written exceptions, so the
+/// dispatcher, the partition and the engine evaluate them by one code path: at the RULE POINT, a branch that vanishes
+/// deselects the record (dispatch falls through). Per slot `i` (`chart[i]`: the record's chart, line = `1`):
+/// - a `max` on a line slot or a `min` on a non-line slot is refused (fixed or not; the engine: it would cut an
+///   infinite set);
+/// - a FIXED slot (`fixed[i] = f`, tested on the KEY): a violated bound (`f < min` or `f > max`) adds `n_i - f`,
+///   otherwise nothing, whatever the rule point's coordinate `i` is (B2b: with a target pattern the engine compares
+///   the key's fixed value, not the rule point; reproduced, not "corrected");
+/// - a free line slot with `min = m`: `n_i - v` for `v = 1 .. m-1` (refused when `m - 1 > 64`); a free non-line slot
+///   with `max = M`: `n_i - v` for `v = M+1 ..= 0` (refused when `-M > 64`). With a canonical target the rule point is
+///   the key and these are exactly `n_i >= m` / `n_i <= M` on the chart; with a target pattern the rule point may
+///   leave the chart side, and only these finitely many values are excluded (B2; reproduced).
+///
+/// Refused where the engine's behaviour is not modelled: lengths other than the chart's; an `i64` edge value where the
+/// engine's arithmetic would overflow (`min = i64::MIN`; `max = i64::MIN` makes the engine enumerate 2^63 values).
+pub fn bound_branches(
+    b: &DomainBounds,
+    chart: &[bool],
+    fixed: &[Option<i64>],
+) -> Result<Vec<Vec<Poly>>, String> {
+    let n = chart.len();
+    if b.min.len() != n || b.max.len() != n || fixed.len() != n {
+        return Err(format!(
+            "min / max / fixed of lengths {} / {} / {} for the chart's arity {n}",
+            b.min.len(),
+            b.max.len(),
+            fixed.len()
+        ));
+    }
+    let mut out: Vec<Vec<Poly>> = Vec::new();
+    for i in 0..n {
+        let (min, max) = (b.min[i], b.max[i]);
+        if chart[i] && max.is_some() {
+            return Err(format!(
+                "a max on line slot {i} would cut an infinite set (refused as by the engine)"
+            ));
+        }
+        if !chart[i] && min.is_some() {
+            return Err(format!(
+                "a min on non-line slot {i} would cut an infinite set (refused as by the engine)"
+            ));
+        }
+        if let Some(f) = fixed[i] {
+            if min.is_some_and(|m| f < m) || max.is_some_and(|m| f > m) {
+                out.push(vec![Poly::slot_minus(i, i128::from(f))]);
+            }
+            continue;
+        }
+        if let Some(m) = min {
+            let far = m
+                .checked_sub(1)
+                .is_none_or(|x| x > ENGINE_MAX_BOUND_EXCLUSIONS);
+            if far {
+                return Err(format!(
+                    "min {m} on free slot {i} excludes more than {ENGINE_MAX_BOUND_EXCLUSIONS} chart values (refused as by the engine)"
+                ));
+            }
+            for v in 1..m {
+                out.push(vec![Poly::slot_minus(i, i128::from(v))]);
+            }
+        }
+        if let Some(m) = max {
+            let far = m
+                .checked_neg()
+                .is_none_or(|x| x > ENGINE_MAX_BOUND_EXCLUSIONS);
+            if far {
+                return Err(format!(
+                    "max {m} on free slot {i} excludes more than {ENGINE_MAX_BOUND_EXCLUSIONS} chart values (refused as by the engine)"
+                ));
+            }
+            for v in (m + 1)..=0 {
+                out.push(vec![Poly::slot_minus(i, i128::from(v))]);
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// What to take from a raw rule record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DomainOptions {
@@ -549,12 +645,30 @@ impl CaseDomain {
     ) -> Result<Self, DomainError> {
         frame.require_integer_only()?;
         let n = frame.arity();
+        // `domain_bounds` first (lane partfix4): the engine converts them for EVERY rule record at load, dispatched or
+        // not, and refuses the whole table on a bad one (mastermap.rs `Table::load`)
+        let bound_exc = match &r.domain_bounds {
+            None => vec![],
+            Some(b) => {
+                let chart: Vec<bool> = r
+                    .chart
+                    .as_deref()
+                    .ok_or_else(|| DomainError::Bounds("rule without chart".into()))?
+                    .chars()
+                    .map(|c| c == '1')
+                    .collect();
+                bound_branches(b, &chart, &r.fixed).map_err(DomainError::Bounds)?
+            }
+        };
         if let Some(dsp) = &r.dispatch
             && dsp != "Partition"
         {
             return Err(DomainError::NotDispatched {
                 dispatch: dsp.clone(),
             });
+        }
+        if !r.unknown_members.is_empty() {
+            return Err(DomainError::UnknownMember(r.unknown_members.clone()));
         }
         if r.fixed.len() != n {
             return Err(DomainError::Malformed(format!(
@@ -593,6 +707,8 @@ impl CaseDomain {
             poles: vec![],
             witness_elided: false,
         };
+        // the engine's order: written exceptions, then the bound branches ([`bound_branches`])
+        d.exceptions.extend(bound_exc);
         if opts.witness
             && let Some(w) = &r.witness_loci
         {
