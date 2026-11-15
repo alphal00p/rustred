@@ -5,7 +5,9 @@
 //!   "keys": [[..], ..] | "keys_file": "<path: one I(..) per line, extra columns ignored>",
 //!   "face_dots": [slots] (optional filter: exactly these lines at power >= 2), "face_nums": [slots] (optional: exactly
 //!   these numerators < 0), "max_keys": n (optional), "centre": [..] (default zero), "shells": [..] (harder unit, all
-//!   slots, no floor, around the centre), "policy": {seedmin policy}, "relation_rule", "cpus": [..] | null (HELD_CPUS),
+//!   slots, no floor, around the centre) | "list": [[offset], ..] (explicit start list, centre-relative, row order kept),
+//!   "domain": {recipe domain} (optional), "policy": {seedmin policy}, "relation_rule", "cpus": [..] | null (HELD_CPUS),
+//!   "pin_cpus": bool (default true; false = the CPUs are only a pool size, rule L21),
 //!   "threads_per_job", "cap_bytes", "key_budget_s", "wall_cap_s", "work_root", "out_dir", "records_cap_bytes"}`.
 //! Writes `out_dir/report.json`: the start list, the joint record (per-key minimisations at the spread keys, pieces,
 //! valid at N of N keys, trials), cost (CPU, wall, jobs, journal hits). Resumable: the journal lives in `work_root`.
@@ -85,13 +87,20 @@ fn real_joint_seed_minimisation_on_one_face() {
         .as_array()
         .map(|a| a.iter().map(|x| x.as_i64().unwrap() as i32).collect())
         .unwrap_or(vec![0; n]);
-    let shells: Vec<String> = serde_json::from_value(c["shells"].clone()).unwrap();
-    // the start list: shells around the centre (centre-relative), kept when the seed is in the top sector at SOME key
-    let list: Vec<Vec<i32>> = shell_offsets(&vec![0; n], &lines, &shells)
-        .unwrap()
-        .into_iter()
-        .filter(|o| keys.iter().any(|k| valid_at(k, &add(&centre, o), &lines)))
-        .collect();
+    let shells: Vec<String> = serde_json::from_value(c["shells"].clone()).unwrap_or_default();
+    // the start list: an explicit "list" (centre-relative, in its ROW order: e.g. the list that closed the face), else the
+    // shells around the centre, kept when the seed is in the top sector at SOME key
+    let list: Vec<Vec<i32>> = match c["list"].as_array() {
+        Some(a) => a
+            .iter()
+            .map(|o| serde_json::from_value(o.clone()).unwrap())
+            .collect(),
+        None => shell_offsets(&vec![0; n], &lines, &shells)
+            .unwrap()
+            .into_iter()
+            .filter(|o| keys.iter().any(|k| valid_at(k, &add(&centre, o), &lines)))
+            .collect(),
+    };
     let policy: SeedMinPolicy = serde_json::from_value(c["policy"].clone()).unwrap();
     policy.validate().unwrap();
     let cpus: Vec<usize> = match c["cpus"].as_array() {
@@ -122,13 +131,14 @@ fn real_joint_seed_minimisation_on_one_face() {
         family: s("family").into(),
         order,
         lines: lines.clone(),
-        domain: None,
+        domain: (!c["domain"].is_null()).then(|| c["domain"].clone()),
         relation_rule: c["relation_rule"]
             .as_str()
             .unwrap_or("first_admissible")
             .into(),
         cpus: cpus.clone(),
-        pin_cpus: true,
+        // L21: on a saturated host the run is UNPINNED (its unit's CPUQuota bounds it); `cpus` is then a pool size
+        pin_cpus: c["pin_cpus"].as_bool().unwrap_or(true),
         threads_per_job: c["threads_per_job"].as_u64().unwrap_or(4) as usize,
         cap_bytes: c["cap_bytes"].as_u64().unwrap_or(1_950_000_000),
         key_budget_s: c["key_budget_s"].as_u64(),
