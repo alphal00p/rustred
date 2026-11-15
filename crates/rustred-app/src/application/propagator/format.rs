@@ -679,6 +679,32 @@ pub struct LibraryManifest {
     /// In class-id order.
     pub owners: Vec<OwnerRecord>,
     pub counts: CountsRecord,
+    /// vk5l WP6: the nodes this package declares NOT CLOSED (e.g. T266), in
+    /// class order. Absent (every package before it) = none. An older binary
+    /// refuses a package that has one (unknown field): fail closed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub open_nodes: Vec<OpenNodeRecord>,
+}
+
+/// vk5l WP6: the version of [`OpenNodeRecord`]; a record of another version
+/// is refused at load.
+pub const P_OPEN_NODE_RECORD_VERSION: u32 = 1;
+
+/// vk5l WP6: one node the package declares not closed. Its owner (`class`,
+/// lane Custom) has no payload and no terminal; the loader gives it no
+/// program, so any key reaching it is `PError::NodeNotClosed` naming `node`,
+/// `status` and the key. Not part of the identity (no value depends on it).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpenNodeRecord {
+    /// [`P_OPEN_NODE_RECORD_VERSION`].
+    pub version: u32,
+    /// Class label of the owner (`L<l>T<t>-<id hex>`).
+    pub class: String,
+    /// The node name of the effort's ledger (`T266`).
+    pub node: String,
+    /// Why it is open, shown in the refusal (`stuck: not closed`).
+    pub status: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

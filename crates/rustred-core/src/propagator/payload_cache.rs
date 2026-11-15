@@ -241,6 +241,34 @@ impl PProgramBudget {
         }
     }
 
+    /// Drop every resident program that no step holds, whatever the limit,
+    /// and return the weight freed. Called when a request's forward pass is
+    /// over (p5l-library-3): the modular replay that follows never steps, so
+    /// the programs would only hold memory beside its weights; a later
+    /// request rebuilds what it uses.
+    pub fn release_unheld(&self) -> u64 {
+        let entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+        let steps: Vec<Arc<PEvictableStep>> = entries.iter().filter_map(Weak::upgrade).collect();
+        drop(entries);
+        let mut freed = 0;
+        for step in steps {
+            let Ok(mut slot) = step.slot.try_write() else {
+                continue;
+            };
+            if slot
+                .as_ref()
+                .is_some_and(|program| Arc::strong_count(program) == 1)
+            {
+                *slot = None;
+                drop(slot);
+                self.resident.fetch_sub(step.weight, Ordering::Relaxed);
+                self.evictions.fetch_add(1, Ordering::Relaxed);
+                freed += step.weight;
+            }
+        }
+        freed
+    }
+
     fn tick(&self) -> u64 {
         self.clock.fetch_add(1, Ordering::Relaxed)
     }

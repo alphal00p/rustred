@@ -1533,6 +1533,37 @@ pub(crate) fn take_rule_hit() -> Option<(u64, u32)> {
     LAST_RULE.with(std::cell::Cell::take)
 }
 
+/// [`zero_certificates`], computed once per process for each family and
+/// support (p5l-library-3): a lazily loaded Custom program evicted under its
+/// library's program budget is rebuilt on its next use, and the zero analysis
+/// (exact Symanzik determinants per subsector) was most of a 5L rebuild. The
+/// proofs depend only on the family and the support; an entry keeps its
+/// family alive, so the address key is never reused by another family.
+fn cached_zero_certificates(
+    presentation: &Presentation,
+    support: u64,
+) -> Result<Vec<zero::Certificate>, PError> {
+    type Entry = (
+        Arc<crate::family::IntegralFamily>,
+        Arc<Vec<zero::Certificate>>,
+    );
+    static CACHE: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<(usize, u64), Entry>>,
+    > = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    let key = (Arc::as_ptr(&presentation.family) as usize, support);
+    if let Some((_, proofs)) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+        return Ok(proofs.as_ref().clone());
+    }
+    let proofs = Arc::new(zero_certificates(presentation, support)?);
+    cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(key)
+        .or_insert_with(|| (Arc::clone(&presentation.family), Arc::clone(&proofs)));
+    Ok(proofs.as_ref().clone())
+}
+
 /// Zero proofs of the downset of `support` (raw sectors; eps axes are always
 /// effective in the analyzer).
 fn zero_certificates(
@@ -1750,7 +1781,7 @@ fn build<const N: usize>(
         }
         None => None,
     };
-    let proofs = zero_certificates(presentation, support)?;
+    let proofs = cached_zero_certificates(presentation, support)?;
     let scope = CandidateOwnerScope {
         max_numerator_rank: None,
         finite_case_policy: FiniteCasePolicy::SearchFinite,
@@ -2025,7 +2056,7 @@ enum Applied {
 }
 
 /// The owner program of one payload, for checks outside a library.
-trait CustomOwnerOps {
+trait CustomOwnerOps: Sync {
     fn support(&self) -> u64;
     fn arity(&self) -> usize;
     fn forced(&self) -> u64;
@@ -2511,11 +2542,21 @@ pub fn verify_custom_payload(
             Some(set) => format!("its certified key set ({} keys)", set.len()),
             None => record.describe(),
         };
-        for key in keys {
-            if ops.is_residual(&key) {
-                continue;
+        // vk5l WP6: RUSTRED_P_CHECK_THREADS=<n> steps the keys on n threads
+        // (contiguous key ranges over the shared owner; default 1 = in order).
+        // The counts are the same; on a failure the one of the smallest key
+        // index is reported, as the sequential check would.
+        let threads = std::env::var("RUSTRED_P_CHECK_THREADS")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(1)
+            .min(keys.len().max(1));
+        let step = |key: &Vec<i64>| -> Result<bool, PError> {
+            if ops.is_residual(key) {
+                return Ok(false);
             }
-            let applied = ops.apply_powers(&key).map_err(|error| match error {
+            let applied = ops.apply_powers(key).map_err(|error| match error {
                 // vk5l WP2: a recipe failure is reported as it is.
                 error @ PError::RecipeFailed(_) => error,
                 error => fail(format!(
@@ -2533,7 +2574,54 @@ pub fn verify_custom_payload(
                     }
                 }
             }
-            check.box_keys_stepped += 1;
+            Ok(true)
+        };
+        let chunk = keys.len().div_ceil(threads).max(1);
+        let failed = std::sync::atomic::AtomicUsize::new(usize::MAX);
+        let results: Vec<(usize, Result<usize, (usize, PError)>)> = std::thread::scope(|scope| {
+            let handles: Vec<_> = keys
+                .chunks(chunk)
+                .enumerate()
+                .map(|(part, slice)| {
+                    let (step, failed) = (&step, &failed);
+                    scope.spawn(move || {
+                        let mut stepped = 0usize;
+                        for (offset, key) in slice.iter().enumerate() {
+                            let index = part * chunk + offset;
+                            if index > failed.load(std::sync::atomic::Ordering::Relaxed) {
+                                break;
+                            }
+                            match step(key) {
+                                Ok(true) => stepped += 1,
+                                Ok(false) => {}
+                                Err(error) => {
+                                    failed.fetch_min(index, std::sync::atomic::Ordering::Relaxed);
+                                    return (part, Err((index, error)));
+                                }
+                            }
+                        }
+                        (part, Ok(stepped))
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().expect("a check thread panicked"))
+                .collect()
+        });
+        let mut first_error: Option<(usize, PError)> = None;
+        for (_, result) in results {
+            match result {
+                Ok(stepped) => check.box_keys_stepped += stepped,
+                Err((index, error)) => {
+                    if first_error.as_ref().is_none_or(|(at, _)| index < *at) {
+                        first_error = Some((index, error));
+                    }
+                }
+            }
+        }
+        if let Some((_, error)) = first_error {
+            return Err(error);
         }
     }
     Ok(check)

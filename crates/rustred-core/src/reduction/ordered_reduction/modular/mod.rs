@@ -994,7 +994,7 @@ impl ModularRecorder {
     /// accumulators over Q, or, when `composer` supplies a plan for them,
     /// only their composition (compose before lift, `composition.rs`).
     pub(crate) fn finish(
-        self,
+        mut self,
         terms: BTreeMap<IntegralKey, ModularWeight>,
         composer: Option<&dyn OrderedTerminalComposer>,
     ) -> Result<(Finished, ModularStatistics), ReductionError> {
@@ -1028,11 +1028,12 @@ impl ModularRecorder {
                     coefficient.numerator.get_constant(),
                     coefficient.denominator.get_constant(),
                 );
+            } else if let Some(slot) = factored.get_mut(reference.index()) {
+                // p5l-library-3: the polynomial replay reads the factored
+                // basis only; no dense copy of the coefficient.
+                *slot = Some(coefficient);
             } else {
                 polynomials[reference.index()] = DenseRational::from_coefficient(coefficient);
-                if let Some(slot) = factored.get_mut(reference.index()) {
-                    *slot = Some(coefficient);
-                }
             }
         }
         let factoring = Instant::now();
@@ -1047,6 +1048,13 @@ impl ModularRecorder {
             builder.finish()
         };
         let factor_seconds = factoring.elapsed().as_secs_f64();
+        // p5l-library-3: the exact interned coefficients are not needed by
+        // the replay or the lift (their dense / factored forms are); a 5L
+        // trace interns ~10^6 of them.
+        self.table = HashTable::new();
+        drop(std::mem::take(&mut self.entries));
+        drop(std::mem::take(&mut self.entry_refs));
+        drop(std::mem::take(&mut self.entry_hashes));
         let trace = Trace {
             ops: self.ops,
             constants,

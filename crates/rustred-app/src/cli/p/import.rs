@@ -145,6 +145,7 @@ struct Arguments {
     recipes: Option<PathBuf>,
     recipe_revision: Option<String>,
     recipes_first: bool,
+    stream_payload: bool,
 }
 
 fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
@@ -155,6 +156,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
     let mut coef_form = CoefForm::Expanded;
     let (mut partial_box, mut no_verify) = (false, false);
     let mut mixed_box = false;
+    let mut stream_payload = false;
     let mut certified_keys = None;
     let (mut recipes, mut recipe_revision, mut recipes_first) = (None, None, false);
     let mut seen = BTreeSet::new();
@@ -179,6 +181,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             "--recipes" => "--recipes",
             "--recipe-revision" => "--recipe-revision",
             "--recipes-first" => "--recipes-first",
+            "--stream-payload" => "--stream-payload",
             _ => return Err(ArgError::UnknownOption(argument)),
         };
         if !seen.insert(option) {
@@ -239,6 +242,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             "--partial-box" => partial_box = true,
             "--no-verify" => no_verify = true,
             "--mixed-box" => mixed_box = true,
+            "--stream-payload" => stream_payload = true,
             _ => force = true,
         }
     }
@@ -261,6 +265,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
         recipes,
         recipe_revision,
         recipes_first,
+        stream_payload,
     })
 }
 
@@ -351,14 +356,69 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             None => None,
         },
     };
-    let mut imported = import_table_from(
-        std::io::BufReader::with_capacity(1 << 20, table),
-        &graph,
-        &options,
-    )
-    .map_err(failed)?;
+    // vk5l WP6: --stream-payload (requires --no-verify, no --coef-form factored,
+    // no --replay): coefficients spilled to a scratch file beside the output,
+    // the payload written to `<label>.rrbin.partial` while it is built and
+    // renamed at the end; memory = the hash index + the program records.
+    let mut table = Some(table);
+    let streamed = if arguments.stream_payload {
+        if !arguments.no_verify || arguments.factored || arguments.replay.is_some() {
+            return Err(CliError::Input(
+                "--stream-payload needs --no-verify and allows neither --coef-form factored nor --replay"
+                    .to_owned(),
+            ));
+        }
+        let path = |extension: &str| {
+            arguments
+                .out
+                .join(format!("{}.{extension}", arguments.label))
+        };
+        let io = |what: &std::path::Path, error: std::io::Error| {
+            CliError::OutputIo(format!("{}: {error}", what.display()))
+        };
+        let (scratch_path, partial_path) = (path("atoms.scratch"), path("rrbin.partial"));
+        let scratch = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&scratch_path)
+            .map_err(|error| io(&scratch_path, error))?;
+        let partial =
+            std::fs::File::create(&partial_path).map_err(|error| io(&partial_path, error))?;
+        let mut writer = std::io::BufWriter::with_capacity(8 << 20, partial);
+        let result = rustred::propagator::table_import::import_table_streamed(
+            std::io::BufReader::with_capacity(1 << 20, table.take().expect("the table file")),
+            &graph,
+            &options,
+            scratch,
+            &mut writer,
+        );
+        let _ = std::fs::remove_file(&scratch_path);
+        let imported = result.map_err(failed)?;
+        use std::io::Write as _;
+        writer
+            .flush()
+            .and_then(|()| writer.get_ref().sync_all())
+            .map_err(|error| io(&partial_path, error))?;
+        Some((imported, partial_path))
+    } else {
+        None
+    };
+    let (mut imported, partial_payload) = match streamed {
+        Some((imported, partial)) => (imported, Some(partial)),
+        None => (
+            import_table_from(
+                std::io::BufReader::with_capacity(1 << 20, table.take().expect("the table file")),
+                &graph,
+                &options,
+            )
+            .map_err(failed)?,
+            None,
+        ),
+    };
     let import_seconds = started.elapsed().as_secs_f64();
-    let expanded_payload_bytes = imported.payload.len();
+    let expanded_payload_bytes = imported.payload_len();
     let mut coef_form_seconds = 0.0;
     if arguments.coef_form != CoefForm::Expanded {
         let started = Instant::now();
@@ -425,7 +485,7 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         "dispatched_rules": imported.dispatched_rules,
         "affine_rules": imported.affine_rules,
         "rules_with_exceptions": imported.rules_with_exceptions,
-        "payload_bytes": imported.payload.len(),
+        "payload_bytes": imported.payload_len(),
         "verify": check.as_ref().map(check_json),
         "import_seconds": import_seconds,
         "verify_seconds": verify_seconds,
@@ -528,7 +588,19 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     }
 
     let json = serde_json::to_string_pretty(&record).map_err(json_error)?;
-    write_output(&destination("rrbin"), &imported.payload, arguments.force)?;
+    match &partial_payload {
+        Some(partial) => {
+            let StreamPath::File(target) = destination("rrbin") else {
+                unreachable!("file destinations")
+            };
+            if target.exists() && !arguments.force {
+                return Err(CliError::OutputIo(format!("{} exists", target.display())));
+            }
+            std::fs::rename(partial, &target)
+                .map_err(|error| CliError::OutputIo(format!("{}: {error}", target.display())))?;
+        }
+        None => write_output(&destination("rrbin"), &imported.payload, arguments.force)?,
+    }
     write_output(
         &destination("json"),
         format!("{json}\n").as_bytes(),
@@ -542,7 +614,7 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         imported.summary.charts.len(),
         imported.meta.residuals,
         imported.meta.lp_count,
-        imported.payload.len(),
+        imported.payload_len(),
         imported.slot_map,
         if imported.q_flipped { ", q flipped" } else { "" },
         imported.order_name,
@@ -913,10 +985,14 @@ fn run_check(arguments: Vec<OsString>) -> Result<(), CliError> {
     let record_path =
         PathBuf::from(next_value(&mut arguments, "--check").map_err(CliError::Usage)?);
     let mut force = false;
+    // vk5l WP6: --load-only measures the owner build (load memory and time)
+    // and writes the check record without stepping any key.
+    let mut load_only = false;
     let (mut cache, mut prefilled, mut workers) = (None, None, None);
     while let Some(argument) = arguments.next() {
         match argument.to_str() {
             Some("--force") if !force => force = true,
+            Some("--load-only") if !load_only => load_only = true,
             Some("--recipe-cache") if cache.is_none() => {
                 cache = Some(PathBuf::from(
                     next_value(&mut arguments, "--recipe-cache").map_err(CliError::Usage)?,
@@ -965,6 +1041,43 @@ fn run_check(arguments: Vec<OsString>) -> Result<(), CliError> {
     // chart prepared, certified set decoded), before the check steps keys.
     let built = custom_payload_load(presentation, payload, meta).map_err(failed)?;
     let (rss_built, peak_built) = rss_bytes();
+    if load_only {
+        let gb = |bytes: u64| bytes as f64 / 1e9;
+        let out = serde_json::json!({
+            "schema": "rustred.p-imported-owner-load.v1",
+            "label": label,
+            "payload": payload_path.display().to_string(),
+            "payload_bytes": payload.len(),
+            "load": {
+                "payload_bytes": payload.len(),
+                "read_seconds": read_seconds,
+                "build_seconds": built.build_seconds,
+                "node": built.node,
+                "certified_keys": built.certified_keys,
+                "certified_heap_bytes": built.certified_heap_bytes,
+                "rss_start_gb": gb(rss_start),
+                "rss_after_read_gb": gb(rss_read),
+                "rss_after_build_gb": gb(rss_built),
+                "peak_after_build_gb": gb(peak_built),
+                "note": "the payload bytes are held (eager read); the owner program is built, no key is stepped",
+            },
+        });
+        let text = serde_json::to_string_pretty(&out).map_err(json_error)?;
+        write_output(
+            &StreamPath::File(record_path.with_file_name(format!("{label}.load.json"))),
+            format!("{text}\n").as_bytes(),
+            force,
+        )?;
+        return writeln!(
+            std::io::stdout().lock(),
+            "{label}: load of {} bytes: read {read_seconds:.3} s, build {:.3} s, RSS after build {:.2} GB (peak {:.2} GB)",
+            payload.len(),
+            built.build_seconds,
+            gb(rss_built),
+            gb(peak_built)
+        )
+        .map_err(|error| CliError::OutputIo(error.to_string()));
+    }
     let started = Instant::now();
     let failure_path = record_path.with_file_name(format!("{label}.recipe-failure.json"));
     let check = verify_custom_payload(presentation, payload, meta)

@@ -34,7 +34,7 @@ use std::time::Instant;
 
 use rustred::algebra::CoefficientContext;
 use rustred::family::IntegralKey;
-use rustred::propagator::census::{PCensusOptions, PRouteMaps, p_census};
+use rustred::propagator::census::{PCensusOptions, PRouteMaps};
 use rustred::propagator::custom::inspect_custom_payload;
 use rustred::propagator::descent::{DescentReport, TraceReport, check, trace};
 use rustred::propagator::diamond::{DiamondError, DiamondTemplate};
@@ -428,9 +428,15 @@ fn assemble(
 
     // 4. The census, strongly complete.
     // Routed sectors store the static-score route maps (P_CENSUS_VERSION 2).
+    // p5l-library-3 (A/B measurement only): RUSTRED_P_ASSEMBLE_ROUTE_MAPS=first
+    // stores the first verified map of every routed sector instead.
+    let route_maps = match std::env::var("RUSTRED_P_ASSEMBLE_ROUTE_MAPS").as_deref() {
+        Ok("first") => PRouteMaps::First,
+        _ => PRouteMaps::StaticScore,
+    };
     let census_options = PCensusOptions {
         threads: options.threads,
-        route_maps: PRouteMaps::StaticScore,
+        route_maps,
         ..PCensusOptions::default()
     };
     // p5l-library session 2: a census checkpoint. RUSTRED_P_ASSEMBLE_CENSUS
@@ -439,6 +445,24 @@ fn assemble(
     // otherwise the census is written there once computed.
     let checkpoint = std::env::var_os("RUSTRED_P_ASSEMBLE_CENSUS").map(std::path::PathBuf::from);
     let mut fresh = true;
+    // vk5l WP6: RUSTRED_P_ASSEMBLE_CENSUS_SEED=<package dir>: the census of an
+    // earlier package translated onto these presentations (`super::seed`). A
+    // census without a journal resumes from it; with RUSTRED_P_ASSEMBLE_CENSUS_CHECK
+    // =seeded it also limits the census check (below), on a restart too.
+    let seeded = match std::env::var_os("RUSTRED_P_ASSEMBLE_CENSUS_SEED") {
+        Some(directory) => {
+            let sidecar =
+                std::env::var_os(super::seed::SEED_FINGERPRINTS_ENV).map(std::path::PathBuf::from);
+            let (seed, report) = super::seed::census_seed(
+                std::path::Path::new(&directory),
+                &presentations,
+                sidecar.as_deref(),
+            )?;
+            eprintln!("[census] seed {}: {report:?}", directory.to_string_lossy());
+            Some(seed)
+        }
+        None => None,
+    };
     let census = match &checkpoint {
         Some(path) if path.exists() => {
             fresh = false;
@@ -448,7 +472,64 @@ fn assemble(
             super::format::decode_census(&bytes)?
         }
         _ => {
-            let census = p_census(&presentations, Some(&dag), &census_options)?;
+            // p5l-library session 4: with a checkpoint path the routes stage
+            // also writes <path>.journal (a partial census) every
+            // RUSTRED_P_ASSEMBLE_CENSUS_JOURNAL_MIN minutes (default 20) and a
+            // rerun resumes from it; a resumed census is checked completely.
+            let journal_path = checkpoint
+                .as_ref()
+                .map(|path| path.with_extension("journal"));
+            let resume = match &journal_path {
+                Some(path) if path.exists() => {
+                    let bytes = std::fs::read(path).map_err(|error| {
+                        PError::MalformedLibrary(format!("reading {}: {error}", path.display()))
+                    })?;
+                    fresh = false;
+                    Some(super::format::decode_census(&bytes)?)
+                }
+                _ => None,
+            };
+            // vk5l WP6: RUSTRED_P_ASSEMBLE_CENSUS_SEED=<package dir> starts a census
+            // without a journal from the census of an earlier package, translated
+            // onto these presentations (`super::seed`); a seeded census is checked.
+            if seeded.is_some() {
+                fresh = false;
+            }
+            let resume = resume.as_ref().or(seeded.as_ref());
+            let write = |partial: &rustred::propagator::census::PCensus| -> Result<(), PError> {
+                let Some(path) = &journal_path else {
+                    return Ok(());
+                };
+                let bytes = super::format::encode_census(partial)?;
+                let tmp = path.with_extension("journal.partial");
+                std::fs::write(&tmp, bytes)
+                    .and_then(|()| std::fs::rename(&tmp, path))
+                    .map_err(|error| {
+                        PError::Generation(format!("writing {}: {error}", path.display()))
+                    })?;
+                eprintln!(
+                    "[census] journal: {} sectors written",
+                    partial.sectors.len()
+                );
+                Ok(())
+            };
+            let minutes = std::env::var("RUSTRED_P_ASSEMBLE_CENSUS_JOURNAL_MIN")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(20);
+            let journal = rustred::propagator::census::PCensusJournal {
+                resume,
+                write: journal_path
+                    .is_some()
+                    .then_some(&write as &(dyn Fn(&_) -> Result<(), PError> + Sync)),
+                every: std::time::Duration::from_secs(60 * minutes),
+            };
+            let census = rustred::propagator::census::p_census_journaled(
+                &presentations,
+                Some(&dag),
+                &census_options,
+                &journal,
+            )?;
             if let Some(path) = &checkpoint {
                 let bytes = super::format::encode_census(&census)?;
                 let partial = path.with_extension("partial");
@@ -466,12 +547,50 @@ fn assemble(
     // `auto` (p5l-library session 2) skips the check of a census computed in
     // this process, which verified every route it stored, and checks a census
     // read from a checkpoint.
-    let check_census = match std::env::var("RUSTRED_P_ASSEMBLE_CENSUS_CHECK").as_deref() {
-        Ok("auto") => !fresh,
+    // vk5l WP6: `seeded` (with a census seed and the descent certificate on)
+    // checks shape, ids and owners in full but the zero proofs and routes only
+    // of the sectors not taken unchanged from the seed. The
+    // seed must be a package whose census was checked when it was made (its
+    // zero proofs are not repeated: no second audit); the descent certificate
+    // verifies and compiles every route again (it does not re-prove zeros).
+    let check_mode = std::env::var("RUSTRED_P_ASSEMBLE_CENSUS_CHECK").unwrap_or_default();
+    let check_census = match check_mode.as_str() {
+        "auto" => !fresh,
         _ => true,
     };
-    if check_census {
-        census.check_complete_with(&presentations, Some(&dag), &census_options)?;
+    if check_mode == "seeded" && !options.verify_descent {
+        return Err(PError::MalformedLibrary(
+            "RUSTRED_P_ASSEMBLE_CENSUS_CHECK=seeded needs the descent certificate".to_owned(),
+        ));
+    }
+    match (&seeded, check_mode.as_str()) {
+        (Some(seed), "seeded") => {
+            let skip: BTreeSet<(PresentationId, u64)> = (census.sectors.iter())
+                .filter(|(sector, fate)| {
+                    seed.sectors.get(sector) == Some(*fate)
+                        && match fate {
+                            rustred::propagator::census::PSectorFate::Zero => true,
+                            rustred::propagator::census::PSectorFate::Owner { class, .. } => {
+                                match (seed.classes.get(class), census.classes.get(class)) {
+                                    (Some(o), Some(n)) => o.key == n.key && o.owner == n.owner,
+                                    _ => false,
+                                }
+                            }
+                        }
+                })
+                .map(|(sector, _)| *sector)
+                .collect();
+            eprintln!(
+                "[census] check seeded: {} of {} sectors taken unchanged from the seed",
+                skip.len(),
+                census.sectors.len()
+            );
+            census.check_complete_except(&presentations, Some(&dag), &census_options, &skip)?;
+        }
+        _ if check_census => {
+            census.check_complete_with(&presentations, Some(&dag), &census_options)?;
+        }
+        _ => {}
     }
     clock.lap("census-check");
 
@@ -483,6 +602,19 @@ fn assemble(
     builder.set_topology(Arc::clone(&dag))?;
     let mut payloads = BTreeMap::new();
     let mut owners = Vec::with_capacity(census.classes.len());
+    let mut open: Vec<(OwnerClassId, String, String)> = Vec::new();
+    if let CustomPayloads::Imported {
+        imported,
+        open: declared,
+        ..
+    } = &custom
+        && let Some(key) = declared.keys().find(|key| imported.contains_key(*key))
+    {
+        return Err(PError::MalformedLibrary(format!(
+            "the Custom node {} is both imported and declared open",
+            declared[key].0
+        )));
+    }
     for (&class, record) in &census.classes {
         let label = record.key.label();
         let node_index = record
@@ -565,6 +697,11 @@ fn assemble(
                     };
                     payloads.insert(label, payload);
                 }
+            } else if let Some((name, status)) =
+                (owner.node.as_ref()).and_then(|reference| open_node(&custom, &reference.graph_key))
+            {
+                // vk5l WP6: a node declared not closed: no payload, no terminal.
+                open.push((class, name.clone(), status.clone()));
             } else {
                 let payload = custom_payload(
                     &custom,
@@ -603,7 +740,17 @@ fn assemble(
     clock.lap("owners");
     builder.set_census(census)?;
     for spec in owners {
-        builder.add_owner(spec)?;
+        if open.iter().any(|(class, ..)| *class == spec.class) {
+            builder.add_owner_with_program(
+                spec,
+                rustred::propagator::library::OwnerProgram::Missing { ledger: 0 },
+            )?;
+        } else {
+            builder.add_owner(spec)?;
+        }
+    }
+    for (class, name, status) in &open {
+        builder.declare_open_node(*class, name, status)?;
     }
     // Batch 6 (p5l-library eafe73ca): RUSTRED_P_PACKAGE_REVISION=<name> stamps the
     // package content revision into the identity (`,P_PACKAGE_REVISION=<name>`), so a
@@ -641,6 +788,14 @@ fn assemble(
         descent,
         timings: clock.1,
     })
+}
+
+/// vk5l WP6: the (name, status) of the open Custom node of `graph_key`.
+fn open_node<'a>(custom: &'a CustomPayloads, graph_key: &[u8]) -> Option<&'a (String, String)> {
+    match custom {
+        CustomPayloads::Imported { open, .. } => open.get(graph_key),
+        _ => None,
+    }
 }
 
 /// The imported Custom node of `graph_key`, if `custom` has one.

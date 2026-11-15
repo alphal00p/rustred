@@ -55,7 +55,7 @@ use crate::algebra::{
 };
 use crate::persistence::{
     BinaryIoLimits, BinaryProgramKind, BinarySection, CoefficientTableBuilder, NativeFamilyRecord,
-    SectionTag, encode_program,
+    SectionTag, encode_program, encode_program_streamed,
 };
 use crate::sector::OrderingPolicy;
 
@@ -166,6 +166,39 @@ pub struct ImportedOwner {
     pub boxed: Option<BoxedNodeRecord>,
     /// vk5l WP2: the recipe bundle the payload carries.
     pub recipes: Option<super::recipes::RecipeBundle>,
+    /// vk5l WP6: [`import_table_streamed`] wrote the payload to its sink
+    /// (`payload` is then empty): its length in bytes.
+    pub streamed_payload_bytes: Option<u64>,
+}
+
+impl ImportedOwner {
+    /// The payload's length, held or streamed.
+    pub fn payload_len(&self) -> u64 {
+        self.streamed_payload_bytes
+            .unwrap_or(self.payload.len() as u64)
+    }
+}
+
+/// vk5l WP6: `RUSTRED_P_IMPORT_TRACE=1` prints the process RSS (VmRSS, VmHWM)
+/// at the import's phases on stderr.
+fn trace_rss(phase: &str) {
+    if std::env::var_os("RUSTRED_P_IMPORT_TRACE").is_none() {
+        return;
+    }
+    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let field = |name: &str| {
+        status
+            .lines()
+            .find(|line| line.starts_with(name))
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|kb| kb.parse::<f64>().ok())
+            .map_or(-1.0, |kb| kb / 1e6)
+    };
+    eprintln!(
+        "[import-rss] {phase}: rss {:.2} GB, peak {:.2} GB",
+        field("VmRSS:"),
+        field("VmHWM:")
+    );
 }
 
 // ----- the family -----
@@ -2074,6 +2107,38 @@ pub fn import_table_from<R: std::io::BufRead>(
     graph: &PTopo,
     options: &TableImportOptions,
 ) -> Result<ImportedOwner, PError> {
+    import_table_impl::<R, std::io::Sink>(reader, graph, options, None)
+}
+
+/// vk5l WP6: [`import_table_from`] with bounded memory for a large table: the
+/// unique coefficients are kept in `scratch` (an empty read-write file the
+/// caller removes afterwards) instead of memory, and the payload is written
+/// to `payload` section by section instead of being returned
+/// (`ImportedOwner::payload` is empty, `streamed_payload_bytes` its length).
+/// The payload bytes are those of [`import_table_from`]; the summary and the
+/// meta are read from the payload's structure (program and family sections),
+/// which never decodes a coefficient.
+pub fn import_table_streamed<R: std::io::BufRead, W: std::io::Write>(
+    reader: R,
+    graph: &PTopo,
+    options: &TableImportOptions,
+    scratch: std::fs::File,
+    payload: &mut W,
+) -> Result<ImportedOwner, PError> {
+    import_table_impl(reader, graph, options, Some((scratch, payload)))
+}
+
+fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
+    reader: R,
+    graph: &PTopo,
+    options: &TableImportOptions,
+    stream: Option<(std::fs::File, &mut W)>,
+) -> Result<ImportedOwner, PError> {
+    trace_rss("start");
+    let (scratch, mut sink) = match stream {
+        Some((scratch, sink)) => (Some(scratch), Some(sink)),
+        None => (None, None),
+    };
     let mut records = TableRecords {
         reader,
         line: String::new(),
@@ -2257,7 +2322,12 @@ pub fn import_table_from<R: std::io::BufRead>(
         .map_err(|error| malformed(error))?;
     let mut coefficients = Coefficients {
         context: &indexed,
-        table: CoefficientTableBuilder::new(BinaryIoLimits::default()),
+        table: match scratch {
+            Some(scratch) => {
+                CoefficientTableBuilder::with_spill(BinaryIoLimits::default(), scratch)
+            }
+            None => CoefficientTableBuilder::new(BinaryIoLimits::default()),
+        },
         slot_map: &slot_map,
     };
     let mut sectors: Vec<EncodedSectorRecord> = charts
@@ -2448,6 +2518,7 @@ pub fn import_table_from<R: std::io::BufRead>(
             _ => {}
         }
     }
+    trace_rss("records read");
     let end = end.ok_or_else(|| gap("partial", "no end record: a partial run"))?;
     if end["chart_errors"].as_u64().unwrap_or(0) != 0 {
         return Err(gap(
@@ -2554,9 +2625,108 @@ pub fn import_table_from<R: std::io::BufRead>(
     let mut table_builder = coefficients.table;
     let family_record = NativeFamilyRecord::from_family(&presentation.family, &mut table_builder)
         .map_err(|error| malformed(format!("family record: {error}")))?;
+    if let Some(sink) = sink.as_mut() {
+        // Streamed: state, then the atoms copied from the scratch file, then
+        // the family and program records; the summary from a skeleton
+        // payload (same sections, empty coefficient table).
+        let state = table_builder
+            .encoded_state()
+            .map_err(|error| malformed(format!("coefficient table: {error}")))?;
+        let atom_bytes = table_builder.encoded_atom_bytes();
+        let program_bytes = encode_program_record_with_sectors(&program, &sectors)
+            .map_err(|error| malformed(error))?;
+        drop(sectors);
+        let family_bytes = bincode::encode_to_vec(&family_record, bincode::config::standard())
+            .map_err(|error| malformed(error))?;
+        let empty_atoms = CoefficientTableBuilder::new(BinaryIoLimits::default())
+            .finish()
+            .map_err(|error| malformed(format!("coefficient table: {error}")))?
+            .atoms;
+        let skeleton = encode_program(
+            BinaryProgramKind::Candidates,
+            &[
+                BinarySection {
+                    tag: SectionTag::SYMBOLICA_STATE,
+                    bytes: &state,
+                },
+                BinarySection {
+                    tag: SectionTag::COEFFICIENTS,
+                    bytes: &empty_atoms,
+                },
+                BinarySection {
+                    tag: SectionTag::FAMILY,
+                    bytes: &family_bytes,
+                },
+                BinarySection {
+                    tag: SectionTag::PROGRAM,
+                    bytes: &program_bytes,
+                },
+            ],
+            BinaryIoLimits::default(),
+        )
+        .map_err(|error| malformed(format!("payload: {error}")))?;
+        let summary = inspect_custom_payload(&skeleton)?;
+        let meta = summary.meta(options.lp_count)?;
+        drop(skeleton);
+        trace_rss("before streaming the payload");
+        let mut builder = Some(table_builder);
+        let written = encode_program_streamed(
+            &mut **sink,
+            BinaryProgramKind::Candidates,
+            &[
+                (SectionTag::SYMBOLICA_STATE, state.len()),
+                (SectionTag::COEFFICIENTS, atom_bytes),
+                (SectionTag::FAMILY, family_bytes.len()),
+                (SectionTag::PROGRAM, program_bytes.len()),
+            ],
+            BinaryIoLimits::default(),
+            |index, writer| {
+                let io = |result: std::io::Result<()>| {
+                    result.map_err(|error| {
+                        crate::persistence::BinaryIoError::Native(error.to_string())
+                    })
+                };
+                use std::io::Write as _;
+                match index {
+                    0 => io(writer.write_all(&state)),
+                    1 => builder
+                        .take()
+                        .expect("the coefficient section is written once")
+                        .write_atoms(writer),
+                    2 => io(writer.write_all(&family_bytes)),
+                    _ => io(writer.write_all(&program_bytes)),
+                }
+            },
+        )
+        .map_err(|error| malformed(format!("payload: {error}")))?;
+        trace_rss("payload streamed");
+        return Ok(ImportedOwner {
+            presentation,
+            payload: Vec::new(),
+            meta,
+            summary,
+            slot_map,
+            q_flipped,
+            line_signs: matched.signs,
+            graph_key,
+            table_family: family,
+            rules,
+            rhs_terms,
+            negated_terms: negated,
+            dispatched_rules,
+            affine_rules,
+            rules_with_exceptions: excepted,
+            order_name,
+            slot_order,
+            boxed,
+            recipes: recipe_bundle,
+            streamed_payload_bytes: Some(written),
+        });
+    }
     let encoded = table_builder
         .finish()
         .map_err(|error| malformed(format!("coefficient table: {error}")))?;
+    trace_rss("coefficient table encoded");
     let program_bytes =
         encode_program_record_with_sectors(&program, &sectors).map_err(|error| malformed(error))?;
     drop(sectors);
@@ -2585,6 +2755,7 @@ pub fn import_table_from<R: std::io::BufRead>(
         BinaryIoLimits::default(),
     )
     .map_err(|error| malformed(format!("payload: {error}")))?;
+    trace_rss("payload encoded");
     let summary = inspect_custom_payload(&payload)?;
     let meta = summary.meta(options.lp_count)?;
     Ok(ImportedOwner {
@@ -2607,6 +2778,7 @@ pub fn import_table_from<R: std::io::BufRead>(
         slot_order,
         boxed,
         recipes: recipe_bundle,
+        streamed_payload_bytes: None,
     })
 }
 
@@ -3467,6 +3639,45 @@ mod tests {
                 matches!(&refused, Err(PError::Unsupported(text)) if text.contains("partial")),
                 "{refused:?}"
             );
+        }
+    }
+
+    /// vk5l WP6: the bounded-memory import (coefficients spilled to a scratch
+    /// file, payload streamed to a writer) writes the payload bytes of the
+    /// in-memory import, boxed or not, with the same summary and meta.
+    #[test]
+    fn the_spilled_streamed_import_writes_the_same_payload() {
+        for boxed in [false, true] {
+            let text = kite_table(boxed, None, &[]);
+            let whole = import_table(&text, &kite_graph(), &kite_options(false)).unwrap();
+            let path = std::env::temp_dir().join(format!(
+                "rustred-spill-test-{}-{boxed}.scratch",
+                std::process::id()
+            ));
+            let scratch = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&path)
+                .unwrap();
+            let mut payload = Vec::new();
+            let streamed = import_table_streamed(
+                std::io::BufReader::with_capacity(7, text.as_bytes()),
+                &kite_graph(),
+                &kite_options(false),
+                scratch,
+                &mut payload,
+            )
+            .unwrap();
+            std::fs::remove_file(&path).unwrap();
+            assert!(streamed.payload.is_empty());
+            assert_eq!(streamed.streamed_payload_bytes, Some(payload.len() as u64));
+            assert_eq!(payload, whole.payload);
+            assert_eq!(streamed.summary, whole.summary);
+            assert_eq!(streamed.meta, whole.meta);
+            assert_eq!(streamed.boxed, whole.boxed);
+            assert_eq!(streamed.payload_len(), whole.payload_len());
         }
     }
 
