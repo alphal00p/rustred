@@ -1012,3 +1012,51 @@ fn through_the_bridge_the_engine_verb_and_the_emulation_give_the_same_result() {
     assert_eq!(eng.member["backend"], "engine");
     assert_eq!(emu.member["backend"], "emulated");
 }
+
+#[test]
+fn augmentation_never_minimises_the_same_key_twice() {
+    // A's minimised list {c, a} solves A; joined with B's list the first match at A becomes a SINGULAR alternative
+    // (needs c + b): A then fails the union's confirmation; it must not be minimised again
+    let ka: Key = vec![2, 1, 0];
+    let kb: Key = vec![3, 1, 0];
+    let mut o = Oracle {
+        report_used: true,
+        ..Default::default()
+    };
+    let mut sing = alt(&[[0, 0, 0], [0, 1, -1]], 5);
+    sing.pole = PoleOrder::Order { order: 1 };
+    o.alts
+        .insert(ka.clone(), vec![sing, alt(&[[0, 0, 0], [1, 0, 0]], 8)]);
+    o.alts
+        .insert(kb.clone(), vec![alt(&[[0, 0, 0], [0, 1, -1]], 9)]);
+    let mut p = SeedMinPolicy::default();
+    p.joint.spread.count = 1;
+    let start: Vec<Offset> = vec![vec![0, 0, 0], vec![1, 0, 0]];
+    // the start list solves A (regular) but not B; give B its own seed so the start serves both
+    let mut list = start.clone();
+    list.push(vec![0, 1, -1]);
+    let jm = minimise_joint(
+        &[ka.clone(), kb.clone()],
+        &C0,
+        &list,
+        &p,
+        &mut o,
+        &mut StubSystemPoles,
+    )
+    .unwrap();
+    let spread_keys: Vec<Value> = jm.record["spread"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["key"].clone())
+        .collect();
+    let uniq: BTreeSet<String> = spread_keys.iter().map(|k| k.to_string()).collect();
+    assert_eq!(
+        uniq.len(),
+        spread_keys.len(),
+        "a key minimised twice: {spread_keys:?}"
+    );
+    // every key is still served (a piece or the start list), never lost
+    let covered: usize = jm.pieces.iter().map(|p| p.keys.len()).sum();
+    assert_eq!(covered, 2);
+}
