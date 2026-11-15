@@ -78,6 +78,7 @@ impl SymQd {
     }
 
     /// A coefficient text in d alone (no index variable), exactly (tests; constants of a spec).
+    #[allow(dead_code)]
     pub fn parse_d(&self, alg: &SymbolicaAlgebra, text: &str) -> Result<Rd, String> {
         let (n, d) = alg.parse_ratio(text, 0)?;
         self.ratio(n, d)
@@ -107,17 +108,17 @@ fn poly_text(p: &ZPoly) -> String {
     if terms.is_empty() {
         return "0".into();
     }
-    terms.sort_by(|a, b| b.0.cmp(&a.0));
+    terms.sort_by_key(|t| std::cmp::Reverse(t.0));
     let mut s = String::new();
     for (i, (k, c)) in terms.iter().enumerate() {
-        let neg = *c < Integer::from(0);
+        let neg = c.is_negative();
         let a = if neg { -c.clone() } else { c.clone() };
         if neg {
             s.push('-');
         } else if i > 0 {
             s.push('+');
         }
-        let one = a == Integer::from(1);
+        let one = a.is_one();
         match k {
             0 => s.push_str(&a.to_string()),
             _ => {
@@ -174,11 +175,14 @@ struct ParsedRecord {
     slots: Vec<Vec<RhsSlot>>,
 }
 
+/// Parsed records by (table, record), or why a record could not be read.
+type RecordCache = HashMap<(usize, usize), Arc<Result<ParsedRecord, String>>>;
+
 /// The first-match catalogue of an imported table set, coefficients evaluated exactly at the term (Symbolica).
 pub struct SetCatalogue<'a> {
     pub set: &'a ImportedSet,
     alg: SymbolicaAlgebra,
-    cache: Mutex<HashMap<(usize, usize), Arc<Result<ParsedRecord, String>>>>,
+    cache: Mutex<RecordCache>,
     /// Records larger than this are not parsed (the element is refused at that term, never guessed).
     pub max_record_bytes: u64,
 }

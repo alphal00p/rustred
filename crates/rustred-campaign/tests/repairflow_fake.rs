@@ -201,7 +201,9 @@ fn the_flow_decides_per_face_and_exports_recipes() {
     let _g = serial();
     let (_t, sp, cdir) = setup("rfflow", 20);
     let codes = run_to_end(&sp, &cdir, &["--plain"]);
-    assert_eq!(codes.last(), Some(&0), "{}", log_tail(&cdir));
+    // exit 10 = finished, not all closed: the toy node ends OPEN by design (no proofs: close-out refused), and since
+    // 8754cb6e the decorator forwards the closing loop's verdict (closed 0 / open 10 / error 11)
+    assert_eq!(codes.last(), Some(&10), "{}", log_tail(&cdir));
     let d = read_json(&cdir.join("closeloop/toy/repairflow/decisions.json"));
     // the cheap small rule is kept
     let k = face(&d, F_KEPT);
@@ -434,7 +436,7 @@ fn interrupt_and_resume_gives_the_same_decisions() {
     let (_ta, spa, ca) = setup("rfref", 150);
     assert_eq!(
         run_to_end(&spa, &ca, &["--plain"]).last(),
-        Some(&0),
+        Some(&10),
         "{}",
         log_tail(&ca)
     );
@@ -456,7 +458,7 @@ fn interrupt_and_resume_gives_the_same_decisions() {
                 break;
             }
         }
-        assert_eq!(codes.last(), Some(&0), "{codes:?} {}", log_tail(&cb));
+        assert_eq!(codes.last(), Some(&10), "{codes:?} {}", log_tail(&cb));
         assert!(codes.len() > 1, "no interrupt happened: {codes:?}");
         let o = outcome(&cb);
         assert!(o.0 == reference.0, "seed {seed}: decisions differ");

@@ -26,9 +26,15 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::replay_base::algebra::{CheckAlgebra, Q};
 
+/// One row / image: `(key, rational coefficient)` terms.
+pub type QRow = Vec<(Vec<i32>, Q)>;
+/// The expanded symmetry rows at a key, grouped by group element.
+pub type RowsByElement = BTreeMap<usize, Vec<QRow>>;
+
 /// The exact coefficient domain of a composition (a field: rational functions in d, or Q for constructed tests).
 pub trait ComposeAlgebra {
     type E: Clone + std::fmt::Debug;
+    #[allow(clippy::wrong_self_convention)]
     fn from_q(&self, q: Q) -> Result<Self::E, String>;
     fn add(&self, a: &Self::E, b: &Self::E) -> Result<Self::E, String>;
     fn mul(&self, a: &Self::E, b: &Self::E) -> Result<Self::E, String>;
@@ -176,7 +182,7 @@ pub fn image_of<QA: CheckAlgebra>(
     rows: &[Vec<(Vec<i32>, Q)>],
     key: &[i32],
     cmp: &dyn Fn(&[i32], &[i32]) -> Ordering,
-) -> Result<Option<Vec<(Vec<i32>, Q)>>, String> {
+) -> Result<Option<QRow>, String> {
     let mut cols: BTreeSet<Vec<i32>> = BTreeSet::new();
     for r in rows {
         for (k, _) in r {
@@ -410,7 +416,7 @@ pub fn compose_all<QA: CheckAlgebra, A: ComposeAlgebra, C: Catalogue<A>>(
     qalg: &QA,
     alg: &A,
     cat: &C,
-    rows_by_element: &BTreeMap<usize, Vec<Vec<(Vec<i32>, Q)>>>,
+    rows_by_element: &RowsByElement,
     key: &[i32],
     lower: &dyn Fn(&[i32], &[i32]) -> bool,
     cmp: &dyn Fn(&[i32], &[i32]) -> Ordering,
@@ -521,12 +527,12 @@ pub fn rows_by_element<QA: CheckAlgebra>(
     group: &crate::replay_base::symrows::VerifiedGroup,
     key: &[i32],
     max_terms: usize,
-) -> Result<BTreeMap<usize, Vec<Vec<(Vec<i32>, Q)>>>, String> {
+) -> Result<RowsByElement, String> {
     use crate::replay_base::symrows::{SymRowMode, rows_at_with};
     let seed = (0u64, key.iter().map(|&x| x as i64).collect::<Vec<i64>>());
     let rows = rows_at_with(qalg, group, &seed, SymRowMode::Expanded, max_terms)
         .map_err(|e| format!("symmetry rows at the key: {e}"))?;
-    let mut by: BTreeMap<usize, Vec<Vec<(Vec<i32>, Q)>>> = BTreeMap::new();
+    let mut by: RowsByElement = BTreeMap::new();
     for r in &rows {
         let mut v = vec![];
         for ((mask, k), c) in &r.terms {
