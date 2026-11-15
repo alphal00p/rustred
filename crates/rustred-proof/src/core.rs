@@ -124,13 +124,15 @@ impl Stream {
     }
 }
 
-/// Optional `domain_bounds` of a rule record (lane engine-line, 2026-11-14: imported bank rules whose valid domain is the
-/// chart orthant tightened by `recenter`): inclusive per-slot bounds on the case variables, `(min, max)`; None when
-/// the record has no such field (= today's behaviour).
-pub type Bounds = Option<(Vec<Option<i64>>, Vec<Option<i64>>)>;
+/// Optional `domain_bounds` of a rule record (lane engine-line; imported bank rules): read with THE shared rule
+/// (bounds_rule.rs, also used by rr_node): inclusive bounds on the case variables, the excluded values computed from
+/// the chart, the target's shifts and the fixed slots. None when the record has no such field (= today's behaviour).
+pub type Bounds = Option<crate::bounds_rule::BoundExclusions>;
 
 pub fn domain_bounds(j: &J, line: &[u8], na: usize) -> Bounds {
     let b = match j.get(line, "domain_bounds") { None | Some(J::Null) => return None, Some(b) => b };
+    if !matches!(b, J::Obj(_)) { die("UNSUPPORTED: domain_bounds: not an object"); }
+    if let J::Obj(kv) = b { if let Some((k, _)) = kv.iter().find(|((a, e), _)| !matches!(&line[*a..*e], b"min" | b"max")) { die(&format!("UNSUPPORTED: domain_bounds: unknown field {}", String::from_utf8_lossy(&line[k.0..k.1]))); } }
     let side = |k: &str| -> Vec<Option<i64>> {
         match b.get(line, k) {
             None | Some(J::Null) => vec![None; na],
@@ -138,14 +140,22 @@ pub fn domain_bounds(j: &J, line: &[u8], na: usize) -> Bounds {
             _ => die("UNSUPPORTED: domain_bounds min/max must be arrays of the rule's arity"),
         }
     };
-    Some((side("min"), side("max")))
+    let chart = j.get(line, "chart").map(|c| c.s(line).to_vec()).unwrap_or_else(|| die("UNSUPPORTED: domain_bounds: rule without chart"));
+    let lines: Vec<bool> = chart.iter().map(|&c| c == b'1').collect();
+    let target = parse_pat(j.get(line, "target").unwrap_or_else(|| die("rule without target")).s(line));
+    if lines.len() != na || target.len() != na { die("UNSUPPORTED: domain_bounds: chart / target arity"); }
+    let shift: Vec<Option<i64>> = target.iter().map(|&(sym, o)| sym.then_some(o)).collect();
+    let (_, fixed) = fixed_slots(j, line);
+    crate::bounds_rule::bound_exclusions(&lines, &shift, &fixed[..na], &side("min"), &side("max"), crate::bounds_rule::MAX_EXCLUDED_PER_SLOT)
+        .map(Some)
+        .unwrap_or_else(|e| die(&format!("UNSUPPORTED: {e}")))
 }
 
-/// Whether the case variables `kv` (slot -> value) satisfy the bounds (always true without bounds).
+/// Whether the case variables `kv` (slot -> value) are inside the bounds (always true without bounds).
 pub fn in_bounds(b: &Bounds, kv: impl Fn(usize) -> i64) -> bool {
     match b {
         None => true,
-        Some((min, max)) => (0..min.len()).all(|i| min[i].is_none_or(|m| kv(i) >= m) && max[i].is_none_or(|m| kv(i) <= m)),
+        Some(e) => !e.excludes(kv),
     }
 }
 
