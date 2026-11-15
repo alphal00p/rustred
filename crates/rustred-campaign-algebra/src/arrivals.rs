@@ -943,6 +943,36 @@ struct PerKey {
     first: SenderRef,
 }
 
+/// A compact child key in the aggregation maps (one byte per slot: key entries are small integers).
+type CKey = Box<[i8]>;
+
+fn ck(k: &[i32]) -> Result<CKey, String> {
+    k.iter()
+        .map(|&x| i8::try_from(x).map_err(|_| format!("key entry {x} outside -128..127 in {k:?}")))
+        .collect()
+}
+
+/// Merge one chunk's accumulator into the shared one (counts add; first senders by key order).
+fn merge_acc(w: &Walk, dst: &mut HashMap<CKey, Acc>, src: HashMap<CKey, Acc>) {
+    for (k, a) in src {
+        match dst.get_mut(&k) {
+            None => {
+                dst.insert(k, a);
+            }
+            Some(b) => {
+                b.senders += a.senders;
+                b.first = min_ref(w, a.first, b.first);
+                b.exact_senders += a.exact_senders;
+                b.exact_level |= a.exact_level;
+                b.first_exact = match (a.first_exact, b.first_exact) {
+                    (Some(x), Some(y)) => Some(min_ref(w, x, y)),
+                    (x, y) => x.or(y),
+                };
+            }
+        }
+    }
+}
+
 fn min_ref(w: &Walk, a: SenderRef, b: SenderRef) -> SenderRef {
     if (w.cl_served[a.0], a.1) <= (w.cl_served[b.0], b.1) {
         a
@@ -965,13 +995,16 @@ pub fn aggregate(
     let n = set.arity();
     let alg = cache.alg;
     let child_lines: Vec<Vec<usize>> = edges.iter().map(|e| e.child.table_lines.clone()).collect();
-    let chunk = w.cl_served.len().div_ceil(cfg.threads.max(1) * 4).max(1);
+    // small chunks, each merged into the shared maps as soon as it is done (bounded memory: no per-chunk copies)
+    let chunk = w.cl_served.len().div_ceil(cfg.threads.max(1) * 16).max(1);
+    let global: Mutex<Vec<HashMap<CKey, Acc>>> =
+        Mutex::new(edges.iter().map(|_| HashMap::new()).collect());
     let parts: Vec<(usize, usize)> = (0..w.cl_served.len())
         .step_by(chunk)
         .map(|a| (a, (a + chunk).min(w.cl_served.len())))
         .collect();
     type Part = (
-        Vec<HashMap<Vec<i32>, Acc>>,
+        Vec<HashMap<CKey, Acc>>,
         Vec<EdgeStats>,
         BTreeMap<u64, u64>,
         Vec<FallbackItem>,
@@ -979,7 +1012,7 @@ pub fn aggregate(
     let res = par_map(&parts, cfg.threads, |&(a, b)| -> Result<Part, String> {
         let tr = Transporter::new(alg, n)?;
         let fields: Vec<Zp64> = PRIMES.iter().map(|(p, _)| Zp64::new(*p)).collect();
-        let mut maps: Vec<HashMap<Vec<i32>, Acc>> = edges.iter().map(|_| HashMap::new()).collect();
+        let mut maps: Vec<HashMap<CKey, Acc>> = edges.iter().map(|_| HashMap::new()).collect();
         let mut est: Vec<EdgeStats> = edges.iter().map(|_| EdgeStats::default()).collect();
         let mut other: BTreeMap<u64, u64> = BTreeMap::new();
         let mut fallback = vec![];
@@ -1054,7 +1087,7 @@ pub fn aggregate(
                 est[e].sending_parent_keys += sent[e] as u64;
                 for (k, pk) in per[e].drain() {
                     let wants = cfg.exact.wants(&k);
-                    let m = maps[e].entry(k.clone()).or_insert(Acc {
+                    let m = maps[e].entry(ck(&k)?).or_insert(Acc {
                         senders: 0,
                         first: pk.first,
                         exact_senders: 0,
@@ -1084,32 +1117,24 @@ pub fn aggregate(
                 }
             }
         }
-        Ok((maps, est, other, fallback))
+        {
+            let mut g = global.lock().map_err(|_| "aggregation lock".to_string())?;
+            for (e, m) in maps.into_iter().enumerate() {
+                merge_acc(w, &mut g[e], m);
+            }
+        }
+        Ok((vec![], est, other, fallback))
     });
-    let mut maps: Vec<HashMap<Vec<i32>, Acc>> = edges.iter().map(|_| HashMap::new()).collect();
+    let mut maps: Vec<HashMap<CKey, Acc>> = global
+        .into_inner()
+        .map_err(|_| "aggregation lock".to_string())?;
     let mut est: Vec<EdgeStats> = edges.iter().map(|_| EdgeStats::default()).collect();
     let mut other: BTreeMap<u64, u64> = BTreeMap::new();
     let mut fallback = vec![];
     for r in res {
         let (ms, es, ot, fb) = r?;
         for (e, m) in ms.into_iter().enumerate() {
-            for (k, a) in m {
-                match maps[e].get_mut(&k) {
-                    None => {
-                        maps[e].insert(k, a);
-                    }
-                    Some(b) => {
-                        b.senders += a.senders;
-                        b.first = min_ref(w, a.first, b.first);
-                        b.exact_senders += a.exact_senders;
-                        b.exact_level |= a.exact_level;
-                        b.first_exact = match (a.first_exact, b.first_exact) {
-                            (Some(x), Some(y)) => Some(min_ref(w, x, y)),
-                            (x, y) => x.or(y),
-                        };
-                    }
-                }
-            }
+            merge_acc(w, &mut maps[e], m);
         }
         for (e, s) in es.into_iter().enumerate() {
             let t = &mut est[e];
@@ -1204,7 +1229,7 @@ pub fn aggregate(
         );
         for r in res {
             for (e, k, first, nz) in r? {
-                let m = maps[e].get_mut(&k).expect("acc");
+                let m = maps[e].get_mut(&ck(&k)?).expect("acc");
                 if nz {
                     est[e].exact_by_symbolic += 1;
                     m.exact_senders += 1;
@@ -1232,7 +1257,7 @@ pub fn aggregate(
         let mut lines: Vec<ArrivalLine> = m
             .into_iter()
             .map(|(k, a)| ArrivalLine {
-                key: k,
+                key: k.iter().map(|&x| i32::from(x)).collect(),
                 senders: a.senders,
                 exact_senders: a.exact_level.then_some(a.exact_senders),
                 first: sender(a.first),
