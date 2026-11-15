@@ -120,6 +120,12 @@ fn tworow_on_real_keys() {
     let next = std::sync::atomic::AtomicUsize::new(0);
     let results: std::sync::Mutex<Vec<Option<(KeyResult, f64, Value)>>> =
         std::sync::Mutex::new(vec![None; keys.len()]);
+    // progress: one line per key as soon as it is done (TWOROW_OUT.partial), the ordered file at the end
+    let partial: std::sync::Mutex<Box<dyn Write + Send>> =
+        std::sync::Mutex::new(match std::env::var("TWOROW_OUT") {
+            Ok(p) => Box::new(std::fs::File::create(format!("{p}.partial")).unwrap()),
+            Err(_) => Box::new(std::io::sink()),
+        });
     std::thread::scope(|s| {
         for _ in 0..threads {
             s.spawn(|| {
@@ -153,6 +159,15 @@ fn tworow_on_real_keys() {
                         }
                         None => Value::Null,
                     };
+                    {
+                        let mut j = r.to_json();
+                        j["label"] = json!(keys[i].1);
+                        j["seconds"] = json!(secs);
+                        j["import_check"] = a.clone();
+                        let mut w = partial.lock().unwrap();
+                        writeln!(w, "{j}").unwrap();
+                        w.flush().unwrap();
+                    }
                     results.lock().unwrap()[i] = Some((r, secs, a));
                 }
             });

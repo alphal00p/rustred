@@ -30,12 +30,15 @@ pub enum RowsError {
 }
 
 /// What a row can contain, from the element's action alone (no expansion): every term `t` of `E_g(seed)` is
-/// `base - dec` with `dec >= 0` componentwise and `sum dec <= budget` (each unit of numerator power on a linear slot
-/// contributes one factor, which lowers one index by 1 or is the constant); the row also contains the seed itself.
+/// `base - dec` with `0 <= dec_m <= cap_m` per slot and `sum dec <= budget` (each unit of numerator power on a linear
+/// slot contributes one factor, which lowers by 1 one index of that image's support, or is the constant); the row also
+/// contains the seed itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RowShape {
     pub base: Vec<i64>,
     pub budget: i64,
+    /// Per slot: the most its index can be lowered (the numerator power of the linear images containing that slot).
+    pub cap: Vec<i64>,
 }
 
 impl RowShape {
@@ -45,9 +48,9 @@ impl RowShape {
             return true;
         }
         let mut sum = 0i64;
-        for (b, &x) in self.base.iter().zip(t) {
+        for ((b, &x), c) in self.base.iter().zip(t).zip(&self.cap) {
             let d = b - x as i64;
-            if d < 0 {
+            if d < 0 || d > *c {
                 return false;
             }
             sum += d;
@@ -68,6 +71,7 @@ pub fn row_shape(group: &VerifiedGroup, element: usize, seed: &[i32]) -> Option<
     let mut base = vec![0i64; n];
     let mut taken = vec![false; n];
     let mut budget = 0i64;
+    let mut cap = vec![0i64; n];
     for i in (0..n).filter(|&i| seed[i] != 0) {
         match &e.action[i] {
             SlotImage::Exact { target, .. } => {
@@ -76,11 +80,17 @@ pub fn row_shape(group: &VerifiedGroup, element: usize, seed: &[i32]) -> Option<
                 }
                 base[*target] = seed[i] as i64;
             }
-            SlotImage::Linear { .. } if seed[i] < 0 => budget += -(seed[i] as i64),
+            SlotImage::Linear { terms, .. } if seed[i] < 0 => {
+                let a = -(seed[i] as i64);
+                budget += a;
+                for (m, _) in terms {
+                    cap[*m] += a;
+                }
+            }
             _ => return None,
         }
     }
-    Some(RowShape { base, budget })
+    Some(RowShape { base, budget, cap })
 }
 
 /// The expanded rows at `seed` (one per element that acts, element order), zero-sector terms pruned during the
