@@ -247,7 +247,11 @@ impl<'a> ChildSolver<'a> {
                         serde_json::from_value::<Vec<KeyAnswer>>(v["answers"].clone()),
                     )
                 {
-                    journal.insert(d.to_string(), a);
+                    // an entry with a transient answer (e.g. an interrupted job of a stopped run, journaled before this
+                    // rule existed) is solved again
+                    if !a.iter().any(is_transient) {
+                        journal.insert(d.to_string(), a);
+                    }
                 }
             }
         }
@@ -450,6 +454,14 @@ fn utc_now() -> String {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     format!("t={t}")
+}
+
+/// A failed answer that a later run must solve again (never journaled, never replayed): no answer, a job that did not
+/// run, an interrupted job (also in the old form `job_refused` with an `(Interrupted)` classification).
+fn is_transient(a: &KeyAnswer) -> bool {
+    matches!(a, KeyAnswer::Failed { class, message }
+        if class == "missing" || class == "job_error" || class == "interrupted"
+            || (class == "job_refused" && message.contains("(Interrupted)")))
 }
 
 /// A minimisation trial request (its outputs are not kept): labels of the minimiser's trials.
@@ -693,7 +705,12 @@ impl CoreSolver for ChildSolver<'_> {
                                     }
                                 } else {
                                     KeyAnswer::Failed {
-                                        class: "job_refused".into(),
+                                        // an interrupted job (the run was stopped) is transient: solved again
+                                        class: if why.contains("(Interrupted)") {
+                                            "interrupted".into()
+                                        } else {
+                                            "job_refused".into()
+                                        },
                                         message: why.clone(),
                                     }
                                 }
@@ -769,10 +786,7 @@ impl CoreSolver for ChildSolver<'_> {
                 })
                 .collect();
             // transient failures are not journaled (a resumed run solves the request again)
-            let transient = a.iter().any(|x| {
-                matches!(x, KeyAnswer::Failed { class, .. }
-                    if class == "missing" || class == "job_error" || class == "interrupted")
-            });
+            let transient = a.iter().any(is_transient);
             let d = r.digest();
             if !transient {
                 let line = json!({"digest": d, "label": r.label, "keys": r.keys, "answers": a});
@@ -812,5 +826,31 @@ impl CoreSolver for ChildSolver<'_> {
                        "requests_solved": self.requests_solved});
         self.append("progress.jsonl", &v);
         self.say(&format!("phase {phase}: {partial}"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn interrupted_and_missing_answers_are_transient_decided_ones_are_not() {
+        let f = |class: &str, message: &str| KeyAnswer::Failed {
+            class: class.into(),
+            message: message.into(),
+        };
+        assert!(is_transient(&f("interrupted", "")));
+        assert!(is_transient(&f("missing", "no answer")));
+        assert!(is_transient(&f("job_error", "spawn")));
+        assert!(is_transient(&f(
+            "job_refused",
+            "row 11 (Interrupted): interrupted; refusal None"
+        )));
+        assert!(!is_transient(&f("job_refused", "row 40 (Refused): usage")));
+        assert!(!is_transient(&f("refused", "not lower")));
+        assert!(!is_transient(&KeyAnswer::NoRelation));
+        assert!(!is_transient(&KeyAnswer::Budget {
+            what: "wall".into()
+        }));
     }
 }
