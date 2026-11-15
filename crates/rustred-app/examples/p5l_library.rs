@@ -27,6 +27,10 @@
 //!     the library; (C) random combinations of the top family's IBP rows at <ibp seeds> seeds reduce to zero
 //!     exactly (modular_polynomial = exact in Q(d) by reconstruction).
 //! ```
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc; // as the rustred binary (mimalloc, also the C allocator)
+
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Write;
 use std::path::PathBuf;
@@ -574,11 +578,26 @@ fn modular_polynomial(threads: usize) -> OrderedWeightArithmetic {
 }
 
 fn reduce(library: &PLibrary, inputs: Vec<Input>) -> PReduction {
+    // P5L_REDUCE_THREADS (default 1) and P5L_REDUCE_ARITH=sampled: threads and arithmetic of the check reductions
+    let threads: usize = std::env::var("P5L_REDUCE_THREADS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1);
     library
         .reduce(PReductionRequest {
             inputs,
-            arithmetic: modular_polynomial(1),
-            scheduler: OrderedSchedulerOptions::default(),
+            arithmetic: if std::env::var("P5L_REDUCE_ARITH").as_deref() == Ok("sampled") {
+                OrderedWeightArithmetic::ModularSampled(
+                    ModularCommon {
+                        threads,
+                        ..Default::default()
+                    },
+                    Default::default(),
+                )
+            } else {
+                modular_polynomial(threads)
+            },
+            scheduler: OrderedSchedulerOptions::with_threads(threads),
             step_cache: None,
             uncovered: PUncoveredPolicy::Reject,
             onto_masters: false,
@@ -586,6 +605,15 @@ fn reduce(library: &PLibrary, inputs: Vec<Input>) -> PReduction {
             inspector: None,
         })
         .unwrap()
+}
+
+fn terms_digest(value: &PReduction) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut t: Vec<String> = value.terms.iter().map(|x| format!("{x:?}")).collect();
+    t.sort();
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    t.hash(&mut h);
+    format!("{:016x}", h.finish())
 }
 
 fn mul(a: u64, b: u64) -> u64 {
@@ -1018,6 +1046,23 @@ fn check(args: &[String]) {
         value.terms.len(),
         stamp()
     );
+    // P5L_REDUCE_REPEAT=n: n warm repeats of the cell request in this process (timing, digest)
+    let repeats: usize = std::env::var("P5L_REDUCE_REPEAT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    for r in 0..repeats {
+        let t = Instant::now();
+        let again = reduce(&library, inputs.clone());
+        eprintln!(
+            "(A{}) warm repeat in {:.2} s: {} terms, digest {} (first {})",
+            r + 1,
+            t.elapsed().as_secs_f64(),
+            again.terms.len(),
+            terms_digest(&again),
+            terms_digest(&value)
+        );
+    }
 
     // (B) top sector vs Laporta modulo subsectors at three d.
     let ds = [(37, 7), (-11, 5), (9, 13)];
@@ -1195,7 +1240,7 @@ fn check(args: &[String]) {
         c_rows.push(json!({"seed": seed, "rows": at.len(), "keys": keys, "nonzero_terms": nonzero, "seconds": t.elapsed().as_secs_f64()}));
     }
     let summary = json!({
-        "top": top_name, "dots": dots, "rank": rank, "inputs": inputs.len(), "terms": value.terms.len(),
+        "top": top_name, "dots": dots, "rank": rank, "inputs": inputs.len(), "terms": value.terms.len(), "terms_text_digest": terms_digest(&value),
         "load_seconds": load_seconds, "reduce_seconds": reduce_seconds, "owner_lane": format!("{:?}", owner.spec.lane),
         "laporta": b_report, "laporta_equal": b_ok, "ibp_seeds": c_rows, "ibp_zero": c_ok,
         "peak_rss_gb": rss().1,
