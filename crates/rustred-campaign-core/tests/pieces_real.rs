@@ -13,10 +13,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use rustred_campaign_core::closure::FactSource;
 use rustred_campaign_core::import::check::{CheckOptions, RowStatus};
+use rustred_campaign_core::import::zero_proofs::{LoadOptions, ZeroProofFacts, ZeroProofs};
 use rustred_campaign_core::import::{Evidence, ImportedSet, TableSetSpec};
 use rustred_campaign_core::order::NodeComparator;
-use rustred_campaign_core::pieces::import_edges::{gate_check, shipped_relations};
+use rustred_campaign_core::pieces::import_edges::{gate_check, gate_check_with, shipped_relations};
 use rustred_campaign_core::pieces::plan::RefusalReason;
 use rustred_campaign_core::pieces::{
     Candidate, GateConfig, NonZero, PlanInput, ServiceKind, Term, UnservedKey, plan,
@@ -54,6 +56,20 @@ fn check(set: &ImportedSet, ev: &Evidence) -> rustred_campaign_core::import::Che
     .unwrap()
 }
 
+/// Zero proofs from PIECES_ZERO_PROOFS (colon-separated proof files), loaded for `set`.
+fn zero_proofs(set: &ImportedSet) -> Option<(ZeroProofs, Value)> {
+    let files: Vec<PathBuf> = std::env::var("PIECES_ZERO_PROOFS")
+        .ok()?
+        .split(':')
+        .filter(|x| !x.is_empty())
+        .map(PathBuf::from)
+        .collect();
+    let t0 = Instant::now();
+    let z = ZeroProofs::load(set, &files, &LoadOptions::default()).unwrap();
+    let info = json!({"files": files, "stats": z.stats, "held": z.len(), "seconds": t0.elapsed().as_secs_f64()});
+    Some((z, info))
+}
+
 fn stem(p: &str) -> String {
     Path::new(p)
         .file_stem()
@@ -81,7 +97,23 @@ fn real_gate() {
             GateConfig::memory()
         };
         cfg.max_listed = 200;
-        let (rep, stats) = gate_check(&set, &ev, &res, cfg).unwrap();
+        let zp = zero_proofs(&set);
+        let mut zero_info = Value::Null;
+        let (rep, stats) = match &zp {
+            None => gate_check(&set, &ev, &res, cfg).unwrap(),
+            Some((z, info)) => {
+                // strict (a proof valid only where the denominator is regular does not count) and lenient
+                let strict = ZeroProofFacts::new(&set, z, &ev, false);
+                let (r0, _) = gate_check_with(&set, &ev, &strict, &res, cfg.clone()).unwrap();
+                zero_info = json!({"proofs": info, "strict": {"verdict": r0.verdict, "edges": r0.edges,
+                    "zero_terms_skipped": r0.zero_terms_skipped, "non_descending": r0.non_descending,
+                    "by_provenance_non_descending": r0.by_provenance.iter().filter(|(_, v)| v[1] > 0)
+                        .map(|(k, v)| (k.clone(), v[1])).collect::<BTreeMap<_, _>>()},
+                    "lenient": "accept_where_regular = true (the report below)"});
+                let lenient = ZeroProofFacts::new(&set, z, &ev, true);
+                gate_check_with(&set, &ev, &lenient, &res, cfg).unwrap()
+            }
+        };
         let summary = json!({"spec": spec, "closure_keys": res.summary.keys_total, "open": res.summary.open_total,
             "load_check_seconds": t_check, "verdict": rep.verdict, "relations": rep.relations, "edges": rep.edges,
             "zero_terms_skipped": rep.zero_terms_skipped, "keys": rep.keys, "non_descending": rep.non_descending,
@@ -89,7 +121,8 @@ fn real_gate() {
             "residual": rep.graph.residual, "sccs": rep.graph.sccs, "witness_len": rep.graph.witness_cycle.len()},
             "by_provenance": rep.by_provenance, "stats": stats, "seconds_intake": rep.seconds_intake,
             "seconds_graph": rep.seconds_graph, "edges_per_second": rep.edges_per_second,
-            "gate_memory_bytes": rep.memory_bytes, "process_peak_kb": status_kb("VmHWM:")});
+            "gate_memory_bytes": rep.memory_bytes, "process_peak_kb": status_kb("VmHWM:"),
+            "zero_proofs": zero_info});
         println!("{summary}");
         let full = json!({"summary": summary, "report": rep});
         std::fs::write(
@@ -125,7 +158,16 @@ fn candidates_from(
                 }
                 Ok(())
             };
-        shipped_relations(&set, &ev, &ev, &res, &mut sink).unwrap();
+        let zp = zero_proofs(&set);
+        let zpf;
+        let facts: &dyn FactSource = match &zp {
+            Some((z, _)) => {
+                zpf = ZeroProofFacts::new(&set, z, &ev, true);
+                &zpf
+            }
+            None => &ev,
+        };
+        shipped_relations(&set, &ev, facts, &res, &mut sink).unwrap();
     }
     let n = grouped.len();
     for ((key, server), terms) in grouped {

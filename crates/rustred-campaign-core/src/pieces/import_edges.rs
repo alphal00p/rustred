@@ -271,10 +271,22 @@ pub fn shipped_relations<'s>(
 }
 
 /// The gate over what a checked spec ships (call site: the repair flow before shipping; the closing loop may call it
-/// on its decided check).
+/// on its decided check), with the evidence's own coefficient facts.
 pub fn gate_check(
     set: &ImportedSet,
     ev: &Evidence,
+    res: &CheckResult,
+    cfg: GateConfig,
+) -> Result<(GateReport, ShippedStats), String> {
+    gate_check_with(set, ev, ev, res, cfg)
+}
+
+/// [`gate_check`] with any fact source for the zero terms (e.g. the evidence wrapped by the structural zero proofs,
+/// `import::zero_proofs::ZeroProofFacts`).
+pub fn gate_check_with(
+    set: &ImportedSet,
+    ev: &Evidence,
+    facts: &dyn FactSource,
     res: &CheckResult,
     cfg: GateConfig,
 ) -> Result<(GateReport, ShippedStats), String> {
@@ -286,7 +298,7 @@ pub fn gate_check(
                 gate.push_relation(key, prov, terms.iter().map(|(k, n)| (k.as_slice(), *n)))
                     .map_err(|e| e.to_string())
             };
-        match shipped_relations(set, ev, ev, res, &mut sink) {
+        match shipped_relations(set, ev, facts, res, &mut sink) {
             Ok(s) => s,
             Err(e) => {
                 err = Some(e);
