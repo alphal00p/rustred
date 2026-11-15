@@ -153,12 +153,8 @@ fn an_unconfirmed_first_route_zero_on_a_non_descending_term_passes_the_ship_gate
     let res = check(&set, &ev, &opts(Tier::C)).unwrap();
     // without the zero claim the term IS a non-descending edge (sanity: the order really refuses it)
     let mut g = ShipGate::new(&set.cmp, 3, GateConfig::memory()).unwrap();
-    g.push_relation(
-        &[3, 1, 0],
-        "sanity",
-        [(&[3, 1, 1][..], NonZero::Unknown)].into_iter(),
-    )
-    .unwrap();
+    g.push_relation(&[3, 1, 0], "sanity", [(&[3, 1, 1][..], NonZero::Unknown)])
+        .unwrap();
     assert_ne!(g.finish().unwrap().verdict, GateVerdict::Pass);
 
     let (r0, s0) = gate_check(&set, &ev, &res, GateConfig::memory()).unwrap();
@@ -267,8 +263,7 @@ fn a_hand_down_into_an_unserved_key_outside_the_input_is_called_outside_input_an
         p.core_open
     );
     let mut g = ShipGate::new(&cmp, 3, GateConfig::memory()).unwrap();
-    g.push_relation(&k, "hd", [(&t[..], NonZero::Yes)].into_iter())
-        .unwrap();
+    g.push_relation(&k, "hd", [(&t[..], NonZero::Yes)]).unwrap();
     assert_eq!(g.finish().unwrap().verdict, GateVerdict::Pass);
 }
 
@@ -282,10 +277,10 @@ fn coupled_pieces_with_a_cycle_only_in_the_union_are_refused() {
     let b = vec![2, 1, 0];
     let mut union = ShipGate::new(&cmp, 3, GateConfig::memory()).unwrap();
     union
-        .push_relation(&a, "piece1", [(&b[..], NonZero::Yes)].into_iter())
+        .push_relation(&a, "piece1", [(&b[..], NonZero::Yes)])
         .unwrap();
     union
-        .push_relation(&b, "piece2", [(&a[..], NonZero::Yes)].into_iter())
+        .push_relation(&b, "piece2", [(&a[..], NonZero::Yes)])
         .unwrap();
     let r = union.finish().unwrap();
     assert!(
@@ -294,7 +289,7 @@ fn coupled_pieces_with_a_cycle_only_in_the_union_are_refused() {
         r.verdict
     );
     let mut p2 = ShipGate::new(&cmp, 3, GateConfig::memory()).unwrap();
-    p2.push_relation(&b, "piece2", [(&a[..], NonZero::Yes)].into_iter())
+    p2.push_relation(&b, "piece2", [(&a[..], NonZero::Yes)])
         .unwrap();
     let r2 = p2.finish().unwrap();
     assert!(

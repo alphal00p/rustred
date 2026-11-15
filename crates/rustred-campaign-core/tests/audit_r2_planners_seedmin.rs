@@ -99,8 +99,10 @@ fn oracle() -> (Oracle, Vec<Key>, Key) {
 fn the_same_input_gives_the_same_list_and_record_also_with_parallel_trials() {
     let run = |par: usize| {
         let (mut o, keys, _) = oracle();
-        let mut p = SeedMinPolicy::default();
-        p.parallel_trials = par;
+        let p = SeedMinPolicy {
+            parallel_trials: par,
+            ..SeedMinPolicy::default()
+        };
         let jm = minimise_joint(
             &keys,
             &[0, 0, 0],
