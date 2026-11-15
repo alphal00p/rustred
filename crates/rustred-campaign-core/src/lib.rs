@@ -39,3 +39,5 @@ pub mod schema;
 pub mod import;
 // lane termmin (interfaces/termmin.md): REQUEST TO I-INT, one line
 pub mod termmin;
+// lane tadic (interfaces/tadic.md; TRICKS 15/16 system pole order): REQUEST TO I-INT, one line
+pub mod tadic;

@@ -31,6 +31,8 @@
 pub mod backend;
 pub mod modes;
 pub mod referee;
+// lane tadic (interfaces/tadic.md): REQUEST TO I-INT, one line
+pub mod tadic;
 pub mod wrap;
 
 pub use backend::{SymbolicaAlgebra, SymbolicaBudget, licensed};
