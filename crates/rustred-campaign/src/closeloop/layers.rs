@@ -634,9 +634,10 @@ pub fn walk_c(
                 }
             }
         }
+        // lane zerosfix3: confirmed = agreement of two INDEPENDENT producers (PairCompare::confirms)
         let unconfirmed = pairs
             .iter()
-            .filter(|p| !gates.second.compared.get(*p).is_some_and(|c| c.agree()))
+            .filter(|p| !gates.second.compared.get(*p).is_some_and(|c| c.confirms()))
             .count();
         if unconfirmed > 0 {
             why.push(format!("second_route_unconfirmed:{unconfirmed}"));
@@ -656,11 +657,19 @@ pub fn walk_c(
                 if pairs.contains(&id) || !seen.insert(id.clone()) {
                     continue;
                 }
-                let first = ev.fact_basis(&zeros::rule_id(set, zp.table, zp.record), &zp.applied);
-                let ok = if first == Some("exact_eval") {
-                    gates.second.compared.get(&id).is_some_and(|c| c.agree())
-                } else {
-                    gates.zeros.get(&id).is_some_and(|(_, c)| c.agree())
+                // lane zerosfix3: a pair closeloop4's route compared keeps that comparison; else routed by the fact's
+                // PRODUCER (memory and evidence stores alike); a word no route knows is never confirmed
+                let first = ev
+                    .fact_producer(&zeros::rule_id(set, zp.table, zp.record), &zp.applied)
+                    .unwrap_or("none");
+                let ok = match gates.second.compared.get(&id) {
+                    Some(c) => c.confirms(),
+                    None => match zeros::zero_route_of(first) {
+                        zeros::ZeroRoute::Compare | zeros::ZeroRoute::Unknown => false,
+                        zeros::ZeroRoute::Zeros => gates.zeros.get(&id).is_some_and(|(f, c)| {
+                            c.agree() && zeros::zero_route_of(f) == zeros::ZeroRoute::Zeros
+                        }),
+                    },
                 };
                 if !ok {
                     z_unconfirmed += 1;

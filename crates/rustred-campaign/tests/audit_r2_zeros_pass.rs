@@ -10,8 +10,8 @@
 //! - F7: a pair whose stored facts come from the exact evaluation (`producer: exact_eval`) is NOT routed to rr_proof
 //!   (closeloop.md 23.3: the zeros route runs on the same Symbolica algebra) but to the zeros route.
 //!
-//! `fN_*` tests are `#[ignore = "AUDIT-R2-ZEROS ..."]`: they assert the specified behaviour and FAIL on int/7 d60f3839.
-//! `ok_*` tests pass. Toy node: arity 3, line mask 110 (lines n0, n1; numerator n2); nothing five-loop specific.
+//! `fN_*` tests assert the specified behaviour; they FAILED on int/7 d60f3839 (were `#[ignore = "AUDIT-R2-ZEROS ..."]`)
+//! and pass since lane zerosfix3 (the store keeps the producer: STORE_VERSION 3). `ok_*` tests pass. Toy node: arity 3, line mask 110 (lines n0, n1; numerator n2); nothing five-loop specific.
 
 use rustred_campaign::closeloop::config::ScaleCfg;
 use rustred_campaign::closeloop::pass::{PassIn, run_pass};
@@ -20,7 +20,8 @@ use std::path::{Path, PathBuf};
 
 const HEADER: &str =
     r#"{"type":"header","schema":"table_dump.v1","family":"TOY","denominators":3,"mask":"110"}"#;
-const CHART: &str = r#"{"type":"chart","chart":"110","guards":["n>=1","n>=1","n<=0"],"zero":false}"#;
+const CHART: &str =
+    r#"{"type":"chart","chart":"110","guards":["n>=1","n>=1","n<=0"],"zero":false}"#;
 
 fn sha(b: &[u8]) -> String {
     let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
@@ -30,7 +31,10 @@ fn sha(b: &[u8]) -> String {
 
 /// The term-key digest of the compact fact lines (core `import::lines::term_key_digest`).
 fn digest(k: &[i32]) -> String {
-    format!("{:016x}", rustred_campaign_core::import::lines::term_key_digest(k))
+    format!(
+        "{:016x}",
+        rustred_campaign_core::import::lines::term_key_digest(k)
+    )
 }
 
 /// One point record at [3,1,0]: t0 -> [2,1,0] (a terminal) "1", t1 -> [3,1,1] "n2" (positive numerator, TRULY zero
@@ -102,7 +106,11 @@ fn pass(dir: &Path, elided: bool, big: bool) -> (String, Vec<String>, Value) {
             f.verdict.clone(),
             f.result["blockers"]
                 .as_array()
-                .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(str::to_string))
+                        .collect()
+                })
                 .unwrap_or_default(),
         ),
         None => ("none".to_string(), vec![]),
@@ -123,19 +131,26 @@ fn ok_memory_mode_an_elided_pair_without_its_second_route_blocks() {
     let d = root("mem-elided");
     let (verdict, blockers, check) = pass(&d, true, false);
     let _ = std::fs::remove_dir_all(&d);
-    assert_ne!(verdict, "closed", "{blockers:?} {:#}", check["second_route"]);
+    assert_ne!(
+        verdict, "closed",
+        "{blockers:?} {:#}",
+        check["second_route"]
+    );
     assert!(
         blockers.iter().any(|b| b.starts_with("second_route_")),
         "{blockers:?} {:#}",
         check["second_route"]
     );
-    assert_eq!(check["second_route"]["elided_pairs"], 1, "{:#}", check["second_route"]);
+    assert_eq!(
+        check["second_route"]["elided_pairs"], 1,
+        "{:#}",
+        check["second_route"]
+    );
 }
 
 /// F6: the same material in BIG-NODE mode closes: the elided pair is `no_fact` (basis `store`), not blocking, and
 /// skipped by the zeros route; the truly non-zero positive-numerator term t2 is dropped on ONE route.
 #[test]
-#[ignore = "AUDIT-R2-ZEROS F6: big-node mode (scale): elided pairs get no second route (basis 'store' -> no_fact), node closes"]
 fn f6_big_node_mode_gives_an_elided_pair_its_second_route() {
     let d = root("big-elided");
     let (verdict, blockers, check) = pass(&d, true, true);
@@ -156,14 +171,17 @@ fn ok_memory_mode_exact_eval_first_pairs_go_to_rr_proof() {
     let _ = std::fs::remove_dir_all(&d);
     assert_ne!(verdict, "closed");
     let az = &check["second_route"]["all_zeros"];
-    assert_eq!(az["same_backend_to_rr_proof"], 1, "{:#}", check["second_route"]);
+    assert_eq!(
+        az["same_backend_to_rr_proof"], 1,
+        "{:#}",
+        check["second_route"]
+    );
     assert_eq!(az["pairs"], 0, "{az:#}");
 }
 
 /// F7: in BIG-NODE mode the same pair (stored facts of producer exact_eval) is sent to the zeros route (same backend:
 /// rr_coef_facts on Symbolica), and a confirmation would be labelled `rr_proof + zeros:*` (zeros::zeros_basis).
 #[test]
-#[ignore = "AUDIT-R2-ZEROS F7: big-node mode: exact_eval facts in a store are confirmed by the same-backend zeros route"]
 fn f7_big_node_mode_routes_exact_eval_first_pairs_to_rr_proof() {
     let d = root("big-exact");
     let (_, _, check) = pass(&d, false, true);
