@@ -132,6 +132,15 @@ pub struct PassIn {
     pub recipe_dir: PathBuf,
     /// lane t266run: the clauses of the box (closeloop.md 17.4); None = one box.
     pub clauses: Option<Vec<super::config::ClauseCfg>>,
+    // ---- lane layers (closeloop.md 23) ----
+    /// The layers of the box (None = one walk).
+    pub layers: Option<super::config::LayersCfg>,
+    /// Prior clauses' leaf sets (id, pinned reference): leaves of every walk.
+    pub prior_leaf_sets: Vec<(String, super::config::LeafSetRef)>,
+    /// Frozen layers as recorded in the ledger: (layer index, record bytes, BLAKE3-verified by the source).
+    pub frozen_layers: Vec<(usize, Vec<u8>)>,
+    /// Where the pass sends the record of a layer it freezes (registered by the source while the pass runs).
+    pub layer_tx: Option<std::sync::mpsc::Sender<super::layers::LayerMsg>>,
 }
 
 impl PassIn {
@@ -183,6 +192,10 @@ impl PassIn {
             derived: DerivedState::default(),
             recipe_dir: PathBuf::from("/nonexistent-escalation-dir"),
             clauses: None,
+            layers: None,
+            prior_leaf_sets: vec![],
+            frozen_layers: vec![],
+            layer_tx: None,
         }
     }
 }
@@ -593,6 +606,9 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     // a relation of our own solve is per-key ONLY with its bound proof (closeloop.md 13.1)
     ev.recipe_proofs = Some(proved.iter().cloned().collect());
     let threads = inp.threads.max(1);
+    // lane layers (closeloop.md 23): the layers of the box, the frozen ones (from the ledger, verified), the prior
+    // clauses' leaf sets (pinned); None = one walk as before
+    let layer_plan = super::layers::plan(inp, &set)?;
     // pass 1: keys-only when the exact tier is wanted (cheap; every row kept: the fact requests come from it; in
     // big-node mode the rows go to a file and only the exceptional ones stay in memory)
     let stream_k = inp.scale.as_ref().is_some_and(|s| s.stream_keys_only);
@@ -608,14 +624,22 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     let res_k: Option<CheckResult> = if skip_k {
         None
     } else {
-        Some(
-            if stream_k {
+        Some(match &layer_plan {
+            // lane layers: one keys-only walk of the layers that are not frozen, the frozen ones as leaves
+            Some(lp) => super::layers::check_k(
+                &set,
+                &ev,
+                &opts_k,
+                stream_k.then_some(krows.as_path()),
+                lp,
+            )?,
+            None => if stream_k {
                 rustred_campaign_core::import::check::check_streamed(&set, &ev, &opts_k, &krows)
             } else {
                 check(&set, &ev, &opts_k)
             }
             .map_err(|e| format!("check: {e}"))?,
-        )
+        })
     };
     let keys_only_n = res_k
         .as_ref()
@@ -682,7 +706,60 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         + missing_exact.values().map(BTreeSet::len).sum::<usize>();
     let can_ask_facts = inp.proof.as_ref().is_some_and(|p| p.facts);
     let tier_c_now = inp.exact_tier && n_missing == 0;
-    let streamed_res: Option<CheckResult> = if tier_c_now {
+    // lane layers (closeloop.md 23): the exact tier LAYER BY LAYER (each judged and, when closed, frozen at once), then
+    // the node's composed check
+    let mut layer_walked: Option<Vec<super::layers::Walked>> = None;
+    let streamed_res: Option<CheckResult> = if let (true, Some(lp)) = (tier_c_now, &layer_plan) {
+        let (strict0, _) = strictness(&set);
+        let unproved_keys: BTreeSet<Vec<i32>> = rels
+            .iter()
+            .filter(|r| !proved.contains(&(r.source.clone(), r.key.clone())))
+            .map(|r| r.key.clone())
+            .collect();
+        let gates = super::layers::Gates {
+            required: inp.required.unwrap_or(set.spec.required_evidence),
+            strict: strict0,
+            second: &second,
+            second_decisive: inp.second_route.decisive_zeros,
+            second_elided: inp.second_route.elided,
+            unproved_relation_keys: &unproved_keys,
+            threads,
+        };
+        let k_keys: Option<rustred_campaign_core::closure::KeySet> = res_k.as_ref().map(|r| {
+            r.key_set.clone().unwrap_or_else(|| {
+                rustred_campaign_core::closure::KeySet::from_keys(
+                    set.codec,
+                    r.rows.iter().map(|x| x.key.as_slice()),
+                )
+                .unwrap_or_else(|_| rustred_campaign_core::closure::KeySet::empty(set.codec))
+            })
+        });
+        // the binding of every frozen layer / prior leaf set, verified even when nothing is walked (empty walk)
+        let base = rustred_campaign_core::import::check::check_from_with_leaves(
+            &set,
+            &ev,
+            &CheckOptions {
+                threads,
+                tier: Some(Tier::C),
+                max_rounds: None,
+            },
+            &rustred_campaign_core::closure::KeySet::empty(set.codec),
+            &lp.base_leaves(),
+        )
+        .map_err(|e| format!("leaf sets: {e}"))?;
+        let walked = super::layers::walk_c(
+            &set,
+            &ev,
+            inp,
+            lp,
+            &gates,
+            k_keys.as_ref(),
+            inp.layer_tx.as_ref(),
+        )?;
+        let composed = super::layers::compose(&set, lp, &walked, &inp.rows_path, &base)?;
+        layer_walked = Some(walked);
+        Some(composed)
+    } else if tier_c_now {
         Some(
             rustred_campaign_core::import::check::check_streamed(
                 &set,
@@ -804,13 +881,23 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     // standing DESCENT gate (every followed edge strictly lower under the node's FULL comparator; the closure's own
     // Tarjan pass for cycles): `closed` needs non_descending_edges == 0 and cycles == 0
     let scan_all = if tier_c_now {
-        Some(zeros::scan(&set, &ev, res, threads)?)
+        Some(match &layer_walked {
+            // lane layers: the walked layers' own scans (frozen layers are never scanned again)
+            Some(w) => super::layers::merged_scan(w).0,
+            None => zeros::scan(&set, &ev, res, threads)?,
+        })
     } else {
         None
     };
     let mut descent_v = Value::Null;
     if let Some(sc) = &scan_all {
-        let (rel_edges, rel_bad) = zeros::relation_descent(&set, &ev, res);
+        let (rel_edges, rel_bad) = match &layer_walked {
+            Some(w) => {
+                let m = super::layers::merged_scan(w);
+                (m.1, m.2)
+            }
+            None => zeros::relation_descent(&set, &ev, res),
+        };
         let mut bad: Vec<Value> = sc
             .non_descending
             .iter()
@@ -1429,6 +1516,11 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     });
     let mut check_v = check_v;
     check_v["escalation"] = esc_summary(esc_out.as_ref(), uncovered.len());
+    // lane layers (closeloop.md 23): per layer frozen / walked, verdict, leaves met, relative to which leaf sets
+    if let Some(lp) = &layer_plan {
+        check_v["layers"] =
+            super::layers::layers_json(lp, layer_walked.as_deref().unwrap_or(&[]));
+    }
     let dispatch_order = json!({
         "schema": DISPATCH_SCHEMA, "node": inp.node, "spec_digest": set.report.spec_digest,
         "tables": set.disp.priority().iter().map(|&t| set.disp.tables()[t].name.clone()).collect::<Vec<_>>(),
@@ -1546,6 +1638,9 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                 required,
                 basis_ok,
                 decisive: &decisive_lines,
+                layers: layer_plan
+                    .as_ref()
+                    .map(|lp| (lp, layer_walked.as_deref().unwrap_or(&[]))),
             },
         )?)
     } else {
@@ -1752,6 +1847,8 @@ struct FinalCtx<'a> {
     basis_ok: bool,
     /// lane closeloop4: the decisive-zero table (both sources per zero), written into the statement directory.
     decisive: &'a [Value],
+    /// lane layers: the layered view of the pass (the plan, the layers walked in it).
+    layers: Option<(&'a super::layers::Plan, &'a [super::layers::Walked])>,
 }
 
 /// Phase D: our statement, the comparison with the hand statement, the open list, the economy numbers, the result.
@@ -1853,12 +1950,20 @@ fn write_final(
     let mut ref_block: Vec<String> = vec![];
     if f.verdict == "closed" && inp.hand.is_some() {
         let complete = comparison["complete"] != false;
-        let in_k = |k: &Vec<i32>| match keys_only {
-            Some(kr) => match &kr.key_set {
-                Some(ks) => ks.contains(k),
-                None => kr.rows.iter().any(|r| &r.key == k),
-            },
-            None => false,
+        let in_k = |k: &Vec<i32>| {
+            (match keys_only {
+                Some(kr) => match &kr.key_set {
+                    Some(ks) => ks.contains(k),
+                    None => kr.rows.iter().any(|r| &r.key == k),
+                },
+                None => false,
+            })
+            // lane layers: the keys-only closures of the passes that froze layers (their walks stopped there now)
+            || f.layers.is_some_and(|(lp, _)| {
+                lp.frozen
+                    .values()
+                    .any(|z| z.keys_only.as_ref().is_some_and(|ks| ks.contains(k)))
+            })
         };
         let unexplained: Vec<&Vec<i32>> = only_hand.iter().filter(|k| !in_k(k)).collect();
         comparison["reference_check"] = json!({"policy": inp.reference_mismatch, "only_hand": only_hand.len(),
@@ -2068,7 +2173,20 @@ fn write_final(
     }
     std::fs::write(inp.final_dir.join("clause_keys.jsonl"), ck)
         .map_err(|e| format!("clause_keys: {e}"))?;
-    let label = if verdict_now == "closed" {
+    // lane layers (closure.md 18): a walk that met prior clauses' leaf sets is closed RELATIVE to them
+    let relative_to: Vec<String> = res
+        .leaves
+        .as_ref()
+        .map(|h| h.summary.relative_to.clone())
+        .unwrap_or_default();
+    let label = if verdict_now == "closed" && !relative_to.is_empty() {
+        format!(
+            "closed, {}, {}, relative to leaf set(s) {}",
+            inp.target,
+            f.required.word(),
+            relative_to.join(", ")
+        )
+    } else if verdict_now == "closed" {
         format!("closed, {}, {}", inp.target, f.required.word())
     } else {
         verdict_now.to_string()
@@ -2104,10 +2222,41 @@ fn write_final(
         "decisive_zeros": {"file": "statement/decisive_zeros.jsonl", "count": f.decisive.len()},
         "terminals_accepted": terminals_accepted,
         "terminal_policy": {"accept": inp.terminals.accept, "max_auto": inp.terminals.max_auto},
+        // lane layers (closeloop.md 23)
+        "relative_to": relative_to,
+        "leaves": res.leaves.as_ref().map(|h| serde_json::to_value(&h.summary).unwrap_or(Value::Null)),
     });
+    let mut result = result;
+    // lane layers (closeloop.md 23.5): the per-layer view and the node's own LEAF SET (every layer's keys, bound to the
+    // composed statement): what a later run (prior clause) or another node takes as leaves
+    if let Some((lp, walked)) = f.layers {
+        result["layers"] = f.check["layers"].clone();
+        if lp.configured {
+            let st_sha = dig.files.get("statement.jsonl").cloned().unwrap_or_default();
+            let ls = super::layers::node_leafset(
+                set,
+                ev,
+                lp,
+                walked,
+                &st_sha,
+                verdict_now,
+                &inp.node,
+                &inp.box_clause,
+            )?;
+            let lpath = inp.final_dir.join("leafset.v1");
+            let fh = std::fs::File::create(&lpath).map_err(|e| format!("{}: {e}", lpath.display()))?;
+            ls.write(std::io::BufWriter::new(fh))
+                .map_err(|e| format!("{}: {e}", lpath.display()))?;
+            let fsha = rustred_campaign_core::import::lines::file_sha256(&lpath)
+                .map_err(|e| format!("{}: {e}", lpath.display()))?;
+            result["leaf_set"] = json!({"file": "leafset.v1", "path": lpath.display().to_string(),
+                "sha256": fsha, "digest": ls.digest(), "keys": ls.len(), "uncertified": ls.n_uncertified(),
+                "statement_digest": st_sha, "source_verdict": verdict_now,
+                "memory_bytes": ls.memory_bytes()});
+        }
+    }
     // lane closeloop4 (audit-closeloop m8): every file of the phase-D outputs, with its BLAKE3 (computed here, in the
     // pass thread): registered as ledger records by the source; resume and `rr_campaign verify` re-check them
-    let mut result = result;
     let mut files: BTreeMap<String, String> = BTreeMap::new();
     let mut stack = vec![inp.final_dir.clone()];
     while let Some(d) = stack.pop() {

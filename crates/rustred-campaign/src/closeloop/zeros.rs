@@ -167,11 +167,13 @@ pub type Membership<'a> = Box<dyn Fn(&[i32]) -> bool + Sync + 'a>;
 
 /// Membership in the closure of a check (the packed key set of a streamed check, else the rows).
 pub fn closure_membership(res: &CheckResult) -> Membership<'_> {
+    // lane layers (closeloop.md 23): a key of a leaf set (an earlier, closed layer / clause) is a closure key
+    let lv = res.leaves.as_ref();
     match &res.key_set {
-        Some(ks) => Box::new(move |k: &[i32]| ks.contains(k)),
+        Some(ks) => Box::new(move |k: &[i32]| ks.contains(k) || lv.is_some_and(|h| h.contains(k))),
         None => {
             let s: HashSet<Vec<i32>> = res.rows.iter().map(|r| r.key.clone()).collect();
-            Box::new(move |k: &[i32]| s.contains(k))
+            Box::new(move |k: &[i32]| s.contains(k) || lv.is_some_and(|h| h.contains(k)))
         }
     }
 }

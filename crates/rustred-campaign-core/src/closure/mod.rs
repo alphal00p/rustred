@@ -893,6 +893,18 @@ pub struct Closure {
     leaf_of: BTreeMap<u32, (u32, u32)>,
     leaf_parts: Vec<Arc<leaves::LeafSet>>,
     leaf_walk: BTreeMap<String, String>,
+    /// lane layers: what the restricted walk components of any key set need (relation sets with ranks, terminals,
+    /// exclusions of this run)
+    walk_inputs: Arc<WalkInputs>,
+}
+
+/// lane layers: the run's relation sets (with ranks), declared terminals and exclusions (closure.md 18).
+#[derive(Clone, Debug, Default)]
+struct WalkInputs {
+    rsets: Vec<(u32, Arc<RelationSet>)>,
+    term_pref: Option<KeySet>,
+    term_other: Option<KeySet>,
+    exclusions: Vec<KeyExclusion>,
 }
 
 /// sha256 over the dispatch order: per table in priority order its name, record count and labels.
@@ -2733,6 +2745,12 @@ fn run(
         leaf_of,
         leaf_parts,
         leaf_walk: BTreeMap::new(),
+        walk_inputs: Arc::new(WalkInputs {
+            rsets: ctx.rsets.clone(),
+            term_pref: ctx.term_pref.clone(),
+            term_other: ctx.term_other.clone(),
+            exclusions: cfg.exclusions.clone(),
+        }),
     };
     // lane layers (closure.md 18): the walk components of THIS run's own keys (and credit images), for a leaf set built
     // from this result
@@ -3220,6 +3238,18 @@ impl Closure {
     /// result; closure.md 18).
     pub fn leaf_walk(&self) -> &BTreeMap<String, String> {
         &self.leaf_walk
+    }
+    /// The walk components of THIS run's configuration for ANY key set given by `member` (e.g. the union of several
+    /// layers' keys and credit images; closure.md 18).
+    pub fn walk_for(&self, member: &dyn Fn(&[i32]) -> bool) -> BTreeMap<String, String> {
+        let w = &self.walk_inputs;
+        leaves::walk_components(
+            &self.identity,
+            &w.rsets,
+            (&w.term_pref, &w.term_other),
+            &w.exclusions,
+            member,
+        )
     }
     fn leaf_blocking(&self) -> Vec<String> {
         let mut b = vec![];

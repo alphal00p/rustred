@@ -209,6 +209,16 @@ pub struct LeafHits {
     pub in_start: Vec<Vec<i32>>,
     /// Reached leaves that are not certified (they block: `leaf_open:N`).
     pub open: Vec<Vec<i32>>,
+    /// The leaf sets themselves (membership of the composed closure: a key of a leaf set is a closure key).
+    #[serde(skip)]
+    pub parts: Vec<Arc<crate::closure::LeafSet>>,
+}
+
+impl LeafHits {
+    /// Whether `key` is a key of one of the leaf sets.
+    pub fn contains(&self, key: &[i32]) -> bool {
+        self.parts.iter().any(|p| p.contains(key))
+    }
 }
 
 fn is_top(lines: &[bool], k: &[i32]) -> bool {
@@ -366,6 +376,69 @@ pub fn check(
     opts: &CheckOptions,
 ) -> Result<CheckResult, ImportError> {
     check_inner(set, ev, opts, None, &set.start, &[])
+}
+
+/// lane layers (closure.md 18): the walk components of this set's configuration (tables, relation sets of the
+/// evidence, terminals, credits) for the key set `member` (e.g. a node's composed statement): an empty walk computes
+/// the identity, nothing is dispatched.
+pub fn leaf_walk_for(
+    set: &ImportedSet,
+    ev: &Evidence,
+    tier: Tier,
+    member: &dyn Fn(&[i32]) -> bool,
+) -> Result<BTreeMap<String, String>, ImportError> {
+    let (rsets, _, _) = recipe_sets(set, ev)?;
+    let relation_sets: Vec<Arc<RelationSet>> = set
+        .rel_order
+        .iter()
+        .map(|e| match *e {
+            super::load::RelEntry::Supplied(i) => set.supplied[i].clone(),
+            super::load::RelEntry::Recipe(i) => rsets[i].clone(),
+        })
+        .collect();
+    let ks = |v: &[Vec<i32>]| -> Result<Option<crate::closure::KeySet>, ImportError> {
+        if v.is_empty() {
+            return Ok(None);
+        }
+        let mut b = KeySetBuilder::new(set.codec);
+        for k in v {
+            b.push(k)
+                .map_err(|e| ImportError::Core(format!("terminal {k:?}: {e:?}")))?;
+        }
+        Ok(Some(b.finish()))
+    };
+    let terminals = if set.terminals_preferred.is_empty() && set.terminals_other.is_empty() {
+        None
+    } else {
+        Some(TerminalSets {
+            preferred: ks(&set.terminals_preferred)?,
+            other: ks(&set.terminals_other)?,
+        })
+    };
+    let cfg = ClosureConfig {
+        tier,
+        threads: 1,
+        bits: set.spec.bits,
+        hand_downs: HandDowns::Counts,
+        credits: set.credits.clone(),
+        terminals,
+        fact_tables: set.fact_tables.clone(),
+        table_digests: set.table_digests.clone(),
+        relation_sets,
+        witness_absent: match set.spec.policies.witness_absent {
+            super::spec::WitnessAbsentPolicy::LiftWithRegularFact => {
+                WitnessAbsent::LiftWithRegularFact
+            }
+            super::spec::WitnessAbsentPolicy::Block => WitnessAbsent::Block,
+        },
+        per_key_lift: per_key_lift(set),
+        longest_chain: false,
+        ..Default::default()
+    };
+    let empty = crate::closure::KeySet::empty(set.codec);
+    let c = closure(&set.disp, &set.bodies, &set.cmp, &empty, &cfg, ev)
+        .map_err(|e| ImportError::Core(format!("closure: {e}")))?;
+    Ok(c.walk_for(member))
 }
 
 /// lane layers (closure.md 18): [`check`] from another START set with LEAF SETS (every row kept in memory). The walk
@@ -922,6 +995,7 @@ fn check_inner(
             summary: s,
             in_start: leaf_in_start,
             open: c.leaf_open_keys(),
+            parts: leaves.to_vec(),
         }
     });
     Ok(CheckResult {
