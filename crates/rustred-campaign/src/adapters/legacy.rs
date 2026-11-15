@@ -207,6 +207,8 @@ pub fn argv(spec: &JobSpec) -> Result<Vec<String>, String> {
             "--out".into(),
             format!("out/{COEF_OUT}"),
         ]),
+        // lane coreseed: rr_poles regular-at --requests (interfaces/coreseed.md 10)
+        JobKind::PoleRegularAt => rustred_campaign_contract::classify::poleat::argv(spec),
         k => Err(format!("kind {k:?} is not legacy-wrapped")),
     }
 }
@@ -431,6 +433,7 @@ pub fn child_out(kind: JobKind) -> &'static str {
     match kind {
         JobKind::ProofInstanceSpan => SPAN_OUT,
         JobKind::CoefficientFacts => COEF_OUT,
+        JobKind::PoleRegularAt => rustred_campaign_contract::classify::poleat::CHILD_OUT,
         _ => INSTANTIATE_OUT,
     }
 }
@@ -441,6 +444,10 @@ pub fn child_out(kind: JobKind) -> &'static str {
 pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitStatus) -> WaitStatus {
     if !spec.kind.legacy_wrapped() || matches!(wait, WaitStatus::Unknown) {
         return wait;
+    }
+    // lane coreseed: kind pole-regular-at has its own wrapper (answers checked against the pinned requests)
+    if spec.kind == JobKind::PoleRegularAt {
+        return super::poleat::wrap(layout, spec, spec_blake3, wait);
     }
     let mapped = legacy_wait(wait);
     if layout.outcome().exists() {

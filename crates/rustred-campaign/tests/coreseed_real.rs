@@ -8,7 +8,7 @@
 //! `out_dir/summary.jsonl`. Re-running with the same out_dir resumes from the journals.
 
 use rustred_campaign::adapters::job::{Invocation, Program};
-use rustred_campaign::closeloop::coreseed::{ChildSolver, CoreDriverConfig, DriverJudge};
+use rustred_campaign::closeloop::coreseed::{ChildSolver, CoreDriverConfig, DriverJudge, PolesCfg};
 use rustred_campaign::resources::{Sampler, SamplerConfig};
 use rustred_campaign_core::coreseed::spec::CoreSeedPolicy;
 use rustred_campaign_core::coreseed::{Key, solve_core};
@@ -145,6 +145,14 @@ fn real_core_faces() {
             verbose: true,
             fake: None,
             cpu_budget_s: c["cpu_budget_s"].as_f64(),
+            // the pole orders: lane poles' rr_poles as the diagnostic child job (`"poles": {"program", "threads"}`)
+            poles: c["poles"]["program"].as_str().map(|p| PolesCfg {
+                program: Program::from_file("rr_poles", Path::new(p), Invocation::Legacy).unwrap(),
+                threads: c["poles"]["threads"].as_u64().unwrap_or(4) as u32,
+                cap_bytes: c["poles"]["cap_bytes"].as_u64().unwrap_or(8_000_000_000),
+                wall_cap_s: c["poles"]["wall_cap_s"].as_u64().unwrap_or(3600),
+                fake: None,
+            }),
         };
         let judge = DriverJudge;
         let mut solver = ChildSolver::new(cfg, &mut set, Box::new(judge), sampler.clone()).unwrap();

@@ -11,6 +11,8 @@ pub mod job;
 // lane closeloop2: the rr_proof kinds as legacy children under the supervisor (argv from the spec, sealing wrapper)
 pub mod legacy;
 pub mod proof;
+// lane coreseed: kind pole-regular-at (rr_poles regular-at as a diagnostic legacy child)
+pub mod poleat;
 pub mod solve_recipe;
 
 use crate::launch::LaunchSpec;
