@@ -378,6 +378,10 @@ pub const RULE_MEMBERS_INFORMATIONAL: &[&str] = &[
     "origin_index",
     // the registry join's provenance of a re-indexed record (rustred-core node/registry.rs)
     "join_source",
+    // provenance indices of an external assembler's records (seen in an imported assembled table)
+    "component_variant",
+    "component_index",
+    "generation_index",
     "seed_setting",
     "sym_rows",
     "symmetry_origin",
