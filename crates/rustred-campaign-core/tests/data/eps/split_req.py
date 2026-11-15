@@ -11,7 +11,9 @@ for l in open(src):
     assert v["index"] == q["rule"], q
     import hashlib
     assert hashlib.sha256(line).hexdigest() == q["record_sha256"], q
-    by.setdefault(v["chart"], []).append({"table": q["table"], "offset": q["offset"], "rule": q["rule"], "keys": q["keys"]})
+    # engine-line7b reads an optional "chart" (and an offset always reads the exact record)
+    by.setdefault(v["chart"], []).append({"table": q["table"], "offset": q["offset"], "rule": q["rule"],
+                                          "chart": v["chart"], "keys": q["keys"]})
 for c, reqs in by.items():
     with open(f"{outbase}.{c}", "w") as o:
         for r in reqs: o.write(json.dumps(r) + "\n")

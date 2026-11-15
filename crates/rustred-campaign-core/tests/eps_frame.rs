@@ -974,3 +974,172 @@ fn guardless_chart_line_means_the_mask_guards() {
     }
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// Keys of the node's charts whose order weight is at most `layer`: sum over integer lines of (n - 1), over numerators
+/// of (-n), over eps axes of the two-sided excess e(n) (n = 1, 0, 2, -1, ... -> 0, 1, 2, 3, ...;
+/// `rustred_order::two_sided_excess`, the comparator's own measure). Generic in the frame (no node knowledge).
+fn layer_keys(frame: &NodeFrame, layer: u32) -> Vec<Vec<i32>> {
+    let n = frame.arity();
+    // per slot: the values with their weights, by increasing weight
+    let slot_values = |i: usize, w: u32| -> i32 {
+        if frame.is_eps_axis(i) {
+            // inverse of e(n): 0 -> 1, 1 -> 0, 2 -> 2, 3 -> -1, ...
+            if w % 2 == 0 {
+                1 + (w / 2) as i32
+            } else {
+                -((w / 2) as i32)
+            }
+        } else if frame.is_line(i) {
+            1 + w as i32
+        } else {
+            -(w as i32)
+        }
+    };
+    let mut out = vec![];
+    let mut cur = vec![0u32; n];
+    fn rec(
+        i: usize,
+        left: u32,
+        cur: &mut Vec<u32>,
+        out: &mut Vec<Vec<i32>>,
+        f: &dyn Fn(usize, u32) -> i32,
+    ) {
+        if i == cur.len() {
+            out.push((0..cur.len()).map(|s| f(s, cur[s])).collect());
+            return;
+        }
+        for w in 0..=left {
+            cur[i] = w;
+            rec(i + 1, left - w, cur, out, f);
+        }
+        cur[i] = 0;
+    }
+    rec(0, layer, &mut cur, &mut out, &slot_values);
+    out.sort();
+    out
+}
+
+#[test]
+fn layer_keys_are_the_weight_layers() {
+    let f = NodeFrame::from_header_eps_aware(&h5(
+        r#"["(4-d)/2","0","0","0","0"]"#,
+        "[true,false,false,false,false]",
+    ))
+    .unwrap();
+    let l0 = layer_keys(&f, 0);
+    assert_eq!(l0, vec![vec![1, 1, 1, 1, 0]]);
+    let l1 = layer_keys(&f, 1);
+    assert_eq!(l1.len(), 1 + 5);
+    assert!(l1.contains(&vec![0, 1, 1, 1, 0])); // eps axis at 0 (weight 1)
+    assert!(l1.contains(&vec![1, 1, 1, 1, -1]));
+    assert!(layer_keys(&f, 3).contains(&vec![-1, 1, 1, 1, 0])); // eps axis at -1 (weight 3)
+}
+
+fn vm_hwm_kb() -> u64 {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|s| {
+            s.lines()
+                .find(|l| l.starts_with("VmHWM:"))
+                .and_then(|l| l.split_whitespace().nth(1).map(|x| x.parse().unwrap_or(0)))
+        })
+        .unwrap_or(0)
+}
+
+/// ONE NODE OF THE EPS CAMPAIGN SWEEP (driver: tests/data/eps/campaign.sh; lane epsframe). Env: EPSC_NODE, EPSC_TABLE,
+/// EPSC_DIR (work dir), EPSC_LAYER (start = [`layer_keys`]), EPSC_MODE = `k` (keys-only superset: witness check off,
+/// diagnostic) | `c` (strict, Tier C with EPSC_FACTS), EPSC_OUT (one JSON result line appended). Writes the check's
+/// fact requests to EPSC_DIR/requests.jsonl.
+#[test]
+#[ignore = "eps campaign step (driver campaign.sh)"]
+fn eps_campaign_node() {
+    use rustred_campaign_core::import::load::load_with_eps;
+    use rustred_campaign_core::import::{CheckOptions, Evidence, LoadOptions, TableSetSpec, check};
+    use std::io::Write;
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("{k}"));
+    let (node, table, dir, mode) = (
+        env("EPSC_NODE"),
+        env("EPSC_TABLE"),
+        env("EPSC_DIR"),
+        env("EPSC_MODE"),
+    );
+    let layer: u32 = env("EPSC_LAYER").parse().unwrap();
+    let dir = std::path::PathBuf::from(dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let t0 = std::time::Instant::now();
+    let mut line = serde_json::json!({"node": node, "table": table, "mode": mode, "layer": layer});
+    let res = (|| -> Result<(), String> {
+        let head = {
+            let f = std::fs::File::open(&table).map_err(|e| e.to_string())?;
+            let mut s = String::new();
+            std::io::BufRead::read_line(&mut std::io::BufReader::new(f), &mut s)
+                .map_err(|e| e.to_string())?;
+            s
+        };
+        let frame =
+            NodeFrame::from_header_eps_aware(&header_of(&head)).map_err(|e| e.to_string())?;
+        let start = layer_keys(&frame, layer);
+        let sp = dir.join("start.jsonl");
+        let text: String = start
+            .iter()
+            .map(|k| format!("{}\n", serde_json::to_string(k).unwrap()))
+            .collect();
+        std::fs::write(&sp, text).map_err(|e| e.to_string())?;
+        let mut spec = serde_json::json!({
+            "schema": rustred_campaign_core::import::spec::SPEC_SCHEMA,
+            "frame_from": "table",
+            "start": {"path": sp.display().to_string(), "format": "keys_jsonl"},
+            "sources": [{"id": "table", "kind": "engine_table", "path": table, "table_terminals": "ledger_and_residuals"}],
+        });
+        if mode == "k" {
+            spec["policies"] = serde_json::json!({"witness_check": "off_diagnostic", "tier": "K"});
+        } else if let Ok(f) = std::env::var("EPSC_FACTS") {
+            spec["evidence"] = serde_json::json!({"facts": [{"path": f}]});
+        }
+        let spec = TableSetSpec::from_json(&spec.to_string()).map_err(|e| e.to_string())?;
+        let set = load_with_eps(&spec, &dir, &LoadOptions::default())
+            .map_err(|e| format!("load: {e}"))?;
+        let ev = Evidence::from_spec(&set, &dir).map_err(|e| format!("evidence: {e}"))?;
+        let r = check(&set, &ev, &CheckOptions::default()).map_err(|e| format!("check: {e}"))?;
+        let s = &r.summary;
+        let eps = frame.eps_axes();
+        let nonpos = r
+            .rows
+            .iter()
+            .filter(|row| eps.iter().any(|&a| row.key[a] <= 0))
+            .count();
+        let req_keys: usize = r.fact_requests.iter().map(|q| q.keys.len()).sum();
+        let text: String = r
+            .fact_requests
+            .iter()
+            .map(|q| format!("{}\n", serde_json::to_string(q).unwrap()))
+            .collect();
+        std::fs::write(dir.join("requests.jsonl"), text).map_err(|e| e.to_string())?;
+        line["loaded"] = serde_json::json!(true);
+        line["records"] = serde_json::json!(set.rules.iter().map(Vec::len).sum::<usize>());
+        line["start"] = serde_json::json!(start.len());
+        line["verdict"] = serde_json::to_value(s.verdict).unwrap();
+        line["keys"] = serde_json::json!(s.keys_total);
+        line["keys_eps_nonpos"] = serde_json::json!(nonpos);
+        line["open"] = serde_json::json!(s.open_total);
+        line["open_by_status"] = serde_json::json!(s.open_by_status);
+        line["terminals"] = serde_json::json!(s.terminals_other + s.terminals_preferred);
+        line["descent_violations"] = serde_json::json!(s.descent_violations);
+        line["request_records"] = serde_json::json!(r.fact_requests.len());
+        line["request_keys"] = serde_json::json!(req_keys);
+        Ok(())
+    })();
+    if let Err(e) = res {
+        line["loaded"] = serde_json::json!(false);
+        line["error"] = serde_json::json!(e);
+    }
+    line["seconds"] = serde_json::json!(t0.elapsed().as_secs_f64());
+    line["peak_rss_kb"] = serde_json::json!(vm_hwm_kb());
+    let out = env("EPSC_OUT");
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(out)
+        .unwrap();
+    writeln!(f, "{line}").unwrap();
+}
