@@ -33,6 +33,8 @@ pub mod modes;
 pub mod referee;
 // lane poles (interfaces/pole-diagnostics.md, B0): REQUEST TO I-INT, one line
 pub mod valuation;
+// lane tadic (interfaces/tadic.md): REQUEST TO I-INT, one line
+pub mod tadic;
 pub mod wrap;
 
 pub use backend::{SymbolicaAlgebra, SymbolicaBudget, licensed};
