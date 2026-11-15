@@ -20,6 +20,8 @@ order of `ROWS`.
 | 30 | c=0, O, S, kind node-basis (diagnostic kind: sealed records sample / dim / end) | complete | diagnostic_records | item_done |
 | 31 | c=0, O, S, kind solve-recipe run with --probe-d (probe records only), every key answered (EXISTS_AT_D0 / EXISTS_ONLY_AT_D0 / NO_RELATION_AT_D0 / D0_SINGULAR_ROWS) | complete | diagnostic_records | item_done |
 | 32 | c=10, O, S, kind solve-recipe run with --probe-d, stop keys_unsolved, >= 1 unanswered key (UNRESOLVED_PRIMES: other primes, then attention; BUDGET_WALL; ERROR) | undecided | diagnostic_records | queue_failures |
+| 40 | c=0, O, S, kind proof-symrows (legacy-wrapped rr_proof --symrows: one certificate per requested key, each bound to the pinned request: relation digest, record digests, key, symrows digest, group, elements, catalogue records, kernel sha256) | complete | certificates | item_done |
+| 43 | kind proof-symrows, c in {0, 10, 20} with O but the certificate not sealed / not bound to the pinned request (another relation, record, key, symrows input or kernel: a forged or misattributed certificate), or c in {10, 20} (evaluated before 22 for this kind) | crashed | nothing | attention |
 | 7 | c=11, O, checker kind | decided_negative | nothing | record_negative_verdict |
 | 7b | c=12, O, checker kind | undecided | nothing | other_tool_or_attention |
 | 8 | c=20, O, S (producing kind) | spill | committed_rules | next_rung_after_spill |
@@ -32,6 +34,8 @@ order of `ROWS`.
 | 11 | c=30, O, K=none or stop | interrupted | nothing | resume_on_campaign_resume |
 | 12 | c=40 | usage_error | nothing | stop_launching_kind |
 | 13b | c in {41, 70}, O whose error names a reader error (UNREADABLE_RECORD, UNKNOWN_RECORD_KIND), kind proof-instantiate / proof-instance-span | refused | nothing | table_unreadable_by_tool |
+| 41 | c=41, kind proof-symrows, O whose error names SYMROW_REFUSED (the kernel refused a symmetry row of the request: a decided answer, never evidence) | refused | nothing | certificate_refused |
+| 42 | c in {41, 70}, kind proof-symrows, O whose error names a reader error (UNREADABLE_RECORD, UNKNOWN_RECORD_KIND) | refused | nothing | table_unreadable_by_tool |
 | 13 | c=41 | refused | nothing | item_attention_no_retry |
 | 14 | c=42 | refused | nothing | attention |
 | 15 | c=50 | lost | nothing | pause_all_launches |

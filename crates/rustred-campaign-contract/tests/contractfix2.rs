@@ -59,7 +59,11 @@ fn cf2_row3_never_closes_an_item_on_unverified_claims() {
         .filter(|r| r.kind == OutcomeKind::Complete)
         .map(|r| r.row)
         .collect();
-    assert_eq!(complete, vec![1, 30, 31]);
+    // lane symcert: row 40 (kind proof-symrows, certificate sealed and bound) gives certificates only
+    assert_eq!(complete, vec![1, 30, 31, 40]);
+    for r in ROWS.iter().filter(|r| r.row == 40) {
+        assert_eq!(r.accept, Accept::Certificates);
+    }
     for r in ROWS.iter().filter(|r| r.row == 30 || r.row == 31) {
         assert_eq!(r.accept, Accept::DiagnosticRecords);
     }

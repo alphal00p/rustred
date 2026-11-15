@@ -18,6 +18,10 @@
 // lane adapters: kind solve-recipe's records and per-key outcomes. Mounted at the crate root since lane int5
 // (`rustred_campaign_contract::recipe`); the old path `classify::recipe` stays valid through this re-export.
 pub use crate::recipe;
+// lane symcert: kind proof-symrows' request, certificates and S check (rr_proof --symrows as a legacy child). Mounted
+// here until the integration lane adds `pub mod symcert;` to lib.rs (REQUEST TO I-INT); then `pub use crate::symcert;`.
+#[path = "symcert.rs"]
+pub mod symcert;
 
 use crate::exit::ExitCode;
 use crate::layout::RunLayout;
@@ -146,6 +150,11 @@ pub enum Accept {
     /// `--probe-d`) may be read as diagnostics; they are NEVER rule or relation evidence and never count a key as
     /// solved.
     DiagnosticRecords,
+    /// Lane symcert (row 40, kind proof-symrows): each sealed CERTIFICATE, bound to exactly the relation and key the
+    /// supervisor asked about: evidence of the per-key level of that relation at that key iff its class is
+    /// `certified`; a `kernel_refused` certificate is a decided negative answer (a finding when the producer's own
+    /// algebra accepted the relation). Never a rule, never a relation by itself.
+    Certificates,
     Nothing,
 }
 
@@ -212,6 +221,10 @@ pub enum Action {
     /// Rows 28 / 29 (kind solve-recipe, lane adapters): every unsolved key is a typed per-key outcome routed by its
     /// failure class ([`recipe::FailureClass::route`]).
     QueueFailures,
+    /// Row 41 (kind proof-symrows, lane symcert): the kernel refused a symmetry row of the request (typed
+    /// SYMROW_REFUSED): a decided answer about the request, never evidence; the producer records it against the
+    /// relation (a finding when its own algebra accepted the relation; a kernel capacity limit is typed apart).
+    CertificateRefused,
 }
 
 /// One row of the decision table (6.5): the single source of the classifier AND of the document's table
@@ -247,9 +260,10 @@ const fn rs(
 
 /// The decision table. Evaluation order (first match wins): O normalisation (row 22 reasons), W unknown (21b, 21c,
 /// 22), then the c rows in this order: 26, the kind's exit-code set (22), S (22), 25, then for kind solve-recipe 1 /
-/// 28 / 29 / 22 (a probe job, line 7: 31 / 32 / 22), for kind node-basis 30 / 22, and for every other kind 1-8 with 24 and 27 after their siblings, 9-17 (11b / 11c before 11: the supervisor's kill reason K decides over an `interrupted` OUTCOME; 13b before 13, 15b, 16, 17); then
+/// 28 / 29 / 22 (a probe job, line 7: 31 / 32 / 22), for kind node-basis 30 / 22, for kind proof-symrows 43 / 40 (43
+/// also for its unverified outputs, before 22; lane symcert; its exit 41 / 70: 41 / 42 before 13b / 13), and for every other kind 1-8 with 24 and 27 after their siblings, 9-17 (11b / 11c before 11: the supervisor's kill reason K decides over an `interrupted` OUTCOME; 13b before 13, 15b, 16, 17); then
 /// the signal rows 18-21; then 22; then 23.
-pub const ROWS: [RowSpec; 39] = {
+pub const ROWS: [RowSpec; 43] = {
     use Accept::*;
     use Action::*;
     use OutcomeKind::*;
@@ -352,6 +366,22 @@ pub const ROWS: [RowSpec; 39] = {
             QueueFailures,
         ),
         rs(
+            40,
+            "",
+            "c=0, O, S, kind proof-symrows (legacy-wrapped rr_proof --symrows: one certificate per requested key, each bound to the pinned request: relation digest, record digests, key, symrows digest, group, elements, catalogue records, kernel sha256)",
+            Complete,
+            Certificates,
+            ItemDone,
+        ),
+        rs(
+            43,
+            "",
+            "kind proof-symrows, c in {0, 10, 20} with O but the certificate not sealed / not bound to the pinned request (another relation, record, key, symrows input or kernel: a forged or misattributed certificate), or c in {10, 20} (evaluated before 22 for this kind)",
+            Crashed,
+            Nothing,
+            Attention,
+        ),
+        rs(
             7,
             "",
             "c=11, O, checker kind",
@@ -429,6 +459,22 @@ pub const ROWS: [RowSpec; 39] = {
             13,
             "b",
             "c in {41, 70}, O whose error names a reader error (UNREADABLE_RECORD, UNKNOWN_RECORD_KIND), kind proof-instantiate / proof-instance-span",
+            Refused,
+            Nothing,
+            TableUnreadableByTool,
+        ),
+        rs(
+            41,
+            "",
+            "c=41, kind proof-symrows, O whose error names SYMROW_REFUSED (the kernel refused a symmetry row of the request: a decided answer, never evidence)",
+            Refused,
+            Nothing,
+            CertificateRefused,
+        ),
+        rs(
+            42,
+            "",
+            "c in {41, 70}, kind proof-symrows, O whose error names a reader error (UNREADABLE_RECORD, UNKNOWN_RECORD_KIND)",
             Refused,
             Nothing,
             TableUnreadableByTool,
@@ -715,6 +761,17 @@ fn decide(
                         ),
                     );
                 }
+                // lane symcert: a certificate that is not sealed or not bound to the pinned request is never read (43)
+                if e.kind == JobKind::ProofSymrows && (e.verified.is_none() || c != 0) {
+                    return row(
+                        43,
+                        "",
+                        format!(
+                            "proof-symrows: exit {c}, certificate not accepted: {}",
+                            e.unsealed_why.as_deref().unwrap_or("not verified")
+                        ),
+                    );
+                }
                 let Some(v) = &e.verified else {
                     return row(
                         22,
@@ -735,6 +792,14 @@ fn decide(
                 // lane adapters: the exit-code sets of the kinds without a rule table
                 match e.kind {
                     JobKind::SolveRecipe => return solve_recipe_row(c, stop, v),
+                    // lane symcert: exit 0 with the certificate sealed and bound (everything else is row 43 above)
+                    JobKind::ProofSymrows => {
+                        return row(
+                            40,
+                            "",
+                            "proof-symrows: exit 0, OUTCOME, certificate sealed and bound to the request",
+                        );
+                    }
                     JobKind::NodeBasis if c == 0 => {
                         return row(
                             30,
@@ -856,6 +921,22 @@ fn decide(
                     KillReason::None | KillReason::Stop => return row(11, "", "interrupted"),
                 },
                 _ => {}
+            }
+        }
+        // lane symcert: the kernel's typed refusal of a symmetry row (41) and its reader errors (42), before 13 / 13b
+        if matches!(c, 41 | 70)
+            && e.kind == JobKind::ProofSymrows
+            && let Some(msg) = o.and_then(|o| o.error.as_ref()).map(|x| x.message.as_str())
+        {
+            if c == 41 && symcert::names_symrow_refusal(msg) {
+                return row(41, "", format!("the kernel refused a symmetry row: {msg}"));
+            }
+            if let Some(name) = crate::instantiate::reader_error_in(msg) {
+                return row(
+                    42,
+                    "",
+                    format!("the kernel cannot read the table it was given ({name})"),
+                );
             }
         }
         // line 7: a legacy proof tool's typed reader error is an input refusal of the job (row 13b), before 13 / 17
@@ -1287,6 +1368,13 @@ pub fn assess(
                         Ok((_, t)) => v.relations = Some(t),
                         Err(why) => unsealed_why = Some(format!("solve-recipe results: {why}")),
                     }
+                }
+                // lane symcert: kind proof-symrows: the sealed certificate re-checked against the pinned request,
+                // table and symrows input (a valid seal on another relation's certificate is refused: row 43)
+                if spec.kind == JobKind::ProofSymrows
+                    && let Err(why) = symcert::certificates_of_run(&layout.root, spec, &v)
+                {
+                    unsealed_why = Some(format!("proof-symrows certificate: {why}"));
                 }
                 // line 7: kind node-basis: the closed record list against the spec's dims / primes
                 if spec.kind == JobKind::NodeBasis

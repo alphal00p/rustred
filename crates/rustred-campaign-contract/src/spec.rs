@@ -44,6 +44,12 @@ pub enum JobKind {
     /// elimination with the given terminals lowest, at fixed dimensions and primes, L1. A DIAGNOSTIC kind: its sealed
     /// records are never rule or relation evidence (accept mode `diagnostic_records`).
     NodeBasis,
+    /// `rr_proof --mode instance-span --symrows FILE [--symrows-only]` (lane symcert; interfaces/proof-symrows-job.md;
+    /// kernel side interfaces/proof-symrows.md): ONE relation (a point-rule record written by the supervisor) at its key,
+    /// certified against the given multi-term symmetry rows (and the IBP rows at its seeds), run as a LEGACY child; the
+    /// supervisor-side wrapper checks the kernel's answer against the pinned request and seals ONE certificate. Accept
+    /// mode `certificates` (row 40): evidence of the per-key level of exactly the asked relation.
+    ProofSymrows,
 }
 
 /// Compliance level (1.1).
@@ -59,7 +65,7 @@ pub enum Level {
 }
 
 impl JobKind {
-    pub const ALL: [JobKind; 16] = [
+    pub const ALL: [JobKind; 17] = [
         JobKind::Generate,
         JobKind::GenerateAuto,
         JobKind::Descent,
@@ -76,6 +82,7 @@ impl JobKind {
         JobKind::ProofInstanceSpan,
         JobKind::CoefficientFacts,
         JobKind::NodeBasis,
+        JobKind::ProofSymrows,
     ];
 
     pub const fn level(self) -> Level {
@@ -84,7 +91,8 @@ impl JobKind {
             JobKind::TableDump
             | JobKind::ProofInstantiate
             | JobKind::ProofInstanceSpan
-            | JobKind::CoefficientFacts => Level::Legacy,
+            | JobKind::CoefficientFacts
+            | JobKind::ProofSymrows => Level::Legacy,
             _ => Level::L1,
         }
     }
@@ -104,7 +112,8 @@ impl JobKind {
             | JobKind::ProofExact
             | JobKind::ProofStream
             | JobKind::ProofInstantiate
-            | JobKind::ProofInstanceSpan => "rr_proof",
+            | JobKind::ProofInstanceSpan
+            | JobKind::ProofSymrows => "rr_proof",
             JobKind::TableDump => "table_dump",
             JobKind::Fake => "rr_fake_child",
             JobKind::CoefficientFacts => "rr_coef_facts",
@@ -139,7 +148,8 @@ impl JobKind {
             | JobKind::ProofInstantiate
             | JobKind::ProofInstanceSpan
             | JobKind::CoefficientFacts
-            | JobKind::NodeBasis => Some(&RESULT_OUTPUTS),
+            | JobKind::NodeBasis
+            | JobKind::ProofSymrows => Some(&RESULT_OUTPUTS),
             JobKind::GenerateAuto => None,
         }
     }
@@ -161,6 +171,8 @@ impl JobKind {
             // it passes `--elided-loci refuse|facts` through (coord-ec2-instantiate.md 2d)
             JobKind::ProofInstantiate => &PROOF_INSTANTIATE_ARGS,
             JobKind::ProofInstanceSpan | JobKind::CoefficientFacts => &[],
+            // lane symcert: every parameter is in the pinned request (the wrapper builds the argv from it)
+            JobKind::ProofSymrows => &[],
         }
     }
 
@@ -187,6 +199,11 @@ impl JobKind {
                 required: &["family", "terminals"],
                 optional: &[],
             }),
+            // lane symcert: one relation (point record) + its key + its symmetry rows; `family` for --rows engine --family
+            JobKind::ProofSymrows => Some(InputRoles {
+                required: &["request", "table", "keys", "symrows"],
+                optional: &["family"],
+            }),
             // one rule record of one table at many keys; rows from the family (engine build) or a cert / ROWS file
             JobKind::ProofInstanceSpan => Some(InputRoles {
                 required: &["request", "table", "keys"],
@@ -204,6 +221,7 @@ impl JobKind {
                 | JobKind::ProofInstantiate
                 | JobKind::ProofInstanceSpan
                 | JobKind::CoefficientFacts
+                | JobKind::ProofSymrows
         )
     }
 
@@ -212,7 +230,10 @@ impl JobKind {
     pub const fn legacy_wrapped(self) -> bool {
         matches!(
             self,
-            JobKind::ProofInstantiate | JobKind::ProofInstanceSpan | JobKind::CoefficientFacts
+            JobKind::ProofInstantiate
+                | JobKind::ProofInstanceSpan
+                | JobKind::CoefficientFacts
+                | JobKind::ProofSymrows
         )
     }
 
@@ -1169,6 +1190,7 @@ impl JobSpec {
                 | JobKind::ProofInstanceSpan
                 | JobKind::CoefficientFacts
                 | JobKind::NodeBasis
+                | JobKind::ProofSymrows
         ) {
             return Ok(());
         }
