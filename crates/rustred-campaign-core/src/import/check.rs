@@ -44,6 +44,18 @@ pub const BASIS_CREDIT_VIA_RELATION: &str = "symmetry_credit_via_relation";
 /// closure.md 15.7): its evidence level is the image's (per-key iff a per-key proof is bound to (image record, image)).
 pub const BASIS_SYMMETRY_CREDIT_VERIFIED: &str = "symmetry_credit_verified";
 
+/// Basis word of a key served by a VERIFIED `sym` record (interfaces/import.md 18.4): I(key) = I(image) proved on the
+/// record's case from the family (seven steps) and the record's action in our derived group; level = the lower of
+/// per-key and the image's level.
+pub const BASIS_SYM_RECORD_VERIFIED: &str = "sym_record_verified";
+
+/// Basis word of a key served by a verified `sym` record whose image is NOT strictly lower at the key (step 7 fails
+/// there; the closure counts the descent violation): no evidence.
+pub const BASIS_SYM_NOT_LOWER: &str = "sym_record_not_lower";
+
+/// Open reason (prefix) of a key whose first-match record is an UNVERIFIED `sym` record.
+pub const REASON_SYM_UNVERIFIED: &str = "sym_record_unverified";
+
 /// Options of a check (never part of a result's identity except `tier`).
 #[derive(Clone, Debug)]
 pub struct CheckOptions {
@@ -563,7 +575,8 @@ fn check_inner(
     let mut rows = Vec::with_capacity(if sink.is_some() { 0 } else { c.len() });
     let mut agg = Aggregates::default();
     let required = set.spec.required_evidence;
-    for i in 0..c.len() {
+    // one key's row (the image of a sym-served key is classified by the same function: interfaces/import.md 18.4)
+    let classify = |i: usize| -> Result<KeyRow, ImportError> {
         let key = c.key(i);
         let in_start = c.in_start(i);
         let mut row = KeyRow {
@@ -597,7 +610,14 @@ fn check_inner(
             if let (Some(o), Some((t, r))) = (o, row.open_rule)
                 && o.status == OpenStatus::Blocked
             {
-                row.open_reason = Some(blocked_reason(set, set.rules[t][r].witness, &o.detail));
+                row.open_reason = Some(match &set.rules[t][r].sym {
+                    // an unverified sym record blocks every key of its case (lane import5)
+                    Some(si) if !si.verified => format!(
+                        "{REASON_SYM_UNVERIFIED}: {}",
+                        si.reason.as_deref().unwrap_or("")
+                    ),
+                    _ => blocked_reason(set, set.rules[t][r].witness, &o.detail),
+                });
             }
             if let Some(o) = o
                 && o.status == OpenStatus::Uncovered
@@ -682,6 +702,23 @@ fn check_inner(
                 } else {
                     "symmetry_credit"
                 });
+            } else if let Some(si) = &set.rules[t][r].sym {
+                // a VERIFIED sym record (an unverified one never serves): I(key) = I(image) exactly on its case; its
+                // level is the lower of per-key (its own) and its image's, filled in by the caller (`sym_image`)
+                row.server = Some(Server::Rule {
+                    table: t,
+                    record: r,
+                });
+                let image = si.image_of(&row.key);
+                if set.cmp.try_lower(&image, &row.key).unwrap_or(false) {
+                    row.evidence = Some(Level::PerKey);
+                    row.basis = Some(BASIS_SYM_RECORD_VERIFIED);
+                } else {
+                    // step 7 of the verification fails AT THIS KEY (the closure counts the descent violation)
+                    row.evidence = None;
+                    row.basis = Some(BASIS_SYM_NOT_LOWER);
+                }
+                row.image = Some(image);
             } else {
                 row.server = Some(Server::Rule {
                     table: t,
@@ -731,6 +768,35 @@ fn check_inner(
         } else {
             row.open_status = Some("undecided".into());
             row.open_reason = Some("symmetry credit pending on unknown facts".into());
+        }
+        Ok(row)
+    };
+    for i in 0..c.len() {
+        let mut row = classify(i)?;
+        if row.basis == Some(BASIS_SYM_RECORD_VERIFIED) {
+            // the level of a sym-served key: the lower of its own (per-key) and its image's, along a chain of sym
+            // records (images strictly lower: finite; a repeated key stops the walk at `imported`)
+            let mut level = Level::PerKey;
+            let mut seen: BTreeSet<usize> = BTreeSet::from([i]);
+            let mut next = row.image.clone();
+            while let Some(im) = next.take() {
+                let Some(j) = c.index_of(&im).filter(|j| seen.insert(*j)) else {
+                    level = level.min(Level::Imported);
+                    break;
+                };
+                let r2 = classify(j)?;
+                match r2.status {
+                    RowStatus::Terminal => {}
+                    RowStatus::Open => level = level.min(Level::Imported),
+                    RowStatus::Served if r2.basis == Some(BASIS_SYM_RECORD_VERIFIED) => {
+                        next = r2.image.clone();
+                    }
+                    RowStatus::Served => {
+                        level = level.min(r2.evidence.unwrap_or(Level::Imported));
+                    }
+                }
+            }
+            row.evidence = Some(level);
         }
         match sink.as_mut() {
             None => rows.push(row),
