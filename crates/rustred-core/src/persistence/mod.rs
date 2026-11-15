@@ -37,7 +37,7 @@ pub(crate) use error::{
 pub(crate) use error::{native_error, resource_failure};
 pub use factored::{
     FACTOR_TERM_CAP, FACTORED_TABLE_MAGIC, FACTORED_TABLE_VERSION, encode_factored_table,
-    is_factored_table,
+    encode_shared_table, is_factored_table,
 };
 pub use family::NativeFamilyRecord;
 pub use lazy::LazyDecodedCoefficientTable;
