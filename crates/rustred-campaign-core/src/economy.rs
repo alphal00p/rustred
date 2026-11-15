@@ -258,20 +258,26 @@ pub struct ContainmentProof {
 }
 
 /// THE digest of a table set (integration lane int4: the ONE definition; assembly's former digest over record line
-/// digests is gone). It covers exactly what the DISPATCH-mode partition consumes, in dispatch order: per record its
+/// digests is gone). It covers exactly what the DISPATCH-mode partition consumes, in dispatch order: the FRAME
+/// (arity and line mask: audit-part3 m1, a proof minted on one mask must not check for another) and per record its
 /// case domain (canonical text) and its witness block ([`crate::partition::DomainSource::witness_block`], which blocks
 /// a selected record without serving). Two sets with one digest therefore have one dispatch coverage by construction;
 /// a digest over record bytes alone would not bind a proof to the domains the partition actually ran on (a caller
 /// could pair real line digests with fully-covering fake domains), and a digest over domains without the witness
 /// blocks would let a proof run on unblocked domains stand for blocked ones. Record identities (which rule is
-/// retired, which supersedes it) are checked by the caller against its own records. Version-2 text, not a fingerprint
-/// of the files (version 1 had no witness blocks).
-pub fn table_set_digest(src: &dyn crate::partition::DomainSource) -> String {
+/// retired, which supersedes it) are checked by the caller against its own records. Version-3 text, not a fingerprint
+/// of the files (version 1 had no witness blocks, version 2 no frame).
+pub fn table_set_digest(
+    src: &dyn crate::partition::DomainSource,
+    frame: &crate::key::NodeFrame,
+) -> String {
     let mut h = crate::replay_base::sha256::Sha256::new();
     h.update(
         format!(
-            "containment-tables.v2;arity={};n={}\n",
+            "containment-tables.v3;arity={};frame_arity={};mask={};n={}\n",
             src.arity(),
+            frame.arity(),
+            frame.mask_string(),
             src.len()
         )
         .as_bytes(),
@@ -289,33 +295,378 @@ pub fn table_set_digest(src: &dyn crate::partition::DomainSource) -> String {
     format!("sha256:{}", h.hex())
 }
 
-/// THE CHECKING FUNCTION of R33 (re-audit A M3): the only constructor of a [`ContainmentProof`]. It runs the exact
-/// partition of `new_tables` (dispatch order) in DISPATCH-coverage mode (whatever `opts.coverage` says), requires
-/// `proves_no_gap(DispatchCoverage)`, and binds the proof to the digests of `old_tables` and `new_tables` computed
-/// here ([`table_set_digest`]) and to the dispatch order statement (an empty new-order digest is refused).
+/// The ONLY caller knob of [`prove_coverage_preserved`] (audit-part3 C1): a work budget. The minting function builds
+/// its own partition options (dispatch coverage, exact literal tests, no rule subset, no off-floor cap, every class
+/// expanded); one [`crate::partition::WorkMeter`] bounds the partition (recursion, class listing, expansion cells,
+/// locus resolution, Fourier-Motzkin and point-search work) AND the final cross-check (one unit per probe key).
+/// Exhaustion is a refusal, never a proof.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProofWork {
+    pub max_units: u64,
+    pub wall: Option<std::time::Duration>,
+    /// Memo entries kept at most (memory bound only; exactness unaffected).
+    pub max_memo: Option<usize>,
+}
+
+impl Default for ProofWork {
+    fn default() -> Self {
+        ProofWork {
+            max_units: 20_000_000,
+            wall: None,
+            max_memo: Some(100_000),
+        }
+    }
+}
+
+/// The checked PRECONDITIONS of a coverage proof (audit-part3 A: every modelling assumption of the partition about
+/// first-match dispatch is either modelled or excluded here; the list is interfaces/partition.md section 14). Built
+/// only by [`ProofPreconditions::check`]; [`prove_coverage_preserved`] runs it on the new table set and refuses on
+/// any failure.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ProofPreconditions {
+    pub records: usize,
+    pub arity: usize,
+    pub frame_mask: String,
+    /// Records with a target pattern (their rule-point overflow is modelled as a stop piece).
+    pub pattern_targets: usize,
+    /// Records whose literals may meet the engine's modular zero test (modelled as an over-approximated stop piece).
+    pub modular_zero_risk: usize,
+    /// Records blocked by their witness status wherever selected (modelled).
+    pub witness_blocked: usize,
+}
+
+impl ProofPreconditions {
+    /// Check the preconditions on a table set. Refused (`Err(reason)`), each because the partition's model of first
+    /// match would not be the dispatcher's / the engine's:
+    /// - arity: the source, every domain and the frame agree (and the partition supports it: <= 64 slots);
+    /// - every domain validates (`CaseDomain::validate`: the dispatcher refuses invalid domains);
+    /// - chart: every domain's chart and the source's dispatch chart are absent or equal to the frame mask (the
+    ///   region of the proof is the frame's chart orthant; a different dispatch chart sends keys of it to
+    ///   `OutsideChart`);
+    /// - credit basis (strict dispatch): no record's witness check is disabled (`Assurance::CheckDisabled` hides its
+    ///   witness block) and no witness / target rests on an UNCHECKED attestation;
+    /// - witness blocks are `Elided` or `WitnessNotCarried` (what the dispatcher produces);
+    /// - every BOUND (selection `GE` literal) is ENGINE-READABLE ([`engine_readable_bound`]): a one-slot linear lower
+    ///   bound on a line slot or upper bound on a numerator slot excluding at most
+    ///   [`ENGINE_MAX_EXCLUDED_PER_SLOT`] chart values, which the engine reads as its `domain_bounds` (extra exception
+    ///   branches: NotSelected, dispatch falls through, as here); any other bound has no engine counterpart.
+    pub fn check(
+        src: &dyn crate::partition::DomainSource,
+        frame: &crate::key::NodeFrame,
+    ) -> Result<ProofPreconditions, String> {
+        use crate::cover::Assurance;
+        use crate::domain::{TargetMap, Verdict};
+        let n = frame.arity();
+        if src.arity() != n {
+            return Err(format!(
+                "precondition arity: source {} vs frame {n}",
+                src.arity()
+            ));
+        }
+        if n > 64 {
+            return Err(format!("precondition arity: {n} > 64 slots"));
+        }
+        let mask: Vec<bool> = (0..n).map(|i| frame.is_line(i)).collect();
+        if let Some(c) = src.dispatch_chart()
+            && c != mask
+        {
+            return Err(
+                "precondition chart: the source's dispatch chart differs from the frame mask"
+                    .into(),
+            );
+        }
+        let mut pre = ProofPreconditions {
+            records: src.len(),
+            arity: n,
+            frame_mask: frame.mask_string(),
+            pattern_targets: 0,
+            modular_zero_risk: 0,
+            witness_blocked: 0,
+        };
+        for i in 0..src.len() {
+            let d = src.domain(i);
+            if d.arity != n {
+                return Err(format!(
+                    "precondition arity: record {i} has arity {}",
+                    d.arity
+                ));
+            }
+            d.validate()
+                .map_err(|e| format!("precondition validate: record {i}: {e}"))?;
+            if let Some(c) = &d.chart
+                && *c != mask
+            {
+                return Err(format!(
+                    "precondition chart: record {i}'s chart differs from the frame mask"
+                ));
+            }
+            let b = src.rule_ref(i).basis;
+            if b.witness == Assurance::CheckDisabled {
+                return Err(format!(
+                    "precondition strict dispatch: record {i}'s witness check is disabled"
+                ));
+            }
+            if b.rests_on_unchecked_attestation() {
+                return Err(format!(
+                    "precondition strict dispatch: record {i} rests on an unchecked attestation"
+                ));
+            }
+            match src.witness_block(i) {
+                None => {}
+                Some(Verdict::Elided) | Some(Verdict::WitnessNotCarried) => {
+                    pre.witness_blocked = pre.witness_blocked.saturating_add(1);
+                }
+                Some(v) => {
+                    return Err(format!(
+                        "precondition witness block: record {i} has the block {v:?} (not a witness verdict)"
+                    ));
+                }
+            }
+            for g in &d.bounds {
+                engine_readable_bound(g, frame).map_err(|w| {
+                    format!("precondition engine-readable: record {i}: bound {g}: {w}")
+                })?;
+            }
+            if matches!(d.target, TargetMap::Pattern(_)) {
+                pre.pattern_targets = pre.pattern_targets.saturating_add(1);
+            }
+            if crate::partition::nf::modular_zero_risk(d).is_some() {
+                pre.modular_zero_risk = pre.modular_zero_risk.saturating_add(1);
+            }
+        }
+        Ok(pre)
+    }
+}
+
+/// The engine's limit of chart values one `domain_bounds` entry may exclude (rustred-core `node::bounds`
+/// `MAX_EXCLUDED_PER_SLOT`; a further bound is refused by the engine at load, so the record would never be served by it).
+pub const ENGINE_MAX_EXCLUDED_PER_SLOT: i128 = 64;
+
+/// Is a selection bound `g >= 0` (evaluated at the rule point) read IDENTICALLY by the engine? The engine knows
+/// selection bounds only as `domain_bounds` (rustred-core `node::bounds`): inclusive `min` on a line slot / `max` on
+/// a numerator slot of the rule point, turned into exception branches excluding the finitely many chart values beyond
+/// (at most [`ENGINE_MAX_EXCLUDED_PER_SLOT`]). So `g` must be `a n_i + b` with `a > 0` on a line slot (n_i >=
+/// ceil(-b / a)) or `a < 0` on a numerator slot (n_i <= floor(b / -a)); a constant `g >= 0` is trivially read.
+pub fn engine_readable_bound(
+    g: &crate::poly::Poly,
+    frame: &crate::key::NodeFrame,
+) -> Result<(), String> {
+    let mut slot: Option<(usize, i128)> = None;
+    let mut b: i128 = 0;
+    let terms = g
+        .small_terms()
+        .ok_or("a coefficient beyond i128 (the engine's domain_bounds are i64)")?;
+    for (m, c) in terms {
+        match m.as_slice() {
+            [] => b = *c,
+            [(v, 1)] if *v != crate::poly::D_VAR && slot.is_none() => {
+                slot = Some((usize::from(*v), *c));
+            }
+            _ => return Err("not a one-slot linear bound".into()),
+        }
+    }
+    let Some((i, a)) = slot else {
+        return if b >= 0 {
+            Ok(())
+        } else {
+            Err("a constant bound that never holds".into())
+        };
+    };
+    if i >= frame.arity() {
+        return Err(format!("slot {i} beyond the arity"));
+    }
+    // the chart values the bound excludes: lines n >= 1 with a n + b < 0; numerators n <= 0 with a n + b < 0
+    let excluded: i128 = if frame.is_line(i) {
+        if a <= 0 {
+            return Err(
+                "an upper bound on a line slot (the engine refuses it: infinite exclusion)".into(),
+            );
+        }
+        // smallest admitted n = ceil(-b / a); excluded = n in [1, ceil(-b/a) - 1]
+        let lo = crate::partition::exact::ceil_neg_div(b, a).map_err(|e| format!("{e}"))?;
+        lo.saturating_sub(1).max(0)
+    } else {
+        if a >= 0 {
+            return Err(
+                "a lower bound on a numerator slot (the engine refuses it: infinite exclusion)"
+                    .into(),
+            );
+        }
+        // largest admitted n = floor(-b / a) (a < 0); excluded = n in [floor(-b/a) + 1, 0]
+        let hi = crate::partition::exact::floor_neg_div(b, a).map_err(|e| format!("{e}"))?;
+        hi.saturating_neg().max(0)
+    };
+    if excluded > ENGINE_MAX_EXCLUDED_PER_SLOT {
+        return Err(format!(
+            "excludes {excluded} chart values (the engine's domain_bounds limit is {ENGINE_MAX_EXCLUDED_PER_SLOT})"
+        ));
+    }
+    Ok(())
+}
+
+/// An owned SNAPSHOT of a domain source (audit-part3 m2): the partition, the digest and the cross-check all read the
+/// same in-memory copy, so a source whose answers change between calls cannot pair a digest with domains the
+/// partition never saw.
+struct Snapshot {
+    arity: usize,
+    items: Vec<(
+        crate::cover::RuleRef,
+        crate::domain::CaseDomain,
+        Option<crate::domain::Verdict>,
+    )>,
+    chart: Option<Vec<bool>>,
+}
+
+impl Snapshot {
+    fn of(src: &dyn crate::partition::DomainSource) -> Snapshot {
+        Snapshot {
+            arity: src.arity(),
+            items: (0..src.len())
+                .map(|i| (src.rule_ref(i), src.domain(i).clone(), src.witness_block(i)))
+                .collect(),
+            chart: src.dispatch_chart(),
+        }
+    }
+
+    /// The core dispatcher of the snapshot (one table, dispatch order, the witness blocks as record status, chart =
+    /// the frame mask): THE reference of the cross-check.
+    fn dispatcher(&self, mask: &[bool]) -> Result<crate::cover::Dispatcher, String> {
+        use crate::cover::{Assurance, Dispatcher, RecordMeta, Table, WitnessStatus};
+        use crate::domain::Verdict;
+        let mut t = Table::new("proof-snapshot", self.arity);
+        for (i, (_, d, wb)) in self.items.iter().enumerate() {
+            let witness = match wb {
+                None => WitnessStatus::Complete,
+                Some(Verdict::Elided) => WitnessStatus::Elided,
+                Some(Verdict::WitnessNotCarried) => WitnessStatus::NotCarried,
+                Some(v) => return Err(format!("record {i}: witness block {v:?}")),
+            };
+            let meta = RecordMeta {
+                source_index: i,
+                line_no: 0,
+                witness,
+                witness_basis: Assurance::Record,
+                target_basis: Assurance::Record,
+            };
+            let label = i64::try_from(i).map_err(|e| format!("{e}"))?;
+            t.push_with_meta(label, d.clone(), meta)
+                .map_err(|e| format!("record {i}: {e}"))?;
+        }
+        Dispatcher::new(vec![t], vec![0])
+            .and_then(|d| d.with_chart(mask.to_vec()))
+            .map_err(|e| format!("{e}"))
+    }
+}
+
+impl crate::partition::DomainSource for Snapshot {
+    fn arity(&self) -> usize {
+        self.arity
+    }
+    fn len(&self) -> usize {
+        self.items.len()
+    }
+    fn domain(&self, i: usize) -> &crate::domain::CaseDomain {
+        &self.items[i].1
+    }
+    fn rule_ref(&self, i: usize) -> crate::cover::RuleRef {
+        self.items[i].0
+    }
+    fn witness_block(&self, i: usize) -> Option<crate::domain::Verdict> {
+        self.items[i].2.clone()
+    }
+    fn dispatch_chart(&self) -> Option<Vec<bool>> {
+        self.chart.clone()
+    }
+}
+
+/// THE CHECKING FUNCTION of R33 (re-audit A M3; audit-part3 A): the only constructor of a [`ContainmentProof`].
+/// What a proof rests on:
+/// 1. a SNAPSHOT of both table sets, taken once (m2);
+/// 2. [`ProofPreconditions::check`] on the new set: every assumption the partition makes about first-match dispatch
+///    that it does not model is excluded there (list: interfaces/partition.md 14);
+/// 3. the exact partition of the new set in DISPATCH mode with options built HERE (no caller option except the work
+///    budget [`ProofWork`]: no rule subset, no off-floor cap, exact literal tests; C1 / C3), whose report must carry
+///    the `CompleteRun` token and `proves_no_gap(DispatchCoverage)`; the normal form models rule-point overflow and
+///    the engine's modular zero test as stop pieces (M1 / C2);
+/// 4. a CROSS-CHECK against the REAL core dispatcher (`cover::Dispatcher::first_match`, rebuilt from the snapshot
+///    with the frame as chart): every probe key the partition's own structure defines
+///    ([`crate::partition::PartitionReport::dispatch_probes`]: state boundaries per slot, diagonals, coupled slot
+///    pairs, points on and next to every linear literal's zero set, fragile cells, far probes) must be `Covered`;
+///    any other verdict refuses the proof and names the key. Cost: one work unit per probe (at most a few times the
+///    sum of the state counts, the coupled pairs, the literals and the fragile cells, plus 256 far probes), bounded
+///    by the same budget; an exhausted budget refuses;
+/// 5. both digests over the snapshots and the frame ([`table_set_digest`] v3, m1), the dispatch order statement (an
+///    empty new-order digest is refused) and the certificate (incl. the preconditions and the probe count).
 pub fn prove_coverage_preserved(
     old_tables: &dyn crate::partition::DomainSource,
     new_tables: &dyn crate::partition::DomainSource,
     frame: &crate::key::NodeFrame,
-    opts: &crate::partition::PartitionOptions,
+    work: &ProofWork,
     order: &crate::partition::DispatchOrderStatement,
 ) -> Result<ContainmentProof, String> {
-    use crate::partition::{CoverageNotion, DispatchOrderStatement, dispatch_proof_method};
+    use crate::partition::{
+        CoverageNotion, DispatchOrderStatement, WorkMeter, dispatch_proof_method,
+    };
     if let DispatchOrderStatement::NewOrder(d) = order
         && d.trim().is_empty()
     {
         return Err("a new dispatch order needs its digest".into());
     }
-    let mut o = opts.clone();
-    o.coverage = CoverageNotion::DispatchCoverage;
-    let rep = crate::partition::gap_partition(new_tables, frame, &o, None)
-        .map_err(|e| format!("{e:?}"))?;
-    let certificate = rep.proves_no_gap(CoverageNotion::DispatchCoverage)?;
+    let old = Snapshot::of(old_tables);
+    let new = Snapshot::of(new_tables);
+    if old.arity != frame.arity() {
+        return Err(format!(
+            "the old table set has arity {}, the frame {}",
+            old.arity,
+            frame.arity()
+        ));
+    }
+    let pre = ProofPreconditions::check(&new, frame)?;
+    let t0 = std::time::Instant::now();
+    let meter = std::rc::Rc::new(WorkMeter::new(
+        Some(work.max_units),
+        work.wall.and_then(|w| t0.checked_add(w)),
+    ));
+    let (rep, certificate) =
+        crate::partition::prove_dispatch_no_gap(&new, frame, &meter, work.max_memo)?;
+    debug_assert_eq!(rep.coverage(), CoverageNotion::DispatchCoverage);
+    // the cross-check against the real dispatcher
+    let mask: Vec<bool> = (0..frame.arity()).map(|i| frame.is_line(i)).collect();
+    let disp = new.dispatcher(&mask)?;
+    let probes = rep.dispatch_probes(&meter);
+    if meter.exhausted() {
+        return Err(format!(
+            "cross-check: the work budget was exhausted while building the probe keys ({})",
+            meter.reason().unwrap_or_default()
+        ));
+    }
+    for (done, k) in probes.iter().enumerate() {
+        if !meter.tick(1) {
+            return Err(format!(
+                "cross-check: the work budget was exhausted after {done} of {} probe keys ({})",
+                probes.len(),
+                meter.reason().unwrap_or_default()
+            ));
+        }
+        match disp.first_match(k) {
+            Ok(crate::cover::Dispatch::Covered(_)) => {}
+            other => {
+                return Err(format!(
+                    "cross-check: key {k:?} is {other:?} for Dispatcher::first_match although the partition proves no gap: no proof (the partition's model of dispatch differs from the dispatcher here)"
+                ));
+            }
+        }
+    }
+    let full_certificate = format!(
+        "{certificate}; preconditions {pre:?}; cross-check: {} probe keys served by Dispatcher::first_match; work {} units",
+        probes.len(),
+        meter.used()
+    );
     Ok(ContainmentProof {
-        old_tables_digest: table_set_digest(old_tables),
-        new_tables_digest: table_set_digest(new_tables),
+        old_tables_digest: table_set_digest(&old, frame),
+        new_tables_digest: table_set_digest(&new, frame),
         method: dispatch_proof_method(order),
-        artefact_sha256: crate::replay_base::sha256::sha256_hex(certificate.as_bytes()),
+        artefact_sha256: crate::replay_base::sha256::sha256_hex(full_certificate.as_bytes()),
     })
 }
 
@@ -505,17 +856,20 @@ impl Retirement {
             .map(|p| (p.old_tables_digest.as_str(), p.new_tables_digest.as_str()))
     }
     /// Check that the retirement is applied to the table sets its proof checked (re-audit A M3: "any checked proof
-    /// fits any retirement" no more): on a FULL node both digests must equal [`table_set_digest`] of the given sets.
+    /// fits any retirement" no more): on a FULL node both digests must equal [`table_set_digest`] of the given sets
+    /// IN THE GIVEN FRAME (audit-part3 m1: the frame is part of the digest).
     pub fn check_tables(
         &self,
         old_tables: &dyn crate::partition::DomainSource,
         new_tables: &dyn crate::partition::DomainSource,
+        frame: &crate::key::NodeFrame,
     ) -> Result<(), RetireError> {
         match self.tables() {
             None if self.state == CoverageState::Full => Err(RetireError::FullNodeNeedsProof),
             None => Ok(()),
             Some((o, n))
-                if o == table_set_digest(old_tables) && n == table_set_digest(new_tables) =>
+                if o == table_set_digest(old_tables, frame)
+                    && n == table_set_digest(new_tables, frame) =>
             {
                 Ok(())
             }

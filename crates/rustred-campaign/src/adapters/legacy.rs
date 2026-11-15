@@ -192,13 +192,21 @@ pub fn argv(spec: &JobSpec) -> Result<Vec<String>, String> {
             a.extend(["--out".into(), format!("out/{SPAN_OUT}")]);
             Ok(a)
         }
-        JobKind::ProofInstantiate => Ok(vec![
-            "instantiate".into(),
-            "--requests".into(),
-            p("requests")?,
-            "--out".into(),
-            format!("out/{INSTANTIATE_OUT}"),
-        ]),
+        JobKind::ProofInstantiate => {
+            let mut a = vec![
+                "instantiate".into(),
+                "--requests".into(),
+                p("requests")?,
+                "--out".into(),
+                format!("out/{INSTANTIATE_OUT}"),
+            ];
+            // lane closeloop4 (line 7, coord-ec2-instantiate.md 2d): `--elided-loci facts` passed through when the
+            // spec's args name it (allow-list of the kind); absent = rr_proof's default `refuse` (R-f)
+            if spec.elided_loci() == rustred_campaign_contract::spec::ElidedLoci::Facts {
+                a.extend(["--elided-loci".into(), "facts".into()]);
+            }
+            Ok(a)
+        }
         // lane closeloop3: rr_coef_facts reads the same request form (A)
         JobKind::CoefficientFacts => Ok(vec![
             "facts".into(),
@@ -387,6 +395,11 @@ fn check_instantiate(spec: &JobSpec, out: &[u8]) -> Result<Vec<Vec<u8>>, String>
         let v: Value = serde_json::from_slice(l).map_err(|e| format!("answer {}: {e}", i + 1))?;
         if v["schema"] != schema {
             return Err(format!("answer {}: schema {}", i + 1, v["schema"]));
+        }
+        if !coef {
+            // the ONE elided-loci rule: the contract's (line 7, coord-ec2-instantiate.md 2d)
+            rustred_campaign_contract::instantiate::instantiate_answer_use(&v, spec.elided_loci())
+                .map_err(|m| format!("answer {}: {m}", i + 1))?;
         }
         if coef && v["producer"] != COEF_PRODUCER {
             return Err(format!(

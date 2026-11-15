@@ -20,6 +20,8 @@ pub mod load;
 pub mod recipe_steps;
 pub mod spec;
 pub mod statement;
+/// lane t266run: disk-backed evidence store (interfaces/evidence-store.md).
+pub mod store;
 pub mod sweep;
 pub mod symmetry;
 

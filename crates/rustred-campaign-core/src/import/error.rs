@@ -76,11 +76,20 @@ pub enum TableRefusal {
     },
     /// `assembly_provenance.one_physical_order` differs from the header's order name.
     OrderMismatch { stated: String, header: String },
+    /// A part of a record that must be held in memory is larger than the per-record in-memory budget (spec
+    /// `reader.record_budget_bytes`; lane bigline): `what` (e.g. the line without its rhs value, a coefficient term)
+    /// of `bytes` bytes. The record cannot be read or evaluated in memory; never skipped, never counted as served.
+    RecordTooLarge {
+        record: Option<i64>,
+        what: String,
+        bytes: u64,
+        budget: u64,
+    },
 }
 
 impl TableRefusal {
     /// Short stable word: `sym_zero`, `sym_malformed`, `ledger_malformed`, `completion:<marker>:<field>`,
-    /// `order_mismatch`.
+    /// `order_mismatch`, `record_too_large`.
     pub fn word(&self) -> String {
         match self {
             TableRefusal::SymZero => "sym_zero".into(),
@@ -90,6 +99,7 @@ impl TableRefusal {
                 format!("completion:{marker}:{field}")
             }
             TableRefusal::OrderMismatch { .. } => "order_mismatch".into(),
+            TableRefusal::RecordTooLarge { .. } => "record_too_large".into(),
         }
     }
 }
@@ -113,6 +123,21 @@ impl fmt::Display for TableRefusal {
                 f,
                 "assembly_provenance.one_physical_order {stated:?} differs from the header order {header:?}"
             ),
+            TableRefusal::RecordTooLarge {
+                record,
+                what,
+                bytes,
+                budget,
+            } => {
+                write!(f, "record too large for in-memory evaluation")?;
+                if let Some(r) = record {
+                    write!(f, " (record {r})")?;
+                }
+                write!(
+                    f,
+                    ": {what} of {bytes} bytes exceeds the per-record budget of {budget} bytes"
+                )
+            }
         }
     }
 }

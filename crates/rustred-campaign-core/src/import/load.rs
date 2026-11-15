@@ -13,10 +13,10 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::error::{ImportError, io_err};
-use super::index::{IndexOrigin, TableIndex, open_or_build};
+use super::index::{IndexOrigin, TableIndex, open_scan_checked};
 use super::lines::{
     MAX_BOUND_EXCLUSIONS_PER_SLOT, MarkerPolicy, RawRecord, RawTable, SymfaceRef, check_markers,
-    parse_key_text, read_sha256sums, scan_table, verify_file,
+    parse_key_text, read_sha256sums, scan_table_with, verify_file,
 };
 use super::spec::{
     DomainMode, HandName, SourceKind, SourceSpec, StartFormat, TableSetSpec, TableTerminals,
@@ -282,6 +282,9 @@ pub struct ImportedSet {
     /// record whose witness loci are complete, by (table, record): what a strict run would decide at a key the
     /// diagnostic dispatch serves (a key on a witness pole is blocked there). Empty otherwise.
     pub strict_domains: HashMap<(usize, usize), CaseDomain>,
+    /// lane closeloop4 (audit-closeloop m4): the family of the set's tables (every table header agrees, `check_header`):
+    /// spec evidence declared for another family is refused.
+    pub family: Option<String>,
     /// lane import5 (18.2): terminals declared by a TABLE (ledger keys, residual keys under `ledger_and_residuals`), with
     /// their provenance. A key declared by a `terminals` source is not listed (first declaration wins).
     pub terminal_provenance: BTreeMap<Vec<i32>, TerminalDecl>,
@@ -389,6 +392,36 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
     load_with(spec, base, &LoadOptions::default())
 }
 
+/// The frame source of the spec and the header line of its first table file (the file itself is verified when its
+/// source is loaded).
+fn frame_header<'a>(
+    spec: &'a TableSetSpec,
+    base: &Path,
+) -> Result<(&'a SourceSpec, TableHeader), ImportError> {
+    let fsrc = spec
+        .sources
+        .iter()
+        .find(|s| s.id == spec.frame_from)
+        .ok_or_else(|| ImportError::Spec("frame_from".into()))?;
+    let funits = file_units(fsrc, base)?;
+    let first = funits.first().ok_or_else(|| ImportError::Source {
+        source: fsrc.id.clone(),
+        msg: "no table file".into(),
+    })?;
+    let fhead = super::lines::read_header(&fsrc.id, &first.path)?;
+    Ok((fsrc, fhead))
+}
+
+/// The node frame of the spec (from the header line of the first file of `frame_from`; no table is read): the same
+/// frame [`load_with`] gives the loaded set.
+pub fn frame_of(spec: &TableSetSpec, base: &Path) -> Result<NodeFrame, ImportError> {
+    let (fsrc, fhead) = frame_header(spec, base)?;
+    NodeFrame::from_header(&fhead).map_err(|e| ImportError::Source {
+        source: fsrc.id.clone(),
+        msg: format!("frame: {e}"),
+    })
+}
+
 /// Load the spec with [`LoadOptions`]. Every table file is read through its index (`import::index`): ONE streaming
 /// pass over a table that has no valid index (domains + sha256 digests + rhs keys), none over a table whose index is
 /// reused; the bodies are then read from the index.
@@ -425,35 +458,22 @@ pub(crate) fn load_inner(
     let spec_digest = spec.digest();
     // open table indexes by file (kept for the body pass)
     let mut indexes: BTreeMap<PathBuf, TableIndex> = BTreeMap::new();
-    // ---- the frame: the first file of `frame_from`
-    let fsrc = spec
-        .sources
-        .iter()
-        .find(|s| s.id == spec.frame_from)
-        .ok_or_else(|| ImportError::Spec("frame_from".into()))?;
-    let funits = file_units(fsrc, base)?;
-    let first = funits.first().ok_or_else(|| ImportError::Source {
-        source: fsrc.id.clone(),
-        msg: "no table file".into(),
-    })?;
-    // the frame: the header line only (the file itself is verified when its source is loaded)
-    let fhead = super::lines::read_header(&fsrc.id, &first.path)?;
-    // epsframe: an eps-shifted (two-sided) family is accepted by the CLASSIFY-ONLY load only (frame, charts, domains,
-    // labels (chart, index), dispatcher, bodies parsed); a campaign load refuses it, typed: the closure, check,
+    // ---- the frame: the header line of the first file of `frame_from`
+    let (fsrc, fhead) = frame_header(spec, base)?;
+    // epsframe: an eps-shifted (two-sided) family is accepted by the CLASSIFY-ONLY load and by load_with_eps only
+    // (frame, charts, domains, labels (chart, index), dispatcher, bodies); a campaign load refuses it, typed: the
     // partition, loci and termmin read line signs (integer-only; interfaces/campaign-core-domain.md "Eps")
     let frame = if validate_bodies_only || eps_aware {
         NodeFrame::from_header_eps_aware(&fhead)
     } else {
-        NodeFrame::from_header(&fhead).map_err(|e| {
-            match NodeFrame::from_header_eps_aware(&fhead) {
-                Ok(f) => FrameError::Unsupported(format!(
-                    "eps-shifted family (eps axes {:?}, kshift {:?}): a campaign load (closure, check, partition, \
-                     loci, termmin) is integer-only; only the classify-only load accepts it",
-                    f.eps_axes(),
-                    f.kshift()
-                )),
-                Err(_) => e,
-            }
+        NodeFrame::from_header(&fhead).map_err(|e| match NodeFrame::from_header_eps_aware(&fhead) {
+            Ok(f) => FrameError::Unsupported(format!(
+                "eps-shifted family (eps axes {:?}, kshift {:?}): a campaign load (closure, check, partition, \
+                 loci, termmin) is integer-only; only the classify-only load and load_with_eps accept it",
+                f.eps_axes(),
+                f.kshift()
+            )),
+            Err(_) => e,
         })
     }
     .map_err(|e| ImportError::Source {
@@ -536,15 +556,19 @@ pub(crate) fn load_inner(
                 let mut sym_err: Option<String> = None;
                 for u in &units {
                     let want: Option<Vec<i64>> = src.records.clone();
-                    let (idx, origin) =
-                        open_or_build(&src.id, &u.path, lopts.index_dir.as_deref())?;
+                    // lane bigline: the index verified against the TABLE (size, mtime, sampled digest, record
+                    // count, file digests, spot-checked records); refused and rebuilt once on a failed check
+                    let (idx, mut origin, raw, rebuilt) = open_scan_checked(
+                        &src.id,
+                        &u.path,
+                        lopts.index_dir.as_deref(),
+                        spec.read_limits(),
+                        spec.spot_check_records(),
+                    )?;
+                    if rebuilt.is_some() {
+                        origin.how = "rebuilt_after_failed_check";
+                    }
                     rep.indexes.push(origin);
-                    let mut recs = vec![];
-                    let mut raw = idx.scan_domains(&src.id, &|_, _| true, &mut |r| {
-                        recs.push(r);
-                        Ok(())
-                    })?;
-                    raw.records = recs;
                     indexes.insert(u.path.clone(), idx);
                     let sha = format!("sha256:{}", raw.file_sha256);
                     if let Some(e) = &u.expected_sha {
@@ -835,6 +859,7 @@ pub(crate) fn load_inner(
                     &cmp,
                     codec,
                     &mut rep,
+                    spec.read_limits(),
                 )?;
                 supplied_info.insert(rs.name.clone(), info);
                 pending.push(Pending::Supplied(rs));
@@ -850,7 +875,15 @@ pub(crate) fn load_inner(
                     (Some(k), None) => k.clone(),
                     (None, Some(p)) => {
                         let path = resolve(base, p);
-                        let d = verify_file(&path, src.sha256.as_deref())?;
+                        // lane closeloop4 (audit-closeloop M1 / m7): a terminals FILE is pinned (it decides keys)
+                        let Some(want) = src.sha256.as_deref() else {
+                            return Err(ImportError::Spec(format!(
+                                "source {}: the terminals file {} is not pinned: give its sha256",
+                                src.id,
+                                path.display()
+                            )));
+                        };
+                        let d = verify_file(&path, Some(want))?;
                         rep.files
                             .push((path.display().to_string(), format!("sha256:{d}")));
                         read_key_list(&path, arity)?
@@ -1091,6 +1124,7 @@ pub(crate) fn load_inner(
         classes,
         report,
         strict_domains,
+        family: fhead.family.clone(),
         terminal_provenance,
     })
 }
@@ -1552,9 +1586,10 @@ fn load_supplied(
     cmp: &NodeComparator,
     codec: KeyCodec,
     rep: &mut SourceReport,
+    limits: crate::record::ReadLimits,
 ) -> Result<(RelationSet, BTreeMap<Vec<i32>, SuppliedInfo>), ImportError> {
     let path = resolve(base, src.path.as_deref().unwrap_or_default());
-    let raw = scan_table(&src.id, &path, true, &|_, _| true)?;
+    let raw = scan_table_with(&src.id, &path, true, &|_, _| true, limits)?;
     if let Some(r) = raw.records.iter().find(|r| r.sym.is_some()) {
         return Err(ImportError::Line {
             source: src.id.clone(),
@@ -1619,7 +1654,7 @@ fn load_supplied(
         None => None,
     };
     let coefs: SuppliedCoefficients = if vgroup.is_some() {
-        supplied_coefficients(&src.id, &path, n)?
+        supplied_coefficients(&src.id, &path, n, limits)?
     } else {
         HashMap::new()
     };
@@ -1767,11 +1802,45 @@ fn supplied_coefficients(
     source: &str,
     path: &Path,
     n: usize,
+    limits: crate::record::ReadLimits,
 ) -> Result<SuppliedCoefficients, ImportError> {
-    let txt = std::fs::read_to_string(path).map_err(|e| io_err(path, e))?;
+    // one line at a time, each at most the per-record budget (lane bigline): a longer line is refused, typed
+    let f = std::fs::File::open(path).map_err(|e| io_err(path, e))?;
+    let mut rd = std::io::BufReader::with_capacity(1 << 20, f);
+    let mut buf: Vec<u8> = vec![];
     let mut out = HashMap::new();
     let mut ordinal = 0usize;
-    for (i, l) in txt.lines().enumerate() {
+    for i in 0usize.. {
+        buf.clear();
+        let (got, complete) = crate::record::read_until_limited(
+            &mut rd,
+            &mut buf,
+            limits.record_budget.saturating_add(1),
+        )
+        .map_err(|e| io_err(path, e))?;
+        if got == 0 {
+            break;
+        }
+        if !complete {
+            return Err(ImportError::Refused {
+                source: source.into(),
+                path: path.display().to_string(),
+                line: i + 1,
+                reason: Box::new(super::error::TableRefusal::RecordTooLarge {
+                    record: None,
+                    what: "a supplied relation line (its coefficients are kept)".into(),
+                    bytes: got as u64,
+                    budget: limits.record_budget,
+                }),
+            });
+        }
+        let l = std::str::from_utf8(super::lines::line_body(&buf)).map_err(|e| {
+            io_err(
+                path,
+                std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()),
+            )
+        })?;
+        let l = l.strip_suffix('\r').unwrap_or(l);
         if l.trim().is_empty() {
             continue;
         }
@@ -2144,7 +2213,12 @@ pub fn read_key_list(path: &Path, arity: usize) -> Result<Vec<Vec<i32>>, ImportE
     Ok(out)
 }
 
-fn read_start(spec: &TableSetSpec, base: &Path, codec: KeyCodec) -> Result<KeySet, ImportError> {
+/// The start set of a spec (lane t266run: also used for one clause of a box made of several clauses).
+pub fn read_start(
+    spec: &TableSetSpec,
+    base: &Path,
+    codec: KeyCodec,
+) -> Result<KeySet, ImportError> {
     let path = resolve(base, &spec.start.path);
     verify_file(&path, spec.start.sha256.as_deref())?;
     let arity = codec.arity();

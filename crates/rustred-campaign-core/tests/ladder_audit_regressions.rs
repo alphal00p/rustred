@@ -1541,6 +1541,7 @@ fn m7_a8_policy_replaces_the_builtin_space() {
         name: "only-target".into(),
         source: "test".into(),
         symmetry_dimension: true,
+        mixed_shell: true,
         classes: vec![class(true, &[2])],
         evidence: vec![],
     };

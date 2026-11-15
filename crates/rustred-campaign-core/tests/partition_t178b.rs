@@ -587,3 +587,32 @@ fn t178b_raw38_dispatch_mode_409_uncovered_39_blocked() {
     assert_eq!((mine.len(), not_selected.len()), (448, 409));
     assert_eq!(blocked_mine, blocked_ref);
 }
+
+/// partfix3 (audit-part3 C2): the literals of the real T178 tables meet the engine's modular zero test at most FAR
+/// out (high-degree literals: some rule-point coordinate beyond a radius between 3e2 and 1e9), never "anywhere", so
+/// the dispatch-mode partition stays exact on every key of bounded size (box: 430 == the dispatcher's 430).
+#[test]
+#[ignore = "needs the frozen T178 fixtures"]
+fn t178b_modular_risk_in_real_tables_is_far_only() {
+    use rustred_campaign_core::partition::DomainSource;
+    use rustred_campaign_core::partition::nf::{ModularRisk, modular_risk};
+    let Some(fx) = fx() else { return };
+    let (disp, _) = t178_dispatcher(&fx, true);
+    let src = DispatcherSource::new(&disp);
+    let (mut far, mut other) = (vec![], vec![]);
+    for i in 0..src.len() {
+        match modular_risk(src.domain(i)) {
+            None => {}
+            Some(ModularRisk::Far(r)) => far.push((i, r)),
+            Some(x) => other.push((i, x)),
+        }
+    }
+    println!(
+        "T178B: {} records with a far-only modular risk: {:?}",
+        far.len(),
+        &far[..far.len().min(8)]
+    );
+    assert!(other.is_empty(), "{other:?}");
+    // every radius lies far beyond the box (keys of bounded size are dispatched exactly)
+    assert!(far.iter().all(|(_, r)| r.iter().all(|&(_, x)| x >= 100)));
+}

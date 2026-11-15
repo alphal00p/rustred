@@ -191,6 +191,13 @@ impl SymbolicaAlgebra {
         })
     }
 
+    /// lane closeloop4 (audit-closeloop m3): ONE SIDE of a coefficient ratio read as a POLYNOMIAL over Z in
+    /// n0..n{N-1}, d (never a rational function: nothing is reduced, a 0/0 cannot cancel). A side with a division or
+    /// a negative power is refused (`Err`) by Symbolica's polynomial conversion.
+    pub fn parse_side_polynomial(&self, text: &str, arity: usize) -> Result<ZPolyS, String> {
+        self.parse_poly(text, arity, true, &Z)
+    }
+
     /// Parse an expression as a polynomial over `ring` in n0..n{N-1} (+ d); extra symbols are refused.
     fn parse_poly<R>(
         &self,

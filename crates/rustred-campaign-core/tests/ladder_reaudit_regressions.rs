@@ -27,7 +27,8 @@ use rustred_campaign_core::worklist::ladder::{
 };
 use rustred_campaign_core::worklist::orbits::{GroupElement, SymmetryGroup};
 use rustred_campaign_core::worklist::recipe::{
-    KeyRelation, Recipe, RecipeEconomy, RecipeFailure, accept_recipe, default_recipes,
+    KeyRelation, Recipe, RecipeEconomy, RecipeFailure, RecipeGenerator, accept_recipe,
+    default_recipes,
 };
 use rustred_campaign_core::worklist::seed::{
     AttemptBudget, SeedSetting, attempt_budget, seed_space,
@@ -1476,7 +1477,16 @@ fn default_recipe_and_recipe_economy_measure() {
     let mut p = p();
     let k = vec![2, 3, 1, -1, 0, 0];
     let rs = default_recipes(&k, &p, "legacy");
-    assert_eq!(rs.len(), 2, "no capable group: line centre + union");
+    assert_eq!(
+        rs.len(),
+        3,
+        "no capable group: line centre + union + mixed shell (lane termmin2)"
+    );
+    assert_eq!(
+        rs[2].seeds.generator,
+        RecipeGenerator::Shells(vec!["S0".into()])
+    );
+    assert!(rs[2].seeds.min_offset.is_empty() && !rs[2].seeds.centres.is_empty());
     assert_eq!(
         rs[0].seeds.centres,
         vec![vec![0, -1, 0, 0, 0, 0]],
@@ -1495,7 +1505,7 @@ fn default_recipe_and_recipe_economy_measure() {
     p.symmetry = Some(swap01());
     p.capabilities.symmetry_rows = Some(EvidenceLevel::A4);
     let rs = default_recipes(&k, &p, "legacy");
-    assert_eq!(rs.len(), 3);
+    assert_eq!(rs.len(), 4);
     assert!(
         rs[0].symmetry_rows,
         "symmetry rows at the key first when certifiable"

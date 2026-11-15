@@ -360,7 +360,7 @@ pub fn check(
     ev: &Evidence,
     opts: &CheckOptions,
 ) -> Result<CheckResult, ImportError> {
-    check_inner(set, ev, opts, None)
+    check_inner(set, ev, opts, None, &set.start)
 }
 
 /// A row sink of [`check_streamed`].
@@ -375,6 +375,18 @@ pub fn check_streamed(
     ev: &Evidence,
     opts: &CheckOptions,
     rows_path: &std::path::Path,
+) -> Result<CheckResult, ImportError> {
+    check_streamed_from(set, ev, opts, rows_path, &set.start)
+}
+
+/// [`check_streamed`] from another START set (lane t266run: one clause of a box made of several clauses; everything
+/// else, tables, relations, evidence, terminals, is the set's).
+pub fn check_streamed_from(
+    set: &ImportedSet,
+    ev: &Evidence,
+    opts: &CheckOptions,
+    rows_path: &std::path::Path,
+    start: &crate::closure::KeySet,
 ) -> Result<CheckResult, ImportError> {
     use std::io::Write;
     if let Some(d) = rows_path.parent() {
@@ -397,7 +409,7 @@ pub fn check_streamed(
             n += 1;
             Ok(())
         };
-        check_inner(set, ev, opts, Some(&mut sink))?
+        check_inner(set, ev, opts, Some(&mut sink), start)?
     };
     w.flush().map_err(|e| super::error::io_err(rows_path, e))?;
     res.streamed = Some(StreamedRows {
@@ -450,6 +462,7 @@ fn check_inner(
     ev: &Evidence,
     opts: &CheckOptions,
     mut sink: Option<&mut RowSink<'_>>,
+    start: &crate::closure::KeySet,
 ) -> Result<CheckResult, ImportError> {
     let t0 = std::time::Instant::now();
     let tier = opts.tier.unwrap_or(match set.spec.policies.tier {
@@ -511,7 +524,7 @@ fn check_inner(
         per_key_lift: per_key_lift(set),
         ..Default::default()
     };
-    let c = closure(&set.disp, &set.bodies, &set.cmp, &set.start, &cfg, ev)
+    let c = closure(&set.disp, &set.bodies, &set.cmp, start, &cfg, ev)
         .map_err(|e| ImportError::Core(format!("closure: {e}")))?;
     let summary = c.summary();
     // name -> table index; open info by key
@@ -673,7 +686,7 @@ fn check_inner(
                 });
                 let image_proof = credit_images
                     .get(&row.key)
-                    .is_some_and(|im| ev.proof(set, t, r, im).is_some_and(|p| p.per_key));
+                    .is_some_and(|im| ev.per_key_at(set, t, r, im));
                 // the image's level exactly as the direct-rule branch scores a key served by (t, r): per-key iff an
                 // exact per-key proof is bound at the image (which is also what lifts an image, closure.md 17)
                 let image_level = if image_proof {
@@ -713,7 +726,8 @@ fn check_inner(
                 });
                 let info = &set.rules[t][r];
                 let lifted = c.is_per_key_lifted(i);
-                let proof = lifted || ev.proof(set, t, r, &row.key).is_some_and(|p| p.per_key);
+                // lane t266run (closeloop4 m1): a per-key proof contradicted by a decided verdict does not label the row
+                let proof = lifted || ev.per_key_at(set, t, r, &row.key);
                 row.evidence = Some(if proof {
                     Level::PerKey
                 } else {

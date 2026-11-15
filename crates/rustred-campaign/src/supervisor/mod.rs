@@ -181,7 +181,13 @@ impl RunExit {
 #[derive(Clone, Debug)]
 pub struct RunOptions {
     pub spec: CampaignSpec,
+    /// The campaign IDENTITY digest of the spec (lane closeloop4: without the launch-time CPU list).
     pub spec_blake3: String,
+    /// lane closeloop4: the BLAKE3 of the spec's bytes (the identity a ledger created before closeloop4 recorded):
+    /// such a campaign directory still resumes with the very same spec file.
+    pub spec_bytes_blake3: Option<String>,
+    /// lane closeloop4 (closeloop.md 20): this SESSION's CPU list (`--cpus`; launch-time, never identity).
+    pub cpus: Option<String>,
     pub cdir: PathBuf,
     pub plain: bool,
     pub fake_child: bool,
@@ -299,6 +305,8 @@ struct Child {
     last_event_utc: Option<String>,
     /// Wall budget of the job (`budgets.wall.job_s`), seconds.
     budget_s: Option<u64>,
+    /// procfix6 (gate5 m5): the job's containment has been logged and noted.
+    containment_noted: bool,
 }
 
 /// A marker sweep running on a helper thread (never on the control loop: gate-A m-4).
@@ -401,6 +409,11 @@ pub struct Supervisor {
     ledger_dead: Option<RunExit>,
     control_stop: bool,
     disk_floor_hit: bool,
+    /// procfix6 (gate5 m4): a child died by SIGXFSZ under THIS supervisor's own finite file-size limit (inherited by its
+    /// children): drain and stop with exit 75.
+    fsize_stop: bool,
+    /// procfix6: items reopened at recovery for foreign attempts; the work source's retry follow-up runs after bootstrap.
+    deferred_source_retries: Vec<String>,
     last_disk_check: Option<Instant>,
     last_block_log: String,
     last_wait_log: String,
@@ -427,6 +440,9 @@ pub struct Supervisor {
     attention: BTreeMap<String, u32>,
     /// Ends of a job in a row for lack of a host resource (rows 15 / 15b), this session (gate3 M4).
     child_resource_ends: BTreeMap<String, u32>,
+    /// procfix6 (gate5 m3): signals the guard did NOT send because their intent could not be made durable, by (target,
+    /// pid, start, signal); each logged once, all listed again at exit.
+    not_signalled: BTreeMap<(&'static str, u32, Option<u64>, i32), crate::launch::NotSignalled>,
     /// Attempts held unsettled by live marked processes that could not be verified / signalled (gate3 M1): attempt
     /// label -> pids. They arm the exit-8 rule (never an idle campaign, never exit 0).
     survivors: BTreeMap<String, Vec<u32>>,
@@ -633,6 +649,12 @@ impl Supervisor {
         // procfix5 (gate4 m2): never killed by SIGXFSZ (`ulimit -f`): EFBIG is "disk full" (exit 75).
         crate::launch::ignore_sigxfsz()
             .map_err(|e| RunExit::Internal(format!("SIGXFSZ disposition: {e}")))?;
+        // procfix6 (gate5 m2): a binary that hosts the spawn barrier holds the barrier pipes: non-dumpable, so no other
+        // process of the uid can open them through /proc/<pid>/fd (and no core dump). Not in library / test hosts.
+        if crate::cli::barrier_hosted() {
+            crate::launch::set_not_dumpable()
+                .map_err(|e| RunExit::Internal(format!("PR_SET_DUMPABLE: {e}")))?;
+        }
         let cdir = opts.cdir.clone();
         opts.spec.check_dirs(&cdir).map_err(RunExit::Refused)?;
         std::fs::create_dir_all(&cdir)
@@ -735,7 +757,13 @@ impl Supervisor {
             log.line("WARN", &format!("ledger: {w}"));
         }
         let st = ledger.state();
-        if st.spec_blake3 != opts.spec_blake3 || st.campaign_id != opts.spec.campaign {
+        // lane closeloop4: the identity digest (no CPU list); a ledger of an older build recorded the bytes' BLAKE3
+        let same_spec = st.spec_blake3 == opts.spec_blake3
+            || opts
+                .spec_bytes_blake3
+                .as_deref()
+                .is_some_and(|b| st.spec_blake3 == b);
+        if !same_spec || st.campaign_id != opts.spec.campaign {
             return Err(RunExit::Refused(format!(
                 "spec digest differs from the directory's (campaign {}, spec {}): use the spec this campaign was created with",
                 st.campaign_id,
@@ -841,6 +869,7 @@ impl Supervisor {
         .map_err(|e| RunExit::Refused(format!("marker id {key:?}: {e}")))?;
         let mut pause_files = opts.spec.resources.pause_files.clone();
         pause_files.push(cdir.join("control").join("PAUSED"));
+        let mut session_cpus: Option<String> = None;
         let policy: Box<dyn CpuPolicy> = match opts.spec.resources.policy.as_str() {
             "site" => {
                 let path = opts.spec.resources.site_policy.clone().unwrap_or_default();
@@ -867,16 +896,60 @@ impl Supervisor {
                 Box::new(p)
             }
             _ => {
-                let cs = CpuSpec::parse(opts.spec.resources.cpus.as_deref().unwrap_or("1"))
-                    .map_err(RunExit::Refused)?;
+                // lane closeloop4 (closeloop.md 20): the CPUs are a LAUNCH-TIME resource chosen at each session start:
+                // `--cpus` > the spec's default list > the process's affinity mask (the launcher's pick), minus
+                // `exclude_cpus`, capped by the budget (`--cores` / `max_cores`); recorded in the ledger per session
                 let budget = opts.cores.or(opts.spec.resources.max_cores);
-                Box::new(
-                    PlainPolicy::new(&cs, budget)
-                        .map_err(|e| RunExit::Refused(e.to_string()))?
-                        .with_pause_files(pause_files),
-                )
+                let (cs, from) = match (&opts.cpus, &opts.spec.resources.cpus) {
+                    (Some(c), _) => (c.clone(), "--cpus"),
+                    (None, Some(c)) => (c.clone(), "resources.cpus"),
+                    (None, None) => (
+                        format!("count:{}", budget.unwrap_or(usize::MAX >> 1)),
+                        "affinity mask",
+                    ),
+                };
+                let mut cs = CpuSpec::parse(&cs).map_err(RunExit::Refused)?;
+                if let Some(x) = &opts.spec.resources.exclude_cpus {
+                    let ex = crate::resources::parse_cpu_list(x).map_err(RunExit::Refused)?;
+                    cs = match cs {
+                        CpuSpec::List(l) => CpuSpec::List(l.difference(&ex).copied().collect()),
+                        CpuSpec::Count(n) => {
+                            let aff = crate::resources::allowed_cpus()
+                                .map_err(|e| RunExit::Refused(format!("sched_getaffinity: {e}")))?;
+                            let l: std::collections::BTreeSet<usize> =
+                                aff.difference(&ex).copied().collect();
+                            let n = n.min(l.len());
+                            if n == 0 {
+                                return Err(RunExit::Refused(
+                                    "no CPU left after resources.exclude_cpus".into(),
+                                ));
+                            }
+                            CpuSpec::List(l.into_iter().take(n).collect())
+                        }
+                    };
+                }
+                let p = PlainPolicy::new(&cs, budget)
+                    .map_err(|e| RunExit::Refused(e.to_string()))?
+                    .with_pause_files(pause_files);
+                session_cpus = Some(format!(
+                    "session_cpus {{\"from\":{from:?},\"cpus\":{:?},\"budget\":{},\"exclude\":{:?}}}",
+                    crate::resources::format_cpu_list(p.candidates()),
+                    p.budget(),
+                    opts.spec.resources.exclude_cpus.as_deref().unwrap_or("")
+                ));
+                Box::new(p)
             }
         };
+        // lane closeloop4 (closeloop.md 20): the session's CPUs in the ledger (they may differ between sessions)
+        let session_note = session_cpus.unwrap_or_else(|| {
+            format!(
+                "session_cpus {{\"from\":\"site policy\",\"budget\":{}}}",
+                policy.budget()
+            )
+        });
+        ledger
+            .append(Event::Note { text: session_note })
+            .map_err(|e| RunExit::Refused(format!("ledger: {e}")))?;
         let mut admission = AdmissionPolicy::new(policy.budget());
         admission.floor_bytes = opts.spec.resources.host_floor.0;
         admission.campaign_mem_cap_bytes =
@@ -930,6 +1003,24 @@ impl Supervisor {
                 }
             }
         }
+        // procfix6 (gate5 m5): the start log names the containment mechanism (per job: `job_containment`).
+        log.line(
+            "INFO",
+            &match &launcher.setup().systemd_run {
+                Some(p) => format!(
+                    "containment: one transient systemd scope per job ({} --user --scope --unit=rr-<campaign id>-<label>-<hex>); each job's scope is verified after its start (ledger note job_containment)",
+                    p.display()
+                ),
+                None => format!(
+                    "containment: marker only (no systemd scope: {})",
+                    launcher
+                        .setup()
+                        .systemd_unavailable
+                        .as_deref()
+                        .unwrap_or("unavailable")
+                ),
+            },
+        );
         let source: Box<dyn WorkSource> = match &opts.spec.synthetic {
             Some(s) => Box::new(ScriptedWorkSource::new(s.clone())),
             // lane closeloop (closeloop.md 6.2): an input of role `closeloop` names the close-from-material config
@@ -990,6 +1081,8 @@ impl Supervisor {
             ledger_dead: None,
             control_stop: false,
             disk_floor_hit: false,
+            fsize_stop: false,
+            deferred_source_retries: Vec::new(),
             last_disk_check: None,
             last_block_log: String::new(),
             last_wait_log: String::new(),
@@ -1004,6 +1097,7 @@ impl Supervisor {
             unknown_charge: BTreeMap::new(),
             attention: BTreeMap::new(),
             child_resource_ends: BTreeMap::new(),
+            not_signalled: BTreeMap::new(),
             survivors: BTreeMap::new(),
             blocked_since: None,
             campaign_min_ticks: None,
@@ -1070,6 +1164,16 @@ impl Supervisor {
         match self.ledger.append_all(events.clone()) {
             Ok(_) => Ok(true),
             Err(LedgerError::Refused(e)) => Err(e.to_string()),
+            // procfix6: a full disk is exit 75 here as in `commit` (retrying through `commit` met only the poisoned
+            // handle and stopped with 70: seen under `ulimit -f` once m4 routes SIGXFSZ ends to the attention path).
+            Err(e) if ledger_error_is_disk_full(&e) => {
+                self.log.line(
+                    "ERROR",
+                    &format!("disk full ({e}): no new job; running jobs get the grace; the ledger stays valid; free space (or raise the file-size limit) and run the same command"),
+                );
+                self.ledger_dead = Some(RunExit::DiskFull);
+                Ok(false)
+            }
             Err(_) => Ok(self.commit(events)),
         }
     }
@@ -1218,6 +1322,7 @@ impl Supervisor {
         for k in &report.killed {
             self.orphan_killed(&k.attempt_id, k.pid, k.start_ticks, "recovery sweep");
         }
+        self.note_stop_holds(&report, "recovery");
         self.note_survivors(&report, "recovery");
         // gate3 M5: the scope backstop. For every attempt left unsettled by the previous session whose launch record
         // names a scope unit AND whose leader is recorded (`started`, this boot) in THIS campaign's ledger, whatever is
@@ -1265,9 +1370,10 @@ impl Supervisor {
             let unconfirmed = state == AttemptState::Unconfirmed;
             if self.moved {
                 if unconfirmed {
-                    // Execution unknown in the ORIGINAL directory: never "lost" automatically (its run directory names
-                    // the original campaign id, so it does not authenticate here: the operator decides).
-                    self.recover_unconfirmed(&job, attempt);
+                    // procfix6 (directing session's ruling, 2026-11-14): an unconfirmed launch of the ORIGINAL campaign
+                    // is not ours to authenticate and never waits on an operator here: a foreign attempt, its item
+                    // reopened as new work of this copy (never execution unknown, never signalled, nothing consumed).
+                    self.foreign_unconfirmed(&job, attempt);
                     continue;
                 }
                 // Copied / moved directory: the recorded attempt's process (if any) belongs to the ORIGINAL directory.
@@ -1276,8 +1382,9 @@ impl Supervisor {
                         job: job.clone(),
                         attempt,
                         ev: JobEvent::Lose {
-                            reason: "campaign directory copied / moved: recorded process is not ours (not signalled)"
-                                .into(),
+                            reason: format!(
+                                "{FOREIGN_ATTEMPT}: of the original directory (campaign directory copied / moved: recorded process is not ours, not signalled)"
+                            ),
                         },
                     },
                     Event::Job {
@@ -1287,10 +1394,11 @@ impl Supervisor {
                             reason: "lost (moved campaign directory)".into(),
                         },
                     },
+                    self.foreign_note(&job, attempt, "started"),
                 ];
                 self.log.line(
                     "WARN",
-                    &format!("{job} a{attempt}: recorded in the original directory; marked lost, not signalled"),
+                    &format!("{job} a{attempt}: {FOREIGN_ATTEMPT} of the original directory; marked lost, not signalled, its work redone here"),
                 );
                 self.commit(ev);
                 continue;
@@ -1562,6 +1670,126 @@ impl Supervisor {
                 );
                 false
             }
+        }
+    }
+
+    /// procfix6: the note `foreign_attempt` (once per attempt of the ORIGINAL campaign met in a copied / moved directory).
+    fn foreign_note(&self, job: &str, attempt: u32, was: &str) -> Event {
+        let original = identity::recorded_id(self.st()).unwrap_or_default();
+        Event::Note {
+            text: format!(
+                "{FOREIGN_ATTEMPT} {{\"job\":{job:?},\"attempt\":{attempt},\"was\":{was:?},\"original_id\":{original:?},\"this_id\":{:?}}} (of the original directory: not authenticated here, not signalled, nothing of it consumed; its item is new work of this campaign)",
+                self.ctx.campaign_key
+            ),
+        }
+    }
+
+    /// procfix6 (directing session's ruling, 2026-11-14): in a COPIED / MOVED campaign directory an UNCONFIRMED launch of
+    /// the ORIGINAL campaign (another marker id) is a FOREIGN attempt: its run directory names the original's id (it can
+    /// never authenticate here), its process (if any) is the original's (never signalled), and the copy never waits on an
+    /// operator for it. Recorded in the reducer's own verbs (it stays the arbiter): the item goes to attention
+    /// `foreign_attempt`, a SUPERVISOR `control retry` reopens it (a new generation), `job.cancel` closes the attempt
+    /// (reason `foreign_attempt: of the original directory ...`), a note `foreign_attempt`; the work source then gets the
+    /// retry like an operator's. The rule "unconfirmed launch = execution unknown, never retried automatically" stays in
+    /// force for launches of THIS campaign id.
+    fn foreign_unconfirmed(&mut self, job: &str, attempt: u32) {
+        let Some(jr) = self.st().jobs.get(job).cloned() else {
+            return;
+        };
+        if jr.state != AttemptState::Unconfirmed {
+            return;
+        }
+        let why = format!(
+            "{FOREIGN_ATTEMPT}: of the original directory (unconfirmed launch recorded under campaign id {}; this copy is {}: not authenticated here, not signalled, nothing consumed; its item is reopened as new work of this campaign)",
+            identity::recorded_id(self.st()).unwrap_or_default(),
+            self.ctx.campaign_key
+        );
+        let note = self.foreign_note(job, attempt, "unconfirmed");
+        // Work already superseded (the item moved on): a plain cancel, as for this campaign's own launches.
+        if !self.feeds_item(job) {
+            let ev = vec![
+                Event::Job {
+                    job: job.into(),
+                    attempt,
+                    ev: JobEvent::Cancel {
+                        reason: why.clone(),
+                    },
+                },
+                note,
+            ];
+            if let Err(e) = self.commit_or_refused(ev) {
+                self.log.line(
+                    "ERROR",
+                    &format!("{job} a{attempt}: foreign attempt not recorded: {e}"),
+                );
+            }
+            return;
+        }
+        let item = jr.item.clone();
+        let id = format!("foreign-{job}-a{attempt}");
+        let mut first = Vec::new();
+        if !matches!(
+            self.st().items.get(&item).map(|it| &it.phase),
+            Some(ItemPhase::Attention(_))
+        ) {
+            first.push(Event::Item {
+                item: item.clone(),
+                ev: crate::ledger::ItemEvent::Attention {
+                    code: FOREIGN_ATTEMPT.into(),
+                    text: why.clone(),
+                },
+            });
+        }
+        first.push(Event::Control {
+            id: id.clone(),
+            ev: ControlEvent::Requested {
+                verb: ControlVerb::Retry,
+                target: ControlTarget::Item { item: item.clone() },
+                by: "supervisor (copied / moved campaign directory)".into(),
+                reason: why.clone(),
+            },
+        });
+        match self.commit_or_refused(first) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(e) => {
+                self.log.line(
+                    "ERROR",
+                    &format!("{job} a{attempt}: foreign attempt not recorded: {e}"),
+                );
+                return;
+            }
+        }
+        let ev = vec![
+            Event::Control {
+                id: id.clone(),
+                ev: ControlEvent::Applied {
+                    effect: format!(
+                        "item {item} reopened: {job} a{attempt} is a foreign attempt of the original directory"
+                    ),
+                },
+            },
+            Event::Job {
+                job: job.into(),
+                attempt,
+                ev: JobEvent::Cancel { reason: why },
+            },
+            note,
+        ];
+        match self.commit_or_refused(ev) {
+            Ok(true) => {
+                self.log.line(
+                    "WARN",
+                    &format!("{job} a{attempt}: {FOREIGN_ATTEMPT} (unconfirmed launch of the original directory): not signalled, item {item} reopened as new work of this campaign"),
+                );
+                // the source's follow-up after its bootstrap (main loop), as for an operator's retry
+                self.deferred_source_retries.push(item);
+            }
+            Ok(false) => {}
+            Err(e) => self.log.line(
+                "ERROR",
+                &format!("{job} a{attempt}: foreign attempt not recorded: {e}"),
+            ),
         }
     }
 
@@ -2029,6 +2257,7 @@ impl Supervisor {
     /// gate3 M2 (lane int5): every signal the process layer delivered since the last call (guard and cgroup kills, any
     /// thread) becomes one `signal_sent` record (pid, start time, marker, proof, who and why), one group commit.
     fn record_deliveries(&mut self) {
+        self.check_not_signalled();
         let (ds, dropped) = crate::launch::take_deliveries();
         if ds.is_empty() && dropped == 0 {
             return;
@@ -2085,6 +2314,160 @@ impl Supervisor {
             return;
         }
         self.commit(ev);
+    }
+
+    /// procfix6 (gate5 m5): ONE log line and ONE ledger note per job naming the containment actually in force:
+    /// `scope:<unit>` only when the scope exists (verified from the leader's cgroup), else `marker_only` (with why) or
+    /// `cgroup:<path>`.
+    fn note_containment(
+        &mut self,
+        job: &str,
+        attempt: u32,
+        c: &crate::launch::Containment,
+        requested: Option<&str>,
+    ) {
+        use crate::launch::Containment;
+        let (word, why) = match c {
+            Containment::Scope(_) => (
+                c.word(),
+                "verified: the job leader's cgroup is this scope".to_string(),
+            ),
+            Containment::Cgroup(_) => (c.word(), "the job's delegated cgroup".to_string()),
+            Containment::MarkerOnly(w) => ("marker_only".to_string(), w.clone()),
+            Containment::Pending => (
+                "marker_only".to_string(),
+                format!(
+                    "scope {} requested but not verified (the leader's cgroup does not name it)",
+                    requested.unwrap_or("?")
+                ),
+            ),
+        };
+        let level = if matches!(c, Containment::Pending) {
+            "WARN"
+        } else {
+            "INFO"
+        };
+        self.log.line(
+            level,
+            &format!("{job} a{attempt}: containment {word} ({why})"),
+        );
+        self.commit(vec![Event::Note {
+            text: format!(
+                "job_containment {{\"job\":{job:?},\"attempt\":{attempt},\"containment\":{word:?},\"why\":{why:?}}}"
+            ),
+        }]);
+    }
+
+    /// procfix6 (gate5 m3): signals NOT sent because their intent could not be made durable: one ERROR line each (pid,
+    /// start, label, signal, who); a full disk under the intent log ends the run with exit 75 at once (the ledger-dead
+    /// path: children get the grace, nothing can be signalled anyway), never after the hunt bound with a stop code.
+    fn check_not_signalled(&mut self) {
+        let (v, dropped) = crate::launch::take_not_signalled();
+        let mut fresh = Vec::new();
+        for n in v {
+            let k = (n.target, n.pid, n.start_ticks, n.signal);
+            if let std::collections::btree_map::Entry::Vacant(e) = self.not_signalled.entry(k) {
+                fresh.push(n.clone());
+                e.insert(n);
+            }
+        }
+        for n in &fresh {
+            self.log.line(
+                "ERROR",
+                &format!(
+                    "signal {} NOT sent to {} {} (start {:?}, {}, by {}): {}",
+                    n.signal,
+                    n.target,
+                    n.pid,
+                    n.start_ticks,
+                    n.label
+                        .clone()
+                        .or_else(|| n.marker.clone())
+                        .unwrap_or_else(|| "no label".into()),
+                    n.by,
+                    n.error
+                ),
+            );
+        }
+        if dropped > 0 {
+            self.log.line(
+                "ERROR",
+                &format!(
+                    "{dropped} further signal(s) NOT sent (intent not durable) and not listed"
+                ),
+            );
+        }
+        if crate::launch::intent_disk_full() && self.ledger_dead.is_none() {
+            self.log.line(
+                "ERROR",
+                "the signal intent log cannot be written (disk full): no signal can be sent; stopping with exit 75 (DISK FULL); free space, then run the same command (its recovery sweep stops what is left)",
+            );
+            if !fresh.is_empty() {
+                let pids: Vec<u32> = fresh.iter().map(|n| n.pid).collect();
+                self.commit(vec![Event::Note {
+                    text: format!("signals_not_sent {{\"pids\":{pids:?},\"reason\":\"signal intent not durable (disk full)\"}}"),
+                }]);
+            }
+            self.ledger_dead = Some(RunExit::DiskFull);
+        }
+    }
+
+    /// The exit line of signals NOT sent in this session (procfix6 m3): exactly which processes (pid, start, label).
+    fn not_signalled_summary(&self) -> Option<String> {
+        if self.not_signalled.is_empty() {
+            return None;
+        }
+        let list: Vec<String> = self
+            .not_signalled
+            .values()
+            .map(|n| {
+                format!(
+                    "{} {} (start {}, {}, signal {})",
+                    n.target,
+                    n.pid,
+                    n.start_ticks.map_or("-".into(), |t| t.to_string()),
+                    n.label
+                        .clone()
+                        .or_else(|| n.marker.clone())
+                        .unwrap_or_else(|| "no label".into()),
+                    n.signal
+                )
+            })
+            .collect();
+        Some(format!(
+            "{} signal(s) NOT sent because their intent could not be written: {}; these processes may still run: free space and run the same command (its recovery sweep stops them), or check each: ps -o pid,stat,lstart,cmd -p PID",
+            list.len(),
+            list.join("; ")
+        ))
+    }
+
+    /// procfix6 (gate5 m1): processes a sweep STOPPED whose marker was gone at the kill round: killed by the identity held
+    /// at the stop (note `killed_by_stop_hold`), or continued (note `continued_after_stop`, a WARN line: alive, not
+    /// stopped, not ours by the marker any more). Stranded ones (neither) are in `left` (note_survivors, exit 8).
+    fn note_stop_holds(&mut self, report: &SweepReport, by: &str) {
+        for p in &report.killed_by_hold {
+            self.commit(vec![Event::Note {
+                text: format!(
+                    "killed_by_stop_hold {{\"pid\":{},\"start_ticks\":{},\"marker\":{:?},\"by\":{by:?}}}",
+                    p.pid, p.start_ticks, p.attempt_id
+                ),
+            }]);
+        }
+        for l in &report.continued {
+            self.log.line(
+                "WARN",
+                &format!(
+                    "process stopped by the sweep had dropped the marker and could not be killed: CONTINUED, pid {} (start {}) of {}: {}",
+                    l.process.pid, l.process.start_ticks, l.process.attempt_id, l.why
+                ),
+            );
+            self.commit(vec![Event::Note {
+                text: format!(
+                    "continued_after_stop {{\"pid\":{},\"start_ticks\":{},\"marker\":{:?},\"comm\":{:?},\"by\":{by:?},\"why\":{:?}}}",
+                    l.process.pid, l.process.start_ticks, l.process.attempt_id, l.process.comm, l.why
+                ),
+            }]);
+        }
     }
 
     /// Ledger notes for live marked processes a sweep did not signal (each reported; gate-A M-1, gate-B M1).
@@ -2195,6 +2578,32 @@ impl Supervisor {
             return SettleEnd::Deferred { errno, what };
         }
         let c = classify::classify(&ev);
+        // procfix6 (gate5 m4): a death attributable to the HOST's disk state (SIGXFSZ, an OUTCOME naming EFBIG, or no /
+        // a torn OUTCOME while the run directory's or the campaign directory's file system is full at settle time) is a
+        // resource end of the attempt (row 15b: retried after a back-off, then attention `child_resource_failure`),
+        // never a crash count.
+        let c = match disk_attributed_end(&ev, &c, &[layout.root.as_path(), self.cdir.as_path()]) {
+            Some(why) => {
+                self.log.line(
+                    "WARN",
+                    &format!("{job} a{attempt}: {why}: a resource end (row 15b), not a crash (was row {}{})", c.row, c.sub),
+                );
+                // The limit is this supervisor's own (`ulimit -f`, inherited by every child): retrying cannot help.
+                if why.starts_with(SIGXFSZ_WHY)
+                    && !self.fsize_stop
+                    && let Some(limit) = own_file_size_limit()
+                {
+                    self.fsize_stop = true;
+                    self.log.line(
+                        "ERROR",
+                        &format!("this supervisor runs under a file-size limit ({limit} bytes, `ulimit -f`) that its children inherit: draining, then exit 75 (DISK FULL); raise the limit (`ulimit -f unlimited`) and run the same command"),
+                    );
+                    self.signals.handle.request_stop();
+                }
+                resource_classification(&c, why)
+            }
+            None => c,
+        };
         // The OUTCOME binding the ledger checks before any record may come from this attempt: (job, attempt, the
         // digest of the job.json this attempt was launched with), present when the contract found OUTCOME valid.
         let binding = matches!(ev.outcome, OutcomeState::Valid(_)).then(|| OutcomeBinding {
@@ -2618,12 +3027,6 @@ impl Supervisor {
         }
         // The launcher sets the marker `<campaign id>:<label>`: the label is the attempt id.
         ls.label = format!("{}:a{attempt}", req.job);
-        // gate3 M5: the job's systemd scope (when that mechanism is used) gets a deterministic name, recorded in the
-        // launch record below, so that a restart after a crash can stop exactly this scope.
-        ls.scope_unit = Some(crate::launch::scope_unit_name(
-            &self.ctx.campaign_key,
-            &ls.label,
-        ));
         if let Some(l) = &self.lock {
             ls.env.push((lock::TOKEN_ENV.into(), l.token().into()));
         }
@@ -2632,6 +3035,14 @@ impl Supervisor {
         }
         ls.cpus = lease.cpus().to_vec();
         ls.memory_cap_bytes = Some(req.cap_bytes);
+        // gate3 M5: the job's systemd scope (when that mechanism is used) gets a deterministic name, recorded in the
+        // launch record below, so that a restart after a crash can stop exactly this scope. procfix6 (gate5 m5): named
+        // (and recorded) ONLY when the launcher will really ask systemd for a scope (never in a private namespace or
+        // with the marker only); its existence is verified after the start (note `job_containment`).
+        ls.scope_unit = self
+            .launcher
+            .scope_requested(&ls)
+            .then(|| crate::launch::scope_unit_name(&self.ctx.campaign_key, &ls.label));
         let mut events = Vec::new();
         if existing.is_none() {
             // Input identity (ledger 5.5): beyond its binary and the item's / node's inputs (the reducer adds those),
@@ -2792,6 +3203,7 @@ impl Supervisor {
             phase: None,
             last_event_utc: None,
             budget_s,
+            containment_noted: false,
         });
         Ok(())
     }
@@ -2807,6 +3219,7 @@ impl Supervisor {
 
     fn poll_children(&mut self) {
         let mut finished = Vec::new();
+        let mut contain = Vec::new();
         let stopping_grace = Duration::from_secs(self.opts.spec.resources.grace_seconds + 5);
         let start_timeout = Duration::from_secs(self.opts.spec.resources.start_timeout_s);
         let now_iso = self.clock.now_utc().to_iso();
@@ -2842,6 +3255,17 @@ impl Supervisor {
                     );
                 }
             }
+            // procfix6 (gate5 m5): the containment actually in force, once verified (or after 10 s / at the end).
+            if !ch.containment_noted {
+                let c = ch.handle.containment();
+                if c != crate::launch::Containment::Pending
+                    || ch.launched_at.elapsed() > Duration::from_secs(10)
+                {
+                    ch.containment_noted = true;
+                    let req = ch.handle.requested_scope_unit().map(str::to_string);
+                    contain.push((ch.job.clone(), ch.attempt, c, req));
+                }
+            }
             match ch.handle.poll() {
                 Ok(ChildProgress::Finished(r)) => finished.push((idx, r)),
                 Ok(_) => {}
@@ -2850,8 +3274,17 @@ impl Supervisor {
                 }
             }
         }
+        for (job, attempt, c, req) in contain {
+            self.note_containment(&job, attempt, &c, req.as_deref());
+        }
         for (idx, report) in finished.into_iter().rev() {
-            let ch = self.children.remove(idx);
+            let mut ch = self.children.remove(idx);
+            if !ch.containment_noted {
+                ch.containment_noted = true;
+                let c = ch.handle.containment();
+                let req = ch.handle.requested_scope_unit().map(str::to_string);
+                self.note_containment(&ch.job, ch.attempt, &c, req.as_deref());
+            }
             let marker = format!("{}:a{}", ch.job, ch.attempt);
             // Leftovers the process layer already killed through its verified path (helpers that outlived the job).
             for l in &report.leftovers_killed {
@@ -2965,6 +3398,7 @@ impl Supervisor {
                     "marker sweep: contract violation, process outlived its job",
                 );
             }
+            self.note_stop_holds(&report, "end-of-job sweep");
             if report.empty() {
                 self.survivors.remove(&label);
                 let p = self.pending.remove(i);
@@ -3079,6 +3513,7 @@ impl Supervisor {
                                 "periodic sweep",
                             );
                         }
+                        self.note_stop_holds(&r, "periodic sweep");
                         self.note_survivors(&r, "periodic sweep");
                     }
                 }
@@ -3139,6 +3574,7 @@ impl Supervisor {
             for k in &r.killed {
                 self.orphan_killed(&k.attempt_id, k.pid, k.start_ticks, "final sweep");
             }
+            self.note_stop_holds(&r, "final sweep");
             self.record_deliveries();
             if r.empty() {
                 return self.hidden_descendants_check();
@@ -3264,6 +3700,15 @@ impl Supervisor {
             let req: Option<ControlRequest> = std::fs::read(&p)
                 .ok()
                 .and_then(|b| serde_json::from_slice(&b).ok());
+            // lane closeloop4 (closeloop.md 19): an operator decision of the work source (terminal proposals)
+            if let Some(r) = req.as_ref().filter(|r| r.verb == "resolve-terminals") {
+                self.apply_source_decision(r);
+                if self.ledger_dead.is_some() {
+                    return;
+                }
+                let _ = std::fs::rename(&p, done.join(&name));
+                continue;
+            }
             if let Some(r) = req.as_ref().filter(|r| r.verb == "resolve") {
                 self.apply_resolve(r);
                 if self.ledger_dead.is_some() {
@@ -3286,6 +3731,67 @@ impl Supervisor {
                 return;
             }
             let _ = std::fs::rename(&p, done.join(&name));
+        }
+    }
+
+    /// lane closeloop4 (closeloop.md 19): `resolve-terminals` = the work source's operator decision: its records are
+    /// written and its events committed like a poll routing (the decision is a ledger input); a refusal is a note.
+    fn apply_source_decision(&mut self, r: &ControlRequest) {
+        let routing = match self
+            .source
+            .resolve_operator_decision(self.ledger.state(), r)
+        {
+            Ok(x) => x,
+            Err(why) => {
+                self.log.line(
+                    "WARN",
+                    &format!("control {} (resolve-terminals) refused: {why}", r.id),
+                );
+                self.note(format!(
+                    "control_refused {{\"id\":{:?},\"verb\":\"resolve-terminals\",\"reason\":{why:?}}}",
+                    r.id
+                ));
+                return;
+            }
+        };
+        for a in &routing.accepts {
+            let p = self.cdir.join(&a.path);
+            if let Some(d) = p.parent() {
+                let _ = std::fs::create_dir_all(d);
+            }
+            if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
+                if e.is_no_space() {
+                    self.ledger_dead = Some(RunExit::DiskFull);
+                }
+                self.log.line(
+                    "ERROR",
+                    &format!("decision record {}: {e}; not recorded", a.path),
+                );
+                return;
+            }
+        }
+        match self.commit_or_refused(routing.events) {
+            Ok(true) => self.log.line(
+                "INFO",
+                &format!(
+                    "control {}: resolve-terminals recorded (by {})",
+                    r.id,
+                    if r.by.is_empty() { "operator" } else { &r.by }
+                ),
+            ),
+            // int6 (closeloop4 x procfix6): a ledger that cannot take the record (disk full: procfix6) records nothing;
+            // the request stays pending (the caller keeps it for the next session)
+            Ok(false) => self.log.line(
+                "ERROR",
+                &format!(
+                    "control {} (resolve-terminals): not recorded (the ledger cannot be written); the request stays pending",
+                    r.id
+                ),
+            ),
+            Err(e) => self.log.line(
+                "ERROR",
+                &format!("control {} (resolve-terminals): ledger refused: {e}", r.id),
+            ),
         }
     }
 
@@ -4016,6 +4522,18 @@ impl Supervisor {
             }
             Err(e) => return RunExit::Internal(format!("work source: {e}")),
         }
+        for item in std::mem::take(&mut self.deferred_source_retries) {
+            match self.source.control(self.ledger.state(), "retry", &item) {
+                Ok(ev) => {
+                    if !self.commit(ev) {
+                        return self.ledger_dead.clone().unwrap_or(RunExit::DiskFull);
+                    }
+                }
+                Err(e) => self
+                    .log
+                    .line("WARN", &format!("item {item}: work source retry: {e}")),
+            }
+        }
         self.commit(vec![Event::Campaign {
             ev: crate::state::CampaignEvent::Run,
             reason: "recovered; scheduling".into(),
@@ -4152,6 +4670,9 @@ impl Supervisor {
                         reason: "drained".into(),
                     }]);
                     self.write_progress(true);
+                    if self.fsize_stop {
+                        return RunExit::DiskFull;
+                    }
                     if self.disk_floor_hit {
                         return RunExit::DiskFloor;
                     }
@@ -4165,11 +4686,31 @@ impl Supervisor {
                 // procfix5: a source that is "finished" while operator decisions are pending (unknown executions,
                 // items in attention for repeated resource ends, live marked survivors) does NOT finish: the exit-8 rule
                 // below decides (a source may count an item in attention as settled for its own purposes).
+                // lane closeloop4: a source waiting for an operator decision (terminal proposals) does not finish
+                let source_awaits = self.source.operator_decision(self.ledger.state());
                 let decisions_pending = !self.unknown.is_empty()
                     || !self.attention.is_empty()
-                    || !self.survivors.is_empty();
+                    || !self.survivors.is_empty()
+                    || source_awaits.is_some();
                 if !decisions_pending && self.source.finished(self.ledger.state()) {
                     if let Err(msg) = self.final_sweep() {
+                        // procfix6 (gate5 m3): a final sweep that could not signal for lack of space is exit 75.
+                        self.check_not_signalled();
+                        if let Some(e) = self.ledger_dead.clone() {
+                            self.log.line("WARN", &msg);
+                            return e;
+                        }
+                        self.log.line("WARN", &msg);
+                        self.commit(vec![Event::Campaign {
+                            ev: crate::state::CampaignEvent::Stop,
+                            reason: msg.clone(),
+                        }]);
+                        self.write_progress(true);
+                        return RunExit::Attention(msg);
+                    }
+                    // lane t266run: the work is final but an operator must decide (e.g. terminal proposals)
+                    if let Some(msg) = self.source.operator_decision(self.ledger.state()) {
+                        let msg = format!("operator decision needed: {msg}");
                         self.log.line("WARN", &msg);
                         self.commit(vec![Event::Campaign {
                             ev: crate::state::CampaignEvent::Stop,
@@ -4227,7 +4768,8 @@ impl Supervisor {
                 if level == StopLevel::Running
                     && (!self.unknown.is_empty()
                         || !self.attention.is_empty()
-                        || !self.survivors.is_empty())
+                        || !self.survivors.is_empty()
+                        || source_awaits.is_some())
                     && (self.last_ready == 0 || blocked_for > Duration::from_secs(2))
                     && self
                         .resource_backoff_until
@@ -4267,6 +4809,9 @@ impl Supervisor {
                             "live marked processes that could not be killed hold attempts unsettled ({}): check and kill exactly those pids, then run the same command",
                             s.join("; ")
                         ));
+                    }
+                    if let Some(w) = &source_awaits {
+                        parts.push(w.clone());
                     }
                     let msg = format!("operator decision needed: {}", parts.join("; "));
                     self.log.line("WARN", &msg);
@@ -4319,14 +4864,21 @@ impl Supervisor {
         self.log.line("INFO", &msg);
         // gate-A m-7: the last pinned-group SIGKILLs (live children of a fast exit, unproven ends) happen while this
         // supervisor still holds the campaign lock and the id lock, never after.
+        let before = crate::launch::delivered_total();
         self.children.clear();
         self.pending.clear();
         let n = self.launcher.abandon_quarantine();
+        // procfix6 (gate5 m3): count what was really delivered (a full intent log sends nothing).
+        let delivered = crate::launch::delivered_total().saturating_sub(before);
+        self.check_not_signalled();
         if n > 0 {
             self.log.line(
                 "WARN",
-                &format!("{n} unproven job end(s) abandoned at exit (pinned groups killed); the restart's sweep looks for their markers"),
+                &format!("{n} unproven job end(s) abandoned at exit ({delivered} pinned-group / process signal(s) delivered while dropping the live jobs and them); the restart's sweep looks for their markers"),
             );
+        }
+        if let Some(m) = self.not_signalled_summary() {
+            self.log.line("ERROR", &m);
         }
         // gate3 M2: the last deliveries (shutdown, abandoned quarantine) are recorded while the lock is still held.
         self.record_deliveries();
@@ -4349,6 +4901,10 @@ pub struct ControlRequest {
     pub target: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// lane closeloop4: the data of a work-source decision (`resolve-terminals`: `{"accept": [keys]}` | `{"reject":
+    /// true}`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload: Option<serde_json::Value>,
 }
 
 pub const CONTROL_SCHEMA: &str = "rustred.campaign.control.v1";
@@ -4657,6 +5213,112 @@ fn fake_program(p: &Path) -> bool {
         .is_some_and(|v| v.get("program").and_then(|x| x.as_str()) == Some("rr_fake_child"))
 }
 
+/// procfix6: the word of an attempt of the ORIGINAL campaign met in a copied / moved directory (note, attention code,
+/// cancel / lose reasons).
+pub const FOREIGN_ATTEMPT: &str = "foreign_attempt";
+
+/// Start of the m4 reason of a SIGXFSZ death.
+const SIGXFSZ_WHY: &str = "killed by SIGXFSZ";
+
+/// This process's soft RLIMIT_FSIZE in bytes when it is finite (procfix6 m4).
+fn own_file_size_limit() -> Option<u64> {
+    // SAFETY: getrlimit fills a plain struct.
+    let mut r: libc::rlimit = unsafe { std::mem::zeroed() };
+    // SAFETY: valid out-pointer.
+    if unsafe { libc::getrlimit(libc::RLIMIT_FSIZE, &mut r) } != 0 {
+        return None;
+    }
+    (r.rlim_cur != libc::RLIM_INFINITY).then_some(r.rlim_cur as u64)
+}
+
+/// procfix6 (gate5 m4): free bytes below which a file system counts as FULL when a child ended without a usable OUTCOME.
+const DISK_FULL_BELOW_BYTES: u64 = 1 << 20;
+
+/// Free bytes (for an unprivileged writer) of the file system holding `p`; None when statvfs fails.
+fn free_bytes(p: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let c = std::ffi::CString::new(p.as_os_str().as_bytes()).ok()?;
+    // SAFETY: statvfs is plain data; zeroed is a valid initial value.
+    let mut v: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: a NUL-terminated path and a valid out-pointer.
+    if unsafe { libc::statvfs(c.as_ptr(), &mut v) } != 0 {
+        return None;
+    }
+    Some((v.f_bavail as u64).saturating_mul(v.f_frsize as u64))
+}
+
+/// Does an OS error rendering in `m` name errno `n` (`os error N` / `Os { code: N`)?
+fn names_errno(m: &str, n: i32) -> bool {
+    ["os error ", "Os { code: "].iter().any(|pat| {
+        m.match_indices(pat).any(|(i, _)| {
+            let d: String = m[i + pat.len()..]
+                .chars()
+                .take_while(char::is_ascii_digit)
+                .collect();
+            d.parse::<i32>().ok() == Some(n)
+        })
+    })
+}
+
+/// procfix6 (gate5 m4): why a CRASHED classification is really the host's disk state, if it is: the child was killed by
+/// SIGXFSZ (`ulimit -f` / a file-size limit), its OUTCOME names EFBIG, or it left no usable OUTCOME (absent, torn) while
+/// one of `dirs` (the run directory, the campaign directory) is on a file system with less than
+/// [`DISK_FULL_BELOW_BYTES`] free at settle time. Never for a valid OUTCOME that names something else.
+fn disk_attributed_end(
+    ev: &classify::Evidence,
+    c: &classify::Classification,
+    dirs: &[&Path],
+) -> Option<String> {
+    if c.kind != classify::OutcomeKind::Crashed {
+        return None;
+    }
+    let sig = match ev.wait {
+        WaitStatus::Signaled(s) => Some(s),
+        WaitStatus::Exited(x) if (129..=192).contains(&x) => Some(x - 128),
+        _ => None,
+    };
+    if sig == Some(libc::SIGXFSZ) {
+        return Some(format!(
+            "{SIGXFSZ_WHY} (a file-size limit: the host's `ulimit -f` or the file system)"
+        ));
+    }
+    match &ev.outcome {
+        OutcomeState::Valid(o) => o
+            .error
+            .as_ref()
+            .filter(|e| names_errno(&e.message, libc::EFBIG))
+            .map(|_| "its OUTCOME names EFBIG (file too large)".to_string()),
+        OutcomeState::Absent | OutcomeState::Invalid(_) | OutcomeState::Unreadable(_) => {
+            dirs.iter().find_map(|d| {
+                free_bytes(d)
+                    .filter(|&f| f < DISK_FULL_BELOW_BYTES)
+                    .map(|f| {
+                        format!(
+                            "no usable OUTCOME while the file system of {} is full ({f} bytes free)",
+                            d.display()
+                        )
+                    })
+            })
+        }
+    }
+}
+
+/// The row-15b classification that replaces a disk-attributed crash (procfix6 m4).
+fn resource_classification(c: &classify::Classification, why: String) -> classify::Classification {
+    classify::Classification {
+        row: 15,
+        sub: "b".into(),
+        kind: classify::OutcomeKind::Lost,
+        accept: classify::Accept::Nothing,
+        action: classify::Action::RetryAfterResourceBackoff,
+        resume_from_r: false,
+        resume_from: None,
+        time_decided: false,
+        attention: false,
+        why: format!("{why} (classified row {}{}: {})", c.row, c.sub, c.why),
+    }
+}
+
 /// Is this `job.requeue` reason the one of a host-resource end (decision rows 15 / 15b; written by `settle` as
 /// `"<class> (row 15<sub>)"`)? procfix5 m6: the count of such ends in a row is derived from the ledger at recovery.
 fn is_resource_requeue(reason: &str) -> bool {
@@ -4675,6 +5337,8 @@ fn ledger_error_is_disk_full(e: &LedgerError) -> bool {
             w.contains("file too large")
                 || w.contains("no space left")
                 || w.contains("quota exceeded")
+                // procfix6: a handle poisoned by ENOSPC carries `LedgerError::NoSpace`'s text
+                || w.contains("disk full appending")
         }
         _ => false,
     }
@@ -5072,5 +5736,109 @@ mod tests {
         names.sort_by_key(|n| (control_seq_of(n), n.clone()));
         assert!(names[0].contains(&format!("{a:012}")));
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    // ------------------------------------------------------------------------------------- procfix6 (gate5 m4)
+
+    fn evidence(wait: WaitStatus) -> classify::Evidence {
+        classify::Evidence {
+            kind: rustred_campaign_contract::spec::JobKind::Generate,
+            wait,
+            outcome: OutcomeState::Absent,
+            verified: None,
+            unsealed_why: None,
+            resume_valid: false,
+            resume_ref: None,
+            kill: CKill::None,
+            oom_kill_observed: false,
+            elision_forbidden: true,
+        }
+    }
+
+    /// A small tmpfs, filled up (inside the pid / mount namespace of the crate's test run); None outside one.
+    fn full_tmpfs(tag: &str) -> Option<PathBuf> {
+        if !crate::launch::in_private_namespace() {
+            return None;
+        }
+        let d = run_dir(tag).root;
+        let c = std::ffi::CString::new(d.to_string_lossy().as_bytes()).ok()?;
+        // SAFETY: mount with NUL-terminated strings (tmpfs may be mounted by the root of a user namespace).
+        let r = unsafe {
+            libc::mount(
+                c"tmpfs".as_ptr(),
+                c.as_ptr(),
+                c"tmpfs".as_ptr(),
+                0,
+                c"size=256k".as_ptr().cast(),
+            )
+        };
+        if r != 0 {
+            eprintln!("tmpfs mount failed: {}", std::io::Error::last_os_error());
+            return None;
+        }
+        let mut f = std::fs::File::create(d.join("filler")).ok()?;
+        use std::io::Write;
+        while f.write_all(&[0u8; 4096]).is_ok() {}
+        Some(d)
+    }
+
+    /// procfix6 (gate5 m4): SIGXFSZ (as a signal or as the shell's 128+25), an OUTCOME naming EFBIG, and a missing OUTCOME
+    /// while the run directory's file system is full are RESOURCE ends (row 15b, lost, retried after the back-off);
+    /// DECOYS stay what they were: a missing OUTCOME on a file system with space is a crash (row 23); SIGKILL from
+    /// outside is row 21 (not a crash, untouched); an OUTCOME naming another errno is not re-read as a disk end.
+    #[test]
+    fn m4_disk_attributed_child_ends_are_resource_ends() {
+        let roomy = std::env::temp_dir();
+        for w in [
+            WaitStatus::Signaled(libc::SIGXFSZ),
+            WaitStatus::Exited(128 + libc::SIGXFSZ),
+        ] {
+            let ev = evidence(w);
+            let c = classify::classify(&ev);
+            assert_eq!(c.kind, classify::OutcomeKind::Crashed, "{c:?}");
+            let why = disk_attributed_end(&ev, &c, &[roomy.as_path()]).expect("SIGXFSZ");
+            let r = resource_classification(&c, why);
+            assert_eq!((r.row, r.sub.as_str()), (15, "b"));
+            assert_eq!(r.kind, classify::OutcomeKind::Lost);
+            assert_eq!(r.action, classify::Action::RetryAfterResourceBackoff);
+            assert!(!r.attention);
+        }
+        // decoy: no OUTCOME, a file system with space: still a crash
+        let ev = evidence(WaitStatus::Exited(1));
+        let c = classify::classify(&ev);
+        assert_eq!(c.row, 23);
+        assert_eq!(disk_attributed_end(&ev, &c, &[roomy.as_path()]), None);
+        // decoy: SIGKILL from outside, no OUTCOME: row 21 (lost), never re-classified
+        let ev = evidence(WaitStatus::Signaled(libc::SIGKILL));
+        let c = classify::classify(&ev);
+        assert_eq!(c.row, 21);
+        assert_eq!(disk_attributed_end(&ev, &c, &[roomy.as_path()]), None);
+        // errno renderings
+        assert!(names_errno(
+            "write OUTCOME: File too large (os error 27)",
+            libc::EFBIG
+        ));
+        assert!(names_errno(
+            "Os { code: 27, kind: FileTooLarge }",
+            libc::EFBIG
+        ));
+        assert!(!names_errno("Permission denied (os error 13)", libc::EFBIG));
+        assert!(!names_errno("os error 270", libc::EFBIG));
+        // the same missing OUTCOME on a FULL file system: a resource end
+        match full_tmpfs("m4full") {
+            Some(full) => {
+                let ev = evidence(WaitStatus::Exited(1));
+                let c = classify::classify(&ev);
+                let why = disk_attributed_end(&ev, &c, &[full.as_path()]).expect("full fs");
+                assert!(why.contains("is full"), "{why}");
+                // SAFETY: unmount our own test mount.
+                let cs = std::ffi::CString::new(full.to_string_lossy().as_bytes()).unwrap();
+                unsafe { libc::umount2(cs.as_ptr(), libc::MNT_DETACH) };
+                let _ = std::fs::remove_dir_all(&full);
+            }
+            None => eprintln!(
+                "full-fs part SKIPPED: needs the private namespace of the crate's test run"
+            ),
+        }
     }
 }

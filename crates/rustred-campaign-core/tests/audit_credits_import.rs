@@ -14,6 +14,66 @@ use import::{CheckOptions, Evidence, Level, RowStatus, TableSetSpec, check, load
 use rustred_campaign_core::closure::Tier;
 use serde_json::{Value, json};
 
+/// lane closeloop4 (audit-closeloop M1 / m4): the spec text with its evidence PINNED (each file's sha256, a
+/// SHA256SUMS manifest beside a directory) and the family of its tables named (spec evidence is read only so).
+#[allow(dead_code)]
+fn pin_ev(spec: &serde_json::Value) -> String {
+    use std::io::BufRead;
+    let mut v = spec.clone();
+    let fam = v["sources"].as_array().and_then(|a| {
+        a.iter().find_map(|s| {
+            let p = s["path"].as_str()?;
+            let f = std::fs::File::open(p).ok()?;
+            let mut l = String::new();
+            std::io::BufReader::new(f).read_line(&mut l).ok()?;
+            let h: serde_json::Value = serde_json::from_str(l.trim()).ok()?;
+            h["family"].as_str().map(str::to_string)
+        })
+    });
+    let sha = |p: &std::path::Path| rustred_campaign_core::import::lines::file_sha256(p).unwrap();
+    if let Some(ev) = v.get_mut("evidence").and_then(|e| e.as_object_mut()) {
+        for k in ["facts", "proofs", "solved"] {
+            if let Some(a) = ev.get_mut(k).and_then(|x| x.as_array_mut()) {
+                for e in a {
+                    let p = std::path::PathBuf::from(e["path"].as_str().unwrap_or(""));
+                    if p.is_file() && e.get("sha256").is_none() {
+                        e["sha256"] = serde_json::json!(sha(&p));
+                    }
+                    if p.is_dir() && e.get("manifest").is_none() {
+                        let mut names: Vec<String> = std::fs::read_dir(&p)
+                            .unwrap()
+                            .flatten()
+                            .map(|x| x.file_name().to_string_lossy().into_owned())
+                            .filter(|n| n.ends_with(".json") || n.ends_with(".jsonl"))
+                            .collect();
+                        names.sort();
+                        let body: String = names
+                            .iter()
+                            .map(|n| format!("{}  {n}\n", sha(&p.join(n))))
+                            .collect();
+                        let m = std::env::temp_dir().join(format!(
+                            "pin-ev-{}-{}.SHA256SUMS",
+                            std::process::id(),
+                            rustred_campaign_core::closure::sha256::sha256_tag(
+                                p.display().to_string().as_bytes()
+                            )
+                        ));
+                        std::fs::write(&m, body).unwrap();
+                        e["manifest"] =
+                            serde_json::json!({"path": m.display().to_string(), "sha256": sha(&m)});
+                    }
+                    if e.get("family").is_none()
+                        && let Some(f) = &fam
+                    {
+                        e["family"] = serde_json::json!(f);
+                    }
+                }
+            }
+        }
+    }
+    v.to_string()
+}
+
 const N: usize = 5;
 const MASK: &str = "11100";
 const FAMILY: &str = "I(\n  name(S),\n  loops(k1,k2),\n  externals(q),\n  dimension(d),\n  prop(D1,(k1)^2,1),\n  prop(D2,(k2)^2,1),\n  prop(D3,(k1+k2+q)^2,1),\n  prop(D4,(k1+q)^2,0),\n  prop(D5,(k2+q)^2,0),\n  gram(q,q,1)\n)\n";
@@ -81,7 +141,7 @@ fn run(
     dir: &Path,
     tier: Tier,
 ) -> (import::ImportedSet, Evidence, import::CheckResult) {
-    let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
+    let s = TableSetSpec::from_json(&pin_ev(spec)).unwrap();
     let set = load(&s, dir).unwrap();
     let ev = Evidence::from_spec(&set, dir).unwrap();
     let r = check(
