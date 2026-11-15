@@ -1,8 +1,10 @@
 //! regionfit on REAL per-key choice data (test data only; nothing of it is in the library):
+//!
 //! - T162: the helper's per-key element records of the enlarged-box faces (sense i = image lower, sense ii = the
 //!   COMPOSED relation lower than the original key, TRICKS 1), converted to FaceInput by
 //!   implementer-scratch/regions/tools/extract.py into $RUSTRED_CAMPAIGN_FIXTURES/regionfit (sha256 manifest);
 //! - T178: the repair flow's route-0b per-key element sizes (route0b_smallest3.json).
+//!
 //! Every record is checked for soundness and partition by the independent evaluator; the coordinator's / helper's hand
 //! forms are COMPARED (printed), and the one the notes name (n0 <= n2 for element 2 on T162 face S0-2-8) is asserted.
 //! Skips (with a message) when the fixture tree is absent.

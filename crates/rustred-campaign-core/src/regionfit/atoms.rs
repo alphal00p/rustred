@@ -306,6 +306,6 @@ pub fn representatives(all: &[(Atom, Bits)], w: &KindWeights) -> Vec<(Atom, Bits
             .or_insert(*a);
     }
     let mut out: Vec<(Atom, Bits)> = best.into_iter().map(|(b, a)| (a, b.clone())).collect();
-    out.sort_by(|x, y| (x.0.weight(w), x.0).cmp(&(y.0.weight(w), y.0)));
+    out.sort_by_key(|x| (x.0.weight(w), x.0));
     out
 }

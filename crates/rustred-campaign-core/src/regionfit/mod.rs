@@ -229,58 +229,53 @@ fn enum_conditions(
     keep: &dyn Fn(&Bits) -> bool,
     visit: &mut dyn FnMut(&[usize], &Bits),
 ) -> bool {
-    fn rec(
-        atoms: &[(Atom, Bits)],
+    struct Walk<'a> {
+        atoms: &'a [(Atom, Bits)],
         max_atoms: usize,
         min_keys: usize,
-        start: usize,
-        cur: &mut Vec<usize>,
-        t: &Bits,
-        budget: &mut u64,
-        keep: &dyn Fn(&Bits) -> bool,
-        visit: &mut dyn FnMut(&[usize], &Bits),
-    ) -> bool {
-        if *budget == 0 {
-            return false;
-        }
-        *budget -= 1;
-        visit(cur, t);
-        if cur.len() == max_atoms {
-            return true;
-        }
-        let tc = t.count();
-        for a in start..atoms.len() {
-            let t2 = t.and(&atoms[a].1);
-            let c = t2.count();
-            if c == tc || c < min_keys || !keep(&t2) {
-                continue;
-            }
-            cur.push(a);
-            let ok = rec(
-                atoms,
-                max_atoms,
-                min_keys,
-                a + 1,
-                cur,
-                &t2,
-                budget,
-                keep,
-                visit,
-            );
-            cur.pop();
-            if !ok {
+        budget: &'a mut u64,
+        keep: &'a dyn Fn(&Bits) -> bool,
+        visit: &'a mut dyn FnMut(&[usize], &Bits),
+    }
+    impl Walk<'_> {
+        fn rec(&mut self, start: usize, cur: &mut Vec<usize>, t: &Bits) -> bool {
+            if *self.budget == 0 {
                 return false;
             }
+            *self.budget -= 1;
+            (self.visit)(cur, t);
+            if cur.len() == self.max_atoms {
+                return true;
+            }
+            let tc = t.count();
+            for a in start..self.atoms.len() {
+                let t2 = t.and(&self.atoms[a].1);
+                let c = t2.count();
+                if c == tc || c < self.min_keys || !(self.keep)(&t2) {
+                    continue;
+                }
+                cur.push(a);
+                let ok = self.rec(a + 1, cur, &t2);
+                cur.pop();
+                if !ok {
+                    return false;
+                }
+            }
+            true
         }
-        true
     }
     if full.count() < min_keys {
         return true;
     }
-    let mut cur = vec![];
-    rec(
-        atoms, max_atoms, min_keys, 0, &mut cur, full, budget, keep, visit,
-    )
+    let mut w = Walk {
+        atoms,
+        max_atoms,
+        min_keys,
+        budget,
+        keep,
+        visit,
+    };
+    w.rec(0, &mut vec![], full)
 }
 
 /// Fit regions on one face. `deeper` (optional) = a further key list (e.g. the next layer) tested for `extends` only.
