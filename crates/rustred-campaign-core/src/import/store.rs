@@ -375,6 +375,12 @@ impl Buffer {
 /// A parsed answer: (record id, key, entry). Produced by the workers, consumed in input order by the builder.
 type Parsed = Vec<(u32, Vec<i32>, StoreEntry)>;
 
+/// Status interning shared by the workers: the distinct (status, flag, reason) values and their ids.
+type StatusIntern = std::sync::Mutex<(
+    Vec<(String, bool, String)>,
+    HashMap<(String, bool, String), u32>,
+)>;
+
 struct Ctx<'a> {
     set: &'a ImportedSet,
     arity: usize,
@@ -382,10 +388,7 @@ struct Ctx<'a> {
     /// record id -> (table, record) in `set`.
     loc: &'a [(usize, usize)],
     /// status interning shared by the workers (under a lock: few distinct values).
-    statuses: &'a std::sync::Mutex<(
-        Vec<(String, bool, String)>,
-        HashMap<(String, bool, String), u32>,
-    )>,
+    statuses: &'a StatusIntern,
 }
 
 fn fnv64(vals: &[i32]) -> u64 {
@@ -1370,7 +1373,6 @@ impl EvidenceStore {
         if let Some(c) = cur.take() {
             flush_entry(c, &mut block, &mut block_n, &mut block_first)?;
         }
-        drop(flush_entry);
         if block_n > 0 {
             write_block(
                 &mut dw,
@@ -1528,10 +1530,7 @@ fn write_run(
     tmp: &Path,
     n: usize,
     arity: usize,
-    statuses: &std::sync::Mutex<(
-        Vec<(String, bool, String)>,
-        HashMap<(String, bool, String), u32>,
-    )>,
+    statuses: &StatusIntern,
 ) -> Result<PathBuf, ImportError> {
     let p = tmp.join(format!("run-{n:05}.bin"));
     let keys = &buf.keys;

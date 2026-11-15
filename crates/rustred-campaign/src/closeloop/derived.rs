@@ -13,6 +13,7 @@
 //!    TERMINAL PROPOSAL; when no other work is left and there are at most `terminals.max_terminals` of them they are
 //!    accepted as declared terminals of the node (the user's "any finite terminal set" rule as data), else the node
 //!    ends open naming the rule.
+//!
 //! Everything is recorded as ledger inputs (roles below); the derived spec part is a pure function of those inputs, so a
 //! resumed campaign rebuilds the same effective spec. Nothing node-specific (L8): steps, priorities, caps and the
 //! terminal bound are configuration.

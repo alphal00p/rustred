@@ -164,8 +164,11 @@ fn role_inputs(cdir: &Path, role: &str) -> Vec<(String, Vec<u8>)> {
     v.into_iter().map(|(_, id, b)| (id, b)).collect()
 }
 
+/// Every item (id, kind, phase) and the escalation records of a run.
+type Decisions = (BTreeSet<(String, String, String)>, Vec<(String, Vec<u8>)>);
+
 /// The decisions of a run: every item (id, kind, phase) and the escalation records.
-fn decisions(cdir: &Path) -> (BTreeSet<(String, String, String)>, Vec<(String, Vec<u8>)>) {
+fn decisions(cdir: &Path) -> Decisions {
     let items = state(cdir)
         .items
         .iter()
@@ -207,7 +210,7 @@ fn escalation_and_a_terminal_proposal_close_the_node_boxed_per_key() {
     let att = &tv["attempts"][0];
     assert_eq!(att["symmetry_at_key_tried"], true);
     assert_eq!(att["recipe_answers"].as_array().unwrap().len(), 2, "{att}");
-    assert_eq!(terminals_of(&cdir).to_string().contains("I(1,1,0)"), true);
+    assert!(terminals_of(&cdir).to_string().contains("I(1,1,0)"));
     // the escalation: symmetry attempted at every uncovered key (no group: recorded unavailable), recipes per key in
     // step order, keys 3, 2 served by their first step, key 1 by none
     let sym: Vec<Value> = role_inputs(&cdir, "closeloop_symrel")
