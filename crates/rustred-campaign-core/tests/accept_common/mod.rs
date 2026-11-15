@@ -510,6 +510,7 @@ pub fn recipe_file(
             sector_slots: None,
         },
         symmetry_rows: false,
+        relation_rule: None,
         elimination: wr::RecipeElimination {
             convention: wr::RECIPE_ELIMINATION.into(),
         },

@@ -39,5 +39,7 @@ pub mod schema;
 pub mod import;
 // lane termmin (interfaces/termmin.md): REQUEST TO I-INT, one line
 pub mod termmin;
+// lane coreseed (interfaces/coreseed.md): the IBP core of a face (recipe rule, escalation, joint seed minimisation)
+pub mod coreseed;
 // lane poles (interfaces/pole-diagnostics.md): REQUEST TO I-INT, one line
 pub mod poles;
