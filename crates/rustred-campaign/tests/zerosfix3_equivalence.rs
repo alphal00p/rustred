@@ -354,7 +354,7 @@ fn generate(seed: u64, cmp: &Cmp, root: &Path) -> Inst {
         let producer: &str = if r.elided {
             "exact_eval"
         } else {
-            *g.pick(&["rr_proof_full", "rr_proof", "exact_eval", "compact"])
+            g.pick(&["rr_proof_full", "rr_proof", "exact_eval", "compact"])
         };
         let verdict = if r.elided { "hidden" } else { "regular" };
         let compact_line = |producer: &str| -> String {
