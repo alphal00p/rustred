@@ -311,6 +311,13 @@ pub struct RuleDescent {
     pub handdown_excess_bound: Option<i64>,
     /// Some hand-down term has no finite bound (a crossing slot without a lower bound).
     pub handdown_excess_unbounded: bool,
+    /// Max over the terms that can be IN the chart (on the per-slot ranges; equations and exceptions not used) of
+    /// (D + r of the term) - (D + r of the target): on the in-chart part this difference is index-free (a sum of
+    /// offsets). `None` = no term can be in the chart. The arrival-cone lemma "top terms never raise D + r" is
+    /// `top_excess_max <= 0`.
+    pub top_excess_max: Option<i64>,
+    /// Terms that can be in the chart (the terms `top_excess_max` is taken over).
+    pub top_terms: usize,
 }
 
 /// What B1 needs about one record.
@@ -472,7 +479,7 @@ pub fn rule_descent(ctx: &DescentContext<'_>, input: &RuleInput<'_>) -> RuleDesc
                 reason: reason.clone(),
             })
             .collect();
-        finish(EmptyState::Unknown, terms, None, false)
+        finish(EmptyState::Unknown, terms, None, false, (None, 0))
     };
     if ctx.frame.arity() != n || ctx.cmp.arity() != n {
         return undecided_all(format!(
@@ -486,6 +493,15 @@ pub fn rule_descent(ctx: &DescentContext<'_>, input: &RuleInput<'_>) -> RuleDesc
         Ok(t) => return undecided_all(format!("target of {} slots", t.len())),
         Err(e) => return undecided_all(format!("target pattern: {e}")),
     };
+    // the top-term excess on the per-slot ranges (index-free on the in-chart part; computed for every record)
+    let ranges = point_ranges(dom);
+    let (mut top_max, mut top_terms): (Option<i64>, usize) = (None, 0);
+    for text in input.rhs {
+        if let Some(x) = top_excess(&target, text, &ranges, ctx.frame) {
+            top_terms += 1;
+            top_max = Some(top_max.map_or(x, |m| m.max(x)));
+        }
+    }
     // the record's domain: empty = never applies (every term vacuous)
     let (dstate, _, dreason) = emptiness(dom, ctx.frame, &ctx.budget, &[], &[]);
     if dstate == EmptyState::Empty {
@@ -497,13 +513,12 @@ pub fn rule_descent(ctx: &DescentContext<'_>, input: &RuleInput<'_>) -> RuleDesc
                 discharged: vec![],
             })
             .collect();
-        return finish(EmptyState::Empty, terms, None, false);
+        return finish(EmptyState::Empty, terms, None, false, (top_max, top_terms));
     }
     let chart: Vec<bool> = dom
         .chart
         .clone()
         .unwrap_or_else(|| ctx.frame.mask().to_vec());
-    let ranges = point_ranges(dom);
     let support_first = ctx.support_first();
     let mut cache = RecordCache {
         ctx,
@@ -535,7 +550,7 @@ pub fn rule_descent(ctx: &DescentContext<'_>, input: &RuleInput<'_>) -> RuleDesc
         }
         terms.push(term.0);
     }
-    finish(dstate, terms, hd_bound, hd_unbounded)
+    finish(dstate, terms, hd_bound, hd_unbounded, (top_max, top_terms))
 }
 
 fn finish(
@@ -543,6 +558,7 @@ fn finish(
     terms: Vec<TermVerdict>,
     hd: Option<i64>,
     hd_unbounded: bool,
+    top: (Option<i64>, usize),
 ) -> RuleDescent {
     let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut worst: Option<&TermVerdict> = None;
@@ -560,7 +576,65 @@ fn finish(
         worst,
         handdown_excess_bound: hd,
         handdown_excess_unbounded: hd_unbounded,
+        top_excess_max: top.0,
+        top_terms: top.1,
     }
+}
+
+/// (D + r of the term) - (D + r of the target) on the term's in-chart part, when that part is non-empty on the per-slot
+/// ranges (`None` otherwise or for an index-dependent pattern): a sum of offsets (lines `o - o_t`, numerators `o_t - o`,
+/// constants their difference), the same at every in-chart key.
+pub fn top_excess(
+    target: &[PatternSlot],
+    text: &str,
+    ranges: &[Range],
+    frame: &NodeFrame,
+) -> Option<i64> {
+    let term = parse_pattern(text).ok()?;
+    if term.len() != target.len() {
+        return None;
+    }
+    let mut d: i64 = 0;
+    for (s, (&t, &x)) in target.iter().zip(&term).enumerate() {
+        let line = frame.is_line(s);
+        let r = ranges.get(s).copied().unwrap_or(Range::Any);
+        let x = match (t, x) {
+            (PatternSlot::Fixed(_), PatternSlot::Symbolic(o)) => match r {
+                Range::Exactly(v) => {
+                    PatternSlot::Fixed(i32::try_from(v.checked_add(i64::from(o))?).ok()?)
+                }
+                _ => return None,
+            },
+            (PatternSlot::Symbolic(_), PatternSlot::Fixed(_)) => return None,
+            _ => x,
+        };
+        match (t, x) {
+            (PatternSlot::Fixed(ct), PatternSlot::Fixed(c)) => {
+                let (ct, c) = (i64::from(ct), i64::from(c));
+                if (line && c <= 0) || (!line && c >= 1) {
+                    return None;
+                }
+                d = d.checked_add(if line { c - ct } else { ct - c })?;
+            }
+            (PatternSlot::Symbolic(ot), PatternSlot::Symbolic(o)) => {
+                let (ot, o) = (i64::from(ot), i64::from(o));
+                if line {
+                    // in chart: pt + o >= 1 must meet the range
+                    if upper_of(r).is_some_and(|h| h + o < 1) {
+                        return None;
+                    }
+                    d = d.checked_add(o - ot)?;
+                } else {
+                    if lower_of(r).is_some_and(|l| l + o > 0) {
+                        return None;
+                    }
+                    d = d.checked_add(ot - o)?;
+                }
+            }
+            _ => return None,
+        }
+    }
+    Some(d)
 }
 
 /// One term: its verdict and, when it can hand down, `Some(bound)` (`Some(None)` = unbounded).
@@ -979,6 +1053,8 @@ pub fn record_line(meta: &Value, d: &RuleDescent) -> Value {
         "descends_with_zero_proofs": discharged_terms,
         "handdown_excess_bound": d.handdown_excess_bound,
         "handdown_excess_unbounded": d.handdown_excess_unbounded,
+        "top_excess_max": d.top_excess_max,
+        "top_terms": d.top_terms,
         "listed": listed,
     })
 }
@@ -1107,6 +1183,8 @@ pub fn summarize(results: &[JobResult], max_listed: usize) -> Value {
     let mut hd_unbounded = 0usize;
     let mut hd_hist: BTreeMap<i64, usize> = BTreeMap::new();
     let mut empty_domains = 0usize;
+    let mut top_hist: BTreeMap<i64, usize> = BTreeMap::new();
+    let mut top_terms_total = 0usize;
     for (line, d) in results {
         let class = line["record"]["class"].as_str().unwrap_or("?").to_string();
         let Some(d) = d else {
@@ -1132,6 +1210,10 @@ pub fn summarize(results: &[JobResult], max_listed: usize) -> Value {
             *hd_hist.entry(b).or_default() += 1;
         }
         hd_unbounded += usize::from(d.handdown_excess_unbounded);
+        if let Some(t) = d.top_excess_max {
+            *top_hist.entry(t).or_default() += 1;
+        }
+        top_terms_total += d.top_terms;
         for (j, t) in d.terms.iter().enumerate() {
             *terms.entry(t.word().into()).or_default() += 1;
             match t {
@@ -1202,5 +1284,7 @@ pub fn summarize(results: &[JobResult], max_listed: usize) -> Value {
         "handdown_excess_bound_max": hd_max,
         "handdown_excess_bound_histogram": hd_hist,
         "records_with_unbounded_handdown_excess": hd_unbounded,
+        "top_excess_max_histogram": top_hist,
+        "top_terms": top_terms_total,
     })
 }

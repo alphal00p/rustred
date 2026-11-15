@@ -840,3 +840,131 @@ fn b1_crosscheck_by_brute_force_on_real_records() {
     );
     assert!(viol.is_empty());
 }
+
+/// Every dispatched record of the given table files (core reader, all records), one comparator / frame.
+fn load_tables(paths: &[PathBuf]) -> Loaded {
+    let mut tables = Vec::new();
+    let mut jobs = Vec::new();
+    let mut digests = BTreeMap::new();
+    let (mut frame, mut cmp, mut order0): (
+        Option<NodeFrame>,
+        Option<NodeComparator>,
+        Option<serde_json::Value>,
+    ) = (None, None, None);
+    for path in paths {
+        let path_s = path.display().to_string();
+        let tf = read_table_file(path, ReadOptions { rhs: RhsMode::Skip }).unwrap();
+        let hline =
+            std::io::BufRead::lines(std::io::BufReader::new(std::fs::File::open(path).unwrap()))
+                .next()
+                .unwrap()
+                .unwrap();
+        let hv: serde_json::Value = serde_json::from_str(&hline).unwrap();
+        if let Some(fr) = frame.as_ref() {
+            assert_eq!(
+                Some(&hv["node_order"]),
+                order0.as_ref(),
+                "{path_s}: another node order"
+            );
+            assert_eq!(
+                NodeFrame::from_header(tf.header.as_ref().unwrap())
+                    .unwrap()
+                    .mask_string(),
+                fr.mask_string()
+            );
+        } else {
+            frame = Some(NodeFrame::from_header(tf.header.as_ref().unwrap()).unwrap());
+            cmp = Some(NodeComparator::from_header(&hv).unwrap());
+            order0 = Some(hv["node_order"].clone());
+        }
+        let full = Table::from_table_file(
+            path_s.clone(),
+            path_s.clone(),
+            &tf,
+            DomainOptions::default(),
+        )
+        .unwrap();
+        let offs = line_offsets(path);
+        digests.insert(path_s.clone(), format!("sha256:{}", sha256_file(path)));
+        let ti = tables.len();
+        for r in 0..full.domains.len() {
+            let (o, len) = offs[full.meta[r].line_no - 1];
+            let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
+            {
+                use std::io::{Read, Seek, SeekFrom};
+                let mut f = std::fs::File::open(path).unwrap();
+                f.seek(SeekFrom::Start(o)).unwrap();
+                let mut b = vec![0u8; len as usize];
+                f.read_exact(&mut b).unwrap();
+                h.update(&b);
+            }
+            let sha = h.finish_hex();
+            jobs.push(RecordJob {
+                table: ti,
+                record: r,
+                domain: full.domains[r].clone(),
+                path: path_s.clone(),
+                offset: o,
+                bytes: len,
+                record_sha256: sha.clone(),
+                meta: json!({"table": ti, "record": r, "label": full.labels[r], "line": full.meta[r].line_no,
+                    "path": path_s, "offset": o, "record_sha256": sha}),
+            });
+        }
+        tables.push(full);
+    }
+    let frame = frame.unwrap();
+    let n = tables.len();
+    let disp = Dispatcher::new(tables, (0..n).collect())
+        .unwrap()
+        .with_chart(frame.mask().to_vec())
+        .unwrap();
+    Loaded {
+        jobs,
+        disp,
+        frame,
+        cmp: cmp.unwrap(),
+        tables: digests,
+        loader: "table files, every dispatched record (core reader)".into(),
+        node: None,
+    }
+}
+
+/// B1 on table files: PARAMETRIC_TABLES=<a:b> PARAMETRIC_OUT=.. [PARAMETRIC_ZEROS=.. + summaries]
+#[test]
+#[ignore]
+fn b1_descent_on_tables() {
+    let paths: Vec<PathBuf> = std::env::var("PARAMETRIC_TABLES")
+        .expect("PARAMETRIC_TABLES")
+        .split(':')
+        .filter(|x| !x.is_empty())
+        .map(PathBuf::from)
+        .collect();
+    let out = PathBuf::from(std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT"));
+    let ld = load_tables(&paths);
+    let (zeros, zero_basis) = load_zeros();
+    let budget = ProofBudget {
+        wall: Some(std::time::Duration::from_secs(20)),
+        ..ProofBudget::default()
+    };
+    let results = run_jobs(&ld.jobs, &ld.frame, &ld.cmp, zeros.as_ref(), &budget, 4);
+    let summary = summarize(&results, 200);
+    let header = json!({"schema": PARAMETRIC_DESCENT_SCHEMA, "version": PARAMETRIC_DESCENT_VERSION, "kind": "header",
+        "loader": ld.loader, "frame": ld.frame.mask_string(), "comparator": ld.cmp.name(), "tables": ld.tables,
+        "records": ld.jobs.len(), "zero_proof_basis": zero_basis});
+    let mut f = std::io::BufWriter::new(std::fs::File::create(&out).unwrap());
+    writeln!(f, "{header}").unwrap();
+    for (line, _) in &results {
+        writeln!(f, "{line}").unwrap();
+    }
+    writeln!(f, "{}", json!({"kind": "summary", "summary": summary})).unwrap();
+    f.flush().unwrap();
+    let mut sp = out.clone().into_os_string();
+    sp.push(".summary.json");
+    std::fs::write(
+        &sp,
+        serde_json::to_string_pretty(&json!({"header": header, "summary": summary})).unwrap(),
+    )
+    .unwrap();
+    eprintln!("{} records; {}", ld.jobs.len(), summary["records_by_worst"]);
+}

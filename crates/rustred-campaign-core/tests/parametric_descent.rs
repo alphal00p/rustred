@@ -420,6 +420,50 @@ fn differential(seed: u64, cases: usize, program: bool) {
         let rhs_refs: Vec<&str> = rhs.iter().map(String::as_str).collect();
         let r = run(&f, &c, None, &d, &target, &rhs_refs);
         let b = brute(&f, &c, &d, &terms, 7, -6);
+        // top_excess: at every in-chart key of the box the concrete D + r difference is the index-free value
+        let tp = rustred_campaign_core::order::parse_pattern(&target).unwrap();
+        let ranges = rustred_campaign_core::accept::descent::point_ranges(&d);
+        let dr = |k: &[i32]| -> i64 {
+            (0..n)
+                .map(|s| {
+                    if f.is_line(s) {
+                        i64::from(k[s]) - 1
+                    } else {
+                        -i64::from(k[s])
+                    }
+                })
+                .sum()
+        };
+        for (j, t) in terms.iter().enumerate() {
+            let te =
+                rustred_campaign_core::parametric::descent::top_excess(&tp, &rhs[j], &ranges, &f);
+            for a0 in 1..=4 {
+                for a1 in 1..=4 {
+                    for a2 in -3..=0 {
+                        for a3 in -3..=0 {
+                            let key = vec![a0, a1, a2, a3];
+                            if !d.applies(&key).applies() {
+                                continue;
+                            }
+                            let tk: Vec<i32> = t
+                                .iter()
+                                .enumerate()
+                                .map(|(s, x)| x.map_or_else(|o| key[s] + o, |c| c))
+                                .collect();
+                            let in_chart =
+                                (0..n).all(|s| if f.is_line(s) { tk[s] >= 1 } else { tk[s] <= 0 });
+                            if in_chart {
+                                assert_eq!(
+                                    te,
+                                    Some(dr(&tk) - dr(&key)),
+                                    "case {case} term {j} at {key:?}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
         for (j, v) in r.terms.iter().enumerate() {
             let (nl_key, pos_key, bad_hd, lower_key) = &b[j];
             assert!(
