@@ -1640,11 +1640,21 @@ fn zero_certificates_with(
     }
     let mut proofs = Vec::new();
     if rayon::current_thread_index().is_some() && subsets.len() >= parallel_min_subsets {
+        // ONE analyzer per pool thread, built on that thread's first subset (rayon's map_init would
+        // build one per work split: thousands of Symanzik constructions)
+        let analyzers: Vec<std::sync::OnceLock<Result<zero::Analyzer, PError>>> = (0
+            ..rayon::current_num_threads())
+            .map(|_| std::sync::OnceLock::new())
+            .collect();
         let decided: Vec<Result<Option<zero::Certificate>, PError>> = subsets
             .par_iter()
-            .map_init(analyzer_of, |analyzer, &subset| match analyzer {
-                Ok(analyzer) => decide(analyzer, subset),
-                Err(error) => Err(error.clone()),
+            .with_min_len(16)
+            .map(|&subset| {
+                let slot = rayon::current_thread_index().unwrap_or(0) % analyzers.len().max(1);
+                match analyzers[slot].get_or_init(analyzer_of) {
+                    Ok(analyzer) => decide(analyzer, subset),
+                    Err(error) => Err(error.clone()),
+                }
             })
             .collect();
         for result in decided {
