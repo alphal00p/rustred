@@ -1179,6 +1179,31 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
         }
     }
     // the closing check of the shipped spec, reverting the rules behind a failure
+    // recipe files of reused trials: the previous run's `recipes/` directory, each verified by its recorded sha256
+    if let Some(prev_dir) = cfg.previous.as_ref().and_then(|p| p.parent()) {
+        for t in trials.values().flatten().filter(|t| t.certified) {
+            if recipe_files.contains_key(&t.recipe_id) {
+                continue;
+            }
+            let p = prev_dir.join("recipes").join(format!(
+                "{}.json",
+                crate::closeloop::ids::safe(&t.recipe_id)
+            ));
+            if let Ok(b) = std::fs::read(&p)
+                && sha256_hex(&b) == t.recipe_sha256
+            {
+                let local = cfg.out_dir.join("recipes").join(format!(
+                    "{}.json",
+                    crate::closeloop::ids::safe(&t.recipe_id)
+                ));
+                write(&local, &b)?;
+                recipe_files.insert(
+                    t.recipe_id.clone(),
+                    (local, t.recipe_sha256.clone(), b.len() as u64),
+                );
+            }
+        }
+    }
     let solved_path = cfg.out_dir.join("ship/solved.jsonl");
     let mut solved_text = String::new();
     for l in &solved_lines {
