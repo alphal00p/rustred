@@ -933,7 +933,7 @@ pub fn run(o: &RunOptions) -> Result<Value, String> {
     let group = node_group(&o.family_text, &o.face.chart)?;
     let label: String = o.face.chart.iter().map(|&b| if b { '1' } else { '0' }).collect();
     if let Some(keys) = &o.point_keys {
-        return run_points(o, keys, &ff, &group, &zero_fn, &label, zeros.len(), t0);
+        return run_points(o, keys, &ff, &group, &zero_fn, &label, &zeros, t0);
     }
     let results: Vec<ElementResult> = with_n!(n, N, {
         let mut sector = [false; N];
@@ -984,7 +984,7 @@ pub fn run(o: &RunOptions) -> Result<Value, String> {
         let mut h = header.as_object().unwrap().clone();
         h.remove("type");
         text.push_str(&format!("{{\"type\":\"header\",{}\n", &Value::Object(h).to_string()[1..]));
-        text.push_str(&format!("{{\"type\":\"chart\",\"chart\":\"{label}\",\"guards\":[],\"zero\":false}}\n"));
+        text.push_str(&table_preamble(&label, &zeros));
         for l in &lines {
             text.push_str(l);
             text.push('\n');
@@ -1022,6 +1022,22 @@ pub fn run(o: &RunOptions) -> Result<Value, String> {
 }
 
 #[allow(clippy::too_many_arguments)]
+/// The zero_sectors and chart records after the header: the census of the chart's sub-sectors (exact masks over all
+/// slots, scope "chart_subsets": rr_proof --drop-zero-sectors drops a column whose mask is listed) and the chart line
+/// with the guards of its mask (bit 1 "n>=1", bit 0 "n<=0"; interfaces/eps-families.md section 4).
+fn table_preamble(label: &str, zeros: &std::collections::BTreeSet<Vec<bool>>) -> String {
+    let masks: Vec<String> = zeros.iter().map(|m| m.iter().map(|&b| if b { '1' } else { '0' }).collect()).collect();
+    let guards: Vec<&str> = label.chars().map(|b| if b == '1' { "n>=1" } else { "n<=0" }).collect();
+    // "type" first (readers match the record prefix); serde_json sorts object keys
+    format!(
+        "{{\"type\":\"zero_sectors\",\"scope\":\"chart_subsets\",\"count\":{},\"masks\":{}}}\n{{\"type\":\"chart\",\"chart\":{},\"guards\":{},\"zero\":false}}\n",
+        masks.len(),
+        json!(masks),
+        json!(label),
+        json!(guards)
+    )
+}
+
 fn run_points(
     o: &RunOptions,
     keys: &[Vec<i64>],
@@ -1029,9 +1045,10 @@ fn run_points(
     group: &NodeGroup,
     zero_fn: &dyn Fn(&[bool]) -> bool,
     label: &str,
-    n_zero: usize,
+    zeros: &std::collections::BTreeSet<Vec<bool>>,
     t0: std::time::Instant,
 ) -> Result<Value, String> {
+    let n_zero = zeros.len();
     let n = o.face.chart.len();
     let mut lines = Vec::new();
     let mut per_key = Vec::new();
@@ -1081,7 +1098,7 @@ fn run_points(
             "node_order": serde_json::from_str::<Value>(&o.order.to_json()).unwrap_or(Value::Null), "guard_version": 2,
             "symface_tables": {"mode": "point", "keys": keys.len(), "served": served}});
         text.push_str(&format!("{{\"type\":\"header\",{}\n", &header.to_string()[1..]));
-        text.push_str(&format!("{{\"type\":\"chart\",\"chart\":\"{label}\",\"guards\":[],\"zero\":false}}\n"));
+        text.push_str(&table_preamble(&label, &zeros));
         for l in &lines { text.push_str(l); text.push('\n'); }
         text.push_str(&format!("{{\"type\":\"end\",\"charts\":1,\"rules\":{},\"residuals\":0,\"chart_errors\":0,\"harness\":\"rustred node symface point mode\"}}\n", lines.len()));
         std::fs::write(o.out.join("F.table.jsonl"), &text).map_err(|e| e.to_string())?;
