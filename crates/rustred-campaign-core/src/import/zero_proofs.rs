@@ -11,6 +11,16 @@
 //! rustred-campaign-algebra); this module only LOADS (verified: binding to the set's records, term index, parameter,
 //! index echo, closed vocabulary; any violation refuses the file) and LOOKS UP (`is_zero_term`: rule point + hash lookup).
 //!
+//! lane zerosfix3 (audit-r2-zeros F1-F3, M5): the loader also checks every proved CLAIM against the RECORD'S OWN TEXT
+//! (read at its offset, sha256-checked, streamed term by term; independent of the producer): the numerator of the term
+//! must vanish identically after the record's constant slots and the plane are substituted (the core's exact
+//! polynomial; a claim that does not is never a proof, counted `claims_false` and named in `false_claims`
+//! (`NumeratorDoesNotVanish`); every claim is checked on its own); a `where_regular` line counts only
+//! when its `den` equals the record's own denominator text, which is then the one evaluated at each key (any other
+//! `den`: never a proof); a claim the core cannot re-check (case equations used, a text form the core parser refuses,
+//! a term above the record budget) is never a proof. Two DIFFERENT lines for one (record, term, locus) refuse the file
+//! (`ContradictingLines`). Refusals are typed ([`ZeroProofRefusal`]).
+//!
 //! Consumers: the closing loop's exact tier (the second route of every zero term), the ship gate, the repair flow's
 //! shipped specs; [`ZeroProofFacts`] wraps any [`FactSource`] so that a proof turns an `Unknown` coefficient into
 //! `Zero`. Generic (L8): records, terms, parameters and loci are data.
@@ -122,6 +132,10 @@ pub enum ZeroStatus {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DenCheck {
     NowhereZero,
+    /// lane zerosfix3 (audit M3): `nowhere_zero` by the producer's argument (Symbolica: factors, chart signs) that the
+    /// core's constant-d-coefficient test does not confirm: the record's own denominator is ALSO evaluated by the core
+    /// at every key the proof is used at (independent of the producer; a 0/0 key is never a proof).
+    NowhereZeroAtKey(PoleLocus),
     /// `where_regular`: evaluated at the key (the line's `den` text).
     AtKey(PoleLocus),
     /// `where_regular` without a readable `den` text: never a proof at a key.
@@ -214,6 +228,230 @@ pub struct LoadOptions {
     pub tools: Option<BTreeSet<String>>,
 }
 
+/// lane zerosfix3 (audit-r2-zeros M5): why the loader refuses a proof file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ZeroProofRefusal {
+    Io(String),
+    Json(String),
+    /// Schema / vocabulary of the line ([`parse_line`]).
+    Line(String),
+    ProducerNotAllowed(String),
+    TermOutOfRange {
+        record: String,
+        term: u32,
+        n_terms: usize,
+    },
+    ParameterOutOfRange {
+        record: String,
+        param: u32,
+        arity: usize,
+    },
+    RuleEcho {
+        record: String,
+        echo: Option<i64>,
+        index: Option<i64>,
+    },
+    /// Two different lines for one (record, term, locus) (audit F3).
+    ContradictingLines {
+        record: String,
+        term: u32,
+        locus: Locus,
+    },
+    /// A proved claim whose numerator does NOT vanish on its locus by the record's own text (audit F1).
+    NumeratorDoesNotVanish {
+        record: String,
+        term: u32,
+        locus: Locus,
+    },
+    /// The record's text could not be read for the claim check (not the record the set holds, I/O).
+    RecordUnreadable {
+        record: String,
+        msg: String,
+    },
+}
+
+impl std::fmt::Display for ZeroProofRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ZeroProofRefusal::Io(m) | ZeroProofRefusal::Json(m) | ZeroProofRefusal::Line(m) => {
+                write!(f, "{m}")
+            }
+            ZeroProofRefusal::ProducerNotAllowed(t) => write!(f, "producer {t} is not allowed"),
+            ZeroProofRefusal::TermOutOfRange {
+                record,
+                term,
+                n_terms,
+            } => write!(
+                f,
+                "record {record}: term {term} (the record has {n_terms} terms)"
+            ),
+            ZeroProofRefusal::ParameterOutOfRange {
+                record,
+                param,
+                arity,
+            } => write!(
+                f,
+                "record {record}: plane on parameter {param} (arity {arity})"
+            ),
+            ZeroProofRefusal::RuleEcho {
+                record,
+                echo,
+                index,
+            } => write!(
+                f,
+                "record {record}: rule echo {echo:?} (the record's index is {index:?})"
+            ),
+            ZeroProofRefusal::ContradictingLines {
+                record,
+                term,
+                locus,
+            } => write!(
+                f,
+                "record {record}: contradicting lines for term {term} on {}",
+                locus.json()
+            ),
+            ZeroProofRefusal::NumeratorDoesNotVanish {
+                record,
+                term,
+                locus,
+            } => write!(
+                f,
+                "record {record}: the numerator of term {term} does not vanish on {} (the record's own text)",
+                locus.json()
+            ),
+            ZeroProofRefusal::RecordUnreadable { record, msg } => {
+                write!(
+                    f,
+                    "record {record}: its text cannot be read for the claim check: {msg}"
+                )
+            }
+        }
+    }
+}
+
+/// lane zerosfix3 (audit-r2-zeros M5): a refusal of the loader with its file and line (0 = the file as a whole).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ZeroProofError {
+    pub file: String,
+    pub line: usize,
+    pub reason: ZeroProofRefusal,
+}
+
+impl std::fmt::Display for ZeroProofError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.line > 0 {
+            write!(f, "{} line {}: {}", self.file, self.line, self.reason)
+        } else {
+            write!(f, "{}: {}", self.file, self.reason)
+        }
+    }
+}
+
+impl std::error::Error for ZeroProofError {}
+
+impl From<ZeroProofError> for String {
+    fn from(e: ZeroProofError) -> String {
+        e.to_string()
+    }
+}
+
+/// lane zerosfix3: what one line says (F3: two lines of one (record, term, locus) must say the same).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct LineSig {
+    verdict: String,
+    denominator: Option<DenStatus>,
+    den: Option<String>,
+    equations: Vec<u32>,
+}
+
+/// lane zerosfix3: a proved line bound to the set whose claim waits for the check against the record text.
+#[derive(Clone, Debug)]
+struct PendingClaim {
+    t: u32,
+    r: u32,
+    term: u32,
+    locus: Locus,
+    class: DenStatus,
+    den: Option<String>,
+    equations: bool,
+    file: String,
+    line: usize,
+}
+
+/// lane zerosfix3: the polynomial `text` (n0.. and d, the core's exact parser) after the integer substitutions `subs`
+/// is identically zero. Err: the core parser refuses the text.
+pub fn vanishes_after(text: &str, arity: usize, subs: &[(usize, i64)]) -> Result<bool, String> {
+    use crate::poly::BigInt;
+    let p = Poly::parse_exact(text.trim(), arity, true).map_err(|e| format!("{e:?}"))?;
+    let val: HashMap<u16, i64> = subs.iter().map(|&(q, v)| (q as u16, v)).collect();
+    let mut acc: BTreeMap<Vec<(u16, u32)>, BigInt> = BTreeMap::new();
+    for (m, c) in p.exact_terms() {
+        let mut c = c;
+        let mut rest = Vec::with_capacity(m.len());
+        for (var, e) in m {
+            match val.get(&var) {
+                Some(&v) => {
+                    let b = BigInt::from_i128(v as i128);
+                    for _ in 0..e {
+                        c = c.mul(&b);
+                    }
+                }
+                None => rest.push((var, e)),
+            }
+        }
+        let e = acc.entry(rest).or_insert_with(BigInt::zero);
+        *e = e.add(&c);
+    }
+    Ok(acc.values().all(BigInt::is_zero))
+}
+
+/// lane zerosfix3 (audit M3): after the integer substitutions `subs` some power of d has a non-zero CONSTANT
+/// coefficient in `text` (then the polynomial never vanishes identically in d on the locus). Err: the core parser
+/// refuses the text.
+pub fn constant_d_coefficient_after(
+    text: &str,
+    arity: usize,
+    subs: &[(usize, i64)],
+) -> Result<bool, String> {
+    use crate::poly::{BigInt, D_VAR};
+    let p = Poly::parse_exact(text.trim(), arity, true).map_err(|e| format!("{e:?}"))?;
+    let val: HashMap<u16, i64> = subs.iter().map(|&(q, v)| (q as u16, v)).collect();
+    // d power -> (constant coefficient, whether a monomial with a free index survives)
+    let mut by_d: BTreeMap<u32, (BigInt, bool)> = BTreeMap::new();
+    let mut acc: BTreeMap<Vec<(u16, u32)>, BigInt> = BTreeMap::new();
+    for (m, c) in p.exact_terms() {
+        let mut c = c;
+        let mut rest = Vec::with_capacity(m.len());
+        for (var, e) in m {
+            match val.get(&var) {
+                Some(&v) => {
+                    let b = BigInt::from_i128(v as i128);
+                    for _ in 0..e {
+                        c = c.mul(&b);
+                    }
+                }
+                None => rest.push((var, e)),
+            }
+        }
+        let e = acc.entry(rest).or_insert_with(BigInt::zero);
+        *e = e.add(&c);
+    }
+    for (mono, c) in acc {
+        if c.is_zero() {
+            continue;
+        }
+        let dpow = mono.iter().find(|(v, _)| *v == D_VAR).map_or(0, |x| x.1);
+        let free = mono.iter().any(|(v, _)| *v != D_VAR);
+        let e = by_d.entry(dpow).or_insert_with(|| (BigInt::zero(), false));
+        if free {
+            e.1 = true;
+        } else {
+            e.0 = e.0.add(&c);
+        }
+    }
+    Ok(by_d.values().any(|(k, free)| !k.is_zero() && !*free))
+}
+
 /// Load counts.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
 pub struct LoadStats {
@@ -231,6 +469,22 @@ pub struct LoadStats {
     /// Records of the set with at least one proof.
     pub records: u64,
     pub tools: BTreeSet<String>,
+    /// lane zerosfix3: proved claims re-checked against the record text and held as proofs.
+    pub claims_confirmed: u64,
+    /// lane zerosfix3: proved claims the core cannot re-check (case equations, a text form the core parser refuses, a
+    /// term above the record budget): never a proof.
+    pub claims_unchecked: u64,
+    /// lane zerosfix3: `where_regular` lines whose `den` is not the record's own denominator text (never a proof).
+    pub den_text_mismatch: u64,
+    /// lane zerosfix3 (audit F1): proved claims whose numerator does NOT vanish on the locus by the record's own text
+    /// (never a proof; named in [`ZeroProofs::false_claims`]).
+    pub claims_false: u64,
+    /// lane zerosfix3 (audit M3): `nowhere_zero` claims confirmed by the core for the whole locus (no denominator, or a
+    /// non-zero constant d-coefficient) / re-checked by the core at each key (record denominator evaluated) / resting
+    /// on the producer alone (the core parser refuses the denominator text).
+    pub den_independent: u64,
+    pub den_checked_at_key: u64,
+    pub den_producer_only: u64,
 }
 
 /// The proofs of one record: (term, locus, denominator check).
@@ -240,6 +494,13 @@ pub type RecordProofs = Vec<(u32, Locus, DenCheck)>;
 #[derive(Clone, Debug, Default)]
 pub struct ZeroProofs {
     by_record: HashMap<(u32, u32), RecordProofs>,
+    /// lane zerosfix3 (F3): every line held so far by (table, record, term, locus).
+    lines_seen: HashMap<(u32, u32, u32, Locus), LineSig>,
+    /// lane zerosfix3 (F1 / F2): proved lines bound to the set, claims not yet checked against the record text (held
+    /// as proofs only by [`ZeroProofs::load_files`] after the check).
+    pending: Vec<PendingClaim>,
+    /// lane zerosfix3 (audit F1): the first false claims met (file, line, record, term, locus).
+    pub false_claims: Vec<ZeroProofError>,
     pub stats: LoadStats,
 }
 
@@ -257,9 +518,21 @@ impl ZeroProofs {
         self.by_record.values().map(Vec::len).sum()
     }
 
-    /// Bind one parsed line to the set (VERIFIED: the record's term count, the parameter range, the index echo).
-    /// `Ok(false)`: the record is not in the set (skipped, counted foreign).
-    pub fn insert(&mut self, set: &ImportedSet, l: &ProofLine) -> Result<bool, String> {
+    /// Bind one parsed line to the set (VERIFIED: the record's term count, the parameter range, the index echo; lane
+    /// zerosfix3: no other line of the same (record, term, locus) says something else). A proved line is held as
+    /// PENDING: it becomes a proof only through [`ZeroProofs::load_files`], after its claim was checked against the
+    /// record text. `Ok(false)`: the record is not in the set (skipped, counted foreign).
+    pub fn insert(&mut self, set: &ImportedSet, l: &ProofLine) -> Result<bool, ZeroProofRefusal> {
+        self.insert_at(set, l, "", 0)
+    }
+
+    fn insert_at(
+        &mut self,
+        set: &ImportedSet,
+        l: &ProofLine,
+        file: &str,
+        line: usize,
+    ) -> Result<bool, ZeroProofRefusal> {
         self.stats.lines += 1;
         let Some((t, r)) = set.find_sha(&l.record_sha256) else {
             self.stats.foreign += 1;
@@ -267,19 +540,20 @@ impl ZeroProofs {
         };
         let n = set.bodies.n_terms(t, r);
         if !set.bodies.has(t, r) || l.term as usize >= n {
-            return Err(format!(
-                "record {}: term {} (the record has {n} terms)",
-                l.record_sha256, l.term
-            ));
+            return Err(ZeroProofRefusal::TermOutOfRange {
+                record: l.record_sha256.clone(),
+                term: l.term,
+                n_terms: n,
+            });
         }
         if let Locus::Plane { param, .. } = l.locus
             && param as usize >= set.arity()
         {
-            return Err(format!(
-                "record {}: plane on parameter {param} (arity {})",
-                l.record_sha256,
-                set.arity()
-            ));
+            return Err(ZeroProofRefusal::ParameterOutOfRange {
+                record: l.record_sha256.clone(),
+                param,
+                arity: set.arity(),
+            });
         }
         let info = set.rule(t, r);
         let echo_ok = match (l.rule, info.index) {
@@ -288,44 +562,58 @@ impl ZeroProofs {
             (None, _) => false,
         };
         if !echo_ok {
-            return Err(format!(
-                "record {}: rule echo {:?} (the record's index is {:?})",
-                l.record_sha256, l.rule, info.index
-            ));
+            return Err(ZeroProofRefusal::RuleEcho {
+                record: l.record_sha256.clone(),
+                echo: l.rule,
+                index: info.index,
+            });
+        }
+        let sig = LineSig {
+            verdict: l.verdict.clone(),
+            denominator: l.denominator,
+            den: l.den.as_deref().map(|x| x.trim().to_string()),
+            equations: l.equations.clone(),
+        };
+        match self.lines_seen.get(&(t as u32, r as u32, l.term, l.locus)) {
+            // a PROVED claim beside any other statement of the same locus refuses; two statements that both prove
+            // nothing (not_proved / excluded) are harmless (the first is kept)
+            Some(old)
+                if *old != sig
+                    && (old.verdict == VERDICT_PROVED || sig.verdict == VERDICT_PROVED) =>
+            {
+                return Err(ZeroProofRefusal::ContradictingLines {
+                    record: l.record_sha256.clone(),
+                    term: l.term,
+                    locus: l.locus,
+                });
+            }
+            // the same line again (two answer files about one record): held once
+            Some(_) => {
+                self.stats.tools.insert(l.tool.clone());
+                return Ok(true);
+            }
+            None => {
+                self.lines_seen
+                    .insert((t as u32, r as u32, l.term, l.locus), sig);
+            }
         }
         match (l.verdict.as_str(), l.denominator) {
             (VERDICT_PROVED, Some(d)) => {
                 self.stats.proved += 1;
-                let check = match d {
-                    DenStatus::NowhereZero => {
-                        self.stats.proved_nowhere_zero += 1;
-                        DenCheck::NowhereZero
-                    }
-                    DenStatus::WhereRegular => match l
-                        .den
-                        .as_deref()
-                        .and_then(|s| Poly::parse_exact(s.trim(), set.arity(), true).ok())
-                    {
-                        Some(p) => {
-                            self.stats.den_at_key += 1;
-                            DenCheck::AtKey(PoleLocus::new(PoleKind::Denominator, &p))
-                        }
-                        None => {
-                            self.stats.den_unchecked += 1;
-                            DenCheck::Unchecked
-                        }
-                    },
-                };
-                let v = self.by_record.entry((t as u32, r as u32)).or_default();
-                if v.is_empty() {
-                    self.stats.records += 1;
+                if d == DenStatus::NowhereZero {
+                    self.stats.proved_nowhere_zero += 1;
                 }
-                if !v
-                    .iter()
-                    .any(|(j, lo, c)| *j == l.term && *lo == l.locus && *c == check)
-                {
-                    v.push((l.term, l.locus, check));
-                }
+                self.pending.push(PendingClaim {
+                    t: t as u32,
+                    r: r as u32,
+                    term: l.term,
+                    locus: l.locus,
+                    class: d,
+                    den: l.den.clone(),
+                    equations: !l.equations.is_empty(),
+                    file: file.to_string(),
+                    line,
+                });
             }
             ("not_proved", _) => self.stats.not_proved += 1,
             _ => self.stats.excluded += 1,
@@ -334,58 +622,262 @@ impl ZeroProofs {
         Ok(true)
     }
 
-    /// Read proof files into `self` (each line verified; any violation refuses with the file and line).
+    /// lane zerosfix3 (F1 / F2): check every pending claim against its record's own text and hold the confirmed ones
+    /// as proofs (module documentation). Records are read once each (streamed, sha256-checked), up to four at a time.
+    fn check_pending(&mut self, set: &ImportedSet) -> Result<(), ZeroProofError> {
+        let mut pending = std::mem::take(&mut self.pending);
+        if pending.is_empty() {
+            return Ok(());
+        }
+        pending.sort_by(|a, b| (&a.file, a.line).cmp(&(&b.file, b.line)));
+        let mut need: BTreeMap<(u32, u32), BTreeSet<u32>> = BTreeMap::new();
+        for c in &pending {
+            need.entry((c.t, c.r)).or_default().insert(c.term);
+        }
+        let recs: Vec<((u32, u32), BTreeSet<u32>)> = need.into_iter().collect();
+        type Texts = Result<Option<HashMap<u32, String>>, String>;
+        let texts: std::sync::Mutex<HashMap<(u32, u32), Texts>> =
+            std::sync::Mutex::new(HashMap::new());
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        std::thread::scope(|sc| {
+            for _ in 0..recs.len().clamp(1, 4) {
+                sc.spawn(|| {
+                    loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(((t, r), terms)) = recs.get(i) else {
+                            break;
+                        };
+                        let x = record_term_texts(set, *t as usize, *r as usize, terms);
+                        texts
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .insert((*t, *r), x);
+                    }
+                });
+            }
+        });
+        let texts = texts.into_inner().unwrap_or_else(|e| e.into_inner());
+        let arity = set.arity();
+        for c in pending {
+            let sha = set.rule(c.t as usize, c.r as usize).record_sha256.clone();
+            let refuse = |reason: ZeroProofRefusal| ZeroProofError {
+                file: c.file.clone(),
+                line: c.line,
+                reason,
+            };
+            let text = match texts.get(&(c.t, c.r)) {
+                Some(Ok(Some(m))) => m.get(&c.term).cloned(),
+                // a term above the record budget: the claim cannot be re-checked
+                Some(Ok(None)) => None,
+                Some(Err(msg)) => {
+                    return Err(refuse(ZeroProofRefusal::RecordUnreadable {
+                        record: sha,
+                        msg: msg.clone(),
+                    }));
+                }
+                None => None,
+            };
+            let sides = text.as_deref().and_then(|t| {
+                crate::accept::facts::split_ratio(t.trim())
+                    .ok()
+                    .map(|(n, d)| (n.to_string(), d.map(|x| x.trim().to_string())))
+            });
+            let (Some((num, den)), false) = (sides, c.equations) else {
+                self.stats.claims_unchecked += 1;
+                continue;
+            };
+            // the record's constant slots and the plane (a plane on a constant slot adds nothing)
+            let fixed = &set.disp.tables()[c.t as usize].domains[c.r as usize].fixed;
+            let mut subs: Vec<(usize, i64)> = fixed
+                .iter()
+                .enumerate()
+                .filter_map(|(q, v)| v.map(|x| (q, x as i64)))
+                .collect();
+            if let Locus::Plane { param, value } = c.locus
+                && !subs.iter().any(|(q, _)| *q == param as usize)
+            {
+                subs.push((param as usize, value));
+            }
+            match vanishes_after(&num, arity, &subs) {
+                Ok(true) => {}
+                // a FALSE claim (each claim is checked on its own: it never becomes a proof; the first few are named)
+                Ok(false) => {
+                    self.stats.claims_false += 1;
+                    if self.false_claims.len() < 100 {
+                        self.false_claims
+                            .push(refuse(ZeroProofRefusal::NumeratorDoesNotVanish {
+                                record: sha,
+                                term: c.term,
+                                locus: c.locus,
+                            }));
+                    }
+                    continue;
+                }
+                Err(_) => {
+                    self.stats.claims_unchecked += 1;
+                    continue;
+                }
+            }
+            let check = match c.class {
+                // lane zerosfix3 (M3): independent where the core can: no denominator, or a non-zero constant
+                // d-coefficient on the locus; else the core evaluates the record's denominator at each key
+                DenStatus::NowhereZero => match den.as_deref() {
+                    None => {
+                        self.stats.den_independent += 1;
+                        DenCheck::NowhereZero
+                    }
+                    Some(dt) => match constant_d_coefficient_after(dt, arity, &subs) {
+                        Ok(true) => {
+                            self.stats.den_independent += 1;
+                            DenCheck::NowhereZero
+                        }
+                        _ => match Poly::parse_exact(dt, arity, true) {
+                            Ok(p) => {
+                                self.stats.den_checked_at_key += 1;
+                                DenCheck::NowhereZeroAtKey(PoleLocus::new(
+                                    PoleKind::Denominator,
+                                    &p,
+                                ))
+                            }
+                            // the core cannot read the denominator: the producer's claim alone
+                            Err(_) => {
+                                self.stats.den_producer_only += 1;
+                                DenCheck::NowhereZero
+                            }
+                        },
+                    },
+                },
+                DenStatus::WhereRegular => {
+                    let same = den.is_some() && c.den.as_deref().map(str::trim) == den.as_deref();
+                    match den
+                        .as_deref()
+                        .filter(|_| same)
+                        .and_then(|s| Poly::parse_exact(s, arity, true).ok())
+                    {
+                        Some(p) => {
+                            self.stats.den_at_key += 1;
+                            DenCheck::AtKey(PoleLocus::new(PoleKind::Denominator, &p))
+                        }
+                        None => {
+                            if !same {
+                                self.stats.den_text_mismatch += 1;
+                            }
+                            self.stats.den_unchecked += 1;
+                            DenCheck::Unchecked
+                        }
+                    }
+                }
+            };
+            self.stats.claims_confirmed += 1;
+            let v = self.by_record.entry((c.t, c.r)).or_default();
+            if v.is_empty() {
+                self.stats.records += 1;
+            }
+            if !v
+                .iter()
+                .any(|(j, lo, k)| *j == c.term && *lo == c.locus && *k == check)
+            {
+                v.push((c.term, c.locus, check));
+            }
+        }
+        Ok(())
+    }
+
+    /// Read proof files into `self` (each line verified; any violation refuses with the file and line); lane
+    /// zerosfix3: then every proved claim is checked against its record's text ([`ZeroProofRefusal`] on a false one).
     pub fn load_files(
         &mut self,
         set: &ImportedSet,
         files: &[PathBuf],
         opts: &LoadOptions,
-    ) -> Result<(), String> {
+    ) -> Result<(), ZeroProofError> {
         for p in files {
             self.load_file(set, p, opts)?;
         }
-        Ok(())
+        self.check_pending(set)
     }
 
-    fn load_file(&mut self, set: &ImportedSet, p: &Path, opts: &LoadOptions) -> Result<(), String> {
-        let f = std::fs::File::open(p).map_err(|e| format!("{}: {e}", p.display()))?;
+    fn load_file(
+        &mut self,
+        set: &ImportedSet,
+        p: &Path,
+        opts: &LoadOptions,
+    ) -> Result<(), ZeroProofError> {
+        let file = p.display().to_string();
+        let err = |line: usize, reason: ZeroProofRefusal| ZeroProofError {
+            file: file.clone(),
+            line,
+            reason,
+        };
+        let f = std::fs::File::open(p).map_err(|e| err(0, ZeroProofRefusal::Io(e.to_string())))?;
         self.stats.files += 1;
         for (i, l) in std::io::BufReader::with_capacity(1 << 20, f)
             .lines()
             .enumerate()
         {
-            let l = l.map_err(|e| format!("{}: {e}", p.display()))?;
+            let l = l.map_err(|e| err(i + 1, ZeroProofRefusal::Io(e.to_string())))?;
             if l.trim().is_empty() {
                 continue;
             }
             let v: Value = serde_json::from_str(&l)
-                .map_err(|e| format!("{} line {}: {e}", p.display(), i + 1))?;
+                .map_err(|e| err(i + 1, ZeroProofRefusal::Json(e.to_string())))?;
             if v["schema"] != ZERO_PROOF_SCHEMA {
                 // other lines of a mixed answer file (per-key verdicts) are not proofs
                 continue;
             }
-            let pl = parse_line(&v).map_err(|e| format!("{} line {}: {e}", p.display(), i + 1))?;
+            let pl = parse_line(&v).map_err(|e| err(i + 1, ZeroProofRefusal::Line(e)))?;
             if let Some(allow) = &opts.tools
                 && !allow.contains(&pl.tool)
             {
-                return Err(format!(
-                    "{} line {}: producer {} is not allowed",
-                    p.display(),
-                    i + 1,
-                    pl.tool
-                ));
+                return Err(err(i + 1, ZeroProofRefusal::ProducerNotAllowed(pl.tool)));
             }
-            self.insert(set, &pl)
-                .map_err(|e| format!("{} line {}: {e}", p.display(), i + 1))?;
+            self.insert_at(set, &pl, &file, i + 1)
+                .map_err(|e| err(i + 1, e))?;
         }
         Ok(())
     }
 
     /// Load proof files for `set` (module documentation).
-    pub fn load(set: &ImportedSet, files: &[PathBuf], opts: &LoadOptions) -> Result<Self, String> {
+    pub fn load(
+        set: &ImportedSet,
+        files: &[PathBuf],
+        opts: &LoadOptions,
+    ) -> Result<Self, ZeroProofError> {
         let mut z = ZeroProofs::new();
         z.load_files(set, files, opts)?;
         Ok(z)
+    }
+
+    /// lane zerosfix3 (audit F4): the status of ONE held proof line (term, locus) of (table, record) at the RULE POINT
+    /// `pt` with the ONE semantics: `Proved` only when the locus holds the point and the line's denominator check
+    /// passes there (nowhere zero, or the record's denominator evaluated non-zero at the point).
+    pub fn line_status_at_point(
+        &self,
+        table: usize,
+        record: usize,
+        term: usize,
+        locus: Locus,
+        pt: &[i32],
+    ) -> ZeroStatus {
+        if !locus.contains(pt) {
+            return ZeroStatus::NotProved;
+        }
+        let mut best = ZeroStatus::NotProved;
+        for (j, lo, den) in self.of_record(table, record) {
+            if *j as usize != term || *lo != locus {
+                continue;
+            }
+            match den {
+                DenCheck::NowhereZero => return ZeroStatus::Proved,
+                DenCheck::AtKey(pl) | DenCheck::NowhereZeroAtKey(pl) => match pl.vanishes_at(pt) {
+                    Ok(false) => return ZeroStatus::Proved,
+                    Ok(true) => best = ZeroStatus::DenominatorVanishes,
+                    Err(_) => {}
+                },
+                DenCheck::Unchecked => {}
+            }
+        }
+        best
     }
 
     /// The best status of term `term` of (table, record) at the RULE POINT `pt`.
@@ -406,7 +898,7 @@ impl ZeroProofs {
             }
             match den {
                 DenCheck::NowhereZero => return ZeroStatus::Proved,
-                DenCheck::AtKey(pl) => match pl.vanishes_at(pt) {
+                DenCheck::AtKey(pl) | DenCheck::NowhereZeroAtKey(pl) => match pl.vanishes_at(pt) {
                     Ok(false) => return ZeroStatus::Proved,
                     Ok(true) => best = ZeroStatus::DenominatorVanishes,
                     Err(_) => {}
@@ -450,6 +942,48 @@ impl ZeroProofs {
             .map(Vec::as_slice)
             .unwrap_or(&[])
     }
+}
+
+/// lane zerosfix3: the coefficient texts of the terms `terms` of (table, record), streamed from the record's own line
+/// (checked against its record_sha256). Ok(None): a term above the record budget (cannot be held).
+fn record_term_texts(
+    set: &ImportedSet,
+    table: usize,
+    record: usize,
+    terms: &BTreeSet<u32>,
+) -> Result<Option<HashMap<u32, String>>, String> {
+    let info = set.rule(table, record);
+    let budget = set.spec.read_limits().record_budget;
+    let mut out: HashMap<u32, String> = HashMap::new();
+    let mut bad: Option<String> = None;
+    let mut visit = |j: usize, raw: &[u8]| -> Result<(), crate::record::RecordError> {
+        if bad.is_some() || !terms.contains(&(j as u32)) {
+            return Ok(());
+        }
+        match serde_json::from_slice::<Value>(raw) {
+            Ok(t) => match t.get(1).and_then(Value::as_str) {
+                Some(c) => {
+                    out.insert(j as u32, c.to_string());
+                }
+                None => bad = Some(format!("rhs term {j}: [key, coefficient] expected")),
+            },
+            Err(e) => bad = Some(format!("rhs term {j}: {e}")),
+        }
+        Ok(())
+    };
+    match super::exact_facts::stream_record(info, budget, Some(&mut visit)) {
+        Ok(_) => {}
+        Err(super::error::ImportError::Refused { reason, .. })
+            if matches!(*reason, super::error::TableRefusal::RecordTooLarge { .. }) =>
+        {
+            return Ok(None);
+        }
+        Err(e) => return Err(e.to_string()),
+    }
+    if let Some(b) = bad {
+        return Err(b);
+    }
+    Ok(Some(out))
 }
 
 /// A [`FactSource`] that answers like `inner`, except that an `Unknown` coefficient that a proof covers AT THE KEY

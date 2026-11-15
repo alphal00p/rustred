@@ -2,6 +2,7 @@
 //! loader (`import::zero_proofs`), to the closing loop's accept path (`closeloop::zeros::ZerosAnswers` + `compare_zeros`)
 //! and to the ship gate (`pieces::import_edges::gate_check_with` + `ZeroProofFacts`).
 //!
+//! lane zerosfix3: F1-F4 pass since that lane (un-ignored); F5 stays ignored (lane planfix).
 //! Tests named `fN_*` are marked `#[ignore = "AUDIT-R2-ZEROS ..."]`: they assert the SPECIFIED behaviour
 //! (interfaces/zero-proofs.md 3 "verified on load ... ONE semantics", the audit brief "every forgery must be refused")
 //! and FAIL on int/7 d60f3839: they are the reproductions of the findings (run with `--include-ignored`).
@@ -139,7 +140,8 @@ fn write_lines(dir: &Path, name: &str, lines: &[Value]) -> PathBuf {
 /// Load `lines` as a proof file of material P; Ok(proofs) or the loader's refusal.
 fn load_p(set: &ImportedSet, dir: &Path, lines: &[Value]) -> Result<ZeroProofs, String> {
     let p = write_lines(dir, "proofs.jsonl", lines);
-    ZeroProofs::load(set, &[p], &LoadOptions::default())
+    // (lane zerosfix3: the loader's refusals are typed; their text is compared here)
+    ZeroProofs::load(set, &[p], &LoadOptions::default()).map_err(|e| e.to_string())
 }
 
 fn st(z: &ZeroProofs, set: &ImportedSet, term: usize, key: [i32; 3]) -> ZeroStatus {
@@ -252,6 +254,7 @@ fn ok_loader_refuses_malformed_or_misbound_lines() {
     assert!(
         ZeroProofs::load(&set, &[p], &opts)
             .unwrap_err()
+            .to_string()
             .contains("not allowed")
     );
     // a file truncated INSIDE a line
@@ -353,7 +356,6 @@ fn ok_misbound_or_partial_material_is_never_a_proof() {
 /// bound and answers `Proved`: the loader verifies the binding (sha, term range, parameter, echo, vocabulary) but never
 /// the CLAIM, although the record's coefficient text is in the set (`set.bodies`).
 #[test]
-#[ignore = "AUDIT-R2-ZEROS F1: the core loader accepts a proof whose numerator does not vanish (claim never re-checked)"]
 fn f1_loader_refuses_a_proof_whose_numerator_does_not_vanish() {
     let d = tmp("f1");
     let (set, _, rsha) = p_material(&d, &[K], &["nonzero", "zero", "nonzero", "unknown", "zero"]);
@@ -381,7 +383,6 @@ fn f1_loader_refuses_a_proof_whose_numerator_does_not_vanish() {
 
 /// F1b (loader, same root): an honest proof of term 1 re-labelled as term 2 is accepted for term 2.
 #[test]
-#[ignore = "AUDIT-R2-ZEROS F1: a proof of term j presented for term k is accepted (claim never re-checked)"]
 fn f1b_loader_refuses_a_proof_rebound_to_another_term() {
     let d = tmp("f1b");
     let (set, _, rsha) = p_material(&d, &[K], &["nonzero", "zero", "nonzero", "unknown", "zero"]);
@@ -403,7 +404,6 @@ fn f1b_loader_refuses_a_proof_rebound_to_another_term() {
 /// denominator text: `den = "1"` turns the 0/0 key [3,1,0] of t3 into `Proved` (the verifier compares the text, the
 /// loader every consumer uses does not).
 #[test]
-#[ignore = "AUDIT-R2-ZEROS F2: the loader evaluates the den text of the proof line, not the record's (0/0 accepted)"]
 fn f2_loader_checks_the_den_text_against_the_record() {
     let d = tmp("f2");
     let (set, _, rsha) = p_material(&d, &[K], &["nonzero", "zero", "nonzero", "unknown", "zero"]);
@@ -431,7 +431,6 @@ fn f2_loader_checks_the_den_text_against_the_record() {
 /// strongest wins: (a) `nowhere_zero` + `where_regular` -> the 0/0 key is `Proved`; (b) `zero_on_locus` +
 /// `not_proved` -> `Proved`. (The verifier keeps only the LAST line per locus, so such a file can VERIFY.)
 #[test]
-#[ignore = "AUDIT-R2-ZEROS F3: contradicting lines for one (record, term, locus) are accepted; the strongest wins"]
 fn f3_loader_refuses_contradicting_lines_for_one_locus() {
     let d = tmp("f3");
     let (set, _, rsha) = p_material(&d, &[K], &["nonzero", "zero", "nonzero", "unknown", "zero"]);
@@ -615,7 +614,6 @@ fn ok_accept_path_unbacked_contradicted_or_missing_words_never_confirm() {
 /// denominator (n0 - 3) vanishes at [3,1,0], confirms a 0/0 first-route zero. The core's `status_at_point` (the ONE
 /// semantics) answers DenominatorVanishes there; the accept path never asks it.
 #[test]
-#[ignore = "AUDIT-R2-ZEROS F4: closeloop bind() ignores the bound proof's den check: a 0/0 zero is confirmed"]
 fn f4_accept_path_applies_the_one_semantics_to_bound_proofs() {
     let d = tmp("f4");
     let (set, ev, rsha) = p_material(&d, &[K], &["nonzero", "zero", "nonzero", "zero", "zero"]);

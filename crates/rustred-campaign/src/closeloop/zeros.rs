@@ -667,7 +667,8 @@ impl ZerosAnswers {
     }
 
     /// Bind every structural reference to a loaded proof whose locus holds the key's rule point (after all files are
-    /// loaded): an unbacked reference is recorded in `unbound` and its word becomes `unknown`.
+    /// loaded): an unbacked reference is recorded in `unbound` and its word becomes `unknown`. lane zerosfix3 (F4): the
+    /// proof must answer `Proved` there (`ZeroProofs::line_status_at_point`: the denominator check included).
     pub fn bind(&mut self, set: &ImportedSet) {
         let mut unbound = vec![];
         for ((sha, key), words) in self.verdicts.iter_mut() {
@@ -684,13 +685,23 @@ impl ZerosAnswers {
                 let Some(l) = by_locus(by) else {
                     continue;
                 };
-                let backed = has_pt
-                    && l.contains(&pt)
-                    && self
-                        .proofs
-                        .of_record(t, r)
-                        .iter()
-                        .any(|(pj, pl, _)| *pj == *j && *pl == l);
+                // lane zerosfix3 (audit F4): a `zero` word relies on the named line, which must PROVE the term at the
+                // key's rule point with the ONE semantics (its locus holds the point AND its denominator check passes
+                // there: a where_regular proof at a 0/0 point is not a proof), not merely exist; any other word only
+                // names the line it looked at (it must exist and hold the point)
+                let backed = if *w == CoefFact::Zero {
+                    has_pt
+                        && self.proofs.line_status_at_point(t, r, *j as usize, l, &pt)
+                            == rustred_campaign_core::import::zero_proofs::ZeroStatus::Proved
+                } else {
+                    has_pt
+                        && l.contains(&pt)
+                        && self
+                            .proofs
+                            .of_record(t, r)
+                            .iter()
+                            .any(|(pj, pl, _)| *pj == *j && *pl == l)
+                };
                 if !backed {
                     unbound.push((sha.clone(), key.clone(), *j, by.clone()));
                     *w = CoefFact::Unknown;
