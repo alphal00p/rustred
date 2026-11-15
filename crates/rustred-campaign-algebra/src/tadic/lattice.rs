@@ -34,7 +34,10 @@ pub struct SaturatedBasis {
     pub saturation_exponent: u64,
 }
 
-fn rows_in_t(rows: &[Vec<(u32, String)>], d0: &Rat) -> Result<Vec<Vec<(u32, ZP, ZP)>>, String> {
+/// A row of (column, numerator, denominator) in t.
+type RowT = Vec<(u32, ZP, ZP)>;
+
+fn rows_in_t(rows: &[Vec<(u32, String)>], d0: &Rat) -> Result<Vec<RowT>, String> {
     let ctx = Ctx::new();
     rows.iter()
         .map(|r| {

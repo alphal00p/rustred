@@ -254,6 +254,10 @@ impl Ar for TruncP {
 }
 
 type Ent<P> = Vec<(u32, P)>;
+/// A phase-1 row with its truncation (None = exact).
+type PRow<P> = (Ent<P>, Option<u32>);
+/// The check mode's view of one phase-2 basis row: (pivot, interest entries, carried entries, shift).
+pub(crate) type BasisRowZ = (u32, Vec<(u32, ZP)>, Vec<(u32, ZP)>, u32);
 
 /// out = a*x - b*y on sorted sparse vectors (truncated to `prec`, zeros dropped).
 fn comb<A: Ar>(
@@ -327,7 +331,7 @@ impl Budgeter<'_> {
         {
             return Err(Stop(format!("budget max_degree {m} exceeded ({degree})")));
         }
-        if self.ops % 64 == 0
+        if self.ops.is_multiple_of(64)
             && let Some(s) = self.q.budget.max_seconds
             && self.t0.elapsed().as_secs_f64() > s
         {
@@ -383,8 +387,18 @@ fn layout(sys: &ExactSystem, q: &PoleQuery<'_>) -> Layout {
             upper.push(i as u32);
         }
     }
-    // upper columns: highest first in the caller's order is not known here; keep the system's column order (the
-    // result does not depend on it; only cost does)
+    // upper columns MOST COMPLEX FIRST (Laporta-like: a row's leading column is its most complex unknown, so a
+    // reduction only brings in simpler ones): generic key weight = (number of positive indices, sum of |index|, key),
+    // descending. Only the cost depends on this order, never p* (an invariant of the row space).
+    let weight = |c: &u32| {
+        let k = &sys.columns[*c as usize];
+        (
+            k.iter().filter(|&&x| x > 0).count(),
+            k.iter().map(|x| x.unsigned_abs()).sum::<u64>(),
+            k.clone(),
+        )
+    };
+    upper.sort_by_key(|c| std::cmp::Reverse(weight(c)));
     let mut pos = vec![0u32; sys.columns.len()];
     let mut col_of_pos = Vec::with_capacity(sys.columns.len());
     for &c in upper.iter().chain(&interest).chain(&carried) {
@@ -418,7 +432,6 @@ fn eliminate<A: Ar>(
     q: &PoleQuery<'_>,
     lay: &Layout,
     order: &[usize],
-    d0: &Rat,
     prec0: Option<u32>,
     bud: &mut Budgeter<'_>,
 ) -> Result<Run<A::P>, Stop> {
@@ -435,12 +448,22 @@ fn eliminate<A: Ar>(
     };
     let mut indeterminate = 0usize;
     // ---- phase 1
-    let mut piv: Vec<Option<(Ent<A::P>, Option<u32>)>> = vec![None; lay.n_upper as usize];
+    let mut piv: Vec<Option<PRow<A::P>>> = vec![None; lay.n_upper as usize];
     let mut held_terms = 0usize;
-    let mut w0: Vec<(Ent<A::P>, Option<u32>)> = Vec::new();
-    let dn = Integer::from(d0.n);
-    let dd = Integer::from(d0.d);
-    for &ri in order {
+    let mut w0: Vec<PRow<A::P>> = Vec::new();
+    let dn = Integer::from(q.d0.n);
+    let dd = Integer::from(q.d0.d);
+    let progress = std::env::var_os("RUSTRED_TADIC_PROGRESS").is_some();
+    for (done, &ri) in order.iter().enumerate() {
+        if progress && done % 500 == 0 {
+            eprintln!(
+                "tadic phase 1: {done}/{} rows, {} upper pivots, {} W0 rows, {held_terms} terms held, {:.1} s",
+                order.len(),
+                rank.upper_pivots,
+                w0.len(),
+                bud.t0.elapsed().as_secs_f64()
+            );
+        }
         // a + b d = a + b (t + n/m)  ->  times m:  (a m + b n) + (b m) t
         let mut r: Ent<A::P> = sys.rows[ri]
             .iter()
@@ -576,7 +599,7 @@ struct Phase2<P> {
 /// except the first one with a target entry (`case_a`).
 fn phase2<A: Ar>(
     ar: &A,
-    rows: Vec<(Ent<A::P>, Option<u32>)>,
+    rows: Vec<PRow<A::P>>,
     ni: u32,
     tp: Option<u32>,
     bud: &mut Budgeter<'_>,
@@ -914,7 +937,7 @@ pub fn screen_at_d0(sys: &ExactSystem, q: &PoleQuery<'_>, prime: u64) -> Result<
         ops: 0,
     };
     let order: Vec<usize> = (0..sys.rows.len()).collect();
-    eliminate(&ar, sys, q, &lay, &order, &q.d0, Some(1), &mut bud)
+    eliminate(&ar, sys, q, &lay, &order, Some(1), &mut bud)
         .map(|r| r.p_star == PStar::Order(0))
         .map_err(|s| s.0)
 }
@@ -939,7 +962,7 @@ impl PoleOrderOracle for SymbolicaTadic {
                     field: Zp64::new(prime),
                 };
                 let ord: Vec<usize> = (0..sys.rows.len()).collect();
-                match eliminate(&ar, sys, q, &lay, &ord, &q.d0, Some(order.max(1)), &mut bud) {
+                match eliminate(&ar, sys, q, &lay, &ord, Some(order.max(1)), &mut bud) {
                     Ok(run) => {
                         res.verdict = Verdict::Screen;
                         res.p_star = Some(run.p_star);
@@ -957,7 +980,7 @@ impl PoleOrderOracle for SymbolicaTadic {
                 let mut chosen: Option<(Run<ZP>, u32)> = None;
                 for k in 0..self.relation_orders.max(1) {
                     let ord = row_order(sys.rows.len(), k);
-                    match eliminate(&ar, sys, q, &lay, &ord, &q.d0, None, &mut bud) {
+                    match eliminate(&ar, sys, q, &lay, &ord, None, &mut bud) {
                         Ok(run) => {
                             if let Some((c, _)) = &chosen
                                 && c.p_star != run.p_star
@@ -998,10 +1021,10 @@ impl PoleOrderOracle for SymbolicaTadic {
                 res.notes.push(format!(
                     "relation from row order {k} (0 = as given, 1 = reversed, >= 2 seeded shuffle)"
                 ));
-                if q.want_relation {
-                    if let Some(r) = run.case_a.as_ref().or(run.best.as_ref()) {
-                        res.relation = Some(relation_from(&ar, sys, &lay, r, &q.d0));
-                    }
+                if q.want_relation
+                    && let Some(r) = run.case_a.as_ref().or(run.best.as_ref())
+                {
+                    res.relation = Some(relation_from(&ar, sys, &lay, r, &q.d0));
                 }
             }
         }
@@ -1019,7 +1042,7 @@ impl PoleOrderOracle for SymbolicaTadic {
 /// Internal access for the check mode: the exact phase-2 basis as (pivot column, interest entries, carried entries,
 /// shift), columns as SYSTEM column indices, polynomials in t.
 pub(crate) struct ExactBasis {
-    pub rows: Vec<(u32, Vec<(u32, ZP)>, Vec<(u32, ZP)>, u32)>,
+    pub rows: Vec<BasisRowZ>,
     pub target_col: Option<u32>,
     pub interest_cols: Vec<u32>,
     pub p_star: PStar,
@@ -1034,7 +1057,7 @@ pub(crate) fn exact_basis(sys: &ExactSystem, q: &PoleQuery<'_>) -> Result<ExactB
         ops: 0,
     };
     let ord: Vec<usize> = (0..sys.rows.len()).collect();
-    let run = eliminate(&ar, sys, q, &lay, &ord, &q.d0, None, &mut bud).map_err(|s| s.0)?;
+    let run = eliminate(&ar, sys, q, &lay, &ord, None, &mut bud).map_err(|s| s.0)?;
     let m = |e: &Ent<ZP>| -> Vec<(u32, ZP)> {
         e.iter()
             .map(|(p, x)| (lay.col_of_pos[*p as usize], x.clone()))

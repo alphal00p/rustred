@@ -66,7 +66,8 @@ fn tadic_real_run() {
         .collect();
     assert_eq!(lines.len(), n);
     let t0 = std::time::Instant::now();
-    let seeds = seeds_around(&key, &[centre.clone()], &shells, &lines, true);
+    let filter = env("TADIC_SECTOR_FILTER").as_deref() != Some("0");
+    let seeds = seeds_around(&key, std::slice::from_ref(&centre), &shells, &lines, filter);
     let sys = build_ibp_system(&fam, &seeds, true).expect("system");
     let build_s = t0.elapsed().as_secs_f64();
     let k32: Vec<i32> = key.iter().map(|&x| x as i32).collect();
@@ -99,7 +100,7 @@ fn tadic_real_run() {
         .unwrap_or_default();
     let mut out = serde_json::json!({
         "what": "best route-pole order in system",
-        "key": key, "centre": centre, "shells": env("TADIC_SHELLS"), "d0": d0.text(),
+        "key": key, "centre": centre, "sector_filter": filter, "shells": env("TADIC_SHELLS"), "d0": d0.text(),
         "seeds": sys.id.seeds, "rows": sys.id.rows, "columns": sys.id.columns,
         "seed_set_sha256": sys.id.seed_set_sha256, "family_sha256": sys.id.family_sha256,
         "build_seconds": build_s, "verdict": r.verdict, "p_star": r.p_star, "rank": r.rank,
