@@ -14,6 +14,8 @@ pub mod termmin;
 pub mod repair;
 // lane coreseed (interfaces/coreseed.md): the IBP core of a face, solved through solve-recipe children
 pub mod coreseed;
+// lane symcert (interfaces/proof-symrows-job.md 5): kernel certificates of multi-term symmetry relations
+pub mod symcert;
 
 pub use config::{CONFIG_ROLE, CONFIG_SCHEMA, CloseLoopConfig, NodeCfg, SolveCfg, Target};
 pub use source::CloseFromMaterialSource;

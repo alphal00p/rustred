@@ -169,6 +169,9 @@ pub struct Evidence {
     /// lane closeloop2 (closeloop.md 13.6): Some = a recipe-served key is `per-key` only when its (recipe source, key)
     /// is listed (an exact per-key proof is bound to the relation's point record), else `imported`; None = as before.
     pub recipe_proofs: Option<std::collections::HashSet<(String, Vec<i32>)>>,
+    /// lane symcert (interfaces/proof-symrows-job.md 6): kernel certificates of supplied symmetry relations bound to
+    /// (supplied record SHA-256, key); None = as before.
+    pub symmetry_certificates: Option<crate::symcert::SymmetryCertificates>,
     pub counts: EvidenceCounts,
     label: String,
     fact_files: Vec<String>,

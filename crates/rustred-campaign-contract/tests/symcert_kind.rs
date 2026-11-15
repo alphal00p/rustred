@@ -51,7 +51,7 @@ fn table(rhs: &[(Vec<i64>, String)]) -> (Vec<u8>, u64, Vec<u8>) {
     // the kernel needs the line to START with {"type":"rule"
     let rec_line = format!(
         "{{\"type\":\"rule\",{}",
-        &rec.to_string()[1..].replacen("\"type\":\"rule\",", "", 1)
+        rec.to_string()[1..].replacen("\"type\":\"rule\",", "", 1)
     );
     let mut b = format!("{head}\n").into_bytes();
     let off = b.len() as u64;

@@ -51,3 +51,5 @@ pub mod coreseed;
 pub mod poles;
 // lane tworow (interfaces/tworow.md): REQUEST TO I-INT, one line
 pub mod tworow;
+// lane symcert (interfaces/proof-symrows-job.md 7): REQUEST TO I-INT, one line
+pub mod symcert;

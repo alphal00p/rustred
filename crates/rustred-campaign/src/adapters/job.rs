@@ -226,6 +226,8 @@ pub fn is_refusal(c: &Classification) -> bool {
                 | QueueOpenList
                 | QueueFailures
                 | RecordNegativeVerdict
+                // lane symcert (row 41): the kernel's decided refusal of a symmetry row, not a child deviation
+                | CertificateRefused
         )
 }
 

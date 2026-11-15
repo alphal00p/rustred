@@ -12,6 +12,8 @@ pub mod job;
 pub mod legacy;
 pub mod proof;
 pub mod solve_recipe;
+// lane symcert: kind proof-symrows (rr_proof --symrows: kernel certificates of multi-term symmetry relations)
+pub mod symrows;
 
 use crate::launch::LaunchSpec;
 use crate::supervisor::worksource::JobRequest;

@@ -188,7 +188,8 @@ pub fn contract_accepts(class: FinishClass) -> &'static [ContractAccept] {
     use ContractAccept as A;
     use FinishClass::*;
     match class {
-        Complete => &[A::Canonical, A::Nothing],    // rows 1, 3
+        // rows 1, 3; 40 = kind proof-symrows (lane symcert: certificates bound to the asked relation)
+        Complete => &[A::Canonical, A::Certificates, A::Nothing],
         NoRule => &[A::CommittedRules, A::Nothing], // rows 4, 24
         Spill => &[A::CommittedRules],              // row 8
         DecidedNegative => &[A::Nothing],           // row 7 (c=11)
@@ -215,6 +216,9 @@ pub fn accept_permits_records(a: ContractAccept) -> bool {
         ContractAccept::SolvedRecords => true, // row 28 (lane adapters)
         // line 7 (rows 30-32): diagnostic records are never rule or relation evidence; no record is taken from them here
         ContractAccept::DiagnosticRecords => false,
+        // lane symcert (row 40): the sealed certificate is read and handed to the work source, which binds it to the
+        // relation it asked about (closeloop::symcert): evidence of that relation's per-key level only
+        ContractAccept::Certificates => true,
         ContractAccept::Nothing => false,
     }
 }
@@ -225,6 +229,7 @@ pub fn accept_word(a: ContractAccept) -> &'static str {
         ContractAccept::CommittedRules => "committed_rules",
         ContractAccept::SolvedRecords => "solved_records", // lane adapters (row 28)
         ContractAccept::DiagnosticRecords => "diagnostic_records", // line 7 (rows 30-32)
+        ContractAccept::Certificates => "certificates",    // lane symcert (row 40)
         ContractAccept::Nothing => "nothing",
     }
 }

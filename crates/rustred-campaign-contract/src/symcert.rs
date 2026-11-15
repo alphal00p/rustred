@@ -165,8 +165,11 @@ pub fn relation_digest(key: &[i64], rhs: &[(Vec<i64>, String)]) -> Result<String
     Ok(crate::blake3_hex(&c))
 }
 
+/// A relation: its key and its right-hand side (key, the producer's exact coefficient text).
+pub type Relation = (Vec<i64>, Vec<(Vec<i64>, String)>);
+
 /// The relation of a point-rule record line: (key from `target`, rhs [(key, text)]); `fixed` must equal the key.
-pub fn relation_of_record(line: &[u8]) -> Result<(Vec<i64>, Vec<(Vec<i64>, String)>), String> {
+pub fn relation_of_record(line: &[u8]) -> Result<Relation, String> {
     let v: Value = serde_json::from_slice(line).map_err(|e| format!("record: {e}"))?;
     if v["type"] != "rule" {
         return Err("not a rule record".into());
