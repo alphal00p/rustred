@@ -26,6 +26,7 @@
 pub mod affine;
 pub mod auto;
 pub mod bounds;
+pub mod choice;
 pub mod childjob;
 pub mod descent;
 pub mod domain;
