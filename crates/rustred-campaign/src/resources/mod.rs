@@ -18,6 +18,7 @@ compile_error!(
 
 mod bounded;
 mod children;
+pub mod lineage;
 mod marked;
 mod pid;
 mod scan;
@@ -31,10 +32,11 @@ pub(crate) use children::{
     read_proc_facts, start_reaper, strict_listing_counted,
 };
 pub use children::{ReaperStats, reaper_stats, request_reap};
+pub use lineage::{HiddenProcess, describe_hidden};
 pub use marked::{
     CampaignMarker, CampaignScan, ENVIRON_READ_TIMEOUT, InvalidMarker, MARKER_VAR, MarkedProcess,
-    MarkerRead, hidden_descendants, hidden_descendants_at, marker_in_environ, our_uid,
-    owner_uid_at, read_marker_at, scan_campaign, validate_campaign_id,
+    MarkerRead, environ_readable_at, hidden_descendants, hidden_descendants_at, marker_in_environ,
+    our_uid, owner_uid_at, read_marker_at, scan_campaign, validate_campaign_id,
 };
 pub(crate) use marked::{STRICT_ENVIRON_TIMEOUT, scan_marked_inline};
 pub use pid::{InvalidPid, PID_MAX_LIMIT, ValidPid, pid_max};

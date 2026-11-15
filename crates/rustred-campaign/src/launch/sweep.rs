@@ -30,9 +30,9 @@
 
 use super::guard::{self, ProcessTarget, StartRule, Verdict};
 use crate::resources::{
-    CampaignMarker, FactRead, MarkedProcess, MarkerRead, STRICT_ENVIRON_TIMEOUT, boot_id,
-    children_of, our_uid, owner_uid_at, read_marker_at, read_proc_facts, read_stat, request_reap,
-    scan_marked_inline,
+    CampaignMarker, FactRead, HiddenProcess, MarkedProcess, MarkerRead, STRICT_ENVIRON_TIMEOUT,
+    boot_id, children_of, describe_hidden, our_uid, owner_uid_at, read_marker_at, read_proc_facts,
+    read_stat, request_reap, scan_marked_inline,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -99,6 +99,9 @@ pub struct SweepReport {
     pub rounds: u32,
     /// Distinct marked processes seen alive.
     pub seen: usize,
+    /// procfix7 (gate6 MJ-A): when not proven because of unreadable candidates, those of the last scan that may descend
+    /// from the campaign (pid, name, parent, why); never signalled. Empty when proven.
+    pub hidden: Vec<HiddenProcess>,
 }
 
 impl SweepReport {
@@ -146,6 +149,8 @@ struct Sweep<'a> {
     continued: BTreeMap<Key, LeftMarked>,
     stranded: BTreeMap<Key, (Member, String)>,
     rounds: u32,
+    /// procfix7: the possibly-ours unreadable candidates of the last strict scan.
+    hidden: Vec<HiddenProcess>,
 }
 
 fn key(p: &MarkedProcess) -> Key {
@@ -175,7 +180,7 @@ impl Sweep<'_> {
     }
 
     /// Marked children of a STOPPED member (its list is stable). Unreadable facts of a child: Err (inconclusive).
-    fn marked_children(&self, pid: u32) -> Result<Vec<MarkedProcess>, String> {
+    fn marked_children(&mut self, pid: u32) -> Result<Vec<MarkedProcess>, String> {
         let mut out = Vec::new();
         let Some(kids) = children_of(pid)? else {
             return Ok(out);
@@ -201,7 +206,20 @@ impl Sweep<'_> {
                         out.push(MarkedProcess::from_stat(&st, m.attempt_id));
                     }
                 }
-                MarkerRead::Unreadable => return Err(format!("environ of child {c} unreadable")),
+                MarkerRead::Unreadable => {
+                    // A child of a stopped member descends from the campaign: never classified away.
+                    self.hidden = vec![HiddenProcess {
+                        pid: c,
+                        start_ticks: st.start_ticks,
+                        ppid: pid,
+                        comm: st.comm.clone(),
+                        why: format!("environ unreadable; a child of the stopped member {pid}"),
+                    }];
+                    return Err(format!(
+                        "environ of child {c} ({}) of the stopped member {pid} unreadable",
+                        st.comm
+                    ));
+                }
                 MarkerRead::NoMarker | MarkerRead::Gone => {}
             }
         }
@@ -314,10 +332,12 @@ impl Sweep<'_> {
                 Ok(scan) => {
                     if scan.unreadable > 0 {
                         inconclusive = Some(format!(
-                            "{} candidate(s) with an unreadable environ",
-                            scan.unreadable
+                            "{} candidate(s) with an unreadable environ that may descend from the campaign: {}",
+                            scan.unreadable,
+                            describe_hidden(&scan.hidden)
                         ));
                     }
+                    self.hidden = scan.hidden;
                     queue.extend(scan.processes);
                 }
                 Err(e) => inconclusive = Some(format!("/proc scan: {e}")),
@@ -542,10 +562,12 @@ impl Sweep<'_> {
         // Left entries that are no longer alive and marked drop out of the report.
         let alive: BTreeMap<Key, ()> = scan.processes.iter().map(|p| (key(p), ())).collect();
         self.left.retain(|k, _| alive.contains_key(k));
+        self.hidden = scan.hidden.clone();
         if scan.unreadable > 0 {
             return Err(format!(
-                "{} candidate(s) with an unreadable environ",
-                scan.unreadable
+                "{} candidate(s) with an unreadable environ that may descend from the campaign: {}",
+                scan.unreadable,
+                describe_hidden(&scan.hidden)
             ));
         }
         Ok(scan
@@ -614,6 +636,7 @@ fn sweep_inner(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
         continued: BTreeMap::new(),
         stranded: BTreeMap::new(),
         rounds: 0,
+        hidden: Vec::new(),
     };
     w.retry_stranded();
     let reason = loop {
@@ -659,6 +682,11 @@ fn sweep_inner(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
         continued: w.continued.into_values().collect(),
         left: left.into_values().collect(),
         proven: reason.is_none(),
+        hidden: if reason.is_none() {
+            Vec::new()
+        } else {
+            w.hidden
+        },
         reason,
         rounds: w.rounds,
         seen: w.seen.len(),
@@ -724,6 +752,7 @@ mod tests {
             continued: BTreeMap::new(),
             stranded: BTreeMap::new(),
             rounds: 0,
+            hidden: Vec::new(),
         };
         let process = MarkedProcess::from_stat(&st, "j1:a1".into());
         let m = Member {

@@ -9,10 +9,17 @@
 //!
 //! Unreadable environ, no marker, or another campaign id: NOT ours, never signalled.
 //!
+//! procfix7 (gate6 MJ-A): the owner of `/proc/<pid>` is the process's EFFECTIVE uid also for a non-dumpable process
+//! (only the entries inside become root-owned), so non-dumpable processes of our uid ARE candidates of the strict scans
+//! and their environ is unreadable. Such a candidate is classified by [`super::lineage`] from what stays readable (its
+//! verified parent chain and start times): proved NOT ours (not counted), or possibly ours (counted as unreadable and
+//! LISTED in [`CampaignScan::hidden`]: the scan is inconclusive and the caller names the pids). Never signalled either way.
+//!
 //! environ reads take the target's mmap lock and may block: every read here goes through
 //! [`super::bounded::read_bounded`] (default 1 s); a timed-out read counts as unreadable (not ours, retried next scan).
 
 use super::bounded::{ReadOutcome, read_bounded};
+use super::lineage::{Hidden, HiddenProcess, classify_unreadable};
 use super::{ProcStat, live_thread, read_stat_path};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -180,8 +187,15 @@ pub(crate) fn scan_marked_inline(
         let st = match read_stat_path(pid, &root.join(format!("{pid}/stat"))) {
             Ok(Some(st)) => st,
             Ok(None) => continue,
-            Err(_) => {
+            Err(e) => {
                 out.unreadable += 1;
+                out.hidden.push(HiddenProcess {
+                    pid,
+                    start_ticks: 0,
+                    ppid: 0,
+                    comm: String::new(),
+                    why: format!("stat unreadable: {e}"),
+                });
                 continue;
             }
         };
@@ -199,7 +213,7 @@ pub(crate) fn scan_marked_inline(
                         .push(MarkedProcess::from_stat(&st, m.attempt_id));
                 }
             }
-            MarkerRead::Unreadable => out.unreadable += 1,
+            MarkerRead::Unreadable => out.unreadable_candidate(root, &st, campaign_id),
             MarkerRead::NoMarker | MarkerRead::Gone => {}
         }
     }
@@ -213,8 +227,9 @@ pub fn our_uid() -> u32 {
     unsafe { libc::geteuid() }
 }
 
-/// Owner uid of `/proc/<pid>` (the process's effective uid; root for non-dumpable processes, which therefore never
-/// count as ours). None: gone.
+/// Owner uid of `/proc/<pid>`: the process's EFFECTIVE uid (procfix7, gate6 MJ-A: also for a non-dumpable process;
+/// kernel 6.18 makes only the entries INSIDE the directory root-owned, see [`super::lineage`]). Kernel threads: root.
+/// None: gone.
 pub fn owner_uid_at(root: &Path, pid: u32) -> Option<u32> {
     fs::metadata(root.join(pid.to_string()))
         .ok()
@@ -222,16 +237,17 @@ pub fn owner_uid_at(root: &Path, pid: u32) -> Option<u32> {
 }
 
 /// procfix5 (gate4 m5): processes that DESCEND from `ancestor` by the parent chain (the `PPid:` of
-/// `/proc/<pid>/status`, which stays readable), whose REAL uid (first field of `Uid:`) is `uid`, but whose /proc entry
-/// is not owned by `uid` (`owner(pid)`: root for a non-dumpable process, PR_SET_DUMPABLE 0, or a setuid program). Their
-/// environ cannot be read, so no marker scan can say whether they carry a marker: they are LISTED (pid, name) for the
-/// report, never judged ours and never signalled. Inside a user namespace such processes are owned by our mapped uid
-/// and are found (and killed) by the ordinary marker scans instead. `root` is "/proc" in production (a test seam).
+/// `/proc/<pid>/status`, which stays readable), whose REAL uid (first field of `Uid:`) is `uid`, but whose ENVIRON this
+/// process cannot read (`inspectable(pid)` = Some(false); procfix7, gate6 MJ-A: a non-dumpable process or a setuid
+/// program; the former test, "the /proc DIRECTORY is not owned by `uid`", never fired for a non-dumpable process,
+/// whose directory stays owned by its effective uid). No marker scan can say whether they carry a marker: they are
+/// LISTED (pid, name) for the report, never judged ours and never signalled. `root` is "/proc" in production (a test
+/// seam).
 pub fn hidden_descendants_at(
     root: &Path,
     ancestor: u32,
     uid: u32,
-    owner: &dyn Fn(u32) -> Option<u32>,
+    inspectable: &dyn Fn(u32) -> Option<bool>,
 ) -> std::io::Result<Vec<(u32, String)>> {
     use std::collections::BTreeMap;
     // pid -> (ppid, real uid, name), read once per pid
@@ -263,7 +279,7 @@ pub fn hidden_descendants_at(
         else {
             continue;
         };
-        if pid == ancestor || owner(pid).is_none_or(|o| o == uid) {
+        if pid == ancestor || inspectable(pid).is_none_or(|ok| ok) {
             continue;
         }
         let Some((mut ppid, ruid, name)) = read(pid) else {
@@ -294,12 +310,24 @@ pub fn hidden_descendants_at(
     Ok(out)
 }
 
-/// [`hidden_descendants_at`] of THIS process on the real /proc (our effective uid, owners from the /proc entries).
+/// [`hidden_descendants_at`] of THIS process on the real /proc (our effective uid; inspectable = environ readable).
 pub fn hidden_descendants() -> std::io::Result<Vec<(u32, String)>> {
     let root = Path::new("/proc");
     hidden_descendants_at(root, std::process::id(), our_uid(), &|p| {
-        owner_uid_at(root, p)
+        environ_readable_at(root, p)
     })
+}
+
+/// Can this process open `/proc/<pid>/environ`? Some(false): permission refused (non-dumpable, setuid, another euid);
+/// None: gone. (procfix7, gate6 MJ-A: the OWNER of the entry is no criterion across namespaces: in a user namespace
+/// whose root is our uid a non-dumpable process's environ is owned by our uid and still refused to a reader without
+/// CAP_SYS_PTRACE.)
+pub fn environ_readable_at(root: &Path, pid: u32) -> Option<bool> {
+    match fs::File::open(root.join(format!("{pid}/environ"))) {
+        Ok(_) => Some(true),
+        Err(e) if matches!(e.raw_os_error(), Some(libc::EACCES) | Some(libc::EPERM)) => Some(false),
+        Err(_) => None,
+    }
 }
 
 /// A live process of our uid carrying a marker of the scanned campaign.
@@ -338,8 +366,28 @@ impl MarkedProcess {
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct CampaignScan {
     pub processes: Vec<MarkedProcess>,
-    /// Candidates (our uid, started late enough) whose environ could not be read: unknown, never signalled.
+    /// Candidates (our uid, started late enough) whose environ could not be read and that may descend from the
+    /// campaign: unknown, never signalled (each is listed in `hidden`).
     pub unreadable: usize,
+    /// procfix7 (gate6 MJ-A): the unreadable candidates that may descend from the campaign, with the reason.
+    pub hidden: Vec<HiddenProcess>,
+    /// procfix7 (gate6 MJ-A): unreadable candidates PROVED unable to carry the marker by their parent chain (not counted
+    /// in `unreadable`; diagnostics only).
+    pub hidden_not_ours: usize,
+}
+
+impl CampaignScan {
+    /// An unreadable candidate: classified by its parent chain (`lineage`); counted only when it may be ours.
+    fn unreadable_candidate(&mut self, root: &Path, st: &ProcStat, campaign_id: &str) {
+        match classify_unreadable(root, st, campaign_id) {
+            Hidden::NotOurs(_) => self.hidden_not_ours += 1,
+            Hidden::Gone => {}
+            Hidden::Possible(why) => {
+                self.unreadable += 1;
+                self.hidden.push(HiddenProcess::new(st, why));
+            }
+        }
+    }
 }
 
 /// For a stat whose main thread is dead: a live thread of the group (None if the whole group is dead).
@@ -412,7 +460,7 @@ pub(crate) fn scan_campaign_at(
                         .push(MarkedProcess::from_stat(&st, m.attempt_id));
                 }
             }
-            MarkerRead::Unreadable => out.unreadable += 1,
+            MarkerRead::Unreadable => out.unreadable_candidate(root, &st, campaign_id),
             MarkerRead::NoMarker | MarkerRead::Gone => {}
         }
     }
@@ -422,9 +470,9 @@ pub(crate) fn scan_campaign_at(
 
 #[cfg(test)]
 mod tests {
-    /// procfix5 (gate4 m5): a fake /proc tree: a root-owned entry (owner closure) whose real uid is ours and whose
-    /// parent chain reaches the ancestor is listed; one of another real uid, one outside the chain, and one owned by
-    /// us (readable: the marker scans see it) are not.
+    /// procfix5 (gate4 m5): a fake /proc tree: an uninspectable entry (environ refused; procfix7: readability, not the
+    /// directory's owner) whose real uid is ours and whose parent chain reaches the ancestor is listed; one of another
+    /// real uid, one outside the chain, and one we can read (the marker scans see it) are not.
     #[test]
     fn m5_hidden_descendants_are_listed_never_judged() {
         let root = std::env::temp_dir().join(format!(
@@ -449,8 +497,8 @@ mod tests {
         put(102, 101, 7, "agent"); // non-dumpable grandchild, ours by real uid -> listed
         put(103, 100, 9, "foreign"); // root-owned, another real uid -> not listed
         put(104, 1, 7, "elsewhere"); // root-owned, ours, not a descendant -> not listed
-        let owner = |p: u32| Some(if matches!(p, 102..=104) { 0 } else { 7 });
-        let v = hidden_descendants_at(&root, 100, 7, &owner).unwrap();
+        let inspectable = |p: u32| Some(!matches!(p, 102..=104));
+        let v = hidden_descendants_at(&root, 100, 7, &inspectable).unwrap();
         assert_eq!(v, vec![(102, "agent".to_string())]);
         let _ = std::fs::remove_dir_all(&root);
     }

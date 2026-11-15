@@ -450,6 +450,8 @@ pub struct Supervisor {
     blocked_since: Option<Instant>,
     /// Start bound (clock ticks) of campaign-wide sweeps: this boot's first supervisor start of this campaign.
     campaign_min_ticks: Option<u64>,
+    /// procfix7 (gate6 MJ-A): this session's lineage (recorded with `SupervisorStarted`), or why it is unavailable.
+    lineage: Result<crate::resources::lineage::SessionLineage, String>,
     /// The periodic campaign-wide sweep for orphans of attempts that are not live (gate-B M1).
     periodic: Option<SweepTask>,
     last_periodic: Instant,
@@ -801,6 +803,30 @@ impl Supervisor {
             version: env!("CARGO_PKG_VERSION").into(),
             lock_token: lock.token().to_string(),
         });
+        // procfix7 (gate6 MJ-A): this session's verified ancestor chain, in the same commit as SupervisorStarted (before
+        // anything is launched): later sessions treat these ancestors as possible re-parent targets of our orphans.
+        let lineage = crate::resources::lineage::SessionLineage::of_self().and_then(|l| {
+            if (l.pid, l.start_ticks) == (lock.owner.identity.pid, lock.owner.identity.start_ticks)
+            {
+                Ok(l)
+            } else {
+                Err("lineage identity differs from the lock owner's".into())
+            }
+        });
+        match &lineage {
+            Ok(l) => first.push(Event::Note {
+                text: l.note_text(),
+            }),
+            Err(e) => {
+                log.line(
+                    "WARN",
+                    &format!("session lineage unavailable ({e}): unreadable processes keep sweeps inconclusive"),
+                );
+                first.push(Event::Note {
+                    text: format!("session_lineage_unavailable {{\"error\":{e:?}}}"),
+                });
+            }
+        }
         ledger.append_all(first).map_err(|e| match e {
             LedgerError::NoSpace { .. } => RunExit::DiskFull,
             e => RunExit::Refused(format!("ledger: {e}")),
@@ -1101,6 +1127,7 @@ impl Supervisor {
             survivors: BTreeMap::new(),
             blocked_since: None,
             campaign_min_ticks: None,
+            lineage,
             periodic: None,
             last_periodic: Instant::now(),
             last_ready: 0,
@@ -1226,6 +1253,47 @@ impl Supervisor {
 
     // ------------------------------------------------------------------------------------------------ recovery
 
+    /// procfix7 (gate6 MJ-A): build the parent-chain rule from the recorded sessions and lineages and install it for
+    /// this campaign id (the strict scans, sweeps and hunts of this process use it to classify processes of our uid
+    /// whose environ cannot be read). OFF (logged, ledger note `lineage_rule_off`) when a lineage is missing or comes
+    /// from another pid namespace: then such processes keep sweeps inconclusive, as before. Never used to signal.
+    fn install_lineage_rules(
+        &mut self,
+        sessions: &[crate::resources::lineage::RecordedSession],
+        lineages: &[crate::resources::lineage::SessionLineage],
+    ) {
+        use crate::resources::lineage::{LineageRules, install};
+        let built = match &self.lineage {
+            Ok(me) => {
+                LineageRules::build(sessions, lineages, me, crate::launch::is_child_subreaper())
+            }
+            Err(e) => Err(format!("this session's lineage is unavailable: {e}")),
+        };
+        match built {
+            Ok(r) => {
+                self.log.line(
+                    "INFO",
+                    &format!(
+                        "lineage: processes of our uid whose environ cannot be read are classified by their parent chain (earliest session start {} ticks, {} possible re-parent target(s) of earlier sessions)",
+                        r.earliest,
+                        r.targets.len()
+                    ),
+                );
+                install(&self.ctx.campaign_key, Some(r));
+            }
+            Err(why) => {
+                install(&self.ctx.campaign_key, None);
+                self.log.line(
+                    "WARN",
+                    &format!("lineage rule OFF ({why}): every unreadable process of our uid started after the bound keeps sweeps inconclusive (exit 8 names them)"),
+                );
+                self.commit(vec![Event::Note {
+                    text: format!("lineage_rule_off {{\"why\":{why:?}}}"),
+                }]);
+            }
+        }
+    }
+
     /// Recovery at start (interface section 4): the FREEZING marker sweep of the whole campaign (gate-B M1), then every
     /// unsettled attempt is settled; an attempt whose launch was journalled but never confirmed is authenticated first
     /// and is never treated as "did not run" without proof (requirement 05:23Z).
@@ -1255,8 +1323,23 @@ impl Supervisor {
         // procfix5 (gate4 m6): the row-15 / 15b count of each job comes from the LEDGER (the trailing run of resource
         // requeues), so a restart never re-arms it.
         let mut resource_ends: BTreeMap<String, u32> = BTreeMap::new();
+        // procfix7 (gate6 MJ-A): every recorded session and every recorded lineage, for the parent-chain rule.
+        let mut sessions: Vec<crate::resources::lineage::RecordedSession> = Vec::new();
+        let mut lineages: Vec<crate::resources::lineage::SessionLineage> = Vec::new();
         let _ = crate::ledger::for_each_record(&self.cdir, &mut |r, _| {
             fold_resource_ends(&mut resource_ends, &r.event);
+            if let Event::SupervisorStarted { identity, .. } = &r.event {
+                sessions.push(crate::resources::lineage::RecordedSession {
+                    pid: identity.pid,
+                    start_ticks: identity.start_ticks,
+                    boot_id: identity.boot_id.clone(),
+                });
+            }
+            if let Event::Note { text } = &r.event
+                && let Some(l) = crate::resources::lineage::SessionLineage::parse_note(text)
+            {
+                lineages.push(l);
+            }
             match &r.event {
                 Event::SupervisorStarted { identity, .. } if identity.boot_id == boot_id => {
                     min_ticks = Some(
@@ -1286,6 +1369,7 @@ impl Supervisor {
             Ok(())
         });
         self.child_resource_ends = resource_ends;
+        self.install_lineage_rules(&sessions, &lineages);
         // Sessions of another boot contribute no bound: everything they started is gone (min_ticks stays None
         // when no session of this boot launched anything, and then nothing is signalled).
         rules.min_start_ticks = min_ticks.unwrap_or(u64::MAX);
@@ -3588,11 +3672,23 @@ impl Supervisor {
             .reason
             .clone()
             .unwrap_or_else(|| "marked processes left".into());
+        // procfix7 (gate6 MJ-A): processes that could not be inspected are NAMED (never "not killed: []" alone).
+        let hidden: Vec<u32> = r.hidden.iter().map(|h| h.pid).collect();
+        let hidden_text = if r.hidden.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "; process(es) of our uid that cannot be inspected (environ unreadable) and may descend from this campaign: {hidden:?} ({}): nothing was signalled; check each (ps -o pid,ppid,lstart,cmd -p PID; its parent chain)",
+                crate::resources::describe_hidden(&r.hidden)
+            )
+        };
         let msg = format!(
-            "final marker sweep not proven ({why}); live marked process(es) not killed: {pids:?}; check each pid (its /proc/PID/environ carries this campaign's id) and kill exactly those, then run the same command"
+            "final marker sweep not proven ({why}); live marked process(es) not killed: {pids:?}{hidden_text}; check each pid (its /proc/PID/environ carries this campaign's id) and kill exactly those, then run the same command"
         );
         self.commit(vec![Event::Note {
-            text: format!("final_sweep_unproven {{\"pids\":{pids:?},\"reason\":{why:?}}}"),
+            text: format!(
+                "final_sweep_unproven {{\"pids\":{pids:?},\"hidden\":{hidden:?},\"reason\":{why:?}}}"
+            ),
         }]);
         Err(msg)
     }
@@ -3624,7 +3720,7 @@ impl Supervisor {
             ),
         }]);
         Err(format!(
-            "descendant process(es) of this supervisor under our uid that cannot be inspected (non-dumpable: /proc entry owned by root): {}; their marker is unreadable, nothing was signalled; check them by hand (ps -o pid,ppid,uid,cmd -p PID), then run the same command",
+            "descendant process(es) of this supervisor under our uid that cannot be inspected (environ not ours: non-dumpable or setuid): {}; their marker is unreadable, nothing was signalled; check them by hand (ps -o pid,ppid,uid,cmd -p PID), then run the same command",
             list.join(", ")
         ))
     }

@@ -319,12 +319,34 @@ impl Hunt<'_> {
             MarkerFact::Unreadable(e) => {
                 if facts.real_uid != self.uid {
                     self.not_ours.insert(key, false);
-                    (not_ours(false, Some(facts)), None)
-                } else {
-                    (
-                        Class::Inconclusive(format!("pid {pid}: environ unreadable ({e})")),
+                    return (not_ours(false, Some(facts)), None);
+                }
+                // procfix7 (gate6 MJ-A): a process of our uid whose environ cannot be read (non-dumpable) is NOT J's
+                // when its verified parent chain proves it outside every session of the campaign (resources::lineage);
+                // otherwise (e.g. below this supervisor) the pass stays inconclusive. Never signalled either way.
+                match crate::resources::lineage::classify_unreadable(
+                    std::path::Path::new("/proc"),
+                    &facts.stat,
+                    &self.s.marker.campaign_id,
+                ) {
+                    crate::resources::lineage::Hidden::NotOurs(_) => {
+                        self.not_ours.insert(key, false);
+                        (not_ours(false, Some(facts)), None)
+                    }
+                    // (facts.stat may be a live thread's stat when the leader is a zombie: never "dead" from here)
+                    crate::resources::lineage::Hidden::Gone => (
+                        Class::Inconclusive(format!(
+                            "pid {pid}: environ unreadable ({e}); identity changed during the parent-chain walk"
+                        )),
                         None,
-                    )
+                    ),
+                    crate::resources::lineage::Hidden::Possible(why) => (
+                        Class::Inconclusive(format!(
+                            "pid {pid} ({}): environ unreadable ({e}); {why}",
+                            facts.stat.comm
+                        )),
+                        None,
+                    ),
                 }
             }
         }
