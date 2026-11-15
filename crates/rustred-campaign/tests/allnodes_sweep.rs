@@ -168,6 +168,26 @@ fn allnodes_node() {
             .map(|row| &row.key)
             .collect();
         line["terminal_keys"] = json!(term);
+        // open keys (first 50; the exceptional rows are kept by check_streamed): key, core status, reason, blocking rule
+        let open: Vec<Value> = r
+            .rows
+            .iter()
+            .filter(|row| row.status == RowStatus::Open)
+            .take(50)
+            .map(|row| {
+                json!({"key": row.key, "status": row.open_status, "reason": row.open_reason,
+                    "rule": row.open_rule.map(|(t, rr)| set.rules[t][rr].index.unwrap_or(set.rules[t][rr].label))})
+            })
+            .collect();
+        line["open_keys"] = json!(open);
+        // load-report facts of the strict load: completeness markers, bounds records, witness kinds, line kinds
+        let rep = serde_json::to_value(&set.report).unwrap_or(Value::Null);
+        if let Some(src) = rep["sources"].as_array() {
+            line["load"] = json!(src.iter().map(|x| json!({"files_without_end": x["files_without_end"],
+                "bounds_records": x["bounds_records"], "witness": x["witness"], "line_kinds": x["line_kinds"],
+                "records_in_files": x["records_in_files"], "records_dispatched": x["records_dispatched"],
+                "not_dispatched": x["not_dispatched"].as_array().map(Vec::len)})).collect::<Vec<_>>());
+        }
         let req_keys: usize = r.fact_requests.iter().map(|q| q.keys.len()).sum();
         let proof_keys: usize = r.proof_requests.iter().map(|q| q.keys.len()).sum();
         line["request_records"] = json!(r.fact_requests.len());
@@ -175,6 +195,37 @@ fn allnodes_node() {
         line["proof_request_records"] = json!(r.proof_requests.len());
         line["proof_request_keys"] = json!(proof_keys);
         line["solve_requests"] = json!(r.solve_requests.len());
+        if mode == "k" {
+            // PREFETCH (driver option, lane allnodes DEVIATION): the Tier K superset's rule-served keys OUTSIDE the box with
+            // the record that wins there, as rr_proof requests (form A): the strict closure reaches outside keys one frontier
+            // per round; answering the superset's outside winners up front saves those rounds. The check still decides from
+            // its own requests; an answer for a record that is not the strict winner is never used.
+            let mut by: BTreeMap<(usize, usize), Vec<Vec<i32>>> = BTreeMap::new();
+            let f = std::fs::File::open(&rows).map_err(|e| e.to_string())?;
+            for l in std::io::BufRead::lines(std::io::BufReader::new(f)) {
+                let l = l.map_err(|e| e.to_string())?;
+                let v: Value = serde_json::from_str(&l).map_err(|e| e.to_string())?;
+                if v["in_start"] == json!(true) || v["server"]["kind"] != json!("rule") {
+                    continue;
+                }
+                // the winning record by its sha256 (the set's own index; never by position)
+                let Some((t, o)) = v["server"]["record_sha256"].as_str().and_then(|x| set.find_sha(x)) else {
+                    continue;
+                };
+                let key: Vec<i32> = serde_json::from_value(v["key"].clone()).map_err(|e| e.to_string())?;
+                by.entry((t, o)).or_default().push(key);
+            }
+            let mut pre = vec![];
+            let mut n = 0usize;
+            for ((t, o), keys) in by {
+                let info = &set.rules[t][o];
+                n += keys.len();
+                pre.push(json!({"table": info.path, "offset": info.offset,
+                    "rule": info.index.unwrap_or(info.label), "record_sha256": info.record_sha256, "keys": keys}));
+            }
+            write_jsonl(&dir.join("k_requests.jsonl"), &pre)?;
+            line["prefetch_outside_keys"] = json!(n);
+        }
         if mode == "c" {
             write_jsonl(&dir.join("requests.jsonl"), &r.fact_requests)?;
             write_jsonl(&dir.join("proof_requests.jsonl"), &r.proof_requests)?;

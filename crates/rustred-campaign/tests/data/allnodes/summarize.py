@@ -16,6 +16,15 @@ specs = [json.loads(l) for l in open(sys.argv[2])]
 not_run = [json.loads(l) for l in open(sys.argv[3])]
 outp = sys.argv[4]
 runs = sys.argv[5:]
+cen_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[2]))), "census.jsonl")
+census = {}
+if os.path.exists(cen_path):
+    for l in open(cen_path):
+        try:
+            c = json.loads(l)
+            census[c["table"]] = c
+        except ValueError:
+            pass
 
 
 def ledger_terminals(n):
@@ -56,6 +65,9 @@ for sp in specs:
     row = {"node": n, "tables": 1, "table_bytes": sp["bytes"], "box": f"BOXDEF.v3 A ({sp['support_class']}, L={sp['L']})",
            "box_keys_expected": sp["box_keys_expected"], "table_terminals": sp["table_terminals"],
            "ledger_terminals": lt, "ledger_terminals_from": lfrom, "sha_from": sp["sha_from"]}
+    cb = census.get(sp["table"])
+    row["rules_with_domain_bounds"] = cb["rules_with_domain_bounds"] if cb else None
+    row["domain_bounds_nontrivial_target"] = cb["with_nontrivial_target"] if cb else None
     if src is None:
         row["status"] = "pending"
         row["reproduces"] = "pending"
@@ -70,6 +82,8 @@ for sp in specs:
     c = cs[-1] if cs else None
     z2 = next((l for l in lines if l["mode"] == "z2"), None)
     row["run"] = os.path.basename(src)
+    row["prefetch"] = fin.get("prefetch", "off")
+    row["budget"] = fin.get("budget")
     row["stop"] = fin["stop"]
     row["rounds"] = fin["rounds"]
     row["requested_keys"] = fin["requested_keys"]
@@ -89,6 +103,16 @@ for sp in specs:
         rows.append(row)
         continue
     row["load"] = "ok"
+    ld = k.get("load")
+    if ld:
+        row["loader_bounds_records"] = sum(x.get("bounds_records") or 0 for x in ld)
+        row["files_without_end"] = sum(len(x.get("files_without_end") or []) for x in ld)
+    # end_record: the loader's files_without_end when the line has it, else the record-kind scan (scan.jsonl kinds.end)
+    if row.get("files_without_end") is not None:
+        row["end_record"] = "no" if row["files_without_end"] else "yes"
+    else:
+        row["end_record"] = "yes" if sp.get("kinds", {}).get("end") else "no"
+        row["end_record_from"] = "record-kind scan"
     row["records"] = k.get("records")
     row["box_keys"] = k.get("keys_in_start")
     row["closure_keys_k"] = k.get("keys")
@@ -156,18 +180,26 @@ with open(outp + ".jsonl", "w") as f:
     for r in rows:
         f.write(json.dumps(r) + "\n")
 hdr = ["node", "MB", "box keys", "closure keys", "Tier K", "term tool/P5L", "Tier C", "req keys", "zeros", "s", "GB",
-       "reproduces"]
-out = ["| " + " | ".join(hdr) + " |", "|" + "---|" * len(hdr)]
+       "dom.bounds loader/scan (nontriv. target)", "end", "prefetch", "reproduces"]
+CAVEAT = ("CAVEAT (implementer 2026-11-15T07:10Z; WS/notes/implementer.reaudit-part4.md B1/B2): the core's assembly-path reader "
+          "drops rule-level domain_bounds and the engine reads bounds with target patterns differently from the core; whether "
+          "the IMPORT dispatcher used here is affected is being established by lane partfix4. Column 'dom.bounds' = rule records "
+          "carrying domain_bounds (of them with a non-trivial target pattern): the nodes that could be affected.")
+out = [CAVEAT, "", "Box: BOXDEF.v3 dataset A_integer, enlarged form (L=5 clean: 0<=D<=4, r<=E-7 at every D, power<=5). "
+       "Tier K = keys-only superset (witness check off, diagnostic). Tier C = strict, rr_proof 7b facts.", "",
+       "| " + " | ".join(hdr) + " |", "|" + "---|" * len(hdr)]
 for r in rows:
     if r["status"] in ("pending", "not run"):
-        out.append(f"| {r['node']} | | | | | | {r['status']} | | | | | {r.get('reproduces', '')} |")
+        out.append(f"| {r['node']} | | | | | | {r['status']} | | | | | | | | {r.get('reproduces', '')} |")
         continue
     ck = r.get("closure_keys_c") or r.get("closure_keys_k")
     tk = f"{r.get('tier_k')} open {r.get('tier_k_open')}" if r.get("load") == "ok" else "refused"
     out.append("| " + " | ".join(str(v) for v in [
         r["node"], round(r["table_bytes"] / 1e6, 1), r.get("box_keys"), ck, tk,
         f"{r.get('terminals_tool')}/{r['ledger_terminals']}", r.get("tier_c", r.get("error", ""))[:90],
-        r.get("requested_keys"), r.get("zeros", "-"), r.get("wall_s"), r.get("peak_rss_gb"), r["reproduces"][:120]]) + " |")
+        r.get("requested_keys"), r.get("zeros", "-"), r.get("wall_s"), r.get("peak_rss_gb"),
+        f"{r.get('loader_bounds_records', '?')}/{r.get('rules_with_domain_bounds')} ({r.get('domain_bounds_nontrivial_target')})",
+        r.get("end_record"), r.get("prefetch"), r["reproduces"][:120]]) + " |")
 open(outp + ".md", "w").write("\n".join(out) + "\n")
 done = [r for r in rows if r["status"] == "done"]
 cnt = {}
