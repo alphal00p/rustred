@@ -424,6 +424,8 @@ fn layout(sys: &ExactSystem, q: &PoleQuery<'_>) -> Layout {
         )
     };
     upper.sort_by_key(|c| std::cmp::Reverse(weight(c)));
+    // interest columns too: phase 2 takes the most complex unit column as pivot (lowest position)
+    interest.sort_by_key(|c| std::cmp::Reverse(weight(c)));
     let mut pos = vec![0u32; sys.columns.len()];
     let mut col_of_pos = Vec::with_capacity(sys.columns.len());
     for &c in upper.iter().chain(&interest).chain(&carried) {
@@ -568,10 +570,12 @@ fn eliminate<A: Ar>(
     // ---- phase 2
     let ni = lay.n_upper + lay.n_interest;
     let tp = lay.target_pos;
-    let p2 = phase2(ar, w0, ni, tp, bud)?;
+    // early exit only in exact mode and when the full basis is not wanted (rank data then counts rows seen)
+    let p2 = phase2(ar, w0, ni, tp, prec0.is_none(), bud)?;
     indeterminate += p2.indeterminate;
     let (basis, case_a, sat_exp) = (p2.basis, p2.case_a, p2.saturation_exponent);
     rank.saturation_exponent = sat_exp;
+    rank.partial = p2.stopped_early;
     rank.dim_v = basis.len() + usize::from(case_a.is_some());
     rank.rank_rows = match q.interest {
         Interest::AllLower => Some(rank.upper_pivots + basis.len() + usize::from(case_a.is_some())),
@@ -617,6 +621,8 @@ fn eliminate<A: Ar>(
 
 /// Output of phase 2.
 struct Phase2<P> {
+    /// phase 2 stopped at the first row proving p* = 0 (rank data then count the rows seen)
+    stopped_early: bool,
     basis: Vec<(u32, Row2<P>)>,
     case_a: Option<Row2<P>>,
     saturation_exponent: u64,
@@ -633,6 +639,7 @@ fn phase2<A: Ar>(
     rows: Vec<PRow<A::P>>,
     ni: u32,
     tp: Option<u32>,
+    early_exit: bool,
     bud: &mut Budgeter<'_>,
 ) -> Result<Phase2<A::P>, Stop> {
     let mut basis: Vec<(u32, Row2<A::P>)> = Vec::new();
@@ -640,7 +647,18 @@ fn phase2<A: Ar>(
     let mut sat_exp = 0u64;
     let mut indeterminate = 0usize;
     let mut held = 0usize;
-    for (e, prec, tr) in rows {
+    let mut stopped_early = false;
+    let progress = std::env::var_os("RUSTRED_TADIC_PROGRESS").is_some();
+    let n_rows = rows.len();
+    let t0 = std::time::Instant::now();
+    for (done, (e, prec, tr)) in rows.into_iter().enumerate() {
+        if progress && done % 500 == 0 {
+            eprintln!(
+                "tadic phase 2: {done}/{n_rows} rows, {} pivots, {held} terms held, {:.1} s",
+                basis.len(),
+                t0.elapsed().as_secs_f64()
+            );
+        }
         let (s, c): (Ent<A::P>, Ent<A::P>) = e.into_iter().partition(|x| x.0 < ni);
         let mut r = Row2 {
             s,
@@ -673,22 +691,38 @@ fn phase2<A: Ar>(
                 if case_a.is_none() {
                     case_a = Some(r);
                 }
+                if early_exit {
+                    // I(K) needs no column of interest: p* = 0, final
+                    stopped_early = true;
+                    break;
+                }
             } else if r.prec.is_some() {
                 indeterminate += 1;
             }
             continue;
         }
-        // pivot: a unit column (val 0), fewest terms then lowest position
+        // pivot: the most complex unit column (val 0) = the lowest position (Laporta-like, keeps fill-in low)
         let pc =
             r.s.iter()
-                .filter(|x| ar.val(&x.1) == Some(0))
-                .min_by_key(|x| (ar.nterms(&x.1), x.0))
+                .find(|x| ar.val(&x.1) == Some(0))
                 .map(|x| x.0)
                 .expect("saturated row has a unit entry");
         held += ent_terms(ar, &r.s).0 + ent_terms(ar, &r.c).0;
+        // a basis row with v(true K entry) <= 0 is an element of the saturated lattice with a unit-or-polar K
+        // coordinate: a REGULAR relation exists, p* = 0 is final (no order is lower): stop (exact early exit)
+        let regular = tp
+            .and_then(|k| r.c.binary_search_by_key(&k, |x| x.0).ok().map(|ix| (k, ix)))
+            .is_some_and(|(_, ix)| {
+                (ar.val(&r.c[ix].1).unwrap_or(0) as i64) - (r.shift as i64) <= 0
+            });
         basis.push((pc, r));
+        if regular && early_exit {
+            stopped_early = true;
+            break;
+        }
     }
     Ok(Phase2 {
+        stopped_early,
         basis,
         case_a,
         saturation_exponent: sat_exp,

@@ -208,6 +208,8 @@ pub struct RankData {
     pub saturation_exponent: u64,
     /// the target column appears in no row
     pub target_absent: bool,
+    /// phase 2 stopped early at the first row proving p* = 0 (exact): dim_v / rank_rows count only the rows seen
+    pub partial: bool,
 }
 
 /// The answer.

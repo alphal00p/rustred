@@ -67,7 +67,18 @@ fn tadic_real_run() {
     assert_eq!(lines.len(), n);
     let t0 = std::time::Instant::now();
     let filter = env("TADIC_SECTOR_FILTER").as_deref() != Some("0");
-    let seeds = seeds_around(&key, std::slice::from_ref(&centre), &shells, &lines, filter);
+    // explicit seed offsets from the key (JSON array of arrays), replacing centre + shells when given
+    let explicit: Option<Vec<Vec<i64>>> = env("TADIC_OFFSETS").map(|p| {
+        serde_json::from_str(&std::fs::read_to_string(p).expect("offsets file"))
+            .expect("offsets JSON")
+    });
+    let seeds = match &explicit {
+        Some(offs) => offs
+            .iter()
+            .map(|o| (0..n).map(|j| key[j] + o[j]).collect())
+            .collect(),
+        None => seeds_around(&key, std::slice::from_ref(&centre), &shells, &lines, filter),
+    };
     let sys = build_ibp_system(&fam, &seeds, true).expect("system");
     let build_s = t0.elapsed().as_secs_f64();
     let k32: Vec<i32> = key.iter().map(|&x| x as i32).collect();
