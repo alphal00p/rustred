@@ -150,7 +150,8 @@ pub fn condition_text(atoms: &[Atom]) -> String {
     }
 }
 
-/// Simplicity weights per atom kind (spec data).
+/// Simplicity weights per atom kind (spec data). planfix (audit r2-planners ITEM 6): default weights rel 1, constant 1,
+/// parity 2, sum 2 (simplicity order among equivalent conditions). Default not yet backed by an experiment.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct KindWeights {

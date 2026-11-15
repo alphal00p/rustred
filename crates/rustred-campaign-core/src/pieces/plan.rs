@@ -139,6 +139,11 @@ pub struct PlanInput {
     pub ranking: Ranking,
     /// Witness cycles listed for the candidate graph (cyclic SCCs, smallest member first).
     pub max_candidate_cycles: usize,
+    /// audit r2-planners G2: the TABLE SET the candidates were derived against (`import_edges::table_set_digest`: sha256
+    /// of the pinned table list), echoed in the plan; a plan is gated only against that table set
+    /// ([`super::import_edges::check_plan_table_set`]). `None`: not stated (such a plan is refused by that check).
+    #[serde(default)]
+    pub table_set_digest: Option<String>,
 }
 
 impl PlanInput {
@@ -148,7 +153,13 @@ impl PlanInput {
             keys,
             ranking: Ranking::default(),
             max_candidate_cycles: 20,
+            table_set_digest: None,
         }
+    }
+    /// The same input bound to a table set (`import_edges::table_set_digest`).
+    pub fn with_table_set(mut self, digest: impl Into<String>) -> PlanInput {
+        self.table_set_digest = Some(digest.into());
+        self
     }
 }
 
@@ -188,8 +199,9 @@ pub enum HandDownTarget {
     OwnCore,
     /// Another piece of the key's own face.
     OwnFaceOther,
-    /// A key outside the unserved set (served by existing material).
-    Served,
+    /// A key OUTSIDE the planner's input (audit r2-planners G3): whether anything serves it is UNKNOWN to the planner
+    /// (never called served; the closing loop's walk decides).
+    OutsideInput,
 }
 
 /// The chosen service of a key.
@@ -276,7 +288,7 @@ pub struct Plan {
     pub piece_order: Vec<Vec<String>>,
     /// Unserved keys in solving order (dependencies first).
     pub key_order: Vec<Vec<i32>>,
-    /// Chosen edges: total, into unserved keys, into served leaves.
+    /// Chosen edges: total, into unserved keys (the input), into keys OUTSIDE the input (state unknown here).
     pub edges: [u64; 3],
     pub face_report: FaceReport,
     /// Cycles among ALL candidates' edges (before choice): "no plan through it".
@@ -284,6 +296,9 @@ pub struct Plan {
     pub candidate_cyclic_sccs: u64,
     pub counts_by_kind: BTreeMap<String, u64>,
     pub hand_down_targets: BTreeMap<String, u64>,
+    /// audit r2-planners G2: the input's table-set digest, echoed.
+    #[serde(default)]
+    pub table_set_digest: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -501,7 +516,8 @@ pub fn plan<O: KeyOrder + ?Sized>(order: &O, input: &PlanInput) -> Result<Plan, 
             if c.kind == ServiceKind::HandDown {
                 let t = c.edge_terms().next().expect("one edge term");
                 let tc = match id_of.get(t.key.as_slice()) {
-                    None => HandDownTarget::Served,
+                    // planfix G3: outside the input = unknown here, never "served"
+                    None => HandDownTarget::OutsideInput,
                     Some(&j) if entries[j as usize].1.0 != *face => HandDownTarget::OtherFace,
                     Some(&j) if pieces_k[j as usize] == PieceKind::Core => HandDownTarget::OwnCore,
                     Some(_) => HandDownTarget::OwnFaceOther,
@@ -725,5 +741,6 @@ pub fn plan<O: KeyOrder + ?Sized>(order: &O, input: &PlanInput) -> Result<Plan, 
         candidate_cyclic_sccs: csum.cyclic,
         counts_by_kind: by_kind,
         hand_down_targets: hd_targets,
+        table_set_digest: input.table_set_digest.clone(),
     })
 }

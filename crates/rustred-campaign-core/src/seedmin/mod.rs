@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub use candidate::{RuleCandidate, SizeDecider, rule_candidate};
-pub use joint::{JointMin, Piece, minimise_joint};
+pub use joint::{ExtensionReport, JointMin, Piece, minimise_joint, verify_beyond_piece};
 pub use journal::JournaledSolver;
 pub use judge::{LocalValuationJudge, StubRelationPoles, StubSystemPoles, facts_from_record};
 pub use key::{KeyMin, minimise_key};

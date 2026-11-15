@@ -452,17 +452,120 @@ impl ZeroProofs {
     }
 }
 
+/// The SECOND ROUTE of a first-route zero, by the first route's PRODUCER word (audit r2-planners G1; the same words and
+/// table as lane zerosfix3's `closeloop/zeros.rs::ZeroRoute`, closeloop.md 23.3 + 18.2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ZeroRoute {
+    /// The first route IS the exact evaluation (Symbolica): the zeros route runs on the same algebra and is not
+    /// independent; only closeloop4's term-by-term comparison with rr_proof confirms (a confirmed basis word).
+    Compare,
+    /// The zeros route (structural proofs, `rr_coef_facts`, Symbolica): independent of rr_proof and of an unnamed
+    /// compact producer.
+    Zeros,
+    /// No route knows the first route's word (`none`, `store` of a pre-v3 store, `unknown_producer`, anything else):
+    /// the zero is never confirmed (`second_route_basis_unknown`; fail closed).
+    Unknown,
+}
+
+/// The [`ZeroRoute`] of a first-route PRODUCER word (never a confirmed basis word).
+pub fn zero_route_of(first: &str) -> ZeroRoute {
+    match first {
+        "exact_eval" => ZeroRoute::Compare,
+        "rr_proof" | "rr_proof_elided" | "compact" => ZeroRoute::Zeros,
+        _ => ZeroRoute::Unknown,
+    }
+}
+
+/// Whether a second-route answer of producer `second` is INDEPENDENT of the first route's producer `first` (they share
+/// no code below the coefficient text): rr_proof / rr_proof_elided / an unnamed compact producer against the exact
+/// evaluation, and back (the same table as lane zerosfix3's `closeloop/zeros.rs::independent`).
+pub fn independent(first: &str, second: &str) -> bool {
+    match first {
+        "rr_proof" | "compact" | "rr_proof_elided" => second == "exact_eval",
+        "exact_eval" => second == "rr_proof" || second == "rr_proof_elided",
+        _ => false,
+    }
+}
+
+/// Whether a fact BASIS word is a CONFIRMED basis: `<first> + <second>` of two INDEPENDENT producers (the words
+/// closeloop4's comparison writes through `Evidence::confirm_basis` when the two routes agree term by term).
+pub fn is_confirmed_basis(word: &str) -> bool {
+    match word.split_once(" + ") {
+        Some((a, b)) => independent(a.trim(), b.trim()),
+        None => false,
+    }
+}
+
+/// Why a first-route zero is (not) confirmed (audit r2-planners G1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ZeroConfirmation {
+    /// closeloop4's comparison: the fact's basis is a confirmed basis word ([`is_confirmed_basis`]).
+    ConfirmedBasis,
+    /// A structural zero proof of the term at the key, and the first route's producer is one the zeros route is
+    /// independent of ([`ZeroRoute::Zeros`]).
+    ZerosRoute,
+    /// No independent second route confirmed it (`second_route_unconfirmed`).
+    Unconfirmed,
+    /// The first route's producer is no known producer (`second_route_basis_unknown`).
+    BasisUnknown,
+}
+
+impl ZeroConfirmation {
+    pub fn confirmed(self) -> bool {
+        matches!(
+            self,
+            ZeroConfirmation::ConfirmedBasis | ZeroConfirmation::ZerosRoute
+        )
+    }
+    pub fn word(self) -> &'static str {
+        match self {
+            ZeroConfirmation::ConfirmedBasis => "confirmed_basis",
+            ZeroConfirmation::ZerosRoute => "zeros_route",
+            ZeroConfirmation::Unconfirmed => "second_route_unconfirmed",
+            ZeroConfirmation::BasisUnknown => "second_route_basis_unknown",
+        }
+    }
+}
+
+/// The confirmation of a FIRST-ROUTE zero of term `term` of `rule` at `key`: `basis` = the evidence's fact basis word
+/// of (rule, key) (`Evidence::fact_basis`: the producer, or a confirmed basis word), `facts` = the source that may hold
+/// a structural zero proof ([`FactSource::zero_proof`]).
+pub fn confirm_first_route_zero(
+    basis: Option<&str>,
+    facts: &dyn FactSource,
+    rule: &RuleId,
+    key: &[i32],
+    term: usize,
+) -> ZeroConfirmation {
+    let basis = basis.unwrap_or("none");
+    if is_confirmed_basis(basis) {
+        return ZeroConfirmation::ConfirmedBasis;
+    }
+    match zero_route_of(basis) {
+        ZeroRoute::Zeros if facts.zero_proof(rule, key, term) => ZeroConfirmation::ZerosRoute,
+        ZeroRoute::Zeros | ZeroRoute::Compare => ZeroConfirmation::Unconfirmed,
+        ZeroRoute::Unknown => ZeroConfirmation::BasisUnknown,
+    }
+}
+
 /// A [`FactSource`] that answers like `inner`, except that an `Unknown` coefficient that a proof covers AT THE KEY
 /// ([`ZeroStatus::Proved`]: the same semantics as [`ZeroProofs::is_zero_term`]) is `Zero`. Regularity and every other
-/// question go to `inner`.
+/// question go to `inner`. audit r2-planners G1: such a proof-only `Zero` is ONE route; the ship gate does not drop a
+/// term on it (nor on the inner source's first-route `Zero` alone): it asks [`FactSource::zero_proof`] as the second
+/// route of the evidence's first-route zero ([`confirm_first_route_zero`]).
 pub struct ZeroProofFacts<'a> {
     pub set: &'a ImportedSet,
     pub proofs: &'a ZeroProofs,
     pub inner: &'a (dyn FactSource + Sync),
     tables: BTreeMap<String, usize>,
+    /// audit r2-zeros F5: the proofs come from files whose standalone verification is pinned
+    /// ([`VerifiedZeroProofs`]); unverified proofs give NO fact (the inner source answers alone).
+    verified: bool,
 }
 
 impl<'a> ZeroProofFacts<'a> {
+    /// audit r2-zeros F5: proofs NOT bound to a pinned verification: this source answers like `inner` and holds no
+    /// proof fact (no `Unknown -> Zero`, no [`FactSource::zero_proof`]). Use [`ZeroProofFacts::verified`].
     pub fn new(
         set: &'a ImportedSet,
         proofs: &'a ZeroProofs,
@@ -480,14 +583,121 @@ impl<'a> ZeroProofFacts<'a> {
             proofs,
             inner,
             tables,
+            verified: false,
         }
+    }
+    /// The proofs of files whose standalone verification is pinned ([`VerifiedZeroProofs::load`]): their facts count.
+    pub fn verified(
+        set: &'a ImportedSet,
+        proofs: &'a VerifiedZeroProofs,
+        inner: &'a (dyn FactSource + Sync),
+    ) -> Self {
+        let mut f = ZeroProofFacts::new(set, &proofs.proofs, inner);
+        f.verified = true;
+        f
+    }
+    /// Whether the proofs' verification is pinned (else they give no fact).
+    pub fn is_verified(&self) -> bool {
+        self.verified
+    }
+}
+
+/// Schema of the standalone verifier's summary (`rr_coef_facts verify-zero-proofs --summary`).
+pub const VERIFY_SUMMARY_SCHEMA: &str = "rustred.campaign.zero-proof-verify.v1";
+
+/// audit r2-zeros F5: proof files whose STANDALONE VERIFICATION is pinned: the verifier's summary (pinned by its own
+/// sha256) says `verified`, no mismatch, no claim without its record, no header mismatch, and lists the sha256 of every
+/// proof file it verified (`proofs_sha256`); each file loaded here hashes to one of them. Cheaper than re-checking the
+/// numerator per lookup (the numerator split needs the Symbolica-backed algebra; the verifier re-checks every claim
+/// once, independently, with the core's own polynomial). Refusals are typed `zero_proofs_unverified: ...`.
+pub struct VerifiedZeroProofs {
+    pub proofs: ZeroProofs,
+    /// (path, sha256) of every proof file loaded.
+    pub files: Vec<(String, String)>,
+    /// sha256 of the verify summary (the pin).
+    pub summary_sha256: String,
+}
+
+impl VerifiedZeroProofs {
+    pub fn load(
+        set: &ImportedSet,
+        files: &[PathBuf],
+        summary: &Path,
+        summary_sha256: &str,
+        opts: &LoadOptions,
+    ) -> Result<VerifiedZeroProofs, String> {
+        let un = |m: String| format!("zero_proofs_unverified: {m}");
+        let bytes =
+            std::fs::read(summary).map_err(|e| un(format!("{}: {e}", summary.display())))?;
+        let sha = |b: &[u8]| {
+            let mut h = crate::closure::sha256::Sha256::new();
+            h.update(b);
+            h.finish_hex()
+        };
+        let pin = summary_sha256
+            .trim_start_matches("sha256:")
+            .to_ascii_lowercase();
+        let got = sha(&bytes);
+        if got != pin {
+            return Err(un(format!(
+                "the verify summary {} has sha256 {got}, pinned {pin}",
+                summary.display()
+            )));
+        }
+        let text = String::from_utf8_lossy(&bytes);
+        let v: Value = text
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .and_then(|l| serde_json::from_str(l).ok())
+            .ok_or_else(|| un(format!("{}: no JSON summary line", summary.display())))?;
+        if v["schema"] != VERIFY_SUMMARY_SCHEMA {
+            return Err(un(format!("summary schema {}", v["schema"])));
+        }
+        let clean = v["verified"] == true
+            && v["counts"]["mismatches"].as_u64() == Some(0)
+            && v["counts"]["claims_without_record"].as_u64() == Some(0)
+            && v["header_mismatch"]
+                .as_array()
+                .is_some_and(|a| a.is_empty());
+        if !clean {
+            return Err(un("the summary does not state a clean verification".into()));
+        }
+        let listed: BTreeSet<String> = v["proofs_sha256"]
+            .as_array()
+            .ok_or_else(|| {
+                un("the summary binds no proof file by its sha256 (proofs_sha256 absent)".into())
+            })?
+            .iter()
+            .filter_map(|x| {
+                x.as_str()
+                    .map(|s| s.trim_start_matches("sha256:").to_ascii_lowercase())
+            })
+            .collect();
+        let mut out = vec![];
+        for f in files {
+            let b = std::fs::read(f).map_err(|e| un(format!("{}: {e}", f.display())))?;
+            let h = sha(&b);
+            if !listed.contains(&h) {
+                return Err(un(format!(
+                    "{} (sha256 {h}) is not a file the pinned summary verified",
+                    f.display()
+                )));
+            }
+            out.push((f.display().to_string(), h));
+        }
+        let proofs = ZeroProofs::load(set, files, opts)?;
+        Ok(VerifiedZeroProofs {
+            proofs,
+            files: out,
+            summary_sha256: pin,
+        })
     }
 }
 
 impl FactSource for ZeroProofFacts<'_> {
     fn coefficient(&self, rule: &RuleId, key: &[i32], term: usize, term_key: &[i32]) -> CoefFact {
         let c = self.inner.coefficient(rule, key, term, term_key);
-        if c != CoefFact::Unknown {
+        if c != CoefFact::Unknown || !self.verified {
             return c;
         }
         let Some(&t) = self.tables.get(rule.table) else {
@@ -522,6 +732,21 @@ impl FactSource for ZeroProofFacts<'_> {
     }
     fn per_key_proof(&self, rule: &RuleId, key: &[i32]) -> bool {
         self.inner.per_key_proof(rule, key)
+    }
+    /// audit r2-planners G1: the structural proof itself (the SECOND route of a first-route zero; the ship gate drops a
+    /// term only on a first-route zero confirmed by it, [`confirm_first_route_zero`]).
+    fn zero_proof(&self, rule: &RuleId, key: &[i32], term: usize) -> bool {
+        if !self.verified {
+            // audit r2-zeros F5: an unverified proof file gives no fact
+            return self.inner.zero_proof(rule, key, term);
+        }
+        let Some(&t) = self.tables.get(rule.table) else {
+            return self.inner.zero_proof(rule, key, term);
+        };
+        self.proofs
+            .is_zero_term(self.set, t, rule.record, term, key)
+            == ZeroStatus::Proved
+            || self.inner.zero_proof(rule, key, term)
     }
 }
 
