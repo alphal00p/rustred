@@ -382,7 +382,7 @@ fn store_check_equals_in_memory_check_for_every_form() {
         )
         .is_err()
     );
-    let set = load(&TableSetSpec::from_json(&pin_ev(&spec0)).unwrap(), &d).unwrap();
+    let set = load(&TableSetSpec::from_json(&pin_ev(&spec)).unwrap(), &d).unwrap();
     let ev = Evidence::from_spec_with(&set, &d, &EvidenceOptions { store: Some(so) }).unwrap();
     assert_eq!(ev.counts.stores[0].origin, "built");
     let r = checked(&set, &ev);
