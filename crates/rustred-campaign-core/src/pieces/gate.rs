@@ -222,6 +222,16 @@ pub struct GateReport {
     pub edges_per_second: f64,
     /// Interner + degree arrays at the end of intake, CSR offsets during the graph check (bytes).
     pub memory_bytes: u64,
+    /// audit r2-planners G1: edges whose term is a first-route zero no second route confirmed
+    /// ([`NonZero::ZeroUnconfirmed`]), and those of them that do not descend.
+    #[serde(default)]
+    pub zero_unconfirmed_edges: u64,
+    #[serde(default)]
+    pub zero_unconfirmed_non_descending: u64,
+    /// Typed reasons of a verdict other than `pass` (`all_zeros_unconfirmed:N` = non-descending edges kept because their
+    /// zero is unconfirmed, `non_descending:N` = the other non-descending edges, `cyclic`, `inconsistent`).
+    #[serde(default)]
+    pub reasons: Vec<String>,
 }
 
 /// The streaming gate. See the module documentation.
@@ -238,6 +248,8 @@ pub struct ShipGate<'o, O: KeyOrder + ?Sized> {
     zero: u64,
     nd: u64,
     nd_equal: u64,
+    zu: u64,
+    zu_nd: u64,
     listed: BTreeSet<NonDescendingEdge>,
     started: Instant,
 }
@@ -265,6 +277,8 @@ impl<'o, O: KeyOrder + ?Sized> ShipGate<'o, O> {
             zero: 0,
             nd: 0,
             nd_equal: 0,
+            zu: 0,
+            zu_nd: 0,
             listed: BTreeSet::new(),
             started: Instant::now(),
         })
@@ -343,9 +357,15 @@ impl<'o, O: KeyOrder + ?Sized> ShipGate<'o, O> {
         let t = self.keys.intern(term);
         self.graph.push(k, t, p)?;
         self.by_prov[p as usize][0] += 1;
+        if nz == NonZero::ZeroUnconfirmed {
+            self.zu += 1;
+        }
         let o = edge_order(self.order, key, term);
         if o != EdgeOrder::Lower {
             self.nd += 1;
+            if nz == NonZero::ZeroUnconfirmed {
+                self.zu_nd += 1;
+            }
             if o == EdgeOrder::Equal {
                 self.nd_equal += 1;
             }
@@ -498,6 +518,18 @@ impl<'o, O: KeyOrder + ?Sized> ShipGate<'o, O> {
                 cyclic,
             }
         };
+        let mut reasons = vec![];
+        if self.zu_nd > 0 {
+            reasons.push(format!("all_zeros_unconfirmed:{}", self.zu_nd));
+        }
+        if self.nd > self.zu_nd {
+            reasons.push(format!("non_descending:{}", self.nd - self.zu_nd));
+        }
+        match verdict {
+            GateVerdict::Fail { cyclic: true, .. } => reasons.push("cyclic".into()),
+            GateVerdict::Inconsistent => reasons.push("inconsistent".into()),
+            _ => {}
+        }
         let seconds_graph = t1.elapsed().as_secs_f64();
         let total = seconds_intake + seconds_graph;
         Ok(GateReport {
@@ -526,6 +558,9 @@ impl<'o, O: KeyOrder + ?Sized> ShipGate<'o, O> {
                 0.0
             },
             memory_bytes: mem_intake.max(mem_graph),
+            zero_unconfirmed_edges: self.zu,
+            zero_unconfirmed_non_descending: self.zu_nd,
+            reasons,
         })
     }
 }

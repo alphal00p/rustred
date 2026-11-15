@@ -107,7 +107,7 @@ pub struct ChildConfig {
     pub cpus: Vec<usize>,
     /// Pin each child to its CPUs (false: the CPUs are only a pool size; fake tests).
     pub pin_cpus: bool,
-    /// Threads (= CPUs) per child, <= 4.
+    /// Threads (= CPUs) per child, <= `site.max_threads_per_job`.
     pub threads_per_job: usize,
     pub cap_bytes: u64,
     pub key_budget_s: Option<u64>,
@@ -128,6 +128,8 @@ pub struct ChildConfig {
     /// undecided (the policy's on_undecided_regularity decides).
     pub poles: Option<crate::closeloop::coreseed::PolesCfg>,
     pub verbose: bool,
+    /// planfix (audit r2-planners ITEM 6): the children's site policy (thread cap, heartbeat, stop grace).
+    pub site: crate::closeloop::coreseed::ChildSitePolicy,
 }
 
 /// Cost counters (separate from every record).
@@ -216,8 +218,11 @@ impl ChildTrialSolver {
         judge: Box<dyn RelationPoles>,
         caps: EngineCaps,
     ) -> Result<ChildTrialSolver, String> {
-        if cfg.threads_per_job == 0 || cfg.threads_per_job > 4 {
-            return Err("threads_per_job must be 1..=4 (rule: <= 4 threads per process)".into());
+        if cfg.threads_per_job == 0 || cfg.threads_per_job > cfg.site.max_threads_per_job {
+            return Err(format!(
+                "threads_per_job must be 1..={} (site policy max_threads_per_job)",
+                cfg.site.max_threads_per_job
+            ));
         }
         if cfg.cpus.is_empty() {
             return Err("no CPUs".into());
@@ -356,8 +361,8 @@ impl ChildTrialSolver {
             key_budget_s: self.cfg.key_budget_s,
             expect: None,
             determinism_id: None,
-            heartbeat_s: 10,
-            stop_grace_s: 30,
+            heartbeat_s: self.cfg.site.heartbeat_s,
+            stop_grace_s: self.cfg.site.stop_grace_s,
             package: None,
             live_repair: false,
             licence_env: self.cfg.licence_env.clone(),
@@ -543,7 +548,7 @@ impl ChildTrialSolver {
             memory_cap_bytes: Some(pc.cap_bytes),
             licence_env: self.cfg.licence_env.clone(),
             wall_cap: Some(Duration::from_secs(pc.wall_cap_s)),
-            grace: Some(Duration::from_secs(10)),
+            grace: Some(Duration::from_secs(self.cfg.site.pole_grace_s)),
         };
         for attempt in 1..=2u32 {
             let mut l = RealLauncher::new(self.sampler.clone());

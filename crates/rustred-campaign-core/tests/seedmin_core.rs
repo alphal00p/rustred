@@ -1299,3 +1299,193 @@ fn the_joint_strategy_is_data_auto_switches_to_halving_above_the_threshold() {
     assert!(SeedMinPolicy::parse(r#"{"joint":{"drop_chunks":"sometimes"}}"#).is_err());
     assert_eq!(SeedMinPolicy::default().joint.drop_chunks, "auto");
 }
+
+/// An oracle whose answer at ONE key fails in the FIRST final-verification trial only (an engine that does not
+/// reproduce at the last moment): the joint minimiser must not claim the list there.
+struct FlakyAtVerify {
+    inner: Oracle,
+    key: Key,
+    failed: bool,
+}
+
+impl TrialSolver for FlakyAtVerify {
+    fn solve(&mut self, trials: &[Trial]) -> Result<Vec<Vec<TrialAnswer>>, String> {
+        let mut out = self.inner.solve(trials)?;
+        for (t, a) in trials.iter().zip(out.iter_mut()) {
+            if !self.failed && t.label.ends_with("/verify") {
+                for (k, x) in t.keys.iter().zip(a.iter_mut()) {
+                    if *k == self.key {
+                        *x = TrialAnswer::NoRelation;
+                        self.failed = true;
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+    fn capabilities(&self) -> EngineCaps {
+        self.inner.capabilities()
+    }
+}
+
+/// planfix (audit r2-planners S2): the joint minimiser's FINAL VERIFICATION solves EVERY key of the piece and hands on
+/// a key where it fails, even when every earlier trial at that key succeeded. The key that fails is the LAST of the
+/// piece, so a verification of a prefix of the keys (the auditor's surviving mutation M-seedmin-2: the first key only)
+/// would claim the list there: the piece would hold the key, its per-key facts would not cover the piece's keys, and the
+/// record's verify trial would not list every key. Each assertion below catches it.
+#[test]
+fn the_final_verification_solves_every_key_and_hands_on_a_key_that_fails_there() {
+    let mut o = Oracle::default();
+    let privs: [[i32; 3]; 4] = [[1, 0, 0], [0, 1, 0], [0, 0, -1], [1, 1, 0]];
+    let mut keys = vec![];
+    for (i, p) in privs.iter().enumerate() {
+        let k: Key = vec![2 + i as i32, 1, 0];
+        o.alts.insert(k.clone(), vec![alt(&[[0, 0, 0], *p], 10)]);
+        keys.push(k);
+    }
+    let last = keys.last().unwrap().clone();
+    let mut fl = FlakyAtVerify {
+        inner: o,
+        key: last.clone(),
+        failed: false,
+    };
+    let p = SeedMinPolicy::default();
+    let jm = minimise_joint(&keys, &C0, &shell(), &p, &mut fl, &mut StubSystemPoles).unwrap();
+    assert!(fl.failed, "the verify trial reached the last key");
+    let first = &jm.pieces[0];
+    assert!(
+        !first.keys.contains(&last),
+        "claimed at a key whose verification failed: {:?}",
+        first.keys
+    );
+    assert_eq!(first.keys.len(), keys.len() - 1);
+    assert_eq!(
+        first.per_key.len(),
+        first.keys.len(),
+        "one verified relation per piece key"
+    );
+    assert_eq!(
+        first.domain_tested["verification_failed"],
+        json!([last.clone()])
+    );
+    // the key is handed on (served by a later piece, verified there), never lost
+    assert!(
+        jm.pieces[1..].iter().any(|pc| pc.keys.contains(&last)) || jm.unserved.contains(&last),
+        "{:?}",
+        jm.pieces.iter().map(|p| p.keys.clone()).collect::<Vec<_>>()
+    );
+    // the record's first verify trial covers every key of the domain
+    let verify: Vec<&Value> = jm.record["trials"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|t| t["kind"] == "verify")
+        .collect();
+    assert!(!verify.is_empty());
+    assert_eq!(verify[0]["keys"], keys.len());
+}
+
+/// planfix (audit r2-planners S1): a piece's list beyond its own keys is compared key by key with the FULL list; a key
+/// where the minimised list is singular and the full list regular is LISTED (the objective never judged it), and the
+/// claim says the objective applied at the piece's keys only.
+#[test]
+fn beyond_its_piece_a_list_is_compared_with_the_full_list_and_worse_keys_are_listed() {
+    use rustred_campaign_core::seedmin::{Piece, verify_beyond_piece};
+    let mut o = Oracle::default();
+    let own: Key = vec![2, 1, 0];
+    let same: Key = vec![3, 1, 0];
+    let worse: Key = vec![4, 1, 0];
+    let lost: Key = vec![5, 1, 0];
+    o.alts.insert(own.clone(), vec![alt(&[[0, 0, 0]], 5)]);
+    o.alts.insert(same.clone(), vec![alt(&[[0, 0, 0]], 6)]);
+    // at `worse`: the regular relation needs [1,0,0] (only in the full list); the minimised list gets a singular one
+    let mut sing = alt(&[[0, 0, 0]], 4);
+    sing.pole = PoleOrder::Order { order: 1 };
+    o.alts
+        .insert(worse.clone(), vec![alt(&[[0, 0, 0], [1, 0, 0]], 9), sing]);
+    o.alts.insert(lost.clone(), vec![alt(&[[0, 1, 0]], 9)]);
+    let piece = Piece {
+        label: "0".into(),
+        keys: vec![own.clone()],
+        list: vec![vec![0, 0, 0]],
+        per_key: vec![],
+        how: "joint".into(),
+        minimise: None,
+        domain_tested: json!({}),
+        rows_at_d0: None,
+    };
+    let extra = vec![own.clone(), same.clone(), worse.clone(), lost.clone()];
+    let r = verify_beyond_piece(&piece, &C0, Some(&shell()), &extra, 2, &mut o).unwrap();
+    assert_eq!(
+        (r.own_keys, r.extra_keys),
+        (1, 3),
+        "the piece's own key is not re-counted"
+    );
+    assert_eq!((r.extra_valid, r.extra_regular), (2, 1));
+    assert_eq!((r.full_valid, r.full_regular), (Some(3), Some(3)));
+    assert_eq!(
+        r.worse_than_full,
+        vec![(
+            worse.clone(),
+            PoleOrder::Order { order: 1 },
+            PoleOrder::regular()
+        )]
+    );
+    assert_eq!(r.failed, vec![(lost.clone(), "no_relation".to_string())]);
+    assert!(
+        r.claim
+            .starts_with("pole objective applied at the 1 piece keys only"),
+        "{}",
+        r.claim
+    );
+    assert!(
+        r.claim.contains("WORSE than the full list at 1 key(s)"),
+        "{}",
+        r.claim
+    );
+    // without the comparison: counts only, and the claim says so
+    let r2 = verify_beyond_piece(&piece, &C0, None, &extra, 40, &mut o).unwrap();
+    assert!(r2.worse_than_full.is_empty() && r2.full_valid.is_none());
+    assert!(
+        r2.claim.ends_with("not compared with the full list"),
+        "{}",
+        r2.claim
+    );
+}
+
+/// planfix (audit r2-planners ITEM 6): the halving factor is a policy parameter (default 2, omitted from the canonical
+/// policy at its default so existing digests / journals stay valid; below 2 refused); another factor reaches the same
+/// list (the factor changes the cost, never the result of the drop test).
+#[test]
+fn the_halving_factor_is_a_parameter_with_a_digest_stable_default() {
+    let d = SeedMinPolicy::default();
+    assert_eq!(d.halving_factor, 2);
+    let explicit = SeedMinPolicy::parse(r#"{"halving_factor": 2}"#).unwrap();
+    assert_eq!(
+        explicit.digest(),
+        d.digest(),
+        "the default is not part of the digest"
+    );
+    assert!(
+        !serde_json::to_string(&d)
+            .unwrap()
+            .contains("halving_factor")
+    );
+    let e = SeedMinPolicy::parse(r#"{"halving_factor": 1}"#).unwrap_err();
+    assert!(e.contains("halving_factor"), "{e}");
+    let three = SeedMinPolicy::parse(r#"{"halving_factor": 3, "drop_chunks": "halving"}"#).unwrap();
+    assert_ne!(three.digest(), d.digest());
+    let k: Key = vec![3, 2, -1];
+    let mut o = Oracle::default();
+    o.alts.insert(
+        k.clone(),
+        vec![alt(&[[0, 0, 0], [1, 0, 0], [0, 1, -1]], 40)],
+    );
+    let two = SeedMinPolicy {
+        drop_chunks: "halving".into(),
+        ..SeedMinPolicy::default()
+    };
+    let a = minimise_key(&k, &C0, &shell(), &two, &mut o, &mut StubSystemPoles).unwrap();
+    let b = minimise_key(&k, &C0, &shell(), &three, &mut o, &mut StubSystemPoles).unwrap();
+    assert_eq!(a.list, b.list);
+}

@@ -26,11 +26,13 @@ use serde_json::{Value, json};
 
 use crate::replay_base::algebra::Q;
 
+pub mod cert;
 pub mod composite;
 pub mod region;
 pub mod rows;
 pub mod search;
 
+pub use cert::{CertificateCheck, KernelCertificateRef, check_certificate};
 pub use composite::{CompositeStep, with_catalogue_rule};
 pub use region::{RegionReport, Shape, ShapeVerdict, WeightForm, region_forms};
 pub use search::{Reject, apply_combination, import_check, search_key, two_row_relations};
@@ -129,6 +131,8 @@ impl PairShift {
 #[serde(default, deny_unknown_fields)]
 pub struct ShiftPolicy {
     /// Unit shifts of up to this many slots at once (0 = none): every choice of that many slots, each by +-`step`.
+    /// Default 2: chosen to contain the hand's F8 shift (two slots, `11-1,12+1`; tworow notes 2026-11-15T04:30Z); not
+    /// tuned by an experiment (default not yet backed by an experiment).
     pub unit_slots: usize,
     /// The magnitude of a unit shift.
     pub step: i32,
@@ -157,7 +161,8 @@ impl Default for ShiftPolicy {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TwoRowPolicy {
-    /// Rows per combination (1 = single rows only).
+    /// Rows per combination (1 = single rows only). Default 2: MEASURED on the hand case (T162: a third row served
+    /// nothing; interfaces/tworow.md 2, audit r2-planners ITEM 6).
     pub max_rows: usize,
     /// Distinct group elements one combination may use.
     pub elements_per_combination: usize,
@@ -166,18 +171,20 @@ pub struct TwoRowPolicy {
     /// Drop shifted seeds with a line below 1 or a numerator above 0 (the engine's rule for K').
     pub keep_in_chart: bool,
     pub shifts: ShiftPolicy,
-    /// One row above this many terms = that seed is over the cap (typed, never "no relation").
+    /// One row above this many terms = that seed is over the cap (typed, never "no relation"). Default 65536 (the
+    /// import verifier's term cap). Default not yet backed by an experiment (observed: hit at 2 of 4 F8 probe keys,
+    /// tworow notes 2026-11-15T04:30Z).
     pub max_terms_per_row: usize,
     /// Budget of the pool (rows that can take part); truncated deterministically, flagged incomplete.
     pub max_pool_rows: usize,
     /// Budget of the subsets examined per key; flagged incomplete when hit.
     pub max_subsets: usize,
-    /// How many valid combinations are kept per key (ranked).
+    /// How many valid combinations are kept per key (ranked). Default 8. Default not yet backed by an experiment.
     pub max_relations: usize,
     /// Report one-row relations too (a row at K alone: route 0b's object; one row at a shifted seed alone).
     pub single_rows: bool,
     /// When no valid combination exists: keep at most this many NEAR MISSES (every non-lower term but one cancels),
-    /// the input of the composite with one catalogue rule (0 = off).
+    /// the input of the composite with one catalogue rule (0 = off). Default 8. Default not yet backed by an experiment.
     pub max_near_misses: usize,
     /// Expand a row at a shifted seed only when its structural shape may contain a frontier term (exact; `false` =
     /// expand every row, for comparisons).
@@ -393,7 +400,9 @@ impl Combination {
             "rhs": self.rhs.iter().map(|(k, c)| json!([k, q(c)])).collect::<Vec<_>>(),
             "d_free": true,
             "regular_at_d4": "by construction (symmetry rows are d-free)",
-            "engine_certificate": "none (no rr_proof request kind certifies a combination of multi-term symmetry rows)",
+            // planfix: a kernel certificate (rr_proof --symrows, contract kind proof-symrows) is attached by
+            // `Combination::to_json_with` and checked by `tworow::cert::check_certificate`; none here
+            "engine_certificate": "none (no kernel certificate attached; see tworow::cert)",
         })
     }
 }

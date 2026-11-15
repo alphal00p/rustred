@@ -640,8 +640,18 @@ fn verify(a: &Args) {
     }
     c.claims_without_record = claims.keys().filter(|s| !seen.contains(*s)).count() as u64;
     let verified = c.mismatches == 0 && header_mismatch.is_empty() && c.claims_without_record == 0;
+    // planfix (audit r2-zeros F5): the summary binds every proof file it verified by its sha256 (consumers load only
+    // files listed here: core import::zero_proofs::VerifiedZeroProofs)
+    let proofs_sha256: Vec<String> = a
+        .proofs
+        .iter()
+        .map(|p| {
+            rustred_campaign_core::import::lines::file_sha256(p)
+                .unwrap_or_else(|e| die(&format!("{}: {e}", p.display())))
+        })
+        .collect();
     let s = json!({"schema": "rustred.campaign.zero-proof-verify.v1", "verified": verified, "tables": a.tables,
-        "proofs": a.proofs, "headers": headers.len(), "header_mismatch": header_mismatch, "counts": c,
+        "proofs": a.proofs, "proofs_sha256": proofs_sha256, "headers": headers.len(), "header_mismatch": header_mismatch, "counts": c,
         "mismatches": mism.into_iter().take(100).collect::<Vec<_>>(), "not_proved": not_proved_list,
         "seconds": t0.elapsed().as_secs_f64(), "tool": zero_proofs::tool()});
     if let Some(p) = &a.summary {

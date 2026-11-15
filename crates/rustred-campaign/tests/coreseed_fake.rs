@@ -88,6 +88,7 @@ fn config(tmp: &Path, files: &TmFiles, fake: FakeCore, journal: &Path) -> CoreDr
         fake: Some(fake),
         cpu_budget_s: None,
         poles: None,
+        site: Default::default(),
     }
 }
 

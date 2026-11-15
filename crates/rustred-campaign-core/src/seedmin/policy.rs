@@ -38,7 +38,8 @@ impl Default for SpreadPolicy {
     }
 }
 
-/// Provisional (no measurement yet: set from the T162 run of this lane): three keys span a face's corners.
+/// Provisional (no measurement yet: set from the T162 run of this lane): three keys span a face's corners. Default not
+/// yet backed by an experiment (planfix, audit r2-planners ITEM 6; also `max_extra` 4).
 fn d_spread_count() -> usize {
     3
 }
@@ -59,13 +60,15 @@ pub struct JointPolicy {
     /// contains its relation) | `split` (failing keys go to the next piece).
     #[serde(default = "d_on_failure")]
     pub on_candidate_failure: String,
-    /// Keys of the cheap screen before the every-key confirmation (the confirmation is never skipped).
+    /// Keys of the cheap screen before the every-key confirmation (the confirmation is never skipped). Default 4.
+    /// Default not yet backed by an experiment.
     #[serde(default = "d_screen")]
     pub screen_keys: usize,
-    /// Work budget of the joint greedy of one piece (screen + confirm trials; a count, never a clock).
+    /// Work budget of the joint greedy of one piece (screen + confirm trials; a count, never a clock). Default 600.
+    /// Default not yet backed by an experiment (the T162 / T178 pieces used 67-335 solves, seedmin notes; no sweep).
     #[serde(default = "d_joint_max_solves")]
     pub max_solves: u64,
-    /// Pieces per domain (the rest keeps the start list).
+    /// Pieces per domain (the rest keeps the start list). Default 4. Default not yet backed by an experiment.
     #[serde(default = "d_max_pieces")]
     pub max_pieces: usize,
     /// Every piece list also solved at the other pieces' keys (complete choice sets for lane regions).
@@ -148,7 +151,8 @@ pub struct SeedMinPolicy {
     #[serde(default = "d_max_solves")]
     pub max_solves: u64,
     /// Speculative drops tested against the same list at once (deterministic: the first success in order wins; the
-    /// result and `solves` equal the sequential run).
+    /// result and `solves` equal the sequential run). Default 4 (= the host's threads per process; a cost knob, never a
+    /// result: default not yet backed by an experiment).
     #[serde(default = "d_parallel")]
     pub parallel_trials: usize,
     /// `single` (default: one seed per trial, the hand procedure) | `halving` (adaptive chunks: drop the next `chunk`
@@ -156,9 +160,18 @@ pub struct SeedMinPolicy {
     /// coord-seed-minimise.md 1b, O(m log n) solves for m essential seeds; no speculative batches).
     #[serde(default = "d_drop_chunks")]
     pub drop_chunks: String,
-    /// First chunk of `halving` (0 = half of the candidates).
+    /// First chunk of `halving` (0 = the candidates divided by `halving_factor`).
     #[serde(default)]
     pub chunk_start: usize,
+    /// planfix (audit r2-planners ITEM 6): the factor of the adaptive chunks of `halving` (per key AND joint): a
+    /// refused chunk is divided by it, a kept one multiplied by it, the first chunk is the candidates divided by it.
+    /// Default 2 (coord-seed-minimise.md 1b: bisection, O(m log n) solves for m essential seeds). Default not yet backed
+    /// by an experiment (no other factor was measured). Omitted from the canonical policy (digest) at its default.
+    #[serde(
+        default = "d_halving_factor",
+        skip_serializing_if = "is_d_halving_factor"
+    )]
+    pub halving_factor: usize,
     /// After a kept drop, restrict to the new relation's support by one more trial.
     #[serde(default = "yes")]
     pub resupport_after_drop: bool,
@@ -235,6 +248,12 @@ fn d_parallel() -> usize {
 }
 fn d_drop_chunks() -> String {
     "single".into()
+}
+fn d_halving_factor() -> usize {
+    2
+}
+fn is_d_halving_factor(f: &usize) -> bool {
+    *f == d_halving_factor()
 }
 fn d_objective() -> Vec<String> {
     ["pole_order", "seeds", "terms"]
@@ -342,6 +361,9 @@ impl SeedMinPolicy {
         }
         if self.parallel_trials == 0 {
             return Err("parallel_trials must be >= 1".into());
+        }
+        if self.halving_factor < 2 {
+            return Err("halving_factor must be >= 2".into());
         }
         if self.joint.screen_keys == 0 || self.joint.max_pieces == 0 {
             return Err("joint.screen_keys and joint.max_pieces must be >= 1".into());
