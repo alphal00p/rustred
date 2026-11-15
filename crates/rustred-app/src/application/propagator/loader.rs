@@ -893,6 +893,14 @@ pub fn load_p_library(
             library.identity()
         )));
     }
+    // b7-schemeload: the identity equals this binary's (checked above); a
+    // revisioned package of this P_SCHEME_TEMPLATE_VERSION trusts the Scheme
+    // certificates (verified at its gate) unless this is the verified load.
+    if !options.verify_descent
+        && rustred::propagator::scheme::package_trusts_scheme_certificates(&manifest.identity)
+    {
+        library.set_scheme_certificates_trusted(true);
+    }
     if counts_of(&library, families_file.families.len()) != manifest.counts {
         return Err(malformed(format!(
             "{LIBRARY_FILE}: the counts disagree with the files"

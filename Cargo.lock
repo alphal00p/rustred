@@ -1694,6 +1694,13 @@ name = "rustred-order"
 version = "0.1.0"
 
 [[package]]
+name = "rustred-proof"
+version = "0.1.0"
+dependencies = [
+ "rustred",
+]
+
+[[package]]
 name = "rustred-python"
 version = "0.1.0"
 dependencies = [
