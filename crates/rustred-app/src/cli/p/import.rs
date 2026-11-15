@@ -878,6 +878,9 @@ pub(super) fn recipe_statistics_json() -> serde_json::Value {
         "failures": stats.failures,
         "outside_solves": stats.outside_solves,
         "outside_failures": stats.outside_failures,
+        "outside_rule_steps": stats.outside_rule_steps,
+        "outside_entry_hits": stats.outside_entry_hits,
+        "outside_budget_hits": stats.outside_budget_hits,
         "relation_cache": relation_cache,
         "cache_roots": {
             "user": roots.user.map(|path| path.display().to_string()),

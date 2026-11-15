@@ -403,9 +403,14 @@ fn reduce_cli(args: &[String]) {
             let stats = reduction.relation_cache;
             let recipes = rustred::propagator::recipes::recipe_statistics();
             eprintln!(
-                "p-reduce counters: outside_certified {} | relation_cache shipped_hits {} cache_hits {} misses {} inserts {} \
+                "p-reduce counters: outside_certified {} | outside_rule_steps {} outside_entry_hits {} outside_budget_hits {} \
+                 outside_failures {} | relation_cache shipped_hits {} cache_hits {} misses {} inserts {} \
                  bytes_written {} | recipe solves {} outside_solves {} | bytes_on_disk {}",
                 reduction.outside_certified.len(),
+                recipes.outside_rule_steps,
+                recipes.outside_entry_hits,
+                recipes.outside_budget_hits,
+                recipes.outside_failures,
                 stats.shipped_hits,
                 stats.cache_hits,
                 stats.misses,
@@ -436,6 +441,21 @@ fn reduce_cli(args: &[String]) {
             }
         }
         Err(error) => {
+            let recipes = rustred::propagator::recipes::recipe_statistics();
+            let stats = rustred::propagator::relation_entries::relation_cache_statistics();
+            eprintln!(
+                "p-reduce counters (refused): outside_rule_steps {} outside_entry_hits {} outside_budget_hits {} \
+                 outside_failures {} | relation_cache shipped_hits {} cache_hits {} inserts {} | recipe solves {} outside_solves {}",
+                recipes.outside_rule_steps,
+                recipes.outside_entry_hits,
+                recipes.outside_budget_hits,
+                recipes.outside_failures,
+                stats.shipped_hits,
+                stats.cache_hits,
+                stats.inserts,
+                recipes.solves,
+                recipes.outside_solves
+            );
             eprintln!("error: {error}");
             std::process::exit(3);
         }
