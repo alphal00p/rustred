@@ -326,6 +326,91 @@ pub fn encode_program_record(
     }
 }
 
+/// A sector whose rules are already encoded, one after the other (streaming
+/// import, t162-export): its bytes are those of the [`SectorRecord`] with
+/// the same rules, so a program of such sectors encodes to the same bytes as
+/// [`encode_program_record`] of the decoded program, without holding the
+/// rule records.
+#[derive(Clone, Debug, Default)]
+pub struct EncodedSectorRecord {
+    pub sector: Vec<bool>,
+    /// The number of rules in `rule_bytes`.
+    pub rules: usize,
+    /// The rules' bincode records (standard configuration), in order.
+    pub rule_bytes: Vec<u8>,
+    pub finite_residuals: Vec<IntegralRecord>,
+}
+
+impl EncodedSectorRecord {
+    /// Append one rule.
+    pub fn push_rule(&mut self, rule: &RuleRecord) -> Result<(), bincode::error::EncodeError> {
+        bincode::encode_into_std_write(rule, &mut self.rule_bytes, bincode::config::standard())?;
+        self.rules += 1;
+        Ok(())
+    }
+}
+
+impl bincode::Encode for EncodedSectorRecord {
+    fn encode<E: bincode::enc::Encoder>(
+        &self,
+        encoder: &mut E,
+    ) -> Result<(), bincode::error::EncodeError> {
+        use bincode::enc::write::Writer;
+        self.sector.encode(encoder)?;
+        // bincode writes a sequence as its length (u64) and its elements.
+        (self.rules as u64).encode(encoder)?;
+        encoder.writer().write(&self.rule_bytes)?;
+        self.finite_residuals.encode(encoder)
+    }
+}
+
+#[derive(bincode::Encode)]
+struct EncodedV2Ref<'a> {
+    schema: &'a str,
+    status: &'a str,
+    solver_policy: &'a str,
+    family_source: &'a str,
+    input_format: &'a str,
+    family_fingerprint: &'a str,
+    root_sector: &'a [bool],
+    permutation: &'a Option<Vec<usize>>,
+    integral_order: &'a str,
+    sectors: &'a [EncodedSectorRecord],
+}
+
+/// [`encode_program_record`] of `records` whose sectors are `sectors`
+/// (`records.sectors` is ignored): the same bytes as encoding the program
+/// with the decoded sectors.
+pub fn encode_program_record_with_sectors(
+    records: &ProgramRecord,
+    sectors: &[EncodedSectorRecord],
+) -> Result<Vec<u8>, bincode::error::EncodeError> {
+    let config = bincode::config::standard();
+    let mut out = bincode::encode_to_vec(
+        EncodedV2Ref {
+            schema: if records.rule_dispatch.is_empty() {
+                CANDIDATE_BUNDLE_SCHEMA
+            } else {
+                &records.schema
+            },
+            status: &records.status,
+            solver_policy: &records.solver_policy,
+            family_source: &records.family_source,
+            input_format: &records.input_format,
+            family_fingerprint: &records.family_fingerprint,
+            root_sector: &records.root_sector,
+            permutation: &records.permutation,
+            integral_order: &records.integral_order,
+            sectors,
+        },
+        config,
+    )?;
+    if !records.rule_dispatch.is_empty() {
+        bincode::encode_into_std_write(records.rule_dispatch.as_slice(), &mut out, config)?;
+    }
+    Ok(out)
+}
+
 // ----- reading -----
 
 /// One bincode record from the front of `bytes`: `(value, bytes consumed)`.
@@ -919,19 +1004,50 @@ impl<S: CoefficientSource, const N: usize> Restore<'_, S, N> {
         max_numerator_rank: Option<u32>,
         finite_case_policy: FiniteCasePolicy,
     ) -> Result<([bool; N], SectorSolution<N>), BundleWireError> {
+        let (sector, mut solution, rules) = self.sector_streamed(
+            program,
+            ordinal,
+            ordering,
+            physical_arity,
+            max_numerator_rank,
+            finite_case_policy,
+        )?;
+        solution.rules = rules.collect::<Result<Vec<_>, BundleWireError>>()?;
+        Ok((sector, solution))
+    }
+
+    /// [`Self::sector`] with the rules restored one at a time (t162-export):
+    /// the solution comes back without rules, the iterator restores them in
+    /// order on demand, so a consumer that prepares rule by rule never holds
+    /// the restored form of the whole sector.
+    #[allow(clippy::type_complexity)]
+    pub fn sector_streamed<'p>(
+        &'p self,
+        program: &'p ProgramRecord,
+        ordinal: usize,
+        ordering: &OrderingPolicy,
+        physical_arity: usize,
+        max_numerator_rank: Option<u32>,
+        finite_case_policy: FiniteCasePolicy,
+    ) -> Result<
+        (
+            [bool; N],
+            SectorSolution<N>,
+            impl Iterator<Item = Result<SectorRule<N>, BundleWireError>> + 'p,
+        ),
+        BundleWireError,
+    > {
         let record = program
             .sectors
             .get(ordinal)
             .ok_or_else(|| BundleWireError::input("no candidate sector of this ordinal"))?;
         let sector: [bool; N] = crate::storage_array(&record.sector, false)
             .ok_or_else(|| BundleWireError::input("candidate reconstruction arity"))?;
-        let rules = (record.rules.iter().enumerate())
-            .map(|(rule_ordinal, record)| {
-                let mut rule = self.rule(record, &sector)?;
-                rule.dispatch_policy = program.dispatch_policy(ordinal, rule_ordinal);
-                Ok(rule)
-            })
-            .collect::<Result<Vec<_>, BundleWireError>>()?;
+        let rules = (record.rules.iter().enumerate()).map(move |(rule_ordinal, record)| {
+            let mut rule = self.rule(record, &sector)?;
+            rule.dispatch_policy = program.dispatch_policy(ordinal, rule_ordinal);
+            Ok(rule)
+        });
         let finite_residuals = (record.finite_residuals.iter())
             .map(integral)
             .collect::<Result<Vec<_>, _>>()?;
@@ -942,12 +1058,119 @@ impl<S: CoefficientSource, const N: usize> Restore<'_, S, N> {
             sector,
             SectorSolution {
                 order,
-                rules,
+                rules: Vec::new(),
                 finite_residuals,
                 stats: SectorStats::default(),
                 max_numerator_rank,
                 finite_case_policy,
             },
+            rules,
         ))
+    }
+}
+
+#[cfg(test)]
+mod encoded_sector_tests {
+    use super::*;
+
+    fn integral(values: &[i16]) -> IntegralRecord {
+        IntegralRecord {
+            symbolic: vec![false; values.len()],
+            values: values.to_vec(),
+        }
+    }
+
+    fn rule(target: &[i16], terms: usize) -> RuleRecord {
+        RuleRecord {
+            case: CaseRecord {
+                kind: "coordinate".into(),
+                fixed_axes: (0..target.len()).collect(),
+                fixed_values: target.to_vec(),
+                equations: vec![],
+            },
+            target: integral(target),
+            rhs: (0..terms)
+                .map(|term| TermRecord {
+                    integral: integral(&[1, 1, -(term as i16)]),
+                    coefficient: 300 * term as u32,
+                })
+                .collect(),
+            sources: vec![],
+            exclusions: vec![vec![7, 1_000_000]],
+        }
+    }
+
+    /// A program of encoded sectors has the bytes of the decoded program, in
+    /// both layouts (v2 without dispatch entries, v3 with).
+    #[test]
+    fn encoded_sectors_give_the_bytes_of_the_program() {
+        for dispatch in [
+            vec![],
+            vec![RuleDispatchRecord {
+                sector: 1,
+                rule: 0,
+                policy: 1,
+            }],
+        ] {
+            let sectors = vec![
+                SectorRecord {
+                    sector: vec![true, true, false],
+                    rules: (0..200)
+                        .map(|i| rule(&[2, 1 + i % 3, -i], i as usize % 7))
+                        .collect(),
+                    finite_residuals: vec![integral(&[1, 1, 0])],
+                },
+                SectorRecord {
+                    sector: vec![true, false, false],
+                    rules: vec![rule(&[1, 0, 0], 2)],
+                    finite_residuals: vec![],
+                },
+                SectorRecord {
+                    sector: vec![false, true, false],
+                    rules: vec![],
+                    finite_residuals: vec![],
+                },
+            ];
+            let program = ProgramRecord {
+                schema: if dispatch.is_empty() {
+                    CANDIDATE_BUNDLE_SCHEMA
+                } else {
+                    DISPATCH_CANDIDATE_BUNDLE_SCHEMA
+                }
+                .to_owned(),
+                status: CANDIDATE_BUNDLE_STATUS.to_owned(),
+                solver_policy: "p".into(),
+                family_source: "f\nboxed_node {}".into(),
+                input_format: "auto".into(),
+                family_fingerprint: "x".into(),
+                root_sector: vec![true, true, false],
+                permutation: None,
+                integral_order: "o".into(),
+                sectors: sectors.clone(),
+                rule_dispatch: dispatch,
+            };
+            let encoded: Vec<EncodedSectorRecord> = sectors
+                .iter()
+                .map(|sector| {
+                    let mut out = EncodedSectorRecord {
+                        sector: sector.sector.clone(),
+                        finite_residuals: sector.finite_residuals.clone(),
+                        ..Default::default()
+                    };
+                    for rule in &sector.rules {
+                        out.push_rule(rule).unwrap();
+                    }
+                    out
+                })
+                .collect();
+            let header = ProgramRecord {
+                sectors: vec![],
+                ..program.clone()
+            };
+            assert_eq!(
+                encode_program_record_with_sectors(&header, &encoded).unwrap(),
+                encode_program_record(&program).unwrap()
+            );
+        }
     }
 }

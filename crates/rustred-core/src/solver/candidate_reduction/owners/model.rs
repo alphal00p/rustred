@@ -99,6 +99,10 @@ pub(in crate::solver::candidate_reduction) struct PreparedOwnerBatch<const N: us
     pub deferred_points: Option<BTreeSet<IntegralKey>>,
     pub coalescing_bound: usize,
     pub overlay: Option<super::feedback::OwnerOverlayMetadata<N>>,
+    /// boxed-node: exact-key index of the point rules, built on the first
+    /// p library step of a large batch (`owner_step`); never changes which
+    /// rule is selected.
+    pub point_index: std::sync::OnceLock<super::evaluation::PointRuleIndex>,
 }
 
 /// Atomically admitted immutable owner collection in one common family.

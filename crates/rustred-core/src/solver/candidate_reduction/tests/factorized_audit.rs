@@ -271,7 +271,7 @@ fn factorization_cannot_erase_an_original_rule_pole() {
         .get_mut(&[true])
         .unwrap();
     rules.truncate(1);
-    rules[0].rhs[0].denominator = pole;
+    rules[0].rhs[0].denominator = pole.into();
     assert!(matches!(
         owner.reduce_unit_mass(&key([2])),
         Err(CandidateReductionError::Uncovered { .. })

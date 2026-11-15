@@ -38,8 +38,8 @@ fn retry_fixture(poles: bool) -> Arc<CandidateOwnerPrograms<3>> {
     ));
     first.rhs.push(PreparedTerm {
         shift: [0; 3],
-        coefficient: c.zero(),
-        denominator: costly(&c, poles),
+        coefficient: c.zero().into(),
+        denominator: costly(&c, poles).into(),
     });
     install(&mut p, first);
     p
@@ -137,8 +137,8 @@ fn rejection_refinement_actual_fifteen_point_shape_keeps_all_previously_applicab
     )]);
     first.rhs.push(PreparedTerm {
         shift: [0; 3],
-        coefficient: c.zero(),
-        denominator: costly(&c, false),
+        coefficient: c.zero().into(),
+        denominator: costly(&c, false).into(),
     });
     let owner = Arc::get_mut(
         Arc::get_mut(&mut p)
@@ -300,7 +300,9 @@ fn rejection_refinement_global_input_and_same_and_errors_remain_strict() {
     let first = &mut batch(&mut p).rules[0];
     let original = first.equalities.remove(0);
     let denominator = first.rhs.remove(0).denominator;
-    first.exceptions.push(vec![original, denominator]);
+    first
+        .exceptions
+        .push(vec![original, (*denominator).clone()]);
     let error = refuse(&p, Some(2), limits(3));
     assert_eq!(error.failure, failure());
     assert_eq!(error.predicate, Some(excluded(0, 1)));
@@ -370,8 +372,8 @@ fn rejection_refinement_optional_refusal_preserves_original_positive_tail_unknow
         .rhs
         .push(PreparedTerm {
             shift: [0; 3],
-            coefficient: c.zero(),
-            denominator: costly(&c, false),
+            coefficient: c.zero().into(),
+            denominator: costly(&c, false).into(),
         });
     for (index, rank) in [Some(10), None].into_iter().enumerate() {
         let (stats, pieces) = run(&p, rank);

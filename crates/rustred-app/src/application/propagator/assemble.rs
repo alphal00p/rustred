@@ -433,9 +433,46 @@ fn assemble(
         route_maps: PRouteMaps::StaticScore,
         ..PCensusOptions::default()
     };
-    let census = p_census(&presentations, Some(&dag), &census_options)?;
+    // p5l-library session 2: a census checkpoint. RUSTRED_P_ASSEMBLE_CENSUS
+    // names a census.rrbin: when it exists it is read instead of running the
+    // census (the census check below verifies it completely, as any census);
+    // otherwise the census is written there once computed.
+    let checkpoint = std::env::var_os("RUSTRED_P_ASSEMBLE_CENSUS").map(std::path::PathBuf::from);
+    let mut fresh = true;
+    let census = match &checkpoint {
+        Some(path) if path.exists() => {
+            fresh = false;
+            let bytes = std::fs::read(path).map_err(|error| {
+                PError::MalformedLibrary(format!("reading {}: {error}", path.display()))
+            })?;
+            super::format::decode_census(&bytes)?
+        }
+        _ => {
+            let census = p_census(&presentations, Some(&dag), &census_options)?;
+            if let Some(path) = &checkpoint {
+                let bytes = super::format::encode_census(&census)?;
+                let partial = path.with_extension("partial");
+                std::fs::write(&partial, bytes)
+                    .and_then(|()| std::fs::rename(&partial, path))
+                    .map_err(|error| {
+                        PError::Generation(format!("writing {}: {error}", path.display()))
+                    })?;
+            }
+            census
+        }
+    };
     clock.lap("census");
-    census.check_complete_with(&presentations, Some(&dag), &census_options)?;
+    // RUSTRED_P_ASSEMBLE_CENSUS_CHECK: `on` (default) checks every census;
+    // `auto` (p5l-library session 2) skips the check of a census computed in
+    // this process, which verified every route it stored, and checks a census
+    // read from a checkpoint.
+    let check_census = match std::env::var("RUSTRED_P_ASSEMBLE_CENSUS_CHECK").as_deref() {
+        Ok("auto") => !fresh,
+        _ => true,
+    };
+    if check_census {
+        census.check_complete_with(&presentations, Some(&dag), &census_options)?;
+    }
     clock.lap("census-check");
 
     // 5. Owners, edge maps and terminals.
@@ -517,20 +554,29 @@ fn assemble(
             let owner = &presentations[owner_presentation.0 as usize];
             let imported = (owner.node.as_ref())
                 .and_then(|reference| imported_node(&custom, &reference.graph_key));
-            let payload = if let Some(imported) = imported {
-                imported.payload.clone()
+            if let Some(imported) = imported {
+                custom_owner_ref(&mut builder, &mut spec, &imported.payload, &imported.meta)?;
+                // An imported payload in memory is listed; one on disk is not
+                // read into the assembly (p5l-library session 2).
+                if let CustomPayloadRef::Bytes(bytes) = &imported.payload {
+                    let payload = CustomOwnerPayload {
+                        bytes: Arc::clone(bytes),
+                        meta: imported.meta.clone(),
+                    };
+                    payloads.insert(label, payload);
+                }
             } else {
-                custom_payload(
+                let payload = custom_payload(
                     &custom,
                     &label,
                     owner,
                     recount
                         .as_mut()
                         .map(|(filter, recounts)| (*filter, &mut **recounts)),
-                )?
-            };
-            custom_owner(&mut builder, &mut spec, &payload)?;
-            payloads.insert(label, payload);
+                )?;
+                custom_owner(&mut builder, &mut spec, &payload)?;
+                payloads.insert(label, payload);
+            }
         } else {
             for edge in dag.edges_from(node_index.0) {
                 if edge.kind != DagEdgeKind::Rule {
@@ -648,7 +694,23 @@ fn custom_owner(
     spec: &mut POwnerSpec,
     payload: &CustomOwnerPayload,
 ) -> Result<(), PError> {
-    let summary = inspect_custom_payload(&payload.bytes)?;
+    custom_owner_ref(
+        builder,
+        spec,
+        &CustomPayloadRef::Bytes(Arc::clone(&payload.bytes)),
+        &payload.meta,
+    )
+}
+
+/// [`custom_owner`] of a payload reference: the payload is read once here (a
+/// file payload: its first read, which records its digest) and dropped.
+fn custom_owner_ref(
+    builder: &mut PLibraryBuilder,
+    spec: &mut POwnerSpec,
+    payload: &CustomPayloadRef,
+    meta: &rustred::propagator::library::CustomOwnerMeta,
+) -> Result<(), PError> {
+    let summary = inspect_custom_payload(&payload.bytes()?)?;
     for residual in summary.residual_keys() {
         let key = IntegralKey::try_new(residual).map_err(|error| {
             PError::MalformedLibrary(format!(
@@ -662,8 +724,8 @@ fn custom_owner(
                 key,
             })?);
     }
-    spec.payload = Some(CustomPayloadRef::Bytes(Arc::clone(&payload.bytes)));
-    spec.custom = Some(payload.meta.clone());
+    spec.payload = Some(payload.clone());
+    spec.custom = Some(meta.clone());
     Ok(())
 }
 

@@ -181,8 +181,8 @@ fn inline_original_pole_survives_zero_coefficient_as_native_frontier() {
         .unwrap();
     let owner = Arc::get_mut(programs.owners.get_mut(&[true]).unwrap()).unwrap();
     let batch = Arc::get_mut(&mut owner.batches[0]).unwrap();
-    batch.rules[2].rhs[0].coefficient = c.zero();
-    batch.rules[2].rhs[0].denominator = pole;
+    batch.rules[2].rhs[0].coefficient = c.zero().into();
+    batch.rules[2].rhs[0].denominator = pole.into();
     let result = trace(&reducer, [key([6])], budget()).unwrap();
     assert!(result.snapshot().finished);
     assert_eq!(result.snapshot().missing_rules, 1);
