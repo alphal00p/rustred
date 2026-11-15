@@ -151,7 +151,8 @@ fn main() {
                 "import_base": arg(&args, "--base").unwrap_or_else(|| "/".into()),
                 "keys": file("--keys"), "policy": file("--policy"),
                 "threads": arg(&args, "--threads").map(|s| s.parse::<u64>().unwrap_or_else(|_| die("--threads"))),
-                "limit": arg(&args, "--limit").map(|s| s.parse::<u64>().unwrap_or_else(|_| die("--limit")))});
+                "limit": arg(&args, "--limit").map(|s| s.parse::<u64>().unwrap_or_else(|_| die("--limit"))),
+                "witness": arg(&args, "--witness"), "round": arg(&args, "--round")});
         let b = serde_json::to_vec_pretty(&v).expect("json");
         (v, b)
     };
@@ -176,6 +177,21 @@ fn main() {
     let _ = std::fs::remove_file(out.join("result.json"));
     let alg = SymbolicaAlgebra::new().unwrap_or_else(|e| die(&e));
     let t0 = Instant::now();
+    // `witness`: "strict" (default) or "diagnostic" (EXPLORATION: the import's witness_check off_diagnostic: records with
+    // elided / absent witness loci serve without their per-key proofs; every record of the run is labelled diagnostic,
+    // nothing is certified)
+    let witness = request["witness"].as_str().unwrap_or("strict").to_string();
+    let spec_bytes: Vec<u8> = match witness.as_str() {
+        "strict" => spec_bytes,
+        "diagnostic" => {
+            let mut v: Value =
+                serde_json::from_slice(&spec_bytes).unwrap_or_else(|e| die(&e.to_string()));
+            v["policies"]["witness_check"] = json!("off_diagnostic");
+            serde_json::to_vec_pretty(&v).expect("json")
+        }
+        w => die(&format!("witness {w:?}: strict | diagnostic")),
+    };
+    let round_tag = request["round"].as_str().unwrap_or("r1").to_string();
     let spec = TableSetSpec::from_json(&String::from_utf8_lossy(&spec_bytes))
         .unwrap_or_else(|e| die(&format!("import spec: {e}")));
     let set = rustred_campaign_core::import::load(&spec, &base)
@@ -436,7 +452,7 @@ fn main() {
     let rep = json!({"schema": "rustred.campaign.repairflow-symflow.v1", "node": node,
         "policy_digest": policy.digest(), "group": {"elements": grep.elements, "digest": grep.digest},
         "check": check_info, "keys": keys.len(), "summary": summary, "gate": gate,
-        "row_expansion_cap": max_row_terms, "composite_max_depth": opts.max_depth,
+        "row_expansion_cap": max_row_terms, "composite_max_depth": opts.max_depth, "witness": witness,
         "independent_check": {"method": "image re-derived from the verified group; cited records = first match; composition repeated mod p (2 engine primes x 3 values of d) with the core's certificate backend; shipped coefficients compared",
             "verified": verified, "shipped": accepted.len(), "not_verified": not_verified}});
     let mut seal = Sealer {
@@ -477,7 +493,8 @@ fn main() {
         "spec_digest": rep["check"]["spec_digest"].clone(), "keys": keys.len(),
         "outputs": seal.sums.iter().map(|(n, h, l)| json!({"file": n, "sha256": h, "lines": l})).collect::<Vec<_>>(),
         "totals": rep["summary"]["totals"].clone(), "gate": rep["gate"]["verdict"].clone(),
-        "shipped_relations": accepted.len(), "independently_verified": verified});
+        "shipped_relations": accepted.len(), "independently_verified": verified, "witness": witness,
+        "round": round_tag});
     let _ = std::fs::write(
         out.join("timing.json"),
         json!({"load_s": t_load, "check_s": t_check - t_load, "compose_s": t_compose - t_check,
@@ -499,15 +516,16 @@ fn main() {
             serde_json::from_slice(&spec_bytes).unwrap_or_else(|e| die(&e.to_string()));
         let tsha = sha256_hex(&std::fs::read(&tpath).unwrap_or_default());
         let vsha = sha256_hex(&std::fs::read(&vpath).unwrap_or_default());
+        let sid = format!("rf:symmetry-composite:{round_tag}");
         if let Some(srcs) = sv["sources"].as_array_mut() {
-            srcs.retain(|x| x["id"] != "rf:symmetry-composite");
+            srcs.retain(|x| x["id"] != sid.as_str());
             let at = srcs
                 .iter()
                 .position(|x| x["id"] == "default-recipe")
                 .unwrap_or(srcs.len());
             srcs.insert(
                 at,
-                json!({"id": "rf:symmetry-composite", "kind": "supplied_relations", "class": "symmetry-composite",
+                json!({"id": sid, "kind": "supplied_relations", "class": "symmetry-composite",
                     "path": tpath, "sha256": tsha, "verification": {"path": vpath, "sha256": vsha}}),
             );
         }
@@ -541,7 +559,6 @@ fn main() {
             &rows2,
         )
         .unwrap_or_else(|e| die(&format!("next check: {e}")));
-        let _ = std::fs::remove_file(&rows2);
         let shipped: std::collections::HashSet<&Vec<i32>> =
             accepted.iter().map(|a| &a.key).collect();
         let round_keys: std::collections::HashSet<&Vec<i32>> = keys.iter().collect();
@@ -558,7 +575,13 @@ fn main() {
                 }
             }
             if r.status == RowStatus::Open {
-                *open_status.entry(st.clone()).or_default() += 1;
+                let cls = match (st.as_str(), r.open_rule) {
+                    ("blocked", Some((t, rr))) => {
+                        format!("blocked:{:?}", set2.rules[t][rr].witness)
+                    }
+                    _ => st.clone(),
+                };
+                *open_status.entry(cls).or_default() += 1;
                 if st == "uncovered" && !round_keys.contains(&r.key) {
                     new_open.push(r.key.clone());
                 }
@@ -579,6 +602,7 @@ fn main() {
             rustred_campaign_core::pieces::gate::GateConfig::disk(&tmpg),
         );
         let _ = std::fs::remove_dir(&tmpg);
+        let _ = std::fs::remove_file(&rows2);
         ship_summary = json!({"closure_keys": res2.summary.keys_total, "closure_open": res2.summary.open_total,
             "open_by_status": open_status, "shipped": accepted.len(), "shipped_served_by_the_import": served_shipped,
             "shipped_left_open_by_status": open_shipped, "new_open_keys": new_open.len(),

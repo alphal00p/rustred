@@ -64,6 +64,7 @@ pub fn mixed_shell_recipe(
     });
     let r = Recipe {
         schema: RECIPE_SCHEMA.into(),
+        relation_rule: None,
         id: format!("rf/{}/{MIXED_SHELL}", face_tag(face)),
         arity: n,
         chart: lines.iter().map(|&l| if l { '1' } else { '0' }).collect(),
@@ -198,6 +199,7 @@ pub fn face_recipe(
     };
     let r = Recipe {
         schema: RECIPE_SCHEMA.into(),
+        relation_rule: None,
         id: format!("rf/{}/{}", face_tag(face), st.name),
         arity: n,
         chart: lines.iter().map(|&l| if l { '1' } else { '0' }).collect(),
