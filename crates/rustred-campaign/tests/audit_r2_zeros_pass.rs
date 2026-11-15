@@ -85,11 +85,15 @@ fn scale(dir: &Path) -> ScaleCfg {
 
 /// One pass (default `second_route`: all_zeros ABSENT = structural); (verdict word or "none", blockers, check record).
 fn pass(dir: &Path, elided: bool, big: bool) -> (String, Vec<String>, Value) {
+    pass_with(dir, elided, big, true)
+}
+
+fn pass_with(dir: &Path, elided: bool, big: bool, exact_tier: bool) -> (String, Vec<String>, Value) {
     let spec = material(dir, elided);
     let out = run_pass(
         &PassIn {
             threads: 1,
-            exact_tier: true,
+            exact_tier,
             rows_path: dir.join("rows.jsonl"),
             scale: big.then(|| scale(dir)),
             ..PassIn::first("toy", spec, dir.to_path_buf(), dir.join("final"))
@@ -173,5 +177,22 @@ fn f7_big_node_mode_routes_exact_eval_first_pairs_to_rr_proof() {
         az["same_backend_to_rr_proof"], 1,
         "the exact_eval-first pair is not routed to rr_proof in big-node mode: {:#}",
         check["second_route"]
+    );
+}
+
+/// F8: the node option `exact_tier: false` (closeloop config; default true) skips the whole second-route block
+/// (pass.rs: `if tier_c_now && ...`, tier_c_now = exact_tier && ...), yet the import spec's own `policies.tier: C`
+/// still drops the terms the imported facts call zero: the node closes on the FALSE positive-numerator zero of t2
+/// with `all_zeros` at its default (structural) and no blocker naming the missing route.
+#[test]
+#[ignore = "AUDIT-R2-ZEROS F8: exact_tier=false silently disables every second route while the spec's Tier C drops zero terms"]
+fn f8_exact_tier_off_does_not_close_on_unconfirmed_zeros() {
+    let d = root("noexact");
+    let (verdict, blockers, check) = pass_with(&d, false, false, false);
+    let _ = std::fs::remove_dir_all(&d);
+    assert_ne!(
+        verdict, "closed",
+        "exact_tier=false CLOSES on a first-route-only zero: blockers {blockers:?}, tier {:?}, second_route {:#}",
+        check["tier"], check["second_route"]
     );
 }
