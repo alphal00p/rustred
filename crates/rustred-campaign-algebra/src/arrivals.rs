@@ -178,6 +178,96 @@ impl Transporter {
     }
 }
 
+impl Transporter {
+    /// The CHILD TOP-SECTOR part of [`Transporter::apply`]: the same child keys and coefficients, restricted to keys with
+    /// every child line (`child_lines`) at power >= 1, computed by a TRUNCATED product: after each factor, monomials that
+    /// lower a child line to <= 0 are dropped (exact: exponents only grow, so such a monomial never returns to the top
+    /// sector). Lower-sector images are never formed (they dominate the full expansion of high-rank keys).
+    pub fn apply_top(
+        &self,
+        s: &RoutedSector,
+        key: &[i32],
+        child_lines: &[usize],
+    ) -> Result<Vec<(Vec<i32>, Rational)>, String> {
+        let n = self.arity;
+        if key.len() != n || s.subst.len() != n {
+            return Err(format!(
+                "key of arity {} for a route of arity {}",
+                key.len(),
+                s.subst.len()
+            ));
+        }
+        let mut base = vec![0i32; n];
+        for (t, sub) in s.subst.iter().enumerate() {
+            if let SlotSub::Line(j) = sub {
+                if key[t] < 1 {
+                    return Err(format!(
+                        "kept line {t} at power {} (not this sector)",
+                        key[t]
+                    ));
+                }
+                base[*j] = key[t];
+            }
+        }
+        // the largest exponent a child line may reach while its power stays >= 1
+        let cap: Vec<Option<u16>> = (0..n)
+            .map(|j| {
+                child_lines
+                    .contains(&j)
+                    .then(|| (base[j] - 1).max(0) as u16)
+            })
+            .collect();
+        let keep = |ex: &[u16]| ex.iter().zip(&cap).all(|(e, c)| c.is_none_or(|c| *e <= c));
+        let mut poly = self.tpl.constant(Rational::from(1));
+        for (t, sub) in s.subst.iter().enumerate() {
+            let SlotSub::Form { coefs, q2 } = sub else {
+                continue;
+            };
+            if key[t] > 0 {
+                return Err(format!(
+                    "slot {t} at power {} > 0 (not this sector)",
+                    key[t]
+                ));
+            }
+            let e = (-key[t]) as usize;
+            if e == 0 {
+                continue;
+            }
+            let mut l = self.tpl.constant(Self::rat(q2));
+            for (j, c) in coefs {
+                let mut ex = vec![0u16; n + 1];
+                ex[*j] = 1;
+                if keep(&ex) {
+                    l = &l + &self.tpl.monomial(Self::rat(c), ex);
+                }
+            }
+            for _ in 0..e {
+                let prod = &poly * &l;
+                let mut q = self.tpl.zero();
+                for m in &prod {
+                    if keep(m.exponents) {
+                        q.append_monomial(m.coefficient.clone(), m.exponents);
+                    }
+                }
+                poly = q;
+                if poly.is_zero() {
+                    return Ok(vec![]);
+                }
+            }
+        }
+        let mut out = Vec::with_capacity(poly.nterms());
+        for m in &poly {
+            let mut k = base.clone();
+            for (j, e) in m.exponents.iter().take(n).enumerate() {
+                k[j] -= i32::from(*e);
+            }
+            out.push((k, m.coefficient.clone()));
+        }
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(out)
+    }
+}
+
 /// INDEPENDENT re-check of an expansion (verifier; DESIGN REASON D-AR-1, not a Symbolica gap): at a random point X of
 /// Z_p^N, prod over form slots (sum_j c_j X_j + q2)^e == sum_k T_k prod_j X_j^(base_j - k_j), in plain u128 arithmetic
 /// mod a 61-bit prime (no polynomial code, no Symbolica). `seed` picks the point.
@@ -1052,7 +1142,7 @@ pub fn aggregate(
                         return Ok(x.clone());
                     }
                     let red: Vec<(Vec<i32>, [Fe; 2])> = tr
-                        .apply(sec, &h.tk)?
+                        .apply_top(sec, &h.tk, &child_lines[e])?
                         .into_iter()
                         .map(|(k, c)| {
                             let t = |f: &Zp64| {

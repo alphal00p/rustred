@@ -10,6 +10,9 @@
 //! prover's loci / non-zero proofs, the edge frame check. Needs the Symbolica licence (`source WS/ops/env.sh`); SKIPS
 //! without it.
 
+#[path = "../src/arrivals.rs"]
+#[allow(dead_code)]
+mod arrivals;
 #[path = "../src/coef_facts.rs"]
 #[allow(dead_code)]
 mod coef_facts;
@@ -326,7 +329,6 @@ fn toy_dag_arrivals_child_check_determinism_and_verifier() {
     assert_eq!(k.exact_senders, Some(0), "{k:?}");
     let es = &s["files"][0]["stats"];
     assert!(es["exact_cancelled"].as_u64().unwrap() >= 1, "{es}");
-    assert!(es["lower_child_sector_terms"].as_u64().unwrap() > 0, "{es}");
     // frame checks recorded for both sides
     assert_eq!(s["frame_checks"].as_array().unwrap().len(), 2);
     // determinism: another thread count gives the same bytes
@@ -590,4 +592,41 @@ fn handdown_loci_and_nonzero_proofs() {
             .iter()
             .any(|v| v["class"] == "hand_down" && v["verdict"] == "zero_on_locus")
     );
+}
+
+#[test]
+fn truncated_expansion_equals_the_top_sector_part_of_the_full_one() {
+    let Some(a) = alg() else { return };
+    let a: &'static SymbolicaAlgebra = Box::leak(Box::new(a));
+    let e = rustred_campaign_core::import::arrivals::edge::EdgeFile::parse(
+        edge_json(Path::new("p"), Path::new("c"))
+            .to_string()
+            .as_bytes(),
+        "toy",
+        "chosen",
+    )
+    .unwrap();
+    let sec = &e.sectors[0];
+    let tr = arrivals::Transporter::new(a, 5).unwrap();
+    let mut seen_lower = 0;
+    for n0 in 1..=4 {
+        for n1 in 1..=3 {
+            for n3 in 1..=2 {
+                for d2 in [0, -1, -2] {
+                    for n4 in [0, -1, -2, -3] {
+                        let key = [n0, n1, d2, n3, n4];
+                        let full = tr.apply(sec, &key).unwrap();
+                        let top: Vec<_> = full
+                            .iter()
+                            .filter(|(k, _)| k[..3].iter().all(|&x| x >= 1))
+                            .cloned()
+                            .collect();
+                        seen_lower += full.len() - top.len();
+                        assert_eq!(tr.apply_top(sec, &key, &[0, 1, 2]).unwrap(), top, "{key:?}");
+                    }
+                }
+            }
+        }
+    }
+    assert!(seen_lower > 0, "the grid must exercise the pruning");
 }
