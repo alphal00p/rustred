@@ -4,6 +4,7 @@
 //! 2. CLOSE FIRST: a solved trial is journaled when it is SOLVED, before the pole job answers: a pole job that dies
 //!    loses nothing; a resumed solver answers the trial from the journal (no solve job), asks the pole job again for
 //!    the orders still undecided and returns the same answers as an uninterrupted run.
+//!
 //! Spawns processes: run ONLY under `LIGHT_PIDNS=1` (private pid namespace, rule L10).
 
 use rustred_campaign::adapters::job::{Invocation, Program};
@@ -253,4 +254,43 @@ fn a_solved_trial_is_journaled_before_the_pole_job_and_a_resume_asks_the_job_aga
     );
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_dir_all(&dir4);
+}
+
+/// Lane polefix (audit r2-poles F4): the closing loop's node setting `pole_objective` (absent = default objective,
+/// `"none"` = no `choice` annotation on SOLVED lines, an object = its measures; anything else refused at config load)
+/// and the annotation itself (`accept::solved_choice`, written only when the setting is not "none"). Pure.
+#[test]
+fn the_node_pole_objective_setting_and_the_solved_choice() {
+    use rustred_campaign::closeloop::accept::solved_choice;
+    use rustred_campaign::closeloop::config::CloseLoopConfig;
+    use rustred_campaign_core::poles::PoleObjective;
+    let cfg = |extra: &str| {
+        format!(
+            r#"{{"schema":"rustred.campaign.closeloop.v1","nodes":[{{"node":"toy","import_spec":"/x.json",
+            "solve":{{"program":"p","family":"/f","order":"o","relation_rule":"first_admissible","max_keys_per_job":1,
+            "threads":1,"cap_bytes":1,"expected_peak_bytes":1,"heartbeat_s":1,"stop_grace_s":1}}{extra}}}]}}"#
+        )
+    };
+    let dflt = CloseLoopConfig::from_json(&cfg("")).unwrap();
+    assert_eq!(
+        dflt.nodes[0].pole_objective_setting().unwrap(),
+        Some(PoleObjective::default())
+    );
+    // absent: not serialised (config digests unchanged)
+    assert!(
+        !serde_json::to_string(&dflt.nodes[0])
+            .unwrap()
+            .contains("pole_objective")
+    );
+    let none = CloseLoopConfig::from_json(&cfg(r#","pole_objective":"none""#)).unwrap();
+    assert_eq!(none.nodes[0].pole_objective_setting().unwrap(), None);
+    let obj =
+        CloseLoopConfig::from_json(&cfg(r#","pole_objective":{"measures":["size"]}"#)).unwrap();
+    let o = obj.nodes[0].pole_objective_setting().unwrap().unwrap();
+    assert!(CloseLoopConfig::from_json(&cfg(r#","pole_objective":"off""#)).is_err());
+    // the annotation names the objective in force (one candidate, no profile: ranked by size)
+    let c = solved_choice(&o, "rel-1", 7);
+    assert_eq!(c["chosen"], "rel-1");
+    assert_eq!(c["measures"], serde_json::json!(["size"]));
+    assert_eq!(c["profile_used"], "none");
 }

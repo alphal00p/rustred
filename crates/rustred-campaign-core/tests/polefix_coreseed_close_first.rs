@@ -344,3 +344,54 @@ fn an_interrupted_variant_phase_resumes_with_the_same_publication_and_result() {
     assert_eq!(j(&s1.published[0]), j(&s2.published[0]));
     assert_eq!(j(&r_full), j(&r2));
 }
+
+/// Lane polefix (audit r2-poles F11): the domain test of a minimised list goes through `poles::pole_objective`: a key
+/// whose relation from the minimised list has a HIGHER pole order than its full-list relation is refused (before, only
+/// "regular -> singular" was refused, so a rise from order 1 to 2 was accepted).
+#[test]
+fn a_minimised_list_that_raises_a_pole_order_is_not_accepted_at_that_key() {
+    let p = vec![3, 1, -1, 0];
+    let q = vec![2, 1, -1, 0];
+    let o_p = vec![0, 0, 1, 0];
+    let o_q = vec![1, 0, 0, 0];
+    let s = |o: u32| D0Verdict::Singular { order: Some(o) };
+    let mut o = Oracle::default();
+    o.insert(
+        p.clone(),
+        vec![Opt {
+            needs: vec![o_p.clone()],
+            rhs: vec![vec![2, 1, -1, 0]],
+            d0: s(1),
+        }],
+    );
+    // Q: order 1 with its own seed (the full list has it), order 2 with P's seed only (the list minimised at P)
+    o.insert(
+        q.clone(),
+        vec![
+            Opt {
+                needs: vec![o_q.clone()],
+                rhs: vec![vec![1, 1, -1, 0]],
+                d0: s(1),
+            },
+            Opt {
+                needs: vec![o_p.clone()],
+                rhs: vec![vec![1, 1, 0, 0]],
+                d0: s(2),
+            },
+        ],
+    );
+    let pol = policy(r#"{"centre_scan": {"enabled": false}, "regular_escalation": []}"#);
+    let mut sv = Plain::new(&o);
+    let r = solve_core(&[p.clone(), q.clone()], &LINES, &pol, &mut sv).unwrap();
+    let pieces = &r.groups[0].pieces;
+    let first = pieces
+        .iter()
+        .find(|x| x.domain.contains(&p))
+        .expect("P's piece");
+    assert_eq!(first.kind, "minimised");
+    assert!(first.failed.contains(&q), "{pieces:#?}");
+    assert!(!first.domain.contains(&q));
+    // Q keeps a relation of order 1 (its own piece), never the order-2 one as its choice
+    let kq = key(&r, &q);
+    assert_eq!(kq.alternatives[kq.chosen.unwrap()].d0, s(1));
+}
