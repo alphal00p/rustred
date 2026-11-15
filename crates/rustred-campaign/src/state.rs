@@ -213,6 +213,9 @@ pub fn accept_permits_records(a: ContractAccept) -> bool {
     match a {
         ContractAccept::Canonical | ContractAccept::CommittedRules => true,
         ContractAccept::SolvedRecords => true, // row 28 (lane adapters)
+        // contract line 7 (rows 30 / 31): diagnostics only, never rule or relation evidence (procfix6: compile fix of
+        // campaign 12528de8; REQUEST TO I-INT: confirm)
+        ContractAccept::DiagnosticRecords => false,
         ContractAccept::Nothing => false,
     }
 }
@@ -222,6 +225,7 @@ pub fn accept_word(a: ContractAccept) -> &'static str {
         ContractAccept::Canonical => "canonical",
         ContractAccept::CommittedRules => "committed_rules",
         ContractAccept::SolvedRecords => "solved_records", // lane adapters (row 28)
+        ContractAccept::DiagnosticRecords => "diagnostic_records", // contract line 7 (rows 30 / 31)
         ContractAccept::Nothing => "nothing",
     }
 }
