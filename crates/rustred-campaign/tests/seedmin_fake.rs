@@ -187,6 +187,40 @@ fn joint_minimisation_through_fake_children_resumes_from_the_journal() {
     assert_eq!(jm2.record, jm.record);
     assert_eq!(again.stats.jobs, 0);
     assert!(again.stats.journal_hits > 0);
+    // a journal line with an UNDECIDED answer (an interrupted job) is not replayed: the trial runs again
+    let jp = dir.join("work/journal.jsonl");
+    let mut text = std::fs::read_to_string(&jp).unwrap();
+    let first: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    let mut bad = first.clone();
+    let n = bad["answers"].as_array().unwrap().len();
+    bad["answers"] = serde_json::json!(vec![
+        serde_json::json!({"answer": "undecided", "class": "refused", "message": "killed"});
+        n
+    ]);
+    text = format!(
+        "{}\n{}",
+        bad,
+        text.lines().skip(1).collect::<Vec<_>>().join("\n")
+    );
+    std::fs::write(&jp, text + "\n").unwrap();
+    let mut third = ChildTrialSolver::new(
+        config(&dir, oracle.clone()),
+        s.clone(),
+        Box::new(LocalValuationJudge),
+        EngineCaps::default(),
+    )
+    .unwrap();
+    let jm3 = minimise_joint(
+        &keys,
+        &[0, 0, 0],
+        &list,
+        &policy,
+        &mut third,
+        &mut StubSystemPoles,
+    )
+    .unwrap();
+    assert_eq!(jm3.record, jm.record);
+    assert_eq!(third.stats.jobs, 1, "only the undecided trial runs again");
     // rows at d0 on an engine without probe mode: typed refusal before any job
     let mut d0 = policy.clone();
     d0.rows_at_d0 = true;

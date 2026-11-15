@@ -18,6 +18,7 @@ pub mod judge;
 pub mod key;
 pub mod order;
 pub mod policy;
+pub mod subsets;
 pub mod system;
 
 use serde::{Deserialize, Serialize};
@@ -29,6 +30,7 @@ pub use journal::JournaledSolver;
 pub use judge::{LocalValuationJudge, StubRelationPoles, StubSystemPoles, facts_from_record};
 pub use key::{KeyMin, minimise_key};
 pub use policy::SeedMinPolicy;
+pub use subsets::{ShellSubsetSpec, SubsetAlternative, minimise_shell_subsets};
 pub use system::TadicSystem;
 
 /// An integral key (one integer per slot).

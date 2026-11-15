@@ -853,3 +853,335 @@ fn the_tadic_system_judge_bounds_drops_by_the_start_systems_p_star() {
     );
     assert!(ts.seconds.len() >= 3);
 }
+
+/// A coreseed CoreSolver oracle for the BRIDGE (one key): the key solves iff the list (offsets from the key) contains
+/// `needs`; with `engine` a request carrying `elimination.minimise` is answered like the engine verb: the minimisation
+/// run inside (the emulation through the bridge on a plain copy of this oracle) and the contract's `minimise` member
+/// (+ the proposed `seeds`, offsets from the key) in the record.
+#[derive(Clone)]
+struct CoreOracle {
+    needs: Vec<Offset>,
+    engine: bool,
+}
+
+fn core_info(
+    needs: &[Offset],
+    k: &[i32],
+    rhs: u64,
+    minimise: Option<Value>,
+) -> rustred_campaign_core::coreseed::RelationInfo {
+    rustred_campaign_core::coreseed::RelationInfo {
+        relation_digest: sha256_hex(format!("{k:?}/{needs:?}").as_bytes()),
+        rhs: vec![],
+        rhs_count: rhs,
+        seeds_total: None,
+        seeds_used: Some(needs.to_vec()),
+        d0: rustred_campaign_core::coreseed::D0Verdict::Regular,
+        recipe_digest: "r".into(),
+        determinism_id: "fake".into(),
+        relation_rule_taken: None,
+        minimise,
+        record_sha256: "s".into(),
+    }
+}
+
+fn core_make(
+    list: &[Offset],
+    keys: &[Key],
+    label: &str,
+    member: Option<Value>,
+) -> Result<rustred_campaign_core::coreseed::SolveReq, String> {
+    let mut recipe = json!({"seeds": {"centres": list}, "elimination": {"convention": "rustred.recipe-elim.v1"}});
+    if let Some(m) = member {
+        recipe["elimination"]["minimise"] = m;
+    }
+    Ok(rustred_campaign_core::coreseed::SolveReq {
+        label: label.into(),
+        text: recipe.to_string(),
+        recipe,
+        keys: keys.to_vec(),
+        relation_rule: "first_admissible".into(),
+    })
+}
+
+impl rustred_campaign_core::coreseed::CoreSolver for CoreOracle {
+    fn solve(
+        &mut self,
+        batch: &[rustred_campaign_core::coreseed::SolveReq],
+    ) -> Result<Vec<Vec<rustred_campaign_core::coreseed::KeyAnswer>>, String> {
+        use rustred_campaign_core::coreseed::KeyAnswer;
+        let mut out = vec![];
+        for r in batch {
+            let list: Vec<Offset> =
+                serde_json::from_value(r.recipe["seeds"]["centres"].clone()).unwrap();
+            let member = r.recipe["elimination"].get("minimise").cloned();
+            let mut v = vec![];
+            for k in &r.keys {
+                if self.engine && member.is_some() {
+                    let mut inner = CoreOracle {
+                        engine: false,
+                        ..self.clone()
+                    };
+                    let pol = rustred_campaign_core::coreseed::spec::CoreSeedPolicy::default();
+                    let res = rustred_campaign_core::seedmin::bridge::minimise(
+                        &mut inner,
+                        &pol,
+                        &core_make,
+                        &list,
+                        std::slice::from_ref(k),
+                        None,
+                        "engine-inside",
+                    )?
+                    .expect("solves");
+                    let mut m = res.member.clone();
+                    m["seeds"] = json!(res.list);
+                    let info = res.per_key[k].clone();
+                    v.push(KeyAnswer::Relation(Box::new(core_info(
+                        &self.needs,
+                        k,
+                        info.rhs_count,
+                        Some(m),
+                    ))));
+                } else if self.needs.iter().all(|o| list.contains(o)) {
+                    v.push(KeyAnswer::Relation(Box::new(core_info(
+                        &self.needs,
+                        k,
+                        40,
+                        None,
+                    ))));
+                } else {
+                    v.push(KeyAnswer::NoRelation);
+                }
+            }
+            out.push(v);
+        }
+        Ok(out)
+    }
+}
+
+#[test]
+fn through_the_bridge_the_engine_verb_and_the_emulation_give_the_same_result() {
+    let k: Key = vec![3, 2, -1];
+    let needs: Vec<Offset> = vec![vec![0, 0, 0], vec![1, 0, 0], vec![0, 1, -1]];
+    let list = shell();
+    let emu_pol = rustred_campaign_core::coreseed::spec::CoreSeedPolicy::default();
+    let mut eng_pol = emu_pol.clone();
+    eng_pol.minimise.backend = "engine".into();
+    let emu = rustred_campaign_core::seedmin::bridge::minimise(
+        &mut CoreOracle {
+            needs: needs.clone(),
+            engine: false,
+        },
+        &emu_pol,
+        &core_make,
+        &list,
+        std::slice::from_ref(&k),
+        None,
+        "emu",
+    )
+    .unwrap()
+    .expect("the emulation minimises");
+    let eng = rustred_campaign_core::seedmin::bridge::minimise(
+        &mut CoreOracle {
+            needs: needs.clone(),
+            engine: true,
+        },
+        &eng_pol,
+        &core_make,
+        &list,
+        std::slice::from_ref(&k),
+        None,
+        "eng",
+    )
+    .unwrap()
+    .expect("the engine backend returns the minimised relation (not None, not the start list)");
+    assert_eq!(eng.list, emu.list);
+    assert_eq!(eng.list.len(), 3);
+    assert_eq!(
+        eng.per_key[&k].relation_digest,
+        emu.per_key[&k].relation_digest
+    );
+    let strip = |m: &Value| {
+        let mut m = m.clone();
+        let o = m.as_object_mut().unwrap();
+        o.remove("seeds");
+        o.remove("backend");
+        m
+    };
+    assert_eq!(strip(&eng.member), strip(&emu.member));
+    assert_eq!(eng.member["backend"], "engine");
+    assert_eq!(emu.member["backend"], "emulated");
+}
+
+#[test]
+fn augmentation_never_minimises_the_same_key_twice() {
+    // A's minimised list {c, a} solves A; joined with B's list the first match at A becomes a SINGULAR alternative
+    // (needs c + b): A then fails the union's confirmation; it must not be minimised again
+    let ka: Key = vec![2, 1, 0];
+    let kb: Key = vec![3, 1, 0];
+    let mut o = Oracle {
+        report_used: true,
+        ..Default::default()
+    };
+    let mut sing = alt(&[[0, 0, 0], [0, 1, -1]], 5);
+    sing.pole = PoleOrder::Order { order: 1 };
+    o.alts
+        .insert(ka.clone(), vec![sing, alt(&[[0, 0, 0], [1, 0, 0]], 8)]);
+    o.alts
+        .insert(kb.clone(), vec![alt(&[[0, 0, 0], [0, 1, -1]], 9)]);
+    let mut p = SeedMinPolicy::default();
+    p.joint.spread.count = 1;
+    let start: Vec<Offset> = vec![vec![0, 0, 0], vec![1, 0, 0]];
+    // the start list solves A (regular) but not B; give B its own seed so the start serves both
+    let mut list = start.clone();
+    list.push(vec![0, 1, -1]);
+    let jm = minimise_joint(
+        &[ka.clone(), kb.clone()],
+        &C0,
+        &list,
+        &p,
+        &mut o,
+        &mut StubSystemPoles,
+    )
+    .unwrap();
+    let spread_keys: Vec<Value> = jm.record["spread"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["key"].clone())
+        .collect();
+    let uniq: BTreeSet<String> = spread_keys.iter().map(|k| k.to_string()).collect();
+    assert_eq!(
+        uniq.len(),
+        spread_keys.len(),
+        "a key minimised twice: {spread_keys:?}"
+    );
+    // every key is still served (a piece or the start list), never lost
+    let covered: usize = jm.pieces.iter().map(|p| p.keys.len()).sum();
+    assert_eq!(covered, 2);
+}
+
+#[test]
+fn shell_subsets_are_alternatives_ranked_by_coverage_poles_and_size() {
+    use rustred_campaign_core::seedmin::{ShellSubsetSpec, minimise_shell_subsets};
+    let lines = vec![true, true, false];
+    let k: Key = vec![2, 2, -1];
+    let mut o = Oracle::default();
+    // with an S2 seed present the first match is SINGULAR; with only the Sm1 seed the relation is REGULAR
+    let mut sing = alt(&[[0, 0, 0], [2, 0, 0]], 5);
+    sing.pole = PoleOrder::Order { order: 1 };
+    o.alts
+        .insert(k.clone(), vec![sing, alt(&[[0, 0, 0], [-1, 0, 0]], 10)]);
+    let spec = ShellSubsetSpec {
+        base: vec!["S0".into(), "S1".into()],
+        escalation: vec!["S2".into(), "Sm1".into()],
+        order: "smallest_first".into(),
+        rank: vec![
+            "unserved".into(),
+            "pieces".into(),
+            "max_pole".into(),
+            "singular_keys".into(),
+            "seeds".into(),
+            "max_terms".into(),
+        ],
+    };
+    assert_eq!(
+        spec.subsets(),
+        vec![
+            vec!["S2".to_string()],
+            vec!["Sm1".to_string()],
+            vec!["S2".to_string(), "Sm1".to_string()]
+        ]
+    );
+    let alts = minimise_shell_subsets(
+        std::slice::from_ref(&k),
+        &C0,
+        &lines,
+        &spec,
+        &SeedMinPolicy::default(),
+        &mut o,
+        &mut StubSystemPoles,
+    )
+    .unwrap();
+    assert_eq!(alts.len(), 3);
+    // best: base + Sm1 (regular); the two lists containing S2 deliver the singular relation
+    assert_eq!(alts[0].shells, vec!["S0", "S1", "Sm1"]);
+    assert_eq!(alts[0].measures["max_pole"], 0);
+    assert_eq!(
+        alts[0].joint.pieces[0].list,
+        vec![vec![0, 0, 0], vec![-1, 0, 0]]
+    );
+    assert!(alts[1..].iter().all(|a| a.measures["max_pole"] == 1));
+    let mut bad = spec.clone();
+    bad.rank = vec!["beauty".into()];
+    assert!(
+        minimise_shell_subsets(
+            std::slice::from_ref(&k),
+            &C0,
+            &lines,
+            &bad,
+            &SeedMinPolicy::default(),
+            &mut o,
+            &mut StubSystemPoles
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn undecided_answers_are_never_journaled_nor_replayed() {
+    use rustred_campaign_core::seedmin::journal::JournalLine;
+    let k: Key = vec![2, 2, 0];
+    let mut o = Oracle::default();
+    o.alts.insert(k.clone(), vec![alt(&[[0, 0, 0]], 1)]);
+    // a journal holding an UNDECIDED start answer (an interrupted job) must not be replayed
+    let t = Trial {
+        label: "x".into(),
+        centre: C0.to_vec(),
+        list: shell(),
+        keys: vec![k.clone()],
+        mode: TrialMode::Solve,
+        engine_minimise: None,
+    };
+    let line = serde_json::to_string(&JournalLine {
+        digest: t.digest(),
+        label: "x".into(),
+        answers: vec![TrialAnswer::Undecided {
+            class: "refused".into(),
+            message: "killed".into(),
+        }],
+    })
+    .unwrap();
+    let mut js = JournaledSolver::from_lines(o.clone(), [line.as_str()]).unwrap();
+    assert!(js.is_empty());
+    let a = js.solve(std::slice::from_ref(&t)).unwrap();
+    assert!(a[0][0].relation().is_some());
+    // an undecided answer from the inner solver is returned but not journaled
+    let mut o2 = o.clone();
+    o2.fail_after = None;
+    o2.alts.clear();
+    struct Und;
+    impl TrialSolver for Und {
+        fn solve(&mut self, t: &[Trial]) -> Result<Vec<Vec<TrialAnswer>>, String> {
+            Ok(t.iter()
+                .map(|x| {
+                    x.keys
+                        .iter()
+                        .map(|_| TrialAnswer::Undecided {
+                            class: "budget_wall".into(),
+                            message: String::new(),
+                        })
+                        .collect()
+                })
+                .collect())
+        }
+        fn capabilities(&self) -> EngineCaps {
+            EngineCaps::default()
+        }
+    }
+    let mut ju = JournaledSolver::new(Und);
+    let a = ju.solve(std::slice::from_ref(&t)).unwrap();
+    assert!(matches!(a[0][0], TrialAnswer::Undecided { .. }));
+    assert!(ju.take_new_lines().is_empty());
+    assert!(ju.is_empty());
+}

@@ -485,9 +485,13 @@ fn build_piece(
     let mut extra = 0;
     while !fail.is_empty() && extra < policy.joint.spread.max_extra {
         let failing: BTreeSet<&Key> = fail.iter().map(|(k, _)| k).collect();
-        // the first failing key in farthest order from the chosen set
+        // the first failing key in farthest order from the chosen set, not minimised yet (a minimised key that still
+        // fails under the union is left to repair / split: minimising it again gives the same list)
         let order = farthest(domain, domain.len(), &chosen);
-        let Some(&next) = order.iter().find(|&&i| failing.contains(&domain[i])) else {
+        let Some(&next) = order
+            .iter()
+            .find(|&&i| failing.contains(&domain[i]) && !chosen.contains(&i))
+        else {
             break;
         };
         chosen.push(next);

@@ -6,7 +6,8 @@
 //!   "face_dots": [slots] (optional filter: exactly these lines at power >= 2), "face_nums": [slots] (optional: exactly
 //!   these numerators < 0), "max_keys": n (optional), "centre": [..] (default zero), "shells": [..] (harder unit, all
 //!   slots, no floor, around the centre) | "list": [[offset], ..] (explicit start list, centre-relative, row order kept),
-//!   "domain": {recipe domain} (optional), "policy": {seedmin policy}, "relation_rule", "cpus": [..] | null (HELD_CPUS),
+//!   "domain": {recipe domain} (optional), "verify_keys_file": "<I(..) per line>" + "verify_chunk": n (optional: every
+//!   piece list is then also solved at those keys, "valid at N of N"), "policy": {seedmin policy}, "relation_rule", "cpus": [..] | null (HELD_CPUS),
 //!   "pin_cpus": bool (default true; false = the CPUs are only a pool size, rule L21),
 //!   "threads_per_job", "cap_bytes", "key_budget_s", "wall_cap_s", "work_root", "out_dir", "records_cap_bytes"}`.
 //! Writes `out_dir/report.json`: the start list, the joint record (per-key minimisations at the spread keys, pieces,
@@ -17,7 +18,8 @@ use rustred_campaign::closeloop::seedmin::{ChildConfig, ChildTrialSolver, engine
 use rustred_campaign::resources::{Sampler, SamplerConfig};
 use rustred_campaign_core::coreseed::seeds::{shell_offsets, valid_at};
 use rustred_campaign_core::seedmin::{
-    LocalValuationJudge, SeedMinPolicy, StubSystemPoles, add, minimise_joint, rule_candidate,
+    LocalValuationJudge, SeedMinPolicy, StubSystemPoles, Trial, TrialMode, TrialSolver, add,
+    minimise_joint, rule_candidate,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -173,6 +175,61 @@ fn real_joint_seed_minimisation_on_one_face() {
         &mut StubSystemPoles,
     )
     .unwrap();
+    // VERIFICATION at further keys (e.g. the whole core of the face): every piece list solved at the verify keys
+    // outside its own keys, in chunks (one trial each, scheduled over the pool); "valid at N of N" per piece
+    let mut verify = vec![];
+    if let Some(vf) = c["verify_keys_file"].as_str() {
+        let vkeys: Vec<Vec<i32>> = std::fs::read_to_string(vf)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .filter_map(parse_key)
+            .collect();
+        let chunk = c["verify_chunk"].as_u64().unwrap_or(40).max(1) as usize;
+        for p in &jm.pieces {
+            let own: BTreeSet<&Vec<i32>> = p.keys.iter().collect();
+            let extra: Vec<Vec<i32>> = vkeys.iter().filter(|k| !own.contains(k)).cloned().collect();
+            let trials: Vec<Trial> = extra
+                .chunks(chunk)
+                .enumerate()
+                .map(|(i, ks)| Trial {
+                    label: format!("seedmin/verify/{}/{i}", p.label),
+                    centre: centre.clone(),
+                    list: p.list.clone(),
+                    keys: ks.to_vec(),
+                    mode: TrialMode::Solve,
+                    engine_minimise: None,
+                })
+                .collect();
+            let ans = solver.solve(&trials).unwrap();
+            let all: Vec<_> = ans.into_iter().flatten().collect();
+            let ok: Vec<_> = all.iter().filter_map(|a| a.relation()).collect();
+            let terms: Vec<u64> = ok.iter().map(|f| f.rhs_count).collect();
+            let mut poles: std::collections::BTreeMap<String, usize> = Default::default();
+            for f in &ok {
+                *poles
+                    .entry(serde_json::to_string(&f.pole).unwrap())
+                    .or_default() += 1;
+            }
+            let failed: Vec<Value> = extra
+                .iter()
+                .zip(&all)
+                .filter(|(_, a)| a.relation().is_none())
+                .map(|(k, a)| json!([k, a.word()]))
+                .collect();
+            eprintln!(
+                "[seedmin] VERIFY piece {}: valid at {} of {} keys",
+                p.label,
+                p.keys.len() + ok.len(),
+                p.keys.len() + extra.len()
+            );
+            verify.push(json!({"piece": p.label, "seeds": p.list.len(),
+                "valid": format!("{} of {} keys", p.keys.len() + ok.len(), p.keys.len() + extra.len()),
+                "extra_keys": extra.len(), "extra_solved": ok.len(),
+                "extra_terms": [terms.iter().min(), terms.iter().max()], "extra_poles": poles,
+                "failed": failed.iter().take(50).collect::<Vec<_>>(), "failed_count": failed.len()}));
+        }
+    }
     let wall = t0.elapsed().as_secs_f64();
     let covered: usize = jm.pieces.iter().map(|p| p.keys.len()).sum();
     let candidates: Vec<Value> = jm
@@ -187,7 +244,7 @@ fn real_joint_seed_minimisation_on_one_face() {
             "how": p.how, "list": p.list,
             "terms": p.per_key.iter().map(|f| f.rhs_count).collect::<Vec<_>>(),
             "poles": p.per_key.iter().map(|f| f.pole).collect::<Vec<_>>()})).collect::<Vec<_>>(),
-        "rule_candidates": candidates, "choice_sets": jm.choice_sets,
+        "rule_candidates": candidates, "choice_sets": jm.choice_sets, "verify": verify,
         "solves": jm.solves, "trials_run": jm.trials_run, "journal_resumed": resumed,
         "cost": solver.stats, "wall_s": wall, "pole_judge": "local_valuation (temporary)", "record": jm.record});
     std::fs::write(

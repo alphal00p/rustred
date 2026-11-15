@@ -194,15 +194,21 @@ pub fn minimise(
             run_lockstep(&mut ms, &mut br, &mut sys).map_err(|e| e.to_string())?;
             ms.pop().expect("one machine").finish()
         };
-        let (Some(rel), Some(st)) = (&km.relation, &km.start_relation) else {
+        // the engine backend's record carries no start relation, only its `minimise` member (rhs_before)
+        let Some(rel) = &km.relation else {
             return Ok(None);
         };
         let Some(info) = info_of(&br, k, rel) else {
             return Ok(None);
         };
         let mut member = km.minimise.clone().unwrap_or_else(|| json!({}));
+        let rhs_before = km
+            .start_relation
+            .as_ref()
+            .map(|s| s.rhs_count)
+            .or_else(|| member["rhs_before"].as_u64());
         member["backend"] = json!(km.backend);
-        member["rhs_sum_before"] = json!(st.rhs_count);
+        member["rhs_sum_before"] = json!(rhs_before);
         member["rhs_sum_after"] = json!(rel.rhs_count);
         member["domain_keys"] = json!(1);
         member["row_order"] = json!(sp.row_order);
