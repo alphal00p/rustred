@@ -325,11 +325,19 @@ impl Stream<'_, '_> {
                         .position(|c| matches!(c, b',' | b'}' | b']'))
                         .unwrap_or(b.len());
                     let seg = &b[..n];
-                    let ws = seg.iter().rev().take_while(|c| c.is_ascii_whitespace()).count();
+                    let ws = seg
+                        .iter()
+                        .rev()
+                        .take_while(|c| c.is_ascii_whitespace())
+                        .count();
                     (n, (n == b.len(), ws, n))
                 })? {
                     let (all, ws, n) = more;
-                    trailing_ws = if ws == n { trailing_ws + ws as u64 } else { ws as u64 };
+                    trailing_ws = if ws == n {
+                        trailing_ws + ws as u64
+                    } else {
+                        ws as u64
+                    };
                     if !all {
                         break;
                     }
@@ -372,7 +380,10 @@ impl Stream<'_, '_> {
         }
         loop {
             if self.kpeek()? != b'[' {
-                return Ok(Err((Deferred { depth: 1 }, kerr(self, "expected '['".into()))));
+                return Ok(Err((
+                    Deferred { depth: 1 },
+                    kerr(self, "expected '['".into()),
+                )));
             }
             let term_start = self.pos;
             if visit.is_some() {
@@ -431,16 +442,18 @@ impl Stream<'_, '_> {
                 element += 1;
             }
             if self.kpeek()? != b']' {
-                return Ok(Err((Deferred { depth: 2 }, kerr(self, "expected ']'".into()))));
+                return Ok(Err((
+                    Deferred { depth: 2 },
+                    kerr(self, "expected ']'".into()),
+                )));
             }
             self.bump()?;
             if let Some(v) = visit.as_deref_mut() {
                 self.sinks.field_on = false;
                 if self.sinks.field_over {
-                    return Err(self.too_large(
-                        &format!("rhs term {}", *terms),
-                        self.pos - term_start,
-                    ));
+                    return Err(
+                        self.too_large(&format!("rhs term {}", *terms), self.pos - term_start)
+                    );
                 }
                 let t = std::mem::take(&mut self.sinks.field);
                 v(*terms, &t)?;
@@ -500,125 +513,126 @@ impl Stream<'_, '_> {
         self.bump()?;
         let mut names: Vec<String> = vec![];
         self.ws()?;
-        let mut empty = false;
-        if self.peek()? == Some(b'}') {
+        let empty = self.peek()? == Some(b'}');
+        if empty {
             self.bump()?;
-            empty = true;
         }
-        while !empty {
-            self.ws()?;
-            if self.peek()? != Some(b'"') {
-                return Err(self.err("expected a string"));
-            }
-            let kstart = self.pos;
-            self.sinks.field.clear();
-            self.sinks.field_over = false;
-            self.sinks.field_on = true;
-            self.string()?;
-            let k = self.take_key(kstart)?;
-            self.ws()?;
-            if self.peek()? != Some(b':') {
-                return Err(self.err(format!("expected {:?}", ':')));
-            }
-            self.bump()?;
-            self.ws()?;
-            let vstart = self.pos;
-            if k == "rhs" && out.rhs.is_none() {
-                let array = self.peek()? == Some(b'[');
-                // the rhs value is NOT kept: `[]` in the compact line
-                self.sinks.compact_on = false;
-                // a value whose span ends at its last byte (array, string, object) is hashed as it passes; a scalar
-                // (whose span `Scan` trims of trailing blanks) is held, bounded, and hashed over its span
-                let first = self.peek()?;
-                let scalar = !matches!(first, Some(b'[' | b'"' | b'{'));
-                if opts.rhs_digest && !scalar {
-                    self.sinks.rhs_hash = Some(Sha256::new());
+        if !empty {
+            loop {
+                self.ws()?;
+                if self.peek()? != Some(b'"') {
+                    return Err(self.err("expected a string"));
                 }
-                let mut keys = vec![];
-                let (mut kb, mut terms, mut maxc) = (0u64, 0usize, 0u64);
-                let mut keys_error = None;
-                let mut end = None;
-                match opts.rhs {
-                    _ if !array => {
-                        self.sinks.field.clear();
-                        self.sinks.field_over = false;
-                        self.sinks.field_on = scalar && opts.rhs_digest;
-                        let len = self.value()?;
-                        self.sinks.field_on = false;
-                        if scalar && opts.rhs_digest {
-                            if self.sinks.field_over {
-                                return Err(self.too_large("the scalar rhs value", len));
-                            }
-                            let mut h = Sha256::new();
-                            h.update(&self.sinks.field[..len as usize]);
-                            self.sinks.rhs_hash = Some(h);
-                        }
-                        end = Some(vstart + len);
-                        // `rhs_keys`' first `expect(b'[')` (the value starts at a non-blank byte)
-                        if opts.rhs == RhsMode::KeysOnly && visit.is_none() {
-                            keys_error = Some(RecordError::Format {
-                                line: self.line,
-                                msg: format!("expected {:?} (byte 0)", '['),
-                            });
-                        }
+                let kstart = self.pos;
+                self.sinks.field.clear();
+                self.sinks.field_over = false;
+                self.sinks.field_on = true;
+                self.string()?;
+                let k = self.take_key(kstart)?;
+                self.ws()?;
+                if self.peek()? != Some(b':') {
+                    return Err(self.err(format!("expected {:?}", ':')));
+                }
+                self.bump()?;
+                self.ws()?;
+                let vstart = self.pos;
+                if k == "rhs" && out.rhs.is_none() {
+                    let array = self.peek()? == Some(b'[');
+                    // the rhs value is NOT kept: `[]` in the compact line
+                    self.sinks.compact_on = false;
+                    // a value whose span ends at its last byte (array, string, object) is hashed as it passes; a scalar
+                    // (whose span `Scan` trims of trailing blanks) is held, bounded, and hashed over its span
+                    let first = self.peek()?;
+                    let scalar = !matches!(first, Some(b'[' | b'"' | b'{'));
+                    if opts.rhs_digest && !scalar {
+                        self.sinks.rhs_hash = Some(Sha256::new());
                     }
-                    RhsMode::Skip if visit.is_none() => {
-                        self.bump()?;
-                        self.balanced(1)?;
-                    }
-                    _ => {
-                        if let Err((d, e)) = self.rhs_terms(
-                            vstart,
-                            &mut keys,
-                            &mut kb,
-                            &mut terms,
-                            &mut maxc,
-                            visit.as_deref_mut(),
-                        )? {
-                            if visit.is_some() {
-                                return Err(e);
-                            }
+                    let mut keys = vec![];
+                    let (mut kb, mut terms, mut maxc) = (0u64, 0usize, 0u64);
+                    let mut keys_error = None;
+                    let mut end = None;
+                    match opts.rhs {
+                        _ if !array => {
+                            self.sinks.field.clear();
+                            self.sinks.field_over = false;
+                            self.sinks.field_on = scalar && opts.rhs_digest;
+                            let len = self.value()?;
                             self.sinks.field_on = false;
-                            self.balanced(d.depth)?;
-                            keys_error = Some(e);
+                            if scalar && opts.rhs_digest {
+                                if self.sinks.field_over {
+                                    return Err(self.too_large("the scalar rhs value", len));
+                                }
+                                let mut h = Sha256::new();
+                                h.update(&self.sinks.field[..len as usize]);
+                                self.sinks.rhs_hash = Some(h);
+                            }
+                            end = Some(vstart + len);
+                            // `rhs_keys`' first `expect(b'[')` (the value starts at a non-blank byte)
+                            if opts.rhs == RhsMode::KeysOnly && visit.is_none() {
+                                keys_error = Some(RecordError::Format {
+                                    line: self.line,
+                                    msg: format!("expected {:?} (byte 0)", '['),
+                                });
+                            }
+                        }
+                        RhsMode::Skip if visit.is_none() => {
+                            self.bump()?;
+                            self.balanced(1)?;
+                        }
+                        _ => {
+                            if let Err((d, e)) = self.rhs_terms(
+                                vstart,
+                                &mut keys,
+                                &mut kb,
+                                &mut terms,
+                                &mut maxc,
+                                visit.as_deref_mut(),
+                            )? {
+                                if visit.is_some() {
+                                    return Err(e);
+                                }
+                                self.sinks.field_on = false;
+                                self.balanced(d.depth)?;
+                                keys_error = Some(e);
+                            }
                         }
                     }
+                    let sha256 = self.sinks.rhs_hash.take().map(Sha256::finish_hex);
+                    self.sinks.compact_on = true;
+                    let at = self.sinks.compact.len();
+                    if !self.sinks.compact_over {
+                        self.sinks.compact.extend_from_slice(b"[]");
+                    }
+                    out.rhs = Some(StreamedRhs {
+                        array,
+                        span: (vstart, end.unwrap_or(self.pos)),
+                        compact_span: (at, at + 2),
+                        keys: (opts.rhs == RhsMode::KeysOnly && visit.is_none()).then_some(keys),
+                        keys_error,
+                        sha256,
+                        terms,
+                        max_coefficient: maxc,
+                    });
+                } else {
+                    let over_before = self.sinks.compact_over;
+                    self.value()?;
+                    if self.sinks.compact_over && !over_before {
+                        return Err(self.too_large(&format!("member {k:?}"), self.pos - vstart));
+                    }
                 }
-                let sha256 = self.sinks.rhs_hash.take().map(Sha256::finish_hex);
-                self.sinks.compact_on = true;
-                let at = self.sinks.compact.len();
-                if !self.sinks.compact_over {
-                    self.sinks.compact.extend_from_slice(b"[]");
+                if names.contains(&k) {
+                    return Err(self.err(format!("duplicate key {k:?}")));
                 }
-                out.rhs = Some(StreamedRhs {
-                    array,
-                    span: (vstart, end.unwrap_or(self.pos)),
-                    compact_span: (at, at + 2),
-                    keys: (opts.rhs == RhsMode::KeysOnly && visit.is_none()).then_some(keys),
-                    keys_error,
-                    sha256,
-                    terms,
-                    max_coefficient: maxc,
-                });
-            } else {
-                let over_before = self.sinks.compact_over;
-                self.value()?;
-                if self.sinks.compact_over && !over_before {
-                    return Err(self.too_large(&format!("member {k:?}"), self.pos - vstart));
+                names.push(k);
+                self.ws()?;
+                match self.peek()? {
+                    Some(b',') => self.bump()?,
+                    Some(b'}') => {
+                        self.bump()?;
+                        break;
+                    }
+                    _ => return Err(self.err("expected ',' or '}'")),
                 }
-            }
-            if names.contains(&k) {
-                return Err(self.err(format!("duplicate key {k:?}")));
-            }
-            names.push(k);
-            self.ws()?;
-            match self.peek()? {
-                Some(b',') => self.bump()?,
-                Some(b'}') => {
-                    self.bump()?;
-                    break;
-                }
-                _ => return Err(self.err("expected ',' or '}'")),
             }
         }
         // `parse_line`: nothing but whitespace after the object

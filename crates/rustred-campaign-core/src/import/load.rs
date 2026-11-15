@@ -1674,9 +1674,12 @@ fn supplied_coefficients(
     let mut ordinal = 0usize;
     for i in 0usize.. {
         buf.clear();
-        let (got, complete) =
-            crate::record::read_until_limited(&mut rd, &mut buf, limits.record_budget.saturating_add(1))
-                .map_err(|e| io_err(path, e))?;
+        let (got, complete) = crate::record::read_until_limited(
+            &mut rd,
+            &mut buf,
+            limits.record_budget.saturating_add(1),
+        )
+        .map_err(|e| io_err(path, e))?;
         if got == 0 {
             break;
         }

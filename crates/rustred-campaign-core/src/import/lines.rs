@@ -14,8 +14,8 @@ use super::error::{ImportError, TableRefusal, io_err};
 use crate::closure::sha256::Sha256;
 use crate::record::stream::{StreamOptions, StreamedLine, StreamedRhs, stream_line};
 use crate::record::{
-    ReadLimits, ReadOptions, RecordError, RecordFormat, RecordReader, RhsMode, RuleRecord, SYM_KIND,
-    SYM_ZERO_KIND, SymRecord, TABLE_LINE_KINDS, TableHeader, TableLine, parse_sym_line,
+    ReadLimits, ReadOptions, RecordError, RecordFormat, RecordReader, RhsMode, RuleRecord,
+    SYM_KIND, SYM_ZERO_KIND, SymRecord, TABLE_LINE_KINDS, TableHeader, TableLine, parse_sym_line,
     read_until_limited,
 };
 

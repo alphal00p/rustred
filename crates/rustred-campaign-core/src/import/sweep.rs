@@ -118,7 +118,8 @@ fn classify_inner(
             "sources": [src],
         });
         if let Some(r) = &opts.reader {
-            spec["reader"] = serde_json::to_value(r).map_err(|e| ImportError::Spec(e.to_string()))?;
+            spec["reader"] =
+                serde_json::to_value(r).map_err(|e| ImportError::Spec(e.to_string()))?;
         }
         let spec = TableSetSpec::from_json(&spec.to_string())?;
         // bodies validated (every rhs key parsed) but not kept: bounded memory on tables of several GB

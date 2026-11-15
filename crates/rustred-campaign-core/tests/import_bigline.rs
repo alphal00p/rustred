@@ -151,7 +151,7 @@ fn a_line_far_beyond_the_budget_goes_through_the_whole_import() {
     let terms = many_terms();
     let line = big_rule(0, &terms, &[]);
     assert!(line.len() > 900_000 && line.len() as u64 > 200 * BUDGET);
-    let t = write_table(&d, "t.jsonl", &[line.clone()]);
+    let t = write_table(&d, "t.jsonl", std::slice::from_ref(&line));
     // the record's identity is the raw line's
     let mut sp = spec(&d, &t, &[&TOP], json!({}), &[]);
     reader_spec(&mut sp, BUDGET, None);
@@ -178,10 +178,7 @@ fn a_line_far_beyond_the_budget_goes_through_the_whole_import() {
         .map(|l| serde_json::from_str::<Value>(l).unwrap())
         .find(|v| v["key"] == json!(TOP))
         .unwrap();
-    assert!(
-        rowv.to_string().contains(&info.record_sha256),
-        "{rowv}"
-    );
+    assert!(rowv.to_string().contains(&info.record_sha256), "{rowv}");
     // the same load with lines read whole (default budget) gives the same records and the same check
     let mut sp2 = spec(&d, &t, &[&TOP], json!({}), &[]);
     sp2.as_object_mut().unwrap().remove("reader");
@@ -296,6 +293,9 @@ fn a_coefficient_beyond_the_budget_is_a_typed_refusal_never_a_skip() {
     assert!(e.to_string().contains("\"exceptions\""), "{e}");
 }
 
+/// A malformed-line case: its name and the line built from a coefficient text.
+type Case<'a> = (&'static str, Box<dyn Fn(&str) -> String + 'a>);
+
 /// Malformed lines: the streamed reader gives the SAME error (variant and message, byte positions included) as the
 /// whole-line reader, for the line as it is and for the line with its rhs grown far beyond the budget.
 #[test]
@@ -309,8 +309,11 @@ fn malformed_long_lines_give_the_small_lines_errors() {
     );
     let tail = r#","exceptions":[],"dispatch":"Partition","witness_loci":[]}"#;
     // (name, line builder from a coefficient text)
-    let cases: Vec<(&str, Box<dyn Fn(&str) -> String>)> = vec![
-        ("truncated", Box::new(|c: &str| format!(r#"{head},"rhs":[["{k}","{c}"#))),
+    let cases: Vec<Case> = vec![
+        (
+            "truncated",
+            Box::new(|c: &str| format!(r#"{head},"rhs":[["{k}","{c}"#)),
+        ),
         (
             "truncated after a backslash",
             Box::new(|c: &str| format!(r#"{head},"rhs":[["{k}","{c}\"#)),
@@ -381,7 +384,11 @@ fn malformed_long_lines_give_the_small_lines_errors() {
                 // the index reader too
                 let ia = open_or_build_with("t", &t, None, whole()).map(|x| x.0.meta.rule_records);
                 let ib = open_or_build_with("t", &t, None, lim).map(|x| x.0.meta.rule_records);
-                assert_eq!(format!("{ia:?}"), format!("{ib:?}"), "index: {name} ({size})");
+                assert_eq!(
+                    format!("{ia:?}"),
+                    format!("{ib:?}"),
+                    "index: {name} ({size})"
+                );
             }
             if *name == "valid (control)" {
                 assert!(a.is_ok());
@@ -540,7 +547,11 @@ fn load_fingerprint(set: &import::ImportedSet) -> String {
     format!(
         "records={} file={} recs={}",
         shas.len(),
-        set.table_digests.values().next().cloned().unwrap_or_default(),
+        set.table_digests
+            .values()
+            .next()
+            .cloned()
+            .unwrap_or_default(),
         h.finish_hex()
     )
 }
@@ -656,7 +667,10 @@ fn unique_dirs_and_index_files_bound_to_their_build() {
     let tb = write_table(
         &d,
         "tb.jsonl",
-        &[point_rule(0, &TOP, &[&below(1)]), point_rule(1, &below(1), &[&below(2)])],
+        &[
+            point_rule(0, &TOP, &[&below(1)]),
+            point_rule(1, &below(1), &[&below(2)]),
+        ],
     );
     let cache = d.join("cache");
     let (ia, _) = open_or_build_with("A", &ta, Some(&cache), whole()).unwrap();
@@ -668,7 +682,9 @@ fn unique_dirs_and_index_files_bound_to_their_build() {
         .scan_domains("A", &|_, _| true, &mut |_| Ok(()))
         .unwrap_err();
     assert!(matches!(e, import::ImportError::Digest { .. }), "{e}");
-    let e = ia.scan_bodies(&|_| true, &mut |_, _, _| Ok(())).unwrap_err();
+    let e = ia
+        .scan_bodies(&|_| true, &mut |_, _, _| Ok(()))
+        .unwrap_err();
     assert!(matches!(e, import::ImportError::Digest { .. }), "{e}");
     let _ = std::fs::remove_dir_all(&d);
 }
@@ -684,7 +700,10 @@ fn removals_are_scoped_and_foreign_indexes_are_rebuilt() {
     let tb = write_table(
         &d,
         "tb.jsonl",
-        &[point_rule(0, &TOP, &[&below(1)]), point_rule(1, &below(1), &[&below(2)])],
+        &[
+            point_rule(0, &TOP, &[&below(1)]),
+            point_rule(1, &below(1), &[&below(2)]),
+        ],
     );
     let cache = d.join("cache");
     let entry = import::index::index_dir_for(&cache, &ta).unwrap();
@@ -693,7 +712,10 @@ fn removals_are_scoped_and_foreign_indexes_are_rebuilt() {
     std::fs::write(entry.join("precious.txt"), "not the import's").unwrap();
     let e = open_or_build_with("A", &ta, Some(&cache), whole()).unwrap_err();
     assert!(matches!(e, import::ImportError::Io { .. }), "{e}");
-    assert!(entry.join("precious.txt").is_file(), "a foreign file was removed");
+    assert!(
+        entry.join("precious.txt").is_file(),
+        "a foreign file was removed"
+    );
     // nothing of the failed build is left beside the entry
     let left: Vec<String> = std::fs::read_dir(&cache)
         .unwrap()

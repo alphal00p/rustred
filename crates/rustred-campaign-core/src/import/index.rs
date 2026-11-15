@@ -40,8 +40,8 @@ use std::time::{Instant, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use super::error::{ImportError, io_err};
 use super::error::TableRefusal;
+use super::error::{ImportError, io_err};
 use super::lines::{CONTENT_KINDS, Fed, LineScanner, RawRecord, RawTable, line_body};
 use crate::closure::sha256::Sha256;
 use crate::record::stream::stream_line;
@@ -594,11 +594,7 @@ fn build(
         // per line (one piece, or the pieces of a long line): the sha256 of the line without its newline
         let mut h: Option<(Sha256, bool)> = None;
         for l in rx_line {
-            let data: &[u8] = if l.last {
-                line_body(&l.buf)
-            } else {
-                &l.buf
-            };
+            let data: &[u8] = if l.last { line_body(&l.buf) } else { &l.buf };
             let (hh, blank) = h.get_or_insert_with(|| (Sha256::new(), true));
             *blank &= data.iter().all(|c| c.is_ascii_whitespace());
             hh.update(data);
@@ -920,7 +916,8 @@ impl TableIndex {
             let mut more = n as u64;
             loop {
                 let mut sink = Vec::new();
-                let (m, done) = read_until_limited(rd, &mut sink, 1 << 20).map_err(|e| io_err(file, e))?;
+                let (m, done) =
+                    read_until_limited(rd, &mut sink, 1 << 20).map_err(|e| io_err(file, e))?;
                 more += m as u64;
                 if done {
                     break;
