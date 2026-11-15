@@ -991,6 +991,9 @@ pub fn walk_stream(
         .map(|(_, ks)| AtomicUsize::new(ks.len().div_ceil(CHUNK)))
         .collect();
     let next_item = AtomicUsize::new(0);
+    // progress: a line each time another 5 % of the work items are decided
+    let items_done = AtomicUsize::new(0);
+    let step = items.len().div_ceil(20).max(1);
     let worker = || -> Result<GroupOut, String> {
         let tr = Transporter::new(alg, n)?;
         let mut s = WalkStats::default();
@@ -1019,6 +1022,15 @@ pub fn walk_stream(
                 let _ = p.take_new();
                 Ok(out)
             })?;
+            let k = items_done.fetch_add(1, Ordering::Relaxed) + 1;
+            if k.is_multiple_of(step) || k == items.len() {
+                eprintln!(
+                    "[arrivals] hand-downs: {k}/{} work items decided ({:.0} s){}",
+                    items.len(),
+                    t1.elapsed().as_secs_f64(),
+                    rss()
+                );
+            }
             if left[g].fetch_sub(1, Ordering::AcqRel) == 1 {
                 cache.release(*t, *r);
             }
