@@ -624,6 +624,7 @@ fn closing_check_compare() {
         start: vec![vec![1]],
         terminals: vec![vec![3]],
         open: 0,
+        open_keys: vec![],
         blocking: vec![],
     };
     let mut after = before.clone();

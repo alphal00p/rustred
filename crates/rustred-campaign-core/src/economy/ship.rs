@@ -35,7 +35,7 @@ pub const GUARD_SCHEMA: &str = "rustred.campaign.shipecon-guard.v1";
 /// Schema of the report of one run.
 pub const REPORT_SCHEMA: &str = "rustred.campaign.shipecon-report.v1";
 /// Version of the decision procedure (bumped when [`decide`] changes meaning: old records are then re-decided).
-pub const DECISION_VERSION: u32 = 1;
+pub const DECISION_VERSION: u32 = 2;
 
 fn sha256_hex(b: &[u8]) -> String {
     let mut h = Sha256::new();
@@ -1441,6 +1441,9 @@ pub struct ClosingCheck {
     pub dropped_keys: u64,
     pub open_before: u64,
     pub open_after: u64,
+    /// Open keys of the shipped check that were not open in the original (by key when both lists are known).
+    #[serde(default)]
+    pub new_open_keys: u64,
     /// Blocking words (kind = the text before `:`) of the shipped check that the original check did not have.
     pub new_blocking: Vec<String>,
     /// The verdict: same start AND same terminals AND no new open key AND no new blocking word (the original closed
@@ -1455,6 +1458,8 @@ pub struct ClosureView {
     pub start: Vec<Vec<i32>>,
     pub terminals: Vec<Vec<i32>>,
     pub open: u64,
+    /// The open keys themselves (sorted), when known: a key open in the original is not a NEW failure.
+    pub open_keys: Vec<Vec<i32>>,
     pub blocking: Vec<String>,
 }
 
@@ -1481,6 +1486,14 @@ impl ClosingCheck {
             .filter(|w| !had.contains(&kind(w)))
             .cloned()
             .collect();
+        let keyed = after.open_keys.len() as u64 == after.open
+            && before.open_keys.len() as u64 == before.open;
+        let new_open_keys = if keyed {
+            let was: BTreeSet<&Vec<i32>> = before.open_keys.iter().collect();
+            after.open_keys.iter().filter(|k| !was.contains(k)).count() as u64
+        } else {
+            after.open.saturating_sub(before.open)
+        };
         ClosingCheck {
             closed,
             blocking: after.blocking.clone(),
@@ -1495,10 +1508,8 @@ impl ClosingCheck {
             dropped_keys: b.difference(&a).count() as u64,
             open_before: before.open,
             open_after: after.open,
-            holds: same_start
-                && same_terminals
-                && after.open <= before.open
-                && new_blocking.is_empty(),
+            holds: same_start && same_terminals && new_open_keys == 0 && new_blocking.is_empty(),
+            new_open_keys,
             new_blocking,
         }
     }

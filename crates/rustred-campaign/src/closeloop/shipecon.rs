@@ -164,7 +164,10 @@ fn view_of(
         }
         match r.status {
             RowStatus::Terminal => v.terminals.push(r.key.clone()),
-            RowStatus::Open => v.open += 1,
+            RowStatus::Open => {
+                v.open += 1;
+                v.open_keys.push(r.key.clone());
+            }
             RowStatus::Served => {}
         }
     }
@@ -278,7 +281,10 @@ fn census_and_before(
                 b.add(&key, in_start, sha);
                 match r["status"].as_str() {
                     Some("terminal") => v.terminals.push(key.clone()),
-                    Some("open") => v.open += 1,
+                    Some("open") => {
+                        v.open += 1;
+                        v.open_keys.push(key.clone());
+                    }
                     _ => {}
                 }
                 if in_start {
@@ -1272,6 +1278,7 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
             dropped_keys: 0,
             open_before: before.open,
             open_after: before.open,
+            new_open_keys: 0,
             new_blocking: vec![],
             holds: unserved.is_empty(),
         };
@@ -1346,14 +1353,26 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
         }
         // culprits: open keys / new terminals; the rules that served them before, or whose relations reach them
         let rows = all_rows(&set_s, &res)?;
-        let bad: BTreeSet<Vec<i32>> = rows
+        // NEW failures only: a key open in the original is not one; a new terminal is
+        let was_open: BTreeSet<&Vec<i32>> = before.open_keys.iter().collect();
+        let bad_rows: Vec<&rustred_campaign_core::import::KeyRow> = rows
             .iter()
             .filter(|r| {
-                r.status == RowStatus::Open
+                (r.status == RowStatus::Open && !was_open.contains(&r.key))
                     || (r.status == RowStatus::Terminal && !before.terminals.contains(&r.key))
             })
-            .map(|r| r.key.clone())
             .collect();
+        entry["bad_examples"] = json!(
+            bad_rows
+                .iter()
+                .take(50)
+                .map(
+                    |r| json!({"key": r.key, "status": format!("{:?}", r.status),
+                    "open_status": r.open_status, "open_reason": r.open_reason})
+                )
+                .collect::<Vec<_>>()
+        );
+        let bad: BTreeSet<Vec<i32>> = bad_rows.iter().map(|r| r.key.clone()).collect();
         let mut culprits: BTreeSet<usize> = BTreeSet::new();
         for (di, d) in decisions.iter().enumerate() {
             if !d.outcome.migrates() {
