@@ -544,6 +544,7 @@ mod tests {
                 sector_slots: None,
             },
             symmetry_rows: false,
+            relation_rule: None,
             elimination: ladder_recipe::RecipeElimination {
                 convention: ladder_recipe::RECIPE_ELIMINATION.into(),
             },

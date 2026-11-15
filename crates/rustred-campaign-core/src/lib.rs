@@ -45,3 +45,7 @@ pub mod repairflow;
 pub mod regionfit;
 // lane pieces (interfaces/pieces.md): REQUEST TO I-INT, one line
 pub mod pieces;
+// lane coreseed (interfaces/coreseed.md): the IBP core of a face (recipe rule, escalation, joint seed minimisation)
+pub mod coreseed;
+// lane poles (interfaces/pole-diagnostics.md): REQUEST TO I-INT, one line
+pub mod poles;

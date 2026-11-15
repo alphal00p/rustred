@@ -12,6 +12,8 @@ pub mod source;
 pub mod termmin;
 // lane repairflow (interfaces/repairflow.md): cheap symbolic first, else recipe export (FOR THE INTEGRATOR: one line)
 pub mod repair;
+// lane coreseed (interfaces/coreseed.md): the IBP core of a face, solved through solve-recipe children
+pub mod coreseed;
 
 pub use config::{CONFIG_ROLE, CONFIG_SCHEMA, CloseLoopConfig, NodeCfg, SolveCfg, Target};
 pub use source::CloseFromMaterialSource;
