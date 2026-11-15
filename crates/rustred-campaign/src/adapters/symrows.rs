@@ -96,6 +96,7 @@ impl SymrowsJobRequest {
                 })
                 .collect(),
             kernel_sha256: kernel_sha256.to_string(),
+            family_blake3: rustred_campaign_contract::blake3_hex(family_source.as_bytes()),
             max_primes,
         };
         request.check()?;

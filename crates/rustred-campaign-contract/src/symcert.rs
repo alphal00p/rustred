@@ -94,6 +94,9 @@ pub struct SymrowsRequest {
     pub catalogue: Vec<CatalogueUse>,
     /// SHA-256 of the kernel binary the supervisor launches.
     pub kernel_sha256: String,
+    /// BLAKE3 of the presented family text written as the table header's `family_source` (the frame the keys, the
+    /// rows' momenta and the IBP rows are in): binds the certificate to that family.
+    pub family_blake3: String,
     #[serde(default)]
     pub max_primes: Option<u32>,
 }
@@ -126,6 +129,7 @@ impl SymrowsRequest {
         for (n, d) in [
             ("relation_digest", &self.relation_digest),
             ("record_blake3", &self.record_blake3),
+            ("family_blake3", &self.family_blake3),
         ] {
             if !crate::is_blake3_hex(d) {
                 return Err(format!("{n} is not a hex digest"));
@@ -247,6 +251,15 @@ pub fn line_at(bytes: &[u8], offset: u64) -> Result<&[u8], String> {
 /// line starts with `{"type":"rule"` (rr_proof's offset rule), its `index` = `rule`, its key = the request's key, its
 /// relation digest = `relation_digest`.
 pub fn table_relation(table: &[u8], r: &SymrowsRequest) -> Result<Vec<u8>, String> {
+    // the header (line 1) carries the family the request is bound to
+    let head = line_at(table, 0)?;
+    let h: Value = serde_json::from_slice(head).map_err(|e| format!("table header: {e}"))?;
+    let fam = h["family_source"]
+        .as_str()
+        .ok_or("the table header has no family_source")?;
+    if h["type"] != "header" || crate::blake3_hex(fam.as_bytes()) != r.family_blake3 {
+        return Err("the table header's family_source is not the request's family (BLAKE3)".into());
+    }
     let line = line_at(table, r.offset)?;
     if crate::blake3_hex(line) != r.record_blake3 {
         return Err("the table line at the offset is not the request's record (BLAKE3)".into());
@@ -411,6 +424,7 @@ pub fn certificate_line(
         "elements": r.elements, "symrows_blake3": symrows_blake3, "symrows_given": r.symrows_lines,
         "symrows_only": r.symrows_only, "rows": r.rows, "drop_zero_sectors": r.drop_zero_sectors,
         "zero_census": r.zero_census, "catalogue": r.catalogue, "kernel_sha256": r.kernel_sha256,
+        "family_blake3": r.family_blake3,
         "producer": r.producer, "producer_record_sha256": r.producer_record_sha256,
         "instance": entry["instance"].clone(), "seconds": entry["seconds"].clone()});
     crate::canon::canonical_line(v.to_string().as_bytes()).map_err(|e| format!("{e:?}"))
@@ -427,6 +441,7 @@ pub struct Certificate {
     pub status: String,
     pub class: String,
     pub kernel_sha256: String,
+    pub family_blake3: String,
     /// The canonical sealed line.
     pub canonical: Vec<u8>,
 }
@@ -459,6 +474,7 @@ pub fn check_certificate(
     want("zero_census", json!(r.zero_census))?;
     want("catalogue", json!(r.catalogue))?;
     want("kernel_sha256", json!(r.kernel_sha256))?;
+    want("family_blake3", json!(r.family_blake3))?;
     want("producer", json!(r.producer))?;
     want("producer_record_sha256", json!(r.producer_record_sha256))?;
     let status = v["status"].as_str().ok_or("certificate without status")?;
@@ -474,6 +490,7 @@ pub fn check_certificate(
         status: status.to_string(),
         class: class_of_status(status).to_string(),
         kernel_sha256: r.kernel_sha256.clone(),
+        family_blake3: r.family_blake3.clone(),
         canonical: crate::canon::canonical_line(line).map_err(|e| format!("{e:?}"))?,
     })
 }

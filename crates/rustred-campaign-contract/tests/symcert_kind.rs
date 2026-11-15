@@ -32,6 +32,7 @@ fn b3(b: &[u8]) -> String {
 const SHA: &str = "abababababababababababababababababababababababababababababababab";
 const KSHA: &str = "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
 const KEY: [i64; 3] = [1, 1, -2];
+const FAMILY: &str = "I(name(toy),loops(k1,k2),externals(q))";
 
 fn rhs() -> Vec<(Vec<i64>, String)> {
     vec![
@@ -43,7 +44,7 @@ fn rhs() -> Vec<(Vec<i64>, String)> {
 
 /// The table the supervisor writes: header (family_source) + one point record. Returns (bytes, offset, record line).
 fn table(rhs: &[(Vec<i64>, String)]) -> (Vec<u8>, u64, Vec<u8>) {
-    let head = json!({"type": "header", "schema": "table_dump.v1", "family_source": "I(name(toy),loops(k1,k2),externals(q))"});
+    let head = json!({"type": "header", "schema": "table_dump.v1", "family_source": FAMILY});
     let rec = json!({"type": "rule", "chart": "110", "index": 0, "case": "point", "fixed": KEY, "equations": [],
         "target": symcert::key_pattern(&KEY),
         "rhs": rhs.iter().map(|(k, c)| json!([symcert::key_pattern(k), c])).collect::<Vec<_>>(),
@@ -85,6 +86,7 @@ fn request(off: u64, line: &[u8]) -> SymrowsRequest {
             record_sha256: SHA.into(),
         }],
         kernel_sha256: KSHA.into(),
+        family_blake3: b3(FAMILY.as_bytes()),
         max_primes: None,
     }
 }
@@ -359,6 +361,10 @@ fn the_table_binds_the_relation_by_digest() {
     let (tb2, off2, _) = table(&other);
     assert_eq!(off2, off);
     assert!(symcert::table_relation(&tb2, &r).is_err());
+    // the table header's family is not the request's
+    let mut rf = r.clone();
+    rf.family_blake3 = b3(b"I(name(other),loops(k1,k2),externals(q))");
+    assert!(symcert::table_relation(&tb, &rf).is_err());
     // an offset inside a line
     let mut r2 = r.clone();
     r2.offset += 1;
@@ -500,6 +506,18 @@ fn a_forged_certificate_with_a_valid_seal_is_refused_row_43() {
     // (f) not sealed at all (the wrapper refused the answers)
     let j = job("sym-43f");
     seal_and_outcome(&j, &[], false);
+    assert_eq!(classify_job(&j, WaitStatus::Exited(0)).row, 43);
+    // (h) a certificate of another FAMILY (the same relation text in another frame)
+    let j = job("sym-43h");
+    let mut other = j.req.clone();
+    other.family_blake3 = b3(b"I(name(other),loops(k1,k2),externals(q))");
+    let line = symcert::certificate_line(
+        &other,
+        &symrows_b3(&j),
+        &entry(&other, "EXACT_IN_SPAN_AT_KEY"),
+    )
+    .unwrap();
+    seal_and_outcome(&j, &[line], true);
     assert_eq!(classify_job(&j, WaitStatus::Exited(0)).row, 43);
     // (g) the table changed after the spec (pinned): S fails
     let j = job("sym-43g");
