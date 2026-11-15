@@ -85,7 +85,7 @@ pub fn saturate_rows(rows: &[Vec<(u32, String)>], d0: Rat) -> Result<SaturatedBa
         t0: std::time::Instant::now(),
         ops: 0,
     };
-    let p2 = phase2(&ar, input, u32::MAX, None, &mut bud).map_err(|s| s.0)?;
+    let p2 = phase2(&ar, input, u32::MAX, None, false, &mut bud).map_err(|s| s.0)?;
     let one = ar.affine(&Integer::one(), &Integer::zero());
     let basis = p2
         .basis
