@@ -129,6 +129,11 @@ pub struct ProbePolicy {
     /// Safety nets (time-decided): a probe stopped by them is HEAVY.
     pub wall_case_s: Option<u64>,
     pub wall_job_s: Option<u64>,
+    /// Extra generate flags of PROBES only (full runs never get them). Default: the engine's lift pre-screen refuses a
+    /// heavy relation BEFORE its exact lift (deterministic modular estimate) and leaves the case OPEN, so a probe never
+    /// hangs on a heavy lift; the refused cases are listed in the probe's sealed `F.subcases.jsonl` (kind `refused`):
+    /// their number ranks the probe and their patterns vote in the BFI order.
+    pub args: Vec<String>,
 }
 
 impl Default for ProbePolicy {
@@ -137,6 +142,16 @@ impl Default for ProbePolicy {
             cases: 600,
             wall_case_s: Some(600),
             wall_job_s: Some(2700),
+            args: [
+                "--on-heavy",
+                "refuse",
+                "--screen",
+                "0,64,24,2500",
+                "--open-on-refusal",
+            ]
+            .iter()
+            .map(|x| x.to_string())
+            .collect(),
         }
     }
 }
@@ -177,6 +192,10 @@ pub struct BfiPolicy {
     pub weight: VoteWeight,
     /// The candidate id whose probe feeds the vote; None = `id` x first pose x first ladder.
     pub base: Option<String>,
+    /// Vote weight of a case the probe REFUSED as heavy (no rule, so no measured size): at least the engine's accept
+    /// ruling (1,000,000 monomials), i.e. a hard case outweighs every ordinary one (order-study R2: the heavy rules are
+    /// the cases without a depth-1 rule, which R1 must fix first).
+    pub refused_weight: u64,
 }
 
 impl Default for BfiPolicy {
@@ -184,6 +203,7 @@ impl Default for BfiPolicy {
         BfiPolicy {
             weight: VoteWeight::Monomials,
             base: None,
+            refused_weight: 1_000_000,
         }
     }
 }
@@ -328,7 +348,10 @@ impl Policy {
                         .chars()
                         .all(|c| c.is_ascii_alphanumeric() || c == '_')
                 {
-                    return Err(format!("genchoice policy: {what} name {:?}: [A-Za-z0-9_]+", p.name));
+                    return Err(format!(
+                        "genchoice policy: {what} name {:?}: [A-Za-z0-9_]+",
+                        p.name
+                    ));
                 }
                 if !names.insert(p.name.as_str()) {
                     return Err(format!("genchoice policy: {what} {} listed twice", p.name));
@@ -342,12 +365,17 @@ impl Policy {
             return Err("genchoice policy: full.max_first_attempts must be >= 1".into());
         }
         if !self.economy.factor.is_finite() && !self.economy.optimise {
-            return Err("genchoice policy: economy.factor must be finite (optimise: true lifts the cap)".into());
+            return Err(
+                "genchoice policy: economy.factor must be finite (optimise: true lifts the cap)"
+                    .into(),
+            );
         }
         if let Some(b) = &self.bfi.base
             && !self.candidates().iter().any(|c| &c.id == b)
         {
-            return Err(format!("genchoice policy: bfi.base {b:?} is not a candidate"));
+            return Err(format!(
+                "genchoice policy: bfi.base {b:?} is not a candidate"
+            ));
         }
         if let Some(b) = self.bfi_base()
             && b.order == OrderKind::Bfi
@@ -355,7 +383,9 @@ impl Policy {
             return Err("genchoice policy: the bfi base cannot itself be a bfi candidate".into());
         }
         if self.orders.contains(&OrderKind::Bfi) && self.bfi_base().is_none() {
-            return Err("genchoice policy: order bfi needs a base candidate (order id, or bfi.base)".into());
+            return Err(
+                "genchoice policy: order bfi needs a base candidate (order id, or bfi.base)".into(),
+            );
         }
         Ok(())
     }
@@ -457,20 +487,32 @@ pub fn r1_class(is_line: bool, fixed: Option<i64>) -> u8 {
 /// The BFI coordinate priority voted over `rows` (R1: boundary < free < interior inside each group): per slot the
 /// weighted sum of its R1 class; lines first, then ISPs, each ascending by that sum (ties: slot order). Every case
 /// gives every slot the same weight, so the sums compare exactly (no division).
-pub fn bfi_priority(shape: &FamilyShape, rows: &[RuleRow], weight: VoteWeight) -> Vec<usize> {
+pub fn bfi_priority(
+    shape: &FamilyShape,
+    rows: &[RuleRow],
+    refused: &[Vec<Option<i64>>],
+    weight: VoteWeight,
+    refused_weight: u64,
+) -> Vec<usize> {
     let mut score = vec![0u128; shape.arity];
-    for r in rows {
-        if r.fixed.len() != shape.arity {
-            continue;
+    let mut add = |fixed: &[Option<i64>], w: u128| {
+        if fixed.len() != shape.arity {
+            return;
         }
+        for (s, f) in fixed.iter().enumerate() {
+            score[s] += w * r1_class(shape.is_line(s), *f) as u128;
+        }
+    };
+    for r in rows {
         let w: u128 = match weight {
             VoteWeight::Monomials => r.monomials.max(1) as u128,
             VoteWeight::Bytes => r.bytes.max(1) as u128,
             VoteWeight::Uniform => 1,
         };
-        for (s, f) in r.fixed.iter().enumerate() {
-            score[s] += w * r1_class(shape.is_line(s), *f) as u128;
-        }
+        add(&r.fixed, w);
+    }
+    for f in refused {
+        add(f, refused_weight.max(1) as u128);
     }
     let sorted = |g: &[usize]| {
         let mut v = g.to_vec();
@@ -650,6 +692,8 @@ pub fn band(x: f64) -> u32 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ProbeKey {
     pub status: u8,
+    /// Heavy relations the probe refused (pre-lift screen; fewer = better).
+    pub refused: u64,
     pub cost_band: u32,
     pub max_band: u32,
     /// Use cost per rule, ns (rounded).
@@ -657,12 +701,18 @@ pub struct ProbeKey {
     pub index: usize,
 }
 
-pub fn probe_key(status: RunStatus, m: Option<&TableMeasure>, index: usize) -> ProbeKey {
+pub fn probe_key(
+    status: RunStatus,
+    m: Option<&TableMeasure>,
+    refused: u64,
+    index: usize,
+) -> ProbeKey {
     match m {
         Some(m) if m.rules > 0 && status != RunStatus::Failed => {
             let per = m.use_cost_ns / m.rules as f64;
             ProbeKey {
                 status: status.rank(),
+                refused,
                 cost_band: band(per),
                 max_band: band(m.max_monomials as f64),
                 cost_per_rule: per.round() as u64,
@@ -673,6 +723,7 @@ pub fn probe_key(status: RunStatus, m: Option<&TableMeasure>, index: usize) -> P
         // eligible, after every measured candidate of its status
         _ if status.rank() == RunStatus::Heavy.rank() => ProbeKey {
             status: status.rank(),
+            refused: u64::MAX,
             cost_band: u32::MAX,
             max_band: u32::MAX,
             cost_per_rule: u64::MAX,
@@ -680,6 +731,7 @@ pub fn probe_key(status: RunStatus, m: Option<&TableMeasure>, index: usize) -> P
         },
         _ => ProbeKey {
             status: RunStatus::Failed.rank(),
+            refused: u64::MAX,
             cost_band: u32::MAX,
             max_band: u32::MAX,
             cost_per_rule: u64::MAX,
@@ -689,10 +741,11 @@ pub fn probe_key(status: RunStatus, m: Option<&TableMeasure>, index: usize) -> P
 }
 
 /// Candidate indices in ranking order; failed probes (no table, not heavy) excluded.
-pub fn ranking(probes: &[(usize, RunStatus, Option<TableMeasure>)]) -> Vec<usize> {
+/// Each probe: (candidate index, status, measures, refused heavy relations).
+pub fn ranking(probes: &[(usize, RunStatus, Option<TableMeasure>, u64)]) -> Vec<usize> {
     let mut keys: Vec<ProbeKey> = probes
         .iter()
-        .map(|(i, s, m)| probe_key(*s, m.as_ref(), *i))
+        .map(|(i, s, m, r)| probe_key(*s, m.as_ref(), *r, *i))
         .collect();
     keys.sort();
     keys.into_iter()
@@ -826,9 +879,10 @@ pub fn choose(done: &[FullRun], select: Select) -> Option<usize> {
 
 /// The economy account of a node: C1, the budget, the alternatives' CPU and verdicts.
 pub fn economy_account(ranking: &[usize], done: &[FullRun], p: &Policy) -> Value {
-    let first = ranking
-        .iter()
-        .find_map(|&c| done.iter().find(|r| r.cand == c && r.acceptable && !r.alternative));
+    let first = ranking.iter().find_map(|&c| {
+        done.iter()
+            .find(|r| r.cand == c && r.acceptable && !r.alternative)
+    });
     let alts: Vec<&FullRun> = done.iter().filter(|r| r.alternative).collect();
     let extra: u64 = alts.iter().map(|r| r.cpu_ms).sum();
     json!({
@@ -868,7 +922,12 @@ pub fn per_rule_comparison(
         let o: serde_json::Map<String, Value> = others
             .iter()
             .zip(&maps)
-            .map(|((id, _), m)| (id.clone(), m.get(r.case.as_str()).map_or(Value::Null, |&v| json!(v))))
+            .map(|((id, _), m)| {
+                (
+                    id.clone(),
+                    m.get(r.case.as_str()).map_or(Value::Null, |&v| json!(v)),
+                )
+            })
             .collect();
         lines.push(json!({"case": r.case, "winner": r.monomials, "others": o}));
     }
@@ -963,7 +1022,10 @@ impl Config {
     pub fn parse(text: &str) -> Result<Config, String> {
         let c: Config = serde_json::from_str(text).map_err(|e| format!("genchoice config: {e}"))?;
         if c.schema != CONFIG_SCHEMA {
-            return Err(format!("genchoice config: schema {:?}, expected {CONFIG_SCHEMA}", c.schema));
+            return Err(format!(
+                "genchoice config: schema {:?}, expected {CONFIG_SCHEMA}",
+                c.schema
+            ));
         }
         if c.nodes.is_empty() {
             return Err("genchoice config: no nodes".into());
@@ -981,11 +1043,20 @@ impl Config {
             if !ids.insert(n.node.as_str()) {
                 return Err(format!("genchoice config: node {} listed twice", n.node));
             }
-            for (what, h) in [("family_sha256", Some(&n.family_sha256)), ("box.sha256", n.r#box.as_ref().map(|b| &b.sha256))] {
+            for (what, h) in [
+                ("family_sha256", Some(&n.family_sha256)),
+                ("box.sha256", n.r#box.as_ref().map(|b| &b.sha256)),
+            ] {
                 if let Some(h) = h
-                    && (h.len() != 64 || !h.chars().all(|ch| ch.is_ascii_hexdigit() && !ch.is_ascii_uppercase()))
+                    && (h.len() != 64
+                        || !h
+                            .chars()
+                            .all(|ch| ch.is_ascii_hexdigit() && !ch.is_ascii_uppercase()))
                 {
-                    return Err(format!("genchoice config: {}: {what} must be 64 lower-case hex", n.node));
+                    return Err(format!(
+                        "genchoice config: {}: {what} must be 64 lower-case hex",
+                        n.node
+                    ));
                 }
             }
         }

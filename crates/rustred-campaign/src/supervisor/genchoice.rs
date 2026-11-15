@@ -82,7 +82,9 @@ fn file_digests(p: &Path) -> Result<(u64, String, String), String> {
     let mut buf = vec![0u8; 1 << 20];
     let mut n = 0u64;
     loop {
-        let k = f.read(&mut buf).map_err(|e| format!("{}: {e}", p.display()))?;
+        let k = f
+            .read(&mut buf)
+            .map_err(|e| format!("{}: {e}", p.display()))?;
         if k == 0 {
             break;
         }
@@ -202,6 +204,61 @@ pub struct Answer {
     pub table_path: Option<String>,
     pub measure: Option<gc::TableMeasure>,
     pub rows: Vec<gc::RuleRow>,
+    /// Heavy relations refused by the probe's pre-lift screen (sealed `F.subcases.jsonl`, kind `refused`) and their
+    /// fixed values (PRESENTED = family slots: the orders are comparator-only).
+    #[serde(default)]
+    pub refused: u64,
+    #[serde(default)]
+    pub refused_cases: Vec<Vec<Option<i64>>>,
+    /// How the subcases list was read (verified against the attempt's OUTCOME, or why not).
+    #[serde(default)]
+    pub subcases: String,
+}
+
+/// The refused cases of an attempt's sealed open list, verified against the OUTCOME's sealed-output entry (role
+/// `subcases`: bytes + BLAKE3). Ok((count, fixed values, how)); a missing list = none refused.
+fn refused_of(run_dir: &Path) -> (u64, Vec<Vec<Option<i64>>>, String) {
+    let oc = run_dir.join(rustred_campaign_contract::layout::OUTCOME);
+    let Ok(ob) = std::fs::read(&oc) else {
+        return (0, vec![], "no OUTCOME".into());
+    };
+    let Ok(o) = serde_json::from_slice::<Value>(&ob) else {
+        return (0, vec![], "OUTCOME unreadable".into());
+    };
+    let Some(e) = o["job"]["outputs"]["extra"]
+        .as_array()
+        .and_then(|a| a.iter().find(|x| x["role"] == "subcases"))
+    else {
+        return (0, vec![], "no subcases output (no open case)".into());
+    };
+    let (Some(rel), Some(b3)) = (e["path"].as_str(), e["blake3"].as_str()) else {
+        return (0, vec![], "subcases entry without path / blake3".into());
+    };
+    let p = run_dir.join(rel);
+    let Ok(b) = std::fs::read(&p) else {
+        return (0, vec![], format!("{}: unreadable", p.display()));
+    };
+    if blake3_hex(&b) != b3 {
+        return (
+            0,
+            vec![],
+            format!("{}: differs from its OUTCOME seal: not used", p.display()),
+        );
+    }
+    let mut cases = Vec::new();
+    for line in String::from_utf8_lossy(&b).lines() {
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if v["type"] == "subcase" && v["kind"] == "refused" {
+            let f: Vec<Option<i64>> = v["case"]["fixed"]
+                .as_array()
+                .map(|a| a.iter().map(|x| x.as_i64()).collect())
+                .unwrap_or_default();
+            cases.push(f);
+        }
+    }
+    (cases.len() as u64, cases, "verified against OUTCOME".into())
 }
 
 struct NodeRt {
@@ -285,6 +342,7 @@ impl GenChoiceSource {
             check_flags(&p.args)?;
         }
         check_flags(&cfg.policy.common_args)?;
+        check_flags(&cfg.policy.probe.args)?;
         let mut nodes = Vec::new();
         for e in &cfg.nodes {
             let p = Path::new(&e.family);
@@ -408,7 +466,11 @@ impl GenChoiceSource {
     }
 
     fn candidate(&self, id: &str) -> Option<gc::Candidate> {
-        self.cfg.policy.candidates().into_iter().find(|c| c.id == id)
+        self.cfg
+            .policy
+            .candidates()
+            .into_iter()
+            .find(|c| c.id == id)
     }
 
     /// (candidate id, wall cap) of an item from its label (`<cand>` or `<cand> wall_job_s=<n>`).
@@ -434,7 +496,10 @@ impl GenChoiceSource {
         let c = self.candidate(&cand_id)?;
         let order = self.order_of(st, i, &c)?;
         let p = &self.cfg.policy;
-        let args = p.args(&c, &order);
+        let mut args = p.args(&c, &order);
+        if it.kind == KIND_PROBE {
+            args.extend(p.probe.args.iter().cloned());
+        }
         let n = &self.nodes[i];
         let (work, wall) = if it.kind == KIND_PROBE {
             (
@@ -460,7 +525,11 @@ impl GenChoiceSource {
                 },
             )
         };
-        let stage = if it.kind == KIND_PROBE { "probe" } else { "full" };
+        let stage = if it.kind == KIND_PROBE {
+            "probe"
+        } else {
+            "full"
+        };
         let (program, fake) = match &self.fake {
             Some(f) => (f.program.clone(), Some(fake_script(f, &cand_id, stage))),
             None => (self.cfg.program.clone(), None),
@@ -606,6 +675,9 @@ impl GenChoiceSource {
                                 table_path: None,
                                 measure: None,
                                 rows: vec![],
+                                refused: 0,
+                                refused_cases: vec![],
+                                subcases: String::new(),
                             },
                         ));
                     }
@@ -645,7 +717,17 @@ impl GenChoiceSource {
         }
         let a = self.answer(st, &bitem);
         let rows = a.as_ref().map(|a| a.rows.clone()).unwrap_or_default();
-        let p = gc::bfi_priority(&self.nodes[i].shape, &rows, self.cfg.policy.bfi.weight);
+        let refused = a
+            .as_ref()
+            .map(|a| a.refused_cases.clone())
+            .unwrap_or_default();
+        let p = gc::bfi_priority(
+            &self.nodes[i].shape,
+            &rows,
+            &refused,
+            self.cfg.policy.bfi.weight,
+            self.cfg.policy.bfi.refused_weight,
+        );
         let mut orders = serde_json::Map::new();
         self.bfi.insert(node.clone(), p.clone());
         for c in self.cfg.policy.candidates() {
@@ -656,7 +738,7 @@ impl GenChoiceSource {
         let v = json!({"schema": gc::CANDIDATES_SCHEMA, "node": node, "shape": self.nodes[i].shape,
             "family_sha256": self.nodes[i].e.family_sha256,
             "bfi_base": base.id, "bfi_weight": self.cfg.policy.bfi.weight,
-            "bfi_cases_voted": rows.len(), "base_status": a.as_ref().map(|a| a.status),
+            "bfi_cases_voted": rows.len(), "bfi_refused_voted": refused.len(), "base_status": a.as_ref().map(|a| a.status),
             "bfi_priority": p, "orders": orders});
         let rec = AcceptedRecord {
             path: format!("{}/candidates.json", node_dir(&node)),
@@ -716,14 +798,16 @@ impl GenChoiceSource {
             } else {
                 "probe without a usable table".to_string()
             };
-            list.push(json!({"id": c.id, "index": c.index, "order_kind": c.order.word(),
+            list.push(
+                json!({"id": c.id, "index": c.index, "order_kind": c.order.word(),
                 "pose": p.poses[c.pose].name, "ladder": p.ladders[c.ladder].name,
                 "order": pa.as_ref().map(|a| a.order.clone()),
                 "args": pa.as_ref().map(|a| a.args.clone()),
                 "probe": pa.as_ref().map(job_info),
                 "probe_key": gc::probe_key(pa.as_ref().map_or(gc::RunStatus::Failed, |a| a.status),
-                    pa.as_ref().and_then(|a| a.measure.as_ref()), c.index),
-                "full": fulls, "verdict": verdict}));
+                    pa.as_ref().and_then(|a| a.measure.as_ref()), pa.as_ref().map_or(0, |a| a.refused), c.index),
+                "full": fulls, "verdict": verdict}),
+            );
         }
         let wa = winner.and_then(|w| {
             runs.iter()
@@ -768,7 +852,9 @@ impl GenChoiceSource {
             if let (Some(bx), Some(tp)) = (&self.nodes[i].e.r#box, &wa.table_path) {
                 let (_, b3, s2) = file_digests(Path::new(tp))?;
                 if wa.table.as_ref().is_some_and(|t| t.blake3 != b3) {
-                    return Err(format!("genchoice: {node}: winner table {tp} differs from the verified table"));
+                    return Err(format!(
+                        "genchoice: {node}: winner table {tp} differs from the verified table"
+                    ));
                 }
                 let spec = gc::import_spec(&node, &bx.path, &bx.sha256, tp, &s2);
                 let rec = AcceptedRecord {
@@ -829,13 +915,14 @@ impl GenChoiceSource {
         let Some(probes) = self.probes_final(st, i) else {
             return Ok(());
         };
-        let rk: Vec<(usize, gc::RunStatus, Option<gc::TableMeasure>)> = probes
+        let rk: Vec<(usize, gc::RunStatus, Option<gc::TableMeasure>, u64)> = probes
             .iter()
             .map(|(c, a)| {
                 (
                     c.index,
                     a.as_ref().map_or(gc::RunStatus::Failed, |a| a.status),
                     a.as_ref().and_then(|a| a.measure.clone()),
+                    a.as_ref().map_or(0, |a| a.refused),
                 )
             })
             .collect();
@@ -847,8 +934,12 @@ impl GenChoiceSource {
             gc::NextStep::First(c) => {
                 let item = item_full(&node, &cands[c].id);
                 if !st.items.contains_key(&item) {
-                    rt.events
-                        .push(Self::create_item(&node, item, KIND_FULL, cands[c].id.clone()));
+                    rt.events.push(Self::create_item(
+                        &node,
+                        item,
+                        KIND_FULL,
+                        cands[c].id.clone(),
+                    ));
                 }
             }
             gc::NextStep::Alternatives(list) => {
@@ -874,7 +965,11 @@ impl GenChoiceSource {
 }
 
 impl WorkSource for GenChoiceSource {
-    fn bootstrap(&mut self, st: &CampaignState, _ctx: &SourceContext) -> Result<Vec<Event>, String> {
+    fn bootstrap(
+        &mut self,
+        st: &CampaignState,
+        _ctx: &SourceContext,
+    ) -> Result<Vec<Event>, String> {
         let mut ev = Vec::new();
         for n in &self.nodes {
             let node = &n.e.node;
@@ -1009,7 +1104,10 @@ impl WorkSource for GenChoiceSource {
             .get(&done.item)
             .ok_or_else(|| format!("genchoice: unknown item {}", done.item))?;
         if !Self::is_ours(it) {
-            return Err(format!("genchoice: item {} is not a genchoice item", done.item));
+            return Err(format!(
+                "genchoice: item {} is not a genchoice item",
+                done.item
+            ));
         }
         let node = it.node.clone();
         let i = self
@@ -1024,7 +1122,12 @@ impl WorkSource for GenChoiceSource {
                 .jobs
                 .iter()
                 .filter(|j| *j != &done.job)
-                .filter(|j| matches!(st.jobs.get(*j).map(|x| x.state), Some(AttemptState::Failed(_))))
+                .filter(|j| {
+                    matches!(
+                        st.jobs.get(*j).map(|x| x.state),
+                        Some(AttemptState::Failed(_))
+                    )
+                })
                 .count();
             if failed_before == 0 {
                 return Ok(rt);
@@ -1060,15 +1163,23 @@ impl WorkSource for GenChoiceSource {
             }
             _ => (None, vec![], None),
         };
+        let (refused, refused_cases, subcases) = if it.kind == KIND_PROBE && !run_dir.is_empty() {
+            refused_of(Path::new(&run_dir))
+        } else {
+            (0, vec![], String::new())
+        };
         let cand = self.candidate(&cand_id);
         let order = match &cand {
             Some(cd) => self.order_of(st, i, cd).unwrap_or_default(),
             None => String::new(),
         };
-        let args = cand
+        let mut args = cand
             .as_ref()
             .map(|cd| self.cfg.policy.args(cd, &order))
             .unwrap_or_default();
+        if it.kind == KIND_PROBE {
+            args.extend(self.cfg.policy.probe.args.iter().cloned());
+        }
         let stage = match it.kind.as_str() {
             KIND_PROBE => "probe",
             KIND_FULL => "full",
@@ -1092,6 +1203,9 @@ impl WorkSource for GenChoiceSource {
             table_path,
             measure,
             rows,
+            refused,
+            refused_cases,
+            subcases,
         };
         let rec = AcceptedRecord {
             path: format!(
@@ -1195,7 +1309,10 @@ impl WorkSource for GenChoiceSource {
         if open.is_empty() {
             CampaignOutcome::Closed
         } else {
-            CampaignOutcome::Open(format!("no acceptable generated table for: {}", open.join(", ")))
+            CampaignOutcome::Open(format!(
+                "no acceptable generated table for: {}",
+                open.join(", ")
+            ))
         }
     }
 
@@ -1223,7 +1340,12 @@ mod tests {
             GenChoiceSource::parse_label("id-default-std"),
             ("id-default-std".to_string(), None)
         );
-        check_flags(&["--seed-pose-rung".into(), "--numeric-depth-max".into(), "3".into()]).unwrap();
+        check_flags(&[
+            "--seed-pose-rung".into(),
+            "--numeric-depth-max".into(),
+            "3".into(),
+        ])
+        .unwrap();
         assert!(check_flags(&["--seed-pose-trigger".into(), "5".into()]).is_err());
         assert!(check_flags(&["--numeric-depth-max".into(), "x".into()]).is_err());
         assert!(check_flags(&["--order".into(), "id".into()]).is_err());

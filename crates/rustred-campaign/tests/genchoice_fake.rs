@@ -57,7 +57,11 @@ fn material(dir: &Path, optimise: bool) -> PathBuf {
     let fam = dir.join("TOY.sym");
     std::fs::write(&fam, FAMILY).unwrap();
     let bx = dir.join("box.json");
-    std::fs::write(&bx, r#"{"schema":"rustred.campaign.box.v1","id":"toy-box"}"#).unwrap();
+    std::fs::write(
+        &bx,
+        r#"{"schema":"rustred.campaign.box.v1","id":"toy-box"}"#,
+    )
+    .unwrap();
     let run = |probe: Value, full: Value| json!({"probe": probe, "full": full});
     let tbl = |m: &[u64], stop: Value| json!({"rules": rules(m), "stop": stop});
     let runs = json!({
@@ -122,7 +126,14 @@ fn portfolio_ranks_probes_runs_economy_and_records_the_choice() {
     // ranking: status first (the wall-stopped probe last), then the use-cost band, then the largest rule
     assert_eq!(
         c["ranking"],
-        json!(["bfi-default-std", "bfi-rung-std", "id-rung-std", "isp_rev-rung-std", "id-default-std", "isp_rev-default-std"]),
+        json!([
+            "bfi-default-std",
+            "bfi-rung-std",
+            "id-rung-std",
+            "isp_rev-rung-std",
+            "id-default-std",
+            "isp_rev-default-std"
+        ]),
         "{c:#}"
     );
     // the first full run is the best probe; the economy alternatives are the next two (the completed probe is not re-run)
@@ -137,8 +148,14 @@ fn portfolio_ranks_probes_runs_economy_and_records_the_choice() {
     // the smallest acceptable table wins: found by the economy step
     assert_eq!(c["winner"], "bfi-rung-std", "{c:#}");
     assert_eq!(cand(&c, "bfi-rung-std")["verdict"], "winner");
-    assert_eq!(cand(&c, "bfi-default-std")["verdict"], "acceptable, lost the choice");
-    assert_eq!(cand(&c, "isp_rev-rung-std")["verdict"], "acceptable, lost the choice");
+    assert_eq!(
+        cand(&c, "bfi-default-std")["verdict"],
+        "acceptable, lost the choice"
+    );
+    assert_eq!(
+        cand(&c, "isp_rev-rung-std")["verdict"],
+        "acceptable, lost the choice"
+    );
     assert_eq!(
         cand(&c, "id-default-std")["verdict"],
         "ranked, not run (economy / first acceptable found earlier)"
@@ -153,7 +170,8 @@ fn portfolio_ranks_probes_runs_economy_and_records_the_choice() {
     assert_eq!(cands["shape"]["lines"], json!([0, 1]));
     assert_eq!(cands["bfi_base"], "id-default-std");
     assert_eq!(cands["bfi_cases_voted"], 4);
-    let o: Value = serde_json::from_str(cands["orders"]["isp_rev-default-std"].as_str().unwrap()).unwrap();
+    let o: Value =
+        serde_json::from_str(cands["orders"]["isp_rev-default-std"].as_str().unwrap()).unwrap();
     assert_eq!(o["coordinate_priority"], json!([0, 1, 2]));
     // the per-rule comparison names the same cases in the losing tables
     let pr = std::fs::read_to_string(cdir.join("genchoice/toy/per_rule.jsonl")).unwrap();
@@ -195,8 +213,14 @@ fn optimise_mode_runs_every_ranked_candidate_without_cap() {
     assert!(c["economy"]["budget_cpu_ms"].is_null());
     for a in c["candidates"].as_array().unwrap() {
         for f in a["full"].as_array().unwrap() {
-            assert!(f["wall_job_s_cap"].is_null(), "no cap in optimise mode: {f:#}");
+            assert!(
+                f["wall_job_s_cap"].is_null(),
+                "no cap in optimise mode: {f:#}"
+            );
         }
     }
-    assert_eq!(c["winner"], "isp_rev-default-std", "the smallest full table of all: {c:#}");
+    assert_eq!(
+        c["winner"], "isp_rev-default-std",
+        "the smallest full table of all: {c:#}"
+    );
 }
