@@ -132,6 +132,60 @@ pub struct SymbolicPolicy {
     pub stop_grace_s: u32,
     /// Extra generate arguments (each must pass the contract's allow-list).
     pub extra_args: Vec<String>,
+    /// USER RULING 2026-11-15 (pole-diagnostics.md addendum 7): "regular at d = 4" always wins by default: a regular
+    /// candidate is preferred over a smaller singular one unless it is larger by more than this ratio; a rational >= 1
+    /// or the word "unbounded" (default). The per-rule / per-node caps and the budgets stay separate parameters.
+    pub max_size_ratio: SizeRatio,
+}
+
+/// `max_size_ratio`: a rational >= 1 or "unbounded".
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SizeRatio {
+    Ratio(f64),
+    Word(String),
+}
+
+impl SizeRatio {
+    /// The bound, None = unbounded; Err for a word other than "unbounded" or a ratio below 1.
+    pub fn bound(&self) -> Result<Option<f64>, String> {
+        match self {
+            SizeRatio::Word(w) if w == "unbounded" => Ok(None),
+            SizeRatio::Word(w) => Err(format!(
+                "max_size_ratio {w:?}: a rational >= 1 or \"unbounded\""
+            )),
+            SizeRatio::Ratio(r) if r.is_finite() && *r >= 1.0 => Ok(Some(*r)),
+            SizeRatio::Ratio(r) => Err(format!("max_size_ratio {r}: must be >= 1")),
+        }
+    }
+}
+
+/// The regular-vs-size trade: keep the REGULAR candidate (size `regular`) over the smallest singular one (size
+/// `smallest`) iff `regular <= ratio x smallest` (always with "unbounded"). Returns (prefer regular, report line naming
+/// the value in force and both sizes).
+pub fn prefer_regular(
+    regular: u64,
+    smallest: u64,
+    ratio: &SizeRatio,
+) -> Result<(bool, String), String> {
+    let b = ratio.bound()?;
+    let keep = match b {
+        None => true,
+        Some(r) => (regular as f64) <= r * (smallest.max(1) as f64),
+    };
+    Ok((
+        keep,
+        format!(
+            "max_size_ratio {}: regular candidate {regular} terms vs smallest {smallest}: {}",
+            b.map(|r| r.to_string())
+                .unwrap_or_else(|| "unbounded".into()),
+            if keep {
+                "regular kept"
+            } else {
+                "smallest kept (regular candidate exists, over max_size_ratio)"
+            }
+        ),
+    ))
 }
 
 impl Default for SymbolicPolicy {
@@ -153,6 +207,7 @@ impl Default for SymbolicPolicy {
             heartbeat_s: 10,
             stop_grace_s: 30,
             extra_args: vec![],
+            max_size_ratio: SizeRatio::Word("unbounded".into()),
         }
     }
 }
@@ -548,6 +603,7 @@ impl RepairPolicy {
                 self.faces.plain_faces
             ));
         }
+        self.symbolic.max_size_ratio.bound()?;
         if self.symbolic.wall_case_s == 0 {
             return Err("repair policy: symbolic.wall_case_s must be > 0".into());
         }

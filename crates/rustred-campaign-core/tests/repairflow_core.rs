@@ -984,3 +984,32 @@ fn minimised_objects_are_accepted_only_when_tested_at_every_key_and_never_lose_k
     let none: BTreeMap<Vec<i32>, bool> = region.iter().map(|k| (k.clone(), false)).collect();
     assert!(!judge_minimised(&region, &original, &none).accept);
 }
+
+#[test]
+fn regular_at_d4_wins_by_default_and_the_ratio_is_the_users() {
+    use rustred_campaign_core::repairflow::policy::{SizeRatio, prefer_regular};
+    let d = RepairPolicy::default();
+    assert_eq!(
+        d.symbolic.max_size_ratio,
+        SizeRatio::Word("unbounded".into())
+    );
+    // default: a regular candidate 100 times larger is kept
+    let (keep, line) = prefer_regular(100_000, 1_000, &d.symbolic.max_size_ratio).unwrap();
+    assert!(
+        keep && line.contains("unbounded") && line.contains("100000") && line.contains("1000"),
+        "{line}"
+    );
+    // a finite ratio 8 does not keep it, and says why
+    let p8 = policy(json!({"symbolic": {"max_size_ratio": 8}}));
+    let (keep, line) = prefer_regular(100_000, 1_000, &p8.symbolic.max_size_ratio).unwrap();
+    assert!(!keep && line.contains("over max_size_ratio"), "{line}");
+    assert!(
+        prefer_regular(8_000, 1_000, &p8.symbolic.max_size_ratio)
+            .unwrap()
+            .0
+    );
+    // spec parsing: the word, a rational >= 1; anything else refused
+    assert!(PolicyFile::parse(&json!({"schema": POLICY_SCHEMA, "repair_policy": {"symbolic": {"max_size_ratio": "unbounded"}}}).to_string()).is_ok());
+    assert!(PolicyFile::parse(&json!({"schema": POLICY_SCHEMA, "repair_policy": {"symbolic": {"max_size_ratio": 0.5}}}).to_string()).is_err());
+    assert!(PolicyFile::parse(&json!({"schema": POLICY_SCHEMA, "repair_policy": {"symbolic": {"max_size_ratio": "big"}}}).to_string()).is_err());
+}
