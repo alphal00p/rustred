@@ -1,8 +1,7 @@
 //! Lane coreseed: the REAL IBP-core flow on given face cores (interfaces/coreseed.md), engine children through the
 //! adapter and the process layer, the closing loop's accept chain on the node's import set. `#[ignore]`: run by hand
 //! INSIDE A PRIVATE PID NAMESPACE (rule L10) after `source WS/ops/env.sh`, with `CORESEED_REAL_CONFIG` = a JSON file:
-//! `{"node", "import_spec", "import_base", "program", "family", "order": "<name>" | {order JSON}, "valuation": path |
-//!   null, "policy": {..} | null, "faces": [{"name", "keys": path (lines "I(..)" or "[..]", optional TAB + text)}],
+//! `{"node", "import_spec", "import_base", "program", "family", "order": "<name>" | {order JSON}, "policy": {..} | null, "faces": [{"name", "keys": path (lines "I(..)" or "[..]", optional TAB + text)}],
 //!   "cpus": [..] | null (HELD_CPUS), "work_root", "out_dir", "keys_per_job", "cap_bytes", "key_budget_s",
 //!   "wall_cap_s"}`.
 //! Per face: `out_dir/<face>/{report.json, journal.jsonl, costs.jsonl, progress.jsonl}` and one line of
@@ -42,12 +41,29 @@ fn read_keys(p: &Path) -> Vec<Key> {
     out
 }
 
+/// `YYYY-MM-DDTHH:MM:SSZ` of the system clock (pure: no process).
 fn utc() -> String {
-    std::process::Command::new("date")
-        .args(["-u", "+%FT%TZ"])
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_default()
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let (days, secs) = (t.div_euclid(86_400), t.rem_euclid(86_400));
+    // civil date from days since 1970-01-01 (H. Hinnant's algorithm)
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
+        secs / 3600,
+        secs % 3600 / 60,
+        secs % 60
+    )
 }
 
 #[test]
@@ -100,7 +116,6 @@ fn real_core_faces() {
     );
     let program =
         Program::from_file("rr_node", Path::new(&s("program")), Invocation::Contract).unwrap();
-    let valuation = c["valuation"].as_str().map(PathBuf::from);
     for face in c["faces"].as_array().unwrap() {
         let name = face["name"].as_str().unwrap().to_string();
         let fdir = out.join(rustred_campaign::closeloop::ids::safe(&name));
@@ -126,15 +141,12 @@ fn real_core_faces() {
             licence_env: std::env::var_os("SYMBOLICA_LICENSE")
                 .map(|_| "SYMBOLICA_LICENSE".to_string()),
             d0: policy.d0.clone(),
-            valuation: valuation.clone(),
             keep_trial_outputs: false,
             verbose: true,
             fake: None,
             cpu_budget_s: c["cpu_budget_s"].as_f64(),
         };
-        let judge = DriverJudge {
-            valuation: valuation.clone(),
-        };
+        let judge = DriverJudge;
         let mut solver = ChildSolver::new(cfg, &mut set, Box::new(judge), sampler.clone()).unwrap();
         let r = match solve_core(&keys, &lines, &policy, &mut solver) {
             Ok(r) => r,

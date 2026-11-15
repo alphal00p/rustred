@@ -81,7 +81,6 @@ fn config(tmp: &Path, files: &TmFiles, fake: FakeCore, journal: &Path) -> CoreDr
         wall_cap_s: 120,
         licence_env: None,
         d0: "4".into(),
-        valuation: None,
         keep_trial_outputs: false,
         verbose: false,
         fake: Some(fake),
