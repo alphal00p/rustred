@@ -46,7 +46,7 @@ fn pf4_table_without_end_record_is_refused_unless_overridden_with_a_reason() {
     assert!(e.to_string().contains("table_incomplete"), "{e}");
     // int7 (coordinator's ruling): the refusal names the override and the list
     assert!(
-        msg.contains("marker_rules.accept_missing_end") && msg.contains("TABLES-NO-END.json"),
+        msg.contains("marker_rules.accept_missing_end") && msg.contains("TABLES-NO-END.resolution.json"),
         "{msg}"
     );
     // the explicit override naming the list of such tables (path + sha256) that lists this table: loaded, recorded

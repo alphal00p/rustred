@@ -805,21 +805,27 @@ pub struct MarkerPolicy {
     pub missing_end_hint: Option<String>,
 }
 
-/// Schema of the NAMED LIST of tables without an `end` record (int7, coordinator's ruling 2026-11-15): the only way a
-/// table without an end record is loaded is the per-source `marker_rules.accept_missing_end` naming such a list and
-/// its sha256 (`"<list path> sha256:<hex>"`) and the table's file being listed in it.
-pub const NO_END_LIST_SCHEMA: &str = "rustred.campaign.tables-no-end.v1";
-/// The campaign's list (the refusal names it; the list itself is data, maintained outside the code).
-pub const NO_END_LIST_HINT: &str = "plan/auto-campaign/reports/TABLES-NO-END.json";
+/// Schema of the RESOLUTION of the tables without an `end` record (int7, coordinator's rulings 2026-11-15): the only
+/// way a table without an end record is loaded is the per-source `marker_rules.accept_missing_end` naming such a
+/// resolution file and its sha256 (`"<resolution path> sha256:<hex>"`), the table's file being an entry of it with the
+/// status [`NO_END_LOADABLE_STATUS`] and the file's sha256 equal to the entry's `sha256_scanned` (the bytes that were
+/// verified complete). Every other status (an end added since, superseded, an unfinished run) refuses, naming it.
+pub const NO_END_RESOLUTION_SCHEMA: &str = "rustred.campaign.tables-no-end.resolution.v1";
+/// The resolution's status of a table verified complete whose file is not ours to edit (the one loadable status).
+pub const NO_END_LOADABLE_STATUS: &str = "flagged_astra_workspace";
+/// The campaign's resolution file (the refusal names it; the file itself is data, maintained outside the code).
+pub const NO_END_LIST_HINT: &str = "plan/auto-campaign/reports/TABLES-NO-END.resolution.json";
 
-/// The per-source override `marker_rules.accept_missing_end` for one table FILE: `Ok(Some(reason))` = the file is in
-/// the named list (the reason, recorded with the load, names the list, its sha256 and the entry's origin); `Ok(None)`
-/// + hint = the list is valid but does not name this file; `Err` = the override is not a named list (path + sha256),
-/// the list is unreadable, of another schema, or its sha256 differs: a typed spec refusal (never a silent load).
+/// The per-source override `marker_rules.accept_missing_end` for one table FILE (sha256 `file_sha256`): `Ok(Some(reason))`
+/// = the file is a loadable entry of the named resolution (the reason, recorded with the load, names the resolution, its
+/// sha256, the entry's status and `why`); `Ok(None)` + hint = the resolution is valid but does not make this file
+/// loadable (not listed, another status, other bytes); `Err` = the override is not a named resolution (path + sha256),
+/// the file is unreadable, of another schema, or its sha256 differs: a typed spec refusal (never a silent load).
 pub fn named_no_end_list(
     reason: &str,
     base: &Path,
     table: &Path,
+    file_sha256_hex: &str,
 ) -> Result<(Option<String>, Option<String>), ImportError> {
     let bad = |m: String| ImportError::Spec(format!("marker_rules.accept_missing_end: {m}"));
     let parts: Vec<&str> = reason.split_whitespace().collect();
@@ -832,8 +838,8 @@ pub fn named_no_end_list(
         }
         _ => {
             return Err(bad(format!(
-                "{reason:?} is not a named list: give `<list path> sha256:<hex>` of a {NO_END_LIST_SCHEMA} list \
-                 (the campaign's: {NO_END_LIST_HINT})"
+                "{reason:?} does not name a resolution: give `<path> sha256:<hex>` of a {NO_END_RESOLUTION_SCHEMA} \
+                 file (the campaign's: {NO_END_LIST_HINT})"
             )));
         }
     };
@@ -841,48 +847,67 @@ pub fn named_no_end_list(
     let got = file_sha256(&path)?;
     if !got.eq_ignore_ascii_case(sha) {
         return Err(bad(format!(
-            "the list {} has sha256 {got}, the override names {sha}",
+            "the resolution {} has sha256 {got}, the override names {sha}",
             path.display()
         )));
     }
     let text = std::fs::read_to_string(&path).map_err(|e| io_err(&path, e))?;
     let v: Value = serde_json::from_str(&text)
-        .map_err(|e| bad(format!("the list {}: {e}", path.display())))?;
-    if v["schema"] != NO_END_LIST_SCHEMA {
+        .map_err(|e| bad(format!("the resolution {}: {e}", path.display())))?;
+    if v["schema"] != NO_END_RESOLUTION_SCHEMA {
         return Err(bad(format!(
-            "the list {} has schema {}, expected {NO_END_LIST_SCHEMA}",
+            "the file {} has schema {}, expected {NO_END_RESOLUTION_SCHEMA}",
             path.display(),
             v["schema"]
         )));
     }
     let entries = v["tables"]
         .as_array()
-        .ok_or_else(|| bad(format!("the list {} has no `tables`", path.display())))?;
+        .ok_or_else(|| bad(format!("the resolution {} has no `tables`", path.display())))?;
     let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
     let me = canon(table);
+    let named = format!("{} (sha256:{got})", path.display());
     for e in entries {
         let Some(ep) = e["path"].as_str() else {
             return Err(bad(format!(
-                "the list {}: an entry without `path`",
+                "the resolution {}: an entry without `path`",
                 path.display()
             )));
         };
-        if canon(Path::new(ep)) == me {
+        if canon(Path::new(ep)) != me {
+            continue;
+        }
+        let status = e["status"].as_str().unwrap_or("");
+        let why = e["why"].as_str().unwrap_or("");
+        if status != NO_END_LOADABLE_STATUS {
             return Ok((
-                Some(format!(
-                    "listed in {} (sha256:{got}): {}",
-                    path.display(),
-                    e["origin"].as_str().unwrap_or("no origin given")
-                )),
                 None,
+                Some(format!(
+                    "the resolution {named} gives this table the status {status:?}, not {NO_END_LOADABLE_STATUS:?}: {why}"
+                )),
             ));
         }
+        let scanned = e["sha256_scanned"].as_str().unwrap_or("");
+        if !scanned.eq_ignore_ascii_case(file_sha256_hex) {
+            return Ok((
+                None,
+                Some(format!(
+                    "the resolution {named} verified other bytes of this table (sha256_scanned {scanned}, the file \
+                     has {file_sha256_hex})"
+                )),
+            ));
+        }
+        return Ok((
+            Some(format!(
+                "listed in {named} as {status} (sha256_scanned = the file's): {why}"
+            )),
+            None,
+        ));
     }
     Ok((
         None,
         Some(format!(
-            "the override names the list {} (sha256:{got}), which does not list {}",
-            path.display(),
+            "the override names the resolution {named}, which does not list {}",
             table.display()
         )),
     ))
@@ -1046,8 +1071,9 @@ pub fn check_markers(
                     TableRefusal::Incomplete {
                         msg: format!(
                             "no end record ({} rule + {} sym records found; a file cut at a line boundary looks the \
-                             same); override marker_rules.accept_missing_end with the list {NO_END_LIST_HINT} \
-                             (`<list path> sha256:<hex>`; the table must be listed){}",
+                             same); override marker_rules.accept_missing_end with the resolution {NO_END_LIST_HINT} \
+                             (`<path> sha256:<hex>`; the table listed there as {NO_END_LOADABLE_STATUS} with its \
+                             scanned sha256){}",
                             raw.rule_lines,
                             raw.sym_lines,
                             policy

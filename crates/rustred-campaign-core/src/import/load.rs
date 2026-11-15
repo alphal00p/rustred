@@ -596,16 +596,16 @@ pub(crate) fn load_inner(
                             src.id
                         )));
                     }
-                    // int7 (coordinator's ruling 2026-11-15): a table without an `end` record loads ONLY through a
-                    // NAMED list (`<list path> sha256:<hex>`, the table listed in it); else refused, the refusal names
-                    // the override and why it did not apply
+                    // int7 (coordinator's rulings 2026-11-15): a table without an `end` record loads ONLY through the
+                    // named RESOLUTION (`<path> sha256:<hex>`; the table a loadable entry with its verified bytes);
+                    // else refused, the refusal names the override and why it did not apply
                     let (accept_missing_end, missing_end_hint) = match src
                         .marker_rules
                         .as_ref()
                         .and_then(|m| m.accept_missing_end.as_deref())
                     {
                         None => (None, None),
-                        Some(r) => super::lines::named_no_end_list(r, base, &u.path)
+                        Some(r) => super::lines::named_no_end_list(r, base, &u.path, &raw.file_sha256)
                             .map_err(|e| match e {
                                 ImportError::Spec(m) => {
                                     ImportError::Spec(format!("source {}: {m}", src.id))
