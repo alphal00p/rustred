@@ -854,3 +854,82 @@ fn eps_import_check_closes_with_engine_facts() {
     }
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// Guard-less chart lines (engine lane verdict 2026-11-15T03:22Z, interfaces/eps-families.md section 4): an absent
+/// guard list means the guards of the chart's own mask; it is read on an explicit path and recorded
+/// (`chart_guards_implied`). The same table with the guards removed from one chart line dispatches identically; an
+/// explicit empty guard list is refused.
+#[test]
+fn guardless_chart_line_means_the_mask_guards() {
+    use rustred_campaign_core::import::sweep::{ClassifyOptions, classify_table};
+    let text = std::fs::read_to_string(data("T012_a0-td-e.table.jsonl")).unwrap();
+    let stripped: String = text
+        .lines()
+        .map(|l| {
+            let v: serde_json::Value = serde_json::from_str(l).unwrap();
+            if v["type"] == "chart" && v["chart"] == "01111" {
+                let mut v = v.clone();
+                v.as_object_mut().unwrap().remove("guards");
+                format!("{v}\n")
+            } else {
+                format!("{l}\n")
+            }
+        })
+        .collect();
+    assert_ne!(stripped, text);
+    let dir = std::env::temp_dir().join(format!("eps_guardless_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let p_strip = dir.join("stripped.table.jsonl");
+    std::fs::write(&p_strip, &stripped).unwrap();
+    let opts = DomainOptions {
+        witness: false,
+        ..Default::default()
+    };
+    let tf_full =
+        read_table_file(data("T012_a0-td-e.table.jsonl"), ReadOptions::default()).unwrap();
+    let tf_strip = read_table_file(&p_strip, ReadOptions::default()).unwrap();
+    let t_full = Table::from_table_file_eps_aware("f", "f", &tf_full, opts).unwrap();
+    let t_strip = Table::from_table_file_eps_aware("s", "s", &tf_strip, opts).unwrap();
+    assert!(t_full.provenance.chart_guards_implied.is_empty());
+    assert_eq!(
+        t_strip.provenance.chart_guards_implied,
+        vec!["01111".to_string()]
+    );
+    let d_full = Dispatcher::new(vec![t_full], vec![0]).unwrap();
+    let d_strip = Dispatcher::new(vec![t_strip], vec![0]).unwrap();
+    let mut nonpos = 0;
+    for (key, _) in engine_first("T012.engine_first.jsonl") {
+        nonpos += usize::from(key[0] <= 0);
+        assert_eq!(
+            d_full.first_match(&key).unwrap(),
+            d_strip.first_match(&key).unwrap(),
+            "{key:?}"
+        );
+    }
+    assert!(nonpos > 100);
+    // the import's classify-only load reads it and reports it
+    let c = classify_table(
+        &p_strip,
+        &ClassifyOptions {
+            scratch: Some(dir.clone()),
+            ..Default::default()
+        },
+    );
+    assert_eq!(c.outcome, "loaded", "{:?}", c.detail);
+    assert_eq!(c.chart_guards_implied, vec!["01111".to_string()]);
+    // an explicit empty guard list is not a guard list: refused
+    let empty: String = text.replace(
+        r#""chart": "01111", "guards": ["#,
+        r#""chart": "01111", "guards": [], "x": ["#,
+    );
+    if empty != text {
+        let p_empty = dir.join("empty.table.jsonl");
+        std::fs::write(&p_empty, &empty).unwrap();
+        assert!(read_table_file(&p_empty, ReadOptions::default()).is_err());
+    } else {
+        let line = r#"{"type":"chart","chart":"01111","guards":[],"zero":false}"#;
+        let mut rd = RecordReader::new(line.as_bytes(), ReadOptions::default());
+        assert!(rd.next().unwrap().is_err());
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}

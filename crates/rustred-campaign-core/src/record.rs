@@ -503,8 +503,14 @@ fn parse_line(buf: &[u8], line: usize, opts: ReadOptions) -> Result<TableLine, R
             .and_then(Value::as_str)
             .ok_or_else(|| fmt("chart line without chart".into()))?
             .to_string();
+        // an ABSENT guard list means the guards implied by the chart mask (engine lane, 2026-11-15T03:22Z,
+        // interfaces/eps-families.md section 4): read as an empty Vec; an explicit EMPTY list is no guard list (the
+        // engine's replay refuses it), so it is refused here and an empty Vec always means "absent"
         let guards = match v.get("guards") {
             None | Some(Value::Null) => vec![],
+            Some(Value::Array(a)) if a.is_empty() => {
+                return Err(fmt("chart guards: an explicit empty list".into()));
+            }
             Some(g) => serde_json::from_value::<Vec<String>>(g.clone())
                 .map_err(|e| fmt(format!("chart guards: {e}")))?,
         };

@@ -198,6 +198,10 @@ pub struct SourceReport {
     /// lane import5 (18.3): counts of the marker kinds over the source's files (only when present).
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub markers: BTreeMap<String, usize>,
+    /// (file, chart) of every chart line without a guard list, read as `chart_guards: implied_by_mask` (the guards
+    /// of its mask; engine lane verdict 2026-11-15T03:22Z). Only when present.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub chart_guards_implied: Vec<(String, String)>,
     /// Files that carry a composite-assembly record.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub assembly_files: Vec<String>,
@@ -1344,6 +1348,10 @@ fn build_table(
         source: src.id.clone(),
         msg: format!("{}: {e}", u.path.display()),
     })?;
+    for c in &t.provenance.chart_guards_implied {
+        rep.chart_guards_implied
+            .push((u.path.display().to_string(), c.clone()));
+    }
     for s in &t.provenance.skipped_not_dispatched {
         rep.not_dispatched
             .push((name.to_string(), s.label, s.dispatch.clone()));

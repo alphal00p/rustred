@@ -40,6 +40,8 @@ pub struct TableClass {
     pub table_terminals: usize,
     pub assembly: bool,
     pub marker_overrides: Vec<String>,
+    /// Charts of chart lines without guards, read as implied by their mask (`chart_guards: implied_by_mask`).
+    pub chart_guards_implied: Vec<String>,
     pub seconds: f64,
 }
 
@@ -146,6 +148,11 @@ fn classify_inner(
         out.table_terminals = rep.table_terminals;
         out.assembly = !rep.assembly_files.is_empty();
         out.marker_overrides = rep.marker_overrides.clone();
+        out.chart_guards_implied = rep
+            .chart_guards_implied
+            .iter()
+            .map(|(_, c)| c.clone())
+            .collect();
         Ok(())
     })();
     let _ = std::fs::remove_dir_all(&scratch);

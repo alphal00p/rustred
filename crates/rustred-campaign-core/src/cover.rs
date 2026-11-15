@@ -267,6 +267,10 @@ pub struct TableProvenance {
     pub skipped_not_dispatched: Vec<SkippedRecord>,
     /// The witness / target attestation used, if any ([`Table::from_table_file_attested`]).
     pub attestation: Option<AttestationRecord>,
+    /// Chart lines WITHOUT a guard list, read as the guards implied by their mask (`chart_guards: implied_by_mask`;
+    /// engine lane verdict 2026-11-15T03:22Z, interfaces/eps-families.md section 4: bit 1 = `n>=1`, bit 0 = `n<=0`,
+    /// `two_sided:` on eps axes; never inherited from another chart line). One entry per such line (its chart).
+    pub chart_guards_implied: Vec<String>,
 }
 
 impl TableProvenance {
@@ -278,6 +282,7 @@ impl TableProvenance {
             witness: WitnessProvenance::NotApplicable,
             skipped_not_dispatched: vec![],
             attestation: None,
+            chart_guards_implied: vec![],
         }
     }
 }
@@ -554,6 +559,7 @@ impl Table {
         .map_err(LoadError::Frame)?;
         let mask = frame.mask_string();
         let mut seen_charts = BTreeSet::new();
+        let mut implied = vec![];
         for (c, guards) in &tf.charts {
             let bits: Vec<bool> = c.chars().map(|x| x == '1').collect();
             let Some(want) = frame
@@ -565,7 +571,10 @@ impl Table {
                     frame.eps_axes()
                 )));
             };
-            if *guards != want {
+            if guards.is_empty() {
+                // absent guards = the mask's own guards (explicit path, recorded in the provenance)
+                implied.push(c.clone());
+            } else if *guards != want {
                 return Err(LoadError::Chart(format!("unsupported guards {guards:?}")));
             }
             if !seen_charts.insert(c.clone()) {
@@ -636,6 +645,7 @@ impl Table {
                 witness_records: a.witness_complete.count(tf),
                 target_records: a.targets_canonical.count(tf),
             }),
+            chart_guards_implied: implied,
         };
         let attested_basis = if raw_side.is_some() {
             Assurance::AttestedChecked
@@ -766,6 +776,7 @@ impl Table {
             witness: WitnessProvenance::NotApplicable,
             skipped_not_dispatched: vec![],
             attestation: None,
+            chart_guards_implied: vec![],
         };
         let mut seen = std::collections::HashSet::new();
         for (source_index, p) in preds.iter().enumerate() {
