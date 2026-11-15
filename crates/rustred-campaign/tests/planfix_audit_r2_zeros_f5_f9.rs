@@ -178,6 +178,12 @@ fn f9_a_default_run_refuses_a_leaf_set_closed_without_the_zero_route() {
         "the default-on run CLOSES relative to a leaf set certified with all_zeros=off: {:#}",
         fb.result["relative_to"]
     );
+    // planfix: refused for the right reason (the typed word of the leaf binding's zero-route guarantees)
+    assert!(
+        fb.result.to_string().contains("leaf_zero_route_weaker"),
+        "{:#}",
+        fb.result["layers"]
+    );
 }
 
 /// F5 (ship gate, consequence of F1): int7_gate_zero_proofs' toy with the positive-numerator term's coefficient "1"
