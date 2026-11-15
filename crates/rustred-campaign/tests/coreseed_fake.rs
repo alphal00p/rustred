@@ -190,7 +190,7 @@ fn escalation_order_is_followed_and_recorded() {
     let kc = key(&r, &c);
     assert_eq!(
         kc.first_solved_by.as_deref(),
-        Some("escalation:escalation:shells_S2_S2m1")
+        Some("escalation:escalation:shells_S2")
     );
     assert_eq!(
         (kc.steps[0].phase.as_str(), kc.steps[0].outcome.as_str()),
@@ -202,7 +202,15 @@ fn escalation_order_is_followed_and_recorded() {
         Some("escalation:escalation:shifted_centres:line0_down")
     );
     let rules: Vec<&str> = kd.steps.iter().map(|s| s.rule.as_str()).collect();
-    assert_eq!(&rules[..2], &["rule", "escalation:shells_S2_S2m1"]);
+    assert_eq!(
+        &rules[..4],
+        &[
+            "rule",
+            "escalation:shells_S2",
+            "escalation:shells_S2m1",
+            "escalation:shells_S2_S2m1"
+        ]
+    );
     assert_eq!(key(&r, &e).status, "no_relation_decided");
 }
 

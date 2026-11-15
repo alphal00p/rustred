@@ -510,6 +510,7 @@ impl<'a> Group<'a> {
             centres: cs.centres.clone(),
             keep_base_centre: cs.keep_base_centre,
             per_centre: true,
+            cumulative: true,
         };
         let mut rules = self.step_rules(&step, "centre_scan", shells, &need);
         let left = cs.max_jobs_per_face.saturating_sub(self.scan_jobs);
@@ -868,7 +869,19 @@ pub fn solve_core(
                     shells.push(s.clone());
                 }
             }
-            let rules = g.step_rules(step, "escalation", &shells, &open);
+            // a non-cumulative step: the rule's shells + its own (shell subsets, smallest first)
+            let step_shells: Vec<String> = if step.cumulative {
+                shells.clone()
+            } else {
+                let mut v = policy.rule.shells.clone();
+                for s in &step.add_shells {
+                    if !v.contains(s) {
+                        v.push(s.clone());
+                    }
+                }
+                v
+            };
+            let rules = g.step_rules(step, "escalation", &step_shells, &open);
             g.run_rules(solver, &rules, &open)?;
             solver.progress(&format!("escalation:{}", step.id), &g.partial());
         }

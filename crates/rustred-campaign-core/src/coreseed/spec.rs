@@ -189,19 +189,31 @@ pub struct StepSpec {
     /// One rule (= one job) per resolved centre.
     #[serde(default = "yes")]
     pub per_centre: bool,
+    /// `true`: the step's shells are every shell added so far (rule + all earlier steps + this one); `false`: the rule's
+    /// shells + this step's `add_shells` only (shell SUBSETS tried smallest first; TRICKS 17).
+    #[serde(default = "yes")]
+    pub cumulative: bool,
 }
 
-/// TRICKS 6: S2 + S2m1 first ({0,1,4}, {0}/{9,10}), then shifted centres ({0}/{9,10,12,16}: line 0 down, kept with the
-/// key centre = t162-handdown round 1: 126 / 252 keys vs 0 / 252 with the key centre alone).
+/// TRICKS 6: more shells around the key before other centres ({0,1,4}, {0}/{9,10}: S2 + S2m1), then shifted centres
+/// ({0}/{9,10,12,16}: line 0 down, kept with the key centre = t162-handdown round 1: 126 / 252 keys vs 0 / 252 with the
+/// key centre alone). The shell SUBSETS come smallest first (lane seedmin's T162 {0,1,3,4} measurement, centre line 4
+/// down: base + {S2} 67 seeds / 654-833 terms / 44 of 44 regular; base + {S2m1} no relation; base + {S2, S2m1} 103 seeds /
+/// 1,258-1,528 terms / 43 regular): base + S2, base + S2m1, base + both, each NOT cumulative; the shifted centres take
+/// every shell added so far.
 pub fn default_escalation() -> Vec<StepSpec> {
+    let sub = |id: &str, add: &[&str]| StepSpec {
+        id: id.into(),
+        add_shells: add.iter().map(|s| s.to_string()).collect(),
+        centres: vec![],
+        keep_base_centre: true,
+        per_centre: false,
+        cumulative: false,
+    };
     vec![
-        StepSpec {
-            id: "shells_S2_S2m1".into(),
-            add_shells: vec!["S2".into(), "S2m1".into()],
-            centres: vec![],
-            keep_base_centre: true,
-            per_centre: false,
-        },
+        sub("shells_S2", &["S2"]),
+        sub("shells_S2m1", &["S2m1"]),
+        sub("shells_S2_S2m1", &["S2", "S2m1"]),
         StepSpec {
             id: "shifted_centres".into(),
             add_shells: vec![],
@@ -211,6 +223,7 @@ pub fn default_escalation() -> Vec<StepSpec> {
             ],
             keep_base_centre: true,
             per_centre: true,
+            cumulative: true,
         },
     ]
 }
@@ -225,6 +238,7 @@ pub fn default_regular_escalation() -> Vec<StepSpec> {
         centres: vec![CentreSpec::token("line_up_at_lowest")],
         keep_base_centre: false,
         per_centre: true,
+        cumulative: true,
     }]
 }
 
