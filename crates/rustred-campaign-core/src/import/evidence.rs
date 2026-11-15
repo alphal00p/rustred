@@ -233,6 +233,7 @@ pub fn is_decided_status(word: &str) -> bool {
         "TIMEOUT",
         "TIME_OUT",
         "UNDECIDED",
+        "NOT_DECIDED",
         "BUDGET",
         "SKIP",
         "UNSUPPORTED",

@@ -336,6 +336,36 @@ pub fn build_machine(
 /// recipe file), the symmetry relations as a `supplied_relations` table verified from the group, the closing-try answers
 /// and the eliminating relations as `evidence.solved`, the declared terminals reduced to the remaining keys.
 #[allow(clippy::too_many_arguments)]
+/// lane closeloop4: the family of an import spec's tables: the header of its `frame_from` source (else the first source
+/// with a readable table header).
+fn spec_family(v: &Value, base: &Path) -> Option<String> {
+    use std::io::BufRead;
+    let srcs = v["sources"].as_array()?;
+    let frame = v["frame_from"].as_str();
+    let pick = srcs
+        .iter()
+        .filter(|s| frame.is_none_or(|f| s["id"] == f))
+        .chain(srcs.iter());
+    for s in pick {
+        let Some(p) = s["path"].as_str() else {
+            continue;
+        };
+        let pb = PathBuf::from(p);
+        let pb = if pb.is_absolute() { pb } else { base.join(pb) };
+        let Ok(f) = std::fs::File::open(&pb) else {
+            continue;
+        };
+        let mut l = String::new();
+        if std::io::BufReader::new(f).read_line(&mut l).is_ok()
+            && let Ok(h) = serde_json::from_str::<Value>(l.trim())
+            && let Some(fam) = h["family"].as_str()
+        {
+            return Some(fam.to_string());
+        }
+    }
+    None
+}
+
 pub fn extended_spec(
     import_text: &str,
     base: &Path,
@@ -513,6 +543,8 @@ pub fn extended_spec(
         new_sources.push(s);
     }
     v["sources"] = Value::Array(new_sources);
+    // lane closeloop4 (audit-closeloop m4): evidence names the family of the set's tables (the frame source's header)
+    let fam = spec_family(&v, base);
     // the closing loop's own recipe answers (ledger inputs of the first statement's passes)
     if !inner_solved.is_empty() {
         if !v["evidence"].is_object() {
@@ -524,7 +556,9 @@ pub fn extended_spec(
             .unwrap_or_default();
         for f in inner_solved {
             let b = std::fs::read(f).map_err(|e| format!("{}: {e}", f.display()))?;
-            arr.push(json!({"path": f.display().to_string(), "sha256": sha256_hex(&b)}));
+            arr.push(
+                json!({"path": f.display().to_string(), "sha256": sha256_hex(&b), "family": fam}),
+            );
         }
         v["evidence"]["solved"] = Value::Array(arr);
     }
@@ -542,7 +576,7 @@ pub fn extended_spec(
             .cloned()
             .unwrap_or_default();
         let mut arr = arr;
-        arr.push(json!({"path": p.display().to_string(), "sha256": sha256_hex(txt.as_bytes())}));
+        arr.push(json!({"path": p.display().to_string(), "sha256": sha256_hex(txt.as_bytes()), "family": fam}));
         v["evidence"]["solved"] = Value::Array(arr);
     }
     let out = dir.join("import-spec.json");

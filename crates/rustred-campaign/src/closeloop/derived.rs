@@ -182,8 +182,11 @@ pub fn effective_spec(
             "terminal-proposals.json",
             &(serde_json::to_string_pretty(&list).unwrap_or_default() + "\n"),
         )?;
+        // lane closeloop4 (audit-closeloop M1): a terminals FILE is pinned by its sha256 (derived from the ledger inputs)
+        let d = rustred_campaign_core::import::lines::file_sha256(&p).map_err(|e| e.to_string())?;
         srcs.push(
-            json!({"id": TERMINALS_SOURCE, "kind": "terminals", "path": p.display().to_string()}),
+            json!({"id": TERMINALS_SOURCE, "kind": "terminals", "path": p.display().to_string(),
+                         "sha256": d}),
         );
     }
     Ok(serde_json::to_string_pretty(&v).map_err(|e| e.to_string())? + "\n")
