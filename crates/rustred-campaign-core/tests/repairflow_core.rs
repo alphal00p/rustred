@@ -1013,3 +1013,269 @@ fn regular_at_d4_wins_by_default_and_the_ratio_is_the_users() {
     assert!(PolicyFile::parse(&json!({"schema": POLICY_SCHEMA, "repair_policy": {"symbolic": {"max_size_ratio": 0.5}}}).to_string()).is_err());
     assert!(PolicyFile::parse(&json!({"schema": POLICY_SCHEMA, "repair_policy": {"symbolic": {"max_size_ratio": "big"}}}).to_string()).is_err());
 }
+
+// ---- item 1: COMPOSITE DESCENT (TRICKS 1 + 3) — constructed toy (arity 3, every slot a line; test data only) ----
+
+mod composite_toy {
+    use rustred_campaign_core::independent_algebra::Independent;
+    use rustred_campaign_core::repairflow::composite::*;
+    use rustred_campaign_core::replay_base::algebra::{CheckAlgebra, Q};
+    use std::cmp::Ordering;
+    use std::collections::{BTreeMap, HashMap};
+
+    /// Toy order: dots+rank first, then the REVERSED lexicographic order (so a permuted image can be higher).
+    pub fn cmp(a: &[i32], b: &[i32]) -> Ordering {
+        let s = |k: &[i32]| k.iter().map(|&x| x as i64).sum::<i64>();
+        s(a).cmp(&s(b)).then(a.iter().rev().cmp(b.iter().rev()))
+    }
+    pub const LINES: [bool; 3] = [true, true, true];
+    pub fn lower(k: &[i32], t: &[i32]) -> bool {
+        import_lower(&LINES, k, t, &cmp)
+    }
+    pub fn q(n: i128, d: i128) -> Q {
+        Independent.q_new(n, d).unwrap()
+    }
+    pub struct Cat(pub HashMap<Vec<i32>, Vec<(Vec<i32>, Q)>>);
+    impl<'a> Catalogue<QField<'a, Independent>> for Cat {
+        fn serve(&self, _: &QField<'a, Independent>, t: &[i32]) -> Result<Service<Q>, String> {
+            Ok(match self.0.get(t) {
+                Some(rhs) => Service::Rule {
+                    rule: RuleUse {
+                        table: 0,
+                        record: 0,
+                        source: "toy".into(),
+                        label: 0,
+                        record_sha256: format!("sha256:{t:?}"),
+                    },
+                    rhs: rhs.clone(),
+                },
+                None => Service::Unserved("uncovered".into()),
+            })
+        }
+    }
+    pub fn run(
+        cat: &Cat,
+        rows: Vec<Vec<(Vec<i32>, Q)>>,
+        key: &[i32],
+        depth: usize,
+    ) -> ElementOutcome<Q> {
+        let f = QField(&Independent);
+        let opts = ComposeOptions {
+            max_depth: depth,
+            ..ComposeOptions::default()
+        };
+        compose_element(&Independent, &f, cat, 3, &rows, key, &lower, &cmp, &opts)
+    }
+    pub fn by_el(v: Vec<(usize, Vec<(Vec<i32>, Q)>)>) -> BTreeMap<usize, Vec<Vec<(Vec<i32>, Q)>>> {
+        let mut m: BTreeMap<usize, Vec<Vec<(Vec<i32>, Q)>>> = BTreeMap::new();
+        for (e, r) in v {
+            m.entry(e).or_default().push(r);
+        }
+        m
+    }
+}
+
+#[test]
+fn composite_descent_accepts_a_higher_image_whose_composite_descends() {
+    use composite_toy::*;
+    use rustred_campaign_core::repairflow::composite::*;
+    let key = vec![2, 1, 1];
+    let gk = vec![1, 1, 2];
+    assert_eq!(
+        cmp(&gk, &key),
+        std::cmp::Ordering::Greater,
+        "the image is HIGHER than the key"
+    );
+    // I(1,1,2) = 3 I(1,1,1) + 1/2 I(2,1,0)  (a lower top key and a sub-sector key)
+    let cat = Cat([(
+        gk.clone(),
+        vec![(vec![1, 1, 1], q(3, 1)), (vec![2, 1, 0], q(1, 2))],
+    )]
+    .into_iter()
+    .collect());
+    let row = vec![(key.clone(), q(1, 1)), (gk.clone(), q(-1, 1))];
+    // the route-0b plain judgement (every image term lower) refuses this element ...
+    assert!(!lower(&gk, &key));
+    // ... the composite accepts it: I(K) = 3 I(1,1,1) + 1/2 I(2,1,0)
+    match run(&cat, vec![row.clone()], &key, 1) {
+        ElementOutcome::Accepted(c) => {
+            assert_eq!(c.element, 3);
+            assert!(!c.is_plain());
+            assert_eq!(c.replacements.len(), 1);
+            assert_eq!(c.replacements[0].term, gk);
+            assert_eq!(
+                c.rhs,
+                vec![(vec![1, 1, 1], q(3, 1)), (vec![2, 1, 0], q(1, 2))]
+            );
+            assert!(c.rhs.iter().all(|(k, _)| lower(k, &key)));
+            assert!(c.key_coefficient.is_none() && c.dropped_zero.is_empty());
+        }
+        o => panic!("expected accepted, got {o:?}"),
+    }
+    // depth 0 (image only) refuses it: the alias edge K -> gK is never accepted
+    match run(&cat, vec![row], &key, 0) {
+        ElementOutcome::Refused {
+            why: Refusal::NotLower { term, depth: 0 },
+            ..
+        } => {
+            assert_eq!(term, gk)
+        }
+        o => panic!("expected not_lower at depth 0, got {o:?}"),
+    }
+}
+
+#[test]
+fn composite_descent_refuses_equal_or_higher_terms_and_unserved_images() {
+    use composite_toy::*;
+    use rustred_campaign_core::repairflow::composite::*;
+    let key = vec![2, 1, 1];
+    let gk = vec![1, 1, 2];
+    let mid = vec![1, 2, 1]; // lower than gK, HIGHER than the key
+    assert_eq!(cmp(&mid, &gk), std::cmp::Ordering::Less);
+    assert_eq!(cmp(&mid, &key), std::cmp::Ordering::Greater);
+    let row = vec![(key.clone(), q(1, 1)), (gk.clone(), q(-1, 1))];
+    // (a) the rule at gK leaves a term higher than the key: refused at depth 1
+    let cat = Cat([(
+        gk.clone(),
+        vec![(mid.clone(), q(1, 1)), (vec![1, 1, 1], q(1, 1))],
+    )]
+    .into_iter()
+    .collect());
+    match run(&cat, vec![row.clone()], &key, 1) {
+        ElementOutcome::Refused {
+            why: Refusal::NotLower { term, depth: 1 },
+            ..
+        } => {
+            assert_eq!(term, mid)
+        }
+        o => panic!("expected not_lower, got {o:?}"),
+    }
+    // ... and accepted at depth 2 when a rule serves that term and descends below the key
+    let mut cat2 = cat.0.clone();
+    cat2.insert(mid.clone(), vec![(vec![1, 1, 1], q(-2, 1))]);
+    match run(&Cat(cat2), vec![row.clone()], &key, 2) {
+        ElementOutcome::Accepted(c) => {
+            assert_eq!(c.replacements.len(), 2);
+            assert_eq!(c.rhs, vec![(vec![1, 1, 1], q(-1, 1))]);
+        }
+        o => panic!("expected accepted at depth 2, got {o:?}"),
+    }
+    // (b) the key reappears with coefficient exactly 1 (an EQUAL term that cannot be solved for): refused
+    let cat = Cat([(
+        gk.clone(),
+        vec![(key.clone(), q(1, 1)), (vec![1, 1, 1], q(5, 1))],
+    )]
+    .into_iter()
+    .collect());
+    match run(&cat, vec![row.clone()], &key, 1) {
+        ElementOutcome::Refused {
+            why: Refusal::KeyCancels,
+            ..
+        } => {}
+        o => panic!("expected key_cancels, got {o:?}"),
+    }
+    // (c) the key reappears with coefficient c != 1: solved through (1 - c) (TRICKS 8)
+    let cat = Cat([(
+        gk.clone(),
+        vec![(key.clone(), q(1, 3)), (vec![1, 1, 1], q(2, 1))],
+    )]
+    .into_iter()
+    .collect());
+    match run(&cat, vec![row.clone()], &key, 1) {
+        ElementOutcome::Accepted(c) => {
+            assert_eq!(c.key_coefficient, Some(q(1, 3)));
+            assert_eq!(c.rhs, vec![(vec![1, 1, 1], q(3, 1))], "2 / (1 - 1/3) = 3");
+        }
+        o => panic!("expected accepted, got {o:?}"),
+    }
+    // (d) an image term that no rule serves and that is not lower: the element fails at the key
+    match run(&Cat(Default::default()), vec![row], &key, 1) {
+        ElementOutcome::Refused {
+            why: Refusal::Unserved { term, .. },
+            ..
+        } => assert_eq!(term, gk),
+        o => panic!("expected unserved, got {o:?}"),
+    }
+    // (e) a rule that produces a term not lower than the one it replaces is refused (termination)
+    let cat = Cat([(mid.clone(), vec![(gk.clone(), q(1, 1))])]
+        .into_iter()
+        .collect());
+    let row2 = vec![(key.clone(), q(1, 1)), (mid.clone(), q(-1, 1))];
+    match run(&cat, vec![row2], &key, 3) {
+        ElementOutcome::Refused {
+            why: Refusal::RuleNotDescending { .. },
+            ..
+        } => {}
+        o => panic!("expected rule_not_descending, got {o:?}"),
+    }
+}
+
+#[test]
+fn composite_descent_zero_composed_coefficient_is_not_an_edge() {
+    use composite_toy::*;
+    use rustred_campaign_core::repairflow::composite::*;
+    let key = vec![2, 1, 1];
+    let gk = vec![1, 1, 2];
+    let mid = vec![1, 2, 1];
+    // non-pure element: I(K) = I(gK) + I(mid) (a multi-term image row, both terms higher than the key)
+    let row = vec![
+        (key.clone(), q(1, 1)),
+        (gk.clone(), q(-1, 1)),
+        (mid.clone(), q(-1, 1)),
+    ];
+    // the rule at gK: I(gK) = -I(mid) + I(1,1,1): the composed coefficient of I(mid) is 1 - 1 = 0
+    let cat = Cat([(
+        gk.clone(),
+        vec![(mid.clone(), q(-1, 1)), (vec![1, 1, 1], q(1, 1))],
+    )]
+    .into_iter()
+    .collect());
+    match run(&cat, vec![row], &key, 1) {
+        ElementOutcome::Accepted(c) => {
+            assert_eq!(
+                c.dropped_zero,
+                vec![mid.clone()],
+                "exact cancellation seen, mid dropped"
+            );
+            assert_eq!(c.rhs, vec![(vec![1, 1, 1], q(1, 1))]);
+            assert_eq!(
+                c.replacements.len(),
+                1,
+                "mid was never replaced (no rule needed)"
+            );
+        }
+        o => panic!("expected accepted, got {o:?}"),
+    }
+    // the preferred alternative over several elements: fewest terms; every outcome kept
+    let plain_lower = vec![
+        (key.clone(), q(1, 1)),
+        (vec![1, 1, 1], q(-1, 1)),
+        (vec![2, 0, 1], q(-1, 1)),
+    ];
+    let alias = vec![(key.clone(), q(1, 1)), (gk.clone(), q(-1, 1))];
+    let cat = Cat([(gk.clone(), vec![(vec![1, 1, 1], q(7, 1))])]
+        .into_iter()
+        .collect());
+    let f = QField(&rustred_campaign_core::independent_algebra::Independent);
+    let all = compose_all(
+        &rustred_campaign_core::independent_algebra::Independent,
+        &f,
+        &cat,
+        &by_el(vec![(0, plain_lower), (1, alias)]),
+        &key,
+        &lower,
+        &cmp,
+        &ComposeOptions::default(),
+    );
+    assert_eq!(all.outcomes.len(), 2);
+    assert_eq!(
+        all.accepted().count(),
+        2,
+        "both admissible alternatives kept"
+    );
+    let b = all.best().unwrap();
+    assert_eq!(
+        b.element, 1,
+        "the one-term composite beats the two-term plain relation"
+    );
+}
