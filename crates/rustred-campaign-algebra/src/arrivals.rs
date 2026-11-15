@@ -343,13 +343,13 @@ pub fn rat_i128(r: &Rational) -> Option<(i128, i128)> {
 // Records and modular evaluation
 // ------------------------------------------------------------------------------------------------------------------
 
-/// Read and parse the record (table, record) of the set, its sha256 checked against the set.
+/// Read and parse the record (table, record) of the set, its sha256 checked against the set; with the line's length.
 pub fn read_record(
     set: &ImportedSet,
     frames: &Mutex<BTreeMap<String, NodeFrame>>,
     t: usize,
     r: usize,
-) -> Result<(RuleText, NodeFrame), String> {
+) -> Result<(RuleText, NodeFrame, usize), String> {
     let info = &set.rules[t][r];
     let path = Path::new(&info.path);
     let frame = {
@@ -369,14 +369,32 @@ pub fn read_record(
     }
     let rt = RuleText::parse(&line, &frame)
         .map_err(|e| format!("{}@{}: {e:?}", info.path, info.offset))?;
-    Ok((rt, frame))
+    Ok((rt, frame, line.len()))
 }
 
-/// One parsed record with its prover and modular evaluator. The record text is LEAKED to give the prover a 'static
-/// borrow (a one-shot CLI walk keeps every used record until it exits; memory = the used records' text + parsed terms).
+/// One parsed record with its prover and modular evaluator. Without a budget the record text is LEAKED to give the
+/// prover a 'static borrow (kept until the walk exits); with a byte budget the entry OWNS its text (`own`, dropped
+/// after the prover: fields drop in declaration order) and is freed when released.
 pub struct RecEntry {
     pub p: RecordProver<'static>,
     pub me: ModEval,
+    _own: Option<OwnedText>,
+    bytes: usize,
+}
+
+/// A record text owned by its cache entry; the entry's prover borrows it and is dropped first.
+struct OwnedText(*mut RuleText);
+
+// SAFETY: the pointer comes from Box::into_raw and is used only by the entry that owns it (moved with it, behind
+// the slot's mutex).
+unsafe impl Send for OwnedText {}
+
+impl Drop for OwnedText {
+    fn drop(&mut self) {
+        // SAFETY: created by Box::into_raw in `RecCache::with`; the borrowing prover (an earlier field of the same
+        // entry) is already dropped, and nothing else keeps a reference into the text.
+        unsafe { drop(Box::from_raw(self.0)) }
+    }
 }
 
 /// The parsed records of a walk, built on first use, shared by every phase.
@@ -386,8 +404,11 @@ pub struct RecCache<'s> {
     cfg: ProverCfg,
     frames: Mutex<BTreeMap<String, NodeFrame>>,
     slots: HashMap<RecKey, Mutex<Option<RecEntry>>>,
-    /// Every record text read once (leaked, reused by later phases after a slot was released).
+    /// Every record text read once (leaked, reused by later phases after a slot was released). Unused with a budget.
     texts: Mutex<HashMap<RecKey, TextEntry>>,
+    /// Byte budget of the parsed records kept (record line lengths): past it an entry is freed after each use.
+    budget: Option<usize>,
+    live: AtomicUsize,
 }
 
 impl<'s> RecCache<'s> {
@@ -404,6 +425,20 @@ impl<'s> RecCache<'s> {
             frames: Mutex::new(BTreeMap::new()),
             slots: recs.into_iter().map(|k| (k, Mutex::new(None))).collect(),
             texts: Mutex::new(HashMap::new()),
+            budget: None,
+            live: AtomicUsize::new(0),
+        }
+    }
+
+    /// Keep parsed records only up to `bytes` of record text (None: keep every text, the in-memory behaviour).
+    pub fn with_budget(mut self, bytes: Option<usize>) -> Self {
+        self.budget = bytes;
+        self
+    }
+
+    fn drop_entry(&self, g: &mut Option<RecEntry>) {
+        if let Some(e) = g.take() {
+            self.live.fetch_sub(e.bytes, Ordering::Relaxed);
         }
     }
 
@@ -412,7 +447,7 @@ impl<'s> RecCache<'s> {
         if let Some(slot) = self.slots.get(&(t, r))
             && let Ok(mut g) = slot.lock()
         {
-            *g = None;
+            self.drop_entry(&mut g);
         }
     }
 
@@ -420,7 +455,7 @@ impl<'s> RecCache<'s> {
     pub fn release_all(&self) {
         for slot in self.slots.values() {
             if let Ok(mut g) = slot.lock() {
-                *g = None;
+                self.drop_entry(&mut g);
             }
         }
     }
@@ -439,6 +474,21 @@ impl<'s> RecCache<'s> {
         let mut g = slot
             .lock()
             .map_err(|_| "record cache lock poisoned".to_string())?;
+        if g.is_none() && self.budget.is_some() {
+            let (rt, frame, len) = read_record(self.set, &self.frames, t, r)?;
+            let raw: *mut RuleText = Box::into_raw(Box::new(rt));
+            let own = OwnedText(raw);
+            // SAFETY: `raw` stays valid until `own` is dropped, after the prover (declaration order in RecEntry).
+            let rt_ref: &'static RuleText = unsafe { &*raw };
+            let p = RecordProver::new(self.alg, self.cfg.clone(), rt_ref, frame.mask())?;
+            self.live.fetch_add(len, Ordering::Relaxed);
+            *g = Some(RecEntry {
+                p,
+                me: ModEval::new(),
+                _own: Some(own),
+                bytes: len,
+            });
+        }
         if g.is_none() {
             let known = self
                 .texts
@@ -449,7 +499,7 @@ impl<'s> RecCache<'s> {
             let (rt, frame) = match known {
                 Some(x) => x,
                 None => {
-                    let (rt, frame) = read_record(self.set, &self.frames, t, r)?;
+                    let (rt, frame, _) = read_record(self.set, &self.frames, t, r)?;
                     let rt: &'static RuleText = Box::leak(Box::new(rt));
                     self.texts
                         .lock()
@@ -462,9 +512,18 @@ impl<'s> RecCache<'s> {
             *g = Some(RecEntry {
                 p,
                 me: ModEval::new(),
+                _own: None,
+                bytes: 0,
             });
         }
-        f(g.as_mut().expect("set"))
+        let out = f(g.as_mut().expect("set"));
+        if self
+            .budget
+            .is_some_and(|b| self.live.load(Ordering::Relaxed) > b)
+        {
+            self.drop_entry(&mut g);
+        }
+        out
     }
 }
 
@@ -601,7 +660,7 @@ pub struct WalkCfg {
     pub exact: ExactLevel,
     /// Use the structural hand-down proofs (false: every hand-down term per key: the verifier's independent route).
     pub structural: bool,
-    /// Max child-key entries kept in a thread's route cache.
+    /// Max child-key entries kept in the route expansion cache (shared by the workers of one aggregation).
     pub cache_entries: usize,
     /// Decide only hand-down terms whose dropped mask some given edge routes (others are counted per mask, undecided).
     pub routed_masks: Option<BTreeSet<u64>>,
@@ -907,83 +966,8 @@ pub fn walk(
                         let pt = p
                             .point(&row.applied)
                             .ok_or_else(|| format!("{:?}: no rule point", row.applied))?;
-                        let mut hand = vec![];
-                        for j in 0..p.n_terms() {
-                            let Some(tk) = p.term_key(j, &pt) else {
-                                return Err(format!("{:?}: term {j} pattern", row.applied));
-                            };
-                            if tk.len() != n {
-                                return Err("term key arity".into());
-                            }
-                            let (pos, mask) = split_lines(&lines, &tk);
-                            if pos {
-                                s.positive_numerator_terms += 1;
-                                continue;
-                            }
-                            if mask == 0 {
-                                continue;
-                            }
-                            if cfg
-                                .routed_masks
-                                .as_ref()
-                                .is_some_and(|r| !r.contains(&mask))
-                            {
-                                s.handdown_unrouted += 1;
-                                *unr.entry(mask).or_default() += 1;
-                                continue;
-                            }
-                            s.handdown_terms += 1;
-                            let structural = if cfg.structural {
-                                p.handdown_structural(j, &pt, &tk)
-                            } else {
-                                None
-                            };
-                            let (word, by) = match structural {
-                                Some((w, by)) => {
-                                    if w == CoefFact::Zero {
-                                        s.by_structural_zero += 1;
-                                    } else {
-                                        s.by_structural_nonzero += 1;
-                                    }
-                                    (w, by)
-                                }
-                                None => {
-                                    let (w, by) = exact_word(p, me, j, &pt)?;
-                                    if by == "key:mod" {
-                                        s.by_key_mod += 1;
-                                    } else {
-                                        s.by_key_exact += 1;
-                                    }
-                                    (w, by)
-                                }
-                            };
-                            match word {
-                                CoefFact::Zero => {
-                                    s.handdown_zero += 1;
-                                    continue;
-                                }
-                                CoefFact::NonZero => s.handdown_nonzero += 1,
-                                CoefFact::Unknown => s.handdown_unknown += 1,
-                            }
-                            let vals = if cfg.exact.any() && word == CoefFact::NonZero {
-                                let mut v = [None, None];
-                                for (i, x) in v.iter_mut().enumerate() {
-                                    *x = me.coef(p, j, &pt, i)?;
-                                }
-                                Some(Box::new(v))
-                            } else {
-                                None
-                            };
-                            hand.push(HandTerm {
-                                j: j as u32,
-                                mask,
-                                word,
-                                tk: ck(&tk)?,
-                                by: shared_text(by),
-                                vals,
-                            });
-                        }
-                        hand.shrink_to_fit();
+                        let hand =
+                            decide_hand(p, me, cfg, &lines, &pt, &row.applied, &mut s, &mut unr)?;
                         out.push((ci, hand));
                     }
                     let _ = p.take_new();
@@ -1031,6 +1015,101 @@ pub fn walk(
     })
 }
 
+/// The hand-down terms of a record at one closure key (rule point `pt`): decided structurally first, else a modular
+/// witness, else exactly per key; zero ones only counted; terms on masks no edge routes counted per mask (undecided);
+/// with the exact level, the non-zero ones' values at the two points. Shared by the in-memory and the streamed walk.
+#[allow(clippy::too_many_arguments)]
+fn decide_hand(
+    p: &mut RecordProver<'_>,
+    me: &mut ModEval,
+    cfg: &WalkCfg,
+    lines: &[bool],
+    pt: &[i32],
+    applied: &[i32],
+    s: &mut WalkStats,
+    unr: &mut BTreeMap<u64, u64>,
+) -> Result<Vec<HandTerm>, String> {
+    let n = lines.len();
+    let mut hand = vec![];
+    for j in 0..p.n_terms() {
+        let Some(tk) = p.term_key(j, pt) else {
+            return Err(format!("{applied:?}: term {j} pattern"));
+        };
+        if tk.len() != n {
+            return Err("term key arity".into());
+        }
+        let (pos, mask) = split_lines(lines, &tk);
+        if pos {
+            s.positive_numerator_terms += 1;
+            continue;
+        }
+        if mask == 0 {
+            continue;
+        }
+        if cfg
+            .routed_masks
+            .as_ref()
+            .is_some_and(|r| !r.contains(&mask))
+        {
+            s.handdown_unrouted += 1;
+            *unr.entry(mask).or_default() += 1;
+            continue;
+        }
+        s.handdown_terms += 1;
+        let structural = if cfg.structural {
+            p.handdown_structural(j, pt, &tk)
+        } else {
+            None
+        };
+        let (word, by) = match structural {
+            Some((w, by)) => {
+                if w == CoefFact::Zero {
+                    s.by_structural_zero += 1;
+                } else {
+                    s.by_structural_nonzero += 1;
+                }
+                (w, by)
+            }
+            None => {
+                let (w, by) = exact_word(p, me, j, pt)?;
+                if by == "key:mod" {
+                    s.by_key_mod += 1;
+                } else {
+                    s.by_key_exact += 1;
+                }
+                (w, by)
+            }
+        };
+        match word {
+            CoefFact::Zero => {
+                s.handdown_zero += 1;
+                continue;
+            }
+            CoefFact::NonZero => s.handdown_nonzero += 1,
+            CoefFact::Unknown => s.handdown_unknown += 1,
+        }
+        let vals = if cfg.exact.any() && word == CoefFact::NonZero {
+            let mut v = [None, None];
+            for (i, x) in v.iter_mut().enumerate() {
+                *x = me.coef(p, j, pt, i)?;
+            }
+            Some(Box::new(v))
+        } else {
+            None
+        };
+        hand.push(HandTerm {
+            j: j as u32,
+            mask,
+            word,
+            tk: ck(&tk)?,
+            by: shared_text(by),
+            vals,
+        });
+    }
+    hand.shrink_to_fit();
+    Ok(hand)
+}
+
 // ------------------------------------------------------------------------------------------------------------------
 // Aggregation
 // ------------------------------------------------------------------------------------------------------------------
@@ -1072,9 +1151,88 @@ pub struct EdgeResult {
 }
 
 /// Per child key at one parent key: exact accumulators, the first contributing term.
-struct PerKey {
+struct PerKeyG<S> {
     acc: [Option<Fe>; 2],
-    first: SenderRef,
+    first: S,
+}
+
+/// Per edge: child key -> accumulators at one parent key.
+type PerEdge<S> = Vec<HashMap<Vec<i32>, PerKeyG<S>>>;
+
+/// What the route transport of hand-down terms needs (one aggregation call).
+struct TransportCtx<'a> {
+    owners: &'a BTreeMap<u64, usize>,
+    edges: &'a [EdgeFile],
+    child_lines: &'a [Vec<usize>],
+    fields: &'a [Zp64],
+    exp: &'a ExpShards,
+    cfg: &'a WalkCfg,
+}
+
+/// One parent key's hand-down terms through their routes: per edge, child key -> the exact accumulators and the first
+/// contributing term (terms in order; `mk(hand index, term)` names it); counters per edge; `sent[e]` = some term was
+/// routed onto edge e; terms on a mask no edge owns are counted in `other`. Shared by both walks.
+fn transport_hand<S: Copy>(
+    cx: &TransportCtx<'_>,
+    tr: &Transporter,
+    hand: &[HandTerm],
+    est: &mut [EdgeStats],
+    other: &mut BTreeMap<u64, u64>,
+    sent: &mut [bool],
+    mk: impl Fn(usize, &HandTerm) -> S,
+) -> Result<PerEdge<S>, String> {
+    let (fields, child_lines, cfg) = (cx.fields, cx.child_lines, cx.cfg);
+    let mut per: PerEdge<S> = cx.edges.iter().map(|_| HashMap::new()).collect();
+    for (hi, h) in hand.iter().enumerate() {
+        let Some(&e) = cx.owners.get(&h.mask) else {
+            *other.entry(h.mask).or_default() += 1;
+            continue;
+        };
+        let sec = cx.edges[e].sector(h.mask).expect("owner");
+        est[e].handdown_terms_routed += 1;
+        est[e].unknown_terms_sending += (h.word == CoefFact::Unknown) as u64;
+        sent[e] = true;
+        let img = cx.exp.get_or(e, &h.tk, || {
+            let red: Vec<(Vec<i32>, [Fe; 2])> = tr
+                .apply_top(sec, &h.term_key(), &child_lines[e])?
+                .into_iter()
+                .map(|(k, c)| {
+                    let t = |f: &Zp64| {
+                        f.mul(
+                            &int_mod(f, &c.numerator()),
+                            &f.inv(&int_mod(f, &c.denominator())),
+                        )
+                    };
+                    (k, [t(&fields[0]), t(&fields[1])])
+                })
+                .collect();
+            Ok(std::sync::Arc::new(red))
+        })?;
+        let me = mk(hi, h);
+        for (k, c) in img.iter() {
+            est[e].image_terms += 1;
+            if child_lines[e].iter().any(|&j| k[j] < 1) {
+                est[e].lower_child_sector_terms += 1;
+                continue;
+            }
+            let ent = per[e].entry(k.clone()).or_insert_with(|| PerKeyG {
+                acc: [Some(fields[0].zero()), Some(fields[1].zero())],
+                first: me,
+            });
+            if cfg.exact.wants(k) {
+                for (i, f) in fields.iter().enumerate() {
+                    let acc = &mut ent.acc[i];
+                    match (acc.as_ref(), h.val(i)) {
+                        (Some(av), Some(v)) => {
+                            *acc = Some(f.add(av, &f.mul(&c[i], &f.to_element(v))));
+                        }
+                        _ => *acc = None,
+                    }
+                }
+            }
+        }
+    }
+    Ok(per)
 }
 
 /// A compact child key in the aggregation maps (one byte per slot: key entries are small integers).
@@ -1116,15 +1274,54 @@ fn min_ref(w: &Walk, a: SenderRef, b: SenderRef) -> SenderRef {
     }
 }
 
-/// Distinguishes the aggregation calls (a worker thread's expansion cache belongs to one call).
-static AGG_CALL: AtomicUsize = AtomicUsize::new(1);
+/// One shard of the expansion cache: (edge, parent term key) -> expansion, and its child-key entries.
+type ExpShard = (HashMap<(usize, Box<[i8]>), ImageMod>, usize);
 
-/// A worker thread's expansion cache: (call id, (edge, parent term key) -> expansion, cached child-key entries).
-type ExpCache = (usize, HashMap<(usize, Box<[i8]>), ImageMod>, usize);
+/// The route expansions of one aggregation call, shared by its workers (64 locked shards; a shard is cleared when it
+/// holds more than its part of `cache_entries` child keys).
+pub struct ExpShards {
+    shards: Vec<Mutex<ExpShard>>,
+    per_shard: usize,
+}
 
-thread_local! {
-    /// Per worker thread (one aggregation call at a time; reset when the call id changes).
-    static TCACHE: std::cell::RefCell<ExpCache> = std::cell::RefCell::new((0, HashMap::new(), 0));
+impl ExpShards {
+    pub fn new(total_entries: usize) -> ExpShards {
+        let n = 64;
+        ExpShards {
+            shards: (0..n).map(|_| Mutex::new((HashMap::new(), 0))).collect(),
+            per_shard: (total_entries / n).max(1),
+        }
+    }
+
+    /// The expansion of (edge, term key): cached, else `f()` (computed outside the lock) and cached.
+    fn get_or(
+        &self,
+        e: usize,
+        tk: &[i8],
+        f: impl FnOnce() -> Result<ImageMod, String>,
+    ) -> Result<ImageMod, String> {
+        use std::hash::{Hash, Hasher};
+        let mut hs = std::collections::hash_map::DefaultHasher::new();
+        (e, tk).hash(&mut hs);
+        let sh = &self.shards[(hs.finish() % self.shards.len() as u64) as usize];
+        if let Some(x) = sh
+            .lock()
+            .map_err(|_| "expansion cache lock".to_string())?
+            .0
+            .get(&(e, Box::<[i8]>::from(tk)))
+        {
+            return Ok(x.clone());
+        }
+        let v = f()?;
+        let mut g = sh.lock().map_err(|_| "expansion cache lock".to_string())?;
+        g.1 += v.len();
+        if g.1 > self.per_shard {
+            g.0.clear();
+            g.1 = v.len();
+        }
+        g.0.insert((e, Box::from(tk)), v.clone());
+        Ok(v)
+    }
 }
 
 /// Phase C for all edges of the parent at once: the arrival lines per edge and the masks no edge routes (mask -> terms).
@@ -1156,7 +1353,7 @@ pub fn aggregate_each(
     emit: &mut dyn FnMut(usize, EdgeResult) -> Result<(), String>,
 ) -> Result<BTreeMap<u64, u64>, String> {
     let t0 = std::time::Instant::now();
-    let call = AGG_CALL.fetch_add(1, Ordering::Relaxed);
+    let exp = ExpShards::new(cfg.cache_entries);
     let owners = mask_owners(edges)?;
     let n = set.arity();
     let alg = cache.alg;
@@ -1175,82 +1372,33 @@ pub fn aggregate_each(
         BTreeMap<u64, u64>,
         Vec<FallbackItem>,
     );
+    let fields: Vec<Zp64> = PRIMES.iter().map(|(p, _)| Zp64::new(*p)).collect();
+    let cx = TransportCtx {
+        owners: &owners,
+        edges,
+        child_lines: &child_lines,
+        fields: &fields,
+        exp: &exp,
+        cfg,
+    };
     let res = par_map(&parts, cfg.threads, |&(a, b)| -> Result<Part, String> {
         let tr = Transporter::new(alg, n)?;
-        let fields: Vec<Zp64> = PRIMES.iter().map(|(p, _)| Zp64::new(*p)).collect();
         let mut maps: Vec<HashMap<CKey, Acc>> = edges.iter().map(|_| HashMap::new()).collect();
         let mut est: Vec<EdgeStats> = edges.iter().map(|_| EdgeStats::default()).collect();
         let mut other: BTreeMap<u64, u64> = BTreeMap::new();
         let mut fallback = vec![];
         // expansion per (edge, parent term key): child keys with the coefficient reduced mod each prime
         for ci in a..b {
-            let mut per: Vec<HashMap<Vec<i32>, PerKey>> =
-                edges.iter().map(|_| HashMap::new()).collect();
             let mut sent = vec![false; edges.len()];
-            for (hi, h) in w.hand[ci].iter().enumerate() {
-                let Some(&e) = owners.get(&h.mask) else {
-                    *other.entry(h.mask).or_default() += 1;
-                    continue;
-                };
-                let sec = edges[e].sector(h.mask).expect("owner");
-                est[e].handdown_terms_routed += 1;
-                est[e].unknown_terms_sending += (h.word == CoefFact::Unknown) as u64;
-                sent[e] = true;
-                let key = (e, h.tk.clone());
-                let img = TCACHE.with(|cell| -> Result<ImageMod, String> {
-                    let mut c = cell.borrow_mut();
-                    if c.0 != call {
-                        *c = (call, HashMap::new(), 0);
-                    }
-                    if let Some(x) = c.1.get(&key) {
-                        return Ok(x.clone());
-                    }
-                    let red: Vec<(Vec<i32>, [Fe; 2])> = tr
-                        .apply_top(sec, &h.term_key(), &child_lines[e])?
-                        .into_iter()
-                        .map(|(k, c)| {
-                            let t = |f: &Zp64| {
-                                f.mul(
-                                    &int_mod(f, &c.numerator()),
-                                    &f.inv(&int_mod(f, &c.denominator())),
-                                )
-                            };
-                            (k, [t(&fields[0]), t(&fields[1])])
-                        })
-                        .collect();
-                    let v = std::sync::Arc::new(red);
-                    c.2 += v.len();
-                    if c.2 > cfg.cache_entries {
-                        c.1.clear();
-                        c.2 = v.len();
-                    }
-                    c.1.insert(key, v.clone());
-                    Ok(v)
-                })?;
-                let me = (ci as u32, hi as u32);
-                for (k, c) in img.iter() {
-                    est[e].image_terms += 1;
-                    if child_lines[e].iter().any(|&j| k[j] < 1) {
-                        est[e].lower_child_sector_terms += 1;
-                        continue;
-                    }
-                    let ent = per[e].entry(k.clone()).or_insert_with(|| PerKey {
-                        acc: [Some(fields[0].zero()), Some(fields[1].zero())],
-                        first: me,
-                    });
-                    if cfg.exact.wants(k) {
-                        for (i, f) in fields.iter().enumerate() {
-                            let acc = &mut ent.acc[i];
-                            match (acc.as_ref(), h.val(i)) {
-                                (Some(av), Some(v)) => {
-                                    *acc = Some(f.add(av, &f.mul(&c[i], &f.to_element(v))));
-                                }
-                                _ => *acc = None,
-                            }
-                        }
-                    }
-                }
-            }
+            let mut per = transport_hand(
+                &cx,
+                &tr,
+                &w.hand[ci],
+                &mut est,
+                &mut other,
+                &mut sent,
+                |hi, _| (ci as u32, hi as u32),
+            )?;
             for e in 0..edges.len() {
                 est[e].sending_parent_keys += sent[e] as u64;
                 for (k, pk) in per[e].drain() {
@@ -1339,56 +1487,9 @@ pub fn aggregate_each(
                         for (ci, e, k, first) in items {
                             let row = &rows.served[w.cl_served[*ci]];
                             let pt = p.point(&row.applied).ok_or("no rule point")?;
-                            let vals: Vec<Integer> =
-                                pt.iter().map(|&x| Integer::from(x as i64)).collect();
-                            let reps: Vec<(usize, &Integer)> = vals.iter().enumerate().collect();
-                            let mut parts: Vec<(Rational, QPoly, Option<QPoly>)> = vec![];
-                            for h in &w.hand[*ci] {
-                                if owners.get(&h.mask) != Some(e) {
-                                    continue;
-                                }
-                                let sec = edges[*e].sector(h.mask).expect("owner");
-                                let img = tr.apply(sec, &h.term_key())?;
-                                let Ok(pos) =
-                                    img.binary_search_by(|x| x.0.as_slice().cmp(k.as_slice()))
-                                else {
-                                    continue;
-                                };
-                                let (num, den) = p.term_polys(h.j as usize)?;
-                                let nq = num
-                                    .replace_multiple(&reps, true)
-                                    .map_coeff(|c| Rational::from(c), Q);
-                                let dq = den.map(|d| {
-                                    d.replace_multiple(&reps, true)
-                                        .map_coeff(|c| Rational::from(c), Q)
-                                });
-                                parts.push((img[pos].1.clone(), nq, dq));
-                            }
-                            // a contributing term whose denominator vanishes identically at the key (0/0) is undecided: it sends
-                            if parts
-                                .iter()
-                                .any(|(_, _, d)| d.as_ref().is_some_and(|d| d.is_zero()))
-                            {
-                                out.push((*e, k.clone(), *first, true));
-                                continue;
-                            }
-                            // sum_t T_t N_t prod_{s != t} D_s == 0 ?
-                            let mut total: Option<QPoly> = None;
-                            for (a, (c, nq, _)) in parts.iter().enumerate() {
-                                let mut term = nq.clone().mul_coeff(c.clone());
-                                for (b, (_, _, d)) in parts.iter().enumerate() {
-                                    if a != b
-                                        && let Some(d) = d
-                                    {
-                                        term = &term * d;
-                                    }
-                                }
-                                total = Some(match total {
-                                    None => term,
-                                    Some(t) => &t + &term,
-                                });
-                            }
-                            out.push((*e, k.clone(), *first, total.is_some_and(|t| !t.is_zero())));
+                            let nz =
+                                fallback_nonzero(p, &tr, edges, &owners, *e, k, &pt, &w.hand[*ci])?;
+                            out.push((*e, k.clone(), *first, nz));
                         }
                         Ok(out)
                     })
@@ -1441,13 +1542,94 @@ pub fn aggregate_each(
     Ok(other)
 }
 
+/// The exact symbolic fallback for one (parent key, edge, child key): is the TOTAL coefficient
+/// sum_t T_{t,k} c_t(u) non-zero (true also when a contributing term's denominator vanishes identically: 0/0 sends)?
+#[allow(clippy::too_many_arguments)]
+fn fallback_nonzero(
+    p: &mut RecordProver<'_>,
+    tr: &Transporter,
+    edges: &[EdgeFile],
+    owners: &BTreeMap<u64, usize>,
+    e: usize,
+    k: &[i32],
+    pt: &[i32],
+    hand: &[HandTerm],
+) -> Result<bool, String> {
+    let vals: Vec<Integer> = pt.iter().map(|&x| Integer::from(x as i64)).collect();
+    let reps: Vec<(usize, &Integer)> = vals.iter().enumerate().collect();
+    let mut parts: Vec<(Rational, QPoly, Option<QPoly>)> = vec![];
+    for h in hand {
+        if owners.get(&h.mask) != Some(&e) {
+            continue;
+        }
+        let sec = edges[e].sector(h.mask).expect("owner");
+        let img = tr.apply(sec, &h.term_key())?;
+        let Ok(pos) = img.binary_search_by(|x| x.0.as_slice().cmp(k)) else {
+            continue;
+        };
+        let (num, den) = p.term_polys(h.j as usize)?;
+        let nq = num
+            .replace_multiple(&reps, true)
+            .map_coeff(|c| Rational::from(c), Q);
+        let dq = den.map(|d| {
+            d.replace_multiple(&reps, true)
+                .map_coeff(|c| Rational::from(c), Q)
+        });
+        parts.push((img[pos].1.clone(), nq, dq));
+    }
+    // a contributing term whose denominator vanishes identically at the key (0/0) is undecided: it sends
+    if parts
+        .iter()
+        .any(|(_, _, d)| d.as_ref().is_some_and(|d| d.is_zero()))
+    {
+        return Ok(true);
+    }
+    // sum_t T_t N_t prod_{s != t} D_s == 0 ?
+    let mut total: Option<QPoly> = None;
+    for (a, (c, nq, _)) in parts.iter().enumerate() {
+        let mut term = nq.clone().mul_coeff(c.clone());
+        for (b, (_, _, d)) in parts.iter().enumerate() {
+            if a != b
+                && let Some(d) = d
+            {
+                term = &term * d;
+            }
+        }
+        total = Some(match total {
+            None => term,
+            Some(t) => &t + &term,
+        });
+    }
+    Ok(total.is_some_and(|t| !t.is_zero()))
+}
+
+/// What an arrival file's header binds of the parent's rows file.
+pub struct RowsId {
+    pub path: String,
+    pub sha256: String,
+    pub keys: usize,
+    pub served: usize,
+}
+
+impl RowsId {
+    pub fn of(r: &ParentRows) -> RowsId {
+        RowsId {
+            path: r.path.clone(),
+            sha256: r.sha256.clone(),
+            keys: r.keys.len(),
+            served: r.served.len(),
+        }
+    }
+}
+
 /// The header of an arrival file (bindings).
 #[allow(clippy::too_many_arguments)]
 pub fn header(
     parent: &str,
     spec_tables: &[(String, String)],
-    rows: &ParentRows,
-    w: &Walk,
+    rows: &RowsId,
+    stats: &WalkStats,
+    closure_digest: &str,
     edge: &EdgeFile,
     edge_producer: &str,
     frame_checks: &Value,
@@ -1462,8 +1644,8 @@ pub fn header(
     json!({"semantics": rustred_campaign_core::import::arrivals::ARRIVAL_SEMANTICS,
         "parent": {"node": parent, "tables": ts.iter().map(|(p, s)| json!({"path": p, "sha256": s})).collect::<Vec<_>>(),
             "tables_digest": h.finish_hex(), "rows": {"path": rows.path, "sha256": rows.sha256,
-            "keys": rows.keys.len(), "served": rows.served.len()},
-            "start_keys": w.stats.start_keys, "closure_keys": w.stats.closure_keys, "closure_digest": w.closure_digest},
+            "keys": rows.keys, "served": rows.served},
+            "start_keys": stats.start_keys, "closure_keys": stats.closure_keys, "closure_digest": closure_digest},
         "child": {"label": edge.child.label, "lines": edge.child.table_lines},
         "edge": edge.identity(), "edge_producer": edge_producer, "frame_checks": frame_checks,
         "decision": {"structural": cfg.structural, "exact_level": cfg.exact.word(),
@@ -1473,3 +1655,7 @@ pub fn header(
         "tool": {"program": "rr_arrivals", "version": TOOL_VERSION, "crate": env!("CARGO_PKG_VERSION"),
             "symbolica": super::zero_proofs::SYMBOLICA_REV}})
 }
+
+// The streamed form of the walk (same sets and files; bounded memory): interfaces/arrivals.md section 8.
+#[path = "arrivals_stream.rs"]
+pub mod stream;

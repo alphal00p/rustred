@@ -80,6 +80,10 @@ struct Args {
     decide_all_handdowns: bool,
     closed_sets: Vec<String>,
     services: Option<PathBuf>,
+    in_memory: bool,
+    record_budget_mb: usize,
+    map_budget: usize,
+    spill_dir: Option<PathBuf>,
 }
 
 fn parse(args: &[String]) -> Args {
@@ -89,6 +93,8 @@ fn parse(args: &[String]) -> Args {
         map: "chosen".into(),
         cache_entries: 20_000_000,
         max_planes: 64,
+        record_budget_mb: 2048,
+        map_budget: 60_000_000,
         ..Default::default()
     };
     let mut i = 0;
@@ -135,6 +141,10 @@ fn parse(args: &[String]) -> Args {
             "--decide-all-handdowns" => a.decide_all_handdowns = true,
             "--closed-set" => a.closed_sets.push(val(&mut i)),
             "--services" => a.services = Some(val(&mut i).into()),
+            "--in-memory" => a.in_memory = true,
+            "--record-budget-mb" => a.record_budget_mb = num(val(&mut i)),
+            "--map-budget" => a.map_budget = num(val(&mut i)),
+            "--spill-dir" => a.spill_dir = Some(val(&mut i).into()),
             x => die(&format!("unknown argument {x}")),
         }
         i += 1;
@@ -606,13 +616,24 @@ struct Prepared {
 }
 
 fn prepare(a: &Args) -> Prepared {
-    let spec = a.spec.clone().unwrap_or_else(|| die("--spec missing"));
     let rows_p = a.rows.clone().unwrap_or_else(|| die("--rows missing"));
+    let (set, edges, frame_checks) = prepare_base(a);
+    let rows = ParentRows::read(&set, &rows_p).unwrap_or_else(|e| die(&e));
+    Prepared {
+        set,
+        rows,
+        edges,
+        frame_checks,
+    }
+}
+
+/// The parent's imported set, its edge files and the frame checks (both sides of every edge).
+fn prepare_base(a: &Args) -> (ImportedSet, Vec<EdgeFile>, Value) {
+    let spec = a.spec.clone().unwrap_or_else(|| die("--spec missing"));
     if a.edges.is_empty() {
         die("--edge missing");
     }
     let (set, _) = load_spec(&spec, &a.index_dir, |_| {});
-    let rows = ParentRows::read(&set, &rows_p).unwrap_or_else(|e| die(&e));
     let edges: Vec<EdgeFile> = a
         .edges
         .iter()
@@ -659,16 +680,14 @@ fn prepare(a: &Args) -> Prepared {
             Err(x) => die(&format!("FRAME child {}: {x}", e.path)),
         }
     }
-    Prepared {
-        set,
-        rows,
-        edges,
-        frame_checks: json!(checks),
-    }
+    (set, edges, json!(checks))
 }
 
 /// `compute`: walk the parent, decide, map, write one arrival file per edge + a summary.
 fn compute(a: &Args) {
+    if !a.in_memory && a.maps.len() <= 1 {
+        return compute_stream(a);
+    }
     let t0 = std::time::Instant::now();
     let parent = a.parent.clone().unwrap_or_else(|| die("--parent missing"));
     let out_dir = a
@@ -745,8 +764,9 @@ fn compute(a: &Args) {
             let mut h = arrivals::header(
                 &parent,
                 &tables,
-                &pr.rows,
-                &w,
+                &arrivals::RowsId::of(&pr.rows),
+                &w.stats,
+                &w.closure_digest,
                 e,
                 &a.edge_producer,
                 &pr.frame_checks,
@@ -856,6 +876,152 @@ fn compute(a: &Args) {
 /// used), on all parent keys (`--sample 0`) or every k-th; compare with the files (key set, sender counts, first
 /// senders, exact counts when the file has the exact level), re-check every expansion used by a first sender with the
 /// independent mod-p identity. Exit 0 verified / 3 mismatch.
+/// `compute` in the streamed form (default; `--in-memory` or `--maps` with several maps take the in-memory walk): the
+/// same files, memory bounded by `--record-budget-mb` (parsed records kept) and `--map-budget` (accumulator entries
+/// before a spill to `--spill-dir`, default OUT/spill).
+fn compute_stream(a: &Args) {
+    let t0 = std::time::Instant::now();
+    let parent = a.parent.clone().unwrap_or_else(|| die("--parent missing"));
+    let out_dir = a
+        .out_dir
+        .clone()
+        .unwrap_or_else(|| die("--out-dir missing"));
+    std::fs::create_dir_all(&out_dir)
+        .unwrap_or_else(|e| die(&format!("{}: {e}", out_dir.display())));
+    if let Some(m) = a.maps.first()
+        && *m != a.map
+    {
+        die("--maps with one map: give it as --map");
+    }
+    let alg = algebra();
+    let rows_p = a.rows.clone().unwrap_or_else(|| die("--rows missing"));
+    let (set, edges, frame_checks) = prepare_base(a);
+    let rows = arrivals::stream::CompactRows::read(&set, &rows_p).unwrap_or_else(|e| die(&e));
+    let mut cfg = walk_cfg(a);
+    cfg.routed_masks = routed(a, &edges);
+    let t_load = t0.elapsed().as_secs_f64();
+    let cache = arrivals::RecCache::new(alg, &set, cfg.prover.clone(), rows.records())
+        .with_budget(Some(a.record_budget_mb << 20));
+    let scfg = arrivals::stream::StreamCfg {
+        map_budget: a.map_budget.max(1),
+        spill_dir: a.spill_dir.clone().unwrap_or_else(|| out_dir.join("spill")),
+        decisions_sample: a.decisions_sample,
+        term_keys: a.dump_handdown_keys.is_some() || a.decisions_sample > 0,
+    };
+    let tables = spec_tables(&set);
+    let rows_id = rows.id();
+    let mut files = vec![];
+    let mut emit = |r: &arrivals::stream::StreamResult,
+                    ei: usize,
+                    stats: arrivals::EdgeStats,
+                    lines: &mut dyn Iterator<Item = Result<format::ArrivalLine, String>>|
+     -> Result<(), String> {
+        let e = &edges[ei];
+        let mut h = arrivals::header(
+            &parent,
+            &tables,
+            &rows_id,
+            &r.stats,
+            &r.closure_digest,
+            e,
+            &a.edge_producer,
+            &frame_checks,
+            &cfg,
+        );
+        // the file is deterministic: no wall-clock field (timings stay in the compute summary)
+        h["walk"] = no_timing(serde_json::to_value(&r.stats).unwrap_or(Value::Null));
+        let summ = json!({"edge_stats": no_timing(serde_json::to_value(&stats).unwrap_or(Value::Null)),
+            "walk": no_timing(serde_json::to_value(&r.stats).unwrap_or(Value::Null))});
+        let p = out_dir.join(format!("{}-{}.arrivals.jsonl", parent, e.child.label));
+        let wr = format::write_stream(&p, &h, lines, &summ)?;
+        files.push(json!({"child": e.child.label, "map": a.map, "file": p, "sha256": wr.sha256, "keys": wr.keys,
+            "exact_keys": wr.exact_keys, "exact_level_keys": wr.exact_level_keys, "stats": stats}));
+        Ok(())
+    };
+    let r = arrivals::stream::walk_stream(&set, &rows, &cache, &cfg, &scfg, &edges, &mut emit)
+        .unwrap_or_else(|e| die(&e));
+    let mut other = r.other.clone();
+    for (m, c) in &r.unrouted {
+        *other.entry(*m).or_default() += c;
+    }
+    if let Some(p) = &a.dump_handdown_keys {
+        let text: String = r
+            .term_keys
+            .iter()
+            .map(|k| {
+                format!(
+                    "I({})\n",
+                    k.iter()
+                        .map(|x| x.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            })
+            .collect();
+        std::fs::write(p, text).unwrap_or_else(|e| die(&format!("{}: {e}", p.display())));
+    }
+    if a.decisions_sample > 0 {
+        let mut req: BTreeMap<(usize, usize), Vec<Vec<i32>>> = BTreeMap::new();
+        let mut dec = vec![];
+        for (si, hand) in &r.sample {
+            if hand.is_empty() {
+                continue;
+            }
+            let (t, rr) = rows.rec(*si);
+            let applied = rows.applied(*si);
+            req.entry((t, rr)).or_default().push(applied.clone());
+            let info = &set.rules[t][rr];
+            dec.push(json!({"record_sha256": info.record_sha256, "applied": applied,
+                "nonzero": hand.iter().map(|h| json!([h.j, h.term_key(), match h.word {CoefFact::NonZero => "nonzero", CoefFact::Zero => "zero", CoefFact::Unknown => "unknown"}, &*h.by])).collect::<Vec<_>>()}));
+        }
+        let rq: Vec<String> = req
+            .into_iter()
+            .map(|((t, rr), keys)| {
+                let info = &set.rules[t][rr];
+                json!({"table": info.path, "offset": info.offset, "rule": info.index.unwrap_or(info.label), "keys": keys}).to_string()
+            })
+            .collect();
+        std::fs::write(
+            out_dir.join(format!("{parent}.second-route.requests.jsonl")),
+            rq.join("\n") + "\n",
+        )
+        .unwrap_or_else(|e| die(&e.to_string()));
+        let dl: Vec<String> = dec.iter().map(canonical_json).collect();
+        std::fs::write(
+            out_dir.join(format!("{parent}.decisions.jsonl")),
+            dl.join("\n") + "\n",
+        )
+        .unwrap_or_else(|e| die(&e.to_string()));
+        let step = r
+            .term_keys
+            .len()
+            .checked_div(a.decisions_sample)
+            .unwrap_or(1)
+            .max(1);
+        let sample: Vec<&Vec<i32>> = r
+            .term_keys
+            .iter()
+            .step_by(step)
+            .take(a.decisions_sample)
+            .collect();
+        std::fs::write(
+            out_dir.join(format!("{parent}.handdown-keys.sample.json")),
+            json!(sample).to_string(),
+        )
+        .unwrap_or_else(|e| die(&e.to_string()));
+    }
+    let s = json!({"schema": "rustred.campaign.arrival-compute-summary.v1", "parent": parent, "files": files,
+        "maps": [a.map.clone()], "union_over_maps": [], "form": "streamed", "spills": r.spills,
+        "rows": {"keys": rows.n_keys(), "served": rows.n_served(), "terminal": rows.terminal, "open": rows.open},
+        "budgets": {"record_mb": a.record_budget_mb, "map_entries": a.map_budget},
+        "other_children_masks": other.iter().map(|(m, c)| json!({"dropped_mask": format!("{m:#x}"),
+            "dropped": (0..64).filter(|i| m >> i & 1 == 1).collect::<Vec<u32>>(), "terms": c})).collect::<Vec<_>>(),
+        "walk": r.stats, "frame_checks": frame_checks, "seconds_load": t_load, "seconds": t0.elapsed().as_secs_f64(),
+        "threads": a.threads, "tool": arrivals::TOOL_VERSION});
+    write_json(&out_dir.join(format!("{parent}.summary.json")), &s);
+    println!("{}", canonical_json(&s));
+}
+
 fn verify(a: &Args) {
     let t0 = std::time::Instant::now();
     if a.arrivals.is_empty() {

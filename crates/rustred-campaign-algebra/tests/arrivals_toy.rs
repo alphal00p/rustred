@@ -268,7 +268,13 @@ fn run(args: &[&str]) -> (i32, Value) {
 }
 
 fn compute(t: &Toy, out: &Path, threads: &str) -> (i32, Value) {
-    run(&[
+    compute_x(t, out, threads, &[])
+}
+
+fn compute_x(t: &Toy, out: &Path, threads: &str, extra: &[&str]) -> (i32, Value) {
+    let spill = out.join("spill");
+    let child = format!("C={}", t.ctable.display());
+    let mut args = vec![
         "compute",
         "--spec",
         t.pspec.to_str().unwrap(),
@@ -281,14 +287,80 @@ fn compute(t: &Toy, out: &Path, threads: &str) -> (i32, Value) {
         "--parent",
         "P",
         "--child-table",
-        &format!("C={}", t.ctable.display()),
+        &child,
         "--edge-producer",
         "toy (test)",
         "--threads",
         threads,
         "--decisions-sample",
         "10",
-    ])
+        "--spill-dir",
+        spill.to_str().unwrap(),
+    ];
+    args.extend_from_slice(extra);
+    run(&args)
+}
+
+#[test]
+fn streamed_walk_equals_in_memory_walk() {
+    let Some(_a) = alg() else { return };
+    let t = build("stream");
+    let mem = t.dir.join("mem");
+    let (rc, sm) = compute_x(&t, &mem, "3", &["--in-memory"]);
+    assert_eq!(rc, 0, "{sm}");
+    assert!(sm.get("form").is_none(), "the in-memory form: {sm}");
+    let files = [
+        "P-C.arrivals.jsonl",
+        "P.decisions.jsonl",
+        "P.second-route.requests.jsonl",
+        "P.handdown-keys.sample.json",
+    ];
+    // default streamed form; then a spill at every merge and every parsed record freed after each use
+    for (tag, threads, extra) in [
+        ("s1", "3", vec![]),
+        (
+            "s2",
+            "1",
+            vec!["--map-budget", "1", "--record-budget-mb", "0"],
+        ),
+        (
+            "s3",
+            "4",
+            vec!["--map-budget", "1", "--record-budget-mb", "0"],
+        ),
+    ] {
+        let out = t.dir.join(tag);
+        let (rc, ss) = compute_x(&t, &out, threads, &extra);
+        assert_eq!(rc, 0, "{tag}: {ss}");
+        assert_eq!(ss["form"], "streamed", "{tag}: {ss}");
+        if extra.is_empty() {
+            assert_eq!(ss["spills"], 0, "{tag}: {ss}");
+        } else {
+            assert!(ss["spills"].as_u64().unwrap() > 0, "{tag}: {ss}");
+            let left = std::fs::read_dir(out.join("spill")).map_or(0, |d| d.count());
+            assert_eq!(left, 0, "{tag}: spill runs removed");
+        }
+        for f in files {
+            assert_eq!(
+                std::fs::read(mem.join(f)).unwrap(),
+                std::fs::read(out.join(f)).unwrap(),
+                "{tag}: {f} differs from the in-memory walk"
+            );
+        }
+        let strip = |v: &Value| {
+            let mut v = v.clone();
+            if let Some(o) = v.as_object_mut() {
+                o.retain(|k, _| !k.starts_with("seconds"));
+            }
+            v
+        };
+        assert_eq!(strip(&sm["walk"]), strip(&ss["walk"]), "{tag}");
+        assert_eq!(sm["files"][0]["sha256"], ss["files"][0]["sha256"], "{tag}");
+        assert_eq!(
+            sm["files"][0]["stats"]["exact_cancelled"], ss["files"][0]["stats"]["exact_cancelled"],
+            "{tag}"
+        );
+    }
 }
 
 #[test]

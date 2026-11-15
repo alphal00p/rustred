@@ -88,44 +88,75 @@ pub fn write(
     lines: &[ArrivalLine],
     summary: &Value,
 ) -> Result<String, String> {
-    for w in lines.windows(2) {
-        if w[0].key >= w[1].key {
-            return Err(format!(
-                "arrival lines not strictly increasing at {:?}",
-                w[1].key
-            ));
-        }
-    }
+    let mut it = lines.iter().cloned().map(Ok);
+    write_stream(path, header, &mut it, summary).map(|c| c.sha256)
+}
+
+/// What `write_stream` wrote.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Written {
+    /// sha256 of the file (hex).
+    pub sha256: String,
+    pub keys: u64,
+    pub exact_keys: u64,
+    pub exact_level_keys: u64,
+}
+
+/// Write an arrival-set file from a stream of lines (strictly increasing keys, checked), one line in memory at a
+/// time; the summary (last line) gets the counts and the lines digest. Same bytes as `write` for the same lines.
+pub fn write_stream(
+    path: &Path,
+    header: &Value,
+    lines: &mut dyn Iterator<Item = Result<ArrivalLine, String>>,
+    summary: &Value,
+) -> Result<Written, String> {
     let mut h = header.clone();
     h["schema"] = json!(ARRIVAL_SET_SCHEMA);
     h["kind"] = json!("header");
-    let mut s = summary.clone();
-    s["schema"] = json!(ARRIVAL_SET_SCHEMA);
-    s["kind"] = json!("summary");
-    s["keys"] = json!(lines.len());
-    s["exact_keys"] = json!(
-        lines
-            .iter()
-            .filter(|l| l.exact_senders.is_some_and(|n| n > 0))
-            .count()
-    );
-    s["exact_level_keys"] = json!(lines.iter().filter(|l| l.exact_senders.is_some()).count());
-    s["lines_digest"] = json!(lines_digest(lines.iter()));
     let f = std::fs::File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let mut w = std::io::BufWriter::new(f);
+    let mut w = std::io::BufWriter::with_capacity(1 << 20, f);
     let mut hs = Sha256::new();
-    let mut put = |t: String, w: &mut std::io::BufWriter<std::fs::File>| -> Result<(), String> {
+    let mut put = |t: &str, w: &mut std::io::BufWriter<std::fs::File>| -> Result<(), String> {
         hs.update(t.as_bytes());
         hs.update(b"\n");
         writeln!(w, "{t}").map_err(|e| format!("{}: {e}", path.display()))
     };
-    put(canonical_json(&h), &mut w)?;
+    put(&canonical_json(&h), &mut w)?;
+    let mut ld = Sha256::new();
+    let (mut keys, mut exact_keys, mut exact_level_keys) = (0u64, 0u64, 0u64);
+    let mut prev: Option<Vec<i32>> = None;
     for l in lines {
-        put(canonical_json(&l.json()), &mut w)?;
+        let l = l?;
+        if prev.as_ref().is_some_and(|p| *p >= l.key) {
+            return Err(format!(
+                "arrival lines not strictly increasing at {:?}",
+                l.key
+            ));
+        }
+        let t = canonical_json(&l.json());
+        ld.update(t.as_bytes());
+        ld.update(b"\n");
+        put(&t, &mut w)?;
+        keys += 1;
+        exact_keys += l.exact_senders.is_some_and(|n| n > 0) as u64;
+        exact_level_keys += l.exact_senders.is_some() as u64;
+        prev = Some(l.key);
     }
-    put(canonical_json(&s), &mut w)?;
+    let mut s = summary.clone();
+    s["schema"] = json!(ARRIVAL_SET_SCHEMA);
+    s["kind"] = json!("summary");
+    s["keys"] = json!(keys);
+    s["exact_keys"] = json!(exact_keys);
+    s["exact_level_keys"] = json!(exact_level_keys);
+    s["lines_digest"] = json!(format!("sha256:{}", ld.finish_hex()));
+    put(&canonical_json(&s), &mut w)?;
     w.flush().map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(hs.finish_hex())
+    Ok(Written {
+        sha256: hs.finish_hex(),
+        keys,
+        exact_keys,
+        exact_level_keys,
+    })
 }
 
 /// Read an arrival-set file (schema, order, uniqueness, summary counts and lines digest verified).
