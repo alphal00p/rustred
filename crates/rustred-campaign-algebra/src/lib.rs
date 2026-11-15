@@ -41,6 +41,8 @@ pub mod tadic;
 pub mod valuation;
 pub mod wrap;
 pub mod zero_proofs;
+// lane tworow (interfaces/tworow.md): REQUEST TO I-INT, one line
+pub mod tworow_check;
 
 pub use backend::{SymbolicaAlgebra, SymbolicaBudget, licensed};
 pub use modes::{
