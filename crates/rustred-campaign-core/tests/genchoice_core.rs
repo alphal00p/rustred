@@ -392,6 +392,7 @@ fn deep_cases_refused_first_then_most_constrained_and_deep_ranking() {
             refused,
             monomials,
             max_monomials: monomials,
+            cpu_ms: 0,
         }))
     };
     let probes = vec![
@@ -425,4 +426,40 @@ fn deep_cases_refused_first_then_most_constrained_and_deep_ranking() {
         ),
     ];
     assert_eq!(ranking_deep(&probes), vec![1, 0, 2, 3]);
+}
+
+#[test]
+fn first_run_is_the_fastest_within_the_size_slack_alternatives_follow_size() {
+    let p = Policy::default();
+    let fi = |cand, class: (u8, u64), size_band, cpu_ms| FirstInfo {
+        cand,
+        class,
+        size_band,
+        cpu_ms,
+    };
+    // ranking by size: 3 (band 10), 1 (band 11, 4x faster), 2 (band 12), 0 (deep refusal)
+    let ranking = vec![3, 1, 2, 0];
+    let info = vec![
+        fi(3, (0, 0), 10, 400_000),
+        fi(1, (0, 0), 11, 100_000),
+        fi(2, (0, 0), 12, 1_000),
+        fi(0, (0, 1), 5, 10),
+    ];
+    let f = first_order(&ranking, &info, &p);
+    assert_eq!(
+        f,
+        vec![1, 3, 2, 0],
+        "2 is outside the slack, 0 is of a worse class"
+    );
+    let mut q = Policy::default();
+    q.first.by = FirstBy::BestSize;
+    assert_eq!(first_order(&ranking, &info, &q), ranking);
+    // the fast candidate runs first; once acceptable, the alternatives are the size ranking without it
+    assert_eq!(next_step_with(&ranking, &f, &[], &p), NextStep::First(1));
+    let d = vec![run(1, true, 10_000, 500, false)];
+    assert_eq!(
+        next_step_with(&ranking, &f, &d, &p),
+        NextStep::Alternatives(vec![(3, Some(10)), (2, Some(10))])
+    );
+    assert_eq!(economy_account(&f, &d, &p)["first_acceptable"], 1);
 }

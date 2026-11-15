@@ -75,7 +75,7 @@ fn material(dir: &Path, optimise: bool) -> PathBuf {
     let cfg = json!({"schema":"rustred.campaign.genchoice.v1","program":"rr_node",
         "nodes":[{"node":"toy","family":fam.display().to_string(),"family_sha256":sha256_file(&fam),
                   "box":{"path":bx.display().to_string(),"sha256":sha256_file(&bx)}}],
-        "policy":{"orders":["id","bfi","isp_rev"],"probe":{"cases":50},
+        "policy":{"orders":["id","bfi","isp_rev"],"probe":{"cases":50},"first":{"by":"best_size"},
                   "economy":{"optimise":optimise},
                   "job":{"cap_bytes":268435456u64,"expected_peak_bytes":67108864u64,"full_cap_bytes":268435456u64,"full_expected_peak_bytes":67108864u64,"heartbeat_s":1,"stop_grace_s":3}},
         "fake":{"program":"rr_fake_child","ms":5,"runs":runs}});

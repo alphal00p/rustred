@@ -159,7 +159,8 @@ impl Default for ProbePolicy {
 /// DEEP PROBE (v1.2; request part 4): the SAME deep cases (the most constrained cases left open by the shallow probes,
 /// i.e. the subtrees a shallow probe never reaches) solved under every candidate (`--descend open`: only the given
 /// cases), so the candidates are compared on identical cases (order-study's native probes of the hard cases, made
-/// automatic). Default OFF until measured (the blind runs of this lane ran without it).
+/// automatic). Default ON since blind T228 attempt 1 (2026-11-15): the shallow probes (first 600 cases, the fast top
+/// region) ranked first a candidate whose full run took 40-140 s per case in the deep ISP-corner region.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct DeepPolicy {
@@ -175,7 +176,7 @@ pub struct DeepPolicy {
 impl Default for DeepPolicy {
     fn default() -> Self {
         DeepPolicy {
-            enabled: false,
+            enabled: true,
             cases: 16,
             args: [
                 "--descend",
@@ -268,6 +269,77 @@ impl Default for EconomyPolicy {
     }
 }
 
+/// Which candidate runs FIRST in full (U-13: the first acceptable table cheaply, then <= factor x its CPU on better
+/// ones in size order).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FirstBy {
+    /// The fastest expected generation (deep job CPU, else probe CPU; factor-2 bands) among the candidates whose size
+    /// class (status, deep refusals) is the best's and whose size band is within `size_slack_bands` of the best.
+    FastestWithinSlack,
+    /// Strictly the size ranking.
+    BestSize,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct FirstPolicy {
+    pub by: FirstBy,
+    pub size_slack_bands: u32,
+}
+
+impl Default for FirstPolicy {
+    fn default() -> Self {
+        FirstPolicy {
+            by: FirstBy::FastestWithinSlack,
+            size_slack_bands: 1,
+        }
+    }
+}
+
+/// What the first-run order needs of a ranked candidate.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FirstInfo {
+    pub cand: usize,
+    /// (status rank, deep refusals): only candidates of the best class compete on speed.
+    pub class: (u8, u64),
+    /// Size band (deep band when the deep stage ran, else the use-cost band of the probe).
+    pub size_band: u32,
+    /// Expected generation cost (CPU ms of the deep job, else of the probe).
+    pub cpu_ms: u64,
+}
+
+/// The order of the FIRST full attempts: under `FastestWithinSlack` the candidates of the best class within the size
+/// slack, fastest first (CPU band, then their ranking position), then the rest of the ranking; `BestSize`: the ranking.
+pub fn first_order(ranking: &[usize], info: &[FirstInfo], p: &Policy) -> Vec<usize> {
+    if p.first.by == FirstBy::BestSize || ranking.is_empty() {
+        return ranking.to_vec();
+    }
+    let get = |c: usize| info.iter().find(|x| x.cand == c);
+    let Some(best) = get(ranking[0]) else {
+        return ranking.to_vec();
+    };
+    let mut within: Vec<(u32, usize, usize)> = ranking
+        .iter()
+        .enumerate()
+        .filter_map(|(pos, &c)| {
+            let x = get(c)?;
+            (x.class == best.class
+                && x.size_band <= best.size_band.saturating_add(p.first.size_slack_bands))
+            .then(|| (band(x.cpu_ms as f64), pos, c))
+        })
+        .collect();
+    within.sort();
+    let mut out: Vec<usize> = within.iter().map(|x| x.2).collect();
+    let rest: Vec<usize> = ranking
+        .iter()
+        .copied()
+        .filter(|c| !out.contains(c))
+        .collect();
+    out.extend(rest);
+    out
+}
+
 /// Estimated use cost of a table (the repair flow's cost model, repairflow.md 2).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
@@ -330,6 +402,7 @@ pub struct Policy {
     pub common_args: Vec<String>,
     pub probe: ProbePolicy,
     pub deep: DeepPolicy,
+    pub first: FirstPolicy,
     pub full: FullPolicy,
     pub bfi: BfiPolicy,
     pub economy: EconomyPolicy,
@@ -364,6 +437,7 @@ impl Default for Policy {
             common_args: vec!["--numeric-depth-max".into(), "3".into()],
             probe: ProbePolicy::default(),
             deep: DeepPolicy::default(),
+            first: FirstPolicy::default(),
             full: FullPolicy::default(),
             bfi: BfiPolicy::default(),
             economy: EconomyPolicy::default(),
@@ -970,15 +1044,19 @@ pub struct DeepMeasure {
     pub refused: u64,
     pub monomials: u64,
     pub max_monomials: u64,
+    /// CPU of the deep job (supervisor-measured), the expected generation cost of the candidate.
+    #[serde(default)]
+    pub cpu_ms: u64,
 }
 
 impl DeepMeasure {
-    pub fn of(rows: &[RuleRow], refused: u64) -> DeepMeasure {
+    pub fn of(rows: &[RuleRow], refused: u64, cpu_ms: u64) -> DeepMeasure {
         DeepMeasure {
             solved: rows.len() as u64,
             refused,
             monomials: rows.iter().map(|r| r.monomials).sum(),
             max_monomials: rows.iter().map(|r| r.monomials).max().unwrap_or(0),
+            cpu_ms,
         }
     }
 }
@@ -1012,13 +1090,24 @@ pub enum NextStep {
 /// The full-run step from the ranking and the runs so far (a pure function of them: resume = same answers).
 /// `done` holds every final full run (and every probe that completed the node, flagged non-alternative).
 pub fn next_step(ranking: &[usize], done: &[FullRun], p: &Policy) -> NextStep {
+    next_step_with(ranking, ranking, done, p)
+}
+
+/// [`next_step`] with a separate order of the FIRST attempts (`first`, see [`first_order`]); the alternatives follow
+/// the size `ranking`.
+pub fn next_step_with(
+    ranking: &[usize],
+    first_order: &[usize],
+    done: &[FullRun],
+    p: &Policy,
+) -> NextStep {
     let get = |c: usize| done.iter().find(|r| r.cand == c);
     let mut first_attempts = 0u32;
     let mut first: Option<(usize, u64)> = None;
-    for (pos, &c) in ranking.iter().enumerate() {
+    for &c in first_order {
         match get(c) {
             Some(r) if r.acceptable && !r.alternative => {
-                first = Some((pos, r.cpu_ms));
+                first = Some((c, r.cpu_ms));
                 break;
             }
             Some(r) if !r.alternative => {
@@ -1041,10 +1130,10 @@ pub fn next_step(ranking: &[usize], done: &[FullRun], p: &Policy) -> NextStep {
             ));
         }
     }
-    let Some((pos, c1)) = first else {
+    let Some((first_c, c1)) = first else {
         return NextStep::NoCandidate("ranking exhausted without an acceptable table".into());
     };
-    let alts = alternatives(ranking, pos, done, p);
+    let alts = alternatives(ranking, first_c, done, p);
     if alts.is_empty() {
         return NextStep::Decide;
     }
@@ -1061,14 +1150,13 @@ pub fn next_step(ranking: &[usize], done: &[FullRun], p: &Policy) -> NextStep {
     }
 }
 
-/// The alternatives after the first acceptable run at ranking position `pos`: the next ranked candidates that were not
-/// a (failed) first attempt; at most `max_alternatives` (all under optimise; none when factor <= 0).
-pub fn alternatives(ranking: &[usize], pos: usize, done: &[FullRun], p: &Policy) -> Vec<usize> {
+/// The alternatives once `first` gave the first acceptable table: the ranked candidates (size order) that were not a
+/// first attempt (failed or completed probe); at most `max_alternatives` (all under optimise; none when factor <= 0).
+pub fn alternatives(ranking: &[usize], first: usize, done: &[FullRun], p: &Policy) -> Vec<usize> {
     let tried_first = |c: usize| done.iter().any(|r| r.cand == c && !r.alternative);
-    let rest = ranking[pos + 1..]
-        .iter()
-        .copied()
-        .filter(|&c| !tried_first(c) || done.iter().any(|r| r.cand == c && r.alternative));
+    let rest = ranking.iter().copied().filter(|&c| {
+        c != first && (!tried_first(c) || done.iter().any(|r| r.cand == c && r.alternative))
+    });
     if p.economy.optimise {
         return rest.collect();
     }

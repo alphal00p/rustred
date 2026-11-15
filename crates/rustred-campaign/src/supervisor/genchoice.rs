@@ -842,7 +842,7 @@ impl GenChoiceSource {
         i: usize,
         probes: &[(gc::Candidate, Option<Answer>)],
         runs: &[(gc::FullRun, Answer)],
-        ranking: &[usize],
+        (ranking, first): (&[usize], &[usize]),
         no_candidate: Option<String>,
         rt: &mut Routing,
     ) -> Result<(), String> {
@@ -873,7 +873,7 @@ impl GenChoiceSource {
             let dm = da.as_ref().and_then(|a| {
                 a.measure
                     .as_ref()
-                    .map(|_| gc::DeepMeasure::of(&a.rows, a.refused))
+                    .map(|_| gc::DeepMeasure::of(&a.rows, a.refused, Self::cpu_of(st, a)))
             });
             let fulls: Vec<Value> = runs
                 .iter()
@@ -971,7 +971,8 @@ impl GenChoiceSource {
             "family_bytes": self.nodes[i].family_bytes, "shape": self.nodes[i].shape,
             "policy": p, "candidates": list,
             "ranking": ranking.iter().map(|&k| cands[k].id.clone()).collect::<Vec<_>>(),
-            "economy": gc::economy_account(ranking, &fr, &p),
+            "first_order": first.iter().map(|&k| cands[k].id.clone()).collect::<Vec<_>>(),
+            "economy": gc::economy_account(first, &fr, &p),
             "winner": winner.map(|w| cands[w].id.clone()),
             "winner_measure": wa.as_ref().and_then(|a| a.measure.clone()),
             "winner_table": wa.as_ref().and_then(|a| a.table_path.clone()),
@@ -1089,7 +1090,7 @@ impl GenChoiceSource {
                 let d = self.answer(st, &item).and_then(|a| {
                     a.measure
                         .as_ref()
-                        .map(|_| gc::DeepMeasure::of(&a.rows, a.refused))
+                        .map(|_| gc::DeepMeasure::of(&a.rows, a.refused, Self::cpu_of(st, &a)))
                 });
                 m.insert(c.index, d);
             }
@@ -1132,10 +1133,30 @@ impl GenChoiceSource {
             })
             .collect();
         let ranking = gc::ranking_deep(&rk);
+        // the order of the FIRST full attempts (fastest expected generation within the size slack)
+        let info: Vec<gc::FirstInfo> = rk
+            .iter()
+            .zip(probes)
+            .map(|((idx, s, m, r, d), (_, pa))| {
+                let k =
+                    gc::probe_key_deep(*s, m.as_ref(), *r, d.as_ref().map(|x| x.as_ref()), *idx);
+                let ran_deep = matches!(d, Some(Some(_)));
+                gc::FirstInfo {
+                    cand: *idx,
+                    class: (k.status, k.deep_refused),
+                    size_band: if ran_deep { k.deep_band } else { k.cost_band },
+                    cpu_ms: match d {
+                        Some(Some(dm)) => dm.cpu_ms,
+                        _ => pa.as_ref().map_or(u64::MAX, |a| Self::cpu_of(st, a)),
+                    },
+                }
+            })
+            .collect();
+        let first = gc::first_order(&ranking, &info, &p);
         let runs = self.full_runs(st, i, probes);
         let fr: Vec<gc::FullRun> = runs.iter().map(|(r, _)| r.clone()).collect();
         let cands = p.candidates();
-        match gc::next_step(&ranking, &fr, &p) {
+        match gc::next_step_with(&ranking, &first, &fr, &p) {
             gc::NextStep::First(c) => {
                 let item = item_full(&node, &cands[c].id);
                 if !st.items.contains_key(&item) {
@@ -1160,9 +1181,11 @@ impl GenChoiceSource {
                     }
                 }
             }
-            gc::NextStep::Decide => self.decide(st, i, probes, &runs, &ranking, None, rt)?,
+            gc::NextStep::Decide => {
+                self.decide(st, i, probes, &runs, (&ranking, &first), None, rt)?
+            }
             gc::NextStep::NoCandidate(why) => {
-                self.decide(st, i, probes, &runs, &ranking, Some(why), rt)?
+                self.decide(st, i, probes, &runs, (&ranking, &first), Some(why), rt)?
             }
         }
         Ok(())
