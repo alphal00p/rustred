@@ -20,6 +20,7 @@ use std::sync::Arc;
 use rustred_campaign_core::replay_base::algebra::Q as RQ;
 use rustred_campaign_core::replay_base::symrows::{SlotImage, VerifiedGroup};
 use rustred_campaign_core::tworow::Combination;
+use rustred_campaign_core::tworow::rows::ZeroPredicate;
 use symbolica::atom::{NamespacedSymbol, SymbolBuilder};
 use symbolica::domains::integer::Integer;
 use symbolica::domains::rational::{Q, Rational, RationalField};
@@ -28,6 +29,8 @@ use symbolica::poly::PolyVariable;
 use symbolica::poly::polynomial::MultivariatePolynomial;
 
 type P = MultivariatePolynomial<RationalField, u16>;
+/// One row as exact Symbolica rationals by key.
+pub type RowMap = BTreeMap<Vec<i32>, Rational>;
 
 /// The comparison of one combination.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,8 +68,8 @@ pub fn row_by_polynomials(
     element: usize,
     seed: &[i32],
     max_terms: usize,
-    zero: Option<&dyn Fn(&[i32]) -> bool>,
-) -> Result<Option<BTreeMap<Vec<i32>, Rational>>, String> {
+    zero: ZeroPredicate,
+) -> Result<Option<RowMap>, String> {
     if !crate::licensed() {
         return Err("no Symbolica licence (source WS/ops/env.sh)".into());
     }
@@ -151,7 +154,7 @@ pub fn second_route(
     comb: &Combination,
     cmp: &dyn Fn(&[i32], &[i32]) -> Ordering,
     max_terms: usize,
-    zero: Option<&dyn Fn(&[i32]) -> bool>,
+    zero: ZeroPredicate,
 ) -> Result<SecondRoute, String> {
     if comb.rows.len() != comb.weights.len() {
         return Err("rows and weights differ in number".into());

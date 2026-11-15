@@ -229,7 +229,7 @@ fn tworow_second_route_on_results() {
     };
     // the same zero-sector predicate as the run that produced the results (TWOROW_ZERO=family)
     let zf = |k: &[i32]| fam.zero_key(&k.iter().map(|&x| x as i64).collect::<Vec<_>>());
-    let zero: Option<&dyn Fn(&[i32]) -> bool> =
+    let zero: rustred_campaign_core::tworow::rows::ZeroPredicate =
         (std::env::var("TWOROW_ZERO").as_deref() == Ok("family")).then_some(&zf);
     let cmp = |a: &[i32], b: &[i32]| cmpr.cmp(a, b);
     let (mut n, mut equal, mut terms) = (0usize, 0usize, 0usize);

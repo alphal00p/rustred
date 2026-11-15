@@ -15,6 +15,11 @@ use std::collections::BTreeMap;
 use crate::replay_base::algebra::{CheckAlgebra, Q};
 use crate::replay_base::symrows::{SlotImage, VerifiedGroup};
 
+/// The rows at one seed: (element, terms) per element that gives a row.
+pub type SeedRowList = Vec<(usize, Vec<(Vec<i32>, Q)>)>;
+/// A zero-sector predicate (a downset in the positive lines); `None` = keep every term.
+pub type ZeroPredicate<'a> = Option<&'a dyn Fn(&[i32]) -> bool>;
+
 /// Why the rows at a seed are not available.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RowsError {
@@ -31,8 +36,8 @@ pub fn rows_pruned<A: CheckAlgebra>(
     group: &VerifiedGroup,
     seed: &[i32],
     max_terms: usize,
-    zero: Option<&dyn Fn(&[i32]) -> bool>,
-) -> Result<Vec<(usize, Vec<(Vec<i32>, Q)>)>, RowsError> {
+    zero: ZeroPredicate,
+) -> Result<SeedRowList, RowsError> {
     let g = group.group();
     let n = g.arity;
     if seed.len() != n {

@@ -91,8 +91,8 @@ fn tworow_on_real_keys() {
     let cmp = |a: &[i32], b: &[i32]| cmpr.cmp(a, b);
     // TWOROW_ZERO=family: zero-sector terms pruned by the family's own Lee criterion (a downset)
     let zf = |k: &[i32]| fam.zero_key(&k.iter().map(|&x| x as i64).collect::<Vec<_>>());
-    let zero: Option<&(dyn Fn(&[i32]) -> bool + Sync)> =
-        (std::env::var("TWOROW_ZERO").as_deref() == Ok("family")).then_some(&zf);
+    type Zero<'a> = Option<&'a (dyn Fn(&[i32]) -> bool + Sync)>;
+    let zero: Zero = (std::env::var("TWOROW_ZERO").as_deref() == Ok("family")).then_some(&zf);
     let policy = match std::env::var("TWOROW_POLICY") {
         Ok(p) => TwoRowPolicy::from_spec(
             &serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap(),

@@ -497,10 +497,7 @@ fn pruned_rows_equal_the_symrows_rows() {
             let a = rows_at(&g, &(0, s64), SymRowMode::Expanded, 1 << 16).unwrap();
             let plain = rows_pruned(&Independent, &g, s, 1 << 16, None).unwrap();
             let pruned = rows_pruned(&Independent, &g, s, 1 << 16, Some(&zero)).unwrap();
-            let want: Vec<(
-                usize,
-                Vec<(Vec<i32>, rustred_campaign_core::replay_base::algebra::Q)>,
-            )> = a
+            let want: rustred_campaign_core::tworow::rows::SeedRowList = a
                 .iter()
                 .map(|r| {
                     (

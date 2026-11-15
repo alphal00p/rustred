@@ -15,6 +15,9 @@ use crate::replay_base::algebra::{CheckAlgebra, Q, QResult};
 use crate::replay_base::symrows::VerifiedGroup;
 use crate::termmin::symrel::q_text;
 
+/// Row sets of the found relations -> (key, weights) observed.
+type Observed = BTreeMap<Vec<RowSpec>, Vec<(Vec<i32>, Vec<Q>)>>;
+
 /// A weight as a function of the key.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WeightForm {
@@ -205,7 +208,7 @@ pub fn region_forms<A: CheckAlgebra>(
     zero: ZeroSector,
 ) -> RegionReport {
     // row sets -> (key, weights) observed
-    let mut groups: BTreeMap<Vec<RowSpec>, Vec<(Vec<i32>, Vec<Q>)>> = BTreeMap::new();
+    let mut groups: Observed = BTreeMap::new();
     for r in results {
         if let KeyOutcome::Served { relations } = &r.outcome {
             for c in relations {

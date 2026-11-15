@@ -17,7 +17,7 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use super::rows::{RowsError, rows_pruned};
+use super::rows::{RowsError, SeedRowList, rows_pruned};
 use super::{
     Combination, KeyOutcome, KeyResult, NearMiss, PairShift, RowRef, RowSpec, SearchStats,
     TwoRowPolicy,
@@ -67,7 +67,7 @@ impl std::fmt::Display for Reject {
 }
 
 enum SeedRows {
-    Rows(Vec<(usize, Vec<(Vec<i32>, Q)>)>),
+    Rows(SeedRowList),
     OverCap,
     Undecided(String),
 }
@@ -348,15 +348,15 @@ pub fn search_key<A: CheckAlgebra>(
         near: vec![],
         stats: &mut stats,
     };
-    for a in 0..prows.len() {
-        if prows[a].has_k {
+    for (a, r) in prows.iter().enumerate() {
+        if r.has_k {
             en.dfs(vec![a]);
         }
     }
     if en.found.is_empty() && policy.max_near_misses > 0 {
         en.visited.clear();
-        for a in 0..prows.len() {
-            if prows[a].has_k {
+        for (a, r) in prows.iter().enumerate() {
+            if r.has_k {
                 en.dfs_near(vec![a]);
             }
         }
