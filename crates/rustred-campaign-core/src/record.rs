@@ -274,6 +274,134 @@ pub struct RuleRecord {
     /// Verbatim; may contain the literal `"elided"`. `None` when the record has no such field.
     pub witness_loci: Option<Vec<String>>,
     pub recenter: Option<Vec<i64>>,
+    /// `domain_bounds` as written (shape checked here; MEANING: [`crate::domain::bound_branches`], the one place;
+    /// lane partfix4, audit-part4 B1: this reader dropped the field).
+    pub domain_bounds: Option<DomainBounds>,
+    /// Top-level members outside [`RULE_RECORD_MEMBERS`] (sorted). A domain is never built from such a record
+    /// ([`crate::domain::DomainError::UnknownMember`]): a member this crate does not know may change what the engine
+    /// does with the record (audit-part4: never drop a field silently).
+    pub unknown_members: Vec<String>,
+}
+
+/// A rule record's `domain_bounds` as written: inclusive bounds on the rule's CASE VARIABLES (the parameters `n_i` of
+/// the target pattern), `None` = no bound. Shape (the engine's, rustred-core node/bounds.rs): an object with only
+/// `min` / `max`, each absent, `null` or an array of the record's arity of integers or nulls; anything else is a
+/// format error of the reader (never ignored). What a bound DOES is [`crate::domain::bound_branches`].
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct DomainBounds {
+    pub min: Vec<Option<i64>>,
+    pub max: Vec<Option<i64>>,
+}
+
+impl DomainBounds {
+    /// Parse a `domain_bounds` value for a record of `arity` slots (`null` is handled by the caller: no bounds).
+    pub fn from_value(v: &Value, arity: usize) -> Result<DomainBounds, String> {
+        let o = v
+            .as_object()
+            .ok_or_else(|| format!("domain_bounds is not an object: {v}"))?;
+        if let Some(k) = o.keys().find(|k| *k != "min" && *k != "max") {
+            return Err(format!("domain_bounds: unknown field {k:?}"));
+        }
+        let side = |k: &str| -> Result<Vec<Option<i64>>, String> {
+            match o.get(k) {
+                None | Some(Value::Null) => Ok(vec![None; arity]),
+                Some(Value::Array(a)) if a.len() == arity => a
+                    .iter()
+                    .map(|x| match x {
+                        Value::Null => Ok(None),
+                        // the engine's `as_i64`: an integer of i64 (a float, a string, a u64 beyond i64: refused)
+                        x => x.as_i64().map(Some).ok_or_else(|| {
+                            format!("domain_bounds.{k} entry {x}: integers or null")
+                        }),
+                    })
+                    .collect(),
+                Some(x) => Err(format!(
+                    "domain_bounds.{k} {x}: an array of the record's arity {arity}"
+                )),
+            }
+        };
+        Ok(DomainBounds {
+            min: side("min")?,
+            max: side("max")?,
+        })
+    }
+}
+
+/// The CLOSED list of top-level members a rule record may carry (lane partfix4; survey of every table of the campaign
+/// on 2026-11-15: 1,335 files, 252,607 rule records, plus the engine's rule writer (rustred-core node/driver.rs, the
+/// `{"type":"rule",..}` format string; symface.rs), the campaign's writers (closeloop proofs / derived / termmin) and
+/// the test fixtures). A member outside it
+/// makes [`RuleRecord::unknown_members`] non-empty and the record unloadable as a domain. Two groups:
+/// [`RULE_MEMBERS_READ`] (read by this crate) and [`RULE_MEMBERS_INFORMATIONAL`] (provenance, statistics and
+/// certification aids: the engine's first match, rustred-core mastermap.rs `Table::load` / `find_rule`, reads none of
+/// them; neither does this crate's dispatcher).
+pub const RULE_RECORD_MEMBERS: [&[&str]; 2] = [RULE_MEMBERS_READ, RULE_MEMBERS_INFORMATIONAL];
+
+/// Rule-record members this crate reads (`type` / `i` / `index` identify; the others make the domain or the body).
+pub const RULE_MEMBERS_READ: &[&str] = &[
+    "type",
+    "i",
+    "index",
+    "chart",
+    "fixed",
+    "equations",
+    "exceptions",
+    "dispatch",
+    "numerical",
+    "target",
+    "rhs",
+    "witness_loci",
+    "recenter",
+    "domain_bounds",
+];
+
+/// Rule-record members known to carry no dispatch meaning (see [`RULE_RECORD_MEMBERS`]).
+pub const RULE_MEMBERS_INFORMATIONAL: &[&str] = &[
+    "case",
+    "seeds",
+    "nsources",
+    "direct_hit",
+    "seconds_search",
+    "raw_pivot_encoded",
+    "trace_rows",
+    "lift_seconds",
+    "source_order",
+    "source_index",
+    "repair_piece",
+    "monomials",
+    "oversized_fallback",
+    "witness_poles",
+    // d-only pole loci (engine driver.rs rule writer): never vanish identically in d at a key; find_rule reads none
+    "witness_d_poles",
+    "guard_version",
+    "origin",
+    "origin_index",
+    // the registry join's provenance of a re-indexed record (rustred-core node/registry.rs)
+    "join_source",
+    // provenance indices of an external assembler's records (seen in an imported assembled table)
+    "component_variant",
+    "component_index",
+    "generation_index",
+    "seed_setting",
+    "sym_rows",
+    "symmetry_origin",
+    "symmetry_element",
+    "symmetry_elements",
+    "symmetry_weights",
+    "supplement",
+    "composite_of",
+    "kind",
+    "alternatives",
+    "descent",
+    "derivation",
+    "symface",
+    "relation_digest",
+    "relation_rule",
+];
+
+/// Is `name` a member of [`RULE_RECORD_MEMBERS`]?
+pub fn is_known_rule_member(name: &str) -> bool {
+    RULE_RECORD_MEMBERS.iter().any(|g| g.contains(&name))
 }
 
 /// One line of a table file.
@@ -702,6 +830,21 @@ fn parse_line(buf: &[u8], line: usize, opts: ReadOptions) -> Result<TableLine, R
     if let Some(b) = get("recenter") {
         r.recenter = de(b, "recenter", line)?;
     }
+    // audit-part4 B1: the field is read here, by THE reader of rule lines (the import's streamed lines come through
+    // this function too); null = absent, as in the engine
+    if let Some(b) = get("domain_bounds") {
+        let v: Value = de(b, "domain_bounds", line)?;
+        if !v.is_null() {
+            r.domain_bounds = Some(DomainBounds::from_value(&v, r.fixed.len()).map_err(fmt)?);
+        }
+    }
+    r.unknown_members = fields
+        .iter()
+        .map(|(n, _)| n.as_str())
+        .filter(|n| !is_known_rule_member(n))
+        .map(str::to_string)
+        .collect();
+    r.unknown_members.sort();
     if opts.rhs == RhsMode::KeysOnly
         && let Some(b) = get("rhs")
     {
@@ -892,6 +1035,8 @@ impl SymRecord {
             rhs_keys: with_rhs.then(|| vec![self.image.clone()]),
             witness_loci: Some(vec![]),
             recenter: None,
+            domain_bounds: None,
+            unknown_members: vec![],
         }
     }
 }

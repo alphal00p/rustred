@@ -1,8 +1,9 @@
 //! Raw scan of a `table_dump.v1` file: every line is classified (known kinds only), every rule record keeps its byte
 //! offset, length, ordinal and `record_sha256` (plain sha256 hex of the raw line WITHOUT its newline: rr_proof's answer
 //! echo, coord-ec2-instantiate.md s.2c). The domain fields are parsed by the core reader (`record::RecordReader`, one
-//! line at a time); the few top-level fields the core reader does not keep (`domain_bounds`, `origin`, `origin_index`,
-//! the span of `rhs`) are read here with a string-aware top-level scanner (no field of a nested object is ever taken).
+//! line at a time), `domain_bounds` included (lane partfix4: one reader, one meaning, `domain::bound_branches`); the
+//! few top-level fields the core reader does not keep (`origin`, `origin_index`, the span of `rhs`) are read here with a
+//! string-aware top-level scanner (no field of a nested object is ever taken).
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Cursor};
@@ -73,19 +74,14 @@ pub struct SymfaceRef {
     pub slice: Value,
 }
 
-/// The most values a `domain_bounds` entry may exclude on a FREE slot (a line `min m` excludes `1..m`, a numerator
-/// `max M` excludes `M+1..=0`). The engine materialises bounds as one exception branch per excluded value and refuses
-/// a farther bound (rustred-core node/bounds.rs `MAX_EXCLUDED_PER_SLOT`); the importer refuses the same, so that both
-/// sides accept or refuse a record identically (lane engfix4, re-audit mn-2). A bound on a FIXED slot is a comparison
-/// with the fixed value and has no limit on either side.
-pub const MAX_BOUND_EXCLUSIONS_PER_SLOT: i64 = 64;
+/// The most values a `domain_bounds` entry may exclude on a FREE slot: the ONE constant
+/// [`crate::domain::ENGINE_MAX_BOUND_EXCLUSIONS`] (rustred-core node/bounds.rs `MAX_EXCLUDED_PER_SLOT`). A bound on a
+/// FIXED slot is a comparison with the fixed value and has no limit on either side.
+pub const MAX_BOUND_EXCLUSIONS_PER_SLOT: i64 = crate::domain::ENGINE_MAX_BOUND_EXCLUSIONS;
 
-/// Inclusive selection bounds on the rule point (`domain_bounds` of the engine line, coord-bank-tables.md s.10).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DomainBounds {
-    pub min: Vec<Option<i64>>,
-    pub max: Vec<Option<i64>>,
-}
+/// `domain_bounds` as written (coord-bank-tables.md s.10): read by the core reader (`record::parse_line`), meaning
+/// [`crate::domain::bound_branches`] (lane partfix4: was a second parser here and a second reading in load.rs).
+pub use crate::record::DomainBounds;
 
 /// One rule record of a scanned file.
 #[derive(Clone, Debug)]
@@ -463,6 +459,18 @@ impl<'a> LineScanner<'a> {
         }
     }
     /// Count one known non-rule line kind without its text (index reader).
+    /// A rule / `sym` record after the `end` record (lane partfix4): the file is not what its end record closes.
+    fn refuse_after_end(&self, line_no: usize, what: &str) -> Result<(), ImportError> {
+        if self.kinds.contains_key("end") {
+            return Err(self.refused(
+                line_no,
+                TableRefusal::Incomplete {
+                    msg: format!("a {what} record after the end record"),
+                },
+            ));
+        }
+        Ok(())
+    }
     pub fn count_kind(&mut self, line_no: usize, kind: &str) -> Result<(), ImportError> {
         if kind == SYM_ZERO_KIND {
             return Err(self.refused(line_no, TableRefusal::SymZero));
@@ -569,6 +577,7 @@ impl<'a> LineScanner<'a> {
                 if self.header.is_none() {
                     return Err(self.lerr(line_no, "sym record before the header".into()));
                 }
+                self.refuse_after_end(line_no, "sym")?;
                 let sym = parse_sym_line(body, line_no)
                     .map_err(|e| self.refused(line_no, TableRefusal::Sym { msg: e.to_string() }))?;
                 if sym.sign == "key" {
@@ -671,6 +680,7 @@ impl<'a> LineScanner<'a> {
                 if self.header.is_none() {
                     return Err(self.lerr(line_no, "rule record before the header".into()));
                 }
+                self.refuse_after_end(line_no, "rule")?;
                 let mut rec = *r;
                 if let Some(s) = streamed
                     && self.opts.rhs == RhsMode::KeysOnly
@@ -692,18 +702,9 @@ impl<'a> LineScanner<'a> {
                         h.finish_hex()
                     }
                 };
-                let spans = top_level_spans(
-                    body,
-                    &[
-                        "domain_bounds",
-                        "origin",
-                        "origin_index",
-                        "rhs",
-                        "kind",
-                        "symface",
-                    ],
-                )
-                .map_err(|m| self.lerr(line_no, m))?;
+                let spans =
+                    top_level_spans(body, &["origin", "origin_index", "rhs", "kind", "symface"])
+                        .map_err(|m| self.lerr(line_no, m))?;
                 let val = |k: &str| -> Result<Option<Value>, ImportError> {
                     match spans.get(k) {
                         None => Ok(None),
@@ -712,12 +713,7 @@ impl<'a> LineScanner<'a> {
                             .map_err(|e| self.lerr(line_no, format!("field {k}: {e}"))),
                     }
                 };
-                let domain_bounds = match val("domain_bounds")? {
-                    None | Some(Value::Null) => None,
-                    Some(v) => {
-                        Some(parse_bounds(&v, rec.fixed.len()).map_err(|m| self.lerr(line_no, m))?)
-                    }
-                };
+                let domain_bounds = rec.domain_bounds.clone();
                 let origin = val("origin")?.and_then(|v| match v {
                     Value::String(s) => Some(s),
                     Value::Null => None,
@@ -800,6 +796,10 @@ pub struct MarkerPolicy {
     /// `marker_rules.accept_fewer`: a marker's `rules` GREATER than the file's rule records is accepted with this
     /// reason (a minimised table that kept the original marker); `None` = strict.
     pub accept_fewer_rules: Option<String>,
+    /// `marker_rules.accept_missing_end` (lane partfix4): a file WITHOUT an `end` record is accepted with this reason
+    /// (recorded in the overrides); `None` = strict: refused, since a missing `end` cannot be told from a file cut at a
+    /// line boundary.
+    pub accept_missing_end: Option<String>,
 }
 
 /// What a table's markers declare, after [`check_markers`].
@@ -945,44 +945,29 @@ pub fn check_markers(
             }
         }
     }
-    Ok(out)
-}
-
-fn parse_bounds(v: &Value, n: usize) -> Result<DomainBounds, String> {
-    let side = |k: &str| -> Result<Vec<Option<i64>>, String> {
-        match v.get(k) {
-            None | Some(Value::Null) => Ok(vec![None; n]),
-            Some(Value::Array(a)) => {
-                if a.len() != n {
-                    return Err(format!(
-                        "domain_bounds.{k} of length {} for arity {n}",
-                        a.len()
-                    ));
-                }
-                a.iter()
-                    .map(|x| match x {
-                        Value::Null => Ok(None),
-                        x => x
-                            .as_i64()
-                            .map(Some)
-                            .ok_or_else(|| format!("domain_bounds.{k} entry {x}")),
-                    })
-                    .collect()
+    // lane partfix4: the end record is the file's statement that it is complete (checked after the markers: a marker
+    // that contradicts the file is the more specific refusal)
+    if !raw.kinds.contains_key("end") {
+        match policy.accept_missing_end.as_deref() {
+            Some(why) if !why.trim().is_empty() => out.overrides.push(format!(
+                "no end record accepted ({} rule + {} sym records as found): {why}",
+                raw.rule_lines, raw.sym_lines
+            )),
+            _ => {
+                return Err(refused(
+                    0,
+                    TableRefusal::Incomplete {
+                        msg: format!(
+                            "no end record ({} rule + {} sym records found; a file cut at a line boundary looks the \
+                             same; override per source: marker_rules.accept_missing_end with a reason)",
+                            raw.rule_lines, raw.sym_lines
+                        ),
+                    },
+                ));
             }
-            Some(o) => Err(format!("domain_bounds.{k} {o}")),
         }
-    };
-    if let Some(o) = v.as_object() {
-        if let Some(k) = o.keys().find(|k| *k != "min" && *k != "max") {
-            return Err(format!("domain_bounds field {k:?}"));
-        }
-    } else {
-        return Err("domain_bounds is not an object".into());
     }
-    Ok(DomainBounds {
-        min: side("min")?,
-        max: side("max")?,
-    })
+    Ok(out)
 }
 
 /// Byte spans of the requested TOP-LEVEL fields of one JSON object line (string-aware; nested objects skipped).
