@@ -801,6 +801,24 @@ pub fn default_recipes(key: &[i32], params: &NodeParams, node_order: &str) -> Ve
         };
         out.push(Recipe::from_setting(&tag(3), &s, &case, params, node_order));
     }
+    // lane termmin2: the MIXED SHELL (before any depth-3 setting; hundreds of seeds), explicit offsets as centres with
+    // the single shell S0 (the format's named shells are `harder`-unit and have no S1m2), no floor, sector filter on
+    if params.policy.mixed_shell
+        && let Ok(offs) = crate::termmin::steps::mixed_shell_offsets(
+            key,
+            &params.lines,
+            &crate::termmin::spec::MixedShell::default().shells,
+        )
+    {
+        let mut r =
+            Recipe::from_setting(&tag(4), &SeedSetting::target(1), &case, params, node_order);
+        r.seeds.centres = offs;
+        r.seeds.generator = RecipeGenerator::Shells(vec!["S0".into()]);
+        r.seeds.min_offset = BTreeMap::new();
+        r.seeds.sector_filter = true;
+        r.seeds.sector_slots = None;
+        out.push(r);
+    }
     out
 }
 
