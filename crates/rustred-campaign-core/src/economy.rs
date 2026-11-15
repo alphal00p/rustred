@@ -5,6 +5,10 @@
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
+/// lane shipecon: the SHIP ECONOMY of a closed node (interfaces/shipecon.md). REQUEST TO I-INT: keep as is (a child
+/// module of `economy`, no lib.rs change).
+pub mod ship;
+
 /// Selection score among candidate covers of one item (lexicographic, smaller = better): gap points failed, cases,
 /// RHS SIZE CLASS (bit length of the RHS term count: a factor-2 band), then PREFERRED-terminal misses (P-4: more RHS
 /// keys on preferred terminals is better; only among candidates of the same class, so a preference never buys a

@@ -28,6 +28,8 @@ pub mod coreseed;
 pub mod seedmin;
 // lane symcert (interfaces/proof-symrows-job.md 5): kernel certificates of multi-term symmetry relations
 pub mod symcert;
+// lane shipecon: the ship economy of a closed node (interfaces/shipecon.md). REQUEST TO I-INT: keep this line.
+pub mod shipecon;
 
 pub use config::{CONFIG_ROLE, CONFIG_SCHEMA, CloseLoopConfig, NodeCfg, SolveCfg, Target};
 pub use source::CloseFromMaterialSource;
