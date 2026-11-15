@@ -254,7 +254,7 @@ pub fn wrap<S: WorkSource>(
             .iter()
             .find(|i| i.role == CONFIG_ROLE)
             .ok_or("repairflow: no closeloop config input")?;
-        let cfg = CloseLoopConfig::read(&cin.path)?;
+        let cfg = CloseLoopConfig::read_with_resources(&cin.path, &spec.resources)?;
         for nc in &cfg.nodes {
             let policy = file.effective(Some(&nc.node))?;
             if !policy.enabled {

@@ -332,7 +332,7 @@ impl CloseFromMaterialSource {
                 ins.len()
             ));
         };
-        let cfg = CloseLoopConfig::read(&inp.path)?;
+        let cfg = CloseLoopConfig::read_with_resources(&inp.path, &spec.resources)?;
         let programs: BTreeMap<String, PathBuf> = spec
             .programs
             .iter()

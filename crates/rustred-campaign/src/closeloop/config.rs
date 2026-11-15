@@ -738,6 +738,30 @@ impl CloseLoopConfig {
         Self::from_json(&t)
     }
 
+    /// lane t266run: [`Self::read`] with this session's LAUNCH-TIME thread counts applied (`rr_campaign run
+    /// --check-threads N --store-threads N`, spec `resources.check_threads` / `resources.store_threads`): thread counts
+    /// never change a result (the check and the evidence-store build are deterministic in them), so they are not part
+    /// of the campaign identity (the config FILE's digest is); every node gets them.
+    pub fn read_with_resources(
+        path: &Path,
+        r: &crate::supervisor::spec::Resources,
+    ) -> Result<CloseLoopConfig, String> {
+        let mut c = Self::read(path)?;
+        if let Some(t) = r.check_threads {
+            for n in &mut c.nodes {
+                n.check_threads = t.max(1);
+            }
+        }
+        if let Some(t) = r.store_threads {
+            for n in &mut c.nodes {
+                if let Some(sc) = n.scale.as_mut() {
+                    sc.store_threads = t.max(1);
+                }
+            }
+        }
+        Ok(c)
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if self.schema != CONFIG_SCHEMA {
             return Err(format!(

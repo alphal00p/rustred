@@ -637,7 +637,7 @@ pub fn wrap(
         .iter()
         .find(|i| i.role == CONFIG_ROLE)
         .ok_or("termmin: no closeloop config input")?;
-    let cfg = CloseLoopConfig::read(&cin.path)?;
+    let cfg = CloseLoopConfig::read_with_resources(&cin.path, &spec.resources)?;
     let mut nodes = vec![];
     for nc in cfg.nodes {
         let s = tspec.for_node(&nc.node)?;

@@ -184,6 +184,13 @@ pub struct Resources {
     /// `memory_cap_exceeded`), never evidence; a session with a higher cap reopens those items.
     #[serde(default)]
     pub job_mem_cap: Option<ByteSize>,
+    /// lane t266run: this session's closure-check threads (`rr_campaign run --check-threads N`) and evidence-store
+    /// build threads (`--store-threads N`) of every closeloop node: launch-time resources (results never depend on
+    /// them), recorded per session (note `session_resources`); absent = the closeloop config's.
+    #[serde(default)]
+    pub check_threads: Option<usize>,
+    #[serde(default)]
+    pub store_threads: Option<usize>,
 }
 
 fn d_policy() -> String {

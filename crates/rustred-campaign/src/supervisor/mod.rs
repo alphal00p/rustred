@@ -802,12 +802,14 @@ impl Supervisor {
             lock_token: lock.token().to_string(),
         });
         // lane t266run (L17): a session with a launch-time memory cap records its resources (not part of the identity)
-        if let Some(cap) = opts.spec.resources.job_mem_cap {
+        let r = &opts.spec.resources;
+        if r.job_mem_cap.is_some() || r.check_threads.is_some() || r.store_threads.is_some() {
             first.push(Event::Note {
                 text: format!(
                     "session_resources {}",
-                    serde_json::json!({"cpus": opts.spec.resources.cpus, "max_jobs": opts.spec.resources.max_jobs,
-                        "job_mem_cap": cap.0})
+                    serde_json::json!({"cpus": r.cpus, "max_jobs": r.max_jobs,
+                        "job_mem_cap": r.job_mem_cap.map(|b| b.0), "check_threads": r.check_threads,
+                        "store_threads": r.store_threads})
                 ),
             });
         }
