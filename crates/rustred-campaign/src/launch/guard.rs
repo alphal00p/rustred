@@ -2295,8 +2295,8 @@ pub fn is_child_subreaper() -> bool {
 /// The marker variable name, re-exported for callers building environments.
 pub const CAMPAIGN_MARKER_VAR: &str = MARKER_VAR;
 
-#[cfg(test)]
 #[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[cfg(test)]
 mod tests {
     use super::*;
 

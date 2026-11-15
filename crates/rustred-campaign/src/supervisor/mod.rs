@@ -6094,8 +6094,8 @@ fn ledger_error_is_disk_full(e: &LedgerError) -> bool {
     }
 }
 
-#[cfg(test)]
 #[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[cfg(test)]
 mod tests {
     use super::*;
     use rustred_campaign_contract::seal::{self, RecordWriter, TABLE_END_TYPES};

@@ -525,8 +525,8 @@ pub(crate) fn scan_campaign_at(
     Ok(out)
 }
 
-#[cfg(test)]
 #[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[cfg(test)]
 mod tests {
     /// procfix5 (gate4 m5): a fake /proc tree: an uninspectable entry (environ refused; procfix7: readability, not the
     /// directory's owner) whose real uid is ours and whose parent chain reaches the ancestor is listed; one of another

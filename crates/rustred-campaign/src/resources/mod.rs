@@ -558,8 +558,8 @@ pub fn own_cgroup_dir() -> Option<PathBuf> {
     Some(Path::new("/sys/fs/cgroup").join(group.trim_start_matches('/')))
 }
 
-#[cfg(test)]
 #[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[cfg(test)]
 mod tests {
     use super::*;
 

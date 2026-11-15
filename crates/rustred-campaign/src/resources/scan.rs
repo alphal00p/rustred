@@ -741,8 +741,8 @@ pub fn scan_sessions_now(sids: &BTreeSet<u32>) -> BTreeMap<u32, SessionUsage> {
     fold(&raw, &mut tracked)
 }
 
-#[cfg(test)]
 #[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[cfg(test)]
 mod tests {
     use super::*;
 

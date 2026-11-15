@@ -633,8 +633,8 @@ pub trait ChildLauncher {
     ) -> io::Result<Reattached<Self::Handle>>;
 }
 
-#[cfg(test)]
 #[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[cfg(test)]
 mod tests {
     use super::*;
 

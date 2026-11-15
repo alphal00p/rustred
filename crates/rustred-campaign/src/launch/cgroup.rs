@@ -580,8 +580,8 @@ pub fn kill_recorded_scope(unit: &str) -> io::Result<Option<usize>> {
     Ok(None)
 }
 
-#[cfg(test)]
 #[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[cfg(test)]
 mod tests {
     use super::*;
 
