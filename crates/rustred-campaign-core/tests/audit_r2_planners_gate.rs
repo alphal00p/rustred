@@ -120,7 +120,7 @@ fn opts(tier: Tier) -> CheckOptions {
 /// fact before it ever looks at the proofs, `import/zero_proofs.rs:489-491`). The closing loop's own gate would block
 /// the same zero (`all_zeros_unconfirmed`, rule "zeros need a second route"); the ship gate is the weaker one.
 #[test]
-fn an_unconfirmed_first_route_zero_on_a_non_descending_term_passes_the_ship_gate_defect() {
+fn an_unconfirmed_first_route_zero_on_a_non_descending_term_passes_the_ship_gate_defect_fixed() {
     let dir = tmp("g1");
     let l0 = rule_line(0, 3, Some("1"));
     let l1 = rule_line(1, 2, None);
@@ -152,19 +152,23 @@ fn an_unconfirmed_first_route_zero_on_a_non_descending_term_passes_the_ship_gate
     .unwrap();
     assert_ne!(g.finish().unwrap().verdict, GateVerdict::Pass);
 
-    let (r0, _) = gate_check(&set, &ev, &res, GateConfig::memory()).unwrap();
-    // DEFECT: an unconfirmed (first route only) zero removes the non-descending edge; expected: not Pass, or the
-    // term counted as an unconfirmed zero (same rule as the closing loop's all_zeros gate)
-    assert_eq!(r0.verdict, GateVerdict::Pass, "{:?}", r0.verdict);
-    assert_eq!(r0.zero_terms_skipped, 1);
+    let (r0, s0) = gate_check(&set, &ev, &res, GateConfig::memory()).unwrap();
+    // FIXED (planfix G1; was DEFECT): the unconfirmed (first route only) zero stays an edge; the gate refuses with the
+    // closing loop's word
+    assert_ne!(r0.verdict, GateVerdict::Pass, "{:?}", r0.verdict);
+    assert_eq!(r0.zero_terms_skipped, 0);
+    assert_eq!(r0.zero_unconfirmed_non_descending, 1);
+    assert!(r0.reasons.iter().any(|r| r == "all_zeros_unconfirmed:1"), "{:?}", r0.reasons);
+    assert_eq!(s0.zero_terms.get("second_route_unconfirmed"), Some(&1), "{:?}", s0.zero_terms);
 
     let zp = ZeroProofs::load(&set, &[], &LoadOptions::default()).unwrap();
     assert_eq!(zp.stats.proved, 0, "no structural proof at all");
     let zf = ZeroProofFacts::new(&set, &zp, &ev);
     let (r1, _) = gate_check_with(&set, &ev, &zf, &res, GateConfig::memory()).unwrap();
-    // DEFECT: B2's fact source passes the same unconfirmed zero (inner fact returned before the proofs are consulted)
-    assert_eq!(r1.verdict, GateVerdict::Pass, "{:?}", r1.verdict);
-    assert_eq!(r1.zero_terms_skipped, 1);
+    // FIXED (planfix G1; was DEFECT): B2's fact source refuses the same unconfirmed zero (no proof = no second route)
+    assert_ne!(r1.verdict, GateVerdict::Pass, "{:?}", r1.verdict);
+    assert_eq!(r1.zero_terms_skipped, 0);
+    assert!(r1.reasons.iter().any(|r| r == "all_zeros_unconfirmed:1"), "{:?}", r1.reasons);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -173,7 +177,7 @@ fn an_unconfirmed_first_route_zero_on_a_non_descending_term_passes_the_ship_gate
 /// non-descending term: the gate PASSES (it reads A's rows and finds A's record in B by sha256), while the check of B
 /// itself FAILS. `res.spec_digest != set.report.spec_digest` is not looked at (`pieces/import_edges.rs:294-314`).
 #[test]
-fn a_gate_run_on_another_table_set_than_its_check_passes_what_that_set_ships_defect() {
+fn a_gate_run_on_another_table_set_than_its_check_passes_what_that_set_ships_defect_fixed() {
     let dir = tmp("g2");
     let la0 = rule_line(0, 3, None);
     let la1 = rule_line(1, 2, None);
@@ -191,9 +195,11 @@ fn a_gate_run_on_another_table_set_than_its_check_passes_what_that_set_ships_def
     let (rb, _) = gate_check(&set_b, &ev_b, &res_b, GateConfig::memory()).unwrap();
     assert_ne!(rb.verdict, GateVerdict::Pass, "B's own check fails the gate");
     assert_ne!(res_a.spec_digest, set_b.report.spec_digest);
-    let (ra, _) = gate_check(&set_b, &ev_b, &res_a, GateConfig::memory()).unwrap();
-    // DEFECT: expected a refusal (check of another spec / table set); the gate passes A's dispatch as B's shipment
-    assert_eq!(ra.verdict, GateVerdict::Pass, "{:?}", ra.verdict);
+    // FIXED (planfix G2; was DEFECT): the gate refuses a check of another spec / table set (typed word)
+    match gate_check(&set_b, &ev_b, &res_a, GateConfig::memory()) {
+        Err(e) => assert!(e.starts_with("check_of_another_table_set:"), "{e}"),
+        Ok((ra, _)) => panic!("gated another table set's check: {:?}", ra.verdict),
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -202,7 +208,7 @@ fn a_gate_run_on_another_table_set_than_its_check_passes_what_that_set_ships_def
 /// (descent + acyclicity only) passes the hand-down edge into a key that nothing serves. Neither refuses: the closure
 /// walk of the closing loop is what keeps it open. The plan / gate reports are not closure statements.
 #[test]
-fn a_hand_down_into_an_unserved_key_outside_the_input_is_called_served_and_passes_the_gate() {
+fn a_hand_down_into_an_unserved_key_outside_the_input_is_called_outside_input_and_passes_the_gate() {
     let cmp = rustred_campaign_core::order::NodeComparator::legacy(3, None).unwrap();
     let k = vec![3, 1, 0];
     let t = vec![2, 1, 0]; // lower; NOT in the input; nothing serves it anywhere
@@ -222,7 +228,9 @@ fn a_hand_down_into_an_unserved_key_outside_the_input_is_called_served_and_passe
     let p = plan(&cmp, &inp).unwrap();
     let v = serde_json::to_value(&p).unwrap();
     let s = v.to_string();
-    assert!(s.contains("\"served\""), "hand-down target labelled served: {s}");
+    // FIXED (planfix G3): the target outside the input is `outside_input` (unknown to the planner), never "served"
+    assert!(!s.contains("\"served\""), "hand-down target labelled served: {s}");
+    assert!(s.contains("\"outside_input\""), "{s}");
     assert!(p.core_open.is_empty(), "no key left to the core: {:?}", p.core_open);
     let mut g = ShipGate::new(&cmp, 3, GateConfig::memory()).unwrap();
     g.push_relation(&k, "hd", [(&t[..], NonZero::Yes)].into_iter())

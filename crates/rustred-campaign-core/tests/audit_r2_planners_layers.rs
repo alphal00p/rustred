@@ -11,7 +11,8 @@ use std::sync::Arc;
 
 use rustred_campaign_core::closure::{
     ClosureConfig, ClosureError, CoefFact, FactSource, HandDowns, KeyCodec, KeySet, LeafBinding,
-    LeafSet, LeafSetBuilder, RegFact, RuleBodies, RuleId, TerminalSets, Tier, Verdict, closure,
+    LeafProducer, LeafSet, LeafSetBuilder, RegFact, RuleBodies, RuleId, TerminalSets, Tier, Verdict,
+    closure,
 };
 use rustred_campaign_core::cover::{Dispatcher, Table};
 use rustred_campaign_core::domain::CaseDomain;
@@ -150,6 +151,12 @@ fn leafset_like_layers(
         walk: res.leaf_walk.clone(),
         relative_to: vec![],
         provenance: BTreeMap::new(),
+        // planfix (L1, format 2): the producer's basis, as closeloop/layers.rs::leafset_of records it
+        producer: Some(LeafProducer::new(
+            required.word(),
+            res.tier,
+            !res.summary.diagnostic && res.tier == Tier::C,
+        )),
     })
     .unwrap()
 }
@@ -162,7 +169,7 @@ fn leafset_like_layers(
 /// imported). The single walk of the same start under `per-key` is NOT closed (below_required_evidence). The closing
 /// loop would label it `closed, <target>, per-key, relative to leaf set(s) ...` (`closeloop/pass.rs:2417-2422`).
 #[test]
-fn a_per_key_run_closes_relative_to_a_leaf_set_certified_only_at_imported_defect() {
+fn a_per_key_run_closes_relative_to_a_leaf_set_certified_only_at_imported_defect_fixed() {
     let root = std::env::temp_dir().join(format!("audit-r2-layers-l1-{}", std::process::id()));
     let (set_i, ev_i) = material(&root.join("imported"), "imported");
     let (set_p, ev_p) = material(&root.join("per-key"), "per-key");
@@ -222,9 +229,16 @@ fn a_per_key_run_closes_relative_to_a_leaf_set_certified_only_at_imported_defect
     let hits = rel.leaves.as_ref().expect("leaves met");
     assert_eq!(hits.summary.reached, 1);
     assert_eq!(hits.summary.open_reached, 0);
-    // DEFECT: expected a blocker (leaf below the required level) or a refusal of the binding; got a clean result
-    assert!(rel.blocking().is_empty(), "{:?}", rel.blocking());
-    assert_eq!(rel.summary.verdict, Verdict::Closed);
+    // FIXED (planfix L1; was DEFECT): the leaf certified only at `imported` BLOCKS the per-key run (typed word), the
+    // walk is never `closed` relative to it
+    assert!(
+        rel.blocking()
+            .iter()
+            .any(|b| b == "leaf_below_required_evidence:1"),
+        "{:?}",
+        rel.blocking()
+    );
+    assert_ne!(rel.summary.verdict, Verdict::Closed);
     assert_eq!(hits.summary.relative_to, vec![ls.digest().to_string()]);
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -288,6 +302,8 @@ fn leaves_of(c: &rustred_campaign_core::closure::Closure, verdict: &str) -> Leaf
         walk: c.leaf_walk().clone(),
         relative_to: vec![],
         provenance: BTreeMap::new(),
+        // planfix (L1, format 2): certified at per-key on the exact tier
+        producer: Some(LeafProducer::new("per-key", Tier::C, true)),
     })
     .unwrap()
 }

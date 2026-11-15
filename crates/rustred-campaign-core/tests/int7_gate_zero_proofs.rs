@@ -1,7 +1,9 @@
 //! int7 (integration round 2, wire-in B2): the ZERO-FACT SOURCE of the ship gate. Lane pieces' `gate_check_with(FactSource)`
 //! with lane zeros2's `ZeroProofFacts`: a spec WITHOUT zero proofs ships its positive-numerator terms whose coefficient
 //! is not known to vanish as edges of their own class (`<class>|<server>|positive_numerator`, counted and listed); with
-//! a structural zero proof of that term the gate drops it (a zero term is never an edge) and passes.
+//! a structural zero proof of that term ALONE (keys only, no first-route zero) the term stays an edge (planfix G1: a
+//! proof confirms a first-route zero, it is not a zero by itself; tests/planfix_gate_zero_routes.rs has the cases where
+//! it confirms).
 //!
 //! Toy node (arity 3, lines 0 and 1, numerator slot 2; nothing five-loop specific): point rules on the chain
 //! [k,1,0] -> [k-1,1,0] + hand-down [k,0,0], and at the top key one more term [3,1,1] (numerator slot at a POSITIVE
@@ -123,17 +125,12 @@ fn positive_numerator_unknowns_are_their_own_class_without_zero_proofs_and_the_g
     assert_eq!(zp.stats.proved, 1);
     let facts = ZeroProofFacts::new(&set, &zp, &ev);
     let (r1, _) = gate_check_with(&set, &ev, &facts, &res, GateConfig::memory()).unwrap();
-    // the class may still be named (the relation is split by term class), with no edge left in it
-    assert!(
-        r1.by_provenance
-            .iter()
-            .filter(|(k, _)| k.ends_with("|positive_numerator"))
-            .all(|(_, v)| *v == [0, 0]),
-        "{:?}",
-        r1.by_provenance
-    );
-    assert_eq!(r1.zero_terms_skipped, 1);
-    assert_eq!(r1.edges + 1, r0.edges);
-    assert_eq!(r1.verdict, GateVerdict::Pass, "{:?}", r1.verdict);
+    // planfix (audit r2-planners G1, INTERFACE CHANGE): the proof is the SECOND route of a first-route zero; on a
+    // keys-only check there is no first-route zero, so the proof alone drops nothing (one route): the term stays an
+    // edge and the gate refuses by descent, as without the proof (the confirmed cases: tests/planfix_gate_zero_routes.rs)
+    assert_eq!(r1.zero_terms_skipped, 0);
+    assert_eq!(r1.edges, r0.edges);
+    assert_ne!(r1.verdict, GateVerdict::Pass, "{:?}", r1.verdict);
+    assert_eq!(r1.reasons, vec!["non_descending:1".to_string()]);
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -92,6 +92,12 @@ fn leafset(set: &ImportedSet, res: &CheckResult, rows: &Path, required: Level, v
         walk: res.leaf_walk.clone(),
         relative_to: vec![],
         provenance: BTreeMap::new(),
+        // planfix (L1, format 2): the producer's basis
+        producer: Some(rustred_campaign_core::closure::LeafProducer::new(
+            required.word(),
+            res.tier,
+            !res.summary.diagnostic && res.tier == rustred_campaign_core::closure::Tier::C,
+        )),
     })
     .unwrap()
 }

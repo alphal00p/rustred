@@ -19,10 +19,13 @@ use super::config::{ClauseCfg, LayersCfg, LeafSetRef};
 use super::pass::{PassIn, row_certified};
 use super::zeros::{self, SecondRoute, ZeroScan};
 use rustred_campaign_core::closure::{
-    ClosureSummary, KeySet, KeySetBuilder, LeafBinding, LeafSet, LeafSetBuilder, Tier, Verdict,
+    ClosureSummary, KeySet, KeySetBuilder, LeafBinding, LeafProducer, LeafRequirement, LeafSet,
+    LeafSetBuilder, Tier, Verdict,
 };
 use rustred_campaign_core::import::check::RecordRequest;
-use rustred_campaign_core::import::check::{LeafHits, check_streamed_with_leaves};
+use rustred_campaign_core::import::check::{
+    LeafHits, check_streamed_with_leaves, check_streamed_with_leaves_required,
+};
 use rustred_campaign_core::import::load::read_start;
 use rustred_campaign_core::import::{
     CheckOptions, CheckResult, Evidence, ImportedSet, KeyRow, Level, RowStatus, TableSetSpec,
@@ -526,6 +529,8 @@ pub fn leafset_of(
             .map(|h| h.summary.relative_to.clone())
             .unwrap_or_default(),
         provenance: BTreeMap::from([("spec_digest".to_string(), res.spec_digest.clone())]),
+        // audit r2-planners L1: the certification basis of the `certified` flags above
+        producer: Some(LeafProducer::new(required.word(), res.tier, basis_ok)),
     })
     .map_err(|e| e.to_string())
 }
@@ -577,8 +582,22 @@ pub fn walk_c(
         }
         let t0 = std::time::Instant::now();
         let rows_path = dir.join(format!("{}.rows.jsonl", l.idx));
-        let res = check_streamed_with_leaves(set, ev, &opts, &rows_path, &l.start, &leaves)
-            .map_err(|e| format!("layer {} ({}): exact-tier check: {e}", l.idx, l.id))?;
+        // audit r2-planners L1: the leaves are judged against THIS loop's gates (required level, exact tier, strict)
+        let leaf_req = LeafRequirement {
+            required_level: gates.required.word().to_string(),
+            tier: Tier::C,
+            strict: gates.strict,
+        };
+        let res = check_streamed_with_leaves_required(
+            set,
+            ev,
+            &opts,
+            &rows_path,
+            &l.start,
+            &leaves,
+            Some(&leaf_req),
+        )
+        .map_err(|e| format!("layer {} ({}): exact-tier check: {e}", l.idx, l.id))?;
         let diagnostic = res.summary.diagnostic || res.summary.verdict == Verdict::Diagnostic;
         let basis_ok = gates.strict && !diagnostic && res.tier == Tier::C;
         let (certified, keys) = certified_of(&res, gates.required, basis_ok);
@@ -1331,6 +1350,8 @@ pub fn node_leafset(
         walk,
         relative_to: relative,
         provenance: BTreeMap::from([("spec_digest".to_string(), set.report.spec_digest.clone())]),
+        // audit r2-planners L1: the composed set certifies no more than its weakest part
+        producer: LeafProducer::weakest(parts.iter().map(|p| p.producer())),
     })
     .map_err(|e| e.to_string())
 }

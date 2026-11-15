@@ -17,8 +17,18 @@ use super::relations::RelationSet;
 use super::sha256::Sha256;
 use super::{ConfigIdentity, KeyExclusion};
 
-/// Schema of the leaf-set file.
-pub const LEAFSET_SCHEMA: &str = "rustred.campaign.leafset.v1";
+/// Version of the leaf-set FORMAT (audit r2-planners L1): 2 = the binding records the PRODUCER's required evidence level,
+/// tier and strictness ([`LeafProducer`]). A version-1 file (no such fields) is still read, its producer UNKNOWN: its
+/// leaves count at the lowest level only ([`LeafSet::shortfall`]), never as sufficient above it.
+pub const LEAFSET_FORMAT_VERSION: u32 = 2;
+/// Schema of the leaf-set file (format [`LEAFSET_FORMAT_VERSION`]).
+pub const LEAFSET_SCHEMA: &str = "rustred.campaign.leafset.v2";
+/// Schema of a version-1 leaf-set file (read only; written by builds before format 2).
+pub const LEAFSET_SCHEMA_V1: &str = "rustred.campaign.leafset.v1";
+/// The evidence-level words of a leaf, LOWEST FIRST (the import's `Level` words; a word not listed ranks below all).
+pub const LEAF_LEVEL_ORDER: &[&str] = &["imported", "replay", "per-key"];
+/// The level word of a declared terminal (certified at every level: a terminal is not evidence-levelled).
+pub const LEAF_LEVEL_TERMINAL: &str = "terminal";
 /// Version of the leaf semantics (bump on any change of what a leaf means to the walk).
 pub const LEAF_SEMANTICS: &str = "leaf-semantics.v1";
 /// Flag bit: the key is certified in its clause (served at the required level on a strict basis, or a declared terminal).
@@ -63,6 +73,104 @@ pub struct LeafBinding {
     pub relative_to: Vec<String>,
     /// Free provenance (never compared): table-set digest, engine binary, ...
     pub provenance: BTreeMap<String, String>,
+    /// Format 2 (audit r2-planners L1): the PRODUCER's certification basis. `None` (every version-1 file, or a
+    /// producer that does not state it): unknown = the lowest level, tier unknown, not strict.
+    #[serde(default)]
+    pub producer: Option<LeafProducer>,
+}
+
+/// The certification basis of the run that produced a leaf set (format 2): its `certified` flags mean "certified at
+/// `required_level`, tier `tier`, on a strict basis iff `strict`".
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LeafProducer {
+    /// The producer's required evidence level word ([`LEAF_LEVEL_ORDER`]).
+    pub required_level: String,
+    /// The tier its walk ran at: `C` (exact facts) | `K` (keys only).
+    pub tier: String,
+    /// Its basis was strict exact (Tier C, strict dispatcher, nothing diagnostic).
+    pub strict: bool,
+}
+
+impl LeafProducer {
+    pub fn new(required_level: &str, tier: super::Tier, strict: bool) -> Self {
+        LeafProducer {
+            required_level: required_level.to_string(),
+            tier: tier_word(tier).to_string(),
+            strict,
+        }
+    }
+    /// The basis of a set composed of several parts: the WEAKEST part's (lowest required level, tier `C` only if every
+    /// part is, strict only if every part is). `None` when there is no part or any part's producer is unknown (or names
+    /// a level that is no level word): the composed set certifies no more than its weakest part.
+    pub fn weakest<'a>(parts: impl IntoIterator<Item = Option<&'a LeafProducer>>) -> Option<Self> {
+        let mut out: Option<(usize, bool, bool)> = None;
+        for p in parts {
+            let p = p?;
+            let r = level_rank(&p.required_level)?;
+            let c = p.tier == tier_word(super::Tier::C);
+            out = Some(match out {
+                None => (r, c, p.strict),
+                Some((r0, c0, s0)) => (r0.min(r), c0 && c, s0 && p.strict),
+            });
+        }
+        let (r, c, strict) = out?;
+        Some(LeafProducer {
+            required_level: LEAF_LEVEL_ORDER[r].to_string(),
+            tier: tier_word(if c { super::Tier::C } else { super::Tier::K }).to_string(),
+            strict,
+        })
+    }
+}
+
+/// The tier word of a leaf binding.
+pub fn tier_word(t: super::Tier) -> &'static str {
+    match t {
+        super::Tier::C => "C",
+        super::Tier::K => "K",
+    }
+}
+
+/// Rank of a level word in [`LEAF_LEVEL_ORDER`] (None: not a level word).
+pub fn level_rank(word: &str) -> Option<usize> {
+    LEAF_LEVEL_ORDER.iter().position(|w| *w == word)
+}
+
+/// What the CONSUMING run requires of a leaf it stops at (audit r2-planners L1): its required level, its tier and
+/// whether it requires a strict exact basis. A certified leaf below any of the three BLOCKS the consuming walk.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LeafRequirement {
+    /// The consuming run's required evidence level word ([`LEAF_LEVEL_ORDER`]).
+    pub required_level: String,
+    pub tier: super::Tier,
+    pub strict: bool,
+}
+
+/// Why a CERTIFIED leaf does not meet a [`LeafRequirement`] (blocking words of the consuming walk).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LeafShortfall {
+    /// `leaf_below_required_evidence`: its certified level (the lower of its level word and the producer's required
+    /// level; unknown producer = the lowest level) is below the consumer's required level.
+    BelowRequiredEvidence,
+    /// `leaf_below_required_tier`: certified keys-only (or tier unknown) while the consumer runs the exact tier.
+    BelowRequiredTier,
+    /// `leaf_basis_not_strict`: the producer's basis was not strict exact (or unknown) while the consumer requires it.
+    BasisNotStrict,
+}
+
+impl LeafShortfall {
+    pub fn word(self) -> &'static str {
+        match self {
+            LeafShortfall::BelowRequiredEvidence => "leaf_below_required_evidence",
+            LeafShortfall::BelowRequiredTier => "leaf_below_required_tier",
+            LeafShortfall::BasisNotStrict => "leaf_basis_not_strict",
+        }
+    }
+    pub const ALL: [LeafShortfall; 3] = [
+        LeafShortfall::BelowRequiredEvidence,
+        LeafShortfall::BelowRequiredTier,
+        LeafShortfall::BasisNotStrict,
+    ];
 }
 
 /// Errors of leaf sets (format, ranges, duplicates).
@@ -116,6 +224,8 @@ pub struct LeafSet {
     levels: Vec<String>,
     binding: LeafBinding,
     digest: String,
+    /// The file format version (2 for everything built here; 1 for an old file read back).
+    format: u32,
 }
 
 fn position(codes: &[u64], w: usize, code: &[u64]) -> Result<usize, usize> {
@@ -136,9 +246,25 @@ fn header_canon(
     classes: &[String],
     levels: &[String],
     binding: &LeafBinding,
+    format: u32,
 ) -> String {
-    let v = serde_json::json!({"arity": arity, "classes": classes, "levels": levels, "binding": binding});
+    let mut b = serde_json::to_value(binding).unwrap_or(serde_json::Value::Null);
+    if format < 2
+        && let Some(o) = b.as_object_mut()
+    {
+        // a version-1 binding had no producer member: its digest is computed as it was written
+        o.remove("producer");
+    }
+    let v = serde_json::json!({"arity": arity, "classes": classes, "levels": levels, "binding": b});
     crate::schema::canon::canonical_json(&v, false).unwrap_or_else(|_| v.to_string())
+}
+
+fn schema_of(format: u32) -> &'static str {
+    if format < 2 {
+        LEAFSET_SCHEMA_V1
+    } else {
+        LEAFSET_SCHEMA
+    }
 }
 
 /// The canonical digest stream of a leaf set (independent of the codec bits).
@@ -148,11 +274,17 @@ struct LeafDigest {
 }
 
 impl LeafDigest {
-    fn new(arity: usize, classes: &[String], levels: &[String], binding: &LeafBinding) -> Self {
+    fn new(
+        arity: usize,
+        classes: &[String],
+        levels: &[String],
+        binding: &LeafBinding,
+        format: u32,
+    ) -> Self {
         let mut h = Sha256::new();
-        h.update(LEAFSET_SCHEMA.as_bytes());
+        h.update(schema_of(format).as_bytes());
         h.update(b"\n");
-        h.update(header_canon(arity, classes, levels, binding).as_bytes());
+        h.update(header_canon(arity, classes, levels, binding, format).as_bytes());
         LeafDigest {
             h,
             buf: Vec::with_capacity(1 << 16),
@@ -188,6 +320,47 @@ impl LeafSet {
     }
     pub fn binding(&self) -> &LeafBinding {
         &self.binding
+    }
+    /// The file format version ([`LEAFSET_FORMAT_VERSION`]; 1 for an old file read back).
+    pub fn format_version(&self) -> u32 {
+        self.format
+    }
+    /// The producer's certification basis (None: unknown, e.g. a version-1 file).
+    pub fn producer(&self) -> Option<&LeafProducer> {
+        if self.format < 2 {
+            return None;
+        }
+        self.binding.producer.as_ref()
+    }
+    /// Why the CERTIFIED leaf `i` does not meet `req` (None: it does, or it is not certified: an uncertified leaf
+    /// blocks as `leaf_open` whatever the requirement). A terminal meets every level; the certified level of any other
+    /// leaf is the LOWER of its level word and the producer's required level (unknown producer: the lowest level, tier
+    /// unknown, not strict); a level word that is no level word ranks below all.
+    pub fn shortfall(&self, i: usize, req: &LeafRequirement) -> Option<LeafShortfall> {
+        if !self.is_certified(i) {
+            return None;
+        }
+        let p = self.producer();
+        let terminal = self.level_of(i) == LEAF_LEVEL_TERMINAL;
+        if !terminal {
+            let want = level_rank(&req.required_level).unwrap_or(LEAF_LEVEL_ORDER.len());
+            let own = level_rank(self.level_of(i));
+            let prod = p.map_or(Some(0), |p| level_rank(&p.required_level));
+            let have = match (own, prod) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                _ => None,
+            };
+            if have.is_none_or(|h| h < want) {
+                return Some(LeafShortfall::BelowRequiredEvidence);
+            }
+        }
+        if req.tier == super::Tier::C && p.is_none_or(|p| p.tier != tier_word(super::Tier::C)) {
+            return Some(LeafShortfall::BelowRequiredTier);
+        }
+        if req.strict && !p.is_some_and(|p| p.strict) {
+            return Some(LeafShortfall::BasisNotStrict);
+        }
+        None
     }
     pub fn classes(&self) -> &[String] {
         &self.classes
@@ -286,13 +459,17 @@ impl LeafSet {
         for c in self.aux.chunks_exact(w) {
             b.aux(&self.codec.decode_vec(c))?;
         }
-        let s = b.finish(self.binding.clone())?;
+        let mut s = b.finish(self.binding.clone())?;
+        if s.format != self.format {
+            s.format = self.format;
+            s.digest = s.compute_digest();
+        }
         debug_assert_eq!(s.digest, self.digest);
         Ok(s)
     }
     fn compute_digest(&self) -> String {
         let arity = self.codec.arity();
-        let mut d = LeafDigest::new(arity, &self.classes, &self.levels, &self.binding);
+        let mut d = LeafDigest::new(arity, &self.classes, &self.levels, &self.binding, self.format);
         let w = self.codec.words();
         let mut k = vec![0i32; arity];
         for i in 0..self.len() {
@@ -311,7 +488,7 @@ impl LeafSet {
     /// Write the leaf-set file; returns the digest.
     pub fn write(&self, mut w: impl Write) -> io::Result<String> {
         let header = serde_json::json!({
-            "schema": LEAFSET_SCHEMA, "arity": self.codec.arity(), "bits": self.codec.bits(),
+            "schema": schema_of(self.format), "arity": self.codec.arity(), "bits": self.codec.bits(),
             "words": self.codec.words(), "count": self.len(), "aux_count": self.aux_len(),
             "classes": self.classes, "levels": self.levels, "binding": self.binding, "digest": self.digest,
         });
@@ -347,9 +524,13 @@ impl LeafSet {
         r.read_line(&mut line)?;
         let h: serde_json::Value = serde_json::from_str(line.trim_end())
             .map_err(|e| LeafError::Format(format!("header: {e}")))?;
-        if h["schema"] != LEAFSET_SCHEMA {
+        let format = if h["schema"] == LEAFSET_SCHEMA {
+            LEAFSET_FORMAT_VERSION
+        } else if h["schema"] == LEAFSET_SCHEMA_V1 {
+            1
+        } else {
             return Err(LeafError::Format(format!("schema {}", h["schema"])));
-        }
+        };
         let field = |f: &str| {
             h[f].as_u64()
                 .ok_or_else(|| LeafError::Format(format!("header field {f}")))
@@ -371,8 +552,12 @@ impl LeafSet {
         if classes.len() > 256 || levels.len() > 256 {
             return Err(LeafError::Format("more than 256 classes or levels".into()));
         }
-        let binding: LeafBinding = serde_json::from_value(h["binding"].clone())
+        let mut binding: LeafBinding = serde_json::from_value(h["binding"].clone())
             .map_err(|e| LeafError::Format(format!("binding: {e}")))?;
+        if format < 2 {
+            // a version-1 file states no producer basis (and must not gain one by a stray member)
+            binding.producer = None;
+        }
         let want = h["digest"].as_str().unwrap_or("").to_string();
         let w = codec.words();
         let read_codes =
@@ -428,6 +613,7 @@ impl LeafSet {
             levels,
             binding,
             digest: String::new(),
+            format,
         };
         let got = s.compute_digest();
         if got != want {
@@ -567,6 +753,7 @@ impl LeafSetBuilder {
             levels: self.levels,
             binding,
             digest: String::new(),
+            format: LEAFSET_FORMAT_VERSION,
         };
         s.digest = s.compute_digest();
         Ok(s)
@@ -724,4 +911,131 @@ pub struct LeafSummary {
     pub open_reached: u64,
     /// The digests of the reached parts: a `closed` verdict means "closed relative to" these.
     pub relative_to: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::closure::Tier;
+
+    fn set(format: u32, producer: Option<LeafProducer>, level: &str) -> LeafSet {
+        let mut b = LeafSetBuilder::new(KeyCodec::new(2, 6).unwrap(), vec![], vec![]);
+        b.push(&[2, 1], "table", level, true).unwrap();
+        b.push(&[3, 1], "table", "terminal", true).unwrap();
+        let mut s = b
+            .finish(LeafBinding {
+                source_verdict: "closed".into(),
+                producer,
+                ..Default::default()
+            })
+            .unwrap();
+        if format != s.format {
+            // a file of an older build (format 1 has no producer member)
+            s.format = format;
+            s.binding.producer = None;
+            s.digest = s.compute_digest();
+        }
+        s
+    }
+
+    fn req(level: &str, tier: Tier, strict: bool) -> LeafRequirement {
+        LeafRequirement {
+            required_level: level.into(),
+            tier,
+            strict,
+        }
+    }
+
+    #[test]
+    fn format_two_round_trips_its_producer_and_format_one_reads_as_unknown() {
+        let p = LeafProducer::new("per-key", Tier::C, true);
+        let s2 = set(2, Some(p.clone()), "per-key");
+        let mut buf = vec![];
+        s2.write(&mut buf).unwrap();
+        assert!(String::from_utf8_lossy(&buf).contains(LEAFSET_SCHEMA));
+        let r2 = LeafSet::read(&buf[..]).unwrap();
+        assert_eq!(r2.format_version(), LEAFSET_FORMAT_VERSION);
+        assert_eq!(r2.producer(), Some(&p));
+        assert_eq!(r2.digest(), s2.digest());
+        // a version-1 file reads back (its own digest), producer unknown
+        let s1 = set(1, None, "per-key");
+        let mut buf = vec![];
+        s1.write(&mut buf).unwrap();
+        assert!(String::from_utf8_lossy(&buf).contains(LEAFSET_SCHEMA_V1));
+        let r1 = LeafSet::read(&buf[..]).unwrap();
+        assert_eq!(r1.format_version(), 1);
+        assert_eq!(r1.producer(), None);
+        assert_ne!(r1.digest(), s2.digest());
+        // recode keeps the format and the digest
+        let rc = r1.recode(KeyCodec::new(2, 7).unwrap()).unwrap();
+        assert_eq!((rc.format_version(), rc.digest()), (1, r1.digest()));
+    }
+
+    #[test]
+    fn a_leaf_meets_a_requirement_only_at_its_certified_level_tier_and_basis() {
+        let i = 0; // [2,1]
+        let pk = set(2, Some(LeafProducer::new("per-key", Tier::C, true)), "per-key");
+        assert_eq!(pk.shortfall(i, &req("per-key", Tier::C, true)), None);
+        // certified level = min(level word, producer's required level)
+        let imp = set(2, Some(LeafProducer::new("imported", Tier::C, true)), "per-key");
+        assert_eq!(
+            imp.shortfall(i, &req("per-key", Tier::C, false)),
+            Some(LeafShortfall::BelowRequiredEvidence)
+        );
+        assert_eq!(imp.shortfall(i, &req("imported", Tier::C, true)), None);
+        let k = set(2, Some(LeafProducer::new("per-key", Tier::K, false)), "per-key");
+        assert_eq!(
+            k.shortfall(i, &req("per-key", Tier::C, false)),
+            Some(LeafShortfall::BelowRequiredTier)
+        );
+        assert_eq!(k.shortfall(i, &req("per-key", Tier::K, false)), None);
+        let ns = set(2, Some(LeafProducer::new("per-key", Tier::C, false)), "per-key");
+        assert_eq!(
+            ns.shortfall(i, &req("per-key", Tier::C, true)),
+            Some(LeafShortfall::BasisNotStrict)
+        );
+        // unknown producer (format 1, or none stated): the lowest level only, tier unknown, not strict
+        for old in [set(1, None, "per-key"), set(2, None, "per-key")] {
+            assert_eq!(old.shortfall(i, &req("imported", Tier::K, false)), None);
+            assert_eq!(
+                old.shortfall(i, &req("replay", Tier::K, false)),
+                Some(LeafShortfall::BelowRequiredEvidence)
+            );
+            assert_eq!(
+                old.shortfall(i, &req("imported", Tier::C, false)),
+                Some(LeafShortfall::BelowRequiredTier)
+            );
+            // a terminal meets every LEVEL (not the tier of an unknown producer)
+            assert_eq!(old.shortfall(1, &req("per-key", Tier::K, false)), None);
+        }
+        // a word that is no level word is below everything
+        let odd = set(2, Some(LeafProducer::new("per-key", Tier::C, true)), "none");
+        assert_eq!(
+            odd.shortfall(i, &req("imported", Tier::K, false)),
+            Some(LeafShortfall::BelowRequiredEvidence)
+        );
+    }
+
+    #[test]
+    fn the_weakest_part_bounds_a_composed_producer() {
+        let a = LeafProducer::new("per-key", Tier::C, true);
+        let b = LeafProducer::new("replay", Tier::C, false);
+        let w = LeafProducer::weakest([Some(&a), Some(&b)]).unwrap();
+        assert_eq!(w, LeafProducer::new("replay", Tier::C, false));
+        assert_eq!(LeafProducer::weakest([Some(&a), None]), None);
+        assert_eq!(LeafProducer::weakest(std::iter::empty()), None);
+        let k = LeafProducer::new("per-key", Tier::K, true);
+        assert_eq!(LeafProducer::weakest([Some(&a), Some(&k)]).unwrap().tier, "K");
+    }
+
+    #[test]
+    fn the_level_words_are_the_imports() {
+        use crate::import::Level;
+        let words: Vec<&str> = [Level::Imported, Level::Replay, Level::PerKey]
+            .iter()
+            .map(|l| l.word())
+            .collect();
+        assert_eq!(words, LEAF_LEVEL_ORDER);
+        assert!(Level::Imported < Level::Replay && Level::Replay < Level::PerKey);
+    }
 }

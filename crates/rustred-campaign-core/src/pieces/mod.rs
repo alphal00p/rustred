@@ -27,13 +27,18 @@ pub use gate::{GateConfig, GateReport, GateStorage, GateVerdict, ShipGate};
 pub use order::{EdgeOrder, FnOrder, KeyOrder};
 pub use plan::{Candidate, Plan, PlanError, PlanInput, Ranking, ServiceKind, UnservedKey, plan};
 
-/// Exact non-zero-ness of a right-hand-side term. `Zero` is not an edge; `Yes` and `Unknown` are.
+/// Exact non-zero-ness of a right-hand-side term. `Zero` (a CONFIRMED zero) is not an edge; `Yes`, `Unknown` and
+/// `ZeroUnconfirmed` are.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NonZero {
     Yes,
     Zero,
     Unknown,
+    /// audit r2-planners G1: the FIRST route says zero, no independent second route confirmed it: an EDGE; non-descending
+    /// it refuses the gate with the typed reason `all_zeros_unconfirmed:N` (the closing loop's rule "zeros need a second
+    /// route").
+    ZeroUnconfirmed,
 }
 
 /// One right-hand-side term.

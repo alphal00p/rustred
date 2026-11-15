@@ -8,8 +8,15 @@
 //! - a relation the import REFUSED for not descending (open `recipeunverified`): its right-hand side as well (it was
 //!   handed to the import; the gate reports it).
 //!
-//! Non-zero-ness comes from the evidence's coefficient facts ([`FactSource`]): `Zero` drops the term, `NonZero` and
-//! `Unknown` keep it as an edge. Relation right-hand sides list the terms of an exact relation: kept as edges. The
+//! Non-zero-ness comes from the evidence's coefficient facts (the FIRST route): `NonZero` and `Unknown` keep the term as
+//! an edge; a first-route `Zero` drops it ONLY when an independent SECOND route confirms it (audit r2-planners G1; the
+//! closing loop's rule "zeros need a second route", [`crate::import::zero_proofs::confirm_first_route_zero`]): closeloop4's
+//! term-by-term comparison (a confirmed basis word in the evidence) or a structural zero proof of the term at the key
+//! ([`FactSource::zero_proof`], e.g. `ZeroProofFacts`) when the first route's producer is one the zeros route is
+//! independent of. An unconfirmed zero stays an EDGE ([`NonZero::ZeroUnconfirmed`]): non-descending, the gate refuses
+//! with `all_zeros_unconfirmed:N`. A structural proof alone (no first-route zero) drops nothing. The gate refuses a
+//! check of ANOTHER table set (`check_of_another_table_set`, G2). Relation right-hand sides list the terms of an exact
+//! relation: kept as edges. The
 //! provenance of each relation is `<source class>|<server kind>|<term class>` (term class from the frame's line
 //! mask: `top`, `positive_numerator`, `lower_sector`), so the report breaks offenders down by both.
 
@@ -21,6 +28,7 @@ use serde_json::Value;
 use super::NonZero;
 use super::gate::{GateConfig, GateReport, ShipGate};
 use crate::closure::{CoefFact, FactSource, RuleId};
+use crate::import::zero_proofs::confirm_first_route_zero;
 use crate::import::{CheckResult, Evidence, ImportedSet, RowStatus, Server};
 
 /// Counts of what was enumerated.
@@ -35,6 +43,9 @@ pub struct ShippedStats {
     /// Served rows whose record has no body or whose relation is missing from the evidence (no edges known).
     pub no_body: u64,
     pub terms: u64,
+    /// audit r2-planners G1: first-route ZERO terms by confirmation (`confirmed_basis`, `zeros_route`: dropped;
+    /// `second_route_unconfirmed`, `second_route_basis_unknown`: kept as edges).
+    pub zero_terms: std::collections::BTreeMap<String, u64>,
 }
 
 fn term_class(lines: &[bool], k: &[i32]) -> &'static str {
@@ -51,13 +62,6 @@ fn term_class(lines: &[bool], k: &[i32]) -> &'static str {
     }
 }
 
-fn nz(f: CoefFact) -> NonZero {
-    match f {
-        CoefFact::Zero => NonZero::Zero,
-        CoefFact::NonZero => NonZero::Yes,
-        CoefFact::Unknown => NonZero::Unknown,
-    }
-}
 
 /// A relation handed to the sink: key, provenance, terms.
 pub type RelationSink<'a> =
@@ -87,13 +91,18 @@ impl Emitter<'_> {
     }
 }
 
+/// The terms of (table, record) at `applied` with their non-zero-ness: the evidence `ev` is the FIRST route; a first-route
+/// zero is a (dropped) `Zero` only when confirmed (closeloop4's confirmed basis in `ev`, or `facts`' structural proof).
+#[allow(clippy::too_many_arguments)]
 fn rule_terms(
     set: &ImportedSet,
+    ev: &Evidence,
     facts: &dyn FactSource,
     table: usize,
     record: usize,
     applied: &[i32],
     out: &mut Vec<(Vec<i32>, NonZero)>,
+    zeros: &mut std::collections::BTreeMap<String, u64>,
 ) -> Result<bool, String> {
     let (mut buf, mut cm) = (vec![], vec![]);
     let nt = set
@@ -117,7 +126,19 @@ fn rule_terms(
     let n = set.arity();
     for j in 0..nt {
         let tk = buf[j * n..(j + 1) * n].to_vec();
-        let f = nz(facts.coefficient(&rid, applied, j, &tk));
+        let f = match ev.coefficient(&rid, applied, j, &tk) {
+            CoefFact::NonZero => NonZero::Yes,
+            CoefFact::Unknown => NonZero::Unknown,
+            CoefFact::Zero => {
+                let c = confirm_first_route_zero(ev.fact_basis(&rid, applied), facts, &rid, applied, j);
+                *zeros.entry(c.word().to_string()).or_default() += 1;
+                if c.confirmed() {
+                    NonZero::Zero
+                } else {
+                    NonZero::ZeroUnconfirmed
+                }
+            }
+        };
         out.push((tk, f));
     }
     Ok(true)
@@ -190,7 +211,7 @@ pub fn shipped_relations<'s>(
                 format!("{} line {}: record {sha} not in the set", sr.path, li + 1)
             })?;
             st.rule_rows += 1;
-            if !rule_terms(set, facts, t, r, &key, &mut em.buf)? {
+            if !rule_terms(set, ev, facts, t, r, &key, &mut em.buf, &mut st.zero_terms)? {
                 st.no_body += 1;
                 continue;
             }
@@ -205,7 +226,16 @@ pub fn shipped_relations<'s>(
                     continue; // already read from the rows file
                 }
                 st.rule_rows += 1;
-                if !rule_terms(set, facts, *table, *record, &row.key, &mut em.buf)? {
+                if !rule_terms(
+                    set,
+                    ev,
+                    facts,
+                    *table,
+                    *record,
+                    &row.key,
+                    &mut em.buf,
+                    &mut st.zero_terms,
+                )? {
                     st.no_body += 1;
                     continue;
                 }
@@ -220,7 +250,16 @@ pub fn shipped_relations<'s>(
                 let Some(img) = &row.image else {
                     return Err(format!("credit row {:?} without its image", row.key));
                 };
-                if !rule_terms(set, facts, *table, *record, img, &mut em.buf)? {
+                if !rule_terms(
+                    set,
+                    ev,
+                    facts,
+                    *table,
+                    *record,
+                    img,
+                    &mut em.buf,
+                    &mut st.zero_terms,
+                )? {
                     st.no_body += 1;
                     continue;
                 }
@@ -281,8 +320,9 @@ pub fn gate_check(
     gate_check_with(set, ev, ev, res, cfg)
 }
 
-/// [`gate_check`] with any fact source for the zero terms (e.g. the evidence wrapped by the structural zero proofs,
-/// `import::zero_proofs::ZeroProofFacts`).
+/// [`gate_check`] with a SECOND-ROUTE source for the first-route zero terms (e.g. the evidence wrapped by the structural
+/// zero proofs, `import::zero_proofs::ZeroProofFacts`: its [`FactSource::zero_proof`]). The first route is always the
+/// evidence `ev`. Refuses (`Err`, typed `check_of_another_table_set`) a check whose spec digest is not the set's (G2).
 pub fn gate_check_with(
     set: &ImportedSet,
     ev: &Evidence,
@@ -290,6 +330,13 @@ pub fn gate_check_with(
     res: &CheckResult,
     cfg: GateConfig,
 ) -> Result<(GateReport, ShippedStats), String> {
+    // audit r2-planners G2: the check must be of THIS table set
+    if res.spec_digest != set.report.spec_digest {
+        return Err(format!(
+            "check_of_another_table_set: the check's spec digest {} is not the gated set's {}: refused",
+            res.spec_digest, set.report.spec_digest
+        ));
+    }
     let mut gate = ShipGate::new(&set.cmp, set.arity(), cfg).map_err(|e| e.to_string())?;
     let mut err: Option<String> = None;
     let stats = {
@@ -311,4 +358,34 @@ pub fn gate_check_with(
     }
     let rep = gate.finish().map_err(|e| e.to_string())?;
     Ok((rep, stats))
+}
+
+/// audit r2-planners G2: the TABLE-SET digest of an imported set, `sha256:<hex>` of its PINNED TABLE LIST: per source in
+/// spec order one line `<id>\t<class>\t<kind>` followed by one line `\t<file sha256>` per file (the files' content
+/// pins; paths do not enter). A plan's input carries it ([`super::plan::PlanInput::table_set_digest`]).
+pub fn table_set_digest(set: &ImportedSet) -> String {
+    let mut h = crate::closure::sha256::Sha256::new();
+    h.update(b"pieces.table-set.v1\n");
+    for s in &set.report.sources {
+        h.update(format!("{}\t{}\t{}\n", s.id, s.class, s.kind).as_bytes());
+        for (_, sha) in &s.files {
+            h.update(format!("\t{sha}\n").as_bytes());
+        }
+    }
+    format!("sha256:{}", h.finish_hex())
+}
+
+/// audit r2-planners G2: a plan is gated / shipped only against the table set it was made for: `Err` (typed
+/// `plan_table_set_unstated` | `plan_of_another_table_set`) otherwise.
+pub fn check_plan_table_set(plan: &super::plan::Plan, set: &ImportedSet) -> Result<(), String> {
+    let want = table_set_digest(set);
+    match &plan.table_set_digest {
+        None => Err(format!(
+            "plan_table_set_unstated: the plan names no table set (this set is {want}): refused"
+        )),
+        Some(d) if *d != want => Err(format!(
+            "plan_of_another_table_set: the plan was made for {d}, the set is {want}: refused"
+        )),
+        Some(_) => Ok(()),
+    }
 }

@@ -387,7 +387,7 @@ pub fn check(
     ev: &Evidence,
     opts: &CheckOptions,
 ) -> Result<CheckResult, ImportError> {
-    check_inner(set, ev, opts, None, &set.start, &[])
+    check_inner(set, ev, opts, None, &set.start, &[], None)
 }
 
 /// lane layers (closure.md 18): the walk components of this set's configuration (tables, relation sets of the
@@ -462,7 +462,21 @@ pub fn check_from_with_leaves(
     start: &crate::closure::KeySet,
     leaves: &[Arc<crate::closure::LeafSet>],
 ) -> Result<CheckResult, ImportError> {
-    check_inner(set, ev, opts, None, start, leaves)
+    check_inner(set, ev, opts, None, start, leaves, None)
+}
+
+/// audit r2-planners L1: [`check_from_with_leaves`] with the CONSUMING run's leaf requirement (its required level, tier,
+/// strictness; e.g. the closing loop's gates, which may differ from the spec's `required_evidence`). `None` = the
+/// spec's required level at the check's tier, no strictness demanded.
+pub fn check_from_with_leaves_required(
+    set: &ImportedSet,
+    ev: &Evidence,
+    opts: &CheckOptions,
+    start: &crate::closure::KeySet,
+    leaves: &[Arc<crate::closure::LeafSet>],
+    required: Option<&crate::closure::LeafRequirement>,
+) -> Result<CheckResult, ImportError> {
+    check_inner(set, ev, opts, None, start, leaves, required)
 }
 
 /// A row sink of [`check_streamed`].
@@ -502,6 +516,20 @@ pub fn check_streamed_with_leaves(
     start: &crate::closure::KeySet,
     leaves: &[Arc<crate::closure::LeafSet>],
 ) -> Result<CheckResult, ImportError> {
+    check_streamed_with_leaves_required(set, ev, opts, rows_path, start, leaves, None)
+}
+
+/// audit r2-planners L1: [`check_streamed_with_leaves`] with the CONSUMING run's leaf requirement (see
+/// [`check_from_with_leaves_required`]).
+pub fn check_streamed_with_leaves_required(
+    set: &ImportedSet,
+    ev: &Evidence,
+    opts: &CheckOptions,
+    rows_path: &std::path::Path,
+    start: &crate::closure::KeySet,
+    leaves: &[Arc<crate::closure::LeafSet>],
+    required: Option<&crate::closure::LeafRequirement>,
+) -> Result<CheckResult, ImportError> {
     use std::io::Write;
     if let Some(d) = rows_path.parent() {
         std::fs::create_dir_all(d).map_err(|e| super::error::io_err(d, e))?;
@@ -523,7 +551,7 @@ pub fn check_streamed_with_leaves(
             n += 1;
             Ok(())
         };
-        check_inner(set, ev, opts, Some(&mut sink), start, leaves)?
+        check_inner(set, ev, opts, Some(&mut sink), start, leaves, required)?
     };
     w.flush().map_err(|e| super::error::io_err(rows_path, e))?;
     res.streamed = Some(StreamedRows {
@@ -578,6 +606,7 @@ fn check_inner(
     mut sink: Option<&mut RowSink<'_>>,
     start: &crate::closure::KeySet,
     leaves: &[Arc<crate::closure::LeafSet>],
+    leaf_required: Option<&crate::closure::LeafRequirement>,
 ) -> Result<CheckResult, ImportError> {
     let t0 = std::time::Instant::now();
     let tier = opts.tier.unwrap_or(match set.spec.policies.tier {
@@ -638,6 +667,16 @@ fn check_inner(
         },
         per_key_lift: per_key_lift(set),
         leaves: leaves.to_vec(),
+        // audit r2-planners L1: a certified leaf below the consuming run's requirement blocks
+        leaf_requirement: (!leaves.is_empty()).then(|| {
+            leaf_required
+                .cloned()
+                .unwrap_or_else(|| crate::closure::LeafRequirement {
+                    required_level: set.spec.required_evidence.word().to_string(),
+                    tier,
+                    strict: false,
+                })
+        }),
         ..Default::default()
     };
     let c = closure(&set.disp, &set.bodies, &set.cmp, start, &cfg, ev)

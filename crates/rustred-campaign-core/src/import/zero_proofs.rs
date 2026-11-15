@@ -452,9 +452,107 @@ impl ZeroProofs {
     }
 }
 
+/// The SECOND ROUTE of a first-route zero, by the first route's PRODUCER word (audit r2-planners G1; the same words and
+/// table as lane zerosfix3's `closeloop/zeros.rs::ZeroRoute`, closeloop.md 23.3 + 18.2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ZeroRoute {
+    /// The first route IS the exact evaluation (Symbolica): the zeros route runs on the same algebra and is not
+    /// independent; only closeloop4's term-by-term comparison with rr_proof confirms (a confirmed basis word).
+    Compare,
+    /// The zeros route (structural proofs, `rr_coef_facts`, Symbolica): independent of rr_proof and of an unnamed
+    /// compact producer.
+    Zeros,
+    /// No route knows the first route's word (`none`, `store` of a pre-v3 store, `unknown_producer`, anything else):
+    /// the zero is never confirmed (`second_route_basis_unknown`; fail closed).
+    Unknown,
+}
+
+/// The [`ZeroRoute`] of a first-route PRODUCER word (never a confirmed basis word).
+pub fn zero_route_of(first: &str) -> ZeroRoute {
+    match first {
+        "exact_eval" => ZeroRoute::Compare,
+        "rr_proof" | "rr_proof_elided" | "compact" => ZeroRoute::Zeros,
+        _ => ZeroRoute::Unknown,
+    }
+}
+
+/// Whether a second-route answer of producer `second` is INDEPENDENT of the first route's producer `first` (they share
+/// no code below the coefficient text): rr_proof / rr_proof_elided / an unnamed compact producer against the exact
+/// evaluation, and back (the same table as lane zerosfix3's `closeloop/zeros.rs::independent`).
+pub fn independent(first: &str, second: &str) -> bool {
+    match first {
+        "rr_proof" | "compact" | "rr_proof_elided" => second == "exact_eval",
+        "exact_eval" => second == "rr_proof" || second == "rr_proof_elided",
+        _ => false,
+    }
+}
+
+/// Whether a fact BASIS word is a CONFIRMED basis: `<first> + <second>` of two INDEPENDENT producers (the words
+/// closeloop4's comparison writes through `Evidence::confirm_basis` when the two routes agree term by term).
+pub fn is_confirmed_basis(word: &str) -> bool {
+    match word.split_once(" + ") {
+        Some((a, b)) => independent(a.trim(), b.trim()),
+        None => false,
+    }
+}
+
+/// Why a first-route zero is (not) confirmed (audit r2-planners G1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ZeroConfirmation {
+    /// closeloop4's comparison: the fact's basis is a confirmed basis word ([`is_confirmed_basis`]).
+    ConfirmedBasis,
+    /// A structural zero proof of the term at the key, and the first route's producer is one the zeros route is
+    /// independent of ([`ZeroRoute::Zeros`]).
+    ZerosRoute,
+    /// No independent second route confirmed it (`second_route_unconfirmed`).
+    Unconfirmed,
+    /// The first route's producer is no known producer (`second_route_basis_unknown`).
+    BasisUnknown,
+}
+
+impl ZeroConfirmation {
+    pub fn confirmed(self) -> bool {
+        matches!(
+            self,
+            ZeroConfirmation::ConfirmedBasis | ZeroConfirmation::ZerosRoute
+        )
+    }
+    pub fn word(self) -> &'static str {
+        match self {
+            ZeroConfirmation::ConfirmedBasis => "confirmed_basis",
+            ZeroConfirmation::ZerosRoute => "zeros_route",
+            ZeroConfirmation::Unconfirmed => "second_route_unconfirmed",
+            ZeroConfirmation::BasisUnknown => "second_route_basis_unknown",
+        }
+    }
+}
+
+/// The confirmation of a FIRST-ROUTE zero of term `term` of `rule` at `key`: `basis` = the evidence's fact basis word
+/// of (rule, key) (`Evidence::fact_basis`: the producer, or a confirmed basis word), `facts` = the source that may hold
+/// a structural zero proof ([`FactSource::zero_proof`]).
+pub fn confirm_first_route_zero(
+    basis: Option<&str>,
+    facts: &dyn FactSource,
+    rule: &RuleId,
+    key: &[i32],
+    term: usize,
+) -> ZeroConfirmation {
+    let basis = basis.unwrap_or("none");
+    if is_confirmed_basis(basis) {
+        return ZeroConfirmation::ConfirmedBasis;
+    }
+    match zero_route_of(basis) {
+        ZeroRoute::Zeros if facts.zero_proof(rule, key, term) => ZeroConfirmation::ZerosRoute,
+        ZeroRoute::Zeros | ZeroRoute::Compare => ZeroConfirmation::Unconfirmed,
+        ZeroRoute::Unknown => ZeroConfirmation::BasisUnknown,
+    }
+}
+
 /// A [`FactSource`] that answers like `inner`, except that an `Unknown` coefficient that a proof covers AT THE KEY
 /// ([`ZeroStatus::Proved`]: the same semantics as [`ZeroProofs::is_zero_term`]) is `Zero`. Regularity and every other
-/// question go to `inner`.
+/// question go to `inner`. audit r2-planners G1: such a proof-only `Zero` is ONE route; the ship gate does not drop a
+/// term on it (nor on the inner source's first-route `Zero` alone): it asks [`FactSource::zero_proof`] as the second
+/// route of the evidence's first-route zero ([`confirm_first_route_zero`]).
 pub struct ZeroProofFacts<'a> {
     pub set: &'a ImportedSet,
     pub proofs: &'a ZeroProofs,
@@ -522,6 +620,15 @@ impl FactSource for ZeroProofFacts<'_> {
     }
     fn per_key_proof(&self, rule: &RuleId, key: &[i32]) -> bool {
         self.inner.per_key_proof(rule, key)
+    }
+    /// audit r2-planners G1: the structural proof itself (the SECOND route of a first-route zero; the ship gate drops a
+    /// term only on a first-route zero confirmed by it, [`confirm_first_route_zero`]).
+    fn zero_proof(&self, rule: &RuleId, key: &[i32], term: usize) -> bool {
+        let Some(&t) = self.tables.get(rule.table) else {
+            return self.inner.zero_proof(rule, key, term);
+        };
+        self.proofs.is_zero_term(self.set, t, rule.record, term, key) == ZeroStatus::Proved
+            || self.inner.zero_proof(rule, key, term)
     }
 }
 
