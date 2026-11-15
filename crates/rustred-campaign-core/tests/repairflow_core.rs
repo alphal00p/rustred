@@ -1066,8 +1066,8 @@ mod composite_toy {
         };
         compose_element(&Independent, &f, cat, 3, &rows, key, &lower, &cmp, &opts)
     }
-    pub fn by_el(v: Vec<(usize, Vec<(Vec<i32>, Q)>)>) -> BTreeMap<usize, Vec<Vec<(Vec<i32>, Q)>>> {
-        let mut m: BTreeMap<usize, Vec<Vec<(Vec<i32>, Q)>>> = BTreeMap::new();
+    pub fn by_el(v: Vec<(usize, QRow)>) -> RowsByElement {
+        let mut m: RowsByElement = BTreeMap::new();
         for (e, r) in v {
             m.entry(e).or_default().push(r);
         }

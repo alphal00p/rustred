@@ -1346,16 +1346,38 @@ fn with_route0(text: &str, policy: &RepairPolicy) -> Result<(String, Option<Valu
 /// The pinned symmetry-composite result of the policy (`route0.composite_input`) as a `supplied_relations` source of
 /// the spec (once; placed before the default recipe): the import loads it, re-checks descent, cites the verification.
 fn with_composites(text: &str, policy: &RepairPolicy) -> Result<String, String> {
-    let Some(ci) = &policy.route0.composite_input else {
+    if policy.route0.composite_input.is_none() && policy.evidence.facts.is_empty() {
         return Ok(text.to_string());
-    };
+    }
     let mut v: Value = serde_json::from_str(text).map_err(|e| format!("import spec: {e}"))?;
+    // the typed zero-fact slot: extra fact files appended to the spec's evidence (once)
+    if !policy.evidence.facts.is_empty() {
+        let ev = v
+            .as_object_mut()
+            .ok_or("import spec: not an object")?
+            .entry("evidence")
+            .or_insert_with(|| json!({}));
+        let facts = ev
+            .as_object_mut()
+            .ok_or("import spec: evidence not an object")?
+            .entry("facts")
+            .or_insert_with(|| json!([]));
+        let arr = facts.as_array_mut().ok_or("import spec: evidence.facts")?;
+        for f in &policy.evidence.facts {
+            if !arr.iter().any(|x| x["path"] == f.path.as_str()) {
+                arr.push(json!({"path": f.path, "sha256": f.sha256}));
+            }
+        }
+    }
+    let Some(ci) = &policy.route0.composite_input else {
+        return Ok(serde_json::to_string_pretty(&v).expect("json") + "\n");
+    };
     let srcs = v
         .get_mut("sources")
         .and_then(Value::as_array_mut)
         .ok_or("import spec: no sources")?;
     if srcs.iter().any(|s| s["id"] == "rf:symmetry-composite") {
-        return Ok(text.to_string());
+        return Ok(serde_json::to_string_pretty(&v).expect("json") + "\n");
     }
     let at = srcs
         .iter()

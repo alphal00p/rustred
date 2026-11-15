@@ -484,6 +484,120 @@ fn main() {
             "verify_s": t_verify - t_compose, "threads": threads})
         .to_string(),
     );
+    // ROUND CHECK (request field `ship_check`, default true): the spec + the shipped composites as a supplied_relations
+    // source WITH its verification (pinned) + the policy's extra evidence (zero-fact slot): import load + check (do the
+    // import's own checks accept every shipped relation?), the keys still open (the next round's pool), and lane pieces'
+    // ship gate over everything that spec ships (positive-numerator unknowns as their own class). Unsealed: it carries
+    // timings; its counts are copied into result.json.
+    let mut ship_summary = Value::Null;
+    if request["ship_check"].as_bool().unwrap_or(true) && !accepted.is_empty() {
+        drop(cat);
+        drop(set);
+        let tpath = out.join("composite.table.jsonl");
+        let vpath = out.join("composite.verification.jsonl");
+        let mut sv: Value =
+            serde_json::from_slice(&spec_bytes).unwrap_or_else(|e| die(&e.to_string()));
+        let tsha = sha256_hex(&std::fs::read(&tpath).unwrap_or_default());
+        let vsha = sha256_hex(&std::fs::read(&vpath).unwrap_or_default());
+        if let Some(srcs) = sv["sources"].as_array_mut() {
+            srcs.retain(|x| x["id"] != "rf:symmetry-composite");
+            let at = srcs
+                .iter()
+                .position(|x| x["id"] == "default-recipe")
+                .unwrap_or(srcs.len());
+            srcs.insert(
+                at,
+                json!({"id": "rf:symmetry-composite", "kind": "supplied_relations", "class": "symmetry-composite",
+                    "path": tpath, "sha256": tsha, "verification": {"path": vpath, "sha256": vsha}}),
+            );
+        }
+        for f in &policy.evidence.facts {
+            let facts = sv["evidence"]["facts"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            let mut facts = facts;
+            facts.push(json!({"path": f.path, "sha256": f.sha256}));
+            sv["evidence"]["facts"] = json!(facts);
+        }
+        let next_text = serde_json::to_string_pretty(&sv).expect("json") + "\n";
+        let _ = std::fs::write(out.join("next.spec.json"), &next_text);
+        let t1 = Instant::now();
+        let spec2 =
+            TableSetSpec::from_json(&next_text).unwrap_or_else(|e| die(&format!("next spec: {e}")));
+        let set2 = rustred_campaign_core::import::load(&spec2, &base)
+            .unwrap_or_else(|e| die(&format!("next spec load: {e}")));
+        let ev2 = Evidence::from_spec(&set2, &base)
+            .unwrap_or_else(|e| die(&format!("next evidence: {e}")));
+        let rows2 = out.join("check2.rows");
+        let res2 = rustred_campaign_core::import::check::check_streamed(
+            &set2,
+            &ev2,
+            &CheckOptions {
+                threads,
+                tier: None,
+                max_rounds: None,
+            },
+            &rows2,
+        )
+        .unwrap_or_else(|e| die(&format!("next check: {e}")));
+        let _ = std::fs::remove_file(&rows2);
+        let shipped: std::collections::HashSet<&Vec<i32>> =
+            accepted.iter().map(|a| &a.key).collect();
+        let round_keys: std::collections::HashSet<&Vec<i32>> = keys.iter().collect();
+        let (mut served_shipped, mut open_shipped, mut new_open) =
+            (0u64, BTreeMap::<String, u64>::new(), vec![]);
+        let mut open_status: BTreeMap<String, u64> = BTreeMap::new();
+        for r in &res2.rows {
+            let st = r.open_status.clone().unwrap_or_default();
+            if shipped.contains(&r.key) {
+                if r.status == RowStatus::Open {
+                    *open_shipped.entry(st.clone()).or_default() += 1;
+                } else {
+                    served_shipped += 1;
+                }
+            }
+            if r.status == RowStatus::Open {
+                *open_status.entry(st.clone()).or_default() += 1;
+                if st == "uncovered" && !round_keys.contains(&r.key) {
+                    new_open.push(r.key.clone());
+                }
+            }
+        }
+        let mut nk = String::new();
+        for k in &new_open {
+            nk.push_str(&serde_json::to_string(k).expect("json"));
+            nk.push('\n');
+        }
+        let _ = std::fs::write(out.join("next_open.keys.jsonl"), nk);
+        let tmpg = out.join("gate.spill");
+        let _ = std::fs::create_dir_all(&tmpg);
+        let gate2 = symflow::ship_gate_split(
+            &set2,
+            &ev2,
+            &res2,
+            rustred_campaign_core::pieces::gate::GateConfig::disk(&tmpg),
+        );
+        let _ = std::fs::remove_dir(&tmpg);
+        ship_summary = json!({"closure_keys": res2.summary.keys_total, "closure_open": res2.summary.open_total,
+            "open_by_status": open_status, "shipped": accepted.len(), "shipped_served_by_the_import": served_shipped,
+            "shipped_left_open_by_status": open_shipped, "new_open_keys": new_open.len(),
+            "ship_gate": match &gate2 { Ok(v) => v.clone(), Err(e) => json!({"error": e}) },
+            "seconds": t1.elapsed().as_secs_f64()});
+        let _ = std::fs::write(
+            out.join("ship_check.json"),
+            serde_json::to_string_pretty(&ship_summary).expect("json") + "\n",
+        );
+    }
+    let mut result = result;
+    if !ship_summary.is_null() {
+        result["ship_check"] = json!({"shipped_served_by_the_import": ship_summary["shipped_served_by_the_import"],
+            "shipped_left_open_by_status": ship_summary["shipped_left_open_by_status"],
+            "new_open_keys": ship_summary["new_open_keys"],
+            "gate_verdict": ship_summary["ship_gate"]["gate"]["verdict"],
+            "gate_non_descending": ship_summary["ship_gate"]["gate"]["non_descending"],
+            "positive_numerator_unknown_terms": ship_summary["ship_gate"]["positive_numerator_unknown"]["terms"]});
+    }
     let part = out.join("result.json.part");
     std::fs::write(
         &part,

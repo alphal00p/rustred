@@ -21,6 +21,8 @@ pub struct RepairPolicy {
     pub route0: Route0Policy,
     pub composite: CompositePolicy,
     pub regions: RegionsPolicy,
+    /// Extra evidence added to every spec the flow composes (typed slot: zero-fact sources of lane zeros2).
+    pub evidence: ExtraEvidence,
     pub faces: FacesPolicy,
     pub symbolic: SymbolicPolicy,
     pub keep: KeepPolicy,
@@ -39,6 +41,7 @@ impl Default for RepairPolicy {
             route0: Route0Policy::default(),
             composite: CompositePolicy::default(),
             regions: RegionsPolicy::default(),
+            evidence: ExtraEvidence::default(),
             faces: FacesPolicy::default(),
             symbolic: SymbolicPolicy::default(),
             keep: KeepPolicy::default(),
@@ -131,6 +134,14 @@ impl Default for CompositePolicy {
             max_record_bytes: 16 << 20,
         }
     }
+}
+
+/// Evidence files the flow adds to the specs it composes (`evidence.facts` of the import spec): the typed slot for a
+/// ZERO-FACT source (lane zeros2: structural zero proofs of positive-numerator terms), pinned.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ExtraEvidence {
+    pub facts: Vec<PinnedFile>,
 }
 
 /// ELEMENT BY REGION (TRICKS 2; lane regions' `regionfit`, interfaces/regionfit.md): fitted per face on the per-key

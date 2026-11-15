@@ -32,12 +32,12 @@ impl KeyService {
     }
 }
 
+/// A key with its composite outcomes or the reason it could not be judged.
+pub type KeyResult<'a, E> = (Vec<i32>, Result<&'a KeyComposites<E>, String>);
+
 /// Per face: keys, served by a plain relation, by a composite (and of those, how many have NO plain alternative =
 /// keys the image-only check rejected), not served (with the refusal classes of every element), errors.
-pub fn summarise<E>(
-    results: &[(Vec<i32>, Result<&KeyComposites<E>, String>)],
-    lines: &[bool],
-) -> Value {
+pub fn summarise<E>(results: &[KeyResult<'_, E>], lines: &[bool]) -> Value {
     #[derive(Default)]
     struct F {
         keys: u64,
@@ -229,4 +229,54 @@ pub fn fit_face_regions(
         out.insert(f.signature.clone(), v);
     }
     json!({"enabled": true, "adapter": policy.adapter, "faces": out})
+}
+
+/// Lane pieces' SHIP GATE over everything a checked spec ships (`pieces::import_edges::shipped_relations`), with the
+/// right-hand-side terms that have a POSITIVE numerator and an UNKNOWN coefficient counted as their own class
+/// (`positive_numerator_unknown`: no zero fact loaded yet, lane zeros2) instead of being judged for descent; every other
+/// term (zero terms skipped by the gate) is an edge of the gate. The verdict is the gate's over those edges.
+pub fn ship_gate_split(
+    set: &crate::import::load::ImportedSet,
+    ev: &crate::import::Evidence,
+    res: &crate::import::check::CheckResult,
+    cfg: crate::pieces::gate::GateConfig,
+) -> Result<Value, String> {
+    use crate::pieces::NonZero;
+    use crate::pieces::gate::ShipGate;
+    let lines = set.frame.mask().to_vec();
+    let posnum = |k: &[i32]| k.iter().zip(&lines).any(|(&x, &l)| !l && x > 0);
+    let mut gate = ShipGate::new(&set.cmp, set.arity(), cfg).map_err(|e| e.to_string())?;
+    let mut pu: BTreeMap<String, u64> = BTreeMap::new();
+    let mut pu_relations = 0u64;
+    let stats = {
+        let mut sink =
+            |key: &[i32], prov: &str, terms: &[(Vec<i32>, NonZero)]| -> Result<(), String> {
+                let mut kept: Vec<(&[i32], NonZero)> = Vec::with_capacity(terms.len());
+                let mut any = false;
+                for (k, n) in terms {
+                    if *n == NonZero::Unknown && posnum(k) {
+                        *pu.entry(prov.to_string()).or_default() += 1;
+                        any = true;
+                    } else {
+                        kept.push((k.as_slice(), *n));
+                    }
+                }
+                if any {
+                    pu_relations += 1;
+                }
+                gate.push_relation(key, prov, kept)
+                    .map_err(|e| e.to_string())
+            };
+        crate::pieces::import_edges::shipped_relations(set, ev, ev, res, &mut sink)?
+    };
+    let rep = gate.finish().map_err(|e| e.to_string())?;
+    let total: u64 = pu.values().sum();
+    Ok(
+        json!({"gate": rep, "shipped": {"rule_rows": stats.rule_rows, "credit_rows": stats.credit_rows,
+        "relation_rows": stats.relation_rows, "refused_relation_rows": stats.refused_relation_rows,
+        "open_rows": stats.open_rows, "terminal_rows": stats.terminal_rows, "no_body": stats.no_body,
+        "terms": stats.terms},
+        "positive_numerator_unknown": {"terms": total, "relations": pu_relations, "by_provenance": pu,
+            "note": "positive-numerator right-hand-side terms without a zero fact: not judged for descent here (a zero-fact source, lane zeros2, decides them)"}}),
+    )
 }
