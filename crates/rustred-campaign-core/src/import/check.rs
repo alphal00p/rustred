@@ -686,7 +686,7 @@ fn check_inner(
                 });
                 let image_proof = credit_images
                     .get(&row.key)
-                    .is_some_and(|im| ev.proof(set, t, r, im).is_some_and(|p| p.per_key));
+                    .is_some_and(|im| ev.per_key_at(set, t, r, im));
                 // the image's level exactly as the direct-rule branch scores a key served by (t, r): per-key iff an
                 // exact per-key proof is bound at the image (which is also what lifts an image, closure.md 17)
                 let image_level = if image_proof {
@@ -726,7 +726,8 @@ fn check_inner(
                 });
                 let info = &set.rules[t][r];
                 let lifted = c.is_per_key_lifted(i);
-                let proof = lifted || ev.proof(set, t, r, &row.key).is_some_and(|p| p.per_key);
+                // lane t266run (closeloop4 m1): a per-key proof contradicted by a decided verdict does not label the row
+                let proof = lifted || ev.per_key_at(set, t, r, &row.key);
                 row.evidence = Some(if proof {
                     Level::PerKey
                 } else {
