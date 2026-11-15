@@ -114,7 +114,8 @@ pub struct Choice {
     pub max_size_ratio: String,
     pub regular_alternative: RegularAlternative,
     pub criteria_order: CriteriaOrder,
-    /// [`pole_objective`]: which profile decided (`composed` | `local`), the measures and the chosen candidate's values
+    /// [`pole_objective`]: which profile decided (`composed` | `local` | `none` = no candidate had any pole information:
+    /// ranked by size, int7 B1), the measures and the chosen candidate's values
     /// (`u64::MAX` = unknown), and the candidates of the class rejected by the size guard (id, ratio to the smallest).
     pub profile_used: &'static str,
     pub measures: Vec<&'static str>,
@@ -406,8 +407,17 @@ pub fn pole_objective(
             .map(|&i| profiles[i].composed_decided())
             .collect()
     };
+    // int7 (B1): `none` = NO pooled candidate carries any pole information (no composed or local profile, no
+    // `pole_order`): every pole measure is unknown alike, the candidates are ranked by size (then id) and the choice
+    // records "no profile" (a call site that has no pole profile yet)
+    let no_profile = composed.is_none()
+        && pool.iter().all(|&i| {
+            cands[i].pole_order.is_none() && profiles.get(i).is_none_or(|p| p.local.is_empty())
+        });
     let profile_used = if composed.is_some() {
         "composed"
+    } else if no_profile {
+        "none"
     } else {
         "local"
     };
@@ -502,7 +512,8 @@ pub fn pole_objective(
         .min_by(|x, y| (x.size, x.id.as_str()).cmp(&(y.size, y.id.as_str())));
     let reason = if !rejected.is_empty() {
         ChoiceReason::SizeGuard
-    } else if obj.measures.first() == Some(&Measure::Size) {
+    } else if obj.measures.first() == Some(&Measure::Size) || no_profile {
+        // int7 (B1): without any pole information the size decided
         ChoiceReason::Economy
     } else if chosen.is_regular()
         || (profile_used == "composed"
@@ -590,7 +601,11 @@ impl Choice {
             self.max_size_ratio,
             self.chosen_size,
             self.smallest_size,
-            self.profile_used,
+            if self.profile_used == "none" {
+                "none (no profile: ranked by size)"
+            } else {
+                self.profile_used
+            },
             self.measures.join(",")
         )
     }
