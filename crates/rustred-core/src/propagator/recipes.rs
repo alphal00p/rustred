@@ -979,7 +979,32 @@ pub trait PRecipeSolver: Send + Sync {
 /// The error text of a solve stopped by its wall bound.
 pub const BUDGET_WALL_PREFIX: &str = "budget_wall:";
 
-type Job = (String, Vec<i64>, mpsc::Sender<Result<Value, String>>);
+type Job = (
+    String,
+    Vec<i64>,
+    mpsc::Sender<Result<Value, String>>,
+    Arc<std::sync::atomic::AtomicU8>,
+);
+
+/// Job states: the waiter and the worker agree on who owns a solve that
+/// passed its wall bound (exactly one of them wins the transition).
+const JOB_PENDING: u8 = 0;
+const JOB_DONE: u8 = 1;
+const JOB_ABANDONED: u8 = 2;
+
+/// Lifts abandoned at their wall bound and still running (a lift cannot be
+/// interrupted: its thread ends when the lift does).
+static ABANDONED_RUNNING: AtomicU64 = AtomicU64::new(0);
+
+/// At most this many abandoned lifts may run at once (default 1): while the
+/// cap is reached a bounded solve is refused at once (typed BUDGET), so
+/// abandoned lifts never pile up on the CPUs and memory of a request.
+pub const OUTSIDE_MAX_ABANDONED_ENV: &str = "RUSTRED_P_OUTSIDE_MAX_ABANDONED";
+
+/// Abandoned lifts still running in this process.
+pub fn abandoned_solves_running() -> u64 {
+    ABANDONED_RUNNING.load(Ordering::Relaxed)
+}
 
 /// One (chart, symmetry rows, work limit) group: engine sessions in worker
 /// threads, each prepared once, fed by one queue.
@@ -1063,14 +1088,28 @@ impl EngineRecipeSolver {
                         symmetry,
                         &opts,
                         |solve| {
-                            while let Some((recipe, key, reply)) = next() {
-                                let _ = reply.send(Ok(solve(&recipe, &key)));
+                            while let Some((recipe, key, reply, state)) = next() {
+                                let result = solve(&recipe, &key);
+                                let mine = state
+                                    .compare_exchange(
+                                        JOB_PENDING,
+                                        JOB_DONE,
+                                        Ordering::AcqRel,
+                                        Ordering::Acquire,
+                                    )
+                                    .is_ok();
+                                if mine {
+                                    let _ = reply.send(Ok(result));
+                                } else {
+                                    // abandoned at its wall bound: this lift is over
+                                    ABANDONED_RUNNING.fetch_sub(1, Ordering::Relaxed);
+                                }
                             }
                         },
                     );
                     // A preparation failure answers every job with it.
                     if let Err(error) = served {
-                        while let Some((_, _, reply)) = next() {
+                        while let Some((_, _, reply, _)) = next() {
                             let _ = reply.send(Err(format!("engine preparation: {error}")));
                         }
                     }
@@ -1105,13 +1144,29 @@ impl PRecipeSolver for EngineRecipeSolver {
         key_table: &[i64],
         budget: Option<std::time::Duration>,
     ) -> Result<Value, String> {
+        if budget.is_some() {
+            let cap = env_cap(OUTSIDE_MAX_ABANDONED_ENV, 1) as u64;
+            let running = ABANDONED_RUNNING.load(Ordering::Relaxed);
+            if running >= cap {
+                return Err(format!(
+                    "{BUDGET_WALL_PREFIX} {running} earlier solve(s) over their wall bound still running (cap {cap}); \
+                     no new solve started"
+                ));
+            }
+        }
         let group = self.group(bundle, record)?;
         let (reply, answer) = mpsc::channel();
+        let state = Arc::new(std::sync::atomic::AtomicU8::new(JOB_PENDING));
         group
             .queue
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .send((record.recipe.to_string(), key_table.to_vec(), reply))
+            .send((
+                record.recipe.to_string(),
+                key_table.to_vec(),
+                reply,
+                Arc::clone(&state),
+            ))
             .map_err(|_| "the recipe worker stopped".to_owned())?;
         let Some(budget) = budget else {
             return answer
@@ -1121,6 +1176,21 @@ impl PRecipeSolver for EngineRecipeSolver {
         match answer.recv_timeout(budget) {
             Ok(result) => result,
             Err(mpsc::RecvTimeoutError::Timeout) => {
+                if state
+                    .compare_exchange(
+                        JOB_PENDING,
+                        JOB_ABANDONED,
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    )
+                    .is_err()
+                {
+                    // the lift ended just now: its answer is on its way
+                    return answer
+                        .recv()
+                        .map_err(|_| "the recipe worker stopped without an answer".to_owned())?;
+                }
+                ABANDONED_RUNNING.fetch_add(1, Ordering::Relaxed);
                 let key = (
                     record.chart().to_owned(),
                     record.symmetry_rows(),
