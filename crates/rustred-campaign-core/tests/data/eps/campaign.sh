@@ -28,7 +28,13 @@ while read -r nl; do
     total=$((total + k)); [ $total -gt $BUDGET ] && { status=over_budget; break; }
     charts=$(python3 -I $SPLIT $nd/requests.jsonl $nd/rr) || { status=split_failed; break; }
     for c in $charts; do
-      $PROOF instantiate --requests $nd/rr.$c --out $nd/f.$c > $nd/proof.$c.log 2>&1 || { status=proof_failed; break 2; }
+      # one retry: a child that exits non-zero is rerun once (its exit code is recorded either way)
+      $PROOF instantiate --requests $nd/rr.$c --out $nd/f.$c > $nd/proof.$c.log 2>&1
+      rc=$?
+      if [ $rc -ne 0 ]; then
+        echo "{\"node\": \"$node\", \"job\": \"$c\", \"exit\": $rc, \"retry\": 1}" >> $W/proof_retries.jsonl
+        $PROOF instantiate --requests $nd/rr.$c --out $nd/f.$c > $nd/proof.$c.retry.log 2>&1 || { status="proof_failed_exit_$?"; break 2; }
+      fi
       cat $nd/f.$c >> $nd/facts.jsonl
     done
     r=$((r + 1))
