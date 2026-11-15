@@ -1178,7 +1178,15 @@ impl<const N: usize> CustomStep<N> {
                     Some(recipes) if recipes.order() == RecipeDispatchOrder::RulesFirst => {
                         match self.recipe_of(recipes, powers) {
                             Some(index) => self.apply_recipe(recipes, index, powers),
-                            None => Err(self.uncovered(class, integral.clone())),
+                            // vk5l WP2: no recipe record: a shipped relation
+                            // entry or the persistent cache, else the refusal
+                            None => match recipes.served_entry(powers)? {
+                                Some((relation, id)) => Ok(KeyApplied::Children(
+                                    relation_children(&relation, &id)?,
+                                    KeyVia::Recipe,
+                                )),
+                                None => Err(self.uncovered(class, integral.clone())),
+                            },
                         }
                     }
                     _ => Err(self.uncovered(class, integral.clone())),
@@ -1200,35 +1208,48 @@ impl<const N: usize> CustomStep<N> {
         conditions: &mut Vec<Coefficient>,
         limits: &ReductionLimits,
     ) -> Result<KeyApplied, PError> {
-        let chart = self.chart(powers);
-        let applied = apply_prepared_owner(
-            &self.programs,
-            &chart,
-            integral,
-            conditions,
-            &mut ReductionRequest::default(),
-            &mut ReductionStatistics::default(),
-            limits,
-        );
-        match applied {
-            Ok(AppliedOwnerStep::Terminal) => Ok(KeyApplied::Terminal),
-            Ok(AppliedOwnerStep::Applied(terms, position)) => Ok(KeyApplied::Children(
-                terms,
-                KeyVia::Rule(mask(&chart), position),
-            )),
-            Ok(AppliedOwnerStep::Uncovered) | Err(CandidateReductionError::Uncovered { .. }) => {
-                match &self.recipes {
-                    Some(recipes) => {
-                        let (relation, id) = recipes.solve_outside(powers)?;
-                        Ok(KeyApplied::Children(
-                            relation_children(&relation, &id)?,
-                            KeyVia::Recipe,
-                        ))
-                    }
-                    None => Err(self.uncovered(class, integral.clone())),
+        // (1) the table's first match (parametric, strictly lowering rules),
+        // unless the node's settings forbid rules outside the set
+        let rules_outside = self
+            .boxed
+            .as_ref()
+            .is_none_or(|record| super::recipes::outside_settings_of(&record.node).rules_outside);
+        if rules_outside {
+            let chart = self.chart(powers);
+            let applied = apply_prepared_owner(
+                &self.programs,
+                &chart,
+                integral,
+                conditions,
+                &mut ReductionRequest::default(),
+                &mut ReductionStatistics::default(),
+                limits,
+            );
+            match applied {
+                Ok(AppliedOwnerStep::Terminal) => return Ok(KeyApplied::Terminal),
+                Ok(AppliedOwnerStep::Applied(terms, position)) => {
+                    super::recipes::count_outside_rule_step();
+                    return Ok(KeyApplied::Children(
+                        terms,
+                        KeyVia::Rule(mask(&chart), position),
+                    ));
                 }
+                Ok(AppliedOwnerStep::Uncovered)
+                | Err(CandidateReductionError::Uncovered { .. }) => {}
+                Err(error) => return Err(self.step_error(class, error)),
             }
-            Err(error) => Err(self.step_error(class, error)),
+        }
+        // (2) shipped entries / persistent cache, (3) recipe families,
+        // (4) the typed refusal
+        match &self.recipes {
+            Some(recipes) => match recipes.solve_outside(powers)? {
+                Some((relation, id)) => Ok(KeyApplied::Children(
+                    relation_children(&relation, &id)?,
+                    KeyVia::Recipe,
+                )),
+                None => Err(self.uncovered(class, integral.clone())),
+            },
+            None => Err(self.uncovered(class, integral.clone())),
         }
     }
 
@@ -2324,7 +2345,7 @@ pub fn custom_payload_solve_outside(
     payload: &[u8],
     meta: &CustomOwnerMeta,
     key: &[i64],
-) -> Result<(Arc<super::recipes::Relation>, String), PError> {
+) -> Result<Option<(Arc<super::recipes::Relation>, String)>, PError> {
     let ops = custom_owner_ops(presentation, payload, meta)?;
     let recipes = ops
         .recipe_dispatch()

@@ -790,6 +790,10 @@ pub fn permute_descriptor(
 
 // ----- the slot order -----
 
+/// vk5l WP2: the revision name of the relation binding (an empty recipe
+/// bundle) of a boxed table imported without recipe records.
+pub const RELATION_BINDING_REVISION: &str = "relations";
+
 /// Schema of the slot-order record of an imported payload.
 pub const SLOT_ORDER_SCHEMA: &str = "rustred.p-table-slot-order.v1";
 /// The record is the last line of the payload's provenance text (the program
@@ -2569,6 +2573,28 @@ fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
                 recipes.records.clone(),
             )?)
         }
+        // vk5l WP2: a boxed table without recipe records still carries its
+        // RELATION BINDING (node, family text and node order of the header,
+        // slot map): an empty bundle, so shipped relation entries and the
+        // persistent cache serve the keys its rules do not take. A header
+        // without a node order keeps the old payload.
+        (None, Some(record)) => match (
+            header["original_family_source"]
+                .as_str()
+                .or_else(|| header["family_source"].as_str()),
+            header.get("node_order").filter(|order| !order.is_null()),
+        ) {
+            (Some(family_text), Some(order)) => Some(super::recipes::RecipeBundle::new(
+                record.node.clone(),
+                RELATION_BINDING_REVISION,
+                family_text,
+                order.clone(),
+                slot_map.clone(),
+                super::recipes::RecipeDispatchOrder::RulesFirst,
+                Vec::new(),
+            )?),
+            _ => None,
+        },
         _ => None,
     };
     let boxed_provenance = match &boxed {
