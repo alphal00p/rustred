@@ -1401,3 +1401,7 @@ mod tests {
 /// integration lane adds `pub mod genchoice;` to lib.rs (REQUEST TO I-INT in notes/implementer.sizegen.md).
 #[path = "genchoice.rs"]
 pub mod genchoice;
+
+/// Lane sizegen (interfaces/genchoice.md 5): the improvement record and improve mode (same I-INT request as genchoice).
+#[path = "improve.rs"]
+pub mod improve;

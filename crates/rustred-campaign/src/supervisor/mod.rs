@@ -9,7 +9,9 @@
 pub mod failpoint;
 // lane sizegen (interfaces/genchoice.md): the generation-choice portfolio of whole nodes
 pub mod genchoice;
+// lane sizegen (interfaces/genchoice.md 5): improve mode on an existing table
 pub mod identity;
+pub mod improve;
 pub mod orphans;
 pub mod result;
 pub mod spec;
@@ -1042,10 +1044,7 @@ impl Supervisor {
                 .iter()
                 .any(|i| i.role == genchoice::CONFIG_ROLE) =>
             {
-                Box::new(
-                    genchoice::GenChoiceSource::from_spec(&opts.spec, &cdir)
-                        .map_err(RunExit::Refused)?,
-                )
+                genchoice::source_from_spec(&opts.spec, &cdir).map_err(RunExit::Refused)?
             }
             // lane closeloop (closeloop.md 6.2): an input of role `closeloop` names the close-from-material config
             None if opts

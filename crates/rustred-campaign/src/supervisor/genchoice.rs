@@ -23,6 +23,7 @@ use rustred_campaign_contract::spec::{
 };
 use rustred_campaign_contract::stop::{CaseResult, StopCode};
 use rustred_campaign_core::economy::genchoice as gc;
+use rustred_campaign_core::economy::improve as im;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -74,18 +75,18 @@ fn node_dir(node: &str) -> String {
     format!("genchoice/{node}")
 }
 
-fn json_bytes(v: &Value) -> Vec<u8> {
+pub(crate) fn json_bytes(v: &Value) -> Vec<u8> {
     let mut b = serde_json::to_vec_pretty(v).expect("json");
     b.push(b'\n');
     b
 }
 
-fn blake3_hex(b: &[u8]) -> String {
+pub(crate) fn blake3_hex(b: &[u8]) -> String {
     blake3::hash(b).to_hex().to_string()
 }
 
 /// (bytes, BLAKE3, SHA-256) of a file, streamed.
-fn file_digests(p: &Path) -> Result<(u64, String, String), String> {
+pub(crate) fn file_digests(p: &Path) -> Result<(u64, String, String), String> {
     let mut f = std::fs::File::open(p).map_err(|e| format!("{}: {e}", p.display()))?;
     let mut b3 = blake3::Hasher::new();
     let mut s2 = rustred_campaign_core::closure::sha256::Sha256::new();
@@ -132,12 +133,13 @@ pub struct FakeRun {
     pub ms: Option<u64>,
 }
 
-fn fake_script(f: &FakeGen, cand: &str, stage: &str) -> FakeScript {
+pub(crate) fn fake_script(f: &FakeGen, cand: &str, stage: &str) -> FakeScript {
     let mut ops = vec![FakeOp::Prepare { ms: 5 }];
     let run = f
         .runs
         .get(cand)
         .and_then(|m| m.get(stage).or_else(|| m.get("full")));
+    // (improve mode keys runs by rule index, then candidate name: `stage` is the candidate there)
     match run {
         Some(r) => {
             for (k, rec) in r.rules.iter().enumerate() {
@@ -315,7 +317,7 @@ pub struct GenChoiceSource {
 }
 
 /// The allow-list check of the policy's extra flags against the contract's `generate` list (shape of each value).
-fn check_flags(args: &[String]) -> Result<(), String> {
+pub(crate) fn check_flags(args: &[String]) -> Result<(), String> {
     let rules = JobKind::Generate.allowed_args();
     let mut k = 0;
     while k < args.len() {
@@ -340,6 +342,31 @@ fn check_flags(args: &[String]) -> Result<(), String> {
         k += 2;
     }
     Ok(())
+}
+
+/// The work source of a `genchoice` input: improve mode when the config's schema is the improve schema, else the
+/// whole-node generation portfolio.
+pub fn source_from_spec(spec: &CampaignSpec, cdir: &Path) -> Result<Box<dyn WorkSource>, String> {
+    let ins: Vec<_> = spec
+        .inputs
+        .iter()
+        .filter(|i| i.role == CONFIG_ROLE)
+        .collect();
+    let [inp] = ins.as_slice() else {
+        return Err(format!(
+            "genchoice: exactly one input of role {CONFIG_ROLE} expected, {} found",
+            ins.len()
+        ));
+    };
+    let text = std::fs::read_to_string(&inp.path)
+        .map_err(|e| format!("genchoice config {}: {e}", inp.path.display()))?;
+    let v: Value = serde_json::from_str(&text).map_err(|e| format!("genchoice config: {e}"))?;
+    if v["schema"] == rustred_campaign_core::economy::improve::IMPROVE_CONFIG_SCHEMA {
+        return Ok(Box::new(super::improve::ImproveSource::from_spec(
+            spec, cdir, &text, &inp.id,
+        )?));
+    }
+    Ok(Box::new(GenChoiceSource::from_spec(spec, cdir)?))
 }
 
 impl GenChoiceSource {
@@ -964,6 +991,92 @@ impl GenChoiceSource {
                 extra_files.insert("import_spec".into(), json!(rec.file_ref()));
                 extra_files.insert("winner_table_sha256".into(), json!(s2));
                 rt.accepts.push(rec);
+            }
+            // the IMPROVEMENT RECORD of the generated table (interfaces/genchoice.md 5): per rule, the same case in every
+            // other candidate's table (scope node); untried = ranked candidates not run in full, probes without a table
+            if let Some(tp) = &wa.table_path {
+                let (_, _, s2) = file_digests(Path::new(tp))?;
+                let f = std::fs::File::open(tp).map_err(|e| format!("{tp}: {e}"))?;
+                let mut wrules = Vec::new();
+                for l in std::io::BufRead::lines(std::io::BufReader::new(f)) {
+                    let l = l.map_err(|e| format!("{tp}: {e}"))?;
+                    if let Some(r) = im::TableRule::from_line(&l)? {
+                        wrules.push(r);
+                    }
+                }
+                let as_rules = |rows: &[gc::RuleRow]| -> Vec<im::TableRule> {
+                    rows.iter()
+                        .map(|r| im::TableRule {
+                            index: -1,
+                            target: String::new(),
+                            case: r.case.clone(),
+                            fixed: r.fixed.clone(),
+                            equations: vec![],
+                            exceptions: vec![],
+                            monomials: r.monomials,
+                            bytes: r.bytes,
+                        })
+                        .collect()
+                };
+                let mut others2: Vec<(String, Vec<im::TableRule>)> = Vec::new();
+                let mut untried: Vec<String> = Vec::new();
+                for (c, pa) in probes {
+                    if Some(c.index) == winner {
+                        continue;
+                    }
+                    let full = runs
+                        .iter()
+                        .filter(|(r, a)| r.cand == c.index && !a.rows.is_empty())
+                        .map(|(_, a)| a)
+                        .next();
+                    match (full, pa) {
+                        (Some(a), _) => {
+                            others2.push((format!("{}:{}", c.id, a.stage), as_rules(&a.rows)))
+                        }
+                        (None, Some(a)) if !a.rows.is_empty() => {
+                            others2.push((format!("{}:probe", c.id), as_rules(&a.rows)));
+                            untried.push(format!(
+                                "{}: full run not done (economy / first acceptable found)",
+                                c.id
+                            ));
+                        }
+                        _ => untried.push(format!(
+                            "{}: probe gave no table (heavy / cut by a cap)",
+                            c.id
+                        )),
+                    }
+                }
+                let fr2: Vec<gc::FullRun> = runs.iter().map(|(r, _)| r.clone()).collect();
+                let spent: u64 = probes
+                    .iter()
+                    .filter_map(|(_, a)| a.as_ref())
+                    .chain(runs.iter().map(|(_, a)| a))
+                    .map(|a| Self::cpu_of(st, a))
+                    .sum();
+                let rec = im::generation_record(
+                    &node,
+                    &s2,
+                    &cands[winner.expect("winner")].id,
+                    &wrules,
+                    &others2,
+                    &untried,
+                    im::RunEntry {
+                        run: 1,
+                        mode: "generate".into(),
+                        settings: serde_json::to_value(&p).unwrap_or(Value::Null),
+                        table_in_sha256: None,
+                        table_out_sha256: s2.clone(),
+                        budget_cpu_ms: None,
+                        spent_cpu_ms: spent,
+                        totals: json!({"rules": wrules.len(), "economy": gc::economy_account(first, &fr2, &p)}),
+                    },
+                );
+                let r = AcceptedRecord {
+                    path: format!("{}/record.json", node_dir(&node)),
+                    bytes: json_bytes(&serde_json::to_value(&rec).map_err(|e| e.to_string())?),
+                };
+                extra_files.insert("improve_record".into(), json!(r.file_ref()));
+                rt.accepts.push(r);
             }
         }
         let v = json!({"schema": gc::CHOICE_SCHEMA, "node": node,
