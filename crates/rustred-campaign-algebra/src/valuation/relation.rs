@@ -19,9 +19,9 @@
 //! [`relation_poles`] gives the per-term orders; [`relation_record`] / [`rule_record`] build the
 //! `rustred.campaign.pole-relation.v1` record of the core crate.
 
-use super::{Coefficient, D0, GenericOrder, VALUATION_METHOD, Valuation};
+use super::{Coefficient, D0, GenericOrder, Prepared, VALUATION_METHOD, Valuation};
 use rustred_campaign_core::poles::record::{
-    PoleRelationRecord, RegularAt, TermPole, entry_digest, summarise,
+    PoleRelationRecord, RegularAt, TermPole, relation_identity, summarise,
 };
 use serde_json::{Value, json};
 
@@ -227,11 +227,7 @@ pub fn relation_record(
         Ok(Form::Unnormalised) => "unnormalised",
         _ => "normalised",
     };
-    let relation = json!({
-        "relation_digest": record["relation_digest"],
-        "entry_digest": entry_digest(record),
-        "relation_rule_taken": record["relation_rule_taken"],
-    });
+    let relation = relation_identity(record);
     // d_poles mixes the lift's hidden poles and the coefficient denominators (C3): the certificate side is known only
     // when the engine reports `hidden_d_poles` (line 7); their (d - d0) factors are checked as coefficients of d
     let certificate_pole_at_d0 = record["hidden_d_poles"].as_array().map(|hs| {
@@ -427,5 +423,92 @@ pub fn rule_record(
         classification: None,
         worst_max,
         method: VALUATION_METHOD.into(),
+    }
+}
+
+/// A rule / relation record parsed ONCE and prepared at one d0, evaluated at many keys (the census path): per key the
+/// pole order of the record's NORMALISED coefficients (target coefficient tested too when given), exact
+/// ([`Prepared::at_key`]).
+#[derive(Debug, Clone)]
+pub struct PreparedRule {
+    terms: Vec<(String, Prepared)>,
+    target: Option<Prepared>,
+}
+
+impl PreparedRule {
+    /// `arity` = the key length (engine relation records: their coefficients hold no index; any arity works).
+    pub fn of_record(record: &Value, arity: usize, d0: &D0) -> Result<PreparedRule, String> {
+        let rel = RelationText::of_record(record)?;
+        let mut terms = Vec::with_capacity(rel.terms.len());
+        for (k, c, _) in &rel.terms {
+            let co =
+                Coefficient::parse(c, arity).map_err(|e| format!("coefficient of {k}: {e}"))?;
+            terms.push((k.clone(), Prepared::new(co, d0)));
+        }
+        let target = match &rel.target_coefficient {
+            Some(t) => Some(Prepared::new(
+                Coefficient::parse(t, arity).map_err(|e| format!("target coefficient: {e}"))?,
+                d0,
+            )),
+            None => None,
+        };
+        Ok(PreparedRule { terms, target })
+    }
+
+    pub fn terms(&self) -> usize {
+        self.terms.len()
+    }
+
+    /// The verdict of THIS record at `key` and the number of terms with a pole there.
+    pub fn at_key(&self, key: &[i64]) -> (RegularAt, usize) {
+        let v0 = match &self.target {
+            None => 0,
+            Some(t) => match t.at_key(key) {
+                Ok(Valuation::Order(v)) => v,
+                Ok(Valuation::Zero) => {
+                    return (
+                        RegularAt::Undecided {
+                            reason: "the target coefficient vanishes at the key".into(),
+                        },
+                        0,
+                    );
+                }
+                Err(e) => {
+                    return (
+                        RegularAt::Undecided {
+                            reason: format!("target coefficient: {e}"),
+                        },
+                        0,
+                    );
+                }
+            },
+        };
+        let mut worst = 0u64;
+        let mut with = 0usize;
+        for (k, p) in &self.terms {
+            match p.at_key(key) {
+                Ok(Valuation::Order(v)) if v - v0 < 0 => {
+                    with += 1;
+                    worst = worst.max((v - v0).unsigned_abs());
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    return (
+                        RegularAt::Undecided {
+                            reason: format!("coefficient of {k}: {e}"),
+                        },
+                        0,
+                    );
+                }
+            }
+        }
+        (
+            if worst == 0 {
+                RegularAt::Regular
+            } else {
+                RegularAt::Singular { order: worst }
+            },
+            with,
+        )
     }
 }
