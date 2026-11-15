@@ -577,6 +577,26 @@ fn modular_polynomial(threads: usize) -> OrderedWeightArithmetic {
     )
 }
 
+/// P5L_STEP_CACHE=1: one in-memory Ordered step cache shared by every check request of this
+/// process (as vakint keeps one per library), so warm repeats reuse the steps.
+fn process_step_cache(
+    library: &PLibrary,
+) -> Option<std::sync::Arc<rustred::reduction::OrderedStepCache>> {
+    static CACHE: std::sync::OnceLock<
+        Option<std::sync::Arc<rustred::reduction::OrderedStepCache>>,
+    > = std::sync::OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            (std::env::var("P5L_STEP_CACHE").as_deref() == Ok("1")).then(|| {
+                rustred::reduction::OrderedStepCache::in_memory(
+                    library.step_cache_binding().unwrap(),
+                    Default::default(),
+                )
+            })
+        })
+        .clone()
+}
+
 fn reduce(library: &PLibrary, inputs: Vec<Input>) -> PReduction {
     // P5L_REDUCE_THREADS (default 1) and P5L_REDUCE_ARITH=sampled: threads and arithmetic of the check reductions
     let threads: usize = std::env::var("P5L_REDUCE_THREADS")
@@ -598,7 +618,7 @@ fn reduce(library: &PLibrary, inputs: Vec<Input>) -> PReduction {
                 modular_polynomial(threads)
             },
             scheduler: OrderedSchedulerOptions::with_threads(threads),
-            step_cache: None,
+            step_cache: process_step_cache(library),
             uncovered: PUncoveredPolicy::Reject,
             onto_masters: false,
             limits: ReductionLimits::default(),
