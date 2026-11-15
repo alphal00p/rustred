@@ -8,6 +8,8 @@ pub mod config;
 // lane t266run (closeloop.md 17): own escalation of uncovered keys, terminal proposals, derived spec part
 pub mod derived;
 pub mod ids;
+// lane layers (closeloop.md 23): close the box layer by layer, earlier layers as leaves
+pub mod layers;
 pub mod pass;
 pub mod proofs;
 // lane t266run (closeloop.md 17): big-node helpers of the pass

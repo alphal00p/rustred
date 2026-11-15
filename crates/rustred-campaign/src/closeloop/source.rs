@@ -62,6 +62,8 @@ enum PassResult {
 struct Running {
     round: u32,
     handle: JoinHandle<Result<PassResult, String>>,
+    /// lane layers (closeloop.md 23): records of layers the running pass froze (registered while it runs)
+    layer_rx: Option<std::sync::mpsc::Receiver<super::layers::LayerMsg>>,
     /// lane t266run: BLAKE3 of the effective import spec text the pass loads / checks.
     digest: Option<String>,
 }
@@ -874,6 +876,7 @@ impl CloseFromMaterialSource {
             self.nodes[i].running = Some(Running {
                 round,
                 handle: h,
+                layer_rx: None,
                 digest: Some(blake3_hex(digest_text.as_bytes())),
             });
             self.nodes[i].pass_started = Some(Instant::now());
@@ -942,6 +945,28 @@ impl CloseFromMaterialSource {
             } else {
                 None
             };
+        // lane layers (closeloop.md 23): the frozen layers come back ONLY from the ledger (record BLAKE3 verified here;
+        // the pass verifies the sha256 of every file the record pins, the leaf-set digest and the walk binding)
+        let mut frozen_layers: Vec<(usize, Vec<u8>)> = vec![];
+        {
+            let pre = format!("closeloop:{}:layer:", self.nodes[i].n);
+            let ids: Vec<(usize, String)> = st
+                .inputs
+                .iter()
+                .filter(|(id, r)| id.starts_with(&pre) && r.role == super::layers::ROLE_LAYER)
+                .filter_map(|(id, _)| {
+                    id[pre.len()..]
+                        .parse::<usize>()
+                        .ok()
+                        .map(|k| (k, id.clone()))
+                })
+                .collect();
+            for (k, id) in ids {
+                frozen_layers.push((k, self.input_file(st, &id)?));
+            }
+            frozen_layers.sort_by_key(|x| x.0);
+        }
+        let (layer_tx, layer_rx) = std::sync::mpsc::channel::<super::layers::LayerMsg>();
         let recipe_dir = self.abs(&format!(
             "{}/escalation/r{round}",
             node_dir(&self.nodes[i].n)
@@ -1015,6 +1040,15 @@ impl CloseFromMaterialSource {
             derived,
             recipe_dir,
             clauses: r.cfg.clauses.clone(),
+            layers: r.cfg.layers.clone(),
+            prior_leaf_sets: r
+                .cfg
+                .prior_clauses
+                .iter()
+                .filter_map(|c| c.leaf_set.clone().map(|l| (c.id.clone(), l)))
+                .collect(),
+            frozen_layers,
+            layer_tx: Some(layer_tx),
         };
         let h = std::thread::Builder::new()
             .name(format!("closeloop-pass-{}", r.n))
@@ -1023,6 +1057,7 @@ impl CloseFromMaterialSource {
         self.nodes[i].running = Some(Running {
             round,
             handle: h,
+            layer_rx: Some(layer_rx),
             digest: Some(eff_digest),
         });
         self.nodes[i].pass_started = Some(Instant::now());
@@ -2668,6 +2703,32 @@ impl WorkSource for CloseFromMaterialSource {
             }
         }
         let mut finalized: BTreeMap<usize, String> = BTreeMap::new();
+        // lane layers (closeloop.md 23): register the layers a running pass froze, NOW (an interrupt never loses them)
+        for i in 0..self.nodes.len() {
+            let msgs: Vec<super::layers::LayerMsg> = self.nodes[i]
+                .running
+                .as_ref()
+                .and_then(|r| r.layer_rx.as_ref())
+                .map(|rx| rx.try_iter().collect())
+                .unwrap_or_default();
+            for m in msgs {
+                let n = self.nodes[i].n.clone();
+                let input = super::layers::input_layer(&n, m.idx);
+                if st.inputs.contains_key(&input) {
+                    continue; // frozen once: never re-registered
+                }
+                let rec = record(format!("{}/layers/{}.record.json", node_dir(&n), m.idx), m.body);
+                let fr = rec.file_ref();
+                rt.events.push(Event::InputRegistered {
+                    input,
+                    role: super::layers::ROLE_LAYER.into(),
+                    path: self.abs(&rec.path).display().to_string(),
+                    bytes: fr.bytes,
+                    blake3: fr.blake3,
+                });
+                rt.accepts.push(rec);
+            }
+        }
         for i in 0..self.nodes.len() {
             let fin = self.nodes[i]
                 .running
