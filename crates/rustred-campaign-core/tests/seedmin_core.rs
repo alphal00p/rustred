@@ -689,3 +689,67 @@ fn row_order_is_a_parameter_and_is_kept() {
     let km = minimise_key(&k, &C0, &shell(), &p, &mut o, &mut StubSystemPoles).unwrap();
     assert_eq!(km.list, vec![vec![0, 0, 0], vec![1, 0, 0], vec![1, 1, 1]]);
 }
+
+#[test]
+fn halving_chunks_reach_the_same_lists_with_fewer_solves() {
+    let k: Key = vec![3, 2, -1];
+    let mut o = Oracle::default();
+    o.alts.insert(
+        k.clone(),
+        vec![alt(&[[0, 0, 0], [1, 0, 0], [0, 1, -1]], 40)],
+    );
+    let single = SeedMinPolicy::default();
+    let halving = SeedMinPolicy {
+        drop_chunks: "halving".into(),
+        ..SeedMinPolicy::default()
+    };
+    let a = minimise_key(&k, &C0, &shell(), &single, &mut o, &mut StubSystemPoles).unwrap();
+    let b = minimise_key(&k, &C0, &shell(), &halving, &mut o, &mut StubSystemPoles).unwrap();
+    assert_eq!(a.list, b.list);
+    assert!(
+        b.solves < a.solves,
+        "halving {} vs single {}",
+        b.solves,
+        a.solves
+    );
+    assert_eq!(b.minimise.as_ref().unwrap()["drop_chunks"], "halving");
+    assert!(a.minimise.as_ref().unwrap().get("drop_chunks").is_none());
+    // joint: the same pieces
+    let ks: Vec<Key> = vec![
+        vec![2, 1, 0],
+        vec![3, 1, 0],
+        vec![4, 1, 0],
+        vec![5, 1, 0],
+        vec![6, 1, 0],
+    ];
+    let mut oj = Oracle::default();
+    let private = [[1, 0, 0], [0, 1, 0], [0, 0, -1], [1, 1, 0], [1, 0, -1]];
+    for (k, pr) in ks.iter().zip(private) {
+        oj.alts.insert(k.clone(), vec![alt(&[[0, 0, 0], pr], 7)]);
+    }
+    let ja = minimise_joint(
+        &ks,
+        &C0,
+        &shell(),
+        &single,
+        &mut oj.clone(),
+        &mut StubSystemPoles,
+    )
+    .unwrap();
+    let jb = minimise_joint(
+        &ks,
+        &C0,
+        &shell(),
+        &halving,
+        &mut oj.clone(),
+        &mut StubSystemPoles,
+    )
+    .unwrap();
+    assert_eq!(ja.pieces[0].list, jb.pieces[0].list);
+    assert!(
+        jb.solves < ja.solves,
+        "halving {} vs single {}",
+        jb.solves,
+        ja.solves
+    );
+}

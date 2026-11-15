@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use super::accept::{State, judge_change};
 use super::key::{KeyMachine, KeyMin, TrialLog, check_input, preflight, run_lockstep};
-use super::order::{drop_order, row_ordered, union_in_order, without};
+use super::order::{drop_order, row_ordered, union_in_order, without, without_all};
 use super::policy::SeedMinPolicy;
 use super::{
     Key, Offset, RelationFacts, SeedMinError, SystemPoles, Trial, TrialAnswer, TrialMode,
@@ -83,7 +83,7 @@ impl Ctx<'_> {
         &mut self,
         t: &Trial,
         kind: &str,
-        removed: Option<&Offset>,
+        removed: &[Offset],
         a: &[TrialAnswer],
         kept: Option<bool>,
         reason: String,
@@ -93,7 +93,12 @@ impl Ctx<'_> {
             label: t.label.clone(),
             digest: t.digest(),
             kind: kind.into(),
-            removed: removed.cloned(),
+            removed: (removed.len() == 1).then(|| removed[0].clone()),
+            removed_chunk: if removed.len() > 1 {
+                removed.to_vec()
+            } else {
+                vec![]
+            },
             keys: t.keys.len(),
             seeds: t.list.len(),
             answers: a.iter().map(|x| x.word()).collect(),
@@ -219,7 +224,7 @@ pub fn minimise_joint(
     // 1. START at every key
     let t = cx.trial("start", list, keys, TrialMode::Solve);
     let a = cx.run(solver, std::slice::from_ref(&t))?.remove(0);
-    cx.log(&t, "start", None, &a, None, "start".into(), false);
+    cx.log(&t, "start", &[], &a, None, "start".into(), false);
     let mut start: BTreeMap<Key, RelationFacts> = BTreeMap::new();
     let mut served: Vec<Key> = vec![];
     let mut unserved: Vec<Key> = vec![];
@@ -309,7 +314,7 @@ pub fn minimise_joint(
             cx.log(
                 t,
                 "choice",
-                None,
+                &[],
                 a,
                 None,
                 format!("choice set of {}", labels[*i]),
@@ -412,7 +417,7 @@ fn confirm(
     cx.log(
         &t,
         kind,
-        None,
+        &[],
         &a,
         Some(fail.is_empty()),
         format!("{} of {} keys fail", fail.len(), domain.len()),
@@ -543,6 +548,16 @@ fn build_piece(
         let mut tried: BTreeSet<Offset> = BTreeSet::new();
         let mut witness: VecDeque<Key> = VecDeque::new();
         let mut rr = 0usize;
+        let halving = policy.drop_chunks == "halving";
+        let mut chunk = 0usize;
+        // a refused removal set: a single seed is kept for good; a chunk halves (halving mode)
+        let refuse = |set: &[Offset], tried: &mut BTreeSet<Offset>, chunk: &mut usize| {
+            if set.len() == 1 {
+                tried.insert(set[0].clone());
+            } else {
+                *chunk = (set.len() / 2).max(1);
+            }
+        };
         'outer: loop {
             let curset: BTreeSet<&Offset> = cand.iter().collect();
             let remaining: Vec<Offset> = order
@@ -578,11 +593,24 @@ fn build_piece(
                 }
                 s
             };
-            let k = (policy.parallel_trials as u64).min(left) as usize;
-            let batch: Vec<Offset> = remaining.into_iter().take(k).collect();
+            // removal sets of this batch: single seeds (speculative, first kept wins) or ONE adaptive chunk
+            let batch: Vec<Vec<Offset>> = if halving {
+                if chunk == 0 {
+                    chunk = if policy.chunk_start > 0 {
+                        policy.chunk_start
+                    } else {
+                        (remaining.len() / 2).max(1)
+                    };
+                }
+                let c = chunk.min(remaining.len()).min(cand.len() - 1).max(1);
+                vec![remaining.into_iter().take(c).collect()]
+            } else {
+                let k = (policy.parallel_trials as u64).min(left) as usize;
+                remaining.into_iter().take(k).map(|s| vec![s]).collect()
+            };
             let ts: Vec<Trial> = batch
                 .iter()
-                .map(|s| cx.trial("screen", &without(&cand, s), &screen, TrialMode::Solve))
+                .map(|s| cx.trial("screen", &without_all(&cand, s), &screen, TrialMode::Solve))
                 .collect();
             let ans_b = cx.run(solver, &ts)?;
             for (bi, (t, a)) in ts.iter().zip(&ans_b).enumerate() {
@@ -609,14 +637,14 @@ fn build_piece(
                     }
                 }
                 if let Some((wk, why)) = bad {
-                    tried.insert(s.clone());
+                    refuse(s, &mut tried, &mut chunk);
                     witness.retain(|x| x != &wk);
                     witness.push_front(wk);
                     witness.truncate(policy.joint.screen_keys);
                     cx.log(
                         t,
                         "screen",
-                        Some(s),
+                        s,
                         a,
                         Some(false),
                         format!("screen: {why}"),
@@ -628,7 +656,7 @@ fn build_piece(
                 let (conf_t, conf_a): (Trial, Vec<TrialAnswer>) = if full {
                     (t.clone(), a.clone())
                 } else {
-                    cx.log(t, "screen", Some(s), a, None, "screen passed".into(), true);
+                    cx.log(t, "screen", s, a, None, "screen passed".into(), true);
                     if solves_piece >= policy.joint.max_solves {
                         stopped = "max_solves".into();
                         break;
@@ -670,24 +698,26 @@ fn build_piece(
                 cx.log(
                     &conf_t,
                     "confirm",
-                    Some(s),
+                    s,
                     &conf_a,
                     Some(verdict.0),
                     verdict.1.clone(),
                     true,
                 );
-                tried.insert(s.clone());
                 if verdict.0 {
                     cand = after.clone();
                     cur = conf_a
                         .iter()
                         .map(|x| x.relation().cloned().expect("checked"))
                         .collect();
+                    if halving {
+                        chunk = s.len() * 2;
+                    }
                     for (t2, (a2, s2)) in ts.iter().zip(ans_b.iter().zip(&batch)).skip(bi + 1) {
                         cx.log(
                             t2,
                             "screen",
-                            Some(s2),
+                            s2,
                             a2,
                             None,
                             "speculative: after the first kept drop".into(),
@@ -696,6 +726,7 @@ fn build_piece(
                     }
                     continue 'outer;
                 }
+                refuse(s, &mut tried, &mut chunk);
             }
             if stopped == "max_solves" {
                 break;
@@ -715,7 +746,7 @@ fn build_piece(
         cx.log(
             &t,
             "verify",
-            None,
+            &[],
             &a,
             Some(bad.is_empty()),
             format!(

@@ -70,6 +70,12 @@ pub fn union_in_order(base: &[Offset], parts: &[Vec<Offset>]) -> Vec<Offset> {
     out
 }
 
+/// `list` without the offsets of `set` (list order kept).
+pub fn without_all(list: &[Offset], set: &[Offset]) -> Vec<Offset> {
+    let s: std::collections::BTreeSet<&Offset> = set.iter().collect();
+    list.iter().filter(|x| !s.contains(x)).cloned().collect()
+}
+
 /// `list` without `o`.
 pub fn without(list: &[Offset], o: &[i32]) -> Vec<Offset> {
     list.iter().filter(|x| x.as_slice() != o).cloned().collect()

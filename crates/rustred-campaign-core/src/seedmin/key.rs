@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::accept::{State, judge_change};
-use super::order::{drop_order, restrict, row_ordered, without};
+use super::order::{drop_order, restrict, row_ordered, without, without_all};
 use super::policy::SeedMinPolicy;
 use super::{
     Key, Offset, RelationFacts, SeedMinError, SystemPoles, Trial, TrialAnswer, TrialMode,
@@ -25,6 +25,9 @@ pub struct TrialLog {
     pub kind: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub removed: Option<Offset>,
+    /// `drop_chunks: halving`: the seeds removed together (when more than one).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub removed_chunk: Vec<Offset>,
     pub keys: usize,
     pub seeds: usize,
     /// Per-key answer words (compact).
@@ -96,6 +99,8 @@ enum Phase {
 struct Pending {
     kind: &'static str,
     removed: Option<Offset>,
+    /// `drop_chunks: halving`: the seeds removed together (empty otherwise).
+    chunk: Vec<Offset>,
     list: Vec<Offset>,
     trial: Trial,
 }
@@ -109,6 +114,8 @@ pub(crate) struct KeyMachine<'p> {
     tried: BTreeSet<Offset>,
     pending: Vec<Pending>,
     seq: usize,
+    /// `drop_chunks: halving`: the current chunk size (0 = not set yet).
+    chunk: usize,
     out: KeyMin,
 }
 
@@ -131,6 +138,7 @@ impl<'p> KeyMachine<'p> {
             tried: BTreeSet::new(),
             pending: vec![],
             seq: 0,
+            chunk: 0,
             out: KeyMin {
                 key: key.to_vec(),
                 centre: centre.to_vec(),
@@ -168,6 +176,7 @@ impl<'p> KeyMachine<'p> {
         Pending {
             kind,
             removed,
+            chunk: vec![],
             list,
             trial: t,
         }
@@ -186,6 +195,11 @@ impl<'p> KeyMachine<'p> {
             digest: p.trial.digest(),
             kind: p.kind.into(),
             removed: p.removed.clone(),
+            removed_chunk: if p.chunk.len() > 1 {
+                p.chunk.clone()
+            } else {
+                vec![]
+            },
             keys: 1,
             seeds: p.list.len(),
             answers: vec![a.word()],
@@ -317,6 +331,27 @@ impl<'p> KeyMachine<'p> {
                         self.phase = Phase::Done;
                         continue;
                     }
+                    if self.policy.drop_chunks == "halving" {
+                        if self.chunk == 0 {
+                            self.chunk = if self.policy.chunk_start > 0 {
+                                self.policy.chunk_start
+                            } else {
+                                (remaining.len() / 2).max(1)
+                            };
+                        }
+                        let c = self
+                            .chunk
+                            .min(remaining.len())
+                            .min(self.out.list.len() - 1)
+                            .max(1);
+                        let set: Vec<Offset> = remaining.into_iter().take(c).collect();
+                        let l = without_all(&self.out.list, &set);
+                        let mut p = self.trial("drop", l, (c == 1).then(|| set[0].clone()));
+                        p.chunk = set;
+                        let t = p.trial.clone();
+                        self.pending = vec![p];
+                        return vec![t];
+                    }
                     let mut ps = vec![];
                     for s in remaining.into_iter().take(k) {
                         let l = without(&self.out.list, &s);
@@ -372,6 +407,26 @@ impl<'p> KeyMachine<'p> {
                 }
                 self.log(&p, &a, Some(kept), format!("{what}: {reason}"), true);
                 self.phase = Phase::Greedy;
+            }
+            Phase::Greedy if pending.len() == 1 && !pending[0].chunk.is_empty() => {
+                let p = &pending[0];
+                let a = &ans[0];
+                self.out.solves += 1;
+                let (kept, reason) = self.judge(p, a, system);
+                let c = p.chunk.len();
+                if kept {
+                    self.out.list = p.list.clone();
+                    self.out.relation = a.relation().cloned();
+                    self.chunk = c * 2;
+                    if self.policy.resupport_after_drop {
+                        self.phase = Phase::Resupport;
+                    }
+                } else if c == 1 {
+                    self.tried.insert(p.chunk[0].clone());
+                } else {
+                    self.chunk = (c / 2).max(1);
+                }
+                self.log(p, a, Some(kept), format!("chunk of {c}: {reason}"), true);
             }
             Phase::Greedy => {
                 let mut first: Option<usize> = None;
@@ -448,6 +503,11 @@ impl<'p> KeyMachine<'p> {
                 "seeds_before": self.out.seeds_before, "seeds_after": self.out.list.len(),
                 "rhs_before": start.rhs_count, "rhs_after": rel.rhs_count,
                 "original_relation_digest": start.relation_digest}));
+            if self.policy.drop_chunks != "single"
+                && let Some(m) = self.out.minimise.as_mut()
+            {
+                m["drop_chunks"] = json!(self.policy.drop_chunks);
+            }
         }
         self.out
     }
@@ -625,6 +685,7 @@ fn engine_key(
             digest: t.digest(),
             kind: "engine".into(),
             removed: None,
+            removed_chunk: vec![],
             keys: 1,
             seeds: list.len(),
             answers: vec![a.word()],

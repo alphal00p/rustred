@@ -133,6 +133,14 @@ pub struct SeedMinPolicy {
     /// result and `solves` equal the sequential run).
     #[serde(default = "d_parallel")]
     pub parallel_trials: usize,
+    /// `single` (default: one seed per trial, the hand procedure) | `halving` (adaptive chunks: drop the next `chunk`
+    /// candidates together; a failure halves the chunk, a success doubles it; a failing single seed is kept:
+    /// coord-seed-minimise.md 1b, O(m log n) solves for m essential seeds; no speculative batches).
+    #[serde(default = "d_drop_chunks")]
+    pub drop_chunks: String,
+    /// First chunk of `halving` (0 = half of the candidates).
+    #[serde(default)]
+    pub chunk_start: usize,
     /// After a kept drop, restrict to the new relation's support by one more trial.
     #[serde(default = "yes")]
     pub resupport_after_drop: bool,
@@ -194,6 +202,9 @@ fn d_max_solves() -> u64 {
 fn d_parallel() -> usize {
     4
 }
+fn d_drop_chunks() -> String {
+    "single".into()
+}
 fn d_objective() -> Vec<String> {
     ["pole_order", "seeds", "terms"]
         .iter()
@@ -248,6 +259,7 @@ impl SeedMinPolicy {
         pick(&self.measure, &["comparator", "m1"], "measure")?;
         pick(&self.terms_aggregate, &["max", "sum"], "terms_aggregate")?;
         pick(&self.pole_objective, &["on", "off"], "pole_objective")?;
+        pick(&self.drop_chunks, &["single", "halving"], "drop_chunks")?;
         pick(
             &self.row_order,
             &["given", "distance_asc", "distance_desc"],
