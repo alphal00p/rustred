@@ -147,6 +147,11 @@ impl RelationStore {
     pub fn verdict(&self, i: usize) -> u8 {
         self.verdicts[i]
     }
+    /// lane symfix: OR verdict bits into relation `i` (the import's post-load verification of supplied composites,
+    /// import/supplied_verify.rs; bits are only ever added once a check passed).
+    pub fn add_verdict_bits(&mut self, i: usize, bits: u8) {
+        self.verdicts[i] |= bits;
+    }
     pub fn memory_bytes(&self) -> usize {
         (self.keys.capacity() + self.offs.capacity() + self.rhs.capacity()) * 8
             + self.digests.capacity() * 32

@@ -696,6 +696,26 @@ fn tally_refuses_inconsistent_results_streams() {
     }
 }
 
+/// audit r2-sym F7 (lane symfix): the two self-check guards are each tested ALONE. `check_child` (the wrapper's check of
+/// the child's own seal, symcomp.rs "the child's own re-check verified ...") refuses a result whose
+/// `independently_verified` is below the shipped relations WITHOUT the tally; the tally's own guard (end record
+/// `independently_verified`) is tested alone by `tally_refuses_inconsistent_results_streams` ("end self-check").
+#[test]
+fn check_child_alone_refuses_a_self_check_below_the_shipped_relations() {
+    let j = fresh("selfcheck", &keys3());
+    write_child(&j, &keys3(), &|_, _, r| {
+        r["independently_verified"] = json!(2)
+    });
+    let e = symcomp::check_child(&j.spec, &sha).expect_err(
+        "check_child must refuse a child whose own re-check verified fewer relations than it shipped",
+    );
+    assert!(format!("{e:?}").contains("re-check"), "{e:?}");
+    // control: the honest child passes check_child
+    let j = fresh("selfcheck-ok", &keys3());
+    write_child(&j, &keys3(), &no_edit);
+    symcomp::check_child(&j.spec, &sha).unwrap();
+}
+
 #[test]
 fn tool_refusal_resource_failure_and_signals() {
     // exit 2 -> 41 (row 13, attention, no retry: deterministic)
@@ -842,8 +862,23 @@ fn rows_33_to_36_are_in_the_table_with_their_columns() {
             Action::ItemAttentionNoRetry
         )
     );
-    // int7: 39 + symjob's 33-36 + coreseed's 37-39 (kind pole-regular-at)
-    assert_eq!(ROWS.len(), 46);
+    // audit r2-sym F6 (lane symfix): the rows BY NAME, not by count (other kinds add rows: the table grows): every
+    // (row, variant) name is unique, and the rows whose condition names `kind symmetry-composite` are exactly 33-36
+    let names: Vec<String> = ROWS.iter().map(|r| format!("{}{}", r.row, r.sub)).collect();
+    let unique: std::collections::BTreeSet<&String> = names.iter().collect();
+    assert_eq!(unique.len(), names.len(), "a row name repeated: {names:?}");
+    let ours: std::collections::BTreeSet<String> = ROWS
+        .iter()
+        .filter(|r| r.condition.contains("kind symmetry-composite"))
+        .map(|r| format!("{}{}", r.row, r.sub))
+        .collect();
+    assert_eq!(
+        ours,
+        ["33", "34", "35", "36"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<std::collections::BTreeSet<_>>()
+    );
     assert!(classify::decision_table_markdown().contains("| supplied_relations |"));
     assert!(symcomp::names_pinned_mismatch("PINNED_INPUTS_MISMATCH: x"));
     assert!(!symcomp::names_pinned_mismatch(

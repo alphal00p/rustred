@@ -23,6 +23,19 @@ pub const BASIS_WITNESS_UNCHECKED: &str = "witness_unchecked_diagnostic";
 /// Basis word of a key served by a supplied symmetry relation VERIFIED by re-derivation from the verified group.
 pub const BASIS_SYMMETRY_RELATION: &str = "symmetry_relation";
 
+/// lane symfix (import.md 21 (b)): basis word of a key served by a supplied relation whose KERNEL CERTIFICATE (sealed
+/// proof-symrows stream, EXACT_IN_SPAN_AT_KEY) the import CHECKED at load against its own record: per-key. (The same
+/// word as lane symcert's.)
+pub const BASIS_SYMMETRY_RELATION_KERNEL_CERTIFIED: &str = "symmetry_relation_kernel_certified";
+
+/// lane symfix (import.md 21 (c)): basis word of a key served by a supplied composite RE-VERIFIED at load by the
+/// composer's own functions (same backend, modular): level `imported`, never per-key.
+pub const BASIS_SYMMETRY_COMPOSITE_SAME_BACKEND: &str = "symmetry_composite_same_backend";
+
+/// lane symfix: basis word of a supplied relation the import did NOT verify at load (no EXACT bit: never served; only
+/// reachable through a credit image, where it gives no level).
+pub const BASIS_SUPPLIED_UNVERIFIED: &str = "supplied_unverified";
+
 /// Basis word of a key served through the per-key lift (elided / witness-absent record + bound per-key proof).
 pub const BASIS_PER_KEY_PROOF: &str = "per_key_proof";
 
@@ -588,14 +601,21 @@ pub(crate) fn relation_level(
             (Some(Level::Imported), "recipe_relation_unproved")
         };
     }
-    if sinfo
-        .and_then(|i| i.check.as_ref())
-        .is_some_and(|c| c.verified())
-    {
+    // lane symfix (interfaces/import.md 21, closeloop.md 24): the level follows from how the import verified the
+    // record AT LOAD; a record it did not verify gives no level (it has no EXACT bit and is never served)
+    use super::supplied_verify::SuppliedRoute;
+    match sinfo.map(|i| &i.route) {
+        Some(SuppliedRoute::KernelCertified { .. }) => (
+            Some(Level::PerKey),
+            BASIS_SYMMETRY_RELATION_KERNEL_CERTIFIED,
+        ),
         // re-derived from the verified group at the key: exact, at the key (interfaces/import.md 13.2)
-        (Some(Level::PerKey), BASIS_SYMMETRY_RELATION)
-    } else {
-        (Some(Level::Imported), "supplied")
+        Some(SuppliedRoute::GroupRederived) => (Some(Level::PerKey), BASIS_SYMMETRY_RELATION),
+        Some(SuppliedRoute::SameBackend) => {
+            (Some(Level::Imported), BASIS_SYMMETRY_COMPOSITE_SAME_BACKEND)
+        }
+        Some(SuppliedRoute::Diagnostic) => (None, BASIS_KEYS_ONLY_DIAGNOSTIC),
+        Some(SuppliedRoute::Unverified { .. }) | None => (None, BASIS_SUPPLIED_UNVERIFIED),
     }
 }
 

@@ -7,15 +7,20 @@
 //! Pure except for the record lines, which the caller supplies (`line_of`).
 
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
+
+use serde_json::Value;
 
 use super::composite::{
-    Catalogue, ComposeAlgebra, ComposeOptions, RuleUse, Service, compose_image, image_of,
-    rows_by_element,
+    COMPOSITE_SCHEMA, Catalogue, ComposeAlgebra, ComposeOptions, RuleUse, Service, compose_image,
+    image_of, import_lower, rows_by_element,
 };
 use crate::accept::rule::RuleText;
 use crate::closure::bodies::{RhsSlot, parse_rhs_pattern, rule_point};
 use crate::cover::Dispatch;
+use crate::import::lines::parse_key_text;
 use crate::import::load::ImportedSet;
+use crate::independent_algebra::Independent;
 use crate::poly::ENGINE_PRIMES;
 use crate::replay_base::algebra::{CheckAlgebra, Ctx, Q};
 use crate::replay_base::symrows::VerifiedGroup;
@@ -228,25 +233,149 @@ pub fn verify_shipped<QA: CheckAlgebra>(
     if got != cited {
         return Err("the replaced terms / records differ from the cited ones".into());
     }
-    if c.rhs.len() != rhs.len() {
-        return Err(format!(
-            "{} terms recomposed, {} shipped",
-            c.rhs.len(),
-            rhs.len()
-        ));
-    }
+    // (d) MAP AGAINST MAP (audit r2-sym F2): the shipped terms are DISTINCT, every recomposed term is shipped with the
+    // equal coefficient, and no other term is shipped (a repeated term can no longer hide a missing one)
+    let mut shipped: BTreeMap<&[i32], &str> = BTreeMap::new();
     for (k, text) in rhs {
-        let mine = c
-            .rhs
-            .iter()
-            .find(|(q, _)| q == k)
+        if shipped.insert(k.as_slice(), text.as_str()).is_some() {
+            return Err(format!("shipped term {k:?} repeated"));
+        }
+    }
+    let mut mine: BTreeMap<&[i32], &Vec<u64>> = BTreeMap::new();
+    for (k, v) in &c.rhs {
+        if mine.insert(k.as_slice(), v).is_some() {
+            return Err(format!("recomposed term {k:?} repeated"));
+        }
+    }
+    for (k, text) in &shipped {
+        let m = mine
+            .get(k)
             .ok_or_else(|| format!("shipped term {k:?} not in the recomposed relation"))?;
         if !lower(k, key) {
             return Err(format!("shipped term {k:?} is not lower than the key"));
         }
-        if field.eval_text(text, &[])? != mine.1 {
+        if field.eval_text(text, &[])? != **m {
             return Err(format!("coefficient of {k:?} differs (mod p)"));
         }
     }
+    if let Some(k) = mine.keys().find(|k| !shipped.contains_key(*k)) {
+        return Err(format!(
+            "recomposed term {k:?} not shipped ({} recomposed, {} shipped)",
+            mine.len(),
+            shipped.len()
+        ));
+    }
     Ok(())
+}
+
+/// The values of d of the re-verification (data; DIFFERENT from the composer's own self-check points 1000003, 7777771,
+/// 123456791, so the two checks share no evaluation point).
+pub const DEFAULT_D_VALUES: [u64; 3] = [2_000_029, 9_999_991, 314_159_257];
+
+/// Options of [`verify_line`] (data, never constants of a node).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LineOptions {
+    /// Values of d (x the two engine primes) of the modular re-composition.
+    pub d_values: Vec<u64>,
+    /// Bound of one expanded symmetry row.
+    pub max_row_terms: usize,
+    /// Smallest replacement depth tried (the line's own depths + 1 when larger).
+    pub min_depth: usize,
+}
+
+impl Default for LineOptions {
+    fn default() -> Self {
+        LineOptions {
+            d_values: DEFAULT_D_VALUES.to_vec(),
+            max_row_terms: crate::import::symmetry::DEFAULT_MAX_TERMS,
+            min_depth: 1,
+        }
+    }
+}
+
+/// Verify ONE shipped relation `I(key) = sum rhs` from its verification line `vline` (schema
+/// `rustred.campaign.symmetry-composite.v1`: target, element, image, replacements [{term, depth, record_sha256}])
+/// against `set` (its first-match catalogue, record lines read and SHA-256-checked) and the verified `group`:
+/// [`verify_shipped`] with the import's descent test and comparator, the modular field of `opts.d_values`. The ONE
+/// entry used by the import (load-time, import/supplied_verify.rs) and by the supervisor's re-check
+/// (adapters/symcomp.rs). Same backend as the composer (rows_by_element / image_of / compose_image).
+pub fn verify_line(
+    set: &ImportedSet,
+    group: &VerifiedGroup,
+    key: &[i32],
+    rhs: &[(Vec<i32>, String)],
+    vline: &Value,
+    opts: &LineOptions,
+) -> Result<(), String> {
+    let arity = set.frame.arity();
+    if vline["schema"] != COMPOSITE_SCHEMA {
+        return Err(format!(
+            "verification line schema is not {COMPOSITE_SCHEMA}"
+        ));
+    }
+    let kt = |t: &Value| -> Result<Vec<i32>, String> {
+        t.as_str()
+            .and_then(|s| parse_key_text(s, arity))
+            .ok_or_else(|| format!("key text {t}"))
+    };
+    if kt(&vline["target"])? != key {
+        return Err("the verification line's target is not the record's key".into());
+    }
+    let image: Vec<(Vec<i32>, Q)> = vline["image"]
+        .as_array()
+        .ok_or("image")?
+        .iter()
+        .map(|p| {
+            let q = p[1].as_str().ok_or("image coefficient text")?;
+            Ok((kt(&p[0])?, Independent.q_parse(q)?))
+        })
+        .collect::<Result<_, String>>()?;
+    let reps = vline["replacements"].as_array().ok_or("replacements")?;
+    let records: Vec<(Vec<i32>, String)> = reps
+        .iter()
+        .map(|x| {
+            Ok((
+                kt(&x["term"])?,
+                x["record_sha256"]
+                    .as_str()
+                    .ok_or("replacement record_sha256")?
+                    .to_string(),
+            ))
+        })
+        .collect::<Result<_, String>>()?;
+    let depth = reps
+        .iter()
+        .filter_map(|x| x["depth"].as_u64())
+        .map(|d| d as usize + 1)
+        .max()
+        .unwrap_or(0)
+        .max(opts.min_depth);
+    let element = vline["element"].as_u64().ok_or("element")? as usize;
+    let field = ModField::engine(&Independent, &opts.d_values);
+    let line_of = |t: usize, r: usize| {
+        crate::import::exact_facts::record_line(set, t, r).map_err(|e| e.to_string())
+    };
+    let cat = ModCatalogue {
+        set,
+        line_of: &line_of,
+        field: &field,
+    };
+    let lines = set.frame.mask().to_vec();
+    let cmp = |a: &[i32], b: &[i32]| set.cmp.cmp(a, b);
+    let lower = |k: &[i32], t: &[i32]| import_lower(&lines, k, t, &cmp);
+    verify_shipped(
+        &Independent,
+        &field,
+        &cat,
+        group,
+        key,
+        element,
+        &image,
+        &records,
+        rhs,
+        &lower,
+        &cmp,
+        opts.max_row_terms,
+        depth,
+    )
 }
