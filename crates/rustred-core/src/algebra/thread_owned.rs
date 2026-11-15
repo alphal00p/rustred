@@ -140,6 +140,15 @@ pub(crate) fn clone_thread_owned(shared: &CoefficientPolynomial) -> CoefficientP
     with_template(shared, |template| shared.clone_with_context_of(template))
 }
 
+/// A copy of a shared coefficient on the calling thread's polynomial context (numerator and
+/// denominator; equal value). Products started from it stay on this thread's context.
+pub(crate) fn coefficient_thread_owned(shared: &super::Coefficient) -> super::Coefficient {
+    super::Coefficient {
+        numerator: clone_thread_owned(&shared.numerator),
+        denominator: clone_thread_owned(&shared.denominator),
+    }
+}
+
 /// `shared.zero_with_capacity(capacity)` on the calling thread's context
 /// for the same field and variable map.
 pub(crate) fn zero_with_capacity_thread_owned(
