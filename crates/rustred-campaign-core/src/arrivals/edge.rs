@@ -59,7 +59,11 @@ impl Rat {
                 .map(|x| Rat { num: x, den: 1 })
                 .ok_or_else(|| format!("rational {n}: not an integer")),
             Value::String(s) => {
-                let s = s.trim();
+                // outer parentheses (the engine writes `(2)`, `(-1/2)`) and whitespace are not part of the number
+                let mut s = s.trim();
+                while let Some(x) = s.strip_prefix('(').and_then(|x| x.strip_suffix(')')) {
+                    s = x.trim();
+                }
                 match s.split_once('/') {
                     None => s
                         .parse::<i64>()
@@ -474,5 +478,7 @@ mod tests {
         // an unknown map name is refused
         assert!(EdgeFile::parse(toy_edge().to_string().as_bytes(), "toy", "c9").is_err());
         assert_eq!(Rat::parse(&json!("-6/4")).unwrap(), Rat { num: -3, den: 2 });
+        assert_eq!(Rat::parse(&json!("(2)")).unwrap(), Rat { num: 2, den: 1 });
+        assert_eq!(Rat::parse(&json!(" ( -1/2 ) ")).unwrap(), Rat { num: -1, den: 2 });
     }
 }

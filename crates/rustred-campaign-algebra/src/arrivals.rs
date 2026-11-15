@@ -265,6 +265,8 @@ pub struct RecCache<'s> {
     cfg: ProverCfg,
     frames: Mutex<BTreeMap<String, NodeFrame>>,
     slots: HashMap<(usize, usize), Mutex<Option<RecEntry>>>,
+    /// Every record text read once (leaked, reused by later phases after a slot was released).
+    texts: Mutex<HashMap<(usize, usize), (&'static RuleText, NodeFrame)>>,
 }
 
 impl<'s> RecCache<'s> {
@@ -275,6 +277,25 @@ impl<'s> RecCache<'s> {
             cfg,
             frames: Mutex::new(BTreeMap::new()),
             slots: recs.into_iter().map(|k| (k, Mutex::new(None))).collect(),
+            texts: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Release the parsed terms of one record (its text stays; the next use re-parses only what it needs).
+    pub fn release(&self, t: usize, r: usize) {
+        if let Some(slot) = self.slots.get(&(t, r))
+            && let Ok(mut g) = slot.lock()
+        {
+            *g = None;
+        }
+    }
+
+    /// Release every record's parsed terms (bounded memory between phases).
+    pub fn release_all(&self) {
+        for slot in self.slots.values() {
+            if let Ok(mut g) = slot.lock() {
+                *g = None;
+            }
         }
     }
 
@@ -283,8 +304,16 @@ impl<'s> RecCache<'s> {
         let slot = self.slots.get(&(t, r)).ok_or_else(|| format!("record ({t}, {r}) not in the cache"))?;
         let mut g = slot.lock().map_err(|_| "record cache lock poisoned".to_string())?;
         if g.is_none() {
-            let (rt, frame) = read_record(self.set, &self.frames, t, r)?;
-            let rt: &'static RuleText = Box::leak(Box::new(rt));
+            let known = self.texts.lock().map_err(|_| "texts lock".to_string())?.get(&(t, r)).cloned();
+            let (rt, frame) = match known {
+                Some(x) => x,
+                None => {
+                    let (rt, frame) = read_record(self.set, &self.frames, t, r)?;
+                    let rt: &'static RuleText = Box::leak(Box::new(rt));
+                    self.texts.lock().map_err(|_| "texts lock".to_string())?.insert((t, r), (rt, frame.clone()));
+                    (rt, frame)
+                }
+            };
             let p = RecordProver::new(self.alg, self.cfg.clone(), rt, frame.mask())?;
             *g = Some(RecEntry { p, me: ModEval::new() });
         }
@@ -581,8 +610,10 @@ pub fn walk(set: &ImportedSet, rows: &ParentRows, cache: &RecCache<'_>, cfg: &Wa
         }
         cand.clear();
         new.sort();
+        eprintln!("[arrivals] closure round {}: +{} keys, reached {}, top decisions {} ({:.0} s)", st.rounds, new.len(), reached.len(), st.top_decisions, t0.elapsed().as_secs_f64());
         frontier = new;
     }
+    cache.release_all();
     st.closure_keys = reached.len() as u64;
     st.keys_only_not_reached = (rows.keys.len() - reached.len()) as u64;
     let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
@@ -667,10 +698,10 @@ pub fn walk(set: &ImportedSet, rows: &ParentRows, cache: &RecCache<'_>, cfg: &Wa
                 }
                 out.push((ci, hand));
             }
-            // the walk keeps the parsed terms for the exact fallback; the proofs' bookkeeping is not needed here
             let _ = p.take_new();
             Ok((out, s))
         })
+        .inspect(|_| cache.release(*t, *r))
     });
     let mut hand: Vec<Vec<HandTerm>> = vec![vec![]; cl_served.len()];
     for r in res {
@@ -689,6 +720,7 @@ pub fn walk(set: &ImportedSet, rows: &ParentRows, cache: &RecCache<'_>, cfg: &Wa
         st.positive_numerator_terms += s.positive_numerator_terms;
     }
     st.seconds_handdowns = t1.elapsed().as_secs_f64();
+    eprintln!("[arrivals] hand-down decisions: {} terms ({} zero, {} non-zero) at {} keys ({:.0} s)", st.handdown_terms, st.handdown_zero, st.handdown_nonzero, cl_served.len(), st.seconds_handdowns);
     Ok(Walk { cl_served, hand, stats: st, closure_digest })
 }
 
@@ -941,6 +973,7 @@ pub fn aggregate(
                 }
                 Ok(out)
             })
+            .inspect(|_| cache.release(*t, *r))
         });
         for r in res {
             for (e, k, first, nz) in r? {

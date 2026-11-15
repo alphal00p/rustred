@@ -6,12 +6,14 @@
 //! rr_arrivals compute --spec PARENT_SPEC --rows ROWS --edge E [--edge E2 ..] --out-dir D --parent NAME
 //!                     [--child-table LABEL=PATH ..] [--edge-producer TEXT] [--exact all|none|keys:FILE]
 //!                     [--no-structural] [--threads N] [--index-dir DIR] [--decisions-sample N] [--cache-entries N]
+//!                     [--maps M1,M2,..] [--dump-handdown-keys FILE]
 //! rr_arrivals verify --spec PARENT_SPEC --rows ROWS --edge E [..] --arrivals A [..] [--sample N] [--threads N]
 //!                    [--index-dir DIR]
 //! rr_arrivals child-check --spec CHILD_SPEC --statement F --arrivals NAME=A [..] --out REPORT --work-dir W
 //!                    [--threads N] [--index-dir DIR]
 //! rr_arrivals second-route --spec PARENT_SPEC --decisions D --facts F [..] --out REPORT [--index-dir DIR]
 //! rr_arrivals compare-engine --edge E --facts ENGINE.keys.jsonl [..] [--out REPORT]
+//! rr_arrivals closure-rows --spec NODE_SPEC --arrivals A [..] --out ROWS [--summary S] [--threads N] [--index-dir DIR]
 //! rr_arrivals version
 //! ```
 //! Needs the Symbolica licence (`source WS/ops/env.sh`) for every command but `child-check` and `version`. Exit 0 = ok /
@@ -60,6 +62,7 @@ struct Args {
     work_dir: Option<PathBuf>,
     index_dir: Option<PathBuf>,
     decisions: Option<PathBuf>,
+    dump_handdown_keys: Option<PathBuf>,
     facts: Vec<PathBuf>,
     edge_producer: String,
     exact: String,
@@ -106,6 +109,7 @@ fn parse(args: &[String]) -> Args {
             "--work-dir" => a.work_dir = Some(val(&mut i).into()),
             "--index-dir" => a.index_dir = Some(val(&mut i).into()),
             "--decisions" => a.decisions = Some(val(&mut i).into()),
+            "--dump-handdown-keys" => a.dump_handdown_keys = Some(val(&mut i).into()),
             "--facts" => a.facts.push(val(&mut i).into()),
             "--edge-producer" => a.edge_producer = val(&mut i),
             "--exact" => a.exact = val(&mut i),
@@ -542,6 +546,18 @@ fn compute(a: &Args) {
     let recs: BTreeSet<(usize, usize)> = pr.rows.served.iter().map(|r| (r.table, r.record)).collect();
     let cache = arrivals::RecCache::new(alg, &pr.set, cfg.prover.clone(), recs);
     let w = arrivals::walk(&pr.set, &pr.rows, &cache, &cfg).unwrap_or_else(|e| die(&e));
+    if let Some(p) = &a.dump_handdown_keys {
+        // distinct routed hand-down term keys with a non-zero (or 0/0) coefficient at some closure key, parent frame
+        let owners = rustred_campaign_core::import::arrivals::edge::mask_owners(&pr.edges).unwrap_or_else(|e| die(&e));
+        let mut tks: BTreeSet<&Vec<i32>> = BTreeSet::new();
+        for h in w.hand.iter().flatten() {
+            if owners.contains_key(&h.mask) {
+                tks.insert(&h.tk);
+            }
+        }
+        let text: String = tks.iter().map(|k| format!("I({})\n", k.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","))).collect();
+        std::fs::write(p, text).unwrap_or_else(|e| die(&format!("{}: {e}", p.display())));
+    }
     let tables = spec_tables(&pr.set);
     let mut files = vec![];
     let maps: Vec<String> = if a.maps.is_empty() { vec![a.map.clone()] } else { a.maps.clone() };
@@ -759,7 +775,15 @@ fn child_check(a: &Args) {
         let arr = format::read(Path::new(p)).unwrap_or_else(|e| die(&e));
         let rows = work.join(format!("rows.{name}.jsonl"));
         let pc = child::check_parent(&set, &ev, &cert, name, &arr, &rows, a.threads).unwrap_or_else(|e| die(&e));
+        // every (c) key and every open key reached, in full (the report lists the first 50)
+        let kl = |k: &Vec<i32>| format!("[{}]\n", k.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","));
+        let cp = out.with_file_name(format!("{name}.c_keys.jsonl"));
+        let op = out.with_file_name(format!("{name}.open_keys.jsonl"));
+        std::fs::write(&cp, pc.c.iter().map(kl).collect::<String>()).unwrap_or_else(|e| die(&e.to_string()));
+        std::fs::write(&op, pc.open_reached.iter().map(|(k, _)| kl(k)).collect::<String>()).unwrap_or_else(|e| die(&e.to_string()));
         let mut j = pc.json(&lines);
+        j["c_keys_file"] = json!(cp);
+        j["open_keys_file"] = json!(op);
         j["arrivals_file"] = json!({"path": p, "sha256": arr.sha256});
         parents.push(j);
         let _ = std::fs::remove_file(&rows);
@@ -936,6 +960,51 @@ fn no_timing(mut v: Value) -> Value {
     v
 }
 
+/// `closure-rows`: the CHAIN step (coordinator 2026-11-15: arrivals through intermediate nodes count, taken to closure):
+/// the node's keys-only (Tier K) closure from its spec's start set (its box) UNION every incoming arrival set (support
+/// level, keys in this node's table frame), written as a check rows file with `in_start` = box or arriving key; `compute`
+/// then walks it (exact closure from those starts) and hands down on every outgoing edge. Keys of an arrival file outside
+/// the node's codec range are refused.
+fn closure_rows(a: &Args) {
+    let t0 = std::time::Instant::now();
+    let spec = a.spec.clone().unwrap_or_else(|| die("--spec missing"));
+    let out = a.out.clone().unwrap_or_else(|| die("--out missing"));
+    let (set, _) = load_spec(&spec, &a.index_dir, |v| {
+        if let Some(o) = v.as_object_mut() {
+            o.remove("evidence");
+        }
+        v["policies"] = json!({"witness_check": "off_diagnostic", "tier": "K"});
+    });
+    let ev = Evidence::from_spec(&set, Path::new("/")).unwrap_or_else(|e| die(&format!("evidence: {e}")));
+    let mut extra: Vec<Vec<i32>> = vec![];
+    let mut files = vec![];
+    for p in &a.arrivals {
+        let arr = format::read(Path::new(p)).unwrap_or_else(|e| die(&e));
+        files.push(json!({"path": p, "sha256": arr.sha256, "keys": arr.lines.len()}));
+        extra.extend(arr.lines.into_iter().map(|l| l.key));
+    }
+    let n_box = set.start.len();
+    let add = rustred_campaign_core::closure::KeySet::from_keys(set.codec, extra.iter().map(|k| k.as_slice()))
+        .unwrap_or_else(|e| die(&format!("arrival keys do not fit the node's codec: {e}")));
+    let start = set.start.union(&add);
+    let r = rustred_campaign_core::import::check::check_streamed_from(
+        &set,
+        &ev,
+        &rustred_campaign_core::import::CheckOptions { threads: a.threads, tier: Some(rustred_campaign_core::closure::Tier::K), max_rounds: None },
+        &out,
+        &start,
+    )
+    .unwrap_or_else(|e| die(&format!("closure: {e}")));
+    let s = json!({"schema": "rustred.campaign.arrival-closure-rows.v1", "spec": spec, "rows": out, "box_keys": n_box,
+        "arrival_files": files, "arrival_keys_new": start.len() - n_box, "start_keys": start.len(),
+        "closure_keys": r.summary.keys_total, "open": r.summary.open_total, "open_by_status": r.summary.open_by_status,
+        "seconds": t0.elapsed().as_secs_f64(), "tool": arrivals::TOOL_VERSION});
+    if let Some(p) = &a.summary {
+        write_json(p, &s);
+    }
+    println!("{}", canonical_json(&s));
+}
+
 fn header_family(p: &Path) -> Option<String> {
     let h = rustred_campaign_core::import::lines::read_header("arrivals", p).ok()?;
     h.raw.get("family").and_then(Value::as_str).map(str::to_string)
@@ -956,6 +1025,7 @@ fn main() {
         "child-check" => child_check(&a),
         "second-route" => second_route(&a),
         "compare-engine" => compare_engine(&a),
+        "closure-rows" => closure_rows(&a),
         x => die(&format!("unknown command {x}")),
     }
 }
