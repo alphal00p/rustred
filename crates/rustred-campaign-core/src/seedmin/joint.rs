@@ -564,7 +564,7 @@ fn build_piece(
             if set.len() == 1 {
                 tried.insert(set[0].clone());
             } else {
-                *chunk = (set.len() / 2).max(1);
+                *chunk = (set.len() / policy.halving_factor).max(1);
             }
         };
         'outer: loop {
@@ -608,7 +608,7 @@ fn build_piece(
                     chunk = if policy.chunk_start > 0 {
                         policy.chunk_start
                     } else {
-                        (remaining.len() / 2).max(1)
+                        (remaining.len() / policy.halving_factor).max(1)
                     };
                 }
                 let c = chunk.min(remaining.len()).min(cand.len() - 1).max(1);
@@ -720,7 +720,7 @@ fn build_piece(
                         .map(|x| x.relation().cloned().expect("checked"))
                         .collect();
                     if halving {
-                        chunk = s.len() * 2;
+                        chunk = s.len() * policy.halving_factor;
                     }
                     for (t2, (a2, s2)) in ts.iter().zip(ans_b.iter().zip(&batch)).skip(bi + 1) {
                         cx.log(

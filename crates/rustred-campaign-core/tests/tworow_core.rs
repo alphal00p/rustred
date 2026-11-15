@@ -781,3 +781,72 @@ fn apply_combination_refuses_a_term_that_is_not_strictly_lower() {
     }
     assert!(checked > 0);
 }
+
+/// planfix ("tworow certificates"): a tworow relation carries a KERNEL CERTIFICATE reference (lane symcert's sealed
+/// `symrows-certificate.v1` line) bound by the relation digest of its own exact right-hand side; the import-side check
+/// lifts only a bound `certified` reference, refuses one of another relation / key / a forged sealed line, and keeps a
+/// kernel refusal as a refusal.
+#[test]
+fn a_kernel_certificate_reference_binds_to_its_relation_and_is_checked() {
+    use rustred_campaign_core::tworow::cert::{
+        SYMROWS_CERT_SCHEMA, relation_canonical, relation_digest,
+    };
+    use rustred_campaign_core::tworow::{CertificateCheck, KernelCertificateRef, check_certificate};
+    let f = sunbub();
+    let p = TwoRowPolicy::default();
+    let keys = box_keys(&f.chart, 1, 4);
+    let r = keys_needing_more(&f, &keys, &p)
+        .into_iter()
+        .find(|r| r.outcome.best().is_some_and(|b| b.kind() == "pair"))
+        .expect("a pair key");
+    let c = r.outcome.best().unwrap().clone();
+    let d = c.relation_digest().unwrap();
+    assert_eq!(d.len(), 64);
+    // the digest is lane symcert's: canonical {"key","rhs" sorted by key,"schema"}, order of the input irrelevant
+    let mut rev = c.rhs_text();
+    rev.reverse();
+    assert_eq!(relation_digest(&c.key, &rev).unwrap(), d);
+    let canon = relation_canonical(&c.key, &rev).unwrap();
+    assert!(canon.starts_with("{\"key\":["), "{canon}");
+    assert!(canon.ends_with("\"schema\":\"rustred.campaign.symrows-relation.v1\"}"), "{canon}");
+    // a sealed certificate line and its reference
+    let line = json!({"schema": SYMROWS_CERT_SCHEMA, "relation_digest": d, "record_sha256": "a".repeat(64),
+        "rule": 0, "key": c.key, "verdict": "EXACT_IN_SPAN_AT_KEY", "status": "EXACT_IN_SPAN_AT_KEY",
+        "class": "certified", "kernel_sha256": "b".repeat(64)})
+    .to_string();
+    let sha = {
+        let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
+        h.update(line.as_bytes());
+        h.finish_hex()
+    };
+    let cert = KernelCertificateRef {
+        schema: SYMROWS_CERT_SCHEMA.into(),
+        relation_digest: d.clone(),
+        key: c.key.clone(),
+        class: "certified".into(),
+        record_sha256: "a".repeat(64),
+        kernel_sha256: "b".repeat(64),
+        certificate_sha256: sha,
+    };
+    assert_eq!(check_certificate(&c, &cert, Some(&line)), CertificateCheck::Certified);
+    assert!(check_certificate(&c, &cert, None).certified());
+    let j = c.to_json_with(Some(&cert));
+    assert_eq!(j["engine_certificate"]["class"], "certified");
+    assert_eq!(j["relation_digest"], json!(d));
+    assert!(c.to_json_with(None)["engine_certificate"].as_str().unwrap().starts_with("none"));
+    // another relation (one coefficient changed) / another key / a forged line / a refusal
+    let mut other = c.clone();
+    other.rhs[0].1 = rustred_campaign_core::replay_base::algebra::Q::int(7);
+    assert!(matches!(check_certificate(&other, &cert, None), CertificateCheck::NotBound(_)));
+    let mut k2 = cert.clone();
+    k2.key[0] += 1;
+    assert!(matches!(check_certificate(&c, &k2, None), CertificateCheck::NotBound(_)));
+    let forged = line.replace("\"certified\"", "\"certified\" ");
+    assert!(matches!(check_certificate(&c, &cert, Some(&forged)), CertificateCheck::NotBound(_)));
+    let mut refused = cert.clone();
+    refused.class = "kernel_refused".into();
+    assert_eq!(check_certificate(&c, &refused, None), CertificateCheck::KernelRefused);
+    let mut bogus = cert.clone();
+    bogus.class = "fine".into();
+    assert!(matches!(check_certificate(&c, &bogus, None), CertificateCheck::NotBound(_)));
+}

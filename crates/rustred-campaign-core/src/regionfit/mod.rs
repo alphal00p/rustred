@@ -47,28 +47,34 @@ pub struct FaceInput {
     pub keys: Vec<FaceKey>,
 }
 
-/// Every threshold is policy data; the defaults are documented in interfaces/regionfit.md.
+/// Every threshold is policy data; the defaults are documented in interfaces/regionfit.md. planfix (audit r2-planners
+/// ITEM 6): each field states its default and what backs it; "default not yet backed by an experiment" = a number
+/// chosen by the lane, not measured.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct RegionPolicy {
     pub atoms: AtomFamily,
-    /// Atoms per condition.
+    /// Atoms per condition. Default 2: the hand's region conditions use at most two atoms (TRICKS 2); not measured
+    /// against 1 or 3 (default not yet backed by an experiment).
     pub max_atoms: usize,
-    /// A candidate region holds at least this many face keys.
+    /// A candidate region holds at least this many face keys. Default 2. Default not yet backed by an experiment.
     pub min_region_keys: usize,
     /// Pieces charged per key served per key (a region costs 1).
     pub residual_key_cost: u64,
     /// Preferred choices first; unlisted choices after, in label order.
     pub ranking: Vec<String>,
-    /// Exact search only when the candidate regions (after dominance) are at most this many ...
+    /// Exact search only when the candidate regions (after dominance) are at most this many ... Default 400. Default
+    /// not yet backed by an experiment (the T178 key-choice faces all fitted "exact" under it, regions notes; no sweep).
     pub exact_max_candidates: usize,
-    /// ... and the keys at most this many.
+    /// ... and the keys at most this many. Default 4000. Default not yet backed by an experiment.
     pub exact_max_keys: usize,
-    /// Branch-and-bound node budget.
+    /// Branch-and-bound node budget. Default 200000. Default not yet backed by an experiment.
     pub exact_node_budget: u64,
-    /// Dominance pruning only up to this many candidates (it is quadratic).
+    /// Dominance pruning only up to this many candidates (it is quadratic). Default 20000. Default not yet backed by an
+    /// experiment.
     pub dominance_max_candidates: usize,
-    /// Conditions enumerated at most (deterministic cut; the record says when it was hit).
+    /// Conditions enumerated at most (deterministic cut; the record says when it was hit). Default 5000000. Default
+    /// not yet backed by an experiment.
     pub max_conditions: u64,
     /// The deeper key list breaks ties among conditions with the same truth set on the face.
     pub prefer_extending: bool,

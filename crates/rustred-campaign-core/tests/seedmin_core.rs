@@ -1419,3 +1419,32 @@ fn beyond_its_piece_a_list_is_compared_with_the_full_list_and_worse_keys_are_lis
     assert!(r2.worse_than_full.is_empty() && r2.full_valid.is_none());
     assert!(r2.claim.ends_with("not compared with the full list"), "{}", r2.claim);
 }
+
+/// planfix (audit r2-planners ITEM 6): the halving factor is a policy parameter (default 2, omitted from the canonical
+/// policy at its default so existing digests / journals stay valid; below 2 refused); another factor reaches the same
+/// list (the factor changes the cost, never the result of the drop test).
+#[test]
+fn the_halving_factor_is_a_parameter_with_a_digest_stable_default() {
+    let d = SeedMinPolicy::default();
+    assert_eq!(d.halving_factor, 2);
+    let explicit = SeedMinPolicy::parse(r#"{"halving_factor": 2}"#).unwrap();
+    assert_eq!(explicit.digest(), d.digest(), "the default is not part of the digest");
+    assert!(!serde_json::to_string(&d).unwrap().contains("halving_factor"));
+    let e = SeedMinPolicy::parse(r#"{"halving_factor": 1}"#).unwrap_err();
+    assert!(e.contains("halving_factor"), "{e}");
+    let three = SeedMinPolicy::parse(r#"{"halving_factor": 3, "drop_chunks": "halving"}"#).unwrap();
+    assert_ne!(three.digest(), d.digest());
+    let k: Key = vec![3, 2, -1];
+    let mut o = Oracle::default();
+    o.alts.insert(
+        k.clone(),
+        vec![alt(&[[0, 0, 0], [1, 0, 0], [0, 1, -1]], 40)],
+    );
+    let two = SeedMinPolicy {
+        drop_chunks: "halving".into(),
+        ..SeedMinPolicy::default()
+    };
+    let a = minimise_key(&k, &C0, &shell(), &two, &mut o, &mut StubSystemPoles).unwrap();
+    let b = minimise_key(&k, &C0, &shell(), &three, &mut o, &mut StubSystemPoles).unwrap();
+    assert_eq!(a.list, b.list);
+}
