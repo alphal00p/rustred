@@ -90,7 +90,12 @@ fn material(dir: &Path, c: &Case) -> Material {
         }
         v.to_string()
     };
-    let facts = format!("{}\n", line(c.producer));
+    // producer `none`: no first-route fact at all
+    let facts = if c.producer == "none" {
+        String::new()
+    } else {
+        format!("{}\n", line(c.producer))
+    };
     std::fs::write(dir.join("facts.jsonl"), &facts).unwrap();
     let proofs = format!(
         "{}\n",
@@ -156,6 +161,11 @@ fn run(m: &Material, tag: &str, big: bool, layers: bool) -> Out {
 
 /// One pass in run directory `tag`; big-node mode keeps its store (and index) in run directory `store_tag`.
 fn run_with_store(m: &Material, tag: &str, store_tag: &str, big: bool, layers: bool) -> Out {
+    run_full(m, tag, store_tag, big, layers, true)
+}
+
+/// [`run_with_store`] with or without the exact evaluation configured (`proof.exact_eval`).
+fn run_full(m: &Material, tag: &str, store_tag: &str, big: bool, layers: bool, exact: bool) -> Out {
     let rd = m.dir.join(tag);
     std::fs::create_dir_all(&rd).unwrap();
     let sd = m.dir.join(store_tag);
@@ -180,7 +190,7 @@ fn run_with_store(m: &Material, tag: &str, store_tag: &str, big: bool, layers: b
                 facts: true,
                 max_keys_per_job: 64,
                 max_fact_keys_per_job: 64,
-                exact_keys_per_job: Some(64),
+                exact_keys_per_job: exact.then_some(64),
                 max_fact_terms_per_job: None,
             }),
             fact2_files: m.fact2_files.clone(),
@@ -509,4 +519,39 @@ fn layers_and_zeros_in_big_node_mode_freeze_only_confirmed_zero_pairs() {
         }
         let _ = std::fs::remove_dir_all(&m.dir);
     }
+}
+
+/// Status-table arm `no_fact`, the one arm of closeloop4's table that does not block by itself: a NON-decisive pair of
+/// an ELIDED record with NO first-route fact relies on no zero (every coefficient is unknown: every term an edge, the
+/// closure drops nothing there). The node still never closes: with the exact evaluation configured its fact is asked
+/// (memory and big-node mode alike since this lane); without it the exact tier lists the key's facts as missing.
+#[test]
+fn an_elided_pair_without_a_fact_relies_on_no_zero_and_never_closes() {
+    let m = material(
+        &root("nofact"),
+        &Case {
+            terms: vec![([2, 1, 0], false), ([3, 1, 1], true)],
+            elided: true,
+            producer: "none",
+            facts2: None,
+            zeros2: false,
+        },
+    );
+    for exact in [true, false] {
+        let mut seen = vec![];
+        for (tag, big) in [("mem", false), ("big", true)] {
+            let t = format!("{tag}-{exact}");
+            let o = run_full(&m, &t, &t, big, false, exact);
+            assert_ne!(o.verdict, "closed", "{t}: {:?}", o.blockers);
+            if exact {
+                // the exact-evaluation fact of the elided record is asked (no verdict yet)
+                assert_eq!(o.verdict, "none", "{t}: {:?}", o.blockers);
+            } else {
+                assert!(!o.blockers.is_empty(), "{t}");
+            }
+            seen.push((o.verdict, o.blockers));
+        }
+        assert_eq!(seen[0], seen[1], "exact {exact}: memory = big-node");
+    }
+    let _ = std::fs::remove_dir_all(&m.dir);
 }
