@@ -7,6 +7,7 @@
 # boxB_provisional_*_SUMMARY.txt: second pass (provisional BOXDEF B box, budget 200k) and the budget-1.5M pass of its 17 Tier-K-only nodes
 # boxdef_B_answered_v1.json (coordinator answers Q1-Q5, tagged), boxdef_B_census_rule.json (lane basis-census rule, cross-check), census_band_sizes.py, boxB_answered_vs_census_comparison.json
 # boxdef_B_v3_addendum.json: THE DECIDED eps box (BOXDEF.v3 B + addendum 2026-11-15T10:26Z); the provisional and answered_v1 clauses are kept for the record
+# boxB_v3_addendum_pass_TABLE.txt: the eps campaign on the DECIDED box (137/137 reproduce; table5.py, combine5.sh)
 16adb44cc95f0a38f5e31458c1f0b68a81596f4ab1d88cd4f51f2bdd2caf98c6  T012_a0-td-e.check_facts.jsonl
 3b5971648ffe02196bc1d3dff613487ad0fe1664f3190bb5beae60713f539ec8  T012_a0-td-e.table.jsonl
 1fec621d497e09b91f23d987bfb2d282ab50af1d830af8570bdd04fd211c2027  T012.engine_first.jsonl
@@ -31,8 +32,11 @@ c66ae1b7431e7c48a2df53ed227f1972bca5b472de5d702ed33fafab7a37e734  T064_min.heade
 fe282557b92ebe731f8172686b814b52bce910b3e1b6f909d01466cddde4aeec  mkreq.py
 7e2aac3b052df3d724e16c346884e9448f9121af170733d6e4bd465213db7b0e  split_req.py
 bd4d19df10414703735f124a66fb0196604a719f2a864d577b7e29c7bf68ca95  summarize.py
+c893ecf3852627db7e73bcc5ee4e9ed3fa5a963226b6bf59ccf1103c163c3fa2  table5.py
 0279842bab6af9d1b9afb1e3325b1af0b8398bd147b983654bab885eba44a7a5  campaign.sh
+db6a953f1908a0ef1572f6ad4fd1d49d1e9885c6769586b80d80cb210f31e2ab  combine5.sh
 93595504ed0598d9419fcedcba6f76fd2c3f7ce58849c2e52b4c792359e916fd  iterate.sh
 02d345307967202a4f9c3ae2acd8697b2137282ec1146e19c34dcb3d572c0c3f  boxB_provisional_budget_pass_SUMMARY.txt
 3f48e569fbc421456cf1d8453b40144f12ba7adf5e603e8e520916c0f8c76d4c  boxB_provisional_pass_SUMMARY.txt
+49a59acdddca10d41a5d8223529d5a9e7da7be430d2e66663cb8443255d67f3c  boxB_v3_addendum_pass_TABLE.txt
 9ae4bca80d14ae7ce7955c55db81bf4faca2d2191c240eed93852baad4e4cdc0  probe_pass_SUMMARY.txt
