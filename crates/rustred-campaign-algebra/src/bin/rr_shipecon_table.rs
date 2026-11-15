@@ -6,6 +6,7 @@
 //!
 //! ```text
 //! rr_shipecon_table --spec IMPORT_SPEC [--base DIR] --request REQUEST.jsonl --out OUT.jsonl [--max-record-bytes N]
+//!                   [--witness diagnostic]
 //! ```
 //! REQUEST: one line per rule `{"record_sha256", "keys": [[..], ..]}` (the ship-economy driver writes it:
 //! `table_time_request.jsonl`). OUT: one line per rule `{"record_sha256", "load_s", "apply_s": {"n0,n1,..": s},
@@ -59,7 +60,14 @@ fn main() {
         .map(|x| x.parse().unwrap_or_else(|_| die("--max-record-bytes")))
         .unwrap_or(u64::MAX);
     SymbolicaAlgebra::new().unwrap_or_else(|e| die(&e));
-    let spec = TableSetSpec::read(&spec_p).unwrap_or_else(|e| die(&format!("import spec: {e}")));
+    let mut spec =
+        TableSetSpec::read(&spec_p).unwrap_or_else(|e| die(&format!("import spec: {e}")));
+    // `--witness diagnostic`: records without witness loci (slim ship tables) are served for the TIMING (the measurement
+    // never certifies anything)
+    if get("--witness").as_deref() == Some("diagnostic") {
+        spec.policies.witness_check =
+            rustred_campaign_core::import::spec::WitnessCheck::OffDiagnostic;
+    }
     let t0 = Instant::now();
     let set = rustred_campaign_core::import::load(&spec, &base)
         .unwrap_or_else(|e| die(&format!("import load: {e}")));

@@ -55,6 +55,8 @@ fn trial(key: &[i32], step: &str, ok: bool, secs: f64, bytes: u64, p: &ShipPolic
         rhs_outside_certified: Some(0),
         why: (!ok).then(|| "no relation".into()),
         bound: p.bound_value(),
+        solved_line: None,
+        results: None,
     }
 }
 

@@ -60,6 +60,9 @@ fn real_ship_economy() {
         rule_index: opt("rule_index"),
         check_mode: c["check_mode"].as_str().unwrap_or("full").to_string(),
         later_rule_probe: opt("later_rule_probe"),
+        resume_trials: opt("resume_trials"),
+        previous_solved: opt("previous_solved"),
+        previous_work: opt("previous_work"),
         verbose: true,
     };
     let rep = run_ship(&cfg).unwrap();

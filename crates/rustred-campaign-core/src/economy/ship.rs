@@ -675,6 +675,13 @@ pub struct KeyTrial {
     pub why: Option<String>,
     /// The bound the trial ran under ([`ShipPolicy::bound_value`]).
     pub bound: Value,
+    /// The accept chain's answer line of this key (`rustred.campaign.solved-relation.v1`: the import's evidence), kept so
+    /// a later run reuses the trial without re-solving.
+    #[serde(default)]
+    pub solved_line: Option<String>,
+    /// The sealed results stream holding the engine record of this key (re-read by a later run for a stored entry).
+    #[serde(default)]
+    pub results: Option<String>,
 }
 
 impl KeyTrial {

@@ -83,6 +83,13 @@ pub struct ShipRunConfig {
     /// migrated keys: a key with a position is taken by a later table rule (the engine's own dispatch; replaces the
     /// tentative set, which in local mode sees only the selected rules). Given: every examined rule is re-decided.
     pub later_rule_probe: Option<PathBuf>,
+    /// `trials.jsonl` of an interrupted run (the per-job checkpoint): a trial is reused when the recipe generated now
+    /// has the same sha256 and its verdict is deterministic or was measured under the same bound.
+    pub resume_trials: Option<PathBuf>,
+    /// An earlier run's `ship/solved.jsonl` (answer lines of trials recorded without them) and work root (its sealed
+    /// results streams, for the engine records of reused certified trials).
+    pub previous_solved: Option<PathBuf>,
+    pub previous_work: Option<PathBuf>,
     /// `rr_node first-match --table ship/probe/table.jsonl --keys ship/probe/keys.jsonl` output of an earlier run's
     /// probe (compared key by key with the import's dispatch of the shipped spec).
     pub engine_first_match: Option<PathBuf>,
@@ -786,6 +793,28 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
         })
         .map_err(|e| format!("sampler: {e}"))?,
     );
+    let mut resumed: BTreeMap<(String, String, Vec<i32>), KeyTrial> = BTreeMap::new();
+    if let Some(rp) = &cfg.resume_trials {
+        let f = std::fs::File::open(rp).map_err(|e| format!("{}: {e}", rp.display()))?;
+        for l in std::io::BufReader::new(f).lines().map_while(Result::ok) {
+            // a torn last line (a crash while appending) is skipped
+            let Ok(v) = serde_json::from_str::<Value>(&l) else {
+                continue;
+            };
+            let (Some(sha), Ok(t)) = (
+                v["record_sha256"].as_str(),
+                serde_json::from_value::<KeyTrial>(v["trial"].clone()),
+            ) else {
+                continue;
+            };
+            resumed.insert((sha.to_string(), t.step.clone(), t.key.clone()), t);
+        }
+        say(format!(
+            "checkpoint: {} trials read from {}",
+            resumed.len(),
+            rp.display()
+        ));
+    }
     let mut solved_lines: Vec<String> = vec![];
     let mut records_by_key: BTreeMap<Vec<i32>, Value> = BTreeMap::new();
     let mut recipe_files: BTreeMap<String, (PathBuf, String, u64)> = BTreeMap::new();
@@ -808,6 +837,7 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
             break;
         }
         let mut queue: Vec<Job> = vec![];
+        let mut n_resumed = 0usize;
         for ((i, s), keys) in &need {
             let rule = &census.rules[*i].rule;
             for (rid, doc, rkeys) in recipes_for(p, set_a, rule, s, keys)? {
@@ -820,6 +850,23 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
                     .join(format!("{}.json", crate::closeloop::ids::safe(&rid)));
                 write(&path, text.as_bytes())?;
                 recipe_files.insert(rid.clone(), (path.clone(), sha.clone(), text.len() as u64));
+                // the checkpoint of an interrupted run: same recipe bytes, reusable verdict
+                let rsha = &census.rules[*i].rule.record_sha256;
+                let mut rkeys = rkeys;
+                rkeys.retain(|k| {
+                    let Some(t) = resumed.get(&(rsha.clone(), s.clone(), k.clone())) else {
+                        return true;
+                    };
+                    if t.recipe_sha256 == sha && (t.deterministic() || t.bound == bound) {
+                        let tr = trials.entry(*i).or_default();
+                        tr.retain(|x| !(x.key == t.key && x.step == t.step));
+                        tr.push(t.clone());
+                        n_resumed += 1;
+                        false
+                    } else {
+                        true
+                    }
+                });
                 for (c, chunk) in rkeys.chunks(p.recipe.max_keys_per_job).enumerate() {
                     queue.push(Job {
                         id: format!("r{round}-{}-c{c}", crate::closeloop::ids::safe(&rid)),
@@ -834,7 +881,7 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
             }
         }
         say(format!(
-            "round {round}: {} jobs, {} keys",
+            "round {round}: {} jobs, {} keys ({n_resumed} trials resumed from the checkpoint)",
             queue.len(),
             queue.iter().map(|j| j.keys.len()).sum::<usize>()
         ));
@@ -909,6 +956,16 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
                             }
                             Ok(dec) => {
                                 solved_lines.extend(dec.lines.iter().cloned());
+                                let lines_by_key: BTreeMap<Vec<i32>, String> = dec
+                                    .lines
+                                    .iter()
+                                    .filter_map(|l| {
+                                        let v: Value = serde_json::from_str(l).ok()?;
+                                        let k: Vec<i32> =
+                                            serde_json::from_value(v["key"].clone()).ok()?;
+                                        Some((k, l.clone()))
+                                    })
+                                    .collect();
                                 let cert: BTreeSet<&Vec<i32>> = dec.certified.iter().collect();
                                 let failed: BTreeMap<&Vec<i32>, &String> =
                                     dec.failed.iter().map(|(k, w)| (k, w)).collect();
@@ -975,6 +1032,8 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
                                             )
                                         },
                                         bound: bound.clone(),
+                                        solved_line: lines_by_key.get(k).cloned(),
+                                        results: Some(results.clone()),
                                     });
                                 }
                                 job_rec["certified"] = json!(dec.certified.len());
@@ -993,10 +1052,91 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
                 )
             ));
             jobs_log.push(job_rec);
+            // the per-job checkpoint (resume after a stop / crash: `resume_trials`)
+            {
+                use std::io::Write as _;
+                let sha = &census.rules[job.rule].rule.record_sha256;
+                if let Ok(mut f) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(cfg.out_dir.join("trials.jsonl"))
+                {
+                    let mut buf = String::new();
+                    for t in &new_trials {
+                        buf.push_str(&json!({"record_sha256": sha, "trial": t}).to_string());
+                        buf.push('\n');
+                    }
+                    let _ = f.write_all(buf.as_bytes());
+                }
+            }
             let t = trials.entry(job.rule).or_default();
             for nt in new_trials {
                 t.retain(|x| !(x.key == nt.key && x.step == nt.step));
                 t.push(nt);
+            }
+        }
+    }
+    // reused trials (previous records / checkpoint): their answer lines and engine records, from what they recorded
+    let fresh: BTreeSet<String> = solved_lines.iter().cloned().collect();
+    let mut raw_cache: BTreeMap<String, BTreeMap<Vec<i32>, Value>> = BTreeMap::new();
+    for ts in trials.values() {
+        for t in ts {
+            if let Some(l) = &t.solved_line
+                && !fresh.contains(l)
+            {
+                solved_lines.push(l.clone());
+            }
+            if t.certified
+                && !records_by_key.contains_key(&t.key)
+                && let Some(rp) = &t.results
+            {
+                let m = raw_cache
+                    .entry(rp.clone())
+                    .or_insert_with(|| raw_records(rp));
+                if let Some(r) = m.get(&t.key) {
+                    records_by_key.insert(t.key.clone(), r.clone());
+                }
+            }
+        }
+    }
+    if let Some(ps) = &cfg.previous_solved {
+        let have: BTreeSet<String> = solved_lines.iter().cloned().collect();
+        let text = std::fs::read_to_string(ps).map_err(|e| format!("{}: {e}", ps.display()))?;
+        for l in text.lines().filter(|l| !l.trim().is_empty()) {
+            if !have.contains(l) {
+                solved_lines.push(l.to_string());
+            }
+        }
+    }
+    if let Some(pw) = &cfg.previous_work {
+        // key -> the certified relation digest of its trial (a key may have SOLVED records of several steps)
+        let want: BTreeMap<Vec<i32>, String> = trials
+            .values()
+            .flatten()
+            .filter(|t| t.certified && !records_by_key.contains_key(&t.key))
+            .filter_map(|t| t.relation_digest.clone().map(|d| (t.key.clone(), d)))
+            .collect();
+        if !want.is_empty() {
+            let mut stack = vec![pw.clone()];
+            while let Some(d) = stack.pop() {
+                let Ok(rd) = std::fs::read_dir(&d) else {
+                    continue;
+                };
+                for e in rd.flatten() {
+                    let p = e.path();
+                    if p.is_dir() {
+                        stack.push(p);
+                    } else if p.file_name().is_some_and(|n| n == "results.jsonl") {
+                        for (k, r) in raw_records(&p.display().to_string()) {
+                            if want
+                                .get(&k)
+                                .is_some_and(|d| r["relation_digest"] == d.as_str())
+                            {
+                                records_by_key.entry(k).or_insert(r);
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -1563,6 +1703,8 @@ fn failed_trial(job: &Job, k: &[i32], verdict: &str, why: &str, bound: &Value) -
         rhs_outside_certified: None,
         why: Some(why.into()),
         bound: bound.clone(),
+        solved_line: None,
+        results: None,
     }
 }
 
