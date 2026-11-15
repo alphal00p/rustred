@@ -14,7 +14,7 @@ use crate::state::{
 };
 use crate::supervisor::spec::CampaignSpec;
 use crate::supervisor::worksource::{
-    AcceptedRecord, JobRequest, Routing, Settled, SourceContext, WorkSource,
+    AcceptedRecord, CampaignOutcome, JobRequest, Routing, Settled, SourceContext, WorkSource,
 };
 use rustred_campaign_contract::classify::recipe::Verdict;
 use rustred_campaign_contract::fake::{FakeOp, FakeScript, OnSigterm, RssPlan};
@@ -32,8 +32,9 @@ pub const PROGRESS_SCHEMA: &str = "rustred.campaign.closeloop-progress.v1";
 
 /// Fake-child answers per (recipe source, key): verdict and right-hand-side keys (tests only).
 type Oracle = BTreeMap<(String, Vec<i32>), (Verdict, Vec<Vec<i64>>)>;
-/// Issued (recipe source, key) pairs, keys issued, jobs issued, items in attention.
-type Issued = (BTreeSet<(String, Vec<i32>)>, u64, u64, u64);
+/// Issued (recipe source, key) pairs, keys issued, jobs issued, items in attention, and (lane closeloop3) the
+/// ERROR / IRREGULAR keys: pairs re-asked now (retry), pairs in attention (attempts used up).
+type Issued = (BTreeSet<(String, Vec<i32>)>, u64, u64, u64, u64, Vec<Value>);
 
 /// lane closeloop2: (record, key) pairs given to proof (span) items and to fact items, proof jobs issued, proof items
 /// in attention.
@@ -72,6 +73,8 @@ struct NodeRt {
     // lane closeloop2
     pbatches: BTreeMap<String, ProofBatchFile>,
     proof_oracle: ProofOracle,
+    /// lane closeloop3: TESTS ONLY, lies of the fake `coefficient-facts` child (keyed by key).
+    exact_oracle: ProofOracle,
     /// BLAKE3 of the proof config's family / cert / symmetry group files.
     proof_inputs: BTreeMap<String, (PathBuf, String)>,
 }
@@ -85,6 +88,173 @@ pub struct CloseFromMaterialSource {
     sha256: BTreeMap<String, String>,
     blake3: BTreeMap<String, String>,
     last_progress: Option<(Instant, String)>,
+}
+
+// ------------------------------------------------------------------------------------------------------------------
+// lane closeloop3 (closeloop.md 16.7): the proof pass for PHASE-E (termmin) relations. Phase E (`termmin::TermminSource`)
+// records its certified relations as point-record tables (role `closeloop_relations`, like the closing loop's own);
+// these helpers give each record a span proof item of THIS source (the same jobs, settle path and evidence files as
+// closeloop.md 13.1 (b)), tell phase E when they are all final, and compute the import's `recipe_proofs` from them.
+impl CloseFromMaterialSource {
+    /// The relation point-record table of a phase-E solve; its header's `recipe_source` is `source` (the recipe id the
+    /// extended import spec gives the relation). None when the node runs no relation proofs.
+    pub(crate) fn phase_e_relation_table(
+        &self,
+        node: &str,
+        b: &BatchFile,
+        source: &str,
+        item: &str,
+        job: &str,
+        records: &[(Vec<i32>, Value)],
+    ) -> Result<Option<AcceptedRecord>, String> {
+        let Some(i) = self.node_of(node) else {
+            return Ok(None);
+        };
+        if self.nodes[i]
+            .cfg
+            .proof
+            .as_ref()
+            .is_none_or(|p| !p.relations)
+        {
+            return Ok(None);
+        }
+        let mut b2 = b.clone();
+        b2.source = source.to_string();
+        self.relation_table(i, &b2, item, job, records).map(Some)
+    }
+
+    /// Span proof items for the records of the node's relation tables registered by items of kind `kind` that no
+    /// proof item asked yet (one item per record, reason `relation`; ids `<n>.p0.<j>`: round 0 is never a pass).
+    pub(crate) fn phase_e_proof_items(
+        &mut self,
+        st: &CampaignState,
+        node: &str,
+        kind: &str,
+    ) -> Result<Routing, String> {
+        let mut rt = Routing::default();
+        let Some(i) = self.node_of(node) else {
+            return Ok(rt);
+        };
+        if self.nodes[i]
+            .cfg
+            .proof
+            .as_ref()
+            .is_none_or(|p| !p.relations)
+        {
+            return Ok(rt);
+        }
+        let asked = self.proof_issued(st, i)?.spans;
+        let n = self.nodes[i].n.clone();
+        let prefix = format!("{n}.p0.");
+        let mut j = st
+            .items
+            .keys()
+            .filter_map(|k| {
+                k.strip_prefix(&prefix)
+                    .and_then(|x| x.parse::<usize>().ok())
+            })
+            .map(|x| x + 1)
+            .max()
+            .unwrap_or(0);
+        for (id, p, _) in self.inputs_of_role(st, i, ROLE_RELATIONS) {
+            let item = id
+                .strip_prefix("closeloop:")
+                .and_then(|x| x.split_once(':'))
+                .map(|(it, _)| it.to_string())
+                .unwrap_or_default();
+            if st.items.get(&item).is_none_or(|it| it.kind != kind) {
+                continue;
+            }
+            let text = std::fs::read(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+            let source = text
+                .split(|&c| c == b'\n')
+                .next()
+                .and_then(|h| serde_json::from_slice::<Value>(h).ok())
+                .and_then(|h| h["recipe_source"].as_str().map(str::to_string))
+                .unwrap_or_default();
+            for (rule, offset, sha, key) in proofs::relation_records(&text) {
+                if asked.contains(&(sha.clone(), key.clone())) {
+                    continue;
+                }
+                let b = ProofBatch {
+                    kind: "span".into(),
+                    reason: proofs::REASON_RELATION.into(),
+                    table: p.display().to_string(),
+                    records: vec![proofs::RecordReq {
+                        rule,
+                        offset,
+                        record_sha256: sha,
+                        keys: vec![key],
+                    }],
+                    relation_source: Some(source.clone()),
+                };
+                self.new_proof_item(&mut rt, i, 0, j, &b)?;
+                j += 1;
+            }
+        }
+        Ok(rt)
+    }
+
+    /// Whether any proof / fact item of the node is not final.
+    pub(crate) fn proofs_pending(&self, st: &CampaignState, node: &str) -> bool {
+        st.items
+            .values()
+            .any(|it| it.node == node && is_proof_kind(&it.kind) && !Self::item_final(&it.phase))
+    }
+
+    /// (recipe source, key) of every relation record of the node (any `closeloop_relations` table: the closing loop's
+    /// and phase E's) with an exact per-key proof bound (EXACT_IN_SPAN_AT_KEY to (record_sha256, key)): the import's
+    /// `Evidence::recipe_proofs` (closeloop.md 13.6).
+    pub(crate) fn proved_relations(
+        &self,
+        st: &CampaignState,
+        node: &str,
+    ) -> std::collections::HashSet<(String, Vec<i32>)> {
+        let mut out = std::collections::HashSet::new();
+        let Some(i) = self.node_of(node) else {
+            return out;
+        };
+        let mut by_sha: BTreeMap<String, (String, Vec<i32>)> = BTreeMap::new();
+        for (_, p, _) in self.inputs_of_role(st, i, ROLE_RELATIONS) {
+            let Ok(text) = std::fs::read(&p) else {
+                continue;
+            };
+            let source = text
+                .split(|&c| c == b'\n')
+                .next()
+                .and_then(|h| serde_json::from_slice::<Value>(h).ok())
+                .and_then(|h| h["recipe_source"].as_str().map(str::to_string))
+                .unwrap_or_default();
+            for (_, _, sha, key) in proofs::relation_records(&text) {
+                by_sha.insert(sha, (source.clone(), key));
+            }
+        }
+        for (_, p, _) in self.inputs_of_role(st, i, ROLE_PROOFS) {
+            for l in std::fs::read_to_string(&p).unwrap_or_default().lines() {
+                let Ok(v) = serde_json::from_str::<Value>(l) else {
+                    continue;
+                };
+                let (Some(sha), Ok(key)) = (
+                    v["record_sha256"].as_str(),
+                    serde_json::from_value::<Vec<i32>>(v["key"].clone()),
+                ) else {
+                    continue;
+                };
+                if v["verdict"] == "EXACT_IN_SPAN_AT_KEY"
+                    && let Some((s, k)) = by_sha.get(sha)
+                    && *k == key
+                {
+                    out.insert((s.clone(), key));
+                }
+            }
+        }
+        out
+    }
+}
+
+/// lane closeloop2 / closeloop3: the item kinds of proof jobs (span, rr_proof facts, exact-eval facts).
+fn is_proof_kind(k: &str) -> bool {
+    k == KIND_PROOF || k == KIND_FACTS || k == KIND_EXACT
 }
 
 fn blake3_hex(b: &[u8]) -> String {
@@ -215,6 +385,7 @@ impl CloseFromMaterialSource {
             let family_blake3 = file_blake3(&nc.solve.family)?;
             let mut proof_inputs = BTreeMap::new();
             let mut proof_oracle = BTreeMap::new();
+            let mut exact_oracle = BTreeMap::new();
             if let Some(pc) = &nc.proof {
                 let prog = pc.program_key().to_string();
                 let path = s.programs.get(&prog).cloned().ok_or_else(|| {
@@ -234,6 +405,21 @@ impl CloseFromMaterialSource {
                 if let Some(f) = &pc.fake {
                     proof_oracle = proofs::read_oracle(&f.oracle)?;
                 }
+                // lane closeloop3: the exact-evaluation program (its digests are recorded like every program's)
+                if let Some(x) = &pc.exact_eval {
+                    let prog = x.program_key().to_string();
+                    let path = s.programs.get(&prog).cloned().ok_or_else(|| {
+                        format!(
+                            "node {}: exact_eval program {prog} not in the spec",
+                            nc.node
+                        )
+                    })?;
+                    s.sha256.insert(prog.clone(), file_sha256(&path)?);
+                    s.blake3.insert(prog, file_blake3(&path)?);
+                    if let Some(o) = x.fake.as_ref().and_then(|f| f.oracle.as_ref()) {
+                        exact_oracle = proofs::read_oracle(o)?;
+                    }
+                }
             }
             s.nodes.push(NodeRt {
                 cfg: nc.clone(),
@@ -251,6 +437,7 @@ impl CloseFromMaterialSource {
                 pass_started: None,
                 pbatches: BTreeMap::new(),
                 proof_oracle,
+                exact_oracle,
                 proof_inputs,
             });
         }
@@ -267,6 +454,16 @@ impl CloseFromMaterialSource {
 
     fn abs(&self, rel: &str) -> PathBuf {
         self.cdir.join(rel)
+    }
+
+    /// A recorded input path: absolute as recorded, else relative to the campaign directory.
+    fn abs_or(&self, p: &str) -> PathBuf {
+        let pb = PathBuf::from(p);
+        if pb.is_absolute() {
+            pb
+        } else {
+            self.cdir.join(pb)
+        }
     }
 
     fn node_of(&self, node: &str) -> Option<usize> {
@@ -365,18 +562,52 @@ impl CloseFromMaterialSource {
             .map(|(k, it)| (k.clone(), it.phase.clone()))
             .collect();
         let mut pairs = BTreeSet::new();
+        let mut given: BTreeMap<(String, Vec<i32>), u32> = BTreeMap::new();
         let (mut keys, mut att) = (0u64, 0u64);
         for (item, ph) in &items {
             let b = self.batch(st, i, item)?;
             keys += b.keys.len() as u64;
             for k in b.keys {
+                *given.entry((b.source.clone(), k.clone())).or_default() += 1;
                 pairs.insert((b.source.clone(), k));
             }
             if matches!(ph, ItemPhase::Attention(_)) {
                 att += 1;
             }
         }
-        Ok((pairs, keys, items.len() as u64, att))
+        // lane closeloop3 (closeloop.md 16.6): a pair whose EVERY solve so far ended ERROR / IRREGULAR is asked again
+        // (a later round: the back-off) until max_job_attempts, then it is in attention (never "no relation")
+        let mut failed: BTreeMap<(String, Vec<i32>), (u32, String)> = BTreeMap::new();
+        for (_, p, _) in self.inputs_of_role(st, i, ROLE_RETRY) {
+            let t = std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+            for l in t.lines().filter(|l| !l.trim().is_empty()) {
+                let v: Value =
+                    serde_json::from_str(l).map_err(|e| format!("{}: {e}", p.display()))?;
+                let key: Vec<i32> =
+                    serde_json::from_value(v["key"].clone()).map_err(|e| e.to_string())?;
+                let e = failed
+                    .entry((v["source"].as_str().unwrap_or("").to_string(), key))
+                    .or_default();
+                e.0 += 1;
+                e.1 = v["verdict"].as_str().unwrap_or("").to_string();
+            }
+        }
+        let max = self.nodes[i].cfg.budgets.max_job_attempts;
+        let (mut retried, mut attention) = (0u64, vec![]);
+        for (pair, (n, verdict)) in failed {
+            if given.get(&pair).copied().unwrap_or(0) != n {
+                continue; // a later solve of the pair is pending or decided it
+            }
+            if n < max {
+                pairs.remove(&pair);
+                retried += 1;
+            } else {
+                attention.push(
+                    json!({"source": pair.0, "key": pair.1, "verdict": verdict, "attempts": n}),
+                );
+            }
+        }
+        Ok((pairs, keys, items.len() as u64, att, retried, attention))
     }
 
     fn pbatch(
@@ -400,13 +631,13 @@ impl CloseFromMaterialSource {
         let items: Vec<(String, ItemPhase)> = st
             .items
             .iter()
-            .filter(|(_, it)| it.node == node && (it.kind == KIND_PROOF || it.kind == KIND_FACTS))
+            .filter(|(_, it)| it.node == node && (is_proof_kind(&it.kind)))
             .map(|(k, it)| (k.clone(), it.phase.clone()))
             .collect();
         let mut out = ProofIssued::default();
         for (item, ph) in &items {
             let b = self.pbatch(st, i, item)?;
-            if b.kind == "facts" {
+            if b.kind == "facts" || b.kind == "exact" {
                 out.facts.extend(b.pairs());
             } else {
                 out.spans.extend(b.pairs());
@@ -452,7 +683,7 @@ impl CloseFromMaterialSource {
         }
         let busy = st.items.values().any(|it| {
             it.node == *node
-                && (it.kind == KIND_SOLVE || it.kind == KIND_PROOF || it.kind == KIND_FACTS)
+                && (it.kind == KIND_SOLVE || is_proof_kind(&it.kind))
                 && !Self::item_final(&it.phase)
         });
         if busy {
@@ -481,7 +712,8 @@ impl CloseFromMaterialSource {
             self.nodes[i].pass_started = Some(Instant::now());
             return Ok(());
         }
-        let (issued, keys_issued, jobs_issued, att) = self.issued(st, i)?;
+        let (issued, keys_issued, jobs_issued, att, engine_retried, engine_attention) =
+            self.issued(st, i)?;
         let answers = self
             .answers(st, i)
             .into_iter()
@@ -516,6 +748,8 @@ impl CloseFromMaterialSource {
             hand: r.cfg.hand.clone(),
             final_dir: self.abs(&format!("{}/final", node_dir(&r.n))),
             attention_items: att,
+            engine_retried,
+            engine_attention,
             relation_rule: r.cfg.solve.relation_rule.clone(),
             proof_files,
             fact_files,
@@ -530,6 +764,7 @@ impl CloseFromMaterialSource {
                 facts: p.facts,
                 max_keys_per_job: p.max_keys_per_job,
                 max_fact_keys_per_job: p.max_fact_keys_per_job,
+                exact_keys_per_job: p.exact_eval.as_ref().map(|x| x.max_keys_per_job),
             }),
             exact_tier: r.cfg.exact_tier,
             rows_path: self.abs(&format!("{}/checks/r{round}.rows.jsonl", node_dir(&r.n))),
@@ -537,6 +772,13 @@ impl CloseFromMaterialSource {
                 Target::Boxed => "boxed".into(),
                 Target::Full => "full".into(),
             },
+            box_clause: r.cfg.box_clause.clone().unwrap_or_else(|| "box".into()),
+            prior_clauses: r
+                .cfg
+                .prior_clauses
+                .iter()
+                .map(|c| (c.id.clone(), c.result.clone()))
+                .collect(),
         };
         let h = std::thread::Builder::new()
             .name(format!("closeloop-pass-{}", r.n))
@@ -806,9 +1048,9 @@ impl CloseFromMaterialSource {
         let mut on_full_closed = false;
         if boxed && nr.state.target == ClosureTarget::Full {
             if out.defect > 0 {
-                // closeloop.md 13.3: the node is BOXED from its first record; the ledger has no boxed start (NodeState
-                // is FULL at registration, FallBackToBox needs an ended attempt): this pair is the ledger's only legal
-                // way into the spec box until the ledger owner adds `NodeSpecValues.start_target` (lane notes)
+                // closeloop.md 13.3 / 16.5: a node registered `start_target: boxed` (lane closeloop3) is BOXED from its
+                // first record and never comes here; this pair stays ONLY for nodes of a campaign directory registered
+                // before the ledger had a boxed start (resume of an older ledger: FULL at registration)
                 rt.events.push(Event::Node {
                     node: node.clone(),
                     ev: NodeEvent::AttemptEnded {
@@ -1015,10 +1257,10 @@ impl CloseFromMaterialSource {
         rt.events.push(Event::ItemCreated {
             item: item.clone(),
             node,
-            kind: if bf.kind == "facts" {
-                KIND_FACTS.into()
-            } else {
-                KIND_PROOF.into()
+            kind: match bf.kind.as_str() {
+                "facts" => KIND_FACTS.into(),
+                "exact" => KIND_EXACT.into(),
+                _ => KIND_PROOF.into(),
             },
             rung: Rung(0),
             parent: Some(import_item(&n)),
@@ -1084,6 +1326,14 @@ impl CloseFromMaterialSource {
                 }
             }
             (JobKind::ProofInstanceSpan, v)
+        } else if b.kind == "exact" {
+            (
+                JobKind::CoefficientFacts,
+                vec![
+                    file(format!("{dir}/{item}.requests.jsonl"), "requests")?,
+                    table,
+                ],
+            )
         } else {
             (
                 JobKind::ProofInstantiate,
@@ -1093,22 +1343,46 @@ impl CloseFromMaterialSource {
                 ],
             )
         };
-        let fake = pc
-            .fake
-            .as_ref()
-            .map(|f| proofs::fake_script(&b, &r.proof_oracle, f.ms));
+        // lane closeloop3: a `coefficient-facts` job runs the exact-evaluation program under its own caps
+        let exact = (b.kind == "exact")
+            .then_some(pc.exact_eval.as_ref())
+            .flatten();
+        if b.kind == "exact" && exact.is_none() {
+            return Err(format!(
+                "{item}: an exact-eval batch without proof.exact_eval"
+            ));
+        }
+        let fake = match exact {
+            Some(x) => x
+                .fake
+                .as_ref()
+                .map(|f| proofs::fake_script(&b, &r.exact_oracle, f.ms)),
+            None => pc
+                .fake
+                .as_ref()
+                .map(|f| proofs::fake_script(&b, &r.proof_oracle, f.ms)),
+        };
         Ok(JobRequest {
             job,
             item: item.to_string(),
             rung: Rung(0),
             kind,
             priority,
-            cap_bytes: pc.cap_bytes,
-            expected_peak_bytes: pc.expected_peak_bytes,
-            cores: pc.threads as usize,
-            heartbeat_s: pc.heartbeat_s(),
+            cap_bytes: exact.map(|x| x.cap_bytes).unwrap_or(pc.cap_bytes),
+            expected_peak_bytes: exact
+                .map(|x| x.expected_peak_bytes)
+                .unwrap_or(pc.expected_peak_bytes),
+            cores: if exact.is_some() {
+                1
+            } else {
+                pc.threads as usize
+            },
+            heartbeat_s: exact.map(|x| x.heartbeat_s()).unwrap_or(pc.heartbeat_s()),
             stop_grace_s: 5,
-            program: pc.program_key().to_string(),
+            program: exact
+                .map(|x| x.program_key())
+                .unwrap_or(pc.program_key())
+                .to_string(),
             args: vec![],
             inputs,
             depends_on: vec![input_pbatch(item)],
@@ -1208,7 +1482,7 @@ impl CloseFromMaterialSource {
             for it in st
                 .items
                 .values()
-                .filter(|it| it.node == *node && (it.kind == KIND_PROOF || it.kind == KIND_FACTS))
+                .filter(|it| it.node == *node && (is_proof_kind(&it.kind)))
             {
                 *proof_by_phase
                     .entry(format!("{}:{}", it.kind, it.phase.tag()))
@@ -1371,7 +1645,7 @@ impl CloseFromMaterialSource {
             }
         };
         let n = self.nodes[i].n.clone();
-        let (sub, input, role) = if b.kind == "facts" {
+        let (sub, input, role) = if b.kind == "facts" || b.kind == "exact" {
             ("facts", input_facts(&done.item, &done.job), ROLE_FACTS)
         } else {
             ("proofs", input_proofs(&done.item, &done.job), ROLE_PROOFS)
@@ -1513,6 +1787,8 @@ impl WorkSource for CloseFromMaterialSource {
                         spec: NodeSpecValues {
                             full_attempt_cpu_hours: Some(0),
                             full_attempt_fixer_rounds: Some(0),
+                            // lane closeloop3 (closeloop.md 16.5): a boxed node is BOXED from its first ledger record
+                            start_target: boxed.then_some(crate::ledger::StartTarget::Boxed),
                             ..NodeSpecValues::default()
                         },
                         reference: None,
@@ -1560,8 +1836,7 @@ impl WorkSource for CloseFromMaterialSource {
                 .items
                 .iter()
                 .filter(|(_, it)| {
-                    it.node == node
-                        && (it.kind == KIND_SOLVE || it.kind == KIND_PROOF || it.kind == KIND_FACTS)
+                    it.node == node && (it.kind == KIND_SOLVE || is_proof_kind(&it.kind))
                 })
                 .map(|(k, it)| {
                     (
@@ -1632,7 +1907,7 @@ impl WorkSource for CloseFromMaterialSource {
         let i = self
             .node_of(&it.node)
             .ok_or_else(|| format!("item {} of a node this source does not hold", done.item))?;
-        if it.kind == KIND_PROOF || it.kind == KIND_FACTS {
+        if is_proof_kind(&it.kind) {
             return self.route_proof(st, i, done);
         }
         if it.kind != KIND_SOLVE {
@@ -1688,6 +1963,8 @@ impl WorkSource for CloseFromMaterialSource {
                 .get(&done.job)
                 .and_then(|j| j.run_dir.clone())
                 .unwrap_or_default(),
+            max_trace_rows: r.cfg.solve.max_trace_rows,
+            key_budget_s: r.cfg.solve.key_budget_s,
         };
         let d = decide(&ctx, &done.canonical_lines)?;
         if let (None, Some(e)) = (self.nodes[i].pins.get(&b.source), &d.engine_digest)
@@ -1697,6 +1974,27 @@ impl WorkSource for CloseFromMaterialSource {
         }
         let n = self.nodes[i].n.clone();
         let dir = format!("{}/answers", node_dir(&n));
+        // lane closeloop3: ERROR / IRREGULAR keys are recorded apart (retried, then attention), never as answers
+        if !d.retry.is_empty() {
+            let mut rb = d
+                .retry
+                .iter()
+                .map(|(_, l)| l.as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
+                .into_bytes();
+            rb.push(b'\n');
+            let rr = record(format!("{dir}/{}.{}.retry.jsonl", done.item, done.job), rb);
+            let rref = rr.file_ref();
+            rt.events.push(Event::InputRegistered {
+                input: input_retry(&done.item, &done.job),
+                role: ROLE_RETRY.into(),
+                path: self.abs(&rr.path).display().to_string(),
+                bytes: rref.bytes,
+                blake3: rref.blake3,
+            });
+            rt.accepts.push(rr);
+        }
         let mut ab = d.lines.join("\n").into_bytes();
         ab.push(b'\n');
         let ans = record(format!("{dir}/{}.{}.jsonl", done.item, done.job), ab);
@@ -1769,6 +2067,11 @@ impl WorkSource for CloseFromMaterialSource {
                     to: Rung(1),
                     reason: match &d.refused {
                         Some(w) => format!("attempt refused: {w}; the keys go to the next recipe candidate"),
+                        None if !d.retry.is_empty() => format!(
+                            "no key certified ({} failures; {} keys typed ERROR / IRREGULAR are retried, then attention); the other keys go to the next recipe candidate",
+                            d.failed.len(),
+                            d.retry.len()
+                        ),
                         None => format!(
                             "no key certified ({} failures); the keys go to the next recipe candidate",
                             d.failed.len()
@@ -1868,6 +2171,50 @@ impl WorkSource for CloseFromMaterialSource {
         self.nodes
             .iter()
             .all(|r| r.running.is_none() && st.inputs.contains_key(&input_final(&r.n)))
+    }
+
+    /// lane closeloop3 (procfix5, supervisor.md 19.4): the outcome from every node's FINAL verdict (the recorded
+    /// `final/result.json`): `closed` -> Closed; `error` (or an unreadable result) -> Error; anything else (`open`,
+    /// `budget`, no result) -> Open. Error wins over Open.
+    fn outcome(&self, st: &CampaignState) -> CampaignOutcome {
+        let (mut open, mut error) = (vec![], vec![]);
+        for r in &self.nodes {
+            let node = &r.cfg.node;
+            let Some(inp) = st.inputs.get(&input_final(&r.n)) else {
+                open.push(format!("{node}: no final verdict"));
+                continue;
+            };
+            let v: Option<Value> = std::fs::read(self.abs_or(&inp.path))
+                .ok()
+                .and_then(|b| serde_json::from_slice(&b).ok());
+            match v.as_ref().and_then(|v| v["verdict"].as_str()) {
+                Some("closed") => {}
+                Some("error") => error.push(format!(
+                    "{node}: error ({})",
+                    v.as_ref().and_then(|v| v["error"].as_str()).unwrap_or("")
+                )),
+                Some(w) => open.push(format!(
+                    "{node}: {w} ({})",
+                    v.as_ref()
+                        .and_then(|v| v["blockers"].as_array())
+                        .map(|b| b
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .take(5)
+                            .collect::<Vec<_>>()
+                            .join("; "))
+                        .unwrap_or_default()
+                )),
+                None => error.push(format!("{node}: final result unreadable ({})", inp.path)),
+            }
+        }
+        if !error.is_empty() {
+            CampaignOutcome::Error(error.join(" | "))
+        } else if !open.is_empty() {
+            CampaignOutcome::Open(open.join(" | "))
+        } else {
+            CampaignOutcome::Closed
+        }
     }
 
     fn describe(&self) -> String {

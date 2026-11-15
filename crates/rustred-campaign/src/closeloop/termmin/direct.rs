@@ -146,6 +146,8 @@ pub fn run_direct(cfg: &DirectConfig) -> Result<Value, String> {
             .map_err(|e| e.to_string())?
             .1,
         order: cfg.order.clone(),
+        max_trace_rows: cfg.spec.caps.max_trace_rows,
+        key_budget_s: cfg.spec.caps.key_budget_s,
     };
     let sampler = Arc::new(
         Sampler::spawn(SamplerConfig {

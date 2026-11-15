@@ -142,6 +142,10 @@ pub enum Accept {
     /// Kind solve-recipe (row 28, lane adapters): each SOLVED + proved record of the sealed results file, on its own
     /// ([`recipe::KeyOutcome::Accepted`]); the other records are typed per-key outcomes.
     SolvedRecords,
+    /// Line 7 (rows 30 / 31 / 32): the sealed records of a DIAGNOSTIC job (kind node-basis; kind solve-recipe run with
+    /// `--probe-d`) may be read as diagnostics; they are NEVER rule or relation evidence and never count a key as
+    /// solved.
+    DiagnosticRecords,
     Nothing,
 }
 
@@ -180,6 +184,10 @@ pub enum Action {
     StopLaunchingKind,
     /// Row 13: item attention, no retry.
     ItemAttentionNoRetry,
+    /// Row 13b (line 7): the legacy proof tool cannot READ the table it was given (typed reader error
+    /// `UNREADABLE_RECORD` / `UNKNOWN_RECORD_KIND`): an input refusal of the job; no retry with the same table and
+    /// tool (the table needs a reader that knows it, or another tool); never a crash, never a per-key verdict.
+    TableUnreadableByTool,
     /// Row 15: pause all launches until free space; item queued again.
     PauseAllLaunches,
     /// Row 15b (lane int5, gate3 M4): the child ran out of a HOST resource (processes / threads, file descriptors,
@@ -239,9 +247,9 @@ const fn rs(
 
 /// The decision table. Evaluation order (first match wins): O normalisation (row 22 reasons), W unknown (21b, 21c,
 /// 22), then the c rows in this order: 26, the kind's exit-code set (22), S (22), 25, then for kind solve-recipe 1 /
-/// 28 / 29 / 22 and for every other kind 1-8 with 24 and 27 after their siblings, 9-17 (11b / 11c before 11: the supervisor's kill reason K decides over an `interrupted` OUTCOME); then
+/// 28 / 29 / 22 (a probe job, line 7: 31 / 32 / 22), for kind node-basis 30 / 22, and for every other kind 1-8 with 24 and 27 after their siblings, 9-17 (11b / 11c before 11: the supervisor's kill reason K decides over an `interrupted` OUTCOME; 13b before 13, 15b, 16, 17); then
 /// the signal rows 18-21; then 22; then 23.
-pub const ROWS: [RowSpec; 35] = {
+pub const ROWS: [RowSpec; 39] = {
     use Accept::*;
     use Action::*;
     use OutcomeKind::*;
@@ -320,6 +328,30 @@ pub const ROWS: [RowSpec; 35] = {
             QueueFailures,
         ),
         rs(
+            30,
+            "",
+            "c=0, O, S, kind node-basis (diagnostic kind: sealed records sample / dim / end)",
+            Complete,
+            DiagnosticRecords,
+            ItemDone,
+        ),
+        rs(
+            31,
+            "",
+            "c=0, O, S, kind solve-recipe run with --probe-d (probe records only), every key answered (EXISTS_AT_D0 / EXISTS_ONLY_AT_D0 / NO_RELATION_AT_D0 / D0_SINGULAR_ROWS)",
+            Complete,
+            DiagnosticRecords,
+            ItemDone,
+        ),
+        rs(
+            32,
+            "",
+            "c=10, O, S, kind solve-recipe run with --probe-d, stop keys_unsolved, >= 1 unanswered key (UNRESOLVED_PRIMES: other primes, then attention; BUDGET_WALL; ERROR)",
+            Undecided,
+            DiagnosticRecords,
+            QueueFailures,
+        ),
+        rs(
             7,
             "",
             "c=11, O, checker kind",
@@ -393,6 +425,14 @@ pub const ROWS: [RowSpec; 35] = {
             ResumeOnCampaignResume,
         ),
         rs(12, "", "c=40", UsageError, Nothing, StopLaunchingKind),
+        rs(
+            13,
+            "b",
+            "c in {41, 70}, O whose error names a reader error (UNREADABLE_RECORD, UNKNOWN_RECORD_KIND), kind proof-instantiate / proof-instance-span",
+            Refused,
+            Nothing,
+            TableUnreadableByTool,
+        ),
         rs(13, "", "c=41", Refused, Nothing, ItemAttentionNoRetry),
         rs(14, "", "c=42", Refused, Nothing, Attention),
         rs(15, "", "c=50", Lost, Nothing, PauseAllLaunches),
@@ -464,7 +504,7 @@ pub const ROWS: [RowSpec; 35] = {
         rs(
             22,
             "",
-            "contract violation: OUTCOME unreadable, inconsistent (`check`), of another attempt or spec (job_id, attempt, kind, spec_blake3), exit_code != c, a path not the layout path, family_blake3 not the spec's, elided loci under \"forbidden\"; or c in {0, 10, 20} with O and an output not sealed / not verified; or c outside the kind's set (checker 10 / 20, producing kind 11 / 12, solve-recipe 20 or an exit-10 stop other than keys_unsolved, keys_unsolved of another kind, proof-instantiate / proof-instance-span 10 / 20); or solve-recipe exit 0 with an unsolved record, keys_unsolved without one; or W unknown with an invalid OUTCOME",
+            "contract violation: OUTCOME unreadable, inconsistent (`check`), of another attempt or spec (job_id, attempt, kind, spec_blake3), exit_code != c, a path not the layout path, family_blake3 not the spec's, elided loci under \"forbidden\"; or c in {0, 10, 20} with O and an output not sealed / not verified; or c outside the kind's set (checker 10 / 20, producing kind 11 / 12, solve-recipe 20 or an exit-10 stop other than keys_unsolved, keys_unsolved of another kind, proof-instantiate / proof-instance-span / coefficient-facts / node-basis 10 / 20); or solve-recipe exit 0 with an unsolved record, keys_unsolved without one (probe job: an unanswered record); or W unknown with an invalid OUTCOME",
             Crashed,
             Nothing,
             Attention,
@@ -509,6 +549,7 @@ fn row(n: u8, sub: &str, why: impl Into<String>) -> Classification {
         Action::Attention
             | Action::StopLaunchingKind
             | Action::ItemAttentionNoRetry
+            | Action::TableUnreadableByTool
             | Action::UnverifiableKind
     );
     Classification {
@@ -694,7 +735,19 @@ fn decide(
                 // lane adapters: the exit-code sets of the kinds without a rule table
                 match e.kind {
                     JobKind::SolveRecipe => return solve_recipe_row(c, stop, v),
-                    JobKind::ProofInstantiate | JobKind::ProofInstanceSpan if c != 0 => {
+                    JobKind::NodeBasis if c == 0 => {
+                        return row(
+                            30,
+                            "",
+                            "node-basis: exit 0, OUTCOME, sealed (diagnostic records)",
+                        );
+                    }
+                    JobKind::ProofInstantiate
+                    | JobKind::ProofInstanceSpan
+                    | JobKind::CoefficientFacts
+                    | JobKind::NodeBasis
+                        if c != 0 =>
+                    {
                         return row(
                             22,
                             "",
@@ -805,6 +858,22 @@ fn decide(
                 _ => {}
             }
         }
+        // line 7: a legacy proof tool's typed reader error is an input refusal of the job (row 13b), before 13 / 17
+        if matches!(c, 41 | 70)
+            && matches!(
+                e.kind,
+                JobKind::ProofInstantiate | JobKind::ProofInstanceSpan
+            )
+            && let Some(name) = o
+                .and_then(|o| o.error.as_ref())
+                .and_then(|x| crate::instantiate::reader_error_in(&x.message))
+        {
+            return row(
+                13,
+                "b",
+                format!("the tool cannot read the table it was given ({name})"),
+            );
+        }
         match c {
             40 => return row(12, "", "usage error (supervisor bug)"),
             41 => return row(13, "", "input refused"),
@@ -860,6 +929,27 @@ fn solve_recipe_row(c: i32, stop: Option<StopCode>, v: &VerifiedOutputs) -> Clas
             "contract violation: solve-recipe results not tallied against the keys input",
         );
     };
+    if t.probe {
+        // line 7: a probe job's records are diagnostics only (rows 31 / 32)
+        let open = t.unanswered_probes();
+        return match (c, stop) {
+            (0, _) if open == 0 && t.accepted == 0 => {
+                row(31, "", "probe job: exit 0, every key answered")
+            }
+            (10, Some(StopCode::KeysUnsolved)) if open >= 1 && t.accepted == 0 => row(
+                32,
+                "",
+                format!("probe job: keys_unsolved, {open} unanswered keys"),
+            ),
+            _ => row(
+                22,
+                "",
+                format!(
+                    "contract violation: probe job exit {c} with stop {stop:?}, {open} unanswered keys"
+                ),
+            ),
+        };
+    }
     let unsolved = t.unsolved_total();
     match (c, stop) {
         (0, _) if unsolved == 0 => row(1, "", "exit 0, OUTCOME, sealed, every key solved"),
@@ -903,6 +993,55 @@ pub fn solve_recipe_tally(
     o: &JobOutcome,
     v: &VerifiedOutputs,
 ) -> Result<(Vec<recipe::KeyOutcome>, recipe::RelationTally), String> {
+    // line 7: a probe job (`--probe-d`) has probe records only; its tally carries `probe` (rows 31 / 32)
+    if spec.probe_mode()?.is_some() {
+        return solve_recipe_probe_outcomes(layout, spec, o, v).map(|(_, t)| (Vec::new(), t));
+    }
+    let (lines, keys) = results_and_keys(layout, spec, v)?;
+    let (out, t) = recipe::key_outcomes_with(&lines, &keys, spec.max_m1_rows())?;
+    check_tally_against_outcome(o, &t)?;
+    Ok((out, t))
+}
+
+/// Line 7: S of a solve-recipe PROBE job (`--probe-d`): the verified results stream against the keys input and the
+/// probe parameters ([`recipe::probe_outcomes`]), and against OUTCOME (`counters.rules_committed` = 0: nothing is
+/// accepted; a per-key wall-budget record needs `time_decided`).
+pub fn solve_recipe_probe_outcomes(
+    layout: &RunLayout,
+    spec: &JobSpec,
+    o: &JobOutcome,
+    v: &VerifiedOutputs,
+) -> Result<(Vec<recipe::ProbeOutcome>, recipe::RelationTally), String> {
+    let args = spec.probe_mode()?.ok_or("not a probe job")?;
+    let (lines, keys) = results_and_keys(layout, spec, v)?;
+    let (out, t) = recipe::probe_outcomes(&lines, &keys, &args)?;
+    check_tally_against_outcome(o, &t)?;
+    Ok((out, t))
+}
+
+fn check_tally_against_outcome(o: &JobOutcome, t: &recipe::RelationTally) -> Result<(), String> {
+    if t.time_decided_keys() > 0 && !o.time_decided {
+        return Err(format!(
+            "{} per-key wall-budget records but OUTCOME time_decided is false",
+            t.time_decided_keys()
+        ));
+    }
+    if o.counters.rules_committed != t.accepted {
+        return Err(format!(
+            "OUTCOME counters.rules_committed {} but {} accepted relation records",
+            o.counters.rules_committed, t.accepted
+        ));
+    }
+    Ok(())
+}
+
+/// The verified canonical lines of `out/results.jsonl` (through its handle, never a re-opened path) and the spec's
+/// `keys` input (raw digest = the spec's).
+fn results_and_keys(
+    layout: &RunLayout,
+    spec: &JobSpec,
+    v: &VerifiedOutputs,
+) -> Result<(Vec<Vec<u8>>, Vec<recipe::KeyLine>), String> {
     let rel = RunLayout::out_rel(crate::layout::RESULTS);
     let s = v
         .streams
@@ -922,20 +1061,30 @@ pub fn solve_recipe_tally(
         return Err("keys input digest differs from the spec's".into());
     }
     let keys = recipe::parse_keys_input(&kb)?;
-    let (out, t) = recipe::key_outcomes(&lines, &keys)?;
-    if t.time_decided_keys() > 0 && !o.time_decided {
-        return Err(format!(
-            "{} per-key wall-budget records but OUTCOME time_decided is false",
-            t.time_decided_keys()
-        ));
+    Ok((lines, keys))
+}
+
+/// Line 7: S of kind node-basis beyond the seal: the verified results stream (through its handle) passes
+/// [`crate::node_basis::check_results`] against the spec's `--dims` / `--primes`, and OUTCOME commits no rule.
+pub fn node_basis_records(
+    layout: &RunLayout,
+    spec: &JobSpec,
+    o: &JobOutcome,
+    v: &VerifiedOutputs,
+) -> Result<crate::node_basis::NodeBasisSummary, String> {
+    let rel = RunLayout::out_rel(crate::layout::RESULTS);
+    let s = v
+        .streams
+        .iter()
+        .find(|s| s.rel == rel)
+        .ok_or("no verified results stream")?;
+    let lines = crate::seal::VerifiedHandle::reopen(&layout.root, s)
+        .and_then(|h| h.canonical_lines())
+        .map_err(|e| format!("results: {e}"))?;
+    if o.counters.rules_committed != 0 {
+        return Err("a diagnostic kind commits no rule (counters.rules_committed != 0)".into());
     }
-    if o.counters.rules_committed != t.accepted {
-        return Err(format!(
-            "OUTCOME counters.rules_committed {} but {} accepted relation records",
-            o.counters.rules_committed, t.accepted
-        ));
-    }
-    Ok((out, t))
+    crate::node_basis::check_results(&lines, &crate::node_basis::NodeBasisArgs::of_spec(spec)?)
 }
 
 fn read_layout_file(layout: &RunLayout, rel: &str) -> Result<Option<Vec<u8>>, String> {
@@ -1138,6 +1287,12 @@ pub fn assess(
                         Ok((_, t)) => v.relations = Some(t),
                         Err(why) => unsealed_why = Some(format!("solve-recipe results: {why}")),
                     }
+                }
+                // line 7: kind node-basis: the closed record list against the spec's dims / primes
+                if spec.kind == JobKind::NodeBasis
+                    && let Err(why) = node_basis_records(layout, spec, o, &v)
+                {
+                    unsealed_why = Some(format!("node-basis results: {why}"));
                 }
                 // every verified stream's header (at most one per stream, on line 1: the verifier refuses any other,
                 // ac2-m6) is bound to the spec's family input

@@ -36,6 +36,21 @@
 //!   same-owner child at shift `s` is lower iff the row differences at `s` are
 //!   lexicographically negative; every term that can stay in the owner is
 //!   checked once per rule (the witness), and the step re-checks every child.
+//! - Trust rule (b7-schemeload): the stored certificates are verified ONCE, at
+//!   the gate (`examples/scheme_check.rs`, which always verifies, and the test
+//!   `trusted_scheme_programs_equal_the_verified_ones`), at assembly
+//!   ([`SchemeTemplate::extract`]) and on every verified load. A library loaded
+//!   WITHOUT the descent certificate from a package whose identity carries this
+//!   binary's `P_SCHEME_TEMPLATE_VERSION` and a `P_PACKAGE_REVISION`
+//!   ([`package_trusts_scheme_certificates`]) trusts them instead: for the
+//!   embedded schemes only (never a `RUSTRED_P_SCHEME_DIR` file), a rule with a
+//!   stored certificate counts as certified without rebuilding it from the IBP
+//!   rows; the terms, symmetry maps and the descent witness are built exactly as
+//!   verified ([`certificate_check`]). `RUSTRED_P_SCHEME_VERIFY=1` verifies
+//!   always. Any other package (no revision, another template version, which
+//!   the loader refuses anyway) is verified as before. The embedded set is
+//!   named by `P_SCHEME_TEMPLATE_VERSION` alone: changing a scheme file means
+//!   bumping it (and re-running the gate), as before.
 //!
 use std::collections::BTreeMap;
 use std::fmt;
@@ -139,16 +154,57 @@ struct IspRecord {
     right: Vec<i64>,
 }
 
+/// A stored certificate as the scheme file writes it.
+type CertificateRecord = Vec<(String, serde_json::Value, Vec<i64>, PolyRecord)>;
+
+/// A parsed certificate: per generator its seed shift and coefficient.
+type Certificate = Vec<(Generator, Vec<i64>, Poly)>;
+
+/// How a scheme file's certificates are read: in full ([`CertificateRecord`])
+/// or only noted as present ([`serde::de::IgnoredAny`], the light registry
+/// parse of the embedded schemes, b7-schemeload: certificates are parsed only
+/// when they are verified).
+trait CertificateField {
+    fn parse(&self) -> Result<Option<Certificate>, String>;
+}
+
+impl CertificateField for CertificateRecord {
+    fn parse(&self) -> Result<Option<Certificate>, String> {
+        let mut out = Vec::with_capacity(self.len());
+        for (kind, reference, shift, poly) in self {
+            let generator = match kind.as_str() {
+                "row" => {
+                    let pair = reference.as_array().ok_or("row reference")?;
+                    let i = pair.first().and_then(|v| v.as_u64()).ok_or("row i")? as usize;
+                    let j = pair.get(1).and_then(|v| v.as_u64()).ok_or("row j")? as usize;
+                    Generator::Row(i, j)
+                }
+                "rule" => Generator::Rule(reference.as_str().ok_or("rule reference")?.to_owned()),
+                other => return Err(format!("generator kind {other}")),
+            };
+            out.push((generator, shift.clone(), Poly::parse(poly)?));
+        }
+        Ok(Some(out))
+    }
+}
+
+impl CertificateField for serde::de::IgnoredAny {
+    fn parse(&self) -> Result<Option<Certificate>, String> {
+        Ok(None)
+    }
+}
+
 #[derive(Deserialize)]
+#[serde(bound(deserialize = "C: Deserialize<'de>"))]
 #[allow(clippy::type_complexity)]
-struct RuleRecord {
+struct RuleRecord<C> {
     name: String,
     pattern: Vec<serde_json::Value>,
     master: bool,
     #[serde(default)]
     relation: Option<Vec<(Vec<i64>, PolyRecord)>>,
     #[serde(default)]
-    certificate: Option<Vec<(String, serde_json::Value, Vec<i64>, PolyRecord)>>,
+    certificate: Option<C>,
     /// Forcer's own terms `Z(n) = Sum c_j Z(n + s_j)`, `c_j = num / Prod den^e`.
     #[serde(default)]
     terms: Option<Vec<(Vec<i64>, PolyRecord, Vec<(PolyRecord, u32)>)>>,
@@ -218,7 +274,8 @@ enum Regime {
 }
 
 #[derive(Deserialize)]
-struct SchemeFile {
+#[serde(bound(deserialize = "C: Deserialize<'de>"))]
+struct SchemeFile<C> {
     schema: String,
     scheme: String,
     loops: u8,
@@ -232,7 +289,7 @@ struct SchemeFile {
     #[serde(default)]
     default: bool,
     verify_order: Vec<String>,
-    rules: Vec<RuleRecord>,
+    rules: Vec<RuleRecord<C>>,
     /// 1-based Forcer slots: after the `order` rows, the rank, the line sum
     /// and `|n_a|` in this order decide between symmetric representatives
     /// (a scheme with permutation rules needs it).
@@ -337,6 +394,9 @@ struct ParsedRule {
     master: bool,
     relation: Vec<(Vec<i64>, Poly)>,
     certificate: Option<Vec<(Generator, Vec<i64>, Poly)>>,
+    /// The file stores a certificate (parsed in `certificate` unless the
+    /// scheme was read light).
+    has_certificate: bool,
     raw: Vec<(Vec<i64>, Poly, Vec<(Poly, u32)>)>,
     replay: Option<ReplayRecord>,
     meta: serde_json::Value,
@@ -363,10 +423,31 @@ struct Scheme {
     tiebreak: Vec<usize>,
     /// M5 no6: the owner carries the node's Custom payload as its fallback.
     fallback: bool,
+    /// One of [`EMBEDDED_SCHEMES`] (not replaced by `RUSTRED_P_SCHEME_DIR`):
+    /// only these may be trusted ([`certificate_check`]).
+    embedded: bool,
+    /// Read light (certificates noted, not parsed): verification re-reads
+    /// `source` in full.
+    light: bool,
+    source: &'static str,
 }
 
 fn parse_scheme(json: &str) -> Result<Scheme, String> {
-    let file: SchemeFile = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    let file: SchemeFile<CertificateRecord> =
+        serde_json::from_str(json).map_err(|e| e.to_string())?;
+    scheme_of_file(file, false)
+}
+
+/// An embedded scheme read light: its certificates are noted, not parsed.
+fn parse_scheme_light(json: &'static str) -> Result<Scheme, String> {
+    let file: SchemeFile<serde::de::IgnoredAny> =
+        serde_json::from_str(json).map_err(|e| e.to_string())?;
+    let mut scheme = scheme_of_file(file, true)?;
+    scheme.source = json;
+    Ok(scheme)
+}
+
+fn scheme_of_file<C: CertificateField>(file: SchemeFile<C>, light: bool) -> Result<Scheme, String> {
     if file.schema != "rustred.p-scheme.v2" {
         return Err(format!("schema {}", file.schema));
     }
@@ -478,25 +559,7 @@ fn parse_scheme(json: &str) -> Result<Scheme, String> {
         }
         let certificate = match &record.certificate {
             None => None,
-            Some(items) => {
-                let mut out = Vec::with_capacity(items.len());
-                for (kind, reference, shift, poly) in items {
-                    let generator = match kind.as_str() {
-                        "row" => {
-                            let pair = reference.as_array().ok_or("row reference")?;
-                            let i = pair.first().and_then(|v| v.as_u64()).ok_or("row i")? as usize;
-                            let j = pair.get(1).and_then(|v| v.as_u64()).ok_or("row j")? as usize;
-                            Generator::Row(i, j)
-                        }
-                        "rule" => {
-                            Generator::Rule(reference.as_str().ok_or("rule reference")?.to_owned())
-                        }
-                        other => return Err(format!("generator kind {other}")),
-                    };
-                    out.push((generator, shift.clone(), Poly::parse(poly)?));
-                }
-                Some(out)
-            }
+            Some(field) => field.parse()?,
         };
         let mut raw = Vec::new();
         for (shift, num, dens) in record.terms.iter().flatten() {
@@ -533,6 +596,7 @@ fn parse_scheme(json: &str) -> Result<Scheme, String> {
             master: record.master,
             relation,
             certificate,
+            has_certificate: record.certificate.is_some(),
             raw,
             replay: record.replay.clone(),
             meta: record.meta.clone(),
@@ -566,6 +630,9 @@ fn parse_scheme(json: &str) -> Result<Scheme, String> {
         rules,
         tiebreak,
         fallback,
+        embedded: false,
+        light,
+        source: "",
     })
 }
 
@@ -577,8 +644,9 @@ fn registry() -> Result<&'static [Scheme], PError> {
         .get_or_init(|| {
             let mut schemes: Vec<Scheme> = Vec::new();
             for (name, json) in EMBEDDED_SCHEMES {
-                let scheme =
-                    parse_scheme(json).map_err(|e| format!("embedded scheme {name}: {e}"))?;
+                let mut scheme =
+                    parse_scheme_light(json).map_err(|e| format!("embedded scheme {name}: {e}"))?;
+                scheme.embedded = true;
                 if scheme.name != *name {
                     return Err(format!("embedded scheme {name} is named {}", scheme.name));
                 }
@@ -668,6 +736,36 @@ pub fn scheme_fallback(node: &NodeInfo) -> Result<bool, PError> {
 /// Whether the scheme of `node` ends in a master (the corner terminal).
 pub fn scheme_has_corner(node: &NodeInfo) -> Result<bool, PError> {
     Ok(scheme_at(node)?.rules.iter().any(|rule| rule.master))
+}
+
+/// The scheme of `node` with its certificates parsed (the registry reads the
+/// embedded files light), for the certificate tools.
+#[cfg_attr(not(feature = "reconstruction"), allow(dead_code))]
+enum FullScheme {
+    Registry(&'static Scheme),
+    Parsed(Box<Scheme>),
+}
+
+impl std::ops::Deref for FullScheme {
+    type Target = Scheme;
+    fn deref(&self) -> &Scheme {
+        match self {
+            Self::Registry(scheme) => scheme,
+            Self::Parsed(scheme) => scheme,
+        }
+    }
+}
+
+#[cfg_attr(not(feature = "reconstruction"), allow(dead_code))]
+fn full_scheme_at(node: &NodeInfo) -> Result<FullScheme, PError> {
+    let scheme = scheme_at(node)?;
+    if !scheme.light {
+        return Ok(FullScheme::Registry(scheme));
+    }
+    let mut full = parse_scheme(scheme.source)
+        .map_err(|e| PError::MalformedLibrary(format!("scheme {}: {e}", scheme.name)))?;
+    full.embedded = scheme.embedded;
+    Ok(FullScheme::Parsed(Box::new(full)))
 }
 
 fn scheme_at(node: &NodeInfo) -> Result<&'static Scheme, PError> {
@@ -854,6 +952,55 @@ pub struct SchemeTemplate {
     rules: Vec<SchemeRule>,
 }
 
+/// Whether [`SchemeTemplate::extract_with`] verifies the stored certificates
+/// or trusts them (b7-schemeload).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CertificateCheck {
+    /// Rebuild every certificate from the IBP rows (the gate, assembly,
+    /// verified loads, `RUSTRED_P_SCHEME_VERIFY=1`).
+    Verify,
+    /// Trust the certificates of the embedded set of this binary's
+    /// `P_SCHEME_TEMPLATE_VERSION` (a loaded, revisioned package).
+    Trust,
+}
+
+/// The package identity `identity` (as `library.json` records it) entitles
+/// its loaded library to trust the Scheme certificates: it carries this
+/// binary's `P_SCHEME_TEMPLATE_VERSION` and a `P_PACKAGE_REVISION` (a package
+/// assembled by the gated procedure). Anything else is verified as before.
+pub fn package_trusts_scheme_certificates(identity: &str) -> bool {
+    let version = format!(
+        "P_SCHEME_TEMPLATE_VERSION={}",
+        super::P_SCHEME_TEMPLATE_VERSION
+    );
+    let revision = format!("{}=", super::library::P_PACKAGE_REVISION_KEY);
+    let (mut has_version, mut has_revision) = (false, false);
+    for entry in identity.split([',', ':']) {
+        has_version |= entry == version;
+        has_revision |= entry.strip_prefix(&revision).is_some_and(|n| !n.is_empty());
+    }
+    has_version && has_revision
+}
+
+/// The trust rule (b7-schemeload): the Scheme program of `node` in `library`
+/// trusts its stored certificates iff the library was loaded from a package
+/// that [`package_trusts_scheme_certificates`] (the loader sets
+/// [`PLibrary::scheme_certificates_trusted`], never on a verified load), the
+/// node's scheme is the embedded one (no `RUSTRED_P_SCHEME_DIR` replacement)
+/// and `RUSTRED_P_SCHEME_VERIFY=1` is not set. Otherwise it verifies.
+pub fn certificate_check(library: &PLibrary, node: &NodeInfo) -> CertificateCheck {
+    let forced = std::env::var("RUSTRED_P_SCHEME_VERIFY").is_ok_and(|value| value == "1");
+    let embedded = scheme_of(node)
+        .ok()
+        .flatten()
+        .is_some_and(|(_, scheme)| scheme.embedded);
+    if !forced && embedded && library.scheme_certificates_trusted() {
+        CertificateCheck::Trust
+    } else {
+        CertificateCheck::Verify
+    }
+}
+
 /// `(-1)^(Sum s)`.
 fn parity(shift: &[i64]) -> i64 {
     if shift.iter().sum::<i64>().rem_euclid(2) == 0 {
@@ -924,7 +1071,57 @@ impl SchemeTemplate {
     /// The rules of the scheme on `p` (the scheme-adapted presentation of
     /// `node`), each relation checked against its certificate.
     pub fn extract(p: &Presentation, node: &NodeInfo) -> Result<Self, SchemeError> {
-        let scheme = scheme_at(node)?;
+        Self::extract_with(p, node, CertificateCheck::Verify)
+    }
+
+    /// [`Self::extract`] with the certificates verified or trusted (`check`).
+    /// Trusted, a rule with a stored certificate counts as certified without
+    /// rebuilding it from the IBP rows, and the `"dispatch": "terms"` check is
+    /// skipped; everything else (layout, terms, symmetry maps, descent witness)
+    /// is built as verified, so the program is the same. Use
+    /// [`certificate_check`] to choose; trusting a scheme whose certificates
+    /// were not verified at the gate is a contract violation.
+    pub fn extract_with(
+        p: &Presentation,
+        node: &NodeInfo,
+        check: CertificateCheck,
+    ) -> Result<Self, SchemeError> {
+        Self::extract_scheme(scheme_at(node)?, p, node, check)
+    }
+
+    /// [`Self::extract_with`] for a scheme file given as JSON instead of the
+    /// registry's scheme of `node` (tests: a corrupted certificate).
+    #[doc(hidden)]
+    pub fn extract_from_json(
+        json: &str,
+        p: &Presentation,
+        node: &NodeInfo,
+        check: CertificateCheck,
+    ) -> Result<Self, SchemeError> {
+        let scheme = parse_scheme(json).map_err(SchemeError::Mismatch)?;
+        if node.loops != scheme.loops || node.key != scheme.key {
+            return Err(SchemeError::Mismatch(format!(
+                "scheme {} is not the scheme of node {}",
+                scheme.name, node.index
+            )));
+        }
+        Self::extract_scheme(&scheme, p, node, check)
+    }
+
+    fn extract_scheme(
+        scheme: &Scheme,
+        p: &Presentation,
+        node: &NodeInfo,
+        check: CertificateCheck,
+    ) -> Result<Self, SchemeError> {
+        let verify = check == CertificateCheck::Verify;
+        if verify && scheme.light {
+            // The registry read the embedded file light: verify from the
+            // full file (same rules, certificates parsed).
+            let mut full = parse_scheme(scheme.source).map_err(SchemeError::Mismatch)?;
+            full.embedded = scheme.embedded;
+            return Self::extract_scheme(&full, p, node, check);
+        }
         let layout =
             layout(scheme, &node.topo).map_err(|e| SchemeError::Mismatch(e.to_string()))?;
         if layout.slots != p.slots {
@@ -937,14 +1134,19 @@ impl SchemeTemplate {
             PError::Generation(format!("the IBP rows of presentation {}: {error}", p.id.0))
         };
         let generator = ParametricIbpGenerator::try_new(&p.family).map_err(|e| generation(&e))?;
-        let batch = generator
-            .prepare_ordinary_ibp()
-            .map_err(|e| generation(&e))?;
-        let rows = (0..batch.len()).map(|row| batch.generate(row)).collect();
-        let relations = batch
-            .complete(rows)
-            .map_err(|e| generation(&e))?
-            .into_relations();
+        // The IBP rows are needed only to verify the certificates.
+        let relations = if verify {
+            let batch = generator
+                .prepare_ordinary_ibp()
+                .map_err(|e| generation(&e))?;
+            let rows = (0..batch.len()).map(|row| batch.generate(row)).collect();
+            batch
+                .complete(rows)
+                .map_err(|e| generation(&e))?
+                .into_relations()
+        } else {
+            Vec::new()
+        };
         let context = generator.context().clone();
         let base = p.family.coefficient_context().clone();
         let d = base.parameter("d").ok_or(PError::ContextMismatch)?;
@@ -958,10 +1160,14 @@ impl SchemeTemplate {
         // Relations in presentation coordinates and RustRed's sign.
         let mut converted: BTreeMap<String, BTreeMap<Vec<i64>, IndexedCoefficient>> =
             BTreeMap::new();
-        for rule in scheme
-            .rules
-            .iter()
+        // Trusted, a rule dispatching on Forcer's terms needs its relation only
+        // for the checks that are skipped (certificate, terms == relation).
+        let on_terms = |rule: &ParsedRule| {
+            rule.dispatch_terms && !rule.raw.is_empty() && !rule.relation.is_empty()
+        };
+        for rule in (scheme.rules.iter())
             .filter(|rule| !rule.master && !rule.relation.is_empty())
+            .filter(|rule| verify || !on_terms(rule))
         {
             let mut map = BTreeMap::new();
             for (shift, poly) in &rule.relation {
@@ -983,8 +1189,19 @@ impl SchemeTemplate {
             let rule = (scheme.rules.iter())
                 .find(|rule| &rule.name == name)
                 .ok_or_else(|| PError::MalformedLibrary(format!("scheme rule {name}")))?;
-            let Some(certificate) = &rule.certificate else {
+            if !rule.has_certificate {
                 continue;
+            }
+            if !verify {
+                // Trusted: verified once at the gate (scheme_check, the
+                // embedded-scheme test), for this P_SCHEME_TEMPLATE_VERSION.
+                verified.insert(name.clone(), true);
+                continue;
+            }
+            let Some(certificate) = &rule.certificate else {
+                return Err(SchemeError::Mismatch(format!(
+                    "rule {name}: a certificate that was not read"
+                )));
             };
             let fixed: Vec<(usize, i64)> = (rule.pattern.iter().enumerate())
                 .filter_map(|(a, cond)| cond.fixed().map(|v| (layout.perm[a], v)))
@@ -1072,7 +1289,7 @@ impl SchemeTemplate {
             }
             let mut terms = Vec::new();
             let mut raw = Vec::new();
-            let on_terms = rule.dispatch_terms && !rule.raw.is_empty() && !rule.relation.is_empty();
+            let on_terms = on_terms(rule);
             if !rule.master && (rule.relation.is_empty() || on_terms) {
                 for (shift, num, dens) in &rule.raw {
                     let mut factors = Vec::with_capacity(dens.len());
@@ -1085,7 +1302,8 @@ impl SchemeTemplate {
                         factors,
                     ));
                 }
-                if on_terms
+                if verify
+                    && on_terms
                     && !terms_match_relation(
                         &context,
                         &raw,
@@ -1811,7 +2029,16 @@ pub(crate) fn take_scheme_rule_hit() -> Option<u32> {
 
 impl SchemeStep {
     pub fn new(presentation: Arc<Presentation>, node: &NodeInfo) -> Result<Self, SchemeError> {
-        let template = SchemeTemplate::extract(&presentation, node)?;
+        Self::new_with(presentation, node, CertificateCheck::Verify)
+    }
+
+    /// [`Self::new`] with the certificates verified or trusted.
+    pub fn new_with(
+        presentation: Arc<Presentation>,
+        node: &NodeInfo,
+        check: CertificateCheck,
+    ) -> Result<Self, SchemeError> {
+        let template = SchemeTemplate::extract_with(&presentation, node, check)?;
         let lines = presentation.lines().count();
         let allow_unverified =
             std::env::var("RUSTRED_P_SCHEME_UNVERIFIED").is_ok_and(|value| value == "1");
@@ -1824,7 +2051,19 @@ impl SchemeStep {
         })
     }
 
+    /// The program of a Scheme owner; its certificates are verified or
+    /// trusted by [`certificate_check`].
     pub fn from_owner(library: &PLibrary, owner: &POwnerSpec) -> Result<Self, PError> {
+        Self::from_owner_with(library, owner, None)
+    }
+
+    /// [`Self::from_owner`]; `check` overrides [`certificate_check`]
+    /// (scheme_check verifies always).
+    pub fn from_owner_with(
+        library: &PLibrary,
+        owner: &POwnerSpec,
+        check: Option<CertificateCheck>,
+    ) -> Result<Self, PError> {
         let LaneRoles::Scheme(_) = owner.roles else {
             return Err(PError::Contract(format!(
                 "a scheme step with roles {:?}",
@@ -1854,7 +2093,8 @@ impl SchemeStep {
             .ok_or_else(|| PError::Contract(format!("scheme node {}", index.0)))?;
         let presentation = Arc::clone(library.presentation(owner.presentation));
         let fallback = build_fallback(library, owner, node, &presentation)?;
-        let mut step = Self::new(presentation, node)?;
+        let check = check.unwrap_or_else(|| certificate_check(library, node));
+        let mut step = Self::new_with(presentation, node, check)?;
         step.fallback = fallback;
         Ok(step)
     }
@@ -2389,6 +2629,30 @@ mod tests {
                 })
             },
         )
+    }
+
+    /// b7-schemeload: the trust rule's identity test.
+    #[test]
+    fn only_a_revisioned_identity_of_this_template_version_trusts_certificates() {
+        let v = crate::propagator::P_SCHEME_TEMPLATE_VERSION;
+        let base = |version: u32| {
+            format!(
+                "p-library:scope=1-4:P_PRESENTATION_VERSION=4,P_SCHEME_TEMPLATE_VERSION={version},P_CUSTOM_OWNER_VERSION=2,P_ORDERING_VERSION=1:generation"
+            )
+        };
+        let revised = |version: u32| format!("{},P_PACKAGE_REVISION=b6-guard-v2", base(version));
+        assert!(package_trusts_scheme_certificates(&revised(v)));
+        // No revision, an empty one, an older or a newer template version.
+        assert!(!package_trusts_scheme_certificates(&base(v)));
+        assert!(!package_trusts_scheme_certificates(&format!(
+            "{},P_PACKAGE_REVISION=",
+            base(v)
+        )));
+        assert!(!package_trusts_scheme_certificates(&revised(v - 1)));
+        assert!(!package_trusts_scheme_certificates(&revised(v + 1)));
+        // A prefix of the version is not the version.
+        assert!(!package_trusts_scheme_certificates(&revised(v * 10 + v)));
+        assert!(!package_trusts_scheme_certificates(""));
     }
 
     #[test]

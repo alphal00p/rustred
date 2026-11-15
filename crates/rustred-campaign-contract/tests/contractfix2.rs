@@ -52,13 +52,17 @@ fn cf2_row3_never_closes_an_item_on_unverified_claims() {
             Action::ConfirmCoverageElseNextRung
         )
     );
-    // the only rows of kind `complete` are the verified ones (row 1)
+    // the only rows of kind `complete` are the verified ones: row 1, and (line 7) rows 30 / 31 of the diagnostic jobs
+    // (sealed + their closed record lists checked), which accept diagnostic records only, never rules or relations
     let complete: Vec<u8> = ROWS
         .iter()
         .filter(|r| r.kind == OutcomeKind::Complete)
         .map(|r| r.row)
         .collect();
-    assert_eq!(complete, vec![1]);
+    assert_eq!(complete, vec![1, 30, 31]);
+    for r in ROWS.iter().filter(|r| r.row == 30 || r.row == 31) {
+        assert_eq!(r.accept, Accept::DiagnosticRecords);
+    }
 }
 
 /// The verified handle (ac2-M1 consumer API): the canonical lines come from the verified bytes, all or nothing.

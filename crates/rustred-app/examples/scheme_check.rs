@@ -1,12 +1,14 @@
 //! Scheme lane check (M5 A1 schemes): load a p package, rebuild every Scheme owner's template (each rule's
 //! certificate against the generator's own rows, the static descent witness) and print per rule how it is
-//! verified (certificate, replay, none) with its stored metadata.
+//! verified (certificate, replay, none) with its stored metadata. The certificates are ALWAYS verified here
+//! (the gate's proof, whatever the package's trust); the trusted build of the same owner (b7-schemeload,
+//! `certificate_check`) is built as well and must give the same verdict for every rule (it panics otherwise).
 //! usage: scheme_check <p-library dir> [out.json]
 use std::path::PathBuf;
 use std::time::Instant;
 
 use rustred::propagator::lane::OwnerLane;
-use rustred::propagator::scheme::{SchemeStep, Verification, scheme_names};
+use rustred::propagator::scheme::{CertificateCheck, SchemeStep, Verification, scheme_names};
 use rustred_app::propagator::{PLibraryOptions, PLibrarySource, load_p_library};
 
 fn main() {
@@ -29,13 +31,32 @@ fn main() {
             continue;
         }
         let started = Instant::now();
-        let step = SchemeStep::from_owner(&library, &owner.spec).unwrap();
+        let step =
+            SchemeStep::from_owner_with(&library, &owner.spec, Some(CertificateCheck::Verify))
+                .unwrap();
+        let verified_seconds = started.elapsed().as_secs_f64();
+        let trusted_started = Instant::now();
+        let trusted =
+            SchemeStep::from_owner_with(&library, &owner.spec, Some(CertificateCheck::Trust))
+                .unwrap();
+        let trusted_seconds = trusted_started.elapsed().as_secs_f64();
+        let verdicts = |step: &SchemeStep| {
+            (step.template().rules().iter())
+                .map(|rule| (rule.name.clone(), rule.verification))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            verdicts(&step),
+            verdicts(&trusted),
+            "scheme {}: the trusted verdicts differ from the verified ones",
+            step.template().name()
+        );
         let template = step.template();
         let witness = template.descent_witness().unwrap();
         let rules = template.rules();
         let count = |v: Verification| rules.iter().filter(|r| r.verification == v).count();
         println!(
-            "scheme {} owner {:016x} presentation {}: {} rules ({} certificate, {} replay, {} symmetry, {} unverified, {} master), descent witness {} shifts, {:.2} s",
+            "scheme {} owner {:016x} presentation {}: {} rules ({} certificate, {} replay, {} symmetry, {} unverified, {} master), descent witness {} shifts, {:.2} s verified, {:.2} s trusted (same verdicts)",
             template.name(),
             owner.spec.class.0,
             owner.spec.presentation.0,
@@ -46,7 +67,8 @@ fn main() {
             count(Verification::None),
             count(Verification::Master),
             witness,
-            started.elapsed().as_secs_f64()
+            verified_seconds,
+            trusted_seconds
         );
         for rule in rules {
             println!("  {:<22} {:?}", rule.name, rule.verification);

@@ -34,6 +34,10 @@ pub const SPAN_REQUEST_SCHEMA: &str = "rustred.campaign.instance-span-job.v1";
 pub const SPAN_OUT: &str = "span.jsonl";
 /// `schema` of an rr_proof instance-span record.
 pub const SPAN_SCHEMA: &str = "rustred.proof-kernel.span.v1";
+/// The child's output file in `out/` for kind `coefficient-facts` (lane closeloop3; closeloop.md 16).
+pub const COEF_OUT: &str = "coefficient_facts.jsonl";
+/// `producer` every `coefficient-facts` answer must state (rr_coef_facts: exact evaluation of the record's own text).
+pub const COEF_PRODUCER: &str = "exact_eval";
 
 /// The `request` input of a `proof-instance-span` job (what the record is and how to prove it).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -195,6 +199,14 @@ pub fn argv(spec: &JobSpec) -> Result<Vec<String>, String> {
             "--out".into(),
             format!("out/{INSTANTIATE_OUT}"),
         ]),
+        // lane closeloop3: rr_coef_facts reads the same request form (A)
+        JobKind::CoefficientFacts => Ok(vec![
+            "facts".into(),
+            "--requests".into(),
+            p("requests")?,
+            "--out".into(),
+            format!("out/{COEF_OUT}"),
+        ]),
         k => Err(format!("kind {k:?} is not legacy-wrapped")),
     }
 }
@@ -322,8 +334,15 @@ fn check_span(spec: &JobSpec, out: &[u8]) -> Result<Vec<Vec<u8>>, String> {
 }
 
 /// The checked answers of `proof-instantiate` (form (A) requests; record_sha256 recomputed from the table at the
-/// request's offset, its index checked): the answer lines, canonical.
+/// request's offset, its index checked): the answer lines, canonical. `coefficient-facts` (lane closeloop3) is
+/// checked the same way, with its own answer schema (`rustred.campaign.fact-verdict.v1`) and `producer: exact_eval`.
 fn check_instantiate(spec: &JobSpec, out: &[u8]) -> Result<Vec<Vec<u8>>, String> {
+    let coef = spec.kind == JobKind::CoefficientFacts;
+    let schema = if coef {
+        rustred_campaign_core::import::evidence::FACT_VERDICT_SCHEMA
+    } else {
+        INSTANTIATE_SCHEMA
+    };
     let req = input_bytes(spec, "requests")?;
     let mut want: Wanted = BTreeMap::new();
     let mut shas: BTreeMap<(String, u64), String> = BTreeMap::new();
@@ -366,8 +385,15 @@ fn check_instantiate(spec: &JobSpec, out: &[u8]) -> Result<Vec<Vec<u8>>, String>
             continue;
         }
         let v: Value = serde_json::from_slice(l).map_err(|e| format!("answer {}: {e}", i + 1))?;
-        if v["schema"] != INSTANTIATE_SCHEMA {
+        if v["schema"] != schema {
             return Err(format!("answer {}: schema {}", i + 1, v["schema"]));
+        }
+        if coef && v["producer"] != COEF_PRODUCER {
+            return Err(format!(
+                "answer {}: producer {} (expected {COEF_PRODUCER})",
+                i + 1,
+                v["producer"]
+            ));
         }
         let sha = v["record_sha256"]
             .as_str()
@@ -404,6 +430,7 @@ fn check_instantiate(spec: &JobSpec, out: &[u8]) -> Result<Vec<Vec<u8>>, String>
 pub fn child_out(kind: JobKind) -> &'static str {
     match kind {
         JobKind::ProofInstanceSpan => SPAN_OUT,
+        JobKind::CoefficientFacts => COEF_OUT,
         _ => INSTANTIATE_OUT,
     }
 }

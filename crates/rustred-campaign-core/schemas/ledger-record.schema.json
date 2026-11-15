@@ -2150,6 +2150,13 @@
             "boolean",
             "null"
           ]
+        },
+        "start_target": {
+          "description": "lane closeloop3: the target the node starts on; absent = full (written only when given); boxed needs spec_box",
+          "enum": [
+            "full",
+            "boxed"
+          ]
         }
       }
     },

@@ -152,7 +152,8 @@ impl Args {
 }
 
 /// Job mode (`solve-recipe --job`): what `die` does instead of exit 2 (an error OUTCOME, exit 40).
-static DIE_HOOK: std::sync::OnceLock<Box<dyn Fn(&str) + Send + Sync>> = std::sync::OnceLock::new();
+type DieHook = Box<dyn Fn(&str) + Send + Sync>;
+static DIE_HOOK: std::sync::OnceLock<DieHook> = std::sync::OnceLock::new();
 
 fn die(msg: &str) -> ! {
     job::on_die(msg);
