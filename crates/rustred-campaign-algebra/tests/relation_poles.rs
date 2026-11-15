@@ -203,3 +203,47 @@ fn table_rule_per_key_verdicts() {
     let t0 = &rec["locus"]["terms"][0];
     assert_eq!(t0["pole_rises_on"].as_array().unwrap().len(), 2, "{t0}");
 }
+
+/// The census path (`PreparedRule`, exact fast path off the index loci) gives the same verdict as the full substitution
+/// (`analyse_rule` / `is_regular_at`) at every key of a grid crossing the loci (on and off, numerator and denominator).
+#[test]
+fn prepared_rule_equals_full_substitution_on_a_grid() {
+    if !go() {
+        return;
+    }
+    use rustred_campaign_algebra::valuation::relation::PreparedRule;
+    let rule = json!({"type": "rule", "target": "I(n0,n1,n2)", "rhs": [
+        ["I(n0-1,n1,n2)", "(d-3)/((n1-1)*(d-2*n1))"],
+        ["I(n0,n1-1,n2)", "(d-n0-2)^2/((d-4)*(3*d-n0-n1-6))"],
+        ["I(n0,n1,n2+1)", "(d-2*n0)*(d+n2-4)/(d-5)"],
+        ["I(n0-1,n1,n2+1)", "(n0-n1)*(d-4)^2"]]});
+    let mut keys = vec![];
+    for n0 in 1..=5 {
+        for n1 in 2..=5 {
+            for n2 in -3..=0 {
+                keys.push(vec![n0, n1, n2]);
+            }
+        }
+    }
+    let pr = PreparedRule::of_record(&rule, 3, &d4()).unwrap();
+    let full = analyse_rule(&rule, &keys, 3, &d4()).unwrap();
+    let mut singular = 0;
+    for (k, v) in &full.per_key {
+        let (fast, _) = pr.at_key(k);
+        assert_eq!(&fast, v, "key {k:?}");
+        assert_eq!(&is_regular_at(&rule, k, &d4()), v, "key {k:?}");
+        singular += usize::from(matches!(v, RegularAt::Singular { .. }));
+    }
+    // the grid really crosses the loci: some keys singular, some regular, more than one order
+    assert!(
+        singular > 0 && singular < keys.len(),
+        "{singular} of {}",
+        keys.len()
+    );
+    let orders: std::collections::BTreeSet<u64> = full
+        .per_key
+        .iter()
+        .filter_map(|(_, v)| v.pole_order())
+        .collect();
+    assert!(orders.len() >= 3, "{orders:?}");
+}

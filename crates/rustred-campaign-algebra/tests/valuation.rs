@@ -274,8 +274,8 @@ fn multi_index_locus_and_numerator_locus() {
     let key = |n0: i64, n9: i64, n10: i64| {
         let mut k = vec![1i64; arity];
         k[0] = n0;
-        for s in 9..arity {
-            k[s] = 0;
+        for x in k.iter_mut().skip(9) {
+            *x = 0;
         }
         k[9] = n9;
         k[10] = n10;
