@@ -16,7 +16,13 @@ pub struct JournalLine {
     pub answers: Vec<TrialAnswer>,
 }
 
-/// A solver that answers known trials from the journal and passes the others to `inner`.
+/// A decided answer: journaled and replayed. An undecided one (interrupted, refused, budget, error) is re-run.
+pub fn decided(a: &TrialAnswer) -> bool {
+    !matches!(a, TrialAnswer::Undecided { .. })
+}
+
+/// A solver that answers known trials from the journal and passes the others to `inner`. Trials with an undecided
+/// answer are returned but neither journaled nor remembered (a resumed run solves them again).
 pub struct JournaledSolver<S> {
     pub inner: S,
     map: BTreeMap<String, Vec<TrialAnswer>>,
@@ -39,7 +45,10 @@ impl<S: TrialSolver> JournaledSolver<S> {
             }
             let j: JournalLine =
                 serde_json::from_str(l).map_err(|e| format!("journal line {}: {e}", i + 1))?;
-            map.insert(j.digest, j.answers);
+            // undecided answers (interrupted, refused, budget) are never replayed
+            if j.answers.iter().all(decided) {
+                map.insert(j.digest, j.answers);
+            }
         }
         Ok(JournaledSolver {
             inner,
@@ -92,16 +101,31 @@ impl<S: TrialSolver> TrialSolver for JournaledSolver<S> {
             if ans.len() != todo.len() {
                 return Err(format!("{} answers for {} trials", ans.len(), todo.len()));
             }
+            let mut transient: BTreeMap<String, Vec<TrialAnswer>> = BTreeMap::new();
             for ((t, d), a) in todo.iter().zip(&todo_d).zip(ans) {
-                let line = JournalLine {
-                    digest: d.clone(),
-                    label: t.label.clone(),
-                    answers: a.clone(),
-                };
-                self.new_lines
-                    .push(serde_json::to_string(&line).map_err(|e| e.to_string())?);
-                self.map.insert(d.clone(), a);
+                if a.iter().all(decided) {
+                    let line = JournalLine {
+                        digest: d.clone(),
+                        label: t.label.clone(),
+                        answers: a.clone(),
+                    };
+                    self.new_lines
+                        .push(serde_json::to_string(&line).map_err(|e| e.to_string())?);
+                    self.map.insert(d.clone(), a);
+                } else {
+                    transient.insert(d.clone(), a);
+                }
             }
+            return Ok(digests
+                .iter()
+                .map(|d| {
+                    self.map
+                        .get(d)
+                        .or_else(|| transient.get(d))
+                        .cloned()
+                        .unwrap_or_default()
+                })
+                .collect());
         }
         Ok(digests.iter().map(|d| self.map[d].clone()).collect())
     }

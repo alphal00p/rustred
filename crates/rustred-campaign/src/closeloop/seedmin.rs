@@ -178,6 +178,11 @@ fn remove_own_run_dir(work_root: &Path, dir: &Path) {
     }
 }
 
+/// A decided answer (journaled and replayed); undecided ones (interrupted, refused, budget, error) are re-run.
+fn decided(a: &TrialAnswer) -> bool {
+    !matches!(a, TrialAnswer::Undecided { .. })
+}
+
 /// The engine's capabilities from `<program> version --json` (features); empty on any failure.
 pub fn engine_caps(program: &Path) -> EngineCaps {
     let out = std::process::Command::new(program)
@@ -556,6 +561,7 @@ impl TrialSolver for ChildTrialSolver {
             }
         }
         // schedule: each job takes min(threads_per_job, keys) CPUs from the free pool
+        let mut transient: BTreeMap<String, Vec<TrialAnswer>> = BTreeMap::new();
         let (tx, rx) = mpsc::channel::<Done>();
         let mut free: Vec<usize> = self.cfg.cpus.clone();
         let mut held: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
@@ -614,15 +620,25 @@ impl TrialSolver for ChildTrialSolver {
                 d.cpu_s,
                 d.wall_s
             ));
-            let line = JournalLine {
-                digest: digests[d.idx].clone(),
-                label: t.label.clone(),
-                answers: answers.clone(),
-            };
-            self.append_journal(&line)?;
+            if answers.iter().all(decided) {
+                let line = JournalLine {
+                    digest: digests[d.idx].clone(),
+                    label: t.label.clone(),
+                    answers: answers.clone(),
+                };
+                self.append_journal(&line)?;
+            }
+            transient.insert(digests[d.idx].clone(), answers.clone());
             self.journal.insert(digests[d.idx].clone(), answers);
         }
-        Ok(digests.iter().map(|d| self.journal[d].clone()).collect())
+        let out = digests.iter().map(|d| self.journal[d].clone()).collect();
+        // undecided answers serve this call only: a later call (or a resumed run) solves the trial again
+        for (d, a) in transient {
+            if !a.iter().all(decided) {
+                self.journal.remove(&d);
+            }
+        }
+        Ok(out)
     }
 
     fn capabilities(&self) -> EngineCaps {

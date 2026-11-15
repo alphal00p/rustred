@@ -1127,3 +1127,61 @@ fn shell_subsets_are_alternatives_ranked_by_coverage_poles_and_size() {
         .is_err()
     );
 }
+
+#[test]
+fn undecided_answers_are_never_journaled_nor_replayed() {
+    use rustred_campaign_core::seedmin::journal::JournalLine;
+    let k: Key = vec![2, 2, 0];
+    let mut o = Oracle::default();
+    o.alts.insert(k.clone(), vec![alt(&[[0, 0, 0]], 1)]);
+    // a journal holding an UNDECIDED start answer (an interrupted job) must not be replayed
+    let t = Trial {
+        label: "x".into(),
+        centre: C0.to_vec(),
+        list: shell(),
+        keys: vec![k.clone()],
+        mode: TrialMode::Solve,
+        engine_minimise: None,
+    };
+    let line = serde_json::to_string(&JournalLine {
+        digest: t.digest(),
+        label: "x".into(),
+        answers: vec![TrialAnswer::Undecided {
+            class: "refused".into(),
+            message: "killed".into(),
+        }],
+    })
+    .unwrap();
+    let mut js = JournaledSolver::from_lines(o.clone(), [line.as_str()]).unwrap();
+    assert!(js.is_empty());
+    let a = js.solve(std::slice::from_ref(&t)).unwrap();
+    assert!(a[0][0].relation().is_some());
+    // an undecided answer from the inner solver is returned but not journaled
+    let mut o2 = o.clone();
+    o2.fail_after = None;
+    o2.alts.clear();
+    struct Und;
+    impl TrialSolver for Und {
+        fn solve(&mut self, t: &[Trial]) -> Result<Vec<Vec<TrialAnswer>>, String> {
+            Ok(t.iter()
+                .map(|x| {
+                    x.keys
+                        .iter()
+                        .map(|_| TrialAnswer::Undecided {
+                            class: "budget_wall".into(),
+                            message: String::new(),
+                        })
+                        .collect()
+                })
+                .collect())
+        }
+        fn capabilities(&self) -> EngineCaps {
+            EngineCaps::default()
+        }
+    }
+    let mut ju = JournaledSolver::new(Und);
+    let a = ju.solve(std::slice::from_ref(&t)).unwrap();
+    assert!(matches!(a[0][0], TrialAnswer::Undecided { .. }));
+    assert!(ju.take_new_lines().is_empty());
+    assert!(ju.is_empty());
+}
