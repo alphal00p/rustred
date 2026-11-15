@@ -41,3 +41,7 @@ pub mod import;
 pub mod termmin;
 // lane tadic (interfaces/tadic.md; TRICKS 15/16 system pole order): REQUEST TO I-INT, one line
 pub mod tadic;
+// lane poles (interfaces/pole-diagnostics.md): REQUEST TO I-INT, one line
+pub mod poles;
+// lane epsdepth (interfaces/epsdepth.md): REQUEST TO I-INT, one line
+pub mod epsdepth;
