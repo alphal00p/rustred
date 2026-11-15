@@ -473,7 +473,9 @@ fn t162_ship_keys_only_superset() {
         })
         .collect();
     let in_chart = |k: &[i32]| (0..n).all(|s| if mask[s] { k[s] >= 1 } else { k[s] <= 0 });
-    let mut seen: BTreeMap<Vec<i32>, Option<(Vec<i32>, i64, usize)>> = BTreeMap::new();
+    // key -> (parent key, parent rule label, rhs term) or None for a start key
+    type Parent = Option<(Vec<i32>, i64, usize)>;
+    let mut seen: BTreeMap<Vec<i32>, Parent> = BTreeMap::new();
     let mut frontier: Vec<Vec<i32>> = vec![];
     for k in start {
         if seen.insert(k.clone(), None).is_none() {
