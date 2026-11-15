@@ -462,10 +462,10 @@ pub type ImportRecords<'a> = dyn Fn(&[i32]) -> Vec<(String, Vec<u8>)> + 'a;
 /// What a run directory proves when classified again from its own files.
 enum RunAnswer {
     /// Row 40: the sealed certificate, re-checked against the run's pinned request / table / symrows input.
-    Sealed(rustred_campaign_contract::classify::symcert::Certificate),
+    Sealed(Box<rustred_campaign_contract::classify::symcert::Certificate>),
     /// Row 41 (not a kernel capacity limit): the kernel refused a symmetry row of THIS pinned request.
     Refused41(
-        rustred_campaign_contract::classify::symcert::SymrowsRequest,
+        Box<rustred_campaign_contract::classify::symcert::SymrowsRequest>,
         String,
     ),
 }
@@ -505,7 +505,7 @@ fn run_answer(run_dir: &std::path::Path) -> Result<RunAnswer, (&'static str, Str
         }
         let r = rustred_campaign_contract::classify::symcert::request(&spec)
             .map_err(|e| ("certificate_unbound", e))?;
-        return Ok(RunAnswer::Refused41(r, msg));
+        return Ok(RunAnswer::Refused41(Box::new(r), msg));
     }
     if c.row != 40 {
         return Err((
@@ -521,7 +521,7 @@ fn run_answer(run_dir: &std::path::Path) -> Result<RunAnswer, (&'static str, Str
         rustred_campaign_contract::classify::symcert::certificates_of_run(&layout.root, &spec, v)
             .map_err(|e| ("certificate_unbound", e))?;
     match (certs.pop(), certs.is_empty()) {
-        (Some(c), true) => Ok(RunAnswer::Sealed(c)),
+        (Some(c), true) => Ok(RunAnswer::Sealed(Box::new(c))),
         _ => Err(("certificate_unbound", "not exactly one certificate".into())),
     }
 }
