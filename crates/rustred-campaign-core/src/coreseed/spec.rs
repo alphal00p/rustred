@@ -84,7 +84,8 @@ pub struct MinimiseSpec {
     /// `greedy` | `support` | `off`.
     #[serde(default = "d_mode")]
     pub mode: String,
-    /// `distance` (L1 distance of the offset from the key, ties: generation order) | `outermost_first`.
+    /// `distance` (L1 distance of the offset from the key, ties: generation order) | `outermost_first` | `given` (the
+    /// generation order itself: an explicit list given as centres with shell S0 keeps its row order, TRICKS 17 b).
     #[serde(default = "d_order")]
     pub order: String,
     /// `comparator` | `m1`: the measure a kept drop must still satisfy.
@@ -475,7 +476,7 @@ impl CoreSeedPolicy {
         )?;
         pick(
             &self.minimise.order,
-            &["distance", "outermost_first"],
+            &["distance", "outermost_first", "given"],
             "minimise.order",
         )?;
         pick(
