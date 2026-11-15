@@ -179,6 +179,9 @@ pub struct TwoRowPolicy {
     /// When no valid combination exists: keep at most this many NEAR MISSES (every non-lower term but one cancels),
     /// the input of the composite with one catalogue rule (0 = off).
     pub max_near_misses: usize,
+    /// Expand a row at a shifted seed only when its structural shape may contain a frontier term (exact; `false` =
+    /// expand every row, for comparisons).
+    pub structural_filter: bool,
 }
 
 impl Default for TwoRowPolicy {
@@ -195,6 +198,7 @@ impl Default for TwoRowPolicy {
             max_relations: 8,
             single_rows: true,
             max_near_misses: 8,
+            structural_filter: true,
         }
     }
 }
@@ -417,6 +421,10 @@ pub struct SearchStats {
     pub not_lower: usize,
     /// Near misses kept (keys without a valid combination only).
     pub near_misses: usize,
+    /// Row checks skipped by the structural filter (summed over the rounds).
+    pub rows_skipped_rounds: usize,
+    /// Rows of the neighbourhood never expanded (they cannot touch any frontier term).
+    pub rows_never_expanded: usize,
 }
 
 impl SearchStats {

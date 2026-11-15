@@ -17,7 +17,7 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use super::rows::{RowsError, SeedRowList, rows_pruned};
+use super::rows::{RowShape, RowsError, SeedRowList, row_shape, rows_pruned_for};
 use super::{
     Combination, KeyOutcome, KeyResult, NearMiss, PairShift, RowRef, RowSpec, SearchStats,
     TwoRowPolicy,
@@ -80,8 +80,9 @@ fn rows_for_seed<A: CheckAlgebra>(
     seed: &[i32],
     max_terms: usize,
     zero: ZeroSector,
+    want: &dyn Fn(usize) -> bool,
 ) -> SeedRows {
-    match rows_pruned(alg, group, seed, max_terms, zero) {
+    match rows_pruned_for(alg, group, seed, max_terms, zero, want) {
         Ok(r) => SeedRows::Rows(r),
         Err(RowsError::OverCap { .. }) => SeedRows::OverCap,
         Err(RowsError::Undecided(e)) => SeedRows::Undecided(e),
@@ -178,7 +179,11 @@ pub fn search_key<A: CheckAlgebra>(
     }
     stats.seeds = seeds.len();
 
-    // (A) scan
+    // (A) scan, FRONTIER-DRIVEN: the rows at the key, then max_rows rounds; in each round a row at a shifted seed is
+    // expanded only if its structural shape (rows::RowShape, no expansion) may contain a term of the current frontier
+    // (round 1: the key and the non-lower terms of the rows at the key; later: the non-lower terms of the rows found in
+    // the previous round). Exact: a skipped row cannot contain any frontier term, so the pool (B) is the one every row
+    // would give (rows containing the key + max_rows - 1 links through non-lower terms).
     let mut terms = Terms {
         ids: HashMap::new(),
         keys: vec![],
@@ -186,40 +191,95 @@ pub fn search_key<A: CheckAlgebra>(
     let kid = terms.id(key);
     let mut infos: Vec<Info> = vec![];
     let mut undecided_reason: Option<String> = None;
-    for (si, (_, s)) in seeds.iter().enumerate() {
-        match rows_for_seed(alg, group, s, policy.max_terms_per_row, zero) {
-            SeedRows::OverCap => stats.seeds_over_cap += 1,
-            SeedRows::Undecided(e) => {
-                stats.undecided += 1;
-                undecided_reason.get_or_insert(e);
+    let shapes: Vec<Vec<Option<RowShape>>> = seeds
+        .iter()
+        .map(|(_, s)| (0..nel).map(|e| row_shape(group, e, s)).collect())
+        .collect();
+    let mut done = vec![vec![false; nel]; seeds.len()];
+    let mut dead = vec![false; seeds.len()];
+    let mut frontier: Vec<Vec<i32>> = vec![];
+    for round in 0..=policy.max_rows {
+        let mut next: Vec<Vec<i32>> = vec![];
+        let mut seen_next: HashSet<u32> = HashSet::new();
+        for (si, (_, s)) in seeds.iter().enumerate() {
+            if dead[si] || (round == 0) != (si == 0) {
+                continue;
             }
-            SeedRows::Rows(rows) => {
-                for (e, v) in rows {
-                    if e >= nel {
-                        continue;
+            let want: Vec<bool> = (0..nel)
+                .map(|e| {
+                    !done[si][e]
+                        && shapes[si][e].as_ref().is_some_and(|sh| {
+                            round == 0
+                                || !policy.structural_filter
+                                || frontier.iter().any(|t| sh.may_contain(s, t))
+                        })
+                })
+                .collect();
+            let skipped = (0..nel)
+                .filter(|&e| !done[si][e] && shapes[si][e].is_some() && !want[e])
+                .count();
+            stats.rows_skipped_rounds += skipped;
+            if !want.iter().any(|&w| w) {
+                continue;
+            }
+            match rows_pruned_for(alg, group, s, policy.max_terms_per_row, zero, &|e| {
+                e < nel && want[e]
+            }) {
+                Err(RowsError::OverCap { .. }) => {
+                    stats.seeds_over_cap += 1;
+                    dead[si] = true;
+                }
+                Err(RowsError::Undecided(e)) => {
+                    stats.undecided += 1;
+                    undecided_reason.get_or_insert(e);
+                    dead[si] = true;
+                }
+                Ok(rows) => {
+                    for e in (0..nel).filter(|&e| want[e]) {
+                        done[si][e] = true;
                     }
-                    stats.rows += 1;
-                    let mut has_k = false;
-                    let mut bad = vec![];
-                    for (t, _) in &v {
-                        if t.as_slice() == key {
-                            has_k = true;
-                        } else if cmp(t, key) != Ordering::Less {
-                            bad.push(terms.id(t));
+                    for (e, v) in rows {
+                        stats.rows += 1;
+                        let mut has_k = false;
+                        let mut bad = vec![];
+                        for (t, _) in &v {
+                            if t.as_slice() == key {
+                                has_k = true;
+                            } else if cmp(t, key) != Ordering::Less {
+                                let id = terms.id(t);
+                                bad.push(id);
+                                if seen_next.insert(id) {
+                                    next.push(t.clone());
+                                }
+                            }
                         }
+                        bad.sort_unstable();
+                        bad.dedup();
+                        infos.push(Info {
+                            element: e,
+                            seed: si,
+                            has_k,
+                            bad,
+                        });
                     }
-                    bad.sort_unstable();
-                    bad.dedup();
-                    infos.push(Info {
-                        element: e,
-                        seed: si,
-                        has_k,
-                        bad,
-                    });
                 }
             }
         }
+        if round == 0 {
+            next.push(key.to_vec());
+        }
+        frontier = next;
+        if frontier.is_empty() {
+            break;
+        }
     }
+    stats.rows_never_expanded = (0..seeds.len())
+        .map(|si| {
+            (0..nel)
+                .filter(|&e| shapes[si][e].is_some() && !done[si][e] && !dead[si])
+                .count()
+        })
+        .sum();
 
     // (B) pool: rows containing the key, then rows sharing a non-lower term, max_rows - 1 links
     let mut by_bad: HashMap<u32, Vec<usize>> = HashMap::new();
@@ -272,7 +332,14 @@ pub fn search_key<A: CheckAlgebra>(
     }
     let mut full: HashMap<(usize, usize), Vec<(u32, Q)>> = HashMap::new();
     for (&si, els) in &need {
-        match rows_for_seed(alg, group, &seeds[si].1, policy.max_terms_per_row, zero) {
+        match rows_for_seed(
+            alg,
+            group,
+            &seeds[si].1,
+            policy.max_terms_per_row,
+            zero,
+            &|e| els.contains(&e),
+        ) {
             SeedRows::Rows(rows) => {
                 for (e, v) in rows {
                     if els.contains(&e) {
@@ -782,7 +849,9 @@ pub fn apply_combination<A: CheckAlgebra>(
                 "shifted seed {seed:?} leaves the chart"
             )));
         }
-        let row = match rows_for_seed(alg, group, &seed, policy.max_terms_per_row, zero) {
+        let row = match rows_for_seed(alg, group, &seed, policy.max_terms_per_row, zero, &|e| {
+            e == spec.element
+        }) {
             SeedRows::OverCap => return Err(Reject::OverCap { seed }),
             SeedRows::Undecided(e) => return Err(und(e)),
             SeedRows::Rows(r) => r

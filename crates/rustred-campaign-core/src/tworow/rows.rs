@@ -29,6 +29,60 @@ pub enum RowsError {
     Undecided(String),
 }
 
+/// What a row can contain, from the element's action alone (no expansion): every term `t` of `E_g(seed)` is
+/// `base - dec` with `dec >= 0` componentwise and `sum dec <= budget` (each unit of numerator power on a linear slot
+/// contributes one factor, which lowers one index by 1 or is the constant); the row also contains the seed itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RowShape {
+    pub base: Vec<i64>,
+    pub budget: i64,
+}
+
+impl RowShape {
+    /// NECESSARY condition for `t` to be a term of the row at `seed` (exact; used to skip expansions).
+    pub fn may_contain(&self, seed: &[i32], t: &[i32]) -> bool {
+        if t == seed {
+            return true;
+        }
+        let mut sum = 0i64;
+        for (b, &x) in self.base.iter().zip(t) {
+            let d = b - x as i64;
+            if d < 0 {
+                return false;
+            }
+            sum += d;
+        }
+        sum <= self.budget
+    }
+}
+
+/// The [`RowShape`] of element `element` at `seed`, or `None` when the element gives no row there (a slot with a
+/// nonzero power without a usable image, or two slots onto one target): the same structural rules as the expansion.
+pub fn row_shape(group: &VerifiedGroup, element: usize, seed: &[i32]) -> Option<RowShape> {
+    let g = group.group();
+    let e = g.elements.get(element)?;
+    let n = g.arity;
+    if seed.len() != n {
+        return None;
+    }
+    let mut base = vec![0i64; n];
+    let mut taken = vec![false; n];
+    let mut budget = 0i64;
+    for i in (0..n).filter(|&i| seed[i] != 0) {
+        match &e.action[i] {
+            SlotImage::Exact { target, .. } => {
+                if std::mem::replace(&mut taken[*target], true) {
+                    return None;
+                }
+                base[*target] = seed[i] as i64;
+            }
+            SlotImage::Linear { .. } if seed[i] < 0 => budget += -(seed[i] as i64),
+            _ => return None,
+        }
+    }
+    Some(RowShape { base, budget })
+}
+
 /// The expanded rows at `seed` (one per element that acts, element order), zero-sector terms pruned during the
 /// expansion and dropped at the end; rows that cancel completely are left out.
 pub fn rows_pruned<A: CheckAlgebra>(
@@ -37,6 +91,18 @@ pub fn rows_pruned<A: CheckAlgebra>(
     seed: &[i32],
     max_terms: usize,
     zero: ZeroPredicate,
+) -> Result<SeedRowList, RowsError> {
+    rows_pruned_for(alg, group, seed, max_terms, zero, &|_| true)
+}
+
+/// [`rows_pruned`] for the elements `want` accepts only (the others are not expanded).
+pub fn rows_pruned_for<A: CheckAlgebra>(
+    alg: &A,
+    group: &VerifiedGroup,
+    seed: &[i32],
+    max_terms: usize,
+    zero: ZeroPredicate,
+    want: &dyn Fn(usize) -> bool,
 ) -> Result<SeedRowList, RowsError> {
     let g = group.group();
     let n = g.arity;
@@ -56,6 +122,9 @@ pub fn rows_pruned<A: CheckAlgebra>(
     let is_zero = |k: &[i32]| zero.is_some_and(|z| z(k));
     let mut out = vec![];
     'el: for (ei, e) in g.elements.iter().enumerate() {
+        if !want(ei) {
+            continue;
+        }
         let mut base = vec![0i64; n];
         let mut taken = vec![false; n];
         let mut neg = false;

@@ -666,3 +666,39 @@ fn composite_with_one_catalogue_rule_on_near_misses() {
     );
     assert!(none > 0);
 }
+
+#[test]
+fn structural_filter_changes_cost_not_results() {
+    // the frontier-driven scan with the structural filter must give exactly the results of expanding every row
+    let f = sunbub();
+    let cmp = |a: &[i32], b: &[i32]| (f.cmp)(a, b);
+    let on = TwoRowPolicy::default();
+    let off = TwoRowPolicy {
+        structural_filter: false,
+        ..TwoRowPolicy::default()
+    };
+    let three = TwoRowPolicy {
+        max_rows: 3,
+        ..TwoRowPolicy::default()
+    };
+    let three_off = TwoRowPolicy {
+        structural_filter: false,
+        ..three.clone()
+    };
+    let (mut rows_on, mut rows_off, mut n) = (0usize, 0usize, 0usize);
+    for k in box_keys(&f.chart, 1, 4) {
+        let a = search_key(&Independent, &k, &f.group, &cmp, &on, None);
+        let b = search_key(&Independent, &k, &f.group, &cmp, &off, None);
+        assert_eq!(a.outcome, b.outcome, "{k:?}");
+        assert_eq!(a.near_misses, b.near_misses, "{k:?}");
+        assert_eq!(a.stats.pool_rows, b.stats.pool_rows, "{k:?}");
+        rows_on += a.stats.rows;
+        rows_off += b.stats.rows;
+        let c = search_key(&Independent, &k, &f.group, &cmp, &three, None);
+        let d = search_key(&Independent, &k, &f.group, &cmp, &three_off, None);
+        assert_eq!(c.outcome, d.outcome, "max_rows 3 at {k:?}");
+        n += 1;
+    }
+    println!("{n} keys: rows expanded {rows_on} with the filter, {rows_off} without");
+    assert!(rows_on <= rows_off);
+}
