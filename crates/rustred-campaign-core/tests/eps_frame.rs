@@ -984,7 +984,7 @@ fn layer_keys(frame: &NodeFrame, layer: u32) -> Vec<Vec<i32>> {
     let slot_values = |i: usize, w: u32| -> i32 {
         if frame.is_eps_axis(i) {
             // inverse of e(n): 0 -> 1, 1 -> 0, 2 -> 2, 3 -> -1, ...
-            if w % 2 == 0 {
+            if w.is_multiple_of(2) {
                 1 + (w / 2) as i32
             } else {
                 -((w / 2) as i32)
