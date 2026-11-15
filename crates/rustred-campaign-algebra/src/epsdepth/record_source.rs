@@ -53,7 +53,9 @@ enum St {
 }
 
 struct Entry {
-    domain: CaseDomain,
+    /// The case domain, or (POINT records without a dispatchable domain, e.g. supplied `"dispatch": "Point"`
+    /// relations) the record's fixed key: it applies at that key only, with the key as its rule point.
+    domain: Result<CaseDomain, Vec<i32>>,
     patterns: Vec<Vec<RhsSlot>>,
     texts: Vec<String>,
     parsed: HashMap<usize, Result<(ZPoly, ZPoly), String>>,
@@ -431,12 +433,22 @@ impl<'a> RecordSource<'a> {
             (line, want)
         };
         let rt = RuleText::parse(&line, &self.set.frame).map_err(|e| e.to_string())?;
-        let domain = rt.domain.clone().ok_or_else(|| {
-            format!(
-                "record {want}: no case domain ({})",
-                rt.domain_error.as_deref().unwrap_or("?")
-            )
-        })?;
+        let domain = match rt.domain.clone() {
+            Some(d) => Ok(d),
+            None if rt.is_point() => Err(rt
+                .record
+                .fixed
+                .iter()
+                .map(|x| x.and_then(|v| i32::try_from(v).ok()))
+                .collect::<Option<Vec<i32>>>()
+                .ok_or_else(|| format!("record {want}: point key out of range"))?),
+            None => {
+                return Err(format!(
+                    "record {want}: no case domain ({})",
+                    rt.domain_error.as_deref().unwrap_or("?")
+                ));
+            }
+        };
         let arity = self.set.arity();
         let mut patterns = Vec::with_capacity(rt.rhs.len());
         let mut texts = Vec::with_capacity(rt.rhs.len());
@@ -485,11 +497,8 @@ impl<'a> RecordSource<'a> {
         self.entry(table, record)?;
         let arity = self.set.arity();
         let mut pt = vec![];
-        {
-            let e = &self.cache[&(table, record)];
-            if !rule_point(&e.domain, point_key, &mut pt) {
-                return Err(format!("no rule point at {point_key:?}"));
-            }
+        if !point_of(&self.cache[&(table, record)].domain, point_key, &mut pt) {
+            return Err(format!("no rule point at {point_key:?}"));
         }
         self.stats.instantiations += 1;
         let n = self.cache[&(table, record)].patterns.len();
@@ -594,7 +603,7 @@ impl<'a> RecordSource<'a> {
         self.entry(table, record)?;
         let arity = self.set.arity();
         let mut pt = vec![];
-        if !rule_point(&self.cache[&(table, record)].domain, &point, &mut pt) {
+        if !point_of(&self.cache[&(table, record)].domain, &point, &mut pt) {
             return Err(format!("no rule point at {point:?}"));
         }
         let n = self.cache[&(table, record)].patterns.len();
@@ -665,6 +674,20 @@ impl<'a> RecordSource<'a> {
             .or_default() += 1;
         }
         m
+    }
+}
+
+/// The rule point of a record at `key`: the core's `rule_point` for a case domain; a point record applies at its own
+/// key only (rule point = the key).
+fn point_of(domain: &Result<CaseDomain, Vec<i32>>, key: &[i32], pt: &mut Vec<i32>) -> bool {
+    match domain {
+        Ok(d) => rule_point(d, key, pt),
+        Err(fixed) if fixed.as_slice() == key => {
+            pt.clear();
+            pt.extend_from_slice(key);
+            true
+        }
+        Err(_) => false,
     }
 }
 

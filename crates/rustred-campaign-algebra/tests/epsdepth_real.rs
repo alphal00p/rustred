@@ -13,11 +13,11 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use rustred_campaign_algebra::epsdepth::SymbolicaLaurent;
 use rustred_campaign_algebra::epsdepth::record_source::RecordSource;
+use rustred_campaign_algebra::epsdepth::{SymbolicaExact, SymbolicaLaurent};
 use rustred_campaign_algebra::{SymbolicaAlgebra, licensed};
 use rustred_campaign_core::epsdepth::{
-    ComposeParams, EpsDepthSpec, compose, dots_rank, node_report,
+    Arith, ComposeParams, EpsDepthSpec, compose, dots_rank, node_report,
 };
 use rustred_campaign_core::import::{self, LoadOptions, TableSetSpec};
 use serde_json::{Value, json};
@@ -105,12 +105,23 @@ fn real_node_composed_profiles() {
         max_depth: spec.budgets.max_depth,
         max_keys: spec.budgets.max_keys,
         max_seconds: spec.budgets.max_seconds,
+        keep_coefficients: std::env::var("EPSDEPTH_REREAD").is_err(),
+        progress: true,
     };
     let nt = src.n_terminals();
     let terminals = src.terminals().to_vec();
-    let mut lau2 = lau.clone();
     let t1 = Instant::now();
-    let comp = compose(&mut src, &mut lau2, &sel, nt, &params).unwrap();
+    let comp = match spec.arith {
+        Arith::Laurent => compose(&mut src, &mut lau.clone(), &sel, nt, &params).unwrap(),
+        Arith::Exact => compose(
+            &mut src,
+            &mut SymbolicaExact::new().unwrap(),
+            &sel,
+            nt,
+            &params,
+        )
+        .unwrap(),
+    };
     let t_comp = t1.elapsed().as_secs_f64();
     let keys_of = |i: usize| rustred_campaign_core::epsdepth::ReductionSource::key(&src, i);
     let (mut header, rows) =

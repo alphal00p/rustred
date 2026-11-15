@@ -120,6 +120,11 @@ pub struct ComposeParams {
     pub max_depth: i64,
     pub max_keys: Option<usize>,
     pub max_seconds: Option<f64>,
+    /// Keep every edge's exact coefficient from phase 1 for phase 3 (one instantiation per edge instead of two;
+    /// memory ~ one small rational function per edge). `false`: phase 3 asks the source again.
+    pub keep_coefficients: bool,
+    /// Progress lines on stderr (phase 1 per frontier batch, phase 3 per height layer); off by default.
+    pub progress: bool,
 }
 
 impl Default for ComposeParams {
@@ -129,6 +134,8 @@ impl Default for ComposeParams {
             max_depth: 32,
             max_keys: None,
             max_seconds: None,
+            keep_coefficients: true,
+            progress: false,
         }
     }
 }
@@ -251,6 +258,7 @@ where
     let mut kind: Vec<u8> = vec![];
     let mut term_of: Vec<u32> = vec![];
     let mut edges: Vec<Vec<(u32, i32)>> = vec![];
+    let mut kept: HashMap<u32, Terms<S::Coeff>> = HashMap::new();
     let mut reason: HashMap<u32, String> = HashMap::new();
     let mut frontier: Vec<u32> = vec![];
     let intern = |g: usize,
@@ -330,6 +338,8 @@ where
             let next = &mut next;
             let failures = &mut failures;
             let lau = &mut *lau;
+            let kept = &mut kept;
+            let keep = params.keep_coefficients;
             src.relations(&batch, &mut |g, res| {
                 let Some(&l) = lid.get(&g) else {
                     return;
@@ -338,6 +348,7 @@ where
                     Err(e) => failures.push((l, format!("source: {e}"))),
                     Ok(terms) => {
                         let mut out = Vec::with_capacity(terms.len());
+                        let mut mine: Terms<S::Coeff> = vec![];
                         for (cg, c) in terms {
                             match lau.valuation(&c) {
                                 Ok(Val::Zero) => {}
@@ -347,6 +358,9 @@ where
                                         cl,
                                         v.clamp(i32::MIN as i64 / 2, i32::MAX as i64 / 2) as i32,
                                     ));
+                                    if keep {
+                                        mine.push((cg, c));
+                                    }
                                 }
                                 Err(e) => {
                                     failures.push((l, format!("source: valuation: {e}")));
@@ -355,12 +369,25 @@ where
                                 }
                             }
                         }
+                        if keep && !out.is_empty() {
+                            kept.insert(l, mine);
+                        }
                         edges[l as usize] = out;
                     }
                 }
             })?;
         }
+        if params.progress {
+            eprintln!(
+                "epsdepth discover: batch {} keys, cone {} keys, next frontier {}, {:.1} s",
+                batch.len(),
+                glob.len(),
+                next.len(),
+                t0.elapsed().as_secs_f64()
+            );
+        }
         for (l, e) in failures {
+            kept.remove(&l);
             kind[l as usize] = K_FAILED;
             edges[l as usize].clear();
             reason.insert(l, e);
@@ -523,6 +550,14 @@ where
             break;
         }
         let batch: Vec<usize> = layer.iter().map(|&l| glob[l as usize]).collect();
+        if params.progress {
+            eprintln!(
+                "epsdepth compose: layer of {} keys, {} expansions so far, {:.1} s",
+                batch.len(),
+                expansions,
+                t0.elapsed().as_secs_f64()
+            );
+        }
         let mut errors: Vec<String> = vec![];
         let mut done: Vec<u32> = vec![];
         {
@@ -540,7 +575,7 @@ where
             let errors = &mut errors;
             let done = &mut done;
             let expansions = &mut expansions;
-            src.relations(&batch, &mut |g, res| {
+            let mut visit = |g: usize, res: Result<Terms<S::Coeff>, String>| {
                 let Some(&k) = lid.get(&g) else {
                     return;
                 };
@@ -675,7 +710,15 @@ where
                     }
                 }
                 vecs_r[ku] = Some(VecR::Comps(comps));
-            })?;
+            };
+            if params.keep_coefficients {
+                for &l in layer {
+                    let t = kept.remove(&l).unwrap_or_default();
+                    visit(glob[l as usize], Ok(t));
+                }
+            } else {
+                src.relations(&batch, &mut visit)?;
+            }
         }
         if let Some(e) = errors.into_iter().next() {
             return Err(e);
@@ -842,7 +885,8 @@ fn key_result<L: Laurent, S: ReductionSource>(
                     PairResult {
                         order,
                         valuation: o,
-                        precision: Some(p),
+                        // an exact backend has infinite precision (i64::MAX): reported as none
+                        precision: (p != i64::MAX).then_some(p),
                         bound,
                         blame,
                         blame_server: blame.map(|b| src.server(b)),

@@ -2,7 +2,7 @@
 //! `Series<Q>`); needs the Symbolica licence (`source WS/ops/env.sh`), skips otherwise.
 //! t = d - 4 throughout unless stated.
 
-use rustred_campaign_algebra::epsdepth::{SymbolicaLaurent, TextReduction};
+use rustred_campaign_algebra::epsdepth::{SymbolicaExact, SymbolicaLaurent, TextReduction};
 use rustred_campaign_algebra::{SymbolicaAlgebra, licensed};
 use rustred_campaign_core::epsdepth::{
     ComposeParams, EpsDepthSpec, Order, PairVerdict, TerminalSetStatus, compose, node_report,
@@ -327,8 +327,68 @@ fn deterministic_report_and_streaming_equals_memoised() {
         (h, rows)
     };
     let x = one(&mut s, &[A, B, C]);
+    // phase 3 re-reading the source (keep_coefficients false) gives the same composition
+    let c1 = run(&mut s, &[A, B, C], &ComposeParams::default());
+    let c2 = run(
+        &mut s,
+        &[A, B, C],
+        &ComposeParams {
+            keep_coefficients: false,
+            ..Default::default()
+        },
+    );
+    assert_eq!(c1.results, c2.results);
     let y = one(&mut s, &[C, B, A]);
     assert_eq!(x.1, y.1);
     assert_eq!(x.0["per_terminal"], y.0["per_terminal"]);
     assert_eq!(x, one(&mut s, &[A, B, C]));
+}
+
+#[test]
+fn the_exact_backend_agrees_with_the_truncated_one() {
+    let Some(mut s) = setup("4") else { return };
+    s.terminal(T1);
+    s.terminal(T2);
+    s.relation(
+        B,
+        "rule-B",
+        &[(T1, "1 + (d-4) + (d-4)^2"), (T2, "(d-3)/(d-4)")],
+    );
+    s.relation(
+        A,
+        "rule-A",
+        &[
+            (B, "1/(d-4)^2"),
+            (T1, "-1/(d-4)^2 - 1/(d-4)"),
+            (T2, "(d-5)/(d-4)^3"),
+        ],
+    );
+    s.relation(C, "rule-C", &[(A, "(d-4)"), (B, "1/(d-4)")]);
+    let sel: Vec<usize> = [A, B, C].iter().map(|k| s.index_of(k).unwrap()).collect();
+    let mut lau = SymbolicaLaurent::new("4").unwrap();
+    let a = compose(&mut s, &mut lau, &sel, 2, &ComposeParams::default()).unwrap();
+    let mut ex = SymbolicaExact::new().unwrap();
+    let b = compose(&mut s, &mut ex, &sel, 2, &ComposeParams::default()).unwrap();
+    for (x, y) in a.results.iter().zip(&b.results) {
+        let ox: Vec<_> = x.pairs.iter().map(|p| p.order.clone()).collect();
+        let oy: Vec<_> = y.pairs.iter().map(|p| p.order.clone()).collect();
+        assert_eq!(ox, oy, "key {}", x.key);
+        assert!(
+            y.pairs.iter().all(|p| p.precision.is_none()),
+            "exact: infinite precision"
+        );
+    }
+    // A = T1 + (d-5)/t^3 T2 + B-part (d-3)/t^3 T2: T2 coefficient (2d-8)/t^3 = 2/t^2: order 2, leading 2
+    assert_eq!(b.results[0].pairs[1].order, Order::Pole(2));
+    assert_eq!(b.results[0].pairs[1].leading.as_deref(), Some("2"));
+    // the exact vector of A on the terminals
+    let ai = s.index_of(A).unwrap();
+    let v = onto_terminals(&mut s, &mut ex, ai, 2, &ComposeParams::default())
+        .unwrap()
+        .unwrap();
+    assert_eq!(SymbolicaExact::order_of(v[0].as_ref().unwrap()), Some(0));
+    assert_eq!(
+        SymbolicaExact::leading(v[0].as_ref().unwrap()),
+        Some(Rational::from(1))
+    );
 }
