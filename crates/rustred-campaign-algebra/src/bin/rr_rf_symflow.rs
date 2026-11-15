@@ -237,6 +237,17 @@ fn run_layers(args: &[String]) {
         max_replacements: policy.composite.max_replacements,
     };
     let max_row_terms = policy.route0.max_terms;
+    // TRICKS 8 / 1x8 (lane tworow): two-row combinations at the keys with no single-element choice, then the composite
+    // on the near misses; the family's zero-sector predicate (Lee) as tworow asks
+    let fam = rustred_campaign_core::replay_base::family::Family::parse(
+        header["family_source"].as_str().unwrap_or(""),
+    )
+    .ok();
+    let zero_fn = |k: &[i32]| -> bool {
+        fam.as_ref()
+            .is_some_and(|f| f.zero_key(&k.iter().map(|&x| x as i64).collect::<Vec<i64>>()))
+    };
+    let tpol = rustred_campaign_core::tworow::TwoRowPolicy::default();
     // extra keys-only relations (e.g. solved core relations)
     let mut extra: HashMap<Vec<i32>, Vec<Vec<i32>>> = HashMap::new();
     let mut extra_given = 0usize;
@@ -371,6 +382,116 @@ fn run_layers(args: &[String]) {
             fc.push_str(&serde_json::to_string(&ch).expect("json"));
             fc.push('\n');
         }
+        // two-row combinations and near-miss composites at the keys with no single-element choice
+        let core_keys: Vec<Vec<i32>> = results
+            .iter()
+            .filter(|(k, r)| matches!(r, Ok(kc) if kc.best().is_none()) && !core_extra.contains(k))
+            .map(|(k, _)| k.clone())
+            .collect();
+        let tr_results: Vec<rustred_campaign_core::tworow::KeyResult> = {
+            let chunk = core_keys.len().div_ceil(threads).max(1);
+            std::thread::scope(|s| {
+                let hs: Vec<_> = core_keys
+                    .chunks(chunk)
+                    .map(|ks| {
+                        let (group, tpol, cmp, zero_fn) = (&group, &tpol, &cmp, &zero_fn);
+                        s.spawn(move || {
+                            rustred_campaign_core::tworow::two_row_relations(
+                                &Independent,
+                                ks,
+                                group,
+                                cmp,
+                                tpol,
+                                Some(zero_fn as &dyn Fn(&[i32]) -> bool),
+                            )
+                        })
+                    })
+                    .collect();
+                hs.into_iter()
+                    .flat_map(|h| h.join().expect("worker"))
+                    .collect()
+            })
+        };
+        let (mut two_row, mut near_comp, mut tr_over) = (0u64, 0u64, 0u64);
+        for tr in &tr_results {
+            let k = &tr.key;
+            let face = rustred_campaign_core::worklist::items::Face::of_key(k, &lines)
+                .map(|f| f.label())
+                .unwrap_or_default();
+            let found: Option<(
+                rustred_campaign_core::repairflow::composite::Composite<compose_sym::Rd>,
+                Value,
+                &str,
+            )> = match &tr.outcome {
+                rustred_campaign_core::tworow::KeyOutcome::Served { relations }
+                    if !relations.is_empty() =>
+                {
+                    let c = &relations[0];
+                    let rhs: Vec<(Vec<i32>, compose_sym::Rd)> = c
+                        .rhs
+                        .iter()
+                        .map(|(q, a)| (q.clone(), qd.from_q(*a).unwrap_or_else(|e| die(&e))))
+                        .collect();
+                    Some((
+                        rustred_campaign_core::repairflow::composite::Composite {
+                            element: c.rows.first().map(|r| r.spec.element).unwrap_or(0),
+                            rhs,
+                            image: c.rhs.clone(),
+                            replacements: vec![],
+                            key_coefficient: None,
+                            dropped_zero: vec![],
+                        },
+                        c.to_json(),
+                        "two_row",
+                    ))
+                }
+                rustred_campaign_core::tworow::KeyOutcome::OverCap { .. } => {
+                    tr_over += 1;
+                    None
+                }
+                _ => match rustred_campaign_core::tworow::composite::with_catalogue_rule(
+                    &qd,
+                    &cat,
+                    &tr.near_misses,
+                    &lower,
+                    &cmp,
+                    &opts,
+                ) {
+                    Ok(rustred_campaign_core::tworow::composite::CompositeStep::Accepted {
+                        near,
+                        composite,
+                    }) => Some((composite, near.comb.to_json(), "two_row_composite")),
+                    _ => None,
+                },
+            };
+            if let Some((c, comb, kind)) = found {
+                if kind == "two_row" {
+                    two_row += 1
+                } else {
+                    near_comp += 1
+                }
+                core_open = core_open.saturating_sub(1);
+                if let Some(e) = by_face.get_mut(&face) {
+                    e[2] = e[2].saturating_sub(1);
+                    e[1] += 1;
+                }
+                extra.insert(k.clone(), c.rhs.iter().map(|(q, _)| q.clone()).collect());
+                let idx = accepted.len();
+                let mut rec = shipped_record(&qd, k, &c, &chart, idx);
+                rec["kind"] = json!(format!("symmetry-{kind}"));
+                table.push_str(&rec.to_string());
+                table.push('\n');
+                let mut vline =
+                    verification_record(&qd, k, &c, &grep.digest, "rr_rf_symflow/symbolica");
+                vline["combination"] = comb;
+                vline["kind"] = json!(kind);
+                ver.push_str(&vline.to_string());
+                ver.push('\n');
+                let mut ks = symflow::KeyService::from_composite(k, &c, &face);
+                ks.kind = kind.into();
+                accepted.push(ks);
+            }
+        }
         std::fs::write(out.join(format!("L{k_layer}.choices.jsonl")), &fc).ok();
         let w = symflow::bounded_walk(&set, &keys, &extra, &leaves, &|q: &[i32]| dr(q) <= cap);
         let mut blocked: BTreeMap<String, u64> = BTreeMap::new();
@@ -388,6 +509,7 @@ fn run_layers(args: &[String]) {
         leaves.extend(w.served.iter().cloned());
         writeln!(lf, "{}", json!({"layer": k_layer, "keys": keys.len(), "served_plain": plain, "served_composite": comp,
             "to_core": core_open, "core_solved_given": core_solved, "over_cap": over,
+            "two_row": two_row, "two_row_composite": near_comp, "two_row_over_cap": tr_over,
             "walk": {"served_by_table": w.served_by_table, "served_by_extra": w.served_by_extra,
                 "uncovered": w.uncovered.len(), "blocked": blocked, "beyond_bound": w.beyond, "leaf_hits": w.leaf_hits,
                 "positive_numerator_terms": w.positive_numerator_terms, "subsector_terms": w.subsector_terms,
