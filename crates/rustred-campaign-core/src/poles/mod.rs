@@ -31,7 +31,7 @@ pub mod split;
 pub use params::{MaxSizeRatio, PoleParams, PolicyError};
 pub use record::{PoleRelationRecord, RegularAt, TermPole};
 pub use select::{
-    Candidate, Choice, ChoiceReason, Measure, PoleObjective, PoleProfile, RegularAlternative, aggregate_orders,
-    pole_objective, select,
+    Candidate, Choice, ChoiceReason, Measure, PoleObjective, PoleProfile, RegularAlternative,
+    aggregate_orders, pole_objective, select,
 };
 pub use split::{DomainSplit, split_domain};

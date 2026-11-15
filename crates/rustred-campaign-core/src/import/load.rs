@@ -605,13 +605,15 @@ pub(crate) fn load_inner(
                         .and_then(|m| m.accept_missing_end.as_deref())
                     {
                         None => (None, None),
-                        Some(r) => super::lines::named_no_end_list(r, base, &u.path, &raw.file_sha256)
-                            .map_err(|e| match e {
-                                ImportError::Spec(m) => {
-                                    ImportError::Spec(format!("source {}: {m}", src.id))
-                                }
-                                e => e,
-                            })?,
+                        Some(r) => {
+                            super::lines::named_no_end_list(r, base, &u.path, &raw.file_sha256)
+                                .map_err(|e| match e {
+                                    ImportError::Spec(m) => {
+                                        ImportError::Spec(format!("source {}: {m}", src.id))
+                                    }
+                                    e => e,
+                                })?
+                        }
                     };
                     let policy = MarkerPolicy {
                         accept_fewer_rules: src

@@ -669,7 +669,12 @@ fn a_child_killed_at_its_memory_cap_is_retried_at_a_raised_cap_in_the_same_campa
     let _g = serial();
     // reference: the higher cap from the start
     let (_ta, spa, ca) = setup_mem("t2mref");
-    assert_eq!(run_to_end(&spa, &ca, &["--plain", "--mem-cap", "900M"]).last(), Some(&0), "{}", log_tail(&ca));
+    assert_eq!(
+        run_to_end(&spa, &ca, &["--plain", "--mem-cap", "900M"]).last(),
+        Some(&0),
+        "{}",
+        log_tail(&ca)
+    );
     assert_eq!(result_json(&ca)["verdict"], "closed");
     let (ref_items, ref_esc) = decisions(&ca);
     let ref_stmt = std::fs::read(ca.join("closeloop/toy/final/statement/statement.jsonl")).unwrap();
@@ -678,19 +683,27 @@ fn a_child_killed_at_its_memory_cap_is_retried_at_a_raised_cap_in_the_same_campa
     let code = run_once(&spb, &cb, &["--plain"]);
     assert_eq!(code, ATTENTION, "{}", log_tail(&cb));
     assert!(log_tail(&cb).contains("--mem-cap"), "{}", log_tail(&cb));
-    assert!(!cb.join("closeloop/toy/final/result.json").exists(), "a final verdict was written over a memory-cap end");
+    assert!(
+        !cb.join("closeloop/toy/final/result.json").exists(),
+        "a final verdict was written over a memory-cap end"
+    );
     let st = state(&cb);
     let held: Vec<_> = st
         .items
         .iter()
-        .filter(|(_, it)| matches!(&it.phase, ItemPhase::Attention(c) if c == "memory_cap_exceeded"))
+        .filter(
+            |(_, it)| matches!(&it.phase, ItemPhase::Attention(c) if c == "memory_cap_exceeded"),
+        )
         .collect();
     assert!(!held.is_empty(), "no item in attention memory_cap_exceeded");
     for (k, it) in &held {
         assert_eq!(it.jobs.len(), 2, "{k}: {:?}", it.jobs);
         for j in &it.jobs {
             assert!(
-                matches!(st.jobs[j].state, AttemptState::BudgetStopped(rustred_campaign::state::FinishClass::KilledMemory)),
+                matches!(
+                    st.jobs[j].state,
+                    AttemptState::BudgetStopped(rustred_campaign::state::FinishClass::KilledMemory)
+                ),
                 "{k} {j}: {:?}",
                 st.jobs[j].state
             );
@@ -699,10 +712,16 @@ fn a_child_killed_at_its_memory_cap_is_retried_at_a_raised_cap_in_the_same_campa
     }
     assert_eq!(unrouted(&cb), Vec::<String>::new());
     // never evidence: a killed attempt records no answers (no solved / failed verdict for its keys)
-    let answers: Vec<String> = role_inputs(&cb, "closeloop_answers").into_iter().map(|(id, _)| id).collect();
+    let answers: Vec<String> = role_inputs(&cb, "closeloop_answers")
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
     for (k, it) in &held {
         for j in &it.jobs {
-            assert!(!answers.iter().any(|id| id.contains(j.as_str())), "{k}: answers recorded for the killed attempt {j}");
+            assert!(
+                !answers.iter().any(|id| id.contains(j.as_str())),
+                "{k}: answers recorded for the killed attempt {j}"
+            );
         }
     }
     // the same campaign with a higher cap: reopened, new attempts at the raised cap, closed as the reference
@@ -712,17 +731,31 @@ fn a_child_killed_at_its_memory_cap_is_retried_at_a_raised_cap_in_the_same_campa
     for (k, _) in &held {
         let it = &st.items[k.as_str()];
         assert!(it.jobs.len() >= 3, "{k}: {:?}", it.jobs);
-        assert_eq!(st.jobs[it.jobs.last().unwrap()].reserved_bytes, 900_000_000, "{k}");
+        assert_eq!(
+            st.jobs[it.jobs.last().unwrap()].reserved_bytes,
+            900_000_000,
+            "{k}"
+        );
     }
     let recs = format!("{:?}", records(&cb));
-    assert!(recs.contains("memory cap raised from 150000000 to 900000000"), "no typed reopen");
-    assert!(recs.contains("session_resources") && recs.contains("job_mem_cap") && recs.contains("900000000"), "no session record");
+    assert!(
+        recs.contains("memory cap raised from 150000000 to 900000000"),
+        "no typed reopen"
+    );
+    assert!(
+        recs.contains("session_resources")
+            && recs.contains("job_mem_cap")
+            && recs.contains("900000000"),
+        "no session record"
+    );
     let (items, esc) = decisions(&cb);
     assert_eq!(items, ref_items);
     assert_eq!(esc.len(), ref_esc.len());
     for (a, b) in esc.iter().zip(&ref_esc) {
         assert_eq!(a.0, b.0);
-        let strip = |v: &[u8], d: &Path| String::from_utf8_lossy(v).replace(&d.display().to_string(), "CDIR");
+        let strip = |v: &[u8], d: &Path| {
+            String::from_utf8_lossy(v).replace(&d.display().to_string(), "CDIR")
+        };
         assert_eq!(strip(&a.1, &cb), strip(&b.1, &ca), "{}", a.0);
     }
     let stmt = std::fs::read(cb.join("closeloop/toy/final/statement/statement.jsonl")).unwrap();

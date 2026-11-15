@@ -32,7 +32,11 @@ fn rss_mb() -> u64 {
 
 fn mint(tag: &str, src: &dyn DomainSource, frame: &NodeFrame, work: &ProofWork) {
     let pre = ProofPreconditions::check(src, frame);
-    println!("{tag}: {} records; preconditions: {:?}", src.len(), pre.as_ref().map(|_| "ok").map_err(|e| e.clone()));
+    println!(
+        "{tag}: {} records; preconditions: {:?}",
+        src.len(),
+        pre.as_ref().map(|_| "ok").map_err(|e| e.clone())
+    );
     let t0 = Instant::now();
     let r = prove_coverage_preserved(src, src, frame, work, &DispatchOrderStatement::SameOrder);
     let secs = t0.elapsed().as_secs_f64();
@@ -44,7 +48,10 @@ fn mint(tag: &str, src: &dyn DomainSource, frame: &NodeFrame, work: &ProofWork) 
         ),
         Err(e) => {
             let short: String = e.chars().take(600).collect();
-            println!("{tag}: REFUSED in {secs:.1} s (peak RSS {} MB): {short}", rss_mb());
+            println!(
+                "{tag}: REFUSED in {secs:.1} s (peak RSS {} MB): {short}",
+                rss_mb()
+            );
         }
     }
 }
@@ -54,14 +61,24 @@ fn mint(tag: &str, src: &dyn DomainSource, frame: &NodeFrame, work: &ProofWork) 
 fn p4_q3_t162_minting() {
     let Some(fx) = fx() else { return };
     let disp = t162_dispatcher(&fx);
-    mint("T162 bank (as loaded)", &DispatcherSource::new(&disp), &t162_frame(), &ProofWork::default());
+    mint(
+        "T162 bank (as loaded)",
+        &DispatcherSource::new(&disp),
+        &t162_frame(),
+        &ProofWork::default(),
+    );
     // the same domains as a plain list (no attestation basis): what the partition itself answers
     let src = DispatcherSource::new(&disp);
     let mut l = DomainList::new(src.arity());
     for i in 0..src.len() {
         l.push(RuleRef::bare(0, i, i as i64), src.domain(i).clone());
     }
-    mint("T162 domains as a list", &l, &t162_frame(), &ProofWork::default());
+    mint(
+        "T162 domains as a list",
+        &l,
+        &t162_frame(),
+        &ProofWork::default(),
+    );
 }
 
 #[test]
@@ -92,7 +109,12 @@ fn t266(dir: &std::path::Path) -> (DomainList, NodeFrame) {
     for r in v["rules"].as_array().unwrap() {
         let mut d = CaseDomain::free(n, Some(mask.clone()));
         let p = |s: &serde_json::Value| {
-            Poly::parse(&s.as_str().unwrap().replace("**", "^").replace(' ', ""), n, false).ok()
+            Poly::parse(
+                &s.as_str().unwrap().replace("**", "^").replace(' ', ""),
+                n,
+                false,
+            )
+            .ok()
         };
         let eq: Option<Vec<Poly>> = r["EQ"].as_array().unwrap().iter().map(p).collect();
         let bad: Option<Vec<Vec<Poly>>> = r["BAD"]
@@ -101,7 +123,9 @@ fn t266(dir: &std::path::Path) -> (DomainList, NodeFrame) {
             .iter()
             .map(|b| b.as_array().unwrap().iter().map(p).collect())
             .collect();
-        let (Some(eq), Some(bad)) = (eq, bad) else { continue };
+        let (Some(eq), Some(bad)) = (eq, bad) else {
+            continue;
+        };
         d.equations = eq;
         d.exceptions = bad;
         let k = r["k"].as_u64().unwrap() as usize;
@@ -148,7 +172,10 @@ fn p4_q2_t266_minting_default_work() {
 #[ignore = "timing; release"]
 fn p4_q2_time_per_work_unit_with_unmetered_linear_dp() {
     let n = 4;
-    let k: i64 = std::env::var("AUDIT_P4_K").ok().and_then(|s| s.parse().ok()).unwrap_or(8);
+    let k: i64 = std::env::var("AUDIT_P4_K")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(8);
     let mask = vec![true; n];
     let frame = NodeFrame::without_header_lines_first(n, n);
     let lit = |s: &str| Poly::parse_d_free_exact(s, n).unwrap();
@@ -177,8 +204,14 @@ fn p4_q2_time_per_work_unit_with_unmetered_linear_dp() {
         }
     }
     push(&mut set, c);
-    let units: u64 = std::env::var("AUDIT_P4_UNITS").ok().and_then(|s| s.parse().ok()).unwrap_or(20_000);
-    let wall: u64 = std::env::var("AUDIT_P4_WALL_S").ok().and_then(|s| s.parse().ok()).unwrap_or(120);
+    let units: u64 = std::env::var("AUDIT_P4_UNITS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(20_000);
+    let wall: u64 = std::env::var("AUDIT_P4_WALL_S")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(120);
     for (tag, w) in [
         (
             "units only",
@@ -197,7 +230,8 @@ fn p4_q2_time_per_work_unit_with_unmetered_linear_dp() {
         ),
     ] {
         let t0 = Instant::now();
-        let r = prove_coverage_preserved(&set, &set, &frame, &w, &DispatchOrderStatement::SameOrder);
+        let r =
+            prove_coverage_preserved(&set, &set, &frame, &w, &DispatchOrderStatement::SameOrder);
         let secs = t0.elapsed().as_secs_f64();
         let msg: String = match &r {
             Ok(_) => "PROOF".into(),

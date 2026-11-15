@@ -2483,7 +2483,8 @@ fn write_final(
                 &inp.box_clause,
             )?;
             let lpath = inp.final_dir.join("leafset.v1");
-            let fh = std::fs::File::create(&lpath).map_err(|e| format!("{}: {e}", lpath.display()))?;
+            let fh =
+                std::fs::File::create(&lpath).map_err(|e| format!("{}: {e}", lpath.display()))?;
             ls.write(std::io::BufWriter::new(fh))
                 .map_err(|e| format!("{}: {e}", lpath.display()))?;
             let fsha = rustred_campaign_core::import::lines::file_sha256(&lpath)

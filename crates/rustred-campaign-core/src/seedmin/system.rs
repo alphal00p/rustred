@@ -14,9 +14,8 @@ use std::time::Instant;
 use super::{Key, Offset, SystemPoles, add};
 use crate::replay_base::family::Family;
 use crate::tadic::{
-    Arith, ExactSystem, Interest, PStar, PoleOrderOracle, PoleOrderResult, PoleQuery, Rat, TadicBudget,
-    Verdict,
-    build_ibp_system, keeps_regularity,
+    Arith, ExactSystem, Interest, PStar, PoleOrderOracle, PoleOrderResult, PoleQuery, Rat,
+    TadicBudget, Verdict, build_ibp_system, keeps_regularity,
 };
 
 /// One key's cached full system and bound.

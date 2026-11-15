@@ -4566,7 +4566,11 @@ impl Supervisor {
             let mut ev = vec![];
             for (id, it) in st.items.iter() {
                 if crate::launch::ended_at_memory_cap(st, id) {
-                    let last = it.jobs.last().and_then(|j| st.jobs.get(j)).map_or(0, |j| j.reserved_bytes);
+                    let last = it
+                        .jobs
+                        .last()
+                        .and_then(|j| st.jobs.get(j))
+                        .map_or(0, |j| j.reserved_bytes);
                     if last < cap {
                         ev.push(Event::Item {
                             item: id.clone(),

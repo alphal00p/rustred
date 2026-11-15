@@ -126,10 +126,16 @@ pub fn ended_at_memory_cap(st: &crate::state::CampaignState, item: &str) -> bool
         return false;
     };
     code == MEMORY_CAP_EXCEEDED
-        || it.jobs.last().and_then(|j| st.jobs.get(j)).is_some_and(|j| {
-            j.state
-                == crate::state::AttemptState::BudgetStopped(crate::state::FinishClass::KilledMemory)
-        })
+        || it
+            .jobs
+            .last()
+            .and_then(|j| st.jobs.get(j))
+            .is_some_and(|j| {
+                j.state
+                    == crate::state::AttemptState::BudgetStopped(
+                        crate::state::FinishClass::KilledMemory,
+                    )
+            })
 }
 
 impl KillReason {

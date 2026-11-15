@@ -335,10 +335,10 @@ pub fn bounded_walk(
     }
     let mut buf: Vec<i32> = vec![];
     let mut cm: Vec<u64> = vec![];
-    let mut push = |k: Vec<i32>,
-                    seen: &mut std::collections::HashSet<Vec<i32>>,
-                    queue: &mut std::collections::VecDeque<Vec<i32>>,
-                    out: &mut WalkResult| {
+    let push = |k: Vec<i32>,
+                seen: &mut std::collections::HashSet<Vec<i32>>,
+                queue: &mut std::collections::VecDeque<Vec<i32>>,
+                out: &mut WalkResult| {
         let pos = k.iter().zip(&lines).any(|(&x, &l)| !l && x > 0);
         if pos {
             out.positive_numerator_terms += 1;

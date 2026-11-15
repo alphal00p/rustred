@@ -1985,7 +1985,14 @@ impl CloseFromMaterialSource {
         if !(decided_row && !done.canonical_lines.is_empty() && done.table.is_some()) {
             // no per-key decision: rerun (ready) until max_job_attempts, then attention
             let what = format!("{} keys of recipe {} stay open", b.keys.len(), b.source);
-            self.fail_or_attention(st, i, done, failure_code(done, "solve_job_failed"), &what, &mut rt);
+            self.fail_or_attention(
+                st,
+                i,
+                done,
+                failure_code(done, "solve_job_failed"),
+                &what,
+                &mut rt,
+            );
             return Ok(rt);
         }
         let table = done.table.clone().expect("checked");
@@ -2301,7 +2308,14 @@ impl CloseFromMaterialSource {
             && done.table.is_some())
         {
             let what = format!("{} {} keys stay below their level", b.pairs().len(), b.kind);
-            self.fail_or_attention(st, i, done, failure_code(done, "proof_job_failed"), &what, &mut rt);
+            self.fail_or_attention(
+                st,
+                i,
+                done,
+                failure_code(done, "proof_job_failed"),
+                &what,
+                &mut rt,
+            );
             return Ok(rt);
         }
         let table = done.table.clone().expect("checked");
@@ -2742,7 +2756,10 @@ impl WorkSource for CloseFromMaterialSource {
                 if st.inputs.contains_key(&input) {
                     continue; // frozen once: never re-registered
                 }
-                let rec = record(format!("{}/layers/{}.record.json", node_dir(&n), m.idx), m.body);
+                let rec = record(
+                    format!("{}/layers/{}.record.json", node_dir(&n), m.idx),
+                    m.body,
+                );
                 let fr = rec.file_ref();
                 rt.events.push(Event::InputRegistered {
                     input,

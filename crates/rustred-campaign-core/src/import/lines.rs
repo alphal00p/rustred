@@ -830,9 +830,9 @@ pub fn named_no_end_list(
     let bad = |m: String| ImportError::Spec(format!("marker_rules.accept_missing_end: {m}"));
     let parts: Vec<&str> = reason.split_whitespace().collect();
     let (lp, sha) = match parts.as_slice() {
-        [p, s] if s.strip_prefix("sha256:").is_some_and(|h| {
-            h.len() == 64 && h.bytes().all(|b| b.is_ascii_hexdigit())
-        }) =>
+        [p, s]
+            if s.strip_prefix("sha256:")
+                .is_some_and(|h| h.len() == 64 && h.bytes().all(|b| b.is_ascii_hexdigit())) =>
         {
             (*p, &s[7..])
         }

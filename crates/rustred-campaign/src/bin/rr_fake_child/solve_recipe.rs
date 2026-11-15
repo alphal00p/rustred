@@ -88,7 +88,8 @@ impl Run {
             if let Some(rp) = self.spec.fake.as_ref().map(|f| f.rss)
                 && rp.grow_bytes_per_s > 0
             {
-                let target = ((self.started.elapsed().as_secs_f64() * rp.grow_bytes_per_s as f64) as u64)
+                let target = ((self.started.elapsed().as_secs_f64() * rp.grow_bytes_per_s as f64)
+                    as u64)
                     .min(rp.max_bytes);
                 let g = self.grown.get();
                 if target > g + (1 << 20) {

@@ -666,7 +666,8 @@ impl CaseDomain {
                 // lane epsframe (kept at int7): no bound on an eps axis (a floor is not defined on a two-sided axis;
                 // the engine never reads eps tables' bounds: its Table::load refuses eps families)
                 if let Some(&a) = eps.iter().find(|&&a| {
-                    b.min.get(a).is_some_and(Option::is_some) || b.max.get(a).is_some_and(Option::is_some)
+                    b.min.get(a).is_some_and(Option::is_some)
+                        || b.max.get(a).is_some_and(Option::is_some)
                 }) {
                     return Err(DomainError::Bounds(format!(
                         "domain_bounds on the eps axis {a} (a bound is not defined on a two-sided axis)"

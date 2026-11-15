@@ -55,7 +55,10 @@ fn a_table_without_end_loads_only_through_the_named_list_and_every_refusal_says_
 
     // (2) the named list that lists the table: loaded, and the load says so (never silent)
     let list = no_end_list(&d, "no-end.json", &[&t]);
-    let (set, _ev, _r) = run(&with(json!({"marker_rules": {"accept_missing_end": list}})), &d);
+    let (set, _ev, _r) = run(
+        &with(json!({"marker_rules": {"accept_missing_end": list}})),
+        &d,
+    );
     let ov = &set.report.sources[0].marker_overrides;
     assert!(
         ov.iter().any(|o| o.contains("no end record accepted")
@@ -112,7 +115,11 @@ fn a_table_without_end_loads_only_through_the_named_list_and_every_refusal_says_
 
     // (6) a file of another schema named (e.g. the census list rustred.campaign.tables-no-end.v1): refused
     let wrong = d.join("wrong.json");
-    std::fs::write(&wrong, br#"{"schema": "rustred.campaign.tables-no-end.v1", "tables": []}"#).unwrap();
+    std::fs::write(
+        &wrong,
+        br#"{"schema": "rustred.campaign.tables-no-end.v1", "tables": []}"#,
+    )
+    .unwrap();
     let sha = import::lines::file_sha256(&wrong).unwrap();
     let e = try_load(
         &with(json!({"marker_rules": {"accept_missing_end": format!("{} sha256:{sha}", wrong.display())}})),
@@ -126,7 +133,11 @@ fn a_table_without_end_loads_only_through_the_named_list_and_every_refusal_says_
 
     // (6b) the table listed with another status (an end added since / superseded / unfinished run): refused, naming it
     let st = no_end_list_with(&d, "no-end-status.json", &[&t], "end_added");
-    let e = try_load(&with(json!({"marker_rules": {"accept_missing_end": st}})), &d).unwrap_err();
+    let e = try_load(
+        &with(json!({"marker_rules": {"accept_missing_end": st}})),
+        &d,
+    )
+    .unwrap_err();
     let msg = incomplete(&e).unwrap_or_else(|| panic!("{e:?}"));
     assert!(msg.contains("status \"end_added\""), "{msg}");
     // (6c) the table listed, loadable, but its bytes changed since they were verified: refused
@@ -134,7 +145,11 @@ fn a_table_without_end_loads_only_through_the_named_list_and_every_refusal_says_
     let mut text = std::fs::read_to_string(&t).unwrap();
     text.push('\n');
     std::fs::write(&t, &text).unwrap();
-    let e = try_load(&with(json!({"marker_rules": {"accept_missing_end": ok_then}})), &d).unwrap_err();
+    let e = try_load(
+        &with(json!({"marker_rules": {"accept_missing_end": ok_then}})),
+        &d,
+    )
+    .unwrap_err();
     let msg = incomplete(&e).unwrap_or_else(|| panic!("{e:?}"));
     assert!(msg.contains("verified other bytes"), "{msg}");
 
