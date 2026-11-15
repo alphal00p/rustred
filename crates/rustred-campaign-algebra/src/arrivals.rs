@@ -981,6 +981,17 @@ fn min_ref(w: &Walk, a: SenderRef, b: SenderRef) -> SenderRef {
     }
 }
 
+/// Distinguishes the aggregation calls (a worker thread's expansion cache belongs to one call).
+static AGG_CALL: AtomicUsize = AtomicUsize::new(1);
+
+/// A worker thread's expansion cache: (call id, (edge, parent term key) -> expansion, cached child-key entries).
+type ExpCache = (usize, HashMap<(usize, Vec<i32>), ImageMod>, usize);
+
+thread_local! {
+    /// Per worker thread (one aggregation call at a time; reset when the call id changes).
+    static TCACHE: std::cell::RefCell<ExpCache> = std::cell::RefCell::new((0, HashMap::new(), 0));
+}
+
 /// Phase C for all edges of the parent at once: the arrival lines per edge and the masks no edge routes (mask -> terms).
 pub fn aggregate(
     set: &ImportedSet,
@@ -991,6 +1002,7 @@ pub fn aggregate(
     cfg: &WalkCfg,
 ) -> Result<(Vec<EdgeResult>, BTreeMap<u64, u64>), String> {
     let t0 = std::time::Instant::now();
+    let call = AGG_CALL.fetch_add(1, Ordering::Relaxed);
     let owners = mask_owners(edges)?;
     let n = set.arity();
     let alg = cache.alg;
@@ -1017,8 +1029,6 @@ pub fn aggregate(
         let mut other: BTreeMap<u64, u64> = BTreeMap::new();
         let mut fallback = vec![];
         // expansion per (edge, parent term key): child keys with the coefficient reduced mod each prime
-        let mut tcache: HashMap<(usize, Vec<i32>), ImageMod> = HashMap::new();
-        let mut cached = 0usize;
         for ci in a..b {
             let mut per: Vec<HashMap<Vec<i32>, PerKey>> =
                 edges.iter().map(|_| HashMap::new()).collect();
@@ -1033,32 +1043,36 @@ pub fn aggregate(
                 est[e].unknown_terms_sending += (h.word == CoefFact::Unknown) as u64;
                 sent[e] = true;
                 let key = (e, h.tk.clone());
-                let img = match tcache.get(&key) {
-                    Some(x) => x.clone(),
-                    None => {
-                        let red: Vec<(Vec<i32>, [Fe; 2])> = tr
-                            .apply(sec, &h.tk)?
-                            .into_iter()
-                            .map(|(k, c)| {
-                                let t = |f: &Zp64| {
-                                    f.mul(
-                                        &int_mod(f, &c.numerator()),
-                                        &f.inv(&int_mod(f, &c.denominator())),
-                                    )
-                                };
-                                (k, [t(&fields[0]), t(&fields[1])])
-                            })
-                            .collect();
-                        let v = std::sync::Arc::new(red);
-                        cached += v.len();
-                        if cached > cfg.cache_entries {
-                            tcache.clear();
-                            cached = v.len();
-                        }
-                        tcache.insert(key, v.clone());
-                        v
+                let img = TCACHE.with(|cell| -> Result<ImageMod, String> {
+                    let mut c = cell.borrow_mut();
+                    if c.0 != call {
+                        *c = (call, HashMap::new(), 0);
                     }
-                };
+                    if let Some(x) = c.1.get(&key) {
+                        return Ok(x.clone());
+                    }
+                    let red: Vec<(Vec<i32>, [Fe; 2])> = tr
+                        .apply(sec, &h.tk)?
+                        .into_iter()
+                        .map(|(k, c)| {
+                            let t = |f: &Zp64| {
+                                f.mul(
+                                    &int_mod(f, &c.numerator()),
+                                    &f.inv(&int_mod(f, &c.denominator())),
+                                )
+                            };
+                            (k, [t(&fields[0]), t(&fields[1])])
+                        })
+                        .collect();
+                    let v = std::sync::Arc::new(red);
+                    c.2 += v.len();
+                    if c.2 > cfg.cache_entries {
+                        c.1.clear();
+                        c.2 = v.len();
+                    }
+                    c.1.insert(key, v.clone());
+                    Ok(v)
+                })?;
                 let me = (ci, h.j, hi);
                 for (k, c) in img.iter() {
                     est[e].image_terms += 1;
