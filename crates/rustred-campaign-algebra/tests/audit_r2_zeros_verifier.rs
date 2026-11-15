@@ -35,11 +35,12 @@ fn tmp(tag: &str) -> PathBuf {
 }
 
 /// One parametric record (canonical target): t1 proved on n2 = 0 (nowhere zero), t2 NOT proved there, t3 proved
-/// where_regular (denominator n0 - 3), t4 proved on n2 = -1 and n2 = 0 (the exponent of n2^2 matters on n2 = -1).
+/// where_regular (denominator n0 - 3), t4 proved on n2 = -1 and n2 = 0 (the exponent of n2^2 matters on n2 = -1), t5
+/// proved where_regular: its denominator n0 - 1 VANISHES on the chart bound n0 = 1 (never sign-definite).
 fn table(dir: &Path) -> PathBuf {
     // written by hand with `type` FIRST: rr_coef_facts finds rule records by `"rule"` in a line's first 256 bytes (a
     // serde_json object would sort `type` after the long `rhs` and the record would be skipped)
-    let rec = r#"{"type":"rule","chart":"110","index":3,"fixed":[null,null,null],"equations":[],"target":"I(n0,n1,n2)","rhs":[["I(n0-1,n1,n2)","(d-4)/(d-3)"],["I(n0,n1,n2+1)","(n2*(d-2*n0))/(d-1)"],["I(n0,n1-1,n2+1)","(n2+n0-3)"],["I(n0-1,n1,n2+1)","(n2*(n0-3))/(n0-3)"],["I(n0,n1,n2+2)","((n2^2+n2)*n1)/(d+n0)"]],"exceptions":[],"dispatch":"Partition","witness_loci":[]}"#;
+    let rec = r#"{"type":"rule","chart":"110","index":3,"fixed":[null,null,null],"equations":[],"target":"I(n0,n1,n2)","rhs":[["I(n0-1,n1,n2)","(d-4)/(d-3)"],["I(n0,n1,n2+1)","(n2*(d-2*n0))/(d-1)"],["I(n0,n1-1,n2+1)","(n2+n0-3)"],["I(n0-1,n1,n2+1)","(n2*(n0-3))/(n0-3)"],["I(n0,n1,n2+2)","((n2^2+n2)*n1)/(d+n0)"],["I(n0-1,n1-1,n2+1)","(n2*(n0-1))/(n0-1)"]],"exceptions":[],"dispatch":"Partition","witness_loci":[]}"#;
     let p = dir.join("A.table.jsonl");
     std::fs::write(&p, format!("{HEADER}\n{rec}\n")).unwrap();
     p
@@ -120,6 +121,9 @@ fn ok_the_honest_prove_output_verifies_with_independent_rechecks() {
     let wr = find(3, plane(2, 0)).unwrap();
     assert_eq!((wr["denominator"].as_str(), wr["den"].as_str()), (Some("where_regular"), Some("(n0-3)")));
     assert_eq!(find(4, plane(2, -1)).unwrap()["verdict"], "zero_on_locus");
+    // a d-free linear denominator that vanishes ON the chart bound (n0 = 1) is not sign-definite: where_regular
+    let t5 = find(5, plane(2, 0)).unwrap();
+    assert_eq!((t5["denominator"].as_str(), t5["den"].as_str()), (Some("where_regular"), Some("(n0-1)")), "{t5}");
     let (code, s) = verify(&d, &t, "honest.jsonl", &lines);
     let _ = std::fs::remove_dir_all(&d);
     assert_eq!(code, 0, "{s:#}");
