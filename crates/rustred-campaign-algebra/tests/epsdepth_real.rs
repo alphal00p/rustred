@@ -119,7 +119,9 @@ fn real_node_composed_profiles() {
     // optional: lane regbasis' regular set R and exact map M (T = M R): every box vector re-expressed on R
     let regbasis: Option<Value> = env("EPSDEPTH_REGBASIS")
         .map(|p| serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap());
-    let mut on_r: HashMap<usize, Vec<(Option<i64>, Option<String>)>> = HashMap::new();
+    // per box key: (order on R, leading coefficient) per R terminal
+    type OnR = Vec<(Option<i64>, Option<String>)>;
+    let mut on_r: HashMap<usize, OnR> = HashMap::new();
     let comp = match (spec.arith, &regbasis) {
         (Arith::Laurent, _) => compose(&mut src, &mut lau.clone(), &sel, nt, &params).unwrap(),
         (Arith::Exact, None) => compose(
