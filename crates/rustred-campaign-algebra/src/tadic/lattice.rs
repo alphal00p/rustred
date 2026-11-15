@@ -77,7 +77,7 @@ pub fn saturate_rows(rows: &[Vec<(u32, String)>], d0: Rat) -> Result<SaturatedBa
             .into_iter()
             .map(|(c, n, d)| (c, &n * &l.try_div(&d).expect("lcm")))
             .collect();
-        input.push((e, None));
+        input.push((e, None, Vec::new()));
     }
     let q = dummy_query();
     let mut bud = Budgeter {

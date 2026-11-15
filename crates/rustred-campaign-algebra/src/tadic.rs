@@ -255,7 +255,31 @@ impl Ar for TruncP {
 
 type Ent<P> = Vec<(u32, P)>;
 /// A phase-1 row with its truncation (None = exact).
-type PRow<P> = (Ent<P>, Option<u32>);
+type PRow<P> = (Ent<P>, Option<u32>, Tr);
+/// Seed trace of a row: bitset over the system's seed labels (which seeds' rows it combines).
+type Tr = Vec<u64>;
+
+fn tr_or(a: &mut Tr, b: &Tr) {
+    if a.len() < b.len() {
+        a.resize(b.len(), 0);
+    }
+    for (x, y) in a.iter_mut().zip(b) {
+        *x |= *y;
+    }
+}
+
+fn tr_bit(i: u32) -> Tr {
+    let mut t = vec![0u64; i as usize / 64 + 1];
+    t[i as usize / 64] |= 1u64 << (i % 64);
+    t
+}
+
+fn tr_list(t: &Tr) -> Vec<u32> {
+    (0..t.len() * 64)
+        .filter(|&i| t[i / 64] >> (i % 64) & 1 == 1)
+        .map(|i| i as u32)
+        .collect()
+}
 /// The check mode's view of one phase-2 basis row: (pivot, interest entries, carried entries, shift).
 pub(crate) type BasisRowZ = (u32, Vec<(u32, ZP)>, Vec<(u32, ZP)>, u32);
 
@@ -308,6 +332,7 @@ struct Row2<P> {
     c: Ent<P>,
     shift: u32,
     prec: Option<u32>,
+    tr: Tr,
 }
 
 struct Stop(String);
@@ -416,6 +441,8 @@ fn layout(sys: &ExactSystem, q: &PoleQuery<'_>) -> Layout {
 
 /// Output of one elimination run.
 struct Run<P> {
+    /// seed labels combined into the relation row (best or case A)
+    trace: Option<Vec<u32>>,
     p_star: PStar,
     best: Option<Row2<P>>,
     case_a: Option<Row2<P>>,
@@ -483,6 +510,7 @@ fn eliminate<A: Ar>(
             .filter(|e| !ar.is_zero(&e.1))
             .collect();
         let mut prec = prec0;
+        let mut tr = tr_bit(sys.labels[ri].seed);
         loop {
             if prec == Some(0) {
                 indeterminate += 1;
@@ -496,7 +524,7 @@ fn eliminate<A: Ar>(
             };
             let c = lead.0;
             if c >= lay.n_upper {
-                w0.push((r, prec));
+                w0.push((r, prec, tr));
                 break;
             }
             match &piv[c as usize] {
@@ -504,11 +532,12 @@ fn eliminate<A: Ar>(
                     let (t, d) = ent_terms(ar, &r);
                     held_terms += t;
                     bud.tick(held_terms, d)?;
-                    piv[c as usize] = Some((r, prec));
+                    piv[c as usize] = Some((r, prec, tr));
                     rank.upper_pivots += 1;
                     break;
                 }
-                Some((h, hp)) => {
+                Some((h, hp, htr)) => {
+                    tr_or(&mut tr, htr);
                     let (a, b) = ar.cofactors(&h[0].1, &r[0].1);
                     let np = min_prec(prec, *hp);
                     let mut nr = comb(ar, &a, &r, &b, h, np);
@@ -574,7 +603,9 @@ fn eliminate<A: Ar>(
     } else {
         (PStar::NoRelation, None)
     };
+    let trace = case_a.as_ref().or(best.as_ref()).map(|r| tr_list(&r.tr));
     Ok(Run {
+        trace,
         p_star,
         best,
         case_a,
@@ -609,13 +640,14 @@ fn phase2<A: Ar>(
     let mut sat_exp = 0u64;
     let mut indeterminate = 0usize;
     let mut held = 0usize;
-    for (e, prec) in rows {
+    for (e, prec, tr) in rows {
         let (s, c): (Ent<A::P>, Ent<A::P>) = e.into_iter().partition(|x| x.0 < ni);
         let mut r = Row2 {
             s,
             c,
             shift: 0,
             prec,
+            tr,
         };
         // the row may enter with a common t-factor on its interest part: saturate first
         normalize2(ar, &mut r, &mut sat_exp);
@@ -676,7 +708,10 @@ fn comb2<A: Ar>(ar: &A, a: &A::P, x: &Row2<A::P>, b: &A::P, y: &Row2<A::P>) -> R
     let xa = ar.mul_t(a, sh - x.shift);
     let yb = ar.mul_t(b, sh - y.shift);
     let c = comb(ar, &xa, &x.c, &yb, &y.c, prec.map(|p| p + sh));
+    let mut tr = x.tr.clone();
+    tr_or(&mut tr, &y.tr);
     Row2 {
+        tr,
         s,
         c,
         shift: sh,
@@ -902,6 +937,7 @@ fn base_result(sys: &ExactSystem, q: &PoleQuery<'_>) -> PoleOrderResult {
         relation: None,
         rank: RankData::default(),
         screen_at_d0: None,
+        relation_seeds: None,
         seconds: 0.0,
         notes: Vec::new(),
     }
@@ -1017,6 +1053,7 @@ impl PoleOrderOracle for SymbolicaTadic {
                 let (run, k) = chosen.expect("at least one order ran");
                 res.verdict = Verdict::Exact;
                 res.p_star = Some(run.p_star);
+                res.relation_seeds = run.trace.clone();
                 res.rank = run.rank;
                 res.notes.push(format!(
                     "relation from row order {k} (0 = as given, 1 = reversed, >= 2 seeded shuffle)"

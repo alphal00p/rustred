@@ -352,14 +352,23 @@ fn tadic_keeps_regularity_hook() {
     let v = keeps_regularity(&o, &before, &after, &qq, None);
     assert_eq!(v.bound, Some(PStar::Order(0)));
     assert_eq!(v.kept, Some(false));
+    let full = o.best_pole_order(&before, &qq);
+    assert_eq!(
+        full.relation_seeds,
+        Some(vec![0, 1]),
+        "the relation combines both seeds"
+    );
     let v = keeps_regularity(
         &o,
         &before,
         &before.restrict_to_seeds(&[0, 1]),
         &qq,
-        Some(PStar::Order(0)),
+        Some(&full),
     );
     assert_eq!(v.kept, Some(true));
+    assert!(v.by_trace, "kept by the seed trace, no recomputation");
+    let v = keeps_regularity(&o, &before, &after, &qq, Some(&full));
+    assert_eq!((v.kept, v.by_trace), (Some(false), false));
 }
 
 #[test]

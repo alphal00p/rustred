@@ -226,6 +226,9 @@ pub struct PoleOrderResult {
     /// what "rows evaluated at d0" alone says (screen, order 1), when computed: `Some(true)` = an admissible relation
     /// exists at d0; `Some(false)` = none at d0 (proves NOTHING about p*: TRICKS 16)
     pub screen_at_d0: Option<bool>,
+    /// seed labels (`RowLabel::seed`) whose rows the returned relation combines (exact mode): any sub-system that keeps
+    /// these seeds contains the same exact relation (the seed-minimisation fast path)
+    pub relation_seeds: Option<Vec<u32>>,
     pub seconds: f64,
     pub notes: Vec<String>,
 }
@@ -242,8 +245,10 @@ pub struct KeepVerdict {
     /// `Some(true)`: p*(after) <= bound (the drop keeps the pole objective); `Some(false)`: it does not (or the
     /// after-system has no relation); `None`: undecided (budget): the caller must treat it as "do not drop"
     pub kept: Option<bool>,
-    /// the bound used (p* of the before-system, or the caller's)
+    /// the bound used (p* of the before-system)
     pub bound: Option<PStar>,
+    /// decided by the seed trace of the known relation (no computation)
+    pub by_trace: bool,
     pub before: Option<PoleOrderResult>,
     pub after: PoleOrderResult,
 }
@@ -259,28 +264,51 @@ pub fn pstar_le(a: PStar, b: PStar) -> bool {
 
 /// The seed-minimisation acceptance test (TRICKS 15 (iii)): does dropping seeds keep the pole objective?
 ///
-/// `after` must be a SUB-system of `before` (fewer seeds of the same family): then p*(after) >= p*(before) always,
-/// and the drop keeps the objective iff p*(after) <= p*(before). With `bound = Some(b)` the before-system is not
-/// solved (the minimiser computes the bound once, from the full system, and reuses it for every drop). Only EXACT
-/// p* values decide; any other verdict answers `kept: None` (= do not drop).
+/// `after` must be a SUB-system of `before` (fewer seeds of the same family; e.g. `before.restrict_to_seeds(..)`, whose
+/// row labels keep the parent's seed indices): then p*(after) >= p*(before) always, and the drop keeps the objective
+/// iff p*(after) <= p*(before). `known` = an EXACT result of the before-system (the minimiser computes it once, from
+/// the full system, and reuses it for every drop); `None` = solve `before` here. FAST PATH (no computation): when
+/// every seed of `known.relation_seeds` is still in `after`, the same exact relation lies in `after`: kept. Only EXACT
+/// values decide; any other verdict answers `kept: None` (= do not drop).
 pub fn keeps_regularity(
     oracle: &dyn PoleOrderOracle,
     before: &ExactSystem,
     after: &ExactSystem,
     q: &PoleQuery<'_>,
-    bound: Option<PStar>,
+    known: Option<&PoleOrderResult>,
 ) -> KeepVerdict {
-    let (bound, before_res) = match bound {
-        Some(b) => (Some(b), None),
+    let computed;
+    let known = match known {
+        Some(k) => k,
         None => {
-            let r = oracle.best_pole_order(before, q);
-            let b = match (&r.verdict, r.p_star) {
-                (Verdict::Exact, Some(p)) => Some(p),
-                _ => None,
-            };
-            (b, Some(r))
+            computed = oracle.best_pole_order(before, q);
+            &computed
         }
     };
+    let bound = match (&known.verdict, known.p_star) {
+        (Verdict::Exact, Some(p)) => Some(p),
+        _ => None,
+    };
+    // fast path: the known relation survives the drop
+    if let (Some(b), Some(seeds)) = (bound, known.relation_seeds.as_ref()) {
+        let kept_seeds: std::collections::HashSet<u32> =
+            after.labels.iter().map(|l| l.seed).collect();
+        if b != PStar::NoRelation && seeds.iter().all(|s| kept_seeds.contains(s)) {
+            let mut res = known.clone();
+            res.system = after.id.clone();
+            res.notes = vec![
+                "kept by trace: the before-system's exact relation uses only kept seeds".into(),
+            ];
+            res.seconds = 0.0;
+            return KeepVerdict {
+                kept: Some(true),
+                bound,
+                by_trace: true,
+                before: Some(known.clone()),
+                after: res,
+            };
+        }
+    }
     let after_res = oracle.best_pole_order(after, q);
     let kept = match (bound, &after_res.verdict, after_res.p_star) {
         (Some(_), Verdict::Exact, Some(PStar::NoRelation)) => Some(false),
@@ -290,7 +318,8 @@ pub fn keeps_regularity(
     KeepVerdict {
         kept,
         bound,
-        before: before_res,
+        by_trace: false,
+        before: Some(known.clone()),
         after: after_res,
     }
 }
