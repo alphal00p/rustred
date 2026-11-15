@@ -329,12 +329,9 @@ pub struct EvidenceCounts {
     pub facts_foreign: usize,
     pub facts_unbound: usize,
     pub fact_other_lines: usize,
-    /// lane zerosfix3 (the store's rule, in memory too): usable fact lines whose term statement disagrees with OUR
-    /// instantiation of the record (`n_terms`, `terms_fnv64`, a term index beyond the record): refused, not bound.
+    /// lane zerosfix3 (the store's rule, in memory too): usable COMPACT fact lines whose term statement disagrees with
+    /// OUR record (`n_terms`; index form: `terms_fnv64` of our instantiation): refused, not bound.
     pub facts_terms_mismatch: usize,
-    /// lane zerosfix3: usable fact lines whose record cannot be instantiated at the key (no body / key outside its
-    /// case): not bound (as in the store).
-    pub facts_not_instantiable: usize,
     pub proof_entries: usize,
     pub proofs_bound: usize,
     pub proofs_per_key: usize,
@@ -1015,18 +1012,12 @@ impl Evidence {
                         && v.get("error").is_none_or(Value::is_null)
                 };
                 let mut index_terms: Option<Terms> = None;
-                if line_usable {
-                    let mut pt = vec![];
-                    if !set.bodies.has(rt, rr)
-                        || !crate::closure::bodies::rule_point(
-                            &set.disp.tables()[rt].domains[rr],
-                            &key,
-                            &mut pt,
-                        )
-                    {
-                        self.counts.facts_not_instantiable += 1;
-                        return Ok(());
-                    }
+                // (a usable fact of a record WITHOUT body, or at a key outside the record's case, is bound as before:
+                // no term statement can be checked and the closure never consults it; the store does not hold it)
+                // an INDEX-form line is always checked (read unchecked as a digest line it would say "every term zero")
+                if line_usable
+                    && (set.bodies.has(rt, rr) || (compact && v.get("zero_idx").is_some()))
+                {
                     let nt = set.bodies.n_terms(rt, rr);
                     let stated_n = v.get("n_terms").and_then(Value::as_u64);
                     if compact && v.get("zero_idx").is_some() {
@@ -1069,25 +1060,12 @@ impl Evidence {
                             unknown: idx("unknown_idx")?,
                             n_terms: nt as u32,
                         });
-                    } else if compact {
-                        if stated_n.is_some_and(|s| s != nt as u64) {
-                            self.counts.facts_terms_mismatch += 1;
-                            return Ok(());
-                        }
-                    } else if v
-                        .get("rhs")
-                        .and_then(Value::as_array)
-                        .into_iter()
-                        .flatten()
-                        .any(|t| {
-                            t.get("term")
-                                .and_then(Value::as_u64)
-                                .is_some_and(|j| j as usize >= nt)
-                        })
-                    {
+                    } else if compact && stated_n.is_some_and(|s| s != nt as u64) {
+                        // a digest line about another term list: an absent digest would read as a ZERO term
                         self.counts.facts_terms_mismatch += 1;
                         return Ok(());
                     }
+                    // (instantiate lines: a term index beyond the record is never asked; their term keys are hash-checked)
                 }
                 let (usable, regular, terms) = if compact {
                     let verdict = v.get("verdict").and_then(Value::as_str).unwrap_or("");
