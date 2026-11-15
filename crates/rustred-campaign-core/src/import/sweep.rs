@@ -53,6 +53,8 @@ pub struct ClassifyOptions {
     pub index_dir: Option<PathBuf>,
     /// `marker_rules.accept_fewer` for this load (None = strict: interfaces/import.md 18.3).
     pub accept_fewer_rules: Option<String>,
+    /// The spec's `reader` (per-record memory limits; None = the defaults: interfaces/import.md 19).
+    pub reader: Option<super::spec::ReaderSpec>,
 }
 
 static SEQ: AtomicUsize = AtomicUsize::new(0);
@@ -116,12 +118,15 @@ fn classify_inner(
         if let Some(r) = &opts.accept_fewer_rules {
             src["marker_rules"] = json!({ "accept_fewer": r });
         }
-        let spec = json!({
+        let mut spec = json!({
             "schema": super::spec::SPEC_SCHEMA,
             "frame_from": "table",
             "start": {"path": start.display().to_string(), "format": "keys_jsonl"},
             "sources": [src],
         });
+        if let Some(r) = &opts.reader {
+            spec["reader"] = serde_json::to_value(r).map_err(|e| ImportError::Spec(e.to_string()))?;
+        }
         let spec = TableSetSpec::from_json(&spec.to_string())?;
         // bodies validated (every rhs key parsed) but not kept: bounded memory on tables of several GB
         let set = load_inner(

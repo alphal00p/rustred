@@ -6,6 +6,12 @@
 //! line classified and parsed by the shared [`LineScanner`] (same refusals as a direct scan), the whole-file sha256
 //! and every rule line's `record_sha256` computed WHILE reading.
 //!
+//! LONG LINES (lane bigline): a line longer than the reader limits' `whole_line_max` (spec `reader`) is never held
+//! whole: the reader thread sends it as PIECES of at most [`PIECE_BYTES`] (after a first piece of `whole_line_max`), the
+//! hashing threads hash the pieces, and the calling thread STREAMS it ([`crate::record::stream::stream_line`]) into its
+//! compact form (the rhs value replaced by `[]`: exactly the payload written for the line) and its rhs keys. The index
+//! files are byte-identical whichever path a line took.
+//!
 //! Index directory (`rustred.campaign.table-index.v1`):
 //! - `domains.jsonl`: per non-blank table line an entry `{"k": kind, "l": line, "o": offset, "b": bytes, "s": sha256}`
 //!   (sha256 for rule lines), followed for header / chart / rule / sym lines and the content kinds
@@ -35,9 +41,11 @@ use std::time::{Instant, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use super::error::{ImportError, io_err};
+use super::error::TableRefusal;
 use super::lines::{CONTENT_KINDS, Fed, LineScanner, RawRecord, RawTable, line_body};
 use crate::closure::sha256::Sha256;
-use crate::record::RhsMode;
+use crate::record::stream::stream_line;
+use crate::record::{ReadLimits, RhsMode, read_until_limited};
 
 /// Version of the index format and of what it promises. Bump on ANY change of the files or of their meaning.
 pub const INDEX_VERSION: u32 = 2;
@@ -49,6 +57,9 @@ pub const SAMPLE_BLOCKS: u64 = 64;
 pub const SAMPLE_BYTES: usize = 1 << 16;
 /// Bytes of table lines in flight between the reader and its consumers (one larger line is admitted alone).
 pub const IN_FLIGHT_BYTES: usize = 256 << 20;
+/// Size of the pieces of a long line after its first piece (I/O granularity only; what a record may hold is the
+/// spec's per-record budget).
+pub const PIECE_BYTES: u64 = 4 << 20;
 
 /// Callback of [`TableIndex::scan_bodies`]: (ordinal, record_sha256, rhs keys).
 pub type BodyVisitor<'a> = dyn FnMut(usize, &str, Vec<String>) -> Result<(), ImportError> + 'a;
@@ -89,6 +100,8 @@ pub struct TableIndex {
     pub meta: IndexMeta,
     /// The indexed table as the caller named it (error messages).
     pub table: PathBuf,
+    /// The reader limits the index is read under (an index line longer than the budget is refused).
+    pub limits: ReadLimits,
     temporary: bool,
 }
 
@@ -203,11 +216,23 @@ pub fn validate(dir: &Path, path: &Path) -> Result<Option<IndexMeta>, ImportErro
 static TEMP_SEQ: AtomicUsize = AtomicUsize::new(0);
 
 /// Open the index of `path`: reuse a valid one under `cache`, else build it there (or, without `cache`, in a private
-/// temporary directory under `std::env::temp_dir()`, removed with the returned [`TableIndex`]).
+/// temporary directory under `std::env::temp_dir()`, removed with the returned [`TableIndex`]). No per-record limit
+/// ([`open_or_build_with`]).
 pub fn open_or_build(
     source: &str,
     path: &Path,
     cache: Option<&Path>,
+) -> Result<(TableIndex, IndexOrigin), ImportError> {
+    open_or_build_with(source, path, cache, ReadLimits::unlimited())
+}
+
+/// [`open_or_build`] under per-record memory limits (lines above `limits.whole_line_max` streamed; a record part
+/// that must be held and exceeds `limits.record_budget` refuses the table, typed).
+pub fn open_or_build_with(
+    source: &str,
+    path: &Path,
+    cache: Option<&Path>,
+    limits: ReadLimits,
 ) -> Result<(TableIndex, IndexOrigin), ImportError> {
     let t0 = Instant::now();
     let table_bytes = std::fs::metadata(path).map_err(|e| io_err(path, e))?.len();
@@ -231,6 +256,7 @@ pub fn open_or_build(
                 dir: dir.clone(),
                 meta,
                 table: path.to_path_buf(),
+                limits,
                 temporary: false,
             },
             IndexOrigin {
@@ -250,7 +276,7 @@ pub fn open_or_build(
     };
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work).map_err(|e| io_err(&work, e))?;
-    let meta = match build(source, path, &work) {
+    let meta = match build(source, path, &work, limits) {
         Ok(m) => m,
         Err(e) => {
             let _ = std::fs::remove_dir_all(&work);
@@ -266,6 +292,7 @@ pub fn open_or_build(
             dir: dir.clone(),
             meta,
             table: path.to_path_buf(),
+            limits,
             temporary,
         },
         IndexOrigin {
@@ -302,9 +329,12 @@ impl Budget {
     }
 }
 
-/// One table line shared by the reader's consumers; its bytes return to the budget when the last one drops it.
+/// A piece of a table line shared by the reader's consumers; its bytes return to the budget when the last one drops
+/// it. A line up to the whole-line limit is ONE piece (`last`); a longer line is a sequence ending with a `last` piece.
 struct Line {
     buf: Vec<u8>,
+    /// The piece ends its line (it holds the newline, or the input ended).
+    last: bool,
     budget: Arc<Budget>,
 }
 
@@ -314,25 +344,35 @@ impl Drop for Line {
     }
 }
 
-/// The reader thread: every line (with its newline) to the three consumers, in file order.
+/// The reader thread: every line (with its newline) to the three consumers, in file order; a line longer than
+/// `whole_line_max` as pieces.
 fn reader(
     path: PathBuf,
     budget: Arc<Budget>,
     outs: [SyncSender<Arc<Line>>; 3],
+    whole_line_max: u64,
 ) -> Result<u64, std::io::Error> {
     let f = std::fs::File::open(&path)?;
     let mut rd = BufReader::with_capacity(4 << 20, f);
     let mut total = 0u64;
+    let mut in_line = false;
     loop {
         let mut buf = Vec::new();
-        let n = rd.read_until(b'\n', &mut buf)?;
-        if n == 0 {
+        let limit = if in_line {
+            PIECE_BYTES
+        } else {
+            whole_line_max.saturating_add(1)
+        };
+        let (n, last) = read_until_limited(&mut rd, &mut buf, limit)?;
+        if n == 0 && !in_line {
             return Ok(total);
         }
         total += n as u64;
+        in_line = !last;
         budget.acquire(buf.len());
         let line = Arc::new(Line {
             buf,
+            last,
             budget: budget.clone(),
         });
         for o in &outs {
@@ -344,8 +384,57 @@ fn reader(
     }
 }
 
+/// The pieces of ONE long line as a [`BufRead`] (the calling thread's view while it streams the line).
+struct PieceRead<'a> {
+    cur: Option<Arc<Line>>,
+    pos: usize,
+    rx: &'a Receiver<Arc<Line>>,
+    total: u64,
+}
+
+impl std::io::Read for PieceRead<'_> {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        let b = self.fill_buf()?;
+        let n = b.len().min(out.len());
+        out[..n].copy_from_slice(&b[..n]);
+        self.consume(n);
+        Ok(n)
+    }
+}
+
+impl BufRead for PieceRead<'_> {
+    fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+        loop {
+            match &self.cur {
+                Some(c) if self.pos < c.buf.len() => break,
+                Some(c) if c.last => return Ok(&[]),
+                _ => {}
+            }
+            let next = self.rx.recv().map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "index reader stopped inside a line",
+                )
+            })?;
+            self.cur = Some(next);
+            self.pos = 0;
+        }
+        let c = self.cur.as_ref().expect("piece");
+        Ok(&c.buf[self.pos..])
+    }
+    fn consume(&mut self, n: usize) {
+        self.pos += n;
+        self.total += n as u64;
+    }
+}
+
 /// Stream `path` once and write the index files into `work` (index.json last).
-fn build(source: &str, path: &Path, work: &Path) -> Result<IndexMeta, ImportError> {
+fn build(
+    source: &str,
+    path: &Path,
+    work: &Path,
+    limits: ReadLimits,
+) -> Result<IndexMeta, ImportError> {
     let md0 = std::fs::metadata(path).map_err(|e| io_err(path, e))?;
     let sample = sample_digest(path)?;
     let budget = Arc::new(Budget {
@@ -358,7 +447,8 @@ fn build(source: &str, path: &Path, work: &Path) -> Result<IndexMeta, ImportErro
     let (tx_sha, rx_sha) = sync_channel::<String>(1 << 16);
     let p = path.to_path_buf();
     let b = budget.clone();
-    let rd = std::thread::spawn(move || reader(p, b, [tx_file, tx_line, tx_main]));
+    let wl = limits.whole_line_max;
+    let rd = std::thread::spawn(move || reader(p, b, [tx_file, tx_line, tx_main], wl));
     let fh = std::thread::spawn(move || {
         let mut h = Sha256::new();
         for l in rx_file {
@@ -367,19 +457,26 @@ fn build(source: &str, path: &Path, work: &Path) -> Result<IndexMeta, ImportErro
         h.finish_hex()
     });
     let lh = std::thread::spawn(move || {
+        // per line (one piece, or the pieces of a long line): the sha256 of the line without its newline
+        let mut h: Option<(Sha256, bool)> = None;
         for l in rx_line {
-            let body = line_body(&l.buf);
-            if body.iter().all(|c| c.is_ascii_whitespace()) {
-                continue;
-            }
-            let mut h = Sha256::new();
-            h.update(body);
-            if tx_sha.send(h.finish_hex()).is_err() {
-                return;
+            let data: &[u8] = if l.last {
+                line_body(&l.buf)
+            } else {
+                &l.buf
+            };
+            let (hh, blank) = h.get_or_insert_with(|| (Sha256::new(), true));
+            *blank &= data.iter().all(|c| c.is_ascii_whitespace());
+            hh.update(data);
+            if l.last {
+                let (hh, blank) = h.take().expect("line hash");
+                if !blank && tx_sha.send(hh.finish_hex()).is_err() {
+                    return;
+                }
             }
         }
     });
-    let res = consume(source, path, work, rx_main, rx_sha);
+    let res = consume(source, path, work, rx_main, rx_sha, limits);
     let total = rd
         .join()
         .map_err(|_| ImportError::Core("index reader thread panicked".into()))?
@@ -423,6 +520,7 @@ fn consume(
     work: &Path,
     rx: Receiver<Arc<Line>>,
     rx_sha: Receiver<String>,
+    limits: ReadLimits,
 ) -> Result<(usize, (BTreeMap<String, usize>, usize)), ImportError> {
     let dp = work.join("domains.jsonl");
     let bp = work.join("bodies.jsonl");
@@ -434,23 +532,46 @@ fn consume(
         4 << 20,
         std::fs::File::create(&bp).map_err(|e| io_err(&bp, e))?,
     );
-    let mut sc = LineScanner::new(source, path, RhsMode::KeysOnly, false);
+    let mut sc = LineScanner::new(source, path, RhsMode::KeysOnly, false).with_limits(limits);
     let (mut offset, mut line_no, mut rules) = (0u64, 0usize, 0usize);
     let wr = |w: &mut BufWriter<std::fs::File>, p: &Path, b: &[u8]| -> Result<(), ImportError> {
         w.write_all(b).map_err(|e| io_err(p, e))
     };
-    for l in rx {
+    while let Ok(l) = rx.recv() {
         line_no += 1;
         let start = offset;
-        offset += l.buf.len() as u64;
-        let body = line_body(&l.buf);
+        // a long line arrives in pieces: streamed into its compact form (the payload) and its rhs keys
+        let streamed = if l.last {
+            None
+        } else {
+            let mut pr = PieceRead {
+                cur: Some(l.clone()),
+                pos: 0,
+                rx: &rx,
+                total: 0,
+            };
+            let sl = stream_line(&mut pr, &sc.stream_options(), &mut |_| {}, None)
+                .map_err(|e| sc.record_error(line_no, e))?;
+            offset += pr.total;
+            if sl.blank {
+                continue;
+            }
+            Some(sl)
+        };
+        let body: &[u8] = match &streamed {
+            Some(sl) => &sl.compact,
+            None => {
+                offset += l.buf.len() as u64;
+                line_body(&l.buf)
+            }
+        };
         if body.iter().all(|c| c.is_ascii_whitespace()) {
             continue;
         }
         let sha = rx_sha
             .recv()
             .map_err(|_| ImportError::Core("index line-hash thread stopped".into()))?;
-        let bytes = body.len() as u64;
+        let bytes = streamed.as_ref().map_or(body.len() as u64, |sl| sl.bytes);
         let entry = |k: &str, s: Option<String>| -> String {
             let mut t = serde_json::to_string(&Entry {
                 k: k.to_string(),
@@ -463,7 +584,13 @@ fn consume(
             t.push('\n');
             t
         };
-        match sc.feed(body, line_no, start, bytes, Some(sha.clone()), &|_, _| true)? {
+        let fed = match &streamed {
+            Some(sl) => sc.feed_streamed(sl, line_no, start, Some(sha.clone()), &|_, _| true)?,
+            None => sc.feed(body, line_no, start, bytes, Some(sha.clone()), &|_, _| true)?,
+        };
+        // the rhs value's span in `body`: a streamed line's compact form already holds `[]` there
+        let replaced = streamed.as_ref().is_some_and(|sl| !sl.exact());
+        match fed {
             Fed::Blank | Fed::RuleNotKept => {}
             f @ (Fed::Header | Fed::Chart) => {
                 let k = if matches!(f, Fed::Header) {
@@ -485,7 +612,7 @@ fn consume(
             Fed::Rule(r) => {
                 rules += 1;
                 wr(&mut dw, &dp, entry("rule", Some(sha.clone())).as_bytes())?;
-                match r.rhs_span {
+                match r.rhs_span.filter(|_| !replaced) {
                     Some((a, b)) => {
                         wr(&mut dw, &dp, &body[..a])?;
                         wr(&mut dw, &dp, b"[]")?;
@@ -509,6 +636,44 @@ fn consume(
 }
 
 impl TableIndex {
+    /// One line of an index file, at most the per-record budget (plus the newline): a longer one (an index built
+    /// under a larger budget) refuses, typed. `line`: the table line it describes (0 = not known).
+    fn bounded_line(
+        &self,
+        rd: &mut BufReader<std::fs::File>,
+        buf: &mut Vec<u8>,
+        file: &Path,
+        source: &str,
+        line: usize,
+    ) -> Result<usize, ImportError> {
+        let limit = self.limits.record_budget.saturating_add(1);
+        let (n, complete) = read_until_limited(rd, buf, limit).map_err(|e| io_err(file, e))?;
+        if !complete {
+            // measure the line without keeping it
+            let mut more = n as u64;
+            loop {
+                let mut sink = Vec::new();
+                let (m, done) = read_until_limited(rd, &mut sink, 1 << 20).map_err(|e| io_err(file, e))?;
+                more += m as u64;
+                if done {
+                    break;
+                }
+            }
+            return Err(ImportError::Refused {
+                source: source.to_string(),
+                path: self.table.display().to_string(),
+                line,
+                reason: Box::new(TableRefusal::RecordTooLarge {
+                    record: None,
+                    what: format!("an index line of {}", file.display()),
+                    bytes: more,
+                    budget: self.limits.record_budget,
+                }),
+            });
+        }
+        Ok(n)
+    }
+
     /// The table as the index describes it, every kept record WITHOUT its body (`rec.rhs_keys` = None), in file
     /// order: the same [`RawTable`] / [`RawRecord`] fields a direct scan gives (`file_sha256` from the index).
     pub fn scan_domains(
@@ -520,7 +685,8 @@ impl TableIndex {
         let dp = self.dir.join("domains.jsonl");
         let f = std::fs::File::open(&dp).map_err(|e| io_err(&dp, e))?;
         let mut rd = BufReader::with_capacity(1 << 20, f);
-        let mut sc = LineScanner::new(source, &self.table, RhsMode::Skip, false);
+        let mut sc =
+            LineScanner::new(source, &self.table, RhsMode::Skip, false).with_limits(self.limits);
         let bad = |m: String| ImportError::Source {
             source: source.to_string(),
             msg: format!("index {}: {m}", self.dir.display()),
@@ -529,7 +695,7 @@ impl TableIndex {
         let mut pb: Vec<u8> = vec![];
         loop {
             eb.clear();
-            if rd.read_until(b'\n', &mut eb).map_err(|e| io_err(&dp, e))? == 0 {
+            if self.bounded_line(&mut rd, &mut eb, &dp, source, 0)? == 0 {
                 break;
             }
             let e: Entry =
@@ -537,7 +703,7 @@ impl TableIndex {
             match e.k.as_str() {
                 "header" | "chart" | "rule" => {
                     pb.clear();
-                    if rd.read_until(b'\n', &mut pb).map_err(|x| io_err(&dp, x))? == 0 {
+                    if self.bounded_line(&mut rd, &mut pb, &dp, source, e.l)? == 0 {
                         return Err(bad("payload missing".into()));
                     }
                     let fed = sc.feed(line_body(&pb), e.l, e.o, e.b, e.s.clone(), keep)?;
@@ -557,7 +723,7 @@ impl TableIndex {
                 }
                 k if CONTENT_KINDS.contains(&k) => {
                     pb.clear();
-                    if rd.read_until(b'\n', &mut pb).map_err(|x| io_err(&dp, x))? == 0 {
+                    if self.bounded_line(&mut rd, &mut pb, &dp, source, e.l)? == 0 {
                         return Err(bad("payload missing".into()));
                     }
                     match sc.feed(line_body(&pb), e.l, e.o, e.b, None, keep)? {
@@ -583,7 +749,7 @@ impl TableIndex {
         let mut buf: Vec<u8> = vec![];
         loop {
             buf.clear();
-            if rd.read_until(b'\n', &mut buf).map_err(|e| io_err(&bp, e))? == 0 {
+            if self.bounded_line(&mut rd, &mut buf, &bp, "index", 0)? == 0 {
                 return Ok(());
             }
             // the ordinal first (cheap) so that unwanted bodies are not parsed

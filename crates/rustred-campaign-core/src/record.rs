@@ -28,6 +28,8 @@ use std::io::BufRead;
 use serde::Deserialize;
 use serde_json::Value;
 
+pub mod stream;
+
 /// Errors of the readers.
 #[derive(Debug)]
 pub enum RecordError {
@@ -37,6 +39,14 @@ pub enum RecordError {
         line: usize,
         msg: String,
     },
+    /// A part of a record that must be held in memory (the line without its `rhs` value, the key texts, one visited
+    /// term) is larger than the per-record in-memory budget (lane bigline; [`stream::stream_line`]).
+    TooLarge {
+        line: usize,
+        what: String,
+        bytes: u64,
+        budget: u64,
+    },
 }
 
 impl fmt::Display for RecordError {
@@ -44,6 +54,15 @@ impl fmt::Display for RecordError {
         match self {
             RecordError::Io(e) => write!(f, "io: {e}"),
             RecordError::Format { line, msg } => write!(f, "line {line}: {msg}"),
+            RecordError::TooLarge {
+                line,
+                what,
+                bytes,
+                budget,
+            } => write!(
+                f,
+                "line {line}: record too large for in-memory evaluation: {what} of {bytes} bytes exceeds the per-record budget of {budget} bytes"
+            ),
         }
     }
 }
@@ -68,6 +87,64 @@ pub enum RhsMode {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ReadOptions {
     pub rhs: RhsMode,
+}
+
+/// Per-record memory limits of the table readers (lane bigline; spec `reader`, interfaces/import.md 19).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReadLimits {
+    /// The per-record in-memory budget (bytes): the most of ONE record a reader holds at once (a whole line read in
+    /// memory, the compact line of a streamed line, the key texts of a record, one coefficient term).
+    pub record_budget: u64,
+    /// Lines up to this length (bytes, without the newline) are read whole (the in-memory path); longer lines are
+    /// streamed ([`stream::stream_line`]). At most `record_budget`.
+    pub whole_line_max: u64,
+}
+
+impl ReadLimits {
+    /// Budget `b`, lines up to `b` read whole.
+    pub fn new(record_budget: u64) -> Self {
+        ReadLimits {
+            record_budget,
+            whole_line_max: record_budget,
+        }
+    }
+    /// No limit (every line read whole, nothing refused for its size): the readers as they were before lane bigline.
+    pub fn unlimited() -> Self {
+        ReadLimits::new(u64::MAX)
+    }
+}
+
+/// Read from `rd` into `buf` up to and including the next newline, but at most `limit` bytes. Returns (bytes read,
+/// complete): complete = the newline was read or the input ended (0 bytes read = end of input).
+pub fn read_until_limited(
+    rd: &mut dyn BufRead,
+    buf: &mut Vec<u8>,
+    limit: u64,
+) -> std::io::Result<(usize, bool)> {
+    let mut n = 0usize;
+    loop {
+        let room = limit.saturating_sub(n as u64);
+        if room == 0 {
+            return Ok((n, false));
+        }
+        let b = rd.fill_buf()?;
+        if b.is_empty() {
+            return Ok((n, true));
+        }
+        let cap = b.len().min(usize::try_from(room).unwrap_or(usize::MAX));
+        match b[..cap].iter().position(|&c| c == b'\n') {
+            Some(i) => {
+                buf.extend_from_slice(&b[..=i]);
+                rd.consume(i + 1);
+                return Ok((n + i + 1, true));
+            }
+            None => {
+                buf.extend_from_slice(&b[..cap]);
+                rd.consume(cap);
+                n += cap;
+            }
+        }
+    }
 }
 
 /// Parsed table header (both formats). `raw` keeps the whole header object.
