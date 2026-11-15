@@ -416,10 +416,14 @@ impl<'a> LineScanner<'a> {
                 let g = |k: &str| v.get(k).cloned();
                 match kind.as_str() {
                     "residual" => {
-                        let key = v.get("key").and_then(Value::as_str).ok_or_else(|| {
-                            self.lerr(line_no, "residual record without a key".into())
-                        })?;
-                        self.markers.residuals.push((line_no, key.to_string()));
+                        // counted whatever its key's form; only an `I(..)` text of the arity can become a declared
+                        // terminal (`table_terminals: ledger_and_residuals` refuses any other)
+                        let key = match v.get("key") {
+                            Some(Value::String(t)) => t.clone(),
+                            Some(other) => other.to_string(),
+                            None => String::new(),
+                        };
+                        self.markers.residuals.push((line_no, key));
                     }
                     "composite_terminal_ledger" => self.markers.ledgers.push(LedgerRecord {
                         line: line_no,
