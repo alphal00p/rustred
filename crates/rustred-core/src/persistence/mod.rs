@@ -27,8 +27,8 @@ pub use catalog::{ExactTerminalCatalog, TerminalCatalogCoverage};
 pub use compare::equivalent_generated_programs;
 pub(crate) use compare::same_native_coefficient;
 pub use envelope::{
-    BINARY_PROGRAM_VERSION, BinaryProgramKind, BinarySection, ProgramEnvelope, SectionTag,
-    encode_program, inspect_program,
+    BINARY_PROGRAM_VERSION, BinaryProgramKind, BinarySection, CountingWriter, ProgramEnvelope,
+    SectionTag, encode_program, encode_program_streamed, inspect_program,
 };
 pub use error::BinaryIoError;
 pub(crate) use error::{

@@ -118,6 +118,7 @@ struct Arguments {
     mixed_box: bool,
     no_verify: bool,
     certified_keys: Option<PathBuf>,
+    stream_payload: bool,
 }
 
 fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
@@ -127,6 +128,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
     let (mut census_family, mut order_map) = (None, None);
     let (mut factored, mut partial_box, mut no_verify) = (false, false, false);
     let mut mixed_box = false;
+    let mut stream_payload = false;
     let mut certified_keys = None;
     let mut seen = BTreeSet::new();
     while let Some(argument) = arguments.next() {
@@ -147,6 +149,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             "--no-verify" => "--no-verify",
             "--mixed-box" => "--mixed-box",
             "--certified-keys" => "--certified-keys",
+            "--stream-payload" => "--stream-payload",
             _ => return Err(ArgError::UnknownOption(argument)),
         };
         if !seen.insert(option) {
@@ -203,6 +206,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             "--partial-box" => partial_box = true,
             "--no-verify" => no_verify = true,
             "--mixed-box" => mixed_box = true,
+            "--stream-payload" => stream_payload = true,
             _ => force = true,
         }
     }
@@ -222,6 +226,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
         mixed_box,
         no_verify,
         certified_keys,
+        stream_payload,
     })
 }
 
@@ -297,14 +302,69 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             None => None,
         },
     };
-    let mut imported = import_table_from(
-        std::io::BufReader::with_capacity(1 << 20, table),
-        &graph,
-        &options,
-    )
-    .map_err(failed)?;
+    // vk5l WP6: --stream-payload (requires --no-verify, no --coef-form factored,
+    // no --replay): coefficients spilled to a scratch file beside the output,
+    // the payload written to `<label>.rrbin.partial` while it is built and
+    // renamed at the end; memory = the hash index + the program records.
+    let mut table = Some(table);
+    let streamed = if arguments.stream_payload {
+        if !arguments.no_verify || arguments.factored || arguments.replay.is_some() {
+            return Err(CliError::Input(
+                "--stream-payload needs --no-verify and allows neither --coef-form factored nor --replay"
+                    .to_owned(),
+            ));
+        }
+        let path = |extension: &str| {
+            arguments
+                .out
+                .join(format!("{}.{extension}", arguments.label))
+        };
+        let io = |what: &std::path::Path, error: std::io::Error| {
+            CliError::OutputIo(format!("{}: {error}", what.display()))
+        };
+        let (scratch_path, partial_path) = (path("atoms.scratch"), path("rrbin.partial"));
+        let scratch = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&scratch_path)
+            .map_err(|error| io(&scratch_path, error))?;
+        let partial =
+            std::fs::File::create(&partial_path).map_err(|error| io(&partial_path, error))?;
+        let mut writer = std::io::BufWriter::with_capacity(8 << 20, partial);
+        let result = rustred::propagator::table_import::import_table_streamed(
+            std::io::BufReader::with_capacity(1 << 20, table.take().expect("the table file")),
+            &graph,
+            &options,
+            scratch,
+            &mut writer,
+        );
+        let _ = std::fs::remove_file(&scratch_path);
+        let imported = result.map_err(failed)?;
+        use std::io::Write as _;
+        writer
+            .flush()
+            .and_then(|()| writer.get_ref().sync_all())
+            .map_err(|error| io(&partial_path, error))?;
+        Some((imported, partial_path))
+    } else {
+        None
+    };
+    let (mut imported, partial_payload) = match streamed {
+        Some((imported, partial)) => (imported, Some(partial)),
+        None => (
+            import_table_from(
+                std::io::BufReader::with_capacity(1 << 20, table.take().expect("the table file")),
+                &graph,
+                &options,
+            )
+            .map_err(failed)?,
+            None,
+        ),
+    };
     let import_seconds = started.elapsed().as_secs_f64();
-    let expanded_payload_bytes = imported.payload.len();
+    let expanded_payload_bytes = imported.payload_len();
     let mut coef_form_seconds = 0.0;
     if arguments.factored {
         let started = Instant::now();
@@ -371,7 +431,7 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         "dispatched_rules": imported.dispatched_rules,
         "affine_rules": imported.affine_rules,
         "rules_with_exceptions": imported.rules_with_exceptions,
-        "payload_bytes": imported.payload.len(),
+        "payload_bytes": imported.payload_len(),
         "verify": check.as_ref().map(check_json),
         "import_seconds": import_seconds,
         "verify_seconds": verify_seconds,
@@ -471,7 +531,19 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     }
 
     let json = serde_json::to_string_pretty(&record).map_err(json_error)?;
-    write_output(&destination("rrbin"), &imported.payload, arguments.force)?;
+    match &partial_payload {
+        Some(partial) => {
+            let StreamPath::File(target) = destination("rrbin") else {
+                unreachable!("file destinations")
+            };
+            if target.exists() && !arguments.force {
+                return Err(CliError::OutputIo(format!("{} exists", target.display())));
+            }
+            std::fs::rename(partial, &target)
+                .map_err(|error| CliError::OutputIo(format!("{}: {error}", target.display())))?;
+        }
+        None => write_output(&destination("rrbin"), &imported.payload, arguments.force)?,
+    }
     write_output(
         &destination("json"),
         format!("{json}\n").as_bytes(),
@@ -485,7 +557,7 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         imported.summary.charts.len(),
         imported.meta.residuals,
         imported.meta.lp_count,
-        imported.payload.len(),
+        imported.payload_len(),
         imported.slot_map,
         if imported.q_flipped { ", q flipped" } else { "" },
         imported.order_name,

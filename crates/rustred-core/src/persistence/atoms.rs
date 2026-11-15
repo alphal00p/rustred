@@ -66,6 +66,31 @@ pub struct CoefficientTableBuilder {
     buckets: HashMap<u64, Vec<CoefficientId>>,
     variable_maps: HashSet<Arc<Vec<PolyVariable>>>,
     encoded_atom_bytes: usize,
+    /// vk5l WP6 ([`Self::with_spill`]): unique atoms kept as their encoded
+    /// frames in a scratch file instead of `atoms`.
+    spill: Option<AtomSpill>,
+}
+
+/// The unique atoms of a spilled builder: each atom's native encoding (the
+/// bytes [`CoefficientTableBuilder::finish`] writes for it) appended to a
+/// scratch file, with its offset and length. Equality on a hash hit compares
+/// the encodings, which for a native atom is its complete data.
+struct AtomSpill {
+    file: std::fs::File,
+    frames: Vec<(u64, u32)>,
+    end: u64,
+}
+
+impl AtomSpill {
+    fn read(&self, index: usize, out: &mut Vec<u8>) -> Result<(), BinaryIoError> {
+        use std::os::unix::fs::FileExt;
+        let (offset, len) = self.frames[index];
+        out.clear();
+        out.resize(len as usize, 0);
+        self.file
+            .read_exact_at(out, offset)
+            .map_err(super::native_io_error)
+    }
 }
 
 impl CoefficientTableBuilder {
@@ -76,15 +101,33 @@ impl CoefficientTableBuilder {
             buckets: HashMap::new(),
             variable_maps: HashSet::new(),
             encoded_atom_bytes: LENGTH_BYTES,
+            spill: None,
         }
     }
 
+    /// vk5l WP6: a builder whose unique atoms live in `scratch` (an empty,
+    /// readable and writable file the caller removes afterwards), so its
+    /// memory is the hash index and the variable maps only, not the
+    /// coefficients. Same ids and the same encoded table as [`Self::new`].
+    pub fn with_spill(limits: BinaryIoLimits, scratch: std::fs::File) -> Self {
+        let mut builder = Self::new(limits);
+        builder.spill = Some(AtomSpill {
+            file: scratch,
+            frames: Vec::new(),
+            end: 0,
+        });
+        builder
+    }
+
     pub fn len(&self) -> usize {
-        self.atoms.len()
+        match &self.spill {
+            Some(spill) => spill.frames.len(),
+            None => self.atoms.len(),
+        }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.atoms.is_empty()
+        self.len() == 0
     }
 
     pub fn intern(&mut self, coefficient: &Coefficient) -> Result<CoefficientId, BinaryIoError> {
@@ -101,21 +144,43 @@ impl CoefficientTableBuilder {
         let mut hasher = DefaultHasher::new();
         atom.hash(&mut hasher);
         let hash = hasher.finish();
+        // Spilled: the atom's encoding is both the equality key and the bytes
+        // appended to the scratch file.
+        let encoded = match &self.spill {
+            Some(_) => Some(
+                bincode::encode_to_vec(&atom, bincode::config::standard())
+                    .map_err(super::native_encode_error)?,
+            ),
+            None => None,
+        };
         if let Some(bucket) = self.buckets.get(&hash) {
-            for id in bucket {
-                if self.atoms[id.index()] == atom {
-                    return Ok(*id);
+            match (&self.spill, &encoded) {
+                (Some(spill), Some(encoded)) => {
+                    let mut stored = Vec::new();
+                    for id in bucket {
+                        spill.read(id.index(), &mut stored)?;
+                        if &stored == encoded {
+                            return Ok(*id);
+                        }
+                    }
+                }
+                _ => {
+                    for id in bucket {
+                        if self.atoms[id.index()] == atom {
+                            return Ok(*id);
+                        }
+                    }
                 }
             }
         }
 
-        let count = checked_add(self.atoms.len(), 1)?;
+        let count = checked_add(self.len(), 1)?;
         self.limits.check_count(
             "coefficient table entries",
             count,
             self.limits.max_collection_entries,
         )?;
-        let id = CoefficientId::try_from_index(self.atoms.len())?;
+        let id = CoefficientId::try_from_index(self.len())?;
         let frame_bytes = checked_add(atom.as_view().get_data().len(), NATIVE_ATOM_HEADER_BYTES)?;
         check_limit(
             "coefficient atom bytes",
@@ -135,12 +200,14 @@ impl CoefficientTableBuilder {
         super::resource_array::<(u64, Vec<CoefficientId>)>(1)?;
         super::resource_array::<Arc<Vec<PolyVariable>>>(1)?;
         super::resource_array::<CoefficientId>(1)?;
-        self.atoms
-            .try_reserve(1)
-            .map_err(|_| BinaryIoError::Allocation {
-                resource: "coefficient table atoms",
-                requested: count,
-            })?;
+        if self.spill.is_none() {
+            self.atoms
+                .try_reserve(1)
+                .map_err(|_| BinaryIoError::Allocation {
+                    resource: "coefficient table atoms",
+                    requested: count,
+                })?;
+        }
         self.buckets
             .try_reserve(1)
             .map_err(|_| BinaryIoError::Allocation {
@@ -161,7 +228,25 @@ impl CoefficientTableBuilder {
                 requested: bucket.len().saturating_add(1),
             })?;
         bucket.push(id);
-        self.atoms.push(atom);
+        match (&mut self.spill, encoded) {
+            (Some(spill), Some(encoded)) => {
+                use std::os::unix::fs::FileExt;
+                if encoded.len() != frame_bytes {
+                    return Err(BinaryIoError::Invalid(
+                        "native atom encoding length changed",
+                    ));
+                }
+                spill
+                    .file
+                    .write_all_at(&encoded, spill.end)
+                    .map_err(super::native_io_error)?;
+                let len = u32::try_from(encoded.len())
+                    .map_err(|_| BinaryIoError::Invalid("spilled atom exceeds u32 bytes"))?;
+                spill.frames.push((spill.end, len));
+                spill.end += u64::from(len);
+            }
+            _ => self.atoms.push(atom),
+        }
         self.variable_maps
             .insert(coefficient.get_variables().clone());
         self.encoded_atom_bytes = total;
@@ -178,7 +263,7 @@ impl CoefficientTableBuilder {
     pub fn retained_atom_payload_bytes(&self) -> usize {
         self.encoded_atom_bytes
             - LENGTH_BYTES
-            - self.atoms.len() * (LENGTH_BYTES + NATIVE_ATOM_HEADER_BYTES)
+            - self.len() * (LENGTH_BYTES + NATIVE_ATOM_HEADER_BYTES)
     }
 
     /// Known interner container storage, excluding allocator overhead, hash
@@ -218,7 +303,7 @@ impl CoefficientTableBuilder {
         Ok(bytes)
     }
 
-    fn encoded_state(&self) -> Result<Vec<u8>, BinaryIoError> {
+    pub(crate) fn encoded_state(&self) -> Result<Vec<u8>, BinaryIoError> {
         check_limit(
             "coefficient table bytes",
             self.encoded_atom_bytes,
@@ -260,13 +345,23 @@ impl CoefficientTableBuilder {
         Ok(state)
     }
 
-    fn write_atoms(self, writer: &mut impl Write) -> Result<(), BinaryIoError> {
-        let count = self.atoms.len();
+    pub(crate) fn write_atoms(self, writer: &mut impl Write) -> Result<(), BinaryIoError> {
+        let count = self.len();
         // No more equality lookups occur after all IDs have been assigned.
         // Drop indexes before writing; consumed atoms are then freed one by one.
         drop(self.buckets);
         drop(self.variable_maps);
         write_length(writer, count)?;
+        if let Some(spill) = &self.spill {
+            let mut frame = Vec::new();
+            for index in 0..spill.frames.len() {
+                super::resource_checkpoint()?;
+                spill.read(index, &mut frame)?;
+                write_length(writer, frame.len())?;
+                writer.write_all(&frame).map_err(super::native_io_error)?;
+            }
+            return Ok(());
+        }
         for atom in self.atoms {
             super::resource_checkpoint()?;
             let frame_bytes =
