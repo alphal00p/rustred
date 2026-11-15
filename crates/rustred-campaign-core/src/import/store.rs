@@ -35,7 +35,8 @@ use crate::closure::sha256::Sha256;
 /// Schema of the store's `meta.json`.
 pub const STORE_SCHEMA: &str = "rustred.campaign.evidence-store.v1";
 /// Format version (part of the cache name and of the reuse check).
-pub const STORE_VERSION: u32 = 1;
+/// v2 (lane t266run, closeloop4 open item m1 in store mode): entries carry a proof-CONFLICT flag.
+pub const STORE_VERSION: u32 = 2;
 /// Entries per block of `data.bin`.
 pub const BLOCK_ENTRIES: usize = 256;
 /// Default sort-buffer budget (bytes).
@@ -44,6 +45,8 @@ pub const DEFAULT_BUDGET: usize = 256 << 20;
 const F_PROOF: u8 = 1;
 const F_FACT: u8 = 2;
 const F_USABLE: u8 = 4;
+/// The (record, key) has a per-key proof AND a decided contrary verdict (bits 8 / 16 hold the regularity).
+const F_CONFLICT: u8 = 32;
 
 /// How a store is built / where it is cached.
 #[derive(Clone, Debug)]
@@ -96,6 +99,9 @@ pub struct StoreCounts {
     pub proofs_stored: u64,
     pub proofs_per_key: u64,
     pub duplicates_merged: u64,
+    /// Entries with a per-key proof AND a decided contrary verdict (STORE_VERSION 2).
+    #[serde(default)]
+    pub proof_conflicts: u64,
 }
 
 /// `meta.json`.
@@ -128,9 +134,12 @@ pub struct StoreFact {
 /// One stored (record, key).
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct StoreEntry {
-    /// Status id (into `meta.statuses`).
+    /// Status id (into `meta.statuses`): the strongest status seen (a per-key one wins over any other).
     pub proof: Option<u32>,
     pub fact: Option<StoreFact>,
+    /// A per-key proof and a DECIDED contrary verdict were both given for this (record, key) (closeloop4 m1): the key
+    /// gets no per-key level from this store (never "the positive one wins").
+    pub proof_conflict: bool,
 }
 
 static STORE_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -251,6 +260,9 @@ fn encode_payload(e: &StoreEntry, out: &mut Vec<u8>) {
             flags |= F_USABLE;
         }
     }
+    if e.proof_conflict {
+        flags |= F_CONFLICT;
+    }
     out.push(flags);
     if let Some(s) = e.proof {
         put_var(out, s as u64);
@@ -284,7 +296,11 @@ fn decode_payload(b: &[u8], p: &mut usize) -> Option<StoreEntry> {
     } else {
         None
     };
-    Some(StoreEntry { proof, fact })
+    Some(StoreEntry {
+        proof,
+        fact,
+        proof_conflict: flags & F_CONFLICT != 0,
+    })
 }
 
 fn encode_entry(rec: u32, key: &[i32], payload: &[u8], out: &mut Vec<u8>) {
@@ -322,12 +338,18 @@ fn merge(
     b: StoreEntry,
     statuses: &[(String, bool, String)],
 ) -> Result<(), String> {
+    a.proof_conflict |= b.proof_conflict;
     if let Some(sb) = b.proof {
         a.proof = Some(match a.proof {
             None => sb,
             Some(sa) => {
                 let (wa, pa, fa) = &statuses[sa as usize];
                 let (wb, pb, fb) = &statuses[sb as usize];
+                // closeloop4 m1: a per-key proof beside a DECIDED contrary verdict is a conflict (undecided attempts
+                // such as errors / time-outs stand beside a proof)
+                if pa != pb && super::evidence::is_decided_status(if *pa { wb } else { wa }) {
+                    a.proof_conflict = true;
+                }
                 let ka = (!pa, wa, fa);
                 let kb = (!pb, wb, fb);
                 if kb < ka { sb } else { sa }
@@ -529,6 +551,7 @@ impl Ctx<'_> {
                 rec,
                 key,
                 StoreEntry {
+                    proof_conflict: false,
                     proof: Some(s),
                     fact: None,
                 },
@@ -566,6 +589,7 @@ impl Ctx<'_> {
                 rec,
                 key,
                 StoreEntry {
+                    proof_conflict: false,
                     proof: Some(s),
                     fact: None,
                 },
@@ -622,6 +646,7 @@ impl Ctx<'_> {
                 rec,
                 key,
                 StoreEntry {
+                    proof_conflict: false,
                     proof: None,
                     fact: Some(StoreFact {
                         regular: RegFact::Unknown,
@@ -749,6 +774,7 @@ impl Ctx<'_> {
             rec,
             key,
             StoreEntry {
+                proof_conflict: false,
                 proof: None,
                 fact: Some(StoreFact {
                     regular,
@@ -1285,6 +1311,7 @@ impl EvidenceStore {
         let mut blocks = 0u64;
         let mut proofs_stored = 0u64;
         let mut proofs_per_key = 0u64;
+        let mut proof_conflicts = 0u64;
         let mut cur: Option<(u32, Vec<i32>, StoreEntry)> = None;
         let mut payload = vec![];
         let mut flush_entry = |cur: (u32, Vec<i32>, StoreEntry),
@@ -1293,6 +1320,9 @@ impl EvidenceStore {
                                block_first: &mut Option<(u32, Vec<i32>)>|
          -> Result<(), ImportError> {
             let (rec, key, mut e) = cur;
+            if e.proof_conflict {
+                proof_conflicts += 1;
+            }
             if let Some(s) = e.proof {
                 let s2 = remap[s as usize];
                 e.proof = Some(s2);
@@ -1364,6 +1394,7 @@ impl EvidenceStore {
         }
         counts.proofs_stored = proofs_stored;
         counts.proofs_per_key = proofs_per_key;
+        counts.proof_conflicts = proof_conflicts;
         let meta = StoreMeta {
             schema: STORE_SCHEMA.into(),
             version: STORE_VERSION,
@@ -1568,6 +1599,7 @@ mod tests {
             assert_eq!(unzz(zz(x)), x);
         }
         let e = StoreEntry {
+            proof_conflict: false,
             proof: Some(3),
             fact: Some(StoreFact {
                 regular: RegFact::Pole,
