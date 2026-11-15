@@ -78,7 +78,7 @@ fn rational_constant(value: &Coefficient) -> Option<Rational> {
 
 /// A constant coefficient of `context` with the value `value`.
 fn constant_coefficient(context: &CoefficientContext, value: &Rational) -> Coefficient {
-    let polynomial = &context.template().numerator;
+    let polynomial = &context.thread_template();
     Coefficient {
         numerator: polynomial.constant(value.numerator()),
         denominator: polynomial.constant(value.denominator()),

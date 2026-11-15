@@ -126,6 +126,15 @@ impl CoefficientContext {
         &self.template
     }
 
+    /// A zero polynomial of this context's ring and variable map on a polynomial context owned by the
+    /// CALLING thread (engine threading, batch 10). Every coefficient built from it (constants,
+    /// parameters) and every result whose left operand descends from it updates only this thread's
+    /// reference counts; with the shared `template`, all threads updated one count. Values are identical
+    /// (`algebra::thread_owned`).
+    pub(crate) fn thread_template(&self) -> CoefficientPolynomial {
+        crate::algebra::thread_owned::zero_with_capacity_thread_owned(&self.template.numerator, 0)
+    }
+
     /// rr-par2: whether `other` shares this context's label and variable map
     /// allocations (a clone, or a [`Self::with_template`] copy).
     pub(crate) fn shares_maps(&self, other: &Self) -> bool {
@@ -152,20 +161,14 @@ impl CoefficientContext {
     }
 
     pub fn integer(&self, value: i64) -> Coefficient {
-        self.template
-            .numerator
-            .constant(Integer::from(value))
-            .into()
+        self.thread_template().constant(Integer::from(value)).into()
     }
 
     /// Exact nonnegative integer coefficient without an artificial signed
     /// machine-word ceiling. Symbolica owns the multiprecision integer
     /// construction; callers need not widen or reimplement CAS arithmetic.
     pub fn unsigned_integer(&self, value: u128) -> Coefficient {
-        self.template
-            .numerator
-            .constant(Integer::from(value))
-            .into()
+        self.thread_template().constant(Integer::from(value)).into()
     }
 
     pub fn parameter(&self, name: &str) -> Option<Coefficient> {
@@ -176,8 +179,7 @@ impl CoefficientContext {
     }
 
     pub(crate) fn parameter_at(&self, position: usize) -> Coefficient {
-        self.template
-            .numerator
+        self.thread_template()
             .variable(&self.variables[position])
             .expect("coefficient parameter is present in its own variable map")
             .into()

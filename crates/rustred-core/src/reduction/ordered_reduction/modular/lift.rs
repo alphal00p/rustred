@@ -182,7 +182,7 @@ impl Candidate {
             let (quotient, _) = lcm.quot_rem(r.denominator_ref());
             r.numerator_ref() * &quotient
         };
-        let template = &context.template().numerator;
+        let template = &context.thread_template();
         let mut numerator = template.zero();
         for (degree, r) in rationals[..=numerator_degree].iter().enumerate() {
             if !r.is_zero() {
